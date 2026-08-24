@@ -3,6 +3,7 @@ import type { Diagnostic } from "@agent-world/core";
 import Canvas, { type Mode } from "./canvas/Canvas";
 import ControlPanel from "./components/ControlPanel";
 import Inspector from "./components/Inspector";
+import Logo from "./components/Logo";
 import Timeline from "./components/Timeline";
 import { api } from "./lib/api";
 import { useGraph } from "./store/graph";
@@ -80,7 +81,10 @@ export default function App() {
     <div className="app">
       <header className="hud">
         <div className="hud__brand">
-          AGENT<span>WORLD</span>
+          <Logo />
+          <span className="hud__brand-text">
+            AGENT<span>WORLD</span>
+          </span>
         </div>
         <div className="hud__meta">
           <span>{graph.name}</span>
