@@ -8,6 +8,7 @@
   --steel-700: #1c262e;
   --steel-600: #27343d;
   --steel-500: #384954;
+  --steel-400: #566b78;
 
   --power: #ffb020;
   --power-dim: #7a5310;
@@ -69,13 +70,21 @@ select {
 }
 
 .hud__brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
   font-family: var(--mono);
   font-weight: 700;
   letter-spacing: 0.2em;
   font-size: 13px;
 }
-.hud__brand span {
+.hud__brand-text span {
   color: var(--power);
+}
+
+.logo {
+  flex: none;
+  display: block;
 }
 
 .hud__meta {
