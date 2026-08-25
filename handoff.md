@@ -380,3 +380,33 @@ paths) is a standalone chunk to schedule once the graph gets denser.
   `packet.sent` events on different edges already animate as multiple trucks.
 - Remaining 2.1 item: context-window strategy (input truncation / rolling
   summary) for long lines and large parallel merges.
+
+## Skill cards & tool execution (roadmap 2.2, partial)
+
+- **core**: `agent.skills` migrated from `string[]` to `SkillMount[]` via a zod
+  transform that accepts old string arrays (backward compatible). New event
+  types `tool.called` and `tool.result` in events.ts; runtime reducer tracks
+  `NodeRuntime.toolCalls: ToolCallRecord[]` for replay/inspector.
+- **server/skills/registry.ts** (new): built-in catalog — `web_fetch` (HTTPS
+  only, HTML stripped, 8k char cap; requires network permission), `json_extract`
+  (dot/bracket path extraction), `current_time`. Each declares permissions
+  honestly. `resolveTools()` maps enabled mounts to model-facing tool
+  definitions; `executeBuiltinTool()` runs them.
+- **Worker interface**: added `ToolDefinition`, `ToolExecutor`, and optional
+  `tools`/`executeTool` params to `runAgent`. Agent chunks now carry structured
+  `arguments` (unknown) and `name` on tool-result.
+- **OpenAI-compatible worker**: new `runWithTools()` implements the standard
+  function-calling loop (non-streaming round trips, max 8 rounds). When the
+  model returns `tool_calls`, the worker yields `tool-call`, invokes
+  `executeTool`, yields `tool-result`, feeds the result back as a `role:tool`
+  message, and repeats until the model produces text.
+- **Engine**: resolves mounted skills to tool definitions per node, passes them
+  with an `executeTool` callback to the worker, and forwards tool-call/
+  tool-result chunks as audited events.
+- **Web**: `SkillPicker.tsx` lists available skills with permission badges
+  (网络/文件/子进程/环境变量) and toggle-to-equip. Inspector shows tool calls
+  (name, args, result/error) in the node output area. `GET /api/skills` endpoint.
+- Tests: `skills/registry.test.ts` (7 tests) and `engine.tools.test.ts`
+  (end-to-end tool call + audit). Server now 47 tests, core 26.
+- Remaining 2.2 items: prompt-module cards, output-contract cards, and
+  halt-on-dangerous-action (deferred until write-capable tools exist).

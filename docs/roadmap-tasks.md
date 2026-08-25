@@ -233,18 +233,18 @@
 
 ### 2.2 技能卡 UI
 
-- [ ] 定义 Skill 类型：`{ id, name, description, kind, permissions }`，其中 `permissions` 字段现在就定下来（网络域名/文件路径/子进程/env），即使阶段 2 不强制执行，避免技能卡格式返工
-- [ ] 内置工具注册表（搜索、HTTP 请求、JSON 解析等基础工具）
-- [ ] Inspector 里 agent 节点显示"装备技能卡"区域
-- [ ] 技能卡拖拽或勾选装备
-- [ ] 装备技能卡时展示权限提示（像手机 app 授权）："这张卡要求访问文件/网络"
-- [ ] `agent.skills` 从 `string[]` 升级为有 UI 的技能引用
+- [x] 定义 Skill 类型：`{ id, name, description, kind, permissions }`，其中 `permissions` 字段现在就定下来（网络域名/文件路径/子进程/env），即使阶段 2 不强制执行，避免技能卡格式返工
+- [x] 内置工具注册表（`web_fetch` HTTPS 抓取、`json_extract` 路径提取、`current_time`）
+- [x] Inspector 里 agent 节点显示"装备技能卡"区域（`SkillPicker` 组件）
+- [x] 技能卡勾选装备（点击切换 on/off）
+- [x] 装备技能卡时展示权限提示（网络/文件/子进程/环境变量徽章）
+- [x] `agent.skills` 从 `string[]` 升级为 `SkillMount[]`（zod transform 向后兼容旧 string 数组）
 - [ ] Prompt 模块卡：装备后自动拼接到 system prompt
 - [ ] 输出契约卡：装备后要求模型输出符合 schema，不合格触发返工
-- [ ] 工具调用全审计：tool-call/tool-result 进事件流（`AgentChunk` 已预留），回放可见调了什么、传了什么、返回了什么
-- [ ] 危险操作（写文件、发网络、删除）首次调用 halt 等人工确认，复用阶段 1 的 halt/resume
-- [ ] `ToolContext` 注入：worker 不直接拿 `fs`/`fetch`/`db`，能力通过受限上下文注入
-- [ ] 退出条件：给 agent 装备一张工具卡，运行时模型能调用它，且每次调用在事件流里可查
+- [x] 工具调用全审计：`tool.called`/`tool.result` 进事件流，Inspector 可见调了什么、传了什么、返回了什么；runtime reducer 跟踪 toolCalls
+- [x] `ToolContext` 注入：worker 通过 `executeTool` 回调执行工具，不直接拿 `fetch`；引擎解析已装备技能并传入工具定义
+- [ ] 危险操作（写文件、发网络、删除）首次调用 halt 等人工确认，复用阶段 1 的 halt/resume（等文件/写操作类技能落地时一起做）
+- [x] 退出条件：给 agent 装备一张工具卡，运行时模型能调用它，且每次调用在事件流里可查
 
 ### 2.3 多产线管理
 
