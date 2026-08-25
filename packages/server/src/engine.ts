@@ -13,6 +13,26 @@ import type { Worker } from "./worker.js";
 import { ProviderError } from "./providers/openai-compatible.js";
 import { sanitizeError } from "./sanitize.js";
 
+/**
+ * Reference images originate at source nodes and flow downstream through
+ * text-only agents. Returns a per-graph resolver that memoizes the set of
+ * image URLs reachable from a node via flow edges (diamonds dedupe).
+ */
+function createImageResolver(graph: Graph): (nodeId: string) => string[] {
+  const cache = new Map<string, string[]>();
+  const resolve = (id: string): string[] => {
+    const cached = cache.get(id);
+    if (cached) return cached;
+    const node = nodeById(graph, id);
+    const own = node?.kind === "source" ? node.source?.images ?? [] : [];
+    const upstream = incoming(graph, id, "flow").flatMap((e) => resolve(e.from));
+    const merged = [...new Set([...own, ...upstream])];
+    cache.set(id, merged);
+    return merged;
+  };
+  return resolve;
+}
+
 export interface ExecuteOptions {
   runId: string;
   graph: Graph;
@@ -74,6 +94,8 @@ export async function* execute(opts: ExecuteOptions): AsyncGenerator<RunEvent, v
     if (!note) return body;
     return `${body}\n\n[质检站退回原因] ${note}`;
   };
+
+  const imagesFor = createImageResolver(graph);
 
   const loopByGate = new Map(plan.loops.map((l) => [l.gateId, l]));
 
@@ -224,7 +246,14 @@ export async function* execute(opts: ExecuteOptions): AsyncGenerator<RunEvent, v
       try {
         const agentInput = inputFor(node);
         reworkNotes.delete(nodeId);
-        const gen = worker.runAgent({ node, config, attempt, input: agentInput, signal: opts.signal });
+        const gen = worker.runAgent({
+          node,
+          config,
+          attempt,
+          input: agentInput,
+          images: imagesFor(nodeId),
+          signal: opts.signal,
+        });
         let output = "";
         let usage: Usage | null = null;
         while (true) {
@@ -456,6 +485,8 @@ export async function* resume(opts: ResumeOptions): AsyncGenerator<RunEvent, voi
     return parts.join("\n\n");
   };
 
+  const imagesFor = createImageResolver(graph);
+
   let cursor = startIdx + 1;
 
   outer: while (cursor < plan.order.length) {
@@ -565,7 +596,14 @@ export async function* resume(opts: ResumeOptions): AsyncGenerator<RunEvent, voi
       }
       try {
 
-        const gen = worker.runAgent({ node, config, attempt, input: inputFor(node), signal: opts.signal });
+        const gen = worker.runAgent({
+          node,
+          config,
+          attempt,
+          input: inputFor(node),
+          images: imagesFor(nodeId),
+          signal: opts.signal,
+        });
         let output = "";
         let usage: Usage | null = null;
         while (true) {

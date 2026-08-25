@@ -28,6 +28,8 @@ export interface Worker {
     config: AgentConfig;
     attempt: number;
     input: string;
+    /** Reference image URLs (from upstream source nodes) for vision models. */
+    images?: string[];
     signal?: AbortSignal;
   }): AsyncGenerator<AgentChunk, AgentResult>;
 

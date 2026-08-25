@@ -13,6 +13,11 @@ export class ProviderError extends Error {
   }
 }
 
+/** OpenAI-style multimodal content part. Only text and image_url are used today. */
+type ContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } };
+
 interface StreamChunk {
   choices?: Array<{
     delta?: { content?: string | null; reasoning_content?: string | null };
@@ -64,7 +69,7 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
 
   async function* streamChat(
     model: string,
-    messages: Array<{ role: string; content: string }>,
+    messages: Array<{ role: string; content: string | ContentPart[] }>,
     config: AgentConfig,
     signal?: AbortSignal,
   ): AsyncGenerator<AgentChunk, AgentResult> {
@@ -164,11 +169,18 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
     return { output, usage: finalUsage ?? fallback };
   }
 
-  function buildMessages(node: GraphNode, config: AgentConfig, input: string) {
+  function buildMessages(node: GraphNode, config: AgentConfig, input: string, images: string[] = []) {
     const system = config.prompt || `You are a worker in the "${node.name}" plant. Process the input and produce output.`;
+    const userContent: string | ContentPart[] =
+      images.length > 0
+        ? [
+            { type: "text", text: input || "(no input)" },
+            ...images.map((url) => ({ type: "image_url" as const, image_url: { url } })),
+          ]
+        : input || "(no input)";
     return [
       { role: "system", content: system },
-      { role: "user", content: input || "(no input)" },
+      { role: "user", content: userContent },
     ];
   }
 
@@ -200,7 +212,7 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
   }
 
   return {
-    async *runAgent({ node, config, input, signal }) {
+    async *runAgent({ node, config, input, images, signal }) {
       const model = config.model || "agnes-2.0-flash";
       const modality = modalityOf(provider, model);
       if (modality !== "text") {
@@ -211,7 +223,7 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
           `Model "${model}" is a ${modality} model; text-pipeline execution for ${modality} models is not yet implemented`,
         );
       }
-      return yield* streamChat(model, buildMessages(node, config, input), config, signal);
+      return yield* streamChat(model, buildMessages(node, config, input, images), config, signal);
     },
 
     async judge({ node, output, criterion, signal }) {
