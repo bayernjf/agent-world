@@ -27,6 +27,18 @@ export const RetryPolicy = z.object({
 });
 export type RetryPolicy = z.infer<typeof RetryPolicy>;
 
+/**
+ * Controls how upstream artifacts are assembled into this agents input.
+ * - all: concatenate every upstream output (default)
+ * - last: only the most recent upstream output (sequential pipelines)
+ * - truncate: concatenate but cap at maxChars, keeping the tail (most recent)
+ */
+export const InputPolicy = z.object({
+  mode: z.enum(["all", "last", "truncate"]).default("all"),
+  maxChars: z.number().int().min(500).optional(),
+});
+export type InputPolicy = z.infer<typeof InputPolicy>;
+
 export const AgentConfig = z.object({
   model: z.string().default("agnes-2.0-flash"),
   prompt: z.string().default(""),
@@ -39,6 +51,8 @@ export const AgentConfig = z.object({
     ),
   temperature: z.number().min(0).max(2).default(0.7),
   timeoutMs: z.number().int().min(1000).default(120000),
+  /** How to assemble input from upstream outputs. Defaults to concatenating all. */
+  inputPolicy: InputPolicy.default({ mode: "all" }),
   /** Optional per-node hard ceiling in USD across all attempts. */
   budgetUsd: z.number().min(0).nullable().optional(),
   retry: RetryPolicy.default({ maxRetries: 2, baseDelayMs: 1000, maxDelayMs: 30000 }),
