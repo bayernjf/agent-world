@@ -98,7 +98,136 @@ select {
 .hud__actions {
   margin-left: auto;
   display: flex;
+  align-items: center;
   gap: 8px;
+}
+
+/* ---------- shortcuts help ---------- */
+.shortcuts {
+  position: relative;
+}
+.shortcuts__trigger {
+  font-family: var(--mono);
+  letter-spacing: 0.08em;
+}
+.shortcuts__panel {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  width: 560px;
+  max-width: calc(100vw - 40px);
+  padding: 14px;
+  background: rgba(10, 15, 18, 0.97);
+  border: var(--hair);
+  border-radius: 6px;
+  box-shadow: var(--bevel), 0 12px 32px rgba(0, 0, 0, 0.6);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-4px);
+  transition: opacity 140ms ease, transform 140ms ease, visibility 140ms;
+  z-index: 40;
+}
+.shortcuts:hover .shortcuts__panel,
+.shortcuts__trigger:focus + .shortcuts__panel {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+.shortcuts__head {
+  font-family: var(--mono);
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  color: var(--power);
+  margin-bottom: 10px;
+}
+.shortcuts__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px 22px;
+}
+.shortcuts__group-title {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: var(--ink-faint);
+  margin-bottom: 6px;
+}
+.shortcuts__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 0;
+}
+.shortcuts__keys {
+  flex: none;
+  max-width: 58%;
+  padding: 2px 7px;
+  background: var(--steel-800);
+  border: var(--hair);
+  border-radius: 3px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.shortcuts__desc {
+  color: var(--ink-dim);
+  font-size: 12px;
+  text-align: right;
+}
+
+.undo-redo {
+  display: flex;
+  gap: 2px;
+}
+.stage__topbar {
+  position: absolute;
+  top: 10px;
+  left: 12px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+.stage__topbar .undo-redo {
+  padding: 3px;
+  background: rgba(10, 15, 18, 0.8);
+  border: var(--hair);
+  border-radius: 4px;
+  pointer-events: auto;
+}
+.icon-btn {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: var(--hair);
+  border-radius: 4px;
+  color: var(--ink-dim);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+.icon-btn:hover:not(:disabled) {
+  color: var(--ink);
+  border-color: var(--steel-400);
+  background: var(--steel-800);
+}
+.icon-btn:active:not(:disabled) {
+  background: var(--steel-700);
+  border-color: var(--data);
+  color: var(--data);
+  transform: translateY(1px);
+}
+.icon-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
 }
 
 .muted {
@@ -122,6 +251,100 @@ select {
   display: grid;
   grid-template-columns: 264px 1fr 320px;
   min-height: 0;
+}
+/* Explicit column placement keeps each item in its track even when a sibling
+   panel is display:none — otherwise grid auto-flow shifts the stage into the
+   0px track of a collapsed panel. */
+.control { grid-column: 1; }
+.stage { grid-column: 2; }
+.inspector-slot { grid-column: 3; }
+.workspace--inspector-collapsed {
+  grid-template-columns: 264px 1fr 0px;
+}
+.workspace--control-collapsed {
+  grid-template-columns: 0px 1fr 320px;
+}
+.workspace--control-collapsed.workspace--inspector-collapsed {
+  grid-template-columns: 0px 1fr 0px;
+}
+.workspace--control-collapsed .control {
+  display: none;
+}
+.inspector-slot {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
+.inspector-slot .inspector {
+  flex: 1;
+  width: 100%;
+}
+.workspace--inspector-collapsed .inspector {
+  display: none;
+}
+.stage__inspector-toggle {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%);
+  width: 22px;
+  height: 48px;
+  z-index: 5;
+  background: var(--steel-800);
+  border: var(--hair);
+  border-right: 0;
+  border-radius: 4px 0 0 4px;
+  color: var(--ink-dim);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: var(--bevel);
+}
+.stage__inspector-toggle:hover {
+  color: var(--ink);
+  border-color: var(--steel-400);
+}
+.stage__control-toggle {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  transform: translateY(-50%);
+  width: 22px;
+  height: 48px;
+  z-index: 5;
+  background: var(--steel-800);
+  border: var(--hair);
+  border-left: 0;
+  border-radius: 0 4px 4px 0;
+  color: var(--ink-dim);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: var(--bevel);
+}
+.stage__control-toggle:hover {
+  color: var(--ink);
+  border-color: var(--steel-400);
+}
+.stage__panel-toggle {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  z-index: 5;
+  padding: 4px 10px;
+  background: rgba(10, 15, 18, 0.8);
+  border: var(--hair);
+  border-radius: 4px;
+  color: var(--ink-dim);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+}
+.stage__panel-toggle:hover {
+  color: var(--ink);
+  border-color: var(--steel-400);
 }
 
 .stage {
@@ -424,6 +647,182 @@ select {
 .canvas__svg.mode-select .plant {
   cursor: grab;
 }
+.canvas__svg.mode-select .canvas__backdrop {
+  cursor: grab;
+}
+.canvas__svg.mode-select .canvas__backdrop:active {
+  cursor: grabbing;
+}
+.canvas__svg.mode-select .canvas__pan-surface {
+  cursor: grab;
+}
+.canvas__svg.mode-select .canvas__pan-surface:active {
+  cursor: grabbing;
+}
+.canvas__svg.mode-select .pipe__hit {
+  cursor: grab;
+}
+.canvas__svg.mode-select .pipe__hit:active {
+  cursor: grabbing;
+}
+/* Spacebar held — the whole board is pannable, even over plants. */
+.canvas__svg.is-panning .canvas__backdrop,
+.canvas__svg.is-panning .canvas__pan-surface,
+.canvas__svg.is-panning .plant {
+  cursor: grab;
+}
+.canvas__svg.is-panning .canvas__backdrop:active,
+.canvas__svg.is-panning .canvas__pan-surface:active,
+.canvas__svg.is-panning .plant:active {
+  cursor: grabbing;
+}
+
+/* Delete mode: plants flash red on hover so the destructive target is obvious. */
+.canvas__svg.mode-delete .plant:hover .plant__body {
+  stroke: var(--alert);
+  stroke-width: 2;
+  filter: drop-shadow(0 0 8px rgba(255, 74, 61, 0.5));
+}
+
+.canvas__zoom {
+  position: absolute;
+  right: 12px;
+  bottom: 56px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px;
+  background: rgba(10, 15, 18, 0.8);
+  border: var(--hair);
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-size: 11px;
+  z-index: 2;
+}
+.canvas__zoom .chip {
+  padding: 2px 8px;
+  min-width: 28px;
+}
+.canvas__zoom .muted {
+  min-width: 38px;
+  text-align: center;
+}
+
+.canvas__empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  pointer-events: none;
+  font-family: var(--mono);
+  color: var(--ink);
+}
+.canvas__empty p {
+  margin: 0;
+  letter-spacing: 0.08em;
+}
+
+/* ---------- minimap ---------- */
+
+.minimap {
+  position: absolute;
+  left: 12px;
+  bottom: 56px;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px;
+  background: rgba(10, 15, 18, 0.85);
+  border: var(--hair);
+  border-radius: 4px;
+}
+.minimap svg {
+  display: block;
+  cursor: pointer;
+}
+.minimap__bg {
+  fill: var(--steel-950);
+  stroke: var(--steel-700);
+  stroke-width: 1;
+}
+.minimap__edge {
+  stroke: var(--steel-600);
+  stroke-width: 1;
+}
+.minimap__edge--rework {
+  stroke: var(--power-dim);
+  stroke-dasharray: 2 2;
+}
+.minimap__plant {
+  stroke: var(--steel-600);
+  stroke-width: 0.5;
+}
+.minimap__view {
+  fill: rgba(53, 224, 240, 0.08);
+  stroke: var(--data);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+.minimap__zoom {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  background: rgba(10, 15, 18, 0.82);
+  border: var(--hair);
+  border-radius: 3px;
+  font-family: var(--mono);
+  font-size: 10px;
+}
+.minimap__zoom .chip {
+  padding: 1px 7px;
+  min-width: 26px;
+  height: 20px;
+  line-height: 18px;
+  box-sizing: border-box;
+}
+.minimap__zoom .muted {
+  min-width: 34px;
+  text-align: center;
+}
+.minimap__zoom--right {
+  position: absolute;
+  left: auto;
+  right: 10px;
+  bottom: 10px;
+}
+.minimap__zoom--right .chip {
+  padding: 1px 7px;
+  min-width: auto;
+}
+
+/* ---------- toast ---------- */
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 64px;
+  transform: translateX(-50%);
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 16px;
+  background: var(--steel-800);
+  border: 1px solid var(--steel-500);
+  border-radius: 4px;
+  box-shadow: var(--bevel), 0 8px 24px rgba(0, 0, 0, 0.5);
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink);
+}
 
 .packet-layer {
   position: absolute;
@@ -444,12 +843,15 @@ select {
   stroke: var(--steel-600);
   stroke-width: 9;
   stroke-linecap: round;
+  transition: opacity 120ms ease, stroke 120ms ease;
 }
 .pipe__core {
   fill: none;
   stroke: var(--steel-500);
   stroke-width: 3;
   stroke-linecap: round;
+  transition: opacity 120ms ease, stroke 120ms ease, stroke-width 120ms ease,
+    filter 120ms ease;
 }
 .pipe__core.is-live {
   stroke: var(--power);
@@ -474,8 +876,108 @@ select {
   stroke-width: 16;
   cursor: pointer;
 }
-.pipe__hit:hover {
+.canvas__svg.mode-delete .pipe__hit:hover {
   stroke: rgba(255, 74, 61, 0.28);
+}
+.pipe--dim .pipe__casing,
+.pipe--dim .pipe__core {
+  opacity: 0.22;
+}
+.pipe--hot .pipe__casing {
+  stroke: var(--steel-500);
+}
+.pipe--hot .pipe__core {
+  stroke: var(--data);
+  stroke-width: 4;
+  filter: drop-shadow(0 0 6px rgba(53, 224, 240, 0.65));
+}
+.pipe--hot.pipe--rework .pipe__casing {
+  stroke: #4a3516;
+}
+.pipe--hot.pipe--rework .pipe__core {
+  stroke: var(--power);
+  filter: drop-shadow(0 0 6px rgba(255, 176, 32, 0.6));
+}
+
+/* crossing bridges: the vertical pipe arcs over the horizontal one. */
+.pipe-bridge__mask {
+  fill: none;
+  stroke: var(--steel-950);
+  stroke-width: 10;
+  stroke-linecap: butt;
+}
+.pipe-bridge__casing {
+  fill: none;
+  stroke: var(--steel-600);
+  stroke-width: 9;
+  stroke-linecap: butt;
+  transition: opacity 120ms ease;
+}
+.pipe-bridge__core {
+  fill: none;
+  stroke: var(--steel-500);
+  stroke-width: 3;
+  stroke-linecap: butt;
+  transition: opacity 120ms ease, stroke 120ms ease;
+}
+.pipe-bridge__core.is-live {
+  stroke: var(--power);
+}
+.pipe-bridge--hot .pipe-bridge__casing {
+  stroke: var(--steel-500);
+}
+.pipe-bridge--hot .pipe-bridge__core {
+  stroke: var(--data);
+  stroke-width: 4;
+  filter: drop-shadow(0 0 5px rgba(53, 224, 240, 0.6));
+}
+.pipe-bridge--dim {
+  opacity: 0.22;
+}
+
+/* flow direction arrows on forward pipes. */
+.pipe-arrow__shape {
+  fill: var(--steel-500);
+  stroke: var(--steel-950);
+  stroke-width: 1.5;
+  transition: opacity 120ms ease, fill 120ms ease;
+}
+.pipe-arrow--hot .pipe-arrow__shape {
+  fill: var(--data);
+}
+.pipe-arrow--dim {
+  opacity: 0.22;
+}
+
+/* hover nameplate for plants */
+.plant-tip {
+  pointer-events: none;
+}
+.plant-tip__bg {
+  fill: rgba(10, 15, 18, 0.94);
+  stroke: var(--steel-500);
+  stroke-width: 1;
+}
+.plant-tip__arrow {
+  fill: rgba(10, 15, 18, 0.94);
+  stroke: var(--steel-500);
+  stroke-width: 1;
+}
+.plant-tip__title {
+  fill: var(--ink);
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 21px;
+}
+.plant-tip__label {
+  fill: var(--ink-faint);
+  font-family: var(--mono);
+  font-size: 15px;
+}
+.plant-tip__value {
+  fill: var(--ink);
+  font-family: var(--mono);
+  font-size: 15px;
 }
 
 @keyframes flow {
@@ -549,8 +1051,13 @@ select {
 .plant__cost {
   fill: var(--power);
   font-family: var(--mono);
-  font-size: 10px;
-  text-anchor: end;
+  font-size: 9px;
+  text-anchor: middle;
+}
+.plant__cost-chip rect {
+  fill: rgba(255, 176, 32, 0.12);
+  stroke: rgba(255, 176, 32, 0.4);
+  stroke-width: 1;
 }
 
 .plant--gate .plant__bar {

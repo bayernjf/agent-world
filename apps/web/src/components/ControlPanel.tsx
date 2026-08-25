@@ -71,6 +71,7 @@ export default function ControlPanel(props: Props) {
   const warnings = diagnostics.filter((d) => d.severity === "warning");
   const running = runtime.status === "running";
   const halted = runtime.status === "halted";
+  const materialEmpty = rawMaterial.trim() === "";
   const pct = budget > 0 ? Math.min(100, (runtime.totalCostUsd / budget) * 100) : 0;
   const hint = MODES.find((m) => m.key === mode)?.hint ?? "";
 
@@ -227,9 +228,16 @@ export default function ControlPanel(props: Props) {
               </button>
             </div>
           ) : (
-            <button className="btn" onClick={() => onRun()} disabled={!canRun}>
+            <button
+              className="btn"
+              onClick={() => onRun()}
+              disabled={!canRun || materialEmpty}
+            >
               派发任务
             </button>
+          )}
+          {!running && !halted && materialEmpty && (
+            <p className="note">先填入原料才能派发给进料口。</p>
           )}
           {running && (
             <p className="note">停机只停止后续工作，已产生的 token 仍会计费。</p>
