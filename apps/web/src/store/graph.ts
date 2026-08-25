@@ -40,6 +40,7 @@ interface GraphState {
   addEdge: (from: string, to: string, kind: GraphEdge["kind"]) => { ok: boolean; reason?: string };
   removeEdge: (id: string) => void;
   updateNode: (id: string, patch: Partial<GraphNode>) => void;
+  flushSave: () => Promise<void>;
 }
 
 const EMPTY: Graph = { id: "seed", name: "Pilot Line", nodes: [], edges: [] };
@@ -181,6 +182,22 @@ export const useGraph = create<GraphState>()(
           scheduleSave(graph);
           return { graph };
         }),
+
+      flushSave: async () => {
+        if (saveTimer) {
+          clearTimeout(saveTimer);
+          saveTimer = null;
+        }
+        const graph = get().graph;
+        useGraph.setState({ saveState: "saving" });
+        try {
+          await api.saveGraph(graph);
+          useGraph.setState({ saveState: "saved" });
+        } catch (err) {
+          console.error("flush save failed", err);
+          useGraph.setState({ saveState: "error" });
+        }
+      },
     }),
     // Only the document is undoable; selection and save state are view state.
     // Compare by graph reference: graph is replaced immutably on every real edit

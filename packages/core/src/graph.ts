@@ -33,6 +33,8 @@ export const AgentConfig = z.object({
   skills: z.array(z.string()).default([]),
   temperature: z.number().min(0).max(2).default(0.7),
   timeoutMs: z.number().int().min(1000).default(120000),
+  /** Optional per-node hard ceiling in USD across all attempts. */
+  budgetUsd: z.number().min(0).nullable().optional(),
   retry: RetryPolicy.default({ maxRetries: 2, baseDelayMs: 1000, maxDelayMs: 30000 }),
 });
 export type AgentConfig = z.infer<typeof AgentConfig>;

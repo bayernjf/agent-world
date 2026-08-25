@@ -108,6 +108,86 @@ select {
   gap: 8px;
 }
 
+/* ---------- graph switcher ---------- */
+.hud__graph-switcher {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+}
+.hud__graph-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.hud__graph-switcher .caret {
+  font-size: 9px;
+  opacity: 0.6;
+}
+.graph-popover {
+  width: 280px;
+  padding: 6px;
+}
+.graph-popover__list {
+  max-height: 320px;
+  overflow-y: auto;
+}
+.graph-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.graph-row:hover {
+  background: var(--steel-800);
+}
+.graph-row.is-current {
+  color: var(--power);
+}
+.graph-row.is-current::before {
+  content: "▸";
+  margin-right: 2px;
+}
+.graph-row__name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.graph-row__input {
+  flex: 1;
+  background: var(--steel-950);
+  border: 1px solid var(--power-dim);
+  color: var(--ink);
+  padding: 3px 6px;
+  font-size: 12px;
+  font-family: var(--mono);
+}
+.graph-row__actions {
+  display: none;
+  gap: 2px;
+}
+.graph-row:hover .graph-row__actions {
+  display: flex;
+}
+.graph-row .icon-btn {
+  width: 22px;
+  height: 22px;
+  font-size: 11px;
+}
+.icon-btn--danger:hover {
+  color: var(--alert);
+  border-color: var(--alert);
+}
+.graph-popover__new {
+  width: 100%;
+  margin-top: 6px;
+}
+
 /* ---------- shortcuts help ---------- */
 .shortcuts {
   position: relative;
@@ -179,22 +259,10 @@ select {
   display: flex;
   gap: 2px;
 }
-.stage__topbar {
-  position: absolute;
-  top: 10px;
-  left: 12px;
-  z-index: var(--z-canvas-chrome);
+.hud__undo-redo {
   display: flex;
   align-items: center;
-  gap: 8px;
-  pointer-events: none;
-}
-.stage__topbar .undo-redo {
-  padding: 3px;
-  background: rgba(10, 15, 18, 0.8);
-  border: var(--hair);
-  border-radius: 4px;
-  pointer-events: auto;
+  margin-right: 2px;
 }
 .icon-btn {
   width: 28px;
@@ -324,10 +392,6 @@ select {
   border-color: var(--steel-400);
 }
 .stage__panel-toggle {
-  position: absolute;
-  top: 10px;
-  right: 12px;
-  z-index: var(--z-canvas-chrome);
   padding: 4px 10px;
   background: rgba(10, 15, 18, 0.8);
   border: var(--hair);
@@ -1076,6 +1140,23 @@ select {
   stroke: rgba(255, 176, 32, 0.4);
   stroke-width: 1;
 }
+.plant__budget {
+  fill: var(--ink-dim);
+  font-family: var(--mono);
+  font-size: 9px;
+}
+.plant__budget-chip rect {
+  fill: rgba(86, 107, 120, 0.14);
+  stroke: rgba(86, 107, 120, 0.4);
+  stroke-width: 1;
+}
+.plant__budget-chip.is-over .plant__budget {
+  fill: var(--alert);
+}
+.plant__budget-chip.is-over rect {
+  fill: rgba(255, 74, 61, 0.14);
+  stroke: rgba(255, 74, 61, 0.5);
+}
 
 .plant--gate .plant__bar {
   fill: #1d2b22;
@@ -1108,10 +1189,14 @@ select {
 /* ---------- timeline ---------- */
 
 .timeline {
+  position: relative;
+  z-index: var(--z-canvas-chrome);
+  flex: none;
   padding: 10px 14px 12px;
   border-left: 0;
   border-right: 0;
   border-bottom: 0;
+  border-top: 0;
 }
 .timeline__head {
   display: flex;

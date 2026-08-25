@@ -71,6 +71,7 @@ export function openDb(file: string) {
     ),
     getGraph: db.prepare(`SELECT doc FROM graphs WHERE id = ?`),
     listGraphs: db.prepare(`SELECT id, name, updated_at FROM graphs ORDER BY updated_at DESC`),
+    deleteGraph: db.prepare(`DELETE FROM graphs WHERE id = ?`),
     createRun: db.prepare(
       `INSERT INTO runs (id, graph_id, snapshot, status, trigger, input, budget_usd, started_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     ),
@@ -116,6 +117,10 @@ export function openDb(file: string) {
 
     listGraphs() {
       return stmts.listGraphs.all() as { id: string; name: string; updated_at: number }[];
+    },
+
+    deleteGraph(id: string) {
+      stmts.deleteGraph.run(id);
     },
 
     createRun(args: {

@@ -146,15 +146,22 @@ export default function Canvas({ mode }: Props) {
         }
         return;
       }
-      if (
-        (e.key === "Delete" || e.key === "Backspace") &&
-        selectedEdgeId
-      ) {
-        e.preventDefault();
-        removeEdge(selectedEdgeId);
-        setSelectedEdgeId(null);
-        flashDeleted("管道已拆除");
-        return;
+      if (e.key === "Delete" || e.key === "Backspace") {
+        if (selectedEdgeId) {
+          e.preventDefault();
+          removeEdge(selectedEdgeId);
+          setSelectedEdgeId(null);
+          flashDeleted("管道已拆除");
+          return;
+        }
+        if (selectedId) {
+          e.preventDefault();
+          const removedName =
+            graph.nodes.find((n) => n.id === selectedId)?.name ?? "厂房";
+          removeNode(selectedId);
+          flashDeleted(`「${removedName}」已拆除`);
+          return;
+        }
       }
       const step = e.shiftKey ? 120 : 40;
       let dx = 0;
@@ -181,7 +188,7 @@ export default function Canvas({ mode }: Props) {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
     };
-  }, [selectedEdgeId, removeEdge, selectedId, duplicateNode, graph.nodes, fitToBounds, showToast]);
+  }, [selectedEdgeId, removeEdge, selectedId, removeNode, duplicateNode, graph.nodes, fitToBounds, showToast]);
 
   const toView = useCallback((clientX: number, clientY: number) => {
     const svg = svgRef.current;
