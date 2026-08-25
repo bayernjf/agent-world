@@ -1,4 +1,5 @@
 import type { RunEvent } from "./events.js";
+import { addUnits, type UsageUnits } from "./pricing.js";
 
 /**
  * Derived state, never edited by hand. Replaying a run is re-reducing the event
@@ -16,6 +17,8 @@ export interface NodeRuntime {
   cachedTokens: number;
   reasoningTokens: number;
   costUsd: number;
+  /** Aggregated non-token usage (images, seconds, characters) across attempts. */
+  units: UsageUnits;
   error?: string;
   errorCode?: string;
 }
@@ -38,6 +41,8 @@ export interface RuntimeState {
   totalTokensIn: number;
   totalTokensOut: number;
   totalCachedTokens: number;
+  /** Aggregated non-token usage across the whole run. */
+  totalUnits: UsageUnits;
   budgetUsd: number | null;
   lastSeq: number;
 }
@@ -51,6 +56,7 @@ export const initialRuntime: RuntimeState = {
   totalTokensIn: 0,
   totalTokensOut: 0,
   totalCachedTokens: 0,
+  totalUnits: {},
   budgetUsd: null,
   lastSeq: -1,
 };
@@ -66,6 +72,7 @@ function nodeOf(state: RuntimeState, id: string): NodeRuntime {
     cachedTokens: 0,
     reasoningTokens: 0,
     costUsd: 0,
+    units: {},
   };
 }
 
@@ -105,6 +112,7 @@ export function reduce(state: RuntimeState, event: RunEvent): RuntimeState {
 
       case "node.finished": {
         const node = nodeOf(state, event.nodeId);
+        const nodeUnits = addUnits(node.units, event.usage.units);
         const next = withNode(state, event.nodeId, {
           status: "done",
           outputs: { ...node.outputs, [event.attempt]: event.output },
@@ -113,12 +121,14 @@ export function reduce(state: RuntimeState, event: RunEvent): RuntimeState {
           cachedTokens: node.cachedTokens + (event.usage.cachedTokens ?? 0),
           reasoningTokens: node.reasoningTokens + (event.usage.reasoningTokens ?? 0),
           costUsd: node.costUsd + event.usage.costUsd,
+          units: nodeUnits,
         });
         return {
           ...next,
           totalTokensIn: state.totalTokensIn + event.usage.tokensIn,
           totalTokensOut: state.totalTokensOut + event.usage.tokensOut,
           totalCachedTokens: state.totalCachedTokens + (event.usage.cachedTokens ?? 0),
+          totalUnits: addUnits(state.totalUnits, event.usage.units),
         };
       }
 

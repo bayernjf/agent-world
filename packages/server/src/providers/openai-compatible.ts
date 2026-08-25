@@ -1,10 +1,10 @@
 import type { AgentChunk, AgentResult, Worker } from "../worker.js";
 import type { AgentConfig, GraphNode, Usage } from "@agent-world/core";
-import type { ModelPricing, ProviderConfig } from "../config.js";
+import { computeCost, modalityOf, normalizeBaseUrl, type ModelPricing, type ProviderConfig } from "../config.js";
 
 export class ProviderError extends Error {
   constructor(
-    public readonly code: "TIMEOUT" | "RATE_LIMIT" | "PROVIDER_ERROR" | "AUTH" | "UNKNOWN",
+    public readonly code: "TIMEOUT" | "RATE_LIMIT" | "PROVIDER_ERROR" | "AUTH" | "UNKNOWN" | "UNSUPPORTED",
     message: string,
     public readonly status?: number,
   ) {
@@ -35,22 +35,23 @@ function mapHttpStatus(status: number): ProviderError["code"] {
   return "UNKNOWN";
 }
 
+/**
+ * Build a Usage record from raw provider token usage and a model's price card.
+ * Non-token modalities (image/video/audio) report their own `units` counters
+ * (images, seconds, characters) — the shared computeCost helper prices whichever
+ * dimensions both the usage and the price card provide.
+ */
 function computeUsage(
   raw: NonNullable<StreamChunk["usage"]>,
-  model: string,
   pricing: ModelPricing | undefined,
+  units?: Usage["units"],
 ): Usage {
   const tokensIn = raw.prompt_tokens ?? 0;
   const tokensOut = raw.completion_tokens ?? 0;
   const cachedTokens = raw.prompt_tokens_details?.cached_tokens ?? 0;
   const reasoningTokens = raw.completion_tokens_details?.reasoning_tokens ?? 0;
-  const billableIn = pricing?.cacheRead != null ? Math.max(0, tokensIn - cachedTokens) : tokensIn;
-  const costUsd =
-    ((billableIn * (pricing?.input ?? 0)) +
-      (cachedTokens * (pricing?.cacheRead ?? pricing?.input ?? 0)) +
-      (tokensOut * (pricing?.output ?? 0))) /
-    1_000_000;
-  return { tokensIn, tokensOut, costUsd, cachedTokens, reasoningTokens };
+  const costUsd = computeCost({ tokensIn, tokensOut, cachedTokens, units }, pricing);
+  return { tokensIn, tokensOut, costUsd, cachedTokens, reasoningTokens, ...(units ? { units } : {}) };
 }
 
 /**
@@ -58,7 +59,7 @@ function computeUsage(
  * Agnes, DeepSeek, Moonshot, vLLM, Ollama, etc. one implementation covers them all.
  */
 export function openAICompatibleWorker(provider: ProviderConfig): Worker {
-  const baseUrl = (provider.baseUrl ?? "https://api.openai.com/v1").replace(/\/$/, "");
+  const baseUrl = normalizeBaseUrl(provider.baseUrl ?? "https://api.openai.com/v1");
   const pricingFor = (model: string): ModelPricing | undefined => provider.pricing?.[model];
 
   async function* streamChat(
@@ -144,7 +145,7 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
             yield { type: "reasoning-delta", text: delta.reasoning_content };
           }
           if (parsed.usage) {
-            finalUsage = computeUsage(parsed.usage, model, pricingFor(model));
+            finalUsage = computeUsage(parsed.usage, pricingFor(model));
           }
         }
       }
@@ -201,6 +202,15 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
   return {
     async *runAgent({ node, config, input, signal }) {
       const model = config.model || "agnes-2.0-flash";
+      const modality = modalityOf(provider, model);
+      if (modality !== "text") {
+        // Phase 1 runtime is text-only. The model can still be configured and
+        // tested, but running it through a text assembly node is not supported yet.
+        throw new ProviderError(
+          "UNSUPPORTED",
+          `Model "${model}" is a ${modality} model; text-pipeline execution for ${modality} models is not yet implemented`,
+        );
+      }
       return yield* streamChat(model, buildMessages(node, config, input), config, signal);
     },
 

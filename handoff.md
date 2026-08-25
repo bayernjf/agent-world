@@ -23,21 +23,31 @@ error classification, heartbeat and redaction are all in.
 
 ### Core (`packages/core`)
 
+- **pricing.ts** (new) — single source of truth for billing across server and
+  web. Defines `Modality`/`MODALITY_ENDPOINT`, `ModelPricing` (token fields plus
+  `perImage`/`perSecond`/`perKiloChar`), `PRICING_FIELDS`/`PRICING_HEADING`
+  (which price inputs to show per modality), and `computeCost(usage, pricing)`
+  which prices token and non-token dimensions in one call. `addUnits()` merges
+  the free-form `UsageUnits` map (`images`/`seconds`/`characters`, extensible
+  without a schema migration).
 - **events.ts** — added `node.reasoning` event (hidden thinking tokens),
   `errorCode` on `node.failed`, optional `cachedTokens`/`reasoningTokens` on `Usage`,
-  optional `artifactId`/`metadata` on `packet.sent`.
+  optional `units` (non-token counters) on `Usage`, optional `artifactId`/`metadata`
+  on `packet.sent`.
 - **graph.ts** — `AgentConfig` gained `temperature`, `timeoutMs`, `retry` (technical
   retry, distinct from rework attempts). Added `SourceConfig` with a reserved
   `connector` field. Default model changed to `agnes-2.0-flash`.
 - **runtime.ts** — reducer handles `node.reasoning`; `NodeRuntime` tracks reasoning
   text per attempt, cached/reasoning token counts, and errorCode. `RuntimeState`
-  tracks total token counts (in/out/cached) for the token-vs-cost meter.
+  tracks total token counts (in/out/cached) and aggregated `totalUnits` for the
+  token-vs-cost meter.
 
 ### Server (`packages/server`)
 
 - **config.ts** (new) — loads/saves provider config from
   `$AGENT_WORLD_CONFIG`, `~/.agent-world/config.json`, or walks up from cwd looking
   for `agent-world.config.json`. API keys are redacted in the settings API.
+  Re-exports the shared `ModelPricing`/`Modality`/`computeCost` from core.
 - **worker.ts** — `Worker` interface now yields `AgentChunk`
   (text-delta | reasoning-delta | tool-call | tool-result) and returns
   `{ output, usage }`. `judge()` now receives `output` and `criterion`. Fake worker
@@ -46,9 +56,14 @@ error classification, heartbeat and redaction are all in.
   compatible Chat Completions API (Agnes, OpenAI, Volcengine Ark, vLLM, Ollama).
   Handles SSE streaming, reasoning_content, prompt-cache usage, timeout via
   AbortController, and maps HTTP errors to `ProviderError` codes
-  (TIMEOUT/RATE_LIMIT/PROVIDER_ERROR/AUTH/UNKNOWN).
+  (TIMEOUT/RATE_LIMIT/PROVIDER_ERROR/AUTH/UNKNOWN). `computeUsage()` delegates to
+  the shared `computeCost()`, so per-image/second/character pricing is wired the
+  day a non-text worker reports `units`.
 - **providers/index.ts** (new) — `routingWorker()` picks the provider for each node
-  by its model name; workers are cached per model.
+  by its model name; workers are cached per provider+model+connection tuple.
+  Config is re-read fresh per call so saved keys/URLs/enabled state take effect
+  without a restart (the cache key incorporates them to avoid stale workers);
+  disabled providers fall back to the fake worker with a warning.
 - **engine.ts** — consumes `AgentChunk`, emits `node.delta`/`node.reasoning`,
   passes `signal` to workers, wraps agent calls in exponential-backoff retry for
   transient errors (retries do NOT increment attempt), passes output+criterion to
@@ -56,16 +71,24 @@ error classification, heartbeat and redaction are all in.
   halted run — yields only new events, seq continues from the existing log.
   Accepts `input` (raw material) for the source node. On rework, the judge's
   rejection reason is appended to the reworked node's next input. Errors pass
-  through `sanitizeError()` before landing in the event stream.
+  through `sanitizeError()` before landing in the event stream. The fallback
+  model is now injected from live config (`defaultModel`) rather than hard-coded,
+  and `UNSUPPORTED` is recognised as a terminal error code.
 - **db.ts** — `runs` gained `trigger` column; `node_runs` gained `reasoning`,
-  `error_code`, `cached_tokens`, `reasoning_tokens`. Additive migrations run on
-  open. `markZombiesInterrupted()` runs at startup so a server restart doesn't
-  leave runs forever "running". `nextSeq()` and `listRuns()` added.
+  `error_code`, `cached_tokens`, `reasoning_tokens`, `units_json`. Additive
+  migrations run on open. `markZombiesInterrupted()` runs at startup so a server
+  restart doesn't leave runs forever "running". `nextSeq()` and `listRuns()` added.
 - **index.ts** — uses `routingWorker()`, marks zombies on boot, adds
   `GET/PUT /api/settings`, `GET /api/runs`, `POST /api/runs/:id/resume`
   (continue | scrap), `GET /api/health`. Config file is `agent-world.config.json`
   at repo root (gitignored). SSE loop sends a `: ping` heartbeat every 15s of
-  idle so proxies don't drop the connection during long model calls.
+  idle so proxies don't drop the connection during long model calls. Added
+  `POST /api/providers/test` — a modality-aware connectivity probe (shaped
+  payload per endpoint, longer timeout for image/video/audio) that resolves
+  redacted keys server-side and sanitises error bodies. Settings PUT merges
+  providers (always keeping the internal `fake` provider) and preserves real
+  keys when the UI echoes redacted ones. Runs/execute/resume pass through the
+  live default model.
 - **sanitize.ts** (new) — truncates error text to 500 chars and strips
   `authorization`/`api_key`/`sk-...`/`ark-...` patterns before persistence.
 
@@ -82,11 +105,25 @@ error classification, heartbeat and redaction are all in.
   indicator, settings button, interrupted status, a "原料" textarea for dispatch
   input, and a 电费/Token meter toggle (cost view only when a unit price is
   configured; token view always). Stop button notes already-spent tokens still bill.
-- **Settings.tsx** (new) — modal to edit default model, provider baseUrl /
-  apiKey / models, and per-model input/output unit prices (USD per 1M tokens).
-  Keys are redacted; editing replaces them.
-- **api.ts** — `resumeRun`, `getSettings`, `saveSettings`; `startRun` takes
-  optional dispatch `input`.
+- **Settings.tsx** (new) — full provider/model manager. Multiple providers, each
+  with N models; cards are collapsed by default and only one expands at a time.
+  Add form supports reusing a saved provider's Base URL/API key (only the model
+  name is needed) or creating a new provider. Per model: modality, per-modality
+  unit prices (driven by `PRICING_FIELDS[modality]` — text 输入/输出 per 1M token,
+  image 每张, video 每秒, audio 每秒 + 每千字符; heading/step change with type;
+  switching modality clears the stale price card), enable/disable toggle,
+  "设为默认" (provider-aware, single default, validated case-insensitively),
+  drag-to-reorder (persisted in `modelOrder`, with a dragged-row placeholder),
+  test-connection (works before and after save; resolves redacted keys
+  server-side), update/revert per card, and delete with a custom confirm modal
+  (deletes the provider when its last model goes). Connection fields (model
+  type, provider type, Base URL) are disabled once a model is saved — only API
+  key and prices stay editable — to avoid desyncing sibling models. Keys are
+  redacted; editing replaces them; password-autofill is suppressed. Closing
+  with unsaved changes prompts via a custom confirm.
+- **api.ts** — `resumeRun`, `getSettings`, `saveSettings`, `testProvider`;
+  `startRun` takes optional dispatch `input`; pricing type is the shared
+  `ModelPricing` from core.
 - **styles.css** — modal, error box, reasoning, provider card, button row,
   segmented meter toggle, price-row styles.
 
@@ -108,9 +145,16 @@ engine retries per `retry` policy, then emits `node.failed` with the errorCode.
 - **Cost is metered as $0 for Agnes.** Token counts are correct (in/out/cached/
   reasoning), but no `pricing` entry is configured for `agnes-2.0-flash` in
   `agent-world.config.json`. Add `pricing: { "agnes-2.0-flash": { input, output,
-  cacheRead } }` (USD per 1M tokens) once the rates are known. The UI now shows
+  cacheRead } }` (USD per 1M tokens) once the rates are known. The UI shows
   token counts until a price is set; once set, the 电费 view and budget trip
   activate automatically off `costUsd`.
+- **Non-text runtime is not executed yet.** The billing model, modality routing,
+  price-card UI, usage `units`, and `units_json` column all support image/video/
+  audio models, and test-connection probes each modality's endpoint — but
+  `openAICompatibleWorker.runAgent` still throws `UNSUPPORTED` for non-text
+  models. Stage 4 adds the image/video/audio generation workers; when they
+  return `units` (e.g. `{ images: n }`, `{ seconds: n }`, `{ characters: n }`)
+  billing lights up with no further schema work.
 - **Dispatch input is wired.** `POST /api/runs` accepts `input`; the source node
   emits it as raw material, and the control panel has a "原料" textarea. If empty,
   it falls back to the old placeholder.
@@ -156,7 +200,7 @@ offline deterministic worker.
 Engine on `http://localhost:8791`, board on `http://localhost:5183`.
 
 ```bash
-pnpm -r test        # 13 core + 6 server, all green
+pnpm -r test        # 22 core + 32 server, all green
 pnpm -r typecheck   # all green
 ```
 

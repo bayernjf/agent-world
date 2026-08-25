@@ -1,9 +1,11 @@
-import type { CompileResult, Graph, RunEvent, RuntimeState } from "@agent-world/core";
+import type { CompileResult, Graph, ModelPricing, RunEvent, RuntimeState } from "@agent-world/core";
 
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
   return res.json() as Promise<T>;
 }
+
+export type Modality = "text" | "image" | "video" | "audio" | "embedding";
 
 export interface AppConfig {
   providers: Record<
@@ -13,11 +15,22 @@ export interface AppConfig {
       baseUrl?: string;
       apiKey?: string;
       models: string[];
-      pricing?: Record<string, { input?: number; output?: number; cacheRead?: number }>;
+      enabled?: boolean;
+      pricing?: Record<string, ModelPricing>;
+      modalities?: Record<string, Modality>;
     }
   >;
   defaultModel: string;
   defaultProvider: string;
+  modelOrder?: string[];
+}
+
+export interface ProviderTestResult {
+  ok: boolean;
+  status?: number;
+  error?: string;
+  modality?: string;
+  endpoint?: string;
 }
 
 export const api = {
@@ -65,4 +78,17 @@ export const api = {
       headers: { "content-type": "application/json" },
       body: JSON.stringify(config),
     }).then(json<{ ok: true; path: string }>),
+
+  testProvider: (
+    baseUrl: string,
+    apiKey: string,
+    model: string,
+    providerName?: string,
+    modality?: Modality,
+  ) =>
+    fetch("/api/providers/test", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ baseUrl, apiKey, model, providerName, modality }),
+    }).then(json<ProviderTestResult>),
 };

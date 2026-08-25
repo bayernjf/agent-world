@@ -3,6 +3,18 @@ import { temporal } from "zundo";
 import type { Graph, GraphEdge, GraphNode, NodeKind } from "@agent-world/core";
 import { api } from "../lib/api";
 
+/** Cached default model for newly created agent nodes. */
+let cachedDefaultModel = "agnes-2.0-flash";
+export async function refreshDefaultModel() {
+  try {
+    const cfg = await api.getSettings();
+    if (cfg.defaultModel) cachedDefaultModel = cfg.defaultModel;
+  } catch {
+    // keep last known / fallback
+  }
+}
+void refreshDefaultModel();
+
 export const PLANT_W = 150;
 export const PLANT_H = 92;
 
@@ -93,6 +105,9 @@ export const useGraph = create<GraphState>()(
             y,
             ...DEFAULTS[kind],
           };
+          if (kind === "agent" && node.agent) {
+            node.agent = { ...node.agent, model: cachedDefaultModel };
+          }
           const graph = { ...s.graph, nodes: [...s.graph.nodes, node] };
           scheduleSave(graph);
           return { graph, selectedId: id };

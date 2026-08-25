@@ -6,8 +6,18 @@ import { compile, envelope, Graph, replay, type RunEvent } from "@agent-world/co
 import { openDb } from "./db.js";
 import { execute, resume } from "./engine.js";
 import { SEED_GRAPH } from "./seed.js";
-import { loadConfig, saveConfig, type AppConfig } from "./config.js";
+import {
+  loadConfig,
+  saveConfig,
+  normalizeBaseUrl,
+  modalityOf,
+  MODALITY_ENDPOINT,
+  DEFAULT_MODALITY,
+  type AppConfig,
+  type Modality,
+} from "./config.js";
 import { routingWorker } from "./providers/index.js";
+import { sanitizeError } from "./sanitize.js";
 
 const PORT = Number(process.env.PORT ?? 8791);
 const db = openDb(process.env.DB_FILE ?? "agent-world.sqlite");
@@ -70,20 +80,114 @@ app.get("/api/settings", (c) => {
 app.put("/api/settings", async (c) => {
   const body = (await c.req.json()) as Partial<AppConfig>;
   const current = loadConfig();
+  const bodyProviders = body.providers ?? {};
+  const mergedProviders: AppConfig["providers"] = {};
+  // Always keep the internal fake provider.
+  if (current.providers.fake) mergedProviders.fake = current.providers.fake;
+  for (const [name, provider] of Object.entries(bodyProviders)) {
+    // If the UI sent back a redacted key, keep the real one.
+    if (provider.apiKey && isRedactedKey(provider.apiKey)) {
+      provider.apiKey = current.providers[name]?.apiKey ?? provider.apiKey;
+    }
+    mergedProviders[name] = provider;
+  }
   const merged: AppConfig = {
     ...current,
     ...body,
-    providers: { ...current.providers, ...(body.providers ?? {}) },
+    providers: mergedProviders,
   };
-  // If the UI sent back a redacted key, keep the real one.
-  for (const [name, provider] of Object.entries(merged.providers)) {
-    if (provider.apiKey && provider.apiKey.includes("*")) {
-      provider.apiKey = current.providers[name]?.apiKey ?? provider.apiKey;
-    }
-  }
   const path = saveConfig(merged);
   return c.json({ ok: true, path });
 });
+
+/**
+ * Test a provider connection without saving. Accepts provider config in the
+ * body so the user can verify before hitting save. Sends a minimal
+ * non-streaming chat completion (max 1 token) and reports the result.
+ */
+app.post("/api/providers/test", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as {
+    baseUrl?: string;
+    apiKey?: string;
+    model?: string;
+    modality?: Modality;
+    /** When set, use the saved real key for this provider if the body has no new key. */
+    providerName?: string;
+  };
+  const rawUrl = body.baseUrl ?? "";
+  if (!rawUrl.trim()) return c.json({ ok: false, error: "Base URL is required" }, 400);
+  const baseUrl = normalizeBaseUrl(rawUrl);
+  let apiKey = body.apiKey ?? "";
+  const model = body.model?.trim() || "agnes-2.0-flash";
+
+  // Resolve modality: explicit > saved for this model > text default.
+  let modality = body.modality ?? DEFAULT_MODALITY;
+  if (body.providerName) {
+    const saved = loadConfig().providers[body.providerName];
+    if (saved) modality = body.modality ?? modalityOf(saved, model);
+  }
+
+  // The UI holds a redacted key for already-saved providers. If the caller did
+  // not type a fresh key (empty or looks redacted), resolve the real key from
+  // the saved config on the server.
+  const looksRedacted = !apiKey || isRedactedKey(apiKey);
+  if (looksRedacted && body.providerName) {
+    const saved = loadConfig().providers[body.providerName];
+    if (saved?.apiKey && !isRedactedKey(saved.apiKey)) apiKey = saved.apiKey;
+    else if (!saved) {
+      return c.json({ ok: false, error: `Provider "${body.providerName}" 未保存，请先添加并保存` }, 400);
+    }
+  }
+
+  if (!apiKey || isRedactedKey(apiKey)) {
+    return c.json({ ok: false, error: "API Key 未配置或已失效，请重新填写" }, 400);
+  }
+
+  const endpoint = MODALITY_ENDPOINT[modality];
+  const payload = buildTestPayload(modality, model);
+
+  // Image/video generation is much slower than chat; give those a longer leash.
+  const PROBE_TIMEOUT: Record<Modality, number> = {
+    text: 15_000,
+    embedding: 15_000,
+    image: 90_000,
+    video: 120_000,
+    audio: 60_000,
+  };
+  const probeTimeoutMs = PROBE_TIMEOUT[modality];
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), probeTimeoutMs);
+  try {
+    const res = await fetch(`${baseUrl}${endpoint}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      return c.json({
+        ok: false,
+        status: res.status,
+        error: sanitizeError(`HTTP ${res.status}: ${text.slice(0, 300)}`),
+      });
+    }
+    return c.json({ ok: true, modality, endpoint: `${baseUrl}${endpoint}` });
+  } catch (err) {
+    clearTimeout(timeout);
+    if ((err as Error).name === "AbortError") {
+      return c.json({ ok: false, error: `Connection timed out (${Math.round(probeTimeoutMs / 1000)}s)` });
+    }
+    return c.json({ ok: false, error: sanitizeError((err as Error).message) });
+  }
+});
+
 
 app.get("/api/runs", (c) => {
   const limit = Number(c.req.query("limit") ?? 50);
@@ -130,6 +234,7 @@ app.post("/api/runs", async (c) => {
         worker,
         input: body.input,
         budgetUsd,
+        defaultModel: loadConfig().defaultModel,
         signal: controller.signal,
       })) {
         db.record(runId, event);
@@ -186,6 +291,7 @@ app.post("/api/runs/:id/resume", async (c) => {
         plan,
         worker,
         budgetUsd: row.budget_usd ?? null,
+        defaultModel: loadConfig().defaultModel,
         pastEvents,
         action,
         signal: controller.signal,
@@ -254,7 +360,30 @@ serve({ fetch: app.fetch, port: PORT }, (info) => {
   console.log(`agent-world engine listening on http://localhost:${info.port}`);
 });
 
+/** Minimal request body for a connectivity probe, shaped per modality. */
+function buildTestPayload(modality: Modality, model: string): Record<string, unknown> {
+  switch (modality) {
+    case "text":
+      return { model, messages: [{ role: "user", content: "hi" }], max_tokens: 1, stream: false };
+    case "image":
+      return { model, prompt: "test", n: 1, size: "1024x1024" };
+    case "embedding":
+      return { model, input: "test" };
+    case "audio":
+      // OpenAI-compatible TTS. A one-character input keeps the response tiny.
+      return { model, input: ".", voice: "alloy" };
+    case "video":
+      return { model, prompt: "test" };
+  }
+}
+
 function redactKey(key: string): string {
   if (key.length <= 8) return "****";
-  return `${key.slice(0, 6)}...${key.slice(-4)}`;
+  return `${key.slice(0, 6)}${"*".repeat(6)}${key.slice(-4)}`;
+}
+
+/** A key that came back from the UI and looks redacted, not the real secret. */
+function isRedactedKey(key: string | undefined): boolean {
+  if (!key) return true;
+  return key.includes("*") || key.includes("...");
 }
