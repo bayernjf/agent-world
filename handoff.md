@@ -435,3 +435,28 @@ paths) is a standalone chunk to schedule once the graph gets denser.
 - Catalog now ships 4 practical templates plus blank; core test asserts every
   non-blank template compiles to an executable plan. Core now 27 tests.
 - Remaining 2.4 item: template preview thumbnails.
+
+## Run history (roadmap 3.1, partial)
+
+- Server `db.ts`: `listRuns` now LEFT JOINs `graphs` and returns `graph_name`
+  (falls back to "(已删除产线)" when the graph was deleted). Added
+  `deleteRun`/`deleteEvents`/`deleteNodeRuns` prepared statements plus a
+  transactional `db.deleteRun(runId)` helper that wipes events, node_runs, and
+  the run row together.
+- Server `index.ts`: `DELETE /api/runs/:id` — 404 if missing, 409 if the run is
+  still live (must cancel first), otherwise removes the live map entry and all
+  persisted rows.
+- Web `lib/api.ts`: `RunSummary` interface, `listRuns(limit, offset)`,
+  `deleteRun(id)`.
+- Web `store/run.ts`: `loadRun(runId)` disconnects any SSE, fetches the event
+  log + folded state via `getEvents`, and seeds the store so the canvas and
+  Timeline render a finished run without opening a stream.
+- Web `components/RunHistory.tsx` (new): modal table of runs (graph, status
+  badge, trigger, start time, duration), double-click or "回放" to load graph +
+  replay, delete with custom ConfirmDialog. Escape closes; refresh button.
+- Wired into `App.tsx` as a "历史" chip in the HUD next to ShortcutsHelp.
+- Status badges follow design tokens (ok/alert/power/data); table uses
+  `--steel-*`, `--mono`, `--hair`.
+- Tests still green: core 27, server 49. Typecheck clean.
+- Remaining 3.1: pagination UI + server-side filtering (by graph/status),
+  run-to-run comparison, and a "return to live / clear replay" affordance.
