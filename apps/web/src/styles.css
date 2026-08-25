@@ -179,22 +179,10 @@ select {
   display: flex;
   gap: 2px;
 }
-.stage__topbar {
-  position: absolute;
-  top: 10px;
-  left: 12px;
-  z-index: var(--z-canvas-chrome);
+.hud__undo-redo {
   display: flex;
   align-items: center;
-  gap: 8px;
-  pointer-events: none;
-}
-.stage__topbar .undo-redo {
-  padding: 3px;
-  background: rgba(10, 15, 18, 0.8);
-  border: var(--hair);
-  border-radius: 4px;
-  pointer-events: auto;
+  margin-right: 2px;
 }
 .icon-btn {
   width: 28px;
@@ -324,10 +312,6 @@ select {
   border-color: var(--steel-400);
 }
 .stage__panel-toggle {
-  position: absolute;
-  top: 10px;
-  right: 12px;
-  z-index: var(--z-canvas-chrome);
   padding: 4px 10px;
   background: rgba(10, 15, 18, 0.8);
   border: var(--hair);
@@ -1125,10 +1109,14 @@ select {
 /* ---------- timeline ---------- */
 
 .timeline {
+  position: relative;
+  z-index: var(--z-canvas-chrome);
+  flex: none;
   padding: 10px 14px 12px;
   border-left: 0;
   border-right: 0;
   border-bottom: 0;
+  border-top: 0;
 }
 .timeline__head {
   display: flex;

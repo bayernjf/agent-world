@@ -107,6 +107,16 @@ export default function App() {
           <span className="muted">{graph.edges.length} 条管道</span>
         </div>
         <div className="hud__actions">
+          <div className="hud__undo-redo">
+            <UndoRedo />
+          </div>
+          <button
+            className="chip stage__panel-toggle"
+            onClick={toggleBoth}
+            title={bothCollapsed ? "展开全部侧栏" : "收起全部侧栏"}
+          >
+            {bothCollapsed ? "展开侧栏" : "收起侧栏"}
+          </button>
           <ShortcutsHelp />
           <button className="chip" onClick={() => addNode("agent", 300, 480)}>
             + 厂房
@@ -139,11 +149,8 @@ export default function App() {
         />
 
         <main className="stage">
-          <div className="stage__topbar">
-            <UndoRedo />
-          </div>
-          <Canvas mode={mode} />
           <Timeline />
+          <Canvas mode={mode} />
           <button
             className={`stage__control-toggle ${controlCollapsed ? "is-collapsed" : ""}`}
             onClick={() => setControlCollapsed((v) => !v)}
@@ -157,13 +164,6 @@ export default function App() {
             title={inspectorCollapsed ? "展开详情" : "收起详情"}
           >
             {inspectorCollapsed ? "›" : "‹"}
-          </button>
-          <button
-            className="stage__panel-toggle"
-            onClick={toggleBoth}
-            title={bothCollapsed ? "展开全部侧栏" : "收起全部侧栏"}
-          >
-            {bothCollapsed ? "展开侧栏" : "收起侧栏"}
           </button>
           <Minimap />
         </main>
