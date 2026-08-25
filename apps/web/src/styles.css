@@ -649,3 +649,173 @@ select {
   color: #ffb4ad;
   text-decoration: line-through;
 }
+
+/* ---------- phase 1 additions ---------- */
+
+.save-state {
+  font-style: normal;
+  font-size: 10px;
+  color: var(--ink-faint);
+  margin-left: 6px;
+}
+
+.btn-row {
+  display: flex;
+  gap: 8px;
+}
+.btn-row .btn {
+  flex: 1;
+}
+.btn--block {
+  width: 100%;
+}
+
+.error-box {
+  margin-top: 8px;
+  padding: 10px;
+  background: rgba(255, 74, 61, 0.08);
+  border: 1px solid rgba(255, 74, 61, 0.4);
+}
+.error-box .label {
+  color: var(--alert);
+  margin: 0 0 4px;
+}
+.error-msg {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-family: var(--mono);
+  color: var(--ink-dim);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.error-code {
+  font-size: 10px;
+  color: var(--alert);
+  background: var(--steel-950);
+  padding: 2px 6px;
+}
+
+.reasoning {
+  margin: 8px 0;
+}
+.reasoning__text {
+  margin-top: 6px;
+  opacity: 0.7;
+  font-style: italic;
+  max-height: 160px;
+}
+
+.link {
+  background: none;
+  border: none;
+  color: var(--data);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 0;
+  text-decoration: underline;
+}
+
+/* ---------- settings modal ---------- */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+.modal {
+  background: var(--steel-900);
+  border: var(--hair);
+  width: 560px;
+  max-width: 92vw;
+  max-height: 86vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+}
+.modal__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 18px;
+  border-bottom: var(--hair);
+}
+.modal__header h2 {
+  margin: 0;
+  font-size: 14px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.modal__body {
+  padding: 16px 18px;
+  overflow-y: auto;
+  flex: 1;
+}
+.modal__footer {
+  padding: 12px 18px;
+  border-top: var(--hair);
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.provider-card {
+  background: var(--steel-850);
+  border: var(--hair);
+  padding: 12px;
+  margin: 10px 0;
+}
+.provider-card__head {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+/* ---------- meter segmented toggle ---------- */
+.meter__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.seg {
+  display: inline-flex;
+  border: var(--hair);
+  background: var(--steel-900);
+}
+.seg__btn {
+  appearance: none;
+  background: transparent;
+  border: none;
+  color: var(--ink-faint);
+  font-family: var(--mono);
+  font-size: 10px;
+  padding: 3px 8px;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.seg__btn.is-on {
+  background: var(--power);
+  color: var(--steel-950);
+}
+
+.price-row {
+  display: grid;
+  grid-template-columns: 1fr 70px 70px;
+  gap: 6px;
+  align-items: center;
+  margin: 4px 0;
+}
+.price-name {
+  font-size: 10px;
+  color: var(--ink-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.price-row input {
+  padding: 3px 6px;
+  font-size: 11px;
+}
