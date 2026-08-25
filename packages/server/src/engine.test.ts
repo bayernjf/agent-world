@@ -1,4 +1,4 @@
-import { compile, replay, type Graph } from "@agent-world/core";
+import { compile, Graph, replay } from "@agent-world/core";
 import { describe, expect, it } from "vitest";
 import { execute } from "./engine.js";
 import { SEED_GRAPH } from "./seed.js";
@@ -93,5 +93,62 @@ describe("execute", () => {
   it("numbers events consecutively from zero so SSE resume is unambiguous", async () => {
     const { events } = await run(SEED_GRAPH);
     expect(events.map((e) => e.seq)).toEqual(events.map((_, i) => i));
+  });
+
+  it("propagates source reference images to downstream agents", async () => {
+    const graph = Graph.parse({
+      id: "img",
+      name: "img",
+      nodes: [
+        {
+          id: "src",
+          kind: "source",
+          name: "SRC",
+          x: 0,
+          y: 0,
+          source: { images: ["https://example.com/a.jpg", "https://example.com/b.jpg"] },
+        },
+        {
+          id: "forge",
+          kind: "agent",
+          name: "FORGE",
+          x: 1,
+          y: 0,
+          agent: { model: "test", prompt: "", skills: [] },
+        },
+        { id: "depot", kind: "sink", name: "DEPOT", x: 2, y: 0 },
+      ],
+      edges: [
+        { id: "e1", from: "src", to: "forge", kind: "flow" },
+        { id: "e2", from: "forge", to: "depot", kind: "flow" },
+      ],
+    });
+
+    const seen: string[][] = [];
+    const capturing = {
+      ...fakeWorker({ chunkDelayMs: 0 }),
+      async *runAgent(args: Parameters<ReturnType<typeof fakeWorker>["runAgent"]>[0]) {
+        seen.push(args.images ?? []);
+        return yield* fakeWorker({ chunkDelayMs: 0 }).runAgent(args);
+      },
+    };
+
+    const { plan } = compile(graph);
+    const events = [];
+    for await (const e of execute({
+      runId: "r",
+      graph,
+      plan: plan!,
+      worker: capturing,
+      now: clock,
+    })) {
+      events.push(e);
+    }
+    expect(replay(events).status).toBe("done");
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen[0]).toEqual([
+      "https://example.com/a.jpg",
+      "https://example.com/b.jpg",
+    ]);
   });
 });

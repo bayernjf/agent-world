@@ -322,3 +322,116 @@ paths) is a standalone chunk to schedule once the graph gets denser.
   instead of a dogleg overlapping the node bodies.
 - Delete/Backspace removes the selected plant (previously only pipes), with an
   undo toast.
+
+## Templates & image input (roadmap 2.4, partial)
+
+- `packages/core/src/templates.ts` (new) — `GraphTemplate`, `TEMPLATES`,
+  `getTemplate`, `instantiateTemplate()` (replaces every node/edge id with fresh
+  short ids so instances never collide). Ships `tpl-product` (商品详情页:
+  原料台→卖点提炼→文案撰写→排版整理→质检站→成品库 with a copy rework loop) and
+  `tpl-blank`. Covered by `templates.test.ts` (core now 26 tests).
+- Server: `GET /api/templates` lists id/name/description/category;
+  `POST /api/graphs` accepts `{ template }` to instantiate (alongside existing
+  `from` duplicate and blank create).
+- Web: new-graph is now a template picker (`NewGraphDialog.tsx`) opened from the
+  graph switcher; `api.createGraph` takes `{ name?, from?, template? }`.
+- **Image input (text→text with vision):** `SourceConfig.images: string[]`.
+  The engine resolves images reachable from a node via flow edges (memoized,
+  diamonds dedupe) and passes them as `Worker.runAgent({ images })`. The
+  OpenAI-compatible worker sends them as multimodal `image_url` content parts.
+  Inspector edits the source URL list. This covers product detail pages where
+  the model looks at reference photos and writes copy. `engine.test.ts` asserts
+  source images reach the downstream agent (server now 36 tests).
+- **Still text-only output.** Image/video/audio *generation* (non-text output
+  modalities) remains Phase 4; the worker still throws UNSUPPORTED when running
+  a model whose modality isn't text. Video is currently handled only as a URL or
+  text description in the raw material, not as decoded frames.
+
+## Parallel branches (roadmap 2.1)
+
+- **core/compile.ts**: `Plan` now carries `levels[][]` (longest-path topological
+  rank over flow edges; `computeLevels()`). Nodes in the same level have no flow
+  dependency on each other. `order[]` is kept for rework-body rank calculations.
+- **engine.ts rewrite**: the linear cursor is replaced by a concurrent dataflow
+  scheduler shared by `execute()` and `resume()`. A plant starts the moment all
+  its flow predecessors are `done`; independent plants run in parallel bounded
+  by `MAX_CONCURRENCY=6`. Key mechanics:
+  - Single `EventQueue` + synchronous `emit()` assigns monotonically increasing
+    `seq`, so events from concurrent plants never race or reorder.
+  - Cost accounting (`totalCostUsd`, per-node `nodeCostUsd`, both budget checks)
+    runs in one synchronous block at node completion — no budget race.
+  - Barrier: a multi-input node waits until every flow predecessor is `done`;
+    `inputFor()` concatenates all upstream artifacts.
+  - Rework resets the loop body to `pending` (clearing their artifacts) so they
+    re-weld; reworkNotes still feeds the rejection reason to the entry.
+  - **Failure isolation**: a node failing (e.g. BUDGET) only blocks its own
+    downstream; unrelated branches keep running. The whole run is marked
+    `failed` at the end because a node failed, but other work completes. The
+    whole-line budget and external abort still trip the entire run.
+  - Resume seeds `states` from reconstructed artifacts and pre-approves the
+    halted gate, then runs the same scheduler downstream.
+  - `runScheduler` is async and returns the queue generator; `execute`/`resume`
+    yield from it. External abort flips the run to `cancelled` via a signal
+    listener.
+- Tests: `engine.parallel.test.ts` (3 tests) verifies level grouping, A+B run
+  concurrently (maxConcurrent≥2), JOIN sees both inputs at the barrier, and an
+  over-budget node A does not stop branch B. All 39 server + 26 core tests pass.
+- Web needed no change: `PacketLayer` keys trucks by `edgeId:seq`, so concurrent
+  `packet.sent` events on different edges already animate as multiple trucks.
+- Remaining 2.1 item: context-window strategy (input truncation / rolling
+  summary) for long lines and large parallel merges.
+
+## Skill cards & tool execution (roadmap 2.2, partial)
+
+- **core**: `agent.skills` migrated from `string[]` to `SkillMount[]` via a zod
+  transform that accepts old string arrays (backward compatible). New event
+  types `tool.called` and `tool.result` in events.ts; runtime reducer tracks
+  `NodeRuntime.toolCalls: ToolCallRecord[]` for replay/inspector.
+- **server/skills/registry.ts** (new): built-in catalog — `web_fetch` (HTTPS
+  only, HTML stripped, 8k char cap; requires network permission), `json_extract`
+  (dot/bracket path extraction), `current_time`. Each declares permissions
+  honestly. `resolveTools()` maps enabled mounts to model-facing tool
+  definitions; `executeBuiltinTool()` runs them.
+- **Worker interface**: added `ToolDefinition`, `ToolExecutor`, and optional
+  `tools`/`executeTool` params to `runAgent`. Agent chunks now carry structured
+  `arguments` (unknown) and `name` on tool-result.
+- **OpenAI-compatible worker**: new `runWithTools()` implements the standard
+  function-calling loop (non-streaming round trips, max 8 rounds). When the
+  model returns `tool_calls`, the worker yields `tool-call`, invokes
+  `executeTool`, yields `tool-result`, feeds the result back as a `role:tool`
+  message, and repeats until the model produces text.
+- **Engine**: resolves mounted skills to tool definitions per node, passes them
+  with an `executeTool` callback to the worker, and forwards tool-call/
+  tool-result chunks as audited events.
+- **Web**: `SkillPicker.tsx` lists available skills with permission badges
+  (网络/文件/子进程/环境变量) and toggle-to-equip. Inspector shows tool calls
+  (name, args, result/error) in the node output area. `GET /api/skills` endpoint.
+- Tests: `skills/registry.test.ts` (7 tests) and `engine.tools.test.ts`
+  (end-to-end tool call + audit). Server now 47 tests, core 26.
+- Remaining 2.2 items: prompt-module cards, output-contract cards, and
+  halt-on-dangerous-action (deferred until write-capable tools exist).
+
+## Input policy / context window (roadmap 2.1 remaining)
+
+- `AgentConfig.inputPolicy` (core/graph.ts): `{ mode: "all" | "last" | "truncate", maxChars? }`,
+  defaulting to `all` (backward compatible). `all` concatenates every upstream
+  artifact; `last` takes only the most recent (useful for long sequential
+  pipelines); `truncate` caps to `maxChars` keeping the tail with a
+  "...[前 N 字符已截断]..." marker.
+- Engine `assembleInput()` helper used by `inputFor()` in the scheduler; the
+  rework rejection note is still appended after assembly.
+- Web Inspector gets an "输入策略" select plus a "最大字符数" input when
+  truncate is chosen. New nodes default to `all`.
+- Test: `engine.inputpolicy.test.ts` verifies truncation caps length with the
+  marker and that `all` passes input through unchanged. Server now 49 tests.
+- Deferred: true rolling summaries (LLM-based compaction) — truncation is the
+  cheap guard; a summarizer skill/agent can come later.
+
+## More templates (roadmap 2.4)
+
+- Added `tpl-draft` (写草稿: 主题→初稿→润色→质检→成稿), `tpl-translation`
+  (翻译流水线: 原文→初译→校对→质检→译文), `tpl-doc-review` (文档审查:
+  待审文档→问题清单→修订建议→质检→审查报告). All have rework loops.
+- Catalog now ships 4 practical templates plus blank; core test asserts every
+  non-blank template compiles to an executable plan. Core now 27 tests.
+- Remaining 2.4 item: template preview thumbnails.

@@ -220,30 +220,32 @@
 
 ### 2.1 并行分支
 
-- [ ] 编译器输出从线性 `order[]` 变为 `levels[][]`（同层节点互不依赖）
-- [ ] 引擎按层并发执行：`Promise.all` + 信号量限流
-- [ ] 多入边汇合：等齐所有上游产出再触发下游（barrier）
-- [ ] `inputFor()` 支持多输入合并（已支持拼接，需要处理时序）
-- [ ] **事件串行化：** 并发节点的事件必须经过单一 emit 队列，保证 seq 单调、`live.events` push 顺序与 seq 一致
-- [ ] **预算竞态：** 并发节点完成时，totalCostUsd 累加和 budget 检查必须在串行点做，不能都读到旧值同时通过
-- [ ] Canvas 正确显示并行执行时多辆卡车同时跑
-- [ ] **上下文窗口策略：** 长产线/多次返工/并行汇合会让 `inputFor` 拼接过长。实现输入截断或滚动摘要，节点可声明"只取最近一次产出"
-- [ ] 退出条件：两座互不依赖的厂房同时亮灯、同时出卡车；事件 seq 无乱序；并发不超预算
+- [x] 编译器输出 `levels[][]`（最长路径分层，同层节点互不依赖）；`order[]` 保留兼容
+- [x] 引擎改为数据流 ready-set 并发调度（所有上游完成即启动），信号量限流（`MAX_CONCURRENCY=6`），execute/resume 共用同一调度器
+- [x] 多入边汇合：节点等齐所有 flow 上游 done 后才启动（barrier）
+- [x] `inputFor()` 多输入合并（按边拼接，时序由 barrier 保证）
+- [x] **事件串行化：** 单一 `EventQueue` + 同步 `emit()` 分配 seq，并发节点的事件经队列有序输出，seq 单调无乱序
+- [x] **预算竞态：** 成本累加与 total/节点预算检查在节点完成的同步块内完成
+- [x] **节点失败隔离：** 单节点失败（如节点预算超限）只阻断其下游，不影响无关分支继续执行；整线状态为 failed
+- [x] Canvas 多辆卡车同时跑（PacketLayer 以 `edgeId:seq` 为 key，天然支持并发）
+- [x] **上下文窗口策略：** `AgentConfig.inputPolicy` 支持 `all`（默认全拼接）/`last`（只取最近上游）/`truncate`（按 maxChars 截断保留尾部），Inspector 可选；长产线/并行汇合不再无限拼接
+- [ ] 滚动摘要（truncate 是硬截断；后续可加 LLM 摘要节点或"只取最近产出"的语义优化）
+- [x] 退出条件：互不依赖的厂房同时焊接（测试断言 maxConcurrent≥2）、barrier 汇合、事件 seq 无乱序、节点预算不拖垮其他分支；整线预算/abort 仍全局跳闸
 
 ### 2.2 技能卡 UI
 
-- [ ] 定义 Skill 类型：`{ id, name, description, kind, permissions }`，其中 `permissions` 字段现在就定下来（网络域名/文件路径/子进程/env），即使阶段 2 不强制执行，避免技能卡格式返工
-- [ ] 内置工具注册表（搜索、HTTP 请求、JSON 解析等基础工具）
-- [ ] Inspector 里 agent 节点显示"装备技能卡"区域
-- [ ] 技能卡拖拽或勾选装备
-- [ ] 装备技能卡时展示权限提示（像手机 app 授权）："这张卡要求访问文件/网络"
-- [ ] `agent.skills` 从 `string[]` 升级为有 UI 的技能引用
+- [x] 定义 Skill 类型：`{ id, name, description, kind, permissions }`，其中 `permissions` 字段现在就定下来（网络域名/文件路径/子进程/env），即使阶段 2 不强制执行，避免技能卡格式返工
+- [x] 内置工具注册表（`web_fetch` HTTPS 抓取、`json_extract` 路径提取、`current_time`）
+- [x] Inspector 里 agent 节点显示"装备技能卡"区域（`SkillPicker` 组件）
+- [x] 技能卡勾选装备（点击切换 on/off）
+- [x] 装备技能卡时展示权限提示（网络/文件/子进程/环境变量徽章）
+- [x] `agent.skills` 从 `string[]` 升级为 `SkillMount[]`（zod transform 向后兼容旧 string 数组）
 - [ ] Prompt 模块卡：装备后自动拼接到 system prompt
 - [ ] 输出契约卡：装备后要求模型输出符合 schema，不合格触发返工
-- [ ] 工具调用全审计：tool-call/tool-result 进事件流（`AgentChunk` 已预留），回放可见调了什么、传了什么、返回了什么
-- [ ] 危险操作（写文件、发网络、删除）首次调用 halt 等人工确认，复用阶段 1 的 halt/resume
-- [ ] `ToolContext` 注入：worker 不直接拿 `fs`/`fetch`/`db`，能力通过受限上下文注入
-- [ ] 退出条件：给 agent 装备一张工具卡，运行时模型能调用它，且每次调用在事件流里可查
+- [x] 工具调用全审计：`tool.called`/`tool.result` 进事件流，Inspector 可见调了什么、传了什么、返回了什么；runtime reducer 跟踪 toolCalls
+- [x] `ToolContext` 注入：worker 通过 `executeTool` 回调执行工具，不直接拿 `fetch`；引擎解析已装备技能并传入工具定义
+- [ ] 危险操作（写文件、发网络、删除）首次调用 halt 等人工确认，复用阶段 1 的 halt/resume（等文件/写操作类技能落地时一起做）
+- [x] 退出条件：给 agent 装备一张工具卡，运行时模型能调用它，且每次调用在事件流里可查
 
 ### 2.3 多产线管理
 
@@ -257,11 +259,14 @@
 
 ### 2.4 产线模板
 
-- [ ] 定义模板格式：预置 graph 定义 + 描述 + 预览图
-- [ ] 内置 3-5 个模板：写草稿、商品详情页、文档审查、翻译流水线
-- [ ] 新建产线时从模板选择
-- [ ] 第一个重点模板：商品详情页（原料→卖点→文案→排版→质检→成品）
-- [ ] 退出条件：选模板后一键生成可运行的产线
+- [x] 定义模板格式：`GraphTemplate`（core/templates.ts），预置 graph + 名称/描述/分类
+- [x] `instantiateTemplate()` 生成全新 id 的 graph，模板可反复实例化不冲突
+- [x] 新建产线时从模板选择（`GET /api/templates` + 新建产线弹窗）
+- [x] 第一个重点模板：商品详情页（原料台→卖点提炼→文案撰写→排版整理→质检站→成品库，含返工环）
+- [x] 原料台支持参考图片 URL，视觉模型可看图（source.images → 引擎透传 → OpenAI image_url content part）
+- [x] 内置更多模板（写草稿、翻译流水线、文档审查；共 4 个实用模板 + 空白）
+- [ ] 模板预览图
+- [x] 退出条件：选模板后一键生成可运行的产线
 
 ### 2.5 节点级预算
 
@@ -270,7 +275,7 @@
 - [x] 前端节点上显示该节点预算（左下角 chip，超限时变红），Inspector 可编辑，hover 名牌显示 已花/预算
 - [x] resume 路径从历史事件重建每节点成本，预算检查同样生效
 - [x] Delete/Backspace 删除选中厂房（之前只删管道）
-- [ ] 退出条件：单个厂房超预算不影响其他厂房（当前实现是停整条线；要做到"不影响其他厂房"需要阶段 2 并行/分支执行后再细化语义）
+- [x] 退出条件：单个厂房超预算不影响其他厂房（2.1 并发调度后，失败节点只阻断其下游，无关分支继续运行）
 
 ---
 

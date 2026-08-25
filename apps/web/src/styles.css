@@ -188,6 +188,203 @@ select {
   margin-top: 6px;
 }
 
+/* ---------- source image list ---------- */
+.image-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.image-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.image-row input {
+  flex: 1;
+  min-width: 0;
+}
+.image-row .icon-btn {
+  flex: none;
+  width: 26px;
+  height: 26px;
+}
+.image-list__add {
+  width: 100%;
+  margin-top: 2px;
+}
+
+/* ---------- skill cards ---------- */
+.skill-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.skill-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: left;
+  padding: 8px 10px;
+  background: var(--steel-850);
+  border: 1px solid var(--steel-700, #2a3540);
+  color: var(--ink);
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color 0.12s, background 0.12s;
+}
+.skill-card:hover {
+  border-color: var(--steel-500, #4a5a68);
+}
+.skill-card.is-on {
+  border-color: var(--power-dim);
+  background: rgba(86, 224, 156, 0.06);
+}
+.skill-card__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.skill-card__name {
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+}
+.skill-card__toggle {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  border: var(--hair);
+  padding: 1px 6px;
+}
+.skill-card__toggle.is-on {
+  color: var(--power);
+  border-color: var(--power-dim);
+}
+.skill-card__desc {
+  font-size: 11px;
+  color: var(--ink-dim);
+  line-height: 1.4;
+}
+.skill-card__perms {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.perm-badge {
+  font-size: 9px;
+  font-family: var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--data);
+  border: 1px solid rgba(53, 224, 240, 0.3);
+  padding: 0 5px;
+}
+
+/* ---------- tool calls in inspector ---------- */
+.tool-calls {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.tool-calls__label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+.tool-call {
+  border: var(--hair);
+  background: var(--steel-850);
+}
+.tool-call__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 8px;
+  border-bottom: var(--hair);
+  background: rgba(255, 255, 255, 0.02);
+}
+.tool-call__name {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--data);
+}
+.tool-call__status {
+  font-size: 9px;
+  font-family: var(--mono);
+  color: var(--power);
+}
+.tool-call__status--err {
+  color: var(--alert);
+}
+.tool-call__args,
+.tool-call__result,
+.tool-call__error {
+  margin: 0;
+  padding: 6px 8px;
+  font-family: var(--mono);
+  font-size: 10px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 120px;
+  overflow-y: auto;
+}
+.tool-call__result {
+  color: var(--ink-dim);
+  border-top: var(--hair);
+}
+.tool-call__error {
+  color: var(--alert);
+  border-top: var(--hair);
+}
+
+/* ---------- new graph template picker ---------- */
+.template-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+.template-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: left;
+  padding: 12px;
+  background: var(--steel-850);
+  border: var(--hair);
+  color: var(--ink);
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color 0.12s, background 0.12s;
+}
+.template-card:hover {
+  border-color: var(--power-dim);
+  background: var(--steel-800);
+}
+.template-card__name {
+  font-family: var(--mono);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  color: var(--power);
+}
+.template-card__desc {
+  font-size: 12px;
+  color: var(--ink-dim);
+  line-height: 1.5;
+}
+.template-card__cat {
+  font-size: 10px;
+  font-family: var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.6;
+  margin-top: 2px;
+}
+
 /* ---------- shortcuts help ---------- */
 .shortcuts {
   position: relative;

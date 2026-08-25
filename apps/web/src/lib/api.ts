@@ -1,4 +1,5 @@
 import type { CompileResult, Graph, ModelPricing, RunEvent, RuntimeState } from "@agent-world/core";
+import type { Skill } from "@agent-world/core";
 
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
@@ -34,6 +35,13 @@ export interface ProviderTestResult {
 }
 
 export const api = {
+  listTemplates: () =>
+    fetch("/api/templates").then(
+      json<{ id: string; name: string; description: string; category: string }[]>,
+    ),
+
+  listSkills: () => fetch("/api/skills").then(json<Skill[]>),
+
   listGraphs: () =>
     fetch("/api/graphs").then(json<{ id: string; name: string; updated_at: number }[]>),
 
@@ -46,11 +54,11 @@ export const api = {
       body: JSON.stringify(graph),
     }).then(json<{ ok: true }>),
 
-  createGraph: (name?: string, from?: string) =>
+  createGraph: (opts?: { name?: string; from?: string; template?: string }) =>
     fetch("/api/graphs", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name, from }),
+      body: JSON.stringify(opts ?? {}),
     }).then(json<Graph>),
 
   deleteGraph: (id: string) =>
