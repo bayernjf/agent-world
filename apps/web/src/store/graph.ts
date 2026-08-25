@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { temporal } from "zundo";
 import type { Graph, GraphEdge, GraphNode, NodeKind } from "@agent-world/core";
+import { api } from "../lib/api";
 
 export const PLANT_W = 150;
 export const PLANT_H = 92;
@@ -13,6 +14,7 @@ export const PLANT_H = 92;
 interface GraphState {
   graph: Graph;
   selectedId: string | null;
+  saveState: "idle" | "saving" | "saved" | "error";
   setGraph: (graph: Graph) => void;
   select: (id: string | null) => void;
   moveNode: (id: string, x: number, y: number) => void;
@@ -31,26 +33,54 @@ const nextId = (prefix: string) => `${prefix}${++counter}-${Math.random().toStri
 const DEFAULTS: Record<NodeKind, Partial<GraphNode>> = {
   source: {},
   sink: {},
-  agent: { agent: { model: "claude-sonnet-5", prompt: "", skills: [] } },
+  agent: {
+    agent: {
+      model: "agnes-2.0-flash",
+      prompt: "",
+      skills: [],
+      temperature: 0.7,
+      timeoutMs: 120000,
+      retry: { maxRetries: 2, baseDelayMs: 1000, maxDelayMs: 30000 },
+    },
+  },
   gate: { gate: { maxAttempts: 3, criterion: "", onExhausted: "halt" } },
 };
+
+let saveTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleSave(graph: Graph) {
+  if (saveTimer) clearTimeout(saveTimer);
+  useGraph.setState({ saveState: "saving" });
+  saveTimer = setTimeout(async () => {
+    try {
+      await api.saveGraph(graph);
+      useGraph.setState({ saveState: "saved" });
+    } catch (err) {
+      console.error("auto-save failed", err);
+      useGraph.setState({ saveState: "error" });
+    }
+  }, 500);
+}
 
 export const useGraph = create<GraphState>()(
   temporal(
     (set) => ({
       graph: EMPTY,
       selectedId: null,
+      saveState: "idle",
 
       setGraph: (graph) => set({ graph }),
       select: (selectedId) => set({ selectedId }),
 
       moveNode: (id, x, y) =>
-        set((s) => ({
-          graph: {
+        set((s) => {
+          const graph = {
             ...s.graph,
             nodes: s.graph.nodes.map((n) => (n.id === id ? { ...n, x, y } : n)),
-          },
-        })),
+          };
+          scheduleSave(graph);
+          return { graph };
+        }),
 
       addNode: (kind, x, y) =>
         set((s) => {
@@ -63,39 +93,50 @@ export const useGraph = create<GraphState>()(
             y,
             ...DEFAULTS[kind],
           };
-          return { graph: { ...s.graph, nodes: [...s.graph.nodes, node] }, selectedId: id };
+          const graph = { ...s.graph, nodes: [...s.graph.nodes, node] };
+          scheduleSave(graph);
+          return { graph, selectedId: id };
         }),
 
       removeNode: (id) =>
-        set((s) => ({
-          graph: {
+        set((s) => {
+          const graph = {
             ...s.graph,
             nodes: s.graph.nodes.filter((n) => n.id !== id),
             edges: s.graph.edges.filter((e) => e.from !== id && e.to !== id),
-          },
-          selectedId: s.selectedId === id ? null : s.selectedId,
-        })),
+          };
+          scheduleSave(graph);
+          return { graph, selectedId: s.selectedId === id ? null : s.selectedId };
+        }),
 
       addEdge: (from, to, kind) =>
         set((s) => {
           const exists = s.graph.edges.some((e) => e.from === from && e.to === to);
           if (exists || from === to) return s;
           const edge: GraphEdge = { id: nextId("e"), from, to, kind };
-          return { graph: { ...s.graph, edges: [...s.graph.edges, edge] } };
+          const graph = { ...s.graph, edges: [...s.graph.edges, edge] };
+          scheduleSave(graph);
+          return { graph };
         }),
 
       removeEdge: (id) =>
-        set((s) => ({ graph: { ...s.graph, edges: s.graph.edges.filter((e) => e.id !== id) } })),
+        set((s) => {
+          const graph = { ...s.graph, edges: s.graph.edges.filter((e) => e.id !== id) };
+          scheduleSave(graph);
+          return { graph };
+        }),
 
       updateNode: (id, patch) =>
-        set((s) => ({
-          graph: {
+        set((s) => {
+          const graph = {
             ...s.graph,
             nodes: s.graph.nodes.map((n) => (n.id === id ? { ...n, ...patch } : n)),
-          },
-        })),
+          };
+          scheduleSave(graph);
+          return { graph };
+        }),
     }),
-    // Only the document is undoable; selection is view state.
+    // Only the document is undoable; selection and save state are view state.
     { partialize: (s) => ({ graph: s.graph }), limit: 50 },
   ),
 );

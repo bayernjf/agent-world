@@ -4,6 +4,7 @@ import Canvas, { type Mode } from "./canvas/Canvas";
 import ControlPanel from "./components/ControlPanel";
 import Inspector from "./components/Inspector";
 import Logo from "./components/Logo";
+import Settings from "./components/Settings";
 import Timeline from "./components/Timeline";
 import { api } from "./lib/api";
 import { useGraph } from "./store/graph";
@@ -17,9 +18,11 @@ export default function App() {
 
   const [mode, setMode] = useState<Mode>("select");
   const [budget, setBudget] = useState(0.01);
+  const [rawMaterial, setRawMaterial] = useState("");
   const [diagnostics, setDiagnostics] = useState<Diagnostic[]>([]);
   const [canRun, setCanRun] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => {
     api.getGraph(GRAPH_ID).then(setGraph).catch((e) => setError(String(e)));
@@ -51,12 +54,12 @@ export default function App() {
       setError(null);
       reset();
       await api.saveGraph(graph);
-      const { runId: id } = await api.startRun(GRAPH_ID, budget);
+      const { runId: id } = await api.startRun(GRAPH_ID, budget, rawMaterial.trim() || undefined);
       connect(id);
     } catch (e) {
       setError(String(e));
     }
-  }, [graph, budget, connect, reset]);
+  }, [graph, budget, rawMaterial, connect, reset]);
 
   const onCancel = useCallback(async () => {
     if (runId) await api.cancelRun(runId).catch(() => undefined);
@@ -109,10 +112,13 @@ export default function App() {
           setMode={setMode}
           budget={budget}
           setBudget={setBudget}
+          rawMaterial={rawMaterial}
+          setRawMaterial={setRawMaterial}
           diagnostics={diagnostics}
           canRun={canRun}
           onRun={onRun}
           onCancel={onCancel}
+          onOpenSettings={() => setSettingsOpen(true)}
         />
 
         <main className="stage">
@@ -122,6 +128,8 @@ export default function App() {
 
         <Inspector />
       </div>
+
+      <Settings open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   );
 }

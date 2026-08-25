@@ -28,10 +28,20 @@ function diffLines(a: string, b: string) {
   return out;
 }
 
+const ERROR_LABEL: Record<string, string> = {
+  TIMEOUT: "超时",
+  RATE_LIMIT: "限流",
+  PROVIDER_ERROR: "模型服务错误",
+  AUTH: "密钥错误",
+  VALIDATION: "质检未通过",
+  UNKNOWN: "未知错误",
+};
+
 export default function Inspector() {
-  const { graph, selectedId, updateNode } = useGraph();
+  const { graph, selectedId, updateNode, saveState } = useGraph();
   const runtime = useVisibleRuntime();
   const [tab, setTab] = useState<number | "diff">(1);
+  const [showReasoning, setShowReasoning] = useState(false);
 
   const node = graph.nodes.find((n) => n.id === selectedId);
   if (!node) {
@@ -54,6 +64,9 @@ export default function Inspector() {
 
   const prev = attempts.at(-2);
   const last = attempts.at(-1);
+  const reasoning = rt && activeAttempt ? rt.reasoning[activeAttempt] : undefined;
+  const saveIndicator =
+    saveState === "saving" ? "保存中…" : saveState === "saved" ? "已保存" : saveState === "error" ? "保存失败" : "";
 
   return (
     <aside className="panel inspector">
@@ -64,7 +77,7 @@ export default function Inspector() {
 
       <div className="inspector__body">
         <label className="field">
-          <span>名称</span>
+          <span>名称 {saveIndicator && <em className="save-state">{saveIndicator}</em>}</span>
           <input value={node.name} onChange={(e) => updateNode(node.id, { name: e.target.value })} />
         </label>
 
@@ -80,9 +93,24 @@ export default function Inspector() {
               />
             </label>
             <label className="field">
+              <span>温度 ({node.agent.temperature.toFixed(2)})</span>
+              <input
+                type="range"
+                min="0"
+                max="2"
+                step="0.05"
+                value={node.agent.temperature}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    agent: { ...node.agent!, temperature: Number(e.target.value) },
+                  })
+                }
+              />
+            </label>
+            <label className="field">
               <span>指令</span>
               <textarea
-                rows={3}
+                rows={4}
                 value={node.agent.prompt}
                 onChange={(e) =>
                   updateNode(node.id, { agent: { ...node.agent!, prompt: e.target.value } })
@@ -94,6 +122,17 @@ export default function Inspector() {
 
         {node.kind === "gate" && node.gate && (
           <>
+            <label className="field">
+              <span>质检标准</span>
+              <textarea
+                rows={3}
+                placeholder="产出必须满足什么条件？不合格将沿返工线退回。"
+                value={node.gate.criterion}
+                onChange={(e) =>
+                  updateNode(node.id, { gate: { ...node.gate!, criterion: e.target.value } })
+                }
+              />
+            </label>
             <label className="field">
               <span>返工次数上限</span>
               <input
@@ -129,6 +168,14 @@ export default function Inspector() {
           </>
         )}
 
+        {rt?.error && (
+          <section className="error-box">
+            <h3 className="label">{rt.errorCode ? ERROR_LABEL[rt.errorCode] ?? "错误" : "错误"}</h3>
+            <p className="error-msg">{rt.error}</p>
+            {rt.errorCode && <code className="error-code">{rt.errorCode}</code>}
+          </section>
+        )}
+
         {rt && (
           <section className="usage">
             <h3 className="label">本次运行</h3>
@@ -145,12 +192,15 @@ export default function Inspector() {
                 <dt>token</dt>
                 <dd>
                   {rt.tokensIn} / {rt.tokensOut}
+                  {rt.cachedTokens > 0 && <em className="muted"> (cache {rt.cachedTokens})</em>}
                 </dd>
               </div>
-              <div>
-                <dt>电费</dt>
-                <dd>${rt.costUsd.toFixed(5)}</dd>
-              </div>
+              {rt.costUsd > 0 && (
+                <div>
+                  <dt>电费</dt>
+                  <dd>${rt.costUsd.toFixed(5)}</dd>
+                </div>
+              )}
             </dl>
           </section>
         )}
@@ -177,6 +227,15 @@ export default function Inspector() {
                 </button>
               )}
             </div>
+
+            {reasoning && (
+              <div className="reasoning">
+                <button className="link" onClick={() => setShowReasoning((v) => !v)}>
+                  {showReasoning ? "隐藏" : "查看"}思考过程
+                </button>
+                {showReasoning && <pre className="output reasoning__text">{reasoning}</pre>}
+              </div>
+            )}
 
             {showDiff ? (
               <pre className="output output--diff">
