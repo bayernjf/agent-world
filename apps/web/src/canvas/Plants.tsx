@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Graph, GraphNode, NodeRuntime, RuntimeState } from "@agent-world/core";
 import { PLANT_H, PLANT_W } from "../store/graph";
-import { useCanvas } from "../store/canvas";
+import Popover from "../components/Popover";
+import type { Rect } from "../components/Popover";
 
 interface Props {
   graph: Graph;
@@ -26,7 +27,7 @@ const STATUS_LABEL: Record<NodeRuntime["status"], string> = {
   scrapped: "已报废",
 };
 
-/** Maximum model-name characters before ellipsis; full name is in a <title>. */
+/** Maximum model-name characters before ellipsis. */
 const META_MAX = 20;
 
 function truncate(text: string, max = META_MAX): string {
@@ -51,14 +52,50 @@ export default function Plants({
   onPointerDown,
 }: Props) {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
-  const zoom = useCanvas((s) => s.viewport.zoom);
-  const fitScale = useCanvas((s) => s.fit.scale) || 1;
-  // Counteract both the pan/zoom transform AND the SVG letterbox scale so the
-  // nameplate stays at a constant readable size on screen at any zoom level.
-  const tipScale = 1 / (zoom * fitScale);
+  const [anchor, setAnchor] = useState<Rect | null>(null);
+  const nodeRefs = useRef<Map<string, SVGGElement>>(new Map());
 
   const hovered = hoveredId ? graph.nodes.find((n) => n.id === hoveredId) : null;
   const hoveredRt = hovered ? runtime.nodes[hovered.id] : undefined;
+
+  // While a plant is hovered, track its screen rectangle every frame so the
+  // nameplate follows pan/zoom without being clipped by the SVG or side panels.
+  useEffect(() => {
+    if (!hoveredId) {
+      setAnchor(null);
+      return;
+    }
+    let raf = 0;
+    const tick = () => {
+      const el = nodeRefs.current.get(hoveredId);
+      if (el) {
+        const r = el.getBoundingClientRect();
+        setAnchor((prev) => {
+          const next = {
+            top: r.top,
+            left: r.left,
+            width: r.width,
+            height: r.height,
+            bottom: r.bottom,
+            right: r.right,
+          };
+          if (
+            prev &&
+            Math.abs(prev.top - next.top) < 1 &&
+            Math.abs(prev.left - next.left) < 1 &&
+            Math.abs(prev.width - next.width) < 1 &&
+            Math.abs(prev.height - next.height) < 1
+          ) {
+            return prev;
+          }
+          return next;
+        });
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [hoveredId]);
 
   const tooltipLines: TooltipLine[] = hovered
     ? [
@@ -92,131 +129,107 @@ export default function Plants({
     : [];
 
   return (
-    <g className="plants">
-      {graph.nodes.map((node) => {
-        const rt = runtime.nodes[node.id];
-        const x = node.x - PLANT_W / 2;
-        const y = node.y - PLANT_H / 2;
-        const attempt = rt?.attempt ?? 0;
-        const model = node.agent?.model;
+    <>
+      <g className="plants">
+        {graph.nodes.map((node) => {
+          const rt = runtime.nodes[node.id];
+          const x = node.x - PLANT_W / 2;
+          const y = node.y - PLANT_H / 2;
+          const attempt = rt?.attempt ?? 0;
+          const model = node.agent?.model;
 
-        return (
-          <g
-            key={node.id}
-            className={[
-              "plant",
-              `plant--${node.kind}`,
-              statusClass(rt),
-              selectedId === node.id ? "is-selected" : "",
-              connectFrom === node.id ? "is-connect-src" : "",
-            ]
-              .filter(Boolean)
-              .join(" ")}
-            transform={`translate(${x} ${y})`}
-            onPointerDown={(e) => onPointerDown(node, e)}
-            onPointerEnter={() => setHoveredId(node.id)}
-            onPointerLeave={() =>
-              setHoveredId((current) => (current === node.id ? null : current))
-            }
-          >
-            <rect className="plant__shadow" x={3} y={4} width={PLANT_W} height={PLANT_H} />
-            <rect className="plant__body" width={PLANT_W} height={PLANT_H} />
-            <rect className="plant__bar" width={PLANT_W} height={22} />
+          return (
+            <g
+              key={node.id}
+              ref={(el) => {
+                if (el) nodeRefs.current.set(node.id, el);
+                else nodeRefs.current.delete(node.id);
+              }}
+              className={[
+                "plant",
+                `plant--${node.kind}`,
+                statusClass(rt),
+                selectedId === node.id ? "is-selected" : "",
+                connectFrom === node.id ? "is-connect-src" : "",
+              ]
+                .filter(Boolean)
+                .join(" ")}
+              transform={`translate(${x} ${y})`}
+              onPointerDown={(e) => onPointerDown(node, e)}
+              onPointerEnter={() => setHoveredId(node.id)}
+              onPointerLeave={() =>
+                setHoveredId((current) => (current === node.id ? null : current))
+              }
+            >
+              <rect className="plant__shadow" x={3} y={4} width={PLANT_W} height={PLANT_H} />
+              <rect className="plant__body" width={PLANT_W} height={PLANT_H} />
+              <rect className="plant__bar" width={PLANT_W} height={22} />
 
-            <circle className="plant__led" cx={12} cy={11} r={3.5} />
-            <text className="plant__kind" x={26} y={15}>
-              {KIND_LABEL[node.kind]}
-            </text>
-
-            <text className="plant__name" x={12} y={48}>
-              {node.name}
-            </text>
-
-            {node.kind === "agent" && model && (
-              <text className="plant__meta" x={12} y={68}>
-                {truncate(model)}
+              <circle className="plant__led" cx={12} cy={11} r={3.5} />
+              <text className="plant__kind" x={26} y={15}>
+                {KIND_LABEL[node.kind]}
               </text>
-            )}
-            {node.kind === "gate" && (
-              <text className="plant__meta" x={12} y={68}>
-                上限 {node.gate?.maxAttempts ?? 3} 次
+
+              <text className="plant__name" x={12} y={48}>
+                {node.name}
               </text>
-            )}
 
-            {/* attempt badge — the visible trace of a rework loop */}
-            {attempt > 1 && (
-              <g className="plant__attempt" transform={`translate(${PLANT_W - 30} 34)`}>
-                <rect x={-14} y={-11} width={28} height={22} rx={3} />
-                <text x={0} y={5}>
-                  ×{attempt}
+              {node.kind === "agent" && model && (
+                <text className="plant__meta" x={12} y={68}>
+                  {truncate(model)}
                 </text>
-              </g>
-            )}
-
-            {rt && rt.costUsd > 0 && (
-              <g className="plant__cost-chip">
-                <rect x={PLANT_W - 62} y={PLANT_H - 22} width={50} height={15} rx={2} />
-                <text className="plant__cost" x={PLANT_W - 37} y={PLANT_H - 11}>
-                  ${rt.costUsd.toFixed(4)}
+              )}
+              {node.kind === "gate" && (
+                <text className="plant__meta" x={12} y={68}>
+                  上限 {node.gate?.maxAttempts ?? 3} 次
                 </text>
-              </g>
-            )}
+              )}
 
-            {/* rivets */}
-            <circle className="rivet" cx={6} cy={PLANT_H - 6} r={2} />
-            <circle className="rivet" cx={PLANT_W - 6} cy={PLANT_H - 6} r={2} />
-          </g>
-        );
-      })}
+              {attempt > 1 && (
+                <g className="plant__attempt" transform={`translate(${PLANT_W - 30} 34)`}>
+                  <rect x={-14} y={-11} width={28} height={22} rx={3} />
+                  <text x={0} y={5}>
+                    ×{attempt}
+                  </text>
+                </g>
+              )}
 
-      {hovered && tooltipLines.length > 0 && (
-        <g
-          className="plant-tip"
-          transform={`translate(${hovered.x} ${hovered.y - PLANT_H / 2 - 12}) scale(${tipScale})`}
-        >
-          {(() => {
-            const title = hovered.name;
-            const lineH = 30;
-            const padX = 18;
-            const padY = 16;
-            const width = 380;
-            const titleH = 34;
-            const height = padY * 2 + titleH + tooltipLines.length * lineH;
-            return (
-              <g transform={`translate(${-width / 2} ${-height})`}>
-                <polygon
-                  className="plant-tip__arrow"
-                  points={`${width / 2 - 8},0 ${width / 2 + 8},0 ${width / 2},9`}
-                />
-                <rect
-                  className="plant-tip__bg"
-                  x={0}
-                  y={-height}
-                  width={width}
-                  height={height}
-                  rx={6}
-                />
-                <text className="plant-tip__title" x={padX} y={-height + padY + 24}>
-                  {title}
-                </text>
-                {tooltipLines.map((line, i) => (
-                  <g
-                    key={line.label}
-                    transform={`translate(0 ${-height + padY + titleH + i * lineH})`}
-                  >
-                    <text className="plant-tip__label" x={padX} y={20}>
-                      {line.label}
-                    </text>
-                    <text className="plant-tip__value" x={width - padX} y={20} textAnchor="end">
-                      {truncate(line.value, 40)}
-                    </text>
-                  </g>
-                ))}
-              </g>
-            );
-          })()}
-        </g>
-      )}
-    </g>
+              {rt && rt.costUsd > 0 && (
+                <g className="plant__cost-chip">
+                  <rect x={PLANT_W - 62} y={PLANT_H - 22} width={50} height={15} rx={2} />
+                  <text className="plant__cost" x={PLANT_W - 37} y={PLANT_H - 11}>
+                    ${rt.costUsd.toFixed(4)}
+                  </text>
+                </g>
+              )}
+
+              <circle className="rivet" cx={6} cy={PLANT_H - 6} r={2} />
+              <circle className="rivet" cx={PLANT_W - 6} cy={PLANT_H - 6} r={2} />
+            </g>
+          );
+        })}
+      </g>
+
+      <Popover
+        open={!!hovered && tooltipLines.length > 0}
+        anchor={anchor}
+        placement="top"
+        className="plant-tip"
+      >
+        {hovered && (
+          <div className="plant-tip__inner">
+            <div className="plant-tip__title">{hovered.name}</div>
+            <dl className="plant-tip__rows">
+              {tooltipLines.map((line) => (
+                <div key={line.label} className="plant-tip__row">
+                  <dt>{line.label}</dt>
+                  <dd>{truncate(line.value, 48)}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        )}
+      </Popover>
+    </>
   );
 }

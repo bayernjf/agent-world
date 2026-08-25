@@ -27,6 +27,12 @@
 
   --bevel: inset 0 1px 0 rgba(255, 255, 255, 0.07), inset 0 -1px 0 rgba(0, 0, 0, 0.6);
   --hair: 1px solid var(--steel-600);
+
+  /* Single stacking-order source of truth for floating layers. */
+  --z-canvas-chrome: 5;
+  --z-toast: 600;
+  --z-modal: 800;
+  --z-popover: 1000;
 }
 
 * {
@@ -110,10 +116,10 @@ select {
   font-family: var(--mono);
   letter-spacing: 0.08em;
 }
+.shortcuts__pop {
+  pointer-events: auto;
+}
 .shortcuts__panel {
-  position: absolute;
-  top: calc(100% + 10px);
-  right: 0;
   width: 560px;
   max-width: calc(100vw - 40px);
   padding: 14px;
@@ -121,17 +127,7 @@ select {
   border: var(--hair);
   border-radius: 6px;
   box-shadow: var(--bevel), 0 12px 32px rgba(0, 0, 0, 0.6);
-  opacity: 0;
-  visibility: hidden;
-  transform: translateY(-4px);
-  transition: opacity 140ms ease, transform 140ms ease, visibility 140ms;
-  z-index: 40;
-}
-.shortcuts:hover .shortcuts__panel,
-.shortcuts__trigger:focus + .shortcuts__panel {
-  opacity: 1;
-  visibility: visible;
-  transform: translateY(0);
+  backdrop-filter: blur(4px);
 }
 .shortcuts__head {
   font-family: var(--mono);
@@ -187,7 +183,7 @@ select {
   position: absolute;
   top: 10px;
   left: 12px;
-  z-index: 5;
+  z-index: var(--z-canvas-chrome);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -290,7 +286,7 @@ select {
   transform: translateY(-50%);
   width: 22px;
   height: 48px;
-  z-index: 5;
+  z-index: var(--z-canvas-chrome);
   background: var(--steel-800);
   border: var(--hair);
   border-right: 0;
@@ -312,7 +308,7 @@ select {
   transform: translateY(-50%);
   width: 22px;
   height: 48px;
-  z-index: 5;
+  z-index: var(--z-canvas-chrome);
   background: var(--steel-800);
   border: var(--hair);
   border-left: 0;
@@ -331,7 +327,7 @@ select {
   position: absolute;
   top: 10px;
   right: 12px;
-  z-index: 5;
+  z-index: var(--z-canvas-chrome);
   padding: 4px 10px;
   background: rgba(10, 15, 18, 0.8);
   border: var(--hair);
@@ -810,7 +806,7 @@ select {
   left: 50%;
   bottom: 64px;
   transform: translateX(-50%);
-  z-index: 20;
+  z-index: var(--z-toast);
   display: flex;
   align-items: center;
   gap: 12px;
@@ -953,31 +949,52 @@ select {
 .plant-tip {
   pointer-events: none;
 }
-.plant-tip__bg {
-  fill: rgba(10, 15, 18, 0.94);
-  stroke: var(--steel-500);
-  stroke-width: 1;
-}
-.plant-tip__arrow {
-  fill: rgba(10, 15, 18, 0.94);
-  stroke: var(--steel-500);
-  stroke-width: 1;
+.plant-tip__inner {
+  min-width: 240px;
+  max-width: 380px;
+  padding: 12px 14px;
+  background: rgba(10, 15, 18, 0.97);
+  border: var(--hair);
+  border-radius: 6px;
+  box-shadow: var(--bevel), 0 12px 32px rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
 }
 .plant-tip__title {
-  fill: var(--ink);
+  color: var(--ink);
   font-family: var(--mono);
   font-weight: 700;
-  font-size: 21px;
+  font-size: 16px;
+  margin-bottom: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.plant-tip__label {
-  fill: var(--ink-faint);
-  font-family: var(--mono);
-  font-size: 15px;
+.plant-tip__rows {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
-.plant-tip__value {
-  fill: var(--ink);
+.plant-tip__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0;
+}
+.plant-tip__row dt {
+  color: var(--ink-faint);
   font-family: var(--mono);
-  font-size: 15px;
+  font-size: 12px;
+}
+.plant-tip__row dd {
+  margin: 0;
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 @keyframes flow {
@@ -1240,7 +1257,7 @@ select {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 100;
+  z-index: var(--z-modal);
 }
 .modal {
   background: var(--steel-900);

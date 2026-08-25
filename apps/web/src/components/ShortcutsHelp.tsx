@@ -1,3 +1,6 @@
+import { useRef, useState } from "react";
+import Popover, { type Rect } from "./Popover";
+
 const GROUPS: { title: string; items: { keys: string; desc: string }[] }[] = [
   {
     title: "画布",
@@ -37,25 +40,69 @@ const GROUPS: { title: string; items: { keys: string; desc: string }[] }[] = [
 ];
 
 export default function ShortcutsHelp() {
+  const [open, setOpen] = useState(false);
+  const [anchor, setAnchor] = useState<Rect | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+
+  const updateAnchor = () => {
+    const r = triggerRef.current?.getBoundingClientRect();
+    if (r)
+      setAnchor({
+        top: r.top,
+        left: r.left,
+        width: r.width,
+        height: r.height,
+        bottom: r.bottom,
+        right: r.right,
+      });
+  };
+
   return (
-    <div className="shortcuts">
-      <button className="chip shortcuts__trigger" title="快捷键说明">快捷键 ?</button>
-      <div className="shortcuts__panel" role="dialog" aria-label="快捷键说明">
-        <div className="shortcuts__head">快捷键</div>
-        <div className="shortcuts__grid">
-          {GROUPS.map((group) => (
-            <div key={group.title} className="shortcuts__group">
-              <div className="shortcuts__group-title">{group.title}</div>
-              {group.items.map((item) => (
-                <div key={item.keys} className="shortcuts__row">
-                  <kbd className="shortcuts__keys">{item.keys}</kbd>
-                  <span className="shortcuts__desc">{item.desc}</span>
-                </div>
-              ))}
-            </div>
-          ))}
+    <div
+      className="shortcuts"
+      onMouseEnter={() => {
+        updateAnchor();
+        setOpen(true);
+      }}
+      onMouseLeave={() => setOpen(false)}
+      onFocus={() => {
+        updateAnchor();
+        setOpen(true);
+      }}
+      onBlur={() => setOpen(false)}
+    >
+      <button
+        ref={triggerRef}
+        className="chip shortcuts__trigger"
+        title="快捷键说明"
+        onClick={updateAnchor}
+      >
+        快捷键 ?
+      </button>
+      <Popover open={open} anchor={anchor} placement="bottom" className="shortcuts__pop">
+        <div
+          className="shortcuts__panel"
+          role="dialog"
+          aria-label="快捷键说明"
+          onMouseEnter={() => setOpen(true)}
+          onMouseLeave={() => setOpen(false)}
+        >
+          <div className="shortcuts__head">快捷键</div>
+          <div className="shortcuts__grid">
+            {GROUPS.map((group) => (
+              <div key={group.title} className="shortcuts__group">
+                <div className="shortcuts__group-title">{group.title}</div>
+                {group.items.map((item) => (
+                  <div key={item.keys} className="shortcuts__row">
+                    <kbd className="shortcuts__keys">{item.keys}</kbd>
+                    <span className="shortcuts__desc">{item.desc}</span>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
+      </Popover>
     </div>
   );
 }
