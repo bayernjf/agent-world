@@ -61,6 +61,26 @@ const MAX_CONCURRENCY = 6;
 
 const delay = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * Assemble upstream artifacts into a nodes input according to its input policy.
+ * - all: concatenate every upstream output (default)
+ * - last: only the most recent upstream output
+ * - truncate: concatenate but cap at maxChars, keeping the tail
+ */
+function assembleInput(
+  parts: string[],
+  policy: { mode: "all" | "last" | "truncate"; maxChars?: number },
+): string {
+  if (parts.length === 0) return "";
+  if (policy.mode === "last") return parts[parts.length - 1] ?? "";
+  const body = parts.join("\n\n");
+  if (policy.mode === "truncate" && policy.maxChars && body.length > policy.maxChars) {
+    const head = `...[前 ${body.length - policy.maxChars} 字符已截断]...\n`;
+    return head + body.slice(body.length - policy.maxChars + head.length);
+  }
+  return body;
+}
+
 /** Simple async event queue so many concurrent node workers can feed one ordered stream. */
 class EventQueue {
   private items: RunEvent[] = [];
@@ -157,7 +177,8 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     const parts = incoming(graph, node.id, "flow")
       .map((e) => artifacts.get(e.from))
       .filter((v): v is string => typeof v === "string");
-    const body = parts.join("\n\n");
+    const policy = node.agent?.inputPolicy ?? { mode: "all" as const };
+    const body = assembleInput(parts, policy);
     const note = includeNote ? reworkNotes.get(node.id) : undefined;
     if (!note) return body;
     return `${body}\n\n[质检站退回原因] ${note}`;
@@ -289,6 +310,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
         skills: node.agent?.skills ?? [],
         temperature: node.agent?.temperature ?? 0.7,
         timeoutMs: node.agent?.timeoutMs ?? 120000,
+        inputPolicy: node.agent?.inputPolicy ?? { mode: "all" as const },
         retry: node.agent?.retry ?? { maxRetries: 2, baseDelayMs: 1000, maxDelayMs: 30000 },
       };
       emit({ type: "node.started", nodeId, attempt });

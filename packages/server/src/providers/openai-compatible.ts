@@ -376,6 +376,7 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
         skills: [],
         temperature: 0,
         timeoutMs: 60000,
+        inputPolicy: { mode: "all" },
         retry: { maxRetries: 1, baseDelayMs: 1000, maxDelayMs: 10000 },
       };
       const gen = streamChat(model, buildJudgeMessages(criterion, output), config, signal);
