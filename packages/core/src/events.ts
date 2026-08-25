@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { UsageUnits } from "./pricing.js";
 
 /**
  * The event stream is the single source of truth: the engine emits it, the UI
@@ -25,6 +26,7 @@ export const ErrorCode = z.enum([
   "AUTH",
   "VALIDATION",
   "UNKNOWN",
+  "UNSUPPORTED",
 ]);
 export type ErrorCode = z.infer<typeof ErrorCode>;
 
@@ -37,6 +39,8 @@ export const Usage = z.object({
   cachedTokens: z.number().int().min(0).optional(),
   /** Reasoning/thinking tokens, when the model emits them separately. */
   reasoningTokens: z.number().int().min(0).optional(),
+  /** Non-token usage for image/video/audio models (images, seconds, characters). */
+  units: z.record(z.number().min(0)).optional(),
 });
 export type Usage = z.infer<typeof Usage>;
 
@@ -135,7 +139,7 @@ export type RunEvent = z.infer<typeof RunEvent>;
 export type RunEventType = RunEvent["type"];
 
 /**
- * An event before the engine stamps ordering onto it. Distributive so each union
+ * An event before it gets stamped with ordering. Distributive so each union
  * member keeps its own required fields instead of collapsing to their intersection.
  */
 export type DraftEvent = {
