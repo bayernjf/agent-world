@@ -12,6 +12,7 @@ import {
 import type { Worker } from "./worker.js";
 import { ProviderError } from "./providers/openai-compatible.js";
 import { sanitizeError } from "./sanitize.js";
+import { resolveTools, executeBuiltinTool } from "./skills/registry.js";
 
 /**
  * Reference images originate at source nodes and flow downstream through
@@ -304,12 +305,18 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
         try {
           const agentInput = inputFor(node);
           reworkNotes.delete(nodeId);
+          const mounts = (node.agent?.skills ?? []).map((s) =>
+            typeof s === "string" ? { id: s, enabled: true } : s,
+          );
+          const tools = resolveTools(mounts);
           const gen = worker.runAgent({
             node,
             config,
             attempt,
             input: agentInput,
             images: imagesFor(nodeId),
+            tools,
+            executeTool: async (name, args) => executeBuiltinTool(name, args),
             signal: opts.signal,
           });
           let output = "";
@@ -330,6 +337,25 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
               emit({ type: "node.delta", nodeId, attempt, text: chunk.text });
             } else if (chunk.type === "reasoning-delta") {
               emit({ type: "node.reasoning", nodeId, attempt, text: chunk.text });
+            } else if (chunk.type === "tool-call") {
+              emit({
+                type: "tool.called",
+                nodeId,
+                attempt,
+                callId: chunk.id,
+                name: chunk.name,
+                args: chunk.arguments,
+              });
+            } else if (chunk.type === "tool-result") {
+              emit({
+                type: "tool.result",
+                nodeId,
+                attempt,
+                callId: chunk.id,
+                name: chunk.name,
+                result: chunk.result,
+                error: chunk.error,
+              });
             }
           }
           result = { output, usage: usage ?? zeroUsage() };

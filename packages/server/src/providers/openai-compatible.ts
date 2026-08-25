@@ -169,6 +169,144 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
     return { output, usage: finalUsage ?? fallback };
   }
 
+  /**
+   * Tool-calling loop: send messages + tools to the model, execute any tool
+   * calls via the injected executor, feed results back, and repeat until the
+   * model produces a text answer. Uses non-streaming completions because tool
+   * call arguments must arrive whole; the final text is yielded as deltas.
+   */
+  async function* runWithTools(
+    model: string,
+    messages: Array<{ role: string; content: string | ContentPart[] }>,
+    config: AgentConfig,
+    tools: NonNullable<Parameters<Worker["runAgent"]>[0]["tools"]>,
+    executeTool: NonNullable<Parameters<Worker["runAgent"]>[0]["executeTool"]>,
+    signal?: AbortSignal,
+  ): AsyncGenerator<AgentChunk, AgentResult> {
+    if (!provider.apiKey) {
+      throw new ProviderError("AUTH", `Missing API key for provider at ${baseUrl}`);
+    }
+
+    const toolDefs = tools.map((t) => ({
+      type: "function" as const,
+      function: { name: t.name, description: t.description, parameters: t.parameters },
+    }));
+
+    type ChatMsg = {
+      role: string;
+      content: string | ContentPart[] | null;
+      tool_calls?: Array<{ id: string; function: { name: string; arguments: string } }>;
+      tool_call_id?: string;
+    };
+    const convo: ChatMsg[] = [...messages] as ChatMsg[];
+    let totalIn = 0;
+    let totalOut = 0;
+    let finalText = "";
+    const MAX_ROUNDS = 8;
+
+    for (let round = 0; round < MAX_ROUNDS; round++) {
+      if (signal?.aborted) throw new ProviderError("TIMEOUT", "Aborted");
+
+      const timeoutController = new AbortController();
+      const timeout = setTimeout(() => timeoutController.abort(), config.timeoutMs);
+      const onAbort = () => timeoutController.abort();
+      signal?.addEventListener("abort", onAbort);
+
+      let res: Response;
+      try {
+        res = await fetch(`${baseUrl}/chat/completions`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${provider.apiKey}`,
+          },
+          body: JSON.stringify({
+            model,
+            messages: convo,
+            tools: toolDefs,
+            temperature: config.temperature,
+            stream: false,
+          }),
+          signal: timeoutController.signal,
+        });
+      } catch (err) {
+        clearTimeout(timeout);
+        signal?.removeEventListener("abort", onAbort);
+        if ((err as Error).name === "AbortError") {
+          throw new ProviderError("TIMEOUT", `Request timed out after ${config.timeoutMs}ms`);
+        }
+        throw new ProviderError("UNKNOWN", (err as Error).message);
+      }
+      clearTimeout(timeout);
+      signal?.removeEventListener("abort", onAbort);
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new ProviderError(mapHttpStatus(res.status), `HTTP ${res.status}: ${text.slice(0, 300)}`, res.status);
+      }
+
+      const data = (await res.json()) as {
+        choices?: Array<{
+          message?: {
+            content?: string | null;
+            tool_calls?: Array<{
+              id: string;
+              function: { name: string; arguments: string };
+            }>;
+          };
+        }>;
+        usage?: { prompt_tokens?: number; completion_tokens?: number };
+      };
+
+      const msg = data.choices?.[0]?.message;
+      totalIn += data.usage?.prompt_tokens ?? 0;
+      totalOut += data.usage?.completion_tokens ?? 0;
+
+      const toolCalls = msg?.tool_calls ?? [];
+      if (toolCalls.length === 0) {
+        finalText = msg?.content ?? "";
+        if (finalText) yield { type: "text-delta", text: finalText };
+        break;
+      }
+
+      convo.push({ role: "assistant", content: msg?.content ?? null, tool_calls: toolCalls });
+
+      for (const tc of toolCalls) {
+        const callId = tc.id;
+        const name = tc.function.name;
+        let args: unknown = {};
+        try {
+          args = tc.function.arguments ? JSON.parse(tc.function.arguments) : {};
+        } catch {
+          args = tc.function.arguments;
+        }
+        yield { type: "tool-call", id: callId, name, arguments: args };
+
+        let result: unknown;
+        let toolError: string | undefined;
+        try {
+          result = await executeTool(name, args);
+        } catch (err) {
+          toolError = (err as Error).message;
+          result = { error: toolError };
+        }
+        yield { type: "tool-result", id: callId, name, result, error: toolError };
+
+        convo.push({
+          role: "tool",
+          content: JSON.stringify(result),
+          tool_call_id: callId,
+        });
+      }
+    }
+
+    const usage = computeUsage(
+      { prompt_tokens: totalIn, completion_tokens: totalOut },
+      pricingFor(model),
+    );
+    return { output: finalText, usage };
+  }
+
   function buildMessages(node: GraphNode, config: AgentConfig, input: string, images: string[] = []) {
     const system = config.prompt || `You are a worker in the "${node.name}" plant. Process the input and produce output.`;
     const userContent: string | ContentPart[] =
@@ -212,7 +350,7 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
   }
 
   return {
-    async *runAgent({ node, config, input, images, signal }) {
+    async *runAgent({ node, config, input, images, tools, executeTool, signal }) {
       const model = config.model || "agnes-2.0-flash";
       const modality = modalityOf(provider, model);
       if (modality !== "text") {
@@ -223,7 +361,11 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
           `Model "${model}" is a ${modality} model; text-pipeline execution for ${modality} models is not yet implemented`,
         );
       }
-      return yield* streamChat(model, buildMessages(node, config, input, images), config, signal);
+      const messages = buildMessages(node, config, input, images);
+      if (tools && tools.length > 0 && executeTool) {
+        return yield* runWithTools(model, messages, config, tools, executeTool, signal);
+      }
+      return yield* streamChat(model, messages, config, signal);
     },
 
     async judge({ node, output, criterion, signal }) {

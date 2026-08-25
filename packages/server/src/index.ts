@@ -28,6 +28,7 @@ import {
 } from "./config.js";
 import { routingWorker } from "./providers/index.js";
 import { sanitizeError } from "./sanitize.js";
+import { listBuiltinSkills } from "./skills/registry.js";
 
 const PORT = Number(process.env.PORT ?? 8791);
 const db = openDb(process.env.DB_FILE ?? "agent-world.sqlite");
@@ -50,6 +51,8 @@ const app = new Hono();
 app.use("/*", cors());
 
 app.get("/api/health", (c) => c.json({ ok: true }));
+
+app.get("/api/skills", (c) => c.json(listBuiltinSkills()));
 
 app.get("/api/graphs", (c) => c.json(db.listGraphs()));
 
