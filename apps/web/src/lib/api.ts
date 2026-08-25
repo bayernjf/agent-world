@@ -5,6 +5,21 @@ async function json<T>(res: Response): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+export interface AppConfig {
+  providers: Record<
+    string,
+    {
+      type: string;
+      baseUrl?: string;
+      apiKey?: string;
+      models: string[];
+      pricing?: Record<string, { input?: number; output?: number; cacheRead?: number }>;
+    }
+  >;
+  defaultModel: string;
+  defaultProvider: string;
+}
+
 export const api = {
   getGraph: (id: string) => fetch(`/api/graphs/${id}`).then(json<Graph>),
 
@@ -22,16 +37,32 @@ export const api = {
       body: JSON.stringify(graph),
     }).then(json<CompileResult>),
 
-  startRun: (graphId: string, budgetUsd: number | null) =>
+  startRun: (graphId: string, budgetUsd: number | null, input?: string) =>
     fetch("/api/runs", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ graphId, budgetUsd }),
+      body: JSON.stringify({ graphId, budgetUsd, input }),
     }).then(json<{ runId: string }>),
 
   cancelRun: (runId: string) =>
     fetch(`/api/runs/${runId}/cancel`, { method: "POST" }).then(json<{ ok: true }>),
 
+  resumeRun: (runId: string, action: "continue" | "scrap") =>
+    fetch(`/api/runs/${runId}/resume`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action }),
+    }).then(json<{ ok: true }>),
+
   getEvents: (runId: string) =>
     fetch(`/api/runs/${runId}/events`).then(json<{ events: RunEvent[]; state: RuntimeState }>),
+
+  getSettings: () => fetch("/api/settings").then(json<AppConfig>),
+
+  saveSettings: (config: AppConfig) =>
+    fetch("/api/settings", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(config),
+    }).then(json<{ ok: true; path: string }>),
 };
