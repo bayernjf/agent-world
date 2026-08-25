@@ -105,7 +105,7 @@ export default function Pipes({
             {arrow && (
               <g
                 className={`pipe-arrow ${hot ? "pipe-arrow--hot" : ""} ${dim ? "pipe-arrow--dim" : ""}`}
-                transform={`translate(${arrow.x} ${arrow.y}) scale(${arrow.dir} 1)`}
+                transform={`translate(${arrow.x} ${arrow.y}) rotate(${arrow.angle}) scale(${arrow.dir} 1)`}
               >
                 <path className="pipe-arrow__shape" d="M -5 -5 L 5 0 L -5 5 Z" />
               </g>
