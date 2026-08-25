@@ -47,6 +47,8 @@ export const GateConfig = z.object({
 export type GateConfig = z.infer<typeof GateConfig>;
 
 export const SourceConfig = z.object({
+  /** Reference image URLs fed to vision-capable downstream agents. */
+  images: z.array(z.string()).default([]),
   /** Reserved for future connectors (file/api/database/webhook). */
   connector: z
     .object({
