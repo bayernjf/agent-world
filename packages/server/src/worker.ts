@@ -1,5 +1,16 @@
 import type { AgentConfig, GraphNode, Usage } from "@agent-world/core";
 
+/** A callable tool exposed to a model, derived from a mounted skill card. */
+export interface ToolDefinition {
+  name: string;
+  description: string;
+  /** JSON Schema for the arguments object. */
+  parameters: Record<string, unknown>;
+}
+
+/** Resolves a tool call to a result. The engine injects a sandboxed implementation. */
+export type ToolExecutor = (name: string, args: unknown) => Promise<unknown>;
+
 /**
  * A streamed chunk from a running agent. Text deltas become node.delta events;
  * reasoning deltas become node.reasoning events; tool-call/tool-result are
@@ -8,8 +19,8 @@ import type { AgentConfig, GraphNode, Usage } from "@agent-world/core";
 export type AgentChunk =
   | { type: "text-delta"; text: string }
   | { type: "reasoning-delta"; text: string }
-  | { type: "tool-call"; id: string; name: string; arguments: string }
-  | { type: "tool-result"; id: string; result: unknown };
+  | { type: "tool-call"; id: string; name: string; arguments: unknown }
+  | { type: "tool-result"; id: string; name: string; result: unknown; error?: string };
 
 export interface AgentResult {
   output: string;
@@ -30,6 +41,10 @@ export interface Worker {
     input: string;
     /** Reference image URLs (from upstream source nodes) for vision models. */
     images?: string[];
+    /** Tools available to this agent, derived from its mounted skill cards. */
+    tools?: ToolDefinition[];
+    /** Executes a tool call. The worker must yield tool-call/tool-result around it. */
+    executeTool?: ToolExecutor;
     signal?: AbortSignal;
   }): AsyncGenerator<AgentChunk, AgentResult>;
 
