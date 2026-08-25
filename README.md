@@ -27,7 +27,7 @@ that meter: cross it and the whole line trips.
 ```
 packages/core     graph schema, compiler, event schema, runtime reducer (zero deps, runs both sides)
 packages/server   execution engine, worker seam, SQLite persistence, HTTP + SSE
-apps/web          the board: plants, pipes, trucks, control panel, replay scrubber
+apps/web          the board: plants, pipes, trucks, pan/zoom canvas, minimap, control panel, replay scrubber
 ```
 
 The event stream is the single source of truth. Runtime state is a pure fold over it,
@@ -37,6 +37,14 @@ same reducer.
 `packages/server/src/worker.ts` is the seam between orchestration and model calls. The
 fake worker in that file is deterministic and offline, which is what the tests and the
 canvas are wired against today.
+
+## Canvas interaction
+
+- Pan: select-mode drag, middle-mouse drag, or hold Space and drag anywhere. Arrow keys nudge (Shift = faster).
+- Zoom: cursor-anchored wheel, or the minimap +/−. `F` frames the selected plant.
+- Pipes: hover or click one to highlight its whole up/downstream flow; Delete/Backspace removes the selected pipe.
+- Plants: drag snaps to a 20px grid; ⌘/Ctrl+C copies the selected plant, ⌘/Ctrl+V pastes a copy.
+- The "快捷键 ?" button in the top bar lists every shortcut.
 
 ## Documentation
 

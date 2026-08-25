@@ -363,25 +363,34 @@ Gate 调 `worker.judge()`。质检也是可以装备技能卡的：
 ```
 SVG 层（React 组件）
   ├── Plants.tsx       厂房、质检站、码头
-  ├── Pipes.tsx        管道（flow 实线，rework 虚线）
-  └── 选择框、拖拽手柄
+  ├── Pipes.tsx        管道（flow 正交折线，rework 顶弧；含方向箭头、跨线桥、流向高亮）
+  ├── geometry.ts      edgeAnchors 分散引脚、pipePath 折线、pipeCrossings 跨线桥、pipeArrow
+  └── Minimap.tsx      鸟瞰图 + 视口框 + 缩放/适应控件
 
 Canvas overlay 层（一个 <canvas>，一个动画循环）
   └── PacketLayer.tsx  卡车在管道上移动
 
-Backdrop
-  └── 取消选择、拉线起点
+Backdrop / pan-surface
+  └── 取消选择、拉线起点、画布拖拽平移
 ```
 
 关键约束：Canvas overlay 必须和 SVG 坐在同一个 letterboxed box 上（见 `Canvas.tsx` 的 `fitOf`），否则卡车会偏离管道。卡车在 ref 里驱动，不进 React state（每帧 setState 会重渲染整棵树）。
+
+视口变换在 `<g className="canvas__viewport" transform="translate(pan) scale(zoom)">` 上；backdrop 和 pan-surface 在变换组外，负责捕获平移点击。`store/canvas.ts` 持有 viewport/fit/stageSize，提供 `zoomTo`/`centerOn`/`fitToBounds`/`reset`；滚轮缩放以光标下的 board 坐标为锚点。hover 名牌用 `scale(1/(viewport.zoom * fit.scale))` 反缩放，保证任何缩放下文字保持屏幕物理尺寸。
+
+管道几何是节点坐标的纯函数：`edgeAnchors` 按出入度在厂房左右面上垂直分配引脚（`PIN_GAP=14`，夹紧到半高内），`pipePath` 生成带圆角的正交折线（返工管走顶部弧线），`pipeCrossings` 检测竖管与横管交叉并在竖管上画弧形桥（电路图风格，竖跨横），`pipeArrow` 在末段放流向三角。这套方案用引脚分散 + 跨线桥解决重叠和交叉歧义，刻意不做完整正交自动路由器（需要障碍物避让、环路、端口分配和稳定的卡车路径，是独立大模块，等图变密再做）。
 
 ### 6.2 状态管理
 
 两个 store，职责分离：
 - `stores/graph.ts`：编辑态——节点增删改、管道增删、撤销重做、持久化
 - `stores/run.ts`：运行态——SSE 连接、事件流、fold 到 runtime reducer、回放控制
+- `stores/canvas.ts`：视口态——zoom/pan、letterbox fit、舞台尺寸
+- `stores/toast.ts`：轻提示（含撤销动作）
 
 运行态不直接 mutate graph——运行的是 dispatch 时的 snapshot。
+
+撤销重做用 zundo 的 `temporal` 中间件，`partialize` 只留 graph，并用 `equality: (a,b)=>a.graph===b.graph` 比较——graph 每次真实编辑都不可变替换，而自动保存只改 saveState 不动 graph 引用，这样自动保存不会产生空历史条目（否则一次删除要撤销两次）。
 
 ### 6.3 阶段 1 前端改动
 
@@ -391,6 +400,13 @@ Backdrop
 - 失败状态显示结构化错误信息和重试建议
 - API key 配置界面（设置面板）
 - 模型选择器（agent config 里的 model 字段变成下拉）
+
+### 6.4 画布工作区打磨（阶段 1 收尾，已实现）
+
+- pan/zoom 视口、缩略图（可拖拽 + 适应按钮）、侧栏收起、撤销重做按钮与 toast
+- 管道分散锚点、正交折线、跨线桥、方向箭头、hover/点击整条流向高亮、Delete 删除选中管
+- 厂房 hover 名牌（反缩放，显示模型/状态/Token/电费）、20px 网格吸附、⌘C/V 复制粘贴
+- 连接校验（自环/重复弹 toast）、HUD 快捷键说明面板
 
 ---
 
