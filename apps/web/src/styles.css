@@ -108,6 +108,86 @@ select {
   gap: 8px;
 }
 
+/* ---------- graph switcher ---------- */
+.hud__graph-switcher {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+}
+.hud__graph-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.hud__graph-switcher .caret {
+  font-size: 9px;
+  opacity: 0.6;
+}
+.graph-popover {
+  width: 280px;
+  padding: 6px;
+}
+.graph-popover__list {
+  max-height: 320px;
+  overflow-y: auto;
+}
+.graph-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.graph-row:hover {
+  background: var(--steel-800);
+}
+.graph-row.is-current {
+  color: var(--power);
+}
+.graph-row.is-current::before {
+  content: "▸";
+  margin-right: 2px;
+}
+.graph-row__name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.graph-row__input {
+  flex: 1;
+  background: var(--steel-950);
+  border: 1px solid var(--power-dim);
+  color: var(--ink);
+  padding: 3px 6px;
+  font-size: 12px;
+  font-family: var(--mono);
+}
+.graph-row__actions {
+  display: none;
+  gap: 2px;
+}
+.graph-row:hover .graph-row__actions {
+  display: flex;
+}
+.graph-row .icon-btn {
+  width: 22px;
+  height: 22px;
+  font-size: 11px;
+}
+.icon-btn--danger:hover {
+  color: var(--alert);
+  border-color: var(--alert);
+}
+.graph-popover__new {
+  width: 100%;
+  margin-top: 6px;
+}
+
 /* ---------- shortcuts help ---------- */
 .shortcuts {
   position: relative;
