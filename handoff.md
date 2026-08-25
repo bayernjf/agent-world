@@ -460,3 +460,22 @@ paths) is a standalone chunk to schedule once the graph gets denser.
 - Tests still green: core 27, server 49. Typecheck clean.
 - Remaining 3.1: pagination UI + server-side filtering (by graph/status),
   run-to-run comparison, and a "return to live / clear replay" affordance.
+
+## Cost report (roadmap 3.2, mostly done)
+
+- Server `db.costReport({ from?, to? })` aggregates the `node_runs` projection
+  (joined with `runs`, excluding still-running runs) into five buckets:
+  `totals`, `byGraph` (LEFT JOIN graphs for name), `byNode` (Top 50 by cost with
+  attempt/rework counts), `byAttempt` (attempt 1 = first try, >1 = rework), and
+  `byDay` (daily via `date(started_at/1000,'unixepoch','localtime')`). All
+  numbers come from persisted `cost_usd`/`tokens_*` columns — no event replay.
+- `GET /api/costs?from=&to=` (ms timestamps) exposes it.
+- Web `lib/api.ts`: `CostReport` interface + `api.costReport(from,to)`.
+- Web `components/CostReport.tsx` (new): modal launched from HUD "成本" chip.
+  Range toggle (7d/30d/all), six stat cards (总电费/运行/输入/输出/缓存/返工电费),
+  daily cost bar chart (inline SVG-free divs, power gradient), per-plant table,
+  Top-N plant table. Modal uses `.modal--wide`, all tokens, `.num` right-align.
+- Tests: `costs.test.ts` covers aggregation math, time filtering, and running-run
+  exclusion. Server now 51 tests, core 27. Typecheck clean.
+- Remaining 3.2: CSV export, weekly/monthly rollups, resolve node labels from
+  the graph snapshot instead of showing raw `node_id`.
