@@ -2,7 +2,7 @@ import { z } from "zod";
 
 /**
  * The event stream is the single source of truth: the engine emits it, the UI
- * reduces it, replay re-reduces a prefix of it, and the DB stores it verbatim.
+ * reduces it, replay re-reduces a prefix, and the DB stores it verbatim.
  * Four consumers means changing the shape is expensive — hence the version tag.
  */
 export const EVENT_SCHEMA_VERSION = 1;
@@ -18,11 +18,25 @@ export const NodeRunKey = z.object({
 });
 export type NodeRunKey = z.infer<typeof NodeRunKey>;
 
+export const ErrorCode = z.enum([
+  "TIMEOUT",
+  "RATE_LIMIT",
+  "PROVIDER_ERROR",
+  "AUTH",
+  "VALIDATION",
+  "UNKNOWN",
+]);
+export type ErrorCode = z.infer<typeof ErrorCode>;
+
 export const Usage = z.object({
   tokensIn: z.number().int().min(0),
   tokensOut: z.number().int().min(0),
   /** Metered after the call returns — never charged up front. */
   costUsd: z.number().min(0),
+  /** Prompt-cache hit tokens, when the provider reports them. */
+  cachedTokens: z.number().int().min(0).optional(),
+  /** Reasoning/thinking tokens, when the model emits them separately. */
+  reasoningTokens: z.number().int().min(0).optional(),
 });
 export type Usage = z.infer<typeof Usage>;
 
@@ -41,10 +55,17 @@ export const RunEvent = z.discriminatedUnion("type", [
     type: z.literal("node.started"),
     ...NodeRunKey.shape,
   }),
-  /** Emitted as the model streams, so the plant can show live output. */
+  /** Emitted as the model streams visible output text, so the plant can show it. */
   z.object({
     ...base,
     type: z.literal("node.delta"),
+    ...NodeRunKey.shape,
+    text: z.string(),
+  }),
+  /** Emitted as the model streams hidden reasoning/thinking tokens, if any. */
+  z.object({
+    ...base,
+    type: z.literal("node.reasoning"),
     ...NodeRunKey.shape,
     text: z.string(),
   }),
@@ -60,6 +81,7 @@ export const RunEvent = z.discriminatedUnion("type", [
     type: z.literal("node.failed"),
     ...NodeRunKey.shape,
     error: z.string(),
+    errorCode: ErrorCode.optional(),
   }),
   /** A work packet moving along a pipe. The truck animation is this event, not decoration. */
   z.object({
@@ -70,6 +92,9 @@ export const RunEvent = z.discriminatedUnion("type", [
     to: z.string(),
     /** Preview of the payload; the full artifact lives on the node run. */
     summary: z.string(),
+    /** Reserved for future artifact/Packet layering. */
+    artifactId: z.string().optional(),
+    metadata: z.record(z.unknown()).optional(),
   }),
   z.object({
     ...base,

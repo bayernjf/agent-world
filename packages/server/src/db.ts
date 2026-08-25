@@ -15,10 +15,12 @@ CREATE TABLE IF NOT EXISTS graphs (
 );
 
 CREATE TABLE IF NOT EXISTS runs (
-  id       TEXT PRIMARY KEY,
-  graph_id TEXT NOT NULL,
-  snapshot TEXT NOT NULL,
-  status   TEXT NOT NULL,
+  id         TEXT PRIMARY KEY,
+  graph_id   TEXT NOT NULL,
+  snapshot   TEXT NOT NULL,
+  status     TEXT NOT NULL,
+  trigger    TEXT NOT NULL DEFAULT 'manual',
+  input      TEXT,
   budget_usd REAL,
   started_at INTEGER NOT NULL,
   ended_at   INTEGER
@@ -35,15 +37,19 @@ CREATE TABLE IF NOT EXISTS events (
 );
 
 CREATE TABLE IF NOT EXISTS node_runs (
-  run_id     TEXT NOT NULL,
-  node_id    TEXT NOT NULL,
-  attempt    INTEGER NOT NULL,
-  status     TEXT NOT NULL,
-  output     TEXT,
-  tokens_in  INTEGER NOT NULL DEFAULT 0,
-  tokens_out INTEGER NOT NULL DEFAULT 0,
-  cost_usd   REAL NOT NULL DEFAULT 0,
-  error      TEXT,
+  run_id         TEXT NOT NULL,
+  node_id        TEXT NOT NULL,
+  attempt        INTEGER NOT NULL,
+  status         TEXT NOT NULL,
+  output         TEXT,
+  reasoning      TEXT,
+  error          TEXT,
+  error_code     TEXT,
+  tokens_in      INTEGER NOT NULL DEFAULT 0,
+  tokens_out     INTEGER NOT NULL DEFAULT 0,
+  cached_tokens  INTEGER NOT NULL DEFAULT 0,
+  reasoning_tokens INTEGER NOT NULL DEFAULT 0,
+  cost_usd       REAL NOT NULL DEFAULT 0,
   PRIMARY KEY (run_id, node_id, attempt)
 );
 `;
@@ -53,7 +59,9 @@ export type Db = ReturnType<typeof openDb>;
 export function openDb(file: string) {
   const db = new DatabaseSync(file);
   db.exec("PRAGMA journal_mode = WAL");
+  db.exec("PRAGMA busy_timeout = 5000");
   db.exec(DDL);
+  runMigrations(db);
 
   const stmts = {
     saveGraph: db.prepare(
@@ -63,24 +71,35 @@ export function openDb(file: string) {
     getGraph: db.prepare(`SELECT doc FROM graphs WHERE id = ?`),
     listGraphs: db.prepare(`SELECT id, name, updated_at FROM graphs ORDER BY updated_at DESC`),
     createRun: db.prepare(
-      `INSERT INTO runs (id, graph_id, snapshot, status, budget_usd, started_at) VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO runs (id, graph_id, snapshot, status, trigger, input, budget_usd, started_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     ),
     finishRun: db.prepare(`UPDATE runs SET status = ?, ended_at = ? WHERE id = ?`),
     getRun: db.prepare(`SELECT * FROM runs WHERE id = ?`),
+    listRuns: db.prepare(
+      `SELECT id, graph_id, status, trigger, budget_usd, started_at, ended_at FROM runs ORDER BY started_at DESC LIMIT ? OFFSET ?`,
+    ),
     insertEvent: db.prepare(
       `INSERT INTO events (run_id, seq, ts, version, type, payload) VALUES (?, ?, ?, ?, ?, ?)`,
     ),
     listEvents: db.prepare(`SELECT payload FROM events WHERE run_id = ? ORDER BY seq`),
+    maxSeq: db.prepare(`SELECT COALESCE(MAX(seq), -1) as seq FROM events WHERE run_id = ?`),
     upsertNodeRun: db.prepare(
       `INSERT INTO node_runs (run_id, node_id, attempt, status) VALUES (?, ?, ?, ?)
        ON CONFLICT(run_id, node_id, attempt) DO UPDATE SET status = excluded.status`,
     ),
+    appendReasoning: db.prepare(
+      `UPDATE node_runs SET reasoning = COALESCE(reasoning, '') || ? WHERE run_id = ? AND node_id = ? AND attempt = ?`,
+    ),
     finishNodeRun: db.prepare(
-      `UPDATE node_runs SET status = ?, output = ?, tokens_in = ?, tokens_out = ?, cost_usd = ?
+      `UPDATE node_runs SET status = ?, output = ?, tokens_in = ?, tokens_out = ?,
+        cached_tokens = ?, reasoning_tokens = ?, cost_usd = ?
        WHERE run_id = ? AND node_id = ? AND attempt = ?`,
     ),
     failNodeRun: db.prepare(
-      `UPDATE node_runs SET status = 'failed', error = ? WHERE run_id = ? AND node_id = ? AND attempt = ?`,
+      `UPDATE node_runs SET status = 'failed', error = ?, error_code = ? WHERE run_id = ? AND node_id = ? AND attempt = ?`,
+    ),
+    markInterrupted: db.prepare(
+      `UPDATE runs SET status = 'interrupted', ended_at = ? WHERE status = 'running'`,
     ),
   };
 
@@ -98,12 +117,21 @@ export function openDb(file: string) {
       return stmts.listGraphs.all() as { id: string; name: string; updated_at: number }[];
     },
 
-    createRun(args: { id: string; graph: Graph; budgetUsd: number | null; at: number }) {
+    createRun(args: {
+      id: string;
+      graph: Graph;
+      budgetUsd: number | null;
+      at: number;
+      trigger?: string;
+      input?: string;
+    }) {
       stmts.createRun.run(
         args.id,
         args.graph.id,
         JSON.stringify(args.graph),
         "running",
+        args.trigger ?? "manual",
+        args.input ?? null,
         args.budgetUsd,
         args.at,
       );
@@ -115,6 +143,24 @@ export function openDb(file: string) {
 
     runExists(runId: string): boolean {
       return stmts.getRun.get(runId) !== undefined;
+    },
+
+    getRun(runId: string) {
+      return stmts.getRun.get(runId) as
+        | { id: string; graph_id: string; snapshot: string; status: string; budget_usd: number | null; started_at: number; ended_at: number | null }
+        | undefined;
+    },
+
+    listRuns(limit = 50, offset = 0) {
+      return stmts.listRuns.all(limit, offset) as Array<{
+        id: string;
+        graph_id: string;
+        status: string;
+        trigger: string;
+        budget_usd: number | null;
+        started_at: number;
+        ended_at: number | null;
+      }>;
     },
 
     /** Persists the event and folds it into the node_runs projection. */
@@ -132,6 +178,11 @@ export function openDb(file: string) {
         case "node.started":
           stmts.upsertNodeRun.run(runId, event.nodeId, event.attempt, "running");
           break;
+        case "node.reasoning":
+          // Ensure the row exists then append.
+          stmts.upsertNodeRun.run(runId, event.nodeId, event.attempt, "running");
+          stmts.appendReasoning.run(event.text, runId, event.nodeId, event.attempt);
+          break;
         case "node.finished":
           stmts.upsertNodeRun.run(runId, event.nodeId, event.attempt, "done");
           stmts.finishNodeRun.run(
@@ -139,6 +190,8 @@ export function openDb(file: string) {
             event.output,
             event.usage.tokensIn,
             event.usage.tokensOut,
+            event.usage.cachedTokens ?? 0,
+            event.usage.reasoningTokens ?? 0,
             event.usage.costUsd,
             runId,
             event.nodeId,
@@ -147,7 +200,13 @@ export function openDb(file: string) {
           break;
         case "node.failed":
           stmts.upsertNodeRun.run(runId, event.nodeId, event.attempt, "failed");
-          stmts.failNodeRun.run(event.error, runId, event.nodeId, event.attempt);
+          stmts.failNodeRun.run(
+            event.error,
+            event.errorCode ?? null,
+            runId,
+            event.nodeId,
+            event.attempt,
+          );
           break;
       }
     },
@@ -156,5 +215,35 @@ export function openDb(file: string) {
       const rows = stmts.listEvents.all(runId) as { payload: string }[];
       return rows.map((r) => JSON.parse(r.payload) as RunEvent);
     },
+
+    nextSeq(runId: string): number {
+      const row = stmts.maxSeq.get(runId) as { seq: number };
+      return row.seq + 1;
+    },
+
+    /** Mark any runs left in 'running' state (e.g. after a server restart) as interrupted. */
+    markZombiesInterrupted(at: number) {
+      stmts.markInterrupted.run(at);
+    },
   };
+}
+
+/**
+ * Additive migrations for databases created before a column existed. Wrapped in
+ * try/catch because SQLite has no ADD COLUMN IF EXISTS before 3.35.
+ */
+function runMigrations(db: DatabaseSync) {
+  const addColumn = (table: string, column: string) => {
+    try {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${column}`);
+    } catch {
+      // column already exists
+    }
+  };
+  addColumn("runs", "trigger TEXT NOT NULL DEFAULT 'manual'");
+  addColumn("runs", "input TEXT");
+  addColumn("node_runs", "reasoning TEXT");
+  addColumn("node_runs", "error_code TEXT");
+  addColumn("node_runs", "cached_tokens INTEGER NOT NULL DEFAULT 0");
+  addColumn("node_runs", "reasoning_tokens INTEGER NOT NULL DEFAULT 0");
 }

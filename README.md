@@ -38,6 +38,14 @@ same reducer.
 fake worker in that file is deterministic and offline, which is what the tests and the
 canvas are wired against today.
 
+## Documentation
+
+- [PRD.md](PRD.md) — phased product roadmap and architectural guardrails
+- [handoff.md](handoff.md) — current code state and next steps
+- [docs/product-vision-discussion.md](docs/product-vision-discussion.md) — capabilities, design language, technology choices, commercialization
+- [docs/technical-design.md](docs/technical-design.md) — architecture, data models, API surface
+- [docs/roadmap-tasks.md](docs/roadmap-tasks.md) — concrete per-phase task breakdown
+
 ## Running it
 
 Requires Node >= 24 (for `node:sqlite`) and pnpm.
