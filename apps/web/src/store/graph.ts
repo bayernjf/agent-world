@@ -58,6 +58,7 @@ const DEFAULTS: Record<NodeKind, Partial<GraphNode>> = {
       skills: [],
       temperature: 0.7,
       timeoutMs: 120000,
+      inputPolicy: { mode: "all" },
       retry: { maxRetries: 2, baseDelayMs: 1000, maxDelayMs: 30000 },
     },
   },

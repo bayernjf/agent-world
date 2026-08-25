@@ -208,6 +208,50 @@ export default function Inspector() {
               />
             </label>
             <label className="field">
+              <span>输入策略</span>
+              <select
+                className="select"
+                value={node.agent.inputPolicy?.mode ?? "all"}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    agent: {
+                      ...node.agent!,
+                      inputPolicy: {
+                        ...(node.agent!.inputPolicy ?? { mode: "all" as const }),
+                        mode: e.target.value as "all" | "last" | "truncate",
+                      },
+                    },
+                  })
+                }
+              >
+                <option value="all">全部拼接（默认）</option>
+                <option value="last">仅最近上游</option>
+                <option value="truncate">截断保留尾部</option>
+              </select>
+            </label>
+            {node.agent.inputPolicy?.mode === "truncate" && (
+              <label className="field">
+                <span>最大字符数</span>
+                <input
+                  type="number"
+                  min="500"
+                  step="500"
+                  value={node.agent.inputPolicy?.maxChars ?? 8000}
+                  onChange={(e) =>
+                    updateNode(node.id, {
+                      agent: {
+                        ...node.agent!,
+                        inputPolicy: {
+                          mode: "truncate",
+                          maxChars: Number(e.target.value),
+                        },
+                      },
+                    })
+                  }
+                />
+              </label>
+            )}
+            <label className="field">
               <span>指令</span>
               <textarea
                 rows={4}
