@@ -9,6 +9,7 @@ import Settings from "./components/Settings";
 import ShortcutsHelp from "./components/ShortcutsHelp";
 import GraphSwitcher, { type GraphSummary } from "./components/GraphSwitcher";
 import ConfirmDialog from "./components/ConfirmDialog";
+import NewGraphDialog from "./components/NewGraphDialog";
 import UndoRedo from "./components/UndoRedo";
 import Toast from "./components/Toast";
 import Timeline from "./components/Timeline";
@@ -27,6 +28,7 @@ export default function App() {
   const [canRun, setCanRun] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [newGraphOpen, setNewGraphOpen] = useState(false);
   const [graphs, setGraphs] = useState<GraphSummary[]>([]);
   const [deleteTarget, setDeleteTarget] = useState<GraphSummary | null>(null);
   const [controlCollapsed, setControlCollapsed] = useState(false);
@@ -66,9 +68,9 @@ export default function App() {
     [graph.id, flushSave, reset, setGraph],
   );
 
-  const createGraph = useCallback(async () => {
+  const createGraph = useCallback(async (template?: string) => {
     try {
-      const g = await api.createGraph();
+      const g = await api.createGraph(template ? { template } : undefined);
       await refreshGraphs();
       reset();
       setGraph(g);
@@ -81,7 +83,7 @@ export default function App() {
   const duplicateGraph = useCallback(
     async (id: string) => {
       try {
-        const g = await api.createGraph(undefined, id);
+        const g = await api.createGraph({ from: id });
         await refreshGraphs();
         reset();
         setGraph(g);
@@ -207,7 +209,7 @@ export default function App() {
             graphs={graphs}
             currentId={graph.id}
             onSwitch={switchGraph}
-            onCreate={createGraph}
+            onCreate={() => setNewGraphOpen(true)}
             onDuplicate={duplicateGraph}
             onDelete={(id) =>
               setDeleteTarget(graphs.find((g) => g.id === id) ?? null)
@@ -286,6 +288,14 @@ export default function App() {
 
       <Toast />
       <Settings open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <NewGraphDialog
+        open={newGraphOpen}
+        onClose={() => setNewGraphOpen(false)}
+        onPick={(templateId) => {
+          setNewGraphOpen(false);
+          void createGraph(templateId);
+        }}
+      />
       <ConfirmDialog
         open={deleteTarget !== null}
         title="删除产线"

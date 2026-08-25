@@ -213,6 +213,49 @@ select {
   margin-top: 2px;
 }
 
+/* ---------- new graph template picker ---------- */
+.template-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+.template-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: left;
+  padding: 12px;
+  background: var(--steel-850);
+  border: var(--hair);
+  color: var(--ink);
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color 0.12s, background 0.12s;
+}
+.template-card:hover {
+  border-color: var(--power-dim);
+  background: var(--steel-800);
+}
+.template-card__name {
+  font-family: var(--mono);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  color: var(--power);
+}
+.template-card__desc {
+  font-size: 12px;
+  color: var(--ink-dim);
+  line-height: 1.5;
+}
+.template-card__cat {
+  font-size: 10px;
+  font-family: var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.6;
+  margin-top: 2px;
+}
+
 /* ---------- shortcuts help ---------- */
 .shortcuts {
   position: relative;
