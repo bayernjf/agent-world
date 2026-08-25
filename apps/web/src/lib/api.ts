@@ -1,4 +1,5 @@
 import type { CompileResult, Graph, ModelPricing, RunEvent, RuntimeState } from "@agent-world/core";
+import type { Skill } from "@agent-world/core";
 
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
@@ -38,6 +39,8 @@ export const api = {
     fetch("/api/templates").then(
       json<{ id: string; name: string; description: string; category: string }[]>,
     ),
+
+  listSkills: () => fetch("/api/skills").then(json<Skill[]>),
 
   listGraphs: () =>
     fetch("/api/graphs").then(json<{ id: string; name: string; updated_at: number }[]>),

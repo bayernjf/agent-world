@@ -3,6 +3,7 @@ import { UNIT_LABELS } from "@agent-world/core";
 import { api, type AppConfig } from "../lib/api";
 import { useGraph } from "../store/graph";
 import { useVisibleRuntime } from "../store/run";
+import SkillPicker from "./SkillPicker";
 
 function formatUnits(units: Record<string, number> | undefined): string | null {
   if (!units) return null;
@@ -216,6 +217,12 @@ export default function Inspector() {
                 }
               />
             </label>
+            <SkillPicker
+              mounted={node.agent.skills}
+              onChange={(skills) =>
+                updateNode(node.id, { agent: { ...node.agent!, skills } })
+              }
+            />
           </>
         )}
 
@@ -339,6 +346,35 @@ export default function Inspector() {
                   {showReasoning ? "隐藏" : "查看"}思考过程
                 </button>
                 {showReasoning && <pre className="output reasoning__text">{reasoning}</pre>}
+              </div>
+            )}
+
+            {rt?.toolCalls && rt.toolCalls.length > 0 && (
+              <div className="tool-calls">
+                <span className="tool-calls__label">工具调用</span>
+                {rt.toolCalls.map((tc) => (
+                  <div key={tc.callId} className="tool-call">
+                    <div className="tool-call__head">
+                      <span className="tool-call__name">{tc.name}</span>
+                      {tc.error ? (
+                        <span className="tool-call__status tool-call__status--err">错误</span>
+                      ) : (
+                        <span className="tool-call__status">完成</span>
+                      )}
+                    </div>
+                    <pre className="tool-call__args">
+                      {typeof tc.args === "string" ? tc.args : JSON.stringify(tc.args, null, 2)}
+                    </pre>
+                    {tc.result !== undefined && (
+                      <pre className="tool-call__result">
+                        {typeof tc.result === "string"
+                          ? tc.result
+                          : JSON.stringify(tc.result, null, 2)}
+                      </pre>
+                    )}
+                    {tc.error && <pre className="tool-call__error">{tc.error}</pre>}
+                  </div>
+                ))}
               </div>
             )}
 
