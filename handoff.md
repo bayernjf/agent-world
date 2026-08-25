@@ -204,10 +204,70 @@ pnpm -r test        # 22 core + 32 server, all green
 pnpm -r typecheck   # all green
 ```
 
-## Canvas notes (unchanged from Phase 0)
+## Canvas workspace overhaul (post-Phase-1)
 
-- `PacketLayer.tsx` draws trucks on a canvas overlay that must sit on the same
-  letterboxed box as the SVG (`fitOf` in `Canvas.tsx`).
-- Trucks live in refs behind one animation loop; never put them in React state.
-- The de-dup set is keyed by `edgeId:seq` and resets on `runId` change.
-- Deselect is on the backdrop rect, not the `<svg>`.
+The board is now a pan/zoom workspace with game-factory readability.
+
+### Viewport & navigation (`store/canvas.ts`, `Canvas.tsx`, `Minimap.tsx`)
+- Pan: select-mode drag, middle-mouse drag, or Space-drag anywhere (even over
+  plants/pipes). Arrow keys nudge the canvas (Shift = 120px, else 40px).
+- Zoom: cursor-anchored wheel zoom (0.3×–3×), minimap +/−, `F` to frame the
+  selected node. The minimap shows nodes/edges/viewport and is draggable; its
+  zoom controls sit bottom-left, the "适应" (fit) button bottom-right with
+  matching 20px button height.
+- `fitToBounds`/`centerOn` account for both the SVG letterbox (`fit.scale`) and
+  the pan/zoom transform. A run start resets the viewport.
+
+### Pipes (`geometry.ts`, `Pipes.tsx`)
+- `edgeAnchors()` distributes fan-out/fan-in pins vertically on node faces
+  (`PIN_GAP=14`, clamped to half the node height) so parallel pipes no longer
+  overlap at a single pin.
+- `pipePath()` is an orthogonal dogleg (rounded corners) for forward pipes;
+  rework pipes arc over the top. Signature is now `(from, to, kind)`.
+- `pipeCrossings()` detects where a vertical pipe segment crosses a horizontal
+  one and draws a circuit-style bridge arc (vertical over horizontal), giving
+  unambiguous crossings without a full autorouter.
+- `pipeArrow()` places a direction triangle on the last horizontal segment of
+  each forward pipe (rework pipes get none — the arc already reads as loopback).
+- Hover or click a pipe to highlight its whole flow (transitive upstream +
+  downstream); other pipes dim. Click locks the highlight; Delete/Backspace
+  removes the selected pipe. A pipe hit area also starts a pan in select mode.
+- Highlight/dim/live states are applied consistently to casings, cores, arrows
+  and bridges, using the existing design tokens.
+
+### Plants (`Plants.tsx`)
+- Hover shows a large fixed-size nameplate (title 21px, rows 15px) with type,
+  model, status, rework count, tokens and cost. The group counter-scales by
+  `1 / (viewport.zoom * fit.scale)` so text stays screen-constant at any zoom;
+  the native SVG `<title>` tooltip was removed to avoid a duplicate popup.
+- Drag snapping: nodes snap to a 20px grid (`GRID`/`snap` in `store/graph.ts`)
+  on both move and add, so plants on the same row line up and pipes stay straight.
+
+### Editing affordances (`store/graph.ts`, `Canvas.tsx`)
+- Grid snap for `moveNode`/`addNode`.
+- `duplicateNode(id)` copies a plant (offset 30px, grid-snapped, "原名 副本",
+  auto-selected); ⌘/Ctrl+C copies the selected plant, ⌘/Ctrl+V pastes (repeated
+  pastes step-diagonal so they don't overlap). Input fields are unaffected.
+- `addEdge` returns `{ ok, reason }`; self-loops ("不能连接到自身") and
+  duplicates ("这条管道已经存在") surface as toasts instead of silently failing.
+- `F` frames the selected node; Delete/Backspace removes the selected pipe.
+- Undo/redo (zundo) with the top-left `UndoRedo` buttons; the temporal store
+  uses `equality: (a,b)=>a.graph===b.graph` so a single undo doesn't need two
+  clicks. Delete actions flash a toast with an undo action (`store/toast.ts`,
+  `Toast.tsx`).
+
+### Layout (`App.tsx`, `ControlPanel.tsx`, styles.css)
+- Collapsible left control panel and right inspector, plus a "收起/展开侧栏"
+  toggle. The CSS grid sets explicit `grid-column` per track so collapsing a
+  panel doesn't let the stage slide into a 0px track.
+- `PacketLayer.tsx` still draws trucks on a canvas overlay on the same
+  letterboxed box (`fitOf`); trucks live in refs behind one animation loop and
+  the de-dup set is keyed by `edgeId:seq`, reset on `runId` change.
+- A "快捷键 ?" button in the HUD (`ShortcutsHelp.tsx`) opens a hover panel
+  listing all canvas/edit/tool shortcuts.
+
+### Deferred (full autorouter)
+Crossing curvature/obstacle avoidance is intentionally NOT a full orthogonal
+router yet. Pin distribution + bridge arcs resolve overlap and crossing
+ambiguity at low risk. A real router (obstacle avoidance, loops, stable packet
+paths) is a standalone chunk to schedule once the graph gets denser.
