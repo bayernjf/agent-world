@@ -9,10 +9,15 @@ export interface NodeRuntime {
   attempt: number;
   /** Output text per attempt, keyed by attempt number, for attempt-diffing. */
   outputs: Record<number, string>;
+  /** Hidden reasoning/thinking tokens per attempt, when the model emits them. */
+  reasoning: Record<number, string>;
   tokensIn: number;
   tokensOut: number;
+  cachedTokens: number;
+  reasoningTokens: number;
   costUsd: number;
   error?: string;
+  errorCode?: string;
 }
 
 export interface PacketRuntime {
@@ -30,6 +35,9 @@ export interface RuntimeState {
   nodes: Record<string, NodeRuntime>;
   packets: PacketRuntime[];
   totalCostUsd: number;
+  totalTokensIn: number;
+  totalTokensOut: number;
+  totalCachedTokens: number;
   budgetUsd: number | null;
   lastSeq: number;
 }
@@ -40,12 +48,25 @@ export const initialRuntime: RuntimeState = {
   nodes: {},
   packets: [],
   totalCostUsd: 0,
+  totalTokensIn: 0,
+  totalTokensOut: 0,
+  totalCachedTokens: 0,
   budgetUsd: null,
   lastSeq: -1,
 };
 
 function nodeOf(state: RuntimeState, id: string): NodeRuntime {
-  return state.nodes[id] ?? { status: "idle", attempt: 0, outputs: {}, tokensIn: 0, tokensOut: 0, costUsd: 0 };
+  return state.nodes[id] ?? {
+    status: "idle",
+    attempt: 0,
+    outputs: {},
+    reasoning: {},
+    tokensIn: 0,
+    tokensOut: 0,
+    cachedTokens: 0,
+    reasoningTokens: 0,
+    costUsd: 0,
+  };
 }
 
 function withNode(state: RuntimeState, id: string, patch: Partial<NodeRuntime>): RuntimeState {
@@ -74,19 +95,39 @@ export function reduce(state: RuntimeState, event: RunEvent): RuntimeState {
         });
       }
 
+      case "node.reasoning": {
+        const node = nodeOf(state, event.nodeId);
+        const prev = node.reasoning[event.attempt] ?? "";
+        return withNode(state, event.nodeId, {
+          reasoning: { ...node.reasoning, [event.attempt]: prev + event.text },
+        });
+      }
+
       case "node.finished": {
         const node = nodeOf(state, event.nodeId);
-        return withNode(state, event.nodeId, {
+        const next = withNode(state, event.nodeId, {
           status: "done",
           outputs: { ...node.outputs, [event.attempt]: event.output },
           tokensIn: node.tokensIn + event.usage.tokensIn,
           tokensOut: node.tokensOut + event.usage.tokensOut,
+          cachedTokens: node.cachedTokens + (event.usage.cachedTokens ?? 0),
+          reasoningTokens: node.reasoningTokens + (event.usage.reasoningTokens ?? 0),
           costUsd: node.costUsd + event.usage.costUsd,
         });
+        return {
+          ...next,
+          totalTokensIn: state.totalTokensIn + event.usage.tokensIn,
+          totalTokensOut: state.totalTokensOut + event.usage.tokensOut,
+          totalCachedTokens: state.totalCachedTokens + (event.usage.cachedTokens ?? 0),
+        };
       }
 
       case "node.failed":
-        return withNode(state, event.nodeId, { status: "failed", error: event.error });
+        return withNode(state, event.nodeId, {
+          status: "failed",
+          error: event.error,
+          errorCode: event.errorCode,
+        });
 
       case "packet.sent":
         return {
