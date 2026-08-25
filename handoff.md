@@ -346,3 +346,37 @@ paths) is a standalone chunk to schedule once the graph gets denser.
   modalities) remains Phase 4; the worker still throws UNSUPPORTED when running
   a model whose modality isn't text. Video is currently handled only as a URL or
   text description in the raw material, not as decoded frames.
+
+## Parallel branches (roadmap 2.1)
+
+- **core/compile.ts**: `Plan` now carries `levels[][]` (longest-path topological
+  rank over flow edges; `computeLevels()`). Nodes in the same level have no flow
+  dependency on each other. `order[]` is kept for rework-body rank calculations.
+- **engine.ts rewrite**: the linear cursor is replaced by a concurrent dataflow
+  scheduler shared by `execute()` and `resume()`. A plant starts the moment all
+  its flow predecessors are `done`; independent plants run in parallel bounded
+  by `MAX_CONCURRENCY=6`. Key mechanics:
+  - Single `EventQueue` + synchronous `emit()` assigns monotonically increasing
+    `seq`, so events from concurrent plants never race or reorder.
+  - Cost accounting (`totalCostUsd`, per-node `nodeCostUsd`, both budget checks)
+    runs in one synchronous block at node completion — no budget race.
+  - Barrier: a multi-input node waits until every flow predecessor is `done`;
+    `inputFor()` concatenates all upstream artifacts.
+  - Rework resets the loop body to `pending` (clearing their artifacts) so they
+    re-weld; reworkNotes still feeds the rejection reason to the entry.
+  - **Failure isolation**: a node failing (e.g. BUDGET) only blocks its own
+    downstream; unrelated branches keep running. The whole run is marked
+    `failed` at the end because a node failed, but other work completes. The
+    whole-line budget and external abort still trip the entire run.
+  - Resume seeds `states` from reconstructed artifacts and pre-approves the
+    halted gate, then runs the same scheduler downstream.
+  - `runScheduler` is async and returns the queue generator; `execute`/`resume`
+    yield from it. External abort flips the run to `cancelled` via a signal
+    listener.
+- Tests: `engine.parallel.test.ts` (3 tests) verifies level grouping, A+B run
+  concurrently (maxConcurrent≥2), JOIN sees both inputs at the barrier, and an
+  over-budget node A does not stop branch B. All 39 server + 26 core tests pass.
+- Web needed no change: `PacketLayer` keys trucks by `edgeId:seq`, so concurrent
+  `packet.sent` events on different edges already animate as multiple trucks.
+- Remaining 2.1 item: context-window strategy (input truncation / rolling
+  summary) for long lines and large parallel merges.
