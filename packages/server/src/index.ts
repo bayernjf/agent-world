@@ -325,6 +325,18 @@ app.post("/api/runs/:id/cancel", (c) => {
   return c.json({ ok: true });
 });
 
+app.delete("/api/runs/:id", (c) => {
+  const runId = c.req.param("id");
+  if (!db.runExists(runId)) return c.json({ error: "not found" }, 404);
+  const entry = live.get(runId);
+  if (entry && !entry.done) {
+    return c.json({ error: "run is still in progress; cancel it first" }, 409);
+  }
+  live.delete(runId);
+  db.deleteRun(runId);
+  return c.json({ ok: true });
+});
+
 /** Resume a halted run: `{ action: "continue" | "scrap" }`. */
 app.post("/api/runs/:id/resume", async (c) => {
   const runId = c.req.param("id");

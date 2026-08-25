@@ -78,7 +78,9 @@ export function openDb(file: string) {
     finishRun: db.prepare(`UPDATE runs SET status = ?, ended_at = ? WHERE id = ?`),
     getRun: db.prepare(`SELECT * FROM runs WHERE id = ?`),
     listRuns: db.prepare(
-      `SELECT id, graph_id, status, trigger, budget_usd, started_at, ended_at FROM runs ORDER BY started_at DESC LIMIT ? OFFSET ?`,
+      `SELECT r.id, r.graph_id, COALESCE(g.name, '(已删除产线)') AS graph_name, r.status, r.trigger, r.budget_usd, r.started_at, r.ended_at
+       FROM runs r LEFT JOIN graphs g ON g.id = r.graph_id
+       ORDER BY r.started_at DESC LIMIT ? OFFSET ?`,
     ),
     insertEvent: db.prepare(
       `INSERT INTO events (run_id, seq, ts, version, type, payload) VALUES (?, ?, ?, ?, ?, ?)`,
@@ -103,6 +105,9 @@ export function openDb(file: string) {
     markInterrupted: db.prepare(
       `UPDATE runs SET status = 'interrupted', ended_at = ? WHERE status = 'running'`,
     ),
+    deleteRun: db.prepare(`DELETE FROM runs WHERE id = ?`),
+    deleteEvents: db.prepare(`DELETE FROM events WHERE run_id = ?`),
+    deleteNodeRuns: db.prepare(`DELETE FROM node_runs WHERE run_id = ?`),
   };
 
   return {
@@ -161,6 +166,7 @@ export function openDb(file: string) {
       return stmts.listRuns.all(limit, offset) as Array<{
         id: string;
         graph_id: string;
+        graph_name: string;
         status: string;
         trigger: string;
         budget_usd: number | null;
@@ -231,6 +237,12 @@ export function openDb(file: string) {
     /** Mark any runs left in 'running' state (e.g. after a server restart) as interrupted. */
     markZombiesInterrupted(at: number) {
       stmts.markInterrupted.run(at);
+    },
+
+    deleteRun(runId: string) {
+      stmts.deleteEvents.run(runId);
+      stmts.deleteNodeRuns.run(runId);
+      stmts.deleteRun.run(runId);
     },
   };
 }
