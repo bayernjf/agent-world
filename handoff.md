@@ -322,3 +322,27 @@ paths) is a standalone chunk to schedule once the graph gets denser.
   instead of a dogleg overlapping the node bodies.
 - Delete/Backspace removes the selected plant (previously only pipes), with an
   undo toast.
+
+## Templates & image input (roadmap 2.4, partial)
+
+- `packages/core/src/templates.ts` (new) — `GraphTemplate`, `TEMPLATES`,
+  `getTemplate`, `instantiateTemplate()` (replaces every node/edge id with fresh
+  short ids so instances never collide). Ships `tpl-product` (商品详情页:
+  原料台→卖点提炼→文案撰写→排版整理→质检站→成品库 with a copy rework loop) and
+  `tpl-blank`. Covered by `templates.test.ts` (core now 26 tests).
+- Server: `GET /api/templates` lists id/name/description/category;
+  `POST /api/graphs` accepts `{ template }` to instantiate (alongside existing
+  `from` duplicate and blank create).
+- Web: new-graph is now a template picker (`NewGraphDialog.tsx`) opened from the
+  graph switcher; `api.createGraph` takes `{ name?, from?, template? }`.
+- **Image input (text→text with vision):** `SourceConfig.images: string[]`.
+  The engine resolves images reachable from a node via flow edges (memoized,
+  diamonds dedupe) and passes them as `Worker.runAgent({ images })`. The
+  OpenAI-compatible worker sends them as multimodal `image_url` content parts.
+  Inspector edits the source URL list. This covers product detail pages where
+  the model looks at reference photos and writes copy. `engine.test.ts` asserts
+  source images reach the downstream agent (server now 36 tests).
+- **Still text-only output.** Image/video/audio *generation* (non-text output
+  modalities) remains Phase 4; the worker still throws UNSUPPORTED when running
+  a model whose modality isn't text. Video is currently handled only as a URL or
+  text description in the raw material, not as decoded frames.
