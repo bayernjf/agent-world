@@ -261,6 +261,17 @@ app.get("/api/runs", (c) => {
   return c.json(db.listRuns(limit, offset));
 });
 
+app.get("/api/costs", (c) => {
+  const from = c.req.query("from");
+  const to = c.req.query("to");
+  return c.json(
+    db.costReport({
+      from: from ? Number(from) : undefined,
+      to: to ? Number(to) : undefined,
+    }),
+  );
+});
+
 app.post("/api/runs", async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as {
     graphId?: string;
