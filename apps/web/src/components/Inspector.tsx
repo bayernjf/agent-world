@@ -3,6 +3,7 @@ import { UNIT_LABELS } from "@agent-world/core";
 import { api, type AppConfig } from "../lib/api";
 import { useGraph } from "../store/graph";
 import { useVisibleRuntime } from "../store/run";
+import SkillPicker from "./SkillPicker";
 
 function formatUnits(units: Record<string, number> | undefined): string | null {
   if (!units) return null;
@@ -102,6 +103,54 @@ export default function Inspector() {
           <input value={node.name} onChange={(e) => updateNode(node.id, { name: e.target.value })} />
         </label>
 
+        {node.kind === "source" && (
+          <div className="field">
+            <span>参考图片 URL（视觉模型可看图）</span>
+            <div className="image-list">
+              {(node.source?.images ?? []).map((url, i) => (
+                <div className="image-row" key={i}>
+                  <input
+                    value={url}
+                    placeholder="https://..."
+                    onChange={(e) => {
+                      const images = [...(node.source?.images ?? [])];
+                      images[i] = e.target.value;
+                      updateNode(node.id, {
+                        source: { ...(node.source ?? {}), images },
+                      });
+                    }}
+                  />
+                  <button
+                    className="icon-btn icon-btn--danger"
+                    title="移除"
+                    onClick={() => {
+                      const images = (node.source?.images ?? []).filter((_, j) => j !== i);
+                      updateNode(node.id, {
+                        source: { ...(node.source ?? {}), images },
+                      });
+                    }}
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+              <button
+                className="btn image-list__add"
+                onClick={() =>
+                  updateNode(node.id, {
+                    source: {
+                      ...(node.source ?? {}),
+                      images: [...(node.source?.images ?? []), ""],
+                    },
+                  })
+                }
+              >
+                + 添加图片
+              </button>
+            </div>
+          </div>
+        )}
+
         {node.kind === "agent" && node.agent && (
           <>
             <label className="field">
@@ -159,6 +208,50 @@ export default function Inspector() {
               />
             </label>
             <label className="field">
+              <span>输入策略</span>
+              <select
+                className="select"
+                value={node.agent.inputPolicy?.mode ?? "all"}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    agent: {
+                      ...node.agent!,
+                      inputPolicy: {
+                        ...(node.agent!.inputPolicy ?? { mode: "all" as const }),
+                        mode: e.target.value as "all" | "last" | "truncate",
+                      },
+                    },
+                  })
+                }
+              >
+                <option value="all">全部拼接（默认）</option>
+                <option value="last">仅最近上游</option>
+                <option value="truncate">截断保留尾部</option>
+              </select>
+            </label>
+            {node.agent.inputPolicy?.mode === "truncate" && (
+              <label className="field">
+                <span>最大字符数</span>
+                <input
+                  type="number"
+                  min="500"
+                  step="500"
+                  value={node.agent.inputPolicy?.maxChars ?? 8000}
+                  onChange={(e) =>
+                    updateNode(node.id, {
+                      agent: {
+                        ...node.agent!,
+                        inputPolicy: {
+                          mode: "truncate",
+                          maxChars: Number(e.target.value),
+                        },
+                      },
+                    })
+                  }
+                />
+              </label>
+            )}
+            <label className="field">
               <span>指令</span>
               <textarea
                 rows={4}
@@ -168,6 +261,12 @@ export default function Inspector() {
                 }
               />
             </label>
+            <SkillPicker
+              mounted={node.agent.skills}
+              onChange={(skills) =>
+                updateNode(node.id, { agent: { ...node.agent!, skills } })
+              }
+            />
           </>
         )}
 
@@ -291,6 +390,35 @@ export default function Inspector() {
                   {showReasoning ? "隐藏" : "查看"}思考过程
                 </button>
                 {showReasoning && <pre className="output reasoning__text">{reasoning}</pre>}
+              </div>
+            )}
+
+            {rt?.toolCalls && rt.toolCalls.length > 0 && (
+              <div className="tool-calls">
+                <span className="tool-calls__label">工具调用</span>
+                {rt.toolCalls.map((tc) => (
+                  <div key={tc.callId} className="tool-call">
+                    <div className="tool-call__head">
+                      <span className="tool-call__name">{tc.name}</span>
+                      {tc.error ? (
+                        <span className="tool-call__status tool-call__status--err">错误</span>
+                      ) : (
+                        <span className="tool-call__status">完成</span>
+                      )}
+                    </div>
+                    <pre className="tool-call__args">
+                      {typeof tc.args === "string" ? tc.args : JSON.stringify(tc.args, null, 2)}
+                    </pre>
+                    {tc.result !== undefined && (
+                      <pre className="tool-call__result">
+                        {typeof tc.result === "string"
+                          ? tc.result
+                          : JSON.stringify(tc.result, null, 2)}
+                      </pre>
+                    )}
+                    {tc.error && <pre className="tool-call__error">{tc.error}</pre>}
+                  </div>
+                ))}
               </div>
             )}
 

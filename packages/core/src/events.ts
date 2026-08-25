@@ -74,6 +74,25 @@ export const RunEvent = z.discriminatedUnion("type", [
     ...NodeRunKey.shape,
     text: z.string(),
   }),
+  /** The model called a tool. `callId` correlates request/result. */
+  z.object({
+    ...base,
+    type: z.literal("tool.called"),
+    ...NodeRunKey.shape,
+    callId: z.string(),
+    name: z.string(),
+    args: z.unknown(),
+  }),
+  /** A tool call returned (or errored). Result is JSON-serializable. */
+  z.object({
+    ...base,
+    type: z.literal("tool.result"),
+    ...NodeRunKey.shape,
+    callId: z.string(),
+    name: z.string(),
+    result: z.unknown().optional(),
+    error: z.string().optional(),
+  }),
   z.object({
     ...base,
     type: z.literal("node.finished"),

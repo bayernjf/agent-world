@@ -27,6 +27,9 @@ export interface Plan {
   graphId: string;
   /** Forward execution order, ignoring rework edges. */
   order: string[];
+  /** Nodes grouped into topological levels (longest-path rank). Nodes within a
+   *  level have no flow dependency on each other and can run concurrently. */
+  levels: string[][];
   loops: ReworkLoop[];
 }
 
@@ -119,6 +122,26 @@ function ancestorsOf(graph: Graph, id: string): Set<string> {
     }
   }
   return seen;
+}
+
+/**
+ * Group nodes into topological levels by longest-path rank over flow edges.
+ * Nodes in the same level have no flow dependency on each other and can weld
+ * concurrently. A node goes one level deeper than its deepest predecessor.
+ */
+function computeLevels(graph: Graph, order: string[]): string[][] {
+  const rank = new Map<string, number>();
+  for (const id of order) {
+    const preds = incoming(graph, id, "flow");
+    const deepest = preds.reduce((m, e) => Math.max(m, rank.get(e.from) ?? 0), 0);
+    rank.set(id, preds.length === 0 ? 0 : deepest + 1);
+  }
+  const levels: string[][] = [];
+  for (const id of order) {
+    const r = rank.get(id)!;
+    (levels[r] ??= []).push(id);
+  }
+  return levels.filter((l) => l && l.length > 0);
 }
 
 export function compile(graph: Graph): CompileResult {
@@ -217,7 +240,9 @@ export function compile(graph: Graph): CompileResult {
 
   const fatal = diagnostics.some((d) => d.severity === "error");
   return {
-    plan: fatal || !order ? null : { graphId: graph.id, order, loops },
+    plan: fatal || !order
+      ? null
+      : { graphId: graph.id, order, levels: computeLevels(graph, order), loops },
     diagnostics,
   };
 }
