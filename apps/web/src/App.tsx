@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Diagnostic } from "@agent-world/core";
 import Canvas, { type Mode } from "./canvas/Canvas";
+import Minimap from "./canvas/Minimap";
 import ControlPanel from "./components/ControlPanel";
 import Inspector from "./components/Inspector";
 import Logo from "./components/Logo";
 import Settings from "./components/Settings";
+import ShortcutsHelp from "./components/ShortcutsHelp";
+import UndoRedo from "./components/UndoRedo";
+import Toast from "./components/Toast";
 import Timeline from "./components/Timeline";
 import { api } from "./lib/api";
 import { useGraph } from "./store/graph";
@@ -23,6 +27,14 @@ export default function App() {
   const [canRun, setCanRun] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [controlCollapsed, setControlCollapsed] = useState(false);
+  const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
+  const bothCollapsed = controlCollapsed && inspectorCollapsed;
+  const toggleBoth = () => {
+    const next = !bothCollapsed;
+    setControlCollapsed(next);
+    setInspectorCollapsed(next);
+  };
 
   useEffect(() => {
     api.getGraph(GRAPH_ID).then(setGraph).catch((e) => setError(String(e)));
@@ -95,6 +107,7 @@ export default function App() {
           <span className="muted">{graph.edges.length} 条管道</span>
         </div>
         <div className="hud__actions">
+          <ShortcutsHelp />
           <button className="chip" onClick={() => addNode("agent", 300, 480)}>
             + 厂房
           </button>
@@ -106,7 +119,11 @@ export default function App() {
 
       {error && <p className="banner">{error}</p>}
 
-      <div className="workspace">
+      <div
+        className={`workspace ${controlCollapsed ? "workspace--control-collapsed" : ""} ${
+          inspectorCollapsed ? "workspace--inspector-collapsed" : ""
+        }`}
+      >
         <ControlPanel
           mode={mode}
           setMode={setMode}
@@ -122,13 +139,41 @@ export default function App() {
         />
 
         <main className="stage">
+          <div className="stage__topbar">
+            <UndoRedo />
+          </div>
           <Canvas mode={mode} />
           <Timeline />
+          <button
+            className={`stage__control-toggle ${controlCollapsed ? "is-collapsed" : ""}`}
+            onClick={() => setControlCollapsed((v) => !v)}
+            title={controlCollapsed ? "展开控制面板" : "收起控制面板"}
+          >
+            {controlCollapsed ? "›" : "‹"}
+          </button>
+          <button
+            className={`stage__inspector-toggle ${inspectorCollapsed ? "is-collapsed" : ""}`}
+            onClick={() => setInspectorCollapsed((v) => !v)}
+            title={inspectorCollapsed ? "展开详情" : "收起详情"}
+          >
+            {inspectorCollapsed ? "›" : "‹"}
+          </button>
+          <button
+            className="stage__panel-toggle"
+            onClick={toggleBoth}
+            title={bothCollapsed ? "展开全部侧栏" : "收起全部侧栏"}
+          >
+            {bothCollapsed ? "展开侧栏" : "收起侧栏"}
+          </button>
+          <Minimap />
         </main>
 
-        <Inspector />
+        <div className={`inspector-slot ${inspectorCollapsed ? "is-collapsed" : ""}`}>
+          <Inspector />
+        </div>
       </div>
 
+      <Toast />
       <Settings open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   );

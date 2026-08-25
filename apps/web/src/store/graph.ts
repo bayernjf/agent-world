@@ -17,6 +17,10 @@ void refreshDefaultModel();
 
 export const PLANT_W = 150;
 export const PLANT_H = 92;
+/** Nodes snap to this grid so the board stays tidy and pipes line up. */
+export const GRID = 20;
+
+export const snap = (v: number) => Math.round(v / GRID) * GRID;
 
 /**
  * The graph is the document: the user edits it directly and it is undoable.
@@ -31,8 +35,9 @@ interface GraphState {
   select: (id: string | null) => void;
   moveNode: (id: string, x: number, y: number) => void;
   addNode: (kind: NodeKind, x: number, y: number) => void;
+  duplicateNode: (id: string, dx?: number, dy?: number) => string | null;
   removeNode: (id: string) => void;
-  addEdge: (from: string, to: string, kind: GraphEdge["kind"]) => void;
+  addEdge: (from: string, to: string, kind: GraphEdge["kind"]) => { ok: boolean; reason?: string };
   removeEdge: (id: string) => void;
   updateNode: (id: string, patch: Partial<GraphNode>) => void;
 }
@@ -76,7 +81,7 @@ function scheduleSave(graph: Graph) {
 
 export const useGraph = create<GraphState>()(
   temporal(
-    (set) => ({
+    (set, get) => ({
       graph: EMPTY,
       selectedId: null,
       saveState: "idle",
@@ -86,9 +91,11 @@ export const useGraph = create<GraphState>()(
 
       moveNode: (id, x, y) =>
         set((s) => {
+          const sx = snap(x);
+          const sy = snap(y);
           const graph = {
             ...s.graph,
-            nodes: s.graph.nodes.map((n) => (n.id === id ? { ...n, x, y } : n)),
+            nodes: s.graph.nodes.map((n) => (n.id === id ? { ...n, x: sx, y: sy } : n)),
           };
           scheduleSave(graph);
           return { graph };
@@ -101,8 +108,8 @@ export const useGraph = create<GraphState>()(
             id,
             kind,
             name: `${kind.toUpperCase()}-${id.slice(-4)}`,
-            x,
-            y,
+            x: snap(x),
+            y: snap(y),
             ...DEFAULTS[kind],
           };
           if (kind === "agent" && node.agent) {
@@ -124,15 +131,39 @@ export const useGraph = create<GraphState>()(
           return { graph, selectedId: s.selectedId === id ? null : s.selectedId };
         }),
 
+      duplicateNode: (id, dx = 30, dy = 30) => {
+        const state = get();
+        const src = state.graph.nodes.find((n) => n.id === id);
+        if (!src) return null;
+        const newId = nextId(src.kind[0]!);
+        const { id: _omit, ...rest } = src;
+        const node: GraphNode = {
+          ...rest,
+          id: newId,
+          name: `${src.name} 副本`,
+          x: snap(src.x + dx),
+          y: snap(src.y + dy),
+        };
+        const graph = { ...state.graph, nodes: [...state.graph.nodes, node] };
+        set({ graph, selectedId: newId });
+        scheduleSave(graph);
+        return newId;
+      },
+
       addEdge: (from, to, kind) =>
-        set((s) => {
-          const exists = s.graph.edges.some((e) => e.from === from && e.to === to);
-          if (exists || from === to) return s;
+        {
+          const state = get();
+          if (from === to) return { ok: false, reason: "不能连接到自身" };
+          const exists = state.graph.edges.some((e) => e.from === from && e.to === to);
+          if (exists) return { ok: false, reason: "这条管道已经存在" };
+          set((s) => {
           const edge: GraphEdge = { id: nextId("e"), from, to, kind };
           const graph = { ...s.graph, edges: [...s.graph.edges, edge] };
           scheduleSave(graph);
           return { graph };
-        }),
+          });
+          return { ok: true };
+        },
 
       removeEdge: (id) =>
         set((s) => {
@@ -152,7 +183,15 @@ export const useGraph = create<GraphState>()(
         }),
     }),
     // Only the document is undoable; selection and save state are view state.
-    { partialize: (s) => ({ graph: s.graph }), limit: 50 },
+    // Compare by graph reference: graph is replaced immutably on every real edit
+    // and left untouched by save-state/saveState writes, so this skips the
+    // spurious history entries that autosave would otherwise create (which made
+    // a single delete require two undos).
+    {
+      partialize: (s) => ({ graph: s.graph }),
+      equality: (a, b) => a.graph === b.graph,
+      limit: 50,
+    },
   ),
 );
 
