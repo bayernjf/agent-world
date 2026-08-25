@@ -261,6 +261,17 @@ app.get("/api/runs", (c) => {
   return c.json(db.listRuns(limit, offset));
 });
 
+app.get("/api/costs", (c) => {
+  const from = c.req.query("from");
+  const to = c.req.query("to");
+  return c.json(
+    db.costReport({
+      from: from ? Number(from) : undefined,
+      to: to ? Number(to) : undefined,
+    }),
+  );
+});
+
 app.post("/api/runs", async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as {
     graphId?: string;
@@ -322,6 +333,18 @@ app.post("/api/runs/:id/cancel", (c) => {
   const entry = live.get(c.req.param("id"));
   if (!entry) return c.json({ error: "not live" }, 404);
   entry.controller.abort();
+  return c.json({ ok: true });
+});
+
+app.delete("/api/runs/:id", (c) => {
+  const runId = c.req.param("id");
+  if (!db.runExists(runId)) return c.json({ error: "not found" }, 404);
+  const entry = live.get(runId);
+  if (entry && !entry.done) {
+    return c.json({ error: "run is still in progress; cancel it first" }, 409);
+  }
+  live.delete(runId);
+  db.deleteRun(runId);
   return c.json({ ok: true });
 });
 

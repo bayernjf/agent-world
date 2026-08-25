@@ -22,6 +22,7 @@ interface RunState {
   scrubSeq: number | null;
   connecting: boolean;
   connect: (runId: string) => void;
+  loadRun: (runId: string) => Promise<void>;
   disconnect: () => void;
   scrubTo: (seq: number | null) => void;
   reset: () => void;
@@ -82,6 +83,12 @@ export const useRun = create<RunState>()((set, get) => ({
     get().disconnect();
     set({ runId, events: [], live: initialRuntime, scrubSeq: null, connecting: true });
     openStream(runId, -1);
+  },
+
+  loadRun: async (runId) => {
+    get().disconnect();
+    const { events, state } = await api.getEvents(runId);
+    set({ runId, events, live: state, scrubSeq: null, connecting: false });
   },
 
   disconnect: () => {
