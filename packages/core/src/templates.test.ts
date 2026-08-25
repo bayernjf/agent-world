@@ -41,4 +41,15 @@ describe("templates", () => {
     expect(graph.nodes).toHaveLength(0);
     expect(graph.edges).toHaveLength(0);
   });
+
+  it("every non-blank template compiles without errors", () => {
+    for (const tpl of TEMPLATES) {
+      if (tpl.id === "tpl-blank") continue;
+      const graph = instantiateTemplate(tpl);
+      const result = compile(graph);
+      const errors = result.diagnostics.filter((d) => d.severity === "error");
+      expect(errors, `${tpl.id} should compile: ${errors.map((e) => e.message).join("; ")}`).toHaveLength(0);
+      expect(result.plan, `${tpl.id} should produce an executable plan`).not.toBeNull();
+    }
+  });
 });
