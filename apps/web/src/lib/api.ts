@@ -34,6 +34,17 @@ export interface ProviderTestResult {
   endpoint?: string;
 }
 
+export interface RunSummary {
+  id: string;
+  graph_id: string;
+  graph_name: string;
+  status: string;
+  trigger: string;
+  budget_usd: number | null;
+  started_at: number;
+  ended_at: number | null;
+}
+
 export const api = {
   listTemplates: () =>
     fetch("/api/templates").then(
@@ -90,6 +101,12 @@ export const api = {
 
   getEvents: (runId: string) =>
     fetch(`/api/runs/${runId}/events`).then(json<{ events: RunEvent[]; state: RuntimeState }>),
+
+  listRuns: (limit = 50, offset = 0) =>
+    fetch(`/api/runs?limit=${limit}&offset=${offset}`).then(json<RunSummary[]>),
+
+  deleteRun: (runId: string) =>
+    fetch(`/api/runs/${runId}`, { method: "DELETE" }).then(json<{ ok: true }>),
 
   getSettings: () => fetch("/api/settings").then(json<AppConfig>),
 
