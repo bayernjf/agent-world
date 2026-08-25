@@ -163,7 +163,8 @@ NodeRuntime {
 graphs (id, name, doc JSON, updated_at)
 runs   (id, graph_id, snapshot JSON, status, budget_usd, started_at, ended_at)
 events (run_id, seq, ts, version, type, payload JSON)
-node_runs (run_id, node_id, attempt, status, output, tokens_in, tokens_out, cost_usd, error)
+node_runs (run_id, node_id, attempt, status, output, reasoning, error, error_code,
+           tokens_in, tokens_out, cached_tokens, reasoning_tokens, cost_usd, units_json)
 ```
 
 `runs.snapshot` 存运行时的 graph 完整快照——产线定义之后改了，回放时仍用当时的版本。`events` 是真相源，`node_runs` 是事件 fold 的投影，用于快速查询。
@@ -204,9 +205,19 @@ Usage {
   tokensIn: number
   tokensOut: number
   cachedTokens?: number          // prompt cache 命中
+  reasoningTokens?: number       // 思考 token，部分模型单独上报
+  units?: Record<string, number> // 非 token 计量：images/seconds/characters
   costUsd: number
 }
 ```
+
+**多模态计费。** 文本/向量模型按 token（`input`/`output`/`cacheRead`，USD/1M token）；
+图片按张（`perImage`）；视频按秒（`perSecond`）；TTS 按秒或千字符
+（`perSecond`/`perKiloChar`）。价格字段随模型 modality 切换，定义集中在
+`packages/core/src/pricing.ts` 的 `PRICING_FIELDS`，`computeCost(usage, pricing)`
+统一计算。非文本模型的用量通过 `units` 上报（如 `{ images: 4 }`、`{ seconds: 30 }`、
+`{ characters: 2500 }`），键可扩展，无需事件 schema 迁移。`node_runs` 表以
+`units_json` 列持久化该 map。
 
 **事件扩展（向后兼容，可选字段）**
 

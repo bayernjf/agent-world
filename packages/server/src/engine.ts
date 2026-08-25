@@ -22,6 +22,8 @@ export interface ExecuteOptions {
   input?: string;
   /** Hard ceiling. Cost is metered after each call, so this trips late by one node. */
   budgetUsd: number | null;
+  /** Fallback model for nodes that don't specify one. */
+  defaultModel?: string;
   signal?: AbortSignal;
   /** Injected so runs are reproducible in tests. */
   now?: () => number;
@@ -41,6 +43,7 @@ const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
  */
 export async function* execute(opts: ExecuteOptions): AsyncGenerator<RunEvent, void, void> {
   const { runId, graph, plan, worker, budgetUsd } = opts;
+  const fallbackModel = opts.defaultModel ?? "agnes-2.0-flash";
   const now = opts.now ?? Date.now;
   const sleep = opts.sleep ?? delay;
 
@@ -195,7 +198,7 @@ export async function* execute(opts: ExecuteOptions): AsyncGenerator<RunEvent, v
 
     // agent
     const config = {
-      model: node.agent?.model ?? "agnes-2.0-flash",
+      model: node.agent?.model || fallbackModel,
       prompt: node.agent?.prompt ?? "",
       skills: node.agent?.skills ?? [],
       temperature: node.agent?.temperature ?? 0.7,
@@ -264,7 +267,7 @@ export async function* execute(opts: ExecuteOptions): AsyncGenerator<RunEvent, v
           nodeId,
           attempt,
           error: sanitizeError(lastError?.message ?? "agent failed with no output"),
-          errorCode: (lastError?.code as "TIMEOUT" | "RATE_LIMIT" | "PROVIDER_ERROR" | "AUTH" | "VALIDATION" | "UNKNOWN" | undefined) ?? "UNKNOWN",
+          errorCode: (lastError?.code as "TIMEOUT" | "RATE_LIMIT" | "PROVIDER_ERROR" | "AUTH" | "VALIDATION" | "UNKNOWN" | "UNSUPPORTED" | undefined) ?? "UNKNOWN",
         });
       status = "failed";
       break;
@@ -355,6 +358,7 @@ export interface ResumeOptions {
   plan: Plan;
   worker: Worker;
   budgetUsd: number | null;
+  defaultModel?: string;
   pastEvents: RunEvent[];
   action: "continue" | "scrap";
   signal?: AbortSignal;
@@ -369,6 +373,7 @@ export interface ResumeOptions {
  */
 export async function* resume(opts: ResumeOptions): AsyncGenerator<RunEvent, void, void> {
   const { runId, graph, plan, worker, budgetUsd, action } = opts;
+  const fallbackModel = opts.defaultModel ?? "agnes-2.0-flash";
   const now = opts.now ?? Date.now;
   const sleep = opts.sleep ?? delay;
   const state = reconstructState(opts.pastEvents);
@@ -517,7 +522,7 @@ export async function* resume(opts: ResumeOptions): AsyncGenerator<RunEvent, voi
     }
 
     const config = {
-      model: node.agent?.model ?? "agnes-2.0-flash",
+      model: node.agent?.model || fallbackModel,
       prompt: node.agent?.prompt ?? "",
       skills: node.agent?.skills ?? [],
       temperature: node.agent?.temperature ?? 0.7,
@@ -574,7 +579,7 @@ export async function* resume(opts: ResumeOptions): AsyncGenerator<RunEvent, voi
         nodeId,
         attempt,
         error: sanitizeError(lastError?.message ?? "agent failed with no output"),
-        errorCode: (lastError?.code as "TIMEOUT" | "RATE_LIMIT" | "PROVIDER_ERROR" | "AUTH" | "VALIDATION" | "UNKNOWN" | undefined) ?? "UNKNOWN",
+        errorCode: (lastError?.code as "TIMEOUT" | "RATE_LIMIT" | "PROVIDER_ERROR" | "AUTH" | "VALIDATION" | "UNKNOWN" | "UNSUPPORTED" | undefined) ?? "UNKNOWN",
       });
       status = "failed";
       break;

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { Diagnostic } from "@agent-world/core";
+import { UNIT_LABELS, type Diagnostic } from "@agent-world/core";
 import type { Mode } from "../canvas/Canvas";
 import { useGraph } from "../store/graph";
 import { useRun, useVisibleRuntime, resumeRun } from "../store/run";
@@ -138,6 +138,16 @@ export default function ControlPanel(props: Props) {
                 {runtime.totalCachedTokens > 0 && (
                   <div className="meter__row">
                     <span className="muted">缓存命中 {runtime.totalCachedTokens.toLocaleString()}</span>
+                  </div>
+                )}
+                {Object.entries(runtime.totalUnits).some(([, v]) => v > 0) && (
+                  <div className="meter__row">
+                    <span className="muted">
+                      {Object.entries(runtime.totalUnits)
+                        .filter(([, v]) => v > 0)
+                        .map(([k, v]) => `${v}${UNIT_LABELS[k] ?? k}`)
+                        .join(" · ")}
+                    </span>
                   </div>
                 )}
                 {!pricingConfigured && (

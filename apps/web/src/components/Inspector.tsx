@@ -1,6 +1,16 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { UNIT_LABELS } from "@agent-world/core";
+import { api, type AppConfig } from "../lib/api";
 import { useGraph } from "../store/graph";
 import { useVisibleRuntime } from "../store/run";
+
+function formatUnits(units: Record<string, number> | undefined): string | null {
+  if (!units) return null;
+  const parts = Object.entries(units)
+    .filter(([, v]) => v > 0)
+    .map(([k, v]) => `${v}${UNIT_LABELS[k] ?? k}`);
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
 
 /** Cheap line-level diff — enough to see what a rework attempt actually changed. */
 function diffLines(a: string, b: string) {
@@ -35,6 +45,7 @@ const ERROR_LABEL: Record<string, string> = {
   AUTH: "密钥错误",
   VALIDATION: "质检未通过",
   UNKNOWN: "未知错误",
+  UNSUPPORTED: "暂不支持",
 };
 
 export default function Inspector() {
@@ -42,6 +53,15 @@ export default function Inspector() {
   const runtime = useVisibleRuntime();
   const [tab, setTab] = useState<number | "diff">(1);
   const [showReasoning, setShowReasoning] = useState(false);
+  const [settings, setSettings] = useState<AppConfig | null>(null);
+  useEffect(() => {
+    api.getSettings().then(setSettings).catch(() => {});
+  }, []);
+  const modelOptions = settings
+    ? Object.entries(settings.providers)
+        .filter(([, pp]) => pp.type !== "fake" && pp.enabled !== false)
+        .flatMap(([pname, pp]) => pp.models.map((m) => ({ model: m, provider: pname })))
+    : [];
 
   const node = graph.nodes.find((n) => n.id === selectedId);
   if (!node) {
@@ -85,12 +105,24 @@ export default function Inspector() {
           <>
             <label className="field">
               <span>模型</span>
-              <input
-                value={node.agent.model}
-                onChange={(e) =>
-                  updateNode(node.id, { agent: { ...node.agent!, model: e.target.value } })
-                }
-              />
+              <select
+                className="select"
+                value={modelOptions.some((o) => o.model === node.agent!.model) ? node.agent.model : "__custom__"}
+                onChange={(e) => {
+                  if (e.target.value !== "__custom__") {
+                    updateNode(node.id, { agent: { ...node.agent!, model: e.target.value } });
+                  }
+                }}
+              >
+                {modelOptions.map((o) => (
+                  <option key={`${o.provider}::${o.model}`} value={o.model}>
+                    {o.model} · {o.provider}
+                  </option>
+                ))}
+                {!modelOptions.some((o) => o.model === node.agent!.model) && node.agent.model && (
+                  <option value={node.agent.model}>{node.agent.model} (当前)</option>
+                )}
+              </select>
             </label>
             <label className="field">
               <span>温度 ({node.agent.temperature.toFixed(2)})</span>
@@ -195,6 +227,12 @@ export default function Inspector() {
                   {rt.cachedTokens > 0 && <em className="muted"> (cache {rt.cachedTokens})</em>}
                 </dd>
               </div>
+              {formatUnits(rt.units) && (
+                <div>
+                  <dt>用量</dt>
+                  <dd>{formatUnits(rt.units)}</dd>
+                </div>
+              )}
               {rt.costUsd > 0 && (
                 <div>
                   <dt>电费</dt>
