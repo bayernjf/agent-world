@@ -1,4 +1,5 @@
 import { serve } from "@hono/node-server";
+import { randomUUID } from "node:crypto";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { streamSSE } from "hono/streaming";
@@ -43,9 +44,43 @@ app.get("/api/health", (c) => c.json({ ok: true }));
 
 app.get("/api/graphs", (c) => c.json(db.listGraphs()));
 
+app.post("/api/graphs", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as {
+    name?: string;
+    from?: string;
+  };
+  const id = randomUUID();
+  let graph: Graph;
+  if (body.from) {
+    const src = db.getGraph(body.from);
+    if (!src) return c.json({ error: "source graph not found" }, 404);
+    graph = {
+      ...src,
+      id,
+      name: body.name?.trim() || `${src.name} 副本`,
+      nodes: src.nodes.map((n) => ({ ...n })),
+      edges: src.edges.map((e) => ({ ...e })),
+    };
+  } else {
+    graph = {
+      id,
+      name: body.name?.trim() || "新产线",
+      nodes: [],
+      edges: [],
+    };
+  }
+  db.saveGraph(graph, Date.now());
+  return c.json(graph, 201);
+});
+
 app.get("/api/graphs/:id", (c) => {
   const graph = db.getGraph(c.req.param("id"));
   return graph ? c.json(graph) : c.json({ error: "not found" }, 404);
+});
+
+app.delete("/api/graphs/:id", (c) => {
+  db.deleteGraph(c.req.param("id"));
+  return c.json({ ok: true });
 });
 
 app.put("/api/graphs/:id", async (c) => {

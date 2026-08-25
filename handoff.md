@@ -271,3 +271,54 @@ Crossing curvature/obstacle avoidance is intentionally NOT a full orthogonal
 router yet. Pin distribution + bridge arcs resolve overlap and crossing
 ambiguity at low risk. A real router (obstacle avoidance, loops, stable packet
 paths) is a standalone chunk to schedule once the graph gets denser.
+
+## Node-level budget (roadmap 2.5)
+
+- `AgentConfig.budgetUsd?: number | null` (core/graph.ts) and a `BUDGET`
+  `ErrorCode` (core/events.ts).
+- The engine tracks `nodeCostUsd: Map<nodeId, number>` cumulative across a
+  nodes attempts (rework), in BOTH `execute()` and `reconstructState()`/
+  `resume()`. After each `node.finished`, if the node exceeds its budget it
+  emits `node.failed` with `errorCode: "BUDGET"` (Chinese message) and stops the
+  line. The whole-line `budgetUsd` trip runs after it.
+- Web: Inspector has a "节点预算 (USD)" number input (empty = no limit); each
+  plant shows a bottom-left `$budget` chip that turns red when over; the hover
+  nameplate shows `$spent / $budget`; the failure label maps BUDGET to
+  "节点预算超限".
+- Test: server phase1 test sets a forge budget of 0.0001 and asserts
+  `node.failed` BUDGET + run failed. Server is now 35 tests.
+- Caveat: the roadmap exit criterion says an over-budget node shouldnt affect
+  other plants. The linear engine can only stop the whole line (status=failed);
+  true node isolation requires Phase 2 parallel/branch execution. That checkbox
+  is left open in roadmap-tasks.md on purpose.
+
+## Multi-graph management (roadmap 2.3)
+
+- Server: `db.deleteGraph()`; `POST /api/graphs` creates an empty graph or
+  deep-copies `?from=<id>` (new UUID, cloned nodes/edges); `DELETE
+  /api/graphs/:id`. `GET /api/graphs` already listed them.
+- Web api client: `listGraphs`, `createGraph(name?, from?)`, `deleteGraph`.
+- `store/graph.ts` gained `flushSave()` — it flushes the 500ms autosave timer
+  and awaits the PUT, so switching graphs never drops edits.
+- New components:
+  - `GraphSwitcher.tsx` — HUD popover (uses the unified portal `Popover`, so it
+    edge-detects and isnt clipped) listing every graph with switch, double-
+    click-to-rename, duplicate, and delete. A "+ 新建产线" button at the bottom.
+  - `ConfirmDialog.tsx` — reusable backdrop modal (Escape to cancel, danger
+    variant), the projects own component instead of `window.confirm`.
+- App.tsx no longer hardcodes `GRAPH_ID = "seed"`. On mount it lists graphs and
+  loads the most recently updated; switching flushes the old graph, resets the
+  run store, loads the new one, and clears undo history. Deleting the current
+  graph loads another, or creates a fresh one if none remain. Run dispatch now
+  uses `graph.id`.
+- `graphs.test.ts` covers create/list/delete and deep-copy isolation.
+
+## Canvas polish folded in
+
+- Timeline moved to the top of the stage; undo/redo grouped in the HUD next to
+  the panel toggle.
+- Same-column stacked plants now draw a straight vertical pipe down the center
+  (`SAME_COLUMN_TOLERANCE = 4` in geometry.ts), with a downward flow arrow,
+  instead of a dogleg overlapping the node bodies.
+- Delete/Backspace removes the selected plant (previously only pipes), with an
+  undo toast.

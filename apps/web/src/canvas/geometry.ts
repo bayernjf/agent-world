@@ -10,6 +10,8 @@ const halfW = PLANT_W / 2;
 const halfH = PLANT_H / 2;
 /** Vertical spacing between fan-out/fan-in pins on a node face. */
 const PIN_GAP = 14;
+/** Two plants count as "same column" when their centers are within this. */
+const SAME_COLUMN_TOLERANCE = 4;
 
 /**
  * Distribute the edges entering/leaving a node across its face so parallel
@@ -46,6 +48,15 @@ export function edgeAnchors(graph: Graph): Map<string, { from: Point; to: Point 
     if (e.kind === "rework") {
       map.set(e.id, {
         from: { x: from.x, y: from.y - halfH },
+        to: { x: to.x, y: to.y - halfH },
+      });
+    } else if (
+      Math.abs(from.x - to.x) < SAME_COLUMN_TOLERANCE &&
+      to.y > from.y
+    ) {
+      // Vertical stack: draw straight down the center from bottom to top.
+      map.set(e.id, {
+        from: { x: from.x, y: from.y + halfH },
         to: { x: to.x, y: to.y - halfH },
       });
     } else {
@@ -86,6 +97,11 @@ export function pipePath(
   const ty = to.y;
   const mid = sx + (tx - sx) / 2;
 
+  // Vertical straight segment (same-column stack).
+  if (Math.abs(sx - tx) < SAME_COLUMN_TOLERANCE) {
+    return `M ${sx} ${sy} L ${tx} ${ty}`;
+  }
+
   if (Math.abs(sy - ty) < 2) return `M ${sx} ${sy} L ${tx} ${ty}`;
 
   const r = 12;
@@ -117,12 +133,14 @@ export interface Arrow {
   y: number;
   /** 1 = points right, -1 = points left. */
   dir: 1 | -1;
+  /** Rotation in degrees (0 = horizontal, 90 = pointing down). */
+  angle: number;
 }
 
 /**
- * Place a flow arrow on the last horizontal segment of a forward pipe, just
- * before it enters the target node. Rework pipes have no arrow (their arc
- * already reads as a backward loop).
+ * Place a flow arrow near the end of a forward pipe: on the last horizontal
+ * segment for doglegs, or pointing down the center for same-column stacks.
+ * Rework pipes have no arrow (their arc already reads as a backward loop).
  */
 export function pipeArrow(
   from: Point,
@@ -130,13 +148,17 @@ export function pipeArrow(
   kind: GraphEdge["kind"],
 ): Arrow | null {
   if (kind === "rework") return null;
+  // Same-column vertical pipe: arrow just above the target, pointing down.
+  if (Math.abs(from.x - to.x) < SAME_COLUMN_TOLERANCE) {
+    return { x: to.x, y: to.y - 14, dir: 1, angle: 90 };
+  }
   const mid = from.x + (to.x - from.x) / 2;
   // Last horizontal segment runs from mid to to.x at y=to.y.
   const lastLen = to.x - mid;
   if (Math.abs(lastLen) < 1) return null;
   const dir = lastLen > 0 ? 1 : -1;
   const t = 0.5;
-  return { x: mid + lastLen * t, y: to.y, dir };
+  return { x: mid + lastLen * t, y: to.y, dir, angle: 0 };
 }
 
 interface Seg {

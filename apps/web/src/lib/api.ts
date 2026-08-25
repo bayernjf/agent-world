@@ -34,6 +34,9 @@ export interface ProviderTestResult {
 }
 
 export const api = {
+  listGraphs: () =>
+    fetch("/api/graphs").then(json<{ id: string; name: string; updated_at: number }[]>),
+
   getGraph: (id: string) => fetch(`/api/graphs/${id}`).then(json<Graph>),
 
   saveGraph: (graph: Graph) =>
@@ -42,6 +45,16 @@ export const api = {
       headers: { "content-type": "application/json" },
       body: JSON.stringify(graph),
     }).then(json<{ ok: true }>),
+
+  createGraph: (name?: string, from?: string) =>
+    fetch("/api/graphs", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name, from }),
+    }).then(json<Graph>),
+
+  deleteGraph: (id: string) =>
+    fetch(`/api/graphs/${id}`, { method: "DELETE" }).then(json<{ ok: true }>),
 
   compile: (graph: Graph) =>
     fetch("/api/compile", {

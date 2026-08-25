@@ -7,6 +7,8 @@ import Inspector from "./components/Inspector";
 import Logo from "./components/Logo";
 import Settings from "./components/Settings";
 import ShortcutsHelp from "./components/ShortcutsHelp";
+import GraphSwitcher, { type GraphSummary } from "./components/GraphSwitcher";
+import ConfirmDialog from "./components/ConfirmDialog";
 import UndoRedo from "./components/UndoRedo";
 import Toast from "./components/Toast";
 import Timeline from "./components/Timeline";
@@ -14,10 +16,8 @@ import { api } from "./lib/api";
 import { useGraph } from "./store/graph";
 import { useRun } from "./store/run";
 
-const GRAPH_ID = "seed";
-
 export default function App() {
-  const { graph, setGraph, addNode } = useGraph();
+  const { graph, setGraph, addNode, flushSave } = useGraph();
   const { connect, reset, runId } = useRun();
 
   const [mode, setMode] = useState<Mode>("select");
@@ -27,6 +27,8 @@ export default function App() {
   const [canRun, setCanRun] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [graphs, setGraphs] = useState<GraphSummary[]>([]);
+  const [deleteTarget, setDeleteTarget] = useState<GraphSummary | null>(null);
   const [controlCollapsed, setControlCollapsed] = useState(false);
   const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
   const bothCollapsed = controlCollapsed && inspectorCollapsed;
@@ -36,9 +38,108 @@ export default function App() {
     setInspectorCollapsed(next);
   };
 
+  const refreshGraphs = useCallback(async () => {
+    try {
+      const list = await api.listGraphs();
+      setGraphs(list);
+      return list;
+    } catch (e) {
+      setError(String(e));
+      return [];
+    }
+  }, []);
+
+  const switchGraph = useCallback(
+    async (id: string) => {
+      if (id === graph.id) return;
+      await flushSave();
+      reset();
+      try {
+        const g = await api.getGraph(id);
+        setGraph(g);
+        useGraph.temporal.getState().clear();
+        setError(null);
+      } catch (e) {
+        setError(String(e));
+      }
+    },
+    [graph.id, flushSave, reset, setGraph],
+  );
+
+  const createGraph = useCallback(async () => {
+    try {
+      const g = await api.createGraph();
+      await refreshGraphs();
+      reset();
+      setGraph(g);
+      useGraph.temporal.getState().clear();
+    } catch (e) {
+      setError(String(e));
+    }
+  }, [refreshGraphs, reset, setGraph]);
+
+  const duplicateGraph = useCallback(
+    async (id: string) => {
+      try {
+        const g = await api.createGraph(undefined, id);
+        await refreshGraphs();
+        reset();
+        setGraph(g);
+        useGraph.temporal.getState().clear();
+      } catch (e) {
+        setError(String(e));
+      }
+    },
+    [refreshGraphs, reset, setGraph],
+  );
+
+  const renameGraph = useCallback(
+    async (id: string, name: string) => {
+      try {
+        if (id === graph.id) {
+          setGraph({ ...graph, name });
+        } else {
+          const g = await api.getGraph(id);
+          await api.saveGraph({ ...g, name });
+        }
+        await refreshGraphs();
+      } catch (e) {
+        setError(String(e));
+      }
+    },
+    [graph, refreshGraphs, setGraph],
+  );
+
+  const confirmDelete = useCallback(async () => {
+    if (!deleteTarget) return;
+    const targetId = deleteTarget.id;
+    setDeleteTarget(null);
+    try {
+      await api.deleteGraph(targetId);
+      let list = await refreshGraphs();
+      if (targetId === graph.id) {
+        if (list.length === 0) {
+          const g = await api.createGraph();
+          list = await refreshGraphs();
+          reset();
+          setGraph(g);
+        } else {
+          await switchGraph(list[0]!.id);
+        }
+      }
+      useGraph.temporal.getState().clear();
+    } catch (e) {
+      setError(String(e));
+    }
+  }, [deleteTarget, graph.id, refreshGraphs, reset, setGraph, switchGraph]);
+
   useEffect(() => {
-    api.getGraph(GRAPH_ID).then(setGraph).catch((e) => setError(String(e)));
-  }, [setGraph]);
+    refreshGraphs().then((list) => {
+      if (list.length > 0) {
+        api.getGraph(list[0]!.id).then(setGraph).catch((e) => setError(String(e)));
+      }
+    });
+  }, [refreshGraphs, setGraph]);
 
   // The compiler is dependency-free, so diagnostics could run locally; going
   // through the server keeps one implementation authoritative while we settle it.
@@ -66,7 +167,7 @@ export default function App() {
       setError(null);
       reset();
       await api.saveGraph(graph);
-      const { runId: id } = await api.startRun(GRAPH_ID, budget, rawMaterial.trim() || undefined);
+      const { runId: id } = await api.startRun(graph.id, budget, rawMaterial.trim() || undefined);
       connect(id);
     } catch (e) {
       setError(String(e));
@@ -102,11 +203,31 @@ export default function App() {
           </span>
         </div>
         <div className="hud__meta">
-          <span>{graph.name}</span>
+          <GraphSwitcher
+            graphs={graphs}
+            currentId={graph.id}
+            onSwitch={switchGraph}
+            onCreate={createGraph}
+            onDuplicate={duplicateGraph}
+            onDelete={(id) =>
+              setDeleteTarget(graphs.find((g) => g.id === id) ?? null)
+            }
+            onRename={renameGraph}
+          />
           <span className="muted">{graph.nodes.length} 座厂房</span>
           <span className="muted">{graph.edges.length} 条管道</span>
         </div>
         <div className="hud__actions">
+          <div className="hud__undo-redo">
+            <UndoRedo />
+          </div>
+          <button
+            className="chip stage__panel-toggle"
+            onClick={toggleBoth}
+            title={bothCollapsed ? "展开全部侧栏" : "收起全部侧栏"}
+          >
+            {bothCollapsed ? "展开侧栏" : "收起侧栏"}
+          </button>
           <ShortcutsHelp />
           <button className="chip" onClick={() => addNode("agent", 300, 480)}>
             + 厂房
@@ -139,11 +260,8 @@ export default function App() {
         />
 
         <main className="stage">
-          <div className="stage__topbar">
-            <UndoRedo />
-          </div>
-          <Canvas mode={mode} />
           <Timeline />
+          <Canvas mode={mode} />
           <button
             className={`stage__control-toggle ${controlCollapsed ? "is-collapsed" : ""}`}
             onClick={() => setControlCollapsed((v) => !v)}
@@ -158,13 +276,6 @@ export default function App() {
           >
             {inspectorCollapsed ? "›" : "‹"}
           </button>
-          <button
-            className="stage__panel-toggle"
-            onClick={toggleBoth}
-            title={bothCollapsed ? "展开全部侧栏" : "收起全部侧栏"}
-          >
-            {bothCollapsed ? "展开侧栏" : "收起侧栏"}
-          </button>
           <Minimap />
         </main>
 
@@ -175,6 +286,19 @@ export default function App() {
 
       <Toast />
       <Settings open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title="删除产线"
+        description={
+          deleteTarget
+            ? `确定删除「${deleteTarget.name}」吗？该产线的所有运行记录不会被删除，但此操作不可撤销。`
+            : ""
+        }
+        confirmLabel="删除"
+        danger
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </div>
   );
 }

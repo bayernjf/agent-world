@@ -123,6 +123,14 @@ export default function Plants({
               ...(hoveredRt.costUsd > 0
                 ? [{ label: "电费", value: `$${hoveredRt.costUsd.toFixed(4)}` }]
                 : []),
+              ...(hovered.agent?.budgetUsd
+                ? [
+                    {
+                      label: "节点预算",
+                      value: `$${(hoveredRt?.costUsd ?? 0).toFixed(4)} / $${hovered.agent.budgetUsd.toFixed(4)}`,
+                    },
+                  ]
+                : []),
             ]
           : []),
       ]
@@ -202,6 +210,19 @@ export default function Plants({
                   </text>
                 </g>
               )}
+
+              {node.agent?.budgetUsd ? (
+                <g
+                  className={`plant__budget-chip ${
+                    rt && rt.costUsd > node.agent.budgetUsd ? "is-over" : ""
+                  }`}
+                >
+                  <rect x={12} y={PLANT_H - 22} width={56} height={15} rx={2} />
+                  <text className="plant__budget" x={40} y={PLANT_H - 11} textAnchor="middle">
+                    ${node.agent.budgetUsd.toFixed(3)}
+                  </text>
+                </g>
+              ) : null}
 
               <circle className="rivet" cx={6} cy={PLANT_H - 6} r={2} />
               <circle className="rivet" cx={PLANT_W - 6} cy={PLANT_H - 6} r={2} />

@@ -11,3 +11,5 @@ dist/
 .claude/
 agent-world.config.json
 *.config.local.json
+
+.playwright-cli/

@@ -1,7 +1,7 @@
 import { compile, replay, type GraphNode, type AgentConfig, type Usage } from "@agent-world/core";
 import { describe, expect, it } from "vitest";
 import { execute, reconstructState, resume } from "./engine.js";
-import type { AgentChunk, Worker } from "./worker.js";
+import { fakeWorker, type AgentChunk, type Worker } from "./worker.js";
 import { sanitizeError } from "./sanitize.js";
 import { ProviderError } from "./providers/openai-compatible.js";
 
@@ -278,6 +278,25 @@ describe("halt and resume", () => {
     )) as any[];
 
     const finished = cont.find((e) => e.type === "run.finished")!;
+    expect(finished.status).toBe("failed");
+  });
+});
+
+describe("node-level budget", () => {
+  it("fails a node when its per-node budget is exceeded", async () => {
+    const graph = linearGraph();
+    const forge = graph.nodes.find((n) => n.id === "forge")!;
+    forge.agent = { ...forge.agent!, budgetUsd: 0.0001 };
+    const { plan } = compile(graph)!;
+
+    const events = (await drain(
+      execute({ runId: "r", graph, plan, worker: fakeWorker({ chunkDelayMs: 0 }), budgetUsd: null, now: () => 0 }),
+    )) as any[];
+
+    const failed = events.find((e) => e.type === "node.failed" && e.nodeId === "forge");
+    expect(failed).toBeTruthy();
+    expect(failed.errorCode).toBe("BUDGET");
+    const finished = events.find((e) => e.type === "run.finished")!;
     expect(finished.status).toBe("failed");
   });
 });
