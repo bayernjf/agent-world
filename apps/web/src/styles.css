@@ -2135,3 +2135,101 @@ select {
   border-color: rgba(53, 224, 240, 0.4);
   background: rgba(53, 224, 240, 0.08);
 }
+
+/* ---- Cost report ---- */
+.modal--wide {
+  width: 820px;
+  max-width: calc(100vw - 48px);
+}
+.cost-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 20px;
+}
+.cost-stat {
+  background: var(--steel-850);
+  border: var(--hair);
+  border-radius: 4px;
+  padding: 12px 14px;
+}
+.cost-stat__label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-bottom: 6px;
+}
+.cost-stat__value {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.cost-stat__value--accent {
+  color: var(--power);
+}
+.cost-stat__value--warn {
+  color: var(--alert);
+}
+.cost-section {
+  margin-bottom: 22px;
+}
+.cost-section__title {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  margin: 0 0 10px;
+  font-weight: 500;
+}
+.cost-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 120px;
+  padding: 10px 4px 0;
+  background: var(--steel-850);
+  border: var(--hair);
+  border-radius: 4px;
+  overflow-x: auto;
+}
+.cost-chart__col {
+  flex: 1 0 12px;
+  max-width: 28px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  height: 100%;
+  min-width: 12px;
+}
+.cost-chart__bar-wrap {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  align-items: flex-end;
+}
+.cost-chart__bar {
+  width: 100%;
+  background: linear-gradient(180deg, var(--power), var(--power-dim));
+  border-radius: 2px 2px 0 0;
+  min-height: 2px;
+}
+.cost-chart__col:hover .cost-chart__bar {
+  background: linear-gradient(180deg, #ffce5c, var(--power));
+}
+.cost-chart__label {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--ink-faint);
+  margin-top: 6px;
+  transform: rotate(-45deg);
+  transform-origin: center top;
+  white-space: nowrap;
+}
+.cost-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}

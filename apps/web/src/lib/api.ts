@@ -34,6 +34,49 @@ export interface ProviderTestResult {
   endpoint?: string;
 }
 
+export interface CostReport {
+  totals: {
+    cost_usd: number;
+    tokens_in: number;
+    tokens_out: number;
+    cached_tokens: number;
+    reasoning_tokens: number;
+    runs: number;
+  };
+  byGraph: Array<{
+    graph_id: string;
+    graph_name: string;
+    cost_usd: number;
+    tokens_in: number;
+    tokens_out: number;
+    runs: number;
+  }>;
+  byNode: Array<{
+    graph_id: string;
+    graph_name: string;
+    node_id: string;
+    cost_usd: number;
+    tokens_in: number;
+    tokens_out: number;
+    attempts: number;
+    reworks: number;
+  }>;
+  byAttempt: Array<{
+    attempt: number;
+    calls: number;
+    cost_usd: number;
+    tokens_in: number;
+    tokens_out: number;
+  }>;
+  byDay: Array<{
+    day: string;
+    runs: number;
+    cost_usd: number;
+    tokens_in: number;
+    tokens_out: number;
+  }>;
+}
+
 export interface RunSummary {
   id: string;
   graph_id: string;
@@ -107,6 +150,14 @@ export const api = {
 
   deleteRun: (runId: string) =>
     fetch(`/api/runs/${runId}`, { method: "DELETE" }).then(json<{ ok: true }>),
+
+  costReport: (from?: number, to?: number) => {
+    const qs = new URLSearchParams();
+    if (from !== undefined) qs.set("from", String(from));
+    if (to !== undefined) qs.set("to", String(to));
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return fetch(`/api/costs${suffix}`).then(json<CostReport>);
+  },
 
   getSettings: () => fetch("/api/settings").then(json<AppConfig>),
 
