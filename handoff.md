@@ -426,3 +426,12 @@ paths) is a standalone chunk to schedule once the graph gets denser.
   marker and that `all` passes input through unchanged. Server now 49 tests.
 - Deferred: true rolling summaries (LLM-based compaction) — truncation is the
   cheap guard; a summarizer skill/agent can come later.
+
+## More templates (roadmap 2.4)
+
+- Added `tpl-draft` (写草稿: 主题→初稿→润色→质检→成稿), `tpl-translation`
+  (翻译流水线: 原文→初译→校对→质检→译文), `tpl-doc-review` (文档审查:
+  待审文档→问题清单→修订建议→质检→审查报告). All have rework loops.
+- Catalog now ships 4 practical templates plus blank; core test asserts every
+  non-blank template compiles to an executable plan. Core now 27 tests.
+- Remaining 2.4 item: template preview thumbnails.

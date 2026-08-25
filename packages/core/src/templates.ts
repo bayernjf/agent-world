@@ -145,7 +145,193 @@ const blankGraph = {
   },
 } satisfies GraphTemplate;
 
-export const TEMPLATES: GraphTemplate[] = [productDetailGraph, blankGraph];
+const draftGraph = {
+  id: "tpl-draft",
+  name: "写草稿",
+  description: "主题 → 初稿 → 润色 → 质检 → 成稿，通用写作流水线",
+  category: "写作",
+  graph: {
+    id: "tpl-draft",
+    name: "写草稿",
+    nodes: [
+      { id: "intake", kind: "source", name: "主题", x: 80, y: 300 },
+      {
+        id: "draft",
+        kind: "agent",
+        name: "初稿",
+        x: 360,
+        y: 300,
+        agent: {
+          model: "agnes-2.0-flash",
+          prompt:
+            "你是写作助手。根据给定主题写一篇结构完整的初稿，包含开头、主体分点和结尾。",
+          skills: [],
+        },
+      },
+      {
+        id: "polish",
+        kind: "agent",
+        name: "润色",
+        x: 640,
+        y: 300,
+        agent: {
+          model: "agnes-2.0-flash",
+          prompt:
+            "你是文字编辑。润色初稿：让语言更流畅、删除冗余、统一语气，但不要改变核心观点。",
+          skills: [],
+        },
+      },
+      {
+        id: "qc",
+        kind: "gate",
+        name: "质检",
+        x: 920,
+        y: 300,
+        gate: {
+          maxAttempts: 3,
+          criterion: "必须结构完整、无明显语病、不少于三段。",
+          onExhausted: "halt",
+        },
+      },
+      { id: "depot", kind: "sink", name: "成稿", x: 1200, y: 300 },
+    ],
+    edges: [
+      { id: "e1", from: "intake", to: "draft", kind: "flow" },
+      { id: "e2", from: "draft", to: "polish", kind: "flow" },
+      { id: "e3", from: "polish", to: "qc", kind: "flow" },
+      { id: "e4", from: "qc", to: "depot", kind: "flow" },
+      { id: "r1", from: "qc", to: "draft", kind: "rework" },
+    ],
+  },
+} satisfies GraphTemplate;
+
+const translationGraph = {
+  id: "tpl-translation",
+  name: "翻译流水线",
+  description: "原文 → 初译 → 校对润色 → 质检 → 译文",
+  category: "写作",
+  graph: {
+    id: "tpl-translation",
+    name: "翻译流水线",
+    nodes: [
+      { id: "intake", kind: "source", name: "原文", x: 80, y: 300 },
+      {
+        id: "translate",
+        kind: "agent",
+        name: "初译",
+        x: 360,
+        y: 300,
+        agent: {
+          model: "agnes-2.0-flash",
+          prompt:
+            "你是专业译者。把输入文本翻译成中文，忠实原意，不增删信息。先给译文，再给术语说明。",
+          skills: [],
+        },
+      },
+      {
+        id: "review",
+        kind: "agent",
+        name: "校对",
+        x: 640,
+        y: 300,
+        agent: {
+          model: "agnes-2.0-flash",
+          prompt:
+            "你是译审。对照原意检查初译：错译、漏译、生硬表达，输出修订后的流畅译文。",
+          skills: [],
+        },
+      },
+      {
+        id: "qc",
+        kind: "gate",
+        name: "质检",
+        x: 920,
+        y: 300,
+        gate: {
+          maxAttempts: 3,
+          criterion: "译文完整覆盖原意，无语义遗漏，中文自然通顺。",
+          onExhausted: "halt",
+        },
+      },
+      { id: "depot", kind: "sink", name: "译文", x: 1200, y: 300 },
+    ],
+    edges: [
+      { id: "e1", from: "intake", to: "translate", kind: "flow" },
+      { id: "e2", from: "translate", to: "review", kind: "flow" },
+      { id: "e3", from: "review", to: "qc", kind: "flow" },
+      { id: "e4", from: "qc", to: "depot", kind: "flow" },
+      { id: "r1", from: "qc", to: "translate", kind: "rework" },
+    ],
+  },
+} satisfies GraphTemplate;
+
+const docReviewGraph = {
+  id: "tpl-doc-review",
+  name: "文档审查",
+  description: "文档 → 问题清单 → 修订建议 → 质检 → 审查报告",
+  category: "审查",
+  graph: {
+    id: "tpl-doc-review",
+    name: "文档审查",
+    nodes: [
+      { id: "intake", kind: "source", name: "待审文档", x: 80, y: 300 },
+      {
+        id: "issues",
+        kind: "agent",
+        name: "问题清单",
+        x: 360,
+        y: 300,
+        agent: {
+          model: "agnes-2.0-flash",
+          prompt:
+            "你是文档审查员。逐段检查文档，列出问题：事实错误、逻辑矛盾、表述不清、缺漏。每条标明位置和问题。",
+          skills: [],
+        },
+      },
+      {
+        id: "suggest",
+        kind: "agent",
+        name: "修订建议",
+        x: 640,
+        y: 300,
+        agent: {
+          model: "agnes-2.0-flash",
+          prompt:
+            "针对问题清单给出具体的修改建议，最好给出可直接替换的文字。输出一份审查报告。",
+          skills: [],
+        },
+      },
+      {
+        id: "qc",
+        kind: "gate",
+        name: "质检",
+        x: 920,
+        y: 300,
+        gate: {
+          maxAttempts: 3,
+          criterion: "报告必须覆盖所有发现的问题，每条建议具体可执行。",
+          onExhausted: "halt",
+        },
+      },
+      { id: "depot", kind: "sink", name: "审查报告", x: 1200, y: 300 },
+    ],
+    edges: [
+      { id: "e1", from: "intake", to: "issues", kind: "flow" },
+      { id: "e2", from: "issues", to: "suggest", kind: "flow" },
+      { id: "e3", from: "suggest", to: "qc", kind: "flow" },
+      { id: "e4", from: "qc", to: "depot", kind: "flow" },
+      { id: "r1", from: "qc", to: "issues", kind: "rework" },
+    ],
+  },
+} satisfies GraphTemplate;
+
+export const TEMPLATES: GraphTemplate[] = [
+  productDetailGraph,
+  draftGraph,
+  translationGraph,
+  docReviewGraph,
+  blankGraph,
+];
 
 export function getTemplate(id: string): GraphTemplate | undefined {
   return TEMPLATES.find((t) => t.id === id);
