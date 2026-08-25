@@ -62,7 +62,8 @@ describe("compile", () => {
     const g = baseline();
     g.edges = [...g.edges, edge("c1", "depot", "intake")];
     expect(compile(g).plan).toBeNull();
-    expect(errors(g)[0]).toMatch(/loop/i);
+    expect(errors(g)[0]).toContain("正向管道形成了环");
+    expect(errors(g)[0]).toMatch(/DEPOT → INTAKE/);
   });
 
   it("rejects a rework line that does not start at a gate", () => {

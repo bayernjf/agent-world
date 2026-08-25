@@ -57,6 +57,55 @@ function topoSort(graph: Graph): string[] | null {
   return order.length === graph.nodes.length ? order : null;
 }
 
+/** Find one cycle made of flow edges and return the node ids on it. */
+function findFlowCycle(graph: Graph): string[] | null {
+  const WHITE = 0, GRAY = 1, BLACK = 2;
+  const color = new Map<string, number>();
+  for (const n of graph.nodes) color.set(n.id, WHITE);
+  const parent = new Map<string, string | null>();
+
+  const dfs = (start: string): string[] | null => {
+    const stack: { id: string; i: number }[] = [{ id: start, i: 0 }];
+    color.set(start, GRAY);
+    parent.set(start, null);
+    while (stack.length) {
+      const frame = stack[stack.length - 1]!;
+      const outs = graph.edges.filter((e) => e.kind === "flow" && e.from === frame.id);
+      if (frame.i < outs.length) {
+        const next = outs[frame.i++]!.to;
+        const c = color.get(next) ?? WHITE;
+        if (c === GRAY) {
+          const cycle = [next];
+          let cur: string | undefined = frame.id;
+          while (cur && cur !== next) {
+            cycle.push(cur);
+            cur = parent.get(cur) ?? undefined;
+          }
+          cycle.push(next);
+          return cycle.reverse();
+        }
+        if (c === WHITE) {
+          color.set(next, GRAY);
+          parent.set(next, frame.id);
+          stack.push({ id: next, i: 0 });
+        }
+      } else {
+        color.set(frame.id, BLACK);
+        stack.pop();
+      }
+    }
+    return null;
+  };
+
+  for (const n of graph.nodes) {
+    if (color.get(n.id) === WHITE) {
+      const cycle = dfs(n.id);
+      if (cycle) return cycle;
+    }
+  }
+  return null;
+}
+
 /** Ancestors of `id` following flow edges backwards. */
 function ancestorsOf(graph: Graph, id: string): Set<string> {
   const seen = new Set<string>();
@@ -101,9 +150,15 @@ export function compile(graph: Graph): CompileResult {
 
   const order = topoSort(graph);
   if (!order) {
+    const cycle = findFlowCycle(graph);
+    const names = cycle
+      ?.map((id) => graph.nodes.find((n) => n.id === id)?.name ?? id)
+      .join(" → ");
     diagnostics.push({
       severity: "error",
-      message: "Flow pipes form a loop. Send work backwards with a rework line off a gate instead.",
+      message: names
+        ? `正向管道形成了环（${names}）。需要往回传的工作请用质检站引出的「返工线」，不要用普通连线。`
+        : "正向管道形成了环。需要往回传的工作请用质检站引出的「返工线」，不要用普通连线。",
     });
   }
 
