@@ -188,6 +188,31 @@ select {
   margin-top: 6px;
 }
 
+/* ---------- source image list ---------- */
+.image-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.image-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.image-row input {
+  flex: 1;
+  min-width: 0;
+}
+.image-row .icon-btn {
+  flex: none;
+  width: 26px;
+  height: 26px;
+}
+.image-list__add {
+  width: 100%;
+  margin-top: 2px;
+}
+
 /* ---------- shortcuts help ---------- */
 .shortcuts {
   position: relative;
