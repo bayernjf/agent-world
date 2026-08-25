@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS node_runs (
   cached_tokens  INTEGER NOT NULL DEFAULT 0,
   reasoning_tokens INTEGER NOT NULL DEFAULT 0,
   cost_usd       REAL NOT NULL DEFAULT 0,
+  units_json     TEXT,
   PRIMARY KEY (run_id, node_id, attempt)
 );
 `;
@@ -92,7 +93,7 @@ export function openDb(file: string) {
     ),
     finishNodeRun: db.prepare(
       `UPDATE node_runs SET status = ?, output = ?, tokens_in = ?, tokens_out = ?,
-        cached_tokens = ?, reasoning_tokens = ?, cost_usd = ?
+        cached_tokens = ?, reasoning_tokens = ?, cost_usd = ?, units_json = ?
        WHERE run_id = ? AND node_id = ? AND attempt = ?`,
     ),
     failNodeRun: db.prepare(
@@ -193,6 +194,7 @@ export function openDb(file: string) {
             event.usage.cachedTokens ?? 0,
             event.usage.reasoningTokens ?? 0,
             event.usage.costUsd,
+            event.usage.units ? JSON.stringify(event.usage.units) : null,
             runId,
             event.nodeId,
             event.attempt,
@@ -246,4 +248,5 @@ function runMigrations(db: DatabaseSync) {
   addColumn("node_runs", "error_code TEXT");
   addColumn("node_runs", "cached_tokens INTEGER NOT NULL DEFAULT 0");
   addColumn("node_runs", "reasoning_tokens INTEGER NOT NULL DEFAULT 0");
+  addColumn("node_runs", "units_json TEXT");
 }
