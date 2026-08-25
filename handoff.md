@@ -410,3 +410,19 @@ paths) is a standalone chunk to schedule once the graph gets denser.
   (end-to-end tool call + audit). Server now 47 tests, core 26.
 - Remaining 2.2 items: prompt-module cards, output-contract cards, and
   halt-on-dangerous-action (deferred until write-capable tools exist).
+
+## Input policy / context window (roadmap 2.1 remaining)
+
+- `AgentConfig.inputPolicy` (core/graph.ts): `{ mode: "all" | "last" | "truncate", maxChars? }`,
+  defaulting to `all` (backward compatible). `all` concatenates every upstream
+  artifact; `last` takes only the most recent (useful for long sequential
+  pipelines); `truncate` caps to `maxChars` keeping the tail with a
+  "...[前 N 字符已截断]..." marker.
+- Engine `assembleInput()` helper used by `inputFor()` in the scheduler; the
+  rework rejection note is still appended after assembly.
+- Web Inspector gets an "输入策略" select plus a "最大字符数" input when
+  truncate is chosen. New nodes default to `all`.
+- Test: `engine.inputpolicy.test.ts` verifies truncation caps length with the
+  marker and that `all` passes input through unchanged. Server now 49 tests.
+- Deferred: true rolling summaries (LLM-based compaction) — truncation is the
+  cheap guard; a summarizer skill/agent can come later.
