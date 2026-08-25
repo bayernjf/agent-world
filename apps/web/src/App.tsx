@@ -6,6 +6,7 @@ import ControlPanel from "./components/ControlPanel";
 import Inspector from "./components/Inspector";
 import Logo from "./components/Logo";
 import Settings from "./components/Settings";
+import ShortcutsHelp from "./components/ShortcutsHelp";
 import UndoRedo from "./components/UndoRedo";
 import Toast from "./components/Toast";
 import Timeline from "./components/Timeline";
@@ -106,6 +107,7 @@ export default function App() {
           <span className="muted">{graph.edges.length} 条管道</span>
         </div>
         <div className="hud__actions">
+          <ShortcutsHelp />
           <button className="chip" onClick={() => addNode("agent", 300, 480)}>
             + 厂房
           </button>
