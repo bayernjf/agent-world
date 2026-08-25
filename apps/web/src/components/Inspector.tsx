@@ -44,6 +44,7 @@ const ERROR_LABEL: Record<string, string> = {
   PROVIDER_ERROR: "模型服务错误",
   AUTH: "密钥错误",
   VALIDATION: "质检未通过",
+  BUDGET: "节点预算超限",
   UNKNOWN: "未知错误",
   UNSUPPORTED: "暂不支持",
 };
@@ -135,6 +136,24 @@ export default function Inspector() {
                 onChange={(e) =>
                   updateNode(node.id, {
                     agent: { ...node.agent!, temperature: Number(e.target.value) },
+                  })
+                }
+              />
+            </label>
+            <label className="field">
+              <span>节点预算 (USD，留空不限制)</span>
+              <input
+                type="number"
+                min="0"
+                step="0.001"
+                placeholder="不限制"
+                value={node.agent.budgetUsd ?? ""}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    agent: {
+                      ...node.agent!,
+                      budgetUsd: e.target.value === "" ? null : Number(e.target.value),
+                    },
                   })
                 }
               />

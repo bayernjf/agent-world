@@ -1076,6 +1076,23 @@ select {
   stroke: rgba(255, 176, 32, 0.4);
   stroke-width: 1;
 }
+.plant__budget {
+  fill: var(--ink-dim);
+  font-family: var(--mono);
+  font-size: 9px;
+}
+.plant__budget-chip rect {
+  fill: rgba(86, 107, 120, 0.14);
+  stroke: rgba(86, 107, 120, 0.4);
+  stroke-width: 1;
+}
+.plant__budget-chip.is-over .plant__budget {
+  fill: var(--alert);
+}
+.plant__budget-chip.is-over rect {
+  fill: rgba(255, 74, 61, 0.14);
+  stroke: rgba(255, 74, 61, 0.5);
+}
 
 .plant--gate .plant__bar {
   fill: #1d2b22;
