@@ -51,6 +51,8 @@ export async function* execute(opts: ExecuteOptions): AsyncGenerator<RunEvent, v
   const emit = (e: DraftEvent): RunEvent => ({ ...e, seq: seq++, ts: now() });
 
   let totalCostUsd = 0;
+  /** Cumulative cost per node across all its attempts (rework). */
+  const nodeCostUsd = new Map<string, number>();
   /** Latest artifact produced by each node, used to feed downstream inputs. */
   const artifacts = new Map<string, string>();
   const attempts = new Map<string, number>();
@@ -285,6 +287,23 @@ export async function* execute(opts: ExecuteOptions): AsyncGenerator<RunEvent, v
     totalCostUsd += result.usage.costUsd;
     yield emit({ type: "power.metered", totalCostUsd, budgetUsd });
 
+    // Per-node hard ceiling: a single plant going over budget stops that node
+    // (and the line) without waiting for the whole-plant budget to trip.
+    const nodeSpent = (nodeCostUsd.get(nodeId) ?? 0) + result.usage.costUsd;
+    nodeCostUsd.set(nodeId, nodeSpent);
+    const nodeBudget = node.agent?.budgetUsd;
+    if (nodeBudget != null && nodeBudget > 0 && nodeSpent > nodeBudget) {
+      yield emit({
+        type: "node.failed",
+        nodeId,
+        attempt,
+        error: `节点预算 $${nodeBudget.toFixed(4)} 已超出（已花 $${nodeSpent.toFixed(4)}）`,
+        errorCode: "BUDGET",
+      });
+      status = "failed";
+      break;
+    }
+
     if (budgetUsd !== null && totalCostUsd > budgetUsd) {
       yield emit({ type: "power.tripped", totalCostUsd, budgetUsd });
       status = "tripped";
@@ -311,6 +330,7 @@ export interface ResumeState {
   artifacts: Map<string, string>;
   attempts: Map<string, number>;
   totalCostUsd: number;
+  nodeCostUsd: Map<string, number>;
   haltedNodeId: string | null;
   lastSeq: number;
 }
@@ -322,6 +342,7 @@ export interface ResumeState {
 export function reconstructState(events: RunEvent[]): ResumeState {
   const artifacts = new Map<string, string>();
   const attempts = new Map<string, number>();
+  const nodeCostUsd = new Map<string, number>();
   let totalCostUsd = 0;
   let haltedNodeId: string | null = null;
   let lastSeq = -1;
@@ -332,6 +353,7 @@ export function reconstructState(events: RunEvent[]): ResumeState {
       case "node.finished":
         artifacts.set(e.nodeId, e.output);
         totalCostUsd += e.usage.costUsd;
+        nodeCostUsd.set(e.nodeId, (nodeCostUsd.get(e.nodeId) ?? 0) + e.usage.costUsd);
         break;
       case "node.started":
         attempts.set(e.nodeId, e.attempt);
@@ -349,7 +371,7 @@ export function reconstructState(events: RunEvent[]): ResumeState {
         break;
     }
   }
-  return { artifacts, attempts, totalCostUsd, haltedNodeId, lastSeq };
+  return { artifacts, attempts, totalCostUsd, nodeCostUsd, haltedNodeId, lastSeq };
 }
 
 export interface ResumeOptions {
@@ -388,6 +410,7 @@ export async function* resume(opts: ResumeOptions): AsyncGenerator<RunEvent, voi
 
   const artifacts = state.artifacts;
   const attempts = state.attempts;
+  const nodeCostUsd = state.nodeCostUsd;
   let totalCostUsd = state.totalCostUsd;
   let status: Status = "done";
 
@@ -595,6 +618,20 @@ export async function* resume(opts: ResumeOptions): AsyncGenerator<RunEvent, voi
     });
     totalCostUsd += result.usage.costUsd;
     yield emit({ type: "power.metered", totalCostUsd, budgetUsd });
+    const nodeSpent = (nodeCostUsd.get(nodeId) ?? 0) + result.usage.costUsd;
+    nodeCostUsd.set(nodeId, nodeSpent);
+    const nodeBudget = node.agent?.budgetUsd;
+    if (nodeBudget != null && nodeBudget > 0 && nodeSpent > nodeBudget) {
+      yield emit({
+        type: "node.failed",
+        nodeId,
+        attempt,
+        error: `节点预算 $${nodeBudget.toFixed(4)} 已超出（已花 $${nodeSpent.toFixed(4)}）`,
+        errorCode: "BUDGET",
+      });
+      status = "failed";
+      break;
+    }
     if (budgetUsd !== null && totalCostUsd > budgetUsd) {
       yield emit({ type: "power.tripped", totalCostUsd, budgetUsd });
       status = "tripped";
