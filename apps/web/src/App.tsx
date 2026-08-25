@@ -13,6 +13,8 @@ import NewGraphDialog from "./components/NewGraphDialog";
 import UndoRedo from "./components/UndoRedo";
 import Toast from "./components/Toast";
 import Timeline from "./components/Timeline";
+import RunHistory from "./components/RunHistory";
+import CostReport from "./components/CostReport";
 import { api } from "./lib/api";
 import { useGraph } from "./store/graph";
 import { useRun } from "./store/run";
@@ -33,6 +35,8 @@ export default function App() {
   const [deleteTarget, setDeleteTarget] = useState<GraphSummary | null>(null);
   const [controlCollapsed, setControlCollapsed] = useState(false);
   const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [costOpen, setCostOpen] = useState(false);
   const bothCollapsed = controlCollapsed && inspectorCollapsed;
   const toggleBoth = () => {
     const next = !bothCollapsed;
@@ -231,6 +235,12 @@ export default function App() {
             {bothCollapsed ? "展开侧栏" : "收起侧栏"}
           </button>
           <ShortcutsHelp />
+          <button className="chip" onClick={() => setHistoryOpen(true)} title="运行历史">
+            历史
+          </button>
+          <button className="chip" onClick={() => setCostOpen(true)} title="成本报表">
+            成本
+          </button>
           <button className="chip" onClick={() => addNode("agent", 300, 480)}>
             + 厂房
           </button>
@@ -286,6 +296,8 @@ export default function App() {
         </div>
       </div>
 
+      <RunHistory open={historyOpen} onClose={() => setHistoryOpen(false)} />
+      <CostReport open={costOpen} onClose={() => setCostOpen(false)} />
       <Toast />
       <Settings open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       <NewGraphDialog

@@ -78,7 +78,9 @@ export function openDb(file: string) {
     finishRun: db.prepare(`UPDATE runs SET status = ?, ended_at = ? WHERE id = ?`),
     getRun: db.prepare(`SELECT * FROM runs WHERE id = ?`),
     listRuns: db.prepare(
-      `SELECT id, graph_id, status, trigger, budget_usd, started_at, ended_at FROM runs ORDER BY started_at DESC LIMIT ? OFFSET ?`,
+      `SELECT r.id, r.graph_id, COALESCE(g.name, '(已删除产线)') AS graph_name, r.status, r.trigger, r.budget_usd, r.started_at, r.ended_at
+       FROM runs r LEFT JOIN graphs g ON g.id = r.graph_id
+       ORDER BY r.started_at DESC LIMIT ? OFFSET ?`,
     ),
     insertEvent: db.prepare(
       `INSERT INTO events (run_id, seq, ts, version, type, payload) VALUES (?, ?, ?, ?, ?, ?)`,
@@ -103,6 +105,9 @@ export function openDb(file: string) {
     markInterrupted: db.prepare(
       `UPDATE runs SET status = 'interrupted', ended_at = ? WHERE status = 'running'`,
     ),
+    deleteRun: db.prepare(`DELETE FROM runs WHERE id = ?`),
+    deleteEvents: db.prepare(`DELETE FROM events WHERE run_id = ?`),
+    deleteNodeRuns: db.prepare(`DELETE FROM node_runs WHERE run_id = ?`),
   };
 
   return {
@@ -161,6 +166,7 @@ export function openDb(file: string) {
       return stmts.listRuns.all(limit, offset) as Array<{
         id: string;
         graph_id: string;
+        graph_name: string;
         status: string;
         trigger: string;
         budget_usd: number | null;
@@ -231,6 +237,145 @@ export function openDb(file: string) {
     /** Mark any runs left in 'running' state (e.g. after a server restart) as interrupted. */
     markZombiesInterrupted(at: number) {
       stmts.markInterrupted.run(at);
+    },
+
+    deleteRun(runId: string) {
+      stmts.deleteEvents.run(runId);
+      stmts.deleteNodeRuns.run(runId);
+      stmts.deleteRun.run(runId);
+    },
+
+    /**
+     * Aggregate cost/token usage over completed (non-running) node attempts.
+     * `from`/`to` are epoch milliseconds filtering by run start time.
+     */
+    costReport(opts: { from?: number; to?: number } = {}) {
+      const where: string[] = ["r.status != 'running'"];
+      const params: number[] = [];
+      if (opts.from !== undefined) {
+        where.push("r.started_at >= ?");
+        params.push(opts.from);
+      }
+      if (opts.to !== undefined) {
+        where.push("r.started_at <= ?");
+        params.push(opts.to);
+      }
+      const clause = `WHERE ${where.join(" AND ")}`;
+
+      const totals = db
+        .prepare(
+          `SELECT
+             COALESCE(SUM(n.cost_usd), 0)      AS cost_usd,
+             COALESCE(SUM(n.tokens_in), 0)     AS tokens_in,
+             COALESCE(SUM(n.tokens_out), 0)    AS tokens_out,
+             COALESCE(SUM(n.cached_tokens), 0) AS cached_tokens,
+             COALESCE(SUM(n.reasoning_tokens), 0) AS reasoning_tokens,
+             COUNT(DISTINCT n.run_id)          AS runs
+           FROM node_runs n JOIN runs r ON r.id = n.run_id
+           ${clause}`,
+        )
+        .get(...params) as {
+        cost_usd: number;
+        tokens_in: number;
+        tokens_out: number;
+        cached_tokens: number;
+        reasoning_tokens: number;
+        runs: number;
+      };
+
+      const byGraph = db
+        .prepare(
+          `SELECT
+             r.graph_id AS graph_id,
+             COALESCE(g.name, '(已删除产线)') AS graph_name,
+             COALESCE(SUM(n.cost_usd), 0)   AS cost_usd,
+             COALESCE(SUM(n.tokens_in), 0)  AS tokens_in,
+             COALESCE(SUM(n.tokens_out), 0) AS tokens_out,
+             COUNT(DISTINCT n.run_id)       AS runs
+           FROM node_runs n JOIN runs r ON r.id = n.run_id
+           LEFT JOIN graphs g ON g.id = r.graph_id
+           ${clause}
+           GROUP BY r.graph_id
+           ORDER BY cost_usd DESC`,
+        )
+        .all(...params) as Array<{
+        graph_id: string;
+        graph_name: string;
+        cost_usd: number;
+        tokens_in: number;
+        tokens_out: number;
+        runs: number;
+      }>;
+
+      const byNode = db
+        .prepare(
+          `SELECT r.graph_id AS graph_id,
+             COALESCE(g.name, '(已删除产线)') AS graph_name,
+             n.node_id AS node_id,
+             COALESCE(SUM(n.cost_usd), 0)   AS cost_usd,
+             COALESCE(SUM(n.tokens_in), 0)  AS tokens_in,
+             COALESCE(SUM(n.tokens_out), 0) AS tokens_out,
+             COUNT(*) AS attempts,
+             SUM(CASE WHEN n.attempt > 1 THEN 1 ELSE 0 END) AS reworks
+           FROM node_runs n JOIN runs r ON r.id = n.run_id
+           LEFT JOIN graphs g ON g.id = r.graph_id
+           ${clause}
+           GROUP BY r.graph_id, n.node_id
+           ORDER BY cost_usd DESC
+           LIMIT 50`,
+        )
+        .all(...params) as Array<{
+        graph_id: string;
+        graph_name: string;
+        node_id: string;
+        cost_usd: number;
+        tokens_in: number;
+        tokens_out: number;
+        attempts: number;
+        reworks: number;
+      }>;
+
+      const byAttempt = db
+        .prepare(
+          `SELECT n.attempt AS attempt,
+             COUNT(*) AS calls,
+             COALESCE(SUM(n.cost_usd), 0)   AS cost_usd,
+             COALESCE(SUM(n.tokens_in), 0)  AS tokens_in,
+             COALESCE(SUM(n.tokens_out), 0) AS tokens_out
+           FROM node_runs n JOIN runs r ON r.id = n.run_id
+           ${clause}
+           GROUP BY n.attempt
+           ORDER BY n.attempt`,
+        )
+        .all(...params) as Array<{
+        attempt: number;
+        calls: number;
+        cost_usd: number;
+        tokens_in: number;
+        tokens_out: number;
+      }>;
+
+      const byDay = db
+        .prepare(
+          `SELECT date(r.started_at / 1000, 'unixepoch', 'localtime') AS day,
+             COUNT(DISTINCT n.run_id) AS runs,
+             COALESCE(SUM(n.cost_usd), 0)   AS cost_usd,
+             COALESCE(SUM(n.tokens_in), 0)  AS tokens_in,
+             COALESCE(SUM(n.tokens_out), 0) AS tokens_out
+           FROM node_runs n JOIN runs r ON r.id = n.run_id
+           ${clause}
+           GROUP BY day
+           ORDER BY day`,
+        )
+        .all(...params) as Array<{
+        day: string;
+        runs: number;
+        cost_usd: number;
+        tokens_in: number;
+        tokens_out: number;
+      }>;
+
+      return { totals, byGraph, byNode, byAttempt, byDay };
     },
   };
 }

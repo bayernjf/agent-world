@@ -435,3 +435,47 @@ paths) is a standalone chunk to schedule once the graph gets denser.
 - Catalog now ships 4 practical templates plus blank; core test asserts every
   non-blank template compiles to an executable plan. Core now 27 tests.
 - Remaining 2.4 item: template preview thumbnails.
+
+## Run history (roadmap 3.1, partial)
+
+- Server `db.ts`: `listRuns` now LEFT JOINs `graphs` and returns `graph_name`
+  (falls back to "(已删除产线)" when the graph was deleted). Added
+  `deleteRun`/`deleteEvents`/`deleteNodeRuns` prepared statements plus a
+  transactional `db.deleteRun(runId)` helper that wipes events, node_runs, and
+  the run row together.
+- Server `index.ts`: `DELETE /api/runs/:id` — 404 if missing, 409 if the run is
+  still live (must cancel first), otherwise removes the live map entry and all
+  persisted rows.
+- Web `lib/api.ts`: `RunSummary` interface, `listRuns(limit, offset)`,
+  `deleteRun(id)`.
+- Web `store/run.ts`: `loadRun(runId)` disconnects any SSE, fetches the event
+  log + folded state via `getEvents`, and seeds the store so the canvas and
+  Timeline render a finished run without opening a stream.
+- Web `components/RunHistory.tsx` (new): modal table of runs (graph, status
+  badge, trigger, start time, duration), double-click or "回放" to load graph +
+  replay, delete with custom ConfirmDialog. Escape closes; refresh button.
+- Wired into `App.tsx` as a "历史" chip in the HUD next to ShortcutsHelp.
+- Status badges follow design tokens (ok/alert/power/data); table uses
+  `--steel-*`, `--mono`, `--hair`.
+- Tests still green: core 27, server 49. Typecheck clean.
+- Remaining 3.1: pagination UI + server-side filtering (by graph/status),
+  run-to-run comparison, and a "return to live / clear replay" affordance.
+
+## Cost report (roadmap 3.2, mostly done)
+
+- Server `db.costReport({ from?, to? })` aggregates the `node_runs` projection
+  (joined with `runs`, excluding still-running runs) into five buckets:
+  `totals`, `byGraph` (LEFT JOIN graphs for name), `byNode` (Top 50 by cost with
+  attempt/rework counts), `byAttempt` (attempt 1 = first try, >1 = rework), and
+  `byDay` (daily via `date(started_at/1000,'unixepoch','localtime')`). All
+  numbers come from persisted `cost_usd`/`tokens_*` columns — no event replay.
+- `GET /api/costs?from=&to=` (ms timestamps) exposes it.
+- Web `lib/api.ts`: `CostReport` interface + `api.costReport(from,to)`.
+- Web `components/CostReport.tsx` (new): modal launched from HUD "成本" chip.
+  Range toggle (7d/30d/all), six stat cards (总电费/运行/输入/输出/缓存/返工电费),
+  daily cost bar chart (inline SVG-free divs, power gradient), per-plant table,
+  Top-N plant table. Modal uses `.modal--wide`, all tokens, `.num` right-align.
+- Tests: `costs.test.ts` covers aggregation math, time filtering, and running-run
+  exclusion. Server now 51 tests, core 27. Typecheck clean.
+- Remaining 3.2: CSV export, weekly/monthly rollups, resolve node labels from
+  the graph snapshot instead of showing raw `node_id`.

@@ -3,6 +3,7 @@
 > 本文档描述系统架构、数据模型、关键设计决策和未来演进方向。
 > 产品愿景和能力边界见 [product-vision-discussion.md](product-vision-discussion.md)。
 > 逐步任务拆解见 [roadmap-tasks.md](roadmap-tasks.md)。
+> 技术栈选型评估与边界见 [tech-stack-assessment.md](tech-stack-assessment.md)。
 
 ---
 
