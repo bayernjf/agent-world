@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { SkillMount } from "./skill.js";
 
 /**
  * A gate's `fail` edge points backwards, so the graph is not a DAG. The invariant
@@ -29,8 +30,13 @@ export type RetryPolicy = z.infer<typeof RetryPolicy>;
 export const AgentConfig = z.object({
   model: z.string().default("agnes-2.0-flash"),
   prompt: z.string().default(""),
-  /** Mounted capability ids — tools, output contracts, prompt modules. */
-  skills: z.array(z.string()).default([]),
+  /** Mounted capability cards — tools, output contracts, prompt modules. */
+  skills: z
+    .array(z.union([z.string(), SkillMount]))
+    .default([])
+    .transform((arr) =>
+      arr.map((s) => (typeof s === "string" ? { id: s, config: {}, enabled: true } : s)),
+    ),
   temperature: z.number().min(0).max(2).default(0.7),
   timeoutMs: z.number().int().min(1000).default(120000),
   /** Optional per-node hard ceiling in USD across all attempts. */

@@ -19,8 +19,19 @@ export interface NodeRuntime {
   costUsd: number;
   /** Aggregated non-token usage (images, seconds, characters) across attempts. */
   units: UsageUnits;
+  /** Tool calls made during this node's execution, newest last. */
+  toolCalls: ToolCallRecord[];
   error?: string;
   errorCode?: string;
+}
+
+export interface ToolCallRecord {
+  callId: string;
+  name: string;
+  args: unknown;
+  result?: unknown;
+  error?: string;
+  attempt: number;
 }
 
 export interface PacketRuntime {
@@ -73,6 +84,7 @@ function nodeOf(state: RuntimeState, id: string): NodeRuntime {
     reasoningTokens: 0,
     costUsd: 0,
     units: {},
+    toolCalls: [],
   };
 }
 
@@ -108,6 +120,29 @@ export function reduce(state: RuntimeState, event: RunEvent): RuntimeState {
         return withNode(state, event.nodeId, {
           reasoning: { ...node.reasoning, [event.attempt]: prev + event.text },
         });
+      }
+
+      case "tool.called": {
+        const node = nodeOf(state, event.nodeId);
+        const record: ToolCallRecord = {
+          callId: event.callId,
+          name: event.name,
+          args: event.args,
+          attempt: event.attempt,
+        };
+        return withNode(state, event.nodeId, {
+          toolCalls: [...node.toolCalls, record],
+        });
+      }
+
+      case "tool.result": {
+        const node = nodeOf(state, event.nodeId);
+        const toolCalls = node.toolCalls.map((t) =>
+          t.callId === event.callId
+            ? { ...t, result: event.result, error: event.error }
+            : t,
+        );
+        return withNode(state, event.nodeId, { toolCalls });
       }
 
       case "node.finished": {
