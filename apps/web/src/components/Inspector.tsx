@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { UNIT_LABELS, type Graph } from "@agent-world/core";
+import { UNIT_LABELS, artifactLabel, type Artifact, type Graph } from "@agent-world/core";
 import { api, type AppConfig } from "../lib/api";
 import { useGraph } from "../store/graph";
 import { useVisibleRuntime } from "../store/run";
 import SkillPicker from "./SkillPicker";
+import FinishedProduct from "./FinishedProduct";
 
 function formatUnits(units: Record<string, number> | undefined): string | null {
   if (!units) return null;
@@ -115,6 +116,7 @@ export default function Inspector() {
   const prev = attempts.at(-2);
   const last = attempts.at(-1);
   const reasoning = rt && activeAttempt ? rt.reasoning[activeAttempt] : undefined;
+  const artifacts = rt?.artifacts ?? [];
   const saveIndicator =
     saveState === "saving" ? "保存中…" : saveState === "saved" ? "已保存" : saveState === "error" ? "保存失败" : "";
 
@@ -400,7 +402,11 @@ export default function Inspector() {
           </section>
         )}
 
-        {attempts.length > 0 && (
+        {node.kind === "sink" && attempts.length > 0 && (
+          <FinishedProduct sinkId={node.id} graph={graph} runtime={runtime} />
+        )}
+
+        {node.kind !== "sink" && attempts.length > 0 && (
           <section className="attempts">
             <h3 className="label">产出</h3>
             <div className="tabs">
@@ -472,9 +478,59 @@ export default function Inspector() {
             ) : (
               <pre className="output">{rt?.outputs[activeAttempt] ?? ""}</pre>
             )}
+
+            {artifacts.length > 0 && (
+              <div className="artifacts">
+                <h4 className="label">产出物</h4>
+                <div className="artifacts__grid">
+                  {artifacts.map((a: Artifact) => (
+                    <ArtifactChip key={a.id} artifact={a} />
+                  ))}
+                </div>
+              </div>
+            )}
           </section>
         )}
       </div>
     </aside>
+  );
+}
+
+function ArtifactChip({ artifact }: { artifact: Artifact }) {
+  if (artifact.kind === "image" && artifact.uri) {
+    return (
+      <a className="artifact artifact--image" href={artifact.uri} target="_blank" rel="noreferrer">
+        <img src={artifact.uri} alt={artifact.label ?? "image"} loading="lazy" />
+        <span className="artifact__label">{artifact.label ?? "图片"}</span>
+      </a>
+    );
+  }
+  if (artifact.kind === "video" && artifact.uri) {
+    return (
+      <a className="artifact artifact--video" href={artifact.uri} target="_blank" rel="noreferrer">
+        <video src={artifact.uri} preload="metadata" muted />
+        <span className="artifact__label">{artifact.label ?? "视频"}</span>
+      </a>
+    );
+  }
+  if (artifact.kind === "audio" && artifact.uri) {
+    return (
+      <div className="artifact artifact--audio">
+        <audio src={artifact.uri} controls preload="none" />
+      </div>
+    );
+  }
+  if (artifact.uri) {
+    return (
+      <a className="artifact artifact--link" href={artifact.uri} target="_blank" rel="noreferrer">
+        {artifactLabel(artifact)} ↗
+      </a>
+    );
+  }
+  return (
+    <div className="artifact artifact--text">
+      <span className="artifact__kind">{artifact.kind}</span>
+      <pre className="artifact__content">{artifact.content ?? ""}</pre>
+    </div>
   );
 }
