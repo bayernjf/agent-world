@@ -24,6 +24,7 @@ export interface AppConfig {
   defaultModel: string;
   defaultProvider: string;
   modelOrder?: string[];
+  monthlyBudgetUsd?: number | null;
 }
 
 export interface ProviderTestResult {
