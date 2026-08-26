@@ -622,3 +622,19 @@ paths) is a standalone chunk to schedule once the graph gets denser.
 - Tests in `events.test.ts`: full read, two-page walk with cursor advancement, terminal
   null cursor. Server now 60 tests.
 - Remaining 3.5: multi-tab optimistic lock (graph version + If-Match), structured logger.
+
+## 3.5 Multi-tab optimistic lock
+
+- Added `graphs.version` (migration 8; fresh DDL defaults to 1). `saveGraph(graph, at, expectedVersion?)`
+  does a conditional `UPDATE ... WHERE id=? AND version=?` and increments on success; a zero-changes
+  result returns `{ ok:false, conflict:true, serverVersion }` instead of overwriting.
+- `GET /api/graphs/:id` and list responses now carry `version`; `PUT` honors the `If-Match` header
+  and returns `409` with a Chinese conflict message + `serverVersion` on mismatch. `POST /api/graphs`
+  returns the created graph with its version and no longer leaks the source graph's version into
+  duplicated documents.
+- Frontend: `serverVersion` tracked in the graph store; `setGraph` strips the server-injected
+  `version` from the editable document. Autosave/flush send `If-Match` and advance version on success.
+  On 409 the Inspector shows an amber conflict banner with a "重新载入" button (`reloadGraph`).
+- Tests in `graphs.test.ts`: version increments per save, stale conditional save is rejected and the
+  newer document is preserved. Server now 62 tests.
+- Remaining 3.5: structured logger (pino or equivalent with runId + rotation).
