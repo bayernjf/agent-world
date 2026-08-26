@@ -6,6 +6,7 @@ import { useVisibleRuntime } from "../store/run";
 import SkillPicker from "./SkillPicker";
 import FinishedProduct from "./FinishedProduct";
 import SourceImages from "./SourceImages";
+import ConnectorEditor from "./ConnectorEditor";
 
 function formatUnits(units: Record<string, number> | undefined): string | null {
   if (!units) return null;
@@ -163,6 +164,7 @@ export default function Inspector() {
         )}
 
         {node.kind === "source" && (
+          <>
           <div className="source-brief">
             <div className="source-brief__head label">创作简报（可选）</div>
           <label className="field">
@@ -298,6 +300,14 @@ export default function Inspector() {
               />
             </label>
           </div>
+
+          <ConnectorEditor
+            connector={node.source?.connector}
+            onChange={(c) => updateNode(node.id, { source: { ...(node.source ?? {}), connector: c } })}
+            onBeginEdit={beginEdit}
+            onCommitEdit={commitEdit}
+          />
+          </>
         )}
 
         {node.kind === "agent" && node.agent && (
@@ -409,6 +419,19 @@ export default function Inspector() {
                 onBlur={commitEdit}
                 onChange={(e) =>
                   updateNode(node.id, { agent: { ...node.agent!, prompt: e.target.value } })
+                }
+              />
+            </label>
+            <label className="field">
+              <span>排版指令（图片位置/比例，下次运行生效）</span>
+              <textarea
+                rows={3}
+                placeholder="例：主图用竖图 3:4 居中；场景图卡用 2 列网格；细节图靠右"
+                value={node.agent.imageDirectives ?? ""}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    agent: { ...node.agent!, imageDirectives: e.target.value },
+                  })
                 }
               />
             </label>

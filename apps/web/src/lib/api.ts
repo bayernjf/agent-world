@@ -212,11 +212,16 @@ export const api = {
       body: JSON.stringify(graph),
     }).then(json<CompileResult>),
 
-  startRun: (graphId: string, budgetUsd: number | null, input?: string) =>
+  startRun: (
+    graphId: string,
+    budgetUsd: number | null,
+    input?: string,
+    connectorValues?: Record<string, string>,
+  ) =>
     fetch("/api/runs", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ graphId, budgetUsd, input }),
+      body: JSON.stringify({ graphId, budgetUsd, input, connectorValues }),
     }).then(json<{ runId: string }>),
 
   cancelRun: (runId: string) =>

@@ -2960,6 +2960,27 @@ select {
   grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
   gap: 10px;
 }
+.pb-cards--row {
+  display: flex;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  gap: 10px;
+  padding-bottom: 4px;
+}
+.pb-cards--row .pb-card {
+  flex: 0 0 60%;
+}
+.pb-cards--carousel {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  padding-bottom: 4px;
+}
+.pb-cards--carousel .pb-card {
+  flex: 0 0 80%;
+  scroll-snap-align: center;
+}
 .pb-card {
   margin: 0;
   display: flex;
@@ -3095,6 +3116,36 @@ select {
 .ghost-btn:hover {
   border-color: var(--data);
   background: rgba(102, 224, 122, 0.06);
+}
+
+/* source Connector 配置编辑器 */
+.connector {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: var(--hair);
+}
+.connector .field-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.connector .field-row .field {
+  flex: 1;
+  min-width: 120px;
+}
+.form-field-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+}
+.form-field-row .text-input {
+  flex: 1;
+}
+.btn--icon {
+  padding: 4px 10px;
+  line-height: 1;
+  font-size: 16px;
 }
 
 .error-text {

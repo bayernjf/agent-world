@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import type { Diagnostic } from "@agent-world/core";
+import type { Diagnostic, FormConnector } from "@agent-world/core";
+
+type FormField = FormConnector["fields"][number];
 import Canvas, { type Mode } from "./canvas/Canvas";
 import Minimap from "./canvas/Minimap";
 import ControlPanel from "./components/ControlPanel";
@@ -17,6 +19,7 @@ import RunHistory from "./components/RunHistory";
 import Tooltip from "./components/Tooltip";
 import { useTips } from "./store/tips";
 import FailurePanel from "./components/FailurePanel";
+import FormConnectorModal from "./components/FormConnectorModal";
 import CostReport from "./components/CostReport";
 import EvalReport from "./components/EvalReport";
 import ABDialog from "./components/ABDialog";
@@ -190,17 +193,55 @@ export default function App() {
     };
   }, [graph]);
 
-  const onRun = useCallback(async () => {
-    try {
-      setError(null);
-      reset();
-      await api.saveGraph(graph);
-      const { runId: id } = await api.startRun(graph.id, budget, rawMaterial.trim() || undefined);
-      connect(id);
-    } catch (e) {
-      setError(String(e));
+  // 4B.4: collect form-connector fields from every source node, if any.
+  const collectFormFields = useCallback((): FormField[] => {
+    const out: FormField[] = [];
+    for (const n of graph.nodes) {
+      if (n.kind === "source" && n.source?.connector?.type === "form") {
+        out.push(...(n.source.connector.form?.fields ?? []));
+      }
     }
-  }, [graph, budget, rawMaterial, connect, reset]);
+    return out;
+  }, [graph]);
+
+  const [formFields, setFormFields] = useState<FormField[] | null>(null);
+
+  const startRunWith = useCallback(
+    async (connectorValues?: Record<string, string>) => {
+      try {
+        setError(null);
+        reset();
+        await api.saveGraph(graph);
+        const { runId: id } = await api.startRun(
+          graph.id,
+          budget,
+          rawMaterial.trim() || undefined,
+          connectorValues,
+        );
+        connect(id);
+      } catch (e) {
+        setError(String(e));
+      }
+    },
+    [graph, budget, rawMaterial, connect, reset],
+  );
+
+  const onRun = useCallback(() => {
+    const fields = collectFormFields();
+    if (fields.length) {
+      setFormFields(fields);
+      return;
+    }
+    void startRunWith();
+  }, [collectFormFields, startRunWith]);
+
+  const onFormSubmit = useCallback(
+    (values: Record<string, string>) => {
+      setFormFields(null);
+      void startRunWith(values);
+    },
+    [startRunWith],
+  );
 
   const onCancel = useCallback(async () => {
     if (runId) await api.cancelRun(runId).catch(() => undefined);
@@ -366,6 +407,13 @@ export default function App() {
       <ABReport open={abGroup !== null} groupId={abGroup ?? ""} onClose={() => setABGroup(null)} />
       <ProductGallery open={galleryOpen} onClose={() => setGalleryOpen(false)} />
       <BrandTermsModal open={brandOpen} onClose={() => setBrandOpen(false)} />
+      {formFields && (
+        <FormConnectorModal
+          fields={formFields}
+          onSubmit={onFormSubmit}
+          onCancel={() => setFormFields(null)}
+        />
+      )}
       <Toast />
       <Settings open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       <NewGraphDialog
