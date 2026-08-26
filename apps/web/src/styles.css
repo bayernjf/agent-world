@@ -429,6 +429,28 @@ select {
   margin-top: 2px;
 }
 
+/* template structure thumbnail (SVG) */
+.template-preview {
+  width: 100%;
+  height: 96px;
+  display: block;
+  background: var(--steel-900, #0b1220);
+  border: 1px solid var(--line, #1f2937);
+  border-radius: 8px;
+  margin-bottom: 8px;
+}
+.template-preview--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-faint);
+  font-size: 12px;
+}
+.template-edge {
+  stroke: var(--ink-faint, #475569);
+  stroke-width: 2;
+}
+
 /* ---------- shortcuts help ---------- */
 .shortcuts {
   position: relative;

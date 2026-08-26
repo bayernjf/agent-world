@@ -115,6 +115,19 @@ app.get("/api/templates", (c) =>
       name: t.name,
       description: t.description,
       category: t.category,
+      // Slim geometry so the client can render a preview thumbnail without the
+      // full prompts/agents payload.
+      nodes: t.graph.nodes.map((n) => ({
+        id: n.id,
+        kind: n.kind,
+        x: n.x,
+        y: n.y,
+      })),
+      edges: t.graph.edges.map((e) => ({
+        from: e.from,
+        to: e.to,
+        kind: e.kind ?? "edge",
+      })),
     })),
   ),
 );
