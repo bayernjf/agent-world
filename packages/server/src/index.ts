@@ -17,6 +17,7 @@ import { openDb } from "./db.js";
 import { ArtifactStore } from "./artifact-store.js";
 import { log } from "./logger.js";
 import { execute, resume } from "./engine.js";
+import { startABExperiment } from "./ab.js";
 import { SEED_GRAPH } from "./seed.js";
 import {
   loadConfig,
@@ -401,6 +402,49 @@ app.post("/api/runs", async (c) => {
   })();
 
   return c.json({ runId, diagnostics });
+});
+
+app.post("/api/runs/ab", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as {
+    graphId?: string;
+    targetNodeId?: string;
+    variants?: string[];
+    budgetUsd?: number | null;
+    input?: string;
+  };
+  if (
+    !body.graphId ||
+    !body.targetNodeId ||
+    !Array.isArray(body.variants) ||
+    body.variants.length < 2
+  ) {
+    return c.json({ error: "需要 graphId、targetNodeId 与至少 2 个 variants" }, 400);
+  }
+  const graph = db.getGraph(body.graphId);
+  if (!graph) return c.json({ error: "graph not found" }, 404);
+  const target = graph.nodes.find((n) => n.id === body.targetNodeId);
+  if (!target) return c.json({ error: "target node not found" }, 404);
+  if (target.kind !== "agent") {
+    return c.json({ error: "A/B 目标必须是厂房(agent)节点" }, 400);
+  }
+  try {
+    const { abGroup, arms } = await startABExperiment(db, worker, {
+      graph,
+      targetNodeId: body.targetNodeId,
+      variants: body.variants,
+      budgetUsd: body.budgetUsd ?? null,
+      input: body.input,
+    });
+    return c.json({ abGroup, arms });
+  } catch (err) {
+    return c.json({ error: (err as Error).message }, 400);
+  }
+});
+
+app.get("/api/ab/:groupId", (c) => {
+  const report = db.abReport(c.req.param("groupId"));
+  if (!report) return c.json({ error: "not found" }, 404);
+  return c.json(report);
 });
 
 app.post("/api/runs/:id/cancel", (c) => {

@@ -3001,3 +3001,82 @@ select {
   border-top: var(--hair);
   margin: 4px 0;
 }
+
+/* ---------- A/B experiment report ---------- */
+.abtable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.abtable th,
+.abtable td {
+  padding: 9px 10px;
+  text-align: right;
+  border-bottom: var(--hair);
+}
+.abtable th:first-child,
+.abtable td:first-child {
+  text-align: left;
+}
+.abtable thead th {
+  color: var(--ink-dim);
+  font-weight: 600;
+  border-bottom: 1px solid var(--steel-700);
+}
+.abtable .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.abtable tr.winner td {
+  background: rgba(102, 224, 122, 0.08);
+}
+.ab-arm {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+}
+.ab-arm__label {
+  font-weight: 700;
+  color: var(--data);
+  font-size: 14px;
+}
+.ab-prompt {
+  white-space: pre-wrap;
+  font-size: 12px;
+  color: var(--ink-dim);
+  max-width: 360px;
+  text-align: left;
+}
+.ab-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-family: var(--mono);
+  border: 1px solid var(--steel-800);
+  color: var(--ink-dim);
+  letter-spacing: 0.04em;
+}
+.ab-badge.is-winner {
+  color: var(--ok);
+  border-color: rgba(102, 224, 122, 0.45);
+  background: rgba(102, 224, 122, 0.08);
+}
+.ab-badge.is-running {
+  color: #ffb020;
+  border-color: rgba(255, 176, 32, 0.4);
+}
+.ab-badge.is-done {
+  color: var(--ok);
+  border-color: rgba(102, 224, 122, 0.35);
+}
+.ab-winner-note {
+  margin-top: 14px;
+  padding: 11px 14px;
+  border: 1px solid rgba(102, 224, 122, 0.4);
+  background: rgba(102, 224, 122, 0.06);
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--ink);
+}

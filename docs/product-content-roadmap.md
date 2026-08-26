@@ -38,7 +38,8 @@
 
 ### 阶段 D：AI 生图与品牌增强（后置）
 - 接生图节点（`/images/generations`），缺素材时自动出 banner/场景图。（未做）
-- 品牌词库、多版本 A/B。（未做）
+- 品牌词库。（未做）
+- ✅ 多版本 A/B：A/B 实验运行器——选一个厂房(agent)节点 + 填 N 个 prompt 变体，一次发起 N 次独立运行（各自替换目标节点 prompt），统一打上 `ab_group` / `ab_arm` 标记；`/api/ab/:groupId` 报表按臂并排对比合格率、质量分、平均返工、耗时、单跑成本，自动推荐质量分最高臂。复用 评估联动 的 `avgScore`。
 - ✅ 评估联动：gate 的 judge 现在产出 0–10 质量分（`score`），Web 端质检站可设「质量分门槛」`minScore`——低于阈值直接判废打回上游重写，与模型布尔判定并行。质量分持久化进 `node_runs.score`，`/api/eval` 报表按 prompt 版本聚合 `avgScore`，可对比改 prompt 前后的质量变化（为 A/B 铺路）。
 - ✅ 违禁词校验：source 节点的「禁用词 / 禁用说法」字段沿 flow 向上游收集，gate 判定时做确定性硬拦截——命中即判废并打回上游重写，与模型 judge 并行生效。写手已通过 `buildSourceBrief` 拿到禁用词清单并在创作时规避。
 

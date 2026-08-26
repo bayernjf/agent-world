@@ -129,6 +129,31 @@ export interface StoredArtifact {
   createdAt: number;
 }
 
+export interface ABArmReport {
+  arm: string;
+  target: string | null;
+  prompt: string | null;
+  runs: number;
+  done: number;
+  passed: number;
+  passRate: number;
+  avgRework: number;
+  avgDurationMs: number;
+  avgScore: number;
+  avgCost: number;
+}
+
+export interface ABReport {
+  groupId: string;
+  arms: ABArmReport[];
+  recommendedArm: string | null;
+}
+
+export interface ABStartResult {
+  abGroup: string;
+  arms: Array<{ arm: string; runId: string; prompt: string }>;
+}
+
 export const api = {
   listTemplates: () =>
     fetch("/api/templates").then(
@@ -226,6 +251,28 @@ export const api = {
     const suffix = qs.toString() ? `?${qs.toString()}` : "";
     return fetch(`/api/eval${suffix}`).then(json<EvalReport>);
   },
+
+  startAB: (
+    graphId: string,
+    targetNodeId: string,
+    variants: string[],
+    budgetUsd: number | null,
+    input: string,
+  ) =>
+    fetch("/api/runs/ab", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ graphId, targetNodeId, variants, budgetUsd, input }),
+    }).then(async (res) => {
+      if (!res.ok) throw new Error(await res.text());
+      return res.json() as Promise<ABStartResult>;
+    }),
+
+  abReport: (groupId: string) =>
+    fetch(`/api/ab/${groupId}`).then((res) => {
+      if (!res.ok) throw new Error(`A/B 报表加载失败：${res.status}`);
+      return res.json() as Promise<ABReport>;
+    }),
 
   listArtifacts: (limit = 100, offset = 0) =>
     fetch(`/api/artifacts?limit=${limit}&offset=${offset}`).then(json<StoredArtifact[]>),

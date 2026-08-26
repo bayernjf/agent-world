@@ -28,8 +28,11 @@ CREATE TABLE IF NOT EXISTS runs (
   input      TEXT,
   budget_usd REAL,
   started_at INTEGER NOT NULL,
-  ended_at   INTEGER
-);
+  ended_at   INTEGER,
+  ab_group   TEXT,
+  ab_arm     TEXT,
+  ab_target  TEXT
+  );
 
 CREATE TABLE IF NOT EXISTS events (
   run_id  TEXT NOT NULL,
@@ -90,6 +93,26 @@ type ArtifactRow = {
   uri: string | null;
   created_at: number;
 };
+
+export interface ABArmReport {
+  arm: string;
+  target: string | null;
+  prompt: string | null;
+  runs: number;
+  done: number;
+  passed: number;
+  passRate: number;
+  avgRework: number;
+  avgDurationMs: number;
+  avgScore: number;
+  avgCost: number;
+}
+
+export interface ABReport {
+  groupId: string;
+  arms: ABArmReport[];
+  recommendedArm: string | null;
+}
 
 function mapArtifact(r: ArtifactRow): StoredArtifact {
   return {
@@ -177,7 +200,7 @@ export function openDb(file: string) {
     listGraphs: db.prepare(`SELECT id, name, version, updated_at FROM graphs ORDER BY updated_at DESC`),
     deleteGraph: db.prepare(`DELETE FROM graphs WHERE id = ?`),
     createRun: db.prepare(
-      `INSERT INTO runs (id, graph_id, snapshot, status, trigger, input, budget_usd, started_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO runs (id, graph_id, snapshot, status, trigger, input, budget_usd, started_at, ab_group, ab_arm, ab_target) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ),
     finishRun: db.prepare(`UPDATE runs SET status = ?, ended_at = ? WHERE id = ?`),
     markRunning: db.prepare(`UPDATE runs SET status = 'running', ended_at = NULL WHERE id = ?`),
@@ -300,6 +323,9 @@ export function openDb(file: string) {
       at: number;
       trigger?: string;
       input?: string;
+      abGroup?: string | null;
+      abArm?: string | null;
+      abTarget?: string | null;
     }) {
       stmts.createRun.run(
         args.id,
@@ -310,6 +336,9 @@ export function openDb(file: string) {
         args.input ?? null,
         args.budgetUsd,
         args.at,
+        args.abGroup ?? null,
+        args.abArm ?? null,
+        args.abTarget ?? null,
       );
     },
 
@@ -801,6 +830,87 @@ export function openDb(file: string) {
         byPrompt,
       };
     },
+
+    abReport(groupId: string): ABReport | null {
+      const rows = db
+        .prepare(
+          `SELECT
+             r.ab_arm AS arm,
+             r.ab_target AS target,
+             COUNT(*) AS runs,
+             SUM(CASE WHEN r.status = 'done' THEN 1 ELSE 0 END) AS done,
+             AVG(CASE WHEN r.ended_at IS NOT NULL THEN (r.ended_at - r.started_at) END) AS avgDurationMs,
+             AVG((SELECT COALESCE(AVG(score), 0) FROM node_runs nr WHERE nr.run_id = r.id)) AS avgScore,
+             AVG((SELECT COUNT(*) FROM node_runs nr WHERE nr.run_id = r.id AND nr.attempt > 1)) AS avgRework,
+             SUM((SELECT COALESCE(SUM(cost_usd), 0) FROM node_runs nr WHERE nr.run_id = r.id)) AS totalCost
+           FROM runs r
+           WHERE r.ab_group = ?
+           GROUP BY r.ab_arm, r.ab_target
+           ORDER BY r.ab_arm`,
+        )
+        .all(groupId) as Array<{
+        arm: string;
+        target: string | null;
+        runs: number;
+        done: number;
+        avgDurationMs: number | null;
+        avgScore: number | null;
+        avgRework: number | null;
+        totalCost: number | null;
+      }>;
+
+      if (rows.length === 0) return null;
+
+      const promptOf = new Map<string, string | null>();
+      for (const r of rows) {
+        const snap = db
+          .prepare(
+            `SELECT snapshot FROM runs WHERE ab_group = ? AND ab_arm = ? AND snapshot IS NOT NULL LIMIT 1`,
+          )
+          .get(groupId, r.arm) as { snapshot: string } | undefined;
+        let prompt: string | null = null;
+        if (snap) {
+          try {
+            const g = JSON.parse(snap.snapshot) as {
+              nodes?: Array<{ id: string; agent?: { prompt?: string } }>;
+            };
+            const node = (g.nodes ?? []).find((n) => n.id === r.target);
+            prompt = node?.agent?.prompt ?? null;
+          } catch {
+            /* ignore malformed snapshot */
+          }
+        }
+        promptOf.set(r.arm, prompt);
+      }
+
+      const arms: ABArmReport[] = rows.map((r) => {
+        const runs = Number(r.runs);
+        const done = Number(r.done);
+        const totalCost = Number(r.totalCost ?? 0);
+        return {
+          arm: r.arm,
+          target: r.target,
+          prompt: promptOf.get(r.arm) ?? null,
+          runs,
+          done,
+          passed: done,
+          passRate: runs ? done / runs : 0,
+          avgRework: Number(r.avgRework ?? 0),
+          avgDurationMs: Math.round(Number(r.avgDurationMs ?? 0)),
+          avgScore: Number(r.avgScore ?? 0),
+          avgCost: runs ? totalCost / runs : 0,
+        };
+      });
+
+      const contenders = arms.filter((a) => a.done > 0);
+      let recommendedArm: string | null = null;
+      if (contenders.length > 0) {
+        contenders.sort((a, b) => b.avgScore - a.avgScore || b.passRate - a.passRate);
+        recommendedArm = contenders[0]!.arm;
+      }
+
+      return { groupId, arms, recommendedArm };
+    },
     close() {
       db.close();
     },
@@ -905,6 +1015,16 @@ const MIGRATIONS: Migration[] = [
     description: "node_runs.score for eval linkage",
     detect: (db) => columnExists(db, "node_runs", "score"),
     up: (db) => db.exec("ALTER TABLE node_runs ADD COLUMN score REAL"),
+  },
+  {
+    version: 11,
+    description: "runs A/B experiment grouping (ab_group, ab_arm, ab_target)",
+    detect: (db) => columnExists(db, "runs", "ab_group"),
+    up: (db) => {
+      db.exec("ALTER TABLE runs ADD COLUMN ab_group TEXT");
+      db.exec("ALTER TABLE runs ADD COLUMN ab_arm TEXT");
+      db.exec("ALTER TABLE runs ADD COLUMN ab_target TEXT");
+    },
   },
 ];
 

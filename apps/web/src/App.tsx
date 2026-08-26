@@ -19,6 +19,8 @@ import { useTips } from "./store/tips";
 import FailurePanel from "./components/FailurePanel";
 import CostReport from "./components/CostReport";
 import EvalReport from "./components/EvalReport";
+import ABDialog from "./components/ABDialog";
+import ABReport from "./components/ABReport";
 import ProductGallery from "./components/ProductGallery";
 import { api } from "./lib/api";
 import { useGraph } from "./store/graph";
@@ -43,6 +45,8 @@ export default function App() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [costOpen, setCostOpen] = useState(false);
   const [evalOpen, setEvalOpen] = useState(false);
+  const [abOpen, setABOpen] = useState(false);
+  const [abGroup, setABGroup] = useState<string | null>(null);
   const [galleryOpen, setGalleryOpen] = useState(false);
   const tipsEnabled = useTips((s) => s.enabled);
   const toggleTips = useTips((s) => s.toggle);
@@ -271,6 +275,11 @@ export default function App() {
               评估
             </button>
           </Tooltip>
+          <Tooltip content="A/B 实验：同一厂房多套 prompt 对比择优">
+            <button className="chip" onClick={() => setABOpen(true)}>
+              A/B 实验
+            </button>
+          </Tooltip>
           <Tooltip content="成品库">
             <button className="chip" onClick={() => setGalleryOpen(true)}>
               成品
@@ -338,6 +347,16 @@ export default function App() {
       <RunHistory open={historyOpen} onClose={() => setHistoryOpen(false)} />
       <CostReport open={costOpen} onClose={() => setCostOpen(false)} />
       <EvalReport open={evalOpen} onClose={() => setEvalOpen(false)} graphId={graph.id} />
+      <ABDialog
+        open={abOpen}
+        graph={graph}
+        onClose={() => setABOpen(false)}
+        onLaunched={(gid) => {
+          setABOpen(false);
+          setABGroup(gid);
+        }}
+      />
+      <ABReport open={abGroup !== null} groupId={abGroup ?? ""} onClose={() => setABGroup(null)} />
       <ProductGallery open={galleryOpen} onClose={() => setGalleryOpen(false)} />
       <Toast />
       <Settings open={settingsOpen} onClose={() => setSettingsOpen(false)} />
