@@ -717,3 +717,80 @@
   - [x] 写文件 / 外部网络 / 删除类 tool 首次调用走 halt，暂停运行等人 approve/deny，再续跑（`isDangerousTool` + `HaltRequested`，`reason = "dangerous-tool:<name>"`）
   - [x] 需要人机协作暂停 / 恢复机制（事件 + 恢复点，`resume({ approveTools })` 续跑执行被批准的危险工具）
   - [x] 退出标准：危险 tool 调用被暂停且需人工确认后才继续（单测 `engine.danger.test.ts` 已覆盖：halt→带 approveTools 跑完 / 不带 approveTools 重新 halt）
+
+---
+
+## P1 已知延后项 — 实施计划
+
+> 从各阶段"延后/待补"中收拢的 6 项，按价值/工作量比排序，分 3 个批次推进。
+> Batch 1 可直接落代码；Batch 2 的 ArtifactRef 需先写设计笔记；Batch 3 依赖 #1 且按需启动。
+
+### Batch 1 — 快速赢（互相独立，可并行）
+
+#### P1-1 周/月成本聚合视图（对应 3.2 待补）
+
+**P1 — 小 (~120 行) — 无依赖 — ✅ 已完成 (2026-08-27)**
+
+- [x] `db.costReport()` 新增 `byWeek`（`strftime('%Y-W%W')`）和 `byMonth`（`strftime('%Y-%m')`）聚合维度，结构同 `byDay`
+- [x] `CostReport.tsx` 新增「日 / 周 / 月」粒度切换；智能默认（≤14 天日，≤90 天周，否则月）；条形图数据源随粒度切换
+- [x] 测试：`costs.test.ts` 加 byWeek/byMonth 聚合断言
+- [x] 退出条件：选「近 30 天」切周粒度看到 4-5 根周柱；选「全部」切月粒度看到按月柱
+
+#### P1-2 每节点质量评分（对应 3.7 "per-node quality scoring"）
+
+**P1 — 小 (~200 行) — 无依赖 — ✅ 已完成 (2026-08-27)**
+
+- [x] `openai-compatible.ts` 的 `judge()` 确保从模型输出 JSON 中提取 `score`（0-10），system prompt 要求输出 `{passed, reason, score}`（此前已实现）
+- [x] `db.evalReport()` 聚合 avgScore（此前已实现）
+- [x] `core/runtime.ts`：`NodeRuntime` 加 `lastVerdict`，gate.verdict reducer 保存判定结果含 score
+- [x] 前端 Inspector：节点标题栏显示质量分徽章（good/warn/bad 三色）
+- [x] 前端 EvalReport：统计卡片加平均质量分，byGraph/byPrompt 表格加平均质量列
+- [x] 测试：judge score 提取断言 + byNode 质量聚合断言（core 54 + server 230 全绿）
+- [x] 退出条件：真实模型跑带质检产线，评估报告能看到每节点平均质量分，v1/v2 可对比
+
+#### P1-3 真实长任务抽网验证（对应 3.3 "待真实长任务验证"）
+
+**P2 — 极小 (~80 行) — 纯验证任务 — ✅ 已完成 (2026-08-27)**
+
+- [x] `sse-resume.test.ts` 已实现基于 `?after=` query param 的断网重连测试（commit f3ba54b）
+- [x] 补充 `Last-Event-ID` header 方式的重连测试，覆盖原生 EventSource 行为
+- [x] 两种重连方式（query param + header）均验证：断网后重连事件 seq 连续无重复、覆盖全量
+- [x] `handoff.md` 3.3 节记录验证结果
+- [x] 退出条件：脚本跑通，断网恢复后事件不丢不重
+
+### Batch 2 — 基础设施
+
+#### P1-4 引擎 ArtifactRef 升级（对应 3.8 "引擎 artifacts Map 升级"）
+
+**P1 — 中 (~300 行) — 改核心路径，需先写设计笔记**
+
+- [ ] 先在 `docs/technical-design.md` 追加「ArtifactRef 升级设计」节（数据结构、inputFor 兼容策略、resume 重建、事件 schema 不变结论、回滚方案）
+- [ ] `engine.ts`：`artifacts: Map<string,string>` → `Map<string,Artifact[]>`；节点完成时 push Artifact 对象；文本节点产出 `{kind:"text",content:output}`
+- [ ] `inputFor()` 重构：遍历上游 artifacts[]，文本取 content 拼接，图片 URI 收集到 images[]，视频/音频/文件加文本占位
+- [ ] `imagesFor()`：从所有上游 artifacts 提取 image URI，不再只依赖 source.images
+- [ ] `reconstructState()`/`resume()`：从 `artifact.produced` 事件重建 artifacts Map
+- [ ] 测试：`engine.artifactref.test.ts` — 多 artifact 节点、图片流入下游 vision、文本拼接、resume 重建
+- [ ] 退出条件：imageGen 产出的图片能被下游 agent 通过 images 参数拿到；多图场景下游全收；假 worker 全量测试绿
+
+#### P1-5 fs 隔离完整 ESM loader（对应 4C.7 已知限制）
+
+**P2 — 中 (~200 行) — 安全增强**
+
+- [ ] 新建 `packages/server/src/fs-loader.mjs`：自定义 ESM loader，`resolve()` hook 拦截 `node:fs`/`node:fs/promises`，重定向到代理模块
+- [ ] 代理模块导出 fs 方法，每个都调用 `globalThis.__proxyFs`
+- [ ] `__proxyFs` 扩展：readdir/stat/unlink/mkdir/rm/appendFile
+- [ ] `isolation.ts`：fork 时加 `--import` 注册 loader；`proxyFs` 对应扩展操作
+- [ ] 测试：插件直接 `import fs from 'node:fs/promises'` 调用被拦截且受白名单约束
+- [ ] 退出条件：恶意插件直接读 `/etc/passwd` 被拦截；授权目录读取正常
+
+### Batch 3 — 大功能（按需启动）
+
+#### P1-6 视频/音频生成（对应阶段 4 "视频/音频生成仍为阶段 4 待做"）
+
+**P2 — 大 (~600 行) — 依赖 P1-4，provider 支持不统一**
+
+- [ ] 期 A 视频：`core` 新增 `videoGen` 节点类型 + `VideoGenConfig`；`Worker` 加可选 `generateVideo()`；`openai-compatible.ts` 实现（`/videos/generations`，异步轮询）；引擎新增处理分支（类似 imageGen）；前端配置面板 + `<video>` 播放；假 worker 占位
+- [ ] 期 B 音频：同结构新增 `audioGen` + `generateAudio()`（`/audio/speech` TTS，API 较统一）
+- [ ] 测试：`engine.videogen.test.ts` / `engine.audiogen.test.ts`
+- [ ] 退出条件：配置支持视频生成的 provider（或假 worker），videoGen 产出视频 artifact，前端可播放，下游可引用
+- [ ] 前置：P1-4 ArtifactRef 升级完成后再启动

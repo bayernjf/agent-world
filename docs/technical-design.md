@@ -664,3 +664,113 @@ interface Skill {
 - 阶段 3 前：schema 迁移版本化、取消成本提示、事件分页
 - 阶段 2 做并行前：先设计事件串行化和输入上下文策略
 - 其余到对应阶段再说
+
+---
+
+## 13. ArtifactRef 升级设计（P1-4）
+
+> 状态：设计完成，待实施。对应 roadmap-tasks.md P1-4。
+> 目标：把引擎内部 `artifacts: Map<string, string>` 升级为 `Map<string, Artifact[]>`，让下游节点能直接引用 typed artifact（图片/视频/文件），而不是只能拿到文本字符串。
+
+### 13.1 背景与问题
+
+**现状：**
+- `engine.ts` 内部 `artifacts: Map<string, string>`，key = nodeId，value = 该节点的文本 output 或图片 URI（imageGen 节点存 URI）
+- `artifact.produced` 事件已携带完整 `Artifact` 对象（core/artifact.ts），`runtime.NodeRuntime.artifacts: Artifact[]` 已按节点收集
+- 但 `inputFor()` 只从 `artifacts.get(nodeId)` 取**字符串**拼接，丢失了类型信息
+- 下游 agent 拿图片只能通过 `extraImages` 机制（从 source 节点的 `source.images` 解析），imageGen 节点产出的图片通过 `extraImages.push(uri)` 手动注入，不是通过 artifact 引用链
+- 多 artifact 场景（一个节点产出多张图、文本+图片混合）无法表达
+
+**核心矛盾：** 事件层和 runtime 层已经是 typed Artifact，但引擎调度层的 `artifacts` Map 还是 string，造成上下游之间的类型断层。
+
+### 13.2 新数据结构
+
+```
+// 旧
+artifacts: Map<string, string>  // nodeId → output text or image URI
+
+// 新
+artifacts: Map<string, Artifact[]>  // nodeId → 该节点产出的所有 artifact
+```
+
+**节点完成时的写入规则：**
+- **agent 节点**：产出至少一个 `{kind:"text", content: result.output, id: `${nodeId}-text`}` artifact；如果输出文本中通过 `extractArtifacts()` 检测到图片/视频/JSON URL，额外追加对应 artifact（这一步已有 `produceArtifacts()` 逻辑，改为 push 到数组而非只发事件）
+- **imageGen 节点**：每张生成的图产出一个 `{kind:"image", uri, mimeType, label}` artifact（已有逻辑，改为 push 到数组）
+- **source 节点**：`source.images` 中的每个 URL 产出一个 `{kind:"image", uri}` artifact；`source.connector` 拉到的文本产出 text artifact
+- **gate 节点**：通过时产出 text artifact（verdict.reason）；驳回时不产出（走返工环）
+- **sink 节点**：产出 text artifact（最终输出）
+
+### 13.3 inputFor() 兼容策略
+
+`inputFor(node)` 遍历该节点所有 flow 上游的 `artifacts[]`，按以下规则组装：
+
+| artifact.kind | 文本输入处理 | 传入 worker 的额外参数 |
+|---|---|---|
+| `text` | `artifact.content` 直接拼接（按上游顺序，边之间加分隔符） | — |
+| `image` | 追加 `[图片: ${label || uri}]` 占位行 | URI 加入 `images[]` 数组 |
+| `video` | 追加 `[视频: ${label || uri}]` 占位行 | 暂不自动传入（等视频生成功能落地） |
+| `audio` | 追加 `[音频: ${label || uri}]` 占位行 | 暂不自动传入 |
+| `file` | 追加 `[文件: ${label || uri}]` 占位行 | — |
+| `json` | `artifact.content` 直接拼接（结构化数据作为文本上下文） | — |
+| `uri` | 追加 `[链接: ${uri}]` 占位行 | — |
+
+**向后兼容：**
+- 如果某个上游节点的 `artifacts[]` 为空（极端情况），回退到旧行为：从 `node.finished.output` 取文本
+- 文本拼接的分隔符保持与现有 `inputFor()` 一致（当前是按边拼接，具体格式看现有实现）
+- `inputPolicy`（all/last/truncate/summary）作用于拼接后的完整文本，逻辑不变
+
+### 13.4 imagesFor() 重构
+
+**旧逻辑：** 从 source 节点的 `source.images` 取图片 URI，加上 imageGen 节点手动 push 到 `extraImages` 的 URI。
+
+**新逻辑：** 遍历目标节点所有 flow 上游（递归传递闭包）的 `artifacts[]`，提取所有 `kind === "image"` 的 artifact 的 `uri`，去重后返回。
+
+- source.images 不再是特殊路径——source 节点完成时把 images 转为 artifact，后续统一通过 artifacts 引用
+- imageGen 节点不再需要 `extraImages` 手动注入——产出的 image artifact 自然流入下游
+- `upstreamSourceHasImages()` 辅助函数改为检查上游 artifacts 中是否有 image kind
+
+### 13.5 resume/reconstructState 重建
+
+`reconstructState()` 从历史事件重建运行时状态，需要同步升级：
+
+- 遍历事件流，遇到 `artifact.produced` 事件时，把 `event.artifact` push 到 `artifacts.get(event.nodeId)` 数组
+- 遇到 `node.finished` 事件时，如果该节点的 artifacts 为空（旧运行产生的事件，没有 artifact.produced），从 `event.output` 构造一个 text artifact 补入
+- `resume()` 继承 `reconstructState()` 的 artifacts Map，后续新事件追加
+- 返工环复位时（`reworkNotes` 触发 loop body 复位），清除 loop body 节点的 artifacts[]（与现有 `artifacts.delete(bodyId)` 行为一致，改为清空数组）
+
+### 13.6 事件 schema 不变
+
+**结论：不需要事件 schema 迁移。**
+- `artifact.produced` 事件已存在（3.8 阶段落地），携带完整 `Artifact` 对象
+- `node.finished.output` 保留（文本输出，向后兼容）
+- `packet.sent.artifactKind` 保留（卡车颜色）
+- `EVENT_SCHEMA_VERSION` 不需要 bump
+
+### 13.7 向后兼容与回滚
+
+**兼容旧运行数据：**
+- 历史运行的事件流中可能没有 `artifact.produced` 事件（3.8 之前的运行），`reconstructState()` 从 `node.finished.output` 补造 text artifact
+- 旧 graph 的节点配置不变，不需要迁移
+
+**回滚方案：**
+- 改动集中在 `engine.ts` 的 `artifacts` Map 声明、`inputFor()`、`imagesFor()`、`reconstructState()` 四处
+- 如果出现问题，回退到 `artifacts: Map<string,string>` + 旧 `inputFor()` 即可，事件数据不受影响
+- 建议先在新分支开发，全量测试（core 54 + server 209）通过后再合并
+
+### 13.8 测试计划
+
+新增 `packages/server/src/engine.artifactref.test.ts`：
+
+1. **文本 artifact 拼接**：两个 agent 节点串联，下游 input 包含上游文本内容
+2. **图片 artifact 流入下游 vision**：source 节点带 images → 下游 agent 的 `images` 参数包含这些 URI
+3. **imageGen → 下游 vision**：imageGen 节点产出图片 → 下游 agent 的 `images` 参数包含生成的 URI（不再依赖 extraImages）
+4. **多 artifact 节点**：一个节点产出文本+图片，下游同时拿到文本和图片
+5. **resume 重建**：从历史事件重建，artifacts Map 正确恢复；旧运行（无 artifact.produced 事件）从 output 补造
+6. **返工环复位**：返工触发后，loop body 节点的 artifacts 被清空，重跑后重新填充
+7. **全量回归**：`pnpm -r test` 全绿（确保 inputFor 重构不破坏现有 209 个 server 测试）
+
+### 13.9 不在本次范围
+
+- 视频/音频 artifact 自动传入下游 worker（等 P1-6 视频/音频生成落地后再做）
+- Artifact 存储后端升级（当前本地文件 + S3 已够用）
+- 跨 run artifact 引用（当前成品库已支持查询，不需要引擎层引用）

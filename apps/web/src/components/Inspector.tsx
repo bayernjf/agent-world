@@ -133,6 +133,14 @@ export default function Inspector() {
       <div className="panel__bar">
         <span>{node.name}</span>
         <span className="muted">{node.kind}</span>
+        {rt?.lastVerdict?.score != null && (
+          <span
+            className={`chip chip--score chip--score-${rt.lastVerdict.score >= 7 ? "good" : rt.lastVerdict.score >= 4 ? "warn" : "bad"}`}
+            title={`质检评分 ${rt.lastVerdict.score}/10 — ${rt.lastVerdict.reason}`}
+          >
+            质量 {rt.lastVerdict.score}/10
+          </span>
+        )}
       </div>
 
       <div className="inspector__body">
