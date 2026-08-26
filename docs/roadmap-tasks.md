@@ -587,8 +587,8 @@
 - [x] 4A.4 定时触发（cron）：`cron.ts` 最小 5 段求值器（UTC，`*`/`?`/`,`/`-`/`/n`，闰年/周末正确）+ `scheduler.ts` 启动扫描 cron、按下次运行时间设计时器、触发后从 now 重排；重启由 `restore()` 从表达式重算（禁用触发器跳过）；`/api/graphs/:id/triggers` 的 upsert/delete 同步/取消调度（cron.test.ts / scheduler.test.ts）
 - [x] 4A.5 事件触发：`triggers.onGraphFinished(graphId, status)` / `onArtifact(artifactId)` 在 run 完成/产出 artifact 时由 run.ts 回调触发；仅 status==="completed" 触发 graph 事件；匹配 `eventSource` 的下游 graph（triggers.test.ts）
 - [x] 4A.6 批量触发：`triggers.fireBatch(triggerId, payload?)` 从 `batch.rows` 或 CSV(path) 或 payload 数组逐行启动运行，默认并发 4 限流；`POST /api/graphs/:id/triggers/:tid/fire` 手动触发（批量返回 runIds）；含 CSV 解析（triggers.test.ts）
-- [ ] 4A.7 UI：触发器配置（独立 Triggers 标签或 Inspector），显示下次运行时间、手动触发、最近运行历史
-- [ ] 4A.8 测试 + 文档（roadmap 阶段 4 触发子块勾选）
+- [x] 4A.7 UI：触发器配置（独立 Triggers 标签或 Inspector），显示下次运行时间、手动触发、最近运行历史
+- [x] 4A.8 测试 + 文档（roadmap 阶段 4 触发子块勾选）
 
 ## 阶段 4B（建议）：Connector 数据源 — 从真实数据源拉料
 
