@@ -330,7 +330,7 @@
 - [x] **启动备份**：SQLite VACUUM INTO 到带时间戳的备份文件（`backups/pre-migration-<ts>.db`，保留最近 5 份，失败不阻塞启动）
 - [x] **事件接口分页**：`GET /api/runs/:id/events?after=<seq>&limit=<n>` 返回窗口 + `nextCursor`，无参仍返回全量 + state；SSE 增量不变
 - [x] **多标签页乐观锁**：graphs 加 `version`（迁移 8），PUT 带 `If-Match`，冲突返回 409，前端提示重新载入而非静默覆盖
-- [ ] **结构化日志**：pino 或同等方案，每条日志带 runId、级别、文件轮转
+- [x] **结构化日志**：内置 JSON-line logger（`logger.ts`），每条带 ts/level/msg/runId 等绑定，支持 `LOG_LEVEL`、`LOG_FILE` 按大小轮转（默认 5MB，保留 3 份），无需外部依赖
 
 ### 3.6 成本预警
 
@@ -438,7 +438,7 @@
 - [ ] CI：GitHub Actions 跑 typecheck + test + build
 - [ ] 密钥泄漏检查（git-secrets 或类似）
 - [ ] CORS 收紧到配置的 origin（替换现在允许所有来源），加基础安全响应头
-- [ ] 结构化日志（pino 或同等），每条带 runId、级别、文件轮转
+- [x] 结构化日志（内置 JSON-line logger，已在 3.5 完成）
 - [ ] LICENSE 选择
 - [ ] Docker Compose 部署配置
 - [ ] 版本号和 CHANGELOG

@@ -638,3 +638,15 @@ paths) is a standalone chunk to schedule once the graph gets denser.
 - Tests in `graphs.test.ts`: version increments per save, stale conditional save is rejected and the
   newer document is preserved. Server now 62 tests.
 - Remaining 3.5: structured logger (pino or equivalent with runId + rotation).
+
+## 3.5 Structured logger (completes 3.5)
+
+- New `packages/server/src/logger.ts`: dependency-free JSON-line logger. Each line is
+  `{ ts, level, msg, ...bindings }`. Supports `LOG_LEVEL` (debug/info/warn/error, default
+  info) and `LOG_FILE` for durable output with size-based rotation (5 MB, keep 3). `child()`
+  produces a bound logger for per-run context (runId, graphId).
+- Wired into run start/resume/crash paths and the routing worker (disabled/anthropic
+  fallbacks); replaced ad-hoc `console.*` calls. Startup now logs `engine listening`.
+- Tests in `logger.test.ts`: JSON shape + bindings, level filtering, file rotation. Server
+  now 65 tests. 3.5 is fully complete (migrations, startup backup, events pagination,
+  optimistic lock, structured logger).
