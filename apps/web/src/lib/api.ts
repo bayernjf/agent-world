@@ -1,4 +1,13 @@
-import type { CompileResult, Graph, ModelPricing, RunEvent, RuntimeState } from "@agent-world/core";
+import type {
+  CompileResult,
+  Graph,
+  ModelPricing,
+  RunEvent,
+  RuntimeState,
+  TriggerConfig,
+} from "@agent-world/core";
+
+export type { TriggerConfig } from "@agent-world/core";
 import type { Skill } from "@agent-world/core";
 
 async function json<T>(res: Response): Promise<T> {
@@ -300,6 +309,30 @@ export const api = {
 
   deleteBrandTerm: (id: string) =>
     fetch(`/api/brand-terms/${id}`, { method: "DELETE" }).then(() => undefined),
+
+  listTriggers: (graphId: string) =>
+    fetch(`/api/graphs/${graphId}/triggers`).then(json<TriggerConfig[]>),
+
+  createTrigger: (graphId: string, trigger: TriggerConfig) =>
+    fetch(`/api/graphs/${graphId}/triggers`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(trigger),
+    }).then(async (res) => {
+      if (!res.ok) throw new Error(await res.text());
+      return res.json() as Promise<TriggerConfig>;
+    }),
+
+  deleteTrigger: (graphId: string, triggerId: string) =>
+    fetch(`/api/graphs/${graphId}/triggers/${triggerId}`, { method: "DELETE" }).then(() => undefined),
+
+  fireTrigger: (graphId: string, triggerId: string) =>
+    fetch(`/api/graphs/${graphId}/triggers/${triggerId}/fire`, { method: "POST" }).then(
+      json<{ runId: string }>,
+    ),
+
+  triggerNextRuns: (graphId: string) =>
+    fetch(`/api/graphs/${graphId}/triggers/next-runs`).then(json<Record<string, number | null>>),
 
   listArtifacts: (limit = 100, offset = 0) =>
     fetch(`/api/artifacts?limit=${limit}&offset=${offset}`).then(json<StoredArtifact[]>),

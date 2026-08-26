@@ -25,6 +25,7 @@ import EvalReport from "./components/EvalReport";
 import ABDialog from "./components/ABDialog";
 import ABReport from "./components/ABReport";
 import BrandTermsModal from "./components/BrandTermsModal";
+import TriggersPanel from "./components/TriggersPanel";
 import ProductGallery from "./components/ProductGallery";
 import { api } from "./lib/api";
 import { useGraph } from "./store/graph";
@@ -53,6 +54,7 @@ export default function App() {
   const [abGroup, setABGroup] = useState<string | null>(null);
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [brandOpen, setBrandOpen] = useState(false);
+  const [triggersOpen, setTriggersOpen] = useState(false);
   const tipsEnabled = useTips((s) => s.enabled);
   const toggleTips = useTips((s) => s.toggle);
   const bothCollapsed = controlCollapsed && inspectorCollapsed;
@@ -333,6 +335,11 @@ export default function App() {
               成品
             </button>
           </Tooltip>
+          <Tooltip content="触发器：Webhook / 定时 / 事件 / 批量自动运行">
+            <button className="chip" onClick={() => setTriggersOpen(true)}>
+              触发器
+            </button>
+          </Tooltip>
           <button className="chip" onClick={() => addNode("agent", 300, 480)}>
             + 厂房
           </button>
@@ -407,6 +414,7 @@ export default function App() {
       <ABReport open={abGroup !== null} groupId={abGroup ?? ""} onClose={() => setABGroup(null)} />
       <ProductGallery open={galleryOpen} onClose={() => setGalleryOpen(false)} />
       <BrandTermsModal open={brandOpen} onClose={() => setBrandOpen(false)} />
+      <TriggersPanel open={triggersOpen} onClose={() => setTriggersOpen(false)} graphId={graph.id} />
       {formFields && (
         <FormConnectorModal
           fields={formFields}

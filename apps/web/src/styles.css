@@ -3200,3 +3200,171 @@ select {
 .adv .field {
   margin-top: 8px;
 }
+
+/* ---- Triggers panel (4A.7) ---- */
+.triggers-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.triggers-toolbar p {
+  margin: 0;
+  flex: 1;
+}
+.trigger-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.trigger-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas: "main actions" "meta actions";
+  gap: 4px 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--steel-700, rgba(255, 255, 255, 0.08));
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.trigger-main {
+  grid-area: main;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.trigger-id {
+  font-family: var(--mono, monospace);
+  font-size: 12px;
+  color: var(--ink-dim);
+}
+.trigger-summary {
+  font-size: 12px;
+}
+.trigger-meta {
+  grid-area: meta;
+  font-size: 12px;
+  color: var(--ink-dim);
+}
+.trigger-meta code {
+  font-size: 11px;
+}
+.trigger-actions {
+  grid-area: actions;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.trigger-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--ink-dim);
+}
+.badge--manual {
+  color: var(--ink-dim);
+  border-color: var(--steel-500);
+  background: rgba(255, 255, 255, 0.04);
+}
+.badge--webhook {
+  color: var(--data);
+  border-color: rgba(53, 224, 240, 0.4);
+  background: rgba(53, 224, 240, 0.08);
+}
+.badge--cron {
+  color: var(--power);
+  border-color: rgba(255, 176, 32, 0.4);
+  background: rgba(255, 176, 32, 0.08);
+}
+.badge--event {
+  color: var(--plasma);
+  border-color: rgba(180, 103, 255, 0.4);
+  background: rgba(180, 103, 255, 0.08);
+}
+.badge--batch {
+  color: var(--ok);
+  border-color: rgba(102, 224, 122, 0.4);
+  background: rgba(102, 224, 122, 0.08);
+}
+.badge--off {
+  color: var(--ink-dim);
+  border-color: var(--steel-600);
+  background: rgba(255, 255, 255, 0.02);
+  opacity: 0.7;
+}
+.section-title {
+  margin: 18px 0 8px;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-dim);
+}
+.run-history {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.run-history li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+}
+.trigger-editor {
+  margin-top: 18px;
+  padding: 16px;
+  border: 1px solid var(--steel-700, rgba(255, 255, 255, 0.08));
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.18);
+}
+.trigger-editor h3 {
+  margin: 0 0 12px;
+  font-size: 14px;
+}
+.editor-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.trigger-editor .field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--ink-dim);
+}
+.trigger-editor .field > span {
+  font-size: 12px;
+}
+.trigger-editor .field input,
+.trigger-editor .field select,
+.trigger-editor .field textarea {
+  width: 100%;
+}
+.trigger-editor .field--check {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+.trigger-editor .field small {
+  font-size: 11px;
+}
+.row-json {
+  font-family: var(--mono, monospace);
+  font-size: 12px;
+  resize: vertical;
+}
+.trigger-editor .btn-row {
+  margin-top: 12px;
+  justify-content: flex-end;
+}
