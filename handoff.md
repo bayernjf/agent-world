@@ -609,3 +609,16 @@ paths) is a standalone chunk to schedule once the graph gets denser.
 - Tests in `migrations.test.ts`: snapshot is openable and contains the events table;
   reopening beyond the retention window prunes to <=5 files. Server now 58 tests.
 - Remaining 3.5: events pagination, multi-tab optimistic lock, structured logger.
+
+## 3.5 Events API pagination
+
+- `db.eventsRange(runId, after, limit)` returns a bounded window using
+  `WHERE run_id=? AND seq > ? ORDER BY seq LIMIT ?` (fetches limit+1 to detect hasMore),
+  with `nextCursor` (last returned seq) or null when the run is exhausted.
+- `GET /api/runs/:id/events` with no query returns the full history + replayed state
+  (unchanged contract for initial page load). With `?after=&limit=` it returns
+  `{ events, after, nextCursor, hasMore }`; limit is clamped to 1..10000. SSE resume
+  already used its own `?after=` cursor and is untouched.
+- Tests in `events.test.ts`: full read, two-page walk with cursor advancement, terminal
+  null cursor. Server now 60 tests.
+- Remaining 3.5: multi-tab optimistic lock (graph version + If-Match), structured logger.
