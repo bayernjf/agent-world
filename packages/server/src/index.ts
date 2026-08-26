@@ -568,6 +568,30 @@ app.get("/api/runs/:id/artifacts", (c) => {
   return c.json(db.listArtifactsForRun(runId));
 });
 
+/** Upload a raw product image/file. Returns a StoredArtifact with a /api/artifacts/:id URI. */
+app.post("/api/artifacts/upload", async (c) => {
+  const contentType = c.req.header("content-type") ?? "application/octet-stream";
+  const label = c.req.query("label");
+  const data = Buffer.from(await c.req.arrayBuffer());
+  if (data.length === 0) return c.json({ error: "empty upload" }, 400);
+  const MAX = 25 * 1024 * 1024;
+  if (data.length > MAX) return c.json({ error: "file too large (max 25MB)" }, 413);
+
+  let kind: "image" | "audio" | "video" | "file" = "file";
+  if (contentType.startsWith("image/")) kind = "image";
+  else if (contentType.startsWith("video/")) kind = "video";
+  else if (contentType.startsWith("audio/")) kind = "audio";
+
+  const saved = artifacts.saveBinary({
+    data,
+    kind,
+    mimeType: contentType,
+    label: label || undefined,
+  });
+  db.insertArtifact(saved);
+  return c.json(saved, 201);
+});
+
 /** Cross-run artifact listing (latest first), for the product gallery. */
 app.get("/api/artifacts", (c) => {
   const limit = Math.min(Number(c.req.query("limit") ?? 100), 500);

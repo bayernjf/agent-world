@@ -234,7 +234,7 @@ export function openDb(file: string) {
     ),
     listArtifacts: db.prepare(
       `SELECT id, run_id, node_id, attempt, kind, mime_type, label, size_bytes, storage, uri, created_at
-       FROM artifacts ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+       FROM artifacts ORDER BY created_at DESC, rowid DESC LIMIT ? OFFSET ?`,
     ),
     deleteArtifactsForRun: db.prepare(`DELETE FROM artifacts WHERE run_id = ?`),
   };

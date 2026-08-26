@@ -6,6 +6,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
+import { createHash } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import type { Artifact } from "@agent-world/core";
 
@@ -116,6 +117,36 @@ export class ArtifactStore {
       storage: "inline",
       uri: null,
       createdAt,
+    };
+  }
+
+  /**
+   * Persist raw uploaded bytes (e.g. a product photo from the source node) as
+   * a local image/file artifact before any run exists. Returns a StoredArtifact
+   * with a stable /api/artifacts/:id URI the graph can reference directly.
+   */
+  saveBinary(opts: {
+    data: Buffer;
+    kind: Artifact["kind"];
+    mimeType?: string;
+    label?: string;
+  }): StoredArtifact {
+    const id = `up-${createHash("sha1").update(opts.data).digest("hex").slice(0, 12)}`;
+    const filePath = this.pathFor("uploads", id);
+    mkdirSync(dirname(filePath), { recursive: true });
+    writeFileSync(filePath, opts.data);
+    return {
+      id,
+      runId: "uploads",
+      nodeId: "source",
+      attempt: null,
+      kind: opts.kind,
+      mimeType: opts.mimeType ?? MIME_BY_KIND[opts.kind],
+      label: opts.label ?? null,
+      sizeBytes: opts.data.length,
+      storage: "local",
+      uri: `/api/artifacts/${encodeURIComponent(id)}`,
+      createdAt: Date.now(),
     };
   }
 
