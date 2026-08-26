@@ -355,7 +355,8 @@ describe("resume continue", () => {
     );
     const state = reconstructState(past);
     expect(state.haltedNodeId).toBe("critic");
-    expect(state.artifacts.get("forge")).toBe("bad");
+    const forgeArts = state.artifacts.get("forge") ?? [];
+    expect(forgeArts.find((a) => a.kind === "text")?.content).toBe("bad");
     expect(state.totalCostUsd).toBeGreaterThan(0);
   });
 });

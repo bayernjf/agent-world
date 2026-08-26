@@ -117,26 +117,6 @@ export function validateContract(output: string, schema: Record<string, unknown>
   return null;
 }
 
-/**
- * Reference images originate at source nodes and flow downstream through
- * text-only agents. Returns a per-graph resolver that memoizes the set of
- * image URLs reachable from a node via flow edges (diamonds dedupe).
- */
-function createImageResolver(graph: Graph, extraImages: () => string[]): (nodeId: string) => string[] {
-  const cache = new Map<string, string[]>();
-  const resolve = (id: string): string[] => {
-    const cached = cache.get(id);
-    if (cached) return cached;
-    const node = nodeById(graph, id);
-    const own = node?.kind === "source" ? node.source?.images ?? [] : [];
-    const upstream = incoming(graph, id, "flow").flatMap((e) => resolve(e.from));
-    const merged = [...new Set([...own, ...extraImages(), ...upstream])];
-    cache.set(id, merged);
-    return merged;
-  };
-  return resolve;
-}
-
 export interface ExecuteOptions {
   runId: string;
   graph: Graph;
@@ -189,6 +169,45 @@ const delay = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
 function truncateText(body: string, maxChars: number): string {
   const head = `...[前 ${body.length - maxChars} 字符已截断]...\n`;
   return head + body.slice(body.length - maxChars + head.length);
+}
+
+/**
+ * Replace a node's artifacts with a single text artifact. Used when a node
+ * finishes with a text output (agent/source/sink/gate).
+ */
+function setTextArtifact(artifacts: Map<string, Artifact[]>, nodeId: string, text: string): void {
+  artifacts.set(nodeId, [{ id: `${nodeId}-text`, kind: "text", content: text }]);
+}
+
+/**
+ * Collect all image URIs reachable from a node via its flow-upstream artifacts
+ * (transitive closure, deduped). Replaces the old createImageResolver + extraImages
+ * mechanism: images now flow as typed artifacts through the artifacts Map.
+ */
+function collectUpstreamImages(
+  graph: Graph,
+  artifacts: Map<string, Artifact[]>,
+  nodeId: string,
+): string[] {
+  const uris: string[] = [];
+  const visited = new Set<string>();
+  const walk = (id: string) => {
+    if (visited.has(id)) return;
+    visited.add(id);
+    const arts = artifacts.get(id);
+    if (arts) {
+      for (const a of arts) {
+        if (a.kind === "image" && a.uri) uris.push(a.uri);
+      }
+    }
+    for (const e of incoming(graph, id, "flow")) {
+      walk(e.from);
+    }
+  };
+  for (const e of incoming(graph, nodeId, "flow")) {
+    walk(e.from);
+  }
+  return [...new Set(uris)];
 }
 
 /**
@@ -380,7 +399,7 @@ class EventQueue {
 }
 
 interface SchedulerInit {
-  artifacts: Map<string, string>;
+  artifacts: Map<string, Artifact[]>;
   attempts: Map<string, number>;
   nodeCostUsd: Map<string, number>;
   totalCostUsd: number;
@@ -434,8 +453,6 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
   const monthlyBudgetUsd = opts.monthlyBudgetUsd ?? null;
   const monthSpentUsd = opts.monthSpentUsd ?? 0;
   const queue = new EventQueue();
-  const extraImages: string[] = [];
-  const imagesFor = createImageResolver(graph, () => extraImages);
 
   let seq = opts.startSeq;
   const emit = (e: DraftEvent): RunEvent => {
@@ -445,6 +462,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
   };
 
   const artifacts = opts.init.artifacts;
+  const imagesFor = (nodeId: string) => collectUpstreamImages(graph, artifacts, nodeId);
   const attempts = opts.init.attempts;
   const nodeCostUsd = opts.init.nodeCostUsd;
   const states = opts.init.states;
@@ -472,9 +490,25 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
   let haltReason: string | undefined;
 
   const inputFor = async (node: GraphNode, includeNote = true): Promise<string> => {
-    const parts = incoming(graph, node.id, "flow")
-      .map((e) => artifacts.get(e.from))
-      .filter((v): v is string => typeof v === "string");
+    const parts: string[] = [];
+    for (const e of incoming(graph, node.id, "flow")) {
+      const arts = artifacts.get(e.from) ?? [];
+      for (const a of arts) {
+        if (a.kind === "text" || a.kind === "json") {
+          if (a.content) parts.push(a.content);
+        } else if (a.kind === "image") {
+          parts.push(`[图片: ${a.label ?? a.uri ?? "上游图片"}]`);
+        } else if (a.kind === "video") {
+          parts.push(`[视频: ${a.label ?? a.uri ?? "上游视频"}]`);
+        } else if (a.kind === "audio") {
+          parts.push(`[音频: ${a.label ?? a.uri ?? "上游音频"}]`);
+        } else if (a.kind === "file") {
+          parts.push(`[文件: ${a.label ?? a.uri ?? "上游文件"}]`);
+        } else if (a.kind === "uri") {
+          parts.push(`[链接: ${a.uri ?? ""}]`);
+        }
+      }
+    }
     const policy = node.agent?.inputPolicy ?? { mode: "all" as const };
     let body: string;
     if (policy.mode === "summary") {
@@ -560,7 +594,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       if (node.kind === "source" || node.kind === "sink") {
         if (node.kind === "sink") {
           const output = await inputFor(node);
-          artifacts.set(nodeId, output);
+          setTextArtifact(artifacts, nodeId, output);
           states.set(nodeId, "done");
           emit({ type: "node.started", nodeId, attempt });
           emit({ type: "node.finished", nodeId, attempt, output, usage: zeroUsage() });
@@ -599,14 +633,16 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
         }
 
         const output = buildSourceBrief(node, sourceText);
-        artifacts.set(nodeId, output);
+        setTextArtifact(artifacts, nodeId, output);
         states.set(nodeId, "done");
         emit({ type: "node.started", nodeId, attempt });
         emit({ type: "node.finished", nodeId, attempt, output, usage: zeroUsage() });
         let primaryKind: Artifact["kind"] | undefined;
         if (sourceImages.length) {
+          const nodeArts = artifacts.get(nodeId)!;
           for (const [i, url] of sourceImages.entries()) {
             const a: Artifact = { id: `${nodeId}-img${i}`, kind: "image", uri: url };
+            nodeArts.push(a);
             emit({ type: "artifact.produced", nodeId, artifact: a });
           }
           primaryKind = "image";
@@ -678,7 +714,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
         });
 
         if (verdict.passed) {
-          artifacts.set(nodeId, output);
+          setTextArtifact(artifacts, nodeId, output);
           states.set(nodeId, "done");
           sendPackets(nodeId, verdict.reason, "text");
           return;
@@ -702,7 +738,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           const policy = node.gate?.onExhausted ?? "halt";
           emit({ type: "gate.exhausted", nodeId, attempts: attempt, policy });
           if (policy === "pass") {
-            artifacts.set(nodeId, output);
+            setTextArtifact(artifacts, nodeId, output);
             states.set(nodeId, "done");
             sendPackets(nodeId, verdict.reason, "text");
             return;
@@ -730,7 +766,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
         });
         for (const bodyId of loop.body) {
           states.set(bodyId, "pending");
-          artifacts.delete(bodyId);
+          artifacts.set(bodyId, []);
         }
         return;
       }
@@ -749,22 +785,19 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     try {
       const results = await worker.generateImage({ node, config: cfg, input: prompt, signal: opts.signal });
       let usage: Usage = { tokensIn: 0, tokensOut: 0, costUsd: 0, units: { images: 0 } };
+      const imageArts: Artifact[] = [];
       for (let idx = 0; idx < results.length; idx++) {
         const res = results[idx]!;
         const uri = await opts.storeBinary(res.data, res.mimeType, `${node.name || "ai-image"}-${idx + 1}.png`);
-        extraImages.push(uri);
-        artifacts.set(nodeId, uri);
-        emit({
-          type: "artifact.produced",
-          nodeId,
-          artifact: {
-            id: `${nodeId}-img-${idx}`,
-            kind: "image",
-            uri,
-            mimeType: res.mimeType,
-            label: results.length > 1 ? `${node.name || "AI 配图"} #${idx + 1}` : node.name || "AI 配图",
-          },
-        });
+        const a: Artifact = {
+          id: `${nodeId}-img-${idx}`,
+          kind: "image",
+          uri,
+          mimeType: res.mimeType,
+          label: results.length > 1 ? `${node.name || "AI 配图"} #${idx + 1}` : node.name || "AI 配图",
+        };
+        imageArts.push(a);
+        emit({ type: "artifact.produced", nodeId, artifact: a });
         usage = {
           tokensIn: (usage.tokensIn ?? 0) + (res.usage.tokensIn ?? 0),
           tokensOut: (usage.tokensOut ?? 0) + (res.usage.tokensOut ?? 0),
@@ -772,6 +805,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           units: { ...usage.units, images: (usage.units?.images ?? 0) + (res.usage.units?.images ?? 0) },
         };
       }
+      artifacts.set(nodeId, imageArts);
       emit({ type: "node.finished", nodeId, attempt, output: "", usage });
       states.set(nodeId, "done");
       sendPackets(nodeId, `生成配图 ${results.length} 张`, "image");
@@ -921,7 +955,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
               });
               for (const bodyId of loop.body) {
                 states.set(bodyId, "pending");
-                artifacts.delete(bodyId);
+                artifacts.set(bodyId, []);
               }
               return;
             }
@@ -960,7 +994,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
         return;
       }
 
-      artifacts.set(nodeId, result.output);
+      setTextArtifact(artifacts, nodeId, result.output);
       states.set(nodeId, "done");
       emit({ type: "node.finished", nodeId, attempt, output: result.output, usage: result.usage });
       const primaryKind = produceArtifacts(nodeId, result.output, attempt);
@@ -1068,8 +1102,9 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
   if (opts.approveGate) {
     const { nodeId, attempt } = opts.approveGate;
     const gate = nodeById(graph, nodeId);
-    const output = artifacts.get(nodeId) ?? "";
-    artifacts.set(nodeId, output);
+    const existing = artifacts.get(nodeId) ?? [];
+    const output = existing.find((a) => a.kind === "text")?.content ?? "";
+    setTextArtifact(artifacts, nodeId, output);
     states.set(nodeId, "done");
     attempts.set(nodeId, attempt);
     const decision = opts.editOutput && opts.editOutput[nodeId] != null ? "edited" : "approved";
@@ -1144,7 +1179,7 @@ export async function* execute(opts: ExecuteOptions): AsyncGenerator<RunEvent, v
 }
 
 export interface ResumeState {
-  artifacts: Map<string, string>;
+  artifacts: Map<string, Artifact[]>;
   attempts: Map<string, number>;
   totalCostUsd: number;
   nodeCostUsd: Map<string, number>;
@@ -1159,7 +1194,7 @@ export interface ResumeState {
  * a halted run without replaying its old events (those stay in the DB).
  */
 export function reconstructState(events: RunEvent[]): ResumeState {
-  const artifacts = new Map<string, string>();
+  const artifacts = new Map<string, Artifact[]>();
   const attempts = new Map<string, number>();
   const nodeCostUsd = new Map<string, number>();
   const approvedTools: string[] = [];
@@ -1172,11 +1207,30 @@ export function reconstructState(events: RunEvent[]): ResumeState {
     lastSeq = Math.max(lastSeq, e.seq);
     switch (e.type) {
       case "node.finished":
-        artifacts.set(e.nodeId, e.output);
+        // If no typed artifacts were produced for this node (old runs / text-only),
+        // synthesize a text artifact from the output so downstream input assembly works.
+        if (!artifacts.has(e.nodeId) || artifacts.get(e.nodeId)!.length === 0) {
+          artifacts.set(e.nodeId, [{ id: `${e.nodeId}-text`, kind: "text", content: e.output }]);
+        }
         totalCostUsd += e.usage.costUsd;
         nodeCostUsd.set(e.nodeId, (nodeCostUsd.get(e.nodeId) ?? 0) + e.usage.costUsd);
         break;
+      case "artifact.produced": {
+        const arr = artifacts.get(e.nodeId) ?? [];
+        arr.push(e.artifact);
+        artifacts.set(e.nodeId, arr);
+        break;
+      }
       case "node.started":
+        // If this is a rework attempt (attempt > previously recorded), clear the
+        // node's artifacts so the new run starts fresh — mirrors the engine's
+        // artifacts.set(bodyId, []) during loop reset. Only clear if an entry
+        // already exists; never create an empty one (resume uses .has() to tell
+        // completed nodes from pending ones).
+        const prevAttempt = attempts.get(e.nodeId) ?? 0;
+        if (e.attempt > prevAttempt && artifacts.has(e.nodeId)) {
+          artifacts.set(e.nodeId, []);
+        }
         attempts.set(e.nodeId, e.attempt);
         break;
       case "gate.verdict":
@@ -1280,7 +1334,7 @@ export async function* resume(opts: ResumeOptions): AsyncGenerator<RunEvent, voi
   // the run continues, so the operator can fix copy without re-running the model.
   if (opts.editOutput) {
     for (const [nodeId, text] of Object.entries(opts.editOutput)) {
-      state.artifacts.set(nodeId, text);
+      setTextArtifact(state.artifacts, nodeId, text);
     }
   }
 
