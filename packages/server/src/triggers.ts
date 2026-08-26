@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import { TriggerConfig, type Graph } from "@agent-world/core";
+import { nextRunAfter } from "./cron.js";
 
 /** Thrown by the trigger service; carries an HTTP status for the route layer. */
 export class TriggerError extends Error {
@@ -59,6 +60,21 @@ export class TriggerService {
 
   listByGraph(graphId: string): TriggerConfig[] {
     return this.list().filter((t) => this.index.get(t.id)?.graphId === graphId);
+  }
+
+  /**
+   * Map of cron trigger id -> next fire time (epoch ms), for the UI. Only cron
+   * triggers are included; an empty/invalid `cron` maps to null.
+   */
+  nextRunMap(graphId?: string): Record<string, number | null> {
+    const out: Record<string, number | null> = {};
+    const list = graphId ? this.listByGraph(graphId) : this.list();
+    for (const t of list) {
+      if (t.type === "cron" && t.cron) {
+        out[t.id] = nextRunAfter(t.cron, new Date())?.getTime() ?? null;
+      }
+    }
+    return out;
   }
 
   /** Create or update a trigger on a graph, persisting the graph document. */

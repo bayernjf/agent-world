@@ -444,6 +444,13 @@ app.delete("/api/graphs/:id/triggers/:tid", async (c) => {
   return c.body(null, 204);
 });
 
+// Next cron fire times for the UI (4A.7).
+app.get("/api/graphs/:id/triggers/next-runs", (c) => {
+  const graphId = c.req.param("id");
+  if (!db.getGraph(graphId)) return c.json({ error: "graph not found" }, 404);
+  return c.json(triggers.nextRunMap(graphId));
+});
+
 // Manually fire a trigger (e.g. a batch run, or a cron/event re-run on demand).
 app.post("/api/graphs/:id/triggers/:tid/fire", async (c) => {
   const graphId = c.req.param("id");

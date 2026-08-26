@@ -182,3 +182,18 @@ describe("TriggerService batch (4A.6)", () => {
     await expect(service.fireBatch("t1")).rejects.toMatchObject({ status: 400 });
   });
 });
+
+describe("TriggerService nextRunMap (4A.7 UI)", () => {
+  it("maps only cron trigger ids to their next fire time", () => {
+    const { service } = makeService([graphWith([cronTrigger, webhookTrigger])]);
+    const map = service.nextRunMap("g1");
+    expect(Object.keys(map).sort()).toEqual(["t2"]);
+    expect(typeof map["t2"]).toBe("number");
+    expect(map["t1"]).toBeUndefined();
+  });
+
+  it("returns an empty map when there are no cron triggers", () => {
+    const { service } = makeService([graphWith([webhookTrigger])]);
+    expect(service.nextRunMap("g1")).toEqual({});
+  });
+});
