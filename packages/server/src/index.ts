@@ -381,6 +381,9 @@ app.post("/api/runs", async (c) => {
         monthSpentUsd: db.costForMonth(now.getFullYear(), now.getMonth() + 1),
         defaultModel: cfg.defaultModel,
         signal: controller.signal,
+        storeBinary: (data, mimeType, label) =>
+          artifacts.saveBinary({ data, kind: "image", mimeType, label }).uri ??
+          `data:${mimeType};base64,${data.toString("base64")}`,
       })) {
         db.record(runId, event);
         if (event.type === "artifact.produced") {
@@ -471,6 +474,9 @@ app.post("/api/runs/:id/resume", async (c) => {
         action,
         resetFrom,
         signal: controller.signal,
+        storeBinary: (data, mimeType, label) =>
+          artifacts.saveBinary({ data, kind: "image", mimeType, label }).uri ??
+          `data:${mimeType};base64,${data.toString("base64")}`,
       })) {
         db.record(runId, event);
         if (event.type === "artifact.produced") {

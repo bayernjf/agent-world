@@ -21,7 +21,7 @@ import { resolveTools, executeBuiltinTool } from "./skills/registry.js";
  * text-only agents. Returns a per-graph resolver that memoizes the set of
  * image URLs reachable from a node via flow edges (diamonds dedupe).
  */
-function createImageResolver(graph: Graph): (nodeId: string) => string[] {
+function createImageResolver(graph: Graph, extraImages: () => string[]): (nodeId: string) => string[] {
   const cache = new Map<string, string[]>();
   const resolve = (id: string): string[] => {
     const cached = cache.get(id);
@@ -29,7 +29,7 @@ function createImageResolver(graph: Graph): (nodeId: string) => string[] {
     const node = nodeById(graph, id);
     const own = node?.kind === "source" ? node.source?.images ?? [] : [];
     const upstream = incoming(graph, id, "flow").flatMap((e) => resolve(e.from));
-    const merged = [...new Set([...own, ...upstream])];
+    const merged = [...new Set([...own, ...extraImages(), ...upstream])];
     cache.set(id, merged);
     return merged;
   };
@@ -59,6 +59,8 @@ export interface ExecuteOptions {
   now?: () => number;
   /** Injected so retry backoff is controllable in tests. */
   sleep?: (ms: number) => Promise<void>;
+  /** Persists generated image bytes and returns a stable URI (e.g. /api/artifacts/:id). */
+  storeBinary?: (data: Buffer, mimeType: string, label?: string) => string;
 }
 
 type Status = "done" | "failed" | "halted" | "tripped" | "cancelled";
@@ -110,6 +112,58 @@ function buildSourceBrief(node: GraphNode, sourceInput: string | undefined): str
   if (raw) lines.push(hasBrief ? `商品描述/原料:\n${raw}` : raw);
   if (lines.length === 0) return `Task intake at ${node.name}`;
   return lines.join("\n");
+}
+
+/** True if any upstream `source` node already carries real product images. */
+function upstreamSourceHasImages(graph: Graph, nodeId: string): boolean {
+  const seen = new Set<string>();
+  const stack = [nodeId];
+  while (stack.length) {
+    const id = stack.pop()!;
+    for (const e of incoming(graph, id, "flow")) {
+      if (seen.has(e.from)) continue;
+      seen.add(e.from);
+      const n = nodeById(graph, e.from);
+      if (n?.kind === "source" && (n.source?.images?.length ?? 0) > 0) return true;
+      stack.push(e.from);
+    }
+  }
+  return false;
+}
+
+/** Build a banner-generation prompt from the upstream source's product brief. */
+function buildImagePrompt(node: GraphNode, graph: Graph): string {
+  const seen = new Set<string>();
+  const stack = [node.id];
+  let src: GraphNode | undefined;
+  while (stack.length && !src) {
+    const id = stack.pop()!;
+    for (const e of incoming(graph, id, "flow")) {
+      if (seen.has(e.from)) continue;
+      seen.add(e.from);
+      const n = nodeById(graph, e.from);
+      if (n?.kind === "source") {
+        src = n;
+        break;
+      }
+      stack.push(e.from);
+    }
+  }
+  const s = src?.source;
+  const parts: string[] = [];
+  const name = s?.productName || node.name || "商品";
+  parts.push(`为电商商品「${name}」生成一张高质量主图/Banner`);
+  if (s?.brand) parts.push(`品牌调性：${s.brand}`);
+  if (s?.audience) parts.push(`目标人群：${s.audience}`);
+  if (s?.tone) parts.push(`风格语气：${s.tone}`);
+  if (s?.priceRange) parts.push(`价格定位：${s.priceRange}`);
+  parts.push("构图干净、留白充足、突出卖点，适合作为商品详情页主视觉");
+  return parts.join("；");
+}
+
+/** Default storeBinary: inline the bytes as a data URI (used in tests / when no artifact store is wired). */
+function defaultStoreBinary(data: Buffer, mimeType: string): string {
+  return `data:${mimeType};base64,${data.toString("base64")}`;
 }
 
 /** Simple async event queue so many concurrent node workers can feed one ordered stream. */
@@ -173,6 +227,8 @@ interface SchedulerOptions {
   approveGate?: { nodeId: string; attempt: number };
   /** True when continuing an existing run (resume/retry): don't re-emit run.started. */
   resuming?: boolean;
+  /** Persists generated image bytes and returns a stable URI (e.g. /api/artifacts/:id). */
+  storeBinary: (data: Buffer, mimeType: string, label?: string) => string;
 }
 
 /**
@@ -187,7 +243,8 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
   const monthlyBudgetUsd = opts.monthlyBudgetUsd ?? null;
   const monthSpentUsd = opts.monthSpentUsd ?? 0;
   const queue = new EventQueue();
-  const imagesFor = createImageResolver(graph);
+  const extraImages: string[] = [];
+  const imagesFor = createImageResolver(graph, () => extraImages);
 
   let seq = opts.startSeq;
   const emit = (e: DraftEvent): RunEvent => {
@@ -372,6 +429,45 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
         }
         return;
       }
+
+  // --- Image generation node: produce a banner/scene image when source lacks photos ---
+  if (node.kind === "imageGen") {
+    emit({ type: "node.started", nodeId, attempt });
+    const cfg = node.imageGen ?? { model: "agnes-image", prompt: "" };
+    // 缺素材时才生图：上游 source 已有图片则跳过，避免浪费生图配额。
+    if (upstreamSourceHasImages(graph, nodeId)) {
+      states.set(nodeId, "done");
+      emit({ type: "node.finished", nodeId, attempt, output: "", usage: zeroUsage() });
+      return;
+    }
+    const prompt = cfg.prompt?.trim() || buildImagePrompt(node, graph);
+    try {
+      const res = await worker.generateImage({ node, config: cfg, input: prompt, signal: opts.signal });
+      const uri = opts.storeBinary(res.data, res.mimeType, `${node.name || "ai-image"}.png`);
+      extraImages.push(uri);
+      artifacts.set(nodeId, uri);
+      emit({ type: "node.finished", nodeId, attempt, output: "", usage: res.usage });
+      emit({
+        type: "artifact.produced",
+        nodeId,
+        artifact: {
+          id: `${nodeId}-img`,
+          kind: "image",
+          uri,
+          mimeType: res.mimeType,
+          label: node.name || "AI 配图",
+        },
+      });
+      states.set(nodeId, "done");
+      sendPackets(nodeId, "生成配图", "image");
+    } catch (err) {
+      // 生图是增强项：无生图后端时优雅降级，整条线仍可继续运行。
+      console.warn(`[imageGen:${nodeId}] generation skipped:`, (err as Error).message);
+      states.set(nodeId, "done");
+      emit({ type: "node.finished", nodeId, attempt, output: "", usage: zeroUsage() });
+    }
+    return;
+  }
 
       // agent
       const config = {
@@ -649,6 +745,7 @@ export async function* execute(opts: ExecuteOptions): AsyncGenerator<RunEvent, v
     signal: opts.signal,
     now: opts.now ?? Date.now,
     sleep: opts.sleep ?? delay,
+    storeBinary: opts.storeBinary ?? defaultStoreBinary,
     init: {
       artifacts: new Map(),
       attempts: new Map(),
@@ -721,6 +818,8 @@ export interface ResumeOptions {
    */
   resetFrom?: string;
   signal?: AbortSignal;
+  /** Persists generated image bytes and returns a stable URI (e.g. /api/artifacts/:id). */
+  storeBinary?: (data: Buffer, mimeType: string, label?: string) => string;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
 }
@@ -788,6 +887,7 @@ export async function* resume(opts: ResumeOptions): AsyncGenerator<RunEvent, voi
     signal: opts.signal,
     now,
     sleep,
+    storeBinary: opts.storeBinary ?? defaultStoreBinary,
     init: {
       artifacts: state.artifacts,
       attempts: state.attempts,
