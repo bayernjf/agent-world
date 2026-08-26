@@ -1220,3 +1220,54 @@ Stage B — structured product blocks:
 - `pnpm -r typecheck`：core + server + web 全绿
 - `pnpm -r test`：core 54 + server 243 全绿
 - `pnpm -r build`：core + server + web 构建成功
+
+---
+
+## 阶段 4 收尾 — 首次启动引导（Onboarding）
+
+**日期**：2026-08-27
+**分支**：`feature/20260824`
+
+### 概述
+
+替代写死的 seed 图自动创建。新用户首次启动时数据库为空，前端显示全屏 Onboarding 引导页面，让用户选择模板或从空白开始创建第一条产线。
+
+### 前端
+
+**`apps/web/src/components/Onboarding.tsx`**（新增）
+- 全屏覆盖组件，z-index 1000，居中显示
+- Hero 区域：欢迎标题 + 简短介绍（产线隐喻说明）
+- 模板选择网格：复用 TemplatePreview SVG 逻辑，展示模板结构缩略图
+- "从空白产线开始"按钮
+- 提示区域：说明需要配置模型 Provider，未配置时使用假 Worker
+- 调用 `api.listTemplates()` 加载模板列表
+- `onCreate(templateId?)` 回调：点击模板或空白按钮时触发
+
+**`apps/web/src/App.tsx`**
+- 导入 Onboarding 组件
+- `graphs.length === 0` 时显示 `<Onboarding onCreate={createGraph} />`
+- 创建图后 graphs 不再为空，Onboarding 自动消失
+- 使用 React Fragment 包裹 Onboarding 和主应用
+
+**`apps/web/src/styles.css`**
+- 新增 .onboarding 系列样式（全屏布局、hero、模板网格、分割线、按钮、提示框）
+- .template-grid--onboarding / .template-card--onboarding 适配全屏布局
+- .btn--lg 大按钮样式
+
+### 后端
+
+**`packages/server/src/index.ts`**
+- 移除启动时自动创建 SEED_GRAPH 的逻辑（`if (!db.getGraph(SEED_GRAPH.id)) db.saveGraph(...)`）
+- 移除未使用的 SEED_GRAPH 导入
+- POST /api/runs 默认 graphId 逻辑修改：未指定时使用 `db.listGraphs()[0]?.id`，无图时返回 400 "no graphs found — create one first"
+- 保留 seed.ts 文件（engine.test.ts 仍引用 SEED_GRAPH）
+
+### 向后兼容
+- 已有数据库的用户不受影响（已有图不会被删除）
+- 新用户首次启动看到 Onboarding，而非写死的 seed 图
+- seed.ts 保留供测试使用
+
+### 质量门
+- `pnpm -r typecheck`：core + server + web 全绿
+- `pnpm -r test`：core 54 + server 243 全绿
+- `pnpm -r build`：core + server + web 构建成功（99 modules）
