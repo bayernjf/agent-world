@@ -516,6 +516,24 @@ export function openDb(file: string) {
       const { byGraph, byNode, byAttempt, byDay } = this.costReport(opts);
       return { byGraph, byNode, byAttempt, byDay };
     },
+
+    /**
+     * Total cost accrued across finished runs that started within the given
+     * calendar month (local time). Used to evaluate the monthly budget guard.
+     */
+    costForMonth(year: number, month: number): number {
+      // Build the [start, end) millisecond window for the month in local time.
+      const start = new Date(year, month - 1, 1).getTime();
+      const end = new Date(year, month, 1).getTime();
+      const row = db
+        .prepare(
+          `SELECT COALESCE(SUM(n.cost_usd), 0) AS cost
+           FROM node_runs n JOIN runs r ON r.id = n.run_id
+           WHERE r.status != 'running' AND r.started_at >= ? AND r.started_at < ?`,
+        )
+        .get(start, end) as { cost: number };
+      return row.cost;
+    },
     close() {
       db.close();
     },

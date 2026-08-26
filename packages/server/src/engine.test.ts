@@ -228,4 +228,43 @@ describe("execute", () => {
     const state = replay(events);
     expect(state.nodes.a!.artifacts).toHaveLength(1);
   });
+
+  it("warns on monthly budget but does not trip the line", async () => {
+    const g: Graph = {
+      id: "m",
+      name: "m",
+      nodes: [
+        { id: "in", kind: "source", name: "IN", x: 0, y: 0 },
+        { id: "a", kind: "agent", name: "A", x: 1, y: 0, agent: { model: "t", prompt: "", skills: [], temperature: 0.7, timeoutMs: 60000 } },
+        { id: "out", kind: "sink", name: "OUT", x: 2, y: 0 },
+      ],
+      edges: [
+        { id: "e1", from: "in", to: "a", kind: "flow" },
+        { id: "e2", from: "a", to: "out", kind: "flow" },
+      ],
+    };
+    const { plan } = compile(g)!;
+    const costWorker = {
+      async *runAgent() {
+        return { output: "ok", usage: { tokensIn: 100, tokensOut: 50, costUsd: 0.0011 } };
+      },
+      async judge() { return { passed: true, reason: "ok" }; },
+    };
+    // Prior month already spent 0.001; this run adds 0.0011 -> 0.0021 > 0.002 cap.
+    const events = [];
+    for await (const e of execute({
+      runId: "r", graph: g, plan, worker: costWorker as never,
+      budgetUsd: null, monthlyBudgetUsd: 0.002, monthSpentUsd: 0.001, now: clock,
+    })) {
+      events.push(e);
+    }
+    const monthly = events.filter(
+      (ev) => ev.type === "power.warning" && (ev as any).scope === "monthly",
+    );
+    expect(monthly.length).toBeGreaterThanOrEqual(1);
+    // Advisory only: the run still completes and is not tripped.
+    expect(events.some((ev) => ev.type === "power.tripped")).toBe(false);
+    expect(replay(events).status).toBe("done");
+    expect(replay(events).monthlyBudgetWarned).toBe(true);
+  });
 });

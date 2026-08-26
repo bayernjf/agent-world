@@ -45,6 +45,13 @@ export interface ExecuteOptions {
   input?: string;
   /** Hard ceiling. Cost is metered after each call, so this trips late by one node. */
   budgetUsd: number | null;
+  /**
+   * Soft monthly cap (advisory only). When set, the engine warns at 80% and
+   * 100% of `monthSpentUsd + this run's cost` but never hard-trips on it.
+   */
+  monthlyBudgetUsd?: number | null;
+  /** Cost already spent this month before this run started. */
+  monthSpentUsd?: number;
   /** Fallback model for nodes that don't specify one. */
   defaultModel?: string;
   signal?: AbortSignal;
@@ -131,6 +138,8 @@ interface SchedulerOptions {
   plan: Plan;
   worker: Worker;
   budgetUsd: number | null;
+  monthlyBudgetUsd: number | null;
+  monthSpentUsd: number;
   fallbackModel: string;
   startSeq: number;
   sourceInput?: string;
@@ -153,6 +162,8 @@ interface SchedulerOptions {
  */
 async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunEvent>> {
   const { runId, graph, plan, worker, budgetUsd, fallbackModel } = opts;
+  const monthlyBudgetUsd = opts.monthlyBudgetUsd ?? null;
+  const monthSpentUsd = opts.monthSpentUsd ?? 0;
   const queue = new EventQueue();
   const imagesFor = createImageResolver(graph);
 
@@ -171,6 +182,14 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
   const BUDGET_WARN = 0.8;
   let budgetWarned =
     budgetUsd !== null && budgetUsd > 0 && totalCostUsd >= budgetUsd * BUDGET_WARN;
+  let monthlyWarned80 =
+    monthlyBudgetUsd !== null &&
+    monthlyBudgetUsd > 0 &&
+    monthSpentUsd + totalCostUsd >= monthlyBudgetUsd * BUDGET_WARN;
+  let monthlyWarned100 =
+    monthlyBudgetUsd !== null &&
+    monthlyBudgetUsd > 0 &&
+    monthSpentUsd + totalCostUsd >= monthlyBudgetUsd;
 
   const reworkNotes = new Map<string, string>();
   const loopByGate = new Map(plan.loops.map((l) => [l.gateId, l]));
@@ -491,6 +510,32 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
         return;
       }
 
+      // Monthly budget is advisory: warn at 80% and again at 100%, but don't
+      // take the line down (a hard monthly trip would strand in-flight runs).
+      if (monthlyBudgetUsd !== null && monthlyBudgetUsd > 0) {
+        const monthlyTotal = monthSpentUsd + totalCostUsd;
+        if (!monthlyWarned80 && monthlyTotal >= monthlyBudgetUsd * BUDGET_WARN) {
+          monthlyWarned80 = true;
+          emit({
+            type: "power.warning",
+            totalCostUsd: monthlyTotal,
+            budgetUsd: monthlyBudgetUsd,
+            threshold: BUDGET_WARN,
+            scope: "monthly",
+          });
+        }
+        if (!monthlyWarned100 && monthlyTotal >= monthlyBudgetUsd) {
+          monthlyWarned100 = true;
+          emit({
+            type: "power.warning",
+            totalCostUsd: monthlyTotal,
+            budgetUsd: monthlyBudgetUsd,
+            threshold: 1,
+            scope: "monthly",
+          });
+        }
+      }
+
       sendPackets(nodeId, result.output.slice(0, 120), primaryKind);
     } finally {
       running--;
@@ -574,6 +619,8 @@ export async function* execute(opts: ExecuteOptions): AsyncGenerator<RunEvent, v
     plan: opts.plan,
     worker: opts.worker,
     budgetUsd: opts.budgetUsd,
+    monthlyBudgetUsd: opts.monthlyBudgetUsd ?? null,
+    monthSpentUsd: opts.monthSpentUsd ?? 0,
     fallbackModel: opts.defaultModel ?? "agnes-2.0-flash",
     startSeq: 0,
     sourceInput: opts.input,
@@ -640,6 +687,8 @@ export interface ResumeOptions {
   plan: Plan;
   worker: Worker;
   budgetUsd: number | null;
+  monthlyBudgetUsd?: number | null;
+  monthSpentUsd?: number;
   defaultModel?: string;
   pastEvents: RunEvent[];
   action: "continue" | "scrap";
@@ -710,6 +759,8 @@ export async function* resume(opts: ResumeOptions): AsyncGenerator<RunEvent, voi
     plan,
     worker,
     budgetUsd,
+    monthlyBudgetUsd: opts.monthlyBudgetUsd ?? null,
+    monthSpentUsd: opts.monthSpentUsd ?? 0,
     fallbackModel: opts.defaultModel ?? "agnes-2.0-flash",
     startSeq: state.lastSeq + 1,
     signal: opts.signal,

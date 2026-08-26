@@ -96,4 +96,25 @@ describe("cost report", () => {
     expect(all.totals.runs).toBe(1);
     expect(all.totals.cost_usd).toBeCloseTo(0.01, 5);
   });
+
+  it("sums cost for a specific calendar month via costForMonth", () => {
+    const now = new Date();
+    const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+    const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1).getTime();
+
+    db.createRun({ id: "r1", graph, budgetUsd: null, at: thisMonthStart + 1000 });
+    db.record("r1", finished("n1", 1, 0.01, 1));
+    db.finishRun("r1", "done", thisMonthStart + 2000);
+
+    db.createRun({ id: "r2", graph, budgetUsd: null, at: lastMonthStart + 1000 });
+    db.record("r2", finished("n1", 1, 0.05, 1));
+    db.finishRun("r2", "done", lastMonthStart + 2000);
+
+    const spent = db.costForMonth(now.getFullYear(), now.getMonth() + 1);
+    expect(spent).toBeCloseTo(0.01, 5);
+
+    const last = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const spentLast = db.costForMonth(last.getFullYear(), last.getMonth() + 1);
+    expect(spentLast).toBeCloseTo(0.05, 5);
+  });
 });

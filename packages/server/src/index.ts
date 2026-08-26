@@ -353,6 +353,8 @@ app.post("/api/runs", async (c) => {
   // Drain in the background so the POST returns immediately with the run id.
   void (async () => {
     try {
+      const cfg = loadConfig();
+      const now = new Date();
       for await (const event of execute({
         runId,
         graph,
@@ -360,7 +362,9 @@ app.post("/api/runs", async (c) => {
         worker,
         input: body.input,
         budgetUsd,
-        defaultModel: loadConfig().defaultModel,
+        monthlyBudgetUsd: cfg.monthlyBudgetUsd ?? null,
+        monthSpentUsd: db.costForMonth(now.getFullYear(), now.getMonth() + 1),
+        defaultModel: cfg.defaultModel,
         signal: controller.signal,
       })) {
         db.record(runId, event);
@@ -434,13 +438,17 @@ app.post("/api/runs/:id/resume", async (c) => {
 
   void (async () => {
     try {
+      const cfg = loadConfig();
+      const now = new Date();
       for await (const event of resume({
         runId,
         graph,
         plan,
         worker,
         budgetUsd: row.budget_usd ?? null,
-        defaultModel: loadConfig().defaultModel,
+        monthlyBudgetUsd: cfg.monthlyBudgetUsd ?? null,
+        monthSpentUsd: db.costForMonth(now.getFullYear(), now.getMonth() + 1),
+        defaultModel: cfg.defaultModel,
         pastEvents,
         action,
         resetFrom,
