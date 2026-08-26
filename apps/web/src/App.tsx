@@ -33,7 +33,7 @@ import { useRun } from "./store/run";
 
 export default function App() {
   const { graph, setGraph, addNode, flushSave, undo, redo } = useGraph();
-  const { connect, reset, runId } = useRun();
+  const { connect, reset, runId, loadRun } = useRun();
 
   const [mode, setMode] = useState<Mode>("select");
   const [budget, setBudget] = useState(0.01);
@@ -399,7 +399,14 @@ export default function App() {
         </div>
       </div>
 
-      <RunHistory open={historyOpen} onClose={() => setHistoryOpen(false)} />
+      <RunHistory
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        onOpen={(id) => {
+          setHistoryOpen(false);
+          void loadRun(id);
+        }}
+      />
       <CostReport open={costOpen} onClose={() => setCostOpen(false)} />
       <EvalReport open={evalOpen} onClose={() => setEvalOpen(false)} graphId={graph.id} />
       <ABDialog
