@@ -182,21 +182,31 @@ const MAX_CONCURRENCY = 6;
 const delay = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 /**
+ * Hard-truncate a body to `maxChars`, keeping the tail and a small head marker.
+ * Used as the deterministic fallback when a `summary` policy has no summarizer
+ * or the summarizer fails.
+ */
+function truncateText(body: string, maxChars: number): string {
+  const head = `...[前 ${body.length - maxChars} 字符已截断]...\n`;
+  return head + body.slice(body.length - maxChars + head.length);
+}
+
+/**
  * Assemble upstream artifacts into a nodes input according to its input policy.
  * - all: concatenate every upstream output (default)
  * - last: only the most recent upstream output
  * - truncate: concatenate but cap at maxChars, keeping the tail
+ * (`summary` mode is handled in `inputFor`, which can call an async summarizer.)
  */
 function assembleInput(
   parts: string[],
-  policy: { mode: "all" | "last" | "truncate"; maxChars?: number },
+  policy: { mode: "all" | "last" | "truncate" | "summary"; maxChars?: number },
 ): string {
   if (parts.length === 0) return "";
   if (policy.mode === "last") return parts[parts.length - 1] ?? "";
   const body = parts.join("\n\n");
   if (policy.mode === "truncate" && policy.maxChars && body.length > policy.maxChars) {
-    const head = `...[前 ${body.length - policy.maxChars} 字符已截断]...\n`;
-    return head + body.slice(body.length - policy.maxChars + head.length);
+    return truncateText(body, policy.maxChars);
   }
   return body;
 }
@@ -461,12 +471,36 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
   let haltNodeId: string | undefined;
   let haltReason: string | undefined;
 
-  const inputFor = (node: GraphNode, includeNote = true): string => {
+  const inputFor = async (node: GraphNode, includeNote = true): Promise<string> => {
     const parts = incoming(graph, node.id, "flow")
       .map((e) => artifacts.get(e.from))
       .filter((v): v is string => typeof v === "string");
     const policy = node.agent?.inputPolicy ?? { mode: "all" as const };
-    const body = assembleInput(parts, policy);
+    let body: string;
+    if (policy.mode === "summary") {
+      const full = parts.join("\n\n");
+      const max = policy.maxChars ?? Infinity;
+      if (full.length > max && worker.summarize) {
+        // Rolling summary: compress via the model instead of hard truncation.
+        try {
+          body = await worker.summarize({
+            text: full,
+            maxChars: max,
+            model: node.agent?.model,
+            signal: opts.signal,
+          });
+        } catch {
+          body = truncateText(full, max);
+        }
+        if (!body || body.trim().length === 0) body = truncateText(full, max);
+      } else if (full.length > max) {
+        body = truncateText(full, max);
+      } else {
+        body = full;
+      }
+    } else {
+      body = assembleInput(parts, policy);
+    }
     const note = includeNote ? reworkNotes.get(node.id) : undefined;
     if (!note) return body;
     return `${body}\n\n[质检站退回原因] ${note}`;
@@ -525,7 +559,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     try {
       if (node.kind === "source" || node.kind === "sink") {
         if (node.kind === "sink") {
-          const output = inputFor(node);
+          const output = await inputFor(node);
           artifacts.set(nodeId, output);
           states.set(nodeId, "done");
           emit({ type: "node.started", nodeId, attempt });
@@ -585,7 +619,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
 
       if (node.kind === "gate") {
         emit({ type: "node.started", nodeId, attempt });
-        const output = inputFor(node);
+        const output = await inputFor(node);
         const modelVerdict = await worker.judge({
           node,
           attempt,
@@ -778,7 +812,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           return;
         }
         try {
-          const agentInput = inputFor(node);
+          const agentInput = await inputFor(node);
           reworkNotes.delete(nodeId);
           const tools = resolveTools(mounts);
           const referenceImages = imagesFor(nodeId);

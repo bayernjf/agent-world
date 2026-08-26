@@ -81,6 +81,19 @@ export interface Worker {
 
   /** Generates one or more images (banner / scene) from a prompt. Used by `imageGen` nodes. */
   generateImage(args: ImageGenArgs): Promise<ImageGenResult[]>;
+
+  /**
+   * Compresses `text` to roughly `maxChars` characters (LLM rolling summary).
+   * Optional: when absent the engine falls back to hard `truncate` for
+   * `summary` input policies, so implementers/tests need not provide it.
+   */
+  summarize?(args: {
+    text: string;
+    maxChars: number;
+    /** Model to summarize with; falls back to the worker's default. */
+    model?: string;
+    signal?: AbortSignal;
+  }): Promise<string>;
 }
 
 /**
@@ -159,6 +172,14 @@ export function fakeWorker(opts: { failFirstAttempts?: number; chunkDelayMs?: nu
         mimeType: "image/png",
         usage: { tokensIn: 0, tokensOut: 0, costUsd: 0, units: { images: 1 } },
       }));
+    },
+
+    // Deterministic stand-in: keep head+tail and mark as summarized so tests can
+    // assert the summary path was taken. Real workers hit the model.
+    async summarize({ text, maxChars }) {
+      if (text.length <= maxChars) return text;
+      const keep = Math.max(20, Math.floor(maxChars / 2));
+      return `[[SUMMARY of ${text.length} chars, target ${maxChars}]] ${text.slice(0, keep)} … ${text.slice(-keep)}`;
     },
   };
 }

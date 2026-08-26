@@ -495,5 +495,45 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
       }
       return results;
     },
+
+    async summarize({ text, maxChars, model, signal }) {
+      const m = model || "agnes-2.0-flash";
+      const modality = modalityOf(provider, m);
+      if (modality !== "text") {
+        throw new ProviderError(
+          "UNSUPPORTED",
+          `Model "${m}" is a ${modality} model; summarization for ${modality} models is not yet implemented`,
+        );
+      }
+      const config: AgentConfig = {
+        model: m,
+        prompt: "",
+        skills: [],
+        temperature: 0,
+        timeoutMs: 60000,
+        inputPolicy: { mode: "all" },
+        retry: { maxRetries: 1, baseDelayMs: 1000, maxDelayMs: 10000 },
+      };
+      const messages = [
+        {
+          role: "system",
+          content:
+            `Compress the following assembly-line context so it fits within about ${maxChars} characters ` +
+            "while preserving every key fact, decision, constraint, number, and named entity. " +
+            "Output only the compressed text — no preamble, no commentary.",
+        },
+        { role: "user", content: text },
+      ];
+      const gen = streamChat(m, messages, config, signal);
+      let result: AgentResult | null = null;
+      while (true) {
+        const step = await gen.next();
+        if (step.done) {
+          result = step.value;
+          break;
+        }
+      }
+      return (result?.output ?? "").trim();
+    },
   };
 }

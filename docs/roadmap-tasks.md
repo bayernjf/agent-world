@@ -703,10 +703,10 @@
 > 目标：增强 agent 的表达力与可控性。对应 roadmap 2.1（滚动摘要）、2.2（Prompt 模块卡 / 输出契约卡 / 危险操作人工确认）。
 > 2.1 / 2.2 当前均为"延后 / 未勾"。E.1–E.4 相互独立，可并行。
 
-- [ ] E.1 滚动摘要（roadmap 2.1）
-  - [ ] 上游输入超阈值（字符 / token）时，用 LLM 摘要压缩后再拼接，而非硬 `truncate`
-  - [ ] 可配置摘要预算（maxChars）与是否启用；摘要失败回退 `truncate`
-  - [ ] 退出标准：长产线单测显示超长输入被摘要而不是截断
+- [x] E.1 滚动摘要（roadmap 2.1）
+  - [x] 上游输入超阈值（字符 / token）时，用 LLM 摘要压缩后再拼接，而非硬 `truncate`（`inputPolicy.mode = "summary"`）
+  - [x] 可配置摘要预算（maxChars）与是否启用；摘要失败 / 无 summarizer 时回退 `truncate`
+  - [x] 退出标准：长产线单测显示超长输入被摘要而不是截断（`engine.summary.test.ts` 已覆盖：摘要压缩 / 抛错回退 truncate / 无 summarizer 回退 / 阈值内透传）
 - [x] E.2 Prompt 模块卡（roadmap 2.2）
   - [x] 装备(equip)的模块卡，其 prompt 在运行期自动拼进 agent system prompt（支持多级 equip 依赖 + 去重，`collectPromptModules` BFS + seen 去重，可处理环）
   - [x] 退出标准：被 equip 的模块卡内容出现在 agent 收到的 prompt 中（单测 `engine.skills.test.ts` 已覆盖：挂载注入 / 多级 equip + 去重 + 环）

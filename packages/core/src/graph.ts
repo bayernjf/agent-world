@@ -32,9 +32,12 @@ export type RetryPolicy = z.infer<typeof RetryPolicy>;
  * - all: concatenate every upstream output (default)
  * - last: only the most recent upstream output (sequential pipelines)
  * - truncate: concatenate but cap at maxChars, keeping the tail (most recent)
+ * - summary: like all, but when the concatenated input exceeds maxChars it is
+ *   compressed by an LLM summary (worker.summarize) instead of hard truncation;
+ *   falls back to truncate when no summarizer is available or it fails
  */
 export const InputPolicy = z.object({
-  mode: z.enum(["all", "last", "truncate"]).default("all"),
+  mode: z.enum(["all", "last", "truncate", "summary"]).default("all"),
   maxChars: z.number().int().min(500).optional(),
 });
 export type InputPolicy = z.infer<typeof InputPolicy>;

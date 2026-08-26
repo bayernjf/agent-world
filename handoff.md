@@ -921,3 +921,24 @@ Stage B — structured product blocks:
 
 **测试**
 - `packages/server/src/engine.skills.test.ts`（5 用例）：E.2 注入 + 多级 equip 去重、E.3 三态。
+
+## 滚动摘要 (E.1)
+
+> 长产线里上游 artifact 累积，agent 输入会爆 token。原先 `inputPolicy.mode = "truncate"` 是硬截断（只留尾部 + 标记）。E.1 新增 `summary` 模式：超阈值时用 LLM 摘要压缩，而不是硬截断。
+
+**输入策略（`packages/core/src/graph.ts` 的 `InputPolicy`）**
+- `mode`: `"all" | "last" | "truncate" | "summary"`（新增 `summary`）
+- `maxChars`: 摘要 / 截断预算（zod `.min(500)`，可选）
+
+**引擎（`engine.ts`）**
+- `inputFor` 改为 `async`：当 `policy.mode === "summary"` 且拼接后的输入 `full.length > maxChars` 时，调用 `worker.summarize({ text, maxChars, model, signal })` 压缩；否则按 `assembleInput` 处理。
+- 失败兜底：`worker.summarize` 抛错、返回空、或根本不存在（可选方法）→ 回退 `truncateText(full, max)`（与 `truncate` 模式同一实现）。输入未超阈值 → 直接透传 `full`。
+- `truncateText` 从 `assembleInput` 抽出来复用。
+
+**Worker（`worker.ts` + `providers/openai-compatible.ts`）**
+- `Worker.summarize` 为**可选**方法：`summarize?(args: { text; maxChars; model?; signal? }) => Promise<string>`。可选意味着旧 worker / 测试无需实现，引擎自动降级到 `truncate`。
+- `fakeWorker` 给了确定性实现（保留头尾 + 标记 `[[SUMMARY ...]]`），便于测试识别。
+- 真实 worker 用 `streamChat` 做一次非流式压缩（system 提示要求压缩到约 `maxChars` 字符、保留关键事实/数字/命名实体），模型默认 `agnes-2.0-flash`，可由 `model` 参数（来自 `node.agent?.model`）覆盖；非文本模型抛 `ProviderError("UNSUPPORTED")`。
+
+**测试**
+- `packages/server/src/engine.summary.test.ts`（4 用例）：摘要压缩替代截断 / summarizer 抛错→回退 truncate / 无 summarizer→回退 truncate / 阈值内透传。
