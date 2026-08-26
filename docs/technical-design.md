@@ -630,7 +630,7 @@ interface Skill {
 
 **错误信息可能泄漏敏感内容。** 已由 `sanitizeError()` 在落库前过滤 `authorization`/`api_key`/`sk-...` 等模式；`ProviderError` 仍保留分类错误码（TIMEOUT/AUTH/UNSUPPORTED 等）供失败面板展示。后续接入可写文件/外部 API 的工具时需扩大脱敏面。
 
-**数据库迁移已改为有序版本化。** `db.ts` 维护 `schema_migrations(version, applied_at)` 表和 `MIGRATIONS` 数组，每个迁移带 version/description/up，在一个事务里按序执行并记录；旧库首次打开时通过 `detect` 做 baseline（已存在的列标记为已应用，不重复 ALTER）。新增迁移只需在数组末尾追加递增版本，不要改动已发布的条目。仍待做：启动备份（VACUUM INTO 或 .backup）、数据回填型迁移的实际用例验证。
+**数据库迁移已改为有序版本化。** `db.ts` 维护 `schema_migrations(version, applied_at)` 表和 `MIGRATIONS` 数组，每个迁移带 version/description/up，在一个事务里按序执行并记录；旧库首次打开时通过 `detect` 做 baseline（已存在的列标记为已应用，不重复 ALTER）。新增迁移只需在数组末尾追加递增版本，不要改动已发布的条目。启动备份（VACUUM INTO）已在 3.5 完成；数据回填型迁移的实际用例验证仍待做。
 
 ### 12.2 阶段 2 并行时会撞墙
 
@@ -639,7 +639,7 @@ interface Skill {
 - budget 检查基于已提交的 totalCostUsd，并发节点不能都读到旧值同时通过预算
 - `artifacts` Map 的写入对下游可见性由 barrier（等齐所有上游）保证，不能读到半成品
 
-**上下文窗口爆炸。** `inputFor` 默认把所有入边产出拼接，长产线会线性增长。已实现节点级 `inputPolicy`（all/last/truncate，带尾截断标记）作为廉价护栏；真正的 LLM 滚动摘要/compaction 仍待做。
+**上下文窗口爆炸。** `inputFor` 默认把所有入边产出拼接，长产线会线性增长。已实现节点级 `inputPolicy`（all/last/truncate，带尾截断标记）作为廉价护栏；真正的 LLM 滚动摘要已在 E.1 落地（inputPolicy.mode = "summary"，engine.summary.test.ts 覆盖）；compaction 长上下文压缩仍待做。
 
 ### 12.3 阶段 3/4 需要
 

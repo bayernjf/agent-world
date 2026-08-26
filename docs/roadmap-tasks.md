@@ -240,11 +240,11 @@
 - [x] 技能卡勾选装备（点击切换 on/off）
 - [x] 装备技能卡时展示权限提示（网络/文件/子进程/环境变量徽章）
 - [x] `agent.skills` 从 `string[]` 升级为 `SkillMount[]`（zod transform 向后兼容旧 string 数组）
-- [ ] Prompt 模块卡：装备后自动拼接到 system prompt
-- [ ] 输出契约卡：装备后要求模型输出符合 schema，不合格触发返工
+- [x] Prompt 模块卡：装备后自动拼接到 system prompt（E.2 已实现）
+- [x] 输出契约卡：装备后要求模型输出符合 schema，不合格触发返工（E.3 已实现）
 - [x] 工具调用全审计：`tool.called`/`tool.result` 进事件流，Inspector 可见调了什么、传了什么、返回了什么；runtime reducer 跟踪 toolCalls
 - [x] `ToolContext` 注入：worker 通过 `executeTool` 回调执行工具，不直接拿 `fetch`；引擎解析已装备技能并传入工具定义
-- [ ] 危险操作（写文件、发网络、删除）首次调用 halt 等人工确认，复用阶段 1 的 halt/resume（等文件/写操作类技能落地时一起做）
+- [x] 危险操作（写文件、发网络、删除）首次调用 halt 等人工确认，复用阶段 1 的 halt/resume（E.4 已实现）
 - [x] 退出条件：给 agent 装备一张工具卡，运行时模型能调用它，且每次调用在事件流里可查
 
 ### 2.3 多产线管理
