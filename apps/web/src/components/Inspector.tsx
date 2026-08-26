@@ -162,6 +162,112 @@ export default function Inspector() {
           />
         )}
 
+        {node.kind === "source" && (
+          <div className="source-brief">
+            <div className="source-brief__head label">创作简报（可选）</div>
+          <label className="field">
+            <span>商品名称</span>
+            <input
+              value={node.source?.productName ?? ""}
+              placeholder="商品名称"
+              onFocus={beginEdit}
+              onBlur={commitEdit}
+              onChange={(e) =>
+                updateNode(node.id, {
+                  source: { ...(node.source ?? {}), productName: e.target.value },
+                })
+              }
+            />
+          </label>
+          <label className="field">
+            <span>品牌 / 店铺</span>
+            <input
+              value={node.source?.brand ?? ""}
+              placeholder="品牌 / 店铺"
+              onFocus={beginEdit}
+              onBlur={commitEdit}
+              onChange={(e) =>
+                updateNode(node.id, {
+                  source: { ...(node.source ?? {}), brand: e.target.value },
+                })
+              }
+            />
+          </label>
+          <label className="field">
+            <span>目标人群（如 20-30岁通勤女生）</span>
+            <input
+              value={node.source?.audience ?? ""}
+              placeholder="目标人群（如 20-30岁通勤女生）"
+              onFocus={beginEdit}
+              onBlur={commitEdit}
+              onChange={(e) =>
+                updateNode(node.id, {
+                  source: { ...(node.source ?? {}), audience: e.target.value },
+                })
+              }
+            />
+          </label>
+          <label className="field">
+            <span>价格定位（如 中端 99-199 元）</span>
+            <input
+              value={node.source?.priceRange ?? ""}
+              placeholder="价格定位（如 中端 99-199 元）"
+              onFocus={beginEdit}
+              onBlur={commitEdit}
+              onChange={(e) =>
+                updateNode(node.id, {
+                  source: { ...(node.source ?? {}), priceRange: e.target.value },
+                })
+              }
+            />
+          </label>
+          <label className="field">
+            <span>语气调性（如 真诚种草、口语化）</span>
+            <input
+              value={node.source?.tone ?? ""}
+              placeholder="语气调性（如 真诚种草、口语化）"
+              onFocus={beginEdit}
+              onBlur={commitEdit}
+              onChange={(e) =>
+                updateNode(node.id, {
+                  source: { ...(node.source ?? {}), tone: e.target.value },
+                })
+              }
+            />
+          </label>
+            <label className="field">
+              <span>禁用词 / 禁用说法</span>
+              <textarea
+                rows={2}
+                value={node.source?.prohibited ?? ""}
+                placeholder="用逗号或换行分隔，如 最、第一、国家级"
+                onFocus={beginEdit}
+                onBlur={commitEdit}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    source: { ...(node.source ?? {}), prohibited: e.target.value },
+                  })
+                }
+              />
+            </label>
+            <label className="field">
+              <span>补充说明</span>
+              <textarea
+                rows={3}
+                value={node.source?.notes ?? ""}
+                placeholder="其他想让写手知道的背景、卖点、参考风格等"
+                onFocus={beginEdit}
+                onBlur={commitEdit}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    source: { ...(node.source ?? {}), notes: e.target.value },
+                  })
+                }
+              />
+            </label>
+          </div>
+        )}
+
         {node.kind === "agent" && node.agent && (
           <>
             <label className="field">

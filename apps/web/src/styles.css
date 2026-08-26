@@ -837,6 +837,20 @@ select {
   resize: vertical;
 }
 
+.source-brief {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: var(--hair);
+}
+.source-brief__head {
+  margin-bottom: 2px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+
 .modes,
 .tabs {
   display: flex;
