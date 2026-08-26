@@ -319,6 +319,19 @@ app.get("/api/costs.csv", (c) => {
   });
 });
 
+app.get("/api/eval", (c) => {
+  const from = c.req.query("from");
+  const to = c.req.query("to");
+  const graphId = c.req.query("graphId");
+  return c.json(
+    db.evalReport({
+      graphId: graphId || undefined,
+      from: from ? Number(from) : undefined,
+      to: to ? Number(to) : undefined,
+    }),
+  );
+});
+
 app.post("/api/runs", async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as {
     graphId?: string;

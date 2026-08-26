@@ -1,4 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { EVENT_SCHEMA_VERSION, type Graph, type RunEvent } from "@agent-world/core";
@@ -160,7 +161,11 @@ export function openDb(file: string) {
     markInterrupted: db.prepare(
       `UPDATE runs SET status = 'interrupted', ended_at = ? WHERE status = 'running'`,
     ),
-    deleteRun: db.prepare(`DELETE FROM runs WHERE id = ?`),
+    /** Snapshots needed to group runs by prompt version (eval report). */
+    evalSnapshots: db.prepare(
+      `SELECT id, graph_id, snapshot FROM runs WHERE status != 'running' ORDER BY started_at DESC LIMIT 1000`,
+    ),
+        deleteRun: db.prepare(`DELETE FROM runs WHERE id = ?`),
     deleteEvents: db.prepare(`DELETE FROM events WHERE run_id = ?`),
     deleteNodeRuns: db.prepare(`DELETE FROM node_runs WHERE run_id = ?`),
   };
@@ -533,6 +538,160 @@ export function openDb(file: string) {
         )
         .get(start, end) as { cost: number };
       return row.cost;
+    },
+
+    evalReport(opts: { graphId?: string; from?: number; to?: number } = {}) {
+      const where: string[] = ["r.status != 'running'"];
+      const params: (string | number)[] = [];
+      if (opts.graphId) {
+        where.push("r.graph_id = ?");
+        params.push(opts.graphId);
+      }
+      if (opts.from !== undefined) {
+        where.push("r.started_at >= ?");
+        params.push(opts.from);
+      }
+      if (opts.to !== undefined) {
+        where.push("r.started_at <= ?");
+        params.push(opts.to);
+      }
+      const clause = `WHERE ${where.join(" AND ")}`;
+
+      const runRows = db
+        .prepare(
+          `SELECT
+             r.id AS id,
+             r.graph_id AS graph_id,
+             r.started_at AS started_at,
+             r.status = 'done' AS passed,
+             (r.ended_at - r.started_at) AS duration_ms,
+             COUNT(n.node_id) AS node_attempts,
+             COUNT(DISTINCT n.node_id) AS nodes
+           FROM runs r LEFT JOIN node_runs n ON n.run_id = r.id
+           ${clause}
+           GROUP BY r.id`,
+        )
+        .all(...params) as Array<{
+        id: string;
+        graph_id: string;
+        started_at: number;
+        passed: number;
+        duration_ms: number | null;
+        node_attempts: number;
+        nodes: number;
+      }>;
+
+      const summarize = (rows: typeof runRows) => {
+        const total = rows.length;
+        const passed = rows.reduce((acc, r) => acc + (r.passed ? 1 : 0), 0);
+        const ended = rows.filter((r) => r.duration_ms != null);
+        const rework = rows.reduce((acc, r) => acc + Math.max(0, r.node_attempts - r.nodes), 0);
+        const duration = ended.length
+          ? ended.reduce((acc, r) => acc + (r.duration_ms ?? 0), 0) / ended.length
+          : 0;
+        return {
+          runs: total,
+          passed,
+          passRate: total ? passed / total : 0,
+          avgRework: total ? rework / total : 0,
+          avgDurationMs: duration,
+        };
+      };
+
+      const byGraphMap = new Map<string, typeof runRows>();
+      for (const r of runRows) {
+        const arr = byGraphMap.get(r.graph_id) ?? [];
+        arr.push(r);
+        byGraphMap.set(r.graph_id, arr);
+      }
+      const names = new Map(
+        (stmts.listGraphs.all() as Array<{ id: string; name: string }>).map((g) => [g.id, g.name]),
+      );
+      const byGraph = [...byGraphMap.entries()].map(([graph_id, rows]) => ({
+        graph_id,
+        graph_name: names.get(graph_id) ?? "(已删除产线)",
+        ...summarize(rows),
+      }));
+
+      const dayKey = (ms: number) => {
+        const dt = new Date(ms);
+        return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+      };
+      const byDayMap = new Map<string, typeof runRows>();
+      for (const r of runRows) {
+        const key = dayKey(r.started_at);
+        const arr = byDayMap.get(key) ?? [];
+        arr.push(r);
+        byDayMap.set(key, arr);
+      }
+
+      // Prompt-version grouping: each run's snapshot captures the exact prompts
+      // that executed. Fingerprint the (model + prompt) of every agent node,
+      // sorted, so changing a prompt yields a new version per graph. This lets
+      // the user compare pass rate / rework before and after a prompt edit.
+      const snapshotRows = stmts.evalSnapshots.all() as Array<{
+        id: string;
+        graph_id: string;
+        snapshot: string;
+      }>;
+      const inScope = new Set(runRows.map((r) => r.id));
+      const promptOf = new Map<string, string>();
+      for (const row of snapshotRows) {
+        if (!inScope.has(row.id)) continue;
+        try {
+          const g = JSON.parse(row.snapshot) as {
+            nodes?: Array<{ kind?: string; agent?: { model?: string; prompt?: string } }>;
+          };
+          const sig = (g.nodes ?? [])
+            .filter((n) => n.kind === "agent")
+            .map((n) => `${n.agent?.model ?? ""}\0${n.agent?.prompt ?? ""}`)
+            .sort()
+            .join("\n");
+          promptOf.set(row.id, createHash("sha1").update(sig).digest("hex").slice(0, 8));
+        } catch {
+          promptOf.set(row.id, "unknown");
+        }
+      }
+
+      // Assign a stable per-graph version index (v1, v2, ...) in first-seen order.
+      const promptVersions = new Map<string, Map<string, string>>();
+      const byPromptMap = new Map<string, Map<string, typeof runRows>>();
+      for (const r of runRows) {
+        const fp = promptOf.get(r.id) ?? "unknown";
+        let versions = promptVersions.get(r.graph_id);
+        if (!versions) {
+          versions = new Map();
+          promptVersions.set(r.graph_id, versions);
+        }
+        if (!versions.has(fp)) versions.set(fp, `v${versions.size + 1}`);
+        let groups = byPromptMap.get(r.graph_id);
+        if (!groups) {
+          groups = new Map();
+          byPromptMap.set(r.graph_id, groups);
+        }
+        const arr = groups.get(fp) ?? [];
+        arr.push(r);
+        groups.set(fp, arr);
+      }
+
+      const byPrompt = [...byPromptMap.entries()].flatMap(([graph_id, groups]) =>
+        [...groups.entries()].map(([fp, rows]) => ({
+          graph_id,
+          graph_name: names.get(graph_id) ?? "(已删除产线)",
+          version: promptVersions.get(graph_id)!.get(fp)!,
+          fingerprint: fp,
+          ...summarize(rows),
+        })),
+      );
+
+      return {
+        totals: summarize(runRows),
+        byGraph,
+        byDay: [...byDayMap.entries()]
+          .sort(([a], [b]) => (a < b ? -1 : 1))
+          .map(([day, rows]) => ({ day, ...summarize(rows) })),
+        byPrompt,
+      };
     },
     close() {
       db.close();
