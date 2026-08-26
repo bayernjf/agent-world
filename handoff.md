@@ -666,3 +666,24 @@ paths) is a standalone chunk to schedule once the graph gets denser.
   shows a monthly warning note.
 - Tests: core reducer monthly-vs-run separation (core 43), engine warns-but-does-not-trip,
   db.costForMonth by calendar month (server 67). 3.6 is complete.
+
+## 3.7 Evaluation prototype (complete)
+
+- New `db.evalReport({ graphId?, from?, to? })` aggregates finished runs into
+  `{ runs, passed, passRate, avgRework, avgDurationMs }`, broken down `byGraph`,
+  `byDay` (daily pass-rate trend), and `byPrompt`. "Passed" means run status `done`;
+  failed/tripped/halted/cancelled count as not passed. Rework = sum of (node_attempts −
+  distinct nodes) per run, averaged. Duration = ended_at − started_at, averaged over
+  ended runs.
+- `byPrompt` groups runs by a sha1 fingerprint of every agent node's (model + prompt)
+  captured in the run snapshot, and assigns stable per-graph labels v1/v2/… in first-seen
+  order. This gives before/after comparison when a prompt is edited — the exit condition
+  for 3.7. Uses a bounded `evalSnapshots` prepared query (latest 1000 runs).
+- New `GET /api/eval?graphId=&from=&to=` endpoint.
+- Frontend: `EvalReport` modal (toolbar 评估 chip, filtered to the current graph's id)
+  reusing cost-report styling, with pass-rate color tones (ok/warn/alert) on the stat
+  cards, daily trend bars, per-line table, and a prompt-version comparison table.
+- Tests in `costs.test.ts`: pass rate/rework/duration aggregation, graph filter, prompt
+  version grouping with distinct fingerprints. Server now 70 tests; core 43.
+- Remaining for later: per-node quality scoring (needs explicit quality signals beyond
+  pass/fail), and CSV export of eval data.
