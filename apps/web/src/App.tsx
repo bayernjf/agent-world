@@ -27,6 +27,7 @@ import ABReport from "./components/ABReport";
 import BrandTermsModal from "./components/BrandTermsModal";
 import TriggersPanel from "./components/TriggersPanel";
 import ProductGallery from "./components/ProductGallery";
+import Onboarding from "./components/Onboarding";
 import { api } from "./lib/api";
 import { useGraph } from "./store/graph";
 import { useRun } from "./store/run";
@@ -264,7 +265,9 @@ export default function App() {
   }, [undo, redo]);
 
   return (
-    <div className="app">
+    <>
+      {graphs.length === 0 && <Onboarding onCreate={createGraph} />}
+      <div className="app">
       <header className="hud">
         <div className="hud__brand">
           <Logo />
@@ -453,5 +456,6 @@ export default function App() {
         onCancel={() => setDeleteTarget(null)}
       />
     </div>
+    </>
   );
 }
