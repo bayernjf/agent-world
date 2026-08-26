@@ -114,6 +114,39 @@ function buildSourceBrief(node: GraphNode, sourceInput: string | undefined): str
   return lines.join("\n");
 }
 
+/**
+ * Collect prohibited terms declared on any upstream `source` node (reached via
+ * flow edges). Splitting on common separators keeps the input forgiving
+ * (comma / 空格 / 换行 / 中英文顿号分号 all work). De-duplicated.
+ */
+function upstreamProhibitedTerms(graph: Graph, nodeId: string): string[] {
+  const seen = new Set<string>();
+  const stack = [nodeId];
+  const terms = new Set<string>();
+  while (stack.length) {
+    const id = stack.pop()!;
+    for (const e of incoming(graph, id, "flow")) {
+      if (seen.has(e.from)) continue;
+      seen.add(e.from);
+      const n = nodeById(graph, e.from);
+      if (n?.kind === "source" && n.source?.prohibited?.trim()) {
+        for (const raw of n.source.prohibited.split(/[\n,，、;；\s]+/)) {
+          const t = raw.trim();
+          if (t) terms.add(t);
+        }
+      }
+      stack.push(e.from);
+    }
+  }
+  return [...terms];
+}
+
+/** Returns the prohibited terms actually present in `text` (empty if none). */
+function detectProhibited(text: string, terms: string[]): string[] {
+  if (terms.length === 0 || !text) return [];
+  return terms.filter((t) => text.includes(t));
+}
+
 /** True if any upstream `source` node already carries real product images. */
 function upstreamSourceHasImages(graph: Graph, nodeId: string): boolean {
   const seen = new Set<string>();
@@ -361,7 +394,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       if (node.kind === "gate") {
         emit({ type: "node.started", nodeId, attempt });
         const output = inputFor(node);
-        const verdict = await worker.judge({
+        const modelVerdict = await worker.judge({
           node,
           attempt,
           input: output,
@@ -369,6 +402,19 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           criterion: node.gate?.criterion ?? "",
           signal: opts.signal,
         });
+
+        // Hard rule: any prohibited term declared on an upstream source must
+        // never pass, regardless of what the model judge decides. Deterministic
+        // so forbidden copy is always caught even if the model slips it in.
+        const prohibitedHits = detectProhibited(output, upstreamProhibitedTerms(graph, nodeId));
+        const verdict =
+          prohibitedHits.length > 0
+            ? {
+                passed: false,
+                reason: `命中禁用词：${prohibitedHits.join("、")}（已退回上游重写）`,
+              }
+            : modelVerdict;
+
         emit({
           type: "gate.verdict",
           nodeId,
