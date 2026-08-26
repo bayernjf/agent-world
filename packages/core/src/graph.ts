@@ -72,6 +72,12 @@ export const GateConfig = z.object({
   maxAttempts: z.number().int().min(1).max(10).default(3),
   criterion: z.string().default(""),
   onExhausted: ExhaustedPolicy.default("halt"),
+  /**
+   * Optional quality bar (0-10). When set and the judge returns a score below
+   * it, the gate fails regardless of the boolean verdict — this is how a quality
+   * score "links back" into the gate decision and feeds the eval report.
+   */
+  minScore: z.number().min(0).max(10).optional(),
 });
 export type GateConfig = z.infer<typeof GateConfig>;
 
