@@ -1,8 +1,37 @@
 # Agent World
 
+[![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![node](https://img.shields.io/badge/node-%3E%3D24-339933)](https://nodejs.org)
+[![pnpm](https://img.shields.io/badge/package%20manager-pnpm-ffc611)](https://pnpm.io)
+[![monorepo](https://img.shields.io/badge/monorepo-pnpm%20workspaces-0ea5e9)](https://pnpm.io/workspaces)
+
 A game-style workbench for multi-agent orchestration. Each agent is a plant on an
 industrial line, tokens are electricity, and output moves between plants on pipes and
 trucks. This repo is the product; the marketing site lives separately.
+
+## Quick start
+
+Requires **Node >= 24** (for `node:sqlite`) and **pnpm**.
+
+```bash
+pnpm install
+pnpm dev
+```
+
+- Engine / API: <http://localhost:8791>
+- Board (web UI): <http://localhost:5183>
+
+Run the checks:
+
+```bash
+pnpm -r test       # unit tests
+pnpm -r typecheck  # type checks
+pnpm -r build      # production build
+```
+
+Open the board, click **新建产线** to start from a template or a blank line, then
+**运行** to watch the transcript stream. See [handoff.md](handoff.md) for the
+current code state and next steps.
 
 ## The two decisions this codebase encodes
 
@@ -39,6 +68,23 @@ server ships with an OpenAI-compatible worker (Agnes, OpenAI, Volcengine Ark, vL
 Ollama, …) configured in the settings panel; a deterministic offline fake worker is the
 fallback for tests and when no provider is enabled.
 
+### Architecture
+
+```mermaid
+flowchart LR
+  web["React board\n(Vite + Tailwind)"] <-->|"REST + SSE"| server["Hono server\ncompile · persist · serve"]
+  server -->|"compile / dispatch"| engine["Execution engine\nDAG + rework loops"]
+  engine -->|"worker seam"| worker["routingWorker"]
+  worker --> provider["Model provider\nOpenAI / Ark / Ollama / fake"]
+  server --> db[("SQLite\nruns · nodes · costs")]
+  server --> skills["Skill registry + MCP tools"]
+  server --> isolate["Isolated workers\n(ESM loader / no loader)"]
+```
+
+The event stream is the contract between server and board: the engine appends events,
+SQLite stores them, and the board folds them into UI state — live and replay use the
+same reducer.
+
 ## Canvas interaction
 
 - Pan: select-mode drag, middle-mouse drag, or hold Space and drag anywhere. Arrow keys nudge (Shift = faster).
@@ -54,24 +100,7 @@ fallback for tests and when no provider is enabled.
 - [docs/product-vision-discussion.md](docs/product-vision-discussion.md) — capabilities, design language, technology choices, commercialization
 - [docs/technical-design.md](docs/technical-design.md) — architecture, data models, API surface
 - [docs/roadmap-tasks.md](docs/roadmap-tasks.md) — concrete per-phase task breakdown
-
-## Running it
-
-Requires Node >= 24 (for `node:sqlite`) and pnpm.
-
-```bash
-pnpm install
-pnpm dev
-```
-
-The engine listens on `http://localhost:8791` and the board on
-`http://localhost:5183`.
-
-```bash
-pnpm -r test
-pnpm -r typecheck
-pnpm -r build
-```
+- [CONTRIBUTING.md](CONTRIBUTING.md) — how to set up, run checks, and open a PR
 
 ## Deployment
 
