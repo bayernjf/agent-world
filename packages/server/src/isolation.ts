@@ -1,5 +1,5 @@
 import { type ChildProcess, fork } from "node:child_process";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, writeFile, readdir, stat, unlink, mkdir, rm, appendFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import type { Worker } from "./worker.js";
 import { loadPermissionConfig, matchDomain } from "./permissions.js";
@@ -21,6 +21,7 @@ import { loadPermissionConfig, matchDomain } from "./permissions.js";
  */
 
 const PROXY_ENTRY = new URL("./worker-proxy.mjs", import.meta.url).pathname;
+const FS_LOADER_REGISTER = new URL("./fs-loader-register.mjs", import.meta.url).pathname;
 
 /** Env keys that are safe (and usually required) to forward into a plugin. */
 const SAFE_ENV_BASE = [
@@ -64,6 +65,18 @@ interface ProxyMsg {
   op: "fetch" | "fs";
   payload: unknown;
 }
+
+/** Fs operation payload. `op` selects the operation; legacy {path,write,data} still works. */
+type FsPayload =
+  | { op: "read"; path: string }
+  | { op: "write"; path: string; data: string }
+  | { op: "appendFile"; path: string; data: string }
+  | { op: "readdir"; path: string }
+  | { op: "stat"; path: string }
+  | { op: "unlink"; path: string }
+  | { op: "mkdir"; path: string }
+  | { op: "rm"; path: string }
+  | { path: string; write?: boolean; data?: string }; // legacy
 interface ProxyResultMsg {
   dir: "p2c";
   kind: "proxy-result";
@@ -147,7 +160,7 @@ export class IsolatedWorker implements Worker {
     let error: string | undefined;
     try {
       if (m.op === "fetch") result = await this.proxyFetch(m.payload as { url: string; init?: unknown });
-      else result = await this.proxyFs(m.payload as { path: string; write?: boolean; data?: string });
+      else result = await this.proxyFs(m.payload as FsPayload);
     } catch (e) {
       error = (e as Error).message;
     }
@@ -167,16 +180,59 @@ export class IsolatedWorker implements Worker {
     }));
   }
 
-  private async proxyFs(payload: { path: string; write?: boolean; data?: string }): Promise<unknown> {
+  /** Enforce the fs allowlist on a path. Throws if the path is not permitted. */
+  private checkFsPath(path: string): void {
     const cfg = loadPermissionConfig();
-    if (cfg.fsAllow && !cfg.fsAllow.some((p) => payload.path.startsWith(p))) {
-      throw new Error(`filesystem path ${payload.path} is not permitted`);
+    if (cfg.fsAllow && !cfg.fsAllow.some((p) => path.startsWith(p))) {
+      throw new Error(`filesystem path ${path} is not permitted`);
     }
-    if (payload.write) {
-      await writeFile(payload.path, payload.data ?? "");
-      return undefined;
+  }
+
+  private async proxyFs(payload: FsPayload): Promise<unknown> {
+    // Legacy format: { path, write?, data? }
+    if (!("op" in payload)) {
+      this.checkFsPath(payload.path);
+      if (payload.write) {
+        await writeFile(payload.path, payload.data ?? "");
+        return undefined;
+      }
+      return readFile(payload.path, "utf8");
     }
-    return readFile(payload.path, "utf8");
+
+    this.checkFsPath(payload.path);
+    switch (payload.op) {
+      case "read":
+        return readFile(payload.path, "utf8");
+      case "write":
+        await writeFile(payload.path, payload.data);
+        return undefined;
+      case "appendFile":
+        await appendFile(payload.path, payload.data);
+        return undefined;
+      case "readdir":
+        return readdir(payload.path);
+      case "stat": {
+        const s = await stat(payload.path);
+        return {
+          size: s.size,
+          isFile: s.isFile(),
+          isDirectory: s.isDirectory(),
+          mtimeMs: s.mtimeMs,
+          ctimeMs: s.ctimeMs,
+        };
+      }
+      case "unlink":
+        await unlink(payload.path);
+        return undefined;
+      case "mkdir":
+        await mkdir(payload.path, { recursive: true });
+        return undefined;
+      case "rm":
+        await rm(payload.path, { recursive: true, force: true });
+        return undefined;
+      default:
+        throw new Error(`unknown fs op: ${(payload as { op: string }).op}`);
+    }
   }
 }
 
@@ -189,6 +245,9 @@ export function spawnIsolatedWorker(entryPath: string, pluginId: string, declare
   const child = fork(PROXY_ENTRY, [], {
     env: { ...trimEnv(declaredEnv), WORKER_PLUGIN_ENTRY: entryPath },
     stdio: ["ignore", "inherit", "inherit", "ipc"],
+    // Register the fs-isolation ESM loader so `import fs from 'node:fs/promises'`
+    // in arbitrary plugins is intercepted and routed through the allowlist.
+    execArgv: ["--import", FS_LOADER_REGISTER],
   });
   return new IsolatedWorker(child, pluginId);
 }

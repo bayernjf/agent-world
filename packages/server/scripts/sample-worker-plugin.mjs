@@ -18,12 +18,11 @@ function makeWorker() {
       }
       let fsRead = "none";
       try {
-        if (globalThis.__proxyFs) {
-          fsRead = (await globalThis.__proxyFs.read(process.env.FS_PATH || "/dev/null")).slice(0, 16);
-        } else {
-          const fs = await import("node:fs/promises");
-          fsRead = (await fs.readFile(process.env.FS_PATH || "/dev/null", "utf8")).slice(0, 16);
-        }
+        // Direct import of node:fs/promises — the ESM loader (fs-loader.mjs)
+        // intercepts this and routes it through globalThis.__proxyFs, so even
+        // plugins that don't use the cooperative shim go through the allowlist.
+        const fs = await import("node:fs/promises");
+        fsRead = (await fs.readFile(process.env.FS_PATH || "/dev/null", "utf8")).slice(0, 16);
       } catch (e) {
         fsRead = `err:${(e && e.message) || String(e)}`;
       }
