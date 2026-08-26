@@ -79,14 +79,14 @@ export async function startRun(args: StartRunArgs): Promise<{ runId: string; dia
         monthSpentUsd: db.costForMonth(now.getFullYear(), now.getMonth() + 1),
         defaultModel: cfg.defaultModel,
         signal: controller.signal,
-        storeBinary: (data, mimeType, label) =>
-          artifacts.saveBinary({ data, kind: "image", mimeType, label }).uri ??
+        storeBinary: async (data, mimeType, label) =>
+          (await artifacts.saveBinary({ data, kind: "image", mimeType, label })).uri ??
           `data:${mimeType};base64,${data.toString("base64")}`,
       })) {
         db.record(runId, event);
         if (event.type === "artifact.produced") {
           db.insertArtifact(
-            artifacts.save(event.artifact, { runId, nodeId: event.nodeId, attempt: event.attempt }),
+            await artifacts.save(event.artifact, { runId, nodeId: event.nodeId, attempt: event.attempt }),
           );
           args.onArtifact?.(event.artifact.id);
         }

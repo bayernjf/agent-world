@@ -1,16 +1,27 @@
-import {
-  createReadStream,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  statSync,
-  writeFileSync,
-} from "node:fs";
 import { createHash } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import type { Artifact } from "@agent-world/core";
+import {
+  LocalStorageBackend,
+  type StorageBackend,
+  type StorageConfig,
+  createStorageBackend,
+  storageConfigFromEnv,
+} from "./storage.js";
 
-export type ArtifactStorage = "inline" | "uri" | "local";
+const MIME_BY_KIND: Record<Artifact["kind"], string> = {
+  text: "text/plain",
+  json: "application/json",
+  image: "application/octet-stream",
+  audio: "application/octet-stream",
+  video: "application/octet-stream",
+  file: "application/octet-stream",
+  uri: "application/octet-stream",
+};
+
+function isRemoteUri(uri: string | undefined | null): boolean {
+  return !!uri && (uri.startsWith("http://") || uri.startsWith("https://") || uri.startsWith("data:"));
+}
 
 export interface StoredArtifact {
   id: string;
@@ -18,54 +29,56 @@ export interface StoredArtifact {
   nodeId: string;
   attempt: number | null;
   kind: Artifact["kind"];
-  mimeType: string | null;
+  mimeType: string;
   label: string | null;
   sizeBytes: number;
-  storage: ArtifactStorage;
-  /** Remote URI for storage='uri'; served URI (/api/artifacts/:id) for 'local'. */
+  /**
+   * - "local"  -> bytes live in the StorageBackend, served via /api/artifacts/:id
+   * - "uri"    -> an external URL stored verbatim (the route redirects to it)
+   * - "inline" -> metadata only, no bytes
+   */
+  storage: "local" | "uri" | "inline";
   uri: string | null;
   createdAt: number;
 }
 
-const MIME_BY_KIND: Record<Artifact["kind"], string> = {
-  text: "text/plain; charset=utf-8",
-  json: "application/json; charset=utf-8",
-  image: "image/png",
-  video: "video/mp4",
-  audio: "audio/mpeg",
-  file: "application/octet-stream",
-  uri: "application/octet-stream",
-};
-
-function isRemoteUri(uri: string | undefined): boolean {
-  return !!uri && /^(https?:|data:|blob:)/i.test(uri);
-}
-
 /**
- * Persists artifact bytes to local disk and tracks where they live. Remote/data
- * URIs are passed through untouched (we never fetch arbitrary URLs server-side);
- * inline text/json content is written to the blob directory so every produced
- * artifact has a durable, addressable file rather than living only in the event
- * stream. Local blobs are stored by artifact id alone (no extension) so their
- * path is deterministic from (runId, id); the DB holds the MIME type.
+ * Persists artifacts (text/JSON/image/audio/video/file). Bytes are delegated to
+ * a StorageBackend — local disk by default, S3 when STORAGE_BACKEND=s3. The rest
+ * of the engine only depends on this class, so swapping storage is config-only.
  */
 export class ArtifactStore {
-  private readonly dir: string;
+  private readonly backend: StorageBackend;
 
-  constructor(dir: string) {
-    this.dir = resolve(dir);
-    mkdirSync(this.dir, { recursive: true });
+  constructor(dirOrBackend: string | StorageBackend) {
+    this.backend =
+      typeof dirOrBackend === "string" ? new LocalStorageBackend(dirOrBackend) : dirOrBackend;
   }
 
   static defaultPath(): string {
     const dbFile = process.env.DB_FILE ?? "agent-world.sqlite";
     return join(dirname(resolve(dbFile)), "artifacts");
   }
+  static local(dir: string): ArtifactStore {
+    return new ArtifactStore(dir);
+  }
+  static withBackend(backend: StorageBackend): ArtifactStore {
+    return new ArtifactStore(backend);
+  }
+  /** Build a store from a StorageConfig (defaults to env via storageConfigFromEnv). */
+  static fromEnv(cfg: StorageConfig = storageConfigFromEnv()): ArtifactStore {
+    return new ArtifactStore(createStorageBackend(cfg));
+  }
 
-  save(
+  /** Relative storage key for a (runId, artifactId) pair. */
+  private keyFor(runId: string, id: string): string {
+    return join(runId.slice(0, 2), runId, id);
+  }
+
+  async save(
     artifact: Artifact,
     meta: { runId: string; nodeId: string; attempt?: number; now?: number },
-  ): StoredArtifact {
+  ): Promise<StoredArtifact> {
     const createdAt = meta.now ?? Date.now();
     const mimeType = artifact.mimeType ?? MIME_BY_KIND[artifact.kind];
 
@@ -87,9 +100,7 @@ export class ArtifactStore {
 
     if (artifact.content != null) {
       const buf = Buffer.from(artifact.content, "utf-8");
-      const filePath = this.pathFor(meta.runId, artifact.id);
-      mkdirSync(dirname(filePath), { recursive: true });
-      writeFileSync(filePath, buf);
+      await this.backend.put(this.keyFor(meta.runId, artifact.id), buf);
       return {
         id: artifact.id,
         runId: meta.runId,
@@ -121,20 +132,17 @@ export class ArtifactStore {
   }
 
   /**
-   * Persist raw uploaded bytes (e.g. a product photo from the source node) as
-   * a local image/file artifact before any run exists. Returns a StoredArtifact
-   * with a stable /api/artifacts/:id URI the graph can reference directly.
+   * Persist raw uploaded bytes (e.g. a product photo from the source node) as a
+   * local image/file artifact before any run exists.
    */
-  saveBinary(opts: {
+  async saveBinary(opts: {
     data: Buffer;
     kind: Artifact["kind"];
     mimeType?: string;
     label?: string;
-  }): StoredArtifact {
+  }): Promise<StoredArtifact> {
     const id = `up-${createHash("sha1").update(opts.data).digest("hex").slice(0, 12)}`;
-    const filePath = this.pathFor("uploads", id);
-    mkdirSync(dirname(filePath), { recursive: true });
-    writeFileSync(filePath, opts.data);
+    await this.backend.put(this.keyFor("uploads", id), opts.data);
     return {
       id,
       runId: "uploads",
@@ -150,27 +158,24 @@ export class ArtifactStore {
     };
   }
 
-  /** Absolute path to a locally-stored artifact, or null if it doesn't exist. */
-  pathFor(runId: string, id: string): string {
-    return join(this.dir, runId.slice(0, 2), runId, id);
-  }
-
-  open(
+  async open(
     runId: string,
     id: string,
-  ): { stream: ReturnType<typeof createReadStream>; size: number; mime: string } | null {
-    const path = this.pathFor(runId, id);
-    if (!existsSync(path)) return null;
+  ): Promise<{ stream: ReadableStream; size: number; mime: string } | null> {
+    const buf = await this.backend.get(this.keyFor(runId, id));
+    if (!buf) return null;
     return {
-      stream: createReadStream(path),
-      size: statSync(path).size,
-      // Caller supplies the authoritative MIME from the DB; default octet-stream.
+      stream: new Blob([buf]).stream() as unknown as ReadableStream,
+      size: buf.length,
       mime: "application/octet-stream",
     };
   }
 
-  readBytes(runId: string, id: string): Buffer | null {
-    const path = this.pathFor(runId, id);
-    return existsSync(path) ? readFileSync(path) : null;
+  async readBytes(runId: string, id: string): Promise<Buffer | null> {
+    return this.backend.get(this.keyFor(runId, id));
+  }
+
+  async remove(runId: string, id: string): Promise<void> {
+    await this.backend.delete(this.keyFor(runId, id));
   }
 }

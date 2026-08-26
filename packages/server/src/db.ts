@@ -128,7 +128,7 @@ function mapArtifact(r: ArtifactRow): StoredArtifact {
     nodeId: r.node_id,
     attempt: r.attempt,
     kind: r.kind,
-    mimeType: r.mime_type,
+    mimeType: r.mime_type ?? "",
     label: r.label,
     sizeBytes: r.size_bytes,
     storage: r.storage,

@@ -39,7 +39,7 @@ import { listBuiltinSkills } from "./skills/registry.js";
 
 const PORT = Number(process.env.PORT ?? 8791);
 const db = openDb(process.env.DB_FILE ?? "agent-world.sqlite");
-const artifacts = new ArtifactStore(process.env.ARTIFACT_DIR ?? ArtifactStore.defaultPath());
+const artifacts = ArtifactStore.fromEnv();
 
 if (!db.getGraph(SEED_GRAPH.id)) db.saveGraph(SEED_GRAPH, Date.now());
 
@@ -613,13 +613,15 @@ app.post("/api/runs/:id/resume", async (c) => {
         action,
         resetFrom,
         signal: controller.signal,
-        storeBinary: (data, mimeType, label) =>
-          artifacts.saveBinary({ data, kind: "image", mimeType, label }).uri ??
+        storeBinary: async (data, mimeType, label) =>
+          (await artifacts.saveBinary({ data, kind: "image", mimeType, label })).uri ??
           `data:${mimeType};base64,${data.toString("base64")}`,
       })) {
         db.record(runId, event);
         if (event.type === "artifact.produced") {
-          db.insertArtifact(artifacts.save(event.artifact, { runId, nodeId: event.nodeId, attempt: event.attempt }));
+          db.insertArtifact(
+            await artifacts.save(event.artifact, { runId, nodeId: event.nodeId, attempt: event.attempt }),
+          );
         }
         entry.events.push(event);
         if (event.type === "run.finished") db.finishRun(runId, event.status, Date.now());
@@ -727,7 +729,7 @@ app.post("/api/artifacts/upload", async (c) => {
   else if (contentType.startsWith("video/")) kind = "video";
   else if (contentType.startsWith("audio/")) kind = "audio";
 
-  const saved = artifacts.saveBinary({
+  const saved = await artifacts.saveBinary({
     data,
     kind,
     mimeType: contentType,
@@ -745,7 +747,7 @@ app.get("/api/artifacts", (c) => {
 });
 
 /** Fetch a single artifact: local blobs are streamed, remote URIs redirect. */
-app.get("/api/artifacts/:id", (c) => {
+app.get("/api/artifacts/:id", async (c) => {
   const id = c.req.param("id");
   const meta = db.getArtifact(id);
   if (!meta) return c.json({ error: "not found" }, 404);
@@ -757,7 +759,7 @@ app.get("/api/artifacts/:id", (c) => {
     return c.json({ error: "artifact has no binary payload" }, 404);
   }
 
-  const file = artifacts.open(meta.runId, meta.id);
+  const file = await artifacts.open(meta.runId, meta.id);
   if (!file) return c.json({ error: "blob missing on disk" }, 404);
   const headers = new Headers();
   headers.set("content-type", meta.mimeType ?? "application/octet-stream");

@@ -73,7 +73,7 @@ export interface ExecuteOptions {
   /** Injected so retry backoff is controllable in tests. */
   sleep?: (ms: number) => Promise<void>;
   /** Persists generated image bytes and returns a stable URI (e.g. /api/artifacts/:id). */
-  storeBinary?: (data: Buffer, mimeType: string, label?: string) => string;
+  storeBinary?: (data: Buffer, mimeType: string, label?: string) => string | Promise<string>;
 }
 
 type Status = "done" | "failed" | "halted" | "tripped" | "cancelled";
@@ -307,7 +307,7 @@ interface SchedulerOptions {
   /** True when continuing an existing run (resume/retry): don't re-emit run.started. */
   resuming?: boolean;
   /** Persists generated image bytes and returns a stable URI (e.g. /api/artifacts/:id). */
-  storeBinary: (data: Buffer, mimeType: string, label?: string) => string;
+  storeBinary: (data: Buffer, mimeType: string, label?: string) => string | Promise<string>;
 }
 
 /**
@@ -601,8 +601,9 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     try {
       const results = await worker.generateImage({ node, config: cfg, input: prompt, signal: opts.signal });
       let usage: Usage = { tokensIn: 0, tokensOut: 0, costUsd: 0, units: { images: 0 } };
-      results.forEach((res, idx) => {
-        const uri = opts.storeBinary(res.data, res.mimeType, `${node.name || "ai-image"}-${idx + 1}.png`);
+      for (let idx = 0; idx < results.length; idx++) {
+        const res = results[idx]!;
+        const uri = await opts.storeBinary(res.data, res.mimeType, `${node.name || "ai-image"}-${idx + 1}.png`);
         extraImages.push(uri);
         artifacts.set(nodeId, uri);
         emit({
@@ -622,7 +623,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           costUsd: (usage.costUsd ?? 0) + (res.usage.costUsd ?? 0),
           units: { ...usage.units, images: (usage.units?.images ?? 0) + (res.usage.units?.images ?? 0) },
         };
-      });
+      }
       emit({ type: "node.finished", nodeId, attempt, output: "", usage });
       states.set(nodeId, "done");
       sendPackets(nodeId, `生成配图 ${results.length} 张`, "image");
@@ -986,7 +987,7 @@ export interface ResumeOptions {
   resetFrom?: string;
   signal?: AbortSignal;
   /** Persists generated image bytes and returns a stable URI (e.g. /api/artifacts/:id). */
-  storeBinary?: (data: Buffer, mimeType: string, label?: string) => string;
+  storeBinary?: (data: Buffer, mimeType: string, label?: string) => string | Promise<string>;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
 }
