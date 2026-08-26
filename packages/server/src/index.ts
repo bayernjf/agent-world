@@ -14,6 +14,7 @@ import {
   type RunEvent,
 } from "@agent-world/core";
 import { openDb } from "./db.js";
+import { log } from "./logger.js";
 import { execute, resume } from "./engine.js";
 import { SEED_GRAPH } from "./seed.js";
 import {
@@ -346,6 +347,8 @@ app.post("/api/runs", async (c) => {
   const controller = new AbortController();
   const entry = { events: [] as RunEvent[], done: false, controller };
   live.set(runId, entry);
+  const runLog = log.child({ runId, graphId: graph.id });
+  runLog.info("run started", { trigger: body.trigger ?? "manual", nodes: graph.nodes.length });
 
   // Drain in the background so the POST returns immediately with the run id.
   void (async () => {
@@ -366,7 +369,7 @@ app.post("/api/runs", async (c) => {
       }
     } catch (err) {
       db.finishRun(runId, "failed", Date.now());
-      console.error(`run ${runId} crashed`, err);
+      runLog.error("run crashed", { error: (err as Error)?.message ?? String(err) });
     } finally {
       entry.done = true;
     }
@@ -421,6 +424,8 @@ app.post("/api/runs/:id/resume", async (c) => {
   const controller = new AbortController();
   const entry = { events: [] as RunEvent[], done: false, controller };
   live.set(runId, entry);
+  const runLog = log.child({ runId, graphId: graph.id });
+  runLog.info("run resumed", { action, resetFrom: resetFrom ?? null, nodes: graph.nodes.length });
   // A retry from a failed/tripped run reopens the same run; flip its status
   // back to running so listings/UIs reflect the active attempt.
   if (resetFrom || row.status === "failed" || row.status === "tripped") {
@@ -447,7 +452,7 @@ app.post("/api/runs/:id/resume", async (c) => {
       }
     } catch (err) {
       db.finishRun(runId, "failed", Date.now());
-      console.error(`run ${runId} resume crashed`, err);
+      log.child({ runId }).error("resume crashed", { error: (err as Error)?.message ?? String(err) });
     } finally {
       entry.done = true;
     }
@@ -528,7 +533,7 @@ app.get("/api/runs/:id/stream", (c) => {
 });
 
 serve({ fetch: app.fetch, port: PORT }, (info) => {
-  console.log(`agent-world engine listening on http://localhost:${info.port}`);
+  log.info("engine listening", { port: info.port, url: `http://localhost:${info.port}` });
 });
 
 /** Minimal request body for a connectivity probe, shaped per modality. */
