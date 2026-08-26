@@ -27,6 +27,7 @@ export const ErrorCode = z.enum([
   "AUTH",
   "VALIDATION",
   "BUDGET",
+  "CONNECTOR",
   "UNKNOWN",
   "UNSUPPORTED",
 ]);
