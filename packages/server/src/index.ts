@@ -1,8 +1,8 @@
 import { serve } from "@hono/node-server";
 import { randomUUID } from "node:crypto";
 import { Hono } from "hono";
-import { cors } from "hono/cors";
 import { streamSSE } from "hono/streaming";
+import { applyCors, applySecurityHeaders } from "./security.js";
 import {
   compile,
   envelope,
@@ -99,7 +99,8 @@ function jsonResponse(status: number, body: unknown): Response {
 }
 
 const app = new Hono();
-app.use("/*", cors());
+applyCors(app, process.env.CORS_ORIGINS);
+applySecurityHeaders(app);
 
 app.get("/api/health", (c) => c.json({ ok: true }));
 
