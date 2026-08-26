@@ -25,7 +25,6 @@ import { TriggerService, TriggerError } from "./triggers.js";
 import { TriggerScheduler } from "./scheduler.js";
 import { resolveConnector } from "./connectors.js";
 import { startABExperiment } from "./ab.js";
-import { SEED_GRAPH } from "./seed.js";
 import {
   loadConfig,
   saveConfig,
@@ -49,7 +48,9 @@ const PORT = Number(process.env.PORT ?? 8791);
 const db = openDb(process.env.DB_FILE ?? "agent-world.sqlite");
 const artifacts = ArtifactStore.fromEnv();
 
-if (!db.getGraph(SEED_GRAPH.id)) db.saveGraph(SEED_GRAPH, Date.now());
+// First-run onboarding is handled by the web UI (shows a template picker when
+// no graphs exist). We no longer seed a default graph on startup — existing
+// databases keep their graphs, fresh installs start empty.
 
 // A server restart cannot resume in-memory generators; mark orphaned runs so the
 // UI doesn't show them as forever-running.
@@ -478,7 +479,10 @@ app.post("/api/runs", async (c) => {
     connectorValues?: Record<string, string>;
     workerId?: string;
   };
-  const graph = db.getGraph(body.graphId ?? SEED_GRAPH.id);
+  const graphs = db.listGraphs();
+  const graphId = body.graphId ?? graphs[0]?.id;
+  if (!graphId) return c.json({ error: "no graphs found — create one first" }, 400);
+  const graph = db.getGraph(graphId);
   if (!graph) return c.json({ error: "graph not found" }, 404);
 
   try {
