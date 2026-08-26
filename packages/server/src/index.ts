@@ -34,6 +34,8 @@ import {
   type Modality,
 } from "./config.js";
 import { routingWorker } from "./providers/index.js";
+import { WorkerRegistry } from "./worker-plugins.js";
+import { fileURLToPath } from "node:url";
 import { sanitizeError } from "./sanitize.js";
 import { listBuiltinSkills } from "./skills/registry.js";
 
@@ -48,6 +50,8 @@ if (!db.getGraph(SEED_GRAPH.id)) db.saveGraph(SEED_GRAPH, Date.now());
 db.markZombiesInterrupted(Date.now());
 
 const worker = routingWorker();
+const workerRegistry = new WorkerRegistry(worker);
+const workersDir = process.env.WORKERS_DIR ?? fileURLToPath(new URL("workers", import.meta.url));
 
 /** Live runs, so a reconnecting client can attach mid-flight. */
 const live = new Map<
@@ -318,6 +322,9 @@ app.get("/api/runs", (c) => {
   return c.json(db.listRuns(limit, offset));
 });
 
+/** Available workers (built-in + discovered plugins), for the run-start UI. */
+app.get("/api/workers", (c) => c.json(workerRegistry.list()));
+
 app.get("/api/costs", (c) => {
   const from = c.req.query("from");
   const to = c.req.query("to");
@@ -381,6 +388,7 @@ app.post("/api/runs", async (c) => {
     trigger?: string;
     input?: string;
     connectorValues?: Record<string, string>;
+    workerId?: string;
   };
   const graph = db.getGraph(body.graphId ?? SEED_GRAPH.id);
   if (!graph) return c.json({ error: "graph not found" }, 404);
@@ -388,7 +396,7 @@ app.post("/api/runs", async (c) => {
   try {
     const { runId, diagnostics } = await startRun({
       db,
-      worker,
+      worker: workerRegistry.get(body.workerId),
       artifacts,
       live,
       graph,
@@ -570,6 +578,7 @@ app.post("/api/runs/:id/resume", async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as {
     action?: "continue" | "scrap";
     resetFrom?: string;
+    workerId?: string;
   };
   const action = body.action === "scrap" ? "scrap" : "continue";
   const resetFrom = typeof body.resetFrom === "string" ? body.resetFrom : undefined;
@@ -604,7 +613,7 @@ app.post("/api/runs/:id/resume", async (c) => {
         runId,
         graph,
         plan,
-        worker,
+        worker: workerRegistry.get(body.workerId),
         budgetUsd: row.budget_usd ?? null,
         monthlyBudgetUsd: cfg.monthlyBudgetUsd ?? null,
         monthSpentUsd: db.costForMonth(now.getFullYear(), now.getMonth() + 1),
@@ -772,6 +781,11 @@ app.get("/api/artifacts/:id", async (c) => {
   }
   return new Response(file.stream as unknown as ReadableStream, { headers });
 });
+
+// Discover worker plugins in the background; the built-in worker is already
+// registered, so the server is usable immediately and /api/workers reflects
+// plugins a moment later.
+void workerRegistry.loadFrom(workersDir);
 
 serve({ fetch: app.fetch, port: PORT }, (info) => {
   log.info("engine listening", { port: info.port, url: `http://localhost:${info.port}` });
