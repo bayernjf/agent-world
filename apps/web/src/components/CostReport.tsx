@@ -53,6 +53,15 @@ export default function CostReport({ open, onClose }: Props) {
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
+  const csvHref = useMemo(() => {
+    const b = rangeToBounds(range);
+    const qs = new URLSearchParams();
+    if (b.from !== undefined) qs.set("from", String(b.from));
+    if (b.to !== undefined) qs.set("to", String(b.to));
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return `/api/costs.csv${suffix}`;
+  }, [range]);
+
   const maxDayCost = useMemo(
     () => (report ? Math.max(1, ...report.byDay.map((d) => d.cost_usd)) : 1),
     [report],
@@ -86,6 +95,16 @@ export default function CostReport({ open, onClose }: Props) {
                 </button>
               ))}
             </div>
+            <a
+              className="chip"
+              href={csvHref}
+              download
+              onClick={(e) => {
+                if (!report) e.preventDefault();
+              }}
+            >
+              导出 CSV
+            </a>
             <button className="icon-btn" onClick={onClose} title="关闭">
               ✕
             </button>
@@ -200,7 +219,7 @@ export default function CostReport({ open, onClose }: Props) {
                       {report.byNode.map((n, i) => (
                         <tr key={`${n.graph_id}-${n.node_id}`}>
                           <td className="muted">{n.graph_name}</td>
-                          <td className="mono">{n.node_id}</td>
+                          <td className="mono">{n.node_name}</td>
                           <td className="num mono">{n.attempts}</td>
                           <td className="num mono">{n.reworks > 0 ? n.reworks : "—"}</td>
                           <td className="num mono">{fmtUsd(n.cost_usd)}</td>

@@ -14,6 +14,7 @@ import UndoRedo from "./components/UndoRedo";
 import Toast from "./components/Toast";
 import Timeline from "./components/Timeline";
 import RunHistory from "./components/RunHistory";
+import FailurePanel from "./components/FailurePanel";
 import CostReport from "./components/CostReport";
 import { api } from "./lib/api";
 import { useGraph } from "./store/graph";
@@ -273,6 +274,7 @@ export default function App() {
 
         <main className="stage">
           <Timeline />
+          <FailurePanel onRerun={onRun} />
           <Canvas mode={mode} />
           <button
             className={`stage__control-toggle ${controlCollapsed ? "is-collapsed" : ""}`}
