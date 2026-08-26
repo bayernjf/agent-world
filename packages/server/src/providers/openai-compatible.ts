@@ -391,5 +391,55 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
       }
       return extractJson(result?.output ?? "");
     },
+
+    async generateImage({ config, input, signal }) {
+      const model = config.model || "agnes-image";
+      const size = config.size || "1024x1024";
+      if (!provider.apiKey) {
+        throw new ProviderError("AUTH", `Missing API key for provider at ${baseUrl}`);
+      }
+      let res: Response;
+      try {
+        res = await fetch(`${baseUrl}/images/generations`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${provider.apiKey}`,
+          },
+          body: JSON.stringify({ model, prompt: input, n: 1, size }),
+          signal,
+        });
+      } catch (err) {
+        throw new ProviderError("UNKNOWN", (err as Error).message);
+      }
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new ProviderError(mapHttpStatus(res.status), `HTTP ${res.status}: ${text.slice(0, 300)}`, res.status);
+      }
+      const json = (await res.json()) as {
+        data?: Array<{ b64_json?: string; url?: string }>;
+      };
+      const item = json.data?.[0];
+      if (!item) throw new ProviderError("PROVIDER_ERROR", "image generation returned no data");
+
+      let data: Buffer;
+      let mimeType = "image/png";
+      if (item.b64_json) {
+        data = Buffer.from(item.b64_json, "base64");
+      } else if (item.url) {
+        const imgRes = await fetch(item.url, { signal });
+        if (!imgRes.ok) {
+          throw new ProviderError("PROVIDER_ERROR", `failed to fetch generated image: HTTP ${imgRes.status}`);
+        }
+        data = Buffer.from(await imgRes.arrayBuffer());
+        const ct = imgRes.headers.get("content-type");
+        if (ct) mimeType = ct;
+      } else {
+        throw new ProviderError("PROVIDER_ERROR", "image generation response missing image data");
+      }
+
+      const usage: Usage = { tokensIn: 0, tokensOut: 0, costUsd: 0, units: { images: 1 } };
+      return { data, mimeType, usage };
+    },
   };
 }

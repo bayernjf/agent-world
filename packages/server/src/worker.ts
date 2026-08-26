@@ -1,4 +1,4 @@
-import type { AgentConfig, GraphNode, Usage } from "@agent-world/core";
+import type { AgentConfig, GraphNode, ImageGenConfig, Usage } from "@agent-world/core";
 
 /** A callable tool exposed to a model, derived from a mounted skill card. */
 export interface ToolDefinition {
@@ -24,6 +24,22 @@ export type AgentChunk =
 
 export interface AgentResult {
   output: string;
+  usage: Usage;
+}
+
+/** Arguments for a text-to-image generation request. */
+export interface ImageGenArgs {
+  node: GraphNode;
+  config: ImageGenConfig;
+  /** The generation prompt, often auto-built from the source brief. */
+  input: string;
+  signal?: AbortSignal;
+}
+
+/** Raw generated image bytes plus metering. */
+export interface ImageGenResult {
+  data: Buffer;
+  mimeType: string;
   usage: Usage;
 }
 
@@ -56,6 +72,13 @@ export interface Worker {
     criterion: string;
     signal?: AbortSignal;
   }): Promise<{ passed: boolean; reason: string }>;
+
+  /** Generates an image (banner / scene) from a prompt. Used by `imageGen` nodes. */
+  generateImage(args: ImageGenArgs): Promise<ImageGenResult>;
+}
+
+function zeroUsage(): Usage {
+  return { tokensIn: 0, tokensOut: 0, costUsd: 0 };
 }
 
 /** Deterministic stand-in: no network, no clock, seeded verdicts. */
@@ -98,6 +121,16 @@ export function fakeWorker(opts: { failFirstAttempts?: number; chunkDelayMs?: nu
       return attempt <= failFirst
         ? { passed: false, reason: `Criterion not met: ${criterion.slice(0, 80)}` }
         : { passed: true, reason: `Meets criterion: ${criterion.slice(0, 80)}` };
+    },
+
+    // Deterministic 1x1 PNG placeholder so canvas wiring + tests work without a
+    // live image backend. Real workers hit the provider's image endpoint.
+    async generateImage() {
+      const png = Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQDJ/pLvAAAAAElFTkSuQmCC",
+        "base64",
+      );
+      return { data: png, mimeType: "image/png", usage: zeroUsage() };
     },
   };
 }
