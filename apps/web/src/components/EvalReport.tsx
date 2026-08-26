@@ -24,6 +24,7 @@ function rangeToBounds(range: Range): { from?: number; to?: number } {
 }
 
 const pct = (n: number) => `${Math.round(n * 100)}%`;
+const fmtScore = (n: number) => (n > 0 ? n.toFixed(1) : "—");
 const fmtDuration = (ms: number) => {
   if (!ms) return "—";
   if (ms < 1000) return `${Math.round(ms)}ms`;
@@ -161,6 +162,10 @@ export default function EvalReport({ open, onClose, graphId }: Props) {
                   <div className="cost-stat__label">平均耗时</div>
                   <div className="cost-stat__value">{fmtDuration(t.avgDurationMs)}</div>
                 </div>
+                <div className="cost-stat">
+                  <div className="cost-stat__label">平均质量分</div>
+                  <div className="cost-stat__value">{fmtScore(t.avgScore)}</div>
+                </div>
               </div>
 
               {report.byDay.length > 0 && (
@@ -199,6 +204,7 @@ export default function EvalReport({ open, onClose, graphId }: Props) {
                         <th className="num">合格率</th>
                         <th className="num">平均返工</th>
                         <th className="num">平均耗时</th>
+                        <th className="num">平均质量</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -211,6 +217,7 @@ export default function EvalReport({ open, onClose, graphId }: Props) {
                           </td>
                           <td className="num mono">{g.avgRework.toFixed(2)}</td>
                           <td className="num mono">{fmtDuration(g.avgDurationMs)}</td>
+                          <td className="num mono">{fmtScore(g.avgScore)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -235,6 +242,7 @@ export default function EvalReport({ open, onClose, graphId }: Props) {
                         <th className="num">合格率</th>
                         <th className="num">平均返工</th>
                         <th className="num">平均耗时</th>
+                        <th className="num">平均质量</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -252,6 +260,7 @@ export default function EvalReport({ open, onClose, graphId }: Props) {
                             </td>
                             <td className="num mono">{p.avgRework.toFixed(2)}</td>
                             <td className="num mono">{fmtDuration(p.avgDurationMs)}</td>
+                            <td className="num mono">{fmtScore(p.avgScore)}</td>
                           </tr>
                         )),
                       )}

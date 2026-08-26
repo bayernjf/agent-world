@@ -900,6 +900,27 @@ select {
   color: var(--steel-950);
   font-weight: 700;
 }
+.chip--score {
+  cursor: default;
+  padding: 2px 8px;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+.chip--score-good {
+  background: linear-gradient(180deg, #2e7d32, #1b5e20);
+  border-color: #4caf50;
+  color: #a5d6a7;
+}
+.chip--score-warn {
+  background: linear-gradient(180deg, #f57f17, #e65100);
+  border-color: #ff9800;
+  color: #ffe0b2;
+}
+.chip--score-bad {
+  background: linear-gradient(180deg, #c62828, #b71c1c);
+  border-color: #ef5350;
+  color: #ffcdd2;
+}
 
 .btn {
   width: 100%;
