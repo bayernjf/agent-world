@@ -70,4 +70,15 @@ The engine listens on `http://localhost:8791` and the board on
 ```bash
 pnpm -r test
 pnpm -r typecheck
+pnpm -r build
 ```
+
+## Deployment
+
+A multi-stage `Dockerfile` (Node 24) builds the core + server packages and runs
+`node dist/index.js`; `docker-compose.yml` exposes the engine on port `8791` with a
+persistent SQLite volume. Useful env hooks in the compose file: `CORS_ORIGINS`
+(comma-separated allow-list — **set this in any hosted/private deployment**; when
+unset the server allows all origins, which is only for local dev) and `MCP_SERVERS`.
+
+See `CHANGELOG.md` for release notes and `LICENSE` (MIT).

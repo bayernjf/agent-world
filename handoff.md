@@ -1,6 +1,6 @@
 # Handoff
 
-State of Agent World as of 2026-08-25.
+State of Agent World as of 2026-08-27.
 
 ## Project documents
 
@@ -171,13 +171,15 @@ engine retries per `retry` policy, then emits `node.failed` with the errorCode.
 
 ### Tracked for later (see docs/technical-design.md §12)
 
-- DB migrations are try/catch ADD COLUMN — need a `schema_version` table before
-  open-sourcing, plus SQLite startup backup.
-- Event endpoint returns all events; add range pagination for long runs.
-- Graph autosave is last-write-wins — needs version/ETag optimistic lock for
-  multi-tab safety.
-- CORS allows all origins; tighten before hosted/private deployments.
-- Structured logging with runId (currently console.error only).
+- DB migrations are versioned via `schema_migrations` + ordered `MIGRATIONS`
+  (done in 3.5); SQLite startup backup (`VACUUM INTO`) also done in 3.5.
+- Event endpoint returns all events; range pagination added in 3.5
+  (`GET /api/runs/:id/events?after=&limit=`).
+- Graph autosave is last-write-wins with a version/`If-Match` optimistic lock
+  (done in 3.5) — multi-tab safe now.
+- CORS is restricted to `CORS_ORIGINS` (done in 4.9); allow-all `*` only when the
+  env var is unset (local dev). Set it before any hosted/private deployment.
+- Structured logging with runId is done (3.5 `logger.ts`, `LOG_LEVEL`/`LOG_FILE`).
 - **Phase 2 parallelism hazard:** event emission must be serialized (single
   emit queue), and budget checks must happen at that serialization point, or
   concurrent nodes race past the budget. `inputFor` concatenation also needs a
@@ -200,8 +202,9 @@ offline deterministic worker.
 Engine on `http://localhost:8791`, board on `http://localhost:5183`.
 
 ```bash
-pnpm -r test        # 22 core + 32 server, all green
+pnpm -r test        # 54 core + 209 server, all green
 pnpm -r typecheck   # all green
+pnpm -r build       # core + server + web all build
 ```
 
 ## Canvas workspace overhaul (post-Phase-1)
@@ -777,3 +780,108 @@ Stage B — structured product blocks:
   - Still deferred (roadmap D-expansion, not in scope here): brand thesaurus / prohibited-word
     validation wiring, multi-version A/B, and evaluation linkage. Engine ArtifactRef upgrade
     remains deferred until multimodal downstream inputs are needed.
+
+## Phase 4 — multimodal, human-in-the-loop, plugin security, MCP, engineering
+
+### 4.5 Multimodal content parts
+- `packages/core/src/multimodal.ts` (new): `ContentPart` union
+  `{type:"text",text} | {type:"image",image}`, exported from the core index.
+- `packages/server/src/worker.ts`: `runAgent` gains optional `content?: ContentPart[]`;
+  the fake and routing workers accept it while still preserving `input`/`images`.
+- `packages/server/src/engine.ts`: assembles `content` from `input` + upstream source
+  `images` before calling the worker, and passes `content` to `runAgent`.
+- `packages/server/src/providers/openai-compatible.ts`: `buildUserContent` maps image
+  parts to `{type:"image_url"}`; `runAgent` prefers `content`, falling back to
+  `input + images`.
+- Web canvas `Plants.tsx` + `styles.css`: a source node carrying image raw material
+  shows a blue "图 N" badge + tooltip.
+- Tests: `engine.multimodal.test.ts`.
+
+### 4.7 Human-in-the-loop
+- `core/events.ts`: `gate.verdict` gained optional `decision: approved|rejected|edited`
+  and `by`; `run.finished` gained optional `haltedNodeId`/`reason`.
+- `core/runtime.ts`: `RuntimeState.haltedNodeId?`; the `run.finished` case sets it.
+- `server/engine.ts`: halt locals (`haltNodeId`/`haltReason`); on a gate-exhausted
+  `halt` it fires `notifyHalt`; `run.finished` carries `haltedNodeId`/`reason`.
+  `ResumeOptions.action` extended to `"continue"|"approve"|"reject"|"edit"|"scrap"`
+  with `editOutput?: Record<string,string>`; resume applies the `editOutput` overlay
+  and emits `gate.verdict` with `decision`/`by`; `runScheduler` forwards `editOutput`.
+- `server/notify.ts` (new): `notifyHalt(n)` POSTs to `RUN_HALT_WEBHOOK` (no-op if unset;
+  failures tolerated).
+- `server/index.ts`: `/api/runs/:id/resume` accepts `action` (approve/reject/edit/scrap)
+  + `editOutput` and forwards to `resume`. Added `disposeIsolatedWorkers()` and
+  SIGINT/SIGTERM cleanup.
+- Web `ControlPanel.tsx`: halted runs show 批准继续 / 编辑后继续 / 驳回 / 报废 buttons
+  (edit opens a prompt); `api.ts` & `store/run.ts` `resumeRun` extended; `styles.css`
+  gained `.btn--warn` / `.btn-row--wrap`.
+- Tests: `engine.humanloop.test.ts`, `notify.test.ts`.
+
+### 4C.7 Plugin process isolation
+- `server/isolation.ts` (new): `trimEnv(declared)` (safe base + declared keys),
+  `spawnIsolatedWorker(entry,id,declaredEnv)` (forks `worker-proxy.mjs`),
+  `IsolatedWorker` (implements `Worker`, proxies `runAgent`/`judge`/`generateImage`
+  over IPC, `dispose()`), `disposeIsolatedWorkers()`. `proxyFetch`/`proxyFs` enforce
+  the 4D.7 allowlists.
+- `server/worker-proxy.mjs` (new): child entry; overrides `globalThis.fetch` (network
+  proxy via the parent allowlist) and exposes a `globalThis.__proxyFs` shim (fs proxy —
+  the ESM `node:fs/promises` namespace is read-only, so a cooperative shim is used;
+  full per-call interception would need a custom ESM loader).
+- `server/worker-plugins.ts`: `WorkerPlugin` gained `isolation?:"in-process"|"subprocess"`,
+  `env?:string[]`, `entry?:string`. `loadFrom` forks `.js`/`.mjs` subprocess plugins;
+  `.ts` and failures fall back to in-process. `loadWorkerPlugins` records `entry`.
+- `server/scripts/sample-worker-plugin.mjs` (new): sample subprocess plugin proving
+  env trimming + fs/network proxy.
+- `server/permissions.ts`: `matchDomain` now strips the port (`host.split(":")[0]`)
+  so `127.0.0.1:PORT` matches `127.0.0.1`.
+- Tests: `isolation.test.ts`.
+
+### 4D.7 MCP remote transports + tool permission governance
+- `server/mcp.ts`: `McpServerSpec` with `transport: "stdio"|"http"|"sse"`;
+  `StdioMcpTransport`, `StreamableHttpMcpTransport`, `SseMcpTransport` (each implements
+  connect/disconnect/listTools/callTool). `registerMcpTools(id, client, registerSkill,
+  permissions?)` wires each call through `guardToolCall`. `connectMcpServers()` parses
+  `MCP_SERVERS` (legacy `{id,command,args}` or rich
+  `{id,transport,command?,args?,url?,headers?,permissions?}`).
+- `server/permissions.ts`: `evaluateToolCall(permissionConfig, serverId, tool)`,
+  `guardToolCall(...)`, `loadPermissionConfig()` (from `MCP_PERMISSIONS`), `matchDomain`.
+- `server/engine.ts`: the `executeTool` closure passed to workers calls `guardToolCall`,
+  so blocked tools throw `ToolPermissionDenied` before execution.
+- `server/index.ts`: `connectMcpServers()` runs at startup, passing per-server
+  `permissions` into `registerMcpTools`.
+- Tests: `mcp.test.ts` (stdio + http + sse e2e), `permissions.test.ts`.
+
+### 4.9 Engineering (CI, secret scan, Docker, LICENSE, CORS, version)
+- `server/security.ts` (new): `applyCors(app, process.env.CORS_ORIGINS)` (allow-list
+  from env; allow-all `*` only when `CORS_ORIGINS` is unset — preserves local-dev
+  behaviour) and `applySecurityHeaders` (X-Content-Type-Options, X-Frame-Options,
+  Referrer-Policy, Permissions-Policy). `index.ts` now calls these instead of
+  `app.use("/*", cors())`.
+- `LICENSE`: MIT (Copyright (c) 2026 bayernjf).
+- `.github/workflows/ci.yml`: a `build` job runs `pnpm -r typecheck` + `pnpm -r build`
+  + `pnpm -r --if-present test`; a separate `secrets` job runs gitleaks.
+  `.gitleaks.toml` allow-lists test/sample fixtures.
+- `Dockerfile` (multi-stage, Node 24, builds core + server, runs `node dist/index.js`)
+  + `docker-compose.yml` (port 8791, SQLite volume, `CORS_ORIGINS`/`MCP_SERVERS`/env
+  hooks) + `.dockerignore`.
+- `CHANGELOG.md` (Keep-a-Changelog); package versions bumped `0.1.0 → 0.2.0`.
+- Fixed two latent build blockers that only surfaced under `pnpm -r build` (tests run
+  via esbuild and didn't catch them): `engine.ts` `ContentPart` literal widening,
+  duplicate `tools` property, and missing `editOutput`/`permissionConfig` on the option
+  types; `core/graph.ts` `HttpConnector.url` is now `.url()`-validated.
+- Tests: `security.test.ts`.
+- Roadmap 4.9 checkboxes ticked.
+
+### Current status (end of Phase 4)
+- All selected Phase 4 tracks — 4.5, 4.7, 4C.7, 4D.7, 4.9 — are complete. Only
+  **4.8 (docs/community)** remains open.
+- `pnpm -r typecheck` green; `pnpm -r build` green; `pnpm -r test` green
+  (core 54, server 209).
+
+### Remaining / deferred
+- **4.8 docs/community** is the only open Phase 4 item (README quickstart, CONTRIBUTING,
+  architecture diagram, badges).
+- fs isolation uses a cooperative `__proxyFs` shim rather than a full ESM loader —
+  the upgrade path is noted in roadmap 4C.7.
+- `ArtifactRef` engine upgrade (per-node typed artifact references) stays deferred
+  until multimodal downstream inputs are needed (Stage D).
+- Per-node quality scoring and CSV export of eval data remain for later.
