@@ -396,10 +396,10 @@
 
 ### 4.4 Artifact 存储抽象
 
-- [ ] 定义 StorageBackend 接口
-- [ ] 本地文件系统实现
-- [ ] S3 兼容存储实现（MinIO/AWS S3/OSS）
-- [ ] 退出条件：配置一行就能切换本地和 S3 存储
+- [x] 定义 StorageBackend 接口
+- [x] 本地文件系统实现
+- [x] S3 兼容存储实现（MinIO/AWS S3/OSS）
+- [x] 退出条件：配置一行就能切换本地和 S3 存储
 
 ### 4.5 多模态
 
@@ -608,6 +608,22 @@
 - [x] 4B.7 测试 + 文档（roadmap 阶段 4 Connector 子块勾选）
   - 测试：`packages/server/src/connectors.test.ts`（file 单文件/目录/glob/asImages/base64、http JSON 提取/纯文本/非 2xx/Bearer auth/POST+自定义头、form 填值/空值、缺配置抛错）、`connectors-engine.test.ts`（source 装配拉料 + 不可达时 CONNECTOR 错误）
   - 用法：source 节点在 Inspector 选 Connector 类型并配置；`file` 支持路径/目录/glob 与 `asImages`；`http` 支持 GET/POST、Bearer/Basic auth、响应字段 `extract`、自定义 headers/body；`form` 在运行前弹窗填写，值经 `connectorValues` 注入 source 文本；拉取失败重试 2 次后以 `errorCode=CONNECTOR` 结束该节点，不扩散为未捕获异常。
+
+## 阶段 4E（建议）：Artifact 存储抽象（本地 / S3）
+
+> 目标：产线生成的图片/文件等产物，字节落盘位置可插拔。默认本地文件，配置一行切到 S3 兼容存储（AWS S3 / MinIO / Aliyun OSS）。
+> 属于 roadmap 阶段 4 的"Artifact 存储抽象"子块（4.4）。引擎只依赖 `ArtifactStore`，后者委托给 `StorageBackend`，因此切换后端不影响调用方。
+
+依赖：4E.1 → 4E.2 + 4E.3 → 4E.4 → 4E.5 → 4E.6 → 4E.7
+
+- [x] 4E.1 `StorageBackend` 接口（`packages/server/src/storage.ts`）：`kind`(local|s3|memory)、`put(key,data)` / `get(key)->Buffer|null` / `delete(key)`
+- [x] 4E.2 本地实现 `LocalStorageBackend`：文件落本地磁盘，`key` 即相对路径
+- [x] 4E.3 S3 兼容实现 `S3StorageBackend`：用 REST + AWS SigV4 直连（无 AWS SDK 依赖），支持 `endpoint`(MinIO/OSS) 与 `prefix`；`get` 对 404 返回 null
+- [x] 4E.4 配置切换：`storageConfigFromEnv()` 读 `STORAGE_BACKEND`(local|s3) 及 `S3_BUCKET/S3_REGION/S3_ACCESS_KEY_ID/S3_SECRET_ACCESS_KEY/S3_ENDPOINT/S3_PREFIX`；`ArtifactStore.fromEnv()` 一行装配
+- [x] 4E.5 `ArtifactStore` 改造：字节读写全部委托给 `StorageBackend`（`save/saveBinary/open/readBytes/remove` 改为异步），本地行为不变，S3 对调用方透明（DB 仍记 `storage:"local"` + `/api/artifacts/:id`，路由从后端取字节）
+- [x] 4E.6 测试：`packages/server/src/storage.test.ts`（local/memory 往返、S3 PUT/GET/404/prefix/非 2xx 抛 StorageError、env 切换）、`artifact-store.test.ts` 与 `artifacts.test.ts` 随异步 API 更新
+- [x] 4E.7 文档（本段勾选 + 用法说明）
+  - 用法：默认无需配置即本地存储；切 S3 只需 `STORAGE_BACKEND=s3` 加凭据环境变量，重启即生效，无需改代码。产物仍经 `/api/artifacts/:id` 提供（S3 模式下由后端按需取回）。
 
 ## 阶段 E（建议）：引擎表达力增强 — 摘要 / 模块卡 / 契约卡 / 人工确认
 
