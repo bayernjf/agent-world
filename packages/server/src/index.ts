@@ -5,6 +5,7 @@ import { streamSSE } from "hono/streaming";
 import { applyCors, applySecurityHeaders } from "./security.js";
 import {
   compile,
+  ConnectorConfig,
   envelope,
   getTemplate,
   Graph,
@@ -22,6 +23,7 @@ import { execute, resume } from "./engine.js";
 import { startRun, RunStartError } from "./run.js";
 import { TriggerService, TriggerError } from "./triggers.js";
 import { TriggerScheduler } from "./scheduler.js";
+import { resolveConnector } from "./connectors.js";
 import { startABExperiment } from "./ab.js";
 import { SEED_GRAPH } from "./seed.js";
 import {
@@ -577,6 +579,21 @@ app.post("/api/graphs/:id/webhook", async (c) => {
       return jsonResponse(e.status, { error: e.message });
     }
     throw e;
+  }
+});
+
+// Test a connector config without starting a run (preview the pulled material).
+app.post("/api/connectors/test", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as { connector?: unknown; formValues?: Record<string, string> };
+  if (!body.connector) return c.json({ error: "connector is required" }, 400);
+  const parsed = ConnectorConfig.safeParse(body.connector);
+  if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+  try {
+    const material = await resolveConnector(parsed.data, body.formValues);
+    const preview = material.text.length > 2000 ? material.text.slice(0, 2000) + "\n…(truncated)" : material.text;
+    return c.json({ text: preview, images: material.images, fullLength: material.text.length });
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 502);
   }
 });
 
