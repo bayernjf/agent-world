@@ -48,10 +48,12 @@ async function collect(
   app: Awaited<typeof import("./index.js")>["app"],
   after: number,
   dropAfterSeq: number | null,
+  useHeader: boolean = false,
 ): Promise<number[]> {
-  const res = await app.request(
-    `/api/runs/${RUN}/stream${after >= 0 ? `?after=${after}` : ""}`,
-  );
+  const url = `/api/runs/${RUN}/stream${after >= 0 && !useHeader ? `?after=${after}` : ""}`;
+  const headers: Record<string, string> = {};
+  if (after >= 0 && useHeader) headers["Last-Event-ID"] = String(after);
+  const res = await app.request(url, { headers });
   expect(res.status).toBe(200);
   const reader = res.body!.getReader();
   const decoder = new TextDecoder();
@@ -114,6 +116,24 @@ describe("SSE resume after a network drop", () => {
     expect(new Set(all).size).toBe(all.length);
     expect([...all].sort((a, b) => a - b)).toEqual(
       Array.from({ length: COUNT }, (_, i) => i),
+    );
+  });
+
+  it("resumes via Last-Event-ID header (native EventSource behaviour)", async () => {
+    const { app } = await import("./index.js");
+
+    // First connection: read until seq 6, then drop.
+    const first = await collect(app, -1, 6);
+    expect(first[first.length - 1]).toBe(6);
+
+    // Reconnect using the Last-Event-ID header (what native EventSource sends).
+    const lastSeq = first[first.length - 1];
+    const second = await collect(app, lastSeq, null, true);
+
+    const all = [...first, ...second];
+    expect(new Set(all).size).toBe(all.length); // no duplicates
+    expect([...all].sort((a, b) => a - b)).toEqual(
+      Array.from({ length: COUNT }, (_, i) => i), // full 0..9 coverage
     );
   });
 });

@@ -26,6 +26,8 @@ export interface NodeRuntime {
   artifacts: Artifact[];
   error?: string;
   errorCode?: string;
+  /** Last gate verdict (passed/reason/score), for gate nodes only. */
+  lastVerdict?: { passed: boolean; reason: string; score?: number; attempt: number };
 }
 
 export interface ToolCallRecord {
@@ -247,7 +249,15 @@ export function reduce(state: RuntimeState, event: RunEvent): RuntimeState {
         };
 
       case "gate.verdict":
-        return withNode(state, event.nodeId, { status: event.passed ? "done" : "failed" });
+        return withNode(state, event.nodeId, {
+          status: event.passed ? "done" : "failed",
+          lastVerdict: {
+            passed: event.passed,
+            reason: event.reason,
+            score: event.score,
+            attempt: event.attempt,
+          },
+        });
 
       case "gate.exhausted":
         if (event.policy === "scrap") {

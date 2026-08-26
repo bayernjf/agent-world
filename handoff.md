@@ -953,3 +953,40 @@ Stage B — structured product blocks:
 
 **测试**
 - `packages/server/src/engine.summary.test.ts`（4 用例）：摘要压缩替代截断 / summarizer 抛错→回退 truncate / 无 summarizer→回退 truncate / 阈值内透传。
+
+---
+
+## Batch 1 — P1 延后项收尾 (2026-08-27)
+
+> 从 roadmap "已知延后项"中收拢的 3 项快速赢，全部完成。详见 `docs/roadmap-tasks.md` 的 "P1 已知延后项 — 实施计划" 章节。
+
+### 周/月成本聚合视图（P1-1）
+
+- **`db.ts` — `costReport()`** 新增 `byWeek`（`strftime('%Y-W%W')`）和 `byMonth`（`strftime('%Y-%m')`）两个聚合维度，结构同 `byDay`（runs/cost_usd/tokens_in/tokens_out）。返回值加 `byWeek`/`byMonth` 字段。
+- **`apps/web/src/lib/api.ts`** — `CostReport` 接口加 `byWeek`/`byMonth` 类型。
+- **`CostReport.tsx`** — 新增「日 / 周 / 月」粒度切换 segmented control；智能默认（≤14 天日，≤90 天周，否则月）；条形图数据源随粒度切换，X 轴标签格式化（日 MM-DD / 周 W23 / 月 2026-08）。
+- **测试**：`costs.test.ts` 加 byWeek/byMonth 聚合断言（两 run 分属不同周、同一月，验证分组正确、总成本一致）。
+
+### 每节点质量评分（P1-2）
+
+> 数据链路（provider judge → db score 列 → evalReport avgScore）此前已完整，缺的是前端展示和 runtime 跟踪。
+
+- **`core/runtime.ts`** — `NodeRuntime` 新增 `lastVerdict?: { passed, reason, score?, attempt }`；`gate.verdict` reducer 保存最近一次判定结果（含 score）。
+- **`apps/web/src/lib/api.ts`** — `EvalSummary` 接口加 `avgScore: number` 字段（db 层已返回，此前前端类型缺失）。
+- **`EvalReport.tsx`** — 统计卡片新增「平均质量分」；byGraph 表格和 byPrompt 表格各加「平均质量」列；`fmtScore()` 辅助函数（0 显示 "—"，否则一位小数）。
+- **`Inspector.tsx`** — 节点标题栏：当 `rt.lastVerdict.score` 存在时显示质量分徽章（`质量 N/10`，good≥7 绿 / warn≥4 黄 / bad<4 红，hover 显示 reason）。
+- **`styles.css`** — 新增 `.chip--score` / `.chip--score-good` / `.chip--score-warn` / `.chip--score-bad` 样式。
+- **测试**：core 54 + server 230 全绿（runtime reducer 改动不破坏现有测试）。
+
+### 真实长任务抽网验证（P1-3）
+
+> `sse-resume.test.ts` 此前已实现基于 `?after=` query param 的断网重连测试（commit f3ba54b）。本次补充 `Last-Event-ID` header 方式，覆盖原生 EventSource 行为。
+
+- **`sse-resume.test.ts`** — `collect()` 函数新增 `useHeader` 参数；新增测试用例 "resumes via Last-Event-ID header"：第一次连接读到 seq 6 后断开，第二次连接通过 `Last-Event-ID: 6` header 重连，验证合并后事件无重复、无遗漏、覆盖全部 0-9。
+- 两种重连方式（`?after=` query param 和 `Last-Event-ID` header）均已覆盖，服务端同时支持二者（query param 优先）。
+
+### 质量门
+
+- `pnpm -r typecheck`：core + server + web 全绿
+- `pnpm -r test`：core 54 + server 230 全绿
+- `pnpm -r build`：core + server + web 构建成功
