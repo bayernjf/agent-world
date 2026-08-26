@@ -577,3 +577,22 @@ paths) is a standalone chunk to schedule once the graph gets denser.
   worker at 0.0008 under a 0.001 budget emits power.warning, completes without
   tripping). Core now 30, server 55.
 - Remaining 3.6: monthly budget aggregation.
+
+## 3.8 Artifact layering (partial — core + engine + UI)
+
+- New `packages/core/src/artifact.ts`: Artifact zod schema (text/image/video/audio/file/json/uri),
+  `artifactLabel()`, `ARTIFACT_COLORS`, and `extractArtifacts()` that scans output text for
+  markdown images, bare media URLs (png/jpg/mp4/mp3 etc.), and fenced JSON blocks.
+- New `artifact.produced` event carries `{ nodeId, attempt?, artifact }`. Runtime state gains
+  `NodeRuntime.artifacts: Artifact[]`.
+- `packet.sent` gains optional `artifactKind` so trucks can colour-code by freight type.
+- Engine: after each node finishes, calls `produceArtifacts()` to extract and emit typed
+  artifacts. Source reference images emit image artifacts directly. Packets carry the
+  primary artifact kind.
+- Frontend: PacketLayer trucks use `ARTIFACT_COLORS[artifactKind]`; Inspector shows an
+  "产出物" section with image thumbnails, video, audio player, links, and JSON previews.
+- Tests: core artifact extraction (8 cases), runtime reducer for artifact.produced and
+  packet.artifactKind, engine end-to-end test verifying image URL extraction and packet
+  colour metadata. Core now 42, server 56.
+- Remaining: file/blob storage (currently URI passthrough), ArtifactRef upgrade of engine
+  artifacts Map, cross-run artifact queries.

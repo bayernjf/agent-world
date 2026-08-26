@@ -349,13 +349,17 @@
 
 ### 3.8 Packet/Artifact 分层
 
-- [ ] 定义 Artifact 类型和存储接口
-- [ ] 文本 artifact 内联兼容现有 output
-- [ ] 文件 artifact 存本地磁盘，数据库存元数据
-- [ ] Packet 加 artifactId 引用
+- [x] 定义 Artifact 类型（core/artifact.ts：text/image/video/audio/file/json/uri）
+- [x] 文本 artifact 内联兼容现有 output（output 字段不变，artifacts 为附加）
+- [x] extractArtifacts() 从输出文本中提取 markdown 图片、裸 URL、JSON 代码块
+- [x] 新增 artifact.produced 事件，runtime state 按节点收集 artifacts
+- [x] Packet 携带 artifactKind，卡车按产出物类型变色
+- [x] 前端 Inspector 展示产出物（图片缩略图、视频、音频播放器、链接、JSON）
+- [x] Source 节点的 reference images 作为 image artifacts 发出
+- [x] 退出条件：产线能产出图片等非文本内容并在 UI 中展示
+- [ ] 文件 artifact 存本地磁盘/对象存储，数据库存元数据（当前 URI 直链）
 - [ ] 引擎 artifacts Map 从 string 升级为 ArtifactRef
-- [ ] 前端支持展示非文本产出（文件下载、图片预览）
-- [ ] 退出条件：产线能产出文件，不只是文本
+- [ ] Artifact 持久化到 events 表后可跨 run 查询
 
 ---
 
