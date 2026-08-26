@@ -1,4 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
+import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { EVENT_SCHEMA_VERSION, type Graph, type RunEvent } from "@agent-world/core";
 
 /**
@@ -57,8 +59,49 @@ CREATE TABLE IF NOT EXISTS node_runs (
 
 export type Db = ReturnType<typeof openDb>;
 
+
+/** Number of startup snapshots to retain alongside the database. */
+export const BACKUP_RETENTION = 5;
+
+/**
+ * Take a consistent snapshot of an existing on-disk database before migrations
+ * run, so a botched upgrade never destroys the only copy of event history.
+ * Snapshots live in a `backups/` folder next to the database file and are
+ * pruned to the newest BACKUP_RETENTION files. In-memory and first-run databases
+ * are skipped — there is nothing worth snapshotting yet.
+ */
+function backupDatabase(db: DatabaseSync, file: string): void {
+  if (file === ":memory:" || !existsSync(file)) return;
+  try {
+    const stat = statSync(file);
+    if (!stat.isFile() || stat.size === 0) return;
+
+    const dir = join(dirname(file), "backups");
+    mkdirSync(dir, { recursive: true });
+
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const target = join(dir, `pre-migration-${stamp}.db`);
+    db.exec(`VACUUM INTO '${target.replace(/'/g, "''")}'`);
+
+    // Prune oldest snapshots beyond the retention window.
+    const entries = readdirSync(dir)
+      .filter((name) => /^pre-migration-.*\.db$/.test(name))
+      .map((name) => ({ name, time: statSync(join(dir, name)).mtimeMs }))
+      .sort((a, b) => b.time - a.time);
+    for (const old of entries.slice(BACKUP_RETENTION)) {
+      rmSync(join(dir, old.name), { force: true });
+    }
+  } catch {
+    // Backup failures must never block startup; migrations still run.
+  }
+}
+
 export function openDb(file: string) {
   const db = new DatabaseSync(file);
+  // Snapshot before any schema work. On a brand-new file the size is 0 here
+  // (the WAL pragma below would otherwise write a header), so first-run
+  // databases correctly produce no backup.
+  backupDatabase(db, file);
   db.exec("PRAGMA journal_mode = WAL");
   db.exec("PRAGMA busy_timeout = 5000");
   db.exec(DDL);
@@ -410,6 +453,9 @@ export function openDb(file: string) {
     costRows(opts: { from?: number; to?: number } = {}) {
       const { byGraph, byNode, byAttempt, byDay } = this.costReport(opts);
       return { byGraph, byNode, byAttempt, byDay };
+    },
+    close() {
+      db.close();
     },
   };
 }
