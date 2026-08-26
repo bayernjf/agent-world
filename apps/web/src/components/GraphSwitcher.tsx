@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import Popover, { type Rect } from "./Popover";
+import Tooltip from "./Tooltip";
 
 export interface GraphSummary {
   id: string;
@@ -89,30 +90,33 @@ export default function GraphSwitcher({
                 </span>
               )}
               <span className="graph-row__actions" onClick={(e) => e.stopPropagation()}>
-                <button
-                  className="icon-btn"
-                  title="重命名"
-                  onClick={() => {
-                    setEditingId(g.id);
-                    setDraft(g.name);
-                  }}
-                >
-                  ✎
-                </button>
-                <button
-                  className="icon-btn"
-                  title="复制"
-                  onClick={() => onDuplicate(g.id)}
-                >
-                  ⧉
-                </button>
-                <button
-                  className="icon-btn icon-btn--danger"
-                  title="删除"
-                  onClick={() => onDelete(g.id)}
-                >
-                  ✕
-                </button>
+                <Tooltip content="重命名">
+                  <button
+                    className="icon-btn"
+                    onClick={() => {
+                      setEditingId(g.id);
+                      setDraft(g.name);
+                    }}
+                  >
+                    ✎
+                  </button>
+                </Tooltip>
+                <Tooltip content="复制">
+                  <button
+                    className="icon-btn"
+                    onClick={() => onDuplicate(g.id)}
+                  >
+                    ⧉
+                  </button>
+                </Tooltip>
+                <Tooltip content="删除">
+                  <button
+                    className="icon-btn icon-btn--danger"
+                    onClick={() => onDelete(g.id)}
+                  >
+                    ✕
+                  </button>
+                </Tooltip>
               </span>
             </div>
           ))}

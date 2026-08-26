@@ -138,27 +138,80 @@ export interface Arrow {
 }
 
 /**
- * Place a flow arrow near the end of a forward pipe: on the last horizontal
- * segment for doglegs, or pointing down the center for same-column stacks.
- * Rework pipes have no arrow (their arc already reads as a backward loop).
+ * Place one arrow near each end of a forward pipe: one near the source
+ * (flow leaves) and one near the target (flow arrives). For doglegs the arrows
+ * sit on the first/last horizontal segments, inset from the node face so they
+ * don't crowd it. Same-column stacks get arrows just below the source and just
+ * above the target. Rework pipes have no arrow (their arc reads as a loop).
  */
+const ARROW_INSET = 20;
+
+export function pipeArrows(
+  from: Point,
+  to: Point,
+  kind: GraphEdge["kind"],
+): Arrow[] {
+  if (kind === "rework") return [];
+  const arrows: Arrow[] = [];
+
+  // Same-column vertical pipe.
+  if (Math.abs(from.x - to.x) < SAME_COLUMN_TOLERANCE) {
+    const span = to.y - from.y;
+    const down = span > 0;
+    if (Math.abs(span) < 3 * ARROW_INSET + 12) {
+      arrows.push({ x: to.x, y: (from.y + to.y) / 2, dir: 1, angle: down ? 90 : -90 });
+    } else {
+      arrows.push({ x: from.x, y: from.y + (down ? ARROW_INSET : -ARROW_INSET), dir: 1, angle: down ? 90 : -90 });
+      arrows.push({ x: to.x, y: (from.y + to.y) / 2, dir: 1, angle: down ? 90 : -90 });
+      arrows.push({ x: to.x, y: to.y - (down ? ARROW_INSET : -ARROW_INSET), dir: 1, angle: down ? 90 : -90 });
+    }
+    return arrows;
+  }
+
+  const sx = from.x;
+  const sy = from.y;
+  const tx = to.x;
+  const ty = to.y;
+  const mid = sx + (tx - sx) / 2;
+  const dir = tx > sx ? 1 : -1;
+
+  // Pure horizontal pipe.
+  if (Math.abs(sy - ty) < 2) {
+    const len = tx - sx;
+    if (Math.abs(len) < 3 * ARROW_INSET + 12) {
+      arrows.push({ x: sx + len / 2, y: sy, dir, angle: 0 });
+    } else {
+      arrows.push({ x: sx + dir * ARROW_INSET, y: sy, dir, angle: 0 });
+      arrows.push({ x: sx + len / 2, y: sy, dir, angle: 0 });
+      arrows.push({ x: tx - dir * ARROW_INSET, y: sy, dir, angle: 0 });
+    }
+    return arrows;
+  }
+
+  // Dogleg: arrows on the first/last horizontal segments, plus one on the
+  // vertical middle segment pointing the way the flow turns.
+  const firstLen = mid - sx;
+  if (Math.abs(firstLen) >= ARROW_INSET + 8) {
+    arrows.push({ x: sx + dir * ARROW_INSET, y: sy, dir, angle: 0 });
+  }
+  const verticalDown = ty > sy;
+  if (Math.abs(ty - sy) >= 3 * ARROW_INSET + 12) {
+    arrows.push({ x: mid, y: (sy + ty) / 2, dir: 1, angle: verticalDown ? 90 : -90 });
+  }
+  const lastLen = tx - mid;
+  if (Math.abs(lastLen) >= ARROW_INSET + 8) {
+    arrows.push({ x: tx - dir * ARROW_INSET, y: ty, dir, angle: 0 });
+  }
+  return arrows;
+}
+
+/** Backwards-compatible single arrow (the target-side one). */
 export function pipeArrow(
   from: Point,
   to: Point,
   kind: GraphEdge["kind"],
 ): Arrow | null {
-  if (kind === "rework") return null;
-  // Same-column vertical pipe: arrow just above the target, pointing down.
-  if (Math.abs(from.x - to.x) < SAME_COLUMN_TOLERANCE) {
-    return { x: to.x, y: to.y - 14, dir: 1, angle: 90 };
-  }
-  const mid = from.x + (to.x - from.x) / 2;
-  // Last horizontal segment runs from mid to to.x at y=to.y.
-  const lastLen = to.x - mid;
-  if (Math.abs(lastLen) < 1) return null;
-  const dir = lastLen > 0 ? 1 : -1;
-  const t = 0.5;
-  return { x: mid + lastLen * t, y: to.y, dir, angle: 0 };
+  return pipeArrows(from, to, kind).at(-1) ?? null;
 }
 
 interface Seg {

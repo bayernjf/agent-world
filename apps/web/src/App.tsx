@@ -14,6 +14,8 @@ import UndoRedo from "./components/UndoRedo";
 import Toast from "./components/Toast";
 import Timeline from "./components/Timeline";
 import RunHistory from "./components/RunHistory";
+import Tooltip from "./components/Tooltip";
+import { useTips } from "./store/tips";
 import FailurePanel from "./components/FailurePanel";
 import CostReport from "./components/CostReport";
 import { api } from "./lib/api";
@@ -21,7 +23,7 @@ import { useGraph } from "./store/graph";
 import { useRun } from "./store/run";
 
 export default function App() {
-  const { graph, setGraph, addNode, flushSave } = useGraph();
+  const { graph, setGraph, addNode, flushSave, undo, redo } = useGraph();
   const { connect, reset, runId } = useRun();
 
   const [mode, setMode] = useState<Mode>("select");
@@ -38,6 +40,8 @@ export default function App() {
   const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [costOpen, setCostOpen] = useState(false);
+  const tipsEnabled = useTips((s) => s.enabled);
+  const toggleTips = useTips((s) => s.toggle);
   const bothCollapsed = controlCollapsed && inspectorCollapsed;
   const toggleBoth = () => {
     const next = !bothCollapsed;
@@ -105,6 +109,7 @@ export default function App() {
       try {
         if (id === graph.id) {
           setGraph({ ...graph, name });
+          await flushSave();
         } else {
           const g = await api.getGraph(id);
           await api.saveGraph({ ...g, name });
@@ -114,7 +119,7 @@ export default function App() {
         setError(String(e));
       }
     },
-    [graph, refreshGraphs, setGraph],
+    [graph, refreshGraphs, setGraph, flushSave],
   );
 
   const confirmDelete = useCallback(async () => {
@@ -143,7 +148,13 @@ export default function App() {
   useEffect(() => {
     refreshGraphs().then((list) => {
       if (list.length > 0) {
-        api.getGraph(list[0]!.id).then(setGraph).catch((e) => setError(String(e)));
+        api
+          .getGraph(list[0]!.id)
+          .then((g) => {
+            setGraph(g);
+            useGraph.temporal.getState().clear();
+          })
+          .catch((e) => setError(String(e)));
       }
     });
   }, [refreshGraphs, setGraph]);
@@ -188,17 +199,16 @@ export default function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
-      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA") return;
+      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) return;
       if ((e.metaKey || e.ctrlKey) && e.key === "z") {
         e.preventDefault();
-        const t = useGraph.temporal.getState();
-        if (e.shiftKey) t.redo();
-        else t.undo();
+        if (e.shiftKey) redo();
+        else undo();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [undo, redo]);
 
   return (
     <div className="app">
@@ -228,20 +238,30 @@ export default function App() {
           <div className="hud__undo-redo">
             <UndoRedo />
           </div>
-          <button
-            className="chip stage__panel-toggle"
-            onClick={toggleBoth}
-            title={bothCollapsed ? "展开全部侧栏" : "收起全部侧栏"}
-          >
-            {bothCollapsed ? "展开侧栏" : "收起侧栏"}
-          </button>
+          <Tooltip content={bothCollapsed ? "展开全部侧栏" : "收起全部侧栏"}>
+            <button className="chip stage__panel-toggle" onClick={toggleBoth}>
+              {bothCollapsed ? "展开侧栏" : "收起侧栏"}
+            </button>
+          </Tooltip>
+          <Tooltip content={`厂房悬停信息：${tipsEnabled ? "开" : "关"}（快捷键 T 切换）`}>
+            <button
+              className={`chip ${tipsEnabled ? "" : "chip--muted"}`}
+              onClick={toggleTips}
+            >
+              提示
+            </button>
+          </Tooltip>
           <ShortcutsHelp />
-          <button className="chip" onClick={() => setHistoryOpen(true)} title="运行历史">
-            历史
-          </button>
-          <button className="chip" onClick={() => setCostOpen(true)} title="成本报表">
-            成本
-          </button>
+          <Tooltip content="运行历史">
+            <button className="chip" onClick={() => setHistoryOpen(true)}>
+              历史
+            </button>
+          </Tooltip>
+          <Tooltip content="成本报表">
+            <button className="chip" onClick={() => setCostOpen(true)}>
+              成本
+            </button>
+          </Tooltip>
           <button className="chip" onClick={() => addNode("agent", 300, 480)}>
             + 厂房
           </button>

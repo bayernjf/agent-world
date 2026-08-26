@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { UNIT_LABELS } from "@agent-world/core";
+import { useEffect, useRef, useState } from "react";
+import { UNIT_LABELS, type Graph } from "@agent-world/core";
 import { api, type AppConfig } from "../lib/api";
 import { useGraph } from "../store/graph";
 import { useVisibleRuntime } from "../store/run";
@@ -56,6 +56,34 @@ export default function Inspector() {
   const [tab, setTab] = useState<number | "diff">(1);
   const [showReasoning, setShowReasoning] = useState(false);
   const [settings, setSettings] = useState<AppConfig | null>(null);
+
+  // Group a free-text edit (name, prompt, criterion, image URL) into a single
+  // undo entry: pause tracking on focus, then on blur append the pre-edit graph
+  // as one history entry. Without this every keystroke would be undoable.
+  const editStartRef = useRef<Graph | null>(null);
+  const beginEdit = () => {
+    editStartRef.current = graph;
+    useGraph.temporal.getState().pause();
+  };
+  const commitEdit = () => {
+    const temporal = useGraph.temporal.getState();
+    const start = editStartRef.current;
+    temporal.resume();
+    if (start && start !== graph) {
+      const setTemporal = useGraph.temporal as unknown as {
+        setState: (fn: (st: { pastStates: unknown[]; futureStates: unknown[] }) => {
+          pastStates: unknown[];
+          futureStates: unknown[];
+        }) => void;
+      };
+      setTemporal.setState((st) => ({
+        pastStates: [...st.pastStates, { graph: start }],
+        futureStates: [],
+      }));
+    }
+    editStartRef.current = null;
+  };
+
   useEffect(() => {
     api.getSettings().then(setSettings).catch(() => {});
   }, []);
@@ -100,7 +128,12 @@ export default function Inspector() {
       <div className="inspector__body">
         <label className="field">
           <span>名称 {saveIndicator && <em className="save-state">{saveIndicator}</em>}</span>
-          <input value={node.name} onChange={(e) => updateNode(node.id, { name: e.target.value })} />
+          <input
+            value={node.name}
+            onFocus={beginEdit}
+            onBlur={commitEdit}
+            onChange={(e) => updateNode(node.id, { name: e.target.value })}
+          />
         </label>
 
         {node.kind === "source" && (
@@ -112,6 +145,8 @@ export default function Inspector() {
                   <input
                     value={url}
                     placeholder="https://..."
+                    onFocus={beginEdit}
+                    onBlur={commitEdit}
                     onChange={(e) => {
                       const images = [...(node.source?.images ?? [])];
                       images[i] = e.target.value;
@@ -256,6 +291,8 @@ export default function Inspector() {
               <textarea
                 rows={4}
                 value={node.agent.prompt}
+                onFocus={beginEdit}
+                onBlur={commitEdit}
                 onChange={(e) =>
                   updateNode(node.id, { agent: { ...node.agent!, prompt: e.target.value } })
                 }
@@ -278,6 +315,8 @@ export default function Inspector() {
                 rows={3}
                 placeholder="产出必须满足什么条件？不合格将沿返工线退回。"
                 value={node.gate.criterion}
+                onFocus={beginEdit}
+                onBlur={commitEdit}
                 onChange={(e) =>
                   updateNode(node.id, { gate: { ...node.gate!, criterion: e.target.value } })
                 }

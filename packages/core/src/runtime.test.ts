@@ -96,6 +96,16 @@ describe("runtime", () => {
     expect(state.nodes.forge!.error).toBe("connection timed out");
   });
 
+  it("marks budgetWarned at the 80% warning", () => {
+    seq = 0;
+    const state = replay([
+      ev({ type: "run.started", runId: "r1", graphId: "g1", budgetUsd: 0.10 }),
+      ev({ type: "power.warning", totalCostUsd: 0.08, budgetUsd: 0.10, threshold: 0.8 }),
+    ]);
+    expect(state.budgetWarned).toBe(true);
+    expect(state.totalCostUsd).toBe(0.08);
+  });
+
   it("records a budget-trip failure", () => {
     seq = 0;
     const state = replay([

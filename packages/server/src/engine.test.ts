@@ -71,6 +71,41 @@ describe("execute", () => {
     expect(state.totalCostUsd).toBeGreaterThan(0.0001);
   });
 
+  it("emits a budget warning at 80% without tripping", async () => {
+    // Single agent line whose only node costs a fixed 0.0008 per call.
+    const g: Graph = {
+      id: "warn",
+      name: "warn",
+      nodes: [
+        { id: "in", kind: "source", name: "IN", x: 0, y: 0 },
+        { id: "a", kind: "agent", name: "A", x: 1, y: 0, agent: { model: "t", prompt: "", skills: [], temperature: 0.7, timeoutMs: 60000 } },
+        { id: "out", kind: "sink", name: "OUT", x: 2, y: 0 },
+      ],
+      edges: [
+        { id: "e1", from: "in", to: "a", kind: "flow" },
+        { id: "e2", from: "a", to: "out", kind: "flow" },
+      ],
+    };
+    const { plan } = compile(g)!;
+    const costWorker = {
+      async *runAgent() {
+        return { output: "ok", usage: { tokensIn: 100, tokensOut: 50, costUsd: 0.0008 } };
+      },
+      async judge() { return { passed: true, reason: "ok" }; },
+    };
+    const events = [];
+    for await (const e of execute({ runId: "r", graph: g, plan, worker: costWorker as never, budgetUsd: 0.001, now: clock })) {
+      events.push(e);
+    }
+    const state = replay(events);
+    const warn = events.find((e) => e.type === "power.warning");
+    expect(warn).toBeTruthy();
+    expect((warn as any).threshold).toBe(0.8);
+    expect(state.budgetWarned).toBe(true);
+    expect(state.status).toBe("done");
+    expect(events.some((e) => e.type === "power.tripped")).toBe(false);
+  });
+
   it("stops at the next checkpoint when cancelled", async () => {
     const { plan } = compile(SEED_GRAPH);
     const ac = new AbortController();

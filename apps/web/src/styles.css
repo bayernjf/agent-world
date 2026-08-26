@@ -944,7 +944,7 @@ select {
 .canvas__zoom {
   position: absolute;
   right: 12px;
-  bottom: 56px;
+  bottom: 12px;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -987,7 +987,7 @@ select {
 .minimap {
   position: absolute;
   left: 12px;
-  bottom: 56px;
+  bottom: 12px;
   z-index: 3;
   display: flex;
   flex-direction: column;
@@ -1145,8 +1145,18 @@ select {
 }
 .pipe--hot .pipe__core {
   stroke: var(--data);
-  stroke-width: 4;
-  filter: drop-shadow(0 0 6px rgba(53, 224, 240, 0.65));
+  stroke-width: 3;
+  filter: drop-shadow(0 0 4px rgba(53, 224, 240, 0.45));
+}
+/* The directly hovered/selected pipe in a highlighted flow reads strongest. */
+.pipe--focus .pipe__core,
+.pipe--focus.pipe--hot .pipe__core {
+  stroke: var(--data);
+  stroke-width: 5;
+  filter: drop-shadow(0 0 9px rgba(53, 224, 240, 0.9));
+}
+.pipe--focus .pipe__casing {
+  stroke: var(--steel-500);
 }
 .pipe--hot.pipe--rework .pipe__casing {
   stroke: #4a3516;
@@ -1201,6 +1211,13 @@ select {
 }
 .pipe-arrow--hot .pipe-arrow__shape {
   fill: var(--data);
+  opacity: 0.7;
+}
+.pipe-arrow--focus .pipe-arrow__shape,
+.pipe-arrow--focus.pipe-arrow--hot .pipe-arrow__shape {
+  fill: var(--data);
+  opacity: 1;
+  stroke-width: 1;
 }
 .pipe-arrow--dim {
   opacity: 0.22;
@@ -2382,4 +2399,79 @@ select {
 .btn--small {
   padding: 4px 10px;
   font-size: 11px;
+}
+
+.gauge.is-warn > i {
+  background: repeating-linear-gradient(90deg, #ffd24a 0 5px, #8a6a12 5px 7px);
+  box-shadow: 0 0 10px rgba(255, 176, 32, 0.6);
+}
+.note--warn {
+  color: var(--power);
+}
+
+.pipe-bridge--focus .pipe-bridge__core {
+  stroke: var(--data);
+  stroke-width: 5;
+  filter: drop-shadow(0 0 8px rgba(53, 224, 240, 0.85));
+}
+
+.chip--muted {
+  opacity: 0.5;
+  color: var(--ink-faint);
+}
+.chip--muted:hover {
+  opacity: 0.85;
+  color: var(--ink);
+}
+
+/* Hovering a pipe: the focused line gets an energy flow and its arrows
+   march in the direction of travel. */
+@keyframes pipe-flow {
+  to { stroke-dashoffset: -24; }
+}
+.pipe--focus .pipe__core {
+  stroke-dasharray: 10 8;
+  animation: pipe-flow 0.7s linear infinite;
+}
+.pipe--focus.pipe--rework .pipe__core {
+  stroke-dasharray: 5 6;
+}
+
+@keyframes arrow-march {
+  0%   { opacity: 0.35; transform: scale(0.8); }
+  50%  { opacity: 1;    transform: scale(1.25); }
+  100% { opacity: 0.35; transform: scale(0.8); }
+}
+.pipe--focus .pipe-arrow__shape {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: arrow-march 0.9s ease-in-out infinite;
+}
+/* Stagger the three arrows so the pulse travels source -> target. */
+.pipe--focus .pipe-arrow:nth-child(1) .pipe-arrow__shape { animation-delay: 0s; }
+.pipe--focus .pipe-arrow:nth-child(2) .pipe-arrow__shape { animation-delay: 0.25s; }
+.pipe--focus .pipe-arrow:nth-child(3) .pipe-arrow__shape { animation-delay: 0.5s; }
+
+.pipe-bridge--focus .pipe-bridge__core {
+  stroke-dasharray: 8 6;
+  animation: pipe-flow 0.7s linear infinite;
+}
+
+/* Reusable Tooltip (built on Popover) */
+.tooltip-trigger {
+  display: inline-flex;
+}
+.tooltip {
+  pointer-events: none;
+}
+.tooltip {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink);
+  background: var(--steel-800);
+  border: var(--hair);
+  border-radius: 4px;
+  padding: 5px 9px;
+  white-space: nowrap;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
 }

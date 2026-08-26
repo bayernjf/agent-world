@@ -40,6 +40,11 @@ interface GraphState {
   addEdge: (from: string, to: string, kind: GraphEdge["kind"]) => { ok: boolean; reason?: string };
   removeEdge: (id: string) => void;
   updateNode: (id: string, patch: Partial<GraphNode>) => void;
+  beginHistoryBatch: () => void;
+  commitHistoryBatch: () => void;
+  abortHistoryBatch: () => void;
+  undo: () => void;
+  redo: () => void;
   flushSave: () => Promise<void>;
 }
 
@@ -66,6 +71,7 @@ const DEFAULTS: Record<NodeKind, Partial<GraphNode>> = {
 };
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
+const historyBatch = { depth: 0, start: null as Graph | null };
 
 function scheduleSave(graph: Graph) {
   if (saveTimer) clearTimeout(saveTimer);
@@ -105,6 +111,7 @@ export const useGraph = create<GraphState>()(
 
       addNode: (kind, x, y) =>
         set((s) => {
+          useGraph.temporal.getState().resume();
           const id = nextId(kind[0]!);
           const node: GraphNode = {
             id,
@@ -124,6 +131,7 @@ export const useGraph = create<GraphState>()(
 
       removeNode: (id) =>
         set((s) => {
+          useGraph.temporal.getState().resume();
           const graph = {
             ...s.graph,
             nodes: s.graph.nodes.filter((n) => n.id !== id),
@@ -134,6 +142,7 @@ export const useGraph = create<GraphState>()(
         }),
 
       duplicateNode: (id, dx = 30, dy = 30) => {
+        useGraph.temporal.getState().resume();
         const state = get();
         const src = state.graph.nodes.find((n) => n.id === id);
         if (!src) return null;
@@ -155,6 +164,7 @@ export const useGraph = create<GraphState>()(
       addEdge: (from, to, kind) =>
         {
           const state = get();
+          useGraph.temporal.getState().resume();
           if (from === to) return { ok: false, reason: "不能连接到自身" };
           const exists = state.graph.edges.some((e) => e.from === from && e.to === to);
           if (exists) return { ok: false, reason: "这条管道已经存在" };
@@ -169,6 +179,7 @@ export const useGraph = create<GraphState>()(
 
       removeEdge: (id) =>
         set((s) => {
+          useGraph.temporal.getState().resume();
           const graph = { ...s.graph, edges: s.graph.edges.filter((e) => e.id !== id) };
           scheduleSave(graph);
           return { graph };
@@ -183,6 +194,46 @@ export const useGraph = create<GraphState>()(
           scheduleSave(graph);
           return { graph };
         }),
+
+      beginHistoryBatch: () => {
+        historyBatch.depth += 1;
+        if (historyBatch.depth === 1) {
+          historyBatch.start = get().graph;
+        }
+      },
+
+      commitHistoryBatch: () => {
+        historyBatch.depth = Math.max(0, historyBatch.depth - 1);
+        if (historyBatch.depth !== 0) return;
+        const start = historyBatch.start;
+        historyBatch.start = null;
+        if (!start || start === get().graph) return;
+        const setTemporal = useGraph.temporal as unknown as {
+          setState: (fn: (st: { pastStates: unknown[]; futureStates: unknown[] }) => {
+            pastStates: unknown[];
+            futureStates: unknown[];
+          }) => void;
+        };
+        setTemporal.setState((st) => ({
+          pastStates: [...st.pastStates, { graph: start }],
+          futureStates: [],
+        }));
+      },
+
+      abortHistoryBatch: () => {
+        historyBatch.depth = Math.max(0, historyBatch.depth - 1);
+        if (historyBatch.depth === 0) historyBatch.start = null;
+      },
+
+      undo: () => {
+        useGraph.temporal.getState().undo();
+        scheduleSave(get().graph);
+      },
+
+      redo: () => {
+        useGraph.temporal.getState().redo();
+        scheduleSave(get().graph);
+      },
 
       flushSave: async () => {
         if (saveTimer) {
@@ -208,6 +259,10 @@ export const useGraph = create<GraphState>()(
     {
       partialize: (s) => ({ graph: s.graph }),
       equality: (a, b) => a.graph === b.graph,
+      handleSet: (defaultHandleSet) => (...args) => {
+        if (historyBatch.depth > 0) return;
+        (defaultHandleSet as (...args: unknown[]) => void)(...args);
+      },
       limit: 50,
     },
   ),

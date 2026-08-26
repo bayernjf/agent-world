@@ -140,6 +140,14 @@ export const RunEvent = z.discriminatedUnion("type", [
     totalCostUsd: z.number().min(0),
     budgetUsd: z.number().min(0).nullable(),
   }),
+  /** Budget warning threshold crossed (80%) — advisory, does not stop the line. */
+  z.object({
+    ...base,
+    type: z.literal("power.warning"),
+    totalCostUsd: z.number().min(0),
+    budgetUsd: z.number().min(0),
+    threshold: z.number().min(0).max(1),
+  }),
   /** Budget ceiling hit — the whole plant trips offline. */
   z.object({
     ...base,
