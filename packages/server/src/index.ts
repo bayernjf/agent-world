@@ -35,6 +35,8 @@ import {
 } from "./config.js";
 import { routingWorker } from "./providers/index.js";
 import { WorkerRegistry } from "./worker-plugins.js";
+import { connectMcpServer, registerMcpTools, type McpClient } from "./mcp.js";
+import { registerSkill } from "./skills/registry.js";
 import { fileURLToPath } from "node:url";
 import { sanitizeError } from "./sanitize.js";
 import { listBuiltinSkills } from "./skills/registry.js";
@@ -324,6 +326,9 @@ app.get("/api/runs", (c) => {
 
 /** Available workers (built-in + discovered plugins), for the run-start UI. */
 app.get("/api/workers", (c) => c.json(workerRegistry.list()));
+
+/** Connected MCP servers and the tools they contributed as skill cards. */
+app.get("/api/mcp", (c) => c.json(mcpStatus));
 
 app.get("/api/costs", (c) => {
   const from = c.req.query("from");
@@ -786,6 +791,35 @@ app.get("/api/artifacts/:id", async (c) => {
 // registered, so the server is usable immediately and /api/workers reflects
 // plugins a moment later.
 void workerRegistry.loadFrom(workersDir);
+
+// Connect configured MCP servers (MCP_SERVERS env, a JSON array of
+// { id, command, args? }) and register their tools as skills. Failure to reach
+// a server is non-fatal.
+const mcpClients: McpClient[] = [];
+const mcpStatus: { id: string; tools: string[] }[] = [];
+async function connectMcpServers(): Promise<void> {
+  const raw = process.env.MCP_SERVERS;
+  if (!raw) return;
+  let servers: { id: string; command: string; args?: string[] }[];
+  try {
+    servers = JSON.parse(raw);
+  } catch {
+    log.warn("MCP_SERVERS is not valid JSON; skipping MCP setup");
+    return;
+  }
+  for (const s of servers) {
+    try {
+      const client = connectMcpServer(s.command, s.args ?? []);
+      mcpClients.push(client);
+      const tools = await registerMcpTools(s.id, client, registerSkill);
+      mcpStatus.push({ id: s.id, tools: tools.map((t) => t.name) });
+      log.info("mcp connected", { id: s.id, tools: tools.map((t) => t.name) });
+    } catch (err) {
+      log.warn("mcp connect failed", { id: s.id, error: (err as Error).message });
+    }
+  }
+}
+void connectMcpServers();
 
 serve({ fetch: app.fetch, port: PORT }, (info) => {
   log.info("engine listening", { port: info.port, url: `http://localhost:${info.port}` });

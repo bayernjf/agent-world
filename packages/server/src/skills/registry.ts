@@ -11,7 +11,7 @@ import type { ToolDefinition } from "../worker.js";
  * lands with process/container sandboxing in Phase 4/5.
  */
 
-interface BuiltinSkill extends Skill {
+export interface BuiltinSkill extends Skill {
   tool?: ToolDefinition & {
     execute: (args: unknown) => Promise<unknown>;
   };
@@ -122,11 +122,16 @@ const ALL: BuiltinSkill[] = [webFetch, jsonExtract, nowTime];
 const byId = new Map(ALL.map((s) => [s.id, s]));
 
 export function listBuiltinSkills(): Skill[] {
-  return ALL.map(({ tool: _tool, ...rest }) => rest);
+  return [...byId.values()].map(({ tool: _tool, ...rest }) => rest);
 }
 
 export function getSkill(id: string): BuiltinSkill | undefined {
   return byId.get(id);
+}
+
+/** Register a skill at runtime (e.g. tools discovered from an MCP server). */
+export function registerSkill(skill: BuiltinSkill): void {
+  byId.set(skill.id, skill);
 }
 
 /** Resolve mounted skill ids to tool definitions the model can call. */
@@ -147,7 +152,7 @@ export function resolveTools(
 
 /** Execute a built-in tool by name. Throws if the tool is not mounted/known. */
 export async function executeBuiltinTool(name: string, args: unknown): Promise<unknown> {
-  const skill = ALL.find((s) => s.tool?.name === name);
+  const skill = [...byId.values()].find((s) => s.tool?.name === name);
   if (!skill?.tool) throw new Error(`unknown tool: ${name}`);
   return skill.tool.execute(args);
 }
