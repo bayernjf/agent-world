@@ -55,7 +55,7 @@ describe("compile", () => {
     const g = baseline();
     g.edges = [...g.edges.slice(0, 3), edge("r1", "critic", "depot", "rework")];
     expect(compile(g).plan).toBeNull();
-    expect(errors(g)).toContain("A rework line must run back to a plant upstream of the gate");
+    expect(errors(g)).toContain("A rework line must run back to a plant upstream of the start node");
   });
 
   it("rejects a cycle made of flow pipes", () => {
@@ -70,7 +70,7 @@ describe("compile", () => {
     const g = baseline();
     g.edges = [...g.edges.slice(0, 3), edge("r1", "depot", "forge", "rework")];
     expect(compile(g).plan).toBeNull();
-    expect(errors(g)).toContain("Only a gate can start a rework line");
+    expect(errors(g)).toContain("A rework line can only start from a gate or an agent node");
   });
 
   it("warns when a gate has no rework line", () => {

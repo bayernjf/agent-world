@@ -1,3 +1,5 @@
+import * as fs from "node:fs/promises";
+import path from "node:path";
 import type { Skill } from "@agent-world/core";
 import type { ToolDefinition } from "../worker.js";
 
@@ -11,7 +13,7 @@ import type { ToolDefinition } from "../worker.js";
  * lands with process/container sandboxing in Phase 4/5.
  */
 
-interface BuiltinSkill extends Skill {
+export interface BuiltinSkill extends Skill {
   tool?: ToolDefinition & {
     execute: (args: unknown) => Promise<unknown>;
   };
@@ -118,15 +120,61 @@ const nowTime: BuiltinSkill = {
   },
 };
 
-const ALL: BuiltinSkill[] = [webFetch, jsonExtract, nowTime];
+const fsWrite: BuiltinSkill = {
+  id: "fs_write",
+  name: "写文件",
+  description: "将文本写入工作区内允许目录下的文件。危险操作，每次调用需人工批准。",
+  kind: "tool",
+  source: "builtin",
+  danger: true,
+  permissions: { subprocess: false, env: [] },
+  config: {},
+  tool: {
+    name: "fs_write",
+    description:
+      "Write text to a file under the allowed directory (TOOL_FS_ALLOW, defaults to cwd). " +
+      "A dangerous tool: requires human approval before each execution.",
+    parameters: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "Path within the allowed root (relative or absolute under TOOL_FS_ALLOW)." },
+        content: { type: "string", description: "Text content to write." },
+      },
+      required: ["path", "content"],
+    },
+    async execute(args: unknown) {
+      const a = (args ?? {}) as { path?: unknown; content?: unknown };
+      const p = a.path;
+      const content = a.content;
+      if (typeof p !== "string" || !p) throw new Error("path is required");
+      if (typeof content !== "string") throw new Error("content is required");
+      const root = process.env.TOOL_FS_ALLOW ?? process.cwd();
+      const absRoot = path.resolve(root);
+      const absTarget = path.resolve(absRoot, p);
+      if (absTarget !== absRoot && !absTarget.startsWith(absRoot + path.sep)) {
+        throw new Error(`path must be within allowed root: ${absRoot}`);
+      }
+      await fs.mkdir(path.dirname(absTarget), { recursive: true });
+      await fs.writeFile(absTarget, content, "utf8");
+      return `wrote ${absTarget} (${content.length} bytes)`;
+    },
+  },
+};
+
+const ALL: BuiltinSkill[] = [webFetch, jsonExtract, nowTime, fsWrite];
 const byId = new Map(ALL.map((s) => [s.id, s]));
 
 export function listBuiltinSkills(): Skill[] {
-  return ALL.map(({ tool: _tool, ...rest }) => rest);
+  return [...byId.values()].map(({ tool: _tool, ...rest }) => rest);
 }
 
 export function getSkill(id: string): BuiltinSkill | undefined {
   return byId.get(id);
+}
+
+/** Register a skill at runtime (e.g. tools discovered from an MCP server). */
+export function registerSkill(skill: BuiltinSkill): void {
+  byId.set(skill.id, skill);
 }
 
 /** Resolve mounted skill ids to tool definitions the model can call. */
@@ -147,7 +195,7 @@ export function resolveTools(
 
 /** Execute a built-in tool by name. Throws if the tool is not mounted/known. */
 export async function executeBuiltinTool(name: string, args: unknown): Promise<unknown> {
-  const skill = ALL.find((s) => s.tool?.name === name);
+  const skill = [...byId.values()].find((s) => s.tool?.name === name);
   if (!skill?.tool) throw new Error(`unknown tool: ${name}`);
   return skill.tool.execute(args);
 }

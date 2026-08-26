@@ -6,6 +6,7 @@ import { useVisibleRuntime } from "../store/run";
 import SkillPicker from "./SkillPicker";
 import FinishedProduct from "./FinishedProduct";
 import SourceImages from "./SourceImages";
+import ConnectorEditor from "./ConnectorEditor";
 
 function formatUnits(units: Record<string, number> | undefined): string | null {
   if (!units) return null;
@@ -163,6 +164,7 @@ export default function Inspector() {
         )}
 
         {node.kind === "source" && (
+          <>
           <div className="source-brief">
             <div className="source-brief__head label">创作简报（可选）</div>
           <label className="field">
@@ -298,6 +300,14 @@ export default function Inspector() {
               />
             </label>
           </div>
+
+          <ConnectorEditor
+            connector={node.source?.connector}
+            onChange={(c) => updateNode(node.id, { source: { ...(node.source ?? {}), connector: c } })}
+            onBeginEdit={beginEdit}
+            onCommitEdit={commitEdit}
+          />
+          </>
         )}
 
         {node.kind === "agent" && node.agent && (
@@ -367,7 +377,7 @@ export default function Inspector() {
                       ...node.agent!,
                       inputPolicy: {
                         ...(node.agent!.inputPolicy ?? { mode: "all" as const }),
-                        mode: e.target.value as "all" | "last" | "truncate",
+                        mode: e.target.value as "all" | "last" | "truncate" | "summary",
                       },
                     },
                   })
@@ -376,9 +386,27 @@ export default function Inspector() {
                 <option value="all">全部拼接（默认）</option>
                 <option value="last">仅最近上游</option>
                 <option value="truncate">截断保留尾部</option>
+                <option value="summary">摘要压缩（超阈值时）</option>
               </select>
             </label>
-            {node.agent.inputPolicy?.mode === "truncate" && (
+            <p className="note">
+              {(() => {
+                switch (node.agent.inputPolicy?.mode ?? "all") {
+                  case "all":
+                    return "默认：把全部上游输出按顺序拼接后作为输入。";
+                  case "last":
+                    return "只取最近一个上游节点的输出作为输入。";
+                  case "truncate":
+                    return "超过「最大字符数」时丢弃前面的内容、保留尾部最近片段（不调用模型，零额外开销）。";
+                  case "summary":
+                    return "超过「最大字符数」时调用 LLM 滚动摘要压缩、保留关键信息（更省 context，但会产生少量额外 token 消耗）；未超阈值则原样传递。";
+                  default:
+                    return "";
+                }
+              })()}
+            </p>
+            {(node.agent.inputPolicy?.mode === "truncate" ||
+              node.agent.inputPolicy?.mode === "summary") && (
               <label className="field">
                 <span>最大字符数</span>
                 <input
@@ -391,7 +419,7 @@ export default function Inspector() {
                       agent: {
                         ...node.agent!,
                         inputPolicy: {
-                          mode: "truncate",
+                          mode: node.agent?.inputPolicy?.mode ?? "truncate",
                           maxChars: Number(e.target.value),
                         },
                       },
@@ -409,6 +437,19 @@ export default function Inspector() {
                 onBlur={commitEdit}
                 onChange={(e) =>
                   updateNode(node.id, { agent: { ...node.agent!, prompt: e.target.value } })
+                }
+              />
+            </label>
+            <label className="field">
+              <span>排版指令（图片位置/比例，下次运行生效）</span>
+              <textarea
+                rows={3}
+                placeholder="例：主图用竖图 3:4 居中；场景图卡用 2 列网格；细节图靠右"
+                value={node.agent.imageDirectives ?? ""}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    agent: { ...node.agent!, imageDirectives: e.target.value },
+                  })
                 }
               />
             </label>

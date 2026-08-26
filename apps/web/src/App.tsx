@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import type { Diagnostic } from "@agent-world/core";
+import type { Diagnostic, FormConnector } from "@agent-world/core";
+
+type FormField = FormConnector["fields"][number];
 import Canvas, { type Mode } from "./canvas/Canvas";
 import Minimap from "./canvas/Minimap";
 import ControlPanel from "./components/ControlPanel";
@@ -17,11 +19,13 @@ import RunHistory from "./components/RunHistory";
 import Tooltip from "./components/Tooltip";
 import { useTips } from "./store/tips";
 import FailurePanel from "./components/FailurePanel";
+import FormConnectorModal from "./components/FormConnectorModal";
 import CostReport from "./components/CostReport";
 import EvalReport from "./components/EvalReport";
 import ABDialog from "./components/ABDialog";
 import ABReport from "./components/ABReport";
 import BrandTermsModal from "./components/BrandTermsModal";
+import TriggersPanel from "./components/TriggersPanel";
 import ProductGallery from "./components/ProductGallery";
 import { api } from "./lib/api";
 import { useGraph } from "./store/graph";
@@ -29,7 +33,7 @@ import { useRun } from "./store/run";
 
 export default function App() {
   const { graph, setGraph, addNode, flushSave, undo, redo } = useGraph();
-  const { connect, reset, runId } = useRun();
+  const { connect, reset, runId, loadRun } = useRun();
 
   const [mode, setMode] = useState<Mode>("select");
   const [budget, setBudget] = useState(0.01);
@@ -50,6 +54,7 @@ export default function App() {
   const [abGroup, setABGroup] = useState<string | null>(null);
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [brandOpen, setBrandOpen] = useState(false);
+  const [triggersOpen, setTriggersOpen] = useState(false);
   const tipsEnabled = useTips((s) => s.enabled);
   const toggleTips = useTips((s) => s.toggle);
   const bothCollapsed = controlCollapsed && inspectorCollapsed;
@@ -190,17 +195,55 @@ export default function App() {
     };
   }, [graph]);
 
-  const onRun = useCallback(async () => {
-    try {
-      setError(null);
-      reset();
-      await api.saveGraph(graph);
-      const { runId: id } = await api.startRun(graph.id, budget, rawMaterial.trim() || undefined);
-      connect(id);
-    } catch (e) {
-      setError(String(e));
+  // 4B.4: collect form-connector fields from every source node, if any.
+  const collectFormFields = useCallback((): FormField[] => {
+    const out: FormField[] = [];
+    for (const n of graph.nodes) {
+      if (n.kind === "source" && n.source?.connector?.type === "form") {
+        out.push(...(n.source.connector.form?.fields ?? []));
+      }
     }
-  }, [graph, budget, rawMaterial, connect, reset]);
+    return out;
+  }, [graph]);
+
+  const [formFields, setFormFields] = useState<FormField[] | null>(null);
+
+  const startRunWith = useCallback(
+    async (connectorValues?: Record<string, string>) => {
+      try {
+        setError(null);
+        reset();
+        await api.saveGraph(graph);
+        const { runId: id } = await api.startRun(
+          graph.id,
+          budget,
+          rawMaterial.trim() || undefined,
+          connectorValues,
+        );
+        connect(id);
+      } catch (e) {
+        setError(String(e));
+      }
+    },
+    [graph, budget, rawMaterial, connect, reset],
+  );
+
+  const onRun = useCallback(() => {
+    const fields = collectFormFields();
+    if (fields.length) {
+      setFormFields(fields);
+      return;
+    }
+    void startRunWith();
+  }, [collectFormFields, startRunWith]);
+
+  const onFormSubmit = useCallback(
+    (values: Record<string, string>) => {
+      setFormFields(null);
+      void startRunWith(values);
+    },
+    [startRunWith],
+  );
 
   const onCancel = useCallback(async () => {
     if (runId) await api.cancelRun(runId).catch(() => undefined);
@@ -292,6 +335,11 @@ export default function App() {
               成品
             </button>
           </Tooltip>
+          <Tooltip content="触发器：Webhook / 定时 / 事件 / 批量自动运行">
+            <button className="chip" onClick={() => setTriggersOpen(true)}>
+              触发器
+            </button>
+          </Tooltip>
           <button className="chip" onClick={() => addNode("agent", 300, 480)}>
             + 厂房
           </button>
@@ -351,7 +399,14 @@ export default function App() {
         </div>
       </div>
 
-      <RunHistory open={historyOpen} onClose={() => setHistoryOpen(false)} />
+      <RunHistory
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        onOpen={(id) => {
+          setHistoryOpen(false);
+          void loadRun(id);
+        }}
+      />
       <CostReport open={costOpen} onClose={() => setCostOpen(false)} />
       <EvalReport open={evalOpen} onClose={() => setEvalOpen(false)} graphId={graph.id} />
       <ABDialog
@@ -366,6 +421,14 @@ export default function App() {
       <ABReport open={abGroup !== null} groupId={abGroup ?? ""} onClose={() => setABGroup(null)} />
       <ProductGallery open={galleryOpen} onClose={() => setGalleryOpen(false)} />
       <BrandTermsModal open={brandOpen} onClose={() => setBrandOpen(false)} />
+      <TriggersPanel open={triggersOpen} onClose={() => setTriggersOpen(false)} graphId={graph.id} />
+      {formFields && (
+        <FormConnectorModal
+          fields={formFields}
+          onSubmit={onFormSubmit}
+          onCancel={() => setFormFields(null)}
+        />
+      )}
       <Toast />
       <Settings open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       <NewGraphDialog

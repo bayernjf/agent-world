@@ -1,4 +1,4 @@
-import type { AgentConfig, GraphNode, ImageGenConfig, Usage } from "@agent-world/core";
+import type { AgentConfig, ContentPart, GraphNode, ImageGenConfig, Usage } from "@agent-world/core";
 
 /** A callable tool exposed to a model, derived from a mounted skill card. */
 export interface ToolDefinition {
@@ -57,6 +57,12 @@ export interface Worker {
     input: string;
     /** Reference image URLs (from upstream source nodes) for vision models. */
     images?: string[];
+    /**
+     * Structured multimodal input (text + image parts). When present it is the
+     * canonical representation; `input` + `images` are the legacy shortcut that
+     * the engine assembles into `content` automatically (4.5).
+     */
+    content?: ContentPart[];
     /** Tools available to this agent, derived from its mounted skill cards. */
     tools?: ToolDefinition[];
     /** Executes a tool call. The worker must yield tool-call/tool-result around it. */
@@ -75,6 +81,32 @@ export interface Worker {
 
   /** Generates one or more images (banner / scene) from a prompt. Used by `imageGen` nodes. */
   generateImage(args: ImageGenArgs): Promise<ImageGenResult[]>;
+
+  /**
+   * Compresses `text` to roughly `maxChars` characters (LLM rolling summary).
+   * Optional: when absent the engine falls back to hard `truncate` for
+   * `summary` input policies, so implementers/tests need not provide it.
+   */
+  summarize?(args: {
+    text: string;
+    maxChars: number;
+    /** Model to summarize with; falls back to the worker's default. */
+    model?: string;
+    signal?: AbortSignal;
+  }): Promise<string>;
+}
+
+/**
+ * Thrown by a tool call when the tool is flagged dangerous and has not yet been
+ * approved by a human. The engine's `executeTool` closure throws it; workers must
+ * let it propagate (NOT catch it as a normal tool error) so the engine can halt
+ * the run and request human approval (4D.7 dangerous-action halt).
+ */
+export class HaltRequested extends Error {
+  constructor(public readonly toolName: string, public readonly nodeId: string) {
+    super(`dangerous tool "${toolName}" blocked pending human approval`);
+    this.name = "HaltRequested";
+  }
 }
 
 function zeroUsage(): Usage {
@@ -140,6 +172,14 @@ export function fakeWorker(opts: { failFirstAttempts?: number; chunkDelayMs?: nu
         mimeType: "image/png",
         usage: { tokensIn: 0, tokensOut: 0, costUsd: 0, units: { images: 1 } },
       }));
+    },
+
+    // Deterministic stand-in: keep head+tail and mark as summarized so tests can
+    // assert the summary path was taken. Real workers hit the model.
+    async summarize({ text, maxChars }) {
+      if (text.length <= maxChars) return text;
+      const keep = Math.max(20, Math.floor(maxChars / 2));
+      return `[[SUMMARY of ${text.length} chars, target ${maxChars}]] ${text.slice(0, keep)} … ${text.slice(-keep)}`;
     },
   };
 }

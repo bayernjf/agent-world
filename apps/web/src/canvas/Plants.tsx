@@ -125,6 +125,9 @@ export default function Plants({
         ...(hovered.kind === "gate"
           ? [{ label: "上限", value: `${hovered.gate?.maxAttempts ?? 3} 次` }]
           : []),
+        ...(hovered.kind === "source"
+          ? [{ label: "图片原料", value: `${hovered.source?.images?.length ?? 0} 张` }]
+          : []),
         ...(hoveredRt
           ? [
               { label: "状态", value: STATUS_LABEL[hoveredRt.status] ?? hoveredRt.status },
@@ -217,6 +220,14 @@ export default function Plants({
                 <text className="plant__meta" x={12} y={68}>
                   {truncate(node.imageGen.model)}
                 </text>
+              )}
+              {node.kind === "source" && (node.source?.images?.length ?? 0) > 0 && (
+                <g className="plant__images-chip" transform={`translate(12 ${PLANT_H - 22})`}>
+                  <rect width={50} height={15} rx={2} />
+                  <text x={25} y={11} textAnchor="middle">
+                    图 {node.source?.images?.length}
+                  </text>
+                </g>
               )}
 
               {attempt > 1 && (

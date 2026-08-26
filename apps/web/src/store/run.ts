@@ -170,8 +170,10 @@ export function useVisibleRuntime(): RuntimeState {
 }
 
 export async function resumeRun(
-  action: "continue" | "scrap",
+  action: "continue" | "approve" | "reject" | "edit" | "scrap",
   resetFrom?: string,
+  editOutput?: Record<string, string>,
+  approveTools?: string[],
 ) {
   const state = useRun.getState();
   const runId = state.runId;
@@ -179,7 +181,7 @@ export async function resumeRun(
   // Close any stream left open from the halted run before reopening, otherwise
   // two EventSources would fold the same events twice.
   state.disconnect();
-  await api.resumeRun(runId, action, resetFrom);
+  await api.resumeRun(runId, action, resetFrom, editOutput, approveTools);
   useRun.setState({
     runId,
     connection: "connecting",

@@ -4,17 +4,118 @@ import {
   nodeById,
   outgoing,
   type Artifact,
+  type ContentPart,
   type DraftEvent,
   type Graph,
   type GraphNode,
   type Plan,
   type RunEvent,
+  type SkillMount,
   type Usage,
 } from "@agent-world/core";
-import type { Worker } from "./worker.js";
+import { HaltRequested, type Worker } from "./worker.js";
 import { ProviderError } from "./providers/openai-compatible.js";
 import { sanitizeError } from "./sanitize.js";
-import { resolveTools, executeBuiltinTool } from "./skills/registry.js";
+import { getSkill, resolveTools, executeBuiltinTool } from "./skills/registry.js";
+import { guardToolCall, isDangerousTool, loadPermissionConfig, type PermissionConfig } from "./permissions.js";
+import { notifyHalt } from "./notify.js";
+import { resolveConnector } from "./connectors.js";
+
+/**
+ * Append free-text layout directives (manual image-position overrides) to an
+ * agent's base prompt. Returns the prompt unchanged when no directives exist.
+ */
+export function withLayoutDirectives(base: string, directives?: string): string {
+  const d = directives?.trim();
+  if (!d) return base;
+  return `${base}\n\n排版附加要求（必须遵守）：\n${d}`;
+}
+
+/**
+ * E.2 — collect prompt text from every mounted `prompt-module` skill, including
+ * multi-level `equips` dependencies, de-duplicated by skill id (BFS, cycle-safe).
+ * Returns the ordered module prompts to inject into the agent's system prompt.
+ */
+/** Normalize a skill entry (id string or mount) into a full SkillMount. */
+function toMount(s: string | SkillMount): SkillMount {
+  return typeof s === "string" ? { id: s, config: {}, enabled: true } : { ...s, config: s.config ?? {} };
+}
+
+export function collectPromptModules(mounts: SkillMount[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const queue: SkillMount[] = [...mounts];
+  while (queue.length) {
+    const m = queue.shift()!;
+    if (seen.has(m.id)) continue;
+    seen.add(m.id);
+    const skill = getSkill(m.id);
+    if (!skill) continue;
+    const config = { ...(skill.config ?? {}), ...(m.config ?? {}) };
+    if (skill.kind === "prompt-module" && typeof config.prompt === "string" && config.prompt.trim()) {
+      out.push(config.prompt);
+    }
+    const equips = Array.isArray(config.equips) ? (config.equips as string[]) : [];
+    for (const id of equips) {
+      if (!seen.has(id)) queue.push({ id, config: {}, enabled: true });
+    }
+  }
+  return out;
+}
+
+/**
+ * E.3 — find the output contract (JSON-schema) declared by a mounted
+ * `output-contract` skill, if any. Returns the schema object or null.
+ */
+export function getOutputContract(mounts: SkillMount[]): Record<string, unknown> | null {
+  for (const m of mounts) {
+    const skill = getSkill(m.id);
+    if (!skill || skill.kind !== "output-contract") continue;
+    const config = { ...(skill.config ?? {}), ...(m.config ?? {}) };
+    if (config.schema && typeof config.schema === "object") {
+      return config.schema as Record<string, unknown>;
+    }
+  }
+  return null;
+}
+
+/**
+ * E.3 — validate an agent's output against a JSON-schema contract. Strips
+ * optional ```json fences, requires a JSON object, enforces `required` keys and
+ * per-property `type`. Returns a human-readable failure reason or null if valid.
+ */
+export function validateContract(output: string, schema: Record<string, unknown>): string | null {
+  let text = output.trim();
+  const fence = text.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/);
+  if (fence && fence[1]) text = fence[1].trim();
+  let data: unknown;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    return "输出不是合法 JSON";
+  }
+  if (typeof data !== "object" || data === null || Array.isArray(data)) {
+    return "输出必须是 JSON 对象";
+  }
+  const obj = data as Record<string, unknown>;
+  const required = Array.isArray(schema.required) ? (schema.required as string[]) : [];
+  for (const key of required) {
+    if (!(key in obj)) return `缺少必填字段 "${key}"`;
+  }
+  const props =
+    schema.properties && typeof schema.properties === "object"
+      ? (schema.properties as Record<string, { type?: string }>)
+      : {};
+  for (const [key, spec] of Object.entries(props)) {
+    if (!(key in obj)) continue;
+    const expected = spec?.type;
+    if (expected) {
+      const actual = Array.isArray(obj[key]) ? "array" : typeof obj[key];
+      if (actual !== expected) return `字段 "${key}" 类型应为 ${expected}，实际为 ${actual}`;
+    }
+  }
+  return null;
+}
 
 /**
  * Reference images originate at source nodes and flow downstream through
@@ -43,6 +144,8 @@ export interface ExecuteOptions {
   worker: Worker;
   /** Raw material fed to the source node. Falls back to a placeholder. */
   input?: string;
+  /** Answers for `form` connectors, keyed by field name (filled at run time). */
+  connectorValues?: Record<string, string>;
   /** Hard ceiling. Cost is metered after each call, so this trips late by one node. */
   budgetUsd: number | null;
   /**
@@ -60,34 +163,50 @@ export interface ExecuteOptions {
   /** Injected so retry backoff is controllable in tests. */
   sleep?: (ms: number) => Promise<void>;
   /** Persists generated image bytes and returns a stable URI (e.g. /api/artifacts/:id). */
-  storeBinary?: (data: Buffer, mimeType: string, label?: string) => string;
+  storeBinary?: (data: Buffer, mimeType: string, label?: string) => string | Promise<string>;
+  /** Tool-call permission governance. Defaults to the env-derived config. */
+  permissionConfig?: PermissionConfig;
 }
 
 type Status = "done" | "failed" | "halted" | "tripped" | "cancelled";
 type NodeState = "pending" | "running" | "done" | "failed";
 
 const RETRYABLE: ReadonlySet<string> = new Set(["TIMEOUT", "RATE_LIMIT", "PROVIDER_ERROR"]);
+
+/** Connector pull resilience: how many extra attempts and the gap between them. */
+const CONNECTOR_MAX_RETRIES = 2;
+const CONNECTOR_RETRY_DELAY_MS = 1000;
 /** Max plants welding at once. Keeps a burst of parallel branches from hammering the provider. */
 const MAX_CONCURRENCY = 6;
 
 const delay = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 /**
+ * Hard-truncate a body to `maxChars`, keeping the tail and a small head marker.
+ * Used as the deterministic fallback when a `summary` policy has no summarizer
+ * or the summarizer fails.
+ */
+function truncateText(body: string, maxChars: number): string {
+  const head = `...[前 ${body.length - maxChars} 字符已截断]...\n`;
+  return head + body.slice(body.length - maxChars + head.length);
+}
+
+/**
  * Assemble upstream artifacts into a nodes input according to its input policy.
  * - all: concatenate every upstream output (default)
  * - last: only the most recent upstream output
  * - truncate: concatenate but cap at maxChars, keeping the tail
+ * (`summary` mode is handled in `inputFor`, which can call an async summarizer.)
  */
 function assembleInput(
   parts: string[],
-  policy: { mode: "all" | "last" | "truncate"; maxChars?: number },
+  policy: { mode: "all" | "last" | "truncate" | "summary"; maxChars?: number },
 ): string {
   if (parts.length === 0) return "";
   if (policy.mode === "last") return parts[parts.length - 1] ?? "";
   const body = parts.join("\n\n");
   if (policy.mode === "truncate" && policy.maxChars && body.length > policy.maxChars) {
-    const head = `...[前 ${body.length - policy.maxChars} 字符已截断]...\n`;
-    return head + body.slice(body.length - policy.maxChars + head.length);
+    return truncateText(body, policy.maxChars);
   }
   return body;
 }
@@ -266,6 +385,8 @@ interface SchedulerInit {
   nodeCostUsd: Map<string, number>;
   totalCostUsd: number;
   states: Map<string, NodeState>;
+  /** Tools approved for execution this run (4D.7 dangerous-action halt). */
+  approvedTools: string[];
 }
 
 interface SchedulerOptions {
@@ -279,6 +400,8 @@ interface SchedulerOptions {
   fallbackModel: string;
   startSeq: number;
   sourceInput?: string;
+  /** Answers for `form` connectors, keyed by field name. Filled at run time (UI/webhook). */
+  connectorValues?: Record<string, string>;
   signal?: AbortSignal;
   now: () => number;
   sleep: (ms: number) => Promise<void>;
@@ -288,7 +411,13 @@ interface SchedulerOptions {
   /** True when continuing an existing run (resume/retry): don't re-emit run.started. */
   resuming?: boolean;
   /** Persists generated image bytes and returns a stable URI (e.g. /api/artifacts/:id). */
-  storeBinary: (data: Buffer, mimeType: string, label?: string) => string;
+  storeBinary: (data: Buffer, mimeType: string, label?: string) => string | Promise<string>;
+  /** Tool-call permission governance. Defaults to the env-derived config. */
+  permissionConfig?: PermissionConfig;
+  /** Human-edited product overrides, keyed by node id (4.7 human-in-the-loop). */
+  editOutput?: Record<string, string>;
+  /** Tools the operator has approved for execution this run (4D.7 dangerous-action halt). */
+  approveTools?: string[];
 }
 
 /**
@@ -300,6 +429,8 @@ interface SchedulerOptions {
  */
 async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunEvent>> {
   const { runId, graph, plan, worker, budgetUsd, fallbackModel } = opts;
+  const permCfg = opts.permissionConfig ?? loadPermissionConfig();
+  const approved = new Set<string>(opts.approveTools ?? []);
   const monthlyBudgetUsd = opts.monthlyBudgetUsd ?? null;
   const monthSpentUsd = opts.monthSpentUsd ?? 0;
   const queue = new EventQueue();
@@ -337,13 +468,39 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
   let running = 0;
   let aborted = false;
   let finished = false;
+  let haltNodeId: string | undefined;
+  let haltReason: string | undefined;
 
-  const inputFor = (node: GraphNode, includeNote = true): string => {
+  const inputFor = async (node: GraphNode, includeNote = true): Promise<string> => {
     const parts = incoming(graph, node.id, "flow")
       .map((e) => artifacts.get(e.from))
       .filter((v): v is string => typeof v === "string");
     const policy = node.agent?.inputPolicy ?? { mode: "all" as const };
-    const body = assembleInput(parts, policy);
+    let body: string;
+    if (policy.mode === "summary") {
+      const full = parts.join("\n\n");
+      const max = policy.maxChars ?? Infinity;
+      if (full.length > max && worker.summarize) {
+        // Rolling summary: compress via the model instead of hard truncation.
+        try {
+          body = await worker.summarize({
+            text: full,
+            maxChars: max,
+            model: node.agent?.model,
+            signal: opts.signal,
+          });
+        } catch {
+          body = truncateText(full, max);
+        }
+        if (!body || body.trim().length === 0) body = truncateText(full, max);
+      } else if (full.length > max) {
+        body = truncateText(full, max);
+      } else {
+        body = full;
+      }
+    } else {
+      body = assembleInput(parts, policy);
+    }
     const note = includeNote ? reworkNotes.get(node.id) : undefined;
     if (!note) return body;
     return `${body}\n\n[质检站退回原因] ${note}`;
@@ -358,7 +515,12 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     if (status === "done" && [...states.values()].some((s) => s === "failed")) {
       status = "failed";
     }
-    emit({ type: "run.finished", runId, status });
+    emit({
+      type: "run.finished",
+      runId,
+      status,
+      ...(haltNodeId ? { haltedNodeId: haltNodeId, reason: haltReason } : {}),
+    });
     queue.close();
   };
 
@@ -396,17 +558,54 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
 
     try {
       if (node.kind === "source" || node.kind === "sink") {
-        const output =
-          node.kind === "source"
-            ? buildSourceBrief(node, opts.sourceInput)
-            : inputFor(node);
+        if (node.kind === "sink") {
+          const output = await inputFor(node);
+          artifacts.set(nodeId, output);
+          states.set(nodeId, "done");
+          emit({ type: "node.started", nodeId, attempt });
+          emit({ type: "node.finished", nodeId, attempt, output, usage: zeroUsage() });
+          produceArtifacts(nodeId, output, attempt);
+          sendPackets(nodeId, output.slice(0, 120), "text");
+          return;
+        }
+
+        // source: optionally pull raw material from a connector before welding.
+        let sourceText = opts.sourceInput ?? "";
+        let sourceImages = node.source?.images ?? [];
+        const conn = node.source?.connector;
+        if (conn) {
+          let ok = false;
+          let lastErr: unknown;
+          for (let i = 0; i <= CONNECTOR_MAX_RETRIES && !ok; i++) {
+            try {
+              const m = await resolveConnector(conn, opts.connectorValues);
+              sourceText = m.text || opts.sourceInput || "";
+              sourceImages = [...m.images, ...(node.source?.images ?? [])];
+              ok = true;
+            } catch (err) {
+              lastErr = err;
+              if (i < CONNECTOR_MAX_RETRIES) await opts.sleep(CONNECTOR_RETRY_DELAY_MS);
+            }
+          }
+          if (!ok) {
+            const msg = `Connector "${conn.type}" 拉取失败：${
+              lastErr instanceof Error ? lastErr.message : String(lastErr)
+            }`;
+            states.set(nodeId, "failed");
+            status = "failed";
+            emit({ type: "node.failed", nodeId, attempt, error: msg, errorCode: "CONNECTOR" });
+            return;
+          }
+        }
+
+        const output = buildSourceBrief(node, sourceText);
         artifacts.set(nodeId, output);
         states.set(nodeId, "done");
         emit({ type: "node.started", nodeId, attempt });
         emit({ type: "node.finished", nodeId, attempt, output, usage: zeroUsage() });
         let primaryKind: Artifact["kind"] | undefined;
-        if (node.kind === "source" && node.source?.images?.length) {
-          for (const [i, url] of node.source.images.entries()) {
+        if (sourceImages.length) {
+          for (const [i, url] of sourceImages.entries()) {
             const a: Artifact = { id: `${nodeId}-img${i}`, kind: "image", uri: url };
             emit({ type: "artifact.produced", nodeId, artifact: a });
           }
@@ -420,7 +619,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
 
       if (node.kind === "gate") {
         emit({ type: "node.started", nodeId, attempt });
-        const output = inputFor(node);
+        const output = await inputFor(node);
         const modelVerdict = await worker.judge({
           node,
           attempt,
@@ -510,6 +709,11 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           }
           states.set(nodeId, "failed");
           status = policy === "halt" ? "halted" : "failed";
+          if (policy === "halt") {
+            haltNodeId = nodeId;
+            haltReason = verdict.reason;
+            void notifyHalt({ runId, graphId: graph.id, nodeId, reason: verdict.reason });
+          }
           aborted = true;
           return;
         }
@@ -545,8 +749,9 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     try {
       const results = await worker.generateImage({ node, config: cfg, input: prompt, signal: opts.signal });
       let usage: Usage = { tokensIn: 0, tokensOut: 0, costUsd: 0, units: { images: 0 } };
-      results.forEach((res, idx) => {
-        const uri = opts.storeBinary(res.data, res.mimeType, `${node.name || "ai-image"}-${idx + 1}.png`);
+      for (let idx = 0; idx < results.length; idx++) {
+        const res = results[idx]!;
+        const uri = await opts.storeBinary(res.data, res.mimeType, `${node.name || "ai-image"}-${idx + 1}.png`);
         extraImages.push(uri);
         artifacts.set(nodeId, uri);
         emit({
@@ -566,7 +771,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           costUsd: (usage.costUsd ?? 0) + (res.usage.costUsd ?? 0),
           units: { ...usage.units, images: (usage.units?.images ?? 0) + (res.usage.units?.images ?? 0) },
         };
-      });
+      }
       emit({ type: "node.finished", nodeId, attempt, output: "", usage });
       states.set(nodeId, "done");
       sendPackets(nodeId, `生成配图 ${results.length} 张`, "image");
@@ -580,9 +785,15 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
   }
 
       // agent
+      const mounts = (node.agent?.skills ?? []).map(toMount);
+      const promptModules = collectPromptModules(mounts);
+      const basePrompt = withLayoutDirectives(node.agent?.prompt ?? "", node.agent?.imageDirectives);
+      const prompt = promptModules.length
+        ? `${basePrompt}\n\n${promptModules.map((p) => `=== 已挂载模块提示 (prompt-module) ===\n${p}`).join("\n\n")}`
+        : basePrompt;
       const config = {
         model: node.agent?.model || fallbackModel,
-        prompt: node.agent?.prompt ?? "",
+        prompt,
         skills: node.agent?.skills ?? [],
         temperature: node.agent?.temperature ?? 0.7,
         timeoutMs: node.agent?.timeoutMs ?? 120000,
@@ -601,20 +812,28 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           return;
         }
         try {
-          const agentInput = inputFor(node);
+          const agentInput = await inputFor(node);
           reworkNotes.delete(nodeId);
-          const mounts = (node.agent?.skills ?? []).map((s) =>
-            typeof s === "string" ? { id: s, enabled: true } : s,
-          );
           const tools = resolveTools(mounts);
+          const referenceImages = imagesFor(nodeId);
+          const content: ContentPart[] | undefined = referenceImages.length
+            ? [{ type: "text", text: agentInput }, ...referenceImages.map((u): ContentPart => ({ type: "image", image: u }))]
+            : undefined;
           const gen = worker.runAgent({
             node,
             config,
             attempt,
             input: agentInput,
-            images: imagesFor(nodeId),
+            images: referenceImages,
+            content,
             tools,
-            executeTool: async (name, args) => executeBuiltinTool(name, args),
+            executeTool: async (name, args) => {
+              guardToolCall(name, args, permCfg);
+              if (isDangerousTool(name) && !approved.has(name)) {
+                throw new HaltRequested(name, nodeId);
+              }
+              return executeBuiltinTool(name, args);
+            },
             signal: opts.signal,
           });
           let output = "";
@@ -659,6 +878,17 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           result = { output, usage: usage ?? zeroUsage() };
           break;
         } catch (err) {
+          if (err instanceof HaltRequested) {
+            // A dangerous tool was called without prior human approval: halt the
+            // run and wait for a decision (4D.7). The node is intentionally left
+            // incomplete so a resume re-runs it with the tool now approved.
+            haltNodeId = err.nodeId;
+            haltReason = `dangerous-tool:${err.toolName}`;
+            status = "halted";
+            aborted = true;
+            void notifyHalt({ runId, graphId: graph.id, nodeId: err.nodeId, reason: haltReason });
+            return;
+          }
           const code = err instanceof ProviderError ? err.code : "UNKNOWN";
           lastError = { message: (err as Error).message, code };
           const canRetry = RETRYABLE.has(code) && tryIdx < maxAttempts - 1;
@@ -666,6 +896,46 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           await opts.sleep(
             Math.min(config.retry.maxDelayMs, config.retry.baseDelayMs * 2 ** tryIdx),
           );
+        }
+      }
+
+      // E.3 output-contract: validate the agent's output against a mounted
+      // output-contract skill, reworking (reusing the existing rework line) or
+      // failing when the contract isn't satisfied.
+      if (result) {
+        const contract = getOutputContract(mounts);
+        if (contract) {
+          const contractErr = validateContract(result.output, contract);
+          if (contractErr) {
+            const loop = loopByGate.get(nodeId);
+            const maxRework = loop?.maxAttempts ?? config.retry.maxRetries + 1;
+            if (loop && attempt < maxRework) {
+              reworkNotes.set(loop.entryId, `输出未满足契约：${contractErr}`);
+              emit({
+                type: "packet.sent",
+                edgeId: loop.edge.id,
+                from: nodeId,
+                to: loop.entryId,
+                summary: `输出未满足契约：${contractErr}`,
+                artifactKind: "text",
+              });
+              for (const bodyId of loop.body) {
+                states.set(bodyId, "pending");
+                artifacts.delete(bodyId);
+              }
+              return;
+            }
+            states.set(nodeId, "failed");
+            emit({
+              type: "node.failed",
+              nodeId,
+              attempt,
+              error: `输出未满足契约：${contractErr}`,
+              errorCode: "VALIDATION",
+            });
+            status = "failed";
+            return;
+          }
         }
       }
 
@@ -802,12 +1072,15 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     artifacts.set(nodeId, output);
     states.set(nodeId, "done");
     attempts.set(nodeId, attempt);
+    const decision = opts.editOutput && opts.editOutput[nodeId] != null ? "edited" : "approved";
     emit({
       type: "gate.verdict",
       nodeId,
       attempt,
       passed: true,
-      reason: "Approved by human operator",
+      reason: opts.editOutput && opts.editOutput[nodeId] != null ? "Edited by human operator" : "Approved by human operator",
+      decision,
+      by: "human",
     });
     sendPackets(nodeId, "Approved by human operator", "text");
     void gate;
@@ -852,16 +1125,19 @@ export async function* execute(opts: ExecuteOptions): AsyncGenerator<RunEvent, v
     fallbackModel: opts.defaultModel ?? "agnes-2.0-flash",
     startSeq: 0,
     sourceInput: opts.input,
+    connectorValues: opts.connectorValues,
     signal: opts.signal,
     now: opts.now ?? Date.now,
     sleep: opts.sleep ?? delay,
     storeBinary: opts.storeBinary ?? defaultStoreBinary,
+    permissionConfig: opts.permissionConfig,
     init: {
       artifacts: new Map(),
       attempts: new Map(),
       nodeCostUsd: new Map(),
       totalCostUsd: 0,
       states,
+      approvedTools: [],
     },
   });
   yield* gen;
@@ -873,7 +1149,9 @@ export interface ResumeState {
   totalCostUsd: number;
   nodeCostUsd: Map<string, number>;
   haltedNodeId: string | null;
+  haltedReason: string | null;
   lastSeq: number;
+  approvedTools: string[];
 }
 
 /**
@@ -884,8 +1162,10 @@ export function reconstructState(events: RunEvent[]): ResumeState {
   const artifacts = new Map<string, string>();
   const attempts = new Map<string, number>();
   const nodeCostUsd = new Map<string, number>();
+  const approvedTools: string[] = [];
   let totalCostUsd = 0;
   let haltedNodeId: string | null = null;
+  let haltedReason: string | null = null;
   let lastSeq = -1;
 
   for (const e of events) {
@@ -905,9 +1185,18 @@ export function reconstructState(events: RunEvent[]): ResumeState {
       case "gate.exhausted":
         if (e.policy === "halt") haltedNodeId = e.nodeId;
         break;
+      case "run.finished":
+        if (e.status === "halted") {
+          haltedNodeId = e.haltedNodeId ?? haltedNodeId;
+          haltedReason = e.reason ?? haltedReason;
+        }
+        break;
+      case "tool.approved":
+        if (!approvedTools.includes(e.tool)) approvedTools.push(e.tool);
+        break;
     }
   }
-  return { artifacts, attempts, totalCostUsd, nodeCostUsd, haltedNodeId, lastSeq };
+  return { artifacts, attempts, totalCostUsd, nodeCostUsd, haltedNodeId, haltedReason, lastSeq, approvedTools };
 }
 
 export interface ResumeOptions {
@@ -920,7 +1209,27 @@ export interface ResumeOptions {
   monthSpentUsd?: number;
   defaultModel?: string;
   pastEvents: RunEvent[];
-  action: "continue" | "scrap";
+  /**
+   * Human decision on a halted run (4.7):
+   * - `continue` / `approve`: treat the halted gate as passed and proceed.
+   * - `edit`: like approve, but `editOutput` overrides the node's product first.
+   * - `reject`: end the run as failed (the gate's decision is recorded as rejected).
+   * - `scrap`: discard the run entirely (failed).
+   * `continue` is retained as an alias of `approve` for backward compatibility.
+   */
+  action: "continue" | "approve" | "reject" | "edit" | "scrap";
+  /**
+   * Human-edited product text, keyed by node id (4.7). When set, the run resumes
+   * with these strings as the node outputs instead of re-running the agent — the
+   * operator fixes the copy directly rather than retrying the model.
+   */
+  editOutput?: Record<string, string>;
+  /**
+   * Tools approved for execution this run (4D.7 dangerous-action halt). When set,
+   * the halted run is resumed with these tools pre-approved, so a node that halted
+   * on a dangerous tool call re-runs and executes it instead of halting again.
+   */
+  approveTools?: string[];
   /**
    * When set, the node and every flow-descendant are reset to pending (their
    * prior artifacts/attempts/costs discarded) and re-executed. Used to retry a
@@ -929,9 +1238,11 @@ export interface ResumeOptions {
   resetFrom?: string;
   signal?: AbortSignal;
   /** Persists generated image bytes and returns a stable URI (e.g. /api/artifacts/:id). */
-  storeBinary?: (data: Buffer, mimeType: string, label?: string) => string;
+  storeBinary?: (data: Buffer, mimeType: string, label?: string) => string | Promise<string>;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
+  /** Tool-call permission governance. Defaults to the env-derived config. */
+  permissionConfig?: PermissionConfig;
 }
 
 /**
@@ -965,6 +1276,42 @@ export async function* resume(opts: ResumeOptions): AsyncGenerator<RunEvent, voi
     }
   }
 
+  // 4.7 — human-edited product text overrides the stored node outputs before
+  // the run continues, so the operator can fix copy without re-running the model.
+  if (opts.editOutput) {
+    for (const [nodeId, text] of Object.entries(opts.editOutput)) {
+      state.artifacts.set(nodeId, text);
+    }
+  }
+
+  // 4.7 — reject: record the decision and end the run as failed.
+  if (action === "reject") {
+    if (state.haltedNodeId) {
+      const attempt = state.attempts.get(state.haltedNodeId) ?? 1;
+      yield {
+        type: "gate.verdict",
+        nodeId: state.haltedNodeId,
+        attempt,
+        passed: false,
+        reason: "Rejected by human operator",
+        decision: "rejected",
+        by: "human",
+        seq: state.lastSeq + 1,
+        ts: now(),
+      };
+    }
+    yield {
+      type: "run.finished",
+      runId,
+      status: "failed",
+      reason: "Rejected by human operator",
+      haltedNodeId: state.haltedNodeId ?? undefined,
+      seq: state.lastSeq + 2,
+      ts: now(),
+    };
+    return;
+  }
+
   if (action === "scrap") {
     const ev: RunEvent = {
       type: "run.finished",
@@ -977,6 +1324,16 @@ export async function* resume(opts: ResumeOptions): AsyncGenerator<RunEvent, voi
     return;
   }
 
+  // 4D.7 — dangerous-action approval: persist newly-approved tools as events
+  // (replay-consistent) and resume with them pre-approved.
+  const approveTools = opts.approveTools ?? [];
+  let emitSeq = state.lastSeq;
+  const toEmit = approveTools.filter((t) => !state.approvedTools.includes(t));
+  for (const t of toEmit) {
+    yield { type: "tool.approved", tool: t, seq: ++emitSeq, ts: now() };
+  }
+  const startSeq = emitSeq + 1;
+
   // Seed the scheduler: every node that already produced an artifact is done;
   // everything downstream of the halted gate is pending and will weld now.
   const states = new Map<string, NodeState>();
@@ -984,6 +1341,7 @@ export async function* resume(opts: ResumeOptions): AsyncGenerator<RunEvent, voi
     states.set(n.id, state.artifacts.has(n.id) ? "done" : "pending");
   }
 
+  const isToolHalt = (state.haltedReason ?? "").startsWith("dangerous-tool:");
   const gen = await runScheduler({
     runId,
     graph,
@@ -993,20 +1351,24 @@ export async function* resume(opts: ResumeOptions): AsyncGenerator<RunEvent, voi
     monthlyBudgetUsd: opts.monthlyBudgetUsd ?? null,
     monthSpentUsd: opts.monthSpentUsd ?? 0,
     fallbackModel: opts.defaultModel ?? "agnes-2.0-flash",
-    startSeq: state.lastSeq + 1,
+    startSeq,
     signal: opts.signal,
     now,
     sleep,
     storeBinary: opts.storeBinary ?? defaultStoreBinary,
+    permissionConfig: opts.permissionConfig,
+    editOutput: opts.editOutput,
     init: {
       artifacts: state.artifacts,
       attempts: state.attempts,
       nodeCostUsd: state.nodeCostUsd,
       totalCostUsd: state.totalCostUsd,
       states,
+      approvedTools: state.approvedTools,
     },
     resuming: true,
-    approveGate: state.haltedNodeId
+    approveTools: [...new Set([...state.approvedTools, ...approveTools])],
+    approveGate: !isToolHalt && state.haltedNodeId
       ? {
           nodeId: state.haltedNodeId,
           attempt: state.attempts.get(state.haltedNodeId) ?? 1,

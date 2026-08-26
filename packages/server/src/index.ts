@@ -1,8 +1,8 @@
 import { serve } from "@hono/node-server";
 import { randomUUID } from "node:crypto";
 import { Hono } from "hono";
-import { cors } from "hono/cors";
 import { streamSSE } from "hono/streaming";
+import { applyCors, applySecurityHeaders } from "./security.js";
 import {
   compile,
   envelope,
@@ -11,12 +11,17 @@ import {
   instantiateTemplate,
   replay,
   TEMPLATES,
+  TriggerConfig,
   type RunEvent,
+  type SkillPermissions,
 } from "@agent-world/core";
 import { openDb } from "./db.js";
 import { ArtifactStore } from "./artifact-store.js";
 import { log } from "./logger.js";
 import { execute, resume } from "./engine.js";
+import { startRun, RunStartError } from "./run.js";
+import { TriggerService, TriggerError } from "./triggers.js";
+import { TriggerScheduler } from "./scheduler.js";
 import { startABExperiment } from "./ab.js";
 import { SEED_GRAPH } from "./seed.js";
 import {
@@ -30,12 +35,17 @@ import {
   type Modality,
 } from "./config.js";
 import { routingWorker } from "./providers/index.js";
+import { WorkerRegistry } from "./worker-plugins.js";
+import { connectMcpServer, registerMcpTools, type McpClient, type McpServerSpec } from "./mcp.js";
+import { disposeIsolatedWorkers } from "./isolation.js";
+import { registerSkill } from "./skills/registry.js";
+import { fileURLToPath } from "node:url";
 import { sanitizeError } from "./sanitize.js";
 import { listBuiltinSkills } from "./skills/registry.js";
 
 const PORT = Number(process.env.PORT ?? 8791);
 const db = openDb(process.env.DB_FILE ?? "agent-world.sqlite");
-const artifacts = new ArtifactStore(process.env.ARTIFACT_DIR ?? ArtifactStore.defaultPath());
+const artifacts = ArtifactStore.fromEnv();
 
 if (!db.getGraph(SEED_GRAPH.id)) db.saveGraph(SEED_GRAPH, Date.now());
 
@@ -44,6 +54,8 @@ if (!db.getGraph(SEED_GRAPH.id)) db.saveGraph(SEED_GRAPH, Date.now());
 db.markZombiesInterrupted(Date.now());
 
 const worker = routingWorker();
+const workerRegistry = new WorkerRegistry(worker);
+const workersDir = process.env.WORKERS_DIR ?? fileURLToPath(new URL("workers", import.meta.url));
 
 /** Live runs, so a reconnecting client can attach mid-flight. */
 const live = new Map<
@@ -51,8 +63,44 @@ const live = new Map<
   { events: RunEvent[]; done: boolean; controller: AbortController }
 >();
 
-const app = new Hono();
-app.use("/*", cors());
+/** Automatic triggers (webhook/cron/event/batch). Restored from persisted graphs. */
+const triggers = new TriggerService({
+  db,
+  startRun: (graph, opts) =>
+    startRun({
+      db,
+      worker,
+      artifacts,
+      live,
+      graph,
+      ...opts,
+      onFinish: (gid, status) => {
+        void triggers.onGraphFinished(gid, status);
+      },
+      onArtifact: (aid) => {
+        void triggers.onArtifact(aid);
+      },
+    }),
+});
+triggers.restore();
+
+/** Schedules cron triggers; arms timers after triggers are restored. */
+const scheduler = new TriggerScheduler(triggers, (err) =>
+  log.error("trigger scheduler", { error: (err as Error)?.message ?? String(err) }),
+);
+scheduler.start();
+
+/** JSON error response that accepts a dynamic (non-literal) status code. */
+function jsonResponse(status: number, body: unknown): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+export const app = new Hono();
+applyCors(app, process.env.CORS_ORIGINS);
+applySecurityHeaders(app);
 
 app.get("/api/health", (c) => c.json({ ok: true }));
 
@@ -67,6 +115,19 @@ app.get("/api/templates", (c) =>
       name: t.name,
       description: t.description,
       category: t.category,
+      // Slim geometry so the client can render a preview thumbnail without the
+      // full prompts/agents payload.
+      nodes: t.graph.nodes.map((n) => ({
+        id: n.id,
+        kind: n.kind,
+        x: n.x,
+        y: n.y,
+      })),
+      edges: t.graph.edges.map((e) => ({
+        from: e.from,
+        to: e.to,
+        kind: e.kind ?? "edge",
+      })),
     })),
   ),
 );
@@ -276,8 +337,26 @@ app.post("/api/providers/test", async (c) => {
 app.get("/api/runs", (c) => {
   const limit = Number(c.req.query("limit") ?? 50);
   const offset = Number(c.req.query("offset") ?? 0);
-  return c.json(db.listRuns(limit, offset));
+  const graphId = c.req.query("graphId");
+  const status = c.req.query("status");
+  const { rows, total } = db.listRuns({
+    limit,
+    offset,
+    graphId: graphId || undefined,
+    status: status || undefined,
+  });
+  return c.json({ runs: rows, total });
 });
+
+app.get("/api/runs/:id/stats", (c) => {
+  return c.json(db.runStats(c.req.param("id")));
+});
+
+/** Available workers (built-in + discovered plugins), for the run-start UI. */
+app.get("/api/workers", (c) => c.json(workerRegistry.list()));
+
+/** Connected MCP servers and the tools they contributed as skill cards. */
+app.get("/api/mcp", (c) => c.json(mcpStatus));
 
 app.get("/api/costs", (c) => {
   const from = c.req.query("from");
@@ -335,73 +414,170 @@ app.get("/api/eval", (c) => {
   );
 });
 
+app.get("/api/eval.csv", (c) => {
+  const from = c.req.query("from");
+  const to = c.req.query("to");
+  const graphId = c.req.query("graphId");
+  const rep = db.evalReport({
+    graphId: graphId || undefined,
+    from: from ? Number(from) : undefined,
+    to: to ? Number(to) : undefined,
+  });
+
+  const esc = (v: unknown) => {
+    const str = String(v ?? "");
+    return /[",\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+  };
+  const score = (s: number | undefined) => (s ?? 0).toFixed(3);
+  const lines: string[] = [];
+  lines.push("# section,key1,key2,runs,passed,passRate,avgRework,avgDurationMs,avgScore");
+  const t = rep.totals;
+  lines.push(
+    ["totals", "", "", t.runs, t.passed, t.passRate.toFixed(4), t.avgRework.toFixed(3), Math.round(t.avgDurationMs), score(t.avgScore)]
+      .map(esc)
+      .join(","),
+  );
+  for (const g of rep.byGraph) {
+    lines.push(
+      ["graph", g.graph_name, "", g.runs, g.passed, g.passRate.toFixed(4), g.avgRework.toFixed(3), Math.round(g.avgDurationMs), score(g.avgScore)]
+        .map(esc)
+        .join(","),
+    );
+  }
+  for (const d of rep.byDay) {
+    lines.push(
+      ["day", d.day, "", d.runs, d.passed, d.passRate.toFixed(4), d.avgRework.toFixed(3), Math.round(d.avgDurationMs), score(d.avgScore)]
+        .map(esc)
+        .join(","),
+    );
+  }
+  for (const p of rep.byPrompt) {
+    lines.push(
+      ["prompt", p.graph_name, p.version, p.runs, p.passed, p.passRate.toFixed(4), p.avgRework.toFixed(3), Math.round(p.avgDurationMs), score(p.avgScore)]
+        .map(esc)
+        .join(","),
+    );
+  }
+
+  return new Response(lines.join("\n"), {
+    headers: {
+      "content-type": "text/csv; charset=utf-8",
+      "content-disposition": `attachment; filename="agent-world-eval-${new Date().toISOString().slice(0, 10)}.csv"`,
+    },
+  });
+});
+
 app.post("/api/runs", async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as {
     graphId?: string;
     budgetUsd?: number | null;
     trigger?: string;
     input?: string;
+    connectorValues?: Record<string, string>;
+    workerId?: string;
   };
   const graph = db.getGraph(body.graphId ?? SEED_GRAPH.id);
   if (!graph) return c.json({ error: "graph not found" }, 404);
 
-  const { plan, diagnostics } = compile(graph);
-  if (!plan) return c.json({ error: "graph does not compile", diagnostics }, 422);
-
-  const runId = crypto.randomUUID();
-  const budgetUsd = body.budgetUsd ?? null;
-  const startedAt = Date.now();
-  db.createRun({
-    id: runId,
-    graph,
-    budgetUsd,
-    at: startedAt,
-    trigger: body.trigger ?? "manual",
-    input: body.input,
-  });
-
-  const controller = new AbortController();
-  const entry = { events: [] as RunEvent[], done: false, controller };
-  live.set(runId, entry);
-  const runLog = log.child({ runId, graphId: graph.id });
-  runLog.info("run started", { trigger: body.trigger ?? "manual", nodes: graph.nodes.length });
-
-  // Drain in the background so the POST returns immediately with the run id.
-  void (async () => {
-    try {
-      const cfg = loadConfig();
-      const now = new Date();
-      for await (const event of execute({
-        runId,
-        graph,
-        plan,
-        worker,
-        input: body.input,
-        budgetUsd,
-        monthlyBudgetUsd: cfg.monthlyBudgetUsd ?? null,
-        monthSpentUsd: db.costForMonth(now.getFullYear(), now.getMonth() + 1),
-        defaultModel: cfg.defaultModel,
-        signal: controller.signal,
-        storeBinary: (data, mimeType, label) =>
-          artifacts.saveBinary({ data, kind: "image", mimeType, label }).uri ??
-          `data:${mimeType};base64,${data.toString("base64")}`,
-      })) {
-        db.record(runId, event);
-        if (event.type === "artifact.produced") {
-          db.insertArtifact(artifacts.save(event.artifact, { runId, nodeId: event.nodeId, attempt: event.attempt }));
-        }
-        entry.events.push(event);
-        if (event.type === "run.finished") db.finishRun(runId, event.status, Date.now());
-      }
-    } catch (err) {
-      db.finishRun(runId, "failed", Date.now());
-      runLog.error("run crashed", { error: (err as Error)?.message ?? String(err) });
-    } finally {
-      entry.done = true;
+  try {
+    const { runId, diagnostics } = await startRun({
+      db,
+      worker: workerRegistry.get(body.workerId),
+      artifacts,
+      live,
+      graph,
+      trigger: body.trigger ?? "manual",
+      budgetUsd: body.budgetUsd ?? null,
+      input: body.input,
+      connectorValues: body.connectorValues,
+      onFinish: (gid, status) => {
+        void triggers.onGraphFinished(gid, status);
+      },
+      onArtifact: (aid) => {
+        void triggers.onArtifact(aid);
+      },
+    });
+    return c.json({ runId, diagnostics });
+  } catch (e) {
+    if (e instanceof RunStartError) {
+      return jsonResponse(e.status, { error: e.message, diagnostics: e.extra });
     }
-  })();
+    throw e;
+  }
+});
 
-  return c.json({ runId, diagnostics });
+// --- Trigger management + webhook ---
+app.get("/api/graphs/:id/triggers", (c) => {
+  const graphId = c.req.param("id");
+  if (!db.getGraph(graphId)) return c.json({ error: "graph not found" }, 404);
+  return c.json(triggers.listByGraph(graphId));
+});
+
+app.post("/api/graphs/:id/triggers", async (c) => {
+  const graphId = c.req.param("id");
+  const raw = (await c.req.json().catch(() => ({}))) as Partial<TriggerConfig>;
+  const withId = raw.id ? raw : { ...raw, id: crypto.randomUUID() };
+  const parsed = TriggerConfig.safeParse(withId);
+  if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+  try {
+    const trigger = await triggers.upsert(graphId, parsed.data);
+    scheduler.sync(trigger);
+    return c.json(trigger, 201);
+  } catch (e) {
+    if (e instanceof TriggerError) {
+      return jsonResponse(e.status, { error: e.message });
+    }
+    throw e;
+  }
+});
+
+app.delete("/api/graphs/:id/triggers/:tid", async (c) => {
+  const tid = c.req.param("tid");
+  scheduler.unsync(tid);
+  await triggers.remove(c.req.param("id"), tid);
+  return c.body(null, 204);
+});
+
+// Next cron fire times for the UI (4A.7).
+app.get("/api/graphs/:id/triggers/next-runs", (c) => {
+  const graphId = c.req.param("id");
+  if (!db.getGraph(graphId)) return c.json({ error: "graph not found" }, 404);
+  return c.json(triggers.nextRunMap(graphId));
+});
+
+// Manually fire a trigger (e.g. a batch run, or a cron/event re-run on demand).
+app.post("/api/graphs/:id/triggers/:tid/fire", async (c) => {
+  const graphId = c.req.param("id");
+  const tid = c.req.param("tid");
+  const body = (await c.req.json().catch(() => ({}))) as { payload?: unknown };
+  const trigger = triggers.get(tid);
+  if (!trigger) return jsonResponse(404, { error: "trigger not found" });
+  try {
+    if (trigger.type === "batch") {
+      const runIds = await triggers.fireBatch(tid, body.payload);
+      return c.json({ runIds });
+    }
+    const { runId } = await triggers.fire(tid, body.payload, graphId);
+    return c.json({ runId });
+  } catch (e) {
+    if (e instanceof TriggerError) return jsonResponse(e.status, { error: e.message });
+    throw e;
+  }
+});
+
+app.post("/api/graphs/:id/webhook", async (c) => {
+  const graphId = c.req.param("id");
+  const body = (await c.req.json().catch(() => ({}))) as { secret?: string; payload?: unknown };
+  const secret = body.secret ?? c.req.header("x-webhook-secret") ?? "";
+  try {
+    const { runId } = await triggers.fireWebhook(graphId, secret, body.payload);
+    return c.json({ runId });
+  } catch (e) {
+    if (e instanceof TriggerError) {
+      return jsonResponse(e.status, { error: e.message });
+    }
+    throw e;
+  }
 });
 
 app.post("/api/runs/ab", async (c) => {
@@ -479,18 +655,30 @@ app.delete("/api/runs/:id", (c) => {
   return c.json({ ok: true });
 });
 
-/** Resume a halted run: `{ action: "continue" | "scrap" }`. */
+/** Resume a halted run: `{ action: "continue" | "approve" | "reject" | "edit" | "scrap", editOutput?, resetFrom? }`. */
 app.post("/api/runs/:id/resume", async (c) => {
   const runId = c.req.param("id");
   const row = db.getRun(runId);
   if (!row) return c.json({ error: "not found" }, 404);
 
   const body = (await c.req.json().catch(() => ({}))) as {
-    action?: "continue" | "scrap";
+    action?: "continue" | "approve" | "reject" | "edit" | "scrap";
+    editOutput?: Record<string, string>;
     resetFrom?: string;
+    approveTools?: unknown;
+    workerId?: string;
   };
-  const action = body.action === "scrap" ? "scrap" : "continue";
+  const action: "continue" | "approve" | "reject" | "edit" | "scrap" =
+    body.action === "scrap" ||
+    body.action === "approve" ||
+    body.action === "reject" ||
+    body.action === "edit"
+      ? body.action
+      : "continue";
   const resetFrom = typeof body.resetFrom === "string" ? body.resetFrom : undefined;
+  const editOutput = body.editOutput && typeof body.editOutput === "object" ? body.editOutput : undefined;
+  const approveTools =
+    Array.isArray(body.approveTools) ? body.approveTools.filter((t) => typeof t === "string") : undefined;
 
   // A live entry exists while the generator runs. Reject only if it is still
   // actively executing; a halted/done entry is safe to resume.
@@ -522,7 +710,7 @@ app.post("/api/runs/:id/resume", async (c) => {
         runId,
         graph,
         plan,
-        worker,
+        worker: workerRegistry.get(body.workerId),
         budgetUsd: row.budget_usd ?? null,
         monthlyBudgetUsd: cfg.monthlyBudgetUsd ?? null,
         monthSpentUsd: db.costForMonth(now.getFullYear(), now.getMonth() + 1),
@@ -530,14 +718,18 @@ app.post("/api/runs/:id/resume", async (c) => {
         pastEvents,
         action,
         resetFrom,
+        editOutput,
+        approveTools,
         signal: controller.signal,
-        storeBinary: (data, mimeType, label) =>
-          artifacts.saveBinary({ data, kind: "image", mimeType, label }).uri ??
+        storeBinary: async (data, mimeType, label) =>
+          (await artifacts.saveBinary({ data, kind: "image", mimeType, label })).uri ??
           `data:${mimeType};base64,${data.toString("base64")}`,
       })) {
         db.record(runId, event);
         if (event.type === "artifact.produced") {
-          db.insertArtifact(artifacts.save(event.artifact, { runId, nodeId: event.nodeId, attempt: event.attempt }));
+          db.insertArtifact(
+            await artifacts.save(event.artifact, { runId, nodeId: event.nodeId, attempt: event.attempt }),
+          );
         }
         entry.events.push(event);
         if (event.type === "run.finished") db.finishRun(runId, event.status, Date.now());
@@ -645,7 +837,7 @@ app.post("/api/artifacts/upload", async (c) => {
   else if (contentType.startsWith("video/")) kind = "video";
   else if (contentType.startsWith("audio/")) kind = "audio";
 
-  const saved = artifacts.saveBinary({
+  const saved = await artifacts.saveBinary({
     data,
     kind,
     mimeType: contentType,
@@ -663,7 +855,7 @@ app.get("/api/artifacts", (c) => {
 });
 
 /** Fetch a single artifact: local blobs are streamed, remote URIs redirect. */
-app.get("/api/artifacts/:id", (c) => {
+app.get("/api/artifacts/:id", async (c) => {
   const id = c.req.param("id");
   const meta = db.getArtifact(id);
   if (!meta) return c.json({ error: "not found" }, 404);
@@ -675,7 +867,7 @@ app.get("/api/artifacts/:id", (c) => {
     return c.json({ error: "artifact has no binary payload" }, 404);
   }
 
-  const file = artifacts.open(meta.runId, meta.id);
+  const file = await artifacts.open(meta.runId, meta.id);
   if (!file) return c.json({ error: "blob missing on disk" }, 404);
   const headers = new Headers();
   headers.set("content-type", meta.mimeType ?? "application/octet-stream");
@@ -689,9 +881,68 @@ app.get("/api/artifacts/:id", (c) => {
   return new Response(file.stream as unknown as ReadableStream, { headers });
 });
 
+// Discover worker plugins in the background; the built-in worker is already
+// registered, so the server is usable immediately and /api/workers reflects
+// plugins a moment later.
+if (process.env.NODE_ENV !== "test") void workerRegistry.loadFrom(workersDir);
+
+// Connect configured MCP servers (MCP_SERVERS env, a JSON array of server
+// specs) and register their tools as skills. A spec is either the legacy
+// `{ id, command, args? }` (stdio) or a richer
+// `{ id, transport: "stdio"|"http"|"sse", ... , permissions? }`. Failure to
+// reach a server is non-fatal.
+const mcpClients: McpClient[] = [];
+const mcpStatus: { id: string; tools: string[]; transport: string }[] = [];
+async function connectMcpServers(): Promise<void> {
+  const raw = process.env.MCP_SERVERS;
+  if (!raw) return;
+  let rawServers: Array<Record<string, unknown>>;
+  try {
+    rawServers = JSON.parse(raw);
+  } catch {
+    log.warn("MCP_SERVERS is not valid JSON; skipping MCP setup");
+    return;
+  }
+  for (const s of rawServers) {
+    const id = String(s.id ?? "mcp");
+    try {
+      const transport = (s.transport as string | undefined) ?? "stdio";
+      let spec: McpServerSpec;
+      if (transport === "stdio") {
+        spec = { transport: "stdio", command: String(s.command), args: (s.args as string[]) ?? [], env: s.env as Record<string, string> | undefined };
+      } else {
+        spec = { transport: transport as "http" | "sse", url: String(s.url), headers: s.headers as Record<string, string> | undefined };
+      }
+      const client = connectMcpServer(spec);
+      mcpClients.push(client);
+      const tools = await registerMcpTools(
+        id,
+        client,
+        registerSkill,
+        s.permissions as SkillPermissions | undefined,
+        (s.danger as boolean | undefined) ?? undefined,
+      );
+      mcpStatus.push({ id, tools: tools.map((t) => t.name), transport });
+      log.info("mcp connected", { id, transport, tools: tools.map((t) => t.name) });
+    } catch (err) {
+      log.warn("mcp connect failed", { id, error: (err as Error).message });
+    }
+  }
+}
+if (process.env.NODE_ENV !== "test") void connectMcpServers();
+
+if (process.env.NODE_ENV !== "test")
 serve({ fetch: app.fetch, port: PORT }, (info) => {
   log.info("engine listening", { port: info.port, url: `http://localhost:${info.port}` });
 });
+
+// Tear down any forked, isolated worker subprocesses on shutdown.
+for (const sig of ["SIGINT", "SIGTERM"] as const) {
+  process.on(sig, () => {
+    disposeIsolatedWorkers();
+    process.exit(0);
+  });
+}
 
 /** Minimal request body for a connectivity probe, shaped per modality. */
 function buildTestPayload(modality: Modality, model: string): Record<string, unknown> {

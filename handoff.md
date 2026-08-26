@@ -1,6 +1,6 @@
 # Handoff
 
-State of Agent World as of 2026-08-25.
+State of Agent World as of 2026-08-27.
 
 ## Project documents
 
@@ -171,13 +171,15 @@ engine retries per `retry` policy, then emits `node.failed` with the errorCode.
 
 ### Tracked for later (see docs/technical-design.md §12)
 
-- DB migrations are try/catch ADD COLUMN — need a `schema_version` table before
-  open-sourcing, plus SQLite startup backup.
-- Event endpoint returns all events; add range pagination for long runs.
-- Graph autosave is last-write-wins — needs version/ETag optimistic lock for
-  multi-tab safety.
-- CORS allows all origins; tighten before hosted/private deployments.
-- Structured logging with runId (currently console.error only).
+- DB migrations are versioned via `schema_migrations` + ordered `MIGRATIONS`
+  (done in 3.5); SQLite startup backup (`VACUUM INTO`) also done in 3.5.
+- Event endpoint returns all events; range pagination added in 3.5
+  (`GET /api/runs/:id/events?after=&limit=`).
+- Graph autosave is last-write-wins with a version/`If-Match` optimistic lock
+  (done in 3.5) — multi-tab safe now.
+- CORS is restricted to `CORS_ORIGINS` (done in 4.9); allow-all `*` only when the
+  env var is unset (local dev). Set it before any hosted/private deployment.
+- Structured logging with runId is done (3.5 `logger.ts`, `LOG_LEVEL`/`LOG_FILE`).
 - **Phase 2 parallelism hazard:** event emission must be serialized (single
   emit queue), and budget checks must happen at that serialization point, or
   concurrent nodes race past the budget. `inputFor` concatenation also needs a
@@ -200,8 +202,9 @@ offline deterministic worker.
 Engine on `http://localhost:8791`, board on `http://localhost:5183`.
 
 ```bash
-pnpm -r test        # 22 core + 32 server, all green
+pnpm -r test        # 54 core + 209 server, all green
 pnpm -r typecheck   # all green
+pnpm -r build       # core + server + web all build
 ```
 
 ## Canvas workspace overhaul (post-Phase-1)
@@ -777,3 +780,165 @@ Stage B — structured product blocks:
   - Still deferred (roadmap D-expansion, not in scope here): brand thesaurus / prohibited-word
     validation wiring, multi-version A/B, and evaluation linkage. Engine ArtifactRef upgrade
     remains deferred until multimodal downstream inputs are needed.
+
+## Phase 4 — multimodal, human-in-the-loop, plugin security, MCP, engineering
+
+### 4.5 Multimodal content parts
+- `packages/core/src/multimodal.ts` (new): `ContentPart` union
+  `{type:"text",text} | {type:"image",image}`, exported from the core index.
+- `packages/server/src/worker.ts`: `runAgent` gains optional `content?: ContentPart[]`;
+  the fake and routing workers accept it while still preserving `input`/`images`.
+- `packages/server/src/engine.ts`: assembles `content` from `input` + upstream source
+  `images` before calling the worker, and passes `content` to `runAgent`.
+- `packages/server/src/providers/openai-compatible.ts`: `buildUserContent` maps image
+  parts to `{type:"image_url"}`; `runAgent` prefers `content`, falling back to
+  `input + images`.
+- Web canvas `Plants.tsx` + `styles.css`: a source node carrying image raw material
+  shows a blue "图 N" badge + tooltip.
+- Tests: `engine.multimodal.test.ts`.
+
+### 4.7 Human-in-the-loop
+- `core/events.ts`: `gate.verdict` gained optional `decision: approved|rejected|edited`
+  and `by`; `run.finished` gained optional `haltedNodeId`/`reason`.
+- `core/runtime.ts`: `RuntimeState.haltedNodeId?`; the `run.finished` case sets it.
+- `server/engine.ts`: halt locals (`haltNodeId`/`haltReason`); on a gate-exhausted
+  `halt` it fires `notifyHalt`; `run.finished` carries `haltedNodeId`/`reason`.
+  `ResumeOptions.action` extended to `"continue"|"approve"|"reject"|"edit"|"scrap"`
+  with `editOutput?: Record<string,string>`; resume applies the `editOutput` overlay
+  and emits `gate.verdict` with `decision`/`by`; `runScheduler` forwards `editOutput`.
+- `server/notify.ts` (new): `notifyHalt(n)` POSTs to `RUN_HALT_WEBHOOK` (no-op if unset;
+  failures tolerated).
+- `server/index.ts`: `/api/runs/:id/resume` accepts `action` (approve/reject/edit/scrap)
+  + `editOutput` and forwards to `resume`. Added `disposeIsolatedWorkers()` and
+  SIGINT/SIGTERM cleanup.
+- Web `ControlPanel.tsx`: halted runs show 批准继续 / 编辑后继续 / 驳回 / 报废 buttons
+  (edit opens a prompt); `api.ts` & `store/run.ts` `resumeRun` extended; `styles.css`
+  gained `.btn--warn` / `.btn-row--wrap`.
+- Tests: `engine.humanloop.test.ts`, `notify.test.ts`.
+
+### 4C.7 Plugin process isolation
+- `server/isolation.ts` (new): `trimEnv(declared)` (safe base + declared keys),
+  `spawnIsolatedWorker(entry,id,declaredEnv)` (forks `worker-proxy.mjs`),
+  `IsolatedWorker` (implements `Worker`, proxies `runAgent`/`judge`/`generateImage`
+  over IPC, `dispose()`), `disposeIsolatedWorkers()`. `proxyFetch`/`proxyFs` enforce
+  the 4D.7 allowlists.
+- `server/worker-proxy.mjs` (new): child entry; overrides `globalThis.fetch` (network
+  proxy via the parent allowlist) and exposes a `globalThis.__proxyFs` shim (fs proxy —
+  the ESM `node:fs/promises` namespace is read-only, so a cooperative shim is used;
+  full per-call interception would need a custom ESM loader).
+- `server/worker-plugins.ts`: `WorkerPlugin` gained `isolation?:"in-process"|"subprocess"`,
+  `env?:string[]`, `entry?:string`. `loadFrom` forks `.js`/`.mjs` subprocess plugins;
+  `.ts` and failures fall back to in-process. `loadWorkerPlugins` records `entry`.
+- `server/scripts/sample-worker-plugin.mjs` (new): sample subprocess plugin proving
+  env trimming + fs/network proxy.
+- `server/permissions.ts`: `matchDomain` now strips the port (`host.split(":")[0]`)
+  so `127.0.0.1:PORT` matches `127.0.0.1`.
+- Tests: `isolation.test.ts`.
+
+### 4D.7 MCP remote transports + tool permission governance
+- `server/mcp.ts`: `McpServerSpec` with `transport: "stdio"|"http"|"sse"`;
+  `StdioMcpTransport`, `StreamableHttpMcpTransport`, `SseMcpTransport` (each implements
+  connect/disconnect/listTools/callTool). `registerMcpTools(id, client, registerSkill,
+  permissions?)` wires each call through `guardToolCall`. `connectMcpServers()` parses
+  `MCP_SERVERS` (legacy `{id,command,args}` or rich
+  `{id,transport,command?,args?,url?,headers?,permissions?}`).
+- `server/permissions.ts`: `evaluateToolCall(permissionConfig, serverId, tool)`,
+  `guardToolCall(...)`, `loadPermissionConfig()` (from `MCP_PERMISSIONS`), `matchDomain`.
+- `server/engine.ts`: the `executeTool` closure passed to workers calls `guardToolCall`,
+  so blocked tools throw `ToolPermissionDenied` before execution.
+- `server/index.ts`: `connectMcpServers()` runs at startup, passing per-server
+  `permissions` into `registerMcpTools`.
+- Tests: `mcp.test.ts` (stdio + http + sse e2e), `permissions.test.ts`.
+
+### 4.9 Engineering (CI, secret scan, Docker, LICENSE, CORS, version)
+- `server/security.ts` (new): `applyCors(app, process.env.CORS_ORIGINS)` (allow-list
+  from env; allow-all `*` only when `CORS_ORIGINS` is unset — preserves local-dev
+  behaviour) and `applySecurityHeaders` (X-Content-Type-Options, X-Frame-Options,
+  Referrer-Policy, Permissions-Policy). `index.ts` now calls these instead of
+  `app.use("/*", cors())`.
+- `LICENSE`: MIT (Copyright (c) 2026 bayernjf).
+- `.github/workflows/ci.yml`: a `build` job runs `pnpm -r typecheck` + `pnpm -r build`
+  + `pnpm -r --if-present test`; a separate `secrets` job runs gitleaks.
+  `.gitleaks.toml` allow-lists test/sample fixtures.
+- `Dockerfile` (multi-stage, Node 24, builds core + server, runs `node dist/index.js`)
+  + `docker-compose.yml` (port 8791, SQLite volume, `CORS_ORIGINS`/`MCP_SERVERS`/env
+  hooks) + `.dockerignore`.
+- `CHANGELOG.md` (Keep-a-Changelog); package versions bumped `0.1.0 → 0.2.0`.
+- Fixed two latent build blockers that only surfaced under `pnpm -r build` (tests run
+  via esbuild and didn't catch them): `engine.ts` `ContentPart` literal widening,
+  duplicate `tools` property, and missing `editOutput`/`permissionConfig` on the option
+  types; `core/graph.ts` `HttpConnector.url` is now `.url()`-validated.
+- Tests: `security.test.ts`.
+- Roadmap 4.9 checkboxes ticked.
+
+### Current status (end of Phase 4)
+- All selected Phase 4 tracks — 4.5, 4.7, 4C.7, 4D.7, 4.9 — are complete. Only
+  **4.8 (docs/community)** remains open.
+- `pnpm -r typecheck` green; `pnpm -r build` green; `pnpm -r test` green
+  (core 54, server 209).
+
+### Remaining / deferred
+- **4.8 docs/community** is the only open Phase 4 item (README quickstart, CONTRIBUTING,
+  architecture diagram, badges).
+- fs isolation uses a cooperative `__proxyFs` shim rather than a full ESM loader —
+  the upgrade path is noted in roadmap 4C.7.
+- `ArtifactRef` engine upgrade (per-node typed artifact references) stays deferred
+  until multimodal downstream inputs are needed (Stage D).
+- Per-node quality scoring and CSV export of eval data remain for later.
+
+## Dangerous-action halt (E.4)
+
+> 危险操作（写文件 / 外部网络 / 删除，即技能 `danger: true`）首次调用时暂停运行，等人 approve/deny 后再续跑。引擎在 `executeTool` 包裹层对“危险且未批准”的工具抛 `HaltRequested`，运行进入 `halted`，`run.finished` 携带 `reason: "dangerous-tool:<name>"` 与 `haltedNodeId`。
+
+**关键文件**
+- `packages/server/src/engine.ts`：`executeTool` 回调先 `guardToolCall`（白名单治理），再 `if (isDangerousTool(name) && !approved.has(name)) throw new HaltRequested(name, nodeId)`；catch 后 `haltReason = "dangerous-tool:" + toolName`、`status = "halted"`、节点故意不标完成，便于 resume 重跑。
+- `resume()`：危险工具批准通过 `approveTools`（累积 `state.approvedTools` ∪ 本次）以 `tool.approved` 事件持久化，并作为 `init.approvedTools` 重新传入，节点重跑时该工具已在 `approved` 集合内而执行。`isToolHalt = (state.haltedReason ?? "").startsWith("dangerous-tool:")` 区分“危险工具暂停”与“Gate 耗尽暂停”：危险工具暂停**不**置 `approveGate`（否则会把 agent 节点直接标 done 跳过工具），靠 `approveTools` 续跑；Gate 暂停才走 `approveGate`。
+- `packages/server/src/permissions.ts`：`isDangerousTool(name)` = `getSkill(name)?.danger === true`；`guardToolCall` 做 host/path 白名单治理。
+- `packages/core/src/runtime.ts`：`RuntimeState` 新增 `reason?`，`run.finished` 时写入；前端用 `runtime.reason` 前缀 `dangerous-tool:` 识别危险操作暂停并展示文案。
+
+**Resume 语义**
+- `resume({ action: "approve", approveTools: ["fs_write"] })`：累积批准，节点重跑，危险工具因在批准集内而执行，运行跑完。
+- `resume({ action: "approve" })`（不带 approveTools）：危险工具仍未被批准 → 再次 `HaltRequested` → 重新进入 `halted`（同一工具、同一 reason）。
+
+**测试**
+- `packages/server/src/engine.danger.test.ts`：危险工具未批准 → `halted` 且 `reason = "dangerous-tool:fs_write"`、文件未写；带 `approveTools` resume → 执行工具、写文件、`done`；不带 `approveTools` resume → 重新 `halted`、文件未写。注意测试隔离：test 4 写 `out-noapprove.txt`（而非 `out.txt`），避免被 test 3 的 `out.txt` 污染导致误判。
+
+## Prompt 模块卡 / 输出契约卡 (E.2 / E.3)
+
+> 装备(equip)的技能分三类已落地：`tool`（贡献工具）、`prompt-module`（注入 prompt）、`output-contract`（校验输出）。`Skill.kind` 在 `packages/core/src/skill.ts`，`SkillMount` 支持 per-mount `config` 覆盖。
+
+**E.2 Prompt 模块卡**
+- `collectPromptModules(mounts)`（`engine.ts`）：BFS 遍历挂载的 `prompt-module` 技能，合并 per-mount `config`，收集 `config.prompt`；支持 `config.equips`（多级依赖），用 `seen` 集合去重并耐受环。
+- 注入点：`runNode` 的 agent 分支先算 `mounts`（`toMount` 归一化为 `SkillMount[]`），再把模块 prompt 追加到 `config.prompt`（标记 `=== 已挂载模块提示 (prompt-module) ===`），随 `runAgent` 进入 agent system prompt。
+- 退出标准：单测 `engine.skills.test.ts` 验证「挂载即注入 / 多级 equip 去重 / 含环不死循环」。
+
+**E.3 输出契约卡**
+- `getOutputContract(mounts)`：找挂载的 `output-contract` 技能，取 `config.schema`（JSON schema）。
+- `validateContract(output, schema)`：剥掉可选 ```` ```json ```` 围栏 → 必须解析为 JSON 对象 → 校验 `required` 字段 + 各 `properties` 的 `type`。返回中文失败原因或 null。
+- 校验时机：agent 产出 `result.output` 后、标记 done 前。不达标时：若图里存在「从该 agent 节点出发的 rework 线」（`compile` 已放宽，允许 gate 之外的 **agent** 节点发起 rework），则复用现有 rework 机制——`reworkNotes.set(entry, 原因)` + 发 `packet.sent` 到 rework 边 + 把 loop body 复位为 pending 并重跑；达到 `loop.maxAttempts`（= `retry.maxRetries + 1`）仍不达标 → 节点 `failed`、`errorCode: "VALIDATION"`。
+- `compile.ts`：`A rework line can only start from a gate or an agent node`；允许 `e.from === e.to` 仅当 `kind === "rework"`（agent 自返工）；`maxAttempts` 对 agent 取 `retry.maxRetries + 1`。
+- 退出标准：单测 `engine.skills.test.ts` 验证「达标→done / 不达标 rework 后恢复→done / 始终不达标→failed + VALIDATION」。
+
+**测试**
+- `packages/server/src/engine.skills.test.ts`（5 用例）：E.2 注入 + 多级 equip 去重、E.3 三态。
+
+## 滚动摘要 (E.1)
+
+> 长产线里上游 artifact 累积，agent 输入会爆 token。原先 `inputPolicy.mode = "truncate"` 是硬截断（只留尾部 + 标记）。E.1 新增 `summary` 模式：超阈值时用 LLM 摘要压缩，而不是硬截断。
+
+**输入策略（`packages/core/src/graph.ts` 的 `InputPolicy`）**
+- `mode`: `"all" | "last" | "truncate" | "summary"`（新增 `summary`）
+- `maxChars`: 摘要 / 截断预算（zod `.min(500)`，可选）
+
+**引擎（`engine.ts`）**
+- `inputFor` 改为 `async`：当 `policy.mode === "summary"` 且拼接后的输入 `full.length > maxChars` 时，调用 `worker.summarize({ text, maxChars, model, signal })` 压缩；否则按 `assembleInput` 处理。
+- 失败兜底：`worker.summarize` 抛错、返回空、或根本不存在（可选方法）→ 回退 `truncateText(full, max)`（与 `truncate` 模式同一实现）。输入未超阈值 → 直接透传 `full`。
+- `truncateText` 从 `assembleInput` 抽出来复用。
+
+**Worker（`worker.ts` + `providers/openai-compatible.ts`）**
+- `Worker.summarize` 为**可选**方法：`summarize?(args: { text; maxChars; model?; signal? }) => Promise<string>`。可选意味着旧 worker / 测试无需实现，引擎自动降级到 `truncate`。
+- `fakeWorker` 给了确定性实现（保留头尾 + 标记 `[[SUMMARY ...]]`），便于测试识别。
+- 真实 worker 用 `streamChat` 做一次非流式压缩（system 提示要求压缩到约 `maxChars` 字符、保留关键事实/数字/命名实体），模型默认 `agnes-2.0-flash`，可由 `model` 参数（来自 `node.agent?.model`）覆盖；非文本模型抛 `ProviderError("UNSUPPORTED")`。
+
+**测试**
+- `packages/server/src/engine.summary.test.ts`（4 用例）：摘要压缩替代截断 / summarizer 抛错→回退 truncate / 无 summarizer→回退 truncate / 阈值内透传。

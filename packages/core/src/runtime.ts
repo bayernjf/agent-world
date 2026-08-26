@@ -63,6 +63,12 @@ export interface FailureRecord {
 export interface RuntimeState {
   runId: string | null;
   status: "idle" | "running" | "done" | "failed" | "halted" | "tripped" | "cancelled";
+  /** When the run halted waiting for a human decision, which gate triggered it. */
+  haltedNodeId?: string;
+  /** Why the run halted (4D.7 dangerous-tool / 4.7 gate policy), surfaced to the UI. */
+  reason?: string;
+  /** Tools the operator has approved for execution this run (4D.7 dangerous-action halt). */
+  approvedTools: string[];
   nodes: Record<string, NodeRuntime>;
   packets: PacketRuntime[];
   totalCostUsd: number;
@@ -96,6 +102,8 @@ export const initialRuntime: RuntimeState = {
   budgetWarned: false,
   monthlyBudgetWarned: false,
   failures: [],
+  reason: undefined,
+  approvedTools: [],
 };
 
 function nodeOf(state: RuntimeState, id: string): NodeRuntime {
@@ -290,8 +298,16 @@ export function reduce(state: RuntimeState, event: RunEvent): RuntimeState {
           ],
         };
 
+      case "tool.approved":
+        return { ...state, approvedTools: [...state.approvedTools, event.tool] };
+
       case "run.finished":
-        return { ...state, status: event.status };
+        return {
+          ...state,
+          status: event.status,
+          haltedNodeId: event.haltedNodeId ?? state.haltedNodeId,
+          reason: event.reason ?? state.reason,
+        };
     }
   })();
 

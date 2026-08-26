@@ -128,7 +128,7 @@ function mapArtifact(r: ArtifactRow): StoredArtifact {
     nodeId: r.node_id,
     attempt: r.attempt,
     kind: r.kind,
-    mimeType: r.mime_type,
+    mimeType: r.mime_type ?? "",
     label: r.label,
     sizeBytes: r.size_bytes,
     storage: r.storage,
@@ -367,8 +367,33 @@ export function openDb(file: string) {
         | undefined;
     },
 
-    listRuns(limit = 50, offset = 0) {
-      return stmts.listRuns.all(limit, offset) as Array<{
+    listRuns(
+      opts: { limit?: number; offset?: number; graphId?: string; status?: string } = {},
+    ) {
+      const limit = Math.min(Math.max(opts.limit ?? 50, 1), 200);
+      const offset = Math.max(opts.offset ?? 0, 0);
+      const where: string[] = [];
+      const params: (string | number)[] = [];
+      if (opts.graphId) {
+        where.push("r.graph_id = ?");
+        params.push(opts.graphId);
+      }
+      if (opts.status) {
+        where.push("r.status = ?");
+        params.push(opts.status);
+      }
+      const clause = where.length ? `WHERE ${where.join(" AND ")}` : "";
+      const rows = db
+        .prepare(
+          `SELECT r.id AS id, r.graph_id AS graph_id, g.name AS graph_name,
+                  r.status AS status, r.trigger AS trigger, r.budget_usd AS budget_usd,
+                  r.started_at AS started_at, r.ended_at AS ended_at
+           FROM runs r LEFT JOIN graphs g ON g.id = r.graph_id
+           ${clause}
+           ORDER BY r.started_at DESC
+           LIMIT ? OFFSET ?`,
+        )
+        .all(...params, limit, offset) as Array<{
         id: string;
         graph_id: string;
         graph_name: string;
@@ -378,6 +403,34 @@ export function openDb(file: string) {
         started_at: number;
         ended_at: number | null;
       }>;
+      const total = (
+        db.prepare(`SELECT COUNT(*) AS n FROM runs r ${clause}`).get(...params) as { n: number }
+      ).n;
+      return { rows, total };
+    },
+
+    /** Node-level cost/token aggregates for a single run, used by comparison views. */
+    runStats(runId: string) {
+      const row = db
+        .prepare(
+          `SELECT COUNT(*) AS nodes,
+                  COALESCE(SUM(tokens_in), 0) AS tokens_in,
+                  COALESCE(SUM(tokens_out), 0) AS tokens_out,
+                  COALESCE(SUM(cost_usd), 0) AS cost_usd
+           FROM node_runs WHERE run_id = ?`,
+        )
+        .get(runId) as {
+        nodes: number;
+        tokens_in: number;
+        tokens_out: number;
+        cost_usd: number;
+      };
+      return {
+        nodes: row.nodes,
+        tokensIn: row.tokens_in,
+        tokensOut: row.tokens_out,
+        costUsd: row.cost_usd,
+      };
     },
 
     /** Persists the event and folds it into the node_runs projection. */

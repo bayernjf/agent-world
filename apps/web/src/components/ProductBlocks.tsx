@@ -1,5 +1,43 @@
 import type { ProductBlock, ProductDocument } from "@agent-world/core";
 
+const ASPECT_RATIO: Record<string, string> = {
+  "1:1": "1 / 1",
+  "3:4": "3 / 4",
+  "4:3": "4 / 3",
+  "16:9": "16 / 9",
+};
+
+type ImageBlock = Extract<ProductBlock, { type: "image" }>;
+
+function imageWrapperStyle(block: ImageBlock): React.CSSProperties {
+  const style: React.CSSProperties = {};
+  const align = block.align ?? "full";
+  if (block.width != null) {
+    style.width = typeof block.width === "number" ? `${block.width}px` : block.width;
+  } else if (align === "left" || align === "right") {
+    style.width = "55%";
+  } else if (align === "center") {
+    style.width = "70%";
+    style.marginLeft = "auto";
+    style.marginRight = "auto";
+  }
+  if (align === "right") style.alignSelf = "flex-end";
+  else if (align === "left") style.alignSelf = "flex-start";
+  return style;
+}
+
+function imageImgStyle(block: ImageBlock): React.CSSProperties {
+  const style: React.CSSProperties = {};
+  const ratio = block.aspect ? ASPECT_RATIO[block.aspect] : undefined;
+  if (ratio) {
+    style.aspectRatio = ratio;
+    style.objectFit = "cover";
+    style.height = "auto";
+  }
+  if (block.rounded) style.borderRadius = "14px";
+  return style;
+}
+
 function renderInline(text: string): React.ReactNode[] {
   const parts: React.ReactNode[] = [];
   const re = /\*\*([^*]+)\*\*/g;
@@ -54,16 +92,23 @@ function Block({ block }: { block: ProductBlock }) {
       );
     case "image":
       return (
-        <figure className="pb-image">
-          <img src={block.src} alt={block.caption ?? ""} loading="lazy" />
+        <figure className="pb-image" style={imageWrapperStyle(block)}>
+          <img src={block.src} alt={block.caption ?? ""} loading="lazy" style={imageImgStyle(block)} />
           {block.caption && <figcaption>{block.caption}</figcaption>}
         </figure>
       );
-    case "imageCards":
+    case "imageCards": {
+      const layout = block.layout ?? "grid";
+      const gridStyle: React.CSSProperties =
+        layout === "grid" && block.columns ? { gridTemplateColumns: `repeat(${block.columns}, minmax(0, 1fr))` } : {};
       return (
-        <div className="pb-cards">
+        <div className={`pb-cards pb-cards--${layout}`} style={gridStyle}>
           {block.items.map((it, i) => (
-            <figure className="pb-card" key={i}>
+            <figure
+              className="pb-card"
+              key={i}
+              style={layout === "grid" && it.span ? { gridColumn: `span ${it.span}` } : undefined}
+            >
               <img src={it.src} alt={it.caption ?? ""} loading="lazy" />
               {it.caption && <figcaption>{it.caption}</figcaption>}
               {it.title && <p className="pb-card__title">{it.title}</p>}
@@ -71,6 +116,7 @@ function Block({ block }: { block: ProductBlock }) {
           ))}
         </div>
       );
+    }
     case "cta":
       return (
         <div className="pb-cta">

@@ -32,4 +32,45 @@ describe("parseProductDocument", () => {
     const output = "```product-json\n{not valid json}\n```";
     expect(parseProductDocument(output)).toBeNull();
   });
+
+  it("parses image position/size fields and imageCards layout", () => {
+    const output = [
+      "```product-json",
+      JSON.stringify({
+        platform: "taobao",
+        blocks: [
+          { type: "image", src: "u1", caption: "c", align: "right", aspect: "3:4", rounded: true, width: "60%" },
+          { type: "imageCards", layout: "grid", columns: 2, items: [{ src: "u2", title: "t", caption: "c2", span: 2 }] },
+        ],
+      }),
+      "```",
+    ].join("\n");
+    const doc = parseProductDocument(output);
+    expect(doc).not.toBeNull();
+    const [img, cards] = doc!.blocks;
+    expect(img.type).toBe("image");
+    if (img.type === "image") {
+      expect(img.align).toBe("right");
+      expect(img.aspect).toBe("3:4");
+      expect(img.rounded).toBe(true);
+      expect(img.width).toBe("60%");
+    }
+    expect(cards.type).toBe("imageCards");
+    if (cards.type === "imageCards") {
+      expect(cards.layout).toBe("grid");
+      expect(cards.columns).toBe(2);
+      expect(cards.items[0]!.span).toBe(2);
+    }
+  });
+
+  it("still parses blocks without the optional position fields", () => {
+    const output = [
+      "```product-json",
+      JSON.stringify({ platform: "xiaohongshu", blocks: [{ type: "image", src: "u" }] }),
+      "```",
+    ].join("\n");
+    const doc = parseProductDocument(output);
+    expect(doc).not.toBeNull();
+    expect(doc!.blocks[0]!.type).toBe("image");
+  });
 });

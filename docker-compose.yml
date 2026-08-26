@@ -1,0 +1,22 @@
+services:
+  agent-world:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: bayernjf/agent-world:latest
+    ports:
+      - "8791:8791"
+    environment:
+      PORT: "8791"
+      # Restrict CORS to your frontend origin in any shared deployment:
+      # CORS_ORIGINS: "https://your-app.example.com"
+      # Provider / MCP configuration, e.g.:
+      # OPENAI_API_KEY: "${OPENAI_API_KEY}"
+      # MCP_SERVERS: "${MCP_SERVERS}"
+      DB_FILE: "/data/agent-world.sqlite"
+    volumes:
+      - agent-world-data:/data
+    restart: unless-stopped
+
+volumes:
+  agent-world-data:

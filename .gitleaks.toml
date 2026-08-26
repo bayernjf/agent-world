@@ -1,0 +1,15 @@
+title = "agent-world gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Test fixtures and sample plugins that contain obviously-fake secret strings"
+paths = [
+  '''(.*/)?\.github/.*''',
+  '''(.*/)?scripts/.*''',
+  '''(.*/)?.*\.test\.ts$''',
+  '''(.*/)?.*\.test\.tsx$''',
+  '''(.*/)?pnpm-lock\.yaml''',
+  '''(.*/)?.*\.sqlite$''',
+]
