@@ -115,7 +115,7 @@ export type FileConnector = z.infer<typeof FileConnector>;
 
 /** Fetches data over HTTP(S); optional field extraction maps the response to source text. */
 export const HttpConnector = z.object({
-  url: z.string(),
+  url: z.string().url(),
   method: z.enum(["GET", "POST"]).default("GET"),
   headers: z.record(z.string()).optional(),
   auth: z.object({ type: z.enum(["basic", "bearer"]), token: z.string() }).optional(),
