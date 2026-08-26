@@ -42,8 +42,14 @@ globalThis.fetch = async (url, init) => {
 };
 
 globalThis.__proxyFs = {
-  read: (p) => proxyRequest("fs", { path: String(p), write: false }),
-  write: (p, data) => proxyRequest("fs", { path: String(p), write: true, data: String(data) }),
+  read: (p) => proxyRequest("fs", { op: "read", path: String(p) }),
+  write: (p, data) => proxyRequest("fs", { op: "write", path: String(p), data: String(data) }),
+  appendFile: (p, data) => proxyRequest("fs", { op: "appendFile", path: String(p), data: String(data) }),
+  readdir: (p) => proxyRequest("fs", { op: "readdir", path: String(p) }),
+  stat: (p) => proxyRequest("fs", { op: "stat", path: String(p) }),
+  unlink: (p) => proxyRequest("fs", { op: "unlink", path: String(p) }),
+  mkdir: (p) => proxyRequest("fs", { op: "mkdir", path: String(p) }),
+  rm: (p) => proxyRequest("fs", { op: "rm", path: String(p) }),
 };
 
 async function collect(gen) {

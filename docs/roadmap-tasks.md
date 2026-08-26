@@ -762,26 +762,27 @@
 
 #### P1-4 引擎 ArtifactRef 升级（对应 3.8 "引擎 artifacts Map 升级"）
 
-**P1 — 中 (~300 行) — 改核心路径，需先写设计笔记**
+**P1 — 中 (~300 行) — 改核心路径，需先写设计笔记 — ✅ 已完成 (2026-08-27)**
 
-- [ ] 先在 `docs/technical-design.md` 追加「ArtifactRef 升级设计」节（数据结构、inputFor 兼容策略、resume 重建、事件 schema 不变结论、回滚方案）
-- [ ] `engine.ts`：`artifacts: Map<string,string>` → `Map<string,Artifact[]>`；节点完成时 push Artifact 对象；文本节点产出 `{kind:"text",content:output}`
-- [ ] `inputFor()` 重构：遍历上游 artifacts[]，文本取 content 拼接，图片 URI 收集到 images[]，视频/音频/文件加文本占位
-- [ ] `imagesFor()`：从所有上游 artifacts 提取 image URI，不再只依赖 source.images
-- [ ] `reconstructState()`/`resume()`：从 `artifact.produced` 事件重建 artifacts Map
-- [ ] 测试：`engine.artifactref.test.ts` — 多 artifact 节点、图片流入下游 vision、文本拼接、resume 重建
-- [ ] 退出条件：imageGen 产出的图片能被下游 agent 通过 images 参数拿到；多图场景下游全收；假 worker 全量测试绿
+- [x] 先在 `docs/technical-design.md` 追加「ArtifactRef 升级设计」节（数据结构、inputFor 兼容策略、resume 重建、事件 schema 不变结论、回滚方案）
+- [x] `engine.ts`：`artifacts: Map<string,string>` → `Map<string,Artifact[]>`；节点完成时 push Artifact 对象；文本节点产出 `{kind:"text",content:output}`
+- [x] `inputFor()` 重构：遍历上游 artifacts[]，文本取 content 拼接，图片 URI 收集到 images[]，视频/音频/文件加文本占位
+- [x] `imagesFor()`：从所有上游 artifacts 提取 image URI，不再只依赖 source.images；删除 `createImageResolver` + `extraImages`
+- [x] `reconstructState()`/`resume()`：从 `artifact.produced` 事件重建 artifacts Map；node.started attempt 变化时清空（仅已存在条目，避免 resume 误判完成）
+- [x] 测试：`engine.artifactref.test.ts`（4 用例）— imageGen 图片流入下游 vision / reconstructState  typed arrays / inputFor 图片占位 / rework 环复位
+- [x] 退出条件：imageGen 产出的图片能被下游 agent 通过 images 参数拿到；多图场景下游全收；假 worker 全量测试绿（234 passed）
 
 #### P1-5 fs 隔离完整 ESM loader（对应 4C.7 已知限制）
 
-**P2 — 中 (~200 行) — 安全增强**
+**P2 — 中 (~200 行) — 安全增强 — ✅ 已完成 (2026-08-27)**
 
-- [ ] 新建 `packages/server/src/fs-loader.mjs`：自定义 ESM loader，`resolve()` hook 拦截 `node:fs`/`node:fs/promises`，重定向到代理模块
-- [ ] 代理模块导出 fs 方法，每个都调用 `globalThis.__proxyFs`
-- [ ] `__proxyFs` 扩展：readdir/stat/unlink/mkdir/rm/appendFile
-- [ ] `isolation.ts`：fork 时加 `--import` 注册 loader；`proxyFs` 对应扩展操作
-- [ ] 测试：插件直接 `import fs from 'node:fs/promises'` 调用被拦截且受白名单约束
-- [ ] 退出条件：恶意插件直接读 `/etc/passwd` 被拦截；授权目录读取正常
+- [x] 新建 `packages/server/src/fs-loader.mjs`：自定义 ESM loader，`resolve()` hook 拦截 `node:fs/promises` / `fs/promises`，重定向到代理模块
+- [x] 新建 `packages/server/src/fs-proxy.mjs`：代理模块导出 8 个支持的 fs 方法（readFile/writeFile/appendFile/readdir/stat/unlink/mkdir/rm），每个都调用 `globalThis.__proxyFs`；未实现方法抛清晰错误
+- [x] 新建 `packages/server/src/fs-loader-register.mjs`：`module.register()` 注册 loader
+- [x] `__proxyFs` 扩展：read/write/appendFile/readdir/stat/unlink/mkdir/rm（worker-proxy.mjs）
+- [x] `isolation.ts`：`proxyFs` 扩展对应 8 种操作 + 白名单校验；`spawnIsolatedWorker` fork 时加 `execArgv: ['--import', FS_LOADER_REGISTER]`
+- [x] 测试：isolation.test.ts 8 用例全绿；sample-worker-plugin 改为直接 `import("node:fs/promises")`（不再依赖协作式 __proxyFs 检查），验证 ESM loader 拦截生效
+- [x] 退出条件：恶意插件直接读 `/etc/passwd` 被拦截；授权目录读取正常；全量测试 234 passed
 
 ### Batch 3 — 大功能（按需启动）
 

@@ -990,3 +990,86 @@ Stage B — structured product blocks:
 - `pnpm -r typecheck`：core + server + web 全绿
 - `pnpm -r test`：core 54 + server 230 全绿
 - `pnpm -r build`：core + server + web 构建成功
+
+---
+
+## Batch 2 — 基础设施 (2026-08-27)
+
+> P1-4 引擎 ArtifactRef 升级 + P1-5 fs 隔离完整 ESM loader。设计笔记见 `docs/technical-design.md` §13。
+
+### P1-4 引擎 ArtifactRef 升级
+
+**核心改动（`engine.ts`）**
+- `SchedulerInit.artifacts` / `ResumeState.artifacts`：`Map<string, string>` → `Map<string, Artifact[]>`
+- 新增辅助函数 `setTextArtifact(artifacts, nodeId, text)`：替换节点 artifacts 为单个 text artifact
+- 新增辅助函数 `collectUpstreamImages(graph, artifacts, nodeId)`：递归遍历 flow 上游，从 artifacts 中提取所有 image URI（去重）
+- 删除 `createImageResolver` + `extraImages` 数组：图片现在统一通过 typed artifacts 流动，不再需要独立的 extraImages 机制
+
+**各节点完成时的 artifacts 写入**
+- source/sink/gate(通过)/agent：`setTextArtifact()` — 单个 text artifact
+- source 有图片时：额外 push image artifact 到数组（`nodeArts.push(a)`）
+- imageGen：`artifacts.set(nodeId, imageArts)` — 纯 image artifact 数组（无 text，output 为空）
+- 返工环复位：`artifacts.set(bodyId, [])`（原 `artifacts.delete`）
+
+**`inputFor()` 重构**
+- 遍历每个 flow 上游的 `artifacts[]`，按 kind 处理：
+  - text/json：取 `content` 加入 parts
+  - image：追加 `[图片: label]` 占位行
+  - video/audio/file/uri：追加对应占位行
+- inputPolicy（all/last/truncate/summary）逻辑不变，作用于拼接后的 parts
+
+**`imagesFor()` 重构**
+- 改为 `(nodeId) => collectUpstreamImages(graph, artifacts, nodeId)`
+- source 图片和 imageGen 产出的图片都通过 artifacts 流入下游，不再区分来源
+
+**`reconstructState()` 升级**
+- `node.finished`：如果该节点无 artifact 或数组为空，补造 text artifact（兼容旧运行）
+- `artifact.produced`：push artifact 到数组
+- `node.started`：如果 attempt > 之前记录的 attempt 且 artifacts 已存在，清空数组（模拟返工环复位）。**关键约束**：只在已存在时清空，不创建空条目——resume 用 `artifacts.has()` 判断节点是否完成，空条目会导致未完成的 halt 节点被误判为 done
+
+**`resume()` / `approveGate`**
+- `approveGate`：从 artifacts 中取 text artifact 的 content（原 `artifacts.get` 返回字符串）
+- `editOutput`：`setTextArtifact(state.artifacts, nodeId, text)`（原直接 set 字符串）
+
+**测试**
+- 新增 `engine.artifactref.test.ts`（4 用例）：
+  1. imageGen 产出的图片流入下游 agent 的 `images` 参数和 `content` parts
+  2. reconstructState 构建正确的 typed artifact 数组（source text / imageGen 多图 / agent text）
+  3. inputFor 对非文本上游 artifact 生成 `[图片: ...]` 占位
+  4. 返工环复位后 agent 的最终 output 是第二次 attempt 的结果
+- 修改 `engine.reliability.test.ts`：`artifacts.get("forge")` 改为查找 text artifact 的 content
+- 全量回归：core 54 + server 234 全绿（新增 4 个 + 原 230）
+
+### P1-5 fs 隔离完整 ESM loader
+
+**问题**：原 `__proxyFs` 是协作式 shim，插件需主动调用 `globalThis.__proxyFs.read/write`。直接 `import fs from 'node:fs/promises'` 无法被拦截（ESM 命名空间只读）。
+
+**解决方案**：自定义 ESM loader 拦截 `node:fs/promises` 导入，重定向到代理模块。
+
+**新增文件（`packages/server/src/`）**
+- `fs-loader.mjs`：ESM loader，`resolve()` hook 拦截 `node:fs/promises` / `fs/promises`，返回 `fs-proxy.mjs` 的 URL（`shortCircuit: true`）
+- `fs-proxy.mjs`：代理模块，导出 8 个支持的方法（readFile/writeFile/appendFile/readdir/stat/unlink/mkdir/rm），每个调用 `globalThis.__proxyFs` 对应方法；未实现方法（rename/copyFile/access 等）抛清晰错误提示
+- `fs-loader-register.mjs`：`module.register('./fs-loader.mjs', import.meta.url)` 注册 loader
+
+**`isolation.ts` 扩展**
+- `proxyFs` 方法：从 2 种操作（read/write）扩展到 8 种（read/write/appendFile/readdir/stat/unlink/mkdir/rm），统一白名单校验 `checkFsPath()`
+- `FsPayload` 类型：支持新格式 `{op, path, data?}` + 旧格式 `{path, write?, data?}`（向后兼容）
+- `spawnIsolatedWorker`：fork 时加 `execArgv: ['--import', FS_LOADER_REGISTER]`，确保子进程启动时注册 loader
+
+**`worker-proxy.mjs` 扩展**
+- `__proxyFs`：从 2 方法扩展到 8 方法（read/write/appendFile/readdir/stat/unlink/mkdir/rm），每个通过 `proxyRequest("fs", {op, ...})` 转发到主进程
+
+**测试验证**
+- `sample-worker-plugin.mjs`：去掉 `__proxyFs` 存在性检查，改为直接 `await import("node:fs/promises")` —— 验证 ESM loader 拦截生效
+- `isolation.test.ts` 8 用例全绿：fs 白名单内读取成功、白名单外被拦截（"not permitted"）
+- 全量回归：234 passed
+
+**已知限制**
+- `node:fs`（同步 API）未拦截——同步调用无法通过异步 IPC 代理。插件应使用 `fs/promises`
+- 仅 8 种常用 fs 操作被代理，其余方法抛 `not implemented` 错误
+- `module.register()` 在 Node 26 有 deprecation warning（建议用 `registerHooks()`），但 Node 24+ 均可用，暂不迁移
+
+### Batch 2 质量门
+- `pnpm -r typecheck`：core + server + web 全绿
+- `pnpm -r test`：core 54 + server 234 全绿
+- `pnpm -r build`：core + server + web 构建成功
