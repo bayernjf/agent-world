@@ -4,6 +4,7 @@ import {
   outgoing,
   type Graph,
   type GraphEdge,
+  type GraphNode,
 } from "./graph.js";
 
 export interface Diagnostic {
@@ -159,7 +160,7 @@ export function compile(graph: Graph): CompileResult {
     if (!ids.has(e.from) || !ids.has(e.to)) {
       diagnostics.push({ severity: "error", message: "Edge references a missing plant", edgeId: e.id });
     }
-    if (e.from === e.to) {
+    if (e.from === e.to && e.kind !== "rework") {
       diagnostics.push({ severity: "error", message: "A plant cannot feed itself", edgeId: e.id });
     }
   }
@@ -189,11 +190,12 @@ export function compile(graph: Graph): CompileResult {
   for (const e of graph.edges) {
     if (e.kind !== "rework") continue;
 
-    const gate = nodeById(graph, e.from);
-    if (gate && gate.kind !== "gate") {
+    const start = nodeById(graph, e.from);
+    const startKind = start?.kind;
+    if (start && startKind !== "gate" && startKind !== "agent") {
       diagnostics.push({
         severity: "error",
-        message: "Only a gate can start a rework line",
+        message: "A rework line can only start from a gate or an agent node",
         edgeId: e.id,
       });
       continue;
@@ -201,10 +203,10 @@ export function compile(graph: Graph): CompileResult {
     if (!order) continue;
 
     const ancestors = ancestorsOf(graph, e.from);
-    if (!ancestors.has(e.to)) {
+    if (e.from !== e.to && !ancestors.has(e.to)) {
       diagnostics.push({
         severity: "error",
-        message: "A rework line must run back to a plant upstream of the gate",
+        message: "A rework line must run back to a plant upstream of the start node",
         edgeId: e.id,
       });
       continue;
@@ -218,12 +220,17 @@ export function compile(graph: Graph): CompileResult {
       return r >= lo && r <= hi && (id === e.to || ancestors.has(id) || id === e.from);
     });
 
+    const startGateMax =
+      startKind === "gate" ? (start as GraphNode & { kind: "gate" }).gate?.maxAttempts : undefined;
+    const startAgent = startKind === "agent" ? (start as GraphNode & { kind: "agent" }).agent : undefined;
+    const startAgentMax = (startAgent?.retry?.maxRetries ?? 2) + 1;
+
     loops.push({
       gateId: e.from,
       edge: e,
       entryId: e.to,
       body,
-      maxAttempts: gate?.gate?.maxAttempts ?? 3,
+      maxAttempts: startGateMax ?? startAgentMax,
     });
   }
 

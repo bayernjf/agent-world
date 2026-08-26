@@ -10,12 +10,13 @@ import {
   type GraphNode,
   type Plan,
   type RunEvent,
+  type SkillMount,
   type Usage,
 } from "@agent-world/core";
 import { HaltRequested, type Worker } from "./worker.js";
 import { ProviderError } from "./providers/openai-compatible.js";
 import { sanitizeError } from "./sanitize.js";
-import { resolveTools, executeBuiltinTool } from "./skills/registry.js";
+import { getSkill, resolveTools, executeBuiltinTool } from "./skills/registry.js";
 import { guardToolCall, isDangerousTool, loadPermissionConfig, type PermissionConfig } from "./permissions.js";
 import { notifyHalt } from "./notify.js";
 import { resolveConnector } from "./connectors.js";
@@ -28,6 +29,92 @@ export function withLayoutDirectives(base: string, directives?: string): string 
   const d = directives?.trim();
   if (!d) return base;
   return `${base}\n\n排版附加要求（必须遵守）：\n${d}`;
+}
+
+/**
+ * E.2 — collect prompt text from every mounted `prompt-module` skill, including
+ * multi-level `equips` dependencies, de-duplicated by skill id (BFS, cycle-safe).
+ * Returns the ordered module prompts to inject into the agent's system prompt.
+ */
+/** Normalize a skill entry (id string or mount) into a full SkillMount. */
+function toMount(s: string | SkillMount): SkillMount {
+  return typeof s === "string" ? { id: s, config: {}, enabled: true } : { ...s, config: s.config ?? {} };
+}
+
+export function collectPromptModules(mounts: SkillMount[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const queue: SkillMount[] = [...mounts];
+  while (queue.length) {
+    const m = queue.shift()!;
+    if (seen.has(m.id)) continue;
+    seen.add(m.id);
+    const skill = getSkill(m.id);
+    if (!skill) continue;
+    const config = { ...(skill.config ?? {}), ...(m.config ?? {}) };
+    if (skill.kind === "prompt-module" && typeof config.prompt === "string" && config.prompt.trim()) {
+      out.push(config.prompt);
+    }
+    const equips = Array.isArray(config.equips) ? (config.equips as string[]) : [];
+    for (const id of equips) {
+      if (!seen.has(id)) queue.push({ id, config: {}, enabled: true });
+    }
+  }
+  return out;
+}
+
+/**
+ * E.3 — find the output contract (JSON-schema) declared by a mounted
+ * `output-contract` skill, if any. Returns the schema object or null.
+ */
+export function getOutputContract(mounts: SkillMount[]): Record<string, unknown> | null {
+  for (const m of mounts) {
+    const skill = getSkill(m.id);
+    if (!skill || skill.kind !== "output-contract") continue;
+    const config = { ...(skill.config ?? {}), ...(m.config ?? {}) };
+    if (config.schema && typeof config.schema === "object") {
+      return config.schema as Record<string, unknown>;
+    }
+  }
+  return null;
+}
+
+/**
+ * E.3 — validate an agent's output against a JSON-schema contract. Strips
+ * optional ```json fences, requires a JSON object, enforces `required` keys and
+ * per-property `type`. Returns a human-readable failure reason or null if valid.
+ */
+export function validateContract(output: string, schema: Record<string, unknown>): string | null {
+  let text = output.trim();
+  const fence = text.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/);
+  if (fence && fence[1]) text = fence[1].trim();
+  let data: unknown;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    return "输出不是合法 JSON";
+  }
+  if (typeof data !== "object" || data === null || Array.isArray(data)) {
+    return "输出必须是 JSON 对象";
+  }
+  const obj = data as Record<string, unknown>;
+  const required = Array.isArray(schema.required) ? (schema.required as string[]) : [];
+  for (const key of required) {
+    if (!(key in obj)) return `缺少必填字段 "${key}"`;
+  }
+  const props =
+    schema.properties && typeof schema.properties === "object"
+      ? (schema.properties as Record<string, { type?: string }>)
+      : {};
+  for (const [key, spec] of Object.entries(props)) {
+    if (!(key in obj)) continue;
+    const expected = spec?.type;
+    if (expected) {
+      const actual = Array.isArray(obj[key]) ? "array" : typeof obj[key];
+      if (actual !== expected) return `字段 "${key}" 类型应为 ${expected}，实际为 ${actual}`;
+    }
+  }
+  return null;
 }
 
 /**
@@ -664,9 +751,15 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
   }
 
       // agent
+      const mounts = (node.agent?.skills ?? []).map(toMount);
+      const promptModules = collectPromptModules(mounts);
+      const basePrompt = withLayoutDirectives(node.agent?.prompt ?? "", node.agent?.imageDirectives);
+      const prompt = promptModules.length
+        ? `${basePrompt}\n\n${promptModules.map((p) => `=== 已挂载模块提示 (prompt-module) ===\n${p}`).join("\n\n")}`
+        : basePrompt;
       const config = {
         model: node.agent?.model || fallbackModel,
-        prompt: withLayoutDirectives(node.agent?.prompt ?? "", node.agent?.imageDirectives),
+        prompt,
         skills: node.agent?.skills ?? [],
         temperature: node.agent?.temperature ?? 0.7,
         timeoutMs: node.agent?.timeoutMs ?? 120000,
@@ -687,9 +780,6 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
         try {
           const agentInput = inputFor(node);
           reworkNotes.delete(nodeId);
-          const mounts = (node.agent?.skills ?? []).map((s) =>
-            typeof s === "string" ? { id: s, enabled: true } : s,
-          );
           const tools = resolveTools(mounts);
           const referenceImages = imagesFor(nodeId);
           const content: ContentPart[] | undefined = referenceImages.length
@@ -772,6 +862,46 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           await opts.sleep(
             Math.min(config.retry.maxDelayMs, config.retry.baseDelayMs * 2 ** tryIdx),
           );
+        }
+      }
+
+      // E.3 output-contract: validate the agent's output against a mounted
+      // output-contract skill, reworking (reusing the existing rework line) or
+      // failing when the contract isn't satisfied.
+      if (result) {
+        const contract = getOutputContract(mounts);
+        if (contract) {
+          const contractErr = validateContract(result.output, contract);
+          if (contractErr) {
+            const loop = loopByGate.get(nodeId);
+            const maxRework = loop?.maxAttempts ?? config.retry.maxRetries + 1;
+            if (loop && attempt < maxRework) {
+              reworkNotes.set(loop.entryId, `输出未满足契约：${contractErr}`);
+              emit({
+                type: "packet.sent",
+                edgeId: loop.edge.id,
+                from: nodeId,
+                to: loop.entryId,
+                summary: `输出未满足契约：${contractErr}`,
+                artifactKind: "text",
+              });
+              for (const bodyId of loop.body) {
+                states.set(bodyId, "pending");
+                artifacts.delete(bodyId);
+              }
+              return;
+            }
+            states.set(nodeId, "failed");
+            emit({
+              type: "node.failed",
+              nodeId,
+              attempt,
+              error: `输出未满足契约：${contractErr}`,
+              errorCode: "VALIDATION",
+            });
+            status = "failed";
+            return;
+          }
         }
       }
 

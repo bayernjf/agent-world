@@ -902,3 +902,22 @@ Stage B — structured product blocks:
 
 **测试**
 - `packages/server/src/engine.danger.test.ts`：危险工具未批准 → `halted` 且 `reason = "dangerous-tool:fs_write"`、文件未写；带 `approveTools` resume → 执行工具、写文件、`done`；不带 `approveTools` resume → 重新 `halted`、文件未写。注意测试隔离：test 4 写 `out-noapprove.txt`（而非 `out.txt`），避免被 test 3 的 `out.txt` 污染导致误判。
+
+## Prompt 模块卡 / 输出契约卡 (E.2 / E.3)
+
+> 装备(equip)的技能分三类已落地：`tool`（贡献工具）、`prompt-module`（注入 prompt）、`output-contract`（校验输出）。`Skill.kind` 在 `packages/core/src/skill.ts`，`SkillMount` 支持 per-mount `config` 覆盖。
+
+**E.2 Prompt 模块卡**
+- `collectPromptModules(mounts)`（`engine.ts`）：BFS 遍历挂载的 `prompt-module` 技能，合并 per-mount `config`，收集 `config.prompt`；支持 `config.equips`（多级依赖），用 `seen` 集合去重并耐受环。
+- 注入点：`runNode` 的 agent 分支先算 `mounts`（`toMount` 归一化为 `SkillMount[]`），再把模块 prompt 追加到 `config.prompt`（标记 `=== 已挂载模块提示 (prompt-module) ===`），随 `runAgent` 进入 agent system prompt。
+- 退出标准：单测 `engine.skills.test.ts` 验证「挂载即注入 / 多级 equip 去重 / 含环不死循环」。
+
+**E.3 输出契约卡**
+- `getOutputContract(mounts)`：找挂载的 `output-contract` 技能，取 `config.schema`（JSON schema）。
+- `validateContract(output, schema)`：剥掉可选 ```` ```json ```` 围栏 → 必须解析为 JSON 对象 → 校验 `required` 字段 + 各 `properties` 的 `type`。返回中文失败原因或 null。
+- 校验时机：agent 产出 `result.output` 后、标记 done 前。不达标时：若图里存在「从该 agent 节点出发的 rework 线」（`compile` 已放宽，允许 gate 之外的 **agent** 节点发起 rework），则复用现有 rework 机制——`reworkNotes.set(entry, 原因)` + 发 `packet.sent` 到 rework 边 + 把 loop body 复位为 pending 并重跑；达到 `loop.maxAttempts`（= `retry.maxRetries + 1`）仍不达标 → 节点 `failed`、`errorCode: "VALIDATION"`。
+- `compile.ts`：`A rework line can only start from a gate or an agent node`；允许 `e.from === e.to` 仅当 `kind === "rework"`（agent 自返工）；`maxAttempts` 对 agent 取 `retry.maxRetries + 1`。
+- 退出标准：单测 `engine.skills.test.ts` 验证「达标→done / 不达标 rework 后恢复→done / 始终不达标→failed + VALIDATION」。
+
+**测试**
+- `packages/server/src/engine.skills.test.ts`（5 用例）：E.2 注入 + 多级 equip 去重、E.3 三态。
