@@ -74,7 +74,7 @@ export default function ShortcutsHelp() {
       <button
         ref={triggerRef}
         className="chip shortcuts__trigger"
-        title="快捷键说明"
+
         onClick={updateAnchor}
       >
         快捷键 ?

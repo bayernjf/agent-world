@@ -2445,3 +2445,18 @@ select {
   stroke-dasharray: 8 6;
   animation: pipe-flow 0.7s linear infinite;
 }
+.tooltip-trigger {
+  display: inline-flex;
+}
+.tooltip {
+  pointer-events: none;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink);
+  background: var(--steel-800);
+  border: var(--hair);
+  border-radius: 4px;
+  padding: 5px 9px;
+  white-space: nowrap;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
+}
