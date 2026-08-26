@@ -561,3 +561,19 @@ paths) is a standalone chunk to schedule once the graph gets denser.
   no-op). Server now 54 tests, core 29. Typecheck clean.
 - Remaining 3.5: startup backup (VACUUM INTO), events pagination, multi-tab
   optimistic lock, structured logger.
+
+## Budget warning at 80% (roadmap 3.6, partial)
+
+- New `power.warning` event (core/events.ts) with `{ totalCostUsd, budgetUsd, threshold }`.
+- Engine emits it once per run when accumulated cost crosses 80% of `budgetUsd`
+  (a `budgetWarned` flag, seeded from reconstructed state on resume so a resumed
+  run doesn't re-fire). It does NOT stop the line; 100% still trips via
+  `power.tripped`.
+- Reducer sets `RuntimeState.budgetWarned` (reset on `run.started`); initial
+  runtime defaults it to false.
+- ControlPanel: gauge turns amber (`is-warn`, power gradient) and shows a
+  "电费已达预算的 N%" note when warned; >85% stays red `is-hot`.
+- Tests: core reducer (warning sets flag + cost) and an engine test (fixed-cost
+  worker at 0.0008 under a 0.001 budget emits power.warning, completes without
+  tripping). Core now 30, server 55.
+- Remaining 3.6: monthly budget aggregation.

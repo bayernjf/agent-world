@@ -2383,3 +2383,11 @@ select {
   padding: 4px 10px;
   font-size: 11px;
 }
+
+.gauge.is-warn > i {
+  background: repeating-linear-gradient(90deg, #ffd24a 0 5px, #8a6a12 5px 7px);
+  box-shadow: 0 0 10px rgba(255, 176, 32, 0.6);
+}
+.note--warn {
+  color: var(--power);
+}
