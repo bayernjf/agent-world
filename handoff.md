@@ -749,6 +749,10 @@ Stage B — structured product blocks:
   → QC, emoji/短句/话题标签 tone). Both reuse the same pipeline and QC/rework loop.
 - `FinishedProduct` detects a product document and renders it with `ProductBlocks.tsx`
   (platform-scoped CSS using design tokens); falls back to Markdown otherwise.
-- Remaining: brand/audience/tone/prohibited-word source fields (B), export to long-image/HTML
-  (C), AI image generation (D). Engine ArtifactRef upgrade still deferred until multimodal
-  downstream inputs are needed.
+- Source brief fields done: SourceConfig now has productName/brand/audience/priceRange/tone/
+  prohibited/notes; the engine buildSourceBrief assembles them into a creative brief that
+  flows to every downstream writer. When no brief fields are set, raw input passes through
+  unchanged (preserves existing test contracts). Inspector renders all fields.
+  Server now 79 tests.
+- Remaining: export to long-image/HTML/rich-text (C), AI image generation (D). Engine
+  ArtifactRef upgrade still deferred until multimodal downstream inputs are needed.

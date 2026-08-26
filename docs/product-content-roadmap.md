@@ -31,7 +31,7 @@
 - ✅ 「淘宝商品详情」模板：排版节点输出结构化 ```product-json 区块（hero/heading/bullets/imageCards/paragraph/specs/cta）。
 - ✅ 新增「小红书种草笔记」模板：卖点→种草文案→笔记排版→质检，输出同结构但 note 风格（emoji、短句、话题标签）。
 - ✅ core 新增 `ProductBlock`/`ProductDocument` schema 与 `parseProductDocument()`；`FinishedProduct` 检测到结构化块用 `ProductBlocks` 按版式渲染，否则回退 Markdown。
-- ⬜ 品牌/人群/价格带/语气/违禁词作为 source 输入字段贯穿 prompt（下一步）。
+- ✅ 品牌/人群/价格带/语气/违禁词/补充说明作为 source 输入字段，由 `buildSourceBrief` 组装成创作简报流向下游所有写手。
 
 ### 阶段 C：导出即用
 - 成品区支持导出长图、复制富文本/HTML、下载 Markdown，可直接贴进千牛/小红书后台。
