@@ -55,6 +55,7 @@ export interface CostReport {
     graph_id: string;
     graph_name: string;
     node_id: string;
+    node_name: string;
     cost_usd: number;
     tokens_in: number;
     tokens_out: number;
@@ -135,11 +136,15 @@ export const api = {
   cancelRun: (runId: string) =>
     fetch(`/api/runs/${runId}/cancel`, { method: "POST" }).then(json<{ ok: true }>),
 
-  resumeRun: (runId: string, action: "continue" | "scrap") =>
+  resumeRun: (
+    runId: string,
+    action: "continue" | "scrap",
+    resetFrom?: string,
+  ) =>
     fetch(`/api/runs/${runId}/resume`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ action }),
+      body: JSON.stringify({ action, resetFrom }),
     }).then(json<{ ok: true }>),
 
   getEvents: (runId: string) =>

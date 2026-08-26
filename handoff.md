@@ -479,3 +479,85 @@ paths) is a standalone chunk to schedule once the graph gets denser.
   exclusion. Server now 51 tests, core 27. Typecheck clean.
 - Remaining 3.2: CSV export, weekly/monthly rollups, resolve node labels from
   the graph snapshot instead of showing raw `node_id`.
+
+## SSE reconnect hardening (roadmap 3.3)
+
+- `apps/web/src/store/run.ts`: introduced `connection` state machine
+  (`idle|connecting|live|reconnecting`) with derived `connecting`/`reconnecting`
+  booleans. Initial connect shows "连接中…", a backoff reconnect shows
+  "重连中…" (ControlPanel). Reconnect now reads the last seq from the live
+  store inside the setTimeout callback, fixing a stale-closure bug that could
+  re-fetch events delivered just before the drop. `resumeRun` now closes any
+  existing stream before reopening (previously two EventSources could fold the
+  same events twice after halt→resume).
+- `packages/server/src/index.ts`: `/api/runs/:id/stream` honors the native
+  `Last-Event-ID` request header in addition to `?after=`; query param takes
+  precedence. The browser sends `Last-Event-ID` automatically because every
+  frame carries `id:`. Heartbeat (`: ping` every 15s) unchanged.
+- Tests still green: core 27, server 51; typecheck clean.
+- Remaining: a real-world kill-switch/network-drop test against a proxy is the
+  only unchecked item; the logic itself is covered by inspection.
+
+## Structured failure panel (roadmap 3.4)
+
+- Core `runtime.ts`: added append-only `failures: FailureRecord[]` to
+  `RuntimeState`. `node.failed` records `kind:"node"` (nodeId, attempt,
+  errorCode, error, seq, ts); `gate.exhausted` with policy `scrap` records
+  `kind:"gate"`; `power.tripped` records `kind:"budget"`. `run.started` resets
+  the list (fresh run). Core now 29 tests.
+- Engine `resume()` gained `resetFrom?: string`. When set, the node and every
+  flow-descendant have their artifacts/attempts/nodeCost deleted from the
+  reconstructed state, so the scheduler re-runs them while keeping upstream
+  artifacts. This powers "重试该节点" (resetFrom = failed node) and "返工到上游"
+  (resetFrom = chosen upstream node).
+- Bug fix: `runScheduler` now only emits `run.started` when `opts.resuming` is
+  false. Previously resume/retry re-emitted `run.started`, which reset the
+  client's folded runtime (wiping failure history and accumulated cost) even
+  though only new events were being appended.
+- Server: `/api/runs/:id/resume` accepts `resetFrom`; retries from failed/
+  tripped runs flip the row back to `running` via new `db.markRunning()`.
+- Web `FailurePanel.tsx` (new): docks top-center of the stage when
+  `runtime.status` is `failed`/`tripped`. Lists each failure with node name,
+  localized error-code badge, attempt, timestamp, message, and stranded-
+  downstream count. Per-failure actions: "重试该节点" and a "返工到上游" popover
+  listing upstream done nodes. Footer: "整条重跑" (re-runs with same raw
+  material via `onRun`) and close/ignore. Uses design tokens; error badges
+  timeout/rate-limit show power (retryable), others alert.
+- Tests: added core reducer tests for failure history and a server test
+  (`engine.reliability.test.ts`) covering resetFrom retry of a failed node
+  through to depot, asserting failures are preserved after a successful retry.
+  Server now 52 tests. Typecheck clean.
+
+## Run history / cost report wrap-up (roadmap 3.1–3.2)
+
+- "退出回放" affordance: `store/run.ts` gained `view: "live" | "replay"`.
+  `loadRun()` (history replay) sets `view:"replay"`; connect/disconnect/resume
+  reset it to `"live"`. Timeline shows a "退出回放" chip in replay mode that
+  calls `reset()`, so viewing a finished run no longer leaves the canvas stuck
+  on historical state with no way back.
+- Cost report node names: `db.costReport()` now resolves each node's display
+  name from the most recent run snapshot per graph (`node_name`), so renamed or
+  deleted graphs still show the plant name as it was when it ran. Falls back to
+  `node_id`.
+- CSV export: `GET /api/costs.csv?from=&to=` streams a flat CSV with graph /
+  node / day sections (RFC-4180 quoting). CostReport modal header has an
+  "导出 CSV" link scoped to the selected range.
+
+## Ordered schema migrations (roadmap 3.5)
+
+- Replaced the try/catch ADD COLUMN routine in `db.ts` with a versioned
+  `schema_migrations(version, applied_at)` table + ordered `MIGRATIONS` array
+  (versions 1–7, one per added column). Each migration runs once inside a
+  `BEGIN/COMMIT` and is recorded; `node:sqlite` DatabaseSync has no
+  `.transaction()` helper, so it's manual.
+- One-time baselining: when the table is empty (an older DB from before this
+  change, or a fresh DB whose DDL already includes every column), each
+  migration's `detect()` checks `PRAGMA table_info`; already-present columns are
+  recorded as applied without ALTER. New migrations should omit `detect` so
+  they always run. `SCHEMA_VERSION` is exported for diagnostics/backups.
+- Fresh DBs baseline straight to v7; old Phase-0/1 DBs get only the missing
+  columns. Reopening is idempotent.
+- Tests: `migrations.test.ts` (fresh baseline, old-schema upgrade, reopen
+  no-op). Server now 54 tests, core 29. Typecheck clean.
+- Remaining 3.5: startup backup (VACUUM INTO), events pagination, multi-tab
+  optimistic lock, structured logger.

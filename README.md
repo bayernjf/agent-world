@@ -35,8 +35,9 @@ which means replay is just re-folding a prefix — the scrubber and the live vie
 same reducer.
 
 `packages/server/src/worker.ts` is the seam between orchestration and model calls. The
-fake worker in that file is deterministic and offline, which is what the tests and the
-canvas are wired against today.
+server ships with an OpenAI-compatible worker (Agnes, OpenAI, Volcengine Ark, vLLM,
+Ollama, …) configured in the settings panel; a deterministic offline fake worker is the
+fallback for tests and when no provider is enabled.
 
 ## Canvas interaction
 
