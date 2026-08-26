@@ -110,7 +110,7 @@ export default function ControlPanel(props: Props) {
                   <span className="readout">${runtime.totalCostUsd.toFixed(5)}</span>
                   <span className="muted">上限 ${budget.toFixed(4)}</span>
                 </div>
-                <div className={`gauge ${pct > 85 ? "is-hot" : ""}`}>
+                <div className={`gauge ${pct > 85 ? "is-hot" : runtime.budgetWarned ? "is-warn" : ""}`}>
                   <i style={{ width: `${pct}%` }} />
                 </div>
                 <label className="field">
@@ -124,6 +124,11 @@ export default function ControlPanel(props: Props) {
                     disabled={running}
                   />
                 </label>
+                {runtime.budgetWarned && pct <= 100 && (
+                  <p className="note note--warn">
+                    ⚠ 电费已达预算的 {Math.round(pct)}%，接近上限，注意控制返工。
+                  </p>
+                )}
                 <p className="note">
                   token 消耗只能在调用返回后计量，所以电表是事后读数；超过上限即刻跳闸停线。
                 </p>

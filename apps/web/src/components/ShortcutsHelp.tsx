@@ -18,7 +18,7 @@ const GROUPS: { title: string; items: { keys: string; desc: string }[] }[] = [
       { keys: "⌘/Ctrl + V", desc: "粘贴厂房（连续粘贴自动错位）" },
       { keys: "⌘/Ctrl + Z", desc: "撤销" },
       { keys: "⌘/Ctrl + Shift + Z", desc: "重做" },
-      { keys: "Delete / Backspace", desc: "删除选中管道" },
+      { keys: "Delete / Backspace", desc: "删除选中厂房或管道" },
     ],
   },
   {
@@ -35,6 +35,7 @@ const GROUPS: { title: string; items: { keys: string; desc: string }[] }[] = [
     items: [
       { keys: "悬停厂房", desc: "查看模型、状态、Token、电费" },
       { keys: "悬停管道", desc: "高亮整条上下游流向" },
+      { keys: "T", desc: "开启/关闭厂房悬停名牌" },
     ],
   },
 ];
@@ -74,7 +75,7 @@ export default function ShortcutsHelp() {
       <button
         ref={triggerRef}
         className="chip shortcuts__trigger"
-        title="快捷键说明"
+
         onClick={updateAnchor}
       >
         快捷键 ?

@@ -68,6 +68,8 @@ export interface RuntimeState {
   totalUnits: UsageUnits;
   budgetUsd: number | null;
   lastSeq: number;
+  /** True once the 80% budget warning has fired for this run. */
+  budgetWarned: boolean;
   /** Append-only history of failures for this run, oldest first. */
   failures: FailureRecord[];
 }
@@ -84,6 +86,7 @@ export const initialRuntime: RuntimeState = {
   totalUnits: {},
   budgetUsd: null,
   lastSeq: -1,
+  budgetWarned: false,
   failures: [],
 };
 
@@ -233,6 +236,14 @@ export function reduce(state: RuntimeState, event: RunEvent): RuntimeState {
           };
         }
         return state;
+
+      case "power.warning":
+        return {
+          ...state,
+          totalCostUsd: event.totalCostUsd,
+          budgetUsd: event.budgetUsd,
+          budgetWarned: true,
+        };
 
       case "power.metered":
         return { ...state, totalCostUsd: event.totalCostUsd, budgetUsd: event.budgetUsd };

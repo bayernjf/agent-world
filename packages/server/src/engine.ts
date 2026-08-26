@@ -166,6 +166,9 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
   const nodeCostUsd = opts.init.nodeCostUsd;
   const states = opts.init.states;
   let totalCostUsd = opts.init.totalCostUsd;
+  const BUDGET_WARN = 0.8;
+  let budgetWarned =
+    budgetUsd !== null && budgetUsd > 0 && totalCostUsd >= budgetUsd * BUDGET_WARN;
 
   const reworkNotes = new Map<string, string>();
   const loopByGate = new Map(plan.loops.map((l) => [l.gateId, l]));
@@ -439,6 +442,21 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
         });
         status = "failed";
         return;
+      }
+
+      if (
+        budgetUsd !== null &&
+        budgetUsd > 0 &&
+        !budgetWarned &&
+        totalCostUsd >= budgetUsd * BUDGET_WARN
+      ) {
+        budgetWarned = true;
+        emit({
+          type: "power.warning",
+          totalCostUsd,
+          budgetUsd,
+          threshold: BUDGET_WARN,
+        });
       }
 
       if (budgetUsd !== null && totalCostUsd > budgetUsd) {

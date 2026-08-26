@@ -96,6 +96,7 @@ Gate 拥有一条 `rework` 边，编译器强制：
 Token 成本只有在模型返回后才知道，所以：
 - 不预扣费用
 - 每次 `node.finished` 后累加 `totalCostUsd`
+- 累计达预算 80% 时 yield 一次 `power.warning`（标记 `RuntimeState.budgetWarned`，前端电表变黄）
 - 超预算 yield `power.tripped`，整条线跳闸
 - 跳闸是滞后一个节点的（正在跑的节点会跑完），这是事后计量的固有代价
 
@@ -140,7 +141,7 @@ events 表: (run_id, seq) PRIMARY KEY
 - `node.started` / `node.delta` / `node.finished` / `node.failed`
 - `packet.sent`（卡车动画的数据源，不是装饰）
 - `gate.verdict` / `gate.exhausted`
-- `power.metered` / `power.tripped`
+- `power.metered` / `power.warning`（达预算 80%，建议性，不停线）/ `power.tripped`
 
 **Runtime State（导出状态，不持久化）**
 
