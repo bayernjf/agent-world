@@ -85,12 +85,14 @@ app.post("/api/graphs", async (c) => {
   } else if (body.from) {
     const src = db.getGraph(body.from);
     if (!src) return c.json({ error: "source graph not found" }, 404);
+    const { version: _srcVersion, ...srcDoc } = src;
+    void _srcVersion;
     graph = {
-      ...src,
+      ...srcDoc,
       id,
-      name: body.name?.trim() || `${src.name} 副本`,
-      nodes: src.nodes.map((n) => ({ ...n })),
-      edges: src.edges.map((e) => ({ ...e })),
+      name: body.name?.trim() || `${srcDoc.name} 副本`,
+      nodes: srcDoc.nodes.map((n) => ({ ...n })),
+      edges: srcDoc.edges.map((e) => ({ ...e })),
     };
   } else {
     graph = {
@@ -101,7 +103,7 @@ app.post("/api/graphs", async (c) => {
     };
   }
   db.saveGraph(graph, Date.now());
-  return c.json(graph, 201);
+  return c.json(db.getGraph(id), 201);
 });
 
 app.get("/api/graphs/:id", (c) => {
@@ -117,8 +119,20 @@ app.delete("/api/graphs/:id", (c) => {
 app.put("/api/graphs/:id", async (c) => {
   const parsed = Graph.safeParse(await c.req.json());
   if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
-  db.saveGraph(parsed.data, Date.now());
-  return c.json({ ok: true });
+
+  // Optimistic concurrency: a tab sends the version it last loaded via
+  // If-Match. A mismatch means another tab (or session) saved first, so we
+  // refuse instead of silently overwriting their edits.
+  const ifMatch = c.req.header("if-match");
+  const expectedVersion = ifMatch != null ? Number(ifMatch) : undefined;
+  const result = db.saveGraph(parsed.data, Date.now(), expectedVersion);
+  if (!result.ok) {
+    return c.json(
+      { error: "conflict", message: "该产线已在其他标签页被修改，请刷新后重试。", serverVersion: result.serverVersion },
+      409,
+    );
+  }
+  return c.json({ ok: true, version: result.version });
 });
 
 /** Compile without running — the canvas calls this to show diagnostics as you draw. */

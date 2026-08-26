@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS graphs (
   id         TEXT PRIMARY KEY,
   name       TEXT NOT NULL,
   doc        TEXT NOT NULL,
+  version    INTEGER NOT NULL DEFAULT 1,
   updated_at INTEGER NOT NULL
 );
 
@@ -108,12 +109,19 @@ export function openDb(file: string) {
   runMigrations(db);
 
   const stmts = {
-    saveGraph: db.prepare(
+    insertGraph: db.prepare(
       `INSERT INTO graphs (id, name, doc, updated_at) VALUES (?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET name = excluded.name, doc = excluded.doc, updated_at = excluded.updated_at`,
+       ON CONFLICT(id) DO UPDATE SET name = excluded.name, doc = excluded.doc, version = version + 1, updated_at = excluded.updated_at`,
     ),
-    getGraph: db.prepare(`SELECT doc FROM graphs WHERE id = ?`),
-    listGraphs: db.prepare(`SELECT id, name, updated_at FROM graphs ORDER BY updated_at DESC`),
+    // Conditional update: only succeeds when the row's current version matches
+    // the If-Match value, so a stale tab can't silently clobber a newer save.
+    updateGraphIfVersion: db.prepare(
+      `UPDATE graphs SET name = ?, doc = ?, version = version + 1, updated_at = ?
+       WHERE id = ? AND version = ?`,
+    ),
+    getGraphVersion: db.prepare(`SELECT version FROM graphs WHERE id = ?`),
+    getGraph: db.prepare(`SELECT doc, version FROM graphs WHERE id = ?`),
+    listGraphs: db.prepare(`SELECT id, name, version, updated_at FROM graphs ORDER BY updated_at DESC`),
     deleteGraph: db.prepare(`DELETE FROM graphs WHERE id = ?`),
     createRun: db.prepare(
       `INSERT INTO runs (id, graph_id, snapshot, status, trigger, input, budget_usd, started_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -158,17 +166,49 @@ export function openDb(file: string) {
   };
 
   return {
-    saveGraph(graph: Graph, at: number) {
-      stmts.saveGraph.run(graph.id, graph.name, JSON.stringify(graph), at);
+    /**
+     * Persist a graph. When `expectedVersion` is given the update is
+     * conditional: it returns { ok:false, conflict:true } if the stored version
+     * no longer matches (another tab saved first), instead of overwriting.
+     * On success returns the new version.
+     */
+    saveGraph(
+      graph: Graph,
+      at: number,
+      expectedVersion?: number,
+    ): { ok: true; version: number } | { ok: false; conflict: true; serverVersion: number | null } {
+      const doc = JSON.stringify(graph);
+      if (expectedVersion != null) {
+        const result = stmts.updateGraphIfVersion.run(
+          graph.name,
+          doc,
+          at,
+          graph.id,
+          expectedVersion,
+        );
+        if (result.changes === 0) {
+          const row = stmts.getGraphVersion.get(graph.id) as { version: number } | undefined;
+          return { ok: false, conflict: true, serverVersion: row?.version ?? null };
+        }
+        return { ok: true, version: expectedVersion + 1 };
+      }
+      stmts.insertGraph.run(graph.id, graph.name, doc, at);
+      const row = stmts.getGraphVersion.get(graph.id) as { version: number };
+      return { ok: true, version: row.version };
     },
 
-    getGraph(id: string): Graph | null {
-      const row = stmts.getGraph.get(id) as { doc: string } | undefined;
-      return row ? (JSON.parse(row.doc) as Graph) : null;
+    getGraph(id: string): (Graph & { version: number }) | null {
+      const row = stmts.getGraph.get(id) as { doc: string; version: number } | undefined;
+      return row ? { ...(JSON.parse(row.doc) as Graph), version: row.version } : null;
     },
 
     listGraphs() {
-      return stmts.listGraphs.all() as { id: string; name: string; updated_at: number }[];
+      return stmts.listGraphs.all() as Array<{
+        id: string;
+        name: string;
+        version: number;
+        updated_at: number;
+      }>;
     },
 
     deleteGraph(id: string) {
@@ -549,6 +589,12 @@ const MIGRATIONS: Migration[] = [
     description: "node_runs.units_json",
     detect: (db) => columnExists(db, "node_runs", "units_json"),
     up: (db) => db.exec("ALTER TABLE node_runs ADD COLUMN units_json TEXT"),
+  },
+  {
+    version: 8,
+    description: "graphs.version optimistic lock",
+    detect: (db) => columnExists(db, "graphs", "version"),
+    up: (db) => db.exec("ALTER TABLE graphs ADD COLUMN version INTEGER NOT NULL DEFAULT 1"),
   },
 ];
 
