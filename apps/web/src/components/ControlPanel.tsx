@@ -230,9 +230,28 @@ export default function ControlPanel(props: Props) {
               停机
             </button>
           ) : halted ? (
-            <div className="btn-row">
-              <button className="btn" onClick={() => resumeRun("continue")}>
-                人工放行
+            <div className="btn-row btn-row--wrap">
+              <button className="btn" onClick={() => resumeRun("approve")}>
+                批准继续
+              </button>
+              <button
+                className="btn"
+                onClick={() => {
+                  const text = window.prompt("编辑该节点的产出（人工修正后继续）：");
+                  if (text != null && runtime.haltedNodeId) {
+                    resumeRun("edit", undefined, { [runtime.haltedNodeId]: text });
+                  }
+                }}
+              >
+                编辑后继续
+              </button>
+              <button
+                className="btn btn--warn"
+                onClick={() => {
+                  if (window.confirm("驳回此次运行？运行将以失败结束。")) resumeRun("reject");
+                }}
+              >
+                驳回
               </button>
               <button className="btn btn--ghost" onClick={() => resumeRun("scrap")}>
                 报废

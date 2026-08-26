@@ -575,19 +575,27 @@ app.delete("/api/runs/:id", (c) => {
   return c.json({ ok: true });
 });
 
-/** Resume a halted run: `{ action: "continue" | "scrap" }`. */
+/** Resume a halted run: `{ action: "continue" | "approve" | "reject" | "edit" | "scrap", editOutput?, resetFrom? }`. */
 app.post("/api/runs/:id/resume", async (c) => {
   const runId = c.req.param("id");
   const row = db.getRun(runId);
   if (!row) return c.json({ error: "not found" }, 404);
 
   const body = (await c.req.json().catch(() => ({}))) as {
-    action?: "continue" | "scrap";
+    action?: "continue" | "approve" | "reject" | "edit" | "scrap";
+    editOutput?: Record<string, string>;
     resetFrom?: string;
     workerId?: string;
   };
-  const action = body.action === "scrap" ? "scrap" : "continue";
+  const action: "continue" | "approve" | "reject" | "edit" | "scrap" =
+    body.action === "scrap" ||
+    body.action === "approve" ||
+    body.action === "reject" ||
+    body.action === "edit"
+      ? body.action
+      : "continue";
   const resetFrom = typeof body.resetFrom === "string" ? body.resetFrom : undefined;
+  const editOutput = body.editOutput && typeof body.editOutput === "object" ? body.editOutput : undefined;
 
   // A live entry exists while the generator runs. Reject only if it is still
   // actively executing; a halted/done entry is safe to resume.
@@ -627,6 +635,7 @@ app.post("/api/runs/:id/resume", async (c) => {
         pastEvents,
         action,
         resetFrom,
+        editOutput,
         signal: controller.signal,
         storeBinary: async (data, mimeType, label) =>
           (await artifacts.saveBinary({ data, kind: "image", mimeType, label })).uri ??

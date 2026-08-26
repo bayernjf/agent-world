@@ -426,10 +426,18 @@
 
 ### 4.7 人机协作增强
 
-- [ ] 人工编辑：Agent 产出后人可修改再交下游
-- [ ] 审批节点：Gate 等人 approve/reject/edit
-- [ ] 通知：halt/审批时发通知（先做 webhook，企业版做飞书/钉钉）
-- [ ] 退出条件：人能在流程中间介入修改
+- [x] 人工编辑：Agent 产出后人可修改再交下游
+- [x] 审批节点：Gate 等人 approve/reject/edit
+- [x] 通知：halt/审批时发通知（先做 webhook，企业版做飞书/钉钉）
+- [x] 退出条件：人能在流程中间介入修改
+
+#### 4.7 详细
+- 引擎 `resume` 新增 `action`：`continue`/`approve`/`edit`/`reject`/`scrap`（continue 为 approve 的向后兼容别名）。`approve`/`edit` 让暂停的 Gate 判为通过并继续；`reject` 记录决策并以失败结束；`edit` 额外用编辑后的产物覆盖节点输出。
+- 人工编辑产出：resume 入参 `editOutput: Record<nodeId,string>`，在继续前覆盖对应节点产物，下游直接以人工修正文本为输入（无需重跑模型）。
+- 决策事件：复用 `gate.verdict`，新增可选字段 `decision: approved|rejected|edited` 与 `by`，让前端区分自动判定与人工决策。`run.finished` 新增 `haltedNodeId`/`reason`，`RuntimeState` 暴露 `haltedNodeId`。
+- 通知（webhook 优先）：新增 `notify.ts`，运行因 Gate 耗尽而 halt 时向 `RUN_HALT_WEBHOOK` 发 POST（未配置则不发、失败不阻塞）。
+- 前端：`ControlPanel` 在 halted 时提供「批准继续 / 编辑后继续 / 驳回 / 报废」；`api.resumeRun` 与 `store.resumeRun` 透传新动作与 `editOutput`；`RuntimeState.haltedNodeId` 供「编辑后继续」定位节点。
+- 测试：`engine.humanloop.test.ts`（halt→approve/edit/reject 全流程）、`notify.test.ts`（webhook 发送/未配置/失败容错）。
 
 ### 4.8 文档与社区
 

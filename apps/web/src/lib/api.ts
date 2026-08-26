@@ -238,13 +238,14 @@ export const api = {
 
   resumeRun: (
     runId: string,
-    action: "continue" | "scrap",
+    action: "continue" | "approve" | "reject" | "edit" | "scrap",
     resetFrom?: string,
+    editOutput?: Record<string, string>,
   ) =>
     fetch(`/api/runs/${runId}/resume`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ action, resetFrom }),
+      body: JSON.stringify({ action, resetFrom, editOutput }),
     }).then(json<{ ok: true }>),
 
   getEvents: (runId: string) =>

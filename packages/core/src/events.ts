@@ -140,6 +140,13 @@ export const RunEvent = z.discriminatedUnion("type", [
     reason: z.string(),
     /** Optional 0-10 quality score from the judge, surfaced in the eval report. */
     score: z.number().min(0).max(10).optional(),
+    /**
+     * Human-in-the-loop decision, when this verdict was produced by an operator
+     * rather than the model judge (4.7). Absent for automatic model verdicts.
+     */
+    decision: z.enum(["approved", "rejected", "edited"]).optional(),
+    /** Operator id / name who made the decision. */
+    by: z.string().optional(),
   }),
   z.object({
     ...base,
@@ -176,6 +183,9 @@ export const RunEvent = z.discriminatedUnion("type", [
     type: z.literal("run.finished"),
     runId: z.string(),
     status: z.enum(["done", "failed", "halted", "tripped", "cancelled"]),
+    /** When the run halted waiting for a human decision, which gate and why. */
+    haltedNodeId: z.string().optional(),
+    reason: z.string().optional(),
   }),
 ]);
 export type RunEvent = z.infer<typeof RunEvent>;

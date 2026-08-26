@@ -63,6 +63,8 @@ export interface FailureRecord {
 export interface RuntimeState {
   runId: string | null;
   status: "idle" | "running" | "done" | "failed" | "halted" | "tripped" | "cancelled";
+  /** When the run halted waiting for a human decision, which gate triggered it. */
+  haltedNodeId?: string;
   nodes: Record<string, NodeRuntime>;
   packets: PacketRuntime[];
   totalCostUsd: number;
@@ -291,7 +293,7 @@ export function reduce(state: RuntimeState, event: RunEvent): RuntimeState {
         };
 
       case "run.finished":
-        return { ...state, status: event.status };
+        return { ...state, status: event.status, haltedNodeId: event.haltedNodeId ?? state.haltedNodeId };
     }
   })();
 

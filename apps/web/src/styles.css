@@ -1859,8 +1859,19 @@ select {
   display: flex;
   gap: 8px;
 }
+.btn-row--wrap {
+  flex-wrap: wrap;
+}
 .btn-row .btn {
   flex: 1;
+}
+.btn--warn {
+  background: rgba(255, 74, 61, 0.14);
+  border-color: rgba(255, 74, 61, 0.5);
+  color: #ff9a90;
+}
+.btn--warn:hover {
+  background: rgba(255, 74, 61, 0.22);
 }
 .btn--block {
   width: 100%;
