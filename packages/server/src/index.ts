@@ -402,6 +402,59 @@ app.get("/api/eval", (c) => {
   );
 });
 
+app.get("/api/eval.csv", (c) => {
+  const from = c.req.query("from");
+  const to = c.req.query("to");
+  const graphId = c.req.query("graphId");
+  const rep = db.evalReport({
+    graphId: graphId || undefined,
+    from: from ? Number(from) : undefined,
+    to: to ? Number(to) : undefined,
+  });
+
+  const esc = (v: unknown) => {
+    const str = String(v ?? "");
+    return /[",\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+  };
+  const score = (s: number | undefined) => (s ?? 0).toFixed(3);
+  const lines: string[] = [];
+  lines.push("# section,key1,key2,runs,passed,passRate,avgRework,avgDurationMs,avgScore");
+  const t = rep.totals;
+  lines.push(
+    ["totals", "", "", t.runs, t.passed, t.passRate.toFixed(4), t.avgRework.toFixed(3), Math.round(t.avgDurationMs), score(t.avgScore)]
+      .map(esc)
+      .join(","),
+  );
+  for (const g of rep.byGraph) {
+    lines.push(
+      ["graph", g.graph_name, "", g.runs, g.passed, g.passRate.toFixed(4), g.avgRework.toFixed(3), Math.round(g.avgDurationMs), score(g.avgScore)]
+        .map(esc)
+        .join(","),
+    );
+  }
+  for (const d of rep.byDay) {
+    lines.push(
+      ["day", d.day, "", d.runs, d.passed, d.passRate.toFixed(4), d.avgRework.toFixed(3), Math.round(d.avgDurationMs), score(d.avgScore)]
+        .map(esc)
+        .join(","),
+    );
+  }
+  for (const p of rep.byPrompt) {
+    lines.push(
+      ["prompt", p.graph_name, p.version, p.runs, p.passed, p.passRate.toFixed(4), p.avgRework.toFixed(3), Math.round(p.avgDurationMs), score(p.avgScore)]
+        .map(esc)
+        .join(","),
+    );
+  }
+
+  return new Response(lines.join("\n"), {
+    headers: {
+      "content-type": "text/csv; charset=utf-8",
+      "content-disposition": `attachment; filename="agent-world-eval-${new Date().toISOString().slice(0, 10)}.csv"`,
+    },
+  });
+});
+
 app.post("/api/runs", async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as {
     graphId?: string;
