@@ -89,6 +89,15 @@ export interface RunSummary {
   ended_at: number | null;
 }
 
+export class GraphConflictError extends Error {
+  serverVersion: number | undefined;
+  constructor(message: string, serverVersion?: number) {
+    super(message);
+    this.name = "GraphConflictError";
+    this.serverVersion = serverVersion;
+  }
+}
+
 export const api = {
   listTemplates: () =>
     fetch("/api/templates").then(
@@ -100,14 +109,28 @@ export const api = {
   listGraphs: () =>
     fetch("/api/graphs").then(json<{ id: string; name: string; updated_at: number }[]>),
 
-  getGraph: (id: string) => fetch(`/api/graphs/${id}`).then(json<Graph>),
+  getGraph: (id: string) =>
+    fetch(`/api/graphs/${id}`).then(json<Graph & { version: number }>),
 
-  saveGraph: (graph: Graph) =>
+  saveGraph: (graph: Graph, version?: number | null) =>
     fetch(`/api/graphs/${graph.id}`, {
       method: "PUT",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        ...(version != null ? { "if-match": String(version) } : {}),
+      },
       body: JSON.stringify(graph),
-    }).then(json<{ ok: true }>),
+    }).then(async (res) => {
+      if (res.status === 409) {
+        const body = (await res.json().catch(() => ({}))) as {
+          message?: string;
+          serverVersion?: number;
+        };
+        throw new GraphConflictError(body.message ?? "保存冲突", body.serverVersion);
+      }
+      if (!res.ok) throw new Error(`save failed: ${res.status}`);
+      return res.json() as Promise<{ ok: true; version: number }>;
+    }),
 
   createGraph: (opts?: { name?: string; from?: string; template?: string }) =>
     fetch("/api/graphs", {

@@ -52,7 +52,7 @@ const ERROR_LABEL: Record<string, string> = {
 };
 
 export default function Inspector() {
-  const { graph, selectedId, updateNode, saveState } = useGraph();
+  const { graph, selectedId, updateNode, saveState, reloadGraph } = useGraph();
   const runtime = useVisibleRuntime();
   const [tab, setTab] = useState<number | "diff">(1);
   const [showReasoning, setShowReasoning] = useState(false);
@@ -118,7 +118,13 @@ export default function Inspector() {
   const reasoning = rt && activeAttempt ? rt.reasoning[activeAttempt] : undefined;
   const artifacts = rt?.artifacts ?? [];
   const saveIndicator =
-    saveState === "saving" ? "保存中…" : saveState === "saved" ? "已保存" : saveState === "error" ? "保存失败" : "";
+    saveState === "saving"
+      ? "保存中…"
+      : saveState === "saved"
+        ? "已保存"
+        : saveState === "error"
+          ? "保存失败"
+          : "";
 
   return (
     <aside className="panel inspector">
@@ -128,6 +134,14 @@ export default function Inspector() {
       </div>
 
       <div className="inspector__body">
+        {saveState === "conflict" && (
+          <div className="conflict-banner" role="alert">
+            <span>该产线已在其他标签页被修改，当前改动未保存。</span>
+            <button type="button" className="btn btn--small" onClick={() => void reloadGraph()}>
+              重新载入
+            </button>
+          </div>
+        )}
         <label className="field">
           <span>名称 {saveIndicator && <em className="save-state">{saveIndicator}</em>}</span>
           <input

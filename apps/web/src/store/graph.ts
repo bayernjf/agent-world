@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { temporal } from "zundo";
 import type { Graph, GraphEdge, GraphNode, NodeKind } from "@agent-world/core";
-import { api } from "../lib/api";
+import { api, GraphConflictError } from "../lib/api";
 
 /** Cached default model for newly created agent nodes. */
 let cachedDefaultModel = "agnes-2.0-flash";
@@ -30,8 +30,12 @@ export const snap = (v: number) => Math.round(v / GRID) * GRID;
 interface GraphState {
   graph: Graph;
   selectedId: string | null;
-  saveState: "idle" | "saving" | "saved" | "error";
+  saveState: "idle" | "saving" | "saved" | "error" | "conflict";
+  /** Document version last loaded/saved from the server, for optimistic locking. */
+  serverVersion: number | null;
   setGraph: (graph: Graph) => void;
+  /** Reload server version after a conflict resolution / forced refresh. */
+  syncServerVersion: (version: number | null) => void;
   select: (id: string | null) => void;
   moveNode: (id: string, x: number, y: number) => void;
   addNode: (kind: NodeKind, x: number, y: number) => void;
@@ -46,6 +50,7 @@ interface GraphState {
   undo: () => void;
   redo: () => void;
   flushSave: () => Promise<void>;
+  reloadGraph: () => Promise<void>;
 }
 
 const EMPTY: Graph = { id: "seed", name: "Pilot Line", nodes: [], edges: [] };
@@ -93,8 +98,30 @@ export const useGraph = create<GraphState>()(
       graph: EMPTY,
       selectedId: null,
       saveState: "idle",
+      serverVersion: null,
 
-      setGraph: (graph) => set({ graph }),
+      // Accepts a graph possibly carrying a server-injected `version` field
+      // (from GET /api/graphs/:id). Strip it from the document (it is not part
+      // of the Graph schema) and remember it for the next conditional save.
+      setGraph: (graph) => {
+        const withVersion = graph as Graph & { version?: number };
+        const version = typeof withVersion.version === "number" ? withVersion.version : undefined;
+        if (version != null) {
+          const { version: _v, ...doc } = withVersion;
+          void _v;
+          set({ graph: doc as Graph, serverVersion: version, saveState: "saved" });
+        } else {
+          set({ graph });
+        }
+      },
+      syncServerVersion: (serverVersion) => set({ serverVersion }),
+
+      reloadGraph: async () => {
+        const id = get().graph.id;
+        const fresh = await api.getGraph(id);
+        const { version, ...doc } = fresh;
+        set({ graph: doc as Graph, serverVersion: version, saveState: "saved" });
+      },
       select: (selectedId) => set({ selectedId }),
 
       moveNode: (id, x, y) =>
@@ -241,13 +268,16 @@ export const useGraph = create<GraphState>()(
           saveTimer = null;
         }
         const graph = get().graph;
+        const version = get().serverVersion;
         useGraph.setState({ saveState: "saving" });
         try {
-          await api.saveGraph(graph);
-          useGraph.setState({ saveState: "saved" });
+          const res = await api.saveGraph(graph, version);
+          useGraph.setState({ saveState: "saved", serverVersion: res.version });
         } catch (err) {
           console.error("flush save failed", err);
-          useGraph.setState({ saveState: "error" });
+          useGraph.setState({
+            saveState: err instanceof GraphConflictError ? "conflict" : "error",
+          });
         }
       },
     }),

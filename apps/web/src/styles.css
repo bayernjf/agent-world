@@ -1681,6 +1681,24 @@ select {
   margin-left: 6px;
 }
 
+.conflict-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  margin-bottom: 10px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--power);
+  background: var(--steel-850);
+  border: 1px solid var(--power-dim);
+  border-radius: 6px;
+}
+.conflict-banner .btn--small {
+  flex-shrink: 0;
+}
+
 .btn-row {
   display: flex;
   gap: 8px;
