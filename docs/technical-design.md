@@ -149,12 +149,19 @@ RuntimeState {
   runId, status
   nodes: Record<nodeId, NodeRuntime>
   packets: PacketRuntime[]
+  failures: FailureRecord[]   // 追加式失败历史，重跑成功后仍保留
   totalCostUsd, budgetUsd, lastSeq
 }
 
 NodeRuntime {
-  status, attempt, outputs: Record<attempt, string>
-  tokensIn, tokensOut, costUsd, error?
+  status, attempt, outputs: Record<attempt, string>, reasoning
+  tokensIn, tokensOut, cachedTokens, reasoningTokens, costUsd, units
+  toolCalls: ToolCallRecord[], error?, errorCode?
+}
+
+FailureRecord {
+  kind: "node" | "gate" | "budget"
+  nodeId?, attempt?, errorCode?, error, seq, ts
 }
 ```
 
@@ -162,7 +169,7 @@ NodeRuntime {
 
 ```sql
 graphs (id, name, doc JSON, updated_at)
-runs   (id, graph_id, snapshot JSON, status, budget_usd, started_at, ended_at)
+runs   (id, graph_id, snapshot JSON, status, trigger, budget_usd, started_at, ended_at)
 events (run_id, seq, ts, version, type, payload JSON)
 node_runs (run_id, node_id, attempt, status, output, reasoning, error, error_code,
            tokens_in, tokens_out, cached_tokens, reasoning_tokens, cost_usd, units_json)
@@ -272,38 +279,48 @@ KnowledgeEntry {
 
 ## 4. API 设计
 
-### 4.1 当前 API（已实现）
+### 4.1 当前 API（已实现，阶段 1-3）
 
 ```
+# 产线
 GET    /api/graphs              列出产线
 GET    /api/graphs/:id          获取产线
 PUT    /api/graphs/:id          保存产线
-POST   /api/graphs/:id/dispatch 派发运行 { budgetUsd? }
-GET    /api/runs/:id            获取运行状态
-GET    /api/runs/:id/events     SSE 事件流（支持 Last-Event-ID 续传）
-POST   /api/runs/:id/cancel     取消运行
-```
-
-### 4.2 阶段 1 新增/修改
-
-```
-POST   /api/runs/:id/resume     恢复 halted 的运行（阶段1 halt恢复）
-GET    /api/settings            获取配置（模型 provider 列表，不返回 key 明文）
-PUT    /api/settings            保存配置（API key 等）
-```
-
-### 4.3 阶段 2-5 新增（概要）
-
-```
-# 阶段 2
-POST   /api/graphs              新建产线
+POST   /api/graphs              新建产线（可带 templateId 从模板创建）
 DELETE /api/graphs/:id          删除产线
 POST   /api/graphs/:id/duplicate 复制产线
+GET    /api/templates           产线模板目录
+GET    /api/skills              内置技能（工具）清单
+POST   /api/compile             编译产线，返回 plan + diagnostics
 
-# 阶段 3
-GET    /api/runs                运行历史列表（分页、筛选）
-GET    /api/runs/:id/costs      成本报表
+# 运行
+POST   /api/runs                派发运行 { graphId, budgetUsd?, input?, trigger? } -> { runId }
+GET    /api/runs                运行历史列表（?limit &offset，LEFT JOIN 产线名）
+DELETE /api/runs/:id            删除运行记录（运行中返回 409）
+GET    /api/runs/:id/events     全量事件日志 + fold 后的 state（回放用）
+GET    /api/runs/:id/stream     SSE 实时流，支持 ?after=<seq> 与 Last-Event-ID 续传
+POST   /api/runs/:id/cancel     取消运行
+POST   /api/runs/:id/resume     恢复/重试 { action: continue|scrap, resetFrom? }
+GET    /api/costs               成本报表（?from&to，按产线/节点/attempt/天聚合）
+GET    /api/costs.csv          导出 CSV（同范围，graph/node/day 三段）
 
+# 配置
+GET    /api/settings            获取配置（provider 列表，API key 脱敏）
+PUT    /api/settings            保存配置（API key、单价、默认模型等）
+POST   /api/providers/test      测试 provider 连接
+```
+
+#### `POST /api/runs/:id/resume` 的三种用途
+
+- **halt 恢复**：质检返工耗尽暂停后，`action:"continue"` 把该质检门标记为人工通过，继续下游；`action:"scrap"` 直接判失败。
+- **重试失败节点**：`action:"continue", resetFrom:"<nodeId>"`。引擎把该节点及其所有 flow 下游的产物/attempt/计费清空后重跑，上游已完成节点保留——对应失败面板的"重试该节点"。
+- **返工到上游**：`resetFrom` 传上游某个已完成节点 id，从该节点重新下料，一路重跑到终点——对应"返工到上游"。
+
+引擎在 resume/retry 时不重发 `run.started`（`SchedulerOptions.resuming`），否则会把客户端已折叠的运行时（失败历史、累计电费）清空。
+
+### 4.2 阶段 4-5 新增（概要）
+
+```
 # 阶段 4
 GET    /api/workers             列出已注册 worker
 POST   /api/webhooks/:graphId   Webhook 触发产线
@@ -398,7 +415,7 @@ Backdrop / pan-surface
 - Inspector 加 criterion 输入框（gate 选中时显示）
 - Prompt 编辑自动保存（debounce PUT，不只在 dispatch 时存）
 - Halted 状态加"恢复"按钮
-- 失败状态显示结构化错误信息和重试建议
+- 失败状态显示结构化错误信息和重试建议（阶段 3 已由 FailurePanel 实现，见 6.5）
 - API key 配置界面（设置面板）
 - 模型选择器（agent config 里的 model 字段变成下拉）
 
@@ -408,6 +425,16 @@ Backdrop / pan-surface
 - 管道分散锚点、正交折线、跨线桥、方向箭头、hover/点击整条流向高亮、Delete 删除选中管
 - 厂房 hover 名牌（反缩放，显示模型/状态/Token/电费）、20px 网格吸附、⌘C/V 复制粘贴
 - 连接校验（自环/重复弹 toast）、HUD 快捷键说明面板
+
+---
+
+### 6.5 阶段 2-3 前端（已实现）
+
+- **多产线管理**：GraphSwitcher 新建/切换/复制/重命名/删除产线，新建可选模板。
+- **运行历史**：`RunHistory` 弹窗（HUD「历史」），列表展示产线/状态/触发/时间/耗时，双击或「回放」加载 graph + 事件流，删除走二次确认。回放通过 `store/run.ts` 的 `loadRun()` 直接用全量事件 fold 出 state，不开 SSE。
+- **成本报表**：`CostReport` 弹窗（HUD「成本」），范围切换（7d/30d/全部），统计卡 + 每日电费柱状图 + 按产线/厂房表。数据来自 `GET /api/costs` 对 `node_runs` 投影的聚合。
+- **结构化失败面板**：`FailurePanel` 在 run 失败/跳闸时浮于画布顶部，展示每条失败（厂房、错误码徽章、attempt、时间、信息、受影响下游数），提供「重试该节点」「返工到上游」（resetFrom）「整条重跑」「忽略关闭」。失败历史存在 `RuntimeState.failures`。
+- **SSE 连接状态机**：`connection: idle|connecting|live|reconnecting`，初次连接显示「连接中…」，断线指数退避重连显示「重连中…」。
 
 ---
 
@@ -600,9 +627,9 @@ interface Skill {
 
 **取消不省钱。** `AbortController` 能停引擎循环，`openai-compatible.ts` 也把外部 signal 绑到了 fetch 上（这点已做对）。但模型一旦开始生成，断开 HTTP 后已产生的 token 多数 provider 仍计费。取消是"停止后续工作"不是"撤回已花的钱"，UI 需如实告知。
 
-**错误信息可能泄漏敏感内容。** `ProviderError` 把 provider 返回的完整 HTTP body 存进事件流并显示在前端。报错体可能含请求回显、内部 URL、key 片段。落库前应截断 + 脱敏（过滤 `authorization`/`api_key`/`sk-...` 模式）。
+**错误信息可能泄漏敏感内容。** 已由 `sanitizeError()` 在落库前过滤 `authorization`/`api_key`/`sk-...` 等模式；`ProviderError` 仍保留分类错误码（TIMEOUT/AUTH/UNSUPPORTED 等）供失败面板展示。后续接入可写文件/外部 API 的工具时需扩大脱敏面。
 
-**数据库迁移是 try/catch 加列级别。** 当前 `db.ts` 的迁移只能加列，做不了数据回填、类型变更、多步迁移、回滚。开源前需要 `schema_version` 表 + 有序迁移。SQLite 单文件就是全部家当，启动时应做备份（VACUUM INTO 或 .backup）。
+**数据库迁移已改为有序版本化。** `db.ts` 维护 `schema_migrations(version, applied_at)` 表和 `MIGRATIONS` 数组，每个迁移带 version/description/up，在一个事务里按序执行并记录；旧库首次打开时通过 `detect` 做 baseline（已存在的列标记为已应用，不重复 ALTER）。新增迁移只需在数组末尾追加递增版本，不要改动已发布的条目。仍待做：启动备份（VACUUM INTO 或 .backup）、数据回填型迁移的实际用例验证。
 
 ### 12.2 阶段 2 并行时会撞墙
 
@@ -611,7 +638,7 @@ interface Skill {
 - budget 检查基于已提交的 totalCostUsd，并发节点不能都读到旧值同时通过预算
 - `artifacts` Map 的写入对下游可见性由 barrier（等齐所有上游）保证，不能读到半成品
 
-**上下文窗口爆炸。** `inputFor` 现在把所有入边产出用 `\n\n` 拼接。长产线、多次返工、并行汇合后输入线性增长，会超过模型 context window。需要输入策略：截断、滚动摘要、或显式声明"只取最近一次产出"。真实工作流一上就会撞。
+**上下文窗口爆炸。** `inputFor` 默认把所有入边产出拼接，长产线会线性增长。已实现节点级 `inputPolicy`（all/last/truncate，带尾截断标记）作为廉价护栏；真正的 LLM 滚动摘要/compaction 仍待做。
 
 ### 12.3 阶段 3/4 需要
 
