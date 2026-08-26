@@ -1,4 +1,4 @@
-import { HaltRequested, type AgentChunk, type AgentResult, type ImageGenResult, type Worker } from "../worker.js";
+import { HaltRequested, type AgentChunk, type AgentResult, type AudioGenArgs, type AudioGenResult, type ImageGenResult, type VideoGenArgs, type VideoGenResult, type Worker } from "../worker.js";
 import type { AgentConfig, ContentPart as MultimodalContent, GraphNode, Usage } from "@agent-world/core";
 import { computeCost, modalityOf, normalizeBaseUrl, type ModelPricing, type ProviderConfig } from "../config.js";
 
@@ -497,6 +497,148 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
         results.push({ data, mimeType, usage: { tokensIn: 0, tokensOut: 0, costUsd: imgCost, units: { images: 1 } } });
       }
       return results;
+    },
+
+    // Video generation. Provider support varies widely — OpenAI has no public
+    // video API, but some OpenAI-compatible providers (Replicate-style, local
+    // ComfyUI wrappers) expose /videos/generations. Supports both sync
+    // (returns b64_json/url immediately) and async (returns an id, then poll
+    // /videos/:id) response shapes. Soft-fails via the engine when the worker
+    // lacks this method entirely.
+    async generateVideo({ config, input, signal }: VideoGenArgs): Promise<VideoGenResult[]> {
+      const model = config.model || "video-gen";
+      const n = Math.min(4, Math.max(1, Math.trunc(config.n ?? 1)));
+      const endpoint = (config.baseUrl || baseUrl).replace(/\/+$/, "");
+      const apiKey = config.apiKey || provider.apiKey;
+      if (!apiKey) {
+        throw new ProviderError("AUTH", "Missing API key for video provider");
+      }
+      const VIDEO_TIMEOUT_MS = 300_000; // video gen is slow
+      const POLL_INTERVAL_MS = 3000;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), VIDEO_TIMEOUT_MS);
+      const onAbort = () => controller.abort();
+      if (signal) {
+        if (signal.aborted) controller.abort();
+        else signal.addEventListener("abort", onAbort, { once: true });
+      }
+      try {
+        const body: Record<string, unknown> = { model, prompt: input, n };
+        if (config.duration) body.duration = config.duration;
+        if (config.aspect) body.aspect_ratio = config.aspect;
+        if (config.size) body.size = config.size;
+
+        const res = await fetch(`${endpoint}/videos/generations`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        });
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          throw new ProviderError(mapHttpStatus(res.status), `HTTP ${res.status}: ${text.slice(0, 300)}`, res.status);
+        }
+        const json = (await res.json()) as Record<string, unknown>;
+
+        // Async: task was accepted, poll for completion.
+        if (json.id && (json.status === "processing" || json.status === "queued" || json.status === "in_progress")) {
+          const taskId = json.id as string;
+          let videoUrl: string | undefined;
+          while (!controller.signal.aborted) {
+            await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+            const pollRes = await fetch(`${endpoint}/videos/${taskId}`, {
+              headers: { Authorization: `Bearer ${apiKey}` },
+              signal: controller.signal,
+            });
+            if (!pollRes.ok) continue;
+            const pollJson = (await pollRes.json()) as Record<string, unknown>;
+            if (pollJson.status === "succeeded" || pollJson.status === "completed") {
+              const output = pollJson.output as Array<{ url?: string; b64_json?: string }> | undefined;
+              videoUrl = output?.[0]?.url;
+              break;
+            }
+            if (pollJson.status === "failed") {
+              throw new ProviderError("PROVIDER_ERROR", `video generation failed: ${String(pollJson.error ?? "")}`);
+            }
+          }
+          if (!videoUrl) throw new ProviderError("PROVIDER_ERROR", "video generation timed out");
+          const vidRes = await fetch(videoUrl, { signal: controller.signal });
+          if (!vidRes.ok) throw new ProviderError("PROVIDER_ERROR", `failed to fetch video: HTTP ${vidRes.status}`);
+          const data = Buffer.from(await vidRes.arrayBuffer());
+          const ct = vidRes.headers.get("content-type") || "video/mp4";
+          return [{ data, mimeType: ct, usage: { tokensIn: 0, tokensOut: 0, costUsd: 0, units: {} } }];
+        }
+
+        // Sync: response contains data array with b64_json or url.
+        const items = (json.data as Array<{ b64_json?: string; url?: string }> | undefined) ?? [];
+        if (items.length === 0) throw new ProviderError("PROVIDER_ERROR", "video generation returned no data");
+        const results: VideoGenResult[] = [];
+        for (const item of items.slice(0, n)) {
+          let data: Buffer;
+          if (item.b64_json) {
+            data = Buffer.from(item.b64_json, "base64");
+          } else if (item.url) {
+            const vidRes = await fetch(item.url, { signal: controller.signal });
+            if (!vidRes.ok) throw new ProviderError("PROVIDER_ERROR", `failed to fetch video: HTTP ${vidRes.status}`);
+            data = Buffer.from(await vidRes.arrayBuffer());
+          } else {
+            throw new ProviderError("PROVIDER_ERROR", "video response missing data");
+          }
+          results.push({ data, mimeType: "video/mp4", usage: { tokensIn: 0, tokensOut: 0, costUsd: 0, units: {} } });
+        }
+        return results;
+      } finally {
+        clearTimeout(timer);
+        if (signal) signal.removeEventListener("abort", onAbort);
+      }
+    },
+
+    // Audio generation (TTS / music). OpenAI /audio/speech is the most common
+    // compatible endpoint — synchronous, returns audio binary directly.
+    async generateAudio({ config, input, signal }: AudioGenArgs): Promise<AudioGenResult[]> {
+      const model = config.model || "tts-1";
+      const n = Math.min(4, Math.max(1, Math.trunc(config.n ?? 1)));
+      const endpoint = (config.baseUrl || baseUrl).replace(/\/+$/, "");
+      const apiKey = config.apiKey || provider.apiKey;
+      if (!apiKey) {
+        throw new ProviderError("AUTH", "Missing API key for audio provider");
+      }
+      const AUDIO_TIMEOUT_MS = 120_000;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), AUDIO_TIMEOUT_MS);
+      const onAbort = () => controller.abort();
+      if (signal) {
+        if (signal.aborted) controller.abort();
+        else signal.addEventListener("abort", onAbort, { once: true });
+      }
+      try {
+        const results: AudioGenResult[] = [];
+        for (let i = 0; i < n; i++) {
+          const res = await fetch(`${endpoint}/audio/speech`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+            body: JSON.stringify({
+              model,
+              input: input || config.prompt || "",
+              voice: config.voice || "alloy",
+              response_format: config.format || "mp3",
+              ...(config.speed != null ? { speed: config.speed } : {}),
+            }),
+            signal: controller.signal,
+          });
+          if (!res.ok) {
+            const text = await res.text().catch(() => "");
+            throw new ProviderError(mapHttpStatus(res.status), `HTTP ${res.status}: ${text.slice(0, 300)}`, res.status);
+          }
+          const data = Buffer.from(await res.arrayBuffer());
+          const ct = res.headers.get("content-type") || `audio/${config.format || "mpeg"}`;
+          results.push({ data, mimeType: ct, usage: { tokensIn: 0, tokensOut: 0, costUsd: 0, units: {} } });
+        }
+        return results;
+      } finally {
+        clearTimeout(timer);
+        if (signal) signal.removeEventListener("abort", onAbort);
+      }
     },
 
     async summarize({ text, maxChars, model, signal }) {

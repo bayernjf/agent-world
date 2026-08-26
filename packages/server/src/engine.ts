@@ -771,6 +771,100 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
         return;
       }
 
+  // --- Video generation node: produce a short video clip from a prompt ---
+  if (node.kind === "videoGen") {
+    emit({ type: "node.started", nodeId, attempt });
+    const cfg = node.videoGen ?? { model: "video-gen", n: 1 };
+    if (!worker.generateVideo) {
+      console.warn(`[videoGen:${nodeId}] worker has no generateVideo, skipping`);
+      states.set(nodeId, "done");
+      emit({ type: "node.finished", nodeId, attempt, output: "", usage: zeroUsage() });
+      return;
+    }
+    const prompt = cfg.prompt?.trim() || (await inputFor(node));
+    try {
+      const results = await worker.generateVideo({ node, config: cfg, input: prompt, signal: opts.signal });
+      let usage: Usage = { tokensIn: 0, tokensOut: 0, costUsd: 0, units: {} };
+      const videoArts: Artifact[] = [];
+      for (let idx = 0; idx < results.length; idx++) {
+        const res = results[idx]!;
+        const ext = res.mimeType.includes("mp4") ? "mp4" : res.mimeType.includes("webm") ? "webm" : "mp4";
+        const uri = await opts.storeBinary(res.data, res.mimeType, `${node.name || "ai-video"}-${idx + 1}.${ext}`);
+        const a: Artifact = {
+          id: `${nodeId}-vid-${idx}`,
+          kind: "video",
+          uri,
+          mimeType: res.mimeType,
+          label: results.length > 1 ? `${node.name || "AI 视频"} #${idx + 1}` : node.name || "AI 视频",
+        };
+        videoArts.push(a);
+        emit({ type: "artifact.produced", nodeId, artifact: a });
+        usage = {
+          tokensIn: (usage.tokensIn ?? 0) + (res.usage.tokensIn ?? 0),
+          tokensOut: (usage.tokensOut ?? 0) + (res.usage.tokensOut ?? 0),
+          costUsd: (usage.costUsd ?? 0) + (res.usage.costUsd ?? 0),
+          units: { ...usage.units, ...res.usage.units },
+        };
+      }
+      artifacts.set(nodeId, videoArts);
+      emit({ type: "node.finished", nodeId, attempt, output: "", usage });
+      states.set(nodeId, "done");
+      sendPackets(nodeId, `生成视频 ${results.length} 段`, "video");
+    } catch (err) {
+      console.warn(`[videoGen:${nodeId}] generation failed:`, (err as Error).message);
+      states.set(nodeId, "done");
+      emit({ type: "node.finished", nodeId, attempt, output: "", usage: zeroUsage() });
+    }
+    return;
+  }
+
+  // --- Audio generation node: TTS / music from text ---
+  if (node.kind === "audioGen") {
+    emit({ type: "node.started", nodeId, attempt });
+    const cfg = node.audioGen ?? { model: "tts-1", format: "mp3", n: 1 };
+    if (!worker.generateAudio) {
+      console.warn(`[audioGen:${nodeId}] worker has no generateAudio, skipping`);
+      states.set(nodeId, "done");
+      emit({ type: "node.finished", nodeId, attempt, output: "", usage: zeroUsage() });
+      return;
+    }
+    const prompt = cfg.prompt?.trim() || (await inputFor(node));
+    try {
+      const results = await worker.generateAudio({ node, config: cfg, input: prompt, signal: opts.signal });
+      let usage: Usage = { tokensIn: 0, tokensOut: 0, costUsd: 0, units: {} };
+      const audioArts: Artifact[] = [];
+      for (let idx = 0; idx < results.length; idx++) {
+        const res = results[idx]!;
+        const ext = res.mimeType.includes("wav") ? "wav" : res.mimeType.includes("ogg") ? "ogg" : res.mimeType.includes("opus") ? "opus" : "mp3";
+        const uri = await opts.storeBinary(res.data, res.mimeType, `${node.name || "ai-audio"}-${idx + 1}.${ext}`);
+        const a: Artifact = {
+          id: `${nodeId}-aud-${idx}`,
+          kind: "audio",
+          uri,
+          mimeType: res.mimeType,
+          label: results.length > 1 ? `${node.name || "AI 音频"} #${idx + 1}` : node.name || "AI 音频",
+        };
+        audioArts.push(a);
+        emit({ type: "artifact.produced", nodeId, artifact: a });
+        usage = {
+          tokensIn: (usage.tokensIn ?? 0) + (res.usage.tokensIn ?? 0),
+          tokensOut: (usage.tokensOut ?? 0) + (res.usage.tokensOut ?? 0),
+          costUsd: (usage.costUsd ?? 0) + (res.usage.costUsd ?? 0),
+          units: { ...usage.units, ...res.usage.units },
+        };
+      }
+      artifacts.set(nodeId, audioArts);
+      emit({ type: "node.finished", nodeId, attempt, output: "", usage });
+      states.set(nodeId, "done");
+      sendPackets(nodeId, `生成音频 ${results.length} 段`, "audio");
+    } catch (err) {
+      console.warn(`[audioGen:${nodeId}] generation failed:`, (err as Error).message);
+      states.set(nodeId, "done");
+      emit({ type: "node.finished", nodeId, attempt, output: "", usage: zeroUsage() });
+    }
+    return;
+  }
+
   // --- Image generation node: produce a banner/scene image when source lacks photos ---
   if (node.kind === "imageGen") {
     emit({ type: "node.started", nodeId, attempt });

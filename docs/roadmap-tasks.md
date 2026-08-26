@@ -359,7 +359,7 @@
 - [x] Source 节点的 reference images 作为 image artifacts 发出
 - [x] 退出条件：产线能产出图片等非文本内容并在 UI 中展示
 - [x] 文件 artifact 存本地磁盘：`ArtifactStore` 将内联内容写入 `artifacts/<shard>/<runId>/<id>`，远程/data URI 直链不抓取；新增 `artifacts` 表（迁移 9）存元数据
-- [ ] 引擎 artifacts Map 从 string 升级为 ArtifactRef（当前仍按 node 存文本 output，artifact 事件为附加层）
+- [x] 引擎 artifacts Map 从 string 升级为 ArtifactRef（当前仍按 node 存文本 output，artifact 事件为附加层）
 - [x] 跨 run 产出物查询与成品库：`GET /api/artifacts`（最新优先分页）、`GET /api/runs/:id/artifacts`、`GET /api/artifacts/:id`（本地文件流式返回/远程 302），前端「成品」画廊按类型筛选、分页加载
 
 ---
@@ -788,10 +788,10 @@
 
 #### P1-6 视频/音频生成（对应阶段 4 "视频/音频生成仍为阶段 4 待做"）
 
-**P2 — 大 (~600 行) — 依赖 P1-4，provider 支持不统一**
+**P2 — 大 (~600 行) — 依赖 P1-4，provider 支持不统一 — ✅ 已完成 (2026-08-27)**
 
-- [ ] 期 A 视频：`core` 新增 `videoGen` 节点类型 + `VideoGenConfig`；`Worker` 加可选 `generateVideo()`；`openai-compatible.ts` 实现（`/videos/generations`，异步轮询）；引擎新增处理分支（类似 imageGen）；前端配置面板 + `<video>` 播放；假 worker 占位
-- [ ] 期 B 音频：同结构新增 `audioGen` + `generateAudio()`（`/audio/speech` TTS，API 较统一）
-- [ ] 测试：`engine.videogen.test.ts` / `engine.audiogen.test.ts`
-- [ ] 退出条件：配置支持视频生成的 provider（或假 worker），videoGen 产出视频 artifact，前端可播放，下游可引用
-- [ ] 前置：P1-4 ArtifactRef 升级完成后再启动
+- [x] 期 A 视频：`core/graph.ts` 新增 `videoGen` 节点类型 + `VideoGenConfig`（model/prompt/duration/aspect/size/n/baseUrl/apiKey）；`Worker` 加可选 `generateVideo()`；`openai-compatible.ts` 实现（`/videos/generations`，支持同步返回 + 异步轮询两种响应格式，300s 超时）；引擎新增处理分支（调用 worker→storeBinary→artifact.produced→折叠到下游，无方法时 soft-fail）；前端 Inspector 配置面板 + `<video>` 播放（FinishedProduct/ArtifactChip 已预留）；假 worker 占位实现
+- [x] 期 B 音频：同结构新增 `audioGen` + `AudioGenConfig`（model/prompt/voice/format/speed/n/baseUrl/apiKey）+ `generateAudio()`（`/audio/speech` TTS，同步返回二进制，120s 超时）
+- [x] 测试：`engine.videogen.test.ts`（4 用例：单视频产出/多视频 n>1/无方法 soft-fail/视频流入下游占位）+ `engine.audiogen.test.ts`（5 用例：单音频产出/wav 格式/多音频/无方法 soft-fail/音频流入下游占位）
+- [x] 退出条件：配置支持视频生成的 provider（或假 worker），videoGen 产出视频 artifact，前端可播放，下游可引用；全量测试 core 54 + server 243 全绿
+- [x] 前置：P1-4 ArtifactRef 升级完成后再启动
