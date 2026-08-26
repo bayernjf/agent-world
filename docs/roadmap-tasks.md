@@ -389,10 +389,10 @@
 
 ### 4.3 MCP 支持
 
-- [ ] 实现 MCP client
-- [ ] 连接 MCP server，发现其工具列表
-- [ ] MCP 工具自动成为可装备的技能卡
-- [ ] 退出条件：接一个 MCP server，它的工具能在产线里被调用
+- [x] 实现 MCP client
+- [x] 连接 MCP server，发现其工具列表
+- [x] MCP 工具自动成为可装备的技能卡
+- [x] 退出条件：接一个 MCP server，它的工具能在产线里被调用
 
 ### 4.4 Artifact 存储抽象
 
@@ -608,6 +608,22 @@
 - [x] 4B.7 测试 + 文档（roadmap 阶段 4 Connector 子块勾选）
   - 测试：`packages/server/src/connectors.test.ts`（file 单文件/目录/glob/asImages/base64、http JSON 提取/纯文本/非 2xx/Bearer auth/POST+自定义头、form 填值/空值、缺配置抛错）、`connectors-engine.test.ts`（source 装配拉料 + 不可达时 CONNECTOR 错误）
   - 用法：source 节点在 Inspector 选 Connector 类型并配置；`file` 支持路径/目录/glob 与 `asImages`；`http` 支持 GET/POST、Bearer/Basic auth、响应字段 `extract`、自定义 headers/body；`form` 在运行前弹窗填写，值经 `connectorValues` 注入 source 文本；拉取失败重试 2 次后以 `errorCode=CONNECTOR` 结束该节点，不扩散为未捕获异常。
+
+## 阶段 4D（建议）：MCP 支持
+
+> 目标：让产线能接入任意 MCP server，把它暴露的工具当作可装备的技能卡直接调用。
+> 属于 roadmap 阶段 4 的"MCP 支持"子块（4.3）。当前实现 stdio 传输；SSE/HTTP 传输为后续增强。
+
+依赖：4D.1 → 4D.2 → 4D.3 → 4D.4 → 4D.5 → 4D.6
+
+- [x] 4D.1 `McpClient`（`packages/server/src/mcp.ts`）：transport 抽象的 JSON-RPC 2.0 客户端（`initialize` / `listTools` / `callTool`），与具体传输解耦便于测试
+- [x] 4D.2 stdio 传输 `StdioMcpTransport`：子进程 + `Content-Length` 帧，按 `id` 关联请求/响应，忽略通知
+- [x] 4D.3 工具发现后注册为技能卡（`registerMcpTools`）：每个工具注册为 `kind:"tool"` 的 skill（`id=mcp:<server>:<tool>`），`execute` 转发到 MCP server；进入全局技能注册表，与内置工具一样可被挂载与调用
+- [x] 4D.4 启动装配：读 `MCP_SERVERS` 环境变量（JSON 数组 `[{id,command,args?}]`），逐个连接并注册；单台失败不影响其余
+- [x] 4D.5 状态与示例：`GET /api/mcp` 返回已连接 server 及其工具；`scripts/sample-mcp-server.mjs` 为最小可跑的 echo MCP server；测试含单测（内存 transport）+ 端到端（真实子进程）
+- [x] 4D.6 文档（本段勾选 + 用法说明）
+  - 用法：设 `MCP_SERVERS='[{"id":"sample","command":"node","args":["scripts/sample-mcp-server.mjs"]}]'` 后启动；其工具出现在技能卡中，运行时像内置工具一样被模型调用。`GET /api/mcp` 可查看接入情况。
+- [ ] 4D.7 后续增强（不在本次范围）：SSE / HTTP 传输、工具调用权限治理（network/fs 白名单生效）
 
 ## 阶段 4C（建议）：Worker 插件化
 
