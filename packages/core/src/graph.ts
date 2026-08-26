@@ -32,9 +32,12 @@ export type RetryPolicy = z.infer<typeof RetryPolicy>;
  * - all: concatenate every upstream output (default)
  * - last: only the most recent upstream output (sequential pipelines)
  * - truncate: concatenate but cap at maxChars, keeping the tail (most recent)
+ * - summary: like all, but when the concatenated input exceeds maxChars it is
+ *   compressed by an LLM summary (worker.summarize) instead of hard truncation;
+ *   falls back to truncate when no summarizer is available or it fails
  */
 export const InputPolicy = z.object({
-  mode: z.enum(["all", "last", "truncate"]).default("all"),
+  mode: z.enum(["all", "last", "truncate", "summary"]).default("all"),
   maxChars: z.number().int().min(500).optional(),
 });
 export type InputPolicy = z.infer<typeof InputPolicy>;
@@ -55,6 +58,12 @@ export const AgentConfig = z.object({
   inputPolicy: InputPolicy.default({ mode: "all" }),
   /** Optional per-node hard ceiling in USD across all attempts. */
   budgetUsd: z.number().min(0).nullable().optional(),
+  /**
+   * Free-text layout directives for a product-layout agent (e.g. "主图用竖图 3:4
+   * 居中；场景图卡 2 列网格"). Appended to the agent prompt so the next run honors
+   * manual image-position overrides. See `withLayoutDirectives`.
+   */
+  imageDirectives: z.string().optional(),
   retry: RetryPolicy.default({ maxRetries: 2, baseDelayMs: 1000, maxDelayMs: 30000 }),
 });
 export type AgentConfig = z.infer<typeof AgentConfig>;
@@ -65,6 +74,8 @@ export const ImageGenConfig = z.object({
   model: z.string().min(1),
   prompt: z.string().optional(),
   size: z.string().optional(),
+  /** Aspect ratio for the generated image; mapped to a provider size when `size` is unset. */
+  aspect: z.enum(["1:1", "3:4", "4:3", "16:9"]).optional(),
   /** How many images to produce (1-8). Each becomes its own artifact. */
   n: z.number().int().min(1).max(8).default(1),
   /** Optional per-node endpoint override, e.g. a local SD / ComfyUI OpenAI-compatible server. */
@@ -93,6 +104,53 @@ export const GateConfig = z.object({
 });
 export type GateConfig = z.infer<typeof GateConfig>;
 
+export const ConnectorType = z.enum(["manual", "file", "http", "form"]);
+export type ConnectorType = z.infer<typeof ConnectorType>;
+
+/** Pulls text/images from the local filesystem (path or glob). */
+export const FileConnector = z.object({
+  path: z.string(),
+  encoding: z.enum(["utf8", "base64"]).default("utf8"),
+  /** Treat matched files as images (emit image URLs) instead of text. */
+  asImages: z.boolean().default(false),
+});
+export type FileConnector = z.infer<typeof FileConnector>;
+
+/** Fetches data over HTTP(S); optional field extraction maps the response to source text. */
+export const HttpConnector = z.object({
+  url: z.string().url(),
+  method: z.enum(["GET", "POST"]).default("GET"),
+  headers: z.record(z.string()).optional(),
+  auth: z.object({ type: z.enum(["basic", "bearer"]), token: z.string() }).optional(),
+  /** If set, only these dot-paths of the response become the source text. */
+  extract: z.array(z.string()).optional(),
+  body: z.unknown().optional(),
+});
+export type HttpConnector = z.infer<typeof HttpConnector>;
+
+/** A form the user fills before a run; answers are injected as source text. */
+export const FormConnector = z.object({
+  fields: z
+    .array(
+      z.object({
+        name: z.string(),
+        label: z.string().optional(),
+        required: z.boolean().default(false),
+      }),
+    )
+    .default([]),
+});
+export type FormConnector = z.infer<typeof FormConnector>;
+
+/** Declarative data source for a source node. Replaces the old free-form connector stub. */
+export const ConnectorConfig = z.object({
+  type: ConnectorType,
+  file: FileConnector.optional(),
+  http: HttpConnector.optional(),
+  form: FormConnector.optional(),
+});
+export type ConnectorConfig = z.infer<typeof ConnectorConfig>;
+
 export const SourceConfig = z.object({
   /** Reference image URLs fed to vision-capable downstream agents. */
   images: z.array(z.string()).optional(),
@@ -112,13 +170,9 @@ export const SourceConfig = z.object({
   brandTerms: z.string().optional(),
   /** Free-form extra notes for the writers. */
   notes: z.string().optional(),
-  /** Reserved for future connectors (file/api/database/webhook). */
-  connector: z
-    .object({
-      type: z.string(),
-      config: z.record(z.unknown()).default({}),
-    })
-    .optional(),
+  /** Declarative data source (file/http/form). When set, the engine pulls raw
+   *  material from it instead of relying on the manual text fields above. */
+  connector: ConnectorConfig.optional(),
   /** Future: expected input schema for this source. */
   inputSchema: z.unknown().optional(),
 });
@@ -146,11 +200,43 @@ export const GraphEdge = z.object({
 });
 export type GraphEdge = z.infer<typeof GraphEdge>;
 
+export const TriggerType = z.enum(["manual", "webhook", "cron", "event", "batch"]);
+export type TriggerType = z.infer<typeof TriggerType>;
+
+/**
+ * A trigger that can start a graph run automatically. The execution logic
+ * (webhook endpoint, cron scheduler, event bus, batch runner) is wired in the
+ * server; this schema only captures configuration.
+ */
+export const TriggerConfig = z.object({
+  id: z.string().min(1),
+  type: TriggerType,
+  /** Cron expression; required when type === "cron". */
+  cron: z.string().optional(),
+  /** Shared secret validated by the webhook endpoint; required when type === "webhook". */
+  webhookSecret: z.string().optional(),
+  /** For type === "event": which graph/artifact event starts this run. */
+  eventSource: z.object({ kind: z.enum(["graph", "artifact"]), id: z.string() }).optional(),
+  /** For type === "batch": how input rows are sourced. */
+  batch: z
+    .object({
+      source: z.enum(["csv", "rows"]),
+      path: z.string().optional(),
+      rows: z.array(z.record(z.string())).optional(),
+    })
+    .optional(),
+  /** Whether the trigger is currently active. */
+  enabled: z.boolean().default(true),
+});
+export type TriggerConfig = z.infer<typeof TriggerConfig>;
+
 export const Graph = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   nodes: z.array(GraphNode),
   edges: z.array(GraphEdge),
+  /** Automatic run triggers (webhook/cron/event/batch). Absent = manual only. */
+  triggers: z.array(TriggerConfig).optional(),
 });
 export type Graph = z.infer<typeof Graph>;
 

@@ -88,6 +88,15 @@ export default function EvalReport({ open, onClose, graphId }: Props) {
 
   const t = report?.totals;
 
+  const evalCsvHref = (() => {
+    const p = new URLSearchParams();
+    if (graphId) p.set("graphId", graphId);
+    const b = rangeToBounds(range);
+    if (b.from !== undefined) p.set("from", String(b.from));
+    if (b.to !== undefined) p.set("to", String(b.to));
+    return `/api/eval.csv?${p.toString()}`;
+  })();
+
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal modal--wide" onClick={(e) => e.stopPropagation()}>
@@ -105,6 +114,13 @@ export default function EvalReport({ open, onClose, graphId }: Props) {
                 </button>
               ))}
             </div>
+            <a
+              className="btn"
+              href={evalCsvHref}
+              title="导出评估数据 CSV（合计 / 按产线 / 按天 / 按 Prompt 版本）"
+            >
+              导出 CSV
+            </a>
             <button className="icon-btn" onClick={onClose} title="关闭">
               ✕
             </button>

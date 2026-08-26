@@ -1,4 +1,13 @@
-import type { CompileResult, Graph, ModelPricing, RunEvent, RuntimeState } from "@agent-world/core";
+import type {
+  CompileResult,
+  Graph,
+  ModelPricing,
+  RunEvent,
+  RuntimeState,
+  TriggerConfig,
+} from "@agent-world/core";
+
+export type { TriggerConfig } from "@agent-world/core";
 import type { Skill } from "@agent-world/core";
 
 async function json<T>(res: Response): Promise<T> {
@@ -164,7 +173,16 @@ export interface BrandTerm {
 export const api = {
   listTemplates: () =>
     fetch("/api/templates").then(
-      json<{ id: string; name: string; description: string; category: string }[]>,
+      json<
+        {
+          id: string;
+          name: string;
+          description: string;
+          category: string;
+          nodes: { id: string; kind: string; x: number; y: number }[];
+          edges: { from: string; to: string; kind?: string }[];
+        }[]
+      >,
     ),
 
   listSkills: () => fetch("/api/skills").then(json<Skill[]>),
@@ -212,11 +230,16 @@ export const api = {
       body: JSON.stringify(graph),
     }).then(json<CompileResult>),
 
-  startRun: (graphId: string, budgetUsd: number | null, input?: string) =>
+  startRun: (
+    graphId: string,
+    budgetUsd: number | null,
+    input?: string,
+    connectorValues?: Record<string, string>,
+  ) =>
     fetch("/api/runs", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ graphId, budgetUsd, input }),
+      body: JSON.stringify({ graphId, budgetUsd, input, connectorValues }),
     }).then(json<{ runId: string }>),
 
   cancelRun: (runId: string) =>
@@ -224,20 +247,34 @@ export const api = {
 
   resumeRun: (
     runId: string,
-    action: "continue" | "scrap",
+    action: "continue" | "approve" | "reject" | "edit" | "scrap",
     resetFrom?: string,
+    editOutput?: Record<string, string>,
+    approveTools?: string[],
   ) =>
     fetch(`/api/runs/${runId}/resume`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ action, resetFrom }),
+      body: JSON.stringify({ action, resetFrom, editOutput, approveTools }),
     }).then(json<{ ok: true }>),
 
   getEvents: (runId: string) =>
     fetch(`/api/runs/${runId}/events`).then(json<{ events: RunEvent[]; state: RuntimeState }>),
 
-  listRuns: (limit = 50, offset = 0) =>
-    fetch(`/api/runs?limit=${limit}&offset=${offset}`).then(json<RunSummary[]>),
+  listRuns: (opts: { limit?: number; offset?: number; graphId?: string; status?: string } = {}) => {
+    const qs = new URLSearchParams();
+    if (opts.limit !== undefined) qs.set("limit", String(opts.limit));
+    if (opts.offset !== undefined) qs.set("offset", String(opts.offset));
+    if (opts.graphId) qs.set("graphId", opts.graphId);
+    if (opts.status) qs.set("status", opts.status);
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return fetch(`/api/runs${suffix}`).then(json<{ runs: RunSummary[]; total: number }>);
+  },
+
+  runStats: (runId: string) =>
+    fetch(`/api/runs/${runId}/stats`).then(
+      json<{ nodes: number; tokensIn: number; tokensOut: number; costUsd: number }>,
+    ),
 
   deleteRun: (runId: string) =>
     fetch(`/api/runs/${runId}`, { method: "DELETE" }).then(json<{ ok: true }>),
@@ -295,6 +332,30 @@ export const api = {
 
   deleteBrandTerm: (id: string) =>
     fetch(`/api/brand-terms/${id}`, { method: "DELETE" }).then(() => undefined),
+
+  listTriggers: (graphId: string) =>
+    fetch(`/api/graphs/${graphId}/triggers`).then(json<TriggerConfig[]>),
+
+  createTrigger: (graphId: string, trigger: TriggerConfig) =>
+    fetch(`/api/graphs/${graphId}/triggers`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(trigger),
+    }).then(async (res) => {
+      if (!res.ok) throw new Error(await res.text());
+      return res.json() as Promise<TriggerConfig>;
+    }),
+
+  deleteTrigger: (graphId: string, triggerId: string) =>
+    fetch(`/api/graphs/${graphId}/triggers/${triggerId}`, { method: "DELETE" }).then(() => undefined),
+
+  fireTrigger: (graphId: string, triggerId: string) =>
+    fetch(`/api/graphs/${graphId}/triggers/${triggerId}/fire`, { method: "POST" }).then(
+      json<{ runId: string }>,
+    ),
+
+  triggerNextRuns: (graphId: string) =>
+    fetch(`/api/graphs/${graphId}/triggers/next-runs`).then(json<Record<string, number | null>>),
 
   listArtifacts: (limit = 100, offset = 0) =>
     fetch(`/api/artifacts?limit=${limit}&offset=${offset}`).then(json<StoredArtifact[]>),

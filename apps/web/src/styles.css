@@ -429,6 +429,28 @@ select {
   margin-top: 2px;
 }
 
+/* template structure thumbnail (SVG) */
+.template-preview {
+  width: 100%;
+  height: 96px;
+  display: block;
+  background: var(--steel-900, #0b1220);
+  border: 1px solid var(--line, #1f2937);
+  border-radius: 8px;
+  margin-bottom: 8px;
+}
+.template-preview--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-faint);
+  font-size: 12px;
+}
+.template-edge {
+  stroke: var(--ink-faint, #475569);
+  stroke-width: 2;
+}
+
 /* ---------- shortcuts help ---------- */
 .shortcuts {
   position: relative;
@@ -1429,6 +1451,16 @@ select {
   fill: rgba(255, 74, 61, 0.14);
   stroke: rgba(255, 74, 61, 0.5);
 }
+.plant__images-chip rect {
+  fill: rgba(64, 169, 255, 0.14);
+  stroke: rgba(64, 169, 255, 0.5);
+  stroke-width: 1;
+}
+.plant__images-chip text {
+  fill: #8ad0ff;
+  font-family: var(--mono);
+  font-size: 9px;
+}
 
 .plant--gate .plant__bar {
   fill: #1d2b22;
@@ -1849,8 +1881,19 @@ select {
   display: flex;
   gap: 8px;
 }
+.btn-row--wrap {
+  flex-wrap: wrap;
+}
 .btn-row .btn {
   flex: 1;
+}
+.btn--warn {
+  background: rgba(255, 74, 61, 0.14);
+  border-color: rgba(255, 74, 61, 0.5);
+  color: #ff9a90;
+}
+.btn--warn:hover {
+  background: rgba(255, 74, 61, 0.22);
 }
 .btn--block {
   width: 100%;
@@ -2506,6 +2549,127 @@ select {
   border-color: rgba(53, 224, 240, 0.4);
   background: rgba(53, 224, 240, 0.08);
 }
+.run-status--completed,
+.run-status--approved {
+  color: var(--ok);
+  border-color: rgba(102, 224, 122, 0.4);
+  background: rgba(102, 224, 122, 0.08);
+}
+.run-status--rejected {
+  color: var(--alert);
+  border-color: rgba(255, 74, 61, 0.4);
+  background: rgba(255, 74, 61, 0.08);
+}
+.run-status--cancelled {
+  color: var(--ink-dim);
+}
+
+/* ---- Run history ---- */
+.runhistory-filters {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.runhistory-filters label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--ink-dim);
+  text-transform: uppercase;
+}
+.runhistory-filters select {
+  min-width: 160px;
+}
+.runhistory-count {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+.runhistory-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 52vh;
+  overflow-y: auto;
+}
+.runhistory-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--hair, #1f2937);
+  border-radius: 8px;
+  background: var(--steel-850, #0f1623);
+  cursor: pointer;
+}
+.runhistory-row:hover {
+  border-color: var(--data, #35e0f0);
+}
+.runhistory-row-main {
+  flex: 1;
+  min-width: 0;
+}
+.runhistory-row-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.runhistory-name {
+  font-weight: 500;
+}
+.runhistory-id {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+.runhistory-row-meta {
+  display: flex;
+  gap: 14px;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--ink-dim);
+  flex-wrap: wrap;
+}
+.runhistory-pager {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+}
+.runhistory-modal .btn,
+.runhistory-pager .btn {
+  width: auto;
+  margin-top: 0;
+}
+.compare-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.compare-table th,
+.compare-table td {
+  border: 1px solid var(--hair, #1f2937);
+  padding: 8px 10px;
+  text-align: left;
+  vertical-align: top;
+}
+.compare-table thead th {
+  background: var(--steel-850, #0f1623);
+}
+.compare-table tbody td:first-child {
+  color: var(--ink-dim);
+  white-space: nowrap;
+}
+.btn--primary {
+  background: var(--data, #35e0f0);
+  color: #04121a;
+  border-color: var(--data, #35e0f0);
+  font-weight: 600;
+}
 
 /* ---- Cost report ---- */
 .modal--wide {
@@ -2960,6 +3124,27 @@ select {
   grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
   gap: 10px;
 }
+.pb-cards--row {
+  display: flex;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  gap: 10px;
+  padding-bottom: 4px;
+}
+.pb-cards--row .pb-card {
+  flex: 0 0 60%;
+}
+.pb-cards--carousel {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  padding-bottom: 4px;
+}
+.pb-cards--carousel .pb-card {
+  flex: 0 0 80%;
+  scroll-snap-align: center;
+}
 .pb-card {
   margin: 0;
   display: flex;
@@ -3097,6 +3282,36 @@ select {
   background: rgba(102, 224, 122, 0.06);
 }
 
+/* source Connector 配置编辑器 */
+.connector {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: var(--hair);
+}
+.connector .field-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.connector .field-row .field {
+  flex: 1;
+  min-width: 120px;
+}
+.form-field-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+}
+.form-field-row .text-input {
+  flex: 1;
+}
+.btn--icon {
+  padding: 4px 10px;
+  line-height: 1;
+  font-size: 16px;
+}
+
 .error-text {
   margin-top: 8px;
   color: #ff6b6b;
@@ -3148,4 +3363,172 @@ select {
 }
 .adv .field {
   margin-top: 8px;
+}
+
+/* ---- Triggers panel (4A.7) ---- */
+.triggers-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.triggers-toolbar p {
+  margin: 0;
+  flex: 1;
+}
+.trigger-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.trigger-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas: "main actions" "meta actions";
+  gap: 4px 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--steel-700, rgba(255, 255, 255, 0.08));
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.trigger-main {
+  grid-area: main;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.trigger-id {
+  font-family: var(--mono, monospace);
+  font-size: 12px;
+  color: var(--ink-dim);
+}
+.trigger-summary {
+  font-size: 12px;
+}
+.trigger-meta {
+  grid-area: meta;
+  font-size: 12px;
+  color: var(--ink-dim);
+}
+.trigger-meta code {
+  font-size: 11px;
+}
+.trigger-actions {
+  grid-area: actions;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.trigger-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--ink-dim);
+}
+.badge--manual {
+  color: var(--ink-dim);
+  border-color: var(--steel-500);
+  background: rgba(255, 255, 255, 0.04);
+}
+.badge--webhook {
+  color: var(--data);
+  border-color: rgba(53, 224, 240, 0.4);
+  background: rgba(53, 224, 240, 0.08);
+}
+.badge--cron {
+  color: var(--power);
+  border-color: rgba(255, 176, 32, 0.4);
+  background: rgba(255, 176, 32, 0.08);
+}
+.badge--event {
+  color: var(--plasma);
+  border-color: rgba(180, 103, 255, 0.4);
+  background: rgba(180, 103, 255, 0.08);
+}
+.badge--batch {
+  color: var(--ok);
+  border-color: rgba(102, 224, 122, 0.4);
+  background: rgba(102, 224, 122, 0.08);
+}
+.badge--off {
+  color: var(--ink-dim);
+  border-color: var(--steel-600);
+  background: rgba(255, 255, 255, 0.02);
+  opacity: 0.7;
+}
+.section-title {
+  margin: 18px 0 8px;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-dim);
+}
+.run-history {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.run-history li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+}
+.trigger-editor {
+  margin-top: 18px;
+  padding: 16px;
+  border: 1px solid var(--steel-700, rgba(255, 255, 255, 0.08));
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.18);
+}
+.trigger-editor h3 {
+  margin: 0 0 12px;
+  font-size: 14px;
+}
+.editor-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.trigger-editor .field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--ink-dim);
+}
+.trigger-editor .field > span {
+  font-size: 12px;
+}
+.trigger-editor .field input,
+.trigger-editor .field select,
+.trigger-editor .field textarea {
+  width: 100%;
+}
+.trigger-editor .field--check {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+.trigger-editor .field small {
+  font-size: 11px;
+}
+.row-json {
+  font-family: var(--mono, monospace);
+  font-size: 12px;
+  resize: vertical;
+}
+.trigger-editor .btn-row {
+  margin-top: 12px;
+  justify-content: flex-end;
 }

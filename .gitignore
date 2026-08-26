@@ -22,3 +22,4 @@ artifacts/
 
 # Code graph cache
 .codegraph/
+*.tsbuildinfo

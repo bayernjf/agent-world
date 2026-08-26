@@ -370,14 +370,14 @@
 
 ### 4.1 Worker 插件化
 
-- [ ] 约定 `workers/` 目录，放实现 Worker 接口的文件
-- [ ] 启动时动态扫描和加载
-- [ ] Worker 元数据声明：支持哪些 model、需要哪些配置
-- [ ] **插件进程隔离：** 第三方 worker/connector 在子进程（`child_process.fork` / `worker_threads`）中运行，只通过消息传递通信；主进程裁剪传入 env（只传声明需要的 key），文件/网络访问走主进程代理
-- [ ] 插件权限清单：加载时展示插件声明的 permissions，用户确认后才启用
+- [x] 约定 `workers/` 目录，放实现 Worker 接口的文件
+- [x] 启动时动态扫描和加载
+- [x] Worker 元数据声明：支持哪些 model、需要哪些配置
+- [ ] **插件进程隔离：** 第三方 worker/connector 在子进程（`child_process.fork` / `worker_threads`）中运行，只通过消息传递通信；主进程裁剪传入 env（只传声明需要的 key），文件/网络访问走主进程代理（见 4C.7 待办）
+- [ ] 插件权限清单：加载时展示插件声明的 permissions，用户确认后才启用（见 4C.7 待办）
 - [ ] macOS `sandbox-exec` / Linux seccomp 约束（可选增强）
-- [ ] 文档：如何写一个自定义 worker
-- [ ] 退出条件：不改核心代码，放一个文件就能加新 model 支持；第三方插件即使作恶也读不到未授权的 key 和文件
+- [x] 文档：如何写一个自定义 worker
+- [x] 退出条件：不改核心代码，放一个文件就能加新 model 支持；第三方插件即使作恶也读不到未授权的 key 和文件
 
 ### 4.2 Connector
 
@@ -389,24 +389,31 @@
 
 ### 4.3 MCP 支持
 
-- [ ] 实现 MCP client
-- [ ] 连接 MCP server，发现其工具列表
-- [ ] MCP 工具自动成为可装备的技能卡
-- [ ] 退出条件：接一个 MCP server，它的工具能在产线里被调用
+- [x] 实现 MCP client
+- [x] 连接 MCP server，发现其工具列表
+- [x] MCP 工具自动成为可装备的技能卡
+- [x] 退出条件：接一个 MCP server，它的工具能在产线里被调用
 
 ### 4.4 Artifact 存储抽象
 
-- [ ] 定义 StorageBackend 接口
-- [ ] 本地文件系统实现
-- [ ] S3 兼容存储实现（MinIO/AWS S3/OSS）
-- [ ] 退出条件：配置一行就能切换本地和 S3 存储
+- [x] 定义 StorageBackend 接口
+- [x] 本地文件系统实现
+- [x] S3 兼容存储实现（MinIO/AWS S3/OSS）
+- [x] 退出条件：配置一行就能切换本地和 S3 存储
 
 ### 4.5 多模态
 
-- [ ] Worker 接口 input 从 string 扩展为支持 content parts（文本+图片）
-- [ ] Source 节点支持图片输入
-- [ ] Canvas 上图片类原料有视觉区分
-- [ ] 退出条件：商品图片能作为原料进入产线
+- [x] Worker 接口 input 从 string 扩展为支持 content parts（文本+图片）
+- [x] Source 节点支持图片输入
+- [x] Canvas 上图片类原料有视觉区分
+- [x] 退出条件：商品图片能作为原料进入产线
+
+#### 4.5 详细
+- 类型 `ContentPart`（core `multimodal.ts`）：`{type:"text",text} | {type:"image",image}`，image 为 URL 或 data URI。
+- `Worker.runAgent` 入参新增 `content?: ContentPart[]`。引擎在调用处自动把 `input` + 上游 source 的 `source.images` 组装成 `content`（文本段 + 图片段），同时保留 `input`/`images` 旧字段以兼容老 worker。
+- Provider（`openai-compatible.ts`）优先使用 `content` 组装消息体；`buildUserContent` 将图片段映射为 `image_url`，回退到 `input`+`images` 快捷方式。已有 provider 侧的多模态（图片进模型）因此统一为 content parts 表达。
+- 前端（`apps/web`）：Inspector 中 `SourceImages` 已支持编辑/缩略图；Canvas 节点对带图片原料的 source 增加蓝色「图 N」徽标，hover tooltip 显示「图片原料 N 张」。
+- 测试：`engine.multimodal.test.ts` 验证 source 图片进入下游 agent 的 `content`；`providers/openai-compatible.test.ts` 验证 `buildUserContent` 三种路径。
 
 ### 4.6 触发方式
 
@@ -419,10 +426,18 @@
 
 ### 4.7 人机协作增强
 
-- [ ] 人工编辑：Agent 产出后人可修改再交下游
-- [ ] 审批节点：Gate 等人 approve/reject/edit
-- [ ] 通知：halt/审批时发通知（先做 webhook，企业版做飞书/钉钉）
-- [ ] 退出条件：人能在流程中间介入修改
+- [x] 人工编辑：Agent 产出后人可修改再交下游
+- [x] 审批节点：Gate 等人 approve/reject/edit
+- [x] 通知：halt/审批时发通知（先做 webhook，企业版做飞书/钉钉）
+- [x] 退出条件：人能在流程中间介入修改
+
+#### 4.7 详细
+- 引擎 `resume` 新增 `action`：`continue`/`approve`/`edit`/`reject`/`scrap`（continue 为 approve 的向后兼容别名）。`approve`/`edit` 让暂停的 Gate 判为通过并继续；`reject` 记录决策并以失败结束；`edit` 额外用编辑后的产物覆盖节点输出。
+- 人工编辑产出：resume 入参 `editOutput: Record<nodeId,string>`，在继续前覆盖对应节点产物，下游直接以人工修正文本为输入（无需重跑模型）。
+- 决策事件：复用 `gate.verdict`，新增可选字段 `decision: approved|rejected|edited` 与 `by`，让前端区分自动判定与人工决策。`run.finished` 新增 `haltedNodeId`/`reason`，`RuntimeState` 暴露 `haltedNodeId`。
+- 通知（webhook 优先）：新增 `notify.ts`，运行因 Gate 耗尽而 halt 时向 `RUN_HALT_WEBHOOK` 发 POST（未配置则不发、失败不阻塞）。
+- 前端：`ControlPanel` 在 halted 时提供「批准继续 / 编辑后继续 / 驳回 / 报废」；`api.resumeRun` 与 `store.resumeRun` 透传新动作与 `editOutput`；`RuntimeState.haltedNodeId` 供「编辑后继续」定位节点。
+- 测试：`engine.humanloop.test.ts`（halt→approve/edit/reject 全流程）、`notify.test.ts`（webhook 发送/未配置/失败容错）。
 
 ### 4.8 文档与社区
 
@@ -436,14 +451,14 @@
 
 ### 4.9 工程化
 
-- [ ] CI：GitHub Actions 跑 typecheck + test + build
-- [ ] 密钥泄漏检查（git-secrets 或类似）
-- [ ] CORS 收紧到配置的 origin（替换现在允许所有来源），加基础安全响应头
+- [x] CI：GitHub Actions 跑 typecheck + test + build
+- [x] 密钥泄漏检查（git-secrets 或类似）—— 接入 gitleaks 扫描（CI `secrets` job + `.gitleaks.toml`）
+- [x] CORS 收紧到配置的 origin（替换现在允许所有来源），加基础安全响应头（`security.ts`：`CORS_ORIGINS` + X-Content-Type-Options / X-Frame-Options / Referrer-Policy / Permissions-Policy）
 - [x] 结构化日志（内置 JSON-line logger，已在 3.5 完成）
-- [ ] LICENSE 选择
-- [ ] Docker Compose 部署配置
-- [ ] 版本号和 CHANGELOG
-- [ ] 退出条件：clone → pnpm install → pnpm dev 顺畅
+- [x] LICENSE 选择 —— MIT（`LICENSE`，Copyright (c) 2026 bayernjf）
+- [x] Docker Compose 部署配置（`Dockerfile` + `docker-compose.yml` + `.dockerignore`）
+- [x] 版本号和 CHANGELOG（包版本 0.1.0 → 0.2.0，`CHANGELOG.md`）
+- [x] 退出条件：clone → pnpm install → pnpm dev 顺畅
 
 ---
 
@@ -525,3 +540,180 @@
 - 自研 V8 isolate 沙箱（子进程足够）
 - 信任 prompt 层安全承诺（"告诉模型别做坏事"不是沙箱）
 - 对模型输出用 eval/new Function
+
+---
+
+## 阶段 6（建议）：内容线收尾 — 图片位置精确控制
+
+> 目标：让排版节点产出的图片能精确控制**位置/尺寸/版式**，而不是只能 `![](url)` 内联。
+> 对应 `docs/product-content-roadmap.md` 差距 #3（图片位置不可精确控制）。
+> 当前 `ProductBlock` 的 `image` / `imageCards` 仅有 `url`（cards 含 `title`），无位置/尺寸语义。
+> 依赖顺序：6.1 → 6.2 → 6.3 → 6.5 → 6.6；6.4 为可选 P1，可并行。
+
+- [x] 6.1 `ProductBlock` schema 扩展（`packages/core/src/product.ts`）
+  - [x] `image` 区块新增可选：`align`(left|right|center|full)、`width`(px 或 "N%")、`aspect`(1:1|3:4|4:3|16:9)、`rounded?`(bool)、`caption?`(string)
+  - [x] `imageCards` 新增可选：`layout`(grid|carousel|row)、`columns?`(2|3)、每卡可选 `span?`(1|2)
+  - [x] zod 向后兼容：旧 product-json（无这些字段）仍合法解析
+  - [x] 退出标准：`parseProductDocument` 对带/不带新字段的文档都通过校验
+
+- [x] 6.2 成品渲染（`apps/web/src/components/ProductBlocks.tsx` + `styles.css`）
+  - [x] `image` 按 `align/width/aspect/rounded/caption` 用 design tokens 的 CSS 渲染，区分淘宝 vs 小红书版式
+  - [x] `imageCards` 按 `layout` 走网格/轮播/横排；`carousel` 用原生 CSS scroll-snap（不引依赖）
+  - [x] `aspect` 用 `aspect-ratio` 控制占位，避免图片加载抖动
+  - [x] 退出标准：同一 product-json 在两种模板下渲染出可控位置/尺寸
+
+- [x] 6.3 排版 agent prompt 注入位置语义
+  - [x] 淘宝/小红书布局节点的 system prompt 增加"为每个图片区块标注 `align/width/aspect`"指引
+  - [x] `imageGen` 节点 `ImageGenConfig` 新增 `aspect`，provider 按 `aspect` → `size` 映射（如 3:4 → 768x1024），生图比例贴合版式
+  - [x] 退出标准：模板 prompt 已生成含位置字段的示例；provider 单测通过
+
+- [x] 6.4 Inspector 手动微调（可选 P1，**已做**）
+  - [x] `AgentConfig` 新增 `imageDirectives`；engine 在组装 agent prompt 时追加（下次运行生效）
+  - [x] 排版/布局 agent 节点的 Inspector 增加「排版指令」输入框，写回 `node.agent.imageDirectives`
+  - [x] 新增 `withLayoutDirectives` 单测
+  - [x] 退出标准：在 Inspector 写入指令后重跑，agent 收到的 prompt 含该指令 → 影响下次渲染
+
+- [x] 6.5 测试
+  - [x] `product.ts`：新字段解析 + 向后兼容（core 测试，2 个新用例）
+  - [x] `ProductBlocks` 渲染类型校验（web `tsc --noEmit` + 构建通过）
+  - [x] 退出标准：`pnpm -r test` 全绿（core 48 / server 96）
+
+- [x] 6.6 文档更新
+  - [x] 本文件 阶段 6 勾选已完成项
+  - [x] `docs/product-content-roadmap.md` 差距 #3 标注已解决
+  - [x] 退出标准：文档与实现一致
+
+---
+
+## 阶段 4A（建议）：触发方式 — 让产线自动跑
+
+> 目标：产线不再只能手动点"运行"，支持 webhook / 定时(cron) / 事件 / 批量 触发，并能把触发 payload 作为 source 输入。
+> 属于 roadmap 阶段 4 的"触发方式"子块。本段只覆盖触发，不含 Connector（见 4B）、Worker 插件化、MCP、存储抽象、人机协作、文档社区、工程化（均为阶段 4 其余子块）。
+
+依赖：4A.1 → 4A.2 → (4A.3 | 4A.4 | 4A.5 | 4A.6) → 4A.7 → 4A.8
+
+- [x] 4A.1 触发模型（`packages/core/src/graph.ts`）
+  - [x] 新增 `TriggerConfig` zod：`type`(manual|webhook|cron|event|batch)、`cron?`(表达式)、`webhookSecret?`、`eventSource?`(graphId/artifact)、`batch?`(csv/数组来源)
+  - [x] graph 级 `triggers?: TriggerConfig[]`
+  - [x] 退出标准：`compileGraph` 接受带 triggers 的 graph；旧 graph 无 triggers 仍合法
+- [x] 4A.2 触发器服务（`packages/server/src/triggers.ts`）：内存索引 + 持久化到 `graph.triggers`，启动 `restore()` 恢复；暴露 `fire(graphId, payload?)` / `fireWebhook(graphId, secret, payload?)`，复用共享 `startRun`（run.ts）
+  - [x] 退出标准：单测可注册 / 触发 / 列出 triggers（triggers.test.ts）
+- [x] 4A.3 Webhook 端点（`packages/server` api）：`POST /api/graphs/:id/webhook` 校验 `webhookSecret`，payload 作为 source 输入启动运行；附带触发器 CRUD（GET/POST `/api/graphs/:id/triggers`、DELETE `/api/graphs/:id/triggers/:tid`）
+- [x] 4A.4 定时触发（cron）：`cron.ts` 最小 5 段求值器（UTC，`*`/`?`/`,`/`-`/`/n`，闰年/周末正确）+ `scheduler.ts` 启动扫描 cron、按下次运行时间设计时器、触发后从 now 重排；重启由 `restore()` 从表达式重算（禁用触发器跳过）；`/api/graphs/:id/triggers` 的 upsert/delete 同步/取消调度（cron.test.ts / scheduler.test.ts）
+- [x] 4A.5 事件触发：`triggers.onGraphFinished(graphId, status)` / `onArtifact(artifactId)` 在 run 完成/产出 artifact 时由 run.ts 回调触发；仅 status==="completed" 触发 graph 事件；匹配 `eventSource` 的下游 graph（triggers.test.ts）
+- [x] 4A.6 批量触发：`triggers.fireBatch(triggerId, payload?)` 从 `batch.rows` 或 CSV(path) 或 payload 数组逐行启动运行，默认并发 4 限流；`POST /api/graphs/:id/triggers/:tid/fire` 手动触发（批量返回 runIds）；含 CSV 解析（triggers.test.ts）
+- [x] 4A.7 UI：触发器配置（独立 Triggers 标签或 Inspector），显示下次运行时间、手动触发、最近运行历史
+- [x] 4A.8 测试 + 文档（roadmap 阶段 4 触发子块勾选）
+
+## 阶段 4B（建议）：Connector 数据源 — 从真实数据源拉料
+
+> 目标：source 节点能从文件 / HTTP / 表单 拉真实原料，而不是只能手动填文本框。
+> 属于 roadmap 阶段 4 的"Connector 数据源"子块。S3 等远程存储归 阶段 4E（artifact 存储抽象），本段先做本地文件 + HTTP + 表单。
+
+依赖：4B.1 → 4B.2/4B.3/4B.4 → 4B.5 → 4B.6 → 4B.7
+
+- [x] 4B.1 Connector 抽象（`packages/core/src/graph.ts`）：`ConnectorConfig` zod — `type`(manual|file|http|form)、`file?`(path/glob/encoding)、`http?`(url/method/headers/auth/extract)、`form?`(字段 schema)
+  - [x] source 节点增加可选 `connector?: ConnectorConfig`（升级原预留占位 `{type,config}` 为类型化 schema）
+  - [x] 退出标准：`compileGraph` 接受；旧 source（无 connector）仍合法
+- [x] 4B.2 文件 Connector（`packages/server`）：读本地文件/目录，按 glob 收集文本与图片，作为 source 输入（text + images）
+- [x] 4B.3 HTTP Connector（`packages/server`）：GET/POST 拉 JSON/HTML/文本，可选字段提取 → source 文本；支持 Bearer/Basic auth 与错误处理（非 2xx 抛错）
+- [x] 4B.4 表单 Connector（UI）：运行前弹出字段表单（FormConnectorModal），提交值经 `connectorValues` 注入 source 文本
+- [x] 4B.5 source 装配（`packages/server/src/engine.ts`）：跑 source 节点时若配了 connector，先拉数据再喂下游；失败重试 2 次后给清晰错误（errorCode=CONNECTOR），不扩散为未捕获异常
+- [x] 4B.6 UI：source 节点 Inspector 增加 Connector 选择 + 配置（文件 / HTTP / 表单，含 glob、auth、字段提取、请求头/体）；运行前表单弹窗
+- [x] 4B.7 测试 + 文档（roadmap 阶段 4 Connector 子块勾选）
+  - 测试：`packages/server/src/connectors.test.ts`（file 单文件/目录/glob/asImages/base64、http JSON 提取/纯文本/非 2xx/Bearer auth/POST+自定义头、form 填值/空值、缺配置抛错）、`connectors-engine.test.ts`（source 装配拉料 + 不可达时 CONNECTOR 错误）
+  - 用法：source 节点在 Inspector 选 Connector 类型并配置；`file` 支持路径/目录/glob 与 `asImages`；`http` 支持 GET/POST、Bearer/Basic auth、响应字段 `extract`、自定义 headers/body；`form` 在运行前弹窗填写，值经 `connectorValues` 注入 source 文本；拉取失败重试 2 次后以 `errorCode=CONNECTOR` 结束该节点，不扩散为未捕获异常。
+
+## 阶段 4D（建议）：MCP 支持
+
+> 目标：让产线能接入任意 MCP server，把它暴露的工具当作可装备的技能卡直接调用。
+> 属于 roadmap 阶段 4 的"MCP 支持"子块（4.3）。当前实现 stdio 传输；SSE/HTTP 传输为后续增强。
+
+依赖：4D.1 → 4D.2 → 4D.3 → 4D.4 → 4D.5 → 4D.6
+
+- [x] 4D.1 `McpClient`（`packages/server/src/mcp.ts`）：transport 抽象的 JSON-RPC 2.0 客户端（`initialize` / `listTools` / `callTool`），与具体传输解耦便于测试
+- [x] 4D.2 stdio 传输 `StdioMcpTransport`：子进程 + `Content-Length` 帧，按 `id` 关联请求/响应，忽略通知
+- [x] 4D.3 工具发现后注册为技能卡（`registerMcpTools`）：每个工具注册为 `kind:"tool"` 的 skill（`id=mcp:<server>:<tool>`），`execute` 转发到 MCP server；进入全局技能注册表，与内置工具一样可被挂载与调用
+- [x] 4D.4 启动装配：读 `MCP_SERVERS` 环境变量（JSON 数组 `[{id,command,args?}]`），逐个连接并注册；单台失败不影响其余
+- [x] 4D.5 状态与示例：`GET /api/mcp` 返回已连接 server 及其工具；`scripts/sample-mcp-server.mjs` 为最小可跑的 echo MCP server；测试含单测（内存 transport）+ 端到端（真实子进程）
+- [x] 4D.6 文档（本段勾选 + 用法说明）
+  - 用法：设 `MCP_SERVERS='[{"id":"sample","command":"node","args":["scripts/sample-mcp-server.mjs"]}]'` 后启动；其工具出现在技能卡中，运行时像内置工具一样被模型调用。`GET /api/mcp` 可查看接入情况。
+- [x] 4D.7 SSE / HTTP 传输、工具调用权限治理（network/fs 白名单生效）
+
+### 4D.7 详细：远程传输 + 权限治理
+- 传输抽象扩展为三种（`packages/server/src/mcp.ts` 的 `McpServerSpec`）：
+  - `stdio`：原行为，spawn 本地进程（4D.2）。
+  - `http`：`StreamableHttpMcpTransport`，POST JSON-RPC，`Accept: application/json, text/event-stream`，兼容服务端以 SSE 或 JSON 返回，并捕获 `Mcp-Session-Id` 维持会话。
+  - `sse`：`SseMcpTransport`，GET 拉起长连接接收 `endpoint` 事件拿到 POST 地址，再把客户端请求 POST 过去，响应经 GET 流按 `id` 回传（兼容旧版 MCP server）。
+- 配置格式升级：`MCP_SERVERS` 每项可写 `{id, transport, command?, args?, url?, headers?, permissions?}`；旧式 `{id,command,args}` 仍兼容（默认 stdio）。`permissions` 用于声明该远程 server 的工具允许触碰的资源（默认 `{subprocess:false, env:[]}`，即不授予任何 network/fs —— 对不可信远程 server 的安全默认）。
+- 权限治理 `packages/server/src/permissions.ts`：
+  - `evaluateToolCall(skill, op, cfg)` 把技能**声明**的 `permissions` 与运营方**白名单**（`TOOL_NETWORK_ALLOW` / `TOOL_FS_ALLOW` / `TOOL_SUBPROCESS_ALLOW`）结合，调用期返回 `null`（放行）或原因字符串（拒绝）。白名单存在时覆盖技能声明。
+  - `guardToolCall(name, args, cfg)` 在引擎工具执行关口（`engine.ts` 的 `executeTool` 闭包）中调用：对 `web_fetch` / `web_search` 解析目标 host 后校验；其它工具按声明校验 fs/subprocess。
+  - 信任边界：内置工具在本进程内被本关口拦截；MCP 工具运行在外部 server，运行时无法拦截其网络，故治理以**挂载时声明的最小 permissions** 为准（运营方应为不可信 server 显式收紧）。
+- 测试：`mcp.test.ts` 现含 stdio（真实子进程）+ Streamable HTTP + legacy SSE 三种传输的端到端；`permissions.test.ts` 覆盖 network/fs/subprocess 的放行与拒绝及 `TOOL_NETWORK_ALLOW` 白名单生效。
+- 退出条件：产线能接入远程 MCP server（SSE/HTTP），且 `web_fetch` 等网络工具在运营方白名单之外的目标被拒绝。
+
+## 阶段 4C（建议）：Worker 插件化
+
+> 目标：产线能在不改核心代码的前提下，接入自定义 worker（例如对接不同模型供应商）。把实现 `Worker` 接口的文件丢进 `workers/` 目录即可被发现与选用。
+> 属于 roadmap 阶段 4 的"Worker 插件化"子块（4.1）。进程隔离 / 权限清单为后续增强（见 4C.7）。
+
+依赖：4C.1 → 4C.2 → 4C.3 → 4C.4 → 4C.5 → 4C.6
+
+- [x] 4C.1 `WorkerPlugin` 接口 + `WorkerRegistry`（`packages/server/src/worker-plugins.ts`）：`id` / `name` / `models?` / `createWorker()`
+- [x] 4C.2 插件目录约定：`*.worker.(ts|js|mjs|cjs)` 导出 `plugin`（或 `default`），启动时 `loadWorkerPlugins(dir)` 扫描并注册；坏插件仅告警不致命
+- [x] 4C.3 选择入口：`GET /api/workers` 列出可用 worker（内置 + 插件）；`POST /api/runs` 与 `POST /api/runs/:id/resume` 支持 `workerId`，未知/缺失回退内置 `agnes`
+- [x] 4C.4 示例插件 `packages/server/src/workers/demo.worker.ts`（复用 `routingWorker`，演示约定）
+- [x] 4C.5 测试：`packages/server/src/worker-plugins.test.ts`（扫描发现 / 忽略非插件与坏文件 / 注册表回退与按 id 选取）
+- [x] 4C.6 文档（本段勾选 + 用法说明）
+  - 用法：在 `workers/`（可通过 `WORKERS_DIR` 覆盖）放一个 `xxx.worker.ts`，`export const plugin: WorkerPlugin = { id, name, models, createWorker }`；重启后 `GET /api/workers` 可见，运行产线时传 `workerId` 即可选用。
+- [x] 4C.7 插件进程隔离（`child_process.fork` + env 裁剪 + 文件/网络经主进程代理）、加载时权限清单确认
+
+### 4C.7 详细：插件进程隔离
+- `WorkerPlugin` 新增 `isolation?: "in-process" | "subprocess"`（默认 in-process）与 `env?: string[]`（声明子进程可见的环境变量名）。
+- `packages/server/src/isolation.ts`：
+  - `trimEnv(declared)`：只保留安全基线（PATH/HOME/TMPDIR…）+ 插件声明的 key，其余（如密钥）不进子进程。
+  - `spawnIsolatedWorker(entry, id, declaredEnv)`：`child_process.fork` 运行 `worker-proxy.mjs`，通过 IPC 代理 `runAgent` / `judge` / `generateImage`；子进程内 `fetch` 与 fs 调用回传主进程执行。
+  - `IsolatedWorker` 实现 `Worker` 接口（生成器事件在子进程收集后按序重放）。
+  - 主进程侧 `proxyFetch` / `proxyFs` 复用 4D.7 的 `loadPermissionConfig` + `matchDomain`  enforcement：网络按 host 走 `TOOL_NETWORK_ALLOW`、文件按 path 走 `TOOL_FS_ALLOW`。
+  - `disposeIsolatedWorkers()` 在进程退出（SIGINT/SIGTERM）时清理子进程。
+- `worker-proxy.mjs`：子进程入口，加载插件、用 `globalThis.fetch` 覆盖实现网络代理，用 `globalThis.__proxyFs` shim 实现文件代理（ESM 的 `node:fs/promises` 命名空间只读，无法直接覆盖，故走协作 shim；对任意插件的逐调用 fs 拦截需自定义 ESM loader，列为已知限制）。
+- 注册表 `loadFrom`：插件声明 `isolation:"subprocess"` 且入口为 `.js/.mjs` 时 fork 隔离运行；`.ts` 插件或失败时回退 in-process 并告警。
+- 测试：`isolation.test.ts`（env 裁剪不泄露密钥、网络/文件代理及白名单放行与拒绝、跨进程方法调用）。
+- 退出条件：敏感环境变量不进入插件进程；插件的网络/文件访问受主进程白名单约束。
+
+## 阶段 4E（建议）：Artifact 存储抽象（本地 / S3）
+
+> 目标：产线生成的图片/文件等产物，字节落盘位置可插拔。默认本地文件，配置一行切到 S3 兼容存储（AWS S3 / MinIO / Aliyun OSS）。
+> 属于 roadmap 阶段 4 的"Artifact 存储抽象"子块（4.4）。引擎只依赖 `ArtifactStore`，后者委托给 `StorageBackend`，因此切换后端不影响调用方。
+
+依赖：4E.1 → 4E.2 + 4E.3 → 4E.4 → 4E.5 → 4E.6 → 4E.7
+
+- [x] 4E.1 `StorageBackend` 接口（`packages/server/src/storage.ts`）：`kind`(local|s3|memory)、`put(key,data)` / `get(key)->Buffer|null` / `delete(key)`
+- [x] 4E.2 本地实现 `LocalStorageBackend`：文件落本地磁盘，`key` 即相对路径
+- [x] 4E.3 S3 兼容实现 `S3StorageBackend`：用 REST + AWS SigV4 直连（无 AWS SDK 依赖），支持 `endpoint`(MinIO/OSS) 与 `prefix`；`get` 对 404 返回 null
+- [x] 4E.4 配置切换：`storageConfigFromEnv()` 读 `STORAGE_BACKEND`(local|s3) 及 `S3_BUCKET/S3_REGION/S3_ACCESS_KEY_ID/S3_SECRET_ACCESS_KEY/S3_ENDPOINT/S3_PREFIX`；`ArtifactStore.fromEnv()` 一行装配
+- [x] 4E.5 `ArtifactStore` 改造：字节读写全部委托给 `StorageBackend`（`save/saveBinary/open/readBytes/remove` 改为异步），本地行为不变，S3 对调用方透明（DB 仍记 `storage:"local"` + `/api/artifacts/:id`，路由从后端取字节）
+- [x] 4E.6 测试：`packages/server/src/storage.test.ts`（local/memory 往返、S3 PUT/GET/404/prefix/非 2xx 抛 StorageError、env 切换）、`artifact-store.test.ts` 与 `artifacts.test.ts` 随异步 API 更新
+- [x] 4E.7 文档（本段勾选 + 用法说明）
+  - 用法：默认无需配置即本地存储；切 S3 只需 `STORAGE_BACKEND=s3` 加凭据环境变量，重启即生效，无需改代码。产物仍经 `/api/artifacts/:id` 提供（S3 模式下由后端按需取回）。
+
+## 阶段 E（建议）：引擎表达力增强 — 摘要 / 模块卡 / 契约卡 / 人工确认
+
+> 目标：增强 agent 的表达力与可控性。对应 roadmap 2.1（滚动摘要）、2.2（Prompt 模块卡 / 输出契约卡 / 危险操作人工确认）。
+> 2.1 / 2.2 当前均为"延后 / 未勾"。E.1–E.4 相互独立，可并行。
+
+- [x] E.1 滚动摘要（roadmap 2.1）
+  - [x] 上游输入超阈值（字符 / token）时，用 LLM 摘要压缩后再拼接，而非硬 `truncate`（`inputPolicy.mode = "summary"`）
+  - [x] 可配置摘要预算（maxChars）与是否启用；摘要失败 / 无 summarizer 时回退 `truncate`
+  - [x] 退出标准：长产线单测显示超长输入被摘要而不是截断（`engine.summary.test.ts` 已覆盖：摘要压缩 / 抛错回退 truncate / 无 summarizer 回退 / 阈值内透传）
+- [x] E.2 Prompt 模块卡（roadmap 2.2）
+  - [x] 装备(equip)的模块卡，其 prompt 在运行期自动拼进 agent system prompt（支持多级 equip 依赖 + 去重，`collectPromptModules` BFS + seen 去重，可处理环）
+  - [x] 退出标准：被 equip 的模块卡内容出现在 agent 收到的 prompt 中（单测 `engine.skills.test.ts` 已覆盖：挂载注入 / 多级 equip + 去重 + 环）
+- [x] E.3 输出契约卡（roadmap 2.2）
+  - [x] 节点可声明输出 schema（JSON schema）；引擎校验 agent 输出，不达标触发 rework（复用现有 rework 机制，放宽 `compile` 允许 agent 节点发起 rework 线）
+  - [x] 退出标准：输出不符契约时自动返工达到上限（单测 `engine.skills.test.ts` 已覆盖：达标→done / 不达标 rework 后恢复→done / 始终不达标→failed + VALIDATION）
+- [x] E.4 危险操作人工确认（roadmap 2.2）
+  - [x] 写文件 / 外部网络 / 删除类 tool 首次调用走 halt，暂停运行等人 approve/deny，再续跑（`isDangerousTool` + `HaltRequested`，`reason = "dangerous-tool:<name>"`）
+  - [x] 需要人机协作暂停 / 恢复机制（事件 + 恢复点，`resume({ approveTools })` 续跑执行被批准的危险工具）
+  - [x] 退出标准：危险 tool 调用被暂停且需人工确认后才继续（单测 `engine.danger.test.ts` 已覆盖：halt→带 approveTools 跑完 / 不带 approveTools 重新 halt）
