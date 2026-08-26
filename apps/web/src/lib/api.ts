@@ -115,6 +115,52 @@ export interface EvalReport {
   >;
 }
 
+export interface StoredArtifact {
+  id: string;
+  runId: string;
+  nodeId: string;
+  attempt: number | null;
+  kind: "text" | "image" | "video" | "audio" | "file" | "json" | "uri";
+  mimeType: string | null;
+  label: string | null;
+  sizeBytes: number;
+  storage: "inline" | "uri" | "local";
+  uri: string | null;
+  createdAt: number;
+}
+
+export interface ABArmReport {
+  arm: string;
+  target: string | null;
+  prompt: string | null;
+  runs: number;
+  done: number;
+  passed: number;
+  passRate: number;
+  avgRework: number;
+  avgDurationMs: number;
+  avgScore: number;
+  avgCost: number;
+}
+
+export interface ABReport {
+  groupId: string;
+  arms: ABArmReport[];
+  recommendedArm: string | null;
+}
+
+export interface ABStartResult {
+  abGroup: string;
+  arms: Array<{ arm: string; runId: string; prompt: string }>;
+}
+
+export interface BrandTerm {
+  id: string;
+  term: string;
+  note: string;
+  createdAt: number;
+}
+
 export const api = {
   listTemplates: () =>
     fetch("/api/templates").then(
@@ -211,6 +257,60 @@ export const api = {
     if (opts.to !== undefined) qs.set("to", String(opts.to));
     const suffix = qs.toString() ? `?${qs.toString()}` : "";
     return fetch(`/api/eval${suffix}`).then(json<EvalReport>);
+  },
+
+  startAB: (
+    graphId: string,
+    targetNodeId: string,
+    variants: string[],
+    budgetUsd: number | null,
+    input: string,
+  ) =>
+    fetch("/api/runs/ab", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ graphId, targetNodeId, variants, budgetUsd, input }),
+    }).then(async (res) => {
+      if (!res.ok) throw new Error(await res.text());
+      return res.json() as Promise<ABStartResult>;
+    }),
+
+  abReport: (groupId: string) =>
+    fetch(`/api/ab/${groupId}`).then((res) => {
+      if (!res.ok) throw new Error(`A/B 报表加载失败：${res.status}`);
+      return res.json() as Promise<ABReport>;
+    }),
+
+  listBrandTerms: () => fetch("/api/brand-terms").then((res) => res.json() as Promise<BrandTerm[]>),
+
+  addBrandTerm: (term: string, note = "") =>
+    fetch("/api/brand-terms", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ term, note }),
+    }).then(async (res) => {
+      if (!res.ok) throw new Error(await res.text());
+      return res.json() as Promise<BrandTerm>;
+    }),
+
+  deleteBrandTerm: (id: string) =>
+    fetch(`/api/brand-terms/${id}`, { method: "DELETE" }).then(() => undefined),
+
+  listArtifacts: (limit = 100, offset = 0) =>
+    fetch(`/api/artifacts?limit=${limit}&offset=${offset}`).then(json<StoredArtifact[]>),
+
+  listRunArtifacts: (runId: string) =>
+    fetch(`/api/runs/${runId}/artifacts`).then(json<StoredArtifact[]>),
+
+  uploadArtifact: (file: File) => {
+    return fetch(`/api/artifacts/upload?label=${encodeURIComponent(file.name)}`, {
+      method: "POST",
+      headers: { "content-type": file.type || "application/octet-stream" },
+      body: file,
+    }).then((res) => {
+      if (!res.ok) throw new Error(`upload failed: ${res.status}`);
+      return res.json() as Promise<StoredArtifact>;
+    });
   },
 
   getSettings: () => fetch("/api/settings").then(json<AppConfig>),

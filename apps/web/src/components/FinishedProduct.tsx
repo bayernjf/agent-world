@@ -1,6 +1,8 @@
 import { useMemo, useState, type ElementType } from "react";
 import type { Artifact, Graph, RuntimeState } from "@agent-world/core";
-import { incoming } from "@agent-world/core";
+import { incoming, parseProductDocument } from "@agent-world/core";
+import ProductBlocks from "./ProductBlocks";
+import { productToHtml, productToLongImage } from "../lib/product-html";
 
 interface Props {
   sinkId: string;
@@ -114,12 +116,36 @@ export default function FinishedProduct({ sinkId, graph, runtime }: Props) {
   const videos = artifacts.filter((a) => a.kind === "video");
   const audios = artifacts.filter((a) => a.kind === "audio");
   const others = artifacts.filter((a) => !["image", "video", "audio"].includes(a.kind));
+  const productDoc = useMemo(() => parseProductDocument(text), [text]);
 
   const [copied, setCopied] = useState(false);
+  const [htmlCopied, setHtmlCopied] = useState(false);
+  const [imgBusy, setImgBusy] = useState(false);
   const copyText = () => {
     navigator.clipboard?.writeText(text).catch(() => undefined);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
+  };
+  const copyRichText = async () => {
+    const html = productToHtml(productDoc, text, graph.name);
+    try {
+      if (navigator.clipboard && typeof ClipboardItem !== "undefined") {
+        await navigator.clipboard.write([
+          new ClipboardItem({
+            "text/html": new Blob([html], { type: "text/html" }),
+            "text/plain": new Blob([text], { type: "text/plain" }),
+          }),
+        ]);
+      } else {
+        navigator.clipboard?.writeText(html).catch(() => undefined);
+      }
+      setHtmlCopied(true);
+      setTimeout(() => setHtmlCopied(false), 1500);
+    } catch {
+      navigator.clipboard?.writeText(html).catch(() => undefined);
+      setHtmlCopied(true);
+      setTimeout(() => setHtmlCopied(false), 1500);
+    }
   };
   const downloadMd = () => {
     const blob = new Blob([text], { type: "text/markdown;charset=utf-8" });
@@ -129,6 +155,29 @@ export default function FinishedProduct({ sinkId, graph, runtime }: Props) {
     a.download = `${graph.name || "product"}.md`;
     a.click();
     URL.revokeObjectURL(url);
+  };
+  const downloadHtml = () => {
+    const html = productToHtml(productDoc, text, graph.name);
+    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${graph.name || "product"}.html`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+  const downloadLongImage = async () => {
+    if (imgBusy) return;
+    setImgBusy(true);
+    try {
+      const png = await productToLongImage(productDoc, text, graph.name);
+      const a = document.createElement("a");
+      a.href = png;
+      a.download = `${graph.name || "product"}.png`;
+      a.click();
+    } finally {
+      setImgBusy(false);
+    }
   };
 
   if (!text && artifacts.length === 0) {
@@ -144,8 +193,11 @@ export default function FinishedProduct({ sinkId, graph, runtime }: Props) {
       <div className="product__bar">
         <span>成品</span>
         <div className="product__actions">
-          <button className="chip" onClick={downloadMd}>导出</button>
-          <button className="chip" onClick={copyText}>{copied ? "已复制" : "复制"}</button>
+          <button className="chip" onClick={downloadHtml}>导出 HTML</button>
+          <button className="chip" onClick={downloadMd}>导出 MD</button>
+          <button className="chip" onClick={downloadLongImage} disabled={imgBusy}>{imgBusy ? "生成中…" : "导出长图"}</button>
+          <button className="chip" onClick={copyRichText}>{htmlCopied ? "已复制富文本" : "复制富文本"}</button>
+          <button className="chip" onClick={copyText}>{copied ? "已复制" : "复制原文"}</button>
         </div>
       </div>
 
@@ -176,7 +228,7 @@ export default function FinishedProduct({ sinkId, graph, runtime }: Props) {
       )}
 
       <article className="product__body">
-        {renderMarkdown(text)}
+        {productDoc ? <ProductBlocks doc={productDoc} /> : renderMarkdown(text)}
       </article>
 
       {others.length > 0 && (

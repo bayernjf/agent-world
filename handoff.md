@@ -711,3 +711,69 @@ paths) is a standalone chunk to schedule once the graph gets denser.
 - Remaining 3.8: upgrade the engine's per-node `artifacts: Map<string,string>` to an ArtifactRef
   (currently it still stores text output per node; artifacts ride alongside as events), and a
   frontend cross-run product gallery consuming `GET /api/artifacts`.
+
+## 3.8 Cross-run product gallery (UI)
+
+- New `ProductGallery` modal (toolbar 成品 chip) consumes `GET /api/artifacts` with
+  paged loading (60/page, 加载更多) and kind filter chips (全部/图片/视频/音频/文本/数据/文件/链接).
+- Cards render inline image thumbnails (link to original), <video>/<audio> players for media,
+  and a generic "打开 ↗" tile for text/json/file/uri. Local artifacts resolve through
+  `/api/artifacts/:id`; remote/data URIs load directly. Each card shows label, creation time
+  and size. Reuses design tokens (steel/power/ink/mono) and the `.seg` segmented control.
+- `api.listArtifacts(limit, offset)` and `api.listRunArtifacts(runId)` added alongside the
+  `StoredArtifact` interface.
+- Remaining 3.8: upgrade the engine's per-node `artifacts: Map<string,string>` to an
+  ArtifactRef so downstream nodes can reference typed artifacts directly (instead of text
+  output + event-sidecar); object-store (S3/R2) backend behind the same ArtifactStore
+  interface for multi-instance deployments.
+
+## Product content lines — Stage A (upload) + Stage B (platform templates)
+
+See `docs/product-content-roadmap.md` for the A–D plan (Taobao/Xiaohongshu 图文).
+
+Stage A — real product images:
+- `ArtifactStore.saveBinary()` persists raw uploaded bytes under `artifacts/uploads/<id>`
+  (content-addressed id), returning a local `/api/artifacts/:id` URI.
+- `POST /api/artifacts/upload` accepts a raw body with content-type, enforces 25MB, stores
+  via saveBinary + insertArtifact. Cross-run list now orders by `created_at DESC, rowid DESC`
+  as a deterministic tiebreaker.
+- Source node UI extracted into `SourceImages.tsx`: click/drag-drop upload zone, thumbnails
+  for local+remote images, plus the manual URL field (edit-batched into one undo entry).
+
+Stage B — structured product blocks:
+- New core `product.ts`: `ProductBlock` discriminated union (hero/heading/paragraph/quote/
+  bullets/specs/image/imageCards/cta/divider) + `ProductDocument` + `parseProductDocument()`
+  which extracts a fenced ```product-json block and zod-validates it. Core now 46 tests.
+- Templates: existing product template renamed 淘宝商品详情 and its layout agent now emits a
+  structured product-json document; new 小红书种草笔记 template (selling → copy → note layout
+  → QC, emoji/短句/话题标签 tone). Both reuse the same pipeline and QC/rework loop.
+- `FinishedProduct` detects a product document and renders it with `ProductBlocks.tsx`
+  (platform-scoped CSS using design tokens); falls back to Markdown otherwise.
+- Source brief fields done: SourceConfig now has productName/brand/audience/priceRange/tone/
+  prohibited/notes; the engine buildSourceBrief assembles them into a creative brief that
+  flows to every downstream writer. When no brief fields are set, raw input passes through
+  unchanged (preserves existing test contracts). Inspector renders all fields.
+  Server now 79 tests.
+- Stage C — export to be production-ready:
+  - `lib/product-html.ts` (new): `productDocumentToHtml()` / `markdownToStandaloneHtml()`
+    render the finished product as a self-contained inline-styled HTML document; `productToHtml()`
+    picks structured vs Markdown. `productToLongImage()` inlines every `<img>` as a data URL and
+    renders the content to a 2x long PNG via an SVG `<foreignObject>` (canvas stays untainted).
+  - `FinishedProduct` toolbar now offers 导出 HTML / 导出 MD / 导出长图 / 复制富文本 / 复制原文,
+    so output can be pasted straight into QIANIU / Xiaohongshu backends.
+- Stage D — AI image generation (缺素材时自动出 banner/场景图):
+  - New `imageGen` node kind + `ImageGenConfig { model, prompt, size }` in `@agent-world/core`.
+  - Worker/provider gained `generateImage()`: OpenAI-compatible providers POST
+    `${baseUrl}/images/generations`; the fake worker returns a deterministic placeholder so the
+    canvas wiring works without a live image backend.
+  - Engine dispatches `imageGen` nodes: calls `worker.generateImage`, persists the bytes via
+    `storeBinary` (→ `/api/artifacts/:id`), emits an `image` artifact, and folds the URI into the
+    downstream vision model's `images` via the shared `extraImages` resolver. Generation is
+    **soft-failed** (run continues) when no image backend is configured, and **skipped entirely**
+    when the upstream source already carries real photos (`upstreamSourceHasImages`).
+  - Both product templates gained a `banner` (AI 配图) node: `intake → banner → layout`.
+  - Web UI: `imageGen` label/meta in the canvas, an Inspector section (model / size / prompt),
+    a palette button, and a node bar color.
+  - Still deferred (roadmap D-expansion, not in scope here): brand thesaurus / prohibited-word
+    validation wiring, multi-version A/B, and evaluation linkage. Engine ArtifactRef upgrade
+    remains deferred until multimodal downstream inputs are needed.

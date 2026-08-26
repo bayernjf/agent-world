@@ -55,8 +55,8 @@ export function instantiateTemplate(
 
 const productDetailGraph = {
   id: "tpl-product",
-  name: "商品详情页",
-  description: "文字描述 + 参考图 → 卖点 → 文案 → 排版 → 质检 → 成品",
+  name: "淘宝商品详情",
+  description: "产品图 → 卖点 → 详情文案 → 图文排版 → 质检 → 成品",
   category: "营销内容",
   graph: {
     id: "tpl-product",
@@ -101,19 +101,7 @@ const productDetailGraph = {
         agent: {
           model: "agnes-2.0-flash",
           prompt:
-            "你是详情页编辑。把文案整理成可直接上架的商品详情页，严格按以下 Markdown 结构输出：\n" +
-            "# {商品标题}\n\n" +
-            "> {一句话核心卖点}\n\n" +
-            "## 产品亮点\n" +
-            "- **{亮点1}**：{说明}\n" +
-            "- **{亮点2}**：{说明}\n\n" +
-            "## 详细介绍\n" +
-            "{2-3段有画面感的描述}\n\n" +
-            "## 规格参数\n" +
-            "- 参数名：值\n\n" +
-            "## 立即选购\n" +
-            "{行动号召}\n\n" +
-            "如果上游包含图片 URL，用 ![描述](url) 直接插入对应位置。重点内容用 **加粗**。",
+            "你是淘宝详情页排版编辑。把上游文案整理成结构化商品详情页。只输出一个 ```product-json 代码块，不要输出其他文字，JSON 结构如下：\n```product-json\n{\"platform\":\"taobao\",\"title\":\"商品标题\",\"blocks\":[{\"type\":\"hero\",\"title\":\"主标题\",\"subtitle\":\"一句话核心卖点\",\"image\":\"第一张图URL\"},{\"type\":\"heading\",\"text\":\"产品亮点\"},{\"type\":\"bullets\",\"items\":[\"**亮点1**：说明\",\"亮点2：说明\"]},{\"type\":\"imageCards\",\"items\":[{\"src\":\"图URL\",\"caption\":\"图注\"}]},{\"type\":\"paragraph\",\"text\":\"2-3段有画面感的描述\"},{\"type\":\"specs\",\"rows\":[{\"name\":\"参数名\",\"value\":\"值\"}]},{\"type\":\"cta\",\"text\":\"立即选购行动号召\"}]}\n```\n图片使用上游提供的真实图片 URL，不要编造；没有图的块可以省略 image/imageCards。",
           skills: [],
         },
       },
@@ -126,10 +114,12 @@ const productDetailGraph = {
         gate: {
           maxAttempts: 3,
           criterion:
-            "必须包含开场、至少 4 个卖点分点、行动号召，且有配图位建议；不得有明显的空话套话。",
+            "必须输出合法的 product-json，包含 hero、至少 4 个卖点、规格参数、行动号召；图片用上游真实 URL，不得有空话套话和极限词。",
           onExhausted: "halt",
         },
       },
+      { id: "banner", kind: "imageGen", name: "AI 配图", x: 340, y: 560, imageGen: { model: "agnes-image", prompt: "" } },
+      { id: "scene", kind: "imageGen", name: "AI 场景图", x: 560, y: 560, imageGen: { model: "agnes-image", prompt: "为商品生成一张真实使用场景图：自然光线、生活化构图，突出使用环境与氛围代入感" } },
       { id: "depot", kind: "sink", name: "成品库", x: 1460, y: 300 },
     ],
     edges: [
@@ -139,6 +129,89 @@ const productDetailGraph = {
       { id: "e4", from: "layout", to: "qc", kind: "flow" },
       { id: "e5", from: "qc", to: "depot", kind: "flow" },
       { id: "r1", from: "qc", to: "copy", kind: "rework" },
+      { id: "e6", from: "intake", to: "banner", kind: "flow" },
+      { id: "e7", from: "banner", to: "layout", kind: "flow" },
+      { id: "e8", from: "intake", to: "scene", kind: "flow" },
+      { id: "e9", from: "scene", to: "layout", kind: "flow" },
+    ],
+  },
+} satisfies GraphTemplate;
+
+const xiaohongshuGraph = {
+  id: "tpl-xiaohongshu",
+  name: "小红书种草笔记",
+  description: "产品图 → 卖点 → 种草文案 → 笔记排版 → 质检 → 成品",
+  category: "营销内容",
+  graph: {
+    id: "tpl-xiaohongshu",
+    name: "小红书种草笔记",
+    nodes: [
+      { id: "intake", kind: "source", name: "原料台", x: 80, y: 300 },
+      {
+        id: "selling",
+        kind: "agent",
+        name: "卖点提炼",
+        x: 340,
+        y: 300,
+        agent: {
+          model: "agnes-2.0-flash",
+          prompt:
+            "你是小红书选品编辑。根据商品文字描述和参考图片，提炼 4-6 个最适合种草的卖点，" +
+            "每个卖点一行，突出使用场景、真实感受和情绪价值，结合图片细节。",
+          skills: [],
+        },
+      },
+      {
+        id: "copy",
+        kind: "agent",
+        name: "种草文案",
+        x: 620,
+        y: 300,
+        agent: {
+          model: "agnes-2.0-flash",
+          prompt: "你是小红书爆款笔记作者。基于上游卖点，写一篇种草笔记：一个带钩子的标题（可带 emoji）、口语化短句正文、分点使用感受、3-6 个话题标签。语气真诚像朋友安利，不要硬广腔和极限词。",
+          skills: [],
+        },
+      },
+      {
+        id: "layout",
+        kind: "agent",
+        name: "笔记排版",
+        x: 900,
+        y: 300,
+        agent: {
+          model: "agnes-2.0-flash",
+          prompt: "你是小红书笔记排版编辑。把上游文案整理成结构化笔记。只输出一个 ```product-json 代码块，不要输出其他文字，结构如下：\n```product-json\n{\"platform\":\"xiaohongshu\",\"title\":\"笔记标题\",\"blocks\":[{\"type\":\"hero\",\"title\":\"带钩子的标题\",\"subtitle\":\"一句话种草\",\"image\":\"封面图URL\"},{\"type\":\"paragraph\",\"text\":\"口语化开场\"},{\"type\":\"bullets\",\"items\":[\"✨ 卖点1\",\"🌟 卖点2\"]},{\"type\":\"imageCards\",\"items\":[{\"src\":\"图URL\",\"caption\":\"图注\"}]},{\"type\":\"paragraph\",\"text\":\"使用感受总结\"},{\"type\":\"cta\",\"text\":\"互动引导 + #标签1 #标签2\"}]}\n```\n图片使用上游真实图片 URL，不要编造；没有图可省略 image/imageCards。",
+          skills: [],
+        },
+      },
+      {
+        id: "qc",
+        kind: "gate",
+        name: "质检站",
+        x: 1180,
+        y: 300,
+        gate: {
+          maxAttempts: 3,
+          criterion: "必须输出合法的 product-json，含吸睛标题、至少 3 个分点、正文和带话题标签的 CTA；语气自然，无硬广极限词。",
+          onExhausted: "halt",
+        },
+      },
+      { id: "banner", kind: "imageGen", name: "AI 配图", x: 340, y: 560, imageGen: { model: "agnes-image", prompt: "" } },
+      { id: "scene", kind: "imageGen", name: "AI 场景图", x: 560, y: 560, imageGen: { model: "agnes-image", prompt: "为商品生成一张真实使用场景图：自然光线、生活化构图，突出使用环境与氛围代入感" } },
+      { id: "depot", kind: "sink", name: "成品库", x: 1460, y: 300 },
+    ],
+    edges: [
+      { id: "e1", from: "intake", to: "selling", kind: "flow" },
+      { id: "e2", from: "selling", to: "copy", kind: "flow" },
+      { id: "e3", from: "copy", to: "layout", kind: "flow" },
+      { id: "e4", from: "layout", to: "qc", kind: "flow" },
+      { id: "e5", from: "qc", to: "depot", kind: "flow" },
+      { id: "r1", from: "qc", to: "copy", kind: "rework" },
+      { id: "e6", from: "intake", to: "banner", kind: "flow" },
+      { id: "e7", from: "banner", to: "layout", kind: "flow" },
+      { id: "e8", from: "intake", to: "scene", kind: "flow" },
+      { id: "e9", from: "scene", to: "layout", kind: "flow" },
     ],
   },
 } satisfies GraphTemplate;
@@ -338,6 +411,7 @@ const docReviewGraph = {
 
 export const TEMPLATES: GraphTemplate[] = [
   productDetailGraph,
+  xiaohongshuGraph,
   draftGraph,
   translationGraph,
   docReviewGraph,

@@ -1,8 +1,8 @@
-import { compile, Graph, replay } from "@agent-world/core";
+import { compile, type RunEvent, Graph, replay } from "@agent-world/core";
 import { describe, expect, it } from "vitest";
 import { execute } from "./engine.js";
 import { SEED_GRAPH } from "./seed.js";
-import { fakeWorker } from "./worker.js";
+import { fakeWorker, type Worker } from "./worker.js";
 
 const worker = () => fakeWorker({ chunkDelayMs: 0 });
 const clock = () => 0;
@@ -187,6 +187,65 @@ describe("execute", () => {
     ]);
   });
 
+  it("feeds structured source brief fields to downstream agents", async () => {
+    const graph = Graph.parse({
+      id: "brief",
+      name: "brief",
+      nodes: [
+        {
+          id: "src",
+          kind: "source",
+          name: "SRC",
+          x: 0,
+          y: 0,
+          source: { productName: "真丝睡裙", brand: "绫LINGERIE", audience: "25-35岁女性", tone: "高级感性" },
+        },
+        {
+          id: "forge",
+          kind: "agent",
+          name: "FORGE",
+          x: 1,
+          y: 0,
+          agent: { model: "test", prompt: "", skills: [] },
+        },
+        { id: "depot", kind: "sink", name: "DEPOT", x: 2, y: 0 },
+      ],
+      edges: [
+        { id: "e1", from: "src", to: "forge", kind: "flow" },
+        { id: "e2", from: "forge", to: "depot", kind: "flow" },
+      ],
+    });
+
+    let capturedInput = "";
+    const capturing = {
+      ...fakeWorker({ chunkDelayMs: 0 }),
+      async *runAgent(args: Parameters<ReturnType<typeof fakeWorker>["runAgent"]>[0]) {
+        capturedInput = args.input;
+        return yield* fakeWorker({ chunkDelayMs: 0 }).runAgent(args);
+      },
+    };
+
+    const { plan } = compile(graph);
+    const events = [];
+    for await (const e of execute({
+      runId: "r",
+      graph,
+      plan: plan!,
+      worker: capturing,
+      input: "这是原料描述",
+      now: clock,
+    })) {
+      events.push(e);
+    }
+    expect(replay(events).status).toBe("done");
+    expect(capturedInput).toContain("商品名称：真丝睡裙");
+    expect(capturedInput).toContain("品牌/店铺：绫LINGERIE");
+    expect(capturedInput).toContain("目标人群：25-35岁女性");
+    expect(capturedInput).toContain("语气调性：高级感性");
+    expect(capturedInput).toContain("商品描述/原料:");
+    expect(capturedInput).toContain("这是原料描述");
+  });
+
   it("emits artifact.produced when agent output contains image URLs", async () => {
     const graph: Graph = {
       id: "art",
@@ -266,5 +325,71 @@ describe("execute", () => {
     expect(events.some((ev) => ev.type === "power.tripped")).toBe(false);
     expect(replay(events).status).toBe("done");
     expect(replay(events).monthlyBudgetWarned).toBe(true);
+  });
+});
+
+describe("imageGen node", () => {
+  const imgGraph: Graph = Graph.parse({
+    id: "g",
+    name: "img",
+    nodes: [
+      { id: "s", kind: "source", name: "S", x: 0, y: 0, source: { images: [] } },
+      { id: "img", kind: "imageGen", name: "IMG", x: 0, y: 0, imageGen: { model: "m", prompt: "" } },
+      { id: "a", kind: "agent", name: "A", x: 0, y: 0, agent: { model: "m", prompt: "" } },
+      { id: "k", kind: "sink", name: "K", x: 0, y: 0 },
+    ],
+    edges: [
+      { id: "e1", from: "s", to: "img", kind: "flow" },
+      { id: "e2", from: "img", to: "a", kind: "flow" },
+      { id: "e3", from: "a", to: "k", kind: "flow" },
+    ],
+  });
+
+  async function runWith(w: Worker, graph: Graph, budgetUsd: number | null = null) {
+    const { plan } = compile(graph);
+    if (!plan) throw new Error("graph did not compile");
+    const events: RunEvent[] = [];
+    for await (const e of execute({ runId: "r", graph, plan, worker: w, budgetUsd, now: clock })) {
+      events.push(e);
+    }
+    return { events, state: replay(events) };
+  }
+
+  it("generates an image and emits it as an artifact when the source lacks photos", async () => {
+    const calls: string[] = [];
+    const w: Worker = {
+      ...fakeWorker({ chunkDelayMs: 0 }),
+      async generateImage(args) {
+        calls.push(args.input);
+        return [{ data: Buffer.from("fake"), mimeType: "image/png", usage: { tokensIn: 0, tokensOut: 0, costUsd: 0 } }];
+      },
+    };
+    const { events, state } = await runWith(w, imgGraph);
+    expect(state.status).toBe("done");
+    expect(calls.length).toBe(1);
+    const produced = events.find((e) => e.type === "artifact.produced" && e.artifact.kind === "image");
+    expect(produced).toBeTruthy();
+    const uri = produced!.artifact.uri;
+    expect(uri).toBeTruthy();
+  });
+
+  it("skips generation when the source already has real images", async () => {
+    const calls: string[] = [];
+    const w: Worker = {
+      ...fakeWorker({ chunkDelayMs: 0 }),
+      async generateImage(args) {
+        calls.push(args.input);
+        return [{ data: Buffer.from("x"), mimeType: "image/png", usage: { tokensIn: 0, tokensOut: 0, costUsd: 0 } }];
+      },
+    };
+    const withImages: Graph = Graph.parse({
+      ...imgGraph,
+      nodes: imgGraph.nodes.map((n) =>
+        n.id === "s" ? { ...n, source: { images: ["https://example.com/p.jpg"] } } : n,
+      ),
+    });
+    const { state } = await runWith(w, withImages);
+    expect(state.status).toBe("done");
+    expect(calls.length).toBe(0);
   });
 });

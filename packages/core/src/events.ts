@@ -137,6 +137,8 @@ export const RunEvent = z.discriminatedUnion("type", [
     ...NodeRunKey.shape,
     passed: z.boolean(),
     reason: z.string(),
+    /** Optional 0-10 quality score from the judge, surfaced in the eval report. */
+    score: z.number().min(0).max(10).optional(),
   }),
   z.object({
     ...base,
