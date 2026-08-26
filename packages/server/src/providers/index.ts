@@ -1,4 +1,5 @@
 import { loadConfig, providerForModel, type AppConfig } from "../config.js";
+import { log } from "../logger.js";
 import { fakeWorker, type Worker, type AgentChunk } from "../worker.js";
 import { openAICompatibleWorker } from "./openai-compatible.js";
 import type { AgentConfig, GraphNode, Usage } from "@agent-world/core";
@@ -26,7 +27,7 @@ export function routingWorker(config?: AppConfig): Worker {
     const cfg = getConfig();
     const { name: provName, provider } = providerForModel(cfg, model);
     if (provider.enabled === false && provider.type !== "fake") {
-      console.warn(`[worker] provider "${provName}" is disabled; falling back to fake`);
+      log.warn("provider disabled; falling back to fake worker", { provider: provName });
       return fakeWorker();
     }
     const cacheKey = `${provName}::${model}::${provider.baseUrl ?? ""}::${provider.apiKey ?? ""}`;
@@ -38,7 +39,7 @@ export function routingWorker(config?: AppConfig): Worker {
         w = openAICompatibleWorker(provider);
         break;
       case "anthropic":
-        console.warn(`[worker] anthropic provider not yet implemented; using fake for ${model}`);
+        log.warn("anthropic provider not yet implemented; using fake worker", { model });
         w = fakeWorker();
         break;
       case "fake":

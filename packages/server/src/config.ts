@@ -59,6 +59,8 @@ export interface AppConfig {
   defaultProvider: string;
   /** Display order of model cards, stored as "provider::model" keys. */
   modelOrder?: string[];
+  /** Soft monthly budget in USD; the engine warns at 80%/100%. Null disables it. */
+  monthlyBudgetUsd?: number | null;
 }
 
 const FAKE_PROVIDER: ProviderConfig = { type: "fake", models: [] };

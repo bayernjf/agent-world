@@ -14,6 +14,8 @@ import {
   type RunEvent,
 } from "@agent-world/core";
 import { openDb } from "./db.js";
+import { ArtifactStore } from "./artifact-store.js";
+import { log } from "./logger.js";
 import { execute, resume } from "./engine.js";
 import { SEED_GRAPH } from "./seed.js";
 import {
@@ -32,6 +34,7 @@ import { listBuiltinSkills } from "./skills/registry.js";
 
 const PORT = Number(process.env.PORT ?? 8791);
 const db = openDb(process.env.DB_FILE ?? "agent-world.sqlite");
+const artifacts = new ArtifactStore(process.env.ARTIFACT_DIR ?? ArtifactStore.defaultPath());
 
 if (!db.getGraph(SEED_GRAPH.id)) db.saveGraph(SEED_GRAPH, Date.now());
 
@@ -85,12 +88,14 @@ app.post("/api/graphs", async (c) => {
   } else if (body.from) {
     const src = db.getGraph(body.from);
     if (!src) return c.json({ error: "source graph not found" }, 404);
+    const { version: _srcVersion, ...srcDoc } = src;
+    void _srcVersion;
     graph = {
-      ...src,
+      ...srcDoc,
       id,
-      name: body.name?.trim() || `${src.name} 副本`,
-      nodes: src.nodes.map((n) => ({ ...n })),
-      edges: src.edges.map((e) => ({ ...e })),
+      name: body.name?.trim() || `${srcDoc.name} 副本`,
+      nodes: srcDoc.nodes.map((n) => ({ ...n })),
+      edges: srcDoc.edges.map((e) => ({ ...e })),
     };
   } else {
     graph = {
@@ -101,7 +106,7 @@ app.post("/api/graphs", async (c) => {
     };
   }
   db.saveGraph(graph, Date.now());
-  return c.json(graph, 201);
+  return c.json(db.getGraph(id), 201);
 });
 
 app.get("/api/graphs/:id", (c) => {
@@ -117,8 +122,20 @@ app.delete("/api/graphs/:id", (c) => {
 app.put("/api/graphs/:id", async (c) => {
   const parsed = Graph.safeParse(await c.req.json());
   if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
-  db.saveGraph(parsed.data, Date.now());
-  return c.json({ ok: true });
+
+  // Optimistic concurrency: a tab sends the version it last loaded via
+  // If-Match. A mismatch means another tab (or session) saved first, so we
+  // refuse instead of silently overwriting their edits.
+  const ifMatch = c.req.header("if-match");
+  const expectedVersion = ifMatch != null ? Number(ifMatch) : undefined;
+  const result = db.saveGraph(parsed.data, Date.now(), expectedVersion);
+  if (!result.ok) {
+    return c.json(
+      { error: "conflict", message: "该产线已在其他标签页被修改，请刷新后重试。", serverVersion: result.serverVersion },
+      409,
+    );
+  }
+  return c.json({ ok: true, version: result.version });
 });
 
 /** Compile without running — the canvas calls this to show diagnostics as you draw. */
@@ -304,6 +321,19 @@ app.get("/api/costs.csv", (c) => {
   });
 });
 
+app.get("/api/eval", (c) => {
+  const from = c.req.query("from");
+  const to = c.req.query("to");
+  const graphId = c.req.query("graphId");
+  return c.json(
+    db.evalReport({
+      graphId: graphId || undefined,
+      from: from ? Number(from) : undefined,
+      to: to ? Number(to) : undefined,
+    }),
+  );
+});
+
 app.post("/api/runs", async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as {
     graphId?: string;
@@ -332,10 +362,14 @@ app.post("/api/runs", async (c) => {
   const controller = new AbortController();
   const entry = { events: [] as RunEvent[], done: false, controller };
   live.set(runId, entry);
+  const runLog = log.child({ runId, graphId: graph.id });
+  runLog.info("run started", { trigger: body.trigger ?? "manual", nodes: graph.nodes.length });
 
   // Drain in the background so the POST returns immediately with the run id.
   void (async () => {
     try {
+      const cfg = loadConfig();
+      const now = new Date();
       for await (const event of execute({
         runId,
         graph,
@@ -343,16 +377,21 @@ app.post("/api/runs", async (c) => {
         worker,
         input: body.input,
         budgetUsd,
-        defaultModel: loadConfig().defaultModel,
+        monthlyBudgetUsd: cfg.monthlyBudgetUsd ?? null,
+        monthSpentUsd: db.costForMonth(now.getFullYear(), now.getMonth() + 1),
+        defaultModel: cfg.defaultModel,
         signal: controller.signal,
       })) {
         db.record(runId, event);
+        if (event.type === "artifact.produced") {
+          db.insertArtifact(artifacts.save(event.artifact, { runId, nodeId: event.nodeId, attempt: event.attempt }));
+        }
         entry.events.push(event);
         if (event.type === "run.finished") db.finishRun(runId, event.status, Date.now());
       }
     } catch (err) {
       db.finishRun(runId, "failed", Date.now());
-      console.error(`run ${runId} crashed`, err);
+      runLog.error("run crashed", { error: (err as Error)?.message ?? String(err) });
     } finally {
       entry.done = true;
     }
@@ -407,6 +446,8 @@ app.post("/api/runs/:id/resume", async (c) => {
   const controller = new AbortController();
   const entry = { events: [] as RunEvent[], done: false, controller };
   live.set(runId, entry);
+  const runLog = log.child({ runId, graphId: graph.id });
+  runLog.info("run resumed", { action, resetFrom: resetFrom ?? null, nodes: graph.nodes.length });
   // A retry from a failed/tripped run reopens the same run; flip its status
   // back to running so listings/UIs reflect the active attempt.
   if (resetFrom || row.status === "failed" || row.status === "tripped") {
@@ -415,25 +456,32 @@ app.post("/api/runs/:id/resume", async (c) => {
 
   void (async () => {
     try {
+      const cfg = loadConfig();
+      const now = new Date();
       for await (const event of resume({
         runId,
         graph,
         plan,
         worker,
         budgetUsd: row.budget_usd ?? null,
-        defaultModel: loadConfig().defaultModel,
+        monthlyBudgetUsd: cfg.monthlyBudgetUsd ?? null,
+        monthSpentUsd: db.costForMonth(now.getFullYear(), now.getMonth() + 1),
+        defaultModel: cfg.defaultModel,
         pastEvents,
         action,
         resetFrom,
         signal: controller.signal,
       })) {
         db.record(runId, event);
+        if (event.type === "artifact.produced") {
+          db.insertArtifact(artifacts.save(event.artifact, { runId, nodeId: event.nodeId, attempt: event.attempt }));
+        }
         entry.events.push(event);
         if (event.type === "run.finished") db.finishRun(runId, event.status, Date.now());
       }
     } catch (err) {
       db.finishRun(runId, "failed", Date.now());
-      console.error(`run ${runId} resume crashed`, err);
+      log.child({ runId }).error("resume crashed", { error: (err as Error)?.message ?? String(err) });
     } finally {
       entry.done = true;
     }
@@ -446,8 +494,25 @@ app.post("/api/runs/:id/resume", async (c) => {
 app.get("/api/runs/:id/events", (c) => {
   const runId = c.req.param("id");
   if (!db.runExists(runId)) return c.json({ error: "not found" }, 404);
-  const events = db.events(runId);
-  return c.json({ events, state: replay(events) });
+
+  // Pagination: ?after=<seq> (exclusive) and ?limit=<n>. With no params the
+  // full history is returned together with the reconstructed runtime state,
+  // which is what the initial page load needs. Range requests return only the
+  // event window plus a nextCursor, since partial events can't replay state.
+  const afterRaw = c.req.query("after");
+  const limitRaw = c.req.query("limit");
+  if (afterRaw == null && limitRaw == null) {
+    const events = db.events(runId);
+    return c.json({ events, state: replay(events) });
+  }
+
+  const after = afterRaw != null ? Number(afterRaw) : -1;
+  const limit = limitRaw != null ? Number(limitRaw) : 500;
+  if (!Number.isFinite(limit) || limit <= 0 || limit > 10000) {
+    return c.json({ error: "limit must be between 1 and 10000" }, 400);
+  }
+  const { events, nextCursor } = db.eventsRange(runId, after, limit);
+  return c.json({ events, after, nextCursor, hasMore: nextCursor != null });
 });
 
 /** Live stream. Resumes from `?after=<seq>` so a dropped connection loses nothing. */
@@ -496,8 +561,49 @@ app.get("/api/runs/:id/stream", (c) => {
   });
 });
 
+/** Artifacts produced by a single run. */
+app.get("/api/runs/:id/artifacts", (c) => {
+  const runId = c.req.param("id");
+  if (!db.runExists(runId)) return c.json({ error: "not found" }, 404);
+  return c.json(db.listArtifactsForRun(runId));
+});
+
+/** Cross-run artifact listing (latest first), for the product gallery. */
+app.get("/api/artifacts", (c) => {
+  const limit = Math.min(Number(c.req.query("limit") ?? 100), 500);
+  const offset = Number(c.req.query("offset") ?? 0);
+  return c.json(db.listArtifacts(limit, offset));
+});
+
+/** Fetch a single artifact: local blobs are streamed, remote URIs redirect. */
+app.get("/api/artifacts/:id", (c) => {
+  const id = c.req.param("id");
+  const meta = db.getArtifact(id);
+  if (!meta) return c.json({ error: "not found" }, 404);
+
+  if (meta.storage === "uri" && meta.uri) {
+    return c.redirect(meta.uri, 302);
+  }
+  if (meta.storage !== "local") {
+    return c.json({ error: "artifact has no binary payload" }, 404);
+  }
+
+  const file = artifacts.open(meta.runId, meta.id);
+  if (!file) return c.json({ error: "blob missing on disk" }, 404);
+  const headers = new Headers();
+  headers.set("content-type", meta.mimeType ?? "application/octet-stream");
+  headers.set("content-length", String(file.size));
+  if (meta.label) {
+    headers.set(
+      "content-disposition",
+      `inline; filename="${encodeURIComponent(meta.label)}"`,
+    );
+  }
+  return new Response(file.stream as unknown as ReadableStream, { headers });
+});
+
 serve({ fetch: app.fetch, port: PORT }, (info) => {
-  console.log(`agent-world engine listening on http://localhost:${info.port}`);
+  log.info("engine listening", { port: info.port, url: `http://localhost:${info.port}` });
 });
 
 /** Minimal request body for a connectivity probe, shaped per modality. */

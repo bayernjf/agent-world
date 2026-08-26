@@ -1,9 +1,9 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { openDb, SCHEMA_VERSION } from "./db.js";
+import { BACKUP_RETENTION, openDb, SCHEMA_VERSION } from "./db.js";
 
 function cols(db: DatabaseSync, table: string): string[] {
   return (db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map(
@@ -65,5 +65,46 @@ describe("ordered schema migrations", () => {
 
     // Reopening is a no-op (no duplicate columns, no errors).
     expect(() => openDb(file)).not.toThrow();
+  });
+});
+
+describe("startup database backup", () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "aw-backup-"));
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("snapshots an existing database into a backups/ folder on open", () => {
+    const file = join(dir, "aw.sqlite");
+    openDb(file).close();
+    // The first open creates an empty database (nothing to back up); the
+    // second open finds an existing file and snapshots it before migrations.
+    openDb(file).close();
+    const backupDir = join(dir, "backups");
+    const first = readdirSync(backupDir);
+    expect(first.filter((n) => n.startsWith("pre-migration-"))).toHaveLength(1);
+    const snapshot = new DatabaseSync(join(backupDir, first[0]!));
+    const tables = snapshot
+      .prepare("SELECT name FROM sqlite_master WHERE type='table'")
+      .all() as Array<{ name: string }>;
+    expect(tables.map((t) => t.name)).toContain("events");
+    snapshot.close();
+  });
+
+  it("prunes old snapshots beyond the retention window", () => {
+    const file = join(dir, "aw.sqlite");
+    let db = openDb(file);
+    for (let i = 0; i < BACKUP_RETENTION + 2; i++) {
+      db.close();
+      db = openDb(file);
+    }
+    db.close();
+    const backups = readdirSync(join(dir, "backups")).filter((n) =>
+      n.startsWith("pre-migration-"),
+    );
+    expect(backups.length).toBeLessThanOrEqual(BACKUP_RETENTION);
   });
 });

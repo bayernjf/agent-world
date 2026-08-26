@@ -164,6 +164,11 @@ export default function ControlPanel(props: Props) {
               </>
             )}
           </div>
+          {runtime.monthlyBudgetWarned && (
+            <p className="note note--warn">
+              ⚠ 本月累计电费已触及月度预算，请到「设置 → 月度预算」查看或调整上限。
+            </p>
+          )}
         </section>
 
         <section>

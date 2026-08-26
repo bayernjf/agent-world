@@ -13,3 +13,9 @@ agent-world.config.json
 *.config.local.json
 
 .playwright-cli/
+
+# Startup database snapshots (VACUUM INTO)
+backups/
+
+# Local artifact blob store
+artifacts/

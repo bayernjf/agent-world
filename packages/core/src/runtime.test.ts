@@ -106,6 +106,19 @@ describe("runtime", () => {
     expect(state.totalCostUsd).toBe(0.08);
   });
 
+  it("tracks monthly budget warnings separately from run budget", () => {
+    seq = 0;
+    const state = replay([
+      ev({ type: "run.started", runId: "r1", graphId: "g1", budgetUsd: 0.10 }),
+      ev({ type: "power.metered", totalCostUsd: 0.01, budgetUsd: 0.10 }),
+      ev({ type: "power.warning", totalCostUsd: 5.0, budgetUsd: 5.0, threshold: 1, scope: "monthly" }),
+    ]);
+    expect(state.monthlyBudgetWarned).toBe(true);
+    // Monthly warning must not overwrite the per-run gauge values.
+    expect(state.budgetWarned).toBe(false);
+    expect(state.totalCostUsd).toBe(0.01);
+  });
+
   it("records a budget-trip failure", () => {
     seq = 0;
     const state = replay([
@@ -114,6 +127,45 @@ describe("runtime", () => {
     ]);
     expect(state.failures).toHaveLength(1);
     expect(state.failures[0]!.kind).toBe("budget");
+  });
+
+  it("collects artifacts produced by nodes", () => {
+    seq = 0;
+    const state = replay([
+      ev({ type: "run.started", runId: "r1", graphId: "g1", budgetUsd: null }),
+      ev({ type: "node.started", nodeId: "forge", attempt: 1 }),
+      ev({
+        type: "artifact.produced",
+        nodeId: "forge",
+        attempt: 1,
+        artifact: { id: "forge-a1", kind: "image", uri: "https://example.com/a.png" },
+      }),
+      ev({
+        type: "artifact.produced",
+        nodeId: "forge",
+        attempt: 1,
+        artifact: { id: "forge-a2", kind: "text", content: "caption" },
+      }),
+    ]);
+    expect(state.nodes.forge!.artifacts).toHaveLength(2);
+    expect(state.nodes.forge!.artifacts[0]!.kind).toBe("image");
+    expect(state.nodes.forge!.artifacts[1]!.content).toBe("caption");
+  });
+
+  it("carries artifactKind on packets", () => {
+    seq = 0;
+    const state = replay([
+      ev({ type: "run.started", runId: "r1", graphId: "g1", budgetUsd: null }),
+      ev({
+        type: "packet.sent",
+        edgeId: "e1",
+        from: "a",
+        to: "b",
+        summary: "image result",
+        artifactKind: "image",
+      }),
+    ]);
+    expect(state.packets[0]!.artifactKind).toBe("image");
   });
 
   it("is pure — reducing does not mutate the input state", () => {

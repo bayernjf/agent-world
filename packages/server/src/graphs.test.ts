@@ -50,3 +50,40 @@ describe("graphs db", () => {
     expect(db.listGraphs()).toHaveLength(2);
   });
 });
+
+describe("graph optimistic locking", () => {
+  let dir: string;
+  let db: ReturnType<typeof openDb>;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "aw-lock-"));
+    db = openDb(join(dir, "test.sqlite"));
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("increments version on each save and reports it on read", () => {
+    const r1 = db.saveGraph(emptyGraph("g", "G"), 1);
+    expect(r1.ok).toBe(true);
+    expect(r1.ok && r1.version).toBe(1);
+    const r2 = db.saveGraph(emptyGraph("g", "G2"), 2);
+    expect(r2.ok && r2.version).toBe(2);
+    expect(db.getGraph("g")!.version).toBe(2);
+  });
+
+  it("rejects a conditional save against a stale version with conflict", () => {
+    db.saveGraph(emptyGraph("g", "G"), 1);
+    // Tab B saves first, bumping version to 2.
+    db.saveGraph(emptyGraph("g", "From B"), 2);
+    // Tab A still holds version 1 and tries to save.
+    const stale = db.saveGraph(emptyGraph("g", "From A"), 3, 1);
+    expect(stale.ok).toBe(false);
+    if (!stale.ok) {
+      expect(stale.conflict).toBe(true);
+      expect(stale.serverVersion).toBe(2);
+    }
+    // The stale write must not have overwritten tab B's document.
+    expect(db.getGraph("g")!.name).toBe("From B");
+  });
+});

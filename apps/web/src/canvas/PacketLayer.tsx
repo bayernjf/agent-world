@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { PacketRuntime } from "@agent-world/core";
+import { ARTIFACT_COLORS, type PacketRuntime } from "@agent-world/core";
 import { VIEW_H, VIEW_W } from "./board";
 import { pathRegistry } from "./pathRegistry";
 
@@ -24,6 +24,7 @@ interface Truck {
   key: string;
   edgeId: string;
   rework: boolean;
+  color: string;
   /** Timestamp the truck entered the pipe. */
   startedAt: number;
   length: number;
@@ -80,6 +81,7 @@ export default function PacketLayer({ packets, runId, fit, viewport, reworkEdges
         key,
         edgeId: p.edgeId,
         rework: reworkEdges.has(p.edgeId),
+        color: p.artifactKind ? ARTIFACT_COLORS[p.artifactKind] : "#ffb020",
         startedAt: performance.now(),
         length: path.getTotalLength(),
       });
@@ -128,7 +130,7 @@ export default function PacketLayer({ packets, runId, fit, viewport, reworkEdges
         ctx.translate(at.x, at.y);
         ctx.rotate(angle);
 
-        const body = truck.rework ? "#ff9d2e" : "#ffb020";
+        const body = truck.rework ? "#ff9d2e" : truck.color;
         ctx.shadowColor = body;
         ctx.shadowBlur = 14 / v.zoom;
         ctx.fillStyle = body;
