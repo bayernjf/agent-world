@@ -477,6 +477,23 @@ export default function Inspector() {
               />
             </label>
             <label className="field">
+              <span>质量分门槛（0–10，留空不卡）</span>
+              <input
+                type="number"
+                min={0}
+                max={10}
+                value={node.gate.minScore ?? ""}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    gate: {
+                      ...node.gate!,
+                      minScore: e.target.value === "" ? undefined : Number(e.target.value),
+                    },
+                  })
+                }
+              />
+            </label>
+            <label className="field">
               <span>次数耗尽后</span>
               <select
                 value={node.gate.onExhausted}
