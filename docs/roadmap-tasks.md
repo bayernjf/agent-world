@@ -336,7 +336,7 @@
 
 - [x] 预算到 80% 时发 `power.warning` 事件（不停线，一次运行只触发一次）
 - [x] 前端显示警告状态（电表变黄 is-warn，下方提示已达预算百分比）
-- [ ] 月度预算：runs 表加月度聚合，超限发警告
+- [x] 月度预算：设置中配置软上限，`db.costForMonth()` 聚合当月花费，运行中跨 run 累计到 80%/100% 发 `power.warning`（scope=monthly，仅警告不跳闸）
 - [x] 退出条件：快超预算时能被提醒
 - 说明：100% 仍由 `power.tripped` 硬跳闸；80% 为建议性警告，颜色提示。`RuntimeState.budgetWarned` 记录是否已警告，reducer 处理。
 

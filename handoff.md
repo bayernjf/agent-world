@@ -650,3 +650,19 @@ paths) is a standalone chunk to schedule once the graph gets denser.
 - Tests in `logger.test.ts`: JSON shape + bindings, level filtering, file rotation. Server
   now 65 tests. 3.5 is fully complete (migrations, startup backup, events pagination,
   optimistic lock, structured logger).
+
+## 3.6 Monthly budget (completes 3.6)
+
+- Config gains `monthlyBudgetUsd` (nullable soft cap), editable in 设置 → 月度预算.
+- New `db.costForMonth(year, month)` sums `node_runs.cost_usd` for finished runs that
+  started in the local-time month (running runs excluded, so the current run's prior spend
+  on resume isn't double counted — the engine reconstructs it via `totalCostUsd`).
+- Engine accepts `monthlyBudgetUsd` + `monthSpentUsd` and emits advisory `power.warning`
+  events with `scope: "monthly"` at 80% and 100% of (prior month spend + this run's cost).
+  Monthly cap is advisory only — it never trips the line. The server passes the configured
+  cap and current-month spend into both `execute` and `resume`.
+- Runtime state gained `monthlyBudgetWarned`; the reducer keeps it separate from the per-run
+  `budgetWarned` and doesn't let monthly totals overwrite the run cost gauge. ControlPanel
+  shows a monthly warning note.
+- Tests: core reducer monthly-vs-run separation (core 43), engine warns-but-does-not-trip,
+  db.costForMonth by calendar month (server 67). 3.6 is complete.
