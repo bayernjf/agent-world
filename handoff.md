@@ -57,8 +57,9 @@ error classification, heartbeat and redaction are all in.
   Handles SSE streaming, reasoning_content, prompt-cache usage, timeout via
   AbortController, and maps HTTP errors to `ProviderError` codes
   (TIMEOUT/RATE_LIMIT/PROVIDER_ERROR/AUTH/UNKNOWN). `computeUsage()` delegates to
-  the shared `computeCost()`, so per-image/second/character pricing is wired the
-  day a non-text worker reports `units`.
+  the shared `computeCost()`, so per-image/second/character pricing is wired —
+  image generation already reports `units` (see Stage D / imageGen below) and is
+  metered per image (commit `2f0e3a3` reads `provider.pricing` instead of `0`).
 - **providers/index.ts** (new) — `routingWorker()` picks the provider for each node
   by its model name; workers are cached per provider+model+connection tuple.
   Config is re-read fresh per call so saved keys/URLs/enabled state take effect
@@ -142,19 +143,30 @@ engine retries per `retry` policy, then emits `node.failed` with the errorCode.
 
 ## Known gaps / next work
 
-- **Cost is metered as $0 for Agnes.** Token counts are correct (in/out/cached/
-  reasoning), but no `pricing` entry is configured for `agnes-2.0-flash` in
-  `agent-world.config.json`. Add `pricing: { "agnes-2.0-flash": { input, output,
-  cacheRead } }` (USD per 1M tokens) once the rates are known. The UI shows
-  token counts until a price is set; once set, the 电费 view and budget trip
-  activate automatically off `costUsd`.
-- **Non-text runtime is not executed yet.** The billing model, modality routing,
-  price-card UI, usage `units`, and `units_json` column all support image/video/
-  audio models, and test-connection probes each modality's endpoint — but
-  `openAICompatibleWorker.runAgent` still throws `UNSUPPORTED` for non-text
-  models. Stage 4 adds the image/video/audio generation workers; when they
-  return `units` (e.g. `{ images: n }`, `{ seconds: n }`, `{ characters: n }`)
-  billing lights up with no further schema work.
+> **Status refresh (2026-08-27):** the three items below that earlier read as
+> "not done" are in fact shipped — image generation and tool execution are wired
+> end-to-end, and image billing now meters per-image cost. See the bullets
+> marked ✅ for what changed.
+
+- **✅ Cost now lights up for both tokens and images.** Token counts were always
+  correct (in/out/cached/reasoning). Agnes is configured at GPT-equivalent rates
+  in `agent-world.config.json` (gitignored). Image generation now meters
+  `perImage` cost (commit `2f0e3a3`: `openai-compatible.ts` reads
+  `provider.pricing` instead of `0`). Verify both token and image cost show `> 0`
+  in a real run; a model with **no** `pricing` entry still bills as $0.
+- **✅ Image generation is wired end-to-end** (no longer a gap). `worker.generateImage`
+  (`openai-compatible.ts`) → engine dispatch at `engine.ts:750` → binary artifacts
+  saved in `run.ts` → rendered in frontend Inspector / FinishedProduct /
+  ProductGallery. Covered by `imagegen.test.ts`.
+  - *Design nuance:* an `imageGen` node generates only when its upstream source has
+    **no** images (`engine.ts:743` skips generation if the source already has
+    photos). It is **text→image banner generation, not image-to-image editing**.
+  - *Silent-degrade trap:* a failed generation degrades to `done` with zero usage
+    (`engine.ts:779`), so "run finished" ≠ "image produced" — always check the
+    artifact actually appeared and cost `> 0`.
+- **✅ Tool calls execute.** `runWithTools` + the engine consume `tool-call` chunks
+  and emit `tool.called` / `tool.result` into the event stream (Phase 2; the
+  dangerous-tool halt is in E.4). Not a gap.
 - **Dispatch input is wired.** `POST /api/runs` accepts `input`; the source node
   emits it as raw material, and the control panel has a "原料" textarea. If empty,
   it falls back to the old placeholder.
@@ -162,9 +174,6 @@ engine retries per `retry` policy, then emits `node.failed` with the errorCode.
   is noted on the rework entry node and appended to that node's next input as
   `[质检站退回原因] ...`, then cleared once consumed. Verified end-to-end: a
   rejected first draft added the required content on attempt 2 and passed.
-- **Tool calls are reserved but not executed.** The `AgentChunk` union has
-  tool-call/tool-result; the engine currently ignores them. Phase 2 skill cards
-  wire this up.
 - **tsx watch restarts can race on port 8791** (EADDRINUSE) when edits land in
   quick succession. `busy_timeout` was added; if it sticks, `lsof -ti :8791 |
   xargs kill -9` and restart.
@@ -182,8 +191,8 @@ engine retries per `retry` policy, then emits `node.failed` with the errorCode.
 - Structured logging with runId is done (3.5 `logger.ts`, `LOG_LEVEL`/`LOG_FILE`).
 - **Phase 2 parallelism hazard:** event emission must be serialized (single
   emit queue), and budget checks must happen at that serialization point, or
-  concurrent nodes race past the budget. `inputFor` concatenation also needs a
-  context-window strategy (truncation/rolling summary) before long workflows.
+  concurrent nodes race past the budget. (The `inputFor` context-window strategy
+  is addressed by E.1 rolling summary — `inputPolicy.mode = "summary"`.)
 
 ## Running it
 
@@ -345,10 +354,12 @@ paths) is a standalone chunk to schedule once the graph gets denser.
   Inspector edits the source URL list. This covers product detail pages where
   the model looks at reference photos and writes copy. `engine.test.ts` asserts
   source images reach the downstream agent (server now 36 tests).
-- **Still text-only output.** Image/video/audio *generation* (non-text output
-  modalities) remains Phase 4; the worker still throws UNSUPPORTED when running
-  a model whose modality isn't text. Video is currently handled only as a URL or
-  text description in the raw material, not as decoded frames.
+- **Output modalities.** Image *generation* is wired end-to-end: an `imageGen`
+  node calls `worker.generateImage`, persists the bytes as an `image` artifact, and
+  folds the URI into downstream vision inputs (see Stage D below). Video/audio
+  *generation* remains Phase 4 — `runAgent` still throws `UNSUPPORTED` for those
+  modalities, and video is only handled as a URL/text description in raw material,
+  not decoded frames.
 
 ## Parallel branches (roadmap 2.1)
 
