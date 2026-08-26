@@ -15,6 +15,7 @@ import Toast from "./components/Toast";
 import Timeline from "./components/Timeline";
 import RunHistory from "./components/RunHistory";
 import Tooltip from "./components/Tooltip";
+import { useTips } from "./store/tips";
 import FailurePanel from "./components/FailurePanel";
 import CostReport from "./components/CostReport";
 import { api } from "./lib/api";
@@ -39,6 +40,8 @@ export default function App() {
   const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [costOpen, setCostOpen] = useState(false);
+  const tipsEnabled = useTips((s) => s.enabled);
+  const toggleTips = useTips((s) => s.toggle);
   const bothCollapsed = controlCollapsed && inspectorCollapsed;
   const toggleBoth = () => {
     const next = !bothCollapsed;
@@ -238,6 +241,14 @@ export default function App() {
           <Tooltip content={bothCollapsed ? "展开全部侧栏" : "收起全部侧栏"}>
             <button className="chip stage__panel-toggle" onClick={toggleBoth}>
               {bothCollapsed ? "展开侧栏" : "收起侧栏"}
+            </button>
+          </Tooltip>
+          <Tooltip content={`厂房悬停信息：${tipsEnabled ? "开" : "关"}（快捷键 T 切换）`}>
+            <button
+              className={`chip ${tipsEnabled ? "" : "chip--muted"}`}
+              onClick={toggleTips}
+            >
+              提示
             </button>
           </Tooltip>
           <ShortcutsHelp />

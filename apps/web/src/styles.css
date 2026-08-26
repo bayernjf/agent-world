@@ -2460,3 +2460,11 @@ select {
   white-space: nowrap;
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
 }
+.chip--muted {
+  opacity: 0.5;
+  color: var(--ink-faint);
+}
+.chip--muted:hover {
+  opacity: 0.85;
+  color: var(--ink);
+}

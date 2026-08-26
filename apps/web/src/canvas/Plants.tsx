@@ -3,6 +3,7 @@ import type { Graph, GraphNode, NodeRuntime, RuntimeState } from "@agent-world/c
 import { PLANT_H, PLANT_W } from "../store/graph";
 import Popover from "../components/Popover";
 import type { Rect } from "../components/Popover";
+import { useTips } from "../store/tips";
 
 interface Props {
   graph: Graph;
@@ -53,7 +54,24 @@ export default function Plants({
 }: Props) {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [anchor, setAnchor] = useState<Rect | null>(null);
+  const tipsEnabled = useTips((s) => s.enabled);
   const nodeRefs = useRef<Map<string, SVGGElement>>(new Map());
+
+  // T toggles hover nameplates on/off.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA") return;
+      if (e.key === "t" || e.key === "T") useTips.getState().toggle();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  // Clear any visible nameplate the moment tips are turned off.
+  useEffect(() => {
+    if (!tipsEnabled) setHoveredId(null);
+  }, [tipsEnabled]);
 
   const hovered = hoveredId ? graph.nodes.find((n) => n.id === hoveredId) : null;
   const hoveredRt = hovered ? runtime.nodes[hovered.id] : undefined;
@@ -95,7 +113,7 @@ export default function Plants({
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [hoveredId]);
+  }, [hoveredId, tipsEnabled]);
 
   const tooltipLines: TooltipLine[] = hovered
     ? [
@@ -164,7 +182,9 @@ export default function Plants({
                 .join(" ")}
               transform={`translate(${x} ${y})`}
               onPointerDown={(e) => onPointerDown(node, e)}
-              onPointerEnter={() => setHoveredId(node.id)}
+              onPointerEnter={() => {
+                if (tipsEnabled) setHoveredId(node.id);
+              }}
               onPointerLeave={() =>
                 setHoveredId((current) => (current === node.id ? null : current))
               }
@@ -232,7 +252,7 @@ export default function Plants({
       </g>
 
       <Popover
-        open={!!hovered && tooltipLines.length > 0}
+        open={tipsEnabled && !!hovered && tooltipLines.length > 0}
         anchor={anchor}
         placement="top"
         className="plant-tip"
