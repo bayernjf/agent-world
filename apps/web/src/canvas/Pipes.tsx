@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import type { Graph, RuntimeState } from "@agent-world/core";
-import { edgeAnchors, pipeArrow, pipeCrossings, pipePath, type Crossing } from "./geometry";
+import { edgeAnchors, pipeArrows, pipeCrossings, pipePath, type Crossing } from "./geometry";
 import { registerPath } from "./pathRegistry";
 
 interface Props {
@@ -89,12 +89,12 @@ export default function Pipes({
         const hot = hotEdges?.has(edge.id) ?? false;
         const dim = hotEdges !== null && !hot;
         const live = energised(edge.id, edge.from);
-        const arrow = pipeArrow(anchor.from, anchor.to, edge.kind);
+        const arrows = pipeArrows(anchor.from, anchor.to, edge.kind);
 
         return (
           <g
             key={edge.id}
-            className={`pipe ${rework ? "pipe--rework" : ""} ${hot ? "pipe--hot" : ""} ${dim ? "pipe--dim" : ""}`}
+            className={`pipe ${rework ? "pipe--rework" : ""} ${hot ? "pipe--hot" : ""} ${focusEdgeId === edge.id ? "pipe--focus" : ""} ${dim ? "pipe--dim" : ""}`}
           >
             <path d={d} className="pipe__casing" />
             <path
@@ -102,14 +102,15 @@ export default function Pipes({
               d={d}
               className={`pipe__core ${live ? "is-live" : ""}`}
             />
-            {arrow && (
+            {arrows.map((arrow, i) => (
               <g
-                className={`pipe-arrow ${hot ? "pipe-arrow--hot" : ""} ${dim ? "pipe-arrow--dim" : ""}`}
+                key={i}
+                className={`pipe-arrow ${hot ? "pipe-arrow--hot" : ""} ${focusEdgeId === edge.id ? "pipe-arrow--focus" : ""} ${dim ? "pipe-arrow--dim" : ""}`}
                 transform={`translate(${arrow.x} ${arrow.y}) rotate(${arrow.angle}) scale(${arrow.dir} 1)`}
               >
                 <path className="pipe-arrow__shape" d="M -5 -5 L 5 0 L -5 5 Z" />
               </g>
-            )}
+            ))}
             {(interactive || hoverable) && (
               <path
                 d={d}
@@ -135,6 +136,7 @@ export default function Pipes({
       {crossings.map((c: Crossing) => {
         const edge = graph.edges.find((e) => e.id === c.over);
         const hot = hotEdges?.has(c.over) ?? false;
+        const focus = focusEdgeId === c.over;
         const dim = hotEdges !== null && !hot;
         const live = edge ? energised(edge.id, edge.from) : false;
         const mask = `M ${c.x - BRIDGE_R - 1} ${c.y} L ${c.x + BRIDGE_R + 1} ${c.y}`;
@@ -142,7 +144,7 @@ export default function Pipes({
         return (
           <g
             key={`${c.over}-${c.under}-${c.x}-${c.y}`}
-            className={`pipe-bridge ${hot ? "pipe-bridge--hot" : ""} ${dim ? "pipe-bridge--dim" : ""}`}
+            className={`pipe-bridge ${hot ? "pipe-bridge--hot" : ""} ${focus ? "pipe-bridge--focus" : ""} ${dim ? "pipe-bridge--dim" : ""}`}
           >
             <path d={mask} className="pipe-bridge__mask" />
             <path d={arc} className="pipe-bridge__casing" />
