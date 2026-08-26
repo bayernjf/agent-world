@@ -623,7 +623,20 @@
 - [x] 4D.5 状态与示例：`GET /api/mcp` 返回已连接 server 及其工具；`scripts/sample-mcp-server.mjs` 为最小可跑的 echo MCP server；测试含单测（内存 transport）+ 端到端（真实子进程）
 - [x] 4D.6 文档（本段勾选 + 用法说明）
   - 用法：设 `MCP_SERVERS='[{"id":"sample","command":"node","args":["scripts/sample-mcp-server.mjs"]}]'` 后启动；其工具出现在技能卡中，运行时像内置工具一样被模型调用。`GET /api/mcp` 可查看接入情况。
-- [ ] 4D.7 后续增强（不在本次范围）：SSE / HTTP 传输、工具调用权限治理（network/fs 白名单生效）
+- [x] 4D.7 SSE / HTTP 传输、工具调用权限治理（network/fs 白名单生效）
+
+### 4D.7 详细：远程传输 + 权限治理
+- 传输抽象扩展为三种（`packages/server/src/mcp.ts` 的 `McpServerSpec`）：
+  - `stdio`：原行为，spawn 本地进程（4D.2）。
+  - `http`：`StreamableHttpMcpTransport`，POST JSON-RPC，`Accept: application/json, text/event-stream`，兼容服务端以 SSE 或 JSON 返回，并捕获 `Mcp-Session-Id` 维持会话。
+  - `sse`：`SseMcpTransport`，GET 拉起长连接接收 `endpoint` 事件拿到 POST 地址，再把客户端请求 POST 过去，响应经 GET 流按 `id` 回传（兼容旧版 MCP server）。
+- 配置格式升级：`MCP_SERVERS` 每项可写 `{id, transport, command?, args?, url?, headers?, permissions?}`；旧式 `{id,command,args}` 仍兼容（默认 stdio）。`permissions` 用于声明该远程 server 的工具允许触碰的资源（默认 `{subprocess:false, env:[]}`，即不授予任何 network/fs —— 对不可信远程 server 的安全默认）。
+- 权限治理 `packages/server/src/permissions.ts`：
+  - `evaluateToolCall(skill, op, cfg)` 把技能**声明**的 `permissions` 与运营方**白名单**（`TOOL_NETWORK_ALLOW` / `TOOL_FS_ALLOW` / `TOOL_SUBPROCESS_ALLOW`）结合，调用期返回 `null`（放行）或原因字符串（拒绝）。白名单存在时覆盖技能声明。
+  - `guardToolCall(name, args, cfg)` 在引擎工具执行关口（`engine.ts` 的 `executeTool` 闭包）中调用：对 `web_fetch` / `web_search` 解析目标 host 后校验；其它工具按声明校验 fs/subprocess。
+  - 信任边界：内置工具在本进程内被本关口拦截；MCP 工具运行在外部 server，运行时无法拦截其网络，故治理以**挂载时声明的最小 permissions** 为准（运营方应为不可信 server 显式收紧）。
+- 测试：`mcp.test.ts` 现含 stdio（真实子进程）+ Streamable HTTP + legacy SSE 三种传输的端到端；`permissions.test.ts` 覆盖 network/fs/subprocess 的放行与拒绝及 `TOOL_NETWORK_ALLOW` 白名单生效。
+- 退出条件：产线能接入远程 MCP server（SSE/HTTP），且 `web_fetch` 等网络工具在运营方白名单之外的目标被拒绝。
 
 ## 阶段 4C（建议）：Worker 插件化
 

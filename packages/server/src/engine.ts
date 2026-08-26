@@ -15,6 +15,7 @@ import type { Worker } from "./worker.js";
 import { ProviderError } from "./providers/openai-compatible.js";
 import { sanitizeError } from "./sanitize.js";
 import { resolveTools, executeBuiltinTool } from "./skills/registry.js";
+import { guardToolCall, loadPermissionConfig, type PermissionConfig } from "./permissions.js";
 import { resolveConnector } from "./connectors.js";
 
 /**
@@ -74,6 +75,8 @@ export interface ExecuteOptions {
   sleep?: (ms: number) => Promise<void>;
   /** Persists generated image bytes and returns a stable URI (e.g. /api/artifacts/:id). */
   storeBinary?: (data: Buffer, mimeType: string, label?: string) => string | Promise<string>;
+  /** Tool-call permission governance. Defaults to the env-derived config. */
+  permissionConfig?: PermissionConfig;
 }
 
 type Status = "done" | "failed" | "halted" | "tripped" | "cancelled";
@@ -308,6 +311,8 @@ interface SchedulerOptions {
   resuming?: boolean;
   /** Persists generated image bytes and returns a stable URI (e.g. /api/artifacts/:id). */
   storeBinary: (data: Buffer, mimeType: string, label?: string) => string | Promise<string>;
+  /** Tool-call permission governance. Defaults to the env-derived config. */
+  permissionConfig?: PermissionConfig;
 }
 
 /**
@@ -319,6 +324,7 @@ interface SchedulerOptions {
  */
 async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunEvent>> {
   const { runId, graph, plan, worker, budgetUsd, fallbackModel } = opts;
+  const permCfg = opts.permissionConfig ?? loadPermissionConfig();
   const monthlyBudgetUsd = opts.monthlyBudgetUsd ?? null;
   const monthSpentUsd = opts.monthSpentUsd ?? 0;
   const queue = new EventQueue();
@@ -671,7 +677,10 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
             input: agentInput,
             images: imagesFor(nodeId),
             tools,
-            executeTool: async (name, args) => executeBuiltinTool(name, args),
+            executeTool: async (name, args) => {
+              guardToolCall(name, args, permCfg);
+              return executeBuiltinTool(name, args);
+            },
             signal: opts.signal,
           });
           let output = "";
@@ -914,6 +923,7 @@ export async function* execute(opts: ExecuteOptions): AsyncGenerator<RunEvent, v
     now: opts.now ?? Date.now,
     sleep: opts.sleep ?? delay,
     storeBinary: opts.storeBinary ?? defaultStoreBinary,
+    permissionConfig: opts.permissionConfig,
     init: {
       artifacts: new Map(),
       attempts: new Map(),
@@ -1056,6 +1066,7 @@ export async function* resume(opts: ResumeOptions): AsyncGenerator<RunEvent, voi
     now,
     sleep,
     storeBinary: opts.storeBinary ?? defaultStoreBinary,
+    permissionConfig: opts.permissionConfig,
     init: {
       artifacts: state.artifacts,
       attempts: state.attempts,

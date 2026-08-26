@@ -63,7 +63,7 @@ describe("registerMcpTools", () => {
 describe("StdioMcpTransport (end-to-end against the sample server)", () => {
   it("spawns the sample server, lists and calls its echo tool", async () => {
     const script = fileURLToPath(new URL("../scripts/sample-mcp-server.mjs", import.meta.url));
-    const client = connectMcpServer(process.execPath, [script]);
+    const client = connectMcpServer({ transport: "stdio", command: process.execPath, args: [script] });
     try {
       await client.initialize();
       const tools = await client.listTools();
@@ -72,6 +72,113 @@ describe("StdioMcpTransport (end-to-end against the sample server)", () => {
       expect(res).toEqual({ message: "hi" });
     } finally {
       client.close();
+    }
+  }, 15000);
+});
+
+/** Minimal in-process MCP server used to exercise the HTTP/SSE transports. */
+function startMcpHttpServer(kind: "streamable" | "sse"): Promise<{ url: string; close: () => void }> {
+  return new Promise((resolve) => {
+    const http = require("node:http") as typeof import("node:http");
+    let sseRes: import("node:http").ServerResponse | null = null;
+    const computeResult = (body: Record<string, unknown>): unknown => {
+      if (body.method === "initialize") return { protocolVersion: "2024-11-05" };
+      if (body.method === "tools/list")
+        return { tools: [{ name: "echo", description: "d", inputSchema: { type: "object" } }] };
+      if (body.method === "tools/call")
+        return { content: [{ type: "text", text: JSON.stringify({ message: (body.params as { arguments?: { message?: string } }).arguments?.message }) }] };
+      return {};
+    };
+    const server = http.createServer((req, res) => {
+      const url = new URL(req.url ?? "/", "http://localhost");
+      const sendJson = (obj: unknown) => {
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify(obj));
+      };
+      const sendResult = (id: unknown, result: unknown, asSse: boolean) => {
+        if (asSse) {
+          res.setHeader("Content-Type", "text/event-stream");
+          res.end(`event: message\ndata: ${JSON.stringify({ jsonrpc: "2.0", id, result })}\n\n`);
+        } else {
+          sendJson({ jsonrpc: "2.0", id, result });
+        }
+      };
+      if (req.method === "GET" && url.pathname === "/sse") {
+        res.setHeader("Content-Type", "text/event-stream");
+        res.setHeader("Cache-Control", "no-cache");
+        res.flushHeaders();
+        sseRes = res;
+        res.write(`event: endpoint\ndata: http://localhost:${server.address().port}/messages\n\n`);
+        return;
+      }
+      if (req.method === "POST" && url.pathname === "/messages") {
+        let raw = "";
+        req.on("data", (c) => (raw += c));
+        req.on("end", () => {
+          const body = JSON.parse(raw) as Record<string, unknown>;
+          if (sseRes) {
+            // Legacy SSE server pushes responses back over the GET stream.
+            sseRes.write(`event: message\ndata: ${JSON.stringify({ jsonrpc: "2.0", id: body.id, result: computeResult(body) })}\n\n`);
+            res.statusCode = 202;
+            res.end();
+          } else {
+            sendJson({ jsonrpc: "2.0", id: body.id, result: computeResult(body) });
+          }
+        });
+        return;
+      }
+      if (req.method === "POST" && url.pathname === "/mcp") {
+        let raw = "";
+        req.on("data", (c) => (raw += c));
+        req.on("end", () => {
+          const body = JSON.parse(raw) as Record<string, unknown>;
+          sendResult(body.id, computeResult(body), kind === "streamable");
+        });
+        return;
+      }
+      res.statusCode = 404;
+      res.end();
+    });
+    server.listen(0, () => {
+      const port = server.address().port;
+      resolve({
+        url: `http://localhost:${port}`,
+        close: () => server.close(),
+      });
+    });
+  });
+}
+
+describe("StreamableHttpMcpTransport (4D.7)", () => {
+  it("talks to a remote MCP server over HTTP", async () => {
+    const srv = await startMcpHttpServer("streamable");
+    const client = connectMcpServer({ transport: "http", url: `${srv.url}/mcp` });
+    try {
+      await client.initialize();
+      const tools = await client.listTools();
+      expect(tools.map((t) => t.name)).toContain("echo");
+      const res = await client.callTool("echo", { message: "remote" });
+      expect(res).toEqual({ message: "remote" });
+    } finally {
+      client.close();
+      srv.close();
+    }
+  }, 15000);
+});
+
+describe("SseMcpTransport (4D.7)", () => {
+  it("talks to a legacy SSE MCP server", async () => {
+    const srv = await startMcpHttpServer("sse");
+    const client = connectMcpServer({ transport: "sse", url: `${srv.url}/sse` });
+    try {
+      await client.initialize();
+      const tools = await client.listTools();
+      expect(tools.map((t) => t.name)).toContain("echo");
+      const res = await client.callTool("echo", { message: "sse" });
+      expect(res).toEqual({ message: "sse" });
+    } finally {
+      client.close();
+      srv.close();
     }
   }, 15000);
 });

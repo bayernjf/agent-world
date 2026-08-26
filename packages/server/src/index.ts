@@ -13,6 +13,7 @@ import {
   TEMPLATES,
   TriggerConfig,
   type RunEvent,
+  type SkillPermissions,
 } from "@agent-world/core";
 import { openDb } from "./db.js";
 import { ArtifactStore } from "./artifact-store.js";
@@ -35,7 +36,7 @@ import {
 } from "./config.js";
 import { routingWorker } from "./providers/index.js";
 import { WorkerRegistry } from "./worker-plugins.js";
-import { connectMcpServer, registerMcpTools, type McpClient } from "./mcp.js";
+import { connectMcpServer, registerMcpTools, type McpClient, type McpServerSpec } from "./mcp.js";
 import { registerSkill } from "./skills/registry.js";
 import { fileURLToPath } from "node:url";
 import { sanitizeError } from "./sanitize.js";
@@ -792,30 +793,40 @@ app.get("/api/artifacts/:id", async (c) => {
 // plugins a moment later.
 void workerRegistry.loadFrom(workersDir);
 
-// Connect configured MCP servers (MCP_SERVERS env, a JSON array of
-// { id, command, args? }) and register their tools as skills. Failure to reach
-// a server is non-fatal.
+// Connect configured MCP servers (MCP_SERVERS env, a JSON array of server
+// specs) and register their tools as skills. A spec is either the legacy
+// `{ id, command, args? }` (stdio) or a richer
+// `{ id, transport: "stdio"|"http"|"sse", ... , permissions? }`. Failure to
+// reach a server is non-fatal.
 const mcpClients: McpClient[] = [];
-const mcpStatus: { id: string; tools: string[] }[] = [];
+const mcpStatus: { id: string; tools: string[]; transport: string }[] = [];
 async function connectMcpServers(): Promise<void> {
   const raw = process.env.MCP_SERVERS;
   if (!raw) return;
-  let servers: { id: string; command: string; args?: string[] }[];
+  let rawServers: Array<Record<string, unknown>>;
   try {
-    servers = JSON.parse(raw);
+    rawServers = JSON.parse(raw);
   } catch {
     log.warn("MCP_SERVERS is not valid JSON; skipping MCP setup");
     return;
   }
-  for (const s of servers) {
+  for (const s of rawServers) {
+    const id = String(s.id ?? "mcp");
     try {
-      const client = connectMcpServer(s.command, s.args ?? []);
+      const transport = (s.transport as string | undefined) ?? "stdio";
+      let spec: McpServerSpec;
+      if (transport === "stdio") {
+        spec = { transport: "stdio", command: String(s.command), args: (s.args as string[]) ?? [], env: s.env as Record<string, string> | undefined };
+      } else {
+        spec = { transport: transport as "http" | "sse", url: String(s.url), headers: s.headers as Record<string, string> | undefined };
+      }
+      const client = connectMcpServer(spec);
       mcpClients.push(client);
-      const tools = await registerMcpTools(s.id, client, registerSkill);
-      mcpStatus.push({ id: s.id, tools: tools.map((t) => t.name) });
-      log.info("mcp connected", { id: s.id, tools: tools.map((t) => t.name) });
+      const tools = await registerMcpTools(id, client, registerSkill, s.permissions as SkillPermissions | undefined);
+      mcpStatus.push({ id, tools: tools.map((t) => t.name), transport });
+      log.info("mcp connected", { id, transport, tools: tools.map((t) => t.name) });
     } catch (err) {
-      log.warn("mcp connect failed", { id: s.id, error: (err as Error).message });
+      log.warn("mcp connect failed", { id, error: (err as Error).message });
     }
   }
 }
