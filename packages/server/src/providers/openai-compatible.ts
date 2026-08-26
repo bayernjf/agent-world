@@ -326,7 +326,8 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
     const system =
       "You are a strict quality inspector on an assembly line. " +
       "Given a quality criterion and a produced output, decide if the output passes. " +
-      "Respond with valid JSON: {\"passed\": boolean, \"reason\": string}. " +
+      "Respond with valid JSON: {\"passed\": boolean, \"reason\": string, \"score\": number}. " +
+      "score is an integer 0-10 rating overall quality. " +
       "Be concise and specific in the reason.";
     const user = `Criterion:\n${criterion || "(no explicit criterion; judge overall quality)"}\n\nOutput to inspect:\n${output}`;
     return [
@@ -335,14 +336,16 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
     ];
   }
 
-  function extractJson(text: string): { passed: boolean; reason: string } {
+  function extractJson(text: string): { passed: boolean; reason: string; score?: number } {
     const match = text.match(/\{[\s\S]*\}/);
     if (!match) return { passed: false, reason: text.slice(0, 200) };
     try {
       const parsed = JSON.parse(match[0]);
+      const score = typeof parsed.score === "number" ? Math.round(parsed.score) : undefined;
       return {
         passed: Boolean(parsed.passed),
         reason: typeof parsed.reason === "string" ? parsed.reason : JSON.stringify(parsed),
+        ...(score !== undefined ? { score: Math.min(10, Math.max(0, score)) } : {}),
       };
     } catch {
       return { passed: false, reason: text.slice(0, 200) };

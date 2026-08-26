@@ -72,6 +72,7 @@ CREATE TABLE IF NOT EXISTS node_runs (
   reasoning_tokens INTEGER NOT NULL DEFAULT 0,
   cost_usd       REAL NOT NULL DEFAULT 0,
   units_json     TEXT,
+  score          REAL,
   PRIMARY KEY (run_id, node_id, attempt)
 );
 `;
@@ -208,6 +209,9 @@ export function openDb(file: string) {
     ),
     failNodeRun: db.prepare(
       `UPDATE node_runs SET status = 'failed', error = ?, error_code = ? WHERE run_id = ? AND node_id = ? AND attempt = ?`,
+    ),
+    setNodeScore: db.prepare(
+      `UPDATE node_runs SET score = ? WHERE run_id = ? AND node_id = ? AND attempt = ?`,
     ),
     markInterrupted: db.prepare(
       `UPDATE runs SET status = 'interrupted', ended_at = ? WHERE status = 'running'`,
@@ -385,6 +389,13 @@ export function openDb(file: string) {
             event.nodeId,
             event.attempt,
           );
+          break;
+        case "gate.verdict":
+          // Persist the judge's quality score so the eval report can aggregate
+          // it per prompt version (the "evaluation linkage").
+          if (typeof event.score === "number") {
+            stmts.setNodeScore.run(event.score, runId, event.nodeId, event.attempt);
+          }
           break;
       }
     },
@@ -656,7 +667,8 @@ export function openDb(file: string) {
              r.status = 'done' AS passed,
              (r.ended_at - r.started_at) AS duration_ms,
              COUNT(n.node_id) AS node_attempts,
-             COUNT(DISTINCT n.node_id) AS nodes
+             COUNT(DISTINCT n.node_id) AS nodes,
+             COALESCE((SELECT AVG(score) FROM node_runs WHERE run_id = r.id AND score IS NOT NULL), 0) AS avg_score
            FROM runs r LEFT JOIN node_runs n ON n.run_id = r.id
            ${clause}
            GROUP BY r.id`,
@@ -669,6 +681,7 @@ export function openDb(file: string) {
         duration_ms: number | null;
         node_attempts: number;
         nodes: number;
+        avg_score: number;
       }>;
 
       const summarize = (rows: typeof runRows) => {
@@ -679,12 +692,17 @@ export function openDb(file: string) {
         const duration = ended.length
           ? ended.reduce((acc, r) => acc + (r.duration_ms ?? 0), 0) / ended.length
           : 0;
+        const scored = rows.filter((r) => r.avg_score > 0);
+        const avgScore = scored.length
+          ? scored.reduce((acc, r) => acc + r.avg_score, 0) / scored.length
+          : 0;
         return {
           runs: total,
           passed,
           passRate: total ? passed / total : 0,
           avgRework: total ? rework / total : 0,
           avgDurationMs: duration,
+          avgScore,
         };
       };
 
@@ -881,6 +899,12 @@ const MIGRATIONS: Migration[] = [
         storage TEXT NOT NULL, uri TEXT, created_at INTEGER NOT NULL);
         CREATE INDEX IF NOT EXISTS idx_artifacts_run ON artifacts(run_id, created_at);
         CREATE INDEX IF NOT EXISTS idx_artifacts_node ON artifacts(run_id, node_id);`),
+  },
+  {
+    version: 10,
+    description: "node_runs.score for eval linkage",
+    detect: (db) => columnExists(db, "node_runs", "score"),
+    up: (db) => db.exec("ALTER TABLE node_runs ADD COLUMN score REAL"),
   },
 ];
 

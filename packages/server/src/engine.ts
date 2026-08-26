@@ -407,13 +407,23 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
         // never pass, regardless of what the model judge decides. Deterministic
         // so forbidden copy is always caught even if the model slips it in.
         const prohibitedHits = detectProhibited(output, upstreamProhibitedTerms(graph, nodeId));
+        const minScore = node.gate?.minScore;
+        const belowScore =
+          minScore != null && modelVerdict.score != null && modelVerdict.score < minScore;
         const verdict =
           prohibitedHits.length > 0
             ? {
                 passed: false,
                 reason: `命中禁用词：${prohibitedHits.join("、")}（已退回上游重写）`,
+                score: modelVerdict.score,
               }
-            : modelVerdict;
+            : belowScore
+              ? {
+                  passed: false,
+                  reason: `质量分 ${modelVerdict.score} 低于门槛 ${minScore}（已退回上游重写）`,
+                  score: modelVerdict.score,
+                }
+              : modelVerdict;
 
         emit({
           type: "gate.verdict",
@@ -421,6 +431,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           attempt,
           passed: verdict.passed,
           reason: verdict.reason,
+          ...(verdict.score != null ? { score: verdict.score } : {}),
         });
 
         if (verdict.passed) {

@@ -71,7 +71,7 @@ export interface Worker {
     output: string;
     criterion: string;
     signal?: AbortSignal;
-  }): Promise<{ passed: boolean; reason: string }>;
+  }): Promise<{ passed: boolean; reason: string; score?: number }>;
 
   /** Generates an image (banner / scene) from a prompt. Used by `imageGen` nodes. */
   generateImage(args: ImageGenArgs): Promise<ImageGenResult>;
@@ -111,16 +111,19 @@ export function fakeWorker(opts: { failFirstAttempts?: number; chunkDelayMs?: nu
 
     async judge({ attempt, input, criterion }) {
       await new Promise((r) => setTimeout(r, delay));
+      // Deterministic score: a failing attempt scores low, an accepted one high.
+      // Lets the eval report compare quality across prompt versions.
+      const score = attempt <= failFirst ? 3 : 9;
       if (!criterion) {
         return attempt <= failFirst
-          ? { passed: false, reason: "Output is too thin — send it back to the forge" }
-          : { passed: true, reason: `Accepted on attempt ${attempt} (${input.length} chars)` };
+          ? { passed: false, reason: "Output is too thin — send it back to the forge", score }
+          : { passed: true, reason: `Accepted on attempt ${attempt} (${input.length} chars)`, score };
       }
       // Deterministic criterion-aware stand-in: reject until attempts run out,
       // then pass. Real workers let the model judge against criterion.
       return attempt <= failFirst
-        ? { passed: false, reason: `Criterion not met: ${criterion.slice(0, 80)}` }
-        : { passed: true, reason: `Meets criterion: ${criterion.slice(0, 80)}` };
+        ? { passed: false, reason: `Criterion not met: ${criterion.slice(0, 80)}`, score }
+        : { passed: true, reason: `Meets criterion: ${criterion.slice(0, 80)}`, score };
     },
 
     // Deterministic 1x1 PNG placeholder so canvas wiring + tests work without a
