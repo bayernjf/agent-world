@@ -1,6 +1,7 @@
 import { useMemo, useState, type ElementType } from "react";
 import type { Artifact, Graph, RuntimeState } from "@agent-world/core";
-import { incoming } from "@agent-world/core";
+import { incoming, parseProductDocument } from "@agent-world/core";
+import ProductBlocks from "./ProductBlocks";
 
 interface Props {
   sinkId: string;
@@ -114,6 +115,7 @@ export default function FinishedProduct({ sinkId, graph, runtime }: Props) {
   const videos = artifacts.filter((a) => a.kind === "video");
   const audios = artifacts.filter((a) => a.kind === "audio");
   const others = artifacts.filter((a) => !["image", "video", "audio"].includes(a.kind));
+  const productDoc = useMemo(() => parseProductDocument(text), [text]);
 
   const [copied, setCopied] = useState(false);
   const copyText = () => {
@@ -176,7 +178,7 @@ export default function FinishedProduct({ sinkId, graph, runtime }: Props) {
       )}
 
       <article className="product__body">
-        {renderMarkdown(text)}
+        {productDoc ? <ProductBlocks doc={productDoc} /> : renderMarkdown(text)}
       </article>
 
       {others.length > 0 && (
