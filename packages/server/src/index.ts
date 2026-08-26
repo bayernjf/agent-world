@@ -98,7 +98,7 @@ function jsonResponse(status: number, body: unknown): Response {
   });
 }
 
-const app = new Hono();
+export const app = new Hono();
 applyCors(app, process.env.CORS_ORIGINS);
 applySecurityHeaders(app);
 
@@ -884,7 +884,7 @@ app.get("/api/artifacts/:id", async (c) => {
 // Discover worker plugins in the background; the built-in worker is already
 // registered, so the server is usable immediately and /api/workers reflects
 // plugins a moment later.
-void workerRegistry.loadFrom(workersDir);
+if (process.env.NODE_ENV !== "test") void workerRegistry.loadFrom(workersDir);
 
 // Connect configured MCP servers (MCP_SERVERS env, a JSON array of server
 // specs) and register their tools as skills. A spec is either the legacy
@@ -929,8 +929,9 @@ async function connectMcpServers(): Promise<void> {
     }
   }
 }
-void connectMcpServers();
+if (process.env.NODE_ENV !== "test") void connectMcpServers();
 
+if (process.env.NODE_ENV !== "test")
 serve({ fetch: app.fetch, port: PORT }, (info) => {
   log.info("engine listening", { port: info.port, url: `http://localhost:${info.port}` });
 });
