@@ -1,5 +1,5 @@
 import type { AgentChunk, AgentResult, ImageGenResult, Worker } from "../worker.js";
-import type { AgentConfig, GraphNode, Usage } from "@agent-world/core";
+import type { AgentConfig, ContentPart as MultimodalContent, GraphNode, Usage } from "@agent-world/core";
 import { computeCost, modalityOf, normalizeBaseUrl, type ModelPricing, type ProviderConfig } from "../config.js";
 
 export class ProviderError extends Error {
@@ -38,6 +38,32 @@ function mapHttpStatus(status: number): ProviderError["code"] {
   if (status === 408 || status === 524 || status === 504) return "TIMEOUT";
   if (status >= 500) return "PROVIDER_ERROR";
   return "UNKNOWN";
+}
+
+/**
+ * Builds the user message content. When `content` (4.5 multimodal parts) is
+ * supplied it is the canonical representation; otherwise we fall back to the
+ * legacy `input` + `images` shortcut, flattening images into `image_url` parts.
+ */
+export function buildUserContent(
+  input: string,
+  images: string[] = [],
+  content?: MultimodalContent[],
+): string | ContentPart[] {
+  if (content && content.length > 0) {
+    return content.map((p) =>
+      p.type === "image"
+        ? { type: "image_url", image_url: { url: p.image } }
+        : { type: "text", text: p.text },
+    );
+  }
+  if (images.length > 0) {
+    return [
+      { type: "text", text: input || "(no input)" },
+      ...images.map((url) => ({ type: "image_url" as const, image_url: { url } })),
+    ];
+  }
+  return input || "(no input)";
 }
 
 /** Hard ceiling for a single image generation call, independent of the caller's abort. */
@@ -310,15 +336,9 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
     return { output: finalText, usage };
   }
 
-  function buildMessages(node: GraphNode, config: AgentConfig, input: string, images: string[] = []) {
+  function buildMessages(node: GraphNode, config: AgentConfig, input: string, images: string[] = [], content?: MultimodalContent[]) {
     const system = config.prompt || `You are a worker in the "${node.name}" plant. Process the input and produce output.`;
-    const userContent: string | ContentPart[] =
-      images.length > 0
-        ? [
-            { type: "text", text: input || "(no input)" },
-            ...images.map((url) => ({ type: "image_url" as const, image_url: { url } })),
-          ]
-        : input || "(no input)";
+    const userContent = buildUserContent(input, images, content);
     return [
       { role: "system", content: system },
       { role: "user", content: userContent },
@@ -356,7 +376,7 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
   }
 
   return {
-    async *runAgent({ node, config, input, images, tools, executeTool, signal }) {
+    async *runAgent({ node, config, input, images, content, tools, executeTool, signal }) {
       const model = config.model || "agnes-2.0-flash";
       const modality = modalityOf(provider, model);
       if (modality !== "text") {
@@ -367,7 +387,7 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
           `Model "${model}" is a ${modality} model; text-pipeline execution for ${modality} models is not yet implemented`,
         );
       }
-      const messages = buildMessages(node, config, input, images);
+      const messages = buildMessages(node, config, input, images, content);
       if (tools && tools.length > 0 && executeTool) {
         return yield* runWithTools(model, messages, config, tools, executeTool, signal);
       }

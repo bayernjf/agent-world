@@ -403,10 +403,17 @@
 
 ### 4.5 多模态
 
-- [ ] Worker 接口 input 从 string 扩展为支持 content parts（文本+图片）
-- [ ] Source 节点支持图片输入
-- [ ] Canvas 上图片类原料有视觉区分
-- [ ] 退出条件：商品图片能作为原料进入产线
+- [x] Worker 接口 input 从 string 扩展为支持 content parts（文本+图片）
+- [x] Source 节点支持图片输入
+- [x] Canvas 上图片类原料有视觉区分
+- [x] 退出条件：商品图片能作为原料进入产线
+
+#### 4.5 详细
+- 类型 `ContentPart`（core `multimodal.ts`）：`{type:"text",text} | {type:"image",image}`，image 为 URL 或 data URI。
+- `Worker.runAgent` 入参新增 `content?: ContentPart[]`。引擎在调用处自动把 `input` + 上游 source 的 `source.images` 组装成 `content`（文本段 + 图片段），同时保留 `input`/`images` 旧字段以兼容老 worker。
+- Provider（`openai-compatible.ts`）优先使用 `content` 组装消息体；`buildUserContent` 将图片段映射为 `image_url`，回退到 `input`+`images` 快捷方式。已有 provider 侧的多模态（图片进模型）因此统一为 content parts 表达。
+- 前端（`apps/web`）：Inspector 中 `SourceImages` 已支持编辑/缩略图；Canvas 节点对带图片原料的 source 增加蓝色「图 N」徽标，hover tooltip 显示「图片原料 N 张」。
+- 测试：`engine.multimodal.test.ts` 验证 source 图片进入下游 agent 的 `content`；`providers/openai-compatible.test.ts` 验证 `buildUserContent` 三种路径。
 
 ### 4.6 触发方式
 

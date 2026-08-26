@@ -4,6 +4,7 @@ import {
   nodeById,
   outgoing,
   type Artifact,
+  type ContentPart,
   type DraftEvent,
   type Graph,
   type GraphNode,
@@ -670,12 +671,18 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
             typeof s === "string" ? { id: s, enabled: true } : s,
           );
           const tools = resolveTools(mounts);
+          const referenceImages = imagesFor(nodeId);
+          const content: ContentPart[] | undefined = referenceImages.length
+            ? [{ type: "text", text: agentInput }, ...referenceImages.map((u) => ({ type: "image", image: u }))]
+            : undefined;
           const gen = worker.runAgent({
             node,
             config,
             attempt,
             input: agentInput,
-            images: imagesFor(nodeId),
+            images: referenceImages,
+            content,
+            tools,
             tools,
             executeTool: async (name, args) => {
               guardToolCall(name, args, permCfg);

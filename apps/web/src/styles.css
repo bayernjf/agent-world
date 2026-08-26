@@ -1429,6 +1429,16 @@ select {
   fill: rgba(255, 74, 61, 0.14);
   stroke: rgba(255, 74, 61, 0.5);
 }
+.plant__images-chip rect {
+  fill: rgba(64, 169, 255, 0.14);
+  stroke: rgba(64, 169, 255, 0.5);
+  stroke-width: 1;
+}
+.plant__images-chip text {
+  fill: #8ad0ff;
+  font-family: var(--mono);
+  font-size: 9px;
+}
 
 .plant--gate .plant__bar {
   fill: #1d2b22;

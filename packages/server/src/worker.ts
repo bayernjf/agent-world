@@ -1,4 +1,4 @@
-import type { AgentConfig, GraphNode, ImageGenConfig, Usage } from "@agent-world/core";
+import type { AgentConfig, ContentPart, GraphNode, ImageGenConfig, Usage } from "@agent-world/core";
 
 /** A callable tool exposed to a model, derived from a mounted skill card. */
 export interface ToolDefinition {
@@ -57,6 +57,12 @@ export interface Worker {
     input: string;
     /** Reference image URLs (from upstream source nodes) for vision models. */
     images?: string[];
+    /**
+     * Structured multimodal input (text + image parts). When present it is the
+     * canonical representation; `input` + `images` are the legacy shortcut that
+     * the engine assembles into `content` automatically (4.5).
+     */
+    content?: ContentPart[];
     /** Tools available to this agent, derived from its mounted skill cards. */
     tools?: ToolDefinition[];
     /** Executes a tool call. The worker must yield tool-call/tool-result around it. */
