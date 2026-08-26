@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { UsageUnits } from "./pricing.js";
+import { Artifact } from "./artifact.js";
 
 /**
  * The event stream is the single source of truth: the engine emits it, the UI
@@ -116,9 +117,19 @@ export const RunEvent = z.discriminatedUnion("type", [
     to: z.string(),
     /** Preview of the payload; the full artifact lives on the node run. */
     summary: z.string(),
-    /** Reserved for future artifact/Packet layering. */
+    /** The primary artifact carried by this packet, when typed. */
     artifactId: z.string().optional(),
+    /** Kind of the carried artifact, for truck rendering. */
+    artifactKind: Artifact.shape.kind.optional(),
     metadata: z.record(z.unknown()).optional(),
+  }),
+  /** A node produced a typed artifact (image, video, audio, file, json, ...). */
+  z.object({
+    ...base,
+    type: z.literal("artifact.produced"),
+    nodeId: z.string(),
+    attempt: z.number().int().min(1).optional(),
+    artifact: Artifact,
   }),
   z.object({
     ...base,

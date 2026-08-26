@@ -1,4 +1,5 @@
 import type { RunEvent } from "./events.js";
+import type { Artifact } from "./artifact.js";
 import { addUnits, type UsageUnits } from "./pricing.js";
 
 /**
@@ -21,6 +22,8 @@ export interface NodeRuntime {
   units: UsageUnits;
   /** Tool calls made during this node's execution, newest last. */
   toolCalls: ToolCallRecord[];
+  /** Typed artifacts produced by this node across all attempts. */
+  artifacts: Artifact[];
   error?: string;
   errorCode?: string;
 }
@@ -39,6 +42,8 @@ export interface PacketRuntime {
   from: string;
   to: string;
   summary: string;
+  /** Kind of the carried artifact, for truck rendering. */
+  artifactKind?: Artifact["kind"];
   /** Sequence number it was emitted at; the canvas animates from this. */
   seq: number;
 }
@@ -103,6 +108,7 @@ function nodeOf(state: RuntimeState, id: string): NodeRuntime {
     costUsd: 0,
     units: {},
     toolCalls: [],
+    artifacts: [],
   };
 }
 
@@ -163,6 +169,13 @@ export function reduce(state: RuntimeState, event: RunEvent): RuntimeState {
         return withNode(state, event.nodeId, { toolCalls });
       }
 
+      case "artifact.produced": {
+        const node = nodeOf(state, event.nodeId);
+        return withNode(state, event.nodeId, {
+          artifacts: [...node.artifacts, event.artifact],
+        });
+      }
+
       case "node.finished": {
         const node = nodeOf(state, event.nodeId);
         const nodeUnits = addUnits(node.units, event.usage.units);
@@ -211,7 +224,14 @@ export function reduce(state: RuntimeState, event: RunEvent): RuntimeState {
           ...state,
           packets: [
             ...state.packets,
-            { edgeId: event.edgeId, from: event.from, to: event.to, summary: event.summary, seq: event.seq },
+            {
+              edgeId: event.edgeId,
+              from: event.from,
+              to: event.to,
+              summary: event.summary,
+              artifactKind: event.artifactKind,
+              seq: event.seq,
+            },
           ],
         };
 

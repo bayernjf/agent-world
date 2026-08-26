@@ -116,6 +116,45 @@ describe("runtime", () => {
     expect(state.failures[0]!.kind).toBe("budget");
   });
 
+  it("collects artifacts produced by nodes", () => {
+    seq = 0;
+    const state = replay([
+      ev({ type: "run.started", runId: "r1", graphId: "g1", budgetUsd: null }),
+      ev({ type: "node.started", nodeId: "forge", attempt: 1 }),
+      ev({
+        type: "artifact.produced",
+        nodeId: "forge",
+        attempt: 1,
+        artifact: { id: "forge-a1", kind: "image", uri: "https://example.com/a.png" },
+      }),
+      ev({
+        type: "artifact.produced",
+        nodeId: "forge",
+        attempt: 1,
+        artifact: { id: "forge-a2", kind: "text", content: "caption" },
+      }),
+    ]);
+    expect(state.nodes.forge!.artifacts).toHaveLength(2);
+    expect(state.nodes.forge!.artifacts[0]!.kind).toBe("image");
+    expect(state.nodes.forge!.artifacts[1]!.content).toBe("caption");
+  });
+
+  it("carries artifactKind on packets", () => {
+    seq = 0;
+    const state = replay([
+      ev({ type: "run.started", runId: "r1", graphId: "g1", budgetUsd: null }),
+      ev({
+        type: "packet.sent",
+        edgeId: "e1",
+        from: "a",
+        to: "b",
+        summary: "image result",
+        artifactKind: "image",
+      }),
+    ]);
+    expect(state.packets[0]!.artifactKind).toBe("image");
+  });
+
   it("is pure — reducing does not mutate the input state", () => {
     const before = structuredClone(initialRuntime);
     reduce(initialRuntime, reworkRun()[1]!);
