@@ -3332,6 +3332,35 @@ select {
   line-height: 1;
   font-size: 16px;
 }
+.connector-test {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: var(--hair);
+}
+.connector-test__result {
+  margin-top: 8px;
+}
+.connector-test__meta {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+}
+.connector-test__preview {
+  background: var(--bg-elevated);
+  border: var(--hair);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 12px;
+  max-height: 160px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.connector-test__error {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--danger, #e5484d);
+}
 
 .error-text {
   margin-top: 8px;
