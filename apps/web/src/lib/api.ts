@@ -261,8 +261,20 @@ export const api = {
   getEvents: (runId: string) =>
     fetch(`/api/runs/${runId}/events`).then(json<{ events: RunEvent[]; state: RuntimeState }>),
 
-  listRuns: (limit = 50, offset = 0) =>
-    fetch(`/api/runs?limit=${limit}&offset=${offset}`).then(json<RunSummary[]>),
+  listRuns: (opts: { limit?: number; offset?: number; graphId?: string; status?: string } = {}) => {
+    const qs = new URLSearchParams();
+    if (opts.limit !== undefined) qs.set("limit", String(opts.limit));
+    if (opts.offset !== undefined) qs.set("offset", String(opts.offset));
+    if (opts.graphId) qs.set("graphId", opts.graphId);
+    if (opts.status) qs.set("status", opts.status);
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return fetch(`/api/runs${suffix}`).then(json<{ runs: RunSummary[]; total: number }>);
+  },
+
+  runStats: (runId: string) =>
+    fetch(`/api/runs/${runId}/stats`).then(
+      json<{ nodes: number; tokensIn: number; tokensOut: number; costUsd: number }>,
+    ),
 
   deleteRun: (runId: string) =>
     fetch(`/api/runs/${runId}`, { method: "DELETE" }).then(json<{ ok: true }>),

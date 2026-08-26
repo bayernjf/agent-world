@@ -56,11 +56,11 @@ export default function TriggersPanel({ open, onClose, graphId }: Props) {
       const [ts, nr, allRuns] = await Promise.all([
         api.listTriggers(graphId),
         api.triggerNextRuns(graphId),
-        api.listRuns(20),
+        api.listRuns({ limit: 20 }),
       ]);
       setTriggers(ts);
       setNextRuns(nr);
-      setRuns(allRuns.filter((r) => r.graph_id === graphId));
+      setRuns(allRuns.runs.filter((r) => r.graph_id === graphId));
     } catch (e) {
       setError(e instanceof Error ? e.message : "加载失败");
     }

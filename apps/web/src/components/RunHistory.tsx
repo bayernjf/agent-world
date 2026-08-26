@@ -1,177 +1,286 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { api, type RunSummary } from "../lib/api";
-import { useGraph } from "../store/graph";
-import { useRun } from "../store/run";
-import ConfirmDialog from "./ConfirmDialog";
 
 interface Props {
   open: boolean;
   onClose: () => void;
+  onOpen?: (runId: string) => void;
 }
+
+const PAGE_SIZE = 20;
+const STATUSES = ["running", "completed", "failed", "cancelled", "approved", "rejected"];
 
 const STATUS_LABEL: Record<string, string> = {
-  done: "完成",
-  failed: "失败",
-  halted: "已暂停",
-  tripped: "预算跳闸",
-  cancelled: "已取消",
-  interrupted: "中断",
   running: "运行中",
+  completed: "已完成",
+  failed: "失败",
+  cancelled: "已取消",
+  approved: "已通过",
+  rejected: "已拒绝",
 };
 
-function formatTime(ts: number): string {
-  const d = new Date(ts);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getMonth() + 1}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+function fmtRelative(ts: number): string {
+  const diff = Date.now() - ts;
+  if (diff < 60_000) return "刚刚";
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`;
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前`;
+  return `${Math.floor(diff / 86_400_000)} 天前`;
 }
 
-function duration(r: RunSummary): string {
-  if (!r.ended_at) return "—";
-  const sec = Math.round((r.ended_at - r.started_at) / 1000);
-  if (sec < 60) return `${sec}s`;
-  return `${Math.floor(sec / 60)}m${sec % 60}s`;
+function fmtDuration(ms: number | null): string {
+  if (ms == null) return "运行中";
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  return `${m}m ${s % 60}s`;
 }
 
-export default function RunHistory({ open, onClose }: Props) {
+interface RunStats {
+  nodes: number;
+  tokensIn: number;
+  tokensOut: number;
+  costUsd: number;
+}
+
+function CompareView({
+  runs,
+  selected,
+  stats,
+  onBack,
+}: {
+  runs: RunSummary[];
+  selected: string[];
+  stats: Record<string, RunStats>;
+  onBack: () => void;
+}) {
+  const byId = new Map(runs.map((r) => [r.id, r]));
+  const cols = selected.map((id) => ({ id, run: byId.get(id), stat: stats[id] }));
+  const rows: { label: string; get: (c: (typeof cols)[number]) => string }[] = [
+    { label: "产线", get: (c) => c.run?.graph_name || "(未命名产线)" },
+    { label: "状态", get: (c) => (c.run ? (STATUS_LABEL[c.run.status] ?? c.run.status) : "—") },
+    { label: "触发", get: (c) => c.run?.trigger ?? "—" },
+    { label: "开始", get: (c) => (c.run ? fmtRelative(c.run.started_at) : "—") },
+    { label: "耗时", get: (c) => (c.run ? fmtDuration(c.run.ended_at != null ? c.run.ended_at - c.run.started_at : null) : "—") },
+    { label: "节点数", get: (c) => (c.stat ? String(c.stat.nodes) : "—") },
+    { label: "输入 tokens", get: (c) => (c.stat ? c.stat.tokensIn.toLocaleString() : "—") },
+    { label: "输出 tokens", get: (c) => (c.stat ? c.stat.tokensOut.toLocaleString() : "—") },
+    { label: "成本", get: (c) => (c.stat ? `$${c.stat.costUsd.toFixed(4)}` : "—") },
+  ];
+  return (
+    <div>
+      <div className="dialog-actions" style={{ marginBottom: 8 }}>
+        <button className="btn" onClick={onBack}>
+          返回列表
+        </button>
+      </div>
+      <table className="compare-table">
+        <thead>
+          <tr>
+            <th>指标</th>
+            {cols.map((c) => (
+              <th key={c.id}>{c.run?.graph_name || c.id.slice(0, 8)}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.label}>
+              <td>{row.label}</td>
+              {cols.map((c) => (
+                <td key={c.id}>{row.get(c)}</td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+export default function RunHistory({ open, onClose, onOpen }: Props) {
   const [runs, setRuns] = useState<RunSummary[]>([]);
+  const [graphs, setGraphs] = useState<{ id: string; name: string }[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(0);
+  const [graphId, setGraphId] = useState("");
+  const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState<RunSummary | null>(null);
-  const { setGraph } = useGraph();
-  const { loadRun, runId, reset } = useRun();
+  const [compareMode, setCompareMode] = useState(false);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [comparing, setComparing] = useState(false);
+  const [stats, setStats] = useState<Record<string, RunStats>>({});
 
-  const refresh = useCallback(async () => {
+  const load = () => {
     setLoading(true);
-    try {
-      setRuns(await api.listRuns(100));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+    api
+      .listRuns({
+        limit: PAGE_SIZE,
+        offset: page * PAGE_SIZE,
+        graphId: graphId || undefined,
+        status: status || undefined,
+      })
+      .then((d) => {
+        setRuns(d.runs);
+        setTotal(d.total);
+      })
+      .finally(() => setLoading(false));
+  };
 
-  useEffect(() => {
-    if (open) void refresh();
-  }, [open, refresh]);
-
+  // Load graph list once when the dialog opens; reset transient selection state.
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+    setPage(0);
+    setSelected([]);
+    setComparing(false);
+    api.listGraphs().then((g) => setGraphs(g.map((x) => ({ id: x.id, name: x.name }))));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
-  const replay = async (r: RunSummary) => {
-    const graph = await api.getGraph(r.graph_id).catch(() => null);
-    if (graph) {
-      setGraph(graph);
-      useGraph.temporal.getState().clear();
-    }
-    await loadRun(r.id);
-    onClose();
-  };
-
-  const confirmDelete = async () => {
-    if (!deleteTarget) return;
-    const id = deleteTarget.id;
-    setDeleteTarget(null);
-    await api.deleteRun(id).catch(() => {});
-    if (runId === id) reset();
-    await refresh();
-  };
+  // Reload the page whenever the page or filters change.
+  useEffect(() => {
+    if (!open) return;
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, graphId, status, open]);
 
   if (!open) return null;
 
+  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  const toggleSelect = (id: string) =>
+    setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
+
+  const runCompare = async () => {
+    const entries = await Promise.all(
+      selected.map(async (id) => [id, await api.runStats(id)] as const),
+    );
+    const map: Record<string, RunStats> = {};
+    for (const [id, st] of entries) map[id] = st;
+    setStats(map);
+    setComparing(true);
+  };
+
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div
-        className="modal"
-        style={{ width: 720 }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="modal__header">
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal modal--wide runhistory-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal__head">
           <h2>运行历史</h2>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button className="chip" onClick={refresh} disabled={loading}>
-              刷新
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <button className="btn" onClick={() => setCompareMode((v) => !v)}>
+              {compareMode ? "退出选择" : "选择对比"}
             </button>
             <button className="icon-btn" onClick={onClose} title="关闭">
               ✕
             </button>
           </div>
         </div>
-        <div className="modal__body">
-          {runs.length === 0 ? (
-            <p className="muted" style={{ textAlign: "center", padding: "40px 0" }}>
-              暂无运行记录
-            </p>
-          ) : (
-            <table className="run-table">
-              <thead>
-                <tr>
-                  <th>产线</th>
-                  <th>状态</th>
-                  <th>触发</th>
-                  <th>开始</th>
-                  <th>耗时</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {runs.map((r) => (
-                  <tr
-                    key={r.id}
-                    className={runId === r.id ? "is-current" : ""}
-                    onDoubleClick={() => replay(r)}
-                  >
-                    <td className="run-table__name">{r.graph_name}</td>
-                    <td>
+
+        <div className="runhistory-filters">
+          <label>
+            产线
+            <select
+              value={graphId}
+              onChange={(e) => {
+                setGraphId(e.target.value);
+                setPage(0);
+              }}
+            >
+              <option value="">全部</option>
+              {graphs.map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            状态
+            <select
+              value={status}
+              onChange={(e) => {
+                setStatus(e.target.value);
+                setPage(0);
+              }}
+            >
+              <option value="">全部</option>
+              {STATUSES.map((s) => (
+                <option key={s} value={s}>
+                  {STATUS_LABEL[s] ?? s}
+                </option>
+              ))}
+            </select>
+          </label>
+          <span className="runhistory-count">共 {total} 条</span>
+        </div>
+
+        {comparing ? (
+          <CompareView runs={runs} selected={selected} stats={stats} onBack={() => setComparing(false)} />
+        ) : (
+          <>
+            <div className="runhistory-list">
+              {loading && <div className="note">加载中…</div>}
+              {!loading && runs.length === 0 && <div className="note">没有匹配的运行</div>}
+              {runs.map((r) => (
+                <div
+                  key={r.id}
+                  className={`runhistory-row${compareMode ? " runhistory-row--selectable" : ""}`}
+                  onClick={() => {
+                    if (compareMode) toggleSelect(r.id);
+                    else onOpen?.(r.id);
+                  }}
+                >
+                  {compareMode && (
+                    <input
+                      type="checkbox"
+                      checked={selected.includes(r.id)}
+                      onChange={() => toggleSelect(r.id)}
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                  )}
+                  <div className="runhistory-row-main">
+                    <div className="runhistory-row-title">
                       <span className={`run-status run-status--${r.status}`}>
                         {STATUS_LABEL[r.status] ?? r.status}
                       </span>
-                    </td>
-                    <td className="muted">{r.trigger}</td>
-                    <td className="mono">{formatTime(r.started_at)}</td>
-                    <td className="mono">{duration(r)}</td>
-                    <td className="run-table__actions">
-                      <button
-                        className="chip"
-                        onClick={() => replay(r)}
-                        title="回放此次运行"
-                      >
-                        回放
-                      </button>
-                      {r.status !== "running" && (
-                        <button
-                          className="icon-btn icon-btn--danger"
-                          onClick={() => setDeleteTarget(r)}
-                          title="删除记录"
-                        >
-                          ✕
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      </div>
+                      <span className="runhistory-name">{r.graph_name || "(未命名产线)"}</span>
+                      <span className="runhistory-id">{r.id.slice(0, 8)}</span>
+                    </div>
+                    <div className="runhistory-row-meta">
+                      <span>{fmtRelative(r.started_at)}</span>
+                      <span>
+                        耗时 {fmtDuration(r.ended_at != null ? r.ended_at - r.started_at : null)}
+                      </span>
+                      <span>{r.trigger}</span>
+                      {r.budget_usd != null && <span>预算 ${r.budget_usd.toFixed(4)}</span>}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
 
-      <ConfirmDialog
-        open={deleteTarget !== null}
-        title="删除运行记录"
-        description={
-          deleteTarget
-            ? `确定删除「${deleteTarget.graph_name}」的这次运行吗？所有事件和节点产出都将被删除，不可撤销。`
-            : ""
-        }
-        confirmLabel="删除"
-        danger
-        onConfirm={confirmDelete}
-        onCancel={() => setDeleteTarget(null)}
-      />
+            <div className="runhistory-pager">
+              <button className="btn" disabled={page === 0} onClick={() => setPage((p) => Math.max(0, p - 1))}>
+                上一页
+              </button>
+              <span>
+                第 {page + 1} / {pageCount} 页
+              </span>
+              <button
+                className="btn"
+                disabled={(page + 1) * PAGE_SIZE >= total}
+                onClick={() => setPage((p) => p + 1)}
+              >
+                下一页
+              </button>
+              {compareMode && (
+                <button className="btn btn--primary" disabled={selected.length < 2} onClick={runCompare}>
+                  对比选中 ({selected.length})
+                </button>
+              )}
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }
