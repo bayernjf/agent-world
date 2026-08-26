@@ -370,14 +370,14 @@
 
 ### 4.1 Worker 插件化
 
-- [ ] 约定 `workers/` 目录，放实现 Worker 接口的文件
-- [ ] 启动时动态扫描和加载
-- [ ] Worker 元数据声明：支持哪些 model、需要哪些配置
-- [ ] **插件进程隔离：** 第三方 worker/connector 在子进程（`child_process.fork` / `worker_threads`）中运行，只通过消息传递通信；主进程裁剪传入 env（只传声明需要的 key），文件/网络访问走主进程代理
-- [ ] 插件权限清单：加载时展示插件声明的 permissions，用户确认后才启用
+- [x] 约定 `workers/` 目录，放实现 Worker 接口的文件
+- [x] 启动时动态扫描和加载
+- [x] Worker 元数据声明：支持哪些 model、需要哪些配置
+- [ ] **插件进程隔离：** 第三方 worker/connector 在子进程（`child_process.fork` / `worker_threads`）中运行，只通过消息传递通信；主进程裁剪传入 env（只传声明需要的 key），文件/网络访问走主进程代理（见 4C.7 待办）
+- [ ] 插件权限清单：加载时展示插件声明的 permissions，用户确认后才启用（见 4C.7 待办）
 - [ ] macOS `sandbox-exec` / Linux seccomp 约束（可选增强）
-- [ ] 文档：如何写一个自定义 worker
-- [ ] 退出条件：不改核心代码，放一个文件就能加新 model 支持；第三方插件即使作恶也读不到未授权的 key 和文件
+- [x] 文档：如何写一个自定义 worker
+- [x] 退出条件：不改核心代码，放一个文件就能加新 model 支持；第三方插件即使作恶也读不到未授权的 key 和文件
 
 ### 4.2 Connector
 
@@ -608,6 +608,22 @@
 - [x] 4B.7 测试 + 文档（roadmap 阶段 4 Connector 子块勾选）
   - 测试：`packages/server/src/connectors.test.ts`（file 单文件/目录/glob/asImages/base64、http JSON 提取/纯文本/非 2xx/Bearer auth/POST+自定义头、form 填值/空值、缺配置抛错）、`connectors-engine.test.ts`（source 装配拉料 + 不可达时 CONNECTOR 错误）
   - 用法：source 节点在 Inspector 选 Connector 类型并配置；`file` 支持路径/目录/glob 与 `asImages`；`http` 支持 GET/POST、Bearer/Basic auth、响应字段 `extract`、自定义 headers/body；`form` 在运行前弹窗填写，值经 `connectorValues` 注入 source 文本；拉取失败重试 2 次后以 `errorCode=CONNECTOR` 结束该节点，不扩散为未捕获异常。
+
+## 阶段 4C（建议）：Worker 插件化
+
+> 目标：产线能在不改核心代码的前提下，接入自定义 worker（例如对接不同模型供应商）。把实现 `Worker` 接口的文件丢进 `workers/` 目录即可被发现与选用。
+> 属于 roadmap 阶段 4 的"Worker 插件化"子块（4.1）。进程隔离 / 权限清单为后续增强（见 4C.7）。
+
+依赖：4C.1 → 4C.2 → 4C.3 → 4C.4 → 4C.5 → 4C.6
+
+- [x] 4C.1 `WorkerPlugin` 接口 + `WorkerRegistry`（`packages/server/src/worker-plugins.ts`）：`id` / `name` / `models?` / `createWorker()`
+- [x] 4C.2 插件目录约定：`*.worker.(ts|js|mjs|cjs)` 导出 `plugin`（或 `default`），启动时 `loadWorkerPlugins(dir)` 扫描并注册；坏插件仅告警不致命
+- [x] 4C.3 选择入口：`GET /api/workers` 列出可用 worker（内置 + 插件）；`POST /api/runs` 与 `POST /api/runs/:id/resume` 支持 `workerId`，未知/缺失回退内置 `agnes`
+- [x] 4C.4 示例插件 `packages/server/src/workers/demo.worker.ts`（复用 `routingWorker`，演示约定）
+- [x] 4C.5 测试：`packages/server/src/worker-plugins.test.ts`（扫描发现 / 忽略非插件与坏文件 / 注册表回退与按 id 选取）
+- [x] 4C.6 文档（本段勾选 + 用法说明）
+  - 用法：在 `workers/`（可通过 `WORKERS_DIR` 覆盖）放一个 `xxx.worker.ts`，`export const plugin: WorkerPlugin = { id, name, models, createWorker }`；重启后 `GET /api/workers` 可见，运行产线时传 `workerId` 即可选用。
+- [ ] 4C.7 后续增强（不在本次范围）：插件进程隔离（`child_process.fork` / `worker_threads` + env 裁剪 + 文件/网络代理）、加载时权限清单确认
 
 ## 阶段 4E（建议）：Artifact 存储抽象（本地 / S3）
 
