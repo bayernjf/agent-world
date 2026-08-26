@@ -360,7 +360,7 @@
 - [x] 退出条件：产线能产出图片等非文本内容并在 UI 中展示
 - [x] 文件 artifact 存本地磁盘：`ArtifactStore` 将内联内容写入 `artifacts/<shard>/<runId>/<id>`，远程/data URI 直链不抓取；新增 `artifacts` 表（迁移 9）存元数据
 - [ ] 引擎 artifacts Map 从 string 升级为 ArtifactRef（当前仍按 node 存文本 output，artifact 事件为附加层）
-- [x] 跨 run 产出物查询：`GET /api/artifacts`（最新优先分页）、`GET /api/runs/:id/artifacts`、`GET /api/artifacts/:id`（本地文件流式返回/远程 302）
+- [x] 跨 run 产出物查询与成品库：`GET /api/artifacts`（最新优先分页）、`GET /api/runs/:id/artifacts`、`GET /api/artifacts/:id`（本地文件流式返回/远程 302），前端「成品」画廊按类型筛选、分页加载
 
 ---
 
@@ -488,7 +488,9 @@
 
 - [ ] 自动生成产线复盘报告
 - [ ] 改进建议（人决策，系统不自动改）
-- [ ] A/B 测试框架（同节点两个 prompt 版本对比）
+- [x] A/B 测试框架（同节点两个 prompt 版本对比）
+- [x] 品牌词库（可管理词库 + 厂房节点一键载入 + gate 品牌词覆盖率门槛）
+- [x] AI 生图节点（OpenAI 兼容 /images/generations，缺素材自动生 banner/场景图，支持 n 与节点级端点）
 - [ ] 回归测试集
 
 ### 5.6 产线版本管理

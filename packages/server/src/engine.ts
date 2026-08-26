@@ -21,7 +21,7 @@ import { resolveTools, executeBuiltinTool } from "./skills/registry.js";
  * text-only agents. Returns a per-graph resolver that memoizes the set of
  * image URLs reachable from a node via flow edges (diamonds dedupe).
  */
-function createImageResolver(graph: Graph): (nodeId: string) => string[] {
+function createImageResolver(graph: Graph, extraImages: () => string[]): (nodeId: string) => string[] {
   const cache = new Map<string, string[]>();
   const resolve = (id: string): string[] => {
     const cached = cache.get(id);
@@ -29,7 +29,7 @@ function createImageResolver(graph: Graph): (nodeId: string) => string[] {
     const node = nodeById(graph, id);
     const own = node?.kind === "source" ? node.source?.images ?? [] : [];
     const upstream = incoming(graph, id, "flow").flatMap((e) => resolve(e.from));
-    const merged = [...new Set([...own, ...upstream])];
+    const merged = [...new Set([...own, ...extraImages(), ...upstream])];
     cache.set(id, merged);
     return merged;
   };
@@ -59,6 +59,8 @@ export interface ExecuteOptions {
   now?: () => number;
   /** Injected so retry backoff is controllable in tests. */
   sleep?: (ms: number) => Promise<void>;
+  /** Persists generated image bytes and returns a stable URI (e.g. /api/artifacts/:id). */
+  storeBinary?: (data: Buffer, mimeType: string, label?: string) => string;
 }
 
 type Status = "done" | "failed" | "halted" | "tripped" | "cancelled";
@@ -88,6 +90,140 @@ function assembleInput(
     return head + body.slice(body.length - policy.maxChars + head.length);
   }
   return body;
+}
+
+/**
+ * Build the source brief: the raw material fed at run time plus the structured
+ * product/brand/audience fields configured on the source node. This text flows
+ * downstream as the first node's artifact, so every writer sees it.
+ */
+function buildSourceBrief(node: GraphNode, sourceInput: string | undefined): string {
+  const src = node.source;
+  const lines: string[] = [];
+  if (src?.productName) lines.push(`商品名称：${src.productName}`);
+  if (src?.brand) lines.push(`品牌/店铺：${src.brand}`);
+  if (src?.audience) lines.push(`目标人群：${src.audience}`);
+  if (src?.priceRange) lines.push(`价格定位：${src.priceRange}`);
+  if (src?.tone) lines.push(`语气调性：${src.tone}`);
+  if (src?.prohibited?.trim()) lines.push(`禁用词/禁用说法：${src.prohibited.trim()}`);
+  if (src?.brandTerms?.trim()) lines.push(`品牌词（建议融入）：${src.brandTerms.trim()}`);
+  if (src?.notes?.trim()) lines.push(`补充说明：${src.notes.trim()}`);
+  const raw = sourceInput?.trim();
+  const hasBrief = lines.length > 0;
+  if (raw) lines.push(hasBrief ? `商品描述/原料:\n${raw}` : raw);
+  if (lines.length === 0) return `Task intake at ${node.name}`;
+  return lines.join("\n");
+}
+
+/**
+ * Collect prohibited terms declared on any upstream `source` node (reached via
+ * flow edges). Splitting on common separators keeps the input forgiving
+ * (comma / 空格 / 换行 / 中英文顿号分号 all work). De-duplicated.
+ */
+function upstreamProhibitedTerms(graph: Graph, nodeId: string): string[] {
+  const seen = new Set<string>();
+  const stack = [nodeId];
+  const terms = new Set<string>();
+  while (stack.length) {
+    const id = stack.pop()!;
+    for (const e of incoming(graph, id, "flow")) {
+      if (seen.has(e.from)) continue;
+      seen.add(e.from);
+      const n = nodeById(graph, e.from);
+      if (n?.kind === "source" && n.source?.prohibited?.trim()) {
+        for (const raw of n.source.prohibited.split(/[\n,，、;；\s]+/)) {
+          const t = raw.trim();
+          if (t) terms.add(t);
+        }
+      }
+      stack.push(e.from);
+    }
+  }
+  return [...terms];
+}
+
+/**
+ * Collect brand terms declared on any upstream `source` node (reached via flow
+ * edges). Splitting mirrors upstreamProhibitedTerms. De-duplicated.
+ */
+function upstreamBrandTerms(graph: Graph, nodeId: string): string[] {
+  const seen = new Set<string>();
+  const stack = [nodeId];
+  const terms = new Set<string>();
+  while (stack.length) {
+    const id = stack.pop()!;
+    for (const e of incoming(graph, id, "flow")) {
+      if (seen.has(e.from)) continue;
+      seen.add(e.from);
+      const n = nodeById(graph, e.from);
+      if (n?.kind === "source" && n.source?.brandTerms?.trim()) {
+        for (const raw of n.source.brandTerms.split(/[\n,，、;；\s]+/)) {
+          const t = raw.trim();
+          if (t) terms.add(t);
+        }
+      }
+      stack.push(e.from);
+    }
+  }
+  return [...terms];
+}
+
+/** Returns the prohibited terms actually present in `text` (empty if none). */
+function detectProhibited(text: string, terms: string[]): string[] {
+  if (terms.length === 0 || !text) return [];
+  return terms.filter((t) => text.includes(t));
+}
+
+/** True if any upstream `source` node already carries real product images. */
+function upstreamSourceHasImages(graph: Graph, nodeId: string): boolean {
+  const seen = new Set<string>();
+  const stack = [nodeId];
+  while (stack.length) {
+    const id = stack.pop()!;
+    for (const e of incoming(graph, id, "flow")) {
+      if (seen.has(e.from)) continue;
+      seen.add(e.from);
+      const n = nodeById(graph, e.from);
+      if (n?.kind === "source" && (n.source?.images?.length ?? 0) > 0) return true;
+      stack.push(e.from);
+    }
+  }
+  return false;
+}
+
+/** Build a banner-generation prompt from the upstream source's product brief. */
+function buildImagePrompt(node: GraphNode, graph: Graph): string {
+  const seen = new Set<string>();
+  const stack = [node.id];
+  let src: GraphNode | undefined;
+  while (stack.length && !src) {
+    const id = stack.pop()!;
+    for (const e of incoming(graph, id, "flow")) {
+      if (seen.has(e.from)) continue;
+      seen.add(e.from);
+      const n = nodeById(graph, e.from);
+      if (n?.kind === "source") {
+        src = n;
+        break;
+      }
+      stack.push(e.from);
+    }
+  }
+  const s = src?.source;
+  const parts: string[] = [];
+  const name = s?.productName || node.name || "商品";
+  parts.push(`为电商商品「${name}」生成一张高质量主图/Banner`);
+  if (s?.brand) parts.push(`品牌调性：${s.brand}`);
+  if (s?.audience) parts.push(`目标人群：${s.audience}`);
+  if (s?.tone) parts.push(`风格语气：${s.tone}`);
+  if (s?.priceRange) parts.push(`价格定位：${s.priceRange}`);
+  parts.push("构图干净、留白充足、突出卖点，适合作为商品详情页主视觉");
+  return parts.join("；");
+}
+
+/** Default storeBinary: inline the bytes as a data URI (used in tests / when no artifact store is wired). */
+function defaultStoreBinary(data: Buffer, mimeType: string): string {
+  return `data:${mimeType};base64,${data.toString("base64")}`;
 }
 
 /** Simple async event queue so many concurrent node workers can feed one ordered stream. */
@@ -151,6 +287,8 @@ interface SchedulerOptions {
   approveGate?: { nodeId: string; attempt: number };
   /** True when continuing an existing run (resume/retry): don't re-emit run.started. */
   resuming?: boolean;
+  /** Persists generated image bytes and returns a stable URI (e.g. /api/artifacts/:id). */
+  storeBinary: (data: Buffer, mimeType: string, label?: string) => string;
 }
 
 /**
@@ -165,7 +303,8 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
   const monthlyBudgetUsd = opts.monthlyBudgetUsd ?? null;
   const monthSpentUsd = opts.monthSpentUsd ?? 0;
   const queue = new EventQueue();
-  const imagesFor = createImageResolver(graph);
+  const extraImages: string[] = [];
+  const imagesFor = createImageResolver(graph, () => extraImages);
 
   let seq = opts.startSeq;
   const emit = (e: DraftEvent): RunEvent => {
@@ -259,14 +398,14 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       if (node.kind === "source" || node.kind === "sink") {
         const output =
           node.kind === "source"
-            ? opts.sourceInput?.trim() || `Task intake at ${node.name}`
+            ? buildSourceBrief(node, opts.sourceInput)
             : inputFor(node);
         artifacts.set(nodeId, output);
         states.set(nodeId, "done");
         emit({ type: "node.started", nodeId, attempt });
         emit({ type: "node.finished", nodeId, attempt, output, usage: zeroUsage() });
         let primaryKind: Artifact["kind"] | undefined;
-        if (node.kind === "source" && node.source?.images.length) {
+        if (node.kind === "source" && node.source?.images?.length) {
           for (const [i, url] of node.source.images.entries()) {
             const a: Artifact = { id: `${nodeId}-img${i}`, kind: "image", uri: url };
             emit({ type: "artifact.produced", nodeId, artifact: a });
@@ -282,7 +421,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       if (node.kind === "gate") {
         emit({ type: "node.started", nodeId, attempt });
         const output = inputFor(node);
-        const verdict = await worker.judge({
+        const modelVerdict = await worker.judge({
           node,
           attempt,
           input: output,
@@ -290,12 +429,53 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           criterion: node.gate?.criterion ?? "",
           signal: opts.signal,
         });
+
+        // Hard rule: any prohibited term declared on an upstream source must
+        // never pass, regardless of what the model judge decides. Deterministic
+        // so forbidden copy is always caught even if the model slips it in.
+        const prohibitedHits = detectProhibited(output, upstreamProhibitedTerms(graph, nodeId));
+
+        // Brand-term coverage: how many of the upstream brand words actually
+        // appear in the artifact. An optional gate threshold fails the gate
+        // (and triggers a rewrite) when coverage is too low.
+        const brandAll = upstreamBrandTerms(graph, nodeId);
+        const brandHits = brandAll.filter((t) => output.includes(t));
+        const brandCoverage = brandAll.length ? brandHits.length / brandAll.length : 1;
+        const minBrand = node.gate?.minBrandCoverage;
+
+        const minScore = node.gate?.minScore;
+        const belowScore =
+          minScore != null && modelVerdict.score != null && modelVerdict.score < minScore;
+        const belowBrand = minBrand != null && brandCoverage < minBrand;
+
+        let verdict = modelVerdict;
+        if (prohibitedHits.length > 0) {
+          verdict = {
+            passed: false,
+            reason: `命中禁用词：${prohibitedHits.join("、")}（已退回上游重写）`,
+            score: modelVerdict.score,
+          };
+        } else if (belowBrand) {
+          verdict = {
+            passed: false,
+            reason: `品牌词覆盖率 ${Math.round(brandCoverage * 100)}% 低于门槛 ${Math.round(minBrand! * 100)}%（已退回上游重写）`,
+            score: modelVerdict.score,
+          };
+        } else if (belowScore) {
+          verdict = {
+            passed: false,
+            reason: `质量分 ${modelVerdict.score} 低于门槛 ${minScore}（已退回上游重写）`,
+            score: modelVerdict.score,
+          };
+        }
+
         emit({
           type: "gate.verdict",
           nodeId,
           attempt,
           passed: verdict.passed,
           reason: verdict.reason,
+          ...(verdict.score != null ? { score: verdict.score } : {}),
         });
 
         if (verdict.passed) {
@@ -350,6 +530,54 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
         }
         return;
       }
+
+  // --- Image generation node: produce a banner/scene image when source lacks photos ---
+  if (node.kind === "imageGen") {
+    emit({ type: "node.started", nodeId, attempt });
+    const cfg = node.imageGen ?? { model: "agnes-image", prompt: "", n: 1 };
+    // 缺素材时才生图：上游 source 已有图片则跳过，避免浪费生图配额。
+    if (upstreamSourceHasImages(graph, nodeId)) {
+      states.set(nodeId, "done");
+      emit({ type: "node.finished", nodeId, attempt, output: "", usage: zeroUsage() });
+      return;
+    }
+    const prompt = cfg.prompt?.trim() || buildImagePrompt(node, graph);
+    try {
+      const results = await worker.generateImage({ node, config: cfg, input: prompt, signal: opts.signal });
+      let usage: Usage = { tokensIn: 0, tokensOut: 0, costUsd: 0, units: { images: 0 } };
+      results.forEach((res, idx) => {
+        const uri = opts.storeBinary(res.data, res.mimeType, `${node.name || "ai-image"}-${idx + 1}.png`);
+        extraImages.push(uri);
+        artifacts.set(nodeId, uri);
+        emit({
+          type: "artifact.produced",
+          nodeId,
+          artifact: {
+            id: `${nodeId}-img-${idx}`,
+            kind: "image",
+            uri,
+            mimeType: res.mimeType,
+            label: results.length > 1 ? `${node.name || "AI 配图"} #${idx + 1}` : node.name || "AI 配图",
+          },
+        });
+        usage = {
+          tokensIn: (usage.tokensIn ?? 0) + (res.usage.tokensIn ?? 0),
+          tokensOut: (usage.tokensOut ?? 0) + (res.usage.tokensOut ?? 0),
+          costUsd: (usage.costUsd ?? 0) + (res.usage.costUsd ?? 0),
+          units: { ...usage.units, images: (usage.units?.images ?? 0) + (res.usage.units?.images ?? 0) },
+        };
+      });
+      emit({ type: "node.finished", nodeId, attempt, output: "", usage });
+      states.set(nodeId, "done");
+      sendPackets(nodeId, `生成配图 ${results.length} 张`, "image");
+    } catch (err) {
+      // 生图是增强项：无生图后端时优雅降级，整条线仍可继续运行。
+      console.warn(`[imageGen:${nodeId}] generation skipped:`, (err as Error).message);
+      states.set(nodeId, "done");
+      emit({ type: "node.finished", nodeId, attempt, output: "", usage: zeroUsage() });
+    }
+    return;
+  }
 
       // agent
       const config = {
@@ -627,6 +855,7 @@ export async function* execute(opts: ExecuteOptions): AsyncGenerator<RunEvent, v
     signal: opts.signal,
     now: opts.now ?? Date.now,
     sleep: opts.sleep ?? delay,
+    storeBinary: opts.storeBinary ?? defaultStoreBinary,
     init: {
       artifacts: new Map(),
       attempts: new Map(),
@@ -699,6 +928,8 @@ export interface ResumeOptions {
    */
   resetFrom?: string;
   signal?: AbortSignal;
+  /** Persists generated image bytes and returns a stable URI (e.g. /api/artifacts/:id). */
+  storeBinary?: (data: Buffer, mimeType: string, label?: string) => string;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
 }
@@ -766,6 +997,7 @@ export async function* resume(opts: ResumeOptions): AsyncGenerator<RunEvent, voi
     signal: opts.signal,
     now,
     sleep,
+    storeBinary: opts.storeBinary ?? defaultStoreBinary,
     init: {
       artifacts: state.artifacts,
       attempts: state.attempts,

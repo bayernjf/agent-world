@@ -1,6 +1,7 @@
 export * from "./graph.js";
 export * from "./events.js";
 export * from "./artifact.js";
+export * from "./product.js";
 export * from "./compile.js";
 export * from "./runtime.js";
 export * from "./skill.js";

@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -49,5 +49,22 @@ describe("artifact store", () => {
     const saved = store.save(a, { runId: "r", nodeId: "n" });
     expect(saved.storage).toBe("inline");
     expect(saved.uri).toBeNull();
+  });
+
+  it("persists raw uploaded bytes as a local image artifact", () => {
+    const buf = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a]);
+    const saved = store.saveBinary({
+      data: buf,
+      kind: "image",
+      mimeType: "image/png",
+      label: "product.png",
+    });
+    expect(saved.storage).toBe("local");
+    expect(saved.kind).toBe("image");
+    expect(saved.mimeType).toBe("image/png");
+    expect(saved.sizeBytes).toBe(buf.length);
+    expect(saved.uri).toMatch(/^\/api\/artifacts\//);
+    const back = store.readBytes("uploads", saved.id);
+    expect(back?.equals(buf)).toBe(true);
   });
 });

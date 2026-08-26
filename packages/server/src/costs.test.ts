@@ -216,3 +216,45 @@ describe("eval report", () => {
     expect(v1.fingerprint).not.toBe(v2.fingerprint);
   });
 });
+
+describe("eval report quality score", () => {
+  let dir: string;
+  let db: ReturnType<typeof openDb>;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "aw-eval-"));
+    db = openDb(join(dir, "test.sqlite"));
+    db.saveGraph(graph, 1);
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("averages gate scores into the eval report", () => {
+    db.createRun({ id: "r1", graph, budgetUsd: null, at: 1000 });
+    db.record("r1", { seq: 1, ts: 1000, version: 1, type: "node.started", nodeId: "critic", attempt: 1 } as RunEvent);
+    db.record("r1", { seq: 2, ts: 1000, version: 1, type: "gate.verdict", nodeId: "critic", attempt: 1, passed: true, reason: "ok", score: 7 } as RunEvent);
+    db.record("r1", { seq: 3, ts: 1000, version: 1, type: "node.started", nodeId: "critic", attempt: 2 } as RunEvent);
+    db.record("r1", { seq: 4, ts: 1000, version: 1, type: "gate.verdict", nodeId: "critic", attempt: 2, passed: true, reason: "ok", score: 9 } as RunEvent);
+    db.finishRun("r1", "done", 2000);
+
+    db.createRun({ id: "r2", graph, budgetUsd: null, at: 3000 });
+    db.record("r2", { seq: 1, ts: 3000, version: 1, type: "node.started", nodeId: "critic", attempt: 1 } as RunEvent);
+    db.record("r2", { seq: 2, ts: 3000, version: 1, type: "gate.verdict", nodeId: "critic", attempt: 1, passed: true, reason: "ok", score: 4 } as RunEvent);
+    db.finishRun("r2", "done", 4000);
+
+    const rep = db.evalReport();
+    expect(rep.totals.avgScore).toBeCloseTo(6, 5); // ((7+9)/2 + 4) / 2
+    expect(rep.byGraph[0].avgScore).toBeCloseTo(6, 5);
+  });
+
+  it("reports zero when no gate was scored", () => {
+    db.createRun({ id: "r1", graph, budgetUsd: null, at: 1000 });
+    db.record("r1", finished("n1", 1, 0.01, 1));
+    db.finishRun("r1", "done", 2000);
+
+    const rep = db.evalReport();
+    expect(rep.totals.avgScore).toBe(0);
+  });
+});

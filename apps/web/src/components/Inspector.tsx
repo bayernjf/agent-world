@@ -5,6 +5,7 @@ import { useGraph } from "../store/graph";
 import { useVisibleRuntime } from "../store/run";
 import SkillPicker from "./SkillPicker";
 import FinishedProduct from "./FinishedProduct";
+import SourceImages from "./SourceImages";
 
 function formatUnits(units: Record<string, number> | undefined): string | null {
   if (!units) return null;
@@ -153,52 +154,149 @@ export default function Inspector() {
         </label>
 
         {node.kind === "source" && (
-          <div className="field">
-            <span>参考图片 URL（视觉模型可看图）</span>
-            <div className="image-list">
-              {(node.source?.images ?? []).map((url, i) => (
-                <div className="image-row" key={i}>
-                  <input
-                    value={url}
-                    placeholder="https://..."
-                    onFocus={beginEdit}
-                    onBlur={commitEdit}
-                    onChange={(e) => {
-                      const images = [...(node.source?.images ?? [])];
-                      images[i] = e.target.value;
-                      updateNode(node.id, {
-                        source: { ...(node.source ?? {}), images },
-                      });
-                    }}
-                  />
-                  <button
-                    className="icon-btn icon-btn--danger"
-                    title="移除"
-                    onClick={() => {
-                      const images = (node.source?.images ?? []).filter((_, j) => j !== i);
-                      updateNode(node.id, {
-                        source: { ...(node.source ?? {}), images },
-                      });
-                    }}
-                  >
-                    ✕
-                  </button>
-                </div>
-              ))}
-              <button
-                className="btn image-list__add"
-                onClick={() =>
+          <SourceImages
+            nodeId={node.id}
+            images={node.source?.images ?? []}
+            onBeginEdit={beginEdit}
+            onCommitEdit={commitEdit}
+          />
+        )}
+
+        {node.kind === "source" && (
+          <div className="source-brief">
+            <div className="source-brief__head label">创作简报（可选）</div>
+          <label className="field">
+            <span>商品名称</span>
+            <input
+              value={node.source?.productName ?? ""}
+              placeholder="商品名称"
+              onFocus={beginEdit}
+              onBlur={commitEdit}
+              onChange={(e) =>
+                updateNode(node.id, {
+                  source: { ...(node.source ?? {}), productName: e.target.value },
+                })
+              }
+            />
+          </label>
+          <label className="field">
+            <span>品牌 / 店铺</span>
+            <input
+              value={node.source?.brand ?? ""}
+              placeholder="品牌 / 店铺"
+              onFocus={beginEdit}
+              onBlur={commitEdit}
+              onChange={(e) =>
+                updateNode(node.id, {
+                  source: { ...(node.source ?? {}), brand: e.target.value },
+                })
+              }
+            />
+          </label>
+          <label className="field">
+            <span>目标人群（如 20-30岁通勤女生）</span>
+            <input
+              value={node.source?.audience ?? ""}
+              placeholder="目标人群（如 20-30岁通勤女生）"
+              onFocus={beginEdit}
+              onBlur={commitEdit}
+              onChange={(e) =>
+                updateNode(node.id, {
+                  source: { ...(node.source ?? {}), audience: e.target.value },
+                })
+              }
+            />
+          </label>
+          <label className="field">
+            <span>价格定位（如 中端 99-199 元）</span>
+            <input
+              value={node.source?.priceRange ?? ""}
+              placeholder="价格定位（如 中端 99-199 元）"
+              onFocus={beginEdit}
+              onBlur={commitEdit}
+              onChange={(e) =>
+                updateNode(node.id, {
+                  source: { ...(node.source ?? {}), priceRange: e.target.value },
+                })
+              }
+            />
+          </label>
+          <label className="field">
+            <span>语气调性（如 真诚种草、口语化）</span>
+            <input
+              value={node.source?.tone ?? ""}
+              placeholder="语气调性（如 真诚种草、口语化）"
+              onFocus={beginEdit}
+              onBlur={commitEdit}
+              onChange={(e) =>
+                updateNode(node.id, {
+                  source: { ...(node.source ?? {}), tone: e.target.value },
+                })
+              }
+            />
+          </label>
+            <label className="field">
+              <span>禁用词 / 禁用说法</span>
+              <textarea
+                rows={2}
+                value={node.source?.prohibited ?? ""}
+                placeholder="用逗号或换行分隔，如 最、第一、国家级"
+                onFocus={beginEdit}
+                onBlur={commitEdit}
+                onChange={(e) =>
                   updateNode(node.id, {
-                    source: {
-                      ...(node.source ?? {}),
-                      images: [...(node.source?.images ?? []), ""],
-                    },
+                    source: { ...(node.source ?? {}), prohibited: e.target.value },
                   })
                 }
+              />
+            </label>
+            <label className="field">
+              <span>品牌词（建议融入）</span>
+              <textarea
+                rows={2}
+                value={node.source?.brandTerms ?? ""}
+                placeholder="用逗号或换行分隔，如 显瘦、透气、百搭"
+                onFocus={beginEdit}
+                onBlur={commitEdit}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    source: { ...(node.source ?? {}), brandTerms: e.target.value },
+                  })
+                }
+              />
+              <button
+                type="button"
+                className="ghost-btn"
+                onClick={async () => {
+                  const terms = await api.listBrandTerms();
+                  const cur = (node.source?.brandTerms ?? "")
+                    .split(/[\n,，、;；\s]+/)
+                    .map((s) => s.trim())
+                    .filter(Boolean);
+                  const merged = [...new Set([...cur, ...terms.map((t) => t.term)])].join("、");
+                  updateNode(node.id, {
+                    source: { ...(node.source ?? {}), brandTerms: merged },
+                  });
+                }}
               >
-                + 添加图片
+                从品牌词库载入
               </button>
-            </div>
+            </label>
+            <label className="field">
+              <span>补充说明</span>
+              <textarea
+                rows={3}
+                value={node.source?.notes ?? ""}
+                placeholder="其他想让写手知道的背景、卖点、参考风格等"
+                onFocus={beginEdit}
+                onBlur={commitEdit}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    source: { ...(node.source ?? {}), notes: e.target.value },
+                  })
+                }
+              />
+            </label>
           </div>
         )}
 
@@ -323,6 +421,112 @@ export default function Inspector() {
           </>
         )}
 
+        {node.kind === "imageGen" && node.imageGen && (
+          <>
+            <label className="field">
+              <span>生图模型</span>
+              <select
+                className="select"
+                value={
+                  modelOptions.some((o) => o.model === node.imageGen!.model)
+                    ? node.imageGen.model
+                    : "__custom__"
+                }
+                onChange={(e) => {
+                  if (e.target.value !== "__custom__") {
+                    updateNode(node.id, { imageGen: { ...node.imageGen!, model: e.target.value } });
+                  }
+                }}
+              >
+                {modelOptions.map((o) => (
+                  <option key={`${o.provider}::${o.model}`} value={o.model}>
+                    {o.model} · {o.provider}
+                  </option>
+                ))}
+                {!modelOptions.some((o) => o.model === node.imageGen!.model) && node.imageGen.model && (
+                  <option value={node.imageGen.model}>{node.imageGen.model} (当前)</option>
+                )}
+              </select>
+            </label>
+            <label className="field">
+              <span>尺寸 (如 1024x1024)</span>
+              <input
+                type="text"
+                placeholder="1024x1024"
+                value={node.imageGen.size ?? ""}
+                onFocus={beginEdit}
+                onBlur={commitEdit}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    imageGen: { ...node.imageGen!, size: e.target.value || undefined },
+                  })
+                }
+              />
+            </label>
+            <label className="field">
+              <span>生图提示词（留空则按品牌简报自动生成）</span>
+              <textarea
+                rows={4}
+                placeholder="如：清新日系风格的主图，突出产品质感"
+                value={node.imageGen.prompt ?? ""}
+                onFocus={beginEdit}
+                onBlur={commitEdit}
+                onChange={(e) =>
+                  updateNode(node.id, { imageGen: { ...node.imageGen!, prompt: e.target.value } })
+                }
+              />
+            </label>
+            <label className="field">
+              <span>生成数量 (1–8)</span>
+              <input
+                type="number"
+                min={1}
+                max={8}
+                value={node.imageGen.n ?? 1}
+                onFocus={beginEdit}
+                onBlur={commitEdit}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    imageGen: {
+                      ...node.imageGen!,
+                      n: Math.min(8, Math.max(1, Number(e.target.value) || 1)),
+                    },
+                  })
+                }
+              />
+            </label>
+            <details className="adv">
+              <summary>自定义端点（可选）</summary>
+              <label className="field">
+                <span>生图端点 baseURL</span>
+                <input
+                  type="text"
+                  placeholder="https://your-sd-server/v1"
+                  value={node.imageGen.baseUrl ?? ""}
+                  onFocus={beginEdit}
+                  onBlur={commitEdit}
+                  onChange={(e) =>
+                    updateNode(node.id, { imageGen: { ...node.imageGen!, baseUrl: e.target.value || undefined } })
+                  }
+                />
+              </label>
+              <label className="field">
+                <span>密钥（可选，留空用 provider 的 key）</span>
+                <input
+                  type="password"
+                  placeholder="sk-..."
+                  value={node.imageGen.apiKey ?? ""}
+                  onFocus={beginEdit}
+                  onBlur={commitEdit}
+                  onChange={(e) =>
+                    updateNode(node.id, { imageGen: { ...node.imageGen!, apiKey: e.target.value || undefined } })
+                  }
+                />
+              </label>
+            </details>
+          </>
+        )}
+
         {node.kind === "gate" && node.gate && (
           <>
             <label className="field">
@@ -348,6 +552,45 @@ export default function Inspector() {
                 onChange={(e) =>
                   updateNode(node.id, {
                     gate: { ...node.gate!, maxAttempts: Number(e.target.value) },
+                  })
+                }
+              />
+            </label>
+            <label className="field">
+              <span>质量分门槛（0–10，留空不卡）</span>
+              <input
+                type="number"
+                min={0}
+                max={10}
+                value={node.gate.minScore ?? ""}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    gate: {
+                      ...node.gate!,
+                      minScore: e.target.value === "" ? undefined : Number(e.target.value),
+                    },
+                  })
+                }
+              />
+            </label>
+            <label className="field">
+              <span>品牌词覆盖率门槛（0–100%，留空不卡）</span>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                value={
+                  node.gate.minBrandCoverage != null
+                    ? Math.round(node.gate.minBrandCoverage * 100)
+                    : ""
+                }
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    gate: {
+                      ...node.gate!,
+                      minBrandCoverage:
+                        e.target.value === "" ? undefined : Number(e.target.value) / 100,
+                    },
                   })
                 }
               />

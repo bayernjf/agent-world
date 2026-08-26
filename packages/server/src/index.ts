@@ -17,6 +17,7 @@ import { openDb } from "./db.js";
 import { ArtifactStore } from "./artifact-store.js";
 import { log } from "./logger.js";
 import { execute, resume } from "./engine.js";
+import { startABExperiment } from "./ab.js";
 import { SEED_GRAPH } from "./seed.js";
 import {
   loadConfig,
@@ -381,6 +382,9 @@ app.post("/api/runs", async (c) => {
         monthSpentUsd: db.costForMonth(now.getFullYear(), now.getMonth() + 1),
         defaultModel: cfg.defaultModel,
         signal: controller.signal,
+        storeBinary: (data, mimeType, label) =>
+          artifacts.saveBinary({ data, kind: "image", mimeType, label }).uri ??
+          `data:${mimeType};base64,${data.toString("base64")}`,
       })) {
         db.record(runId, event);
         if (event.type === "artifact.produced") {
@@ -398,6 +402,62 @@ app.post("/api/runs", async (c) => {
   })();
 
   return c.json({ runId, diagnostics });
+});
+
+app.post("/api/runs/ab", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as {
+    graphId?: string;
+    targetNodeId?: string;
+    variants?: string[];
+    budgetUsd?: number | null;
+    input?: string;
+  };
+  if (
+    !body.graphId ||
+    !body.targetNodeId ||
+    !Array.isArray(body.variants) ||
+    body.variants.length < 2
+  ) {
+    return c.json({ error: "需要 graphId、targetNodeId 与至少 2 个 variants" }, 400);
+  }
+  const graph = db.getGraph(body.graphId);
+  if (!graph) return c.json({ error: "graph not found" }, 404);
+  const target = graph.nodes.find((n) => n.id === body.targetNodeId);
+  if (!target) return c.json({ error: "target node not found" }, 404);
+  if (target.kind !== "agent") {
+    return c.json({ error: "A/B 目标必须是厂房(agent)节点" }, 400);
+  }
+  try {
+    const { abGroup, arms } = await startABExperiment(db, worker, {
+      graph,
+      targetNodeId: body.targetNodeId,
+      variants: body.variants,
+      budgetUsd: body.budgetUsd ?? null,
+      input: body.input,
+    });
+    return c.json({ abGroup, arms });
+  } catch (err) {
+    return c.json({ error: (err as Error).message }, 400);
+  }
+});
+
+app.get("/api/ab/:groupId", (c) => {
+  const report = db.abReport(c.req.param("groupId"));
+  if (!report) return c.json({ error: "not found" }, 404);
+  return c.json(report);
+});
+
+app.get("/api/brand-terms", (c) => c.json(db.listBrandTerms()));
+
+app.post("/api/brand-terms", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as { term?: string; note?: string };
+  if (!body.term?.trim()) return c.json({ error: "term required" }, 400);
+  return c.json(db.addBrandTerm(body.term, body.note ?? ""), 201);
+});
+
+app.delete("/api/brand-terms/:id", (c) => {
+  db.deleteBrandTerm(c.req.param("id"));
+  return c.body(null, 204);
 });
 
 app.post("/api/runs/:id/cancel", (c) => {
@@ -471,6 +531,9 @@ app.post("/api/runs/:id/resume", async (c) => {
         action,
         resetFrom,
         signal: controller.signal,
+        storeBinary: (data, mimeType, label) =>
+          artifacts.saveBinary({ data, kind: "image", mimeType, label }).uri ??
+          `data:${mimeType};base64,${data.toString("base64")}`,
       })) {
         db.record(runId, event);
         if (event.type === "artifact.produced") {
@@ -566,6 +629,30 @@ app.get("/api/runs/:id/artifacts", (c) => {
   const runId = c.req.param("id");
   if (!db.runExists(runId)) return c.json({ error: "not found" }, 404);
   return c.json(db.listArtifactsForRun(runId));
+});
+
+/** Upload a raw product image/file. Returns a StoredArtifact with a /api/artifacts/:id URI. */
+app.post("/api/artifacts/upload", async (c) => {
+  const contentType = c.req.header("content-type") ?? "application/octet-stream";
+  const label = c.req.query("label");
+  const data = Buffer.from(await c.req.arrayBuffer());
+  if (data.length === 0) return c.json({ error: "empty upload" }, 400);
+  const MAX = 25 * 1024 * 1024;
+  if (data.length > MAX) return c.json({ error: "file too large (max 25MB)" }, 413);
+
+  let kind: "image" | "audio" | "video" | "file" = "file";
+  if (contentType.startsWith("image/")) kind = "image";
+  else if (contentType.startsWith("video/")) kind = "video";
+  else if (contentType.startsWith("audio/")) kind = "audio";
+
+  const saved = artifacts.saveBinary({
+    data,
+    kind,
+    mimeType: contentType,
+    label: label || undefined,
+  });
+  db.insertArtifact(saved);
+  return c.json(saved, 201);
 });
 
 /** Cross-run artifact listing (latest first), for the product gallery. */

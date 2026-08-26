@@ -1,4 +1,4 @@
-import type { AgentConfig, GraphNode, Usage } from "@agent-world/core";
+import type { AgentConfig, GraphNode, ImageGenConfig, Usage } from "@agent-world/core";
 
 /** A callable tool exposed to a model, derived from a mounted skill card. */
 export interface ToolDefinition {
@@ -24,6 +24,22 @@ export type AgentChunk =
 
 export interface AgentResult {
   output: string;
+  usage: Usage;
+}
+
+/** Arguments for a text-to-image generation request. */
+export interface ImageGenArgs {
+  node: GraphNode;
+  config: ImageGenConfig;
+  /** The generation prompt, often auto-built from the source brief. */
+  input: string;
+  signal?: AbortSignal;
+}
+
+/** Raw generated image bytes plus metering. */
+export interface ImageGenResult {
+  data: Buffer;
+  mimeType: string;
   usage: Usage;
 }
 
@@ -55,7 +71,14 @@ export interface Worker {
     output: string;
     criterion: string;
     signal?: AbortSignal;
-  }): Promise<{ passed: boolean; reason: string }>;
+  }): Promise<{ passed: boolean; reason: string; score?: number }>;
+
+  /** Generates one or more images (banner / scene) from a prompt. Used by `imageGen` nodes. */
+  generateImage(args: ImageGenArgs): Promise<ImageGenResult[]>;
+}
+
+function zeroUsage(): Usage {
+  return { tokensIn: 0, tokensOut: 0, costUsd: 0 };
 }
 
 /** Deterministic stand-in: no network, no clock, seeded verdicts. */
@@ -88,16 +111,35 @@ export function fakeWorker(opts: { failFirstAttempts?: number; chunkDelayMs?: nu
 
     async judge({ attempt, input, criterion }) {
       await new Promise((r) => setTimeout(r, delay));
+      // Deterministic score: a failing attempt scores low, an accepted one high.
+      // Lets the eval report compare quality across prompt versions.
+      const score = attempt <= failFirst ? 3 : 9;
       if (!criterion) {
         return attempt <= failFirst
-          ? { passed: false, reason: "Output is too thin — send it back to the forge" }
-          : { passed: true, reason: `Accepted on attempt ${attempt} (${input.length} chars)` };
+          ? { passed: false, reason: "Output is too thin — send it back to the forge", score }
+          : { passed: true, reason: `Accepted on attempt ${attempt} (${input.length} chars)`, score };
       }
       // Deterministic criterion-aware stand-in: reject until attempts run out,
       // then pass. Real workers let the model judge against criterion.
       return attempt <= failFirst
-        ? { passed: false, reason: `Criterion not met: ${criterion.slice(0, 80)}` }
-        : { passed: true, reason: `Meets criterion: ${criterion.slice(0, 80)}` };
+        ? { passed: false, reason: `Criterion not met: ${criterion.slice(0, 80)}`, score }
+        : { passed: true, reason: `Meets criterion: ${criterion.slice(0, 80)}`, score };
+    },
+
+    // Deterministic 1x1 PNG placeholder so canvas wiring + tests work without a
+    // live image backend. Real workers hit the provider's image endpoint. Honors
+    // `n` so the engine can exercise multi-image fan-out.
+    async generateImage({ config }: ImageGenArgs) {
+      const n = Math.min(8, Math.max(1, Math.trunc(config.n ?? 1)));
+      const png = Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQDJ/pLvAAAAAElFTkSuQmCC",
+        "base64",
+      );
+      return Array.from({ length: n }, () => ({
+        data: png,
+        mimeType: "image/png",
+        usage: { tokensIn: 0, tokensOut: 0, costUsd: 0, units: { images: 1 } },
+      }));
     },
   };
 }

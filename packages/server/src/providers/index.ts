@@ -60,6 +60,9 @@ export function routingWorker(config?: AppConfig): Worker {
       const model = args.node.agent?.model || getConfig().defaultModel;
       return workerFor(model).judge(args);
     },
+    async generateImage(args) {
+      return workerFor(args.config.model).generateImage(args);
+    },
   };
 }
 

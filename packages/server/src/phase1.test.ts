@@ -282,6 +282,86 @@ describe("halt and resume", () => {
   });
 });
 
+describe("prohibited words enforcement", () => {
+  it("fails the gate deterministically when copy contains a prohibited term", async () => {
+    const graph = linearGraph();
+    const intake = graph.nodes.find((n) => n.id === "intake")!;
+    intake.source = { prohibited: "绝对" };
+
+    // Isolate the deterministic check: the model judge always passes, but the
+    // writer deliberately emits the forbidden word so the gate must reject it.
+    const worker: Worker = {
+      async *runAgent({ node, input }): AsyncGenerator<AgentChunk, { output: string; usage: Usage }> {
+        yield { type: "text-delta", text: "x" };
+        const out = node.id === "forge" ? "这款产品绝对好用，闭眼入" : (input ?? "");
+        return { output: out, usage: USAGE };
+      },
+      async judge() {
+        return { passed: true, reason: "model ok" };
+      },
+      async generateImage() {
+        return { data: Buffer.from(""), mimeType: "image/png", usage: USAGE };
+      },
+    };
+
+    const events = (await drain(
+      execute({
+        runId: "r",
+        graph,
+        plan: compile(graph)!.plan!,
+        worker,
+        budgetUsd: null,
+        now: () => 0,
+      }),
+    )) as any[];
+
+    const verdict = events.find((e) => e.type === "gate.verdict") as any;
+    expect(verdict).toBeDefined();
+    expect(verdict.passed).toBe(false);
+    expect(verdict.reason).toContain("命中禁用词");
+    expect(verdict.reason).toContain("绝对");
+  });
+});
+
+describe("gate minScore linkage", () => {
+  it("fails the gate when judge score is below minScore even if model passes", async () => {
+    const graph = linearGraph();
+    const critic = graph.nodes.find((n) => n.id === "critic")!;
+    critic.gate = { ...critic.gate!, minScore: 8 };
+
+    const worker: Worker = {
+      async *runAgent({ input }): AsyncGenerator<AgentChunk, { output: string; usage: Usage }> {
+        yield { type: "text-delta", text: "x" };
+        return { output: input ?? "", usage: USAGE };
+      },
+      async judge() {
+        // Model is happy, but quality is low — the score must drive the verdict.
+        return { passed: true, reason: "looks ok", score: 2 };
+      },
+      async generateImage() {
+        return { data: Buffer.from(""), mimeType: "image/png", usage: USAGE };
+      },
+    };
+
+    const events = (await drain(
+      execute({
+        runId: "r",
+        graph,
+        plan: compile(graph)!.plan!,
+        worker,
+        budgetUsd: null,
+        now: () => 0,
+      }),
+    )) as any[];
+
+    const verdict = events.find((e) => e.type === "gate.verdict") as any;
+    expect(verdict).toBeDefined();
+    expect(verdict.passed).toBe(false);
+    expect(verdict.reason).toContain("低于门槛");
+    expect(verdict.score).toBe(2);
+  });
+});
+
 describe("node-level budget", () => {
   it("fails a node when its per-node budget is exceeded", async () => {
     const graph = linearGraph();

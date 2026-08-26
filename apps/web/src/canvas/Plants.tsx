@@ -18,6 +18,7 @@ const KIND_LABEL: Record<GraphNode["kind"], string> = {
   agent: "厂房",
   gate: "质检站",
   sink: "成品仓",
+  imageGen: "AI 生图",
 };
 
 const STATUS_LABEL: Record<NodeRuntime["status"], string> = {
@@ -210,6 +211,11 @@ export default function Plants({
               {node.kind === "gate" && (
                 <text className="plant__meta" x={12} y={68}>
                   上限 {node.gate?.maxAttempts ?? 3} 次
+                </text>
+              )}
+              {node.kind === "imageGen" && node.imageGen?.model && (
+                <text className="plant__meta" x={12} y={68}>
+                  {truncate(node.imageGen.model)}
                 </text>
               )}
 

@@ -19,3 +19,6 @@ backups/
 
 # Local artifact blob store
 artifacts/
+
+# Code graph cache
+.codegraph/
