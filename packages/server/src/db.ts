@@ -76,6 +76,7 @@ export function openDb(file: string) {
       `INSERT INTO runs (id, graph_id, snapshot, status, trigger, input, budget_usd, started_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     ),
     finishRun: db.prepare(`UPDATE runs SET status = ?, ended_at = ? WHERE id = ?`),
+    markRunning: db.prepare(`UPDATE runs SET status = 'running', ended_at = NULL WHERE id = ?`),
     getRun: db.prepare(`SELECT * FROM runs WHERE id = ?`),
     listRuns: db.prepare(
       `SELECT r.id, r.graph_id, COALESCE(g.name, '(已删除产线)') AS graph_name, r.status, r.trigger, r.budget_usd, r.started_at, r.ended_at
@@ -150,6 +151,10 @@ export function openDb(file: string) {
 
     finishRun(runId: string, status: string, at: number) {
       stmts.finishRun.run(status, at, runId);
+    },
+
+    markRunning(runId: string) {
+      stmts.markRunning.run(runId);
     },
 
     runExists(runId: string): boolean {
@@ -375,28 +380,155 @@ export function openDb(file: string) {
         tokens_out: number;
       }>;
 
-      return { totals, byGraph, byNode, byAttempt, byDay };
+      // Resolve node display names from the most recent run snapshot per
+      // graph. The live graph may have been renamed/deleted since, but the
+      // snapshot frozen on the run always reflects what actually executed.
+      const snapshotRows = db
+        .prepare(
+          `SELECT graph_id, snapshot FROM runs r
+           WHERE id = (SELECT id FROM runs WHERE graph_id = r.graph_id ORDER BY started_at DESC LIMIT 1)`,
+        )
+        .all() as Array<{ graph_id: string; snapshot: string }>;
+      const nodeNames = new Map<string, string>();
+      for (const row of snapshotRows) {
+        try {
+          const g = JSON.parse(row.snapshot) as { nodes?: Array<{ id: string; name: string }> };
+          for (const n of g.nodes ?? []) nodeNames.set(`${row.graph_id}:${n.id}`, n.name);
+        } catch {
+          // malformed snapshot — fall back to node_id
+        }
+      }
+      const byNodeNamed = byNode.map((n) => ({
+        ...n,
+        node_name: nodeNames.get(`${n.graph_id}:${n.node_id}`) ?? n.node_id,
+      }));
+
+      return { totals, byGraph, byNode: byNodeNamed, byAttempt, byDay };
+    },
+
+    /** Raw rows for CSV export — same aggregation as costReport, flat shape. */
+    costRows(opts: { from?: number; to?: number } = {}) {
+      const { byGraph, byNode, byAttempt, byDay } = this.costReport(opts);
+      return { byGraph, byNode, byAttempt, byDay };
     },
   };
 }
 
+interface Migration {
+  version: number;
+  description: string;
+  /**
+   * Returns true if this migration's effect is already present in the schema
+   * (used only for one-time baselining of databases created before the
+   * migration table existed). New migrations should leave this undefined.
+   */
+  detect?: (db: DatabaseSync) => boolean;
+  up: (db: DatabaseSync) => void;
+}
+
+function columnExists(db: DatabaseSync, table: string, column: string): boolean {
+  const rows = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  return rows.some((r) => r.name === column);
+}
+
 /**
- * Additive migrations for databases created before a column existed. Wrapped in
- * try/catch because SQLite has no ADD COLUMN IF EXISTS before 3.35.
+ * Ordered, versioned migrations. The DDL constant above always creates the
+ * LATEST schema for fresh databases; these only run against older files. Each
+ * migration runs once and is recorded in `schema_migrations`. Add new entries
+ * at the end with an incremented version — never reorder or edit a shipped one.
+ */
+const MIGRATIONS: Migration[] = [
+  {
+    version: 1,
+    description: "runs.trigger",
+    detect: (db) => columnExists(db, "runs", "trigger"),
+    up: (db) => db.exec("ALTER TABLE runs ADD COLUMN trigger TEXT NOT NULL DEFAULT 'manual'"),
+  },
+  {
+    version: 2,
+    description: "runs.input",
+    detect: (db) => columnExists(db, "runs", "input"),
+    up: (db) => db.exec("ALTER TABLE runs ADD COLUMN input TEXT"),
+  },
+  {
+    version: 3,
+    description: "node_runs.reasoning",
+    detect: (db) => columnExists(db, "node_runs", "reasoning"),
+    up: (db) => db.exec("ALTER TABLE node_runs ADD COLUMN reasoning TEXT"),
+  },
+  {
+    version: 4,
+    description: "node_runs.error_code",
+    detect: (db) => columnExists(db, "node_runs", "error_code"),
+    up: (db) => db.exec("ALTER TABLE node_runs ADD COLUMN error_code TEXT"),
+  },
+  {
+    version: 5,
+    description: "node_runs.cached_tokens",
+    detect: (db) => columnExists(db, "node_runs", "cached_tokens"),
+    up: (db) =>
+      db.exec("ALTER TABLE node_runs ADD COLUMN cached_tokens INTEGER NOT NULL DEFAULT 0"),
+  },
+  {
+    version: 6,
+    description: "node_runs.reasoning_tokens",
+    detect: (db) => columnExists(db, "node_runs", "reasoning_tokens"),
+    up: (db) =>
+      db.exec("ALTER TABLE node_runs ADD COLUMN reasoning_tokens INTEGER NOT NULL DEFAULT 0"),
+  },
+  {
+    version: 7,
+    description: "node_runs.units_json",
+    detect: (db) => columnExists(db, "node_runs", "units_json"),
+    up: (db) => db.exec("ALTER TABLE node_runs ADD COLUMN units_json TEXT"),
+  },
+];
+
+const LATEST_VERSION = MIGRATIONS.at(-1)!.version;
+
+/**
+ * Run pending migrations inside a transaction. On first encounter of an older
+ * database (no `schema_migrations` rows), existing columns are baselined: a
+ * migration whose effect is already present is recorded as applied without
+ * running, so upgrades from the old try/catch ADD COLUMN era don't break.
  */
 function runMigrations(db: DatabaseSync) {
-  const addColumn = (table: string, column: string) => {
-    try {
-      db.exec(`ALTER TABLE ${table} ADD COLUMN ${column}`);
-    } catch {
-      // column already exists
+  db.exec(
+    `CREATE TABLE IF NOT EXISTS schema_migrations (
+       version    INTEGER PRIMARY KEY,
+       applied_at INTEGER NOT NULL
+     )`,
+  );
+
+  const appliedRow = db.prepare("SELECT COALESCE(MAX(version), 0) AS v FROM schema_migrations").get() as { v: number };
+  const baselining = appliedRow.v === 0;
+  const applied = new Set(
+    (db.prepare("SELECT version FROM schema_migrations").all() as Array<{ version: number }>).map(
+      (r) => r.version,
+    ),
+  );
+
+  const record = db.prepare("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)");
+  const now = Date.now();
+
+  db.exec("BEGIN");
+  try {
+    for (const m of MIGRATIONS) {
+      if (applied.has(m.version)) continue;
+      if (baselining && m.detect?.(db)) {
+        record.run(m.version, now);
+        continue;
+      }
+      m.up(db);
+      record.run(m.version, now);
     }
-  };
-  addColumn("runs", "trigger TEXT NOT NULL DEFAULT 'manual'");
-  addColumn("runs", "input TEXT");
-  addColumn("node_runs", "reasoning TEXT");
-  addColumn("node_runs", "error_code TEXT");
-  addColumn("node_runs", "cached_tokens INTEGER NOT NULL DEFAULT 0");
-  addColumn("node_runs", "reasoning_tokens INTEGER NOT NULL DEFAULT 0");
-  addColumn("node_runs", "units_json TEXT");
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
+
 }
+
+/** The schema version this build expects. Exposed for diagnostics/backups. */
+export const SCHEMA_VERSION = LATEST_VERSION;

@@ -138,6 +138,8 @@ interface SchedulerOptions {
   init: SchedulerInit;
   /** When resuming, the halted gate is pre-approved. */
   approveGate?: { nodeId: string; attempt: number };
+  /** True when continuing an existing run (resume/retry): don't re-emit run.started. */
+  resuming?: boolean;
 }
 
 /**
@@ -495,7 +497,9 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     void gate;
   }
 
-  emit({ type: "run.started", runId, graphId: graph.id, budgetUsd });
+  if (!opts.resuming) {
+    emit({ type: "run.started", runId, graphId: graph.id, budgetUsd });
+  }
 
   const onAbort = () => {
     if (finished || aborted) return;
@@ -596,6 +600,12 @@ export interface ResumeOptions {
   defaultModel?: string;
   pastEvents: RunEvent[];
   action: "continue" | "scrap";
+  /**
+   * When set, the node and every flow-descendant are reset to pending (their
+   * prior artifacts/attempts/costs discarded) and re-executed. Used to retry a
+   * failed node or to rework back to an upstream node.
+   */
+  resetFrom?: string;
   signal?: AbortSignal;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
@@ -611,6 +621,26 @@ export async function* resume(opts: ResumeOptions): AsyncGenerator<RunEvent, voi
   const now = opts.now ?? Date.now;
   const sleep = opts.sleep ?? delay;
   const state = reconstructState(opts.pastEvents);
+
+  if (opts.resetFrom) {
+    // Collect the reset node and everything reachable downstream via flow edges.
+    const reset = new Set<string>([opts.resetFrom]);
+    const queue = [opts.resetFrom];
+    while (queue.length) {
+      const id = queue.shift()!;
+      for (const e of outgoing(graph, id, "flow")) {
+        if (!reset.has(e.to)) {
+          reset.add(e.to);
+          queue.push(e.to);
+        }
+      }
+    }
+    for (const id of reset) {
+      state.artifacts.delete(id);
+      state.attempts.delete(id);
+      state.nodeCostUsd.delete(id);
+    }
+  }
 
   if (action === "scrap") {
     const ev: RunEvent = {
@@ -649,6 +679,7 @@ export async function* resume(opts: ResumeOptions): AsyncGenerator<RunEvent, voi
       totalCostUsd: state.totalCostUsd,
       states,
     },
+    resuming: true,
     approveGate: state.haltedNodeId
       ? {
           nodeId: state.haltedNodeId,

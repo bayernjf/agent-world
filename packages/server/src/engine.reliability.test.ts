@@ -388,3 +388,67 @@ describe("attempt identity during retry", () => {
     expect(finished[0]!.attempt).toBe(1);
   });
 });
+
+// ─── Retry from a failed node (resetFrom) ────────────────────────────────────
+
+describe("resume with resetFrom", () => {
+  it("re-runs the failed node and its downstream, keeping upstream artifacts", async () => {
+    // A straight line: intake -> forge -> depot (no gate/rework).
+    const graph: Graph = {
+      id: "g",
+      name: "g",
+      nodes: [
+        { id: "intake", kind: "source", name: "INTAKE", x: 0, y: 0 },
+        {
+          id: "forge",
+          kind: "agent",
+          name: "FORGE",
+          x: 1, y: 0,
+          agent: { model: "test", prompt: "", skills: [], temperature: 0.7, timeoutMs: 60_000, retry: { maxRetries: 0, baseDelayMs: 1, maxDelayMs: 1 } },
+        },
+        { id: "depot", kind: "sink", name: "DEPOT", x: 2, y: 0 },
+      ],
+      edges: [
+        { id: "e1", from: "intake", to: "forge", kind: "flow" },
+        { id: "e2", from: "forge", to: "depot", kind: "flow" },
+      ],
+    };
+    const { plan } = compile(graph)!;
+
+    const failWorker: Worker = {
+      async *runAgent() {
+        throw new ProviderError("UNSUPPORTED", "nope", 400);
+      },
+      async judge() { return { passed: false, reason: "x" }; },
+    };
+    const past = await drain(
+      execute({ runId: "r", graph, plan: plan!, worker: failWorker, budgetUsd: null, input: "raw", now: () => 0 }),
+    );
+    expect(replay(past).status).toBe("failed");
+    expect(replay(past).nodes.forge!.status).toBe("failed");
+
+    const okWorker: Worker = {
+      async *runAgent({ input }) {
+        yield { type: "text-delta", text: "fixed" };
+        return { output: `fixed:${input}`, usage: USAGE };
+      },
+      async judge() { return { passed: true, reason: "ok" }; },
+    };
+    const cont = await drain(
+      resume({
+        runId: "r", graph, plan: plan!, worker: okWorker, budgetUsd: null,
+        pastEvents: past, action: "continue", resetFrom: "forge", now: () => 0,
+      }),
+    );
+
+    // forge re-ran and the line completed.
+    const all = [...past, ...cont];
+    const state = replay(all);
+    expect(state.status).toBe("done");
+    expect(state.nodes.forge!.status).toBe("done");
+    expect(state.nodes.forge!.outputs[1]).toBe("fixed:raw");
+    expect(cont.some((e) => e.type === "node.finished" && e.nodeId === "depot")).toBe(true);
+    // The failure is preserved in history.
+    expect(state.failures.some((f) => f.kind === "node" && f.nodeId === "forge")).toBe(true);
+  });
+});

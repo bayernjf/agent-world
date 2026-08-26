@@ -71,6 +71,7 @@ describe("cost report", () => {
     expect(rep.byGraph[0].cost_usd).toBeCloseTo(0.035, 5);
 
     expect(rep.byNode[0].node_id).toBe("n1");
+    expect(rep.byNode[0].node_name).toBe("N1");
     expect(rep.byNode[0].attempts).toBe(3);
     expect(rep.byNode[0].reworks).toBe(1);
 
