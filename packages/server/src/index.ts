@@ -337,7 +337,19 @@ app.post("/api/providers/test", async (c) => {
 app.get("/api/runs", (c) => {
   const limit = Number(c.req.query("limit") ?? 50);
   const offset = Number(c.req.query("offset") ?? 0);
-  return c.json(db.listRuns(limit, offset));
+  const graphId = c.req.query("graphId");
+  const status = c.req.query("status");
+  const { rows, total } = db.listRuns({
+    limit,
+    offset,
+    graphId: graphId || undefined,
+    status: status || undefined,
+  });
+  return c.json({ runs: rows, total });
+});
+
+app.get("/api/runs/:id/stats", (c) => {
+  return c.json(db.runStats(c.req.param("id")));
 });
 
 /** Available workers (built-in + discovered plugins), for the run-start UI. */
