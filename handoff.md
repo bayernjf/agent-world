@@ -596,3 +596,16 @@ paths) is a standalone chunk to schedule once the graph gets denser.
   colour metadata. Core now 42, server 56.
 - Remaining: file/blob storage (currently URI passthrough), ArtifactRef upgrade of engine
   artifacts Map, cross-run artifact queries.
+
+## 3.5 Startup database backup (VACUUM INTO)
+
+- `openDb()` now snapshots the live database with `VACUUM INTO` before any DDL/migrations
+  run. Snapshots land in `backups/pre-migration-<ISO timestamp>.db` next to the DB file and
+  are pruned to the newest `BACKUP_RETENTION` (5) copies.
+- Backup runs right after `new DatabaseSync(file)` and before the WAL pragma so a brand-new
+  file (size 0) is skipped; only databases that already contain data are snapshotted. Any
+  backup error is swallowed so it can never block startup.
+- The `Db` wrapper now exposes `close()`. `backups/` is gitignored.
+- Tests in `migrations.test.ts`: snapshot is openable and contains the events table;
+  reopening beyond the retention window prunes to <=5 files. Server now 58 tests.
+- Remaining 3.5: events pagination, multi-tab optimistic lock, structured logger.

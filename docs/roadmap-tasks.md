@@ -327,7 +327,7 @@
 ### 3.5 数据库与并发加固
 
 - [x] **schema_migrations 表 + 有序迁移**（`db.ts`），取代 try/catch ADD COLUMN：每个迁移带 version/description/up，在事务里按序执行并记录；旧库首次打开做 baseline 检测（已存在的列标记为已应用，不重复 ALTER）。新增迁移只需在 MIGRATIONS 末尾追加。
-- [ ] **启动备份**：SQLite VACUUM INTO 到带时间戳的备份文件
+- [x] **启动备份**：SQLite VACUUM INTO 到带时间戳的备份文件（`backups/pre-migration-<ts>.db`，保留最近 5 份，失败不阻塞启动）
 - [ ] **事件接口分页**：`GET /api/runs/:id/events?from=&to=`，SSE 仍增量
 - [ ] **多标签页乐观锁**：graphs 加 version，PUT 带 If-Match，冲突时报错而非静默覆盖
 - [ ] **结构化日志**：pino 或同等方案，每条日志带 runId、级别、文件轮转
