@@ -605,7 +605,9 @@
 - [x] 4B.4 表单 Connector（UI）：运行前弹出字段表单（FormConnectorModal），提交值经 `connectorValues` 注入 source 文本
 - [x] 4B.5 source 装配（`packages/server/src/engine.ts`）：跑 source 节点时若配了 connector，先拉数据再喂下游；失败重试 2 次后给清晰错误（errorCode=CONNECTOR），不扩散为未捕获异常
 - [x] 4B.6 UI：source 节点 Inspector 增加 Connector 选择 + 配置（文件 / HTTP / 表单，含 glob、auth、字段提取、请求头/体）；运行前表单弹窗
-- [ ] 4B.7 测试 + 文档（roadmap 阶段 4 Connector 子块勾选）
+- [x] 4B.7 测试 + 文档（roadmap 阶段 4 Connector 子块勾选）
+  - 测试：`packages/server/src/connectors.test.ts`（file 单文件/目录/glob/asImages/base64、http JSON 提取/纯文本/非 2xx/Bearer auth/POST+自定义头、form 填值/空值、缺配置抛错）、`connectors-engine.test.ts`（source 装配拉料 + 不可达时 CONNECTOR 错误）
+  - 用法：source 节点在 Inspector 选 Connector 类型并配置；`file` 支持路径/目录/glob 与 `asImages`；`http` 支持 GET/POST、Bearer/Basic auth、响应字段 `extract`、自定义 headers/body；`form` 在运行前弹窗填写，值经 `connectorValues` 注入 source 文本；拉取失败重试 2 次后以 `errorCode=CONNECTOR` 结束该节点，不扩散为未捕获异常。
 
 ## 阶段 E（建议）：引擎表达力增强 — 摘要 / 模块卡 / 契约卡 / 人工确认
 
