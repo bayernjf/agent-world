@@ -323,6 +323,45 @@ describe("prohibited words enforcement", () => {
   });
 });
 
+describe("gate minScore linkage", () => {
+  it("fails the gate when judge score is below minScore even if model passes", async () => {
+    const graph = linearGraph();
+    const critic = graph.nodes.find((n) => n.id === "critic")!;
+    critic.gate = { ...critic.gate!, minScore: 8 };
+
+    const worker: Worker = {
+      async *runAgent({ input }): AsyncGenerator<AgentChunk, { output: string; usage: Usage }> {
+        yield { type: "text-delta", text: "x" };
+        return { output: input ?? "", usage: USAGE };
+      },
+      async judge() {
+        // Model is happy, but quality is low — the score must drive the verdict.
+        return { passed: true, reason: "looks ok", score: 2 };
+      },
+      async generateImage() {
+        return { data: Buffer.from(""), mimeType: "image/png", usage: USAGE };
+      },
+    };
+
+    const events = (await drain(
+      execute({
+        runId: "r",
+        graph,
+        plan: compile(graph)!.plan!,
+        worker,
+        budgetUsd: null,
+        now: () => 0,
+      }),
+    )) as any[];
+
+    const verdict = events.find((e) => e.type === "gate.verdict") as any;
+    expect(verdict).toBeDefined();
+    expect(verdict.passed).toBe(false);
+    expect(verdict.reason).toContain("低于门槛");
+    expect(verdict.score).toBe(2);
+  });
+});
+
 describe("node-level budget", () => {
   it("fails a node when its per-node budget is exceeded", async () => {
     const graph = linearGraph();
