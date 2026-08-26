@@ -1,6 +1,18 @@
 import { useMemo, useState } from "react";
 import type { Graph, RuntimeState } from "@agent-world/core";
-import { edgeAnchors, pipeArrows, pipeCrossings, pipePath, type Crossing } from "./geometry";
+import { PLANT_W, PLANT_H } from "../store/graph";
+import {
+  edgeAnchors,
+  pipePath,
+  orthogonalRoute,
+  pointsToPath,
+  orthoArrows,
+  orthoCrossings,
+  ROUTE_PAD,
+  type Crossing,
+  type Point,
+  type Rect,
+} from "./geometry";
 import { registerPath } from "./pathRegistry";
 
 interface Props {
@@ -60,9 +72,31 @@ export default function Pipes({
 }: Props) {
   const [hoveredEdge, setHoveredEdge] = useState<string | null>(null);
   const anchors = useMemo(() => edgeAnchors(graph), [graph]);
+  const obstacles = useMemo<Rect[]>(
+    () =>
+      graph.nodes.map((n) => ({
+        id: n.id,
+        x0: n.x - PLANT_W / 2 - ROUTE_PAD,
+        y0: n.y - PLANT_H / 2 - ROUTE_PAD,
+        x1: n.x + PLANT_W / 2 + ROUTE_PAD,
+        y1: n.y + PLANT_H / 2 + ROUTE_PAD,
+      })),
+    [graph],
+  );
+  const routes = useMemo(() => {
+    const map = new Map<string, Point[]>();
+    for (const e of graph.edges) {
+      if (e.kind === "rework") continue;
+      const a = anchors.get(e.id);
+      if (!a) continue;
+      const obs = obstacles.filter((o) => o.id !== e.from && o.id !== e.to);
+      map.set(e.id, orthogonalRoute(a.from, a.to, obs));
+    }
+    return map;
+  }, [graph, anchors, obstacles]);
   const crossings = useMemo(
-    () => pipeCrossings(graph, anchors),
-    [graph, anchors],
+    () => orthoCrossings(graph, anchors, routes),
+    [graph, anchors, routes],
   );
   const focusEdgeId = hoveredEdge ?? selectedEdgeId;
   const hotEdges = useMemo(
@@ -82,14 +116,17 @@ export default function Pipes({
         const anchor = anchors.get(edge.id);
         if (!anchor) return null;
 
-        const d = pipePath(anchor.from, anchor.to, edge.kind);
+        const rework = edge.kind === "rework";
+        const route = rework ? null : routes.get(edge.id);
+        const d = rework
+          ? pipePath(anchor.from, anchor.to, edge.kind)
+          : pointsToPath(route ?? [anchor.from, anchor.to]);
         if (!d) return null;
 
-        const rework = edge.kind === "rework";
         const hot = hotEdges?.has(edge.id) ?? false;
         const dim = hotEdges !== null && !hot;
         const live = energised(edge.id, edge.from);
-        const arrows = pipeArrows(anchor.from, anchor.to, edge.kind);
+        const arrows = rework ? [] : orthoArrows(route ?? [anchor.from, anchor.to], edge.kind);
 
         return (
           <g

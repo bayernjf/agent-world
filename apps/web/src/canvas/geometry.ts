@@ -270,6 +270,249 @@ export function pipeCrossings(
   return out;
 }
 
+// ---------------------------------------------------------------------------
+// Orthogonal autorouter (roadmap 3.8 / canvas wiring)
+//
+// Forward pipes are routed as Manhattan (axis-aligned) polylines that avoid
+// other node boxes, replacing the simpler mid-dogleg. Rework pipes still render
+// as arcs (pipePath with kind "rework") and crossings still get bridge arcs.
+// ---------------------------------------------------------------------------
+
+export interface Rect {
+  id: string;
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+}
+export const ROUTE_PAD = 10;
+
+const ROUTE_OFF = 26;
+const INTERSECT_PENALTY = 100000;
+
+function dedupe(pts: Point[]): Point[] {
+  const out: Point[] = [];
+  for (const p of pts) {
+    const last = out[out.length - 1];
+    if (!last || last.x !== p.x || last.y !== p.y) out.push(p);
+  }
+  return out;
+}
+
+function segHitsRect(p1: Point, p2: Point, r: Rect): boolean {
+  if (p1.x === p2.x && p1.y === p2.y) return false;
+  const EPS = 0.5;
+  if (p1.y === p2.y) {
+    const y = p1.y;
+    if (y <= r.y0 + EPS || y >= r.y1 - EPS) return false;
+    const xa = Math.min(p1.x, p2.x);
+    const xb = Math.max(p1.x, p2.x);
+    return xa < r.x1 - EPS && xb > r.x0 + EPS;
+  }
+  const x = p1.x;
+  if (x <= r.x0 + EPS || x >= r.x1 - EPS) return false;
+  const ya = Math.min(p1.y, p2.y);
+  const yb = Math.max(p1.y, p2.y);
+  return ya < r.y1 - EPS && yb > r.y0 + EPS;
+}
+
+function routePenalty(pts: Point[], obstacles: Rect[]): number {
+  let cost = 0;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i]!;
+    const b = pts[i + 1]!;
+    if (a.x === b.x && a.y === b.y) continue;
+    cost += Math.hypot(b.x - a.x, b.y - a.y);
+    for (const o of obstacles) {
+      if (segHitsRect(a, b, o)) cost += INTERSECT_PENALTY;
+    }
+  }
+  return cost;
+}
+
+/**
+ * Route a forward pipe from its source face to its target face as an orthogonal
+ * polyline, preferring routes that don't pass through other node boxes. A small
+ * set of candidate Manhattan routes (mid, near each endpoint, above/below all
+ * obstacles, and a step-out detour) is scored by length with a heavy penalty for
+ * any segment intersecting an obstacle; the cheapest wins.
+ */
+export function orthogonalRoute(
+  from: Point,
+  to: Point,
+  obstacles: Rect[],
+): Point[] {
+  const levels = new Set<number>([
+    from.y,
+    to.y,
+    (from.y + to.y) / 2,
+    Math.min(from.y, to.y) - ROUTE_OFF,
+    Math.max(from.y, to.y) + ROUTE_OFF,
+  ]);
+  if (obstacles.length) {
+    levels.add(Math.min(...obstacles.map((o) => o.y0)) - ROUTE_OFF);
+    levels.add(Math.max(...obstacles.map((o) => o.y1)) + ROUTE_OFF);
+  }
+
+  const candidates: Point[][] = [];
+  for (const L of levels) {
+    candidates.push([
+      { x: from.x, y: from.y },
+      { x: from.x, y: L },
+      { x: to.x, y: L },
+      { x: to.x, y: to.y },
+    ]);
+  }
+  const detourL = Math.min(...levels);
+  const detourH = Math.max(...levels);
+  for (const L of [detourL, detourH]) {
+    candidates.push([
+      { x: from.x, y: from.y },
+      { x: from.x + ROUTE_OFF, y: from.y },
+      { x: from.x + ROUTE_OFF, y: L },
+      { x: to.x - ROUTE_OFF, y: L },
+      { x: to.x - ROUTE_OFF, y: to.y },
+      { x: to.x, y: to.y },
+    ]);
+  }
+
+  let best = candidates[0]!;
+  let bestCost = routePenalty(best, obstacles);
+  for (const c of candidates) {
+    const cost = routePenalty(c, obstacles);
+    const cheaper = cost < bestCost - 1e-6;
+    const tieStraighter = Math.abs(cost - bestCost) <= 1e-6 && c.length < best.length;
+    if (cheaper || tieStraighter) {
+      best = c;
+      bestCost = cost;
+    }
+  }
+  return dedupe(best);
+}
+
+/** Build an SVG path from an orthogonal polyline, rounding corners for a clean
+ * circuit-diagram look. */
+export function pointsToPath(pts: Point[], r = 10): string {
+  const clean = dedupe(pts);
+  if (clean.length < 2) return "";
+  let d = `M ${clean[0]!.x} ${clean[0]!.y}`;
+  for (let i = 1; i < clean.length; i++) {
+    const prev = clean[i - 1]!;
+    const cur = clean[i]!;
+    if (i < clean.length - 1) {
+      const next = clean[i + 1]!;
+      const inLen = Math.hypot(cur.x - prev.x, cur.y - prev.y);
+      const outLen = Math.hypot(next.x - cur.x, next.y - cur.y);
+      const rr = Math.min(r, inLen / 2, outLen / 2);
+      const ix = prev.x === cur.x ? 0 : cur.x - prev.x > 0 ? 1 : -1;
+      const iy = prev.y === cur.y ? 0 : cur.y - prev.y > 0 ? 1 : -1;
+      const ox = cur.x === next.x ? 0 : next.x - cur.x > 0 ? 1 : -1;
+      const oy = cur.y === next.y ? 0 : next.y - cur.y > 0 ? 1 : -1;
+      const p1x = cur.x - ix * rr;
+      const p1y = cur.y - iy * rr;
+      const p2x = cur.x + ox * rr;
+      const p2y = cur.y + oy * rr;
+      d += ` L ${p1x} ${p1y} Q ${cur.x} ${cur.y} ${p2x} ${p2y}`;
+    } else {
+      d += ` L ${cur.x} ${cur.y}`;
+    }
+  }
+  return d;
+}
+
+function segArrow(p1: Point, p2: Point, fromStart: boolean): Arrow | null {
+  const dx = p2.x - p1.x;
+  const dy = p2.y - p1.y;
+  const horizontal = dy === 0;
+  const len = Math.hypot(dx, dy);
+  if (len < ARROW_INSET * 2 + 4) return null;
+  const dir = horizontal ? (dx > 0 ? 1 : -1) : 1;
+  const angle = horizontal ? 0 : dy > 0 ? 90 : -90;
+  const t = fromStart ? ARROW_INSET : len - ARROW_INSET;
+  const x = p1.x + (dx / len) * t;
+  const y = p1.y + (dy / len) * t;
+  return { x, y, dir: horizontal ? dir : 1, angle };
+}
+
+/** Arrowheads on the source and target segments of an orthogonal route. */
+export function orthoArrows(route: Point[], kind: GraphEdge["kind"]): Arrow[] {
+  if (kind === "rework") return [];
+  const clean = dedupe(route);
+  if (clean.length < 2) return [];
+  const arrows: Arrow[] = [];
+  const a0 = segArrow(clean[0]!, clean[1]!, true);
+  if (a0) arrows.push(a0);
+  const aN = segArrow(clean[clean.length - 2]!, clean[clean.length - 1]!, false);
+  if (aN) arrows.push(aN);
+  return arrows;
+}
+
+interface OrthoSeg {
+  id: string;
+  vertical: boolean;
+  ax: number;
+  ay: number;
+  bx: number;
+  by: number;
+}
+
+function toSegments(route: Point[], id: string): OrthoSeg[] {
+  const segs: OrthoSeg[] = [];
+  const clean = dedupe(route);
+  for (let i = 0; i < clean.length - 1; i++) {
+    const a = clean[i]!;
+    const b = clean[i + 1]!;
+    if (a.x === b.x && a.y === b.y) continue;
+    segs.push({ id, vertical: a.x === b.x, ax: a.x, ay: a.y, bx: b.x, by: b.y });
+  }
+  return segs;
+}
+
+function crossOrtho(s1: OrthoSeg, s2: OrthoSeg): Point | null {
+  if (s1.vertical === s2.vertical) return null;
+  const v = s1.vertical ? s1 : s2;
+  const h = s1.vertical ? s2 : s1;
+  const vy0 = Math.min(v.ay, v.by);
+  const vy1 = Math.max(v.ay, v.by);
+  const hx0 = Math.min(h.ax, h.bx);
+  const hx1 = Math.max(h.ax, h.bx);
+  const hy = h.ay;
+  if (v.ax > hx0 && v.ax < hx1 && hy > vy0 && hy < vy1) {
+    return { x: v.ax, y: hy };
+  }
+  return null;
+}
+
+/** Where orthogonal pipes cross, draw a bridge arc (vertical pipe goes over). */
+export function orthoCrossings(
+  graph: Graph,
+  _anchors: Map<string, { from: Point; to: Point }>,
+  routes: Map<string, Point[]>,
+): Crossing[] {
+  const fwd = graph.edges.filter((e) => e.kind !== "rework" && routes.has(e.id));
+  const out: Crossing[] = [];
+  for (let i = 0; i < fwd.length; i++) {
+    for (let j = i + 1; j < fwd.length; j++) {
+      const ra = toSegments(routes.get(fwd[i]!.id)!, fwd[i]!.id);
+      const rb = toSegments(routes.get(fwd[j]!.id)!, fwd[j]!.id);
+      for (const sa of ra) {
+        for (const sb of rb) {
+          const p = crossOrtho(sa, sb);
+          if (p) {
+            out.push({
+              x: p.x,
+              y: p.y,
+              over: sa.vertical ? sa.id : sb.id,
+              under: sa.vertical ? sb.id : sa.id,
+            });
+          }
+        }
+      }
+    }
+  }
+  return out;
+}
+
 export function hitTestNode(graph: Graph, p: Point): GraphNode | undefined {
   return [...graph.nodes]
     .reverse()
