@@ -1,7 +1,9 @@
 import {
+  extractArtifacts,
   incoming,
   nodeById,
   outgoing,
+  type Artifact,
   type DraftEvent,
   type Graph,
   type GraphNode,
@@ -202,10 +204,21 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     queue.close();
   };
 
-  const sendPackets = (nodeId: string, summary: string) => {
+  const sendPackets = (nodeId: string, summary: string, artifactKind?: Artifact["kind"]) => {
     for (const e of outgoing(graph, nodeId, "flow")) {
-      emit({ type: "packet.sent", edgeId: e.id, from: nodeId, to: e.to, summary });
+      emit({ type: "packet.sent", edgeId: e.id, from: nodeId, to: e.to, summary, artifactKind });
     }
+  };
+
+  /** Produce typed artifacts from a node's output and emit events. Returns the primary kind. */
+  const produceArtifacts = (nodeId: string, output: string, attempt?: number): Artifact["kind"] => {
+    const extracted = extractArtifacts(output, nodeId);
+    let primary: Artifact["kind"] = "text";
+    for (const a of extracted) {
+      emit({ type: "artifact.produced", nodeId, attempt, artifact: a });
+      if (a.kind !== "text") primary = a.kind;
+    }
+    return primary;
   };
 
   // Runs a single source/sink/gate/agent to completion. Resolves when the node
@@ -233,7 +246,17 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
         states.set(nodeId, "done");
         emit({ type: "node.started", nodeId, attempt });
         emit({ type: "node.finished", nodeId, attempt, output, usage: zeroUsage() });
-        sendPackets(nodeId, output.slice(0, 120));
+        let primaryKind: Artifact["kind"] | undefined;
+        if (node.kind === "source" && node.source?.images.length) {
+          for (const [i, url] of node.source.images.entries()) {
+            const a: Artifact = { id: `${nodeId}-img${i}`, kind: "image", uri: url };
+            emit({ type: "artifact.produced", nodeId, artifact: a });
+          }
+          primaryKind = "image";
+        } else {
+          primaryKind = produceArtifacts(nodeId, output, attempt);
+        }
+        sendPackets(nodeId, output.slice(0, 120), primaryKind);
         return;
       }
 
@@ -259,7 +282,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
         if (verdict.passed) {
           artifacts.set(nodeId, output);
           states.set(nodeId, "done");
-          sendPackets(nodeId, verdict.reason);
+          sendPackets(nodeId, verdict.reason, "text");
           return;
         }
 
@@ -283,7 +306,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           if (policy === "pass") {
             artifacts.set(nodeId, output);
             states.set(nodeId, "done");
-            sendPackets(nodeId, verdict.reason);
+            sendPackets(nodeId, verdict.reason, "text");
             return;
           }
           states.set(nodeId, "failed");
@@ -300,6 +323,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           from: nodeId,
           to: loop.entryId,
           summary: verdict.reason,
+          artifactKind: "text",
         });
         for (const bodyId of loop.body) {
           states.set(bodyId, "pending");
@@ -422,6 +446,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       artifacts.set(nodeId, result.output);
       states.set(nodeId, "done");
       emit({ type: "node.finished", nodeId, attempt, output: result.output, usage: result.usage });
+      const primaryKind = produceArtifacts(nodeId, result.output, attempt);
 
       // Cost accounting runs in a single synchronous block so concurrent
       // completions can't race the budget check.
@@ -466,7 +491,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
         return;
       }
 
-      sendPackets(nodeId, result.output.slice(0, 120));
+      sendPackets(nodeId, result.output.slice(0, 120), primaryKind);
     } finally {
       running--;
       // Defer to a microtask so a synchronous node finishing mid-launch
@@ -511,7 +536,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       passed: true,
       reason: "Approved by human operator",
     });
-    sendPackets(nodeId, "Approved by human operator");
+    sendPackets(nodeId, "Approved by human operator", "text");
     void gate;
   }
 

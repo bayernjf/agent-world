@@ -186,4 +186,46 @@ describe("execute", () => {
       "https://example.com/b.jpg",
     ]);
   });
+
+  it("emits artifact.produced when agent output contains image URLs", async () => {
+    const graph: Graph = {
+      id: "art",
+      name: "art",
+      nodes: [
+        { id: "in", kind: "source", name: "IN", x: 0, y: 0 },
+        { id: "a", kind: "agent", name: "A", x: 1, y: 0, agent: { model: "t", prompt: "", skills: [], temperature: 0.7, timeoutMs: 60000 } },
+        { id: "out", kind: "sink", name: "OUT", x: 2, y: 0 },
+      ],
+      edges: [
+        { id: "e1", from: "in", to: "a", kind: "flow" },
+        { id: "e2", from: "a", to: "out", kind: "flow" },
+      ],
+    };
+    const { plan } = compile(graph)!;
+    const imgWorker = {
+      async *runAgent() {
+        return {
+          output: "Here is the result ![cover](https://example.com/cover.png)",
+          usage: { tokensIn: 10, tokensOut: 20, costUsd: 0.001 },
+        };
+      },
+      async judge() { return { passed: true, reason: "ok" }; },
+    };
+    const events = [];
+    for await (const e of execute({
+      runId: "r", graph, plan, worker: imgWorker as never, budgetUsd: null, now: clock,
+    })) {
+      events.push(e);
+    }
+    const produced = events.filter(
+      (e) => e.type === "artifact.produced" && (e as any).nodeId === "a",
+    );
+    expect(produced).toHaveLength(1);
+    expect((produced[0] as any).artifact.kind).toBe("image");
+    expect((produced[0] as any).artifact.uri).toBe("https://example.com/cover.png");
+    const pkt = events.find((e) => e.type === "packet.sent" && (e as any).from === "a");
+    expect((pkt as any)?.artifactKind).toBe("image");
+    const state = replay(events);
+    expect(state.nodes.a!.artifacts).toHaveLength(1);
+  });
 });
