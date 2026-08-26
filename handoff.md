@@ -711,3 +711,18 @@ paths) is a standalone chunk to schedule once the graph gets denser.
 - Remaining 3.8: upgrade the engine's per-node `artifacts: Map<string,string>` to an ArtifactRef
   (currently it still stores text output per node; artifacts ride alongside as events), and a
   frontend cross-run product gallery consuming `GET /api/artifacts`.
+
+## 3.8 Cross-run product gallery (UI)
+
+- New `ProductGallery` modal (toolbar 成品 chip) consumes `GET /api/artifacts` with
+  paged loading (60/page, 加载更多) and kind filter chips (全部/图片/视频/音频/文本/数据/文件/链接).
+- Cards render inline image thumbnails (link to original), <video>/<audio> players for media,
+  and a generic "打开 ↗" tile for text/json/file/uri. Local artifacts resolve through
+  `/api/artifacts/:id`; remote/data URIs load directly. Each card shows label, creation time
+  and size. Reuses design tokens (steel/power/ink/mono) and the `.seg` segmented control.
+- `api.listArtifacts(limit, offset)` and `api.listRunArtifacts(runId)` added alongside the
+  `StoredArtifact` interface.
+- Remaining 3.8: upgrade the engine's per-node `artifacts: Map<string,string>` to an
+  ArtifactRef so downstream nodes can reference typed artifacts directly (instead of text
+  output + event-sidecar); object-store (S3/R2) backend behind the same ArtifactStore
+  interface for multi-instance deployments.
