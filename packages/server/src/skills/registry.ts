@@ -1,3 +1,5 @@
+import * as fs from "node:fs/promises";
+import path from "node:path";
 import type { Skill } from "@agent-world/core";
 import type { ToolDefinition } from "../worker.js";
 
@@ -118,7 +120,48 @@ const nowTime: BuiltinSkill = {
   },
 };
 
-const ALL: BuiltinSkill[] = [webFetch, jsonExtract, nowTime];
+const fsWrite: BuiltinSkill = {
+  id: "fs_write",
+  name: "写文件",
+  description: "将文本写入工作区内允许目录下的文件。危险操作，每次调用需人工批准。",
+  kind: "tool",
+  source: "builtin",
+  danger: true,
+  permissions: { subprocess: false, env: [] },
+  config: {},
+  tool: {
+    name: "fs_write",
+    description:
+      "Write text to a file under the allowed directory (TOOL_FS_ALLOW, defaults to cwd). " +
+      "A dangerous tool: requires human approval before each execution.",
+    parameters: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "Path within the allowed root (relative or absolute under TOOL_FS_ALLOW)." },
+        content: { type: "string", description: "Text content to write." },
+      },
+      required: ["path", "content"],
+    },
+    async execute(args: unknown) {
+      const a = (args ?? {}) as { path?: unknown; content?: unknown };
+      const p = a.path;
+      const content = a.content;
+      if (typeof p !== "string" || !p) throw new Error("path is required");
+      if (typeof content !== "string") throw new Error("content is required");
+      const root = process.env.TOOL_FS_ALLOW ?? process.cwd();
+      const absRoot = path.resolve(root);
+      const absTarget = path.resolve(absRoot, p);
+      if (absTarget !== absRoot && !absTarget.startsWith(absRoot + path.sep)) {
+        throw new Error(`path must be within allowed root: ${absRoot}`);
+      }
+      await fs.mkdir(path.dirname(absTarget), { recursive: true });
+      await fs.writeFile(absTarget, content, "utf8");
+      return `wrote ${absTarget} (${content.length} bytes)`;
+    },
+  },
+};
+
+const ALL: BuiltinSkill[] = [webFetch, jsonExtract, nowTime, fsWrite];
 const byId = new Map(ALL.map((s) => [s.id, s]));
 
 export function listBuiltinSkills(): Skill[] {

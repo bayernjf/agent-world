@@ -12,11 +12,11 @@ import {
   type RunEvent,
   type Usage,
 } from "@agent-world/core";
-import type { Worker } from "./worker.js";
+import { HaltRequested, type Worker } from "./worker.js";
 import { ProviderError } from "./providers/openai-compatible.js";
 import { sanitizeError } from "./sanitize.js";
 import { resolveTools, executeBuiltinTool } from "./skills/registry.js";
-import { guardToolCall, loadPermissionConfig, type PermissionConfig } from "./permissions.js";
+import { guardToolCall, isDangerousTool, loadPermissionConfig, type PermissionConfig } from "./permissions.js";
 import { notifyHalt } from "./notify.js";
 import { resolveConnector } from "./connectors.js";
 
@@ -288,6 +288,8 @@ interface SchedulerInit {
   nodeCostUsd: Map<string, number>;
   totalCostUsd: number;
   states: Map<string, NodeState>;
+  /** Tools approved for execution this run (4D.7 dangerous-action halt). */
+  approvedTools: string[];
 }
 
 interface SchedulerOptions {
@@ -317,6 +319,8 @@ interface SchedulerOptions {
   permissionConfig?: PermissionConfig;
   /** Human-edited product overrides, keyed by node id (4.7 human-in-the-loop). */
   editOutput?: Record<string, string>;
+  /** Tools the operator has approved for execution this run (4D.7 dangerous-action halt). */
+  approveTools?: string[];
 }
 
 /**
@@ -329,6 +333,7 @@ interface SchedulerOptions {
 async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunEvent>> {
   const { runId, graph, plan, worker, budgetUsd, fallbackModel } = opts;
   const permCfg = opts.permissionConfig ?? loadPermissionConfig();
+  const approved = new Set<string>(opts.approveTools ?? []);
   const monthlyBudgetUsd = opts.monthlyBudgetUsd ?? null;
   const monthSpentUsd = opts.monthSpentUsd ?? 0;
   const queue = new EventQueue();
@@ -700,6 +705,9 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
             tools,
             executeTool: async (name, args) => {
               guardToolCall(name, args, permCfg);
+              if (isDangerousTool(name) && !approved.has(name)) {
+                throw new HaltRequested(name, nodeId);
+              }
               return executeBuiltinTool(name, args);
             },
             signal: opts.signal,
@@ -746,6 +754,17 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           result = { output, usage: usage ?? zeroUsage() };
           break;
         } catch (err) {
+          if (err instanceof HaltRequested) {
+            // A dangerous tool was called without prior human approval: halt the
+            // run and wait for a decision (4D.7). The node is intentionally left
+            // incomplete so a resume re-runs it with the tool now approved.
+            haltNodeId = err.nodeId;
+            haltReason = `dangerous-tool:${err.toolName}`;
+            status = "halted";
+            aborted = true;
+            void notifyHalt({ runId, graphId: graph.id, nodeId: err.nodeId, reason: haltReason });
+            return;
+          }
           const code = err instanceof ProviderError ? err.code : "UNKNOWN";
           lastError = { message: (err as Error).message, code };
           const canRetry = RETRYABLE.has(code) && tryIdx < maxAttempts - 1;
@@ -954,6 +973,7 @@ export async function* execute(opts: ExecuteOptions): AsyncGenerator<RunEvent, v
       nodeCostUsd: new Map(),
       totalCostUsd: 0,
       states,
+      approvedTools: [],
     },
   });
   yield* gen;
@@ -965,7 +985,9 @@ export interface ResumeState {
   totalCostUsd: number;
   nodeCostUsd: Map<string, number>;
   haltedNodeId: string | null;
+  haltedReason: string | null;
   lastSeq: number;
+  approvedTools: string[];
 }
 
 /**
@@ -976,8 +998,10 @@ export function reconstructState(events: RunEvent[]): ResumeState {
   const artifacts = new Map<string, string>();
   const attempts = new Map<string, number>();
   const nodeCostUsd = new Map<string, number>();
+  const approvedTools: string[] = [];
   let totalCostUsd = 0;
   let haltedNodeId: string | null = null;
+  let haltedReason: string | null = null;
   let lastSeq = -1;
 
   for (const e of events) {
@@ -997,9 +1021,18 @@ export function reconstructState(events: RunEvent[]): ResumeState {
       case "gate.exhausted":
         if (e.policy === "halt") haltedNodeId = e.nodeId;
         break;
+      case "run.finished":
+        if (e.status === "halted") {
+          haltedNodeId = e.haltedNodeId ?? haltedNodeId;
+          haltedReason = e.reason ?? haltedReason;
+        }
+        break;
+      case "tool.approved":
+        if (!approvedTools.includes(e.tool)) approvedTools.push(e.tool);
+        break;
     }
   }
-  return { artifacts, attempts, totalCostUsd, nodeCostUsd, haltedNodeId, lastSeq };
+  return { artifacts, attempts, totalCostUsd, nodeCostUsd, haltedNodeId, haltedReason, lastSeq, approvedTools };
 }
 
 export interface ResumeOptions {
@@ -1027,6 +1060,12 @@ export interface ResumeOptions {
    * operator fixes the copy directly rather than retrying the model.
    */
   editOutput?: Record<string, string>;
+  /**
+   * Tools approved for execution this run (4D.7 dangerous-action halt). When set,
+   * the halted run is resumed with these tools pre-approved, so a node that halted
+   * on a dangerous tool call re-runs and executes it instead of halting again.
+   */
+  approveTools?: string[];
   /**
    * When set, the node and every flow-descendant are reset to pending (their
    * prior artifacts/attempts/costs discarded) and re-executed. Used to retry a
@@ -1121,6 +1160,16 @@ export async function* resume(opts: ResumeOptions): AsyncGenerator<RunEvent, voi
     return;
   }
 
+  // 4D.7 — dangerous-action approval: persist newly-approved tools as events
+  // (replay-consistent) and resume with them pre-approved.
+  const approveTools = opts.approveTools ?? [];
+  let emitSeq = state.lastSeq;
+  const toEmit = approveTools.filter((t) => !state.approvedTools.includes(t));
+  for (const t of toEmit) {
+    yield { type: "tool.approved", tool: t, seq: ++emitSeq, ts: now() };
+  }
+  const startSeq = emitSeq + 1;
+
   // Seed the scheduler: every node that already produced an artifact is done;
   // everything downstream of the halted gate is pending and will weld now.
   const states = new Map<string, NodeState>();
@@ -1128,6 +1177,7 @@ export async function* resume(opts: ResumeOptions): AsyncGenerator<RunEvent, voi
     states.set(n.id, state.artifacts.has(n.id) ? "done" : "pending");
   }
 
+  const isToolHalt = (state.haltedReason ?? "").startsWith("dangerous-tool:");
   const gen = await runScheduler({
     runId,
     graph,
@@ -1137,7 +1187,7 @@ export async function* resume(opts: ResumeOptions): AsyncGenerator<RunEvent, voi
     monthlyBudgetUsd: opts.monthlyBudgetUsd ?? null,
     monthSpentUsd: opts.monthSpentUsd ?? 0,
     fallbackModel: opts.defaultModel ?? "agnes-2.0-flash",
-    startSeq: state.lastSeq + 1,
+    startSeq,
     signal: opts.signal,
     now,
     sleep,
@@ -1150,9 +1200,11 @@ export async function* resume(opts: ResumeOptions): AsyncGenerator<RunEvent, voi
       nodeCostUsd: state.nodeCostUsd,
       totalCostUsd: state.totalCostUsd,
       states,
+      approvedTools: state.approvedTools,
     },
     resuming: true,
-    approveGate: state.haltedNodeId
+    approveTools: [...new Set([...state.approvedTools, ...approveTools])],
+    approveGate: !isToolHalt && state.haltedNodeId
       ? {
           nodeId: state.haltedNodeId,
           attempt: state.attempts.get(state.haltedNodeId) ?? 1,

@@ -170,8 +170,8 @@ export class StdioMcpTransport implements McpTransport {
  * talk to a remote server over the network (Streamable HTTP / legacy SSE).
  */
 export type McpServerSpec =
-  | { transport: "stdio"; command: string; args?: string[]; env?: Record<string, string> }
-  | { transport: "http" | "sse"; url: string; headers?: Record<string, string> };
+  | { transport: "stdio"; command: string; args?: string[]; env?: Record<string, string>; danger?: boolean }
+  | { transport: "http" | "sse"; url: string; headers?: Record<string, string>; danger?: boolean };
 
 /** Parse a raw text/event-stream body into JSON-RPC messages. */
 function parseSse(raw: string): JsonRpcMessage[] {
@@ -386,6 +386,7 @@ export async function registerMcpTools(
   client: McpClient,
   register: (skill: BuiltinSkill) => void,
   permissions?: SkillPermissions,
+  danger?: boolean,
 ): Promise<McpTool[]> {
   await client.initialize();
   const tools = await client.listTools();
@@ -398,6 +399,7 @@ export async function registerMcpTools(
       description: t.description ?? "",
       kind: "tool",
       source: "mcp",
+      danger,
       permissions: perms,
       config: {},
       tool: {

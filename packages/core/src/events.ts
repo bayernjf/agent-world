@@ -180,6 +180,11 @@ export const RunEvent = z.discriminatedUnion("type", [
   }),
   z.object({
     ...base,
+    type: z.literal("tool.approved"),
+    tool: z.string(),
+  }),
+  z.object({
+    ...base,
     type: z.literal("run.finished"),
     runId: z.string(),
     status: z.enum(["done", "failed", "halted", "tripped", "cancelled"]),

@@ -39,6 +39,10 @@ export const SkillPermissions = z
     subprocess: z.boolean().default(false),
     /** Names of environment variables this skill may read. */
     env: z.array(z.string()).default([]),
+    /** True when the tool performs an irreversible / externally-mutating action
+     *  (writing files, calling mutating external APIs). Such tools require a human
+     *  approval before execution (4D.7 / dangerous-action halt). */
+    danger: z.boolean().optional(),
   })
   .default({});
 export type SkillPermissions = z.infer<typeof SkillPermissions>;
@@ -49,6 +53,9 @@ export const Skill = z.object({
   description: z.string().default(""),
   kind: SkillKind,
   permissions: SkillPermissions,
+  /** Marks a tool that performs an irreversible / externally-mutating action and
+   *  therefore requires human approval before execution (4D.7 dangerous-action halt). */
+  danger: z.boolean().optional(),
   /** Where the skill came from — controls trust and isolation level. */
   source: z.enum(["builtin", "local", "mcp"]).default("builtin"),
   /**

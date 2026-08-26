@@ -120,6 +120,12 @@ export function guardToolCall(name: string, args: unknown, cfg: PermissionConfig
   if (reason) throw new PermissionDenied(name, reason);
 }
 
+/** True when the named tool is flagged dangerous (irreversible / externally
+ *  mutating) and therefore requires human approval before execution (4D.7). */
+export function isDangerousTool(name: string): boolean {
+  return getSkill(name)?.danger === true;
+}
+
 /** Build the effective config from environment variables. */
 export function loadPermissionConfig(): PermissionConfig {
   const split = (v?: string): string[] | undefined => {

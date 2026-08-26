@@ -885,3 +885,20 @@ Stage B — structured product blocks:
 - `ArtifactRef` engine upgrade (per-node typed artifact references) stays deferred
   until multimodal downstream inputs are needed (Stage D).
 - Per-node quality scoring and CSV export of eval data remain for later.
+
+## Dangerous-action halt (E.4)
+
+> 危险操作（写文件 / 外部网络 / 删除，即技能 `danger: true`）首次调用时暂停运行，等人 approve/deny 后再续跑。引擎在 `executeTool` 包裹层对“危险且未批准”的工具抛 `HaltRequested`，运行进入 `halted`，`run.finished` 携带 `reason: "dangerous-tool:<name>"` 与 `haltedNodeId`。
+
+**关键文件**
+- `packages/server/src/engine.ts`：`executeTool` 回调先 `guardToolCall`（白名单治理），再 `if (isDangerousTool(name) && !approved.has(name)) throw new HaltRequested(name, nodeId)`；catch 后 `haltReason = "dangerous-tool:" + toolName`、`status = "halted"`、节点故意不标完成，便于 resume 重跑。
+- `resume()`：危险工具批准通过 `approveTools`（累积 `state.approvedTools` ∪ 本次）以 `tool.approved` 事件持久化，并作为 `init.approvedTools` 重新传入，节点重跑时该工具已在 `approved` 集合内而执行。`isToolHalt = (state.haltedReason ?? "").startsWith("dangerous-tool:")` 区分“危险工具暂停”与“Gate 耗尽暂停”：危险工具暂停**不**置 `approveGate`（否则会把 agent 节点直接标 done 跳过工具），靠 `approveTools` 续跑；Gate 暂停才走 `approveGate`。
+- `packages/server/src/permissions.ts`：`isDangerousTool(name)` = `getSkill(name)?.danger === true`；`guardToolCall` 做 host/path 白名单治理。
+- `packages/core/src/runtime.ts`：`RuntimeState` 新增 `reason?`，`run.finished` 时写入；前端用 `runtime.reason` 前缀 `dangerous-tool:` 识别危险操作暂停并展示文案。
+
+**Resume 语义**
+- `resume({ action: "approve", approveTools: ["fs_write"] })`：累积批准，节点重跑，危险工具因在批准集内而执行，运行跑完。
+- `resume({ action: "approve" })`（不带 approveTools）：危险工具仍未被批准 → 再次 `HaltRequested` → 重新进入 `halted`（同一工具、同一 reason）。
+
+**测试**
+- `packages/server/src/engine.danger.test.ts`：危险工具未批准 → `halted` 且 `reason = "dangerous-tool:fs_write"`、文件未写；带 `approveTools` resume → 执行工具、写文件、`done`；不带 `approveTools` resume → 重新 `halted`、文件未写。注意测试隔离：test 4 写 `out-noapprove.txt`（而非 `out.txt`），避免被 test 3 的 `out.txt` 污染导致误判。

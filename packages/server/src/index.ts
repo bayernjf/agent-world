@@ -587,6 +587,7 @@ app.post("/api/runs/:id/resume", async (c) => {
     action?: "continue" | "approve" | "reject" | "edit" | "scrap";
     editOutput?: Record<string, string>;
     resetFrom?: string;
+    approveTools?: unknown;
     workerId?: string;
   };
   const action: "continue" | "approve" | "reject" | "edit" | "scrap" =
@@ -598,6 +599,8 @@ app.post("/api/runs/:id/resume", async (c) => {
       : "continue";
   const resetFrom = typeof body.resetFrom === "string" ? body.resetFrom : undefined;
   const editOutput = body.editOutput && typeof body.editOutput === "object" ? body.editOutput : undefined;
+  const approveTools =
+    Array.isArray(body.approveTools) ? body.approveTools.filter((t) => typeof t === "string") : undefined;
 
   // A live entry exists while the generator runs. Reject only if it is still
   // actively executing; a halted/done entry is safe to resume.
@@ -638,6 +641,7 @@ app.post("/api/runs/:id/resume", async (c) => {
         action,
         resetFrom,
         editOutput,
+        approveTools,
         signal: controller.signal,
         storeBinary: async (data, mimeType, label) =>
           (await artifacts.saveBinary({ data, kind: "image", mimeType, label })).uri ??
@@ -833,7 +837,13 @@ async function connectMcpServers(): Promise<void> {
       }
       const client = connectMcpServer(spec);
       mcpClients.push(client);
-      const tools = await registerMcpTools(id, client, registerSkill, s.permissions as SkillPermissions | undefined);
+      const tools = await registerMcpTools(
+        id,
+        client,
+        registerSkill,
+        s.permissions as SkillPermissions | undefined,
+        (s.danger as boolean | undefined) ?? undefined,
+      );
       mcpStatus.push({ id, tools: tools.map((t) => t.name), transport });
       log.info("mcp connected", { id, transport, tools: tools.map((t) => t.name) });
     } catch (err) {

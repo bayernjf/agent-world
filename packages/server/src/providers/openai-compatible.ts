@@ -1,4 +1,4 @@
-import type { AgentChunk, AgentResult, ImageGenResult, Worker } from "../worker.js";
+import { HaltRequested, type AgentChunk, type AgentResult, type ImageGenResult, type Worker } from "../worker.js";
 import type { AgentConfig, ContentPart as MultimodalContent, GraphNode, Usage } from "@agent-world/core";
 import { computeCost, modalityOf, normalizeBaseUrl, type ModelPricing, type ProviderConfig } from "../config.js";
 
@@ -316,6 +316,9 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
         try {
           result = await executeTool(name, args);
         } catch (err) {
+          // A dangerous tool (unapproved) must halt the run, not be reported as a
+          // tool error — re-throw so the engine can intercept it (4D.7).
+          if (err instanceof HaltRequested) throw err;
           toolError = (err as Error).message;
           result = { error: toolError };
         }

@@ -241,11 +241,12 @@ export const api = {
     action: "continue" | "approve" | "reject" | "edit" | "scrap",
     resetFrom?: string,
     editOutput?: Record<string, string>,
+    approveTools?: string[],
   ) =>
     fetch(`/api/runs/${runId}/resume`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ action, resetFrom, editOutput }),
+      body: JSON.stringify({ action, resetFrom, editOutput, approveTools }),
     }).then(json<{ ok: true }>),
 
   getEvents: (runId: string) =>

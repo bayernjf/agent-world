@@ -713,7 +713,7 @@
 - [ ] E.3 输出契约卡（roadmap 2.2）
   - [ ] 节点可声明输出 schema（zod / JSON schema）；引擎校验 agent 输出，不达标触发 rework（复用现有 rework 机制）
   - [ ] 退出标准：输出不符契约时自动返工达到上限
-- [ ] E.4 危险操作人工确认（roadmap 2.2）
-  - [ ] 写文件 / 外部网络 / 删除类 tool 首次调用走 halt，暂停运行等人 approve/deny，再续跑
-  - [ ] 需要人机协作暂停 / 恢复机制（事件 + 恢复点）
-  - [ ] 退出标准：危险 tool 调用被暂停且需人工确认后才继续（单测或手动验证）
+- [x] E.4 危险操作人工确认（roadmap 2.2）
+  - [x] 写文件 / 外部网络 / 删除类 tool 首次调用走 halt，暂停运行等人 approve/deny，再续跑（`isDangerousTool` + `HaltRequested`，`reason = "dangerous-tool:<name>"`）
+  - [x] 需要人机协作暂停 / 恢复机制（事件 + 恢复点，`resume({ approveTools })` 续跑执行被批准的危险工具）
+  - [x] 退出标准：危险 tool 调用被暂停且需人工确认后才继续（单测 `engine.danger.test.ts` 已覆盖：halt→带 approveTools 跑完 / 不带 approveTools 重新 halt）

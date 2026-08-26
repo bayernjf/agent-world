@@ -71,6 +71,10 @@ export default function ControlPanel(props: Props) {
   const warnings = diagnostics.filter((d) => d.severity === "warning");
   const running = runtime.status === "running";
   const halted = runtime.status === "halted";
+  const dangerTool =
+    halted && runtime.reason?.startsWith("dangerous-tool:")
+      ? runtime.reason.slice("dangerous-tool:".length)
+      : null;
   const materialEmpty = rawMaterial.trim() === "";
   const pct = budget > 0 ? Math.min(100, (runtime.totalCostUsd / budget) * 100) : 0;
   const hint = MODES.find((m) => m.key === mode)?.hint ?? "";
@@ -231,31 +235,55 @@ export default function ControlPanel(props: Props) {
             </button>
           ) : halted ? (
             <div className="btn-row btn-row--wrap">
-              <button className="btn" onClick={() => resumeRun("approve")}>
-                批准继续
-              </button>
-              <button
-                className="btn"
-                onClick={() => {
-                  const text = window.prompt("编辑该节点的产出（人工修正后继续）：");
-                  if (text != null && runtime.haltedNodeId) {
-                    resumeRun("edit", undefined, { [runtime.haltedNodeId]: text });
-                  }
-                }}
-              >
-                编辑后继续
-              </button>
-              <button
-                className="btn btn--warn"
-                onClick={() => {
-                  if (window.confirm("驳回此次运行？运行将以失败结束。")) resumeRun("reject");
-                }}
-              >
-                驳回
-              </button>
-              <button className="btn btn--ghost" onClick={() => resumeRun("scrap")}>
-                报废
-              </button>
+              {dangerTool ? (
+                <>
+                  <button
+                    className="btn"
+                    onClick={() => resumeRun("approve", undefined, undefined, [dangerTool])}
+                  >
+                    批准执行 {dangerTool}
+                  </button>
+                  <button
+                    className="btn btn--warn"
+                    onClick={() => {
+                      if (window.confirm("驳回此次运行？运行将以失败结束。")) resumeRun("reject");
+                    }}
+                  >
+                    驳回
+                  </button>
+                  <button className="btn btn--ghost" onClick={() => resumeRun("scrap")}>
+                    报废
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button className="btn" onClick={() => resumeRun("approve")}>
+                    批准继续
+                  </button>
+                  <button
+                    className="btn"
+                    onClick={() => {
+                      const text = window.prompt("编辑该节点的产出（人工修正后继续）：");
+                      if (text != null && runtime.haltedNodeId) {
+                        resumeRun("edit", undefined, { [runtime.haltedNodeId]: text });
+                      }
+                    }}
+                  >
+                    编辑后继续
+                  </button>
+                  <button
+                    className="btn btn--warn"
+                    onClick={() => {
+                      if (window.confirm("驳回此次运行？运行将以失败结束。")) resumeRun("reject");
+                    }}
+                  >
+                    驳回
+                  </button>
+                  <button className="btn btn--ghost" onClick={() => resumeRun("scrap")}>
+                    报废
+                  </button>
+                </>
+              )}
             </div>
           ) : (
             <button

@@ -83,6 +83,19 @@ export interface Worker {
   generateImage(args: ImageGenArgs): Promise<ImageGenResult[]>;
 }
 
+/**
+ * Thrown by a tool call when the tool is flagged dangerous and has not yet been
+ * approved by a human. The engine's `executeTool` closure throws it; workers must
+ * let it propagate (NOT catch it as a normal tool error) so the engine can halt
+ * the run and request human approval (4D.7 dangerous-action halt).
+ */
+export class HaltRequested extends Error {
+  constructor(public readonly toolName: string, public readonly nodeId: string) {
+    super(`dangerous tool "${toolName}" blocked pending human approval`);
+    this.name = "HaltRequested";
+  }
+}
+
 function zeroUsage(): Usage {
   return { tokensIn: 0, tokensOut: 0, costUsd: 0 };
 }
