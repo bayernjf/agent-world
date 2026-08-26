@@ -1159,3 +1159,64 @@ Stage B — structured product blocks:
 - `pnpm -r typecheck`：core + server + web 全绿
 - `pnpm -r test`：core 54 + server 243 全绿（新增 9 个测试）
 - `pnpm -r build`：core + server + web 构建成功
+
+---
+
+## 阶段 4 收尾 — 4.2 Connector / 4.6 触发方式 / 4.8 文档
+
+**日期**：2026-08-27
+**分支**：`feature/20260824`
+
+### 概述
+
+4.2 Connector 和 4.6 触发方式的核心代码在之前的批次中已实现（connectors.ts / triggers.ts / scheduler.ts / ConnectorEditor.tsx / TriggersPanel.tsx），本次补全了 Connector 的"测试连接"功能，并完成了 4.8 文档。
+
+### 4.2 Connector — 测试连接补全
+
+**后端** `packages/server/src/index.ts`
+- 新增 `POST /api/connectors/test` 端点：接收 ConnectorConfig，调用 resolveConnector，返回 2000 字符预览 + images 列表 + fullLength
+- 错误时返回 502 + error message
+- 导入 resolveConnector 和 ConnectorConfig
+
+**前端** `apps/web/src/components/ConnectorEditor.tsx`
+- 新增 testConnector() 函数调用 /api/connectors/test
+- 主组件新增 testState（idle/loading/ok/error）、testResult、testError 状态
+- 新增"测试连接"按钮（connector.type !== "manual" 时显示）
+- 结果预览：成功显示文本长度/图片数 + 预览 pre；失败显示错误信息
+- 切换接入方式时重置测试状态
+
+**样式** `apps/web/src/styles.css`
+- 新增 .connector-test / .connector-test__result / .connector-test__meta / .connector-test__preview / .connector-test__error 样式
+
+### 4.2 Connector — 已有实现回顾
+
+- `packages/core/src/graph.ts`：ConnectorConfig（manual/file/http/form）+ FileConnector（path/encoding/asImages）+ HttpConnector（url/method/headers/auth/extract/body）+ FormConnector（fields）
+- `packages/server/src/connectors.ts`：resolveConnector() 实现全部 4 种类型，支持 glob 匹配、JSON 字段提取（dot-path）、base64 编码
+- `packages/server/src/engine.ts`：source 节点调用 resolveConnector，重试 CONNECTOR_MAX_RETRIES，失败标记 node.failed
+- `apps/web/src/components/ConnectorEditor.tsx`：类型选择 + FileForm/HttpForm/FormForm 配置面板
+
+### 4.6 触发方式 — 已有实现回顾
+
+- `packages/core/src/graph.ts`：TriggerConfig（manual/webhook/cron/event/batch）+ TriggerType 枚举
+- `packages/server/src/triggers.ts`：TriggerService 类（restore/list/get/listByGraph/nextRunMap/upsert/remove/fire/fireWebhook/onGraphFinished/onArtifact/fireBatch）
+- `packages/server/src/scheduler.ts`：TriggerScheduler 类（in-process cron timer，sync/unsync）
+- `packages/server/src/index.ts`：API 路由（GET/POST/DELETE triggers，POST fire，GET next-runs，POST webhook）
+- `packages/server/src/db.ts`：runs 表包含 trigger 字段，createRun/listRuns 支持 trigger
+- `apps/web/src/components/TriggersPanel.tsx`：触发器管理面板（列表/编辑/删除/手动触发/下次运行时间/运行历史）
+- `apps/web/src/lib/api.ts`：listTriggers/createTrigger/deleteTrigger/fireTrigger/triggerNextRuns 方法
+
+### 4.8 文档
+
+**新增文档**
+- `docs/extending.md`：扩展指南（5 个章节：Worker/Connector/Skill/Trigger/NodeType，含步骤、接口、测试、常见模式）
+- `docs/examples.md`：8 个示例产线模板（改写循环/商品生成/多源聚合/视频广告/表单驱动/A/B 测试/定时报告/webhook 触发）
+
+**完善文档**
+- `README.md`：Quick start 扩展为"5-minute first run"（6 步：打开面板/新建产线/配置 provider/编辑图/运行/查看输出），新增 examples.md 和 extending.md 链接
+- `CONTRIBUTING.md`：已存在且完善（开发指南/commit 规范/编码约定/测试/PR 流程）
+- `docs/technical-design.md`：已存在 776 行（架构/数据模型/API 表面）
+
+### 质量门
+- `pnpm -r typecheck`：core + server + web 全绿
+- `pnpm -r test`：core 54 + server 243 全绿
+- `pnpm -r build`：core + server + web 构建成功

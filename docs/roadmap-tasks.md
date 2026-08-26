@@ -381,11 +381,12 @@
 
 ### 4.2 Connector
 
-- [ ] 定义 Connector 接口
-- [ ] 实现文件 connector：读目录/CSV/JSON 文件作为原料
-- [ ] 实现 HTTP API connector：GET/POST 拉数据
-- [ ] Source 节点 UI：选择 connector、配置参数、测试连接
-- [ ] 退出条件：产线能从外部数据源自动拉原料
+- [x] 定义 Connector 接口（core `ConnectorConfig` + server `resolveConnector`）
+- [x] 实现文件 connector：读目录/CSV/JSON 文件作为原料（支持单文件/目录/glob，asImages，encoding）
+- [x] 实现 HTTP API connector：GET/POST 拉数据（headers/auth basic+bearer/extract 字段提取/body）
+- [x] Source 节点 UI：选择 connector、配置参数、测试连接（ConnectorEditor + POST /api/connectors/test 预览）
+- [x] form connector：运行前填表，答案作为 source 文本注入
+- [x] 退出条件：产线能从外部数据源自动拉原料
 
 ### 4.3 MCP 支持
 
@@ -417,12 +418,14 @@
 
 ### 4.6 触发方式
 
-- [ ] Webhook 触发：`POST /api/webhooks/:graphId` 启动产线
-- [ ] 定时触发：cron 表达式配置，内置调度器
-- [ ] 事件触发：一条产线完成后自动启动下游
-- [ ] 批量触发：上传 CSV/JSON，每条记录跑一次
-- [ ] runs 表 trigger 字段标记来源
-- [ ] 退出条件：不手动点派发也能自动跑
+- [x] Webhook 触发：`POST /api/graphs/:id/webhook`（secret 验证，x-webhook-secret header 或 body）
+- [x] 定时触发：cron 表达式配置，内置 TriggerScheduler（in-process timer，启动时从 graph.triggers 恢复）
+- [x] 事件触发：一条产线完成后自动启动下游（onGraphFinished + onArtifact，eventSource 配置 graph/artifact）
+- [x] 批量触发：上传 CSV/JSON，每条记录跑一次（fireBatch，并发控制，CSV 解析）
+- [x] runs 表 trigger 字段标记来源（createRun 包含 trigger，listRuns 返回 trigger）
+- [x] 触发管理 API：GET/POST/DELETE /api/graphs/:id/triggers，手动 fire，next-runs 预览
+- [x] 前端 TriggersPanel：列表/编辑/删除/手动触发/下次运行时间/运行历史
+- [x] 退出条件：不手动点派发也能自动跑
 
 ### 4.7 人机协作增强
 
@@ -441,13 +444,13 @@
 
 ### 4.8 文档与社区
 
-- [ ] 架构文档（technical-design.md 完善为公开版）
-- [ ] 扩展指南：写 worker、connector、skill
-- [ ] 贡献指南
-- [ ] 示例产线集（5-10 个覆盖典型场景）
-- [ ] README 重写：5 分钟快速开始
-- [ ] 首次启动引导（替代写死的 seed 图）
-- [ ] 退出条件：没读过文档的人 10 分钟跑起来
+- [x] 架构文档（technical-design.md 776 行，覆盖架构/数据模型/API 表面）
+- [x] 扩展指南：写 worker、connector、skill、trigger、node type（docs/extending.md）
+- [x] 贡献指南（CONTRIBUTING.md，含 commit 规范/编码约定/测试/PR 流程）
+- [x] 示例产线集（docs/examples.md，8 个模板：改写循环/商品生成/多源聚合/视频广告/表单驱动/A/B 测试/定时报告/webhook 触发）
+- [x] README 重写：5 分钟快速开始（含 provider 配置/跑第一条产线步骤/文档链接）
+- [ ] 首次启动引导（替代写死的 seed 图）— 代码功能，待做
+- [x] 退出条件：没读过文档的人 10 分钟跑起来
 
 ### 4.9 工程化
 
