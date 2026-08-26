@@ -1,6 +1,17 @@
 import { useEffect, useState } from "react";
 import type { ConnectorConfig, ConnectorType, FileConnector, FormConnector, HttpConnector } from "@agent-world/core";
 
+async function testConnector(connector: ConnectorConfig, formValues?: Record<string, string>): Promise<{ text: string; images: string[]; fullLength: number }> {
+  const res = await fetch("/api/connectors/test", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ connector, formValues }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+  return data;
+}
+
 type FormField = FormConnector["fields"][number];
 
 interface Props {
@@ -265,9 +276,15 @@ function FormForm({
 
 export default function ConnectorEditor({ connector, onChange, onBeginEdit, onCommitEdit }: Props) {
   const current: SelectType = connector?.type ?? "none";
+  const [testState, setTestState] = useState<"idle" | "loading" | "ok" | "error">("idle");
+  const [testResult, setTestResult] = useState<{ text: string; images: string[]; fullLength: number } | null>(null);
+  const [testError, setTestError] = useState<string>("");
+
   const setType = (v: SelectType) => {
     if (v === "none") onChange(undefined);
     else onChange(defaultsFor(v));
+    setTestState("idle");
+    setTestResult(null);
   };
   const patchFile = (p: Partial<FileConnector>) =>
     onChange({ type: "file", file: { ...(connector as { file?: FileConnector }).file!, ...p } });
@@ -275,6 +292,21 @@ export default function ConnectorEditor({ connector, onChange, onBeginEdit, onCo
     onChange({ type: "http", http: { ...(connector as { http?: HttpConnector }).http!, ...p } });
   const patchForm = (p: Partial<FormConnector>) =>
     onChange({ type: "form", form: { ...(connector as { form?: FormConnector }).form!, ...p } });
+
+  const runTest = async () => {
+    if (!connector) return;
+    setTestState("loading");
+    setTestError("");
+    setTestResult(null);
+    try {
+      const result = await testConnector(connector);
+      setTestResult(result);
+      setTestState("ok");
+    } catch (e) {
+      setTestError((e as Error).message);
+      setTestState("error");
+    }
+  };
 
   return (
     <div className="section connector">
@@ -301,6 +333,25 @@ export default function ConnectorEditor({ connector, onChange, onBeginEdit, onCo
       )}
       {connector?.type === "form" && (
         <FormForm value={connector.form!} patch={patchForm} begin={onBeginEdit} commit={onCommitEdit} />
+      )}
+      {connector && connector.type !== "manual" && (
+        <div className="connector-test">
+          <button className="btn btn--ghost" onClick={runTest} disabled={testState === "loading"}>
+            {testState === "loading" ? "测试中…" : "测试连接"}
+          </button>
+          {testState === "ok" && testResult && (
+            <div className="connector-test__result">
+              <div className="connector-test__meta">
+                成功 · 文本 {testResult.fullLength} 字符
+                {testResult.images.length > 0 && ` · 图片 ${testResult.images.length} 张`}
+              </div>
+              <pre className="connector-test__preview">{testResult.text || "(空)"}</pre>
+            </div>
+          )}
+          {testState === "error" && (
+            <div className="connector-test__error">失败：{testError}</div>
+          )}
+        </div>
       )}
     </div>
   );
