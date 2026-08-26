@@ -315,6 +315,8 @@ interface SchedulerOptions {
   storeBinary: (data: Buffer, mimeType: string, label?: string) => string | Promise<string>;
   /** Tool-call permission governance. Defaults to the env-derived config. */
   permissionConfig?: PermissionConfig;
+  /** Human-edited product overrides, keyed by node id (4.7 human-in-the-loop). */
+  editOutput?: Record<string, string>;
 }
 
 /**
@@ -686,7 +688,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           const tools = resolveTools(mounts);
           const referenceImages = imagesFor(nodeId);
           const content: ContentPart[] | undefined = referenceImages.length
-            ? [{ type: "text", text: agentInput }, ...referenceImages.map((u) => ({ type: "image", image: u }))]
+            ? [{ type: "text", text: agentInput }, ...referenceImages.map((u): ContentPart => ({ type: "image", image: u }))]
             : undefined;
           const gen = worker.runAgent({
             node,
@@ -695,7 +697,6 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
             input: agentInput,
             images: referenceImages,
             content,
-            tools,
             tools,
             executeTool: async (name, args) => {
               guardToolCall(name, args, permCfg);
@@ -1037,6 +1038,8 @@ export interface ResumeOptions {
   storeBinary?: (data: Buffer, mimeType: string, label?: string) => string | Promise<string>;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
+  /** Tool-call permission governance. Defaults to the env-derived config. */
+  permissionConfig?: PermissionConfig;
 }
 
 /**
