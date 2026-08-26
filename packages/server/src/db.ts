@@ -1,5 +1,9 @@
 import { DatabaseSync } from "node:sqlite";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { EVENT_SCHEMA_VERSION, type Graph, type RunEvent } from "@agent-world/core";
+import type { StoredArtifact } from "./artifact-store.js";
 
 /**
  * Events are the source of truth and append-only, so they get a plain prepared
@@ -11,6 +15,7 @@ CREATE TABLE IF NOT EXISTS graphs (
   id         TEXT PRIMARY KEY,
   name       TEXT NOT NULL,
   doc        TEXT NOT NULL,
+  version    INTEGER NOT NULL DEFAULT 1,
   updated_at INTEGER NOT NULL
 );
 
@@ -36,6 +41,22 @@ CREATE TABLE IF NOT EXISTS events (
   PRIMARY KEY (run_id, seq)
 );
 
+CREATE TABLE IF NOT EXISTS artifacts (
+  id          TEXT PRIMARY KEY,
+  run_id      TEXT NOT NULL,
+  node_id     TEXT NOT NULL,
+  attempt     INTEGER,
+  kind        TEXT NOT NULL,
+  mime_type   TEXT,
+  label       TEXT,
+  size_bytes  INTEGER NOT NULL DEFAULT 0,
+  storage     TEXT NOT NULL,
+  uri         TEXT,
+  created_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_artifacts_run ON artifacts(run_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_artifacts_node ON artifacts(run_id, node_id);
+
 CREATE TABLE IF NOT EXISTS node_runs (
   run_id         TEXT NOT NULL,
   node_id        TEXT NOT NULL,
@@ -55,22 +76,104 @@ CREATE TABLE IF NOT EXISTS node_runs (
 );
 `;
 
+type ArtifactRow = {
+  id: string;
+  run_id: string;
+  node_id: string;
+  attempt: number | null;
+  kind: StoredArtifact["kind"];
+  mime_type: string | null;
+  label: string | null;
+  size_bytes: number;
+  storage: StoredArtifact["storage"];
+  uri: string | null;
+  created_at: number;
+};
+
+function mapArtifact(r: ArtifactRow): StoredArtifact {
+  return {
+    id: r.id,
+    runId: r.run_id,
+    nodeId: r.node_id,
+    attempt: r.attempt,
+    kind: r.kind,
+    mimeType: r.mime_type,
+    label: r.label,
+    sizeBytes: r.size_bytes,
+    storage: r.storage,
+    uri: r.uri,
+    createdAt: r.created_at,
+  };
+}
+
+function mapArtifacts(rows: ArtifactRow[]): StoredArtifact[] {
+  return rows.map(mapArtifact);
+}
+
 export type Db = ReturnType<typeof openDb>;
+
+
+/** Number of startup snapshots to retain alongside the database. */
+export const BACKUP_RETENTION = 5;
+
+/**
+ * Take a consistent snapshot of an existing on-disk database before migrations
+ * run, so a botched upgrade never destroys the only copy of event history.
+ * Snapshots live in a `backups/` folder next to the database file and are
+ * pruned to the newest BACKUP_RETENTION files. In-memory and first-run databases
+ * are skipped — there is nothing worth snapshotting yet.
+ */
+function backupDatabase(db: DatabaseSync, file: string): void {
+  if (file === ":memory:" || !existsSync(file)) return;
+  try {
+    const stat = statSync(file);
+    if (!stat.isFile() || stat.size === 0) return;
+
+    const dir = join(dirname(file), "backups");
+    mkdirSync(dir, { recursive: true });
+
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const target = join(dir, `pre-migration-${stamp}.db`);
+    db.exec(`VACUUM INTO '${target.replace(/'/g, "''")}'`);
+
+    // Prune oldest snapshots beyond the retention window.
+    const entries = readdirSync(dir)
+      .filter((name) => /^pre-migration-.*\.db$/.test(name))
+      .map((name) => ({ name, time: statSync(join(dir, name)).mtimeMs }))
+      .sort((a, b) => b.time - a.time);
+    for (const old of entries.slice(BACKUP_RETENTION)) {
+      rmSync(join(dir, old.name), { force: true });
+    }
+  } catch {
+    // Backup failures must never block startup; migrations still run.
+  }
+}
 
 export function openDb(file: string) {
   const db = new DatabaseSync(file);
+  // Snapshot before any schema work. On a brand-new file the size is 0 here
+  // (the WAL pragma below would otherwise write a header), so first-run
+  // databases correctly produce no backup.
+  backupDatabase(db, file);
   db.exec("PRAGMA journal_mode = WAL");
   db.exec("PRAGMA busy_timeout = 5000");
   db.exec(DDL);
   runMigrations(db);
 
   const stmts = {
-    saveGraph: db.prepare(
+    insertGraph: db.prepare(
       `INSERT INTO graphs (id, name, doc, updated_at) VALUES (?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET name = excluded.name, doc = excluded.doc, updated_at = excluded.updated_at`,
+       ON CONFLICT(id) DO UPDATE SET name = excluded.name, doc = excluded.doc, version = version + 1, updated_at = excluded.updated_at`,
     ),
-    getGraph: db.prepare(`SELECT doc FROM graphs WHERE id = ?`),
-    listGraphs: db.prepare(`SELECT id, name, updated_at FROM graphs ORDER BY updated_at DESC`),
+    // Conditional update: only succeeds when the row's current version matches
+    // the If-Match value, so a stale tab can't silently clobber a newer save.
+    updateGraphIfVersion: db.prepare(
+      `UPDATE graphs SET name = ?, doc = ?, version = version + 1, updated_at = ?
+       WHERE id = ? AND version = ?`,
+    ),
+    getGraphVersion: db.prepare(`SELECT version FROM graphs WHERE id = ?`),
+    getGraph: db.prepare(`SELECT doc, version FROM graphs WHERE id = ?`),
+    listGraphs: db.prepare(`SELECT id, name, version, updated_at FROM graphs ORDER BY updated_at DESC`),
     deleteGraph: db.prepare(`DELETE FROM graphs WHERE id = ?`),
     createRun: db.prepare(
       `INSERT INTO runs (id, graph_id, snapshot, status, trigger, input, budget_usd, started_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -87,6 +190,9 @@ export function openDb(file: string) {
       `INSERT INTO events (run_id, seq, ts, version, type, payload) VALUES (?, ?, ?, ?, ?, ?)`,
     ),
     listEvents: db.prepare(`SELECT payload FROM events WHERE run_id = ? ORDER BY seq`),
+    listEventsRange: db.prepare(
+      `SELECT seq, payload FROM events WHERE run_id = ? AND seq > ? ORDER BY seq LIMIT ?`,
+    ),
     maxSeq: db.prepare(`SELECT COALESCE(MAX(seq), -1) as seq FROM events WHERE run_id = ?`),
     upsertNodeRun: db.prepare(
       `INSERT INTO node_runs (run_id, node_id, attempt, status) VALUES (?, ?, ?, ?)
@@ -106,23 +212,77 @@ export function openDb(file: string) {
     markInterrupted: db.prepare(
       `UPDATE runs SET status = 'interrupted', ended_at = ? WHERE status = 'running'`,
     ),
-    deleteRun: db.prepare(`DELETE FROM runs WHERE id = ?`),
+    /** Snapshots needed to group runs by prompt version (eval report). */
+    evalSnapshots: db.prepare(
+      `SELECT id, graph_id, snapshot FROM runs WHERE status != 'running' ORDER BY started_at DESC LIMIT 1000`,
+    ),
+        deleteRun: db.prepare(`DELETE FROM runs WHERE id = ?`),
     deleteEvents: db.prepare(`DELETE FROM events WHERE run_id = ?`),
     deleteNodeRuns: db.prepare(`DELETE FROM node_runs WHERE run_id = ?`),
+    insertArtifact: db.prepare(
+      `INSERT INTO artifacts (id, run_id, node_id, attempt, kind, mime_type, label, size_bytes, storage, uri, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO NOTHING`,
+    ),
+    listArtifactsByRun: db.prepare(
+      `SELECT id, run_id, node_id, attempt, kind, mime_type, label, size_bytes, storage, uri, created_at
+       FROM artifacts WHERE run_id = ? ORDER BY created_at`,
+    ),
+    getArtifact: db.prepare(
+      `SELECT id, run_id, node_id, attempt, kind, mime_type, label, size_bytes, storage, uri, created_at
+       FROM artifacts WHERE id = ?`,
+    ),
+    listArtifacts: db.prepare(
+      `SELECT id, run_id, node_id, attempt, kind, mime_type, label, size_bytes, storage, uri, created_at
+       FROM artifacts ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+    ),
+    deleteArtifactsForRun: db.prepare(`DELETE FROM artifacts WHERE run_id = ?`),
   };
 
   return {
-    saveGraph(graph: Graph, at: number) {
-      stmts.saveGraph.run(graph.id, graph.name, JSON.stringify(graph), at);
+    /**
+     * Persist a graph. When `expectedVersion` is given the update is
+     * conditional: it returns { ok:false, conflict:true } if the stored version
+     * no longer matches (another tab saved first), instead of overwriting.
+     * On success returns the new version.
+     */
+    saveGraph(
+      graph: Graph,
+      at: number,
+      expectedVersion?: number,
+    ): { ok: true; version: number } | { ok: false; conflict: true; serverVersion: number | null } {
+      const doc = JSON.stringify(graph);
+      if (expectedVersion != null) {
+        const result = stmts.updateGraphIfVersion.run(
+          graph.name,
+          doc,
+          at,
+          graph.id,
+          expectedVersion,
+        );
+        if (result.changes === 0) {
+          const row = stmts.getGraphVersion.get(graph.id) as { version: number } | undefined;
+          return { ok: false, conflict: true, serverVersion: row?.version ?? null };
+        }
+        return { ok: true, version: expectedVersion + 1 };
+      }
+      stmts.insertGraph.run(graph.id, graph.name, doc, at);
+      const row = stmts.getGraphVersion.get(graph.id) as { version: number };
+      return { ok: true, version: row.version };
     },
 
-    getGraph(id: string): Graph | null {
-      const row = stmts.getGraph.get(id) as { doc: string } | undefined;
-      return row ? (JSON.parse(row.doc) as Graph) : null;
+    getGraph(id: string): (Graph & { version: number }) | null {
+      const row = stmts.getGraph.get(id) as { doc: string; version: number } | undefined;
+      return row ? { ...(JSON.parse(row.doc) as Graph), version: row.version } : null;
     },
 
     listGraphs() {
-      return stmts.listGraphs.all() as { id: string; name: string; updated_at: number }[];
+      return stmts.listGraphs.all() as Array<{
+        id: string;
+        name: string;
+        version: number;
+        updated_at: number;
+      }>;
     },
 
     deleteGraph(id: string) {
@@ -234,6 +394,25 @@ export function openDb(file: string) {
       return rows.map((r) => JSON.parse(r.payload) as RunEvent);
     },
 
+    /**
+     * Bounded event window for paginated reads. `after` is exclusive (pass -1
+     * to start from the beginning). Fetches `limit + 1` rows so the caller can
+     * detect `hasMore`; the extra row is not returned.
+     */
+    eventsRange(runId: string, after: number, limit: number): {
+      events: RunEvent[];
+      nextCursor: number | null;
+    } {
+      const rows = stmts.listEventsRange.all(runId, after, limit + 1) as Array<{
+        seq: number;
+        payload: string;
+      }>;
+      const page = rows.slice(0, limit);
+      const events = page.map((r) => JSON.parse(r.payload) as RunEvent);
+      const nextCursor = rows.length > limit ? page.at(-1)!.seq : null;
+      return { events, nextCursor };
+    },
+
     nextSeq(runId: string): number {
       const row = stmts.maxSeq.get(runId) as { seq: number };
       return row.seq + 1;
@@ -244,7 +423,28 @@ export function openDb(file: string) {
       stmts.markInterrupted.run(at);
     },
 
+    insertArtifact(a: StoredArtifact) {
+      stmts.insertArtifact.run(
+        a.id, a.runId, a.nodeId, a.attempt, a.kind, a.mimeType, a.label,
+        a.sizeBytes, a.storage, a.uri, a.createdAt,
+      );
+    },
+
+    listArtifactsForRun(runId: string): StoredArtifact[] {
+      return mapArtifacts(stmts.listArtifactsByRun.all(runId) as ArtifactRow[]);
+    },
+
+    getArtifact(id: string): StoredArtifact | null {
+      const row = stmts.getArtifact.get(id) as ArtifactRow | undefined;
+      return row ? mapArtifact(row) : null;
+    },
+
+    listArtifacts(limit = 100, offset = 0): StoredArtifact[] {
+      return mapArtifacts(stmts.listArtifacts.all(limit, offset) as ArtifactRow[]);
+    },
+
     deleteRun(runId: string) {
+      stmts.deleteArtifactsForRun.run(runId);
       stmts.deleteEvents.run(runId);
       stmts.deleteNodeRuns.run(runId);
       stmts.deleteRun.run(runId);
@@ -411,6 +611,181 @@ export function openDb(file: string) {
       const { byGraph, byNode, byAttempt, byDay } = this.costReport(opts);
       return { byGraph, byNode, byAttempt, byDay };
     },
+
+    /**
+     * Total cost accrued across finished runs that started within the given
+     * calendar month (local time). Used to evaluate the monthly budget guard.
+     */
+    costForMonth(year: number, month: number): number {
+      // Build the [start, end) millisecond window for the month in local time.
+      const start = new Date(year, month - 1, 1).getTime();
+      const end = new Date(year, month, 1).getTime();
+      const row = db
+        .prepare(
+          `SELECT COALESCE(SUM(n.cost_usd), 0) AS cost
+           FROM node_runs n JOIN runs r ON r.id = n.run_id
+           WHERE r.status != 'running' AND r.started_at >= ? AND r.started_at < ?`,
+        )
+        .get(start, end) as { cost: number };
+      return row.cost;
+    },
+
+    evalReport(opts: { graphId?: string; from?: number; to?: number } = {}) {
+      const where: string[] = ["r.status != 'running'"];
+      const params: (string | number)[] = [];
+      if (opts.graphId) {
+        where.push("r.graph_id = ?");
+        params.push(opts.graphId);
+      }
+      if (opts.from !== undefined) {
+        where.push("r.started_at >= ?");
+        params.push(opts.from);
+      }
+      if (opts.to !== undefined) {
+        where.push("r.started_at <= ?");
+        params.push(opts.to);
+      }
+      const clause = `WHERE ${where.join(" AND ")}`;
+
+      const runRows = db
+        .prepare(
+          `SELECT
+             r.id AS id,
+             r.graph_id AS graph_id,
+             r.started_at AS started_at,
+             r.status = 'done' AS passed,
+             (r.ended_at - r.started_at) AS duration_ms,
+             COUNT(n.node_id) AS node_attempts,
+             COUNT(DISTINCT n.node_id) AS nodes
+           FROM runs r LEFT JOIN node_runs n ON n.run_id = r.id
+           ${clause}
+           GROUP BY r.id`,
+        )
+        .all(...params) as Array<{
+        id: string;
+        graph_id: string;
+        started_at: number;
+        passed: number;
+        duration_ms: number | null;
+        node_attempts: number;
+        nodes: number;
+      }>;
+
+      const summarize = (rows: typeof runRows) => {
+        const total = rows.length;
+        const passed = rows.reduce((acc, r) => acc + (r.passed ? 1 : 0), 0);
+        const ended = rows.filter((r) => r.duration_ms != null);
+        const rework = rows.reduce((acc, r) => acc + Math.max(0, r.node_attempts - r.nodes), 0);
+        const duration = ended.length
+          ? ended.reduce((acc, r) => acc + (r.duration_ms ?? 0), 0) / ended.length
+          : 0;
+        return {
+          runs: total,
+          passed,
+          passRate: total ? passed / total : 0,
+          avgRework: total ? rework / total : 0,
+          avgDurationMs: duration,
+        };
+      };
+
+      const byGraphMap = new Map<string, typeof runRows>();
+      for (const r of runRows) {
+        const arr = byGraphMap.get(r.graph_id) ?? [];
+        arr.push(r);
+        byGraphMap.set(r.graph_id, arr);
+      }
+      const names = new Map(
+        (stmts.listGraphs.all() as Array<{ id: string; name: string }>).map((g) => [g.id, g.name]),
+      );
+      const byGraph = [...byGraphMap.entries()].map(([graph_id, rows]) => ({
+        graph_id,
+        graph_name: names.get(graph_id) ?? "(已删除产线)",
+        ...summarize(rows),
+      }));
+
+      const dayKey = (ms: number) => {
+        const dt = new Date(ms);
+        return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+      };
+      const byDayMap = new Map<string, typeof runRows>();
+      for (const r of runRows) {
+        const key = dayKey(r.started_at);
+        const arr = byDayMap.get(key) ?? [];
+        arr.push(r);
+        byDayMap.set(key, arr);
+      }
+
+      // Prompt-version grouping: each run's snapshot captures the exact prompts
+      // that executed. Fingerprint the (model + prompt) of every agent node,
+      // sorted, so changing a prompt yields a new version per graph. This lets
+      // the user compare pass rate / rework before and after a prompt edit.
+      const snapshotRows = stmts.evalSnapshots.all() as Array<{
+        id: string;
+        graph_id: string;
+        snapshot: string;
+      }>;
+      const inScope = new Set(runRows.map((r) => r.id));
+      const promptOf = new Map<string, string>();
+      for (const row of snapshotRows) {
+        if (!inScope.has(row.id)) continue;
+        try {
+          const g = JSON.parse(row.snapshot) as {
+            nodes?: Array<{ kind?: string; agent?: { model?: string; prompt?: string } }>;
+          };
+          const sig = (g.nodes ?? [])
+            .filter((n) => n.kind === "agent")
+            .map((n) => `${n.agent?.model ?? ""}\0${n.agent?.prompt ?? ""}`)
+            .sort()
+            .join("\n");
+          promptOf.set(row.id, createHash("sha1").update(sig).digest("hex").slice(0, 8));
+        } catch {
+          promptOf.set(row.id, "unknown");
+        }
+      }
+
+      // Assign a stable per-graph version index (v1, v2, ...) in first-seen order.
+      const promptVersions = new Map<string, Map<string, string>>();
+      const byPromptMap = new Map<string, Map<string, typeof runRows>>();
+      for (const r of runRows) {
+        const fp = promptOf.get(r.id) ?? "unknown";
+        let versions = promptVersions.get(r.graph_id);
+        if (!versions) {
+          versions = new Map();
+          promptVersions.set(r.graph_id, versions);
+        }
+        if (!versions.has(fp)) versions.set(fp, `v${versions.size + 1}`);
+        let groups = byPromptMap.get(r.graph_id);
+        if (!groups) {
+          groups = new Map();
+          byPromptMap.set(r.graph_id, groups);
+        }
+        const arr = groups.get(fp) ?? [];
+        arr.push(r);
+        groups.set(fp, arr);
+      }
+
+      const byPrompt = [...byPromptMap.entries()].flatMap(([graph_id, groups]) =>
+        [...groups.entries()].map(([fp, rows]) => ({
+          graph_id,
+          graph_name: names.get(graph_id) ?? "(已删除产线)",
+          version: promptVersions.get(graph_id)!.get(fp)!,
+          fingerprint: fp,
+          ...summarize(rows),
+        })),
+      );
+
+      return {
+        totals: summarize(runRows),
+        byGraph,
+        byDay: [...byDayMap.entries()]
+          .sort(([a], [b]) => (a < b ? -1 : 1))
+          .map(([day, rows]) => ({ day, ...summarize(rows) })),
+        byPrompt,
+      };
+    },
+    close() {
+      db.close();
+    },
   };
 }
 
@@ -429,6 +804,13 @@ interface Migration {
 function columnExists(db: DatabaseSync, table: string, column: string): boolean {
   const rows = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
   return rows.some((r) => r.name === column);
+}
+
+function tableExists(db: DatabaseSync, table: string): boolean {
+  const row = db
+    .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`)
+    .get(table) as { name?: string } | undefined;
+  return !!row;
 }
 
 /**
@@ -481,6 +863,24 @@ const MIGRATIONS: Migration[] = [
     description: "node_runs.units_json",
     detect: (db) => columnExists(db, "node_runs", "units_json"),
     up: (db) => db.exec("ALTER TABLE node_runs ADD COLUMN units_json TEXT"),
+  },
+  {
+    version: 8,
+    description: "graphs.version optimistic lock",
+    detect: (db) => columnExists(db, "graphs", "version"),
+    up: (db) => db.exec("ALTER TABLE graphs ADD COLUMN version INTEGER NOT NULL DEFAULT 1"),
+  },
+  {
+    version: 9,
+    description: "artifacts table",
+    detect: (db) => tableExists(db, "artifacts"),
+    up: (db) =>
+      db.exec(`CREATE TABLE IF NOT EXISTS artifacts (
+        id TEXT PRIMARY KEY, run_id TEXT NOT NULL, node_id TEXT NOT NULL, attempt INTEGER,
+        kind TEXT NOT NULL, mime_type TEXT, label TEXT, size_bytes INTEGER NOT NULL DEFAULT 0,
+        storage TEXT NOT NULL, uri TEXT, created_at INTEGER NOT NULL);
+        CREATE INDEX IF NOT EXISTS idx_artifacts_run ON artifacts(run_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_artifacts_node ON artifacts(run_id, node_id);`),
   },
 ];
 

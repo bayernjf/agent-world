@@ -977,6 +977,29 @@ export default function Settings({ open, onClose }: Props) {
             );
           })}
 
+          <div className="settings-section-head">
+            <h3 className="label">月度预算</h3>
+          </div>
+          <label className="field">
+            <span>每月软上限（USD）</span>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              placeholder="留空表示不限制"
+              value={config.monthlyBudgetUsd ?? ""}
+              onChange={(e) =>
+                setConfig({
+                  ...config,
+                  monthlyBudgetUsd: e.target.value === "" ? null : Number(e.target.value),
+                })
+              }
+            />
+            <small className="muted">
+              当月累计花费达到 80% 和 100% 时，运行中的产线会收到警告（不会强制跳闸）。
+            </small>
+          </label>
+
           {status && <p className="diag diag--ok">{status}</p>}
         </div>
 

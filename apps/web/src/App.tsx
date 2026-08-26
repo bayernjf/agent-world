@@ -18,6 +18,7 @@ import Tooltip from "./components/Tooltip";
 import { useTips } from "./store/tips";
 import FailurePanel from "./components/FailurePanel";
 import CostReport from "./components/CostReport";
+import EvalReport from "./components/EvalReport";
 import { api } from "./lib/api";
 import { useGraph } from "./store/graph";
 import { useRun } from "./store/run";
@@ -40,6 +41,7 @@ export default function App() {
   const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [costOpen, setCostOpen] = useState(false);
+  const [evalOpen, setEvalOpen] = useState(false);
   const tipsEnabled = useTips((s) => s.enabled);
   const toggleTips = useTips((s) => s.toggle);
   const bothCollapsed = controlCollapsed && inspectorCollapsed;
@@ -262,6 +264,11 @@ export default function App() {
               成本
             </button>
           </Tooltip>
+          <Tooltip content="质量评估">
+            <button className="chip" onClick={() => setEvalOpen(true)}>
+              评估
+            </button>
+          </Tooltip>
           <button className="chip" onClick={() => addNode("agent", 300, 480)}>
             + 厂房
           </button>
@@ -320,6 +327,7 @@ export default function App() {
 
       <RunHistory open={historyOpen} onClose={() => setHistoryOpen(false)} />
       <CostReport open={costOpen} onClose={() => setCostOpen(false)} />
+      <EvalReport open={evalOpen} onClose={() => setEvalOpen(false)} graphId={graph.id} />
       <Toast />
       <Settings open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       <NewGraphDialog

@@ -1,7 +1,9 @@
 import {
+  extractArtifacts,
   incoming,
   nodeById,
   outgoing,
+  type Artifact,
   type DraftEvent,
   type Graph,
   type GraphNode,
@@ -43,6 +45,13 @@ export interface ExecuteOptions {
   input?: string;
   /** Hard ceiling. Cost is metered after each call, so this trips late by one node. */
   budgetUsd: number | null;
+  /**
+   * Soft monthly cap (advisory only). When set, the engine warns at 80% and
+   * 100% of `monthSpentUsd + this run's cost` but never hard-trips on it.
+   */
+  monthlyBudgetUsd?: number | null;
+  /** Cost already spent this month before this run started. */
+  monthSpentUsd?: number;
   /** Fallback model for nodes that don't specify one. */
   defaultModel?: string;
   signal?: AbortSignal;
@@ -129,6 +138,8 @@ interface SchedulerOptions {
   plan: Plan;
   worker: Worker;
   budgetUsd: number | null;
+  monthlyBudgetUsd: number | null;
+  monthSpentUsd: number;
   fallbackModel: string;
   startSeq: number;
   sourceInput?: string;
@@ -151,6 +162,8 @@ interface SchedulerOptions {
  */
 async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunEvent>> {
   const { runId, graph, plan, worker, budgetUsd, fallbackModel } = opts;
+  const monthlyBudgetUsd = opts.monthlyBudgetUsd ?? null;
+  const monthSpentUsd = opts.monthSpentUsd ?? 0;
   const queue = new EventQueue();
   const imagesFor = createImageResolver(graph);
 
@@ -169,6 +182,14 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
   const BUDGET_WARN = 0.8;
   let budgetWarned =
     budgetUsd !== null && budgetUsd > 0 && totalCostUsd >= budgetUsd * BUDGET_WARN;
+  let monthlyWarned80 =
+    monthlyBudgetUsd !== null &&
+    monthlyBudgetUsd > 0 &&
+    monthSpentUsd + totalCostUsd >= monthlyBudgetUsd * BUDGET_WARN;
+  let monthlyWarned100 =
+    monthlyBudgetUsd !== null &&
+    monthlyBudgetUsd > 0 &&
+    monthSpentUsd + totalCostUsd >= monthlyBudgetUsd;
 
   const reworkNotes = new Map<string, string>();
   const loopByGate = new Map(plan.loops.map((l) => [l.gateId, l]));
@@ -202,10 +223,21 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     queue.close();
   };
 
-  const sendPackets = (nodeId: string, summary: string) => {
+  const sendPackets = (nodeId: string, summary: string, artifactKind?: Artifact["kind"]) => {
     for (const e of outgoing(graph, nodeId, "flow")) {
-      emit({ type: "packet.sent", edgeId: e.id, from: nodeId, to: e.to, summary });
+      emit({ type: "packet.sent", edgeId: e.id, from: nodeId, to: e.to, summary, artifactKind });
     }
+  };
+
+  /** Produce typed artifacts from a node's output and emit events. Returns the primary kind. */
+  const produceArtifacts = (nodeId: string, output: string, attempt?: number): Artifact["kind"] => {
+    const extracted = extractArtifacts(output, nodeId);
+    let primary: Artifact["kind"] = "text";
+    for (const a of extracted) {
+      emit({ type: "artifact.produced", nodeId, attempt, artifact: a });
+      if (a.kind !== "text") primary = a.kind;
+    }
+    return primary;
   };
 
   // Runs a single source/sink/gate/agent to completion. Resolves when the node
@@ -233,7 +265,17 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
         states.set(nodeId, "done");
         emit({ type: "node.started", nodeId, attempt });
         emit({ type: "node.finished", nodeId, attempt, output, usage: zeroUsage() });
-        sendPackets(nodeId, output.slice(0, 120));
+        let primaryKind: Artifact["kind"] | undefined;
+        if (node.kind === "source" && node.source?.images.length) {
+          for (const [i, url] of node.source.images.entries()) {
+            const a: Artifact = { id: `${nodeId}-img${i}`, kind: "image", uri: url };
+            emit({ type: "artifact.produced", nodeId, artifact: a });
+          }
+          primaryKind = "image";
+        } else {
+          primaryKind = produceArtifacts(nodeId, output, attempt);
+        }
+        sendPackets(nodeId, output.slice(0, 120), primaryKind);
         return;
       }
 
@@ -259,7 +301,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
         if (verdict.passed) {
           artifacts.set(nodeId, output);
           states.set(nodeId, "done");
-          sendPackets(nodeId, verdict.reason);
+          sendPackets(nodeId, verdict.reason, "text");
           return;
         }
 
@@ -283,7 +325,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           if (policy === "pass") {
             artifacts.set(nodeId, output);
             states.set(nodeId, "done");
-            sendPackets(nodeId, verdict.reason);
+            sendPackets(nodeId, verdict.reason, "text");
             return;
           }
           states.set(nodeId, "failed");
@@ -300,6 +342,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           from: nodeId,
           to: loop.entryId,
           summary: verdict.reason,
+          artifactKind: "text",
         });
         for (const bodyId of loop.body) {
           states.set(bodyId, "pending");
@@ -422,6 +465,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       artifacts.set(nodeId, result.output);
       states.set(nodeId, "done");
       emit({ type: "node.finished", nodeId, attempt, output: result.output, usage: result.usage });
+      const primaryKind = produceArtifacts(nodeId, result.output, attempt);
 
       // Cost accounting runs in a single synchronous block so concurrent
       // completions can't race the budget check.
@@ -466,7 +510,33 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
         return;
       }
 
-      sendPackets(nodeId, result.output.slice(0, 120));
+      // Monthly budget is advisory: warn at 80% and again at 100%, but don't
+      // take the line down (a hard monthly trip would strand in-flight runs).
+      if (monthlyBudgetUsd !== null && monthlyBudgetUsd > 0) {
+        const monthlyTotal = monthSpentUsd + totalCostUsd;
+        if (!monthlyWarned80 && monthlyTotal >= monthlyBudgetUsd * BUDGET_WARN) {
+          monthlyWarned80 = true;
+          emit({
+            type: "power.warning",
+            totalCostUsd: monthlyTotal,
+            budgetUsd: monthlyBudgetUsd,
+            threshold: BUDGET_WARN,
+            scope: "monthly",
+          });
+        }
+        if (!monthlyWarned100 && monthlyTotal >= monthlyBudgetUsd) {
+          monthlyWarned100 = true;
+          emit({
+            type: "power.warning",
+            totalCostUsd: monthlyTotal,
+            budgetUsd: monthlyBudgetUsd,
+            threshold: 1,
+            scope: "monthly",
+          });
+        }
+      }
+
+      sendPackets(nodeId, result.output.slice(0, 120), primaryKind);
     } finally {
       running--;
       // Defer to a microtask so a synchronous node finishing mid-launch
@@ -511,7 +581,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       passed: true,
       reason: "Approved by human operator",
     });
-    sendPackets(nodeId, "Approved by human operator");
+    sendPackets(nodeId, "Approved by human operator", "text");
     void gate;
   }
 
@@ -549,6 +619,8 @@ export async function* execute(opts: ExecuteOptions): AsyncGenerator<RunEvent, v
     plan: opts.plan,
     worker: opts.worker,
     budgetUsd: opts.budgetUsd,
+    monthlyBudgetUsd: opts.monthlyBudgetUsd ?? null,
+    monthSpentUsd: opts.monthSpentUsd ?? 0,
     fallbackModel: opts.defaultModel ?? "agnes-2.0-flash",
     startSeq: 0,
     sourceInput: opts.input,
@@ -615,6 +687,8 @@ export interface ResumeOptions {
   plan: Plan;
   worker: Worker;
   budgetUsd: number | null;
+  monthlyBudgetUsd?: number | null;
+  monthSpentUsd?: number;
   defaultModel?: string;
   pastEvents: RunEvent[];
   action: "continue" | "scrap";
@@ -685,6 +759,8 @@ export async function* resume(opts: ResumeOptions): AsyncGenerator<RunEvent, voi
     plan,
     worker,
     budgetUsd,
+    monthlyBudgetUsd: opts.monthlyBudgetUsd ?? null,
+    monthSpentUsd: opts.monthSpentUsd ?? 0,
     fallbackModel: opts.defaultModel ?? "agnes-2.0-flash",
     startSeq: state.lastSeq + 1,
     signal: opts.signal,

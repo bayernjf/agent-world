@@ -577,3 +577,137 @@ paths) is a standalone chunk to schedule once the graph gets denser.
   worker at 0.0008 under a 0.001 budget emits power.warning, completes without
   tripping). Core now 30, server 55.
 - Remaining 3.6: monthly budget aggregation.
+
+## 3.8 Artifact layering (partial — core + engine + UI)
+
+- New `packages/core/src/artifact.ts`: Artifact zod schema (text/image/video/audio/file/json/uri),
+  `artifactLabel()`, `ARTIFACT_COLORS`, and `extractArtifacts()` that scans output text for
+  markdown images, bare media URLs (png/jpg/mp4/mp3 etc.), and fenced JSON blocks.
+- New `artifact.produced` event carries `{ nodeId, attempt?, artifact }`. Runtime state gains
+  `NodeRuntime.artifacts: Artifact[]`.
+- `packet.sent` gains optional `artifactKind` so trucks can colour-code by freight type.
+- Engine: after each node finishes, calls `produceArtifacts()` to extract and emit typed
+  artifacts. Source reference images emit image artifacts directly. Packets carry the
+  primary artifact kind.
+- Frontend: PacketLayer trucks use `ARTIFACT_COLORS[artifactKind]`; Inspector shows an
+  "产出物" section with image thumbnails, video, audio player, links, and JSON previews.
+- Tests: core artifact extraction (8 cases), runtime reducer for artifact.produced and
+  packet.artifactKind, engine end-to-end test verifying image URL extraction and packet
+  colour metadata. Core now 42, server 56.
+- Remaining: file/blob storage (currently URI passthrough), ArtifactRef upgrade of engine
+  artifacts Map, cross-run artifact queries.
+
+## 3.5 Startup database backup (VACUUM INTO)
+
+- `openDb()` now snapshots the live database with `VACUUM INTO` before any DDL/migrations
+  run. Snapshots land in `backups/pre-migration-<ISO timestamp>.db` next to the DB file and
+  are pruned to the newest `BACKUP_RETENTION` (5) copies.
+- Backup runs right after `new DatabaseSync(file)` and before the WAL pragma so a brand-new
+  file (size 0) is skipped; only databases that already contain data are snapshotted. Any
+  backup error is swallowed so it can never block startup.
+- The `Db` wrapper now exposes `close()`. `backups/` is gitignored.
+- Tests in `migrations.test.ts`: snapshot is openable and contains the events table;
+  reopening beyond the retention window prunes to <=5 files. Server now 58 tests.
+- Remaining 3.5: events pagination, multi-tab optimistic lock, structured logger.
+
+## 3.5 Events API pagination
+
+- `db.eventsRange(runId, after, limit)` returns a bounded window using
+  `WHERE run_id=? AND seq > ? ORDER BY seq LIMIT ?` (fetches limit+1 to detect hasMore),
+  with `nextCursor` (last returned seq) or null when the run is exhausted.
+- `GET /api/runs/:id/events` with no query returns the full history + replayed state
+  (unchanged contract for initial page load). With `?after=&limit=` it returns
+  `{ events, after, nextCursor, hasMore }`; limit is clamped to 1..10000. SSE resume
+  already used its own `?after=` cursor and is untouched.
+- Tests in `events.test.ts`: full read, two-page walk with cursor advancement, terminal
+  null cursor. Server now 60 tests.
+- Remaining 3.5: multi-tab optimistic lock (graph version + If-Match), structured logger.
+
+## 3.5 Multi-tab optimistic lock
+
+- Added `graphs.version` (migration 8; fresh DDL defaults to 1). `saveGraph(graph, at, expectedVersion?)`
+  does a conditional `UPDATE ... WHERE id=? AND version=?` and increments on success; a zero-changes
+  result returns `{ ok:false, conflict:true, serverVersion }` instead of overwriting.
+- `GET /api/graphs/:id` and list responses now carry `version`; `PUT` honors the `If-Match` header
+  and returns `409` with a Chinese conflict message + `serverVersion` on mismatch. `POST /api/graphs`
+  returns the created graph with its version and no longer leaks the source graph's version into
+  duplicated documents.
+- Frontend: `serverVersion` tracked in the graph store; `setGraph` strips the server-injected
+  `version` from the editable document. Autosave/flush send `If-Match` and advance version on success.
+  On 409 the Inspector shows an amber conflict banner with a "重新载入" button (`reloadGraph`).
+- Tests in `graphs.test.ts`: version increments per save, stale conditional save is rejected and the
+  newer document is preserved. Server now 62 tests.
+- Remaining 3.5: structured logger (pino or equivalent with runId + rotation).
+
+## 3.5 Structured logger (completes 3.5)
+
+- New `packages/server/src/logger.ts`: dependency-free JSON-line logger. Each line is
+  `{ ts, level, msg, ...bindings }`. Supports `LOG_LEVEL` (debug/info/warn/error, default
+  info) and `LOG_FILE` for durable output with size-based rotation (5 MB, keep 3). `child()`
+  produces a bound logger for per-run context (runId, graphId).
+- Wired into run start/resume/crash paths and the routing worker (disabled/anthropic
+  fallbacks); replaced ad-hoc `console.*` calls. Startup now logs `engine listening`.
+- Tests in `logger.test.ts`: JSON shape + bindings, level filtering, file rotation. Server
+  now 65 tests. 3.5 is fully complete (migrations, startup backup, events pagination,
+  optimistic lock, structured logger).
+
+## 3.6 Monthly budget (completes 3.6)
+
+- Config gains `monthlyBudgetUsd` (nullable soft cap), editable in 设置 → 月度预算.
+- New `db.costForMonth(year, month)` sums `node_runs.cost_usd` for finished runs that
+  started in the local-time month (running runs excluded, so the current run's prior spend
+  on resume isn't double counted — the engine reconstructs it via `totalCostUsd`).
+- Engine accepts `monthlyBudgetUsd` + `monthSpentUsd` and emits advisory `power.warning`
+  events with `scope: "monthly"` at 80% and 100% of (prior month spend + this run's cost).
+  Monthly cap is advisory only — it never trips the line. The server passes the configured
+  cap and current-month spend into both `execute` and `resume`.
+- Runtime state gained `monthlyBudgetWarned`; the reducer keeps it separate from the per-run
+  `budgetWarned` and doesn't let monthly totals overwrite the run cost gauge. ControlPanel
+  shows a monthly warning note.
+- Tests: core reducer monthly-vs-run separation (core 43), engine warns-but-does-not-trip,
+  db.costForMonth by calendar month (server 67). 3.6 is complete.
+
+## 3.7 Evaluation prototype (complete)
+
+- New `db.evalReport({ graphId?, from?, to? })` aggregates finished runs into
+  `{ runs, passed, passRate, avgRework, avgDurationMs }`, broken down `byGraph`,
+  `byDay` (daily pass-rate trend), and `byPrompt`. "Passed" means run status `done`;
+  failed/tripped/halted/cancelled count as not passed. Rework = sum of (node_attempts −
+  distinct nodes) per run, averaged. Duration = ended_at − started_at, averaged over
+  ended runs.
+- `byPrompt` groups runs by a sha1 fingerprint of every agent node's (model + prompt)
+  captured in the run snapshot, and assigns stable per-graph labels v1/v2/… in first-seen
+  order. This gives before/after comparison when a prompt is edited — the exit condition
+  for 3.7. Uses a bounded `evalSnapshots` prepared query (latest 1000 runs).
+- New `GET /api/eval?graphId=&from=&to=` endpoint.
+- Frontend: `EvalReport` modal (toolbar 评估 chip, filtered to the current graph's id)
+  reusing cost-report styling, with pass-rate color tones (ok/warn/alert) on the stat
+  cards, daily trend bars, per-line table, and a prompt-version comparison table.
+- Tests in `costs.test.ts`: pass rate/rework/duration aggregation, graph filter, prompt
+  version grouping with distinct fingerprints. Server now 70 tests; core 43.
+- Remaining for later: per-node quality scoring (needs explicit quality signals beyond
+  pass/fail), and CSV export of eval data.
+
+## 3.8 Artifact persistence (local blob store + metadata)
+
+- New `packages/server/src/artifact-store.ts`: `ArtifactStore` writes inline content
+  (text/json) to `<dir>/<shard>/<runId>/<artifactId>` (deterministic path, no extension;
+  MIME lives in DB). Remote/http/data URIs are passed through as `storage:'uri'` — the
+  server never fetches arbitrary URLs. Default dir is `artifacts/` next to the DB file,
+  overridable via `ARTIFACT_DIR`.
+- New `artifacts` table (migration 9; DDL creates it fresh) stores id/run/node/attempt/kind/
+  mime/label/size/storage/uri/created_at, with run + node indexes. `db.insertArtifact` is
+  idempotent (ON CONFLICT DO NOTHING); `listArtifactsForRun`, `getArtifact`, `listArtifacts`
+  (latest-first, paged) query it; `deleteRun` now also removes artifact rows.
+- The run-start and resume drain loops call `artifacts.save(...)` + `db.insertArtifact(...)`
+  on every `artifact.produced` event, so artifacts outlive the event stream and are queryable
+  across runs.
+- New endpoints: `GET /api/runs/:id/artifacts`, `GET /api/artifacts?limit=&offset=`, and
+  `GET /api/artifacts/:id` (streams local blobs with content-type/disposition, 302-redirects
+  for remote URIs).
+- Tests: `artifact-store.test.ts` (local write/read, URI passthrough, inline placeholder) and
+  `artifacts.test.ts` (per-run/cross-run listing, delete cleanup, idempotent insert). Server
+  now 77 tests. `artifacts/` gitignored.
+- Remaining 3.8: upgrade the engine's per-node `artifacts: Map<string,string>` to an ArtifactRef
+  (currently it still stores text output per node; artifacts ride alongside as events), and a
+  frontend cross-run product gallery consuming `GET /api/artifacts`.
