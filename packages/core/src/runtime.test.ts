@@ -106,6 +106,19 @@ describe("runtime", () => {
     expect(state.totalCostUsd).toBe(0.08);
   });
 
+  it("tracks monthly budget warnings separately from run budget", () => {
+    seq = 0;
+    const state = replay([
+      ev({ type: "run.started", runId: "r1", graphId: "g1", budgetUsd: 0.10 }),
+      ev({ type: "power.metered", totalCostUsd: 0.01, budgetUsd: 0.10 }),
+      ev({ type: "power.warning", totalCostUsd: 5.0, budgetUsd: 5.0, threshold: 1, scope: "monthly" }),
+    ]);
+    expect(state.monthlyBudgetWarned).toBe(true);
+    // Monthly warning must not overwrite the per-run gauge values.
+    expect(state.budgetWarned).toBe(false);
+    expect(state.totalCostUsd).toBe(0.01);
+  });
+
   it("records a budget-trip failure", () => {
     seq = 0;
     const state = replay([

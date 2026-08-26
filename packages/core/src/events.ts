@@ -158,6 +158,8 @@ export const RunEvent = z.discriminatedUnion("type", [
     totalCostUsd: z.number().min(0),
     budgetUsd: z.number().min(0),
     threshold: z.number().min(0).max(1),
+    /** "run" (default) warns against the per-run budget; "monthly" against the monthly cap. */
+    scope: z.enum(["run", "monthly"]).optional(),
   }),
   /** Budget ceiling hit — the whole plant trips offline. */
   z.object({

@@ -73,8 +73,10 @@ export interface RuntimeState {
   totalUnits: UsageUnits;
   budgetUsd: number | null;
   lastSeq: number;
-  /** True once the 80% budget warning has fired for this run. */
+  /** True once the 80% per-run budget warning has fired. */
   budgetWarned: boolean;
+  /** True once the monthly budget warning has fired (advisory, cross-run). */
+  monthlyBudgetWarned: boolean;
   /** Append-only history of failures for this run, oldest first. */
   failures: FailureRecord[];
 }
@@ -92,6 +94,7 @@ export const initialRuntime: RuntimeState = {
   budgetUsd: null,
   lastSeq: -1,
   budgetWarned: false,
+  monthlyBudgetWarned: false,
   failures: [],
 };
 
@@ -258,6 +261,9 @@ export function reduce(state: RuntimeState, event: RunEvent): RuntimeState {
         return state;
 
       case "power.warning":
+        if (event.scope === "monthly") {
+          return { ...state, monthlyBudgetWarned: true };
+        }
         return {
           ...state,
           totalCostUsd: event.totalCostUsd,
