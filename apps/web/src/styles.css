@@ -2398,6 +2398,28 @@ select {
 .cost-stat__value--warn {
   color: var(--alert);
 }
+.cost-stat__value--good {
+  color: var(--ok);
+}
+.cost-stat__value--bad {
+  color: var(--alert);
+}
+.eval-rate--good { color: var(--ok); }
+.eval-rate--warn { color: var(--warn); }
+.eval-rate--bad { color: var(--alert); }
+.cost-chart__bar--good {
+  background: linear-gradient(180deg, var(--ok), #2f7a3a);
+}
+.cost-chart__bar--warn {
+  background: linear-gradient(180deg, var(--warn), var(--power-dim));
+}
+.cost-chart__bar--bad {
+  background: linear-gradient(180deg, var(--alert), #7a1c15);
+}
+.cost-section__hint {
+  font-size: 11px;
+  margin: -4px 0 10px;
+}
 .cost-section {
   margin-bottom: 22px;
 }

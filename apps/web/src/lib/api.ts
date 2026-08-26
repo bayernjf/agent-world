@@ -99,6 +99,22 @@ export class GraphConflictError extends Error {
   }
 }
 
+export interface EvalSummary {
+  runs: number;
+  passed: number;
+  passRate: number;
+  avgRework: number;
+  avgDurationMs: number;
+}
+export interface EvalReport {
+  totals: EvalSummary;
+  byGraph: Array<EvalSummary & { graph_id: string; graph_name: string }>;
+  byDay: Array<EvalSummary & { day: string }>;
+  byPrompt: Array<
+    EvalSummary & { graph_id: string; graph_name: string; version: string; fingerprint: string }
+  >;
+}
+
 export const api = {
   listTemplates: () =>
     fetch("/api/templates").then(
@@ -186,6 +202,15 @@ export const api = {
     if (to !== undefined) qs.set("to", String(to));
     const suffix = qs.toString() ? `?${qs.toString()}` : "";
     return fetch(`/api/costs${suffix}`).then(json<CostReport>);
+  },
+
+  evalReport: (opts: { graphId?: string; from?: number; to?: number } = {}) => {
+    const qs = new URLSearchParams();
+    if (opts.graphId) qs.set("graphId", opts.graphId);
+    if (opts.from !== undefined) qs.set("from", String(opts.from));
+    if (opts.to !== undefined) qs.set("to", String(opts.to));
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return fetch(`/api/eval${suffix}`).then(json<EvalReport>);
   },
 
   getSettings: () => fetch("/api/settings").then(json<AppConfig>),
