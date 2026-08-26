@@ -389,6 +389,22 @@ export default function Inspector() {
                 <option value="summary">摘要压缩（超阈值时）</option>
               </select>
             </label>
+            <p className="note">
+              {(() => {
+                switch (node.agent.inputPolicy?.mode ?? "all") {
+                  case "all":
+                    return "默认：把全部上游输出按顺序拼接后作为输入。";
+                  case "last":
+                    return "只取最近一个上游节点的输出作为输入。";
+                  case "truncate":
+                    return "超过「最大字符数」时丢弃前面的内容、保留尾部最近片段（不调用模型，零额外开销）。";
+                  case "summary":
+                    return "超过「最大字符数」时调用 LLM 滚动摘要压缩、保留关键信息（更省 context，但会产生少量额外 token 消耗）；未超阈值则原样传递。";
+                  default:
+                    return "";
+                }
+              })()}
+            </p>
             {(node.agent.inputPolicy?.mode === "truncate" ||
               node.agent.inputPolicy?.mode === "summary") && (
               <label className="field">
