@@ -2,7 +2,7 @@ import { useMemo, useState, type ElementType } from "react";
 import type { Artifact, Graph, RuntimeState } from "@agent-world/core";
 import { incoming, parseProductDocument } from "@agent-world/core";
 import ProductBlocks from "./ProductBlocks";
-import { productToHtml } from "../lib/product-html";
+import { productToHtml, productToLongImage } from "../lib/product-html";
 
 interface Props {
   sinkId: string;
@@ -120,6 +120,7 @@ export default function FinishedProduct({ sinkId, graph, runtime }: Props) {
 
   const [copied, setCopied] = useState(false);
   const [htmlCopied, setHtmlCopied] = useState(false);
+  const [imgBusy, setImgBusy] = useState(false);
   const copyText = () => {
     navigator.clipboard?.writeText(text).catch(() => undefined);
     setCopied(true);
@@ -165,6 +166,19 @@ export default function FinishedProduct({ sinkId, graph, runtime }: Props) {
     a.click();
     URL.revokeObjectURL(url);
   };
+  const downloadLongImage = async () => {
+    if (imgBusy) return;
+    setImgBusy(true);
+    try {
+      const png = await productToLongImage(productDoc, text, graph.name);
+      const a = document.createElement("a");
+      a.href = png;
+      a.download = `${graph.name || "product"}.png`;
+      a.click();
+    } finally {
+      setImgBusy(false);
+    }
+  };
 
   if (!text && artifacts.length === 0) {
     return (
@@ -181,6 +195,7 @@ export default function FinishedProduct({ sinkId, graph, runtime }: Props) {
         <div className="product__actions">
           <button className="chip" onClick={downloadHtml}>导出 HTML</button>
           <button className="chip" onClick={downloadMd}>导出 MD</button>
+          <button className="chip" onClick={downloadLongImage} disabled={imgBusy}>{imgBusy ? "生成中…" : "导出长图"}</button>
           <button className="chip" onClick={copyRichText}>{htmlCopied ? "已复制富文本" : "复制富文本"}</button>
           <button className="chip" onClick={copyText}>{copied ? "已复制" : "复制原文"}</button>
         </div>

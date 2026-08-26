@@ -152,3 +152,124 @@ ${markdownToHtml(md)}
 export function productToHtml(doc: ProductDocument | null, text: string, title?: string): string {
   return doc ? productDocumentToHtml(doc) : markdownToStandaloneHtml(text, title);
 }
+
+const LONG_IMAGE_WIDTH = 760;
+const LONG_IMAGE_WRAP =
+  `width:${LONG_IMAGE_WIDTH}px;margin:0 auto;padding:24px 20px 60px;box-sizing:border-box;` +
+  `background:#fff;color:#1a1a1a;line-height:1.7;` +
+  `font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;`;
+
+function extractBody(html: string): string {
+  const m = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+  return m ? m[1]! : html;
+}
+
+function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("failed to load image"));
+    img.src = src;
+  });
+}
+
+function awaitImage(img: HTMLImageElement): Promise<void> {
+  if (img.complete) return Promise.resolve();
+  return new Promise((res) => {
+    img.onload = () => res();
+    img.onerror = () => res();
+  });
+}
+
+async function fetchToDataUrl(src: string): Promise<string> {
+  const res = await fetch(src);
+  if (!res.ok) throw new Error(`fetch failed: ${res.status}`);
+  const blob = await res.blob();
+  return await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(reader.error ?? new Error("read failed"));
+    reader.readAsDataURL(blob);
+  });
+}
+
+/**
+ * Inline every <img> as a data URL so the canvas is never tainted and the SVG
+ * renders faithfully offline. Images that cannot be fetched (e.g. cross-origin
+ * without CORS) are dropped to keep the export from crashing.
+ */
+async function inlineImages(html: string): Promise<string> {
+  const tags = [...html.matchAll(/<img\b[^>]*>/gi)];
+  let out = html;
+  for (const m of tags) {
+    const tag = m[0]!;
+    const srcMatch = tag.match(/src="([^"]+)"/i);
+    if (!srcMatch) continue;
+    const src = srcMatch[1]!;
+    try {
+      const dataUrl = await fetchToDataUrl(src);
+      out = out.replace(tag, tag.replace(src, dataUrl));
+    } catch {
+      out = out.replace(tag, "");
+    }
+  }
+  return out;
+}
+
+/** Serialize body content into an XHTML fragment safe for <foreignObject>. */
+function toXhtmlFragment(inner: string): string {
+  const doc = new DOMParser().parseFromString(inner, "text/html");
+  const serialized = Array.from(doc.body.childNodes)
+    .map((n) => new XMLSerializer().serializeToString(n))
+    .join("");
+  return `<div xmlns="http://www.w3.org/1999/xhtml" style="${LONG_IMAGE_WRAP}"><style>${STYLES}</style>${serialized}</div>`;
+}
+
+function measureHeight(bodyHtml: string): Promise<number> {
+  return new Promise((resolve) => {
+    const container = document.createElement("div");
+    container.style.cssText = "position:fixed;left:-99999px;top:0;";
+    container.innerHTML = `<div style="${LONG_IMAGE_WRAP}"><style>${STYLES}</style>${bodyHtml}</div>`;
+    document.body.appendChild(container);
+    const imgs = Array.from(container.querySelectorAll("img"));
+    void Promise.all(imgs.map(awaitImage)).then(() => {
+      const h = (container.firstElementChild as HTMLElement).scrollHeight;
+      document.body.removeChild(container);
+      resolve(h);
+    });
+  });
+}
+
+/**
+ * Render the finished product to a single long PNG (e.g. for Xiaohongshu /
+ * QIANIU). Returns a PNG data URL ready for download.
+ */
+export async function productToLongImage(
+  doc: ProductDocument | null,
+  text: string,
+  title?: string,
+): Promise<string> {
+  const bodyHtml = extractBody(productToHtml(doc, text, title));
+  const inlined = await inlineImages(bodyHtml);
+  const height = await measureHeight(inlined);
+  const scale = 2;
+
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${LONG_IMAGE_WIDTH}" height="${height}">` +
+    `<foreignObject x="0" y="0" width="${LONG_IMAGE_WIDTH}" height="${height}">` +
+    `${toXhtmlFragment(inlined)}</foreignObject></svg>`;
+
+  const img = await loadImage("data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg));
+
+  const canvas = document.createElement("canvas");
+  canvas.width = LONG_IMAGE_WIDTH * scale;
+  canvas.height = height * scale;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("canvas not supported");
+  ctx.scale(scale, scale);
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, LONG_IMAGE_WIDTH, height);
+  ctx.drawImage(img, 0, 0, LONG_IMAGE_WIDTH, height);
+
+  return canvas.toDataURL("image/png");
+}
