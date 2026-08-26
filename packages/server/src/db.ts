@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { EVENT_SCHEMA_VERSION, type Graph, type RunEvent } from "@agent-world/core";
+import type { StoredArtifact } from "./artifact-store.js";
 
 /**
  * Events are the source of truth and append-only, so they get a plain prepared
@@ -40,6 +41,22 @@ CREATE TABLE IF NOT EXISTS events (
   PRIMARY KEY (run_id, seq)
 );
 
+CREATE TABLE IF NOT EXISTS artifacts (
+  id          TEXT PRIMARY KEY,
+  run_id      TEXT NOT NULL,
+  node_id     TEXT NOT NULL,
+  attempt     INTEGER,
+  kind        TEXT NOT NULL,
+  mime_type   TEXT,
+  label       TEXT,
+  size_bytes  INTEGER NOT NULL DEFAULT 0,
+  storage     TEXT NOT NULL,
+  uri         TEXT,
+  created_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_artifacts_run ON artifacts(run_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_artifacts_node ON artifacts(run_id, node_id);
+
 CREATE TABLE IF NOT EXISTS node_runs (
   run_id         TEXT NOT NULL,
   node_id        TEXT NOT NULL,
@@ -58,6 +75,40 @@ CREATE TABLE IF NOT EXISTS node_runs (
   PRIMARY KEY (run_id, node_id, attempt)
 );
 `;
+
+type ArtifactRow = {
+  id: string;
+  run_id: string;
+  node_id: string;
+  attempt: number | null;
+  kind: StoredArtifact["kind"];
+  mime_type: string | null;
+  label: string | null;
+  size_bytes: number;
+  storage: StoredArtifact["storage"];
+  uri: string | null;
+  created_at: number;
+};
+
+function mapArtifact(r: ArtifactRow): StoredArtifact {
+  return {
+    id: r.id,
+    runId: r.run_id,
+    nodeId: r.node_id,
+    attempt: r.attempt,
+    kind: r.kind,
+    mimeType: r.mime_type,
+    label: r.label,
+    sizeBytes: r.size_bytes,
+    storage: r.storage,
+    uri: r.uri,
+    createdAt: r.created_at,
+  };
+}
+
+function mapArtifacts(rows: ArtifactRow[]): StoredArtifact[] {
+  return rows.map(mapArtifact);
+}
 
 export type Db = ReturnType<typeof openDb>;
 
@@ -168,6 +219,24 @@ export function openDb(file: string) {
         deleteRun: db.prepare(`DELETE FROM runs WHERE id = ?`),
     deleteEvents: db.prepare(`DELETE FROM events WHERE run_id = ?`),
     deleteNodeRuns: db.prepare(`DELETE FROM node_runs WHERE run_id = ?`),
+    insertArtifact: db.prepare(
+      `INSERT INTO artifacts (id, run_id, node_id, attempt, kind, mime_type, label, size_bytes, storage, uri, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO NOTHING`,
+    ),
+    listArtifactsByRun: db.prepare(
+      `SELECT id, run_id, node_id, attempt, kind, mime_type, label, size_bytes, storage, uri, created_at
+       FROM artifacts WHERE run_id = ? ORDER BY created_at`,
+    ),
+    getArtifact: db.prepare(
+      `SELECT id, run_id, node_id, attempt, kind, mime_type, label, size_bytes, storage, uri, created_at
+       FROM artifacts WHERE id = ?`,
+    ),
+    listArtifacts: db.prepare(
+      `SELECT id, run_id, node_id, attempt, kind, mime_type, label, size_bytes, storage, uri, created_at
+       FROM artifacts ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+    ),
+    deleteArtifactsForRun: db.prepare(`DELETE FROM artifacts WHERE run_id = ?`),
   };
 
   return {
@@ -354,7 +423,28 @@ export function openDb(file: string) {
       stmts.markInterrupted.run(at);
     },
 
+    insertArtifact(a: StoredArtifact) {
+      stmts.insertArtifact.run(
+        a.id, a.runId, a.nodeId, a.attempt, a.kind, a.mimeType, a.label,
+        a.sizeBytes, a.storage, a.uri, a.createdAt,
+      );
+    },
+
+    listArtifactsForRun(runId: string): StoredArtifact[] {
+      return mapArtifacts(stmts.listArtifactsByRun.all(runId) as ArtifactRow[]);
+    },
+
+    getArtifact(id: string): StoredArtifact | null {
+      const row = stmts.getArtifact.get(id) as ArtifactRow | undefined;
+      return row ? mapArtifact(row) : null;
+    },
+
+    listArtifacts(limit = 100, offset = 0): StoredArtifact[] {
+      return mapArtifacts(stmts.listArtifacts.all(limit, offset) as ArtifactRow[]);
+    },
+
     deleteRun(runId: string) {
+      stmts.deleteArtifactsForRun.run(runId);
       stmts.deleteEvents.run(runId);
       stmts.deleteNodeRuns.run(runId);
       stmts.deleteRun.run(runId);
@@ -716,6 +806,13 @@ function columnExists(db: DatabaseSync, table: string, column: string): boolean 
   return rows.some((r) => r.name === column);
 }
 
+function tableExists(db: DatabaseSync, table: string): boolean {
+  const row = db
+    .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`)
+    .get(table) as { name?: string } | undefined;
+  return !!row;
+}
+
 /**
  * Ordered, versioned migrations. The DDL constant above always creates the
  * LATEST schema for fresh databases; these only run against older files. Each
@@ -772,6 +869,18 @@ const MIGRATIONS: Migration[] = [
     description: "graphs.version optimistic lock",
     detect: (db) => columnExists(db, "graphs", "version"),
     up: (db) => db.exec("ALTER TABLE graphs ADD COLUMN version INTEGER NOT NULL DEFAULT 1"),
+  },
+  {
+    version: 9,
+    description: "artifacts table",
+    detect: (db) => tableExists(db, "artifacts"),
+    up: (db) =>
+      db.exec(`CREATE TABLE IF NOT EXISTS artifacts (
+        id TEXT PRIMARY KEY, run_id TEXT NOT NULL, node_id TEXT NOT NULL, attempt INTEGER,
+        kind TEXT NOT NULL, mime_type TEXT, label TEXT, size_bytes INTEGER NOT NULL DEFAULT 0,
+        storage TEXT NOT NULL, uri TEXT, created_at INTEGER NOT NULL);
+        CREATE INDEX IF NOT EXISTS idx_artifacts_run ON artifacts(run_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_artifacts_node ON artifacts(run_id, node_id);`),
   },
 ];
 

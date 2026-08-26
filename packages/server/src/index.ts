@@ -14,6 +14,7 @@ import {
   type RunEvent,
 } from "@agent-world/core";
 import { openDb } from "./db.js";
+import { ArtifactStore } from "./artifact-store.js";
 import { log } from "./logger.js";
 import { execute, resume } from "./engine.js";
 import { SEED_GRAPH } from "./seed.js";
@@ -33,6 +34,7 @@ import { listBuiltinSkills } from "./skills/registry.js";
 
 const PORT = Number(process.env.PORT ?? 8791);
 const db = openDb(process.env.DB_FILE ?? "agent-world.sqlite");
+const artifacts = new ArtifactStore(process.env.ARTIFACT_DIR ?? ArtifactStore.defaultPath());
 
 if (!db.getGraph(SEED_GRAPH.id)) db.saveGraph(SEED_GRAPH, Date.now());
 
@@ -381,6 +383,9 @@ app.post("/api/runs", async (c) => {
         signal: controller.signal,
       })) {
         db.record(runId, event);
+        if (event.type === "artifact.produced") {
+          db.insertArtifact(artifacts.save(event.artifact, { runId, nodeId: event.nodeId, attempt: event.attempt }));
+        }
         entry.events.push(event);
         if (event.type === "run.finished") db.finishRun(runId, event.status, Date.now());
       }
@@ -468,6 +473,9 @@ app.post("/api/runs/:id/resume", async (c) => {
         signal: controller.signal,
       })) {
         db.record(runId, event);
+        if (event.type === "artifact.produced") {
+          db.insertArtifact(artifacts.save(event.artifact, { runId, nodeId: event.nodeId, attempt: event.attempt }));
+        }
         entry.events.push(event);
         if (event.type === "run.finished") db.finishRun(runId, event.status, Date.now());
       }
@@ -551,6 +559,47 @@ app.get("/api/runs/:id/stream", (c) => {
       await stream.sleep(60);
     }
   });
+});
+
+/** Artifacts produced by a single run. */
+app.get("/api/runs/:id/artifacts", (c) => {
+  const runId = c.req.param("id");
+  if (!db.runExists(runId)) return c.json({ error: "not found" }, 404);
+  return c.json(db.listArtifactsForRun(runId));
+});
+
+/** Cross-run artifact listing (latest first), for the product gallery. */
+app.get("/api/artifacts", (c) => {
+  const limit = Math.min(Number(c.req.query("limit") ?? 100), 500);
+  const offset = Number(c.req.query("offset") ?? 0);
+  return c.json(db.listArtifacts(limit, offset));
+});
+
+/** Fetch a single artifact: local blobs are streamed, remote URIs redirect. */
+app.get("/api/artifacts/:id", (c) => {
+  const id = c.req.param("id");
+  const meta = db.getArtifact(id);
+  if (!meta) return c.json({ error: "not found" }, 404);
+
+  if (meta.storage === "uri" && meta.uri) {
+    return c.redirect(meta.uri, 302);
+  }
+  if (meta.storage !== "local") {
+    return c.json({ error: "artifact has no binary payload" }, 404);
+  }
+
+  const file = artifacts.open(meta.runId, meta.id);
+  if (!file) return c.json({ error: "blob missing on disk" }, 404);
+  const headers = new Headers();
+  headers.set("content-type", meta.mimeType ?? "application/octet-stream");
+  headers.set("content-length", String(file.size));
+  if (meta.label) {
+    headers.set(
+      "content-disposition",
+      `inline; filename="${encodeURIComponent(meta.label)}"`,
+    );
+  }
+  return new Response(file.stream as unknown as ReadableStream, { headers });
 });
 
 serve({ fetch: app.fetch, port: PORT }, (info) => {
