@@ -491,7 +491,10 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
         } else {
           throw new ProviderError("PROVIDER_ERROR", "image generation response missing image data");
         }
-        results.push({ data, mimeType, usage: { tokensIn: 0, tokensOut: 0, costUsd: 0, units: { images: 1 } } });
+        // Price each generated image via the provider's perImage card so the
+        // 电费 meter reflects image spend (defaults to 0 when no price is set).
+        const imgCost = computeCost({ units: { images: 1 } }, pricingFor(model));
+        results.push({ data, mimeType, usage: { tokensIn: 0, tokensOut: 0, costUsd: imgCost, units: { images: 1 } } });
       }
       return results;
     },
