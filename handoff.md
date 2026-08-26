@@ -761,5 +761,19 @@ Stage B — structured product blocks:
     renders the content to a 2x long PNG via an SVG `<foreignObject>` (canvas stays untainted).
   - `FinishedProduct` toolbar now offers 导出 HTML / 导出 MD / 导出长图 / 复制富文本 / 复制原文,
     so output can be pasted straight into QIANIU / Xiaohongshu backends.
-- Remaining: AI image generation (D). Engine ArtifactRef upgrade still deferred until multimodal
-  downstream inputs are needed.
+- Stage D — AI image generation (缺素材时自动出 banner/场景图):
+  - New `imageGen` node kind + `ImageGenConfig { model, prompt, size }` in `@agent-world/core`.
+  - Worker/provider gained `generateImage()`: OpenAI-compatible providers POST
+    `${baseUrl}/images/generations`; the fake worker returns a deterministic placeholder so the
+    canvas wiring works without a live image backend.
+  - Engine dispatches `imageGen` nodes: calls `worker.generateImage`, persists the bytes via
+    `storeBinary` (→ `/api/artifacts/:id`), emits an `image` artifact, and folds the URI into the
+    downstream vision model's `images` via the shared `extraImages` resolver. Generation is
+    **soft-failed** (run continues) when no image backend is configured, and **skipped entirely**
+    when the upstream source already carries real photos (`upstreamSourceHasImages`).
+  - Both product templates gained a `banner` (AI 配图) node: `intake → banner → layout`.
+  - Web UI: `imageGen` label/meta in the canvas, an Inspector section (model / size / prompt),
+    a palette button, and a node bar color.
+  - Still deferred (roadmap D-expansion, not in scope here): brand thesaurus / prohibited-word
+    validation wiring, multi-version A/B, and evaluation linkage. Engine ArtifactRef upgrade
+    remains deferred until multimodal downstream inputs are needed.
