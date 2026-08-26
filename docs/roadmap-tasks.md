@@ -451,14 +451,14 @@
 
 ### 4.9 工程化
 
-- [ ] CI：GitHub Actions 跑 typecheck + test + build
-- [ ] 密钥泄漏检查（git-secrets 或类似）
-- [ ] CORS 收紧到配置的 origin（替换现在允许所有来源），加基础安全响应头
+- [x] CI：GitHub Actions 跑 typecheck + test + build
+- [x] 密钥泄漏检查（git-secrets 或类似）—— 接入 gitleaks 扫描（CI `secrets` job + `.gitleaks.toml`）
+- [x] CORS 收紧到配置的 origin（替换现在允许所有来源），加基础安全响应头（`security.ts`：`CORS_ORIGINS` + X-Content-Type-Options / X-Frame-Options / Referrer-Policy / Permissions-Policy）
 - [x] 结构化日志（内置 JSON-line logger，已在 3.5 完成）
-- [ ] LICENSE 选择
-- [ ] Docker Compose 部署配置
-- [ ] 版本号和 CHANGELOG
-- [ ] 退出条件：clone → pnpm install → pnpm dev 顺畅
+- [x] LICENSE 选择 —— MIT（`LICENSE`，Copyright (c) 2026 bayernjf）
+- [x] Docker Compose 部署配置（`Dockerfile` + `docker-compose.yml` + `.dockerignore`）
+- [x] 版本号和 CHANGELOG（包版本 0.1.0 → 0.2.0，`CHANGELOG.md`）
+- [x] 退出条件：clone → pnpm install → pnpm dev 顺畅
 
 ---
 
