@@ -282,6 +282,9 @@ export default function App() {
           <button className="chip" onClick={() => addNode("gate", 500, 480)}>
             + 质检站
           </button>
+          <button className="chip" onClick={() => addNode("imageGen", 300, 600)}>
+            + AI 生图
+          </button>
         </div>
       </header>
 

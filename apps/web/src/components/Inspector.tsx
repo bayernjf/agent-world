@@ -389,6 +389,64 @@ export default function Inspector() {
           </>
         )}
 
+        {node.kind === "imageGen" && node.imageGen && (
+          <>
+            <label className="field">
+              <span>生图模型</span>
+              <select
+                className="select"
+                value={
+                  modelOptions.some((o) => o.model === node.imageGen!.model)
+                    ? node.imageGen.model
+                    : "__custom__"
+                }
+                onChange={(e) => {
+                  if (e.target.value !== "__custom__") {
+                    updateNode(node.id, { imageGen: { ...node.imageGen!, model: e.target.value } });
+                  }
+                }}
+              >
+                {modelOptions.map((o) => (
+                  <option key={`${o.provider}::${o.model}`} value={o.model}>
+                    {o.model} · {o.provider}
+                  </option>
+                ))}
+                {!modelOptions.some((o) => o.model === node.imageGen!.model) && node.imageGen.model && (
+                  <option value={node.imageGen.model}>{node.imageGen.model} (当前)</option>
+                )}
+              </select>
+            </label>
+            <label className="field">
+              <span>尺寸 (如 1024x1024)</span>
+              <input
+                type="text"
+                placeholder="1024x1024"
+                value={node.imageGen.size ?? ""}
+                onFocus={beginEdit}
+                onBlur={commitEdit}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    imageGen: { ...node.imageGen!, size: e.target.value || undefined },
+                  })
+                }
+              />
+            </label>
+            <label className="field">
+              <span>生图提示词（留空则按品牌简报自动生成）</span>
+              <textarea
+                rows={4}
+                placeholder="如：清新日系风格的主图，突出产品质感"
+                value={node.imageGen.prompt ?? ""}
+                onFocus={beginEdit}
+                onBlur={commitEdit}
+                onChange={(e) =>
+                  updateNode(node.id, { imageGen: { ...node.imageGen!, prompt: e.target.value } })
+                }
+              />
+            </label>
+          </>
+        )}
+
         {node.kind === "gate" && node.gate && (
           <>
             <label className="field">

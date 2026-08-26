@@ -1433,6 +1433,9 @@ select {
 .plant--gate .plant__bar {
   fill: #1d2b22;
 }
+.plant--imageGen .plant__bar {
+  fill: #2a1d3a;
+}
 .plant--source .plant__bar,
 .plant--sink .plant__bar {
   fill: #16242b;

@@ -73,6 +73,7 @@ const DEFAULTS: Record<NodeKind, Partial<GraphNode>> = {
     },
   },
   gate: { gate: { maxAttempts: 3, criterion: "", onExhausted: "halt" } },
+  imageGen: { imageGen: { model: "agnes-image", prompt: "" } },
 };
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
