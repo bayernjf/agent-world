@@ -21,11 +21,29 @@ export const ProductBlock = z.discriminatedUnion("type", [
     type: z.literal("image"),
     src: z.string(),
     caption: z.string().optional(),
+    /** Horizontal placement within the column: full (default) | left | right | center. */
+    align: z.enum(["left", "right", "center", "full"]).optional(),
+    /** Explicit width as a number of px or a CSS string like "60%". Defaults to layout-driven. */
+    width: z.union([z.number(), z.string()]).optional(),
+    /** Aspect ratio to constrain the image box, avoiding layout shift on load. */
+    aspect: z.enum(["1:1", "3:4", "4:3", "16:9"]).optional(),
+    /** Soften the corners for a more lifestyle look. */
+    rounded: z.boolean().optional(),
   }),
   z.object({
     type: z.literal("imageCards"),
+    /** Grid (default) | carousel (scroll-snap) | row (single horizontal strip). */
+    layout: z.enum(["grid", "carousel", "row"]).optional(),
+    /** Column count for the grid layout (1-4). */
+    columns: z.number().int().min(1).max(4).optional(),
     items: z.array(
-      z.object({ src: z.string(), title: z.string().optional(), caption: z.string().optional() }),
+      z.object({
+        src: z.string(),
+        title: z.string().optional(),
+        caption: z.string().optional(),
+        /** Span 2 columns within a grid (ignored for row/carousel). */
+        span: z.number().int().min(1).max(2).optional(),
+      }),
     ),
   }),
   z.object({ type: z.literal("cta"), text: z.string() }),
