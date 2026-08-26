@@ -358,9 +358,9 @@
 - [x] 前端 Inspector 展示产出物（图片缩略图、视频、音频播放器、链接、JSON）
 - [x] Source 节点的 reference images 作为 image artifacts 发出
 - [x] 退出条件：产线能产出图片等非文本内容并在 UI 中展示
-- [ ] 文件 artifact 存本地磁盘/对象存储，数据库存元数据（当前 URI 直链）
-- [ ] 引擎 artifacts Map 从 string 升级为 ArtifactRef
-- [ ] Artifact 持久化到 events 表后可跨 run 查询
+- [x] 文件 artifact 存本地磁盘：`ArtifactStore` 将内联内容写入 `artifacts/<shard>/<runId>/<id>`，远程/data URI 直链不抓取；新增 `artifacts` 表（迁移 9）存元数据
+- [ ] 引擎 artifacts Map 从 string 升级为 ArtifactRef（当前仍按 node 存文本 output，artifact 事件为附加层）
+- [x] 跨 run 产出物查询：`GET /api/artifacts`（最新优先分页）、`GET /api/runs/:id/artifacts`、`GET /api/artifacts/:id`（本地文件流式返回/远程 302）
 
 ---
 

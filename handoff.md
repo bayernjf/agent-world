@@ -687,3 +687,27 @@ paths) is a standalone chunk to schedule once the graph gets denser.
   version grouping with distinct fingerprints. Server now 70 tests; core 43.
 - Remaining for later: per-node quality scoring (needs explicit quality signals beyond
   pass/fail), and CSV export of eval data.
+
+## 3.8 Artifact persistence (local blob store + metadata)
+
+- New `packages/server/src/artifact-store.ts`: `ArtifactStore` writes inline content
+  (text/json) to `<dir>/<shard>/<runId>/<artifactId>` (deterministic path, no extension;
+  MIME lives in DB). Remote/http/data URIs are passed through as `storage:'uri'` — the
+  server never fetches arbitrary URLs. Default dir is `artifacts/` next to the DB file,
+  overridable via `ARTIFACT_DIR`.
+- New `artifacts` table (migration 9; DDL creates it fresh) stores id/run/node/attempt/kind/
+  mime/label/size/storage/uri/created_at, with run + node indexes. `db.insertArtifact` is
+  idempotent (ON CONFLICT DO NOTHING); `listArtifactsForRun`, `getArtifact`, `listArtifacts`
+  (latest-first, paged) query it; `deleteRun` now also removes artifact rows.
+- The run-start and resume drain loops call `artifacts.save(...)` + `db.insertArtifact(...)`
+  on every `artifact.produced` event, so artifacts outlive the event stream and are queryable
+  across runs.
+- New endpoints: `GET /api/runs/:id/artifacts`, `GET /api/artifacts?limit=&offset=`, and
+  `GET /api/artifacts/:id` (streams local blobs with content-type/disposition, 302-redirects
+  for remote URIs).
+- Tests: `artifact-store.test.ts` (local write/read, URI passthrough, inline placeholder) and
+  `artifacts.test.ts` (per-run/cross-run listing, delete cleanup, idempotent insert). Server
+  now 77 tests. `artifacts/` gitignored.
+- Remaining 3.8: upgrade the engine's per-node `artifacts: Map<string,string>` to an ArtifactRef
+  (currently it still stores text output per node; artifacts ride alongside as events), and a
+  frontend cross-run product gallery consuming `GET /api/artifacts`.
