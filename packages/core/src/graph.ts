@@ -78,6 +78,12 @@ export const GateConfig = z.object({
    * score "links back" into the gate decision and feeds the eval report.
    */
   minScore: z.number().min(0).max(10).optional(),
+  /**
+   * Optional brand-term coverage bar (0-1). When set, the gate computes how
+   * many of the upstream brand terms appear in the artifact and fails (sending
+   * it back upstream to rewrite) if coverage is below this threshold.
+   */
+  minBrandCoverage: z.number().min(0).max(1).optional(),
 });
 export type GateConfig = z.infer<typeof GateConfig>;
 
@@ -96,6 +102,8 @@ export const SourceConfig = z.object({
   tone: z.string().optional(),
   /** Comma/newline separated words or claims that must not appear. */
   prohibited: z.string().optional(),
+  /** Comma/newline separated brand words the writer should weave in. */
+  brandTerms: z.string().optional(),
   /** Free-form extra notes for the writers. */
   notes: z.string().optional(),
   /** Reserved for future connectors (file/api/database/webhook). */

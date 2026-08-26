@@ -447,6 +447,19 @@ app.get("/api/ab/:groupId", (c) => {
   return c.json(report);
 });
 
+app.get("/api/brand-terms", (c) => c.json(db.listBrandTerms()));
+
+app.post("/api/brand-terms", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as { term?: string; note?: string };
+  if (!body.term?.trim()) return c.json({ error: "term required" }, 400);
+  return c.json(db.addBrandTerm(body.term, body.note ?? ""), 201);
+});
+
+app.delete("/api/brand-terms/:id", (c) => {
+  db.deleteBrandTerm(c.req.param("id"));
+  return c.body(null, 204);
+});
+
 app.post("/api/runs/:id/cancel", (c) => {
   const entry = live.get(c.req.param("id"));
   if (!entry) return c.json({ error: "not live" }, 404);

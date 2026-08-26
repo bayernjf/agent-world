@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { EVENT_SCHEMA_VERSION, type Graph, type RunEvent } from "@agent-world/core";
@@ -77,6 +77,13 @@ CREATE TABLE IF NOT EXISTS node_runs (
   units_json     TEXT,
   score          REAL,
   PRIMARY KEY (run_id, node_id, attempt)
+);
+
+CREATE TABLE IF NOT EXISTS brand_terms (
+  id          TEXT PRIMARY KEY,
+  term        TEXT NOT NULL,
+  note        TEXT NOT NULL DEFAULT '',
+  created_at  INTEGER NOT NULL
 );
 `;
 
@@ -911,6 +918,31 @@ export function openDb(file: string) {
 
       return { groupId, arms, recommendedArm };
     },
+
+    listBrandTerms() {
+      return db
+        .prepare(
+          `SELECT id, term, note, created_at AS createdAt FROM brand_terms ORDER BY created_at ASC`,
+        )
+        .all() as Array<{ id: string; term: string; note: string; createdAt: number }>;
+    },
+    addBrandTerm(term: string, note = "") {
+      const t = term.trim();
+      if (!t) throw new Error("品牌词不能为空");
+      const id = randomUUID();
+      const now = Date.now();
+      db.prepare(`INSERT INTO brand_terms (id, term, note, created_at) VALUES (?, ?, ?, ?)`).run(
+        id,
+        t,
+        note,
+        now,
+      );
+      return { id, term: t, note, createdAt: now };
+    },
+    deleteBrandTerm(id: string) {
+      db.prepare(`DELETE FROM brand_terms WHERE id = ?`).run(id);
+    },
+
     close() {
       db.close();
     },
@@ -1025,6 +1057,18 @@ const MIGRATIONS: Migration[] = [
       db.exec("ALTER TABLE runs ADD COLUMN ab_arm TEXT");
       db.exec("ALTER TABLE runs ADD COLUMN ab_target TEXT");
     },
+  },
+  {
+    version: 12,
+    description: "brand_terms managed vocabulary library",
+    detect: (db) => tableExists(db, "brand_terms"),
+    up: (db) =>
+      db.exec(`CREATE TABLE IF NOT EXISTS brand_terms (
+        id TEXT PRIMARY KEY,
+        term TEXT NOT NULL,
+        note TEXT NOT NULL DEFAULT '',
+        created_at INTEGER NOT NULL
+      )`),
   },
 ];
 

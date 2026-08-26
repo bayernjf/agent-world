@@ -251,6 +251,38 @@ export default function Inspector() {
               />
             </label>
             <label className="field">
+              <span>品牌词（建议融入）</span>
+              <textarea
+                rows={2}
+                value={node.source?.brandTerms ?? ""}
+                placeholder="用逗号或换行分隔，如 显瘦、透气、百搭"
+                onFocus={beginEdit}
+                onBlur={commitEdit}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    source: { ...(node.source ?? {}), brandTerms: e.target.value },
+                  })
+                }
+              />
+              <button
+                type="button"
+                className="ghost-btn"
+                onClick={async () => {
+                  const terms = await api.listBrandTerms();
+                  const cur = (node.source?.brandTerms ?? "")
+                    .split(/[\n,，、;；\s]+/)
+                    .map((s) => s.trim())
+                    .filter(Boolean);
+                  const merged = [...new Set([...cur, ...terms.map((t) => t.term)])].join("、");
+                  updateNode(node.id, {
+                    source: { ...(node.source ?? {}), brandTerms: merged },
+                  });
+                }}
+              >
+                从品牌词库载入
+              </button>
+            </label>
+            <label className="field">
               <span>补充说明</span>
               <textarea
                 rows={3}
@@ -488,6 +520,28 @@ export default function Inspector() {
                     gate: {
                       ...node.gate!,
                       minScore: e.target.value === "" ? undefined : Number(e.target.value),
+                    },
+                  })
+                }
+              />
+            </label>
+            <label className="field">
+              <span>品牌词覆盖率门槛（0–100%，留空不卡）</span>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                value={
+                  node.gate.minBrandCoverage != null
+                    ? Math.round(node.gate.minBrandCoverage * 100)
+                    : ""
+                }
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    gate: {
+                      ...node.gate!,
+                      minBrandCoverage:
+                        e.target.value === "" ? undefined : Number(e.target.value) / 100,
                     },
                   })
                 }

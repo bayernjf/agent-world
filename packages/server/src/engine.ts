@@ -106,6 +106,7 @@ function buildSourceBrief(node: GraphNode, sourceInput: string | undefined): str
   if (src?.priceRange) lines.push(`价格定位：${src.priceRange}`);
   if (src?.tone) lines.push(`语气调性：${src.tone}`);
   if (src?.prohibited?.trim()) lines.push(`禁用词/禁用说法：${src.prohibited.trim()}`);
+  if (src?.brandTerms?.trim()) lines.push(`品牌词（建议融入）：${src.brandTerms.trim()}`);
   if (src?.notes?.trim()) lines.push(`补充说明：${src.notes.trim()}`);
   const raw = sourceInput?.trim();
   const hasBrief = lines.length > 0;
@@ -131,6 +132,32 @@ function upstreamProhibitedTerms(graph: Graph, nodeId: string): string[] {
       const n = nodeById(graph, e.from);
       if (n?.kind === "source" && n.source?.prohibited?.trim()) {
         for (const raw of n.source.prohibited.split(/[\n,，、;；\s]+/)) {
+          const t = raw.trim();
+          if (t) terms.add(t);
+        }
+      }
+      stack.push(e.from);
+    }
+  }
+  return [...terms];
+}
+
+/**
+ * Collect brand terms declared on any upstream `source` node (reached via flow
+ * edges). Splitting mirrors upstreamProhibitedTerms. De-duplicated.
+ */
+function upstreamBrandTerms(graph: Graph, nodeId: string): string[] {
+  const seen = new Set<string>();
+  const stack = [nodeId];
+  const terms = new Set<string>();
+  while (stack.length) {
+    const id = stack.pop()!;
+    for (const e of incoming(graph, id, "flow")) {
+      if (seen.has(e.from)) continue;
+      seen.add(e.from);
+      const n = nodeById(graph, e.from);
+      if (n?.kind === "source" && n.source?.brandTerms?.trim()) {
+        for (const raw of n.source.brandTerms.split(/[\n,，、;；\s]+/)) {
           const t = raw.trim();
           if (t) terms.add(t);
         }
@@ -407,23 +434,40 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
         // never pass, regardless of what the model judge decides. Deterministic
         // so forbidden copy is always caught even if the model slips it in.
         const prohibitedHits = detectProhibited(output, upstreamProhibitedTerms(graph, nodeId));
+
+        // Brand-term coverage: how many of the upstream brand words actually
+        // appear in the artifact. An optional gate threshold fails the gate
+        // (and triggers a rewrite) when coverage is too low.
+        const brandAll = upstreamBrandTerms(graph, nodeId);
+        const brandHits = brandAll.filter((t) => output.includes(t));
+        const brandCoverage = brandAll.length ? brandHits.length / brandAll.length : 1;
+        const minBrand = node.gate?.minBrandCoverage;
+
         const minScore = node.gate?.minScore;
         const belowScore =
           minScore != null && modelVerdict.score != null && modelVerdict.score < minScore;
-        const verdict =
-          prohibitedHits.length > 0
-            ? {
-                passed: false,
-                reason: `命中禁用词：${prohibitedHits.join("、")}（已退回上游重写）`,
-                score: modelVerdict.score,
-              }
-            : belowScore
-              ? {
-                  passed: false,
-                  reason: `质量分 ${modelVerdict.score} 低于门槛 ${minScore}（已退回上游重写）`,
-                  score: modelVerdict.score,
-                }
-              : modelVerdict;
+        const belowBrand = minBrand != null && brandCoverage < minBrand;
+
+        let verdict = modelVerdict;
+        if (prohibitedHits.length > 0) {
+          verdict = {
+            passed: false,
+            reason: `命中禁用词：${prohibitedHits.join("、")}（已退回上游重写）`,
+            score: modelVerdict.score,
+          };
+        } else if (belowBrand) {
+          verdict = {
+            passed: false,
+            reason: `品牌词覆盖率 ${Math.round(brandCoverage * 100)}% 低于门槛 ${Math.round(minBrand! * 100)}%（已退回上游重写）`,
+            score: modelVerdict.score,
+          };
+        } else if (belowScore) {
+          verdict = {
+            passed: false,
+            reason: `质量分 ${modelVerdict.score} 低于门槛 ${minScore}（已退回上游重写）`,
+            score: modelVerdict.score,
+          };
+        }
 
         emit({
           type: "gate.verdict",

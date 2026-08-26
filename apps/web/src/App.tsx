@@ -21,6 +21,7 @@ import CostReport from "./components/CostReport";
 import EvalReport from "./components/EvalReport";
 import ABDialog from "./components/ABDialog";
 import ABReport from "./components/ABReport";
+import BrandTermsModal from "./components/BrandTermsModal";
 import ProductGallery from "./components/ProductGallery";
 import { api } from "./lib/api";
 import { useGraph } from "./store/graph";
@@ -48,6 +49,7 @@ export default function App() {
   const [abOpen, setABOpen] = useState(false);
   const [abGroup, setABGroup] = useState<string | null>(null);
   const [galleryOpen, setGalleryOpen] = useState(false);
+  const [brandOpen, setBrandOpen] = useState(false);
   const tipsEnabled = useTips((s) => s.enabled);
   const toggleTips = useTips((s) => s.toggle);
   const bothCollapsed = controlCollapsed && inspectorCollapsed;
@@ -280,6 +282,11 @@ export default function App() {
               A/B 实验
             </button>
           </Tooltip>
+          <Tooltip content="品牌词库：维护建议融入的品牌词，可在厂房节点一键载入">
+            <button className="chip" onClick={() => setBrandOpen(true)}>
+              品牌词库
+            </button>
+          </Tooltip>
           <Tooltip content="成品库">
             <button className="chip" onClick={() => setGalleryOpen(true)}>
               成品
@@ -358,6 +365,7 @@ export default function App() {
       />
       <ABReport open={abGroup !== null} groupId={abGroup ?? ""} onClose={() => setABGroup(null)} />
       <ProductGallery open={galleryOpen} onClose={() => setGalleryOpen(false)} />
+      <BrandTermsModal open={brandOpen} onClose={() => setBrandOpen(false)} />
       <Toast />
       <Settings open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       <NewGraphDialog

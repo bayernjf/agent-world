@@ -154,6 +154,13 @@ export interface ABStartResult {
   arms: Array<{ arm: string; runId: string; prompt: string }>;
 }
 
+export interface BrandTerm {
+  id: string;
+  term: string;
+  note: string;
+  createdAt: number;
+}
+
 export const api = {
   listTemplates: () =>
     fetch("/api/templates").then(
@@ -273,6 +280,21 @@ export const api = {
       if (!res.ok) throw new Error(`A/B 报表加载失败：${res.status}`);
       return res.json() as Promise<ABReport>;
     }),
+
+  listBrandTerms: () => fetch("/api/brand-terms").then((res) => res.json() as Promise<BrandTerm[]>),
+
+  addBrandTerm: (term: string, note = "") =>
+    fetch("/api/brand-terms", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ term, note }),
+    }).then(async (res) => {
+      if (!res.ok) throw new Error(await res.text());
+      return res.json() as Promise<BrandTerm>;
+    }),
+
+  deleteBrandTerm: (id: string) =>
+    fetch(`/api/brand-terms/${id}`, { method: "DELETE" }).then(() => undefined),
 
   listArtifacts: (limit = 100, offset = 0) =>
     fetch(`/api/artifacts?limit=${limit}&offset=${offset}`).then(json<StoredArtifact[]>),

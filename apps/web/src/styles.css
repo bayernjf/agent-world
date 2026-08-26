@@ -3080,3 +3080,57 @@ select {
   font-size: 13px;
   color: var(--ink);
 }
+
+.ghost-btn {
+  align-self: flex-start;
+  margin-top: 6px;
+  padding: 3px 10px;
+  font-size: 12px;
+  color: var(--data);
+  background: transparent;
+  border: 1px solid var(--steel-800);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.ghost-btn:hover {
+  border-color: var(--data);
+  background: rgba(102, 224, 122, 0.06);
+}
+
+.error-text {
+  margin-top: 8px;
+  color: #ff6b6b;
+  font-size: 12px;
+}
+
+.brand-list {
+  list-style: none;
+  margin: 10px 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.brand-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 10px;
+  border: var(--hair);
+  border-radius: 7px;
+  font-size: 13px;
+}
+.brand-term {
+  font-weight: 700;
+  color: var(--data);
+}
+.brand-add {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.brand-add input {
+  flex: 1;
+  min-width: 0;
+}
