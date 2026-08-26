@@ -1,18 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { GraphNode } from "@agent-world/core";
+import type { Graph, GraphNode } from "@agent-world/core";
 import { useGraph } from "../store/graph";
 import { useRun, useVisibleRuntime } from "../store/run";
 import { MAX_ZOOM, MIN_ZOOM, useCanvas } from "../store/canvas";
 import { useToast } from "../store/toast";
-import { PLANT_H, PLANT_W } from "../store/graph";
+import { PLANT_H, PLANT_W, snap } from "../store/graph";
 import { VIEW_H, VIEW_W } from "./board";
 import PacketLayer from "./PacketLayer";
 import Pipes from "./Pipes";
 import Plants from "./Plants";
 
-const undoGraph = () => useGraph.temporal.getState().undo();
 const flashDeleted = (message: string) =>
-  useToast.getState().show(message, undoGraph);
+  useToast.getState().show(message, () => useGraph.getState().undo());
 
 export type Mode = "select" | "connect" | "rework" | "delete";
 
@@ -38,7 +37,18 @@ interface Props {
 }
 
 export default function Canvas({ mode }: Props) {
-  const { graph, selectedId, select, moveNode, addEdge, removeEdge, removeNode } = useGraph();
+  const {
+    graph,
+    selectedId,
+    select,
+    moveNode,
+    addEdge,
+    removeEdge,
+    removeNode,
+    beginHistoryBatch,
+    commitHistoryBatch,
+    abortHistoryBatch,
+  } = useGraph();
   const duplicateNode = useGraph((s) => s.duplicateNode);
   const runtime = useVisibleRuntime();
   const scrubbing = useRun((s) => s.scrubSeq !== null);
@@ -46,7 +56,15 @@ export default function Canvas({ mode }: Props) {
   const showToast = useToast((s) => s.show);
 
   const svgRef = useRef<SVGSVGElement>(null);
-  const dragRef = useRef<{ id: string; dx: number; dy: number; moved: boolean } | null>(null);
+  const dragRef = useRef<{
+    id: string;
+    dx: number;
+    dy: number;
+    moved: boolean;
+    startX: number;
+    startY: number;
+    startGraph: Graph;
+  } | null>(null);
   const panRef = useRef<{ startX: number; startY: number; originX: number; originY: number; moved: boolean } | null>(null);
   const pipeDownRef = useRef<{ id: string; sx: number; sy: number } | null>(null);
   const [connectFrom, setConnectFrom] = useState<string | null>(null);
@@ -234,8 +252,17 @@ export default function Canvas({ mode }: Props) {
     // Pointer position in content (graph) space, accounting for pan/zoom.
     const cx = (p.x - viewport.panX) / viewport.zoom;
     const cy = (p.y - viewport.panY) / viewport.zoom;
-    dragRef.current = { id: node.id, dx: cx - node.x, dy: cy - node.y, moved: false };
-    (e.target as Element).setPointerCapture?.(e.pointerId);
+    dragRef.current = {
+      id: node.id,
+      dx: cx - node.x,
+      dy: cy - node.y,
+      moved: false,
+      startX: node.x,
+      startY: node.y,
+      startGraph: graph,
+    };
+    beginHistoryBatch();
+    (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
   };
 
   const onPointerMove = (e: React.PointerEvent) => {
@@ -247,8 +274,11 @@ export default function Canvas({ mode }: Props) {
       const node = graph.nodes.find((n) => n.id === drag.id);
       if (!node) return;
       if (!drag.moved && Math.hypot(nx - node.x, ny - node.y) < CLICK_SLOP) return;
-      drag.moved = true;
-      moveNode(drag.id, Math.round(nx), Math.round(ny));
+      const tx = snap(nx);
+      const ty = snap(ny);
+      if (node.x === tx && node.y === ty) return;
+      drag.moved = tx !== drag.startX || ty !== drag.startY;
+      moveNode(drag.id, tx, ty);
       return;
     }
 
@@ -270,9 +300,14 @@ export default function Canvas({ mode }: Props) {
     dragRef.current = null;
     panRef.current = null;
     pipeDownRef.current = null;
-    if (drag && !drag.moved) {
-      select(drag.id);
-      setSelectedEdgeId(null);
+    if (drag) {
+      if (drag.moved) {
+        commitHistoryBatch();
+      } else {
+        abortHistoryBatch();
+        select(drag.id);
+        setSelectedEdgeId(null);
+      }
     }
     if (pd) {
       // A click (not a drag) on a pipe locks the flow highlight.
@@ -336,7 +371,7 @@ export default function Canvas({ mode }: Props) {
         className={`canvas__svg mode-${mode} ${spaceHeld ? "is-panning" : ""}`}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
-        onPointerLeave={onPointerUp}
+        onPointerCancel={onPointerUp}
         onWheel={onWheel}
       >
         <defs>

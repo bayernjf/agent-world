@@ -18,7 +18,7 @@ const GROUPS: { title: string; items: { keys: string; desc: string }[] }[] = [
       { keys: "⌘/Ctrl + V", desc: "粘贴厂房（连续粘贴自动错位）" },
       { keys: "⌘/Ctrl + Z", desc: "撤销" },
       { keys: "⌘/Ctrl + Shift + Z", desc: "重做" },
-      { keys: "Delete / Backspace", desc: "删除选中管道" },
+      { keys: "Delete / Backspace", desc: "删除选中厂房或管道" },
     ],
   },
   {

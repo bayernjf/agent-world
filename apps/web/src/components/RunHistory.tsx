@@ -63,7 +63,10 @@ export default function RunHistory({ open, onClose }: Props) {
 
   const replay = async (r: RunSummary) => {
     const graph = await api.getGraph(r.graph_id).catch(() => null);
-    if (graph) setGraph(graph);
+    if (graph) {
+      setGraph(graph);
+      useGraph.temporal.getState().clear();
+    }
     await loadRun(r.id);
     onClose();
   };
