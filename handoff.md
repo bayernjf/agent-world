@@ -726,3 +726,29 @@ paths) is a standalone chunk to schedule once the graph gets denser.
   ArtifactRef so downstream nodes can reference typed artifacts directly (instead of text
   output + event-sidecar); object-store (S3/R2) backend behind the same ArtifactStore
   interface for multi-instance deployments.
+
+## Product content lines — Stage A (upload) + Stage B (platform templates)
+
+See `docs/product-content-roadmap.md` for the A–D plan (Taobao/Xiaohongshu 图文).
+
+Stage A — real product images:
+- `ArtifactStore.saveBinary()` persists raw uploaded bytes under `artifacts/uploads/<id>`
+  (content-addressed id), returning a local `/api/artifacts/:id` URI.
+- `POST /api/artifacts/upload` accepts a raw body with content-type, enforces 25MB, stores
+  via saveBinary + insertArtifact. Cross-run list now orders by `created_at DESC, rowid DESC`
+  as a deterministic tiebreaker.
+- Source node UI extracted into `SourceImages.tsx`: click/drag-drop upload zone, thumbnails
+  for local+remote images, plus the manual URL field (edit-batched into one undo entry).
+
+Stage B — structured product blocks:
+- New core `product.ts`: `ProductBlock` discriminated union (hero/heading/paragraph/quote/
+  bullets/specs/image/imageCards/cta/divider) + `ProductDocument` + `parseProductDocument()`
+  which extracts a fenced ```product-json block and zod-validates it. Core now 46 tests.
+- Templates: existing product template renamed 淘宝商品详情 and its layout agent now emits a
+  structured product-json document; new 小红书种草笔记 template (selling → copy → note layout
+  → QC, emoji/短句/话题标签 tone). Both reuse the same pipeline and QC/rework loop.
+- `FinishedProduct` detects a product document and renders it with `ProductBlocks.tsx`
+  (platform-scoped CSS using design tokens); falls back to Markdown otherwise.
+- Remaining: brand/audience/tone/prohibited-word source fields (B), export to long-image/HTML
+  (C), AI image generation (D). Engine ArtifactRef upgrade still deferred until multimodal
+  downstream inputs are needed.

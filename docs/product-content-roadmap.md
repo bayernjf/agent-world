@@ -1,0 +1,45 @@
+# 商品内容产线迭代规划（淘宝 / 小红书图文）
+
+目标场景：用户排几张产品实拍图 → 自动产出可商业使用的平台图文（淘宝详情页、小红书笔记等）。
+
+## 现状（阶段 3 末）
+
+已有「商品详情页」模板：原料台(图片) → 卖点提炼 → 文案撰写 → 排版整理 → 质检站(可返工) → 成品库。
+
+已经具备：
+- 视觉模型真的能看到产品图：source 图片 URL 沿流向传递，每个 agent 节点通过 `image_url` 多模态消息收到图片（`engine.ts` 的 `imagesFor` + `openai-compatible.ts` 的 `buildMessages`）。
+- 图文混排：排版节点输出结构化 Markdown 并在文中 `![](url)` 插图；`FinishedProduct` 渲染标题/引用/列表/图片画廊。
+- 质检 + 返工闭环、产物持久化（本地 blob + artifacts 表）、跨 run 成品库画廊。
+- 成本/预算/重试/错误脱敏/多标签乐观锁/结构化日志等生产底座。
+
+距离“直接商用上架”的差距：
+1. 图片只能填 URL，不能本地上传/拖拽。
+2. 输出是通用 Markdown，没有平台专属版式（淘宝长页 vs 小红书笔记）。
+3. 图片位置不可精确控制。
+4. 不能导出成品（长图/HTML/富文本）。
+5. 没有 AI 生图（次要，实拍图为主时不阻塞）。
+6. 品牌/人群/调性/平台违禁词等没有输入口。
+
+## 迭代阶段
+
+### 阶段 A：接真实素材（已完成）
+- ✅ source 节点支持点击/拖拽/粘贴产品图，`POST /api/artifacts/upload` 落盘，得到 `/api/artifacts/:id` URL，带缩略图预览。
+- ✅ 多张图按顺序作为主图→细节图，仍可手动填 URL。
+- ✅ 图片作为 image artifact 流向下游视觉模型。
+
+### 阶段 B：平台专属产线模板（核心，进行中）
+- ✅ 「淘宝商品详情」模板：排版节点输出结构化 ```product-json 区块（hero/heading/bullets/imageCards/paragraph/specs/cta）。
+- ✅ 新增「小红书种草笔记」模板：卖点→种草文案→笔记排版→质检，输出同结构但 note 风格（emoji、短句、话题标签）。
+- ✅ core 新增 `ProductBlock`/`ProductDocument` schema 与 `parseProductDocument()`；`FinishedProduct` 检测到结构化块用 `ProductBlocks` 按版式渲染，否则回退 Markdown。
+- ⬜ 品牌/人群/价格带/语气/违禁词作为 source 输入字段贯穿 prompt（下一步）。
+
+### 阶段 C：导出即用
+- 成品区支持导出长图、复制富文本/HTML、下载 Markdown，可直接贴进千牛/小红书后台。
+
+### 阶段 D：AI 生图与品牌增强（后置）
+- 接生图节点（`/images/generations`），缺素材时自动出 banner/场景图。
+- 品牌词库、违禁词校验、多版本 A/B 与评估联动。
+
+## 与 ArtifactRef 的关系
+阶段 A/B 用“图片 URL 透传 + 文本流”即可支撑实拍图场景，不需要先做引擎 ArtifactRef 改造。
+等需要“图片/JSON 作为下游节点的一等结构化输入”或多模态自动拼接时，再做 3.8 的 ArtifactRef 升级。
