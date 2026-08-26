@@ -754,5 +754,12 @@ Stage B — structured product blocks:
   flows to every downstream writer. When no brief fields are set, raw input passes through
   unchanged (preserves existing test contracts). Inspector renders all fields.
   Server now 79 tests.
-- Remaining: export to long-image/HTML/rich-text (C), AI image generation (D). Engine
-  ArtifactRef upgrade still deferred until multimodal downstream inputs are needed.
+- Stage C — export to be production-ready:
+  - `lib/product-html.ts` (new): `productDocumentToHtml()` / `markdownToStandaloneHtml()`
+    render the finished product as a self-contained inline-styled HTML document; `productToHtml()`
+    picks structured vs Markdown. `productToLongImage()` inlines every `<img>` as a data URL and
+    renders the content to a 2x long PNG via an SVG `<foreignObject>` (canvas stays untainted).
+  - `FinishedProduct` toolbar now offers 导出 HTML / 导出 MD / 导出长图 / 复制富文本 / 复制原文,
+    so output can be pasted straight into QIANIU / Xiaohongshu backends.
+- Remaining: AI image generation (D). Engine ArtifactRef upgrade still deferred until multimodal
+  downstream inputs are needed.
