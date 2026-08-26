@@ -680,6 +680,46 @@ export function openDb(file: string) {
         tokens_out: number;
       }>;
 
+      const byWeek = db
+        .prepare(
+          `SELECT strftime('%Y-W%W', r.started_at / 1000, 'unixepoch', 'localtime') AS week,
+             COUNT(DISTINCT n.run_id) AS runs,
+             COALESCE(SUM(n.cost_usd), 0)   AS cost_usd,
+             COALESCE(SUM(n.tokens_in), 0)  AS tokens_in,
+             COALESCE(SUM(n.tokens_out), 0) AS tokens_out
+           FROM node_runs n JOIN runs r ON r.id = n.run_id
+           ${clause}
+           GROUP BY week
+           ORDER BY week`,
+        )
+        .all(...params) as Array<{
+        week: string;
+        runs: number;
+        cost_usd: number;
+        tokens_in: number;
+        tokens_out: number;
+      }>;
+
+      const byMonth = db
+        .prepare(
+          `SELECT strftime('%Y-%m', r.started_at / 1000, 'unixepoch', 'localtime') AS month,
+             COUNT(DISTINCT n.run_id) AS runs,
+             COALESCE(SUM(n.cost_usd), 0)   AS cost_usd,
+             COALESCE(SUM(n.tokens_in), 0)  AS tokens_in,
+             COALESCE(SUM(n.tokens_out), 0) AS tokens_out
+           FROM node_runs n JOIN runs r ON r.id = n.run_id
+           ${clause}
+           GROUP BY month
+           ORDER BY month`,
+        )
+        .all(...params) as Array<{
+        month: string;
+        runs: number;
+        cost_usd: number;
+        tokens_in: number;
+        tokens_out: number;
+      }>;
+
       // Resolve node display names from the most recent run snapshot per
       // graph. The live graph may have been renamed/deleted since, but the
       // snapshot frozen on the run always reflects what actually executed.
@@ -703,7 +743,7 @@ export function openDb(file: string) {
         node_name: nodeNames.get(`${n.graph_id}:${n.node_id}`) ?? n.node_id,
       }));
 
-      return { totals, byGraph, byNode: byNodeNamed, byAttempt, byDay };
+      return { totals, byGraph, byNode: byNodeNamed, byAttempt, byDay, byWeek, byMonth };
     },
 
     /** Raw rows for CSV export — same aggregation as costReport, flat shape. */

@@ -7,12 +7,26 @@ interface Props {
 }
 
 type Range = "7d" | "30d" | "all";
+type Granularity = "day" | "week" | "month";
 
 const RANGE_LABEL: Record<Range, string> = {
   "7d": "近 7 天",
   "30d": "近 30 天",
   all: "全部",
 };
+
+const GRAN_LABEL: Record<Granularity, string> = {
+  day: "日",
+  week: "周",
+  month: "月",
+};
+
+/** Smart default granularity based on time range. */
+function defaultGranularity(range: Range): Granularity {
+  if (range === "7d") return "day";
+  if (range === "30d") return "week";
+  return "month";
+}
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -27,8 +41,14 @@ const fmtInt = (n: number) => n.toLocaleString("en-US");
 
 export default function CostReport({ open, onClose }: Props) {
   const [range, setRange] = useState<Range>("30d");
+  const [granularity, setGranularity] = useState<Granularity>("week");
   const [report, setReport] = useState<Report | null>(null);
   const [loading, setLoading] = useState(false);
+
+  // When the range changes, pick a sensible default granularity.
+  useEffect(() => {
+    setGranularity(defaultGranularity(range));
+  }, [range]);
 
   const load = useCallback(async (r: Range) => {
     setLoading(true);
@@ -62,10 +82,26 @@ export default function CostReport({ open, onClose }: Props) {
     return `/api/costs.csv${suffix}`;
   }, [range]);
 
-  const maxDayCost = useMemo(
-    () => (report ? Math.max(1, ...report.byDay.map((d) => d.cost_usd)) : 1),
-    [report],
+  const chartData = useMemo(() => {
+    if (!report) return { rows: [] as Array<{ cost_usd: number; runs: number; day?: string; week?: string; month?: string }>, label: "日" };
+    if (granularity === "week") return { rows: report.byWeek, label: "周" };
+    if (granularity === "month") return { rows: report.byMonth, label: "月" };
+    return { rows: report.byDay, label: "日" };
+  }, [report, granularity]);
+
+  const maxChartCost = useMemo(
+    () => Math.max(1, ...chartData.rows.map((d) => d.cost_usd)),
+    [chartData],
   );
+
+  const chartLabel = (d: { day?: string; week?: string; month?: string }) => {
+    if (granularity === "week") return d.week ? d.week.slice(2) : ""; // 2026-W33 → W33
+    if (granularity === "month") return d.month ?? ""; // 2026-08
+    return d.day ? d.day.slice(5) : ""; // MM-DD
+  };
+
+  const chartKey = (d: { day?: string; week?: string; month?: string }) =>
+    d.day ?? d.week ?? d.month ?? "";
 
   if (!open) return null;
 
@@ -92,6 +128,17 @@ export default function CostReport({ open, onClose }: Props) {
                   onClick={() => setRange(r)}
                 >
                   {RANGE_LABEL[r]}
+                </button>
+              ))}
+            </div>
+            <div className="seg">
+              {(Object.keys(GRAN_LABEL) as Granularity[]).map((g) => (
+                <button
+                  key={g}
+                  className={`seg__btn ${granularity === g ? "is-on" : ""}`}
+                  onClick={() => setGranularity(g)}
+                >
+                  {GRAN_LABEL[g]}
                 </button>
               ))}
             </div>
@@ -149,21 +196,21 @@ export default function CostReport({ open, onClose }: Props) {
                 </div>
               </div>
 
-              {report.byDay.length > 0 && (
+              {chartData.rows.length > 0 && (
                 <section className="cost-section">
-                  <h3 className="cost-section__title">每日电费趋势</h3>
+                  <h3 className="cost-section__title">{chartData.label}电费趋势</h3>
                   <div className="cost-chart">
-                    {report.byDay.map((d) => (
-                      <div className="cost-chart__col" key={d.day} title={`${d.day}: ${fmtUsd(d.cost_usd)} (${d.runs} 次)`}>
+                    {chartData.rows.map((d) => (
+                      <div className="cost-chart__col" key={chartKey(d)} title={`${chartKey(d)}: ${fmtUsd(d.cost_usd)} (${d.runs} 次)`}>
                         <div className="cost-chart__bar-wrap">
                           <div
                             className="cost-chart__bar"
                             style={{
-                              height: `${Math.max(2, (d.cost_usd / maxDayCost) * 100)}%`,
+                              height: `${Math.max(2, (d.cost_usd / maxChartCost) * 100)}%`,
                             }}
                           />
                         </div>
-                        <div className="cost-chart__label">{d.day.slice(5)}</div>
+                        <div className="cost-chart__label">{chartLabel(d)}</div>
                       </div>
                     ))}
                   </div>

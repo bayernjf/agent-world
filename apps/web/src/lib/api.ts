@@ -86,6 +86,20 @@ export interface CostReport {
     tokens_in: number;
     tokens_out: number;
   }>;
+  byWeek: Array<{
+    week: string;
+    runs: number;
+    cost_usd: number;
+    tokens_in: number;
+    tokens_out: number;
+  }>;
+  byMonth: Array<{
+    month: string;
+    runs: number;
+    cost_usd: number;
+    tokens_in: number;
+    tokens_out: number;
+  }>;
 }
 
 export interface RunSummary {
@@ -114,6 +128,7 @@ export interface EvalSummary {
   passRate: number;
   avgRework: number;
   avgDurationMs: number;
+  avgScore: number;
 }
 export interface EvalReport {
   totals: EvalSummary;

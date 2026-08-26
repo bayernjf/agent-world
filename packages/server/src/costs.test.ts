@@ -78,6 +78,18 @@ describe("cost report", () => {
     const rework = rep.byAttempt.find((a) => a.attempt === 2)!;
     expect(rework.cost_usd).toBeCloseTo(0.005, 5);
     expect(rep.byDay).toHaveLength(2);
+
+    // byWeek: r1 (day 10 = W01) and r2 (day 20 = W03) fall in different weeks.
+    expect(rep.byWeek).toHaveLength(2);
+    expect(rep.byWeek[0].week).toMatch(/^\d{4}-W\d{2}$/);
+    const weekTotal = rep.byWeek.reduce((s, w) => s + w.cost_usd, 0);
+    expect(weekTotal).toBeCloseTo(0.035, 5);
+
+    // byMonth: both runs in January -> single bucket summing all cost.
+    expect(rep.byMonth).toHaveLength(1);
+    expect(rep.byMonth[0].month).toMatch(/^\d{4}-\d{2}$/);
+    expect(rep.byMonth[0].cost_usd).toBeCloseTo(0.035, 5);
+    expect(rep.byMonth[0].runs).toBe(2);
   });
 
   it("filters by time range and excludes running runs", () => {
