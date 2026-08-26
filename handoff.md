@@ -1073,3 +1073,89 @@ Stage B — structured product blocks:
 - `pnpm -r typecheck`：core + server + web 全绿
 - `pnpm -r test`：core 54 + server 234 全绿
 - `pnpm -r build`：core + server + web 构建成功
+
+---
+
+## Batch 3 — P1-6 视频/音频生成
+
+**日期**：2026-08-27
+**分支**：`feature/20260824`
+**依赖**：P1-4 ArtifactRef 升级（已完成）
+
+### 概述
+
+新增 `videoGen` 和 `audioGen` 两种节点类型，支持文本生成视频和文本生成音频（TTS）。Worker 接口新增可选方法 `generateVideo()` / `generateAudio()`，无方法时引擎 soft-fail（节点标记 done，零 usage，不阻塞流水线）。openai-compatible provider 实现了基础 API 调用：视频支持 `/videos/generations` 同步返回 + 异步轮询两种格式；音频调用 `/audio/speech` 同步返回二进制。
+
+### core 层变更
+
+**`packages/core/src/graph.ts`**
+- `NodeKind` 枚举新增 `"videoGen"` / `"audioGen"`
+- 新增 `VideoGenConfig`（model/prompt/duration/aspect/size/n/baseUrl/apiKey）
+- 新增 `AudioGenConfig`（model/prompt/voice/format/speed/n/baseUrl/apiKey）
+- `GraphNode` 新增可选字段 `videoGen` / `audioGen`
+- `compile.ts` 无需额外验证（新节点类型遵循通用 source/sink 检查和环检测）
+
+### server 层变更
+
+**`packages/server/src/worker.ts`**
+- 新增 `VideoGenArgs` / `VideoGenResult`（含 durationSec）/ `AudioGenArgs` / `AudioGenResult` 接口
+- `Worker` 接口新增可选方法 `generateVideo?()` / `generateAudio?()`（可选，无方法时引擎 soft-fail）
+- 假 worker 实现占位：返回小 buffer + 正确 mimeType，honor `n` 参数
+
+**`packages/server/src/providers/openai-compatible.ts`**
+- `generateVideo()`：POST `${endpoint}/videos/generations`，支持两种响应：
+  - 同步：`{ data: [{ b64_json?, url? }] }`（类似图片）
+  - 异步：`{ id, status: "processing" }` → 轮询 `${endpoint}/videos/${id}` 直到 succeeded/failed
+  - 300s 超时，支持 per-node baseUrl/apiKey 覆盖
+- `generateAudio()`：POST `${endpoint}/audio/speech`，请求体 `{ model, input, voice, response_format, speed }`，同步返回音频二进制，120s 超时
+
+**`packages/server/src/engine.ts`**
+- 新增 `videoGen` 处理分支（在 imageGen 之前，避免 TypeScript 类型收窄问题）：
+  - 检查 `worker.generateVideo`，无方法则 soft-fail
+  - 调用 `worker.generateVideo()` → `storeBinary()` 存储 → `artifact.produced` 事件 → `artifacts.set(nodeId, videoArts)`
+  - 错误时 soft-fail（console.warn + done + zeroUsage）
+- 新增 `audioGen` 处理分支，结构同 videoGen
+- `inputFor()` 已支持 video/audio artifact 的中文占位符 `[视频: ...]` / `[音频: ...]`（ArtifactRef 升级时已预留）
+
+### web 层变更
+
+**`apps/web/src/canvas/Plants.tsx`**
+- `KIND_LABEL` 新增 `videoGen: "AI 生视频"` / `audioGen: "AI 生音频"`
+
+**`apps/web/src/store/graph.ts`**
+- `DEFAULTS` 新增 `videoGen` / `audioGen` 默认配置
+
+**`apps/web/src/components/Inspector.tsx`**
+- 新增 `videoGen` 配置面板：模型/提示词/时长/宽高比/生成数量/自定义端点
+- 新增 `audioGen` 配置面板：模型/文本/语音/输出格式/语速/生成数量/自定义端点
+- `ArtifactChip` 已预留 video/audio 渲染（`<video>` / `<audio controls>`）
+
+**`apps/web/src/components/FinishedProduct.tsx`**
+- 已预留 video/audio 分类和渲染（`videos` / `audios` filter + `<video controls>` / `<audio controls>`）
+
+### 测试
+
+**`packages/server/src/engine.videogen.test.ts`**（4 用例）
+1. 单视频产出：artifact.produced 事件 + video/mp4 mimeType + uri
+2. 多视频 n=2：2 个 artifact.produced 事件
+3. 无 generateVideo 方法时 soft-fail：无 artifact，节点 done，流水线继续到 sink
+4. 视频流入下游 agent：inputFor 包含 `[视频: ...]` 占位符
+
+**`packages/server/src/engine.audiogen.test.ts`**（5 用例）
+1. 单音频产出：artifact.produced + audio/mpeg
+2. wav 格式：audio/wav mimeType
+3. 多音频 n=2
+4. 无 generateAudio 方法时 soft-fail
+5. 音频流入下游 agent：inputFor 包含 `[音频: ...]` 占位符
+
+### 已知限制
+
+- **视频 provider 兼容性**：OpenAI 无公开 video API，`/videos/generations` 是第三方 provider（Replicate 风格、本地 ComfyUI 包装）的非标准端点。实际接入需根据具体 provider 调整请求/响应格式
+- **音频仅支持 TTS**：`/audio/speech` 是 OpenAI 标准 TTS 端点。音乐生成（如 `/audio/music`）非标准，暂未实现
+- **假 worker 返回占位 buffer**：不是真实可播放的视频/音频文件，仅用于测试流水线和 UI 渲染
+- **视频生成慢**：默认 300s 超时，真实视频生成可能需要更长时间
+
+### Batch 3 质量门
+- `pnpm -r typecheck`：core + server + web 全绿
+- `pnpm -r test`：core 54 + server 243 全绿（新增 9 个测试）
+- `pnpm -r build`：core + server + web 构建成功

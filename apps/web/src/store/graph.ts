@@ -74,6 +74,8 @@ const DEFAULTS: Record<NodeKind, Partial<GraphNode>> = {
   },
   gate: { gate: { maxAttempts: 3, criterion: "", onExhausted: "halt" } },
   imageGen: { imageGen: { model: "agnes-image", prompt: "", n: 1 } },
+  videoGen: { videoGen: { model: "video-gen", prompt: "", n: 1 } },
+  audioGen: { audioGen: { model: "tts-1", prompt: "", format: "mp3", n: 1 } },
 };
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;

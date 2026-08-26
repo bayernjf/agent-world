@@ -6,7 +6,7 @@ import { SkillMount } from "./skill.js";
  * that keeps it executable: dropping every rework edge must leave a DAG, and each
  * rework edge must land on an ancestor of its gate within that DAG.
  */
-export const NodeKind = z.enum(["source", "agent", "gate", "sink", "imageGen"]);
+export const NodeKind = z.enum(["source", "agent", "gate", "sink", "imageGen", "videoGen", "audioGen"]);
 export type NodeKind = z.infer<typeof NodeKind>;
 
 export const EdgeKind = z.enum(["flow", "rework"]);
@@ -84,6 +84,48 @@ export const ImageGenConfig = z.object({
   apiKey: z.string().optional(),
 });
 export type ImageGenConfig = z.infer<typeof ImageGenConfig>;
+
+/** Configuration for a `videoGen` node: calls a text-to-video model to produce
+ *  a short video clip. Provider support varies; the engine soft-fails when the
+ *  worker lacks `generateVideo`. */
+export const VideoGenConfig = z.object({
+  model: z.string().min(1),
+  prompt: z.string().optional(),
+  /** Duration in seconds (provider-dependent, typically 4-15). */
+  duration: z.number().int().min(1).max(60).optional(),
+  /** Aspect ratio, e.g. "16:9" / "9:16" / "1:1". Mapped to provider params. */
+  aspect: z.enum(["16:9", "9:16", "1:1", "4:3", "3:4"]).optional(),
+  /** Resolution / size string, passed through to the provider when set. */
+  size: z.string().optional(),
+  /** How many videos to produce (1-4). Each becomes its own artifact. */
+  n: z.number().int().min(1).max(4).default(1),
+  /** Optional per-node endpoint override. */
+  baseUrl: z.string().optional(),
+  /** Optional per-node API key override. */
+  apiKey: z.string().optional(),
+});
+export type VideoGenConfig = z.infer<typeof VideoGenConfig>;
+
+/** Configuration for an `audioGen` node: calls a text-to-speech / music model
+ *  to produce audio. OpenAI `/audio/speech` is the most common compatible API. */
+export const AudioGenConfig = z.object({
+  model: z.string().min(1),
+  /** Text to synthesize (TTS) or style prompt (music generation). */
+  prompt: z.string().optional(),
+  /** Voice identifier for TTS (e.g. "alloy", "echo", "fable"). */
+  voice: z.string().optional(),
+  /** Output format, e.g. "mp3", "wav", "opus", "aac". Defaults to "mp3". */
+  format: z.enum(["mp3", "wav", "opus", "aac", "flac"]).default("mp3"),
+  /** Speed multiplier (0.25-4.0) for TTS. */
+  speed: z.number().min(0.25).max(4).optional(),
+  /** How many audio clips to produce (1-4). */
+  n: z.number().int().min(1).max(4).default(1),
+  /** Optional per-node endpoint override. */
+  baseUrl: z.string().optional(),
+  /** Optional per-node API key override. */
+  apiKey: z.string().optional(),
+});
+export type AudioGenConfig = z.infer<typeof AudioGenConfig>;
 
 export const GateConfig = z.object({
   maxAttempts: z.number().int().min(1).max(10).default(3),
@@ -188,6 +230,8 @@ export const GraphNode = z.object({
   agent: AgentConfig.optional(),
   gate: GateConfig.optional(),
   imageGen: ImageGenConfig.optional(),
+  videoGen: VideoGenConfig.optional(),
+  audioGen: AudioGenConfig.optional(),
   source: SourceConfig.optional(),
 });
 export type GraphNode = z.infer<typeof GraphNode>;

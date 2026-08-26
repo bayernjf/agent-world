@@ -1,4 +1,4 @@
-import type { AgentConfig, ContentPart, GraphNode, ImageGenConfig, Usage } from "@agent-world/core";
+import type { AgentConfig, AudioGenConfig, ContentPart, GraphNode, ImageGenConfig, Usage, VideoGenConfig } from "@agent-world/core";
 
 /** A callable tool exposed to a model, derived from a mounted skill card. */
 export interface ToolDefinition {
@@ -43,6 +43,38 @@ export interface ImageGenResult {
   usage: Usage;
 }
 
+/** Arguments for a text-to-video generation request. */
+export interface VideoGenArgs {
+  node: GraphNode;
+  config: VideoGenConfig;
+  input: string;
+  signal?: AbortSignal;
+}
+
+/** Raw generated video bytes plus metering. */
+export interface VideoGenResult {
+  data: Buffer;
+  mimeType: string;
+  /** Duration in seconds, when the provider reports it. */
+  durationSec?: number;
+  usage: Usage;
+}
+
+/** Arguments for a text-to-audio / TTS generation request. */
+export interface AudioGenArgs {
+  node: GraphNode;
+  config: AudioGenConfig;
+  input: string;
+  signal?: AbortSignal;
+}
+
+/** Raw generated audio bytes plus metering. */
+export interface AudioGenResult {
+  data: Buffer;
+  mimeType: string;
+  usage: Usage;
+}
+
 /**
  * The seam between orchestration and model calls. The engine only knows this
  * interface, so the fake worker used for wiring up the canvas and a real
@@ -81,6 +113,19 @@ export interface Worker {
 
   /** Generates one or more images (banner / scene) from a prompt. Used by `imageGen` nodes. */
   generateImage(args: ImageGenArgs): Promise<ImageGenResult[]>;
+
+  /**
+   * Generates one or more short video clips from a prompt. Used by `videoGen` nodes.
+   * Optional: when absent the engine soft-fails the node (no error, zero usage),
+   * so providers without video support still work.
+   */
+  generateVideo?(args: VideoGenArgs): Promise<VideoGenResult[]>;
+
+  /**
+   * Generates audio (TTS / music) from text. Used by `audioGen` nodes.
+   * Optional: soft-fails when absent, same as generateVideo.
+   */
+  generateAudio?(args: AudioGenArgs): Promise<AudioGenResult[]>;
 
   /**
    * Compresses `text` to roughly `maxChars` characters (LLM rolling summary).
@@ -171,6 +216,31 @@ export function fakeWorker(opts: { failFirstAttempts?: number; chunkDelayMs?: nu
         data: png,
         mimeType: "image/png",
         usage: { tokensIn: 0, tokensOut: 0, costUsd: 0, units: { images: 1 } },
+      }));
+    },
+
+    // Deterministic placeholder video (tiny mp4-ish buffer) so canvas wiring +
+    // tests work without a live video backend. Honors `n`.
+    async generateVideo({ config }: VideoGenArgs) {
+      const n = Math.min(4, Math.max(1, Math.trunc(config.n ?? 1)));
+      const placeholder = Buffer.from(`fake-video-${config.model ?? "default"}`);
+      return Array.from({ length: n }, (_, i) => ({
+        data: placeholder,
+        mimeType: "video/mp4",
+        durationSec: config.duration ?? 5,
+        usage: { tokensIn: 0, tokensOut: 0, costUsd: 0, units: { seconds: config.duration ?? 5 } },
+      }));
+    },
+
+    // Deterministic placeholder audio (tiny mp3-ish buffer) for TTS / music nodes.
+    async generateAudio({ config }: AudioGenArgs) {
+      const n = Math.min(4, Math.max(1, Math.trunc(config.n ?? 1)));
+      const placeholder = Buffer.from(`fake-audio-${config.voice ?? "default"}`);
+      const mime = config.format === "wav" ? "audio/wav" : config.format === "opus" ? "audio/ogg" : "audio/mpeg";
+      return Array.from({ length: n }, () => ({
+        data: placeholder,
+        mimeType: mime,
+        usage: { tokensIn: 0, tokensOut: 0, costUsd: 0, units: {} },
       }));
     },
 

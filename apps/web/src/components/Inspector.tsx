@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { UNIT_LABELS, artifactLabel, type Artifact, type Graph } from "@agent-world/core";
+import { UNIT_LABELS, artifactLabel, type Artifact, type AudioGenConfig, type Graph, type VideoGenConfig } from "@agent-world/core";
 import { api, type AppConfig } from "../lib/api";
 import { useGraph } from "../store/graph";
 import { useVisibleRuntime } from "../store/run";
@@ -569,6 +569,261 @@ export default function Inspector() {
                   onBlur={commitEdit}
                   onChange={(e) =>
                     updateNode(node.id, { imageGen: { ...node.imageGen!, apiKey: e.target.value || undefined } })
+                  }
+                />
+              </label>
+            </details>
+          </>
+        )}
+
+        {node.kind === "videoGen" && node.videoGen && (
+          <>
+            <label className="field">
+              <span>视频模型</span>
+              <input
+                type="text"
+                placeholder="如：video-gen / sora / runway-gen3"
+                value={node.videoGen.model}
+                onFocus={beginEdit}
+                onBlur={commitEdit}
+                onChange={(e) =>
+                  updateNode(node.id, { videoGen: { ...node.videoGen!, model: e.target.value } })
+                }
+              />
+            </label>
+            <label className="field">
+              <span>视频提示词（留空则用上游文本）</span>
+              <textarea
+                rows={4}
+                placeholder="如：产品在阳光下旋转展示，背景为渐变色"
+                value={node.videoGen.prompt ?? ""}
+                onFocus={beginEdit}
+                onBlur={commitEdit}
+                onChange={(e) =>
+                  updateNode(node.id, { videoGen: { ...node.videoGen!, prompt: e.target.value } })
+                }
+              />
+            </label>
+            <div className="field-row">
+              <label className="field">
+                <span>时长 (秒)</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={60}
+                  placeholder="5"
+                  value={node.videoGen.duration ?? ""}
+                  onFocus={beginEdit}
+                  onBlur={commitEdit}
+                  onChange={(e) =>
+                    updateNode(node.id, {
+                      videoGen: {
+                        ...node.videoGen!,
+                        duration: e.target.value ? Math.min(60, Math.max(1, Number(e.target.value))) : undefined,
+                      },
+                    })
+                  }
+                />
+              </label>
+              <label className="field">
+                <span>宽高比</span>
+                <select
+                  className="select"
+                  value={node.videoGen.aspect ?? ""}
+                  onChange={(e) =>
+                    updateNode(node.id, {
+                      videoGen: { ...node.videoGen!, aspect: (e.target.value || undefined) as VideoGenConfig["aspect"] },
+                    })
+                  }
+                >
+                  <option value="">默认</option>
+                  <option value="16:9">16:9 横屏</option>
+                  <option value="9:16">9:16 竖屏</option>
+                  <option value="1:1">1:1 方形</option>
+                  <option value="4:3">4:3</option>
+                  <option value="3:4">3:4</option>
+                </select>
+              </label>
+            </div>
+            <label className="field">
+              <span>生成数量 (1–4)</span>
+              <input
+                type="number"
+                min={1}
+                max={4}
+                value={node.videoGen.n ?? 1}
+                onFocus={beginEdit}
+                onBlur={commitEdit}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    videoGen: {
+                      ...node.videoGen!,
+                      n: Math.min(4, Math.max(1, Number(e.target.value) || 1)),
+                    },
+                  })
+                }
+              />
+            </label>
+            <details className="adv">
+              <summary>自定义端点（可选）</summary>
+              <label className="field">
+                <span>视频端点 baseURL</span>
+                <input
+                  type="text"
+                  placeholder="https://your-video-server/v1"
+                  value={node.videoGen.baseUrl ?? ""}
+                  onFocus={beginEdit}
+                  onBlur={commitEdit}
+                  onChange={(e) =>
+                    updateNode(node.id, { videoGen: { ...node.videoGen!, baseUrl: e.target.value || undefined } })
+                  }
+                />
+              </label>
+              <label className="field">
+                <span>密钥（可选）</span>
+                <input
+                  type="password"
+                  placeholder="sk-..."
+                  value={node.videoGen.apiKey ?? ""}
+                  onFocus={beginEdit}
+                  onBlur={commitEdit}
+                  onChange={(e) =>
+                    updateNode(node.id, { videoGen: { ...node.videoGen!, apiKey: e.target.value || undefined } })
+                  }
+                />
+              </label>
+            </details>
+          </>
+        )}
+
+        {node.kind === "audioGen" && node.audioGen && (
+          <>
+            <label className="field">
+              <span>音频模型</span>
+              <input
+                type="text"
+                placeholder="如：tts-1 / tts-1-hd / music-gen"
+                value={node.audioGen.model}
+                onFocus={beginEdit}
+                onBlur={commitEdit}
+                onChange={(e) =>
+                  updateNode(node.id, { audioGen: { ...node.audioGen!, model: e.target.value } })
+                }
+              />
+            </label>
+            <label className="field">
+              <span>文本 / 提示词（留空则用上游文本）</span>
+              <textarea
+                rows={4}
+                placeholder="TTS：要朗读的文本；音乐：风格描述"
+                value={node.audioGen.prompt ?? ""}
+                onFocus={beginEdit}
+                onBlur={commitEdit}
+                onChange={(e) =>
+                  updateNode(node.id, { audioGen: { ...node.audioGen!, prompt: e.target.value } })
+                }
+              />
+            </label>
+            <div className="field-row">
+              <label className="field">
+                <span>语音 (TTS)</span>
+                <input
+                  type="text"
+                  placeholder="alloy / echo / fable..."
+                  value={node.audioGen.voice ?? ""}
+                  onFocus={beginEdit}
+                  onBlur={commitEdit}
+                  onChange={(e) =>
+                    updateNode(node.id, { audioGen: { ...node.audioGen!, voice: e.target.value || undefined } })
+                  }
+                />
+              </label>
+              <label className="field">
+                <span>输出格式</span>
+                <select
+                  className="select"
+                  value={node.audioGen.format ?? "mp3"}
+                  onChange={(e) =>
+                    updateNode(node.id, {
+                      audioGen: { ...node.audioGen!, format: e.target.value as AudioGenConfig["format"] },
+                    })
+                  }
+                >
+                  <option value="mp3">mp3</option>
+                  <option value="wav">wav</option>
+                  <option value="opus">opus</option>
+                  <option value="aac">aac</option>
+                  <option value="flac">flac</option>
+                </select>
+              </label>
+            </div>
+            <div className="field-row">
+              <label className="field">
+                <span>语速 (0.25–4.0)</span>
+                <input
+                  type="number"
+                  min={0.25}
+                  max={4}
+                  step={0.25}
+                  placeholder="1.0"
+                  value={node.audioGen.speed ?? ""}
+                  onFocus={beginEdit}
+                  onBlur={commitEdit}
+                  onChange={(e) =>
+                    updateNode(node.id, {
+                      audioGen: {
+                        ...node.audioGen!,
+                        speed: e.target.value ? Math.min(4, Math.max(0.25, Number(e.target.value))) : undefined,
+                      },
+                    })
+                  }
+                />
+              </label>
+              <label className="field">
+                <span>生成数量 (1–4)</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={4}
+                  value={node.audioGen.n ?? 1}
+                  onFocus={beginEdit}
+                  onBlur={commitEdit}
+                  onChange={(e) =>
+                    updateNode(node.id, {
+                      audioGen: {
+                        ...node.audioGen!,
+                        n: Math.min(4, Math.max(1, Number(e.target.value) || 1)),
+                      },
+                    })
+                  }
+                />
+              </label>
+            </div>
+            <details className="adv">
+              <summary>自定义端点（可选）</summary>
+              <label className="field">
+                <span>音频端点 baseURL</span>
+                <input
+                  type="text"
+                  placeholder="https://your-audio-server/v1"
+                  value={node.audioGen.baseUrl ?? ""}
+                  onFocus={beginEdit}
+                  onBlur={commitEdit}
+                  onChange={(e) =>
+                    updateNode(node.id, { audioGen: { ...node.audioGen!, baseUrl: e.target.value || undefined } })
+                  }
+                />
+              </label>
+              <label className="field">
+                <span>密钥（可选）</span>
+                <input
+                  type="password"
+                  placeholder="sk-..."
+                  value={node.audioGen.apiKey ?? ""}
+                  onFocus={beginEdit}
+                  onBlur={commitEdit}
+                  onChange={(e) =>
+                    updateNode(node.id, { audioGen: { ...node.audioGen!, apiKey: e.target.value || undefined } })
                   }
                 />
               </label>
