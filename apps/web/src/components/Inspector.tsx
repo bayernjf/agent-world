@@ -377,7 +377,7 @@ export default function Inspector() {
                       ...node.agent!,
                       inputPolicy: {
                         ...(node.agent!.inputPolicy ?? { mode: "all" as const }),
-                        mode: e.target.value as "all" | "last" | "truncate",
+                        mode: e.target.value as "all" | "last" | "truncate" | "summary",
                       },
                     },
                   })
@@ -386,9 +386,11 @@ export default function Inspector() {
                 <option value="all">全部拼接（默认）</option>
                 <option value="last">仅最近上游</option>
                 <option value="truncate">截断保留尾部</option>
+                <option value="summary">摘要压缩（超阈值时）</option>
               </select>
             </label>
-            {node.agent.inputPolicy?.mode === "truncate" && (
+            {(node.agent.inputPolicy?.mode === "truncate" ||
+              node.agent.inputPolicy?.mode === "summary") && (
               <label className="field">
                 <span>最大字符数</span>
                 <input
@@ -401,7 +403,7 @@ export default function Inspector() {
                       agent: {
                         ...node.agent!,
                         inputPolicy: {
-                          mode: "truncate",
+                          mode: node.agent?.inputPolicy?.mode ?? "truncate",
                           maxChars: Number(e.target.value),
                         },
                       },
