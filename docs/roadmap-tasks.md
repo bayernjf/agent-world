@@ -525,3 +525,104 @@
 - 自研 V8 isolate 沙箱（子进程足够）
 - 信任 prompt 层安全承诺（"告诉模型别做坏事"不是沙箱）
 - 对模型输出用 eval/new Function
+
+---
+
+## 阶段 6（建议）：内容线收尾 — 图片位置精确控制
+
+> 目标：让排版节点产出的图片能精确控制**位置/尺寸/版式**，而不是只能 `![](url)` 内联。
+> 对应 `docs/product-content-roadmap.md` 差距 #3（图片位置不可精确控制）。
+> 当前 `ProductBlock` 的 `image` / `imageCards` 仅有 `url`（cards 含 `title`），无位置/尺寸语义。
+> 依赖顺序：6.1 → 6.2 → 6.3 → 6.5 → 6.6；6.4 为可选 P1，可并行。
+
+- [x] 6.1 `ProductBlock` schema 扩展（`packages/core/src/product.ts`）
+  - [x] `image` 区块新增可选：`align`(left|right|center|full)、`width`(px 或 "N%")、`aspect`(1:1|3:4|4:3|16:9)、`rounded?`(bool)、`caption?`(string)
+  - [x] `imageCards` 新增可选：`layout`(grid|carousel|row)、`columns?`(2|3)、每卡可选 `span?`(1|2)
+  - [x] zod 向后兼容：旧 product-json（无这些字段）仍合法解析
+  - [x] 退出标准：`parseProductDocument` 对带/不带新字段的文档都通过校验
+
+- [x] 6.2 成品渲染（`apps/web/src/components/ProductBlocks.tsx` + `styles.css`）
+  - [x] `image` 按 `align/width/aspect/rounded/caption` 用 design tokens 的 CSS 渲染，区分淘宝 vs 小红书版式
+  - [x] `imageCards` 按 `layout` 走网格/轮播/横排；`carousel` 用原生 CSS scroll-snap（不引依赖）
+  - [x] `aspect` 用 `aspect-ratio` 控制占位，避免图片加载抖动
+  - [x] 退出标准：同一 product-json 在两种模板下渲染出可控位置/尺寸
+
+- [x] 6.3 排版 agent prompt 注入位置语义
+  - [x] 淘宝/小红书布局节点的 system prompt 增加"为每个图片区块标注 `align/width/aspect`"指引
+  - [x] `imageGen` 节点 `ImageGenConfig` 新增 `aspect`，provider 按 `aspect` → `size` 映射（如 3:4 → 768x1024），生图比例贴合版式
+  - [x] 退出标准：模板 prompt 已生成含位置字段的示例；provider 单测通过
+
+- [x] 6.4 Inspector 手动微调（可选 P1，**已做**）
+  - [x] `AgentConfig` 新增 `imageDirectives`；engine 在组装 agent prompt 时追加（下次运行生效）
+  - [x] 排版/布局 agent 节点的 Inspector 增加「排版指令」输入框，写回 `node.agent.imageDirectives`
+  - [x] 新增 `withLayoutDirectives` 单测
+  - [x] 退出标准：在 Inspector 写入指令后重跑，agent 收到的 prompt 含该指令 → 影响下次渲染
+
+- [x] 6.5 测试
+  - [x] `product.ts`：新字段解析 + 向后兼容（core 测试，2 个新用例）
+  - [x] `ProductBlocks` 渲染类型校验（web `tsc --noEmit` + 构建通过）
+  - [x] 退出标准：`pnpm -r test` 全绿（core 48 / server 96）
+
+- [x] 6.6 文档更新
+  - [x] 本文件 阶段 6 勾选已完成项
+  - [x] `docs/product-content-roadmap.md` 差距 #3 标注已解决
+  - [x] 退出标准：文档与实现一致
+
+---
+
+## 阶段 4A（建议）：触发方式 — 让产线自动跑
+
+> 目标：产线不再只能手动点"运行"，支持 webhook / 定时(cron) / 事件 / 批量 触发，并能把触发 payload 作为 source 输入。
+> 属于 roadmap 阶段 4 的"触发方式"子块。本段只覆盖触发，不含 Connector（见 4B）、Worker 插件化、MCP、存储抽象、人机协作、文档社区、工程化（均为阶段 4 其余子块）。
+
+依赖：4A.1 → 4A.2 → (4A.3 | 4A.4 | 4A.5 | 4A.6) → 4A.7 → 4A.8
+
+- [x] 4A.1 触发模型（`packages/core/src/graph.ts`）
+  - [x] 新增 `TriggerConfig` zod：`type`(manual|webhook|cron|event|batch)、`cron?`(表达式)、`webhookSecret?`、`eventSource?`(graphId/artifact)、`batch?`(csv/数组来源)
+  - [x] graph 级 `triggers?: TriggerConfig[]`
+  - [x] 退出标准：`compileGraph` 接受带 triggers 的 graph；旧 graph 无 triggers 仍合法
+- [x] 4A.2 触发器服务（`packages/server/src/triggers.ts`）：内存索引 + 持久化到 `graph.triggers`，启动 `restore()` 恢复；暴露 `fire(graphId, payload?)` / `fireWebhook(graphId, secret, payload?)`，复用共享 `startRun`（run.ts）
+  - [x] 退出标准：单测可注册 / 触发 / 列出 triggers（triggers.test.ts）
+- [x] 4A.3 Webhook 端点（`packages/server` api）：`POST /api/graphs/:id/webhook` 校验 `webhookSecret`，payload 作为 source 输入启动运行；附带触发器 CRUD（GET/POST `/api/graphs/:id/triggers`、DELETE `/api/graphs/:id/triggers/:tid`）
+- [x] 4A.4 定时触发（cron）：`cron.ts` 最小 5 段求值器（UTC，`*`/`?`/`,`/`-`/`/n`，闰年/周末正确）+ `scheduler.ts` 启动扫描 cron、按下次运行时间设计时器、触发后从 now 重排；重启由 `restore()` 从表达式重算（禁用触发器跳过）；`/api/graphs/:id/triggers` 的 upsert/delete 同步/取消调度（cron.test.ts / scheduler.test.ts）
+- [x] 4A.5 事件触发：`triggers.onGraphFinished(graphId, status)` / `onArtifact(artifactId)` 在 run 完成/产出 artifact 时由 run.ts 回调触发；仅 status==="completed" 触发 graph 事件；匹配 `eventSource` 的下游 graph（triggers.test.ts）
+- [x] 4A.6 批量触发：`triggers.fireBatch(triggerId, payload?)` 从 `batch.rows` 或 CSV(path) 或 payload 数组逐行启动运行，默认并发 4 限流；`POST /api/graphs/:id/triggers/:tid/fire` 手动触发（批量返回 runIds）；含 CSV 解析（triggers.test.ts）
+- [ ] 4A.7 UI：触发器配置（独立 Triggers 标签或 Inspector），显示下次运行时间、手动触发、最近运行历史
+- [ ] 4A.8 测试 + 文档（roadmap 阶段 4 触发子块勾选）
+
+## 阶段 4B（建议）：Connector 数据源 — 从真实数据源拉料
+
+> 目标：source 节点能从文件 / HTTP / 表单 拉真实原料，而不是只能手动填文本框。
+> 属于 roadmap 阶段 4 的"Connector 数据源"子块。S3 等远程存储归 阶段 4E（artifact 存储抽象），本段先做本地文件 + HTTP + 表单。
+
+依赖：4B.1 → 4B.2/4B.3/4B.4 → 4B.5 → 4B.6 → 4B.7
+
+- [x] 4B.1 Connector 抽象（`packages/core/src/graph.ts`）：`ConnectorConfig` zod — `type`(manual|file|http|form)、`file?`(path/glob/encoding)、`http?`(url/method/headers/auth/extract)、`form?`(字段 schema)
+  - [x] source 节点增加可选 `connector?: ConnectorConfig`（升级原预留占位 `{type,config}` 为类型化 schema）
+  - [x] 退出标准：`compileGraph` 接受；旧 source（无 connector）仍合法
+- [x] 4B.2 文件 Connector（`packages/server`）：读本地文件/目录，按 glob 收集文本与图片，作为 source 输入（text + images）
+- [x] 4B.3 HTTP Connector（`packages/server`）：GET/POST 拉 JSON/HTML/文本，可选字段提取 → source 文本；支持 Bearer/Basic auth 与错误处理（非 2xx 抛错）
+- [x] 4B.4 表单 Connector（UI）：运行前弹出字段表单（FormConnectorModal），提交值经 `connectorValues` 注入 source 文本
+- [x] 4B.5 source 装配（`packages/server/src/engine.ts`）：跑 source 节点时若配了 connector，先拉数据再喂下游；失败重试 2 次后给清晰错误（errorCode=CONNECTOR），不扩散为未捕获异常
+- [x] 4B.6 UI：source 节点 Inspector 增加 Connector 选择 + 配置（文件 / HTTP / 表单，含 glob、auth、字段提取、请求头/体）；运行前表单弹窗
+- [ ] 4B.7 测试 + 文档（roadmap 阶段 4 Connector 子块勾选）
+
+## 阶段 E（建议）：引擎表达力增强 — 摘要 / 模块卡 / 契约卡 / 人工确认
+
+> 目标：增强 agent 的表达力与可控性。对应 roadmap 2.1（滚动摘要）、2.2（Prompt 模块卡 / 输出契约卡 / 危险操作人工确认）。
+> 2.1 / 2.2 当前均为"延后 / 未勾"。E.1–E.4 相互独立，可并行。
+
+- [ ] E.1 滚动摘要（roadmap 2.1）
+  - [ ] 上游输入超阈值（字符 / token）时，用 LLM 摘要压缩后再拼接，而非硬 `truncate`
+  - [ ] 可配置摘要预算（maxChars）与是否启用；摘要失败回退 `truncate`
+  - [ ] 退出标准：长产线单测显示超长输入被摘要而不是截断
+- [ ] E.2 Prompt 模块卡（roadmap 2.2）
+  - [ ] 装备(equip)的模块卡，其 prompt 在运行期自动拼进 agent system prompt（支持多级 equip 依赖 + 去重）
+  - [ ] 退出标准：被 equip 的模块卡内容出现在 agent 收到的 prompt 中（单测）
+- [ ] E.3 输出契约卡（roadmap 2.2）
+  - [ ] 节点可声明输出 schema（zod / JSON schema）；引擎校验 agent 输出，不达标触发 rework（复用现有 rework 机制）
+  - [ ] 退出标准：输出不符契约时自动返工达到上限
+- [ ] E.4 危险操作人工确认（roadmap 2.2）
+  - [ ] 写文件 / 外部网络 / 删除类 tool 首次调用走 halt，暂停运行等人 approve/deny，再续跑
+  - [ ] 需要人机协作暂停 / 恢复机制（事件 + 恢复点）
+  - [ ] 退出标准：危险 tool 调用被暂停且需人工确认后才继续（单测或手动验证）

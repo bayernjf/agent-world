@@ -15,7 +15,7 @@
 距离“直接商用上架”的差距：
 1. 图片只能填 URL，不能本地上传/拖拽。
 2. 输出是通用 Markdown，没有平台专属版式（淘宝长页 vs 小红书笔记）。
-3. 图片位置不可精确控制。
+3. 图片位置不可精确控制。**（已解决：阶段 6 已支持 `image` 的 `align/width/aspect/rounded` 与 `imageCards` 的 `layout/columns/span`，见 `docs/roadmap-tasks.md`）**
 4. 不能导出成品（长图/HTML/富文本）。
 5. AI 生图节点已接入（缺素材时自动出 banner/场景图，支持数量与节点级端点覆盖）。
 6. 品牌/人群/调性/平台违禁词等已有输入口（source 字段），且违禁词已在 gate 确定性拦截；品牌词库、多版本 A/B、评估联动、AI 生图节点均已实现。
