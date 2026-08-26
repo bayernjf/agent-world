@@ -19,6 +19,7 @@ import { useTips } from "./store/tips";
 import FailurePanel from "./components/FailurePanel";
 import CostReport from "./components/CostReport";
 import EvalReport from "./components/EvalReport";
+import ProductGallery from "./components/ProductGallery";
 import { api } from "./lib/api";
 import { useGraph } from "./store/graph";
 import { useRun } from "./store/run";
@@ -42,6 +43,7 @@ export default function App() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [costOpen, setCostOpen] = useState(false);
   const [evalOpen, setEvalOpen] = useState(false);
+  const [galleryOpen, setGalleryOpen] = useState(false);
   const tipsEnabled = useTips((s) => s.enabled);
   const toggleTips = useTips((s) => s.toggle);
   const bothCollapsed = controlCollapsed && inspectorCollapsed;
@@ -269,6 +271,11 @@ export default function App() {
               评估
             </button>
           </Tooltip>
+          <Tooltip content="成品库">
+            <button className="chip" onClick={() => setGalleryOpen(true)}>
+              成品
+            </button>
+          </Tooltip>
           <button className="chip" onClick={() => addNode("agent", 300, 480)}>
             + 厂房
           </button>
@@ -328,6 +335,7 @@ export default function App() {
       <RunHistory open={historyOpen} onClose={() => setHistoryOpen(false)} />
       <CostReport open={costOpen} onClose={() => setCostOpen(false)} />
       <EvalReport open={evalOpen} onClose={() => setEvalOpen(false)} graphId={graph.id} />
+      <ProductGallery open={galleryOpen} onClose={() => setGalleryOpen(false)} />
       <Toast />
       <Settings open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       <NewGraphDialog

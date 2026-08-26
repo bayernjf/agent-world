@@ -115,6 +115,20 @@ export interface EvalReport {
   >;
 }
 
+export interface StoredArtifact {
+  id: string;
+  runId: string;
+  nodeId: string;
+  attempt: number | null;
+  kind: "text" | "image" | "video" | "audio" | "file" | "json" | "uri";
+  mimeType: string | null;
+  label: string | null;
+  sizeBytes: number;
+  storage: "inline" | "uri" | "local";
+  uri: string | null;
+  createdAt: number;
+}
+
 export const api = {
   listTemplates: () =>
     fetch("/api/templates").then(
@@ -212,6 +226,12 @@ export const api = {
     const suffix = qs.toString() ? `?${qs.toString()}` : "";
     return fetch(`/api/eval${suffix}`).then(json<EvalReport>);
   },
+
+  listArtifacts: (limit = 100, offset = 0) =>
+    fetch(`/api/artifacts?limit=${limit}&offset=${offset}`).then(json<StoredArtifact[]>),
+
+  listRunArtifacts: (runId: string) =>
+    fetch(`/api/runs/${runId}/artifacts`).then(json<StoredArtifact[]>),
 
   getSettings: () => fetch("/api/settings").then(json<AppConfig>),
 
