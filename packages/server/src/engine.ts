@@ -90,6 +90,28 @@ function assembleInput(
   return body;
 }
 
+/**
+ * Build the source brief: the raw material fed at run time plus the structured
+ * product/brand/audience fields configured on the source node. This text flows
+ * downstream as the first node's artifact, so every writer sees it.
+ */
+function buildSourceBrief(node: GraphNode, sourceInput: string | undefined): string {
+  const src = node.source;
+  const lines: string[] = [];
+  if (src?.productName) lines.push(`商品名称：${src.productName}`);
+  if (src?.brand) lines.push(`品牌/店铺：${src.brand}`);
+  if (src?.audience) lines.push(`目标人群：${src.audience}`);
+  if (src?.priceRange) lines.push(`价格定位：${src.priceRange}`);
+  if (src?.tone) lines.push(`语气调性：${src.tone}`);
+  if (src?.prohibited?.trim()) lines.push(`禁用词/禁用说法：${src.prohibited.trim()}`);
+  if (src?.notes?.trim()) lines.push(`补充说明：${src.notes.trim()}`);
+  const raw = sourceInput?.trim();
+  const hasBrief = lines.length > 0;
+  if (raw) lines.push(hasBrief ? `商品描述/原料:\n${raw}` : raw);
+  if (lines.length === 0) return `Task intake at ${node.name}`;
+  return lines.join("\n");
+}
+
 /** Simple async event queue so many concurrent node workers can feed one ordered stream. */
 class EventQueue {
   private items: RunEvent[] = [];
@@ -259,14 +281,14 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       if (node.kind === "source" || node.kind === "sink") {
         const output =
           node.kind === "source"
-            ? opts.sourceInput?.trim() || `Task intake at ${node.name}`
+            ? buildSourceBrief(node, opts.sourceInput)
             : inputFor(node);
         artifacts.set(nodeId, output);
         states.set(nodeId, "done");
         emit({ type: "node.started", nodeId, attempt });
         emit({ type: "node.finished", nodeId, attempt, output, usage: zeroUsage() });
         let primaryKind: Artifact["kind"] | undefined;
-        if (node.kind === "source" && node.source?.images.length) {
+        if (node.kind === "source" && node.source?.images?.length) {
           for (const [i, url] of node.source.images.entries()) {
             const a: Artifact = { id: `${nodeId}-img${i}`, kind: "image", uri: url };
             emit({ type: "artifact.produced", nodeId, artifact: a });

@@ -68,7 +68,21 @@ export type GateConfig = z.infer<typeof GateConfig>;
 
 export const SourceConfig = z.object({
   /** Reference image URLs fed to vision-capable downstream agents. */
-  images: z.array(z.string()).default([]),
+  images: z.array(z.string()).optional(),
+  /** Product name / short title used in generated content. */
+  productName: z.string().optional(),
+  /** Brand or shop name. */
+  brand: z.string().optional(),
+  /** Target audience, e.g. "20-30岁通勤女生". */
+  audience: z.string().optional(),
+  /** Price positioning, e.g. "中端 99-199 元". */
+  priceRange: z.string().optional(),
+  /** Desired tone, e.g. "真诚种草、口语化". */
+  tone: z.string().optional(),
+  /** Comma/newline separated words or claims that must not appear. */
+  prohibited: z.string().optional(),
+  /** Free-form extra notes for the writers. */
+  notes: z.string().optional(),
   /** Reserved for future connectors (file/api/database/webhook). */
   connector: z
     .object({

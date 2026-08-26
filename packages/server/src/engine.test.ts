@@ -187,6 +187,65 @@ describe("execute", () => {
     ]);
   });
 
+  it("feeds structured source brief fields to downstream agents", async () => {
+    const graph = Graph.parse({
+      id: "brief",
+      name: "brief",
+      nodes: [
+        {
+          id: "src",
+          kind: "source",
+          name: "SRC",
+          x: 0,
+          y: 0,
+          source: { productName: "真丝睡裙", brand: "绫LINGERIE", audience: "25-35岁女性", tone: "高级感性" },
+        },
+        {
+          id: "forge",
+          kind: "agent",
+          name: "FORGE",
+          x: 1,
+          y: 0,
+          agent: { model: "test", prompt: "", skills: [] },
+        },
+        { id: "depot", kind: "sink", name: "DEPOT", x: 2, y: 0 },
+      ],
+      edges: [
+        { id: "e1", from: "src", to: "forge", kind: "flow" },
+        { id: "e2", from: "forge", to: "depot", kind: "flow" },
+      ],
+    });
+
+    let capturedInput = "";
+    const capturing = {
+      ...fakeWorker({ chunkDelayMs: 0 }),
+      async *runAgent(args: Parameters<ReturnType<typeof fakeWorker>["runAgent"]>[0]) {
+        capturedInput = args.input;
+        return yield* fakeWorker({ chunkDelayMs: 0 }).runAgent(args);
+      },
+    };
+
+    const { plan } = compile(graph);
+    const events = [];
+    for await (const e of execute({
+      runId: "r",
+      graph,
+      plan: plan!,
+      worker: capturing,
+      input: "这是原料描述",
+      now: clock,
+    })) {
+      events.push(e);
+    }
+    expect(replay(events).status).toBe("done");
+    expect(capturedInput).toContain("商品名称：真丝睡裙");
+    expect(capturedInput).toContain("品牌/店铺：绫LINGERIE");
+    expect(capturedInput).toContain("目标人群：25-35岁女性");
+    expect(capturedInput).toContain("语气调性：高级感性");
+    expect(capturedInput).toContain("商品描述/原料:");
+    expect(capturedInput).toContain("这是原料描述");
+  });
+
   it("emits artifact.produced when agent output contains image URLs", async () => {
     const graph: Graph = {
       id: "art",
