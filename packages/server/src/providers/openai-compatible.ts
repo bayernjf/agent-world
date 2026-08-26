@@ -400,7 +400,13 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
 
     async generateImage({ config, input, signal }) {
       const model = config.model || "agnes-image";
-      const size = config.size || "1024x1024";
+      const ASPECT_TO_SIZE: Record<string, string> = {
+        "1:1": "1024x1024",
+        "3:4": "768x1024",
+        "4:3": "1024x768",
+        "16:9": "1024x576",
+      };
+      const size = config.size || (config.aspect ? ASPECT_TO_SIZE[config.aspect] : "1024x1024");
       const n = Math.min(8, Math.max(1, Math.trunc(config.n ?? 1)));
       // Per-node endpoint / key override lets an imageGen node target a different
       // server (e.g. a local SD / ComfyUI OpenAI-compatible endpoint) than chat.

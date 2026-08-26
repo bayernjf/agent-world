@@ -15,6 +15,17 @@ import type { Worker } from "./worker.js";
 import { ProviderError } from "./providers/openai-compatible.js";
 import { sanitizeError } from "./sanitize.js";
 import { resolveTools, executeBuiltinTool } from "./skills/registry.js";
+import { resolveConnector } from "./connectors.js";
+
+/**
+ * Append free-text layout directives (manual image-position overrides) to an
+ * agent's base prompt. Returns the prompt unchanged when no directives exist.
+ */
+export function withLayoutDirectives(base: string, directives?: string): string {
+  const d = directives?.trim();
+  if (!d) return base;
+  return `${base}\n\n排版附加要求（必须遵守）：\n${d}`;
+}
 
 /**
  * Reference images originate at source nodes and flow downstream through
@@ -43,6 +54,8 @@ export interface ExecuteOptions {
   worker: Worker;
   /** Raw material fed to the source node. Falls back to a placeholder. */
   input?: string;
+  /** Answers for `form` connectors, keyed by field name (filled at run time). */
+  connectorValues?: Record<string, string>;
   /** Hard ceiling. Cost is metered after each call, so this trips late by one node. */
   budgetUsd: number | null;
   /**
@@ -67,6 +80,10 @@ type Status = "done" | "failed" | "halted" | "tripped" | "cancelled";
 type NodeState = "pending" | "running" | "done" | "failed";
 
 const RETRYABLE: ReadonlySet<string> = new Set(["TIMEOUT", "RATE_LIMIT", "PROVIDER_ERROR"]);
+
+/** Connector pull resilience: how many extra attempts and the gap between them. */
+const CONNECTOR_MAX_RETRIES = 2;
+const CONNECTOR_RETRY_DELAY_MS = 1000;
 /** Max plants welding at once. Keeps a burst of parallel branches from hammering the provider. */
 const MAX_CONCURRENCY = 6;
 
@@ -279,6 +296,8 @@ interface SchedulerOptions {
   fallbackModel: string;
   startSeq: number;
   sourceInput?: string;
+  /** Answers for `form` connectors, keyed by field name. Filled at run time (UI/webhook). */
+  connectorValues?: Record<string, string>;
   signal?: AbortSignal;
   now: () => number;
   sleep: (ms: number) => Promise<void>;
@@ -396,17 +415,54 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
 
     try {
       if (node.kind === "source" || node.kind === "sink") {
-        const output =
-          node.kind === "source"
-            ? buildSourceBrief(node, opts.sourceInput)
-            : inputFor(node);
+        if (node.kind === "sink") {
+          const output = inputFor(node);
+          artifacts.set(nodeId, output);
+          states.set(nodeId, "done");
+          emit({ type: "node.started", nodeId, attempt });
+          emit({ type: "node.finished", nodeId, attempt, output, usage: zeroUsage() });
+          produceArtifacts(nodeId, output, attempt);
+          sendPackets(nodeId, output.slice(0, 120), "text");
+          return;
+        }
+
+        // source: optionally pull raw material from a connector before welding.
+        let sourceText = opts.sourceInput ?? "";
+        let sourceImages = node.source?.images ?? [];
+        const conn = node.source?.connector;
+        if (conn) {
+          let ok = false;
+          let lastErr: unknown;
+          for (let i = 0; i <= CONNECTOR_MAX_RETRIES && !ok; i++) {
+            try {
+              const m = await resolveConnector(conn, opts.connectorValues);
+              sourceText = m.text || opts.sourceInput || "";
+              sourceImages = [...m.images, ...(node.source?.images ?? [])];
+              ok = true;
+            } catch (err) {
+              lastErr = err;
+              if (i < CONNECTOR_MAX_RETRIES) await opts.sleep(CONNECTOR_RETRY_DELAY_MS);
+            }
+          }
+          if (!ok) {
+            const msg = `Connector "${conn.type}" 拉取失败：${
+              lastErr instanceof Error ? lastErr.message : String(lastErr)
+            }`;
+            states.set(nodeId, "failed");
+            status = "failed";
+            emit({ type: "node.failed", nodeId, attempt, error: msg, errorCode: "CONNECTOR" });
+            return;
+          }
+        }
+
+        const output = buildSourceBrief(node, sourceText);
         artifacts.set(nodeId, output);
         states.set(nodeId, "done");
         emit({ type: "node.started", nodeId, attempt });
         emit({ type: "node.finished", nodeId, attempt, output, usage: zeroUsage() });
         let primaryKind: Artifact["kind"] | undefined;
-        if (node.kind === "source" && node.source?.images?.length) {
-          for (const [i, url] of node.source.images.entries()) {
+        if (sourceImages.length) {
+          for (const [i, url] of sourceImages.entries()) {
             const a: Artifact = { id: `${nodeId}-img${i}`, kind: "image", uri: url };
             emit({ type: "artifact.produced", nodeId, artifact: a });
           }
@@ -582,7 +638,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       // agent
       const config = {
         model: node.agent?.model || fallbackModel,
-        prompt: node.agent?.prompt ?? "",
+        prompt: withLayoutDirectives(node.agent?.prompt ?? "", node.agent?.imageDirectives),
         skills: node.agent?.skills ?? [],
         temperature: node.agent?.temperature ?? 0.7,
         timeoutMs: node.agent?.timeoutMs ?? 120000,
@@ -852,6 +908,7 @@ export async function* execute(opts: ExecuteOptions): AsyncGenerator<RunEvent, v
     fallbackModel: opts.defaultModel ?? "agnes-2.0-flash",
     startSeq: 0,
     sourceInput: opts.input,
+    connectorValues: opts.connectorValues,
     signal: opts.signal,
     now: opts.now ?? Date.now,
     sleep: opts.sleep ?? delay,

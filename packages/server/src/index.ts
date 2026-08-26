@@ -11,12 +11,16 @@ import {
   instantiateTemplate,
   replay,
   TEMPLATES,
+  TriggerConfig,
   type RunEvent,
 } from "@agent-world/core";
 import { openDb } from "./db.js";
 import { ArtifactStore } from "./artifact-store.js";
 import { log } from "./logger.js";
 import { execute, resume } from "./engine.js";
+import { startRun, RunStartError } from "./run.js";
+import { TriggerService, TriggerError } from "./triggers.js";
+import { TriggerScheduler } from "./scheduler.js";
 import { startABExperiment } from "./ab.js";
 import { SEED_GRAPH } from "./seed.js";
 import {
@@ -50,6 +54,41 @@ const live = new Map<
   string,
   { events: RunEvent[]; done: boolean; controller: AbortController }
 >();
+
+/** Automatic triggers (webhook/cron/event/batch). Restored from persisted graphs. */
+const triggers = new TriggerService({
+  db,
+  startRun: (graph, opts) =>
+    startRun({
+      db,
+      worker,
+      artifacts,
+      live,
+      graph,
+      ...opts,
+      onFinish: (gid, status) => {
+        void triggers.onGraphFinished(gid, status);
+      },
+      onArtifact: (aid) => {
+        void triggers.onArtifact(aid);
+      },
+    }),
+});
+triggers.restore();
+
+/** Schedules cron triggers; arms timers after triggers are restored. */
+const scheduler = new TriggerScheduler(triggers, (err) =>
+  log.error("trigger scheduler", { error: (err as Error)?.message ?? String(err) }),
+);
+scheduler.start();
+
+/** JSON error response that accepts a dynamic (non-literal) status code. */
+function jsonResponse(status: number, body: unknown): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+}
 
 const app = new Hono();
 app.use("/*", cors());
@@ -341,67 +380,103 @@ app.post("/api/runs", async (c) => {
     budgetUsd?: number | null;
     trigger?: string;
     input?: string;
+    connectorValues?: Record<string, string>;
   };
   const graph = db.getGraph(body.graphId ?? SEED_GRAPH.id);
   if (!graph) return c.json({ error: "graph not found" }, 404);
 
-  const { plan, diagnostics } = compile(graph);
-  if (!plan) return c.json({ error: "graph does not compile", diagnostics }, 422);
-
-  const runId = crypto.randomUUID();
-  const budgetUsd = body.budgetUsd ?? null;
-  const startedAt = Date.now();
-  db.createRun({
-    id: runId,
-    graph,
-    budgetUsd,
-    at: startedAt,
-    trigger: body.trigger ?? "manual",
-    input: body.input,
-  });
-
-  const controller = new AbortController();
-  const entry = { events: [] as RunEvent[], done: false, controller };
-  live.set(runId, entry);
-  const runLog = log.child({ runId, graphId: graph.id });
-  runLog.info("run started", { trigger: body.trigger ?? "manual", nodes: graph.nodes.length });
-
-  // Drain in the background so the POST returns immediately with the run id.
-  void (async () => {
-    try {
-      const cfg = loadConfig();
-      const now = new Date();
-      for await (const event of execute({
-        runId,
-        graph,
-        plan,
-        worker,
-        input: body.input,
-        budgetUsd,
-        monthlyBudgetUsd: cfg.monthlyBudgetUsd ?? null,
-        monthSpentUsd: db.costForMonth(now.getFullYear(), now.getMonth() + 1),
-        defaultModel: cfg.defaultModel,
-        signal: controller.signal,
-        storeBinary: (data, mimeType, label) =>
-          artifacts.saveBinary({ data, kind: "image", mimeType, label }).uri ??
-          `data:${mimeType};base64,${data.toString("base64")}`,
-      })) {
-        db.record(runId, event);
-        if (event.type === "artifact.produced") {
-          db.insertArtifact(artifacts.save(event.artifact, { runId, nodeId: event.nodeId, attempt: event.attempt }));
-        }
-        entry.events.push(event);
-        if (event.type === "run.finished") db.finishRun(runId, event.status, Date.now());
-      }
-    } catch (err) {
-      db.finishRun(runId, "failed", Date.now());
-      runLog.error("run crashed", { error: (err as Error)?.message ?? String(err) });
-    } finally {
-      entry.done = true;
+  try {
+    const { runId, diagnostics } = await startRun({
+      db,
+      worker,
+      artifacts,
+      live,
+      graph,
+      trigger: body.trigger ?? "manual",
+      budgetUsd: body.budgetUsd ?? null,
+      input: body.input,
+      connectorValues: body.connectorValues,
+      onFinish: (gid, status) => {
+        void triggers.onGraphFinished(gid, status);
+      },
+      onArtifact: (aid) => {
+        void triggers.onArtifact(aid);
+      },
+    });
+    return c.json({ runId, diagnostics });
+  } catch (e) {
+    if (e instanceof RunStartError) {
+      return jsonResponse(e.status, { error: e.message, diagnostics: e.extra });
     }
-  })();
+    throw e;
+  }
+});
 
-  return c.json({ runId, diagnostics });
+// --- Trigger management + webhook ---
+app.get("/api/graphs/:id/triggers", (c) => {
+  const graphId = c.req.param("id");
+  if (!db.getGraph(graphId)) return c.json({ error: "graph not found" }, 404);
+  return c.json(triggers.listByGraph(graphId));
+});
+
+app.post("/api/graphs/:id/triggers", async (c) => {
+  const graphId = c.req.param("id");
+  const raw = (await c.req.json().catch(() => ({}))) as Partial<TriggerConfig>;
+  const withId = raw.id ? raw : { ...raw, id: crypto.randomUUID() };
+  const parsed = TriggerConfig.safeParse(withId);
+  if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+  try {
+    const trigger = await triggers.upsert(graphId, parsed.data);
+    scheduler.sync(trigger);
+    return c.json(trigger, 201);
+  } catch (e) {
+    if (e instanceof TriggerError) {
+      return jsonResponse(e.status, { error: e.message });
+    }
+    throw e;
+  }
+});
+
+app.delete("/api/graphs/:id/triggers/:tid", async (c) => {
+  const tid = c.req.param("tid");
+  scheduler.unsync(tid);
+  await triggers.remove(c.req.param("id"), tid);
+  return c.body(null, 204);
+});
+
+// Manually fire a trigger (e.g. a batch run, or a cron/event re-run on demand).
+app.post("/api/graphs/:id/triggers/:tid/fire", async (c) => {
+  const graphId = c.req.param("id");
+  const tid = c.req.param("tid");
+  const body = (await c.req.json().catch(() => ({}))) as { payload?: unknown };
+  const trigger = triggers.get(tid);
+  if (!trigger) return jsonResponse(404, { error: "trigger not found" });
+  try {
+    if (trigger.type === "batch") {
+      const runIds = await triggers.fireBatch(tid, body.payload);
+      return c.json({ runIds });
+    }
+    const { runId } = await triggers.fire(tid, body.payload, graphId);
+    return c.json({ runId });
+  } catch (e) {
+    if (e instanceof TriggerError) return jsonResponse(e.status, { error: e.message });
+    throw e;
+  }
+});
+
+app.post("/api/graphs/:id/webhook", async (c) => {
+  const graphId = c.req.param("id");
+  const body = (await c.req.json().catch(() => ({}))) as { secret?: string; payload?: unknown };
+  const secret = body.secret ?? c.req.header("x-webhook-secret") ?? "";
+  try {
+    const { runId } = await triggers.fireWebhook(graphId, secret, body.payload);
+    return c.json({ runId });
+  } catch (e) {
+    if (e instanceof TriggerError) {
+      return jsonResponse(e.status, { error: e.message });
+    }
+    throw e;
+  }
 });
 
 app.post("/api/runs/ab", async (c) => {
