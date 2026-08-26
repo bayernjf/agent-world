@@ -272,6 +272,38 @@ app.get("/api/costs", (c) => {
   );
 });
 
+app.get("/api/costs.csv", (c) => {
+  const from = c.req.query("from");
+  const to = c.req.query("to");
+  const { byGraph, byNode, byDay } = db.costRows({
+    from: from ? Number(from) : undefined,
+    to: to ? Number(to) : undefined,
+  });
+
+  const esc = (v: unknown) => {
+    const str = String(v ?? "");
+    return /[",\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+  };
+  const lines: string[] = [];
+  lines.push("# section,key1,key2,runs/attempts,tokens_in,tokens_out,cost_usd");
+  for (const g of byGraph) {
+    lines.push(["graph", g.graph_name, "", g.runs, g.tokens_in, g.tokens_out, g.cost_usd.toFixed(6)].map(esc).join(","));
+  }
+  for (const n of byNode) {
+    lines.push(["node", n.graph_name, n.node_name, n.attempts, n.tokens_in, n.tokens_out, n.cost_usd.toFixed(6)].map(esc).join(","));
+  }
+  for (const d of byDay) {
+    lines.push(["day", d.day, "", d.runs, d.tokens_in, d.tokens_out, d.cost_usd.toFixed(6)].map(esc).join(","));
+  }
+
+  return new Response(lines.join("\n"), {
+    headers: {
+      "content-type": "text/csv; charset=utf-8",
+      "content-disposition": `attachment; filename="agent-world-costs-${new Date().toISOString().slice(0,10)}.csv"`,
+    },
+  });
+});
+
 app.post("/api/runs", async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as {
     graphId?: string;
@@ -354,8 +386,12 @@ app.post("/api/runs/:id/resume", async (c) => {
   const row = db.getRun(runId);
   if (!row) return c.json({ error: "not found" }, 404);
 
-  const body = (await c.req.json().catch(() => ({}))) as { action?: "continue" | "scrap" };
+  const body = (await c.req.json().catch(() => ({}))) as {
+    action?: "continue" | "scrap";
+    resetFrom?: string;
+  };
   const action = body.action === "scrap" ? "scrap" : "continue";
+  const resetFrom = typeof body.resetFrom === "string" ? body.resetFrom : undefined;
 
   // A live entry exists while the generator runs. Reject only if it is still
   // actively executing; a halted/done entry is safe to resume.
@@ -371,6 +407,11 @@ app.post("/api/runs/:id/resume", async (c) => {
   const controller = new AbortController();
   const entry = { events: [] as RunEvent[], done: false, controller };
   live.set(runId, entry);
+  // A retry from a failed/tripped run reopens the same run; flip its status
+  // back to running so listings/UIs reflect the active attempt.
+  if (resetFrom || row.status === "failed" || row.status === "tripped") {
+    db.markRunning(runId);
+  }
 
   void (async () => {
     try {
@@ -383,6 +424,7 @@ app.post("/api/runs/:id/resume", async (c) => {
         defaultModel: loadConfig().defaultModel,
         pastEvents,
         action,
+        resetFrom,
         signal: controller.signal,
       })) {
         db.record(runId, event);
@@ -412,7 +454,16 @@ app.get("/api/runs/:id/events", (c) => {
 app.get("/api/runs/:id/stream", (c) => {
   const runId = c.req.param("id");
   if (!db.runExists(runId)) return c.json({ error: "not found" }, 404);
-  const after = Number(c.req.query("after") ?? -1);
+  // Resume point: explicit ?after= wins; otherwise honor the native
+  // Last-Event-ID header the browser sends automatically when reconnecting to
+  // a stream that carried `id:` frames.
+  const queryAfter = c.req.query("after");
+  const headerAfter = c.req.header("last-event-id");
+  const after = queryAfter != null
+    ? Number(queryAfter)
+    : headerAfter != null
+      ? Number(headerAfter)
+      : -1;
 
   return streamSSE(c, async (stream) => {
     let cursor = after;

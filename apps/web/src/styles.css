@@ -2233,3 +2233,153 @@ select {
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
+
+/* ---- Failure panel ---- */
+.failure-panel {
+  position: absolute;
+  top: 56px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(520px, calc(100vw - 320px));
+  max-height: calc(100vh - 140px);
+  overflow-y: auto;
+  z-index: 60;
+  background: var(--steel-900);
+  border: 1px solid rgba(255, 74, 61, 0.5);
+  border-radius: 6px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+  padding: 14px 16px;
+}
+.failure-panel__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.failure-panel__icon {
+  color: var(--alert);
+  font-size: 18px;
+  line-height: 1.2;
+}
+.failure-panel__title {
+  font-weight: 600;
+  color: var(--ink);
+  font-size: 14px;
+}
+.failure-panel__sub {
+  font-size: 11px;
+  color: var(--ink-faint);
+  margin-top: 2px;
+}
+.failure-panel__head .icon-btn {
+  margin-left: auto;
+}
+.failure-panel__list {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.failure-card {
+  background: var(--steel-850);
+  border: var(--hair);
+  border-left: 2px solid var(--alert);
+  border-radius: 4px;
+  padding: 10px 12px;
+}
+.failure-card__top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.failure-card__node {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--ink);
+}
+.failure-card__attempt,
+.failure-card__time {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-faint);
+}
+.failure-card__time {
+  margin-left: auto;
+}
+.failure-code {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 2px;
+  border: 1px solid rgba(255, 74, 61, 0.4);
+  background: rgba(255, 74, 61, 0.1);
+  color: var(--alert);
+}
+.failure-code--timeout,
+.failure-code--rate_limit {
+  color: var(--power);
+  border-color: rgba(255, 176, 32, 0.4);
+  background: rgba(255, 176, 32, 0.1);
+}
+.failure-card__msg {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--ink-dim);
+  line-height: 1.5;
+  word-break: break-word;
+}
+.failure-card__impact {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+.failure-card__actions {
+  margin-top: 8px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.rework-wrap {
+  position: relative;
+}
+.rework-popover {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 5;
+  min-width: 160px;
+  background: var(--steel-800);
+  border: var(--hair);
+  border-radius: 4px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+}
+.rework-option {
+  text-align: left;
+  background: transparent;
+  border: 0;
+  color: var(--ink);
+  font-size: 12px;
+  padding: 6px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.rework-option:hover {
+  background: var(--steel-700);
+}
+.failure-panel__footer {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: var(--hair);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.btn--small {
+  padding: 4px 10px;
+  font-size: 11px;
+}

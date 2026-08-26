@@ -43,6 +43,18 @@ export interface PacketRuntime {
   seq: number;
 }
 
+/** A single failure recorded during a run (node error, gate scrap, budget trip). */
+export interface FailureRecord {
+  kind: "node" | "gate" | "budget";
+  nodeId?: string;
+  attempt?: number;
+  errorCode?: string;
+  error: string;
+  /** Event sequence the failure was recorded at. */
+  seq: number;
+  ts: number;
+}
+
 export interface RuntimeState {
   runId: string | null;
   status: "idle" | "running" | "done" | "failed" | "halted" | "tripped" | "cancelled";
@@ -56,6 +68,8 @@ export interface RuntimeState {
   totalUnits: UsageUnits;
   budgetUsd: number | null;
   lastSeq: number;
+  /** Append-only history of failures for this run, oldest first. */
+  failures: FailureRecord[];
 }
 
 export const initialRuntime: RuntimeState = {
@@ -70,6 +84,7 @@ export const initialRuntime: RuntimeState = {
   totalUnits: {},
   budgetUsd: null,
   lastSeq: -1,
+  failures: [],
 };
 
 function nodeOf(state: RuntimeState, id: string): NodeRuntime {
@@ -168,11 +183,25 @@ export function reduce(state: RuntimeState, event: RunEvent): RuntimeState {
       }
 
       case "node.failed":
-        return withNode(state, event.nodeId, {
-          status: "failed",
-          error: event.error,
-          errorCode: event.errorCode,
-        });
+        return {
+          ...withNode(state, event.nodeId, {
+            status: "failed",
+            error: event.error,
+            errorCode: event.errorCode,
+          }),
+          failures: [
+            ...state.failures,
+            {
+              kind: "node",
+              nodeId: event.nodeId,
+              attempt: event.attempt,
+              errorCode: event.errorCode,
+              error: event.error,
+              seq: event.seq,
+              ts: event.ts,
+            },
+          ],
+        };
 
       case "packet.sent":
         return {
@@ -187,15 +216,42 @@ export function reduce(state: RuntimeState, event: RunEvent): RuntimeState {
         return withNode(state, event.nodeId, { status: event.passed ? "done" : "failed" });
 
       case "gate.exhausted":
-        return event.policy === "scrap"
-          ? withNode(state, event.nodeId, { status: "scrapped" })
-          : state;
+        if (event.policy === "scrap") {
+          return {
+            ...withNode(state, event.nodeId, { status: "scrapped" }),
+            failures: [
+              ...state.failures,
+              {
+                kind: "gate",
+                nodeId: event.nodeId,
+                attempt: event.attempts,
+                error: "质检返工次数已耗尽，整条产线报废",
+                seq: event.seq,
+                ts: event.ts,
+              },
+            ],
+          };
+        }
+        return state;
 
       case "power.metered":
         return { ...state, totalCostUsd: event.totalCostUsd, budgetUsd: event.budgetUsd };
 
       case "power.tripped":
-        return { ...state, totalCostUsd: event.totalCostUsd, status: "tripped" };
+        return {
+          ...state,
+          totalCostUsd: event.totalCostUsd,
+          status: "tripped",
+          failures: [
+            ...state.failures,
+            {
+              kind: "budget",
+              error: `电费超出预算 $${event.budgetUsd.toFixed(5)}，全厂停机`,
+              seq: event.seq,
+              ts: event.ts,
+            },
+          ],
+        };
 
       case "run.finished":
         return { ...state, status: event.status };

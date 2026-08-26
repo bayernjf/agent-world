@@ -48,7 +48,7 @@ export default function ControlPanel(props: Props) {
   const { mode, setMode, budget, setBudget, rawMaterial, setRawMaterial, diagnostics, canRun, onRun, onCancel, onOpenSettings } = props;
   const runtime = useVisibleRuntime();
   const { graph, saveState } = useGraph();
-  const { runId, connecting } = useRun();
+  const { runId, connecting, reconnecting } = useRun();
 
   const [settings, setSettings] = useState<AppConfig | null>(null);
   const [meterMode, setMeterMode] = useState<MeterMode>(
@@ -201,7 +201,8 @@ export default function ControlPanel(props: Props) {
           <h3 className="label">状态</h3>
           <p className="status">
             {STATUS_TEXT[runtime.status] ?? runtime.status}
-            {connecting && <span className="muted"> · 重连中…</span>}
+            {reconnecting && <span className="muted"> · 重连中…</span>}
+            {connecting && !reconnecting && <span className="muted"> · 连接中…</span>}
           </p>
           {!running && !halted && (
             <label className="field">

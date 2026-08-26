@@ -19,7 +19,7 @@ const LABEL: Record<string, string> = {
  * state, which is why the reducer has to stay pure.
  */
 export default function Timeline() {
-  const { events, scrubSeq, scrubTo } = useRun();
+  const { events, scrubSeq, scrubTo, view, reset } = useRun();
   if (events.length === 0) return null;
 
   const maxSeq = events.at(-1)!.seq;
@@ -37,6 +37,11 @@ export default function Timeline() {
         {scrubSeq !== null && (
           <button className="chip" onClick={() => scrubTo(null)}>
             回到实时
+          </button>
+        )}
+        {view === "replay" && scrubSeq === null && (
+          <button className="chip" onClick={() => reset()} title="退出历史回放，回到当前产线">
+            退出回放
           </button>
         )}
       </div>
