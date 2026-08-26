@@ -446,8 +446,25 @@ app.post("/api/runs/:id/resume", async (c) => {
 app.get("/api/runs/:id/events", (c) => {
   const runId = c.req.param("id");
   if (!db.runExists(runId)) return c.json({ error: "not found" }, 404);
-  const events = db.events(runId);
-  return c.json({ events, state: replay(events) });
+
+  // Pagination: ?after=<seq> (exclusive) and ?limit=<n>. With no params the
+  // full history is returned together with the reconstructed runtime state,
+  // which is what the initial page load needs. Range requests return only the
+  // event window plus a nextCursor, since partial events can't replay state.
+  const afterRaw = c.req.query("after");
+  const limitRaw = c.req.query("limit");
+  if (afterRaw == null && limitRaw == null) {
+    const events = db.events(runId);
+    return c.json({ events, state: replay(events) });
+  }
+
+  const after = afterRaw != null ? Number(afterRaw) : -1;
+  const limit = limitRaw != null ? Number(limitRaw) : 500;
+  if (!Number.isFinite(limit) || limit <= 0 || limit > 10000) {
+    return c.json({ error: "limit must be between 1 and 10000" }, 400);
+  }
+  const { events, nextCursor } = db.eventsRange(runId, after, limit);
+  return c.json({ events, after, nextCursor, hasMore: nextCursor != null });
 });
 
 /** Live stream. Resumes from `?after=<seq>` so a dropped connection loses nothing. */

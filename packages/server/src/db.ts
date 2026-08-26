@@ -130,6 +130,9 @@ export function openDb(file: string) {
       `INSERT INTO events (run_id, seq, ts, version, type, payload) VALUES (?, ?, ?, ?, ?, ?)`,
     ),
     listEvents: db.prepare(`SELECT payload FROM events WHERE run_id = ? ORDER BY seq`),
+    listEventsRange: db.prepare(
+      `SELECT seq, payload FROM events WHERE run_id = ? AND seq > ? ORDER BY seq LIMIT ?`,
+    ),
     maxSeq: db.prepare(`SELECT COALESCE(MAX(seq), -1) as seq FROM events WHERE run_id = ?`),
     upsertNodeRun: db.prepare(
       `INSERT INTO node_runs (run_id, node_id, attempt, status) VALUES (?, ?, ?, ?)
@@ -275,6 +278,25 @@ export function openDb(file: string) {
     events(runId: string): RunEvent[] {
       const rows = stmts.listEvents.all(runId) as { payload: string }[];
       return rows.map((r) => JSON.parse(r.payload) as RunEvent);
+    },
+
+    /**
+     * Bounded event window for paginated reads. `after` is exclusive (pass -1
+     * to start from the beginning). Fetches `limit + 1` rows so the caller can
+     * detect `hasMore`; the extra row is not returned.
+     */
+    eventsRange(runId: string, after: number, limit: number): {
+      events: RunEvent[];
+      nextCursor: number | null;
+    } {
+      const rows = stmts.listEventsRange.all(runId, after, limit + 1) as Array<{
+        seq: number;
+        payload: string;
+      }>;
+      const page = rows.slice(0, limit);
+      const events = page.map((r) => JSON.parse(r.payload) as RunEvent);
+      const nextCursor = rows.length > limit ? page.at(-1)!.seq : null;
+      return { events, nextCursor };
     },
 
     nextSeq(runId: string): number {
