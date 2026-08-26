@@ -233,6 +233,17 @@ export const api = {
   listRunArtifacts: (runId: string) =>
     fetch(`/api/runs/${runId}/artifacts`).then(json<StoredArtifact[]>),
 
+  uploadArtifact: (file: File) => {
+    return fetch(`/api/artifacts/upload?label=${encodeURIComponent(file.name)}`, {
+      method: "POST",
+      headers: { "content-type": file.type || "application/octet-stream" },
+      body: file,
+    }).then((res) => {
+      if (!res.ok) throw new Error(`upload failed: ${res.status}`);
+      return res.json() as Promise<StoredArtifact>;
+    });
+  },
+
   getSettings: () => fetch("/api/settings").then(json<AppConfig>),
 
   saveSettings: (config: AppConfig) =>

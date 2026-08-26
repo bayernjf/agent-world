@@ -213,6 +213,50 @@ select {
   margin-top: 2px;
 }
 
+.image-dropzone {
+  margin: 6px 0;
+  padding: 16px 10px;
+  text-align: center;
+  font-size: 12px;
+  font-family: var(--mono);
+  color: var(--ink-dim);
+  background: var(--steel-850);
+  border: 1px dashed var(--steel-500);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.image-dropzone:hover,
+.image-dropzone.is-over {
+  border-color: var(--power);
+  color: var(--ink);
+  background: var(--steel-800);
+}
+.image-dropzone.is-loading {
+  cursor: progress;
+  opacity: 0.7;
+}
+.image-row--with-thumb input {
+  flex: 1;
+}
+.image-row__thumb {
+  flex: none;
+  width: 38px;
+  height: 38px;
+  object-fit: cover;
+  border-radius: 4px;
+  border: var(--hair);
+  background: var(--steel-900);
+}
+.image-row__thumb--placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-family: var(--mono);
+  color: var(--ink-faint);
+}
+
 /* ---------- skill cards ---------- */
 .skill-list {
   display: flex;

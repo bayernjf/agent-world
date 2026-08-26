@@ -5,6 +5,7 @@ import { useGraph } from "../store/graph";
 import { useVisibleRuntime } from "../store/run";
 import SkillPicker from "./SkillPicker";
 import FinishedProduct from "./FinishedProduct";
+import SourceImages from "./SourceImages";
 
 function formatUnits(units: Record<string, number> | undefined): string | null {
   if (!units) return null;
@@ -153,53 +154,12 @@ export default function Inspector() {
         </label>
 
         {node.kind === "source" && (
-          <div className="field">
-            <span>参考图片 URL（视觉模型可看图）</span>
-            <div className="image-list">
-              {(node.source?.images ?? []).map((url, i) => (
-                <div className="image-row" key={i}>
-                  <input
-                    value={url}
-                    placeholder="https://..."
-                    onFocus={beginEdit}
-                    onBlur={commitEdit}
-                    onChange={(e) => {
-                      const images = [...(node.source?.images ?? [])];
-                      images[i] = e.target.value;
-                      updateNode(node.id, {
-                        source: { ...(node.source ?? {}), images },
-                      });
-                    }}
-                  />
-                  <button
-                    className="icon-btn icon-btn--danger"
-                    title="移除"
-                    onClick={() => {
-                      const images = (node.source?.images ?? []).filter((_, j) => j !== i);
-                      updateNode(node.id, {
-                        source: { ...(node.source ?? {}), images },
-                      });
-                    }}
-                  >
-                    ✕
-                  </button>
-                </div>
-              ))}
-              <button
-                className="btn image-list__add"
-                onClick={() =>
-                  updateNode(node.id, {
-                    source: {
-                      ...(node.source ?? {}),
-                      images: [...(node.source?.images ?? []), ""],
-                    },
-                  })
-                }
-              >
-                + 添加图片
-              </button>
-            </div>
-          </div>
+          <SourceImages
+            nodeId={node.id}
+            images={node.source?.images ?? []}
+            onBeginEdit={beginEdit}
+            onCommitEdit={commitEdit}
+          />
         )}
 
         {node.kind === "agent" && node.agent && (
