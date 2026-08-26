@@ -22,6 +22,22 @@ export {
 export type { Modality, ModelPricing, ProviderType } from "@agent-world/core";
 
 
+/**
+ * One model backend. To drive an `imageGen` node, register a provider whose
+ * `baseUrl` points at an OpenAI-compatible image server (the engine POSTs to
+ * `<baseUrl>/images/generations`) and list the image model in `models`:
+ *
+ *   {
+ *     "type": "openai-compatible",
+ *     "baseUrl": "https://api.your-image-host/v1",
+ *     "apiKey": "sk-...",
+ *     "models": ["agnes-image"],
+ *     "modalities": { "agnes-image": "image" }
+ *   }
+ *
+ * An individual `imageGen` node can also override `baseUrl` + `apiKey` directly
+ * (e.g. to point at a local ComfyUI / Stable-Diffusion OpenAI-compatible server).
+ */
 export interface ProviderConfig {
   type: ProviderType;
   baseUrl?: string;

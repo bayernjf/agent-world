@@ -534,7 +534,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
   // --- Image generation node: produce a banner/scene image when source lacks photos ---
   if (node.kind === "imageGen") {
     emit({ type: "node.started", nodeId, attempt });
-    const cfg = node.imageGen ?? { model: "agnes-image", prompt: "" };
+    const cfg = node.imageGen ?? { model: "agnes-image", prompt: "", n: 1 };
     // 缺素材时才生图：上游 source 已有图片则跳过，避免浪费生图配额。
     if (upstreamSourceHasImages(graph, nodeId)) {
       states.set(nodeId, "done");
@@ -543,24 +543,33 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     }
     const prompt = cfg.prompt?.trim() || buildImagePrompt(node, graph);
     try {
-      const res = await worker.generateImage({ node, config: cfg, input: prompt, signal: opts.signal });
-      const uri = opts.storeBinary(res.data, res.mimeType, `${node.name || "ai-image"}.png`);
-      extraImages.push(uri);
-      artifacts.set(nodeId, uri);
-      emit({ type: "node.finished", nodeId, attempt, output: "", usage: res.usage });
-      emit({
-        type: "artifact.produced",
-        nodeId,
-        artifact: {
-          id: `${nodeId}-img`,
-          kind: "image",
-          uri,
-          mimeType: res.mimeType,
-          label: node.name || "AI 配图",
-        },
+      const results = await worker.generateImage({ node, config: cfg, input: prompt, signal: opts.signal });
+      let usage: Usage = { tokensIn: 0, tokensOut: 0, costUsd: 0, units: { images: 0 } };
+      results.forEach((res, idx) => {
+        const uri = opts.storeBinary(res.data, res.mimeType, `${node.name || "ai-image"}-${idx + 1}.png`);
+        extraImages.push(uri);
+        artifacts.set(nodeId, uri);
+        emit({
+          type: "artifact.produced",
+          nodeId,
+          artifact: {
+            id: `${nodeId}-img-${idx}`,
+            kind: "image",
+            uri,
+            mimeType: res.mimeType,
+            label: results.length > 1 ? `${node.name || "AI 配图"} #${idx + 1}` : node.name || "AI 配图",
+          },
+        });
+        usage = {
+          tokensIn: (usage.tokensIn ?? 0) + (res.usage.tokensIn ?? 0),
+          tokensOut: (usage.tokensOut ?? 0) + (res.usage.tokensOut ?? 0),
+          costUsd: (usage.costUsd ?? 0) + (res.usage.costUsd ?? 0),
+          units: { ...usage.units, images: (usage.units?.images ?? 0) + (res.usage.units?.images ?? 0) },
+        };
       });
+      emit({ type: "node.finished", nodeId, attempt, output: "", usage });
       states.set(nodeId, "done");
-      sendPackets(nodeId, "生成配图", "image");
+      sendPackets(nodeId, `生成配图 ${results.length} 张`, "image");
     } catch (err) {
       // 生图是增强项：无生图后端时优雅降级，整条线仍可继续运行。
       console.warn(`[imageGen:${nodeId}] generation skipped:`, (err as Error).message);

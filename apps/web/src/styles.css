@@ -3134,3 +3134,18 @@ select {
   flex: 1;
   min-width: 0;
 }
+
+.adv {
+  margin: 8px 0 2px;
+  border-top: var(--hair);
+  padding-top: 6px;
+}
+.adv summary {
+  cursor: pointer;
+  color: var(--data);
+  font-size: 12px;
+  user-select: none;
+}
+.adv .field {
+  margin-top: 8px;
+}

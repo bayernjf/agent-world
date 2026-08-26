@@ -119,6 +119,7 @@ const productDetailGraph = {
         },
       },
       { id: "banner", kind: "imageGen", name: "AI 配图", x: 340, y: 560, imageGen: { model: "agnes-image", prompt: "" } },
+      { id: "scene", kind: "imageGen", name: "AI 场景图", x: 560, y: 560, imageGen: { model: "agnes-image", prompt: "为商品生成一张真实使用场景图：自然光线、生活化构图，突出使用环境与氛围代入感" } },
       { id: "depot", kind: "sink", name: "成品库", x: 1460, y: 300 },
     ],
     edges: [
@@ -130,6 +131,8 @@ const productDetailGraph = {
       { id: "r1", from: "qc", to: "copy", kind: "rework" },
       { id: "e6", from: "intake", to: "banner", kind: "flow" },
       { id: "e7", from: "banner", to: "layout", kind: "flow" },
+      { id: "e8", from: "intake", to: "scene", kind: "flow" },
+      { id: "e9", from: "scene", to: "layout", kind: "flow" },
     ],
   },
 } satisfies GraphTemplate;
@@ -195,6 +198,7 @@ const xiaohongshuGraph = {
         },
       },
       { id: "banner", kind: "imageGen", name: "AI 配图", x: 340, y: 560, imageGen: { model: "agnes-image", prompt: "" } },
+      { id: "scene", kind: "imageGen", name: "AI 场景图", x: 560, y: 560, imageGen: { model: "agnes-image", prompt: "为商品生成一张真实使用场景图：自然光线、生活化构图，突出使用环境与氛围代入感" } },
       { id: "depot", kind: "sink", name: "成品库", x: 1460, y: 300 },
     ],
     edges: [
@@ -206,6 +210,8 @@ const xiaohongshuGraph = {
       { id: "r1", from: "qc", to: "copy", kind: "rework" },
       { id: "e6", from: "intake", to: "banner", kind: "flow" },
       { id: "e7", from: "banner", to: "layout", kind: "flow" },
+      { id: "e8", from: "intake", to: "scene", kind: "flow" },
+      { id: "e9", from: "scene", to: "layout", kind: "flow" },
     ],
   },
 } satisfies GraphTemplate;

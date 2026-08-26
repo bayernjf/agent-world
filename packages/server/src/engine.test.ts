@@ -361,7 +361,7 @@ describe("imageGen node", () => {
       ...fakeWorker({ chunkDelayMs: 0 }),
       async generateImage(args) {
         calls.push(args.input);
-        return { data: Buffer.from("fake"), mimeType: "image/png", usage: { tokensIn: 0, tokensOut: 0, costUsd: 0 } };
+        return [{ data: Buffer.from("fake"), mimeType: "image/png", usage: { tokensIn: 0, tokensOut: 0, costUsd: 0 } }];
       },
     };
     const { events, state } = await runWith(w, imgGraph);
@@ -379,7 +379,7 @@ describe("imageGen node", () => {
       ...fakeWorker({ chunkDelayMs: 0 }),
       async generateImage(args) {
         calls.push(args.input);
-        return { data: Buffer.from("x"), mimeType: "image/png", usage: { tokensIn: 0, tokensOut: 0, costUsd: 0 } };
+        return [{ data: Buffer.from("x"), mimeType: "image/png", usage: { tokensIn: 0, tokensOut: 0, costUsd: 0 } }];
       },
     };
     const withImages: Graph = Graph.parse({

@@ -476,6 +476,54 @@ export default function Inspector() {
                 }
               />
             </label>
+            <label className="field">
+              <span>生成数量 (1–8)</span>
+              <input
+                type="number"
+                min={1}
+                max={8}
+                value={node.imageGen.n ?? 1}
+                onFocus={beginEdit}
+                onBlur={commitEdit}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    imageGen: {
+                      ...node.imageGen!,
+                      n: Math.min(8, Math.max(1, Number(e.target.value) || 1)),
+                    },
+                  })
+                }
+              />
+            </label>
+            <details className="adv">
+              <summary>自定义端点（可选）</summary>
+              <label className="field">
+                <span>生图端点 baseURL</span>
+                <input
+                  type="text"
+                  placeholder="https://your-sd-server/v1"
+                  value={node.imageGen.baseUrl ?? ""}
+                  onFocus={beginEdit}
+                  onBlur={commitEdit}
+                  onChange={(e) =>
+                    updateNode(node.id, { imageGen: { ...node.imageGen!, baseUrl: e.target.value || undefined } })
+                  }
+                />
+              </label>
+              <label className="field">
+                <span>密钥（可选，留空用 provider 的 key）</span>
+                <input
+                  type="password"
+                  placeholder="sk-..."
+                  value={node.imageGen.apiKey ?? ""}
+                  onFocus={beginEdit}
+                  onBlur={commitEdit}
+                  onChange={(e) =>
+                    updateNode(node.id, { imageGen: { ...node.imageGen!, apiKey: e.target.value || undefined } })
+                  }
+                />
+              </label>
+            </details>
           </>
         )}
 

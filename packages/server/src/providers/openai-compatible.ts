@@ -1,4 +1,4 @@
-import type { AgentChunk, AgentResult, Worker } from "../worker.js";
+import type { AgentChunk, AgentResult, ImageGenResult, Worker } from "../worker.js";
 import type { AgentConfig, GraphNode, Usage } from "@agent-world/core";
 import { computeCost, modalityOf, normalizeBaseUrl, type ModelPricing, type ProviderConfig } from "../config.js";
 
@@ -39,6 +39,9 @@ function mapHttpStatus(status: number): ProviderError["code"] {
   if (status >= 500) return "PROVIDER_ERROR";
   return "UNKNOWN";
 }
+
+/** Hard ceiling for a single image generation call, independent of the caller's abort. */
+const IMAGE_GEN_TIMEOUT_MS = 120_000;
 
 /**
  * Build a Usage record from raw provider token usage and a model's price card.
@@ -398,22 +401,39 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
     async generateImage({ config, input, signal }) {
       const model = config.model || "agnes-image";
       const size = config.size || "1024x1024";
-      if (!provider.apiKey) {
-        throw new ProviderError("AUTH", `Missing API key for provider at ${baseUrl}`);
+      const n = Math.min(8, Math.max(1, Math.trunc(config.n ?? 1)));
+      // Per-node endpoint / key override lets an imageGen node target a different
+      // server (e.g. a local SD / ComfyUI OpenAI-compatible endpoint) than chat.
+      const endpoint = (config.baseUrl || baseUrl).replace(/\/+$/, "");
+      const apiKey = config.apiKey || provider.apiKey;
+      if (!apiKey) {
+        throw new ProviderError(
+          "AUTH",
+          "Missing API key for image provider (set provider.apiKey or the node's baseUrl + apiKey)",
+        );
+      }
+      // Timeout independent of the caller's abort so a hung image endpoint cannot
+      // block the whole pipeline forever. Combined with the caller signal.
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), IMAGE_GEN_TIMEOUT_MS);
+      const onAbort = () => controller.abort();
+      if (signal) {
+        if (signal.aborted) controller.abort();
+        else signal.addEventListener("abort", onAbort, { once: true });
       }
       let res: Response;
       try {
-        res = await fetch(`${baseUrl}/images/generations`, {
+        res = await fetch(`${endpoint}/images/generations`, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${provider.apiKey}`,
-          },
-          body: JSON.stringify({ model, prompt: input, n: 1, size }),
-          signal,
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+          body: JSON.stringify({ model, prompt: input, n, size }),
+          signal: controller.signal,
         });
       } catch (err) {
         throw new ProviderError("UNKNOWN", (err as Error).message);
+      } finally {
+        clearTimeout(timer);
+        if (signal) signal.removeEventListener("abort", onAbort);
       }
       if (!res.ok) {
         const text = await res.text().catch(() => "");
@@ -422,27 +442,29 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
       const json = (await res.json()) as {
         data?: Array<{ b64_json?: string; url?: string }>;
       };
-      const item = json.data?.[0];
-      if (!item) throw new ProviderError("PROVIDER_ERROR", "image generation returned no data");
+      const items = json.data ?? [];
+      if (items.length === 0) throw new ProviderError("PROVIDER_ERROR", "image generation returned no data");
 
-      let data: Buffer;
-      let mimeType = "image/png";
-      if (item.b64_json) {
-        data = Buffer.from(item.b64_json, "base64");
-      } else if (item.url) {
-        const imgRes = await fetch(item.url, { signal });
-        if (!imgRes.ok) {
-          throw new ProviderError("PROVIDER_ERROR", `failed to fetch generated image: HTTP ${imgRes.status}`);
+      const results: ImageGenResult[] = [];
+      for (const item of items) {
+        let data: Buffer;
+        let mimeType = "image/png";
+        if (item.b64_json) {
+          data = Buffer.from(item.b64_json, "base64");
+        } else if (item.url) {
+          const imgRes = await fetch(item.url, { signal: controller.signal });
+          if (!imgRes.ok) {
+            throw new ProviderError("PROVIDER_ERROR", `failed to fetch generated image: HTTP ${imgRes.status}`);
+          }
+          data = Buffer.from(await imgRes.arrayBuffer());
+          const ct = imgRes.headers.get("content-type");
+          if (ct) mimeType = ct;
+        } else {
+          throw new ProviderError("PROVIDER_ERROR", "image generation response missing image data");
         }
-        data = Buffer.from(await imgRes.arrayBuffer());
-        const ct = imgRes.headers.get("content-type");
-        if (ct) mimeType = ct;
-      } else {
-        throw new ProviderError("PROVIDER_ERROR", "image generation response missing image data");
+        results.push({ data, mimeType, usage: { tokensIn: 0, tokensOut: 0, costUsd: 0, units: { images: 1 } } });
       }
-
-      const usage: Usage = { tokensIn: 0, tokensOut: 0, costUsd: 0, units: { images: 1 } };
-      return { data, mimeType, usage };
+      return results;
     },
   };
 }

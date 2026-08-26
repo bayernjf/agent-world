@@ -73,8 +73,8 @@ export interface Worker {
     signal?: AbortSignal;
   }): Promise<{ passed: boolean; reason: string; score?: number }>;
 
-  /** Generates an image (banner / scene) from a prompt. Used by `imageGen` nodes. */
-  generateImage(args: ImageGenArgs): Promise<ImageGenResult>;
+  /** Generates one or more images (banner / scene) from a prompt. Used by `imageGen` nodes. */
+  generateImage(args: ImageGenArgs): Promise<ImageGenResult[]>;
 }
 
 function zeroUsage(): Usage {
@@ -127,13 +127,19 @@ export function fakeWorker(opts: { failFirstAttempts?: number; chunkDelayMs?: nu
     },
 
     // Deterministic 1x1 PNG placeholder so canvas wiring + tests work without a
-    // live image backend. Real workers hit the provider's image endpoint.
-    async generateImage() {
+    // live image backend. Real workers hit the provider's image endpoint. Honors
+    // `n` so the engine can exercise multi-image fan-out.
+    async generateImage({ config }: ImageGenArgs) {
+      const n = Math.min(8, Math.max(1, Math.trunc(config.n ?? 1)));
       const png = Buffer.from(
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQDJ/pLvAAAAAElFTkSuQmCC",
         "base64",
       );
-      return { data: png, mimeType: "image/png", usage: zeroUsage() };
+      return Array.from({ length: n }, () => ({
+        data: png,
+        mimeType: "image/png",
+        usage: { tokensIn: 0, tokensOut: 0, costUsd: 0, units: { images: 1 } },
+      }));
     },
   };
 }

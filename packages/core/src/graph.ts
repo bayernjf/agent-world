@@ -65,6 +65,12 @@ export const ImageGenConfig = z.object({
   model: z.string().min(1),
   prompt: z.string().optional(),
   size: z.string().optional(),
+  /** How many images to produce (1-8). Each becomes its own artifact. */
+  n: z.number().int().min(1).max(8).default(1),
+  /** Optional per-node endpoint override, e.g. a local SD / ComfyUI OpenAI-compatible server. */
+  baseUrl: z.string().optional(),
+  /** Optional per-node API key override. Falls back to the provider's key. */
+  apiKey: z.string().optional(),
 });
 export type ImageGenConfig = z.infer<typeof ImageGenConfig>;
 
