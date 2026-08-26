@@ -55,9 +55,10 @@ function hostOf(url?: unknown): string | undefined {
 }
 
 /** True if `host` matches any of the domain patterns (`*` = everything,
- *  `*.foo.com` = foo.com and its subdomains). */
+ *  `*.foo.com` = foo.com and its subdomains). Hosts may include a port, which
+ *  is ignored for matching. */
 export function matchDomain(host: string, patterns: string[]): boolean {
-  const h = host.toLowerCase();
+  const h = host.split(":")[0]!.toLowerCase();
   return patterns.some((p) => {
     const pat = p.toLowerCase().trim();
     if (pat === "*" || pat === "**") return true;

@@ -2,6 +2,7 @@ import { readdirSync, type Dirent } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { Worker } from "./worker.js";
+import { spawnIsolatedWorker } from "./isolation.js";
 
 export interface WorkerPlugin {
   id: string;
@@ -10,6 +11,15 @@ export interface WorkerPlugin {
   models?: string[];
   /** Build the Worker instance this plugin contributes. */
   createWorker: () => Worker;
+  /**
+   * 4C.7 — run this plugin in an isolated child process (`"subprocess"`) instead
+   * of the server process. Defaults to `"in-process"`.
+   */
+  isolation?: "in-process" | "subprocess";
+  /** Env var names the isolated child is allowed to see (beyond a safe base). */
+  env?: string[];
+  /** Absolute path to the plugin entry; set by the loader, not the author. */
+  entry?: string;
 }
 
 export interface WorkerInfo {
@@ -46,8 +56,16 @@ export class WorkerRegistry {
   async loadFrom(dir: string): Promise<WorkerPlugin[]> {
     const plugins = await loadWorkerPlugins(dir);
     for (const p of plugins) {
-      this.workers.set(p.id, p.createWorker());
       this.info.set(p.id, { id: p.id, name: p.name, description: p.description, models: p.models });
+      if (p.isolation === "subprocess" && p.entry && !p.entry.endsWith(".ts")) {
+        try {
+          this.workers.set(p.id, spawnIsolatedWorker(p.entry, p.id, p.env));
+          continue;
+        } catch (err) {
+          console.warn(`[worker-plugins] could not isolate ${p.id}, falling back to in-process:`, (err as Error).message);
+        }
+      }
+      this.workers.set(p.id, p.createWorker());
     }
     return plugins;
   }
@@ -82,7 +100,7 @@ export async function loadWorkerPlugins(dir: string): Promise<WorkerPlugin[]> {
     try {
       const mod = await import(pathToFileURL(join(dir, entry.name)).href);
       const plugin = mod.plugin ?? mod.default;
-      if (isWorkerPlugin(plugin)) out.push(plugin);
+      if (isWorkerPlugin(plugin)) out.push({ ...plugin, entry: join(dir, entry.name) });
     } catch (err) {
       console.warn(`[worker-plugins] failed to load ${entry.name}:`, (err as Error).message);
     }

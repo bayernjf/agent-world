@@ -37,6 +37,7 @@ import {
 import { routingWorker } from "./providers/index.js";
 import { WorkerRegistry } from "./worker-plugins.js";
 import { connectMcpServer, registerMcpTools, type McpClient, type McpServerSpec } from "./mcp.js";
+import { disposeIsolatedWorkers } from "./isolation.js";
 import { registerSkill } from "./skills/registry.js";
 import { fileURLToPath } from "node:url";
 import { sanitizeError } from "./sanitize.js";
@@ -844,6 +845,14 @@ void connectMcpServers();
 serve({ fetch: app.fetch, port: PORT }, (info) => {
   log.info("engine listening", { port: info.port, url: `http://localhost:${info.port}` });
 });
+
+// Tear down any forked, isolated worker subprocesses on shutdown.
+for (const sig of ["SIGINT", "SIGTERM"] as const) {
+  process.on(sig, () => {
+    disposeIsolatedWorkers();
+    process.exit(0);
+  });
+}
 
 /** Minimal request body for a connectivity probe, shaped per modality. */
 function buildTestPayload(modality: Modality, model: string): Record<string, unknown> {

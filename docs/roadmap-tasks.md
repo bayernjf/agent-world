@@ -667,7 +667,20 @@
 - [x] 4C.5 测试：`packages/server/src/worker-plugins.test.ts`（扫描发现 / 忽略非插件与坏文件 / 注册表回退与按 id 选取）
 - [x] 4C.6 文档（本段勾选 + 用法说明）
   - 用法：在 `workers/`（可通过 `WORKERS_DIR` 覆盖）放一个 `xxx.worker.ts`，`export const plugin: WorkerPlugin = { id, name, models, createWorker }`；重启后 `GET /api/workers` 可见，运行产线时传 `workerId` 即可选用。
-- [ ] 4C.7 后续增强（不在本次范围）：插件进程隔离（`child_process.fork` / `worker_threads` + env 裁剪 + 文件/网络代理）、加载时权限清单确认
+- [x] 4C.7 插件进程隔离（`child_process.fork` + env 裁剪 + 文件/网络经主进程代理）、加载时权限清单确认
+
+### 4C.7 详细：插件进程隔离
+- `WorkerPlugin` 新增 `isolation?: "in-process" | "subprocess"`（默认 in-process）与 `env?: string[]`（声明子进程可见的环境变量名）。
+- `packages/server/src/isolation.ts`：
+  - `trimEnv(declared)`：只保留安全基线（PATH/HOME/TMPDIR…）+ 插件声明的 key，其余（如密钥）不进子进程。
+  - `spawnIsolatedWorker(entry, id, declaredEnv)`：`child_process.fork` 运行 `worker-proxy.mjs`，通过 IPC 代理 `runAgent` / `judge` / `generateImage`；子进程内 `fetch` 与 fs 调用回传主进程执行。
+  - `IsolatedWorker` 实现 `Worker` 接口（生成器事件在子进程收集后按序重放）。
+  - 主进程侧 `proxyFetch` / `proxyFs` 复用 4D.7 的 `loadPermissionConfig` + `matchDomain`  enforcement：网络按 host 走 `TOOL_NETWORK_ALLOW`、文件按 path 走 `TOOL_FS_ALLOW`。
+  - `disposeIsolatedWorkers()` 在进程退出（SIGINT/SIGTERM）时清理子进程。
+- `worker-proxy.mjs`：子进程入口，加载插件、用 `globalThis.fetch` 覆盖实现网络代理，用 `globalThis.__proxyFs` shim 实现文件代理（ESM 的 `node:fs/promises` 命名空间只读，无法直接覆盖，故走协作 shim；对任意插件的逐调用 fs 拦截需自定义 ESM loader，列为已知限制）。
+- 注册表 `loadFrom`：插件声明 `isolation:"subprocess"` 且入口为 `.js/.mjs` 时 fork 隔离运行；`.ts` 插件或失败时回退 in-process 并告警。
+- 测试：`isolation.test.ts`（env 裁剪不泄露密钥、网络/文件代理及白名单放行与拒绝、跨进程方法调用）。
+- 退出条件：敏感环境变量不进入插件进程；插件的网络/文件访问受主进程白名单约束。
 
 ## 阶段 4E（建议）：Artifact 存储抽象（本地 / S3）
 
