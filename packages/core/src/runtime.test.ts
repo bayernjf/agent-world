@@ -71,6 +71,41 @@ describe("runtime", () => {
     expect(state.status).toBe("tripped");
   });
 
+  it("accumulates a failure history across nodes, gates, and budget trips", () => {
+    seq = 0;
+    const state = replay([
+      ev({ type: "run.started", runId: "r1", graphId: "g1", budgetUsd: 0.01 }),
+      ev({ type: "node.started", nodeId: "forge", attempt: 1 }),
+      ev({
+        type: "node.failed",
+        nodeId: "forge",
+        attempt: 1,
+        error: "connection timed out",
+        errorCode: "TIMEOUT",
+      }),
+    ]);
+    expect(state.nodes.forge!.status).toBe("failed");
+    expect(state.failures).toHaveLength(1);
+    expect(state.failures[0]).toMatchObject({
+      kind: "node",
+      nodeId: "forge",
+      attempt: 1,
+      errorCode: "TIMEOUT",
+      error: "connection timed out",
+    });
+    expect(state.nodes.forge!.error).toBe("connection timed out");
+  });
+
+  it("records a budget-trip failure", () => {
+    seq = 0;
+    const state = replay([
+      ev({ type: "run.started", runId: "r1", graphId: "g1", budgetUsd: 0.01 }),
+      ev({ type: "power.tripped", totalCostUsd: 0.02, budgetUsd: 0.01 }),
+    ]);
+    expect(state.failures).toHaveLength(1);
+    expect(state.failures[0]!.kind).toBe("budget");
+  });
+
   it("is pure — reducing does not mutate the input state", () => {
     const before = structuredClone(initialRuntime);
     reduce(initialRuntime, reworkRun()[1]!);
