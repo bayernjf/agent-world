@@ -17,6 +17,21 @@ beforeAll(async () => {
     } else if (req.url === "/text") {
       res.setHeader("content-type", "text/plain");
       res.end("plain body");
+    } else if (req.url === "/json-auth") {
+      if (req.headers.authorization !== "Bearer secret") {
+        res.statusCode = 401;
+        res.end("no auth");
+        return;
+      }
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify({ ok: true }));
+    } else if (req.url === "/post") {
+      let body = "";
+      req.on("data", (c) => (body += c));
+      req.on("end", () => {
+        res.setHeader("content-type", "application/json");
+        res.end(JSON.stringify({ body, xtest: req.headers["x-test"] ?? "" }));
+      });
     } else {
       res.statusCode = 500;
       res.end("boom");
@@ -96,5 +111,59 @@ describe("resolveConnector - form/manual", () => {
       { name: "XYZ" },
     );
     expect(r.text).toContain("商品名: XYZ");
+  });
+});
+
+describe("resolveConnector - http auth/body/headers", () => {
+  it("sends Bearer auth and succeeds", async () => {
+    const r = await resolveConnector({
+      type: "http",
+      http: { url: `${base}/json-auth`, method: "GET", auth: { type: "bearer", token: "secret" } },
+    });
+    expect(r.text).toContain('"ok": true');
+  });
+
+  it("fails without auth (401)", async () => {
+    await expect(
+      resolveConnector({ type: "http", http: { url: `${base}/json-auth`, method: "GET" } }),
+    ).rejects.toThrow(/HTTP 401/);
+  });
+
+  it("posts a JSON body", async () => {
+    const r = await resolveConnector({
+      type: "http",
+      http: { url: `${base}/post`, method: "POST", body: { a: 1 } },
+    });
+    expect(JSON.parse(r.text).body).toBe('{"a":1}');
+  });
+
+  it("forwards custom request headers", async () => {
+    const r = await resolveConnector({
+      type: "http",
+      http: { url: `${base}/post`, method: "POST", headers: { "x-test": "yes" }, body: "" },
+    });
+    expect(JSON.parse(r.text).xtest).toBe("yes");
+  });
+});
+
+describe("resolveConnector - edge cases", () => {
+  it("reads a file as base64 when encoding is set", async () => {
+    const f = path.join(dir, "b64.txt");
+    writeFileSync(f, "hello");
+    const r = await resolveConnector({ type: "file", file: { path: f, encoding: "base64" } });
+    expect(r.text).toContain(Buffer.from("hello").toString("base64"));
+  });
+
+  it("form with no values returns empty material", async () => {
+    const r = await resolveConnector({ type: "form", form: { fields: [{ name: "name" }] } });
+    expect(r).toEqual({ text: "", images: [] });
+  });
+
+  it("throws when file config is missing", async () => {
+    await expect(resolveConnector({ type: "file" })).rejects.toThrow(/missing 'file'/);
+  });
+
+  it("throws when http config is missing", async () => {
+    await expect(resolveConnector({ type: "http" })).rejects.toThrow(/missing 'http'/);
   });
 });
