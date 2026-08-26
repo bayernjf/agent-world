@@ -118,6 +118,7 @@ const productDetailGraph = {
           onExhausted: "halt",
         },
       },
+      { id: "banner", kind: "imageGen", name: "AI 配图", x: 340, y: 560, imageGen: { model: "agnes-image", prompt: "" } },
       { id: "depot", kind: "sink", name: "成品库", x: 1460, y: 300 },
     ],
     edges: [
@@ -127,6 +128,8 @@ const productDetailGraph = {
       { id: "e4", from: "layout", to: "qc", kind: "flow" },
       { id: "e5", from: "qc", to: "depot", kind: "flow" },
       { id: "r1", from: "qc", to: "copy", kind: "rework" },
+      { id: "e6", from: "intake", to: "banner", kind: "flow" },
+      { id: "e7", from: "banner", to: "layout", kind: "flow" },
     ],
   },
 } satisfies GraphTemplate;
@@ -191,6 +194,7 @@ const xiaohongshuGraph = {
           onExhausted: "halt",
         },
       },
+      { id: "banner", kind: "imageGen", name: "AI 配图", x: 340, y: 560, imageGen: { model: "agnes-image", prompt: "" } },
       { id: "depot", kind: "sink", name: "成品库", x: 1460, y: 300 },
     ],
     edges: [
@@ -200,6 +204,8 @@ const xiaohongshuGraph = {
       { id: "e4", from: "layout", to: "qc", kind: "flow" },
       { id: "e5", from: "qc", to: "depot", kind: "flow" },
       { id: "r1", from: "qc", to: "copy", kind: "rework" },
+      { id: "e6", from: "intake", to: "banner", kind: "flow" },
+      { id: "e7", from: "banner", to: "layout", kind: "flow" },
     ],
   },
 } satisfies GraphTemplate;

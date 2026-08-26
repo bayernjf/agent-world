@@ -6,7 +6,7 @@ import { SkillMount } from "./skill.js";
  * that keeps it executable: dropping every rework edge must leave a DAG, and each
  * rework edge must land on an ancestor of its gate within that DAG.
  */
-export const NodeKind = z.enum(["source", "agent", "gate", "sink"]);
+export const NodeKind = z.enum(["source", "agent", "gate", "sink", "imageGen"]);
 export type NodeKind = z.infer<typeof NodeKind>;
 
 export const EdgeKind = z.enum(["flow", "rework"]);
@@ -59,6 +59,15 @@ export const AgentConfig = z.object({
 });
 export type AgentConfig = z.infer<typeof AgentConfig>;
 
+/** Configuration for an `imageGen` node: calls a text-to-image model to produce
+ *  a banner / scene image when the source lacks real product photos. */
+export const ImageGenConfig = z.object({
+  model: z.string().min(1),
+  prompt: z.string().optional(),
+  size: z.string().optional(),
+});
+export type ImageGenConfig = z.infer<typeof ImageGenConfig>;
+
 export const GateConfig = z.object({
   maxAttempts: z.number().int().min(1).max(10).default(3),
   criterion: z.string().default(""),
@@ -104,6 +113,7 @@ export const GraphNode = z.object({
   y: z.number(),
   agent: AgentConfig.optional(),
   gate: GateConfig.optional(),
+  imageGen: ImageGenConfig.optional(),
   source: SourceConfig.optional(),
 });
 export type GraphNode = z.infer<typeof GraphNode>;
