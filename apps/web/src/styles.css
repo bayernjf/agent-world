@@ -2575,6 +2575,34 @@ select {
 .modal-confirm--danger .modal-confirm__title {
   color: var(--alert);
 }
+.modal-confirm__list {
+  margin: 0 0 12px;
+  padding: 0 0 0 16px;
+  list-style: disc;
+  font-size: 12px;
+  color: var(--ink-dim);
+}
+.modal-confirm__list li {
+  margin: 2px 0;
+}
+.modal-confirm__list-kind {
+  display: inline-block;
+  min-width: 36px;
+  margin-right: 6px;
+  padding: 1px 6px;
+  border: 1px solid var(--steel-500);
+  border-radius: 3px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink);
+  text-align: center;
+}
+.modal-confirm__field {
+  margin: 0 0 12px;
+}
+.modal-confirm__field .select {
+  width: 100%;
+}
 .btn--danger {
   background: linear-gradient(180deg, #ff6b5e, var(--alert));
   border-color: #8a2a22;

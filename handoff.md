@@ -1632,3 +1632,60 @@ store，但样式从底部弹条换成**屏幕正中央的浮层**，右侧固�
   EPERM）：228 通过
 - 沙箱 EPERM，未在 8791 端到端复现；老 server 进程需手动
   `kill 89495` 后才能用上新版
+
+## 阶段 4 收尾 — 删除被节点使用的模型：二次弹窗 + 选替代
+
+### 概述
+之前删 model 不管有没有节点在用，都是同一个简单二次确认，用户得自己
+去画布里一个一个改。现在按"是否被使用"分两条路径：
+- 没节点用：原简单二次确认（保留行为）
+- 有节点用：二次弹窗里**列出所有被影响的节点**（按 kind 分组），
+  配一个**同 modality 的替代模型下拉**，点"确认替换并删除"一次性
+  改完所有节点的 model 并从 Provider 配置里删掉
+- 没同 modality 候选模型：下拉显示禁用项，按钮文案变成"确认清空
+  并删除"，确认后所有相关节点的 model 清空（派发时会再校验拦截）
+
+### 改动
+- `apps/web/src/components/Settings.tsx`：
+  - 引入 `useGraph` + `GraphNode` / `NodeKind` 类型
+  - 新增 state `deleteReplacement: string`（dialog 里的下拉选中值）
+  - 新增 helpers：
+    - `nodesUsingModel(provider, model)`：从 graph store 找所有用了
+      这 model 的节点
+    - `replacementCandidates(provider, model, modality)`：从当前
+      `config.providers` 找同 modality、非自身、可启用的候选
+    - `kindModality(kind)`：NodeKind → Modality
+    - `applyModelReplacement(nodeId, kind, newModel)`：走
+      `useGraph.updateNode` 把 model 字段重写
+  - 删除按钮 click 时顺手预算候选并 seed 下拉，避免 dialog 打开后
+    下拉是空的
+  - 删 model 的 confirm modal 拆成两个分支：affected.length === 0
+    走原简单 confirm；> 0 走新的 replacement dialog（按 kind 分
+    组列出节点、含下拉、文案按是否有候选切换）
+- `apps/web/src/styles.css`：
+  - 新增 `.modal-confirm__list` / `.modal-confirm__list-kind` /
+    `.modal-confirm__field` 三个类，承接新 dialog 的列表和下拉
+- 测试：
+  - 没新增独立测试（Settings 是高度耦合的展示组件，单独 mock
+    graph store 收益低）；现有 19 个 web vitest 全绿覆盖了
+    graph store 的 `updateNode` / `addNode` / migration 等关键路径
+
+### 已知 gap
+- "被使用"判断只看当前打开的图；用户多产线时其他图的节点不会
+  被改，删了 model 后那些图派发时才会触发 validateModels 拦下
+  （同一 model 可能没在候选里所以也清不了）
+- Provider 类型为 `fake` 的内置 demo 不会进入候选列表（因为
+  `p.enabled === false` 之外的过滤实际只走 modality 匹配 — 真正
+  的 demo 现在 default 是 enabled，会被列出来当候选，符合"演示
+  也能当兜底"的语义）
+- 改 model 字段走 `useGraph.updateNode` 走 scheduleSave（500ms
+  防抖），用户如果在保存前关页面，新 model 字段可能没落盘；这
+  跟画布编辑一致
+- 用户在 dialog 打开后切换了图，affected 列表会显示旧图的节点
+  （因为我们只在 confirm 时实时查 graph store）；这是 by design，
+  列表本身就是实时算的
+
+### 质量门
+- `pnpm -r typecheck`：全绿
+- `pnpm --filter @agent-world/web exec vitest run`：19 通过
+- 沙箱 EPERM，未在 8791 端到端复现
