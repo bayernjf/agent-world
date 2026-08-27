@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useMemo, useState } from "react";
+import { TEMPLATES } from "@agent-world/core";
 import { api } from "../lib/api";
 
-interface Template {
+interface TemplatePreview {
   id: string;
   name: string;
   description: string;
@@ -20,7 +21,7 @@ const NODE_COLORS: Record<string, string> = {
   audioGen: "#14b8a6",
 };
 
-function TemplatePreview({ nodes, edges }: { nodes: Template["nodes"]; edges: Template["edges"] }) {
+function TemplatePreview({ nodes, edges }: { nodes: TemplatePreview["nodes"]; edges: TemplatePreview["edges"] }) {
   if (nodes.length === 0) {
     return <div className="template-preview template-preview--empty">空白</div>;
   }
@@ -68,15 +69,28 @@ interface Props {
 }
 
 export default function Onboarding({ onCreate }: Props) {
-  const [templates, setTemplates] = useState<Template[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Read templates straight from the core package — no network round-trip,
+  // so the grid renders even when the engine is slow or unreachable.
+  const templates: TemplatePreview[] = useMemo(
+    () =>
+      TEMPLATES.map((t) => ({
+        id: t.id,
+        name: t.name,
+        description: t.description,
+        category: t.category,
+        nodes: t.graph.nodes.map((n) => ({ id: n.id, kind: n.kind, x: n.x, y: n.y })),
+        edges: t.graph.edges.map((e) => ({ from: e.from, to: e.to, kind: e.kind })),
+      })),
+    [],
+  );
 
-  useEffect(() => {
+  const [apiStatus, setApiStatus] = useState<"unknown" | "ok" | "fail">("unknown");
+  // Probe the engine once so the user knows whether saved-state features will work.
+  useMemo(() => {
     api
-      .listTemplates()
-      .then(setTemplates)
-      .catch(() => {})
-      .finally(() => setLoading(false));
+      .listGraphs()
+      .then(() => setApiStatus("ok"))
+      .catch(() => setApiStatus("fail"));
   }, []);
 
   return (
@@ -92,26 +106,25 @@ export default function Onboarding({ onCreate }: Props) {
 
         <div className="onboarding__section">
           <h2 className="onboarding__section-title">选择一个模板开始</h2>
-          <p className="onboarding__section-hint">模板预置了节点和连线，创建后可自由编辑。</p>
+          <p className="onboarding__section-hint">
+            模板预置了节点和连线，创建后可自由编辑。共 {templates.length} 个模板。
+          </p>
 
-          {loading ? (
-            <div className="onboarding__loading">加载模板中…</div>
-          ) : (
-            <div className="template-grid template-grid--onboarding">
-              {templates.map((t) => (
-                <button
-                  key={t.id}
-                  className="template-card template-card--onboarding"
-                  onClick={() => onCreate(t.id)}
-                >
-                  <TemplatePreview nodes={t.nodes} edges={t.edges} />
-                  <span className="template-card__name">{t.name}</span>
-                  <span className="template-card__desc">{t.description}</span>
-                  <span className="template-card__cat">{t.category}</span>
-                </button>
-              ))}
-            </div>
-          )}
+          <div className="template-grid template-grid--onboarding">
+            {templates.map((t) => (
+              <button
+                key={t.id}
+                className="template-card template-card--onboarding"
+                onClick={() => onCreate(t.id)}
+                title={t.description}
+              >
+                <TemplatePreview nodes={t.nodes} edges={t.edges} />
+                <span className="template-card__name">{t.name}</span>
+                <span className="template-card__desc">{t.description}</span>
+                <span className="template-card__cat">{t.category}</span>
+              </button>
+            ))}
+          </div>
         </div>
 
         <div className="onboarding__divider">
@@ -130,6 +143,12 @@ export default function Onboarding({ onCreate }: Props) {
             运行产线前需要在设置（⚙️）中配置模型 Provider。未配置时会使用内置的假 Worker，
             适合熟悉界面和测试流程。
           </p>
+          {apiStatus === "fail" && (
+            <p className="onboarding__tip-warn">
+              ⚠ 后端引擎未响应（http://localhost:8791）。点击创建时如失败，请先{" "}
+              <code>pnpm --filter @agent-world/server dev</code> 启动后端。
+            </p>
+          )}
         </div>
       </div>
     </div>

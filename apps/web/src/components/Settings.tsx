@@ -15,7 +15,8 @@ import {
   type ModelPricing,
   type PricingField,
 } from "@agent-world/core";
-import { refreshDefaultModel } from "../store/graph";
+import { refreshDefaultModel, useGraph } from "../store/graph";
+import type { GraphNode, NodeKind } from "@agent-world/core";
 
 interface Props {
   open: boolean;
@@ -87,6 +88,8 @@ export default function Settings({ open, onClose }: Props) {
   const [status, setStatus] = useState<string>("");
   const [confirmClose, setConfirmClose] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<ModelCard | null>(null);
+  /** Replacement model chosen in the delete-with-impact dialog. */
+  const [deleteReplacement, setDeleteReplacement] = useState<string>("");
   const [newKey, setNewKey] = useState<Record<string, string>>({});
   const [testStates, setTestStates] = useState<Record<string, TestState>>({});
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -153,9 +156,14 @@ export default function Settings({ open, onClose }: Props) {
 
   const cardKey = (c: ModelCard) => `${c.providerName}::${c.model}`;
 
-  const cards: ModelCard[] = realProviders.flatMap(([providerName, p]) =>
-    p.models.map((model) => ({ providerName, model })),
-  );
+  // The "demo" provider is the built-in fake worker. We always surface it
+  // so a new user can see what's keeping their lines running; the per-card
+  // delete button is disabled below for these models.
+  const cards: ModelCard[] = Object.entries(config.providers)
+    .filter(([name, p]) => p.type !== "fake" || name === "demo")
+    .flatMap(([providerName, p]) =>
+      p.models.map((model) => ({ providerName, model })),
+    );
 
   const orderIndex = new Map<string, number>();
   (config.modelOrder ?? []).forEach((k, i) => orderIndex.set(k, i));
@@ -430,6 +438,66 @@ export default function Settings({ open, onClose }: Props) {
     const keyCopy = { ...newKey };
     delete keyCopy[c.providerName];
     setNewKey(keyCopy);
+  };
+
+  /** All nodes currently using a given model. The Settings only sees the
+   *  open graph, so this naturally scopes to the active line; switching
+   *  graphs while the dialog is open re-runs the lookup. */
+  const nodesUsingModel = (providerName: string, modelName: string): GraphNode[] => {
+    const nodes = useGraph.getState().graph.nodes;
+    return nodes.filter((n) => {
+      const cfg =
+        n.kind === "agent" ? n.agent :
+        n.kind === "imageGen" ? n.imageGen :
+        n.kind === "videoGen" ? n.videoGen :
+        n.kind === "audioGen" ? n.audioGen : null;
+      return cfg?.model === modelName;
+    });
+  };
+
+  /** Same-modality candidate models for the replacement dropdown, excluding
+   *  the model being deleted. The deletion's own provider entry is filtered
+   *  by the caller so the user can pick across providers. */
+  const replacementCandidates = (
+    providerName: string,
+    modelName: string,
+    modality: Modality | null,
+  ): Array<{ provider: string; model: string }> => {
+    if (!modality) return [];
+    const out: Array<{ provider: string; model: string }> = [];
+    for (const [pname, p] of Object.entries(config.providers)) {
+      if (p.enabled === false) continue;
+      const mod = (p as { modalities?: Record<string, Modality> }).modalities ?? {};
+      for (const m of p.models) {
+        if (m === modelName && pname === providerName) continue;
+        if ((mod[m] ?? "text") !== modality) continue;
+        out.push({ provider: pname, model: m });
+      }
+    }
+    return out;
+  };
+
+  /** Whether a node kind carries a model field and what modality it needs. */
+  const kindModality = (kind: NodeKind): Modality | null => {
+    if (kind === "agent") return "text";
+    if (kind === "imageGen") return "image";
+    if (kind === "videoGen") return "video";
+    if (kind === "audioGen") return "audio";
+    return null;
+  };
+
+  /** Apply a model replacement to one node. */
+  const applyModelReplacement = (nodeId: string, kind: NodeKind, newModel: string) => {
+    const update = useGraph.getState().updateNode;
+    if (kind === "agent") {
+      update(nodeId, { agent: { model: newModel, prompt: "", skills: [], temperature: 0.7, timeoutMs: 120000, inputPolicy: { mode: "all" }, retry: { maxRetries: 2, baseDelayMs: 1000, maxDelayMs: 30000 } } });
+    } else if (kind === "imageGen") {
+      update(nodeId, { imageGen: { model: newModel, n: 1 } });
+    } else if (kind === "videoGen") {
+      update(nodeId, { videoGen: { model: newModel, n: 1 } });
+    } else if (kind === "audioGen") {
+      update(nodeId, { audioGen: { model: newModel, format: "mp3", n: 1 } });
+    }
   };
 
   const setDefault = (c: ModelCard) => {
@@ -840,6 +908,9 @@ export default function Settings({ open, onClose }: Props) {
                   <span className={`modality-badge modality--${p.modalities?.[c.model] ?? "text"}`}>
                     {MODALITY_LABELS[(p.modalities?.[c.model] ?? "text") as Modality]}
                   </span>
+                  {c.providerName === "demo" && (
+                    <span className="badge badge--demo" title="内置演示模型，无需 API Key">演示</span>
+                  )}
                   {isDefault && <span className="badge badge--default">默认</span>}
                   <div className="model-card__head-actions" onClick={(e) => e.stopPropagation()}>
                     {!isDefault && (
@@ -852,7 +923,18 @@ export default function Settings({ open, onClose }: Props) {
                     )}
                     <button
                       className="link link--sm link--danger"
-                      onClick={() => setDeleteTarget(c)}
+                      onClick={() => {
+                        setDeleteTarget(c);
+                        // Pre-seed the replacement dropdown with the first
+                        // same-modality candidate so the dialog is one
+                        // click away from confirming when there is one.
+                        const prov = config.providers[c.providerName];
+                        const mod = prov?.modalities?.[c.model] as Modality | undefined;
+                        const candidates = replacementCandidates(c.providerName, c.model, mod ?? null);
+                        setDeleteReplacement(candidates[0]?.model ?? "");
+                      }}
+                      disabled={c.providerName === "demo"}
+                      title={c.providerName === "demo" ? "演示模型不可删除，可在开关里停用" : undefined}
                     >
                       删除
                     </button>
@@ -1033,36 +1115,129 @@ export default function Settings({ open, onClose }: Props) {
           {status && <p className="diag diag--ok">{status}</p>}
         </div>
 
-        {deleteTarget && (
-          <div className="modal-confirm modal-confirm--danger" onClick={(e) => e.stopPropagation()}>
-            <p className="modal-confirm__title">删除模型</p>
-            <p className="modal-confirm__desc">
-              确定删除模型「{deleteTarget.model}」吗？
-              <br />
-              所属连接：<code>{deleteTarget.providerName}</code>
-              {config.providers[deleteTarget.providerName]?.models.length === 1
-                ? "（该连接下只有这一个模型，删除后连接配置也会一并移除）"
-                : ""}
-            </p>
-            <div className="modal-confirm__actions">
-              <button
-                className="btn btn--ghost btn--sm"
-                onClick={() => setDeleteTarget(null)}
-              >
-                取消
-              </button>
-              <button
-                className="btn btn--sm btn--danger"
-                onClick={() => {
-                  removeCard(deleteTarget);
-                  setDeleteTarget(null);
-                }}
-              >
-                删除
-              </button>
+        {deleteTarget && (() => {
+          const affected = nodesUsingModel(deleteTarget.providerName, deleteTarget.model);
+          const prov = config.providers[deleteTarget.providerName];
+          const mod = prov?.modalities?.[deleteTarget.model] as Modality | undefined;
+          const candidates = replacementCandidates(
+            deleteTarget.providerName,
+            deleteTarget.model,
+            mod ?? null,
+          );
+          if (affected.length === 0) {
+            return (
+              <div className="modal-confirm modal-confirm--danger" onClick={(e) => e.stopPropagation()}>
+                <p className="modal-confirm__title">删除模型</p>
+                <p className="modal-confirm__desc">
+                  确定删除模型「{deleteTarget.model}」吗？
+                  <br />
+                  所属连接：<code>{deleteTarget.providerName}</code>
+                  {prov && prov.models.length === 1
+                    ? "（该连接下只有这一个模型，删除后连接配置也会一并移除）"
+                    : ""}
+                </p>
+                <div className="modal-confirm__actions">
+                  <button
+                    className="btn btn--ghost btn--sm"
+                    onClick={() => setDeleteTarget(null)}
+                  >
+                    取消
+                  </button>
+                  <button
+                    className="btn btn--sm btn--danger"
+                    onClick={() => {
+                      removeCard(deleteTarget);
+                      setDeleteTarget(null);
+                    }}
+                  >
+                    删除
+                  </button>
+                </div>
+              </div>
+            );
+          }
+          // Group affected nodes by kind so the dialog reads naturally even
+          // when the user is using a single model across many node kinds.
+          const groups = new Map<NodeKind, GraphNode[]>();
+          for (const n of affected) {
+            const list = groups.get(n.kind) ?? [];
+            list.push(n);
+            groups.set(n.kind, list);
+          }
+          return (
+            <div className="modal-confirm modal-confirm--danger" onClick={(e) => e.stopPropagation()}>
+              <p className="modal-confirm__title">删除模型会影响 {affected.length} 个节点</p>
+              <p className="modal-confirm__desc">
+                模型「<code>{deleteTarget.model}</code>」({MODALITY_LABELS[mod ?? "text"]}) 正被以下节点使用，删除前请先选一个替代模型。
+              </p>
+              <ul className="modal-confirm__list">
+                {[...groups.entries()].map(([kind, list]) => (
+                  <li key={kind}>
+                    <span className="modal-confirm__list-kind">{MODALITY_LABELS[kindModality(kind) ?? "text"]}</span>
+                    <span>{list.length} 个：{list.slice(0, 4).map((n) => n.name).join("、")}{list.length > 4 ? ` … +${list.length - 4}` : ""}</span>
+                  </li>
+                ))}
+              </ul>
+              <label className="field modal-confirm__field">
+                <span>替换为</span>
+                <select
+                  className="select"
+                  value={deleteReplacement}
+                  onChange={(e) => setDeleteReplacement(e.target.value)}
+                >
+                  {candidates.length === 0 && (
+                    <option value="" disabled>
+                      （暂无同类型模型可选）
+                    </option>
+                  )}
+                  {candidates.map((c) => (
+                    <option key={`${c.provider}::${c.model}`} value={c.model}>
+                      {c.model} · {c.provider}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {candidates.length === 0 && (
+                <p className="diag diag--warn">
+                  暂无同类型模型。点击确认会清空这些节点的 model 字段（派发时会再次报错）。
+                </p>
+              )}
+              <div className="modal-confirm__actions">
+                <button
+                  className="btn btn--ghost btn--sm"
+                  onClick={() => {
+                    setDeleteTarget(null);
+                    setDeleteReplacement("");
+                  }}
+                >
+                  取消
+                </button>
+                <button
+                  className="btn btn--sm btn--danger"
+                  disabled={candidates.length > 0 && !deleteReplacement}
+                  onClick={() => {
+                    // Apply the chosen replacement to every affected node,
+                    // then drop the deleted model from the provider config.
+                    if (deleteReplacement) {
+                      for (const n of affected) {
+                        applyModelReplacement(n.id, n.kind, deleteReplacement);
+                      }
+                    } else {
+                      for (const n of affected) {
+                        applyModelReplacement(n.id, n.kind, "");
+                      }
+                    }
+                    removeCard(deleteTarget);
+                    setDeleteTarget(null);
+                    setDeleteReplacement("");
+                  }}
+                >
+                  {candidates.length > 0 ? "确认替换并删除" : "确认清空并删除"}
+                </button>
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {confirmClose && (
           <div className="modal-confirm" onClick={(e) => e.stopPropagation()}>

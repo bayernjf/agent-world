@@ -122,6 +122,15 @@ export class GraphConflictError extends Error {
   }
 }
 
+export class DuplicateGraphNameError extends Error {
+  existingId: string | undefined;
+  constructor(message: string, existingId?: string) {
+    super(message);
+    this.name = "DuplicateGraphNameError";
+    this.existingId = existingId;
+  }
+}
+
 export interface EvalSummary {
   runs: number;
   passed: number;
@@ -219,21 +228,40 @@ export const api = {
     }).then(async (res) => {
       if (res.status === 409) {
         const body = (await res.json().catch(() => ({}))) as {
+          error?: string;
           message?: string;
           serverVersion?: number;
+          existingId?: string;
         };
+        if (body.error === "duplicate_name") {
+          throw new DuplicateGraphNameError(body.message ?? "产线名重复", body.existingId);
+        }
         throw new GraphConflictError(body.message ?? "保存冲突", body.serverVersion);
       }
       if (!res.ok) throw new Error(`save failed: ${res.status}`);
       return res.json() as Promise<{ ok: true; version: number }>;
     }),
 
-  createGraph: (opts?: { name?: string; from?: string; template?: string }) =>
-    fetch("/api/graphs", {
+  createGraph: async (opts?: { name?: string; from?: string; template?: string }) => {
+    const res = await fetch("/api/graphs", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(opts ?? {}),
-    }).then(json<Graph>),
+    });
+    if (res.status === 409) {
+      const body = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        message?: string;
+        existingId?: string;
+      };
+      if (body.error === "duplicate_name") {
+        throw new DuplicateGraphNameError(body.message ?? "产线名重复", body.existingId);
+      }
+      throw new Error(`create failed: 409 ${JSON.stringify(body)}`);
+    }
+    if (!res.ok) throw new Error(`create failed: ${res.status} ${await res.text()}`);
+    return (await res.json()) as Graph;
+  },
 
   deleteGraph: (id: string) =>
     fetch(`/api/graphs/${id}`, { method: "DELETE" }).then(json<{ ok: true }>),

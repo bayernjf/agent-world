@@ -1,11 +1,12 @@
 import { useEffect } from "react";
-import { useToast } from "../store/toast";
+import { copyToClipboard, useToast, type ToastAction } from "../store/toast";
 
 /**
- * Ephemeral toast for destructive actions. An "undo" action calls whatever
- * callback the producer supplied (the graph store's temporal undo). Auto-hides
- * after 4s. The app already wires ⌘/Ctrl-Z to graph undo globally, so the
- * button is the affordance; no extra key handler is needed here.
+ * Center-screen toast. Replaces the old full-width top banner for transient
+ * feedback. Auto-hides after `toast.ttlMs` (default 4s); actions rendered on
+ * the right (e.g. 撤销 / 复制) clear the toast when clicked. The copy action
+ * is the default for error / info toasts so the user can grab the message
+ * with one click when they need to report it.
  */
 export default function Toast() {
   const toast = useToast((s) => s.toast);
@@ -13,19 +14,52 @@ export default function Toast() {
 
   useEffect(() => {
     if (!toast) return;
-    const t = setTimeout(clear, 4000);
+    const t = setTimeout(clear, toast.ttlMs ?? 4000);
     return () => clearTimeout(t);
   }, [toast, clear]);
 
   if (!toast) return null;
+
+  // Errors / info messages get a copy action by default; producers that want
+  // an undo button can pass `actions: [{ label: "撤销", onClick }]`.
+  const actions: ToastAction[] =
+    toast.actions ?? [
+      {
+        label: "复制",
+        onClick: async () => {
+          const ok = await copyToClipboard(toast.message);
+          if (ok) {
+            useToast.setState({
+              toast: {
+                ...toast,
+                id: toast.id + 1,
+                message: "已复制",
+                ttlMs: 1500,
+                actions: [],
+              },
+            });
+          }
+        },
+      },
+    ];
+
   return (
     <div className="toast" role="status">
-      <span>{toast.message}</span>
-      {toast.undo && (
-        <button className="link" onClick={() => { toast.undo?.(); clear(); }}>
-          撤销 (⌘Z)
-        </button>
-      )}
+      <span className="toast__message">{toast.message}</span>
+      <span className="toast__actions">
+        {actions.map((a) => (
+          <button
+            key={a.label}
+            className="link toast__action"
+            onClick={() => {
+              a.onClick();
+              clear();
+            }}
+          >
+            {a.label}
+          </button>
+        ))}
+      </span>
     </div>
   );
 }

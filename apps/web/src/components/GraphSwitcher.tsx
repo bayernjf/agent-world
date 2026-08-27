@@ -47,7 +47,13 @@ export default function GraphSwitcher({
 
   return (
     <>
-      <button ref={btnRef} className="chip hud__graph-switcher" onClick={toggle}>
+      <button
+        ref={btnRef}
+        className="hud__graph-switcher"
+        onClick={toggle}
+        aria-expanded={open}
+        aria-haspopup="menu"
+      >
         <span className="hud__graph-name">{graphs.find((g) => g.id === currentId)?.name ?? "产线"}</span>
         <span className="caret">{open ? "▾" : "▾"}</span>
       </button>
@@ -121,8 +127,9 @@ export default function GraphSwitcher({
             </div>
           ))}
         </div>
+        <div className="graph-popover__divider" />
         <button
-          className="btn graph-popover__new"
+          className="graph-popover__new"
           onClick={() => {
             onCreate();
             setOpen(false);

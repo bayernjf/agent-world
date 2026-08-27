@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
-import type { Diagnostic, FormConnector } from "@agent-world/core";
+import type { Diagnostic, FormConnector, Graph } from "@agent-world/core";
 
 type FormField = FormConnector["fields"][number];
 import Canvas, { type Mode } from "./canvas/Canvas";
 import Minimap from "./canvas/Minimap";
+import CanvasToolbar from "./components/CanvasToolbar";
 import ControlPanel from "./components/ControlPanel";
 import Inspector from "./components/Inspector";
 import Logo from "./components/Logo";
@@ -31,7 +32,10 @@ import Onboarding from "./components/Onboarding";
 import KnowledgePanel from "./components/KnowledgePanel";
 import VersionPanel from "./components/VersionPanel";
 import RunCompare from "./components/RunCompare";
-import { api } from "./lib/api";
+import CommandPalette, { type CommandItem } from "./components/CommandPalette";
+import { api, DuplicateGraphNameError } from "./lib/api";
+import { useToast } from "./store/toast";
+import { TEMPLATES } from "@agent-world/core";
 import { useGraph } from "./store/graph";
 import { useRun } from "./store/run";
 
@@ -44,7 +48,10 @@ export default function App() {
   const [rawMaterial, setRawMaterial] = useState("");
   const [diagnostics, setDiagnostics] = useState<Diagnostic[]>([]);
   const [canRun, setCanRun] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  /** Pop a center-screen error toast with a one-click copy button. */
+  const showError = (msg: string) => {
+    useToast.getState().show(msg, { ttlMs: 6000 });
+  };
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [newGraphOpen, setNewGraphOpen] = useState(false);
   const [graphs, setGraphs] = useState<GraphSummary[]>([]);
@@ -62,6 +69,27 @@ export default function App() {
   const [knowledgeOpen, setKnowledgeOpen] = useState(false);
   const [versionOpen, setVersionOpen] = useState(false);
   const [compareOpen, setCompareOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [graphsReady, setGraphsReady] = useState(false);
+
+  /** Case-insensitive, trimmed duplicate check across the local graph list. */
+  const nameTaken = (name: string, excludeId?: string): GraphSummary | null => {
+    const target = name.trim().toLowerCase();
+    if (!target) return null;
+    return (
+      graphs.find(
+        (g) => g.id !== excludeId && g.name.trim().toLowerCase() === target,
+      ) ?? null
+    );
+  };
+
+  /** Surface a friendly "name already used" message and bail. */
+  const reportDuplicate = (name: string, dup: { name: string } | null): boolean => {
+    if (!dup) return false;
+    showError(`已存在同名产线「${name}」，请换一个名字。`);
+    return true;
+  };
+
   const tipsEnabled = useTips((s) => s.enabled);
   const toggleTips = useTips((s) => s.toggle);
   const bothCollapsed = controlCollapsed && inspectorCollapsed;
@@ -71,13 +99,63 @@ export default function App() {
     setInspectorCollapsed(next);
   };
 
+  const MODALITY_PROMPT_LABEL: Record<string, string> = {
+    text: "文本",
+    image: "图片",
+    video: "视频",
+    audio: "音频",
+    embedding: "向量",
+  };
+
+  /** Soft warning when the user adds a node whose modality has no configured
+   *  model. Adding still succeeds (model is left empty); dispatch is the
+   *  gatekeeper that will refuse to run a graph with empty models. */
+  const addNodeOrReport = (kind: Parameters<typeof addNode>[0], x: number, y: number) => {
+    const r = addNode(kind, x, y);
+    if (r.missingModality) {
+      const label = MODALITY_PROMPT_LABEL[r.missingModality] ?? "对应";
+      showError(
+        `该节点需要${label}模型，但当前没有配置；节点已添加，请在「模型设置」中添加后再派发。`,
+      );
+    }
+  };
+
+  const commandItems: CommandItem[] = [
+    // 节点
+    { id: "add-agent", label: "添加厂房", hint: "Agent 节点", group: "节点", onSelect: () => addNodeOrReport("agent", 300, 480) },
+    { id: "add-gate", label: "添加质检站", hint: "Gate 节点", group: "节点", onSelect: () => addNodeOrReport("gate", 500, 480) },
+    { id: "add-image", label: "添加 AI 生图", hint: "ImageGen 节点", group: "节点", onSelect: () => addNodeOrReport("imageGen", 300, 600) },
+    { id: "add-video", label: "添加 AI 视频", hint: "VideoGen 节点", group: "节点", onSelect: () => addNodeOrReport("videoGen", 300, 720) },
+    { id: "add-audio", label: "添加 AI 音频", hint: "AudioGen 节点", group: "节点", onSelect: () => addNodeOrReport("audioGen", 300, 840) },
+    { id: "new-graph", label: "新建产线", hint: "从模板或空白创建", group: "节点", onSelect: () => setNewGraphOpen(true) },
+    // 查看
+    { id: "history", label: "运行历史", hint: "查看、加载、删除", group: "查看", onSelect: () => setHistoryOpen(true) },
+    { id: "cost", label: "成本报表", hint: "按产线 / 厂房 / 日期拆解", group: "查看", onSelect: () => setCostOpen(true) },
+    { id: "eval", label: "质量评估", hint: "通过率 / 返工 / 时长", group: "查看", onSelect: () => setEvalOpen(true) },
+    { id: "gallery", label: "成品库", hint: "跨运行产出物画廊", group: "查看", onSelect: () => setGalleryOpen(true) },
+    { id: "compare", label: "运行对比", hint: "两次运行的成本与节点输出", group: "查看", onSelect: () => setCompareOpen(true) },
+    // 自动化
+    { id: "triggers", label: "触发器", hint: "Webhook / 定时 / 事件 / 批量", group: "自动化", onSelect: () => setTriggersOpen(true) },
+    { id: "ab", label: "A/B 实验", hint: "同一节点多套 prompt 对比", group: "自动化", onSelect: () => setABOpen(true) },
+    // 管理
+    { id: "settings", label: "设置", hint: "Provider / 模型 / 单价 / 月度预算", group: "管理", onSelect: () => setSettingsOpen(true) },
+    { id: "brand", label: "品牌词库", hint: "可一键载入到厂房", group: "管理", onSelect: () => setBrandOpen(true) },
+    { id: "knowledge", label: "知识库", hint: "历史产线产出与质检结论", group: "管理", onSelect: () => setKnowledgeOpen(true) },
+    { id: "version", label: "产线版本", hint: "快照 / 恢复", group: "管理", onSelect: () => setVersionOpen(true) },
+    // 画布
+    { id: "undo", label: "撤销", group: "画布", shortcut: "⌘Z", onSelect: () => undo() },
+    { id: "redo", label: "重做", group: "画布", shortcut: "⇧⌘Z", onSelect: () => redo() },
+    { id: "toggle-panels", label: bothCollapsed ? "展开侧栏" : "收起侧栏", group: "画布", onSelect: toggleBoth },
+    { id: "toggle-tips", label: tipsEnabled ? "关闭厂房悬停信息" : "开启厂房悬停信息", group: "画布", shortcut: "T", onSelect: toggleTips },
+  ];
+
   const refreshGraphs = useCallback(async () => {
     try {
       const list = await api.listGraphs();
       setGraphs(list);
       return list;
     } catch (e) {
-      setError(String(e));
+      showError(String(e));
       return [];
     }
   }, []);
@@ -91,15 +169,19 @@ export default function App() {
         const g = await api.getGraph(id);
         setGraph(g);
         useGraph.temporal.getState().clear();
-        setError(null);
+        /* toast cleared by the producer */;
       } catch (e) {
-        setError(String(e));
+        showError(String(e));
       }
     },
     [graph.id, flushSave, reset, setGraph],
   );
 
   const createGraph = useCallback(async (template?: string) => {
+    if (template) {
+      const tpl = TEMPLATES.find((t) => t.id === template);
+      if (tpl && nameTaken(tpl.name)) return reportDuplicate(tpl.name, graphs.find((g) => g.name.trim().toLowerCase() === tpl.name.trim().toLowerCase()) ?? null);
+    }
     try {
       const g = await api.createGraph(template ? { template } : undefined);
       await refreshGraphs();
@@ -107,9 +189,14 @@ export default function App() {
       setGraph(g);
       useGraph.temporal.getState().clear();
     } catch (e) {
-      setError(String(e));
+      if (e instanceof DuplicateGraphNameError) {
+        showError(e.message);
+        await refreshGraphs();
+        return;
+      }
+      showError(String(e));
     }
-  }, [refreshGraphs, reset, setGraph]);
+  }, [refreshGraphs, reset, setGraph, graphs, nameTaken]);
 
   const duplicateGraph = useCallback(
     async (id: string) => {
@@ -120,7 +207,12 @@ export default function App() {
         setGraph(g);
         useGraph.temporal.getState().clear();
       } catch (e) {
-        setError(String(e));
+        if (e instanceof DuplicateGraphNameError) {
+          showError(e.message);
+          await refreshGraphs();
+          return;
+        }
+        showError(String(e));
       }
     },
     [refreshGraphs, reset, setGraph],
@@ -128,6 +220,8 @@ export default function App() {
 
   const renameGraph = useCallback(
     async (id: string, name: string) => {
+      const dup = nameTaken(name, id);
+      if (dup) return reportDuplicate(name, dup);
       try {
         if (id === graph.id) {
           setGraph({ ...graph, name });
@@ -138,10 +232,15 @@ export default function App() {
         }
         await refreshGraphs();
       } catch (e) {
-        setError(String(e));
+        if (e instanceof DuplicateGraphNameError) {
+          showError(e.message);
+          await refreshGraphs();
+          return;
+        }
+        showError(String(e));
       }
     },
-    [graph, refreshGraphs, setGraph, flushSave],
+    [graph, refreshGraphs, setGraph, flushSave, nameTaken],
   );
 
   const confirmDelete = useCallback(async () => {
@@ -153,7 +252,16 @@ export default function App() {
       let list = await refreshGraphs();
       if (targetId === graph.id) {
         if (list.length === 0) {
-          const g = await api.createGraph();
+          let g: Graph;
+          try {
+            g = await api.createGraph();
+          } catch (e) {
+            if (e instanceof DuplicateGraphNameError) {
+              showError(e.message);
+              return;
+            }
+            throw e;
+          }
           list = await refreshGraphs();
           reset();
           setGraph(g);
@@ -163,7 +271,7 @@ export default function App() {
       }
       useGraph.temporal.getState().clear();
     } catch (e) {
-      setError(String(e));
+      showError(String(e));
     }
   }, [deleteTarget, graph.id, refreshGraphs, reset, setGraph, switchGraph]);
 
@@ -176,9 +284,9 @@ export default function App() {
             setGraph(g);
             useGraph.temporal.getState().clear();
           })
-          .catch((e) => setError(String(e)));
+          .catch((e) => showError(String(e)));
       }
-    });
+    }).finally(() => setGraphsReady(true));
   }, [refreshGraphs, setGraph]);
 
   // The compiler is dependency-free, so diagnostics could run locally; going
@@ -218,7 +326,7 @@ export default function App() {
   const startRunWith = useCallback(
     async (connectorValues?: Record<string, string>) => {
       try {
-        setError(null);
+        /* toast cleared by the producer */;
         reset();
         await api.saveGraph(graph);
         const { runId: id } = await api.startRun(
@@ -229,7 +337,7 @@ export default function App() {
         );
         connect(id);
       } catch (e) {
-        setError(String(e));
+        showError(String(e));
       }
     },
     [graph, budget, rawMaterial, connect, reset],
@@ -260,6 +368,11 @@ export default function App() {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
       if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) return;
+      if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) {
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
+        return;
+      }
       if ((e.metaKey || e.ctrlKey) && e.key === "z") {
         e.preventDefault();
         if (e.shiftKey) redo();
@@ -272,7 +385,9 @@ export default function App() {
 
   return (
     <>
-      {graphs.length === 0 && <Onboarding onCreate={createGraph} />}
+      {graphsReady && graphs.length === 0 && (
+        <Onboarding onCreate={createGraph} />
+      )}
       <div className="app">
       <header className="hud">
         <div className="hud__brand">
@@ -314,69 +429,17 @@ export default function App() {
             </button>
           </Tooltip>
           <ShortcutsHelp />
-          <Tooltip content="运行历史">
-            <button className="chip" onClick={() => setHistoryOpen(true)}>
-              历史
+          <Tooltip content="打开命令面板：弹窗、添加节点、画布动作">
+            <button
+              className="chip hud__menu"
+              onClick={() => setPaletteOpen(true)}
+              aria-label="打开命令面板"
+            >
+              菜单 <kbd className="kbd-inline">⌘K</kbd>
             </button>
           </Tooltip>
-          <Tooltip content="成本报表">
-            <button className="chip" onClick={() => setCostOpen(true)}>
-              成本
-            </button>
-          </Tooltip>
-          <Tooltip content="质量评估">
-            <button className="chip" onClick={() => setEvalOpen(true)}>
-              评估
-            </button>
-          </Tooltip>
-          <Tooltip content="A/B 实验：同一厂房多套 prompt 对比择优">
-            <button className="chip" onClick={() => setABOpen(true)}>
-              A/B 实验
-            </button>
-          </Tooltip>
-          <Tooltip content="品牌词库：维护建议融入的品牌词，可在厂房节点一键载入">
-            <button className="chip" onClick={() => setBrandOpen(true)}>
-              品牌词库
-            </button>
-          </Tooltip>
-          <Tooltip content="成品库">
-            <button className="chip" onClick={() => setGalleryOpen(true)}>
-              成品
-            </button>
-          </Tooltip>
-          <Tooltip content="触发器：Webhook / 定时 / 事件 / 批量自动运行">
-            <button className="chip" onClick={() => setTriggersOpen(true)}>
-              触发器
-            </button>
-          </Tooltip>
-          <Tooltip content="知识库 / 档案室：搜索历史产线产出和质检结论">
-            <button className="chip" onClick={() => setKnowledgeOpen(true)}>
-              知识库
-            </button>
-          </Tooltip>
-          <Tooltip content="产线版本：保存快照、恢复历史版本">
-            <button className="chip" onClick={() => setVersionOpen(true)}>
-              版本
-            </button>
-          </Tooltip>
-          <Tooltip content="运行对比：选择两次运行对比成本和节点输出">
-            <button className="chip" onClick={() => setCompareOpen(true)}>
-              对比
-            </button>
-          </Tooltip>
-          <button className="chip" onClick={() => addNode("agent", 300, 480)}>
-            + 厂房
-          </button>
-          <button className="chip" onClick={() => addNode("gate", 500, 480)}>
-            + 质检站
-          </button>
-          <button className="chip" onClick={() => addNode("imageGen", 300, 600)}>
-            + AI 生图
-          </button>
         </div>
       </header>
-
-      {error && <p className="banner">{error}</p>}
 
       <div
         className={`workspace ${controlCollapsed ? "workspace--control-collapsed" : ""} ${
@@ -401,6 +464,7 @@ export default function App() {
           <Timeline />
           <FailurePanel onRerun={onRun} />
           <Canvas mode={mode} />
+          <CanvasToolbar onError={showError} />
           <button
             className={`stage__control-toggle ${controlCollapsed ? "is-collapsed" : ""}`}
             onClick={() => setControlCollapsed((v) => !v)}
@@ -455,6 +519,11 @@ export default function App() {
         onRestored={() => { void refreshGraphs(); setTimeout(() => window.location.reload(), 300); }}
       />
       <RunCompare open={compareOpen} graphId={graph.id} onClose={() => setCompareOpen(false)} />
+      <CommandPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        items={commandItems}
+      />
       {formFields && (
         <FormConnectorModal
           fields={formFields}
