@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
 import { VIEW_H, VIEW_W } from "../canvas/board";
 
 export const MIN_ZOOM = 0.3;
@@ -49,28 +50,36 @@ function framing(b: Bounds): Viewport {
   };
 }
 
-export const useCanvas = create<CanvasState>((set, get) => ({
-  viewport: DEFAULT_VIEWPORT,
-  fit: { scale: 1, x: 0, y: 0 },
-  stageSize: { width: 0, height: 0 },
-  setViewport: (v) => set({ viewport: v }),
-  setFit: (f) => set({ fit: f }),
-  setStageSize: (s) => set({ stageSize: s }),
-  panBy: (dx, dy) =>
-    set((s) => ({ viewport: { ...s.viewport, panX: s.viewport.panX + dx, panY: s.viewport.panY + dy } })),
-  zoomTo: (factor) =>
-    set((s) => {
-      const zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, s.viewport.zoom * factor));
-      return { viewport: { ...s.viewport, zoom } };
+export const useCanvas = create<CanvasState>()(
+  persist(
+    (set, get) => ({
+      viewport: DEFAULT_VIEWPORT,
+      fit: { scale: 1, x: 0, y: 0 },
+      stageSize: { width: 0, height: 0 },
+      setViewport: (v) => set({ viewport: v }),
+      setFit: (f) => set({ fit: f }),
+      setStageSize: (s) => set({ stageSize: s }),
+      panBy: (dx, dy) =>
+        set((s) => ({ viewport: { ...s.viewport, panX: s.viewport.panX + dx, panY: s.viewport.panY + dy } })),
+      zoomTo: (factor) =>
+        set((s) => {
+          const zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, s.viewport.zoom * factor));
+          return { viewport: { ...s.viewport, zoom } };
+        }),
+      centerOn: (x, y) =>
+        set((s) => ({
+          viewport: {
+            ...s.viewport,
+            panX: s.stageSize.width / 2 - x * s.viewport.zoom,
+            panY: s.stageSize.height / 2 - y * s.viewport.zoom,
+          },
+        })),
+      fitToBounds: (b) => set({ viewport: framing(b) }),
+      reset: () => set({ viewport: DEFAULT_VIEWPORT }),
     }),
-  centerOn: (x, y) =>
-    set((s) => ({
-      viewport: {
-        ...s.viewport,
-        panX: s.stageSize.width / 2 - x * s.viewport.zoom,
-        panY: s.stageSize.height / 2 - y * s.viewport.zoom,
-      },
-    })),
-  fitToBounds: (b) => set({ viewport: framing(b) }),
-  reset: () => set({ viewport: DEFAULT_VIEWPORT }),
-}));
+    {
+      name: "agent-world-canvas-viewport",
+      partialize: (state) => ({ viewport: state.viewport }),
+    }
+  )
+);

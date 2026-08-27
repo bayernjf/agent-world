@@ -52,7 +52,7 @@ export default function Canvas({ mode }: Props) {
   const duplicateNode = useGraph((s) => s.duplicateNode);
   const runtime = useVisibleRuntime();
   const scrubbing = useRun((s) => s.scrubSeq !== null);
-  const { viewport, setViewport, setFit: syncFit, setStageSize, reset, fitToBounds } = useCanvas();
+  const { viewport, setViewport, setFit: syncFit, setStageSize, fitToBounds } = useCanvas();
   const showToast = useToast((s) => s.show);
 
   const svgRef = useRef<SVGSVGElement>(null);
@@ -95,15 +95,6 @@ export default function Canvas({ mode }: Props) {
     ro.observe(svg);
     return () => ro.disconnect();
   }, [syncFit, setStageSize]);
-
-  // Reset zoom/pan whenever a new run starts so the board isn't left zoomed in.
-  const runIdRef = useRef(runtime.runId);
-  useEffect(() => {
-    if (runIdRef.current !== runtime.runId) {
-      runIdRef.current = runtime.runId;
-      reset();
-    }
-  }, [runtime.runId, reset]);
 
   const beginPan = (clientX: number, clientY: number) => {
     const p = toView(clientX, clientY);
