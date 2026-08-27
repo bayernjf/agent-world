@@ -31,6 +31,7 @@ import Onboarding from "./components/Onboarding";
 import KnowledgePanel from "./components/KnowledgePanel";
 import VersionPanel from "./components/VersionPanel";
 import RunCompare from "./components/RunCompare";
+import CommandPalette, { type CommandItem } from "./components/CommandPalette";
 import { api } from "./lib/api";
 import { useGraph } from "./store/graph";
 import { useRun } from "./store/run";
@@ -62,6 +63,7 @@ export default function App() {
   const [knowledgeOpen, setKnowledgeOpen] = useState(false);
   const [versionOpen, setVersionOpen] = useState(false);
   const [compareOpen, setCompareOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const tipsEnabled = useTips((s) => s.enabled);
   const toggleTips = useTips((s) => s.toggle);
   const bothCollapsed = controlCollapsed && inspectorCollapsed;
@@ -70,6 +72,33 @@ export default function App() {
     setControlCollapsed(next);
     setInspectorCollapsed(next);
   };
+
+  const commandItems: CommandItem[] = [
+    // 节点
+    { id: "add-agent", label: "添加厂房", hint: "Agent 节点", group: "节点", onSelect: () => addNode("agent", 300, 480) },
+    { id: "add-gate", label: "添加质检站", hint: "Gate 节点", group: "节点", onSelect: () => addNode("gate", 500, 480) },
+    { id: "add-image", label: "添加 AI 生图", hint: "ImageGen 节点", group: "节点", onSelect: () => addNode("imageGen", 300, 600) },
+    { id: "new-graph", label: "新建产线", hint: "从模板或空白创建", group: "节点", onSelect: () => setNewGraphOpen(true) },
+    // 查看
+    { id: "history", label: "运行历史", hint: "查看、加载、删除", group: "查看", onSelect: () => setHistoryOpen(true) },
+    { id: "cost", label: "成本报表", hint: "按产线 / 厂房 / 日期拆解", group: "查看", onSelect: () => setCostOpen(true) },
+    { id: "eval", label: "质量评估", hint: "通过率 / 返工 / 时长", group: "查看", onSelect: () => setEvalOpen(true) },
+    { id: "gallery", label: "成品库", hint: "跨运行产出物画廊", group: "查看", onSelect: () => setGalleryOpen(true) },
+    { id: "compare", label: "运行对比", hint: "两次运行的成本与节点输出", group: "查看", onSelect: () => setCompareOpen(true) },
+    // 自动化
+    { id: "triggers", label: "触发器", hint: "Webhook / 定时 / 事件 / 批量", group: "自动化", onSelect: () => setTriggersOpen(true) },
+    { id: "ab", label: "A/B 实验", hint: "同一节点多套 prompt 对比", group: "自动化", onSelect: () => setABOpen(true) },
+    // 管理
+    { id: "settings", label: "设置", hint: "Provider / 模型 / 单价 / 月度预算", group: "管理", onSelect: () => setSettingsOpen(true) },
+    { id: "brand", label: "品牌词库", hint: "可一键载入到厂房", group: "管理", onSelect: () => setBrandOpen(true) },
+    { id: "knowledge", label: "知识库", hint: "历史产线产出与质检结论", group: "管理", onSelect: () => setKnowledgeOpen(true) },
+    { id: "version", label: "产线版本", hint: "快照 / 恢复", group: "管理", onSelect: () => setVersionOpen(true) },
+    // 画布
+    { id: "undo", label: "撤销", group: "画布", shortcut: "⌘Z", onSelect: () => undo() },
+    { id: "redo", label: "重做", group: "画布", shortcut: "⇧⌘Z", onSelect: () => redo() },
+    { id: "toggle-panels", label: bothCollapsed ? "展开侧栏" : "收起侧栏", group: "画布", onSelect: toggleBoth },
+    { id: "toggle-tips", label: tipsEnabled ? "关闭厂房悬停信息" : "开启厂房悬停信息", group: "画布", shortcut: "T", onSelect: toggleTips },
+  ];
 
   const refreshGraphs = useCallback(async () => {
     try {
@@ -260,6 +289,11 @@ export default function App() {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
       if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) return;
+      if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) {
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
+        return;
+      }
       if ((e.metaKey || e.ctrlKey) && e.key === "z") {
         e.preventDefault();
         if (e.shiftKey) redo();
@@ -314,65 +348,15 @@ export default function App() {
             </button>
           </Tooltip>
           <ShortcutsHelp />
-          <Tooltip content="运行历史">
-            <button className="chip" onClick={() => setHistoryOpen(true)}>
-              历史
+          <Tooltip content="打开命令面板：弹窗、添加节点、画布动作">
+            <button
+              className="chip hud__menu"
+              onClick={() => setPaletteOpen(true)}
+              aria-label="打开命令面板"
+            >
+              菜单 <kbd className="kbd-inline">⌘K</kbd>
             </button>
           </Tooltip>
-          <Tooltip content="成本报表">
-            <button className="chip" onClick={() => setCostOpen(true)}>
-              成本
-            </button>
-          </Tooltip>
-          <Tooltip content="质量评估">
-            <button className="chip" onClick={() => setEvalOpen(true)}>
-              评估
-            </button>
-          </Tooltip>
-          <Tooltip content="A/B 实验：同一厂房多套 prompt 对比择优">
-            <button className="chip" onClick={() => setABOpen(true)}>
-              A/B 实验
-            </button>
-          </Tooltip>
-          <Tooltip content="品牌词库：维护建议融入的品牌词，可在厂房节点一键载入">
-            <button className="chip" onClick={() => setBrandOpen(true)}>
-              品牌词库
-            </button>
-          </Tooltip>
-          <Tooltip content="成品库">
-            <button className="chip" onClick={() => setGalleryOpen(true)}>
-              成品
-            </button>
-          </Tooltip>
-          <Tooltip content="触发器：Webhook / 定时 / 事件 / 批量自动运行">
-            <button className="chip" onClick={() => setTriggersOpen(true)}>
-              触发器
-            </button>
-          </Tooltip>
-          <Tooltip content="知识库 / 档案室：搜索历史产线产出和质检结论">
-            <button className="chip" onClick={() => setKnowledgeOpen(true)}>
-              知识库
-            </button>
-          </Tooltip>
-          <Tooltip content="产线版本：保存快照、恢复历史版本">
-            <button className="chip" onClick={() => setVersionOpen(true)}>
-              版本
-            </button>
-          </Tooltip>
-          <Tooltip content="运行对比：选择两次运行对比成本和节点输出">
-            <button className="chip" onClick={() => setCompareOpen(true)}>
-              对比
-            </button>
-          </Tooltip>
-          <button className="chip" onClick={() => addNode("agent", 300, 480)}>
-            + 厂房
-          </button>
-          <button className="chip" onClick={() => addNode("gate", 500, 480)}>
-            + 质检站
-          </button>
-          <button className="chip" onClick={() => addNode("imageGen", 300, 600)}>
-            + AI 生图
-          </button>
         </div>
       </header>
 
@@ -455,6 +439,11 @@ export default function App() {
         onRestored={() => { void refreshGraphs(); setTimeout(() => window.location.reload(), 300); }}
       />
       <RunCompare open={compareOpen} graphId={graph.id} onClose={() => setCompareOpen(false)} />
+      <CommandPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        items={commandItems}
+      />
       {formFields && (
         <FormConnectorModal
           fields={formFields}
