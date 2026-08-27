@@ -301,9 +301,12 @@ export default function Canvas({ mode }: Props) {
     const mq = marqueeRef.current;
     if (mq) {
       const p = toView(e.clientX, e.clientY);
-      mq.curX = p.x;
-      mq.curY = p.y;
-      if (!mq.active && Math.hypot(p.x - mq.startX, p.y - mq.startY) >= CLICK_SLOP) {
+      // Convert to content (graph) coords to match node x/y.
+      const cx = (p.x - viewport.panX) / viewport.zoom;
+      const cy = (p.y - viewport.panY) / viewport.zoom;
+      mq.curX = cx;
+      mq.curY = cy;
+      if (!mq.active && Math.hypot(cx - mq.startX, cy - mq.startY) >= CLICK_SLOP) {
         mq.active = true;
       }
       if (mq.active) {
@@ -426,11 +429,15 @@ export default function Canvas({ mode }: Props) {
     // In select mode, left-drag on empty backdrop starts a marquee selection.
     if (mode === "select") {
       const p = toView(e.clientX, e.clientY);
+      // Convert from viewport (SVG viewBox) coords to content (graph) coords,
+      // same as onPlantPointerDown. Node x/y live in content space.
+      const cx = (p.x - viewport.panX) / viewport.zoom;
+      const cy = (p.y - viewport.panY) / viewport.zoom;
       marqueeRef.current = {
-        startX: p.x,
-        startY: p.y,
-        curX: p.x,
-        curY: p.y,
+        startX: cx,
+        startY: cy,
+        curX: cx,
+        curY: cy,
         active: false,
         shift: e.shiftKey,
       };
