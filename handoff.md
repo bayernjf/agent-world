@@ -1376,3 +1376,69 @@ Stage B — structured product blocks:
 - `pnpm --filter @agent-world/server exec vitest run graphs-name.test.ts`：6 通过
 - 沙箱 listen 限制未能实跑 8791 集成测试；老 server 进程需用户手动
   `kill 89495` 才能用上新版逻辑
+
+## 阶段 4 收尾 — 多模态节点默认模型按 modality 选
+
+### 概述
+之前 `imageGen` / `videoGen` / `audioGen` 三种节点的默认 model 字段
+是硬编码字符串（"agnes-image" / "video-gen" / "tts-1"），跟用户实际在
+「模型设置」里配置的 provider 完全脱节：用户配置里没有这个名字的模型
+时，节点能加进来但一派发就报 "model not found"。改成按节点需要的
+modality 实时从已启用的 provider / model 里挑。
+
+### 规则
+- `agent` → `text`；`imageGen` → `image`；`videoGen` → `video`；
+  `audioGen` → `audio`；`source` / `gate` / `sink` 不需要模型
+- 优先用用户的"默认模型"，但**仅当它的 modality 匹配该节点**时
+- 否则取**第一个已启用**的 provider / model，且 modality 匹配
+- 如果一个匹配的都没有 → `addNode` 抛 `NoModelForModalityError`，
+  调用方用顶部条告诉用户"请先在「模型设置」中添加一个支持 X 的模型"
+- 服务端 `routingWorker` 仍按 model 名查 provider，所以前端只写
+  `model` 字段就够；多模态 config 没 `provider` 字段（Zod 不允许），
+  也不需要新增
+
+### 改动
+- `apps/web/src/store/graph.ts`：
+  - `cachedModelOptions: ModelOption[]` 缓存全量 `{ provider, model, modality, enabled }`
+  - `refreshDefaultModel()` 拉 `api.getSettings()` 重新扁平化缓存
+  - `modalityForKind(kind)` 把 NodeKind 映射到 Modality
+  - `defaultModelFor(kind)` 按上面规则挑模型，返回 `{ provider, model, modality } | null`
+  - `addNode(kind, x, y)` 在需要模型但找不到时抛 `NoModelForModalityError`
+  - 新增 `class NoModelForModalityError extends Error` 暴露 modality
+- `apps/web/src/App.tsx`：
+  - `addNodeOrReport(kind, x, y)` 包装调用，捕获该错误后写
+    `请先在「模型设置」中添加一个支持 X 的模型，再添加该节点。` 到顶部条
+  - 命令面板补齐 `add-video` / `add-audio` 两个动作
+- `apps/web/src/components/CanvasToolbar.tsx`：
+  - 接受 `onError?: (msg: string) => void` prop
+  - `addAtViewCenter` 用 try/catch 处理 `NoModelForModalityError`，
+    通过 `onError` 抛出同一文案
+- `apps/web/src/App.tsx` 把 `setError` 注入 `<CanvasToolbar onError={setError} />`
+
+### 已知 gap
+- 用户必须先在「模型设置」里添加一个 modality 匹配的模型，
+  才能在画布里加 `imageGen` / `videoGen` / `audioGen` 节点；
+  这是一道有意为之的护栏（避免加完节点才发现没模型可用）
+- 同一 model 名在多个 provider 下都能匹配时，路由层
+  `providerForModel` 已有"如果 = defaultModel 就用 defaultProvider"
+  的优先逻辑；不在这轮的范围
+- 模型卡的 modality 是用户手动选择的（建模型时填），不会被
+  自动探测；之后可考虑让"测试连接"把 modality 写回来
+
+### 测试
+- `apps/web/src/store/graph.model-default.test.ts`：5 个新用例
+  - agent 拿到 defaultModel
+  - imageGen 拿到第一个 image 模型
+  - 找不到匹配时抛 `NoModelForModalityError`
+  - 跳过 disabled provider
+  - source / gate / sink 不需要模型（不抛错）
+- `apps/web/src/store/graph.undo.test.ts` 的 mock 补上"有 text 模型"，
+  否则会因为空配置抛 `NoModelForModalityError`（这本身就是新行为）
+- `pnpm -r typecheck` 全绿；web 测试 6/6
+
+### 质量门
+- `pnpm -r typecheck`：core + server + web 全绿
+- `pnpm --filter @agent-world/web exec vitest run`：6 通过
+- `pnpm --filter @agent-world/server exec vitest run graphs-name.test.ts`：6 通过
+- 沙箱 EPERM 限制，未能重启 8791 真实复现；老 server 进程需手动
+  `kill 89495` 后才能在 UI 触发新逻辑

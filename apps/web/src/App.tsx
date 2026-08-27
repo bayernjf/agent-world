@@ -34,6 +34,7 @@ import VersionPanel from "./components/VersionPanel";
 import RunCompare from "./components/RunCompare";
 import CommandPalette, { type CommandItem } from "./components/CommandPalette";
 import { api, DuplicateGraphNameError } from "./lib/api";
+import { NoModelForModalityError } from "./store/graph";
 import { TEMPLATES } from "@agent-world/core";
 import { useGraph } from "./store/graph";
 import { useRun } from "./store/run";
@@ -95,11 +96,36 @@ export default function App() {
     setInspectorCollapsed(next);
   };
 
+  const MODALITY_PROMPT_LABEL: Record<string, string> = {
+    text: "文本",
+    image: "图片",
+    video: "视频",
+    audio: "音频",
+    embedding: "向量",
+  };
+
+  /** Try to add a node, surface a friendly error when no model is configured
+   *  for the kind's required modality. */
+  const addNodeOrReport = (kind: Parameters<typeof addNode>[0], x: number, y: number) => {
+    try {
+      addNode(kind, x, y);
+    } catch (e) {
+      if (e instanceof NoModelForModalityError) {
+        const label = MODALITY_PROMPT_LABEL[e.modality] ?? "对应";
+        setError(`请先在「模型设置」中添加一个支持${label}的模型，再添加该节点。`);
+        return;
+      }
+      throw e;
+    }
+  };
+
   const commandItems: CommandItem[] = [
     // 节点
-    { id: "add-agent", label: "添加厂房", hint: "Agent 节点", group: "节点", onSelect: () => addNode("agent", 300, 480) },
-    { id: "add-gate", label: "添加质检站", hint: "Gate 节点", group: "节点", onSelect: () => addNode("gate", 500, 480) },
-    { id: "add-image", label: "添加 AI 生图", hint: "ImageGen 节点", group: "节点", onSelect: () => addNode("imageGen", 300, 600) },
+    { id: "add-agent", label: "添加厂房", hint: "Agent 节点", group: "节点", onSelect: () => addNodeOrReport("agent", 300, 480) },
+    { id: "add-gate", label: "添加质检站", hint: "Gate 节点", group: "节点", onSelect: () => addNodeOrReport("gate", 500, 480) },
+    { id: "add-image", label: "添加 AI 生图", hint: "ImageGen 节点", group: "节点", onSelect: () => addNodeOrReport("imageGen", 300, 600) },
+    { id: "add-video", label: "添加 AI 视频", hint: "VideoGen 节点", group: "节点", onSelect: () => addNodeOrReport("videoGen", 300, 720) },
+    { id: "add-audio", label: "添加 AI 音频", hint: "AudioGen 节点", group: "节点", onSelect: () => addNodeOrReport("audioGen", 300, 840) },
     { id: "new-graph", label: "新建产线", hint: "从模板或空白创建", group: "节点", onSelect: () => setNewGraphOpen(true) },
     // 查看
     { id: "history", label: "运行历史", hint: "查看、加载、删除", group: "查看", onSelect: () => setHistoryOpen(true) },
@@ -439,7 +465,7 @@ export default function App() {
           <Timeline />
           <FailurePanel onRerun={onRun} />
           <Canvas mode={mode} />
-          <CanvasToolbar />
+          <CanvasToolbar onError={setError} />
           <button
             className={`stage__control-toggle ${controlCollapsed ? "is-collapsed" : ""}`}
             onClick={() => setControlCollapsed((v) => !v)}
