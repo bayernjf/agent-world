@@ -432,8 +432,9 @@ export default function Canvas({ mode }: Props) {
       e.currentTarget.setPointerCapture?.(e.pointerId);
       return;
     }
-    // In select mode, left-drag on empty backdrop starts a marquee selection.
-    if (mode === "select") {
+    // Shift+drag on empty backdrop starts a marquee selection (box select).
+    // Plain left-drag still pans the canvas in select mode.
+    if (mode === "select" && e.shiftKey) {
       const p = toView(e.clientX, e.clientY);
       // Convert from viewport (SVG viewBox) coords to content (graph) coords,
       // same as onPlantPointerDown. Node x/y live in content space.
@@ -445,8 +446,14 @@ export default function Canvas({ mode }: Props) {
         curX: cx,
         curY: cy,
         active: false,
-        shift: e.shiftKey,
+        shift: true,
       };
+      e.currentTarget.setPointerCapture?.(e.pointerId);
+      return;
+    }
+    // Select mode: plain left-drag pans the canvas (original behavior).
+    if (mode === "select") {
+      beginPan(e.clientX, e.clientY);
       e.currentTarget.setPointerCapture?.(e.pointerId);
       return;
     }
