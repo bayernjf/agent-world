@@ -416,49 +416,6 @@ export const TEMPLATES: GraphTemplate[] = [
   translationGraph,
   docReviewGraph,
   blankGraph,
-  // TEMP: 6 blank duplicates to test grid scrolling
-  {
-    id: "tpl-blank-test-2",
-    name: "空白测试 #2",
-    description: "滚动测试占位，稍后删除",
-    category: "测试",
-    graph: { id: "tpl-blank-test-2", name: "空白测试 #2", nodes: [], edges: [] },
-  },
-  {
-    id: "tpl-blank-test-3",
-    name: "空白测试 #3",
-    description: "滚动测试占位，稍后删除",
-    category: "测试",
-    graph: { id: "tpl-blank-test-3", name: "空白测试 #3", nodes: [], edges: [] },
-  },
-  {
-    id: "tpl-blank-test-4",
-    name: "空白测试 #4",
-    description: "滚动测试占位，稍后删除",
-    category: "测试",
-    graph: { id: "tpl-blank-test-4", name: "空白测试 #4", nodes: [], edges: [] },
-  },
-  {
-    id: "tpl-blank-test-5",
-    name: "空白测试 #5",
-    description: "滚动测试占位，稍后删除",
-    category: "测试",
-    graph: { id: "tpl-blank-test-5", name: "空白测试 #5", nodes: [], edges: [] },
-  },
-  {
-    id: "tpl-blank-test-6",
-    name: "空白测试 #6",
-    description: "滚动测试占位，稍后删除",
-    category: "测试",
-    graph: { id: "tpl-blank-test-6", name: "空白测试 #6", nodes: [], edges: [] },
-  },
-  {
-    id: "tpl-blank-test-7",
-    name: "空白测试 #7",
-    description: "滚动测试占位，稍后删除",
-    category: "测试",
-    graph: { id: "tpl-blank-test-7", name: "空白测试 #7", nodes: [], edges: [] },
-  },
 ];
 
 export function getTemplate(id: string): GraphTemplate | undefined {
