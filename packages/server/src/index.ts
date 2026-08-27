@@ -17,6 +17,7 @@ import {
   type SkillPermissions,
 } from "@agent-world/core";
 import { openDb } from "./db.js";
+import { findGraphIdByName as findGraphIdByNameCore } from "./graphs-name.js";
 import { ArtifactStore } from "./artifact-store.js";
 import { log } from "./logger.js";
 import { execute, resume } from "./engine.js";
@@ -130,6 +131,12 @@ app.get("/api/skills", (c) => c.json(listBuiltinSkills()));
 
 app.get("/api/graphs", (c) => c.json(db.listGraphs()));
 
+// Reject names that collide (case-insensitive, trimmed) with any other graph.
+// `excludeId` lets PUT /api/graphs/:id skip the row it's updating.
+const findGraphIdByName = (name: string, excludeId?: string): string | null =>
+  findGraphIdByNameCore(db.listGraphs(), name, excludeId);
+
+
 app.get("/api/templates", (c) =>
   c.json(
     TEMPLATES.map((t) => ({
@@ -189,6 +196,13 @@ app.post("/api/graphs", async (c) => {
       edges: [],
     };
   }
+  const dup = findGraphIdByName(graph.name);
+  if (dup) {
+    return c.json(
+      { error: "duplicate_name", message: `已存在同名产线「${graph.name}」，请换一个名字。`, existingId: dup },
+      409,
+    );
+  }
   db.saveGraph(graph, Date.now());
   return c.json(db.getGraph(id), 201);
 });
@@ -207,6 +221,14 @@ app.put("/api/graphs/:id", async (c) => {
   const parsed = Graph.safeParse(await c.req.json());
   if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
 
+  const dupId = findGraphIdByName(parsed.data.name, c.req.param("id"));
+  if (dupId) {
+    return c.json(
+      { error: "duplicate_name", message: `已存在同名产线「${parsed.data.name}」，请换一个名字。`, existingId: dupId },
+      409,
+    );
+  }
+
   // Optimistic concurrency: a tab sends the version it last loaded via
   // If-Match. A mismatch means another tab (or session) saved first, so we
   // refuse instead of silently overwriting their edits.
@@ -222,11 +244,18 @@ app.put("/api/graphs/:id", async (c) => {
   return c.json({ ok: true, version: result.version });
 });
 
-/** Compile without running — the canvas calls this to show diagnostics as you draw. */
+/** Which node kinds require a worker model and which modality they need. */
+import { validateModels, type ModelDiagnostic } from "./validate-models.js";
+
 app.post("/api/compile", async (c) => {
   const parsed = Graph.safeParse(await c.req.json());
   if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
-  return c.json(compile(parsed.data));
+  const result = compile(parsed.data);
+  const modelDiags = validateModels(parsed.data, loadConfig());
+  return c.json({
+    ...result,
+    diagnostics: [...result.diagnostics, ...modelDiags],
+  });
 });
 
 app.get("/api/settings", (c) => {
@@ -535,6 +564,22 @@ app.post("/api/runs", async (c) => {
   const graph = db.getGraph(graphId);
   if (!graph) return c.json({ error: "graph not found" }, 404);
 
+  const modelDiags = validateModels(graph, loadConfig());
+  const modelErrors = modelDiags.filter((d) => d.severity === "error");
+  if (modelErrors.length > 0) {
+    const summary =
+      modelErrors.length === 1
+        ? modelErrors[0]!.message
+        : `${modelErrors.length} 个节点未配置模型：${modelErrors[0]!.message}${modelErrors.length > 1 ? "（其余见 diagnostics）" : ""}`;
+    return c.json(
+      {
+        error: "graph has unconfigured model(s)",
+        message: `${summary} 请前往「模型设置」补全后再派发。`,
+        diagnostics: modelDiags,
+      },
+      422,
+    );
+  }
   try {
     const { runId, diagnostics } = await startRun({
       db,
@@ -553,7 +598,7 @@ app.post("/api/runs", async (c) => {
         void triggers.onArtifact(aid);
       },
     });
-    return c.json({ runId, diagnostics });
+    return c.json({ runId, diagnostics, modelWarnings: modelDiags });
   } catch (e) {
     if (e instanceof RunStartError) {
       return jsonResponse(e.status, { error: e.message, diagnostics: e.extra });

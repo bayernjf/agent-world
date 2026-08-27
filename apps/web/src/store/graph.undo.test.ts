@@ -2,7 +2,18 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("../lib/api", () => ({
   api: {
-    getSettings: () => Promise.resolve({ providers: {}, defaultModel: "x", defaultProvider: "x" }),
+    getSettings: () => Promise.resolve({
+      providers: {
+        test: {
+          type: "openai-compatible",
+          enabled: true,
+          models: ["x"],
+          modalities: { x: "text" },
+        },
+      },
+      defaultModel: "x",
+      defaultProvider: "test",
+    }),
     saveGraph: () => Promise.resolve({ ok: true }),
   },
 }));

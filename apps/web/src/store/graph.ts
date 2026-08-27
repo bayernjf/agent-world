@@ -1,19 +1,141 @@
 import { create } from "zustand";
 import { temporal } from "zundo";
 import type { Graph, GraphEdge, GraphNode, NodeKind } from "@agent-world/core";
-import { api, GraphConflictError } from "../lib/api";
+import { api, GraphConflictError, type Modality } from "../lib/api";
 
-/** Cached default model for newly created agent nodes. */
+/** Cached settings used to seed newly added nodes with a sensible model. */
+interface ModelOption {
+  provider: string;
+  model: string;
+  modality: Modality;
+  enabled: boolean;
+}
+let cachedModelOptions: ModelOption[] = [];
+/** Last known default model id; used as a last-ditch fallback for `agent` nodes. */
 let cachedDefaultModel = "agnes-2.0-flash";
+
+function flattenModelOptions(cfg: {
+  providers: Record<string, { models?: string[]; modalities?: Record<string, Modality>; enabled?: boolean }>;
+}): ModelOption[] {
+  const out: ModelOption[] = [];
+  for (const [providerName, p] of Object.entries(cfg.providers)) {
+    if (p.enabled === false) continue;
+    for (const model of p.models ?? []) {
+      out.push({
+        provider: providerName,
+        model,
+        modality: p.modalities?.[model] ?? "text",
+        enabled: true,
+      });
+    }
+  }
+  return out;
+}
+
 export async function refreshDefaultModel() {
   try {
     const cfg = await api.getSettings();
+    cachedModelOptions = flattenModelOptions(cfg);
     if (cfg.defaultModel) cachedDefaultModel = cfg.defaultModel;
   } catch {
     // keep last known / fallback
   }
 }
 void refreshDefaultModel();
+
+/**
+ * Pick the best model for a given node kind. The user's "default model" only
+ * wins when it actually matches the modality this node needs — otherwise we
+ * fall back to the first enabled provider/model that does. Returns null if no
+ * candidate exists; callers should surface a friendly error and skip creation.
+ */
+function defaultModelFor(
+  kind: NodeKind,
+  cached: ReadonlyArray<ModelOption> = cachedModelOptions,
+  defaultModel: string = cachedDefaultModel,
+): { provider: string; model: string; modality: Modality } | null {
+  const wanted = modalityForKind(kind);
+  if (!wanted) return null;
+  // Prefer the user's default model if its modality matches.
+  const fromDefault = cached.find(
+    (o) => o.model === defaultModel && o.modality === wanted && o.enabled,
+  );
+  if (fromDefault) return { provider: fromDefault.provider, model: fromDefault.model, modality: wanted };
+  // Otherwise prefer a REAL provider (anything not the built-in fake/demo
+  // worker). The demo is only a last-resort so the picker respects the
+  // user's configured models when they exist.
+  const real = cached.find((o) => o.modality === wanted && o.enabled && o.provider !== "demo" && o.provider !== "fake");
+  if (real) return { provider: real.provider, model: real.model, modality: wanted };
+  // No real model — fall back to the demo so addNode can still succeed
+  // for a brand-new user with zero configured models.
+  const demo = cached.find((o) => o.modality === wanted && o.enabled);
+  if (demo) return { provider: demo.provider, model: demo.model, modality: wanted };
+  return null;
+}
+
+/** Map a node kind to the modality its worker executes against. */
+/** Re-pick the model field for one node: keeps the current value if it
+ *  resolves to a real, enabled provider; otherwise falls back to the
+ *  default-for-modality picker (which itself prefers the user's default
+ *  model when it fits). Returns true when the model field was changed. */
+function remapNodeModel(
+  node: GraphNode,
+  cached: ReadonlyArray<ModelOption>,
+  defaultModel: string,
+): boolean {
+  const wanted = modalityForKind(node.kind);
+  if (!wanted) return false;
+  const cfg =
+    node.kind === "agent" ? node.agent :
+    node.kind === "imageGen" ? node.imageGen :
+    node.kind === "videoGen" ? node.videoGen :
+    node.kind === "audioGen" ? node.audioGen : null;
+  if (!cfg) return false;
+  const current = (cfg as { model?: string }).model ?? "";
+  // Keep the current model if it resolves to an enabled provider entry.
+  const resolves = current && cached.some((o) => o.model === current && o.enabled);
+  if (resolves) return false;
+  // Otherwise pick a real one for the modality. When none exists, clear
+  // the placeholder so the field matches the addNode "empty" contract
+  // and the dispatch validator has a single rule to check.
+  const seed = defaultModelFor(node.kind, cached, defaultModel);
+  const next = { ...cfg, model: seed ? seed.model : "" } as typeof cfg;
+  if (node.kind === "agent") node.agent = next as typeof node.agent;
+  else if (node.kind === "imageGen") node.imageGen = next as typeof node.imageGen;
+  else if (node.kind === "videoGen") node.videoGen = next as typeof node.videoGen;
+  else if (node.kind === "audioGen") node.audioGen = next as typeof node.audioGen;
+  return true;
+}
+
+/** Mutate `graph.nodes` in place to re-pick models for nodes whose current
+ *  model is empty / placeholder / unknown. Returns true when at least one
+ *  node was changed. Caller is expected to schedule a save. */
+function migrateGraphModels(
+  graph: Graph,
+  cached: ReadonlyArray<ModelOption>,
+  defaultModel: string,
+): boolean {
+  let changed = false;
+  for (const n of graph.nodes) {
+    if (remapNodeModel(n, cached, defaultModel)) changed = true;
+  }
+  return changed;
+}
+
+function modalityForKind(kind: NodeKind): Modality | null {
+  switch (kind) {
+    case "agent":
+      return "text";
+    case "imageGen":
+      return "image";
+    case "videoGen":
+      return "video";
+    case "audioGen":
+      return "audio";
+    default:
+      return null;
+  }
+}
 
 export const PLANT_W = 150;
 export const PLANT_H = 92;
@@ -52,7 +174,18 @@ interface GraphState {
   moveNode: (id: string, x: number, y: number) => void;
   /** Move multiple nodes by relative dx/dy (used for multi-select dragging). */
   moveNodes: (ids: string[], dx: number, dy: number) => void;
-  addNode: (kind: NodeKind, x: number, y: number) => void;
+  /**
+   * Add a node of the given kind at (x, y). Always succeeds: when the kind
+   * needs a model but no configured provider supports the required modality,
+   * the model field is left empty and `missingModality` is returned so the
+   * UI can show a soft warning. The dispatch endpoint is the gatekeeper that
+   * actually refuses to run a graph with empty models.
+   */
+  addNode: (kind: NodeKind, x: number, y: number) => {
+    id: string;
+    /** Set when the kind needs a model but no configured model matched. */
+    missingModality: Modality | null;
+  };
   duplicateNode: (id: string, dx?: number, dy?: number) => string | null;
   removeNode: (id: string) => void;
   addEdge: (from: string, to: string, kind: GraphEdge["kind"]) => { ok: boolean; reason?: string };
@@ -127,12 +260,27 @@ export const useGraph = create<GraphState>()(
       setGraph: (graph) => {
         const withVersion = graph as Graph & { version?: number };
         const version = typeof withVersion.version === "number" ? withVersion.version : undefined;
-        if (version != null) {
-          const { version: _v, ...doc } = withVersion;
+        // Re-pick models for nodes whose current value is empty / a
+        // placeholder / unknown to the user's config. This is a one-time
+        // UX migration: old graphs that were created with hardcoded
+        // "agnes-image" / "video-gen" / "tts-1" placeholders now point
+        // at real configured models when possible.
+        const doc = (version != null ? (() => {
+          const { version: _v, ...rest } = withVersion;
           void _v;
-          set({ graph: doc as Graph, serverVersion: version, saveState: "saved" });
+          return rest;
+        })() : graph) as Graph;
+        const migrated = structuredClone(doc);
+        const changed = migrateGraphModels(migrated, cachedModelOptions, cachedDefaultModel);
+        if (version != null) {
+          set({ graph: migrated, serverVersion: version, saveState: "saved" });
         } else {
-          set({ graph });
+          set({ graph: migrated });
+        }
+        if (changed) {
+          // Persist the migration so the user only sees the soft warning
+          // once; the next reload reads back the corrected graph.
+          scheduleSave(migrated);
         }
       },
       syncServerVersion: (serverVersion) => set({ serverVersion }),
@@ -201,25 +349,73 @@ export const useGraph = create<GraphState>()(
           return { graph };
         }),
 
-      addNode: (kind, x, y) =>
+      addNode: (kind, x, y) => {
+        // Kick off a refresh in case the cache is still empty (first add
+        // after page load can race the background fetch). The current
+        // call still sees the empty cache and surfaces the soft warning;
+        // the next add (or the graph-load migration in setGraph) will
+        // use the populated cache.
+        if (cachedModelOptions.length === 0) {
+          refreshDefaultModel().then(() => {
+            // After the cache populates, re-run a migration pass on the
+            // current graph so any just-added node also gets its model
+            // re-picked from the now-known providers.
+            const cur = get().graph;
+            const clone = structuredClone(cur);
+            if (migrateGraphModels(clone, cachedModelOptions, cachedDefaultModel)) {
+              set({ graph: clone });
+              scheduleSave(clone);
+            }
+          });
+        }
+        const wanted = modalityForKind(kind);
+        const seed = wanted ? defaultModelFor(kind) : null;
+        const id = nextId(kind[0]!);
+        const node: GraphNode = {
+          id,
+          kind,
+          name: `${kind.toUpperCase()}-${id.slice(-4)}`,
+          x: snap(x),
+          y: snap(y),
+          ...DEFAULTS[kind],
+        };
+        // Stamp the resolved model onto the kind's sub-config when we have
+        // one. When no model matches the modality, clear the placeholder
+        // model that DEFAULTS seeded so the dispatch endpoint can detect
+        // the empty config and surface a clear "configure the model first"
+        // error.
+        if (seed) {
+          if (kind === "agent" && node.agent) {
+            node.agent = { ...node.agent, model: seed.model };
+          } else if (kind === "imageGen" && node.imageGen) {
+            node.imageGen = { ...node.imageGen, model: seed.model };
+          } else if (kind === "videoGen" && node.videoGen) {
+            node.videoGen = { ...node.videoGen, model: seed.model };
+          } else if (kind === "audioGen" && node.audioGen) {
+            node.audioGen = { ...node.audioGen, model: seed.model };
+          }
+        } else if (wanted) {
+          if (kind === "agent" && node.agent) {
+            node.agent = { ...node.agent, model: "" };
+          } else if (kind === "imageGen" && node.imageGen) {
+            node.imageGen = { ...node.imageGen, model: "" };
+          } else if (kind === "videoGen" && node.videoGen) {
+            node.videoGen = { ...node.videoGen, model: "" };
+          } else if (kind === "audioGen" && node.audioGen) {
+            node.audioGen = { ...node.audioGen, model: "" };
+          }
+        }
         set((s) => {
           useGraph.temporal.getState().resume();
-          const id = nextId(kind[0]!);
-          const node: GraphNode = {
-            id,
-            kind,
-            name: `${kind.toUpperCase()}-${id.slice(-4)}`,
-            x: snap(x),
-            y: snap(y),
-            ...DEFAULTS[kind],
-          };
-          if (kind === "agent" && node.agent) {
-            node.agent = { ...node.agent, model: cachedDefaultModel };
-          }
           const graph = { ...s.graph, nodes: [...s.graph.nodes, node] };
           scheduleSave(graph);
           return { graph, selectedId: id, selectedNodeIds: [id], selectedEdgeIds: [] };
-        }),
+        });
+        return {
+          id,
+          missingModality: wanted && !seed ? wanted : null,
+        };
+      },
 
       removeNode: (id) =>
         set((s) => {
