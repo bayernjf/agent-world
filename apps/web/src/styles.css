@@ -3836,6 +3836,21 @@ select {
   color: var(--power);
   font-weight: 600;
 }
+.onboarding__tip-warn {
+  margin: 8px 0 0;
+  padding: 6px 10px;
+  background: var(--steel-900);
+  border: 1px solid var(--alert);
+  color: var(--alert);
+  font-size: 11px;
+ }
+.onboarding__tip-warn code {
+  background: var(--steel-950);
+  padding: 1px 5px;
+  font-family: var(--mono);
+  color: var(--ink);
+  border: 1px solid var(--steel-600);
+ }
 .onboarding__tips p {
   margin: 0;
 }
