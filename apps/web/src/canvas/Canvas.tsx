@@ -241,6 +241,69 @@ export default function Canvas({ mode }: Props) {
     };
   }, []);
 
+  // Marquee (box) selection is handled via window-level pointer events.
+  // React synthetic events + pointer capture on inner <rect> can drop
+  // pointerup and leave the marquee stuck to the cursor, so we bypass
+  // both and listen on window directly.
+  useEffect(() => {
+    const onMove = (e: PointerEvent) => {
+      const mq = marqueeRef.current;
+      if (!mq) return;
+      e.preventDefault();
+      const p = toView(e.clientX, e.clientY);
+      const cx = (p.x - viewport.panX) / viewport.zoom;
+      const cy = (p.y - viewport.panY) / viewport.zoom;
+      mq.curX = cx;
+      mq.curY = cy;
+      if (!mq.active && Math.hypot(cx - mq.startX, cy - mq.startY) >= CLICK_SLOP) {
+        mq.active = true;
+      }
+      if (mq.active) {
+        setMarquee({
+          x: Math.min(mq.startX, mq.curX),
+          y: Math.min(mq.startY, mq.curY),
+          w: Math.abs(mq.curX - mq.startX),
+          h: Math.abs(mq.curY - mq.startY),
+        });
+      }
+    };
+    const onUp = () => {
+      const mq = marqueeRef.current;
+      if (!mq) return;
+      marqueeRef.current = null;
+      setMarquee(null);
+      if (mq.active) {
+        const x1 = Math.min(mq.startX, mq.curX);
+        const y1 = Math.min(mq.startY, mq.curY);
+        const x2 = Math.max(mq.startX, mq.curX);
+        const y2 = Math.max(mq.startY, mq.curY);
+        const inside = graph.nodes
+          .filter((n) => n.x >= x1 && n.x <= x2 && n.y >= y1 && n.y <= y2)
+          .map((n) => n.id);
+        if (inside.length > 0) {
+          // Shift+marquee always toggles (additive) since it requires Shift to start.
+          const current = new Set(useGraph.getState().selectedNodeIds);
+          for (const id of inside) {
+            if (current.has(id)) current.delete(id);
+            else current.add(id);
+          }
+          const next = [...current];
+          useGraph.setState({ selectedId: next[0] ?? null, selectedNodeIds: next, selectedEdgeIds: [] });
+        }
+      } else {
+        // Shift+click on empty backdrop (no drag) clears selection.
+        selectNone();
+        setConnectFrom(null);
+      }
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+  }, [viewport, graph.nodes, toView, selectNone, setConnectFrom]);
+
   const onPlantPointerDown = (node: GraphNode, e: React.PointerEvent) => {
     e.stopPropagation();
 
@@ -302,28 +365,6 @@ export default function Canvas({ mode }: Props) {
   };
 
   const onPointerMove = (e: React.PointerEvent) => {
-    // Marquee selection update
-    const mq = marqueeRef.current;
-    if (mq) {
-      const p = toView(e.clientX, e.clientY);
-      // Convert to content (graph) coords to match node x/y.
-      const cx = (p.x - viewport.panX) / viewport.zoom;
-      const cy = (p.y - viewport.panY) / viewport.zoom;
-      mq.curX = cx;
-      mq.curY = cy;
-      if (!mq.active && Math.hypot(cx - mq.startX, cy - mq.startY) >= CLICK_SLOP) {
-        mq.active = true;
-      }
-      if (mq.active) {
-        const x = Math.min(mq.startX, mq.curX);
-        const y = Math.min(mq.startY, mq.curY);
-        const w = Math.abs(mq.curX - mq.startX);
-        const h = Math.abs(mq.curY - mq.startY);
-        setMarquee({ x, y, w, h });
-      }
-      return;
-    }
-
     const drag = dragRef.current;
     if (drag) {
       const p = toView(e.clientX, e.clientY);
@@ -363,44 +404,9 @@ export default function Canvas({ mode }: Props) {
     const drag = dragRef.current;
     const pan = panRef.current;
     const pd = pipeDownRef.current;
-    const mq = marqueeRef.current;
     dragRef.current = null;
     panRef.current = null;
     pipeDownRef.current = null;
-    marqueeRef.current = null;
-
-    // Marquee selection complete
-    if (mq) {
-      setMarquee(null);
-      if (mq.active) {
-        const x1 = Math.min(mq.startX, mq.curX);
-        const y1 = Math.min(mq.startY, mq.curY);
-        const x2 = Math.max(mq.startX, mq.curX);
-        const y2 = Math.max(mq.startY, mq.curY);
-        const inside = graph.nodes.filter(
-          (n) => n.x >= x1 && n.x <= x2 && n.y >= y1 && n.y <= y2,
-        ).map((n) => n.id);
-        if (mq.shift) {
-          // Shift+marquee: toggle the boxed nodes in/out of current selection
-          const current = new Set(selectedNodeIds);
-          for (const id of inside) {
-            if (current.has(id)) current.delete(id);
-            else current.add(id);
-          }
-          const next = [...current];
-          useGraph.setState({ selectedId: next[0] ?? null, selectedNodeIds: next, selectedEdgeIds: [] });
-        } else if (inside.length > 0) {
-          useGraph.setState({ selectedId: inside[0]!, selectedNodeIds: inside, selectedEdgeIds: [] });
-        } else {
-          selectNone();
-        }
-      } else {
-        // A plain click on empty backdrop clears selection.
-        selectNone();
-        setConnectFrom(null);
-      }
-      return;
-    }
 
     if (drag) {
       if (drag.moved) {
@@ -448,7 +454,9 @@ export default function Canvas({ mode }: Props) {
         active: false,
         shift: true,
       };
-      e.currentTarget.setPointerCapture?.(e.pointerId);
+      // No setPointerCapture: we use window-level listeners for marquee,
+      // because React synthetic events + pointer capture on inner <rect>
+      // can drop pointerup and leave the marquee stuck to the cursor.
       return;
     }
     // Select mode: plain left-drag pans the canvas (original behavior).
