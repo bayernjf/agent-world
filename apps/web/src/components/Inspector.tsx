@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { UNIT_LABELS, artifactLabel, type Artifact, type AudioGenConfig, type Graph, type VideoGenConfig } from "@agent-world/core";
-import { api, type AppConfig } from "../lib/api";
+import { api, type AppConfig, type Modality } from "../lib/api";
 import { useGraph } from "../store/graph";
 import { useVisibleRuntime } from "../store/run";
 import SkillPicker from "./SkillPicker";
@@ -90,11 +90,27 @@ export default function Inspector() {
   useEffect(() => {
     api.getSettings().then(setSettings).catch(() => {});
   }, []);
-  const modelOptions = settings
+  // Each node kind only drives one modality, so its model select must
+  // only show models matching that modality. Empty list -> the select
+  // renders an "未配置" placeholder nudging the user to Settings, and
+  // dispatch remains the hard gatekeeper (it errors before sending).
+  const allModelOptions = settings
     ? Object.entries(settings.providers)
-        .filter(([, pp]) => pp.type !== "fake" && pp.enabled !== false)
-        .flatMap(([pname, pp]) => pp.models.map((m) => ({ model: m, provider: pname })))
+        .filter(([, pp]) => pp.enabled !== false)
+        .flatMap(([pname, pp]) =>
+          pp.models.map((m) => ({
+            model: m,
+            provider: pname,
+            modality: (pp.modalities?.[m] ?? "text") as Modality,
+          })),
+        )
+        .filter((o) => o.provider !== "fake")
     : [];
+
+  const videoModelOptions = allModelOptions.filter((o) => o.modality === "video");
+  const audioModelOptions = allModelOptions.filter((o) => o.modality === "audio");
+  const textModelOptions = allModelOptions.filter((o) => o.modality === "text");
+  const imageModelOptions = allModelOptions.filter((o) => o.modality === "image");
 
   const node = graph.nodes.find((n) => n.id === selectedId);
   if (!node) {
@@ -332,15 +348,15 @@ export default function Inspector() {
               >
                 <option value="__unset__" disabled hidden>
                   {!node.agent.model
-                    ? "（未配置 — 请先在「模型设置」中添加）"
+                    ? "（未配置 — 请先在「模型设置」中添加文本模型）"
                     : "（请选择）"}
                 </option>
-                {modelOptions.map((o) => (
+                {textModelOptions.map((o) => (
                   <option key={`${o.provider}::${o.model}`} value={o.model}>
                     {o.model} · {o.provider}
                   </option>
                 ))}
-                {!modelOptions.some((o) => o.model === node.agent!.model) && node.agent.model && (
+                {!textModelOptions.some((o) => o.model === node.agent!.model) && node.agent.model && (
                   <option value={node.agent.model}>{node.agent.model} (当前)</option>
                 )}
               </select>
@@ -491,12 +507,12 @@ export default function Inspector() {
                     ? "（未配置 — 请先在「模型设置」中添加图片模型）"
                     : "（请选择）"}
                 </option>
-                {modelOptions.map((o) => (
+                {imageModelOptions.map((o) => (
                   <option key={`${o.provider}::${o.model}`} value={o.model}>
                     {o.model} · {o.provider}
                   </option>
                 ))}
-                {!modelOptions.some((o) => o.model === node.imageGen!.model) && node.imageGen.model && (
+                {!imageModelOptions.some((o) => o.model === node.imageGen!.model) && node.imageGen.model && (
                   <option value={node.imageGen.model}>{node.imageGen.model} (当前)</option>
                 )}
               </select>
@@ -584,16 +600,28 @@ export default function Inspector() {
           <>
             <label className="field">
               <span>视频模型</span>
-              <input
-                type="text"
-                placeholder="如：video-gen / sora / runway-gen3"
-                value={node.videoGen.model}
-                onFocus={beginEdit}
-                onBlur={commitEdit}
-                onChange={(e) =>
-                  updateNode(node.id, { videoGen: { ...node.videoGen!, model: e.target.value } })
-                }
-              />
+              <select
+                className="select"
+                value={node.videoGen.model || "__unset__"}
+                onChange={(e) => {
+                  if (e.target.value === "__unset__") return;
+                  updateNode(node.id, { videoGen: { ...node.videoGen!, model: e.target.value } });
+                }}
+              >
+                <option value="__unset__" disabled hidden>
+                  {!node.videoGen.model
+                    ? "（未配置 — 请先在「模型设置」中添加视频模型）"
+                    : "（请选择）"}
+                </option>
+                {videoModelOptions.map((o) => (
+                  <option key={`${o.provider}::${o.model}`} value={o.model}>
+                    {o.model} · {o.provider}
+                  </option>
+                ))}
+                {!videoModelOptions.some((o) => o.model === node.videoGen!.model) && node.videoGen.model && (
+                  <option value={node.videoGen.model}>{node.videoGen.model} (当前)</option>
+                )}
+              </select>
             </label>
             <label className="field">
               <span>视频提示词（留空则用上游文本）</span>
@@ -704,16 +732,28 @@ export default function Inspector() {
           <>
             <label className="field">
               <span>音频模型</span>
-              <input
-                type="text"
-                placeholder="如：tts-1 / tts-1-hd / music-gen"
-                value={node.audioGen.model}
-                onFocus={beginEdit}
-                onBlur={commitEdit}
-                onChange={(e) =>
-                  updateNode(node.id, { audioGen: { ...node.audioGen!, model: e.target.value } })
-                }
-              />
+              <select
+                className="select"
+                value={node.audioGen.model || "__unset__"}
+                onChange={(e) => {
+                  if (e.target.value === "__unset__") return;
+                  updateNode(node.id, { audioGen: { ...node.audioGen!, model: e.target.value } });
+                }}
+              >
+                <option value="__unset__" disabled hidden>
+                  {!node.audioGen.model
+                    ? "（未配置 — 请先在「模型设置」中添加音频模型）"
+                    : "（请选择）"}
+                </option>
+                {audioModelOptions.map((o) => (
+                  <option key={`${o.provider}::${o.model}`} value={o.model}>
+                    {o.model} · {o.provider}
+                  </option>
+                ))}
+                {!audioModelOptions.some((o) => o.model === node.audioGen!.model) && node.audioGen.model && (
+                  <option value={node.audioGen.model}>{node.audioGen.model} (当前)</option>
+                )}
+              </select>
             </label>
             <label className="field">
               <span>文本 / 提示词（留空则用上游文本）</span>
