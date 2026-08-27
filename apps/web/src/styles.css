@@ -1262,9 +1262,9 @@ select {
 
 .toast {
   position: fixed;
-  top: 50%;
+  top: 24px;
   left: 50%;
-  transform: translate(-50%, -50%);
+  transform: translateX(-50%);
   z-index: var(--z-toast);
   display: flex;
   align-items: center;
