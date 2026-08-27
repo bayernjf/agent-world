@@ -29,20 +29,36 @@ export const snap = (v: number) => Math.round(v / GRID) * GRID;
  */
 interface GraphState {
   graph: Graph;
+  /** @deprecated Use selectedNodeIds instead. Returns the first selected node id (or null). */
   selectedId: string | null;
+  selectedNodeIds: string[];
+  selectedEdgeIds: string[];
   saveState: "idle" | "saving" | "saved" | "error" | "conflict";
   /** Document version last loaded/saved from the server, for optimistic locking. */
   serverVersion: number | null;
   setGraph: (graph: Graph) => void;
   /** Reload server version after a conflict resolution / forced refresh. */
   syncServerVersion: (version: number | null) => void;
+  /** Single-select a node (clears all other selection). */
   select: (id: string | null) => void;
+  /** Toggle a node in the selection. If additive is false, replaces selection. */
+  toggleNode: (id: string, additive?: boolean) => void;
+  /** Toggle an edge in the selection. If additive is false, replaces selection. */
+  toggleEdge: (id: string, additive?: boolean) => void;
+  /** Clear all selection. */
+  selectNone: () => void;
+  /** Select all nodes. */
+  selectAllNodes: () => void;
   moveNode: (id: string, x: number, y: number) => void;
+  /** Move multiple nodes by relative dx/dy (used for multi-select dragging). */
+  moveNodes: (ids: string[], dx: number, dy: number) => void;
   addNode: (kind: NodeKind, x: number, y: number) => void;
   duplicateNode: (id: string, dx?: number, dy?: number) => string | null;
   removeNode: (id: string) => void;
   addEdge: (from: string, to: string, kind: GraphEdge["kind"]) => { ok: boolean; reason?: string };
   removeEdge: (id: string) => void;
+  /** Delete all selected nodes and edges. */
+  deleteSelected: () => void;
   updateNode: (id: string, patch: Partial<GraphNode>) => void;
   beginHistoryBatch: () => void;
   commitHistoryBatch: () => void;
@@ -100,6 +116,8 @@ export const useGraph = create<GraphState>()(
     (set, get) => ({
       graph: EMPTY,
       selectedId: null,
+      selectedNodeIds: [],
+      selectedEdgeIds: [],
       saveState: "idle",
       serverVersion: null,
 
@@ -125,7 +143,35 @@ export const useGraph = create<GraphState>()(
         const { version, ...doc } = fresh;
         set({ graph: doc as Graph, serverVersion: version, saveState: "saved" });
       },
-      select: (selectedId) => set({ selectedId }),
+      select: (id) => set({ selectedId: id, selectedNodeIds: id ? [id] : [], selectedEdgeIds: [] }),
+
+      toggleNode: (id, additive = false) =>
+        set((s) => {
+          if (!additive) {
+            return { selectedId: id, selectedNodeIds: [id], selectedEdgeIds: [] };
+          }
+          const exists = s.selectedNodeIds.includes(id);
+          const next = exists ? s.selectedNodeIds.filter((x) => x !== id) : [...s.selectedNodeIds, id];
+          return { selectedId: next[0] ?? null, selectedNodeIds: next, selectedEdgeIds: [] };
+        }),
+
+      toggleEdge: (id, additive = false) =>
+        set((s) => {
+          if (!additive) {
+            return { selectedId: null, selectedNodeIds: [], selectedEdgeIds: [id] };
+          }
+          const exists = s.selectedEdgeIds.includes(id);
+          const next = exists ? s.selectedEdgeIds.filter((x) => x !== id) : [...s.selectedEdgeIds, id];
+          return { selectedEdgeIds: next, selectedNodeIds: [], selectedId: null };
+        }),
+
+      selectNone: () => set({ selectedId: null, selectedNodeIds: [], selectedEdgeIds: [] }),
+
+      selectAllNodes: () =>
+        set((s) => {
+          const ids = s.graph.nodes.map((n) => n.id);
+          return { selectedId: ids[0] ?? null, selectedNodeIds: ids, selectedEdgeIds: [] };
+        }),
 
       moveNode: (id, x, y) =>
         set((s) => {
@@ -134,6 +180,22 @@ export const useGraph = create<GraphState>()(
           const graph = {
             ...s.graph,
             nodes: s.graph.nodes.map((n) => (n.id === id ? { ...n, x: sx, y: sy } : n)),
+          };
+          scheduleSave(graph);
+          return { graph };
+        }),
+
+      moveNodes: (ids, dx, dy) =>
+        set((s) => {
+          const idSet = new Set(ids);
+          const sdx = snap(dx);
+          const sdy = snap(dy);
+          if (sdx === 0 && sdy === 0) return s;
+          const graph = {
+            ...s.graph,
+            nodes: s.graph.nodes.map((n) =>
+              idSet.has(n.id) ? { ...n, x: snap(n.x + sdx), y: snap(n.y + sdy) } : n,
+            ),
           };
           scheduleSave(graph);
           return { graph };
@@ -156,7 +218,7 @@ export const useGraph = create<GraphState>()(
           }
           const graph = { ...s.graph, nodes: [...s.graph.nodes, node] };
           scheduleSave(graph);
-          return { graph, selectedId: id };
+          return { graph, selectedId: id, selectedNodeIds: [id], selectedEdgeIds: [] };
         }),
 
       removeNode: (id) =>
@@ -168,7 +230,8 @@ export const useGraph = create<GraphState>()(
             edges: s.graph.edges.filter((e) => e.from !== id && e.to !== id),
           };
           scheduleSave(graph);
-          return { graph, selectedId: s.selectedId === id ? null : s.selectedId };
+          const nextNodeIds = s.selectedNodeIds.filter((x) => x !== id);
+          return { graph, selectedId: nextNodeIds[0] ?? null, selectedNodeIds: nextNodeIds };
         }),
 
       duplicateNode: (id, dx = 30, dy = 30) => {
@@ -186,7 +249,7 @@ export const useGraph = create<GraphState>()(
           y: snap(src.y + dy),
         };
         const graph = { ...state.graph, nodes: [...state.graph.nodes, node] };
-        set({ graph, selectedId: newId });
+        set({ graph, selectedId: newId, selectedNodeIds: [newId], selectedEdgeIds: [] });
         scheduleSave(graph);
         return newId;
       },
@@ -212,7 +275,24 @@ export const useGraph = create<GraphState>()(
           useGraph.temporal.getState().resume();
           const graph = { ...s.graph, edges: s.graph.edges.filter((e) => e.id !== id) };
           scheduleSave(graph);
-          return { graph };
+          return { graph, selectedEdgeIds: s.selectedEdgeIds.filter((x) => x !== id) };
+        }),
+
+      deleteSelected: () =>
+        set((s) => {
+          if (s.selectedNodeIds.length === 0 && s.selectedEdgeIds.length === 0) return s;
+          useGraph.temporal.getState().resume();
+          const nodeSet = new Set(s.selectedNodeIds);
+          const edgeSet = new Set(s.selectedEdgeIds);
+          const graph = {
+            ...s.graph,
+            nodes: s.graph.nodes.filter((n) => !nodeSet.has(n.id)),
+            edges: s.graph.edges.filter(
+              (e) => !edgeSet.has(e.id) && !nodeSet.has(e.from) && !nodeSet.has(e.to),
+            ),
+          };
+          scheduleSave(graph);
+          return { graph, selectedId: null, selectedNodeIds: [], selectedEdgeIds: [] };
         }),
 
       updateNode: (id, patch) =>
