@@ -35,7 +35,6 @@ interface CanvasState {
   centerOn: (x: number, y: number) => void;
   /** Zoom and pan so all given nodes fit the visible board. */
   fitToBounds: (b: Bounds) => void;
-  reset: () => void;
 }
 
 /** Compute the viewport that frames a bounding box in the fixed 1440×640 board. */
@@ -75,7 +74,6 @@ export const useCanvas = create<CanvasState>()(
           },
         })),
       fitToBounds: (b) => set({ viewport: framing(b) }),
-      reset: () => set({ viewport: DEFAULT_VIEWPORT }),
     }),
     {
       name: "agent-world-canvas-viewport",
