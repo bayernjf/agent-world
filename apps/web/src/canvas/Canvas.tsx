@@ -72,6 +72,8 @@ export default function Canvas({ mode }: Props) {
     startX: number;
     startY: number;
     startGraph: Graph;
+    /** Snapshot of selected node IDs at drag start, so multi-select drag is stable. */
+    selectedIds: string[];
   } | null>(null);
   const panRef = useRef<{ startX: number; startY: number; originX: number; originY: number; moved: boolean } | null>(null);
   const pipeDownRef = useRef<{ id: string; sx: number; sy: number } | null>(null);
@@ -277,9 +279,10 @@ export default function Canvas({ mode }: Props) {
     // - Shift+click: toggle this node in/out of the multi-selection
     // - Plain click on an already-selected node: keep selection (drag moves all)
     // - Plain click on an unselected node: single-select it
+    const currentSelected = useGraph.getState().selectedNodeIds;
     if (e.shiftKey) {
       toggleNode(node.id, true);
-    } else if (!selectedNodeIds.includes(node.id)) {
+    } else if (!currentSelected.includes(node.id)) {
       select(node.id);
     }
 
@@ -291,6 +294,8 @@ export default function Canvas({ mode }: Props) {
       startX: node.x,
       startY: node.y,
       startGraph: graph,
+      // Snapshot latest selection (toggleNode may have just changed it).
+      selectedIds: useGraph.getState().selectedNodeIds,
     };
     beginHistoryBatch();
     (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
@@ -332,10 +337,11 @@ export default function Canvas({ mode }: Props) {
       if (node.x === tx && node.y === ty) return;
       drag.moved = true;
       // Multi-select drag: move all selected nodes by the same relative delta.
-      if (selectedNodeIds.length > 1) {
+      // Use the snapshot from drag start so the set is stable during drag.
+      if (drag.selectedIds.length > 1) {
         const dx = tx - drag.startX;
         const dy = ty - drag.startY;
-        moveNodes(selectedNodeIds, dx, dy);
+        moveNodes(drag.selectedIds, dx, dy);
       } else {
         moveNode(drag.id, tx, ty);
       }
