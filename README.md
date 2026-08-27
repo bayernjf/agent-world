@@ -105,10 +105,13 @@ same reducer.
 
 ## Canvas interaction
 
-- Pan: select-mode drag, middle-mouse drag, or hold Space and drag anywhere. Arrow keys nudge (Shift = faster).
-- Zoom: cursor-anchored wheel, or the minimap +/−. `F` frames the selected plant.
-- Pipes: hover or click one to highlight its whole up/downstream flow; Delete/Backspace removes the selected pipe.
-- Plants: drag snaps to a 20px grid; ⌘/Ctrl+C copies the selected plant, ⌘/Ctrl+V pastes a copy.
+- **Pan**: left-drag on empty backdrop (select mode), middle-mouse drag, or hold Space and drag anywhere. Arrow keys nudge (Shift = faster).
+- **Zoom**: cursor-anchored wheel, or the minimap +/−. `F` frames the selected plant.
+- **Multi-select**: Shift+click a plant or pipe to toggle it in/out of the selection; Shift+drag on empty backdrop draws a marquee box to select all plants inside; ⌘/Ctrl+A selects all plants. Click empty backdrop to clear.
+- **Batch operations**: drag any selected plant to move the whole selection together (relative positions preserved); Delete/Backspace removes all selected plants and pipes at once.
+- **Pipes**: hover or click one to highlight its whole up/downstream flow.
+- **Plants**: drag snaps to a 20px grid; ⌘/Ctrl+C copies the selected plant, ⌘/Ctrl+V pastes a copy.
+- **First load**: the canvas auto-fits to all plants so new users never see a blank board. Viewport (pan/zoom) persists per graph in localStorage.
 - The "快捷键 ?" button in the top bar lists every shortcut.
 
 ## Documentation
