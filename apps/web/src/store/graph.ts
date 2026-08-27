@@ -51,24 +51,77 @@ void refreshDefaultModel();
  */
 function defaultModelFor(
   kind: NodeKind,
+  cached: ReadonlyArray<ModelOption> = cachedModelOptions,
+  defaultModel: string = cachedDefaultModel,
 ): { provider: string; model: string; modality: Modality } | null {
   const wanted = modalityForKind(kind);
   if (!wanted) return null;
   // Prefer the user's default model if its modality matches.
-  const fromDefault = cachedModelOptions.find(
-    (o) => o.model === cachedDefaultModel && o.modality === wanted && o.enabled,
+  const fromDefault = cached.find(
+    (o) => o.model === defaultModel && o.modality === wanted && o.enabled,
   );
   if (fromDefault) return { provider: fromDefault.provider, model: fromDefault.model, modality: wanted };
-  // Otherwise take the first enabled option for that modality.
-  const fallback = cachedModelOptions.find((o) => o.modality === wanted && o.enabled);
-  if (fallback) return { provider: fallback.provider, model: fallback.model, modality: wanted };
-  // No real model found — return null so the caller can show a soft warning
-  // at add time. Dispatch is the actual gatekeeper that refuses to run a
-  // graph with empty model fields.
+  // Otherwise prefer a REAL provider (anything not the built-in fake/demo
+  // worker). The demo is only a last-resort so the picker respects the
+  // user's configured models when they exist.
+  const real = cached.find((o) => o.modality === wanted && o.enabled && o.provider !== "demo" && o.provider !== "fake");
+  if (real) return { provider: real.provider, model: real.model, modality: wanted };
+  // No real model — fall back to the demo so addNode can still succeed
+  // for a brand-new user with zero configured models.
+  const demo = cached.find((o) => o.modality === wanted && o.enabled);
+  if (demo) return { provider: demo.provider, model: demo.model, modality: wanted };
   return null;
 }
 
 /** Map a node kind to the modality its worker executes against. */
+/** Re-pick the model field for one node: keeps the current value if it
+ *  resolves to a real, enabled provider; otherwise falls back to the
+ *  default-for-modality picker (which itself prefers the user's default
+ *  model when it fits). Returns true when the model field was changed. */
+function remapNodeModel(
+  node: GraphNode,
+  cached: ReadonlyArray<ModelOption>,
+  defaultModel: string,
+): boolean {
+  const wanted = modalityForKind(node.kind);
+  if (!wanted) return false;
+  const cfg =
+    node.kind === "agent" ? node.agent :
+    node.kind === "imageGen" ? node.imageGen :
+    node.kind === "videoGen" ? node.videoGen :
+    node.kind === "audioGen" ? node.audioGen : null;
+  if (!cfg) return false;
+  const current = (cfg as { model?: string }).model ?? "";
+  // Keep the current model if it resolves to an enabled provider entry.
+  const resolves = current && cached.some((o) => o.model === current && o.enabled);
+  if (resolves) return false;
+  // Otherwise pick a real one for the modality. When none exists, clear
+  // the placeholder so the field matches the addNode "empty" contract
+  // and the dispatch validator has a single rule to check.
+  const seed = defaultModelFor(node.kind, cached, defaultModel);
+  const next = { ...cfg, model: seed ? seed.model : "" } as typeof cfg;
+  if (node.kind === "agent") node.agent = next as typeof node.agent;
+  else if (node.kind === "imageGen") node.imageGen = next as typeof node.imageGen;
+  else if (node.kind === "videoGen") node.videoGen = next as typeof node.videoGen;
+  else if (node.kind === "audioGen") node.audioGen = next as typeof node.audioGen;
+  return true;
+}
+
+/** Mutate `graph.nodes` in place to re-pick models for nodes whose current
+ *  model is empty / placeholder / unknown. Returns true when at least one
+ *  node was changed. Caller is expected to schedule a save. */
+function migrateGraphModels(
+  graph: Graph,
+  cached: ReadonlyArray<ModelOption>,
+  defaultModel: string,
+): boolean {
+  let changed = false;
+  for (const n of graph.nodes) {
+    if (remapNodeModel(n, cached, defaultModel)) changed = true;
+  }
+  return changed;
+}
+
 function modalityForKind(kind: NodeKind): Modality | null {
   switch (kind) {
     case "agent":
@@ -207,12 +260,27 @@ export const useGraph = create<GraphState>()(
       setGraph: (graph) => {
         const withVersion = graph as Graph & { version?: number };
         const version = typeof withVersion.version === "number" ? withVersion.version : undefined;
-        if (version != null) {
-          const { version: _v, ...doc } = withVersion;
+        // Re-pick models for nodes whose current value is empty / a
+        // placeholder / unknown to the user's config. This is a one-time
+        // UX migration: old graphs that were created with hardcoded
+        // "agnes-image" / "video-gen" / "tts-1" placeholders now point
+        // at real configured models when possible.
+        const doc = (version != null ? (() => {
+          const { version: _v, ...rest } = withVersion;
           void _v;
-          set({ graph: doc as Graph, serverVersion: version, saveState: "saved" });
+          return rest;
+        })() : graph) as Graph;
+        const migrated = structuredClone(doc);
+        const changed = migrateGraphModels(migrated, cachedModelOptions, cachedDefaultModel);
+        if (version != null) {
+          set({ graph: migrated, serverVersion: version, saveState: "saved" });
         } else {
-          set({ graph });
+          set({ graph: migrated });
+        }
+        if (changed) {
+          // Persist the migration so the user only sees the soft warning
+          // once; the next reload reads back the corrected graph.
+          scheduleSave(migrated);
         }
       },
       syncServerVersion: (serverVersion) => set({ serverVersion }),
@@ -282,6 +350,24 @@ export const useGraph = create<GraphState>()(
         }),
 
       addNode: (kind, x, y) => {
+        // Kick off a refresh in case the cache is still empty (first add
+        // after page load can race the background fetch). The current
+        // call still sees the empty cache and surfaces the soft warning;
+        // the next add (or the graph-load migration in setGraph) will
+        // use the populated cache.
+        if (cachedModelOptions.length === 0) {
+          refreshDefaultModel().then(() => {
+            // After the cache populates, re-run a migration pass on the
+            // current graph so any just-added node also gets its model
+            // re-picked from the now-known providers.
+            const cur = get().graph;
+            const clone = structuredClone(cur);
+            if (migrateGraphModels(clone, cachedModelOptions, cachedDefaultModel)) {
+              set({ graph: clone });
+              scheduleSave(clone);
+            }
+          });
+        }
         const wanted = modalityForKind(kind);
         const seed = wanted ? defaultModelFor(kind) : null;
         const id = nextId(kind[0]!);

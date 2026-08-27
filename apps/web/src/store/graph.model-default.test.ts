@@ -124,3 +124,27 @@ describe("addNode default model selection", () => {
     expect(useGraph.getState().addNode("sink", 0, 0).missingModality).toBeNull();
   });
 });
+
+  it("prefers a real provider over the built-in demo when both match the modality", async () => {
+    const { useGraph, refreshDefaultModel } = await setup({
+      providers: {
+        demo: { type: "fake", enabled: true, models: ["demo-image"], modalities: { "demo-image": "image" } },
+        real: {
+          type: "openai-compatible",
+          enabled: true,
+          models: ["real-image-1", "real-image-2"],
+          modalities: { "real-image-1": "image", "real-image-2": "image" },
+        },
+      },
+      // User's default is a text model on the real provider so the
+      // imageGen fallback path runs.
+      defaultModel: "real-text",
+      defaultProvider: "real",
+    });
+    await refreshDefaultModel();
+    const r = useGraph.getState().addNode("imageGen", 10, 10);
+    expect(r.missingModality).toBeNull();
+    const node = useGraph.getState().graph.nodes.find((n) => n.id === r.id);
+    // Real provider wins over the demo fallback.
+    expect(node?.imageGen?.model).toBe("real-image-1");
+  });

@@ -1572,3 +1572,63 @@ store，但样式从底部弹条换成**屏幕正中央的浮层**，右侧固�
   （含新增的 toast.test.ts：5 个 store 用例 + 2 个 copyToClipboard 用例）
 - 沙箱 EPERM 限制，未在 8791 端到端复现；老 server 进程需手动
   `kill 89495` 后才能用上新版
+
+## 阶段 4 收尾 — 多模态 picker：真实 provider 优先，老图自动迁移
+
+### 概述
+之前的 `defaultModelFor` 写出来后没考虑到两个真实坑：
+1. 排序问题：默认 config 把 `fake` / `demo` 排在前，用户配的
+   `agnes` 在后，于是 `find(o => o.modality === wanted)` 会先命中
+   `demo-image` 而不是用户的 `agnes-image-2.0-flash`
+2. 老图：用户已经有几条"小红书种草笔记"等图，节点里 model 字段
+   是历史硬编码的 `agnes-image` / `video-gen` / `tts-1`，新加的
+   `addNode` 只管新节点，老节点 Inspector 看到的还是占位
+
+修法：
+- picker 优先非 `demo`/`fake` 的 provider，再退回 demo
+- `setGraph` 跑一次 `migrateGraphModels`：老 placeholder / 空 model /
+   未知 model 全部按 modality 重选；变更后 scheduleSave 持久化
+
+### 改动
+- `apps/web/src/store/graph.ts`：
+  - `defaultModelFor(kind, cached?, defaultModel?)` 增加可选参数
+    方便被 `migrateGraphModels` 复用；新增"真实 provider 优先于
+    demo"的查找顺序
+  - 新增 `remapNodeModel(node, cached, defaultModel)`：把单个节点
+    的 model 字段重新选择；当前 model 在缓存中能命中就保持，否则
+    走 picker，picker 也没有就清空（与 addNode 的"找不到就清空"
+    行为一致）
+  - 新增 `migrateGraphModels(graph, cached, defaultModel)`：遍历
+    节点，按需迁移并返回是否变更
+  - `setGraph(graph)` 在 set 之前跑一次迁移；变更时 scheduleSave
+    持久化（避免下次加载又重新迁移）
+  - `addNode` 在 cache 为空时 fire-and-forget 调 `refreshDefaultModel`
+    并在 await 完后再次跑 migration（覆盖"打开后第一秒就点添加"
+    的竞态）
+- 测试：
+  - `graph.migrate.test.ts`（新）5 个用例：老 placeholder 重选 /
+    真 model 保持 / 无 picker 时清空 / 多节点混合迁移 / 不需要
+    model 的 kind 不动
+  - `graph.model-default.test.ts` 加 1 个回归：demo + 真实 provider
+    共存时真实 provider 胜出
+  - 19 个 web vitest 全绿
+
+### 已知 gap
+- 迁移触发点只有 `setGraph`（即从服务端加载 / 切图）。`addNode`
+  走单独的迁移分支，且依赖 `refreshDefaultModel` 解析后的真实
+  cache。如果用户首次加载就立刻点添加（cache 还没填），会先弹
+  软提示"未配置"；cache 一旦就位就自动 re-pick 并 scheduleSave
+- 真实 provider 优先意味着：如果用户**故意**把 demo 设为默认
+  model 并且有 demo-image，仍然会先匹配 demo-image（fromDefault
+  路径）；不会退到真实 provider。这是 by design
+- `addNode` 第一次 fire `refreshDefaultModel` 时如果当前已经
+  命中"真实 model 优先"的逻辑，则返回值就是真实 model；新加
+  的节点也不会被 demo 污染
+
+### 质量门
+- `pnpm -r typecheck`：全绿
+- `pnpm --filter @agent-world/web exec vitest run`：19 通过
+- `pnpm --filter @agent-world/server exec vitest run`（排除沙箱
+  EPERM）：228 通过
+- 沙箱 EPERM，未在 8791 端到端复现；老 server 进程需手动
+  `kill 89495` 后才能用上新版
