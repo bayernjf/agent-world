@@ -3,6 +3,24 @@
 All notable changes are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+- **Multi-select on canvas** — Shift+click plants/pipes to toggle selection; Shift+drag on empty backdrop draws a marquee box to select all plants inside; ⌘/Ctrl+A selects all plants.
+- **Batch operations** — drag any selected plant to move the whole selection together (relative positions preserved); Delete/Backspace removes all selected plants and pipes at once.
+- **First-load auto-fit** — the canvas auto-fits to all plants on first load so new users never see a blank board.
+- **Viewport persistence** — pan/zoom state persists per graph in localStorage; refreshing or dispatching a new run no longer resets the viewport.
+
+### Changed
+- Left-drag on empty backdrop in select mode now pans the canvas (was marquee); marquee selection moved to Shift+drag.
+- Removed unused `reset()` method from canvas store (the "适应" button's fit-to-bounds replaces it).
+
+### Fixed
+- Marquee selection coordinates now convert from viewport (SVG viewBox) space to content (graph) space, matching node x/y.
+- Multi-select drag now snapshots selected node IDs at drag start, avoiding stale React closure state after a Shift+click toggle.
+- Marquee selection now uses window-level pointer events (instead of React synthetic events + pointer capture on inner `<rect>`), preventing the selection rectangle from sticking to the cursor when pointerup is dropped.
+- Added `pointercancel` listener so macOS trackpad gestures / system interruptions clean up the marquee instead of leaving it stuck.
+
 ## [0.2.0] - 2026-08-26
 
 ### Added

@@ -8,7 +8,7 @@ import { useTips } from "../store/tips";
 interface Props {
   graph: Graph;
   runtime: RuntimeState;
-  selectedId: string | null;
+  selectedNodeIds: string[];
   connectFrom: string | null;
   onPointerDown: (node: GraphNode, e: React.PointerEvent) => void;
 }
@@ -51,7 +51,7 @@ interface TooltipLine {
 export default function Plants({
   graph,
   runtime,
-  selectedId,
+  selectedNodeIds,
   connectFrom,
   onPointerDown,
 }: Props) {
@@ -181,7 +181,7 @@ export default function Plants({
                 "plant",
                 `plant--${node.kind}`,
                 statusClass(rt),
-                selectedId === node.id ? "is-selected" : "",
+                selectedNodeIds.includes(node.id) ? "is-selected" : "",
                 connectFrom === node.id ? "is-connect-src" : "",
               ]
                 .filter(Boolean)

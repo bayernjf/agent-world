@@ -1271,3 +1271,55 @@ Stage B — structured product blocks:
 - `pnpm -r typecheck`：core + server + web 全绿
 - `pnpm -r test`：core 54 + server 243 全绿
 - `pnpm -r build`：core + server + web 构建成功（99 modules）
+
+---
+
+## 阶段 4 收尾 — 画布多选与视口体验
+
+**日期**：2026-08-27
+**分支**：`feature/20260824`
+
+### 概述
+
+从单选升级为多选，支持 Shift+点击、框选（marquee）、批量移动和批量删除。同时修复视口重置问题，实现首次加载自动适应和视口持久化。
+
+### 多选数据层（`apps/web/src/store/graph.ts`）
+
+- 单选 `selectedId` 扩展为 `selectedNodeIds: string[]` + `selectedEdgeIds: string[]` 集合，`selectedId` 保留为派生便利字段（第一个选中节点）
+- 新增方法：`toggleNode(id, additive?)`、`toggleEdge(id, additive?)`、`selectNone()`、`selectAllNodes()`、`moveNodes(ids, dx, dy)`（批量相对位移）、`deleteSelected()`（批量删除选中节点和管道）
+- `addNode`/`duplicateNode`/`removeNode`/`removeEdge` 同步更新选中集合
+
+### 多选交互层（`apps/web/src/canvas/Canvas.tsx`）
+
+- Shift+点击节点/管道：toggle 选中
+- 普通点击未选中节点：单选；点击已选中节点：保持选中（拖拽时批量移动）
+- 选中多个节点后拖拽：所有选中节点保持相对位置一起移动（`moveNodes`）
+- Delete/Backspace：批量删除所有选中节点和管道
+- ⌘/Ctrl+A：全选所有节点
+- 点击空白处：清空选中
+
+### 框选（Marquee selection）
+
+- Shift+左键拖拽空白处：画虚线矩形选框，释放时选中框内所有节点
+- 选框在内容坐标系渲染（与节点同坐标系）
+- 拖拽起点在 pan-surface 上时触发，需避开节点/管道命中区域
+- 使用 window 级别的 `pointermove`/`pointerup`/`pointercancel` 监听器（而非 React 合成事件 + pointer capture），避免选框卡住
+- `pointercancel` 时清理选框但不提交选中（macOS 触控板手势/系统中断）
+- 启动框选时 `preventDefault`，防止原生文本选择/拖拽抢占指针流
+
+### 视口体验
+
+- **首次加载自动适应**：新产线首次加载时画布自动适应所有节点，不会看到空白画布
+- **视口持久化**：pan/zoom 状态按产线持久化到 localStorage，刷新或派发新任务不再重置视口
+- **移除 `reset()`**：canvas store 中未使用的 `reset()` 方法已删除，"适应"按钮的 fit-to-bounds 替代其功能
+
+### 交互变更
+
+- select 模式下左键拖拽空白处：平移画布（恢复原行为）
+- 框选改为 Shift+左键拖拽空白处
+- 中键/空格+拖拽：平移画布（不变）
+
+### 质量门
+- `pnpm -r typecheck`：core + server + web 全绿
+- `pnpm -r test`：core 54 + server 243 全绿
+- 浏览器自动化验证：标准框选正常选中节点；pointercancel 正常清理选框

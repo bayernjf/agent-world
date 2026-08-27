@@ -23,3 +23,6 @@ artifacts/
 # Code graph cache
 .codegraph/
 *.tsbuildinfo
+
+# Personal Codex skills (project-local overrides; global at ~/.agents/skills/)
+.agents/

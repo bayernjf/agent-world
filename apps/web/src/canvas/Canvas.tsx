@@ -40,11 +40,19 @@ export default function Canvas({ mode }: Props) {
   const {
     graph,
     selectedId,
+    selectedNodeIds,
+    selectedEdgeIds,
     select,
+    toggleNode,
+    toggleEdge,
+    selectNone,
+    selectAllNodes,
     moveNode,
+    moveNodes,
     addEdge,
     removeEdge,
     removeNode,
+    deleteSelected,
     beginHistoryBatch,
     commitHistoryBatch,
     abortHistoryBatch,
@@ -52,7 +60,7 @@ export default function Canvas({ mode }: Props) {
   const duplicateNode = useGraph((s) => s.duplicateNode);
   const runtime = useVisibleRuntime();
   const scrubbing = useRun((s) => s.scrubSeq !== null);
-  const { viewport, setViewport, setFit: syncFit, setStageSize, reset, fitToBounds } = useCanvas();
+  const { viewport, setViewport, setFit: syncFit, setStageSize, fitToBounds } = useCanvas();
   const showToast = useToast((s) => s.show);
 
   const svgRef = useRef<SVGSVGElement>(null);
@@ -64,9 +72,14 @@ export default function Canvas({ mode }: Props) {
     startX: number;
     startY: number;
     startGraph: Graph;
+    /** Snapshot of selected node IDs at drag start, so multi-select drag is stable. */
+    selectedIds: string[];
   } | null>(null);
   const panRef = useRef<{ startX: number; startY: number; originX: number; originY: number; moved: boolean } | null>(null);
   const pipeDownRef = useRef<{ id: string; sx: number; sy: number } | null>(null);
+  /** Marquee selection: drag on empty backdrop in select mode to box-select nodes. */
+  const marqueeRef = useRef<{ startX: number; startY: number; curX: number; curY: number; active: boolean; shift: boolean } | null>(null);
+  const [marquee, setMarquee] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
   const [connectFrom, setConnectFrom] = useState<string | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const copyRef = useRef<{ id: string; n: number } | null>(null);
@@ -96,14 +109,26 @@ export default function Canvas({ mode }: Props) {
     return () => ro.disconnect();
   }, [syncFit, setStageSize]);
 
-  // Reset zoom/pan whenever a new run starts so the board isn't left zoomed in.
-  const runIdRef = useRef(runtime.runId);
+  // First-load auto-fit: when there is no persisted viewport (new user or
+  // cleared storage), frame all nodes so the board is not blank. Runs once.
+  const didInitialFit = useRef(false);
   useEffect(() => {
-    if (runIdRef.current !== runtime.runId) {
-      runIdRef.current = runtime.runId;
-      reset();
-    }
-  }, [runtime.runId, reset]);
+    if (didInitialFit.current) return;
+    if (graph.nodes.length === 0) return;
+    const persisted = typeof localStorage !== "undefined"
+      ? localStorage.getItem("agent-world-canvas-viewport")
+      : null;
+    if (persisted) return; // returning user keeps their saved viewport
+    const xs = graph.nodes.map((n) => n.x);
+    const ys = graph.nodes.map((n) => n.y);
+    fitToBounds({
+      minX: Math.min(...xs) - PLANT_W / 2 - 24,
+      maxX: Math.max(...xs) + PLANT_W / 2 + 24,
+      minY: Math.min(...ys) - PLANT_H / 2 - 24,
+      maxY: Math.max(...ys) + PLANT_H / 2 + 24,
+    });
+    didInitialFit.current = true;
+  }, [graph.nodes, fitToBounds]);
 
   const beginPan = (clientX: number, clientY: number) => {
     const p = toView(clientX, clientY);
@@ -134,6 +159,11 @@ export default function Canvas({ mode }: Props) {
       }
       if (isTyping(e.target)) return;
       const mod = e.metaKey || e.ctrlKey;
+      if (mod && (e.key === "a" || e.key === "A")) {
+        e.preventDefault();
+        selectAllNodes();
+        return;
+      }
       if (mod && (e.key === "c" || e.key === "C") && selectedId) {
         e.preventDefault();
         copyRef.current = { id: selectedId, n: 0 };
@@ -165,19 +195,11 @@ export default function Canvas({ mode }: Props) {
         return;
       }
       if (e.key === "Delete" || e.key === "Backspace") {
-        if (selectedEdgeId) {
+        if (selectedNodeIds.length > 0 || selectedEdgeIds.length > 0) {
           e.preventDefault();
-          removeEdge(selectedEdgeId);
-          setSelectedEdgeId(null);
-          flashDeleted("管道已拆除");
-          return;
-        }
-        if (selectedId) {
-          e.preventDefault();
-          const removedName =
-            graph.nodes.find((n) => n.id === selectedId)?.name ?? "厂房";
-          removeNode(selectedId);
-          flashDeleted(`「${removedName}」已拆除`);
+          const count = selectedNodeIds.length + selectedEdgeIds.length;
+          deleteSelected();
+          flashDeleted(`已删除 ${count} 个元素`);
           return;
         }
       }
@@ -206,7 +228,7 @@ export default function Canvas({ mode }: Props) {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
     };
-  }, [selectedEdgeId, removeEdge, selectedId, removeNode, duplicateNode, graph.nodes, fitToBounds, showToast]);
+  }, [selectedEdgeId, removeEdge, selectedId, selectedNodeIds, selectedEdgeIds, removeNode, deleteSelected, selectAllNodes, duplicateNode, graph.nodes, fitToBounds, showToast]);
 
   const toView = useCallback((clientX: number, clientY: number) => {
     const svg = svgRef.current;
@@ -218,6 +240,81 @@ export default function Canvas({ mode }: Props) {
       y: (clientY - r.top - f.y) / f.scale,
     };
   }, []);
+
+  // Marquee (box) selection is handled via window-level pointer events.
+  // React synthetic events + pointer capture on inner <rect> can drop
+  // pointerup and leave the marquee stuck to the cursor, so we bypass
+  // both and listen on window directly.
+  useEffect(() => {
+    const finishMarquee = (select: boolean) => {
+      const mq = marqueeRef.current;
+      if (!mq) return;
+      marqueeRef.current = null;
+      setMarquee(null);
+      if (select && mq.active) {
+        const x1 = Math.min(mq.startX, mq.curX);
+        const y1 = Math.min(mq.startY, mq.curY);
+        const x2 = Math.max(mq.startX, mq.curX);
+        const y2 = Math.max(mq.startY, mq.curY);
+        const inside = graph.nodes
+          .filter((n) => n.x >= x1 && n.x <= x2 && n.y >= y1 && n.y <= y2)
+          .map((n) => n.id);
+        if (inside.length > 0) {
+          // Shift+marquee always toggles (additive) since it requires Shift to start.
+          const current = new Set(useGraph.getState().selectedNodeIds);
+          for (const id of inside) {
+            if (current.has(id)) current.delete(id);
+            else current.add(id);
+          }
+          const next = [...current];
+          useGraph.setState({ selectedId: next[0] ?? null, selectedNodeIds: next, selectedEdgeIds: [] });
+        }
+      }
+    };
+    const onMove = (e: PointerEvent) => {
+      const mq = marqueeRef.current;
+      if (!mq) return;
+      e.preventDefault();
+      const p = toView(e.clientX, e.clientY);
+      const cx = (p.x - viewport.panX) / viewport.zoom;
+      const cy = (p.y - viewport.panY) / viewport.zoom;
+      mq.curX = cx;
+      mq.curY = cy;
+      if (!mq.active && Math.hypot(cx - mq.startX, cy - mq.startY) >= CLICK_SLOP) {
+        mq.active = true;
+      }
+      if (mq.active) {
+        setMarquee({
+          x: Math.min(mq.startX, mq.curX),
+          y: Math.min(mq.startY, mq.curY),
+          w: Math.abs(mq.curX - mq.startX),
+          h: Math.abs(mq.curY - mq.startY),
+        });
+      }
+    };
+    const onUp = () => {
+      const mq = marqueeRef.current;
+      if (!mq) return;
+      finishMarquee(true);
+      if (!mq.active) {
+        // Shift+click on empty backdrop (no drag) clears selection.
+        selectNone();
+        setConnectFrom(null);
+      }
+    };
+    // macOS trackpad gestures / system interruptions can fire pointercancel
+    // instead of pointerup, which used to leave the marquee stuck to the
+    // cursor. pointercancel must clean up without committing a selection.
+    const onCancel = () => finishMarquee(false);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onCancel);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onCancel);
+    };
+  }, [viewport, graph.nodes, toView, selectNone, setConnectFrom]);
 
   const onPlantPointerDown = (node: GraphNode, e: React.PointerEvent) => {
     e.stopPropagation();
@@ -252,6 +349,18 @@ export default function Canvas({ mode }: Props) {
     // Pointer position in content (graph) space, accounting for pan/zoom.
     const cx = (p.x - viewport.panX) / viewport.zoom;
     const cy = (p.y - viewport.panY) / viewport.zoom;
+
+    // Selection logic:
+    // - Shift+click: toggle this node in/out of the multi-selection
+    // - Plain click on an already-selected node: keep selection (drag moves all)
+    // - Plain click on an unselected node: single-select it
+    const currentSelected = useGraph.getState().selectedNodeIds;
+    if (e.shiftKey) {
+      toggleNode(node.id, true);
+    } else if (!currentSelected.includes(node.id)) {
+      select(node.id);
+    }
+
     dragRef.current = {
       id: node.id,
       dx: cx - node.x,
@@ -260,6 +369,8 @@ export default function Canvas({ mode }: Props) {
       startX: node.x,
       startY: node.y,
       startGraph: graph,
+      // Snapshot latest selection (toggleNode may have just changed it).
+      selectedIds: useGraph.getState().selectedNodeIds,
     };
     beginHistoryBatch();
     (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
@@ -277,8 +388,16 @@ export default function Canvas({ mode }: Props) {
       const tx = snap(nx);
       const ty = snap(ny);
       if (node.x === tx && node.y === ty) return;
-      drag.moved = tx !== drag.startX || ty !== drag.startY;
-      moveNode(drag.id, tx, ty);
+      drag.moved = true;
+      // Multi-select drag: move all selected nodes by the same relative delta.
+      // Use the snapshot from drag start so the set is stable during drag.
+      if (drag.selectedIds.length > 1) {
+        const dx = tx - drag.startX;
+        const dy = ty - drag.startY;
+        moveNodes(drag.selectedIds, dx, dy);
+      } else {
+        moveNode(drag.id, tx, ty);
+      }
       return;
     }
 
@@ -300,53 +419,87 @@ export default function Canvas({ mode }: Props) {
     dragRef.current = null;
     panRef.current = null;
     pipeDownRef.current = null;
+
     if (drag) {
       if (drag.moved) {
         commitHistoryBatch();
       } else {
         abortHistoryBatch();
-        select(drag.id);
+        // Selection was already handled in onPlantPointerDown (select/toggleNode).
         setSelectedEdgeId(null);
       }
     }
     if (pd) {
-      // A click (not a drag) on a pipe locks the flow highlight.
-      if (!pan?.moved) {
-        setSelectedEdgeId(pd.id);
-        select(null);
-        setConnectFrom(null);
+      // Edge selection was handled in onPipePointerDown.
+      // A drag on a pipe pans the canvas; a click just selects.
+      if (pan?.moved) {
+        // was a pan drag, selection already set on pointerdown
       }
     } else if (pan && !pan.moved) {
       // A plain click on empty backdrop clears selection / connection.
-      select(null);
+      selectNone();
       setConnectFrom(null);
-      setSelectedEdgeId(null);
     }
   };
 
   const onBackdropPointerDown = (e: React.PointerEvent) => {
-    // Middle mouse or space always pans; left click only pans in select mode.
-    if (e.button === 1 || spaceRef.current || mode === "select") {
+    // Middle mouse or space always pans the canvas.
+    if (e.button === 1 || spaceRef.current) {
       if (e.button === 1) e.preventDefault();
       beginPan(e.clientX, e.clientY);
       e.currentTarget.setPointerCapture?.(e.pointerId);
-    } else {
-      select(null);
-      setConnectFrom(null);
-      setSelectedEdgeId(null);
+      return;
     }
+    // Shift+drag on empty backdrop starts a marquee selection (box select).
+    // Plain left-drag still pans the canvas in select mode.
+    if (mode === "select" && e.shiftKey) {
+      e.preventDefault();
+      const p = toView(e.clientX, e.clientY);
+      // Convert from viewport (SVG viewBox) coords to content (graph) coords,
+      // same as onPlantPointerDown. Node x/y live in content space.
+      const cx = (p.x - viewport.panX) / viewport.zoom;
+      const cy = (p.y - viewport.panY) / viewport.zoom;
+      marqueeRef.current = {
+        startX: cx,
+        startY: cy,
+        curX: cx,
+        curY: cy,
+        active: false,
+        shift: true,
+      };
+      // No setPointerCapture: we use window-level listeners for marquee,
+      // because React synthetic events + pointer capture on inner <rect>
+      // can drop pointerup and leave the marquee stuck to the cursor.
+      return;
+    }
+    // Select mode: plain left-drag pans the canvas (original behavior).
+    if (mode === "select") {
+      beginPan(e.clientX, e.clientY);
+      e.currentTarget.setPointerCapture?.(e.pointerId);
+      return;
+    }
+    // Other modes: click clears selection.
+    selectNone();
+    setConnectFrom(null);
   };
 
   const onPipePointerDown = (edgeId: string, e: React.PointerEvent<SVGPathElement>) => {
     if (e.button === 1 || spaceRef.current || mode === "select") {
       if (e.button === 1) e.preventDefault();
+      // Handle edge selection on pointerdown (same pattern as nodes).
+      if (mode === "select" && !spaceRef.current && e.button === 0) {
+        if (e.shiftKey) {
+          toggleEdge(edgeId, true);
+        } else {
+          toggleEdge(edgeId, false);
+        }
+      }
       beginPan(e.clientX, e.clientY);
       e.currentTarget.setPointerCapture?.(e.pointerId);
       pipeDownRef.current = { id: edgeId, sx: e.clientX, sy: e.clientY };
     } else {
-      select(null);
+      selectNone();
       setConnectFrom(null);
-      setSelectedEdgeId(null);
     }
   };
 
@@ -404,21 +557,34 @@ export default function Canvas({ mode }: Props) {
             runtime={runtime}
             onRemove={(id) => {
               removeEdge(id);
-              setSelectedEdgeId((cur) => (cur === id ? null : cur));
               flashDeleted("管道已拆除");
             }}
             interactive={mode === "delete"}
             hoverable={mode === "select" || mode === "delete"}
-            selectedEdgeId={selectedEdgeId}
+            selectedEdgeIds={selectedEdgeIds}
             onHitPointerDown={onPipePointerDown}
           />
           <Plants
             graph={graph}
             runtime={runtime}
-            selectedId={selectedId}
+            selectedNodeIds={selectedNodeIds}
             connectFrom={connectFrom}
             onPointerDown={onPlantPointerDown}
           />
+          {marquee && (
+            <rect
+              x={marquee.x}
+              y={marquee.y}
+              width={marquee.w}
+              height={marquee.h}
+              className="marquee"
+              fill="rgba(100, 180, 255, 0.12)"
+              stroke="rgba(100, 180, 255, 0.8)"
+              strokeWidth={1.5}
+              strokeDasharray="6 4"
+              pointerEvents="none"
+            />
+          )}
         </g>
       </svg>
 

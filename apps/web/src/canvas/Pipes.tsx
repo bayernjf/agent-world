@@ -21,7 +21,7 @@ interface Props {
   onRemove: (edgeId: string) => void;
   interactive: boolean;
   hoverable: boolean;
-  selectedEdgeId: string | null;
+  selectedEdgeIds: string[];
   onHitPointerDown?: (edgeId: string, event: React.PointerEvent<SVGPathElement>) => void;
 }
 
@@ -67,7 +67,7 @@ export default function Pipes({
   onRemove,
   interactive,
   hoverable,
-  selectedEdgeId,
+  selectedEdgeIds,
   onHitPointerDown,
 }: Props) {
   const [hoveredEdge, setHoveredEdge] = useState<string | null>(null);
@@ -98,7 +98,7 @@ export default function Pipes({
     () => orthoCrossings(graph, anchors, routes),
     [graph, anchors, routes],
   );
-  const focusEdgeId = hoveredEdge ?? selectedEdgeId;
+  const focusEdgeId = hoveredEdge ?? selectedEdgeIds[0] ?? null;
   const hotEdges = useMemo(
     () => (focusEdgeId ? flowEdgeIds(graph, focusEdgeId) : null),
     [graph, focusEdgeId],
@@ -131,7 +131,7 @@ export default function Pipes({
         return (
           <g
             key={edge.id}
-            className={`pipe ${rework ? "pipe--rework" : ""} ${hot ? "pipe--hot" : ""} ${focusEdgeId === edge.id ? "pipe--focus" : ""} ${dim ? "pipe--dim" : ""}`}
+            className={`pipe ${rework ? "pipe--rework" : ""} ${hot ? "pipe--hot" : ""} ${selectedEdgeIds.includes(edge.id) ? "pipe--focus" : ""} ${dim ? "pipe--dim" : ""}`}
           >
             <path d={d} className="pipe__casing" />
             <path
@@ -142,7 +142,7 @@ export default function Pipes({
             {arrows.map((arrow, i) => (
               <g
                 key={i}
-                className={`pipe-arrow ${hot ? "pipe-arrow--hot" : ""} ${focusEdgeId === edge.id ? "pipe-arrow--focus" : ""} ${dim ? "pipe-arrow--dim" : ""}`}
+                className={`pipe-arrow ${hot ? "pipe-arrow--hot" : ""} ${selectedEdgeIds.includes(edge.id) ? "pipe-arrow--focus" : ""} ${dim ? "pipe-arrow--dim" : ""}`}
                 transform={`translate(${arrow.x} ${arrow.y}) rotate(${arrow.angle}) scale(${arrow.dir} 1)`}
               >
                 <path className="pipe-arrow__shape" d="M -5 -5 L 5 0 L -5 5 Z" />
