@@ -5,6 +5,7 @@ import { streamSSE } from "hono/streaming";
 import { applyCors, applySecurityHeaders } from "./security.js";
 import {
   compile,
+  ConnectorConfig,
   envelope,
   getTemplate,
   Graph,
@@ -22,8 +23,8 @@ import { execute, resume } from "./engine.js";
 import { startRun, RunStartError } from "./run.js";
 import { TriggerService, TriggerError } from "./triggers.js";
 import { TriggerScheduler } from "./scheduler.js";
+import { resolveConnector } from "./connectors.js";
 import { startABExperiment } from "./ab.js";
-import { SEED_GRAPH } from "./seed.js";
 import {
   loadConfig,
   saveConfig,
@@ -47,7 +48,9 @@ const PORT = Number(process.env.PORT ?? 8791);
 const db = openDb(process.env.DB_FILE ?? "agent-world.sqlite");
 const artifacts = ArtifactStore.fromEnv();
 
-if (!db.getGraph(SEED_GRAPH.id)) db.saveGraph(SEED_GRAPH, Date.now());
+// First-run onboarding is handled by the web UI (shows a template picker when
+// no graphs exist). We no longer seed a default graph on startup — existing
+// databases keep their graphs, fresh installs start empty.
 
 // A server restart cannot resume in-memory generators; mark orphaned runs so the
 // UI doesn't show them as forever-running.
@@ -476,7 +479,10 @@ app.post("/api/runs", async (c) => {
     connectorValues?: Record<string, string>;
     workerId?: string;
   };
-  const graph = db.getGraph(body.graphId ?? SEED_GRAPH.id);
+  const graphs = db.listGraphs();
+  const graphId = body.graphId ?? graphs[0]?.id;
+  if (!graphId) return c.json({ error: "no graphs found — create one first" }, 400);
+  const graph = db.getGraph(graphId);
   if (!graph) return c.json({ error: "graph not found" }, 404);
 
   try {
@@ -577,6 +583,21 @@ app.post("/api/graphs/:id/webhook", async (c) => {
       return jsonResponse(e.status, { error: e.message });
     }
     throw e;
+  }
+});
+
+// Test a connector config without starting a run (preview the pulled material).
+app.post("/api/connectors/test", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as { connector?: unknown; formValues?: Record<string, string> };
+  if (!body.connector) return c.json({ error: "connector is required" }, 400);
+  const parsed = ConnectorConfig.safeParse(body.connector);
+  if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+  try {
+    const material = await resolveConnector(parsed.data, body.formValues);
+    const preview = material.text.length > 2000 ? material.text.slice(0, 2000) + "\n…(truncated)" : material.text;
+    return c.json({ text: preview, images: material.images, fullLength: material.text.length });
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 502);
   }
 });
 

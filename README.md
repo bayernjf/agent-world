@@ -21,6 +21,24 @@ pnpm dev
 - Engine / API: <http://localhost:8791>
 - Board (web UI): <http://localhost:5183>
 
+### 5-minute first run
+
+1. **Open the board** at <http://localhost:5183>.
+2. **Click 新建产线** — pick a template (e.g. "内容改写循环") or start blank.
+3. **Configure a model provider** — open the settings (⚙️), enter your API key
+   and base URL for an OpenAI-compatible endpoint (Agnes, OpenAI, Volcengine
+   Ark, vLLM, Ollama, …). Click save.
+   - No API key? The board falls back to a deterministic **fake worker** that
+     returns canned output — great for learning the UI and running tests.
+4. **Edit the graph** — double-click a node to open the inspector, set the
+   model, prompt, and gate criterion. Drag from a node's right edge to another
+   node's left edge to connect them.
+5. **Click 运行** — watch tokens stream through the pipes, trucks move between
+   plants, and the gate send work back for rework if it fails the criterion.
+6. **Inspect the output** — click any node to see its attempts, quality score,
+   and artifacts. The 成品仓 (sink) shows the final output with images, video,
+   and audio inline.
+
 Run the checks:
 
 ```bash
@@ -29,9 +47,9 @@ pnpm -r typecheck  # type checks
 pnpm -r build      # production build
 ```
 
-Open the board, click **新建产线** to start from a template or a blank line, then
-**运行** to watch the transcript stream. See [handoff.md](handoff.md) for the
-current code state and next steps.
+See [docs/examples.md](docs/examples.md) for 8 ready-to-use pipeline templates,
+and [docs/extending.md](docs/extending.md) for how to add workers, connectors,
+skills, and triggers.
 
 ## The two decisions this codebase encodes
 
@@ -97,6 +115,8 @@ same reducer.
 
 - [PRD.md](PRD.md) — phased product roadmap and architectural guardrails
 - [handoff.md](handoff.md) — current code state and next steps
+- [docs/examples.md](docs/examples.md) — 8 ready-to-use pipeline templates
+- [docs/extending.md](docs/extending.md) — how to add workers, connectors, skills, triggers, and node types
 - [docs/product-vision-discussion.md](docs/product-vision-discussion.md) — capabilities, design language, technology choices, commercialization
 - [docs/technical-design.md](docs/technical-design.md) — architecture, data models, API surface
 - [docs/roadmap-tasks.md](docs/roadmap-tasks.md) — concrete per-phase task breakdown
