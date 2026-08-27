@@ -64,6 +64,7 @@ export default function App() {
   const [versionOpen, setVersionOpen] = useState(false);
   const [compareOpen, setCompareOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [graphsReady, setGraphsReady] = useState(false);
   const tipsEnabled = useTips((s) => s.enabled);
   const toggleTips = useTips((s) => s.toggle);
   const bothCollapsed = controlCollapsed && inspectorCollapsed;
@@ -207,7 +208,7 @@ export default function App() {
           })
           .catch((e) => setError(String(e)));
       }
-    });
+    }).finally(() => setGraphsReady(true));
   }, [refreshGraphs, setGraph]);
 
   // The compiler is dependency-free, so diagnostics could run locally; going
@@ -306,7 +307,9 @@ export default function App() {
 
   return (
     <>
-      {graphs.length === 0 && <Onboarding onCreate={createGraph} />}
+      {graphsReady && graphs.length === 0 && (
+        <Onboarding onCreate={createGraph} />
+      )}
       <div className="app">
       <header className="hud">
         <div className="hud__brand">
