@@ -1521,3 +1521,54 @@ modality 实时从已启用的 provider / model 里挑。
   EPERM 的 mcp/connectors/isolation）：228 通过 + 9 个新 validate-models
 - 沙箱 listen 限制，未能跑 8791 端到端；老 server 进程需用户手动
   `kill 89495` 后才能用上新版逻辑
+
+## 阶段 4 收尾 — 错误条改中间弹出 Toast + 一键复制
+
+### 概述
+之前所有错误走的是顶部 `<p className="banner">` 全宽红条，文字长
+了会折断且不能复制，用户要贴报错就只能手敲。改成走现有的 `useToast`
+store，但样式从底部弹条换成**屏幕正中央的浮层**，右侧固定一个
+「复制」按钮把消息内容塞进剪贴板（兜底走 `document.execCommand`
+以兼容 in-app browser 这种 Clipboard API 被禁的环境）。
+
+### 改动
+- `apps/web/src/store/toast.ts`：
+  - `ToastItem` 增加 `ttlMs` + `actions: ToastAction[]`，旧的
+    `undo?: () => void` 字段被 `actions` 统一覆盖
+  - `show(message, opts?)` 第二个参数换成 `{ ttlMs?, actions? }`
+  - 新增 `copyToClipboard(text)` 导出：优先 `navigator.clipboard`，
+    失败时回退 `document.execCommand("copy")`，再失败返回 false
+- `apps/web/src/components/Toast.tsx`：
+  - 默认 actions 为 `[{ label: "复制", onClick }]`，点完弹一个 1.5s
+    的「已复制」反馈 toast（覆盖当前 toast）
+  - 已有 undo 路径改为传 `actions: [{ label: "撤销", onClick }]`
+- `apps/web/src/styles.css`：
+  - `.toast` 从 `bottom: 64px` 改成 `top: 50%; left: 50%;
+    transform: translate(-50%, -50%)`，正中央；max-width 560 兜底
+    超长消息不撑爆窗口
+  - 加 `.toast__message` / `.toast__actions` / `.toast__action`
+    三个类：消息自动换行，操作区贴右、按钮 hover 高亮
+  - 删掉孤儿 `.banner` 规则
+- `apps/web/src/App.tsx`：
+  - 删 `const [error, setError] = useState<string | null>(null)`
+  - 新 `showError(msg)` 调 `useToast.getState().show(msg, { ttlMs: 6000 })`
+    （错误比 undo 信息更重要，给 6s 留足读 + 复制时间）
+  - 所有 `setError(...)` / `setError(null)` 替换；JSX 里的
+    `<p className="banner">` 删掉
+  - `<CanvasToolbar onError={...} />` 改用 `showError`
+- `apps/web/src/canvas/Canvas.tsx`：
+  - `flashDeleted` 用新的 `actions` 数组
+
+### 已知 gap
+- 错误 toast 6s 自动消失；如果用户没来得及复制就被关了，可以
+  再触发一次（任何同源操作都重新弹）
+- 复制反馈「已复制」覆盖了原 toast；新 toast 不带 actions（避免
+  无限叠加）。如果失败则原 toast 维持 6s 不动，用户可手动抄
+- 移动端没有特殊处理；窄屏 max-width 走 `min(560px, calc(100vw - 48px))`
+
+### 质量门
+- `pnpm -r typecheck`：全绿
+- `pnpm --filter @agent-world/web exec vitest run`：13 通过
+  （含新增的 toast.test.ts：5 个 store 用例 + 2 个 copyToClipboard 用例）
+- 沙箱 EPERM 限制，未在 8791 端到端复现；老 server 进程需手动
+  `kill 89495` 后才能用上新版

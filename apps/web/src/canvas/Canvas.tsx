@@ -11,7 +11,9 @@ import Pipes from "./Pipes";
 import Plants from "./Plants";
 
 const flashDeleted = (message: string) =>
-  useToast.getState().show(message, () => useGraph.getState().undo());
+  useToast.getState().show(message, {
+    actions: [{ label: "撤销", onClick: () => useGraph.getState().undo() }],
+  });
 
 export type Mode = "select" | "connect" | "rework" | "delete";
 

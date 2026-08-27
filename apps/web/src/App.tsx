@@ -34,6 +34,7 @@ import VersionPanel from "./components/VersionPanel";
 import RunCompare from "./components/RunCompare";
 import CommandPalette, { type CommandItem } from "./components/CommandPalette";
 import { api, DuplicateGraphNameError } from "./lib/api";
+import { useToast } from "./store/toast";
 import { TEMPLATES } from "@agent-world/core";
 import { useGraph } from "./store/graph";
 import { useRun } from "./store/run";
@@ -47,7 +48,10 @@ export default function App() {
   const [rawMaterial, setRawMaterial] = useState("");
   const [diagnostics, setDiagnostics] = useState<Diagnostic[]>([]);
   const [canRun, setCanRun] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  /** Pop a center-screen error toast with a one-click copy button. */
+  const showError = (msg: string) => {
+    useToast.getState().show(msg, { ttlMs: 6000 });
+  };
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [newGraphOpen, setNewGraphOpen] = useState(false);
   const [graphs, setGraphs] = useState<GraphSummary[]>([]);
@@ -82,7 +86,7 @@ export default function App() {
   /** Surface a friendly "name already used" message and bail. */
   const reportDuplicate = (name: string, dup: { name: string } | null): boolean => {
     if (!dup) return false;
-    setError(`已存在同名产线「${name}」，请换一个名字。`);
+    showError(`已存在同名产线「${name}」，请换一个名字。`);
     return true;
   };
 
@@ -110,7 +114,7 @@ export default function App() {
     const r = addNode(kind, x, y);
     if (r.missingModality) {
       const label = MODALITY_PROMPT_LABEL[r.missingModality] ?? "对应";
-      setError(
+      showError(
         `该节点需要${label}模型，但当前没有配置；节点已添加，请在「模型设置」中添加后再派发。`,
       );
     }
@@ -151,7 +155,7 @@ export default function App() {
       setGraphs(list);
       return list;
     } catch (e) {
-      setError(String(e));
+      showError(String(e));
       return [];
     }
   }, []);
@@ -165,9 +169,9 @@ export default function App() {
         const g = await api.getGraph(id);
         setGraph(g);
         useGraph.temporal.getState().clear();
-        setError(null);
+        /* toast cleared by the producer */;
       } catch (e) {
-        setError(String(e));
+        showError(String(e));
       }
     },
     [graph.id, flushSave, reset, setGraph],
@@ -186,11 +190,11 @@ export default function App() {
       useGraph.temporal.getState().clear();
     } catch (e) {
       if (e instanceof DuplicateGraphNameError) {
-        setError(e.message);
+        showError(e.message);
         await refreshGraphs();
         return;
       }
-      setError(String(e));
+      showError(String(e));
     }
   }, [refreshGraphs, reset, setGraph, graphs, nameTaken]);
 
@@ -204,11 +208,11 @@ export default function App() {
         useGraph.temporal.getState().clear();
       } catch (e) {
         if (e instanceof DuplicateGraphNameError) {
-          setError(e.message);
+          showError(e.message);
           await refreshGraphs();
           return;
         }
-        setError(String(e));
+        showError(String(e));
       }
     },
     [refreshGraphs, reset, setGraph],
@@ -229,11 +233,11 @@ export default function App() {
         await refreshGraphs();
       } catch (e) {
         if (e instanceof DuplicateGraphNameError) {
-          setError(e.message);
+          showError(e.message);
           await refreshGraphs();
           return;
         }
-        setError(String(e));
+        showError(String(e));
       }
     },
     [graph, refreshGraphs, setGraph, flushSave, nameTaken],
@@ -253,7 +257,7 @@ export default function App() {
             g = await api.createGraph();
           } catch (e) {
             if (e instanceof DuplicateGraphNameError) {
-              setError(e.message);
+              showError(e.message);
               return;
             }
             throw e;
@@ -267,7 +271,7 @@ export default function App() {
       }
       useGraph.temporal.getState().clear();
     } catch (e) {
-      setError(String(e));
+      showError(String(e));
     }
   }, [deleteTarget, graph.id, refreshGraphs, reset, setGraph, switchGraph]);
 
@@ -280,7 +284,7 @@ export default function App() {
             setGraph(g);
             useGraph.temporal.getState().clear();
           })
-          .catch((e) => setError(String(e)));
+          .catch((e) => showError(String(e)));
       }
     }).finally(() => setGraphsReady(true));
   }, [refreshGraphs, setGraph]);
@@ -322,7 +326,7 @@ export default function App() {
   const startRunWith = useCallback(
     async (connectorValues?: Record<string, string>) => {
       try {
-        setError(null);
+        /* toast cleared by the producer */;
         reset();
         await api.saveGraph(graph);
         const { runId: id } = await api.startRun(
@@ -333,7 +337,7 @@ export default function App() {
         );
         connect(id);
       } catch (e) {
-        setError(String(e));
+        showError(String(e));
       }
     },
     [graph, budget, rawMaterial, connect, reset],
@@ -437,8 +441,6 @@ export default function App() {
         </div>
       </header>
 
-      {error && <p className="banner">{error}</p>}
-
       <div
         className={`workspace ${controlCollapsed ? "workspace--control-collapsed" : ""} ${
           inspectorCollapsed ? "workspace--inspector-collapsed" : ""
@@ -462,7 +464,7 @@ export default function App() {
           <Timeline />
           <FailurePanel onRerun={onRun} />
           <Canvas mode={mode} />
-          <CanvasToolbar onError={setError} />
+          <CanvasToolbar onError={showError} />
           <button
             className={`stage__control-toggle ${controlCollapsed ? "is-collapsed" : ""}`}
             onClick={() => setControlCollapsed((v) => !v)}
