@@ -875,9 +875,26 @@ app.post("/api/runs/:id/resume", async (c) => {
         editOutput,
         approveTools,
         signal: controller.signal,
-        storeBinary: async (data, mimeType, label) =>
-          (await artifacts.saveBinary({ data, kind: "image", mimeType, label })).uri ??
-          `data:${mimeType};base64,${data.toString("base64")}`,
+        storeBinary: async (data, mimeType, label) => {
+          const saved = await artifacts.saveBinary({ data, kind: "image", mimeType, label });
+          db.insertArtifact(saved);
+          return saved.uri ?? `data:${mimeType};base64,${data.toString("base64")}`;
+        },
+        // Inline local /api/artifacts/<id> URIs as data:<mime>;base64,... for
+        // cloud vision models (they can't reach our localhost). 5 MB cap so a
+        // 50 MB hero shot doesn't blow up the token bill; bigger or missing
+        // artifacts pass through so a server-side PUBLIC_BASE_URL still works.
+        readArtifact: async (uri: string) => {
+          const m = /^\/api\/artifacts\/([^/]+)$/.exec(uri);
+          if (!m) return null;
+          const id = decodeURIComponent(m[1]!);
+          const meta = db.getArtifact(id);
+          if (!meta) return null;
+          if (meta.sizeBytes > 5 * 1024 * 1024) return null;
+          const buf = await artifacts.readBytes(meta.runId, id);
+          if (!buf) return null;
+          return `data:${meta.mimeType};base64,${buf.toString("base64")}`;
+        },
       })) {
         db.record(runId, event);
         if (event.type === "artifact.produced") {

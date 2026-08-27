@@ -79,9 +79,11 @@ export async function startRun(args: StartRunArgs): Promise<{ runId: string; dia
         monthSpentUsd: db.costForMonth(now.getFullYear(), now.getMonth() + 1),
         defaultModel: cfg.defaultModel,
         signal: controller.signal,
-        storeBinary: async (data, mimeType, label) =>
-          (await artifacts.saveBinary({ data, kind: "image", mimeType, label })).uri ??
-          `data:${mimeType};base64,${data.toString("base64")}`,
+        storeBinary: async (data, mimeType, label) => {
+          const saved = await artifacts.saveBinary({ data, kind: "image", mimeType, label });
+          db.insertArtifact(saved);
+          return saved.uri ?? `data:${mimeType};base64,${data.toString("base64")}`;
+        },
       })) {
         db.record(runId, event);
         if (event.type === "artifact.produced") {
