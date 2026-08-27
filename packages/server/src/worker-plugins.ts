@@ -28,6 +28,10 @@ export interface WorkerInfo {
   description?: string;
   models?: string[];
   builtin?: boolean;
+  /** Isolation mode: "in-process" (runs in server process) or "subprocess" (forked child with env/network/fs gating). */
+  isolation?: "in-process" | "subprocess";
+  /** Env var names the isolated child is allowed to see (beyond a safe base). */
+  env?: string[];
 }
 
 /**
@@ -56,7 +60,14 @@ export class WorkerRegistry {
   async loadFrom(dir: string): Promise<WorkerPlugin[]> {
     const plugins = await loadWorkerPlugins(dir);
     for (const p of plugins) {
-      this.info.set(p.id, { id: p.id, name: p.name, description: p.description, models: p.models });
+      this.info.set(p.id, {
+        id: p.id,
+        name: p.name,
+        description: p.description,
+        models: p.models,
+        isolation: p.isolation ?? "in-process",
+        env: p.env,
+      });
       if (p.isolation === "subprocess" && p.entry && !p.entry.endsWith(".ts")) {
         try {
           this.workers.set(p.id, spawnIsolatedWorker(p.entry, p.id, p.env));
