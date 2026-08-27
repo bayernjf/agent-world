@@ -246,6 +246,31 @@ export default function Canvas({ mode }: Props) {
   // pointerup and leave the marquee stuck to the cursor, so we bypass
   // both and listen on window directly.
   useEffect(() => {
+    const finishMarquee = (select: boolean) => {
+      const mq = marqueeRef.current;
+      if (!mq) return;
+      marqueeRef.current = null;
+      setMarquee(null);
+      if (select && mq.active) {
+        const x1 = Math.min(mq.startX, mq.curX);
+        const y1 = Math.min(mq.startY, mq.curY);
+        const x2 = Math.max(mq.startX, mq.curX);
+        const y2 = Math.max(mq.startY, mq.curY);
+        const inside = graph.nodes
+          .filter((n) => n.x >= x1 && n.x <= x2 && n.y >= y1 && n.y <= y2)
+          .map((n) => n.id);
+        if (inside.length > 0) {
+          // Shift+marquee always toggles (additive) since it requires Shift to start.
+          const current = new Set(useGraph.getState().selectedNodeIds);
+          for (const id of inside) {
+            if (current.has(id)) current.delete(id);
+            else current.add(id);
+          }
+          const next = [...current];
+          useGraph.setState({ selectedId: next[0] ?? null, selectedNodeIds: next, selectedEdgeIds: [] });
+        }
+      }
+    };
     const onMove = (e: PointerEvent) => {
       const mq = marqueeRef.current;
       if (!mq) return;
@@ -270,37 +295,24 @@ export default function Canvas({ mode }: Props) {
     const onUp = () => {
       const mq = marqueeRef.current;
       if (!mq) return;
-      marqueeRef.current = null;
-      setMarquee(null);
-      if (mq.active) {
-        const x1 = Math.min(mq.startX, mq.curX);
-        const y1 = Math.min(mq.startY, mq.curY);
-        const x2 = Math.max(mq.startX, mq.curX);
-        const y2 = Math.max(mq.startY, mq.curY);
-        const inside = graph.nodes
-          .filter((n) => n.x >= x1 && n.x <= x2 && n.y >= y1 && n.y <= y2)
-          .map((n) => n.id);
-        if (inside.length > 0) {
-          // Shift+marquee always toggles (additive) since it requires Shift to start.
-          const current = new Set(useGraph.getState().selectedNodeIds);
-          for (const id of inside) {
-            if (current.has(id)) current.delete(id);
-            else current.add(id);
-          }
-          const next = [...current];
-          useGraph.setState({ selectedId: next[0] ?? null, selectedNodeIds: next, selectedEdgeIds: [] });
-        }
-      } else {
+      finishMarquee(true);
+      if (!mq.active) {
         // Shift+click on empty backdrop (no drag) clears selection.
         selectNone();
         setConnectFrom(null);
       }
     };
+    // macOS trackpad gestures / system interruptions can fire pointercancel
+    // instead of pointerup, which used to leave the marquee stuck to the
+    // cursor. pointercancel must clean up without committing a selection.
+    const onCancel = () => finishMarquee(false);
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onCancel);
     return () => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onCancel);
     };
   }, [viewport, graph.nodes, toView, selectNone, setConnectFrom]);
 
@@ -441,6 +453,7 @@ export default function Canvas({ mode }: Props) {
     // Shift+drag on empty backdrop starts a marquee selection (box select).
     // Plain left-drag still pans the canvas in select mode.
     if (mode === "select" && e.shiftKey) {
+      e.preventDefault();
       const p = toView(e.clientX, e.clientY);
       // Convert from viewport (SVG viewBox) coords to content (graph) coords,
       // same as onPlantPointerDown. Node x/y live in content space.
