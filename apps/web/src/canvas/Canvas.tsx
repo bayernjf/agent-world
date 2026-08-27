@@ -96,6 +96,27 @@ export default function Canvas({ mode }: Props) {
     return () => ro.disconnect();
   }, [syncFit, setStageSize]);
 
+  // First-load auto-fit: when there is no persisted viewport (new user or
+  // cleared storage), frame all nodes so the board is not blank. Runs once.
+  const didInitialFit = useRef(false);
+  useEffect(() => {
+    if (didInitialFit.current) return;
+    if (graph.nodes.length === 0) return;
+    const persisted = typeof localStorage !== "undefined"
+      ? localStorage.getItem("agent-world-canvas-viewport")
+      : null;
+    if (persisted) return; // returning user keeps their saved viewport
+    const xs = graph.nodes.map((n) => n.x);
+    const ys = graph.nodes.map((n) => n.y);
+    fitToBounds({
+      minX: Math.min(...xs) - PLANT_W / 2 - 24,
+      maxX: Math.max(...xs) + PLANT_W / 2 + 24,
+      minY: Math.min(...ys) - PLANT_H / 2 - 24,
+      maxY: Math.max(...ys) + PLANT_H / 2 + 24,
+    });
+    didInitialFit.current = true;
+  }, [graph.nodes, fitToBounds]);
+
   const beginPan = (clientX: number, clientY: number) => {
     const p = toView(clientX, clientY);
     panRef.current = {
