@@ -5,6 +5,7 @@ import { ArtifactStore } from "./artifact-store.js";
 import { log } from "./logger.js";
 import { execute } from "./engine.js";
 import { loadConfig } from "./config.js";
+import { createReadArtifact } from "./artifact-reader.js";
 
 /** Worker type derived from the engine so we don't reach into provider internals. */
 type Worker = Parameters<typeof execute>[0]["worker"];
@@ -84,6 +85,7 @@ export async function startRun(args: StartRunArgs): Promise<{ runId: string; dia
           db.insertArtifact(saved);
           return saved.uri ?? `data:${mimeType};base64,${data.toString("base64")}`;
         },
+        readArtifact: createReadArtifact(db, artifacts),
       })) {
         db.record(runId, event);
         if (event.type === "artifact.produced") {

@@ -44,10 +44,12 @@ import { registerSkill, setMemoryBackend, listBuiltinSkills } from "./skills/reg
 import { SQLiteMemoryBackend, extractKnowledgeFromRun } from "./memory.js";
 import { fileURLToPath } from "node:url";
 import { sanitizeError } from "./sanitize.js";
+import { createReadArtifact } from "./artifact-reader.js";
 
 const PORT = Number(process.env.PORT ?? 8791);
 const db = openDb(process.env.DB_FILE ?? "agent-world.sqlite");
 const artifacts = ArtifactStore.fromEnv();
+const readArtifact = createReadArtifact(db, artifacts);
 
 // First-run onboarding is handled by the web UI (shows a template picker when
 // no graphs exist). We no longer seed a default graph on startup — existing
@@ -881,20 +883,8 @@ app.post("/api/runs/:id/resume", async (c) => {
           return saved.uri ?? `data:${mimeType};base64,${data.toString("base64")}`;
         },
         // Inline local /api/artifacts/<id> URIs as data:<mime>;base64,... for
-        // cloud vision models (they can't reach our localhost). 5 MB cap so a
-        // 50 MB hero shot doesn't blow up the token bill; bigger or missing
-        // artifacts pass through so a server-side PUBLIC_BASE_URL still works.
-        readArtifact: async (uri: string) => {
-          const m = /^\/api\/artifacts\/([^/]+)$/.exec(uri);
-          if (!m) return null;
-          const id = decodeURIComponent(m[1]!);
-          const meta = db.getArtifact(id);
-          if (!meta) return null;
-          if (meta.sizeBytes > 5 * 1024 * 1024) return null;
-          const buf = await artifacts.readBytes(meta.runId, id);
-          if (!buf) return null;
-          return `data:${meta.mimeType};base64,${buf.toString("base64")}`;
-        },
+        // cloud vision models (they can't reach our localhost).
+        readArtifact,
       })) {
         db.record(runId, event);
         if (event.type === "artifact.produced") {

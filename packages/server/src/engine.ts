@@ -144,6 +144,8 @@ export interface ExecuteOptions {
   sleep?: (ms: number) => Promise<void>;
   /** Persists generated image bytes and returns a stable URI (e.g. /api/artifacts/:id). */
   storeBinary?: (data: Buffer, mimeType: string, label?: string) => string | Promise<string>;
+  /** Resolves a /api/artifacts/<id> URI to a data URI for cloud models. */
+  readArtifact?: (uri: string) => Promise<string | null>;
   /** Tool-call permission governance. Defaults to the env-derived config. */
   permissionConfig?: PermissionConfig;
 }
@@ -177,6 +179,22 @@ function truncateText(body: string, maxChars: number): string {
  */
 function setTextArtifact(artifacts: Map<string, Artifact[]>, nodeId: string, text: string): void {
   artifacts.set(nodeId, [{ id: `${nodeId}-text`, kind: "text", content: text }]);
+}
+
+/**
+ * Inlines a relative /api/artifacts/<id> URI as a data:<mime>;base64,... URI
+ * when readArtifact can resolve it. Other URIs (https://, data:, already-
+ * absolute CDN URLs) pass through unchanged. Centralised so the same logic
+ * applies to any image-content path the engine hands to a model.
+ */
+export async function inlineImageUrl(uri: string, readArtifact: (uri: string) => Promise<string | null>): Promise<string> {
+  if (!uri.startsWith("/api/artifacts/")) return uri;
+  try {
+    const resolved = await readArtifact(uri);
+    return resolved ?? uri;
+  } catch {
+    return uri;
+  }
 }
 
 /**
@@ -431,6 +449,8 @@ interface SchedulerOptions {
   resuming?: boolean;
   /** Persists generated image bytes and returns a stable URI (e.g. /api/artifacts/:id). */
   storeBinary: (data: Buffer, mimeType: string, label?: string) => string | Promise<string>;
+  /** Resolves a /api/artifacts/<id> URI to a data URI for cloud models. */
+  readArtifact?: (uri: string) => Promise<string | null>;
   /** Tool-call permission governance. Defaults to the env-derived config. */
   permissionConfig?: PermissionConfig;
   /** Human-edited product overrides, keyed by node id (4.7 human-in-the-loop). */
@@ -943,7 +963,10 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           const agentInput = await inputFor(node);
           reworkNotes.delete(nodeId);
           const tools = resolveTools(mounts);
-          const referenceImages = imagesFor(nodeId);
+          const rawImageUris = imagesFor(nodeId);
+          const referenceImages = opts.readArtifact
+            ? await Promise.all(rawImageUris.map((u) => inlineImageUrl(u, opts.readArtifact!)))
+            : rawImageUris;
           const content: ContentPart[] | undefined = referenceImages.length
             ? [{ type: "text", text: agentInput }, ...referenceImages.map((u): ContentPart => ({ type: "image", image: u }))]
             : undefined;
@@ -1259,6 +1282,7 @@ export async function* execute(opts: ExecuteOptions): AsyncGenerator<RunEvent, v
     now: opts.now ?? Date.now,
     sleep: opts.sleep ?? delay,
     storeBinary: opts.storeBinary ?? defaultStoreBinary,
+    readArtifact: opts.readArtifact,
     permissionConfig: opts.permissionConfig,
     init: {
       artifacts: new Map(),
@@ -1387,6 +1411,8 @@ export interface ResumeOptions {
   signal?: AbortSignal;
   /** Persists generated image bytes and returns a stable URI (e.g. /api/artifacts/:id). */
   storeBinary?: (data: Buffer, mimeType: string, label?: string) => string | Promise<string>;
+  /** Resolves a /api/artifacts/<id> URI to a data URI for cloud models. */
+  readArtifact?: (uri: string) => Promise<string | null>;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
   /** Tool-call permission governance. Defaults to the env-derived config. */
@@ -1504,6 +1530,7 @@ export async function* resume(opts: ResumeOptions): AsyncGenerator<RunEvent, voi
     now,
     sleep,
     storeBinary: opts.storeBinary ?? defaultStoreBinary,
+    readArtifact: opts.readArtifact,
     permissionConfig: opts.permissionConfig,
     editOutput: opts.editOutput,
     init: {
