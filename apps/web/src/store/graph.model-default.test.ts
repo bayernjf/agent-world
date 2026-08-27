@@ -36,8 +36,9 @@ describe("addNode default model selection", () => {
       defaultProvider: "p1",
     });
     await refreshDefaultModel();
-    const id = useGraph.getState().addNode("agent", 10, 10);
-    const node = useGraph.getState().graph.nodes.find((n) => n.id === id);
+    const r = useGraph.getState().addNode("agent", 10, 10);
+    expect(r.missingModality).toBeNull();
+    const node = useGraph.getState().graph.nodes.find((n) => n.id === r.id);
     expect(node?.agent?.model).toBe("txt-1");
   });
 
@@ -55,13 +56,14 @@ describe("addNode default model selection", () => {
       defaultProvider: "p1",
     });
     await refreshDefaultModel();
-    const id = useGraph.getState().addNode("imageGen", 10, 10);
-    const node = useGraph.getState().graph.nodes.find((n) => n.id === id);
+    const r = useGraph.getState().addNode("imageGen", 10, 10);
+    expect(r.missingModality).toBeNull();
+    const node = useGraph.getState().graph.nodes.find((n) => n.id === r.id);
     expect(node?.imageGen?.model).toBe("img-1");
   });
 
-  it("throws NoModelForModalityError when no model exists for the modality", async () => {
-    const { useGraph, refreshDefaultModel, NoModelForModalityError } = await setup({
+  it("returns missingModality when no model matches; the node is still added with an empty model", async () => {
+    const { useGraph, refreshDefaultModel } = await setup({
       providers: {
         p1: {
           type: "openai-compatible",
@@ -74,9 +76,14 @@ describe("addNode default model selection", () => {
       defaultProvider: "p1",
     });
     await refreshDefaultModel();
-    expect(() => useGraph.getState().addNode("videoGen", 10, 10)).toThrow(
-      NoModelForModalityError,
-    );
+    const r = useGraph.getState().addNode("videoGen", 10, 10);
+    expect(r.missingModality).toBe("video");
+    const node = useGraph.getState().graph.nodes.find((n) => n.id === r.id);
+    expect(node).toBeDefined();
+    // The model field is left empty so the Inspector can show "(未配置)" and
+    // dispatch can refuse to run. The user fills it in once they configure
+    // a provider.
+    expect(node?.videoGen?.model).toBe("");
   });
 
   it("skips disabled providers when looking for a default", async () => {
@@ -99,8 +106,9 @@ describe("addNode default model selection", () => {
       defaultProvider: "on",
     });
     await refreshDefaultModel();
-    const id = useGraph.getState().addNode("imageGen", 10, 10);
-    const node = useGraph.getState().graph.nodes.find((n) => n.id === id);
+    const r = useGraph.getState().addNode("imageGen", 10, 10);
+    expect(r.missingModality).toBeNull();
+    const node = useGraph.getState().graph.nodes.find((n) => n.id === r.id);
     expect(node?.imageGen?.model).toBe("img-A");
   });
 
@@ -110,8 +118,9 @@ describe("addNode default model selection", () => {
       defaultModel: "txt-1",
       defaultProvider: "p1",
     });
-    expect(() => useGraph.getState().addNode("source", 0, 0)).not.toThrow();
-    expect(() => useGraph.getState().addNode("gate", 0, 0)).not.toThrow();
-    expect(() => useGraph.getState().addNode("sink", 0, 0)).not.toThrow();
+    // These kinds return missingModality=null (no model required) regardless of config.
+    expect(useGraph.getState().addNode("source", 0, 0).missingModality).toBeNull();
+    expect(useGraph.getState().addNode("gate", 0, 0).missingModality).toBeNull();
+    expect(useGraph.getState().addNode("sink", 0, 0).missingModality).toBeNull();
   });
 });

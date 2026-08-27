@@ -244,11 +244,18 @@ app.put("/api/graphs/:id", async (c) => {
   return c.json({ ok: true, version: result.version });
 });
 
-/** Compile without running — the canvas calls this to show diagnostics as you draw. */
+/** Which node kinds require a worker model and which modality they need. */
+import { validateModels, type ModelDiagnostic } from "./validate-models.js";
+
 app.post("/api/compile", async (c) => {
   const parsed = Graph.safeParse(await c.req.json());
   if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
-  return c.json(compile(parsed.data));
+  const result = compile(parsed.data);
+  const modelDiags = validateModels(parsed.data, loadConfig());
+  return c.json({
+    ...result,
+    diagnostics: [...result.diagnostics, ...modelDiags],
+  });
 });
 
 app.get("/api/settings", (c) => {
@@ -557,6 +564,22 @@ app.post("/api/runs", async (c) => {
   const graph = db.getGraph(graphId);
   if (!graph) return c.json({ error: "graph not found" }, 404);
 
+  const modelDiags = validateModels(graph, loadConfig());
+  const modelErrors = modelDiags.filter((d) => d.severity === "error");
+  if (modelErrors.length > 0) {
+    const summary =
+      modelErrors.length === 1
+        ? modelErrors[0]!.message
+        : `${modelErrors.length} 个节点未配置模型：${modelErrors[0]!.message}${modelErrors.length > 1 ? "（其余见 diagnostics）" : ""}`;
+    return c.json(
+      {
+        error: "graph has unconfigured model(s)",
+        message: `${summary} 请前往「模型设置」补全后再派发。`,
+        diagnostics: modelDiags,
+      },
+      422,
+    );
+  }
   try {
     const { runId, diagnostics } = await startRun({
       db,
@@ -575,7 +598,7 @@ app.post("/api/runs", async (c) => {
         void triggers.onArtifact(aid);
       },
     });
-    return c.json({ runId, diagnostics });
+    return c.json({ runId, diagnostics, modelWarnings: modelDiags });
   } catch (e) {
     if (e instanceof RunStartError) {
       return jsonResponse(e.status, { error: e.message, diagnostics: e.extra });

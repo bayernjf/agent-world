@@ -80,13 +80,41 @@ export interface AppConfig {
 }
 
 const FAKE_PROVIDER: ProviderConfig = { type: "fake", models: [] };
+
+/**
+ * Built-in "demo" provider that ships with the product. It uses the fake
+ * worker (no network, deterministic placeholders) so a brand new user can
+ * add nodes and run a line before configuring a real API key. Models are
+ * grouped by modality so the addNode lookup can route each node kind to
+ * a sensible default.
+ *
+ * The user can disable this provider (enabled: false) from Settings; it
+ * cannot be permanently removed because the loadConfig merge always
+ * re-injects it from DEFAULT_CONFIG. That trade-off is intentional: a
+ * first-run user with no real provider must still be able to build a line.
+ */
+const DEMO_PROVIDER: ProviderConfig = {
+  type: "fake",
+  enabled: true,
+  models: ["demo-chat", "demo-image", "demo-video", "demo-audio"],
+  modalities: {
+    "demo-chat": "text",
+    "demo-image": "image",
+    "demo-video": "video",
+    "demo-audio": "audio",
+  },
+};
+
 const DEFAULT_CONFIG: AppConfig = {
   providers: {
+    // Kept for backward compatibility — anything that still references
+    // type:"fake" or model:"fake" routes to the same fakeWorker.
     fake: FAKE_PROVIDER,
+    demo: DEMO_PROVIDER,
   },
-  defaultModel: "fake",
-  defaultProvider: "fake",
-  modelOrder: [],
+  defaultModel: "demo-chat",
+  defaultProvider: "demo",
+  modelOrder: ["demo::demo-chat", "demo::demo-image", "demo::demo-video", "demo::demo-audio"],
 };
 
 function candidatePaths(): string[] {

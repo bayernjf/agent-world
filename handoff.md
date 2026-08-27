@@ -1442,3 +1442,82 @@ modality 实时从已启用的 provider / model 里挑。
 - `pnpm --filter @agent-world/server exec vitest run graphs-name.test.ts`：6 通过
 - 沙箱 EPERM 限制，未能重启 8791 真实复现；老 server 进程需手动
   `kill 89495` 后才能在 UI 触发新逻辑
+
+## 阶段 4 收尾 — 新用户零模型体验：软提示 + 派发硬卡
+
+### 概述
+上一轮把"找不到 modality 匹配模型就抛错"做成了"找不到就抛错"，但
+新用户什么模型都没配时根本加不了任何节点，体验断裂。这一轮按"设计时
+不阻塞、运行时才卡住"重新拆：
+
+- **加节点**：永远成功。找到 modality 匹配就自动用；找不到就把 model
+  字段留空，同时 UI 顶部条给一个软提示"该节点需要 X 模型，但当前没
+  有配置；节点已添加，请在「模型设置」中添加后再派发。"
+- **派发任务**：服务端 `validateModels` 跑一遍，把所有"model 为空 /
+  模型未注册 / Provider 已停用"作为 error 诊断返回；只要有 error 就
+  **直接 422 拒绝**，message 把首条诊断拼成一句人话；其余放在
+  diagnostics 里
+
+### 改动
+
+**前端 `apps/web/`**
+- `store/graph.ts`：
+  - `addNode` 改成返回 `{ id, missingModality: Modality | null }`，
+    不再抛 `NoModelForModalityError`（已删）
+  - 找不到 modality 匹配时，model 字段**清空**（不是保留占位
+    "video-gen" / "tts-1"），让 dispatch 能正确识别
+  - `defaultModelFor` 不再做 demo 兜底；用户没配就如实返回 null
+- `App.tsx` / `CanvasToolbar.tsx`：
+  - `addNodeOrReport` 检查 `missingModality` 写顶部条软提示
+- `components/Inspector.tsx`：
+  - agent / imageGen 的模型下拉首项变成 `disabled hidden` 占位项
+    `（未配置 — 请先在「模型设置」中添加 X 模型）`，空 model 选中它
+    不会写回（onChange 直接 return），避免覆盖
+
+**后端 `packages/server/`**
+- `config.ts`：
+  - 之前 DEFAULT_CONFIG 里的 `fake` Provider 没有任何 models；现在加
+    一个内置 `demo` Provider，type 仍是 `fake`（路由层自动走
+    fakeWorker），包含 `demo-chat`/`demo-image`/`demo-video`/
+    `demo-audio` 四个 model，modality 各自标注
+  - `defaultModel` 改成 `demo-chat`，新用户首次启动不会卡
+  - `loadConfig` 的 merge 行为不变：用户 saved config 仍优先；demo
+    永远在 merged 列表里（用户可禁用，不能永久删，这是有意为之的护栏）
+- 新模块 `validate-models.ts`：
+  - `validateModels(graph, config): ModelDiagnostic[]`
+  - 对每个需要 model 的节点（agent / imageGen / videoGen / audioGen）检查：
+    1. 子配置存在
+    2. `model` 字段非空 → error：`节点「X」(kind) 还未配置 [modality] 模型`
+    3. model 在某 Provider 的 models 列表里（或等于 Provider 名）→ 否则
+       error：`模型「X」未在「模型设置」中注册`
+    4. owning Provider `enabled !== false` → 否则 error：`Provider 已停用`
+    5. `modalities[model]` 与节点期望一致 → 否则 warning（用户可能故意）
+  - 内置 `demo` / `fake` Provider 跳过 (3)
+- `validate-models.test.ts`：9 个用例覆盖空图 / source-不需 model /
+  合法 agent / 空 model / 未注册 / 已停用 Provider / 模态不匹配 /
+  内置 demo 通过 / imageGen 空 model
+- `index.ts`：
+  - `POST /api/compile` 把 `validateModels` 的诊断并入 `diagnostics`
+  - `POST /api/runs` 在 `startRun` 之前跑 `validateModels`；有 error
+    直接返回 `422 { error, message, diagnostics }`，message 把首条错误
+    拼成"X 个节点未配置模型：…请前往「模型设置」补全后再派发。"
+  - 全通过时把 warning 诊断作为 `modelWarnings` 一并返回（不阻塞）
+
+### 已知 gap
+- 用户手动 disabled 了 demo Provider 且没配任何其他模型时，
+  `addNode` 永远返回 missingModality，每加一个节点都软提示；
+  派发时也直接 422。属于正确行为，但首次跑通前需要先去 Settings
+- 内置 demo 的 4 个 model 也走 `validateModels`：它们登记在 demo
+  Provider 里且 `type: "fake"`，被显式 allowlist，所以永远通过；
+  不会跟用户的"未配置"语义混淆
+- Modality 不一致只给 warning，不阻塞；用户故意拿一个 vision 模型
+  当文本模型用也能跑（路由会按 model 名找到 Provider，modality 校验
+  只在用户能感知的位置提醒）
+
+### 质量门
+- `pnpm -r typecheck`：全绿
+- `pnpm --filter @agent-world/web exec vitest run`：6 通过
+- `pnpm --filter @agent-world/server exec vitest run`（排除沙箱
+  EPERM 的 mcp/connectors/isolation）：228 通过 + 9 个新 validate-models
+- 沙箱 listen 限制，未能跑 8791 端到端；老 server 进程需用户手动
+  `kill 89495` 后才能用上新版逻辑

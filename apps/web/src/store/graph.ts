@@ -3,17 +3,6 @@ import { temporal } from "zundo";
 import type { Graph, GraphEdge, GraphNode, NodeKind } from "@agent-world/core";
 import { api, GraphConflictError, type Modality } from "../lib/api";
 
-/** Thrown by `addNode` when the kind requires a model but no enabled
- *  provider/model exists for the required modality. */
-export class NoModelForModalityError extends Error {
-  modality: Modality;
-  constructor(modality: Modality) {
-    super(`No enabled model for modality: ${modality}`);
-    this.name = "NoModelForModalityError";
-    this.modality = modality;
-  }
-}
-
 /** Cached settings used to seed newly added nodes with a sensible model. */
 interface ModelOption {
   provider: string;
@@ -73,6 +62,9 @@ function defaultModelFor(
   // Otherwise take the first enabled option for that modality.
   const fallback = cachedModelOptions.find((o) => o.modality === wanted && o.enabled);
   if (fallback) return { provider: fallback.provider, model: fallback.model, modality: wanted };
+  // No real model found — return null so the caller can show a soft warning
+  // at add time. Dispatch is the actual gatekeeper that refuses to run a
+  // graph with empty model fields.
   return null;
 }
 
@@ -130,12 +122,17 @@ interface GraphState {
   /** Move multiple nodes by relative dx/dy (used for multi-select dragging). */
   moveNodes: (ids: string[], dx: number, dy: number) => void;
   /**
-   * Add a node of the given kind at (x, y). When the kind needs a model and
-   * no configured provider supports the required modality, throws
-   * `NoModelForModalityError` and does NOT mutate the graph. Callers should
-   * catch and surface a friendly message to the user.
+   * Add a node of the given kind at (x, y). Always succeeds: when the kind
+   * needs a model but no configured provider supports the required modality,
+   * the model field is left empty and `missingModality` is returned so the
+   * UI can show a soft warning. The dispatch endpoint is the gatekeeper that
+   * actually refuses to run a graph with empty models.
    */
-  addNode: (kind: NodeKind, x: number, y: number) => string;
+  addNode: (kind: NodeKind, x: number, y: number) => {
+    id: string;
+    /** Set when the kind needs a model but no configured model matched. */
+    missingModality: Modality | null;
+  };
   duplicateNode: (id: string, dx?: number, dy?: number) => string | null;
   removeNode: (id: string) => void;
   addEdge: (from: string, to: string, kind: GraphEdge["kind"]) => { ok: boolean; reason?: string };
@@ -287,9 +284,6 @@ export const useGraph = create<GraphState>()(
       addNode: (kind, x, y) => {
         const wanted = modalityForKind(kind);
         const seed = wanted ? defaultModelFor(kind) : null;
-        if (wanted && !seed) {
-          throw new NoModelForModalityError(wanted);
-        }
         const id = nextId(kind[0]!);
         const node: GraphNode = {
           id,
@@ -299,9 +293,11 @@ export const useGraph = create<GraphState>()(
           y: snap(y),
           ...DEFAULTS[kind],
         };
-        // Apply the resolved model name to whichever field the kind uses.
-        // The server's routing worker resolves the owning provider by model,
-        // so we only need to write `model` here.
+        // Stamp the resolved model onto the kind's sub-config when we have
+        // one. When no model matches the modality, clear the placeholder
+        // model that DEFAULTS seeded so the dispatch endpoint can detect
+        // the empty config and surface a clear "configure the model first"
+        // error.
         if (seed) {
           if (kind === "agent" && node.agent) {
             node.agent = { ...node.agent, model: seed.model };
@@ -312,6 +308,16 @@ export const useGraph = create<GraphState>()(
           } else if (kind === "audioGen" && node.audioGen) {
             node.audioGen = { ...node.audioGen, model: seed.model };
           }
+        } else if (wanted) {
+          if (kind === "agent" && node.agent) {
+            node.agent = { ...node.agent, model: "" };
+          } else if (kind === "imageGen" && node.imageGen) {
+            node.imageGen = { ...node.imageGen, model: "" };
+          } else if (kind === "videoGen" && node.videoGen) {
+            node.videoGen = { ...node.videoGen, model: "" };
+          } else if (kind === "audioGen" && node.audioGen) {
+            node.audioGen = { ...node.audioGen, model: "" };
+          }
         }
         set((s) => {
           useGraph.temporal.getState().resume();
@@ -319,7 +325,10 @@ export const useGraph = create<GraphState>()(
           scheduleSave(graph);
           return { graph, selectedId: id, selectedNodeIds: [id], selectedEdgeIds: [] };
         });
-        return id;
+        return {
+          id,
+          missingModality: wanted && !seed ? wanted : null,
+        };
       },
 
       removeNode: (id) =>

@@ -34,7 +34,6 @@ import VersionPanel from "./components/VersionPanel";
 import RunCompare from "./components/RunCompare";
 import CommandPalette, { type CommandItem } from "./components/CommandPalette";
 import { api, DuplicateGraphNameError } from "./lib/api";
-import { NoModelForModalityError } from "./store/graph";
 import { TEMPLATES } from "@agent-world/core";
 import { useGraph } from "./store/graph";
 import { useRun } from "./store/run";
@@ -104,18 +103,16 @@ export default function App() {
     embedding: "向量",
   };
 
-  /** Try to add a node, surface a friendly error when no model is configured
-   *  for the kind's required modality. */
+  /** Soft warning when the user adds a node whose modality has no configured
+   *  model. Adding still succeeds (model is left empty); dispatch is the
+   *  gatekeeper that will refuse to run a graph with empty models. */
   const addNodeOrReport = (kind: Parameters<typeof addNode>[0], x: number, y: number) => {
-    try {
-      addNode(kind, x, y);
-    } catch (e) {
-      if (e instanceof NoModelForModalityError) {
-        const label = MODALITY_PROMPT_LABEL[e.modality] ?? "对应";
-        setError(`请先在「模型设置」中添加一个支持${label}的模型，再添加该节点。`);
-        return;
-      }
-      throw e;
+    const r = addNode(kind, x, y);
+    if (r.missingModality) {
+      const label = MODALITY_PROMPT_LABEL[r.missingModality] ?? "对应";
+      setError(
+        `该节点需要${label}模型，但当前没有配置；节点已添加，请在「模型设置」中添加后再派发。`,
+      );
     }
   };
 

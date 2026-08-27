@@ -324,13 +324,17 @@ export default function Inspector() {
               <span>模型</span>
               <select
                 className="select"
-                value={modelOptions.some((o) => o.model === node.agent!.model) ? node.agent.model : "__custom__"}
+                value={node.agent.model || "__unset__"}
                 onChange={(e) => {
-                  if (e.target.value !== "__custom__") {
-                    updateNode(node.id, { agent: { ...node.agent!, model: e.target.value } });
-                  }
+                  if (e.target.value === "__unset__") return;
+                  updateNode(node.id, { agent: { ...node.agent!, model: e.target.value } });
                 }}
               >
+                <option value="__unset__" disabled hidden>
+                  {!node.agent.model
+                    ? "（未配置 — 请先在「模型设置」中添加）"
+                    : "（请选择）"}
+                </option>
                 {modelOptions.map((o) => (
                   <option key={`${o.provider}::${o.model}`} value={o.model}>
                     {o.model} · {o.provider}
@@ -476,17 +480,17 @@ export default function Inspector() {
               <span>生图模型</span>
               <select
                 className="select"
-                value={
-                  modelOptions.some((o) => o.model === node.imageGen!.model)
-                    ? node.imageGen.model
-                    : "__custom__"
-                }
+                value={node.imageGen.model || "__unset__"}
                 onChange={(e) => {
-                  if (e.target.value !== "__custom__") {
-                    updateNode(node.id, { imageGen: { ...node.imageGen!, model: e.target.value } });
-                  }
+                  if (e.target.value === "__unset__") return;
+                  updateNode(node.id, { imageGen: { ...node.imageGen!, model: e.target.value } });
                 }}
               >
+                <option value="__unset__" disabled hidden>
+                  {!node.imageGen.model
+                    ? "（未配置 — 请先在「模型设置」中添加图片模型）"
+                    : "（请选择）"}
+                </option>
                 {modelOptions.map((o) => (
                   <option key={`${o.provider}::${o.model}`} value={o.model}>
                     {o.model} · {o.provider}

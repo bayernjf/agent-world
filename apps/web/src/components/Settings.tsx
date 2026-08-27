@@ -153,9 +153,14 @@ export default function Settings({ open, onClose }: Props) {
 
   const cardKey = (c: ModelCard) => `${c.providerName}::${c.model}`;
 
-  const cards: ModelCard[] = realProviders.flatMap(([providerName, p]) =>
-    p.models.map((model) => ({ providerName, model })),
-  );
+  // The "demo" provider is the built-in fake worker. We always surface it
+  // so a new user can see what's keeping their lines running; the per-card
+  // delete button is disabled below for these models.
+  const cards: ModelCard[] = Object.entries(config.providers)
+    .filter(([name, p]) => p.type !== "fake" || name === "demo")
+    .flatMap(([providerName, p]) =>
+      p.models.map((model) => ({ providerName, model })),
+    );
 
   const orderIndex = new Map<string, number>();
   (config.modelOrder ?? []).forEach((k, i) => orderIndex.set(k, i));
@@ -840,6 +845,9 @@ export default function Settings({ open, onClose }: Props) {
                   <span className={`modality-badge modality--${p.modalities?.[c.model] ?? "text"}`}>
                     {MODALITY_LABELS[(p.modalities?.[c.model] ?? "text") as Modality]}
                   </span>
+                  {c.providerName === "demo" && (
+                    <span className="badge badge--demo" title="内置演示模型，无需 API Key">演示</span>
+                  )}
                   {isDefault && <span className="badge badge--default">默认</span>}
                   <div className="model-card__head-actions" onClick={(e) => e.stopPropagation()}>
                     {!isDefault && (
@@ -853,6 +861,8 @@ export default function Settings({ open, onClose }: Props) {
                     <button
                       className="link link--sm link--danger"
                       onClick={() => setDeleteTarget(c)}
+                      disabled={c.providerName === "demo"}
+                      title={c.providerName === "demo" ? "演示模型不可删除，可在开关里停用" : undefined}
                     >
                       删除
                     </button>

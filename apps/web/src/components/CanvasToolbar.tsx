@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { useGraph, NoModelForModalityError } from "../store/graph";
+import { useGraph } from "../store/graph";
 import { useCanvas } from "../store/canvas";
 import { VIEW_W, VIEW_H } from "../canvas/board";
 import { NodeKind } from "@agent-world/core";
@@ -55,15 +55,10 @@ export default function CanvasToolbar({ onError }: Props = {}) {
   function addAtViewCenter(kind: NodeKind) {
     const cx = (VIEW_W / 2 - panX) / zoom;
     const cy = (VIEW_H / 2 - panY) / zoom;
-    try {
-      addNode(kind, cx, cy);
-    } catch (e) {
-      if (e instanceof NoModelForModalityError) {
-        const label = MODALITY_PROMPT_LABEL[e.modality] ?? "对应";
-        onError?.(`请先在「模型设置」中添加一个支持${label}的模型，再添加该节点。`);
-        return;
-      }
-      throw e;
+    const r = addNode(kind, cx, cy);
+    if (r.missingModality) {
+      const label = MODALITY_PROMPT_LABEL[r.missingModality] ?? "对应";
+      onError?.(`该节点需要${label}模型，但当前没有配置；节点已添加，请在「模型设置」中添加后再派发。`);
     }
   }
 
