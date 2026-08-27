@@ -1323,3 +1323,56 @@ Stage B — structured product blocks:
 - `pnpm -r typecheck`：core + server + web 全绿
 - `pnpm -r test`：core 54 + server 243 全绿
 - 浏览器自动化验证：标准框选正常选中节点；pointercancel 正常清理选框
+
+## 阶段 4 收尾 — 产线名重复校验
+
+### 概述
+截图发现：数据库里能存两条完全同名的产线（顶部 HUD 与下拉列表里都出现
+"小红书种草笔记"），前端也没有拦截。补一个轻量校验：trim + 大小写不敏感，
+前后端都拦，已存在的同名行让用户自己改名。
+
+### 规则
+- 名字 trim 后比较；空字符串视为非法
+- 比较时统一 `toLowerCase()`；CJK 字符不参与大小写折叠（与"小红书"==
+  "小红书"行为一致，跨语言混合命名按字面比）
+- 重命名自己不允许跟自己冲突（`excludeId = currentId`）
+- 已存在的同名旧行不会自动合并/重命名（用户手动处理，避免误删数据）
+
+### 后端 `packages/server/`
+- 新模块 `src/graphs-name.ts`：`findGraphIdByName(graphs, name, excludeId?)`，
+  纯函数 + 类型，便于单测
+- `src/index.ts` 顶部 `import { findGraphIdByName as findGraphIdByNameCore }`，
+  在路由内包一层 `findGraphIdByName(name, excludeId?)` 直接喂 `db.listGraphs()`
+- `POST /api/graphs`：在 `db.saveGraph` 之前调用 helper 找冲突，找到则
+  返回 `409 { error: "duplicate_name", message, existingId }`
+- `PUT /api/graphs/:id`：同样在 `db.saveGraph` 之前调用，传入 `excludeId =
+  c.req.param("id")` 排除自身
+- `src/graphs-name.test.ts`：6 个用例覆盖空名/精确匹配/大小写/trim/
+  无冲突/excludeId
+
+### 前端 `apps/web/`
+- `lib/api.ts` 新增 `DuplicateGraphNameError`（带 `existingId` 字段），
+  `saveGraph` 与 `createGraph` 在 409 + `error: "duplicate_name"` 时抛出
+  这个类型而不是 `GraphConflictError`
+- `App.tsx` 引入 `TEMPLATES` 用来在新建时预算"将要用的名字"以提前拦截
+- 新增内部工具 `nameTaken(name, excludeId?)`：在本地 `graphs` 上做相同的
+  trim + 大小写不敏感比较
+- `createGraph(template?)`：能从模板推出默认名时先调 `nameTaken` 拦截
+- `renameGraph(id, name)`：先调 `nameTaken(name, id)` 拦截
+- 三个调用点（`createGraph` / `duplicateGraph` / `renameGraph` / 删除
+  fallback createGraph）的 catch 都识别 `DuplicateGraphNameError` 并把
+  服务端的 `e.message` 写到 `setError(...)` 顶部条；其他错误维持原行为
+
+### 已知 gap
+- 现有 DB 里已经存在的重复行（用户截图里的两条 "小红书种草笔记"）不会
+  被自动清理；新规则只阻止"再插一条"。需要用户手动去 Onboarding /
+  列表里改一条的名字
+- 模板名如果撞了数据库已有产线，前端会直接拦在弹层不发起请求；后端
+  也会兜底 409
+- Onboarding 选择模板后立即校验，避免用户看到一个"已经重名"的产线
+
+### 质量门
+- `pnpm -r typecheck`：全绿
+- `pnpm --filter @agent-world/server exec vitest run graphs-name.test.ts`：6 通过
+- 沙箱 listen 限制未能实跑 8791 集成测试；老 server 进程需用户手动
+  `kill 89495` 才能用上新版逻辑

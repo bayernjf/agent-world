@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
-import type { Diagnostic, FormConnector } from "@agent-world/core";
+import type { Diagnostic, FormConnector, Graph } from "@agent-world/core";
 
 type FormField = FormConnector["fields"][number];
 import Canvas, { type Mode } from "./canvas/Canvas";
 import Minimap from "./canvas/Minimap";
+import CanvasToolbar from "./components/CanvasToolbar";
 import ControlPanel from "./components/ControlPanel";
 import Inspector from "./components/Inspector";
 import Logo from "./components/Logo";
@@ -32,7 +33,8 @@ import KnowledgePanel from "./components/KnowledgePanel";
 import VersionPanel from "./components/VersionPanel";
 import RunCompare from "./components/RunCompare";
 import CommandPalette, { type CommandItem } from "./components/CommandPalette";
-import { api } from "./lib/api";
+import { api, DuplicateGraphNameError } from "./lib/api";
+import { TEMPLATES } from "@agent-world/core";
 import { useGraph } from "./store/graph";
 import { useRun } from "./store/run";
 
@@ -65,6 +67,25 @@ export default function App() {
   const [compareOpen, setCompareOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [graphsReady, setGraphsReady] = useState(false);
+
+  /** Case-insensitive, trimmed duplicate check across the local graph list. */
+  const nameTaken = (name: string, excludeId?: string): GraphSummary | null => {
+    const target = name.trim().toLowerCase();
+    if (!target) return null;
+    return (
+      graphs.find(
+        (g) => g.id !== excludeId && g.name.trim().toLowerCase() === target,
+      ) ?? null
+    );
+  };
+
+  /** Surface a friendly "name already used" message and bail. */
+  const reportDuplicate = (name: string, dup: { name: string } | null): boolean => {
+    if (!dup) return false;
+    setError(`已存在同名产线「${name}」，请换一个名字。`);
+    return true;
+  };
+
   const tipsEnabled = useTips((s) => s.enabled);
   const toggleTips = useTips((s) => s.toggle);
   const bothCollapsed = controlCollapsed && inspectorCollapsed;
@@ -130,6 +151,10 @@ export default function App() {
   );
 
   const createGraph = useCallback(async (template?: string) => {
+    if (template) {
+      const tpl = TEMPLATES.find((t) => t.id === template);
+      if (tpl && nameTaken(tpl.name)) return reportDuplicate(tpl.name, graphs.find((g) => g.name.trim().toLowerCase() === tpl.name.trim().toLowerCase()) ?? null);
+    }
     try {
       const g = await api.createGraph(template ? { template } : undefined);
       await refreshGraphs();
@@ -137,9 +162,14 @@ export default function App() {
       setGraph(g);
       useGraph.temporal.getState().clear();
     } catch (e) {
+      if (e instanceof DuplicateGraphNameError) {
+        setError(e.message);
+        await refreshGraphs();
+        return;
+      }
       setError(String(e));
     }
-  }, [refreshGraphs, reset, setGraph]);
+  }, [refreshGraphs, reset, setGraph, graphs, nameTaken]);
 
   const duplicateGraph = useCallback(
     async (id: string) => {
@@ -150,6 +180,11 @@ export default function App() {
         setGraph(g);
         useGraph.temporal.getState().clear();
       } catch (e) {
+        if (e instanceof DuplicateGraphNameError) {
+          setError(e.message);
+          await refreshGraphs();
+          return;
+        }
         setError(String(e));
       }
     },
@@ -158,6 +193,8 @@ export default function App() {
 
   const renameGraph = useCallback(
     async (id: string, name: string) => {
+      const dup = nameTaken(name, id);
+      if (dup) return reportDuplicate(name, dup);
       try {
         if (id === graph.id) {
           setGraph({ ...graph, name });
@@ -168,10 +205,15 @@ export default function App() {
         }
         await refreshGraphs();
       } catch (e) {
+        if (e instanceof DuplicateGraphNameError) {
+          setError(e.message);
+          await refreshGraphs();
+          return;
+        }
         setError(String(e));
       }
     },
-    [graph, refreshGraphs, setGraph, flushSave],
+    [graph, refreshGraphs, setGraph, flushSave, nameTaken],
   );
 
   const confirmDelete = useCallback(async () => {
@@ -183,7 +225,16 @@ export default function App() {
       let list = await refreshGraphs();
       if (targetId === graph.id) {
         if (list.length === 0) {
-          const g = await api.createGraph();
+          let g: Graph;
+          try {
+            g = await api.createGraph();
+          } catch (e) {
+            if (e instanceof DuplicateGraphNameError) {
+              setError(e.message);
+              return;
+            }
+            throw e;
+          }
           list = await refreshGraphs();
           reset();
           setGraph(g);
@@ -388,6 +439,7 @@ export default function App() {
           <Timeline />
           <FailurePanel onRerun={onRun} />
           <Canvas mode={mode} />
+          <CanvasToolbar />
           <button
             className={`stage__control-toggle ${controlCollapsed ? "is-collapsed" : ""}`}
             onClick={() => setControlCollapsed((v) => !v)}
