@@ -28,6 +28,9 @@ import BrandTermsModal from "./components/BrandTermsModal";
 import TriggersPanel from "./components/TriggersPanel";
 import ProductGallery from "./components/ProductGallery";
 import Onboarding from "./components/Onboarding";
+import KnowledgePanel from "./components/KnowledgePanel";
+import VersionPanel from "./components/VersionPanel";
+import RunCompare from "./components/RunCompare";
 import { api } from "./lib/api";
 import { useGraph } from "./store/graph";
 import { useRun } from "./store/run";
@@ -56,6 +59,9 @@ export default function App() {
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [brandOpen, setBrandOpen] = useState(false);
   const [triggersOpen, setTriggersOpen] = useState(false);
+  const [knowledgeOpen, setKnowledgeOpen] = useState(false);
+  const [versionOpen, setVersionOpen] = useState(false);
+  const [compareOpen, setCompareOpen] = useState(false);
   const tipsEnabled = useTips((s) => s.enabled);
   const toggleTips = useTips((s) => s.toggle);
   const bothCollapsed = controlCollapsed && inspectorCollapsed;
@@ -343,6 +349,21 @@ export default function App() {
               触发器
             </button>
           </Tooltip>
+          <Tooltip content="知识库 / 档案室：搜索历史产线产出和质检结论">
+            <button className="chip" onClick={() => setKnowledgeOpen(true)}>
+              知识库
+            </button>
+          </Tooltip>
+          <Tooltip content="产线版本：保存快照、恢复历史版本">
+            <button className="chip" onClick={() => setVersionOpen(true)}>
+              版本
+            </button>
+          </Tooltip>
+          <Tooltip content="运行对比：选择两次运行对比成本和节点输出">
+            <button className="chip" onClick={() => setCompareOpen(true)}>
+              对比
+            </button>
+          </Tooltip>
           <button className="chip" onClick={() => addNode("agent", 300, 480)}>
             + 厂房
           </button>
@@ -425,6 +446,15 @@ export default function App() {
       <ProductGallery open={galleryOpen} onClose={() => setGalleryOpen(false)} />
       <BrandTermsModal open={brandOpen} onClose={() => setBrandOpen(false)} />
       <TriggersPanel open={triggersOpen} onClose={() => setTriggersOpen(false)} graphId={graph.id} />
+      <KnowledgePanel open={knowledgeOpen} onClose={() => setKnowledgeOpen(false)} />
+      <VersionPanel
+        open={versionOpen}
+        graphId={graph.id}
+        graphName={graph.name}
+        onClose={() => setVersionOpen(false)}
+        onRestored={() => { void refreshGraphs(); setTimeout(() => window.location.reload(), 300); }}
+      />
+      <RunCompare open={compareOpen} graphId={graph.id} onClose={() => setCompareOpen(false)} />
       {formFields && (
         <FormConnectorModal
           fields={formFields}

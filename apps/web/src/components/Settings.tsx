@@ -49,6 +49,7 @@ function buildPricingFromForm(modality: Modality, prices: Record<string, string>
 export default function Settings({ open, onClose }: Props) {
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [savedConfig, setSavedConfig] = useState<AppConfig | null>(null);
+  const [workers, setWorkers] = useState<Array<{ id: string; name: string; description?: string; models?: string[]; builtin?: boolean; isolation?: string; env?: string[] }>>([]);
   const [cardSaved, setCardSaved] = useState<Set<string>>(new Set());
   const [revealKeys, setRevealKeys] = useState<Set<string>>(new Set());
   const [dragKey, setDragKey] = useState<string | null>(null);
@@ -117,6 +118,7 @@ export default function Settings({ open, onClose }: Props) {
           setSavedConfig(cfg);
         })
         .catch((e) => setStatus(`加载失败: ${e}`));
+      fetch("/api/workers").then((r) => r.json()).then((list) => setWorkers(list)).catch(() => {});
       setTestStates({});
       setCardSaved(new Set());
       setRevealKeys(new Set());
@@ -999,6 +1001,34 @@ export default function Settings({ open, onClose }: Props) {
               当月累计花费达到 80% 和 100% 时，运行中的产线会收到警告（不会强制跳闸）。
             </small>
           </label>
+
+          <div className="settings-section-head">
+            <h3 className="label">Worker 插件与隔离</h3>
+          </div>
+          <div className="worker-list">
+            {workers.map((w) => (
+              <div key={w.id} className="worker-item">
+                <div className="worker-item__head">
+                  <span className="worker-item__name">{w.name}</span>
+                  <span className={`chip chip--${w.isolation === "subprocess" ? "warn" : "ok"}`}>
+                    {w.isolation === "subprocess" ? "子进程隔离" : "进程内"}
+                  </span>
+                  {w.builtin && <span className="chip chip--muted">内置</span>}
+                </div>
+                {w.description && <p className="worker-item__desc muted">{w.description}</p>}
+                {w.models && w.models.length > 0 && (
+                  <p className="worker-item__models muted">模型: {w.models.join(", ")}</p>
+                )}
+                {w.env && w.env.length > 0 && (
+                  <p className="worker-item__env muted">允许环境变量: {w.env.join(", ")}</p>
+                )}
+              </div>
+            ))}
+            {workers.length === 0 && <p className="muted">未发现 Worker 插件。</p>}
+          </div>
+          <p className="muted" style={{ fontSize: "12px", marginTop: "8px" }}>
+            子进程隔离的插件运行在独立 fork 进程中，环境变量被裁剪到安全基线 + 声明的 key，网络和文件系统访问经父进程白名单代理。
+          </p>
 
           {status && <p className="diag diag--ok">{status}</p>}
         </div>

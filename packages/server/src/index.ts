@@ -39,10 +39,10 @@ import { routingWorker } from "./providers/index.js";
 import { WorkerRegistry } from "./worker-plugins.js";
 import { connectMcpServer, registerMcpTools, type McpClient, type McpServerSpec } from "./mcp.js";
 import { disposeIsolatedWorkers } from "./isolation.js";
-import { registerSkill } from "./skills/registry.js";
+import { registerSkill, setMemoryBackend, listBuiltinSkills } from "./skills/registry.js";
+import { SQLiteMemoryBackend, extractKnowledgeFromRun } from "./memory.js";
 import { fileURLToPath } from "node:url";
 import { sanitizeError } from "./sanitize.js";
-import { listBuiltinSkills } from "./skills/registry.js";
 
 const PORT = Number(process.env.PORT ?? 8791);
 const db = openDb(process.env.DB_FILE ?? "agent-world.sqlite");
@@ -55,6 +55,11 @@ const artifacts = ArtifactStore.fromEnv();
 // A server restart cannot resume in-memory generators; mark orphaned runs so the
 // UI doesn't show them as forever-running.
 db.markZombiesInterrupted(Date.now());
+
+// Knowledge base / archive (5.2). FTS5-backed full-text search over
+// extracted run outputs; powers the `archive_search` skill card.
+const memory = new SQLiteMemoryBackend(db as any);
+setMemoryBackend(memory);
 
 const worker = routingWorker();
 const workerRegistry = new WorkerRegistry(worker);
@@ -79,6 +84,20 @@ const triggers = new TriggerService({
       ...opts,
       onFinish: (gid, status) => {
         void triggers.onGraphFinished(gid, status);
+        if (status === "completed" || status === "failed") {
+          try {
+            const recent = db.listRuns({ graphId: gid, limit: 1 });
+            if (recent.rows.length > 0) {
+              const run = recent.rows[0]!;
+              const events = db.events(run.id);
+              const graphName = db.getGraph(gid)?.name ?? gid;
+              const entries = extractKnowledgeFromRun(events, run.id, graphName);
+              for (const entry of entries) memory.add(entry);
+            }
+          } catch {
+            // best-effort
+          }
+        }
       },
       onArtifact: (aid) => {
         void triggers.onArtifact(aid);
@@ -353,6 +372,37 @@ app.get("/api/runs", (c) => {
 
 app.get("/api/runs/:id/stats", (c) => {
   return c.json(db.runStats(c.req.param("id")));
+});
+
+// --- Knowledge base / archive (5.2) ---
+app.get("/api/knowledge", (c) => {
+  const limit = Math.min(Number(c.req.query("limit") ?? 50), 200);
+  const offset = Number(c.req.query("offset") ?? 0);
+  return c.json({ entries: memory.list(limit, offset), total: memory.count() });
+});
+
+app.get("/api/knowledge/search", (c) => {
+  const q = c.req.query("q") ?? "";
+  const limit = Math.min(Number(c.req.query("limit") ?? 20), 50);
+  return c.json({ entries: memory.search(q, limit) });
+});
+
+app.post("/api/knowledge", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as { title?: string; content?: string; source?: string; tags?: string[] };
+  if (!body.title || !body.content) return c.json({ error: "title and content are required" }, 400);
+  const entry = memory.add({
+    title: body.title,
+    content: body.content,
+    source: body.source ?? "manual",
+    tags: body.tags ?? [],
+  });
+  return c.json(entry, 201);
+});
+
+app.delete("/api/knowledge/:id", (c) => {
+  const ok = memory.delete(c.req.param("id"));
+  if (!ok) return c.json({ error: "not found" }, 404);
+  return c.body(null, 204);
 });
 
 /** Available workers (built-in + discovered plugins), for the run-start UI. */
@@ -654,6 +704,44 @@ app.post("/api/brand-terms", async (c) => {
 
 app.delete("/api/brand-terms/:id", (c) => {
   db.deleteBrandTerm(c.req.param("id"));
+  return c.body(null, 204);
+});
+
+// --- Graph versions (5.6) ---
+app.get("/api/graphs/:id/versions", (c) => {
+  const graphId = c.req.param("id");
+  if (!db.getGraph(graphId)) return c.json({ error: "graph not found" }, 404);
+  return c.json(db.listVersions(graphId));
+});
+
+app.post("/api/graphs/:id/versions", async (c) => {
+  const graphId = c.req.param("id");
+  const graph = db.getGraph(graphId);
+  if (!graph) return c.json({ error: "graph not found" }, 404);
+  const body = (await c.req.json().catch(() => ({}))) as { name?: string; note?: string };
+  const name = body.name?.trim() || new Date().toLocaleString();
+  const version = db.saveVersion(graphId, name, JSON.stringify(graph), body.note ?? "");
+  return c.json(version, 201);
+});
+
+app.get("/api/graphs/:id/versions/:vid", (c) => {
+  const v = db.getVersion(c.req.param("vid"));
+  if (!v) return c.json({ error: "version not found" }, 404);
+  return c.json({ id: v.id, graphId: v.graph_id, name: v.name, note: v.note, createdAt: v.created_at, snapshot: JSON.parse(v.snapshot) });
+});
+
+app.post("/api/graphs/:id/versions/:vid/restore", (c) => {
+  const graphId = c.req.param("id");
+  const v = db.getVersion(c.req.param("vid"));
+  if (!v) return c.json({ error: "version not found" }, 404);
+  if (v.graph_id !== graphId) return c.json({ error: "version does not belong to this graph" }, 400);
+  const snapshot = JSON.parse(v.snapshot);
+  db.saveGraph(snapshot, Date.now());
+  return c.json({ ok: true, graph: snapshot });
+});
+
+app.delete("/api/graphs/:id/versions/:vid", (c) => {
+  db.deleteVersion(c.req.param("vid"));
   return c.body(null, 204);
 });
 
