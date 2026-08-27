@@ -3678,3 +3678,56 @@ select {
 .onboarding__tips strong {
   color: var(--text, #e8eaed);
 }
+
+/* Knowledge Panel (5.2) */
+.knowledge-panel { width: 720px; max-height: 80vh; display: flex; flex-direction: column; }
+.knowledge-panel__toolbar { display: flex; gap: 8px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+.knowledge-panel__add { display: flex; flex-direction: column; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--border); background: var(--bg-elevated); }
+.knowledge-panel__count { padding: 8px 16px; font-size: 12px; }
+.knowledge-panel__list { flex: 1; overflow-y: auto; padding: 8px 16px 16px; }
+.knowledge-item { padding: 12px; margin-bottom: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); }
+.knowledge-item__head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.knowledge-item__title { font-weight: 600; font-size: 14px; }
+.knowledge-item__content { font-size: 13px; color: var(--text-secondary); line-height: 1.5; margin-bottom: 6px; white-space: pre-wrap; word-break: break-word; }
+.knowledge-item__meta { display: flex; gap: 16px; font-size: 11px; flex-wrap: wrap; }
+
+/* Worker list in Settings (4.1) */
+.worker-list { display: flex; flex-direction: column; gap: 8px; }
+.worker-item { padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); }
+.worker-item__head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.worker-item__name { font-weight: 600; font-size: 13px; }
+.worker-item__desc { font-size: 12px; margin-bottom: 2px; }
+.worker-item__models, .worker-item__env { font-size: 11px; }
+
+/* Version Panel (5.6) */
+.version-panel { width: 640px; max-height: 80vh; display: flex; flex-direction: column; }
+.version-panel__save { display: flex; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+.version-panel__list { flex: 1; overflow-y: auto; padding: 8px 16px 16px; }
+.version-item { padding: 12px; margin-bottom: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); }
+.version-item__head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+.version-item__name { font-weight: 600; font-size: 14px; }
+.version-item__note { font-size: 12px; margin-bottom: 8px; }
+.version-item__actions { display: flex; gap: 8px; }
+
+/* Run Compare (3.1) */
+.run-compare { width: 900px; max-height: 85vh; display: flex; flex-direction: column; }
+.run-compare__selectors { display: flex; gap: 12px; align-items: flex-end; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+.run-compare__selectors > div { flex: 1; }
+.run-compare__stats { padding: 12px 16px; border-bottom: 1px solid var(--border); }
+.run-compare__stats h3 { margin: 0 0 8px; font-size: 14px; }
+.compare-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.compare-table th, .compare-table td { padding: 6px 10px; text-align: left; border-bottom: 1px solid var(--border); }
+.compare-table th { background: var(--bg-elevated); font-weight: 600; }
+.diff-up { color: #e74c3c; }
+.diff-down { color: #27ae60; }
+.run-compare__outputs { flex: 1; overflow-y: auto; padding: 12px 16px; }
+.run-compare__outputs h3 { margin: 0 0 8px; font-size: 14px; }
+.output-diff-list { display: flex; flex-direction: column; gap: 12px; }
+.output-diff-item { border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.output-diff-item__head { display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; background: var(--bg-elevated); font-size: 12px; }
+.output-diff-item__node { font-weight: 600; }
+.output-diff-item__cols { display: flex; gap: 0; }
+.output-diff-col { flex: 1; padding: 8px; border-right: 1px solid var(--border); }
+.output-diff-col:last-child { border-right: none; }
+.output-diff-col__label { font-size: 11px; font-weight: 600; margin-bottom: 4px; color: var(--text-secondary); }
+.output-diff-col__text { font-size: 11px; white-space: pre-wrap; word-break: break-word; max-height: 200px; overflow-y: auto; margin: 0; }

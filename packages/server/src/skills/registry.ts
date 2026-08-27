@@ -2,6 +2,7 @@ import * as fs from "node:fs/promises";
 import path from "node:path";
 import type { Skill } from "@agent-world/core";
 import type { ToolDefinition } from "../worker.js";
+import type { MemoryBackend } from "../memory.js";
 
 /**
  * Built-in skill catalog. Skills are capability cards mounted on agent nodes.
@@ -161,7 +162,55 @@ const fsWrite: BuiltinSkill = {
   },
 };
 
-const ALL: BuiltinSkill[] = [webFetch, jsonExtract, nowTime, fsWrite];
+/** Optional memory backend, set by the server at startup. Powers archive_search. */
+let memoryBackend: MemoryBackend | null = null;
+
+export function setMemoryBackend(mb: MemoryBackend | null): void {
+  memoryBackend = mb;
+}
+
+const archiveSearch: BuiltinSkill = {
+  id: "archive_search",
+  name: "档案检索",
+  description: "在知识库中全文检索历史产线产出和质检结论，返回最相关的条目。",
+  kind: "tool",
+  source: "builtin",
+  permissions: { subprocess: false, env: [] },
+  config: {},
+  tool: {
+    name: "archive_search",
+    description:
+      "Search the knowledge base for past pipeline outputs and judge verdicts. " +
+      "Returns up to `limit` most relevant entries with title, content snippet, source, and tags.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Full-text search query." },
+        limit: { type: "integer", description: "Max results to return (default 5, max 20).", minimum: 1, maximum: 20 },
+      },
+      required: ["query"],
+    },
+    async execute(args: unknown) {
+      const { query, limit } = (args ?? {}) as { query?: string; limit?: number };
+      if (!query || typeof query !== "string") throw new Error("query is required");
+      if (!memoryBackend) return { results: [], note: "knowledge base not configured" };
+      const results = memoryBackend.search(query, Math.min(limit ?? 5, 20));
+      return {
+        count: results.length,
+        results: results.map((r) => ({
+          id: r.id,
+          title: r.title,
+          content: r.content.slice(0, 2000),
+          source: r.source,
+          tags: r.tags,
+          created_at: r.created_at,
+        })),
+      };
+    },
+  },
+};
+
+const ALL: BuiltinSkill[] = [webFetch, jsonExtract, nowTime, fsWrite, archiveSearch];
 const byId = new Map(ALL.map((s) => [s.id, s]));
 
 export function listBuiltinSkills(): Skill[] {

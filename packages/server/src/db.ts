@@ -85,6 +85,16 @@ CREATE TABLE IF NOT EXISTS brand_terms (
   note        TEXT NOT NULL DEFAULT '',
   created_at  INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS graph_versions (
+  id          TEXT PRIMARY KEY,
+  graph_id    TEXT NOT NULL,
+  name        TEXT NOT NULL,
+  snapshot    TEXT NOT NULL,
+  note        TEXT NOT NULL DEFAULT '',
+  created_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_graph_versions_graph ON graph_versions(graph_id, created_at DESC);
 `;
 
 type ArtifactRow = {
@@ -1036,8 +1046,37 @@ export function openDb(file: string) {
       db.prepare(`DELETE FROM brand_terms WHERE id = ?`).run(id);
     },
 
+    // --- Graph versions (5.6) ---
+    listVersions(graphId: string) {
+      return db
+        .prepare(`SELECT id, graph_id AS graphId, name, note, created_at AS createdAt FROM graph_versions WHERE graph_id = ? ORDER BY created_at DESC`)
+        .all(graphId) as Array<{ id: string; graphId: string; name: string; note: string; createdAt: number }>;
+    },
+    getVersion(id: string) {
+      return db.prepare(`SELECT * FROM graph_versions WHERE id = ?`).get(id) as
+        | { id: string; graph_id: string; name: string; snapshot: string; note: string; created_at: number }
+        | undefined;
+    },
+    saveVersion(graphId: string, name: string, snapshot: string, note = "") {
+      const id = randomUUID();
+      const now = Date.now();
+      db.prepare(`INSERT INTO graph_versions (id, graph_id, name, snapshot, note, created_at) VALUES (?, ?, ?, ?, ?, ?)`).run(
+        id, graphId, name, snapshot, note, now,
+      );
+      return { id, graphId, name, note, createdAt: now };
+    },
+    deleteVersion(id: string) {
+      db.prepare(`DELETE FROM graph_versions WHERE id = ?`).run(id);
+    },
+
     close() {
       db.close();
+    },
+
+    /** Passthrough to the underlying DatabaseSync.prepare — for modules that
+     *  manage their own tables (e.g. knowledge base FTS). */
+    prepare(sql: string) {
+      return db.prepare(sql);
     },
   };
 }
