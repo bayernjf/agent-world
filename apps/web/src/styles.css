@@ -3753,6 +3753,12 @@ select {
 .template-grid--onboarding {
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   gap: 12px;
+  /* Independent scroll inside the card so the hero/actions stay pinned.
+     Theme inherits from the global ::-webkit-scrollbar rules. */
+  max-height: min(540px, 50vh);
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  padding-right: 4px;
 }
 .template-card--onboarding {
   min-height: 168px;
