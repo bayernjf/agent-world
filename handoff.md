@@ -12,11 +12,12 @@ State of Agent World as of 2026-08-27.
 - [docs/technical-design.md](docs/technical-design.md) — architecture, data models, API
 - [docs/roadmap-tasks.md](docs/roadmap-tasks.md) — per-phase task breakdown
 - [docs/tech-stack-assessment.md](docs/tech-stack-assessment.md) — current stack evaluation
+- [docs/feedback-workflow.md](docs/feedback-workflow.md) — owner 怎么高效反馈给我（截图 / computer-use / 防丢）
 - [docs/handoff-archive.md](docs/handoff-archive.md) — historical changes (pre-2026-08-27)
 
 ## Current state
 
-- **Monorepo**：`packages/core` / `packages/server` (Node + sqlite, 端口 8791) / `apps/web` (Vite, 端口 5183)
+- **Monorepo**：`packages/core` / `packages/server` (Node + sqlite, 端口 8791) / `apps/web` (Vite, 端口 5173)
 - **核心能力**：4 类节点（agent / imageGen / videoGen / audioGen），多产线管理，Inspector 模型下拉严格按 modality 过滤，多模态产出（Artifact 分层），流式 + SSE + 断线重连 + halt/resume，成本电表（token + 单价两种模式），评估体系雏形
 - **关键文件**：
   - `apps/web/src/components/Inspector.tsx` — 节点详情面板（model select 严格按 modality 过滤）
@@ -56,6 +57,15 @@ State of Agent World as of 2026-08-27.
 - `pnpm --filter @agent-world/web exec vitest run`：19/19 通过
 - 沙箱 EPERM：未在 8791 / 5183 端到端复现
 
+## Feedback workflow
+
+- 看到不爽：**截图 + 6 字标签**发我。详细见 [docs/feedback-workflow.md](docs/feedback-workflow.md)
+- 想让我看你的 Chrome：说"computer use 看一下 [位置]"
+- 防丢：我在 "Active feedback" 区块自动记，你不用管
+
+### Active feedback
+<!-- 自动维护：用户最近反馈的未解决问题，按时间倒序 -->
+
 ## How to run
 
 ```bash
@@ -63,9 +73,9 @@ State of Agent World as of 2026-08-27.
 cd packages/server && node dist/index.js
 # 或 detach 版：python3 -c "import subprocess; subprocess.Popen(['node','dist/index.js'], start_new_session=True, cwd='packages/server')"
 
-# web (foreground, 5183)
+# web (foreground, 5173 — vite.config.ts 配的)
 cd apps/web && pnpm dev
-# → http://localhost:5183
+# → http://localhost:5173
 
 # 沙箱里启动 server / vite 都会被 EPERM 拒（详见 Known issues）
 ```
@@ -83,3 +93,59 @@ cd apps/web && pnpm dev
 - **commit 颗粒度**：原子提交；一次 commit 解决一件事（bug 修复 / 单一 feature / 单一迁移）
 - **UI 文案**：中文，遵循 `--steel-*` / `--power` / `--ink*` / `--alert` 等设计 token，**不改主题样式**
 - **新增功能必加 handoff 章节**：本文件只记最近 5 个 + 待办；超过 5 个的全部进 archive
+
+### ⚠️ server 重启 bug（2026-08-27 14:40 踩过）
+
+`start_new_session` 起 server 时 **cwd 必须是 `packages/server`**，不能是仓库根：
+
+```bash
+# ✅ 对的
+python3 -c "import subprocess; subprocess.Popen(['node','/Users/jiangfeng/000mycodes/agent-world/packages/server/dist/index.js'], start_new_session=True, cwd='/Users/jiangfeng/000mycodes/agent-world/packages/server')"
+
+# ❌ 错的（cwd=仓库根 → server 打开仓库根的空 agent-world.sqlite，看不到任何产线）
+python3 -c "import subprocess; subprocess.Popen(['node','packages/server/dist/index.js'], start_new_session=True, cwd='/Users/jiangfeng/000mycodes/agent-world')"
+```
+
+**两个 DB 文件**：
+- `packages/server/agent-world.sqlite` 180KB — 真正的数据（产线、run、artifact）
+- `agent-world.sqlite` 4KB — 仓库根的"幽灵"空 DB，server 在仓库根跑就用这个
+
+**验证起对没**：
+```bash
+PID=$(lsof -ti :8791)
+lsof -p $PID | grep "agent-world.sqlite "   # 应该指向 packages/server/agent-world.sqlite
+```
+
+**事故原因**：之前我帮用户重启时图省事把 cwd 写成绝对路径的仓库根（因为 dist/index.js 用了相对路径 `node 'packages/server/dist/index.js'`），但 server 进程内找 DB 用 `./agent-world.sqlite`——cwd 在仓库根就直接落到根的空 DB 上。**下次绝对不能用仓库根 cwd**。
+
+
+### ⚠️ server 重启：用双 fork，不要用 `start_new_session`（2026-08-27 14:43）
+
+**问题**：`subprocess.Popen(..., start_new_session=True, cwd=...)` 起的 server 进程在 exec 退出后会被 sandbox 带走（kill 老 server → 几秒后新 server 也死）。
+
+**解决**：Python 双 fork + `os.setsid()`，彻底脱离 process group：
+
+```python
+import os, sys
+pid = os.fork()
+if pid > 0: sys.exit(0)
+os.setsid()
+pid2 = os.fork()
+if pid2 > 0: sys.exit(0)
+os.chdir('/Users/jiangfeng/000mycodes/agent-world/packages/server')
+log = os.open('/tmp/aw-server.log', os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
+os.dup2(log, 1); os.dup2(log, 2)
+devnull = os.open(os.devnull, os.O_RDONLY)
+os.dup2(devnull, 0)
+os.close(log); os.close(devnull)
+os.execvp('node', ['node', '/Users/jiangfeng/000mycodes/agent-world/packages/server/dist/index.js'])
+```
+
+**macOS 没有 `setsid` 命令**，但 Python 的 `os.setsid()` 等价。
+
+**验证**：
+```bash
+sleep 5 && lsof -i :8791    # 5 秒后还在 → 真独立
+lsof -p $(lsof -ti :8791) | grep agent-world.sqlite  # 指向 packages/server/
+```
+
