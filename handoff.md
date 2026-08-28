@@ -13,6 +13,8 @@ State of Agent World as of 2026-08-27.
 - [docs/roadmap-tasks.md](docs/roadmap-tasks.md) — per-phase task breakdown
 - [docs/tech-stack-assessment.md](docs/tech-stack-assessment.md) — current stack evaluation
 - [docs/feedback-workflow.md](docs/feedback-workflow.md) — owner 怎么高效反馈给我（截图 / computer-use / 防丢）
+- [docs/design-mcp-server.md](docs/design-mcp-server.md) — MCP Server 设计方案（让其他 AI 客户端接入 agent-world）
+- [docs/roadmap-generalization.md](docs/roadmap-generalization.md) — 通用化路线图（从内容生成流水线升级为通用自动化平台，5 阶段）
 - [docs/handoff-archive.md](docs/handoff-archive.md) — historical changes (pre-2026-08-27)
 
 ## Current state
@@ -32,20 +34,22 @@ State of Agent World as of 2026-08-27.
 
 按优先级降序，标 `★` 的是当下要推的：
 
-1. **★ `GraphSwitcher.tsx` 未提交的 step 3 尾巴**（+11 行）— 上一轮 UI 重设计遗留，工作树里挂着，需要决定是单独一个 commit 收掉还是先放着
-2. **★ 老 server 进程 pid 89495** 还在 8791 上跑（沙箱杀不掉，EPERM），新版 server 验证需要 `kill 89495` 后用 `python3 -c "import subprocess; subprocess.Popen(['node','dist/index.js'], start_new_session=True, cwd='packages/server')"` 起
-3. **Inspector 的"在显眼处加一个去设置的链接"**（在 archive 中"AI 视频/音频节点：模型字段改为下拉"章节列为已知 gap）— 音频模型没配时，下拉只有占位项，没引导；新建节点有 toast 软提示覆盖
-4. **GraphSwitcher 重设计后续 step 4+**（archive 中"画布多选与视口体验"章节是 step 1-2，step 3 完成未提交）
+1. **★ 通用化 Phase 1 P0**（详见 [docs/roadmap-generalization.md](docs/roadmap-generalization.md)）— HTTP 请求节点 + 代码执行节点 + 条件分支节点 + 数据模型升级（JSON 传递/变量/映射）。这是从"内容生成工具"升级为"通用自动化平台"的基石，做完能处理 80% 场景。
+2. **★ UI 布局交互问题探讨**（进行中）— owner 正在反馈当前产品 UI 布局交互的问题，待整理后进入待办。
+3. **MCP Server P0 MVP**（详见 [docs/design-mcp-server.md](docs/design-mcp-server.md)）— stdio 传输 + 6 个核心工具（list_graphs/get_graph/run_graph/get_run_status/list_artifacts/get_artifact），让 Claude Desktop/Cursor 等能接入 agent-world。
+4. **GraphSwitcher.tsx 未提交的 step 3 尾巴**（+11 行）— 上一轮 UI 重设计遗留，工作树里挂着，需要决定是单独一个 commit 收掉还是先放着
+5. **Inspector 的"在显眼处加一个去设置的链接"**— 音频模型没配时，下拉只有占位项，没引导；新建节点有 toast 软提示覆盖
+6. **已知测试失败 2 个**（非本次引入）— `engine.reliability.test.ts > resume with resetFrom` 和 `engine.test.ts > emits artifact.produced when agent output contains image URLs`，是工作树里其他未提交改动导致的，待清理
 
 ## Recently shipped (last 5)
 
 按 commit 时间倒序，每条一行影响面 + commit hash：
 
-1. `ff73b92` — **feat(web)**: 删除被节点使用的模型时弹替换对话框（同 modality 候选，选中即替换删除，丝滑）
-2. `6c47c22` — **fix(web)**: toast 从屏幕正中移到顶部中间（用户原意是"顶部中间"，被误解为"屏幕中央"，已纠正）
-3. `b6254dd` — **fix(web)**: `defaultModelFor` 优先真实 provider；老图里 `agnes-image` 这种硬编码占位自动迁移到真实 image provider
-4. `ef52975` — **feat(web)**: 错误条改成屏幕中间弹 toast + 一键复制（与第 2 条合并后最终落在顶部）
-5. `1123d10` — **feat**: addNodes 不再 block；派发是真正的模型 gatekeeper（节点添加不再卡真实模型存在性，派发时才校验）
+1. `eb3db86` — **docs**: 通用化路线图（5 阶段，从内容生成流水线升级为通用自动化平台）
+2. `afb3e2f` — **docs**: MCP Server 设计方案（stdio + 6 核心工具 + 独立进程架构）
+3. `8ce20c1` — **feat**: Inspector 显示节点运行耗时（startedAt/finishedAt，ms/s/m/h/d 分级格式化）
+4. `620c74b` — **fix(web)**: 移除 product__body 的 max-height，成品库内容随 Inspector 统一滚动（之前嵌套滚动导致无法下滑）
+5. `c8f7636` — **fix**: product-json 解析宽容处理（支持只含 blocks 数组）+ 长图生成全链路超时保护（之前会卡住"生成中..."）
 
 最近 5 条之前的全部在 [docs/handoff-archive.md](docs/handoff-archive.md) 的"阶段 4 收尾"系列章节里。
 
@@ -54,8 +58,11 @@ State of Agent World as of 2026-08-27.
 > 这里的 snapshot 是"今天跑过的"状态；archive 章节里的"质量门"是各 commit 当时的状态，不要混用。
 
 - `pnpm -r typecheck`：全绿
-- `pnpm --filter @agent-world/web exec vitest run`：19/19 通过
-- 沙箱 EPERM：未在 8791 / 5183 端到端复现
+- `pnpm --filter @agent-world/core test`：54/54 通过
+- `pnpm --filter @agent-world/server test`：260/262 通过，2 个已知失败（非本次引入，工作树里其他未提交改动导致）：
+  - `engine.reliability.test.ts > resume with resetFrom > re-runs the failed node and its downstream, keeping upstream artifacts`
+  - `engine.test.ts > execute > emits artifact.produced when agent output contains image URLs`
+- `pnpm --filter @agent-world/web exec vitest run`：待跑
 
 ## Feedback workflow
 
