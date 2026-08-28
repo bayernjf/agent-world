@@ -13,7 +13,7 @@ server, and a React board.
 
 ```bash
 pnpm install
-pnpm dev          # server :8791 + board :5183
+pnpm dev          # server :8791 + board :5173
 ```
 
 Useful scripts (run per package with `pnpm --filter <pkg>`, or `-r` for all):
