@@ -550,6 +550,30 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     } else {
       body = assembleInput(parts, policy);
     }
+
+    // Inject upstream source constraints so every agent node (regardless of
+    // how many layers deep) sees the prohibited terms and brand words. Without
+    // this, the source brief only reaches the first downstream agent; after
+    // multiple rewrites the constraints are lost and the gate can only detect
+    // violations post-hoc instead of preventing them upfront.
+    // NOTE: only inject for agent nodes — gate nodes use inputFor() to read
+    // upstream output for coverage detection; injecting terms there would make
+    // the detector always pass.
+    if (node.kind === "agent") {
+      const prohibited = upstreamProhibitedTerms(graph, node.id);
+      const brandTerms = upstreamBrandTerms(graph, node.id);
+      const constraintLines: string[] = [];
+      if (prohibited.length > 0) {
+        constraintLines.push(`[禁用词 — 生成内容中绝对不能出现以下词语/说法]\n${prohibited.join("、")}`);
+      }
+      if (brandTerms.length > 0) {
+        constraintLines.push(`[品牌词 — 建议在文案中自然融入，不必全部使用]\n${brandTerms.join("、")}`);
+      }
+      if (constraintLines.length > 0) {
+        body = `${body}\n\n${constraintLines.join("\n\n")}`;
+      }
+    }
+
     const note = includeNote ? reworkNotes.get(node.id) : undefined;
     if (!note) return body;
     return `${body}\n\n[质检站退回原因] ${note}`;
