@@ -23,8 +23,15 @@ function formatDuration(ms: number): string {
   const s = ms / 1000;
   if (s < 60) return `${s.toFixed(1)}s`;
   const m = Math.floor(s / 60);
-  const rs = Math.round(s % 60);
-  return `${m}m ${rs}s`;
+  if (m < 60) {
+    const rs = Math.round(s % 60);
+    return `${m}m ${rs}s`;
+  }
+  const h = Math.floor(m / 60);
+  const rm = m % 60;
+  if (h < 24) return `${h}h ${rm}m`;
+  const d = Math.floor(h / 24);
+  return `${d}d ${h % 24}h`;
 }
 
 /** Cheap line-level diff — enough to see what a rework attempt actually changed. */
