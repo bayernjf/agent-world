@@ -1,6 +1,6 @@
 # Handoff
 
-State of Agent World as of 2026-08-27.
+State of Agent World as of 2026-08-29.
 
 > **历史内容已归档**：2026-08-27 之前的全部变更记录、各阶段详细描述、质量门与已知 gap，已整体搬到 [docs/handoff-archive.md](docs/handoff-archive.md)。本文件只保留"项目当前状态 + 活跃任务 + 最近 5 个变更"。
 
@@ -16,17 +16,28 @@ State of Agent World as of 2026-08-27.
 - [docs/design-mcp-server.md](docs/design-mcp-server.md) — MCP Server 设计方案（让其他 AI 客户端接入 agent-world）
 - [docs/roadmap-generalization.md](docs/roadmap-generalization.md) — 通用化路线图（从内容生成流水线升级为通用自动化平台，5 阶段）
 - [docs/handoff-archive.md](docs/handoff-archive.md) — historical changes (pre-2026-08-27)
+- [PRODUCT_STRATEGY.md](PRODUCT_STRATEGY.md) — 产品策略汇总（成本/部署/定价/商业化决策基线）
+- [docs/design-artifact-display.md](docs/design-artifact-display.md) — 产物统一渲染卡设计（ArtifactCard + 渲染器注册表；前端进行中）
+- [docs/design-artifact-attribution-repo.md](docs/design-artifact-attribution-repo.md) — 产物归属 + 按流水线分组成品仓库设计（后端 schema 已落地）
 
 ## Current state
 
 - **Monorepo**：`packages/core` / `packages/server` (Node + sqlite, 端口 8791) / `apps/web` (Vite, 端口 5173)
-- **核心能力**：4 类节点（agent / imageGen / videoGen / audioGen），多产线管理，Inspector 模型下拉严格按 modality 过滤，多模态产出（Artifact 分层），流式 + SSE + 断线重连 + halt/resume，成本电表（token + 单价两种模式），评估体系雏形
+- **核心能力**：4 类节点（agent / imageGen / videoGen / audioGen），多产线管理，Inspector 模型下拉严格按 modality 过滤，多模态产出（Artifact 分层），流式 + SSE + 断线重连 + halt/resume，成本电表（token + 单价两种模式），评估体系雏形，产物落库归属流水线（artifacts 加 graph_id/role，`ab32074` 已提交）
+- **进行中（工作树未提交）**：
+  - **账号系统 / 按用户隔离**：users 表 + JWT(HS256, bcrypt12) 会话 + graphs/runs/artifacts/brand_terms/成本全部按 `user_id` 过滤 + 前端登录/注册/用户菜单 + `authFetch(credentials:include)` + `/api/proxy` 图片代理（own artifact 归一化走 cookie）
+  - **产物统一渲染**：`artifact-renderers.tsx`（ArtifactCard 外壳 + 7 类渲染器注册表 + JSON 树 + 共享 renderMarkdown），Inspector/成品面板/画廊三处接入，画廊按流水线分组，节点缩略图
+  - **UI 布局交互**：Inspector 可拖拽调宽（localStorage 持久化）、CanvasToolbar 置顶、Inspector 随节点选中自动开合、成品库改版
 - **关键文件**：
-  - `apps/web/src/components/Inspector.tsx` — 节点详情面板（model select 严格按 modality 过滤）
+  - `apps/web/src/components/Inspector.tsx` — 节点详情面板（model select 严格按 modality 过滤；产物走 ArtifactCard）
+  - `apps/web/src/lib/artifact-renderers.tsx` — 统一产物渲染（工作树未提交）
+  - `apps/web/src/components/ProductGallery.tsx` — 成品库（kind 过滤 + 按流水线分组，工作树未提交）
+  - `apps/web/src/components/Settings.tsx` — 模型/provider/单价管理
   - `apps/web/src/components/Canvas.tsx` — 画布（undo/redo/缩略图/拖拽/对齐）
   - `apps/web/src/components/GraphSwitcher.tsx` — 多产线切换（重设计 step 3 尾巴未提交）
   - `apps/web/src/components/Onboarding.tsx` — 首次启动引导
-  - `apps/web/src/components/ModelSettings.tsx` — 模型/provider/单价管理
+  - `packages/server/src/auth.ts` — JWT 签发/校验、密码哈希（工作树未提交）
+  - `packages/server/src/db.ts` — 持久化（含 users 表 + 按 user_id 隔离，进行中）
   - `packages/core/src/` — 领域模型、Provider 抽象、Artifact、节点契约
   - `packages/server/src/` — 持久化、events API、调度
 
@@ -34,22 +45,21 @@ State of Agent World as of 2026-08-27.
 
 按优先级降序，标 `★` 的是当下要推的：
 
+0. **★ 工作树三坨大改动待收尾（进行中，未提交）** — 账号系统（user 隔离 + JWT + 前端登录/用户菜单）、产物统一渲染（ArtifactCard / 画廊分组 / 节点缩略图）、UI 布局交互（Inspector 拖宽 / 工具栏置顶 / 成品库改版）。**注意：server 测试因此挂 26 个**（user 隔离重构改了 DB API，测试未同步），需要先把这批改动拆成原子 commit 收尾。
 1. **★ 通用化 Phase 1 P0**（详见 [docs/roadmap-generalization.md](docs/roadmap-generalization.md)）— HTTP 请求节点 + 代码执行节点 + 条件分支节点 + 数据模型升级（JSON 传递/变量/映射）。这是从"内容生成工具"升级为"通用自动化平台"的基石，做完能处理 80% 场景。
-2. **★ UI 布局交互问题探讨**（进行中）— owner 正在反馈当前产品 UI 布局交互的问题，待整理后进入待办。
-3. **MCP Server P0 MVP**（详见 [docs/design-mcp-server.md](docs/design-mcp-server.md)）— stdio 传输 + 6 个核心工具（list_graphs/get_graph/run_graph/get_run_status/list_artifacts/get_artifact），让 Claude Desktop/Cursor 等能接入 agent-world。
-4. **GraphSwitcher.tsx 未提交的 step 3 尾巴**（+11 行）— 上一轮 UI 重设计遗留，工作树里挂着，需要决定是单独一个 commit 收掉还是先放着
-5. **Inspector 的"在显眼处加一个去设置的链接"**— 音频模型没配时，下拉只有占位项，没引导；新建节点有 toast 软提示覆盖
-6. **已知测试失败 2 个**（非本次引入）— `engine.reliability.test.ts > resume with resetFrom` 和 `engine.test.ts > emits artifact.produced when agent output contains image URLs`，是工作树里其他未提交改动导致的，待清理
+2. **MCP Server P0 MVP**（详见 [docs/design-mcp-server.md](docs/design-mcp-server.md)）— stdio 传输 + 6 个核心工具（list_graphs/get_graph/run_graph/get_run_status/list_artifacts/get_artifact），让 Claude Desktop/Cursor 等能接入 agent-world。
+3. **GraphSwitcher.tsx 未提交的 step 3 尾巴**（+11 行）— 上一轮 UI 重设计遗留，工作树里挂着，需要决定是单独一个 commit 收掉还是先放着
+4. **Inspector 的"在显眼处加一个去设置的链接"**— 音频模型没配时，下拉只有占位项，没引导；新建节点有 toast 软提示覆盖
 
 ## Recently shipped (last 5)
 
 按 commit 时间倒序，每条一行影响面 + commit hash：
 
-1. `eb3db86` — **docs**: 通用化路线图（5 阶段，从内容生成流水线升级为通用自动化平台）
-2. `afb3e2f` — **docs**: MCP Server 设计方案（stdio + 6 核心工具 + 独立进程架构）
-3. `8ce20c1` — **feat**: Inspector 显示节点运行耗时（startedAt/finishedAt，ms/s/m/h/d 分级格式化）
-4. `620c74b` — **fix(web)**: 移除 product__body 的 max-height，成品库内容随 Inspector 统一滚动（之前嵌套滚动导致无法下滑）
-5. `c8f7636` — **fix**: product-json 解析宽容处理（支持只含 blocks 数组）+ 长图生成全链路超时保护（之前会卡住"生成中..."）
+1. `ab32074` — **feat**: 产物落库归属到流水线和角色（artifacts 加 graph_id/role，run.ts 注入）
+2. `fc99fbe` — **chore(web)**: Vite dev 端口恢复为 5173
+3. `017c533` — **chore(deps)**: 新增 bcryptjs / jose / react-router-dom（为账号系统做准备）
+4. `4177691` — **docs(handoff)**: 补充通用化路线图、MCP Server 设计与近期修复
+5. `eb3db86` — **docs**: 通用化路线图（5 阶段，从内容生成流水线升级为通用自动化平台）
 
 最近 5 条之前的全部在 [docs/handoff-archive.md](docs/handoff-archive.md) 的"阶段 4 收尾"系列章节里。
 
@@ -59,10 +69,12 @@ State of Agent World as of 2026-08-27.
 
 - `pnpm -r typecheck`：全绿
 - `pnpm --filter @agent-world/core test`：54/54 通过
-- `pnpm --filter @agent-world/server test`：260/262 通过，2 个已知失败（非本次引入，工作树里其他未提交改动导致）：
-  - `engine.reliability.test.ts > resume with resetFrom > re-runs the failed node and its downstream, keeping upstream artifacts`
-  - `engine.test.ts > execute > emits artifact.produced when agent output contains image URLs`
-- `pnpm --filter @agent-world/web exec vitest run`：待跑
+- `pnpm --filter @agent-world/server test`：**201/227 通过，26 失败**（进行中 user 隔离重构未同步测试，非本次文档改动引入）：
+  - 14 个测试文件 0 收集（graphs / events / artifacts / costs / runs / brand / ab / migrations / sse-resume …，因 DB API 签名变更在 import 期崩）
+  - `triggers.test.ts` 19 失败（fake db 缺 `listAllGraphs`）
+  - `scheduler.test.ts` 4 失败、`security.test.ts` 1 失败
+  - 原有 2 个已知失败仍在：`engine.reliability.test.ts > resume with resetFrom`、`engine.test.ts > artifact.produced with image URLs`
+- `pnpm --filter @agent-world/web exec vitest run`：19/19 通过
 
 ## Feedback workflow
 
