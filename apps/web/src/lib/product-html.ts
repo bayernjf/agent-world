@@ -167,8 +167,15 @@ function extractBody(html: string): string {
 function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error("failed to load image"));
+    const timer = setTimeout(() => reject(new Error("image load timeout")), 15000);
+    img.onload = () => {
+      clearTimeout(timer);
+      resolve(img);
+    };
+    img.onerror = () => {
+      clearTimeout(timer);
+      reject(new Error("failed to load image"));
+    };
     img.src = src;
   });
 }
@@ -182,15 +189,21 @@ function awaitImage(img: HTMLImageElement): Promise<void> {
 }
 
 async function fetchToDataUrl(src: string): Promise<string> {
-  const res = await fetch(src);
-  if (!res.ok) throw new Error(`fetch failed: ${res.status}`);
-  const blob = await res.blob();
-  return await new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = () => reject(reader.error ?? new Error("read failed"));
-    reader.readAsDataURL(blob);
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10000);
+  try {
+    const res = await fetch(src, { signal: controller.signal });
+    if (!res.ok) throw new Error(`fetch failed: ${res.status}`);
+    const blob = await res.blob();
+    return await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = () => reject(reader.error ?? new Error("read failed"));
+      reader.readAsDataURL(blob);
+    });
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /**
@@ -232,9 +245,17 @@ function measureHeight(bodyHtml: string): Promise<number> {
     container.innerHTML = `<div style="${LONG_IMAGE_WRAP}"><style>${STYLES}</style>${bodyHtml}</div>`;
     document.body.appendChild(container);
     const imgs = Array.from(container.querySelectorAll("img"));
-    void Promise.all(imgs.map(awaitImage)).then(() => {
+    // Don't wait forever for broken images — resolve after a timeout so the
+    // export never hangs on a single slow/failed image load.
+    const timeout = setTimeout(() => {
       const h = (container.firstElementChild as HTMLElement).scrollHeight;
-      document.body.removeChild(container);
+      if (container.parentNode) document.body.removeChild(container);
+      resolve(h);
+    }, 5000);
+    void Promise.all(imgs.map(awaitImage)).then(() => {
+      clearTimeout(timeout);
+      const h = (container.firstElementChild as HTMLElement).scrollHeight;
+      if (container.parentNode) document.body.removeChild(container);
       resolve(h);
     });
   });
