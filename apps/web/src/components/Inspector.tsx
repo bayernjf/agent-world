@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { UNIT_LABELS, artifactLabel, type Artifact, type AudioGenConfig, type Graph, type VideoGenConfig } from "@agent-world/core";
+import { UNIT_LABELS, parseProductDocument, type Artifact, type AudioGenConfig, type Graph, type VideoGenConfig } from "@agent-world/core";
+import { ArtifactCard, renderMarkdown } from "../lib/artifact-renderers";
 import { api, type AppConfig, type Modality } from "../lib/api";
 import { useGraph } from "../store/graph";
 import { useVisibleRuntime } from "../store/run";
 import SkillPicker from "./SkillPicker";
 import FinishedProduct from "./FinishedProduct";
+import ProductBlocks from "./ProductBlocks";
 import SourceImages from "./SourceImages";
 import ConnectorEditor from "./ConnectorEditor";
 
@@ -14,6 +16,15 @@ function formatUnits(units: Record<string, number> | undefined): string | null {
     .filter(([, v]) => v > 0)
     .map(([k, v]) => `${v}${UNIT_LABELS[k] ?? k}`);
   return parts.length > 0 ? parts.join(" · ") : null;
+}
+
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  const s = ms / 1000;
+  if (s < 60) return `${s.toFixed(1)}s`;
+  const m = Math.floor(s / 60);
+  const rs = Math.round(s % 60);
+  return `${m}m ${rs}s`;
 }
 
 /** Cheap line-level diff — enough to see what a rework attempt actually changed. */
@@ -53,10 +64,34 @@ const ERROR_LABEL: Record<string, string> = {
   UNSUPPORTED: "暂不支持",
 };
 
+/** 富渲染节点文本产出：含 product-json 走结构化成品，否则走 Markdown。 */
+function renderNodeOutput(text: string): React.ReactNode {
+  const doc = parseProductDocument(text);
+  if (doc) return <ProductBlocks doc={doc} />;
+  // parse 失败：常因模型在 product-json 的字段里写了未转义引号，导致 JSON 非法。
+  // 兜底策略——把整段围栏剥掉再渲染 Markdown，避免把半成品源码裸露给用户。
+  if (/```product-json/i.test(text)) {
+    const cleaned = text.replace(/```product-json[\s\S]*?```/gi, "").trim();
+    if (cleaned) return <div className="artifact-md">{renderMarkdown(cleaned)}</div>;
+    return (
+      <div className="artifact-md muted">
+        结构化成品解析失败（JSON 不合法），暂无法富渲染。
+      </div>
+    );
+  }
+  return <div className="artifact-md">{renderMarkdown(text)}</div>;
+}
+
+/** 过滤掉"内容本身就是 product-json 围栏"的中间产物，避免与富成品重复展示。 */
+function isProductJsonSource(a: Artifact): boolean {
+  return (a.kind === "text" || a.kind === "json") && !!a.content?.includes("```product-json");
+}
+
 export default function Inspector() {
   const { graph, selectedId, updateNode, saveState, reloadGraph } = useGraph();
   const runtime = useVisibleRuntime();
   const [tab, setTab] = useState<number | "diff">(1);
+  const [mainTab, setMainTab] = useState<"output" | "config" | "skills">("output");
   const [showReasoning, setShowReasoning] = useState(false);
   const [settings, setSettings] = useState<AppConfig | null>(null);
 
@@ -90,6 +125,9 @@ export default function Inspector() {
   useEffect(() => {
     api.getSettings().then(setSettings).catch(() => {});
   }, []);
+  useEffect(() => {
+    setMainTab("output");
+  }, [selectedId]);
   // Each node kind only drives one modality, so its model select must
   // only show models matching that modality. Empty list -> the select
   // renders an "未配置" placeholder nudging the user to Settings, and
@@ -159,7 +197,28 @@ export default function Inspector() {
         )}
       </div>
 
+      <div className="inspector__tabs">
+        <button
+          type="button"
+          className={`tab ${mainTab === "output" ? "is-on" : ""}`}
+          onClick={() => setMainTab("output")}
+        >产出</button>
+        <button
+          type="button"
+          className={`tab ${mainTab === "config" ? "is-on" : ""}`}
+          onClick={() => setMainTab("config")}
+        >配置</button>
+        {node.kind === "agent" && (
+          <button
+            type="button"
+            className={`tab ${mainTab === "skills" ? "is-on" : ""}`}
+            onClick={() => setMainTab("skills")}
+          >技能</button>
+        )}
+      </div>
+
       <div className="inspector__body">
+        {mainTab === "config" && (<>
         {saveState === "conflict" && (
           <div className="conflict-banner" role="alert">
             <span>该产线已在其他标签页被修改，当前改动未保存。</span>
@@ -481,12 +540,7 @@ export default function Inspector() {
                 }
               />
             </label>
-            <SkillPicker
-              mounted={node.agent.skills}
-              onChange={(skills) =>
-                updateNode(node.id, { agent: { ...node.agent!, skills } })
-              }
-            />
+            {/* 技能卡已移至「技能」标签页 */}
           </>
         )}
 
@@ -964,6 +1018,8 @@ export default function Inspector() {
           </>
         )}
 
+        </>)}
+        {mainTab === "output" && (<>
         {rt?.error && (
           <section className="error-box">
             <h3 className="label">{rt.errorCode ? ERROR_LABEL[rt.errorCode] ?? "错误" : "错误"}</h3>
@@ -984,6 +1040,12 @@ export default function Inspector() {
                 <dt>尝试</dt>
                 <dd>{rt.attempt}</dd>
               </div>
+              {rt.startedAt && (
+                <div>
+                  <dt>耗时</dt>
+                  <dd>{formatDuration((rt.finishedAt ?? Date.now()) - rt.startedAt)}</dd>
+                </div>
+              )}
               <div>
                 <dt>token</dt>
                 <dd>
@@ -1081,61 +1143,37 @@ export default function Inspector() {
                 ))}
               </pre>
             ) : (
-              <pre className="output">{rt?.outputs[activeAttempt] ?? ""}</pre>
+              <div className="output output--rich">
+                {renderNodeOutput(rt?.outputs[activeAttempt] ?? "")}
+              </div>
             )}
 
-            {artifacts.length > 0 && (
+            {artifacts.filter((a) => !isProductJsonSource(a)).length > 0 && (
               <div className="artifacts">
                 <h4 className="label">产出物</h4>
                 <div className="artifacts__grid">
-                  {artifacts.map((a: Artifact) => (
-                    <ArtifactChip key={a.id} artifact={a} />
-                  ))}
+                  {artifacts
+                    .filter((a) => !isProductJsonSource(a))
+                    .map((a: Artifact) => (
+                      <ArtifactCard key={a.id} a={{ ...a, cost: rt?.costUsd ?? null }} />
+                    ))}
                 </div>
               </div>
             )}
           </section>
+        )}
+        </>)}
+        {mainTab === "skills" && node.kind === "agent" && (
+          <SkillPicker
+            mounted={node.agent?.skills ?? []}
+            onChange={(skills) =>
+              updateNode(node.id, { agent: { ...node.agent!, skills } })
+            }
+          />
         )}
       </div>
     </aside>
   );
 }
 
-function ArtifactChip({ artifact }: { artifact: Artifact }) {
-  if (artifact.kind === "image" && artifact.uri) {
-    return (
-      <a className="artifact artifact--image" href={artifact.uri} target="_blank" rel="noreferrer">
-        <img src={artifact.uri} alt={artifact.label ?? "image"} loading="lazy" />
-        <span className="artifact__label">{artifact.label ?? "图片"}</span>
-      </a>
-    );
-  }
-  if (artifact.kind === "video" && artifact.uri) {
-    return (
-      <a className="artifact artifact--video" href={artifact.uri} target="_blank" rel="noreferrer">
-        <video src={artifact.uri} preload="metadata" muted />
-        <span className="artifact__label">{artifact.label ?? "视频"}</span>
-      </a>
-    );
-  }
-  if (artifact.kind === "audio" && artifact.uri) {
-    return (
-      <div className="artifact artifact--audio">
-        <audio src={artifact.uri} controls preload="none" />
-      </div>
-    );
-  }
-  if (artifact.uri) {
-    return (
-      <a className="artifact artifact--link" href={artifact.uri} target="_blank" rel="noreferrer">
-        {artifactLabel(artifact)} ↗
-      </a>
-    );
-  }
-  return (
-    <div className="artifact artifact--text">
-      <span className="artifact__kind">{artifact.kind}</span>
-      <pre className="artifact__content">{artifact.content ?? ""}</pre>
-    </div>
-  );
-}
+

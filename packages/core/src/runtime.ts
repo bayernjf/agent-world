@@ -28,6 +28,10 @@ export interface NodeRuntime {
   errorCode?: string;
   /** Last gate verdict (passed/reason/score), for gate nodes only. */
   lastVerdict?: { passed: boolean; reason: string; score?: number; attempt: number };
+  /** Epoch ms when the current attempt started (node.started). */
+  startedAt?: number;
+  /** Epoch ms when the current attempt finished (node.finished / node.failed). */
+  finishedAt?: number;
 }
 
 export interface ToolCallRecord {
@@ -141,7 +145,7 @@ export function reduce(state: RuntimeState, event: RunEvent): RuntimeState {
         };
 
       case "node.started":
-        return withNode(state, event.nodeId, { status: "running", attempt: event.attempt });
+        return withNode(state, event.nodeId, { status: "running", attempt: event.attempt, startedAt: event.ts, finishedAt: undefined });
 
       case "node.delta": {
         const node = nodeOf(state, event.nodeId);
@@ -201,6 +205,7 @@ export function reduce(state: RuntimeState, event: RunEvent): RuntimeState {
           reasoningTokens: node.reasoningTokens + (event.usage.reasoningTokens ?? 0),
           costUsd: node.costUsd + event.usage.costUsd,
           units: nodeUnits,
+          finishedAt: event.ts,
         });
         return {
           ...next,
@@ -217,6 +222,7 @@ export function reduce(state: RuntimeState, event: RunEvent): RuntimeState {
             status: "failed",
             error: event.error,
             errorCode: event.errorCode,
+            finishedAt: event.ts,
           }),
           failures: [
             ...state.failures,
