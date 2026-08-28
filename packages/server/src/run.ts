@@ -89,8 +89,17 @@ export async function startRun(args: StartRunArgs): Promise<{ runId: string; dia
       })) {
         db.record(runId, event);
         if (event.type === "artifact.produced") {
+          const nodeKind = graph.nodes?.find((n) => n.id === event.nodeId)?.kind;
+          const role: "source" | "intermediate" | "final" =
+            nodeKind === "sink" ? "final" : nodeKind === "source" ? "source" : "intermediate";
           db.insertArtifact(
-            await artifacts.save(event.artifact, { runId, nodeId: event.nodeId, attempt: event.attempt }),
+            await artifacts.save(event.artifact, {
+              runId,
+              nodeId: event.nodeId,
+              attempt: event.attempt,
+              graphId: graph.id,
+              role,
+            }),
           );
           args.onArtifact?.(event.artifact.id);
         }

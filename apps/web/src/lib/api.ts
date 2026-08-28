@@ -153,6 +153,9 @@ export interface StoredArtifact {
   runId: string;
   nodeId: string;
   attempt: number | null;
+  graphId?: string | null;
+  role?: "source" | "intermediate" | "final" | null;
+  graphName?: string | null;
   kind: "text" | "image" | "video" | "audio" | "file" | "json" | "uri";
   mimeType: string | null;
   label: string | null;

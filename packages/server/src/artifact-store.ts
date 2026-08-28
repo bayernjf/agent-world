@@ -28,6 +28,9 @@ export interface StoredArtifact {
   runId: string;
   nodeId: string;
   attempt: number | null;
+  graphId?: string | null;
+  role?: "source" | "intermediate" | "final" | null;
+  graphName?: string | null;
   kind: Artifact["kind"];
   mimeType: string;
   label: string | null;
@@ -77,7 +80,14 @@ export class ArtifactStore {
 
   async save(
     artifact: Artifact,
-    meta: { runId: string; nodeId: string; attempt?: number; now?: number },
+    meta: {
+      runId: string;
+      nodeId: string;
+      attempt?: number;
+      now?: number;
+      graphId?: string | null;
+      role?: "source" | "intermediate" | "final" | null;
+    },
   ): Promise<StoredArtifact> {
     const createdAt = meta.now ?? Date.now();
     const mimeType = artifact.mimeType ?? MIME_BY_KIND[artifact.kind];
@@ -88,6 +98,8 @@ export class ArtifactStore {
         runId: meta.runId,
         nodeId: meta.nodeId,
         attempt: meta.attempt ?? null,
+        graphId: meta.graphId ?? null,
+        role: meta.role ?? null,
         kind: artifact.kind,
         mimeType,
         label: artifact.label ?? null,
@@ -106,6 +118,8 @@ export class ArtifactStore {
         runId: meta.runId,
         nodeId: meta.nodeId,
         attempt: meta.attempt ?? null,
+        graphId: meta.graphId ?? null,
+        role: meta.role ?? null,
         kind: artifact.kind,
         mimeType,
         label: artifact.label ?? null,
@@ -121,6 +135,8 @@ export class ArtifactStore {
       runId: meta.runId,
       nodeId: meta.nodeId,
       attempt: meta.attempt ?? null,
+      graphId: meta.graphId ?? null,
+      role: meta.role ?? null,
       kind: artifact.kind,
       mimeType,
       label: artifact.label ?? null,
@@ -148,6 +164,8 @@ export class ArtifactStore {
       runId: "uploads",
       nodeId: "source",
       attempt: null,
+      graphId: null,
+      role: null,
       kind: opts.kind,
       mimeType: opts.mimeType ?? MIME_BY_KIND[opts.kind],
       label: opts.label ?? null,
