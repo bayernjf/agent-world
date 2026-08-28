@@ -373,7 +373,7 @@ describe("imageGen node", () => {
     expect(uri).toBeTruthy();
   });
 
-  it("skips generation when the source already has real images", async () => {
+  it("generates images even when the source already has reference images", async () => {
     const calls: string[] = [];
     const w: Worker = {
       ...fakeWorker({ chunkDelayMs: 0 }),
@@ -390,6 +390,41 @@ describe("imageGen node", () => {
     });
     const { state } = await runWith(w, withImages);
     expect(state.status).toBe("done");
-    expect(calls.length).toBe(0);
+    // Reference images on the source are for the writer to describe; the
+    // imageGen node still produces its own配图/场景图.
+    expect(calls.length).toBe(1);
+  });
+});
+
+
+/* ---------- inline image URL ---------- */
+
+describe("inlineImageUrl (readArtifact indirection)", () => {
+  it("returns the original URI for non-relative schemes", async () => {
+    const { inlineImageUrl } = await import("./engine.js");
+    const read = async () => "should not be called";
+    expect(await inlineImageUrl("https://cdn.x/a.png", read)).toBe("https://cdn.x/a.png");
+    expect(await inlineImageUrl("data:image/png;base64,abc", read)).toBe("data:image/png;base64,abc");
+  });
+
+  it("resolves /api/artifacts/<id> via readArtifact", async () => {
+    const { inlineImageUrl } = await import("./engine.js");
+    const read = async (uri: string) =>
+      uri === "/api/artifacts/abc"
+        ? "data:image/png;base64,QUJD"
+        : null;
+    expect(await inlineImageUrl("/api/artifacts/abc", read)).toBe("data:image/png;base64,QUJD");
+  });
+
+  it("falls back to the original URI when readArtifact returns null", async () => {
+    const { inlineImageUrl } = await import("./engine.js");
+    const read = async () => null;
+    expect(await inlineImageUrl("/api/artifacts/missing", read)).toBe("/api/artifacts/missing");
+  });
+
+  it("falls back to the original URI when readArtifact throws", async () => {
+    const { inlineImageUrl } = await import("./engine.js");
+    const read = async () => { throw new Error("boom"); };
+    expect(await inlineImageUrl("/api/artifacts/boom", read)).toBe("/api/artifacts/boom");
   });
 });

@@ -178,7 +178,17 @@ function truncateText(body: string, maxChars: number): string {
  * finishes with a text output (agent/source/sink/gate).
  */
 function setTextArtifact(artifacts: Map<string, Artifact[]>, nodeId: string, text: string): void {
-  artifacts.set(nodeId, [{ id: `${nodeId}-text`, kind: "text", content: text }]);
+  const headingMatch = text.match(/^\s*#\s+(.+?)\s*$/m);
+  const label = headingMatch ? headingMatch[1] : undefined;
+  artifacts.set(nodeId, [
+    {
+      id: `${nodeId}-text`,
+      kind: "text",
+      content: text,
+      mimeType: "text/markdown",
+      ...(label ? { label } : {}),
+    },
+  ]);
 }
 
 /**
@@ -328,23 +338,6 @@ function upstreamBrandTerms(graph: Graph, nodeId: string): string[] {
 function detectProhibited(text: string, terms: string[]): string[] {
   if (terms.length === 0 || !text) return [];
   return terms.filter((t) => text.includes(t));
-}
-
-/** True if any upstream `source` node already carries real product images. */
-function upstreamSourceHasImages(graph: Graph, nodeId: string): boolean {
-  const seen = new Set<string>();
-  const stack = [nodeId];
-  while (stack.length) {
-    const id = stack.pop()!;
-    for (const e of incoming(graph, id, "flow")) {
-      if (seen.has(e.from)) continue;
-      seen.add(e.from);
-      const n = nodeById(graph, e.from);
-      if (n?.kind === "source" && (n.source?.images?.length ?? 0) > 0) return true;
-      stack.push(e.from);
-    }
-  }
-  return false;
 }
 
 /** Build a banner-generation prompt from the upstream source's product brief. */
@@ -588,6 +581,10 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
   const produceArtifacts = (nodeId: string, output: string, attempt?: number): Artifact["kind"] => {
     const extracted = extractArtifacts(output, nodeId);
     let primary: Artifact["kind"] = "text";
+    // Persist the node's own text note (set by setTextArtifact) so plain-text
+    // products are attributable to their pipeline and appear in the gallery.
+    const note = (artifacts.get(nodeId) ?? []).find((a) => a.kind === "text");
+    if (note) emit({ type: "artifact.produced", nodeId, attempt, artifact: note });
     for (const a of extracted) {
       emit({ type: "artifact.produced", nodeId, attempt, artifact: a });
       if (a.kind !== "text") primary = a.kind;
@@ -889,12 +886,6 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
   if (node.kind === "imageGen") {
     emit({ type: "node.started", nodeId, attempt });
     const cfg = node.imageGen ?? { model: "agnes-image", prompt: "", n: 1 };
-    // 缺素材时才生图：上游 source 已有图片则跳过，避免浪费生图配额。
-    if (upstreamSourceHasImages(graph, nodeId)) {
-      states.set(nodeId, "done");
-      emit({ type: "node.finished", nodeId, attempt, output: "", usage: zeroUsage() });
-      return;
-    }
     const prompt = cfg.prompt?.trim() || buildImagePrompt(node, graph);
     try {
       const results = await worker.generateImage({ node, config: cfg, input: prompt, signal: opts.signal });
