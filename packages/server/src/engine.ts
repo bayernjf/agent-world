@@ -510,7 +510,9 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
         if (a.kind === "text" || a.kind === "json") {
           if (a.content) parts.push(a.content);
         } else if (a.kind === "image") {
-          parts.push(`[图片: ${a.label ?? a.uri ?? "上游图片"}]`);
+          const label = a.label ?? "上游图片";
+          const uriPart = a.uri ? ` — URL: ${a.uri}` : "";
+          parts.push(`[图片: ${label}${uriPart}]`);
         } else if (a.kind === "video") {
           parts.push(`[视频: ${a.label ?? a.uri ?? "上游视频"}]`);
         } else if (a.kind === "audio") {
