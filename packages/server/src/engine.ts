@@ -764,6 +764,13 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           }
           states.set(nodeId, "failed");
           status = policy === "halt" ? "halted" : "failed";
+          emit({
+            type: "node.failed",
+            nodeId,
+            attempt,
+            error: verdict.reason,
+            errorCode: "VALIDATION",
+          });
           if (policy === "halt") {
             haltNodeId = nodeId;
             haltReason = verdict.reason;
