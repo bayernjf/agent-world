@@ -2494,8 +2494,6 @@ select {
   font-size: 12px;
   line-height: 1.75;
   color: var(--ink);
-  max-height: 420px;
-  overflow-y: auto;
 }
 .product__body h1,
 .product__body h2,
