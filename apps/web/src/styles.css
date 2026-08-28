@@ -813,6 +813,8 @@ select {
 }
 
 .control__body {
+  flex: 1;
+  min-height: 0;
   padding: 14px 12px;
   overflow-y: auto;
   display: flex;
@@ -850,6 +852,8 @@ select {
   font-weight: 700;
 }
 .inspector__body {
+  flex: 1;
+  min-height: 0;
   padding: 14px 12px;
   overflow-y: auto;
   display: flex;
