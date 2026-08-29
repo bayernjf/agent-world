@@ -121,10 +121,14 @@ export function resolveLimits(user?: CodeSandboxLimits): Required<CodeSandboxLim
 }
 
 /**
- * Wrap interpreter+args with `sh -c 'ulimit … && exec <interpreter> …'`
+ * Wrap interpreter+args with `bash -c 'ulimit … && exec <interpreter> …'`
  * so POSIX rlimits apply before the user's code runs. `exec` replaces the
  * wrapper shell image so `child.kill()` still delivers directly to the
  * interpreter — no reaper indirection.
+ *
+ * bash (not /bin/sh): on Ubuntu /bin/sh is dash, whose `ulimit` builtin
+ * rejects `-u` (RLIMIT_NPROC) with "Illegal option" — CI on ubuntu-latest
+ * broke until the wrapper was pinned to bash.
  */
 export function buildRlimitWrapper(params: {
   interpreterPath: string;
@@ -143,7 +147,7 @@ export function buildRlimitWrapper(params: {
     parts.push(`ulimit -v ${limits.virtualMemoryKb}`);
   }
   parts.push(`exec ${q(interpreterPath)} ${interpreterArgs.map(q).join(" ")}`);
-  return { command: "/bin/sh", args: ["-c", parts.join(" && ")] };
+  return { command: "/bin/bash", args: ["-c", parts.join(" && ")] };
 }
 
 function q(arg: string): string {

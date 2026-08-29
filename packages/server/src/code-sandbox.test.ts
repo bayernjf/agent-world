@@ -88,13 +88,13 @@ describe("buildRlimitWrapper", () => {
     nodeMaxOldSpaceMb: 123,
   };
 
-  it("wraps with /bin/sh -c and execs through to the interpreter", () => {
+  it("wraps with /bin/bash -c and execs through to the interpreter", () => {
     const w = buildRlimitWrapper({
       interpreterPath: "/usr/bin/node",
       interpreterArgs: ["-e", "console.log(1)"],
       limits,
     });
-    expect(w.command).toBe("/bin/sh");
+    expect(w.command).toBe("/bin/bash");
     expect(w.args[0]).toBe("-c");
     const script = w.args[1];
     expect(script).toContain("ulimit -t 11");
@@ -165,14 +165,14 @@ describe("buildNodePermissionArgs", () => {
 });
 
 describe("planCodeSpawn", () => {
-  it("returns a wrapped /bin/sh command for JS scripts", () => {
+  it("returns a wrapped /bin/bash command for JS scripts", () => {
     const plan = planCodeSpawn({
       language: "javascript",
       code: "console.log(1)",
       workdir: "/tmp/wd",
       limits: { cpuSec: 1 },
     });
-    expect(plan.command).toBe("/bin/sh");
+    expect(plan.command).toBe("/bin/bash");
     expect(plan.wrapped).toBe(true);
     expect(plan.limits.cpuSec).toBe(1);
     const script = plan.args[1];
@@ -184,7 +184,7 @@ describe("planCodeSpawn", () => {
     expect(script).toContain("'console.log(1)'");
   });
 
-  it("returns a wrapped /bin/sh command for python (no permission flags)", () => {
+  it("returns a wrapped /bin/bash command for python (no permission flags)", () => {
     const plan = planCodeSpawn({
       language: "python",
       code: "print(1)",
