@@ -2478,6 +2478,25 @@ export default function Inspector({ onOpenSettings }: { onOpenSettings: () => vo
           </>
         )}
 
+        {node.kind === "human" && node.human && (
+          <>
+            <label className="field">
+              <span>审批提示</span>
+              <input
+                className="input"
+                type="text"
+                value={node.human.prompt}
+                placeholder="如：确认这段文案是否可以发布"
+                onChange={(e) => updateNode(node.id, { human: { ...node.human!, prompt: e.target.value } })}
+              />
+            </label>
+            <p className="note">
+              运行到该节点会暂停，等待人工审批。上游文本会展示给审批人：批准后原样交给下游；
+              编辑后以编辑内容继续；驳回则节点失败（可被 error 边接住，否则产线失败）。
+            </p>
+          </>
+        )}
+
         </>)}
         {mainTab === "output" && (<>
         {rt?.error && (

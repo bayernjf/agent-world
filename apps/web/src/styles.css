@@ -827,6 +827,23 @@ select {
   color: var(--ink-dim);
 }
 
+.control-panel__review {
+  margin: 4px 0 10px;
+  padding: 8px 10px;
+  border: var(--hair);
+  border-radius: 6px;
+  background: var(--steel-850);
+}
+.control-panel__review-text {
+  margin-top: 4px;
+  max-height: 120px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink);
+}
 .control__body {
   flex: 1;
   min-height: 0;

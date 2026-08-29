@@ -75,6 +75,9 @@ export default function ControlPanel(props: Props) {
     halted && runtime.reason?.startsWith("dangerous-tool:")
       ? runtime.reason.slice("dangerous-tool:".length)
       : null;
+  const humanHalt = halted && runtime.reason?.startsWith("human:");
+  const humanReview =
+    humanHalt && runtime.haltedNodeId ? runtime.nodes[runtime.haltedNodeId]?.pendingReview : undefined;
   const materialEmpty = rawMaterial.trim() === "";
   const pct = budget > 0 ? Math.min(100, (runtime.totalCostUsd / budget) * 100) : 0;
   const hint = MODES.find((m) => m.key === mode)?.hint ?? "";
@@ -214,10 +217,16 @@ export default function ControlPanel(props: Props) {
         <section>
           <h3 className="label">状态</h3>
           <p className="status">
-            {STATUS_TEXT[runtime.status] ?? runtime.status}
+            {humanHalt ? "等待人工审批" : STATUS_TEXT[runtime.status] ?? runtime.status}
             {reconnecting && <span className="muted"> · 重连中…</span>}
             {connecting && !reconnecting && <span className="muted"> · 连接中…</span>}
           </p>
+          {humanReview != null && (
+            <div className="control-panel__review">
+              <span className="muted">待审批内容：</span>
+              <pre className="control-panel__review-text">{humanReview}</pre>
+            </div>
+          )}
           {!running && !halted && (
             <label className="field">
               <span>原料（投递给进料口的任务）</span>
