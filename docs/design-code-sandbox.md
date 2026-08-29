@@ -1,6 +1,6 @@
 # 代码节点运行沙箱设计方案
 
-> 状态：P0（`6b2f92b`）+ P1（`ddb2e03`）+ **P2 外部沙箱后端已落地（bwrap / sandbox-exec / noop 可插拔，工作树）**；docker/podman 容器后端与 `net`/`fs` 策略字段待办。
+> 状态：P0（`6b2f92b`）+ P1（`ddb2e03`）+ **P2 外部沙箱后端已落地（bwrap / sandbox-exec / noop 可插拔）** + fs/net 策略字段已落地（net allowlist 诚实报错待 SSRF 代理）；docker/podman 容器后端待办。**net allowlist 的 SSRF 校验代理方案见 §10。**
 > 关联：handoff 待办「运行沙箱细化」；代码节点当前实现在 `packages/server/src/engine.ts` 的 `node.kind === "code"` 分支 + `packages/server/src/code-sandbox.ts`。
 
 ## 实施进度（2026-08-29，P1 落地后）
@@ -23,7 +23,7 @@
 - [x] **`CodeNodeConfig` fs/net 策略字段（2026-08-29 落地）**：
   - `fs: "sandbox" | "allowlist"`（默认 sandbox = 仅 workdir 读写；allowlist = 额外授予 `TOOL_FS_ALLOW` 前缀**只读**，写入仍仅限 workdir）。实现：JS 经 Node permission 重复 `--allow-fs-read` 授予；bwrap（只读根）/ seatbelt（`allow file-read*`）天然全只读无需额外配置；Python 在 rlimit 后端下本无 fs 限制，因此 no-op。
   - `net: "none" | "allowlist"`（默认 none = 全禁；**allowlist 诚实拒绝**：Node 24 权限模型已移除 `--allow-net`，真正的 allowlist 需 SSRF 校验代理，未实现前引擎直接 VALIDATION 报错，绝不静默放行）。
-- [ ] **后续待办**：docker/podman 容器后端（生产）；net allowlist 的 SSRF 校验代理（P2 设计稿中的 `net: "proxy"`）。
+- [ ] **后续待办**：docker/podman 容器后端（生产）；net allowlist 的 SSRF 校验代理（方案定稿见 §10，待实现）。
 
 ---
 
@@ -226,3 +226,59 @@ export function resolveSandbox(env: NodeJS.ProcessEnv): CodeSandbox { /* 按 COD
 - `packages/server/src/ssrf.ts` — 出站内网 IP 校验
 - `packages/core/src/graph.ts` — `CodeNodeConfig` 当前定义
 - Node `--experimental-permission` / `bubblewrap`(bwrap) / macOS `sandbox-exec`(seatbelt)
+
+---
+
+## 10. net allowlist：SSRF 校验代理方案（定稿待实现）
+
+> 目标：让 `net: "allowlist"` 从「诚实报错」变成可用能力。核心设计结论先说清楚：**代理是协作式防护，不是强制隔离**——它只约束走标准 `HTTP(S)_PROXY` 的客户端，裸 `socket.connect()` 在 rlimit 后端下依然拦不住。方案的价值在于：把 90% 的真实场景（fetch / requests / urllib 调外部 API）纳入统一校验 + 审计，而不是追求 rlimit 后端下做不到的硬保证。
+
+### 10.1 语义按后端分层（与 fs 策略同款的诚实边界）
+
+| 后端 | `net: "none"` | `net: "allowlist"` |
+|---|---|---|
+| `rlimit`（默认） | 无机制保证（依赖脚本不主动联网；Node 侧 permission 模型已无 net 粒度，诚实记录） | **协作式代理**：注入 `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` 指向本地校验代理；校验通过才转发。文档与 UI 明示：非 HTTP 客户端可绕过 |
+| `bwrap` | `--unshare-net` **硬断网**（已实现） | **VALIDATION 报错**：unshare-net 后宿主 loopback 也不可达，代理无法连通；选择性放行需 slirp4netns/pasta 用户态网络，明确不在本期范围 |
+| `sandbox-exec` | `(deny network*)` **硬断网**（已实现） | 同 bwrap：seatbelt 无「只放行到本代理」的可用过滤器写法，VALIDATION 报错 |
+| `docker`（未来） | `--network none` | 容器网络策略 + 自定义网络，allowlist 的终极形态 |
+
+原则不变：**绝不静默降级**。bwrap/sandbox-exec 下请求 allowlist 时直接 `node.failed` + VALIDATION（与现状同款报错路径）——作者能立刻发现配置与后端不匹配。
+
+### 10.2 代理本体设计
+
+**进程模型：常驻单例，按 run 隔离 allowlist**（否决 per-run 起停：code 节点可能高频触发，每个 run 起/停一个 listener 开销大且引入端口竞争；校验规则与请求绑定而非与进程绑定）。
+
+- 位置：`packages/server/src/code-proxy.ts`，server 进程内 `node:http` 监听 `127.0.0.1` 随机端口的 HTTP 正向代理。
+- **请求与规则的绑定**：代理对每个请求需要知道「这是哪个 run、哪套 allowlist」。engine 在 spawn 子进程时生成一次性 run token，注入为子进程 env（`AW_NET_TOKEN=<uuid>`）并同时把 `token → { runId, nodeId, allowlist }` 注册进代理内存 Map；子进程的代理请求经 `Proxy-Authorization: Bearer <token>` 携带；代理校验 token → 取 allowlist → 校验目标 host → 转发或 403。run 结束（finally）注销 token，防跨 run 复用。
+- **校验规则**（复用现有资产，不造新轮子）：
+  1. 目标 host 必须命中该 run 的 allowlist（`TOOL_NET_ALLOW` 同款语义：`api.openai.com`、`*.github.com` 前缀/通配匹配，复用 `permissions.ts` 的匹配逻辑）；
+  2. 复用 `ssrf.ts` 的 `hostIsInternal`：解析后 IP 落内网/环回/链路本地段即拒绝（DNS-rebinding 免疫——解析一次、校验该 IP、用该 IP 连接）；
+  3. 两个都过才转发。
+- **范围**：HTTP 明文请求全方法转发；HTTPS 走 CONNECT——校验 authority/SNI 的 host 后建立隧道（只见域名不见路径，粒度可接受）；**不做任意端口的裸 TCP 隧道**（避免代理被当成通用跳板，非 80/443 的 CONNECT 拒绝）。
+- **审计**：每个请求记一行结构化日志（runId/nodeId/host/allow/deny + 耗时），denied 打 warn。这是代理相对纯 env 白名单的核心增值——**看得见脚本都打了哪些域**。
+- **资源上限**：代理侧限制并发（每 token 同时 N 个请求）+ 单请求 body 上限（与 engine 的 1MB stdout cap 同量级），防脚本借代理刷流量。
+
+### 10.3 engine / sandbox 接线
+
+1. `planCodeSpawn` / `SandboxSpawnOptions` 增加 `netAllowlist?: string[]`（engine 在 `cfg.net === "allowlist"` 时读 `TOOL_NET_ALLOW` 传入，与 `extraFsReadPaths` 同款管道）。
+2. rlimit 后端下 spawn env 追加 `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY=localhost,127.0.0.1` / `AW_NET_TOKEN`；这些 key 由 sandbox 注入，不经 trimEnv 白名单（白名单语义不变）。
+3. `net: "none"` 时**不注入任何代理 env**——守规矩的客户端也拿不到出口，与现状一致。
+4. bwrap / sandbox-exec 后端遇 `net: "allowlist"`：`node.failed` + `VALIDATION`，错误消息写明「此后端仅支持 net: none」。
+
+### 10.4 已知限制（写进文档与节点 Inspector 帮助文案）
+
+- 协作式：绕过 = 不走代理 env 的任意 TCP/UDP（`socket.connect`、`dgram`）。**硬保证只在 bwrap/sandbox-exec 的 none 档与未来 docker 档**。
+- Python `requests` / `urllib`、Node `fetch` / `axios` / `undici` 默认尊重 `HTTP(S)_PROXY`，是主要受益者；`curl` 子进程同理。
+- 代理与 server 同进程：server 被打挂时代理一起挂——可接受（子进程生命周期短于 server）。
+
+### 10.5 实施步骤与验收
+
+1. `code-proxy.ts`：代理服务器 + token 注册/注销 + 校验 + 审计日志 + 单测（allow/deny / 跨 token 隔离 / DNS-rebinding 用例 / CONNECT host 校验 / 非 80/443 CONNECT 拒绝）。
+2. `planCodeSpawn` + engine 接线 + 各后端语义（含 bwrap/sandbox-exec 的 VALIDATION 拒绝）。
+3. 验收标准：
+   - [ ] rlimit 后端：JS `fetch` 打 allowlist 内 host 成功；allowlist 外 host 收到 403；内网 IP 一律拒绝
+   - [ ] 跨 run token 不可互用（run A 的 token 在 run B 的请求里 403）
+   - [ ] run 结束后 token 失效
+   - [ ] bwrap/sandbox-exec 下 `net: "allowlist"` 得到明确 VALIDATION 错误
+   - [ ] 审计日志逐请求可查（runId + host + 判定）
+   - [ ] 现有 442 个 server 测试零回归
