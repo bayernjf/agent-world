@@ -1099,12 +1099,19 @@ app.post("/api/runs/:id/resume", async (c) => {
     try {
       const cfg = loadConfig(userId);
       const now = new Date();
+      // Graph variables: defaults overridden by persisted values. Re-loaded on
+      // resume so another run's writes since the halt are not lost; written
+      // back once the run finishes.
+      const variables = new Map<string, unknown>(
+        Object.entries({ ...(graph.variables ?? {}), ...db.loadGraphVariables(graph.id, userId) }),
+      );
       for await (const event of resume({
         runId,
         graph,
         plan,
         worker: workerRegistry.get(body.workerId),
         budgetUsd: row.budget_usd ?? null,
+        initialVariables: variables,
         monthlyBudgetUsd: cfg.monthlyBudgetUsd ?? null,
         monthSpentUsd: db.costForMonth(now.getFullYear(), now.getMonth() + 1, userId),
         defaultModel: cfg.defaultModel,
@@ -1135,7 +1142,10 @@ app.post("/api/runs/:id/resume", async (c) => {
           );
         }
         entry.events.push(event);
-        if (event.type === "run.finished") db.finishRun(runId, userId, event.status, Date.now());
+        if (event.type === "run.finished") {
+          db.finishRun(runId, userId, event.status, Date.now());
+          db.saveGraphVariables(graph.id, userId, Object.fromEntries(variables));
+        }
       }
     } catch (err) {
       db.finishRun(runId, userId, "failed", Date.now());

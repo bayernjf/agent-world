@@ -112,6 +112,15 @@ CREATE TABLE IF NOT EXISTS settings (
   data       TEXT NOT NULL,
   updated_at INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS graph_variables (
+  graph_id   TEXT NOT NULL,
+  key        TEXT NOT NULL,
+  value      TEXT NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (graph_id, key)
+);
+CREATE INDEX IF NOT EXISTS idx_graph_variables_graph ON graph_variables(graph_id);
 `;
 
 type ArtifactRow = {
@@ -258,6 +267,15 @@ export function openDb(file: string) {
     getGraphVersion: db.prepare(`SELECT version FROM graphs WHERE id = ? AND user_id = ?`),
     getGraph: db.prepare(`SELECT doc, version FROM graphs WHERE id = ? AND user_id = ?`),
     listGraphs: db.prepare(`SELECT id, name, version, updated_at FROM graphs WHERE user_id = ? ORDER BY updated_at DESC`),
+    listGraphVariables: db.prepare(
+      `SELECT gv.key AS key, gv.value AS value
+       FROM graph_variables gv JOIN graphs g ON g.id = gv.graph_id AND g.user_id = ?
+       WHERE gv.graph_id = ?`,
+    ),
+    saveGraphVariable: db.prepare(
+      `INSERT INTO graph_variables (graph_id, key, value, updated_at) VALUES (?, ?, ?, ?)
+       ON CONFLICT(graph_id, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+    ),
     deleteGraph: db.prepare(`DELETE FROM graphs WHERE id = ? AND user_id = ?`),
     createRun: db.prepare(
       `INSERT INTO runs (id, user_id, graph_id, snapshot, status, trigger, input, budget_usd, started_at, ab_group, ab_arm, ab_target) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -416,6 +434,37 @@ export function openDb(file: string) {
     getGraph(id: string, userId: string): (Graph & { version: number }) | null {
       const row = stmts.getGraph.get(id, userId) as { doc: string; version: number } | undefined;
       return row ? { ...(JSON.parse(row.doc) as Graph), version: row.version } : null;
+    },
+
+    /**
+     * Load a graph's persisted variables (cross-run state from prior runs).
+     * Tenant-scoped: joins `graphs` so foreign graphs return an empty map.
+     */
+    loadGraphVariables(graphId: string, userId: string): Record<string, unknown> {
+      const rows = stmts.listGraphVariables.all(userId, graphId) as Array<{ key: string; value: string }>;
+      const out: Record<string, unknown> = {};
+      for (const r of rows) {
+        try {
+          out[r.key] = JSON.parse(r.value);
+        } catch {
+          out[r.key] = r.value;
+        }
+      }
+      return out;
+    },
+
+    /**
+     * Persist a graph's variables after a run (optimistic last-writer-wins,
+     * per-key upsert — concurrent runs only overwrite the keys they wrote).
+     * Tenant-scoped: silently no-ops when the graph isn't owned by the user.
+     */
+    saveGraphVariables(graphId: string, userId: string, vars: Record<string, unknown>): void {
+      const owner = stmts.getGraphOwnerId.get(graphId) as { user_id: string } | undefined;
+      if (!owner || owner.user_id !== userId) return;
+      const at = Date.now();
+      for (const [key, value] of Object.entries(vars)) {
+        stmts.saveGraphVariable.run(graphId, key, JSON.stringify(value), at);
+      }
     },
 
     listGraphs(userId: string) {
@@ -1468,6 +1517,20 @@ const MIGRATIONS: Migration[] = [
         data       TEXT NOT NULL,
         updated_at INTEGER NOT NULL
       )`),
+  },
+  {
+    version: 17,
+    description: "graph_variables table (cross-run persisted variables)",
+    detect: (db) => tableExists(db, "graph_variables"),
+    up: (db) =>
+      db.exec(`CREATE TABLE IF NOT EXISTS graph_variables (
+        graph_id   TEXT NOT NULL,
+        key        TEXT NOT NULL,
+        value      TEXT NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (graph_id, key)
+      );
+      CREATE INDEX IF NOT EXISTS idx_graph_variables_graph ON graph_variables(graph_id);`),
   },
 ];
 

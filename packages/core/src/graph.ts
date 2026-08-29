@@ -742,6 +742,13 @@ export const Graph = z.object({
   edges: z.array(GraphEdge),
   /** Automatic run triggers (webhook/cron/event/batch). Absent = manual only. */
   triggers: z.array(TriggerConfig).optional(),
+  /**
+   * Graph-level default variables (key → JSON value). Persisted values from a
+   * prior run (the `graph_variables` table) override these at run start.
+   * Nodes can read them via `${var.xxx}` and agents can update them through the
+   * built-in `set_variable` / `get_variable` tools.
+   */
+  variables: z.record(z.unknown()).optional(),
 });
 export type Graph = z.infer<typeof Graph>;
 
