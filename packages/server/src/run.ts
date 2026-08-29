@@ -5,6 +5,7 @@ import { ArtifactStore } from "./artifact-store.js";
 import { log } from "./logger.js";
 import { execute } from "./engine.js";
 import { loadConfig } from "./config.js";
+import { createReadArtifact } from "./artifact-reader.js";
 
 /** Worker type derived from the engine so we don't reach into provider internals. */
 type Worker = Parameters<typeof execute>[0]["worker"];
@@ -79,14 +80,26 @@ export async function startRun(args: StartRunArgs): Promise<{ runId: string; dia
         monthSpentUsd: db.costForMonth(now.getFullYear(), now.getMonth() + 1),
         defaultModel: cfg.defaultModel,
         signal: controller.signal,
-        storeBinary: async (data, mimeType, label) =>
-          (await artifacts.saveBinary({ data, kind: "image", mimeType, label })).uri ??
-          `data:${mimeType};base64,${data.toString("base64")}`,
+        storeBinary: async (data, mimeType, label) => {
+          const saved = await artifacts.saveBinary({ data, kind: "image", mimeType, label });
+          db.insertArtifact(saved);
+          return saved.uri ?? `data:${mimeType};base64,${data.toString("base64")}`;
+        },
+        readArtifact: createReadArtifact(db, artifacts),
       })) {
         db.record(runId, event);
         if (event.type === "artifact.produced") {
+          const nodeKind = graph.nodes?.find((n) => n.id === event.nodeId)?.kind;
+          const role: "source" | "intermediate" | "final" =
+            nodeKind === "sink" ? "final" : nodeKind === "source" ? "source" : "intermediate";
           db.insertArtifact(
-            await artifacts.save(event.artifact, { runId, nodeId: event.nodeId, attempt: event.attempt }),
+            await artifacts.save(event.artifact, {
+              runId,
+              nodeId: event.nodeId,
+              attempt: event.attempt,
+              graphId: graph.id,
+              role,
+            }),
           );
           args.onArtifact?.(event.artifact.id);
         }

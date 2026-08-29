@@ -597,6 +597,8 @@ export default function Canvas({ mode }: Props) {
         viewport={viewport}
         reworkEdges={reworkEdges}
         frozen={scrubbing}
+        running={runtime.status === "running"}
+        edgeIds={graph.edges.map((e) => e.id)}
       />
 
       {graph.nodes.length === 0 && (

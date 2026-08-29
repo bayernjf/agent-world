@@ -1,8 +1,9 @@
-import { useMemo, useState, type ElementType } from "react";
+import { useMemo, useState } from "react";
 import type { Artifact, Graph, RuntimeState } from "@agent-world/core";
 import { incoming, parseProductDocument } from "@agent-world/core";
 import ProductBlocks from "./ProductBlocks";
 import { productToHtml, productToLongImage } from "../lib/product-html";
+import { ArtifactCard, renderMarkdown } from "../lib/artifact-renderers";
 
 interface Props {
   sinkId: string;
@@ -29,80 +30,6 @@ function collectUpstreamArtifacts(sinkId: string, graph: Graph, runtime: Runtime
   return out;
 }
 
-/** Very small Markdown → React renderer for finished-product output. */
-function renderMarkdown(md: string): React.ReactNode[] {
-  const lines = md.split("\n");
-  const blocks: React.ReactNode[] = [];
-  let list: string[] = [];
-  let key = 0;
-
-  const flushList = () => {
-    if (list.length) {
-      blocks.push(
-        <ul key={key++}>
-          {list.map((item, i) => (
-            <li key={i}>{renderInline(item)}</li>
-          ))}
-        </ul>,
-      );
-      list = [];
-    }
-  };
-
-  for (const raw of lines) {
-    const line = raw.trimEnd();
-    if (/^#{1,3}\s/.test(line)) {
-      flushList();
-      const level = line.match(/^#+/)![0].length;
-      const text = line.replace(/^#+\s/, "");
-      const Tag = `h${Math.min(level, 3)}` as ElementType;
-      blocks.push(<Tag key={key++}>{renderInline(text)}</Tag>);
-    } else if (/^[-*]\s/.test(line)) {
-      list.push(line.replace(/^[-*]\s/, ""));
-    } else if (/^\d+\.\s/.test(line)) {
-      list.push(line.replace(/^\d+\.\s/, ""));
-    } else if (line === "") {
-      flushList();
-    } else {
-      flushList();
-      blocks.push(<p key={key++}>{renderInline(line)}</p>);
-    }
-  }
-  flushList();
-  return blocks;
-}
-
-/** Inline formatting: **bold**, *italic*, `code`, [text](url), ![alt](url). */
-function renderInline(text: string): React.ReactNode[] {
-  const parts: React.ReactNode[] = [];
-  const regex = /(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`|!\[[^\]]*\]\([^)]+\)|\[[^\]]+\]\([^)]+\))/g;
-  let last = 0;
-  let m: RegExpExecArray | null;
-  let k = 0;
-  while ((m = regex.exec(text))) {
-    if (m.index > last) parts.push(text.slice(last, m.index));
-    const tok = m[0]!;
-    if (tok.startsWith("![")) {
-      const mm = tok.match(/!\[([^\]]*)\]\(([^)]+)\)/)!;
-      parts.push(<img key={k++} src={mm[2]} alt={mm[1]} loading="lazy" />);
-    } else if (tok.startsWith("[")) {
-      const mm = tok.match(/\[([^\]]+)\]\(([^)]+)\)/)!;
-      parts.push(
-        <a key={k++} href={mm[2]} target="_blank" rel="noreferrer">{mm[1]}</a>,
-      );
-    } else if (tok.startsWith("**")) {
-      parts.push(<strong key={k++}>{tok.slice(2, -2)}</strong>);
-    } else if (tok.startsWith("`")) {
-      parts.push(<code key={k++}>{tok.slice(1, -1)}</code>);
-    } else if (tok.startsWith("*")) {
-      parts.push(<em key={k++}>{tok.slice(1, -1)}</em>);
-    }
-    last = m.index + tok.length;
-  }
-  if (last < text.length) parts.push(text.slice(last));
-  return parts;
-}
-
 export default function FinishedProduct({ sinkId, graph, runtime }: Props) {
   const sinkRt = runtime.nodes[sinkId];
   const output = sinkRt?.outputs ? Math.max(...Object.keys(sinkRt.outputs).map(Number)) : -1;
@@ -112,10 +39,6 @@ export default function FinishedProduct({ sinkId, graph, runtime }: Props) {
     () => collectUpstreamArtifacts(sinkId, graph, runtime),
     [sinkId, graph, runtime],
   );
-  const images = artifacts.filter((a) => a.kind === "image");
-  const videos = artifacts.filter((a) => a.kind === "video");
-  const audios = artifacts.filter((a) => a.kind === "audio");
-  const others = artifacts.filter((a) => !["image", "video", "audio"].includes(a.kind));
   const productDoc = useMemo(() => parseProductDocument(text), [text]);
 
   const [copied, setCopied] = useState(false);
@@ -191,55 +114,42 @@ export default function FinishedProduct({ sinkId, graph, runtime }: Props) {
   return (
     <div className="product">
       <div className="product__bar">
-        <span>成品</span>
+        <div className="product__title">
+          <span className="product__label">成品</span>
+          <span className="product__name">{graph.name ?? "未命名流水线"}</span>
+        </div>
         <div className="product__actions">
-          <button className="chip" onClick={downloadHtml}>导出 HTML</button>
-          <button className="chip" onClick={downloadMd}>导出 MD</button>
-          <button className="chip" onClick={downloadLongImage} disabled={imgBusy}>{imgBusy ? "生成中…" : "导出长图"}</button>
-          <button className="chip" onClick={copyRichText}>{htmlCopied ? "已复制富文本" : "复制富文本"}</button>
-          <button className="chip" onClick={copyText}>{copied ? "已复制" : "复制原文"}</button>
+          <div className="product__action-group">
+            <button className="chip chip--export" onClick={downloadHtml}>
+              <span className="chip__icon">⤓</span> HTML
+            </button>
+            <button className="chip chip--export" onClick={downloadMd}>
+              <span className="chip__icon">⤓</span> MD
+            </button>
+            <button className="chip chip--export" onClick={downloadLongImage} disabled={imgBusy}>
+              <span className="chip__icon">⤓</span> {imgBusy ? "生成中…" : "长图"}
+            </button>
+          </div>
+          <div className="product__action-group">
+            <button className="chip chip--copy" onClick={copyRichText}>
+              <span className="chip__icon">⧉</span> {htmlCopied ? "已复制" : "富文本"}
+            </button>
+            <button className="chip chip--copy" onClick={copyText}>
+              <span className="chip__icon">⧉</span> {copied ? "已复制" : "原文"}
+            </button>
+          </div>
         </div>
       </div>
 
-      {images.length > 0 && (
-        <div className="product__gallery">
-          {images.map((img) => (
-            <a key={img.id} href={img.uri} target="_blank" rel="noreferrer">
-              <img src={img.uri} alt={img.label ?? ""} loading="lazy" />
-            </a>
-          ))}
-        </div>
-      )}
-
-      {videos.length > 0 && (
-        <div className="product__videos">
-          {videos.map((v) => (
-            <video key={v.id} src={v.uri} controls preload="metadata" />
-          ))}
-        </div>
-      )}
-
-      {audios.length > 0 && (
-        <div className="product__audios">
-          {audios.map((a) => (
-            <audio key={a.id} src={a.uri} controls preload="none" />
-          ))}
-        </div>
-      )}
+      <div className="product__artifacts">
+        {artifacts.map((a) => (
+          <ArtifactCard key={a.id} a={a} showMeta={false} />
+        ))}
+      </div>
 
       <article className="product__body">
         {productDoc ? <ProductBlocks doc={productDoc} /> : renderMarkdown(text)}
       </article>
-
-      {others.length > 0 && (
-        <div className="product__files">
-          {others.map((a) => (
-            <a key={a.id} className="product__file" href={a.uri} target="_blank" rel="noreferrer">
-              {a.label ?? a.kind} ↗
-            </a>
-          ))}
-        </div>
-      )}
     </div>
   );
 }

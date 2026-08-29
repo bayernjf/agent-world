@@ -102,6 +102,9 @@ type ArtifactRow = {
   run_id: string;
   node_id: string;
   attempt: number | null;
+  graph_id: string | null;
+  role: StoredArtifact["role"];
+  graph_name?: string | null;
   kind: StoredArtifact["kind"];
   mime_type: string | null;
   label: string | null;
@@ -137,6 +140,9 @@ function mapArtifact(r: ArtifactRow): StoredArtifact {
     runId: r.run_id,
     nodeId: r.node_id,
     attempt: r.attempt,
+    graphId: r.graph_id,
+    role: r.role,
+    graphName: r.graph_name ?? null,
     kind: r.kind,
     mimeType: r.mime_type ?? "",
     label: r.label,
@@ -264,21 +270,27 @@ export function openDb(file: string) {
     deleteEvents: db.prepare(`DELETE FROM events WHERE run_id = ?`),
     deleteNodeRuns: db.prepare(`DELETE FROM node_runs WHERE run_id = ?`),
     insertArtifact: db.prepare(
-      `INSERT INTO artifacts (id, run_id, node_id, attempt, kind, mime_type, label, size_bytes, storage, uri, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO artifacts (id, run_id, node_id, attempt, graph_id, role, kind, mime_type, label, size_bytes, storage, uri, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO NOTHING`,
     ),
     listArtifactsByRun: db.prepare(
-      `SELECT id, run_id, node_id, attempt, kind, mime_type, label, size_bytes, storage, uri, created_at
-       FROM artifacts WHERE run_id = ? ORDER BY created_at`,
+      `SELECT a.id, a.run_id, a.node_id, a.attempt, a.graph_id, a.role, a.kind, a.mime_type, a.label, a.size_bytes, a.storage, a.uri, a.created_at,
+              COALESCE(g.name, '(未知流水线)') AS graph_name
+       FROM artifacts a LEFT JOIN graphs g ON g.id = a.graph_id
+       WHERE a.run_id = ? ORDER BY a.created_at`,
     ),
     getArtifact: db.prepare(
-      `SELECT id, run_id, node_id, attempt, kind, mime_type, label, size_bytes, storage, uri, created_at
-       FROM artifacts WHERE id = ?`,
+      `SELECT a.id, a.run_id, a.node_id, a.attempt, a.graph_id, a.role, a.kind, a.mime_type, a.label, a.size_bytes, a.storage, a.uri, a.created_at,
+              COALESCE(g.name, '(未知流水线)') AS graph_name
+       FROM artifacts a LEFT JOIN graphs g ON g.id = a.graph_id
+       WHERE a.id = ?`,
     ),
     listArtifacts: db.prepare(
-      `SELECT id, run_id, node_id, attempt, kind, mime_type, label, size_bytes, storage, uri, created_at
-       FROM artifacts ORDER BY created_at DESC, rowid DESC LIMIT ? OFFSET ?`,
+      `SELECT a.id, a.run_id, a.node_id, a.attempt, a.graph_id, a.role, a.kind, a.mime_type, a.label, a.size_bytes, a.storage, a.uri, a.created_at,
+              COALESCE(g.name, '(未知流水线)') AS graph_name
+       FROM artifacts a LEFT JOIN graphs g ON g.id = a.graph_id
+       ORDER BY a.created_at DESC, a.rowid DESC LIMIT ? OFFSET ?`,
     ),
     deleteArtifactsForRun: db.prepare(`DELETE FROM artifacts WHERE run_id = ?`),
   };
@@ -535,8 +547,8 @@ export function openDb(file: string) {
 
     insertArtifact(a: StoredArtifact) {
       stmts.insertArtifact.run(
-        a.id, a.runId, a.nodeId, a.attempt, a.kind, a.mimeType, a.label,
-        a.sizeBytes, a.storage, a.uri, a.createdAt,
+        a.id, a.runId, a.nodeId, a.attempt, a.graphId ?? null, a.role ?? null,
+        a.kind, a.mimeType, a.label, a.sizeBytes, a.storage, a.uri, a.createdAt,
       );
     },
 
@@ -1169,10 +1181,11 @@ const MIGRATIONS: Migration[] = [
     up: (db) =>
       db.exec(`CREATE TABLE IF NOT EXISTS artifacts (
         id TEXT PRIMARY KEY, run_id TEXT NOT NULL, node_id TEXT NOT NULL, attempt INTEGER,
-        kind TEXT NOT NULL, mime_type TEXT, label TEXT, size_bytes INTEGER NOT NULL DEFAULT 0,
-        storage TEXT NOT NULL, uri TEXT, created_at INTEGER NOT NULL);
+        graph_id TEXT, role TEXT, kind TEXT NOT NULL, mime_type TEXT, label TEXT,
+        size_bytes INTEGER NOT NULL DEFAULT 0, storage TEXT NOT NULL, uri TEXT, created_at INTEGER NOT NULL);
         CREATE INDEX IF NOT EXISTS idx_artifacts_run ON artifacts(run_id, created_at);
-        CREATE INDEX IF NOT EXISTS idx_artifacts_node ON artifacts(run_id, node_id);`),
+        CREATE INDEX IF NOT EXISTS idx_artifacts_node ON artifacts(run_id, node_id);
+        CREATE INDEX IF NOT EXISTS idx_artifacts_graph ON artifacts(graph_id, created_at);`),
   },
   {
     version: 10,
@@ -1201,6 +1214,16 @@ const MIGRATIONS: Migration[] = [
         note TEXT NOT NULL DEFAULT '',
         created_at INTEGER NOT NULL
       )`),
+  },
+  {
+    version: 13,
+    description: "artifacts.graph_id + role for pipeline attribution",
+    detect: (db) => columnExists(db, "artifacts", "graph_id"),
+    up: (db) => {
+      db.exec("ALTER TABLE artifacts ADD COLUMN graph_id TEXT");
+      db.exec("ALTER TABLE artifacts ADD COLUMN role TEXT");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_artifacts_graph ON artifacts(graph_id, created_at)");
+    },
   },
 ];
 

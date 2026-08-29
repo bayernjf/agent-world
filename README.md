@@ -19,11 +19,11 @@ pnpm dev
 ```
 
 - Engine / API: <http://localhost:8791>
-- Board (web UI): <http://localhost:5183>
+- Board (web UI): <http://localhost:5173>
 
 ### 5-minute first run
 
-1. **Open the board** at <http://localhost:5183>.
+1. **Open the board** at <http://localhost:5173>.
 2. **Click 新建产线** — pick a template (e.g. "内容改写循环") or start blank.
 3. **Configure a model provider** — open the settings (⚙️), enter your API key
    and base URL for an OpenAI-compatible endpoint (Agnes, OpenAI, Volcengine

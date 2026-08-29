@@ -5,6 +5,8 @@ import { pathRegistry } from "./pathRegistry";
 
 /** Pixels per second a truck travels along a pipe. */
 const SPEED = 340;
+/** Milliseconds between ambient truck spawns on each pipe while running. */
+const AMBIENT_INTERVAL_MS = 1800;
 
 interface Props {
   packets: PacketRuntime[];
@@ -18,6 +20,10 @@ interface Props {
   reworkEdges: Set<string>;
   /** Freeze motion while the replay scrubber is being dragged. */
   frozen: boolean;
+  /** When true, ambient trucks pulse along every pipe at a fixed interval. */
+  running: boolean;
+  /** All pipe ids in the current graph, for ambient truck spawning. */
+  edgeIds: string[];
 }
 
 interface Truck {
@@ -28,6 +34,8 @@ interface Truck {
   /** Timestamp the truck entered the pipe. */
   startedAt: number;
   length: number;
+  /** Ambient trucks are decorative (no real packet) and render semi-transparent. */
+  ambient: boolean;
 }
 
 /**
@@ -36,15 +44,20 @@ interface Truck {
  * has hundreds of packets in flight. The canvas fills the whole stage and applies
  * the same letterbox + pan/zoom transform as the SVG so freight stays on its pipes.
  */
-export default function PacketLayer({ packets, runId, fit, viewport, reworkEdges, frozen }: Props) {
+export default function PacketLayer({ packets, runId, fit, viewport, reworkEdges, frozen, running, edgeIds }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const trucksRef = useRef<Truck[]>([]);
   const seenRef = useRef(new Set<string>());
   const runRef = useRef(runId);
   const frozenRef = useRef(frozen);
   const viewportRef = useRef(viewport);
+  const runningRef = useRef(running);
+  const edgeIdsRef = useRef(edgeIds);
+  const ambientCounterRef = useRef(0);
   frozenRef.current = frozen;
   viewportRef.current = viewport;
+  runningRef.current = running;
+  edgeIdsRef.current = edgeIds;
 
   const [stage, setStage] = useState({ w: 0, h: 0 });
 
@@ -84,9 +97,36 @@ export default function PacketLayer({ packets, runId, fit, viewport, reworkEdges
         color: p.artifactKind ? ARTIFACT_COLORS[p.artifactKind] : "#ffb020",
         startedAt: performance.now(),
         length: path.getTotalLength(),
+        ambient: false,
       });
     }
   }, [packets, reworkEdges, runId]);
+
+  // Ambient trucks: while a run is active, spawn a decorative truck on every
+  // pipe at a fixed interval so the line feels alive even between real packets.
+  useEffect(() => {
+    if (!running) return;
+    const spawn = () => {
+      const now = performance.now();
+      for (const edgeId of edgeIdsRef.current) {
+        const path = pathRegistry.get(edgeId);
+        if (!path) continue;
+        const id = ++ambientCounterRef.current;
+        trucksRef.current.push({
+          key: `ambient:${edgeId}:${id}`,
+          edgeId,
+          rework: reworkEdges.has(edgeId),
+          color: "#6b7a8a",
+          startedAt: now + Math.random() * 400,
+          length: path.getTotalLength(),
+          ambient: true,
+        });
+      }
+    };
+    spawn();
+    const timer = setInterval(spawn, AMBIENT_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, [running, reworkEdges]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -131,8 +171,9 @@ export default function PacketLayer({ packets, runId, fit, viewport, reworkEdges
         ctx.rotate(angle);
 
         const body = truck.rework ? "#ff9d2e" : truck.color;
+        ctx.globalAlpha = truck.ambient ? 0.45 : 1;
         ctx.shadowColor = body;
-        ctx.shadowBlur = 14 / v.zoom;
+        ctx.shadowBlur = (truck.ambient ? 6 : 14) / v.zoom;
         ctx.fillStyle = body;
         const w = 18 / v.zoom;
         const h = 10 / v.zoom;
@@ -147,6 +188,7 @@ export default function PacketLayer({ packets, runId, fit, viewport, reworkEdges
             ctx.fillRect(i, -h / 2, 2 / v.zoom, h);
           }
         }
+        ctx.globalAlpha = 1;
         ctx.restore();
       }
       trucksRef.current = alive;

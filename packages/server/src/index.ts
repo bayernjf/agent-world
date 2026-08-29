@@ -44,10 +44,12 @@ import { registerSkill, setMemoryBackend, listBuiltinSkills } from "./skills/reg
 import { SQLiteMemoryBackend, extractKnowledgeFromRun } from "./memory.js";
 import { fileURLToPath } from "node:url";
 import { sanitizeError } from "./sanitize.js";
+import { createReadArtifact } from "./artifact-reader.js";
 
 const PORT = Number(process.env.PORT ?? 8791);
 const db = openDb(process.env.DB_FILE ?? "agent-world.sqlite");
 const artifacts = ArtifactStore.fromEnv();
+const readArtifact = createReadArtifact(db, artifacts);
 
 // First-run onboarding is handled by the web UI (shows a template picker when
 // no graphs exist). We no longer seed a default graph on startup — existing
@@ -875,9 +877,14 @@ app.post("/api/runs/:id/resume", async (c) => {
         editOutput,
         approveTools,
         signal: controller.signal,
-        storeBinary: async (data, mimeType, label) =>
-          (await artifacts.saveBinary({ data, kind: "image", mimeType, label })).uri ??
-          `data:${mimeType};base64,${data.toString("base64")}`,
+        storeBinary: async (data, mimeType, label) => {
+          const saved = await artifacts.saveBinary({ data, kind: "image", mimeType, label });
+          db.insertArtifact(saved);
+          return saved.uri ?? `data:${mimeType};base64,${data.toString("base64")}`;
+        },
+        // Inline local /api/artifacts/<id> URIs as data:<mime>;base64,... for
+        // cloud vision models (they can't reach our localhost).
+        readArtifact,
       })) {
         db.record(runId, event);
         if (event.type === "artifact.produced") {
