@@ -13,8 +13,8 @@ export type ToolExecutor = (name: string, args: unknown) => Promise<unknown>;
 
 /**
  * A streamed chunk from a running agent. Text deltas become node.delta events;
- * reasoning deltas become node.reasoning events; tool-call/tool-result are
- * reserved for Phase 2 skill execution.
+ * reasoning deltas become node.reasoning events; tool-call/tool-result stream
+ * the multi-round ReAct loop (implemented in openai-compatible.ts runWithTools).
  */
 export type AgentChunk =
   | { type: "text-delta"; text: string }

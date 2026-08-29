@@ -208,4 +208,15 @@ describe("search node — web search", () => {
     const json = artifactsOf(events, "se").find((a: any) => a.kind === "json");
     expect(JSON.parse(json.content).results).toHaveLength(0);
   });
+
+  it("retries transient fetch failures and succeeds on the second attempt", async () => {
+    fetchMock
+      .mockRejectedValueOnce(new Error("ECONNRESET"))
+      .mockResolvedValueOnce(new Response(ddgHtml(), { status: 200 }));
+    const events = await collect(
+      searchGraph({ query: "q", retry: { maxRetries: 1, baseDelayMs: 0, maxDelayMs: 0 } }),
+    );
+    expect(replay(events).status).toBe("done");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
 });

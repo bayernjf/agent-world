@@ -54,6 +54,7 @@ import { decodeImage, encodeJpeg, encodePng } from "./convert.js";
 import { searchWeb, SearchAuthError } from "./search.js";
 import { sendNotification, NotifyAuthError, NotifyProviderError } from "./notifier.js";
 import { executeVcs, VcsAuthError, VcsProviderError } from "./vcs.js";
+import { withRetry } from "./retry.js";
 import { allowPrivateNetwork, hostIsInternal } from "./ssrf.js";
 
 /**
@@ -541,9 +542,14 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
   const queue = new EventQueue();
 
   let seq = opts.startSeq;
+  /** Last failure recorded per node, so error edges can carry the cause to catch nodes. */
+  const lastError = new Map<string, { error: string; errorCode?: string }>();
   const emit = (e: DraftEvent): RunEvent => {
     const ev = { ...e, seq: seq++, ts: opts.now() } as RunEvent;
     queue.push(ev);
+    if (ev.type === "node.failed") {
+      lastError.set(ev.nodeId, { error: ev.error, errorCode: ev.errorCode });
+    }
     return ev;
   };
 
@@ -599,7 +605,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     const parts: string[] = [];
     const item = loopItemByNode.get(node.id);
     if (item !== undefined) parts.push(`[循环项数据] ${primaryValue(item)}`);
-    for (const e of incoming(graph, node.id, "flow")) {
+    for (const e of [...incoming(graph, node.id, "flow"), ...incoming(graph, node.id, "error")]) {
       const arts = artifacts.get(e.from) ?? [];
       for (const a of arts) {
         if (a.kind === "text" || a.kind === "json") {
@@ -664,6 +670,12 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
    * arrived so un-routed branch tails stay unlaunched.
    */
   const predecessorsReady = (id: string) => {
+    // Catch nodes (with error edges in): ready as soon as any error predecessor
+    // has failed and sent its error packet. They don't wait for flow preds.
+    const errIns = incoming(graph, id, "error");
+    if (errIns.length > 0) {
+      return errIns.some((e) => states.get(e.from) === "failed" && packetEdges.has(e.id));
+    }
     const ins = incoming(graph, id, "flow");
     if (ins.length === 0) return true; // entry nodes (sources / isolated) start immediately
     let anyPacket = false;
@@ -706,8 +718,16 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
   const finish = () => {
     if (finished) return;
     finished = true;
-    if (status === "done" && [...states.values()].some((s) => s === "failed")) {
-      status = "failed";
+    // A failed node is "handled" if it has an error edge to a catch node that
+    // finished done — such failures don't sink the run (the catch produced a
+    // fallback). Unhandled failures downgrade done → failed.
+    if (status !== "halted" && status !== "cancelled" && status !== "tripped") {
+      const unhandled = [...states.entries()].some(([id, s]) => {
+        if (s !== "failed") return false;
+        const errOut = outgoing(graph, id, "error");
+        return errOut.length === 0 || !errOut.some((e) => states.get(e.to) === "done");
+      });
+      status = unhandled ? "failed" : "done";
     }
     emit({
       type: "run.finished",
@@ -887,18 +907,30 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           return;
         }
 
-        const abort = new AbortController();
-        const timer = setTimeout(() => abort.abort(), cfg.timeoutMs);
         let response: Response;
         try {
-          response = await fetch(targetUrl.toString(), {
-            method: cfg.method,
-            headers,
-            body: body && cfg.method !== "GET" ? body : undefined,
-            signal: abort.signal,
-          });
+          response = await withRetry(
+            async () => {
+              const abort = new AbortController();
+              const timer = setTimeout(() => abort.abort(), cfg.timeoutMs);
+              try {
+                const r = await fetch(targetUrl.toString(), {
+                  method: cfg.method,
+                  headers,
+                  body: body && cfg.method !== "GET" ? body : undefined,
+                  signal: abort.signal,
+                });
+                if (r.status >= 500) throw new Error(`HTTP ${r.status}`);
+                return r;
+              } finally {
+                clearTimeout(timer);
+              }
+            },
+            cfg.retry,
+            (err) => !(err instanceof Error && err.name === "AbortError"),
+            opts.sleep,
+          );
         } catch (err) {
-          clearTimeout(timer);
           states.set(nodeId, "failed");
           status = "failed";
           const msg = err instanceof Error ? err.message : String(err);
@@ -911,7 +943,6 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           });
           return;
         }
-        clearTimeout(timer);
 
         if (cfg.outputMode === "file") {
           let arrayBuf: ArrayBuffer;
@@ -1035,37 +1066,48 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
         }
         const ctx = nodeCtx(nodeId);
         const inputJson = JSON.stringify({ inputs: ctx });
-        const child = spawn(
-          cfg.language === "python" ? "python3" : "node",
-          cfg.language === "python" ? ["-c", cfg.code] : ["-e", cfg.code],
-          { stdio: ["pipe", "pipe", "pipe"] },
+        const { stdout, stderr, killed, code } = await withRetry(
+          async () => {
+            const child = spawn(
+              cfg.language === "python" ? "python3" : "node",
+              cfg.language === "python" ? ["-c", cfg.code] : ["-e", cfg.code],
+              { stdio: ["pipe", "pipe", "pipe"] },
+            );
+            child.stdin.end(inputJson);
+            let stdout = "";
+            let stderr = "";
+            let killed = false;
+            const cap = 1_000_000;
+            child.stdout.on("data", (chunk: Buffer) => {
+              if (stdout.length < cap) stdout += chunk.toString().slice(0, cap - stdout.length);
+            });
+            child.stderr.on("data", (chunk: Buffer) => {
+              if (stderr.length < cap) stderr += chunk.toString().slice(0, cap - stderr.length);
+            });
+            const r = await new Promise<{ code: number | null; signal: string | null }>((resolve) => {
+              const timer = setTimeout(() => {
+                killed = true;
+                child.kill("SIGKILL");
+                resolve({ code: null, signal: "timeout" });
+              }, cfg.timeoutMs);
+              child.on("error", (err) => {
+                clearTimeout(timer);
+                resolve({ code: -1, signal: err.message });
+              });
+              child.on("close", (code, signal) => {
+                clearTimeout(timer);
+                resolve({ code, signal });
+              });
+            });
+            // Spawn failure (binary missing, etc.) → throw so withRetry can retry.
+            // Non-zero exit and timeout are business errors, returned as-is.
+            if (r.code === -1) throw new Error(`代码节点子进程启动失败: ${r.signal}`);
+            return { stdout, stderr, killed, code: r.code };
+          },
+          cfg.retry,
+          () => true,
+          opts.sleep,
         );
-        child.stdin.end(inputJson);
-        let stdout = "";
-        let stderr = "";
-        let killed = false;
-        const cap = 1_000_000;
-        child.stdout.on("data", (chunk: Buffer) => {
-          if (stdout.length < cap) stdout += chunk.toString().slice(0, cap - stdout.length);
-        });
-        child.stderr.on("data", (chunk: Buffer) => {
-          if (stderr.length < cap) stderr += chunk.toString().slice(0, cap - stderr.length);
-        });
-        const result = await new Promise<{ code: number | null; signal: string | null }>((resolve) => {
-          const timer = setTimeout(() => {
-            killed = true;
-            child.kill("SIGKILL");
-            resolve({ code: null, signal: "timeout" });
-          }, cfg.timeoutMs);
-          child.on("error", (err) => {
-            clearTimeout(timer);
-            resolve({ code: -1, signal: err.message });
-          });
-          child.on("close", (code, signal) => {
-            clearTimeout(timer);
-            resolve({ code, signal });
-          });
-        });
         if (killed) {
           states.set(nodeId, "failed");
           status = "failed";
@@ -1078,14 +1120,14 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           });
           return;
         }
-        if (result.code !== 0) {
+        if (code !== 0) {
           states.set(nodeId, "failed");
           status = "failed";
           emit({
             type: "node.failed",
             nodeId,
             attempt,
-            error: `代码执行失败（退出码 ${result.code}）: ${(stderr || "无 stderr 输出").slice(0, 300)}`,
+            error: `代码执行失败（退出码 ${code}）: ${(stderr || "无 stderr 输出").slice(0, 300)}`,
             errorCode: "PROVIDER_ERROR",
           });
           return;
@@ -1685,7 +1727,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           temperature: cfg.temperature,
           timeoutMs: 120000,
           inputPolicy: { mode: "all" as const },
-          retry: { maxRetries: 2, baseDelayMs: 1000, maxDelayMs: 30000 },
+          retry: cfg.retry,
         };
         let result: { output: string; usage: Usage } | null = null;
         let lastError: { message: string; code?: string } | null = null;
@@ -2816,7 +2858,71 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     }
 
     if (running === 0) {
-      // Any pending node left is stranded behind a failed/halted predecessor.
+      // Hand off failures to catch nodes via error edges, then cascade-skip
+      // flow downstream that has no catch. Done as a fixpoint once everything
+      // else is terminal so parallel branches can't race the decision.
+      if (status !== "halted" && status !== "cancelled") {
+        let changed = true;
+        while (changed) {
+          changed = false;
+          // 1. Failed nodes with error edges: write the cause as a json
+          //    artifact and send an error packet so the catch node can run.
+          for (const n of graph.nodes) {
+            if (states.get(n.id) !== "failed") continue;
+            const errOut = outgoing(graph, n.id, "error");
+            if (!errOut.length) continue;
+            const cause = lastError.get(n.id);
+            if (cause && !artifacts.has(n.id)) {
+              artifacts.set(n.id, [
+                {
+                  id: `${n.id}-error`,
+                  kind: "json",
+                  content: JSON.stringify({ error: cause.error, errorCode: cause.errorCode ?? "UNKNOWN", nodeId: n.id }, null, 2),
+                  mimeType: "application/json",
+                },
+              ]);
+            }
+            for (const e of errOut) {
+              if (packetEdges.has(e.id)) continue;
+              packetEdges.add(e.id);
+              emit({ type: "packet.sent", edgeId: e.id, from: n.id, to: e.to, summary: cause?.error ?? "upstream failed", artifactKind: "json" });
+              changed = true;
+            }
+          }
+          // 2. Cascade-skip flow downstream stranded behind a failed/skipped
+          //    predecessor (and not rescued by a done merge point).
+          for (const n of graph.nodes) {
+            if (states.get(n.id) !== "pending") continue;
+            const errIns = incoming(graph, n.id, "error");
+            if (errIns.length > 0) continue; // catch node — waits for its error pred, not skipped here
+            const ins = incoming(graph, n.id, "flow");
+            if (ins.length === 0) continue;
+            const allTerminal = ins.every(
+              (e) => {
+                const s = states.get(e.from);
+                return s === "done" || s === "failed" || s === "skipped";
+              },
+            );
+            if (!allTerminal) continue;
+            const hasDone = ins.some((e) => states.get(e.from) === "done");
+            const hasBlocked = ins.some(
+              (e) => states.get(e.from) === "failed" || states.get(e.from) === "skipped",
+            );
+            if (hasBlocked && !hasDone) {
+              states.set(n.id, "skipped");
+              emit({ type: "node.skipped", nodeId: n.id, attempt: attempts.get(n.id) ?? 1, reason: "upstream failed" });
+              changed = true;
+            }
+          }
+        }
+      }
+      // A catch node may have become ready via an error packet — restart
+      // scheduling instead of finishing, so the catch branch can run.
+      if (!aborted && graph.nodes.some((n) => states.get(n.id) === "pending" && predecessorsReady(n.id))) {
+        queueMicrotask(schedule);
+        return;
+      }
+      // Any pending node left is stranded behind a halted predecessor.
       const stranded = graph.nodes.some((n) => states.get(n.id) === "pending");
       if (stranded && status === "done") status = "failed";
       finish();
