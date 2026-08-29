@@ -24,6 +24,9 @@ const KIND_LABEL: Record<GraphNode["kind"], string> = {
   http: "HTTP",
   code: "代码",
   branch: "条件分支",
+  map: "映射",
+  loop: "循环",
+  parallel: "并行聚合",
 };
 
 const STATUS_LABEL: Record<NodeRuntime["status"], string> = {

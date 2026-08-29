@@ -1778,6 +1778,15 @@ select {
 .plant--sink .plant__bar {
   fill: #16242b;
 }
+.plant--map .plant__bar {
+  fill: #123a33;
+}
+.plant--loop .plant__bar {
+  fill: #3a2a1a;
+}
+.plant--parallel .plant__bar {
+  fill: #1d2b3a;
+}
 
 .plant__attempt rect {
   fill: var(--warn);

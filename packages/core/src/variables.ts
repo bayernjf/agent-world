@@ -7,7 +7,7 @@
  * placeholders before the node runs.
  */
 
-function getByPath(obj: unknown, path: string): unknown {
+export function getByPath(obj: unknown, path: string): unknown {
   if (!path) return obj;
   const parts = path.split(/\.(?![^\[]*\])/); // naive dot split, supports brackets later
   let cur = obj;
@@ -26,7 +26,34 @@ function getByPath(obj: unknown, path: string): unknown {
   return cur;
 }
 
-function primaryValue(nodeValue: unknown): unknown {
+/**
+ * Recursively transform a JSON template: string values get `${...}` placeholders
+ * resolved against `ctx`. A string that is a *pure* placeholder (e.g.
+ * `"${item.address}"`) keeps the referenced type — objects, arrays, numbers and
+ * booleans are embedded as-is — so whole fields can be carried over without
+ * double-encoding. All other strings go through `evaluateTemplate`.
+ */
+export function transformJson(node: unknown, ctx: Record<string, unknown>): unknown {
+  if (typeof node === "string") {
+    const pure = node.match(/^\$\{\s*([^}]+)\s*\}$/);
+    if (pure) {
+      const value = resolveExpression(pure[1]!.trim(), ctx);
+      if (value !== undefined && typeof value !== "string") return value;
+    }
+    return evaluateTemplate(node, ctx);
+  }
+  if (Array.isArray(node)) return node.map((v) => transformJson(v, ctx));
+  if (node !== null && typeof node === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
+      out[k] = transformJson(v, ctx);
+    }
+    return out;
+  }
+  return node;
+}
+
+export function primaryValue(nodeValue: unknown): unknown {
   if (nodeValue === null || nodeValue === undefined) return "";
   if (typeof nodeValue === "string") return nodeValue;
   if (typeof nodeValue === "number" || typeof nodeValue === "boolean") return String(nodeValue);
@@ -294,6 +321,7 @@ export function buildNodeContext(
   nodeId: string,
   artifacts: Map<string, import("./artifact.js").Artifact[]>,
   graph: { nodes: { id: string }[]; edges: { from: string; to: string; kind: string }[] },
+  extra?: Record<string, unknown>,
 ): Record<string, unknown> {
   const ctx: Record<string, unknown> = {};
   const flowIn = graph.edges.filter((e) => e.to === nodeId && e.kind === "flow");
@@ -313,5 +341,6 @@ export function buildNodeContext(
       ctx[edge.from] = "";
     }
   }
+  if (extra) Object.assign(ctx, extra);
   return ctx;
 }

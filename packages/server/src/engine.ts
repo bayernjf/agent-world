@@ -2,13 +2,19 @@ import {
   BranchConfig,
   CodeNodeConfig,
   HttpNodeConfig,
+  LoopConfig,
+  MapConfig,
+  ParallelConfig,
   buildNodeContext,
   evaluateCondition,
   evaluateTemplate,
   extractArtifacts,
+  getByPath,
   incoming,
   nodeById,
   outgoing,
+  primaryValue,
+  transformJson,
   type Artifact,
   type ContentPart,
   type DraftEvent,
@@ -540,6 +546,17 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
 
   const reworkNotes = new Map<string, string>();
   const loopByGate = new Map(plan.loops.map((l) => [l.gateId, l]));
+  /**
+   * Per-node loop-item context (set by loop nodes while executing their loop
+   * body). Keyed by node id so independent branches running concurrently never
+   * read each other's item.
+   */
+  const loopItemByNode = new Map<string, unknown>();
+  /** buildNodeContext with the loop item (if this node is inside a loop body). */
+  const nodeCtx = (nodeId: string): Record<string, unknown> => {
+    const item = loopItemByNode.get(nodeId);
+    return buildNodeContext(nodeId, artifacts, graph, item !== undefined ? { item } : undefined);
+  };
   /** Flow edges that actually carried a packet this run (branch nodes only emit
    *  on the edges they routed to). Drives branch-aware scheduling. */
   const packetEdges = opts.init.packetEdges;
@@ -559,6 +576,8 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
 
   const inputFor = async (node: GraphNode, includeNote = true): Promise<string> => {
     const parts: string[] = [];
+    const item = loopItemByNode.get(node.id);
+    if (item !== undefined) parts.push(`[循环项数据] ${primaryValue(item)}`);
     for (const e of incoming(graph, node.id, "flow")) {
       const arts = artifacts.get(e.from) ?? [];
       for (const a of arts) {
@@ -679,6 +698,10 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
   };
 
   const sendPackets = (nodeId: string, summary: string, artifactKind?: Artifact["kind"]) => {
+    // Loop-body nodes DO send their packets: downstream merge points need the
+    // packet for branch-aware readiness, and their artifacts are overwritten
+    // each round so no data actually duplicates. The loop node's running state
+    // already prevents the scheduler from launching body nodes itself.
     for (const e of outgoing(graph, nodeId, "flow")) {
       packetEdges.add(e.id);
       emit({ type: "packet.sent", edgeId: e.id, from: nodeId, to: e.to, summary, artifactKind });
@@ -782,7 +805,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
         emit({ type: "node.started", nodeId, attempt });
         const cfg: HttpNodeConfig = HttpNodeConfig.parse(node.http ?? {});
 
-        const ctx = buildNodeContext(nodeId, artifacts, graph);
+        const ctx = nodeCtx(nodeId);
         const interpolatedUrl = evaluateTemplate(cfg.url, ctx);
         if (!interpolatedUrl.trim()) {
           states.set(nodeId, "failed");
@@ -938,7 +961,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           });
           return;
         }
-        const ctx = buildNodeContext(nodeId, artifacts, graph);
+        const ctx = nodeCtx(nodeId);
         const inputJson = JSON.stringify({ inputs: ctx });
         const child = spawn(
           cfg.language === "python" ? "python3" : "node",
@@ -1021,7 +1044,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       if (node.kind === "branch") {
         emit({ type: "node.started", nodeId, attempt });
         const cfg: BranchConfig = BranchConfig.parse(node.branch ?? {});
-        const ctx = buildNodeContext(nodeId, artifacts, graph);
+        const ctx = nodeCtx(nodeId);
         let target: string | undefined;
         let matchedRule: string | undefined;
         for (const rule of cfg.rules ?? []) {
@@ -1055,6 +1078,276 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           ? `路由 → ${nodeById(graph, target)?.name ?? target}${matchedRule ? `（${matchedRule}）` : "（默认）"}`
           : "未命中任何分支，报文被丢弃";
         emit({ type: "node.finished", nodeId, attempt, output, usage: zeroUsage() });
+        return;
+      }
+
+      if (node.kind === "map") {
+        emit({ type: "node.started", nodeId, attempt });
+        try {
+          const cfg = MapConfig.parse(node.map ?? {});
+          const ctx = nodeCtx(nodeId);
+          const sources = incoming(graph, nodeId, "flow").map((e) => e.from);
+          const sourceId = cfg.source ?? (sources.length === 1 ? sources[0] : undefined);
+          if (!sourceId) {
+            states.set(nodeId, "failed");
+            emit({
+              type: "node.failed",
+              nodeId,
+              attempt,
+              error: "Map 节点需要恰好一个上游节点（或在设置中指定 source）",
+              errorCode: "VALIDATION",
+            });
+            return;
+          }
+          let template: unknown;
+          try {
+            template = JSON.parse(cfg.template);
+          } catch {
+            states.set(nodeId, "failed");
+            emit({
+              type: "node.failed",
+              nodeId,
+              attempt,
+              error:
+                "映射模板不是合法的 JSON：模板整体须是 JSON 文档，${...} 占位符请写在字符串值内（如 \"age\": \"${item.age}\"，纯占位符会自动保留数字/对象类型）",
+              errorCode: "VALIDATION",
+            });
+            return;
+          }
+          const sourceVal = ctx[sourceId];
+          let out: unknown;
+          if (cfg.iterate) {
+            const arr = getByPath(sourceVal, cfg.iterate);
+            if (!Array.isArray(arr)) {
+              states.set(nodeId, "failed");
+              emit({
+                type: "node.failed",
+                nodeId,
+                attempt,
+                error: `iterate 路径 "${cfg.iterate}" 解析结果不是数组`,
+                errorCode: "VALIDATION",
+              });
+              return;
+            }
+            out = arr.map((item) => transformJson(template, { ...ctx, item }));
+          } else {
+            out = transformJson(template, { ...ctx, item: sourceVal });
+          }
+          const content = JSON.stringify(out);
+          const artifact: Artifact = {
+            id: `${nodeId}-map-json`,
+            kind: "json",
+            content,
+            mimeType: "application/json",
+          };
+          artifacts.set(nodeId, [artifact]);
+          emit({ type: "artifact.produced", nodeId, attempt, artifact });
+          states.set(nodeId, "done");
+          const summary =
+            cfg.iterate && Array.isArray(out)
+              ? `映射 ${out.length} 项 → ${truncateText(content, 60)}`
+              : `映射完成 → ${truncateText(content, 60)}`;
+          emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
+          sendPackets(nodeId, summary, "json");
+        } catch (err) {
+          states.set(nodeId, "failed");
+          emit({
+            type: "node.failed",
+            nodeId,
+            attempt,
+            error: `Map 节点执行出错: ${err instanceof Error ? err.message : String(err)}`,
+          });
+        }
+        return;
+      }
+
+      if (node.kind === "loop") {
+        emit({ type: "node.started", nodeId, attempt });
+        const bodyIds = new Set<string>();
+        try {
+          const cfg = LoopConfig.parse(node.loop ?? {});
+          const ctx = nodeCtx(nodeId);
+          const sources = incoming(graph, nodeId, "flow").map((e) => e.from);
+          const defaultSource = sources.length === 1 ? sources[0] : undefined;
+          const itemsExpr = cfg.items ?? (defaultSource ? `\${${defaultSource}}` : "");
+          if (!itemsExpr) {
+            states.set(nodeId, "failed");
+            emit({
+              type: "node.failed",
+              nodeId,
+              attempt,
+              error: "Loop 节点需要 items 表达式（或恰好一个上游节点提供数组）",
+              errorCode: "VALIDATION",
+            });
+            return;
+          }
+          const raw = transformJson(itemsExpr, ctx);
+          if (!Array.isArray(raw)) {
+            states.set(nodeId, "failed");
+            emit({
+              type: "node.failed",
+              nodeId,
+              attempt,
+              error: `items 表达式求值结果不是数组（当前: ${typeof raw}）`,
+              errorCode: "VALIDATION",
+            });
+            return;
+          }
+          const max = cfg.maxIterations ?? 100;
+          const slice = raw.slice(0, max);
+
+          // Loop body: BFS from the loop's flow edges. A node is part of the
+          // body iff every flow predecessor is the loop itself or already in
+          // the body — this stops at merge points that have outside inputs.
+          const queue = outgoing(graph, nodeId, "flow").map((e) => e.to);
+          while (queue.length > 0) {
+            const id = queue.shift()!;
+            if (bodyIds.has(id)) continue;
+            const ins = incoming(graph, id, "flow");
+            const allInside = ins.every((e) => e.from === nodeId || bodyIds.has(e.from));
+            if (!allInside) continue;
+            bodyIds.add(id);
+            for (const e of outgoing(graph, id, "flow")) queue.push(e.to);
+          }
+          const bodyOrder = plan.order.filter((id) => bodyIds.has(id));
+          if (bodyOrder.length === 0) {
+            states.set(nodeId, "failed");
+            emit({
+              type: "node.failed",
+              nodeId,
+              attempt,
+              error: "Loop 节点没有可执行的循环体，请连接下游节点",
+              errorCode: "VALIDATION",
+            });
+            return;
+          }
+          // Terminal nodes of the body: all flow edges point outside it.
+          const endNodes = bodyOrder.filter((id) =>
+            outgoing(graph, id, "flow").every((e) => !bodyIds.has(e.to)),
+          );
+          const roundValue = (id: string): unknown => {
+            const arts = artifacts.get(id) ?? [];
+            const json = arts.find((a) => a.kind === "json");
+            if (json?.content) {
+              try {
+                return JSON.parse(json.content);
+              } catch {
+                return json.content;
+              }
+            }
+            // Text artifacts may still hold JSON (e.g. a sink consuming a
+            // JSON-producing body) — parse when possible so results stay
+            // structured.
+            const text = arts.find((a) => a.kind === "text");
+            if (text?.content) {
+              try {
+                return JSON.parse(text.content);
+              } catch {
+                return text.content;
+              }
+            }
+            return null;
+          };
+          const results: unknown[] = [];
+          for (let i = 0; i < slice.length; i++) {
+            const item = slice[i];
+            for (const bodyId of bodyOrder) loopItemByNode.set(bodyId, item);
+            for (const bodyId of bodyOrder) {
+              // Borrow a running slot: runNode's finally decrements it, so
+              // this keeps the run open while the loop executes its body
+              // inline (otherwise running hits 0 mid-loop and the run closes).
+              running++;
+              await runNode(bodyId);
+              if (states.get(bodyId) === "failed") {
+                throw new Error(`循环体节点「${nodeById(graph, bodyId)?.name ?? bodyId}」执行失败`);
+              }
+            }
+            if (endNodes.length === 1) {
+              results.push(roundValue(endNodes[0]!));
+            } else {
+              const round: Record<string, unknown> = {};
+              for (const id of endNodes) round[id] = roundValue(id);
+              results.push(round);
+            }
+          }
+          for (const bodyId of bodyIds) loopItemByNode.delete(bodyId);
+          const content = JSON.stringify({ results });
+          const artifact: Artifact = {
+            id: `${nodeId}-loop-json`,
+            kind: "json",
+            content,
+            mimeType: "application/json",
+          };
+          artifacts.set(nodeId, [artifact]);
+          emit({ type: "artifact.produced", nodeId, attempt, artifact });
+          states.set(nodeId, "done");
+          const summary = `循环 ${slice.length} 次完成`;
+          emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
+          sendPackets(nodeId, summary, "json");
+        } catch (err) {
+          for (const bodyId of bodyIds) loopItemByNode.delete(bodyId);
+          states.set(nodeId, "failed");
+          emit({
+            type: "node.failed",
+            nodeId,
+            attempt,
+            error: `Loop 节点执行出错: ${err instanceof Error ? err.message : String(err)}`,
+          });
+        }
+        return;
+      }
+
+      if (node.kind === "parallel") {
+        emit({ type: "node.started", nodeId, attempt });
+        try {
+          const cfg = ParallelConfig.parse(node.parallel ?? {});
+          const ins = incoming(graph, nodeId, "flow");
+          const values: unknown[] = [];
+          const byId: Record<string, unknown> = {};
+          for (const e of ins) {
+            const arts = artifacts.get(e.from) ?? [];
+            const json = arts.find((a) => a.kind === "json");
+            let val: unknown = null;
+            if (json?.content) {
+              try {
+                val = JSON.parse(json.content);
+              } catch {
+                val = json.content;
+              }
+            } else {
+              const text = arts.find((a) => a.kind === "text");
+              val = text?.content ?? "";
+            }
+            if (cfg.pick) {
+              const picked = getByPath(val, cfg.pick);
+              if (picked !== undefined) val = picked;
+            }
+            values.push(val);
+            byId[e.from] = val;
+          }
+          const out = cfg.asObject ? byId : values;
+          const content = JSON.stringify(out);
+          const artifact: Artifact = {
+            id: `${nodeId}-parallel-json`,
+            kind: "json",
+            content,
+            mimeType: "application/json",
+          };
+          artifacts.set(nodeId, [artifact]);
+          emit({ type: "artifact.produced", nodeId, attempt, artifact });
+          states.set(nodeId, "done");
+          const summary = `聚合 ${ins.length} 个分支 → ${truncateText(content, 60)}`;
+          emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
+          sendPackets(nodeId, summary, "json");
+        } catch (err) {
+          states.set(nodeId, "failed");
+          emit({
+            type: "node.failed",
+            nodeId,
+            attempt,
+            error: `Parallel 节点执行出错: ${err instanceof Error ? err.message : String(err)}`,
+          });
+        }
         return;
       }
 
