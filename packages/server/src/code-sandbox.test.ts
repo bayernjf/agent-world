@@ -125,7 +125,15 @@ describe("buildRlimitWrapper", () => {
     const runtime = buildRlimitWrapper({
       interpreterPath: execPath,
       interpreterArgs: ["-e", "console.log('x')"],
-      limits: resolveLimits(),
+      // RLIMIT_NPROC caps the TOTAL task count (processes AND threads) of
+      // the invoking user — including the vitest workers and harness
+      // processes running this very test. When the user's session is
+      // already at ≥maxProcs tasks, node aborts at boot (uv_thread_create
+      // EAGAIN → SIGABRT, status=null) before our code ever runs — a CI
+      // Linux run showed exactly that signature. Quoting is what we test
+      // here; NPROC enforcement under production limits is covered by the
+      // engine.code integration tests.
+      limits: { ...resolveLimits(), maxProcs: 4096 },
     });
     // Use spawnSync to run the wrapper with a timeout. rlimits will be
     // applied but the one-liner finishes in ms so it doesn't hit any cap.
