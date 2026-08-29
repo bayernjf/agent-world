@@ -270,8 +270,8 @@ export function openDb(file: string) {
     deleteEvents: db.prepare(`DELETE FROM events WHERE run_id = ?`),
     deleteNodeRuns: db.prepare(`DELETE FROM node_runs WHERE run_id = ?`),
     insertArtifact: db.prepare(
-      `INSERT INTO artifacts (id, run_id, node_id, attempt, kind, mime_type, label, size_bytes, storage, uri, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO artifacts (id, run_id, node_id, attempt, graph_id, role, kind, mime_type, label, size_bytes, storage, uri, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO NOTHING`,
     ),
     listArtifactsByRun: db.prepare(
