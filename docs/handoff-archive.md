@@ -1789,6 +1789,7 @@ modality 切片，统一严格过滤；同时把 agent 的占位文案从泛化�
 
 > Entries rolled out of the active `handoff.md` "Recently shipped" list to keep it at 5 items.
 
+- `1afaa01` — **feat(core/server/web)**: **Phase 2 第三节点——文件解析（fileParse）**。core 新增 NodeKind.fileParse + FileParseConfig schema（source/maxImages），HttpNodeConfig.outputMode 新增 `file`；server 新增 `parse-file.ts`：PDF（pdfjs-dist）+ DOCX/PPTX（fflate）提取文本与内嵌图；HTTP `outputMode=file` 形成「下载 → 解析」链路。core 6 + server 6 个新测试。
 - `7ad5d29` — **feat(core/server/web)**: **Phase 2 第二节点——数据库查询（database）**。core 新增 NodeKind.database + DatabaseConfig schema（path/setupSql/sql + 位置/命名参数绑定）；server 新增 driver 抽象 `db-drivers.ts`（DatabaseDriver 接口，SQLite 首实现基于内置 node:sqlite，零新依赖）；查询产物 `{rows,count,columns}` 与表格节点同构。core 5 + server 9 个新测试。
 - `dbd9e8b` — **feat(core/server/web)**: **Phase 2 起点——表格节点（table）**。core 新增 NodeKind.table + TableConfig/TableStep schema（parse/filter/sort/aggregate/output 判别联合）+ 纯函数 `table.ts`（带引号字段的状态机 CSV 解析器、数字感知筛选/排序、groupBy 聚合）；server 执行分支：读唯一上游（或显式 source），兼容 CSV 文本 / JSON 数组 / `{rows:[...]}`，产出 `{rows,count,columns}` JSON 产物，`output:csv` 时额外产出 CSV 文本产物，非法输入/无上游 → VALIDATION；web 工具栏按钮 + Inspector 可视化步骤编辑器 + 标签配色。core 31 + server 7 个新测试。
 - `c69788a` — **feat(web)**: **Inspector 模型未配置时显示去设置入口**。
