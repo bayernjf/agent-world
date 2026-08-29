@@ -107,6 +107,9 @@ export default function Pipes({
   const energised = (edgeId: string, fromId: string) => {
     if (runtime.status !== "running") return false;
     const upstream = runtime.nodes[fromId];
+    // Error edges only carry traffic when the upstream actually failed.
+    const edge = graph.edges.find((e) => e.id === edgeId);
+    if (edge?.kind === "error") return upstream?.status === "failed";
     return upstream?.status === "running" || upstream?.status === "done";
   };
 
@@ -117,6 +120,7 @@ export default function Pipes({
         if (!anchor) return null;
 
         const rework = edge.kind === "rework";
+        const error = edge.kind === "error";
         const route = rework ? null : routes.get(edge.id);
         const d = rework
           ? pipePath(anchor.from, anchor.to, edge.kind)
@@ -132,7 +136,7 @@ export default function Pipes({
         return (
           <g
             key={edge.id}
-            className={`pipe ${rework ? "pipe--rework" : ""} ${hot ? "pipe--hot" : ""} ${focus ? "pipe--focus" : ""} ${dim ? "pipe--dim" : ""}`}
+            className={`pipe ${rework ? "pipe--rework" : ""} ${error ? "pipe--error" : ""} ${hot ? "pipe--hot" : ""} ${focus ? "pipe--focus" : ""} ${dim ? "pipe--dim" : ""}`}
           >
             <path d={d} className="pipe__casing" />
             <path

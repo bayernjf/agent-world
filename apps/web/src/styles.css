@@ -1259,7 +1259,8 @@ select {
   display: block;
 }
 .canvas__svg.mode-connect .plant,
-.canvas__svg.mode-rework .plant {
+.canvas__svg.mode-rework .plant,
+.canvas__svg.mode-error .plant {
   cursor: crosshair;
 }
 .canvas__svg.mode-delete .plant,
@@ -1517,6 +1518,18 @@ select {
 .pipe--rework .pipe__core.is-live {
   stroke: var(--warn);
   filter: drop-shadow(0 0 5px var(--warn));
+}
+/* error edges (catch path): dim red dashed, alert glow when carrying a failure */
+.pipe--error .pipe__casing {
+  stroke: #3a1a18;
+}
+.pipe--error .pipe__core {
+  stroke: color-mix(in srgb, var(--alert) 55%, var(--steel-600));
+  stroke-dasharray: 2 5;
+}
+.pipe--error .pipe__core.is-live {
+  stroke: var(--alert);
+  filter: drop-shadow(0 0 5px var(--alert));
 }
 .pipe__hit {
   fill: none;
