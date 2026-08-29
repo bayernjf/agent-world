@@ -2839,7 +2839,38 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     }
 
     if (running === 0) {
-      // Any pending node left is stranded behind a failed/halted predecessor.
+      // Cascade-skip nodes stranded behind a failed predecessor (no error edge
+      // to a catch node yet). Done as a fixpoint once everything else is
+      // terminal so parallel branches can't race the skip decision. A merge
+      // point that still has a done predecessor is left runnable.
+      if (status !== "halted" && status !== "cancelled") {
+        let changed = true;
+        while (changed) {
+          changed = false;
+          for (const n of graph.nodes) {
+            if (states.get(n.id) !== "pending") continue;
+            const ins = incoming(graph, n.id, "flow");
+            if (ins.length === 0) continue;
+            const allTerminal = ins.every(
+              (e) => {
+                const s = states.get(e.from);
+                return s === "done" || s === "failed" || s === "skipped";
+              },
+            );
+            if (!allTerminal) continue;
+            const hasDone = ins.some((e) => states.get(e.from) === "done");
+            const hasBlocked = ins.some(
+              (e) => states.get(e.from) === "failed" || states.get(e.from) === "skipped",
+            );
+            if (hasBlocked && !hasDone) {
+              states.set(n.id, "skipped");
+              emit({ type: "node.skipped", nodeId: n.id, attempt: attempts.get(n.id) ?? 1, reason: "upstream failed" });
+              changed = true;
+            }
+          }
+        }
+      }
+      // Any pending node left is stranded behind a halted predecessor.
       const stranded = graph.nodes.some((n) => states.get(n.id) === "pending");
       if (stranded && status === "done") status = "failed";
       finish();
