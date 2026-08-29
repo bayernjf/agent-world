@@ -23,6 +23,9 @@ const MORE: NodeButton[] = [
   { kind: "http", label: "HTTP", hint: "HTTP 请求节点：调用外部 API", primary: false },
   { kind: "code", label: "代码", hint: "代码执行节点：跑 JS / Python 脚本", primary: false },
   { kind: "branch", label: "条件分支", hint: "Branch 节点：按表达式路由到不同分支", primary: false },
+  { kind: "map", label: "映射", hint: "Map 节点：JSON 模板映射/转换数据", primary: false },
+  { kind: "loop", label: "循环", hint: "Loop 节点：对数组逐项执行下游子图", primary: false },
+  { kind: "parallel", label: "并行聚合", hint: "Parallel 节点：等待所有分支并把输出聚合为数组", primary: false },
   { kind: "videoGen", label: "AI 视频", hint: "VideoGen 节点", primary: false },
   { kind: "audioGen", label: "AI 音频", hint: "AudioGen 节点", primary: false },
 ];

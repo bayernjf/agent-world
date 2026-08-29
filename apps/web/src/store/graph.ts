@@ -228,6 +228,9 @@ const DEFAULTS: Record<NodeKind, Partial<GraphNode>> = {
   http: { http: { method: "GET", url: "", headers: {}, query: {}, timeoutMs: 30000, outputMode: "auto", failOnError: true } },
   code: { code: { language: "javascript", code: "", timeoutMs: 30000 } },
   branch: { branch: { rules: [], defaultTarget: undefined } },
+  map: { map: { template: "{}" } },
+  loop: { loop: { maxIterations: 100 } },
+  parallel: { parallel: { asObject: false } },
 };
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;

@@ -1394,6 +1394,137 @@ export default function Inspector() {
           </>
         )}
 
+        {node.kind === "map" && node.map && (
+          <>
+            <label className="field">
+              <span>数据来源（上游节点）</span>
+              <select
+                className="select"
+                value={node.map.source ?? ""}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    map: { ...node.map!, source: e.target.value || undefined },
+                  })
+                }
+              >
+                <option value="">自动（唯一上游）</option>
+                {graph.nodes
+                  .filter((n) => n.id !== node.id)
+                  .map((n) => (
+                    <option key={n.id} value={n.id}>
+                      {n.name || n.id}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>迭代数组路径（可选）</span>
+              <input
+                type="text"
+                className="input mono"
+                placeholder="如 data.items；留空则映射单个对象"
+                value={node.map.iterate ?? ""}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    map: { ...node.map!, iterate: e.target.value || undefined },
+                  })
+                }
+              />
+            </label>
+            <label className="field">
+              <span>输出模板（JSON）</span>
+              <textarea
+                className="textarea mono"
+                rows={5}
+                placeholder='{"标题": "${item.name}", "价格": "${item.price}"}'
+                value={node.map.template ?? "{}"}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    map: { ...node.map!, template: e.target.value },
+                  })
+                }
+              />
+            </label>
+            <p className="note">
+              模板是合法 JSON，${"{"}...{"}"} 写在字符串值内：${"{"}item.name{"}"} 引用当前项、${"{"}上游节点id.字段{"}"} 引用任意上游。纯占位符（如
+              "${"{"}item.addr{"}"}"）自动保留数字/对象类型；配置了迭代数组时对每项生成一份并输出数组。
+            </p>
+          </>
+        )}
+
+        {node.kind === "loop" && node.loop && (
+          <>
+            <label className="field">
+              <span>循环数组表达式</span>
+              <input
+                type="text"
+                className="input mono"
+                placeholder='如 ${"{"}api.data{"}"} 或 ${"{"}api.data.items{"}"}'
+                value={node.loop.items ?? ""}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    loop: { ...node.loop!, items: e.target.value || undefined },
+                  })
+                }
+              />
+            </label>
+            <label className="field">
+              <span>最大迭代次数（防呆）</span>
+              <input
+                type="number"
+                min={1}
+                max={1000}
+                className="input"
+                value={node.loop.maxIterations ?? 100}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    loop: { ...node.loop!, maxIterations: Math.max(1, Number(e.target.value) || 1) },
+                  })
+                }
+              />
+            </label>
+            <p className="note">
+              对数组的每一项执行下游子图（循环体），循环体内可通过 ${"{"}item.字段{"}"} 引用当前项；循环结束后聚合每轮
+              输出为 {"{"} "results": [...] {"}"} 供下游引用。超过最大迭代次数会被截断。
+            </p>
+          </>
+        )}
+
+        {node.kind === "parallel" && node.parallel && (
+          <>
+            <label className="field">
+              <input
+                type="checkbox"
+                className="checkbox"
+                checked={node.parallel.asObject ?? false}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    parallel: { ...node.parallel!, asObject: e.target.checked },
+                  })
+                }
+              />
+              <span>按节点输出对象（{"{ 上游节点id: 值 }"}）</span>
+            </label>
+            <label className="field">
+              <span>提取字段路径（可选）</span>
+              <input
+                type="text"
+                className="input mono"
+                placeholder="如 data.text；留空取完整输出"
+                value={node.parallel.pick ?? ""}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    parallel: { ...node.parallel!, pick: e.target.value || undefined },
+                  })
+                }
+              />
+            </label>
+            <p className="note">
+              等待所有上游分支完成后聚合输出（数组或对象）。各分支本身已并行执行，本节点提供显式的结构化汇合点。
+            </p>
+          </>
+        )}
+
         </>)}
         {mainTab === "output" && (<>
         {rt?.error && (
