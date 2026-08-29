@@ -45,7 +45,7 @@ import { ProviderError } from "./providers/openai-compatible.js";
 import { sanitizeError } from "./sanitize.js";
 import { getSkill, resolveTools, executeBuiltinTool } from "./skills/registry.js";
 import { guardToolCall, isDangerousTool, loadPermissionConfig, type PermissionConfig } from "./permissions.js";
-import { notifyHalt } from "./notify.js";
+import { notifyFailed, notifyHalt } from "./notify.js";
 import { resolveConnector } from "./connectors.js";
 import { createSqliteDriver } from "./db-drivers.js";
 import { dataUriToBuffer, parseDocument, extractPdfImages } from "./parse-file.js";
@@ -722,12 +722,25 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     // finished done — such failures don't sink the run (the catch produced a
     // fallback). Unhandled failures downgrade done → failed.
     if (status !== "halted" && status !== "cancelled" && status !== "tripped") {
-      const unhandled = [...states.entries()].some(([id, s]) => {
-        if (s !== "failed") return false;
-        const errOut = outgoing(graph, id, "error");
-        return errOut.length === 0 || !errOut.some((e) => states.get(e.to) === "done");
-      });
+      const isHandled = (id: string) =>
+        outgoing(graph, id, "error").some((e) => states.get(e.to) === "done");
+      const unhandled = [...states.entries()].some(([id, s]) => s === "failed" && !isHandled(id));
       status = unhandled ? "failed" : "done";
+      if (status === "failed") {
+        // Alert the operator: which nodes failed (unhandled by a catch) and how
+        // many downstream nodes got skipped. Fire-and-forget, never blocks.
+        void notifyFailed({
+          runId,
+          graphId: graph.id,
+          failedNodes: [...states.entries()]
+            .filter(([id, s]) => s === "failed" && !isHandled(id))
+            .map(([id]) => {
+              const le = lastError.get(id);
+              return { nodeId: id, error: le?.error ?? "node failed", errorCode: le?.errorCode };
+            }),
+          skippedCount: [...states.values()].filter((s) => s === "skipped").length,
+        });
+      }
     }
     emit({
       type: "run.finished",
