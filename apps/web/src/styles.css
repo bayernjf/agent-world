@@ -1799,6 +1799,9 @@ select {
 .plant--translate .plant__bar {
   fill: #2d3a4d;
 }
+.plant--ocr .plant__bar {
+  fill: #4a3540;
+}
 
 .plant__attempt rect {
   fill: var(--warn);

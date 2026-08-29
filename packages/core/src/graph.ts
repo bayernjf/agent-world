@@ -24,6 +24,7 @@ export const NodeKind = z.enum([
   "database",
   "fileParse",
   "translate",
+  "ocr",
 ]);
 export type NodeKind = z.infer<typeof NodeKind>;
 
@@ -382,6 +383,27 @@ export const TranslateConfig = z.object({
 });
 export type TranslateConfig = z.infer<typeof TranslateConfig>;
 
+/**
+ * Configuration for an `ocr` node: run OCR (tesseract.js — WASM, no native
+ * deps) over an upstream node's `image` artifacts and emit the recognised text
+ * as a `text` artifact. Pairs naturally with a `fileParse` node (extract
+ * embedded images from a PDF/DOCX/PPTX first, then OCR them) or an `imageGen`
+ * node (read text back out of a generated image).
+ */
+export const OcrConfig = z.object({
+  /** Which upstream node's images to recognise. Defaults to the single flow predecessor. */
+  source: z.string().optional(),
+  /** Tesseract language code(s), comma-separated (e.g. "eng", "chi_sim", "chi_sim+eng"). */
+  lang: z.string().min(1).default("eng"),
+  /** Base URL for .traineddata.gz language files. Defaults to the official CDN. */
+  langPath: z.string().url().optional(),
+  /** Override for the tesseract worker script URL (air-gapped deployments). */
+  workerPath: z.string().url().optional(),
+  /** Override for the tesseract-core WASM URL (air-gapped deployments). */
+  corePath: z.string().url().optional(),
+});
+export type OcrConfig = z.infer<typeof OcrConfig>;
+
 export const GateConfig = z.object({
   maxAttempts: z.number().int().min(1).max(10).default(3),
   criterion: z.string().default(""),
@@ -497,6 +519,7 @@ export const GraphNode = z.object({
   database: DatabaseConfig.optional(),
   fileParse: FileParseConfig.optional(),
   translate: TranslateConfig.optional(),
+  ocr: OcrConfig.optional(),
   source: SourceConfig.optional(),
 });
 export type GraphNode = z.infer<typeof GraphNode>;

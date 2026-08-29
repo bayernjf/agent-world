@@ -2050,6 +2050,71 @@ export default function Inspector({ onOpenSettings }: { onOpenSettings: () => vo
           </>
         )}
 
+        {node.kind === "ocr" && node.ocr && (
+          <>
+            <label className="field">
+              <span>数据来源（上游节点）</span>
+              <select
+                className="select"
+                value={node.ocr.source ?? ""}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    ocr: { ...node.ocr!, source: e.target.value || undefined },
+                  })
+                }
+              >
+                <option value="">自动（唯一上游）</option>
+                {graph.nodes
+                  .filter((n) => n.id !== node.id)
+                  .map((n) => (
+                    <option key={n.id} value={n.id}>
+                      {n.name || n.id}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>识别语言</span>
+              <select
+                className="select"
+                value={node.ocr.lang}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    ocr: { ...node.ocr!, lang: e.target.value },
+                  })
+                }
+              >
+                <option value="eng">英语 eng</option>
+                <option value="chi_sim">简体中文 chi_sim</option>
+                <option value="chi_tra">繁体中文 chi_tra</option>
+                <option value="jpn">日语 jpn</option>
+                <option value="kor">韩语 kor</option>
+                <option value="spa">西班牙语 spa</option>
+                <option value="fra">法语 fra</option>
+                <option value="deu">德语 deu</option>
+              </select>
+            </label>
+            <label className="field">
+              <span>语言数据路径（可选）</span>
+              <input
+                className="input"
+                type="text"
+                placeholder="https://…/tessdata（离线部署时使用）"
+                value={node.ocr.langPath ?? ""}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    ocr: { ...node.ocr!, langPath: e.target.value || undefined },
+                  })
+                }
+              />
+            </label>
+            <p className="note">
+              读取上游的 image 产物，用 tesseract.js 识别文字并输出 text 产物。可与「文件解析」节点串联：
+              先提取 PDF / Word 里的图片，再 OCR 成文本；识别语言默认 eng，中文请选 chi_sim。
+            </p>
+          </>
+        )}
+
         </>)}
         {mainTab === "output" && (<>
         {rt?.error && (

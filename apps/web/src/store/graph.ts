@@ -235,6 +235,7 @@ const DEFAULTS: Record<NodeKind, Partial<GraphNode>> = {
   database: { database: { setupSql: "", sql: "" } },
   fileParse: { fileParse: { maxImages: 20 } },
   translate: { translate: { target: "简体中文", temperature: 0.2 } },
+  ocr: { ocr: { lang: "eng" } },
 };
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;

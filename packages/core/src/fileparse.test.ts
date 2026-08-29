@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FileParseConfig, GraphNode, HttpNodeConfig, TranslateConfig } from "./graph.js";
+import { FileParseConfig, GraphNode, HttpNodeConfig, OcrConfig, TranslateConfig } from "./graph.js";
 
 describe("FileParseConfig", () => {
   it("defaults to 20 max images and no explicit source", () => {
@@ -88,5 +88,51 @@ describe("TranslateConfig", () => {
     });
     expect(node.kind).toBe("translate");
     expect(node.translate?.target).toBe("日本語");
+  });
+});
+
+describe("OcrConfig", () => {
+  it("defaults to english with CDN endpoints and no explicit source", () => {
+    const cfg = OcrConfig.parse({});
+    expect(cfg.lang).toBe("eng");
+    expect(cfg.source).toBeUndefined();
+    expect(cfg.langPath).toBeUndefined();
+    expect(cfg.workerPath).toBeUndefined();
+    expect(cfg.corePath).toBeUndefined();
+  });
+
+  it("parses lang, source and CDN overrides", () => {
+    const cfg = OcrConfig.parse({
+      source: "fp1",
+      lang: "chi_sim+eng",
+      langPath: "https://cdn.example.com/tessdata",
+      workerPath: "https://cdn.example.com/worker.js",
+      corePath: "https://cdn.example.com/core.wasm.js",
+    });
+    expect(cfg.source).toBe("fp1");
+    expect(cfg.lang).toBe("chi_sim+eng");
+    expect(cfg.langPath).toBe("https://cdn.example.com/tessdata");
+    expect(cfg.workerPath).toBe("https://cdn.example.com/worker.js");
+    expect(cfg.corePath).toBe("https://cdn.example.com/core.wasm.js");
+  });
+
+  it("rejects empty lang and non-URL paths", () => {
+    expect(() => OcrConfig.parse({ lang: "" })).toThrow();
+    expect(() => OcrConfig.parse({ langPath: "not-a-url" })).toThrow();
+    expect(() => OcrConfig.parse({ workerPath: "not-a-url" })).toThrow();
+    expect(() => OcrConfig.parse({ corePath: "not-a-url" })).toThrow();
+  });
+
+  it("round-trips inside a GraphNode", () => {
+    const node = GraphNode.parse({
+      id: "ocr1",
+      kind: "ocr",
+      name: "OCR",
+      x: 0,
+      y: 0,
+      ocr: { lang: "chi_sim" },
+    });
+    expect(node.kind).toBe("ocr");
+    expect(node.ocr?.lang).toBe("chi_sim");
   });
 });
