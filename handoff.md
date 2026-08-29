@@ -55,7 +55,7 @@ State of Agent World as of 2026-08-29.
 
 按 commit 时间倒序，每条一行影响面 + commit hash：
 
-1. `TBD` — **feat(mcp-server)**: **MCP Server P0 MVP** 落地——新包 `packages/mcp-server`（stdio JSON-RPC 传输，零新依赖，与现有手写 MCP Client 同风格）；6 个工具（list_graphs/get_graph/run_graph/get_run_status/list_artifacts/get_artifact）；`AGENT_WORLD_URL`/`AGENT_WORLD_TOKEN` 环境变量；协议级端到端冒烟通过（initialize → tools/list → tools/call）；7 个 JSON-RPC 单元测试。
+1. `01a4ac7` — **feat(mcp-server)**: **MCP Server P0 MVP** 落地——新包 `packages/mcp-server`（stdio JSON-RPC 传输，零新依赖，与现有手写 MCP Client 同风格）；6 个工具（list_graphs/get_graph/run_graph/get_run_status/list_artifacts/get_artifact）；`AGENT_WORLD_URL`/`AGENT_WORLD_TOKEN` 环境变量；协议级端到端冒烟通过（initialize → tools/list → tools/call）；7 个 JSON-RPC 单元测试。
 2. `78c0651` — **feat(core/server/web)**: Phase 1 P0 第二闭环——**代码执行节点 + 条件分支节点**。core 新增 NodeKind.code/branch + schema + 安全条件表达式求值器（无 eval）；server 代码节点跑 JS/Python 子进程（stdin JSON 进 / stdout JSON 或文本出 / 超时与退出码处理），分支节点按首个命中规则路由 + 分支感知调度器（skipped 剪枝、packet 驱动就绪、汇合点保留）；web 工具栏 / Inspector 面板 / 标签；6 个 core 条件测试 + 4 个代码节点 + 5 个分支节点 server 测试。
 3. `1856d81` — **feat(core/server/web)**: Phase 1 P0 第一个闭环——HTTP 请求节点 + 变量表达式插值（`${nodeId.path}`）。新增 `NodeKind.http`、HTTP 节点配置与执行（fetch/超时/错误处理/json 或 text artifact）、Canvas 标签、Inspector 面板、4 个 server 测试 + 6 个 core 变量测试。`c0dd67d`/`835a383` 已移入 [docs/handoff-archive.md](docs/handoff-archive.md) Additions。
 4. `299dc63` — **fix(server)**: artifacts 全链路按用户归属（user_id 列 + 迁移 15 回填 + 读接口过滤），堵跨用户读取/下载
