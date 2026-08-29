@@ -193,6 +193,8 @@ interface GraphState {
   /** Delete all selected nodes and edges. */
   deleteSelected: () => void;
   updateNode: (id: string, patch: Partial<GraphNode>) => void;
+  /** Replace the graph's default variables (cross-run persisted state). */
+  updateGraphVariables: (variables: Record<string, unknown>) => void;
   beginHistoryBatch: () => void;
   commitHistoryBatch: () => void;
   abortHistoryBatch: () => void;
@@ -513,6 +515,16 @@ export const useGraph = create<GraphState>()(
           const graph = {
             ...s.graph,
             nodes: s.graph.nodes.map((n) => (n.id === id ? { ...n, ...patch } : n)),
+          };
+          scheduleSave(graph);
+          return { graph };
+        }),
+
+      updateGraphVariables: (variables) =>
+        set((s) => {
+          const graph = {
+            ...s.graph,
+            variables: Object.keys(variables).length ? variables : undefined,
           };
           scheduleSave(graph);
           return { graph };
