@@ -284,11 +284,18 @@ app.use("/api/*", async (c, next) => {
   // Webhook endpoints use their own secret-based auth
   if (/\/api\/graphs\/[^/]+\/webhook$/.test(path)) return next();
 
-  // Extract token from cookie or query param (SSE fallback)
+  // Extract token from cookie, Authorization Bearer header, or query param
+  // (SSE fallback). Precedence: cookie → Bearer header → ?token= query.
   let token: string | undefined;
   const cookie = c.req.header("cookie") ?? "";
   const cookieMatch = cookie.match(new RegExp(`${AUTH_COOKIE}=([^;]+)`));
-  token = cookieMatch?.[1] ?? c.req.query("token") ?? undefined;
+  token = cookieMatch?.[1];
+  if (!token) {
+    const auth = c.req.header("authorization") ?? "";
+    const bearer = /^Bearer\s+(.+)$/i.exec(auth.trim());
+    token = bearer?.[1];
+  }
+  token = token ?? c.req.query("token") ?? undefined;
 
   if (!token) return c.json({ error: "not authenticated" }, 401);
   const payload = await verifyToken(token);
@@ -1099,12 +1106,19 @@ app.post("/api/runs/:id/resume", async (c) => {
     try {
       const cfg = loadConfig(userId);
       const now = new Date();
+      // Graph variables: defaults overridden by persisted values. Re-loaded on
+      // resume so another run's writes since the halt are not lost; written
+      // back once the run finishes.
+      const variables = new Map<string, unknown>(
+        Object.entries({ ...(graph.variables ?? {}), ...db.loadGraphVariables(graph.id, userId) }),
+      );
       for await (const event of resume({
         runId,
         graph,
         plan,
         worker: workerRegistry.get(body.workerId),
         budgetUsd: row.budget_usd ?? null,
+        initialVariables: variables,
         monthlyBudgetUsd: cfg.monthlyBudgetUsd ?? null,
         monthSpentUsd: db.costForMonth(now.getFullYear(), now.getMonth() + 1, userId),
         defaultModel: cfg.defaultModel,
@@ -1135,7 +1149,10 @@ app.post("/api/runs/:id/resume", async (c) => {
           );
         }
         entry.events.push(event);
-        if (event.type === "run.finished") db.finishRun(runId, userId, event.status, Date.now());
+        if (event.type === "run.finished") {
+          db.finishRun(runId, userId, event.status, Date.now());
+          db.saveGraphVariables(graph.id, userId, Object.fromEntries(variables));
+        }
       }
     } catch (err) {
       db.finishRun(runId, userId, "failed", Date.now());

@@ -1,6 +1,8 @@
 import http from "node:http";
 import type { AgentWorldClient } from "./client.js";
+import { NotificationsHub } from "./notifications.js";
 import { handleMessage, type JsonRpcMessage } from "./server.js";
+import { TOOLS, type McpToolDef } from "./tools.js";
 
 /**
  * Streamable HTTP transport for the MCP server (zero dependencies, Node http).
@@ -50,7 +52,11 @@ function parseBody(req: http.IncomingMessage): Promise<unknown> {
   });
 }
 
-export function createMcpHttpHandler(client: AgentWorldClient) {
+export function createMcpHttpHandler(
+  client: AgentWorldClient,
+  tools: McpToolDef[] = TOOLS,
+  hub: NotificationsHub = new NotificationsHub(),
+) {
   return async function mcpHttpHandler(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
     const url = new URL(req.url ?? "/", "http://localhost");
     if (url.pathname !== MCP_HTTP_PATH) {
@@ -67,8 +73,12 @@ export function createMcpHttpHandler(client: AgentWorldClient) {
         "mcp-protocol-version": "2024-11-05",
       });
       res.write(sseFrame("endpoint", { url: MCP_HTTP_PATH }));
-      // Keep the connection alive; drop it when the client goes away.
-      const keepAlive = setInterval(() => res.write(": keep-alive\n\n"), 15_000);
+      // Register this stream as a push sink, then keep it alive until the
+      // client disconnects (which unregisters it inside NotificationsHub).
+      hub.addSink(res);
+      const keepAlive = setInterval(() => {
+        if (!res.writableEnded) res.write(": keep-alive\n\n");
+      }, 15_000);
       req.on("close", () => clearInterval(keepAlive));
       return;
     }
@@ -99,7 +109,7 @@ export function createMcpHttpHandler(client: AgentWorldClient) {
       return;
     }
 
-    const reply = await handleMessage(rpc, client);
+    const reply = await handleMessage(rpc, client, tools, hub);
 
     if (wantsSse) {
       res.writeHead(200, {
@@ -118,9 +128,11 @@ export function createMcpHttpHandler(client: AgentWorldClient) {
 export function startHttpServer(
   client: AgentWorldClient,
   port = Number(process.env.AGENT_WORLD_MCP_PORT ?? 3100),
+  tools: McpToolDef[] = TOOLS,
+  hub: NotificationsHub = new NotificationsHub(),
 ): Promise<http.Server> {
   const server = http.createServer((req, res) => {
-    void createMcpHttpHandler(client)(req, res);
+    void createMcpHttpHandler(client, tools, hub)(req, res);
   });
   return new Promise((resolve, reject) => {
     server.once("error", reject);

@@ -11,6 +11,8 @@ export interface McpServerConfig {
   token: string;
   requestTimeoutMs: number;
   mcpHttpPort: number;
+  /** Readonly mode: only read-only tools are exposed (`AGENT_WORLD_MCP_READONLY=1`). */
+  readonly: boolean;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): McpServerConfig {
@@ -19,5 +21,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): McpServerConfi
     token: env.AGENT_WORLD_TOKEN ?? "",
     requestTimeoutMs: Number(env.AGENT_WORLD_REQUEST_TIMEOUT_MS ?? 120_000),
     mcpHttpPort: Number(env.AGENT_WORLD_MCP_PORT ?? 3100),
+    readonly: env.AGENT_WORLD_MCP_READONLY === "1" || env.AGENT_WORLD_MCP_READONLY === "true",
   };
 }

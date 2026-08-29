@@ -17,6 +17,7 @@ import UndoRedo from "./components/UndoRedo";
 import Toast from "./components/Toast";
 import Timeline from "./components/Timeline";
 import RunHistory from "./components/RunHistory";
+import VariablesModal from "./components/VariablesModal";
 import Tooltip from "./components/Tooltip";
 import { useTips } from "./store/tips";
 import FailurePanel from "./components/FailurePanel";
@@ -41,7 +42,7 @@ import { useGraph } from "./store/graph";
 import { useRun } from "./store/run";
 
 export default function App() {
-  const { graph, setGraph, addNode, flushSave, undo, redo, selectedId } = useGraph();
+  const { graph, setGraph, addNode, flushSave, undo, redo, selectedId, updateGraphVariables } = useGraph();
   const { connect, reset, runId, loadRun } = useRun();
 
   const [mode, setMode] = useState<Mode>("select");
@@ -94,6 +95,7 @@ export default function App() {
   const [triggersOpen, setTriggersOpen] = useState(false);
   const [knowledgeOpen, setKnowledgeOpen] = useState(false);
   const [versionOpen, setVersionOpen] = useState(false);
+  const [variablesOpen, setVariablesOpen] = useState(false);
   const [compareOpen, setCompareOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [graphsReady, setGraphsReady] = useState(false);
@@ -168,6 +170,7 @@ export default function App() {
     { id: "brand", label: "品牌词库", hint: "可一键载入到厂房", group: "管理", onSelect: () => setBrandOpen(true) },
     { id: "knowledge", label: "知识库", hint: "历史产线产出与质检结论", group: "管理", onSelect: () => setKnowledgeOpen(true) },
     { id: "version", label: "产线版本", hint: "快照 / 恢复", group: "管理", onSelect: () => setVersionOpen(true) },
+    { id: "variables", label: "产线变量", hint: "跨运行持久化状态（${var.xxx} / set_variable）", group: "管理", onSelect: () => setVariablesOpen(true) },
     // 画布
     { id: "undo", label: "撤销", group: "画布", shortcut: "⌘Z", onSelect: () => undo() },
     { id: "redo", label: "重做", group: "画布", shortcut: "⇧⌘Z", onSelect: () => redo() },
@@ -561,6 +564,12 @@ export default function App() {
       <BrandTermsModal open={brandOpen} onClose={() => setBrandOpen(false)} />
       <TriggersPanel open={triggersOpen} onClose={() => setTriggersOpen(false)} graphId={graph.id} />
       <KnowledgePanel open={knowledgeOpen} onClose={() => setKnowledgeOpen(false)} />
+      <VariablesModal
+        open={variablesOpen}
+        variables={graph.variables}
+        onClose={() => setVariablesOpen(false)}
+        onSave={updateGraphVariables}
+      />
       <VersionPanel
         open={versionOpen}
         graphId={graph.id}

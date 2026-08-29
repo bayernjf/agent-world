@@ -42,7 +42,7 @@ import {
   type Usage,
 } from "@agent-world/core";
 import { spawn } from "node:child_process";
-import { HaltRequested, type Worker } from "./worker.js";
+import { HaltRequested, type ToolDefinition, type Worker } from "./worker.js";
 import { ProviderError } from "./providers/openai-compatible.js";
 import { sanitizeError } from "./sanitize.js";
 import { getSkill, resolveTools, executeBuiltinTool } from "./skills/registry.js";
@@ -57,6 +57,8 @@ import { searchWeb, SearchAuthError } from "./search.js";
 import { sendNotification, NotifyAuthError, NotifyProviderError } from "./notifier.js";
 import { executeVcs, VcsAuthError, VcsProviderError } from "./vcs.js";
 import { withRetry } from "./retry.js";
+import { createCodeWorkdir, cleanupCodeWorkdir, planCodeSpawn, type CodeSandboxLimits } from "./code-sandbox.js";
+import { trimEnv } from "./isolation.js";
 import { allowPrivateNetwork, hostIsInternal } from "./ssrf.js";
 
 /**
@@ -198,7 +200,48 @@ export interface ExecuteOptions {
    * don't exercise subprocess nodes.
    */
   loadSubgraph?: (graphId: string) => Graph | null;
+  /**
+   * Graph variables for this run (cross-run persisted state). Passed by
+   * reference: the engine mutates the same map the caller holds, so the caller
+   * can persist it back to the DB after the run finishes.
+   */
+  initialVariables?: Map<string, unknown>;
 }
+
+/**
+ * Built-in graph-variable tools (cross-run persisted state). They are appended
+ * to every agent's tool list; the engine routes their execution to the run's
+ * variables map (see `handleVariableTool`). Safe tools — no approval needed.
+ */
+const VARIABLE_TOOLS: ToolDefinition[] = [
+  {
+    name: "set_variable",
+    description:
+      "Write/update a graph variable (persisted across runs, read via ${var.xxx} or get_variable). " +
+      "Value can be a string, number, boolean, object or array.",
+    parameters: {
+      type: "object",
+      properties: {
+        key: { type: "string", description: "Variable name, dot path supported (e.g. stats.count)." },
+        value: { description: "Value to store (JSON-serializable)." },
+      },
+      required: ["key", "value"],
+    },
+  },
+  {
+    name: "get_variable",
+    description:
+      "Read a graph variable (persisted across runs; the same value ${var.xxx} resolves). " +
+      "Returns null when the key does not exist.",
+    parameters: {
+      type: "object",
+      properties: {
+        key: { type: "string", description: "Variable name, dot path supported (e.g. stats.count)." },
+      },
+      required: ["key"],
+    },
+  },
+];
 
 type Status = "done" | "failed" | "halted" | "tripped" | "cancelled";
 /**
@@ -507,6 +550,8 @@ interface SchedulerInit {
   approvedTools: string[];
   /** Flow edges that already carried a packet (branch-aware scheduling). */
   packetEdges: Set<string>;
+  /** Graph variables (cross-run persisted state); shared with sub-process runs. */
+  variables: Map<string, unknown>;
 }
 
 interface SchedulerOptions {
@@ -550,6 +595,12 @@ interface SchedulerOptions {
   loadSubgraph?: (graphId: string) => Graph | null;
   /** Subprocess call depth (0 at the top-level run); guards against recursion. */
   subprocessDepth?: number;
+  /**
+   * Graph variables for this run (cross-run persisted state). Passed by
+   * reference: the engine mutates the same map the caller holds, so the caller
+   * can persist it back to the DB after the run finishes.
+   */
+  initialVariables?: Map<string, unknown>;
 }
 
 /**
@@ -612,10 +663,33 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
    * read each other's item.
    */
   const loopItemByNode = new Map<string, unknown>();
+  /** Graph variables (cross-run persisted state). Shared with the caller by reference. */
+  const variables = opts.initialVariables ?? new Map<string, unknown>();
+  /**
+   * Built-in variable tools: set_variable / get_variable. Safe, no approval.
+   * Sub-process runs share the same map, so writes land in the parent's state.
+   */
+  const handleVariableTool = (name: string, args: unknown): unknown => {
+    const a = (args ?? {}) as { key?: unknown; value?: unknown };
+    if (typeof a.key !== "string" || !a.key) throw new Error(`${name}: key is required (dot path, e.g. stats.count)`);
+    if (name === "set_variable") {
+      const value = a.value ?? null;
+      variables.set(a.key, value);
+      return { ok: true, key: a.key, value };
+    }
+    return { key: a.key, value: variables.get(a.key) ?? null };
+  };
   /** buildNodeContext with the loop item (if this node is inside a loop body). */
   const nodeCtx = (nodeId: string): Record<string, unknown> => {
     const item = loopItemByNode.get(nodeId);
-    return buildNodeContext(nodeId, artifacts, graph, item !== undefined ? { item } : undefined);
+    // Resolve variables fresh so sub-process writes are visible to the parent.
+    return buildNodeContext(
+      nodeId,
+      artifacts,
+      graph,
+      item !== undefined ? { item } : undefined,
+      Object.fromEntries(variables),
+    );
   };
   /** Flow edges that actually carried a packet this run (branch nodes only emit
    *  on the edges they routed to). Drives branch-aware scheduling. */
@@ -875,6 +949,8 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       states: childStates,
       approvedTools: [...approved],
       packetEdges: new Set(),
+      // Shared by reference: sub-process runs read/write the parent's variables.
+      variables,
     };
   };
 
@@ -1185,95 +1261,112 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           });
           return;
         }
-        const ctx = nodeCtx(nodeId);
-        const inputJson = JSON.stringify({ inputs: ctx });
-        const { stdout, stderr, killed, code } = await withRetry(
-          async () => {
-            const child = spawn(
-              cfg.language === "python" ? "python3" : "node",
-              cfg.language === "python" ? ["-c", cfg.code] : ["-e", cfg.code],
-              { stdio: ["pipe", "pipe", "pipe"] },
-            );
-            child.stdin.end(inputJson);
-            let stdout = "";
-            let stderr = "";
-            let killed = false;
-            const cap = 1_000_000;
-            child.stdout.on("data", (chunk: Buffer) => {
-              if (stdout.length < cap) stdout += chunk.toString().slice(0, cap - stdout.length);
-            });
-            child.stderr.on("data", (chunk: Buffer) => {
-              if (stderr.length < cap) stderr += chunk.toString().slice(0, cap - stderr.length);
-            });
-            const r = await new Promise<{ code: number | null; signal: string | null }>((resolve) => {
-              const timer = setTimeout(() => {
-                killed = true;
-                child.kill("SIGKILL");
-                resolve({ code: null, signal: "timeout" });
-              }, cfg.timeoutMs);
-              child.on("error", (err) => {
-                clearTimeout(timer);
-                resolve({ code: -1, signal: err.message });
-              });
-              child.on("close", (code, signal) => {
-                clearTimeout(timer);
-                resolve({ code, signal });
-              });
-            });
-            // Spawn failure (binary missing, etc.) → throw so withRetry can retry.
-            // Non-zero exit and timeout are business errors, returned as-is.
-            if (r.code === -1) throw new Error(`代码节点子进程启动失败: ${r.signal}`);
-            return { stdout, stderr, killed, code: r.code };
-          },
-          cfg.retry,
-          () => true,
-          opts.sleep,
-        );
-        if (killed) {
-          states.set(nodeId, "failed");
-          status = "failed";
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: `代码执行超时（${cfg.timeoutMs}ms）${stderr.slice(0, 200)}`,
-            errorCode: "TIMEOUT",
+        // P0 sandbox: isolate cwd (per-run temp dir) + env allowlist + absolute
+        // interpreter path. The temp dir is removed even on failure/timeout.
+        const workdir = await createCodeWorkdir(runId, nodeId, attempt);
+        try {
+          const ctx = nodeCtx(nodeId);
+          const inputJson = JSON.stringify({ inputs: ctx });
+          const childEnv = trimEnv(cfg.env);
+          // P1 sandbox: rlimits via sh wrapper + Node --experimental-permission
+          // (JS only; Python relies on ulimit wrapper + future P2 backends).
+          const cfgLimits = (cfg as unknown as { limits?: CodeSandboxLimits }).limits;
+          const plan = planCodeSpawn({
+            language: cfg.language,
+            code: cfg.code,
+            workdir,
+            limits: cfgLimits,
           });
-          return;
-        }
-        if (code !== 0) {
-          states.set(nodeId, "failed");
-          status = "failed";
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: `代码执行失败（退出码 ${code}）: ${(stderr || "无 stderr 输出").slice(0, 300)}`,
-            errorCode: "PROVIDER_ERROR",
-          });
-          return;
-        }
-        const raw = stdout.trim();
-        let output = raw;
-        let asJson = false;
-        if (raw) {
-          try {
-            const parsed = JSON.parse(raw);
-            if (parsed !== null && typeof parsed === "object") asJson = true;
-          } catch {
-            // plain text output
+          const { stdout, stderr, killed, code } = await withRetry(
+            async () => {
+              const child = spawn(plan.command, plan.args, {
+                stdio: ["pipe", "pipe", "pipe"],
+                cwd: workdir,
+                env: childEnv,
+              });
+              child.stdin.end(inputJson);
+              let stdout = "";
+              let stderr = "";
+              let killed = false;
+              const cap = 1_000_000;
+              child.stdout.on("data", (chunk: Buffer) => {
+                if (stdout.length < cap) stdout += chunk.toString().slice(0, cap - stdout.length);
+              });
+              child.stderr.on("data", (chunk: Buffer) => {
+                if (stderr.length < cap) stderr += chunk.toString().slice(0, cap - stderr.length);
+              });
+              const r = await new Promise<{ code: number | null; signal: string | null }>((resolve) => {
+                const timer = setTimeout(() => {
+                  killed = true;
+                  child.kill("SIGKILL");
+                  resolve({ code: null, signal: "timeout" });
+                }, cfg.timeoutMs);
+                child.on("error", (err) => {
+                  clearTimeout(timer);
+                  resolve({ code: -1, signal: err.message });
+                });
+                child.on("close", (code, signal) => {
+                  clearTimeout(timer);
+                  resolve({ code, signal });
+                });
+              });
+              // Spawn failure (binary missing, etc.) → throw so withRetry can retry.
+              // Non-zero exit and timeout are business errors, returned as-is.
+              if (r.code === -1) throw new Error(`代码节点子进程启动失败: ${r.signal}`);
+              return { stdout, stderr, killed, code: r.code };
+            },
+            cfg.retry,
+            () => true,
+            opts.sleep,
+          );
+          if (killed) {
+            states.set(nodeId, "failed");
+            status = "failed";
+            emit({
+              type: "node.failed",
+              nodeId,
+              attempt,
+              error: `代码执行超时（${cfg.timeoutMs}ms）${stderr.slice(0, 200)}`,
+              errorCode: "TIMEOUT",
+            });
+            return;
           }
+          if (code !== 0) {
+            states.set(nodeId, "failed");
+            status = "failed";
+            emit({
+              type: "node.failed",
+              nodeId,
+              attempt,
+              error: `代码执行失败（退出码 ${code}）: ${(stderr || "无 stderr 输出").slice(0, 300)}`,
+              errorCode: "PROVIDER_ERROR",
+            });
+            return;
+          }
+          const raw = stdout.trim();
+          let output = raw;
+          let asJson = false;
+          if (raw) {
+            try {
+              const parsed = JSON.parse(raw);
+              if (parsed !== null && typeof parsed === "object") asJson = true;
+            } catch {
+              // plain text output
+            }
+          }
+          if (asJson) output = JSON.stringify(JSON.parse(raw), null, 2);
+          const artifact: Artifact = asJson
+            ? { id: `${nodeId}-code-json`, kind: "json", content: output, mimeType: "application/json" }
+            : { id: `${nodeId}-code-text`, kind: "text", content: output, mimeType: "text/plain" };
+          artifacts.set(nodeId, [artifact]);
+          emit({ type: "artifact.produced", nodeId, attempt, artifact });
+          states.set(nodeId, "done");
+          emit({ type: "node.finished", nodeId, attempt, output, usage: zeroUsage() });
+          sendPackets(nodeId, output.slice(0, 120), artifact.kind);
+          return;
+        } finally {
+          await cleanupCodeWorkdir(workdir);
         }
-        if (asJson) output = JSON.stringify(JSON.parse(raw), null, 2);
-        const artifact: Artifact = asJson
-          ? { id: `${nodeId}-code-json`, kind: "json", content: output, mimeType: "application/json" }
-          : { id: `${nodeId}-code-text`, kind: "text", content: output, mimeType: "text/plain" };
-        artifacts.set(nodeId, [artifact]);
-        emit({ type: "artifact.produced", nodeId, attempt, artifact });
-        states.set(nodeId, "done");
-        emit({ type: "node.finished", nodeId, attempt, output, usage: zeroUsage() });
-        sendPackets(nodeId, output.slice(0, 120), artifact.kind);
-        return;
       }
 
       if (node.kind === "branch") {
@@ -1563,6 +1656,8 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
             states: new Map(childGraph.nodes.map((n) => [n.id, "pending" as NodeState])),
             approvedTools: [...approved],
             packetEdges: new Set(),
+            // Shared by reference: sub-process runs read/write the parent's variables.
+            variables,
           };
           const sourceText = await inputFor(node);
           const childGen = await runScheduler({
@@ -1581,6 +1676,8 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
             now: opts.now,
             sleep: opts.sleep,
             init: childInit,
+            // Shared by reference: sub-process runs read/write the parent's variables.
+            initialVariables: variables,
             // Skip run.started (the parent already announced the run); the
             // child's run.finished is intercepted below and re-emitted by the
             // parent's own finish.
@@ -2884,7 +2981,8 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
         try {
           const agentInput = await inputFor(node);
           reworkNotes.delete(nodeId);
-          const tools = resolveTools(mounts);
+          // Variable tools ride along on every agent (safe, no approval needed).
+          const tools = [...resolveTools(mounts), ...VARIABLE_TOOLS];
           const rawImageUris = imagesFor(nodeId);
           const referenceImages = opts.readArtifact
             ? await Promise.all(rawImageUris.map((u) => inlineImageUrl(u, opts.readArtifact!)))
@@ -2901,6 +2999,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
             content,
             tools,
             executeTool: async (name, args) => {
+              if (name === "set_variable" || name === "get_variable") return handleVariableTool(name, args);
               guardToolCall(name, args, permCfg);
               if (isDangerousTool(name) && !approved.has(name)) {
                 throw new HaltRequested(name, nodeId);
@@ -3290,6 +3389,7 @@ export async function* execute(opts: ExecuteOptions): AsyncGenerator<RunEvent, v
     publicUrl: opts.publicUrl,
     permissionConfig: opts.permissionConfig,
     loadSubgraph: opts.loadSubgraph,
+    initialVariables: opts.initialVariables,
     init: {
       artifacts: new Map(),
       attempts: new Map(),
@@ -3298,6 +3398,7 @@ export async function* execute(opts: ExecuteOptions): AsyncGenerator<RunEvent, v
       states,
       approvedTools: [],
       packetEdges: new Set(),
+      variables: opts.initialVariables ?? new Map<string, unknown>(),
     },
   });
   yield* gen;
@@ -3431,6 +3532,12 @@ export interface ResumeOptions {
   readArtifact?: (uri: string) => Promise<string | null>;
   /** Absolute origin prefixed to relative artifact URIs in agent prompts. */
   publicUrl?: string;
+  /**
+   * Graph variables for this run (cross-run persisted state). Passed by
+   * reference and mutated in place; the caller persists them back after the
+   * run finishes.
+   */
+  initialVariables?: Map<string, unknown>;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
   /** Tool-call permission governance. Defaults to the env-derived config. */
@@ -3583,6 +3690,7 @@ export async function* resume(opts: ResumeOptions): AsyncGenerator<RunEvent, voi
     permissionConfig: opts.permissionConfig,
     editOutput: opts.editOutput,
     loadSubgraph: opts.loadSubgraph,
+    initialVariables: opts.initialVariables,
     init: {
       artifacts: state.artifacts,
       attempts: state.attempts,
@@ -3595,6 +3703,7 @@ export async function* resume(opts: ResumeOptions): AsyncGenerator<RunEvent, voi
           .filter((e) => e.type === "packet.sent")
           .map((e) => (e as { edgeId: string }).edgeId),
       ),
+      variables: opts.initialVariables ?? new Map<string, unknown>(),
     },
     resuming: true,
     approveTools: [...new Set([...state.approvedTools, ...approveTools])],

@@ -1,21 +1,37 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AgentWorldClient } from "./client.js";
+import { NotificationsHub } from "./notifications.js";
 import { handleMessage, PROTOCOL_VERSION } from "./server.js";
+import { BATCH_WAIT_TIMEOUT_MS, filterTools } from "./tools.js";
 
 function mockClient(): AgentWorldClient {
   return {
     listGraphs: vi.fn().mockResolvedValue([
       { id: "g1", name: "研究助手", version: 3, updated_at: "2026-08-28T10:00:00Z" },
     ]),
-    getGraph: vi.fn().mockResolvedValue({ id: "g1", name: "研究助手" }),
+    getGraph: vi.fn().mockResolvedValue({ id: "g1", name: "研究助手", nodes: [], edges: [], version: 3 }),
     startRun: vi.fn().mockResolvedValue({ runId: "r1" }),
     runState: vi.fn().mockResolvedValue({
       state: { status: "done", artifacts: { out: [{ id: "a1", kind: "text", label: "x", mimeType: "text/plain" }] } },
     }),
+    runStats: vi.fn().mockResolvedValue({ nodes: 2, tokensIn: 160, tokensOut: 80, costUsd: 0.008 }),
     listArtifacts: vi.fn().mockResolvedValue([{ id: "a1", kind: "text", node_id: "out", run_id: "r1" }]),
     getArtifact: vi.fn().mockResolvedValue({ id: "a1", mimeType: "text/plain", content: "hello" }),
+    createGraph: vi.fn().mockResolvedValue({ id: "g2", name: "新建产线", nodes: [] }),
+    updateGraph: vi.fn().mockResolvedValue({ ok: true, version: 4 }),
+    deleteGraph: vi.fn().mockResolvedValue({ ok: true }),
+    cancelRun: vi.fn().mockResolvedValue({ ok: true }),
+    searchKnowledge: vi.fn().mockResolvedValue({
+      entries: [{ id: "k1", title: "挂脖风扇", content: "..." }],
+    }),
+    runEvents: vi.fn().mockResolvedValue({ events: [], state: { status: "done" } }),
+    openRunStream: vi.fn().mockRejectedValue(new Error("not implemented in test")),
   } as unknown as AgentWorldClient;
 }
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 function call(id: number, method: string, params?: unknown) {
   return { jsonrpc: "2.0" as const, id, method, params };
@@ -39,10 +55,10 @@ describe("MCP server JSON-RPC", () => {
     expect(reply).toBeNull();
   });
 
-  it("lists the 6 tools with schema", async () => {
+  it("lists the 15 tools with schema", async () => {
     const reply = await handleMessage(call(2, "tools/list"), mockClient());
     const tools = (reply?.result as { tools: Array<{ name: string; inputSchema: unknown }> }).tools;
-    expect(tools).toHaveLength(6);
+    expect(tools).toHaveLength(15);
     expect(tools.map((t) => t.name)).toEqual([
       "list_graphs",
       "get_graph",
@@ -50,8 +66,44 @@ describe("MCP server JSON-RPC", () => {
       "get_run_status",
       "list_artifacts",
       "get_artifact",
+      "create_graph",
+      "update_graph",
+      "delete_graph",
+      "cancel_run",
+      "download_artifact",
+      "search_knowledge",
+      "batch_run",
+      "compare_runs",
+      "get_run_events",
     ]);
     expect(tools[0]?.inputSchema).toBeTruthy();
+  });
+
+  it("exposes only read tools in readonly mode", async () => {
+    const reply = await handleMessage(call(2, "tools/list"), mockClient(), filterTools(true));
+    const tools = (reply?.result as { tools: Array<{ name: string }> }).tools;
+    expect(tools.map((t) => t.name)).toEqual([
+      "list_graphs",
+      "get_graph",
+      "get_run_status",
+      "list_artifacts",
+      "get_artifact",
+      "download_artifact",
+      "search_knowledge",
+      "compare_runs",
+      "get_run_events",
+    ]);
+  });
+
+  it("rejects write tools in readonly mode", async () => {
+    const client = mockClient();
+    const reply = await handleMessage(
+      call(3, "tools/call", { name: "run_graph", arguments: { graphId: "g1" } }),
+      client,
+      filterTools(true),
+    );
+    expect(reply?.error?.code).toBe(-32602);
+    expect(client.startRun).not.toHaveBeenCalled();
   });
 
   it("calls a tool and returns formatted text content", async () => {
@@ -144,5 +196,326 @@ describe("MCP server JSON-RPC", () => {
   it("rejects unknown prompts", async () => {
     const reply = await handleMessage(call(14, "prompts/get", { name: "nope" }), mockClient());
     expect(reply?.error?.code).toBe(-32602);
+  });
+});
+
+describe("MCP management tools (P2-①)", () => {
+  it("create_graph creates from template and returns a summary", async () => {
+    const client = mockClient();
+    const reply = await handleMessage(
+      call(20, "tools/call", { name: "create_graph", arguments: { template: "copywriting", name: "种草" } }),
+      client,
+    );
+    expect(reply?.result).toMatchObject({ isError: false });
+    expect(client.createGraph).toHaveBeenCalledWith({ template: "copywriting", name: "种草" });
+    const text = (reply?.result as { content: Array<{ text: string }> }).content[0]?.text;
+    expect(text).toContain('"id": "g2"');
+    expect(text).toContain('"nodeCount": 0');
+  });
+
+  it("update_graph merges partial fields onto the current graph", async () => {
+    const client = mockClient();
+    client.getGraph = vi.fn().mockResolvedValue({ id: "g1", name: "旧名", nodes: [{ id: "n1" }], edges: [] });
+    const reply = await handleMessage(
+      call(21, "tools/call", { name: "update_graph", arguments: { graphId: "g1", name: "新名" } }),
+      client,
+    );
+    expect(reply?.result).toMatchObject({ isError: false });
+    expect(client.updateGraph).toHaveBeenCalledWith("g1", {
+      id: "g1",
+      name: "新名",
+      nodes: [{ id: "n1" }],
+      edges: [],
+    });
+    const text = (reply?.result as { content: Array<{ text: string }> }).content[0]?.text;
+    expect(text).toContain('"version": 4');
+  });
+
+  it("update_graph requires graphId", async () => {
+    const client = mockClient();
+    const reply = await handleMessage(
+      call(22, "tools/call", { name: "update_graph", arguments: { name: "x" } }),
+      client,
+    );
+    expect(reply?.result).toMatchObject({ isError: true });
+    expect(client.updateGraph).not.toHaveBeenCalled();
+  });
+
+  it("delete_graph refuses without confirm", async () => {
+    const client = mockClient();
+    const reply = await handleMessage(
+      call(23, "tools/call", { name: "delete_graph", arguments: { graphId: "g1" } }),
+      client,
+    );
+    expect(reply?.result).toMatchObject({ isError: true });
+    expect(client.deleteGraph).not.toHaveBeenCalled();
+  });
+
+  it("delete_graph removes the graph when confirmed", async () => {
+    const client = mockClient();
+    const reply = await handleMessage(
+      call(24, "tools/call", { name: "delete_graph", arguments: { graphId: "g1", confirm: true } }),
+      client,
+    );
+    expect(reply?.result).toMatchObject({ isError: false });
+    expect(client.deleteGraph).toHaveBeenCalledWith("g1");
+  });
+
+  it("cancel_run cancels a live run", async () => {
+    const client = mockClient();
+    const reply = await handleMessage(
+      call(25, "tools/call", { name: "cancel_run", arguments: { runId: "r1" } }),
+      client,
+    );
+    expect(reply?.result).toMatchObject({ isError: false });
+    expect(client.cancelRun).toHaveBeenCalledWith("r1");
+  });
+
+  it("download_artifact returns inline text for text artifacts", async () => {
+    const client = mockClient();
+    const reply = await handleMessage(
+      call(26, "tools/call", { name: "download_artifact", arguments: { artifactId: "a1" } }),
+      client,
+    );
+    expect(reply?.result).toMatchObject({ isError: false });
+    const text = (reply?.result as { content: Array<{ text: string }> }).content[0]?.text;
+    expect(text).toContain('"content": "hello"');
+  });
+
+  it("search_knowledge forwards query and limit", async () => {
+    const client = mockClient();
+    const reply = await handleMessage(
+      call(27, "tools/call", { name: "search_knowledge", arguments: { query: "挂脖风扇", limit: 5 } }),
+      client,
+    );
+    expect(reply?.result).toMatchObject({ isError: false });
+    expect(client.searchKnowledge).toHaveBeenCalledWith("挂脖风扇", 5);
+    const text = (reply?.result as { content: Array<{ text: string }> }).content[0]?.text;
+    expect(text).toContain('"count": 1');
+  });
+
+  it("search_knowledge defaults limit to 10", async () => {
+    const client = mockClient();
+    await handleMessage(call(28, "tools/call", { name: "search_knowledge", arguments: { query: "x" } }), client);
+    expect(client.searchKnowledge).toHaveBeenCalledWith("x", 10);
+  });
+});
+
+describe("MCP batch & compare tools (P2-②)", () => {
+  it("batch_run(wait=false) starts all inputs and returns runIds", async () => {
+    const client = mockClient();
+    client.startRun = vi
+      .fn()
+      .mockResolvedValueOnce({ runId: "r1" })
+      .mockResolvedValueOnce({ runId: "r2" })
+      .mockResolvedValueOnce({ runId: "r3" });
+    const reply = await handleMessage(
+      call(30, "tools/call", { name: "batch_run", arguments: { graphId: "g1", inputs: ["a", "b", "c"] } }),
+      client,
+    );
+    expect(reply?.result).toMatchObject({ isError: false });
+    expect(client.startRun).toHaveBeenCalledTimes(3);
+    expect(client.startRun).toHaveBeenCalledWith("g1", "a");
+    const text = (reply?.result as { content: Array<{ text: string }> }).content[0]?.text;
+    expect(text).toContain('"runId": "r1"');
+    expect(text).toContain('"runId": "r3"');
+    expect(text).toContain("异步");
+  });
+
+  it("batch_run isolates a failed start without failing the batch", async () => {
+    const client = mockClient();
+    client.startRun = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("模板无效"))
+      .mockResolvedValueOnce({ runId: "r2" });
+    const reply = await handleMessage(
+      call(31, "tools/call", { name: "batch_run", arguments: { graphId: "g1", inputs: ["bad", "ok"] } }),
+      client,
+    );
+    expect(reply?.result).toMatchObject({ isError: false });
+    const text = (reply?.result as { content: Array<{ text: string }> }).content[0]?.text;
+    expect(text).toContain('"error": "模板无效"');
+    expect(text).toContain('"runId": "r2"');
+  });
+
+  it("batch_run requires a non-empty inputs array", async () => {
+    const client = mockClient();
+    const reply = await handleMessage(
+      call(32, "tools/call", { name: "batch_run", arguments: { graphId: "g1" } }),
+      client,
+    );
+    expect(reply?.result).toMatchObject({ isError: true });
+    expect(client.startRun).not.toHaveBeenCalled();
+  });
+
+  it("batch_run(wait=true) aggregates results under maxConcurrency", async () => {
+    const client = mockClient();
+    let active = 0;
+    let maxActive = 0;
+    client.startRun = vi.fn(async (_graphId: string, input: string) => {
+      active++;
+      maxActive = Math.max(maxActive, active);
+      await Promise.resolve();
+      active--;
+      return { runId: `r-${input}` };
+    });
+    client.runState = vi.fn().mockResolvedValue({
+      state: { status: "done", artifacts: { out: [{ id: "a1" }] } },
+    });
+    const reply = await handleMessage(
+      call(33, "tools/call", {
+        name: "batch_run",
+        arguments: { graphId: "g1", inputs: ["a", "b", "c", "d"], wait: true, maxConcurrency: 2 },
+      }),
+      client,
+    );
+    expect(reply?.result).toMatchObject({ isError: false });
+    expect(client.startRun).toHaveBeenCalledTimes(4);
+    expect(maxActive).toBeLessThanOrEqual(2);
+    const text = (reply?.result as { content: Array<{ text: string }> }).content[0]?.text;
+    expect(text).toContain('"status": "done"');
+    expect(text).toContain("全部 4 次运行已完成");
+  });
+
+  it("batch_run(wait=true) degrades to runIds on timeout", async () => {
+    vi.useFakeTimers();
+    const client = mockClient();
+    client.startRun = vi.fn().mockResolvedValue({ runId: "r1" });
+    client.runState = vi.fn().mockResolvedValue({
+      state: { status: "running", artifacts: {} },
+    });
+    const promise = handleMessage(
+      call(34, "tools/call", {
+        name: "batch_run",
+        arguments: { graphId: "g1", inputs: ["a"], wait: true },
+      }),
+      client,
+    );
+    await vi.advanceTimersByTimeAsync(BATCH_WAIT_TIMEOUT_MS);
+    const reply = await promise;
+    expect(reply?.result).toMatchObject({ isError: false });
+    const text = (reply?.result as { content: Array<{ text: string }> }).content[0]?.text;
+    expect(text).toContain("等待超时");
+    expect(text).toContain("get_run_status");
+  });
+
+  it("compare_runs outputs stats diff and node-level diff", async () => {
+    const client = mockClient();
+    client.runStats = vi
+      .fn()
+      .mockResolvedValueOnce({ nodes: 2, tokensIn: 160, tokensOut: 80, costUsd: 0.008 })
+      .mockResolvedValueOnce({ nodes: 3, tokensIn: 200, tokensOut: 90, costUsd: 0.01 });
+    const reply = await handleMessage(
+      call(35, "tools/call", { name: "compare_runs", arguments: { runIdA: "r1", runIdB: "r2" } }),
+      client,
+    );
+    expect(reply?.result).toMatchObject({ isError: false });
+    expect(client.runStats).toHaveBeenCalledWith("r1");
+    expect(client.runStats).toHaveBeenCalledWith("r2");
+    const text = (reply?.result as { content: Array<{ text: string }> }).content[0]?.text;
+    expect(text).toContain('"costUsd"');
+    expect(text).toContain('"delta": 0.002');
+    expect(text).toContain('"nodes"');
+  });
+
+  it("compare_runs reports nodes present in only one run and text similarity", async () => {
+    const client = mockClient();
+    client.runStats = vi.fn().mockResolvedValue({ nodes: 1, tokensIn: 0, tokensOut: 0, costUsd: 0 });
+    client.listArtifacts = vi
+      .fn()
+      .mockResolvedValueOnce([
+        { id: "a1", kind: "text", node_id: "out", mimeType: "text/plain" },
+        { id: "a2", kind: "text", node_id: "src", mimeType: "text/plain" },
+      ])
+      .mockResolvedValueOnce([
+        { id: "b1", kind: "text", node_id: "out", mimeType: "text/plain" },
+        { id: "b2", kind: "text", node_id: "out", mimeType: "text/plain" },
+        { id: "b3", kind: "text", node_id: "extra", mimeType: "text/plain" },
+      ]);
+    client.getArtifact = vi
+      .fn()
+      .mockResolvedValueOnce({ id: "a1", mimeType: "text/plain", content: "hello world" })
+      .mockResolvedValueOnce({ id: "b1", mimeType: "text/plain", content: "hello world" });
+    const reply = await handleMessage(
+      call(36, "tools/call", { name: "compare_runs", arguments: { runIdA: "r1", runIdB: "r2" } }),
+      client,
+    );
+    expect(reply?.result).toMatchObject({ isError: false });
+    const text = (reply?.result as { content: Array<{ text: string }> }).content[0]?.text;
+    expect(text).toContain('"onlyInB"');
+    expect(text).toContain('"extra"');
+    expect(text).toContain('"onlyInA"');
+    expect(text).toContain('"src"');
+    expect(text).toContain('"textSimilarity": 1');
+    expect(text).toContain('"artifactDelta": 1');
+    expect(text).toContain("产物数量不同");
+  });
+
+  it("compare_runs handles a run with no artifacts", async () => {
+    const client = mockClient();
+    client.listArtifacts = vi.fn().mockResolvedValue([]);
+    const reply = await handleMessage(
+      call(37, "tools/call", { name: "compare_runs", arguments: { runIdA: "r1", runIdB: "r2" } }),
+      client,
+    );
+    expect(reply?.result).toMatchObject({ isError: false });
+    const text = (reply?.result as { content: Array<{ text: string }> }).content[0]?.text;
+    expect(text).toContain('"both": []');
+  });
+});
+
+describe("MCP realtime tools (P2-③)", () => {
+  it("get_run_events returns the full log when no since/limit", async () => {
+    const client = mockClient();
+    client.runEvents = vi.fn().mockResolvedValue({
+      events: [{ seq: 1, type: "node.finished" }],
+      state: { status: "done" },
+    });
+    const reply = await handleMessage(
+      call(40, "tools/call", { name: "get_run_events", arguments: { runId: "r1" } }),
+      client,
+    );
+    expect(reply?.result).toMatchObject({ isError: false });
+    expect(client.runEvents).toHaveBeenCalledWith("r1", undefined, undefined);
+    const text = (reply?.result as { content: Array<{ text: string }> }).content[0]?.text;
+    expect(text).toContain('"count": 1');
+    expect(text).toContain('"type": "node.finished"');
+  });
+
+  it("get_run_events defaults limit to 100 when since is given", async () => {
+    const client = mockClient();
+    await handleMessage(
+      call(41, "tools/call", { name: "get_run_events", arguments: { runId: "r1", since: 5 } }),
+      client,
+    );
+    expect(client.runEvents).toHaveBeenCalledWith("r1", 5, 100);
+  });
+
+  it("resources/subscribe is rejected when no hub (stdio)", async () => {
+    const reply = await handleMessage(
+      call(42, "resources/subscribe", { uri: "run://r1" }),
+      mockClient(),
+    );
+    expect(reply?.error?.code).toBe(-32601);
+  });
+
+  it("resources/subscribe requires a uri", async () => {
+    const hub = new NotificationsHub();
+    const reply = await handleMessage(call(43, "resources/subscribe", {}), mockClient(), undefined, hub);
+    expect(reply?.error?.code).toBe(-32602);
+  });
+
+  it("resources/subscribe delegates to the hub", async () => {
+    const hub = new NotificationsHub();
+    const spy = vi.spyOn(hub, "subscribe").mockResolvedValue(undefined);
+    const reply = await handleMessage(
+      call(44, "resources/subscribe", { uri: "run://r1" }),
+      mockClient(),
+      undefined,
+      hub,
+    );
+    expect(reply?.result).toEqual({});
+    expect(spy).toHaveBeenCalledWith("run://r1", expect.anything());
+    spy.mockRestore();
   });
 });

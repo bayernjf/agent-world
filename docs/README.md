@@ -33,6 +33,7 @@
 | [technical-design.md](technical-design.md) | 技术方案结论：架构、数据模型、API、安全 | 开发者 |
 | [roadmap-generalization.md](roadmap-generalization.md) | 通用化路线图（当前主线，5 阶段） | 决策者 / 开发者 ★ |
 | [design-mcp-server.md](design-mcp-server.md) | MCP Server 设计（传输 / tools / resources / prompts） | 开发者 |
+| [design-code-sandbox.md](design-code-sandbox.md) | 代码节点运行沙箱设计（env / 网络 / 文件系统 / 资源 / 工作目录隔离，P0-P2） | 开发者 |
 | [design-artifact-display.md](design-artifact-display.md) | 产物统一渲染卡设计（ArtifactCard + 渲染器注册表） | 开发者 |
 | [design-artifact-attribution-repo.md](design-artifact-attribution-repo.md) | 产物归属 + 按流水线分组成品仓库设计 | 开发者 |
 | [examples.md](examples.md) | 8 个可直接套用的产线模板 | 新用户 |
