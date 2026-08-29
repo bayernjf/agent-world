@@ -1789,6 +1789,7 @@ modality 切片，统一严格过滤；同时把 agent 的占位文案从泛化�
 
 > Entries rolled out of the active `handoff.md` "Recently shipped" list to keep it at 5 items.
 
+- `bb56bad` — **feat(notify)**: **富消息 + 重试增强**。NotifyConfig 加 format: text|markdown（飞书 interactive 卡片、钉钉/企微原生 markdown）+ retry（复用 RetryPolicy）；NotifyProviderError（平台 errcode 非 0 不重试）；web Inspector「消息格式」下拉。core +2 + server +5 个新测试。
 - `00456d8` — **feat(core/server/web)**: **Phase 3 推进——vcs 节点 + notify Slack**。GitHub/GitLab 仓库操作（clone/pull/commit/push）+ Slack webhook 发送；vcs/notify halt 全部用例。
 - `1336baf` — **feat(core/server/web)**: **Phase 3 首节点——通知（notify）**。飞书/钉钉/企微群机器人 + SMTP 邮件；message 空回退上游 text；json 产物可审计。core 5 + server 8 个新测试。
 - `8a9ad1c` — **feat(core/server/web)**: **Phase 2 第七节点、收官——搜索（search）**。DuckDuckGo 免 key + tavily/serpapi/google env key；query 空回退上游 text；text+json 双产物。core 4 + server 7 个新测试。
