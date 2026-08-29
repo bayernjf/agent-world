@@ -1362,7 +1362,10 @@ const MIGRATIONS: Migration[] = [
   {
     version: 14,
     description: "users table + per-user data isolation",
-    detect: (db) => tableExists(db, "users"),
+    // Check a data column, not the users table: DDL runs before migrations and
+    // always creates users with the latest shape, which would otherwise mask
+    // the missing user_id columns on pre-migration databases.
+    detect: (db) => columnExists(db, "graphs", "user_id"),
     up: (db) => {
       db.exec(`CREATE TABLE IF NOT EXISTS users (
         id            TEXT PRIMARY KEY,
@@ -1370,9 +1373,13 @@ const MIGRATIONS: Migration[] = [
         password_hash TEXT NOT NULL,
         created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
       )`);
-      db.exec("ALTER TABLE graphs ADD COLUMN user_id TEXT");
-      db.exec("ALTER TABLE runs ADD COLUMN user_id TEXT");
-      db.exec("ALTER TABLE brand_terms ADD COLUMN user_id TEXT");
+      // DDL runs before migrations and may already have created some tables
+      // with the latest shape, so only add missing columns.
+      for (const table of ["graphs", "runs", "brand_terms"] as const) {
+        if (!columnExists(db, table, "user_id")) {
+          db.exec(`ALTER TABLE ${table} ADD COLUMN user_id TEXT`);
+        }
+      }
       db.exec("CREATE INDEX IF NOT EXISTS idx_graphs_user ON graphs(user_id)");
       db.exec("CREATE INDEX IF NOT EXISTS idx_runs_user ON runs(user_id)");
       db.exec("CREATE INDEX IF NOT EXISTS idx_brand_terms_user ON brand_terms(user_id)");
