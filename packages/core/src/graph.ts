@@ -200,6 +200,14 @@ export const CodeNodeConfig = z.object({
   /** Env var names allowed to reach the sandboxed subprocess (beyond a safe
    *  base of PATH/HOME/TMPDIR/…). The server's own secrets are never forwarded. */
   env: z.array(z.string()).default([]),
+  /** Filesystem policy. "sandbox" (default): the subprocess may only read and
+   *  write its per-run workdir. "allowlist": additionally grant READ access to
+   *  the server's TOOL_FS_ALLOW prefixes — writes stay workdir-only. */
+  fs: z.enum(["sandbox", "allowlist"]).default("sandbox"),
+  /** Network policy. "none" (default): all network denied. "allowlist" is
+   *  reserved for a future SSRF-checked proxy and rejected by the engine
+   *  until it actually exists — never pretend to allow. */
+  net: z.enum(["none", "allowlist"]).default("none"),
 });
 export type CodeNodeConfig = z.infer<typeof CodeNodeConfig>;
 

@@ -38,7 +38,7 @@ describe("code workdir", () => {
 
 /* ---------------- P1: limits resolution + rlimit wrapper ---------------- */
 
-import { platform } from "node:os";
+import { platform, tmpdir } from "node:os";
 import type { CodeSandboxLimits } from "./code-sandbox.js";
 import {
   DEFAULT_SANDBOX_LIMITS,
@@ -125,13 +125,33 @@ describe("buildRlimitWrapper", () => {
     const runtime = buildRlimitWrapper({
       interpreterPath: execPath,
       interpreterArgs: ["-e", "console.log('x')"],
-      limits: resolveLimits(),
+      // RLIMIT_NPROC caps the TOTAL task count (processes AND threads) of
+      // the invoking user — including the vitest workers and harness
+      // processes running this very test. When the user's session is
+      // already at ≥maxProcs tasks, node aborts at boot (uv_thread_create
+      // EAGAIN → SIGABRT, status=null) before our code ever runs — a CI
+      // Linux run showed exactly that signature. Quoting is what we test
+      // here; NPROC enforcement under production limits is covered by the
+      // engine.code integration tests.
+      limits: { ...resolveLimits(), maxProcs: 4096 },
     });
     // Use spawnSync to run the wrapper with a timeout. rlimits will be
     // applied but the one-liner finishes in ms so it doesn't hit any cap.
     const { spawnSync: spawn } = require("node:child_process") as typeof import("node:child_process");
-    const r = spawn(runtime.command, runtime.args, { encoding: "utf8", timeout: 5000 });
-    expect(r.status).withContext(`stderr=${r.stderr}`).toBe(0);
+    const r = spawn(runtime.command, runtime.args, {
+      encoding: "utf8",
+      timeout: 10000,
+      // EOF on stdin: if quoting ever regresses and node drops into REPL
+      // mode, it exits at EOF instead of hanging until the timeout (a
+      // CI Linux run showed exactly that silent-hang signature).
+      input: "",
+      // Mirror the engine's spawn conditions (trimmed env), not the vitest
+      // worker's full environment.
+      env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "", TMPDIR: tmpdir() },
+    });
+    expect(r.status)
+      .withContext(`signal=${r.signal} err=${r.error?.message} stdout=${r.stdout} stderr=${r.stderr}`)
+      .toBe(0);
     expect(r.stdout.trim().split(/\n/)[0]).toBe("x");
   });
 });
@@ -197,5 +217,213 @@ describe("planCodeSpawn", () => {
     expect(script).toContain("'print(1)'");
     // Permission model is JS-only; never inject it into python3 argv.
     expect(/--(experimental-)?permission(?:=|$|\s)/.test(script)).toBe(false);
+  });
+});
+
+/* ---------------- P2: pluggable OS sandbox backends ---------------- */
+
+import { spawnSync } from "node:child_process";
+import { rmSync } from "node:fs";
+import { join } from "node:path";
+import { afterEach, vi } from "vitest";
+import {
+  bwrapBackend,
+  binaryAvailable,
+  buildSeatbeltProfile,
+  noopBackend,
+  resolveSandbox,
+  sandboxExecBackend,
+} from "./code-sandbox.js";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+describe("resolveSandbox (P2 backend selection)", () => {
+  it("defaults to rlimit when CODE_SANDBOX is unset or empty", () => {
+    expect(resolveSandbox({}).name).toBe("rlimit");
+    expect(resolveSandbox({ CODE_SANDBOX: "" }).name).toBe("rlimit");
+  });
+
+  it("returns bwrap when requested and the binary is present", () => {
+    const b = resolveSandbox({ CODE_SANDBOX: "bwrap" }, () => true);
+    expect(b.name).toBe("bwrap");
+  });
+
+  it("returns sandbox-exec when requested and the binary is present", () => {
+    const b = resolveSandbox({ CODE_SANDBOX: "sandbox-exec" }, () => true);
+    expect(b.name).toBe("sandbox-exec");
+  });
+
+  it("degrades to rlimit with a loud warn when the requested binary is missing", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect(resolveSandbox({ CODE_SANDBOX: "bwrap" }, () => false).name).toBe("rlimit");
+    expect(resolveSandbox({ CODE_SANDBOX: "sandbox-exec" }, () => false).name).toBe("rlimit");
+    expect(warn).toHaveBeenCalledTimes(2);
+    expect(warn.mock.calls[0][0]).toContain("degrading to rlimit");
+  });
+
+  it("degrades to rlimit with a warn on an unknown backend name", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect(resolveSandbox({ CODE_SANDBOX: "gvisor" }, () => true).name).toBe("rlimit");
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toContain("unknown CODE_SANDBOX");
+  });
+
+  it("noop is selectable (escape hatch) and warns about the missing sandbox", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect(resolveSandbox({ CODE_SANDBOX: "noop" }, () => true).name).toBe("noop");
+    expect(warn.mock.calls[0][0]).toContain("WITHOUT rlimits");
+  });
+});
+
+describe("bwrap backend", () => {
+  it("plans a read-only root, writable workdir, no network, inner rlimit wrapper", () => {
+    const plan = bwrapBackend.planSpawn({ language: "javascript", code: "console.log(1)", workdir: "/tmp/wd" });
+    expect(plan.command).toBe("bwrap");
+    const a = plan.args;
+    // ro root + writable workdir bind
+    const roIdx = a.indexOf("--ro-bind");
+    expect(a[roIdx + 1]).toBe("/");
+    expect(a[roIdx + 2]).toBe("/");
+    const bindIdx = a.indexOf("--bind");
+    expect(a[bindIdx + 1]).toBe("/tmp/wd");
+    expect(a[bindIdx + 2]).toBe("/tmp/wd");
+    expect(a).toContain("--unshare-net");
+    expect(a).toContain("--unshare-pid");
+    expect(a).toContain("--die-with-parent");
+    // inner command is the bash ulimit wrapper with JS permission flags
+    const bashIdx = a.indexOf("/bin/bash");
+    const script = a[bashIdx + 2];
+    expect(script).toContain("ulimit -t");
+    expect(script).toContain("--allow-fs-read=/tmp/wd");
+  });
+
+  it("live: executes node under bwrap when the binary exists", async () => {
+    if (!binaryAvailable("bwrap")) return; // skipped where bwrap is absent
+    const plan = bwrapBackend.planSpawn({
+      language: "javascript",
+      code: "console.log('bwrap-ok')",
+      workdir: await createCodeWorkdir("p2bwrap", "n", 1),
+    });
+    try {
+      const r = spawnSync(plan.command, plan.args, { encoding: "utf8", timeout: 15000 });
+      expect(r.status).withContext(`stderr=${r.stderr}`).toBe(0);
+      expect(r.stdout.trim()).toBe("bwrap-ok");
+    } finally {
+      await cleanupCodeWorkdir(plan.args[plan.args.indexOf("--bind") + 1]);
+    }
+  }, 20000);
+});
+
+describe("sandbox-exec backend", () => {
+  it("builds a deny-by-default seatbelt profile locked to the workdir", () => {
+    const profile = buildSeatbeltProfile("/tmp/wd");
+    expect(profile).toContain("(deny default)");
+    expect(profile).toContain("(deny network*)");
+    expect(profile).toContain("(allow file-read*)");
+    expect(profile).toContain('(allow file-write* (subpath "/tmp/wd"))');
+  });
+
+  it("plans sandbox-exec -p <profile> with the inner rlimit wrapper", () => {
+    const plan = sandboxExecBackend.planSpawn({ language: "python", code: "print(1)", workdir: "/tmp/wd" });
+    expect(plan.command).toBe("sandbox-exec");
+    expect(plan.args[0]).toBe("-p");
+    expect(plan.args[1]).toContain("(deny default)");
+    expect(plan.args[2]).toBe("/bin/bash");
+    expect(plan.args[4]).toContain("ulimit -t");
+  });
+
+  /**
+   * Node 24.0.0's V8 crashes under seatbelt (LowLevelAlloc arithmetic
+   * overflow, SIGABRT) — Node 20/22 are fine. Probe first and skip the
+   * live run on affected builds instead of reporting a false regression.
+   */
+  function nodeBootsUnderSeatbelt(wd: string): boolean {
+    const profile = buildSeatbeltProfile(wd);
+    const r = spawnSync("sandbox-exec", ["-p", profile, process.execPath, "-e", "0"], {
+      encoding: "utf8",
+      timeout: 10000,
+    });
+    return r.status === 0;
+  }
+
+  it("live: JS writes inside the workdir succeed under seatbelt (macOS)", async () => {
+    if (!binaryAvailable("sandbox-exec")) return;
+    const wd = await createCodeWorkdir("p2seat", "ok", 1);
+    if (!nodeBootsUnderSeatbelt(wd)) {
+      await cleanupCodeWorkdir(wd);
+      return; // Node 24.0.0 seatbelt crash — see comment above
+    }
+    try {
+      const plan = sandboxExecBackend.planSpawn({
+        language: "javascript",
+        code: `require("fs").writeFileSync(${JSON.stringify(join(wd, "out.txt"))}, "x"); console.log("ok")`,
+        workdir: wd,
+      });
+      const r = spawnSync(plan.command, plan.args, { encoding: "utf8", timeout: 15000 });
+      expect(r.status).withContext(`stderr=${r.stderr}`).toBe(0);
+      expect(r.stdout.trim()).toBe("ok");
+    } finally {
+      await cleanupCodeWorkdir(wd);
+    }
+  }, 20000);
+
+  it("live: writes outside the workdir are denied by seatbelt, even for python (macOS)", async () => {
+    if (!binaryAvailable("sandbox-exec")) return;
+    if (!binaryAvailable("python3")) return;
+    const wd = await createCodeWorkdir("p2seat", "deny", 1);
+    const outside = join(wd, "..", "aw-seatbelt-should-deny");
+    try {
+      const plan = sandboxExecBackend.planSpawn({
+        language: "python",
+        code: `open(${JSON.stringify(outside)}, "w").write("x")`,
+        workdir: wd,
+      });
+      const r = spawnSync(plan.command, plan.args, { encoding: "utf8", timeout: 15000 });
+      // Seatbelt (not a Node runtime feature) must be what denies this.
+      expect(r.status).not.toBe(0);
+    } finally {
+      rmSync(outside, { force: true });
+      await cleanupCodeWorkdir(wd);
+    }
+  }, 20000);
+});
+
+describe("noop backend (escape hatch)", () => {
+  it("spawns the interpreter directly: no ulimit wrapper, no permission flags", () => {
+    const plan = noopBackend.planSpawn({ language: "javascript", code: "console.log(1)", workdir: "/tmp/wd" });
+    expect(plan.wrapped).toBe(false);
+    expect(plan.args).toEqual(["-e", "console.log(1)"]);
+    expect(plan.command).toContain("node");
+  });
+});
+
+describe("fs policy plumbing (extraFsReadPaths)", () => {
+  it("planCodeSpawn repeats --allow-fs-read per extra path (JS)", () => {
+    const plan = planCodeSpawn({
+      language: "javascript",
+      code: "console.log(1)",
+      workdir: "/tmp/wd",
+      extraFsReadPaths: ["/data/a", "/data/b"],
+    });
+    const script = plan.args[plan.args.length - 1] as string;
+    expect(script).toContain("--allow-fs-read=/data/a");
+    expect(script).toContain("--allow-fs-read=/data/b");
+    // write grant stays workdir-only
+    expect(script).toContain("--allow-fs-write=/tmp/wd");
+    expect(script).not.toContain("--allow-fs-write=/data");
+  });
+
+  it("bwrap backend keeps the read-only root (extras are no-ops there)", () => {
+    const plan = bwrapBackend.planSpawn({
+      language: "javascript",
+      code: "console.log(1)",
+      workdir: "/tmp/wd",
+      extraFsReadPaths: ["/data/a"],
+    });
+    const roIdx = plan.args.indexOf("--ro-bind");
+    expect(plan.args[roIdx + 1]).toBe("/");
+    expect(plan.args[roIdx + 2]).toBe("/");
   });
 });

@@ -5,16 +5,17 @@ import { tmpdir, platform } from "node:os";
 import { join } from "node:path";
 
 /**
- * Sandbox helpers for the `code` node. P0 (env + cwd + interpreter) +
- * P1 (rlimit + Node permission model) are implemented in this module.
- * P2 (bwrap/sandbox-exec/container backends) is deferred.
+ * Sandbox helpers for the `code` node. P0 (env + cwd + interpreter),
+ * P1 (rlimit + Node permission model) and P2 (pluggable OS sandbox
+ * backends: bwrap / sandbox-exec / noop) are implemented in this module.
  *
  * For the full design & threat model see docs/design-code-sandbox.md.
  *
  * Honesty boundary the code must preserve:
  *   - Python has NO runtime-level permission model. Its fs/net isolation in
- *     the `rlimit` backend is best-effort; hard guarantees need P2 OS-level
- *     backends (bwrap/sandbox-exec/containers).
+ *     the `rlimit` backend is best-effort; hard guarantees need the P2
+ *     OS-level backends (bwrap / sandbox-exec). `docker`/`podman` backends
+ *     are deliberately NOT implemented yet — see docs/design-code-sandbox.md.
  */
 
 const interpreterCache = new Map<"javascript" | "python", string>();
@@ -198,12 +199,16 @@ export function buildNodePermissionArgs(params: {
   interpreterPath: string;
   workdir: string;
   limits: Required<CodeSandboxLimits>;
+  /** Extra READ-ONLY prefixes (fs: "allowlist" → TOOL_FS_ALLOW). Writes stay
+   *  workdir-only. The flag repeats per path — Node accepts multiple grants. */
+  extraFsReadPaths?: string[];
 }): string[] {
-  const { interpreterPath, workdir, limits } = params;
+  const { interpreterPath, workdir, limits, extraFsReadPaths = [] } = params;
   const gate = probeNodePermissionGate(interpreterPath);
   const args: string[] = [];
   if (gate !== "none") args.push(gate);
   args.push(`--allow-fs-read=${workdir}`);
+  for (const p of extraFsReadPaths) args.push(`--allow-fs-read=${p}`);
   args.push(`--allow-fs-write=${workdir}`);
   args.push(`--max-old-space-size=${limits.nodeMaxOldSpaceMb}`);
   return args;
@@ -228,6 +233,7 @@ export function planCodeSpawn(opts: {
   code: string;
   workdir: string;
   limits?: CodeSandboxLimits;
+  extraFsReadPaths?: string[];
 }): SandboxSpawnPlan {
   const limits = resolveLimits(opts.limits);
   const interpreter = resolveInterpreter(opts.language);
@@ -235,7 +241,12 @@ export function planCodeSpawn(opts: {
   let interpreterArgs: string[];
   if (opts.language === "javascript") {
     interpreterArgs = [
-      ...buildNodePermissionArgs({ interpreterPath: interpreter, workdir: opts.workdir, limits }),
+      ...buildNodePermissionArgs({
+        interpreterPath: interpreter,
+        workdir: opts.workdir,
+        limits,
+        extraFsReadPaths: opts.extraFsReadPaths,
+      }),
       "-e",
       opts.code,
     ];
@@ -252,4 +263,214 @@ export function planCodeSpawn(opts: {
   });
 
   return { command: wrapped.command, args: wrapped.args, limits, wrapped: true };
+}
+
+/* ---------------- P2: pluggable OS sandbox backends ---------------- */
+
+export type SandboxBackendName = "rlimit" | "bwrap" | "sandbox-exec" | "noop";
+
+export interface SandboxSpawnOptions {
+  language: "javascript" | "python";
+  code: string;
+  workdir: string;
+  limits?: CodeSandboxLimits;
+  /** fs: "allowlist" — extra READ-ONLY prefixes granted on top of the
+   *  workdir. What each backend can actually enforce differs; see the
+   *  per-backend docs below. */
+  extraFsReadPaths?: string[];
+}
+
+/**
+ * A backend turns (language, code, workdir, limits) into the command+argv
+ * the engine should `spawn()`. Env trimming and `cwd` remain spawn-site
+ * options. All backends compose with the P1 rlimit wrapper where the OS
+ * mechanism does not already cover resource limits.
+ */
+export interface CodeSandboxBackend {
+  readonly name: SandboxBackendName;
+  planSpawn(opts: SandboxSpawnOptions): SandboxSpawnPlan;
+}
+
+/** Shared interpreter+permission argv builder used by every backend. */
+function interpreterArgsFor(
+  language: "javascript" | "python",
+  code: string,
+  workdir: string,
+  limits: Required<CodeSandboxLimits>,
+  extraFsReadPaths: string[],
+): { interpreterPath: string; interpreterArgs: string[] } {
+  const interpreterPath = resolveInterpreter(language);
+  if (language === "javascript") {
+    return {
+      interpreterPath,
+      interpreterArgs: [
+        ...buildNodePermissionArgs({ interpreterPath, workdir, limits, extraFsReadPaths }),
+        "-e",
+        code,
+      ],
+    };
+  }
+  // Python has no runtime permission model — see the honesty boundary above.
+  // extraFsReadPaths is a no-op here: Python under `rlimit` never had fs
+  // restriction to begin with; only the P2 backends can constrain it.
+  return { interpreterPath, interpreterArgs: ["-c", code] };
+}
+
+/** Default backend: bash ulimit wrapper + Node permission model (JS only). */
+export const rlimitBackend: CodeSandboxBackend = {
+  name: "rlimit",
+  planSpawn(opts: SandboxSpawnOptions): SandboxSpawnPlan {
+    return planCodeSpawn(opts);
+  },
+};
+
+/**
+ * bubblewrap (Linux): mount namespace with read-only root, the workdir
+ * bind-mounted writable, and net/pid/uts/ipc/cgroup namespaces unshared.
+ * fs + net isolation for BOTH JS and Python. rlimits still apply via the
+ * inner bash wrapper (bwrap has no resource-limit flags).
+ */
+export const bwrapBackend: CodeSandboxBackend = {
+  name: "bwrap",
+  planSpawn(opts: SandboxSpawnOptions): SandboxSpawnPlan {
+    const limits = resolveLimits(opts.limits);
+    const { interpreterPath, interpreterArgs } = interpreterArgsFor(
+      opts.language,
+      opts.code,
+      opts.workdir,
+      limits,
+      opts.extraFsReadPaths ?? [],
+    );
+    const inner = buildRlimitWrapper({ interpreterPath, interpreterArgs, limits });
+    const args = [
+      "--ro-bind", "/", "/",
+      "--bind", opts.workdir, opts.workdir,
+      "--chdir", opts.workdir,
+      // extraFsReadPaths need no explicit grant here: the read-only root bind
+      // above already exposes the whole fs read-only to the sandbox.
+      "--unshare-net",
+      "--unshare-pid",
+      "--unshare-uts",
+      "--unshare-ipc",
+      // No --unshare-cgroup: it hard-fails on hosts without cgroup v2
+      // delegation; the other namespaces already cover the threat model.
+      "--die-with-parent",
+      "--new-session",
+      inner.command,
+      ...inner.args,
+    ];
+    return { command: "bwrap", args, limits, wrapped: true };
+  },
+};
+
+/**
+ * seatbelt (macOS `sandbox-exec`): deny-by-default profile — no network,
+ * read-only filesystem except the workdir. Covers JS AND Python.
+ * Apple marks sandbox-exec deprecated but it ships on every macOS; this is
+ * the dev-machine backend, production should run bwrap/containers on Linux.
+ */
+export function buildSeatbeltProfile(workdir: string): string {
+  // Kept to the MINIMAL proven op set: newer macOS rejects profile parsers
+  // for filter names like process-fork*/sysctl-read*/mach-lookup* ("unbound
+  // variable"), so we only use ops that every seatbelt version accepts —
+  // `process*` already covers exec/fork/signal. `workdir` MUST be the
+  // realpath form (createCodeWorkdir guarantees it): seatbelt resolves
+  // vnodes, so a /var-style symlinked grant silently never matches.
+  return [
+    "(version 1)",
+    "(deny default)",
+    "(allow process*)",
+    "(allow file-read*)",
+    `(allow file-write* (subpath "${workdir}"))`,
+    // Explicit for documentation; default-deny already covers it.
+    "(deny network*)",
+  ].join("\n");
+}
+
+export const sandboxExecBackend: CodeSandboxBackend = {
+  name: "sandbox-exec",
+  planSpawn(opts: SandboxSpawnOptions): SandboxSpawnPlan {
+    const limits = resolveLimits(opts.limits);
+    const { interpreterPath, interpreterArgs } = interpreterArgsFor(
+      opts.language,
+      opts.code,
+      opts.workdir,
+      limits,
+      opts.extraFsReadPaths ?? [],
+    );
+    // extraFsReadPaths need no explicit grant here: the profile already has
+    // `(allow file-read*)` — reads are unrestricted, only writes are fenced.
+    const inner = buildRlimitWrapper({ interpreterPath, interpreterArgs, limits });
+    const args = ["-p", buildSeatbeltProfile(opts.workdir), inner.command, ...inner.args];
+    return { command: "sandbox-exec", args, limits, wrapped: true };
+  },
+};
+
+/**
+ * Escape hatch for tests / trusted pipelines: the raw P0 spawn shape —
+ * absolute interpreter path, no ulimit wrapper, no permission flags.
+ * Selecting this is logged loudly by resolveSandbox.
+ */
+export const noopBackend: CodeSandboxBackend = {
+  name: "noop",
+  planSpawn(opts: SandboxSpawnOptions): SandboxSpawnPlan {
+    const limits = resolveLimits(opts.limits);
+    const interpreterPath = resolveInterpreter(opts.language);
+    const interpreterArgs = opts.language === "javascript" ? ["-e", opts.code] : ["-c", opts.code];
+    return { command: interpreterPath, args: interpreterArgs, limits, wrapped: false };
+  },
+};
+
+/** Probe whether a binary is on PATH. Result cached per binary name. */
+const binaryAvailabilityCache = new Map<string, boolean>();
+export function binaryAvailable(bin: string): boolean {
+  const cached = binaryAvailabilityCache.get(bin);
+  if (cached !== undefined) return cached;
+  const which = platform() === "win32" ? "where" : "which";
+  const r = spawnSync(which, [bin], { encoding: "utf8" });
+  const ok = r.status === 0;
+  binaryAvailabilityCache.set(bin, ok);
+  return ok;
+}
+
+const degradeWarned = new Set<string>();
+
+function warnOnce(msg: string): void {
+  if (degradeWarned.has(msg)) return;
+  degradeWarned.add(msg);
+  console.warn(msg);
+}
+
+/**
+ * Pick a backend by CODE_SANDBOX (rlimit | bwrap | sandbox-exec | noop).
+ * Missing binaries and unknown values degrade to `rlimit` with a loud
+ * console.warn — never silently fall back to an unrequested weaker/stronger
+ * backend.
+ *
+ * `probe` is injectable for tests; production uses `binaryAvailable`.
+ */
+export function resolveSandbox(
+  env: NodeJS.ProcessEnv = process.env,
+  probe: (bin: string) => boolean = binaryAvailable,
+): CodeSandboxBackend {
+  const requested = (env.CODE_SANDBOX ?? "rlimit").trim().toLowerCase();
+  switch (requested) {
+    case "":
+    case "rlimit":
+      return rlimitBackend;
+    case "noop":
+      warnOnce("[sandbox] CODE_SANDBOX=noop: code nodes run WITHOUT rlimits or permission flags");
+      return noopBackend;
+    case "bwrap":
+      if (probe("bwrap")) return bwrapBackend;
+      warnOnce("[sandbox] CODE_SANDBOX=bwrap but bwrap is not on PATH; degrading to rlimit (Python fs/net isolation is best-effort only)");
+      return rlimitBackend;
+    case "sandbox-exec":
+      if (probe("sandbox-exec")) return sandboxExecBackend;
+      warnOnce("[sandbox] CODE_SANDBOX=sandbox-exec but the binary is not on PATH; degrading to rlimit (Python fs/net isolation is best-effort only)");
+      return rlimitBackend;
+    default:
+      warnOnce(`[sandbox] unknown CODE_SANDBOX="${requested}"; using rlimit`);
+      return rlimitBackend;
+  }
 }

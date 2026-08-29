@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync, writeFileSync, realpathSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { compile, replay, type Graph } from "@agent-world/core";
 import { describe, expect, it } from "vitest";
 import { execute } from "./engine.js";
@@ -253,4 +256,65 @@ describe("code node sandbox P1", () => {
       else process.env.CODE_LIMIT_CPU_SEC = prev;
     }
   }, 15000);
+});
+
+describe("code node fs/net policy", () => {
+  it("fs: allowlist grants READ access to TOOL_FS_ALLOW prefixes (writes stay workdir-only)", async () => {
+    const dir = mkdtempSync(join(realpathSync(tmpdir()), "aw-fsallow-"));
+    const secret = join(dir, "note.txt");
+    writeFileSync(secret, "allowed-content");
+    try {
+      process.env.TOOL_FS_ALLOW = dir;
+      const script = [
+        "const fs = require('fs');",
+        "const path = process.env.AW_TEST_FILE;",
+        "console.log(JSON.stringify({ content: fs.readFileSync(path, 'utf8') }));",
+      ].join("\n");
+      // Pass the file path via the script itself (env is trimmed).
+      const inlined = script.replace("process.env.AW_TEST_FILE", JSON.stringify(secret));
+      const events = await collect(
+        graph({ language: "javascript", code: inlined, timeoutMs: 10000, fs: "allowlist" }),
+        "x",
+      );
+      const finished = events.find((e) => e.type === "node.finished" && e.nodeId === "calc");
+      expect(finished).toBeTruthy();
+      expect(finished.output).toBe(JSON.stringify({ content: "allowed-content" }, null, 2));
+      expect(replay(events).status).toBe("done");
+    } finally {
+      delete process.env.TOOL_FS_ALLOW;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("fs: allowlist still denies reads outside the allowlist", async () => {
+    const dir = mkdtempSync(join(realpathSync(tmpdir()), "aw-fsdeny-"));
+    try {
+      process.env.TOOL_FS_ALLOW = dir;
+      // /etc/hosts is outside workdir AND outside the allowlist.
+      const script = [
+        "const fs = require('fs');",
+        "console.log(JSON.stringify({ leaked: fs.readFileSync('/etc/hosts', 'utf8').slice(0, 20) }));",
+      ].join("\n");
+      const events = await collect(
+        graph({ language: "javascript", code: script, timeoutMs: 10000, fs: "allowlist" }),
+        "x",
+      );
+      const failed = events.find((e) => e.type === "node.failed" && e.nodeId === "calc");
+      expect(failed).toBeTruthy();
+      expect(replay(events).status).toBe("failed");
+    } finally {
+      delete process.env.TOOL_FS_ALLOW;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("net: allowlist is rejected honestly as unimplemented", async () => {
+    const events = await collect(
+      graph({ language: "javascript", code: "console.log('never runs');", timeoutMs: 10000, net: "allowlist" }),
+      "x",
+    );
+    const failed = events.find((e) => e.type === "node.failed" && e.nodeId === "calc");
+    expect(failed.errorCode).toBe("VALIDATION");
+    expect(failed.error).toContain("尚未实现");
+  });
 });
