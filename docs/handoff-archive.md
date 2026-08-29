@@ -1789,6 +1789,8 @@ modality 切片，统一严格过滤；同时把 agent 的占位文案从泛化�
 
 > Entries rolled out of the active `handoff.md` "Recently shipped" list to keep it at 5 items.
 
+- `3dea78d` — **feat(error)**: **Phase 4 错误处理 PR④——失败告警 + rerun API**。notifyFailed webhook + POST /api/runs/:id/rerun。5 个新测试。
+- `ce17008` — **feat(error)**: **Phase 4 错误处理 PR③——error 边 + catch 节点**。EdgeKind error + engine catchReady/finish 重新评估 + inputFor 合并 error 前驱。2 个新测试。
 - `906a70e` — **feat(error)**: **Phase 4 错误处理 PR②——级联 skip**。NodeState.skipped 扩展到失败节点搁浅下游；engine 不动点级联（failed/skipped 前驱 + 无 done 前驱 → skip）；core node.skipped 事件 + NodeRuntime.status 加 skipped。
 - `d31c482` — **feat(retry)**: **Phase 4 错误处理 PR①——重试去重+补全**。抽公共 retry.ts；translate retry 提到配置；Search/Http/Code 配置加 retry + 执行分支重试；web DEFAULTS 补 retry。
 - `bb56bad` — **feat(notify)**: **富消息 + 重试增强**。NotifyConfig 加 format: text|markdown（飞书 interactive 卡片、钉钉/企微原生 markdown）+ retry（复用 RetryPolicy）；NotifyProviderError（平台 errcode 非 0 不重试）；web Inspector「消息格式」下拉。core +2 + server +5 个新测试。
