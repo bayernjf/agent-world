@@ -8,6 +8,7 @@ import {
   SearchConfig,
   TranslateConfig,
   NotifyConfig,
+  VcsConfig,
 } from "./graph.js";
 
 describe("FileParseConfig", () => {
@@ -268,9 +269,15 @@ describe("NotifyConfig", () => {
 
   it("rejects unknown providers, bad URLs and invalid emails", () => {
     expect(() => NotifyConfig.parse({})).toThrow();
-    expect(() => NotifyConfig.parse({ provider: "slack" })).toThrow();
+    expect(() => NotifyConfig.parse({ provider: "telegram" })).toThrow();
     expect(() => NotifyConfig.parse({ provider: "feishu", webhookUrl: "not-a-url" })).toThrow();
     expect(() => NotifyConfig.parse({ provider: "email", to: "not-an-email" })).toThrow();
+  });
+
+  it("parses a slack config with channel", () => {
+    const cfg = NotifyConfig.parse({ provider: "slack", channel: "C123", message: "hi" });
+    expect(cfg.provider).toBe("slack");
+    expect(cfg.channel).toBe("C123");
   });
 
   it("round-trips inside a GraphNode", () => {
@@ -284,5 +291,62 @@ describe("NotifyConfig", () => {
     });
     expect(node.kind).toBe("notify");
     expect(node.notify?.secret).toBe("SEC123");
+  });
+});
+
+describe("VcsConfig", () => {
+  it("requires an action and defaults to github with empty body and 2 retries", () => {
+    const cfg = VcsConfig.parse({ action: "create_pr" });
+    expect(cfg.provider).toBe("github");
+    expect(cfg.body).toBe("");
+    expect(cfg.retry.maxRetries).toBe(2);
+    expect(cfg.owner).toBeUndefined();
+    expect(cfg.repo).toBeUndefined();
+  });
+
+  it("parses a full github create_pr config", () => {
+    const cfg = VcsConfig.parse({
+      provider: "github",
+      action: "create_pr",
+      owner: "bayernjf",
+      repo: "one-world",
+      head: "feature/x",
+      base: "main",
+      title: "Add X",
+    });
+    expect(cfg.owner).toBe("bayernjf");
+    expect(cfg.head).toBe("feature/x");
+    expect(cfg.base).toBe("main");
+  });
+
+  it("parses a gitlab trigger_workflow config with inputs", () => {
+    const cfg = VcsConfig.parse({
+      provider: "gitlab",
+      action: "trigger_workflow",
+      projectId: "42",
+      ref: "main",
+      inputs: { env: "staging" },
+    });
+    expect(cfg.projectId).toBe("42");
+    expect(cfg.inputs).toEqual({ env: "staging" });
+  });
+
+  it("rejects unknown providers and actions", () => {
+    expect(() => VcsConfig.parse({ action: "create_pr", provider: "bitbucket" })).toThrow();
+    expect(() => VcsConfig.parse({ action: "merge_pr" })).toThrow();
+    expect(() => VcsConfig.parse({})).toThrow();
+  });
+
+  it("round-trips inside a GraphNode", () => {
+    const node = GraphNode.parse({
+      id: "v1",
+      kind: "vcs",
+      name: "VCS",
+      x: 0,
+      y: 0,
+      vcs: { action: "list_issues", owner: "o", repo: "r" },
+    });
+    expect(node.kind).toBe("vcs");
+    expect(node.vcs?.action).toBe("list_issues");
   });
 });

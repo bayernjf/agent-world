@@ -33,7 +33,8 @@ const MORE: NodeButton[] = [
   { kind: "ocr", label: "OCR", hint: "OCR 节点：识别图片中的文字（tesseract.js）", primary: false },
   { kind: "convert", label: "文件转换", hint: "Convert 节点：PDF 提取图片 / 图片格式转换（PNG、JPEG）", primary: false },
   { kind: "search", label: "搜索", hint: "Search 节点：网络搜索（DuckDuckGo 免 key / Tavily / SerpAPI / Google）", primary: false },
-  { kind: "notify", label: "通知", hint: "Notify 节点：发消息到飞书/钉钉/企微群或邮件", primary: false },
+  { kind: "notify", label: "通知", hint: "Notify 节点：发消息到飞书/钉钉/企微/Slack 群或邮件", primary: false },
+  { kind: "vcs", label: "代码仓库", hint: "VCS 节点：GitHub/GitLab 提 PR、评论 issue、触发 workflow、列 issue", primary: false },
   { kind: "videoGen", label: "AI 视频", hint: "VideoGen 节点", primary: false },
   { kind: "audioGen", label: "AI 音频", hint: "AudioGen 节点", primary: false },
 ];

@@ -35,6 +35,7 @@ const KIND_LABEL: Record<GraphNode["kind"], string> = {
   convert: "转换",
   search: "搜索",
   notify: "通知",
+  vcs: "仓库",
 };
 
 const STATUS_LABEL: Record<NodeRuntime["status"], string> = {

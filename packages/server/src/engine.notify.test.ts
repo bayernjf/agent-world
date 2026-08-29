@@ -260,4 +260,34 @@ describe("notify node — outbound notifications", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1); // no retry on NotifyProviderError
     expect(events.some((e) => e.type === "node.failed" && e.nodeId === "nt" && e.errorCode === "PROVIDER_ERROR")).toBe(true);
   });
+
+  it("sends a message to a Slack channel via chat.postMessage", async () => {
+    vi.stubEnv("SLACK_BOT_TOKEN", "xoxb-test");
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    const events = await collect(notifyGraph({ provider: "slack", channel: "C123", message: "deploy done" }));
+    expect(replay(events).status).toBe("done");
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe("https://slack.com/api/chat.postMessage");
+    expect((init as any).headers.authorization).toBe("Bearer xoxb-test");
+    expect(JSON.parse((init as any).body)).toEqual({ channel: "C123", text: "deploy done" });
+    const art = jsonOf(events, "nt");
+    expect(JSON.parse(art.content)).toMatchObject({ sent: true, provider: "slack", detail: "C123" });
+  });
+
+  it("fails with AUTH when SLACK_BOT_TOKEN is missing", async () => {
+    vi.stubEnv("SLACK_BOT_TOKEN", "");
+    const events = await collect(notifyGraph({ provider: "slack", channel: "C1", message: "m" }));
+    expect(replay(events).status).toBe("failed");
+    expect(events.some((e) => e.type === "node.failed" && e.nodeId === "nt" && e.errorCode === "AUTH")).toBe(true);
+  });
+
+  it("fails with PROVIDER_ERROR when Slack returns ok:false", async () => {
+    vi.stubEnv("SLACK_BOT_TOKEN", "xoxb-bad");
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ ok: false, error: "invalid_auth" }), { status: 200 }));
+    const events = await collect(notifyGraph({ provider: "slack", channel: "C1", message: "m", retry: { maxRetries: 0, baseDelayMs: 0, maxDelayMs: 0 } }));
+    expect(replay(events).status).toBe("failed");
+    const failed = events.find((e) => e.type === "node.failed" && e.nodeId === "nt");
+    expect(failed.errorCode).toBe("PROVIDER_ERROR");
+    expect(failed.error).toContain("invalid_auth");
+  });
 });

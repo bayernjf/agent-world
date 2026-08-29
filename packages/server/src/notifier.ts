@@ -115,6 +115,29 @@ async function sendGroupBot(
   return { provider, detail: `${provider} 群机器人 …${tail}` };
 }
 
+async function sendSlack(cfg: NotifyConfig, message: string): Promise<NotifyResult> {
+  const token = process.env.SLACK_BOT_TOKEN;
+  if (!token) {
+    throw new NotifyAuthError("缺少环境变量 SLACK_BOT_TOKEN（Slack 通知需配置 Bot Token）");
+  }
+  if (!cfg.channel) {
+    throw new NotifyAuthError("缺少 channel（Slack 通知需在配置中填写 channel id）");
+  }
+  // Slack always returns HTTP 200; success is signalled by `ok: true` in the body.
+  // mrkdwn is Slack's own flavour of markdown; we pass the message through so
+  // users can write *bold*, ~strike~, `<url|text>` per Slack's syntax.
+  const res = await fetch("https://slack.com/api/chat.postMessage", {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+    body: JSON.stringify({ channel: cfg.channel, text: message }),
+  });
+  const json = await assertOk("slack", res);
+  if (json.ok !== true) {
+    throw new NotifyProviderError(`Slack 通知发送失败: ${(json.error as string | undefined) ?? "unknown"}`);
+  }
+  return { provider: "slack", detail: cfg.channel };
+}
+
 async function sendEmail(cfg: NotifyConfig, message: string, subject: string): Promise<NotifyResult> {
   const host = process.env.SMTP_HOST;
   const user = process.env.SMTP_USER;
@@ -180,6 +203,8 @@ export async function sendNotification(cfg: NotifyConfig, message: string, subje
       case "dingtalk":
       case "wecom":
         return sendGroupBot(cfg.provider, cfg, message, subject);
+      case "slack":
+        return sendSlack(cfg, message);
       case "email":
         return sendEmail(cfg, message, subject);
     }
