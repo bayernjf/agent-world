@@ -55,6 +55,7 @@ describe("startABExperiment + abReport", () => {
     async () => {
       const db = openDb(":memory:");
       const { abGroup, arms } = await startABExperiment(db, fakeWorker({ chunkDelayMs: 0 }), {
+        userId: "u1",
         graph: abGraph,
         targetNodeId: "a",
         variants: ["P1", "P2"],

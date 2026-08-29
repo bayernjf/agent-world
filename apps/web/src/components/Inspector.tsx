@@ -1,5 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import { UNIT_LABELS, parseProductDocument, type Artifact, type AudioGenConfig, type Graph, type VideoGenConfig } from "@agent-world/core";
+import {
+  UNIT_LABELS,
+  parseProductDocument,
+  type Artifact,
+  type AudioGenConfig,
+  type Graph,
+  type HttpNodeConfig,
+  type VideoGenConfig,
+} from "@agent-world/core";
 import { ArtifactCard, renderMarkdown } from "../lib/artifact-renderers";
 import { api, type AppConfig, type Modality } from "../lib/api";
 import { useGraph } from "../store/graph";
@@ -32,6 +40,23 @@ function formatDuration(ms: number): string {
   if (h < 24) return `${h}h ${rm}m`;
   const d = Math.floor(h / 24);
   return `${d}d ${h % 24}h`;
+}
+
+function parsePairs(text: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const line of text.split("\n")) {
+    const idx = line.indexOf(":");
+    if (idx > 0) {
+      out[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
+    }
+  }
+  return out;
+}
+
+function formatPairs(obj: Record<string, string>): string {
+  return Object.entries(obj)
+    .map(([k, v]) => `${k}: ${v}`)
+    .join("\n");
 }
 
 /** Cheap line-level diff — enough to see what a rework attempt actually changed. */
@@ -94,11 +119,59 @@ function isProductJsonSource(a: Artifact): boolean {
   return (a.kind === "text" || a.kind === "json") && !!a.content?.includes("```product-json");
 }
 
+type MainTab = "output" | "config" | "skills";
+const MAIN_TAB_ORDER: MainTab[] = ["output", "config", "skills"];
+const MAIN_TAB_STORE = "agent-world.inspector.mainTab";
+
+function readStoredMainTab(): MainTab {
+  try {
+    const v = localStorage.getItem(MAIN_TAB_STORE);
+    return v === "output" || v === "config" || v === "skills" ? v : "output";
+  } catch {
+    return "output";
+  }
+}
+
+/** The 技能 tab only exists on agent nodes, so a remembered tab can be invalid. */
+function clampMainTab(tab: MainTab, isAgent: boolean): MainTab {
+  return tab === "skills" && !isAgent ? "output" : tab;
+}
+
+function nextMainTab(current: MainTab, isAgent: boolean): MainTab {
+  const order = MAIN_TAB_ORDER.filter((t) => t !== "skills" || isAgent);
+  const i = order.indexOf(current);
+  return order[(i + 1) % order.length]!;
+}
+
 export default function Inspector() {
   const { graph, selectedId, updateNode, saveState, reloadGraph } = useGraph();
   const runtime = useVisibleRuntime();
   const [tab, setTab] = useState<number | "diff">(1);
-  const [mainTab, setMainTab] = useState<"output" | "config" | "skills">("output");
+  const [mainTab, setMainTabState] = useState<MainTab>(readStoredMainTab);
+  const setMainTab = (t: MainTab) => {
+    setMainTabState(t);
+    try {
+      localStorage.setItem(MAIN_TAB_STORE, t);
+    } catch {
+      /* storage unavailable (private mode) — the tab still works for this session */
+    }
+  };
+
+  // Brief glow after E cycles the tabs, so the hidden shortcut is noticeable.
+  const [tabFlash, setTabFlash] = useState(false);
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const triggerTabFlash = () => {
+    if (flashTimer.current) clearTimeout(flashTimer.current);
+    setTabFlash(true);
+    flashTimer.current = setTimeout(() => setTabFlash(false), 700);
+  };
+  useEffect(
+    () => () => {
+      if (flashTimer.current) clearTimeout(flashTimer.current);
+    },
+    [],
+  );
+
   const [showReasoning, setShowReasoning] = useState(false);
   const [settings, setSettings] = useState<AppConfig | null>(null);
 
@@ -132,9 +205,28 @@ export default function Inspector() {
   useEffect(() => {
     api.getSettings().then(setSettings).catch(() => {});
   }, []);
+  // Moving between nodes keeps the tab the user last used; only fall back when
+  // that tab does not exist on the newly selected node kind.
   useEffect(() => {
-    setMainTab("output");
-  }, [selectedId]);
+    const isAgent = graph.nodes.find((n) => n.id === selectedId)?.kind === "agent";
+    setMainTabState((cur) => clampMainTab(cur, !!isAgent));
+  }, [selectedId, graph]);
+
+  // E cycles 产出 → 配置 → 技能, alongside the existing single-key canvas bindings.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey || !selectedId) return;
+      if (e.key !== "e" && e.key !== "E") return;
+      const t = e.target as HTMLElement;
+      if (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable) return;
+      e.preventDefault();
+      const isAgent = graph.nodes.find((n) => n.id === selectedId)?.kind === "agent";
+      setMainTab(nextMainTab(mainTab, !!isAgent));
+      triggerTabFlash();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [mainTab, selectedId, graph, triggerTabFlash]);
   // Each node kind only drives one modality, so its model select must
   // only show models matching that modality. Empty list -> the select
   // renders an "未配置" placeholder nudging the user to Settings, and
@@ -204,7 +296,7 @@ export default function Inspector() {
         )}
       </div>
 
-      <div className="inspector__tabs">
+      <div className={`inspector__tabs${tabFlash ? " is-flash" : ""}`}>
         <button
           type="button"
           className={`tab ${mainTab === "output" ? "is-on" : ""}`}
@@ -222,6 +314,13 @@ export default function Inspector() {
             onClick={() => setMainTab("skills")}
           >技能</button>
         )}
+        <span
+          className="inspector__tab-hint"
+          data-tip="按 E 循环切换标签页"
+          aria-label="按 E 循环切换标签页"
+        >
+          <kbd className="kbd-inline">E</kbd>
+        </span>
       </div>
 
       <div className="inspector__body">
@@ -1022,6 +1121,276 @@ export default function Inspector() {
                 <option value="pass">放行</option>
               </select>
             </label>
+          </>
+        )}
+
+        {node.kind === "http" && node.http && (
+          <>
+            <label className="field">
+              <span>方法</span>
+              <select
+                className="select"
+                value={node.http.method}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    http: { ...node.http!, method: e.target.value as HttpNodeConfig["method"] },
+                  })
+                }
+              >
+                {["GET", "POST", "PUT", "DELETE", "PATCH"].map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>URL</span>
+              <input
+                type="text"
+                placeholder="https://api.example.com/data"
+                value={node.http.url}
+                onChange={(e) =>
+                  updateNode(node.id, { http: { ...node.http!, url: e.target.value } })
+                }
+              />
+            </label>
+            <label className="field">
+              <span>Query 参数（每行 key: value）</span>
+              <textarea
+                rows={3}
+                placeholder="page: 1&#10;limit: 10"
+                value={formatPairs(node.http.query ?? {})}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    http: { ...node.http!, query: parsePairs(e.target.value) },
+                  })
+                }
+              />
+            </label>
+            <label className="field">
+              <span>请求头（每行 key: value）</span>
+              <textarea
+                rows={3}
+                placeholder="Authorization: Bearer xxx"
+                value={formatPairs(node.http.headers ?? {})}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    http: { ...node.http!, headers: parsePairs(e.target.value) },
+                  })
+                }
+              />
+            </label>
+            <label className="field">
+              <span>请求体</span>
+              <textarea
+                rows={4}
+                placeholder='{"foo": "${source}"}'
+                value={node.http.body ?? ""}
+                onChange={(e) =>
+                  updateNode(node.id, { http: { ...node.http!, body: e.target.value } })
+                }
+              />
+            </label>
+            <label className="field">
+              <span>超时（毫秒）</span>
+              <input
+                type="number"
+                min={1000}
+                step={1000}
+                value={node.http.timeoutMs}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    http: { ...node.http!, timeoutMs: Number(e.target.value) },
+                  })
+                }
+              />
+            </label>
+            <label className="field">
+              <span>输出模式</span>
+              <select
+                className="select"
+                value={node.http.outputMode}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    http: { ...node.http!, outputMode: e.target.value as HttpNodeConfig["outputMode"] },
+                  })
+                }
+              >
+                <option value="auto">自动（JSON 响应存为 json artifact）</option>
+                <option value="json">强制 JSON</option>
+                <option value="text">强制文本</option>
+              </select>
+            </label>
+            <label className="field field--row">
+              <input
+                type="checkbox"
+                checked={node.http.failOnError}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    http: { ...node.http!, failOnError: e.target.checked },
+                  })
+                }
+              />
+              <span>非 2xx 响应视为节点失败</span>
+            </label>
+            <p className="note">
+              URL / 请求头 / Query / 请求体支持变量插值：${"{"}上游节点id{".字段}"}，例如 ${"{"}source.price{"}"}。
+            </p>
+          </>
+        )}
+
+        {node.kind === "code" && node.code && (
+          <>
+            <label className="field">
+              <span>语言</span>
+              <select
+                className="select"
+                value={node.code.language}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    code: { ...node.code!, language: e.target.value as "javascript" | "python" },
+                  })
+                }
+              >
+                <option value="javascript">JavaScript (Node.js)</option>
+                <option value="python">Python 3</option>
+              </select>
+            </label>
+            <label className="field">
+              <span>脚本</span>
+              <textarea
+                className="mono"
+                rows={9}
+                placeholder={'const fs = require("fs");\nconst input = JSON.parse(fs.readFileSync(0, "utf8"));\n// 上游数据在 input.inputs.<上游节点id>\nconsole.log(JSON.stringify({ doubled: Number(input.inputs.source) * 2 }));'}
+                value={node.code.code}
+                onChange={(e) =>
+                  updateNode(node.id, { code: { ...node.code!, code: e.target.value } })
+                }
+              />
+            </label>
+            <label className="field">
+              <span>超时（毫秒）</span>
+              <input
+                type="number"
+                min={1000}
+                step={1000}
+                value={node.code.timeoutMs}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    code: { ...node.code!, timeoutMs: Number(e.target.value) },
+                  })
+                }
+              />
+            </label>
+            <p className="note">
+              脚本经 stdin 收到 JSON：{"{"}"inputs": {"{"}上游节点id: 值{"}"}{"}"}{"}"}；stdout 输出单个 JSON
+              对象/数组 → json artifact，其他文本 → text artifact；退出码非 0 或超时视为节点失败。脚本内可引用上游
+              变量：${"{"}source.price{"}"}。
+            </p>
+          </>
+        )}
+
+        {node.kind === "branch" && node.branch && (
+          <>
+            <div className="field">
+              <span>分支规则（按顺序匹配第一个命中）</span>
+              {(node.branch.rules ?? []).map((rule) => (
+                <div key={rule.id} className="branch-rule">
+                  <input
+                    type="text"
+                    className="branch-rule__when mono"
+                    placeholder='${"{"}api.score{"}"} > 5'
+                    value={rule.when}
+                    onChange={(e) =>
+                      updateNode(node.id, {
+                        branch: {
+                          ...node.branch!,
+                          rules: (node.branch!.rules ?? []).map((r) =>
+                            r.id === rule.id ? { ...r, when: e.target.value } : r,
+                          ),
+                        },
+                      })
+                    }
+                  />
+                  <select
+                    className="select branch-rule__target"
+                    value={rule.target}
+                    onChange={(e) =>
+                      updateNode(node.id, {
+                        branch: {
+                          ...node.branch!,
+                          rules: (node.branch!.rules ?? []).map((r) =>
+                            r.id === rule.id ? { ...r, target: e.target.value } : r,
+                          ),
+                        },
+                      })
+                    }
+                  >
+                    <option value="">选择目标…</option>
+                    {graph.nodes
+                      .filter((n) => n.id !== node.id)
+                      .map((n) => (
+                        <option key={n.id} value={n.id}>
+                          {n.name || n.id}
+                        </option>
+                      ))}
+                  </select>
+                  <button
+                    className="branch-rule__del"
+                    title="删除该分支"
+                    onClick={() =>
+                      updateNode(node.id, {
+                        branch: {
+                          ...node.branch!,
+                          rules: (node.branch!.rules ?? []).filter((r) => r.id !== rule.id),
+                        },
+                      })
+                    }
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+              <button
+                className="btn btn--ghost"
+                onClick={() =>
+                  updateNode(node.id, {
+                    branch: {
+                      ...node.branch!,
+                      rules: [...(node.branch!.rules ?? []), { id: `r${Date.now()}`, when: "true", target: "" }],
+                    },
+                  })
+                }
+              >
+                + 添加规则
+              </button>
+            </div>
+            <label className="field">
+              <span>默认分支（未命中任何规则）</span>
+              <select
+                className="select"
+                value={node.branch.defaultTarget ?? ""}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    branch: { ...node.branch!, defaultTarget: e.target.value || undefined },
+                  })
+                }
+              >
+                <option value="">丢弃报文</option>
+                {graph.nodes
+                  .filter((n) => n.id !== node.id)
+                  .map((n) => (
+                    <option key={n.id} value={n.id}>
+                      {n.name || n.id}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <p className="note">
+              条件表达式示例：${"{"}api.price{"}"} &gt; 100 &amp;&amp; ${"{"}api.stock{"}"} &gt; 0。支持 == !={" "}
+              &gt; &lt; &gt;= &lt;= &amp;&amp; || ! 与括号；未命中且无默认分支时报文被丢弃，该分支下游不执行。
+            </p>
           </>
         )}
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Diagnostic, FormConnector, Graph } from "@agent-world/core";
 
 type FormField = FormConnector["fields"][number];
@@ -29,6 +29,7 @@ import BrandTermsModal from "./components/BrandTermsModal";
 import TriggersPanel from "./components/TriggersPanel";
 import ProductGallery from "./components/ProductGallery";
 import Onboarding from "./components/Onboarding";
+import UserMenu from "./components/UserMenu";
 import KnowledgePanel from "./components/KnowledgePanel";
 import VersionPanel from "./components/VersionPanel";
 import RunCompare from "./components/RunCompare";
@@ -40,7 +41,7 @@ import { useGraph } from "./store/graph";
 import { useRun } from "./store/run";
 
 export default function App() {
-  const { graph, setGraph, addNode, flushSave, undo, redo } = useGraph();
+  const { graph, setGraph, addNode, flushSave, undo, redo, selectedId } = useGraph();
   const { connect, reset, runId, loadRun } = useRun();
 
   const [mode, setMode] = useState<Mode>("select");
@@ -58,6 +59,31 @@ export default function App() {
   const [deleteTarget, setDeleteTarget] = useState<GraphSummary | null>(null);
   const [controlCollapsed, setControlCollapsed] = useState(false);
   const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
+  const [inspectorWidth, setInspectorWidth] = useState(() => {
+    const saved = localStorage.getItem("inspector-width");
+    return saved ? Number(saved) : 420;
+  });
+  const dragging = useRef(false);
+  const dragWidth = useRef(420);
+  const onDragStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    dragging.current = true;
+    dragWidth.current = inspectorWidth;
+    const onMove = (ev: MouseEvent) => {
+      if (!dragging.current) return;
+      const w = Math.min(720, Math.max(280, window.innerWidth - ev.clientX));
+      dragWidth.current = w;
+      setInspectorWidth(w);
+    };
+    const onUp = () => {
+      dragging.current = false;
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      localStorage.setItem("inspector-width", String(dragWidth.current));
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  }, [inspectorWidth]);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [costOpen, setCostOpen] = useState(false);
   const [evalOpen, setEvalOpen] = useState(false);
@@ -302,7 +328,13 @@ export default function App() {
           setDiagnostics(r.diagnostics);
           setCanRun(r.plan !== null);
         })
-        .catch(() => undefined);
+        .catch((e) => {
+          if (cancelled) return;
+          setDiagnostics([
+            { severity: "error", message: `编译检查请求失败（${e}），请刷新页面重试` },
+          ]);
+          setCanRun(false);
+        });
     }, 180);
     return () => {
       cancelled = true;
@@ -383,6 +415,11 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [undo, redo]);
 
+  useEffect(() => {
+    if (selectedId) setInspectorCollapsed(false);
+    else setInspectorCollapsed(true);
+  }, [selectedId]);
+
   return (
     <>
       {graphsReady && graphs.length === 0 && (
@@ -428,6 +465,11 @@ export default function App() {
               提示
             </button>
           </Tooltip>
+          <Tooltip content="跨运行成品库：查看所有产线的历史产出，无需派发任务">
+            <button className="chip" onClick={() => setGalleryOpen(true)}>
+              成品库
+            </button>
+          </Tooltip>
           <ShortcutsHelp />
           <Tooltip content="打开命令面板：弹窗、添加节点、画布动作">
             <button
@@ -438,13 +480,12 @@ export default function App() {
               菜单 <kbd className="kbd-inline">⌘K</kbd>
             </button>
           </Tooltip>
+          <UserMenu />
         </div>
       </header>
 
       <div
-        className={`workspace ${controlCollapsed ? "workspace--control-collapsed" : ""} ${
-          inspectorCollapsed ? "workspace--inspector-collapsed" : ""
-        }`}
+        className={`workspace ${controlCollapsed ? "workspace--control-collapsed" : ""}`}
       >
         <ControlPanel
           mode={mode}
@@ -461,10 +502,12 @@ export default function App() {
         />
 
         <main className="stage">
+          <div className="canvas-toolbar-row">
+            <CanvasToolbar onError={showError} />
+          </div>
           <Timeline />
           <FailurePanel onRerun={onRun} />
           <Canvas mode={mode} />
-          <CanvasToolbar onError={showError} />
           <button
             className={`stage__control-toggle ${controlCollapsed ? "is-collapsed" : ""}`}
             onClick={() => setControlCollapsed((v) => !v)}
@@ -474,17 +517,24 @@ export default function App() {
           </button>
           <button
             className={`stage__inspector-toggle ${inspectorCollapsed ? "is-collapsed" : ""}`}
+            style={inspectorCollapsed ? undefined : { right: `${inspectorWidth}px` }}
             onClick={() => setInspectorCollapsed((v) => !v)}
             title={inspectorCollapsed ? "展开详情" : "收起详情"}
           >
-            {inspectorCollapsed ? "›" : "‹"}
+            {inspectorCollapsed ? "‹" : "›"}
           </button>
           <Minimap />
+          <div
+            className={`inspector-slot ${inspectorCollapsed ? "inspector-slot--hidden" : ""}`}
+            style={{ "--inspector-width": `${inspectorWidth}px` } as React.CSSProperties}
+          >
+            <div
+              className="inspector-drag-handle"
+              onMouseDown={onDragStart}
+            />
+            <Inspector />
+          </div>
         </main>
-
-        <div className={`inspector-slot ${inspectorCollapsed ? "is-collapsed" : ""}`}>
-          <Inspector />
-        </div>
       </div>
 
       <RunHistory

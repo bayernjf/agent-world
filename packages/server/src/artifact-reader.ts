@@ -28,7 +28,7 @@ export function createReadArtifact(db: Db, artifacts: ArtifactStore) {
     const m = /^\/api\/artifacts\/([^/]+)$/.exec(uri);
     if (!m) return null;
     const id = decodeURIComponent(m[1]!);
-    const meta = db.getArtifact(id);
+    const meta = db.getArtifactUnscoped(id);
     if (meta) {
       if (meta.sizeBytes > MAX_INLINE_BYTES) return null;
       const buf = await artifacts.readBytes(meta.runId, id);

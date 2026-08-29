@@ -7,10 +7,10 @@ function makeStore(graph: Graph) {
   const graphs = new Map<string, Graph & { version: number }>();
   graphs.set(graph.id, { ...graph, version: 1 });
   const store: TriggerGraphStore = {
-    listGraphs: () =>
+    listAllGraphs: () =>
       [...graphs.values()].map((g) => ({ id: g.id, name: g.name, version: g.version, updated_at: 0 })),
-    getGraph: (id) => graphs.get(id) ?? null,
-    saveGraph: (g) => {
+    getGraphById: (id) => graphs.get(id) ?? null,
+    saveGraphUnscoped: (g) => {
       graphs.set(g.id, { ...g, version: (graphs.get(g.id)?.version ?? 0) + 1 });
       return { ok: true, version: 1 };
     },

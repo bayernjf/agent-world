@@ -5,6 +5,7 @@ import { ArtifactStore } from "./artifact-store.js";
 import { log } from "./logger.js";
 import { execute } from "./engine.js";
 import { loadConfig } from "./config.js";
+import { runAsUser } from "./user-context.js";
 import { createReadArtifact } from "./artifact-reader.js";
 
 /** Worker type derived from the engine so we don't reach into provider internals. */
@@ -30,6 +31,7 @@ export class RunStartError extends Error {
 
 export interface StartRunArgs {
   db: Db;
+  userId: string;
   worker: Worker;
   artifacts: ArtifactStore;
   live: LiveMap;
@@ -38,6 +40,8 @@ export interface StartRunArgs {
   budgetUsd?: number | null;
   input?: string;
   connectorValues?: Record<string, string>;
+  /** Server origin (e.g. http://localhost:8791); absolutizes artifact URIs in prompts. */
+  publicUrl?: string;
   /** Called when the run finishes (used to fire downstream event triggers). */
   onFinish?: (graphId: string, status: string) => void;
   /** Called for each produced artifact (used to fire artifact event triggers). */
@@ -51,22 +55,22 @@ export interface StartRunArgs {
  * trigger service so every path produces identical run records.
  */
 export async function startRun(args: StartRunArgs): Promise<{ runId: string; diagnostics: unknown }> {
-  const { db, worker, artifacts, live, graph, trigger, budgetUsd, input, connectorValues } = args;
+  const { db, userId, worker, artifacts, live, graph, trigger, budgetUsd, input, connectorValues, publicUrl } = args;
   const { plan, diagnostics } = compile(graph);
   if (!plan) throw new RunStartError("graph does not compile", 422, diagnostics);
 
   const runId = randomUUID();
   const startedAt = Date.now();
-  db.createRun({ id: runId, graph, budgetUsd: budgetUsd ?? null, at: startedAt, trigger, input });
+  db.createRun({ id: runId, userId, graph, budgetUsd: budgetUsd ?? null, at: startedAt, trigger, input });
   const controller = new AbortController();
   const entry: LiveEntry = { events: [], done: false, controller };
   live.set(runId, entry);
   const runLog = log.child({ runId, graphId: graph.id });
   runLog.info("run started", { trigger, nodes: graph.nodes.length });
 
-  void (async () => {
+  void runAsUser(userId, async () => {
     try {
-      const cfg = loadConfig();
+      const cfg = loadConfig(userId);
       const now = new Date();
       for await (const event of execute({
         runId,
@@ -77,15 +81,16 @@ export async function startRun(args: StartRunArgs): Promise<{ runId: string; dia
         connectorValues,
         budgetUsd: budgetUsd ?? null,
         monthlyBudgetUsd: cfg.monthlyBudgetUsd ?? null,
-        monthSpentUsd: db.costForMonth(now.getFullYear(), now.getMonth() + 1),
+        monthSpentUsd: db.costForMonth(now.getFullYear(), now.getMonth() + 1, userId),
         defaultModel: cfg.defaultModel,
         signal: controller.signal,
         storeBinary: async (data, mimeType, label) => {
-          const saved = await artifacts.saveBinary({ data, kind: "image", mimeType, label });
-          db.insertArtifact(saved);
+          const saved = await artifacts.saveBinary({ userId, data, kind: "image", mimeType, label });
+          db.insertArtifact(saved, userId);
           return saved.uri ?? `data:${mimeType};base64,${data.toString("base64")}`;
         },
         readArtifact: createReadArtifact(db, artifacts),
+        publicUrl,
       })) {
         db.record(runId, event);
         if (event.type === "artifact.produced") {
@@ -100,22 +105,23 @@ export async function startRun(args: StartRunArgs): Promise<{ runId: string; dia
               graphId: graph.id,
               role,
             }),
+            userId,
           );
           args.onArtifact?.(event.artifact.id);
         }
         entry.events.push(event);
         if (event.type === "run.finished") {
-          db.finishRun(runId, event.status, Date.now());
+          db.finishRun(runId, userId, event.status, Date.now());
           args.onFinish?.(graph.id, event.status);
         }
       }
     } catch (err) {
-      db.finishRun(runId, "failed", Date.now());
+      db.finishRun(runId, userId, "failed", Date.now());
       runLog.error("run crashed", { error: (err as Error)?.message ?? String(err) });
     } finally {
       entry.done = true;
     }
-  })();
+  });
 
   return { runId, diagnostics };
 }

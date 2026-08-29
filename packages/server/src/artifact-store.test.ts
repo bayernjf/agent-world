@@ -54,6 +54,7 @@ describe("artifact store", () => {
   it("persists raw uploaded bytes as a local image artifact", async () => {
     const buf = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a]);
     const saved = await store.saveBinary({
+      userId: "u1",
       data: buf,
       kind: "image",
       mimeType: "image/png",
@@ -66,5 +67,12 @@ describe("artifact store", () => {
     expect(saved.uri).toMatch(/^\/api\/artifacts\//);
     const back = await store.readBytes("uploads", saved.id);
     expect(back?.equals(buf)).toBe(true);
+  });
+
+  it("gives two users identical uploads distinct ids", async () => {
+    const buf = Buffer.from("same-photo-bytes");
+    const a = await store.saveBinary({ userId: "u1", data: buf, kind: "image" });
+    const b = await store.saveBinary({ userId: "u2", data: buf, kind: "image" });
+    expect(a.id).not.toBe(b.id);
   });
 });

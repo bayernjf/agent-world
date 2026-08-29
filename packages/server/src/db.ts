@@ -11,8 +11,16 @@ import type { StoredArtifact } from "./artifact-store.js";
  * node runs are keyed by `(run_id, node_id, attempt)` — attempt is identity.
  */
 const DDL = `
+CREATE TABLE IF NOT EXISTS users (
+  id            TEXT PRIMARY KEY,
+  email         TEXT UNIQUE NOT NULL,
+  password_hash TEXT NOT NULL,
+  created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+);
+
 CREATE TABLE IF NOT EXISTS graphs (
   id         TEXT PRIMARY KEY,
+  user_id    TEXT,
   name       TEXT NOT NULL,
   doc        TEXT NOT NULL,
   version    INTEGER NOT NULL DEFAULT 1,
@@ -21,6 +29,7 @@ CREATE TABLE IF NOT EXISTS graphs (
 
 CREATE TABLE IF NOT EXISTS runs (
   id         TEXT PRIMARY KEY,
+  user_id    TEXT,
   graph_id   TEXT NOT NULL,
   snapshot   TEXT NOT NULL,
   status     TEXT NOT NULL,
@@ -32,7 +41,7 @@ CREATE TABLE IF NOT EXISTS runs (
   ab_group   TEXT,
   ab_arm     TEXT,
   ab_target  TEXT
-  );
+);
 
 CREATE TABLE IF NOT EXISTS events (
   run_id  TEXT NOT NULL,
@@ -47,6 +56,7 @@ CREATE TABLE IF NOT EXISTS events (
 CREATE TABLE IF NOT EXISTS artifacts (
   id          TEXT PRIMARY KEY,
   run_id      TEXT NOT NULL,
+  user_id     TEXT,
   node_id     TEXT NOT NULL,
   attempt     INTEGER,
   kind        TEXT NOT NULL,
@@ -81,6 +91,7 @@ CREATE TABLE IF NOT EXISTS node_runs (
 
 CREATE TABLE IF NOT EXISTS brand_terms (
   id          TEXT PRIMARY KEY,
+  user_id     TEXT,
   term        TEXT NOT NULL,
   note        TEXT NOT NULL DEFAULT '',
   created_at  INTEGER NOT NULL
@@ -95,6 +106,12 @@ CREATE TABLE IF NOT EXISTS graph_versions (
   created_at  INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_graph_versions_graph ON graph_versions(graph_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS settings (
+  user_id    TEXT PRIMARY KEY,
+  data       TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+);
 `;
 
 type ArtifactRow = {
@@ -208,26 +225,46 @@ export function openDb(file: string) {
   runMigrations(db);
 
   const stmts = {
+    createUser: db.prepare(
+      `INSERT INTO users (id, email, password_hash) VALUES (?, ?, ?)`,
+    ),
+    getSettings: db.prepare(`SELECT data FROM settings WHERE user_id = ?`),
+    saveSettings: db.prepare(
+      `INSERT INTO settings (user_id, data, updated_at) VALUES (?, ?, ?)
+       ON CONFLICT(user_id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`,
+    ),
+    findUserByEmail: db.prepare(
+      `SELECT id, email, created_at FROM users WHERE email = ?`,
+    ),
+    findUserById: db.prepare(
+      `SELECT id, email, created_at FROM users WHERE id = ?`,
+    ),
+    findUserPasswordHash: db.prepare(
+      `SELECT password_hash FROM users WHERE id = ?`,
+    ),
+    updateUserPasswordHash: db.prepare(
+      `UPDATE users SET password_hash = ? WHERE id = ?`,
+    ),
     insertGraph: db.prepare(
-      `INSERT INTO graphs (id, name, doc, updated_at) VALUES (?, ?, ?, ?)
+      `INSERT INTO graphs (id, user_id, name, doc, updated_at) VALUES (?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET name = excluded.name, doc = excluded.doc, version = version + 1, updated_at = excluded.updated_at`,
     ),
     // Conditional update: only succeeds when the row's current version matches
     // the If-Match value, so a stale tab can't silently clobber a newer save.
     updateGraphIfVersion: db.prepare(
       `UPDATE graphs SET name = ?, doc = ?, version = version + 1, updated_at = ?
-       WHERE id = ? AND version = ?`,
+       WHERE id = ? AND version = ? AND user_id = ?`,
     ),
-    getGraphVersion: db.prepare(`SELECT version FROM graphs WHERE id = ?`),
-    getGraph: db.prepare(`SELECT doc, version FROM graphs WHERE id = ?`),
-    listGraphs: db.prepare(`SELECT id, name, version, updated_at FROM graphs ORDER BY updated_at DESC`),
-    deleteGraph: db.prepare(`DELETE FROM graphs WHERE id = ?`),
+    getGraphVersion: db.prepare(`SELECT version FROM graphs WHERE id = ? AND user_id = ?`),
+    getGraph: db.prepare(`SELECT doc, version FROM graphs WHERE id = ? AND user_id = ?`),
+    listGraphs: db.prepare(`SELECT id, name, version, updated_at FROM graphs WHERE user_id = ? ORDER BY updated_at DESC`),
+    deleteGraph: db.prepare(`DELETE FROM graphs WHERE id = ? AND user_id = ?`),
     createRun: db.prepare(
-      `INSERT INTO runs (id, graph_id, snapshot, status, trigger, input, budget_usd, started_at, ab_group, ab_arm, ab_target) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO runs (id, user_id, graph_id, snapshot, status, trigger, input, budget_usd, started_at, ab_group, ab_arm, ab_target) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ),
-    finishRun: db.prepare(`UPDATE runs SET status = ?, ended_at = ? WHERE id = ?`),
-    markRunning: db.prepare(`UPDATE runs SET status = 'running', ended_at = NULL WHERE id = ?`),
-    getRun: db.prepare(`SELECT * FROM runs WHERE id = ?`),
+    finishRun: db.prepare(`UPDATE runs SET status = ?, ended_at = ? WHERE id = ? AND user_id = ?`),
+    markRunning: db.prepare(`UPDATE runs SET status = 'running', ended_at = NULL WHERE id = ? AND user_id = ?`),
+    getRun: db.prepare(`SELECT * FROM runs WHERE id = ? AND user_id = ?`),
     listRuns: db.prepare(
       `SELECT r.id, r.graph_id, COALESCE(g.name, '(已删除产线)') AS graph_name, r.status, r.trigger, r.budget_usd, r.started_at, r.ended_at
        FROM runs r LEFT JOIN graphs g ON g.id = r.graph_id
@@ -264,23 +301,30 @@ export function openDb(file: string) {
     ),
     /** Snapshots needed to group runs by prompt version (eval report). */
     evalSnapshots: db.prepare(
-      `SELECT id, graph_id, snapshot FROM runs WHERE status != 'running' ORDER BY started_at DESC LIMIT 1000`,
+      `SELECT id, graph_id, snapshot FROM runs WHERE status != 'running' AND user_id = ? ORDER BY started_at DESC LIMIT 1000`,
     ),
-        deleteRun: db.prepare(`DELETE FROM runs WHERE id = ?`),
+        deleteRun: db.prepare(`DELETE FROM runs WHERE id = ? AND user_id = ?`),
     deleteEvents: db.prepare(`DELETE FROM events WHERE run_id = ?`),
     deleteNodeRuns: db.prepare(`DELETE FROM node_runs WHERE run_id = ?`),
     insertArtifact: db.prepare(
-      `INSERT INTO artifacts (id, run_id, node_id, attempt, graph_id, role, kind, mime_type, label, size_bytes, storage, uri, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO artifacts (id, run_id, user_id, node_id, attempt, graph_id, role, kind, mime_type, label, size_bytes, storage, uri, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO NOTHING`,
     ),
     listArtifactsByRun: db.prepare(
       `SELECT a.id, a.run_id, a.node_id, a.attempt, a.graph_id, a.role, a.kind, a.mime_type, a.label, a.size_bytes, a.storage, a.uri, a.created_at,
               COALESCE(g.name, '(未知流水线)') AS graph_name
        FROM artifacts a LEFT JOIN graphs g ON g.id = a.graph_id
-       WHERE a.run_id = ? ORDER BY a.created_at`,
+       WHERE a.run_id = ? AND a.user_id = ?
+       ORDER BY a.created_at`,
     ),
     getArtifact: db.prepare(
+      `SELECT a.id, a.run_id, a.node_id, a.attempt, a.graph_id, a.role, a.kind, a.mime_type, a.label, a.size_bytes, a.storage, a.uri, a.created_at,
+              COALESCE(g.name, '(未知流水线)') AS graph_name
+       FROM artifacts a LEFT JOIN graphs g ON g.id = a.graph_id
+       WHERE a.id = ? AND a.user_id = ?`,
+    ),
+    getArtifactUnscoped: db.prepare(
       `SELECT a.id, a.run_id, a.node_id, a.attempt, a.graph_id, a.role, a.kind, a.mime_type, a.label, a.size_bytes, a.storage, a.uri, a.created_at,
               COALESCE(g.name, '(未知流水线)') AS graph_name
        FROM artifacts a LEFT JOIN graphs g ON g.id = a.graph_id
@@ -290,12 +334,52 @@ export function openDb(file: string) {
       `SELECT a.id, a.run_id, a.node_id, a.attempt, a.graph_id, a.role, a.kind, a.mime_type, a.label, a.size_bytes, a.storage, a.uri, a.created_at,
               COALESCE(g.name, '(未知流水线)') AS graph_name
        FROM artifacts a LEFT JOIN graphs g ON g.id = a.graph_id
+       WHERE a.user_id = ?
        ORDER BY a.created_at DESC, a.rowid DESC LIMIT ? OFFSET ?`,
     ),
     deleteArtifactsForRun: db.prepare(`DELETE FROM artifacts WHERE run_id = ?`),
+    getGraphById: db.prepare(`SELECT doc, version FROM graphs WHERE id = ?`),
+    listAllGraphs: db.prepare(`SELECT id, name, version, updated_at FROM graphs ORDER BY updated_at DESC`),
+    getGraphOwnerId: db.prepare(`SELECT user_id FROM graphs WHERE id = ?`),
+    finishRunById: db.prepare(`UPDATE runs SET status = ?, ended_at = ? WHERE id = ?`),
+    markRunningById: db.prepare(`UPDATE runs SET status = 'running', ended_at = NULL WHERE id = ?`),
+    getRunById: db.prepare(`SELECT * FROM runs WHERE id = ?`),
+    listRunsUnscoped: db.prepare(
+      `SELECT r.id, r.graph_id, COALESCE(g.name, '(已删除产线)') AS graph_name, r.status, r.trigger, r.budget_usd, r.started_at, r.ended_at
+       FROM runs r LEFT JOIN graphs g ON g.id = r.graph_id
+       ORDER BY r.started_at DESC LIMIT ? OFFSET ?`,
+    ),
+    listRunsByGraphUnscoped: db.prepare(
+      `SELECT r.id, r.graph_id, COALESCE(g.name, '(已删除产线)') AS graph_name, r.status, r.trigger, r.budget_usd, r.started_at, r.ended_at
+       FROM runs r LEFT JOIN graphs g ON g.id = r.graph_id
+       WHERE r.graph_id = ?
+       ORDER BY r.started_at DESC LIMIT ?`,
+    ),
   };
 
   return {
+    createUser(id: string, email: string, passwordHash: string) {
+      stmts.createUser.run(id, email, passwordHash);
+      return { id, email };
+    },
+    findUserByEmail(email: string) {
+      return stmts.findUserByEmail.get(email) as
+        | { id: string; email: string; created_at: string }
+        | undefined;
+    },
+    findUserById(id: string) {
+      return stmts.findUserById.get(id) as
+        | { id: string; email: string; created_at: string }
+        | undefined;
+    },
+    findUserPasswordHash(id: string) {
+      const row = stmts.findUserPasswordHash.get(id) as { password_hash: string } | undefined;
+      return row?.password_hash;
+    },
+    updateUserPasswordHash(id: string, passwordHash: string) {
+      stmts.updateUserPasswordHash.run(passwordHash, id);
+    },
+
     /**
      * Persist a graph. When `expectedVersion` is given the update is
      * conditional: it returns { ok:false, conflict:true } if the stored version
@@ -305,6 +389,7 @@ export function openDb(file: string) {
     saveGraph(
       graph: Graph,
       at: number,
+      userId: string,
       expectedVersion?: number,
     ): { ok: true; version: number } | { ok: false; conflict: true; serverVersion: number | null } {
       const doc = JSON.stringify(graph);
@@ -315,25 +400,26 @@ export function openDb(file: string) {
           at,
           graph.id,
           expectedVersion,
+          userId,
         );
         if (result.changes === 0) {
-          const row = stmts.getGraphVersion.get(graph.id) as { version: number } | undefined;
+          const row = stmts.getGraphVersion.get(graph.id, userId) as { version: number } | undefined;
           return { ok: false, conflict: true, serverVersion: row?.version ?? null };
         }
         return { ok: true, version: expectedVersion + 1 };
       }
-      stmts.insertGraph.run(graph.id, graph.name, doc, at);
-      const row = stmts.getGraphVersion.get(graph.id) as { version: number };
+      stmts.insertGraph.run(graph.id, userId, graph.name, doc, at);
+      const row = stmts.getGraphVersion.get(graph.id, userId) as { version: number };
       return { ok: true, version: row.version };
     },
 
-    getGraph(id: string): (Graph & { version: number }) | null {
-      const row = stmts.getGraph.get(id) as { doc: string; version: number } | undefined;
+    getGraph(id: string, userId: string): (Graph & { version: number }) | null {
+      const row = stmts.getGraph.get(id, userId) as { doc: string; version: number } | undefined;
       return row ? { ...(JSON.parse(row.doc) as Graph), version: row.version } : null;
     },
 
-    listGraphs() {
-      return stmts.listGraphs.all() as Array<{
+    listGraphs(userId: string) {
+      return stmts.listGraphs.all(userId) as Array<{
         id: string;
         name: string;
         version: number;
@@ -341,12 +427,13 @@ export function openDb(file: string) {
       }>;
     },
 
-    deleteGraph(id: string) {
-      stmts.deleteGraph.run(id);
+    deleteGraph(id: string, userId: string) {
+      stmts.deleteGraph.run(id, userId);
     },
 
     createRun(args: {
       id: string;
+      userId: string;
       graph: Graph;
       budgetUsd: number | null;
       at: number;
@@ -358,6 +445,7 @@ export function openDb(file: string) {
     }) {
       stmts.createRun.run(
         args.id,
+        args.userId,
         args.graph.id,
         JSON.stringify(args.graph),
         "running",
@@ -371,31 +459,32 @@ export function openDb(file: string) {
       );
     },
 
-    finishRun(runId: string, status: string, at: number) {
-      stmts.finishRun.run(status, at, runId);
+    finishRun(runId: string, userId: string, status: string, at: number) {
+      stmts.finishRun.run(status, at, runId, userId);
     },
 
-    markRunning(runId: string) {
-      stmts.markRunning.run(runId);
+    markRunning(runId: string, userId: string) {
+      stmts.markRunning.run(runId, userId);
     },
 
-    runExists(runId: string): boolean {
-      return stmts.getRun.get(runId) !== undefined;
+    runExists(runId: string, userId: string): boolean {
+      return stmts.getRun.get(runId, userId) !== undefined;
     },
 
-    getRun(runId: string) {
-      return stmts.getRun.get(runId) as
+    getRun(runId: string, userId: string) {
+      return stmts.getRun.get(runId, userId) as
         | { id: string; graph_id: string; snapshot: string; status: string; budget_usd: number | null; started_at: number; ended_at: number | null }
         | undefined;
     },
 
     listRuns(
+      userId: string,
       opts: { limit?: number; offset?: number; graphId?: string; status?: string } = {},
     ) {
       const limit = Math.min(Math.max(opts.limit ?? 50, 1), 200);
       const offset = Math.max(opts.offset ?? 0, 0);
-      const where: string[] = [];
-      const params: (string | number)[] = [];
+      const where: string[] = ["r.user_id = ?"];
+      const params: (string | number)[] = [userId];
       if (opts.graphId) {
         where.push("r.graph_id = ?");
         params.push(opts.graphId);
@@ -404,7 +493,7 @@ export function openDb(file: string) {
         where.push("r.status = ?");
         params.push(opts.status);
       }
-      const clause = where.length ? `WHERE ${where.join(" AND ")}` : "";
+      const clause = `WHERE ${where.join(" AND ")}`;
       const rows = db
         .prepare(
           `SELECT r.id AS id, r.graph_id AS graph_id, g.name AS graph_name,
@@ -545,40 +634,50 @@ export function openDb(file: string) {
       stmts.markInterrupted.run(at);
     },
 
-    insertArtifact(a: StoredArtifact) {
+    insertArtifact(a: StoredArtifact, userId: string) {
       stmts.insertArtifact.run(
-        a.id, a.runId, a.nodeId, a.attempt, a.graphId ?? null, a.role ?? null,
+        a.id, a.runId, userId, a.nodeId, a.attempt, a.graphId ?? null, a.role ?? null,
         a.kind, a.mimeType, a.label, a.sizeBytes, a.storage, a.uri, a.createdAt,
       );
     },
 
-    listArtifactsForRun(runId: string): StoredArtifact[] {
-      return mapArtifacts(stmts.listArtifactsByRun.all(runId) as ArtifactRow[]);
+    listArtifactsForRun(runId: string, userId: string): StoredArtifact[] {
+      return mapArtifacts(stmts.listArtifactsByRun.all(runId, userId) as ArtifactRow[]);
     },
 
-    getArtifact(id: string): StoredArtifact | null {
-      const row = stmts.getArtifact.get(id) as ArtifactRow | undefined;
+    getArtifact(id: string, userId: string): StoredArtifact | null {
+      const row = stmts.getArtifact.get(id, userId) as ArtifactRow | undefined;
       return row ? mapArtifact(row) : null;
     },
 
-    listArtifacts(limit = 100, offset = 0): StoredArtifact[] {
-      return mapArtifacts(stmts.listArtifacts.all(limit, offset) as ArtifactRow[]);
+    /** Engine-only: resolves an artifact the calling run already owns. Never wire to a route. */
+    getArtifactUnscoped(id: string): StoredArtifact | null {
+      const row = stmts.getArtifactUnscoped.get(id) as ArtifactRow | undefined;
+      return row ? mapArtifact(row) : null;
     },
 
-    deleteRun(runId: string) {
+    listArtifacts(userId: string, limit = 100, offset = 0): StoredArtifact[] {
+      return mapArtifacts(stmts.listArtifacts.all(userId, limit, offset) as ArtifactRow[]);
+    },
+
+    deleteRun(runId: string, userId: string) {
       stmts.deleteArtifactsForRun.run(runId);
       stmts.deleteEvents.run(runId);
       stmts.deleteNodeRuns.run(runId);
-      stmts.deleteRun.run(runId);
+      stmts.deleteRun.run(runId, userId);
     },
 
     /**
      * Aggregate cost/token usage over completed (non-running) node attempts.
      * `from`/`to` are epoch milliseconds filtering by run start time.
      */
-    costReport(opts: { from?: number; to?: number } = {}) {
+    costReport(opts: { from?: number; to?: number; userId?: string } = {}) {
       const where: string[] = ["r.status != 'running'"];
-      const params: number[] = [];
+      const params: (string | number)[] = [];
+      if (opts.userId) {
+        where.push("r.user_id = ?");
+        params.push(opts.userId);
+      }
       if (opts.from !== undefined) {
         where.push("r.started_at >= ?");
         params.push(opts.from);
@@ -769,7 +868,7 @@ export function openDb(file: string) {
     },
 
     /** Raw rows for CSV export — same aggregation as costReport, flat shape. */
-    costRows(opts: { from?: number; to?: number } = {}) {
+    costRows(opts: { from?: number; to?: number; userId?: string } = {}) {
       const { byGraph, byNode, byAttempt, byDay } = this.costReport(opts);
       return { byGraph, byNode, byAttempt, byDay };
     },
@@ -778,23 +877,33 @@ export function openDb(file: string) {
      * Total cost accrued across finished runs that started within the given
      * calendar month (local time). Used to evaluate the monthly budget guard.
      */
-    costForMonth(year: number, month: number): number {
-      // Build the [start, end) millisecond window for the month in local time.
+    costForMonth(year: number, month: number, userId?: string): number {
       const start = new Date(year, month - 1, 1).getTime();
       const end = new Date(year, month, 1).getTime();
+      const where: string[] = ["r.status != 'running'", "r.started_at >= ?", "r.started_at < ?"];
+      const params: (string | number)[] = [];
+      if (userId) {
+        where.push("r.user_id = ?");
+        params.push(userId);
+      }
+      params.push(start, end);
       const row = db
         .prepare(
           `SELECT COALESCE(SUM(n.cost_usd), 0) AS cost
            FROM node_runs n JOIN runs r ON r.id = n.run_id
-           WHERE r.status != 'running' AND r.started_at >= ? AND r.started_at < ?`,
+           WHERE ${where.join(" AND ")}`,
         )
-        .get(start, end) as { cost: number };
+        .get(...params) as { cost: number };
       return row.cost;
     },
 
-    evalReport(opts: { graphId?: string; from?: number; to?: number } = {}) {
+    evalReport(opts: { graphId?: string; from?: number; to?: number; userId?: string } = {}) {
       const where: string[] = ["r.status != 'running'"];
       const params: (string | number)[] = [];
+      if (opts.userId) {
+        where.push("r.user_id = ?");
+        params.push(opts.userId);
+      }
       if (opts.graphId) {
         where.push("r.graph_id = ?");
         params.push(opts.graphId);
@@ -864,7 +973,8 @@ export function openDb(file: string) {
         byGraphMap.set(r.graph_id, arr);
       }
       const names = new Map(
-        (stmts.listGraphs.all() as Array<{ id: string; name: string }>).map((g) => [g.id, g.name]),
+        (opts.userId ? this.listGraphs(opts.userId) : [] as Array<{ id: string; name: string }>)
+          .map((g) => [g.id, g.name]),
       );
       const byGraph = [...byGraphMap.entries()].map(([graph_id, rows]) => ({
         graph_id,
@@ -888,7 +998,7 @@ export function openDb(file: string) {
       // that executed. Fingerprint the (model + prompt) of every agent node,
       // sorted, so changing a prompt yields a new version per graph. This lets
       // the user compare pass rate / rework before and after a prompt edit.
-      const snapshotRows = stmts.evalSnapshots.all() as Array<{
+      const snapshotRows = (opts.userId ? stmts.evalSnapshots.all(opts.userId) : []) as Array<{
         id: string;
         graph_id: string;
         snapshot: string;
@@ -1034,38 +1144,51 @@ export function openDb(file: string) {
       return { groupId, arms, recommendedArm };
     },
 
-    listBrandTerms() {
+    listBrandTerms(userId: string) {
       return db
         .prepare(
-          `SELECT id, term, note, created_at AS createdAt FROM brand_terms ORDER BY created_at ASC`,
+          `SELECT id, term, note, created_at AS createdAt FROM brand_terms WHERE user_id = ? ORDER BY created_at ASC`,
         )
-        .all() as Array<{ id: string; term: string; note: string; createdAt: number }>;
+        .all(userId) as Array<{ id: string; term: string; note: string; createdAt: number }>;
     },
-    addBrandTerm(term: string, note = "") {
+
+    // --- Per-user settings (16) ---
+    getSettings(userId: string): string | null {
+      const row = stmts.getSettings.get(userId) as { data: string } | undefined;
+      return row?.data ?? null;
+    },
+    saveSettings(userId: string, data: string): void {
+      stmts.saveSettings.run(userId, data, Date.now());
+    },
+    addBrandTerm(userId: string, term: string, note = "") {
       const t = term.trim();
       if (!t) throw new Error("品牌词不能为空");
       const id = randomUUID();
       const now = Date.now();
-      db.prepare(`INSERT INTO brand_terms (id, term, note, created_at) VALUES (?, ?, ?, ?)`).run(
+      db.prepare(`INSERT INTO brand_terms (id, user_id, term, note, created_at) VALUES (?, ?, ?, ?, ?)`).run(
         id,
+        userId,
         t,
         note,
         now,
       );
       return { id, term: t, note, createdAt: now };
     },
-    deleteBrandTerm(id: string) {
-      db.prepare(`DELETE FROM brand_terms WHERE id = ?`).run(id);
+    deleteBrandTerm(id: string, userId: string) {
+      db.prepare(`DELETE FROM brand_terms WHERE id = ? AND user_id = ?`).run(id, userId);
     },
 
     // --- Graph versions (5.6) ---
-    listVersions(graphId: string) {
+    listVersions(graphId: string, userId: string) {
       return db
-        .prepare(`SELECT id, graph_id AS graphId, name, note, created_at AS createdAt FROM graph_versions WHERE graph_id = ? ORDER BY created_at DESC`)
-        .all(graphId) as Array<{ id: string; graphId: string; name: string; note: string; createdAt: number }>;
+        .prepare(`SELECT gv.id, gv.graph_id AS graphId, gv.name, gv.note, gv.created_at AS createdAt
+                  FROM graph_versions gv JOIN graphs g ON g.id = gv.graph_id
+                  WHERE gv.graph_id = ? AND g.user_id = ? ORDER BY gv.created_at DESC`)
+        .all(graphId, userId) as Array<{ id: string; graphId: string; name: string; note: string; createdAt: number }>;
     },
-    getVersion(id: string) {
-      return db.prepare(`SELECT * FROM graph_versions WHERE id = ?`).get(id) as
+    getVersion(id: string, userId: string) {
+      return db.prepare(`SELECT gv.* FROM graph_versions gv JOIN graphs g ON g.id = gv.graph_id
+                          WHERE gv.id = ? AND g.user_id = ?`).get(id, userId) as
         | { id: string; graph_id: string; name: string; snapshot: string; note: string; created_at: number }
         | undefined;
     },
@@ -1077,8 +1200,54 @@ export function openDb(file: string) {
       );
       return { id, graphId, name, note, createdAt: now };
     },
-    deleteVersion(id: string) {
-      db.prepare(`DELETE FROM graph_versions WHERE id = ?`).run(id);
+    deleteVersion(id: string, userId: string) {
+      db.prepare(`DELETE FROM graph_versions WHERE id = ? AND graph_id IN (SELECT id FROM graphs WHERE user_id = ?)`).run(id, userId);
+    },
+
+    getGraphById(id: string): (Graph & { version: number }) | null {
+      const row = stmts.getGraphById.get(id) as { doc: string; version: number } | undefined;
+      return row ? { ...(JSON.parse(row.doc) as Graph), version: row.version } : null;
+    },
+
+    listAllGraphs() {
+      return stmts.listAllGraphs.all() as Array<{
+        id: string;
+        name: string;
+        version: number;
+        updated_at: number;
+      }>;
+    },
+
+    getGraphOwnerId(id: string): string | undefined {
+      const row = stmts.getGraphOwnerId.get(id) as { user_id: string } | undefined;
+      return row?.user_id;
+    },
+
+    finishRunById(runId: string, status: string, at: number) {
+      stmts.finishRunById.run(status, at, runId);
+    },
+
+    markRunningById(runId: string) {
+      stmts.markRunningById.run(runId);
+    },
+
+    getRunById(runId: string) {
+      return stmts.getRunById.get(runId) as
+        | { id: string; graph_id: string; snapshot: string; status: string; budget_usd: number | null; started_at: number; ended_at: number | null }
+        | undefined;
+    },
+
+    listRunsUnscoped(limit = 50, offset = 0) {
+      return stmts.listRunsUnscoped.all(limit, offset) as Array<Record<string, unknown>>;
+    },
+
+    listRunsByGraphUnscoped(graphId: string, limit = 1) {
+      return stmts.listRunsByGraphUnscoped.all(graphId, limit) as Array<Record<string, unknown>>;
+    },
+
+    saveGraphUnscoped(graph: Graph, at: number) {
+      const doc = JSON.stringify(graph);
+      stmts.insertGraph.run(graph.id, null, graph.name, doc, at);
     },
 
     close() {
@@ -1225,6 +1394,71 @@ const MIGRATIONS: Migration[] = [
       db.exec("CREATE INDEX IF NOT EXISTS idx_artifacts_graph ON artifacts(graph_id, created_at)");
     },
   },
+  {
+    version: 14,
+    description: "users table + per-user data isolation",
+    // Check a data column, not the users table: DDL runs before migrations and
+    // always creates users with the latest shape, which would otherwise mask
+    // the missing user_id columns on pre-migration databases.
+    detect: (db) => columnExists(db, "graphs", "user_id"),
+    up: (db) => {
+      db.exec(`CREATE TABLE IF NOT EXISTS users (
+        id            TEXT PRIMARY KEY,
+        email         TEXT UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+      )`);
+      // DDL runs before migrations and may already have created some tables
+      // with the latest shape, so only add missing columns.
+      for (const table of ["graphs", "runs", "brand_terms"] as const) {
+        if (!columnExists(db, table, "user_id")) {
+          db.exec(`ALTER TABLE ${table} ADD COLUMN user_id TEXT`);
+        }
+      }
+      db.exec("CREATE INDEX IF NOT EXISTS idx_graphs_user ON graphs(user_id)");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_runs_user ON runs(user_id)");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_brand_terms_user ON brand_terms(user_id)");
+    },
+  },
+  {
+    version: 15,
+    description: "artifacts.user_id so artifact reads are tenant-scoped",
+    // No `detect`: fresh databases already carry the column from the base DDL,
+    // and baselining would record this as applied without ever creating the index.
+    up: (db) => {
+      if (!columnExists(db, "artifacts", "user_id")) {
+        db.exec("ALTER TABLE artifacts ADD COLUMN user_id TEXT");
+      }
+      db.exec(`UPDATE artifacts SET user_id = (
+                 SELECT r.user_id FROM runs r WHERE r.id = artifacts.run_id
+               )
+               WHERE user_id IS NULL
+                 AND EXISTS (
+                   SELECT 1 FROM runs r WHERE r.id = artifacts.run_id AND r.user_id IS NOT NULL
+                 )`);
+      db.exec(`UPDATE artifacts SET user_id = (
+                 SELECT g.user_id FROM graphs g WHERE g.id = artifacts.graph_id
+               )
+               WHERE user_id IS NULL AND artifacts.graph_id IS NOT NULL`);
+      // Pre-auth uploads link to neither a run nor a graph. A single-user
+      // database leaves no ambiguity about who made them; with several users
+      // the owner is unknowable, so those rows stay unowned and invisible.
+      db.exec(`UPDATE artifacts SET user_id = (SELECT id FROM users LIMIT 1)
+               WHERE user_id IS NULL AND (SELECT COUNT(*) FROM users) = 1`);
+      db.exec("CREATE INDEX IF NOT EXISTS idx_artifacts_user ON artifacts(user_id)");
+    },
+  },
+  {
+    version: 16,
+    description: "per-user settings table (provider keys are tenant-scoped)",
+    detect: (db) => tableExists(db, "settings"),
+    up: (db) =>
+      db.exec(`CREATE TABLE IF NOT EXISTS settings (
+        user_id    TEXT PRIMARY KEY,
+        data       TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+      )`),
+  },
 ];
 
 const LATEST_VERSION = MIGRATIONS.at(-1)!.version;
@@ -1275,3 +1509,32 @@ function runMigrations(db: DatabaseSync) {
 
 /** The schema version this build expects. Exposed for diagnostics/backups. */
 export const SCHEMA_VERSION = LATEST_VERSION;
+
+/**
+ * If the users table is empty but data tables have rows (pre-auth database),
+ * create a default user and assign all existing data to it. This ensures
+ * zero-downtime migration for dev databases.
+ */
+export function backfillExistingData(database: { prepare(sql: string): { get(...args: unknown[]): unknown; run(...args: unknown[]): unknown } }): void {
+  const userCount = (database.prepare("SELECT COUNT(*) as c FROM users").get() as { c: number }).c;
+  if (userCount > 0) return;
+
+  const graphCount = (database.prepare("SELECT COUNT(*) as c FROM graphs").get() as { c: number }).c;
+  if (graphCount === 0) return;
+
+  const defaultUserId = randomUUID();
+  const defaultEmail = "admin@local.dev";
+  const placeholderHash = "__no_login__";
+
+  database.prepare("INSERT INTO users (id, email, password_hash) VALUES (?, ?, ?)").run(
+    defaultUserId,
+    defaultEmail,
+    placeholderHash,
+  );
+  database.prepare("UPDATE graphs SET user_id = ? WHERE user_id IS NULL").run(defaultUserId);
+  database.prepare("UPDATE runs SET user_id = ? WHERE user_id IS NULL").run(defaultUserId);
+  database.prepare("UPDATE brand_terms SET user_id = ? WHERE user_id IS NULL").run(defaultUserId);
+  // Migration 15 already attributed run/graph-linked artifacts; whatever is still
+  // ownerless here is a pre-auth upload with no link to follow.
+  database.prepare("UPDATE artifacts SET user_id = ? WHERE user_id IS NULL").run(defaultUserId);
+}

@@ -1,4 +1,10 @@
 import {
+  BranchConfig,
+  CodeNodeConfig,
+  HttpNodeConfig,
+  buildNodeContext,
+  evaluateCondition,
+  evaluateTemplate,
   extractArtifacts,
   incoming,
   nodeById,
@@ -13,6 +19,7 @@ import {
   type SkillMount,
   type Usage,
 } from "@agent-world/core";
+import { spawn } from "node:child_process";
 import { HaltRequested, type Worker } from "./worker.js";
 import { ProviderError } from "./providers/openai-compatible.js";
 import { sanitizeError } from "./sanitize.js";
@@ -20,6 +27,7 @@ import { getSkill, resolveTools, executeBuiltinTool } from "./skills/registry.js
 import { guardToolCall, isDangerousTool, loadPermissionConfig, type PermissionConfig } from "./permissions.js";
 import { notifyHalt } from "./notify.js";
 import { resolveConnector } from "./connectors.js";
+import { allowPrivateNetwork, hostIsInternal } from "./ssrf.js";
 
 /**
  * Append free-text layout directives (manual image-position overrides) to an
@@ -146,12 +154,22 @@ export interface ExecuteOptions {
   storeBinary?: (data: Buffer, mimeType: string, label?: string) => string | Promise<string>;
   /** Resolves a /api/artifacts/<id> URI to a data URI for cloud models. */
   readArtifact?: (uri: string) => Promise<string | null>;
+  /**
+   * Absolute origin (e.g. http://localhost:8791). Relative artifact URIs are
+   * prefixed with it when exposed to agent prompts, so downstream nodes and
+   * gate judges see fully-qualified URLs instead of /api/artifacts/<id> paths.
+   */
+  publicUrl?: string;
   /** Tool-call permission governance. Defaults to the env-derived config. */
   permissionConfig?: PermissionConfig;
 }
 
 type Status = "done" | "failed" | "halted" | "tripped" | "cancelled";
-type NodeState = "pending" | "running" | "done" | "failed";
+/**
+ * - skipped: a branch node did not route here; the node is never launched and
+ *   its own un-routed subtree is skipped the same way.
+ */
+type NodeState = "pending" | "running" | "done" | "failed" | "skipped";
 
 const RETRYABLE: ReadonlySet<string> = new Set(["TIMEOUT", "RATE_LIMIT", "PROVIDER_ERROR"]);
 
@@ -206,6 +224,16 @@ export async function inlineImageUrl(uri: string, readArtifact: (uri: string) =>
     return uri;
   }
 }
+
+/**
+ * Supplemental judging rule appended to every gate criterion. Locally stored
+ * artifacts surface as …/api/artifacts/<id> URLs (often on a localhost origin),
+ * and model judges otherwise reject them as "not a real upstream URL" — even
+ * though they ARE the real upstream output. Enforced here at engine level so
+ * no graph config can trip over it.
+ */
+const ARTIFACT_URL_NOTE =
+  "\n补充判定规则：凡 URL 路径中包含 /api/artifacts/ 的图片或媒体链接，都是本系统产物库中由上游节点真实产出的存储地址，属于有效的上游真实 URL；不得仅因其域名是本机或内网地址（如 localhost、127.0.0.1）而判定为无效、编造或不符合「真实 URL」要求。";
 
 /**
  * Collect all image URIs reachable from a node via its flow-upstream artifacts
@@ -340,6 +368,20 @@ function detectProhibited(text: string, terms: string[]): string[] {
   return terms.filter((t) => text.includes(t));
 }
 
+/** Short context snippets around each hit so rework feedback names the exact offending phrases. */
+function prohibitedSnippets(text: string, hits: string[], maxSnippets = 3): string[] {
+  const out: string[] = [];
+  for (const h of hits.slice(0, maxSnippets)) {
+    const i = text.indexOf(h);
+    if (i < 0) continue;
+    const start = Math.max(0, i - 12);
+    const end = Math.min(text.length, i + h.length + 12);
+    const core = text.slice(start, end).replace(/\s+/g, "");
+    out.push(`“${start > 0 ? "…" : ""}${core}${end < text.length ? "…" : ""}”`);
+  }
+  return out;
+}
+
 /** Build a banner-generation prompt from the upstream source's product brief. */
 function buildImagePrompt(node: GraphNode, graph: Graph): string {
   const seen = new Set<string>();
@@ -417,6 +459,8 @@ interface SchedulerInit {
   states: Map<string, NodeState>;
   /** Tools approved for execution this run (4D.7 dangerous-action halt). */
   approvedTools: string[];
+  /** Flow edges that already carried a packet (branch-aware scheduling). */
+  packetEdges: Set<string>;
 }
 
 interface SchedulerOptions {
@@ -444,6 +488,8 @@ interface SchedulerOptions {
   storeBinary: (data: Buffer, mimeType: string, label?: string) => string | Promise<string>;
   /** Resolves a /api/artifacts/<id> URI to a data URI for cloud models. */
   readArtifact?: (uri: string) => Promise<string | null>;
+  /** Absolute origin prefixed to relative artifact URIs in agent prompts. */
+  publicUrl?: string;
   /** Tool-call permission governance. Defaults to the env-derived config. */
   permissionConfig?: PermissionConfig;
   /** Human-edited product overrides, keyed by node id (4.7 human-in-the-loop). */
@@ -494,6 +540,9 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
 
   const reworkNotes = new Map<string, string>();
   const loopByGate = new Map(plan.loops.map((l) => [l.gateId, l]));
+  /** Flow edges that actually carried a packet this run (branch nodes only emit
+   *  on the edges they routed to). Drives branch-aware scheduling. */
+  const packetEdges = opts.init.packetEdges;
 
   let status: Status = "done";
   let running = 0;
@@ -501,6 +550,12 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
   let finished = false;
   let haltNodeId: string | undefined;
   let haltReason: string | undefined;
+
+  // Relative artifact URIs (/api/artifacts/<id>) are meaningless to downstream
+  // prompts and gate judges — publish them as absolute URLs when an origin is
+  // configured, so products carry fully-qualified image links.
+  const absUrl = (uri: string): string =>
+    uri.startsWith("/") && opts.publicUrl ? opts.publicUrl + uri : uri;
 
   const inputFor = async (node: GraphNode, includeNote = true): Promise<string> => {
     const parts: string[] = [];
@@ -511,16 +566,16 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           if (a.content) parts.push(a.content);
         } else if (a.kind === "image") {
           const label = a.label ?? "上游图片";
-          const uriPart = a.uri ? ` — URL: ${a.uri}` : "";
+          const uriPart = a.uri ? ` — URL: ${absUrl(a.uri)}` : "";
           parts.push(`[图片: ${label}${uriPart}]`);
         } else if (a.kind === "video") {
-          parts.push(`[视频: ${a.label ?? a.uri ?? "上游视频"}]`);
+          parts.push(`[视频: ${a.label ?? (a.uri ? absUrl(a.uri) : "上游视频")}]`);
         } else if (a.kind === "audio") {
-          parts.push(`[音频: ${a.label ?? a.uri ?? "上游音频"}]`);
+          parts.push(`[音频: ${a.label ?? (a.uri ? absUrl(a.uri) : "上游音频")}]`);
         } else if (a.kind === "file") {
-          parts.push(`[文件: ${a.label ?? a.uri ?? "上游文件"}]`);
+          parts.push(`[文件: ${a.label ?? (a.uri ? absUrl(a.uri) : "上游文件")}]`);
         } else if (a.kind === "uri") {
-          parts.push(`[链接: ${a.uri ?? ""}]`);
+          parts.push(`[链接: ${a.uri ? absUrl(a.uri) : ""}]`);
         }
       }
     }
@@ -551,36 +606,62 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       body = assembleInput(parts, policy);
     }
 
-    // Inject upstream source constraints so every agent node (regardless of
-    // how many layers deep) sees the prohibited terms and brand words. Without
-    // this, the source brief only reaches the first downstream agent; after
-    // multiple rewrites the constraints are lost and the gate can only detect
-    // violations post-hoc instead of preventing them upfront.
-    // NOTE: only inject for agent nodes — gate nodes use inputFor() to read
-    // upstream output for coverage detection; injecting terms there would make
-    // the detector always pass.
-    if (node.kind === "agent") {
-      const prohibited = upstreamProhibitedTerms(graph, node.id);
-      const brandTerms = upstreamBrandTerms(graph, node.id);
-      const constraintLines: string[] = [];
-      if (prohibited.length > 0) {
-        constraintLines.push(`[禁用词 — 生成内容中绝对不能出现以下词语/说法]\n${prohibited.join("、")}`);
-      }
-      if (brandTerms.length > 0) {
-        constraintLines.push(`[品牌词 — 建议在文案中自然融入，不必全部使用]\n${brandTerms.join("、")}`);
-      }
-      if (constraintLines.length > 0) {
-        body = `${body}\n\n${constraintLines.join("\n\n")}`;
-      }
-    }
+    // NOTE: upstream prohibited/brand terms are NOT injected into the user
+    // input body here — they are injected into the agent SYSTEM prompt at the
+    // run site (see runNode's agent branch), which is authoritative and
+    // survives input truncation/summarization.
 
     const note = includeNote ? reworkNotes.get(node.id) : undefined;
     if (!note) return body;
     return `${body}\n\n[质检站退回原因] ${note}`;
   };
 
-  const predecessorsDone = (id: string) =>
-    incoming(graph, id, "flow").every((e) => states.get(e.from) === "done");
+  /**
+   * Branch-aware readiness: every flow predecessor must be terminal (done or
+   * skipped), each done predecessor must have actually sent a packet on its
+   * edge (branch nodes only emit on routed edges — a non-branch predecessor
+   * that is done always sent its packets), and at least one packet must have
+   * arrived so un-routed branch tails stay unlaunched.
+   */
+  const predecessorsReady = (id: string) => {
+    const ins = incoming(graph, id, "flow");
+    if (ins.length === 0) return true; // entry nodes (sources / isolated) start immediately
+    let anyPacket = false;
+    for (const e of ins) {
+      const st = states.get(e.from);
+      if (st === "skipped") continue;
+      if (st !== "done") return false;
+      if (packetEdges.has(e.id)) {
+        anyPacket = true;
+      } else if (nodeById(graph, e.from)?.kind !== "branch") {
+        return false;
+      }
+    }
+    return anyPacket;
+  };
+
+  /**
+   * Mark the un-routed tail of a branch node as skipped, propagating down the
+   * flow graph until a merge point (a node that also receives input from a
+   * routed or independent predecessor) is reached — that node keeps executing.
+   */
+  const markBranchSkipped = (branchId: string, routedTarget?: string) => {
+    const seeds = outgoing(graph, branchId, "flow")
+      .map((e) => e.to)
+      .filter((to) => to !== routedTarget);
+    const skipped = new Set<string>();
+    const queue = [...seeds];
+    while (queue.length) {
+      const id = queue.shift()!;
+      if (skipped.has(id)) continue;
+      const flowIn = incoming(graph, id, "flow");
+      const hasIndependentSource = flowIn.some((e) => e.from !== branchId && !skipped.has(e.from));
+      if (hasIndependentSource) continue; // merge point — it still receives data
+      skipped.add(id);
+      for (const e of outgoing(graph, id, "flow")) queue.push(e.to);
+    }
+    for (const id of skipped) states.set(id, "skipped");
+  };
 
   const finish = () => {
     if (finished) return;
@@ -599,6 +680,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
 
   const sendPackets = (nodeId: string, summary: string, artifactKind?: Artifact["kind"]) => {
     for (const e of outgoing(graph, nodeId, "flow")) {
+      packetEdges.add(e.id);
       emit({ type: "packet.sent", edgeId: e.id, from: nodeId, to: e.to, summary, artifactKind });
     }
   };
@@ -696,6 +778,286 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
         return;
       }
 
+      if (node.kind === "http") {
+        emit({ type: "node.started", nodeId, attempt });
+        const cfg: HttpNodeConfig = HttpNodeConfig.parse(node.http ?? {});
+
+        const ctx = buildNodeContext(nodeId, artifacts, graph);
+        const interpolatedUrl = evaluateTemplate(cfg.url, ctx);
+        if (!interpolatedUrl.trim()) {
+          states.set(nodeId, "failed");
+          status = "failed";
+          emit({
+            type: "node.failed",
+            nodeId,
+            attempt,
+            error: "HTTP 节点 URL 为空",
+            errorCode: "VALIDATION",
+          });
+          return;
+        }
+
+        let targetUrl: URL;
+        try {
+          targetUrl = new URL(interpolatedUrl);
+        } catch {
+          states.set(nodeId, "failed");
+          status = "failed";
+          emit({
+            type: "node.failed",
+            nodeId,
+            attempt,
+            error: `HTTP 节点 URL 不合法: ${interpolatedUrl}`,
+            errorCode: "VALIDATION",
+          });
+          return;
+        }
+
+        for (const [key, raw] of Object.entries(cfg.query ?? {})) {
+          try {
+            targetUrl.searchParams.set(key, evaluateTemplate(raw, ctx));
+          } catch {
+            // skip invalid params
+          }
+        }
+
+        const headers: Record<string, string> = {};
+        for (const [key, raw] of Object.entries(cfg.headers ?? {})) {
+          headers[key] = evaluateTemplate(raw, ctx);
+        }
+        const contentType = headers["content-type"] ?? headers["Content-Type"];
+        const body = cfg.body ? evaluateTemplate(cfg.body, ctx) : undefined;
+
+        // SSRF guard: refuse private/internal targets (resolved at fetch time,
+        // so DNS rebinding can't smuggle an internal address past the check).
+        if (!allowPrivateNetwork() && (await hostIsInternal(targetUrl.hostname))) {
+          states.set(nodeId, "failed");
+          status = "failed";
+          emit({
+            type: "node.failed",
+            nodeId,
+            attempt,
+            error: "HTTP 节点拒绝访问内网或私网地址（SSRF 防护）",
+            errorCode: "VALIDATION",
+          });
+          return;
+        }
+
+        const abort = new AbortController();
+        const timer = setTimeout(() => abort.abort(), cfg.timeoutMs);
+        let response: Response;
+        try {
+          response = await fetch(targetUrl.toString(), {
+            method: cfg.method,
+            headers,
+            body: body && cfg.method !== "GET" ? body : undefined,
+            signal: abort.signal,
+          });
+        } catch (err) {
+          clearTimeout(timer);
+          states.set(nodeId, "failed");
+          status = "failed";
+          const msg = err instanceof Error ? err.message : String(err);
+          emit({
+            type: "node.failed",
+            nodeId,
+            attempt,
+            error: `HTTP 请求失败: ${msg}`,
+            errorCode: "PROVIDER_ERROR",
+          });
+          return;
+        }
+        clearTimeout(timer);
+
+        let responseText: string;
+        try {
+          responseText = await response.text();
+        } catch (err) {
+          states.set(nodeId, "failed");
+          status = "failed";
+          const msg = err instanceof Error ? err.message : String(err);
+          emit({
+            type: "node.failed",
+            nodeId,
+            attempt,
+            error: `读取 HTTP 响应失败: ${msg}`,
+            errorCode: "PROVIDER_ERROR",
+          });
+          return;
+        }
+
+        const contentTypeHeader = response.headers.get("content-type") ?? "";
+        const isJsonByHeader = /application\/json|text\/json/i.test(contentTypeHeader);
+        const canParseJson = (() => {
+          try {
+            JSON.parse(responseText);
+            return true;
+          } catch {
+            return false;
+          }
+        })();
+        const asJson = cfg.outputMode === "json" || (cfg.outputMode === "auto" && isJsonByHeader && canParseJson);
+
+        if (cfg.failOnError && (response.status < 200 || response.status >= 300)) {
+          states.set(nodeId, "failed");
+          status = "failed";
+          emit({
+            type: "node.failed",
+            nodeId,
+            attempt,
+            error: `HTTP ${cfg.method} ${targetUrl.toString()} 返回 ${response.status}: ${responseText.slice(0, 200)}`,
+            errorCode: "PROVIDER_ERROR",
+          });
+          return;
+        }
+
+        const output = asJson ? JSON.stringify(JSON.parse(responseText), null, 2) : responseText;
+        const artifact: Artifact = asJson
+          ? { id: `${nodeId}-json`, kind: "json", content: output, mimeType: "application/json" }
+          : { id: `${nodeId}-text`, kind: "text", content: output, mimeType: "text/plain" };
+        artifacts.set(nodeId, [artifact]);
+        emit({ type: "artifact.produced", nodeId, attempt, artifact });
+        states.set(nodeId, "done");
+        emit({ type: "node.finished", nodeId, attempt, output, usage: zeroUsage() });
+        sendPackets(nodeId, output.slice(0, 120), artifact.kind);
+        return;
+      }
+
+      if (node.kind === "code") {
+        emit({ type: "node.started", nodeId, attempt });
+        const cfg = CodeNodeConfig.parse(node.code ?? {});
+        if (!cfg.code.trim()) {
+          states.set(nodeId, "failed");
+          status = "failed";
+          emit({
+            type: "node.failed",
+            nodeId,
+            attempt,
+            error: "代码节点脚本为空",
+            errorCode: "VALIDATION",
+          });
+          return;
+        }
+        const ctx = buildNodeContext(nodeId, artifacts, graph);
+        const inputJson = JSON.stringify({ inputs: ctx });
+        const child = spawn(
+          cfg.language === "python" ? "python3" : "node",
+          cfg.language === "python" ? ["-c", cfg.code] : ["-e", cfg.code],
+          { stdio: ["pipe", "pipe", "pipe"] },
+        );
+        child.stdin.end(inputJson);
+        let stdout = "";
+        let stderr = "";
+        let killed = false;
+        const cap = 1_000_000;
+        child.stdout.on("data", (chunk: Buffer) => {
+          if (stdout.length < cap) stdout += chunk.toString().slice(0, cap - stdout.length);
+        });
+        child.stderr.on("data", (chunk: Buffer) => {
+          if (stderr.length < cap) stderr += chunk.toString().slice(0, cap - stderr.length);
+        });
+        const result = await new Promise<{ code: number | null; signal: string | null }>((resolve) => {
+          const timer = setTimeout(() => {
+            killed = true;
+            child.kill("SIGKILL");
+            resolve({ code: null, signal: "timeout" });
+          }, cfg.timeoutMs);
+          child.on("error", (err) => {
+            clearTimeout(timer);
+            resolve({ code: -1, signal: err.message });
+          });
+          child.on("close", (code, signal) => {
+            clearTimeout(timer);
+            resolve({ code, signal });
+          });
+        });
+        if (killed) {
+          states.set(nodeId, "failed");
+          status = "failed";
+          emit({
+            type: "node.failed",
+            nodeId,
+            attempt,
+            error: `代码执行超时（${cfg.timeoutMs}ms）${stderr.slice(0, 200)}`,
+            errorCode: "TIMEOUT",
+          });
+          return;
+        }
+        if (result.code !== 0) {
+          states.set(nodeId, "failed");
+          status = "failed";
+          emit({
+            type: "node.failed",
+            nodeId,
+            attempt,
+            error: `代码执行失败（退出码 ${result.code}）: ${(stderr || "无 stderr 输出").slice(0, 300)}`,
+            errorCode: "PROVIDER_ERROR",
+          });
+          return;
+        }
+        const raw = stdout.trim();
+        let output = raw;
+        let asJson = false;
+        if (raw) {
+          try {
+            const parsed = JSON.parse(raw);
+            if (parsed !== null && typeof parsed === "object") asJson = true;
+          } catch {
+            // plain text output
+          }
+        }
+        if (asJson) output = JSON.stringify(JSON.parse(raw), null, 2);
+        const artifact: Artifact = asJson
+          ? { id: `${nodeId}-code-json`, kind: "json", content: output, mimeType: "application/json" }
+          : { id: `${nodeId}-code-text`, kind: "text", content: output, mimeType: "text/plain" };
+        artifacts.set(nodeId, [artifact]);
+        emit({ type: "artifact.produced", nodeId, attempt, artifact });
+        states.set(nodeId, "done");
+        emit({ type: "node.finished", nodeId, attempt, output, usage: zeroUsage() });
+        sendPackets(nodeId, output.slice(0, 120), artifact.kind);
+        return;
+      }
+
+      if (node.kind === "branch") {
+        emit({ type: "node.started", nodeId, attempt });
+        const cfg: BranchConfig = BranchConfig.parse(node.branch ?? {});
+        const ctx = buildNodeContext(nodeId, artifacts, graph);
+        let target: string | undefined;
+        let matchedRule: string | undefined;
+        for (const rule of cfg.rules ?? []) {
+          if (evaluateCondition(rule.when, ctx)) {
+            target = rule.target;
+            matchedRule = rule.id;
+            break;
+          }
+        }
+        if (!target && cfg.defaultTarget) {
+          target = cfg.defaultTarget;
+          matchedRule = undefined;
+        }
+        if (target) {
+          const edge = outgoing(graph, nodeId, "flow").find((e) => e.to === target);
+          if (edge) {
+            packetEdges.add(edge.id);
+            emit({
+              type: "packet.sent",
+              edgeId: edge.id,
+              from: nodeId,
+              to: target,
+              summary: matchedRule ? `命中分支 ${matchedRule}` : "默认分支",
+              artifactKind: "text",
+            });
+          }
+        }
+        states.set(nodeId, "done");
+        markBranchSkipped(nodeId, target);
+        const output = target
+          ? `路由 → ${nodeById(graph, target)?.name ?? target}${matchedRule ? `（${matchedRule}）` : "（默认）"}`
+          : "未命中任何分支，报文被丢弃";
+        emit({ type: "node.finished", nodeId, attempt, output, usage: zeroUsage() });
+        return;
+      }
+
       if (node.kind === "gate") {
         emit({ type: "node.started", nodeId, attempt });
         const output = await inputFor(node);
@@ -704,7 +1066,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           attempt,
           input: output,
           output,
-          criterion: node.gate?.criterion ?? "",
+          criterion: (node.gate?.criterion ?? "") + ARTIFACT_URL_NOTE,
           signal: opts.signal,
         });
 
@@ -728,9 +1090,15 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
 
         let verdict = modelVerdict;
         if (prohibitedHits.length > 0) {
+          // Actionable rework feedback: name the exact offending phrases and
+          // the attempt number. Varying the note per attempt matters — with a
+          // deterministic endpoint, an identical rework note produces identical
+          // input and the model regenerates the same violating copy forever.
+          const snippets = prohibitedSnippets(output, prohibitedHits);
+          const where = snippets.length ? `，出现位置：${snippets.join("、")}` : "";
           verdict = {
             passed: false,
-            reason: `命中禁用词：${prohibitedHits.join("、")}（已退回上游重写）`,
+            reason: `命中禁用词：${prohibitedHits.join("、")}（第 ${attempt} 次质检${where}）。重写时必须完全避开这些词及任何包含它们的短语，已退回上游重写`,
             score: modelVerdict.score,
           };
         } else if (belowBrand) {
@@ -829,6 +1197,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       console.warn(`[videoGen:${nodeId}] worker has no generateVideo, skipping`);
       states.set(nodeId, "done");
       emit({ type: "node.finished", nodeId, attempt, output: "", usage: zeroUsage() });
+      sendPackets(nodeId, "跳过（worker 无视频能力）", "text");
       return;
     }
     const prompt = cfg.prompt?.trim() || (await inputFor(node));
@@ -864,6 +1233,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       console.warn(`[videoGen:${nodeId}] generation failed:`, (err as Error).message);
       states.set(nodeId, "done");
       emit({ type: "node.finished", nodeId, attempt, output: "", usage: zeroUsage() });
+      sendPackets(nodeId, "视频生成失败（已跳过）", "text");
     }
     return;
   }
@@ -876,6 +1246,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       console.warn(`[audioGen:${nodeId}] worker has no generateAudio, skipping`);
       states.set(nodeId, "done");
       emit({ type: "node.finished", nodeId, attempt, output: "", usage: zeroUsage() });
+      sendPackets(nodeId, "跳过（worker 无音频能力）", "text");
       return;
     }
     const prompt = cfg.prompt?.trim() || (await inputFor(node));
@@ -911,6 +1282,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       console.warn(`[audioGen:${nodeId}] generation failed:`, (err as Error).message);
       states.set(nodeId, "done");
       emit({ type: "node.finished", nodeId, attempt, output: "", usage: zeroUsage() });
+      sendPackets(nodeId, "音频生成失败（已跳过）", "text");
     }
     return;
   }
@@ -952,6 +1324,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       console.warn(`[imageGen:${nodeId}] generation skipped:`, (err as Error).message);
       states.set(nodeId, "done");
       emit({ type: "node.finished", nodeId, attempt, output: "", usage: zeroUsage() });
+      sendPackets(nodeId, "生图失败（已降级跳过）", "text");
     }
     return;
   }
@@ -960,9 +1333,30 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       const mounts = (node.agent?.skills ?? []).map(toMount);
       const promptModules = collectPromptModules(mounts);
       const basePrompt = withLayoutDirectives(node.agent?.prompt ?? "", node.agent?.imageDirectives);
-      const prompt = promptModules.length
+      let prompt = promptModules.length
         ? `${basePrompt}\n\n${promptModules.map((p) => `=== 已挂载模块提示 (prompt-module) ===\n${p}`).join("\n\n")}`
         : basePrompt;
+      // Engine-level hard constraint: upstream source prohibited/brand terms are
+      // always injected into the SYSTEM prompt here, regardless of what the user
+      // wrote in the node prompt, so every pipeline (incl. user-customized ones)
+      // is constrained at generation time. The gate remains the deterministic
+      // backstop. Living in the system prompt also survives input truncation /
+      // summarization, unlike appending to the user input body.
+      const constraintBlocks: string[] = [];
+      const prohibited = upstreamProhibitedTerms(graph, node.id);
+      if (prohibited.length > 0) {
+        constraintBlocks.push(
+          `[硬性约束 — 禁用词] 生成的任何内容中都绝对不能出现以下词语/说法：${prohibited.join("、")}。` +
+            `质检按“包含”匹配：任何包含这些字的短语同样被禁止（例如禁用“第一”时，“第一缕阳光”“第一杯咖啡”这类表达也不允许），必须换用不含这些字的说法。`,
+        );
+      }
+      const brandTerms = upstreamBrandTerms(graph, node.id);
+      if (brandTerms.length > 0) {
+        constraintBlocks.push(`[品牌词] 建议在文案中自然融入以下品牌词，不必全部使用：${brandTerms.join("、")}`);
+      }
+      if (constraintBlocks.length > 0) {
+        prompt = prompt ? `${prompt}\n\n${constraintBlocks.join("\n\n")}` : constraintBlocks.join("\n\n");
+      }
       const config = {
         model: node.agent?.model || fallbackModel,
         prompt,
@@ -1223,7 +1617,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     // Bounded concurrency: launch every ready plant up to the free slots.
     while (running < MAX_CONCURRENCY && !aborted) {
       const ready = graph.nodes.find(
-        (n) => states.get(n.id) === "pending" && predecessorsDone(n.id),
+        (n) => states.get(n.id) === "pending" && predecessorsReady(n.id),
       );
       if (!ready) break;
       states.set(ready.id, "running");
@@ -1307,6 +1701,7 @@ export async function* execute(opts: ExecuteOptions): AsyncGenerator<RunEvent, v
     sleep: opts.sleep ?? delay,
     storeBinary: opts.storeBinary ?? defaultStoreBinary,
     readArtifact: opts.readArtifact,
+    publicUrl: opts.publicUrl,
     permissionConfig: opts.permissionConfig,
     init: {
       artifacts: new Map(),
@@ -1315,6 +1710,7 @@ export async function* execute(opts: ExecuteOptions): AsyncGenerator<RunEvent, v
       totalCostUsd: 0,
       states,
       approvedTools: [],
+      packetEdges: new Set(),
     },
   });
   yield* gen;
@@ -1443,6 +1839,8 @@ export interface ResumeOptions {
   storeBinary?: (data: Buffer, mimeType: string, label?: string) => string | Promise<string>;
   /** Resolves a /api/artifacts/<id> URI to a data URI for cloud models. */
   readArtifact?: (uri: string) => Promise<string | null>;
+  /** Absolute origin prefixed to relative artifact URIs in agent prompts. */
+  publicUrl?: string;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
   /** Tool-call permission governance. Defaults to the env-derived config. */
@@ -1561,6 +1959,7 @@ export async function* resume(opts: ResumeOptions): AsyncGenerator<RunEvent, voi
     sleep,
     storeBinary: opts.storeBinary ?? defaultStoreBinary,
     readArtifact: opts.readArtifact,
+    publicUrl: opts.publicUrl,
     permissionConfig: opts.permissionConfig,
     editOutput: opts.editOutput,
     init: {
@@ -1570,6 +1969,11 @@ export async function* resume(opts: ResumeOptions): AsyncGenerator<RunEvent, voi
       totalCostUsd: state.totalCostUsd,
       states,
       approvedTools: state.approvedTools,
+      packetEdges: new Set(
+        opts.pastEvents
+          .filter((e) => e.type === "packet.sent")
+          .map((e) => (e as { edgeId: string }).edgeId),
+      ),
     },
     resuming: true,
     approveTools: [...new Set([...state.approvedTools, ...approveTools])],
