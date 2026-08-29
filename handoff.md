@@ -17,27 +17,28 @@ State of Agent World as of 2026-08-29.
 - [docs/roadmap-generalization.md](docs/roadmap-generalization.md) — 通用化路线图（从内容生成流水线升级为通用自动化平台，5 阶段）
 - [docs/handoff-archive.md](docs/handoff-archive.md) — historical changes (pre-2026-08-27)
 - [PRODUCT_STRATEGY.md](PRODUCT_STRATEGY.md) — 产品策略汇总（成本/部署/定价/商业化决策基线）
-- [docs/design-artifact-display.md](docs/design-artifact-display.md) — 产物统一渲染卡设计（ArtifactCard + 渲染器注册表；前端进行中）
+- [docs/design-artifact-display.md](docs/design-artifact-display.md) — 产物统一渲染卡设计（ArtifactCard + 渲染器注册表；前端已落地）
 - [docs/design-artifact-attribution-repo.md](docs/design-artifact-attribution-repo.md) — 产物归属 + 按流水线分组成品仓库设计（后端 schema 已落地）
 
 ## Current state
 
 - **Monorepo**：`packages/core` / `packages/server` (Node + sqlite, 端口 8791) / `apps/web` (Vite, 端口 5173)
-- **核心能力**：4 类节点（agent / imageGen / videoGen / audioGen），多产线管理，Inspector 模型下拉严格按 modality 过滤，多模态产出（Artifact 分层），流式 + SSE + 断线重连 + halt/resume，成本电表（token + 单价两种模式），评估体系雏形，产物落库归属流水线（artifacts 加 graph_id/role，`ab32074` 已提交）
-- **进行中（工作树未提交）**：
-  - **账号系统 / 按用户隔离**：users 表 + JWT(HS256, bcrypt12) 会话 + graphs/runs/artifacts/brand_terms/成本全部按 `user_id` 过滤 + 前端登录/注册/用户菜单 + `authFetch(credentials:include)` + `/api/proxy` 图片代理（own artifact 归一化走 cookie）
+- **核心能力**：4 类节点（agent / imageGen / videoGen / audioGen），多产线管理，Inspector 模型下拉严格按 modality 过滤，多模态产出（Artifact 分层），流式 + SSE + 断线重连 + halt/resume，成本电表（token + 单价两种模式），评估体系雏形，产物落库归属流水线（artifacts 的 graph_id/role）
+- **本轮已落地（2026-08-29，均已提交）**：
+  - **账号系统 / 按用户隔离**（`5b81c74` + `73d3610`）：users 表 + JWT(HS256, bcrypt12) HttpOnly cookie 会话 + graphs/runs/artifacts/brand_terms/成本全部按 `user_id` 过滤 + 前端登录/注册/用户菜单 + `authFetch(credentials:include)`。旧库升级自动回填归属（迁移 14/15 幂等，无法归属的行 fail closed 不可见）
   - **产物统一渲染**：`artifact-renderers.tsx`（ArtifactCard 外壳 + 7 类渲染器注册表 + JSON 树 + 共享 renderMarkdown），Inspector/成品面板/画廊三处接入，画廊按流水线分组，节点缩略图
   - **UI 布局交互**：Inspector 可拖拽调宽（localStorage 持久化）、CanvasToolbar 置顶、Inspector 随节点选中自动开合、成品库改版
+  - **安全加固**（`17dfbf9`/`299dc63`/`c0dd67d`）：删除死代码 SKIP_AUTH；artifacts 读写全部按用户归属（堵跨用户读取/下载）；`/api/proxy` 要求登录 + 拒绝内网地址 + 重定向逐跳复检（堵未认证 SSRF）。遗留决策项见"待办"第 4 条
 - **关键文件**：
   - `apps/web/src/components/Inspector.tsx` — 节点详情面板（model select 严格按 modality 过滤；产物走 ArtifactCard）
-  - `apps/web/src/lib/artifact-renderers.tsx` — 统一产物渲染（工作树未提交）
-  - `apps/web/src/components/ProductGallery.tsx` — 成品库（kind 过滤 + 按流水线分组，工作树未提交）
+  - `apps/web/src/lib/artifact-renderers.tsx` — 统一产物渲染
+  - `apps/web/src/components/ProductGallery.tsx` — 成品库（kind 过滤 + 按流水线分组）
   - `apps/web/src/components/Settings.tsx` — 模型/provider/单价管理
   - `apps/web/src/components/Canvas.tsx` — 画布（undo/redo/缩略图/拖拽/对齐）
-  - `apps/web/src/components/GraphSwitcher.tsx` — 多产线切换（重设计 step 3 尾巴未提交）
+  - `apps/web/src/components/GraphSwitcher.tsx` — 多产线切换
   - `apps/web/src/components/Onboarding.tsx` — 首次启动引导
-  - `packages/server/src/auth.ts` — JWT 签发/校验、密码哈希（工作树未提交）
-  - `packages/server/src/db.ts` — 持久化（含 users 表 + 按 user_id 隔离，进行中）
+  - `packages/server/src/auth.ts` — JWT 签发/校验、密码哈希
+  - `packages/server/src/db.ts` — 持久化（users 表 + 按 user_id 隔离 + 迁移 1-15）
   - `packages/core/src/` — 领域模型、Provider 抽象、Artifact、节点契约
   - `packages/server/src/` — 持久化、events API、调度
 
@@ -45,21 +46,20 @@ State of Agent World as of 2026-08-29.
 
 按优先级降序，标 `★` 的是当下要推的：
 
-0. **★ 工作树三坨大改动待收尾（进行中，未提交）** — 账号系统（user 隔离 + JWT + 前端登录/用户菜单）、产物统一渲染（ArtifactCard / 画廊分组 / 节点缩略图）、UI 布局交互（Inspector 拖宽 / 工具栏置顶 / 成品库改版）。**注意：server 测试因此挂 26 个**（user 隔离重构改了 DB API，测试未同步），需要先把这批改动拆成原子 commit 收尾。
 1. **★ 通用化 Phase 1 P0**（详见 [docs/roadmap-generalization.md](docs/roadmap-generalization.md)）— HTTP 请求节点 + 代码执行节点 + 条件分支节点 + 数据模型升级（JSON 传递/变量/映射）。这是从"内容生成工具"升级为"通用自动化平台"的基石，做完能处理 80% 场景。
 2. **MCP Server P0 MVP**（详见 [docs/design-mcp-server.md](docs/design-mcp-server.md)）— stdio 传输 + 6 个核心工具（list_graphs/get_graph/run_graph/get_run_status/list_artifacts/get_artifact），让 Claude Desktop/Cursor 等能接入 agent-world。
-3. **GraphSwitcher.tsx 未提交的 step 3 尾巴**（+11 行）— 上一轮 UI 重设计遗留，工作树里挂着，需要决定是单独一个 commit 收掉还是先放着
-4. **Inspector 的"在显眼处加一个去设置的链接"**— 音频模型没配时，下拉只有占位项，没引导；新建节点有 toast 软提示覆盖
+3. **Inspector 的"在显眼处加一个去设置的链接"**— 音频模型没配时，下拉只有占位项，没引导；新建节点有 toast 软提示覆盖
+4. **安全决策项（等 owner 拍板）**— `/api/settings` 是否按用户隔离（当前全局配置，任何登录用户可改共享 provider key）；cookie `Secure` 标志（取决于部署是否 TLS 终止）；proxy DNS-rebinding 加固（仅公网部署需要）；webhook 触发器空 secret 强制。背景已固化在安全审计结论里，勿盲目"顺手修"
 
 ## Recently shipped (last 5)
 
 按 commit 时间倒序，每条一行影响面 + commit hash：
 
-1. `ab32074` — **feat**: 产物落库归属到流水线和角色（artifacts 加 graph_id/role，run.ts 注入）
-2. `fc99fbe` — **chore(web)**: Vite dev 端口恢复为 5173
-3. `017c533` — **chore(deps)**: 新增 bcryptjs / jose / react-router-dom（为账号系统做准备）
-4. `4177691` — **docs(handoff)**: 补充通用化路线图、MCP Server 设计与近期修复
-5. `eb3db86` — **docs**: 通用化路线图（5 阶段，从内容生成流水线升级为通用自动化平台）
+1. `c0dd67d` — **fix(server)**: `/api/proxy` 要求登录并拒绝内网地址（回环 / RFC1918 / 云元数据 / IPv6 本地段），重定向逐跳复检，堵未认证 SSRF
+2. `299dc63` — **fix(server)**: artifacts 全链路按用户归属（user_id 列 + 迁移 15 回填 + 读接口过滤），堵跨用户读取/下载
+3. `17dfbf9` — **refactor(server)**: 删除从未被引用的 SKIP_AUTH 白名单（消除免鉴权脚枪）
+4. `e3e2f88` — **test(server)**: 测试适配 user-scoped DB 与 auth API（server 套件转绿）
+5. `835a383` — **fix(server)**: 用户隔离迁移（14）对 pre-migration 旧库幂等化
 
 最近 5 条之前的全部在 [docs/handoff-archive.md](docs/handoff-archive.md) 的"阶段 4 收尾"系列章节里。
 
@@ -69,12 +69,9 @@ State of Agent World as of 2026-08-29.
 
 - `pnpm -r typecheck`：全绿
 - `pnpm --filter @agent-world/core test`：54/54 通过
-- `pnpm --filter @agent-world/server test`：**201/227 通过，26 失败**（进行中 user 隔离重构未同步测试，非本次文档改动引入）：
-  - 14 个测试文件 0 收集（graphs / events / artifacts / costs / runs / brand / ab / migrations / sse-resume …，因 DB API 签名变更在 import 期崩）
-  - `triggers.test.ts` 19 失败（fake db 缺 `listAllGraphs`）
-  - `scheduler.test.ts` 4 失败、`security.test.ts` 1 失败
-  - 原有 2 个已知失败仍在：`engine.reliability.test.ts > resume with resetFrom`、`engine.test.ts > artifact.produced with image URLs`
+- `pnpm --filter @agent-world/server test`：267/267 通过（含 artifact 跨用户隔离、迁移 15 回填、上传 id 防碰撞用例）
 - `pnpm --filter @agent-world/web exec vitest run`：19/19 通过
+- **注意**：依赖 `node:sqlite`，必须 Node ≥ 22（CI 用 Node 24；本地 shell 默认 Node 20 会误报 `No such built-in module: node:sqlite`，用 `fnm exec --using=24` 跑）
 
 ## Feedback workflow
 
@@ -103,7 +100,6 @@ cd apps/web && pnpm dev
 
 - **沙箱不让 listen socket**：node `dist/index.js` / `pnpm dev` / `python3 start_new_session` 起服务全部 EPERM（IPv4/IPv6 loopback 都试过）
 - **沙箱不让写 `.git/index.lock`**：`git commit` 需要 escalated 权限；escalation 通道的 token 上限是整个调用包级别，即使 `-m x` 也会被 review 拒
-- **老 server pid 89495** 沙箱杀不掉（EPERM），需要用户在终端 `kill 89495`
 - **"沙箱 EPERM"在 archive 章节里出现 12+ 次**：历史上每节都重复写"未在 8791 端到端复现"，现在归档后本文件只留一次
 
 ## Conventions (carry over from archive)
