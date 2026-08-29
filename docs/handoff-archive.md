@@ -1789,6 +1789,7 @@ modality 切片，统一严格过滤；同时把 agent 的占位文案从泛化�
 
 > Entries rolled out of the active `handoff.md` "Recently shipped" list to keep it at 5 items.
 
+- `7ad5d29` — **feat(core/server/web)**: **Phase 2 第二节点——数据库查询（database）**。core 新增 NodeKind.database + DatabaseConfig schema（path/setupSql/sql + 位置/命名参数绑定）；server 新增 driver 抽象 `db-drivers.ts`（DatabaseDriver 接口，SQLite 首实现基于内置 node:sqlite，零新依赖）；查询产物 `{rows,count,columns}` 与表格节点同构。core 5 + server 9 个新测试。
 - `dbd9e8b` — **feat(core/server/web)**: **Phase 2 起点——表格节点（table）**。core 新增 NodeKind.table + TableConfig/TableStep schema（parse/filter/sort/aggregate/output 判别联合）+ 纯函数 `table.ts`（带引号字段的状态机 CSV 解析器、数字感知筛选/排序、groupBy 聚合）；server 执行分支：读唯一上游（或显式 source），兼容 CSV 文本 / JSON 数组 / `{rows:[...]}`，产出 `{rows,count,columns}` JSON 产物，`output:csv` 时额外产出 CSV 文本产物，非法输入/无上游 → VALIDATION；web 工具栏按钮 + Inspector 可视化步骤编辑器 + 标签配色。core 31 + server 7 个新测试。
 - `c69788a` — **feat(web)**: **Inspector 模型未配置时显示去设置入口**。
 - `373a059` — **feat(mcp-server)**: **MCP Server P1 增强——HTTP/SSE 传输 + Resources + Prompts**。Streamable HTTP 传输（`POST /mcp` 按 `Accept` 头返回 JSON 或 SSE、`GET /mcp` SSE 流宣告 endpoint、notification 202、`AGENT_WORLD_MCP_TRANSPORT=http`/`--http` 切换、`AGENT_WORLD_MCP_PORT` 端口）；Resources（`resources/list`/`templates`/`read`，graph:// run:// artifact:// 三类 URI 模板，二进制产物返回下载地址）；Prompts（`prompts/list`/`get`，run_pipeline / analyze_pipeline / create_from_template 三个引导提示词，graphId/input 参数插值）；initialize 能力声明 tools+resources+prompts，版本 0.2.0。协议级测试 22/22 + 真实 socket 端到端冒烟（沙箱已可 listen）。
