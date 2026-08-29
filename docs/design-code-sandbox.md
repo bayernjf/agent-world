@@ -1,6 +1,6 @@
 # 代码节点运行沙箱设计方案
 
-> 状态：P0（`6b2f92b`）+ P1（`ddb2e03`）+ **P2 外部沙箱后端已落地（bwrap / sandbox-exec / noop 可插拔）** + fs/net 策略字段已落地 + **net allowlist 的 SSRF 校验代理已落地（§10）**；docker/podman 容器后端待办。
+> 状态：P0（`6b2f92b`）+ P1（`ddb2e03`）+ **P2 外部沙箱后端已落地（bwrap / sandbox-exec / noop 可插拔）** + fs/net 策略字段已落地 + **net allowlist 的 SSRF 校验代理已落地（§10）**；docker/podman 容器后端待办（低优，决策记录见 §11）。
 > 关联：handoff 待办「运行沙箱细化」；代码节点当前实现在 `packages/server/src/engine.ts` 的 `node.kind === "code"` 分支 + `packages/server/src/code-sandbox.ts`。
 
 ## 实施进度（2026-08-29，P1 落地后）
@@ -24,7 +24,7 @@
   - `fs: "sandbox" | "allowlist"`（默认 sandbox = 仅 workdir 读写；allowlist = 额外授予 `TOOL_FS_ALLOW` 前缀**只读**，写入仍仅限 workdir）。实现：JS 经 Node permission 重复 `--allow-fs-read` 授予；bwrap（只读根）/ seatbelt（`allow file-read*`）天然全只读无需额外配置；Python 在 rlimit 后端下本无 fs 限制，因此 no-op。
   - `net: "none" | "allowlist"`（默认 none = 不注入任何出口；**allowlist 已落地**：rlimit/noop 后端下经本地 SSRF 校验代理放行 `TOOL_NETWORK_ALLOW` 白名单，bwrap/sandbox-exec 硬断网后端 VALIDATION 拒绝——详见 §10）。
 - [x] **net allowlist 的 SSRF 校验代理（2026-08-29 落地，§10）**：常驻单例正向代理 + 一次性 run token（内嵌代理 URL 凭据，标准客户端自动转 `Proxy-Authorization: Basic`）+ allowlist/内网双重校验（IP 固定，rebinding 免疫）+ 逐请求审计日志。测试 442 → **457 通过**（+13 代理单测、+3 engine e2e/VALIDATION、旧 net 诚实报错用例改写为 TOOL_NETWORK_ALLOW 校验）。
-- [ ] **后续待办**：docker/podman 容器后端（生产）。
+- [ ] **后续待办**：docker/podman 容器后端（生产，低优——为什么低优/何时动手见 §11）。
 
 ---
 
@@ -216,7 +216,7 @@ export function resolveSandbox(env: NodeJS.ProcessEnv): CodeSandbox { /* 按 COD
 - [x] `sandbox-exec` 后端：macOS 下 file-write 越界被 seatbelt 拒绝（Python live 验证）；workdir 内可写（Node ≤ 22 live 验证；Node 24.0.0 有 V8 崩溃 bug，探针跳过）
 - [x] 缺后端时降级到 `rlimit` 并 `console.warn`（不静默，warn-once）
 - [x] 测试：`CODE_SANDBOX` 选择/未知值降级/告警断言；恶意脚本样例拦截由 P1 测试延续（rlimit 后端下），bwrap/sandbox-exec 后端的恶意样例依赖对应二进制存在
-- [ ] docker/podman 容器后端（生产）待办
+- [ ] docker/podman 容器后端（生产）待办——低优决策依据与触发条件见 §11
 
 ---
 
@@ -287,3 +287,32 @@ export function resolveSandbox(env: NodeJS.ProcessEnv): CodeSandbox { /* 按 COD
    - [x] bwrap/sandbox-exec 下 `net: "allowlist"` 得到明确 VALIDATION 错误
    - [x] 审计日志逐请求可查（runId + host + 判定）
    - [x] 现有 server 测试零回归（442 → 457，全部通过）
+
+---
+
+## 11. docker/podman 容器后端（待办，低优——决策记录）
+
+> 为什么排在最后、以及什么条件下才值得动手。这段是判断依据的沉淀，不是实现方案。
+
+### 11.1 定位
+
+`CodeSandboxBackend` 的第 5 个实现（rlimit / bwrap / sandbox-exec / noop 之后）。区别于前四档的进程级/命名空间级方案，容器是**唯一内核级强制隔离**：
+
+- 现状短板：rlimit 后端下 net allowlist 是协作式（§10，Python 完全无 fs/net 约束、JS 裸 socket 可绕代理）；bwrap 只覆盖 Linux 且 unshare-net 断得干净、无法接 allowlist 代理
+- 容器档收益：`--network none` / 自定义网络 + 出口策略让 `net: "allowlist"` 从「约束守规矩的客户端」变成「物理上只能到白名单」；`--read-only` + 唯一可写卷让 Python/JS 的 fs 隔离一视同仁
+
+### 11.2 为什么低优——工程量不在接口，在外围
+
+接口适配本身很薄（`planSpawn` 返回 `docker run --rm --network <profile> --memory/--cpus/--pids-limit --read-only -v <workdir>:/work ...`，规模与 P2 bwrap 后端相当），真正的成本：
+
+1. **运行环境依赖**：目标机器需 docker daemon 或 rootless podman——这是运维/部署决策，产品部署形态未定前先做可能白做
+2. **镜像生命周期**：解释器基础镜像的构建、版本固定、CVE 更新流水线，是持续性维护负担
+3. **性能**：容器冷启数百 ms，比 fork+exec 慢一个量级，需要 warm pool 才不至于拖慢每个代码节点
+4. **安全边界本身**：容器逃逸（workdir 卷挂载 + rootless 配置）需单独安全评审，不是套一层 docker run 就完事
+5. **网络策略**：`--network none` 容易；真正的 allowlist 出口控制（每 run 临时 network namespace + iptables 规则，或内置代理容器）是块硬骨头
+
+### 11.3 触发条件（什么时候动手）
+
+- **产品部署形态明确**（自托管单机 / K8s / 托管平台）之后再决策
+- 若最终跑在 Linux 且装了 bwrap：P2 已提供硬 fs/net 隔离，容器的**增量收益只剩 net allowlist 硬化 + Python 约束全覆盖**——是否值得为这两点引入镜像维护成本，届时再评估
+- 若部署在无 bwrap 的环境（如 macOS 自托管）且威胁模型要求硬隔离：优先级应上调
