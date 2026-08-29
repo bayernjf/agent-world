@@ -38,7 +38,7 @@ describe("code workdir", () => {
 
 /* ---------------- P1: limits resolution + rlimit wrapper ---------------- */
 
-import { platform } from "node:os";
+import { platform, tmpdir } from "node:os";
 import type { CodeSandboxLimits } from "./code-sandbox.js";
 import {
   DEFAULT_SANDBOX_LIMITS,
@@ -130,8 +130,20 @@ describe("buildRlimitWrapper", () => {
     // Use spawnSync to run the wrapper with a timeout. rlimits will be
     // applied but the one-liner finishes in ms so it doesn't hit any cap.
     const { spawnSync: spawn } = require("node:child_process") as typeof import("node:child_process");
-    const r = spawn(runtime.command, runtime.args, { encoding: "utf8", timeout: 5000 });
-    expect(r.status).withContext(`stderr=${r.stderr}`).toBe(0);
+    const r = spawn(runtime.command, runtime.args, {
+      encoding: "utf8",
+      timeout: 10000,
+      // EOF on stdin: if quoting ever regresses and node drops into REPL
+      // mode, it exits at EOF instead of hanging until the timeout (a
+      // CI Linux run showed exactly that silent-hang signature).
+      input: "",
+      // Mirror the engine's spawn conditions (trimmed env), not the vitest
+      // worker's full environment.
+      env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "", TMPDIR: tmpdir() },
+    });
+    expect(r.status)
+      .withContext(`signal=${r.signal} err=${r.error?.message} stdout=${r.stdout} stderr=${r.stderr}`)
+      .toBe(0);
     expect(r.stdout.trim().split(/\n/)[0]).toBe("x");
   });
 });
