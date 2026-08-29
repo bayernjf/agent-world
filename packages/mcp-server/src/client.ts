@@ -15,9 +15,12 @@ export class AgentWorldClient {
   constructor(private readonly cfg: McpServerConfig) {}
 
   private url(path: string): URL {
-    const u = new URL(path, this.cfg.url);
-    if (this.cfg.token) u.searchParams.set("token", this.cfg.token);
-    return u;
+    return new URL(path, this.cfg.url);
+  }
+
+  /** Auth header carried on every request (Authorization: Bearer, when a token is set). */
+  private authHeaders(): Record<string, string> {
+    return this.cfg.token ? { authorization: `Bearer ${this.cfg.token}` } : {};
   }
 
   private async request(path: string, init?: RequestInit): Promise<unknown> {
@@ -25,7 +28,7 @@ export class AgentWorldClient {
     try {
       res = await fetch(this.url(path), {
         ...init,
-        headers: { "content-type": "application/json", ...(init?.headers ?? {}) },
+        headers: { "content-type": "application/json", ...this.authHeaders(), ...(init?.headers ?? {}) },
         signal: AbortSignal.timeout(this.cfg.requestTimeoutMs),
       });
     } catch (e) {
@@ -104,7 +107,10 @@ export class AgentWorldClient {
     const u = this.url(`/api/artifacts/${encodeURIComponent(artifactId)}`);
     let res: Response;
     try {
-      res = await fetch(u, { signal: AbortSignal.timeout(this.cfg.requestTimeoutMs) });
+      res = await fetch(u, {
+        headers: this.authHeaders(),
+        signal: AbortSignal.timeout(this.cfg.requestTimeoutMs),
+      });
     } catch (e) {
       throw new Error(
         `agent-world 主服务不可达（${this.cfg.url}）: ${(e as Error).message}。请确认主服务已启动。`,
@@ -158,5 +164,27 @@ export class AgentWorldClient {
     return (await this.request(`/api/knowledge/search?${qs}`)) as {
       entries: Array<Record<string, unknown>>;
     };
+  }
+
+  /**
+   * GET /api/runs/:id/events — the run's event log. With `since`/`limit` the
+   * server returns a paged window; without them it returns the full log plus
+   * the reconstructed state.
+   */
+  async runEvents(runId: string, since?: number, limit?: number): Promise<Record<string, unknown>> {
+    const qs = new URLSearchParams();
+    if (since != null) qs.set("after", String(since));
+    if (limit != null) qs.set("limit", String(limit));
+    const path = `/api/runs/${encodeURIComponent(runId)}/events`;
+    return (await this.request(qs.size > 0 ? `${path}?${qs}` : path)) as Record<string, unknown>;
+  }
+
+  /** Open the main server's live run stream (`GET /api/runs/:id/stream`) as SSE. */
+  async openRunStream(runId: string, signal?: AbortSignal): Promise<Response> {
+    const u = new URL(`/api/runs/${encodeURIComponent(runId)}/stream`, this.cfg.url);
+    return fetch(u, {
+      headers: { accept: "text/event-stream", ...this.authHeaders() },
+      signal,
+    });
   }
 }

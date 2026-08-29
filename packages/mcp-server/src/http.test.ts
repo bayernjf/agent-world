@@ -21,6 +21,8 @@ function mockClient(): AgentWorldClient {
     deleteGraph: vi.fn().mockResolvedValue({ ok: true }),
     cancelRun: vi.fn().mockResolvedValue({ ok: true }),
     searchKnowledge: vi.fn().mockResolvedValue({ entries: [{ id: "k1", title: "挂脖风扇" }] }),
+    runEvents: vi.fn().mockResolvedValue({ events: [], state: { status: "done" } }),
+    openRunStream: vi.fn().mockRejectedValue(new Error("not implemented in test")),
   } as unknown as AgentWorldClient;
 }
 
@@ -138,7 +140,7 @@ describe("end-to-end HTTP smoke over the real wire", () => {
       });
 
       const tools = await post(2, "tools/list");
-      expect((tools.result as { tools: unknown[] }).tools).toHaveLength(14);
+      expect((tools.result as { tools: unknown[] }).tools).toHaveLength(15);
 
       const resources = await post(3, "resources/list");
       expect((resources.result as { resources: unknown[] }).resources).toHaveLength(1);
@@ -152,6 +154,64 @@ describe("end-to-end HTTP smoke over the real wire", () => {
       const run = await post(6, "tools/call", { name: "run_graph", arguments: { graphId: "g1", input: "hi" } });
       expect((run.result as { isError?: boolean }).isError).toBe(false);
     } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+});
+
+describe("realtime notifications over the real wire (P2-③)", () => {
+  it("bridges resources/subscribe into notifications/resources/updated", async () => {
+    const client = mockClient();
+    client.openRunStream = vi.fn().mockResolvedValue(
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            const frame = `data: ${JSON.stringify({
+              version: 1,
+              event: { type: "run.finished", status: "done", runId: "r1" },
+            })}\nid: 1\n\n`;
+            controller.enqueue(new TextEncoder().encode(frame));
+            controller.close();
+          },
+        }),
+        { status: 200, headers: { "content-type": "text/event-stream" } },
+      ),
+    );
+
+    const server = await startHttpServer(client, 0);
+    const addr = server.address() as AddressInfo;
+    const base = `http://127.0.0.1:${addr.port}`;
+    const ac = new AbortController();
+
+    try {
+      const streamRes = await fetch(`${base}${MCP_HTTP_PATH}`, { signal: ac.signal });
+      expect(streamRes.status).toBe(200);
+      const reader = streamRes.body!.getReader();
+      const decoder = new TextDecoder();
+
+      // Consume the initial `event: endpoint` frame.
+      await reader.read();
+
+      const subRes = await fetch(`${base}${MCP_HTTP_PATH}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(rpc(1, "resources/subscribe", { uri: "run://r1" })),
+      });
+      expect(subRes.status).toBe(200);
+
+      // The bridge mirrors the upstream run.finished into a push notification.
+      let acc = "";
+      const deadline = Date.now() + 2000;
+      while (!acc.includes("notifications/resources/updated") && Date.now() < deadline) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        acc += decoder.decode(value, { stream: true });
+      }
+      expect(acc).toContain("notifications/resources/updated");
+      expect(acc).toContain('"runId":"r1"');
+      expect(acc).toContain('"status":"done"');
+    } finally {
+      ac.abort();
       await new Promise((resolve) => server.close(resolve));
     }
   });

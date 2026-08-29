@@ -284,11 +284,18 @@ app.use("/api/*", async (c, next) => {
   // Webhook endpoints use their own secret-based auth
   if (/\/api\/graphs\/[^/]+\/webhook$/.test(path)) return next();
 
-  // Extract token from cookie or query param (SSE fallback)
+  // Extract token from cookie, Authorization Bearer header, or query param
+  // (SSE fallback). Precedence: cookie → Bearer header → ?token= query.
   let token: string | undefined;
   const cookie = c.req.header("cookie") ?? "";
   const cookieMatch = cookie.match(new RegExp(`${AUTH_COOKIE}=([^;]+)`));
-  token = cookieMatch?.[1] ?? c.req.query("token") ?? undefined;
+  token = cookieMatch?.[1];
+  if (!token) {
+    const auth = c.req.header("authorization") ?? "";
+    const bearer = /^Bearer\s+(.+)$/i.exec(auth.trim());
+    token = bearer?.[1];
+  }
+  token = token ?? c.req.query("token") ?? undefined;
 
   if (!token) return c.json({ error: "not authenticated" }, 401);
   const payload = await verifyToken(token);

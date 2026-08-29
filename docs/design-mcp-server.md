@@ -1,7 +1,7 @@
 # MCP Server 设计方案
 
 > 让 agent-world 作为 MCP Server，把产线能力暴露给其他 AI 客户端（Claude Desktop、Cursor、豆包、ChatGPT 等）。
-> 状态：P0 MVP ✅（2026-08-28）+ P1 增强 ✅（2026-08-29：HTTP/SSE 传输、Resources、Prompts）+ P2-① 管理类 ✅（2026-08-29：6 个管理工具 + readonly 模式）+ P2-② 批量与对比 ✅（2026-08-29：batch_run + compare_runs）| P2-③ 实时与安全 📋 | 优先级：P2
+> 状态：P0 MVP ✅（2026-08-28）+ P1 增强 ✅（2026-08-29：HTTP/SSE 传输、Resources、Prompts）+ P2-① 管理类 ✅（2026-08-29：6 个管理工具 + readonly 模式）+ P2-② 批量与对比 ✅（2026-08-29：batch_run + compare_runs）+ P2-③ 实时与安全 ✅（2026-08-29：get_run_events + SSE notifications 桥接 + Authorization Bearer 升级）| 优先级：P2
 
 ---
 
@@ -90,13 +90,15 @@ P2 分三批实现（批次划分见 §9）。全部工具复用主服务现有 
 
 > 实现注记（2026-08-29）：`batch_run(wait=true)` 限流按 `maxConcurrency`（1–10，默认 3），总等待超时 30s（`BATCH_WAIT_TIMEOUT_MS`），超时降级返回 runId 列表 + 轮询提示；单组启动失败/状态查询失败均隔离，不拖垮整批。`compare_runs` 输出 `statsDiff`（nodes/tokensIn/tokensOut/costUsd 的 a/b/delta）+ 节点级 diff（onlyInA / onlyInB / both，both 含产物数量与文本相似度）；时长未纳入对比（stats 端点无该字段），图片尺寸因产物元数据不含该信息未对比，后续主服务补齐元数据再扩展。
 
-#### 3.3.3 实时事件（P2-③，1 个 + 推送通道）
+#### 3.3.3 实时事件（P2-③，1 个 + 推送通道）✅ 2026-08-29
 
 | 工具名 | 能力 | 参数 | 说明 |
 |--------|------|------|------|
 | `get_run_events` | 拉取运行事件流（节点进度/完成/失败，供客户端展示） | runId, since(可选, 事件序号), limit(可选, 默认 100) | 复用 `GET /api/runs/:id/events`；与 notifications 桥接共用同一数据源 |
 
 实时推送通道（非工具）：SSE 传输下支持 `resources/subscribe` 订阅 `run://{id}`，MCP Server 桥接主服务 `GET /api/runs/:id/stream` 的事件，运行状态变化时发送标准 `notifications/resources/updated`。stdio 传输无服务端推送通道，客户端只能轮询。
+
+> 实现注记（2026-08-29）：`resources/subscribe` 由 `NotificationsHub` 承载——`GET /mcp` 的 SSE 连接注册为推送 sink，订阅时向主服务 `GET /api/runs/:id/stream` 建立上游 SSE 桥，收到 `run.finished` 事件后广播 `notifications/resources/updated`（params 含 `uri`/`runId`/`status`）。上游连接按 runId 去重；最后一个 sink 断开时清理所有上游桥接（无泄漏）。stdio 传输下 `resources/subscribe` 返回 `-32601`，客户端只能轮询 `get_run_events`。
 
 ---
 
@@ -216,7 +218,7 @@ Cursor / 豆包等客户端配置类似。
 
 - 主服务如果需要 API Key，MCP Server 从环境变量读取
 - 不硬编码密钥，支持通过客户端 env 注入
-- **P2-③ 升级**：token 从 URL query 迁到 `Authorization: Bearer` header（保留 query 兼容旧客户端，新增默认走 header）
+- **P2-③ 升级（✅ 2026-08-29）**：token 从 URL query 迁到 `Authorization: Bearer` header；主服务认证中间件新增 Bearer 解析（优先级 cookie → Bearer → query），query 保留兼容旧客户端
 
 ### 8.5 批量运行并发与超时（P2-②）
 
@@ -230,6 +232,7 @@ Cursor / 豆包等客户端配置类似。
 - 流程：客户端 `resources/subscribe`（URI `run://{id}`）→ MCP Server 向主服务 `GET /api/runs/:id/stream` 建立 SSE → 事件到达时判定状态变化（running→done/failed/halted）→ 发送 `notifications/resources/updated`（含 runId 与最新状态）
 - 生命周期：客户端断连时清理订阅与上游 SSE 连接，避免泄漏
 - stdio 传输无此通道，文档明示客户端只能轮询 `get_run_events`
+- ✅ 2026-08-29 已落地：见 §3.3.3 实现注记
 
 ### 8.7 只读模式（P2-①）
 
@@ -251,7 +254,7 @@ Cursor / 豆包等客户端配置类似。
 | **P1 增强** | Resources + Prompts + HTTP/SSE 传输（管理类工具未做，已拆到 P2） | ✅ 2026-08-29 |
 | **P2-① 管理类** | 6 个管理工具（create/update/delete graph、cancel_run、download_artifact、search_knowledge）+ readonly 开关 | ✅ 2026-08-29 |
 | **P2-② 批量与对比** | batch_run + compare_runs | ✅ 2026-08-29 |
-| **P2-③ 实时与安全** | notifications 桥接 + get_run_events + Authorization header 升级 | 📋 |
+| **P2-③ 实时与安全** | notifications 桥接 + get_run_events + Authorization header 升级 | ✅ 2026-08-29 |
 
 ### P0 MVP 验收标准
 
@@ -295,11 +298,11 @@ Cursor / 豆包等客户端配置类似。
 
 ### P2-③ 实时与安全验收标准
 
-- [ ] `resources/subscribe`（run://{id}）后，运行状态变化推送 `notifications/resources/updated`（含 runId + 最新状态）
-- [ ] 客户端断连后上游 SSE 连接与订阅被清理（无泄漏）
-- [ ] `get_run_events`：返回节点进度事件流，since/limit 生效
-- [ ] token 默认走 `Authorization: Bearer`，query 方式兼容旧客户端
-- [ ] 协议级测试 + 真实 socket 冒烟（订阅 → 跑一次 → 收到 updated 通知）
+- [x] `resources/subscribe`（run://{id}）后，运行状态变化推送 `notifications/resources/updated`（含 runId + 最新状态）
+- [x] 客户端断连后上游 SSE 连接与订阅被清理（无泄漏）
+- [x] `get_run_events`：返回节点进度事件流，since/limit 生效
+- [x] token 默认走 `Authorization: Bearer`，query 方式兼容旧客户端
+- [x] 协议级测试 + 真实 socket 冒烟（订阅 → 跑一次 → 收到 updated 通知）— MCP 41→47 通过，主服务 405 通过
 
 ---
 

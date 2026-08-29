@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AgentWorldClient } from "./client.js";
+import { NotificationsHub } from "./notifications.js";
 import { handleMessage, PROTOCOL_VERSION } from "./server.js";
 import { BATCH_WAIT_TIMEOUT_MS, filterTools } from "./tools.js";
 
@@ -23,6 +24,8 @@ function mockClient(): AgentWorldClient {
     searchKnowledge: vi.fn().mockResolvedValue({
       entries: [{ id: "k1", title: "挂脖风扇", content: "..." }],
     }),
+    runEvents: vi.fn().mockResolvedValue({ events: [], state: { status: "done" } }),
+    openRunStream: vi.fn().mockRejectedValue(new Error("not implemented in test")),
   } as unknown as AgentWorldClient;
 }
 
@@ -52,10 +55,10 @@ describe("MCP server JSON-RPC", () => {
     expect(reply).toBeNull();
   });
 
-  it("lists the 14 tools with schema", async () => {
+  it("lists the 15 tools with schema", async () => {
     const reply = await handleMessage(call(2, "tools/list"), mockClient());
     const tools = (reply?.result as { tools: Array<{ name: string; inputSchema: unknown }> }).tools;
-    expect(tools).toHaveLength(14);
+    expect(tools).toHaveLength(15);
     expect(tools.map((t) => t.name)).toEqual([
       "list_graphs",
       "get_graph",
@@ -71,6 +74,7 @@ describe("MCP server JSON-RPC", () => {
       "search_knowledge",
       "batch_run",
       "compare_runs",
+      "get_run_events",
     ]);
     expect(tools[0]?.inputSchema).toBeTruthy();
   });
@@ -87,6 +91,7 @@ describe("MCP server JSON-RPC", () => {
       "download_artifact",
       "search_knowledge",
       "compare_runs",
+      "get_run_events",
     ]);
   });
 
@@ -456,5 +461,61 @@ describe("MCP batch & compare tools (P2-②)", () => {
     expect(reply?.result).toMatchObject({ isError: false });
     const text = (reply?.result as { content: Array<{ text: string }> }).content[0]?.text;
     expect(text).toContain('"both": []');
+  });
+});
+
+describe("MCP realtime tools (P2-③)", () => {
+  it("get_run_events returns the full log when no since/limit", async () => {
+    const client = mockClient();
+    client.runEvents = vi.fn().mockResolvedValue({
+      events: [{ seq: 1, type: "node.finished" }],
+      state: { status: "done" },
+    });
+    const reply = await handleMessage(
+      call(40, "tools/call", { name: "get_run_events", arguments: { runId: "r1" } }),
+      client,
+    );
+    expect(reply?.result).toMatchObject({ isError: false });
+    expect(client.runEvents).toHaveBeenCalledWith("r1", undefined, undefined);
+    const text = (reply?.result as { content: Array<{ text: string }> }).content[0]?.text;
+    expect(text).toContain('"count": 1');
+    expect(text).toContain('"type": "node.finished"');
+  });
+
+  it("get_run_events defaults limit to 100 when since is given", async () => {
+    const client = mockClient();
+    await handleMessage(
+      call(41, "tools/call", { name: "get_run_events", arguments: { runId: "r1", since: 5 } }),
+      client,
+    );
+    expect(client.runEvents).toHaveBeenCalledWith("r1", 5, 100);
+  });
+
+  it("resources/subscribe is rejected when no hub (stdio)", async () => {
+    const reply = await handleMessage(
+      call(42, "resources/subscribe", { uri: "run://r1" }),
+      mockClient(),
+    );
+    expect(reply?.error?.code).toBe(-32601);
+  });
+
+  it("resources/subscribe requires a uri", async () => {
+    const hub = new NotificationsHub();
+    const reply = await handleMessage(call(43, "resources/subscribe", {}), mockClient(), undefined, hub);
+    expect(reply?.error?.code).toBe(-32602);
+  });
+
+  it("resources/subscribe delegates to the hub", async () => {
+    const hub = new NotificationsHub();
+    const spy = vi.spyOn(hub, "subscribe").mockResolvedValue(undefined);
+    const reply = await handleMessage(
+      call(44, "resources/subscribe", { uri: "run://r1" }),
+      mockClient(),
+      undefined,
+      hub,
+    );
+    expect(reply?.result).toEqual({});
+    expect(spy).toHaveBeenCalledWith("run://r1", expect.anything());
+    spy.mockRestore();
   });
 });

@@ -368,6 +368,29 @@ export const TOOLS: McpToolDef[] = [
       };
     },
   },
+  {
+    name: "get_run_events",
+    description:
+      "拉取运行事件流（节点进度/完成/失败）。since 提供时增量拉取（默认 100 条）；不提供时返回完整事件日志 + 重构后的运行状态",
+    inputSchema: {
+      type: "object",
+      properties: {
+        runId: { type: "string", description: "运行 id" },
+        since: { type: "number", description: "可选：只返回序号大于该值的事件（增量拉取）" },
+        limit: { type: "number", description: "可选：返回条数上限（since 提供时默认 100）" },
+      },
+      required: ["runId"],
+    },
+    handler: async (args, client) => {
+      const runId = requireString(args, "runId");
+      const since = typeof args.since === "number" ? args.since : undefined;
+      let limit = typeof args.limit === "number" ? args.limit : undefined;
+      if (since != null && limit == null) limit = 100;
+      const body = await client.runEvents(runId, since, limit);
+      const events = Array.isArray(body.events) ? body.events : [];
+      return { runId, count: events.length, ...body };
+    },
+  },
 ];
 
 /** Wait deadline / poll cadence for batch_run(wait=true). Exported for tests. */

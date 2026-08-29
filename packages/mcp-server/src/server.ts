@@ -1,4 +1,5 @@
 import type { AgentWorldClient } from "./client.js";
+import type { NotificationsHub } from "./notifications.js";
 import { listResources, readResource, RESOURCE_TEMPLATES } from "./resources.js";
 import { getPrompt, PROMPTS } from "./prompts.js";
 import { TOOLS, type McpToolDef } from "./tools.js";
@@ -35,6 +36,7 @@ export async function handleMessage(
   msg: JsonRpcMessage,
   client: AgentWorldClient,
   tools: McpToolDef[] = TOOLS,
+  hub?: NotificationsHub,
 ): Promise<JsonRpcMessage | null> {
   const id = msg.id ?? null;
   if (id === null || id === undefined) return null; // notification
@@ -115,6 +117,19 @@ export async function handleMessage(
       try {
         const result = await readResource(uri, client);
         return { jsonrpc: "2.0", id, result };
+      } catch (e) {
+        return rpcError(id, -32602, (e as Error).message);
+      }
+    }
+
+    case "resources/subscribe": {
+      const params = asRecord(msg.params);
+      const uri = asStringParam(params.uri);
+      if (!uri) return rpcError(id, -32602, "缺少必填参数 \"uri\"");
+      if (!hub) return rpcError(id, -32601, "当前传输不支持资源订阅（仅 HTTP/SSE 传输支持）");
+      try {
+        await hub.subscribe(uri, client);
+        return { jsonrpc: "2.0", id, result: {} };
       } catch (e) {
         return rpcError(id, -32602, (e as Error).message);
       }
