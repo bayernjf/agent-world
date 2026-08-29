@@ -2251,7 +2251,23 @@ export default function Inspector({ onOpenSettings }: { onOpenSettings: () => vo
                 <option value="feishu">飞书群机器人</option>
                 <option value="dingtalk">钉钉群机器人</option>
                 <option value="wecom">企业微信群机器人</option>
+                <option value="slack">Slack（SLACK_BOT_TOKEN）</option>
                 <option value="email">邮件（SMTP）</option>
+              </select>
+            </label>
+            <label className="field">
+              <span>消息格式</span>
+              <select
+                className="select"
+                value={node.notify.format}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    notify: { ...node.notify!, format: e.target.value as "text" | "markdown" },
+                  })
+                }
+              >
+                <option value="text">纯文本</option>
+                <option value="markdown">Markdown（各平台原生渲染）</option>
               </select>
             </label>
             <label className="field">
@@ -2299,6 +2315,22 @@ export default function Inspector({ onOpenSettings }: { onOpenSettings: () => vo
                 />
               </label>
             )}
+            {node.notify.provider === "slack" && (
+              <label className="field">
+                <span>频道 ID</span>
+                <input
+                  className="input"
+                  type="text"
+                  placeholder="C…（Slack channel id）"
+                  value={node.notify.channel ?? ""}
+                  onChange={(e) =>
+                    updateNode(node.id, {
+                      notify: { ...node.notify!, channel: e.target.value || undefined },
+                    })
+                  }
+                />
+              </label>
+            )}
             {node.notify.provider === "email" && (
               <>
                 <label className="field">
@@ -2335,6 +2367,113 @@ export default function Inspector({ onOpenSettings }: { onOpenSettings: () => vo
               把消息发送到飞书 / 钉钉 / 企业微信群机器人或邮件，发送结果落为 json
               产物可审计。消息留空时发送上游 text 产物——「搜索 → 总结 → 通知」的最后一公里；邮件需在服务端配置
               SMTP_HOST / SMTP_USER / SMTP_PASS 环境变量。
+            </p>
+          </>
+        )}
+
+        {node.kind === "vcs" && node.vcs && (
+          <>
+            <label className="field">
+              <span>仓库平台</span>
+              <select
+                className="select"
+                value={node.vcs.provider}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    vcs: { ...node.vcs!, provider: e.target.value as "github" | "gitlab" },
+                  })
+                }
+              >
+                <option value="github">GitHub（GITHUB_TOKEN）</option>
+                <option value="gitlab">GitLab（GITLAB_TOKEN）</option>
+              </select>
+            </label>
+            <label className="field">
+              <span>动作</span>
+              <select
+                className="select"
+                value={node.vcs.action}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    vcs: { ...node.vcs!, action: e.target.value as "create_pr" | "comment_issue" | "trigger_workflow" | "list_issues" },
+                  })
+                }
+              >
+                <option value="create_pr">创建 PR / MR</option>
+                <option value="comment_issue">评论 issue / PR</option>
+                <option value="trigger_workflow">触发 workflow / pipeline</option>
+                <option value="list_issues">列出 issue</option>
+              </select>
+            </label>
+            {node.vcs.provider === "github" ? (
+              <div className="field-row">
+                <label className="field">
+                  <span>Owner</span>
+                  <input className="input" type="text" value={node.vcs.owner ?? ""} onChange={(e) => updateNode(node.id, { vcs: { ...node.vcs!, owner: e.target.value || undefined } })} />
+                </label>
+                <label className="field">
+                  <span>Repo</span>
+                  <input className="input" type="text" value={node.vcs.repo ?? ""} onChange={(e) => updateNode(node.id, { vcs: { ...node.vcs!, repo: e.target.value || undefined } })} />
+                </label>
+              </div>
+            ) : (
+              <label className="field">
+                <span>Project ID / 路径</span>
+                <input className="input" type="text" placeholder="42 或 group/proj" value={node.vcs.projectId ?? ""} onChange={(e) => updateNode(node.id, { vcs: { ...node.vcs!, projectId: e.target.value || undefined } })} />
+              </label>
+            )}
+            {(node.vcs.action === "create_pr" || node.vcs.action === "comment_issue") && (
+              <label className="field">
+                <span>{node.vcs.action === "create_pr" ? "PR 标题（可选，默认节点名）" : "评论正文（可选，默认上游 text）"}</span>
+                <input className="input" type="text" value={node.vcs.action === "create_pr" ? node.vcs!.title ?? "" : node.vcs!.body ?? ""} onChange={(e) => updateNode(node.id, { vcs: { ...node.vcs!, ...(node.vcs!.action === "create_pr" ? { title: e.target.value } : { body: e.target.value }) } })} />
+              </label>
+            )}
+            {node.vcs.action === "create_pr" && (
+              <div className="field-row">
+                <label className="field">
+                  <span>源分支 head</span>
+                  <input className="input" type="text" value={node.vcs.head ?? ""} onChange={(e) => updateNode(node.id, { vcs: { ...node.vcs!, head: e.target.value || undefined } })} />
+                </label>
+                <label className="field">
+                  <span>目标分支 base</span>
+                  <input className="input" type="text" value={node.vcs.base ?? ""} onChange={(e) => updateNode(node.id, { vcs: { ...node.vcs!, base: e.target.value || undefined } })} />
+                </label>
+              </div>
+            )}
+            {node.vcs.action === "comment_issue" && (
+              <label className="field">
+                <span>Issue / PR 编号</span>
+                <input className="input" type="number" min={1} value={node.vcs.number ?? ""} onChange={(e) => updateNode(node.id, { vcs: { ...node.vcs!, number: e.target.value ? Number(e.target.value) : undefined } })} />
+              </label>
+            )}
+            {node.vcs.action === "trigger_workflow" && (
+              <div className="field-row">
+                {node.vcs.provider === "github" && (
+                  <label className="field">
+                    <span>Workflow ID</span>
+                    <input className="input" type="text" value={node.vcs.workflowId ?? ""} onChange={(e) => updateNode(node.id, { vcs: { ...node.vcs!, workflowId: e.target.value || undefined } })} />
+                  </label>
+                )}
+                <label className="field">
+                  <span>触发分支 ref</span>
+                  <input className="input" type="text" value={node.vcs.ref ?? ""} onChange={(e) => updateNode(node.id, { vcs: { ...node.vcs!, ref: e.target.value || undefined } })} />
+                </label>
+              </div>
+            )}
+            {node.vcs.action === "list_issues" && (
+              <label className="field">
+                <span>Issue 状态</span>
+                <select className="select" value={node.vcs.state ?? "open"} onChange={(e) => updateNode(node.id, { vcs: { ...node.vcs!, state: e.target.value as "open" | "closed" | "all" } })}>
+                  <option value="open">open</option>
+                  <option value="closed">closed</option>
+                  <option value="all">all</option>
+                </select>
+              </label>
+            )}
+            <p className="note">
+              对 GitHub / GitLab 执行版本控制动作，API 结果落为 json 产物。create_pr / comment_issue
+              的正文留空时用上游 text 产物（可让 agent 先起草 PR 描述）；token 走 GITHUB_TOKEN / GITLAB_TOKEN
+              环境变量（自托管 GitLab 可设 GITLAB_API_URL），密钥不入图。
             </p>
           </>
         )}

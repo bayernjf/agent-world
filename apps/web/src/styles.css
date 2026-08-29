@@ -1811,6 +1811,9 @@ select {
 .plant--notify .plant__bar {
   fill: #523a2c;
 }
+.plant--vcs .plant__bar {
+  fill: #2d4a33;
+}
 
 .plant__attempt rect {
   fill: var(--warn);

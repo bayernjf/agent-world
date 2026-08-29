@@ -197,4 +197,97 @@ describe("notify node — outbound notifications", () => {
     expect(events.some((e) => e.type === "node.failed" && e.nodeId === "nt" && e.errorCode === "VALIDATION")).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(1); // only the http download
   });
+
+  it("renders feishu markdown as an interactive card", async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ code: 0 }), { status: 200 }));
+    const events = await collect(
+      notifyGraph({ provider: "feishu", format: "markdown", message: "**bold** report", webhookUrl: "https://open.feishu.cn/open-apis/bot/v2/hook/abc", subject: "Daily" }),
+    );
+    expect(replay(events).status).toBe("done");
+    const body = JSON.parse((fetchMock.mock.calls[0]![1] as any).body);
+    expect(body.msg_type).toBe("interactive");
+    expect(body.card.elements[0]).toEqual({ tag: "markdown", content: "**bold** report" });
+    expect(body.card.header.title).toEqual({ tag: "plain_text", content: "Daily" });
+  });
+
+  it("renders dingtalk and wecom markdown via their native msgtype", async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ errcode: 0 }), { status: 200 }));
+    await collect(
+      notifyGraph({ provider: "dingtalk", format: "markdown", message: "## H\nbody", webhookUrl: "https://oapi.dingtalk.com/robot/send?access_token=t", subject: "S" }),
+    );
+    expect(JSON.parse((fetchMock.mock.calls[0]![1] as any).body)).toEqual({
+      msgtype: "markdown",
+      markdown: { title: "S", text: "## H\nbody" },
+    });
+    fetchMock.mockClear();
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ errcode: 0 }), { status: 200 }));
+    await collect(
+      notifyGraph({ provider: "wecom", format: "markdown", message: "**b**", webhookUrl: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=k" }),
+    );
+    expect(JSON.parse((fetchMock.mock.calls[0]![1] as any).body)).toEqual({
+      msgtype: "markdown",
+      markdown: { content: "**b**" },
+    });
+  });
+
+  it("retries transient failures and succeeds on the second attempt", async () => {
+    fetchMock
+      .mockRejectedValueOnce(new Error("network timeout"))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ code: 0 }), { status: 200 }));
+    const events = await collect(
+      notifyGraph({ provider: "feishu", message: "hi", webhookUrl: "https://open.feishu.cn/open-apis/bot/v2/hook/x", retry: { maxRetries: 1, baseDelayMs: 0, maxDelayMs: 0 } }),
+    );
+    expect(replay(events).status).toBe("done");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not retry auth errors", async () => {
+    // No SMTP env → NotifyAuthError on the first attempt, no retry.
+    const events = await collect(
+      notifyGraph({ provider: "email", to: "boss@example.com", message: "m", retry: { maxRetries: 3, baseDelayMs: 0, maxDelayMs: 0 } }),
+    );
+    expect(replay(events).status).toBe("failed");
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(events.some((e) => e.type === "node.failed" && e.nodeId === "nt" && e.errorCode === "AUTH")).toBe(true);
+  });
+
+  it("does not retry when the platform explicitly rejects the message", async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ errcode: 310000, errmsg: "keyword not match" }), { status: 200 }));
+    const events = await collect(
+      notifyGraph({ provider: "dingtalk", message: "hi", webhookUrl: "https://oapi.dingtalk.com/robot/send?access_token=t", retry: { maxRetries: 3, baseDelayMs: 0, maxDelayMs: 0 } }),
+    );
+    expect(replay(events).status).toBe("failed");
+    expect(fetchMock).toHaveBeenCalledTimes(1); // no retry on NotifyProviderError
+    expect(events.some((e) => e.type === "node.failed" && e.nodeId === "nt" && e.errorCode === "PROVIDER_ERROR")).toBe(true);
+  });
+
+  it("sends a message to a Slack channel via chat.postMessage", async () => {
+    vi.stubEnv("SLACK_BOT_TOKEN", "xoxb-test");
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    const events = await collect(notifyGraph({ provider: "slack", channel: "C123", message: "deploy done" }));
+    expect(replay(events).status).toBe("done");
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe("https://slack.com/api/chat.postMessage");
+    expect((init as any).headers.authorization).toBe("Bearer xoxb-test");
+    expect(JSON.parse((init as any).body)).toEqual({ channel: "C123", text: "deploy done" });
+    const art = jsonOf(events, "nt");
+    expect(JSON.parse(art.content)).toMatchObject({ sent: true, provider: "slack", detail: "C123" });
+  });
+
+  it("fails with AUTH when SLACK_BOT_TOKEN is missing", async () => {
+    vi.stubEnv("SLACK_BOT_TOKEN", "");
+    const events = await collect(notifyGraph({ provider: "slack", channel: "C1", message: "m" }));
+    expect(replay(events).status).toBe("failed");
+    expect(events.some((e) => e.type === "node.failed" && e.nodeId === "nt" && e.errorCode === "AUTH")).toBe(true);
+  });
+
+  it("fails with PROVIDER_ERROR when Slack returns ok:false", async () => {
+    vi.stubEnv("SLACK_BOT_TOKEN", "xoxb-bad");
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ ok: false, error: "invalid_auth" }), { status: 200 }));
+    const events = await collect(notifyGraph({ provider: "slack", channel: "C1", message: "m", retry: { maxRetries: 0, baseDelayMs: 0, maxDelayMs: 0 } }));
+    expect(replay(events).status).toBe("failed");
+    const failed = events.find((e) => e.type === "node.failed" && e.nodeId === "nt");
+    expect(failed.errorCode).toBe("PROVIDER_ERROR");
+    expect(failed.error).toContain("invalid_auth");
+  });
 });

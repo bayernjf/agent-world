@@ -28,6 +28,7 @@ export const NodeKind = z.enum([
   "convert",
   "search",
   "notify",
+  "vcs",
 ]);
 export type NodeKind = z.infer<typeof NodeKind>;
 
@@ -454,7 +455,14 @@ export type SearchConfig = z.infer<typeof SearchConfig>;
  */
 export const NotifyConfig = z.object({
   /** Delivery channel. */
-  provider: z.enum(["feishu", "dingtalk", "wecom", "email"]),
+  provider: z.enum(["feishu", "dingtalk", "wecom", "slack", "email"]),
+  /**
+   * Output format. "text" (default) sends plain text; "markdown" sends a
+   * rendered message — dingtalk/wecom use their native markdown msgtype,
+   * feishu wraps the message in an interactive card's markdown element.
+   * Email always sends plain text (HTML rendering needs a markdown lib, P2).
+   */
+  format: z.enum(["text", "markdown"]).default("text"),
   /** Static message body; falls back to the upstream text artifact when empty. */
   message: z.string().default(""),
   /** Group-bot webhook URL (feishu / dingtalk / wecom). */
@@ -465,8 +473,59 @@ export const NotifyConfig = z.object({
   to: z.string().email().optional(),
   /** Email subject; defaults to the node name. */
   subject: z.string().optional(),
+  /** Slack channel id (provider = slack). */
+  channel: z.string().optional(),
+  /** Retry policy for transient delivery failures (network/5xx). Auth and provider-rejected errors are not retried. */
+  retry: RetryPolicy.default({ maxRetries: 2, baseDelayMs: 1000, maxDelayMs: 30000 }),
 });
 export type NotifyConfig = z.infer<typeof NotifyConfig>;
+
+/**
+ * Configuration for a `vcs` node: perform a version-control action on GitHub
+ * or GitLab (create PR/MR, comment on an issue/PR, trigger a workflow/pipeline,
+ * list issues) and emit the API result as a `json` artifact. Credentials read
+ * from env (GITHUB_TOKEN / GITLAB_TOKEN, optionally GITLAB_API_URL for
+ * self-hosted). `body`/`title` fall back to the upstream text artifact when
+ * empty — pairs with an agent that drafts a PR description or issue body.
+ *
+ * Future providers (Bitbucket, Gitea, …) fit the same provider/action shape;
+ * the four actions here cover the bulk of automation needs.
+ */
+export const VcsConfig = z.object({
+  /** VCS provider. */
+  provider: z.enum(["github", "gitlab"]).default("github"),
+  /** Action to perform. */
+  action: z.enum(["create_pr", "comment_issue", "trigger_workflow", "list_issues"]),
+  /** GitHub: repo owner (e.g. "bayernjf"). */
+  owner: z.string().optional(),
+  /** GitHub: repo name (e.g. "one-world"). */
+  repo: z.string().optional(),
+  /** GitLab: project id or URL-encoded path (e.g. 42 or "group/proj"). */
+  projectId: z.string().optional(),
+  /** PR/MR title (create_pr); defaults to the node name. */
+  title: z.string().optional(),
+  /** PR/MR/issue body; falls back to the upstream text artifact when empty. */
+  body: z.string().default(""),
+  /** Source branch for create_pr (e.g. "feature/x"). */
+  head: z.string().optional(),
+  /** Target branch for create_pr (e.g. "main"). */
+  base: z.string().optional(),
+  /** Issue/PR number for comment_issue. */
+  number: z.number().int().positive().optional(),
+  /** Workflow id (GitHub) or pipeline ref (GitLab) for trigger_workflow. */
+  workflowId: z.string().optional(),
+  /** Ref (branch) to trigger the workflow/pipeline on. */
+  ref: z.string().optional(),
+  /** Workflow/pipeline inputs. */
+  inputs: z.record(z.string()).optional(),
+  /** Issue state filter for list_issues. */
+  state: z.enum(["open", "closed", "all"]).optional(),
+  /** Which upstream node to take body/title from. Defaults to the single flow predecessor. */
+  source: z.string().optional(),
+  /** Retry policy for transient API failures. */
+  retry: RetryPolicy.default({ maxRetries: 2, baseDelayMs: 1000, maxDelayMs: 30000 }),
+});
+export type VcsConfig = z.infer<typeof VcsConfig>;
 
 export const GateConfig = z.object({
   maxAttempts: z.number().int().min(1).max(10).default(3),
@@ -587,6 +646,7 @@ export const GraphNode = z.object({
   convert: ConvertConfig.optional(),
   search: SearchConfig.optional(),
   notify: NotifyConfig.optional(),
+  vcs: VcsConfig.optional(),
   source: SourceConfig.optional(),
 });
 export type GraphNode = z.infer<typeof GraphNode>;

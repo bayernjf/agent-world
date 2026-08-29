@@ -13,6 +13,7 @@ import {
   ConvertConfig,
   SearchConfig,
   NotifyConfig,
+  VcsConfig,
   applyTableSteps,
   buildNodeContext,
   collectColumns,
@@ -51,7 +52,8 @@ import { dataUriToBuffer, parseDocument, extractPdfImages } from "./parse-file.j
 import { ocrImage } from "./ocr.js";
 import { decodeImage, encodeJpeg, encodePng } from "./convert.js";
 import { searchWeb, SearchAuthError } from "./search.js";
-import { sendNotification, NotifyAuthError } from "./notifier.js";
+import { sendNotification, NotifyAuthError, NotifyProviderError } from "./notifier.js";
+import { executeVcs, VcsAuthError, VcsProviderError } from "./vcs.js";
 import { allowPrivateNetwork, hostIsInternal } from "./ssrf.js";
 
 /**
@@ -2115,7 +2117,18 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
             });
             return;
           }
-          if (cfg.provider !== "email" && !cfg.webhookUrl) {
+          if (cfg.provider === "slack" && !cfg.channel) {
+            states.set(nodeId, "failed");
+            emit({
+              type: "node.failed",
+              nodeId,
+              attempt,
+              error: "缺少 channel（Slack 通知需要填写 channel id）",
+              errorCode: "VALIDATION",
+            });
+            return;
+          }
+          if (cfg.provider !== "email" && cfg.provider !== "slack" && !cfg.webhookUrl) {
             states.set(nodeId, "failed");
             emit({
               type: "node.failed",
@@ -2148,7 +2161,11 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
               nodeId,
               attempt,
               error: `通知发送失败: ${sanitizeError(err instanceof Error ? err.message : String(err))}`,
-              errorCode: err instanceof NotifyAuthError ? "AUTH" : "PROVIDER_ERROR",
+              errorCode: err instanceof NotifyAuthError
+                ? "AUTH"
+                : err instanceof NotifyProviderError
+                  ? "PROVIDER_ERROR"
+                  : "PROVIDER_ERROR",
             });
             return;
           }
@@ -2171,6 +2188,61 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
             nodeId,
             attempt,
             error: `通知节点执行出错: ${sanitizeError(err instanceof Error ? err.message : String(err))}`,
+          });
+        }
+        return;
+      }
+
+      if (node.kind === "vcs") {
+        emit({ type: "node.started", nodeId, attempt });
+        try {
+          const cfg = VcsConfig.parse(node.vcs ?? {});
+          const sources = incoming(graph, nodeId, "flow").map((e) => e.from);
+          const sourceId = cfg.source ?? (sources.length === 1 ? sources[0] : undefined);
+          if (cfg.source && !sources.includes(cfg.source)) {
+            states.set(nodeId, "failed");
+            emit({ type: "node.failed", nodeId, attempt, error: `数据来源 ${cfg.source} 不是上游节点`, errorCode: "VALIDATION" });
+            return;
+          }
+          let body = cfg.body.trim();
+          if (!body && (cfg.action === "create_pr" || cfg.action === "comment_issue") && sourceId) {
+            const t = (artifacts.get(sourceId) ?? []).find((a) => a.kind === "text")?.content;
+            if (t?.trim()) body = t.trim();
+          }
+          const title = cfg.title?.trim() || node.name || cfg.action;
+          let result: { provider: string; action: string; detail: string; data: unknown };
+          try {
+            result = await executeVcs(cfg, body, title);
+          } catch (err) {
+            states.set(nodeId, "failed");
+            emit({
+              type: "node.failed",
+              nodeId,
+              attempt,
+              error: `VCS 操作失败: ${sanitizeError(err instanceof Error ? err.message : String(err))}`,
+              errorCode: err instanceof VcsAuthError ? "AUTH" : "PROVIDER_ERROR",
+            });
+            return;
+          }
+          const artifact: Artifact = {
+            id: `${nodeId}-json`,
+            kind: "json",
+            content: JSON.stringify(result.data, null, 2),
+            mimeType: "application/json",
+          };
+          artifacts.set(nodeId, [artifact]);
+          emit({ type: "artifact.produced", nodeId, attempt, artifact });
+          states.set(nodeId, "done");
+          const summary = `${result.provider} ${result.action} 完成：${result.detail}`;
+          emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
+          sendPackets(nodeId, summary, "json");
+        } catch (err) {
+          states.set(nodeId, "failed");
+          emit({
+            type: "node.failed",
+            nodeId,
+            attempt,
+            error: `VCS 节点执行出错: ${sanitizeError(err instanceof Error ? err.message : String(err))}`,
           });
         }
         return;
