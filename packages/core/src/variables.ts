@@ -322,6 +322,11 @@ export function buildNodeContext(
   artifacts: Map<string, import("./artifact.js").Artifact[]>,
   graph: { nodes: { id: string }[]; edges: { from: string; to: string; kind: string }[] },
   extra?: Record<string, unknown>,
+  /**
+   * Graph-level variables (cross-run persisted state). Exposed as `var` in the
+   * context so `${var.xxx}` works alongside `${nodeId.path}` placeholders.
+   */
+  variables?: Record<string, unknown>,
 ): Record<string, unknown> {
   const ctx: Record<string, unknown> = {};
   // Flow predecessors carry normal data; error predecessors carry the failure
@@ -343,6 +348,7 @@ export function buildNodeContext(
       ctx[edge.from] = "";
     }
   }
+  if (variables) ctx["var"] = variables;
   if (extra) Object.assign(ctx, extra);
   return ctx;
 }

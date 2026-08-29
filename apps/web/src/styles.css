@@ -2858,6 +2858,34 @@ select {
   justify-content: flex-end;
   gap: 8px;
 }
+.form-error {
+  color: #ef4444;
+  margin-top: 8px;
+  font-size: 12px;
+}
+.var-table {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 12px 0;
+}
+.var-table__head,
+.var-table__row {
+  display: grid;
+  grid-template-columns: 1fr 2fr 32px;
+  gap: 8px;
+  align-items: center;
+}
+.var-table__head {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.var-table__row input {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
 .provider-card {
   background: var(--steel-850);
   border: var(--hair);

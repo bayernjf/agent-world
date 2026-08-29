@@ -3,6 +3,7 @@ import { AgentWorldClient } from "./client.js";
 import { loadConfig } from "./config.js";
 import { startHttpServer } from "./http.js";
 import { handleMessage } from "./server.js";
+import { filterTools } from "./tools.js";
 
 /**
  * agent-world MCP server.
@@ -19,11 +20,12 @@ import { handleMessage } from "./server.js";
 async function main(): Promise<void> {
   const config = loadConfig();
   const client = new AgentWorldClient(config);
+  const tools = filterTools(config.readonly);
   const transport = (process.env.AGENT_WORLD_MCP_TRANSPORT ?? "stdio").toLowerCase();
   const forceHttp = process.argv.includes("--http");
 
   if (transport === "http" || forceHttp) {
-    const server = await startHttpServer(client);
+    const server = await startHttpServer(client, config.mcpHttpPort, tools);
     const address = server.address();
     const port = typeof address === "object" && address ? address.port : config.mcpHttpPort;
     console.error(`agent-world MCP server (HTTP) listening on http://127.0.0.1:${port}/mcp`);
@@ -60,7 +62,7 @@ async function main(): Promise<void> {
         send({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } });
         continue;
       }
-      const reply = await handleMessage(msg as never, client);
+      const reply = await handleMessage(msg as never, client, tools);
       if (reply) send(reply);
     }
   }

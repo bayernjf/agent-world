@@ -1789,6 +1789,11 @@ modality 切片，统一严格过滤；同时把 agent 的占位文案从泛化�
 
 > Entries rolled out of the active `handoff.md` "Recently shipped" list to keep it at 5 items.
 
+- `071002d` — **feat(web)**: **subprocess 节点 UI**。工具栏「子流程」入口 + Inspector 子流程图选择器（api.listGraphs 已保存产线下拉）+ 最大调用深度输入 + SUBPROCESS 错误标签。
+- `d66fe52` — **feat(subprocess)**: **子流程调用节点 subprocess（Phase 4 编排能力 PR3）**。core：NodeKind.subprocess + SubprocessConfig(graphId, maxDepth=3) + NodeErrorCode.SUBPROCESS。engine：runNode subprocess 分支以**隔离递归子调度器**执行子图——子图节点 id 统一加 `<subNode>#sub:` 前缀（事件/状态/产物不与父图冲突），上游文本作子图 source 输入，子图 sink 产物聚合为该节点 json 产物，maxDepth 防互递归；**halt 冒泡**：子流程内暂停（human/gate/dangerous-tool）整 run 暂停（haltNodeId 为前缀 id），resume 后 subprocess 节点重跑、子流程**从断点续跑**（extract/merge sub-init）；预算共享（子执行扣费并入父账，V1 子执行不做独立预算检查）；run.ts/index.ts 注入 loadSubgraph（限定本用户图）。7 个新测试（调用+聚合 / 输入透传 / 找不到图 / 递归防护 / halt 冒泡+恢复 / reject / 子流程失败）。
+- `f607dde` — **feat(web)**: **human 节点 UI**。工具栏「人工审批」入口 + Inspector 审批提示面板 + ControlPanel halted 时展示待审批内容（pendingReview）并保留批准/编辑/驳回按钮；状态文案 human halt 显示「等待人工审批」。
+- `20d9c9f` — **feat(human)**: **人工审批节点 human（Phase 4 human-in-the-loop）**。human.review/human.decision 事件 + engine halt 冒泡 + resume approve/edit/reject + reconstructState 回放。5 个新测试。
+- `a77f127` — **feat(web)**: **Phase 4 错误处理 PR⑤——运行历史「重新运行」按钮**。api.ts rerunRun + RunHistory 行尾按钮。web build 通过。
 - `3dea78d` — **feat(error)**: **Phase 4 错误处理 PR④——失败告警 + rerun API**。notifyFailed webhook + POST /api/runs/:id/rerun。5 个新测试。
 - `ce17008` — **feat(error)**: **Phase 4 错误处理 PR③——error 边 + catch 节点**。EdgeKind error + engine catchReady/finish 重新评估 + inputFor 合并 error 前驱。2 个新测试。
 - `906a70e` — **feat(error)**: **Phase 4 错误处理 PR②——级联 skip**。NodeState.skipped 扩展到失败节点搁浅下游；engine 不动点级联（failed/skipped 前驱 + 无 done 前驱 → skip）；core node.skipped 事件 + NodeRuntime.status 加 skipped。

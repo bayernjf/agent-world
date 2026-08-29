@@ -200,3 +200,25 @@ describe("webhook trigger secret enforcement", () => {
     expect(res.status).toBe(201);
   });
 });
+
+describe("Authorization Bearer header auth", () => {
+  let token: string;
+
+  beforeAll(async () => {
+    token = authToken(await register("dave@test.dev"));
+  });
+
+  it("accepts a Bearer token on a protected endpoint", async () => {
+    const res = await app.request("/api/graphs", {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(res.status).toBe(200);
+  });
+
+  it("rejects a non-Bearer authorization header", async () => {
+    const res = await app.request("/api/graphs", {
+      headers: { authorization: `Basic ${token}` },
+    });
+    expect(res.status).toBe(401);
+  });
+});

@@ -72,6 +72,12 @@ export async function startRun(args: StartRunArgs): Promise<{ runId: string; dia
     try {
       const cfg = loadConfig(userId);
       const now = new Date();
+      // Graph variables: graph-level defaults overridden by persisted values
+      // from prior runs (cross-run state). The engine mutates this map by
+      // reference; we persist it back once the run finishes.
+      const variables = new Map<string, unknown>(
+        Object.entries({ ...(graph.variables ?? {}), ...db.loadGraphVariables(graph.id, userId) }),
+      );
       for await (const event of execute({
         runId,
         graph,
@@ -79,6 +85,7 @@ export async function startRun(args: StartRunArgs): Promise<{ runId: string; dia
         worker,
         input,
         connectorValues,
+        initialVariables: variables,
         budgetUsd: budgetUsd ?? null,
         monthlyBudgetUsd: cfg.monthlyBudgetUsd ?? null,
         monthSpentUsd: db.costForMonth(now.getFullYear(), now.getMonth() + 1, userId),
@@ -115,6 +122,8 @@ export async function startRun(args: StartRunArgs): Promise<{ runId: string; dia
         entry.events.push(event);
         if (event.type === "run.finished") {
           db.finishRun(runId, userId, event.status, Date.now());
+          // Persist the run's (possibly mutated) variables for the next run.
+          db.saveGraphVariables(graph.id, userId, Object.fromEntries(variables));
           args.onFinish?.(graph.id, event.status);
         }
       }

@@ -65,6 +65,19 @@ describe("buildNodeContext", () => {
     expect(ctx.upstream).toBe("hello");
     expect(ctx.item).toEqual({ id: 7 });
   });
+
+  it("injects graph variables under the var key", () => {
+    const artifacts = new Map<string, Artifact[]>();
+    artifacts.set("upstream", [{ id: "t", kind: "text", content: "hello", mimeType: "text/plain" }]);
+    const ctx = buildNodeContext("http", artifacts, graph, undefined, {
+      brand: "可口可乐",
+      stats: { count: 3 },
+    });
+    expect(ctx["var"]).toEqual({ brand: "可口可乐", stats: { count: 3 } });
+    expect(resolveExpression("var.brand", ctx)).toBe("可口可乐");
+    expect(resolveExpression("var.stats.count", ctx)).toBe(3);
+    expect(evaluateTemplate("品牌 ${var.brand} #${var.stats.count}", ctx)).toBe("品牌 可口可乐 #3");
+  });
 });
 
 describe("transformJson", () => {

@@ -10,7 +10,7 @@ All notable changes are documented here. The format is based on
 ### Added
 - **账号系统与按用户隔离** — users 表 + JWT(HS256, bcrypt12) HttpOnly cookie 会话；graphs/runs/artifacts/brand_terms/成本全部按 `user_id` 过滤；前端登录/注册/用户菜单；旧库自动回填归属（迁移 14/15 幂等，无法归属的行 fail closed 不可见）。
 - **通用节点六类（通用化 Phase 1 P0）** — HTTP 请求（SSRF 防护）、代码执行（JS/Python 子进程）、条件分支（安全表达式求值，无 eval）、映射 map（JSON 模板 + 类型保留）、循环 loop（内联子图 + `${item.x}` 上下文 + `{results:[...]}` 聚合）、并行聚合 parallel（barrier 结构化聚合）。
-- **MCP Server（新包 `packages/mcp-server`）** — stdio + Streamable HTTP/SSE 双传输；6 个工具（list_graphs/get_graph/run_graph/get_run_status/list_artifacts/get_artifact）；Resources（`resources/list`/`templates`/`read`，graph:// run:// artifact:// 三类 URI）；Prompts（run_pipeline / analyze_pipeline / create_from_template 三个引导提示词）。
+- **MCP Server（新包 `packages/mcp-server`，P0-P2 全部落地）** — stdio + Streamable HTTP/SSE 双传输；15 个工具（6 个核心 + 6 个管理类 create/update/delete graph、cancel_run、download_artifact、search_knowledge + batch_run/compare_runs + get_run_events）；Resources（`resources/list`/`templates`/`read` + `resources/subscribe`，graph:// run:// artifact:// 三类 URI）；Prompts（run_pipeline / analyze_pipeline / create_from_template 三个引导提示词）；实时 notifications 桥接（`notifications/resources/updated`）+ `AGENT_WORLD_MCP_READONLY` 只读模式 + Authorization Bearer 认证。详见 [docs/design-mcp-server.md](docs/design-mcp-server.md)。
 - **产物统一渲染** — `ArtifactCard` 外壳 + 7 类渲染器注册表 + JSON 树 + 共享 `renderMarkdown`；Inspector / 成品面板 / 画廊三处接入；画廊按流水线分组；节点缩略图。
 - **产物归属** — artifacts 表加 `graph_id` / `role`（source/intermediate/final）+ `label` + `mimeType: text/markdown`，落库归属流水线。
 - **Canvas 交互增强** — Shift 多选 + 框选；批量移动 / 批量删除；首载自适应；视口 pan/zoom 持久化；节点执行时长展示；Inspector 可拖拽调宽。

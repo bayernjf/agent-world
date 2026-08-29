@@ -193,6 +193,8 @@ interface GraphState {
   /** Delete all selected nodes and edges. */
   deleteSelected: () => void;
   updateNode: (id: string, patch: Partial<GraphNode>) => void;
+  /** Replace the graph's default variables (cross-run persisted state). */
+  updateGraphVariables: (variables: Record<string, unknown>) => void;
   beginHistoryBatch: () => void;
   commitHistoryBatch: () => void;
   abortHistoryBatch: () => void;
@@ -226,7 +228,7 @@ const DEFAULTS: Record<NodeKind, Partial<GraphNode>> = {
   videoGen: { videoGen: { model: "video-gen", prompt: "", n: 1 } },
   audioGen: { audioGen: { model: "tts-1", prompt: "", format: "mp3", n: 1 } },
   http: { http: { method: "GET", url: "", headers: {}, query: {}, timeoutMs: 30000, outputMode: "auto", failOnError: true, retry: { maxRetries: 2, baseDelayMs: 1000, maxDelayMs: 30000 } } },
-  code: { code: { language: "javascript", code: "", timeoutMs: 30000, retry: { maxRetries: 2, baseDelayMs: 1000, maxDelayMs: 30000 } } },
+  code: { code: { language: "javascript", code: "", timeoutMs: 30000, retry: { maxRetries: 2, baseDelayMs: 1000, maxDelayMs: 30000 }, env: [] } },
   branch: { branch: { rules: [], defaultTarget: undefined } },
   map: { map: { template: "{}" } },
   loop: { loop: { maxIterations: 100 } },
@@ -513,6 +515,16 @@ export const useGraph = create<GraphState>()(
           const graph = {
             ...s.graph,
             nodes: s.graph.nodes.map((n) => (n.id === id ? { ...n, ...patch } : n)),
+          };
+          scheduleSave(graph);
+          return { graph };
+        }),
+
+      updateGraphVariables: (variables) =>
+        set((s) => {
+          const graph = {
+            ...s.graph,
+            variables: Object.keys(variables).length ? variables : undefined,
           };
           scheduleSave(graph);
           return { graph };
