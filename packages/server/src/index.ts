@@ -240,7 +240,6 @@ app.post("/api/auth/password", async (c) => {
 });
 
 // --- Auth middleware ---
-const SKIP_AUTH = ["/api/auth/", "/api/health", "/api/proxy", "/api/graphs/"];
 app.use("/api/*", async (c, next) => {
   const path = c.req.path;
   // Skip auth for public endpoints
