@@ -3,7 +3,9 @@ import {
   buildNodeContext,
   evaluateCondition,
   evaluateTemplate,
+  getByPath,
   resolveExpression,
+  transformJson,
 } from "./variables.js";
 import type { Graph } from "./graph.js";
 import type { Artifact } from "./artifact.js";
@@ -54,6 +56,56 @@ describe("buildNodeContext", () => {
     const ctx = buildNodeContext("http", artifacts, graph);
     expect(ctx.upstream).toEqual({ price: 42 });
     expect(resolveExpression("upstream.price", ctx)).toBe(42);
+  });
+
+  it("injects extra context (loop item)", () => {
+    const artifacts = new Map<string, Artifact[]>();
+    artifacts.set("upstream", [{ id: "t", kind: "text", content: "hello", mimeType: "text/plain" }]);
+    const ctx = buildNodeContext("http", artifacts, graph, { item: { id: 7 } });
+    expect(ctx.upstream).toBe("hello");
+    expect(ctx.item).toEqual({ id: 7 });
+  });
+});
+
+describe("transformJson", () => {
+  it("interpolates strings and preserves structure", () => {
+    const out = transformJson(
+      { title: "编号 ${item.id}", tags: ["a", "${item.kind}"] },
+      { item: { id: 3, kind: "phone" } },
+    );
+    expect(out).toEqual({ title: "编号 3", tags: ["a", "phone"] });
+  });
+
+  it("keeps the referenced type for pure placeholders", () => {
+    const address = { city: "杭州", zip: 310000 };
+    const out = transformJson(
+      { addr: "${item.address}", count: "${item.n}" },
+      { item: { address, n: 42 } },
+    );
+    expect(out).toEqual({ addr: address, count: 42 });
+  });
+
+  it("iterates a source array with item context", () => {
+    const template = { label: "${item.name}", price: "${item.price}" };
+    const rows = [{ name: "a", price: 1 }, { name: "b", price: 2 }];
+    const out = rows.map((item) => transformJson(template, { item }));
+    expect(out).toEqual([
+      { label: "a", price: 1 },
+      { label: "b", price: 2 },
+    ]);
+  });
+
+  it("resolves missing values to empty strings", () => {
+    expect(transformJson({ a: "${missing.x}" }, {})).toEqual({ a: "" });
+  });
+});
+
+describe("getByPath", () => {
+  it("walks nested objects and arrays", () => {
+    const data = { results: [{ name: "x" }, { name: "y" }] };
+    expect(getByPath(data, "results[1].name")).toBe("y");
+    expect(getByPath(data, "results.0.name")).toBe("x");
+    expect(getByPath(data, "nope")).toBeUndefined();
   });
 });
 

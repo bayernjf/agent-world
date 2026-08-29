@@ -17,6 +17,9 @@ export const NodeKind = z.enum([
   "http",
   "code",
   "branch",
+  "map",
+  "loop",
+  "parallel",
 ]);
 export type NodeKind = z.infer<typeof NodeKind>;
 
@@ -190,6 +193,56 @@ export const BranchConfig = z.object({
 });
 export type BranchConfig = z.infer<typeof BranchConfig>;
 
+/**
+ * Configuration for a `map` node: declarative JSON mapping / transformation.
+ * The `template` is a JSON document whose string values may contain `${...}`
+ * placeholders (e.g. `"title": "编号 ${item.id}"`). Placeholders can reference
+ * any upstream node (`${api.data.price}`) and — when iterating or mapping a
+ * single source — the current item via `item` (`${item.name}`). A value that
+ * is a pure placeholder (`"${item.address}"`) keeps the referenced type
+ * (object/array/number), everything else is string interpolation.
+ * With `iterate` set, the source value at that JSON path must be an array and
+ * the node emits an array with one transformed copy per element.
+ */
+export const MapConfig = z.object({
+  /** Which upstream node to read from. Defaults to the single flow predecessor. */
+  source: z.string().optional(),
+  /** Optional JSON path into the source value holding an array to iterate (e.g. "data.items"). */
+  iterate: z.string().optional(),
+  /** Output template: a JSON document (object/array/scalar) with ${...} placeholders. */
+  template: z.string().default("{}"),
+});
+export type MapConfig = z.infer<typeof MapConfig>;
+
+/**
+ * Configuration for a `loop` node: executes the downstream sub-graph once per
+ * element of an array and aggregates each round's terminal output into a
+ * `{ results: [...] }` JSON artifact. Inside the loop body, the current
+ * element is available as `item` (via `${item.xxx}` in node configs and as
+ * `inputs.item` in code-node scripts).
+ */
+export const LoopConfig = z.object({
+  /** Expression resolving to the array to iterate, e.g. "${api.data}". Defaults to the single flow predecessor's value. */
+  items: z.string().optional(),
+  /** Hard cap on iterations (safety). Longer arrays are truncated. */
+  maxIterations: z.number().int().min(1).max(1000).default(100),
+});
+export type LoopConfig = z.infer<typeof LoopConfig>;
+
+/**
+ * Configuration for a `parallel` node: a barrier join that waits for every
+ * flow predecessor to finish and aggregates their outputs into one structured
+ * JSON artifact. Branches run concurrently on their own (the engine schedules
+ * independent paths in parallel); this node adds explicit aggregation.
+ */
+export const ParallelConfig = z.object({
+  /** true → output an object keyed by upstream node id; false → an array of values. */
+  asObject: z.boolean().default(false),
+  /** Optional JSON path to extract from each upstream value (e.g. "data.text"). */
+  pick: z.string().optional(),
+});
+export type ParallelConfig = z.infer<typeof ParallelConfig>;
+
 export const GateConfig = z.object({
   maxAttempts: z.number().int().min(1).max(10).default(3),
   criterion: z.string().default(""),
@@ -298,6 +351,9 @@ export const GraphNode = z.object({
   http: HttpNodeConfig.optional(),
   code: CodeNodeConfig.optional(),
   branch: BranchConfig.optional(),
+  map: MapConfig.optional(),
+  loop: LoopConfig.optional(),
+  parallel: ParallelConfig.optional(),
   source: SourceConfig.optional(),
 });
 export type GraphNode = z.infer<typeof GraphNode>;
