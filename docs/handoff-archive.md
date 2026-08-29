@@ -1818,3 +1818,5 @@ modality 切片，统一严格过滤；同时把 agent 的占位文案从泛化�
 - `835a383` — **fix(server)**: 用户隔离迁移（14）对 pre-migration 旧库幂等化
 - `e3e2f88` — **test(server)**: 测试适配 user-scoped DB 与 auth API（server 套件转绿）
 - `17dfbf9` — **refactor(server)**: 删除从未被引用的 SKIP_AUTH 白名单（消除免鉴权脚枪）
+- `a88c78c` — **docs(sandbox)**: §10 SSRF 校验代理方案定稿（后端分层语义 / token 绑定 / 校验链 / 已知边界）。
+- `68b7366` — **feat(sandbox)**: `CodeNodeConfig` 加 `fs: sandbox|allowlist` / `net: none|allowlist` 策略字段（fs allowlist 经 `--allow-fs-read` 授予 `TOOL_FS_ALLOW` 前缀只读）。

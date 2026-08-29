@@ -1,6 +1,6 @@
 # Handoff
 
-State of Agent World as of 2026-08-29.
+State of Agent World as of 2026-08-30.
 
 > **历史内容已归档**：2026-08-27 之前的全部变更记录、各阶段详细描述、质量门与已知 gap，已整体搬到 [docs/handoff-archive.md](docs/handoff-archive.md)。本文件只保留"项目当前状态 + 活跃任务 + 最近 5 个变更"。
 
@@ -23,7 +23,7 @@ State of Agent World as of 2026-08-29.
 ## Current state
 
 - **Monorepo**：`packages/core` / `packages/server` (Node + sqlite, 端口 8791) / `apps/web` (Vite, 端口 5173)
-- **核心能力**：4 类 AI 节点（agent / imageGen / videoGen / audioGen）+ **通用节点（HTTP 请求 / 代码执行 / 条件分支 / 映射 / 循环 / 并行聚合 / 表格处理 / 数据库查询 / 文件解析 / 翻译 / OCR / 文件转换 / 搜索 / 通知）**，**MCP Server（stdio + HTTP/SSE 双传输，15 工具 + resources + prompts + 实时 notifications 桥接 + Authorization Bearer 认证，P0-P2 全部落地）**，多产线管理，Inspector 模型下拉严格按 modality 过滤，多模态产出（Artifact 分层），流式 + SSE + 断线重连 + halt/resume，成本电表（token + 单价两种模式），评估体系雏形，产物落库归属流水线（artifacts 的 graph_id/role）
+- **核心能力**：4 类 AI 节点（agent / imageGen / videoGen / audioGen）+ **通用节点（HTTP 请求 / 代码执行 / 条件分支 / 映射 / 循环 / 并行聚合 / 表格处理 / 数据库查询 / 文件解析 / 翻译 / OCR / 文件转换 / 搜索 / 通知）**，**Phase 4 编排能力全部落地（2026-08-30 复核）：人工审批 human 节点 / subprocess 子流程调用 / graph 变量跨 run 持久化 / error 边 + catch 容错路径 / 失败级联 skip / 节点级重试基建（search/http/code/translate）/ 失败告警 + rerun；状态机按决策缓做**，**MCP Server（stdio + HTTP/SSE 双传输，15 工具 + resources + prompts + 实时 notifications 桥接 + Authorization Bearer 认证，P0-P2 全部落地）**，多产线管理，Inspector 模型下拉严格按 modality 过滤，多模态产出（Artifact 分层），流式 + SSE + 断线重连 + halt/resume，成本电表（token + 单价两种模式），评估体系雏形，产物落库归属流水线（artifacts 的 graph_id/role）
 - **安全基线（本轮升级）**：settings 按用户隔离（迁移 16，provider key 互不可见）+ **HTTP 节点 SSRF 防护**（fetch 时解析 IP 校验，DNS-rebinding 免疫，`ALLOW_PRIVATE_NETWORK=1` 逃生口）+ 登录 cookie 按 `SECURE_COOKIES`/production 加 `Secure` 标志（localhost 豁免）+ webhook 触发器强制非空 secret（杜绝匿名触发）+ **代码节点沙箱全栈**（P0 env/cwd 隔离 → P1 rlimit+Node permission → P2 可插拔后端 bwrap/sandbox-exec/noop → fs/net 策略字段 → **net allowlist SSRF 校验代理**：`TOOL_NETWORK_ALLOW` 白名单 + 内网 IP 拒绝 + 一次性 run token + 逐请求审计，协作式边界见 design §10）
 - **本轮已落地（2026-08-29，均已提交）**：
   - **账号系统 / 按用户隔离**（`5b81c74` + `73d3610`）：users 表 + JWT(HS256, bcrypt12) HttpOnly cookie 会话 + graphs/runs/artifacts/brand_terms/成本全部按 `user_id` 过滤 + 前端登录/注册/用户菜单 + `authFetch(credentials:include)`。旧库升级自动回填归属（迁移 14/15 幂等，无法归属的行 fail closed 不可见）
@@ -59,11 +59,11 @@ State of Agent World as of 2026-08-29.
 
 按 commit 时间倒序，每条一行影响面 + commit hash：
 
-1. **待 commit（SSRF 校验代理）**：**feat(sandbox)**: net allowlist 的 SSRF 校验代理落地。`code-proxy.ts` 常驻单例正向代理（127.0.0.1 随机端口）+ 一次性 run token 内嵌代理 URL 凭据（标准客户端自动转 `Proxy-Authorization: Basic`，无需用户代码配合）+ `matchDomain` 白名单 / `hostIsInternal` 内网双重校验（解析一次校验一次连接一次，rebinding 免疫）+ CONNECT 隧道（仅 80/443）+ 逐请求审计日志；engine 接线：`TOOL_NETWORK_ALLOW` 未配置 VALIDATION 报错、bwrap/sandbox-exec 硬断网后端 VALIDATION 拒绝、token 随 run finally 注销。诚实边界：协作式（约束走代理 env 的客户端），Node fetch 需 ≥ 24.5（注入 `NODE_USE_ENV_PROXY=1`）。server 测试 442→457 通过
-2. `a88c78c` — **docs(sandbox)**: §10 SSRF 校验代理方案定稿（后端分层语义 / token 绑定 / 校验链 / 已知边界）。
-3. `e507723` — **fix(sandbox)**: NPROC 测试根因修复——`ulimit -u` 在 Linux 上限的是**整个用户**的任务数，CI runner 上 vitest worker 已逼近 128，node 线程创建 EAGAIN → SIGABRT。引号测试改 `maxProcs: 4096` 覆盖。
-4. `27b5a4b` — **fix(ci)**: tsx 声明为根 devDependency（mcp-server stdio 测试从根 `node_modules/.bin/tsx` 启动 CLI，pnpm 严格布局下不存在 → ENOENT）。
-5. `68b7366` — **feat(sandbox)**: `CodeNodeConfig` 加 `fs: sandbox|allowlist` / `net: none|allowlist` 策略字段（fs allowlist 经 `--allow-fs-read` 授予 `TOOL_FS_ALLOW` 前缀只读）。
+1. `8f40a5e` — **feat(web)**: error 边画法支持——画布新增「容错线」连线模式（此前 server 支持但 UI 建不出来）、error 管道差异化渲染（暗红虚线芯）、通电逻辑失败感知（仅上游 failed 才点亮，与 flow 的 running/done 相区分）。web 19/19 通过。至此 Phase 4 错误处理在 UI 侧闭环。
+2. `b1ad1af` — **docs(sandbox)**: docker 容器后端缓做决策记录（design §11：为什么低优——成本在外围不在接口；触发条件——部署形态明确后再决策）。
+3. `1bdf8c2`+`5d4dfa3`+`1013dee` — **feat(sandbox)**: net allowlist 的 SSRF 校验代理落地。`code-proxy.ts` 常驻单例正向代理（127.0.0.1 随机端口）+ 一次性 run token 内嵌代理 URL 凭据（标准客户端自动转 `Proxy-Authorization: Basic`，无需用户代码配合）+ `matchDomain` 白名单 / `hostIsInternal` 内网双重校验（解析一次校验一次连接一次，rebinding 免疫）+ CONNECT 隧道（仅 80/443）+ 逐请求审计日志；engine 接线：`TOOL_NETWORK_ALLOW` 未配置 VALIDATION 报错、bwrap/sandbox-exec 硬断网后端 VALIDATION 拒绝、token 随 run finally 注销。诚实边界：协作式（约束走代理 env 的客户端），Node fetch 需 ≥ 24.5（注入 `NODE_USE_ENV_PROXY=1`）。server 测试 442→457 通过
+4. `e507723` — **fix(sandbox)**: NPROC 测试根因修复——`ulimit -u` 在 Linux 上限的是**整个用户**的任务数，CI runner 上 vitest worker 已逼近 128，node 线程创建 EAGAIN → SIGABRT。引号测试改 `maxProcs: 4096` 覆盖。
+5. `27b5a4b` — **fix(ci)**: tsx 声明为根 devDependency（mcp-server stdio 测试从根 `node_modules/.bin/tsx` 启动 CLI，pnpm 严格布局下不存在 → ENOENT）。
 
 最近 5 条之前的全部在 [docs/handoff-archive.md](docs/handoff-archive.md) 的"阶段 4 收尾"与"Additions (post-2026-08-27)"系列章节里（含 MCP stdio 分帧修复 `a2482ba`、P2 外部沙箱后端 `0a22b13`、P1 rlimit `ddb2e03`、P0 `6b2f92b`、HTTP 节点第一闭环 `1856d81`、账号系统 `5b81c74`/`73d3610` 等）。
 
@@ -71,7 +71,7 @@ State of Agent World as of 2026-08-29.
 
 > 这里的 snapshot 是"今天跑过的"状态；archive 章节里的"质量门"是各 commit 当时的状态，不要混用。
 
-- `pnpm -r typecheck`：全绿
+- `pnpm -r typecheck`：全绿（2026-08-30 复核 web：tsc --noEmit 干净）
 - `pnpm --filter @agent-world/core test`：142/142 通过（含 EdgeKind error / buildNodeContext error 前驱 / node.skipped event + HTTP file 模式用例）
 - `pnpm --filter @agent-world/server test`：**457/457 通过**（Node 24 下跑）。SSRF 代理新增 13 个 code-proxy 单测（allow/deny、Basic/Bearer 双认证、跨 token 隔离、token 注销失效、内网拒绝、CONNECT 隧道透传/端口拒绝、resolveConnectAddress IP 固定 fail-closed）+ 3 个 engine e2e（TOOL_NETWORK_ALLOW 未配置 VALIDATION、Python urllib 经代理成功、allowlist 外 403）。此前 fs/net 策略 5 个测试（allowlist 只读实跑等）、P2 13 个（后端选择/形状/live seatbelt+bwrap）、P1 13 个（rlimit/permission 形状 + 实跑 + 引号 + NPROC/CPU 拦截）
 - `pnpm --filter @agent-world/mcp-server test`：**50/50 通过**（新增 stdio 端到端冒烟 3 个：CLI 子进程真实回环 / parse error 容错 / 多字节 id 无分帧错位）
