@@ -60,6 +60,7 @@ import { withRetry } from "./retry.js";
 import { createCodeWorkdir, cleanupCodeWorkdir, resolveSandbox, type CodeSandboxLimits } from "./code-sandbox.js";
 import { trimEnv } from "./isolation.js";
 import { allowPrivateNetwork, hostIsInternal } from "./ssrf.js";
+import { childProxyEnv, getCodeProxyUrl, registerNetToken, unregisterNetToken } from "./code-proxy.js";
 
 /**
  * Append free-text layout directives (manual image-position overrides) to an
@@ -1261,19 +1262,43 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           });
           return;
         }
-        // net 策略：只有 "none" 已实现（Node 24 权限模型移除了 --allow-net，
-        // 真正的 allowlist 需要未来 SSRF 校验代理）。诚实报错，绝不静默放行。
-        if (cfg.net !== "none") {
-          states.set(nodeId, "failed");
-          status = "failed";
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: `代码节点 net 策略 "${cfg.net}" 尚未实现（当前仅支持 "none"），请改为 none`,
-            errorCode: "VALIDATION",
-          });
-          return;
+        // net 策略：none = 不注入任何出口（子进程环境里没有代理变量）；
+        // allowlist = rlimit/noop 后端下经本地 SSRF 校验代理放行 TOOL_NETWORK_ALLOW
+        // 白名单（协作式：约束走 HTTP(S)_PROXY 的客户端，裸 socket 可绕过，
+        // 见 design-code-sandbox.md §10）。bwrap / sandbox-exec 后端硬断网
+        //（unshare-net / deny network*），代理不可达——诚实拒绝，绝不静默降级。
+        let netToken: string | undefined;
+        let netProxyEnv: Record<string, string> = {};
+        if (cfg.net === "allowlist") {
+          const backendName = resolveSandbox().name;
+          if (backendName === "bwrap" || backendName === "sandbox-exec") {
+            states.set(nodeId, "failed");
+            status = "failed";
+            emit({
+              type: "node.failed",
+              nodeId,
+              attempt,
+              error: `代码节点 net: "allowlist" 需要校验代理，但 ${backendName} 后端是硬断网（仅支持 net: "none"）`,
+              errorCode: "VALIDATION",
+            });
+            return;
+          }
+          const netAllow = loadPermissionConfig().networkAllow;
+          if (!netAllow || netAllow.length === 0) {
+            states.set(nodeId, "failed");
+            status = "failed";
+            emit({
+              type: "node.failed",
+              nodeId,
+              attempt,
+              error: '代码节点 net: "allowlist" 需要服务端配置 TOOL_NETWORK_ALLOW（逗号分隔的域名白名单）',
+              errorCode: "VALIDATION",
+            });
+            return;
+          }
+          const proxyUrl = await getCodeProxyUrl();
+          netToken = registerNetToken({ runId, nodeId, allowlist: netAllow });
+          netProxyEnv = childProxyEnv(netToken, proxyUrl);
         }
         // fs 策略：allowlist = 在 workdir 之外额外授予只读访问
         // （TOOL_FS_ALLOW 前缀）。写入仍然仅限 workdir。
@@ -1285,7 +1310,8 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
         try {
           const ctx = nodeCtx(nodeId);
           const inputJson = JSON.stringify({ inputs: ctx });
-          const childEnv = trimEnv(cfg.env);
+          // 代理 env 由 sandbox 注入（含 token），不走 trimEnv 的声明白名单
+          const childEnv = { ...trimEnv(cfg.env), ...netProxyEnv };
           // P1+P2 sandbox: backend selected via CODE_SANDBOX (rlimit default;
           // bwrap / sandbox-exec / noop opt-in with loud degrade warnings).
           const cfgLimits = (cfg as unknown as { limits?: CodeSandboxLimits }).limits;
@@ -1384,6 +1410,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           sendPackets(nodeId, output.slice(0, 120), artifact.kind);
           return;
         } finally {
+          if (netToken) unregisterNetToken(netToken);
           await cleanupCodeWorkdir(workdir);
         }
       }
