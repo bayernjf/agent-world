@@ -33,31 +33,27 @@ async function main(): Promise<void> {
   }
 
   // ---- stdio transport ----
+  // MCP stdio framing: messages are newline-delimited JSON — one JSON-RPC
+  // message per line, no embedded newlines. (The LSP-style Content-Length
+  // framing used earlier is NOT what Claude Desktop / official MCP SDK
+  // clients speak, so the server never actually connected end-to-end.)
   let buffer = "";
 
   function send(msg: unknown): void {
-    const json = JSON.stringify(msg);
-    process.stdout.write(`Content-Length: ${Buffer.byteLength(json, "utf8")}\r\n\r\n${json}`);
+    process.stdout.write(`${JSON.stringify(msg)}\n`);
   }
 
   async function onData(chunk: string): Promise<void> {
     buffer += chunk;
     for (;;) {
-      const headerEnd = buffer.indexOf("\r\n\r\n");
-      if (headerEnd === -1) return;
-      const header = buffer.slice(0, headerEnd);
-      const m = /Content-Length:\s*(\d+)/i.exec(header);
-      if (!m) {
-        buffer = buffer.slice(headerEnd + 4);
-        continue;
-      }
-      const len = Number(m[1]);
-      if (buffer.length < headerEnd + 4 + len) return; // wait for the full body
-      const body = buffer.slice(headerEnd + 4, headerEnd + 4 + len);
-      buffer = buffer.slice(headerEnd + 4 + len);
+      const lineEnd = buffer.indexOf("\n");
+      if (lineEnd === -1) return;
+      const line = buffer.slice(0, lineEnd).trim();
+      buffer = buffer.slice(lineEnd + 1);
+      if (!line) continue;
       let msg: unknown;
       try {
-        msg = JSON.parse(body);
+        msg = JSON.parse(line);
       } catch {
         send({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } });
         continue;
