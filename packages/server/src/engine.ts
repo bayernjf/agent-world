@@ -542,9 +542,14 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
   const queue = new EventQueue();
 
   let seq = opts.startSeq;
+  /** Last failure recorded per node, so error edges can carry the cause to catch nodes. */
+  const lastError = new Map<string, { error: string; errorCode?: string }>();
   const emit = (e: DraftEvent): RunEvent => {
     const ev = { ...e, seq: seq++, ts: opts.now() } as RunEvent;
     queue.push(ev);
+    if (ev.type === "node.failed") {
+      lastError.set(ev.nodeId, { error: ev.error, errorCode: ev.errorCode });
+    }
     return ev;
   };
 
@@ -600,7 +605,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     const parts: string[] = [];
     const item = loopItemByNode.get(node.id);
     if (item !== undefined) parts.push(`[循环项数据] ${primaryValue(item)}`);
-    for (const e of incoming(graph, node.id, "flow")) {
+    for (const e of [...incoming(graph, node.id, "flow"), ...incoming(graph, node.id, "error")]) {
       const arts = artifacts.get(e.from) ?? [];
       for (const a of arts) {
         if (a.kind === "text" || a.kind === "json") {
@@ -665,6 +670,12 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
    * arrived so un-routed branch tails stay unlaunched.
    */
   const predecessorsReady = (id: string) => {
+    // Catch nodes (with error edges in): ready as soon as any error predecessor
+    // has failed and sent its error packet. They don't wait for flow preds.
+    const errIns = incoming(graph, id, "error");
+    if (errIns.length > 0) {
+      return errIns.some((e) => states.get(e.from) === "failed" && packetEdges.has(e.id));
+    }
     const ins = incoming(graph, id, "flow");
     if (ins.length === 0) return true; // entry nodes (sources / isolated) start immediately
     let anyPacket = false;
@@ -707,8 +718,16 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
   const finish = () => {
     if (finished) return;
     finished = true;
-    if (status === "done" && [...states.values()].some((s) => s === "failed")) {
-      status = "failed";
+    // A failed node is "handled" if it has an error edge to a catch node that
+    // finished done — such failures don't sink the run (the catch produced a
+    // fallback). Unhandled failures downgrade done → failed.
+    if (status !== "halted" && status !== "cancelled" && status !== "tripped") {
+      const unhandled = [...states.entries()].some(([id, s]) => {
+        if (s !== "failed") return false;
+        const errOut = outgoing(graph, id, "error");
+        return errOut.length === 0 || !errOut.some((e) => states.get(e.to) === "done");
+      });
+      status = unhandled ? "failed" : "done";
     }
     emit({
       type: "run.finished",
@@ -2839,16 +2858,43 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     }
 
     if (running === 0) {
-      // Cascade-skip nodes stranded behind a failed predecessor (no error edge
-      // to a catch node yet). Done as a fixpoint once everything else is
-      // terminal so parallel branches can't race the skip decision. A merge
-      // point that still has a done predecessor is left runnable.
+      // Hand off failures to catch nodes via error edges, then cascade-skip
+      // flow downstream that has no catch. Done as a fixpoint once everything
+      // else is terminal so parallel branches can't race the decision.
       if (status !== "halted" && status !== "cancelled") {
         let changed = true;
         while (changed) {
           changed = false;
+          // 1. Failed nodes with error edges: write the cause as a json
+          //    artifact and send an error packet so the catch node can run.
+          for (const n of graph.nodes) {
+            if (states.get(n.id) !== "failed") continue;
+            const errOut = outgoing(graph, n.id, "error");
+            if (!errOut.length) continue;
+            const cause = lastError.get(n.id);
+            if (cause && !artifacts.has(n.id)) {
+              artifacts.set(n.id, [
+                {
+                  id: `${n.id}-error`,
+                  kind: "json",
+                  content: JSON.stringify({ error: cause.error, errorCode: cause.errorCode ?? "UNKNOWN", nodeId: n.id }, null, 2),
+                  mimeType: "application/json",
+                },
+              ]);
+            }
+            for (const e of errOut) {
+              if (packetEdges.has(e.id)) continue;
+              packetEdges.add(e.id);
+              emit({ type: "packet.sent", edgeId: e.id, from: n.id, to: e.to, summary: cause?.error ?? "upstream failed", artifactKind: "json" });
+              changed = true;
+            }
+          }
+          // 2. Cascade-skip flow downstream stranded behind a failed/skipped
+          //    predecessor (and not rescued by a done merge point).
           for (const n of graph.nodes) {
             if (states.get(n.id) !== "pending") continue;
+            const errIns = incoming(graph, n.id, "error");
+            if (errIns.length > 0) continue; // catch node — waits for its error pred, not skipped here
             const ins = incoming(graph, n.id, "flow");
             if (ins.length === 0) continue;
             const allTerminal = ins.every(
@@ -2869,6 +2915,12 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
             }
           }
         }
+      }
+      // A catch node may have become ready via an error packet — restart
+      // scheduling instead of finishing, so the catch branch can run.
+      if (!aborted && graph.nodes.some((n) => states.get(n.id) === "pending" && predecessorsReady(n.id))) {
+        queueMicrotask(schedule);
+        return;
       }
       // Any pending node left is stranded behind a halted predecessor.
       const stranded = graph.nodes.some((n) => states.get(n.id) === "pending");

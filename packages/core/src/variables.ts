@@ -324,7 +324,9 @@ export function buildNodeContext(
   extra?: Record<string, unknown>,
 ): Record<string, unknown> {
   const ctx: Record<string, unknown> = {};
-  const flowIn = graph.edges.filter((e) => e.to === nodeId && e.kind === "flow");
+  // Flow predecessors carry normal data; error predecessors carry the failure
+  // cause (a json artifact) so catch nodes can read `${failedNode.error}`.
+  const flowIn = graph.edges.filter((e) => e.to === nodeId && (e.kind === "flow" || e.kind === "error"));
   for (const edge of flowIn) {
     const arts = artifacts.get(edge.from) ?? [];
     const jsonArt = arts.find((a) => a.kind === "json");

@@ -32,7 +32,14 @@ export const NodeKind = z.enum([
 ]);
 export type NodeKind = z.infer<typeof NodeKind>;
 
-export const EdgeKind = z.enum(["flow", "rework"]);
+export const EdgeKind = z.enum(["flow", "rework", "error"]);
+/**
+ * Edge semantics:
+ * - flow: forward data flow (predecessor done → successor ready)
+ * - rework: quality loop back (gate/agent rejects → upstream rewrites)
+ * - error: failure hand-off (a node that fails routes to a catch node, which
+ *   becomes ready as soon as any error predecessor has failed)
+ */
 export type EdgeKind = z.infer<typeof EdgeKind>;
 
 /** What a gate does once it has burned through `maxAttempts` without passing. */
