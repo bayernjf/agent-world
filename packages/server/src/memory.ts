@@ -25,12 +25,12 @@ export interface KnowledgeEntry {
 }
 
 export interface MemoryBackend {
-  add(entry: Omit<KnowledgeEntry, "id" | "created_at"> & { id?: string }): KnowledgeEntry;
-  get(id: string): KnowledgeEntry | null;
-  search(query: string, limit?: number): KnowledgeEntry[];
-  list(limit?: number, offset?: number): KnowledgeEntry[];
-  delete(id: string): boolean;
-  count(): number;
+  add(userId: string, entry: Omit<KnowledgeEntry, "id" | "created_at"> & { id?: string }): KnowledgeEntry;
+  get(id: string, userId: string): KnowledgeEntry | null;
+  search(userId: string, query: string, limit?: number): KnowledgeEntry[];
+  list(userId: string, limit?: number, offset?: number): KnowledgeEntry[];
+  delete(id: string, userId: string): boolean;
+  count(userId: string): number;
 }
 
 /**
@@ -50,9 +50,15 @@ export class SQLiteMemoryBackend implements MemoryBackend {
         content    TEXT NOT NULL,
         source     TEXT NOT NULL DEFAULT 'manual',
         tags       TEXT NOT NULL DEFAULT '[]',
-        created_at INTEGER NOT NULL
+        created_at INTEGER NOT NULL,
+        user_id    TEXT
       )
     `).run();
+    try {
+      this.db.prepare("ALTER TABLE knowledge ADD COLUMN user_id TEXT").run();
+    } catch {
+      // column already exists
+    }
     // FTS5 virtual table for full-text search.
     try {
       this.db.prepare(`
@@ -90,60 +96,59 @@ export class SQLiteMemoryBackend implements MemoryBackend {
 
   private ftsAvailable = true;
 
-  add(entry: Omit<KnowledgeEntry, "id" | "created_at"> & { id?: string }): KnowledgeEntry {
+  add(userId: string, entry: Omit<KnowledgeEntry, "id" | "created_at"> & { id?: string }): KnowledgeEntry {
     const id = entry.id ?? randomUUID();
     const created_at = Date.now();
     const tags = JSON.stringify(entry.tags ?? []);
     this.db
-      .prepare("INSERT INTO knowledge (id, title, content, source, tags, created_at) VALUES (?, ?, ?, ?, ?, ?)")
-      .run(id, entry.title, entry.content, entry.source ?? "manual", tags, created_at);
+      .prepare("INSERT INTO knowledge (id, title, content, source, tags, created_at, user_id) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      .run(id, entry.title, entry.content, entry.source ?? "manual", tags, created_at, userId);
     return { id, title: entry.title, content: entry.content, source: entry.source ?? "manual", tags: entry.tags ?? [], created_at };
   }
 
-  get(id: string): KnowledgeEntry | null {
-    const row = this.db.prepare("SELECT * FROM knowledge WHERE id = ?").get(id) as any;
+  get(id: string, userId: string): KnowledgeEntry | null {
+    const row = this.db.prepare("SELECT * FROM knowledge WHERE id = ? AND user_id = ?").get(id, userId) as any;
     return row ? this.rowToEntry(row) : null;
   }
 
-  search(query: string, limit = 20): KnowledgeEntry[] {
-    if (!query.trim()) return this.list(limit);
+  search(userId: string, query: string, limit = 20): KnowledgeEntry[] {
+    if (!query.trim()) return this.list(userId, limit);
     if (this.ftsAvailable) {
       try {
         const rows = this.db
           .prepare(
             `SELECT k.* FROM knowledge k
              JOIN knowledge_fts f ON k.rowid = f.rowid
-             WHERE knowledge_fts MATCH ?
+             WHERE knowledge_fts MATCH ? AND k.user_id = ?
              ORDER BY rank LIMIT ?`,
           )
-          .all(query, limit) as any[];
+          .all(query, userId, limit) as any[];
         return rows.map((r) => this.rowToEntry(r));
       } catch {
         // Fall through to LIKE search.
       }
     }
-    // LIKE fallback
     const like = `%${query}%`;
     const rows = this.db
-      .prepare("SELECT * FROM knowledge WHERE title LIKE ? OR content LIKE ? OR tags LIKE ? ORDER BY created_at DESC LIMIT ?")
-      .all(like, like, like, limit) as any[];
+      .prepare("SELECT * FROM knowledge WHERE user_id = ? AND (title LIKE ? OR content LIKE ? OR tags LIKE ?) ORDER BY created_at DESC LIMIT ?")
+      .all(userId, like, like, like, limit) as any[];
     return rows.map((r) => this.rowToEntry(r));
   }
 
-  list(limit = 50, offset = 0): KnowledgeEntry[] {
+  list(userId: string, limit = 50, offset = 0): KnowledgeEntry[] {
     const rows = this.db
-      .prepare("SELECT * FROM knowledge ORDER BY created_at DESC LIMIT ? OFFSET ?")
-      .all(limit, offset) as any[];
+      .prepare("SELECT * FROM knowledge WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?")
+      .all(userId, limit, offset) as any[];
     return rows.map((r) => this.rowToEntry(r));
   }
 
-  delete(id: string): boolean {
-    const result = this.db.prepare("DELETE FROM knowledge WHERE id = ?").run(id) as { changes?: number };
+  delete(id: string, userId: string): boolean {
+    const result = this.db.prepare("DELETE FROM knowledge WHERE id = ? AND user_id = ?").run(id, userId) as { changes?: number };
     return (result.changes ?? 0) > 0;
   }
 
-  count(): number {
-    const row = this.db.prepare("SELECT COUNT(*) as c FROM knowledge").get() as { c: number };
+  count(userId: string): number {
+    const row = this.db.prepare("SELECT COUNT(*) as c FROM knowledge WHERE user_id = ?").get(userId) as { c: number };
     return row.c;
   }
 

@@ -194,7 +194,7 @@ const archiveSearch: BuiltinSkill = {
       const { query, limit } = (args ?? {}) as { query?: string; limit?: number };
       if (!query || typeof query !== "string") throw new Error("query is required");
       if (!memoryBackend) return { results: [], note: "knowledge base not configured" };
-      const results = memoryBackend.search(query, Math.min(limit ?? 5, 20));
+      const results = memoryBackend.search("", query, Math.min(limit ?? 5, 20));
       return {
         count: results.length,
         results: results.map((r) => ({

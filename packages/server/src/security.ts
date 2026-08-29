@@ -31,16 +31,14 @@ export const SECURITY_HEADERS: Record<string, string> = {
 };
 
 /** Attach CORS middleware configured from `CORS_ORIGINS`. */
-export function applyCors(app: Hono, originsEnv?: string): void {
+export function applyCors(app: Hono<any>, originsEnv?: string): void {
   const origins = resolveCorsOrigins(originsEnv);
-  // When unset, pass no option so Hono keeps its allow-all (`*`) default — the
-  // right convenience for local dev. An explicit value (string or list) is
-  // forwarded to restrict origins in shared deployments.
-  app.use("/*", cors(origins === undefined ? {} : { origin: origins }));
+  const origin = origins === undefined ? "http://localhost:5173" : origins;
+  app.use("/*", cors({ origin, credentials: true }));
 }
 
 /** Attach a middleware that sets the basic security response headers. */
-export function applySecurityHeaders(app: Hono): void {
+export function applySecurityHeaders(app: Hono<any>): void {
   app.use("/*", async (c, next) => {
     await next();
     for (const [k, v] of Object.entries(SECURITY_HEADERS)) {

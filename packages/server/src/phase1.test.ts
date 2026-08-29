@@ -321,6 +321,42 @@ describe("prohibited words enforcement", () => {
     expect(verdict.reason).toContain("命中禁用词");
     expect(verdict.reason).toContain("绝对");
   });
+
+  it("injects upstream prohibited terms into the agent system prompt at generation time", async () => {
+    const graph = linearGraph();
+    const intake = graph.nodes.find((n) => n.id === "intake")!;
+    intake.source = { prohibited: "第一、绝对" };
+
+    const seenPrompts: string[] = [];
+    const worker: Worker = {
+      async *runAgent({ node, config }): AsyncGenerator<AgentChunk, { output: string; usage: Usage }> {
+        if (node.kind === "agent") seenPrompts.push(config.prompt);
+        yield { type: "text-delta", text: "x" };
+        return { output: "这款产品很好用", usage: USAGE };
+      },
+      async judge() {
+        return { passed: true, reason: "ok" };
+      },
+    };
+
+    await drain(
+      execute({
+        runId: "r",
+        graph,
+        plan: compile(graph)!.plan!,
+        worker,
+        budgetUsd: null,
+        now: () => 0,
+      }),
+    );
+
+    expect(seenPrompts.length).toBeGreaterThan(0);
+    for (const p of seenPrompts) {
+      expect(p).toContain("硬性约束");
+      expect(p).toContain("第一");
+      expect(p).toContain("绝对");
+    }
+  });
 });
 
 describe("gate minScore linkage", () => {

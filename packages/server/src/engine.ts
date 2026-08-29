@@ -146,6 +146,12 @@ export interface ExecuteOptions {
   storeBinary?: (data: Buffer, mimeType: string, label?: string) => string | Promise<string>;
   /** Resolves a /api/artifacts/<id> URI to a data URI for cloud models. */
   readArtifact?: (uri: string) => Promise<string | null>;
+  /**
+   * Absolute origin (e.g. http://localhost:8791). Relative artifact URIs are
+   * prefixed with it when exposed to agent prompts, so downstream nodes and
+   * gate judges see fully-qualified URLs instead of /api/artifacts/<id> paths.
+   */
+  publicUrl?: string;
   /** Tool-call permission governance. Defaults to the env-derived config. */
   permissionConfig?: PermissionConfig;
 }
@@ -206,6 +212,16 @@ export async function inlineImageUrl(uri: string, readArtifact: (uri: string) =>
     return uri;
   }
 }
+
+/**
+ * Supplemental judging rule appended to every gate criterion. Locally stored
+ * artifacts surface as …/api/artifacts/<id> URLs (often on a localhost origin),
+ * and model judges otherwise reject them as "not a real upstream URL" — even
+ * though they ARE the real upstream output. Enforced here at engine level so
+ * no graph config can trip over it.
+ */
+const ARTIFACT_URL_NOTE =
+  "\n补充判定规则：凡 URL 路径中包含 /api/artifacts/ 的图片或媒体链接，都是本系统产物库中由上游节点真实产出的存储地址，属于有效的上游真实 URL；不得仅因其域名是本机或内网地址（如 localhost、127.0.0.1）而判定为无效、编造或不符合「真实 URL」要求。";
 
 /**
  * Collect all image URIs reachable from a node via its flow-upstream artifacts
@@ -340,6 +356,20 @@ function detectProhibited(text: string, terms: string[]): string[] {
   return terms.filter((t) => text.includes(t));
 }
 
+/** Short context snippets around each hit so rework feedback names the exact offending phrases. */
+function prohibitedSnippets(text: string, hits: string[], maxSnippets = 3): string[] {
+  const out: string[] = [];
+  for (const h of hits.slice(0, maxSnippets)) {
+    const i = text.indexOf(h);
+    if (i < 0) continue;
+    const start = Math.max(0, i - 12);
+    const end = Math.min(text.length, i + h.length + 12);
+    const core = text.slice(start, end).replace(/\s+/g, "");
+    out.push(`“${start > 0 ? "…" : ""}${core}${end < text.length ? "…" : ""}”`);
+  }
+  return out;
+}
+
 /** Build a banner-generation prompt from the upstream source's product brief. */
 function buildImagePrompt(node: GraphNode, graph: Graph): string {
   const seen = new Set<string>();
@@ -444,6 +474,8 @@ interface SchedulerOptions {
   storeBinary: (data: Buffer, mimeType: string, label?: string) => string | Promise<string>;
   /** Resolves a /api/artifacts/<id> URI to a data URI for cloud models. */
   readArtifact?: (uri: string) => Promise<string | null>;
+  /** Absolute origin prefixed to relative artifact URIs in agent prompts. */
+  publicUrl?: string;
   /** Tool-call permission governance. Defaults to the env-derived config. */
   permissionConfig?: PermissionConfig;
   /** Human-edited product overrides, keyed by node id (4.7 human-in-the-loop). */
@@ -502,6 +534,12 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
   let haltNodeId: string | undefined;
   let haltReason: string | undefined;
 
+  // Relative artifact URIs (/api/artifacts/<id>) are meaningless to downstream
+  // prompts and gate judges — publish them as absolute URLs when an origin is
+  // configured, so products carry fully-qualified image links.
+  const absUrl = (uri: string): string =>
+    uri.startsWith("/") && opts.publicUrl ? opts.publicUrl + uri : uri;
+
   const inputFor = async (node: GraphNode, includeNote = true): Promise<string> => {
     const parts: string[] = [];
     for (const e of incoming(graph, node.id, "flow")) {
@@ -511,16 +549,16 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           if (a.content) parts.push(a.content);
         } else if (a.kind === "image") {
           const label = a.label ?? "上游图片";
-          const uriPart = a.uri ? ` — URL: ${a.uri}` : "";
+          const uriPart = a.uri ? ` — URL: ${absUrl(a.uri)}` : "";
           parts.push(`[图片: ${label}${uriPart}]`);
         } else if (a.kind === "video") {
-          parts.push(`[视频: ${a.label ?? a.uri ?? "上游视频"}]`);
+          parts.push(`[视频: ${a.label ?? (a.uri ? absUrl(a.uri) : "上游视频")}]`);
         } else if (a.kind === "audio") {
-          parts.push(`[音频: ${a.label ?? a.uri ?? "上游音频"}]`);
+          parts.push(`[音频: ${a.label ?? (a.uri ? absUrl(a.uri) : "上游音频")}]`);
         } else if (a.kind === "file") {
-          parts.push(`[文件: ${a.label ?? a.uri ?? "上游文件"}]`);
+          parts.push(`[文件: ${a.label ?? (a.uri ? absUrl(a.uri) : "上游文件")}]`);
         } else if (a.kind === "uri") {
-          parts.push(`[链接: ${a.uri ?? ""}]`);
+          parts.push(`[链接: ${a.uri ? absUrl(a.uri) : ""}]`);
         }
       }
     }
@@ -551,28 +589,10 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       body = assembleInput(parts, policy);
     }
 
-    // Inject upstream source constraints so every agent node (regardless of
-    // how many layers deep) sees the prohibited terms and brand words. Without
-    // this, the source brief only reaches the first downstream agent; after
-    // multiple rewrites the constraints are lost and the gate can only detect
-    // violations post-hoc instead of preventing them upfront.
-    // NOTE: only inject for agent nodes — gate nodes use inputFor() to read
-    // upstream output for coverage detection; injecting terms there would make
-    // the detector always pass.
-    if (node.kind === "agent") {
-      const prohibited = upstreamProhibitedTerms(graph, node.id);
-      const brandTerms = upstreamBrandTerms(graph, node.id);
-      const constraintLines: string[] = [];
-      if (prohibited.length > 0) {
-        constraintLines.push(`[禁用词 — 生成内容中绝对不能出现以下词语/说法]\n${prohibited.join("、")}`);
-      }
-      if (brandTerms.length > 0) {
-        constraintLines.push(`[品牌词 — 建议在文案中自然融入，不必全部使用]\n${brandTerms.join("、")}`);
-      }
-      if (constraintLines.length > 0) {
-        body = `${body}\n\n${constraintLines.join("\n\n")}`;
-      }
-    }
+    // NOTE: upstream prohibited/brand terms are NOT injected into the user
+    // input body here — they are injected into the agent SYSTEM prompt at the
+    // run site (see runNode's agent branch), which is authoritative and
+    // survives input truncation/summarization.
 
     const note = includeNote ? reworkNotes.get(node.id) : undefined;
     if (!note) return body;
@@ -704,7 +724,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           attempt,
           input: output,
           output,
-          criterion: node.gate?.criterion ?? "",
+          criterion: (node.gate?.criterion ?? "") + ARTIFACT_URL_NOTE,
           signal: opts.signal,
         });
 
@@ -728,9 +748,15 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
 
         let verdict = modelVerdict;
         if (prohibitedHits.length > 0) {
+          // Actionable rework feedback: name the exact offending phrases and
+          // the attempt number. Varying the note per attempt matters — with a
+          // deterministic endpoint, an identical rework note produces identical
+          // input and the model regenerates the same violating copy forever.
+          const snippets = prohibitedSnippets(output, prohibitedHits);
+          const where = snippets.length ? `，出现位置：${snippets.join("、")}` : "";
           verdict = {
             passed: false,
-            reason: `命中禁用词：${prohibitedHits.join("、")}（已退回上游重写）`,
+            reason: `命中禁用词：${prohibitedHits.join("、")}（第 ${attempt} 次质检${where}）。重写时必须完全避开这些词及任何包含它们的短语，已退回上游重写`,
             score: modelVerdict.score,
           };
         } else if (belowBrand) {
@@ -960,9 +986,30 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       const mounts = (node.agent?.skills ?? []).map(toMount);
       const promptModules = collectPromptModules(mounts);
       const basePrompt = withLayoutDirectives(node.agent?.prompt ?? "", node.agent?.imageDirectives);
-      const prompt = promptModules.length
+      let prompt = promptModules.length
         ? `${basePrompt}\n\n${promptModules.map((p) => `=== 已挂载模块提示 (prompt-module) ===\n${p}`).join("\n\n")}`
         : basePrompt;
+      // Engine-level hard constraint: upstream source prohibited/brand terms are
+      // always injected into the SYSTEM prompt here, regardless of what the user
+      // wrote in the node prompt, so every pipeline (incl. user-customized ones)
+      // is constrained at generation time. The gate remains the deterministic
+      // backstop. Living in the system prompt also survives input truncation /
+      // summarization, unlike appending to the user input body.
+      const constraintBlocks: string[] = [];
+      const prohibited = upstreamProhibitedTerms(graph, node.id);
+      if (prohibited.length > 0) {
+        constraintBlocks.push(
+          `[硬性约束 — 禁用词] 生成的任何内容中都绝对不能出现以下词语/说法：${prohibited.join("、")}。` +
+            `质检按“包含”匹配：任何包含这些字的短语同样被禁止（例如禁用“第一”时，“第一缕阳光”“第一杯咖啡”这类表达也不允许），必须换用不含这些字的说法。`,
+        );
+      }
+      const brandTerms = upstreamBrandTerms(graph, node.id);
+      if (brandTerms.length > 0) {
+        constraintBlocks.push(`[品牌词] 建议在文案中自然融入以下品牌词，不必全部使用：${brandTerms.join("、")}`);
+      }
+      if (constraintBlocks.length > 0) {
+        prompt = prompt ? `${prompt}\n\n${constraintBlocks.join("\n\n")}` : constraintBlocks.join("\n\n");
+      }
       const config = {
         model: node.agent?.model || fallbackModel,
         prompt,
@@ -1307,6 +1354,7 @@ export async function* execute(opts: ExecuteOptions): AsyncGenerator<RunEvent, v
     sleep: opts.sleep ?? delay,
     storeBinary: opts.storeBinary ?? defaultStoreBinary,
     readArtifact: opts.readArtifact,
+    publicUrl: opts.publicUrl,
     permissionConfig: opts.permissionConfig,
     init: {
       artifacts: new Map(),
@@ -1443,6 +1491,8 @@ export interface ResumeOptions {
   storeBinary?: (data: Buffer, mimeType: string, label?: string) => string | Promise<string>;
   /** Resolves a /api/artifacts/<id> URI to a data URI for cloud models. */
   readArtifact?: (uri: string) => Promise<string | null>;
+  /** Absolute origin prefixed to relative artifact URIs in agent prompts. */
+  publicUrl?: string;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
   /** Tool-call permission governance. Defaults to the env-derived config. */
@@ -1561,6 +1611,7 @@ export async function* resume(opts: ResumeOptions): AsyncGenerator<RunEvent, voi
     sleep,
     storeBinary: opts.storeBinary ?? defaultStoreBinary,
     readArtifact: opts.readArtifact,
+    publicUrl: opts.publicUrl,
     permissionConfig: opts.permissionConfig,
     editOutput: opts.editOutput,
     init: {
