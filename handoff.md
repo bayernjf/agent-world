@@ -49,10 +49,10 @@ State of Agent World as of 2026-08-29.
 
 按优先级降序，标 `★` 的是当下要推的：
 
-1. **★ 通用化 Phase 1 P0 收尾（本轮完成）**— **六大通用节点全部落地**：HTTP / 代码执行 / 条件分支 + 本轮新增 **映射（map）/ 循环（loop）/ 并行聚合（parallel）**。map 做 JSON 模板映射/数组批量转换（纯占位符自动保留类型）；loop 对数组每项内联执行下游子图并聚合 `{results:[...]}`（循环体内 `${item.x}` 可用，agent 输入自动注入循环项）；parallel 做 barrier 结构化聚合（分支天然并行 + 显式汇合）。通用化 Phase 1 P0 至此收官，剩 Phase 1 P1 的「循环增强」与 Phase 2+ 大项见 roadmap-generalization。
+1. **★ Phase 2 起点：表格节点（本轮完成）**— **`table` 节点落地**（core + server + web 全链路）：CSV/JSON 解析（带引号字段状态机解析器）、筛选（eq/ne/gt/gte/lt/lte/contains）、排序（数字感知）、聚合（groupBy + count/sum/avg/min/max）、输出格式（JSON 对象或额外 CSV 文本）。输入兼容 CSV 文本 / JSON 数组 / `{rows:[...]}`，无上游或输入非法 → VALIDATION。Inspector 提供可视化步骤编辑器（增删步骤 + 每步字段）。core 31 + server 7 个新测试。**Phase 2 其余大项**（数据库查询、文件解析、OCR 等）见 roadmap-generalization。
 2. **MCP Server P2 高级**（详见 [docs/design-mcp-server.md](docs/design-mcp-server.md)）— **P0 MVP + P1 增强均已落地**（stdio + HTTP/SSE 双传输、6 工具、resources、prompts，22/22 测试）。P2 候选：管理类工具（create/update/delete graph）、实时 notifications、批量运行、对比分析、认证权限。让 Claude Desktop/Cursor 等能接入 agent-world。
-3. **Inspector 的"在显眼处加一个去设置的链接"**— 音频模型没配时，下拉只有占位项，没引导；新建节点有 toast 软提示覆盖
-4. **运行沙箱细化**（详见 [docs/roadmap-generalization.md](docs/roadmap-generalization.md)）— 代码节点当前用 os.exec 子进程；后续可加资源限制（内存/超时）、白名单命令、工作目录隔离
+3. **运行沙箱细化**（详见 [docs/roadmap-generalization.md](docs/roadmap-generalization.md)）— 代码节点当前用 os.exec 子进程；后续可加资源限制（内存/超时）、白名单命令、工作目录隔离
+4. **通用化 Phase 1 复盘**（可选）— Phase 1 P0+P1 全部收官（六类节点 + loop 增强）。如需要可把 roadmap-generalization 的 Phase 1 验收更新为"已全部完成"并归档 roadmap-tasks 的对应章节。
 
 ## Recently shipped (last 5)
 

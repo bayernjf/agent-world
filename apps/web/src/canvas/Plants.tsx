@@ -27,6 +27,7 @@ const KIND_LABEL: Record<GraphNode["kind"], string> = {
   map: "映射",
   loop: "循环",
   parallel: "并行聚合",
+  table: "表格",
 };
 
 const STATUS_LABEL: Record<NodeRuntime["status"], string> = {
