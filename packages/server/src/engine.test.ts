@@ -1,6 +1,6 @@
 import { compile, type RunEvent, Graph, replay } from "@agent-world/core";
 import { describe, expect, it } from "vitest";
-import { execute } from "./engine.js";
+import { execute, resume } from "./engine.js";
 import { SEED_GRAPH } from "./seed.js";
 import { fakeWorker, type Worker } from "./worker.js";
 
@@ -428,5 +428,135 @@ describe("inlineImageUrl (readArtifact indirection)", () => {
     const { inlineImageUrl } = await import("./engine.js");
     const read = async () => { throw new Error("boom"); };
     expect(await inlineImageUrl("/api/artifacts/boom", read)).toBe("/api/artifacts/boom");
+  });
+});
+
+const HUMAN_GRAPH: Graph = {
+  id: "g-human",
+  name: "Human review",
+  nodes: [
+    { id: "src", kind: "source", name: "Source", x: 0, y: 0, source: { productName: "测试产品" } },
+    { id: "hr", kind: "human", name: "Review", x: 200, y: 0, human: { prompt: "确认文案" } },
+    { id: "out", kind: "sink", name: "Sink", x: 400, y: 0 },
+  ],
+  edges: [
+    { id: "e1", from: "src", to: "hr", kind: "flow" },
+    { id: "e2", from: "hr", to: "out", kind: "flow" },
+  ],
+};
+
+async function runToHalt(graph: Graph): Promise<RunEvent[]> {
+  const { plan } = compile(graph);
+  if (!plan) throw new Error("graph did not compile");
+  const events: RunEvent[] = [];
+  for await (const e of execute({
+    runId: "r",
+    graph,
+    plan,
+    worker: worker(),
+    budgetUsd: null,
+    now: clock,
+  })) {
+    events.push(e);
+    if (e.type === "run.finished") break;
+  }
+  return events;
+}
+
+async function resumeWith(
+  graph: Graph,
+  pastEvents: RunEvent[],
+  action: "continue" | "approve" | "reject" | "edit" | "scrap",
+  extra: Partial<Parameters<typeof resume>[0]> = {},
+): Promise<RunEvent[]> {
+  const { plan } = compile(graph);
+  if (!plan) throw new Error("graph did not compile");
+  const out: RunEvent[] = [];
+  for await (const e of resume({
+    runId: "r",
+    graph,
+    plan,
+    worker: worker(),
+    budgetUsd: null,
+    action,
+    pastEvents,
+    now: clock,
+    ...extra,
+  })) {
+    out.push(e);
+  }
+  return [...pastEvents, ...out];
+}
+
+describe("human node", () => {
+  it("halts at the human node and surfaces the upstream text as the review", async () => {
+    const events = await runToHalt(HUMAN_GRAPH);
+    const state = replay(events);
+
+    expect(state.status).toBe("halted");
+    expect(state.haltedNodeId).toBe("hr");
+    const review = events.find((e) => e.type === "human.review");
+    expect(review).toBeDefined();
+    expect((review as { content: string }).content).toContain("测试产品");
+  });
+
+  it("approve passes the reviewed text downstream and emits human.decision", async () => {
+    const events = await resumeWith(HUMAN_GRAPH, await runToHalt(HUMAN_GRAPH), "approve");
+    const state = replay(events);
+
+    expect(state.status).toBe("done");
+    expect(state.nodes["hr"].status).toBe("done");
+    expect(state.nodes["out"].status).toBe("done");
+    expect(state.nodes["out"].outputs[1]).toContain("测试产品");
+    const decision = events.find((e) => e.type === "human.decision");
+    expect(decision?.decision).toBe("approved");
+  });
+
+  it("edit replaces the reviewed text before continuing", async () => {
+    const events = await resumeWith(HUMAN_GRAPH, await runToHalt(HUMAN_GRAPH), "edit", {
+      editOutput: { hr: "已人工修改" },
+    });
+    const state = replay(events);
+
+    expect(state.status).toBe("done");
+    expect(state.nodes["out"].outputs[1]).toBe("已人工修改");
+    const decision = events.find((e) => e.type === "human.decision");
+    expect(decision?.decision).toBe("edited");
+  });
+
+  it("reject fails the human node and the run when there is no error edge", async () => {
+    const events = await resumeWith(HUMAN_GRAPH, await runToHalt(HUMAN_GRAPH), "reject");
+    const state = replay(events);
+
+    expect(state.status).toBe("failed");
+    expect(state.nodes["hr"].status).toBe("failed");
+    expect(state.nodes["out"].status).toBe("skipped");
+    const decision = events.find((e) => e.type === "human.decision");
+    expect(decision?.decision).toBe("rejected");
+  });
+
+  it("reject routes to an error-edge catch node instead of failing the run", async () => {
+    const graph: Graph = {
+      id: "g-human-catch",
+      name: "Human with catch",
+      nodes: [
+        { id: "src", kind: "source", name: "Source", x: 0, y: 0, source: { productName: "测试产品" } },
+        { id: "hr", kind: "human", name: "Review", x: 200, y: 0, human: { prompt: "确认文案" } },
+        { id: "out", kind: "sink", name: "Sink", x: 400, y: 0 },
+        { id: "fallback", kind: "map", name: "Fallback", x: 200, y: 200, map: { source: "hr", template: "{\"fallback\": true}" } },
+      ],
+      edges: [
+        { id: "e1", from: "src", to: "hr", kind: "flow" },
+        { id: "e2", from: "hr", to: "out", kind: "flow" },
+        { id: "e3", from: "hr", to: "fallback", kind: "error" },
+      ],
+    };
+    const events = await resumeWith(graph, await runToHalt(graph), "reject");
+    const state = replay(events);
+
+    expect(state.status).toBe("done");
+    expect(state.nodes["hr"].status).toBe("failed");
+    expect(state.nodes["out"].status).toBe("skipped");
+    expect(state.nodes["fallback"].status).toBe("done");
   });
 });

@@ -32,6 +32,8 @@ export interface NodeRuntime {
   startedAt?: number;
   /** Epoch ms when the current attempt finished (node.finished / node.failed). */
   finishedAt?: number;
+  /** Upstream text awaiting an operator decision on a paused `human` node. */
+  pendingReview?: string;
 }
 
 export interface ToolCallRecord {
@@ -240,6 +242,16 @@ export function reduce(state: RuntimeState, event: RunEvent): RuntimeState {
 
       case "node.skipped":
         return withNode(state, event.nodeId, { status: "skipped", finishedAt: event.ts });
+
+      case "human.review":
+        return withNode(state, event.nodeId, { pendingReview: event.content });
+
+      case "human.decision":
+        return withNode(state, event.nodeId, {
+          status: event.decision === "rejected" ? "failed" : "done",
+          finishedAt: event.ts,
+          pendingReview: undefined,
+        });
 
       case "packet.sent":
         return {

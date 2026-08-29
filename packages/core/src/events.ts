@@ -191,6 +191,21 @@ export const RunEvent = z.discriminatedUnion("type", [
     type: z.literal("tool.approved"),
     tool: z.string(),
   }),
+  /** A `human` node paused the run waiting for an operator decision. */
+  z.object({
+    ...base,
+    type: z.literal("human.review"),
+    ...NodeRunKey.shape,
+    /** Upstream text shown to the operator as the pending review. */
+    content: z.string(),
+  }),
+  /** The operator decided on a paused `human` node. */
+  z.object({
+    ...base,
+    type: z.literal("human.decision"),
+    ...NodeRunKey.shape,
+    decision: z.enum(["approved", "edited", "rejected"]),
+  }),
   z.object({
     ...base,
     type: z.literal("run.finished"),

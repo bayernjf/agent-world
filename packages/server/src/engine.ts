@@ -510,6 +510,10 @@ interface SchedulerOptions {
   init: SchedulerInit;
   /** When resuming, the halted gate is pre-approved. */
   approveGate?: { nodeId: string; attempt: number };
+  /** Halt reason of the run being resumed — routes approve/reject semantics (human: vs gate/dangerous-tool). */
+  haltReason?: string;
+  /** When resuming a human node with "reject": pre-mark it failed so error edges can catch (else the run fails). */
+  rejectHuman?: { nodeId: string; attempt: number };
   /** True when continuing an existing run (resume/retry): don't re-emit run.started. */
   resuming?: boolean;
   /** Persists generated image bytes and returns a stable URI (e.g. /api/artifacts/:id). */
@@ -558,6 +562,13 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
   const attempts = opts.init.attempts;
   const nodeCostUsd = opts.init.nodeCostUsd;
   const states = opts.init.states;
+  // A rejected human node is pre-marked failed so error edges can catch it.
+  if (opts.rejectHuman) {
+    const { nodeId, attempt } = opts.rejectHuman;
+    states.set(nodeId, "failed");
+    attempts.set(nodeId, attempt);
+    lastError.set(nodeId, { error: "Rejected by human operator", errorCode: "VALIDATION" });
+  }
   let totalCostUsd = opts.init.totalCostUsd;
   const BUDGET_WARN = 0.8;
   let budgetWarned =
@@ -2303,6 +2314,21 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
         return;
       }
 
+      if (node.kind === "human") {
+        // Pause the run at an arbitrary point for an operator decision. The
+        // upstream text becomes the pending review; approve/edit passes it
+        // downstream, reject fails the node (error edges can catch it).
+        const output = await inputFor(node);
+        emit({ type: "node.started", nodeId, attempt });
+        emit({ type: "human.review", nodeId, attempt, content: output });
+        haltNodeId = nodeId;
+        haltReason = `human:${node.human?.prompt || node.name}`;
+        status = "halted";
+        aborted = true;
+        void notifyHalt({ runId, graphId: graph.id, nodeId, reason: haltReason });
+        return;
+      }
+
       if (node.kind === "gate") {
         emit({ type: "node.started", nodeId, attempt });
         const output = await inputFor(node);
@@ -2942,26 +2968,38 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     }
   };
 
-  // Resume: pre-approve the halted gate so downstream can flow.
+  // Resume: pre-approve the halted node so downstream can flow. A `human`
+  // node resumes with a human.decision instead of a gate.verdict; a gate keeps
+  // the existing verdict semantics.
   if (opts.approveGate) {
     const { nodeId, attempt } = opts.approveGate;
     const gate = nodeById(graph, nodeId);
+    const isHuman = (opts.haltReason ?? "").startsWith("human:");
     const existing = artifacts.get(nodeId) ?? [];
     const output = existing.find((a) => a.kind === "text")?.content ?? "";
     setTextArtifact(artifacts, nodeId, output);
     states.set(nodeId, "done");
     attempts.set(nodeId, attempt);
     const decision = opts.editOutput && opts.editOutput[nodeId] != null ? "edited" : "approved";
-    emit({
-      type: "gate.verdict",
-      nodeId,
-      attempt,
-      passed: true,
-      reason: opts.editOutput && opts.editOutput[nodeId] != null ? "Edited by human operator" : "Approved by human operator",
-      decision,
-      by: "human",
-    });
-    sendPackets(nodeId, "Approved by human operator", "text");
+    if (isHuman) {
+      emit({ type: "human.decision", nodeId, attempt, decision });
+      sendPackets(
+        nodeId,
+        decision === "edited" ? "Edited by human operator" : "Approved by human operator",
+        "text",
+      );
+    } else {
+      emit({
+        type: "gate.verdict",
+        nodeId,
+        attempt,
+        passed: true,
+        reason: decision === "edited" ? "Edited by human operator" : "Approved by human operator",
+        decision,
+        by: "human",
+      });
+      sendPackets(nodeId, "Approved by human operator", "text");
+    }
     void gate;
   }
 
@@ -3095,6 +3133,9 @@ export function reconstructState(events: RunEvent[]): ResumeState {
       case "gate.verdict":
         if (e.passed) attempts.set(e.nodeId, e.attempt);
         break;
+      case "human.decision":
+        attempts.set(e.nodeId, e.attempt);
+        break;
       case "gate.exhausted":
         if (e.policy === "halt") haltedNodeId = e.nodeId;
         break;
@@ -3193,6 +3234,19 @@ export async function* resume(opts: ResumeOptions): AsyncGenerator<RunEvent, voi
     }
   }
 
+  // 4.7 — a human node's pending review is its artifact: approving it passes
+  // the reviewed text downstream (the approveGate pre-mark reads it back).
+  // editOutput below then overrides it when the operator edited the text.
+  const isHuman = (state.haltedReason ?? "").startsWith("human:");
+  if (state.haltedNodeId && isHuman && (action === "approve" || action === "continue" || action === "edit")) {
+    const review = [...opts.pastEvents]
+      .reverse()
+      .find((e) => e.type === "human.review" && e.nodeId === state.haltedNodeId);
+    if (review && review.type === "human.review") {
+      setTextArtifact(state.artifacts, state.haltedNodeId, review.content);
+    }
+  }
+
   // 4.7 — human-edited product text overrides the stored node outputs before
   // the run continues, so the operator can fix copy without re-running the model.
   if (opts.editOutput) {
@@ -3201,32 +3255,47 @@ export async function* resume(opts: ResumeOptions): AsyncGenerator<RunEvent, voi
     }
   }
 
-  // 4.7 — reject: record the decision and end the run as failed.
+  // 4.7 — reject: a rejected human node fails (error edges can catch it, else
+  // the run fails); a rejected gate ends the run as failed directly.
+  let rejectHuman: { nodeId: string; attempt: number } | undefined;
   if (action === "reject") {
-    if (state.haltedNodeId) {
+    if (isHuman && state.haltedNodeId) {
       const attempt = state.attempts.get(state.haltedNodeId) ?? 1;
+      rejectHuman = { nodeId: state.haltedNodeId, attempt };
       yield {
-        type: "gate.verdict",
+        type: "human.decision",
         nodeId: state.haltedNodeId,
         attempt,
-        passed: false,
-        reason: "Rejected by human operator",
         decision: "rejected",
-        by: "human",
         seq: state.lastSeq + 1,
         ts: now(),
       };
+    } else {
+      if (state.haltedNodeId) {
+        const attempt = state.attempts.get(state.haltedNodeId) ?? 1;
+        yield {
+          type: "gate.verdict",
+          nodeId: state.haltedNodeId,
+          attempt,
+          passed: false,
+          reason: "Rejected by human operator",
+          decision: "rejected",
+          by: "human",
+          seq: state.lastSeq + 1,
+          ts: now(),
+        };
+      }
+      yield {
+        type: "run.finished",
+        runId,
+        status: "failed",
+        reason: "Rejected by human operator",
+        haltedNodeId: state.haltedNodeId ?? undefined,
+        seq: state.lastSeq + 2,
+        ts: now(),
+      };
+      return;
     }
-    yield {
-      type: "run.finished",
-      runId,
-      status: "failed",
-      reason: "Rejected by human operator",
-      haltedNodeId: state.haltedNodeId ?? undefined,
-      seq: state.lastSeq + 2,
-      ts: now(),
-    };
-    return;
   }
 
   if (action === "scrap") {
@@ -3292,7 +3361,9 @@ export async function* resume(opts: ResumeOptions): AsyncGenerator<RunEvent, voi
     },
     resuming: true,
     approveTools: [...new Set([...state.approvedTools, ...approveTools])],
-    approveGate: !isToolHalt && state.haltedNodeId
+    haltReason: state.haltedReason ?? undefined,
+    rejectHuman,
+    approveGate: !isToolHalt && !rejectHuman && state.haltedNodeId
       ? {
           nodeId: state.haltedNodeId,
           attempt: state.attempts.get(state.haltedNodeId) ?? 1,
