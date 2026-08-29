@@ -114,13 +114,15 @@
 
 | 节点 | 能力 | 状态 |
 |------|------|------|
-| **飞书/钉钉/企业微信** | 发消息、建文档、审批 | ✅ 群机器人发消息已落地（notify 节点，含钉钉加签）；建文档/审批需开放平台应用，P2 |
-| **邮件** | 收发邮件、带附件 | ✅ SMTP 发送已落地（notify 节点，nodemailer，密钥走 env）；收邮件/附件 P2 |
-| **小红书/抖音/淘宝** | 发布内容、获取数据（需要 API 权限） | ⏸ 依赖商家 API 资质，缓做 |
-| **GitHub/GitLab** | 提 PR、查 issue、触发 CI | ⏳ P1（REST API + token，研发自动化场景） |
-| **Slack/Notion/Linear** | 主流协作工具集成 | ⏳ P1/P2（Slack Bot token 同群机器人模式） |
+| **飞书/钉钉/企业微信** | 发消息、建文档、审批 | ✅ 群机器人发消息已落地（notify 节点，含钉钉加签 + markdown）；建文档/审批需开放平台应用，P2 |
+| **邮件** | 收发邮件、带附件 | ✅ SMTP 发送已落地（notify 节点，nodemailer，密钥走 env）；收件/附件见 [integrations-future.md §3](integrations-future.md#3-邮件收件--附件)，作为触发器扩展 |
+| **小红书/抖音/淘宝** | 发布内容、获取数据（需要 API 权限） | ⏸ 依赖商家 API 资质，走连接器市场，不建原生节点，见 [integrations-future.md §4](integrations-future.md#4-内容平台小红书--抖音--淘宝) |
+| **GitHub/GitLab** | 提 PR、查 issue、触发 CI | ✅ 已落地（vcs 节点，create_pr/comment_issue/trigger_workflow/list_issues，token 走 env，Bitbucket/Gitea 同构可扩展） |
+| **Slack/Notion/Linear** | 主流协作工具集成 | ✅ Slack 已落地（notify 的 slack provider，chat.postMessage）；Notion/Linear 见 [integrations-future.md §1/§2](integrations-future.md) |
 | **定时触发增强** | cron 表达式、复杂调度 | ✅ 已有（触发器体系：cron/webhook/event/batch 四类 + TriggerScheduler 调度 + Web 配置 UI） |
 | **Webhook 输出** | 产线完成后调用外部 Webhook | ✅ 已有（http 节点可调任意 REST API 兜底） |
+
+未来集成（Notion / Linear / 邮件收件 / 内容平台 / Bitbucket 等）的接口草案与入手路径见 [docs/integrations-future.md](integrations-future.md)。
 
 ---
 

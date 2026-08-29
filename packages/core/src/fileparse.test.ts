@@ -8,6 +8,7 @@ import {
   SearchConfig,
   TranslateConfig,
   NotifyConfig,
+  VcsConfig,
 } from "./graph.js";
 
 describe("FileParseConfig", () => {
@@ -223,9 +224,12 @@ describe("SearchConfig", () => {
 });
 
 describe("NotifyConfig", () => {
-  it("requires an explicit provider and defaults to an empty message", () => {
+  it("requires an explicit provider and defaults to empty message, text format and 2 retries", () => {
     const cfg = NotifyConfig.parse({ provider: "feishu" });
     expect(cfg.message).toBe("");
+    expect(cfg.format).toBe("text");
+    expect(cfg.retry.maxRetries).toBe(2);
+    expect(cfg.retry.baseDelayMs).toBe(1000);
     expect(cfg.webhookUrl).toBeUndefined();
     expect(cfg.secret).toBeUndefined();
     expect(cfg.to).toBeUndefined();
@@ -249,11 +253,31 @@ describe("NotifyConfig", () => {
     expect(cfg.subject).toBe("Report");
   });
 
+  it("parses markdown format and a custom retry policy", () => {
+    const cfg = NotifyConfig.parse({ provider: "dingtalk", format: "markdown", retry: { maxRetries: 4, baseDelayMs: 500, maxDelayMs: 10000 } });
+    expect(cfg.format).toBe("markdown");
+    expect(cfg.retry.maxRetries).toBe(4);
+    expect(cfg.retry.baseDelayMs).toBe(500);
+    expect(cfg.retry.maxDelayMs).toBe(10000);
+  });
+
+  it("rejects unknown formats and out-of-range retry settings", () => {
+    expect(() => NotifyConfig.parse({ provider: "feishu", format: "html" })).toThrow();
+    expect(() => NotifyConfig.parse({ provider: "feishu", retry: { maxRetries: 11 } })).toThrow();
+    expect(() => NotifyConfig.parse({ provider: "feishu", retry: { baseDelayMs: -1 } })).toThrow();
+  });
+
   it("rejects unknown providers, bad URLs and invalid emails", () => {
     expect(() => NotifyConfig.parse({})).toThrow();
-    expect(() => NotifyConfig.parse({ provider: "slack" })).toThrow();
+    expect(() => NotifyConfig.parse({ provider: "telegram" })).toThrow();
     expect(() => NotifyConfig.parse({ provider: "feishu", webhookUrl: "not-a-url" })).toThrow();
     expect(() => NotifyConfig.parse({ provider: "email", to: "not-an-email" })).toThrow();
+  });
+
+  it("parses a slack config with channel", () => {
+    const cfg = NotifyConfig.parse({ provider: "slack", channel: "C123", message: "hi" });
+    expect(cfg.provider).toBe("slack");
+    expect(cfg.channel).toBe("C123");
   });
 
   it("round-trips inside a GraphNode", () => {
@@ -267,5 +291,62 @@ describe("NotifyConfig", () => {
     });
     expect(node.kind).toBe("notify");
     expect(node.notify?.secret).toBe("SEC123");
+  });
+});
+
+describe("VcsConfig", () => {
+  it("requires an action and defaults to github with empty body and 2 retries", () => {
+    const cfg = VcsConfig.parse({ action: "create_pr" });
+    expect(cfg.provider).toBe("github");
+    expect(cfg.body).toBe("");
+    expect(cfg.retry.maxRetries).toBe(2);
+    expect(cfg.owner).toBeUndefined();
+    expect(cfg.repo).toBeUndefined();
+  });
+
+  it("parses a full github create_pr config", () => {
+    const cfg = VcsConfig.parse({
+      provider: "github",
+      action: "create_pr",
+      owner: "bayernjf",
+      repo: "one-world",
+      head: "feature/x",
+      base: "main",
+      title: "Add X",
+    });
+    expect(cfg.owner).toBe("bayernjf");
+    expect(cfg.head).toBe("feature/x");
+    expect(cfg.base).toBe("main");
+  });
+
+  it("parses a gitlab trigger_workflow config with inputs", () => {
+    const cfg = VcsConfig.parse({
+      provider: "gitlab",
+      action: "trigger_workflow",
+      projectId: "42",
+      ref: "main",
+      inputs: { env: "staging" },
+    });
+    expect(cfg.projectId).toBe("42");
+    expect(cfg.inputs).toEqual({ env: "staging" });
+  });
+
+  it("rejects unknown providers and actions", () => {
+    expect(() => VcsConfig.parse({ action: "create_pr", provider: "bitbucket" })).toThrow();
+    expect(() => VcsConfig.parse({ action: "merge_pr" })).toThrow();
+    expect(() => VcsConfig.parse({})).toThrow();
+  });
+
+  it("round-trips inside a GraphNode", () => {
+    const node = GraphNode.parse({
+      id: "v1",
+      kind: "vcs",
+      name: "VCS",
+      x: 0,
+      y: 0,
+      vcs: { action: "list_issues", owner: "o", repo: "r" },
+    });
+    expect(node.kind).toBe("vcs");
+    expect(node.vcs?.action).toBe("list_issues");
   });
 });
