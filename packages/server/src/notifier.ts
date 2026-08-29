@@ -1,6 +1,7 @@
 import type { NotifyConfig } from "@agent-world/core";
 import { createHmac } from "node:crypto";
 import nodemailer from "nodemailer";
+import { withRetry } from "./retry.js";
 
 /**
  * Outbound notifications for the `notify` node. Group-bot providers
@@ -36,8 +37,6 @@ export class NotifyProviderError extends Error {
     this.name = "NotifyProviderError";
   }
 }
-
-const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 async function assertOk(provider: string, res: Response): Promise<Record<string, unknown>> {
   const text = await res.text();
@@ -168,45 +167,26 @@ async function sendEmail(cfg: NotifyConfig, message: string, subject: string): P
   return { provider: "email", detail: cfg.to };
 }
 
-/** Retry once; only transient (non-auth, non-provider-rejected) errors retry. */
-async function withRetry<T>(
-  cfg: NotifyConfig,
-  fn: () => Promise<T>,
-): Promise<T> {
-  const maxAttempts = 1 + (cfg.retry.maxRetries ?? 0);
-  let lastErr: unknown;
-  for (let i = 0; i < maxAttempts; i++) {
-    try {
-      return await fn();
-    } catch (err) {
-      lastErr = err;
-      // Auth and explicit provider rejections are never retried.
-      if (err instanceof NotifyAuthError || err instanceof NotifyProviderError) throw err;
-      if (i >= maxAttempts - 1) break;
-      const base = cfg.retry.baseDelayMs ?? 1000;
-      const max = cfg.retry.maxDelayMs ?? 30000;
-      await delay(Math.min(max, base * 2 ** i));
-    }
-  }
-  throw lastErr;
-}
-
 /**
  * Deliver a notification message via the configured provider, retrying transient
  * faults. Throws NotifyAuthError on auth problems, NotifyProviderError when the
  * platform explicitly rejects the message.
  */
 export async function sendNotification(cfg: NotifyConfig, message: string, subject: string): Promise<NotifyResult> {
-  return withRetry(cfg, () => {
-    switch (cfg.provider) {
-      case "feishu":
-      case "dingtalk":
-      case "wecom":
-        return sendGroupBot(cfg.provider, cfg, message, subject);
-      case "slack":
-        return sendSlack(cfg, message);
-      case "email":
-        return sendEmail(cfg, message, subject);
-    }
-  });
+  return withRetry(
+    () => {
+      switch (cfg.provider) {
+        case "feishu":
+        case "dingtalk":
+        case "wecom":
+          return sendGroupBot(cfg.provider, cfg, message, subject);
+        case "slack":
+          return sendSlack(cfg, message);
+        case "email":
+          return sendEmail(cfg, message, subject);
+      }
+    },
+    cfg.retry,
+    (err) => !(err instanceof NotifyAuthError || err instanceof NotifyProviderError),
+  );
 }

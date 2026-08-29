@@ -171,6 +171,8 @@ export const HttpNodeConfig = z.object({
   outputMode: z.enum(["json", "text", "file", "auto"]).default("auto"),
   /** Treat non-2xx responses as node failures. */
   failOnError: z.boolean().default(true),
+  /** Retry policy for transient failures (network drop, 5xx). 4xx and timeouts configured by timeoutMs are not retried. */
+  retry: RetryPolicy.default({ maxRetries: 2, baseDelayMs: 1000, maxDelayMs: 30000 }),
 });
 export type HttpNodeConfig = z.infer<typeof HttpNodeConfig>;
 
@@ -184,6 +186,8 @@ export const CodeNodeConfig = z.object({
   code: z.string().default(""),
   /** Kill the subprocess after this many milliseconds. */
   timeoutMs: z.number().int().min(1000).default(30000),
+  /** Retry policy for transient failures (subprocess crash, not non-zero exit which is a business error). */
+  retry: RetryPolicy.default({ maxRetries: 2, baseDelayMs: 1000, maxDelayMs: 30000 }),
 });
 export type CodeNodeConfig = z.infer<typeof CodeNodeConfig>;
 
@@ -384,6 +388,8 @@ export const TranslateConfig = z.object({
   temperature: z.number().min(0).max(2).default(0.2),
   /** Optional per-node spend cap in USD. */
   budgetUsd: z.number().nonnegative().optional(),
+  /** Retry policy for transient LLM failures (TIMEOUT / RATE_LIMIT / PROVIDER_ERROR). */
+  retry: RetryPolicy.default({ maxRetries: 2, baseDelayMs: 1000, maxDelayMs: 30000 }),
 });
 export type TranslateConfig = z.infer<typeof TranslateConfig>;
 
@@ -441,6 +447,8 @@ export const SearchConfig = z.object({
   provider: z.enum(["duckduckgo", "tavily", "serpapi", "google"]).default("duckduckgo"),
   /** Maximum number of results to return. */
   maxResults: z.number().int().min(1).max(20).default(5),
+  /** Retry policy for transient failures (network drop, 5xx). Auth and provider rejections are not retried. */
+  retry: RetryPolicy.default({ maxRetries: 2, baseDelayMs: 1000, maxDelayMs: 30000 }),
 });
 export type SearchConfig = z.infer<typeof SearchConfig>;
 

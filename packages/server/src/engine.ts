@@ -54,6 +54,7 @@ import { decodeImage, encodeJpeg, encodePng } from "./convert.js";
 import { searchWeb, SearchAuthError } from "./search.js";
 import { sendNotification, NotifyAuthError, NotifyProviderError } from "./notifier.js";
 import { executeVcs, VcsAuthError, VcsProviderError } from "./vcs.js";
+import { withRetry } from "./retry.js";
 import { allowPrivateNetwork, hostIsInternal } from "./ssrf.js";
 
 /**
@@ -887,18 +888,30 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           return;
         }
 
-        const abort = new AbortController();
-        const timer = setTimeout(() => abort.abort(), cfg.timeoutMs);
         let response: Response;
         try {
-          response = await fetch(targetUrl.toString(), {
-            method: cfg.method,
-            headers,
-            body: body && cfg.method !== "GET" ? body : undefined,
-            signal: abort.signal,
-          });
+          response = await withRetry(
+            async () => {
+              const abort = new AbortController();
+              const timer = setTimeout(() => abort.abort(), cfg.timeoutMs);
+              try {
+                const r = await fetch(targetUrl.toString(), {
+                  method: cfg.method,
+                  headers,
+                  body: body && cfg.method !== "GET" ? body : undefined,
+                  signal: abort.signal,
+                });
+                if (r.status >= 500) throw new Error(`HTTP ${r.status}`);
+                return r;
+              } finally {
+                clearTimeout(timer);
+              }
+            },
+            cfg.retry,
+            (err) => !(err instanceof Error && err.name === "AbortError"),
+            opts.sleep,
+          );
         } catch (err) {
-          clearTimeout(timer);
           states.set(nodeId, "failed");
           status = "failed";
           const msg = err instanceof Error ? err.message : String(err);
@@ -911,7 +924,6 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           });
           return;
         }
-        clearTimeout(timer);
 
         if (cfg.outputMode === "file") {
           let arrayBuf: ArrayBuffer;
@@ -1035,37 +1047,48 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
         }
         const ctx = nodeCtx(nodeId);
         const inputJson = JSON.stringify({ inputs: ctx });
-        const child = spawn(
-          cfg.language === "python" ? "python3" : "node",
-          cfg.language === "python" ? ["-c", cfg.code] : ["-e", cfg.code],
-          { stdio: ["pipe", "pipe", "pipe"] },
+        const { stdout, stderr, killed, code } = await withRetry(
+          async () => {
+            const child = spawn(
+              cfg.language === "python" ? "python3" : "node",
+              cfg.language === "python" ? ["-c", cfg.code] : ["-e", cfg.code],
+              { stdio: ["pipe", "pipe", "pipe"] },
+            );
+            child.stdin.end(inputJson);
+            let stdout = "";
+            let stderr = "";
+            let killed = false;
+            const cap = 1_000_000;
+            child.stdout.on("data", (chunk: Buffer) => {
+              if (stdout.length < cap) stdout += chunk.toString().slice(0, cap - stdout.length);
+            });
+            child.stderr.on("data", (chunk: Buffer) => {
+              if (stderr.length < cap) stderr += chunk.toString().slice(0, cap - stderr.length);
+            });
+            const r = await new Promise<{ code: number | null; signal: string | null }>((resolve) => {
+              const timer = setTimeout(() => {
+                killed = true;
+                child.kill("SIGKILL");
+                resolve({ code: null, signal: "timeout" });
+              }, cfg.timeoutMs);
+              child.on("error", (err) => {
+                clearTimeout(timer);
+                resolve({ code: -1, signal: err.message });
+              });
+              child.on("close", (code, signal) => {
+                clearTimeout(timer);
+                resolve({ code, signal });
+              });
+            });
+            // Spawn failure (binary missing, etc.) → throw so withRetry can retry.
+            // Non-zero exit and timeout are business errors, returned as-is.
+            if (r.code === -1) throw new Error(`代码节点子进程启动失败: ${r.signal}`);
+            return { stdout, stderr, killed, code: r.code };
+          },
+          cfg.retry,
+          () => true,
+          opts.sleep,
         );
-        child.stdin.end(inputJson);
-        let stdout = "";
-        let stderr = "";
-        let killed = false;
-        const cap = 1_000_000;
-        child.stdout.on("data", (chunk: Buffer) => {
-          if (stdout.length < cap) stdout += chunk.toString().slice(0, cap - stdout.length);
-        });
-        child.stderr.on("data", (chunk: Buffer) => {
-          if (stderr.length < cap) stderr += chunk.toString().slice(0, cap - stderr.length);
-        });
-        const result = await new Promise<{ code: number | null; signal: string | null }>((resolve) => {
-          const timer = setTimeout(() => {
-            killed = true;
-            child.kill("SIGKILL");
-            resolve({ code: null, signal: "timeout" });
-          }, cfg.timeoutMs);
-          child.on("error", (err) => {
-            clearTimeout(timer);
-            resolve({ code: -1, signal: err.message });
-          });
-          child.on("close", (code, signal) => {
-            clearTimeout(timer);
-            resolve({ code, signal });
-          });
-        });
         if (killed) {
           states.set(nodeId, "failed");
           status = "failed";
@@ -1078,14 +1101,14 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           });
           return;
         }
-        if (result.code !== 0) {
+        if (code !== 0) {
           states.set(nodeId, "failed");
           status = "failed";
           emit({
             type: "node.failed",
             nodeId,
             attempt,
-            error: `代码执行失败（退出码 ${result.code}）: ${(stderr || "无 stderr 输出").slice(0, 300)}`,
+            error: `代码执行失败（退出码 ${code}）: ${(stderr || "无 stderr 输出").slice(0, 300)}`,
             errorCode: "PROVIDER_ERROR",
           });
           return;
@@ -1685,7 +1708,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           temperature: cfg.temperature,
           timeoutMs: 120000,
           inputPolicy: { mode: "all" as const },
-          retry: { maxRetries: 2, baseDelayMs: 1000, maxDelayMs: 30000 },
+          retry: cfg.retry,
         };
         let result: { output: string; usage: Usage } | null = null;
         let lastError: { message: string; code?: string } | null = null;

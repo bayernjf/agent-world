@@ -1,4 +1,5 @@
 import type { VcsConfig } from "@agent-world/core";
+import { withRetry } from "./retry.js";
 
 /**
  * Version-control actions for the `vcs` node: GitHub and GitLab REST adapters
@@ -36,8 +37,6 @@ export class VcsProviderError extends Error {
     this.name = "VcsProviderError";
   }
 }
-
-const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 function requireProviderFields(provider: string, cfg: VcsConfig, fields: (keyof VcsConfig)[]): void {
   const missing = fields.filter((f) => !cfg[f]);
@@ -178,27 +177,11 @@ async function gitlabAction(cfg: VcsConfig, body: string, title: string): Promis
   }
 }
 
-async function withRetry<T>(cfg: VcsConfig, fn: () => Promise<T>): Promise<T> {
-  const maxAttempts = 1 + (cfg.retry.maxRetries ?? 0);
-  let lastErr: unknown;
-  for (let i = 0; i < maxAttempts; i++) {
-    try {
-      return await fn();
-    } catch (err) {
-      lastErr = err;
-      if (err instanceof VcsAuthError || err instanceof VcsProviderError) throw err;
-      if (i >= maxAttempts - 1) break;
-      const base = cfg.retry.baseDelayMs ?? 1000;
-      const max = cfg.retry.maxDelayMs ?? 30000;
-      await delay(Math.min(max, base * 2 ** i));
-    }
-  }
-  throw lastErr;
-}
-
 /** Execute a VCS action, retrying transient faults. Throws VcsAuthError / VcsProviderError. */
 export async function executeVcs(cfg: VcsConfig, body: string, title: string): Promise<VcsResult> {
-  return withRetry(cfg, () =>
-    cfg.provider === "gitlab" ? gitlabAction(cfg, body, title) : githubAction(cfg, body, title),
+  return withRetry(
+    () => (cfg.provider === "gitlab" ? gitlabAction(cfg, body, title) : githubAction(cfg, body, title)),
+    cfg.retry,
+    (err) => !(err instanceof VcsAuthError || err instanceof VcsProviderError),
   );
 }

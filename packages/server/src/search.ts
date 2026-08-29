@@ -1,4 +1,5 @@
 import type { SearchConfig } from "@agent-world/core";
+import { withRetry } from "./retry.js";
 
 /**
  * Web search providers for the `search` node. `duckduckgo` works without any
@@ -130,16 +131,22 @@ async function searchGoogle(query: string, maxResults: number): Promise<SearchHi
     .map((r) => ({ title: r.title!, url: r.link!, snippet: r.snippet ?? "" }));
 }
 
-/** Run a web search with the configured provider. Throws SearchAuthError on missing/invalid keys. */
+/** Run a web search with the configured provider, retrying transient faults. Throws SearchAuthError on missing/invalid keys. */
 export async function searchWeb(query: string, cfg: SearchConfig): Promise<SearchHit[]> {
-  switch (cfg.provider) {
-    case "tavily":
-      return searchTavily(query, cfg.maxResults);
-    case "serpapi":
-      return searchSerpApi(query, cfg.maxResults);
-    case "google":
-      return searchGoogle(query, cfg.maxResults);
-    default:
-      return searchDuckDuckGo(query, cfg.maxResults);
-  }
+  return withRetry(
+    () => {
+      switch (cfg.provider) {
+        case "tavily":
+          return searchTavily(query, cfg.maxResults);
+        case "serpapi":
+          return searchSerpApi(query, cfg.maxResults);
+        case "google":
+          return searchGoogle(query, cfg.maxResults);
+        default:
+          return searchDuckDuckGo(query, cfg.maxResults);
+      }
+    },
+    cfg.retry,
+    (err) => !(err instanceof SearchAuthError),
+  );
 }
