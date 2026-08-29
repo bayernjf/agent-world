@@ -1,7 +1,5 @@
 import { serve } from "@hono/node-server";
 import { randomUUID } from "node:crypto";
-import { lookup as dnsLookup } from "node:dns/promises";
-import { isIP } from "node:net";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { applyCors, applySecurityHeaders } from "./security.js";
@@ -31,6 +29,7 @@ import { startABExperiment } from "./ab.js";
 import {
   loadConfig,
   saveConfig,
+  bindSettingsStore,
   normalizeBaseUrl,
   modalityOf,
   MODALITY_ENDPOINT,
@@ -38,6 +37,8 @@ import {
   type AppConfig,
   type Modality,
 } from "./config.js";
+import { hostIsInternal } from "./ssrf.js";
+import { runAsUser } from "./user-context.js";
 import { routingWorker } from "./providers/index.js";
 import { WorkerRegistry } from "./worker-plugins.js";
 import { connectMcpServer, registerMcpTools, type McpClient, type McpServerSpec } from "./mcp.js";
@@ -56,6 +57,13 @@ const PUBLIC_URL = (process.env.AGENT_WORLD_PUBLIC_URL ?? `http://localhost:${PO
   "");
 const db = openDb(process.env.DB_FILE ?? "agent-world.sqlite");
 backfillExistingData(db as any);
+// Settings are per-user rows in the DB; config.ts reads/writes through this
+// store while the legacy file config remains the shared baseline for users
+// who have never saved settings.
+bindSettingsStore({
+  get: (userId: string) => db.getSettings(userId),
+  set: (userId: string, data: string) => db.saveSettings(userId, data),
+});
 const artifacts = ArtifactStore.fromEnv();
 const readArtifact = createReadArtifact(db, artifacts);
 
@@ -148,14 +156,41 @@ app.get("/api/health", (c) => c.json({ ok: true }));
 // --- Auth routes (no auth required) ---
 const AUTH_COOKIE = "auth_token";
 
+/**
+ * Secure-cookie policy: the SECURE_COOKIES env var overrides; without it,
+ * production builds enable Secure (they are expected to run behind TLS) while
+ * everything else keeps it off so local HTTP development keeps working.
+ * Loopback hosts are exempt even when enabled, since browsers accept Secure
+ * cookies on http://localhost but many other clients (curl, Playwright) do not.
+ */
+function secureCookiesEnabled(host?: string): boolean {
+  const v = process.env.SECURE_COOKIES;
+  const enabled =
+    v !== undefined
+      ? v === "1" || v.toLowerCase() === "true"
+      : process.env.NODE_ENV === "production";
+  if (!enabled) return false;
+  const h = (host ?? "").toLowerCase();
+  return !(
+    h === "localhost" ||
+    h.startsWith("localhost:") ||
+    h === "127.0.0.1" ||
+    h.startsWith("127.0.0.1:") ||
+    h === "[::1]" ||
+    h.startsWith("[::1]:")
+  );
+}
+
 function setAuthCookie(c: any, token: string, remember: boolean) {
   // Without Max-Age the browser treats it as a session cookie (dropped on close).
   const maxAge = remember ? `; Max-Age=${REMEMBER_MAX_AGE_SEC}` : "";
-  c.header("set-cookie", `${AUTH_COOKIE}=${token}; HttpOnly; Path=/${maxAge}; SameSite=Lax`);
+  const secure = secureCookiesEnabled(c.req.header("host")) ? "; Secure" : "";
+  c.header("set-cookie", `${AUTH_COOKIE}=${token}; HttpOnly; Path=/${maxAge}${secure}; SameSite=Lax`);
 }
 
 function clearAuthCookie(c: any) {
-  c.header("set-cookie", `${AUTH_COOKIE}=; HttpOnly; Path=/; Max-Age=0; SameSite=Lax`);
+  const secure = secureCookiesEnabled(c.req.header("host")) ? "; Secure" : "";
+  c.header("set-cookie", `${AUTH_COOKIE}=; HttpOnly; Path=/; Max-Age=0${secure}; SameSite=Lax`);
 }
 
 app.post("/api/auth/register", async (c) => {
@@ -394,7 +429,7 @@ app.post("/api/compile", async (c) => {
   const parsed = Graph.safeParse(await c.req.json());
   if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
   const result = compile(parsed.data);
-  const modelDiags = validateModels(parsed.data, loadConfig());
+  const modelDiags = validateModels(parsed.data, loadConfig(c.get("userId")));
   log.info("compile", {
     graphId: parsed.data.id,
     nodes: parsed.data.nodes.length,
@@ -408,7 +443,7 @@ app.post("/api/compile", async (c) => {
 });
 
 app.get("/api/settings", (c) => {
-  const cfg = loadConfig();
+  const cfg = loadConfig(c.get("userId"));
   // Never return raw API keys — redact for the UI.
   const redacted: AppConfig = {
     ...cfg,
@@ -423,8 +458,9 @@ app.get("/api/settings", (c) => {
 });
 
 app.put("/api/settings", async (c) => {
+  const userId = c.get("userId");
   const body = (await c.req.json()) as Partial<AppConfig>;
-  const current = loadConfig();
+  const current = loadConfig(userId);
   const bodyProviders = body.providers ?? {};
   const mergedProviders: AppConfig["providers"] = {};
   // Always keep the internal fake provider.
@@ -441,7 +477,7 @@ app.put("/api/settings", async (c) => {
     ...body,
     providers: mergedProviders,
   };
-  const path = saveConfig(merged);
+  const path = saveConfig(merged, userId);
   return c.json({ ok: true, path });
 });
 
@@ -468,7 +504,7 @@ app.post("/api/providers/test", async (c) => {
   // Resolve modality: explicit > saved for this model > text default.
   let modality = body.modality ?? DEFAULT_MODALITY;
   if (body.providerName) {
-    const saved = loadConfig().providers[body.providerName];
+    const saved = loadConfig(c.get("userId")).providers[body.providerName];
     if (saved) modality = body.modality ?? modalityOf(saved, model);
   }
 
@@ -477,7 +513,7 @@ app.post("/api/providers/test", async (c) => {
   // the saved config on the server.
   const looksRedacted = !apiKey || isRedactedKey(apiKey);
   if (looksRedacted && body.providerName) {
-    const saved = loadConfig().providers[body.providerName];
+    const saved = loadConfig(c.get("userId")).providers[body.providerName];
     if (saved?.apiKey && !isRedactedKey(saved.apiKey)) apiKey = saved.apiKey;
     else if (!saved) {
       return c.json({ ok: false, error: `Provider "${body.providerName}" 未保存，请先添加并保存` }, 400);
@@ -740,7 +776,7 @@ app.post("/api/runs", async (c) => {
   const graph = db.getGraph(graphId, userId);
   if (!graph) return c.json({ error: "graph not found" }, 404);
 
-  const modelDiags = validateModels(graph, loadConfig());
+  const modelDiags = validateModels(graph, loadConfig(c.get("userId")));
   const modelErrors = modelDiags.filter((d) => d.severity === "error");
   if (modelErrors.length > 0) {
     const summary =
@@ -801,6 +837,11 @@ app.post("/api/graphs/:id/triggers", async (c) => {
   const withId = raw.id ? raw : { ...raw, id: crypto.randomUUID() };
   const parsed = TriggerConfig.safeParse(withId);
   if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+  // Webhook triggers are callable by anyone who knows the URL; an empty
+  // secret would leave the pipeline anonymously triggerable.
+  if (parsed.data.type === "webhook" && !parsed.data.webhookSecret?.trim()) {
+    return c.json({ error: "webhook 触发器必须设置 secret" }, 400);
+  }
   try {
     const trigger = await triggers.upsert(graphId, parsed.data);
     scheduler.sync(trigger);
@@ -1054,9 +1095,9 @@ app.post("/api/runs/:id/resume", async (c) => {
     db.markRunning(runId, userId);
   }
 
-  void (async () => {
+  void runAsUser(userId, async () => {
     try {
-      const cfg = loadConfig();
+      const cfg = loadConfig(userId);
       const now = new Date();
       for await (const event of resume({
         runId,
@@ -1099,7 +1140,7 @@ app.post("/api/runs/:id/resume", async (c) => {
     } finally {
       entry.done = true;
     }
-  })();
+  });
 
   return c.json({ ok: true, action });
 });
@@ -1219,65 +1260,14 @@ app.get("/api/artifacts", (c) => {
   return c.json(db.listArtifacts(userId, limit, offset));
 });
 
-// --- SSRF guard for the image proxy ---
-function ipv4IsInternal(ip: string): boolean {
-  const o = ip.split(".").map(Number);
-  if (o.length !== 4 || o.some((n) => Number.isNaN(n) || n < 0 || n > 255)) return true;
-  const a = o[0]!;
-  const b = o[1]!;
-  return (
-    a === 0 || // 0.0.0.0/8
-    a === 10 || // 10.0.0.0/8
-    a === 127 || // loopback
-    (a === 100 && b >= 64 && b <= 127) || // CGN 100.64.0.0/10
-    (a === 169 && b === 254) || // link-local / cloud metadata
-    (a === 172 && b >= 16 && b <= 31) || // 172.16.0.0/12
-    (a === 192 && b === 0) || // 192.0.0.0/24
-    (a === 192 && b === 168) || // 192.168.0.0/16
-    (a === 198 && (b === 18 || b === 19)) || // benchmark 198.18.0.0/15
-    a >= 224 // multicast 224/4 + reserved 240/4 + broadcast
-  );
-}
-
-function ipv6IsInternal(ip: string): boolean {
-  const s = ip.toLowerCase().split("%")[0]!;
-  if (s === "::1" || s === "::") return true;
-  // IPv4-mapped (::ffff:a.b.c.d) / compatible (::a.b.c.d): the embedded
-  // IPv4 address carries the real scope.
-  const mapped = /::(?:ffff:)?(\d+\.\d+\.\d+\.\d+)$/.exec(s);
-  if (mapped) return ipv4IsInternal(mapped[1]!);
-  const head = s.split(":")[0] ?? "";
-  const first = parseInt(head || "0", 16);
-  if (Number.isNaN(first)) return true;
-  if ((first & 0xfe00) === 0xfc00) return true; // fc00::/7 unique-local
-  if ((first & 0xffc0) === 0xfe80) return true; // fe80::/10 link-local
-  if ((first & 0xff00) === 0xff00) return true; // ff00::/8 multicast
-  if (s.startsWith("2001:db8") || s.startsWith("2001:0db8")) return true; // documentation
-  return false;
-}
-
-async function hostIsInternal(hostname: string): Promise<boolean> {
-  if (isIP(hostname)) {
-    return isIP(hostname) === 4 ? ipv4IsInternal(hostname) : ipv6IsInternal(hostname);
-  }
-  try {
-    const records = await dnsLookup(hostname, { all: true });
-    if (records.length === 0) return true;
-    return records.some((r) =>
-      r.family === 4 ? ipv4IsInternal(r.address) : ipv6IsInternal(r.address),
-    );
-  } catch {
-    // Fail closed: if we cannot resolve it, we do not fetch it.
-    return true;
-  }
-}
-
 /**
  * Server-side image proxy. External image URLs referenced by product-json or
  * extracted artifacts often fail in the browser due to hotlink protection /
  * CORS. The server fetches them (browser-like UA) and streams the bytes back
  * same-origin, so gallery + product images render reliably. Only http(s) is
- * allowed and private/internal addresses are refused (SSRF guard); failures
+ * allowed and private/internal addresses are refused (SSRF guard, shared with
+ * the HTTP node via ssrf.ts — resolves hostnames at fetch time so DNS
+ * rebinding cannot smuggle an internal address past the check); failures
  * return 502 so the client can show a graceful placeholder.
  */
 app.get("/api/proxy", async (c) => {

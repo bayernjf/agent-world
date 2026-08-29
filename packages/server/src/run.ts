@@ -5,6 +5,7 @@ import { ArtifactStore } from "./artifact-store.js";
 import { log } from "./logger.js";
 import { execute } from "./engine.js";
 import { loadConfig } from "./config.js";
+import { runAsUser } from "./user-context.js";
 import { createReadArtifact } from "./artifact-reader.js";
 
 /** Worker type derived from the engine so we don't reach into provider internals. */
@@ -67,9 +68,9 @@ export async function startRun(args: StartRunArgs): Promise<{ runId: string; dia
   const runLog = log.child({ runId, graphId: graph.id });
   runLog.info("run started", { trigger, nodes: graph.nodes.length });
 
-  void (async () => {
+  void runAsUser(userId, async () => {
     try {
-      const cfg = loadConfig();
+      const cfg = loadConfig(userId);
       const now = new Date();
       for await (const event of execute({
         runId,
@@ -120,7 +121,7 @@ export async function startRun(args: StartRunArgs): Promise<{ runId: string; dia
     } finally {
       entry.done = true;
     }
-  })();
+  });
 
   return { runId, diagnostics };
 }

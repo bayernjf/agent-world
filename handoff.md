@@ -24,6 +24,7 @@ State of Agent World as of 2026-08-29.
 
 - **Monorepo**：`packages/core` / `packages/server` (Node + sqlite, 端口 8791) / `apps/web` (Vite, 端口 5173)
 - **核心能力**：4 类 AI 节点（agent / imageGen / videoGen / audioGen）+ **通用节点（HTTP 请求 / 代码执行 / 条件分支）**，**MCP Server（stdio，6 个工具）**，多产线管理，Inspector 模型下拉严格按 modality 过滤，多模态产出（Artifact 分层），流式 + SSE + 断线重连 + halt/resume，成本电表（token + 单价两种模式），评估体系雏形，产物落库归属流水线（artifacts 的 graph_id/role）
+- **安全基线（本轮升级）**：settings 按用户隔离（迁移 16，provider key 互不可见）+ **HTTP 节点 SSRF 防护**（fetch 时解析 IP 校验，DNS-rebinding 免疫，`ALLOW_PRIVATE_NETWORK=1` 逃生口）+ 登录 cookie 按 `SECURE_COOKIES`/production 加 `Secure` 标志（localhost 豁免）+ webhook 触发器强制非空 secret（杜绝匿名触发）
 - **本轮已落地（2026-08-29，均已提交）**：
   - **账号系统 / 按用户隔离**（`5b81c74` + `73d3610`）：users 表 + JWT(HS256, bcrypt12) HttpOnly cookie 会话 + graphs/runs/artifacts/brand_terms/成本全部按 `user_id` 过滤 + 前端登录/注册/用户菜单 + `authFetch(credentials:include)`。旧库升级自动回填归属（迁移 14/15 幂等，无法归属的行 fail closed 不可见）
   - **产物统一渲染**：`artifact-renderers.tsx`（ArtifactCard 外壳 + 7 类渲染器注册表 + JSON 树 + 共享 renderMarkdown），Inspector/成品面板/画廊三处接入，画廊按流水线分组，节点缩略图
@@ -38,7 +39,9 @@ State of Agent World as of 2026-08-29.
   - `apps/web/src/components/GraphSwitcher.tsx` — 多产线切换
   - `apps/web/src/components/Onboarding.tsx` — 首次启动引导
   - `packages/server/src/auth.ts` — JWT 签发/校验、密码哈希
-  - `packages/server/src/db.ts` — 持久化（users 表 + 按 user_id 隔离 + 迁移 1-15）
+  - `packages/server/src/db.ts` — 持久化（users 表 + 按 user_id 隔离 + 迁移 1-16）
+  - `packages/server/src/ssrf.ts` — 出站请求 SSRF 防护（proxy + HTTP 节点共用，解析后 IP 校验）
+  - `packages/server/src/user-context.ts` — AsyncLocalStorage 按异步上下文归属用户（运行期配置解析）
   - `packages/core/src/` — 领域模型、Provider 抽象、Artifact、节点契约
   - `packages/server/src/` — 持久化、events API、调度
 
@@ -49,17 +52,17 @@ State of Agent World as of 2026-08-29.
 1. **★ 通用化 Phase 1 P0**（详见 [docs/roadmap-generalization.md](docs/roadmap-generalization.md)）— **HTTP / 代码执行 / 条件分支三大通用节点已全部落地**（变量表达式插值 + 安全条件求值器；分支路由带 skipped 剪枝与汇合点保留）。剩余：映射/转换（map）、循环、并行（数据模型升级后半）。这是从"内容生成工具"升级为"通用自动化平台"的基石，做完能处理 80% 场景。
 2. **MCP Server P1 增强**（详见 [docs/design-mcp-server.md](docs/design-mcp-server.md)）— **P0 MVP 已落地**（`packages/mcp-server`，stdio + 6 个工具）。P1 候选：HTTP/SSE 传输、resources（读产物/设置）、prompts、运行时真实 HTTP 冒烟。让 Claude Desktop/Cursor 等能接入 agent-world。
 3. **Inspector 的"在显眼处加一个去设置的链接"**— 音频模型没配时，下拉只有占位项，没引导；新建节点有 toast 软提示覆盖
-4. **安全决策项（等 owner 拍板）**— `/api/settings` 是否按用户隔离（当前全局配置，任何登录用户可改共享 provider key）；cookie `Secure` 标志（取决于部署是否 TLS 终止）；proxy DNS-rebinding 加固（仅公网部署需要）；webhook 触发器空 secret 强制。背景已固化在安全审计结论里，勿盲目"顺手修"
+4. **运行沙箱细化**（详见 [docs/roadmap-generalization.md](docs/roadmap-generalization.md)）— 代码节点当前用 os.exec 子进程；后续可加资源限制（内存/超时）、白名单命令、工作目录隔离
 
 ## Recently shipped (last 5)
 
 按 commit 时间倒序，每条一行影响面 + commit hash：
 
-1. `01a4ac7` — **feat(mcp-server)**: **MCP Server P0 MVP** 落地——新包 `packages/mcp-server`（stdio JSON-RPC 传输，零新依赖，与现有手写 MCP Client 同风格）；6 个工具（list_graphs/get_graph/run_graph/get_run_status/list_artifacts/get_artifact）；`AGENT_WORLD_URL`/`AGENT_WORLD_TOKEN` 环境变量；协议级端到端冒烟通过（initialize → tools/list → tools/call）；7 个 JSON-RPC 单元测试。
-2. `78c0651` — **feat(core/server/web)**: Phase 1 P0 第二闭环——**代码执行节点 + 条件分支节点**。core 新增 NodeKind.code/branch + schema + 安全条件表达式求值器（无 eval）；server 代码节点跑 JS/Python 子进程（stdin JSON 进 / stdout JSON 或文本出 / 超时与退出码处理），分支节点按首个命中规则路由 + 分支感知调度器（skipped 剪枝、packet 驱动就绪、汇合点保留）；web 工具栏 / Inspector 面板 / 标签；6 个 core 条件测试 + 4 个代码节点 + 5 个分支节点 server 测试。
-3. `1856d81` — **feat(core/server/web)**: Phase 1 P0 第一个闭环——HTTP 请求节点 + 变量表达式插值（`${nodeId.path}`）。新增 `NodeKind.http`、HTTP 节点配置与执行（fetch/超时/错误处理/json 或 text artifact）、Canvas 标签、Inspector 面板、4 个 server 测试 + 6 个 core 变量测试。`c0dd67d`/`835a383` 已移入 [docs/handoff-archive.md](docs/handoff-archive.md) Additions。
-4. `299dc63` — **fix(server)**: artifacts 全链路按用户归属（user_id 列 + 迁移 15 回填 + 读接口过滤），堵跨用户读取/下载
-5. `17dfbf9` — **refactor(server)**: 删除从未被引用的 SKIP_AUTH 白名单（消除免鉴权脚枪）
+1. `TBD` — **feat(server)**: **安全四项全部落地**——(1) settings 按用户隔离：settings 表（迁移 16）+ loadConfig(userId)/saveConfig(userId)，DB 行 > 旧文件基线 > 内置默认，provider key 互不可见；(2) HTTP 节点 SSRF 防护：共享 ssrf.ts（fetch 时 DNS 解析后按 IP 校验，DNS-rebinding 免疫），`ALLOW_PRIVATE_NETWORK=1` 逃生口；(3) cookie `Secure`：`SECURE_COOKIES` env 覆盖 + production 默认开 + localhost 豁免；(4) webhook 触发器空 secret → 400。运行期按用户解析配置用 AsyncLocalStorage（runAsUser，并发 run 互不串）。新增 16 个测试（config 隔离、app 层 API、cookie、SSRF、webhook）。
+2. `01a4ac7` — **feat(mcp-server)**: **MCP Server P0 MVP** 落地——新包 `packages/mcp-server`（stdio JSON-RPC 传输，零新依赖，与现有手写 MCP Client 同风格）；6 个工具（list_graphs/get_graph/run_graph/get_run_status/list_artifacts/get_artifact）；`AGENT_WORLD_URL`/`AGENT_WORLD_TOKEN` 环境变量；协议级端到端冒烟通过（initialize → tools/list → tools/call）；7 个 JSON-RPC 单元测试。
+3. `78c0651` — **feat(core/server/web)**: Phase 1 P0 第二闭环——**代码执行节点 + 条件分支节点**。core 新增 NodeKind.code/branch + schema + 安全条件表达式求值器（无 eval）；server 代码节点跑 JS/Python 子进程（stdin JSON 进 / stdout JSON 或文本出 / 超时与退出码处理），分支节点按首个命中规则路由 + 分支感知调度器（skipped 剪枝、packet 驱动就绪、汇合点保留）；web 工具栏 / Inspector 面板 / 标签；6 个 core 条件测试 + 4 个代码节点 + 5 个分支节点 server 测试。
+4. `1856d81` — **feat(core/server/web)**: Phase 1 P0 第一个闭环——HTTP 请求节点 + 变量表达式插值（`${nodeId.path}`）。新增 `NodeKind.http`、HTTP 节点配置与执行（fetch/超时/错误处理/json 或 text artifact）、Canvas 标签、Inspector 面板、4 个 server 测试 + 6 个 core 变量测试。`c0dd67d`/`835a383` 已移入 [docs/handoff-archive.md](docs/handoff-archive.md) Additions。
+5. `299dc63` — **fix(server)**: artifacts 全链路按用户归属（user_id 列 + 迁移 15 回填 + 读接口过滤），堵跨用户读取/下载
 
 最近 5 条之前的全部在 [docs/handoff-archive.md](docs/handoff-archive.md) 的"阶段 4 收尾"系列章节里。
 
@@ -69,7 +72,7 @@ State of Agent World as of 2026-08-29.
 
 - `pnpm -r typecheck`：全绿
 - `pnpm --filter @agent-world/core test`：65/65 通过
-- `pnpm --filter @agent-world/server test`：280/280 通过（含 artifact 跨用户隔离、迁移 15 回填、上传 id 防碰撞用例）
+- `pnpm --filter @agent-world/server test`：296/296 通过（含 artifact 跨用户隔离、迁移 15/16、settings 按用户隔离、cookie Secure、HTTP 节点 SSRF、webhook secret 用例）
 - `pnpm --filter @agent-world/mcp-server test`：7/7 通过
 - `pnpm --filter @agent-world/web exec vitest run`：19/19 通过
 - **注意**：依赖 `node:sqlite`，必须 Node ≥ 22（CI 用 Node 24；本地 shell 默认 Node 20 会误报 `No such built-in module: node:sqlite`，用 `fnm exec --using=24` 跑）

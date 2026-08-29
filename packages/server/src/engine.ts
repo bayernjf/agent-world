@@ -27,6 +27,7 @@ import { getSkill, resolveTools, executeBuiltinTool } from "./skills/registry.js
 import { guardToolCall, isDangerousTool, loadPermissionConfig, type PermissionConfig } from "./permissions.js";
 import { notifyHalt } from "./notify.js";
 import { resolveConnector } from "./connectors.js";
+import { allowPrivateNetwork, hostIsInternal } from "./ssrf.js";
 
 /**
  * Append free-text layout directives (manual image-position overrides) to an
@@ -826,6 +827,21 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
         }
         const contentType = headers["content-type"] ?? headers["Content-Type"];
         const body = cfg.body ? evaluateTemplate(cfg.body, ctx) : undefined;
+
+        // SSRF guard: refuse private/internal targets (resolved at fetch time,
+        // so DNS rebinding can't smuggle an internal address past the check).
+        if (!allowPrivateNetwork() && (await hostIsInternal(targetUrl.hostname))) {
+          states.set(nodeId, "failed");
+          status = "failed";
+          emit({
+            type: "node.failed",
+            nodeId,
+            attempt,
+            error: "HTTP 节点拒绝访问内网或私网地址（SSRF 防护）",
+            errorCode: "VALIDATION",
+          });
+          return;
+        }
 
         const abort = new AbortController();
         const timer = setTimeout(() => abort.abort(), cfg.timeoutMs);

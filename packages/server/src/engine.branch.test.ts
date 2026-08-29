@@ -110,6 +110,9 @@ describe("branch node", () => {
     const spy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify({ score: 9 }), { status: 200, headers: { "content-type": "application/json" } }),
     );
+    // x.example is unresolvable in CI → the SSRF guard would fail the node
+    // closed; this test is about branch routing, so bypass the check.
+    vi.stubEnv("ALLOW_PRIVATE_NETWORK", "1");
     try {
       const events = await collect(g, "x");
       expect(events.some((e) => e.type === "node.finished" && e.nodeId === "yes")).toBe(true);
@@ -117,6 +120,7 @@ describe("branch node", () => {
       expect(replay(events).status).toBe("done");
     } finally {
       spy.mockRestore();
+      vi.unstubAllEnvs();
     }
   });
 });

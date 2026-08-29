@@ -106,6 +106,12 @@ CREATE TABLE IF NOT EXISTS graph_versions (
   created_at  INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_graph_versions_graph ON graph_versions(graph_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS settings (
+  user_id    TEXT PRIMARY KEY,
+  data       TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+);
 `;
 
 type ArtifactRow = {
@@ -221,6 +227,11 @@ export function openDb(file: string) {
   const stmts = {
     createUser: db.prepare(
       `INSERT INTO users (id, email, password_hash) VALUES (?, ?, ?)`,
+    ),
+    getSettings: db.prepare(`SELECT data FROM settings WHERE user_id = ?`),
+    saveSettings: db.prepare(
+      `INSERT INTO settings (user_id, data, updated_at) VALUES (?, ?, ?)
+       ON CONFLICT(user_id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`,
     ),
     findUserByEmail: db.prepare(
       `SELECT id, email, created_at FROM users WHERE email = ?`,
@@ -1140,6 +1151,15 @@ export function openDb(file: string) {
         )
         .all(userId) as Array<{ id: string; term: string; note: string; createdAt: number }>;
     },
+
+    // --- Per-user settings (16) ---
+    getSettings(userId: string): string | null {
+      const row = stmts.getSettings.get(userId) as { data: string } | undefined;
+      return row?.data ?? null;
+    },
+    saveSettings(userId: string, data: string): void {
+      stmts.saveSettings.run(userId, data, Date.now());
+    },
     addBrandTerm(userId: string, term: string, note = "") {
       const t = term.trim();
       if (!t) throw new Error("品牌词不能为空");
@@ -1427,6 +1447,17 @@ const MIGRATIONS: Migration[] = [
                WHERE user_id IS NULL AND (SELECT COUNT(*) FROM users) = 1`);
       db.exec("CREATE INDEX IF NOT EXISTS idx_artifacts_user ON artifacts(user_id)");
     },
+  },
+  {
+    version: 16,
+    description: "per-user settings table (provider keys are tenant-scoped)",
+    detect: (db) => tableExists(db, "settings"),
+    up: (db) =>
+      db.exec(`CREATE TABLE IF NOT EXISTS settings (
+        user_id    TEXT PRIMARY KEY,
+        data       TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+      )`),
   },
 ];
 

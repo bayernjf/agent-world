@@ -1,5 +1,5 @@
 import { compile, replay, type Graph } from "@agent-world/core";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { execute } from "./engine.js";
 import { fakeWorker } from "./worker.js";
 
@@ -20,6 +20,12 @@ function graph(http: NonNullable<Graph["nodes"][number]["http"]>): Graph {
 }
 
 describe("http node", () => {
+  // Existing tests use hostnames that resolve unpredictably in CI; keep the
+  // legacy behavior (no SSRF check) for them. The SSRF guard has its own
+  // describe block below that exercises the check explicitly.
+  beforeEach(() => vi.stubEnv("ALLOW_PRIVATE_NETWORK", "1"));
+  afterEach(() => vi.unstubAllEnvs());
+
   it("GETs a JSON endpoint and produces a json artifact", async () => {
     const spy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify({ ok: true, count: 3 }), {
@@ -126,6 +132,77 @@ describe("http node", () => {
     expect(events.some((e) => e.type === "node.finished" && e.nodeId === "api")).toBe(true);
     expect(replay(events).status).toBe("done");
 
+    spy.mockRestore();
+  });
+});
+
+describe("http node SSRF guard", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("refuses a loopback target without calling fetch", async () => {
+    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("{}", { status: 200 }));
+    const g = graph({ method: "GET", url: "http://127.0.0.1:8080/internal" });
+    const { plan } = compile(g)!;
+    const events: any[] = [];
+    for await (const e of execute({ runId: "r", graph: g, plan: plan!, worker: fakeWorker(), budgetUsd: null, now: () => 0 })) {
+      events.push(e);
+    }
+
+    const failed = events.find((e) => e.type === "node.failed" && e.nodeId === "api");
+    expect(failed).toBeTruthy();
+    expect(failed.errorCode).toBe("VALIDATION");
+    expect(spy).not.toHaveBeenCalled();
+    expect(replay(events).status).toBe("failed");
+    spy.mockRestore();
+  });
+
+  it("refuses the cloud metadata link-local address", async () => {
+    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("{}", { status: 200 }));
+    const g = graph({ method: "GET", url: "http://169.254.169.254/latest/meta-data/" });
+    const { plan } = compile(g)!;
+    const events: any[] = [];
+    for await (const e of execute({ runId: "r", graph: g, plan: plan!, worker: fakeWorker(), budgetUsd: null, now: () => 0 })) {
+      events.push(e);
+    }
+    expect(events.some((e) => e.type === "node.failed" && e.nodeId === "api")).toBe(true);
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  it("allows a public IP", async () => {
+    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ ping: "pong" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const g = graph({ method: "GET", url: "http://8.8.8.8/ping" });
+    const { plan } = compile(g)!;
+    const events: any[] = [];
+    for await (const e of execute({ runId: "r", graph: g, plan: plan!, worker: fakeWorker(), budgetUsd: null, now: () => 0 })) {
+      events.push(e);
+    }
+    expect(events.some((e) => e.type === "node.finished" && e.nodeId === "api")).toBe(true);
+    expect(spy).toHaveBeenCalledWith("http://8.8.8.8/ping", expect.anything());
+    spy.mockRestore();
+  });
+
+  it("ALLOW_PRIVATE_NETWORK=1 bypasses the check", async () => {
+    vi.stubEnv("ALLOW_PRIVATE_NETWORK", "1");
+    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const g = graph({ method: "GET", url: "http://127.0.0.1:8080/intranet" });
+    const { plan } = compile(g)!;
+    const events: any[] = [];
+    for await (const e of execute({ runId: "r", graph: g, plan: plan!, worker: fakeWorker(), budgetUsd: null, now: () => 0 })) {
+      events.push(e);
+    }
+    expect(events.some((e) => e.type === "node.finished" && e.nodeId === "api")).toBe(true);
+    expect(spy).toHaveBeenCalledWith("http://127.0.0.1:8080/intranet", expect.anything());
     spy.mockRestore();
   });
 });
