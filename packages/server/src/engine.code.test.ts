@@ -92,4 +92,31 @@ describe("code node (javascript)", () => {
     expect(failed).toBeTruthy();
     expect(failed.errorCode).toBe("TIMEOUT");
   });
+
+  it("does not leak server env vars into the script (P0)", async () => {
+    process.env.AW_TEST_SECRET = "super-secret";
+    try {
+      const script = [
+        "const fs = require('fs');",
+        "JSON.parse(fs.readFileSync(0, 'utf8'));",
+        "console.log(process.env.AW_TEST_SECRET === undefined ? 'no-leak' : 'leaked');",
+      ].join("\n");
+      const events = await collect(graph({ language: "javascript", code: script, timeoutMs: 10000 }), "x");
+      const finished = events.find((e) => e.type === "node.finished" && e.nodeId === "calc");
+      expect(finished.output).toBe("no-leak");
+    } finally {
+      delete process.env.AW_TEST_SECRET;
+    }
+  });
+
+  it("runs in an isolated working directory (P0)", async () => {
+    const script = [
+      "const fs = require('fs');",
+      "JSON.parse(fs.readFileSync(0, 'utf8'));",
+      "console.log(process.cwd());",
+    ].join("\n");
+    const events = await collect(graph({ language: "javascript", code: script, timeoutMs: 10000 }), "x");
+    const finished = events.find((e) => e.type === "node.finished" && e.nodeId === "calc");
+    expect(finished.output).toContain("aw-code-");
+  });
 });

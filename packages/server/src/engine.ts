@@ -57,6 +57,8 @@ import { searchWeb, SearchAuthError } from "./search.js";
 import { sendNotification, NotifyAuthError, NotifyProviderError } from "./notifier.js";
 import { executeVcs, VcsAuthError, VcsProviderError } from "./vcs.js";
 import { withRetry } from "./retry.js";
+import { resolveInterpreter, createCodeWorkdir, cleanupCodeWorkdir } from "./code-sandbox.js";
+import { trimEnv } from "./isolation.js";
 import { allowPrivateNetwork, hostIsInternal } from "./ssrf.js";
 
 /**
@@ -1259,95 +1261,104 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           });
           return;
         }
-        const ctx = nodeCtx(nodeId);
-        const inputJson = JSON.stringify({ inputs: ctx });
-        const { stdout, stderr, killed, code } = await withRetry(
-          async () => {
-            const child = spawn(
-              cfg.language === "python" ? "python3" : "node",
-              cfg.language === "python" ? ["-c", cfg.code] : ["-e", cfg.code],
-              { stdio: ["pipe", "pipe", "pipe"] },
-            );
-            child.stdin.end(inputJson);
-            let stdout = "";
-            let stderr = "";
-            let killed = false;
-            const cap = 1_000_000;
-            child.stdout.on("data", (chunk: Buffer) => {
-              if (stdout.length < cap) stdout += chunk.toString().slice(0, cap - stdout.length);
-            });
-            child.stderr.on("data", (chunk: Buffer) => {
-              if (stderr.length < cap) stderr += chunk.toString().slice(0, cap - stderr.length);
-            });
-            const r = await new Promise<{ code: number | null; signal: string | null }>((resolve) => {
-              const timer = setTimeout(() => {
-                killed = true;
-                child.kill("SIGKILL");
-                resolve({ code: null, signal: "timeout" });
-              }, cfg.timeoutMs);
-              child.on("error", (err) => {
-                clearTimeout(timer);
-                resolve({ code: -1, signal: err.message });
+        // P0 sandbox: isolate cwd (per-run temp dir) + env allowlist + absolute
+        // interpreter path. The temp dir is removed even on failure/timeout.
+        const workdir = await createCodeWorkdir(runId, nodeId, attempt);
+        try {
+          const ctx = nodeCtx(nodeId);
+          const inputJson = JSON.stringify({ inputs: ctx });
+          const interpreter = resolveInterpreter(cfg.language);
+          const childEnv = trimEnv(cfg.env);
+          const { stdout, stderr, killed, code } = await withRetry(
+            async () => {
+              const child = spawn(
+                interpreter,
+                cfg.language === "python" ? ["-c", cfg.code] : ["-e", cfg.code],
+                { stdio: ["pipe", "pipe", "pipe"], cwd: workdir, env: childEnv },
+              );
+              child.stdin.end(inputJson);
+              let stdout = "";
+              let stderr = "";
+              let killed = false;
+              const cap = 1_000_000;
+              child.stdout.on("data", (chunk: Buffer) => {
+                if (stdout.length < cap) stdout += chunk.toString().slice(0, cap - stdout.length);
               });
-              child.on("close", (code, signal) => {
-                clearTimeout(timer);
-                resolve({ code, signal });
+              child.stderr.on("data", (chunk: Buffer) => {
+                if (stderr.length < cap) stderr += chunk.toString().slice(0, cap - stderr.length);
               });
+              const r = await new Promise<{ code: number | null; signal: string | null }>((resolve) => {
+                const timer = setTimeout(() => {
+                  killed = true;
+                  child.kill("SIGKILL");
+                  resolve({ code: null, signal: "timeout" });
+                }, cfg.timeoutMs);
+                child.on("error", (err) => {
+                  clearTimeout(timer);
+                  resolve({ code: -1, signal: err.message });
+                });
+                child.on("close", (code, signal) => {
+                  clearTimeout(timer);
+                  resolve({ code, signal });
+                });
+              });
+              // Spawn failure (binary missing, etc.) → throw so withRetry can retry.
+              // Non-zero exit and timeout are business errors, returned as-is.
+              if (r.code === -1) throw new Error(`代码节点子进程启动失败: ${r.signal}`);
+              return { stdout, stderr, killed, code: r.code };
+            },
+            cfg.retry,
+            () => true,
+            opts.sleep,
+          );
+          if (killed) {
+            states.set(nodeId, "failed");
+            status = "failed";
+            emit({
+              type: "node.failed",
+              nodeId,
+              attempt,
+              error: `代码执行超时（${cfg.timeoutMs}ms）${stderr.slice(0, 200)}`,
+              errorCode: "TIMEOUT",
             });
-            // Spawn failure (binary missing, etc.) → throw so withRetry can retry.
-            // Non-zero exit and timeout are business errors, returned as-is.
-            if (r.code === -1) throw new Error(`代码节点子进程启动失败: ${r.signal}`);
-            return { stdout, stderr, killed, code: r.code };
-          },
-          cfg.retry,
-          () => true,
-          opts.sleep,
-        );
-        if (killed) {
-          states.set(nodeId, "failed");
-          status = "failed";
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: `代码执行超时（${cfg.timeoutMs}ms）${stderr.slice(0, 200)}`,
-            errorCode: "TIMEOUT",
-          });
-          return;
-        }
-        if (code !== 0) {
-          states.set(nodeId, "failed");
-          status = "failed";
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: `代码执行失败（退出码 ${code}）: ${(stderr || "无 stderr 输出").slice(0, 300)}`,
-            errorCode: "PROVIDER_ERROR",
-          });
-          return;
-        }
-        const raw = stdout.trim();
-        let output = raw;
-        let asJson = false;
-        if (raw) {
-          try {
-            const parsed = JSON.parse(raw);
-            if (parsed !== null && typeof parsed === "object") asJson = true;
-          } catch {
-            // plain text output
+            return;
           }
+          if (code !== 0) {
+            states.set(nodeId, "failed");
+            status = "failed";
+            emit({
+              type: "node.failed",
+              nodeId,
+              attempt,
+              error: `代码执行失败（退出码 ${code}）: ${(stderr || "无 stderr 输出").slice(0, 300)}`,
+              errorCode: "PROVIDER_ERROR",
+            });
+            return;
+          }
+          const raw = stdout.trim();
+          let output = raw;
+          let asJson = false;
+          if (raw) {
+            try {
+              const parsed = JSON.parse(raw);
+              if (parsed !== null && typeof parsed === "object") asJson = true;
+            } catch {
+              // plain text output
+            }
+          }
+          if (asJson) output = JSON.stringify(JSON.parse(raw), null, 2);
+          const artifact: Artifact = asJson
+            ? { id: `${nodeId}-code-json`, kind: "json", content: output, mimeType: "application/json" }
+            : { id: `${nodeId}-code-text`, kind: "text", content: output, mimeType: "text/plain" };
+          artifacts.set(nodeId, [artifact]);
+          emit({ type: "artifact.produced", nodeId, attempt, artifact });
+          states.set(nodeId, "done");
+          emit({ type: "node.finished", nodeId, attempt, output, usage: zeroUsage() });
+          sendPackets(nodeId, output.slice(0, 120), artifact.kind);
+          return;
+        } finally {
+          await cleanupCodeWorkdir(workdir);
         }
-        if (asJson) output = JSON.stringify(JSON.parse(raw), null, 2);
-        const artifact: Artifact = asJson
-          ? { id: `${nodeId}-code-json`, kind: "json", content: output, mimeType: "application/json" }
-          : { id: `${nodeId}-code-text`, kind: "text", content: output, mimeType: "text/plain" };
-        artifacts.set(nodeId, [artifact]);
-        emit({ type: "artifact.produced", nodeId, attempt, artifact });
-        states.set(nodeId, "done");
-        emit({ type: "node.finished", nodeId, attempt, output, usage: zeroUsage() });
-        sendPackets(nodeId, output.slice(0, 120), artifact.kind);
-        return;
       }
 
       if (node.kind === "branch") {

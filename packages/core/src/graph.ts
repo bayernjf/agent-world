@@ -197,6 +197,9 @@ export const CodeNodeConfig = z.object({
   timeoutMs: z.number().int().min(1000).default(30000),
   /** Retry policy for transient failures (subprocess crash, not non-zero exit which is a business error). */
   retry: RetryPolicy.default({ maxRetries: 2, baseDelayMs: 1000, maxDelayMs: 30000 }),
+  /** Env var names allowed to reach the sandboxed subprocess (beyond a safe
+   *  base of PATH/HOME/TMPDIR/…). The server's own secrets are never forwarded. */
+  env: z.array(z.string()).default([]),
 });
 export type CodeNodeConfig = z.infer<typeof CodeNodeConfig>;
 
