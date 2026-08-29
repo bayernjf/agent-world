@@ -57,7 +57,7 @@ import { searchWeb, SearchAuthError } from "./search.js";
 import { sendNotification, NotifyAuthError, NotifyProviderError } from "./notifier.js";
 import { executeVcs, VcsAuthError, VcsProviderError } from "./vcs.js";
 import { withRetry } from "./retry.js";
-import { createCodeWorkdir, cleanupCodeWorkdir, planCodeSpawn, type CodeSandboxLimits } from "./code-sandbox.js";
+import { createCodeWorkdir, cleanupCodeWorkdir, resolveSandbox, type CodeSandboxLimits } from "./code-sandbox.js";
 import { trimEnv } from "./isolation.js";
 import { allowPrivateNetwork, hostIsInternal } from "./ssrf.js";
 
@@ -1268,10 +1268,10 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           const ctx = nodeCtx(nodeId);
           const inputJson = JSON.stringify({ inputs: ctx });
           const childEnv = trimEnv(cfg.env);
-          // P1 sandbox: rlimits via sh wrapper + Node --experimental-permission
-          // (JS only; Python relies on ulimit wrapper + future P2 backends).
+          // P1+P2 sandbox: backend selected via CODE_SANDBOX (rlimit default;
+          // bwrap / sandbox-exec / noop opt-in with loud degrade warnings).
           const cfgLimits = (cfg as unknown as { limits?: CodeSandboxLimits }).limits;
-          const plan = planCodeSpawn({
+          const plan = resolveSandbox().planSpawn({
             language: cfg.language,
             code: cfg.code,
             workdir,
