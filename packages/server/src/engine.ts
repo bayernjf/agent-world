@@ -14,6 +14,8 @@ import {
   SearchConfig,
   NotifyConfig,
   VcsConfig,
+  SubprocessConfig,
+  compile,
   applyTableSteps,
   buildNodeContext,
   collectColumns,
@@ -190,6 +192,12 @@ export interface ExecuteOptions {
   publicUrl?: string;
   /** Tool-call permission governance. Defaults to the env-derived config. */
   permissionConfig?: PermissionConfig;
+  /**
+   * Resolves a subprocess node's referenced graph (another saved graph) into
+   * a Graph. Injected by the HTTP layer (db lookup); absent in unit tests that
+   * don't exercise subprocess nodes.
+   */
+  loadSubgraph?: (graphId: string) => Graph | null;
 }
 
 type Status = "done" | "failed" | "halted" | "tripped" | "cancelled";
@@ -445,6 +453,16 @@ function defaultStoreBinary(data: Buffer, mimeType: string): string {
   return `data:${mimeType};base64,${data.toString("base64")}`;
 }
 
+/**
+ * Prefix every node-scoped event with a subprocess scope id
+ * (`<subNode>#sub:`), so child-graph events can't collide with parent nodes.
+ * Run-level events (run.started/run.finished) pass through untouched.
+ */
+function prefixEvent(e: RunEvent, prefix: string): RunEvent {
+  if (!("nodeId" in e) || e.nodeId === undefined) return e;
+  return { ...e, nodeId: prefix + e.nodeId };
+}
+
 /** Simple async event queue so many concurrent node workers can feed one ordered stream. */
 class EventQueue {
   private items: RunEvent[] = [];
@@ -528,6 +546,10 @@ interface SchedulerOptions {
   editOutput?: Record<string, string>;
   /** Tools the operator has approved for execution this run (4D.7 dangerous-action halt). */
   approveTools?: string[];
+  /** Resolves a subprocess node's referenced graph (db lookup, injected by the HTTP layer). */
+  loadSubgraph?: (graphId: string) => Graph | null;
+  /** Subprocess call depth (0 at the top-level run); guards against recursion. */
+  subprocessDepth?: number;
 }
 
 /**
@@ -735,7 +757,12 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     if (status !== "halted" && status !== "cancelled" && status !== "tripped") {
       const isHandled = (id: string) =>
         outgoing(graph, id, "error").some((e) => states.get(e.to) === "done");
-      const unhandled = [...states.entries()].some(([id, s]) => s === "failed" && !isHandled(id));
+      // Child-graph failures (prefix `#sub:`) are judged by the sub-flow's own
+      // finish — they must not sink the parent when the child run itself ended
+      // done (e.g. an error edge inside the sub-flow caught the failure).
+      const unhandled = [...states.entries()].some(
+        ([id, s]) => s === "failed" && !id.includes("#sub:") && !isHandled(id),
+      );
       status = unhandled ? "failed" : "done";
       if (status === "failed") {
         // Alert the operator: which nodes failed (unhandled by a catch) and how
@@ -773,6 +800,32 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     }
   };
 
+  /**
+   * Best structured value a node produced: JSON artifacts win, then text that
+   * happens to hold JSON, then the raw text. Used to aggregate loop rounds and
+   * subprocess sink outputs.
+   */
+  const artifactValue = (id: string): unknown => {
+    const arts = artifacts.get(id) ?? [];
+    const json = arts.find((a) => a.kind === "json");
+    if (json?.content) {
+      try {
+        return JSON.parse(json.content);
+      } catch {
+        return json.content;
+      }
+    }
+    const text = arts.find((a) => a.kind === "text");
+    if (text?.content) {
+      try {
+        return JSON.parse(text.content);
+      } catch {
+        return text.content;
+      }
+    }
+    return null;
+  };
+
   /** Produce typed artifacts from a node's output and emit events. Returns the primary kind. */
   const produceArtifacts = (nodeId: string, output: string, attempt?: number): Artifact["kind"] => {
     const extracted = extractArtifacts(output, nodeId);
@@ -786,6 +839,50 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       if (a.kind !== "text") primary = a.kind;
     }
     return primary;
+  };
+
+  /**
+   * Subprocess namespace helpers: a child graph's state lives under a
+   * `<subNode>#sub:` prefix in the parent's maps. When a child halts, its
+   * state is persisted there so a later resume can re-extract it and continue
+   * the sub-flow exactly where it paused (already-done child nodes stay done,
+   * the halted node was pre-marked by the resume's approve/reject handling).
+   */
+  const extractSubInit = (prefix: string, childGraph: Graph): SchedulerInit | null => {
+    let found = false;
+    const childStates = new Map<string, NodeState>(
+      childGraph.nodes.map((n) => [n.id, "pending" as NodeState]),
+    );
+    for (const [k, v] of states) {
+      if (!k.startsWith(prefix)) continue;
+      found = true;
+      childStates.set(k.slice(prefix.length), v);
+    }
+    if (!found) return null; // first invocation — no saved child state yet
+    const childArtifacts = new Map<string, Artifact[]>();
+    const childAttempts = new Map<string, number>();
+    const childCosts = new Map<string, number>();
+    for (const [k, v] of artifacts) if (k.startsWith(prefix)) childArtifacts.set(k.slice(prefix.length), v);
+    for (const [k, v] of attempts) if (k.startsWith(prefix)) childAttempts.set(k.slice(prefix.length), v);
+    for (const [k, v] of nodeCostUsd) if (k.startsWith(prefix)) childCosts.set(k.slice(prefix.length), v);
+    return {
+      artifacts: childArtifacts,
+      attempts: childAttempts,
+      nodeCostUsd: childCosts,
+      // Prior spend already joined the parent's ledger on halt — count only
+      // fresh spend from here on (avoids double-counting across resumes).
+      totalCostUsd: 0,
+      states: childStates,
+      approvedTools: [...approved],
+      packetEdges: new Set(),
+    };
+  };
+
+  const mergeSubInit = (prefix: string, childInit: SchedulerInit) => {
+    for (const [k, v] of childInit.states) states.set(prefix + k, v);
+    for (const [k, v] of childInit.artifacts) artifacts.set(prefix + k, v);
+    for (const [k, v] of childInit.attempts) attempts.set(prefix + k, v);
+    for (const [k, v] of childInit.nodeCostUsd) nodeCostUsd.set(prefix + k, v);
   };
 
   // Runs a single source/sink/gate/agent to completion. Resolves when the node
@@ -1363,29 +1460,6 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           const endNodes = bodyOrder.filter((id) =>
             outgoing(graph, id, "flow").every((e) => !bodyIds.has(e.to)),
           );
-          const roundValue = (id: string): unknown => {
-            const arts = artifacts.get(id) ?? [];
-            const json = arts.find((a) => a.kind === "json");
-            if (json?.content) {
-              try {
-                return JSON.parse(json.content);
-              } catch {
-                return json.content;
-              }
-            }
-            // Text artifacts may still hold JSON (e.g. a sink consuming a
-            // JSON-producing body) — parse when possible so results stay
-            // structured.
-            const text = arts.find((a) => a.kind === "text");
-            if (text?.content) {
-              try {
-                return JSON.parse(text.content);
-              } catch {
-                return text.content;
-              }
-            }
-            return null;
-          };
           const results: unknown[] = [];
           for (let i = 0; i < slice.length; i++) {
             const item = slice[i];
@@ -1401,10 +1475,10 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
               }
             }
             if (endNodes.length === 1) {
-              results.push(roundValue(endNodes[0]!));
+              results.push(artifactValue(endNodes[0]!));
             } else {
               const round: Record<string, unknown> = {};
-              for (const id of endNodes) round[id] = roundValue(id);
+              for (const id of endNodes) round[id] = artifactValue(id);
               results.push(round);
             }
           }
@@ -1430,6 +1504,165 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
             nodeId,
             attempt,
             error: `Loop 节点执行出错: ${err instanceof Error ? err.message : String(err)}`,
+          });
+        }
+        return;
+      }
+
+      if (node.kind === "subprocess") {
+        emit({ type: "node.started", nodeId, attempt });
+        try {
+          const cfg = SubprocessConfig.parse(node.subprocess ?? {});
+          const depth = opts.subprocessDepth ?? 0;
+          if (depth >= cfg.maxDepth) {
+            states.set(nodeId, "failed");
+            emit({
+              type: "node.failed",
+              nodeId,
+              attempt,
+              error: `子流程调用深度超限（第 ${depth + 1} 层超过 maxDepth ${cfg.maxDepth}），可能存在循环调用`,
+              errorCode: "VALIDATION",
+            });
+            return;
+          }
+          const childGraph = opts.loadSubgraph?.(cfg.graphId);
+          if (!childGraph) {
+            states.set(nodeId, "failed");
+            emit({
+              type: "node.failed",
+              nodeId,
+              attempt,
+              error: `找不到子流程图「${cfg.graphId}」`,
+              errorCode: "VALIDATION",
+            });
+            return;
+          }
+          const { plan: childPlan, diagnostics } = compile(childGraph);
+          if (!childPlan) {
+            states.set(nodeId, "failed");
+            emit({
+              type: "node.failed",
+              nodeId,
+              attempt,
+              error: `子流程图编译失败：${diagnostics.map((d) => d.message).join("；")}`,
+              errorCode: "VALIDATION",
+            });
+            return;
+          }
+
+          // Isolated namespace: every child node id is prefixed with
+          // `<subNode>#sub:` in the parent's maps/events so child ids can't
+          // collide with (or leak into) the parent graph.
+          const prefix = `${nodeId}#sub:`;
+          const saved = extractSubInit(prefix, childGraph);
+          const childInit: SchedulerInit = saved ?? {
+            artifacts: new Map(),
+            attempts: new Map(),
+            nodeCostUsd: new Map(),
+            totalCostUsd: 0,
+            states: new Map(childGraph.nodes.map((n) => [n.id, "pending" as NodeState])),
+            approvedTools: [...approved],
+            packetEdges: new Set(),
+          };
+          const sourceText = await inputFor(node);
+          const childGen = await runScheduler({
+            runId,
+            graph: childGraph,
+            plan: childPlan,
+            worker,
+            budgetUsd: null,
+            monthlyBudgetUsd: null,
+            monthSpentUsd: 0,
+            fallbackModel: opts.fallbackModel,
+            startSeq: 0,
+            sourceInput: sourceText,
+            connectorValues: opts.connectorValues,
+            signal: opts.signal,
+            now: opts.now,
+            sleep: opts.sleep,
+            init: childInit,
+            // Skip run.started (the parent already announced the run); the
+            // child's run.finished is intercepted below and re-emitted by the
+            // parent's own finish.
+            resuming: true,
+            subprocessDepth: depth + 1,
+            storeBinary: opts.storeBinary,
+            readArtifact: opts.readArtifact,
+            publicUrl: opts.publicUrl,
+            permissionConfig: opts.permissionConfig,
+          });
+
+          let childStatus: Status | undefined;
+          let childHaltedId: string | undefined;
+          let childHaltedReason: string | undefined;
+          for await (const e of childGen) {
+            if (e.type === "run.finished") {
+              childStatus = e.status;
+              childHaltedId = e.haltedNodeId;
+              childHaltedReason = e.reason;
+              break;
+            }
+            emit(prefixEvent(e, prefix));
+          }
+          // Persist the child's state under the prefix (whatever the outcome):
+          // a halt must survive a resume so the sub-flow continues in place,
+          // and a done child's sink products feed the aggregation below.
+          mergeSubInit(prefix, childInit);
+          // Shared budget: the child's spend joins the parent's ledger (V1 —
+          // the child does not run its own budget check, documented limitation).
+          totalCostUsd += childInit.totalCostUsd;
+
+          if (childStatus === "halted") {
+            haltNodeId = childHaltedId ? prefix + childHaltedId : nodeId;
+            haltReason = childHaltedReason;
+            status = "halted";
+            aborted = true;
+            return;
+          }
+          if (childStatus === "failed" || childStatus === "cancelled" || childStatus === "tripped") {
+            if (aborted) return; // parent abort won the race — let the parent finish it
+            states.set(nodeId, "failed");
+            emit({
+              type: "node.failed",
+              nodeId,
+              attempt,
+              error:
+                childStatus === "failed"
+                  ? "子流程执行失败"
+                  : `子流程中止（${childStatus}）`,
+              errorCode: "SUBPROCESS",
+            });
+            return;
+          }
+
+          // Child finished done: aggregate its sink outputs as this node's
+          // product (single sink → its value; multiple sinks → {sinkId: value}).
+          const sinks = childGraph.nodes.filter((n) => n.kind === "sink");
+          const values = sinks.map((s) => [s.id, artifactValue(prefix + s.id)] as const);
+          const content =
+            sinks.length === 1
+              ? JSON.stringify(values[0]?.[1] ?? null)
+              : JSON.stringify(Object.fromEntries(values));
+          const artifact: Artifact = {
+            id: `${nodeId}-sub-json`,
+            kind: "json",
+            content,
+            mimeType: "application/json",
+          };
+          artifacts.set(nodeId, [artifact]);
+          emit({ type: "artifact.produced", nodeId, attempt, artifact });
+          states.set(nodeId, "done");
+          const summary = `子流程「${childGraph.name}」完成`;
+          emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
+          sendPackets(nodeId, summary, "json");
+        } catch (err) {
+          states.set(nodeId, "failed");
+          emit({
+            type: "node.failed",
+            nodeId,
+            attempt,
+            error: `Subprocess 节点执行出错: ${err instanceof Error ? err.message : String(err)}`,
+            errorCode: "SUBPROCESS",
           });
         }
         return;
@@ -3056,6 +3289,7 @@ export async function* execute(opts: ExecuteOptions): AsyncGenerator<RunEvent, v
     readArtifact: opts.readArtifact,
     publicUrl: opts.publicUrl,
     permissionConfig: opts.permissionConfig,
+    loadSubgraph: opts.loadSubgraph,
     init: {
       artifacts: new Map(),
       attempts: new Map(),
@@ -3201,6 +3435,8 @@ export interface ResumeOptions {
   sleep?: (ms: number) => Promise<void>;
   /** Tool-call permission governance. Defaults to the env-derived config. */
   permissionConfig?: PermissionConfig;
+  /** Resolves a subprocess node's referenced graph (db lookup, injected by the HTTP layer). */
+  loadSubgraph?: (graphId: string) => Graph | null;
 }
 
 /**
@@ -3346,6 +3582,7 @@ export async function* resume(opts: ResumeOptions): AsyncGenerator<RunEvent, voi
     publicUrl: opts.publicUrl,
     permissionConfig: opts.permissionConfig,
     editOutput: opts.editOutput,
+    loadSubgraph: opts.loadSubgraph,
     init: {
       artifacts: state.artifacts,
       attempts: state.attempts,

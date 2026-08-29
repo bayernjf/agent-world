@@ -91,6 +91,9 @@ export async function startRun(args: StartRunArgs): Promise<{ runId: string; dia
         },
         readArtifact: createReadArtifact(db, artifacts),
         publicUrl,
+        // Subprocess nodes call other saved graphs — resolve them within the
+        // same user's scope so users can't invoke graphs they can't see.
+        loadSubgraph: (graphId) => db.getGraph(graphId, userId) ?? null,
       })) {
         db.record(runId, event);
         if (event.type === "artifact.produced") {
