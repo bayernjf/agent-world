@@ -51,7 +51,7 @@ import { dataUriToBuffer, parseDocument, extractPdfImages } from "./parse-file.j
 import { ocrImage } from "./ocr.js";
 import { decodeImage, encodeJpeg, encodePng } from "./convert.js";
 import { searchWeb, SearchAuthError } from "./search.js";
-import { sendNotification, NotifyAuthError } from "./notifier.js";
+import { sendNotification, NotifyAuthError, NotifyProviderError } from "./notifier.js";
 import { allowPrivateNetwork, hostIsInternal } from "./ssrf.js";
 
 /**
@@ -2148,7 +2148,11 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
               nodeId,
               attempt,
               error: `通知发送失败: ${sanitizeError(err instanceof Error ? err.message : String(err))}`,
-              errorCode: err instanceof NotifyAuthError ? "AUTH" : "PROVIDER_ERROR",
+              errorCode: err instanceof NotifyAuthError
+                ? "AUTH"
+                : err instanceof NotifyProviderError
+                  ? "PROVIDER_ERROR"
+                  : "PROVIDER_ERROR",
             });
             return;
           }

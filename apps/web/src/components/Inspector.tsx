@@ -2255,6 +2255,21 @@ export default function Inspector({ onOpenSettings }: { onOpenSettings: () => vo
               </select>
             </label>
             <label className="field">
+              <span>消息格式</span>
+              <select
+                className="select"
+                value={node.notify.format}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    notify: { ...node.notify!, format: e.target.value as "text" | "markdown" },
+                  })
+                }
+              >
+                <option value="text">纯文本</option>
+                <option value="markdown">Markdown（各平台原生渲染）</option>
+              </select>
+            </label>
+            <label className="field">
               <span>消息内容</span>
               <textarea
                 rows={3}

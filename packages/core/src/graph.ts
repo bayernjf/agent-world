@@ -455,6 +455,13 @@ export type SearchConfig = z.infer<typeof SearchConfig>;
 export const NotifyConfig = z.object({
   /** Delivery channel. */
   provider: z.enum(["feishu", "dingtalk", "wecom", "email"]),
+  /**
+   * Output format. "text" (default) sends plain text; "markdown" sends a
+   * rendered message — dingtalk/wecom use their native markdown msgtype,
+   * feishu wraps the message in an interactive card's markdown element.
+   * Email always sends plain text (HTML rendering needs a markdown lib, P2).
+   */
+  format: z.enum(["text", "markdown"]).default("text"),
   /** Static message body; falls back to the upstream text artifact when empty. */
   message: z.string().default(""),
   /** Group-bot webhook URL (feishu / dingtalk / wecom). */
@@ -465,6 +472,8 @@ export const NotifyConfig = z.object({
   to: z.string().email().optional(),
   /** Email subject; defaults to the node name. */
   subject: z.string().optional(),
+  /** Retry policy for transient delivery failures (network/5xx). Auth and provider-rejected errors are not retried. */
+  retry: RetryPolicy.default({ maxRetries: 2, baseDelayMs: 1000, maxDelayMs: 30000 }),
 });
 export type NotifyConfig = z.infer<typeof NotifyConfig>;
 

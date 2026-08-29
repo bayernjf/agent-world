@@ -4,10 +4,17 @@ import nodemailer from "nodemailer";
 
 /**
  * Outbound notifications for the `notify` node. Group-bot providers
- * (feishu/dingtalk/wecom) POST a text message to the bot's webhook URL (kept in
- * the node config — one graph can notify different groups); email sends via
- * SMTP with credentials from env (SMTP_HOST / SMTP_PORT / SMTP_USER /
+ * (feishu/dingtalk/wecom) POST a text or markdown message to the bot's webhook
+ * URL (kept in the node config — one graph can notify different groups); email
+ * sends via SMTP with credentials from env (SMTP_HOST / SMTP_PORT / SMTP_USER /
  * SMTP_PASS / SMTP_FROM), so the password never enters the graph.
+ *
+ * Two non-retryable error classes mark problems retrying cannot fix:
+ * - NotifyAuthError: missing/invalid credentials or webhook (→ AUTH)
+ * - NotifyProviderError: the platform explicitly rejected the message, e.g.
+ *   a non-zero errcode like DingTalk's "keyword not matched" (→ PROVIDER_ERROR)
+ * Transient faults (network reject, 5xx, SMTP connection drop) are retried
+ * with exponential backoff per `cfg.retry` before bubbling up.
  */
 
 export interface NotifyResult {
@@ -23,7 +30,16 @@ export class NotifyAuthError extends Error {
   }
 }
 
-async function assertOk(provider: string, url: string, res: Response): Promise<Record<string, unknown>> {
+export class NotifyProviderError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "NotifyProviderError";
+  }
+}
+
+const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+async function assertOk(provider: string, res: Response): Promise<Record<string, unknown>> {
   const text = await res.text();
   let json: Record<string, unknown> = {};
   try {
@@ -37,8 +53,8 @@ async function assertOk(provider: string, url: string, res: Response): Promise<R
   // All three group-bot APIs report success with a code/errcode of 0.
   const code = (json.code ?? json.errcode ?? (res.ok ? 0 : -1)) as number;
   if (code !== 0) {
-    throw new Error(
-      `${provider} 通知发送失败: ${(json.msg ?? json.errmsg as string | undefined) ?? `HTTP ${res.status}`}`,
+    throw new NotifyProviderError(
+      `${provider} 通知发送失败: ${(json.msg ?? (json.errmsg as string | undefined)) ?? `HTTP ${res.status}`}`,
     );
   }
   return json;
@@ -51,23 +67,50 @@ function signDingTalk(url: string, secret: string): string {
   return `${url}${url.includes("?") ? "&" : "?"}timestamp=${timestamp}&sign=${encodeURIComponent(sign)}`;
 }
 
-async function sendGroupBot(provider: string, cfg: NotifyConfig, message: string): Promise<NotifyResult> {
+/** Build the webhook request body for the provider + format. */
+function groupBotBody(
+  provider: string,
+  format: "text" | "markdown",
+  message: string,
+  subject: string,
+): Record<string, unknown> {
+  if (format === "markdown") {
+    if (provider === "feishu") {
+      return {
+        msg_type: "interactive",
+        card: {
+          header: { title: { tag: "plain_text", content: subject } },
+          elements: [{ tag: "markdown", content: message }],
+        },
+      };
+    }
+    if (provider === "dingtalk") {
+      return { msgtype: "markdown", markdown: { title: subject || message.slice(0, 20), text: message } };
+    }
+    return { msgtype: "markdown", markdown: { content: message } }; // wecom
+  }
+  // Plain text.
+  if (provider === "feishu") return { msg_type: "text", content: { text: message } };
+  return { msgtype: "text", text: { content: message } }; // dingtalk / wecom
+}
+
+async function sendGroupBot(
+  provider: string,
+  cfg: NotifyConfig,
+  message: string,
+  subject: string,
+): Promise<NotifyResult> {
   if (!cfg.webhookUrl) {
     throw new NotifyAuthError(`缺少 webhookUrl（${provider} 群机器人需要在配置中填写 webhook 地址）`);
   }
   const url = provider === "dingtalk" && cfg.secret ? signDingTalk(cfg.webhookUrl, cfg.secret) : cfg.webhookUrl;
-  const body =
-    provider === "feishu"
-      ? { msg_type: "text", content: { text: message } }
-      : provider === "dingtalk"
-        ? { msgtype: "text", text: { content: message } }
-        : { msgtype: "text", text: { content: message } };
+  const body = groupBotBody(provider, cfg.format, message, subject);
   const res = await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
-  await assertOk(provider, url, res);
+  await assertOk(provider, res);
   const tail = url.slice(-8);
   return { provider, detail: `${provider} 群机器人 …${tail}` };
 }
@@ -102,14 +145,43 @@ async function sendEmail(cfg: NotifyConfig, message: string, subject: string): P
   return { provider: "email", detail: cfg.to };
 }
 
-/** Deliver a notification message via the configured provider. Throws NotifyAuthError on auth problems. */
-export async function sendNotification(cfg: NotifyConfig, message: string, subject: string): Promise<NotifyResult> {
-  switch (cfg.provider) {
-    case "feishu":
-    case "dingtalk":
-    case "wecom":
-      return sendGroupBot(cfg.provider, cfg, message);
-    case "email":
-      return sendEmail(cfg, message, subject);
+/** Retry once; only transient (non-auth, non-provider-rejected) errors retry. */
+async function withRetry<T>(
+  cfg: NotifyConfig,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const maxAttempts = 1 + (cfg.retry.maxRetries ?? 0);
+  let lastErr: unknown;
+  for (let i = 0; i < maxAttempts; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      // Auth and explicit provider rejections are never retried.
+      if (err instanceof NotifyAuthError || err instanceof NotifyProviderError) throw err;
+      if (i >= maxAttempts - 1) break;
+      const base = cfg.retry.baseDelayMs ?? 1000;
+      const max = cfg.retry.maxDelayMs ?? 30000;
+      await delay(Math.min(max, base * 2 ** i));
+    }
   }
+  throw lastErr;
+}
+
+/**
+ * Deliver a notification message via the configured provider, retrying transient
+ * faults. Throws NotifyAuthError on auth problems, NotifyProviderError when the
+ * platform explicitly rejects the message.
+ */
+export async function sendNotification(cfg: NotifyConfig, message: string, subject: string): Promise<NotifyResult> {
+  return withRetry(cfg, () => {
+    switch (cfg.provider) {
+      case "feishu":
+      case "dingtalk":
+      case "wecom":
+        return sendGroupBot(cfg.provider, cfg, message, subject);
+      case "email":
+        return sendEmail(cfg, message, subject);
+    }
+  });
 }

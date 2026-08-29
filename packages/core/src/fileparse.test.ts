@@ -223,9 +223,12 @@ describe("SearchConfig", () => {
 });
 
 describe("NotifyConfig", () => {
-  it("requires an explicit provider and defaults to an empty message", () => {
+  it("requires an explicit provider and defaults to empty message, text format and 2 retries", () => {
     const cfg = NotifyConfig.parse({ provider: "feishu" });
     expect(cfg.message).toBe("");
+    expect(cfg.format).toBe("text");
+    expect(cfg.retry.maxRetries).toBe(2);
+    expect(cfg.retry.baseDelayMs).toBe(1000);
     expect(cfg.webhookUrl).toBeUndefined();
     expect(cfg.secret).toBeUndefined();
     expect(cfg.to).toBeUndefined();
@@ -247,6 +250,20 @@ describe("NotifyConfig", () => {
     const cfg = NotifyConfig.parse({ provider: "email", to: "a@b.com", subject: "Report" });
     expect(cfg.to).toBe("a@b.com");
     expect(cfg.subject).toBe("Report");
+  });
+
+  it("parses markdown format and a custom retry policy", () => {
+    const cfg = NotifyConfig.parse({ provider: "dingtalk", format: "markdown", retry: { maxRetries: 4, baseDelayMs: 500, maxDelayMs: 10000 } });
+    expect(cfg.format).toBe("markdown");
+    expect(cfg.retry.maxRetries).toBe(4);
+    expect(cfg.retry.baseDelayMs).toBe(500);
+    expect(cfg.retry.maxDelayMs).toBe(10000);
+  });
+
+  it("rejects unknown formats and out-of-range retry settings", () => {
+    expect(() => NotifyConfig.parse({ provider: "feishu", format: "html" })).toThrow();
+    expect(() => NotifyConfig.parse({ provider: "feishu", retry: { maxRetries: 11 } })).toThrow();
+    expect(() => NotifyConfig.parse({ provider: "feishu", retry: { baseDelayMs: -1 } })).toThrow();
   });
 
   it("rejects unknown providers, bad URLs and invalid emails", () => {
