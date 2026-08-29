@@ -11,10 +11,10 @@ function makeStore(initial: Graph[] = []) {
     if (!graphs.has(id)) graphs.set(id, { id, name: id, nodes: [], edges: [], version: 1 });
   }
   const store: TriggerGraphStore = {
-    listGraphs: () =>
+    listAllGraphs: () =>
       [...graphs.values()].map((g) => ({ id: g.id, name: g.name, version: g.version, updated_at: 0 })),
-    getGraph: (id) => graphs.get(id) ?? null,
-    saveGraph: (graph) => {
+    getGraphById: (id) => graphs.get(id) ?? null,
+    saveGraphUnscoped: (graph) => {
       graphs.set(graph.id, { ...graph, version: (graphs.get(graph.id)?.version ?? 0) + 1 });
       return { ok: true, version: 1 };
     },
@@ -58,7 +58,7 @@ describe("TriggerService", () => {
     const { store } = makeService();
     const service = new TriggerService({ db: store, startRun: () => Promise.resolve({ runId: "x" }) });
     service.upsert("g1", webhookTrigger);
-    expect(store.getGraph("g1")?.triggers?.map((t) => t.id)).toEqual(["t1"]);
+    expect(store.getGraphById("g1")?.triggers?.map((t) => t.id)).toEqual(["t1"]);
   });
 
   it("restores the index from persisted graphs on startup", () => {
@@ -103,7 +103,7 @@ describe("TriggerService", () => {
     const { service, store } = makeService([graphWith([webhookTrigger, cronTrigger])]);
     await service.remove("g1", "t1");
     expect(service.listByGraph("g1").map((t) => t.id)).toEqual(["t2"]);
-    expect(store.getGraph("g1")?.triggers?.map((t) => t.id)).toEqual(["t2"]);
+    expect(store.getGraphById("g1")?.triggers?.map((t) => t.id)).toEqual(["t2"]);
   });
 
   it("errors on an unknown trigger", async () => {

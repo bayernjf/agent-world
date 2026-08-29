@@ -54,11 +54,12 @@ describe("applyCors", () => {
     expect(res.headers.get("access-control-allow-origin")).not.toBe("https://evil.test");
   });
 
-  it("allows all origins when no env is set", async () => {
+  it("falls back to the local dev origin with credentials when no env is set", async () => {
     const app = new Hono();
     applyCors(app, undefined);
     app.get("/", (c) => c.text("ok"));
-    const res = await app.request("/", { headers: { origin: "https://anything.test" } });
-    expect(res.headers.get("access-control-allow-origin")).toBe("*");
+    const res = await app.request("/", { headers: { origin: "http://localhost:5173" } });
+    expect(res.headers.get("access-control-allow-origin")).toBe("http://localhost:5173");
+    expect(res.headers.get("access-control-allow-credentials")).toBe("true");
   });
 });

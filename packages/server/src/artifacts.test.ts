@@ -6,6 +6,7 @@ import { openDb } from "./db.js";
 import { ArtifactStore, type StoredArtifact } from "./artifact-store.js";
 import type { Artifact, Graph } from "@agent-world/core";
 
+const U = "u1";
 const graph: Graph = { id: "g1", name: "G1", nodes: [], edges: [] };
 
 describe("artifact persistence", () => {
@@ -17,7 +18,7 @@ describe("artifact persistence", () => {
     dir = mkdtempSync(join(tmpdir(), "aw-dbart-"));
     db = openDb(join(dir, "test.sqlite"));
     store = new ArtifactStore(join(dir, "blobs"));
-    db.saveGraph(graph, 1);
+    db.saveGraph(graph, 1, U);
   });
   afterEach(() => {
     db.close();
@@ -31,7 +32,7 @@ describe("artifact persistence", () => {
   }
 
   function startRun(runId: string) {
-    db.createRun({ id: runId, graph, budgetUsd: null, at: Date.now() });
+    db.createRun({ id: runId, userId: U, graph, budgetUsd: null, at: Date.now() });
   }
 
   it("stores and retrieves artifact metadata per run", async () => {
@@ -63,7 +64,7 @@ describe("artifact persistence", () => {
   it("removes artifact rows when the run is deleted", async () => {
     startRun("r1");
     await produce("r1", { id: "a1", kind: "text", content: "x" });
-    db.deleteRun("r1");
+    db.deleteRun("r1", U);
     expect(db.listArtifactsForRun("r1")).toHaveLength(0);
     expect(db.getArtifact("a1")).toBeNull();
   });
