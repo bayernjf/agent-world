@@ -36,6 +36,7 @@
 | [design-code-sandbox.md](design-code-sandbox.md) | 代码节点运行沙箱设计（env / 网络 / 文件系统 / 资源 / 工作目录隔离，P0-P2） | 开发者 |
 | [design-artifact-display.md](design-artifact-display.md) | 产物统一渲染卡设计（ArtifactCard + 渲染器注册表） | 开发者 |
 | [design-artifact-attribution-repo.md](design-artifact-attribution-repo.md) | 产物归属 + 按流水线分组成品仓库设计 | 开发者 |
+| [design-templates.md](design-templates.md) | 产线模板体系增强设计（老用户入口 / 覆盖面 / 参数化 / 市场缓做决策） | 开发者 |
 | [examples.md](examples.md) | 8 个可直接套用的产线模板 | 新用户 |
 | [extending.md](extending.md) | 如何扩展：Worker / Connector / Skill / Trigger / 节点 | 开发者 |
 | [product-content-roadmap.md](product-content-roadmap.md) | 内容线（淘宝 / 小红书图文）专项规划 | 产品 |
