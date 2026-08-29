@@ -30,11 +30,20 @@
 
 | 传输 | 场景 | 状态 |
 |------|------|------|
-| **stdio** | 本地客户端（Claude Desktop、Cursor 等），最常用 | ✅ P0 已落地 |
+| **stdio** | 本地客户端（Claude Desktop、Cursor 等），最常用 | ✅ P0 已落地；**分帧 bug 已修（2026-08-29）**：旧实现用 LSP 风格 `Content-Length` 帧，而 MCP stdio 规范是**换行分隔 JSON**（单行一条消息、禁内嵌换行），Claude Desktop / 官方 SDK 实际连不上。已改规范分帧并补真实 CLI 冒烟测试（`src/stdio.test.ts`：spawn 子进程 initialize→tools/list→ping 回环、坏行 -32700 不中断、中文/emoji id 多字节无错位） |
 | **HTTP/SSE** | 远程访问、多客户端共享（Streamable HTTP，`POST /mcp` + `GET /mcp` SSE） | ✅ P1 已落地 |
 | WebSocket | 实时双向通信 | P2 |
 
 **传输切换**：默认 stdio；`AGENT_WORLD_MCP_TRANSPORT=http`（或 `--http`）启动独立 HTTP server（`127.0.0.1:3100`，`AGENT_WORLD_MCP_PORT` 覆盖端口）。
+
+**Claude Desktop 接入**：`bin` 为 `agent-world-mcp`（`dist/index.js`，先 `pnpm --filter @agent-world/mcp-server build`），配置示例：
+```json
+{ "mcpServers": { "agent-world": {
+    "command": "node",
+    "args": ["<repo>/packages/mcp-server/dist/index.js"],
+    "env": { "AGENT_WORLD_URL": "http://localhost:8791", "AGENT_WORLD_TOKEN": "<jwt>" }
+} } }
+```
 
 ---
 
