@@ -1866,6 +1866,57 @@ export default function Inspector({ onOpenSettings }: { onOpenSettings: () => vo
           </>
         )}
 
+        {node.kind === "database" && node.database && (
+          <>
+            <label className="field">
+              <span>数据库文件（SQLite）</span>
+              <input
+                className="input mono"
+                placeholder="留空 = 内存数据库（每次运行临时创建）"
+                value={node.database.path ?? ""}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    database: { ...node.database!, path: e.target.value || undefined },
+                  })
+                }
+              />
+            </label>
+            <label className="field">
+              <span>初始化 SQL（可多条，结果丢弃）</span>
+              <textarea
+                className="textarea mono"
+                rows={4}
+                placeholder={"CREATE TABLE people (name TEXT, age INTEGER);\nINSERT INTO people VALUES ('Alice', 30);"}
+                value={node.database.setupSql ?? ""}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    database: { ...node.database!, setupSql: e.target.value },
+                  })
+                }
+              />
+            </label>
+            <label className="field">
+              <span>主 SQL（单条）</span>
+              <textarea
+                className="textarea mono"
+                rows={5}
+                placeholder="SELECT * FROM people WHERE age >= ?"
+                value={node.database.sql ?? ""}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    database: { ...node.database!, sql: e.target.value },
+                  })
+                }
+              />
+            </label>
+            <p className="note">
+              查询语句输出 {"{"}rows, count, columns{"}"}，可直连下游「表格」节点继续筛选/排序/聚合；
+              INSERT/UPDATE/DELETE 等输出 {"{"}affectedRows, lastInsertId{"}"}。文件路径相对 server 工作目录
+              （packages/server）解析。SQL 语法错误或参数不匹配时节点运行失败。
+            </p>
+          </>
+        )}
+
         </>)}
         {mainTab === "output" && (<>
         {rt?.error && (

@@ -21,6 +21,7 @@ export const NodeKind = z.enum([
   "loop",
   "parallel",
   "table",
+  "database",
 ]);
 export type NodeKind = z.infer<typeof NodeKind>;
 
@@ -314,6 +315,32 @@ export const TableConfig = z.object({
 });
 export type TableConfig = z.infer<typeof TableConfig>;
 
+/**
+ * Configuration for a `database` node: execute SQL against a database and emit
+ * the result set. First implementation supports SQLite (zero new dependency —
+ * `node:sqlite`). The driver abstraction leaves room for MySQL/PostgreSQL/
+ * MongoDB drivers later. Query results are emitted as `{ rows, count, columns }`
+ * so they can feed a downstream `table` node directly; DML statements emit
+ * `{ affectedRows, lastInsertId }`.
+ */
+export const DatabaseConfig = z.object({
+  /** SQLite database file path. Empty → in-memory database (per-run, volatile). */
+  path: z.string().optional(),
+  /**
+   * Optional setup statements executed once before `sql` (e.g. `CREATE TABLE …;
+   * INSERT …;`). Multiple statements separated by `;` are allowed; results are
+   * discarded. Enables in-memory pipelines: create a table, then query it.
+   */
+  setupSql: z.string().default(""),
+  /** The main SQL statement (single). Query statements return rows. */
+  sql: z.string().default(""),
+  /** Positional parameters bound to `?` placeholders in `sql`. */
+  positionalParams: z.array(z.unknown()).optional(),
+  /** Named parameters bound to `:name` / `@name` / `$name` placeholders in `sql`. */
+  namedParams: z.record(z.string(), z.unknown()).optional(),
+});
+export type DatabaseConfig = z.infer<typeof DatabaseConfig>;
+
 export const GateConfig = z.object({
   maxAttempts: z.number().int().min(1).max(10).default(3),
   criterion: z.string().default(""),
@@ -426,6 +453,7 @@ export const GraphNode = z.object({
   loop: LoopConfig.optional(),
   parallel: ParallelConfig.optional(),
   table: TableConfig.optional(),
+  database: DatabaseConfig.optional(),
   source: SourceConfig.optional(),
 });
 export type GraphNode = z.infer<typeof GraphNode>;

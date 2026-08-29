@@ -1790,6 +1790,9 @@ select {
 .plant--table .plant__bar {
   fill: #2a1d3a;
 }
+.plant--database .plant__bar {
+  fill: #1d3a2a;
+}
 
 .plant__attempt rect {
   fill: var(--warn);

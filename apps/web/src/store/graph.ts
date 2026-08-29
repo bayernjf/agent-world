@@ -232,6 +232,7 @@ const DEFAULTS: Record<NodeKind, Partial<GraphNode>> = {
   loop: { loop: { maxIterations: 100 } },
   parallel: { parallel: { asObject: false } },
   table: { table: { steps: [] } },
+  database: { database: { setupSql: "", sql: "" } },
 };
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
