@@ -311,6 +311,9 @@ export const api = {
   cancelRun: (runId: string) =>
     authFetch(`/api/runs/${runId}/cancel`, { method: "POST" }).then(json<{ ok: true }>),
 
+  rerunRun: (runId: string) =>
+    authFetch(`/api/runs/${runId}/rerun`, { method: "POST" }).then(json<{ runId: string }>),
+
   resumeRun: (
     runId: string,
     action: "continue" | "approve" | "reject" | "edit" | "scrap",

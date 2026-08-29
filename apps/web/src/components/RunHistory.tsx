@@ -109,6 +109,8 @@ export default function RunHistory({ open, onClose, onOpen }: Props) {
   const [selected, setSelected] = useState<string[]>([]);
   const [comparing, setComparing] = useState(false);
   const [stats, setStats] = useState<Record<string, RunStats>>({});
+  const [rerunning, setRerunning] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState("");
 
   const load = () => {
     setLoading(true);
@@ -149,6 +151,20 @@ export default function RunHistory({ open, onClose, onOpen }: Props) {
 
   const toggleSelect = (id: string) =>
     setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
+
+  const handleRerun = async (r: RunSummary) => {
+    setErrorMsg("");
+    setRerunning(r.id);
+    try {
+      const { runId } = await api.rerunRun(r.id);
+      load();
+      onOpen?.(runId);
+    } catch (e) {
+      setErrorMsg(`重新运行失败：${(e as Error).message}`);
+    } finally {
+      setRerunning(null);
+    }
+  };
 
   const runCompare = async () => {
     const entries = await Promise.all(
@@ -213,6 +229,8 @@ export default function RunHistory({ open, onClose, onOpen }: Props) {
           <span className="runhistory-count">共 {total} 条</span>
         </div>
 
+        {errorMsg && <div className="runhistory-error">{errorMsg}</div>}
+
         {comparing ? (
           <CompareView runs={runs} selected={selected} stats={stats} onBack={() => setComparing(false)} />
         ) : (
@@ -223,7 +241,9 @@ export default function RunHistory({ open, onClose, onOpen }: Props) {
               {runs.map((r) => (
                 <div
                   key={r.id}
-                  className={`runhistory-row${compareMode ? " runhistory-row--selectable" : ""}`}
+                  className={`runhistory-row${compareMode ? " runhistory-row--selectable" : ""}${
+                    r.status === "failed" ? " runhistory-status-failed" : ""
+                  }`}
                   onClick={() => {
                     if (compareMode) toggleSelect(r.id);
                     else onOpen?.(r.id);
@@ -254,6 +274,19 @@ export default function RunHistory({ open, onClose, onOpen }: Props) {
                       {r.budget_usd != null && <span>预算 ${r.budget_usd.toFixed(4)}</span>}
                     </div>
                   </div>
+                  {r.status !== "running" && (
+                    <button
+                      className="btn runhistory-rerun"
+                      disabled={rerunning === r.id}
+                      title="用相同的快照和输入重新运行"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void handleRerun(r);
+                      }}
+                    >
+                      {rerunning === r.id ? "重跑中…" : "重新运行"}
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
