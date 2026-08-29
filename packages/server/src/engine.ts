@@ -1261,6 +1261,24 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           });
           return;
         }
+        // net 策略：只有 "none" 已实现（Node 24 权限模型移除了 --allow-net，
+        // 真正的 allowlist 需要未来 SSRF 校验代理）。诚实报错，绝不静默放行。
+        if (cfg.net !== "none") {
+          states.set(nodeId, "failed");
+          status = "failed";
+          emit({
+            type: "node.failed",
+            nodeId,
+            attempt,
+            error: `代码节点 net 策略 "${cfg.net}" 尚未实现（当前仅支持 "none"），请改为 none`,
+            errorCode: "VALIDATION",
+          });
+          return;
+        }
+        // fs 策略：allowlist = 在 workdir 之外额外授予只读访问
+        // （TOOL_FS_ALLOW 前缀）。写入仍然仅限 workdir。
+        const extraFsReadPaths =
+          cfg.fs === "allowlist" ? (loadPermissionConfig().fsAllow ?? []) : [];
         // P0 sandbox: isolate cwd (per-run temp dir) + env allowlist + absolute
         // interpreter path. The temp dir is removed even on failure/timeout.
         const workdir = await createCodeWorkdir(runId, nodeId, attempt);
@@ -1276,6 +1294,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
             code: cfg.code,
             workdir,
             limits: cfgLimits,
+            extraFsReadPaths,
           });
           const { stdout, stderr, killed, code } = await withRetry(
             async () => {

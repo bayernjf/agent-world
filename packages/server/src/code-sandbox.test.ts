@@ -378,3 +378,32 @@ describe("noop backend (escape hatch)", () => {
     expect(plan.command).toContain("node");
   });
 });
+
+describe("fs policy plumbing (extraFsReadPaths)", () => {
+  it("planCodeSpawn repeats --allow-fs-read per extra path (JS)", () => {
+    const plan = planCodeSpawn({
+      language: "javascript",
+      code: "console.log(1)",
+      workdir: "/tmp/wd",
+      extraFsReadPaths: ["/data/a", "/data/b"],
+    });
+    const script = plan.args[plan.args.length - 1] as string;
+    expect(script).toContain("--allow-fs-read=/data/a");
+    expect(script).toContain("--allow-fs-read=/data/b");
+    // write grant stays workdir-only
+    expect(script).toContain("--allow-fs-write=/tmp/wd");
+    expect(script).not.toContain("--allow-fs-write=/data");
+  });
+
+  it("bwrap backend keeps the read-only root (extras are no-ops there)", () => {
+    const plan = bwrapBackend.planSpawn({
+      language: "javascript",
+      code: "console.log(1)",
+      workdir: "/tmp/wd",
+      extraFsReadPaths: ["/data/a"],
+    });
+    const roIdx = plan.args.indexOf("--ro-bind");
+    expect(plan.args[roIdx + 1]).toBe("/");
+    expect(plan.args[roIdx + 2]).toBe("/");
+  });
+});

@@ -199,12 +199,16 @@ export function buildNodePermissionArgs(params: {
   interpreterPath: string;
   workdir: string;
   limits: Required<CodeSandboxLimits>;
+  /** Extra READ-ONLY prefixes (fs: "allowlist" → TOOL_FS_ALLOW). Writes stay
+   *  workdir-only. The flag repeats per path — Node accepts multiple grants. */
+  extraFsReadPaths?: string[];
 }): string[] {
-  const { interpreterPath, workdir, limits } = params;
+  const { interpreterPath, workdir, limits, extraFsReadPaths = [] } = params;
   const gate = probeNodePermissionGate(interpreterPath);
   const args: string[] = [];
   if (gate !== "none") args.push(gate);
   args.push(`--allow-fs-read=${workdir}`);
+  for (const p of extraFsReadPaths) args.push(`--allow-fs-read=${p}`);
   args.push(`--allow-fs-write=${workdir}`);
   args.push(`--max-old-space-size=${limits.nodeMaxOldSpaceMb}`);
   return args;
@@ -229,6 +233,7 @@ export function planCodeSpawn(opts: {
   code: string;
   workdir: string;
   limits?: CodeSandboxLimits;
+  extraFsReadPaths?: string[];
 }): SandboxSpawnPlan {
   const limits = resolveLimits(opts.limits);
   const interpreter = resolveInterpreter(opts.language);
@@ -236,7 +241,12 @@ export function planCodeSpawn(opts: {
   let interpreterArgs: string[];
   if (opts.language === "javascript") {
     interpreterArgs = [
-      ...buildNodePermissionArgs({ interpreterPath: interpreter, workdir: opts.workdir, limits }),
+      ...buildNodePermissionArgs({
+        interpreterPath: interpreter,
+        workdir: opts.workdir,
+        limits,
+        extraFsReadPaths: opts.extraFsReadPaths,
+      }),
       "-e",
       opts.code,
     ];
@@ -264,6 +274,10 @@ export interface SandboxSpawnOptions {
   code: string;
   workdir: string;
   limits?: CodeSandboxLimits;
+  /** fs: "allowlist" — extra READ-ONLY prefixes granted on top of the
+   *  workdir. What each backend can actually enforce differs; see the
+   *  per-backend docs below. */
+  extraFsReadPaths?: string[];
 }
 
 /**
@@ -283,19 +297,22 @@ function interpreterArgsFor(
   code: string,
   workdir: string,
   limits: Required<CodeSandboxLimits>,
+  extraFsReadPaths: string[],
 ): { interpreterPath: string; interpreterArgs: string[] } {
   const interpreterPath = resolveInterpreter(language);
   if (language === "javascript") {
     return {
       interpreterPath,
       interpreterArgs: [
-        ...buildNodePermissionArgs({ interpreterPath, workdir, limits }),
+        ...buildNodePermissionArgs({ interpreterPath, workdir, limits, extraFsReadPaths }),
         "-e",
         code,
       ],
     };
   }
   // Python has no runtime permission model — see the honesty boundary above.
+  // extraFsReadPaths is a no-op here: Python under `rlimit` never had fs
+  // restriction to begin with; only the P2 backends can constrain it.
   return { interpreterPath, interpreterArgs: ["-c", code] };
 }
 
@@ -322,12 +339,15 @@ export const bwrapBackend: CodeSandboxBackend = {
       opts.code,
       opts.workdir,
       limits,
+      opts.extraFsReadPaths ?? [],
     );
     const inner = buildRlimitWrapper({ interpreterPath, interpreterArgs, limits });
     const args = [
       "--ro-bind", "/", "/",
       "--bind", opts.workdir, opts.workdir,
       "--chdir", opts.workdir,
+      // extraFsReadPaths need no explicit grant here: the read-only root bind
+      // above already exposes the whole fs read-only to the sandbox.
       "--unshare-net",
       "--unshare-pid",
       "--unshare-uts",
@@ -376,7 +396,10 @@ export const sandboxExecBackend: CodeSandboxBackend = {
       opts.code,
       opts.workdir,
       limits,
+      opts.extraFsReadPaths ?? [],
     );
+    // extraFsReadPaths need no explicit grant here: the profile already has
+    // `(allow file-read*)` — reads are unrestricted, only writes are fenced.
     const inner = buildRlimitWrapper({ interpreterPath, interpreterArgs, limits });
     const args = ["-p", buildSeatbeltProfile(opts.workdir), inner.command, ...inner.args];
     return { command: "sandbox-exec", args, limits, wrapped: true };
