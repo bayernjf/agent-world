@@ -6,6 +6,8 @@ import { openDb } from "./db.js";
 import { ArtifactStore, type StoredArtifact } from "./artifact-store.js";
 import type { Artifact, Graph } from "@agent-world/core";
 
+const U = "u1";
+const OTHER = "u2";
 const graph: Graph = { id: "g1", name: "G1", nodes: [], edges: [] };
 
 describe("artifact persistence", () => {
@@ -17,21 +19,21 @@ describe("artifact persistence", () => {
     dir = mkdtempSync(join(tmpdir(), "aw-dbart-"));
     db = openDb(join(dir, "test.sqlite"));
     store = new ArtifactStore(join(dir, "blobs"));
-    db.saveGraph(graph, 1);
+    db.saveGraph(graph, 1, U);
   });
   afterEach(() => {
     db.close();
     rmSync(dir, { recursive: true, force: true });
   });
 
-  async function produce(runId: string, artifact: Artifact, nodeId = "n1") {
+  async function produce(runId: string, artifact: Artifact, nodeId = "n1", userId = U) {
     const saved = await store.save(artifact, { runId, nodeId });
-    db.insertArtifact(saved);
+    db.insertArtifact(saved, userId);
     return saved;
   }
 
   function startRun(runId: string) {
-    db.createRun({ id: runId, graph, budgetUsd: null, at: Date.now() });
+    db.createRun({ id: runId, userId: U, graph, budgetUsd: null, at: Date.now() });
   }
 
   it("stores and retrieves artifact metadata per run", async () => {
@@ -39,13 +41,13 @@ describe("artifact persistence", () => {
     await produce("r1", { id: "a1", kind: "text", content: "hello" });
     await produce("r1", { id: "a2", kind: "image", uri: "https://x/y.png" });
 
-    const list = db.listArtifactsForRun("r1");
+    const list = db.listArtifactsForRun("r1", U);
     expect(list.map((a) => a.id)).toEqual(["a1", "a2"]);
     const local = list.find((a) => a.id === "a1")!;
     expect(local.storage).toBe("local");
     expect(local.uri).toMatch(/^\/api\/artifacts\/a1$/);
 
-    const remote = db.getArtifact("a2")!;
+    const remote = db.getArtifact("a2", U)!;
     expect(remote.storage).toBe("uri");
     expect(remote.uri).toBe("https://x/y.png");
   });
@@ -55,24 +57,35 @@ describe("artifact persistence", () => {
     startRun("r2");
     await produce("r1", { id: "old", kind: "text", content: "1" });
     await produce("r2", { id: "new", kind: "json", content: "{}" });
-    const page = db.listArtifacts(10, 0);
+    const page = db.listArtifacts(U, 10, 0);
     expect(page[0]!.id).toBe("new");
     expect(page).toHaveLength(2);
+  });
+
+  it("hides one user's artifacts from another", async () => {
+    startRun("r1");
+    await produce("r1", { id: "a1", kind: "text", content: "secret" });
+
+    expect(db.listArtifacts(OTHER, 10, 0)).toHaveLength(0);
+    expect(db.listArtifactsForRun("r1", OTHER)).toHaveLength(0);
+    expect(db.getArtifact("a1", OTHER)).toBeNull();
+    // The engine resolves artifacts its own run already owns.
+    expect(db.getArtifactUnscoped("a1")?.runId).toBe("r1");
   });
 
   it("removes artifact rows when the run is deleted", async () => {
     startRun("r1");
     await produce("r1", { id: "a1", kind: "text", content: "x" });
-    db.deleteRun("r1");
-    expect(db.listArtifactsForRun("r1")).toHaveLength(0);
-    expect(db.getArtifact("a1")).toBeNull();
+    db.deleteRun("r1", U);
+    expect(db.listArtifactsForRun("r1", U)).toHaveLength(0);
+    expect(db.getArtifact("a1", U)).toBeNull();
   });
 
   it("is idempotent on duplicate insert (ON CONFLICT DO NOTHING)", async () => {
     startRun("r1");
     const saved: StoredArtifact = await produce("r1", { id: "a1", kind: "text", content: "x" });
-    db.insertArtifact(saved);
-    db.insertArtifact(saved);
-    expect(db.listArtifactsForRun("r1")).toHaveLength(1);
+    db.insertArtifact(saved, U);
+    db.insertArtifact(saved, U);
+    expect(db.listArtifactsForRun("r1", U)).toHaveLength(1);
   });
 });

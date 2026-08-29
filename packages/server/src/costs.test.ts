@@ -6,6 +6,7 @@ import { openDb } from "./db.js";
 import type { Graph, RunEvent } from "@agent-world/core";
 
 const DAY_MS = 86_400_000;
+const U = "u1";
 
 const graph: Graph = {
   id: "g1",
@@ -45,7 +46,7 @@ describe("cost report", () => {
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "aw-costs-"));
     db = openDb(join(dir, "test.sqlite"));
-    db.saveGraph(graph, 1);
+    db.saveGraph(graph, 1, U);
   });
 
   afterEach(() => {
@@ -53,14 +54,14 @@ describe("cost report", () => {
   });
 
   it("aggregates totals, per graph, per node, attempt, and day", () => {
-    db.createRun({ id: "r1", graph, budgetUsd: null, at: DAY_MS * 10 });
+    db.createRun({ id: "r1", userId: U, graph, budgetUsd: null, at: DAY_MS * 10 });
     db.record("r1", finished("n1", 1, 0.01, 1));
     db.record("r1", finished("n1", 2, 0.005, 2));
-    db.finishRun("r1", "done", DAY_MS * 10 + 1000);
+    db.finishRun("r1", U, "done", DAY_MS * 10 + 1000);
 
-    db.createRun({ id: "r2", graph, budgetUsd: null, at: DAY_MS * 20 });
+    db.createRun({ id: "r2", userId: U, graph, budgetUsd: null, at: DAY_MS * 20 });
     db.record("r2", finished("n1", 1, 0.02, 1));
-    db.finishRun("r2", "done", DAY_MS * 20 + 1000);
+    db.finishRun("r2", U, "done", DAY_MS * 20 + 1000);
 
     const rep = db.costReport();
     expect(rep.totals.runs).toBe(2);
@@ -93,11 +94,11 @@ describe("cost report", () => {
   });
 
   it("filters by time range and excludes running runs", () => {
-    db.createRun({ id: "r1", graph, budgetUsd: null, at: DAY_MS * 5 });
+    db.createRun({ id: "r1", userId: U, graph, budgetUsd: null, at: DAY_MS * 5 });
     db.record("r1", finished("n1", 1, 0.01, 1));
-    db.finishRun("r1", "done", DAY_MS * 5 + 1000);
+    db.finishRun("r1", U, "done", DAY_MS * 5 + 1000);
 
-    db.createRun({ id: "r2", graph, budgetUsd: null, at: DAY_MS * 100 });
+    db.createRun({ id: "r2", userId: U, graph, budgetUsd: null, at: DAY_MS * 100 });
     db.record("r2", finished("n1", 1, 0.05, 1));
 
     const recent = db.costReport({ from: Date.now() });
@@ -114,13 +115,13 @@ describe("cost report", () => {
     const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
     const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1).getTime();
 
-    db.createRun({ id: "r1", graph, budgetUsd: null, at: thisMonthStart + 1000 });
+    db.createRun({ id: "r1", userId: U, graph, budgetUsd: null, at: thisMonthStart + 1000 });
     db.record("r1", finished("n1", 1, 0.01, 1));
-    db.finishRun("r1", "done", thisMonthStart + 2000);
+    db.finishRun("r1", U, "done", thisMonthStart + 2000);
 
-    db.createRun({ id: "r2", graph, budgetUsd: null, at: lastMonthStart + 1000 });
+    db.createRun({ id: "r2", userId: U, graph, budgetUsd: null, at: lastMonthStart + 1000 });
     db.record("r2", finished("n1", 1, 0.05, 1));
-    db.finishRun("r2", "done", lastMonthStart + 2000);
+    db.finishRun("r2", U, "done", lastMonthStart + 2000);
 
     const spent = db.costForMonth(now.getFullYear(), now.getMonth() + 1);
     expect(spent).toBeCloseTo(0.01, 5);
@@ -138,7 +139,7 @@ describe("eval report", () => {
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "aw-eval-"));
     db = openDb(join(dir, "test.sqlite"));
-    db.saveGraph(graph, 1);
+    db.saveGraph(graph, 1, U);
   });
   afterEach(() => {
     db.close();
@@ -160,17 +161,17 @@ describe("eval report", () => {
 
   it("aggregates pass rate, rework and duration", () => {
     // Passed run with one rework (n1 attempt 2).
-    db.createRun({ id: "r1", graph, budgetUsd: null, at: 1000 });
+    db.createRun({ id: "r1", userId: U, graph, budgetUsd: null, at: 1000 });
     nodeFinished("r1", "n1", 1, 1000);
     nodeFinished("r1", "n1", 2, 1500);
-    db.finishRun("r1", "done", 2000);
+    db.finishRun("r1", U, "done", 2000);
 
     // Failed run.
-    db.createRun({ id: "r2", graph, budgetUsd: null, at: 3000 });
+    db.createRun({ id: "r2", userId: U, graph, budgetUsd: null, at: 3000 });
     nodeFinished("r2", "n1", 1, 3000);
-    db.finishRun("r2", "failed", 3500);
+    db.finishRun("r2", U, "failed", 3500);
 
-    const rep = db.evalReport();
+    const rep = db.evalReport({ userId: U });
     expect(rep.totals.runs).toBe(2);
     expect(rep.totals.passed).toBe(1);
     expect(rep.totals.passRate).toBeCloseTo(0.5, 5);
@@ -185,13 +186,13 @@ describe("eval report", () => {
 
   it("filters by graph id", () => {
     const other: Graph = { id: "g2", name: "G2", nodes: [], edges: [] };
-    db.saveGraph(other, 2);
-    db.createRun({ id: "r1", graph, budgetUsd: null, at: 1000 });
-    db.finishRun("r1", "done", 1500);
-    db.createRun({ id: "r2", graph: other, budgetUsd: null, at: 2000 });
-    db.finishRun("r2", "failed", 2500);
+    db.saveGraph(other, 2, U);
+    db.createRun({ id: "r1", userId: U, graph, budgetUsd: null, at: 1000 });
+    db.finishRun("r1", U, "done", 1500);
+    db.createRun({ id: "r2", userId: U, graph: other, budgetUsd: null, at: 2000 });
+    db.finishRun("r2", U, "failed", 2500);
 
-    const rep = db.evalReport({ graphId: "g1" });
+    const rep = db.evalReport({ userId: U, graphId: "g1" });
     expect(rep.totals.runs).toBe(1);
     expect(rep.totals.passRate).toBe(1);
   });
@@ -207,16 +208,16 @@ describe("eval report", () => {
     });
 
     // v1 prompt -> run passes
-    db.createRun({ id: "r1", graph: makeGraph("prompt v1"), budgetUsd: null, at: 1000 });
+    db.createRun({ id: "r1", userId: U, graph: makeGraph("prompt v1"), budgetUsd: null, at: 1000 });
     db.record("r1", { seq: 1, ts: 1000, version: 1, type: "node.finished", nodeId: "n1", attempt: 1, output: "ok", usage: { tokensIn: 1, tokensOut: 1, costUsd: 0 } } as RunEvent);
-    db.finishRun("r1", "done", 1500);
+    db.finishRun("r1", U, "done", 1500);
 
     // v2 prompt -> run fails
-    db.createRun({ id: "r2", graph: makeGraph("prompt v2 — improved"), budgetUsd: null, at: 2000 });
+    db.createRun({ id: "r2", userId: U, graph: makeGraph("prompt v2 — improved"), budgetUsd: null, at: 2000 });
     db.record("r2", { seq: 1, ts: 2000, version: 1, type: "node.finished", nodeId: "n1", attempt: 1, output: "bad", usage: { tokensIn: 1, tokensOut: 1, costUsd: 0 } } as RunEvent);
-    db.finishRun("r2", "failed", 2500);
+    db.finishRun("r2", U, "failed", 2500);
 
-    const rep = db.evalReport();
+    const rep = db.evalReport({ userId: U });
     expect(rep.byPrompt).toHaveLength(2);
     const versions = rep.byPrompt.map((p) => p.version).sort();
     expect(versions).toEqual(["v1", "v2"]);
@@ -236,7 +237,7 @@ describe("eval report quality score", () => {
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "aw-eval-"));
     db = openDb(join(dir, "test.sqlite"));
-    db.saveGraph(graph, 1);
+    db.saveGraph(graph, 1, U);
   });
 
   afterEach(() => {
@@ -244,29 +245,29 @@ describe("eval report quality score", () => {
   });
 
   it("averages gate scores into the eval report", () => {
-    db.createRun({ id: "r1", graph, budgetUsd: null, at: 1000 });
+    db.createRun({ id: "r1", userId: U, graph, budgetUsd: null, at: 1000 });
     db.record("r1", { seq: 1, ts: 1000, version: 1, type: "node.started", nodeId: "critic", attempt: 1 } as RunEvent);
     db.record("r1", { seq: 2, ts: 1000, version: 1, type: "gate.verdict", nodeId: "critic", attempt: 1, passed: true, reason: "ok", score: 7 } as RunEvent);
     db.record("r1", { seq: 3, ts: 1000, version: 1, type: "node.started", nodeId: "critic", attempt: 2 } as RunEvent);
     db.record("r1", { seq: 4, ts: 1000, version: 1, type: "gate.verdict", nodeId: "critic", attempt: 2, passed: true, reason: "ok", score: 9 } as RunEvent);
-    db.finishRun("r1", "done", 2000);
+    db.finishRun("r1", U, "done", 2000);
 
-    db.createRun({ id: "r2", graph, budgetUsd: null, at: 3000 });
+    db.createRun({ id: "r2", userId: U, graph, budgetUsd: null, at: 3000 });
     db.record("r2", { seq: 1, ts: 3000, version: 1, type: "node.started", nodeId: "critic", attempt: 1 } as RunEvent);
     db.record("r2", { seq: 2, ts: 3000, version: 1, type: "gate.verdict", nodeId: "critic", attempt: 1, passed: true, reason: "ok", score: 4 } as RunEvent);
-    db.finishRun("r2", "done", 4000);
+    db.finishRun("r2", U, "done", 4000);
 
-    const rep = db.evalReport();
+    const rep = db.evalReport({ userId: U });
     expect(rep.totals.avgScore).toBeCloseTo(6, 5); // ((7+9)/2 + 4) / 2
     expect(rep.byGraph[0].avgScore).toBeCloseTo(6, 5);
   });
 
   it("reports zero when no gate was scored", () => {
-    db.createRun({ id: "r1", graph, budgetUsd: null, at: 1000 });
+    db.createRun({ id: "r1", userId: U, graph, budgetUsd: null, at: 1000 });
     db.record("r1", finished("n1", 1, 0.01, 1));
-    db.finishRun("r1", "done", 2000);
+    db.finishRun("r1", U, "done", 2000);
 
-    const rep = db.evalReport();
+    const rep = db.evalReport({ userId: U });
     expect(rep.totals.avgScore).toBe(0);
   });
 });

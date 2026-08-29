@@ -8,6 +8,7 @@ dist/
 .env.local
 *.sqlite-wal
 *.sqlite-shm
+.jwt-secret
 .claude/
 agent-world.config.json
 *.config.local.json

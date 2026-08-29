@@ -77,19 +77,20 @@ describe("brand-term gate coverage", () => {
 
 describe("brand_terms store", () => {
   it("adds, lists and deletes brand terms, rejecting empty ones", () => {
+    const U = "u1";
     const db = openDb(":memory:");
-    const a = db.addBrandTerm("显瘦", "版型");
+    const a = db.addBrandTerm(U, "显瘦", "版型");
     expect(a.term).toBe("显瘦");
-    const b = db.addBrandTerm(" 透气 ");
+    const b = db.addBrandTerm(U, " 透气 ");
     expect(b.term).toBe("透气");
 
-    const all = db.listBrandTerms();
+    const all = db.listBrandTerms(U);
     expect(all).toHaveLength(2);
     expect(all.map((x) => x.term).sort()).toEqual(["显瘦", "透气"]);
 
-    db.deleteBrandTerm(a.id);
-    expect(db.listBrandTerms()).toHaveLength(1);
+    db.deleteBrandTerm(a.id, U);
+    expect(db.listBrandTerms(U)).toHaveLength(1);
 
-    expect(() => db.addBrandTerm("   ")).toThrow();
+    expect(() => db.addBrandTerm(U, "   ")).toThrow();
   });
 });

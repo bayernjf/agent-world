@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 import os from "node:os";
 import path from "node:path";
 import { openDb } from "./db.js";
+import { signToken } from "./auth.js";
 import type { RunEvent } from "@agent-world/core";
 
 // Real-world network-drop test for SSE resume (roadmap 3.3).
@@ -19,13 +20,15 @@ const tmp = path.join(
 
 const RUN = "sse-drop-run";
 const COUNT = 10;
+let authToken = "";
 
-beforeAll(() => {
+beforeAll(async () => {
   process.env.NODE_ENV = "test";
   process.env.DB_FILE = tmp;
   const db = openDb(tmp);
   db.createRun({
     id: RUN,
+    userId: "u1",
     graph: { id: "g", nodes: [], edges: [] } as never,
     budgetUsd: null,
     at: 0,
@@ -41,6 +44,7 @@ beforeAll(() => {
     } as unknown as RunEvent;
     db.record(RUN, ev);
   }
+  authToken = await signToken("u1", "u1@local.dev");
   db.close();
 });
 
@@ -50,7 +54,10 @@ async function collect(
   dropAfterSeq: number | null,
   useHeader: boolean = false,
 ): Promise<number[]> {
-  const url = `/api/runs/${RUN}/stream${after >= 0 && !useHeader ? `?after=${after}` : ""}`;
+  const params = new URLSearchParams();
+  if (after >= 0 && !useHeader) params.set("after", String(after));
+  params.set("token", authToken);
+  const url = `/api/runs/${RUN}/stream?${params.toString()}`;
   const headers: Record<string, string> = {};
   if (after >= 0 && useHeader) headers["Last-Event-ID"] = String(after);
   const res = await app.request(url, { headers });

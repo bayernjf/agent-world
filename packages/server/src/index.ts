@@ -16,7 +16,7 @@ import {
   type RunEvent,
   type SkillPermissions,
 } from "@agent-world/core";
-import { openDb } from "./db.js";
+import { openDb, backfillExistingData } from "./db.js";
 import { findGraphIdByName as findGraphIdByNameCore } from "./graphs-name.js";
 import { ArtifactStore } from "./artifact-store.js";
 import { log } from "./logger.js";
@@ -29,6 +29,7 @@ import { startABExperiment } from "./ab.js";
 import {
   loadConfig,
   saveConfig,
+  bindSettingsStore,
   normalizeBaseUrl,
   modalityOf,
   MODALITY_ENDPOINT,
@@ -36,6 +37,8 @@ import {
   type AppConfig,
   type Modality,
 } from "./config.js";
+import { hostIsInternal } from "./ssrf.js";
+import { runAsUser } from "./user-context.js";
 import { routingWorker } from "./providers/index.js";
 import { WorkerRegistry } from "./worker-plugins.js";
 import { connectMcpServer, registerMcpTools, type McpClient, type McpServerSpec } from "./mcp.js";
@@ -45,9 +48,22 @@ import { SQLiteMemoryBackend, extractKnowledgeFromRun } from "./memory.js";
 import { fileURLToPath } from "node:url";
 import { sanitizeError } from "./sanitize.js";
 import { createReadArtifact } from "./artifact-reader.js";
+import { hashPassword, verifyPassword, signToken, verifyToken, REMEMBER_MAX_AGE_SEC } from "./auth.js";
 
 const PORT = Number(process.env.PORT ?? 8791);
+/** Absolute origin advertised to models so artifact links are fully qualified. */
+const PUBLIC_URL = (process.env.AGENT_WORLD_PUBLIC_URL ?? `http://localhost:${PORT}`).replace(
+  /\/+$/,
+  "");
 const db = openDb(process.env.DB_FILE ?? "agent-world.sqlite");
+backfillExistingData(db as any);
+// Settings are per-user rows in the DB; config.ts reads/writes through this
+// store while the legacy file config remains the shared baseline for users
+// who have never saved settings.
+bindSettingsStore({
+  get: (userId: string) => db.getSettings(userId),
+  set: (userId: string, data: string) => db.saveSettings(userId, data),
+});
 const artifacts = ArtifactStore.fromEnv();
 const readArtifact = createReadArtifact(db, artifacts);
 
@@ -76,26 +92,33 @@ const live = new Map<
 
 /** Automatic triggers (webhook/cron/event/batch). Restored from persisted graphs. */
 const triggers = new TriggerService({
-  db,
-  startRun: (graph, opts) =>
-    startRun({
+  db: {
+    listAllGraphs: () => db.listAllGraphs(),
+    getGraphById: (id: string) => db.getGraphById(id),
+    saveGraphUnscoped: (graph: any, at: number) => db.saveGraphUnscoped(graph, at),
+  },
+  startRun: (graph, opts) => {
+    const ownerId = db.getGraphOwnerId(graph.id) ?? "";
+    return startRun({
       db,
+      userId: ownerId,
       worker,
       artifacts,
       live,
       graph,
+      publicUrl: PUBLIC_URL,
       ...opts,
       onFinish: (gid, status) => {
         void triggers.onGraphFinished(gid, status);
         if (status === "completed" || status === "failed") {
           try {
-            const recent = db.listRuns({ graphId: gid, limit: 1 });
-            if (recent.rows.length > 0) {
-              const run = recent.rows[0]!;
-              const events = db.events(run.id);
-              const graphName = db.getGraph(gid)?.name ?? gid;
-              const entries = extractKnowledgeFromRun(events, run.id, graphName);
-              for (const entry of entries) memory.add(entry);
+            const recent = db.listRunsByGraphUnscoped(gid, 1);
+            if (recent.length > 0) {
+              const run = recent[0]!;
+              const events = db.events(run.id as string);
+              const graphName = db.getGraphById(gid)?.name ?? gid;
+              const entries = extractKnowledgeFromRun(events, run.id as string, graphName);
+              for (const entry of entries) memory.add(ownerId, entry);
             }
           } catch {
             // best-effort
@@ -105,7 +128,8 @@ const triggers = new TriggerService({
       onArtifact: (aid) => {
         void triggers.onArtifact(aid);
       },
-    }),
+    });
+  },
 });
 triggers.restore();
 
@@ -123,20 +147,168 @@ function jsonResponse(status: number, body: unknown): Response {
   });
 }
 
-export const app = new Hono();
+export const app = new Hono<{ Variables: { userId: string } }>();
 applyCors(app, process.env.CORS_ORIGINS);
 applySecurityHeaders(app);
 
 app.get("/api/health", (c) => c.json({ ok: true }));
 
+// --- Auth routes (no auth required) ---
+const AUTH_COOKIE = "auth_token";
+
+/**
+ * Secure-cookie policy: the SECURE_COOKIES env var overrides; without it,
+ * production builds enable Secure (they are expected to run behind TLS) while
+ * everything else keeps it off so local HTTP development keeps working.
+ * Loopback hosts are exempt even when enabled, since browsers accept Secure
+ * cookies on http://localhost but many other clients (curl, Playwright) do not.
+ */
+function secureCookiesEnabled(host?: string): boolean {
+  const v = process.env.SECURE_COOKIES;
+  const enabled =
+    v !== undefined
+      ? v === "1" || v.toLowerCase() === "true"
+      : process.env.NODE_ENV === "production";
+  if (!enabled) return false;
+  const h = (host ?? "").toLowerCase();
+  return !(
+    h === "localhost" ||
+    h.startsWith("localhost:") ||
+    h === "127.0.0.1" ||
+    h.startsWith("127.0.0.1:") ||
+    h === "[::1]" ||
+    h.startsWith("[::1]:")
+  );
+}
+
+function setAuthCookie(c: any, token: string, remember: boolean) {
+  // Without Max-Age the browser treats it as a session cookie (dropped on close).
+  const maxAge = remember ? `; Max-Age=${REMEMBER_MAX_AGE_SEC}` : "";
+  const secure = secureCookiesEnabled(c.req.header("host")) ? "; Secure" : "";
+  c.header("set-cookie", `${AUTH_COOKIE}=${token}; HttpOnly; Path=/${maxAge}${secure}; SameSite=Lax`);
+}
+
+function clearAuthCookie(c: any) {
+  const secure = secureCookiesEnabled(c.req.header("host")) ? "; Secure" : "";
+  c.header("set-cookie", `${AUTH_COOKIE}=; HttpOnly; Path=/; Max-Age=0${secure}; SameSite=Lax`);
+}
+
+app.post("/api/auth/register", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as { email?: string; password?: string };
+  const email = (body.email ?? "").trim().toLowerCase();
+  const password = body.password ?? "";
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return c.json({ error: "请输入有效的邮箱地址" }, 400);
+  }
+  if (password.length < 6) {
+    return c.json({ error: "密码至少需要6个字符" }, 400);
+  }
+  if (db.findUserByEmail(email)) {
+    return c.json({ error: "该邮箱已注册" }, 409);
+  }
+  const id = randomUUID();
+  const passwordHash = await hashPassword(password);
+  db.createUser(id, email, passwordHash);
+  const token = await signToken(id, email, true);
+  setAuthCookie(c, token, true);
+  return c.json({ user: { id, email } }, 201);
+});
+
+app.post("/api/auth/login", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as {
+    email?: string;
+    password?: string;
+    remember?: boolean;
+  };
+  const email = (body.email ?? "").trim().toLowerCase();
+  const password = body.password ?? "";
+  const remember = body.remember === true;
+  const user = db.findUserByEmail(email);
+  if (!user) {
+    return c.json({ error: "邮箱或密码错误" }, 401);
+  }
+  const hash = db.findUserPasswordHash(user.id);
+  if (!hash || !(await verifyPassword(password, hash))) {
+    return c.json({ error: "邮箱或密码错误" }, 401);
+  }
+  const token = await signToken(user.id, user.email, remember);
+  setAuthCookie(c, token, remember);
+  return c.json({ user: { id: user.id, email: user.email } });
+});
+
+app.post("/api/auth/logout", (c) => {
+  clearAuthCookie(c);
+  return c.body(null, 204);
+});
+
+app.get("/api/auth/me", async (c) => {
+  const cookie = c.req.header("cookie") ?? "";
+  const tokenMatch = cookie.match(new RegExp(`${AUTH_COOKIE}=([^;]+)`));
+  const token = tokenMatch?.[1];
+  if (!token) return c.json({ error: "not authenticated" }, 401);
+  const payload = await verifyToken(token);
+  if (!payload) return c.json({ error: "not authenticated" }, 401);
+  const user = db.findUserById(payload.userId);
+  if (!user) return c.json({ error: "not authenticated" }, 401);
+  return c.json({ user: { id: user.id, email: user.email, createdAt: user.created_at } });
+});
+
+app.post("/api/auth/password", async (c) => {
+  const cookie = c.req.header("cookie") ?? "";
+  const token = cookie.match(new RegExp(`${AUTH_COOKIE}=([^;]+)`))?.[1];
+  const payload = token ? await verifyToken(token) : null;
+  const user = payload ? db.findUserById(payload.userId) : undefined;
+  if (!user) return c.json({ error: "not authenticated" }, 401);
+  const body = (await c.req.json().catch(() => ({}))) as {
+    currentPassword?: string;
+    newPassword?: string;
+  };
+  const currentPassword = body.currentPassword ?? "";
+  const newPassword = body.newPassword ?? "";
+  if (newPassword.length < 6) {
+    return c.json({ error: "新密码至少需要6个字符" }, 400);
+  }
+  const hash = db.findUserPasswordHash(user.id);
+  if (!hash || !(await verifyPassword(currentPassword, hash))) {
+    return c.json({ error: "当前密码不正确" }, 401);
+  }
+  db.updateUserPasswordHash(user.id, await hashPassword(newPassword));
+  return c.json({ ok: true });
+});
+
+// --- Auth middleware ---
+app.use("/api/*", async (c, next) => {
+  const path = c.req.path;
+  // Skip auth for public endpoints
+  if (path === "/api/health" || path.startsWith("/api/auth/")) return next();
+  // Webhook endpoints use their own secret-based auth
+  if (/\/api\/graphs\/[^/]+\/webhook$/.test(path)) return next();
+
+  // Extract token from cookie or query param (SSE fallback)
+  let token: string | undefined;
+  const cookie = c.req.header("cookie") ?? "";
+  const cookieMatch = cookie.match(new RegExp(`${AUTH_COOKIE}=([^;]+)`));
+  token = cookieMatch?.[1] ?? c.req.query("token") ?? undefined;
+
+  if (!token) return c.json({ error: "not authenticated" }, 401);
+  const payload = await verifyToken(token);
+  if (!payload) return c.json({ error: "invalid or expired token" }, 401);
+
+  c.set("userId", payload.userId);
+  await next();
+});
+
 app.get("/api/skills", (c) => c.json(listBuiltinSkills()));
 
-app.get("/api/graphs", (c) => c.json(db.listGraphs()));
+app.get("/api/graphs", (c) => {
+  const userId = c.get("userId");
+  return c.json(db.listGraphs(userId));
+});
 
 // Reject names that collide (case-insensitive, trimmed) with any other graph.
 // `excludeId` lets PUT /api/graphs/:id skip the row it's updating.
-const findGraphIdByName = (name: string, excludeId?: string): string | null =>
-  findGraphIdByNameCore(db.listGraphs(), name, excludeId);
+const findGraphIdByName = (name: string, userId: string, excludeId?: string): string | null =>
+  findGraphIdByNameCore(db.listGraphs(userId), name, excludeId);
 
 
 app.get("/api/templates", (c) =>
@@ -164,6 +336,7 @@ app.get("/api/templates", (c) =>
 );
 
 app.post("/api/graphs", async (c) => {
+  const userId = c.get("userId");
   const body = (await c.req.json().catch(() => ({}))) as {
     name?: string;
     from?: string;
@@ -179,7 +352,7 @@ app.post("/api/graphs", async (c) => {
       name: body.name?.trim() || tpl.name,
     });
   } else if (body.from) {
-    const src = db.getGraph(body.from);
+    const src = db.getGraph(body.from, userId);
     if (!src) return c.json({ error: "source graph not found" }, 404);
     const { version: _srcVersion, ...srcDoc } = src;
     void _srcVersion;
@@ -198,32 +371,35 @@ app.post("/api/graphs", async (c) => {
       edges: [],
     };
   }
-  const dup = findGraphIdByName(graph.name);
+  const dup = findGraphIdByName(graph.name, userId);
   if (dup) {
     return c.json(
       { error: "duplicate_name", message: `已存在同名产线「${graph.name}」，请换一个名字。`, existingId: dup },
       409,
     );
   }
-  db.saveGraph(graph, Date.now());
-  return c.json(db.getGraph(id), 201);
+  db.saveGraph(graph, Date.now(), userId);
+  return c.json(db.getGraph(id, userId), 201);
 });
 
 app.get("/api/graphs/:id", (c) => {
-  const graph = db.getGraph(c.req.param("id"));
+  const userId = c.get("userId");
+  const graph = db.getGraph(c.req.param("id"), userId);
   return graph ? c.json(graph) : c.json({ error: "not found" }, 404);
 });
 
 app.delete("/api/graphs/:id", (c) => {
-  db.deleteGraph(c.req.param("id"));
+  const userId = c.get("userId");
+  db.deleteGraph(c.req.param("id"), userId);
   return c.json({ ok: true });
 });
 
 app.put("/api/graphs/:id", async (c) => {
+  const userId = c.get("userId");
   const parsed = Graph.safeParse(await c.req.json());
   if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
 
-  const dupId = findGraphIdByName(parsed.data.name, c.req.param("id"));
+  const dupId = findGraphIdByName(parsed.data.name, userId, c.req.param("id"));
   if (dupId) {
     return c.json(
       { error: "duplicate_name", message: `已存在同名产线「${parsed.data.name}」，请换一个名字。`, existingId: dupId },
@@ -236,7 +412,7 @@ app.put("/api/graphs/:id", async (c) => {
   // refuse instead of silently overwriting their edits.
   const ifMatch = c.req.header("if-match");
   const expectedVersion = ifMatch != null ? Number(ifMatch) : undefined;
-  const result = db.saveGraph(parsed.data, Date.now(), expectedVersion);
+  const result = db.saveGraph(parsed.data, Date.now(), userId, expectedVersion);
   if (!result.ok) {
     return c.json(
       { error: "conflict", message: "该产线已在其他标签页被修改，请刷新后重试。", serverVersion: result.serverVersion },
@@ -253,7 +429,13 @@ app.post("/api/compile", async (c) => {
   const parsed = Graph.safeParse(await c.req.json());
   if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
   const result = compile(parsed.data);
-  const modelDiags = validateModels(parsed.data, loadConfig());
+  const modelDiags = validateModels(parsed.data, loadConfig(c.get("userId")));
+  log.info("compile", {
+    graphId: parsed.data.id,
+    nodes: parsed.data.nodes.length,
+    plan: result.plan !== null,
+    diagnostics: [...result.diagnostics, ...modelDiags].map((d) => d.message),
+  });
   return c.json({
     ...result,
     diagnostics: [...result.diagnostics, ...modelDiags],
@@ -261,7 +443,7 @@ app.post("/api/compile", async (c) => {
 });
 
 app.get("/api/settings", (c) => {
-  const cfg = loadConfig();
+  const cfg = loadConfig(c.get("userId"));
   // Never return raw API keys — redact for the UI.
   const redacted: AppConfig = {
     ...cfg,
@@ -276,8 +458,9 @@ app.get("/api/settings", (c) => {
 });
 
 app.put("/api/settings", async (c) => {
+  const userId = c.get("userId");
   const body = (await c.req.json()) as Partial<AppConfig>;
-  const current = loadConfig();
+  const current = loadConfig(userId);
   const bodyProviders = body.providers ?? {};
   const mergedProviders: AppConfig["providers"] = {};
   // Always keep the internal fake provider.
@@ -294,7 +477,7 @@ app.put("/api/settings", async (c) => {
     ...body,
     providers: mergedProviders,
   };
-  const path = saveConfig(merged);
+  const path = saveConfig(merged, userId);
   return c.json({ ok: true, path });
 });
 
@@ -321,7 +504,7 @@ app.post("/api/providers/test", async (c) => {
   // Resolve modality: explicit > saved for this model > text default.
   let modality = body.modality ?? DEFAULT_MODALITY;
   if (body.providerName) {
-    const saved = loadConfig().providers[body.providerName];
+    const saved = loadConfig(c.get("userId")).providers[body.providerName];
     if (saved) modality = body.modality ?? modalityOf(saved, model);
   }
 
@@ -330,7 +513,7 @@ app.post("/api/providers/test", async (c) => {
   // the saved config on the server.
   const looksRedacted = !apiKey || isRedactedKey(apiKey);
   if (looksRedacted && body.providerName) {
-    const saved = loadConfig().providers[body.providerName];
+    const saved = loadConfig(c.get("userId")).providers[body.providerName];
     if (saved?.apiKey && !isRedactedKey(saved.apiKey)) apiKey = saved.apiKey;
     else if (!saved) {
       return c.json({ ok: false, error: `Provider "${body.providerName}" 未保存，请先添加并保存` }, 400);
@@ -388,11 +571,12 @@ app.post("/api/providers/test", async (c) => {
 
 
 app.get("/api/runs", (c) => {
+  const userId = c.get("userId");
   const limit = Number(c.req.query("limit") ?? 50);
   const offset = Number(c.req.query("offset") ?? 0);
   const graphId = c.req.query("graphId");
   const status = c.req.query("status");
-  const { rows, total } = db.listRuns({
+  const { rows, total } = db.listRuns(userId, {
     limit,
     offset,
     graphId: graphId || undefined,
@@ -405,23 +589,39 @@ app.get("/api/runs/:id/stats", (c) => {
   return c.json(db.runStats(c.req.param("id")));
 });
 
+/** The graph as it was when this run started (snapshot), used to render a
+ *  historical run's finished product in the gallery. */
+app.get("/api/runs/:id/graph", (c) => {
+  const userId = c.get("userId");
+  const run = db.getRun(c.req.param("id"), userId);
+  if (!run) return c.json({ error: "not found" }, 404);
+  try {
+    return c.json(JSON.parse(run.snapshot));
+  } catch {
+    return c.json({ error: "snapshot corrupted" }, 500);
+  }
+});
+
 // --- Knowledge base / archive (5.2) ---
 app.get("/api/knowledge", (c) => {
+  const userId = c.get("userId");
   const limit = Math.min(Number(c.req.query("limit") ?? 50), 200);
   const offset = Number(c.req.query("offset") ?? 0);
-  return c.json({ entries: memory.list(limit, offset), total: memory.count() });
+  return c.json({ entries: memory.list(userId, limit, offset), total: memory.count(userId) });
 });
 
 app.get("/api/knowledge/search", (c) => {
+  const userId = c.get("userId");
   const q = c.req.query("q") ?? "";
   const limit = Math.min(Number(c.req.query("limit") ?? 20), 50);
-  return c.json({ entries: memory.search(q, limit) });
+  return c.json({ entries: memory.search(userId, q, limit) });
 });
 
 app.post("/api/knowledge", async (c) => {
+  const userId = c.get("userId");
   const body = (await c.req.json().catch(() => ({}))) as { title?: string; content?: string; source?: string; tags?: string[] };
   if (!body.title || !body.content) return c.json({ error: "title and content are required" }, 400);
-  const entry = memory.add({
+  const entry = memory.add(userId, {
     title: body.title,
     content: body.content,
     source: body.source ?? "manual",
@@ -431,7 +631,8 @@ app.post("/api/knowledge", async (c) => {
 });
 
 app.delete("/api/knowledge/:id", (c) => {
-  const ok = memory.delete(c.req.param("id"));
+  const userId = c.get("userId");
+  const ok = memory.delete(c.req.param("id"), userId);
   if (!ok) return c.json({ error: "not found" }, 404);
   return c.body(null, 204);
 });
@@ -443,10 +644,12 @@ app.get("/api/workers", (c) => c.json(workerRegistry.list()));
 app.get("/api/mcp", (c) => c.json(mcpStatus));
 
 app.get("/api/costs", (c) => {
+  const userId = c.get("userId");
   const from = c.req.query("from");
   const to = c.req.query("to");
   return c.json(
     db.costReport({
+      userId,
       from: from ? Number(from) : undefined,
       to: to ? Number(to) : undefined,
     }),
@@ -454,9 +657,11 @@ app.get("/api/costs", (c) => {
 });
 
 app.get("/api/costs.csv", (c) => {
+  const userId = c.get("userId");
   const from = c.req.query("from");
   const to = c.req.query("to");
   const { byGraph, byNode, byDay } = db.costRows({
+    userId,
     from: from ? Number(from) : undefined,
     to: to ? Number(to) : undefined,
   });
@@ -486,11 +691,13 @@ app.get("/api/costs.csv", (c) => {
 });
 
 app.get("/api/eval", (c) => {
+  const userId = c.get("userId");
   const from = c.req.query("from");
   const to = c.req.query("to");
   const graphId = c.req.query("graphId");
   return c.json(
     db.evalReport({
+      userId,
       graphId: graphId || undefined,
       from: from ? Number(from) : undefined,
       to: to ? Number(to) : undefined,
@@ -499,10 +706,12 @@ app.get("/api/eval", (c) => {
 });
 
 app.get("/api/eval.csv", (c) => {
+  const userId = c.get("userId");
   const from = c.req.query("from");
   const to = c.req.query("to");
   const graphId = c.req.query("graphId");
   const rep = db.evalReport({
+    userId,
     graphId: graphId || undefined,
     from: from ? Number(from) : undefined,
     to: to ? Number(to) : undefined,
@@ -552,6 +761,7 @@ app.get("/api/eval.csv", (c) => {
 });
 
 app.post("/api/runs", async (c) => {
+  const userId = c.get("userId");
   const body = (await c.req.json().catch(() => ({}))) as {
     graphId?: string;
     budgetUsd?: number | null;
@@ -560,13 +770,13 @@ app.post("/api/runs", async (c) => {
     connectorValues?: Record<string, string>;
     workerId?: string;
   };
-  const graphs = db.listGraphs();
+  const graphs = db.listGraphs(userId);
   const graphId = body.graphId ?? graphs[0]?.id;
   if (!graphId) return c.json({ error: "no graphs found — create one first" }, 400);
-  const graph = db.getGraph(graphId);
+  const graph = db.getGraph(graphId, userId);
   if (!graph) return c.json({ error: "graph not found" }, 404);
 
-  const modelDiags = validateModels(graph, loadConfig());
+  const modelDiags = validateModels(graph, loadConfig(c.get("userId")));
   const modelErrors = modelDiags.filter((d) => d.severity === "error");
   if (modelErrors.length > 0) {
     const summary =
@@ -585,6 +795,7 @@ app.post("/api/runs", async (c) => {
   try {
     const { runId, diagnostics } = await startRun({
       db,
+      userId,
       worker: workerRegistry.get(body.workerId),
       artifacts,
       live,
@@ -593,6 +804,7 @@ app.post("/api/runs", async (c) => {
       budgetUsd: body.budgetUsd ?? null,
       input: body.input,
       connectorValues: body.connectorValues,
+      publicUrl: PUBLIC_URL,
       onFinish: (gid, status) => {
         void triggers.onGraphFinished(gid, status);
       },
@@ -611,17 +823,25 @@ app.post("/api/runs", async (c) => {
 
 // --- Trigger management + webhook ---
 app.get("/api/graphs/:id/triggers", (c) => {
+  const userId = c.get("userId");
   const graphId = c.req.param("id");
-  if (!db.getGraph(graphId)) return c.json({ error: "graph not found" }, 404);
+  if (!db.getGraph(graphId, userId)) return c.json({ error: "graph not found" }, 404);
   return c.json(triggers.listByGraph(graphId));
 });
 
 app.post("/api/graphs/:id/triggers", async (c) => {
+  const userId = c.get("userId");
   const graphId = c.req.param("id");
+  if (!db.getGraph(graphId, userId)) return c.json({ error: "graph not found" }, 404);
   const raw = (await c.req.json().catch(() => ({}))) as Partial<TriggerConfig>;
   const withId = raw.id ? raw : { ...raw, id: crypto.randomUUID() };
   const parsed = TriggerConfig.safeParse(withId);
   if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+  // Webhook triggers are callable by anyone who knows the URL; an empty
+  // secret would leave the pipeline anonymously triggerable.
+  if (parsed.data.type === "webhook" && !parsed.data.webhookSecret?.trim()) {
+    return c.json({ error: "webhook 触发器必须设置 secret" }, 400);
+  }
   try {
     const trigger = await triggers.upsert(graphId, parsed.data);
     scheduler.sync(trigger);
@@ -643,15 +863,18 @@ app.delete("/api/graphs/:id/triggers/:tid", async (c) => {
 
 // Next cron fire times for the UI (4A.7).
 app.get("/api/graphs/:id/triggers/next-runs", (c) => {
+  const userId = c.get("userId");
   const graphId = c.req.param("id");
-  if (!db.getGraph(graphId)) return c.json({ error: "graph not found" }, 404);
+  if (!db.getGraph(graphId, userId)) return c.json({ error: "graph not found" }, 404);
   return c.json(triggers.nextRunMap(graphId));
 });
 
 // Manually fire a trigger (e.g. a batch run, or a cron/event re-run on demand).
 app.post("/api/graphs/:id/triggers/:tid/fire", async (c) => {
+  const userId = c.get("userId");
   const graphId = c.req.param("id");
   const tid = c.req.param("tid");
+  if (!db.getGraph(graphId, userId)) return c.json({ error: "graph not found" }, 404);
   const body = (await c.req.json().catch(() => ({}))) as { payload?: unknown };
   const trigger = triggers.get(tid);
   if (!trigger) return jsonResponse(404, { error: "trigger not found" });
@@ -699,6 +922,7 @@ app.post("/api/connectors/test", async (c) => {
 });
 
 app.post("/api/runs/ab", async (c) => {
+  const userId = c.get("userId");
   const body = (await c.req.json().catch(() => ({}))) as {
     graphId?: string;
     targetNodeId?: string;
@@ -714,7 +938,7 @@ app.post("/api/runs/ab", async (c) => {
   ) {
     return c.json({ error: "需要 graphId、targetNodeId 与至少 2 个 variants" }, 400);
   }
-  const graph = db.getGraph(body.graphId);
+  const graph = db.getGraph(body.graphId, userId);
   if (!graph) return c.json({ error: "graph not found" }, 404);
   const target = graph.nodes.find((n) => n.id === body.targetNodeId);
   if (!target) return c.json({ error: "target node not found" }, 404);
@@ -723,6 +947,7 @@ app.post("/api/runs/ab", async (c) => {
   }
   try {
     const { abGroup, arms } = await startABExperiment(db, worker, {
+      userId,
       graph,
       targetNodeId: body.targetNodeId,
       variants: body.variants,
@@ -741,29 +966,36 @@ app.get("/api/ab/:groupId", (c) => {
   return c.json(report);
 });
 
-app.get("/api/brand-terms", (c) => c.json(db.listBrandTerms()));
+app.get("/api/brand-terms", (c) => {
+  const userId = c.get("userId");
+  return c.json(db.listBrandTerms(userId));
+});
 
 app.post("/api/brand-terms", async (c) => {
+  const userId = c.get("userId");
   const body = (await c.req.json().catch(() => ({}))) as { term?: string; note?: string };
   if (!body.term?.trim()) return c.json({ error: "term required" }, 400);
-  return c.json(db.addBrandTerm(body.term, body.note ?? ""), 201);
+  return c.json(db.addBrandTerm(userId, body.term, body.note ?? ""), 201);
 });
 
 app.delete("/api/brand-terms/:id", (c) => {
-  db.deleteBrandTerm(c.req.param("id"));
+  const userId = c.get("userId");
+  db.deleteBrandTerm(c.req.param("id"), userId);
   return c.body(null, 204);
 });
 
 // --- Graph versions (5.6) ---
 app.get("/api/graphs/:id/versions", (c) => {
+  const userId = c.get("userId");
   const graphId = c.req.param("id");
-  if (!db.getGraph(graphId)) return c.json({ error: "graph not found" }, 404);
-  return c.json(db.listVersions(graphId));
+  if (!db.getGraph(graphId, userId)) return c.json({ error: "graph not found" }, 404);
+  return c.json(db.listVersions(graphId, userId));
 });
 
 app.post("/api/graphs/:id/versions", async (c) => {
+  const userId = c.get("userId");
   const graphId = c.req.param("id");
-  const graph = db.getGraph(graphId);
+  const graph = db.getGraph(graphId, userId);
   if (!graph) return c.json({ error: "graph not found" }, 404);
   const body = (await c.req.json().catch(() => ({}))) as { name?: string; note?: string };
   const name = body.name?.trim() || new Date().toLocaleString();
@@ -772,23 +1004,26 @@ app.post("/api/graphs/:id/versions", async (c) => {
 });
 
 app.get("/api/graphs/:id/versions/:vid", (c) => {
-  const v = db.getVersion(c.req.param("vid"));
+  const userId = c.get("userId");
+  const v = db.getVersion(c.req.param("vid"), userId);
   if (!v) return c.json({ error: "version not found" }, 404);
   return c.json({ id: v.id, graphId: v.graph_id, name: v.name, note: v.note, createdAt: v.created_at, snapshot: JSON.parse(v.snapshot) });
 });
 
 app.post("/api/graphs/:id/versions/:vid/restore", (c) => {
+  const userId = c.get("userId");
   const graphId = c.req.param("id");
-  const v = db.getVersion(c.req.param("vid"));
+  const v = db.getVersion(c.req.param("vid"), userId);
   if (!v) return c.json({ error: "version not found" }, 404);
   if (v.graph_id !== graphId) return c.json({ error: "version does not belong to this graph" }, 400);
   const snapshot = JSON.parse(v.snapshot);
-  db.saveGraph(snapshot, Date.now());
+  db.saveGraph(snapshot, Date.now(), userId);
   return c.json({ ok: true, graph: snapshot });
 });
 
 app.delete("/api/graphs/:id/versions/:vid", (c) => {
-  db.deleteVersion(c.req.param("vid"));
+  const userId = c.get("userId");
+  db.deleteVersion(c.req.param("vid"), userId);
   return c.body(null, 204);
 });
 
@@ -800,21 +1035,23 @@ app.post("/api/runs/:id/cancel", (c) => {
 });
 
 app.delete("/api/runs/:id", (c) => {
+  const userId = c.get("userId");
   const runId = c.req.param("id");
-  if (!db.runExists(runId)) return c.json({ error: "not found" }, 404);
+  if (!db.runExists(runId, userId)) return c.json({ error: "not found" }, 404);
   const entry = live.get(runId);
   if (entry && !entry.done) {
     return c.json({ error: "run is still in progress; cancel it first" }, 409);
   }
   live.delete(runId);
-  db.deleteRun(runId);
+  db.deleteRun(runId, userId);
   return c.json({ ok: true });
 });
 
 /** Resume a halted run: `{ action: "continue" | "approve" | "reject" | "edit" | "scrap", editOutput?, resetFrom? }`. */
 app.post("/api/runs/:id/resume", async (c) => {
+  const userId = c.get("userId");
   const runId = c.req.param("id");
-  const row = db.getRun(runId);
+  const row = db.getRun(runId, userId);
   if (!row) return c.json({ error: "not found" }, 404);
 
   const body = (await c.req.json().catch(() => ({}))) as {
@@ -855,12 +1092,12 @@ app.post("/api/runs/:id/resume", async (c) => {
   // A retry from a failed/tripped run reopens the same run; flip its status
   // back to running so listings/UIs reflect the active attempt.
   if (resetFrom || row.status === "failed" || row.status === "tripped") {
-    db.markRunning(runId);
+    db.markRunning(runId, userId);
   }
 
-  void (async () => {
+  void runAsUser(userId, async () => {
     try {
-      const cfg = loadConfig();
+      const cfg = loadConfig(userId);
       const now = new Date();
       for await (const event of resume({
         runId,
@@ -869,7 +1106,7 @@ app.post("/api/runs/:id/resume", async (c) => {
         worker: workerRegistry.get(body.workerId),
         budgetUsd: row.budget_usd ?? null,
         monthlyBudgetUsd: cfg.monthlyBudgetUsd ?? null,
-        monthSpentUsd: db.costForMonth(now.getFullYear(), now.getMonth() + 1),
+        monthSpentUsd: db.costForMonth(now.getFullYear(), now.getMonth() + 1, userId),
         defaultModel: cfg.defaultModel,
         pastEvents,
         action,
@@ -878,38 +1115,41 @@ app.post("/api/runs/:id/resume", async (c) => {
         approveTools,
         signal: controller.signal,
         storeBinary: async (data, mimeType, label) => {
-          const saved = await artifacts.saveBinary({ data, kind: "image", mimeType, label });
-          db.insertArtifact(saved);
+          const saved = await artifacts.saveBinary({ userId, data, kind: "image", mimeType, label });
+          db.insertArtifact(saved, userId);
           return saved.uri ?? `data:${mimeType};base64,${data.toString("base64")}`;
         },
         // Inline local /api/artifacts/<id> URIs as data:<mime>;base64,... for
         // cloud vision models (they can't reach our localhost).
         readArtifact,
+        publicUrl: PUBLIC_URL,
       })) {
         db.record(runId, event);
         if (event.type === "artifact.produced") {
           db.insertArtifact(
             await artifacts.save(event.artifact, { runId, nodeId: event.nodeId, attempt: event.attempt }),
+            userId,
           );
         }
         entry.events.push(event);
-        if (event.type === "run.finished") db.finishRun(runId, event.status, Date.now());
+        if (event.type === "run.finished") db.finishRun(runId, userId, event.status, Date.now());
       }
     } catch (err) {
-      db.finishRun(runId, "failed", Date.now());
+      db.finishRun(runId, userId, "failed", Date.now());
       log.child({ runId }).error("resume crashed", { error: (err as Error)?.message ?? String(err) });
     } finally {
       entry.done = true;
     }
-  })();
+  });
 
   return c.json({ ok: true, action });
 });
 
 /** Full event log — the replay scrubber reads this. */
 app.get("/api/runs/:id/events", (c) => {
+  const userId = c.get("userId");
   const runId = c.req.param("id");
-  if (!db.runExists(runId)) return c.json({ error: "not found" }, 404);
+  if (!db.runExists(runId, userId)) return c.json({ error: "not found" }, 404);
 
   // Pagination: ?after=<seq> (exclusive) and ?limit=<n>. With no params the
   // full history is returned together with the reconstructed runtime state,
@@ -933,8 +1173,9 @@ app.get("/api/runs/:id/events", (c) => {
 
 /** Live stream. Resumes from `?after=<seq>` so a dropped connection loses nothing. */
 app.get("/api/runs/:id/stream", (c) => {
+  const userId = c.get("userId");
   const runId = c.req.param("id");
-  if (!db.runExists(runId)) return c.json({ error: "not found" }, 404);
+  if (!db.runExists(runId, userId)) return c.json({ error: "not found" }, 404);
   // Resume point: explicit ?after= wins; otherwise honor the native
   // Last-Event-ID header the browser sends automatically when reconnecting to
   // a stream that carried `id:` frames.
@@ -979,13 +1220,15 @@ app.get("/api/runs/:id/stream", (c) => {
 
 /** Artifacts produced by a single run. */
 app.get("/api/runs/:id/artifacts", (c) => {
+  const userId = c.get("userId");
   const runId = c.req.param("id");
-  if (!db.runExists(runId)) return c.json({ error: "not found" }, 404);
-  return c.json(db.listArtifactsForRun(runId));
+  if (!db.runExists(runId, userId)) return c.json({ error: "not found" }, 404);
+  return c.json(db.listArtifactsForRun(runId, userId));
 });
 
 /** Upload a raw product image/file. Returns a StoredArtifact with a /api/artifacts/:id URI. */
 app.post("/api/artifacts/upload", async (c) => {
+  const userId = c.get("userId");
   const contentType = c.req.header("content-type") ?? "application/octet-stream";
   const label = c.req.query("label");
   const data = Buffer.from(await c.req.arrayBuffer());
@@ -999,26 +1242,92 @@ app.post("/api/artifacts/upload", async (c) => {
   else if (contentType.startsWith("audio/")) kind = "audio";
 
   const saved = await artifacts.saveBinary({
+    userId,
     data,
     kind,
     mimeType: contentType,
     label: label || undefined,
   });
-  db.insertArtifact(saved);
+  db.insertArtifact(saved, userId);
   return c.json(saved, 201);
 });
 
 /** Cross-run artifact listing (latest first), for the product gallery. */
 app.get("/api/artifacts", (c) => {
+  const userId = c.get("userId");
   const limit = Math.min(Number(c.req.query("limit") ?? 100), 500);
   const offset = Number(c.req.query("offset") ?? 0);
-  return c.json(db.listArtifacts(limit, offset));
+  return c.json(db.listArtifacts(userId, limit, offset));
+});
+
+/**
+ * Server-side image proxy. External image URLs referenced by product-json or
+ * extracted artifacts often fail in the browser due to hotlink protection /
+ * CORS. The server fetches them (browser-like UA) and streams the bytes back
+ * same-origin, so gallery + product images render reliably. Only http(s) is
+ * allowed and private/internal addresses are refused (SSRF guard, shared with
+ * the HTTP node via ssrf.ts — resolves hostnames at fetch time so DNS
+ * rebinding cannot smuggle an internal address past the check); failures
+ * return 502 so the client can show a graceful placeholder.
+ */
+app.get("/api/proxy", async (c) => {
+  let target = c.req.query("url");
+  if (!target || !/^https?:\/\//i.test(target)) {
+    return c.json({ error: "invalid or missing url" }, 400);
+  }
+  const MAX_REDIRECTS = 5;
+  try {
+    for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+      let parsed: URL;
+      try {
+        parsed = new URL(target);
+      } catch {
+        return c.json({ error: "invalid or missing url" }, 400);
+      }
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+        return c.json({ error: "invalid or missing url" }, 400);
+      }
+      if (await hostIsInternal(parsed.hostname)) {
+        return c.json({ error: "refusing to fetch a private or internal address" }, 403);
+      }
+      const upstream = await fetch(target, {
+        redirect: "manual",
+        headers: {
+          "user-agent":
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+          accept: "image/avif,image/webp,image/png,image/*,*/*;q=0.8",
+        },
+        signal: AbortSignal.timeout(15000),
+      });
+      if (upstream.status >= 300 && upstream.status < 400) {
+        const loc = upstream.headers.get("location");
+        if (!loc) return c.json({ error: `upstream returned ${upstream.status}` }, 502);
+        target = new URL(loc, target).toString();
+        continue;
+      }
+      if (!upstream.ok) {
+        return c.json({ error: `upstream returned ${upstream.status}` }, 502);
+      }
+      const buf = Buffer.from(await upstream.arrayBuffer());
+      const ct = upstream.headers.get("content-type") ?? "application/octet-stream";
+      return new Response(buf, {
+        headers: {
+          "content-type": ct,
+          "cache-control": "public, max-age=86400",
+        },
+      });
+    }
+    return c.json({ error: "too many redirects" }, 502);
+  } catch {
+    return c.json({ error: "failed to fetch upstream image" }, 502);
+  }
 });
 
 /** Fetch a single artifact: local blobs are streamed, remote URIs redirect. */
 app.get("/api/artifacts/:id", async (c) => {
+  const userId = c.get("userId");
   const id = c.req.param("id");
-  const meta = db.getArtifact(id);
+  const meta = db.getArtifact(id, userId);
   if (!meta) return c.json({ error: "not found" }, 404);
 
   if (meta.storage === "uri" && meta.uri) {

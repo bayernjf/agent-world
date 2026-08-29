@@ -2,6 +2,7 @@ import { loadConfig, providerForModel, type AppConfig } from "../config.js";
 import { log } from "../logger.js";
 import { fakeWorker, type Worker, type AgentChunk } from "../worker.js";
 import { openAICompatibleWorker } from "./openai-compatible.js";
+import { currentUserId } from "../user-context.js";
 import type { AgentConfig, GraphNode, Usage } from "@agent-world/core";
 
 export { ProviderError } from "./openai-compatible.js";
@@ -14,8 +15,9 @@ export { ProviderError } from "./openai-compatible.js";
 export function routingWorker(config?: AppConfig): Worker {
   // Read config fresh on every call so saved settings (keys, default model,
   // enabled state) take effect without a server restart. An optional injected
-  // config keeps tests deterministic.
-  const getConfig = (): AppConfig => config ?? loadConfig();
+  // config keeps tests deterministic. Without an injected config the current
+  // async-context user (set by runAsUser around each run) owns the settings.
+  const getConfig = (): AppConfig => config ?? loadConfig(currentUserId());
   // Cache key incorporates connection details so editing a key/URL rebuilds
   // the provider worker instead of reusing a stale one.
   const cache = new Map<string, Worker>();

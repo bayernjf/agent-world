@@ -117,6 +117,23 @@ const DEFAULT_CONFIG: AppConfig = {
   modelOrder: ["demo::demo-chat", "demo::demo-image", "demo::demo-video", "demo::demo-audio"],
 };
 
+/**
+ * Per-user settings storage (a SQLite-backed `settings` table, bound at
+ * startup by index.ts). config.ts stays free of a DB import; without a bound
+ * store, config is read from / written to the legacy config file so tests and
+ * file-only deployments keep working.
+ */
+export interface SettingsStore {
+  get(userId: string): string | null;
+  set(userId: string, data: string): void;
+}
+
+let settingsStore: SettingsStore | undefined;
+
+export function bindSettingsStore(store: SettingsStore): void {
+  settingsStore = store;
+}
+
 function candidatePaths(): string[] {
   const paths: string[] = [];
   if (process.env.AGENT_WORLD_CONFIG) paths.push(process.env.AGENT_WORLD_CONFIG);
@@ -133,62 +150,99 @@ function candidatePaths(): string[] {
   return paths;
 }
 
-export function configPath(): string {
-  return candidatePaths().find((p) => {
-    try {
-      readFileSync(p, "utf8");
-      return true;
-    } catch {
-      return false;
-    }
-  }) ?? join(homedir(), ".agent-world", "config.json");
-}
-
-export function loadConfig(): AppConfig {
+function existingConfigPath(): string | null {
   for (const path of candidatePaths()) {
     try {
-      const raw = readFileSync(path, "utf8");
-      const parsed = JSON.parse(raw) as Partial<AppConfig>;
-      const providers = { ...DEFAULT_CONFIG.providers, ...parsed.providers };
-      // Backfill enabled: true for real providers that predate the field.
-      for (const [name, prov] of Object.entries(providers)) {
-        if (prov.type === "fake") continue;
-        const patch: Partial<ProviderConfig> = {};
-        if (prov.enabled === undefined) patch.enabled = true;
-        if (prov.baseUrl) patch.baseUrl = normalizeBaseUrl(prov.baseUrl);
-        if (Object.keys(patch).length > 0) {
-          providers[name] = { ...prov, ...patch };
-        }
-      }
-      // Backfill modality defaults for models that predate the field.
-      for (const prov of Object.values(providers)) {
-        if (prov.type === "fake") continue;
-        if (!prov.modalities) prov.modalities = {};
-        for (const m of prov.models) {
-          if (!prov.modalities[m]) prov.modalities[m] = DEFAULT_MODALITY;
-        }
-      }
-      // Backfill modelOrder from provider order if absent.
-      if (!parsed.modelOrder) {
-        const order: string[] = [];
-        for (const [name, prov] of Object.entries(providers)) {
-          if (prov.type !== "fake") for (const m of prov.models) order.push(`${name}::${m}`);
-        }
-        parsed.modelOrder = order;
-      }
-      return {
-        ...DEFAULT_CONFIG,
-        ...parsed,
-        providers,
-      };
+      readFileSync(path, "utf8");
+      return path;
     } catch {
       // try next
     }
   }
-  return DEFAULT_CONFIG;
+  return null;
 }
 
-export function saveConfig(config: AppConfig): string {
+export function configPath(): string {
+  return existingConfigPath() ?? join(homedir(), ".agent-world", "config.json");
+}
+
+/** Read the legacy file config (undefined when no file exists). */
+function readFileConfigRaw(): string | undefined {
+  const path = existingConfigPath();
+  if (!path) return undefined;
+  try {
+    return readFileSync(path, "utf8");
+  } catch {
+    return undefined;
+  }
+}
+
+/** Parse + backfill a raw JSON config string; null when unparseable. */
+function parseRaw(raw: string | undefined): AppConfig | null {
+  if (raw === undefined) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<AppConfig>;
+    const providers = { ...DEFAULT_CONFIG.providers, ...parsed.providers };
+    // Backfill enabled: true for real providers that predate the field.
+    for (const [name, prov] of Object.entries(providers)) {
+      if (prov.type === "fake") continue;
+      const patch: Partial<ProviderConfig> = {};
+      if (prov.enabled === undefined) patch.enabled = true;
+      if (prov.baseUrl) patch.baseUrl = normalizeBaseUrl(prov.baseUrl);
+      if (Object.keys(patch).length > 0) {
+        providers[name] = { ...prov, ...patch };
+      }
+    }
+    // Backfill modality defaults for models that predate the field.
+    for (const prov of Object.values(providers)) {
+      if (prov.type === "fake") continue;
+      if (!prov.modalities) prov.modalities = {};
+      for (const m of prov.models) {
+        if (!prov.modalities[m]) prov.modalities[m] = DEFAULT_MODALITY;
+      }
+    }
+    // Backfill modelOrder from provider order if absent.
+    if (!parsed.modelOrder) {
+      const order: string[] = [];
+      for (const [name, prov] of Object.entries(providers)) {
+        if (prov.type !== "fake") for (const m of prov.models) order.push(`${name}::${m}`);
+      }
+      parsed.modelOrder = order;
+    }
+    return {
+      ...DEFAULT_CONFIG,
+      ...parsed,
+      providers,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Load the effective config. With a userId and a bound store, the user's own
+ * saved settings win; otherwise the legacy file config is the shared baseline.
+ * Priority: per-user DB row > legacy file > built-in defaults.
+ */
+export function loadConfig(userId?: string): AppConfig {
+  if (userId && settingsStore) {
+    const stored = settingsStore.get(userId);
+    const fromDb = parseRaw(stored ?? undefined);
+    if (fromDb) return fromDb;
+  }
+  return parseRaw(readFileConfigRaw()) ?? DEFAULT_CONFIG;
+}
+
+/**
+ * Save the config. With a userId and a bound store it goes to the per-user
+ * row (mutually invisible across users); otherwise it lands in the legacy
+ * config file. Returns a location label for the caller.
+ */
+export function saveConfig(config: AppConfig, userId?: string): string {
+  if (userId && settingsStore) {
+    settingsStore.set(userId, JSON.stringify(config));
+    return "db";
+  }
   const path = configPath();
   mkdirSync(join(path, ".."), { recursive: true });
   writeFileSync(path, JSON.stringify(config, null, 2), { mode: 0o600 });

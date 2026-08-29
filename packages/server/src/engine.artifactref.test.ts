@@ -174,4 +174,48 @@ describe("ArtifactRef upgrade (P1-4)", () => {
     const textArts = agtArts.filter((a) => a.kind === "text");
     expect(textArts[textArts.length - 1]!.content).toBe("draft-1");
   });
+
+  it("publicUrl absolutizes local artifact URIs in downstream agent input", async () => {
+    const { worker, calls } = spyWorker({ imageCount: 1 });
+    const graph = graphImageGenToAgent();
+    const { plan } = compile(graph);
+    if (!plan) throw new Error("graph did not compile");
+    for await (const _e of execute({
+      runId: "r",
+      graph,
+      plan,
+      worker,
+      now: () => 0,
+      storeBinary: () => "/api/artifacts/img-1",
+      publicUrl: "http://localhost:8791",
+    })) {
+      /* drain */
+    }
+
+    const agentCall = calls.find((c) => (c.node as { id: string }).id === "agt")!;
+    const input = agentCall.input as string;
+    expect(input).toContain("URL: http://localhost:8791/api/artifacts/img-1");
+    expect(input).not.toContain("URL: /api/artifacts/");
+  });
+
+  it("keeps artifact URIs relative when publicUrl is not configured", async () => {
+    const { worker, calls } = spyWorker({ imageCount: 1 });
+    const graph = graphImageGenToAgent();
+    const { plan } = compile(graph);
+    if (!plan) throw new Error("graph did not compile");
+    for await (const _e of execute({
+      runId: "r",
+      graph,
+      plan,
+      worker,
+      now: () => 0,
+      storeBinary: () => "/api/artifacts/img-1",
+    })) {
+      /* drain */
+    }
+
+    const agentCall = calls.find((c) => (c.node as { id: string }).id === "agt")!;
+    const input = agentCall.input as string;
+    expect(input).toContain("URL: /api/artifacts/img-1");
+  });
 });

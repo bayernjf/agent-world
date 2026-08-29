@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { openDb } from "./db.js";
 import type { Graph, RunEvent } from "@agent-world/core";
 
+const U = "u1";
 const graph: Graph = {
   id: "g1",
   name: "G1",
@@ -31,8 +32,8 @@ describe("events pagination", () => {
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "aw-events-"));
     db = openDb(join(dir, "test.sqlite"));
-    db.saveGraph(graph, 1);
-    db.createRun({ id: "r1", graph, budgetUsd: null, at: 1000 });
+    db.saveGraph(graph, 1, U);
+    db.createRun({ id: "r1", userId: U, graph, budgetUsd: null, at: 1000 });
     for (let i = 0; i < 10; i++) db.record("r1", started(i));
   });
 

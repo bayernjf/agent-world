@@ -40,6 +40,7 @@ export async function startABExperiment(
   db: DB,
   worker: Worker,
   opts: {
+    userId: string;
     graph: Graph;
     targetNodeId: string;
     variants: string[];
@@ -61,6 +62,7 @@ export async function startABExperiment(
 
     db.createRun({
       id: runId,
+      userId: opts.userId,
       graph,
       budgetUsd: opts.budgetUsd ?? null,
       at: Date.now(),
@@ -83,10 +85,10 @@ export async function startABExperiment(
           signal: opts.signal,
         })) {
           db.record(runId, event);
-          if (event.type === "run.finished") db.finishRun(runId, event.status, Date.now());
+          if (event.type === "run.finished") db.finishRun(runId, opts.userId, event.status, Date.now());
         }
       } catch {
-        db.finishRun(runId, "failed", Date.now());
+        db.finishRun(runId, opts.userId, "failed", Date.now());
       }
     })();
 
