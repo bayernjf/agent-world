@@ -120,10 +120,12 @@ describe("buildRlimitWrapper", () => {
     // node (which sh resolves to). If quoting is wrong the script fails
     // (syntax error or prints nothing we can recognize).
     const execPath = process.execPath;
+    // Execute with production-safe limits, NOT the tiny fake ones above:
+    // `ulimit -v 89` (KB) on Linux kills Node before it can even boot.
     const runtime = buildRlimitWrapper({
       interpreterPath: execPath,
       interpreterArgs: ["-e", "console.log('x')"],
-      limits,
+      limits: resolveLimits(),
     });
     // Use spawnSync to run the wrapper with a timeout. rlimits will be
     // applied but the one-liner finishes in ms so it doesn't hit any cap.
