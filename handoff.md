@@ -49,10 +49,9 @@ State of Agent World as of 2026-08-29.
 
 按优先级降序，标 `★` 的是当下要推的：
 
-1. **★ Phase 2 收官：搜索节点（本轮完成，Phase 2 七节点全落地）**— **`search` 节点落地**（core + server + web 全链路）：core 新增 NodeKind.search + SearchConfig schema（query / provider: duckduckgo|tavily|serpapi|google / maxResults 默认 5）；server 新增 `search.ts` provider 抽象——**DuckDuckGo 免 key 默认**（html 端点 POST + 容错正则解析 result__a/result__snippet + uddg 跳转链接解码），tavily/serpapi/google 走 env key（TAVILY_API_KEY / SERPAPI_API_KEY / GOOGLE_API_KEY+GOOGLE_CX，密钥永不入图）；query 留空时回退上游 text 产物（前 300 字符）——支持「agent 生成搜索词 → 搜索 → agent 总结」闭环；输出 text（可读列表）+ json（{query,provider,results}）双产物，空结果仍成功；无 query 且无上游 text → VALIDATION，key 缺失/无效 → AUTH，上游 5xx → PROVIDER_ERROR；web 工具栏按钮 + Inspector 面板（搜索词 / 搜索源下拉标注所需 env / 结果数量）+ 标签配色。core 4 + server 7 个新测试。**Phase 2 至此收官**（表格、数据库、文件解析、翻译、OCR、文件转换、搜索全部落地）；后续可做 Phase 2 复盘归档 + Phase 3（集成与通知）。
+1. **★ Phase 2 复盘归档（本轮完成）+ Phase 3 开启**— **roadmap-generalization.md 已完成 Phase 2 验收标记**：顶部状态行更新为「Phase 1 与 Phase 2 已全部落地（2026-08-29）」；Phase 2 节点表加状态列（七个节点全部 ✅，文件转换标注 HTML→PDF 暂缓）；新增 Phase 2 验收标准 checkbox（8 条全 [x]，含三条端到端产线示例）。Phase 1 复盘同时确认完毕（验收标准早已全 [x]，原待办 #4 关闭）。**下一步：Phase 3（集成与通知）**——飞书/钉钉/企业微信、邮件（收发+附件）、内容平台 API、GitHub/GitLab、Slack/Notion/Linear、定时 cron 增强、Webhook 输出。建议先做通知类（飞书/钉钉/邮件——通用通知走 webhook + 各平台 adapter，env key 模式与 search 节点一致）。
 2. **MCP Server P2 高级**（详见 [docs/design-mcp-server.md](docs/design-mcp-server.md)）— **P0 MVP + P1 增强均已落地**（stdio + HTTP/SSE 双传输、6 工具、resources、prompts，22/22 测试）。P2 候选：管理类工具（create/update/delete graph）、实时 notifications、批量运行、对比分析、认证权限。让 Claude Desktop/Cursor 等能接入 agent-world。
 3. **运行沙箱细化**（详见 [docs/roadmap-generalization.md](docs/roadmap-generalization.md)）— 代码节点当前用 os.exec 子进程；后续可加资源限制（内存/超时）、白名单命令、工作目录隔离
-4. **通用化 Phase 1 复盘**（可选）— Phase 1 P0+P1 全部收官（六类节点 + loop 增强）。如需要可把 roadmap-generalization 的 Phase 1 验收更新为"已全部完成"并归档 roadmap-tasks 的对应章节。
 
 ## Recently shipped (last 5)
 
