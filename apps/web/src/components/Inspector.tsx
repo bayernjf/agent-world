@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   UNIT_LABELS,
   parseProductDocument,
@@ -6,6 +6,7 @@ import {
   type AudioGenConfig,
   type Graph,
   type HttpNodeConfig,
+  type TableStep,
   type VideoGenConfig,
 } from "@agent-world/core";
 import { ArtifactCard, renderMarkdown } from "../lib/artifact-renderers";
@@ -57,6 +58,272 @@ function formatPairs(obj: Record<string, string>): string {
   return Object.entries(obj)
     .map(([k, v]) => `${k}: ${v}`)
     .join("\n");
+}
+
+/** 该模态没有任何可用模型时，提示并给出直达「设置」的入口。 */
+function MissingModelHint({ hasModels, onOpenSettings }: { hasModels: boolean; onOpenSettings: () => void }) {
+  if (hasModels) return null;
+  return (
+    <p className="field__hint">
+      尚未配置该类型模型，运行前需先
+      <button type="button" className="link" onClick={onOpenSettings}>
+        前往「设置 · 模型与密钥」
+      </button>
+    </p>
+  );
+}
+
+function replaceAt<T>(arr: T[], i: number, v: T): T[] {
+  const next = [...arr];
+  next[i] = v;
+  return next;
+}
+
+const STEP_OP_LABELS: Record<TableStep["op"], string> = {
+  parse: "解析（CSV/JSON → 表格）",
+  filter: "筛选行",
+  sort: "排序",
+  aggregate: "聚合统计",
+  output: "输出格式",
+};
+
+function stepField(label: string, children: ReactNode) {
+  return (
+    <label className="field">
+      <span>{label}</span>
+      {children}
+    </label>
+  );
+}
+
+/** 单步编辑：根据 op 渲染对应的参数字段。 */
+function TableStepEditor({
+  step,
+  index,
+  onChange,
+  onRemove,
+}: {
+  step: TableStep;
+  index: number;
+  onChange: (next: TableStep) => void;
+  onRemove: () => void;
+}) {
+  return (
+    <div className="table-step">
+      <div className="table-step__head">
+        <span className="table-step__index">#{index + 1}</span>
+        <select
+          className="select"
+          value={step.op}
+          onChange={(e) => {
+            const op = e.target.value as TableStep["op"];
+            if (op === "parse") onChange({ op: "parse", format: "csv", hasHeader: true, delimiter: "," });
+            else if (op === "filter") onChange({ op: "filter", column: "", operator: "eq", value: "" });
+            else if (op === "sort") onChange({ op: "sort", column: "", direction: "asc" });
+            else if (op === "aggregate") onChange({ op: "aggregate", aggs: [{ column: "", fn: "count" }] });
+            else onChange({ op: "output", format: "json" });
+          }}
+        >
+          {Object.entries(STEP_OP_LABELS).map(([k, v]) => (
+            <option key={k} value={k}>
+              {v}
+            </option>
+          ))}
+        </select>
+        <button type="button" className="btn btn--small btn--ghost" onClick={onRemove} title="删除该步骤">
+          ✕
+        </button>
+      </div>
+
+      {step.op === "parse" && (
+        <>
+          {stepField(
+            "格式",
+            <select
+              className="select"
+              value={step.format}
+              onChange={(e) => onChange({ ...step, format: e.target.value as "csv" | "json" })}
+            >
+              <option value="csv">CSV 文本</option>
+              <option value="json">JSON 数组</option>
+            </select>,
+          )}
+          {step.format === "csv" && (
+            <>
+              {stepField(
+                "分隔符",
+                <input
+                  type="text"
+                  className="input mono"
+                  value={step.delimiter}
+                  maxLength={4}
+                  onChange={(e) => onChange({ ...step, delimiter: e.target.value || "," })}
+                />,
+              )}
+              <label className="field">
+                <input
+                  type="checkbox"
+                  className="checkbox"
+                  checked={step.hasHeader}
+                  onChange={(e) => onChange({ ...step, hasHeader: e.target.checked })}
+                />
+                <span>首行为表头</span>
+              </label>
+            </>
+          )}
+        </>
+      )}
+
+      {step.op === "filter" && (
+        <>
+          {stepField(
+            "列名",
+            <input
+              type="text"
+              className="input mono"
+              value={step.column}
+              onChange={(e) => onChange({ ...step, column: e.target.value })}
+            />,
+          )}
+          {stepField(
+            "操作符",
+            <select
+              className="select"
+              value={step.operator}
+              onChange={(e) =>
+                onChange({
+                  ...step,
+                  operator: e.target.value as "eq" | "ne" | "gt" | "gte" | "lt" | "lte" | "contains",
+                })
+              }
+            >
+              <option value="eq">等于</option>
+              <option value="ne">不等于</option>
+              <option value="gt">大于</option>
+              <option value="gte">大于等于</option>
+              <option value="lt">小于</option>
+              <option value="lte">小于等于</option>
+              <option value="contains">包含（忽略大小写）</option>
+            </select>,
+          )}
+          {stepField(
+            "比较值",
+            <input
+              type="text"
+              className="input mono"
+              value={step.value}
+              onChange={(e) => onChange({ ...step, value: e.target.value })}
+            />,
+          )}
+        </>
+      )}
+
+      {step.op === "sort" && (
+        <>
+          {stepField(
+            "列名",
+            <input
+              type="text"
+              className="input mono"
+              value={step.column}
+              onChange={(e) => onChange({ ...step, column: e.target.value })}
+            />,
+          )}
+          {stepField(
+            "方向",
+            <select
+              className="select"
+              value={step.direction}
+              onChange={(e) => onChange({ ...step, direction: e.target.value as "asc" | "desc" })}
+            >
+              <option value="asc">升序</option>
+              <option value="desc">降序</option>
+            </select>,
+          )}
+        </>
+      )}
+
+      {step.op === "aggregate" && (
+        <>
+          {stepField(
+            "分组列（留空 = 全表聚合）",
+            <input
+              type="text"
+              className="input mono"
+              value={step.groupBy ?? ""}
+              onChange={(e) => onChange({ ...step, groupBy: e.target.value || undefined })}
+            />,
+          )}
+          {step.aggs.map((agg, i) => (
+            <div key={i} className="table-step__agg">
+              <input
+                type="text"
+                className="input mono"
+                placeholder="列名"
+                value={agg.column}
+                onChange={(e) =>
+                  onChange({ ...step, aggs: replaceAt(step.aggs, i, { ...agg, column: e.target.value }) })
+                }
+              />
+              <select
+                className="select"
+                value={agg.fn}
+                onChange={(e) =>
+                  onChange({ ...step, aggs: replaceAt(step.aggs, i, { ...agg, fn: e.target.value as typeof agg.fn }) })
+                }
+              >
+                <option value="count">计数</option>
+                <option value="sum">求和</option>
+                <option value="avg">平均</option>
+                <option value="min">最小</option>
+                <option value="max">最大</option>
+              </select>
+              <input
+                type="text"
+                className="input mono"
+                placeholder="输出列名"
+                value={agg.as ?? ""}
+                onChange={(e) =>
+                  onChange({ ...step, aggs: replaceAt(step.aggs, i, { ...agg, as: e.target.value || undefined }) })
+                }
+              />
+              <button
+                type="button"
+                className="btn btn--small btn--ghost"
+                onClick={() => onChange({ ...step, aggs: step.aggs.filter((_, j) => j !== i) })}
+                title="删除该聚合"
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+          <button
+            type="button"
+            className="btn btn--small"
+            onClick={() => onChange({ ...step, aggs: [...step.aggs, { column: "", fn: "count" }] })}
+          >
+            + 添加聚合
+          </button>
+        </>
+      )}
+
+      {step.op === "output" && (
+        <>
+          {stepField(
+            "输出格式",
+            <select
+              className="select"
+              value={step.format}
+              onChange={(e) => onChange({ ...step, format: e.target.value as "json" | "csv" })}
+            >
+              <option value="json">JSON（{"{ rows, count, columns }"} 对象）</option>
+              <option value="csv">CSV 文本（额外产出）</option>
+            </select>,
+          )}
+        </>
+      )}
+    </div>
+  );
 }
 
 /** Cheap line-level diff — enough to see what a rework attempt actually changed. */
@@ -143,7 +410,7 @@ function nextMainTab(current: MainTab, isAgent: boolean): MainTab {
   return order[(i + 1) % order.length]!;
 }
 
-export default function Inspector() {
+export default function Inspector({ onOpenSettings }: { onOpenSettings: () => void }) {
   const { graph, selectedId, updateNode, saveState, reloadGraph } = useGraph();
   const runtime = useVisibleRuntime();
   const [tab, setTab] = useState<number | "diff">(1);
@@ -525,6 +792,7 @@ export default function Inspector() {
                   <option value={node.agent.model}>{node.agent.model} (当前)</option>
                 )}
               </select>
+              <MissingModelHint hasModels={textModelOptions.length > 0} onOpenSettings={onOpenSettings} />
             </label>
             <label className="field">
               <span>温度 ({node.agent.temperature.toFixed(2)})</span>
@@ -676,6 +944,7 @@ export default function Inspector() {
                   <option value={node.imageGen.model}>{node.imageGen.model} (当前)</option>
                 )}
               </select>
+              <MissingModelHint hasModels={imageModelOptions.length > 0} onOpenSettings={onOpenSettings} />
             </label>
             <label className="field">
               <span>尺寸 (如 1024x1024)</span>
@@ -782,6 +1051,7 @@ export default function Inspector() {
                   <option value={node.videoGen.model}>{node.videoGen.model} (当前)</option>
                 )}
               </select>
+              <MissingModelHint hasModels={videoModelOptions.length > 0} onOpenSettings={onOpenSettings} />
             </label>
             <label className="field">
               <span>视频提示词（留空则用上游文本）</span>
@@ -914,6 +1184,7 @@ export default function Inspector() {
                   <option value={node.audioGen.model}>{node.audioGen.model} (当前)</option>
                 )}
               </select>
+              <MissingModelHint hasModels={audioModelOptions.length > 0} onOpenSettings={onOpenSettings} />
             </label>
             <label className="field">
               <span>文本 / 提示词（留空则用上游文本）</span>
@@ -1521,6 +1792,76 @@ export default function Inspector() {
             </label>
             <p className="note">
               等待所有上游分支完成后聚合输出（数组或对象）。各分支本身已并行执行，本节点提供显式的结构化汇合点。
+            </p>
+          </>
+        )}
+
+        {node.kind === "table" && node.table && (
+          <>
+            <label className="field">
+              <span>数据来源（上游节点）</span>
+              <select
+                className="select"
+                value={node.table.source ?? ""}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    table: { ...node.table!, source: e.target.value || undefined },
+                  })
+                }
+              >
+                <option value="">自动（唯一上游）</option>
+                {graph.nodes
+                  .filter((n) => n.id !== node.id)
+                  .map((n) => (
+                    <option key={n.id} value={n.id}>
+                      {n.name || n.id}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <div className="table-steps">
+              <span className="table-steps__title">处理步骤（按顺序执行）</span>
+              {(node.table.steps ?? []).map((step, i) => (
+                <TableStepEditor
+                  key={i}
+                  index={i}
+                  step={step}
+                  onChange={(next) =>
+                    updateNode(node.id, {
+                      table: { ...node.table!, steps: replaceAt(node.table!.steps ?? [], i, next) },
+                    })
+                  }
+                  onRemove={() =>
+                    updateNode(node.id, {
+                      table: {
+                        ...node.table!,
+                        steps: (node.table!.steps ?? []).filter((_, j) => j !== i),
+                      },
+                    })
+                  }
+                />
+              ))}
+              <button
+                type="button"
+                className="btn btn--small"
+                onClick={() =>
+                  updateNode(node.id, {
+                    table: {
+                      ...node.table!,
+                      steps: [
+                        ...(node.table!.steps ?? []),
+                        { op: "filter", column: "", operator: "eq", value: "" },
+                      ],
+                    },
+                  })
+                }
+              >
+                + 添加步骤
+              </button>
+            </div>
+            <p className="note">
+              输入：上游 CSV 文本（需先加「解析」步骤）、JSON 数组或 {"{"}rows: [...]{"}"}。输出
+              {"{"}rows, count, columns{"}"}；「输出格式 = CSV」时额外产出一份 CSV 文本。空步骤列表会把输入原样包装成表格。
             </p>
           </>
         )}

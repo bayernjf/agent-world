@@ -1,6 +1,6 @@
 # 设计文档：产物归属 + 按流水线分组的成品仓库
 
-> 状态：后端 schema 部分落地（`ab32074` 已提交 2026-08-28），引擎标注 + 前端进行中（工作树未提交）
+> 状态：**已落地**（后端 schema `ab32074` 2026-08-28；引擎 `setTextArtifact` 已带 `label`/`mimeType: text/markdown`，落库按节点类型标注 `role`（`run.ts`），画廊分组已上线）。实施细节见 [handoff.md](../handoff.md)，本文档只保留设计。
 > 关联文档：`docs/design-artifact-display.md`（产物统一渲染卡）
 > 日期：2026-08-28
 
@@ -131,10 +131,6 @@ db.insertArtifact(await artifacts.save(event.artifact, {
 
 ---
 
-## 实施进度（2026-08-29）
+## 实施进度
 
-- [x] **Phase A 后端 schema（部分）**：`db.ts` artifacts 加 `graph_id`/`role` 列 + `idx_artifacts_graph` 索引；`artifact-store.ts` / `run.ts` 注入 `graphId` 并落库。已随 `ab32074` 提交（2026-08-28）。
-- [ ] **Phase A 引擎标注（未完）**：`engine.ts` 的 `setTextArtifact` 补 `mimeType: text/markdown` + 首行标题 `label`，以及 source/intermediate/final 角色标注 —— 工作树进行中，未提交。
-- [ ] **Phase B 前端归属**：`artifact-renderers.tsx` 卡片来源行 / `FinishedProduct` 头部归属 —— 工作树进行中，未提交。
-- [ ] **Phase C 画廊按流水线分组**：`ProductGallery` 分组切换 —— 工作树进行中，未提交。
-- [ ] **Phase D 回归**：老数据 NULL 归属 / role 兜底。
+> 全部 Phase 已落地（后端 schema `ab32074` 2026-08-28；引擎 `setTextArtifact` 已带 `label`/`mimeType`，落库按节点类型标注 `role`；画廊按流水线分组已上线，老数据 NULL 归属 / role 兜底）。实施细节与验收记录见 [handoff.md](../handoff.md)，本文档不再重复维护。

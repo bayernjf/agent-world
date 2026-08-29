@@ -20,6 +20,7 @@ export const NodeKind = z.enum([
   "map",
   "loop",
   "parallel",
+  "table",
 ]);
 export type NodeKind = z.infer<typeof NodeKind>;
 
@@ -243,6 +244,76 @@ export const ParallelConfig = z.object({
 });
 export type ParallelConfig = z.infer<typeof ParallelConfig>;
 
+/** One row of a table: column name → scalar value. */
+export type TableRow = Record<string, string | number | boolean | null>;
+
+/**
+ * A `table` node step: an ordered transform over a row set.
+ * - parse: turn upstream CSV text (or JSON rows) into a table.
+ * - filter: keep rows where `column` satisfies `operator` vs `value`.
+ * - sort: order rows by `column`.
+ * - aggregate: group rows by `groupBy` (optional) and compute `aggs`.
+ * - output: choose the final artifact format (json rows object or CSV text).
+ */
+export const TableStep = z.discriminatedUnion("op", [
+  z.object({
+    op: z.literal("parse"),
+    /** "csv" parses the text with `delimiter`; "json" parses a JSON array of row objects. */
+    format: z.enum(["csv", "json"]).default("csv"),
+    /** Whether the first CSV line holds column names. */
+    hasHeader: z.boolean().default(true),
+    /** Field separator for CSV parsing (e.g. "," or "\t"). */
+    delimiter: z.string().min(1).max(4).default(","),
+  }),
+  z.object({
+    op: z.literal("filter"),
+    column: z.string().min(1),
+    operator: z.enum(["eq", "ne", "gt", "gte", "lt", "lte", "contains"]).default("eq"),
+    /** Comparison value (compared numerically when both sides are numbers). */
+    value: z.string().default(""),
+  }),
+  z.object({
+    op: z.literal("sort"),
+    column: z.string().min(1),
+    direction: z.enum(["asc", "desc"]).default("asc"),
+  }),
+  z.object({
+    op: z.literal("aggregate"),
+    /** Group by this column; without it the whole table is one group. */
+    groupBy: z.string().optional(),
+    aggs: z
+      .array(
+        z.object({
+          column: z.string().min(1),
+          fn: z.enum(["count", "sum", "avg", "min", "max"]).default("count"),
+          /** Output column name; defaults to `${fn}_${column}`. */
+          as: z.string().optional(),
+        }),
+      )
+      .min(1),
+  }),
+  z.object({
+    op: z.literal("output"),
+    format: z.enum(["json", "csv"]).default("json"),
+  }),
+]);
+export type TableStep = z.infer<typeof TableStep>;
+
+/**
+ * Configuration for a `table` node: parse, filter, sort, and aggregate tabular
+ * data. The node reads its single flow predecessor (or `source`) and applies
+ * the ordered `steps`. Input may be CSV text (parse first), a JSON array of row
+ * objects, or `{ rows: [...] }`. The final artifact is `{ rows, count, columns }`;
+ * an `output: csv` step additionally produces a CSV text artifact.
+ */
+export const TableConfig = z.object({
+  /** Which upstream node to read from. Defaults to the single flow predecessor. */
+  source: z.string().optional(),
+  /** Ordered transforms applied to the row set. */
+  steps: z.array(TableStep).default([]),
+});
+export type TableConfig = z.infer<typeof TableConfig>;
+
 export const GateConfig = z.object({
   maxAttempts: z.number().int().min(1).max(10).default(3),
   criterion: z.string().default(""),
@@ -354,6 +425,7 @@ export const GraphNode = z.object({
   map: MapConfig.optional(),
   loop: LoopConfig.optional(),
   parallel: ParallelConfig.optional(),
+  table: TableConfig.optional(),
   source: SourceConfig.optional(),
 });
 export type GraphNode = z.infer<typeof GraphNode>;

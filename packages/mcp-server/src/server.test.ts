@@ -28,8 +28,8 @@ describe("MCP server JSON-RPC", () => {
       id: 1,
       result: {
         protocolVersion: PROTOCOL_VERSION,
-        capabilities: { tools: {} },
-        serverInfo: { name: "agent-world" },
+        capabilities: { tools: {}, resources: {}, prompts: {} },
+        serverInfo: { name: "agent-world", version: "0.2.0" },
       },
     });
   });
@@ -78,7 +78,71 @@ describe("MCP server JSON-RPC", () => {
   });
 
   it("rejects unsupported methods", async () => {
-    const reply = await handleMessage(call(6, "resources/list"), mockClient());
+    const reply = await handleMessage(call(6, "something/else"), mockClient());
     expect(reply?.error?.code).toBe(-32601);
+  });
+
+  it("lists resources from the user's graphs", async () => {
+    const reply = await handleMessage(call(7, "resources/list"), mockClient());
+    const resources = (reply?.result as { resources: Array<{ uri: string; description: string }> }).resources;
+    expect(resources).toHaveLength(1);
+    expect(resources[0]).toMatchObject({ uri: "graph://g1" });
+    expect(resources[0]?.description).toContain("研究助手");
+  });
+
+  it("lists resource templates", async () => {
+    const reply = await handleMessage(call(8, "resources/templates"), mockClient());
+    const templates = (reply?.result as { resourceTemplates: Array<{ uriTemplate: string }> }).resourceTemplates;
+    expect(templates.map((t) => t.uriTemplate)).toEqual([
+      "graph://{id}",
+      "run://{id}",
+      "artifact://{id}",
+    ]);
+  });
+
+  it("reads a graph resource as inline JSON text", async () => {
+    const client = mockClient();
+    const reply = await handleMessage(call(9, "resources/read", { uri: "graph://g1" }), client);
+    const contents = (reply?.result as { contents: Array<{ uri: string; mimeType: string; text?: string }> }).contents;
+    expect(contents[0]).toMatchObject({ uri: "graph://g1", mimeType: "application/json" });
+    expect(contents[0]?.text).toContain('"name": "研究助手"');
+    expect(client.getGraph).toHaveBeenCalledWith("g1");
+  });
+
+  it("rejects unknown resource URIs with a clear error", async () => {
+    const reply = await handleMessage(call(10, "resources/read", { uri: "file:///etc/passwd" }), mockClient());
+    expect(reply?.error?.code).toBe(-32602);
+    expect(String(reply?.error?.message)).toContain("graph://{id}");
+  });
+
+  it("reports a missing uri parameter", async () => {
+    const reply = await handleMessage(call(11, "resources/read", {}), mockClient());
+    expect(reply?.error?.code).toBe(-32602);
+  });
+
+  it("lists prompts", async () => {
+    const reply = await handleMessage(call(12, "prompts/list"), mockClient());
+    const prompts = (reply?.result as { prompts: Array<{ name: string }> }).prompts;
+    expect(prompts.map((p) => p.name)).toEqual([
+      "run_pipeline",
+      "analyze_pipeline",
+      "create_from_template",
+    ]);
+  });
+
+  it("gets a prompt and interpolates arguments", async () => {
+    const reply = await handleMessage(
+      call(13, "prompts/get", { name: "run_pipeline", arguments: { graphId: "g1" } }),
+      mockClient(),
+    );
+    const messages = (reply?.result as { messages: Array<{ role: string; content: { text: string } }> }).messages;
+    expect(messages[0]?.role).toBe("user");
+    expect(messages[0]?.content.text).toContain("g1");
+    expect(messages[0]?.content.text).toContain("run_graph");
+  });
+
+  it("rejects unknown prompts", async () => {
+    const reply = await handleMessage(call(14, "prompts/get", { name: "nope" }), mockClient());
+    expect(reply?.error?.code).toBe(-32602);
   });
 });

@@ -6,30 +6,30 @@ State of Agent World as of 2026-08-29.
 
 ## Project documents
 
+完整索引（按读者分类 + 现行/历史/归档标注）见 [docs/README.md](docs/README.md)。核心文档直达：
+
 - [PRD.md](PRD.md) — phased roadmap and architectural guardrails
 - [README.md](README.md) — two core design decisions, layout, running instructions
-- [docs/product-vision-discussion.md](docs/product-vision-discussion.md) — full product vision
 - [docs/technical-design.md](docs/technical-design.md) — architecture, data models, API
-- [docs/roadmap-tasks.md](docs/roadmap-tasks.md) — per-phase task breakdown
-- [docs/tech-stack-assessment.md](docs/tech-stack-assessment.md) — current stack evaluation
-- [docs/feedback-workflow.md](docs/feedback-workflow.md) — owner 怎么高效反馈给我（截图 / computer-use / 防丢）
+- [docs/roadmap-generalization.md](docs/roadmap-generalization.md) — 通用化路线图（当前主线，5 阶段）
 - [docs/design-mcp-server.md](docs/design-mcp-server.md) — MCP Server 设计方案（让其他 AI 客户端接入 agent-world）
-- [docs/roadmap-generalization.md](docs/roadmap-generalization.md) — 通用化路线图（从内容生成流水线升级为通用自动化平台，5 阶段）
+- [docs/design-artifact-display.md](docs/design-artifact-display.md) — 产物统一渲染卡设计（ArtifactCard + 渲染器注册表；已落地）
+- [docs/design-artifact-attribution-repo.md](docs/design-artifact-attribution-repo.md) — 产物归属 + 按流水线分组成品仓库设计（已落地）
+- [docs/feedback-workflow.md](docs/feedback-workflow.md) — owner 怎么高效反馈给我（截图 / computer-use / 防丢）
 - [docs/handoff-archive.md](docs/handoff-archive.md) — historical changes (pre-2026-08-27)
 - [PRODUCT_STRATEGY.md](PRODUCT_STRATEGY.md) — 产品策略汇总（成本/部署/定价/商业化决策基线）
-- [docs/design-artifact-display.md](docs/design-artifact-display.md) — 产物统一渲染卡设计（ArtifactCard + 渲染器注册表；前端已落地）
-- [docs/design-artifact-attribution-repo.md](docs/design-artifact-attribution-repo.md) — 产物归属 + 按流水线分组成品仓库设计（后端 schema 已落地）
 
 ## Current state
 
 - **Monorepo**：`packages/core` / `packages/server` (Node + sqlite, 端口 8791) / `apps/web` (Vite, 端口 5173)
-- **核心能力**：4 类 AI 节点（agent / imageGen / videoGen / audioGen）+ **通用节点（HTTP 请求 / 代码执行 / 条件分支 / 映射 / 循环 / 并行聚合）**，**MCP Server（stdio，6 个工具）**，多产线管理，Inspector 模型下拉严格按 modality 过滤，多模态产出（Artifact 分层），流式 + SSE + 断线重连 + halt/resume，成本电表（token + 单价两种模式），评估体系雏形，产物落库归属流水线（artifacts 的 graph_id/role）
+- **核心能力**：4 类 AI 节点（agent / imageGen / videoGen / audioGen）+ **通用节点（HTTP 请求 / 代码执行 / 条件分支 / 映射 / 循环 / 并行聚合）**，**MCP Server（stdio + HTTP/SSE 双传输，6 工具 + resources + prompts）**，多产线管理，Inspector 模型下拉严格按 modality 过滤，多模态产出（Artifact 分层），流式 + SSE + 断线重连 + halt/resume，成本电表（token + 单价两种模式），评估体系雏形，产物落库归属流水线（artifacts 的 graph_id/role）
 - **安全基线（本轮升级）**：settings 按用户隔离（迁移 16，provider key 互不可见）+ **HTTP 节点 SSRF 防护**（fetch 时解析 IP 校验，DNS-rebinding 免疫，`ALLOW_PRIVATE_NETWORK=1` 逃生口）+ 登录 cookie 按 `SECURE_COOKIES`/production 加 `Secure` 标志（localhost 豁免）+ webhook 触发器强制非空 secret（杜绝匿名触发）
 - **本轮已落地（2026-08-29，均已提交）**：
   - **账号系统 / 按用户隔离**（`5b81c74` + `73d3610`）：users 表 + JWT(HS256, bcrypt12) HttpOnly cookie 会话 + graphs/runs/artifacts/brand_terms/成本全部按 `user_id` 过滤 + 前端登录/注册/用户菜单 + `authFetch(credentials:include)`。旧库升级自动回填归属（迁移 14/15 幂等，无法归属的行 fail closed 不可见）
   - **产物统一渲染**：`artifact-renderers.tsx`（ArtifactCard 外壳 + 7 类渲染器注册表 + JSON 树 + 共享 renderMarkdown），Inspector/成品面板/画廊三处接入，画廊按流水线分组，节点缩略图
   - **UI 布局交互**：Inspector 可拖拽调宽（localStorage 持久化）、CanvasToolbar 置顶、Inspector 随节点选中自动开合、成品库改版
   - **安全加固**（`17dfbf9`/`299dc63`/`c0dd67d`）：删除死代码 SKIP_AUTH；artifacts 读写全部按用户归属（堵跨用户读取/下载）；`/api/proxy` 要求登录 + 拒绝内网地址 + 重定向逐跳复检（堵未认证 SSRF）。遗留决策项见"待办"第 4 条
+  - **MCP Server P1 增强**：Streamable HTTP/SSE 传输（`POST /mcp` JSON 或 SSE 按 Accept、`GET /mcp` SSE 宣告 endpoint；`AGENT_WORLD_MCP_TRANSPORT=http` 切换）、Resources（`resources/list`/`templates`/`read`：graph:// run:// artifact:// 三类 URI 模板）、Prompts（3 个引导提示词，参数插值）、initialize 能力声明 tools+resources+prompts；协议级测试 22/22 + 真实 socket 冒烟
 - **关键文件**：
   - `apps/web/src/components/Inspector.tsx` — 节点详情面板（model select 严格按 modality 过滤；产物走 ArtifactCard）
   - `apps/web/src/lib/artifact-renderers.tsx` — 统一产物渲染
@@ -49,23 +49,22 @@ State of Agent World as of 2026-08-29.
 
 按优先级降序，标 `★` 的是当下要推的：
 
-1. **★ 通用化 Phase 1 P0 收尾（本轮完成）**— **六大通用节点全部落地**：HTTP / 代码执行 / 条件分支 + 本轮新增 **映射（map）/ 循环（loop）/ 并行聚合（parallel）**。map 做 JSON 模板映射/数组批量转换（纯占位符自动保留类型）；loop 对数组每项内联执行下游子图并聚合 `{results:[...]}`（循环体内 `${item.x}` 可用，agent 输入自动注入循环项）；parallel 做 barrier 结构化聚合（分支天然并行 + 显式汇合）。通用化 Phase 1 P0 至此收官，剩 Phase 1 P1 的「循环增强」与 Phase 2+ 大项见 roadmap-generalization。
-2. **MCP Server P1 增强**（详见 [docs/design-mcp-server.md](docs/design-mcp-server.md)）— **P0 MVP 已落地**（`packages/mcp-server`，stdio + 6 个工具）。P1 候选：HTTP/SSE 传输、resources（读产物/设置）、prompts、运行时真实 HTTP 冒烟。让 Claude Desktop/Cursor 等能接入 agent-world。
-3. **Inspector 的"在显眼处加一个去设置的链接"**— 音频模型没配时，下拉只有占位项，没引导；新建节点有 toast 软提示覆盖
-4. **运行沙箱细化**（详见 [docs/roadmap-generalization.md](docs/roadmap-generalization.md)）— 代码节点当前用 os.exec 子进程；后续可加资源限制（内存/超时）、白名单命令、工作目录隔离
+1. **★ Phase 2 起点：表格节点（本轮完成）**— **`table` 节点落地**（core + server + web 全链路）：CSV/JSON 解析（带引号字段状态机解析器）、筛选（eq/ne/gt/gte/lt/lte/contains）、排序（数字感知）、聚合（groupBy + count/sum/avg/min/max）、输出格式（JSON 对象或额外 CSV 文本）。输入兼容 CSV 文本 / JSON 数组 / `{rows:[...]}`，无上游或输入非法 → VALIDATION。Inspector 提供可视化步骤编辑器（增删步骤 + 每步字段）。core 31 + server 7 个新测试。**Phase 2 其余大项**（数据库查询、文件解析、OCR 等）见 roadmap-generalization。
+2. **MCP Server P2 高级**（详见 [docs/design-mcp-server.md](docs/design-mcp-server.md)）— **P0 MVP + P1 增强均已落地**（stdio + HTTP/SSE 双传输、6 工具、resources、prompts，22/22 测试）。P2 候选：管理类工具（create/update/delete graph）、实时 notifications、批量运行、对比分析、认证权限。让 Claude Desktop/Cursor 等能接入 agent-world。
+3. **运行沙箱细化**（详见 [docs/roadmap-generalization.md](docs/roadmap-generalization.md)）— 代码节点当前用 os.exec 子进程；后续可加资源限制（内存/超时）、白名单命令、工作目录隔离
+4. **通用化 Phase 1 复盘**（可选）— Phase 1 P0+P1 全部收官（六类节点 + loop 增强）。如需要可把 roadmap-generalization 的 Phase 1 验收更新为"已全部完成"并归档 roadmap-tasks 的对应章节。
 
 ## Recently shipped (last 5)
 
 按 commit 时间倒序，每条一行影响面 + commit hash：
 
-1. — **feat(core/server/web)**: **通用化 Phase 1 P0 收官——映射/循环/并行聚合三大节点**。core 新增 NodeKind.map/loop/parallel + schema + `transformJson`（JSON 模板递归映射，纯占位符保留类型）；server：map 做 JSON 模板映射与 iterate 数组批量转换（校验失败 VALIDATION）、loop 内联执行下游子图每轮注入 `item` 上下文并聚合 `{results:[...]}`（body 失败传播、maxIterations 防呆、嵌套安全、借 running 计数防 run 提前收口）、parallel 做 barrier 结构化聚合（asObject/pick）；agent 输入在循环体内自动追加循环项；web 工具栏/Inspector 面板/标签/配色。core 6 + server 12 个新测试（engine.map/loop/parallel-join）。
-2. `0b3b603` — **feat(server)**: **安全四项全部落地**——(1) settings 按用户隔离：settings 表（迁移 16）+ loadConfig(userId)/saveConfig(userId)，DB 行 > 旧文件基线 > 内置默认，provider key 互不可见；(2) HTTP 节点 SSRF 防护：共享 ssrf.ts（fetch 时 DNS 解析后按 IP 校验，DNS-rebinding 免疫），`ALLOW_PRIVATE_NETWORK=1` 逃生口；(3) cookie `Secure`：`SECURE_COOKIES` env 覆盖 + production 默认开 + localhost 豁免；(4) webhook 触发器空 secret → 400。运行期按用户解析配置用 AsyncLocalStorage（runAsUser，并发 run 互不串）。新增 16 个测试（config 隔离、app 层 API、cookie、SSRF、webhook）。
-2. `01a4ac7` — **feat(mcp-server)**: **MCP Server P0 MVP** 落地——新包 `packages/mcp-server`（stdio JSON-RPC 传输，零新依赖，与现有手写 MCP Client 同风格）；6 个工具（list_graphs/get_graph/run_graph/get_run_status/list_artifacts/get_artifact）；`AGENT_WORLD_URL`/`AGENT_WORLD_TOKEN` 环境变量；协议级端到端冒烟通过（initialize → tools/list → tools/call）；7 个 JSON-RPC 单元测试。
-3. `78c0651` — **feat(core/server/web)**: Phase 1 P0 第二闭环——**代码执行节点 + 条件分支节点**。core 新增 NodeKind.code/branch + schema + 安全条件表达式求值器（无 eval）；server 代码节点跑 JS/Python 子进程（stdin JSON 进 / stdout JSON 或文本出 / 超时与退出码处理），分支节点按首个命中规则路由 + 分支感知调度器（skipped 剪枝、packet 驱动就绪、汇合点保留）；web 工具栏 / Inspector 面板 / 标签；6 个 core 条件测试 + 4 个代码节点 + 5 个分支节点 server 测试。
-4. `1856d81` — **feat(core/server/web)**: Phase 1 P0 第一个闭环——HTTP 请求节点 + 变量表达式插值（`${nodeId.path}`）。新增 `NodeKind.http`、HTTP 节点配置与执行（fetch/超时/错误处理/json 或 text artifact）、Canvas 标签、Inspector 面板、4 个 server 测试 + 6 个 core 变量测试。`c0dd67d`/`835a383` 已移入 [docs/handoff-archive.md](docs/handoff-archive.md) Additions。
-5. `299dc63` — **fix(server)**: artifacts 全链路按用户归属（user_id 列 + 迁移 15 回填 + 读接口过滤），堵跨用户读取/下载
+1. `dbd9e8b` — **feat(core/server/web)**: **Phase 2 起点——表格节点（table）**。core 新增 NodeKind.table + TableConfig/TableStep schema（parse/filter/sort/aggregate/output 判别联合）+ 纯函数 `table.ts`（带引号字段的状态机 CSV 解析器、数字感知筛选/排序、groupBy 聚合）；server 执行分支：读唯一上游（或显式 source），兼容 CSV 文本 / JSON 数组 / `{rows:[...]}`，产出 `{rows,count,columns}` JSON 产物，`output:csv` 时额外产出 CSV 文本产物，非法输入/无上游 → VALIDATION；web 工具栏按钮 + Inspector 可视化步骤编辑器 + 标签配色。core 31 + server 7 个新测试。
+2. `c69788a` — **feat(web)**: **Inspector 模型未配置时显示去设置入口**。agent/image/video/audio 四个模型下拉在对应 modality 无可用模型时，显示「前往设置 · 模型与密钥」链接（原来只有占位项，无引导）。
+3. `373a059` — **feat(mcp-server)**: **MCP Server P1 增强——HTTP/SSE 传输 + Resources + Prompts**。Streamable HTTP 传输（`POST /mcp` 按 `Accept` 头返回 JSON 或 SSE、`GET /mcp` SSE 流宣告 endpoint、notification 202、`AGENT_WORLD_MCP_TRANSPORT=http`/`--http` 切换、`AGENT_WORLD_MCP_PORT` 端口）；Resources（`resources/list`/`templates`/`read`，graph:// run:// artifact:// 三类 URI 模板，二进制产物返回下载地址）；Prompts（`prompts/list`/`get`，run_pipeline / analyze_pipeline / create_from_template 三个引导提示词，graphId/input 参数插值）；initialize 能力声明 tools+resources+prompts，版本 0.2.0。协议级测试 22/22 + 真实 socket 端到端冒烟（沙箱已可 listen）。
+4. — **feat(core/server/web)**: **通用化 Phase 1 P0 收官——映射/循环/并行聚合三大节点**（`2b41f21`/`63f3077`/`7b1ceb9`/`ae8d658`）。core 新增 NodeKind.map/loop/parallel + schema + `transformJson`（JSON 模板递归映射，纯占位符保留类型）；server：map 做 JSON 模板映射与 iterate 数组批量转换（校验失败 VALIDATION）、loop 内联执行下游子图每轮注入 `item` 上下文并聚合 `{results:[...]}`（body 失败传播、maxIterations 防呆、嵌套安全、借 running 计数防 run 提前收口）、parallel 做 barrier 结构化聚合（asObject/pick）；agent 输入在循环体内自动追加循环项；web 工具栏/Inspector 面板/标签/配色。core 6 + server 12 个新测试（engine.map/loop/parallel-join）。
+5. `0b3b603` — **feat(server)**: **安全四项全部落地**——(1) settings 按用户隔离：settings 表（迁移 16）+ loadConfig(userId)/saveConfig(userId)，DB 行 > 旧文件基线 > 内置默认，provider key 互不可见；(2) HTTP 节点 SSRF 防护：共享 ssrf.ts（fetch 时 DNS 解析后按 IP 校验，DNS-rebinding 免疫），`ALLOW_PRIVATE_NETWORK=1` 逃生口；(3) cookie `Secure`：`SECURE_COOKIES` env 覆盖 + production 默认开 + localhost 豁免；(4) webhook 触发器空 secret → 400。运行期按用户解析配置用 AsyncLocalStorage（runAsUser，并发 run 互不串）。新增 16 个测试（config 隔离、app 层 API、cookie、SSRF、webhook）。
 
-最近 5 条之前的全部在 [docs/handoff-archive.md](docs/handoff-archive.md) 的"阶段 4 收尾"系列章节里。
+最近 5 条之前的全部在 [docs/handoff-archive.md](docs/handoff-archive.md) 的"阶段 4 收尾"系列章节里（含 HTTP 节点第一闭环 `1856d81`、账号系统 `5b81c74`/`73d3610` 等）。
 
 ## Quality gate (current snapshot)
 
@@ -74,7 +73,7 @@ State of Agent World as of 2026-08-29.
 - `pnpm -r typecheck`：全绿
 - `pnpm --filter @agent-world/core test`：71/71 通过
 - `pnpm --filter @agent-world/server test`：308/308 通过（含 artifact 跨用户隔离、迁移 15/16、settings 按用户隔离、cookie Secure、HTTP 节点 SSRF、webhook secret、map/loop/parallel 节点用例）
-- `pnpm --filter @agent-world/mcp-server test`：7/7 通过
+- `pnpm --filter @agent-world/mcp-server test`：22/22 通过（含 resources/prompts 协议用例 + HTTP 传输 + 真实 socket 冒烟）
 - `pnpm --filter @agent-world/web exec vitest run`：19/19 通过
 - **注意**：依赖 `node:sqlite`，必须 Node ≥ 22（CI 用 Node 24；本地 shell 默认 Node 20 会误报 `No such built-in module: node:sqlite`，用 `fnm exec --using=24` 跑）
 

@@ -1789,6 +1789,8 @@ modality 切片，统一严格过滤；同时把 agent 的占位文案从泛化�
 
 > Entries rolled out of the active `handoff.md` "Recently shipped" list to keep it at 5 items.
 
+- `01a4ac7` — **feat(mcp-server)**: **MCP Server P0 MVP** 落地——新包 `packages/mcp-server`（stdio JSON-RPC 传输，零新依赖，与现有手写 MCP Client 同风格）；6 个工具（list_graphs/get_graph/run_graph/get_run_status/list_artifacts/get_artifact）；`AGENT_WORLD_URL`/`AGENT_WORLD_TOKEN` 环境变量；协议级端到端冒烟通过（initialize → tools/list → tools/call）；7 个 JSON-RPC 单元测试。
+- `78c0651` — **feat(core/server/web)**: Phase 1 P0 第二闭环——**代码执行节点 + 条件分支节点**。core 新增 NodeKind.code/branch + schema + 安全条件表达式求值器（无 eval）；server 代码节点跑 JS/Python 子进程（stdin JSON 进 / stdout JSON 或文本出 / 超时与退出码处理），分支节点按首个命中规则路由 + 分支感知调度器（skipped 剪枝、packet 驱动就绪、汇合点保留）；web 工具栏 / Inspector 面板 / 标签；6 个 core 条件测试 + 4 个代码节点 + 5 个分支节点 server 测试。
 - `c0dd67d` — **fix(server)**: `/api/proxy` 要求登录并拒绝内网地址（回环 / RFC1918 / 云元数据 / IPv6 本地段），重定向逐跳复检，堵未认证 SSRF
 - `835a383` — **fix(server)**: 用户隔离迁移（14）对 pre-migration 旧库幂等化
 - `e3e2f88` — **test(server)**: 测试适配 user-scoped DB 与 auth API（server 套件转绿）
