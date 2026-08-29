@@ -2115,6 +2115,70 @@ export default function Inspector({ onOpenSettings }: { onOpenSettings: () => vo
           </>
         )}
 
+        {node.kind === "convert" && node.convert && (
+          <>
+            <label className="field">
+              <span>数据来源（上游节点）</span>
+              <select
+                className="select"
+                value={node.convert.source ?? ""}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    convert: { ...node.convert!, source: e.target.value || undefined },
+                  })
+                }
+              >
+                <option value="">自动（唯一上游）</option>
+                {graph.nodes
+                  .filter((n) => n.id !== node.id)
+                  .map((n) => (
+                    <option key={n.id} value={n.id}>
+                      {n.name || n.id}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>目标格式</span>
+              <select
+                className="select"
+                value={node.convert.to}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    convert: { ...node.convert!, to: e.target.value as "image" | "png" | "jpeg" },
+                  })
+                }
+              >
+                <option value="image">PDF → 图片（提取内嵌图片）</option>
+                <option value="png">图片 → PNG</option>
+                <option value="jpeg">图片 → JPEG</option>
+              </select>
+            </label>
+            {node.convert.to === "jpeg" && (
+              <label className="field">
+                <span>JPEG 质量（1-100）</span>
+                <input
+                  className="input"
+                  type="number"
+                  min={1}
+                  max={100}
+                  value={node.convert.quality}
+                  onChange={(e) =>
+                    updateNode(node.id, {
+                      convert: { ...node.convert!, quality: Number(e.target.value) || 85 },
+                    })
+                  }
+                />
+              </label>
+            )}
+            <p className="note">
+              目标格式为「PDF → 图片」时读取上游 file 产物，提取每页内嵌图片（扫描版 PDF
+              每页一张，可与 OCR 串联）；为「PNG / JPEG」时把上游图片重新编码为对应格式（支持批量，JPEG
+              可调质量）。
+            </p>
+          </>
+        )}
+
         </>)}
         {mainTab === "output" && (<>
         {rt?.error && (

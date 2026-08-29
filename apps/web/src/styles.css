@@ -1802,6 +1802,9 @@ select {
 .plant--ocr .plant__bar {
   fill: #4a3540;
 }
+.plant--convert .plant__bar {
+  fill: #3f4436;
+}
 
 .plant__attempt rect {
   fill: var(--warn);

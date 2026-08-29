@@ -97,6 +97,51 @@ function mediaImages(files: Record<string, Uint8Array>, prefix: string): ParsedI
   return out;
 }
 
+/** Embedded images on one PDF page: decode to raw pixels, re-encode as PNG. */
+async function pdfPageImages(page: { getOperatorList: () => Promise<any>; commonObjs: any; objs: any }): Promise<ParsedImage[]> {
+  const out: ParsedImage[] = [];
+  try {
+    const ops = await page.getOperatorList();
+    for (let i = 0; i < ops.fnArray.length; i++) {
+      if (ops.fnArray[i] !== OPS.paintImageXObject) continue;
+      const key = ops.argsArray[i][0] as string;
+      const image = await new Promise((resolve) =>
+        (key.startsWith("g_") ? page.commonObjs : page.objs).get(key, resolve),
+      );
+      if (!image || typeof image !== "object") continue;
+      const { width, height, data } = image as { width: number; height: number; data?: Uint8Array };
+      if (!data || !width || !height) continue;
+      const channels = data.length / (width * height);
+      if (![1, 3, 4].includes(channels)) continue;
+      const colorType = channels === 4 ? 6 : channels === 3 ? 2 : 0;
+      const png = new PNG({ width, height, colorType });
+      png.data = Buffer.from(data);
+      out.push({ mimeType: "image/png", data: new Uint8Array(PNG.sync.write(png)) });
+    }
+  } catch {
+    // One page failing to yield images must not kill the whole extraction.
+  }
+  return out;
+}
+
+/**
+ * Extract every embedded image from a PDF buffer, re-encoded as PNG. Shared
+ * by the `fileParse` node (text + images) and the `convert` node (pdf → image).
+ */
+export async function extractPdfImages(buf: Uint8Array): Promise<ParsedImage[]> {
+  const doc = await getDocument({ data: buf }).promise;
+  const images: ParsedImage[] = [];
+  try {
+    for (let n = 1; n <= doc.numPages; n++) {
+      const page = await doc.getPage(n);
+      images.push(...(await pdfPageImages(page)));
+    }
+  } finally {
+    await doc.loadingTask?.destroy?.();
+  }
+  return images;
+}
+
 async function parsePdf(buf: Uint8Array): Promise<ParsedDocument> {
   const doc = await getDocument({ data: buf }).promise;
   const pages: string[] = [];
@@ -110,28 +155,7 @@ async function parsePdf(buf: Uint8Array): Promise<ParsedDocument> {
         .join(" ")
         .trim();
       if (pageText) pages.push(pageText);
-      // Embedded images: decode to raw pixels, re-encode as PNG.
-      try {
-        const ops = await page.getOperatorList();
-        for (let i = 0; i < ops.fnArray.length; i++) {
-          if (ops.fnArray[i] !== OPS.paintImageXObject) continue;
-          const key = ops.argsArray[i][0] as string;
-          const image = await new Promise((resolve) =>
-            (key.startsWith("g_") ? page.commonObjs : page.objs).get(key, resolve),
-          );
-          if (!image || typeof image !== "object") continue;
-          const { width, height, data } = image as { width: number; height: number; data?: Uint8Array };
-          if (!data || !width || !height) continue;
-          const channels = data.length / (width * height);
-          if (![1, 3, 4].includes(channels)) continue;
-          const colorType = channels === 4 ? 6 : channels === 3 ? 2 : 0;
-          const png = new PNG({ width, height, colorType });
-          png.data = Buffer.from(data);
-          images.push({ mimeType: "image/png", data: new Uint8Array(PNG.sync.write(png)) });
-        }
-      } catch {
-        // One page failing to yield images must not kill the whole parse.
-      }
+      images.push(...(await pdfPageImages(page)));
     }
   } finally {
     await doc.loadingTask?.destroy?.();

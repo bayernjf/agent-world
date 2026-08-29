@@ -25,6 +25,7 @@ export const NodeKind = z.enum([
   "fileParse",
   "translate",
   "ocr",
+  "convert",
 ]);
 export type NodeKind = z.infer<typeof NodeKind>;
 
@@ -404,6 +405,24 @@ export const OcrConfig = z.object({
 });
 export type OcrConfig = z.infer<typeof OcrConfig>;
 
+/**
+ * Configuration for a `convert` node: convert an upstream artifact into
+ * another format. Supported conversions:
+ * - pdf → image (`to: "image"`): extract every embedded image from a PDF —
+ *   scanned pages come out as one image each, pairing naturally with `ocr`.
+ * - image → png / jpeg (`to: "png" | "jpeg"`): re-encode upstream image
+ *   artifacts (format detected by magic bytes; quality only applies to jpeg).
+ */
+export const ConvertConfig = z.object({
+  /** Which upstream node to convert. Defaults to the single flow predecessor. */
+  source: z.string().optional(),
+  /** Target format: "image" = extract embedded images from a PDF, "png"/"jpeg" = re-encode images. */
+  to: z.enum(["image", "png", "jpeg"]),
+  /** JPEG encoding quality, 1-100. Only used when `to` is "jpeg". */
+  quality: z.number().int().min(1).max(100).default(85),
+});
+export type ConvertConfig = z.infer<typeof ConvertConfig>;
+
 export const GateConfig = z.object({
   maxAttempts: z.number().int().min(1).max(10).default(3),
   criterion: z.string().default(""),
@@ -520,6 +539,7 @@ export const GraphNode = z.object({
   fileParse: FileParseConfig.optional(),
   translate: TranslateConfig.optional(),
   ocr: OcrConfig.optional(),
+  convert: ConvertConfig.optional(),
   source: SourceConfig.optional(),
 });
 export type GraphNode = z.infer<typeof GraphNode>;

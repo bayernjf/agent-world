@@ -236,6 +236,7 @@ const DEFAULTS: Record<NodeKind, Partial<GraphNode>> = {
   fileParse: { fileParse: { maxImages: 20 } },
   translate: { translate: { target: "简体中文", temperature: 0.2 } },
   ocr: { ocr: { lang: "eng" } },
+  convert: { convert: { to: "image", quality: 85 } },
 };
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;

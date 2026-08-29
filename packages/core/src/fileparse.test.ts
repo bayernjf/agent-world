@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FileParseConfig, GraphNode, HttpNodeConfig, OcrConfig, TranslateConfig } from "./graph.js";
+import { ConvertConfig, FileParseConfig, GraphNode, HttpNodeConfig, OcrConfig, TranslateConfig } from "./graph.js";
 
 describe("FileParseConfig", () => {
   it("defaults to 20 max images and no explicit source", () => {
@@ -134,5 +134,42 @@ describe("OcrConfig", () => {
     });
     expect(node.kind).toBe("ocr");
     expect(node.ocr?.lang).toBe("chi_sim");
+  });
+});
+
+describe("ConvertConfig", () => {
+  it("requires an explicit target format and defaults quality to 85", () => {
+    const cfg = ConvertConfig.parse({ to: "jpeg" });
+    expect(cfg.to).toBe("jpeg");
+    expect(cfg.quality).toBe(85);
+    expect(cfg.source).toBeUndefined();
+  });
+
+  it("parses an explicit source, target and quality", () => {
+    const cfg = ConvertConfig.parse({ source: "dl1", to: "image" });
+    expect(cfg.source).toBe("dl1");
+    expect(cfg.to).toBe("image");
+    const jpeg = ConvertConfig.parse({ to: "jpeg", quality: 95 });
+    expect(jpeg.quality).toBe(95);
+  });
+
+  it("rejects missing or unknown targets and out-of-range quality", () => {
+    expect(() => ConvertConfig.parse({})).toThrow();
+    expect(() => ConvertConfig.parse({ to: "webp" })).toThrow();
+    expect(() => ConvertConfig.parse({ to: "jpeg", quality: 0 })).toThrow();
+    expect(() => ConvertConfig.parse({ to: "jpeg", quality: 101 })).toThrow();
+  });
+
+  it("round-trips inside a GraphNode", () => {
+    const node = GraphNode.parse({
+      id: "cv1",
+      kind: "convert",
+      name: "CONVERT",
+      x: 0,
+      y: 0,
+      convert: { to: "png" },
+    });
+    expect(node.kind).toBe("convert");
+    expect(node.convert?.to).toBe("png");
   });
 });
