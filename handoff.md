@@ -49,7 +49,7 @@ State of Agent World as of 2026-08-29.
 
 按优先级降序，标 `★` 的是当下要推的：
 
-1. **★ Phase 4 错误处理 PR③：error 边 + catch 节点（本轮完成）**— `EdgeKind` 加 `"error"`（语义：失败节点的失败原因经 error 边路由到 catch 节点，catch ready 条件是「任一 error 前驱 failed」而非 flow 的「所有前驱 done」）。engine 改动：①emit 包装记录 `lastError`（每节点最后的 error/errorCode，零侵入）；②`predecessorsReady` 加 catch 语义（有 error 入边 → 任一 error 前驱 failed + packetEdges 有包即 ready）；③schedule running===0 分支不动点处理：failed 节点有 error 出边 → 写错误 json artifact + 发 error packet（catch ready）；catchReady 后重启 schedule（不 finish）；④`finish` 重新评估——failed 节点若有 error 边到 done catch 视为「已处理」，run 保持 done（不降级 failed）；⑤`inputFor`/`buildNodeContext` 合并 flow+error 前驱，catch 节点能读 `${failedNode.error}` 等错误字段。core：EdgeKind 注释 + variables.ts buildNodeContext 处理 error 边。2 个新测试（失败路由到 catch 且 run done、成功时不触发 catch）。**下一步 PR④**：失败告警（RUN_FAILED_WEBHOOK，复用 notifyHalt 模式）+ rerun API（复用 runs 表，零死信新表）。
+1. **★ Phase 4 错误处理 PR⑤：运行画廊「重新运行」按钮（本轮完成）**— `api.ts` 加 `rerunRun`（POST /api/runs/:id/rerun）；RunHistory 每行尾加「重新运行」按钮（running 隐藏、failed 常显/其余 hover 显示、点击 stopPropagation 不触发行打开；重跑中禁用防抖），成功后刷新列表 + 自动打开新 run（onOpen）；错误内联提示（runhistory-error）。**Phase 4 错误处理五步全部落地**（重试→级联 skip→error 边/catch→失败告警→rerun 闭环）。
 2. **MCP Server P2 高级**（详见 [docs/design-mcp-server.md](docs/design-mcp-server.md)）— **P0 MVP + P1 增强均已落地**（stdio + HTTP/SSE 双传输、6 工具、resources、prompts，22/22 测试）。P2 候选：管理类工具（create/update/delete graph）、实时 notifications、批量运行、对比分析、认证权限。让 Claude Desktop/Cursor 等能接入 agent-world。
 3. **运行沙箱细化**（详见 [docs/roadmap-generalization.md](docs/roadmap-generalization.md)）— 代码节点当前用 os.exec 子进程；后续可加资源限制（内存/超时）、白名单命令、工作目录隔离
 
@@ -57,11 +57,11 @@ State of Agent World as of 2026-08-29.
 
 按 commit 时间倒序，每条一行影响面 + commit hash：
 
-1. `ce17008` — **feat(error)**: **Phase 4 错误处理 PR③——error 边 + catch 节点**。EdgeKind 加 "error"（catch 语义：任一 error 前驱 failed 即 ready）；engine emit 包装记录 lastError + schedule running===0 处理 error packet + catchReady 重启 + finish 重新评估（failed 有 error 边到 done catch 视为已处理，run 保持 done）+ inputFor/buildNodeContext 合并 flow+error 前驱。2 个新测试。
-2. `906a70e` — **feat(error)**: **Phase 4 错误处理 PR②——级联 skip**。`NodeState.skipped` 从 branch 扩展到失败节点搁浅下游；engine schedule running===0 分支加不动点级联（failed/skipped 前驱 + 无 done 前驱 → skip + emit node.skipped；halted/cancelled 不级联）；core 加 node.skipped RunEvent + NodeRuntime.status 加 skipped；web STATUS_LABEL 加「已跳过」。2 个新测试。
-3. `d31c482` — **feat(retry)**: **Phase 4 错误处理 PR①——重试去重+补全**。抽公共 `retry.ts`（withRetry + isRetryable 回调 + 指数退避），notify/vcs 删私有 withRetry 改用公共（去重）；translate retry 从硬编码提到 TranslateConfig；SearchConfig/HttpNodeConfig/CodeNodeConfig 加 retry 字段 + search/http/code 执行分支加重试（http 5xx 重试 4xx/timeout 不重试、code 仅 spawn-error 重试）；web DEFAULTS 四处补 retry。search +1 重试用例。
-4. `00456d8` — **feat(core/server/web)**: **Phase 3 推进——vcs 节点 + notify Slack**。core 新增 NodeKind.vcs + VcsConfig（provider github|gitlab / action create_pr|comment_issue|trigger_workflow|list_issues / 复用 RetryPolicy）；server 新增 `vcs.ts`：GitHub REST（Bearer token）+ GitLab REST（PRIVATE-TOKEN，GITLAB_API_URL 可自托管），body/title 回退上游 text，VcsAuthError/VcsProviderError + 瞬态重试；notify 扩 slack provider（chat.postMessage + channel，ok:false → ProviderError）；web vcs 工具栏 + Inspector 面板（平台/动作/条件字段）+ notify 面板加 slack+channel + 两节点配色。core 7 + server 9（vcs 6 + notify slack 3）个新测试。
-5. `bb56bad` — **feat(notify)**: **富消息 + 重试增强**。NotifyConfig 加 `format: text|markdown`（飞书用 interactive 卡片 markdown element 渲染、钉钉/企微用原生 markdown msgtype）+ `retry`（复用 RetryPolicy，默认 2 次指数退避）；notifier.ts 新增 `NotifyProviderError`（平台 errcode 非 0 如钉钉 keyword 不匹配，不重试）+ `withRetry` 循环（仅对网络/5xx 等瞬态故障重试，Auth 与 Provider 拒绝不重试）；engine 错误码映射区分三档；web Inspector 加「消息格式」下拉。core +2 + server +5 个新测试（13/13 notify 用例）。
+1. `f607dde` — **feat(web)**: **human 节点 UI**。工具栏「人工审批」入口 + Inspector 审批提示面板 + ControlPanel halted 时展示待审批内容（pendingReview）并保留批准/编辑/驳回按钮；状态文案 human halt 显示「等待人工审批」。
+2. `20d9c9f` — **feat(human)**: **人工审批节点 human（Phase 4 human-in-the-loop）**。core：NodeKind.human + HumanConfig(prompt)；事件 human.review（上游 text 待审批）+ human.decision（approved/edited/rejected）；runtime 把 pendingReview reduce 到节点、decision 映射 done/failed。engine：human 分支主动 halt（haltReason human:，notifyHalt 告警）；resume approve/edit → human.decision + review 内容交给下游（edit 覆盖）；reject → 节点 failed（error 边可接住，否则 run failed）；reconstructState 回放 human.decision。5 个新测试（halt+review / approve / edit / reject / reject→error 边）。**Phase 4 五步错误处理 + 人工审批闭环全部落地**。
+3. `a77f127` — **feat(web)**: **Phase 4 错误处理 PR⑤——运行历史「重新运行」按钮**。api.ts rerunRun；RunHistory 行尾按钮（failed 常显/hover 显示、running 隐藏、防抖、错误内联提示），成功后刷新并打开新 run。web build 通过。
+4. `3dea78d` — **feat(error)**: **Phase 4 错误处理 PR④——失败告警 + rerun API**。notifyFailed（RUN_FAILED_WEBHOOK，run failed 时 POST 失败节点明细 + skippedCount）+ `POST /api/runs/:id/rerun`（复用 run 行 snapshot+input+budget 重跑，trigger:"rerun"，零死信新表）。5 个新测试。
+5. `ce17008` — **feat(error)**: **Phase 4 错误处理 PR③——error 边 + catch 节点**。EdgeKind 加 "error"（catch 语义：任一 error 前驱 failed 即 ready）；engine emit 包装记录 lastError + schedule running===0 处理 error packet + catchReady 重启 + finish 重新评估（failed 有 error 边到 done catch 视为已处理，run 保持 done）+ inputFor/buildNodeContext 合并 flow+error 前驱。2 个新测试。
 最近 5 条之前的全部在 [docs/handoff-archive.md](docs/handoff-archive.md) 的"阶段 4 收尾"系列章节里（含 HTTP 节点第一闭环 `1856d81`、账号系统 `5b81c74`/`73d3610` 等）。
 
 ## Quality gate (current snapshot)
@@ -70,7 +70,7 @@ State of Agent World as of 2026-08-29.
 
 - `pnpm -r typecheck`：全绿
 - `pnpm --filter @agent-world/core test`：142/142 通过（含 EdgeKind error / buildNodeContext error 前驱 / node.skipped event + HTTP file 模式用例）
-- `pnpm --filter @agent-world/server test`：379/379 通过（含 error-edge：失败路由到 catch 且 run done、成功不触发 catch；skip 级联；retry 共享 withRetry；vcs/notify halt 全部用例）
+- `pnpm --filter @agent-world/server test`：389/389 通过（含 human 节点：halt+review / approve / edit / reject / reject→error 边；failalert webhook；rerun API；error-edge/skip 级联；retry 共享 withRetry；vcs/notify halt 全部用例）
 - `pnpm --filter @agent-world/mcp-server test`：22/22 通过（含 resources/prompts 协议用例 + HTTP 传输 + 真实 socket 冒烟）
 - `pnpm --filter @agent-world/web exec vitest run`：19/19 通过
 - **注意**：依赖 `node:sqlite`，必须 Node ≥ 22（CI 用 Node 24；本地 shell 默认 Node 20 会误报 `No such built-in module: node:sqlite`，用 `fnm exec --using=24` 跑）

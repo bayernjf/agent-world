@@ -473,7 +473,17 @@ export function openDb(file: string) {
 
     getRun(runId: string, userId: string) {
       return stmts.getRun.get(runId, userId) as
-        | { id: string; graph_id: string; snapshot: string; status: string; budget_usd: number | null; started_at: number; ended_at: number | null }
+        | {
+            id: string;
+            graph_id: string;
+            snapshot: string;
+            status: string;
+            trigger: string;
+            input: string | null;
+            budget_usd: number | null;
+            started_at: number;
+            ended_at: number | null;
+          }
         | undefined;
     },
 

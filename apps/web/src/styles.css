@@ -827,6 +827,23 @@ select {
   color: var(--ink-dim);
 }
 
+.control-panel__review {
+  margin: 4px 0 10px;
+  padding: 8px 10px;
+  border: var(--hair);
+  border-radius: 6px;
+  background: var(--steel-850);
+}
+.control-panel__review-text {
+  margin-top: 4px;
+  max-height: 120px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink);
+}
 .control__body {
   flex: 1;
   min-height: 0;
@@ -3508,6 +3525,28 @@ select {
   font-family: var(--mono);
   font-size: 11px;
   color: var(--ink-faint);
+}
+.runhistory-rerun {
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  flex-shrink: 0;
+}
+.runhistory-row:hover .runhistory-rerun {
+  opacity: 1;
+}
+.runhistory-row .runhistory-rerun:disabled {
+  opacity: 0.6;
+}
+.runhistory-status-failed .runhistory-rerun {
+  opacity: 1;
+}
+.runhistory-error {
+  margin: 0 0 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--danger, #ff5b5b);
+  border-radius: 6px;
+  color: var(--danger, #ff5b5b);
+  font-size: 13px;
 }
 .runhistory-row-meta {
   display: flex;

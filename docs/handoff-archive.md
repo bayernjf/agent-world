@@ -1789,6 +1789,10 @@ modality 切片，统一严格过滤；同时把 agent 的占位文案从泛化�
 
 > Entries rolled out of the active `handoff.md` "Recently shipped" list to keep it at 5 items.
 
+- `906a70e` — **feat(error)**: **Phase 4 错误处理 PR②——级联 skip**。NodeState.skipped 扩展到失败节点搁浅下游；engine 不动点级联（failed/skipped 前驱 + 无 done 前驱 → skip）；core node.skipped 事件 + NodeRuntime.status 加 skipped。
+- `d31c482` — **feat(retry)**: **Phase 4 错误处理 PR①——重试去重+补全**。抽公共 retry.ts；translate retry 提到配置；Search/Http/Code 配置加 retry + 执行分支重试；web DEFAULTS 补 retry。
+- `bb56bad` — **feat(notify)**: **富消息 + 重试增强**。NotifyConfig 加 format: text|markdown（飞书 interactive 卡片、钉钉/企微原生 markdown）+ retry（复用 RetryPolicy）；NotifyProviderError（平台 errcode 非 0 不重试）；web Inspector「消息格式」下拉。core +2 + server +5 个新测试。
+- `00456d8` — **feat(core/server/web)**: **Phase 3 推进——vcs 节点 + notify Slack**。GitHub/GitLab 仓库操作（clone/pull/commit/push）+ Slack webhook 发送；vcs/notify halt 全部用例。
 - `1336baf` — **feat(core/server/web)**: **Phase 3 首节点——通知（notify）**。飞书/钉钉/企微群机器人 + SMTP 邮件；message 空回退上游 text；json 产物可审计。core 5 + server 8 个新测试。
 - `8a9ad1c` — **feat(core/server/web)**: **Phase 2 第七节点、收官——搜索（search）**。DuckDuckGo 免 key + tavily/serpapi/google env key；query 空回退上游 text；text+json 双产物。core 4 + server 7 个新测试。
 - `b27e90b` — **feat(core/server/web)**: **Phase 2 第六节点——文件转换（convert）**。PDF→提取内嵌图片 + PNG/JPEG 互转（pngjs/jpeg-js 纯 JS）。core 4 + server 6 个新测试。
