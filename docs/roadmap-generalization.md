@@ -2,7 +2,7 @@
 
 > **当前主线路线图**（2026-08 起）。
 > 从"内容生成流水线"升级为"通用自动化平台"的产品路线图。
-> 状态：Phase 1 P0 已全部落地（2026-08-29）| 创建：2026-08-28
+> 状态：Phase 1 与 Phase 2 已全部落地（2026-08-29）| 创建：2026-08-28
 > 历史任务清单见 [roadmap-tasks.md](roadmap-tasks.md)（已合并到本文档）；内容线专项见 [product-content-roadmap.md](product-content-roadmap.md)。
 
 ---
@@ -85,15 +85,26 @@
 
 **目标**：能处理结构化数据和各种文件格式。
 
-| 节点 | 能力 |
-|------|------|
-| **数据库查询** | MySQL/PostgreSQL/SQLite/MongoDB，执行 SQL/查询 |
-| **表格处理** | CSV/Excel 读写、筛选、排序、聚合（类似 pandas） |
-| **文件解析** | PDF/Word/PPT 提取文本和图片 |
-| **文件转换** | 格式转换（PDF→图片、HTML→PDF、图片格式转换） |
-| **OCR** | 图片文字识别 |
-| **翻译** | 多语言翻译（调用 LLM 或翻译 API） |
-| **搜索** | 网络搜索（Google/Bing/SerpAPI） |
+| 节点 | 能力 | 状态 |
+|------|------|------|
+| **数据库查询** | MySQL/PostgreSQL/SQLite/MongoDB，执行 SQL/查询 | ✅ 已落地（database 节点，`db-drivers.ts` driver 抽象 + SQLite 首实现，MySQL/PG 可按接口扩展） |
+| **表格处理** | CSV/Excel 读写、筛选、排序、聚合（类似 pandas） | ✅ 已落地（table 节点，CSV/JSON 解析 + 筛选/排序/聚合步骤，JSON/CSV 双输出；Excel 未做） |
+| **文件解析** | PDF/Word/PPT 提取文本和图片 | ✅ 已落地（fileParse 节点，pdfjs-dist + fflate 纯 JS，提取文本与内嵌图片） |
+| **文件转换** | 格式转换（PDF→图片、HTML→PDF、图片格式转换） | ✅ 部分落地（convert 节点：PDF→提取内嵌图片 + PNG/JPEG 互转；HTML→PDF 纯 JS 无中文排版方案，暂缓） |
+| **OCR** | 图片文字识别 | ✅ 已落地（ocr 节点，tesseract.js WASM 零原生依赖，多语言 + 离线路径覆盖） |
+| **翻译** | 多语言翻译（调用 LLM 或翻译 API） | ✅ 已落地（translate 节点，LLM 翻译 + 流式 + 重试 + 成本核算） |
+| **搜索** | 网络搜索（Google/Bing/SerpAPI） | ✅ 已落地（search 节点，DuckDuckGo 免 key 默认 + Tavily/SerpAPI/Google CSE，env key 不入图） |
+
+#### 验收标准
+
+- [x] 数据库节点能执行 SQL 查询并返回行集（SQLite 首实现，driver 抽象可扩展 MySQL/PostgreSQL）
+- [x] 表格节点能解析 CSV/JSON，支持筛选、排序、聚合，输出 JSON/CSV
+- [x] 文件解析节点能提取 PDF/DOCX/PPTX 的文本与内嵌图片
+- [x] 文件转换节点能 PDF→图片（提取内嵌图）与图片 PNG/JPEG 互转（HTML→PDF 需浏览器引擎或嵌入中文字体，暂缓）
+- [x] OCR 节点能识别图片文字（tesseract.js，eng/chi_sim 等多语言，支持离线部署）
+- [x] 翻译节点能通过 LLM 翻译上游文本并保留结构
+- [x] 搜索节点能执行网络搜索并输出结构化结果（text + json 双产物）
+- [x] 能搭「HTTP 下载 → 文件解析 → OCR → 翻译」「搜索 → 总结」「数据库 → 表格聚合」等端到端产线
 
 ---
 
