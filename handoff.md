@@ -1,6 +1,6 @@
 # Handoff
 
-State of Agent World as of 2026-08-27.
+State of Agent World as of 2026-08-29.
 
 > **历史内容已归档**：2026-08-27 之前的全部变更记录、各阶段详细描述、质量门与已知 gap，已整体搬到 [docs/handoff-archive.md](docs/handoff-archive.md)。本文件只保留"项目当前状态 + 活跃任务 + 最近 5 个变更"。
 
@@ -12,18 +12,32 @@ State of Agent World as of 2026-08-27.
 - [docs/technical-design.md](docs/technical-design.md) — architecture, data models, API
 - [docs/roadmap-tasks.md](docs/roadmap-tasks.md) — per-phase task breakdown
 - [docs/tech-stack-assessment.md](docs/tech-stack-assessment.md) — current stack evaluation
+- [docs/feedback-workflow.md](docs/feedback-workflow.md) — owner 怎么高效反馈给我（截图 / computer-use / 防丢）
+- [docs/design-mcp-server.md](docs/design-mcp-server.md) — MCP Server 设计方案（让其他 AI 客户端接入 agent-world）
+- [docs/roadmap-generalization.md](docs/roadmap-generalization.md) — 通用化路线图（从内容生成流水线升级为通用自动化平台，5 阶段）
 - [docs/handoff-archive.md](docs/handoff-archive.md) — historical changes (pre-2026-08-27)
+- [PRODUCT_STRATEGY.md](PRODUCT_STRATEGY.md) — 产品策略汇总（成本/部署/定价/商业化决策基线）
+- [docs/design-artifact-display.md](docs/design-artifact-display.md) — 产物统一渲染卡设计（ArtifactCard + 渲染器注册表；前端进行中）
+- [docs/design-artifact-attribution-repo.md](docs/design-artifact-attribution-repo.md) — 产物归属 + 按流水线分组成品仓库设计（后端 schema 已落地）
 
 ## Current state
 
-- **Monorepo**：`packages/core` / `packages/server` (Node + sqlite, 端口 8791) / `apps/web` (Vite, 端口 5183)
-- **核心能力**：4 类节点（agent / imageGen / videoGen / audioGen），多产线管理，Inspector 模型下拉严格按 modality 过滤，多模态产出（Artifact 分层），流式 + SSE + 断线重连 + halt/resume，成本电表（token + 单价两种模式），评估体系雏形
+- **Monorepo**：`packages/core` / `packages/server` (Node + sqlite, 端口 8791) / `apps/web` (Vite, 端口 5173)
+- **核心能力**：4 类节点（agent / imageGen / videoGen / audioGen），多产线管理，Inspector 模型下拉严格按 modality 过滤，多模态产出（Artifact 分层），流式 + SSE + 断线重连 + halt/resume，成本电表（token + 单价两种模式），评估体系雏形，产物落库归属流水线（artifacts 加 graph_id/role，`ab32074` 已提交）
+- **进行中（工作树未提交）**：
+  - **账号系统 / 按用户隔离**：users 表 + JWT(HS256, bcrypt12) 会话 + graphs/runs/artifacts/brand_terms/成本全部按 `user_id` 过滤 + 前端登录/注册/用户菜单 + `authFetch(credentials:include)` + `/api/proxy` 图片代理（own artifact 归一化走 cookie）
+  - **产物统一渲染**：`artifact-renderers.tsx`（ArtifactCard 外壳 + 7 类渲染器注册表 + JSON 树 + 共享 renderMarkdown），Inspector/成品面板/画廊三处接入，画廊按流水线分组，节点缩略图
+  - **UI 布局交互**：Inspector 可拖拽调宽（localStorage 持久化）、CanvasToolbar 置顶、Inspector 随节点选中自动开合、成品库改版
 - **关键文件**：
-  - `apps/web/src/components/Inspector.tsx` — 节点详情面板（model select 严格按 modality 过滤）
+  - `apps/web/src/components/Inspector.tsx` — 节点详情面板（model select 严格按 modality 过滤；产物走 ArtifactCard）
+  - `apps/web/src/lib/artifact-renderers.tsx` — 统一产物渲染（工作树未提交）
+  - `apps/web/src/components/ProductGallery.tsx` — 成品库（kind 过滤 + 按流水线分组，工作树未提交）
+  - `apps/web/src/components/Settings.tsx` — 模型/provider/单价管理
   - `apps/web/src/components/Canvas.tsx` — 画布（undo/redo/缩略图/拖拽/对齐）
   - `apps/web/src/components/GraphSwitcher.tsx` — 多产线切换（重设计 step 3 尾巴未提交）
   - `apps/web/src/components/Onboarding.tsx` — 首次启动引导
-  - `apps/web/src/components/ModelSettings.tsx` — 模型/provider/单价管理
+  - `packages/server/src/auth.ts` — JWT 签发/校验、密码哈希（工作树未提交）
+  - `packages/server/src/db.ts` — 持久化（含 users 表 + 按 user_id 隔离，进行中）
   - `packages/core/src/` — 领域模型、Provider 抽象、Artifact、节点契约
   - `packages/server/src/` — 持久化、events API、调度
 
@@ -31,20 +45,21 @@ State of Agent World as of 2026-08-27.
 
 按优先级降序，标 `★` 的是当下要推的：
 
-1. **★ `GraphSwitcher.tsx` 未提交的 step 3 尾巴**（+11 行）— 上一轮 UI 重设计遗留，工作树里挂着，需要决定是单独一个 commit 收掉还是先放着
-2. **★ 老 server 进程 pid 89495** 还在 8791 上跑（沙箱杀不掉，EPERM），新版 server 验证需要 `kill 89495` 后用 `python3 -c "import subprocess; subprocess.Popen(['node','dist/index.js'], start_new_session=True, cwd='packages/server')"` 起
-3. **Inspector 的"在显眼处加一个去设置的链接"**（在 archive 中"AI 视频/音频节点：模型字段改为下拉"章节列为已知 gap）— 音频模型没配时，下拉只有占位项，没引导；新建节点有 toast 软提示覆盖
-4. **GraphSwitcher 重设计后续 step 4+**（archive 中"画布多选与视口体验"章节是 step 1-2，step 3 完成未提交）
+0. **★ 工作树三坨大改动待收尾（进行中，未提交）** — 账号系统（user 隔离 + JWT + 前端登录/用户菜单）、产物统一渲染（ArtifactCard / 画廊分组 / 节点缩略图）、UI 布局交互（Inspector 拖宽 / 工具栏置顶 / 成品库改版）。**注意：server 测试因此挂 26 个**（user 隔离重构改了 DB API，测试未同步），需要先把这批改动拆成原子 commit 收尾。
+1. **★ 通用化 Phase 1 P0**（详见 [docs/roadmap-generalization.md](docs/roadmap-generalization.md)）— HTTP 请求节点 + 代码执行节点 + 条件分支节点 + 数据模型升级（JSON 传递/变量/映射）。这是从"内容生成工具"升级为"通用自动化平台"的基石，做完能处理 80% 场景。
+2. **MCP Server P0 MVP**（详见 [docs/design-mcp-server.md](docs/design-mcp-server.md)）— stdio 传输 + 6 个核心工具（list_graphs/get_graph/run_graph/get_run_status/list_artifacts/get_artifact），让 Claude Desktop/Cursor 等能接入 agent-world。
+3. **GraphSwitcher.tsx 未提交的 step 3 尾巴**（+11 行）— 上一轮 UI 重设计遗留，工作树里挂着，需要决定是单独一个 commit 收掉还是先放着
+4. **Inspector 的"在显眼处加一个去设置的链接"**— 音频模型没配时，下拉只有占位项，没引导；新建节点有 toast 软提示覆盖
 
 ## Recently shipped (last 5)
 
 按 commit 时间倒序，每条一行影响面 + commit hash：
 
-1. `ff73b92` — **feat(web)**: 删除被节点使用的模型时弹替换对话框（同 modality 候选，选中即替换删除，丝滑）
-2. `6c47c22` — **fix(web)**: toast 从屏幕正中移到顶部中间（用户原意是"顶部中间"，被误解为"屏幕中央"，已纠正）
-3. `b6254dd` — **fix(web)**: `defaultModelFor` 优先真实 provider；老图里 `agnes-image` 这种硬编码占位自动迁移到真实 image provider
-4. `ef52975` — **feat(web)**: 错误条改成屏幕中间弹 toast + 一键复制（与第 2 条合并后最终落在顶部）
-5. `1123d10` — **feat**: addNodes 不再 block；派发是真正的模型 gatekeeper（节点添加不再卡真实模型存在性，派发时才校验）
+1. `ab32074` — **feat**: 产物落库归属到流水线和角色（artifacts 加 graph_id/role，run.ts 注入）
+2. `fc99fbe` — **chore(web)**: Vite dev 端口恢复为 5173
+3. `017c533` — **chore(deps)**: 新增 bcryptjs / jose / react-router-dom（为账号系统做准备）
+4. `4177691` — **docs(handoff)**: 补充通用化路线图、MCP Server 设计与近期修复
+5. `eb3db86` — **docs**: 通用化路线图（5 阶段，从内容生成流水线升级为通用自动化平台）
 
 最近 5 条之前的全部在 [docs/handoff-archive.md](docs/handoff-archive.md) 的"阶段 4 收尾"系列章节里。
 
@@ -53,8 +68,22 @@ State of Agent World as of 2026-08-27.
 > 这里的 snapshot 是"今天跑过的"状态；archive 章节里的"质量门"是各 commit 当时的状态，不要混用。
 
 - `pnpm -r typecheck`：全绿
+- `pnpm --filter @agent-world/core test`：54/54 通过
+- `pnpm --filter @agent-world/server test`：**201/227 通过，26 失败**（进行中 user 隔离重构未同步测试，非本次文档改动引入）：
+  - 14 个测试文件 0 收集（graphs / events / artifacts / costs / runs / brand / ab / migrations / sse-resume …，因 DB API 签名变更在 import 期崩）
+  - `triggers.test.ts` 19 失败（fake db 缺 `listAllGraphs`）
+  - `scheduler.test.ts` 4 失败、`security.test.ts` 1 失败
+  - 原有 2 个已知失败仍在：`engine.reliability.test.ts > resume with resetFrom`、`engine.test.ts > artifact.produced with image URLs`
 - `pnpm --filter @agent-world/web exec vitest run`：19/19 通过
-- 沙箱 EPERM：未在 8791 / 5183 端到端复现
+
+## Feedback workflow
+
+- 看到不爽：**截图 + 6 字标签**发我。详细见 [docs/feedback-workflow.md](docs/feedback-workflow.md)
+- 想让我看你的 Chrome：说"computer use 看一下 [位置]"
+- 防丢：我在 "Active feedback" 区块自动记，你不用管
+
+### Active feedback
+<!-- 自动维护：用户最近反馈的未解决问题，按时间倒序 -->
 
 ## How to run
 
@@ -63,9 +92,9 @@ State of Agent World as of 2026-08-27.
 cd packages/server && node dist/index.js
 # 或 detach 版：python3 -c "import subprocess; subprocess.Popen(['node','dist/index.js'], start_new_session=True, cwd='packages/server')"
 
-# web (foreground, 5183)
+# web (foreground, 5173 — vite.config.ts 配的)
 cd apps/web && pnpm dev
-# → http://localhost:5183
+# → http://localhost:5173
 
 # 沙箱里启动 server / vite 都会被 EPERM 拒（详见 Known issues）
 ```
@@ -83,3 +112,59 @@ cd apps/web && pnpm dev
 - **commit 颗粒度**：原子提交；一次 commit 解决一件事（bug 修复 / 单一 feature / 单一迁移）
 - **UI 文案**：中文，遵循 `--steel-*` / `--power` / `--ink*` / `--alert` 等设计 token，**不改主题样式**
 - **新增功能必加 handoff 章节**：本文件只记最近 5 个 + 待办；超过 5 个的全部进 archive
+
+### ⚠️ server 重启 bug（2026-08-27 14:40 踩过）
+
+`start_new_session` 起 server 时 **cwd 必须是 `packages/server`**，不能是仓库根：
+
+```bash
+# ✅ 对的
+python3 -c "import subprocess; subprocess.Popen(['node','/Users/jiangfeng/000mycodes/agent-world/packages/server/dist/index.js'], start_new_session=True, cwd='/Users/jiangfeng/000mycodes/agent-world/packages/server')"
+
+# ❌ 错的（cwd=仓库根 → server 打开仓库根的空 agent-world.sqlite，看不到任何产线）
+python3 -c "import subprocess; subprocess.Popen(['node','packages/server/dist/index.js'], start_new_session=True, cwd='/Users/jiangfeng/000mycodes/agent-world')"
+```
+
+**两个 DB 文件**：
+- `packages/server/agent-world.sqlite` 180KB — 真正的数据（产线、run、artifact）
+- `agent-world.sqlite` 4KB — 仓库根的"幽灵"空 DB，server 在仓库根跑就用这个
+
+**验证起对没**：
+```bash
+PID=$(lsof -ti :8791)
+lsof -p $PID | grep "agent-world.sqlite "   # 应该指向 packages/server/agent-world.sqlite
+```
+
+**事故原因**：之前我帮用户重启时图省事把 cwd 写成绝对路径的仓库根（因为 dist/index.js 用了相对路径 `node 'packages/server/dist/index.js'`），但 server 进程内找 DB 用 `./agent-world.sqlite`——cwd 在仓库根就直接落到根的空 DB 上。**下次绝对不能用仓库根 cwd**。
+
+
+### ⚠️ server 重启：用双 fork，不要用 `start_new_session`（2026-08-27 14:43）
+
+**问题**：`subprocess.Popen(..., start_new_session=True, cwd=...)` 起的 server 进程在 exec 退出后会被 sandbox 带走（kill 老 server → 几秒后新 server 也死）。
+
+**解决**：Python 双 fork + `os.setsid()`，彻底脱离 process group：
+
+```python
+import os, sys
+pid = os.fork()
+if pid > 0: sys.exit(0)
+os.setsid()
+pid2 = os.fork()
+if pid2 > 0: sys.exit(0)
+os.chdir('/Users/jiangfeng/000mycodes/agent-world/packages/server')
+log = os.open('/tmp/aw-server.log', os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
+os.dup2(log, 1); os.dup2(log, 2)
+devnull = os.open(os.devnull, os.O_RDONLY)
+os.dup2(devnull, 0)
+os.close(log); os.close(devnull)
+os.execvp('node', ['node', '/Users/jiangfeng/000mycodes/agent-world/packages/server/dist/index.js'])
+```
+
+**macOS 没有 `setsid` 命令**，但 Python 的 `os.setsid()` 等价。
+
+**验证**：
+```bash
+sleep 5 && lsof -i :8791    # 5 秒后还在 → 真独立
+lsof -p $(lsof -ti :8791) | grep agent-world.sqlite  # 指向 packages/server/
+```
+

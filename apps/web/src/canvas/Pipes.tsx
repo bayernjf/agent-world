@@ -125,13 +125,14 @@ export default function Pipes({
 
         const hot = hotEdges?.has(edge.id) ?? false;
         const dim = hotEdges !== null && !hot;
+        const focus = edge.id === focusEdgeId;
         const live = energised(edge.id, edge.from);
         const arrows = rework ? [] : orthoArrows(route ?? [anchor.from, anchor.to], edge.kind);
 
         return (
           <g
             key={edge.id}
-            className={`pipe ${rework ? "pipe--rework" : ""} ${hot ? "pipe--hot" : ""} ${selectedEdgeIds.includes(edge.id) ? "pipe--focus" : ""} ${dim ? "pipe--dim" : ""}`}
+            className={`pipe ${rework ? "pipe--rework" : ""} ${hot ? "pipe--hot" : ""} ${focus ? "pipe--focus" : ""} ${dim ? "pipe--dim" : ""}`}
           >
             <path d={d} className="pipe__casing" />
             <path
@@ -142,7 +143,7 @@ export default function Pipes({
             {arrows.map((arrow, i) => (
               <g
                 key={i}
-                className={`pipe-arrow ${hot ? "pipe-arrow--hot" : ""} ${selectedEdgeIds.includes(edge.id) ? "pipe-arrow--focus" : ""} ${dim ? "pipe-arrow--dim" : ""}`}
+                className={`pipe-arrow ${hot ? "pipe-arrow--hot" : ""} ${focus ? "pipe-arrow--focus" : ""} ${dim ? "pipe-arrow--dim" : ""}`}
                 transform={`translate(${arrow.x} ${arrow.y}) rotate(${arrow.angle}) scale(${arrow.dir} 1)`}
               >
                 <path className="pipe-arrow__shape" d="M -5 -5 L 5 0 L -5 5 Z" />

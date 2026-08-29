@@ -153,6 +153,9 @@ export interface StoredArtifact {
   runId: string;
   nodeId: string;
   attempt: number | null;
+  graphId?: string | null;
+  role?: "source" | "intermediate" | "final" | null;
+  graphName?: string | null;
   kind: "text" | "image" | "video" | "audio" | "file" | "json" | "uri";
   mimeType: string | null;
   label: string | null;
@@ -160,6 +163,22 @@ export interface StoredArtifact {
   storage: "inline" | "uri" | "local";
   uri: string | null;
   createdAt: number;
+}
+
+/**
+ * Resolve an image URL for same-origin rendering. External http(s) URLs are
+ * routed through the server-side `/api/proxy` endpoint (which bypasses browser
+ * hotlink/CORS blocks); local `/api/...` and `data:` URIs are used directly.
+ * Absolute URLs that point at our own artifact store are normalized back to a
+ * same-origin path so the auth cookie is attached (the proxy would self-fetch
+ * and get a 401). Returns null when there is no URL to render.
+ */
+export function proxyImageUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  const ownArtifact = url.match(/^https?:\/\/[^/]+(\/api\/artifacts\/[^?#]+)/i);
+  if (ownArtifact) return ownArtifact[1]!;
+  if (/^https?:\/\//i.test(url)) return `/api/proxy?url=${encodeURIComponent(url)}`;
+  return url;
 }
 
 export interface ABArmReport {

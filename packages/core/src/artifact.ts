@@ -78,10 +78,17 @@ export function extractArtifacts(
   let n = 0;
   const nextId = () => `${idPrefix}-a${++n}`;
 
+  // Strip fenced code blocks before scanning for bare URLs — URLs inside
+  // JSON / code blocks are structured data (e.g. product-json image fields)
+  // and should not be extracted as standalone media artifacts. They render via
+  // their own block renderer (ProductBlocks etc.) instead.
+  const codeBlock = /```[\s\S]*?```/g;
+  const textWithoutCode = text.replace(codeBlock, (match) => " ".repeat(match.length));
+
   // Markdown images: ![alt](url)
   const mdImg = /!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g;
   let m: RegExpExecArray | null;
-  while ((m = mdImg.exec(text))) {
+  while ((m = mdImg.exec(textWithoutCode))) {
     out.push({
       id: nextId(),
       kind: "image",
@@ -93,7 +100,7 @@ export function extractArtifacts(
   // Bare image URLs not already inside markdown
   const bareUrl = /(?<!!)\bhttps?:\/\/\S+\.(?:png|jpe?g|gif|webp|svg|bmp)(?:\?\S*)?/gi;
   const seen = new Set(out.map((a) => a.uri));
-  while ((m = bareUrl.exec(text))) {
+  while ((m = bareUrl.exec(textWithoutCode))) {
     const url = m[0];
     if (seen.has(url)) continue;
     seen.add(url);
@@ -102,13 +109,13 @@ export function extractArtifacts(
 
   // Bare video URLs
   const videoUrl = /\bhttps?:\/\/\S+\.(?:mp4|webm|mov|m4v)(?:\?\S*)?/gi;
-  while ((m = videoUrl.exec(text))) {
+  while ((m = videoUrl.exec(textWithoutCode))) {
     out.push({ id: nextId(), kind: "video", uri: m[0] });
   }
 
   // Bare audio URLs
   const audioUrl = /\bhttps?:\/\/\S+\.(?:mp3|wav|ogg|m4a|flac)(?:\?\S*)?/gi;
-  while ((m = audioUrl.exec(text))) {
+  while ((m = audioUrl.exec(textWithoutCode))) {
     out.push({ id: nextId(), kind: "audio", uri: m[0] });
   }
 

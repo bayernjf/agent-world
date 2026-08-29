@@ -144,6 +144,8 @@ export interface ExecuteOptions {
   sleep?: (ms: number) => Promise<void>;
   /** Persists generated image bytes and returns a stable URI (e.g. /api/artifacts/:id). */
   storeBinary?: (data: Buffer, mimeType: string, label?: string) => string | Promise<string>;
+  /** Resolves a /api/artifacts/<id> URI to a data URI for cloud models. */
+  readArtifact?: (uri: string) => Promise<string | null>;
   /** Tool-call permission governance. Defaults to the env-derived config. */
   permissionConfig?: PermissionConfig;
 }
@@ -176,7 +178,33 @@ function truncateText(body: string, maxChars: number): string {
  * finishes with a text output (agent/source/sink/gate).
  */
 function setTextArtifact(artifacts: Map<string, Artifact[]>, nodeId: string, text: string): void {
-  artifacts.set(nodeId, [{ id: `${nodeId}-text`, kind: "text", content: text }]);
+  const headingMatch = text.match(/^\s*#\s+(.+?)\s*$/m);
+  const label = headingMatch ? headingMatch[1] : undefined;
+  artifacts.set(nodeId, [
+    {
+      id: `${nodeId}-text`,
+      kind: "text",
+      content: text,
+      mimeType: "text/markdown",
+      ...(label ? { label } : {}),
+    },
+  ]);
+}
+
+/**
+ * Inlines a relative /api/artifacts/<id> URI as a data:<mime>;base64,... URI
+ * when readArtifact can resolve it. Other URIs (https://, data:, already-
+ * absolute CDN URLs) pass through unchanged. Centralised so the same logic
+ * applies to any image-content path the engine hands to a model.
+ */
+export async function inlineImageUrl(uri: string, readArtifact: (uri: string) => Promise<string | null>): Promise<string> {
+  if (!uri.startsWith("/api/artifacts/")) return uri;
+  try {
+    const resolved = await readArtifact(uri);
+    return resolved ?? uri;
+  } catch {
+    return uri;
+  }
 }
 
 /**
@@ -312,23 +340,6 @@ function detectProhibited(text: string, terms: string[]): string[] {
   return terms.filter((t) => text.includes(t));
 }
 
-/** True if any upstream `source` node already carries real product images. */
-function upstreamSourceHasImages(graph: Graph, nodeId: string): boolean {
-  const seen = new Set<string>();
-  const stack = [nodeId];
-  while (stack.length) {
-    const id = stack.pop()!;
-    for (const e of incoming(graph, id, "flow")) {
-      if (seen.has(e.from)) continue;
-      seen.add(e.from);
-      const n = nodeById(graph, e.from);
-      if (n?.kind === "source" && (n.source?.images?.length ?? 0) > 0) return true;
-      stack.push(e.from);
-    }
-  }
-  return false;
-}
-
 /** Build a banner-generation prompt from the upstream source's product brief. */
 function buildImagePrompt(node: GraphNode, graph: Graph): string {
   const seen = new Set<string>();
@@ -431,6 +442,8 @@ interface SchedulerOptions {
   resuming?: boolean;
   /** Persists generated image bytes and returns a stable URI (e.g. /api/artifacts/:id). */
   storeBinary: (data: Buffer, mimeType: string, label?: string) => string | Promise<string>;
+  /** Resolves a /api/artifacts/<id> URI to a data URI for cloud models. */
+  readArtifact?: (uri: string) => Promise<string | null>;
   /** Tool-call permission governance. Defaults to the env-derived config. */
   permissionConfig?: PermissionConfig;
   /** Human-edited product overrides, keyed by node id (4.7 human-in-the-loop). */
@@ -497,7 +510,9 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
         if (a.kind === "text" || a.kind === "json") {
           if (a.content) parts.push(a.content);
         } else if (a.kind === "image") {
-          parts.push(`[图片: ${a.label ?? a.uri ?? "上游图片"}]`);
+          const label = a.label ?? "上游图片";
+          const uriPart = a.uri ? ` — URL: ${a.uri}` : "";
+          parts.push(`[图片: ${label}${uriPart}]`);
         } else if (a.kind === "video") {
           parts.push(`[视频: ${a.label ?? a.uri ?? "上游视频"}]`);
         } else if (a.kind === "audio") {
@@ -535,6 +550,30 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     } else {
       body = assembleInput(parts, policy);
     }
+
+    // Inject upstream source constraints so every agent node (regardless of
+    // how many layers deep) sees the prohibited terms and brand words. Without
+    // this, the source brief only reaches the first downstream agent; after
+    // multiple rewrites the constraints are lost and the gate can only detect
+    // violations post-hoc instead of preventing them upfront.
+    // NOTE: only inject for agent nodes — gate nodes use inputFor() to read
+    // upstream output for coverage detection; injecting terms there would make
+    // the detector always pass.
+    if (node.kind === "agent") {
+      const prohibited = upstreamProhibitedTerms(graph, node.id);
+      const brandTerms = upstreamBrandTerms(graph, node.id);
+      const constraintLines: string[] = [];
+      if (prohibited.length > 0) {
+        constraintLines.push(`[禁用词 — 生成内容中绝对不能出现以下词语/说法]\n${prohibited.join("、")}`);
+      }
+      if (brandTerms.length > 0) {
+        constraintLines.push(`[品牌词 — 建议在文案中自然融入，不必全部使用]\n${brandTerms.join("、")}`);
+      }
+      if (constraintLines.length > 0) {
+        body = `${body}\n\n${constraintLines.join("\n\n")}`;
+      }
+    }
+
     const note = includeNote ? reworkNotes.get(node.id) : undefined;
     if (!note) return body;
     return `${body}\n\n[质检站退回原因] ${note}`;
@@ -568,6 +607,10 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
   const produceArtifacts = (nodeId: string, output: string, attempt?: number): Artifact["kind"] => {
     const extracted = extractArtifacts(output, nodeId);
     let primary: Artifact["kind"] = "text";
+    // Persist the node's own text note (set by setTextArtifact) so plain-text
+    // products are attributable to their pipeline and appear in the gallery.
+    const note = (artifacts.get(nodeId) ?? []).find((a) => a.kind === "text");
+    if (note) emit({ type: "artifact.produced", nodeId, attempt, artifact: note });
     for (const a of extracted) {
       emit({ type: "artifact.produced", nodeId, attempt, artifact: a });
       if (a.kind !== "text") primary = a.kind;
@@ -745,6 +788,13 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           }
           states.set(nodeId, "failed");
           status = policy === "halt" ? "halted" : "failed";
+          emit({
+            type: "node.failed",
+            nodeId,
+            attempt,
+            error: verdict.reason,
+            errorCode: "VALIDATION",
+          });
           if (policy === "halt") {
             haltNodeId = nodeId;
             haltReason = verdict.reason;
@@ -869,12 +919,6 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
   if (node.kind === "imageGen") {
     emit({ type: "node.started", nodeId, attempt });
     const cfg = node.imageGen ?? { model: "agnes-image", prompt: "", n: 1 };
-    // 缺素材时才生图：上游 source 已有图片则跳过，避免浪费生图配额。
-    if (upstreamSourceHasImages(graph, nodeId)) {
-      states.set(nodeId, "done");
-      emit({ type: "node.finished", nodeId, attempt, output: "", usage: zeroUsage() });
-      return;
-    }
     const prompt = cfg.prompt?.trim() || buildImagePrompt(node, graph);
     try {
       const results = await worker.generateImage({ node, config: cfg, input: prompt, signal: opts.signal });
@@ -943,7 +987,10 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           const agentInput = await inputFor(node);
           reworkNotes.delete(nodeId);
           const tools = resolveTools(mounts);
-          const referenceImages = imagesFor(nodeId);
+          const rawImageUris = imagesFor(nodeId);
+          const referenceImages = opts.readArtifact
+            ? await Promise.all(rawImageUris.map((u) => inlineImageUrl(u, opts.readArtifact!)))
+            : rawImageUris;
           const content: ContentPart[] | undefined = referenceImages.length
             ? [{ type: "text", text: agentInput }, ...referenceImages.map((u): ContentPart => ({ type: "image", image: u }))]
             : undefined;
@@ -1259,6 +1306,7 @@ export async function* execute(opts: ExecuteOptions): AsyncGenerator<RunEvent, v
     now: opts.now ?? Date.now,
     sleep: opts.sleep ?? delay,
     storeBinary: opts.storeBinary ?? defaultStoreBinary,
+    readArtifact: opts.readArtifact,
     permissionConfig: opts.permissionConfig,
     init: {
       artifacts: new Map(),
@@ -1311,8 +1359,14 @@ export function reconstructState(events: RunEvent[]): ResumeState {
         break;
       case "artifact.produced": {
         const arr = artifacts.get(e.nodeId) ?? [];
-        arr.push(e.artifact);
-        artifacts.set(e.nodeId, arr);
+        // The node.finished synthesis (below) can already hold a text artifact
+        // with the same `${nodeId}-text` id for runs that predate text-note
+        // events — skip the duplicate so downstream input assembly does not
+        // repeat the same content twice.
+        if (!arr.some((a) => a.id === e.artifact.id)) {
+          arr.push(e.artifact);
+          artifacts.set(e.nodeId, arr);
+        }
         break;
       }
       case "node.started":
@@ -1387,6 +1441,8 @@ export interface ResumeOptions {
   signal?: AbortSignal;
   /** Persists generated image bytes and returns a stable URI (e.g. /api/artifacts/:id). */
   storeBinary?: (data: Buffer, mimeType: string, label?: string) => string | Promise<string>;
+  /** Resolves a /api/artifacts/<id> URI to a data URI for cloud models. */
+  readArtifact?: (uri: string) => Promise<string | null>;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
   /** Tool-call permission governance. Defaults to the env-derived config. */
@@ -1504,6 +1560,7 @@ export async function* resume(opts: ResumeOptions): AsyncGenerator<RunEvent, voi
     now,
     sleep,
     storeBinary: opts.storeBinary ?? defaultStoreBinary,
+    readArtifact: opts.readArtifact,
     permissionConfig: opts.permissionConfig,
     editOutput: opts.editOutput,
     init: {

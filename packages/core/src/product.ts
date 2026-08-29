@@ -69,7 +69,11 @@ export function parseProductDocument(output: string): ProductDocument | null {
   const match = output.match(FENCE);
   if (!match) return null;
   try {
-    const parsed = ProductDocument.safeParse(JSON.parse(match[1]!));
+    const raw = JSON.parse(match[1]!);
+    // Tolerate agents that emit just the blocks array instead of the full
+    // {platform, title, blocks} wrapper — wrap it so validation succeeds.
+    const candidate = Array.isArray(raw) ? { blocks: raw } : raw;
+    const parsed = ProductDocument.safeParse(candidate);
     return parsed.success ? parsed.data : null;
   } catch {
     return null;

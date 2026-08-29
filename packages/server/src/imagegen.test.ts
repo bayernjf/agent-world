@@ -64,14 +64,15 @@ describe("imageGen node", () => {
     expect(finished?.usage?.units?.images).toBe(2);
   });
 
-  it("skips generation when an upstream source already has images", async () => {
+  it("generates images even when an upstream source already has reference images", async () => {
     const events = await collect(makeGraph({ sourceImages: ["https://example.com/p.png"] }));
-    // The source node emits its own reference image; the imageGen node must NOT
-    // generate when an upstream source already supplies photos.
+    // The source node carries reference images, but the imageGen node still
+    // generates its own配图/场景图 — reference images are for the writer to
+    // describe, not a substitute for AI-generated visuals.
     const imgsFromImgNode = events.filter(
       (e) => e.type === "artifact.produced" && e.artifact?.kind === "image" && e.nodeId === "img",
     );
-    expect(imgsFromImgNode).toHaveLength(0);
+    expect(imgsFromImgNode).toHaveLength(1);
     expect(events.some((e) => e.type === "node.finished" && e.nodeId === "img")).toBe(true);
   });
 });
