@@ -1790,3 +1790,4 @@ modality 切片，统一严格过滤；同时把 agent 的占位文案从泛化�
 > Entries rolled out of the active `handoff.md` "Recently shipped" list to keep it at 5 items.
 
 - `c0dd67d` — **fix(server)**: `/api/proxy` 要求登录并拒绝内网地址（回环 / RFC1918 / 云元数据 / IPv6 本地段），重定向逐跳复检，堵未认证 SSRF
+- `835a383` — **fix(server)**: 用户隔离迁移（14）对 pre-migration 旧库幂等化
