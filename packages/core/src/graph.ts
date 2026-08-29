@@ -30,6 +30,7 @@ export const NodeKind = z.enum([
   "notify",
   "vcs",
   "human",
+  "subprocess",
 ]);
 export type NodeKind = z.infer<typeof NodeKind>;
 
@@ -557,6 +558,19 @@ export const HumanConfig = z.object({
 });
 export type HumanConfig = z.infer<typeof HumanConfig>;
 
+/**
+ * Subprocess node: call another saved graph as a sub-flow (function-call
+ * semantics). The upstream text becomes the sub-flow's source input; every
+ * sink node of the sub-flow feeds the subprocess node's output back up.
+ */
+export const SubprocessConfig = z.object({
+  /** Graph id of the sub-flow to call (a different row in the graphs table). */
+  graphId: z.string().min(1),
+  /** Max call depth, guarding against mutual recursion. Default 3. */
+  maxDepth: z.number().int().min(1).max(10).default(3),
+});
+export type SubprocessConfig = z.infer<typeof SubprocessConfig>;
+
 export const GateConfig = z.object({
   maxAttempts: z.number().int().min(1).max(10).default(3),
   criterion: z.string().default(""),
@@ -678,6 +692,7 @@ export const GraphNode = z.object({
   notify: NotifyConfig.optional(),
   vcs: VcsConfig.optional(),
   human: HumanConfig.optional(),
+  subprocess: SubprocessConfig.optional(),
   source: SourceConfig.optional(),
 });
 export type GraphNode = z.infer<typeof GraphNode>;
