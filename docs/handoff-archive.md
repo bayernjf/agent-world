@@ -1789,6 +1789,7 @@ modality 切片，统一严格过滤；同时把 agent 的占位文案从泛化�
 
 > Entries rolled out of the active `handoff.md` "Recently shipped" list to keep it at 5 items.
 
+- `8a9ad1c` — **feat(core/server/web)**: **Phase 2 第七节点、收官——搜索（search）**。DuckDuckGo 免 key + tavily/serpapi/google env key；query 空回退上游 text；text+json 双产物。core 4 + server 7 个新测试。
 - `b27e90b` — **feat(core/server/web)**: **Phase 2 第六节点——文件转换（convert）**。PDF→提取内嵌图片 + PNG/JPEG 互转（pngjs/jpeg-js 纯 JS）。core 4 + server 6 个新测试。
 - `3a75ab1` — **feat(core/server/web)**: **Phase 2 第五节点——OCR（ocr）**。tesseract.js WASM 零原生依赖，懒加载 + 离线路径覆盖。core 4 + server 5 个新测试。
 - `12f399c` — **feat(core/server/web)**: **Phase 2 第四节点——翻译（translate）**。core 新增 NodeKind.translate + TranslateConfig schema；server 执行分支复用 worker.runAgent 做纯 LLM 翻译（流式 + 重试 + 成本核算）。core 4 + server 4 个新测试。
