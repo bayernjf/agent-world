@@ -94,11 +94,59 @@ function isProductJsonSource(a: Artifact): boolean {
   return (a.kind === "text" || a.kind === "json") && !!a.content?.includes("```product-json");
 }
 
+type MainTab = "output" | "config" | "skills";
+const MAIN_TAB_ORDER: MainTab[] = ["output", "config", "skills"];
+const MAIN_TAB_STORE = "agent-world.inspector.mainTab";
+
+function readStoredMainTab(): MainTab {
+  try {
+    const v = localStorage.getItem(MAIN_TAB_STORE);
+    return v === "output" || v === "config" || v === "skills" ? v : "output";
+  } catch {
+    return "output";
+  }
+}
+
+/** The 技能 tab only exists on agent nodes, so a remembered tab can be invalid. */
+function clampMainTab(tab: MainTab, isAgent: boolean): MainTab {
+  return tab === "skills" && !isAgent ? "output" : tab;
+}
+
+function nextMainTab(current: MainTab, isAgent: boolean): MainTab {
+  const order = MAIN_TAB_ORDER.filter((t) => t !== "skills" || isAgent);
+  const i = order.indexOf(current);
+  return order[(i + 1) % order.length]!;
+}
+
 export default function Inspector() {
   const { graph, selectedId, updateNode, saveState, reloadGraph } = useGraph();
   const runtime = useVisibleRuntime();
   const [tab, setTab] = useState<number | "diff">(1);
-  const [mainTab, setMainTab] = useState<"output" | "config" | "skills">("output");
+  const [mainTab, setMainTabState] = useState<MainTab>(readStoredMainTab);
+  const setMainTab = (t: MainTab) => {
+    setMainTabState(t);
+    try {
+      localStorage.setItem(MAIN_TAB_STORE, t);
+    } catch {
+      /* storage unavailable (private mode) — the tab still works for this session */
+    }
+  };
+
+  // Brief glow after E cycles the tabs, so the hidden shortcut is noticeable.
+  const [tabFlash, setTabFlash] = useState(false);
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const triggerTabFlash = () => {
+    if (flashTimer.current) clearTimeout(flashTimer.current);
+    setTabFlash(true);
+    flashTimer.current = setTimeout(() => setTabFlash(false), 700);
+  };
+  useEffect(
+    () => () => {
+      if (flashTimer.current) clearTimeout(flashTimer.current);
+    },
+    [],
+  );
+
   const [showReasoning, setShowReasoning] = useState(false);
   const [settings, setSettings] = useState<AppConfig | null>(null);
 
@@ -132,9 +180,28 @@ export default function Inspector() {
   useEffect(() => {
     api.getSettings().then(setSettings).catch(() => {});
   }, []);
+  // Moving between nodes keeps the tab the user last used; only fall back when
+  // that tab does not exist on the newly selected node kind.
   useEffect(() => {
-    setMainTab("output");
-  }, [selectedId]);
+    const isAgent = graph.nodes.find((n) => n.id === selectedId)?.kind === "agent";
+    setMainTabState((cur) => clampMainTab(cur, !!isAgent));
+  }, [selectedId, graph]);
+
+  // E cycles 产出 → 配置 → 技能, alongside the existing single-key canvas bindings.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey || !selectedId) return;
+      if (e.key !== "e" && e.key !== "E") return;
+      const t = e.target as HTMLElement;
+      if (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable) return;
+      e.preventDefault();
+      const isAgent = graph.nodes.find((n) => n.id === selectedId)?.kind === "agent";
+      setMainTab(nextMainTab(mainTab, !!isAgent));
+      triggerTabFlash();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [mainTab, selectedId, graph, triggerTabFlash]);
   // Each node kind only drives one modality, so its model select must
   // only show models matching that modality. Empty list -> the select
   // renders an "未配置" placeholder nudging the user to Settings, and
@@ -204,7 +271,7 @@ export default function Inspector() {
         )}
       </div>
 
-      <div className="inspector__tabs">
+      <div className={`inspector__tabs${tabFlash ? " is-flash" : ""}`}>
         <button
           type="button"
           className={`tab ${mainTab === "output" ? "is-on" : ""}`}
@@ -222,6 +289,13 @@ export default function Inspector() {
             onClick={() => setMainTab("skills")}
           >技能</button>
         )}
+        <span
+          className="inspector__tab-hint"
+          data-tip="按 E 循环切换标签页"
+          aria-label="按 E 循环切换标签页"
+        >
+          <kbd className="kbd-inline">E</kbd>
+        </span>
       </div>
 
       <div className="inspector__body">

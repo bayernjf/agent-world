@@ -297,6 +297,13 @@ export default function ControlPanel(props: Props) {
           {!running && !halted && materialEmpty && (
             <p className="note">先填入原料才能派发给进料口。</p>
           )}
+          {!running && !halted && !materialEmpty && !canRun && (
+            <p className="note note--warn">
+              {errors.length > 0
+                ? "修复上方「编译」里的错误后才能派发。"
+                : "编译检查未通过，请刷新页面重试；若仍不行，检查「编译」区块的报错。"}
+            </p>
+          )}
           {running && (
             <p className="note">停机只停止后续工作，已产生的 token 仍会计费。</p>
           )}

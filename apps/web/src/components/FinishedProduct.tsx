@@ -36,7 +36,11 @@ export default function FinishedProduct({ sinkId, graph, runtime }: Props) {
   const text = output >= 0 ? sinkRt!.outputs[output] ?? "" : "";
 
   const artifacts = useMemo(
-    () => collectUpstreamArtifacts(sinkId, graph, runtime),
+    () =>
+      collectUpstreamArtifacts(sinkId, graph, runtime).filter(
+        (a) =>
+          !((a.kind === "text" || a.kind === "json") && a.content?.includes("```product-json")),
+      ),
     [sinkId, graph, runtime],
   );
   const productDoc = useMemo(() => parseProductDocument(text), [text]);

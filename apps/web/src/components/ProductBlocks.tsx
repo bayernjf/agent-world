@@ -1,4 +1,6 @@
+import { useState } from "react";
 import type { ProductBlock, ProductDocument } from "@agent-world/core";
+import { proxyImageUrl } from "../lib/api";
 
 const ASPECT_RATIO: Record<string, string> = {
   "1:1": "1 / 1",
@@ -53,12 +55,44 @@ function renderInline(text: string): React.ReactNode[] {
   return parts;
 }
 
+/**
+ * Image with same-origin proxy loading + graceful fallback. External URLs are
+ * routed through `/api/proxy` (bypasses browser hotlink/CORS blocks); if the
+ * source is unreachable we show a placeholder instead of a broken-image icon.
+ */
+function ProductImage({
+  src,
+  alt,
+  className,
+  style,
+}: {
+  src: string;
+  alt?: string;
+  className?: string;
+  style?: React.CSSProperties;
+}) {
+  const [broken, setBroken] = useState(false);
+  if (broken) return <div className="pb-image-fallback">图片暂时无法加载</div>;
+  const u = proxyImageUrl(src);
+  if (!u) return <div className="pb-image-fallback">无图片</div>;
+  return (
+    <img
+      src={u}
+      alt={alt ?? ""}
+      loading="lazy"
+      className={className}
+      style={style}
+      onError={() => setBroken(true)}
+    />
+  );
+}
+
 function Block({ block }: { block: ProductBlock }) {
   switch (block.type) {
     case "hero":
       return (
         <header className="pb-hero">
-          {block.image && <img className="pb-hero__img" src={block.image} alt="" loading="lazy" />}
+          {block.image && <ProductImage src={block.image} className="pb-hero__img" alt="" />}
           <h1 className="pb-hero__title">{block.title}</h1>
           {block.subtitle && <p className="pb-hero__subtitle">{block.subtitle}</p>}
         </header>
@@ -93,7 +127,7 @@ function Block({ block }: { block: ProductBlock }) {
     case "image":
       return (
         <figure className="pb-image" style={imageWrapperStyle(block)}>
-          <img src={block.src} alt={block.caption ?? ""} loading="lazy" style={imageImgStyle(block)} />
+          <ProductImage src={block.src} alt={block.caption ?? ""} style={imageImgStyle(block)} />
           {block.caption && <figcaption>{block.caption}</figcaption>}
         </figure>
       );
@@ -109,7 +143,7 @@ function Block({ block }: { block: ProductBlock }) {
               key={i}
               style={layout === "grid" && it.span ? { gridColumn: `span ${it.span}` } : undefined}
             >
-              <img src={it.src} alt={it.caption ?? ""} loading="lazy" />
+              <ProductImage src={it.src} alt={it.caption ?? ""} />
               {it.caption && <figcaption>{it.caption}</figcaption>}
               {it.title && <p className="pb-card__title">{it.title}</p>}
             </figure>

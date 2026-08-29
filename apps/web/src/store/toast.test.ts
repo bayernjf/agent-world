@@ -1,6 +1,17 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { useToast, copyToClipboard } from "./toast";
 
+// The node test environment has no `navigator`; stub a minimal one so the
+// clipboard branch is exercised here. (The execCommand fallback needs a real
+// DOM and is covered manually in the browser.)
+if (!("navigator" in globalThis)) {
+  Object.defineProperty(globalThis, "navigator", {
+    value: {},
+    configurable: true,
+    writable: true,
+  });
+}
+
 describe("useToast", () => {
   beforeEach(() => {
     useToast.setState({ toast: null });

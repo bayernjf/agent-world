@@ -169,6 +169,9 @@ export default function Plants({
           const y = node.y - PLANT_H / 2;
           const attempt = rt?.attempt ?? 0;
           const model = node.agent?.model;
+          const nodeThumb = (rt?.artifacts ?? []).find(
+            (a) => (a.kind === "image" || a.kind === "video" || a.kind === "audio") && !!a.uri,
+          );
 
           return (
             <g
@@ -218,11 +221,30 @@ export default function Plants({
                   上限 {node.gate?.maxAttempts ?? 3} 次
                 </text>
               )}
-              {node.kind === "imageGen" && node.imageGen?.model && (
-                <text className="plant__meta" x={12} y={68}>
-                  {truncate(node.imageGen.model)}
-                </text>
-              )}
+              {(node.kind === "imageGen" || node.kind === "videoGen") &&
+                (nodeThumb ? (
+                  <g className="plant__thumb" transform="translate(12 58)">
+                    <rect className="plant__thumb-frame" width={26} height={26} rx={3} />
+                    {nodeThumb.kind === "image" ? (
+                      <image
+                        href={nodeThumb.uri!}
+                        x={1}
+                        y={1}
+                        width={24}
+                        height={24}
+                        preserveAspectRatio="xMidYMid slice"
+                      />
+                    ) : (
+                      <text className="plant__thumb-glyph" x={13} y={17} textAnchor="middle">
+                        {nodeThumb.kind === "video" ? "▶" : "♪"}
+                      </text>
+                    )}
+                  </g>
+                ) : node.kind === "imageGen" && node.imageGen?.model ? (
+                  <text className="plant__meta" x={12} y={68}>
+                    {truncate(node.imageGen.model)}
+                  </text>
+                ) : null)}
               {node.kind === "source" && (node.source?.images?.length ?? 0) > 0 && (
                 <g className="plant__images-chip" transform={`translate(12 ${PLANT_H - 22})`}>
                   <rect width={50} height={15} rx={2} />

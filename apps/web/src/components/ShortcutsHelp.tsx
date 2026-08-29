@@ -36,6 +36,7 @@ const GROUPS: { title: string; items: { keys: string; desc: string }[] }[] = [
       { keys: "悬停厂房", desc: "查看模型、状态、Token、电费" },
       { keys: "悬停管道", desc: "高亮整条上下游流向" },
       { keys: "T", desc: "开启/关闭厂房悬停名牌" },
+      { keys: "E", desc: "切换详情抽屉的 产出 / 配置 / 技能" },
     ],
   },
 ];

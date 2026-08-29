@@ -64,7 +64,7 @@ export default function FailurePanel({ onRerun }: Props) {
   const runtime = useVisibleRuntime();
   const reset = useRun((s) => s.reset);
   const [busy, setBusy] = useState(false);
-  const [reworkFor, setReworkFor] = useState<string | null>(null);
+  const [reworkFor, setReworkFor] = useState<number | null>(null);
 
   const visible = runtime.status === "failed" || runtime.status === "tripped";
 
@@ -173,12 +173,12 @@ export default function FailurePanel({ onRerun }: Props) {
                       className="btn btn--ghost btn--small"
                       disabled={busy}
                       onClick={() =>
-                        setReworkFor(reworkFor === f.nodeId ? null : f.nodeId!)
+                        setReworkFor(reworkFor === f.seq ? null : f.seq)
                       }
                     >
                       返工到上游 ▾
                     </button>
-                    {reworkFor === f.nodeId && (
+                    {reworkFor === f.seq && (
                       <div className="rework-popover">
                         {upstream.map((id) => (
                           <button
