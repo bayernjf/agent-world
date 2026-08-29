@@ -28,6 +28,10 @@ const KIND_LABEL: Record<GraphNode["kind"], string> = {
   loop: "循环",
   parallel: "并行聚合",
   table: "表格",
+  database: "数据库",
+  fileParse: "文件解析",
+  translate: "翻译",
+  ocr: "OCR",
 };
 
 const STATUS_LABEL: Record<NodeRuntime["status"], string> = {

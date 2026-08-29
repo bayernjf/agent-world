@@ -1491,6 +1491,7 @@ export default function Inspector({ onOpenSettings }: { onOpenSettings: () => vo
                 <option value="auto">自动（JSON 响应存为 json artifact）</option>
                 <option value="json">强制 JSON</option>
                 <option value="text">强制文本</option>
+                <option value="file">文件（二进制下载，供文件解析节点使用）</option>
               </select>
             </label>
             <label className="field field--row">
@@ -1862,6 +1863,254 @@ export default function Inspector({ onOpenSettings }: { onOpenSettings: () => vo
             <p className="note">
               输入：上游 CSV 文本（需先加「解析」步骤）、JSON 数组或 {"{"}rows: [...]{"}"}。输出
               {"{"}rows, count, columns{"}"}；「输出格式 = CSV」时额外产出一份 CSV 文本。空步骤列表会把输入原样包装成表格。
+            </p>
+          </>
+        )}
+
+        {node.kind === "database" && node.database && (
+          <>
+            <label className="field">
+              <span>数据库文件（SQLite）</span>
+              <input
+                className="input mono"
+                placeholder="留空 = 内存数据库（每次运行临时创建）"
+                value={node.database.path ?? ""}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    database: { ...node.database!, path: e.target.value || undefined },
+                  })
+                }
+              />
+            </label>
+            <label className="field">
+              <span>初始化 SQL（可多条，结果丢弃）</span>
+              <textarea
+                className="textarea mono"
+                rows={4}
+                placeholder={"CREATE TABLE people (name TEXT, age INTEGER);\nINSERT INTO people VALUES ('Alice', 30);"}
+                value={node.database.setupSql ?? ""}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    database: { ...node.database!, setupSql: e.target.value },
+                  })
+                }
+              />
+            </label>
+            <label className="field">
+              <span>主 SQL（单条）</span>
+              <textarea
+                className="textarea mono"
+                rows={5}
+                placeholder="SELECT * FROM people WHERE age >= ?"
+                value={node.database.sql ?? ""}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    database: { ...node.database!, sql: e.target.value },
+                  })
+                }
+              />
+            </label>
+            <p className="note">
+              查询语句输出 {"{"}rows, count, columns{"}"}，可直连下游「表格」节点继续筛选/排序/聚合；
+              INSERT/UPDATE/DELETE 等输出 {"{"}affectedRows, lastInsertId{"}"}。文件路径相对 server 工作目录
+              （packages/server）解析。SQL 语法错误或参数不匹配时节点运行失败。
+            </p>
+          </>
+        )}
+
+        {node.kind === "fileParse" && node.fileParse && (
+          <>
+            <label className="field">
+              <span>数据来源（上游节点）</span>
+              <select
+                className="select"
+                value={node.fileParse.source ?? ""}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    fileParse: { ...node.fileParse!, source: e.target.value || undefined },
+                  })
+                }
+              >
+                <option value="">自动（唯一上游）</option>
+                {graph.nodes
+                  .filter((n) => n.id !== node.id)
+                  .map((n) => (
+                    <option key={n.id} value={n.id}>
+                      {n.name || n.id}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>最大提取图片数（0 = 不提取）</span>
+              <input
+                className="input"
+                type="number"
+                min={0}
+                max={100}
+                value={node.fileParse.maxImages}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    fileParse: { ...node.fileParse!, maxImages: Number(e.target.value) },
+                  })
+                }
+              />
+            </label>
+            <p className="note">
+              从上游的 file artifact 提取文本与内嵌图片（PDF / DOCX / PPTX）。文本输出为 text
+              artifact（可直接供 agent 节点消费）；图片输出为 image artifact。
+              上游可用「HTTP 节点 + 输出模式 = 文件」下载文档，或接入其他产出 file 的节点。
+            </p>
+          </>
+        )}
+
+        {node.kind === "translate" && node.translate && (
+          <>
+            <label className="field">
+              <span>数据来源（上游节点）</span>
+              <select
+                className="select"
+                value={node.translate.source ?? ""}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    translate: { ...node.translate!, source: e.target.value || undefined },
+                  })
+                }
+              >
+                <option value="">自动（唯一上游）</option>
+                {graph.nodes
+                  .filter((n) => n.id !== node.id)
+                  .map((n) => (
+                    <option key={n.id} value={n.id}>
+                      {n.name || n.id}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>目标语言</span>
+              <input
+                className="input"
+                type="text"
+                placeholder="如：简体中文 / English / 日本語"
+                value={node.translate.target}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    translate: { ...node.translate!, target: e.target.value },
+                  })
+                }
+              />
+            </label>
+            <label className="field">
+              <span>模型</span>
+              <select
+                className="select"
+                value={node.translate.model || "__unset__"}
+                onChange={(e) => {
+                  if (e.target.value === "__unset__") return;
+                  updateNode(node.id, { translate: { ...node.translate!, model: e.target.value } });
+                }}
+              >
+                <option value="__unset__" disabled hidden>
+                  {!node.translate.model
+                    ? "（未配置 — 使用运行时的默认模型）"
+                    : "（请选择）"}
+                </option>
+                {textModelOptions.map((o) => (
+                  <option key={`${o.provider}::${o.model}`} value={o.model}>
+                    {o.model} · {o.provider}
+                  </option>
+                ))}
+                {!textModelOptions.some((o) => o.model === node.translate!.model) && node.translate.model && (
+                  <option value={node.translate.model}>{node.translate.model} (当前)</option>
+                )}
+              </select>
+              <MissingModelHint hasModels={textModelOptions.length > 0} onOpenSettings={onOpenSettings} />
+            </label>
+            <label className="field">
+              <span>温度 ({node.translate.temperature.toFixed(2)})</span>
+              <input
+                className="input"
+                type="range"
+                min={0}
+                max={1.5}
+                step={0.05}
+                value={node.translate.temperature}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    translate: { ...node.translate!, temperature: Number(e.target.value) },
+                  })
+                }
+              />
+            </label>
+            <p className="note">
+              读取上游的 text 产物（无 text 时回退到 JSON 序列化），调用 LLM 翻译成目标语言并输出 text
+              产物。可与「文件解析」节点串联：先提取文档文本，再翻译。
+            </p>
+          </>
+        )}
+
+        {node.kind === "ocr" && node.ocr && (
+          <>
+            <label className="field">
+              <span>数据来源（上游节点）</span>
+              <select
+                className="select"
+                value={node.ocr.source ?? ""}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    ocr: { ...node.ocr!, source: e.target.value || undefined },
+                  })
+                }
+              >
+                <option value="">自动（唯一上游）</option>
+                {graph.nodes
+                  .filter((n) => n.id !== node.id)
+                  .map((n) => (
+                    <option key={n.id} value={n.id}>
+                      {n.name || n.id}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>识别语言</span>
+              <select
+                className="select"
+                value={node.ocr.lang}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    ocr: { ...node.ocr!, lang: e.target.value },
+                  })
+                }
+              >
+                <option value="eng">英语 eng</option>
+                <option value="chi_sim">简体中文 chi_sim</option>
+                <option value="chi_tra">繁体中文 chi_tra</option>
+                <option value="jpn">日语 jpn</option>
+                <option value="kor">韩语 kor</option>
+                <option value="spa">西班牙语 spa</option>
+                <option value="fra">法语 fra</option>
+                <option value="deu">德语 deu</option>
+              </select>
+            </label>
+            <label className="field">
+              <span>语言数据路径（可选）</span>
+              <input
+                className="input"
+                type="text"
+                placeholder="https://…/tessdata（离线部署时使用）"
+                value={node.ocr.langPath ?? ""}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    ocr: { ...node.ocr!, langPath: e.target.value || undefined },
+                  })
+                }
+              />
+            </label>
+            <p className="note">
+              读取上游的 image 产物，用 tesseract.js 识别文字并输出 text 产物。可与「文件解析」节点串联：
+              先提取 PDF / Word 里的图片，再 OCR 成文本；识别语言默认 eng，中文请选 chi_sim。
             </p>
           </>
         )}

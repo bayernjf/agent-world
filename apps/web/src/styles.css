@@ -1790,6 +1790,18 @@ select {
 .plant--table .plant__bar {
   fill: #2a1d3a;
 }
+.plant--database .plant__bar {
+  fill: #1d3a2a;
+}
+.plant--fileParse .plant__bar {
+  fill: #3a2a1d;
+}
+.plant--translate .plant__bar {
+  fill: #2d3a4d;
+}
+.plant--ocr .plant__bar {
+  fill: #4a3540;
+}
 
 .plant__attempt rect {
   fill: var(--warn);
