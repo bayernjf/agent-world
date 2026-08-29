@@ -20,7 +20,10 @@
   - `noop`（逃生口）：裸 spawn，选它时 warn 一句「无 rlimit 无权限门」。
   - engine code 分支改走 `resolveSandbox().planSpawn(...)`；默认 rlimit 行为与 P1 完全一致，零回归。
   - 测试：424 → **437 通过**（+13：后端选择/降级告警、bwrap argv 形状、seatbelt profile 形状、noop 形状、live seatbelt「workdir 内可写 / Python 越界写被拒」在 macOS+Node≤22 真跑、live bwrap 在有 bwrap 的环境真跑）。
-- [ ] **后续待办**：docker/podman 容器后端（生产）；`CodeNodeConfig` 的 `fs`/`net` 策略字段（§5）尚未实现，当前所有后端均为 deny-by-default 全隔离。
+- [x] **`CodeNodeConfig` fs/net 策略字段（2026-08-29 落地）**：
+  - `fs: "sandbox" | "allowlist"`（默认 sandbox = 仅 workdir 读写；allowlist = 额外授予 `TOOL_FS_ALLOW` 前缀**只读**，写入仍仅限 workdir）。实现：JS 经 Node permission 重复 `--allow-fs-read` 授予；bwrap（只读根）/ seatbelt（`allow file-read*`）天然全只读无需额外配置；Python 在 rlimit 后端下本无 fs 限制，因此 no-op。
+  - `net: "none" | "allowlist"`（默认 none = 全禁；**allowlist 诚实拒绝**：Node 24 权限模型已移除 `--allow-net`，真正的 allowlist 需 SSRF 校验代理，未实现前引擎直接 VALIDATION 报错，绝不静默放行）。
+- [ ] **后续待办**：docker/podman 容器后端（生产）；net allowlist 的 SSRF 校验代理（P2 设计稿中的 `net: "proxy"`）。
 
 ---
 
