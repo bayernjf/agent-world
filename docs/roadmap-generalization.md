@@ -153,7 +153,7 @@
 | **多租户/权限** | 团队协作、权限管理 |
 | **版本管理** | 产线版本、回滚、A/B 测试 |
 | **监控告警** | 产线运行监控、失败告警、性能分析 |
-| **MCP Server** | 把 agent-world 能力暴露给其他 AI 客户端（详见 [design-mcp-server.md](design-mcp-server.md)） |
+| **MCP Server** | 把 agent-world 能力暴露给其他 AI 客户端（✅ 已全部落地，详见 [design-mcp-server.md](design-mcp-server.md)） |
 
 ---
 
@@ -169,7 +169,7 @@
 
 ### 3.3 MCP Server 纳入路线图
 
-MCP Server 作为 Phase 5 的一部分，详细设计见 [design-mcp-server.md](design-mcp-server.md)。
+MCP Server 作为 Phase 5 的一部分（✅ 已全部落地：P0 MVP + P1 增强 + P2 管理类/批量对比/实时与认证），详细设计见 [design-mcp-server.md](design-mcp-server.md)。
 
 ### 3.4 质检站（gate）演进
 
