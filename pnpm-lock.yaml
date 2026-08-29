@@ -55,6 +55,16 @@ importers:
         specifier: ^3.24.1
         version: 3.25.76
 
+  packages/mcp-server:
+    dependencies:
+      '@agent-world/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.13.3
+
   packages/server:
     dependencies:
       '@agent-world/core':
