@@ -1123,6 +1123,9 @@ app.post("/api/runs/:id/resume", async (c) => {
         // cloud vision models (they can't reach our localhost).
         readArtifact,
         publicUrl: PUBLIC_URL,
+        // Subprocess nodes call other saved graphs — resolve them within the
+        // same user's scope so users can't invoke graphs they can't see.
+        loadSubgraph: (graphId) => db.getGraph(graphId, userId) ?? null,
       })) {
         db.record(runId, event);
         if (event.type === "artifact.produced") {
