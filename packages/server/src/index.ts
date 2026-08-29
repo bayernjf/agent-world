@@ -1074,8 +1074,8 @@ app.post("/api/runs/:id/resume", async (c) => {
         approveTools,
         signal: controller.signal,
         storeBinary: async (data, mimeType, label) => {
-          const saved = await artifacts.saveBinary({ data, kind: "image", mimeType, label });
-          db.insertArtifact(saved);
+          const saved = await artifacts.saveBinary({ userId, data, kind: "image", mimeType, label });
+          db.insertArtifact(saved, userId);
           return saved.uri ?? `data:${mimeType};base64,${data.toString("base64")}`;
         },
         // Inline local /api/artifacts/<id> URIs as data:<mime>;base64,... for
@@ -1087,6 +1087,7 @@ app.post("/api/runs/:id/resume", async (c) => {
         if (event.type === "artifact.produced") {
           db.insertArtifact(
             await artifacts.save(event.artifact, { runId, nodeId: event.nodeId, attempt: event.attempt }),
+            userId,
           );
         }
         entry.events.push(event);
@@ -1181,11 +1182,12 @@ app.get("/api/runs/:id/artifacts", (c) => {
   const userId = c.get("userId");
   const runId = c.req.param("id");
   if (!db.runExists(runId, userId)) return c.json({ error: "not found" }, 404);
-  return c.json(db.listArtifactsForRun(runId));
+  return c.json(db.listArtifactsForRun(runId, userId));
 });
 
 /** Upload a raw product image/file. Returns a StoredArtifact with a /api/artifacts/:id URI. */
 app.post("/api/artifacts/upload", async (c) => {
+  const userId = c.get("userId");
   const contentType = c.req.header("content-type") ?? "application/octet-stream";
   const label = c.req.query("label");
   const data = Buffer.from(await c.req.arrayBuffer());
@@ -1199,20 +1201,22 @@ app.post("/api/artifacts/upload", async (c) => {
   else if (contentType.startsWith("audio/")) kind = "audio";
 
   const saved = await artifacts.saveBinary({
+    userId,
     data,
     kind,
     mimeType: contentType,
     label: label || undefined,
   });
-  db.insertArtifact(saved);
+  db.insertArtifact(saved, userId);
   return c.json(saved, 201);
 });
 
 /** Cross-run artifact listing (latest first), for the product gallery. */
 app.get("/api/artifacts", (c) => {
+  const userId = c.get("userId");
   const limit = Math.min(Number(c.req.query("limit") ?? 100), 500);
   const offset = Number(c.req.query("offset") ?? 0);
-  return c.json(db.listArtifacts(limit, offset));
+  return c.json(db.listArtifacts(userId, limit, offset));
 });
 
 /**
@@ -1254,8 +1258,9 @@ app.get("/api/proxy", async (c) => {
 
 /** Fetch a single artifact: local blobs are streamed, remote URIs redirect. */
 app.get("/api/artifacts/:id", async (c) => {
+  const userId = c.get("userId");
   const id = c.req.param("id");
-  const meta = db.getArtifact(id);
+  const meta = db.getArtifact(id, userId);
   if (!meta) return c.json({ error: "not found" }, 404);
 
   if (meta.storage === "uri" && meta.uri) {

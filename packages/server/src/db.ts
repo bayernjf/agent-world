@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS events (
 CREATE TABLE IF NOT EXISTS artifacts (
   id          TEXT PRIMARY KEY,
   run_id      TEXT NOT NULL,
+  user_id     TEXT,
   node_id     TEXT NOT NULL,
   attempt     INTEGER,
   kind        TEXT NOT NULL,
@@ -295,17 +296,24 @@ export function openDb(file: string) {
     deleteEvents: db.prepare(`DELETE FROM events WHERE run_id = ?`),
     deleteNodeRuns: db.prepare(`DELETE FROM node_runs WHERE run_id = ?`),
     insertArtifact: db.prepare(
-      `INSERT INTO artifacts (id, run_id, node_id, attempt, graph_id, role, kind, mime_type, label, size_bytes, storage, uri, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO artifacts (id, run_id, user_id, node_id, attempt, graph_id, role, kind, mime_type, label, size_bytes, storage, uri, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO NOTHING`,
     ),
     listArtifactsByRun: db.prepare(
       `SELECT a.id, a.run_id, a.node_id, a.attempt, a.graph_id, a.role, a.kind, a.mime_type, a.label, a.size_bytes, a.storage, a.uri, a.created_at,
               COALESCE(g.name, '(未知流水线)') AS graph_name
        FROM artifacts a LEFT JOIN graphs g ON g.id = a.graph_id
-       WHERE a.run_id = ? ORDER BY a.created_at`,
+       WHERE a.run_id = ? AND a.user_id = ?
+       ORDER BY a.created_at`,
     ),
     getArtifact: db.prepare(
+      `SELECT a.id, a.run_id, a.node_id, a.attempt, a.graph_id, a.role, a.kind, a.mime_type, a.label, a.size_bytes, a.storage, a.uri, a.created_at,
+              COALESCE(g.name, '(未知流水线)') AS graph_name
+       FROM artifacts a LEFT JOIN graphs g ON g.id = a.graph_id
+       WHERE a.id = ? AND a.user_id = ?`,
+    ),
+    getArtifactUnscoped: db.prepare(
       `SELECT a.id, a.run_id, a.node_id, a.attempt, a.graph_id, a.role, a.kind, a.mime_type, a.label, a.size_bytes, a.storage, a.uri, a.created_at,
               COALESCE(g.name, '(未知流水线)') AS graph_name
        FROM artifacts a LEFT JOIN graphs g ON g.id = a.graph_id
@@ -315,6 +323,7 @@ export function openDb(file: string) {
       `SELECT a.id, a.run_id, a.node_id, a.attempt, a.graph_id, a.role, a.kind, a.mime_type, a.label, a.size_bytes, a.storage, a.uri, a.created_at,
               COALESCE(g.name, '(未知流水线)') AS graph_name
        FROM artifacts a LEFT JOIN graphs g ON g.id = a.graph_id
+       WHERE a.user_id = ?
        ORDER BY a.created_at DESC, a.rowid DESC LIMIT ? OFFSET ?`,
     ),
     deleteArtifactsForRun: db.prepare(`DELETE FROM artifacts WHERE run_id = ?`),
@@ -614,24 +623,30 @@ export function openDb(file: string) {
       stmts.markInterrupted.run(at);
     },
 
-    insertArtifact(a: StoredArtifact) {
+    insertArtifact(a: StoredArtifact, userId: string) {
       stmts.insertArtifact.run(
-        a.id, a.runId, a.nodeId, a.attempt, a.graphId ?? null, a.role ?? null,
+        a.id, a.runId, userId, a.nodeId, a.attempt, a.graphId ?? null, a.role ?? null,
         a.kind, a.mimeType, a.label, a.sizeBytes, a.storage, a.uri, a.createdAt,
       );
     },
 
-    listArtifactsForRun(runId: string): StoredArtifact[] {
-      return mapArtifacts(stmts.listArtifactsByRun.all(runId) as ArtifactRow[]);
+    listArtifactsForRun(runId: string, userId: string): StoredArtifact[] {
+      return mapArtifacts(stmts.listArtifactsByRun.all(runId, userId) as ArtifactRow[]);
     },
 
-    getArtifact(id: string): StoredArtifact | null {
-      const row = stmts.getArtifact.get(id) as ArtifactRow | undefined;
+    getArtifact(id: string, userId: string): StoredArtifact | null {
+      const row = stmts.getArtifact.get(id, userId) as ArtifactRow | undefined;
       return row ? mapArtifact(row) : null;
     },
 
-    listArtifacts(limit = 100, offset = 0): StoredArtifact[] {
-      return mapArtifacts(stmts.listArtifacts.all(limit, offset) as ArtifactRow[]);
+    /** Engine-only: resolves an artifact the calling run already owns. Never wire to a route. */
+    getArtifactUnscoped(id: string): StoredArtifact | null {
+      const row = stmts.getArtifactUnscoped.get(id) as ArtifactRow | undefined;
+      return row ? mapArtifact(row) : null;
+    },
+
+    listArtifacts(userId: string, limit = 100, offset = 0): StoredArtifact[] {
+      return mapArtifacts(stmts.listArtifacts.all(userId, limit, offset) as ArtifactRow[]);
     },
 
     deleteRun(runId: string, userId: string) {
@@ -1385,6 +1400,34 @@ const MIGRATIONS: Migration[] = [
       db.exec("CREATE INDEX IF NOT EXISTS idx_brand_terms_user ON brand_terms(user_id)");
     },
   },
+  {
+    version: 15,
+    description: "artifacts.user_id so artifact reads are tenant-scoped",
+    // No `detect`: fresh databases already carry the column from the base DDL,
+    // and baselining would record this as applied without ever creating the index.
+    up: (db) => {
+      if (!columnExists(db, "artifacts", "user_id")) {
+        db.exec("ALTER TABLE artifacts ADD COLUMN user_id TEXT");
+      }
+      db.exec(`UPDATE artifacts SET user_id = (
+                 SELECT r.user_id FROM runs r WHERE r.id = artifacts.run_id
+               )
+               WHERE user_id IS NULL
+                 AND EXISTS (
+                   SELECT 1 FROM runs r WHERE r.id = artifacts.run_id AND r.user_id IS NOT NULL
+                 )`);
+      db.exec(`UPDATE artifacts SET user_id = (
+                 SELECT g.user_id FROM graphs g WHERE g.id = artifacts.graph_id
+               )
+               WHERE user_id IS NULL AND artifacts.graph_id IS NOT NULL`);
+      // Pre-auth uploads link to neither a run nor a graph. A single-user
+      // database leaves no ambiguity about who made them; with several users
+      // the owner is unknowable, so those rows stay unowned and invisible.
+      db.exec(`UPDATE artifacts SET user_id = (SELECT id FROM users LIMIT 1)
+               WHERE user_id IS NULL AND (SELECT COUNT(*) FROM users) = 1`);
+      db.exec("CREATE INDEX IF NOT EXISTS idx_artifacts_user ON artifacts(user_id)");
+    },
+  },
 ];
 
 const LATEST_VERSION = MIGRATIONS.at(-1)!.version;
@@ -1460,4 +1503,7 @@ export function backfillExistingData(database: { prepare(sql: string): { get(...
   database.prepare("UPDATE graphs SET user_id = ? WHERE user_id IS NULL").run(defaultUserId);
   database.prepare("UPDATE runs SET user_id = ? WHERE user_id IS NULL").run(defaultUserId);
   database.prepare("UPDATE brand_terms SET user_id = ? WHERE user_id IS NULL").run(defaultUserId);
+  // Migration 15 already attributed run/graph-linked artifacts; whatever is still
+  // ownerless here is a pre-auth upload with no link to follow.
+  database.prepare("UPDATE artifacts SET user_id = ? WHERE user_id IS NULL").run(defaultUserId);
 }

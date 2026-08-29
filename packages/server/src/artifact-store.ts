@@ -152,12 +152,16 @@ export class ArtifactStore {
    * local image/file artifact before any run exists.
    */
   async saveBinary(opts: {
+    userId: string;
     data: Buffer;
     kind: Artifact["kind"];
     mimeType?: string;
     label?: string;
   }): Promise<StoredArtifact> {
-    const id = `up-${createHash("sha1").update(opts.data).digest("hex").slice(0, 12)}`;
+    // Salted with the owner: artifact ids are the row primary key and inserts
+    // ignore conflicts, so a content-only hash would let two users' identical
+    // uploads collide onto one ownerless-to-the-second-user row.
+    const id = `up-${createHash("sha1").update(`${opts.userId}\u0000`).update(opts.data).digest("hex").slice(0, 12)}`;
     await this.backend.put(this.keyFor("uploads", id), opts.data);
     return {
       id,

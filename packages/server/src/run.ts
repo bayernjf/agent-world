@@ -84,8 +84,8 @@ export async function startRun(args: StartRunArgs): Promise<{ runId: string; dia
         defaultModel: cfg.defaultModel,
         signal: controller.signal,
         storeBinary: async (data, mimeType, label) => {
-          const saved = await artifacts.saveBinary({ data, kind: "image", mimeType, label });
-          db.insertArtifact(saved);
+          const saved = await artifacts.saveBinary({ userId, data, kind: "image", mimeType, label });
+          db.insertArtifact(saved, userId);
           return saved.uri ?? `data:${mimeType};base64,${data.toString("base64")}`;
         },
         readArtifact: createReadArtifact(db, artifacts),
@@ -104,6 +104,7 @@ export async function startRun(args: StartRunArgs): Promise<{ runId: string; dia
               graphId: graph.id,
               role,
             }),
+            userId,
           );
           args.onArtifact?.(event.artifact.id);
         }
