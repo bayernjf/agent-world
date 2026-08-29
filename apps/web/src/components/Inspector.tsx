@@ -59,6 +59,19 @@ function formatPairs(obj: Record<string, string>): string {
     .join("\n");
 }
 
+/** 该模态没有任何可用模型时，提示并给出直达「设置」的入口。 */
+function MissingModelHint({ hasModels, onOpenSettings }: { hasModels: boolean; onOpenSettings: () => void }) {
+  if (hasModels) return null;
+  return (
+    <p className="field__hint">
+      尚未配置该类型模型，运行前需先
+      <button type="button" className="link" onClick={onOpenSettings}>
+        前往「设置 · 模型与密钥」
+      </button>
+    </p>
+  );
+}
+
 /** Cheap line-level diff — enough to see what a rework attempt actually changed. */
 function diffLines(a: string, b: string) {
   const left = a.split(/(?<=\s)/);
@@ -143,7 +156,7 @@ function nextMainTab(current: MainTab, isAgent: boolean): MainTab {
   return order[(i + 1) % order.length]!;
 }
 
-export default function Inspector() {
+export default function Inspector({ onOpenSettings }: { onOpenSettings: () => void }) {
   const { graph, selectedId, updateNode, saveState, reloadGraph } = useGraph();
   const runtime = useVisibleRuntime();
   const [tab, setTab] = useState<number | "diff">(1);
@@ -525,6 +538,7 @@ export default function Inspector() {
                   <option value={node.agent.model}>{node.agent.model} (当前)</option>
                 )}
               </select>
+              <MissingModelHint hasModels={textModelOptions.length > 0} onOpenSettings={onOpenSettings} />
             </label>
             <label className="field">
               <span>温度 ({node.agent.temperature.toFixed(2)})</span>
@@ -676,6 +690,7 @@ export default function Inspector() {
                   <option value={node.imageGen.model}>{node.imageGen.model} (当前)</option>
                 )}
               </select>
+              <MissingModelHint hasModels={imageModelOptions.length > 0} onOpenSettings={onOpenSettings} />
             </label>
             <label className="field">
               <span>尺寸 (如 1024x1024)</span>
@@ -782,6 +797,7 @@ export default function Inspector() {
                   <option value={node.videoGen.model}>{node.videoGen.model} (当前)</option>
                 )}
               </select>
+              <MissingModelHint hasModels={videoModelOptions.length > 0} onOpenSettings={onOpenSettings} />
             </label>
             <label className="field">
               <span>视频提示词（留空则用上游文本）</span>
@@ -914,6 +930,7 @@ export default function Inspector() {
                   <option value={node.audioGen.model}>{node.audioGen.model} (当前)</option>
                 )}
               </select>
+              <MissingModelHint hasModels={audioModelOptions.length > 0} onOpenSettings={onOpenSettings} />
             </label>
             <label className="field">
               <span>文本 / 提示词（留空则用上游文本）</span>
