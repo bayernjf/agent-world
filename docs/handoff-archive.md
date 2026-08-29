@@ -1789,6 +1789,7 @@ modality 切片，统一严格过滤；同时把 agent 的占位文案从泛化�
 
 > Entries rolled out of the active `handoff.md` "Recently shipped" list to keep it at 5 items.
 
+- `b27e90b` — **feat(core/server/web)**: **Phase 2 第六节点——文件转换（convert）**。PDF→提取内嵌图片 + PNG/JPEG 互转（pngjs/jpeg-js 纯 JS）。core 4 + server 6 个新测试。
 - `3a75ab1` — **feat(core/server/web)**: **Phase 2 第五节点——OCR（ocr）**。tesseract.js WASM 零原生依赖，懒加载 + 离线路径覆盖。core 4 + server 5 个新测试。
 - `12f399c` — **feat(core/server/web)**: **Phase 2 第四节点——翻译（translate）**。core 新增 NodeKind.translate + TranslateConfig schema；server 执行分支复用 worker.runAgent 做纯 LLM 翻译（流式 + 重试 + 成本核算）。core 4 + server 4 个新测试。
 - `1afaa01` — **feat(core/server/web)**: **Phase 2 第三节点——文件解析（fileParse）**。core 新增 NodeKind.fileParse + FileParseConfig schema（source/maxImages），HttpNodeConfig.outputMode 新增 `file`；server 新增 `parse-file.ts`：PDF（pdfjs-dist）+ DOCX/PPTX（fflate）提取文本与内嵌图；HTTP `outputMode=file` 形成「下载 → 解析」链路。core 6 + server 6 个新测试。
