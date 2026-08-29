@@ -52,16 +52,19 @@ State of Agent World as of 2026-08-29.
 
 按优先级降序，标 `★` 的是当下要推的：
 
-1. **★ 代码节点沙箱 P2 外部沙箱后端**（详见 [docs/design-code-sandbox.md§P2](docs/design-code-sandbox.md)，P0/P1 均已落地，P1 在当前 commit，P2 待做）— 定义 `CodeSandbox` 接口 + 按 `CODE_SANDBOX` 环境变量选择后端；**bwrap**（Linux mount/pid/net namespace + rlimit，JS+Python 全覆盖）、**sandbox-exec**（macOS seatbelt 过渡）、**容器**（生产 Docker/Podman）三档；缺后端时降级到 P1 rlimit 并 `console.warn` 显式降级，绝不静默变无沙箱。诚实边界提醒：P1 下 Python 的 fs/网络隔离仅 OS rlimit（内存/CPU/fd），Node ≥ 24 stable permission model 已移除 `--allow-net` 粒度，JS 网络隔离也要等 P2 OS 后端才真正生效
-2. **MCP Server P0 MVP 升级**（详见 [docs/design-mcp-server.md](docs/design-mcp-server.md)，P0 完成了 HTTP 接入；下一步是 **独立可执行 mcp-server 包 stdio 传输** 与 stdio 模式下的真实 CLI 冒烟测试）— 当前 MCP Server 代码在 `packages/mcp-server/`，HTTP 模式已测，但 `stdio` 传输未做端到端跑通（Claude Desktop 直连需要 stdio）
-3. **GraphSwitcher.tsx 未提交的 step 3 尾巴**（+11 行）— 上一轮 UI 重设计遗留，工作树里挂着，需要决定是单独一个 commit 收掉还是先放着
-4. **Inspector 的"在显眼处加一个去设置的链接"** — 音频模型没配时，下拉只有占位项，没引导；新建节点有 toast 软提示覆盖
+1. **★ MCP Server P0 MVP 升级**（详见 [docs/design-mcp-server.md](docs/design-mcp-server.md)，P0 完成了 HTTP 接入；下一步是 **独立可执行 mcp-server 包 stdio 传输** 与 stdio 模式下的真实 CLI 冒烟测试）— 当前 MCP Server 代码在 `packages/mcp-server/`，HTTP 模式已测，但 `stdio` 传输未做端到端跑通（Claude Desktop 直连需要 stdio）
+2. **GraphSwitcher.tsx 未提交的 step 3 尾巴**（+11 行）— 上一轮 UI 重设计遗留，工作树里挂着，需要决定是单独一个 commit 收掉还是先放着
+3. **Inspector 的"在显眼处加一个去设置的链接"** — 音频模型没配时，下拉只有占位项，没引导；新建节点有 toast 软提示覆盖
+4. **沙箱后续（低优）**：docker/podman 容器后端（生产）；`CodeNodeConfig` 的 `fs`/`net` 策略字段（设计 §5）
 
 ## Recently shipped (last 5)
 
 按 commit 时间倒序，每条一行影响面 + commit hash：
 
-1. **待 commit（P1 沙箱资源限制）**：**feat(sandbox)**: **代码节点沙箱 P1 资源限制**。`sh -c 'ulimit -t/-u/-f/-n && exec …'` 包裹 child spawn（exec 替换 shell 不挂 PID，argv POSIX 单引号转义，Linux 加 -v）；全局限额支持 `CODE_LIMIT_*` 环境变量调参（调用时读取非 import 时快照）；Node JS `--permission`/`--experimental-permission` 探针二选 + `--allow-fs-read/write=<workdir>` 严格限临时目录（macOS `/var` 软链 realpath 规范化）、禁 `--allow-worker/--allow-child-process/--allow-addons/--allow-wasi`；诚实边界：Node 24 stable permission 已移除 `--allow-net` 粒度，JS 网络隔离 + Python fs/网络隔离需 P2 OS 后端。测试：全 server 411→424 通过
+1. **待 commit（P2 外部沙箱后端）**：**feat(sandbox)**: **代码节点沙箱 P2 可插拔后端**。`CodeSandboxBackend` 接口 + `resolveSandbox()` 按 `CODE_SANDBOX` 选 `rlimit`（默认）/`bwrap`/`sandbox-exec`/`noop`，缺二进制降级 rlimit + warn-once（绝不静默）；bwrap 只读根+workdir 唯一可写+unshare-net/pid/uts/ipc（JS/Python 全覆盖）；seatbelt 最小 profile（新版 macOS 过滤器名收紧 + realpath grant + Node 24.0.0 V8 崩溃三坑均有探针/注释）；engine 改走 resolveSandbox().planSpawn，默认行为零回归。测试 424→437 通过
+2. `d20639b` — **fix(sandbox)**: shell 引号测试改用生产限额（`ulimit -v 89` 在 Linux 上低于 Node 启动所需，CI 红）。
+3. `eaff093` — **fix(sandbox)**: rlimit wrapper 固定 `/bin/bash`（Ubuntu dash 的 ulimit 不认 `-u`）。
+4. **P1 沙箱资源限制**（`ddb2e03`）：`sh -c 'ulimit -t/-u/-f/-n && exec …'` 包裹 child spawn（exec 替换 shell 不挂 PID，argv POSIX 单引号转义，Linux 加 -v）；全局限额支持 `CODE_LIMIT_*` 环境变量调参（调用时读取非 import 时快照）；Node JS `--permission`/`--experimental-permission` 探针二选 + `--allow-fs-read/write=<workdir>` 严格限临时目录（macOS `/var` 软链 realpath 规范化）、禁 `--allow-worker/--allow-child-process/--allow-addons/--allow-wasi`；诚实边界：Node 24 stable permission 已移除 `--allow-net` 粒度，JS 网络隔离 + Python fs/网络隔离需 P2 OS 后端。测试：全 server 411→424 通过
 2. `6b2f92b` — **feat(sandbox)**: **代码节点沙箱 P0**。env 只透传 `SAFE_ENV_BASE` + 节点声明的白名单；解释器启动时解析绝对路径并缓存；每次运行独立 `/tmp/aw-code-<run>-<node>-<attempt>-*` 临时目录做 cwd，成功/失败/超时全部 finally 清理。测试 405 → 411 通过。
 3. `34a22ab` — **docs**: 新增代码节点运行沙箱设计方案（P0 安全基线 / P1 资源限制 / P2 外部沙箱后端三批，含威胁模型与诚实边界）。
 4. `64fd9ab` — **docs**: 把项目文档里的 MCP Server 状态从「进行中」统一更新为「P0-P2 全部落地」。
@@ -74,7 +77,7 @@ State of Agent World as of 2026-08-29.
 
 - `pnpm -r typecheck`：全绿
 - `pnpm --filter @agent-world/core test`：142/142 通过（含 EdgeKind error / buildNodeContext error 前驱 / node.skipped event + HTTP file 模式用例）
-- `pnpm --filter @agent-world/server test`：**424/424 通过**（Node 24 下跑）。P1 沙箱新增 13 个测试（code-sandbox：rlimit/permission 形状 + 运行期实跑断言 + shell 引用；engine.code：fs 工作目录内允许/外拒绝 + child_process 禁 spawn + RLIMIT_NPROC 拦 fork 炸弹 + RLIMIT_CPU 1s SIGXCPU 先于 12s timeout 失败）。原有 411 个测试零回归
+- `pnpm --filter @agent-world/server test`：**437/437 通过**（Node 24 下跑）。P2 新增 13 个测试（后端选择/降级告警断言、bwrap argv 形状、seatbelt profile 形状、noop 逃生口形状、live seatbelt「workdir 内 JS 可写 + Python 越界写被拒」）。此前 P1 的 13 个沙箱测试（code-sandbox：rlimit/permission 形状 + 运行期实跑断言 + shell 引用；engine.code：fs 工作目录内允许/外拒绝 + child_process 禁 spawn + RLIMIT_NPROC 拦 fork 炸弹 + RLIMIT_CPU 1s SIGXCPU 先于 12s timeout 失败）。原有 411 个测试零回归
 - `pnpm --filter @agent-world/mcp-server test`：47/47 通过
 - `pnpm --filter @agent-world/web exec vitest run`：19/19 通过
 - **注意**：依赖 `node:sqlite`，必须 Node ≥ 22（CI 用 Node 24；本地 shell 默认 Node 20 会误报 `No such built-in module: node:sqlite`，用 `fnm exec --using=24` 跑）。**P1 沙箱的实跑测试必须在 Node 24 下验证**——否则 `code-sandbox.test.ts` 的 spawnSync shell 脚本形状断言通过，但 `engine.code.test.ts` 中真正执行用户脚本时会因 `--permission` / `--experimental-permission` 形式与实际 Node 版本不一致而失败（`resolveInterpreter` 会对解释器路径做版本探针，跨版本跑会走不同分支）

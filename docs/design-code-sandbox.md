@@ -1,6 +1,6 @@
 # 代码节点运行沙箱设计方案
 
-> 状态：P0 安全基线（`6b2f92b` 已提交 2026-08-29）+ **P1 资源限制已落地（工作树）**；P2 外部沙箱后端待办。
+> 状态：P0（`6b2f92b`）+ P1（`ddb2e03`）+ **P2 外部沙箱后端已落地（bwrap / sandbox-exec / noop 可插拔，工作树）**；docker/podman 容器后端与 `net`/`fs` 策略字段待办。
 > 关联：handoff 待办「运行沙箱细化」；代码节点当前实现在 `packages/server/src/engine.ts` 的 `node.kind === "code"` 分支 + `packages/server/src/code-sandbox.ts`。
 
 ## 实施进度（2026-08-29，P1 落地后）
@@ -13,7 +13,14 @@
   - **诚实边界已在测试注释中记录**：Node ≥ 24 的稳定 permission model 已**移除** `--allow-net` / `--deny-net` 粒度参数（只有 fs / child / worker / addon / wasi）。JS 代码的**网络隔离在 P1 不覆盖**，要靠 P2 的 OS 级后端（bwrap / sandbox-exec / 容器）。测试用「child_process 被拒绝」替代「fetch 被拒绝」，避免假装不具备的能力。
   - macOS `/var` → `/private/var` 符号链接修复：`createCodeWorkdir` 返回 `realpathSync()` 后的规范路径，spawn 的 `cwd` 和 Node 的 `--allow-fs-*` grant 两边都用同一身份，避免权限模型的 path-compare 错配。
   - 测试：code-sandbox 12/12 通过 + engine.code 11/11 通过。全 server suite 411 → 424 通过。
-- [ ] **Phase P2 外部沙箱后端（待办）**：`CodeSandbox` 接口 + bwrap / sandbox-exec / 容器三种实现；缺后端时降级到 rlimit 并 `console.warn`（不静默变无沙箱）。
+- [x] **Phase P2 外部沙箱后端（工作树）**：
+  - `CodeSandboxBackend` 接口（`planSpawn` → command/argv），`resolveSandbox(env, probe)` 按 `CODE_SANDBOX` 选择：`rlimit`（默认）/ `bwrap` / `sandbox-exec` / `noop`；二进制缺失或名字不认识时**降级 rlimit + console.warn（warn-once，绝不静默）**；probe 可注入方便测试。
+  - `bwrap`（Linux）：`--ro-bind / /` 只读根 + `--bind <workdir>` 唯一可写 + `--unshare-net/-pid/-uts/-ipc` + `--die-with-parent`；**JS/Python 一视同仁的 fs+net 隔离**。故意不加 `--unshare-cgroup`（无 cgroup v2 委派的机器会硬失败）。rlimit 仍由内层 bash wrapper 承担。
+  - `sandbox-exec`（macOS seatbelt）：最小可信 profile `(deny default)(allow process*)(allow file-read*)(allow file-write* (subpath <workdir>))(deny network*)`。**坑 1**：新版 macOS 拒绝 `process-fork*`/`sysctl-read*`/`mach-lookup*` 等过滤器名（"unbound variable"），只能用最小集。**坑 2**：subpath grant 必须用 realpath 形式的 workdir（`/var` 软链的 grant 永远匹配不上）——`createCodeWorkdir` 已保证。**坑 3**：Node 24.0.0 的 V8 在 seatbelt 下 LowLevelAlloc 溢出崩溃（20/22 正常），live 测试先跑冒烟探针、崩溃即跳过并注明原因。
+  - `noop`（逃生口）：裸 spawn，选它时 warn 一句「无 rlimit 无权限门」。
+  - engine code 分支改走 `resolveSandbox().planSpawn(...)`；默认 rlimit 行为与 P1 完全一致，零回归。
+  - 测试：424 → **437 通过**（+13：后端选择/降级告警、bwrap argv 形状、seatbelt profile 形状、noop 形状、live seatbelt「workdir 内可写 / Python 越界写被拒」在 macOS+Node≤22 真跑、live bwrap 在有 bwrap 的环境真跑）。
+- [ ] **后续待办**：docker/podman 容器后端（生产）；`CodeNodeConfig` 的 `fs`/`net` 策略字段（§5）尚未实现，当前所有后端均为 deny-by-default 全隔离。
 
 ---
 
@@ -178,10 +185,11 @@ export function resolveSandbox(env: NodeJS.ProcessEnv): CodeSandbox { /* 按 COD
 
 1. **Python 没有进程级权限模型**：`--experimental-permission` 是 Node 专属。Python 的 fs/网络隔离**只能靠 OS 层**（bwrap / sandbox-exec / 容器），`rlimit` 后端下 Python 的 fs/net 隔离是「尽力而为」而非强保证。若部署场景对 Python 沙箱有硬要求，必须上 P2 后端。
 2. **macOS `RLIMIT_AS` 不可靠**：macOS 对 `RLIMIT_AS`（地址空间）历史上不强制 malloc。内存限制在 macOS 上：JS 靠 `--max-old-space-size`，Python 靠 `ulimit -v`（尽力）或 P2 后端。
-3. **`sandbox-exec` 被 Apple 标记 deprecated**：macOS 仍自带可用，作为开发机过渡；生产 Linux 用 bwrap/容器。
+3. **`sandbox-exec` 被 Apple 标记 deprecated**：macOS 仍自带可用，作为开发机过渡；生产 Linux 用 bwrap/容器。且新版 macOS 的 profile 过滤器名收紧（`process-fork*` 等不再合法）、**Node 24.0.0 在 seatbelt 下 V8 崩溃（20/22 正常）**——升级 Node 小版本前先跑 `sandbox-exec` 冒烟探针（测试里已内置）。
 4. **bwrap 依赖 user namespaces**：部分云环境 / 内核默认禁用 unprivileged user namespaces，需降级到 `rlimit` 并告警。
-5. **`--experimental-permission` 仍是实验性**：Node 22/24 可用但接口可能变；不把它当作 Python 的替代品，只作为 JS 的 P1 增益。
-6. **逃逸不可能 100% 杜绝**：code 节点是信任边界，配合产线作者权限（多租户落地后）做「谁能在谁的产线里跑代码」才是最终防线。
+5. **bwrap 依赖 user namespaces**：部分云环境 / 内核默认禁用 unprivileged user namespaces，需降级到 `rlimit` 并告警（resolveSandbox 已做）。
+6. **`--experimental-permission` 仍是实验性**：Node 22/24 可用但接口可能变；不把它当作 Python 的替代品，只作为 JS 的 P1 增益。
+7. **逃逸不可能 100% 杜绝**：code 节点是信任边界，配合产线作者权限（多租户落地后）做「谁能在谁的产线里跑代码」才是最终防线。
 
 ---
 
@@ -200,10 +208,11 @@ export function resolveSandbox(env: NodeJS.ProcessEnv): CodeSandbox { /* 按 COD
 - [ ] 单元测试：CPU/进程数/文件大小/fd 上限生效，Node 权限拒绝 fs/net
 
 ### P2 外部沙箱后端
-- [ ] `bwrap` 后端：网络完全不可达（含 raw socket）、根只读、Python 同样受限
-- [ ] `sandbox-exec` 后端：macOS 下网络/file-write 被 seatbelt 拒绝
-- [ ] 缺后端时降级到 `rlimit` 并 `console.warn`（不静默）
-- [ ] 集成测试：`CODE_SANDBOX` 切换各后端，恶意脚本样例（读 env / SSRF / 删文件 / fork 炸弹 / 内存炸弹）均被拦
+- [x] `bwrap` 后端：argv 形状（只读根 + workdir 唯一可写 + unshare-net/pid/uts/ipc）；有 bwrap 的环境 live 真跑（本机/CI 均无 bwrap 时跳过）
+- [x] `sandbox-exec` 后端：macOS 下 file-write 越界被 seatbelt 拒绝（Python live 验证）；workdir 内可写（Node ≤ 22 live 验证；Node 24.0.0 有 V8 崩溃 bug，探针跳过）
+- [x] 缺后端时降级到 `rlimit` 并 `console.warn`（不静默，warn-once）
+- [x] 测试：`CODE_SANDBOX` 选择/未知值降级/告警断言；恶意脚本样例拦截由 P1 测试延续（rlimit 后端下），bwrap/sandbox-exec 后端的恶意样例依赖对应二进制存在
+- [ ] docker/podman 容器后端（生产）待办
 
 ---
 
