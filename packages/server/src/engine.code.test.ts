@@ -308,13 +308,84 @@ describe("code node fs/net policy", () => {
     }
   });
 
-  it("net: allowlist is rejected honestly as unimplemented", async () => {
-    const events = await collect(
-      graph({ language: "javascript", code: "console.log('never runs');", timeoutMs: 10000, net: "allowlist" }),
-      "x",
-    );
-    const failed = events.find((e) => e.type === "node.failed" && e.nodeId === "calc");
-    expect(failed.errorCode).toBe("VALIDATION");
-    expect(failed.error).toContain("尚未实现");
+  it("net: allowlist without TOOL_NETWORK_ALLOW fails validation honestly", async () => {
+    const saved = process.env.TOOL_NETWORK_ALLOW;
+    delete process.env.TOOL_NETWORK_ALLOW;
+    try {
+      const events = await collect(
+        graph({ language: "javascript", code: "console.log('never runs');", timeoutMs: 10000, net: "allowlist" }),
+        "x",
+      );
+      const failed = events.find((e) => e.type === "node.failed" && e.nodeId === "calc");
+      expect(failed.errorCode).toBe("VALIDATION");
+      expect(failed.error).toContain("TOOL_NETWORK_ALLOW");
+    } finally {
+      if (saved === undefined) delete process.env.TOOL_NETWORK_ALLOW;
+      else process.env.TOOL_NETWORK_ALLOW = saved;
+    }
+  });
+
+  it("net: allowlist routes python egress through the validating proxy", { timeout: 30000 }, async () => {
+    const { createServer } = await import("node:http");
+    const target = createServer((q, s) => {
+      s.writeHead(200, { "content-type": "text/plain" });
+      s.end("pong");
+    });
+    await new Promise<void>((r) => target.listen(0, "127.0.0.1", () => r()));
+    const targetPort = (target.address() as { port: number }).port;
+    const savedAllow = process.env.TOOL_NETWORK_ALLOW;
+    const savedPrivate = process.env.ALLOW_PRIVATE_NETWORK;
+    process.env.TOOL_NETWORK_ALLOW = "localhost";
+    process.env.ALLOW_PRIVATE_NETWORK = "1"; // 目标是回环地址，与 LAN 部署同款放宽
+    try {
+      const code = [
+        "import urllib.request",
+        `body = urllib.request.urlopen("http://localhost:${targetPort}/ping", timeout=10).read().decode()`,
+        "print(body)",
+      ].join("\n");
+      const events = await collect(
+        graph({ language: "python", code, timeoutMs: 20000, net: "allowlist" }),
+        "x",
+      );
+      const finished = events.find((e) => e.type === "node.finished" && e.nodeId === "calc");
+      expect(finished).toBeTruthy();
+      expect(finished.output.trim()).toBe("pong");
+    } finally {
+      if (savedAllow === undefined) delete process.env.TOOL_NETWORK_ALLOW;
+      else process.env.TOOL_NETWORK_ALLOW = savedAllow;
+      if (savedPrivate === undefined) delete process.env.ALLOW_PRIVATE_NETWORK;
+      else process.env.ALLOW_PRIVATE_NETWORK = savedPrivate;
+      target.close();
+    }
+  });
+
+  it("net: allowlist blocks hosts outside TOOL_NETWORK_ALLOW via the proxy", { timeout: 30000 }, async () => {
+    const savedAllow = process.env.TOOL_NETWORK_ALLOW;
+    const savedPrivate = process.env.ALLOW_PRIVATE_NETWORK;
+    // 白名单只放行 example.com；目标 localhost 不在其中 → 代理返回 403
+    process.env.TOOL_NETWORK_ALLOW = "example.com";
+    process.env.ALLOW_PRIVATE_NETWORK = "1";
+    try {
+      const code = [
+        "import urllib.request",
+        "try:",
+        '    urllib.request.urlopen("http://localhost:1/ping", timeout=10).read()',
+        "    print('unexpected-success')",
+        "except Exception as e:",
+        "    print('blocked:' + str(e.code) if hasattr(e, 'code') else 'blocked')",
+      ].join("\n");
+      const events = await collect(
+        graph({ language: "python", code, timeoutMs: 20000, net: "allowlist" }),
+        "x",
+      );
+      const finished = events.find((e) => e.type === "node.finished" && e.nodeId === "calc");
+      expect(finished).toBeTruthy();
+      expect(finished.output).toContain("blocked:403");
+    } finally {
+      if (savedAllow === undefined) delete process.env.TOOL_NETWORK_ALLOW;
+      else process.env.TOOL_NETWORK_ALLOW = savedAllow;
+      if (savedPrivate === undefined) delete process.env.ALLOW_PRIVATE_NETWORK;
+      else process.env.ALLOW_PRIVATE_NETWORK = savedPrivate;
+    }
   });
 });
