@@ -26,6 +26,7 @@ const MORE: NodeButton[] = [
   { kind: "map", label: "映射", hint: "Map 节点：JSON 模板映射/转换数据", primary: false },
   { kind: "loop", label: "循环", hint: "Loop 节点：对数组逐项执行下游子图", primary: false },
   { kind: "parallel", label: "并行聚合", hint: "Parallel 节点：等待所有分支并把输出聚合为数组", primary: false },
+  { kind: "table", label: "表格", hint: "Table 节点：CSV 解析/筛选/排序/聚合", primary: false },
   { kind: "videoGen", label: "AI 视频", hint: "VideoGen 节点", primary: false },
   { kind: "audioGen", label: "AI 音频", hint: "AudioGen 节点", primary: false },
 ];

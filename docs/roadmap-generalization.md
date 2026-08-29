@@ -1,7 +1,9 @@
 # Agent World 通用化路线图
 
+> **当前主线路线图**（2026-08 起）。
 > 从"内容生成流水线"升级为"通用自动化平台"的产品路线图。
 > 状态：Phase 1 P0 已全部落地（2026-08-29）| 创建：2026-08-28
+> 历史任务清单见 [roadmap-tasks.md](roadmap-tasks.md)（已合并到本文档）；内容线专项见 [product-content-roadmap.md](product-content-roadmap.md)。
 
 ---
 

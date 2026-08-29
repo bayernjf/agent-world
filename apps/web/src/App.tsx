@@ -532,7 +532,7 @@ export default function App() {
               className="inspector-drag-handle"
               onMouseDown={onDragStart}
             />
-            <Inspector />
+            <Inspector onOpenSettings={() => setSettingsOpen(true)} />
           </div>
         </main>
       </div>

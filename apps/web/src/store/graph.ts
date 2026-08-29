@@ -231,6 +231,7 @@ const DEFAULTS: Record<NodeKind, Partial<GraphNode>> = {
   map: { map: { template: "{}" } },
   loop: { loop: { maxIterations: 100 } },
   parallel: { parallel: { asObject: false } },
+  table: { table: { steps: [] } },
 };
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;

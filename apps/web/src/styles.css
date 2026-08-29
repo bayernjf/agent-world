@@ -1787,6 +1787,9 @@ select {
 .plant--parallel .plant__bar {
   fill: #1d2b3a;
 }
+.plant--table .plant__bar {
+  fill: #2a1d3a;
+}
 
 .plant__attempt rect {
   fill: var(--warn);
@@ -5155,3 +5158,61 @@ select {
   font-size: 11px;
   color: var(--power);
 }
+
+/* ---------- Table node step editor ---------- */
+
+.table-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+.table-steps__title {
+  font-size: 11px;
+  color: var(--ink-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.table-step {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--bg);
+}
+.table-step__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.table-step__index {
+  font-size: 11px;
+  color: var(--ink-faint);
+  font-family: var(--mono);
+  flex: none;
+}
+.table-step__head .select {
+  flex: 1;
+  min-width: 0;
+}
+.table-step .field {
+  margin-top: 6px;
+}
+.table-step__agg {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-top: 6px;
+}
+.table-step__agg .input {
+  flex: 1;
+  min-width: 0;
+}
+.table-step__agg .select {
+  flex: none;
+  width: auto;
+}
+

@@ -116,13 +116,15 @@ same reducer.
 
 ## Documentation
 
+The full index (every doc, tagged current / historical / archived, organized by reader) lives in [docs/README.md](docs/README.md). Quick pointers:
+
+- [handoff.md](handoff.md) — current code state, active work, and last-5 changes (read this first when resuming)
 - [PRD.md](PRD.md) — phased product roadmap and architectural guardrails
-- [handoff.md](handoff.md) — current code state and next steps
+- [docs/roadmap-generalization.md](docs/roadmap-generalization.md) — current roadmap (generalization to a general automation platform)
+- [docs/technical-design.md](docs/technical-design.md) — architecture, data models, API surface
 - [docs/examples.md](docs/examples.md) — 8 ready-to-use pipeline templates
 - [docs/extending.md](docs/extending.md) — how to add workers, connectors, skills, triggers, and node types
-- [docs/product-vision-discussion.md](docs/product-vision-discussion.md) — capabilities, design language, technology choices, commercialization
-- [docs/technical-design.md](docs/technical-design.md) — architecture, data models, API surface
-- [docs/roadmap-tasks.md](docs/roadmap-tasks.md) — concrete per-phase task breakdown
+- [CHANGELOG.md](CHANGELOG.md) — versioned changelog
 - [CONTRIBUTING.md](CONTRIBUTING.md) — how to set up, run checks, and open a PR
 
 ## Deployment
