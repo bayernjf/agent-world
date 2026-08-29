@@ -279,13 +279,15 @@ describe("execute", () => {
     const produced = events.filter(
       (e) => e.type === "artifact.produced" && (e as any).nodeId === "a",
     );
-    expect(produced).toHaveLength(1);
-    expect((produced[0] as any).artifact.kind).toBe("image");
-    expect((produced[0] as any).artifact.uri).toBe("https://example.com/cover.png");
+    // The node now also emits its own text note (kind "text") alongside the
+    // extracted image artifact, so both land in the gallery.
+    expect(produced).toHaveLength(2);
+    const image = produced.find((e) => (e as any).artifact.kind === "image")!;
+    expect((image as any).artifact.uri).toBe("https://example.com/cover.png");
     const pkt = events.find((e) => e.type === "packet.sent" && (e as any).from === "a");
     expect((pkt as any)?.artifactKind).toBe("image");
     const state = replay(events);
-    expect(state.nodes.a!.artifacts).toHaveLength(1);
+    expect(state.nodes.a!.artifacts).toHaveLength(2);
   });
 
   it("warns on monthly budget but does not trip the line", async () => {

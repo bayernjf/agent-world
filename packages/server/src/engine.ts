@@ -1359,8 +1359,14 @@ export function reconstructState(events: RunEvent[]): ResumeState {
         break;
       case "artifact.produced": {
         const arr = artifacts.get(e.nodeId) ?? [];
-        arr.push(e.artifact);
-        artifacts.set(e.nodeId, arr);
+        // The node.finished synthesis (below) can already hold a text artifact
+        // with the same `${nodeId}-text` id for runs that predate text-note
+        // events — skip the duplicate so downstream input assembly does not
+        // repeat the same content twice.
+        if (!arr.some((a) => a.id === e.artifact.id)) {
+          arr.push(e.artifact);
+          artifacts.set(e.nodeId, arr);
+        }
         break;
       }
       case "node.started":
