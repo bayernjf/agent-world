@@ -361,6 +361,7 @@ const ERROR_LABEL: Record<string, string> = {
   BUDGET: "节点预算超限",
   UNKNOWN: "未知错误",
   UNSUPPORTED: "暂不支持",
+  SUBPROCESS: "子流程错误",
 };
 
 /** 富渲染节点文本产出：含 product-json 走结构化成品，否则走 Markdown。 */
@@ -413,6 +414,14 @@ function nextMainTab(current: MainTab, isAgent: boolean): MainTab {
 export default function Inspector({ onOpenSettings }: { onOpenSettings: () => void }) {
   const { graph, selectedId, updateNode, saveState, reloadGraph } = useGraph();
   const runtime = useVisibleRuntime();
+  // Saved graphs for the subprocess node's graph picker (refresh on mount).
+  const [graphs, setGraphs] = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => {
+    void api
+      .listGraphs()
+      .then((g) => setGraphs(g.map((x) => ({ id: x.id, name: x.name }))))
+      .catch(() => undefined);
+  }, []);
   const [tab, setTab] = useState<number | "diff">(1);
   const [mainTab, setMainTabState] = useState<MainTab>(readStoredMainTab);
   const setMainTab = (t: MainTab) => {
@@ -2493,6 +2502,49 @@ export default function Inspector({ onOpenSettings }: { onOpenSettings: () => vo
             <p className="note">
               运行到该节点会暂停，等待人工审批。上游文本会展示给审批人：批准后原样交给下游；
               编辑后以编辑内容继续；驳回则节点失败（可被 error 边接住，否则产线失败）。
+            </p>
+          </>
+        )}
+
+        {node.kind === "subprocess" && node.subprocess && (
+          <>
+            <label className="field">
+              <span>子流程图（被调用）</span>
+              <select
+                className="input"
+                value={node.subprocess.graphId}
+                onChange={(e) => updateNode(node.id, { subprocess: { ...node.subprocess!, graphId: e.target.value } })}
+              >
+                {graphs.length === 0 && <option value="">（暂无已保存产线）</option>}
+                {graphs.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>最大调用深度</span>
+              <input
+                className="input"
+                type="number"
+                min={1}
+                max={10}
+                value={node.subprocess.maxDepth}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    subprocess: {
+                      ...node.subprocess!,
+                      maxDepth: Math.max(1, Math.min(10, Number(e.target.value) || 1)),
+                    },
+                  })
+                }
+              />
+            </label>
+            <p className="note">
+              运行到该节点会调用另一张已保存的产线（子流程）作为函数：上游文本成为子流程的输入，
+              子流程所有 sink 节点的产物聚合为本节点的 json 产物。子流程内的暂停（人工审批/危险工具）
+              会冒泡暂停整个产线，恢复后从子流程断点继续。maxDepth 防止循环调用。
             </p>
           </>
         )}

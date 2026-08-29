@@ -37,6 +37,7 @@ const KIND_LABEL: Record<GraphNode["kind"], string> = {
   notify: "通知",
   vcs: "仓库",
   human: "审批",
+  subprocess: "子流程",
 };
 
 const STATUS_LABEL: Record<NodeRuntime["status"], string> = {

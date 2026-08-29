@@ -36,6 +36,7 @@ const MORE: NodeButton[] = [
   { kind: "notify", label: "通知", hint: "Notify 节点：发消息到飞书/钉钉/企微/Slack 群或邮件", primary: false },
   { kind: "vcs", label: "代码仓库", hint: "VCS 节点：GitHub/GitLab 提 PR、评论 issue、触发 workflow、列 issue", primary: false },
   { kind: "human", label: "人工审批", hint: "Human 节点：暂停产线等待人工审批/编辑/驳回", primary: false },
+  { kind: "subprocess", label: "子流程", hint: "Subprocess 节点：调用另一张已保存产线作为函数", primary: false },
   { kind: "videoGen", label: "AI 视频", hint: "VideoGen 节点", primary: false },
   { kind: "audioGen", label: "AI 音频", hint: "AudioGen 节点", primary: false },
 ];
