@@ -31,6 +31,8 @@ const MORE: NodeButton[] = [
   { kind: "fileParse", label: "文件解析", hint: "FileParse 节点：提取 PDF/Word/PPT 的文本与图片", primary: false },
   { kind: "translate", label: "翻译", hint: "Translate 节点：把上游文本翻译成目标语言", primary: false },
   { kind: "ocr", label: "OCR", hint: "OCR 节点：识别图片中的文字（tesseract.js）", primary: false },
+  { kind: "convert", label: "文件转换", hint: "Convert 节点：PDF 提取图片 / 图片格式转换（PNG、JPEG）", primary: false },
+  { kind: "search", label: "搜索", hint: "Search 节点：网络搜索（DuckDuckGo 免 key / Tavily / SerpAPI / Google）", primary: false },
   { kind: "videoGen", label: "AI 视频", hint: "VideoGen 节点", primary: false },
   { kind: "audioGen", label: "AI 音频", hint: "AudioGen 节点", primary: false },
 ];
