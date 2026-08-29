@@ -28,6 +28,7 @@ const MORE: NodeButton[] = [
   { kind: "parallel", label: "并行聚合", hint: "Parallel 节点：等待所有分支并把输出聚合为数组", primary: false },
   { kind: "table", label: "表格", hint: "Table 节点：CSV 解析/筛选/排序/聚合", primary: false },
   { kind: "database", label: "数据库", hint: "Database 节点：执行 SQL 查询（SQLite）", primary: false },
+  { kind: "fileParse", label: "文件解析", hint: "FileParse 节点：提取 PDF/Word/PPT 的文本与图片", primary: false },
   { kind: "videoGen", label: "AI 视频", hint: "VideoGen 节点", primary: false },
   { kind: "audioGen", label: "AI 音频", hint: "AudioGen 节点", primary: false },
 ];

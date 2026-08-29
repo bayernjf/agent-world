@@ -22,6 +22,7 @@ export const NodeKind = z.enum([
   "parallel",
   "table",
   "database",
+  "fileParse",
 ]);
 export type NodeKind = z.infer<typeof NodeKind>;
 
@@ -156,8 +157,12 @@ export const HttpNodeConfig = z.object({
   body: z.string().optional(),
   /** Request timeout in milliseconds. */
   timeoutMs: z.number().int().min(1000).default(30000),
-  /** How to expose the response body. `auto` picks json when Content-Type is JSON. */
-  outputMode: z.enum(["json", "text", "auto"]).default("auto"),
+  /**
+   * How to expose the response body. `auto` picks json when Content-Type is
+   * JSON. `file` stores the raw bytes as a `file` artifact (e.g. a downloaded
+   * PDF / DOCX) so a downstream fileParse node can extract text and images.
+   */
+  outputMode: z.enum(["json", "text", "file", "auto"]).default("auto"),
   /** Treat non-2xx responses as node failures. */
   failOnError: z.boolean().default(true),
 });
@@ -341,6 +346,21 @@ export const DatabaseConfig = z.object({
 });
 export type DatabaseConfig = z.infer<typeof DatabaseConfig>;
 
+/**
+ * Configuration for a `fileParse` node: extract text and embedded images from
+ * an upstream `file` artifact. Supported formats: PDF (via unpdf) and Office
+ * Open XML documents (DOCX / PPTX, via ZIP + XML extraction). The extracted
+ * text becomes a `text` artifact consumed by downstream agents; extracted
+ * images become `image` artifacts.
+ */
+export const FileParseConfig = z.object({
+  /** Which upstream node's `file` artifact to parse. Defaults to the single flow predecessor. */
+  source: z.string().optional(),
+  /** Maximum embedded images to extract per file (0 = none). */
+  maxImages: z.number().int().min(0).max(100).default(20),
+});
+export type FileParseConfig = z.infer<typeof FileParseConfig>;
+
 export const GateConfig = z.object({
   maxAttempts: z.number().int().min(1).max(10).default(3),
   criterion: z.string().default(""),
@@ -454,6 +474,7 @@ export const GraphNode = z.object({
   parallel: ParallelConfig.optional(),
   table: TableConfig.optional(),
   database: DatabaseConfig.optional(),
+  fileParse: FileParseConfig.optional(),
   source: SourceConfig.optional(),
 });
 export type GraphNode = z.infer<typeof GraphNode>;

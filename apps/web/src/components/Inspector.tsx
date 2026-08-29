@@ -1491,6 +1491,7 @@ export default function Inspector({ onOpenSettings }: { onOpenSettings: () => vo
                 <option value="auto">自动（JSON 响应存为 json artifact）</option>
                 <option value="json">强制 JSON</option>
                 <option value="text">强制文本</option>
+                <option value="file">文件（二进制下载，供文件解析节点使用）</option>
               </select>
             </label>
             <label className="field field--row">
@@ -1913,6 +1914,52 @@ export default function Inspector({ onOpenSettings }: { onOpenSettings: () => vo
               查询语句输出 {"{"}rows, count, columns{"}"}，可直连下游「表格」节点继续筛选/排序/聚合；
               INSERT/UPDATE/DELETE 等输出 {"{"}affectedRows, lastInsertId{"}"}。文件路径相对 server 工作目录
               （packages/server）解析。SQL 语法错误或参数不匹配时节点运行失败。
+            </p>
+          </>
+        )}
+
+        {node.kind === "fileParse" && node.fileParse && (
+          <>
+            <label className="field">
+              <span>数据来源（上游节点）</span>
+              <select
+                className="select"
+                value={node.fileParse.source ?? ""}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    fileParse: { ...node.fileParse!, source: e.target.value || undefined },
+                  })
+                }
+              >
+                <option value="">自动（唯一上游）</option>
+                {graph.nodes
+                  .filter((n) => n.id !== node.id)
+                  .map((n) => (
+                    <option key={n.id} value={n.id}>
+                      {n.name || n.id}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>最大提取图片数（0 = 不提取）</span>
+              <input
+                className="input"
+                type="number"
+                min={0}
+                max={100}
+                value={node.fileParse.maxImages}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    fileParse: { ...node.fileParse!, maxImages: Number(e.target.value) },
+                  })
+                }
+              />
+            </label>
+            <p className="note">
+              从上游的 file artifact 提取文本与内嵌图片（PDF / DOCX / PPTX）。文本输出为 text
+              artifact（可直接供 agent 节点消费）；图片输出为 image artifact。
+              上游可用「HTTP 节点 + 输出模式 = 文件」下载文档，或接入其他产出 file 的节点。
             </p>
           </>
         )}

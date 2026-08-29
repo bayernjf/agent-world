@@ -29,6 +29,7 @@ const KIND_LABEL: Record<GraphNode["kind"], string> = {
   parallel: "并行聚合",
   table: "表格",
   database: "数据库",
+  fileParse: "文件解析",
 };
 
 const STATUS_LABEL: Record<NodeRuntime["status"], string> = {

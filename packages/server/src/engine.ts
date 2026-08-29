@@ -2,6 +2,7 @@ import {
   BranchConfig,
   CodeNodeConfig,
   DatabaseConfig,
+  FileParseConfig,
   HttpNodeConfig,
   LoopConfig,
   MapConfig,
@@ -41,6 +42,7 @@ import { guardToolCall, isDangerousTool, loadPermissionConfig, type PermissionCo
 import { notifyHalt } from "./notify.js";
 import { resolveConnector } from "./connectors.js";
 import { createSqliteDriver } from "./db-drivers.js";
+import { dataUriToBuffer, parseDocument } from "./parse-file.js";
 import { allowPrivateNetwork, hostIsInternal } from "./ssrf.js";
 
 /**
@@ -900,6 +902,57 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
         }
         clearTimeout(timer);
 
+        if (cfg.outputMode === "file") {
+          let arrayBuf: ArrayBuffer;
+          try {
+            arrayBuf = await response.arrayBuffer();
+          } catch (err) {
+            states.set(nodeId, "failed");
+            status = "failed";
+            const msg = err instanceof Error ? err.message : String(err);
+            emit({
+              type: "node.failed",
+              nodeId,
+              attempt,
+              error: `读取 HTTP 响应失败: ${msg}`,
+              errorCode: "PROVIDER_ERROR",
+            });
+            return;
+          }
+          if (cfg.failOnError && (response.status < 200 || response.status >= 300)) {
+            states.set(nodeId, "failed");
+            status = "failed";
+            emit({
+              type: "node.failed",
+              nodeId,
+              attempt,
+              error: `HTTP ${cfg.method} ${targetUrl.toString()} 返回 ${response.status}`,
+              errorCode: "PROVIDER_ERROR",
+            });
+            return;
+          }
+          const bytes = Buffer.from(arrayBuf);
+          const ctHeader = response.headers.get("content-type") ?? "";
+          const mime = (ctHeader.split(";")[0] ?? "").trim() || "application/octet-stream";
+          const fileName = fileLabelFromUrl(targetUrl);
+          const uri = await opts.storeBinary(bytes, mime, fileName);
+          const artifact: Artifact = {
+            id: `${nodeId}-file`,
+            kind: "file",
+            uri,
+            mimeType: mime,
+            label: fileName,
+            sizeBytes: bytes.length,
+          };
+          artifacts.set(nodeId, [artifact]);
+          emit({ type: "artifact.produced", nodeId, attempt, artifact });
+          states.set(nodeId, "done");
+          const summary = `已下载文件：${fileName}（${bytes.length} 字节，${mime}）`;
+          emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
+          sendPackets(nodeId, summary, "file");
+          return;
+        }
+
         let responseText: string;
         try {
           responseText = await response.text();
@@ -1485,6 +1538,91 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
             nodeId,
             attempt,
             error: `数据库节点执行出错: ${err instanceof Error ? err.message : String(err)}`,
+          });
+        }
+        return;
+      }
+
+      if (node.kind === "fileParse") {
+        emit({ type: "node.started", nodeId, attempt });
+        try {
+          const cfg = FileParseConfig.parse(node.fileParse ?? {});
+          const sources = incoming(graph, nodeId, "flow").map((e) => e.from);
+          const sourceId = cfg.source ?? (sources.length === 1 ? sources[0] : undefined);
+          if (!sourceId) {
+            states.set(nodeId, "failed");
+            emit({
+              type: "node.failed",
+              nodeId,
+              attempt,
+              error: "文件解析节点需要唯一上游，或在配置中显式指定数据来源",
+              errorCode: "VALIDATION",
+            });
+            return;
+          }
+          const arts = artifacts.get(sourceId) ?? [];
+          const fileArt = arts.find((a) => a.kind === "file" && a.uri);
+          if (!fileArt) {
+            states.set(nodeId, "failed");
+            emit({
+              type: "node.failed",
+              nodeId,
+              attempt,
+              error: `上游「${nodeById(graph, sourceId)?.name ?? sourceId}」没有产出文件产物`,
+              errorCode: "VALIDATION",
+            });
+            return;
+          }
+          const resolved = opts.readArtifact ? await opts.readArtifact(fileArt.uri!) : null;
+          if (!resolved) {
+            states.set(nodeId, "failed");
+            emit({
+              type: "node.failed",
+              nodeId,
+              attempt,
+              error: `无法读取文件内容（${fileArt.uri}）`,
+              errorCode: "PROVIDER_ERROR",
+            });
+            return;
+          }
+          const parsed = await parseDocument(dataUriToBuffer(resolved), fileArt.mimeType);
+          const produced: Artifact[] = [
+            { id: `${nodeId}-txt`, kind: "text", content: parsed.text, mimeType: "text/plain" },
+          ];
+          for (const [idx, img] of parsed.images.slice(0, cfg.maxImages).entries()) {
+            const ext =
+              img.mimeType === "image/png"
+                ? "png"
+                : img.mimeType === "image/jpeg"
+                  ? "jpg"
+                  : (img.mimeType.split("/")[1] ?? "bin");
+            const uri = await opts.storeBinary(
+              Buffer.from(img.data),
+              img.mimeType,
+              `${node.name || "file-parse"}-${idx + 1}.${ext}`,
+            );
+            produced.push({
+              id: `${nodeId}-img-${idx}`,
+              kind: "image",
+              uri,
+              mimeType: img.mimeType,
+              label: `${fileArt.label ?? "文档"} 图片 ${idx + 1}`,
+            });
+          }
+          artifacts.set(nodeId, produced);
+          for (const a of produced) emit({ type: "artifact.produced", nodeId, attempt, artifact: a });
+          states.set(nodeId, "done");
+          const imgCount = produced.length - 1;
+          const summary = `解析完成：${parsed.text.length} 字符文本${imgCount ? `，提取 ${imgCount} 张图片` : ""}`;
+          emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
+          sendPackets(nodeId, summary, "text");
+        } catch (err) {
+          states.set(nodeId, "failed");
+          emit({
+            type: "node.failed",
+            nodeId,
+            attempt,
+            error: `文件解析节点执行出错: ${err instanceof Error ? err.message : String(err)}`,
           });
         }
         return;
@@ -2106,6 +2244,12 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
 
 function zeroUsage(): Usage {
   return { tokensIn: 0, tokensOut: 0, costUsd: 0 };
+}
+
+/** Best-effort filename from a URL path, e.g. https://x/y/report.pdf → report.pdf. */
+function fileLabelFromUrl(url: URL): string {
+  const base = url.pathname.split("/").filter(Boolean).pop();
+  return base || "download";
 }
 
 /**

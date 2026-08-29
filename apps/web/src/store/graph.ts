@@ -233,6 +233,7 @@ const DEFAULTS: Record<NodeKind, Partial<GraphNode>> = {
   parallel: { parallel: { asObject: false } },
   table: { table: { steps: [] } },
   database: { database: { setupSql: "", sql: "" } },
+  fileParse: { fileParse: { maxImages: 20 } },
 };
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
