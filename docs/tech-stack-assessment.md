@@ -1,10 +1,12 @@
-# 技术栈评估
+# [历史决策记录 · 2026-08] 技术栈评估
 
+> 状态：**历史文档**——技术栈选型的评估记录，结论已沉淀进 [technical-design.md](technical-design.md)。保留供追溯，勿据此直接实现。
+>
 > 本文档记录对当前技术栈的诚实评估：哪些是正确的长期选择，哪些有明确的边界，
 > 以及在产品演进到什么阶段需要引入什么。结论是：当前栈适合现在和未来 2-3 个阶段，
 > 不需要换，但要清楚边界在哪。
 >
-> 相关：[technical-design.md](technical-design.md)、[roadmap-tasks.md](roadmap-tasks.md)。
+> 相关：[technical-design.md](technical-design.md)、[roadmap-generalization.md](roadmap-generalization.md)。
 
 ## 当前技术栈
 

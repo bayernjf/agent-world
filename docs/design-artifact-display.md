@@ -1,6 +1,6 @@
 # 产物多态展示方案（Artifact Display Redesign）
 
-> 状态：前端改动进行中，全部在工作树未提交；后端 schema 零改动。
+> 状态：**已落地**（前端 2026-08-28 完成，commit 与验收见 [handoff.md](../handoff.md)）。本文档只保留设计，实施进度以 handoff 为准。
 > 目标：让"各种流水线、各种产物"在画布/Inspector/成品面板/画廊里**一致且可扩展**地展示。
 > 结论：**数据模型已多态，前端也已能渲染 image/video/audio/uri；真正缺的是"单一渲染真相源 + 统一卡外壳 + json/text 专门渲染 + 成本/失败态"。**
 
@@ -241,15 +241,6 @@ export function ArtifactCard({ a, showMeta = true }: { a: ArtifactLike; showMeta
 
 ---
 
-## 实施进度（2026-08-28）
+## 实施进度
 
-- [x] **Phase A**：新建 `apps/web/src/lib/artifact-renderers.tsx`——`ArtifactCard` 统一卡外壳 + `artifactRenderers` 注册表（7 种 kind）+ 自写 JSON 树 + 共享 `renderMarkdown`/`renderInline`；`styles.css` 增加 `.artifact-card`/`.json-view`/`.product__artifacts`。
-- [x] **Phase B**：三处展示面接入
-  - `Inspector` 删除重复 `ArtifactChip`，调用处改 `<ArtifactCard a={a} />`。
-  - `FinishedProduct` 删除本地 `renderMarkdown`/`renderInline`（改 import 共享），`images/videos/audios/others` 四个 map 合并为 `<ArtifactCard a={a} showMeta={false} />` 网格。
-  - `ProductGallery` 的 `GalleryCard` 媒体区改 `<ArtifactCard a={...} showMeta={false} />`，保留其 kind 过滤 chip 与 meta 行。
-  - 全仓 `pnpm -r typecheck` 通过。
-- [x] **Phase C**：成本徽标。`Inspector` 在渲染节点产物时把 `rt.costUsd` 作为 `cost` 透传给 `ArtifactCard`（前端按节点维度关联成本；精确的单产物成本 join 因运行时 `Artifact` 不带 `nodeId` 而取节点级近似）。`ArtifactCard` 的成本徽标与失败标红样式此前已预留。
-- [x] **Phase D**：节点缩略图。`Plants.tsx` 对 `imageGen`/`videoGen` 节点取其主视觉产物（`image` 显示 `<image>` 缩略图、`video`/`audio` 显示 ▶/♪ 图标），无视觉产物时回退显示模型名；`styles.css` 增加 `.plant__thumb-frame`/`.plant__thumb-glyph`。`FinishedProduct` 因 `collectUpstreamArtifacts` 已扁平化上游产物、丢失产出节点归属，故成本不在此处错配。
-
-**验收对照**：image/video/audio/uri 在三处一致渲染（沿用既有行为）；json 现为可折叠树（原仅链接/`<pre>`）；text(markdown) 现走格式化渲染；新增 kind 只需在 `artifactRenderers` 注册一个渲染器、调用方零改动。
+> 已落地（前端 2026-08-28 完成，Phase A-D 全部通过，含成本徽标与节点缩略图；全仓 `pnpm -r typecheck` 通过）。实施细节与验收记录见 [handoff.md](../handoff.md)，本文档不再重复维护。

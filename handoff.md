@@ -6,19 +6,18 @@ State of Agent World as of 2026-08-29.
 
 ## Project documents
 
+完整索引（按读者分类 + 现行/历史/归档标注）见 [docs/README.md](docs/README.md)。核心文档直达：
+
 - [PRD.md](PRD.md) — phased roadmap and architectural guardrails
 - [README.md](README.md) — two core design decisions, layout, running instructions
-- [docs/product-vision-discussion.md](docs/product-vision-discussion.md) — full product vision
 - [docs/technical-design.md](docs/technical-design.md) — architecture, data models, API
-- [docs/roadmap-tasks.md](docs/roadmap-tasks.md) — per-phase task breakdown
-- [docs/tech-stack-assessment.md](docs/tech-stack-assessment.md) — current stack evaluation
-- [docs/feedback-workflow.md](docs/feedback-workflow.md) — owner 怎么高效反馈给我（截图 / computer-use / 防丢）
+- [docs/roadmap-generalization.md](docs/roadmap-generalization.md) — 通用化路线图（当前主线，5 阶段）
 - [docs/design-mcp-server.md](docs/design-mcp-server.md) — MCP Server 设计方案（让其他 AI 客户端接入 agent-world）
-- [docs/roadmap-generalization.md](docs/roadmap-generalization.md) — 通用化路线图（从内容生成流水线升级为通用自动化平台，5 阶段）
+- [docs/design-artifact-display.md](docs/design-artifact-display.md) — 产物统一渲染卡设计（ArtifactCard + 渲染器注册表；已落地）
+- [docs/design-artifact-attribution-repo.md](docs/design-artifact-attribution-repo.md) — 产物归属 + 按流水线分组成品仓库设计（已落地）
+- [docs/feedback-workflow.md](docs/feedback-workflow.md) — owner 怎么高效反馈给我（截图 / computer-use / 防丢）
 - [docs/handoff-archive.md](docs/handoff-archive.md) — historical changes (pre-2026-08-27)
 - [PRODUCT_STRATEGY.md](PRODUCT_STRATEGY.md) — 产品策略汇总（成本/部署/定价/商业化决策基线）
-- [docs/design-artifact-display.md](docs/design-artifact-display.md) — 产物统一渲染卡设计（ArtifactCard + 渲染器注册表；前端已落地）
-- [docs/design-artifact-attribution-repo.md](docs/design-artifact-attribution-repo.md) — 产物归属 + 按流水线分组成品仓库设计（后端 schema 已落地）
 
 ## Current state
 
