@@ -1789,6 +1789,8 @@ modality 切片，统一严格过滤；同时把 agent 的占位文案从泛化�
 
 > Entries rolled out of the active `handoff.md` "Recently shipped" list to keep it at 5 items.
 
+- `20d9c9f` — **feat(human)**: **人工审批节点 human（Phase 4 human-in-the-loop）**。human.review/human.decision 事件 + engine halt 冒泡 + resume approve/edit/reject + reconstructState 回放。5 个新测试。
+- `a77f127` — **feat(web)**: **Phase 4 错误处理 PR⑤——运行历史「重新运行」按钮**。api.ts rerunRun + RunHistory 行尾按钮。web build 通过。
 - `3dea78d` — **feat(error)**: **Phase 4 错误处理 PR④——失败告警 + rerun API**。notifyFailed webhook + POST /api/runs/:id/rerun。5 个新测试。
 - `ce17008` — **feat(error)**: **Phase 4 错误处理 PR③——error 边 + catch 节点**。EdgeKind error + engine catchReady/finish 重新评估 + inputFor 合并 error 前驱。2 个新测试。
 - `906a70e` — **feat(error)**: **Phase 4 错误处理 PR②——级联 skip**。NodeState.skipped 扩展到失败节点搁浅下游；engine 不动点级联（failed/skipped 前驱 + 无 done 前驱 → skip）；core node.skipped 事件 + NodeRuntime.status 加 skipped。

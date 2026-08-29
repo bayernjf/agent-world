@@ -57,11 +57,11 @@ State of Agent World as of 2026-08-29.
 
 按 commit 时间倒序，每条一行影响面 + commit hash：
 
-1. `071002d` — **feat(web)**: **subprocess 节点 UI**。工具栏「子流程」入口 + Inspector 子流程图选择器（api.listGraphs 已保存产线下拉）+ 最大调用深度输入 + SUBPROCESS 错误标签。
-2. `d66fe52` — **feat(subprocess)**: **子流程调用节点 subprocess（Phase 4 编排能力 PR3）**。core：NodeKind.subprocess + SubprocessConfig(graphId, maxDepth=3) + NodeErrorCode.SUBPROCESS。engine：runNode subprocess 分支以**隔离递归子调度器**执行子图——子图节点 id 统一加 `<subNode>#sub:` 前缀（事件/状态/产物不与父图冲突），上游文本作子图 source 输入，子图 sink 产物聚合为该节点 json 产物，maxDepth 防互递归；**halt 冒泡**：子流程内暂停（human/gate/dangerous-tool）整 run 暂停（haltNodeId 为前缀 id），resume 后 subprocess 节点重跑、子流程**从断点续跑**（extract/merge sub-init）；预算共享（子执行扣费并入父账，V1 子执行不做独立预算检查）；run.ts/index.ts 注入 loadSubgraph（限定本用户图）。7 个新测试（调用+聚合 / 输入透传 / 找不到图 / 递归防护 / halt 冒泡+恢复 / reject / 子流程失败）。
-3. `f607dde` — **feat(web)**: **human 节点 UI**。工具栏「人工审批」入口 + Inspector 审批提示面板 + ControlPanel halted 时展示待审批内容（pendingReview）并保留批准/编辑/驳回按钮；状态文案 human halt 显示「等待人工审批」。
-4. `20d9c9f` — **feat(human)**: **人工审批节点 human（Phase 4 human-in-the-loop）**。core：NodeKind.human + HumanConfig(prompt)；事件 human.review（上游 text 待审批）+ human.decision（approved/edited/rejected）；runtime 把 pendingReview reduce 到节点、decision 映射 done/failed。engine：human 分支主动 halt（haltReason human:，notifyHalt 告警）；resume approve/edit → human.decision + review 内容交给下游（edit 覆盖）；reject → 节点 failed（error 边可接住，否则 run failed）；reconstructState 回放 human.decision。5 个新测试（halt+review / approve / edit / reject / reject→error 边）。**Phase 4 五步错误处理 + 人工审批闭环全部落地**。
-5. `a77f127` — **feat(web)**: **Phase 4 错误处理 PR⑤——运行历史「重新运行」按钮**。api.ts rerunRun；RunHistory 行尾按钮（failed 常显/hover 显示、running 隐藏、防抖、错误内联提示），成功后刷新并打开新 run。web build 通过。
+1. `2a17276` — **feat(web)**: **产线变量面板**。VariablesModal（key-value 编辑，值按 JSON 校验/解析，可增删）+ 顶栏「变量」按钮 + 命令面板入口。**Phase 4 编排能力四项全部落地**（错误处理 → 人工审批 → 子流程调用 → 变量持久化）。
+2. `eb10d75` — **feat(variables)**: **产线变量（跨运行持久化状态，Phase 4 编排能力 PR4）**。core：Graph.variables（默认值）+ buildNodeContext 注入 ctx.var（`${var.xxx}` 插值）。db：graph_variables 表（migration 17，JOIN graphs 租户隔离）+ loadGraphVariables/saveGraphVariables（**逐 key 乐观 upsert**——并发 run 只覆盖自己写过的 key，最后写赢）。engine：变量 map **按引用**贯穿 runScheduler（execute/resume 同实例，调用方 run 结束后持久化回 DB）；每个 agent 自动挂内置工具 `set_variable`/`get_variable`（安全免审批）；**子流程共享父图变量**（子 agent 写入父图变量，父下游 `${var.x}` 立即可读）；resume 时重新从 DB 加载（暂停期间其他 run 的写入不丢）。7 个新测试（插值 / 工具写读 / 失败不写 / 子流程共享 / 持久化回环 / 租户隔离 / 图间隔离）。
+3. `071002d` — **feat(web)**: **subprocess 节点 UI**。工具栏「子流程」入口 + Inspector 子流程图选择器（api.listGraphs 已保存产线下拉）+ 最大调用深度输入 + SUBPROCESS 错误标签。
+4. `d66fe52` — **feat(subprocess)**: **子流程调用节点 subprocess（Phase 4 编排能力 PR3）**。core：NodeKind.subprocess + SubprocessConfig(graphId, maxDepth=3) + NodeErrorCode.SUBPROCESS。engine：runNode subprocess 分支以**隔离递归子调度器**执行子图——子图节点 id 统一加 `<subNode>#sub:` 前缀（事件/状态/产物不与父图冲突），上游文本作子图 source 输入，子图 sink 产物聚合为该节点 json 产物，maxDepth 防互递归；**halt 冒泡**：子流程内暂停（human/gate/dangerous-tool）整 run 暂停（haltNodeId 为前缀 id），resume 后 subprocess 节点重跑、子流程**从断点续跑**（extract/merge sub-init）；预算共享（子执行扣费并入父账，V1 子执行不做独立预算检查）；run.ts/index.ts 注入 loadSubgraph（限定本用户图）。7 个新测试（调用+聚合 / 输入透传 / 找不到图 / 递归防护 / halt 冒泡+恢复 / reject / 子流程失败）。
+5. `f607dde` — **feat(web)**: **human 节点 UI**。工具栏「人工审批」入口 + Inspector 审批提示面板 + ControlPanel halted 时展示待审批内容（pendingReview）并保留批准/编辑/驳回按钮；状态文案 human halt 显示「等待人工审批」。
 最近 5 条之前的全部在 [docs/handoff-archive.md](docs/handoff-archive.md) 的"阶段 4 收尾"系列章节里（含 HTTP 节点第一闭环 `1856d81`、账号系统 `5b81c74`/`73d3610` 等）。
 
 ## Quality gate (current snapshot)
@@ -70,7 +70,7 @@ State of Agent World as of 2026-08-29.
 
 - `pnpm -r typecheck`：全绿
 - `pnpm --filter @agent-world/core test`：142/142 通过（含 EdgeKind error / buildNodeContext error 前驱 / node.skipped event + HTTP file 模式用例）
-- `pnpm --filter @agent-world/server test`：396/396 通过（含 subprocess：调用+聚合 / 输入透传 / 找不到图 / 递归防护 / halt 冒泡+恢复 / reject / 子流程失败；human 节点 halt+review/approve/edit/reject/reject→error 边；failalert webhook；rerun API；error-edge/skip 级联；retry 共享 withRetry；vcs/notify halt 全部用例）
+- `pnpm --filter @agent-world/server test`：403/403 通过（含变量：插值 / set/get_variable / 失败不写 / 子流程共享 / 持久化回环 / 租户隔离 / 图间隔离；subprocess：调用+聚合 / 输入透传 / 找不到图 / 递归防护 / halt 冒泡+恢复 / reject / 子流程失败；human 节点 halt+review/approve/edit/reject/reject→error 边；failalert webhook；rerun API；error-edge/skip 级联；retry 共享 withRetry；vcs/notify halt 全部用例）
 - `pnpm --filter @agent-world/mcp-server test`：22/22 通过（含 resources/prompts 协议用例 + HTTP 传输 + 真实 socket 冒烟）
 - `pnpm --filter @agent-world/web exec vitest run`：19/19 通过
 - **注意**：依赖 `node:sqlite`，必须 Node ≥ 22（CI 用 Node 24；本地 shell 默认 Node 20 会误报 `No such built-in module: node:sqlite`，用 `fnm exec --using=24` 跑）
