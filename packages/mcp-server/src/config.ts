@@ -10,6 +10,7 @@ export interface McpServerConfig {
   url: string;
   token: string;
   requestTimeoutMs: number;
+  mcpHttpPort: number;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): McpServerConfig {
@@ -17,5 +18,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): McpServerConfi
     url: (env.AGENT_WORLD_URL ?? "http://localhost:8791").replace(/\/+$/, ""),
     token: env.AGENT_WORLD_TOKEN ?? "",
     requestTimeoutMs: Number(env.AGENT_WORLD_REQUEST_TIMEOUT_MS ?? 120_000),
+    mcpHttpPort: Number(env.AGENT_WORLD_MCP_PORT ?? 3100),
   };
 }
