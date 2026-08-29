@@ -72,6 +72,21 @@ export class AgentWorldClient {
     return (await this.request(`/api/runs/${encodeURIComponent(runId)}/events`)) as Record<string, unknown>;
   }
 
+  /** GET /api/runs/:id/stats — node-level cost/token aggregates for a run. */
+  async runStats(runId: string): Promise<{
+    nodes: number;
+    tokensIn: number;
+    tokensOut: number;
+    costUsd: number;
+  }> {
+    return (await this.request(`/api/runs/${encodeURIComponent(runId)}/stats`)) as {
+      nodes: number;
+      tokensIn: number;
+      tokensOut: number;
+      costUsd: number;
+    };
+  }
+
   /** GET /api/runs/:id/artifacts — artifacts produced by a run. */
   async listArtifacts(runId: string): Promise<Array<Record<string, unknown>>> {
     return (await this.request(

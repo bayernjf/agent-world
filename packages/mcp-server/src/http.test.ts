@@ -138,7 +138,7 @@ describe("end-to-end HTTP smoke over the real wire", () => {
       });
 
       const tools = await post(2, "tools/list");
-      expect((tools.result as { tools: unknown[] }).tools).toHaveLength(12);
+      expect((tools.result as { tools: unknown[] }).tools).toHaveLength(14);
 
       const resources = await post(3, "resources/list");
       expect((resources.result as { resources: unknown[] }).resources).toHaveLength(1);

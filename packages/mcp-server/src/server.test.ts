@@ -1,7 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AgentWorldClient } from "./client.js";
 import { handleMessage, PROTOCOL_VERSION } from "./server.js";
-import { filterTools } from "./tools.js";
+import { BATCH_WAIT_TIMEOUT_MS, filterTools } from "./tools.js";
 
 function mockClient(): AgentWorldClient {
   return {
@@ -13,6 +13,7 @@ function mockClient(): AgentWorldClient {
     runState: vi.fn().mockResolvedValue({
       state: { status: "done", artifacts: { out: [{ id: "a1", kind: "text", label: "x", mimeType: "text/plain" }] } },
     }),
+    runStats: vi.fn().mockResolvedValue({ nodes: 2, tokensIn: 160, tokensOut: 80, costUsd: 0.008 }),
     listArtifacts: vi.fn().mockResolvedValue([{ id: "a1", kind: "text", node_id: "out", run_id: "r1" }]),
     getArtifact: vi.fn().mockResolvedValue({ id: "a1", mimeType: "text/plain", content: "hello" }),
     createGraph: vi.fn().mockResolvedValue({ id: "g2", name: "新建产线", nodes: [] }),
@@ -24,6 +25,10 @@ function mockClient(): AgentWorldClient {
     }),
   } as unknown as AgentWorldClient;
 }
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 function call(id: number, method: string, params?: unknown) {
   return { jsonrpc: "2.0" as const, id, method, params };
@@ -47,10 +52,10 @@ describe("MCP server JSON-RPC", () => {
     expect(reply).toBeNull();
   });
 
-  it("lists the 12 tools with schema", async () => {
+  it("lists the 14 tools with schema", async () => {
     const reply = await handleMessage(call(2, "tools/list"), mockClient());
     const tools = (reply?.result as { tools: Array<{ name: string; inputSchema: unknown }> }).tools;
-    expect(tools).toHaveLength(12);
+    expect(tools).toHaveLength(14);
     expect(tools.map((t) => t.name)).toEqual([
       "list_graphs",
       "get_graph",
@@ -64,6 +69,8 @@ describe("MCP server JSON-RPC", () => {
       "cancel_run",
       "download_artifact",
       "search_knowledge",
+      "batch_run",
+      "compare_runs",
     ]);
     expect(tools[0]?.inputSchema).toBeTruthy();
   });
@@ -79,6 +86,7 @@ describe("MCP server JSON-RPC", () => {
       "get_artifact",
       "download_artifact",
       "search_knowledge",
+      "compare_runs",
     ]);
   });
 
@@ -285,5 +293,168 @@ describe("MCP management tools (P2-①)", () => {
     const client = mockClient();
     await handleMessage(call(28, "tools/call", { name: "search_knowledge", arguments: { query: "x" } }), client);
     expect(client.searchKnowledge).toHaveBeenCalledWith("x", 10);
+  });
+});
+
+describe("MCP batch & compare tools (P2-②)", () => {
+  it("batch_run(wait=false) starts all inputs and returns runIds", async () => {
+    const client = mockClient();
+    client.startRun = vi
+      .fn()
+      .mockResolvedValueOnce({ runId: "r1" })
+      .mockResolvedValueOnce({ runId: "r2" })
+      .mockResolvedValueOnce({ runId: "r3" });
+    const reply = await handleMessage(
+      call(30, "tools/call", { name: "batch_run", arguments: { graphId: "g1", inputs: ["a", "b", "c"] } }),
+      client,
+    );
+    expect(reply?.result).toMatchObject({ isError: false });
+    expect(client.startRun).toHaveBeenCalledTimes(3);
+    expect(client.startRun).toHaveBeenCalledWith("g1", "a");
+    const text = (reply?.result as { content: Array<{ text: string }> }).content[0]?.text;
+    expect(text).toContain('"runId": "r1"');
+    expect(text).toContain('"runId": "r3"');
+    expect(text).toContain("异步");
+  });
+
+  it("batch_run isolates a failed start without failing the batch", async () => {
+    const client = mockClient();
+    client.startRun = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("模板无效"))
+      .mockResolvedValueOnce({ runId: "r2" });
+    const reply = await handleMessage(
+      call(31, "tools/call", { name: "batch_run", arguments: { graphId: "g1", inputs: ["bad", "ok"] } }),
+      client,
+    );
+    expect(reply?.result).toMatchObject({ isError: false });
+    const text = (reply?.result as { content: Array<{ text: string }> }).content[0]?.text;
+    expect(text).toContain('"error": "模板无效"');
+    expect(text).toContain('"runId": "r2"');
+  });
+
+  it("batch_run requires a non-empty inputs array", async () => {
+    const client = mockClient();
+    const reply = await handleMessage(
+      call(32, "tools/call", { name: "batch_run", arguments: { graphId: "g1" } }),
+      client,
+    );
+    expect(reply?.result).toMatchObject({ isError: true });
+    expect(client.startRun).not.toHaveBeenCalled();
+  });
+
+  it("batch_run(wait=true) aggregates results under maxConcurrency", async () => {
+    const client = mockClient();
+    let active = 0;
+    let maxActive = 0;
+    client.startRun = vi.fn(async (_graphId: string, input: string) => {
+      active++;
+      maxActive = Math.max(maxActive, active);
+      await Promise.resolve();
+      active--;
+      return { runId: `r-${input}` };
+    });
+    client.runState = vi.fn().mockResolvedValue({
+      state: { status: "done", artifacts: { out: [{ id: "a1" }] } },
+    });
+    const reply = await handleMessage(
+      call(33, "tools/call", {
+        name: "batch_run",
+        arguments: { graphId: "g1", inputs: ["a", "b", "c", "d"], wait: true, maxConcurrency: 2 },
+      }),
+      client,
+    );
+    expect(reply?.result).toMatchObject({ isError: false });
+    expect(client.startRun).toHaveBeenCalledTimes(4);
+    expect(maxActive).toBeLessThanOrEqual(2);
+    const text = (reply?.result as { content: Array<{ text: string }> }).content[0]?.text;
+    expect(text).toContain('"status": "done"');
+    expect(text).toContain("全部 4 次运行已完成");
+  });
+
+  it("batch_run(wait=true) degrades to runIds on timeout", async () => {
+    vi.useFakeTimers();
+    const client = mockClient();
+    client.startRun = vi.fn().mockResolvedValue({ runId: "r1" });
+    client.runState = vi.fn().mockResolvedValue({
+      state: { status: "running", artifacts: {} },
+    });
+    const promise = handleMessage(
+      call(34, "tools/call", {
+        name: "batch_run",
+        arguments: { graphId: "g1", inputs: ["a"], wait: true },
+      }),
+      client,
+    );
+    await vi.advanceTimersByTimeAsync(BATCH_WAIT_TIMEOUT_MS);
+    const reply = await promise;
+    expect(reply?.result).toMatchObject({ isError: false });
+    const text = (reply?.result as { content: Array<{ text: string }> }).content[0]?.text;
+    expect(text).toContain("等待超时");
+    expect(text).toContain("get_run_status");
+  });
+
+  it("compare_runs outputs stats diff and node-level diff", async () => {
+    const client = mockClient();
+    client.runStats = vi
+      .fn()
+      .mockResolvedValueOnce({ nodes: 2, tokensIn: 160, tokensOut: 80, costUsd: 0.008 })
+      .mockResolvedValueOnce({ nodes: 3, tokensIn: 200, tokensOut: 90, costUsd: 0.01 });
+    const reply = await handleMessage(
+      call(35, "tools/call", { name: "compare_runs", arguments: { runIdA: "r1", runIdB: "r2" } }),
+      client,
+    );
+    expect(reply?.result).toMatchObject({ isError: false });
+    expect(client.runStats).toHaveBeenCalledWith("r1");
+    expect(client.runStats).toHaveBeenCalledWith("r2");
+    const text = (reply?.result as { content: Array<{ text: string }> }).content[0]?.text;
+    expect(text).toContain('"costUsd"');
+    expect(text).toContain('"delta": 0.002');
+    expect(text).toContain('"nodes"');
+  });
+
+  it("compare_runs reports nodes present in only one run and text similarity", async () => {
+    const client = mockClient();
+    client.runStats = vi.fn().mockResolvedValue({ nodes: 1, tokensIn: 0, tokensOut: 0, costUsd: 0 });
+    client.listArtifacts = vi
+      .fn()
+      .mockResolvedValueOnce([
+        { id: "a1", kind: "text", node_id: "out", mimeType: "text/plain" },
+        { id: "a2", kind: "text", node_id: "src", mimeType: "text/plain" },
+      ])
+      .mockResolvedValueOnce([
+        { id: "b1", kind: "text", node_id: "out", mimeType: "text/plain" },
+        { id: "b2", kind: "text", node_id: "out", mimeType: "text/plain" },
+        { id: "b3", kind: "text", node_id: "extra", mimeType: "text/plain" },
+      ]);
+    client.getArtifact = vi
+      .fn()
+      .mockResolvedValueOnce({ id: "a1", mimeType: "text/plain", content: "hello world" })
+      .mockResolvedValueOnce({ id: "b1", mimeType: "text/plain", content: "hello world" });
+    const reply = await handleMessage(
+      call(36, "tools/call", { name: "compare_runs", arguments: { runIdA: "r1", runIdB: "r2" } }),
+      client,
+    );
+    expect(reply?.result).toMatchObject({ isError: false });
+    const text = (reply?.result as { content: Array<{ text: string }> }).content[0]?.text;
+    expect(text).toContain('"onlyInB"');
+    expect(text).toContain('"extra"');
+    expect(text).toContain('"onlyInA"');
+    expect(text).toContain('"src"');
+    expect(text).toContain('"textSimilarity": 1');
+    expect(text).toContain('"artifactDelta": 1');
+    expect(text).toContain("产物数量不同");
+  });
+
+  it("compare_runs handles a run with no artifacts", async () => {
+    const client = mockClient();
+    client.listArtifacts = vi.fn().mockResolvedValue([]);
+    const reply = await handleMessage(
+      call(37, "tools/call", { name: "compare_runs", arguments: { runIdA: "r1", runIdB: "r2" } }),
+      client,
+    );
+    expect(reply?.result).toMatchObject({ isError: false });
+    const text = (reply?.result as { content: Array<{ text: string }> }).content[0]?.text;
+    expect(text).toContain('"both": []');
   });
 });

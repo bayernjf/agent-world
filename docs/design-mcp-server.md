@@ -1,7 +1,7 @@
 # MCP Server 设计方案
 
 > 让 agent-world 作为 MCP Server，把产线能力暴露给其他 AI 客户端（Claude Desktop、Cursor、豆包、ChatGPT 等）。
-> 状态：P0 MVP ✅（2026-08-28）+ P1 增强 ✅（2026-08-29：HTTP/SSE 传输、Resources、Prompts）+ P2-① 管理类 ✅（2026-08-29：6 个管理工具 + readonly 模式）| P2-② 批量与对比 📋 | P2-③ 实时与安全 📋 | 优先级：P2
+> 状态：P0 MVP ✅（2026-08-28）+ P1 增强 ✅（2026-08-29：HTTP/SSE 传输、Resources、Prompts）+ P2-① 管理类 ✅（2026-08-29：6 个管理工具 + readonly 模式）+ P2-② 批量与对比 ✅（2026-08-29：batch_run + compare_runs）| P2-③ 实时与安全 📋 | 优先级：P2
 
 ---
 
@@ -81,12 +81,14 @@ P2 分三批实现（批次划分见 §9）。全部工具复用主服务现有 
 
 > 注：`create_graph` 的 `template` 复用 `GET /api/templates` 的模板 id；`config` 与 `update_graph` 的 `nodes/edges` 均为主服务图 JSON 结构，MCP 侧只透传。
 
-#### 3.3.2 批量与对比（P2-②，2 个）
+#### 3.3.2 批量与对比（P2-②，2 个）✅ 2026-08-29
 
 | 工具名 | 能力 | 参数 | 说明 |
 |--------|------|------|------|
 | `batch_run` | 批量运行产线（多组输入） | graphId, inputs: string[], wait(可选, 默认 false), maxConcurrency(可选, 默认 3) | `wait=false` 立即返回 runId 列表（异步）；`wait=true` 聚合全部结果（超时回退轮询）。主服务无批量端点，由 MCP 侧并行调用 `POST /api/runs`，失败单组隔离不拖垮整批 |
-| `compare_runs` | 对比两次运行的产出差异 | runIdA, runIdB | 复用 `GET /api/runs/:id/stats`（成本/时长）+ 同名节点产物对比（文本相似度、图片尺寸、数量差异），输出结构化节点级 diff |
+| `compare_runs` | 对比两次运行的产出差异 | runIdA, runIdB | 复用 `GET /api/runs/:id/stats`（成本/Token/节点数）+ 同名节点产物对比（文本相似度、数量差异），输出结构化节点级 diff |
+
+> 实现注记（2026-08-29）：`batch_run(wait=true)` 限流按 `maxConcurrency`（1–10，默认 3），总等待超时 30s（`BATCH_WAIT_TIMEOUT_MS`），超时降级返回 runId 列表 + 轮询提示；单组启动失败/状态查询失败均隔离，不拖垮整批。`compare_runs` 输出 `statsDiff`（nodes/tokensIn/tokensOut/costUsd 的 a/b/delta）+ 节点级 diff（onlyInA / onlyInB / both，both 含产物数量与文本相似度）；时长未纳入对比（stats 端点无该字段），图片尺寸因产物元数据不含该信息未对比，后续主服务补齐元数据再扩展。
 
 #### 3.3.3 实时事件（P2-③，1 个 + 推送通道）
 
@@ -248,7 +250,7 @@ Cursor / 豆包等客户端配置类似。
 | **P0 MVP** | stdio 传输 + 6个核心工具 + 独立进程 + 基本错误处理 | ✅ 2026-08-28 |
 | **P1 增强** | Resources + Prompts + HTTP/SSE 传输（管理类工具未做，已拆到 P2） | ✅ 2026-08-29 |
 | **P2-① 管理类** | 6 个管理工具（create/update/delete graph、cancel_run、download_artifact、search_knowledge）+ readonly 开关 | ✅ 2026-08-29 |
-| **P2-② 批量与对比** | batch_run + compare_runs | 📋 |
+| **P2-② 批量与对比** | batch_run + compare_runs | ✅ 2026-08-29 |
 | **P2-③ 实时与安全** | notifications 桥接 + get_run_events + Authorization header 升级 | 📋 |
 
 ### P0 MVP 验收标准
@@ -286,10 +288,10 @@ Cursor / 豆包等客户端配置类似。
 
 ### P2-② 批量与对比验收标准
 
-- [ ] `batch_run(wait=false)`：多输入并行启动，返回 runId 列表；单组启动失败隔离，其余正常
-- [ ] `batch_run(wait=true)`：聚合全部结果；受 maxConcurrency 限流；超时降级为 runId 列表 + 轮询提示
-- [ ] `compare_runs`：输出结构化节点级 diff（成本/时长/产物差异），无产出节点明确标注
-- [ ] 协议级单元测试覆盖（并发、超时降级、对比空结果）
+- [x] `batch_run(wait=false)`：多输入并行启动，返回 runId 列表；单组启动失败隔离，其余正常
+- [x] `batch_run(wait=true)`：聚合全部结果；受 maxConcurrency 限流；超时降级为 runId 列表 + 轮询提示
+- [x] `compare_runs`：输出结构化节点级 diff（成本/Token/节点数/产物差异），无产出节点明确标注（onlyInA/onlyInB/both）
+- [x] 协议级单元测试覆盖（并发、超时降级、对比空结果）— 33→41 通过
 
 ### P2-③ 实时与安全验收标准
 
