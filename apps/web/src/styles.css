@@ -1796,6 +1796,9 @@ select {
 .plant--fileParse .plant__bar {
   fill: #3a2a1d;
 }
+.plant--translate .plant__bar {
+  fill: #2d3a4d;
+}
 
 .plant__attempt rect {
   fill: var(--warn);

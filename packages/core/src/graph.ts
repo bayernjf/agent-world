@@ -23,6 +23,7 @@ export const NodeKind = z.enum([
   "table",
   "database",
   "fileParse",
+  "translate",
 ]);
 export type NodeKind = z.infer<typeof NodeKind>;
 
@@ -361,6 +362,26 @@ export const FileParseConfig = z.object({
 });
 export type FileParseConfig = z.infer<typeof FileParseConfig>;
 
+/**
+ * Configuration for a `translate` node: translate an upstream node's text into
+ * a target language via LLM. The translated text becomes a `text` artifact,
+ * so any downstream agent can consume it directly. Pairs naturally with a
+ * `fileParse` node (extract document text first, then translate it).
+ */
+export const TranslateConfig = z.object({
+  /** Which upstream node's text to translate. Defaults to the single flow predecessor. */
+  source: z.string().optional(),
+  /** Target language, free-form, e.g. "简体中文", "English", "日本語". */
+  target: z.string().min(1).default("简体中文"),
+  /** Model id; defaults to the graph's fallback model when omitted. */
+  model: z.string().optional(),
+  /** Sampling temperature — lower keeps translations faithful. */
+  temperature: z.number().min(0).max(2).default(0.2),
+  /** Optional per-node spend cap in USD. */
+  budgetUsd: z.number().nonnegative().optional(),
+});
+export type TranslateConfig = z.infer<typeof TranslateConfig>;
+
 export const GateConfig = z.object({
   maxAttempts: z.number().int().min(1).max(10).default(3),
   criterion: z.string().default(""),
@@ -475,6 +496,7 @@ export const GraphNode = z.object({
   table: TableConfig.optional(),
   database: DatabaseConfig.optional(),
   fileParse: FileParseConfig.optional(),
+  translate: TranslateConfig.optional(),
   source: SourceConfig.optional(),
 });
 export type GraphNode = z.infer<typeof GraphNode>;

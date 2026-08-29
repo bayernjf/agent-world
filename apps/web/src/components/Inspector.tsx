@@ -1964,6 +1964,92 @@ export default function Inspector({ onOpenSettings }: { onOpenSettings: () => vo
           </>
         )}
 
+        {node.kind === "translate" && node.translate && (
+          <>
+            <label className="field">
+              <span>数据来源（上游节点）</span>
+              <select
+                className="select"
+                value={node.translate.source ?? ""}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    translate: { ...node.translate!, source: e.target.value || undefined },
+                  })
+                }
+              >
+                <option value="">自动（唯一上游）</option>
+                {graph.nodes
+                  .filter((n) => n.id !== node.id)
+                  .map((n) => (
+                    <option key={n.id} value={n.id}>
+                      {n.name || n.id}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>目标语言</span>
+              <input
+                className="input"
+                type="text"
+                placeholder="如：简体中文 / English / 日本語"
+                value={node.translate.target}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    translate: { ...node.translate!, target: e.target.value },
+                  })
+                }
+              />
+            </label>
+            <label className="field">
+              <span>模型</span>
+              <select
+                className="select"
+                value={node.translate.model || "__unset__"}
+                onChange={(e) => {
+                  if (e.target.value === "__unset__") return;
+                  updateNode(node.id, { translate: { ...node.translate!, model: e.target.value } });
+                }}
+              >
+                <option value="__unset__" disabled hidden>
+                  {!node.translate.model
+                    ? "（未配置 — 使用运行时的默认模型）"
+                    : "（请选择）"}
+                </option>
+                {textModelOptions.map((o) => (
+                  <option key={`${o.provider}::${o.model}`} value={o.model}>
+                    {o.model} · {o.provider}
+                  </option>
+                ))}
+                {!textModelOptions.some((o) => o.model === node.translate!.model) && node.translate.model && (
+                  <option value={node.translate.model}>{node.translate.model} (当前)</option>
+                )}
+              </select>
+              <MissingModelHint hasModels={textModelOptions.length > 0} onOpenSettings={onOpenSettings} />
+            </label>
+            <label className="field">
+              <span>温度 ({node.translate.temperature.toFixed(2)})</span>
+              <input
+                className="input"
+                type="range"
+                min={0}
+                max={1.5}
+                step={0.05}
+                value={node.translate.temperature}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    translate: { ...node.translate!, temperature: Number(e.target.value) },
+                  })
+                }
+              />
+            </label>
+            <p className="note">
+              读取上游的 text 产物（无 text 时回退到 JSON 序列化），调用 LLM 翻译成目标语言并输出 text
+              产物。可与「文件解析」节点串联：先提取文档文本，再翻译。
+            </p>
+          </>
+        )}
+
         </>)}
         {mainTab === "output" && (<>
         {rt?.error && (

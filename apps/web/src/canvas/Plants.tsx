@@ -30,6 +30,7 @@ const KIND_LABEL: Record<GraphNode["kind"], string> = {
   table: "表格",
   database: "数据库",
   fileParse: "文件解析",
+  translate: "翻译",
 };
 
 const STATUS_LABEL: Record<NodeRuntime["status"], string> = {
