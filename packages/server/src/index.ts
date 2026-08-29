@@ -1,5 +1,7 @@
 import { serve } from "@hono/node-server";
 import { randomUUID } from "node:crypto";
+import { lookup as dnsLookup } from "node:dns/promises";
+import { isIP } from "node:net";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { applyCors, applySecurityHeaders } from "./security.js";
@@ -246,8 +248,6 @@ app.use("/api/*", async (c, next) => {
   if (path === "/api/health" || path.startsWith("/api/auth/")) return next();
   // Webhook endpoints use their own secret-based auth
   if (/\/api\/graphs\/[^/]+\/webhook$/.test(path)) return next();
-  // Image proxy is public
-  if (path === "/api/proxy") return next();
 
   // Extract token from cookie or query param (SSE fallback)
   let token: string | undefined;
@@ -1219,38 +1219,115 @@ app.get("/api/artifacts", (c) => {
   return c.json(db.listArtifacts(userId, limit, offset));
 });
 
+// --- SSRF guard for the image proxy ---
+function ipv4IsInternal(ip: string): boolean {
+  const o = ip.split(".").map(Number);
+  if (o.length !== 4 || o.some((n) => Number.isNaN(n) || n < 0 || n > 255)) return true;
+  const a = o[0]!;
+  const b = o[1]!;
+  return (
+    a === 0 || // 0.0.0.0/8
+    a === 10 || // 10.0.0.0/8
+    a === 127 || // loopback
+    (a === 100 && b >= 64 && b <= 127) || // CGN 100.64.0.0/10
+    (a === 169 && b === 254) || // link-local / cloud metadata
+    (a === 172 && b >= 16 && b <= 31) || // 172.16.0.0/12
+    (a === 192 && b === 0) || // 192.0.0.0/24
+    (a === 192 && b === 168) || // 192.168.0.0/16
+    (a === 198 && (b === 18 || b === 19)) || // benchmark 198.18.0.0/15
+    a >= 224 // multicast 224/4 + reserved 240/4 + broadcast
+  );
+}
+
+function ipv6IsInternal(ip: string): boolean {
+  const s = ip.toLowerCase().split("%")[0]!;
+  if (s === "::1" || s === "::") return true;
+  // IPv4-mapped (::ffff:a.b.c.d) / compatible (::a.b.c.d): the embedded
+  // IPv4 address carries the real scope.
+  const mapped = /::(?:ffff:)?(\d+\.\d+\.\d+\.\d+)$/.exec(s);
+  if (mapped) return ipv4IsInternal(mapped[1]!);
+  const head = s.split(":")[0] ?? "";
+  const first = parseInt(head || "0", 16);
+  if (Number.isNaN(first)) return true;
+  if ((first & 0xfe00) === 0xfc00) return true; // fc00::/7 unique-local
+  if ((first & 0xffc0) === 0xfe80) return true; // fe80::/10 link-local
+  if ((first & 0xff00) === 0xff00) return true; // ff00::/8 multicast
+  if (s.startsWith("2001:db8") || s.startsWith("2001:0db8")) return true; // documentation
+  return false;
+}
+
+async function hostIsInternal(hostname: string): Promise<boolean> {
+  if (isIP(hostname)) {
+    return isIP(hostname) === 4 ? ipv4IsInternal(hostname) : ipv6IsInternal(hostname);
+  }
+  try {
+    const records = await dnsLookup(hostname, { all: true });
+    if (records.length === 0) return true;
+    return records.some((r) =>
+      r.family === 4 ? ipv4IsInternal(r.address) : ipv6IsInternal(r.address),
+    );
+  } catch {
+    // Fail closed: if we cannot resolve it, we do not fetch it.
+    return true;
+  }
+}
+
 /**
  * Server-side image proxy. External image URLs referenced by product-json or
  * extracted artifacts often fail in the browser due to hotlink protection /
  * CORS. The server fetches them (browser-like UA) and streams the bytes back
  * same-origin, so gallery + product images render reliably. Only http(s) is
- * allowed; failures return 502 so the client can show a graceful placeholder.
+ * allowed and private/internal addresses are refused (SSRF guard); failures
+ * return 502 so the client can show a graceful placeholder.
  */
 app.get("/api/proxy", async (c) => {
-  const target = c.req.query("url");
+  let target = c.req.query("url");
   if (!target || !/^https?:\/\//i.test(target)) {
     return c.json({ error: "invalid or missing url" }, 400);
   }
+  const MAX_REDIRECTS = 5;
   try {
-    const upstream = await fetch(target, {
-      headers: {
-        "user-agent":
-          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
-        accept: "image/avif,image/webp,image/png,image/*,*/*;q=0.8",
-      },
-      signal: AbortSignal.timeout(15000),
-    });
-    if (!upstream.ok) {
-      return c.json({ error: `upstream returned ${upstream.status}` }, 502);
+    for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+      let parsed: URL;
+      try {
+        parsed = new URL(target);
+      } catch {
+        return c.json({ error: "invalid or missing url" }, 400);
+      }
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+        return c.json({ error: "invalid or missing url" }, 400);
+      }
+      if (await hostIsInternal(parsed.hostname)) {
+        return c.json({ error: "refusing to fetch a private or internal address" }, 403);
+      }
+      const upstream = await fetch(target, {
+        redirect: "manual",
+        headers: {
+          "user-agent":
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+          accept: "image/avif,image/webp,image/png,image/*,*/*;q=0.8",
+        },
+        signal: AbortSignal.timeout(15000),
+      });
+      if (upstream.status >= 300 && upstream.status < 400) {
+        const loc = upstream.headers.get("location");
+        if (!loc) return c.json({ error: `upstream returned ${upstream.status}` }, 502);
+        target = new URL(loc, target).toString();
+        continue;
+      }
+      if (!upstream.ok) {
+        return c.json({ error: `upstream returned ${upstream.status}` }, 502);
+      }
+      const buf = Buffer.from(await upstream.arrayBuffer());
+      const ct = upstream.headers.get("content-type") ?? "application/octet-stream";
+      return new Response(buf, {
+        headers: {
+          "content-type": ct,
+          "cache-control": "public, max-age=86400",
+        },
+      });
     }
-    const buf = Buffer.from(await upstream.arrayBuffer());
-    const ct = upstream.headers.get("content-type") ?? "application/octet-stream";
-    return new Response(buf, {
-      headers: {
-        "content-type": ct,
-        "cache-control": "public, max-age=86400",
-      },
-    });
+    return c.json({ error: "too many redirects" }, 502);
   } catch {
     return c.json({ error: "failed to fetch upstream image" }, 502);
   }
