@@ -240,6 +240,7 @@ const DEFAULTS: Record<NodeKind, Partial<GraphNode>> = {
   search: { search: { query: "", provider: "duckduckgo", maxResults: 5, retry: { maxRetries: 2, baseDelayMs: 1000, maxDelayMs: 30000 } } },
   notify: { notify: { provider: "feishu", format: "text", message: "", retry: { maxRetries: 2, baseDelayMs: 1000, maxDelayMs: 30000 } } },
   vcs: { vcs: { provider: "github", action: "list_issues", body: "", retry: { maxRetries: 2, baseDelayMs: 1000, maxDelayMs: 30000 } } },
+  human: { human: { prompt: "" } },
 };
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;

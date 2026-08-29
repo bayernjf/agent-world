@@ -29,6 +29,7 @@ export const NodeKind = z.enum([
   "search",
   "notify",
   "vcs",
+  "human",
 ]);
 export type NodeKind = z.infer<typeof NodeKind>;
 
@@ -542,6 +543,20 @@ export const VcsConfig = z.object({
 });
 export type VcsConfig = z.infer<typeof VcsConfig>;
 
+/**
+ * Configuration for a `human` node: pause the run at an arbitrary point and
+ * wait for an operator's decision. The upstream text is shown to the operator
+ * as the pending review; `prompt` is an optional instruction displayed above it.
+ * On approve/edit the node passes (edited content replaces the upstream text);
+ * on reject the node fails (routing to an `error` edge when one exists, or the
+ * run fails).
+ */
+export const HumanConfig = z.object({
+  /** Instruction/prompt shown to the operator, e.g. "确认这段文案是否可以发布"。 */
+  prompt: z.string().default(""),
+});
+export type HumanConfig = z.infer<typeof HumanConfig>;
+
 export const GateConfig = z.object({
   maxAttempts: z.number().int().min(1).max(10).default(3),
   criterion: z.string().default(""),
@@ -662,6 +677,7 @@ export const GraphNode = z.object({
   search: SearchConfig.optional(),
   notify: NotifyConfig.optional(),
   vcs: VcsConfig.optional(),
+  human: HumanConfig.optional(),
   source: SourceConfig.optional(),
 });
 export type GraphNode = z.infer<typeof GraphNode>;

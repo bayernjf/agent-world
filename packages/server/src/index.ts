@@ -1145,6 +1145,64 @@ app.post("/api/runs/:id/resume", async (c) => {
   return c.json({ ok: true, action });
 });
 
+/**
+ * Re-run a finished run: same graph snapshot (exactly what executed), same
+ * input and budget. Useful after fixing a failure — one click from the run
+ * gallery instead of re-picking nodes on the canvas.
+ */
+app.post("/api/runs/:id/rerun", async (c) => {
+  const userId = c.get("userId");
+  const run = db.getRun(c.req.param("id"), userId);
+  if (!run) return c.json({ error: "not found" }, 404);
+  if (run.status === "running") return c.json({ error: "run is still live" }, 409);
+  let graph: Graph;
+  try {
+    graph = JSON.parse(run.snapshot) as Graph;
+  } catch {
+    return c.json({ error: "run snapshot is corrupt" }, 422);
+  }
+  if (!graph?.nodes?.length) return c.json({ error: "run snapshot is empty" }, 422);
+
+  const modelDiags = validateModels(graph, loadConfig(userId));
+  const modelErrors = modelDiags.filter((d) => d.severity === "error");
+  if (modelErrors.length > 0) {
+    return c.json(
+      {
+        error: "graph has unconfigured model(s)",
+        message: `${modelErrors.length} 个节点未配置模型，请先在「模型设置」补全后再重跑。`,
+        diagnostics: modelDiags,
+      },
+      422,
+    );
+  }
+  try {
+    const { runId, diagnostics } = await startRun({
+      db,
+      userId,
+      worker: workerRegistry.get(undefined),
+      artifacts,
+      live,
+      graph,
+      trigger: "rerun",
+      budgetUsd: run.budget_usd,
+      input: run.input ?? undefined,
+      publicUrl: PUBLIC_URL,
+      onFinish: (gid, status) => {
+        void triggers.onGraphFinished(gid, status);
+      },
+      onArtifact: (aid) => {
+        void triggers.onArtifact(aid);
+      },
+    });
+    return c.json({ runId, diagnostics, modelWarnings: modelDiags });
+  } catch (e) {
+    if (e instanceof RunStartError) {
+      return jsonResponse(e.status, { error: e.message, diagnostics: e.extra });
+    }
+    throw e;
+  }
+});
+
 /** Full event log — the replay scrubber reads this. */
 app.get("/api/runs/:id/events", (c) => {
   const userId = c.get("userId");
