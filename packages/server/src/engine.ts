@@ -57,7 +57,7 @@ import { searchWeb, SearchAuthError } from "./search.js";
 import { sendNotification, NotifyAuthError, NotifyProviderError } from "./notifier.js";
 import { executeVcs, VcsAuthError, VcsProviderError } from "./vcs.js";
 import { withRetry } from "./retry.js";
-import { resolveInterpreter, createCodeWorkdir, cleanupCodeWorkdir } from "./code-sandbox.js";
+import { createCodeWorkdir, cleanupCodeWorkdir, planCodeSpawn, type CodeSandboxLimits } from "./code-sandbox.js";
 import { trimEnv } from "./isolation.js";
 import { allowPrivateNetwork, hostIsInternal } from "./ssrf.js";
 
@@ -1267,15 +1267,23 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
         try {
           const ctx = nodeCtx(nodeId);
           const inputJson = JSON.stringify({ inputs: ctx });
-          const interpreter = resolveInterpreter(cfg.language);
           const childEnv = trimEnv(cfg.env);
+          // P1 sandbox: rlimits via sh wrapper + Node --experimental-permission
+          // (JS only; Python relies on ulimit wrapper + future P2 backends).
+          const cfgLimits = (cfg as unknown as { limits?: CodeSandboxLimits }).limits;
+          const plan = planCodeSpawn({
+            language: cfg.language,
+            code: cfg.code,
+            workdir,
+            limits: cfgLimits,
+          });
           const { stdout, stderr, killed, code } = await withRetry(
             async () => {
-              const child = spawn(
-                interpreter,
-                cfg.language === "python" ? ["-c", cfg.code] : ["-e", cfg.code],
-                { stdio: ["pipe", "pipe", "pipe"], cwd: workdir, env: childEnv },
-              );
+              const child = spawn(plan.command, plan.args, {
+                stdio: ["pipe", "pipe", "pipe"],
+                cwd: workdir,
+                env: childEnv,
+              });
               child.stdin.end(inputJson);
               let stdout = "";
               let stderr = "";
