@@ -1161,6 +1161,44 @@ select {
   box-shadow: var(--bevel);
 }
 
+.mono {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.branch-rule {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin: 6px 0;
+}
+
+.branch-rule__when {
+  flex: 1 1 55%;
+  min-width: 0;
+}
+
+.branch-rule__target {
+  flex: 1 1 35%;
+  min-width: 0;
+}
+
+.branch-rule__del {
+  border: 1px solid var(--steel-500);
+  background: transparent;
+  color: var(--ink-dim);
+  border-radius: 4px;
+  width: 24px;
+  height: 24px;
+  cursor: pointer;
+  flex: none;
+}
+
+.branch-rule__del:hover {
+  color: #ff6b6b;
+  border-color: #ff6b6b;
+}
+
 .status {
   margin: 0;
   font-family: var(--mono);

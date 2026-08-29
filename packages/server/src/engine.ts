@@ -1,5 +1,9 @@
 import {
+  BranchConfig,
+  CodeNodeConfig,
+  HttpNodeConfig,
   buildNodeContext,
+  evaluateCondition,
   evaluateTemplate,
   extractArtifacts,
   incoming,
@@ -10,12 +14,12 @@ import {
   type DraftEvent,
   type Graph,
   type GraphNode,
-  type HttpNodeConfig,
   type Plan,
   type RunEvent,
   type SkillMount,
   type Usage,
 } from "@agent-world/core";
+import { spawn } from "node:child_process";
 import { HaltRequested, type Worker } from "./worker.js";
 import { ProviderError } from "./providers/openai-compatible.js";
 import { sanitizeError } from "./sanitize.js";
@@ -160,7 +164,11 @@ export interface ExecuteOptions {
 }
 
 type Status = "done" | "failed" | "halted" | "tripped" | "cancelled";
-type NodeState = "pending" | "running" | "done" | "failed";
+/**
+ * - skipped: a branch node did not route here; the node is never launched and
+ *   its own un-routed subtree is skipped the same way.
+ */
+type NodeState = "pending" | "running" | "done" | "failed" | "skipped";
 
 const RETRYABLE: ReadonlySet<string> = new Set(["TIMEOUT", "RATE_LIMIT", "PROVIDER_ERROR"]);
 
@@ -450,6 +458,8 @@ interface SchedulerInit {
   states: Map<string, NodeState>;
   /** Tools approved for execution this run (4D.7 dangerous-action halt). */
   approvedTools: string[];
+  /** Flow edges that already carried a packet (branch-aware scheduling). */
+  packetEdges: Set<string>;
 }
 
 interface SchedulerOptions {
@@ -529,6 +539,9 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
 
   const reworkNotes = new Map<string, string>();
   const loopByGate = new Map(plan.loops.map((l) => [l.gateId, l]));
+  /** Flow edges that actually carried a packet this run (branch nodes only emit
+   *  on the edges they routed to). Drives branch-aware scheduling. */
+  const packetEdges = opts.init.packetEdges;
 
   let status: Status = "done";
   let running = 0;
@@ -602,8 +615,52 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     return `${body}\n\n[质检站退回原因] ${note}`;
   };
 
-  const predecessorsDone = (id: string) =>
-    incoming(graph, id, "flow").every((e) => states.get(e.from) === "done");
+  /**
+   * Branch-aware readiness: every flow predecessor must be terminal (done or
+   * skipped), each done predecessor must have actually sent a packet on its
+   * edge (branch nodes only emit on routed edges — a non-branch predecessor
+   * that is done always sent its packets), and at least one packet must have
+   * arrived so un-routed branch tails stay unlaunched.
+   */
+  const predecessorsReady = (id: string) => {
+    const ins = incoming(graph, id, "flow");
+    if (ins.length === 0) return true; // entry nodes (sources / isolated) start immediately
+    let anyPacket = false;
+    for (const e of ins) {
+      const st = states.get(e.from);
+      if (st === "skipped") continue;
+      if (st !== "done") return false;
+      if (packetEdges.has(e.id)) {
+        anyPacket = true;
+      } else if (nodeById(graph, e.from)?.kind !== "branch") {
+        return false;
+      }
+    }
+    return anyPacket;
+  };
+
+  /**
+   * Mark the un-routed tail of a branch node as skipped, propagating down the
+   * flow graph until a merge point (a node that also receives input from a
+   * routed or independent predecessor) is reached — that node keeps executing.
+   */
+  const markBranchSkipped = (branchId: string, routedTarget?: string) => {
+    const seeds = outgoing(graph, branchId, "flow")
+      .map((e) => e.to)
+      .filter((to) => to !== routedTarget);
+    const skipped = new Set<string>();
+    const queue = [...seeds];
+    while (queue.length) {
+      const id = queue.shift()!;
+      if (skipped.has(id)) continue;
+      const flowIn = incoming(graph, id, "flow");
+      const hasIndependentSource = flowIn.some((e) => e.from !== branchId && !skipped.has(e.from));
+      if (hasIndependentSource) continue; // merge point — it still receives data
+      skipped.add(id);
+      for (const e of outgoing(graph, id, "flow")) queue.push(e.to);
+    }
+    for (const id of skipped) states.set(id, "skipped");
+  };
 
   const finish = () => {
     if (finished) return;
@@ -622,6 +679,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
 
   const sendPackets = (nodeId: string, summary: string, artifactKind?: Artifact["kind"]) => {
     for (const e of outgoing(graph, nodeId, "flow")) {
+      packetEdges.add(e.id);
       emit({ type: "packet.sent", edgeId: e.id, from: nodeId, to: e.to, summary, artifactKind });
     }
   };
@@ -721,15 +779,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
 
       if (node.kind === "http") {
         emit({ type: "node.started", nodeId, attempt });
-        const cfg: HttpNodeConfig = node.http ?? {
-          method: "GET",
-          url: "",
-          headers: {},
-          query: {},
-          timeoutMs: 30000,
-          outputMode: "auto",
-          failOnError: true,
-        };
+        const cfg: HttpNodeConfig = HttpNodeConfig.parse(node.http ?? {});
 
         const ctx = buildNodeContext(nodeId, artifacts, graph);
         const interpolatedUrl = evaluateTemplate(cfg.url, ctx);
@@ -854,6 +904,141 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
         states.set(nodeId, "done");
         emit({ type: "node.finished", nodeId, attempt, output, usage: zeroUsage() });
         sendPackets(nodeId, output.slice(0, 120), artifact.kind);
+        return;
+      }
+
+      if (node.kind === "code") {
+        emit({ type: "node.started", nodeId, attempt });
+        const cfg = CodeNodeConfig.parse(node.code ?? {});
+        if (!cfg.code.trim()) {
+          states.set(nodeId, "failed");
+          status = "failed";
+          emit({
+            type: "node.failed",
+            nodeId,
+            attempt,
+            error: "代码节点脚本为空",
+            errorCode: "VALIDATION",
+          });
+          return;
+        }
+        const ctx = buildNodeContext(nodeId, artifacts, graph);
+        const inputJson = JSON.stringify({ inputs: ctx });
+        const child = spawn(
+          cfg.language === "python" ? "python3" : "node",
+          cfg.language === "python" ? ["-c", cfg.code] : ["-e", cfg.code],
+          { stdio: ["pipe", "pipe", "pipe"] },
+        );
+        child.stdin.end(inputJson);
+        let stdout = "";
+        let stderr = "";
+        let killed = false;
+        const cap = 1_000_000;
+        child.stdout.on("data", (chunk: Buffer) => {
+          if (stdout.length < cap) stdout += chunk.toString().slice(0, cap - stdout.length);
+        });
+        child.stderr.on("data", (chunk: Buffer) => {
+          if (stderr.length < cap) stderr += chunk.toString().slice(0, cap - stderr.length);
+        });
+        const result = await new Promise<{ code: number | null; signal: string | null }>((resolve) => {
+          const timer = setTimeout(() => {
+            killed = true;
+            child.kill("SIGKILL");
+            resolve({ code: null, signal: "timeout" });
+          }, cfg.timeoutMs);
+          child.on("error", (err) => {
+            clearTimeout(timer);
+            resolve({ code: -1, signal: err.message });
+          });
+          child.on("close", (code, signal) => {
+            clearTimeout(timer);
+            resolve({ code, signal });
+          });
+        });
+        if (killed) {
+          states.set(nodeId, "failed");
+          status = "failed";
+          emit({
+            type: "node.failed",
+            nodeId,
+            attempt,
+            error: `代码执行超时（${cfg.timeoutMs}ms）${stderr.slice(0, 200)}`,
+            errorCode: "TIMEOUT",
+          });
+          return;
+        }
+        if (result.code !== 0) {
+          states.set(nodeId, "failed");
+          status = "failed";
+          emit({
+            type: "node.failed",
+            nodeId,
+            attempt,
+            error: `代码执行失败（退出码 ${result.code}）: ${(stderr || "无 stderr 输出").slice(0, 300)}`,
+            errorCode: "PROVIDER_ERROR",
+          });
+          return;
+        }
+        const raw = stdout.trim();
+        let output = raw;
+        let asJson = false;
+        if (raw) {
+          try {
+            const parsed = JSON.parse(raw);
+            if (parsed !== null && typeof parsed === "object") asJson = true;
+          } catch {
+            // plain text output
+          }
+        }
+        if (asJson) output = JSON.stringify(JSON.parse(raw), null, 2);
+        const artifact: Artifact = asJson
+          ? { id: `${nodeId}-code-json`, kind: "json", content: output, mimeType: "application/json" }
+          : { id: `${nodeId}-code-text`, kind: "text", content: output, mimeType: "text/plain" };
+        artifacts.set(nodeId, [artifact]);
+        emit({ type: "artifact.produced", nodeId, attempt, artifact });
+        states.set(nodeId, "done");
+        emit({ type: "node.finished", nodeId, attempt, output, usage: zeroUsage() });
+        sendPackets(nodeId, output.slice(0, 120), artifact.kind);
+        return;
+      }
+
+      if (node.kind === "branch") {
+        emit({ type: "node.started", nodeId, attempt });
+        const cfg: BranchConfig = BranchConfig.parse(node.branch ?? {});
+        const ctx = buildNodeContext(nodeId, artifacts, graph);
+        let target: string | undefined;
+        let matchedRule: string | undefined;
+        for (const rule of cfg.rules ?? []) {
+          if (evaluateCondition(rule.when, ctx)) {
+            target = rule.target;
+            matchedRule = rule.id;
+            break;
+          }
+        }
+        if (!target && cfg.defaultTarget) {
+          target = cfg.defaultTarget;
+          matchedRule = undefined;
+        }
+        if (target) {
+          const edge = outgoing(graph, nodeId, "flow").find((e) => e.to === target);
+          if (edge) {
+            packetEdges.add(edge.id);
+            emit({
+              type: "packet.sent",
+              edgeId: edge.id,
+              from: nodeId,
+              to: target,
+              summary: matchedRule ? `命中分支 ${matchedRule}` : "默认分支",
+              artifactKind: "text",
+            });
+          }
+        }
+        states.set(nodeId, "done");
+        markBranchSkipped(nodeId, target);
+        const output = target
+          ? `路由 → ${nodeById(graph, target)?.name ?? target}${matchedRule ? `（${matchedRule}）` : "（默认）"}`
+          : "未命中任何分支，报文被丢弃";
+        emit({ type: "node.finished", nodeId, attempt, output, usage: zeroUsage() });
         return;
       }
 
@@ -996,6 +1181,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       console.warn(`[videoGen:${nodeId}] worker has no generateVideo, skipping`);
       states.set(nodeId, "done");
       emit({ type: "node.finished", nodeId, attempt, output: "", usage: zeroUsage() });
+      sendPackets(nodeId, "跳过（worker 无视频能力）", "text");
       return;
     }
     const prompt = cfg.prompt?.trim() || (await inputFor(node));
@@ -1031,6 +1217,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       console.warn(`[videoGen:${nodeId}] generation failed:`, (err as Error).message);
       states.set(nodeId, "done");
       emit({ type: "node.finished", nodeId, attempt, output: "", usage: zeroUsage() });
+      sendPackets(nodeId, "视频生成失败（已跳过）", "text");
     }
     return;
   }
@@ -1043,6 +1230,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       console.warn(`[audioGen:${nodeId}] worker has no generateAudio, skipping`);
       states.set(nodeId, "done");
       emit({ type: "node.finished", nodeId, attempt, output: "", usage: zeroUsage() });
+      sendPackets(nodeId, "跳过（worker 无音频能力）", "text");
       return;
     }
     const prompt = cfg.prompt?.trim() || (await inputFor(node));
@@ -1078,6 +1266,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       console.warn(`[audioGen:${nodeId}] generation failed:`, (err as Error).message);
       states.set(nodeId, "done");
       emit({ type: "node.finished", nodeId, attempt, output: "", usage: zeroUsage() });
+      sendPackets(nodeId, "音频生成失败（已跳过）", "text");
     }
     return;
   }
@@ -1119,6 +1308,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       console.warn(`[imageGen:${nodeId}] generation skipped:`, (err as Error).message);
       states.set(nodeId, "done");
       emit({ type: "node.finished", nodeId, attempt, output: "", usage: zeroUsage() });
+      sendPackets(nodeId, "生图失败（已降级跳过）", "text");
     }
     return;
   }
@@ -1411,7 +1601,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     // Bounded concurrency: launch every ready plant up to the free slots.
     while (running < MAX_CONCURRENCY && !aborted) {
       const ready = graph.nodes.find(
-        (n) => states.get(n.id) === "pending" && predecessorsDone(n.id),
+        (n) => states.get(n.id) === "pending" && predecessorsReady(n.id),
       );
       if (!ready) break;
       states.set(ready.id, "running");
@@ -1504,6 +1694,7 @@ export async function* execute(opts: ExecuteOptions): AsyncGenerator<RunEvent, v
       totalCostUsd: 0,
       states,
       approvedTools: [],
+      packetEdges: new Set(),
     },
   });
   yield* gen;
@@ -1762,6 +1953,11 @@ export async function* resume(opts: ResumeOptions): AsyncGenerator<RunEvent, voi
       totalCostUsd: state.totalCostUsd,
       states,
       approvedTools: state.approvedTools,
+      packetEdges: new Set(
+        opts.pastEvents
+          .filter((e) => e.type === "packet.sent")
+          .map((e) => (e as { edgeId: string }).edgeId),
+      ),
     },
     resuming: true,
     approveTools: [...new Set([...state.approvedTools, ...approveTools])],

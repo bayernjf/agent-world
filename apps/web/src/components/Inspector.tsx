@@ -1240,6 +1240,160 @@ export default function Inspector() {
           </>
         )}
 
+        {node.kind === "code" && node.code && (
+          <>
+            <label className="field">
+              <span>语言</span>
+              <select
+                className="select"
+                value={node.code.language}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    code: { ...node.code!, language: e.target.value as "javascript" | "python" },
+                  })
+                }
+              >
+                <option value="javascript">JavaScript (Node.js)</option>
+                <option value="python">Python 3</option>
+              </select>
+            </label>
+            <label className="field">
+              <span>脚本</span>
+              <textarea
+                className="mono"
+                rows={9}
+                placeholder={'const fs = require("fs");\nconst input = JSON.parse(fs.readFileSync(0, "utf8"));\n// 上游数据在 input.inputs.<上游节点id>\nconsole.log(JSON.stringify({ doubled: Number(input.inputs.source) * 2 }));'}
+                value={node.code.code}
+                onChange={(e) =>
+                  updateNode(node.id, { code: { ...node.code!, code: e.target.value } })
+                }
+              />
+            </label>
+            <label className="field">
+              <span>超时（毫秒）</span>
+              <input
+                type="number"
+                min={1000}
+                step={1000}
+                value={node.code.timeoutMs}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    code: { ...node.code!, timeoutMs: Number(e.target.value) },
+                  })
+                }
+              />
+            </label>
+            <p className="note">
+              脚本经 stdin 收到 JSON：{"{"}"inputs": {"{"}上游节点id: 值{"}"}{"}"}{"}"}；stdout 输出单个 JSON
+              对象/数组 → json artifact，其他文本 → text artifact；退出码非 0 或超时视为节点失败。脚本内可引用上游
+              变量：${"{"}source.price{"}"}。
+            </p>
+          </>
+        )}
+
+        {node.kind === "branch" && node.branch && (
+          <>
+            <div className="field">
+              <span>分支规则（按顺序匹配第一个命中）</span>
+              {(node.branch.rules ?? []).map((rule) => (
+                <div key={rule.id} className="branch-rule">
+                  <input
+                    type="text"
+                    className="branch-rule__when mono"
+                    placeholder='${"{"}api.score{"}"} > 5'
+                    value={rule.when}
+                    onChange={(e) =>
+                      updateNode(node.id, {
+                        branch: {
+                          ...node.branch!,
+                          rules: (node.branch!.rules ?? []).map((r) =>
+                            r.id === rule.id ? { ...r, when: e.target.value } : r,
+                          ),
+                        },
+                      })
+                    }
+                  />
+                  <select
+                    className="select branch-rule__target"
+                    value={rule.target}
+                    onChange={(e) =>
+                      updateNode(node.id, {
+                        branch: {
+                          ...node.branch!,
+                          rules: (node.branch!.rules ?? []).map((r) =>
+                            r.id === rule.id ? { ...r, target: e.target.value } : r,
+                          ),
+                        },
+                      })
+                    }
+                  >
+                    <option value="">选择目标…</option>
+                    {graph.nodes
+                      .filter((n) => n.id !== node.id)
+                      .map((n) => (
+                        <option key={n.id} value={n.id}>
+                          {n.name || n.id}
+                        </option>
+                      ))}
+                  </select>
+                  <button
+                    className="branch-rule__del"
+                    title="删除该分支"
+                    onClick={() =>
+                      updateNode(node.id, {
+                        branch: {
+                          ...node.branch!,
+                          rules: (node.branch!.rules ?? []).filter((r) => r.id !== rule.id),
+                        },
+                      })
+                    }
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+              <button
+                className="btn btn--ghost"
+                onClick={() =>
+                  updateNode(node.id, {
+                    branch: {
+                      ...node.branch!,
+                      rules: [...(node.branch!.rules ?? []), { id: `r${Date.now()}`, when: "true", target: "" }],
+                    },
+                  })
+                }
+              >
+                + 添加规则
+              </button>
+            </div>
+            <label className="field">
+              <span>默认分支（未命中任何规则）</span>
+              <select
+                className="select"
+                value={node.branch.defaultTarget ?? ""}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    branch: { ...node.branch!, defaultTarget: e.target.value || undefined },
+                  })
+                }
+              >
+                <option value="">丢弃报文</option>
+                {graph.nodes
+                  .filter((n) => n.id !== node.id)
+                  .map((n) => (
+                    <option key={n.id} value={n.id}>
+                      {n.name || n.id}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <p className="note">
+              条件表达式示例：${"{"}api.price{"}"} &gt; 100 &amp;&amp; ${"{"}api.stock{"}"} &gt; 0。支持 == !={" "}
+              &gt; &lt; &gt;= &lt;= &amp;&amp; || ! 与括号；未命中且无默认分支时报文被丢弃，该分支下游不执行。
+            </p>
+          </>
+        )}
+
         </>)}
         {mainTab === "output" && (<>
         {rt?.error && (

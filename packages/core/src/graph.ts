@@ -15,6 +15,8 @@ export const NodeKind = z.enum([
   "videoGen",
   "audioGen",
   "http",
+  "code",
+  "branch",
 ]);
 export type NodeKind = z.infer<typeof NodeKind>;
 
@@ -156,6 +158,38 @@ export const HttpNodeConfig = z.object({
 });
 export type HttpNodeConfig = z.infer<typeof HttpNodeConfig>;
 
+/** Configuration for a `code` node: runs a JavaScript / Python script in a subprocess.
+ *  The script receives one JSON object on stdin (`{"inputs": {<upstreamNodeId>: value}}`)
+ *  and must write its result to stdout (a single JSON object/array becomes a `json`
+ *  artifact; anything else becomes a `text` artifact). A non-zero exit code fails the node. */
+export const CodeNodeConfig = z.object({
+  language: z.enum(["javascript", "python"]).default("javascript"),
+  /** Script body. See the contract above. */
+  code: z.string().default(""),
+  /** Kill the subprocess after this many milliseconds. */
+  timeoutMs: z.number().int().min(1000).default(30000),
+});
+export type CodeNodeConfig = z.infer<typeof CodeNodeConfig>;
+
+/** One conditional branch: route downstream when `when` evaluates to truthy. */
+export const BranchRule = z.object({
+  id: z.string().min(1),
+  /** Condition expression, e.g. `"${scraper.ok} == true && ${scraper.count} > 3"`. */
+  when: z.string().default("true"),
+  /** Downstream node id to route to when this rule matches. */
+  target: z.string().min(1),
+});
+export type BranchRule = z.infer<typeof BranchRule>;
+
+/** Configuration for a `branch` node: if/else-style routing of the packet. */
+export const BranchConfig = z.object({
+  /** Ordered rules; the first one whose `when` is truthy wins. */
+  rules: z.array(BranchRule).default([]),
+  /** Downstream node id to route to when no rule matches. Omit to drop the packet. */
+  defaultTarget: z.string().optional(),
+});
+export type BranchConfig = z.infer<typeof BranchConfig>;
+
 export const GateConfig = z.object({
   maxAttempts: z.number().int().min(1).max(10).default(3),
   criterion: z.string().default(""),
@@ -262,6 +296,8 @@ export const GraphNode = z.object({
   videoGen: VideoGenConfig.optional(),
   audioGen: AudioGenConfig.optional(),
   http: HttpNodeConfig.optional(),
+  code: CodeNodeConfig.optional(),
+  branch: BranchConfig.optional(),
   source: SourceConfig.optional(),
 });
 export type GraphNode = z.infer<typeof GraphNode>;

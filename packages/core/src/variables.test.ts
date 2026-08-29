@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { evaluateTemplate, resolveExpression, buildNodeContext } from "./variables.js";
+import {
+  buildNodeContext,
+  evaluateCondition,
+  evaluateTemplate,
+  resolveExpression,
+} from "./variables.js";
 import type { Graph } from "./graph.js";
 import type { Artifact } from "./artifact.js";
 
@@ -49,5 +54,39 @@ describe("buildNodeContext", () => {
     const ctx = buildNodeContext("http", artifacts, graph);
     expect(ctx.upstream).toEqual({ price: 42 });
     expect(resolveExpression("upstream.price", ctx)).toBe(42);
+  });
+});
+
+describe("evaluateCondition", () => {
+  const ctx = { score: 7, status: "done", ok: true, count: 0, name: "Ada" };
+
+  it("compares interpolated numbers", () => {
+    expect(evaluateCondition("${score} > 5", ctx)).toBe(true);
+    expect(evaluateCondition("${score} >= 7 && ${ok} == true", ctx)).toBe(true);
+    expect(evaluateCondition("${score} < 7", ctx)).toBe(false);
+  });
+
+  it("compares strings", () => {
+    expect(evaluateCondition("${status} == 'done'", ctx)).toBe(true);
+    expect(evaluateCondition('${status} == "pending"', ctx)).toBe(false);
+    expect(evaluateCondition("${name} === 'Ada'", ctx)).toBe(true);
+  });
+
+  it("handles logic and parentheses", () => {
+    expect(evaluateCondition("(${score} > 5) && (${count} == 0)", ctx)).toBe(true);
+    expect(evaluateCondition("${ok} || ${count} > 0", ctx)).toBe(true);
+    expect(evaluateCondition("!${ok}", ctx)).toBe(false);
+    expect(evaluateCondition("${count} == 0 && ${status} != 'failed'", ctx)).toBe(true);
+  });
+
+  it("is falsy for missing or malformed expressions", () => {
+    expect(evaluateCondition("${missing} == 1", ctx)).toBe(false);
+    expect(evaluateCondition("!!", ctx)).toBe(false);
+    expect(evaluateCondition("", ctx)).toBe(false);
+  });
+
+  it("supports arithmetic", () => {
+    expect(evaluateCondition("${score} * 2 == 14", ctx)).toBe(true);
+    expect(evaluateCondition("${score} + 1 > 7", ctx)).toBe(true);
   });
 });
