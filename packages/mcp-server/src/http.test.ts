@@ -16,6 +16,11 @@ function mockClient(): AgentWorldClient {
     }),
     listArtifacts: vi.fn().mockResolvedValue([{ id: "a1", kind: "text", node_id: "out", run_id: "r1" }]),
     getArtifact: vi.fn().mockResolvedValue({ id: "a1", mimeType: "text/plain", content: "hello" }),
+    createGraph: vi.fn().mockResolvedValue({ id: "g2", name: "新建产线", nodes: [] }),
+    updateGraph: vi.fn().mockResolvedValue({ ok: true, version: 4 }),
+    deleteGraph: vi.fn().mockResolvedValue({ ok: true }),
+    cancelRun: vi.fn().mockResolvedValue({ ok: true }),
+    searchKnowledge: vi.fn().mockResolvedValue({ entries: [{ id: "k1", title: "挂脖风扇" }] }),
   } as unknown as AgentWorldClient;
 }
 
@@ -133,7 +138,7 @@ describe("end-to-end HTTP smoke over the real wire", () => {
       });
 
       const tools = await post(2, "tools/list");
-      expect((tools.result as { tools: unknown[] }).tools).toHaveLength(6);
+      expect((tools.result as { tools: unknown[] }).tools).toHaveLength(12);
 
       const resources = await post(3, "resources/list");
       expect((resources.result as { resources: unknown[] }).resources).toHaveLength(1);

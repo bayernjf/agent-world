@@ -102,4 +102,46 @@ export class AgentWorldClient {
     }
     return { id: artifactId, mimeType, downloadUrl: u.toString() };
   }
+
+  /** POST /api/graphs — create from a template, copy another graph, or blank. */
+  async createGraph(input: { name?: string; template?: string; from?: string }): Promise<Record<string, unknown>> {
+    return (await this.request("/api/graphs", {
+      method: "POST",
+      body: JSON.stringify(input),
+    })) as Record<string, unknown>;
+  }
+
+  /** PUT /api/graphs/:id — replace the graph document (full Graph JSON). */
+  async updateGraph(
+    graphId: string,
+    graph: Record<string, unknown>,
+  ): Promise<{ ok: boolean; version?: number }> {
+    return (await this.request(`/api/graphs/${encodeURIComponent(graphId)}`, {
+      method: "PUT",
+      body: JSON.stringify(graph),
+    })) as { ok: boolean; version?: number };
+  }
+
+  /** DELETE /api/graphs/:id — remove a pipeline. */
+  async deleteGraph(graphId: string): Promise<{ ok: boolean }> {
+    return (await this.request(`/api/graphs/${encodeURIComponent(graphId)}`, {
+      method: "DELETE",
+    })) as { ok: boolean };
+  }
+
+  /** POST /api/runs/:id/cancel — abort a running pipeline. */
+  async cancelRun(runId: string): Promise<{ ok: boolean }> {
+    return (await this.request(`/api/runs/${encodeURIComponent(runId)}/cancel`, {
+      method: "POST",
+    })) as { ok: boolean };
+  }
+
+  /** GET /api/knowledge/search?q=&limit= — full-text search over the knowledge base. */
+  async searchKnowledge(query: string, limit?: number): Promise<{ entries: Array<Record<string, unknown>> }> {
+    const qs = new URLSearchParams({ q: query });
+    if (limit != null) qs.set("limit", String(limit));
+    return (await this.request(`/api/knowledge/search?${qs}`)) as {
+      entries: Array<Record<string, unknown>>;
+    };
+  }
 }

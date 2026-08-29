@@ -1,19 +1,27 @@
 import { describe, expect, it, vi } from "vitest";
 import type { AgentWorldClient } from "./client.js";
 import { handleMessage, PROTOCOL_VERSION } from "./server.js";
+import { filterTools } from "./tools.js";
 
 function mockClient(): AgentWorldClient {
   return {
     listGraphs: vi.fn().mockResolvedValue([
       { id: "g1", name: "研究助手", version: 3, updated_at: "2026-08-28T10:00:00Z" },
     ]),
-    getGraph: vi.fn().mockResolvedValue({ id: "g1", name: "研究助手" }),
+    getGraph: vi.fn().mockResolvedValue({ id: "g1", name: "研究助手", nodes: [], edges: [], version: 3 }),
     startRun: vi.fn().mockResolvedValue({ runId: "r1" }),
     runState: vi.fn().mockResolvedValue({
       state: { status: "done", artifacts: { out: [{ id: "a1", kind: "text", label: "x", mimeType: "text/plain" }] } },
     }),
     listArtifacts: vi.fn().mockResolvedValue([{ id: "a1", kind: "text", node_id: "out", run_id: "r1" }]),
     getArtifact: vi.fn().mockResolvedValue({ id: "a1", mimeType: "text/plain", content: "hello" }),
+    createGraph: vi.fn().mockResolvedValue({ id: "g2", name: "新建产线", nodes: [] }),
+    updateGraph: vi.fn().mockResolvedValue({ ok: true, version: 4 }),
+    deleteGraph: vi.fn().mockResolvedValue({ ok: true }),
+    cancelRun: vi.fn().mockResolvedValue({ ok: true }),
+    searchKnowledge: vi.fn().mockResolvedValue({
+      entries: [{ id: "k1", title: "挂脖风扇", content: "..." }],
+    }),
   } as unknown as AgentWorldClient;
 }
 
@@ -39,10 +47,10 @@ describe("MCP server JSON-RPC", () => {
     expect(reply).toBeNull();
   });
 
-  it("lists the 6 tools with schema", async () => {
+  it("lists the 12 tools with schema", async () => {
     const reply = await handleMessage(call(2, "tools/list"), mockClient());
     const tools = (reply?.result as { tools: Array<{ name: string; inputSchema: unknown }> }).tools;
-    expect(tools).toHaveLength(6);
+    expect(tools).toHaveLength(12);
     expect(tools.map((t) => t.name)).toEqual([
       "list_graphs",
       "get_graph",
@@ -50,8 +58,39 @@ describe("MCP server JSON-RPC", () => {
       "get_run_status",
       "list_artifacts",
       "get_artifact",
+      "create_graph",
+      "update_graph",
+      "delete_graph",
+      "cancel_run",
+      "download_artifact",
+      "search_knowledge",
     ]);
     expect(tools[0]?.inputSchema).toBeTruthy();
+  });
+
+  it("exposes only read tools in readonly mode", async () => {
+    const reply = await handleMessage(call(2, "tools/list"), mockClient(), filterTools(true));
+    const tools = (reply?.result as { tools: Array<{ name: string }> }).tools;
+    expect(tools.map((t) => t.name)).toEqual([
+      "list_graphs",
+      "get_graph",
+      "get_run_status",
+      "list_artifacts",
+      "get_artifact",
+      "download_artifact",
+      "search_knowledge",
+    ]);
+  });
+
+  it("rejects write tools in readonly mode", async () => {
+    const client = mockClient();
+    const reply = await handleMessage(
+      call(3, "tools/call", { name: "run_graph", arguments: { graphId: "g1" } }),
+      client,
+      filterTools(true),
+    );
+    expect(reply?.error?.code).toBe(-32602);
+    expect(client.startRun).not.toHaveBeenCalled();
   });
 
   it("calls a tool and returns formatted text content", async () => {
@@ -144,5 +183,107 @@ describe("MCP server JSON-RPC", () => {
   it("rejects unknown prompts", async () => {
     const reply = await handleMessage(call(14, "prompts/get", { name: "nope" }), mockClient());
     expect(reply?.error?.code).toBe(-32602);
+  });
+});
+
+describe("MCP management tools (P2-①)", () => {
+  it("create_graph creates from template and returns a summary", async () => {
+    const client = mockClient();
+    const reply = await handleMessage(
+      call(20, "tools/call", { name: "create_graph", arguments: { template: "copywriting", name: "种草" } }),
+      client,
+    );
+    expect(reply?.result).toMatchObject({ isError: false });
+    expect(client.createGraph).toHaveBeenCalledWith({ template: "copywriting", name: "种草" });
+    const text = (reply?.result as { content: Array<{ text: string }> }).content[0]?.text;
+    expect(text).toContain('"id": "g2"');
+    expect(text).toContain('"nodeCount": 0');
+  });
+
+  it("update_graph merges partial fields onto the current graph", async () => {
+    const client = mockClient();
+    client.getGraph = vi.fn().mockResolvedValue({ id: "g1", name: "旧名", nodes: [{ id: "n1" }], edges: [] });
+    const reply = await handleMessage(
+      call(21, "tools/call", { name: "update_graph", arguments: { graphId: "g1", name: "新名" } }),
+      client,
+    );
+    expect(reply?.result).toMatchObject({ isError: false });
+    expect(client.updateGraph).toHaveBeenCalledWith("g1", {
+      id: "g1",
+      name: "新名",
+      nodes: [{ id: "n1" }],
+      edges: [],
+    });
+    const text = (reply?.result as { content: Array<{ text: string }> }).content[0]?.text;
+    expect(text).toContain('"version": 4');
+  });
+
+  it("update_graph requires graphId", async () => {
+    const client = mockClient();
+    const reply = await handleMessage(
+      call(22, "tools/call", { name: "update_graph", arguments: { name: "x" } }),
+      client,
+    );
+    expect(reply?.result).toMatchObject({ isError: true });
+    expect(client.updateGraph).not.toHaveBeenCalled();
+  });
+
+  it("delete_graph refuses without confirm", async () => {
+    const client = mockClient();
+    const reply = await handleMessage(
+      call(23, "tools/call", { name: "delete_graph", arguments: { graphId: "g1" } }),
+      client,
+    );
+    expect(reply?.result).toMatchObject({ isError: true });
+    expect(client.deleteGraph).not.toHaveBeenCalled();
+  });
+
+  it("delete_graph removes the graph when confirmed", async () => {
+    const client = mockClient();
+    const reply = await handleMessage(
+      call(24, "tools/call", { name: "delete_graph", arguments: { graphId: "g1", confirm: true } }),
+      client,
+    );
+    expect(reply?.result).toMatchObject({ isError: false });
+    expect(client.deleteGraph).toHaveBeenCalledWith("g1");
+  });
+
+  it("cancel_run cancels a live run", async () => {
+    const client = mockClient();
+    const reply = await handleMessage(
+      call(25, "tools/call", { name: "cancel_run", arguments: { runId: "r1" } }),
+      client,
+    );
+    expect(reply?.result).toMatchObject({ isError: false });
+    expect(client.cancelRun).toHaveBeenCalledWith("r1");
+  });
+
+  it("download_artifact returns inline text for text artifacts", async () => {
+    const client = mockClient();
+    const reply = await handleMessage(
+      call(26, "tools/call", { name: "download_artifact", arguments: { artifactId: "a1" } }),
+      client,
+    );
+    expect(reply?.result).toMatchObject({ isError: false });
+    const text = (reply?.result as { content: Array<{ text: string }> }).content[0]?.text;
+    expect(text).toContain('"content": "hello"');
+  });
+
+  it("search_knowledge forwards query and limit", async () => {
+    const client = mockClient();
+    const reply = await handleMessage(
+      call(27, "tools/call", { name: "search_knowledge", arguments: { query: "挂脖风扇", limit: 5 } }),
+      client,
+    );
+    expect(reply?.result).toMatchObject({ isError: false });
+    expect(client.searchKnowledge).toHaveBeenCalledWith("挂脖风扇", 5);
+    const text = (reply?.result as { content: Array<{ text: string }> }).content[0]?.text;
+    expect(text).toContain('"count": 1');
+  });
+
+  it("search_knowledge defaults limit to 10", async () => {
+    const client = mockClient();
+    await handleMessage(call(28, "tools/call", { name: "search_knowledge", arguments: { query: "x" } }), client);
+    expect(client.searchKnowledge).toHaveBeenCalledWith("x", 10);
   });
 });
