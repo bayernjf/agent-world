@@ -21,6 +21,10 @@ export const NodeKind = z.enum([
   "loop",
   "parallel",
   "table",
+  "database",
+  "fileParse",
+  "translate",
+  "ocr",
 ]);
 export type NodeKind = z.infer<typeof NodeKind>;
 
@@ -155,8 +159,12 @@ export const HttpNodeConfig = z.object({
   body: z.string().optional(),
   /** Request timeout in milliseconds. */
   timeoutMs: z.number().int().min(1000).default(30000),
-  /** How to expose the response body. `auto` picks json when Content-Type is JSON. */
-  outputMode: z.enum(["json", "text", "auto"]).default("auto"),
+  /**
+   * How to expose the response body. `auto` picks json when Content-Type is
+   * JSON. `file` stores the raw bytes as a `file` artifact (e.g. a downloaded
+   * PDF / DOCX) so a downstream fileParse node can extract text and images.
+   */
+  outputMode: z.enum(["json", "text", "file", "auto"]).default("auto"),
   /** Treat non-2xx responses as node failures. */
   failOnError: z.boolean().default(true),
 });
@@ -314,6 +322,88 @@ export const TableConfig = z.object({
 });
 export type TableConfig = z.infer<typeof TableConfig>;
 
+/**
+ * Configuration for a `database` node: execute SQL against a database and emit
+ * the result set. First implementation supports SQLite (zero new dependency —
+ * `node:sqlite`). The driver abstraction leaves room for MySQL/PostgreSQL/
+ * MongoDB drivers later. Query results are emitted as `{ rows, count, columns }`
+ * so they can feed a downstream `table` node directly; DML statements emit
+ * `{ affectedRows, lastInsertId }`.
+ */
+export const DatabaseConfig = z.object({
+  /** SQLite database file path. Empty → in-memory database (per-run, volatile). */
+  path: z.string().optional(),
+  /**
+   * Optional setup statements executed once before `sql` (e.g. `CREATE TABLE …;
+   * INSERT …;`). Multiple statements separated by `;` are allowed; results are
+   * discarded. Enables in-memory pipelines: create a table, then query it.
+   */
+  setupSql: z.string().default(""),
+  /** The main SQL statement (single). Query statements return rows. */
+  sql: z.string().default(""),
+  /** Positional parameters bound to `?` placeholders in `sql`. */
+  positionalParams: z.array(z.unknown()).optional(),
+  /** Named parameters bound to `:name` / `@name` / `$name` placeholders in `sql`. */
+  namedParams: z.record(z.string(), z.unknown()).optional(),
+});
+export type DatabaseConfig = z.infer<typeof DatabaseConfig>;
+
+/**
+ * Configuration for a `fileParse` node: extract text and embedded images from
+ * an upstream `file` artifact. Supported formats: PDF (via unpdf) and Office
+ * Open XML documents (DOCX / PPTX, via ZIP + XML extraction). The extracted
+ * text becomes a `text` artifact consumed by downstream agents; extracted
+ * images become `image` artifacts.
+ */
+export const FileParseConfig = z.object({
+  /** Which upstream node's `file` artifact to parse. Defaults to the single flow predecessor. */
+  source: z.string().optional(),
+  /** Maximum embedded images to extract per file (0 = none). */
+  maxImages: z.number().int().min(0).max(100).default(20),
+});
+export type FileParseConfig = z.infer<typeof FileParseConfig>;
+
+/**
+ * Configuration for a `translate` node: translate an upstream node's text into
+ * a target language via LLM. The translated text becomes a `text` artifact,
+ * so any downstream agent can consume it directly. Pairs naturally with a
+ * `fileParse` node (extract document text first, then translate it).
+ */
+export const TranslateConfig = z.object({
+  /** Which upstream node's text to translate. Defaults to the single flow predecessor. */
+  source: z.string().optional(),
+  /** Target language, free-form, e.g. "简体中文", "English", "日本語". */
+  target: z.string().min(1).default("简体中文"),
+  /** Model id; defaults to the graph's fallback model when omitted. */
+  model: z.string().optional(),
+  /** Sampling temperature — lower keeps translations faithful. */
+  temperature: z.number().min(0).max(2).default(0.2),
+  /** Optional per-node spend cap in USD. */
+  budgetUsd: z.number().nonnegative().optional(),
+});
+export type TranslateConfig = z.infer<typeof TranslateConfig>;
+
+/**
+ * Configuration for an `ocr` node: run OCR (tesseract.js — WASM, no native
+ * deps) over an upstream node's `image` artifacts and emit the recognised text
+ * as a `text` artifact. Pairs naturally with a `fileParse` node (extract
+ * embedded images from a PDF/DOCX/PPTX first, then OCR them) or an `imageGen`
+ * node (read text back out of a generated image).
+ */
+export const OcrConfig = z.object({
+  /** Which upstream node's images to recognise. Defaults to the single flow predecessor. */
+  source: z.string().optional(),
+  /** Tesseract language code(s), comma-separated (e.g. "eng", "chi_sim", "chi_sim+eng"). */
+  lang: z.string().min(1).default("eng"),
+  /** Base URL for .traineddata.gz language files. Defaults to the official CDN. */
+  langPath: z.string().url().optional(),
+  /** Override for the tesseract worker script URL (air-gapped deployments). */
+  workerPath: z.string().url().optional(),
+  /** Override for the tesseract-core WASM URL (air-gapped deployments). */
+  corePath: z.string().url().optional(),
+});
+export type OcrConfig = z.infer<typeof OcrConfig>;
+
 export const GateConfig = z.object({
   maxAttempts: z.number().int().min(1).max(10).default(3),
   criterion: z.string().default(""),
@@ -426,6 +516,10 @@ export const GraphNode = z.object({
   loop: LoopConfig.optional(),
   parallel: ParallelConfig.optional(),
   table: TableConfig.optional(),
+  database: DatabaseConfig.optional(),
+  fileParse: FileParseConfig.optional(),
+  translate: TranslateConfig.optional(),
+  ocr: OcrConfig.optional(),
   source: SourceConfig.optional(),
 });
 export type GraphNode = z.infer<typeof GraphNode>;

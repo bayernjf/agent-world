@@ -22,7 +22,7 @@ State of Agent World as of 2026-08-29.
 ## Current state
 
 - **Monorepo**：`packages/core` / `packages/server` (Node + sqlite, 端口 8791) / `apps/web` (Vite, 端口 5173)
-- **核心能力**：4 类 AI 节点（agent / imageGen / videoGen / audioGen）+ **通用节点（HTTP 请求 / 代码执行 / 条件分支 / 映射 / 循环 / 并行聚合）**，**MCP Server（stdio + HTTP/SSE 双传输，6 工具 + resources + prompts）**，多产线管理，Inspector 模型下拉严格按 modality 过滤，多模态产出（Artifact 分层），流式 + SSE + 断线重连 + halt/resume，成本电表（token + 单价两种模式），评估体系雏形，产物落库归属流水线（artifacts 的 graph_id/role）
+- **核心能力**：4 类 AI 节点（agent / imageGen / videoGen / audioGen）+ **通用节点（HTTP 请求 / 代码执行 / 条件分支 / 映射 / 循环 / 并行聚合 / 表格处理 / 数据库查询 / 文件解析 / 翻译 / OCR）**，**MCP Server（stdio + HTTP/SSE 双传输，6 工具 + resources + prompts）**，多产线管理，Inspector 模型下拉严格按 modality 过滤，多模态产出（Artifact 分层），流式 + SSE + 断线重连 + halt/resume，成本电表（token + 单价两种模式），评估体系雏形，产物落库归属流水线（artifacts 的 graph_id/role）
 - **安全基线（本轮升级）**：settings 按用户隔离（迁移 16，provider key 互不可见）+ **HTTP 节点 SSRF 防护**（fetch 时解析 IP 校验，DNS-rebinding 免疫，`ALLOW_PRIVATE_NETWORK=1` 逃生口）+ 登录 cookie 按 `SECURE_COOKIES`/production 加 `Secure` 标志（localhost 豁免）+ webhook 触发器强制非空 secret（杜绝匿名触发）
 - **本轮已落地（2026-08-29，均已提交）**：
   - **账号系统 / 按用户隔离**（`5b81c74` + `73d3610`）：users 表 + JWT(HS256, bcrypt12) HttpOnly cookie 会话 + graphs/runs/artifacts/brand_terms/成本全部按 `user_id` 过滤 + 前端登录/注册/用户菜单 + `authFetch(credentials:include)`。旧库升级自动回填归属（迁移 14/15 幂等，无法归属的行 fail closed 不可见）
@@ -49,7 +49,7 @@ State of Agent World as of 2026-08-29.
 
 按优先级降序，标 `★` 的是当下要推的：
 
-1. **★ Phase 2 起点：表格节点（本轮完成）**— **`table` 节点落地**（core + server + web 全链路）：CSV/JSON 解析（带引号字段状态机解析器）、筛选（eq/ne/gt/gte/lt/lte/contains）、排序（数字感知）、聚合（groupBy + count/sum/avg/min/max）、输出格式（JSON 对象或额外 CSV 文本）。输入兼容 CSV 文本 / JSON 数组 / `{rows:[...]}`，无上游或输入非法 → VALIDATION。Inspector 提供可视化步骤编辑器（增删步骤 + 每步字段）。core 31 + server 7 个新测试。**Phase 2 其余大项**（数据库查询、文件解析、OCR 等）见 roadmap-generalization。
+1. **★ Phase 2 持续推进：OCR 节点（本轮完成）**— **`ocr` 节点落地**（core + server + web 全链路）：core 新增 NodeKind.ocr + OcrConfig schema（source / lang 默认 eng / langPath / workerPath / corePath，三路径支持离线部署覆盖）；server 新增 `ocr.ts` 封装 tesseract.js（WASM 零原生依赖，懒加载不阻塞引擎启动，每次调用后 terminate 释放 WASM 内存，默认官方 CDN）；执行分支读上游全部 image 产物 → 逐张识别 → 合并为 text 产物（多图以空行分隔），node.finished 汇总字符数与平均置信度；无唯一上游 / 上游无 image → VALIDATION，引擎加载或识别失败 → PROVIDER_ERROR；web 工具栏按钮 + Inspector 面板（来源下拉 / 识别语言下拉 eng、chi_sim 等 / 语言数据路径）+ 标签配色。core 4 + server 5 个新测试（PDF 提取图识别、docx 双图合并、多上游/无图 VALIDATION、识别失败）。与 fileParse 天然闭环：PDF/DOCX → 提取图片 → OCR → 文本 → 翻译。**Phase 2 其余大项**（文件转换、搜索等）见 roadmap-generalization。
 2. **MCP Server P2 高级**（详见 [docs/design-mcp-server.md](docs/design-mcp-server.md)）— **P0 MVP + P1 增强均已落地**（stdio + HTTP/SSE 双传输、6 工具、resources、prompts，22/22 测试）。P2 候选：管理类工具（create/update/delete graph）、实时 notifications、批量运行、对比分析、认证权限。让 Claude Desktop/Cursor 等能接入 agent-world。
 3. **运行沙箱细化**（详见 [docs/roadmap-generalization.md](docs/roadmap-generalization.md)）— 代码节点当前用 os.exec 子进程；后续可加资源限制（内存/超时）、白名单命令、工作目录隔离
 4. **通用化 Phase 1 复盘**（可选）— Phase 1 P0+P1 全部收官（六类节点 + loop 增强）。如需要可把 roadmap-generalization 的 Phase 1 验收更新为"已全部完成"并归档 roadmap-tasks 的对应章节。
@@ -58,12 +58,11 @@ State of Agent World as of 2026-08-29.
 
 按 commit 时间倒序，每条一行影响面 + commit hash：
 
-1. `dbd9e8b` — **feat(core/server/web)**: **Phase 2 起点——表格节点（table）**。core 新增 NodeKind.table + TableConfig/TableStep schema（parse/filter/sort/aggregate/output 判别联合）+ 纯函数 `table.ts`（带引号字段的状态机 CSV 解析器、数字感知筛选/排序、groupBy 聚合）；server 执行分支：读唯一上游（或显式 source），兼容 CSV 文本 / JSON 数组 / `{rows:[...]}`，产出 `{rows,count,columns}` JSON 产物，`output:csv` 时额外产出 CSV 文本产物，非法输入/无上游 → VALIDATION；web 工具栏按钮 + Inspector 可视化步骤编辑器 + 标签配色。core 31 + server 7 个新测试。
-2. `c69788a` — **feat(web)**: **Inspector 模型未配置时显示去设置入口**。agent/image/video/audio 四个模型下拉在对应 modality 无可用模型时，显示「前往设置 · 模型与密钥」链接（原来只有占位项，无引导）。
-3. `373a059` — **feat(mcp-server)**: **MCP Server P1 增强——HTTP/SSE 传输 + Resources + Prompts**。Streamable HTTP 传输（`POST /mcp` 按 `Accept` 头返回 JSON 或 SSE、`GET /mcp` SSE 流宣告 endpoint、notification 202、`AGENT_WORLD_MCP_TRANSPORT=http`/`--http` 切换、`AGENT_WORLD_MCP_PORT` 端口）；Resources（`resources/list`/`templates`/`read`，graph:// run:// artifact:// 三类 URI 模板，二进制产物返回下载地址）；Prompts（`prompts/list`/`get`，run_pipeline / analyze_pipeline / create_from_template 三个引导提示词，graphId/input 参数插值）；initialize 能力声明 tools+resources+prompts，版本 0.2.0。协议级测试 22/22 + 真实 socket 端到端冒烟（沙箱已可 listen）。
-4. — **feat(core/server/web)**: **通用化 Phase 1 P0 收官——映射/循环/并行聚合三大节点**（`2b41f21`/`63f3077`/`7b1ceb9`/`ae8d658`）。core 新增 NodeKind.map/loop/parallel + schema + `transformJson`（JSON 模板递归映射，纯占位符保留类型）；server：map 做 JSON 模板映射与 iterate 数组批量转换（校验失败 VALIDATION）、loop 内联执行下游子图每轮注入 `item` 上下文并聚合 `{results:[...]}`（body 失败传播、maxIterations 防呆、嵌套安全、借 running 计数防 run 提前收口）、parallel 做 barrier 结构化聚合（asObject/pick）；agent 输入在循环体内自动追加循环项；web 工具栏/Inspector 面板/标签/配色。core 6 + server 12 个新测试（engine.map/loop/parallel-join）。
-5. `0b3b603` — **feat(server)**: **安全四项全部落地**——(1) settings 按用户隔离：settings 表（迁移 16）+ loadConfig(userId)/saveConfig(userId)，DB 行 > 旧文件基线 > 内置默认，provider key 互不可见；(2) HTTP 节点 SSRF 防护：共享 ssrf.ts（fetch 时 DNS 解析后按 IP 校验，DNS-rebinding 免疫），`ALLOW_PRIVATE_NETWORK=1` 逃生口；(3) cookie `Secure`：`SECURE_COOKIES` env 覆盖 + production 默认开 + localhost 豁免；(4) webhook 触发器空 secret → 400。运行期按用户解析配置用 AsyncLocalStorage（runAsUser，并发 run 互不串）。新增 16 个测试（config 隔离、app 层 API、cookie、SSRF、webhook）。
-
+1. `3a75ab1` — **feat(core/server/web)**: **Phase 2 第五节点——OCR（ocr）**。core 新增 NodeKind.ocr + OcrConfig schema（source/lang/langPath/workerPath/corePath）；server 新增 `ocr.ts` 封装 tesseract.js（WASM 零原生依赖，懒加载 + 每次调用后 terminate，默认官方 CDN，三路径可覆盖适配离线部署）；执行分支读上游全部 image 产物逐张识别、合并为 text 产物（多图空行分隔），无唯一上游/无图 → VALIDATION、识别失败 → PROVIDER_ERROR；web 工具栏按钮 + Inspector 面板（来源/识别语言 eng、chi_sim 等/语言数据路径）+ 标签配色。core 4 + server 5 个新测试。
+2. `12f399c` — **feat(core/server/web)**: **Phase 2 第四节点——翻译（translate）**。core 新增 NodeKind.translate + TranslateConfig schema（source/target/model/temperature/budgetUsd）；server 执行分支复用 worker.runAgent 做纯 LLM 翻译：读上游 text 产物（无 text 回退 JSON 序列化）→ 目标语言系统提示（忠实原文、保留结构）→ 流式 + 重试 + 成本核算（power.metered / 节点预算）；无唯一上游/上游无文本 → VALIDATION；web 工具栏按钮 + Inspector 面板（来源/目标语言/模型/温度）+ 标签配色。core 4 + server 4 个新测试。
+3. `1afaa01` — **feat(core/server/web)**: **Phase 2 第三节点——文件解析（fileParse）**。core 新增 NodeKind.fileParse + FileParseConfig schema（source/maxImages），HttpNodeConfig.outputMode 新增 `file`；server 新增 `parse-file.ts`：**PDF** 用官方 pdfjs-dist 主线程解码（getTextContent 文本 + getOperatorList 提取内嵌图、pngjs 编码 PNG），**DOCX/PPTX** 用 fflate 解压 + XML 提取 `w:t`/`a:t` 文本与 media 图片；HTTP 节点 `outputMode=file` 下载二进制为 file artifact，形成「HTTP 下载 → 解析」链路；解析输出 text artifact + image artifacts，maxImages 封顶、无 file 产物 → VALIDATION；web 工具栏按钮 + Inspector 面板 + HTTP 文件模式选项 + 标签配色。core 6 + server 6 个新测试（含手写最小 PDF / zip 动态构造 docx-pptx）。
+4. `7ad5d29` — **feat(core/server/web)**: **Phase 2 第二节点——数据库查询（database）**。core 新增 NodeKind.database + DatabaseConfig schema（path/setupSql/sql + 位置/命名参数绑定）；server 新增 driver 抽象 `db-drivers.ts`（DatabaseDriver 接口，SQLite 首实现基于内置 node:sqlite，零新依赖）：文件库/内存库、setupSql 初始化（可多条）、查询语句返回 rows + DML 返回 affectedRows/lastInsertId、空 SQL → VALIDATION；查询产物 `{rows,count,columns}` 与表格节点同构，可直连 table 继续筛选/排序/聚合；web 工具栏按钮 + Inspector 面板（文件路径/初始化 SQL/主 SQL）+ 标签配色。core 5 + server 9 个新测试。
+5. `dbd9e8b` — **feat(core/server/web)**: **Phase 2 起点——表格节点（table）**。core 新增 NodeKind.table + TableConfig/TableStep schema（parse/filter/sort/aggregate/output 判别联合）+ 纯函数 `table.ts`（带引号字段的状态机 CSV 解析器、数字感知筛选/排序、groupBy 聚合）；server 执行分支：读唯一上游（或显式 source），兼容 CSV 文本 / JSON 数组 / `{rows:[...]}`，产出 `{rows,count,columns}` JSON 产物，`output:csv` 时额外产出 CSV 文本产物，非法输入/无上游 → VALIDATION；web 工具栏按钮 + Inspector 可视化步骤编辑器 + 标签配色。core 31 + server 7 个新测试。
 最近 5 条之前的全部在 [docs/handoff-archive.md](docs/handoff-archive.md) 的"阶段 4 收尾"系列章节里（含 HTTP 节点第一闭环 `1856d81`、账号系统 `5b81c74`/`73d3610` 等）。
 
 ## Quality gate (current snapshot)
@@ -71,8 +70,8 @@ State of Agent World as of 2026-08-29.
 > 这里的 snapshot 是"今天跑过的"状态；archive 章节里的"质量门"是各 commit 当时的状态，不要混用。
 
 - `pnpm -r typecheck`：全绿
-- `pnpm --filter @agent-world/core test`：71/71 通过
-- `pnpm --filter @agent-world/server test`：308/308 通过（含 artifact 跨用户隔离、迁移 15/16、settings 按用户隔离、cookie Secure、HTTP 节点 SSRF、webhook secret、map/loop/parallel 节点用例）
+- `pnpm --filter @agent-world/core test`：121/121 通过（含 ocr / translate / fileParse schema + HTTP file 模式用例）
+- `pnpm --filter @agent-world/server test`：339/339 通过（含 ocr：PDF 提取图识别、docx 双图合并、无唯一上游 / 无图 VALIDATION、识别失败 PROVIDER_ERROR；translate 与 fileParse 全部用例）
 - `pnpm --filter @agent-world/mcp-server test`：22/22 通过（含 resources/prompts 协议用例 + HTTP 传输 + 真实 socket 冒烟）
 - `pnpm --filter @agent-world/web exec vitest run`：19/19 通过
 - **注意**：依赖 `node:sqlite`，必须 Node ≥ 22（CI 用 Node 24；本地 shell 默认 Node 20 会误报 `No such built-in module: node:sqlite`，用 `fnm exec --using=24` 跑）
