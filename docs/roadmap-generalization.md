@@ -130,15 +130,17 @@
 
 **目标**：产线能处理复杂流程，AI 节点能做自主决策。
 
-| 能力 | 说明 |
-|------|------|
-| **并行/聚合** | 并行跑多个分支，然后聚合结果 |
-| **子流程调用** | 产线调用另一个产线（类似函数调用） |
-| **错误处理** | try/catch、重试策略、降级、死信队列 |
-| **AI Agent 节点** | 增强版 agent，支持多轮工具调用循环（ReAct），能自主规划 |
-| **人工审批节点** | 产线运行中等待人工输入/审批，然后继续 |
-| **状态机** | 复杂业务流程建模 |
-| **变量持久化** | 产线运行间共享状态 |
+> 详细落地方案、难题与对策、优先级见 [docs/phase4-design.md](phase4-design.md)（基于 2026-08-29 代码勘察）。
+
+| 能力 | 说明 | 状态 |
+|------|------|------|
+| **并行/聚合** | 并行跑多个分支，然后聚合结果 | ✅ 已有（Phase 1 的 `parallel` 节点 + 调度器 `MAX_CONCURRENCY`） |
+| **子流程调用** | 产线调用另一个产线（类似函数调用） | ❌ 真缺，方案见 [phase4-design §2](phase4-design.md#2-子流程调用) |
+| **错误处理** | try/catch、重试策略、降级、死信队列 | ⚠️ 部分有（RetryPolicy 瞬态重试，但 search/http/code 无重试、无 error 边/try-catch/失败告警/死信），方案见 [phase4-design §1](phase4-design.md#1-错误处理最高优先级) |
+| **AI Agent 节点** | 增强版 agent，支持多轮工具调用循环（ReAct），能自主规划 | ✅ 已实现（`openai-compatible.ts` 的 `runWithTools`，MAX_ROUNDS=8） |
+| **人工审批节点** | 产线运行中等待人工输入/审批，然后继续 | ⚠️ halt 机制已有（gate/dangerous-tool），缺独立 `human` 节点，方案见 [phase4-design §3](phase4-design.md#3-人工审批独立节点) |
+| **状态机** | 复杂业务流程建模 | ⏸ 缓做（variables + branch 组合可兜底，易过度设计） |
+| **变量持久化** | 产线运行间共享状态 | ❌ 真缺，方案见 [phase4-design §4](phase4-design.md#4-变量持久化) |
 
 ---
 

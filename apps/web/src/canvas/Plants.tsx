@@ -43,6 +43,7 @@ const STATUS_LABEL: Record<NodeRuntime["status"], string> = {
   running: "运行中",
   done: "完成",
   failed: "失败",
+  skipped: "已跳过",
   scrapped: "已报废",
 };
 

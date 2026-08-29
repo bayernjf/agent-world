@@ -109,6 +109,14 @@ export const RunEvent = z.discriminatedUnion("type", [
     error: z.string(),
     errorCode: ErrorCode.optional(),
   }),
+  /** A node skipped because an upstream predecessor failed (cascade). Distinct from pending — the UI can show "skipped" instead of "waiting". */
+  z.object({
+    ...base,
+    type: z.literal("node.skipped"),
+    ...NodeRunKey.shape,
+    /** Why the node was skipped (e.g. upstream failed). */
+    reason: z.string().optional(),
+  }),
   /** A work packet moving along a pipe. The truck animation is this event, not decoration. */
   z.object({
     ...base,

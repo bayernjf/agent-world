@@ -7,7 +7,7 @@ import { addUnits, type UsageUnits } from "./pricing.js";
  * prefix `seq <= n`, so this must stay pure: no clocks, no fetches, no randomness.
  */
 export interface NodeRuntime {
-  status: "idle" | "running" | "done" | "failed" | "scrapped";
+  status: "idle" | "running" | "done" | "failed" | "skipped" | "scrapped";
   attempt: number;
   /** Output text per attempt, keyed by attempt number, for attempt-diffing. */
   outputs: Record<number, string>;
@@ -237,6 +237,9 @@ export function reduce(state: RuntimeState, event: RunEvent): RuntimeState {
             },
           ],
         };
+
+      case "node.skipped":
+        return withNode(state, event.nodeId, { status: "skipped", finishedAt: event.ts });
 
       case "packet.sent":
         return {
