@@ -1,7 +1,19 @@
 # 代码节点运行沙箱设计方案
 
-> 状态：方案定稿 2026-08-29，待实现（分 P0 安全基线 / P1 资源限制 / P2 外部沙箱后端 三批）。
-> 关联：handoff 待办「运行沙箱细化」；代码节点当前实现在 `packages/server/src/engine.ts` 的 `node.kind === "code"` 分支。
+> 状态：P0 安全基线（`6b2f92b` 已提交 2026-08-29）+ **P1 资源限制已落地（工作树）**；P2 外部沙箱后端待办。
+> 关联：handoff 待办「运行沙箱细化」；代码节点当前实现在 `packages/server/src/engine.ts` 的 `node.kind === "code"` 分支 + `packages/server/src/code-sandbox.ts`。
+
+## 实施进度（2026-08-29，P1 落地后）
+
+- [x] **Phase P0 安全基线**：trimEnv 白名单 + 绝对解释器路径（跨运行缓存）+ 每次运行独立 temp dir（成功/失败/超时 finally 清理）。见 `6b2f92b`。
+- [x] **Phase P1 资源限制**（工作树）：
+  - `sh -c 'ulimit -t/-u/-f/-n && exec …'` 包裹 — POSIX 通用，用 `exec` 替换 shell 镜像不挂多余 PID；参数经 POSIX 单引号转义（含内嵌空格与 `'`）。Linux 额外加 `ulimit -v`（RLIMIT_AS macOS 不强制 malloc，诚实跳过）。
+  - 全局限额 `DEFAULT_SANDBOX_LIMITS`（cpu 30s / nproc 128 / fsize 32MB / nofile 256 / vmem 2GB / node-old-space 512MB），每项可用 `CODE_LIMIT_*` 环境变量在**调用时**覆盖（不是 import 时快照，方便测试临时调参）。
+  - Node JS 权限：`--permission`（≥ Node 22.2 稳定形式）或 `--experimental-permission`（Node 20 旧形式）——启动时对 `resolveInterpreter` 跑一次探针二选一，按解释器路径缓存。`--allow-fs-read=<workdir>` / `--allow-fs-write=<workdir>` 严格限到工作目录；不注入 `--allow-worker` / `--allow-child-process` / `--allow-addons` / `--allow-wasi`，所以子进程 / Worker / 原生 addon 都被 Node 拒绝。
+  - **诚实边界已在测试注释中记录**：Node ≥ 24 的稳定 permission model 已**移除** `--allow-net` / `--deny-net` 粒度参数（只有 fs / child / worker / addon / wasi）。JS 代码的**网络隔离在 P1 不覆盖**，要靠 P2 的 OS 级后端（bwrap / sandbox-exec / 容器）。测试用「child_process 被拒绝」替代「fetch 被拒绝」，避免假装不具备的能力。
+  - macOS `/var` → `/private/var` 符号链接修复：`createCodeWorkdir` 返回 `realpathSync()` 后的规范路径，spawn 的 `cwd` 和 Node 的 `--allow-fs-*` grant 两边都用同一身份，避免权限模型的 path-compare 错配。
+  - 测试：code-sandbox 12/12 通过 + engine.code 11/11 通过。全 server suite 411 → 424 通过。
+- [ ] **Phase P2 外部沙箱后端（待办）**：`CodeSandbox` 接口 + bwrap / sandbox-exec / 容器三种实现；缺后端时降级到 rlimit 并 `console.warn`（不静默变无沙箱）。
 
 ---
 
