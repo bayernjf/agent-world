@@ -49,7 +49,7 @@ State of Agent World as of 2026-08-29.
 
 按优先级降序，标 `★` 的是当下要推的：
 
-1. **★ 运行沙箱细化**（详见 [docs/roadmap-generalization.md](docs/roadmap-generalization.md)）— 代码节点当前用 os.exec 子进程；后续可加资源限制（内存/超时）、白名单命令、工作目录隔离
+1. **★ 运行沙箱细化**（方案已定稿 2026-08-29，详见 [docs/design-code-sandbox.md](docs/design-code-sandbox.md)，分 P0 安全基线 / P1 资源限制 / P2 外部沙箱后端三批，待实现）— 代码节点当前裸 `spawn` 用户脚本，缺环境变量 / 网络 / 文件系统 / 资源（内存/CPU/进程数）/ 工作目录五类隔离
 
 ## Recently shipped (last 5)
 
