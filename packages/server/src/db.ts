@@ -1079,6 +1079,7 @@ export function openDb(file: string) {
     },
     deleteVersion(id: string) {
       db.prepare(`DELETE FROM graph_versions WHERE id = ?`).run(id);
+    },
 
     getGraphById(id: string): (Graph & { version: number }) | null {
       const row = stmts.getGraphById.get(id) as { doc: string; version: number } | undefined;
