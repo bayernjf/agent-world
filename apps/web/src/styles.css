@@ -1805,6 +1805,9 @@ select {
 .plant--convert .plant__bar {
   fill: #3f4436;
 }
+.plant--search .plant__bar {
+  fill: #2f4550;
+}
 
 .plant__attempt rect {
   fill: var(--warn);

@@ -26,6 +26,7 @@ export const NodeKind = z.enum([
   "translate",
   "ocr",
   "convert",
+  "search",
 ]);
 export type NodeKind = z.infer<typeof NodeKind>;
 
@@ -423,6 +424,24 @@ export const ConvertConfig = z.object({
 });
 export type ConvertConfig = z.infer<typeof ConvertConfig>;
 
+/**
+ * Configuration for a `search` node: run a web search and emit the results as
+ * `text` (readable list) + `json` artifacts. `duckduckgo` needs no API key
+ * (default); the other providers read their credentials from env vars at run
+ * time (TAVILY_API_KEY / SERPAPI_API_KEY / GOOGLE_API_KEY + GOOGLE_CX), so no
+ * secret is ever stored in the graph. When `query` is empty the upstream text
+ * artifact is searched instead — pairs with an agent that generates queries.
+ */
+export const SearchConfig = z.object({
+  /** Static search query; falls back to the upstream text artifact when empty. */
+  query: z.string().default(""),
+  /** Search backend. */
+  provider: z.enum(["duckduckgo", "tavily", "serpapi", "google"]).default("duckduckgo"),
+  /** Maximum number of results to return. */
+  maxResults: z.number().int().min(1).max(20).default(5),
+});
+export type SearchConfig = z.infer<typeof SearchConfig>;
+
 export const GateConfig = z.object({
   maxAttempts: z.number().int().min(1).max(10).default(3),
   criterion: z.string().default(""),
@@ -540,6 +559,7 @@ export const GraphNode = z.object({
   translate: TranslateConfig.optional(),
   ocr: OcrConfig.optional(),
   convert: ConvertConfig.optional(),
+  search: SearchConfig.optional(),
   source: SourceConfig.optional(),
 });
 export type GraphNode = z.infer<typeof GraphNode>;

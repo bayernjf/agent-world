@@ -2179,6 +2179,62 @@ export default function Inspector({ onOpenSettings }: { onOpenSettings: () => vo
           </>
         )}
 
+        {node.kind === "search" && node.search && (
+          <>
+            <label className="field">
+              <span>搜索词</span>
+              <input
+                className="input"
+                type="text"
+                placeholder="留空则使用上游 text 产物作为搜索词"
+                value={node.search.query}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    search: { ...node.search!, query: e.target.value },
+                  })
+                }
+              />
+            </label>
+            <label className="field">
+              <span>搜索源</span>
+              <select
+                className="select"
+                value={node.search.provider}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    search: { ...node.search!, provider: e.target.value as "duckduckgo" | "tavily" | "serpapi" | "google" },
+                  })
+                }
+              >
+                <option value="duckduckgo">DuckDuckGo（免 key）</option>
+                <option value="tavily">Tavily（TAVILY_API_KEY）</option>
+                <option value="serpapi">SerpAPI（SERPAPI_API_KEY）</option>
+                <option value="google">Google CSE（GOOGLE_API_KEY + GOOGLE_CX）</option>
+              </select>
+            </label>
+            <label className="field">
+              <span>结果数量（1-20）</span>
+              <input
+                className="input"
+                type="number"
+                min={1}
+                max={20}
+                value={node.search.maxResults}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    search: { ...node.search!, maxResults: Number(e.target.value) || 5 },
+                  })
+                }
+              />
+            </label>
+            <p className="note">
+              执行网络搜索并输出 text（可读列表）+ json（结构化结果）双产物，下游 agent
+              可直接阅读总结。搜索词留空时用上游 text 产物（可让 agent 先生成搜索词）；DuckDuckGo
+              无需密钥，其余搜索源在服务端配置对应环境变量后可用。
+            </p>
+          </>
+        )}
+
         </>)}
         {mainTab === "output" && (<>
         {rt?.error && (

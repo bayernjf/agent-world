@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { ConvertConfig, FileParseConfig, GraphNode, HttpNodeConfig, OcrConfig, TranslateConfig } from "./graph.js";
+import {
+  ConvertConfig,
+  FileParseConfig,
+  GraphNode,
+  HttpNodeConfig,
+  OcrConfig,
+  SearchConfig,
+  TranslateConfig,
+} from "./graph.js";
 
 describe("FileParseConfig", () => {
   it("defaults to 20 max images and no explicit source", () => {
@@ -171,5 +179,44 @@ describe("ConvertConfig", () => {
     });
     expect(node.kind).toBe("convert");
     expect(node.convert?.to).toBe("png");
+  });
+});
+
+describe("SearchConfig", () => {
+  it("defaults to duckduckgo with 5 results and no static query", () => {
+    const cfg = SearchConfig.parse({});
+    expect(cfg.provider).toBe("duckduckgo");
+    expect(cfg.maxResults).toBe(5);
+    expect(cfg.query).toBe("");
+  });
+
+  it("parses an explicit query, provider and maxResults", () => {
+    const cfg = SearchConfig.parse({
+      query: "agent world",
+      provider: "tavily",
+      maxResults: 10,
+    });
+    expect(cfg.query).toBe("agent world");
+    expect(cfg.provider).toBe("tavily");
+    expect(cfg.maxResults).toBe(10);
+  });
+
+  it("rejects unknown providers and out-of-range maxResults", () => {
+    expect(() => SearchConfig.parse({ provider: "bing" })).toThrow();
+    expect(() => SearchConfig.parse({ maxResults: 0 })).toThrow();
+    expect(() => SearchConfig.parse({ maxResults: 21 })).toThrow();
+  });
+
+  it("round-trips inside a GraphNode", () => {
+    const node = GraphNode.parse({
+      id: "se1",
+      kind: "search",
+      name: "SEARCH",
+      x: 0,
+      y: 0,
+      search: { query: "hello", provider: "google" },
+    });
+    expect(node.kind).toBe("search");
+    expect(node.search?.provider).toBe("google");
   });
 });
