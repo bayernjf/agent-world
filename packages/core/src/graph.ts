@@ -6,7 +6,16 @@ import { SkillMount } from "./skill.js";
  * that keeps it executable: dropping every rework edge must leave a DAG, and each
  * rework edge must land on an ancestor of its gate within that DAG.
  */
-export const NodeKind = z.enum(["source", "agent", "gate", "sink", "imageGen", "videoGen", "audioGen"]);
+export const NodeKind = z.enum([
+  "source",
+  "agent",
+  "gate",
+  "sink",
+  "imageGen",
+  "videoGen",
+  "audioGen",
+  "http",
+]);
 export type NodeKind = z.infer<typeof NodeKind>;
 
 export const EdgeKind = z.enum(["flow", "rework"]);
@@ -127,6 +136,26 @@ export const AudioGenConfig = z.object({
 });
 export type AudioGenConfig = z.infer<typeof AudioGenConfig>;
 
+/** Configuration for an `http` node: call an external REST API. */
+export const HttpNodeConfig = z.object({
+  method: z.enum(["GET", "POST", "PUT", "DELETE", "PATCH"]).default("GET"),
+  /** Target URL; may contain variable interpolations like `${source.foo}`. */
+  url: z.string().min(1),
+  /** Extra request headers; values may contain variable interpolations. */
+  headers: z.record(z.string()).default({}),
+  /** URL query parameters; values may contain variable interpolations. */
+  query: z.record(z.string()).default({}),
+  /** Request body (string); may contain variable interpolations. */
+  body: z.string().optional(),
+  /** Request timeout in milliseconds. */
+  timeoutMs: z.number().int().min(1000).default(30000),
+  /** How to expose the response body. `auto` picks json when Content-Type is JSON. */
+  outputMode: z.enum(["json", "text", "auto"]).default("auto"),
+  /** Treat non-2xx responses as node failures. */
+  failOnError: z.boolean().default(true),
+});
+export type HttpNodeConfig = z.infer<typeof HttpNodeConfig>;
+
 export const GateConfig = z.object({
   maxAttempts: z.number().int().min(1).max(10).default(3),
   criterion: z.string().default(""),
@@ -232,6 +261,7 @@ export const GraphNode = z.object({
   imageGen: ImageGenConfig.optional(),
   videoGen: VideoGenConfig.optional(),
   audioGen: AudioGenConfig.optional(),
+  http: HttpNodeConfig.optional(),
   source: SourceConfig.optional(),
 });
 export type GraphNode = z.infer<typeof GraphNode>;

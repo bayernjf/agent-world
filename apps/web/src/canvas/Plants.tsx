@@ -21,6 +21,7 @@ const KIND_LABEL: Record<GraphNode["kind"], string> = {
   imageGen: "AI 生图",
   videoGen: "AI 生视频",
   audioGen: "AI 生音频",
+  http: "HTTP",
 };
 
 const STATUS_LABEL: Record<NodeRuntime["status"], string> = {

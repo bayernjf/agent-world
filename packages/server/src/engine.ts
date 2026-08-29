@@ -1,4 +1,6 @@
 import {
+  buildNodeContext,
+  evaluateTemplate,
   extractArtifacts,
   incoming,
   nodeById,
@@ -8,6 +10,7 @@ import {
   type DraftEvent,
   type Graph,
   type GraphNode,
+  type HttpNodeConfig,
   type Plan,
   type RunEvent,
   type SkillMount,
@@ -713,6 +716,144 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           primaryKind = produceArtifacts(nodeId, output, attempt);
         }
         sendPackets(nodeId, output.slice(0, 120), primaryKind);
+        return;
+      }
+
+      if (node.kind === "http") {
+        emit({ type: "node.started", nodeId, attempt });
+        const cfg: HttpNodeConfig = node.http ?? {
+          method: "GET",
+          url: "",
+          headers: {},
+          query: {},
+          timeoutMs: 30000,
+          outputMode: "auto",
+          failOnError: true,
+        };
+
+        const ctx = buildNodeContext(nodeId, artifacts, graph);
+        const interpolatedUrl = evaluateTemplate(cfg.url, ctx);
+        if (!interpolatedUrl.trim()) {
+          states.set(nodeId, "failed");
+          status = "failed";
+          emit({
+            type: "node.failed",
+            nodeId,
+            attempt,
+            error: "HTTP 节点 URL 为空",
+            errorCode: "VALIDATION",
+          });
+          return;
+        }
+
+        let targetUrl: URL;
+        try {
+          targetUrl = new URL(interpolatedUrl);
+        } catch {
+          states.set(nodeId, "failed");
+          status = "failed";
+          emit({
+            type: "node.failed",
+            nodeId,
+            attempt,
+            error: `HTTP 节点 URL 不合法: ${interpolatedUrl}`,
+            errorCode: "VALIDATION",
+          });
+          return;
+        }
+
+        for (const [key, raw] of Object.entries(cfg.query ?? {})) {
+          try {
+            targetUrl.searchParams.set(key, evaluateTemplate(raw, ctx));
+          } catch {
+            // skip invalid params
+          }
+        }
+
+        const headers: Record<string, string> = {};
+        for (const [key, raw] of Object.entries(cfg.headers ?? {})) {
+          headers[key] = evaluateTemplate(raw, ctx);
+        }
+        const contentType = headers["content-type"] ?? headers["Content-Type"];
+        const body = cfg.body ? evaluateTemplate(cfg.body, ctx) : undefined;
+
+        const abort = new AbortController();
+        const timer = setTimeout(() => abort.abort(), cfg.timeoutMs);
+        let response: Response;
+        try {
+          response = await fetch(targetUrl.toString(), {
+            method: cfg.method,
+            headers,
+            body: body && cfg.method !== "GET" ? body : undefined,
+            signal: abort.signal,
+          });
+        } catch (err) {
+          clearTimeout(timer);
+          states.set(nodeId, "failed");
+          status = "failed";
+          const msg = err instanceof Error ? err.message : String(err);
+          emit({
+            type: "node.failed",
+            nodeId,
+            attempt,
+            error: `HTTP 请求失败: ${msg}`,
+            errorCode: "PROVIDER_ERROR",
+          });
+          return;
+        }
+        clearTimeout(timer);
+
+        let responseText: string;
+        try {
+          responseText = await response.text();
+        } catch (err) {
+          states.set(nodeId, "failed");
+          status = "failed";
+          const msg = err instanceof Error ? err.message : String(err);
+          emit({
+            type: "node.failed",
+            nodeId,
+            attempt,
+            error: `读取 HTTP 响应失败: ${msg}`,
+            errorCode: "PROVIDER_ERROR",
+          });
+          return;
+        }
+
+        const contentTypeHeader = response.headers.get("content-type") ?? "";
+        const isJsonByHeader = /application\/json|text\/json/i.test(contentTypeHeader);
+        const canParseJson = (() => {
+          try {
+            JSON.parse(responseText);
+            return true;
+          } catch {
+            return false;
+          }
+        })();
+        const asJson = cfg.outputMode === "json" || (cfg.outputMode === "auto" && isJsonByHeader && canParseJson);
+
+        if (cfg.failOnError && (response.status < 200 || response.status >= 300)) {
+          states.set(nodeId, "failed");
+          status = "failed";
+          emit({
+            type: "node.failed",
+            nodeId,
+            attempt,
+            error: `HTTP ${cfg.method} ${targetUrl.toString()} 返回 ${response.status}: ${responseText.slice(0, 200)}`,
+            errorCode: "PROVIDER_ERROR",
+          });
+          return;
+        }
+
+        const output = asJson ? JSON.stringify(JSON.parse(responseText), null, 2) : responseText;
+        const artifact: Artifact = asJson
+          ? { id: `${nodeId}-json`, kind: "json", content: output, mimeType: "application/json" }
+          : { id: `${nodeId}-text`, kind: "text", content: output, mimeType: "text/plain" };
+        artifacts.set(nodeId, [artifact]);
+        emit({ type: "artifact.produced", nodeId, attempt, artifact });
+        states.set(nodeId, "done");
+        emit({ type: "node.finished", nodeId, attempt, output, usage: zeroUsage() });
+        sendPackets(nodeId, output.slice(0, 120), artifact.kind);
         return;
       }
 

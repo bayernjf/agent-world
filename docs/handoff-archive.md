@@ -1784,3 +1784,9 @@ modality 切片，统一严格过滤；同时把 agent 的占位文案从泛化�
 - `pnpm --filter @agent-world/web exec tsc --noEmit`：全绿
 - `pnpm --filter @agent-world/web exec vitest run`：19 通过
 - 沙箱 EPERM，未在 8791 端到端复现
+
+## Additions (post-2026-08-27)
+
+> Entries rolled out of the active `handoff.md` "Recently shipped" list to keep it at 5 items.
+
+- `c0dd67d` — **fix(server)**: `/api/proxy` 要求登录并拒绝内网地址（回环 / RFC1918 / 云元数据 / IPv6 本地段），重定向逐跳复检，堵未认证 SSRF

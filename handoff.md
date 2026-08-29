@@ -23,7 +23,7 @@ State of Agent World as of 2026-08-29.
 ## Current state
 
 - **Monorepo**：`packages/core` / `packages/server` (Node + sqlite, 端口 8791) / `apps/web` (Vite, 端口 5173)
-- **核心能力**：4 类节点（agent / imageGen / videoGen / audioGen），多产线管理，Inspector 模型下拉严格按 modality 过滤，多模态产出（Artifact 分层），流式 + SSE + 断线重连 + halt/resume，成本电表（token + 单价两种模式），评估体系雏形，产物落库归属流水线（artifacts 的 graph_id/role）
+- **核心能力**：4 类节点（agent / imageGen / videoGen / audioGen）+ **HTTP 请求节点**，多产线管理，Inspector 模型下拉严格按 modality 过滤，多模态产出（Artifact 分层），流式 + SSE + 断线重连 + halt/resume，成本电表（token + 单价两种模式），评估体系雏形，产物落库归属流水线（artifacts 的 graph_id/role）
 - **本轮已落地（2026-08-29，均已提交）**：
   - **账号系统 / 按用户隔离**（`5b81c74` + `73d3610`）：users 表 + JWT(HS256, bcrypt12) HttpOnly cookie 会话 + graphs/runs/artifacts/brand_terms/成本全部按 `user_id` 过滤 + 前端登录/注册/用户菜单 + `authFetch(credentials:include)`。旧库升级自动回填归属（迁移 14/15 幂等，无法归属的行 fail closed 不可见）
   - **产物统一渲染**：`artifact-renderers.tsx`（ArtifactCard 外壳 + 7 类渲染器注册表 + JSON 树 + 共享 renderMarkdown），Inspector/成品面板/画廊三处接入，画廊按流水线分组，节点缩略图
@@ -46,7 +46,7 @@ State of Agent World as of 2026-08-29.
 
 按优先级降序，标 `★` 的是当下要推的：
 
-1. **★ 通用化 Phase 1 P0**（详见 [docs/roadmap-generalization.md](docs/roadmap-generalization.md)）— HTTP 请求节点 + 代码执行节点 + 条件分支节点 + 数据模型升级（JSON 传递/变量/映射）。这是从"内容生成工具"升级为"通用自动化平台"的基石，做完能处理 80% 场景。
+1. **★ 通用化 Phase 1 P0**（详见 [docs/roadmap-generalization.md](docs/roadmap-generalization.md)）— **HTTP 请求节点已落地**；剩余代码执行节点 + 条件分支节点 + 数据模型升级（JSON 传递/变量/映射）继续推进。这是从"内容生成工具"升级为"通用自动化平台"的基石，做完能处理 80% 场景。
 2. **MCP Server P0 MVP**（详见 [docs/design-mcp-server.md](docs/design-mcp-server.md)）— stdio 传输 + 6 个核心工具（list_graphs/get_graph/run_graph/get_run_status/list_artifacts/get_artifact），让 Claude Desktop/Cursor 等能接入 agent-world。
 3. **Inspector 的"在显眼处加一个去设置的链接"**— 音频模型没配时，下拉只有占位项，没引导；新建节点有 toast 软提示覆盖
 4. **安全决策项（等 owner 拍板）**— `/api/settings` 是否按用户隔离（当前全局配置，任何登录用户可改共享 provider key）；cookie `Secure` 标志（取决于部署是否 TLS 终止）；proxy DNS-rebinding 加固（仅公网部署需要）；webhook 触发器空 secret 强制。背景已固化在安全审计结论里，勿盲目"顺手修"
@@ -55,7 +55,7 @@ State of Agent World as of 2026-08-29.
 
 按 commit 时间倒序，每条一行影响面 + commit hash：
 
-1. `c0dd67d` — **fix(server)**: `/api/proxy` 要求登录并拒绝内网地址（回环 / RFC1918 / 云元数据 / IPv6 本地段），重定向逐跳复检，堵未认证 SSRF
+1. `TBD` — **feat(core/server/web)**: Phase 1 P0 第一个闭环——HTTP 请求节点 + 变量表达式插值（`${nodeId.path}`）。新增 `NodeKind.http`、HTTP 节点配置与执行（fetch/超时/错误处理/json 或 text artifact）、Canvas 标签、Inspector 面板、4 个 server 测试 + 6 个 core 变量测试。`c0dd67d` 已移入 [docs/handoff-archive.md](docs/handoff-archive.md) Additions。
 2. `299dc63` — **fix(server)**: artifacts 全链路按用户归属（user_id 列 + 迁移 15 回填 + 读接口过滤），堵跨用户读取/下载
 3. `17dfbf9` — **refactor(server)**: 删除从未被引用的 SKIP_AUTH 白名单（消除免鉴权脚枪）
 4. `e3e2f88` — **test(server)**: 测试适配 user-scoped DB 与 auth API（server 套件转绿）
@@ -68,8 +68,8 @@ State of Agent World as of 2026-08-29.
 > 这里的 snapshot 是"今天跑过的"状态；archive 章节里的"质量门"是各 commit 当时的状态，不要混用。
 
 - `pnpm -r typecheck`：全绿
-- `pnpm --filter @agent-world/core test`：54/54 通过
-- `pnpm --filter @agent-world/server test`：267/267 通过（含 artifact 跨用户隔离、迁移 15 回填、上传 id 防碰撞用例）
+- `pnpm --filter @agent-world/core test`：60/60 通过
+- `pnpm --filter @agent-world/server test`：271/271 通过（含 artifact 跨用户隔离、迁移 15 回填、上传 id 防碰撞用例）
 - `pnpm --filter @agent-world/web exec vitest run`：19/19 通过
 - **注意**：依赖 `node:sqlite`，必须 Node ≥ 22（CI 用 Node 24；本地 shell 默认 Node 20 会误报 `No such built-in module: node:sqlite`，用 `fnm exec --using=24` 跑）
 

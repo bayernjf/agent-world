@@ -1,5 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import { UNIT_LABELS, parseProductDocument, type Artifact, type AudioGenConfig, type Graph, type VideoGenConfig } from "@agent-world/core";
+import {
+  UNIT_LABELS,
+  parseProductDocument,
+  type Artifact,
+  type AudioGenConfig,
+  type Graph,
+  type HttpNodeConfig,
+  type VideoGenConfig,
+} from "@agent-world/core";
 import { ArtifactCard, renderMarkdown } from "../lib/artifact-renderers";
 import { api, type AppConfig, type Modality } from "../lib/api";
 import { useGraph } from "../store/graph";
@@ -32,6 +40,23 @@ function formatDuration(ms: number): string {
   if (h < 24) return `${h}h ${rm}m`;
   const d = Math.floor(h / 24);
   return `${d}d ${h % 24}h`;
+}
+
+function parsePairs(text: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const line of text.split("\n")) {
+    const idx = line.indexOf(":");
+    if (idx > 0) {
+      out[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
+    }
+  }
+  return out;
+}
+
+function formatPairs(obj: Record<string, string>): string {
+  return Object.entries(obj)
+    .map(([k, v]) => `${k}: ${v}`)
+    .join("\n");
 }
 
 /** Cheap line-level diff — enough to see what a rework attempt actually changed. */
@@ -1096,6 +1121,122 @@ export default function Inspector() {
                 <option value="pass">放行</option>
               </select>
             </label>
+          </>
+        )}
+
+        {node.kind === "http" && node.http && (
+          <>
+            <label className="field">
+              <span>方法</span>
+              <select
+                className="select"
+                value={node.http.method}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    http: { ...node.http!, method: e.target.value as HttpNodeConfig["method"] },
+                  })
+                }
+              >
+                {["GET", "POST", "PUT", "DELETE", "PATCH"].map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>URL</span>
+              <input
+                type="text"
+                placeholder="https://api.example.com/data"
+                value={node.http.url}
+                onChange={(e) =>
+                  updateNode(node.id, { http: { ...node.http!, url: e.target.value } })
+                }
+              />
+            </label>
+            <label className="field">
+              <span>Query 参数（每行 key: value）</span>
+              <textarea
+                rows={3}
+                placeholder="page: 1&#10;limit: 10"
+                value={formatPairs(node.http.query ?? {})}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    http: { ...node.http!, query: parsePairs(e.target.value) },
+                  })
+                }
+              />
+            </label>
+            <label className="field">
+              <span>请求头（每行 key: value）</span>
+              <textarea
+                rows={3}
+                placeholder="Authorization: Bearer xxx"
+                value={formatPairs(node.http.headers ?? {})}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    http: { ...node.http!, headers: parsePairs(e.target.value) },
+                  })
+                }
+              />
+            </label>
+            <label className="field">
+              <span>请求体</span>
+              <textarea
+                rows={4}
+                placeholder='{"foo": "${source}"}'
+                value={node.http.body ?? ""}
+                onChange={(e) =>
+                  updateNode(node.id, { http: { ...node.http!, body: e.target.value } })
+                }
+              />
+            </label>
+            <label className="field">
+              <span>超时（毫秒）</span>
+              <input
+                type="number"
+                min={1000}
+                step={1000}
+                value={node.http.timeoutMs}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    http: { ...node.http!, timeoutMs: Number(e.target.value) },
+                  })
+                }
+              />
+            </label>
+            <label className="field">
+              <span>输出模式</span>
+              <select
+                className="select"
+                value={node.http.outputMode}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    http: { ...node.http!, outputMode: e.target.value as HttpNodeConfig["outputMode"] },
+                  })
+                }
+              >
+                <option value="auto">自动（JSON 响应存为 json artifact）</option>
+                <option value="json">强制 JSON</option>
+                <option value="text">强制文本</option>
+              </select>
+            </label>
+            <label className="field field--row">
+              <input
+                type="checkbox"
+                checked={node.http.failOnError}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    http: { ...node.http!, failOnError: e.target.checked },
+                  })
+                }
+              />
+              <span>非 2xx 响应视为节点失败</span>
+            </label>
+            <p className="note">
+              URL / 请求头 / Query / 请求体支持变量插值：${"{"}上游节点id{".字段}"}，例如 ${"{"}source.price{"}"}。
+            </p>
           </>
         )}
 

@@ -20,6 +20,7 @@ const PRIMARY: NodeButton[] = [
 const MORE: NodeButton[] = [
   { kind: "source", label: "原料台", hint: "Source 节点：产线起点", primary: false },
   { kind: "sink", label: "成品库", hint: "Sink 节点：产线终点", primary: false },
+  { kind: "http", label: "HTTP", hint: "HTTP 请求节点：调用外部 API", primary: false },
   { kind: "videoGen", label: "AI 视频", hint: "VideoGen 节点", primary: false },
   { kind: "audioGen", label: "AI 音频", hint: "AudioGen 节点", primary: false },
 ];
