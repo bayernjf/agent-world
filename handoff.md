@@ -57,11 +57,11 @@ State of Agent World as of 2026-08-29.
 
 按 commit 时间倒序，每条一行影响面 + commit hash：
 
-1. `a77f127` — **feat(web)**: **Phase 4 错误处理 PR⑤——运行历史「重新运行」按钮**。api.ts rerunRun；RunHistory 行尾按钮（failed 常显/hover 显示、running 隐藏、防抖、错误内联提示），成功后刷新并打开新 run。web build 通过。
-2. `3dea78d` — **feat(error)**: **Phase 4 错误处理 PR④——失败告警 + rerun API**。notifyFailed（RUN_FAILED_WEBHOOK，run failed 时 POST 失败节点明细 + skippedCount）+ `POST /api/runs/:id/rerun`（复用 run 行 snapshot+input+budget 重跑，trigger:"rerun"，零死信新表）。5 个新测试。
-3. `ce17008` — **feat(error)**: **Phase 4 错误处理 PR③——error 边 + catch 节点**。EdgeKind 加 "error"（catch 语义：任一 error 前驱 failed 即 ready）；engine emit 包装记录 lastError + schedule running===0 处理 error packet + catchReady 重启 + finish 重新评估（failed 有 error 边到 done catch 视为已处理，run 保持 done）+ inputFor/buildNodeContext 合并 flow+error 前驱。2 个新测试。
-4. `906a70e` — **feat(error)**: **Phase 4 错误处理 PR②——级联 skip**。`NodeState.skipped` 从 branch 扩展到失败节点搁浅下游；engine schedule running===0 分支加不动点级联（failed/skipped 前驱 + 无 done 前驱 → skip + emit node.skipped；halted/cancelled 不级联）；core 加 node.skipped RunEvent + NodeRuntime.status 加 skipped；web STATUS_LABEL 加「已跳过」。2 个新测试。
-5. `d31c482` — **feat(retry)**: **Phase 4 错误处理 PR①——重试去重+补全**。抽公共 `retry.ts`（withRetry + isRetryable 回调 + 指数退避），notify/vcs 删私有 withRetry 改用公共（去重）；translate retry 从硬编码提到 TranslateConfig；SearchConfig/HttpNodeConfig/CodeNodeConfig 加 retry 字段 + search/http/code 执行分支加重试（http 5xx 重试 4xx/timeout 不重试、code 仅 spawn-error 重试）；web DEFAULTS 四处补 retry。search +1 重试用例。
+1. `f607dde` — **feat(web)**: **human 节点 UI**。工具栏「人工审批」入口 + Inspector 审批提示面板 + ControlPanel halted 时展示待审批内容（pendingReview）并保留批准/编辑/驳回按钮；状态文案 human halt 显示「等待人工审批」。
+2. `20d9c9f` — **feat(human)**: **人工审批节点 human（Phase 4 human-in-the-loop）**。core：NodeKind.human + HumanConfig(prompt)；事件 human.review（上游 text 待审批）+ human.decision（approved/edited/rejected）；runtime 把 pendingReview reduce 到节点、decision 映射 done/failed。engine：human 分支主动 halt（haltReason human:，notifyHalt 告警）；resume approve/edit → human.decision + review 内容交给下游（edit 覆盖）；reject → 节点 failed（error 边可接住，否则 run failed）；reconstructState 回放 human.decision。5 个新测试（halt+review / approve / edit / reject / reject→error 边）。**Phase 4 五步错误处理 + 人工审批闭环全部落地**。
+3. `a77f127` — **feat(web)**: **Phase 4 错误处理 PR⑤——运行历史「重新运行」按钮**。api.ts rerunRun；RunHistory 行尾按钮（failed 常显/hover 显示、running 隐藏、防抖、错误内联提示），成功后刷新并打开新 run。web build 通过。
+4. `3dea78d` — **feat(error)**: **Phase 4 错误处理 PR④——失败告警 + rerun API**。notifyFailed（RUN_FAILED_WEBHOOK，run failed 时 POST 失败节点明细 + skippedCount）+ `POST /api/runs/:id/rerun`（复用 run 行 snapshot+input+budget 重跑，trigger:"rerun"，零死信新表）。5 个新测试。
+5. `ce17008` — **feat(error)**: **Phase 4 错误处理 PR③——error 边 + catch 节点**。EdgeKind 加 "error"（catch 语义：任一 error 前驱 failed 即 ready）；engine emit 包装记录 lastError + schedule running===0 处理 error packet + catchReady 重启 + finish 重新评估（failed 有 error 边到 done catch 视为已处理，run 保持 done）+ inputFor/buildNodeContext 合并 flow+error 前驱。2 个新测试。
 最近 5 条之前的全部在 [docs/handoff-archive.md](docs/handoff-archive.md) 的"阶段 4 收尾"系列章节里（含 HTTP 节点第一闭环 `1856d81`、账号系统 `5b81c74`/`73d3610` 等）。
 
 ## Quality gate (current snapshot)
@@ -70,7 +70,7 @@ State of Agent World as of 2026-08-29.
 
 - `pnpm -r typecheck`：全绿
 - `pnpm --filter @agent-world/core test`：142/142 通过（含 EdgeKind error / buildNodeContext error 前驱 / node.skipped event + HTTP file 模式用例）
-- `pnpm --filter @agent-world/server test`：384/384 通过（含 failalert：RUN_FAILED_WEBHOOK 告警含失败明细、成功不告警、未配置不告警；rerun API：同快照+input 重跑、404；error-edge/skip 级联；retry 共享 withRetry；vcs/notify halt 全部用例）
+- `pnpm --filter @agent-world/server test`：389/389 通过（含 human 节点：halt+review / approve / edit / reject / reject→error 边；failalert webhook；rerun API；error-edge/skip 级联；retry 共享 withRetry；vcs/notify halt 全部用例）
 - `pnpm --filter @agent-world/mcp-server test`：22/22 通过（含 resources/prompts 协议用例 + HTTP 传输 + 真实 socket 冒烟）
 - `pnpm --filter @agent-world/web exec vitest run`：19/19 通过
 - **注意**：依赖 `node:sqlite`，必须 Node ≥ 22（CI 用 Node 24；本地 shell 默认 Node 20 会误报 `No such built-in module: node:sqlite`，用 `fnm exec --using=24` 跑）
