@@ -7,6 +7,7 @@ import {
   OcrConfig,
   SearchConfig,
   TranslateConfig,
+  NotifyConfig,
 } from "./graph.js";
 
 describe("FileParseConfig", () => {
@@ -218,5 +219,53 @@ describe("SearchConfig", () => {
     });
     expect(node.kind).toBe("search");
     expect(node.search?.provider).toBe("google");
+  });
+});
+
+describe("NotifyConfig", () => {
+  it("requires an explicit provider and defaults to an empty message", () => {
+    const cfg = NotifyConfig.parse({ provider: "feishu" });
+    expect(cfg.message).toBe("");
+    expect(cfg.webhookUrl).toBeUndefined();
+    expect(cfg.secret).toBeUndefined();
+    expect(cfg.to).toBeUndefined();
+    expect(cfg.subject).toBeUndefined();
+  });
+
+  it("parses a full feishu group-bot config", () => {
+    const cfg = NotifyConfig.parse({
+      provider: "feishu",
+      message: "Build done",
+      webhookUrl: "https://open.feishu.cn/open-apis/bot/v2/hook/abc",
+    });
+    expect(cfg.provider).toBe("feishu");
+    expect(cfg.message).toBe("Build done");
+    expect(cfg.webhookUrl).toBe("https://open.feishu.cn/open-apis/bot/v2/hook/abc");
+  });
+
+  it("parses an email config with recipient and subject", () => {
+    const cfg = NotifyConfig.parse({ provider: "email", to: "a@b.com", subject: "Report" });
+    expect(cfg.to).toBe("a@b.com");
+    expect(cfg.subject).toBe("Report");
+  });
+
+  it("rejects unknown providers, bad URLs and invalid emails", () => {
+    expect(() => NotifyConfig.parse({})).toThrow();
+    expect(() => NotifyConfig.parse({ provider: "slack" })).toThrow();
+    expect(() => NotifyConfig.parse({ provider: "feishu", webhookUrl: "not-a-url" })).toThrow();
+    expect(() => NotifyConfig.parse({ provider: "email", to: "not-an-email" })).toThrow();
+  });
+
+  it("round-trips inside a GraphNode", () => {
+    const node = GraphNode.parse({
+      id: "nt1",
+      kind: "notify",
+      name: "NOTIFY",
+      x: 0,
+      y: 0,
+      notify: { provider: "dingtalk", secret: "SEC123" },
+    });
+    expect(node.kind).toBe("notify");
+    expect(node.notify?.secret).toBe("SEC123");
   });
 });

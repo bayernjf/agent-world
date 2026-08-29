@@ -12,6 +12,7 @@ import {
   OcrConfig,
   ConvertConfig,
   SearchConfig,
+  NotifyConfig,
   applyTableSteps,
   buildNodeContext,
   collectColumns,
@@ -50,6 +51,7 @@ import { dataUriToBuffer, parseDocument, extractPdfImages } from "./parse-file.j
 import { ocrImage } from "./ocr.js";
 import { decodeImage, encodeJpeg, encodePng } from "./convert.js";
 import { searchWeb, SearchAuthError } from "./search.js";
+import { sendNotification, NotifyAuthError } from "./notifier.js";
 import { allowPrivateNetwork, hostIsInternal } from "./ssrf.js";
 
 /**
@@ -2081,6 +2083,94 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
             nodeId,
             attempt,
             error: `搜索节点执行出错: ${sanitizeError(err instanceof Error ? err.message : String(err))}`,
+          });
+        }
+        return;
+      }
+
+      if (node.kind === "notify") {
+        emit({ type: "node.started", nodeId, attempt });
+        try {
+          const cfg = NotifyConfig.parse(node.notify ?? {});
+          let message = cfg.message.trim();
+          if (!message) {
+            // Fall back to the upstream text artifact — the "produce → notify" tail.
+            const sources = incoming(graph, nodeId, "flow").map((e) => e.from);
+            for (const s of sources) {
+              const t = (artifacts.get(s) ?? []).find((a) => a.kind === "text")?.content;
+              if (t?.trim()) {
+                message = t.trim();
+                break;
+              }
+            }
+          }
+          if (!message) {
+            states.set(nodeId, "failed");
+            emit({
+              type: "node.failed",
+              nodeId,
+              attempt,
+              error: "没有可发送的消息（请在配置中填写 message，或连接产出 text 的上游）",
+              errorCode: "VALIDATION",
+            });
+            return;
+          }
+          if (cfg.provider !== "email" && !cfg.webhookUrl) {
+            states.set(nodeId, "failed");
+            emit({
+              type: "node.failed",
+              nodeId,
+              attempt,
+              error: `缺少 webhookUrl（${cfg.provider} 群机器人需要 webhook 地址）`,
+              errorCode: "VALIDATION",
+            });
+            return;
+          }
+          if (cfg.provider === "email" && !cfg.to) {
+            states.set(nodeId, "failed");
+            emit({
+              type: "node.failed",
+              nodeId,
+              attempt,
+              error: "缺少收件人（email 通知需要填写 to）",
+              errorCode: "VALIDATION",
+            });
+            return;
+          }
+          const subject = cfg.subject?.trim() || node.name || "Agent World 通知";
+          let result: { provider: string; detail: string };
+          try {
+            result = await sendNotification(cfg, message, subject);
+          } catch (err) {
+            states.set(nodeId, "failed");
+            emit({
+              type: "node.failed",
+              nodeId,
+              attempt,
+              error: `通知发送失败: ${sanitizeError(err instanceof Error ? err.message : String(err))}`,
+              errorCode: err instanceof NotifyAuthError ? "AUTH" : "PROVIDER_ERROR",
+            });
+            return;
+          }
+          const artifact: Artifact = {
+            id: `${nodeId}-json`,
+            kind: "json",
+            content: JSON.stringify({ sent: true, ...result, chars: message.length }, null, 2),
+            mimeType: "application/json",
+          };
+          artifacts.set(nodeId, [artifact]);
+          emit({ type: "artifact.produced", nodeId, attempt, artifact });
+          states.set(nodeId, "done");
+          const summary = `通知已发送：${result.provider} → ${result.detail}（${message.length} 字符）`;
+          emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
+          sendPackets(nodeId, summary, "json");
+        } catch (err) {
+          states.set(nodeId, "failed");
+          emit({
+            type: "node.failed",
+            nodeId,
+            attempt,
+            error: `通知节点执行出错: ${sanitizeError(err instanceof Error ? err.message : String(err))}`,
           });
         }
         return;

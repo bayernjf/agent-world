@@ -2235,6 +2235,110 @@ export default function Inspector({ onOpenSettings }: { onOpenSettings: () => vo
           </>
         )}
 
+        {node.kind === "notify" && node.notify && (
+          <>
+            <label className="field">
+              <span>通知渠道</span>
+              <select
+                className="select"
+                value={node.notify.provider}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    notify: { ...node.notify!, provider: e.target.value as "feishu" | "dingtalk" | "wecom" | "email" },
+                  })
+                }
+              >
+                <option value="feishu">飞书群机器人</option>
+                <option value="dingtalk">钉钉群机器人</option>
+                <option value="wecom">企业微信群机器人</option>
+                <option value="email">邮件（SMTP）</option>
+              </select>
+            </label>
+            <label className="field">
+              <span>消息内容</span>
+              <textarea
+                rows={3}
+                placeholder="留空则发送上游 text 产物作为消息"
+                value={node.notify.message}
+                onChange={(e) =>
+                  updateNode(node.id, {
+                    notify: { ...node.notify!, message: e.target.value },
+                  })
+                }
+              />
+            </label>
+            {node.notify.provider !== "email" && (
+              <label className="field">
+                <span>Webhook 地址</span>
+                <input
+                  className="input"
+                  type="text"
+                  placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/…"
+                  value={node.notify.webhookUrl ?? ""}
+                  onChange={(e) =>
+                    updateNode(node.id, {
+                      notify: { ...node.notify!, webhookUrl: e.target.value || undefined },
+                    })
+                  }
+                />
+              </label>
+            )}
+            {node.notify.provider === "dingtalk" && (
+              <label className="field">
+                <span>加签密钥（可选）</span>
+                <input
+                  className="input"
+                  type="text"
+                  placeholder="SEC…（机器人开启「加签」时填写）"
+                  value={node.notify.secret ?? ""}
+                  onChange={(e) =>
+                    updateNode(node.id, {
+                      notify: { ...node.notify!, secret: e.target.value || undefined },
+                    })
+                  }
+                />
+              </label>
+            )}
+            {node.notify.provider === "email" && (
+              <>
+                <label className="field">
+                  <span>收件人</span>
+                  <input
+                    className="input"
+                    type="text"
+                    placeholder="someone@example.com"
+                    value={node.notify.to ?? ""}
+                    onChange={(e) =>
+                      updateNode(node.id, {
+                        notify: { ...node.notify!, to: e.target.value || undefined },
+                      })
+                    }
+                  />
+                </label>
+                <label className="field">
+                  <span>邮件主题（可选）</span>
+                  <input
+                    className="input"
+                    type="text"
+                    placeholder="默认为节点名"
+                    value={node.notify.subject ?? ""}
+                    onChange={(e) =>
+                      updateNode(node.id, {
+                        notify: { ...node.notify!, subject: e.target.value || undefined },
+                      })
+                    }
+                  />
+                </label>
+              </>
+            )}
+            <p className="note">
+              把消息发送到飞书 / 钉钉 / 企业微信群机器人或邮件，发送结果落为 json
+              产物可审计。消息留空时发送上游 text 产物——「搜索 → 总结 → 通知」的最后一公里；邮件需在服务端配置
+              SMTP_HOST / SMTP_USER / SMTP_PASS 环境变量。
+            </p>
+          </>
+        )}
+
         </>)}
         {mainTab === "output" && (<>
         {rt?.error && (

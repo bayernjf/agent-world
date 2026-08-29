@@ -27,6 +27,7 @@ export const NodeKind = z.enum([
   "ocr",
   "convert",
   "search",
+  "notify",
 ]);
 export type NodeKind = z.infer<typeof NodeKind>;
 
@@ -442,6 +443,31 @@ export const SearchConfig = z.object({
 });
 export type SearchConfig = z.infer<typeof SearchConfig>;
 
+/**
+ * Configuration for a `notify` node: send a message to a chat channel or an
+ * email address and emit the delivery result as a `json` artifact. Group-bot
+ * providers (feishu/dingtalk/wecom) take the bot's webhook URL in the node
+ * config — one graph can notify different groups; email reads SMTP credentials
+ * from env (SMTP_HOST / SMTP_PORT / SMTP_USER / SMTP_PASS / SMTP_FROM) so the
+ * password never enters the graph. When `message` is empty the upstream text
+ * artifact is sent instead — the classic "search → summarize → notify" tail.
+ */
+export const NotifyConfig = z.object({
+  /** Delivery channel. */
+  provider: z.enum(["feishu", "dingtalk", "wecom", "email"]),
+  /** Static message body; falls back to the upstream text artifact when empty. */
+  message: z.string().default(""),
+  /** Group-bot webhook URL (feishu / dingtalk / wecom). */
+  webhookUrl: z.string().url().optional(),
+  /** DingTalk signed-bot secret (optional, only for dingtalk). */
+  secret: z.string().optional(),
+  /** Recipient email address (provider = email). */
+  to: z.string().email().optional(),
+  /** Email subject; defaults to the node name. */
+  subject: z.string().optional(),
+});
+export type NotifyConfig = z.infer<typeof NotifyConfig>;
+
 export const GateConfig = z.object({
   maxAttempts: z.number().int().min(1).max(10).default(3),
   criterion: z.string().default(""),
@@ -560,6 +586,7 @@ export const GraphNode = z.object({
   ocr: OcrConfig.optional(),
   convert: ConvertConfig.optional(),
   search: SearchConfig.optional(),
+  notify: NotifyConfig.optional(),
   source: SourceConfig.optional(),
 });
 export type GraphNode = z.infer<typeof GraphNode>;
