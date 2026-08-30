@@ -4,6 +4,7 @@ import type { Mode } from "../canvas/Canvas";
 import { useGraph } from "../store/graph";
 import { useRun, useVisibleRuntime, resumeRun } from "../store/run";
 import { api, type AppConfig } from "../lib/api";
+import Tooltip from "./Tooltip";
 
 interface Props {
   mode: Mode;
@@ -170,9 +171,9 @@ export default function ControlPanel(props: Props) {
               ) : (
                 <p className="muted">
                   电力读数待派发后出现 · 在
-                  <span className="inline-info" title="未配置模型单价时只显示 token 用量；在「设置」里填入单价后可显示电费和预算">
-                    ⓘ 设置
-                  </span>
+                  <Tooltip content="未配置模型单价时只显示 token 用量；在「设置」里填入单价后可显示电费和预算">
+                    <span className="inline-info">ⓘ 设置</span>
+                  </Tooltip>
                   里填入单价可开启预算和电费读数
                 </p>
               )
