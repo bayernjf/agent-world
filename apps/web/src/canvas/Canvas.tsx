@@ -15,7 +15,7 @@ const flashDeleted = (message: string) =>
     actions: [{ label: "撤销", onClick: () => useGraph.getState().undo() }],
   });
 
-export type Mode = "select" | "connect" | "rework" | "delete";
+export type Mode = "select" | "connect" | "rework" | "error" | "delete";
 
 /** Below the drag threshold a pointer gesture counts as a click, not a move. */
 const CLICK_SLOP = 5;
@@ -336,11 +336,11 @@ export default function Canvas({ mode }: Props) {
       return;
     }
 
-    if (mode === "connect" || mode === "rework") {
+    if (mode === "connect" || mode === "rework" || mode === "error") {
       if (!connectFrom) {
         setConnectFrom(node.id);
       } else {
-        const res = addEdge(connectFrom, node.id, mode === "rework" ? "rework" : "flow");
+        const res = addEdge(connectFrom, node.id, mode === "connect" ? "flow" : mode);
         if (!res.ok && res.reason) showToast(res.reason);
         setConnectFrom(null);
       }

@@ -52,4 +52,24 @@ describe("templates", () => {
       expect(result.plan, `${tpl.id} should produce an executable plan`).not.toBeNull();
     }
   });
+
+  it("template fields (when declared) reference nodes that exist and have unique keys", () => {
+    for (const tpl of TEMPLATES) {
+      if (!tpl.fields) continue;
+      const nodeIds = new Set(tpl.graph.nodes.map((n) => n.id));
+      const keys = new Set<string>();
+      for (const f of tpl.fields) {
+        expect(keys.has(f.key), `${tpl.id}: duplicate field key ${f.key}`).toBe(false);
+        keys.add(f.key);
+        expect(f.applyTo.length, `${tpl.id}: field ${f.key} has no applyTo`).toBeGreaterThan(0);
+        for (const target of f.applyTo) {
+          expect(
+            nodeIds.has(target.nodeId),
+            `${tpl.id}: field ${f.key} targets missing node ${target.nodeId}`,
+          ).toBe(true);
+          expect(target.path, `${tpl.id}: field ${f.key} has empty path`).toBeTruthy();
+        }
+      }
+    }
+  });
 });

@@ -2,6 +2,29 @@ import { z } from "zod";
 import { Graph } from "./graph.js";
 
 /**
+ * A user-fillable placeholder in a template, e.g. a brand name or a target URL
+ * that the template's node configs reference. Schema-only for now — the web
+ * form UI is deferred (see docs/design-templates.md §3) — but the shape is
+ * fixed here so future templates don't need a breaking change.
+ */
+export interface TemplateField {
+  /** Stable key identifying this field, e.g. "brand". */
+  key: string;
+  /** Human label shown above the input, e.g. "品牌名". */
+  label: string;
+  /** Placeholder shown in the empty input. */
+  placeholder?: string;
+  /** Value used when the user skips the form. */
+  defaultValue?: string;
+  /**
+   * Where the value goes: node-id + config-path pairs. The path is dot-joined
+   * keys into the node object (e.g. "agent.prompt"); the field value REPLACES
+   * the whole value at that path.
+   */
+  applyTo: { nodeId: string; path: string }[];
+}
+
+/**
  * A reusable production-line blueprint. Templates are plain graphs with stable
  * placeholder ids; the runtime strips ids when instantiating so each created
  * graph gets fresh identity.
@@ -11,6 +34,8 @@ export interface GraphTemplate {
   name: string;
   description: string;
   category: string;
+  /** Optional user-fillable placeholders applied at instantiation time. */
+  fields?: TemplateField[];
   /** The graph definition. Nodes/edges carry descriptive, human-readable names. */
   graph: z.input<typeof Graph>;
 }
@@ -409,12 +434,309 @@ const docReviewGraph = {
   },
 } satisfies GraphTemplate;
 
+const opsWeeklyGraph = {
+  id: "tpl-ops-weekly",
+  name: "运营周报",
+  description: "拉取数据 → 代码清洗汇总 → AI 生成周报",
+  category: "数据分析",
+  graph: {
+    id: "tpl-ops-weekly",
+    name: "运营周报",
+    nodes: [
+      { id: "intake", kind: "source", name: "周期开关", x: 80, y: 300 },
+      {
+        id: "fetch",
+        kind: "http",
+        name: "拉取数据",
+        x: 340,
+        y: 300,
+        http: {
+          url: "https://raw.githubusercontent.com/github/rest-api-description/main/examples/README.md",
+          method: "GET",
+          outputMode: "json",
+        },
+      },
+      {
+        id: "clean",
+        kind: "code",
+        name: "清洗汇总",
+        x: 600,
+        y: 300,
+        code: {
+          language: "javascript",
+          code: [
+            "// 读取上游数据（http 节点输出 JSON；失败时走 error 边到兜底节点）",
+            "const raw = JSON.parse(Object.values(inputs)[0] ?? \"{}\");",
+            "// TODO: 按你的业务字段做清洗与聚合，这里给出一个通用骨架",
+            "const rows = Array.isArray(raw) ? raw : (raw.items ?? raw.data ?? [raw]);",
+            "const summary = {",
+            "  总量: rows.length,",
+            "  示例字段: Object.keys(rows[0] ?? {}).slice(0, 5),",
+            "};",
+            "console.log(JSON.stringify({ 原始行数: rows.length, 汇总: summary }, null, 2));",
+          ].join("\n"),
+        },
+      },
+      {
+        id: "writer",
+        kind: "agent",
+        name: "周报撰写",
+        x: 860,
+        y: 300,
+        agent: {
+          model: "agnes-2.0-flash",
+          prompt:
+            "你是数据运营分析师。基于上游清洗汇总后的数据，写一份结构化周报：" +
+            "整体表现（2-3 句）→ 关键指标变化（分点，标注数字）→ 异常与原因推测 → 下周建议。" +
+            "语言克制，结论必须有数据支撑，不要编造数据里没有的数字。",
+          skills: [],
+        },
+      },
+      { id: "depot", kind: "sink", name: "周报归档", x: 1140, y: 300 },
+      {
+        id: "fallback",
+        kind: "agent",
+        name: "无数据兜底",
+        x: 340,
+        y: 560,
+        agent: {
+          model: "agnes-2.0-flash",
+          prompt:
+            "上游数据拉取失败（可能是网络未开或 URL 需要更换）。请向用户说明：这是一个数据拉取→清洗→AI 周报的流水线，" +
+            "请在「拉取数据」节点换成自己的 API 地址后重试。输出一段简短的说明文字。",
+          skills: [],
+        },
+      },
+    ],
+    edges: [
+      { id: "e0", from: "intake", to: "fetch", kind: "flow" },
+      { id: "e1", from: "fetch", to: "clean", kind: "flow" },
+      { id: "e2", from: "clean", to: "writer", kind: "flow" },
+      { id: "e3", from: "writer", to: "depot", kind: "flow" },
+      { id: "x1", from: "fetch", to: "fallback", kind: "error" },
+      { id: "x2", from: "fallback", to: "depot", kind: "flow" },
+    ],
+  },
+} satisfies GraphTemplate;
+
+const patrolAlertGraph = {
+  id: "tpl-patrol-alert",
+  name: "定时巡检告警",
+  description: "健康检查 → 分支判断异常 → 飞书告警 / 正常记录",
+  category: "IT 运维",
+  graph: {
+    id: "tpl-patrol-alert",
+    name: "定时巡检告警",
+    nodes: [
+      { id: "intake", kind: "source", name: "巡检开关", x: 80, y: 300 },
+      {
+        id: "probe",
+        kind: "http",
+        name: "健康检查",
+        x: 340,
+        y: 300,
+        http: {
+          url: "https://httpbin.org/status/200",
+          method: "GET",
+          failOnError: true,
+        },
+      },
+      {
+        id: "judge",
+        kind: "branch",
+        name: "异常判断",
+        x: 600,
+        y: 300,
+        branch: {
+          rules: [
+            { id: "r-down", when: "${probe.ok} != true", target: "alarm" },
+          ],
+          defaultTarget: "record",
+        },
+      },
+      {
+        id: "alarm",
+        kind: "notify",
+        name: "飞书告警",
+        x: 860,
+        y: 180,
+        notify: {
+          provider: "feishu",
+          format: "markdown",
+          message: "🚨 巡检异常：${probe.url} 健康检查失败（状态 ${probe.status}），请立即处理。",
+        },
+      },
+      {
+        id: "record",
+        kind: "sink",
+        name: "正常记录",
+        x: 860,
+        y: 420,
+      },
+    ],
+    edges: [
+      { id: "e0", from: "intake", to: "probe", kind: "flow" },
+      { id: "e1", from: "probe", to: "judge", kind: "flow" },
+      { id: "e2", from: "judge", to: "alarm", kind: "flow" },
+      { id: "e3", from: "judge", to: "record", kind: "flow" },
+    ],
+  },
+} satisfies GraphTemplate;
+
+const researchBriefGraph = {
+  id: "tpl-research-brief",
+  name: "多源研究简报",
+  description: "两路 HTTP 拉取 → 汇聚 → AI 综合研判 → 归档",
+  category: "数据分析",
+  graph: {
+    id: "tpl-research-brief",
+    name: "多源研究简报",
+    nodes: [
+      { id: "intake", kind: "source", name: "研究开关", x: 80, y: 300 },
+      {
+        id: "srcA",
+        kind: "http",
+        name: "数据源 A",
+        x: 340,
+        y: 180,
+        http: { url: "https://httpbin.org/json", method: "GET", outputMode: "json" },
+      },
+      {
+        id: "srcB",
+        kind: "http",
+        name: "数据源 B",
+        x: 340,
+        y: 420,
+        http: { url: "https://httpbin.org/json", method: "GET", outputMode: "json" },
+      },
+      {
+        id: "merge",
+        kind: "parallel",
+        name: "汇聚",
+        x: 600,
+        y: 300,
+      },
+      {
+        id: "analyst",
+        kind: "agent",
+        name: "综合研判",
+        x: 860,
+        y: 300,
+        agent: {
+          model: "agnes-2.0-flash",
+          prompt:
+            "你是研究分析师。上游汇聚了两个数据源的 JSON，请交叉比对后输出一份简报：" +
+            "核心结论（1 句）→ 两源一致的信息 → 仅有单源提及、需要二次确认的信息 → 数据缺口。" +
+            "把「换成自己的两个信息源」作为第一步建议写在开头。",
+          skills: [],
+        },
+      },
+      { id: "depot", kind: "sink", name: "简报归档", x: 1140, y: 300 },
+    ],
+    edges: [
+      { id: "e0", from: "intake", to: "srcA", kind: "flow" },
+      { id: "e0b", from: "intake", to: "srcB", kind: "flow" },
+      { id: "e1", from: "srcA", to: "merge", kind: "flow" },
+      { id: "e2", from: "srcB", to: "merge", kind: "flow" },
+      { id: "e3", from: "merge", to: "analyst", kind: "flow" },
+      { id: "e4", from: "analyst", to: "depot", kind: "flow" },
+    ],
+  },
+} satisfies GraphTemplate;
+
+const competitorWatchGraph = {
+  id: "tpl-competitor-watch",
+  name: "竞品监控摘要",
+  description: "拉取竞品页面 → 代码提取 → AI 对比摘要",
+  category: "IT 运维",
+  graph: {
+    id: "tpl-competitor-watch",
+    name: "竞品监控摘要",
+    nodes: [
+      { id: "intake", kind: "source", name: "监控开关", x: 80, y: 300 },
+      {
+        id: "fetch",
+        kind: "http",
+        name: "拉取竞品页",
+        x: 340,
+        y: 300,
+        http: {
+          url: "https://httpbin.org/html",
+          method: "GET",
+          outputMode: "text",
+        },
+      },
+      {
+        id: "extract",
+        kind: "code",
+        name: "字段提取",
+        x: 600,
+        y: 300,
+        code: {
+          language: "javascript",
+          code: [
+            "// 从页面文本里抽取关心的字段；替换成正则以匹配你的竞品页面结构",
+            "const html = String(Object.values(inputs)[0] ?? \"\");",
+            "const text = html.replace(/<[^>]+>/g, \" \").replace(/\\s+/g, \" \").trim();",
+            "console.log(JSON.stringify({",
+            "  长度: text.length,",
+            "  摘要: text.slice(0, 200),",
+            "  抓取时间: new Date().toISOString(),",
+            "}, null, 2));",
+          ].join("\n"),
+        },
+      },
+      {
+        id: "compare",
+        kind: "agent",
+        name: "对比摘要",
+        x: 860,
+        y: 300,
+        agent: {
+          model: "agnes-2.0-flash",
+          prompt:
+            "你是竞品情报分析师。上游提取了竞品页面的摘要信息，请与「我方产品」对比，输出：" +
+            "一句话动向判断 → 值得关注的改动（分点）→ 建议的应对动作。我方产品信息会在运行时由上游输入提供。",
+          skills: [],
+        },
+      },
+      { id: "depot", kind: "sink", name: "情报归档", x: 1140, y: 300 },
+      {
+        id: "fallback",
+        kind: "agent",
+        name: "拉取失败兜底",
+        x: 340,
+        y: 560,
+        agent: {
+          model: "agnes-2.0-flash",
+          prompt:
+            "上游页面拉取失败（外网未开通或站点反爬）。请输出简短说明：本流水线为竞品监控，" +
+            "需要把「拉取竞品页」节点换成可访问的目标地址（或改为本地静态数据）后重试。",
+          skills: [],
+        },
+      },
+    ],
+    edges: [
+      { id: "e0", from: "intake", to: "fetch", kind: "flow" },
+      { id: "e1", from: "fetch", to: "extract", kind: "flow" },
+      { id: "e2", from: "extract", to: "compare", kind: "flow" },
+      { id: "e3", from: "compare", to: "depot", kind: "flow" },
+      { id: "x1", from: "fetch", to: "fallback", kind: "error" },
+      { id: "x2", from: "fallback", to: "depot", kind: "flow" },
+    ],
+  },
+} satisfies GraphTemplate;
+
 export const TEMPLATES: GraphTemplate[] = [
   productDetailGraph,
   xiaohongshuGraph,
   draftGraph,
   translationGraph,
   docReviewGraph,
+  opsWeeklyGraph,
+  patrolAlertGraph,
+  researchBriefGraph,
+  competitorWatchGraph,
   blankGraph,
 ];
 
