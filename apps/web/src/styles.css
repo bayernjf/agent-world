@@ -5571,6 +5571,22 @@ select {
 }
 
 /* 分页 */
+.runhistory-pager-size {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ink-dim);
+}
+.runhistory-pager-size select {
+  padding: 3px 6px;
+  background: var(--steel-800);
+  color: var(--ink);
+  border: var(--hair);
+  border-radius: 3px;
+  font-size: 12px;
+}
+
 .runhistory-pager {
   display: flex;
   align-items: center;

@@ -7,7 +7,7 @@ interface Props {
   onOpen?: (runId: string) => void;
 }
 
-const PAGE_SIZE = 20;
+const PAGE_SIZES = [10, 20, 50, 100];
 // Engine 真实 run status，对齐 ControlPanel.STATUS_TEXT
 const STATUSES = ["running", "done", "halted", "failed", "tripped", "cancelled", "interrupted"];
 
@@ -123,6 +123,7 @@ export default function RunHistory({ open, onClose, onOpen }: Props) {
   const [graphs, setGraphs] = useState<{ id: string; name: string }[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(20);
   const [graphId, setGraphId] = useState("");
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(false);
@@ -137,8 +138,8 @@ export default function RunHistory({ open, onClose, onOpen }: Props) {
     setLoading(true);
     api
       .listRuns({
-        limit: PAGE_SIZE,
-        offset: page * PAGE_SIZE,
+        limit: pageSize,
+        offset: page * pageSize,
         graphId: graphId || undefined,
         status: status || undefined,
       })
@@ -168,7 +169,12 @@ export default function RunHistory({ open, onClose, onOpen }: Props) {
 
   if (!open) return null;
 
-  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+
+  const changePageSize = (size: number) => {
+    setPageSize(size);
+    setPage(0);
+  };
 
   const toggleSelect = (id: string) =>
     setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
@@ -314,6 +320,15 @@ export default function RunHistory({ open, onClose, onOpen }: Props) {
             </div>
 
             <div className="runhistory-pager">
+              <label className="runhistory-pager-size">
+                每页
+                <select value={pageSize} onChange={(e) => changePageSize(Number(e.target.value))}>
+                  {PAGE_SIZES.map((n) => (
+                    <option key={n} value={n}>{n}</option>
+                  ))}
+                </select>
+                条
+              </label>
               <button className="btn" disabled={page === 0} onClick={() => setPage((p) => Math.max(0, p - 1))}>
                 上一页
               </button>
@@ -322,7 +337,7 @@ export default function RunHistory({ open, onClose, onOpen }: Props) {
               </span>
               <button
                 className="btn"
-                disabled={(page + 1) * PAGE_SIZE >= total}
+                disabled={(page + 1) * pageSize >= total}
                 onClick={() => setPage((p) => p + 1)}
               >
                 下一页
