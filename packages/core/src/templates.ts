@@ -120,11 +120,11 @@ const productDetailGraph = {
       { id: "intake", kind: "source", name: "原料台", x: 80, y: 300 },
       {
         id: "selling",
-        kind: "agent",
+        kind: "textGen",
         name: "卖点提炼",
         x: 340,
         y: 300,
-        agent: {
+        textGen: {
           model: "agnes-2.0-flash",
           prompt:
             "你是电商卖点分析师。根据商品的文字描述和参考图片，提炼 5-8 个核心卖点。" +
@@ -135,11 +135,11 @@ const productDetailGraph = {
       },
       {
         id: "copy",
-        kind: "agent",
+        kind: "textGen",
         name: "文案撰写",
         x: 620,
         y: 300,
-        agent: {
+        textGen: {
           model: "agnes-2.0-flash",
           prompt:
             "你是电商文案。基于上游提炼的卖点，撰写商品详情页正文：" +
@@ -149,11 +149,11 @@ const productDetailGraph = {
       },
       {
         id: "layout",
-        kind: "agent",
+        kind: "textGen",
         name: "排版整理",
         x: 900,
         y: 300,
-        agent: {
+        textGen: {
           model: "agnes-2.0-flash",
           prompt:
             "你是淘宝详情页排版编辑。把上游文案整理成结构化商品详情页。只输出一个 ```product-json 代码块，不要输出其他文字，JSON 结构如下：\n```product-json\n{\"platform\":\"taobao\",\"title\":\"商品标题\",\"blocks\":[{\"type\":\"hero\",\"title\":\"主标题\",\"subtitle\":\"一句话核心卖点\",\"image\":\"第一张图URL\"},{\"type\":\"heading\",\"text\":\"产品亮点\"},{\"type\":\"bullets\",\"items\":[\"**亮点1**：说明\",\"亮点2：说明\"]},{\"type\":\"image\",\"src\":\"图URL\",\"caption\":\"图注\",\"align\":\"full\",\"aspect\":\"3:4\"},{\"type\":\"imageCards\",\"layout\":\"grid\",\"columns\":2,\"items\":[{\"src\":\"图URL\",\"caption\":\"图注\",\"span\":2}]},{\"type\":\"paragraph\",\"text\":\"2-3段有画面感的描述\"},{\"type\":\"specs\",\"rows\":[{\"name\":\"参数名\",\"value\":\"值\"}]},{\"type\":\"cta\",\"text\":\"立即选购行动号召\"}]}\n```\n图片使用上游提供的真实图片 URL，不要编造；没有图的块可以省略 image/imageCards。图片区块可加 align(full/left/right/center) 控制位置、aspect(1:1/3:4/4:3/16:9) 控制比例、rounded 控制圆角；多图卡用 layout(grid/carousel/row) 与 columns 控制版式。",
@@ -173,8 +173,8 @@ const productDetailGraph = {
           onExhausted: "halt",
         },
       },
-      { id: "banner", kind: "imageGen", name: "AI 配图", x: 340, y: 560, imageGen: { model: "agnes-image", prompt: "" } },
-      { id: "scene", kind: "imageGen", name: "AI 场景图", x: 560, y: 560, imageGen: { model: "agnes-image", prompt: "为商品生成一张真实使用场景图：自然光线、生活化构图，突出使用环境与氛围代入感" } },
+      { id: "banner", kind: "imageGen", name: "AI 配图", x: 340, y: 560, imageGen: { model: "agnes-image-2.0-flash", prompt: "" } },
+      { id: "scene", kind: "imageGen", name: "AI 场景图", x: 560, y: 560, imageGen: { model: "agnes-image-2.0-flash", prompt: "为商品生成一张真实使用场景图：自然光线、生活化构图，突出使用环境与氛围代入感" } },
       { id: "depot", kind: "sink", name: "成品库", x: 1460, y: 300 },
     ],
     edges: [
@@ -204,11 +204,11 @@ const xiaohongshuGraph = {
       { id: "intake", kind: "source", name: "原料台", x: 80, y: 300 },
       {
         id: "selling",
-        kind: "agent",
+        kind: "textGen",
         name: "卖点提炼",
         x: 340,
         y: 300,
-        agent: {
+        textGen: {
           model: "agnes-2.0-flash",
           prompt:
             "你是小红书选品编辑。根据商品文字描述和参考图片，提炼 4-6 个最适合种草的卖点，" +
@@ -218,11 +218,11 @@ const xiaohongshuGraph = {
       },
       {
         id: "copy",
-        kind: "agent",
+        kind: "textGen",
         name: "种草文案",
         x: 620,
         y: 300,
-        agent: {
+        textGen: {
           model: "agnes-2.0-flash",
           prompt: "你是小红书爆款笔记作者。基于上游卖点，写一篇种草笔记：一个带钩子的标题（可带 emoji）、口语化短句正文、分点使用感受、3-6 个话题标签。语气真诚像朋友安利，不要硬广腔和极限词。",
           skills: [],
@@ -230,11 +230,11 @@ const xiaohongshuGraph = {
       },
       {
         id: "layout",
-        kind: "agent",
+        kind: "textGen",
         name: "笔记排版",
         x: 900,
         y: 300,
-        agent: {
+        textGen: {
           model: "agnes-2.0-flash",
           prompt: "你是小红书笔记排版编辑。把上游文案整理成结构化笔记。只输出一个 ```product-json 代码块，不要输出其他文字，结构如下：\n```product-json\n{\"platform\":\"xiaohongshu\",\"title\":\"笔记标题\",\"blocks\":[{\"type\":\"hero\",\"title\":\"带钩子的标题\",\"subtitle\":\"一句话种草\",\"image\":\"封面图URL\"},{\"type\":\"paragraph\",\"text\":\"口语化开场\"},{\"type\":\"bullets\",\"items\":[\"✨ 卖点1\",\"🌟 卖点2\"]},{\"type\":\"image\",\"src\":\"图URL\",\"caption\":\"图注\",\"align\":\"center\",\"aspect\":\"3:4\"},{\"type\":\"imageCards\",\"layout\":\"carousel\",\"columns\":2,\"items\":[{\"src\":\"图URL\",\"caption\":\"图注\"}]},{\"type\":\"paragraph\",\"text\":\"使用感受总结\"},{\"type\":\"cta\",\"text\":\"互动引导 + #标签1 #标签2\"}]}\n```\n图片使用上游真实图片 URL，不要编造；没有图可省略 image/imageCards。图片区块可加 align(full/left/right/center) 控制位置、aspect(1:1/3:4/4:3/16:9) 控制比例、rounded 控制圆角；多图卡用 layout(grid/carousel/row) 与 columns 控制版式。",
           skills: [],
@@ -252,8 +252,8 @@ const xiaohongshuGraph = {
           onExhausted: "halt",
         },
       },
-      { id: "banner", kind: "imageGen", name: "AI 配图", x: 340, y: 560, imageGen: { model: "agnes-image", prompt: "" } },
-      { id: "scene", kind: "imageGen", name: "AI 场景图", x: 560, y: 560, imageGen: { model: "agnes-image", prompt: "为商品生成一张真实使用场景图：自然光线、生活化构图，突出使用环境与氛围代入感" } },
+      { id: "banner", kind: "imageGen", name: "AI 配图", x: 340, y: 560, imageGen: { model: "agnes-image-2.0-flash", prompt: "" } },
+      { id: "scene", kind: "imageGen", name: "AI 场景图", x: 560, y: 560, imageGen: { model: "agnes-image-2.0-flash", prompt: "为商品生成一张真实使用场景图：自然光线、生活化构图，突出使用环境与氛围代入感" } },
       { id: "depot", kind: "sink", name: "成品库", x: 1460, y: 300 },
     ],
     edges: [
@@ -267,6 +267,68 @@ const xiaohongshuGraph = {
       { id: "e7", from: "banner", to: "layout", kind: "flow" },
       { id: "e8", from: "intake", to: "scene", kind: "flow" },
       { id: "e9", from: "scene", to: "layout", kind: "flow" },
+    ],
+  },
+} satisfies GraphTemplate;
+
+const mediaPipelineGraph = {
+  id: "tpl-media-pipeline",
+  name: "短视频广告工坊",
+  description: "主题 → 脚本(文本) → 关键帧配图(图片) + 短视频(视频) → 成品",
+  category: "营销内容",
+  graph: {
+    id: "tpl-media-pipeline",
+    name: "短视频广告工坊",
+    nodes: [
+      { id: "intake", kind: "source", name: "主题", x: 80, y: 300 },
+      {
+        id: "scriptwriter",
+        kind: "textGen",
+        name: "脚本撰写",
+        x: 340,
+        y: 300,
+        textGen: {
+          model: "agnes-2.0-flash",
+          prompt:
+            "你是短视频编导。根据主题写一段 15 秒口播脚本：开头 3 秒钩子 + 中间卖点介绍 + 结尾行动号召。" +
+            "只输出脚本正文（120-180 字），便于直接作为视频生成提示词；不要输出标题和多余解释。",
+          skills: [],
+        },
+      },
+      {
+        id: "keyframe",
+        kind: "imageGen",
+        name: "关键帧配图",
+        x: 620,
+        y: 180,
+        imageGen: {
+          model: "agnes-image-2.0-flash",
+          aspect: "16:9",
+          prompt:
+            "为短视频生成一张关键帧封面：电影级构图、自然光线、氛围感强、主体清晰、16:9 横版，适合作为视频封面。",
+        },
+      },
+      {
+        id: "video",
+        kind: "videoGen",
+        name: "短视频生成",
+        x: 620,
+        y: 440,
+        videoGen: {
+          model: "agnes-video-v2.0",
+          // prompt 留空：引擎直接用上游脚本文本作为视频提示词，实现文本 → 视频联动
+          duration: 5,
+          aspect: "16:9",
+        },
+      },
+      { id: "depot", kind: "sink", name: "成品库", x: 920, y: 300 },
+    ],
+    edges: [
+      { id: "e1", from: "intake", to: "scriptwriter", kind: "flow" },
+      { id: "e2", from: "scriptwriter", to: "keyframe", kind: "flow" },
+      { id: "e3", from: "scriptwriter", to: "video", kind: "flow" },
+      { id: "e4", from: "keyframe", to: "depot", kind: "flow" },
+      { id: "e5", from: "video", to: "depot", kind: "flow" },
     ],
   },
 } satisfies GraphTemplate;
@@ -296,11 +358,11 @@ const draftGraph = {
       { id: "intake", kind: "source", name: "主题", x: 80, y: 300 },
       {
         id: "draft",
-        kind: "agent",
+        kind: "textGen",
         name: "初稿",
         x: 360,
         y: 300,
-        agent: {
+        textGen: {
           model: "agnes-2.0-flash",
           prompt:
             "你是写作助手。根据给定主题写一篇结构完整的初稿，包含开头、主体分点和结尾。",
@@ -309,11 +371,11 @@ const draftGraph = {
       },
       {
         id: "polish",
-        kind: "agent",
+        kind: "textGen",
         name: "润色",
         x: 640,
         y: 300,
-        agent: {
+        textGen: {
           model: "agnes-2.0-flash",
           prompt:
             "你是文字编辑。润色初稿：让语言更流畅、删除冗余、统一语气，但不要改变核心观点。",
@@ -356,11 +418,11 @@ const translationGraph = {
       { id: "intake", kind: "source", name: "原文", x: 80, y: 300 },
       {
         id: "translate",
-        kind: "agent",
+        kind: "textGen",
         name: "初译",
         x: 360,
         y: 300,
-        agent: {
+        textGen: {
           model: "agnes-2.0-flash",
           prompt:
             "你是专业译者。把输入文本翻译成中文，忠实原意，不增删信息。先给译文，再给术语说明。",
@@ -369,11 +431,11 @@ const translationGraph = {
       },
       {
         id: "review",
-        kind: "agent",
+        kind: "textGen",
         name: "校对",
         x: 640,
         y: 300,
-        agent: {
+        textGen: {
           model: "agnes-2.0-flash",
           prompt:
             "你是译审。对照原意检查初译：错译、漏译、生硬表达，输出修订后的流畅译文。",
@@ -416,11 +478,11 @@ const docReviewGraph = {
       { id: "intake", kind: "source", name: "待审文档", x: 80, y: 300 },
       {
         id: "issues",
-        kind: "agent",
+        kind: "textGen",
         name: "问题清单",
         x: 360,
         y: 300,
-        agent: {
+        textGen: {
           model: "agnes-2.0-flash",
           prompt:
             "你是文档审查员。逐段检查文档，列出问题：事实错误、逻辑矛盾、表述不清、缺漏。每条标明位置和问题。",
@@ -429,11 +491,11 @@ const docReviewGraph = {
       },
       {
         id: "suggest",
-        kind: "agent",
+        kind: "textGen",
         name: "修订建议",
         x: 640,
         y: 300,
-        agent: {
+        textGen: {
           model: "agnes-2.0-flash",
           prompt:
             "针对问题清单给出具体的修改建议，最好给出可直接替换的文字。输出一份审查报告。",
@@ -518,11 +580,11 @@ const opsWeeklyGraph = {
       },
       {
         id: "writer",
-        kind: "agent",
+        kind: "textGen",
         name: "周报撰写",
         x: 860,
         y: 300,
-        agent: {
+        textGen: {
           model: "agnes-2.0-flash",
           prompt:
             "你是数据运营分析师。基于上游清洗汇总后的数据，写一份结构化周报：" +
@@ -534,11 +596,11 @@ const opsWeeklyGraph = {
       { id: "depot", kind: "sink", name: "周报归档", x: 1140, y: 300 },
       {
         id: "fallback",
-        kind: "agent",
+        kind: "textGen",
         name: "无数据兜底",
         x: 340,
         y: 560,
-        agent: {
+        textGen: {
           model: "agnes-2.0-flash",
           prompt:
             "上游数据拉取失败（可能是网络未开或 URL 需要更换）。请向用户说明：这是一个数据拉取→清洗→AI 周报的流水线，" +
@@ -682,11 +744,11 @@ const researchBriefGraph = {
       },
       {
         id: "analyst",
-        kind: "agent",
+        kind: "textGen",
         name: "综合研判",
         x: 860,
         y: 300,
-        agent: {
+        textGen: {
           model: "agnes-2.0-flash",
           prompt:
             "你是研究分析师。上游汇聚了两个数据源的 JSON，请交叉比对后输出一份简报：" +
@@ -761,11 +823,11 @@ const competitorWatchGraph = {
       },
       {
         id: "compare",
-        kind: "agent",
+        kind: "textGen",
         name: "对比摘要",
         x: 860,
         y: 300,
-        agent: {
+        textGen: {
           model: "agnes-2.0-flash",
           prompt:
             "你是竞品情报分析师。上游提取了竞品页面的摘要信息，请与「我方产品」对比，输出：" +
@@ -776,11 +838,11 @@ const competitorWatchGraph = {
       { id: "depot", kind: "sink", name: "情报归档", x: 1140, y: 300 },
       {
         id: "fallback",
-        kind: "agent",
+        kind: "textGen",
         name: "拉取失败兜底",
         x: 340,
         y: 560,
-        agent: {
+        textGen: {
           model: "agnes-2.0-flash",
           prompt:
             "上游页面拉取失败（外网未开通或站点反爬）。请输出简短说明：本流水线为竞品监控，" +
@@ -803,6 +865,7 @@ const competitorWatchGraph = {
 export const TEMPLATES: GraphTemplate[] = [
   productDetailGraph,
   xiaohongshuGraph,
+  mediaPipelineGraph,
   draftGraph,
   translationGraph,
   docReviewGraph,

@@ -8,7 +8,7 @@ import { SkillMount } from "./skill.js";
  */
 export const NodeKind = z.enum([
   "source",
-  "agent",
+  "textGen",
   "gate",
   "sink",
   "imageGen",
@@ -31,14 +31,68 @@ export const NodeKind = z.enum([
   "vcs",
   "human",
   "subprocess",
+  "generic",
 ]);
 export type NodeKind = z.infer<typeof NodeKind>;
+
+/**
+ * UI palette grouping for node kinds. The category list/order and the
+ * kind → category mapping are shared metadata so every consumer (canvas
+ * toolbar, template docs, future node search) stays in sync.
+ */
+export type NodeCategory =
+  | "generation" // AI 生成
+  | "control" // 流程控制
+  | "data" // 数据处理
+  | "integrations" // 集成连接
+  | "io"; // 输入输出
+
+export interface NodeCategoryInfo {
+  id: NodeCategory;
+  label: string;
+}
+
+export const NODE_CATEGORIES: NodeCategoryInfo[] = [
+  { id: "generation", label: "AI 加工" },
+  { id: "control", label: "车间调度" },
+  { id: "data", label: "物料处理" },
+  { id: "integrations", label: "外接设备" },
+  { id: "io", label: "投料出料" },
+];
+
+export const NODE_CATEGORY: Record<NodeKind, NodeCategory> = {
+  textGen: "generation",
+  imageGen: "generation",
+  videoGen: "generation",
+  audioGen: "generation",
+  generic: "generation",
+  gate: "control",
+  branch: "control",
+  map: "control",
+  loop: "control",
+  parallel: "control",
+  subprocess: "control",
+  table: "data",
+  database: "data",
+  fileParse: "data",
+  convert: "data",
+  translate: "data",
+  ocr: "data",
+  code: "data",
+  http: "integrations",
+  search: "integrations",
+  notify: "integrations",
+  vcs: "integrations",
+  human: "integrations",
+  source: "io",
+  sink: "io",
+};
 
 export const EdgeKind = z.enum(["flow", "rework", "error"]);
 /**
  * Edge semantics:
  * - flow: forward data flow (predecessor done → successor ready)
- * - rework: quality loop back (gate/agent rejects → upstream rewrites)
+ * - rework: quality loop back (gate/textGen rejects → upstream rewrites)
  * - error: failure hand-off (a node that fails routes to a catch node, which
  *   becomes ready as soon as any error predecessor has failed)
  */
@@ -60,7 +114,7 @@ export const RetryPolicy = z.object({
 export type RetryPolicy = z.infer<typeof RetryPolicy>;
 
 /**
- * Controls how upstream artifacts are assembled into this agents input.
+ * Controls how upstream artifacts are assembled into this textGen node input.
  * - all: concatenate every upstream output (default)
  * - last: only the most recent upstream output (sequential pipelines)
  * - truncate: concatenate but cap at maxChars, keeping the tail (most recent)
@@ -74,7 +128,7 @@ export const InputPolicy = z.object({
 });
 export type InputPolicy = z.infer<typeof InputPolicy>;
 
-export const AgentConfig = z.object({
+export const TextGenConfig = z.object({
   model: z.string().default("agnes-2.0-flash"),
   prompt: z.string().default(""),
   /** Mounted capability cards — tools, output contracts, prompt modules. */
@@ -91,14 +145,14 @@ export const AgentConfig = z.object({
   /** Optional per-node hard ceiling in USD across all attempts. */
   budgetUsd: z.number().min(0).nullable().optional(),
   /**
-   * Free-text layout directives for a product-layout agent (e.g. "主图用竖图 3:4
-   * 居中；场景图卡 2 列网格"). Appended to the agent prompt so the next run honors
+   * Free-text layout directives for a product-layout textGen node (e.g. "主图用竖图 3:4
+   * 居中；场景图卡 2 列网格"). Appended to the textGen node prompt so the next run honors
    * manual image-position overrides. See `withLayoutDirectives`.
    */
   imageDirectives: z.string().optional(),
   retry: RetryPolicy.default({ maxRetries: 2, baseDelayMs: 1000, maxDelayMs: 30000 }),
 });
-export type AgentConfig = z.infer<typeof AgentConfig>;
+export type TextGenConfig = z.infer<typeof TextGenConfig>;
 
 /** Configuration for an `imageGen` node: calls a text-to-image model to produce
  *  a banner / scene image when the source lacks real product photos. */
@@ -158,6 +212,42 @@ export const AudioGenConfig = z.object({
   apiKey: z.string().optional(),
 });
 export type AudioGenConfig = z.infer<typeof AudioGenConfig>;
+
+/** Configuration for a `generic` node: auto-dispatches by provider modality.
+ *  Users pick any model; the engine detects via `modalityOf` and routes to
+ *  runTextGen / generateImage / generateVideo / generateAudio accordingly. */
+export const GenericConfig = z.object({
+  model: z.string().min(1).default("agnes-2.0-flash"),
+  prompt: z.string().optional(),
+  /** Optional override; when absent the engine auto-detects via modalityOf(provider, model). */
+  modality: z.enum(["text", "image", "video", "audio"]).optional(),
+
+  // textGen params
+  skills: z.array(z.union([z.string(), SkillMount])).default([]),
+  temperature: z.number().min(0).max(2).optional(),
+  timeoutMs: z.number().int().min(1000).optional(),
+  inputPolicy: InputPolicy.optional(),
+  budgetUsd: z.number().min(0).nullable().optional(),
+
+  // imageGen params
+  size: z.string().optional(),
+  aspect: z.enum(["1:1", "3:4", "4:3", "16:9"]).optional(),
+  n: z.number().int().min(1).max(8).optional(),
+
+  // videoGen params
+  duration: z.number().int().min(1).max(60).optional(),
+
+  // audioGen params
+  voice: z.string().optional(),
+  format: z.enum(["mp3", "wav", "opus", "aac", "flac"]).optional(),
+  speed: z.number().min(0.25).max(4).optional(),
+
+  retry: RetryPolicy.optional(),
+  // common
+  baseUrl: z.string().optional(),
+  apiKey: z.string().optional(),
+});
+export type GenericConfig = z.infer<typeof GenericConfig>;
 
 /** Configuration for an `http` node: call an external REST API. */
 export const HttpNodeConfig = z.object({
@@ -380,7 +470,7 @@ export type DatabaseConfig = z.infer<typeof DatabaseConfig>;
  * Configuration for a `fileParse` node: extract text and embedded images from
  * an upstream `file` artifact. Supported formats: PDF (via unpdf) and Office
  * Open XML documents (DOCX / PPTX, via ZIP + XML extraction). The extracted
- * text becomes a `text` artifact consumed by downstream agents; extracted
+ * text becomes a `text` artifact consumed by downstream textGen nodes; extracted
  * images become `image` artifacts.
  */
 export const FileParseConfig = z.object({
@@ -458,7 +548,7 @@ export type ConvertConfig = z.infer<typeof ConvertConfig>;
  * (default); the other providers read their credentials from env vars at run
  * time (TAVILY_API_KEY / SERPAPI_API_KEY / GOOGLE_API_KEY + GOOGLE_CX), so no
  * secret is ever stored in the graph. When `query` is empty the upstream text
- * artifact is searched instead — pairs with an agent that generates queries.
+ * artifact is searched instead — pairs with an textGen node that generates queries.
  */
 export const SearchConfig = z.object({
   /** Static search query; falls back to the upstream text artifact when empty. */
@@ -514,7 +604,7 @@ export type NotifyConfig = z.infer<typeof NotifyConfig>;
  * list issues) and emit the API result as a `json` artifact. Credentials read
  * from env (GITHUB_TOKEN / GITLAB_TOKEN, optionally GITLAB_API_URL for
  * self-hosted). `body`/`title` fall back to the upstream text artifact when
- * empty — pairs with an agent that drafts a PR description or issue body.
+ * empty — pairs with an textGen node that drafts a PR description or issue body.
  *
  * Future providers (Bitbucket, Gitea, …) fit the same provider/action shape;
  * the four actions here cover the bulk of automation needs.
@@ -649,7 +739,7 @@ export const ConnectorConfig = z.object({
 export type ConnectorConfig = z.infer<typeof ConnectorConfig>;
 
 export const SourceConfig = z.object({
-  /** Reference image URLs fed to vision-capable downstream agents. */
+  /** Reference image URLs fed to vision-capable downstream textGen nodes. */
   images: z.array(z.string()).optional(),
   /** Product name / short title used in generated content. */
   productName: z.string().optional(),
@@ -682,11 +772,12 @@ export const GraphNode = z.object({
   /** Canvas position of the plant's centre, in view units. */
   x: z.number(),
   y: z.number(),
-  agent: AgentConfig.optional(),
+  textGen: TextGenConfig.optional(),
   gate: GateConfig.optional(),
   imageGen: ImageGenConfig.optional(),
   videoGen: VideoGenConfig.optional(),
   audioGen: AudioGenConfig.optional(),
+  generic: GenericConfig.optional(),
   http: HttpNodeConfig.optional(),
   code: CodeNodeConfig.optional(),
   branch: BranchConfig.optional(),

@@ -36,10 +36,10 @@ describe("addNode default model selection", () => {
       defaultProvider: "p1",
     });
     await refreshDefaultModel();
-    const r = useGraph.getState().addNode("agent", 10, 10);
+    const r = useGraph.getState().addNode("textGen", 10, 10);
     expect(r.missingModality).toBeNull();
     const node = useGraph.getState().graph.nodes.find((n) => n.id === r.id);
-    expect(node?.agent?.model).toBe("txt-1");
+    expect(node?.textGen?.model).toBe("txt-1");
   });
 
   it("picks the first enabled image model for imageGen", async () => {

@@ -102,11 +102,11 @@ describe("migrateGraphModels on setGraph", () => {
     const g = mkGraph(
       {
         id: "a1",
-        kind: "agent",
+        kind: "textGen",
         name: "agent-a1",
         x: 0,
         y: 0,
-        agent: { model: "", prompt: "", skills: [], temperature: 0.7, timeoutMs: 120000, inputPolicy: { mode: "all" }, retry: { maxRetries: 2, baseDelayMs: 1000, maxDelayMs: 30000 } },
+        textGen: { model: "", prompt: "", skills: [], temperature: 0.7, timeoutMs: 120000, inputPolicy: { mode: "all" }, retry: { maxRetries: 2, baseDelayMs: 1000, maxDelayMs: 30000 } },
       },
       {
         id: "i1",
@@ -127,7 +127,7 @@ describe("migrateGraphModels on setGraph", () => {
     );
     useGraph.getState().setGraph(g);
     const [agent, image, video] = useGraph.getState().graph.nodes;
-    expect(agent?.agent?.model).toBe("agnes-2.5-flash");
+    expect(agent?.textGen?.model).toBe("agnes-2.5-flash");
     expect(image?.imageGen?.model).toBe("agnes-image-2.0-flash");
     expect(video?.videoGen?.model).toBe("agnes-video-v2.0");
   });
