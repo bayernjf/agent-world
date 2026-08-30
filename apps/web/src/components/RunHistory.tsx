@@ -8,15 +8,36 @@ interface Props {
 }
 
 const PAGE_SIZE = 20;
-const STATUSES = ["running", "completed", "failed", "cancelled", "approved", "rejected"];
+// Engine 真实 run status，对齐 ControlPanel.STATUS_TEXT
+const STATUSES = ["running", "done", "halted", "failed", "tripped", "cancelled", "interrupted"];
 
 const STATUS_LABEL: Record<string, string> = {
+  idle: "待派发",
   running: "运行中",
-  completed: "已完成",
-  failed: "失败",
+  done: "全部出厂",
+  halted: "等待人工",
+  failed: "产线故障",
+  tripped: "电力跳闸",
   cancelled: "已取消",
+  interrupted: "上次中断",
+  // 兼容旧数据或 A/B 报告
+  completed: "已完成",
   approved: "已通过",
   rejected: "已拒绝",
+};
+
+// 状态 → 语义色（工厂系）
+const STATUS_COLOR: Record<string, string> = {
+  running: "run-status--running",
+  done: "run-status--done",
+  halted: "run-status--halted",
+  failed: "run-status--failed",
+  tripped: "run-status--tripped",
+  cancelled: "run-status--cancelled",
+  interrupted: "run-status--interrupted",
+  completed: "run-status--done",
+  approved: "run-status--done",
+  rejected: "run-status--failed",
 };
 
 function fmtRelative(ts: number): string {
@@ -177,9 +198,9 @@ export default function RunHistory({ open, onClose, onOpen }: Props) {
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal modal--wide runhistory-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="modal__head">
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal modal modal--wide modal--tall" onClick={(e) => e.stopPropagation()}>
+        <div className="modal__header">
           <h2>运行历史</h2>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <button className="btn" onClick={() => setCompareMode((v) => !v)}>
@@ -259,7 +280,7 @@ export default function RunHistory({ open, onClose, onOpen }: Props) {
                   )}
                   <div className="runhistory-row-main">
                     <div className="runhistory-row-title">
-                      <span className={`run-status run-status--${r.status}`}>
+                      <span className={`run-status ${STATUS_COLOR[r.status] ?? "run-status--default"}`}>
                         {STATUS_LABEL[r.status] ?? r.status}
                       </span>
                       <span className="runhistory-name">{r.graph_name || "(未命名产线)"}</span>
