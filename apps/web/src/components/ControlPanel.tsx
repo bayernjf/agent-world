@@ -142,34 +142,39 @@ export default function ControlPanel(props: Props) {
                 </p>
               </>
             ) : (
-              <>
-                <div className="meter__row">
-                  <span className="readout">
-                    {runtime.totalTokensIn.toLocaleString()} / {runtime.totalTokensOut.toLocaleString()}
-                  </span>
-                  <span className="muted">入 / 出</span>
-                </div>
-                {runtime.totalCachedTokens > 0 && (
+              runtime.totalTokensIn > 0 || runtime.totalTokensOut > 0 ? (
+                <>
                   <div className="meter__row">
-                    <span className="muted">缓存命中 {runtime.totalCachedTokens.toLocaleString()}</span>
-                  </div>
-                )}
-                {Object.entries(runtime.totalUnits).some(([, v]) => v > 0) && (
-                  <div className="meter__row">
-                    <span className="muted">
-                      {Object.entries(runtime.totalUnits)
-                        .filter(([, v]) => v > 0)
-                        .map(([k, v]) => `${v}${UNIT_LABELS[k] ?? k}`)
-                        .join(" · ")}
+                    <span className="readout">
+                      {runtime.totalTokensIn.toLocaleString()} / {runtime.totalTokensOut.toLocaleString()}
                     </span>
+                    <span className="muted">入 / 出</span>
                   </div>
-                )}
-                {!pricingConfigured && (
-                  <p className="note">
-                    未配置模型单价，只显示 token 用量。在「设置」里填入单价后可显示电费和预算。
-                  </p>
-                )}
-              </>
+                  {runtime.totalCachedTokens > 0 && (
+                    <div className="meter__row">
+                      <span className="muted">缓存命中 {runtime.totalCachedTokens.toLocaleString()}</span>
+                    </div>
+                  )}
+                  {Object.entries(runtime.totalUnits).some(([, v]) => v > 0) && (
+                    <div className="meter__row">
+                      <span className="muted">
+                        {Object.entries(runtime.totalUnits)
+                          .filter(([, v]) => v > 0)
+                          .map(([k, v]) => `${v}${UNIT_LABELS[k] ?? k}`)
+                          .join(" · ")}
+                      </span>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <p className="muted">
+                  电力读数待派发后出现 · 在
+                  <span className="inline-info" title="未配置模型单价时只显示 token 用量；在「设置」里填入单价后可显示电费和预算">
+                    ⓘ 设置
+                  </span>
+                  里填入单价可开启预算和电费读数
+                </p>
+              )
             )}
           </div>
           {runtime.monthlyBudgetWarned && (
@@ -187,36 +192,29 @@ export default function ControlPanel(props: Props) {
                 key={m.key}
                 className={`chip ${mode === m.key ? "is-on" : ""}`}
                 onClick={() => setMode(m.key)}
+                title={m.hint}
               >
                 {m.label}
               </button>
             ))}
           </div>
-          <p className="note">{hint}</p>
         </section>
 
         <section>
-          <h3 className="label">编译</h3>
+          <h3 className="label">状态</h3>
+          {/* 编译/保存状态：常态 → muted 文字；出错 → diag 高亮 */}
           {errors.length === 0 && warnings.length === 0 && (
-            <p className="diag diag--ok">
+            <p className="note note--compact">
               图可编译 · {graph.nodes.length} 座节点
               {saveState === "saved" && <span className="muted"> · 已保存</span>}
             </p>
           )}
           {errors.map((d, i) => (
-            <p key={`e${i}`} className="diag diag--error">
-              {d.message}
-            </p>
+            <p key={`e${i}`} className="diag diag--error">{d.message}</p>
           ))}
           {warnings.map((d, i) => (
-            <p key={`w${i}`} className="diag diag--warn">
-              {d.message}
-            </p>
+            <p key={`w${i}`} className="diag diag--warn">{d.message}</p>
           ))}
-        </section>
-
-        <section>
-          <h3 className="label">状态</h3>
           <p className="status">
             {humanHalt ? "等待人工审批" : STATUS_TEXT[runtime.status] ?? runtime.status}
             {reconnecting && <span className="muted"> · 重连中…</span>}
@@ -230,10 +228,10 @@ export default function ControlPanel(props: Props) {
           )}
           {!running && !halted && (
             <label className="field">
-              <span>原料（投递给进料口的任务）</span>
+              <span>原料（交给原料台的任务）</span>
               <textarea
                 rows={3}
-                placeholder="写下要交给这条产线加工的内容…"
+                placeholder="把素材或任务交给原料台…"
                 value={rawMaterial}
                 onChange={(e) => setRawMaterial(e.target.value)}
               />

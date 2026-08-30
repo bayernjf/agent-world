@@ -3968,6 +3968,25 @@ select {
 .note--warn {
   color: var(--power);
 }
+.note--compact {
+  margin: 0 0 10px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ink-faint);
+  padding: 0;
+  border: none;
+  background: none;
+}
+
+.inline-info {
+  display: inline-flex;
+  align-items: center;
+  color: var(--ink-faint);
+  cursor: help;
+  border-bottom: 1px dotted var(--ink-dim);
+  font-size: inherit;
+  margin: 0 2px;
+}
 
 .pipe-bridge--focus .pipe-bridge__core {
   stroke: var(--data);
@@ -4011,6 +4030,16 @@ select {
 .pipe--focus .pipe-arrow:nth-child(1) .pipe-arrow__shape { animation-delay: 0s; }
 .pipe--focus .pipe-arrow:nth-child(2) .pipe-arrow__shape { animation-delay: 0.25s; }
 .pipe--focus .pipe-arrow:nth-child(3) .pipe-arrow__shape { animation-delay: 0.5s; }
+
+.inline-info {
+  display: inline-flex;
+  align-items: center;
+  color: var(--ink-faint);
+  cursor: help;
+  border-bottom: 1px dotted var(--ink-dim);
+  font-size: inherit;
+  margin: 0 2px;
+}
 
 .pipe-bridge--focus .pipe-bridge__core {
   stroke-dasharray: 8 6;
