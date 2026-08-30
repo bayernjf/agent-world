@@ -87,6 +87,7 @@ export default function Settings({ open, onClose }: Props) {
   };
   const [status, setStatus] = useState<string>("");
   const [confirmClose, setConfirmClose] = useState(false);
+  const [workersOpen, setWorkersOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<ModelCard | null>(null);
   /** Replacement model chosen in the delete-with-impact dialog. */
   const [deleteReplacement, setDeleteReplacement] = useState<string>("");
@@ -1117,33 +1118,43 @@ export default function Settings({ open, onClose }: Props) {
             </small>
           </label>
 
-          <div className="settings-section-head">
+          <button
+            type="button"
+            className="settings-section-head settings-section-head--clickable"
+            onClick={() => setWorkersOpen((v) => !v)}
+            aria-expanded={workersOpen}
+          >
             <h3 className="label">Worker 插件与隔离</h3>
-          </div>
-          <div className="worker-list">
-            {workers.map((w) => (
-              <div key={w.id} className="worker-item">
-                <div className="worker-item__head">
-                  <span className="worker-item__name">{w.name}</span>
-                  <span className={`chip chip--${w.isolation === "subprocess" ? "warn" : "ok"}`}>
-                    {w.isolation === "subprocess" ? "子进程隔离" : "进程内"}
-                  </span>
-                  {w.builtin && <span className="chip chip--muted">内置</span>}
-                </div>
-                {w.description && <p className="worker-item__desc muted">{w.description}</p>}
-                {w.models && w.models.length > 0 && (
-                  <p className="worker-item__models muted">模型: {w.models.join(", ")}</p>
-                )}
-                {w.env && w.env.length > 0 && (
-                  <p className="worker-item__env muted">允许环境变量: {w.env.join(", ")}</p>
-                )}
+            <span className={`chevron ${workersOpen ? "chevron--open" : ""}`}>▸</span>
+          </button>
+          {workersOpen && (
+            <>
+              <div className="worker-list">
+                {workers.map((w) => (
+                  <div key={w.id} className="worker-item">
+                    <div className="worker-item__head">
+                      <span className="worker-item__name">{w.name}</span>
+                      <span className={`chip chip--${w.isolation === "subprocess" ? "warn" : "ok"}`}>
+                        {w.isolation === "subprocess" ? "子进程隔离" : "进程内"}
+                      </span>
+                      {w.builtin && <span className="chip chip--muted">内置</span>}
+                    </div>
+                    {w.description && <p className="worker-item__desc muted">{w.description}</p>}
+                    {w.models && w.models.length > 0 && (
+                      <p className="worker-item__models muted">模型: {w.models.join(", ")}</p>
+                    )}
+                    {w.env && w.env.length > 0 && (
+                      <p className="worker-item__env muted">允许环境变量: {w.env.join(", ")}</p>
+                    )}
+                  </div>
+                ))}
+                {workers.length === 0 && <p className="muted">未发现 Worker 插件。</p>}
               </div>
-            ))}
-            {workers.length === 0 && <p className="muted">未发现 Worker 插件。</p>}
-          </div>
-          <p className="muted" style={{ fontSize: "12px", marginTop: "8px" }}>
-            子进程隔离的插件运行在独立 fork 进程中，环境变量被裁剪到安全基线 + 声明的 key，网络和文件系统访问经父进程白名单代理。
-          </p>
+              <p className="muted" style={{ fontSize: "12px", marginTop: "8px" }}>
+                子进程隔离的插件运行在独立 fork 进程中，环境变量被裁剪到安全基线 + 声明的 key，网络和文件系统访问经父进程白名单代理。
+              </p>
+            </>
+          )}
 
           {status && <p className="diag diag--ok">{status}</p>}
         </div>

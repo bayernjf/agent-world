@@ -3038,6 +3038,31 @@ select {
   justify-content: space-between;
   margin: 14px 0 6px;
 }
+.settings-section-head--clickable {
+  width: 100%;
+  background: transparent;
+  border: none;
+  padding: 6px 4px;
+  margin: 14px -4px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  color: inherit;
+  text-align: left;
+  transition: background 0.15s;
+}
+.settings-section-head--clickable:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+.settings-section-head--clickable .label { margin: 0; }
+.chevron {
+  color: var(--ink-faint);
+  font-size: 12px;
+  transition: transform 0.2s;
+}
+.chevron--open {
+  transform: rotate(90deg);
+  color: var(--ink-dim);
+}
 .settings-section-head .label {
   margin: 0;
 }
