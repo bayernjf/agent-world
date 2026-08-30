@@ -61,15 +61,16 @@ function defaultModelFor(
     (o) => o.model === defaultModel && o.modality === wanted && o.enabled,
   );
   if (fromDefault) return { provider: fromDefault.provider, model: fromDefault.model, modality: wanted };
-  // Otherwise prefer a REAL provider (anything not the built-in fake/demo
-  // worker). The demo is only a last-resort so the picker respects the
+  // Otherwise prefer a REAL provider (anything not the internal fake
+  // worker). Legacy configs may still carry a "demo"/"fake" provider from
+  // before the demo tier was removed, so keep excluding them to respect the
   // user's configured models when they exist.
   const real = cached.find((o) => o.modality === wanted && o.enabled && o.provider !== "demo" && o.provider !== "fake");
   if (real) return { provider: real.provider, model: real.model, modality: wanted };
-  // No real model — fall back to the demo so addNode can still succeed
-  // for a brand-new user with zero configured models.
-  const demo = cached.find((o) => o.modality === wanted && o.enabled);
-  if (demo) return { provider: demo.provider, model: demo.model, modality: wanted };
+  // No real model — fall back to the first enabled model so addNode can
+  // still succeed for a brand-new user with zero configured models.
+  const fallback = cached.find((o) => o.modality === wanted && o.enabled);
+  if (fallback) return { provider: fallback.provider, model: fallback.model, modality: wanted };
   return null;
 }
 
