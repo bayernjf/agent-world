@@ -98,12 +98,13 @@ CREATE TABLE IF NOT EXISTS brand_terms (
 );
 
 CREATE TABLE IF NOT EXISTS graph_versions (
-  id          TEXT PRIMARY KEY,
-  graph_id    TEXT NOT NULL,
-  name        TEXT NOT NULL,
-  snapshot    TEXT NOT NULL,
-  note        TEXT NOT NULL DEFAULT '',
-  created_at  INTEGER NOT NULL
+  id           TEXT PRIMARY KEY,
+  graph_id     TEXT NOT NULL,
+  name         TEXT NOT NULL,
+  snapshot     TEXT NOT NULL,
+  note         TEXT NOT NULL DEFAULT '',
+  content_hash TEXT NOT NULL DEFAULT '',
+  created_at   INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_graph_versions_graph ON graph_versions(graph_id, created_at DESC);
 
@@ -122,6 +123,14 @@ CREATE TABLE IF NOT EXISTS graph_variables (
 );
 CREATE INDEX IF NOT EXISTS idx_graph_variables_graph ON graph_variables(graph_id);
 `;
+
+/**
+ * Stable content hash of a graph snapshot (sha256, first 16 hex chars).
+ * Used to throttle auto-snapshots and to correlate runs with versions.
+ */
+export function contentHash(doc: string): string {
+  return createHash("sha256").update(doc).digest("hex").slice(0, 16);
+}
 
 type ArtifactRow = {
   id: string;
@@ -1240,10 +1249,22 @@ export function openDb(file: string) {
     // --- Graph versions (5.6) ---
     listVersions(graphId: string, userId: string) {
       return db
-        .prepare(`SELECT gv.id, gv.graph_id AS graphId, gv.name, gv.note, gv.created_at AS createdAt
+        .prepare(`SELECT gv.id, gv.graph_id AS graphId, gv.name, gv.note, gv.content_hash AS contentHash, gv.created_at AS createdAt
                   FROM graph_versions gv JOIN graphs g ON g.id = gv.graph_id
-                  WHERE gv.graph_id = ? AND g.user_id = ? ORDER BY gv.created_at DESC`)
-        .all(graphId, userId) as Array<{ id: string; graphId: string; name: string; note: string; createdAt: number }>;
+                  WHERE gv.graph_id = ? AND g.user_id = ? ORDER BY gv.created_at DESC, gv.rowid DESC`)
+        .all(graphId, userId) as Array<{ id: string; graphId: string; name: string; note: string; contentHash: string; createdAt: number }>;
+    },
+    /**
+     * Content hash of the graph as executed by the most recent run of this
+     * graph (runs.snapshot stores the full graph JSON at execution time), or
+     * null when the graph has never run. Lets the version panel flag which
+     * snapshot matches what actually ran.
+     */
+    getLatestRunContentHash(graphId: string, userId: string): string | null {
+      const row = db
+        .prepare(`SELECT snapshot FROM runs WHERE graph_id = ? AND user_id = ? ORDER BY started_at DESC, rowid DESC LIMIT 1`)
+        .get(graphId, userId) as { snapshot: string } | undefined;
+      return row ? contentHash(row.snapshot) : null;
     },
     getVersion(id: string, userId: string) {
       return db.prepare(`SELECT gv.* FROM graph_versions gv JOIN graphs g ON g.id = gv.graph_id
@@ -1251,13 +1272,43 @@ export function openDb(file: string) {
         | { id: string; graph_id: string; name: string; snapshot: string; note: string; created_at: number }
         | undefined;
     },
-    saveVersion(graphId: string, name: string, snapshot: string, note = "") {
+    saveVersion(graphId: string, name: string, snapshot: string, note = "", contentHash = "") {
       const id = randomUUID();
       const now = Date.now();
-      db.prepare(`INSERT INTO graph_versions (id, graph_id, name, snapshot, note, created_at) VALUES (?, ?, ?, ?, ?, ?)`).run(
-        id, graphId, name, snapshot, note, now,
+      db.prepare(`INSERT INTO graph_versions (id, graph_id, name, snapshot, note, content_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`).run(
+        id, graphId, name, snapshot, note, contentHash, now,
       );
       return { id, graphId, name, note, createdAt: now };
+    },
+    /**
+     * Auto-snapshot taken right before a save overwrites the graph. Throttled:
+     * skipped when the latest auto-snapshot for this graph is recent (within
+     * `minIntervalMs`) AND captured the same content. Rolling retention: keeps
+     * at most `maxKeep` auto-snapshots per graph (manual snapshots are never
+     * pruned here). Returns the created version id, or null when skipped.
+     */
+    saveAutoSnapshot(graphId: string, snapshot: string, minIntervalMs: number, maxKeep: number): string | null {
+      const hash = contentHash(snapshot);
+      // rowid DESC breaks created_at ties (same-millisecond snapshots) by
+      // insertion order, keeping throttle/retention deterministic.
+      const last = db
+        .prepare(`SELECT content_hash, created_at FROM graph_versions WHERE graph_id = ? AND note = 'auto' ORDER BY created_at DESC, rowid DESC LIMIT 1`)
+        .get(graphId) as { content_hash: string; created_at: number } | undefined;
+      if (last && Date.now() - last.created_at < minIntervalMs && last.content_hash === hash) return null;
+
+      const id = randomUUID();
+      const now = Date.now();
+      db.prepare(`INSERT INTO graph_versions (id, graph_id, name, snapshot, note, content_hash, created_at) VALUES (?, ?, ?, ?, 'auto', ?, ?)`).run(
+        id, graphId, `auto-${new Date(now).toISOString().slice(0, 16).replace("T", " ")}`, snapshot, hash, now,
+      );
+      // Rolling retention: prune oldest auto-snapshots beyond maxKeep.
+      const stale = db
+        .prepare(`SELECT id FROM graph_versions WHERE graph_id = ? AND note = 'auto' ORDER BY created_at DESC, rowid DESC LIMIT -1 OFFSET ?`)
+        .all(graphId, maxKeep) as Array<{ id: string }>;
+      for (const row of stale) {
+        db.prepare(`DELETE FROM graph_versions WHERE id = ?`).run(row.id);
+      }
+      return id;
     },
     deleteVersion(id: string, userId: string) {
       db.prepare(`DELETE FROM graph_versions WHERE id = ? AND graph_id IN (SELECT id FROM graphs WHERE user_id = ?)`).run(id, userId);
@@ -1531,6 +1582,13 @@ const MIGRATIONS: Migration[] = [
         PRIMARY KEY (graph_id, key)
       );
       CREATE INDEX IF NOT EXISTS idx_graph_variables_graph ON graph_variables(graph_id);`),
+  },
+  {
+    version: 18,
+    description: "graph_versions.content_hash (auto-snapshot throttling + run audit)",
+    detect: (db) => columnExists(db, "graph_versions", "content_hash"),
+    up: (db) =>
+      db.exec("ALTER TABLE graph_versions ADD COLUMN content_hash TEXT NOT NULL DEFAULT ''"),
   },
 ];
 

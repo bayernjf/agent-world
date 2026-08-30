@@ -17,6 +17,7 @@ State of Agent World as of 2026-08-30.
 - [docs/design-artifact-attribution-repo.md](docs/design-artifact-attribution-repo.md) — 产物归属 + 按流水线分组成品仓库设计（已落地）
 - [docs/design-code-sandbox.md](docs/design-code-sandbox.md) — 代码节点运行沙箱（P0/P1/P2 + fs/net 策略 + net allowlist SSRF 校验代理全部落地；docker 容器后端待办）
 - [docs/design-templates.md](docs/design-templates.md) — 产线模板体系增强（老用户入口/覆盖面/参数化已落地，市场缓做）
+- [docs/design-versions.md](docs/design-versions.md) — 产线版本管理补强（自动快照/run 关联 hash/恢复预览已落地，diff 与 A/B 缓做）
 - [docs/phase4-design.md](docs/phase4-design.md) — Phase 4 高级编排落地方案（六项已落地，状态机缓做）
 - [docs/feedback-workflow.md](docs/feedback-workflow.md) — owner 怎么高效反馈给我（截图 / computer-use / 防丢）
 - [docs/handoff-archive.md](docs/handoff-archive.md) — historical changes (pre-2026-08-27)
@@ -25,7 +26,7 @@ State of Agent World as of 2026-08-30.
 ## Current state
 
 - **Monorepo**：`packages/core` / `packages/server` (Node + sqlite, 端口 8791) / `apps/web` (Vite, 端口 5173)
-- **核心能力**：4 类 AI 节点（agent / imageGen / videoGen / audioGen）+ **通用节点（HTTP 请求 / 代码执行 / 条件分支 / 映射 / 循环 / 并行聚合 / 表格处理 / 数据库查询 / 文件解析 / 翻译 / OCR / 文件转换 / 搜索 / 通知）**，**Phase 4 编排能力全部落地（2026-08-30 复核）：人工审批 human 节点 / subprocess 子流程调用 / graph 变量跨 run 持久化 / error 边 + catch 容错路径 / 失败级联 skip / 节点级重试基建（search/http/code/translate）/ 失败告警 + rerun；状态机按决策缓做**，**MCP Server（stdio + HTTP/SSE 双传输，15 工具 + resources + prompts + 实时 notifications 桥接 + Authorization Bearer 认证，P0-P2 全部落地）**，多产线管理，Inspector 模型下拉严格按 modality 过滤，多模态产出（Artifact 分层），流式 + SSE + 断线重连 + halt/resume，成本电表（token + 单价两种模式），评估体系雏形，产物落库归属流水线（artifacts 的 graph_id/role）
+- **核心能力**：4 类 AI 节点（agent / imageGen / videoGen / audioGen）+ **通用节点（HTTP 请求 / 代码执行 / 条件分支 / 映射 / 循环 / 并行聚合 / 表格处理 / 数据库查询 / 文件解析 / 翻译 / OCR / 文件转换 / 搜索 / 通知）**，**Phase 4 编排能力全部落地（2026-08-30 复核）：人工审批 human 节点 / subprocess 子流程调用 / graph 变量跨 run 持久化 / error 边 + catch 容错路径 / 失败级联 skip / 节点级重试基建（search/http/code/translate）/ 失败告警 + rerun；状态机按决策缓做**，**MCP Server（stdio + HTTP/SSE 双传输，15 工具 + resources + prompts + 实时 notifications 桥接 + Authorization Bearer 认证，P0-P2 全部落地）**，多产线管理，Inspector 模型下拉严格按 modality 过滤，多模态产出（Artifact 分层），流式 + SSE + 断线重连 + halt/resume，成本电表（token + 单价两种模式），评估体系雏形，产物落库归属流水线（artifacts 的 graph_id/role），**版本管理补强（2026-08-30）**：保存前自动快照（节流 + 每图滚动保留 30 条）+ 版本与最近 run 的 content hash 关联标记 + 只读恢复预览（结构摘要 + SVG 缩略图）
 - **安全基线（本轮升级）**：settings 按用户隔离（迁移 16，provider key 互不可见）+ **HTTP 节点 SSRF 防护**（fetch 时解析 IP 校验，DNS-rebinding 免疫，`ALLOW_PRIVATE_NETWORK=1` 逃生口）+ 登录 cookie 按 `SECURE_COOKIES`/production 加 `Secure` 标志（localhost 豁免）+ webhook 触发器强制非空 secret（杜绝匿名触发）+ **代码节点沙箱全栈**（P0 env/cwd 隔离 → P1 rlimit+Node permission → P2 可插拔后端 bwrap/sandbox-exec/noop → fs/net 策略字段 → **net allowlist SSRF 校验代理**：`TOOL_NETWORK_ALLOW` 白名单 + 内网 IP 拒绝 + 一次性 run token + 逐请求审计，协作式边界见 design §10）
 - **本轮已落地（2026-08-29，均已提交）**：
   - **账号系统 / 按用户隔离**（`5b81c74` + `73d3610`）：users 表 + JWT(HS256, bcrypt12) HttpOnly cookie 会话 + graphs/runs/artifacts/brand_terms/成本全部按 `user_id` 过滤 + 前端登录/注册/用户菜单 + `authFetch(credentials:include)`。旧库升级自动回填归属（迁移 14/15 幂等，无法归属的行 fail closed 不可见）
@@ -62,11 +63,11 @@ State of Agent World as of 2026-08-30.
 
 按 commit 时间倒序，每条一行影响面 + commit hash：
 
-1. `6daf309` — **feat(core)**: TemplateField 参数化 schema 定型（key/label/placeholder/defaultValue + applyTo 显式 node-path 替换；仅接口无 UI，防模板市场 P2 破坏性变更；测试守护字段引用存在节点）。
-2. `6a951e4` — **feat(core)**: 4 个新内置模板补齐 roadmap 四类场景——运营周报（http→code→agent，error 边兜底）、定时巡检告警（http→branch→notify/sink）、多源研究简报（双 http→parallel→agent）、竞品监控摘要（http→code→agent，error 边兜底）；examples.md 加单一事实源映射表并对齐。core 143/144 通过（全量 compile 断言覆盖）。
-3. `ffc34d9` — **refactor(web)**: 抽共享 TemplatePicker（Onboarding/NewGraphDialog 两份已漂移的模板网格合一，直读 core TEMPLATES 免网络往返）+ NewGraphDialog 补空白产线入口；删死代码 api.listTemplates。web 19/19。
-4. `8f40a5e` — **feat(web)**: error 边画法支持——画布新增「容错线」连线模式（此前 server 支持但 UI 建不出来）、error 管道差异化渲染（暗红虚线芯）、通电逻辑失败感知（仅上游 failed 才点亮，与 flow 的 running/done 相区分）。web 19/19 通过。至此 Phase 4 错误处理在 UI 侧闭环。
-5. `b1ad1af` — **docs(sandbox)**: docker 容器后端缓做决策记录（design §11：为什么低优——成本在外围不在接口；触发条件——部署形态明确后再决策）。
+1. `e912eea` — **feat(web)**: VersionPanel 只读恢复预览——「预览」按钮 + 弹层复用 TemplatePreview SVG 缩略图 + 节点/连线/类型统计摘要，防"盲恢复"。遗留 gap：web 无组件测试基建，仅 typecheck 覆盖。
+2. `27395a3` — **feat(server,web)**: 版本与最近 run 关联——GET versions 返回 latestRunHash/currentHash，面板给匹配快照打「最近运行」「与当前一致」标记（run 表 hash 复用 content_hash 计算，不加外键）。
+3. `4c4681a` — **feat(server)**: 保存前自动快照（pre-save snapshot）——PUT 保存路径写入新内容前落旧内容快照（note=auto），10 分钟同内容节流 + 每图滚动保留 30 条（人工快照永不删）；content_hash 列 migration。新增 graph-versions.test.ts 6 用例，server 463/463。
+4. `1f216c3` — **docs(versions)**: 版本管理现状盘点与补强设计（design-versions.md：P0 自动快照 / P1 恢复预览 + run 关联 hash / P2 diff 与 A/B 缓做决策）。
+5. `1413b1c` — **docs(templates)**: 模板体系落地后的文档同步（roadmap 5.5 行 + design-templates 状态 + handoff 轮转）。
 
 最近 5 条之前的全部在 [docs/handoff-archive.md](docs/handoff-archive.md) 的"阶段 4 收尾"与"Additions (post-2026-08-27)"系列章节里（含 MCP stdio 分帧修复 `a2482ba`、P2 外部沙箱后端 `0a22b13`、P1 rlimit `ddb2e03`、P0 `6b2f92b`、HTTP 节点第一闭环 `1856d81`、账号系统 `5b81c74`/`73d3610` 等）。
 
@@ -76,7 +77,7 @@ State of Agent World as of 2026-08-30.
 
 - `pnpm -r typecheck`：全绿（2026-08-30 复核 web：tsc --noEmit 干净）
 - `pnpm --filter @agent-world/core test`：144/144 通过（含 EdgeKind error / buildNodeContext error 前驱 / node.skipped event + HTTP file 模式 + 新模板全量 compile + TemplateField 字段引用用例）
-- `pnpm --filter @agent-world/server test`：**457/457 通过**（Node 24 下跑）。SSRF 代理新增 13 个 code-proxy 单测（allow/deny、Basic/Bearer 双认证、跨 token 隔离、token 注销失效、内网拒绝、CONNECT 隧道透传/端口拒绝、resolveConnectAddress IP 固定 fail-closed）+ 3 个 engine e2e（TOOL_NETWORK_ALLOW 未配置 VALIDATION、Python urllib 经代理成功、allowlist 外 403）。此前 fs/net 策略 5 个测试（allowlist 只读实跑等）、P2 13 个（后端选择/形状/live seatbelt+bwrap）、P1 13 个（rlimit/permission 形状 + 实跑 + 引号 + NPROC/CPU 拦截）
+- `pnpm --filter @agent-world/server test`：**463/463 通过**（Node 24 下跑）。版本管理新增 graph-versions.test.ts 6 个（hash 落库 / pre-save 自动快照 / 节流 / 滚动保留不动人工 / auto 与 manual 恢复同路径 / 最近 run hash 关联）。SSRF 代理 13 个 code-proxy 单测（allow/deny、Basic/Bearer 双认证、跨 token 隔离、token 注销失效、内网拒绝、CONNECT 隧道透传/端口拒绝、resolveConnectAddress IP 固定 fail-closed）+ 3 个 engine e2e（TOOL_NETWORK_ALLOW 未配置 VALIDATION、Python urllib 经代理成功、allowlist 外 403）。此前 fs/net 策略 5 个测试（allowlist 只读实跑等）、P2 13 个（后端选择/形状/live seatbelt+bwrap）、P1 13 个（rlimit/permission 形状 + 实跑 + 引号 + NPROC/CPU 拦截）
 - `pnpm --filter @agent-world/mcp-server test`：**50/50 通过**（新增 stdio 端到端冒烟 3 个：CLI 子进程真实回环 / parse error 容错 / 多字节 id 无分帧错位）
 - `pnpm --filter @agent-world/web exec vitest run`：19/19 通过
 - **注意**：依赖 `node:sqlite`，必须 Node ≥ 22（CI 用 Node 24；本地 shell 默认 Node 20 会误报 `No such built-in module: node:sqlite`，用 `fnm exec --using=24` 跑）。**P1 沙箱的实跑测试必须在 Node 24 下验证**——否则 `code-sandbox.test.ts` 的 spawnSync shell 脚本形状断言通过，但 `engine.code.test.ts` 中真正执行用户脚本时会因 `--permission` / `--experimental-permission` 形式与实际 Node 版本不一致而失败（`resolveInterpreter` 会对解释器路径做版本探针，跨版本跑会走不同分支）
