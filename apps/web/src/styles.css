@@ -4802,6 +4802,10 @@ select {
 .version-item { padding: 12px; margin-bottom: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); }
 .version-item__head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
 .version-item__name { font-weight: 600; font-size: 14px; }
+/* Run-correlation flags: plain colored text, no chip/border (keeps the row quiet) */
+.version-item__flag { font-weight: 500; font-size: 11px; margin-left: 8px; letter-spacing: 0.02em; }
+.version-item__flag--ran { color: var(--accent, #3b82f6); }
+.version-item__flag--current { color: var(--ok, #22c55e); }
 .version-item__note { font-size: 12px; margin-bottom: 8px; }
 .version-item__actions { display: flex; gap: 8px; }
 

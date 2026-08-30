@@ -5,7 +5,16 @@ interface VersionSummary {
   graphId: string;
   name: string;
   note: string;
+  contentHash: string;
   createdAt: number;
+}
+
+interface VersionsResponse {
+  versions: VersionSummary[];
+  /** Content hash of the graph as executed by the most recent run; null if never run. */
+  latestRunHash: string | null;
+  /** Content hash of the live graph right now. */
+  currentHash: string;
 }
 
 interface Props {
@@ -18,6 +27,8 @@ interface Props {
 
 export default function VersionPanel({ open, graphId, graphName, onClose, onRestored }: Props) {
   const [versions, setVersions] = useState<VersionSummary[]>([]);
+  const [latestRunHash, setLatestRunHash] = useState<string | null>(null);
+  const [currentHash, setCurrentHash] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [newName, setNewName] = useState("");
   const [newNote, setNewNote] = useState("");
@@ -31,10 +42,14 @@ export default function VersionPanel({ open, graphId, graphName, onClose, onRest
     setLoading(true);
     try {
       const res = await fetch(`/api/graphs/${graphId}/versions`);
-      const data = await res.json();
-      setVersions(Array.isArray(data) ? data : []);
+      const data = (await res.json()) as VersionsResponse;
+      setVersions(data.versions ?? []);
+      setLatestRunHash(data.latestRunHash ?? null);
+      setCurrentHash(data.currentHash ?? null);
     } catch {
       setVersions([]);
+      setLatestRunHash(null);
+      setCurrentHash(null);
     } finally {
       setLoading(false);
     }
@@ -125,10 +140,18 @@ export default function VersionPanel({ open, graphId, graphName, onClose, onRest
           {versions.map((v) => (
             <div key={v.id} className="version-item">
               <div className="version-item__head">
-                <span className="version-item__name">{v.name}</span>
+                <span className="version-item__name">
+                  {v.name}
+                  {latestRunHash && v.contentHash === latestRunHash && (
+                    <span className="version-item__flag version-item__flag--ran">最近运行</span>
+                  )}
+                  {currentHash && v.contentHash === currentHash && (
+                    <span className="version-item__flag version-item__flag--current">与当前一致</span>
+                  )}
+                </span>
                 <span className="muted">{new Date(v.createdAt).toLocaleString()}</span>
               </div>
-              {v.note && <p className="version-item__note muted">{v.note}</p>}
+              {v.note && v.note !== "auto" && <p className="version-item__note muted">{v.note}</p>}
               <div className="version-item__actions">
                 <button className="btn btn--ghost btn--sm" onClick={() => restoreVersion(v.id)}>恢复</button>
                 <button className="btn btn--ghost btn--sm btn--danger" onClick={() => deleteVersion(v.id)}>删除</button>

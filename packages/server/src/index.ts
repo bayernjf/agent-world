@@ -1014,8 +1014,16 @@ app.delete("/api/brand-terms/:id", (c) => {
 app.get("/api/graphs/:id/versions", (c) => {
   const userId = c.get("userId");
   const graphId = c.req.param("id");
-  if (!db.getGraph(graphId, userId)) return c.json({ error: "graph not found" }, 404);
-  return c.json(db.listVersions(graphId, userId));
+  const graph = db.getGraph(graphId, userId);
+  if (!graph) return c.json({ error: "graph not found" }, 404);
+  // Run-correlation hashes (design-versions §3): which snapshot matches what
+  // actually ran last, and whether the live graph still matches it.
+  const latestRunHash = db.getLatestRunContentHash(graphId, userId);
+  return c.json({
+    versions: db.listVersions(graphId, userId),
+    latestRunHash,
+    currentHash: contentHash(JSON.stringify(graph)),
+  });
 });
 
 app.post("/api/graphs/:id/versions", async (c) => {

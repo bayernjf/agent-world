@@ -1254,6 +1254,18 @@ export function openDb(file: string) {
                   WHERE gv.graph_id = ? AND g.user_id = ? ORDER BY gv.created_at DESC, gv.rowid DESC`)
         .all(graphId, userId) as Array<{ id: string; graphId: string; name: string; note: string; contentHash: string; createdAt: number }>;
     },
+    /**
+     * Content hash of the graph as executed by the most recent run of this
+     * graph (runs.snapshot stores the full graph JSON at execution time), or
+     * null when the graph has never run. Lets the version panel flag which
+     * snapshot matches what actually ran.
+     */
+    getLatestRunContentHash(graphId: string, userId: string): string | null {
+      const row = db
+        .prepare(`SELECT snapshot FROM runs WHERE graph_id = ? AND user_id = ? ORDER BY started_at DESC, rowid DESC LIMIT 1`)
+        .get(graphId, userId) as { snapshot: string } | undefined;
+      return row ? contentHash(row.snapshot) : null;
+    },
     getVersion(id: string, userId: string) {
       return db.prepare(`SELECT gv.* FROM graph_versions gv JOIN graphs g ON g.id = gv.graph_id
                           WHERE gv.id = ? AND g.user_id = ?`).get(id, userId) as

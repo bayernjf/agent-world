@@ -112,4 +112,18 @@ describe("graph versions db", () => {
     db.saveGraph(restored, 3, U);
     expect(db.getGraph("g", U)!.nodes).toHaveLength(1);
   });
+
+  it("getLatestRunContentHash returns the hash of the most recent run's graph", () => {
+    expect(db.getLatestRunContentHash("g", U)).toBeNull(); // never ran
+
+    const g1 = graph("g", "G", 1);
+    db.createRun({ id: "r1", userId: U, graph: g1, budgetUsd: null, at: 100 });
+    db.createRun({ id: "r2", userId: U, graph: graph("g", "G", 2), budgetUsd: null, at: 200 });
+    expect(db.getLatestRunContentHash("g", U)).toBe(contentHash(JSON.stringify(graph("g", "G", 2))));
+
+    // A snapshot of the same content matches the run hash (panel flag logic).
+    db.saveGraph(g1, 1, U);
+    db.saveAutoSnapshot("g", JSON.stringify(g1), 0, 30);
+    expect(db.listVersions("g", U)[0]!.contentHash).not.toBe(db.getLatestRunContentHash("g", U));
+  });
 });
