@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import Tooltip from "./Tooltip";
 
 interface Props {
   open: boolean;
@@ -11,13 +12,23 @@ interface Props {
  * Edits the graph's default variables (key → JSON value). Runtime writes from
  * `set_variable` (persisted per-run) override these; `${var.xxx}` reads them.
  */
-export default function VariablesModal({ open, variables, onClose, onSave }: Props) {
+export default function VariablesModal({
+  open,
+  variables,
+  onClose,
+  onSave,
+}: Props) {
   const [rows, setRows] = useState<Array<{ key: string; value: string }>>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
-    setRows(Object.entries(variables ?? {}).map(([k, v]) => ({ key: k, value: JSON.stringify(v) ?? "" })));
+    setRows(
+      Object.entries(variables ?? {}).map(([k, v]) => ({
+        key: k,
+        value: JSON.stringify(v) ?? "",
+      })),
+    );
     setError(null);
   }, [open, variables]);
 
@@ -52,7 +63,9 @@ export default function VariablesModal({ open, variables, onClose, onSave }: Pro
       try {
         out[key] = JSON.parse(text);
       } catch {
-        setError(`变量 ${key} 的值不是合法 JSON（字符串需加引号，如 "文本"；对象/数组用 {...} / [...]）`);
+        setError(
+          `变量 ${key} 的值不是合法 JSON（字符串需加引号，如 "文本"；对象/数组用 {...} / [...]）`,
+        );
         return;
       }
     }
@@ -62,18 +75,25 @@ export default function VariablesModal({ open, variables, onClose, onSave }: Pro
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" style={{ width: 560 }} onClick={(e) => e.stopPropagation()}>
+      <div
+        className="modal"
+        style={{ width: 560 }}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="modal__header">
           <h2>产线变量</h2>
-          <button className="icon-btn" onClick={onClose} title="关闭">
-            ✕
-          </button>
+          <Tooltip content="关闭">
+            <button className="icon-btn" onClick={onClose}>
+              ✕
+            </button>
+          </Tooltip>
         </div>
         <div className="modal__body">
           <p className="form-hint">
-            变量是跨运行持久化的状态：节点可用 <code>{"${var.xxx}"}</code> 读取（如{" "}
-            <code>{"${var.brand}"}</code>），agent 可用内置工具 <code>set_variable</code> /
-            <code>get_variable</code> 读写。此处为默认值，运行后的写入会覆盖它。
+            变量是跨运行持久化的状态：节点可用 <code>{"${var.xxx}"}</code>{" "}
+            读取（如 <code>{"${var.brand}"}</code>），agent 可用内置工具{" "}
+            <code>set_variable</code> /<code>get_variable</code>{" "}
+            读写。此处为默认值，运行后的写入会覆盖它。
           </p>
           <div className="var-table">
             <div className="var-table__head">
@@ -97,7 +117,7 @@ export default function VariablesModal({ open, variables, onClose, onSave }: Pro
                 />
                 <button
                   className="icon-btn icon-btn--danger"
-                  title="删除该变量"
+
                   onClick={() => setRows((rs) => rs.filter((_, j) => j !== i))}
                 >
                   ✕

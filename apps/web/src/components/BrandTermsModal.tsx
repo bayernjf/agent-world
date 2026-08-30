@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type BrandTerm } from "../lib/api";
+import Tooltip from "./Tooltip";
 
 interface Props {
   open: boolean;
@@ -54,9 +55,11 @@ export default function BrandTermsModal({ open, onClose }: Props) {
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal__header">
           <h2>品牌词库</h2>
-          <button className="icon-btn" onClick={onClose} title="关闭">
-            ✕
-          </button>
+          <Tooltip content="关闭">
+            <button className="icon-btn" onClick={onClose}>
+              ✕
+            </button>
+          </Tooltip>
         </div>
         <div className="modal__body">
           <p className="muted">
@@ -64,7 +67,9 @@ export default function BrandTermsModal({ open, onClose }: Props) {
             gate 可设「品牌词覆盖率门槛」，低于则打回上游重写。
           </p>
           <ul className="brand-list">
-            {terms.length === 0 && <li className="muted">暂无品牌词，先在下方添加。</li>}
+            {terms.length === 0 && (
+              <li className="muted">暂无品牌词，先在下方添加。</li>
+            )}
             {terms.map((t) => (
               <li key={t.id}>
                 <div>
@@ -86,8 +91,16 @@ export default function BrandTermsModal({ open, onClose }: Props) {
                 if (e.key === "Enter") void add();
               }}
             />
-            <input placeholder="备注（可选）" value={note} onChange={(e) => setNote(e.target.value)} />
-            <button className="btn btn--primary btn--sm" onClick={() => void add()} disabled={!term.trim()}>
+            <input
+              placeholder="备注（可选）"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+            />
+            <button
+              className="btn btn--primary btn--sm"
+              onClick={() => void add()}
+              disabled={!term.trim()}
+            >
               添加
             </button>
           </div>

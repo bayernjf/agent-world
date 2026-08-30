@@ -44,7 +44,17 @@ import { useGraph } from "./store/graph";
 import { useRun } from "./store/run";
 
 export default function App() {
-  const { graph, setGraph, addNode, flushSave, undo, redo, selectedId, updateGraphVariables, inspectorOpen } = useGraph();
+  const {
+    graph,
+    setGraph,
+    addNode,
+    flushSave,
+    undo,
+    redo,
+    selectedId,
+    updateGraphVariables,
+    inspectorOpen,
+  } = useGraph();
   const { connect, reset, runId, loadRun } = useRun();
 
   const [mode, setMode] = useState<Mode>("select");
@@ -70,25 +80,28 @@ export default function App() {
   });
   const dragging = useRef(false);
   const dragWidth = useRef(420);
-  const onDragStart = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    dragging.current = true;
-    dragWidth.current = inspectorWidth;
-    const onMove = (ev: MouseEvent) => {
-      if (!dragging.current) return;
-      const w = Math.min(720, Math.max(280, window.innerWidth - ev.clientX));
-      dragWidth.current = w;
-      setInspectorWidth(w);
-    };
-    const onUp = () => {
-      dragging.current = false;
-      document.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mouseup", onUp);
-      localStorage.setItem("inspector-width", String(dragWidth.current));
-    };
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
-  }, [inspectorWidth]);
+  const onDragStart = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      dragging.current = true;
+      dragWidth.current = inspectorWidth;
+      const onMove = (ev: MouseEvent) => {
+        if (!dragging.current) return;
+        const w = Math.min(720, Math.max(280, window.innerWidth - ev.clientX));
+        dragWidth.current = w;
+        setInspectorWidth(w);
+      };
+      const onUp = () => {
+        dragging.current = false;
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+        localStorage.setItem("inspector-width", String(dragWidth.current));
+      };
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    },
+    [inspectorWidth],
+  );
   const [historyOpen, setHistoryOpen] = useState(false);
   const [costOpen, setCostOpen] = useState(false);
   const [evalOpen, setEvalOpen] = useState(false);
@@ -117,7 +130,10 @@ export default function App() {
   };
 
   /** Surface a friendly "name already used" message and bail. */
-  const reportDuplicate = (name: string, dup: { name: string } | null): boolean => {
+  const reportDuplicate = (
+    name: string,
+    dup: { name: string } | null,
+  ): boolean => {
     if (!dup) return false;
     showError(`已存在同名产线「${name}」，请换一个名字。`);
     return true;
@@ -143,7 +159,11 @@ export default function App() {
   /** Soft warning when the user adds a node whose modality has no configured
    *  model. Adding still succeeds (model is left empty); dispatch is the
    *  gatekeeper that will refuse to run a graph with empty models. */
-  const addNodeOrReport = (kind: Parameters<typeof addNode>[0], x: number, y: number) => {
+  const addNodeOrReport = (
+    kind: Parameters<typeof addNode>[0],
+    x: number,
+    y: number,
+  ) => {
     const r = addNode(kind, x, y);
     if (r.missingModality) {
       const label = MODALITY_PROMPT_LABEL[r.missingModality] ?? "对应";
@@ -155,44 +175,205 @@ export default function App() {
 
   const commandItems: CommandItem[] = [
     // 节点
-    { id: "add-source", label: "添加原料台", hint: "产线投料入口（原料台）", group: "节点", onSelect: () => addNodeOrReport("source", 300, 360) },
-    { id: "add-textgen", label: "添加文坊", hint: "LLM 文本生成（文坊），可挂技能卡", group: "节点", onSelect: () => addNodeOrReport("textGen", 300, 480) },
-    { id: "add-gate", label: "添加质检站", hint: "LLM-as-judge 质量检验门（质检站）", group: "节点", onSelect: () => addNodeOrReport("gate", 500, 480) },
-    { id: "add-image", label: "添加画坊", hint: "文字生成图片", group: "节点", onSelect: () => addNodeOrReport("imageGen", 300, 600) },
-    { id: "add-http", label: "添加 API 口岸", hint: "调用外部 REST API（API 口岸）", group: "节点", onSelect: () => addNodeOrReport("http", 300, 720) },
-    { id: "add-sink", label: "添加成品库", hint: "产线产物出口（成品库）", group: "节点", onSelect: () => addNodeOrReport("sink", 300, 840) },
-    { id: "add-video", label: "添加影坊", hint: "文字生成视频", group: "节点", onSelect: () => addNodeOrReport("videoGen", 300, 720) },
-    { id: "add-audio", label: "添加音坊", hint: "文字生成语音/音乐", group: "节点", onSelect: () => addNodeOrReport("audioGen", 300, 840) },
-    { id: "new-graph", label: "新建产线", hint: "从模板或空白创建", group: "节点", onSelect: () => setNewGraphOpen(true) },
+    {
+      id: "add-source",
+      label: "添加原料台",
+      hint: "产线投料入口（原料台）",
+      group: "节点",
+      onSelect: () => addNodeOrReport("source", 300, 360),
+    },
+    {
+      id: "add-textgen",
+      label: "添加文坊",
+      hint: "LLM 文本生成（文坊），可挂技能卡",
+      group: "节点",
+      onSelect: () => addNodeOrReport("textGen", 300, 480),
+    },
+    {
+      id: "add-gate",
+      label: "添加质检站",
+      hint: "LLM-as-judge 质量检验门（质检站）",
+      group: "节点",
+      onSelect: () => addNodeOrReport("gate", 500, 480),
+    },
+    {
+      id: "add-image",
+      label: "添加画坊",
+      hint: "文字生成图片",
+      group: "节点",
+      onSelect: () => addNodeOrReport("imageGen", 300, 600),
+    },
+    {
+      id: "add-http",
+      label: "添加 API 口岸",
+      hint: "调用外部 REST API（API 口岸）",
+      group: "节点",
+      onSelect: () => addNodeOrReport("http", 300, 720),
+    },
+    {
+      id: "add-sink",
+      label: "添加成品库",
+      hint: "产线产物出口（成品库）",
+      group: "节点",
+      onSelect: () => addNodeOrReport("sink", 300, 840),
+    },
+    {
+      id: "add-video",
+      label: "添加影坊",
+      hint: "文字生成视频",
+      group: "节点",
+      onSelect: () => addNodeOrReport("videoGen", 300, 720),
+    },
+    {
+      id: "add-audio",
+      label: "添加音坊",
+      hint: "文字生成语音/音乐",
+      group: "节点",
+      onSelect: () => addNodeOrReport("audioGen", 300, 840),
+    },
+    {
+      id: "new-graph",
+      label: "新建产线",
+      hint: "从模板或空白创建",
+      group: "节点",
+      onSelect: () => setNewGraphOpen(true),
+    },
     // 查看
-    { id: "history", label: "运行历史", hint: "查看、加载、删除", group: "查看", onSelect: () => setHistoryOpen(true) },
-    { id: "cost", label: "成本报表", hint: "按产线 / 文坊 / 日期拆解", group: "查看", onSelect: () => setCostOpen(true) },
-    { id: "eval", label: "质量评估", hint: "通过率 / 返工 / 时长", group: "查看", onSelect: () => setEvalOpen(true) },
-    { id: "gallery", label: "成品库", hint: "跨运行产出物画廊", group: "查看", onSelect: () => setGalleryOpen(true) },
-    { id: "glossary", label: "术语对照表", hint: "标准术语 ⇄ Agent World 用词", group: "查看", onSelect: () => setGlossaryOpen(true) },
-    { id: "compare", label: "运行对比", hint: "两次运行的成本与节点输出", group: "查看", onSelect: () => setCompareOpen(true) },
+    {
+      id: "history",
+      label: "运行历史",
+      hint: "查看、加载、删除",
+      group: "查看",
+      onSelect: () => setHistoryOpen(true),
+    },
+    {
+      id: "cost",
+      label: "成本报表",
+      hint: "按产线 / 文坊 / 日期拆解",
+      group: "查看",
+      onSelect: () => setCostOpen(true),
+    },
+    {
+      id: "eval",
+      label: "质量评估",
+      hint: "通过率 / 返工 / 时长",
+      group: "查看",
+      onSelect: () => setEvalOpen(true),
+    },
+    {
+      id: "gallery",
+      label: "成品库",
+      hint: "跨运行产出物画廊",
+      group: "查看",
+      onSelect: () => setGalleryOpen(true),
+    },
+    {
+      id: "glossary",
+      label: "术语对照表",
+      hint: "标准术语 ⇄ Agent World 用词",
+      group: "查看",
+      onSelect: () => setGlossaryOpen(true),
+    },
+    {
+      id: "compare",
+      label: "运行对比",
+      hint: "两次运行的成本与节点输出",
+      group: "查看",
+      onSelect: () => setCompareOpen(true),
+    },
     // 自动化
-    { id: "triggers", label: "触发器", hint: "Webhook / 定时 / 事件 / 批量", group: "自动化", onSelect: () => setTriggersOpen(true) },
-    { id: "ab", label: "A/B 实验", hint: "同一节点多套 prompt 对比", group: "自动化", onSelect: () => setABOpen(true) },
+    {
+      id: "triggers",
+      label: "触发器",
+      hint: "Webhook / 定时 / 事件 / 批量",
+      group: "自动化",
+      onSelect: () => setTriggersOpen(true),
+    },
+    {
+      id: "ab",
+      label: "A/B 实验",
+      hint: "同一节点多套 prompt 对比",
+      group: "自动化",
+      onSelect: () => setABOpen(true),
+    },
     // 管理
-    { id: "settings", label: "设置", hint: "Provider / 模型 / 单价 / 月度预算", group: "管理", onSelect: () => setSettingsOpen(true) },
-    { id: "brand", label: "品牌词库", hint: "可一键载入到文坊", group: "管理", onSelect: () => setBrandOpen(true) },
-    { id: "knowledge", label: "知识库", hint: "历史产线产出与质检结论", group: "管理", onSelect: () => setKnowledgeOpen(true) },
-    { id: "version", label: "产线版本", hint: "快照 / 恢复", group: "管理", onSelect: () => setVersionOpen(true) },
-    { id: "variables", label: "产线变量", hint: "跨运行持久化状态（${var.xxx} / set_variable）", group: "管理", onSelect: () => setVariablesOpen(true) },
-    { id: "reset-template", label: "还原到模板布局", hint: "只还原节点位置和连线", group: "管理", onSelect: () => {
-      const current = graphs.find((g) => g.id === graph.id);
-      if (!current?.originTemplateId) {
-        showError("此产线未从模板创建，无法还原布局。");
-        return;
-      }
-      resetGraph(graph.id);
-    }},
+    {
+      id: "settings",
+      label: "设置",
+      hint: "Provider / 模型 / 单价 / 月度预算",
+      group: "管理",
+      onSelect: () => setSettingsOpen(true),
+    },
+    {
+      id: "brand",
+      label: "品牌词库",
+      hint: "可一键载入到文坊",
+      group: "管理",
+      onSelect: () => setBrandOpen(true),
+    },
+    {
+      id: "knowledge",
+      label: "知识库",
+      hint: "历史产线产出与质检结论",
+      group: "管理",
+      onSelect: () => setKnowledgeOpen(true),
+    },
+    {
+      id: "version",
+      label: "产线版本",
+      hint: "快照 / 恢复",
+      group: "管理",
+      onSelect: () => setVersionOpen(true),
+    },
+    {
+      id: "variables",
+      label: "产线变量",
+      hint: "跨运行持久化状态（${var.xxx} / set_variable）",
+      group: "管理",
+      onSelect: () => setVariablesOpen(true),
+    },
+    {
+      id: "reset-template",
+      label: "还原到模板布局",
+      hint: "只还原节点位置和连线",
+      group: "管理",
+      onSelect: () => {
+        const current = graphs.find((g) => g.id === graph.id);
+        if (!current?.originTemplateId) {
+          showError("此产线未从模板创建，无法还原布局。");
+          return;
+        }
+        resetGraph(graph.id);
+      },
+    },
     // 画布
-    { id: "undo", label: "撤销", group: "画布", shortcut: "⌘Z", onSelect: () => undo() },
-    { id: "redo", label: "重做", group: "画布", shortcut: "⇧⌘Z", onSelect: () => redo() },
-    { id: "toggle-panels", label: bothCollapsed ? "展开侧栏" : "收起侧栏", group: "画布", onSelect: toggleBoth },
-    { id: "toggle-tips", label: tipsEnabled ? "关闭文坊悬停信息" : "开启文坊悬停信息", group: "画布", shortcut: "T", onSelect: toggleTips },
+    {
+      id: "undo",
+      label: "撤销",
+      group: "画布",
+      shortcut: "⌘Z",
+      onSelect: () => undo(),
+    },
+    {
+      id: "redo",
+      label: "重做",
+      group: "画布",
+      shortcut: "⇧⌘Z",
+      onSelect: () => redo(),
+    },
+    {
+      id: "toggle-panels",
+      label: bothCollapsed ? "展开侧栏" : "收起侧栏",
+      group: "画布",
+      onSelect: toggleBoth,
+    },
+    {
+      id: "toggle-tips",
+      label: tipsEnabled ? "关闭文坊悬停信息" : "开启文坊悬停信息",
+      group: "画布",
+      shortcut: "T",
+      onSelect: toggleTips,
+    },
   ];
 
   const refreshGraphs = useCallback(async () => {
@@ -215,7 +396,7 @@ export default function App() {
         const g = await api.getGraph(id);
         setGraph(g);
         useGraph.temporal.getState().clear();
-        /* toast cleared by the producer */;
+        /* toast cleared by the producer */
       } catch (e) {
         showError(String(e));
       }
@@ -223,26 +404,38 @@ export default function App() {
     [graph.id, flushSave, reset, setGraph],
   );
 
-  const createGraph = useCallback(async (template?: string, fieldValues?: Record<string, string>) => {
-    if (template) {
-      const tpl = TEMPLATES.find((t) => t.id === template);
-      if (tpl && nameTaken(tpl.name)) return reportDuplicate(tpl.name, graphs.find((g) => g.name.trim().toLowerCase() === tpl.name.trim().toLowerCase()) ?? null);
-    }
-    try {
-      const g = await api.createGraph(template ? { template, fieldValues } : undefined);
-      await refreshGraphs();
-      reset();
-      setGraph(g);
-      useGraph.temporal.getState().clear();
-    } catch (e) {
-      if (e instanceof DuplicateGraphNameError) {
-        showError(e.message);
-        await refreshGraphs();
-        return;
+  const createGraph = useCallback(
+    async (template?: string, fieldValues?: Record<string, string>) => {
+      if (template) {
+        const tpl = TEMPLATES.find((t) => t.id === template);
+        if (tpl && nameTaken(tpl.name))
+          return reportDuplicate(
+            tpl.name,
+            graphs.find(
+              (g) =>
+                g.name.trim().toLowerCase() === tpl.name.trim().toLowerCase(),
+            ) ?? null,
+          );
       }
-      showError(String(e));
-    }
-  }, [refreshGraphs, reset, setGraph, graphs, nameTaken]);
+      try {
+        const g = await api.createGraph(
+          template ? { template, fieldValues } : undefined,
+        );
+        await refreshGraphs();
+        reset();
+        setGraph(g);
+        useGraph.temporal.getState().clear();
+      } catch (e) {
+        if (e instanceof DuplicateGraphNameError) {
+          showError(e.message);
+          await refreshGraphs();
+          return;
+        }
+        showError(String(e));
+      }
+    },
+    [refreshGraphs, reset, setGraph, graphs, nameTaken],
+  );
 
   const duplicateGraph = useCallback(
     async (id: string) => {
@@ -344,17 +537,19 @@ export default function App() {
   }, [deleteTarget, graph.id, refreshGraphs, reset, setGraph, switchGraph]);
 
   useEffect(() => {
-    refreshGraphs().then((list) => {
-      if (list.length > 0) {
-        api
-          .getGraph(list[0]!.id)
-          .then((g) => {
-            setGraph(g);
-            useGraph.temporal.getState().clear();
-          })
-          .catch((e) => showError(String(e)));
-      }
-    }).finally(() => setGraphsReady(true));
+    refreshGraphs()
+      .then((list) => {
+        if (list.length > 0) {
+          api
+            .getGraph(list[0]!.id)
+            .then((g) => {
+              setGraph(g);
+              useGraph.temporal.getState().clear();
+            })
+            .catch((e) => showError(String(e)));
+        }
+      })
+      .finally(() => setGraphsReady(true));
   }, [refreshGraphs, setGraph]);
 
   // The compiler is dependency-free, so diagnostics could run locally; going
@@ -373,7 +568,10 @@ export default function App() {
         .catch((e) => {
           if (cancelled) return;
           setDiagnostics([
-            { severity: "error", message: `编译检查请求失败（${e}），请刷新页面重试` },
+            {
+              severity: "error",
+              message: `编译检查请求失败（${e}），请刷新页面重试`,
+            },
           ]);
           setCanRun(false);
         });
@@ -400,8 +598,7 @@ export default function App() {
   const startRunWith = useCallback(
     async (connectorValues?: Record<string, string>) => {
       try {
-        /* toast cleared by the producer */;
-        reset();
+        /* toast cleared by the producer */ reset();
         await api.saveGraph(graph);
         const { runId: id } = await api.startRun(
           graph.id,
@@ -441,7 +638,12 @@ export default function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
-      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) return;
+      if (
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.isContentEditable
+      )
+        return;
       if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) {
         e.preventDefault();
         setPaletteOpen((v) => !v);
@@ -478,211 +680,252 @@ export default function App() {
         <Onboarding onCreate={createGraph} />
       )}
       <div className="app">
-      <header className="hud">
-        <div className="hud__brand">
-          <Logo />
-          <span className="hud__brand-text">
-            AGENT<span>WORLD</span>
-          </span>
-        </div>
-        <div className="hud__meta">
-          <GraphSwitcher
-            graphs={graphs}
-            currentId={graph.id}
-            onSwitch={switchGraph}
-            onCreate={() => setNewGraphOpen(true)}
-            onDuplicate={duplicateGraph}
-            onDelete={(id) =>
-              setDeleteTarget(graphs.find((g) => g.id === id) ?? null)
-            }
-            onRename={renameGraph}
-            onReset={resetGraph}
-          />
-          <span className="muted">
-            {graph.nodes.length > 0
-              ? Object.entries(
-                  graph.nodes.reduce<Record<string, number>>((acc, n) => {
-                    acc[n.kind] = (acc[n.kind] ?? 0) + 1;
-                    return acc;
-                  }, {}),
-                )
-                  .sort((a, b) => b[1] - a[1])
-                  .map(([k, v]) => `${v} ${KIND_LABEL[k as keyof typeof KIND_LABEL] ?? k}`)
-                  .join(" · ")
-              : "0 节点"}
-          </span>
-          <span className="muted">{graph.edges.length} 条管道</span>
-        </div>
-        <div className="hud__actions">
-          <div className="hud__undo-redo">
-            <UndoRedo />
+        <header className="hud">
+          <div className="hud__brand">
+            <Logo />
+            <span className="hud__brand-text">
+              AGENT<span>WORLD</span>
+            </span>
           </div>
-          <Tooltip content={bothCollapsed ? "展开全部侧栏" : "收起全部侧栏"}>
-            <button className="chip stage__panel-toggle" onClick={toggleBoth}>
-              {bothCollapsed ? "展开侧栏" : "收起侧栏"}
-            </button>
-          </Tooltip>
-          <Tooltip content={`文坊悬停信息：${tipsEnabled ? "开" : "关"}（快捷键 T 切换）`}>
-            <button
-              className={`chip ${tipsEnabled ? "" : "chip--muted"}`}
-              onClick={toggleTips}
-            >
-              提示
-            </button>
-          </Tooltip>
-          <Tooltip content="跨运行成品库：查看所有产线的历史产出，无需派发任务">
-            <button className="chip" onClick={() => setGalleryOpen(true)}>
-              成品库
-            </button>
-          </Tooltip>
-          <Tooltip content="术语对照表：标准术语 ⇄ Agent World 用词">
-            <button className="chip" onClick={() => setGlossaryOpen(true)}>
-              术语表
-            </button>
-          </Tooltip>
-          <ShortcutsHelp />
-          <Tooltip content="打开命令面板：弹窗、添加节点、画布动作">
-            <button
-              className="chip hud__menu"
-              onClick={() => setPaletteOpen(true)}
-              aria-label="打开命令面板"
-            >
-              菜单 <kbd className="kbd-inline">⌘K</kbd>
-            </button>
-          </Tooltip>
-          <UserMenu />
-        </div>
-      </header>
-
-      <div
-        className={`workspace ${controlCollapsed ? "workspace--control-collapsed" : ""}`}
-      >
-        <ControlPanel
-          mode={mode}
-          setMode={setMode}
-          budget={budget}
-          setBudget={setBudget}
-          rawMaterial={rawMaterial}
-          setRawMaterial={setRawMaterial}
-          diagnostics={diagnostics}
-          canRun={canRun}
-          onRun={onRun}
-          onCancel={onCancel}
-          onOpenSettings={() => setSettingsOpen(true)}
-          onOpenHistory={() => setHistoryOpen(true)}
-        />
-
-        <main className="stage">
-          <div className="canvas-toolbar-row">
-            <CanvasToolbar onError={showError} />
-          </div>
-          <Timeline />
-          <FailurePanel onRerun={onRun} />
-          <Canvas mode={mode} />
-          <button
-            className={`stage__control-toggle ${controlCollapsed ? "is-collapsed" : ""}`}
-            onClick={() => setControlCollapsed((v) => !v)}
-            title={controlCollapsed ? "展开控制面板" : "收起控制面板"}
-          >
-            {controlCollapsed ? "›" : "‹"}
-          </button>
-          <button
-            className={`stage__inspector-toggle ${inspectorCollapsed ? "is-collapsed" : ""}`}
-            style={inspectorCollapsed ? undefined : { right: `${inspectorWidth}px` }}
-            onClick={() => setInspectorCollapsed((v) => !v)}
-            title={inspectorCollapsed ? "展开详情" : "收起详情"}
-          >
-            {inspectorCollapsed ? "‹" : "›"}
-          </button>
-          <Minimap />
-          <div
-            className={`inspector-slot ${inspectorCollapsed ? "inspector-slot--hidden" : ""}`}
-            style={{ "--inspector-width": `${inspectorWidth}px` } as React.CSSProperties}
-          >
-            <div
-              className="inspector-drag-handle"
-              onMouseDown={onDragStart}
+          <div className="hud__meta">
+            <GraphSwitcher
+              graphs={graphs}
+              currentId={graph.id}
+              onSwitch={switchGraph}
+              onCreate={() => setNewGraphOpen(true)}
+              onDuplicate={duplicateGraph}
+              onDelete={(id) =>
+                setDeleteTarget(graphs.find((g) => g.id === id) ?? null)
+              }
+              onRename={renameGraph}
+              onReset={resetGraph}
             />
-            <Inspector onOpenSettings={() => setSettingsOpen(true)} />
+            <span className="muted">
+              {graph.nodes.length > 0
+                ? Object.entries(
+                    graph.nodes.reduce<Record<string, number>>((acc, n) => {
+                      acc[n.kind] = (acc[n.kind] ?? 0) + 1;
+                      return acc;
+                    }, {}),
+                  )
+                    .sort((a, b) => b[1] - a[1])
+                    .map(
+                      ([k, v]) =>
+                        `${v} ${KIND_LABEL[k as keyof typeof KIND_LABEL] ?? k}`,
+                    )
+                    .join(" · ")
+                : "0 节点"}
+            </span>
+            <span className="muted">{graph.edges.length} 条管道</span>
           </div>
-        </main>
-      </div>
+          <div className="hud__actions">
+            <div className="hud__undo-redo">
+              <UndoRedo />
+            </div>
+            <Tooltip content={bothCollapsed ? "展开全部侧栏" : "收起全部侧栏"}>
+              <button className="chip stage__panel-toggle" onClick={toggleBoth}>
+                {bothCollapsed ? "展开侧栏" : "收起侧栏"}
+              </button>
+            </Tooltip>
+            <Tooltip
+              content={`文坊悬停信息：${tipsEnabled ? "开" : "关"}（快捷键 T 切换）`}
+            >
+              <button
+                className={`chip ${tipsEnabled ? "" : "chip--muted"}`}
+                onClick={toggleTips}
+              >
+                提示
+              </button>
+            </Tooltip>
+            <Tooltip content="跨运行成品库：查看所有产线的历史产出，无需派发任务">
+              <button className="chip" onClick={() => setGalleryOpen(true)}>
+                成品库
+              </button>
+            </Tooltip>
+            <Tooltip content="术语对照表：标准术语 ⇄ Agent World 用词">
+              <button className="chip" onClick={() => setGlossaryOpen(true)}>
+                术语表
+              </button>
+            </Tooltip>
+            <ShortcutsHelp />
+            <Tooltip content="打开命令面板：弹窗、添加节点、画布动作">
+              <button
+                className="chip hud__menu"
+                onClick={() => setPaletteOpen(true)}
+                aria-label="打开命令面板"
+              >
+                菜单 <kbd className="kbd-inline">⌘K</kbd>
+              </button>
+            </Tooltip>
+            <UserMenu />
+          </div>
+        </header>
 
-      <RunHistory
-        open={historyOpen}
-        onClose={() => setHistoryOpen(false)}
-        onOpen={(id) => {
-          setHistoryOpen(false);
-          void loadRun(id);
-        }}
-      />
-      <CostReport open={costOpen} onClose={() => setCostOpen(false)} />
-      <EvalReport open={evalOpen} onClose={() => setEvalOpen(false)} graphId={graph.id} />
-      <ABDialog
-        open={abOpen}
-        graph={graph}
-        onClose={() => setABOpen(false)}
-        onLaunched={(gid) => {
-          setABOpen(false);
-          setABGroup(gid);
-        }}
-      />
-      <ABReport open={abGroup !== null} groupId={abGroup ?? ""} onClose={() => setABGroup(null)} />
-      <ProductGallery open={galleryOpen} onClose={() => setGalleryOpen(false)} />
-      <BrandTermsModal open={brandOpen} onClose={() => setBrandOpen(false)} />
-      <TriggersPanel open={triggersOpen} onClose={() => setTriggersOpen(false)} graphId={graph.id} />
-      <KnowledgePanel open={knowledgeOpen} onClose={() => setKnowledgeOpen(false)} />
-      <GlossaryModal open={glossaryOpen} onClose={() => setGlossaryOpen(false)} />
-      <VariablesModal
-        open={variablesOpen}
-        variables={graph.variables}
-        onClose={() => setVariablesOpen(false)}
-        onSave={updateGraphVariables}
-      />
-      <VersionPanel
-        open={versionOpen}
-        graphId={graph.id}
-        graphName={graph.name}
-        onClose={() => setVersionOpen(false)}
-        onRestored={() => { void refreshGraphs(); setTimeout(() => window.location.reload(), 300); }}
-      />
-      <RunCompare open={compareOpen} graphId={graph.id} onClose={() => setCompareOpen(false)} />
-      <CommandPalette
-        open={paletteOpen}
-        onClose={() => setPaletteOpen(false)}
-        items={commandItems}
-      />
-      {formFields && (
-        <FormConnectorModal
-          fields={formFields}
-          onSubmit={onFormSubmit}
-          onCancel={() => setFormFields(null)}
+        <div
+          className={`workspace ${controlCollapsed ? "workspace--control-collapsed" : ""}`}
+        >
+          <ControlPanel
+            mode={mode}
+            setMode={setMode}
+            budget={budget}
+            setBudget={setBudget}
+            rawMaterial={rawMaterial}
+            setRawMaterial={setRawMaterial}
+            diagnostics={diagnostics}
+            canRun={canRun}
+            onRun={onRun}
+            onCancel={onCancel}
+            onOpenSettings={() => setSettingsOpen(true)}
+            onOpenHistory={() => setHistoryOpen(true)}
+          />
+
+          <main className="stage">
+            <div className="canvas-toolbar-row">
+              <CanvasToolbar onError={showError} />
+            </div>
+            <Timeline />
+            <FailurePanel onRerun={onRun} />
+            <Canvas mode={mode} />
+            <button
+              className={`stage__control-toggle ${controlCollapsed ? "is-collapsed" : ""}`}
+              onClick={() => setControlCollapsed((v) => !v)}
+              title={controlCollapsed ? "展开控制面板" : "收起控制面板"}
+            >
+              {controlCollapsed ? "›" : "‹"}
+            </button>
+            <button
+              className={`stage__inspector-toggle ${inspectorCollapsed ? "is-collapsed" : ""}`}
+              style={
+                inspectorCollapsed
+                  ? undefined
+                  : { right: `${inspectorWidth}px` }
+              }
+              onClick={() => setInspectorCollapsed((v) => !v)}
+              title={inspectorCollapsed ? "展开详情" : "收起详情"}
+            >
+              {inspectorCollapsed ? "‹" : "›"}
+            </button>
+            <Minimap />
+            <div
+              className={`inspector-slot ${inspectorCollapsed ? "inspector-slot--hidden" : ""}`}
+              style={
+                {
+                  "--inspector-width": `${inspectorWidth}px`,
+                } as React.CSSProperties
+              }
+            >
+              <div
+                className="inspector-drag-handle"
+                onMouseDown={onDragStart}
+              />
+              <Inspector onOpenSettings={() => setSettingsOpen(true)} />
+            </div>
+          </main>
+        </div>
+
+        <RunHistory
+          open={historyOpen}
+          onClose={() => setHistoryOpen(false)}
+          onOpen={(id) => {
+            setHistoryOpen(false);
+            void loadRun(id);
+          }}
         />
-      )}
-      <Toast />
-      <Settings open={settingsOpen} onClose={() => setSettingsOpen(false)} />
-      <NewGraphDialog
-        open={newGraphOpen}
-        onClose={() => setNewGraphOpen(false)}
-        onPick={(templateId, fieldValues) => {
-          setNewGraphOpen(false);
-          void createGraph(templateId, fieldValues);
-        }}
-      />
-      <ConfirmDialog
-        open={deleteTarget !== null}
-        title="删除产线"
-        description={
-          deleteTarget
-            ? `确定删除「${deleteTarget.name}」吗？该产线的所有运行记录不会被删除，但此操作不可撤销。`
-            : ""
-        }
-        confirmLabel="删除"
-        danger
-        onConfirm={confirmDelete}
-        onCancel={() => setDeleteTarget(null)}
-      />
-    </div>
+        <CostReport open={costOpen} onClose={() => setCostOpen(false)} />
+        <EvalReport
+          open={evalOpen}
+          onClose={() => setEvalOpen(false)}
+          graphId={graph.id}
+        />
+        <ABDialog
+          open={abOpen}
+          graph={graph}
+          onClose={() => setABOpen(false)}
+          onLaunched={(gid) => {
+            setABOpen(false);
+            setABGroup(gid);
+          }}
+        />
+        <ABReport
+          open={abGroup !== null}
+          groupId={abGroup ?? ""}
+          onClose={() => setABGroup(null)}
+        />
+        <ProductGallery
+          open={galleryOpen}
+          onClose={() => setGalleryOpen(false)}
+        />
+        <BrandTermsModal open={brandOpen} onClose={() => setBrandOpen(false)} />
+        <TriggersPanel
+          open={triggersOpen}
+          onClose={() => setTriggersOpen(false)}
+          graphId={graph.id}
+        />
+        <KnowledgePanel
+          open={knowledgeOpen}
+          onClose={() => setKnowledgeOpen(false)}
+        />
+        <GlossaryModal
+          open={glossaryOpen}
+          onClose={() => setGlossaryOpen(false)}
+        />
+        <VariablesModal
+          open={variablesOpen}
+          variables={graph.variables}
+          onClose={() => setVariablesOpen(false)}
+          onSave={updateGraphVariables}
+        />
+        <VersionPanel
+          open={versionOpen}
+          graphId={graph.id}
+          graphName={graph.name}
+          onClose={() => setVersionOpen(false)}
+          onRestored={() => {
+            void refreshGraphs();
+            setTimeout(() => window.location.reload(), 300);
+          }}
+        />
+        <RunCompare
+          open={compareOpen}
+          graphId={graph.id}
+          onClose={() => setCompareOpen(false)}
+        />
+        <CommandPalette
+          open={paletteOpen}
+          onClose={() => setPaletteOpen(false)}
+          items={commandItems}
+        />
+        {formFields && (
+          <FormConnectorModal
+            fields={formFields}
+            onSubmit={onFormSubmit}
+            onCancel={() => setFormFields(null)}
+          />
+        )}
+        <Toast />
+        <Settings open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+        <NewGraphDialog
+          open={newGraphOpen}
+          onClose={() => setNewGraphOpen(false)}
+          onPick={(templateId, fieldValues) => {
+            setNewGraphOpen(false);
+            void createGraph(templateId, fieldValues);
+          }}
+        />
+        <ConfirmDialog
+          open={deleteTarget !== null}
+          title="删除产线"
+          description={
+            deleteTarget
+              ? `确定删除「${deleteTarget.name}」吗？该产线的所有运行记录不会被删除，但此操作不可撤销。`
+              : ""
+          }
+          confirmLabel="删除"
+          danger
+          onConfirm={confirmDelete}
+          onCancel={() => setDeleteTarget(null)}
+        />
+      </div>
     </>
   );
 }

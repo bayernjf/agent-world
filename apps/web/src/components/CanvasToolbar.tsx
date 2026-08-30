@@ -2,7 +2,12 @@ import { useState, useRef, useEffect, useMemo } from "react";
 import { useGraph } from "../store/graph";
 import { useCanvas } from "../store/canvas";
 import { VIEW_W, VIEW_H } from "../canvas/board";
-import { NODE_CATEGORIES, NODE_CATEGORY, type NodeKind } from "@agent-world/core";
+import {
+  NODE_CATEGORIES,
+  NODE_CATEGORY,
+  type NodeKind,
+} from "@agent-world/core";
+import Tooltip from "./Tooltip";
 
 interface NodeButton {
   kind: NodeKind;
@@ -11,35 +16,82 @@ interface NodeButton {
 }
 
 const NODE_META: Record<NodeKind, NodeButton> = {
-  textGen: { kind: "textGen", label: "文坊", hint: "LLM 文本生成（文坊），可挂技能卡" },
+  textGen: {
+    kind: "textGen",
+    label: "文坊",
+    hint: "LLM 文本生成（文坊），可挂技能卡",
+  },
   imageGen: { kind: "imageGen", label: "画坊", hint: "文字生成图片" },
   videoGen: { kind: "videoGen", label: "影坊", hint: "文字生成视频" },
   audioGen: { kind: "audioGen", label: "音坊", hint: "文字生成语音/音乐" },
-  gate: { kind: "gate", label: "质检站", hint: "LLM-as-judge 质量检验门（质检站）" },
+  gate: {
+    kind: "gate",
+    label: "质检站",
+    hint: "LLM-as-judge 质量检验门（质检站）",
+  },
   branch: { kind: "branch", label: "分拣闸", hint: "按条件分流到不同管道" },
   map: { kind: "map", label: "改料台", hint: "JSON 模板重排/转换（改料台）" },
   loop: { kind: "loop", label: "批处理站", hint: "对数组逐项重复下游工序" },
   parallel: { kind: "parallel", label: "汇流站", hint: "等齐多路后合并输出" },
-  subprocess: { kind: "subprocess", label: "外包工坊", hint: "调用另一张产线（外包工坊）" },
-  table: { kind: "table", label: "理货台", hint: "CSV 筛选/排序/聚合（理货台）" },
+  subprocess: {
+    kind: "subprocess",
+    label: "外包工坊",
+    hint: "调用另一张产线（外包工坊）",
+  },
+  table: {
+    kind: "table",
+    label: "理货台",
+    hint: "CSV 筛选/排序/聚合（理货台）",
+  },
   database: { kind: "database", label: "总账房", hint: "SQL 查询（总账房）" },
-  fileParse: { kind: "fileParse", label: "拆包台", hint: "提取 PDF/Word/PPT（拆包台）" },
-  convert: { kind: "convert", label: "换装台", hint: "PDF 提图 / 图片格式转换（换装台）" },
-  translate: { kind: "translate", label: "翻译间", hint: "上游文本译到目标语言（翻译间）" },
+  fileParse: {
+    kind: "fileParse",
+    label: "拆包台",
+    hint: "提取 PDF/Word/PPT（拆包台）",
+  },
+  convert: {
+    kind: "convert",
+    label: "换装台",
+    hint: "PDF 提图 / 图片格式转换（换装台）",
+  },
+  translate: {
+    kind: "translate",
+    label: "翻译间",
+    hint: "上游文本译到目标语言（翻译间）",
+  },
   ocr: { kind: "ocr", label: "识图台", hint: "图片识文字（识图台）" },
-  code: { kind: "code", label: "代码工坊", hint: "跑 JS / Python 脚本（代码工坊）" },
+  code: {
+    kind: "code",
+    label: "代码工坊",
+    hint: "跑 JS / Python 脚本（代码工坊）",
+  },
   http: { kind: "http", label: "API 口岸", hint: "调用外部 API（API 口岸）" },
   search: { kind: "search", label: "瞭望塔", hint: "联网搜集（瞭望塔）" },
-  notify: { kind: "notify", label: "广播站", hint: "发消息到群/邮件（广播站）" },
+  notify: {
+    kind: "notify",
+    label: "广播站",
+    hint: "发消息到群/邮件（广播站）",
+  },
   vcs: { kind: "vcs", label: "档案柜", hint: "GitHub/GitLab 操作（档案柜）" },
   human: { kind: "human", label: "人工岗", hint: "暂停等人工点头（人工岗）" },
   source: { kind: "source", label: "原料台", hint: "产线投料入口（原料台）" },
   sink: { kind: "sink", label: "成品库", hint: "产线产物出口（成品库）" },
-  generic: { kind: "generic", label: "多能坊", hint: "多能坊：自由选模型提供方，按模态自动 dispatch" },
+  generic: {
+    kind: "generic",
+    label: "多能坊",
+    hint: "多能坊：自由选模型提供方，按模态自动 dispatch",
+  },
 };
 
 /** High-frequency kinds shown directly in the toolbar; the rest live in the palette. */
-const PRIMARY_KINDS: NodeKind[] = ["textGen", "gate", "imageGen"];
+const PRIMARY_KINDS: NodeKind[] = [
+  "source",
+  "textGen",
+  "gate",
+  "imageGen",
+  "http",
+  "sink",
+];
 
 const MODALITY_PROMPT_LABEL: Record<string, string> = {
   text: "文本",
@@ -95,7 +147,9 @@ export default function CanvasToolbar({ onError }: Props = {}) {
     const r = addNode(kind, cx, cy);
     if (r.missingModality) {
       const label = MODALITY_PROMPT_LABEL[r.missingModality] ?? "对应";
-      onError?.(`该节点需要${label}模型，但当前没有配置；节点已添加，请在「模型设置」中添加后再派发。`);
+      onError?.(
+        `该节点需要${label}模型，但当前没有配置；节点已添加，请在「模型设置」中添加后再派发。`,
+      );
     }
   }
 
@@ -152,12 +206,15 @@ export default function CanvasToolbar({ onError }: Props = {}) {
           onClick={() => setMoreOpen((v) => !v)}
           aria-expanded={moreOpen}
           aria-haspopup="dialog"
-          title="按分类查找节点"
         >
           更多 <span className="canvas-toolbar__caret">▾</span>
         </button>
         {moreOpen && (
-          <div className="canvas-toolbar__menu" role="dialog" aria-label="节点库">
+          <div
+            className="canvas-toolbar__menu"
+            role="dialog"
+            aria-label="节点库"
+          >
             <div className="canvas-toolbar__search">
               <input
                 ref={searchRef}
@@ -179,8 +236,12 @@ export default function CanvasToolbar({ onError }: Props = {}) {
                       onClick={() => addFromPalette(b.kind)}
                       title={b.hint}
                     >
-                      <span className="canvas-toolbar__menu-label">+ {b.label}</span>
-                      <span className="canvas-toolbar__menu-hint">{b.hint}</span>
+                      <span className="canvas-toolbar__menu-label">
+                        + {b.label}
+                      </span>
+                      <span className="canvas-toolbar__menu-hint">
+                        {b.hint}
+                      </span>
                     </button>
                   ))}
                 </div>

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, type CostReport as Report } from "../lib/api";
+import Tooltip from "./Tooltip";
 
 interface Props {
   open: boolean;
@@ -83,7 +84,17 @@ export default function CostReport({ open, onClose }: Props) {
   }, [range]);
 
   const chartData = useMemo(() => {
-    if (!report) return { rows: [] as Array<{ cost_usd: number; runs: number; day?: string; week?: string; month?: string }>, label: "日" };
+    if (!report)
+      return {
+        rows: [] as Array<{
+          cost_usd: number;
+          runs: number;
+          day?: string;
+          week?: string;
+          month?: string;
+        }>,
+        label: "日",
+      };
     if (granularity === "week") return { rows: report.byWeek, label: "周" };
     if (granularity === "month") return { rows: report.byMonth, label: "月" };
     return { rows: report.byDay, label: "日" };
@@ -113,10 +124,7 @@ export default function CostReport({ open, onClose }: Props) {
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div
-        className="modal modal--wide"
-        onClick={(e) => e.stopPropagation()}
-      >
+      <div className="modal modal--wide" onClick={(e) => e.stopPropagation()}>
         <div className="modal__header">
           <h2>成本报表</h2>
           <div style={{ display: "flex", gap: 8 }}>
@@ -152,15 +160,20 @@ export default function CostReport({ open, onClose }: Props) {
             >
               导出 CSV
             </a>
-            <button className="icon-btn" onClick={onClose} title="关闭">
-              ✕
-            </button>
+            <Tooltip content="关闭">
+              <button className="icon-btn" onClick={onClose}>
+                ✕
+              </button>
+            </Tooltip>
           </div>
         </div>
 
         <div className="modal__body">
           {loading || !report || !t ? (
-            <p className="muted" style={{ textAlign: "center", padding: "40px 0" }}>
+            <p
+              className="muted"
+              style={{ textAlign: "center", padding: "40px 0" }}
+            >
               {loading ? "加载中…" : "暂无数据"}
             </p>
           ) : (
@@ -186,7 +199,9 @@ export default function CostReport({ open, onClose }: Props) {
                 </div>
                 <div className="cost-stat">
                   <div className="cost-stat__label">缓存命中</div>
-                  <div className="cost-stat__value">{fmtInt(t.cached_tokens)}</div>
+                  <div className="cost-stat__value">
+                    {fmtInt(t.cached_tokens)}
+                  </div>
                 </div>
                 <div className="cost-stat">
                   <div className="cost-stat__label">返工电费</div>
@@ -198,10 +213,16 @@ export default function CostReport({ open, onClose }: Props) {
 
               {chartData.rows.length > 0 && (
                 <section className="cost-section">
-                  <h3 className="cost-section__title">{chartData.label}电费趋势</h3>
+                  <h3 className="cost-section__title">
+                    {chartData.label}电费趋势
+                  </h3>
                   <div className="cost-chart">
                     {chartData.rows.map((d) => (
-                      <div className="cost-chart__col" key={chartKey(d)} title={`${chartKey(d)}: ${fmtUsd(d.cost_usd)} (${d.runs} 次)`}>
+                      <div
+                        className="cost-chart__col"
+                        key={chartKey(d)}
+                        title={`${chartKey(d)}: ${fmtUsd(d.cost_usd)} (${d.runs} 次)`}
+                      >
                         <div className="cost-chart__bar-wrap">
                           <div
                             className="cost-chart__bar"
@@ -248,7 +269,9 @@ export default function CostReport({ open, onClose }: Props) {
               </section>
 
               <section className="cost-section">
-                <h3 className="cost-section__title">最费钱的节点（Top {report.byNode.length}）</h3>
+                <h3 className="cost-section__title">
+                  最费钱的节点（Top {report.byNode.length}）
+                </h3>
                 {report.byNode.length === 0 ? (
                   <p className="muted">暂无数据</p>
                 ) : (
@@ -268,7 +291,9 @@ export default function CostReport({ open, onClose }: Props) {
                           <td className="muted">{n.graph_name}</td>
                           <td className="mono">{n.node_name}</td>
                           <td className="num mono">{n.attempts}</td>
-                          <td className="num mono">{n.reworks > 0 ? n.reworks : "—"}</td>
+                          <td className="num mono">
+                            {n.reworks > 0 ? n.reworks : "—"}
+                          </td>
                           <td className="num mono">{fmtUsd(n.cost_usd)}</td>
                         </tr>
                       ))}

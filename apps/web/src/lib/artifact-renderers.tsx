@@ -6,6 +6,7 @@ import {
   type ArtifactKind,
 } from "@agent-world/core";
 import { proxyImageUrl } from "./api";
+import Tooltip from "../components/Tooltip";
 
 /**
  * Shape shared by runtime `Artifact` (core) and persisted `StoredArtifact` (api).
@@ -97,7 +98,8 @@ export function renderMarkdown(md: string): ReactNode[] {
 /** Inline formatting: **bold**, *italic*, `code`, [text](url), ![alt](url). */
 export function renderInline(text: string): ReactNode[] {
   const parts: ReactNode[] = [];
-  const regex = /(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`|!\[[^\]]*\]\([^)]+\)|\[[^\]]+\]\([^)]+\))/g;
+  const regex =
+    /(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`|!\[[^\]]*\]\([^)]+\)|\[[^\]]+\]\([^)]+\))/g;
   let last = 0;
   let m: RegExpExecArray | null;
   let k = 0;
@@ -110,7 +112,9 @@ export function renderInline(text: string): ReactNode[] {
     } else if (tok.startsWith("[")) {
       const mm = tok.match(/\[([^\]]+)\]\(([^)]+)\)/)!;
       parts.push(
-        <a key={k++} href={mm[2]} target="_blank" rel="noreferrer">{mm[1]}</a>,
+        <a key={k++} href={mm[2]} target="_blank" rel="noreferrer">
+          {mm[1]}
+        </a>,
       );
     } else if (tok.startsWith("**")) {
       parts.push(<strong key={k++}>{tok.slice(2, -2)}</strong>);
@@ -143,7 +147,15 @@ function displayVal(v: unknown): string {
   return String(v);
 }
 
-function JsonNode({ k, value, depth }: { k?: string; value: unknown; depth: number }) {
+function JsonNode({
+  k,
+  value,
+  depth,
+}: {
+  k?: string;
+  value: unknown;
+  depth: number;
+}) {
   const [open, setOpen] = useState(depth < 2);
   const isArr = Array.isArray(value);
   const isObj = value !== null && typeof value === "object";
@@ -151,7 +163,9 @@ function JsonNode({ k, value, depth }: { k?: string; value: unknown; depth: numb
     return (
       <div className="json-leaf">
         {k !== undefined && <span className="json-key">{k}: </span>}
-        <span className={`json-val json-${typeof value}`}>{displayVal(value)}</span>
+        <span className={`json-val json-${typeof value}`}>
+          {displayVal(value)}
+        </span>
       </div>
     );
   }
@@ -185,7 +199,9 @@ export function JsonView({ data }: { data: unknown }) {
 /* per-kind renderers                                                  */
 /* ------------------------------------------------------------------ */
 
-const placeholder = (text: string) => <span className="artifact-empty">{text}</span>;
+const placeholder = (text: string) => (
+  <span className="artifact-empty">{text}</span>
+);
 
 function TextArtifact({ a }: { a: ArtifactLike }) {
   if (!a.content) return placeholder("无内容");
@@ -206,31 +222,54 @@ function ImageArtifact({ a }: { a: ArtifactLike }) {
       <div className="artifact-image-fallback">
         <span className="artifact-image-fallback__icon">IMG</span>
         <span>图片链接已失效或已过期</span>
-        <a href={a.uri} target="_blank" rel="noreferrer">查看原链接 ↗</a>
+        <a href={a.uri} target="_blank" rel="noreferrer">
+          查看原链接 ↗
+        </a>
       </div>
     );
   }
   return (
     <a className="artifact-media" href={a.uri} target="_blank" rel="noreferrer">
-      <img src={proxyImageUrl(a.uri) ?? a.uri} alt={a.label ?? "image"} loading="lazy" onError={() => setBroken(true)} />
+      <img
+        src={proxyImageUrl(a.uri) ?? a.uri}
+        alt={a.label ?? "image"}
+        loading="lazy"
+        onError={() => setBroken(true)}
+      />
     </a>
   );
 }
 
 function VideoArtifact({ a }: { a: ArtifactLike }) {
   if (!a.uri) return placeholder("无视频");
-  return <video className="artifact-media" src={a.uri} controls preload="metadata" muted />;
+  return (
+    <video
+      className="artifact-media"
+      src={a.uri}
+      controls
+      preload="metadata"
+      muted
+    />
+  );
 }
 
 function AudioArtifact({ a }: { a: ArtifactLike }) {
   if (!a.uri) return placeholder("无音频");
-  return <audio className="artifact-media" src={a.uri} controls preload="none" />;
+  return (
+    <audio className="artifact-media" src={a.uri} controls preload="none" />
+  );
 }
 
 function FileArtifact({ a }: { a: ArtifactLike }) {
   if (!a.uri) return placeholder("无文件");
   return (
-    <a className="artifact-file" href={a.uri} target="_blank" rel="noreferrer" download={a.label ?? undefined}>
+    <a
+      className="artifact-file"
+      href={a.uri}
+      target="_blank"
+      rel="noreferrer"
+      download={a.label ?? undefined}
+    >
       <span className="artifact-file__icon">⬇</span>
       <span className="artifact-file__name">{a.label ?? "文件"}</span>
     </a>
@@ -263,7 +302,10 @@ function UriArtifact({ a }: { a: ArtifactLike }) {
   );
 }
 
-export const artifactRenderers: Record<ArtifactKind, (props: { a: ArtifactLike }) => ReactNode> = {
+export const artifactRenderers: Record<
+  ArtifactKind,
+  (props: { a: ArtifactLike }) => ReactNode
+> = {
   text: TextArtifact,
   image: ImageArtifact,
   video: VideoArtifact,
@@ -287,14 +329,25 @@ const KIND_LABEL: Record<ArtifactKind, string> = {
   uri: "链接",
 };
 
-export function ArtifactCard({ a, showMeta = true }: { a: ArtifactLike; showMeta?: boolean }) {
+export function ArtifactCard({
+  a,
+  showMeta = true,
+}: {
+  a: ArtifactLike;
+  showMeta?: boolean;
+}) {
   const color = ARTIFACT_COLORS[a.kind] ?? "#ffb020";
   const uri = a.uri ?? undefined;
-  const render = artifactRenderers[a.kind] ?? (({ a: x }: { a: ArtifactLike }) => placeholder("未知类型"));
+  const render =
+    artifactRenderers[a.kind] ??
+    (({ a: x }: { a: ArtifactLike }) => placeholder("未知类型"));
   const label = a.label ?? artifactLabel(a as unknown as Artifact);
 
   return (
-    <div className={`artifact-card artifact-card--${a.kind}`} data-status={a.status ?? "ok"}>
+    <div
+      className={`artifact-card artifact-card--${a.kind}`}
+      data-status={a.status ?? "ok"}
+    >
       <div className="artifact-card__bar" style={{ background: color }} />
       <div className="artifact-card__body">{render({ a })}</div>
       {showMeta && (
@@ -306,19 +359,28 @@ export function ArtifactCard({ a, showMeta = true }: { a: ArtifactLike; showMeta
             {KIND_LABEL[a.kind]}
           </span>
           {a.graphName && (
-            <span className="artifact-card__source" title="所属流水线">
-              {a.graphName}
-            </span>
+            <Tooltip content="所属流水线">
+              <span className="artifact-card__source">{a.graphName}</span>
+            </Tooltip>
           )}
           <span className="artifact-card__sub muted mono">
             {formatDate(a.createdAt)}
             {a.sizeBytes ? ` · ${formatSize(a.sizeBytes)}` : ""}
-            {a.cost != null ? <span className="cost"> · ¥{a.cost.toFixed(4)}</span> : null}
+            {a.cost != null ? (
+              <span className="cost"> · ¥{a.cost.toFixed(4)}</span>
+            ) : null}
           </span>
-          {a.status === "failed" && <span className="artifact-card__failed">生成失败</span>}
+          {a.status === "failed" && (
+            <span className="artifact-card__failed">生成失败</span>
+          )}
           <span className="artifact-card__actions">
             {uri && (
-              <a href={uri} target="_blank" rel="noreferrer" download={a.label ?? undefined}>
+              <a
+                href={uri}
+                target="_blank"
+                rel="noreferrer"
+                download={a.label ?? undefined}
+              >
                 下载
               </a>
             )}

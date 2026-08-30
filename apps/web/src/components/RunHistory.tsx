@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, type RunSummary } from "../lib/api";
+import Tooltip from "./Tooltip";
 
 interface Props {
   open: boolean;
@@ -9,7 +10,15 @@ interface Props {
 
 const PAGE_SIZES = [10, 20, 50, 100];
 // Engine 真实 run status，对齐 ControlPanel.STATUS_TEXT
-const STATUSES = ["running", "done", "halted", "failed", "tripped", "cancelled", "interrupted"];
+const STATUSES = [
+  "running",
+  "done",
+  "halted",
+  "failed",
+  "tripped",
+  "cancelled",
+  "interrupted",
+];
 
 const STATUS_LABEL: Record<string, string> = {
   idle: "待派发",
@@ -75,17 +84,44 @@ function CompareView({
   onBack: () => void;
 }) {
   const byId = new Map(runs.map((r) => [r.id, r]));
-  const cols = selected.map((id) => ({ id, run: byId.get(id), stat: stats[id] }));
+  const cols = selected.map((id) => ({
+    id,
+    run: byId.get(id),
+    stat: stats[id],
+  }));
   const rows: { label: string; get: (c: (typeof cols)[number]) => string }[] = [
     { label: "产线", get: (c) => c.run?.graph_name || "(未命名产线)" },
-    { label: "状态", get: (c) => (c.run ? (STATUS_LABEL[c.run.status] ?? c.run.status) : "—") },
+    {
+      label: "状态",
+      get: (c) => (c.run ? (STATUS_LABEL[c.run.status] ?? c.run.status) : "—"),
+    },
     { label: "触发", get: (c) => c.run?.trigger ?? "—" },
-    { label: "开始", get: (c) => (c.run ? fmtRelative(c.run.started_at) : "—") },
-    { label: "耗时", get: (c) => (c.run ? fmtDuration(c.run.ended_at != null ? c.run.ended_at - c.run.started_at : null) : "—") },
+    {
+      label: "开始",
+      get: (c) => (c.run ? fmtRelative(c.run.started_at) : "—"),
+    },
+    {
+      label: "耗时",
+      get: (c) =>
+        c.run
+          ? fmtDuration(
+              c.run.ended_at != null ? c.run.ended_at - c.run.started_at : null,
+            )
+          : "—",
+    },
     { label: "节点数", get: (c) => (c.stat ? String(c.stat.nodes) : "—") },
-    { label: "输入 tokens", get: (c) => (c.stat ? c.stat.tokensIn.toLocaleString() : "—") },
-    { label: "输出 tokens", get: (c) => (c.stat ? c.stat.tokensOut.toLocaleString() : "—") },
-    { label: "成本", get: (c) => (c.stat ? `$${c.stat.costUsd.toFixed(4)}` : "—") },
+    {
+      label: "输入 tokens",
+      get: (c) => (c.stat ? c.stat.tokensIn.toLocaleString() : "—"),
+    },
+    {
+      label: "输出 tokens",
+      get: (c) => (c.stat ? c.stat.tokensOut.toLocaleString() : "—"),
+    },
+    {
+      label: "成本",
+      get: (c) => (c.stat ? `$${c.stat.costUsd.toFixed(4)}` : "—"),
+    },
   ];
   return (
     <div>
@@ -156,7 +192,9 @@ export default function RunHistory({ open, onClose, onOpen }: Props) {
     setPage(0);
     setSelected([]);
     setComparing(false);
-    api.listGraphs().then((g) => setGraphs(g.map((x) => ({ id: x.id, name: x.name }))));
+    api
+      .listGraphs()
+      .then((g) => setGraphs(g.map((x) => ({ id: x.id, name: x.name }))));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
@@ -177,7 +215,9 @@ export default function RunHistory({ open, onClose, onOpen }: Props) {
   };
 
   const toggleSelect = (id: string) =>
-    setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
+    setSelected((s) =>
+      s.includes(id) ? s.filter((x) => x !== id) : [...s, id],
+    );
 
   const handleRerun = async (r: RunSummary) => {
     setErrorMsg("");
@@ -205,16 +245,21 @@ export default function RunHistory({ open, onClose, onOpen }: Props) {
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal modal--wide modal--tall" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="modal modal--wide modal--tall"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="modal__header">
           <h2>运行历史</h2>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <button className="btn" onClick={() => setCompareMode((v) => !v)}>
               {compareMode ? "退出选择" : "选择对比"}
             </button>
-            <button className="icon-btn" onClick={onClose} title="关闭">
-              ✕
-            </button>
+            <Tooltip content="关闭">
+              <button className="icon-btn" onClick={onClose}>
+                ✕
+              </button>
+            </Tooltip>
           </div>
         </div>
 
@@ -256,100 +301,132 @@ export default function RunHistory({ open, onClose, onOpen }: Props) {
           <span className="runhistory-count">共 {total} 条</span>
         </div>
         <div className="modal__body runhistory-body">
+          {errorMsg && <div className="runhistory-error">{errorMsg}</div>}
 
-        {errorMsg && <div className="runhistory-error">{errorMsg}</div>}
+          {comparing ? (
+            <CompareView
+              runs={runs}
+              selected={selected}
+              stats={stats}
+              onBack={() => setComparing(false)}
+            />
+          ) : (
+            <>
+              <div className="runhistory-list">
+                {loading && <div className="note">加载中…</div>}
+                {!loading && runs.length === 0 && (
+                  <div className="note">没有匹配的运行</div>
+                )}
+                {runs.map((r) => (
+                  <div
+                    key={r.id}
+                    className={`runhistory-row${compareMode ? " runhistory-row--selectable" : ""}${
+                      r.status === "failed" ? " runhistory-status-failed" : ""
+                    }`}
+                    onClick={() => {
+                      if (compareMode) toggleSelect(r.id);
+                      else onOpen?.(r.id);
+                    }}
+                  >
+                    {compareMode && (
+                      <input
+                        type="checkbox"
+                        checked={selected.includes(r.id)}
+                        onChange={() => toggleSelect(r.id)}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    )}
+                    <div className="runhistory-row-main">
+                      <div className="runhistory-row-title">
+                        <span
+                          className={`run-status ${STATUS_COLOR[r.status] ?? "run-status--default"}`}
+                        >
+                          {STATUS_LABEL[r.status] ?? r.status}
+                        </span>
+                        <span className="runhistory-name">
+                          {r.graph_name || "(未命名产线)"}
+                        </span>
+                        <span className="runhistory-id">
+                          {r.id.slice(0, 8)}
+                        </span>
+                      </div>
+                      <div className="runhistory-row-meta">
+                        <span>{fmtRelative(r.started_at)}</span>
+                        <span>
+                          耗时{" "}
+                          {fmtDuration(
+                            r.ended_at != null
+                              ? r.ended_at - r.started_at
+                              : null,
+                          )}
+                        </span>
+                        <span>{r.trigger}</span>
+                        {r.budget_usd != null && (
+                          <span>预算 ${r.budget_usd.toFixed(4)}</span>
+                        )}
+                      </div>
+                    </div>
+                    {r.status !== "running" && (
+                      <button
+                        className="btn runhistory-rerun"
+                        disabled={rerunning === r.id}
 
-        {comparing ? (
-          <CompareView runs={runs} selected={selected} stats={stats} onBack={() => setComparing(false)} />
-        ) : (
-          <>
-            <div className="runhistory-list">
-              {loading && <div className="note">加载中…</div>}
-              {!loading && runs.length === 0 && <div className="note">没有匹配的运行</div>}
-              {runs.map((r) => (
-                <div
-                  key={r.id}
-                  className={`runhistory-row${compareMode ? " runhistory-row--selectable" : ""}${
-                    r.status === "failed" ? " runhistory-status-failed" : ""
-                  }`}
-                  onClick={() => {
-                    if (compareMode) toggleSelect(r.id);
-                    else onOpen?.(r.id);
-                  }}
-                >
-                  {compareMode && (
-                    <input
-                      type="checkbox"
-                      checked={selected.includes(r.id)}
-                      onChange={() => toggleSelect(r.id)}
-                      onClick={(e) => e.stopPropagation()}
-                    />
-                  )}
-                  <div className="runhistory-row-main">
-                    <div className="runhistory-row-title">
-                      <span className={`run-status ${STATUS_COLOR[r.status] ?? "run-status--default"}`}>
-                        {STATUS_LABEL[r.status] ?? r.status}
-                      </span>
-                      <span className="runhistory-name">{r.graph_name || "(未命名产线)"}</span>
-                      <span className="runhistory-id">{r.id.slice(0, 8)}</span>
-                    </div>
-                    <div className="runhistory-row-meta">
-                      <span>{fmtRelative(r.started_at)}</span>
-                      <span>
-                        耗时 {fmtDuration(r.ended_at != null ? r.ended_at - r.started_at : null)}
-                      </span>
-                      <span>{r.trigger}</span>
-                      {r.budget_usd != null && <span>预算 ${r.budget_usd.toFixed(4)}</span>}
-                    </div>
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void handleRerun(r);
+                        }}
+                      >
+                        {rerunning === r.id ? "重跑中…" : "重新运行"}
+                      </button>
+                    )}
                   </div>
-                  {r.status !== "running" && (
-                    <button
-                      className="btn runhistory-rerun"
-                      disabled={rerunning === r.id}
-                      title="用相同的快照和输入重新运行"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        void handleRerun(r);
-                      }}
-                    >
-                      {rerunning === r.id ? "重跑中…" : "重新运行"}
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
 
-            <div className="runhistory-pager">
-              <label className="runhistory-pager-size">
-                每页
-                <select value={pageSize} onChange={(e) => changePageSize(Number(e.target.value))}>
-                  {PAGE_SIZES.map((n) => (
-                    <option key={n} value={n}>{n}</option>
-                  ))}
-                </select>
-                条
-              </label>
-              <button className="btn" disabled={page === 0} onClick={() => setPage((p) => Math.max(0, p - 1))}>
-                上一页
-              </button>
-              <span>
-                第 {page + 1} / {pageCount} 页
-              </span>
-              <button
-                className="btn"
-                disabled={(page + 1) * pageSize >= total}
-                onClick={() => setPage((p) => p + 1)}
-              >
-                下一页
-              </button>
-              {compareMode && (
-                <button className="btn btn--primary" disabled={selected.length < 2} onClick={runCompare}>
-                  对比选中 ({selected.length})
+              <div className="runhistory-pager">
+                <label className="runhistory-pager-size">
+                  每页
+                  <select
+                    value={pageSize}
+                    onChange={(e) => changePageSize(Number(e.target.value))}
+                  >
+                    {PAGE_SIZES.map((n) => (
+                      <option key={n} value={n}>
+                        {n}
+                      </option>
+                    ))}
+                  </select>
+                  条
+                </label>
+                <button
+                  className="btn"
+                  disabled={page === 0}
+                  onClick={() => setPage((p) => Math.max(0, p - 1))}
+                >
+                  上一页
                 </button>
-              )}
-            </div>
-          </>
-        )}
+                <span>
+                  第 {page + 1} / {pageCount} 页
+                </span>
+                <button
+                  className="btn"
+                  disabled={(page + 1) * pageSize >= total}
+                  onClick={() => setPage((p) => p + 1)}
+                >
+                  下一页
+                </button>
+                {compareMode && (
+                  <button
+                    className="btn btn--primary"
+                    disabled={selected.length < 2}
+                    onClick={runCompare}
+                  >
+                    对比选中 ({selected.length})
+                  </button>
+                )}
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>

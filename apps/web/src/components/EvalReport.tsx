@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, type EvalReport as Report } from "../lib/api";
+import Tooltip from "./Tooltip";
 
 interface Props {
   open: boolean;
@@ -71,7 +72,8 @@ export default function EvalReport({ open, onClose, graphId }: Props) {
   }, [open, onClose]);
 
   const maxPass = useMemo(
-    () => (report ? Math.max(0.0001, ...report.byDay.map((d) => d.passRate)) : 1),
+    () =>
+      report ? Math.max(0.0001, ...report.byDay.map((d) => d.passRate)) : 1,
     [report],
   );
 
@@ -115,22 +117,23 @@ export default function EvalReport({ open, onClose, graphId }: Props) {
                 </button>
               ))}
             </div>
-            <a
-              className="btn"
-              href={evalCsvHref}
-              title="导出评估数据 CSV（合计 / 按产线 / 按天 / 按 Prompt 版本）"
-            >
+            <a className="btn" href={evalCsvHref}>
               导出 CSV
             </a>
-            <button className="icon-btn" onClick={onClose} title="关闭">
-              ✕
-            </button>
+            <Tooltip content="关闭">
+              <button className="icon-btn" onClick={onClose}>
+                ✕
+              </button>
+            </Tooltip>
           </div>
         </div>
 
         <div className="modal__body">
           {loading || !report || !t ? (
-            <p className="muted" style={{ textAlign: "center", padding: "40px 0" }}>
+            <p
+              className="muted"
+              style={{ textAlign: "center", padding: "40px 0" }}
+            >
               {loading ? "加载中…" : "暂无数据"}
             </p>
           ) : (
@@ -156,11 +159,15 @@ export default function EvalReport({ open, onClose, graphId }: Props) {
                 </div>
                 <div className="cost-stat">
                   <div className="cost-stat__label">平均返工</div>
-                  <div className="cost-stat__value">{t.avgRework.toFixed(2)}</div>
+                  <div className="cost-stat__value">
+                    {t.avgRework.toFixed(2)}
+                  </div>
                 </div>
                 <div className="cost-stat">
                   <div className="cost-stat__label">平均耗时</div>
-                  <div className="cost-stat__value">{fmtDuration(t.avgDurationMs)}</div>
+                  <div className="cost-stat__value">
+                    {fmtDuration(t.avgDurationMs)}
+                  </div>
                 </div>
                 <div className="cost-stat">
                   <div className="cost-stat__label">平均质量分</div>
@@ -181,10 +188,14 @@ export default function EvalReport({ open, onClose, graphId }: Props) {
                         <div className="cost-chart__bar-wrap">
                           <div
                             className={`cost-chart__bar cost-chart__bar--${passTone(d.passRate)}`}
-                            style={{ height: `${Math.max(2, (d.passRate / maxPass) * 100)}%` }}
+                            style={{
+                              height: `${Math.max(2, (d.passRate / maxPass) * 100)}%`,
+                            }}
                           />
                         </div>
-                        <div className="cost-chart__label">{d.day.slice(5)}</div>
+                        <div className="cost-chart__label">
+                          {d.day.slice(5)}
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -212,11 +223,15 @@ export default function EvalReport({ open, onClose, graphId }: Props) {
                         <tr key={g.graph_id}>
                           <td className="run-table__name">{g.graph_name}</td>
                           <td>{g.runs}</td>
-                          <td className={`num mono eval-rate--${passTone(g.passRate)}`}>
+                          <td
+                            className={`num mono eval-rate--${passTone(g.passRate)}`}
+                          >
                             {pct(g.passRate)}
                           </td>
                           <td className="num mono">{g.avgRework.toFixed(2)}</td>
-                          <td className="num mono">{fmtDuration(g.avgDurationMs)}</td>
+                          <td className="num mono">
+                            {fmtDuration(g.avgDurationMs)}
+                          </td>
                           <td className="num mono">{fmtScore(g.avgScore)}</td>
                         </tr>
                       ))}
@@ -228,7 +243,8 @@ export default function EvalReport({ open, onClose, graphId }: Props) {
               <section className="cost-section">
                 <h3 className="cost-section__title">Prompt 版本对比</h3>
                 <p className="muted cost-section__hint">
-                  同一产线每次修改 agent 的 prompt/模型会生成新版本（v1、v2…），用于对比改动前后的合格率。
+                  同一产线每次修改 agent 的
+                  prompt/模型会生成新版本（v1、v2…），用于对比改动前后的合格率。
                 </p>
                 {report.byPrompt.length === 0 ? (
                   <p className="muted">暂无数据</p>
@@ -255,11 +271,17 @@ export default function EvalReport({ open, onClose, graphId }: Props) {
                               <span className="muted"> · {p.fingerprint}</span>
                             </td>
                             <td>{p.runs}</td>
-                            <td className={`num mono eval-rate--${passTone(p.passRate)}`}>
+                            <td
+                              className={`num mono eval-rate--${passTone(p.passRate)}`}
+                            >
                               {pct(p.passRate)}
                             </td>
-                            <td className="num mono">{p.avgRework.toFixed(2)}</td>
-                            <td className="num mono">{fmtDuration(p.avgDurationMs)}</td>
+                            <td className="num mono">
+                              {p.avgRework.toFixed(2)}
+                            </td>
+                            <td className="num mono">
+                              {fmtDuration(p.avgDurationMs)}
+                            </td>
                             <td className="num mono">{fmtScore(p.avgScore)}</td>
                           </tr>
                         )),

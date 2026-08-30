@@ -3,6 +3,7 @@ import { useGraph } from "../store/graph";
 import { MAX_ZOOM, MIN_ZOOM, useCanvas, type Bounds } from "../store/canvas";
 import { PLANT_H, PLANT_W } from "../store/graph";
 import { VIEW_H, VIEW_W } from "./board";
+import Tooltip from "../components/Tooltip";
 
 /** Minimap square size in stage pixels. */
 const MAP = 168;
@@ -78,7 +79,10 @@ export default function Minimap() {
 
   // Pan delta to content-space delta: dpix (SVG user) = dcontent * zoom.
   // Minimap content delta minimap-pixels / scale → graph units → * zoom → pan delta.
-  const contentDeltaFromMinimapDelta = (dMinimapX: number, dMinimapY: number) => ({
+  const contentDeltaFromMinimapDelta = (
+    dMinimapX: number,
+    dMinimapY: number,
+  ) => ({
     dx: -(dMinimapX / scale) * viewport.zoom,
     dy: -(dMinimapY / scale) * viewport.zoom,
   });
@@ -151,7 +155,14 @@ export default function Minimap() {
 
   const onBackgroundPointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
-    const { x, y } = clientToContent(e.clientX, e.clientY, rect, scale, minX, minY);
+    const { x, y } = clientToContent(
+      e.clientX,
+      e.clientY,
+      rect,
+      scale,
+      minX,
+      minY,
+    );
     centerOnContent(x, y);
   };
 
@@ -161,7 +172,14 @@ export default function Minimap() {
     // (cx, cy): content-space point currently under the minimap cursor.
     // Keep this point pinned under the cursor before/after zoom — same
     // "anchor point" semantics as Canvas.onWheel.
-    const { x: cx, y: cy } = clientToContent(e.clientX, e.clientY, rect, scale, minX, minY);
+    const { x: cx, y: cy } = clientToContent(
+      e.clientX,
+      e.clientY,
+      rect,
+      scale,
+      minX,
+      minY,
+    );
     const factor = Math.exp(-e.deltaY * 0.0015);
     const zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, viewport.zoom * factor));
     // Current anchor position in the viewBox coordinate space.
@@ -226,12 +244,32 @@ export default function Minimap() {
       </svg>
 
       <div className="minimap__zoom minimap__zoom--left">
-        <button className="chip" onClick={() => zoomTo(1.2)} title="放大" disabled={viewport.zoom >= MAX_ZOOM}>+</button>
+        <Tooltip content="放大">
+          <button
+            className="chip"
+            onClick={() => zoomTo(1.2)}
+            disabled={viewport.zoom >= MAX_ZOOM}
+          >
+            +
+          </button>
+        </Tooltip>
         <span className="muted">{Math.round(viewport.zoom * 100)}%</span>
-        <button className="chip" onClick={() => zoomTo(1 / 1.2)} title="缩小" disabled={viewport.zoom <= MIN_ZOOM}>−</button>
+        <Tooltip content="缩小">
+          <button
+            className="chip"
+            onClick={() => zoomTo(1 / 1.2)}
+            disabled={viewport.zoom <= MIN_ZOOM}
+          >
+            −
+          </button>
+        </Tooltip>
       </div>
       <div className="minimap__zoom minimap__zoom--right">
-        <button className="chip" onClick={fitScreen} title="适应屏幕">适应</button>
+        <Tooltip content="适应屏幕">
+          <button className="chip" onClick={fitScreen}>
+            适应
+          </button>
+        </Tooltip>
       </div>
     </div>
   );

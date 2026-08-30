@@ -1,4 +1,5 @@
 import { useRun } from "../store/run";
+import Tooltip from "./Tooltip";
 
 const LABEL: Record<string, string> = {
   "run.started": "开工",
@@ -40,9 +41,11 @@ export default function Timeline() {
           </button>
         )}
         {view === "replay" && scrubSeq === null && (
-          <button className="chip" onClick={() => reset()} title="退出历史回放，回到当前产线">
-            退出回放
-          </button>
+          <Tooltip content="退出历史回放，回到当前产线">
+            <button className="chip" onClick={() => reset()}>
+              退出回放
+            </button>
+          </Tooltip>
         )}
       </div>
       <input

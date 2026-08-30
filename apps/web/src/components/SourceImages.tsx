@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { api } from "../lib/api";
 import { useGraph } from "../store/graph";
+import Tooltip from "./Tooltip";
 
 interface Props {
   nodeId: string;
@@ -13,7 +14,12 @@ function isImageUrl(url: string): boolean {
   return /^https?:\/\//i.test(url) || url.startsWith("/api/artifacts/");
 }
 
-export default function SourceImages({ nodeId, images, onBeginEdit, onCommitEdit }: Props) {
+export default function SourceImages({
+  nodeId,
+  images,
+  onBeginEdit,
+  onCommitEdit,
+}: Props) {
   const { updateNode, graph } = useGraph();
   const fileRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -22,7 +28,10 @@ export default function SourceImages({ nodeId, images, onBeginEdit, onCommitEdit
 
   const setImages = (next: string[]) =>
     updateNode(nodeId, {
-      source: { ...(graph.nodes.find((n) => n.id === nodeId)?.source ?? {}), images: next },
+      source: {
+        ...(graph.nodes.find((n) => n.id === nodeId)?.source ?? {}),
+        images: next,
+      },
     });
 
   const uploadFiles = async (files: FileList | File[]) => {
@@ -31,7 +40,9 @@ export default function SourceImages({ nodeId, images, onBeginEdit, onCommitEdit
     setUploading(true);
     setError(null);
     try {
-      const uploaded = await Promise.all(list.map((f) => api.uploadArtifact(f)));
+      const uploaded = await Promise.all(
+        list.map((f) => api.uploadArtifact(f)),
+      );
       const urls = uploaded.map((a) => a.uri).filter((u): u is string => !!u);
       setImages([...images, ...urls]);
     } catch (e) {
@@ -63,7 +74,8 @@ export default function SourceImages({ nodeId, images, onBeginEdit, onCommitEdit
         onDrop={(e) => {
           e.preventDefault();
           setDragOver(false);
-          if (e.dataTransfer.files.length) void uploadFiles(e.dataTransfer.files);
+          if (e.dataTransfer.files.length)
+            void uploadFiles(e.dataTransfer.files);
         }}
       >
         <input
@@ -84,9 +96,16 @@ export default function SourceImages({ nodeId, images, onBeginEdit, onCommitEdit
         {images.map((url, i) => (
           <div className="image-row image-row--with-thumb" key={i}>
             {isImageUrl(url) ? (
-              <img className="image-row__thumb" src={url} alt="" loading="lazy" />
+              <img
+                className="image-row__thumb"
+                src={url}
+                alt=""
+                loading="lazy"
+              />
             ) : (
-              <span className="image-row__thumb image-row__thumb--placeholder">图</span>
+              <span className="image-row__thumb image-row__thumb--placeholder">
+                图
+              </span>
             )}
             <input
               value={url}
@@ -97,14 +116,17 @@ export default function SourceImages({ nodeId, images, onBeginEdit, onCommitEdit
             />
             <button
               className="icon-btn icon-btn--danger"
-              title="移除"
+
               onClick={() => remove(i)}
             >
               ✕
             </button>
           </div>
         ))}
-        <button className="btn image-list__add" onClick={() => setImages([...images, ""])}>
+        <button
+          className="btn image-list__add"
+          onClick={() => setImages([...images, ""])}
+        >
           + 添加图片 URL
         </button>
       </div>
