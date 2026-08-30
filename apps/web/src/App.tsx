@@ -43,7 +43,7 @@ import { useGraph } from "./store/graph";
 import { useRun } from "./store/run";
 
 export default function App() {
-  const { graph, setGraph, addNode, flushSave, undo, redo, selectedId, updateGraphVariables } = useGraph();
+  const { graph, setGraph, addNode, flushSave, undo, redo, selectedId, updateGraphVariables, inspectorOpen } = useGraph();
   const { connect, reset, runId, loadRun } = useRun();
 
   const [mode, setMode] = useState<Mode>("select");
@@ -60,7 +60,9 @@ export default function App() {
   const [graphs, setGraphs] = useState<GraphSummary[]>([]);
   const [deleteTarget, setDeleteTarget] = useState<GraphSummary | null>(null);
   const [controlCollapsed, setControlCollapsed] = useState(false);
-  const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
+  // 默认收起，与"无选中节点"状态一致——初始展开会在刷新首帧闪一下又被
+  // selectedId effect 收起（下方 421-424 行），造成"出现又收起"的视觉闪烁。
+  const [inspectorCollapsed, setInspectorCollapsed] = useState(true);
   const [inspectorWidth, setInspectorWidth] = useState(() => {
     const saved = localStorage.getItem("inspector-width");
     return saved ? Number(saved) : 420;
@@ -421,10 +423,20 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [undo, redo]);
 
+  // The Inspector panel is opened by an explicit canvas click
+  // (store.inspectorOpen, see Canvas.onPointerUp), not by selection alone —
+  // otherwise dragging a node into place would pop the panel open too.
+  // Deselecting still collapses the panel.
   useEffect(() => {
-    if (selectedId) setInspectorCollapsed(false);
-    else setInspectorCollapsed(true);
+    if (!selectedId) setInspectorCollapsed(true);
   }, [selectedId]);
+
+  useEffect(() => {
+    if (inspectorOpen) {
+      setInspectorCollapsed(false);
+      useGraph.getState().setInspectorOpen(false);
+    }
+  }, [inspectorOpen]);
 
   return (
     <>
