@@ -151,7 +151,7 @@
 | **节点市场** | 用户可以发布/安装自定义节点 |
 | **模板市场** | 预置大量产线模板（电商运营、内容生产、数据分析、IT 运维等） | ⚠️ 起步完成：内置 10 模板（四类场景全覆盖）+ 首启/老用户双入口 + TemplateField 参数化 schema（UI 缓做），见 [design-templates.md](design-templates.md)；用户发布/安装缓做 |
 | **多租户/权限** | 团队协作、权限管理 |
-| **版本管理** | 产线版本、回滚、A/B 测试 |
+| **版本管理** | 产线版本、回滚、A/B 测试 | ✅ 补强已落地（2026-08-30）：自动快照（节流+滚动保留）+ run 关联 hash 标记 + 恢复预览（结构摘要+缩略图），见 [design-versions.md](design-versions.md)；diff 视图与 A/B 缓做 |
 | **监控告警** | 产线运行监控、失败告警、性能分析 |
 | **MCP Server** | 把 agent-world 能力暴露给其他 AI 客户端（✅ 已全部落地，详见 [design-mcp-server.md](design-mcp-server.md)） |
 
