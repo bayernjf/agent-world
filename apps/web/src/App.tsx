@@ -154,9 +154,12 @@ export default function App() {
 
   const commandItems: CommandItem[] = [
     // 节点
+    { id: "add-source", label: "添加原料台", hint: "产线投料入口（原料台）", group: "节点", onSelect: () => addNodeOrReport("source", 300, 360) },
     { id: "add-textgen", label: "添加文坊", hint: "LLM 文本生成（文坊），可挂技能卡", group: "节点", onSelect: () => addNodeOrReport("textGen", 300, 480) },
     { id: "add-gate", label: "添加质检站", hint: "LLM-as-judge 质量检验门（质检站）", group: "节点", onSelect: () => addNodeOrReport("gate", 500, 480) },
     { id: "add-image", label: "添加画坊", hint: "文字生成图片", group: "节点", onSelect: () => addNodeOrReport("imageGen", 300, 600) },
+    { id: "add-http", label: "添加 API 口岸", hint: "调用外部 REST API（API 口岸）", group: "节点", onSelect: () => addNodeOrReport("http", 300, 720) },
+    { id: "add-sink", label: "添加成品库", hint: "产线产物出口（成品库）", group: "节点", onSelect: () => addNodeOrReport("sink", 300, 840) },
     { id: "add-video", label: "添加影坊", hint: "文字生成视频", group: "节点", onSelect: () => addNodeOrReport("videoGen", 300, 720) },
     { id: "add-audio", label: "添加音坊", hint: "文字生成语音/音乐", group: "节点", onSelect: () => addNodeOrReport("audioGen", 300, 840) },
     { id: "new-graph", label: "新建产线", hint: "从模板或空白创建", group: "节点", onSelect: () => setNewGraphOpen(true) },
@@ -553,6 +556,7 @@ export default function App() {
           onRun={onRun}
           onCancel={onCancel}
           onOpenSettings={() => setSettingsOpen(true)}
+          onOpenHistory={() => setHistoryOpen(true)}
         />
 
         <main className="stage">

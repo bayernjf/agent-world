@@ -17,6 +17,7 @@ interface Props {
   onRun: () => void;
   onCancel: () => void;
   onOpenSettings: () => void;
+  onOpenHistory: () => void;
 }
 
 const MODES: { key: Mode; label: string; hint: string }[] = [
@@ -46,7 +47,7 @@ function hasPricing(cfg: AppConfig | null): boolean {
 }
 
 export default function ControlPanel(props: Props) {
-  const { mode, setMode, budget, setBudget, rawMaterial, setRawMaterial, diagnostics, canRun, onRun, onCancel, onOpenSettings } = props;
+  const { mode, setMode, budget, setBudget, rawMaterial, setRawMaterial, diagnostics, canRun, onRun, onCancel, onOpenSettings, onOpenHistory } = props;
   const runtime = useVisibleRuntime();
   const { graph, saveState } = useGraph();
   const { runId, connecting, reconnecting } = useRun();
@@ -317,9 +318,12 @@ export default function ControlPanel(props: Props) {
           )}
         </section>
 
-        <section>
+        <section className="control__footer">
           <button className="btn btn--ghost btn--block" onClick={onOpenSettings}>
             设置 · 模型与密钥
+          </button>
+          <button className="btn btn--ghost btn--block" onClick={onOpenHistory}>
+            📋 运行历史
           </button>
         </section>
       </div>
