@@ -32,6 +32,8 @@ export interface AppConfig {
       enabled?: boolean;
       pricing?: Record<string, ModelPricing>;
       modalities?: Record<string, Modality>;
+      endpoints?: Partial<Record<Modality, string>>;
+      source?: "builtin" | "custom";
     }
   >;
   defaultModel: string;

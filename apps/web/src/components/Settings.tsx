@@ -150,17 +150,20 @@ export default function Settings({ open, onClose }: Props) {
 
   if (!open || !config) return null;
 
-  const realProviders = Object.entries(config.providers).filter(
-    ([, p]) => p.type !== "fake",
+  // Inheriting an existing provider (adding a model under its Base URL + Key)
+  // is only allowed for user-created providers — never for builtin tiers like
+  // agnes, whose models/Key are product-owned and stripped on save.
+  const customProviders = Object.entries(config.providers).filter(
+    ([, p]) => p.type !== "fake" && p.source !== "builtin",
   );
 
   const cardKey = (c: ModelCard) => `${c.providerName}::${c.model}`;
 
-  // The "demo" provider is the built-in fake worker. We always surface it
-  // so a new user can see what's keeping their lines running; the per-card
-  // delete button is disabled below for these models.
+  // Built-in providers (demo fake worker + product-hosted tier) are always
+  // surfaced so users see what's available; their per-card delete button is
+  // disabled below, matching the read-only "builtin" contract.
   const cards: ModelCard[] = Object.entries(config.providers)
-    .filter(([name, p]) => p.type !== "fake" || name === "demo")
+    .filter(([, p]) => p.type !== "fake" || p.source === "builtin")
     .flatMap(([providerName, p]) =>
       p.models.map((model) => ({ providerName, model })),
     );
@@ -320,7 +323,7 @@ export default function Settings({ open, onClose }: Props) {
   };
 
   const startAdd = () => {
-    const firstProvider = realProviders[0]?.[0];
+    const firstProvider = customProviders[0]?.[0];
     setForm({
       model: "",
       providerName: "",
@@ -504,19 +507,33 @@ export default function Settings({ open, onClose }: Props) {
     setConfig({ ...config, defaultModel: c.model, defaultProvider: c.providerName });
   };
 
-  const buildPersistConfig = (): AppConfig => ({
-    ...config,
+  /** Drop the injected built-in tier (product-owned providers) so per-user
+   *  config never persists or diffs against them. The built-in tier is
+   *  always re-injected from DEFAULT_CONFIG on load. */
+  const stripBuiltin = (c: AppConfig): AppConfig => ({
+    ...c,
     providers: Object.fromEntries(
-      Object.entries(config.providers).map(([name, p]) => [
-        name,
-        newKey[name] ? { ...p, apiKey: newKey[name] } : p,
-      ]),
+      Object.entries(c.providers).filter(([, p]) => p.source !== "builtin"),
     ),
   });
 
+  const buildPersistConfig = (): AppConfig =>
+    stripBuiltin({
+      ...config,
+      providers: Object.fromEntries(
+        Object.entries(config.providers).map(([name, p]) => [
+          name,
+          newKey[name] ? { ...p, apiKey: newKey[name] } : p,
+        ]),
+      ),
+    });
+
   const isDirty = (): boolean => {
     if (!config || !savedConfig) return false;
-    return JSON.stringify(buildPersistConfig()) !== JSON.stringify(savedConfig);
+    return (
+      JSON.stringify(buildPersistConfig()) !==
+      JSON.stringify(stripBuiltin(savedConfig))
+    );
   };
 
   const requestClose = () => {
@@ -683,10 +700,10 @@ export default function Settings({ open, onClose }: Props) {
                   value={form.connectTo}
                   onChange={(e) => setForm({ ...form, connectTo: e.target.value })}
                 >
-                  {realProviders.length === 0 && (
+                  {customProviders.length === 0 && (
                     <option value="__new__">新建 Provider</option>
                   )}
-                  {realProviders.map(([pname, pp]) => (
+                  {customProviders.map(([pname, pp]) => (
                     <option key={pname} value={pname}>
                       {pname} — {pp.baseUrl ?? "(无 URL)"}
                     </option>
@@ -908,8 +925,10 @@ export default function Settings({ open, onClose }: Props) {
                   <span className={`modality-badge modality--${p.modalities?.[c.model] ?? "text"}`}>
                     {MODALITY_LABELS[(p.modalities?.[c.model] ?? "text") as Modality]}
                   </span>
-                  {c.providerName === "demo" && (
-                    <span className="badge badge--demo" title="内置演示模型，无需 API Key">演示</span>
+                  {p.source === "builtin" && (
+                    <span className="badge badge--builtin" title="系统内置模型，只读选择，不可删除或改 Key">
+                      内置
+                    </span>
                   )}
                   {isDefault && <span className="badge badge--default">默认</span>}
                   <div className="model-card__head-actions" onClick={(e) => e.stopPropagation()}>
@@ -921,23 +940,23 @@ export default function Settings({ open, onClose }: Props) {
                         设为默认
                       </button>
                     )}
-                    <button
-                      className="link link--sm link--danger"
-                      onClick={() => {
-                        setDeleteTarget(c);
-                        // Pre-seed the replacement dropdown with the first
-                        // same-modality candidate so the dialog is one
-                        // click away from confirming when there is one.
-                        const prov = config.providers[c.providerName];
-                        const mod = prov?.modalities?.[c.model] as Modality | undefined;
-                        const candidates = replacementCandidates(c.providerName, c.model, mod ?? null);
-                        setDeleteReplacement(candidates[0]?.model ?? "");
-                      }}
-                      disabled={c.providerName === "demo"}
-                      title={c.providerName === "demo" ? "演示模型不可删除，可在开关里停用" : undefined}
-                    >
-                      删除
-                    </button>
+                    {p.source !== "builtin" && (
+                      <button
+                        className="link link--sm link--danger"
+                        onClick={() => {
+                          setDeleteTarget(c);
+                          // Pre-seed the replacement dropdown with the first
+                          // same-modality candidate so the dialog is one
+                          // click away from confirming when there is one.
+                          const prov = config.providers[c.providerName];
+                          const mod = prov?.modalities?.[c.model] as Modality | undefined;
+                          const candidates = replacementCandidates(c.providerName, c.model, mod ?? null);
+                          setDeleteReplacement(candidates[0]?.model ?? "");
+                        }}
+                      >
+                        删除
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -988,8 +1007,17 @@ export default function Settings({ open, onClose }: Props) {
                           data-lpignore="true"
                           data-1p-ignore="true"
                           data-form-type="other"
+                          disabled={p.source === "builtin"}
                           className={revealKeys.has(c.providerName) ? "" : "key-input__masked"}
-                          placeholder={p.apiKey ? "已配置（留空保持不变）" : "未配置"}
+                          placeholder={
+                            p.source === "builtin"
+                              ? p.apiKey
+                                ? "系统内置 Key（只读）"
+                                : "系统内置，无需 Key"
+                              : p.apiKey
+                                ? "已配置（留空保持不变）"
+                                : "未配置"
+                          }
                           value={newKey[c.providerName] ?? ""}
                           onChange={(e) =>
                             setNewKey({ ...newKey, [c.providerName]: e.target.value })
@@ -1016,6 +1044,7 @@ export default function Settings({ open, onClose }: Props) {
                               type="number"
                               step={field.step ?? "0.01"}
                               min="0"
+                              disabled={p.source === "builtin"}
                               placeholder={`${field.label} ${field.unit}`}
                               value={p.pricing?.[c.model]?.[field.key] ?? ""}
                               onChange={(e) =>
@@ -1027,13 +1056,15 @@ export default function Settings({ open, onClose }: Props) {
                       </div>
                     </div>
                     <div className="provider-card__actions">
-                      <button
-                        className="btn btn--ghost btn--sm"
-                        onClick={() => testConnection(c)}
-                        disabled={ts?.status === "testing"}
-                      >
-                        {ts?.status === "testing" ? "测试中…" : "测试连接"}
-                      </button>
+                      {p.source !== "builtin" && (
+                        <button
+                          className="btn btn--ghost btn--sm"
+                          onClick={() => testConnection(c)}
+                          disabled={ts?.status === "testing"}
+                        >
+                          {ts?.status === "testing" ? "测试中…" : "测试连接"}
+                        </button>
+                      )}
                       {ts?.status === "ok" && (
                         <span className="diag diag--ok">{ts.message}</span>
                       )}
@@ -1041,20 +1072,22 @@ export default function Settings({ open, onClose }: Props) {
                         <span className="diag diag--error">{ts.message}</span>
                       )}
                     </div>
-                    <div className="model-card__footer-actions">
-                      <button
-                        className="btn btn--ghost btn--sm"
-                        onClick={() => revertCard(c)}
-                      >
-                        撤销修改
-                      </button>
-                      <button
-                        className="btn btn--sm"
-                        onClick={() => updateCard(c)}
-                      >
-                        {cardSaved.has(key) ? "已更新 ✓" : "更新"}
-                      </button>
-                    </div>
+                    {p.source !== "builtin" && (
+                      <div className="model-card__footer-actions">
+                        <button
+                          className="btn btn--ghost btn--sm"
+                          onClick={() => revertCard(c)}
+                        >
+                          撤销修改
+                        </button>
+                        <button
+                          className="btn btn--sm"
+                          onClick={() => updateCard(c)}
+                        >
+                          {cardSaved.has(key) ? "已更新 ✓" : "更新"}
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
