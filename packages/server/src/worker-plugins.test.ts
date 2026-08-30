@@ -11,7 +11,7 @@ export const plugin = {
   name: "Test Worker",
   models: ["m1", "m2"],
   createWorker: () => ({
-    async *runAgent() {
+    async *runTextGen() {
       yield { type: "text-delta", text: "x" };
       return { output: "out", usage: { tokensIn: 0, tokensOut: 0, costUsd: 0 } };
     },
@@ -37,7 +37,7 @@ describe("loadWorkerPlugins", () => {
     const plugins = await loadWorkerPlugins(dir);
     expect(plugins.map((p) => p.id)).toEqual(["test-worker"]);
     expect(plugins[0]!.models).toEqual(["m1", "m2"]);
-    expect(typeof plugins[0]!.createWorker().runAgent).toBe("function");
+    expect(typeof plugins[0]!.createWorker().runTextGen).toBe("function");
   });
 
   it("ignores non-plugin files", async () => {
@@ -64,7 +64,7 @@ describe("WorkerRegistry", () => {
     expect(loaded.map((p) => p.id)).toEqual(["test-worker"]);
     expect(reg.list().map((w) => w.id).sort()).toEqual(["agnes", "test-worker"]);
     const w = reg.get("test-worker");
-    expect(typeof w.runAgent).toBe("function");
+    expect(typeof w.runTextGen).toBe("function");
     rmSync(dir, { recursive: true, force: true });
   });
 });

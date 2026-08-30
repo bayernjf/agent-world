@@ -3,7 +3,7 @@ import { providerForModel, DEFAULT_MODALITY, type AppConfig } from "./config.js"
 
 /** Which node kinds require a worker model and which modality they need. */
 const NODE_KIND_MODALITY: Partial<Record<NodeKind, "text" | "image" | "video" | "audio">> = {
-  agent: "text",
+  textGen: "text",
   imageGen: "image",
   videoGen: "video",
   audioGen: "audio",
@@ -36,7 +36,7 @@ export function validateModels(graph: Graph, config: AppConfig): ModelDiagnostic
     const wanted = NODE_KIND_MODALITY[n.kind];
     if (!wanted) continue;
     const cfg =
-      n.kind === "agent" ? n.agent :
+      n.kind === "textGen" ? n.textGen :
       n.kind === "imageGen" ? n.imageGen :
       n.kind === "videoGen" ? n.videoGen :
       n.kind === "audioGen" ? n.audioGen : null;

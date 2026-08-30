@@ -36,11 +36,11 @@ function withNodes(...nodes: Graph["nodes"]): Graph {
 
 const agentNode = (id: string, model: string) => ({
   id,
-  kind: "agent" as const,
+  kind: "textGen" as const,
   name: `agent-${id}`,
   x: 0,
   y: 0,
-  agent: { model, prompt: "" },
+  textGen: { model, prompt: "" },
 });
 const imageNode = (id: string, model: string) => ({
   id,

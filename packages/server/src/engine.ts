@@ -1,6 +1,11 @@
 import {
   BranchConfig,
   CodeNodeConfig,
+  GenericConfig,
+  ImageGenConfig,
+  VideoGenConfig,
+  AudioGenConfig,
+  TextGenConfig,
   DatabaseConfig,
   FileParseConfig,
   HttpNodeConfig,
@@ -733,7 +738,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
         }
       }
     }
-    const policy = node.agent?.inputPolicy ?? { mode: "all" as const };
+    const policy = node.textGen?.inputPolicy ?? { mode: "all" as const };
     let body: string;
     if (policy.mode === "summary") {
       const full = parts.join("\n\n");
@@ -744,7 +749,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           body = await worker.summarize({
             text: full,
             maxChars: max,
-            model: node.agent?.model,
+            model: node.textGen?.model,
             signal: opts.signal,
           });
         } catch {
@@ -2138,7 +2143,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
             return;
           }
           try {
-            const gen = worker.runAgent({
+            const gen = worker.runTextGen({
               node,
               config,
               attempt,
@@ -2977,9 +2982,234 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
   }
 
       // agent
-      const mounts = (node.agent?.skills ?? []).map(toMount);
+     
+
+  // --- Generic node: auto-dispatches by user-picked modality ---
+  if (node.kind === "generic") {
+    emit({ type: "node.started", nodeId, attempt });
+    const gcfg: GenericConfig = node.generic ?? { model: "agnes-2.0-flash", modality: "text", skills: [], format: "mp3", n: 1 };
+    const modality = gcfg.modality ?? "text";
+    const prompt = gcfg.prompt?.trim() || (await inputFor(node));
+
+    if (modality === "text") {
+      const textCfg: TextGenConfig = {
+        model: gcfg.model,
+        prompt: gcfg.prompt ?? "",
+        skills: (gcfg.skills ?? []).map(s => typeof s === "string" ? { id: s, config: {}, enabled: true } : s),
+        temperature: gcfg.temperature ?? 0.7,
+        timeoutMs: gcfg.timeoutMs ?? 120000,
+        inputPolicy: gcfg.inputPolicy ?? { mode: "all" },
+        budgetUsd: gcfg.budgetUsd ?? null,
+        retry: gcfg.retry ?? { maxRetries: 2, baseDelayMs: 1000, maxDelayMs: 30000 },
+      };
+      try {
+        const gen = worker.runTextGen({ node, config: textCfg, attempt, input: prompt, signal: opts.signal });
+        let out = "";
+        let usage: Usage = zeroUsage();
+        while (true) {
+          const step = await gen.next();
+          if (step.done) {
+            out = step.value.output;
+            usage = step.value.usage;
+            break;
+          }
+          if (opts.signal?.aborted || aborted) {
+            aborted = true;
+            return;
+          }
+          const chunk = step.value;
+          if (chunk.type === "text-delta") {
+            out += chunk.text;
+            emit({ type: "node.delta", nodeId, attempt, text: chunk.text });
+          }
+        }
+        emit({ type: "node.finished", nodeId, attempt, output: out, usage });
+        states.set(nodeId, "done");
+        setTextArtifact(artifacts, nodeId, out);
+        sendPackets(nodeId, out.slice(0, 120), "text");
+      } catch (err) {
+        console.warn(`[generic:text:${nodeId}] failed:`, (err as Error).message);
+        states.set(nodeId, "done");
+        emit({ type: "node.finished", nodeId, attempt, output: "", usage: zeroUsage() });
+        sendPackets(nodeId, "通用节点文本生成失败（已跳过）", "text");
+      }
+      return;
+    }
+
+    if (modality === "image") {
+      if (!worker.generateImage) {
+        console.warn(`[generic:image:${nodeId}] worker has no generateImage, skipping`);
+        states.set(nodeId, "done");
+        emit({ type: "node.finished", nodeId, attempt, output: "", usage: zeroUsage() });
+        sendPackets(nodeId, "跳过（worker 无图片能力）", "text");
+        return;
+      }
+      const imgCfg: ImageGenConfig = {
+        model: gcfg.model,
+        prompt: gcfg.prompt ?? "",
+        size: gcfg.size,
+        aspect: gcfg.aspect,
+        n: gcfg.n ?? 1,
+        baseUrl: gcfg.baseUrl,
+        apiKey: gcfg.apiKey,
+      };
+      try {
+        const results = await worker.generateImage({ node, config: imgCfg, input: prompt, signal: opts.signal });
+        let usage: Usage = { tokensIn: 0, tokensOut: 0, costUsd: 0, units: { images: 0 } };
+        const arts: Artifact[] = [];
+        for (let idx = 0; idx < results.length; idx++) {
+          const res = results[idx]!;
+          const uri = await opts.storeBinary(res.data, res.mimeType, `${node.name || "generic-img"}-${idx + 1}.png`);
+          const a: Artifact = {
+            id: `${nodeId}-gimg-${idx}`,
+            kind: "image",
+            uri,
+            mimeType: res.mimeType,
+            label: results.length > 1 ? `${node.name || "通用图片"} #${idx + 1}` : node.name || "通用图片",
+          };
+          arts.push(a);
+          emit({ type: "artifact.produced", nodeId, artifact: a });
+          usage = {
+            tokensIn: usage.tokensIn + (res.usage.tokensIn ?? 0),
+            tokensOut: usage.tokensOut + (res.usage.tokensOut ?? 0),
+            costUsd: usage.costUsd + (res.usage.costUsd ?? 0),
+            units: { ...usage.units, ...res.usage.units },
+          };
+        }
+        artifacts.set(nodeId, arts);
+        emit({ type: "node.finished", nodeId, attempt, output: "", usage });
+        states.set(nodeId, "done");
+        sendPackets(nodeId, `通用节点生成图片 ${results.length} 张`, "image");
+      } catch (err) {
+        console.warn(`[generic:image:${nodeId}] failed:`, (err as Error).message);
+        states.set(nodeId, "done");
+        emit({ type: "node.finished", nodeId, attempt, output: "", usage: zeroUsage() });
+        sendPackets(nodeId, "通用节点图片生成失败（已跳过）", "text");
+      }
+      return;
+    }
+
+    if (modality === "video") {
+      if (!worker.generateVideo) {
+        console.warn(`[generic:video:${nodeId}] worker has no generateVideo, skipping`);
+        states.set(nodeId, "done");
+        emit({ type: "node.finished", nodeId, attempt, output: "", usage: zeroUsage() });
+        sendPackets(nodeId, "跳过（worker 无视频能力）", "text");
+        return;
+      }
+      const vidCfg: VideoGenConfig = {
+        model: gcfg.model,
+        prompt: gcfg.prompt ?? "",
+        duration: gcfg.duration,
+        aspect: gcfg.aspect,
+        size: gcfg.size,
+        n: gcfg.n ?? 1,
+        baseUrl: gcfg.baseUrl,
+        apiKey: gcfg.apiKey,
+      };
+      try {
+        const results = await worker.generateVideo({ node, config: vidCfg, input: prompt, signal: opts.signal });
+        let usage: Usage = { tokensIn: 0, tokensOut: 0, costUsd: 0, units: { videos: 0 } };
+        const arts: Artifact[] = [];
+        for (let idx = 0; idx < results.length; idx++) {
+          const res = results[idx]!;
+          const ext = res.mimeType.includes("mp4") ? "mp4" : res.mimeType.includes("webm") ? "webm" : "mov";
+          const uri = await opts.storeBinary(res.data, res.mimeType, `${node.name || "generic-video"}-${idx + 1}.${ext}`);
+          const a: Artifact = {
+            id: `${nodeId}-gvid-${idx}`,
+            kind: "video",
+            uri,
+            mimeType: res.mimeType,
+            label: results.length > 1 ? `${node.name || "通用视频"} #${idx + 1}` : node.name || "通用视频",
+          };
+          arts.push(a);
+          emit({ type: "artifact.produced", nodeId, artifact: a });
+          usage = {
+            tokensIn: usage.tokensIn + (res.usage.tokensIn ?? 0),
+            tokensOut: usage.tokensOut + (res.usage.tokensOut ?? 0),
+            costUsd: usage.costUsd + (res.usage.costUsd ?? 0),
+            units: { ...usage.units, ...res.usage.units },
+          };
+        }
+        artifacts.set(nodeId, arts);
+        emit({ type: "node.finished", nodeId, attempt, output: "", usage });
+        states.set(nodeId, "done");
+        sendPackets(nodeId, `通用节点生成视频 ${results.length} 段`, "video");
+      } catch (err) {
+        console.warn(`[generic:video:${nodeId}] failed:`, (err as Error).message);
+        states.set(nodeId, "done");
+        emit({ type: "node.finished", nodeId, attempt, output: "", usage: zeroUsage() });
+        sendPackets(nodeId, "通用节点视频生成失败（已跳过）", "text");
+      }
+      return;
+    }
+
+    if (modality === "audio") {
+      if (!worker.generateAudio) {
+        console.warn(`[generic:audio:${nodeId}] worker has no generateAudio, skipping`);
+        states.set(nodeId, "done");
+        emit({ type: "node.finished", nodeId, attempt, output: "", usage: zeroUsage() });
+        sendPackets(nodeId, "跳过（worker 无音频能力）", "text");
+        return;
+      }
+      const audCfg: AudioGenConfig = {
+        model: gcfg.model,
+        prompt: gcfg.prompt ?? "",
+        voice: gcfg.voice,
+        format: gcfg.format ?? "mp3",
+        speed: gcfg.speed,
+        n: gcfg.n ?? 1,
+        baseUrl: gcfg.baseUrl,
+        apiKey: gcfg.apiKey,
+      };
+      try {
+        const results = await worker.generateAudio({ node, config: audCfg, input: prompt, signal: opts.signal });
+        let usage: Usage = { tokensIn: 0, tokensOut: 0, costUsd: 0, units: {} };
+        const arts: Artifact[] = [];
+        for (let idx = 0; idx < results.length; idx++) {
+          const res = results[idx]!;
+          const ext = res.mimeType.includes("wav") ? "wav" : res.mimeType.includes("ogg") ? "ogg" : res.mimeType.includes("opus") ? "opus" : res.mimeType.includes("flac") ? "flac" : "mp3";
+          const uri = await opts.storeBinary(res.data, res.mimeType, `${node.name || "generic-audio"}-${idx + 1}.${ext}`);
+          const a: Artifact = {
+            id: `${nodeId}-gaud-${idx}`,
+            kind: "audio",
+            uri,
+            mimeType: res.mimeType,
+            label: results.length > 1 ? `${node.name || "通用音频"} #${idx + 1}` : node.name || "通用音频",
+          };
+          arts.push(a);
+          emit({ type: "artifact.produced", nodeId, artifact: a });
+          usage = {
+            tokensIn: usage.tokensIn + (res.usage.tokensIn ?? 0),
+            tokensOut: usage.tokensOut + (res.usage.tokensOut ?? 0),
+            costUsd: usage.costUsd + (res.usage.costUsd ?? 0),
+            units: { ...usage.units, ...res.usage.units },
+          };
+        }
+        artifacts.set(nodeId, arts);
+        emit({ type: "node.finished", nodeId, attempt, output: "", usage });
+        states.set(nodeId, "done");
+        sendPackets(nodeId, `通用节点生成音频 ${results.length} 段`, "audio");
+      } catch (err) {
+        console.warn(`[generic:audio:${nodeId}] failed:`, (err as Error).message);
+        states.set(nodeId, "done");
+        emit({ type: "node.finished", nodeId, attempt, output: "", usage: zeroUsage() });
+        sendPackets(nodeId, "通用节点音频生成失败（已跳过）", "text");
+      }
+      return;
+    }
+
+    console.warn(`[generic:${nodeId}] unknown modality "${modality}", defaulting to text`);
+    states.set(nodeId, "done");
+    emit({ type: "node.finished", nodeId, attempt, output: "", usage: zeroUsage() });
+    sendPackets(nodeId, `未知模态 "${modality}"，已跳过`, "text");
+    return;
+  }
+
+      // agent
+      const mounts = (node.textGen?.skills ?? []).map(toMount);
       const promptModules = collectPromptModules(mounts);
-      const basePrompt = withLayoutDirectives(node.agent?.prompt ?? "", node.agent?.imageDirectives);
+      const basePrompt = withLayoutDirectives(node.textGen?.prompt ?? "", node.textGen?.imageDirectives);
       let prompt = promptModules.length
         ? `${basePrompt}\n\n${promptModules.map((p) => `=== 已挂载模块提示 (prompt-module) ===\n${p}`).join("\n\n")}`
         : basePrompt;
@@ -3005,13 +3235,13 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
         prompt = prompt ? `${prompt}\n\n${constraintBlocks.join("\n\n")}` : constraintBlocks.join("\n\n");
       }
       const config = {
-        model: node.agent?.model || fallbackModel,
+        model: node.textGen?.model || fallbackModel,
         prompt,
-        skills: node.agent?.skills ?? [],
-        temperature: node.agent?.temperature ?? 0.7,
-        timeoutMs: node.agent?.timeoutMs ?? 120000,
-        inputPolicy: node.agent?.inputPolicy ?? { mode: "all" as const },
-        retry: node.agent?.retry ?? { maxRetries: 2, baseDelayMs: 1000, maxDelayMs: 30000 },
+        skills: node.textGen?.skills ?? [],
+        temperature: node.textGen?.temperature ?? 0.7,
+        timeoutMs: node.textGen?.timeoutMs ?? 120000,
+        inputPolicy: node.textGen?.inputPolicy ?? { mode: "all" as const },
+        retry: node.textGen?.retry ?? { maxRetries: 2, baseDelayMs: 1000, maxDelayMs: 30000 },
       };
       emit({ type: "node.started", nodeId, attempt });
 
@@ -3036,7 +3266,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           const content: ContentPart[] | undefined = referenceImages.length
             ? [{ type: "text", text: agentInput }, ...referenceImages.map((u): ContentPart => ({ type: "image", image: u }))]
             : undefined;
-          const gen = worker.runAgent({
+          const gen = worker.runTextGen({
             node,
             config,
             attempt,
@@ -3190,7 +3420,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
 
       const nodeSpent = (nodeCostUsd.get(nodeId) ?? 0) + result.usage.costUsd;
       nodeCostUsd.set(nodeId, nodeSpent);
-      const nodeBudget = node.agent?.budgetUsd;
+      const nodeBudget = node.textGen?.budgetUsd;
       if (nodeBudget != null && nodeBudget > 0 && nodeSpent > nodeBudget) {
         states.set(nodeId, "failed");
         emit({

@@ -363,6 +363,7 @@ app.post("/api/graphs", async (c) => {
   };
   const id = randomUUID();
   let graph: Graph;
+  let originTemplateId: string | null = null;
   if (body.template) {
     const tpl = getTemplate(body.template);
     if (!tpl) return c.json({ error: "template not found" }, 404);
@@ -371,6 +372,7 @@ app.post("/api/graphs", async (c) => {
       name: body.name?.trim() || tpl.name,
       fieldValues: body.fieldValues,
     });
+    originTemplateId = body.template;
   } else if (body.from) {
     const src = db.getGraph(body.from, userId);
     if (!src) return c.json({ error: "source graph not found" }, 404);
@@ -383,6 +385,8 @@ app.post("/api/graphs", async (c) => {
       nodes: srcDoc.nodes.map((n) => ({ ...n })),
       edges: srcDoc.edges.map((e) => ({ ...e })),
     };
+    // Clone is an independent copy — not a template instance.
+    originTemplateId = null;
   } else {
     graph = {
       id,
@@ -390,6 +394,7 @@ app.post("/api/graphs", async (c) => {
       nodes: [],
       edges: [],
     };
+    originTemplateId = null;
   }
   const dup = findGraphIdByName(graph.name, userId);
   if (dup) {
@@ -398,7 +403,7 @@ app.post("/api/graphs", async (c) => {
       409,
     );
   }
-  db.saveGraph(graph, Date.now(), userId);
+  db.saveGraph(graph, Date.now(), userId, undefined, originTemplateId);
   return c.json(db.getGraph(id, userId), 201);
 });
 
@@ -412,6 +417,96 @@ app.delete("/api/graphs/:id", (c) => {
   const userId = c.get("userId");
   db.deleteGraph(c.req.param("id"), userId);
   return c.json({ ok: true });
+});
+
+/** Minimal duck-typed view of a template graph — only the layout fields
+ *  we touch (node id/kind/x/y, edge from/to/kind). The `kind` literals come
+ *  from `Graph` so our `.map` returns are still assignable back to the strict
+ *  `Graph["nodes"]` / `Graph["edges"]` arrays that saveGraph expects. */
+type NodeK = Graph["nodes"][number]["kind"];
+type EdgeK = Graph["edges"][number]["kind"];
+interface TemplateLike {
+  nodes: Array<{ id: string; kind: NodeK; x: number; y: number }>;
+  edges: Array<{ id: string; from: string; to: string; kind: EdgeK }>;
+}
+
+/**
+ * Restore only a graph's visual layout (node positions + edge topology) to
+ * the originating template. Everything the user configured — node prompts,
+ * model selections, node names, added/deleted nodes, triggers, variables —
+ * is preserved.
+ *
+ * Per-node semantics (matched by node.id):
+ *   - template node exists + user node exists  → overwrite only x / y (and
+ *     kind defensively; kind never changes between template & user).
+ *   - user added a node that the template never had  → keep it (preserve).
+ *   - user deleted a template node → don't revive it (honour user deletion).
+ *
+ * Edges: union — every edge in the template is guaranteed present (user's
+ * deletions of a template edge are undone), and any edges the user added
+ * beyond the template are kept.
+ */
+function restoreLayout(graph: Graph, template: TemplateLike): Graph {
+  const userNodesById = new Map(graph.nodes.map((n) => [n.id, n]));
+  const tplNodesById = new Map(template.nodes.map((n) => [n.id, n]));
+
+  const newNodes: Graph["nodes"] = graph.nodes.map((userNode) => {
+    const tpl = tplNodesById.get(userNode.id);
+    if (!tpl) return userNode; // user-added node — keep verbatim
+    // Template node: restore only positional fields.
+    return { ...userNode, kind: tpl.kind, x: tpl.x, y: tpl.y };
+  });
+
+  // Edges: start from user's set, add any template edges that are missing.
+  // Key by "from→to|kind" so duplicates get deduped cleanly.
+  const edgeKey = (e: { from: string; to: string; kind: string }) => `${e.from}→${e.to}|${e.kind}`;
+  const userEdgeKeys = new Set(graph.edges.map(edgeKey));
+  const newEdges = [...graph.edges];
+  for (const tplEdge of template.edges) {
+    if (!userEdgeKeys.has(edgeKey(tplEdge))) {
+      newEdges.push({ ...tplEdge });
+    }
+  }
+
+  return { ...graph, nodes: newNodes, edges: newEdges };
+}
+
+app.post("/api/graphs/:id/reset", (c) => {
+  const userId = c.get("userId");
+  const id = c.req.param("id");
+  const existing = db.getGraph(id, userId);
+  if (!existing) return c.json({ error: "not found" }, 404);
+  if (!existing.originTemplateId) {
+    return c.json(
+      { error: "not_template_instance", message: "此产线未从模板创建，无法还原。" },
+      400,
+    );
+  }
+  const tpl = getTemplate(existing.originTemplateId);
+  if (!tpl) {
+    return c.json(
+      { error: "template_missing", message: `模板「${existing.originTemplateId}」已不存在。` },
+      400,
+    );
+  }
+
+  // Snapshot current state so the reset itself is reversible via VersionPanel.
+  const s = autoSnapshotSettings(userId);
+  db.saveAutoSnapshot(id, JSON.stringify(existing), s.minIntervalMs, s.maxKeep);
+
+  const restored = restoreLayout(existing, tpl.graph);
+
+  const ifMatch = c.req.header("if-match");
+  const expectedVersion = ifMatch != null ? Number(ifMatch) : undefined;
+  const result = db.saveGraph(restored, Date.now(), userId, expectedVersion);
+  if (!result.ok) {
+    return c.json(
+      { error: "conflict", message: "该产线已在其他标签页被修改，请刷新后重试。" },
+      409,
+    );
+  }
+  // originTemplateId stays untouched — updateGraphIfVersion doesn't rewrite it.
+  return c.json(db.getGraph(id, userId));
 });
 
 /** Auto-snapshot parameters from user settings, falling back to the design
@@ -1006,7 +1101,7 @@ app.post("/api/runs/ab", async (c) => {
   if (!graph) return c.json({ error: "graph not found" }, 404);
   const target = graph.nodes.find((n) => n.id === body.targetNodeId);
   if (!target) return c.json({ error: "target node not found" }, 404);
-  if (target.kind !== "agent") {
+  if (target.kind !== "textGen") {
     return c.json({ error: "A/B 目标必须是厂房(agent)节点" }, 400);
   }
   try {

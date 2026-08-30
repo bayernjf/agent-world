@@ -15,7 +15,7 @@ import { loadPermissionConfig, matchDomain } from "./permissions.js";
  *     parent, which enforces the network/fs allowlists (see permissions.ts).
  *
  * The two processes talk over a tiny JSON message protocol on the fork's IPC
- * channel. Streaming `runAgent` output is collected in the child and replayed
+ * channel. Streaming `runTextGen` output is collected in the child and replayed
  * in order by the parent (streaming granularity is lost across the boundary,
  * but the result is identical).
  */
@@ -125,7 +125,7 @@ export class IsolatedWorker implements Worker {
     this.pending.clear();
   }
 
-  private call(method: "runAgent" | "judge" | "generateImage", args: unknown[]): Promise<CallResultMsg> {
+  private call(method: "runTextGen" | "judge" | "generateImage", args: unknown[]): Promise<CallResultMsg> {
     const id = this.seq++;
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve: resolve as (v: unknown) => void, reject });
@@ -133,8 +133,8 @@ export class IsolatedWorker implements Worker {
     });
   }
 
-  async *runAgent(args: any): AsyncGenerator<any, any, void> {
-    const res = (await this.call("runAgent", [args])) as CallResultMsg;
+  async *runTextGen(args: any): AsyncGenerator<any, any, void> {
+    const res = (await this.call("runTextGen", [args])) as CallResultMsg;
     for (const ev of res.events ?? []) yield ev;
     return res.result;
   }

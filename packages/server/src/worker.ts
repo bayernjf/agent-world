@@ -1,4 +1,4 @@
-import type { AgentConfig, AudioGenConfig, ContentPart, GraphNode, ImageGenConfig, Usage, VideoGenConfig } from "@agent-world/core";
+import type { TextGenConfig, AudioGenConfig, ContentPart, GraphNode, ImageGenConfig, Usage, VideoGenConfig } from "@agent-world/core";
 
 /** A callable tool exposed to a model, derived from a mounted skill card. */
 export interface ToolDefinition {
@@ -82,9 +82,9 @@ export interface AudioGenResult {
  */
 export interface Worker {
   /** Yields streamed chunks, returns the finished artifact plus metered usage. */
-  runAgent(args: {
+  runTextGen(args: {
     node: GraphNode;
-    config: AgentConfig;
+    config: TextGenConfig;
     attempt: number;
     input: string;
     /** Reference image URLs (from upstream source nodes) for vision models. */
@@ -164,7 +164,7 @@ export function fakeWorker(opts: { failFirstAttempts?: number; chunkDelayMs?: nu
   const delay = opts.chunkDelayMs ?? 90;
 
   return {
-    async *runAgent({ node, attempt, input }) {
+    async *runTextGen({ node, attempt, input }) {
       const chunks = [
         `[${node.name}] attempt ${attempt}`,
         ` consuming ${input.length} chars of input`,

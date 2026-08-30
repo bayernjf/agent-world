@@ -1,5 +1,5 @@
 import { HaltRequested, type AgentChunk, type AgentResult, type AudioGenArgs, type AudioGenResult, type ImageGenResult, type VideoGenArgs, type VideoGenResult, type Worker } from "../worker.js";
-import type { AgentConfig, ContentPart as MultimodalContent, GraphNode, Usage } from "@agent-world/core";
+import type { TextGenConfig, ContentPart as MultimodalContent, GraphNode, Usage } from "@agent-world/core";
 import { computeCost, endpointFor, modalityOf, normalizeBaseUrl, type ModelPricing, type ProviderConfig } from "../config.js";
 
 export class ProviderError extends Error {
@@ -99,7 +99,7 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
   async function* streamChat(
     model: string,
     messages: Array<{ role: string; content: string | ContentPart[] }>,
-    config: AgentConfig,
+    config: TextGenConfig,
     signal?: AbortSignal,
   ): AsyncGenerator<AgentChunk, AgentResult> {
     if (!provider.apiKey) {
@@ -207,9 +207,9 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
   async function* runWithTools(
     model: string,
     messages: Array<{ role: string; content: string | ContentPart[] }>,
-    config: AgentConfig,
-    tools: NonNullable<Parameters<Worker["runAgent"]>[0]["tools"]>,
-    executeTool: NonNullable<Parameters<Worker["runAgent"]>[0]["executeTool"]>,
+    config: TextGenConfig,
+    tools: NonNullable<Parameters<Worker["runTextGen"]>[0]["tools"]>,
+    executeTool: NonNullable<Parameters<Worker["runTextGen"]>[0]["executeTool"]>,
     signal?: AbortSignal,
   ): AsyncGenerator<AgentChunk, AgentResult> {
     if (!provider.apiKey) {
@@ -339,7 +339,7 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
     return { output: finalText, usage };
   }
 
-  function buildMessages(node: GraphNode, config: AgentConfig, input: string, images: string[] = [], content?: MultimodalContent[]) {
+  function buildMessages(node: GraphNode, config: TextGenConfig, input: string, images: string[] = [], content?: MultimodalContent[]) {
     const system = config.prompt || `You are a worker in the "${node.name}" plant. Process the input and produce output.`;
     const userContent = buildUserContent(input, images, content);
     return [
@@ -379,7 +379,7 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
   }
 
   return {
-    async *runAgent({ node, config, input, images, content, tools, executeTool, signal }) {
+    async *runTextGen({ node, config, input, images, content, tools, executeTool, signal }) {
       const model = config.model || "agnes-2.0-flash";
       const modality = modalityOf(provider, model);
       if (modality !== "text") {
@@ -398,8 +398,8 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
     },
 
     async judge({ node, output, criterion, signal }) {
-      const model = node.agent?.model ?? "agnes-2.0-flash";
-      const config: AgentConfig = {
+      const model = node.textGen?.model ?? "agnes-2.0-flash";
+      const config: TextGenConfig = {
         model,
         prompt: "",
         skills: [],
@@ -651,7 +651,7 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
           `Model "${m}" is a ${modality} model; summarization for ${modality} models is not yet implemented`,
         );
       }
-      const config: AgentConfig = {
+      const config: TextGenConfig = {
         model: m,
         prompt: "",
         skills: [],
