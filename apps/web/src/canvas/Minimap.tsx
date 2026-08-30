@@ -1,3 +1,4 @@
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useGraph } from "../store/graph";
 import { MAX_ZOOM, MIN_ZOOM, useCanvas, type Bounds } from "../store/canvas";
 import { PLANT_H, PLANT_W } from "../store/graph";
@@ -9,19 +10,47 @@ const PAD = 24;
 
 const KIND_FILL: Record<string, string> = {
   source: "#16242b",
-  agent: "#1c2730",
+  textGen: "#1c2730",
   gate: "#1d2b22",
   sink: "#16242b",
 };
 
+/** Are we grabbing the view rectangle (drag canvas) vs clicking empty space (jump)? */
+interface ViewDrag {
+  /** client coords at mousedown, to convert pointermove deltas. */
+  startClientX: number;
+  startClientY: number;
+  /** viewport.panX / panY at mousedown (before any drag applied). */
+  originPanX: number;
+  originPanY: number;
+}
+
+/** Convert an SVG <rect> bounding rect + client coord to content (graph) coords. */
+function clientToContent(
+  clientX: number,
+  clientY: number,
+  rect: DOMRect,
+  scale: number,
+  minX: number,
+  minY: number,
+) {
+  return {
+    x: (clientX - rect.left) / scale + minX,
+    y: (clientY - rect.top) / scale + minY,
+  };
+}
+
 /**
  * Bird's-eye overview of the board. Plants are drawn at their stored
- * coordinates; the outlined rectangle is the current viewport. Clicking or
- * dragging centers the targeted board point in the viewport.
+ * coordinates; the outlined rectangle is the current viewport. Two gestures:
+ *   - click anywhere outside the viewport rectangle → centers that point in the canvas
+ *   - click-drag on the viewport rectangle → pans the canvas (move the viewport)
  */
 export default function Minimap() {
   const { graph } = useGraph();
-  const { viewport, fit, stageSize, setViewport, zoomTo, fitToBounds } = useCanvas();
+  const { viewport, setViewport, zoomTo, fitToBounds } = useCanvas();
+  const dragRef = useRef<ViewDrag | null>(null);
+  const [dragging, setDragging] = useState(false);
 
   const xs = graph.nodes.map((n) => n.x);
   const ys = graph.nodes.map((n) => n.y);
@@ -37,21 +66,33 @@ export default function Minimap() {
   const tx = (x: number) => offX + (x - minX) * scale;
   const ty = (y: number) => offY + (y - minY) * scale;
 
-  // Viewport in board user-space, accounting for letterbox fit + pan/zoom.
-  const fitScale = fit.scale || 1;
-  const vw = stageSize.width ? stageSize.width / fitScale / viewport.zoom : VIEW_W;
-  const vh = stageSize.height ? stageSize.height / fitScale / viewport.zoom : VIEW_H;
+  // Viewport in board user-space (content coords). The SVG board uses a
+  // fixed viewBox of VIEW_W × VIEW_H; letterbox fit only controls where
+  // that board sits inside the stage but never changes the viewBox itself.
+  // So the visible rectangle in content space is simply the inverted pan/zoom:
+  //   rect = (viewBox - pan) / zoom
+  const vw = VIEW_W / viewport.zoom;
+  const vh = VIEW_H / viewport.zoom;
   const vx = -viewport.panX / viewport.zoom;
   const vy = -viewport.panY / viewport.zoom;
 
-  const centerOnClient = (clientX: number, clientY: number, rect: DOMRect) => {
-    const mx = (clientX - rect.left) / scale + minX;
-    const my = (clientY - rect.top) / scale + minY;
-    // Pan is in SVG user units (the SVG maps stage px → user units via fitScale).
-    const panX = stageSize.width / 2 / fitScale - mx * viewport.zoom;
-    const panY = stageSize.height / 2 / fitScale - my * viewport.zoom;
-    setViewport({ ...viewport, panX, panY });
-  };
+  // Pan delta to content-space delta: dpix (SVG user) = dcontent * zoom.
+  // Minimap content delta minimap-pixels / scale → graph units → * zoom → pan delta.
+  const contentDeltaFromMinimapDelta = (dMinimapX: number, dMinimapY: number) => ({
+    dx: -(dMinimapX / scale) * viewport.zoom,
+    dy: -(dMinimapY / scale) * viewport.zoom,
+  });
+
+  const centerOnContent = useCallback(
+    (mx: number, my: number) => {
+      setViewport({
+        ...viewport,
+        panX: VIEW_W / 2 - mx * viewport.zoom,
+        panY: VIEW_H / 2 - my * viewport.zoom,
+      });
+    },
+    [viewport, setViewport],
+  );
 
   const fitScreen = () => {
     if (graph.nodes.length === 0) return;
@@ -66,13 +107,73 @@ export default function Minimap() {
     fitToBounds(b);
   };
 
-  const onPointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
+  // Global pointer listeners for "drag viewport" mode.
+  useEffect(() => {
+    if (!dragging) return;
+    const onMove = (e: PointerEvent) => {
+      const d = dragRef.current;
+      if (!d) return;
+      const dx = e.clientX - d.startClientX;
+      const dy = e.clientY - d.startClientY;
+      // Minimap pixel delta → canvas pan delta (negated: viewport right = canvas content shift left).
+      const { dx: panDX, dy: panDY } = contentDeltaFromMinimapDelta(dx, dy);
+      setViewport({
+        ...viewport,
+        panX: d.originPanX + panDX,
+        panY: d.originPanY + panDY,
+      });
+    };
+    const onUp = () => {
+      dragRef.current = null;
+      setDragging(false);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
+  }, [dragging, viewport, setViewport, scale]);
+
+  const onViewPointerDown = (e: React.PointerEvent<SVGRectElement>) => {
+    e.stopPropagation(); // don't bubble to svg's "jump to" handler
     (e.target as Element).setPointerCapture?.(e.pointerId);
-    centerOnClient(e.clientX, e.clientY, e.currentTarget.getBoundingClientRect());
+    dragRef.current = {
+      startClientX: e.clientX,
+      startClientY: e.clientY,
+      originPanX: viewport.panX,
+      originPanY: viewport.panY,
+    };
+    setDragging(true);
   };
-  const onPointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
-    if (e.buttons !== 1) return;
-    centerOnClient(e.clientX, e.clientY, e.currentTarget.getBoundingClientRect());
+
+  const onBackgroundPointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const { x, y } = clientToContent(e.clientX, e.clientY, rect, scale, minX, minY);
+    centerOnContent(x, y);
+  };
+
+  const onWheel = (e: React.WheelEvent<SVGSVGElement>) => {
+    e.preventDefault();
+    const rect = e.currentTarget.getBoundingClientRect();
+    // (cx, cy): content-space point currently under the minimap cursor.
+    // Keep this point pinned under the cursor before/after zoom — same
+    // "anchor point" semantics as Canvas.onWheel.
+    const { x: cx, y: cy } = clientToContent(e.clientX, e.clientY, rect, scale, minX, minY);
+    const factor = Math.exp(-e.deltaY * 0.0015);
+    const zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, viewport.zoom * factor));
+    // Current anchor position in the viewBox coordinate space.
+    const anchorX = viewport.panX + cx * viewport.zoom;
+    const anchorY = viewport.panY + cy * viewport.zoom;
+    // Recompute pan so the anchor stays in the same viewBox spot.
+    setViewport({
+      ...viewport,
+      zoom,
+      panX: anchorX - cx * zoom,
+      panY: anchorY - cy * zoom,
+    });
   };
 
   return (
@@ -81,8 +182,9 @@ export default function Minimap() {
         width={MAP}
         height={MAP}
         viewBox={`0 0 ${MAP} ${MAP}`}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
+        onPointerDown={onBackgroundPointerDown}
+        onWheel={onWheel}
+        style={{ cursor: dragging ? "grabbing" : "pointer" }}
       >
         <rect className="minimap__bg" width={MAP} height={MAP} />
         {graph.edges.map((edge) => {
@@ -112,15 +214,15 @@ export default function Minimap() {
             style={{ fill: KIND_FILL[n.kind] }}
           />
         ))}
-        {stageSize.width > 0 && (
-          <rect
-            x={tx(vx)}
-            y={ty(vy)}
-            width={vw * scale}
-            height={vh * scale}
-            className="minimap__view"
-          />
-        )}
+        <rect
+          x={tx(vx)}
+          y={ty(vy)}
+          width={vw * scale}
+          height={vh * scale}
+          className="minimap__view"
+          onPointerDown={onViewPointerDown}
+          style={{ cursor: "grab" }}
+        />
       </svg>
 
       <div className="minimap__zoom minimap__zoom--left">

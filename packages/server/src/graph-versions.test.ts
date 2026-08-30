@@ -13,7 +13,7 @@ function graph(id: string, name: string, nodeCount: number): Graph {
     name,
     nodes: Array.from({ length: nodeCount }, (_, i) => ({
       id: `n${i}`,
-      kind: "agent",
+      kind: "textGen",
       name: `N${i}`,
       x: i * 100,
       y: 0,

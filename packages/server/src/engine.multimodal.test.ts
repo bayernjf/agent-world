@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { execute } from "./engine.js";
 import { type Worker } from "./worker.js";
 
-const AGENT = {
+const TEXTGEN = {
   model: "agnes-2.0-flash",
   prompt: "",
   skills: [],
@@ -16,7 +16,7 @@ const AGENT = {
 function spyWorker(): { worker: Worker; calls: Array<Record<string, unknown>> } {
   const calls: Array<Record<string, unknown>> = [];
   const worker: Worker = {
-    async *runAgent(args) {
+    async *runTextGen(args) {
       calls.push(args as unknown as Record<string, unknown>);
       yield { type: "text-delta", text: "ok" };
       return { output: "out", usage: { tokensIn: 0, tokensOut: 0, costUsd: 0 } };
@@ -45,7 +45,7 @@ function graphWithSource(images?: string[]): Graph {
   return {
     nodes: [
       { id: "s1", kind: "source", name: "Src", x: 0, y: 0, source: images ? { images } : {} },
-      { id: "a1", kind: "agent", name: "Agent", x: 1, y: 0, agent: AGENT },
+      { id: "a1", kind: "textGen", name: "Agent", x: 1, y: 0, textGen: TEXTGEN },
     ],
     edges: [{ id: "e1", kind: "flow", from: "s1", to: "a1" }],
   };

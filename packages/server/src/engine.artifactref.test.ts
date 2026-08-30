@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { execute, reconstructState } from "./engine.js";
 import { type Worker } from "./worker.js";
 
-const AGENT = {
+const TEXTGEN = {
   model: "agnes-2.0-flash",
   prompt: "",
   skills: [],
@@ -19,7 +19,7 @@ function spyWorker(opts?: { imageCount?: number }): {
 } {
   const calls: Array<Record<string, unknown>> = [];
   const worker: Worker = {
-    async *runAgent(args) {
+    async *runTextGen(args) {
       calls.push(args as unknown as Record<string, unknown>);
       yield { type: "text-delta", text: "ok" };
       return { output: "out", usage: { tokensIn: 0, tokensOut: 0, costUsd: 0 } };
@@ -49,7 +49,7 @@ async function run(graph: Graph, worker: Worker) {
   return events;
 }
 
-/** source → imageGen → agent: imageGen output flows to downstream agent via images. */
+/** source → imageGen → textGen: imageGen output flows to downstream agent via images. */
 function graphImageGenToAgent(): Graph {
   return {
     id: "g",
@@ -64,7 +64,7 @@ function graphImageGenToAgent(): Graph {
         y: 0,
         imageGen: { model: "agnes-image", prompt: "test", n: 1 },
       },
-      { id: "agt", kind: "agent", name: "Agt", x: 2, y: 0, agent: AGENT },
+      { id: "agt", kind: "textGen", name: "Agt", x: 2, y: 0, textGen: TEXTGEN },
     ],
     edges: [
       { id: "e1", kind: "flow", from: "src", to: "img" },
@@ -137,7 +137,7 @@ describe("ArtifactRef upgrade (P1-4)", () => {
       name: "g",
       nodes: [
         { id: "src", kind: "source", name: "Src", x: 0, y: 0, source: {} },
-        { id: "agt", kind: "agent", name: "Agt", x: 1, y: 0, agent: { ...AGENT, retry: { maxRetries: 0, baseDelayMs: 1, maxDelayMs: 1 } } },
+        { id: "agt", kind: "textGen", name: "Agt", x: 1, y: 0, textGen: { ...TEXTGEN, retry: { maxRetries: 0, baseDelayMs: 1, maxDelayMs: 1 } } },
         { id: "gate", kind: "gate", name: "Gate", x: 2, y: 0, gate: { criterion: "good", maxAttempts: 2, onExhausted: "halt" } },
       ],
       edges: [
@@ -149,7 +149,7 @@ describe("ArtifactRef upgrade (P1-4)", () => {
 
     let judgeCalls = 0;
     const worker: Worker = {
-      async *runAgent() {
+      async *runTextGen() {
         yield { type: "text-delta", text: "draft" };
         return { output: `draft-${judgeCalls}`, usage: { tokensIn: 0, tokensOut: 0, costUsd: 0 } };
       },

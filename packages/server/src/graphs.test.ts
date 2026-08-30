@@ -38,7 +38,7 @@ describe("graphs db", () => {
     const src: Graph = {
       id: "src",
       name: "Source",
-      nodes: [{ id: "n1", kind: "agent", name: "N1", x: 0, y: 0 }],
+      nodes: [{ id: "n1", kind: "textGen", name: "N1", x: 0, y: 0 }],
       edges: [{ id: "e1", from: "n1", to: "n1", kind: "flow" }],
     };
     db.saveGraph(src, 1, U);

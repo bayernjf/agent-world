@@ -2,7 +2,7 @@ import { compile, type Graph, type RunEvent, type Worker } from "@agent-world/co
 import { describe, expect, it } from "vitest";
 import { execute } from "./engine.js";
 
-const AGENT = {
+const TEXTGEN = {
   model: "agnes-2.0-flash",
   prompt: "BASE",
   skills: [] as Array<string | { id: string; enabled?: boolean; config?: Record<string, unknown> }>,
@@ -18,7 +18,7 @@ function summaryGraph(policy: { mode: "all" | "last" | "truncate" | "summary"; m
   return {
     nodes: [
       { id: "s1", kind: "source", name: "Src", x: 0, y: 0, source: {} },
-      { id: "w1", kind: "agent", name: "Writer", x: 1, y: 0, agent: { ...AGENT, inputPolicy: policy } },
+      { id: "w1", kind: "textGen", name: "Writer", x: 1, y: 0, textGen: { ...TEXTGEN, inputPolicy: policy } },
       { id: "k1", kind: "sink", name: "End", x: 2, y: 0, sink: {} },
     ],
     edges: [
@@ -34,7 +34,7 @@ function summaryWorker(opts: {
   record?: (input: string) => void;
 }): Worker {
   return {
-    async *runAgent(args) {
+    async *runTextGen(args) {
       opts.record?.(args.input);
       const out = `OUT-${(args.node as { id: string }).id}`;
       yield { type: "text-delta", text: out };

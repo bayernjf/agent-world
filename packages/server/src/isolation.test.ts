@@ -36,7 +36,7 @@ afterEach(() => {
 });
 
 async function runOnce(w: IsolatedWorker): Promise<any> {
-  const gen = w.runAgent({ node: { id: "n" }, config: {}, attempt: 1, input: "", tools: [] });
+  const gen = w.runTextGen({ node: { id: "n" }, config: {}, attempt: 1, input: "", tools: [] });
   let r = await gen.next();
   while (!r.done) r = await gen.next();
   return JSON.parse((r.value as { output: string }).output);

@@ -31,7 +31,7 @@ registerSkill({
   config: { schema: { type: "object", required: ["title"], properties: { title: { type: "string" } } } },
 });
 
-const AGENT = {
+const TEXTGEN = {
   model: "agnes-2.0-flash",
   prompt: "BASE_PROMPT",
   skills: [] as Array<string | { id: string; enabled?: boolean; config?: Record<string, unknown> }>,
@@ -41,11 +41,11 @@ const AGENT = {
   retry: { maxRetries: 1, baseDelayMs: 1000, maxDelayMs: 10000 },
 };
 
-function promptGraph(skills: typeof AGENT.skills): Graph {
+function promptGraph(skills: typeof TEXTGEN.skills): Graph {
   return {
     nodes: [
       { id: "s1", kind: "source", name: "Src", x: 0, y: 0, source: {} },
-      { id: "w1", kind: "agent", name: "Writer", x: 1, y: 0, agent: { ...AGENT, skills } },
+      { id: "w1", kind: "textGen", name: "Writer", x: 1, y: 0, textGen: { ...TEXTGEN, skills } },
       { id: "k1", kind: "sink", name: "End", x: 2, y: 0, sink: {} },
     ],
     edges: [
@@ -59,7 +59,7 @@ function promptGraph(skills: typeof AGENT.skills): Graph {
 function recordingWorker(): { worker: Worker; prompts: string[] } {
   const prompts: string[] = [];
   const worker: Worker = {
-    async *runAgent(args) {
+    async *runTextGen(args) {
       prompts.push(args.config.prompt);
       const out = `OUT-${(args.node as { id: string }).id}`;
       yield { type: "text-delta", text: out };
@@ -115,7 +115,7 @@ describe("E.3 output-contract skills", () => {
     return {
       nodes: [
         { id: "s1", kind: "source", name: "Src", x: 0, y: 0, source: {} },
-        { id: "w1", kind: "agent", name: "Writer", x: 1, y: 0, agent: { ...AGENT, skills: ["contract-c"] } },
+        { id: "w1", kind: "textGen", name: "Writer", x: 1, y: 0, textGen: { ...TEXTGEN, skills: ["contract-c"] } },
         { id: "k1", kind: "sink", name: "End", x: 2, y: 0, sink: {} },
       ],
       // self rework line so a contract failure re-runs the writer
@@ -130,7 +130,7 @@ describe("E.3 output-contract skills", () => {
   /** Worker whose agent output never satisfies the contract (always invalid JSON). */
   function invalidWorker(): Worker {
     return {
-      async *runAgent() {
+      async *runTextGen() {
         const out = "this is not json at all";
         yield { type: "text-delta", text: out };
         return { output: out, usage: { tokensIn: 0, tokensOut: 0, costUsd: 0 } };
@@ -147,7 +147,7 @@ describe("E.3 output-contract skills", () => {
   /** Worker that outputs invalid JSON first, then valid JSON after a rework. */
   function recoverWorker(): Worker {
     return {
-      async *runAgent(args) {
+      async *runTextGen(args) {
         const out = args.attempt > 1 ? '{"title":"hello"}' : "this is not json at all";
         yield { type: "text-delta", text: out };
         return { output: out, usage: { tokensIn: 0, tokensOut: 0, costUsd: 0 } };
@@ -163,7 +163,7 @@ describe("E.3 output-contract skills", () => {
 
   it("passes when the agent output satisfies the contract", async () => {
     const worker: Worker = {
-      async *runAgent() {
+      async *runTextGen() {
         const out = '{"title":"hello"}';
         yield { type: "text-delta", text: out };
         return { output: out, usage: { tokensIn: 0, tokensOut: 0, costUsd: 0 } };

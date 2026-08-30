@@ -11,7 +11,7 @@ const U = "u1";
 const graph: Graph = {
   id: "g1",
   name: "G1",
-  nodes: [{ id: "n1", kind: "agent", name: "N1", x: 0, y: 0 }],
+  nodes: [{ id: "n1", kind: "textGen", name: "N1", x: 0, y: 0 }],
   edges: [],
 };
 
@@ -202,7 +202,7 @@ describe("eval report", () => {
       id: "g1",
       name: "G1",
       nodes: [
-        { id: "n1", kind: "agent", name: "N1", x: 0, y: 0, agent: { model: "m", prompt, skills: [], temperature: 0.7, timeoutMs: 60000 } },
+        { id: "n1", kind: "textGen", name: "N1", x: 0, y: 0, textGen: { model: "m", prompt, skills: [], temperature: 0.7, timeoutMs: 60000 } },
       ],
       edges: [],
     });

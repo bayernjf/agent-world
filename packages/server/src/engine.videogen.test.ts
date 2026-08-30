@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { execute } from "./engine.js";
 import { type Worker } from "./worker.js";
 
-const AGENT = {
+const TEXTGEN = {
   model: "agnes-2.0-flash",
   prompt: "",
   skills: [],
@@ -19,7 +19,7 @@ function spyWorker(opts?: { videoCount?: number; noVideo?: boolean }): {
 } {
   const calls: Array<Record<string, unknown>> = [];
   const worker: Worker = {
-    async *runAgent(args) {
+    async *runTextGen(args) {
       calls.push(args as unknown as Record<string, unknown>);
       yield { type: "text-delta", text: "ok" };
       return { output: "out", usage: { tokensIn: 0, tokensOut: 0, costUsd: 0 } };
@@ -130,7 +130,7 @@ describe("videoGen node (P1-6)", () => {
       nodes: [
         { id: "src", kind: "source", name: "Src", x: 0, y: 0, source: {} },
         { id: "vid", kind: "videoGen", name: "Vid", x: 1, y: 0, videoGen: { model: "video-gen", prompt: "test", n: 1 } },
-        { id: "agt", kind: "agent", name: "Agt", x: 2, y: 0, agent: AGENT },
+        { id: "agt", kind: "textGen", name: "Agt", x: 2, y: 0, textGen: TEXTGEN },
       ],
       edges: [
         { id: "e1", kind: "flow", from: "src", to: "vid" },
@@ -139,7 +139,7 @@ describe("videoGen node (P1-6)", () => {
     };
     await run(graph, worker);
 
-    // The agent's runAgent should have been called with input containing the video placeholder
+    // The agent's runTextGen should have been called with input containing the video placeholder
     const agentCall = calls.find((c) => "input" in c && typeof c.input === "string" && c.input.includes("视频"));
     expect(agentCall).toBeDefined();
   });

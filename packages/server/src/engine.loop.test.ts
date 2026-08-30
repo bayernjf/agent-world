@@ -6,7 +6,7 @@ import { fakeWorker } from "./worker.js";
 function graph(
   loop: LoopConfig,
   itemsCode: string,
-  body: { kind: "code"; code: string } | { kind: "agent" },
+  body: { kind: "code"; code: string } | { kind: "textGen" },
 ): Graph {
   return {
     id: "g",
@@ -36,11 +36,11 @@ function graph(
         : [
             {
               id: "body",
-              kind: "agent" as const,
+              kind: "textGen" as const,
               name: "BODY",
               x: 3,
               y: 0,
-              agent: {
+              textGen: {
                 model: "test",
                 prompt: "处理循环项",
                 skills: [],
@@ -122,7 +122,7 @@ describe("loop node", () => {
       graph(
         { items: "${items}" },
         "console.log(JSON.stringify([{ n: 1 }, { n: 2 }]))",
-        { kind: "agent" },
+        { kind: "textGen" },
       ),
     );
     expect(replay(events).status).toBe("done");

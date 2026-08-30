@@ -450,7 +450,7 @@ export default function Settings({ open, onClose }: Props) {
     const nodes = useGraph.getState().graph.nodes;
     return nodes.filter((n) => {
       const cfg =
-        n.kind === "agent" ? n.agent :
+        n.kind === "textGen" ? n.textGen :
         n.kind === "imageGen" ? n.imageGen :
         n.kind === "videoGen" ? n.videoGen :
         n.kind === "audioGen" ? n.audioGen : null;
@@ -482,7 +482,7 @@ export default function Settings({ open, onClose }: Props) {
 
   /** Whether a node kind carries a model field and what modality it needs. */
   const kindModality = (kind: NodeKind): Modality | null => {
-    if (kind === "agent") return "text";
+    if (kind === "textGen") return "text";
     if (kind === "imageGen") return "image";
     if (kind === "videoGen") return "video";
     if (kind === "audioGen") return "audio";
@@ -492,8 +492,8 @@ export default function Settings({ open, onClose }: Props) {
   /** Apply a model replacement to one node. */
   const applyModelReplacement = (nodeId: string, kind: NodeKind, newModel: string) => {
     const update = useGraph.getState().updateNode;
-    if (kind === "agent") {
-      update(nodeId, { agent: { model: newModel, prompt: "", skills: [], temperature: 0.7, timeoutMs: 120000, inputPolicy: { mode: "all" }, retry: { maxRetries: 2, baseDelayMs: 1000, maxDelayMs: 30000 } } });
+    if (kind === "textGen") {
+      update(nodeId, { textGen: { model: newModel, prompt: "", skills: [], temperature: 0.7, timeoutMs: 120000, inputPolicy: { mode: "all" }, retry: { maxRetries: 2, baseDelayMs: 1000, maxDelayMs: 30000 } } });
     } else if (kind === "imageGen") {
       update(nodeId, { imageGen: { model: newModel, n: 1 } });
     } else if (kind === "videoGen") {

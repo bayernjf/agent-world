@@ -14,11 +14,11 @@ function graphWithMap(template: string): GraphType {
       { id: "src", kind: "source", name: "SRC", x: 0, y: 0, source: {} },
       {
         id: "agent",
-        kind: "agent",
-        name: "AGENT",
+        kind: "textGen",
+        name: "TEXTGEN",
         x: 300,
         y: 0,
-        agent: {
+        textGen: {
           model: "test",
           prompt: "use variable tools",
           temperature: 0,
@@ -42,7 +42,7 @@ function scriptedWorker(
   script: Array<{ name: string; args: Record<string, unknown> }>,
 ): Worker {
   return {
-    async *runAgent({ executeTool }): AsyncGenerator<
+    async *runTextGen({ executeTool }): AsyncGenerator<
       AgentChunk,
       { output: string; usage: { tokensIn: number; tokensOut: number; costUsd: number } }
     > {
@@ -121,7 +121,7 @@ describe("graph variables", () => {
     const variables = new Map<string, unknown>();
     const failing: Worker = {
       ...scriptedWorker([]),
-      async *runAgent() {
+      async *runTextGen() {
         throw new Error("model blew up");
       },
     };
@@ -139,11 +139,11 @@ describe("graph variables", () => {
         { id: "cs", kind: "source", name: "CS", x: 0, y: 0, source: {} },
         {
           id: "ca",
-          kind: "agent",
+          kind: "textGen",
           name: "CA",
           x: 300,
           y: 0,
-          agent: {
+          textGen: {
             model: "test",
             prompt: "write a var",
             temperature: 0,
