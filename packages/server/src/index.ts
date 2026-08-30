@@ -1,3 +1,5 @@
+// Load `.env` first so every later module sees env vars (e.g. AGNES_API_KEY).
+import "./load-env.js";
 import { serve } from "@hono/node-server";
 import { randomUUID } from "node:crypto";
 import { Hono } from "hono";
