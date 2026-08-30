@@ -3,6 +3,7 @@ import type { Diagnostic, FormConnector, Graph } from "@agent-world/core";
 
 type FormField = FormConnector["fields"][number];
 import Canvas, { type Mode } from "./canvas/Canvas";
+import { KIND_LABEL } from "./canvas/Plants";
 import Minimap from "./canvas/Minimap";
 import CanvasToolbar from "./components/CanvasToolbar";
 import ControlPanel from "./components/ControlPanel";
@@ -497,7 +498,19 @@ export default function App() {
             onRename={renameGraph}
             onReset={resetGraph}
           />
-          <span className="muted">{graph.nodes.length} 座文坊</span>
+          <span className="muted">
+            {graph.nodes.length > 0
+              ? Object.entries(
+                  graph.nodes.reduce<Record<string, number>>((acc, n) => {
+                    acc[n.kind] = (acc[n.kind] ?? 0) + 1;
+                    return acc;
+                  }, {}),
+                )
+                  .sort((a, b) => b[1] - a[1])
+                  .map(([k, v]) => `${v} ${KIND_LABEL[k as keyof typeof KIND_LABEL] ?? k}`)
+                  .join(" · ")
+              : "0 节点"}
+          </span>
           <span className="muted">{graph.edges.length} 条管道</span>
         </div>
         <div className="hud__actions">

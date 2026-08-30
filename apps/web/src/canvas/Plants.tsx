@@ -13,7 +13,7 @@ interface Props {
   onPointerDown: (node: GraphNode, e: React.PointerEvent) => void;
 }
 
-const KIND_LABEL: Record<GraphNode["kind"], string> = {
+export const KIND_LABEL: Record<GraphNode["kind"], string> = {
   source: "原料台",
   textGen: "文坊",
   gate: "质检站",
