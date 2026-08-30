@@ -2,20 +2,24 @@
 
 > 基于 2026-08-29 的代码勘察（agent 工具调用 / loop·parallel 子图执行 / halt 机制 / 错误处理现状）写成。
 > 目标：把 roadmap-generalization Phase 4 的七项能力对照现状，给出**可执行的落地方案 + 难题与对策**，标明已做 / 真缺 / 缓做。
+>
+> **落地状态（2026-08-30 更新）：七项中六项已全部落地，仅状态机按决策缓做。**
+> 错误处理四件套 = `d31c482`（retry 基建）→ `906a70e`（级联 skip）→ `ce17008`（error 边 + catch）→ `3dea78d`（失败告警 + rerun API）→ `a77f127`（web rerun 按钮）→ `8f40a5e`（web error 边画法）；
+> 人工审批 `human` 节点 = `20d9c9f`；子流程节点 = `d66fe52`；变量持久化 = `eb10d75`。
 
 ---
 
-## 0. 现状速览（勘察结论）
+## 0. 现状速览（勘察结论，落地后已复核）
 
 | Phase 4 能力 | 现状 | 结论 |
 |---|---|---|
 | **并行/聚合** | Phase 1 已有 `parallel` 节点（barrier 聚合）+ `loop` + 调度器 `MAX_CONCURRENCY=6` 自然并行 | ✅ **已做** |
 | **AI Agent 多轮 ReAct** | **已完整实现**于 `providers/openai-compatible.ts:207-340` 的 `runWithTools`（MAX_ROUNDS=8，非流式，tool result push 回 convo） | ✅ **已做**（注释过期称"reserved for Phase 2"，实际已用） |
-| **人工审批节点** | halt 机制完整（gate onExhausted=halt / dangerous-tool HaltRequested），resume 5 action（continue/approve/reject/edit/scrap），notifyHalt webhook | ⚠️ **机制已有，缺独立节点**（halt 绑 gate/dangerous-tool，无任意位置暂停节点） |
-| **子流程调用** | 未做；但 `loop` 节点的"内联 BFS 发现 body + 递归 `runNode`"模式可直接借鉴 | ❌ **真缺** |
-| **错误处理** | RetryPolicy 是**节点级瞬态重试**（agent/translate/notify/vcs 有，**search/http/code 无**）；无 error 边（EdgeKind 仅 flow/rework）；节点失败后下游**静默搁浅 pending**；无死信、无失败告警、无 try/catch | ❌ **真缺**（最严重） |
+| **人工审批节点** | halt 机制完整（gate onExhausted=halt / dangerous-tool HaltRequested），resume 5 action（continue/approve/reject/edit/scrap），notifyHalt webhook | ✅ **已落地**：独立 `human` 节点（`20d9c9f`），任意位置暂停等审批 |
+| **子流程调用** | 未做；但 `loop` 节点的"内联 BFS 发现 body + 递归 `runNode`"模式可直接借鉴 | ✅ **已落地**：`subprocess` 节点（`d66fe52`） |
+| **错误处理** | RetryPolicy 是**节点级瞬态重试**（agent/translate/notify/vcs 有，**search/http/code 无**）；无 error 边（EdgeKind 仅 flow/rework）；节点失败后下游**静默搁浅 pending**；无死信、无失败告警、无 try/catch | ✅ **已落地**：§1 四件套全量（`d31c482`/`906a70e`/`ce17008`/`3dea78d`/`a77f127`/`8f40a5e`） |
 | **状态机** | 未做 | ⏸ **缓做**（易过度设计） |
-| **变量持久化** | 无 graph/run 级变量、DB 无 variables 表；仅节点级临时数据流（前驱 artifact → 节点 context） | ❌ **真缺** |
+| **变量持久化** | 无 graph/run 级变量、DB 无 variables 表；仅节点级临时数据流（前驱 artifact → 节点 context） | ✅ **已落地**：graph variables（`eb10d75`） |
 
 **两个颠覆性发现**：
 1. **ReAct 多轮已实现**——roadmap Phase 4 的"AI Agent 节点支持多轮工具调用循环"已满足，不需要重做（只需把 worker.ts 注释"reserved for Phase 2"更新掉）。

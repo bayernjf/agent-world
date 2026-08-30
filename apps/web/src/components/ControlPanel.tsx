@@ -23,6 +23,7 @@ const MODES: { key: Mode; label: string; hint: string }[] = [
   { key: "select", label: "选择", hint: "拖动厂房重新布局，单击查看详情" },
   { key: "connect", label: "铺管道", hint: "依次点两座厂房，铺一条正向管道" },
   { key: "rework", label: "返工线", hint: "从质检站点回上游厂房，铺一条返工线" },
+  { key: "error", label: "容错线", hint: "上游厂房故障时改走这条线，接到兜底厂房（catch）" },
   { key: "delete", label: "拆除", hint: "点厂房或管道即拆除" },
 ];
 

@@ -3,6 +3,22 @@
 A collection of ready-to-use graph templates. Each can be imported via the
 board's **新建产线** dialog, or used as a starting point for your own.
 
+> **单一事实源**：可直接实例化的内置模板定义在 `packages/core/src/templates.ts`（`TEMPLATES` 导出），
+> 下表是文档导览；未标注模板 id 的条目是设计示例，需手工搭建。
+
+| 内置模板 id | 名称 | 类别 |
+|---|---|---|
+| `tpl-product` | 淘宝商品详情 | 营销内容 |
+| `tpl-xiaohongshu` | 小红书图文 | 营销内容 |
+| `tpl-draft` | 写草稿 | 写作 |
+| `tpl-translation` | 翻译 | 写作 |
+| `tpl-doc-review` | 文档审阅 | 写作 |
+| `tpl-ops-weekly` | 运营周报 | 数据分析 |
+| `tpl-research-brief` | 多源研究简报 | 数据分析 |
+| `tpl-patrol-alert` | 定时巡检告警 | IT 运维 |
+| `tpl-competitor-watch` | 竞品监控摘要 | IT 运维 |
+| `tpl-blank` | 空白产线 | 基础 |
+
 ---
 
 ## 1. Content Rewrite Loop (Draft → Critic → Rewrite → Output)
@@ -242,6 +258,43 @@ automation, CI/CD documentation generation.
 
 ---
 
+## 9. Ops Weekly Report (HTTP → Code → Agent → Sink) — 内置 `tpl-ops-weekly`
+
+拉取业务数据 → 代码节点清洗汇总 → AI 生成结构化周报。HTTP 拉取失败时走
+`error` 边到兜底 agent（说明换 URL 的操作指引），流水线依然完整跑通。
+代码节点给出通用清洗骨架（TODO 标注），换成自己的业务字段即可。
+
+**Use when:** 数据运营周报、指标盘点、定期数据摘要。
+
+---
+
+## 10. Scheduled Patrol Alert (HTTP → Branch → Notify / Sink) — 内置 `tpl-patrol-alert`
+
+健康检查 → 分支判断异常 → 飞书告警 / 正常记录。配合 cron 触发器即成定时巡检。
+`webhookUrl` 留空，运行前在节点里粘贴自己的群机器人地址。
+
+**Use when:** 服务巡检、证书到期监控、接口可用性告警。
+
+---
+
+## 11. Multi-Source Research Brief (HTTP ×2 → Parallel → Agent → Sink) — 内置 `tpl-research-brief`
+
+两路 HTTP 拉取 → `parallel` 汇聚 → AI 交叉比对研判（一致信息 / 单源待确认 / 数据缺口）。
+即示例 3 的代码化版本。
+
+**Use when:** 情报汇总、多源交叉验证、研究简报。
+
+---
+
+## 12. Competitor Watch (HTTP → Code → Agent → Sink) — 内置 `tpl-competitor-watch`
+
+拉取竞品页面 → 代码提取字段 → AI 对比摘要。拉取失败走 `error` 边兜底。
+正则提取骨架需按目标页面结构替换。
+
+**Use when:** 竞品动向监控、页面变更跟踪。
+
+---
+
 ## Importing a Template
 
 All templates are available in the board's **新建产线** dialog. Click it,
@@ -249,4 +302,5 @@ select a template, and the graph is created with all nodes, edges, and configs
 pre-filled. You can then customize it for your use case.
 
 To create your own template, design a graph in the board and export it as JSON
-(via the graph API), then add it to `packages/server/src/templates.ts`.
+(via the graph API), then add it to `packages/core/src/templates.ts`（注意补 `Graph.parse`
+可编译的 source/sink 与坐标，并在 templates.test 的全量编译断言覆盖下维护）.
