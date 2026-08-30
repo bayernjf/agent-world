@@ -32,6 +32,7 @@ import ProductGallery from "./components/ProductGallery";
 import Onboarding from "./components/Onboarding";
 import UserMenu from "./components/UserMenu";
 import KnowledgePanel from "./components/KnowledgePanel";
+import GlossaryModal from "./components/GlossaryModal";
 import VersionPanel from "./components/VersionPanel";
 import RunCompare from "./components/RunCompare";
 import CommandPalette, { type CommandItem } from "./components/CommandPalette";
@@ -42,7 +43,7 @@ import { useGraph } from "./store/graph";
 import { useRun } from "./store/run";
 
 export default function App() {
-  const { graph, setGraph, addNode, flushSave, undo, redo, selectedId, updateGraphVariables } = useGraph();
+  const { graph, setGraph, addNode, flushSave, undo, redo, selectedId, updateGraphVariables, inspectorOpen } = useGraph();
   const { connect, reset, runId, loadRun } = useRun();
 
   const [mode, setMode] = useState<Mode>("select");
@@ -59,7 +60,9 @@ export default function App() {
   const [graphs, setGraphs] = useState<GraphSummary[]>([]);
   const [deleteTarget, setDeleteTarget] = useState<GraphSummary | null>(null);
   const [controlCollapsed, setControlCollapsed] = useState(false);
-  const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
+  // 默认收起，与"无选中节点"状态一致——初始展开会在刷新首帧闪一下又被
+  // selectedId effect 收起（下方 421-424 行），造成"出现又收起"的视觉闪烁。
+  const [inspectorCollapsed, setInspectorCollapsed] = useState(true);
   const [inspectorWidth, setInspectorWidth] = useState(() => {
     const saved = localStorage.getItem("inspector-width");
     return saved ? Number(saved) : 420;
@@ -94,6 +97,7 @@ export default function App() {
   const [brandOpen, setBrandOpen] = useState(false);
   const [triggersOpen, setTriggersOpen] = useState(false);
   const [knowledgeOpen, setKnowledgeOpen] = useState(false);
+  const [glossaryOpen, setGlossaryOpen] = useState(false);
   const [versionOpen, setVersionOpen] = useState(false);
   const [variablesOpen, setVariablesOpen] = useState(false);
   const [compareOpen, setCompareOpen] = useState(false);
@@ -161,6 +165,7 @@ export default function App() {
     { id: "cost", label: "成本报表", hint: "按产线 / 厂房 / 日期拆解", group: "查看", onSelect: () => setCostOpen(true) },
     { id: "eval", label: "质量评估", hint: "通过率 / 返工 / 时长", group: "查看", onSelect: () => setEvalOpen(true) },
     { id: "gallery", label: "成品库", hint: "跨运行产出物画廊", group: "查看", onSelect: () => setGalleryOpen(true) },
+    { id: "glossary", label: "术语对照表", hint: "标准术语 ⇄ Agent World 用词", group: "查看", onSelect: () => setGlossaryOpen(true) },
     { id: "compare", label: "运行对比", hint: "两次运行的成本与节点输出", group: "查看", onSelect: () => setCompareOpen(true) },
     // 自动化
     { id: "triggers", label: "触发器", hint: "Webhook / 定时 / 事件 / 批量", group: "自动化", onSelect: () => setTriggersOpen(true) },
@@ -418,10 +423,20 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [undo, redo]);
 
+  // The Inspector panel is opened by an explicit canvas click
+  // (store.inspectorOpen, see Canvas.onPointerUp), not by selection alone —
+  // otherwise dragging a node into place would pop the panel open too.
+  // Deselecting still collapses the panel.
   useEffect(() => {
-    if (selectedId) setInspectorCollapsed(false);
-    else setInspectorCollapsed(true);
+    if (!selectedId) setInspectorCollapsed(true);
   }, [selectedId]);
+
+  useEffect(() => {
+    if (inspectorOpen) {
+      setInspectorCollapsed(false);
+      useGraph.getState().setInspectorOpen(false);
+    }
+  }, [inspectorOpen]);
 
   return (
     <>
@@ -471,6 +486,11 @@ export default function App() {
           <Tooltip content="跨运行成品库：查看所有产线的历史产出，无需派发任务">
             <button className="chip" onClick={() => setGalleryOpen(true)}>
               成品库
+            </button>
+          </Tooltip>
+          <Tooltip content="术语对照表：标准术语 ⇄ Agent World 用词">
+            <button className="chip" onClick={() => setGlossaryOpen(true)}>
+              术语表
             </button>
           </Tooltip>
           <ShortcutsHelp />
@@ -564,6 +584,7 @@ export default function App() {
       <BrandTermsModal open={brandOpen} onClose={() => setBrandOpen(false)} />
       <TriggersPanel open={triggersOpen} onClose={() => setTriggersOpen(false)} graphId={graph.id} />
       <KnowledgePanel open={knowledgeOpen} onClose={() => setKnowledgeOpen(false)} />
+      <GlossaryModal open={glossaryOpen} onClose={() => setGlossaryOpen(false)} />
       <VariablesModal
         open={variablesOpen}
         variables={graph.variables}

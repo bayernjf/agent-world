@@ -27,7 +27,7 @@ State of Agent World as of 2026-08-30.
 ## Current state
 
 - **Monorepo**：`packages/core` / `packages/server` (Node + sqlite, 端口 8791) / `apps/web` (Vite, 端口 5173)
-- **核心能力**：4 类 AI 节点（agent / imageGen / videoGen / audioGen）+ **通用节点（HTTP 请求 / 代码执行 / 条件分支 / 映射 / 循环 / 并行聚合 / 表格处理 / 数据库查询 / 文件解析 / 翻译 / OCR / 文件转换 / 搜索 / 通知）**，**Phase 4 编排能力全部落地（2026-08-30 复核）：人工审批 human 节点 / subprocess 子流程调用 / graph 变量跨 run 持久化 / error 边 + catch 容错路径 / 失败级联 skip / 节点级重试基建（search/http/code/translate）/ 失败告警 + rerun；状态机按决策缓做**，**MCP Server（stdio + HTTP/SSE 双传输，15 工具 + resources + prompts + 实时 notifications 桥接 + Authorization Bearer 认证，P0-P2 全部落地）**，多产线管理，Inspector 模型下拉严格按 modality 过滤，多模态产出（Artifact 分层），流式 + SSE + 断线重连 + halt/resume，成本电表（token + 单价两种模式），评估体系雏形，产物落库归属流水线（artifacts 的 graph_id/role），**版本管理补强（2026-08-30）**：保存前自动快照（节流 + 每图滚动保留 30 条）+ 版本与最近 run 的 content hash 关联标记 + 只读恢复预览（结构摘要 + SVG 缩略图），**模板参数化全链路（2026-08-30）**：TemplateField 实例化应用（core）+ fieldValues API（server）+ TemplateFieldDialog 参数表单（web 双入口，4 个 HTTP 模板声明 URL 字段）
+- **核心能力**：4 类 AI 节点（agent / imageGen / videoGen / audioGen）+ **通用节点（HTTP 请求 / 代码执行 / 条件分支 / 映射 / 循环 / 并行聚合 / 表格处理 / 数据库查询 / 文件解析 / 翻译 / OCR / 文件转换 / 搜索 / 通知）**，**Phase 4 编排能力全部落地（2026-08-30 复核）：人工审批 human 节点 / subprocess 子流程调用 / graph 变量跨 run 持久化 / error 边 + catch 容错路径 / 失败级联 skip / 节点级重试基建（search/http/code/translate）/ 失败告警 + rerun；状态机按决策缓做**，**MCP Server（stdio + HTTP/SSE 双传输，15 工具 + resources + prompts + 实时 notifications 桥接 + Authorization Bearer 认证，P0-P2 全部落地）**，多产线管理，Inspector 模型下拉严格按 modality 过滤，多模态产出（Artifact 分层），流式 + SSE + 断线重连 + halt/resume，成本电表（token + 单价两种模式），评估体系雏形，产物落库归属流水线（artifacts 的 graph_id/role），**版本管理补强（2026-08-30）**：保存前自动快照（节流 + 每图滚动保留 30 条）+ 版本与最近 run 的 content hash 关联标记 + 只读恢复预览（结构摘要 + SVG 缩略图），**模板参数化全链路（2026-08-30）**：TemplateField 实例化应用（core）+ fieldValues API（server）+ TemplateFieldDialog 参数表单（web 双入口，4 个 HTTP 模板声明 URL 字段），**术语表弹窗（2026-08-30）**：GlossaryModal 标准术语 ⇄ Agent World 游戏化用词对照（design-glossary.md 单一事实源），**Inspector 交互修复（2026-08-30）**：面板改为显式**点击**节点才展开、拖拽节点不再误弹（store.inspectorOpen 信号驱动）
 - **安全基线（本轮升级）**：settings 按用户隔离（迁移 16，provider key 互不可见）+ **HTTP 节点 SSRF 防护**（fetch 时解析 IP 校验，DNS-rebinding 免疫，`ALLOW_PRIVATE_NETWORK=1` 逃生口）+ 登录 cookie 按 `SECURE_COOKIES`/production 加 `Secure` 标志（localhost 豁免）+ webhook 触发器强制非空 secret（杜绝匿名触发）+ **代码节点沙箱全栈**（P0 env/cwd 隔离 → P1 rlimit+Node permission → P2 可插拔后端 bwrap/sandbox-exec/noop → fs/net 策略字段 → **net allowlist SSRF 校验代理**：`TOOL_NETWORK_ALLOW` 白名单 + 内网 IP 拒绝 + 一次性 run token + 逐请求审计，协作式边界见 design §10）
 - **本轮已落地（2026-08-29，均已提交）**：
   - **账号系统 / 按用户隔离**（`5b81c74` + `73d3610`）：users 表 + JWT(HS256, bcrypt12) HttpOnly cookie 会话 + graphs/runs/artifacts/brand_terms/成本全部按 `user_id` 过滤 + 前端登录/注册/用户菜单 + `authFetch(credentials:include)`。旧库升级自动回填归属（迁移 14/15 幂等，无法归属的行 fail closed 不可见）
@@ -57,8 +57,8 @@ State of Agent World as of 2026-08-30.
 
 按优先级降序，标 `★` 的是当下要推的：
 
-1. **README 演示 GIF（README 已重写待配套）**：README.md 已按对外受众重写（定位/Feature map/Quick start），预留了 `docs/images/` 截图 TODO 注释位——需录一段「画布运行 + rework 回环 + 时间轴回放」的 GIF（macOS 录屏 + `ffmpeg -i in.mov -vf "fps=10,scale=720:-1" out.gif`）。README 改动**尚未 commit**
-2. **git push（用户确认时机）**：本地有 10 个 commit 未 push（含 README 重写），等用户指示后统一 push 并观察 CI
+1. **README 演示 GIF**：README.md 已按对外受众重写并 commit（`1fc7f56`），预留了 `docs/images/` 截图 TODO 注释位——需录一段「画布运行 + rework 回环 + 时间轴回放」的 GIF（macOS 录屏 + `ffmpeg -i in.mov -vf "fps=10,scale=720:-1" out.gif"`）
+2. **git push（用户确认时机）**：本地领先 `origin/feature/20260824` 3 个 commit（glossary modal `218fb47` / Inspector 点击展开 `3a94392` / 模型分层决策 `c20de6d`），等用户指示后统一 push 并观察 CI
 3. **沙箱后续（低优）**：docker/podman 容器后端（生产级隔离，net allowlist 的终极形态）
 4. **模板市场（缓做）**：用户发布/安装模板，触发条件见 design-templates §4
 
@@ -68,11 +68,11 @@ State of Agent World as of 2026-08-30.
 
 按 commit 时间倒序，每条一行影响面 + commit hash：
 
-1. `e6bb9f3` — **feat(web)**: 模板参数表单——共享 TemplateFieldDialog（预填 defaultValue、留空回退默认），NewGraphDialog/Onboarding 双入口在选中带 fields 模板时先弹表单再建图；api.createGraph 传 fieldValues。web typecheck + 19/19。
-2. `8a1b1f9` — **feat(server)**: POST /api/graphs 收 fieldValues 透传实例化；GET /api/templates 返回 slim fields（无 applyTo）。新增 templates-api.test.ts 3 用例，server 466/466。
-3. `242f706` — **feat(core)**: instantiateTemplate 应用 TemplateField（显式值 > defaultValue > 不动；copy-on-write 防浅拷贝污染模板；空串=跳过）+ 4 个 HTTP 模板（运营周报/定时巡检/多源简报/竞品监控）声明 URL 字段（默认值=原 URL 开箱不变）。core 146/146。
-4. `e912eea` — **feat(web)**: VersionPanel 只读恢复预览——「预览」按钮 + 弹层复用 TemplatePreview SVG 缩略图 + 节点/连线/类型统计摘要，防"盲恢复"。遗留 gap：web 无组件测试基建，仅 typecheck 覆盖。
-5. `27395a3` — **feat(server,web)**: 版本与最近 run 关联——GET versions 返回 latestRunHash/currentHash，面板给匹配快照打「最近运行」「与当前一致」标记（run 表 hash 复用 content_hash 计算，不加外键）。
+1. `3a94392` — **fix(web)**: Inspector 面板改**点击才展开**——store.inspectorOpen 显式信号，`Canvas.onPointerUp` 按 `drag.moved` 判定点击/拖拽，拖拽节点不再误弹面板；取消选中仍收起。web typecheck 干净。
+2. `218fb47` — **feat(web)**: 术语表弹窗——GlossaryModal 展示标准术语 ⇄ Agent World 游戏化用词对照（本体论见 design-glossary.md，docs/README 索引已收录）。
+3. `c20de6d` — **docs**: 模型分层与商业化决策——内置模型订阅制只读选择 vs 用户自定义模型自主增删改（product-vision-discussion §九 + roadmap-tasks §5.3 引用）。
+4. `1fc7f56` — **docs**: README 按对外受众重写（产品问题开场 / 三个技术差异点 / Feature map 表 / Quick start / 测试徽章 / 截图占位）。
+5. `ffdfe71` — **docs**: 缓做/低优事项登记表 deferred-items.md 建立（挂起项 + 触发条件的单一事实源，handoff 待办区引用）。
 
 最近 5 条之前的全部在 [docs/handoff-archive.md](docs/handoff-archive.md) 的"阶段 4 收尾"与"Additions (post-2026-08-27)"系列章节里（含 MCP stdio 分帧修复 `a2482ba`、P2 外部沙箱后端 `0a22b13`、P1 rlimit `ddb2e03`、P0 `6b2f92b`、HTTP 节点第一闭环 `1856d81`、账号系统 `5b81c74`/`73d3610` 等）。
 

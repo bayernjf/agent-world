@@ -1832,3 +1832,8 @@ modality 切片，统一严格过滤；同时把 agent 的占位文案从泛化�
 - `1f216c3` — **docs(versions)**: 版本管理现状盘点与补强设计（design-versions.md）。
 - `1413b1c` — **docs(templates)**: 模板体系落地后的文档同步（roadmap 5.5 行 + design-templates 状态 + handoff 轮转）。
 - `236b4bf` — **docs(versions)**: 版本管理补强收尾文档同步（roadmap 5.6 已落地 + design 状态行 + handoff 轮转）。
+- `e6bb9f3` — **feat(web)**: 模板参数表单——共享 TemplateFieldDialog（预填 defaultValue、留空回退默认），NewGraphDialog/Onboarding 双入口在选中带 fields 模板时先弹表单再建图；api.createGraph 传 fieldValues。web typecheck + 19/19。
+- `8a1b1f9` — **feat(server)**: POST /api/graphs 收 fieldValues 透传实例化；GET /api/templates 返回 slim fields（无 applyTo）。新增 templates-api.test.ts 3 用例，server 466/466。
+- `242f706` — **feat(core)**: instantiateTemplate 应用 TemplateField（显式值 > defaultValue > 不动；copy-on-write 防浅拷贝污染模板；空串=跳过）+ 4 个 HTTP 模板（运营周报/定时巡检/多源简报/竞品监控）声明 URL 字段（默认值=原 URL 开箱不变）。core 146/146。
+- `e912eea` — **feat(web)**: VersionPanel 只读恢复预览——「预览」按钮 + 弹层复用 TemplatePreview SVG 缩略图 + 节点/连线/类型统计摘要，防"盲恢复"。遗留 gap：web 无组件测试基建，仅 typecheck 覆盖。
+- `27395a3` — **feat(server,web)**: 版本与最近 run 关联——GET versions 返回 latestRunHash/currentHash，面板给匹配快照打「最近运行」「与当前一致」标记（run 表 hash 复用 content_hash 计算，不加外键）。
