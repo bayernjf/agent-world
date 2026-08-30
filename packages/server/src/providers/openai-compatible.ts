@@ -1,6 +1,6 @@
 import { HaltRequested, type AgentChunk, type AgentResult, type AudioGenArgs, type AudioGenResult, type ImageGenResult, type VideoGenArgs, type VideoGenResult, type Worker } from "../worker.js";
 import type { AgentConfig, ContentPart as MultimodalContent, GraphNode, Usage } from "@agent-world/core";
-import { computeCost, modalityOf, normalizeBaseUrl, type ModelPricing, type ProviderConfig } from "../config.js";
+import { computeCost, endpointFor, modalityOf, normalizeBaseUrl, type ModelPricing, type ProviderConfig } from "../config.js";
 
 export class ProviderError extends Error {
   constructor(
@@ -113,7 +113,7 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
 
     let response: Response;
     try {
-      response = await fetch(`${baseUrl}/chat/completions`, {
+      response = await fetch(`${baseUrl}${endpointFor(provider, model, "text")}`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -243,7 +243,7 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
 
       let res: Response;
       try {
-        res = await fetch(`${baseUrl}/chat/completions`, {
+        res = await fetch(`${baseUrl}${endpointFor(provider, model, "text")}`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -452,7 +452,7 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
       }
       let res: Response;
       try {
-        res = await fetch(`${endpoint}/images/generations`, {
+        res = await fetch(`${endpoint}${endpointFor(provider, model, "image")}`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
           body: JSON.stringify({ model, prompt: input, n, size }),
@@ -500,11 +500,12 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
     },
 
     // Video generation. Provider support varies widely — OpenAI has no public
-    // video API, but some OpenAI-compatible providers (Replicate-style, local
-    // ComfyUI wrappers) expose /videos/generations. Supports both sync
+    // video API and the path is not standardized (gateways expose /videos,
+    // /videos/generations, ...). The endpoint comes from endpointFor():
+    // provider.endpoints.video override > global default. Supports both sync
     // (returns b64_json/url immediately) and async (returns an id, then poll
-    // /videos/:id) response shapes. Soft-fails via the engine when the worker
-    // lacks this method entirely.
+    // <video endpoint>/:id) response shapes. Soft-fails via the engine when
+    // the worker lacks this method entirely.
     async generateVideo({ config, input, signal }: VideoGenArgs): Promise<VideoGenResult[]> {
       const model = config.model || "video-gen";
       const n = Math.min(4, Math.max(1, Math.trunc(config.n ?? 1)));
@@ -528,7 +529,7 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
         if (config.aspect) body.aspect_ratio = config.aspect;
         if (config.size) body.size = config.size;
 
-        const res = await fetch(`${endpoint}/videos/generations`, {
+        const res = await fetch(`${endpoint}${endpointFor(provider, model, "video")}`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
           body: JSON.stringify(body),
@@ -546,7 +547,7 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
           let videoUrl: string | undefined;
           while (!controller.signal.aborted) {
             await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
-            const pollRes = await fetch(`${endpoint}/videos/${taskId}`, {
+            const pollRes = await fetch(`${endpoint}${endpointFor(provider, model, "video")}/${taskId}`, {
               headers: { Authorization: `Bearer ${apiKey}` },
               signal: controller.signal,
             });
@@ -614,7 +615,7 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
       try {
         const results: AudioGenResult[] = [];
         for (let i = 0; i < n; i++) {
-          const res = await fetch(`${endpoint}/audio/speech`, {
+          const res = await fetch(`${endpoint}${endpointFor(provider, model, "audio")}`, {
             method: "POST",
             headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
             body: JSON.stringify({

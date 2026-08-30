@@ -18,7 +18,7 @@ export const DEFAULT_MODALITY: Modality = "text";
 export const MODALITY_ENDPOINT: Record<Modality, string> = {
   text: "/chat/completions",
   image: "/images/generations",
-  video: "/videos/generations",
+  video: "/videos",
   audio: "/audio/speech",
   embedding: "/embeddings",
 };
