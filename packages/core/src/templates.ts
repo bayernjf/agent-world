@@ -2,6 +2,29 @@ import { z } from "zod";
 import { Graph } from "./graph.js";
 
 /**
+ * A user-fillable placeholder in a template, e.g. a brand name or a target URL
+ * that the template's node configs reference. Schema-only for now — the web
+ * form UI is deferred (see docs/design-templates.md §3) — but the shape is
+ * fixed here so future templates don't need a breaking change.
+ */
+export interface TemplateField {
+  /** Stable key identifying this field, e.g. "brand". */
+  key: string;
+  /** Human label shown above the input, e.g. "品牌名". */
+  label: string;
+  /** Placeholder shown in the empty input. */
+  placeholder?: string;
+  /** Value used when the user skips the form. */
+  defaultValue?: string;
+  /**
+   * Where the value goes: node-id + config-path pairs. The path is dot-joined
+   * keys into the node object (e.g. "agent.prompt"); the field value REPLACES
+   * the whole value at that path.
+   */
+  applyTo: { nodeId: string; path: string }[];
+}
+
+/**
  * A reusable production-line blueprint. Templates are plain graphs with stable
  * placeholder ids; the runtime strips ids when instantiating so each created
  * graph gets fresh identity.
@@ -11,6 +34,8 @@ export interface GraphTemplate {
   name: string;
   description: string;
   category: string;
+  /** Optional user-fillable placeholders applied at instantiation time. */
+  fields?: TemplateField[];
   /** The graph definition. Nodes/edges carry descriptive, human-readable names. */
   graph: z.input<typeof Graph>;
 }
