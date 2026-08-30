@@ -77,6 +77,12 @@ export interface AppConfig {
   modelOrder?: string[];
   /** Soft monthly budget in USD; the engine warns at 80%/100%. Null disables it. */
   monthlyBudgetUsd?: number | null;
+  /**
+   * Pre-save auto-snapshot tuning (design-versions §1). minIntervalMs
+   * throttles same-content snapshots; maxKeep is the per-graph rolling
+   * retention for auto snapshots (manual ones are never pruned).
+   */
+  autoSnapshot?: { minIntervalMs?: number; maxKeep?: number };
 }
 
 const FAKE_PROVIDER: ProviderConfig = { type: "fake", models: [] };

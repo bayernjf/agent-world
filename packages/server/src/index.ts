@@ -16,7 +16,7 @@ import {
   type RunEvent,
   type SkillPermissions,
 } from "@agent-world/core";
-import { openDb, backfillExistingData } from "./db.js";
+import { openDb, backfillExistingData, contentHash } from "./db.js";
 import { findGraphIdByName as findGraphIdByNameCore } from "./graphs-name.js";
 import { ArtifactStore } from "./artifact-store.js";
 import { log } from "./logger.js";
@@ -401,6 +401,16 @@ app.delete("/api/graphs/:id", (c) => {
   return c.json({ ok: true });
 });
 
+/** Auto-snapshot parameters from user settings, falling back to the design
+ *  defaults (10 min throttle window, 30 auto-snapshots kept per graph). */
+function autoSnapshotSettings(userId: string): { minIntervalMs: number; maxKeep: number } {
+  const s = loadConfig(userId).autoSnapshot;
+  return {
+    minIntervalMs: s?.minIntervalMs ?? 10 * 60 * 1000,
+    maxKeep: s?.maxKeep ?? 30,
+  };
+}
+
 app.put("/api/graphs/:id", async (c) => {
   const userId = c.get("userId");
   const parsed = Graph.safeParse(await c.req.json());
@@ -412,6 +422,15 @@ app.put("/api/graphs/:id", async (c) => {
       { error: "duplicate_name", message: `已存在同名产线「${parsed.data.name}」，请换一个名字。`, existingId: dupId },
       409,
     );
+  }
+
+  // Pre-save auto-snapshot: capture what's about to be overwritten so a bad
+  // edit that gets saved can always be rolled back. Throttled and pruned by
+  // db.saveAutoSnapshot; parameters come from user settings when configured.
+  const existing = db.getGraph(parsed.data.id, userId);
+  if (existing) {
+    const s = autoSnapshotSettings(userId);
+    db.saveAutoSnapshot(parsed.data.id, JSON.stringify(existing), s.minIntervalMs, s.maxKeep);
   }
 
   // Optimistic concurrency: a tab sends the version it last loaded via
@@ -1006,7 +1025,8 @@ app.post("/api/graphs/:id/versions", async (c) => {
   if (!graph) return c.json({ error: "graph not found" }, 404);
   const body = (await c.req.json().catch(() => ({}))) as { name?: string; note?: string };
   const name = body.name?.trim() || new Date().toLocaleString();
-  const version = db.saveVersion(graphId, name, JSON.stringify(graph), body.note ?? "");
+  const snapshot = JSON.stringify(graph);
+  const version = db.saveVersion(graphId, name, snapshot, body.note ?? "", contentHash(snapshot));
   return c.json(version, 201);
 });
 
