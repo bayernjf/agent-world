@@ -163,6 +163,13 @@ interface GraphState {
   syncServerVersion: (version: number | null) => void;
   /** Single-select a node (clears all other selection). */
   select: (id: string | null) => void;
+  /**
+   * Whether the right-hand Inspector panel should be visible. The panel is
+   * opened by an explicit canvas *click* (not by selection, which also happens
+   * when a node is dragged into place) — see Canvas.onPointerUp.
+   */
+  inspectorOpen: boolean;
+  setInspectorOpen: (open: boolean) => void;
   /** Toggle a node in the selection. If additive is false, replaces selection. */
   toggleNode: (id: string, additive?: boolean) => void;
   /** Toggle an edge in the selection. If additive is false, replaces selection. */
@@ -311,6 +318,9 @@ export const useGraph = create<GraphState>()(
         set({ graph: doc as Graph, serverVersion: version, saveState: "saved" });
       },
       select: (id) => set({ selectedId: id, selectedNodeIds: id ? [id] : [], selectedEdgeIds: [] }),
+
+      inspectorOpen: false,
+      setInspectorOpen: (open) => set({ inspectorOpen: open }),
 
       toggleNode: (id, additive = false) =>
         set((s) => {

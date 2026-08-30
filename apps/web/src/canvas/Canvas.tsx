@@ -429,6 +429,9 @@ export default function Canvas({ mode }: Props) {
         abortHistoryBatch();
         // Selection was already handled in onPlantPointerDown (select/toggleNode).
         setSelectedEdgeId(null);
+        // A click (no movement) opens the Inspector panel; a drag must not —
+        // otherwise dragging a node into place pops the panel open too.
+        useGraph.getState().setInspectorOpen(true);
       }
     }
     if (pd) {
