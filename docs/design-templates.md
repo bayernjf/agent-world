@@ -6,7 +6,7 @@
 > 版本管理（需 DB 迁移 + diff UI）、多租户（无真实团队用户前是过度设计）、节点市场（依赖第三方开发者生态）均排后。
 >
 > **落地状态（2026-08-30）**：§1（共享 TemplatePicker + 空白入口）= `ffc34d9`；§2（4 个新模板 + examples.md 对齐）= `6a951e4`；
-> §3（TemplateField schema）已定型 = `6daf309`（仅接口，UI 缓做）；§4（市场）维持缓做。
+> §3（TemplateField 参数化）**全部落地**——schema 定型 `6daf309`、实例化应用（显式值 > defaultValue，copy-on-write 防模板污染）`242f706`、server `fieldValues` 透传 + `/api/templates` 返回 fields `8a1b1f9`、web 参数表单（TemplateFieldDialog，双入口）`e6bb9f3`；4 个 HTTP 模板（运营周报/定时巡检/多源简报/竞品监控）已声明 URL 字段，默认值=原 URL 保持开箱行为；§4（市场）维持缓做。
 
 ---
 
@@ -92,8 +92,9 @@ Onboarding 与 GraphSwitcher 弹窗共用，避免两份渲染逻辑漂移。
 - 实例化时对声明了 fields 的模板，web 弹一个轻量表单（复用 Inspector 的表单风格），填完再落图
 - 先不做：fields 仅支持字符串替换；不引入递归模板/继承等机制（防过度设计，节点市场 P2 再议）
 
-**明确缓做理由**：占位符机制天然是"模板市场"（P2）的前置能力，单用户自用阶段收益有限；
-但 fields 的 schema 形状本轮先定进 GraphTemplate 接口（可选字段，不实现 UI），避免 P2 时破坏性变更。
+**落地补充（2026-08-30）**：web 表单为共享 `TemplateFieldDialog`（预填 defaultValue、留空回退默认值），
+NewGraphDialog / Onboarding 双入口复用；`instantiateTemplate` 按显式值 > defaultValue 应用（copy-on-write
+避免浅拷贝污染模板定义），空串视为跳过。
 
 ---
 

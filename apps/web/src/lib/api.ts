@@ -251,7 +251,12 @@ export const api = {
       return res.json() as Promise<{ ok: true; version: number }>;
     }),
 
-  createGraph: async (opts?: { name?: string; from?: string; template?: string }) => {
+  createGraph: async (opts?: {
+    name?: string;
+    from?: string;
+    template?: string;
+    fieldValues?: Record<string, string>;
+  }) => {
     const res = await authFetch("/api/graphs", {
       method: "POST",
       headers: { "content-type": "application/json" },
