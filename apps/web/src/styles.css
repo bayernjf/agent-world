@@ -504,6 +504,20 @@ select {
   margin-top: 12px;
   width: 100%;
 }
+/* Parameter form shown before instantiating a template with declared fields */
+.template-fields {
+  width: 420px;
+}
+.template-fields__row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.template-fields__label {
+  font-size: 12px;
+  color: var(--ink-soft, var(--ink));
+}
 .template-card {
   display: flex;
   flex-direction: column;

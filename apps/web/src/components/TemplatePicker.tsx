@@ -5,11 +5,20 @@ import { TEMPLATES } from "@agent-world/core";
  * the NewGraphDialog, so the two never drift apart.
  */
 
+/** Slim copy of core's TemplateField — no applyTo plumbing, just form metadata. */
+export interface TemplateFieldData {
+  key: string;
+  label: string;
+  placeholder?: string;
+  defaultValue?: string;
+}
+
 export interface TemplatePreviewData {
   id: string;
   name: string;
   description: string;
   category: string;
+  fields: TemplateFieldData[];
   nodes: { id: string; kind: string; x: number; y: number }[];
   edges: { from: string; to: string; kind?: string }[];
 }
@@ -21,6 +30,12 @@ export const TEMPLATE_LIST: TemplatePreviewData[] = TEMPLATES.map((t) => ({
   name: t.name,
   description: t.description,
   category: t.category,
+  fields: (t.fields ?? []).map((f) => ({
+    key: f.key,
+    label: f.label,
+    placeholder: f.placeholder,
+    defaultValue: f.defaultValue,
+  })),
   nodes: t.graph.nodes.map((n) => ({ id: n.id, kind: n.kind, x: n.x, y: n.y })),
   edges: t.graph.edges.map((e) => ({ from: e.from, to: e.to, kind: e.kind })),
 }));
