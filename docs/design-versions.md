@@ -6,6 +6,10 @@
 > 决策背景：graph 是用户核心资产（数小时搭建 + 反复调 prompt），当前 DB 单行覆盖写 + zundo
 > 只管会话内撤销，资产保护是刚需；监控告警的失败 webhook/死信 rerun 在 Phase 4 已落地，增量小。
 
+> **状态（2026-08-30）：全部落地。** P0 自动快照（§1）`4c4681a`、P1 run 关联 hash（§3）`27395a3`、
+> P1 恢复预览（§2）`e912eea`。P2 缓做决策不变（§4）。遗留 gap：web 无组件测试基建，
+> 预览弹层渲染/关闭暂由 typecheck 覆盖（§2.3 的 web 测试项未做，不为此单独引入 jsdom/testing-library）。
+
 ---
 
 ## 0. 现状速览（勘察结论）
@@ -114,12 +118,12 @@ run 表只存 graph_id。用户回滚到旧版后，历史 run 记录无法回�
 
 ## 5. 实施顺序与验收
 
-| 步骤 | 内容 | 验收 | 预计 commit |
+| 步骤 | 内容 | 验收 | commit |
 |---|---|---|---|
-| 1 | 自动快照 + 节流 + 滚动清理 + content_hash 列（db migration + 保存路径 + `graph-versions.test.ts`） | §1.3 | feat(server) |
-| 2 | run 落 graph_content_hash + 版本面板「当前运行版本」标记 | §3.3 | feat(server+web) |
-| 3 | VersionPanel 恢复预览（结构摘要 + SVG 缩略图复用） | §2.3 | feat(web) |
-| 4 | 文档同步（roadmap 5.6 行 + handoff 轮转 + 本文档状态行） | 单一事实源检查 | docs |
+| 1 | 自动快照 + 节流 + 滚动清理 + content_hash 列（db migration + 保存路径 + `graph-versions.test.ts`） | §1.3 | `4c4681a` ✅ |
+| 2 | run 落 graph_content_hash + 版本面板「当前运行版本」标记 | §3.3 | `27395a3` ✅ |
+| 3 | VersionPanel 恢复预览（结构摘要 + SVG 缩略图复用） | §2.3（web 测试项除外，见顶部状态行） | `e912eea` ✅ |
+| 4 | 文档同步（roadmap 5.6 行 + handoff 轮转 + 本文档状态行） | 单一事实源检查 | docs ✅ |
 
 每步原子 commit；改动面：server db.ts/index.ts + 新测试、web VersionPanel + App 接线。
 不碰 engine/scheduler/core。

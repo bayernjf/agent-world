@@ -1823,3 +1823,8 @@ modality 切片，统一严格过滤；同时把 agent 的占位文案从泛化�
 - `1bdf8c2`+`5d4dfa3`+`1013dee` — **feat(sandbox)**: net allowlist 的 SSRF 校验代理落地（code-proxy 常驻单例 + run token URL 凭据 + allowlist/内网双重校验 + 审计日志；server 442→457）。
 - `e507723` — **fix(sandbox)**: NPROC 测试根因修复——`ulimit -u` 在 Linux 上限整个用户的任务数，CI 上 vitest worker 逼近 128 导致 node 线程创建 EAGAIN→SIGABRT。
 - `27b5a4b` — **fix(ci)**: tsx 声明为根 devDependency（pnpm 严格布局下根 .bin 无 tsx → ENOENT）。
+- `6daf309` — **feat(core)**: TemplateField 参数化 schema 定型（key/label/placeholder/defaultValue + applyTo 显式 node-path 替换；仅接口无 UI，防模板市场 P2 破坏性变更；测试守护字段引用存在节点）。
+- `6a951e4` — **feat(core)**: 4 个新内置模板补齐 roadmap 四类场景——运营周报、定时巡检告警、多源研究简报、竞品监控摘要；examples.md 加单一事实源映射表并对齐。core 143/144 通过。
+- `ffc34d9` — **refactor(web)**: 抽共享 TemplatePicker（Onboarding/NewGraphDialog 两份已漂移的模板网格合一，直读 core TEMPLATES 免网络往返）+ NewGraphDialog 补空白产线入口；删死代码 api.listTemplates。
+- `8f40a5e` — **feat(web)**: error 边画法支持——「容错线」连线模式、error 管道差异化渲染（暗红虚线芯）、通电逻辑失败感知。至此 Phase 4 错误处理在 UI 侧闭环。
+- `b1ad1af` — **docs(sandbox)**: docker 容器后端缓做决策记录（design §11）。
