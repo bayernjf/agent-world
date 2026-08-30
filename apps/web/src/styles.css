@@ -3688,6 +3688,11 @@ select {
   width: 820px;
   max-width: calc(100vw - 48px);
 }
+/* RunHistory 需要更大的高 */
+.modal--tall {
+  max-height: 92vh;
+}
+
 .cost-stats {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -4559,20 +4564,6 @@ select {
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--ink-dim);
-}
-.run-history {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.run-history li {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 12px;
 }
 .trigger-editor {
   margin-top: 18px;
@@ -5540,3 +5531,157 @@ select {
   line-height: 1.6;
 }
 
+
+/* ---------- RunHistory ---------- */
+.runhistory-filters {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 18px;
+  border-bottom: var(--hair);
+  flex-wrap: wrap;
+}
+.runhistory-filters label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ink-dim);
+}
+.runhistory-filters select {
+  padding: 4px 8px;
+  background: var(--steel-800);
+  color: var(--ink);
+  border: var(--hair);
+  border-radius: 4px;
+  font-size: 12px;
+}
+.runhistory-count {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--ink-dim);
+}
+.runhistory-error {
+  margin: 8px 18px;
+  padding: 6px 10px;
+  background: rgba(255, 120, 100, 0.1);
+  border: 1px solid var(--alert);
+  color: #ffb4ad;
+  border-radius: 4px;
+  font-size: 12px;
+}
+.runhistory-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.runhistory-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.runhistory-row:hover {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: var(--hair);
+}
+.runhistory-row--selectable {
+  cursor: pointer;
+}
+.runhistory-row input[type="checkbox"] {
+  margin-top: 4px;
+  accent-color: var(--brand);
+}
+.runhistory-row-main {
+  flex: 1;
+  min-width: 0;
+}
+.runhistory-row-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.run-status {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+}
+.run-status--running { background: rgba(255, 180, 80, 0.18); color: #ffc78a; }
+.run-status--done { background: rgba(120, 220, 160, 0.15); color: #8fd9b1; }
+.run-status--halted { background: rgba(255, 180, 80, 0.18); color: #ffc78a; }
+.run-status--failed, .run-status--rejected { background: rgba(255, 120, 100, 0.15); color: #ffb4ad; }
+.run-status--tripped { background: rgba(255, 120, 100, 0.15); color: #ffb4ad; }
+.run-status--cancelled, .run-status--interrupted { background: rgba(140, 150, 160, 0.15); color: var(--ink-dim); }
+.run-status--default { background: var(--steel-700); color: var(--ink-dim); }
+.runhistory-name {
+  font-size: 13px;
+  color: var(--ink);
+  font-weight: 500;
+}
+.runhistory-id {
+  font-size: 11px;
+  color: var(--ink-faint);
+  font-family: var(--mono);
+}
+.runhistory-row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--ink-dim);
+}
+.runhistory-row-meta span {
+  white-space: nowrap;
+}
+.runhistory-rerun {
+  flex-shrink: 0;
+  align-self: center;
+  font-size: 12px;
+  padding: 4px 10px;
+}
+.runhistory-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 10px 18px;
+  border-top: var(--hair);
+  font-size: 12px;
+  color: var(--ink-dim);
+}
+.runhistory-pager .btn {
+  padding: 4px 12px;
+  font-size: 12px;
+}
+.compare-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 10px 0;
+  font-size: 12px;
+}
+.compare-table th, .compare-table td {
+  border: 1px solid var(--hair);
+  padding: 6px 10px;
+  text-align: left;
+}
+.compare-table th {
+  background: var(--steel-800);
+  color: var(--ink-dim);
+  font-weight: 500;
+}
+.compare-table td {
+  color: var(--ink);
+}
