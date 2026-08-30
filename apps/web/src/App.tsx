@@ -32,6 +32,7 @@ import ProductGallery from "./components/ProductGallery";
 import Onboarding from "./components/Onboarding";
 import UserMenu from "./components/UserMenu";
 import KnowledgePanel from "./components/KnowledgePanel";
+import GlossaryModal from "./components/GlossaryModal";
 import VersionPanel from "./components/VersionPanel";
 import RunCompare from "./components/RunCompare";
 import CommandPalette, { type CommandItem } from "./components/CommandPalette";
@@ -94,6 +95,7 @@ export default function App() {
   const [brandOpen, setBrandOpen] = useState(false);
   const [triggersOpen, setTriggersOpen] = useState(false);
   const [knowledgeOpen, setKnowledgeOpen] = useState(false);
+  const [glossaryOpen, setGlossaryOpen] = useState(false);
   const [versionOpen, setVersionOpen] = useState(false);
   const [variablesOpen, setVariablesOpen] = useState(false);
   const [compareOpen, setCompareOpen] = useState(false);
@@ -161,6 +163,7 @@ export default function App() {
     { id: "cost", label: "成本报表", hint: "按产线 / 厂房 / 日期拆解", group: "查看", onSelect: () => setCostOpen(true) },
     { id: "eval", label: "质量评估", hint: "通过率 / 返工 / 时长", group: "查看", onSelect: () => setEvalOpen(true) },
     { id: "gallery", label: "成品库", hint: "跨运行产出物画廊", group: "查看", onSelect: () => setGalleryOpen(true) },
+    { id: "glossary", label: "术语对照表", hint: "标准术语 ⇄ Agent World 用词", group: "查看", onSelect: () => setGlossaryOpen(true) },
     { id: "compare", label: "运行对比", hint: "两次运行的成本与节点输出", group: "查看", onSelect: () => setCompareOpen(true) },
     // 自动化
     { id: "triggers", label: "触发器", hint: "Webhook / 定时 / 事件 / 批量", group: "自动化", onSelect: () => setTriggersOpen(true) },
@@ -473,6 +476,11 @@ export default function App() {
               成品库
             </button>
           </Tooltip>
+          <Tooltip content="术语对照表：标准术语 ⇄ Agent World 用词">
+            <button className="chip" onClick={() => setGlossaryOpen(true)}>
+              术语表
+            </button>
+          </Tooltip>
           <ShortcutsHelp />
           <Tooltip content="打开命令面板：弹窗、添加节点、画布动作">
             <button
@@ -564,6 +572,7 @@ export default function App() {
       <BrandTermsModal open={brandOpen} onClose={() => setBrandOpen(false)} />
       <TriggersPanel open={triggersOpen} onClose={() => setTriggersOpen(false)} graphId={graph.id} />
       <KnowledgePanel open={knowledgeOpen} onClose={() => setKnowledgeOpen(false)} />
+      <GlossaryModal open={glossaryOpen} onClose={() => setGlossaryOpen(false)} />
       <VariablesModal
         open={variablesOpen}
         variables={graph.variables}

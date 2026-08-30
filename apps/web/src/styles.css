@@ -5355,3 +5355,85 @@ select {
   width: auto;
 }
 
+/* ---------- Glossary（术语对照表）---------- */
+.glossary__intro {
+  margin: 0 0 14px;
+  line-height: 1.6;
+  font-size: 12px;
+}
+.glossary__group {
+  border: var(--hair);
+  margin-bottom: 10px;
+  background: var(--steel-850);
+}
+.glossary__group > summary {
+  padding: 9px 14px;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--power);
+  cursor: pointer;
+  user-select: none;
+}
+.glossary__group > summary:hover {
+  background: var(--steel-800);
+}
+.glossary__table-wrap {
+  overflow: auto;
+  max-height: 300px;
+  border-top: var(--hair);
+}
+.glossary__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.glossary__table th {
+  position: sticky;
+  top: 0;
+  background: var(--steel-800);
+  text-align: left;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  font-weight: 600;
+  padding: 7px 14px;
+  border-bottom: var(--hair);
+  white-space: nowrap;
+}
+.glossary__table td {
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--steel-800);
+  vertical-align: top;
+}
+.glossary__table tbody tr:last-child td {
+  border-bottom: none;
+}
+.glossary__table tbody tr:hover {
+  background: rgba(53, 224, 240, 0.05);
+}
+.glossary__std {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-dim);
+  white-space: nowrap;
+}
+.glossary__game {
+  font-weight: 600;
+  color: var(--data);
+  white-space: nowrap;
+}
+.glossary__note {
+  color: var(--ink-faint);
+  line-height: 1.5;
+  min-width: 140px;
+}
+.glossary__foot {
+  margin: 12px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
