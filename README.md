@@ -3,11 +3,67 @@
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![node](https://img.shields.io/badge/node-%3E%3D24-339933)](https://nodejs.org)
 [![pnpm](https://img.shields.io/badge/package%20manager-pnpm-ffc611)](https://pnpm.io)
-[![monorepo](https://img.shields.io/badge/monorepo-pnpm%20workspaces-0ea5e9)](https://pnpm.io/workspaces)
+[![tests](https://img.shields.io/badge/tests-680%2B%20passing-2ea44f)](#run-the-checks)
 
-A game-style workbench for multi-agent orchestration. Each agent is a plant on an
-industrial line, tokens are electricity, and output moves between plants on pipes and
-trucks. This repo is the product; the marketing site lives separately.
+**A visual pipeline platform for AI agents — orchestrate LLMs, tools, and quality
+control into production lines that actually finish.**
+
+Chat fails at production work: a marketing asset needs *research → draft →
+review → revise*, each step may loop, and someone has to guarantee the output
+passes quality bar before it ships. Agent World models that as a **pipeline
+graph** you draw on a canvas — agents are nodes, quality gates send work back
+for rework, and every run is fully replayable.
+
+```text
+source ──▶ agent(draft) ──▶ gate(LLM judge) ──✗──▶ rework back to draft
+                                │✓
+                                ▼
+                          agent(polish) ──▶ sink(final output)
+```
+
+## Why it's different
+
+Most agent frameworks treat a run as a black box that either works or doesn't.
+This codebase encodes three different bets:
+
+**1. Rework loops are a construct, not an arbitrary cycle.** A critic sending
+work back to a builder makes the graph non-acyclic — unschedulable in a naive
+engine. Here a gate *owns* a `rework` edge, and the compiler enforces one
+invariant: dropping every rework edge must leave a DAG, and each rework edge
+must land on an ancestor of its gate. That buys a real execution plan
+(topological order + bounded loop body) while work still flows backwards.
+Exhausted gates follow an explicit `pass` / `scrap` / `halt` policy — never an
+infinite loop. There are also `error` edges: node failure routes to a catch
+branch instead of killing the run.
+
+**2. The event stream is the single source of truth.** Every run appends
+immutable events (`node.delta`, `gate.verdict`, `tool.result`, …); runtime
+state is a pure fold over them. That one decision pays out five times: pause
+& resume, disconnect-reconnect (SSE `Last-Event-ID`), time-travel replay on
+the canvas, audit, and A/B comparison — all read the same log. `(runId,
+nodeId, attempt)` is the primary key, so attempt 1 and attempt 2 of a reworked
+node both survive and can be diffed side by side.
+
+**3. Cost and quality are first-class, metered after the fact.** Tokens are
+metered per call as the model responds (never charged up front), `budgetUsd`
+is a hard ceiling that trips the whole line, and quality is measured two ways:
+a runtime gate (LLM-as-judge with score thresholds, brand-term coverage, and
+banned-word checks) and a cross-run report (pass rate, avg rework, avg score —
+grouped by prompt fingerprint, so you can see whether last week's prompt
+change actually helped).
+
+## Feature map
+
+| Area | What's there |
+|---|---|
+| **Nodes** | 24 types: agent, gate, HTTP (SSRF-guarded), code exec (JS/Python, sandboxed), branch, map, loop, parallel, table, database, file parse, translate, OCR, convert, search, notify, vcs, human approval, subprocess, image/video/audio gen, source, sink |
+| **Triggers** | Manual, webhook, cron (self-hosted parser), event, batch |
+| **Quality** | LLM-judge gates, score-rework loops, brand/banned terms, output-contract schema validation |
+| **Observability** | Live SSE streaming, replay scrubber, per-node cost, eval report (by day / by graph / by prompt fingerprint), CSV export |
+| **MCP** | Both directions: consume external MCP servers as tools; expose the platform itself as an MCP server (15 tools, stdio + HTTP/SSE) |
+| **Sandboxing** | 3-tier code exec: env/cwd isolation → rlimit + Node permission model → bwrap (Linux) / seatbelt (macOS); SSRF guard immune to DNS rebinding |
+| **Accounts** | JWT + bcrypt, all resources isolated per user |
+| **Templates** | 10 built-in pipelines with parameterizable fields (URLs, targets, brand terms) |
 
 ## Quick start
 
@@ -18,121 +74,76 @@ pnpm install
 pnpm dev
 ```
 
-- Engine / API: <http://localhost:8791>
 - Board (web UI): <http://localhost:5173>
+- Engine / API: <http://localhost:8791>
 
 ### 5-minute first run
 
-1. **Open the board** at <http://localhost:5173>.
-2. **Click 新建产线** — pick a template (e.g. "内容改写循环") or start blank.
-3. **Configure a model provider** — open the settings (⚙️), enter your API key
-   and base URL for an OpenAI-compatible endpoint (Agnes, OpenAI, Volcengine
-   Ark, vLLM, Ollama, …). Click save.
-   - No API key? The board falls back to a deterministic **fake worker** that
-     returns canned output — great for learning the UI and running tests.
-4. **Edit the graph** — double-click a node to open the inspector, set the
-   model, prompt, and gate criterion. Drag from a node's right edge to another
-   node's left edge to connect them.
-5. **Click 运行** — watch tokens stream through the pipes, trucks move between
-   plants, and the gate send work back for rework if it fails the criterion.
-6. **Inspect the output** — click any node to see its attempts, quality score,
-   and artifacts. The 成品仓 (sink) shows the final output with images, video,
-   and audio inline.
+1. **Open the board** at <http://localhost:5173> and register an account.
+2. **Click 新建产线** — pick a template (e.g. 内容改写循环) or start blank.
+3. **Configure a provider** — settings (⚙️) → paste an API key + base URL for
+   any OpenAI-compatible endpoint (OpenAI, Volcengine Ark, vLLM, Ollama, …).
+   No key? A deterministic **fake worker** takes over — enough to learn the UI
+   and run tests.
+4. **Edit the graph** — double-click a node to open the inspector; drag from a
+   node's right edge to another's left edge to connect.
+5. **Click 运行** — watch tokens stream through the pipes; if the gate fails
+   the work, it flows back for rework.
+6. **Inspect** — click any node for attempts, scores, cost, and artifacts;
+   the 成品仓 (sink) renders the final output with images and video inline.
 
-Run the checks:
+<!-- TODO: replace with an animated GIF of a run (canvas + rework loop + timeline scrub) -->
+<!-- ![Agent World run](docs/images/board-overview.png) -->
+
+### Run the checks
 
 ```bash
-pnpm -r test       # unit tests
-pnpm -r typecheck  # type checks
-pnpm -r build      # production build
+pnpm -r test       # 680+ tests: core 146 / server 466 / mcp-server 50 / web 19
+pnpm -r typecheck
+pnpm -r build
 ```
 
-See [docs/examples.md](docs/examples.md) for 8 ready-to-use pipeline templates,
-and [docs/extending.md](docs/extending.md) for how to add workers, connectors,
-skills, and triggers.
-
-## The two decisions this codebase encodes
-
-**Rework loops are a construct, not an arbitrary cycle.** A critic that sends work back
-to a builder makes the graph non-acyclic, which would make it unschedulable. Instead a
-gate owns a `rework` edge, and the compiler enforces one invariant: dropping every
-rework edge must leave a DAG, and each rework edge must land on an ancestor of its gate
-within that DAG. That buys a real execution plan (topological order plus a bounded loop
-body) while still letting work flow backwards. A gate that runs out of attempts follows
-its `onExhausted` policy — `pass`, `scrap`, or `halt` for a human to pick up.
-
-**An attempt is part of a node run's identity.** `(runId, nodeId, attempt)` is the
-primary key, not a counter that gets overwritten. Attempt 1 and attempt 2 both survive,
-so the inspector can show them side by side and diff them.
-
-Electricity is metered after each call returns, never charged up front, because token
-cost is only knowable once the model responds. The budget is a hard ceiling on top of
-that meter: cross it and the whole line trips.
-
-## Layout
-
-```
-packages/core     graph schema, compiler, event schema, runtime reducer (zero deps, runs both sides)
-packages/server   execution engine, worker seam, SQLite persistence, HTTP + SSE
-apps/web          the board: plants, pipes, trucks, pan/zoom canvas, minimap, control panel, replay scrubber
-```
-
-The event stream is the single source of truth. Runtime state is a pure fold over it,
-which means replay is just re-folding a prefix — the scrubber and the live view run the
-same reducer.
-
-`packages/server/src/worker.ts` is the seam between orchestration and model calls. The
-server ships with an OpenAI-compatible worker (Agnes, OpenAI, Volcengine Ark, vLLM,
-Ollama, …) configured in the settings panel; a deterministic offline fake worker is the
-fallback for tests and when no provider is enabled.
-
-### Architecture
+## Architecture
 
 ```mermaid
 flowchart LR
-  web["React board\n(Vite + Tailwind)"] <-->|"REST + SSE"| server["Hono server\ncompile · persist · serve"]
-  server -->|"compile / dispatch"| engine["Execution engine\nDAG + rework loops"]
+  web["React board\n(zustand + zundo time travel, SVG canvas)"] <-->|"REST + SSE"| server["Hono server\nauth · compile · persist"]
+  server -->|"dispatch"| engine["Execution engine\nevent-sourced, cyclic graphs"]
   engine -->|"worker seam"| worker["routingWorker"]
-  worker --> provider["Model provider\nOpenAI / Ark / Ollama / fake"]
-  server --> db[("SQLite\nruns · nodes · costs")]
-  server --> skills["Skill registry + MCP tools"]
-  server --> isolate["Isolated workers\n(ESM loader / no loader)"]
+  worker --> provider["OpenAI-compatible providers\nOpenAI / Ark / vLLM / Ollama / fake"]
+  server --> db[("SQLite\nruns · events · costs")]
+  server --> mcp["MCP client + server"]
+  server --> isolate["Sandboxed code exec\nrlimit / bwrap / seatbelt"]
 ```
 
-The event stream is the contract between server and board: the engine appends events,
-SQLite stores them, and the board folds them into UI state — live and replay use the
-same reducer.
+The event stream is the contract between server and board: the engine appends
+events, SQLite stores them, the board folds them into UI state — the live view
+and the replay scrubber run the same reducer.
 
-## Canvas interaction
-
-- **Pan**: left-drag on empty backdrop (select mode), middle-mouse drag, or hold Space and drag anywhere. Arrow keys nudge (Shift = faster).
-- **Zoom**: cursor-anchored wheel, or the minimap +/−. `F` frames the selected plant.
-- **Multi-select**: Shift+click a plant or pipe to toggle it in/out of the selection; Shift+drag on empty backdrop draws a marquee box to select all plants inside; ⌘/Ctrl+A selects all plants. Click empty backdrop to clear.
-- **Batch operations**: drag any selected plant to move the whole selection together (relative positions preserved); Delete/Backspace removes all selected plants and pipes at once.
-- **Pipes**: hover or click one to highlight its whole up/downstream flow.
-- **Plants**: drag snaps to a 20px grid; ⌘/Ctrl+C copies the selected plant, ⌘/Ctrl+V pastes a copy.
-- **First load**: the canvas auto-fits to all plants so new users never see a blank board. Viewport (pan/zoom) persists per graph in localStorage.
-- The "快捷键 ?" button in the top bar lists every shortcut.
+```
+packages/core     graph schema (zod), compiler, event schema, runtime reducer — zero deps, shared by both sides
+packages/server   execution engine, sandbox, HTTP + SSE API, SQLite persistence
+packages/mcp-server  the platform as an MCP server (15 tools, 2 transports)
+apps/web          the board: SVG canvas, inspector, timeline, reports
+```
 
 ## Documentation
 
-The full index (every doc, tagged current / historical / archived, organized by reader) lives in [docs/README.md](docs/README.md). Quick pointers:
+The full index (every doc, tagged current/historical/archived) lives in
+[docs/README.md](docs/README.md). Quick pointers:
 
-- [handoff.md](handoff.md) — current code state, active work, and last-5 changes (read this first when resuming)
-- [PRD.md](PRD.md) — phased product roadmap and architectural guardrails
-- [docs/roadmap-generalization.md](docs/roadmap-generalization.md) — current roadmap (generalization to a general automation platform)
-- [docs/technical-design.md](docs/technical-design.md) — architecture, data models, API surface
-- [docs/examples.md](docs/examples.md) — 8 ready-to-use pipeline templates
-- [docs/extending.md](docs/extending.md) — how to add workers, connectors, skills, triggers, and node types
-- [CHANGELOG.md](CHANGELOG.md) — versioned changelog
-- [CONTRIBUTING.md](CONTRIBUTING.md) — how to set up, run checks, and open a PR
+- [handoff.md](handoff.md) — current state and active work (read first when resuming)
+- [docs/examples.md](docs/examples.md) — 12 ready-to-use pipeline examples
+- [docs/extending.md](docs/extending.md) — add workers, connectors, skills, triggers, node types
+- [docs/design-code-sandbox.md](docs/design-code-sandbox.md) — why the sandbox has 3 tiers
+- [docs/design-mcp-server.md](docs/design-mcp-server.md) — MCP server design
+- [CHANGELOG.md](CHANGELOG.md) · [CONTRIBUTING.md](CONTRIBUTING.md)
 
 ## Deployment
 
-A multi-stage `Dockerfile` (Node 24) builds the core + server packages and runs
-`node dist/index.js`; `docker-compose.yml` exposes the engine on port `8791` with a
-persistent SQLite volume. Useful env hooks in the compose file: `CORS_ORIGINS`
-(comma-separated allow-list — **set this in any hosted/private deployment**; when
-unset the server allows all origins, which is only for local dev) and `MCP_SERVERS`.
+Multi-stage `Dockerfile` (Node 24) builds core + server and runs
+`node dist/index.js`; `docker-compose.yml` exposes port 8791 with a persistent
+SQLite volume. Set `CORS_ORIGINS` in any hosted deployment (unset allows all
+origins — local dev only). `MCP_SERVERS` registers external MCP tools.
 
-See `CHANGELOG.md` for release notes and `LICENSE` (MIT).
+MIT license — see [LICENSE](LICENSE).
