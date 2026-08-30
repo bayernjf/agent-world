@@ -1820,3 +1820,6 @@ modality 切片，统一严格过滤；同时把 agent 的占位文案从泛化�
 - `17dfbf9` — **refactor(server)**: 删除从未被引用的 SKIP_AUTH 白名单（消除免鉴权脚枪）
 - `a88c78c` — **docs(sandbox)**: §10 SSRF 校验代理方案定稿（后端分层语义 / token 绑定 / 校验链 / 已知边界）。
 - `68b7366` — **feat(sandbox)**: `CodeNodeConfig` 加 `fs: sandbox|allowlist` / `net: none|allowlist` 策略字段（fs allowlist 经 `--allow-fs-read` 授予 `TOOL_FS_ALLOW` 前缀只读）。
+- `1bdf8c2`+`5d4dfa3`+`1013dee` — **feat(sandbox)**: net allowlist 的 SSRF 校验代理落地（code-proxy 常驻单例 + run token URL 凭据 + allowlist/内网双重校验 + 审计日志；server 442→457）。
+- `e507723` — **fix(sandbox)**: NPROC 测试根因修复——`ulimit -u` 在 Linux 上限整个用户的任务数，CI 上 vitest worker 逼近 128 导致 node 线程创建 EAGAIN→SIGABRT。
+- `27b5a4b` — **fix(ci)**: tsx 声明为根 devDependency（pnpm 严格布局下根 .bin 无 tsx → ENOENT）。

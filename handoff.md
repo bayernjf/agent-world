@@ -16,6 +16,8 @@ State of Agent World as of 2026-08-30.
 - [docs/design-artifact-display.md](docs/design-artifact-display.md) — 产物统一渲染卡设计（ArtifactCard + 渲染器注册表；已落地）
 - [docs/design-artifact-attribution-repo.md](docs/design-artifact-attribution-repo.md) — 产物归属 + 按流水线分组成品仓库设计（已落地）
 - [docs/design-code-sandbox.md](docs/design-code-sandbox.md) — 代码节点运行沙箱（P0/P1/P2 + fs/net 策略 + net allowlist SSRF 校验代理全部落地；docker 容器后端待办）
+- [docs/design-templates.md](docs/design-templates.md) — 产线模板体系增强（老用户入口/覆盖面/参数化已落地，市场缓做）
+- [docs/phase4-design.md](docs/phase4-design.md) — Phase 4 高级编排落地方案（六项已落地，状态机缓做）
 - [docs/feedback-workflow.md](docs/feedback-workflow.md) — owner 怎么高效反馈给我（截图 / computer-use / 防丢）
 - [docs/handoff-archive.md](docs/handoff-archive.md) — historical changes (pre-2026-08-27)
 - [PRODUCT_STRATEGY.md](PRODUCT_STRATEGY.md) — 产品策略汇总（成本/部署/定价/商业化决策基线）
@@ -53,17 +55,18 @@ State of Agent World as of 2026-08-30.
 
 按优先级降序，标 `★` 的是当下要推的：
 
-1. **沙箱后续（低优）**：docker/podman 容器后端（生产级隔离，net allowlist 的终极形态）
+1. **模板后续（低优）**：TemplateField 参数化的实例化 UI（表单弹窗，schema 已定型 `6daf309`）；模板市场（用户发布/安装）维持缓做，见 design-templates §4
+2. **沙箱后续（低优）**：docker/podman 容器后端（生产级隔离，net allowlist 的终极形态）
 
 ## Recently shipped (last 5)
 
 按 commit 时间倒序，每条一行影响面 + commit hash：
 
-1. `8f40a5e` — **feat(web)**: error 边画法支持——画布新增「容错线」连线模式（此前 server 支持但 UI 建不出来）、error 管道差异化渲染（暗红虚线芯）、通电逻辑失败感知（仅上游 failed 才点亮，与 flow 的 running/done 相区分）。web 19/19 通过。至此 Phase 4 错误处理在 UI 侧闭环。
-2. `b1ad1af` — **docs(sandbox)**: docker 容器后端缓做决策记录（design §11：为什么低优——成本在外围不在接口；触发条件——部署形态明确后再决策）。
-3. `1bdf8c2`+`5d4dfa3`+`1013dee` — **feat(sandbox)**: net allowlist 的 SSRF 校验代理落地。`code-proxy.ts` 常驻单例正向代理（127.0.0.1 随机端口）+ 一次性 run token 内嵌代理 URL 凭据（标准客户端自动转 `Proxy-Authorization: Basic`，无需用户代码配合）+ `matchDomain` 白名单 / `hostIsInternal` 内网双重校验（解析一次校验一次连接一次，rebinding 免疫）+ CONNECT 隧道（仅 80/443）+ 逐请求审计日志；engine 接线：`TOOL_NETWORK_ALLOW` 未配置 VALIDATION 报错、bwrap/sandbox-exec 硬断网后端 VALIDATION 拒绝、token 随 run finally 注销。诚实边界：协作式（约束走代理 env 的客户端），Node fetch 需 ≥ 24.5（注入 `NODE_USE_ENV_PROXY=1`）。server 测试 442→457 通过
-4. `e507723` — **fix(sandbox)**: NPROC 测试根因修复——`ulimit -u` 在 Linux 上限的是**整个用户**的任务数，CI runner 上 vitest worker 已逼近 128，node 线程创建 EAGAIN → SIGABRT。引号测试改 `maxProcs: 4096` 覆盖。
-5. `27b5a4b` — **fix(ci)**: tsx 声明为根 devDependency（mcp-server stdio 测试从根 `node_modules/.bin/tsx` 启动 CLI，pnpm 严格布局下不存在 → ENOENT）。
+1. `6daf309` — **feat(core)**: TemplateField 参数化 schema 定型（key/label/placeholder/defaultValue + applyTo 显式 node-path 替换；仅接口无 UI，防模板市场 P2 破坏性变更；测试守护字段引用存在节点）。
+2. `6a951e4` — **feat(core)**: 4 个新内置模板补齐 roadmap 四类场景——运营周报（http→code→agent，error 边兜底）、定时巡检告警（http→branch→notify/sink）、多源研究简报（双 http→parallel→agent）、竞品监控摘要（http→code→agent，error 边兜底）；examples.md 加单一事实源映射表并对齐。core 143/144 通过（全量 compile 断言覆盖）。
+3. `ffc34d9` — **refactor(web)**: 抽共享 TemplatePicker（Onboarding/NewGraphDialog 两份已漂移的模板网格合一，直读 core TEMPLATES 免网络往返）+ NewGraphDialog 补空白产线入口；删死代码 api.listTemplates。web 19/19。
+4. `8f40a5e` — **feat(web)**: error 边画法支持——画布新增「容错线」连线模式（此前 server 支持但 UI 建不出来）、error 管道差异化渲染（暗红虚线芯）、通电逻辑失败感知（仅上游 failed 才点亮，与 flow 的 running/done 相区分）。web 19/19 通过。至此 Phase 4 错误处理在 UI 侧闭环。
+5. `b1ad1af` — **docs(sandbox)**: docker 容器后端缓做决策记录（design §11：为什么低优——成本在外围不在接口；触发条件——部署形态明确后再决策）。
 
 最近 5 条之前的全部在 [docs/handoff-archive.md](docs/handoff-archive.md) 的"阶段 4 收尾"与"Additions (post-2026-08-27)"系列章节里（含 MCP stdio 分帧修复 `a2482ba`、P2 外部沙箱后端 `0a22b13`、P1 rlimit `ddb2e03`、P0 `6b2f92b`、HTTP 节点第一闭环 `1856d81`、账号系统 `5b81c74`/`73d3610` 等）。
 
@@ -72,7 +75,7 @@ State of Agent World as of 2026-08-30.
 > 这里的 snapshot 是"今天跑过的"状态；archive 章节里的"质量门"是各 commit 当时的状态，不要混用。
 
 - `pnpm -r typecheck`：全绿（2026-08-30 复核 web：tsc --noEmit 干净）
-- `pnpm --filter @agent-world/core test`：142/142 通过（含 EdgeKind error / buildNodeContext error 前驱 / node.skipped event + HTTP file 模式用例）
+- `pnpm --filter @agent-world/core test`：144/144 通过（含 EdgeKind error / buildNodeContext error 前驱 / node.skipped event + HTTP file 模式 + 新模板全量 compile + TemplateField 字段引用用例）
 - `pnpm --filter @agent-world/server test`：**457/457 通过**（Node 24 下跑）。SSRF 代理新增 13 个 code-proxy 单测（allow/deny、Basic/Bearer 双认证、跨 token 隔离、token 注销失效、内网拒绝、CONNECT 隧道透传/端口拒绝、resolveConnectAddress IP 固定 fail-closed）+ 3 个 engine e2e（TOOL_NETWORK_ALLOW 未配置 VALIDATION、Python urllib 经代理成功、allowlist 外 403）。此前 fs/net 策略 5 个测试（allowlist 只读实跑等）、P2 13 个（后端选择/形状/live seatbelt+bwrap）、P1 13 个（rlimit/permission 形状 + 实跑 + 引号 + NPROC/CPU 拦截）
 - `pnpm --filter @agent-world/mcp-server test`：**50/50 通过**（新增 stdio 端到端冒烟 3 个：CLI 子进程真实回环 / parse error 容错 / 多字节 id 无分帧错位）
 - `pnpm --filter @agent-world/web exec vitest run`：19/19 通过
