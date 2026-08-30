@@ -199,7 +199,7 @@ export default function RunHistory({ open, onClose, onOpen }: Props) {
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal modal modal--wide modal--tall" onClick={(e) => e.stopPropagation()}>
+      <div className="modal modal--wide modal--tall" onClick={(e) => e.stopPropagation()}>
         <div className="modal__header">
           <h2>运行历史</h2>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -249,6 +249,7 @@ export default function RunHistory({ open, onClose, onOpen }: Props) {
           </label>
           <span className="runhistory-count">共 {total} 条</span>
         </div>
+        <div className="modal__body runhistory-body">
 
         {errorMsg && <div className="runhistory-error">{errorMsg}</div>}
 
@@ -334,6 +335,7 @@ export default function RunHistory({ open, onClose, onOpen }: Props) {
             </div>
           </>
         )}
+        </div>
       </div>
     </div>
   );
