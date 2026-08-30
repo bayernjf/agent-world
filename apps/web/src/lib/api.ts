@@ -218,20 +218,6 @@ export interface BrandTerm {
 }
 
 export const api = {
-  listTemplates: () =>
-    authFetch("/api/templates").then(
-      json<
-        {
-          id: string;
-          name: string;
-          description: string;
-          category: string;
-          nodes: { id: string; kind: string; x: number; y: number }[];
-          edges: { from: string; to: string; kind?: string }[];
-        }[]
-      >,
-    ),
-
   listSkills: () => authFetch("/api/skills").then(json<Skill[]>),
 
   listGraphs: () =>

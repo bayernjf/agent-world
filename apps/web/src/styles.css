@@ -499,6 +499,11 @@ select {
   grid-template-columns: repeat(2, 1fr);
   gap: 10px;
 }
+/* Blank-graph escape hatch under the template grid in NewGraphDialog */
+.new-graph__blank {
+  margin-top: 12px;
+  width: 100%;
+}
 .template-card {
   display: flex;
   flex-direction: column;
