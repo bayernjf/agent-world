@@ -188,7 +188,7 @@ To add a new one:
 1. Add the kind to `NodeKind`.
 2. Add a config object (e.g. `MyNodeConfig`) and an optional field on `GraphNode`.
 3. Add a branch in `packages/server/src/engine.ts`'s `runNode` function.
-   Place it **before** the `agent` branch (TypeScript narrows `node.kind` after
+   Place it **before** the `textGen` branch (TypeScript narrows `node.kind` after
    each `return`ing branch).
 4. Add a config panel in `apps/web/src/components/Inspector.tsx`.
 5. Add a label in `apps/web/src/canvas/Plants.tsx` (`KIND_LABEL`).

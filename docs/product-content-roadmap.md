@@ -41,7 +41,7 @@
 ### 阶段 D：AI 生图与品牌增强（后置）
 - ✅ AI 生图节点：调用 OpenAI 兼容的 `POST /images/generations`（provider 或节点级 `baseUrl`/`apiKey` 覆盖，120s 超时）；source 缺真实图片时自动生图，按 `n`（1–8）出 banner/场景图并以 `artifact` 流向下游；上游已有图片则跳过（避免浪费配额）。淘宝/小红书模板内置「AI 配图」+「AI 场景图」两节点。
 - ✅ 品牌词库：可管理的品牌词库（`brand_terms` 表 + `/api/brand-terms` CRUD + Web 管理弹窗），厂房(source)节点可填「品牌词」并一键「从品牌词库载入」；品牌词随创作简报下发给写手（建议融入），质检 gate 可设「品牌词覆盖率门槛」`minBrandCoverage`——低于则打回上游重写。
-- ✅ 多版本 A/B：A/B 实验运行器——选一个厂房(agent)节点 + 填 N 个 prompt 变体，一次发起 N 次独立运行（各自替换目标节点 prompt），统一打上 `ab_group` / `ab_arm` 标记；`/api/ab/:groupId` 报表按臂并排对比合格率、质量分、平均返工、耗时、单跑成本，自动推荐质量分最高臂。复用 评估联动 的 `avgScore`。
+- ✅ 多版本 A/B：A/B 实验运行器——选一个文坊(textGen)节点 + 填 N 个 prompt 变体，一次发起 N 次独立运行（各自替换目标节点 prompt），统一打上 `ab_group` / `ab_arm` 标记；`/api/ab/:groupId` 报表按臂并排对比合格率、质量分、平均返工、耗时、单跑成本，自动推荐质量分最高臂。复用 评估联动 的 `avgScore`。
 - ✅ 评估联动：gate 的 judge 现在产出 0–10 质量分（`score`），Web 端质检站可设「质量分门槛」`minScore`——低于阈值直接判废打回上游重写，与模型布尔判定并行。质量分持久化进 `node_runs.score`，`/api/eval` 报表按 prompt 版本聚合 `avgScore`，可对比改 prompt 前后的质量变化（为 A/B 铺路）。
 - ✅ 违禁词校验：source 节点的「禁用词 / 禁用说法」字段沿 flow 向上游收集，gate 判定时做确定性硬拦截——命中即判废并打回上游重写，与模型 judge 并行生效。写手已通过 `buildSourceBrief` 拿到禁用词清单并在创作时规避。
 

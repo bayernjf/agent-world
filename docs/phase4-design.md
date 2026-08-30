@@ -17,13 +17,13 @@
 | **AI Agent 多轮 ReAct** | **已完整实现**于 `providers/openai-compatible.ts:207-340` 的 `runWithTools`（MAX_ROUNDS=8，非流式，tool result push 回 convo） | ✅ **已做**（注释过期称"reserved for Phase 2"，实际已用） |
 | **人工审批节点** | halt 机制完整（gate onExhausted=halt / dangerous-tool HaltRequested），resume 5 action（continue/approve/reject/edit/scrap），notifyHalt webhook | ✅ **已落地**：独立 `human` 节点（`20d9c9f`），任意位置暂停等审批 |
 | **子流程调用** | 未做；但 `loop` 节点的"内联 BFS 发现 body + 递归 `runNode`"模式可直接借鉴 | ✅ **已落地**：`subprocess` 节点（`d66fe52`） |
-| **错误处理** | RetryPolicy 是**节点级瞬态重试**（agent/translate/notify/vcs 有，**search/http/code 无**）；无 error 边（EdgeKind 仅 flow/rework）；节点失败后下游**静默搁浅 pending**；无死信、无失败告警、无 try/catch | ✅ **已落地**：§1 四件套全量（`d31c482`/`906a70e`/`ce17008`/`3dea78d`/`a77f127`/`8f40a5e`） |
+| **错误处理** | RetryPolicy 是**节点级瞬态重试**（textGen/translate/notify/vcs 有，**search/http/code 无**）；无 error 边（EdgeKind 仅 flow/rework）；节点失败后下游**静默搁浅 pending**；无死信、无失败告警、无 try/catch | ✅ **已落地**：§1 四件套全量（`d31c482`/`906a70e`/`ce17008`/`3dea78d`/`a77f127`/`8f40a5e`） |
 | **状态机** | 未做 | ⏸ **缓做**（易过度设计） |
 | **变量持久化** | 无 graph/run 级变量、DB 无 variables 表；仅节点级临时数据流（前驱 artifact → 节点 context） | ✅ **已落地**：graph variables（`eb10d75`） |
 
 **两个颠覆性发现**：
 1. **ReAct 多轮已实现**——roadmap Phase 4 的"AI Agent 节点支持多轮工具调用循环"已满足，不需要重做（只需把 worker.ts 注释"reserved for Phase 2"更新掉）。
-2. **错误处理缺口比想象大**——不只是"没有 try/catch"，而是：①search/http/code 最需要重试的节点反而没有；②失败节点的下游静默搁浅在 pending（UI 分不清"还没轮到"和"被跳过"）；③failed/tripped/cancelled 无告警（仅 halt 有）；④translate 的 retry 硬编码在 engine，TranslateConfig 无 retry 字段；⑤重试逻辑在 agent/translate/notify/vcs 四处复制粘贴。
+2. **错误处理缺口比想象大**——不只是"没有 try/catch"，而是：①search/http/code 最需要重试的节点反而没有；②失败节点的下游静默搁浅在 pending（UI 分不清"还没轮到"和"被跳过"）；③failed/tripped/cancelled 无告警（仅 halt 有）；④translate 的 retry 硬编码在 engine，TranslateConfig 无 retry 字段；⑤重试逻辑在 textGen/translate/notify/vcs 四处复制粘贴。
 
 ---
 
@@ -50,7 +50,7 @@ engine 改动：`runNode` 失败时，检查 `outgoing(graph, nodeId, "error")`�
 **对策**：catch 节点的入边里，error 边的源是"可能失败的节点"，flow 边的源是"正常数据"。`predecessorsReady` 要放宽：catch 节点只要**任一**前驱 done（而非全部）就 ready。这需要 `predecessorsReady` 区分"全 ready（flow 语义）"和"任一 ready（catch 语义）"。
 
 **难题②**：error 边和 rework 边冲突？gate 已有 rework 边。  
-**对策**：语义正交——rework 是"质量不通过回上游重做"（attempt++），error 是"技术失败走兜底"。gate 不挂 error 边（gate 失败用 onExhausted）；只有 agent/http/vcs/notify 等动作节点挂 error 边。
+**对策**：语义正交——rework 是"质量不通过回上游重做"（attempt++），error 是"技术失败走兜底"。gate 不挂 error 边（gate 失败用 onExhausted）；只有 textGen/http/vcs/notify 等动作节点挂 error 边。
 
 **难题③**：catch 节点也失败怎么办？  
 **对策**：catch 节点本身失败 → 正常搁浅（catch 不再嵌套 catch，避免无限兜底）。死信兜底见 D。

@@ -25,14 +25,14 @@
 
 | 标准术语（NodeKind 代码） | Agent World 术语 | 说明 |
 |---|---|---|
-| agent | **文坊** | LLM 加工 |
+| textGen | **文坊** | LLM 加工 |
 | gate | **质检站** | 检验 / 返工判定 |
 | source | **原料台** | 投料 |
 | sink | **成品库** | 出料 |
 | imageGen | **画坊** | 文字→图片 |
 | videoGen | **影坊** | 文字→视频 |
 | audioGen | **音坊** | 文字→语音 / 音乐（TTS） |
-| generic | **通用** | 自由选型 provider，按模态自动 dispatch（text/image/video/audio） |
+| generic | **多能坊** | 自由选型 provider，按模态自动 dispatch（text/image/video/audio） |
 | http | **API 口岸** | 调外部 REST API |
 | code | **代码工坊** | 跑 JS / Python 脚本（沙箱） |
 | branch | **分拣闸** | 按表达式路由不同分支 |
@@ -55,7 +55,7 @@
 
 | 标准术语（分组 id） | Agent World 术语 | 包含节点 |
 |---|---|---|
-| generation | **AI 加工** | 文坊、画坊、影坊、音坊、通用 |
+| generation | **AI 加工** | 文坊、画坊、影坊、音坊、多能坊 |
 | control | **车间调度** | 质检站、分拣闸、改料台、批处理站、汇流站、外包工坊 |
 | data | **物料处理** | 理货台、总账房、拆包台、换装台、翻译间、识图台、代码 |
 | integrations | **外接设备** | API 口岸、瞭望塔、广播站、档案柜、人工岗 |
