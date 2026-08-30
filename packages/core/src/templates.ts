@@ -41,12 +41,30 @@ export interface GraphTemplate {
 }
 
 /**
+ * Set `value` at a dot-joined path inside `obj`, creating intermediate objects.
+ * Copy-on-write: every level descended into is cloned first, because template
+ * nodes are spread shallowly and their nested configs are still shared.
+ */
+function setPath(obj: Record<string, unknown>, keys: string[], value: string): void {
+  let cur: Record<string, unknown> = obj;
+  for (let i = 0; i < keys.length - 1; i++) {
+    const k = keys[i]!;
+    if (typeof cur[k] !== "object" || cur[k] === null) cur[k] = {};
+    else cur[k] = { ...(cur[k] as Record<string, unknown>) };
+    cur = cur[k] as Record<string, unknown>;
+  }
+  cur[keys[keys.length - 1]!] = value;
+}
+
+/**
  * Build a fresh graph from a template. Every node and edge id is replaced with a
- * short generated id so duplicated templates never collide.
+ * short generated id so duplicated templates never collide. Declared `fields`
+ * are applied on top: an explicit non-empty value wins, then the field's
+ * defaultValue; fields with neither are left untouched.
  */
 export function instantiateTemplate(
   template: GraphTemplate,
-  opts?: { id?: string; name?: string },
+  opts?: { id?: string; name?: string; fieldValues?: Record<string, string> },
 ): z.infer<typeof Graph> {
   const idMap = new Map<string, string>();
   const uid = (oldId: string) => {
@@ -63,6 +81,18 @@ export function instantiateTemplate(
     ...n,
     id: uid(n.id),
   }));
+  // applyTo references template node ids — resolve them to the instantiated nodes.
+  const byOldId = new Map(template.graph.nodes.map((n, i) => [n.id, nodes[i]!]));
+  for (const field of template.fields ?? []) {
+    const raw = opts?.fieldValues?.[field.key];
+    const value = raw && raw.trim() !== "" ? raw : field.defaultValue;
+    if (value === undefined) continue;
+    for (const target of field.applyTo) {
+      const node = byOldId.get(target.nodeId);
+      if (!node) continue;
+      setPath(node as unknown as Record<string, unknown>, target.path.split("."), value);
+    }
+  }
   const edges = template.graph.edges.map((e) => ({
     ...e,
     id: `e-${Math.random().toString(36).slice(2, 7)}`,
@@ -439,6 +469,15 @@ const opsWeeklyGraph = {
   name: "运营周报",
   description: "拉取数据 → 代码清洗汇总 → AI 生成周报",
   category: "数据分析",
+  fields: [
+    {
+      key: "dataUrl",
+      label: "数据接口地址",
+      placeholder: "https://your-api.example.com/metrics",
+      defaultValue: "https://raw.githubusercontent.com/github/rest-api-description/main/examples/README.md",
+      applyTo: [{ nodeId: "fetch", path: "http.url" }],
+    },
+  ],
   graph: {
     id: "tpl-ops-weekly",
     name: "运营周报",
@@ -524,6 +563,15 @@ const patrolAlertGraph = {
   name: "定时巡检告警",
   description: "健康检查 → 分支判断异常 → 飞书告警 / 正常记录",
   category: "IT 运维",
+  fields: [
+    {
+      key: "targetUrl",
+      label: "监控目标地址",
+      placeholder: "https://your-service.example.com/health",
+      defaultValue: "https://httpbin.org/status/200",
+      applyTo: [{ nodeId: "probe", path: "http.url" }],
+    },
+  ],
   graph: {
     id: "tpl-patrol-alert",
     name: "定时巡检告警",
@@ -588,6 +636,22 @@ const researchBriefGraph = {
   name: "多源研究简报",
   description: "两路 HTTP 拉取 → 汇聚 → AI 综合研判 → 归档",
   category: "数据分析",
+  fields: [
+    {
+      key: "srcAUrl",
+      label: "数据源 A 地址",
+      placeholder: "https://source-a.example.com/data.json",
+      defaultValue: "https://httpbin.org/json",
+      applyTo: [{ nodeId: "srcA", path: "http.url" }],
+    },
+    {
+      key: "srcBUrl",
+      label: "数据源 B 地址",
+      placeholder: "https://source-b.example.com/data.json",
+      defaultValue: "https://httpbin.org/json",
+      applyTo: [{ nodeId: "srcB", path: "http.url" }],
+    },
+  ],
   graph: {
     id: "tpl-research-brief",
     name: "多源研究简报",
@@ -649,6 +713,15 @@ const competitorWatchGraph = {
   name: "竞品监控摘要",
   description: "拉取竞品页面 → 代码提取 → AI 对比摘要",
   category: "IT 运维",
+  fields: [
+    {
+      key: "pageUrl",
+      label: "竞品页地址",
+      placeholder: "https://competitor.example.com/pricing",
+      defaultValue: "https://httpbin.org/html",
+      applyTo: [{ nodeId: "fetch", path: "http.url" }],
+    },
+  ],
   graph: {
     id: "tpl-competitor-watch",
     name: "竞品监控摘要",

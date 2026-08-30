@@ -325,6 +325,14 @@ app.get("/api/templates", (c) =>
       name: t.name,
       description: t.description,
       category: t.category,
+      // Declared instantiation fields (without applyTo plumbing) so API clients
+      // can render the same form the web UI shows.
+      fields: (t.fields ?? []).map((f) => ({
+        key: f.key,
+        label: f.label,
+        placeholder: f.placeholder ?? "",
+        defaultValue: f.defaultValue ?? "",
+      })),
       // Slim geometry so the client can render a preview thumbnail without the
       // full prompts/agents payload.
       nodes: t.graph.nodes.map((n) => ({
@@ -348,6 +356,7 @@ app.post("/api/graphs", async (c) => {
     name?: string;
     from?: string;
     template?: string;
+    fieldValues?: Record<string, string>;
   };
   const id = randomUUID();
   let graph: Graph;
@@ -357,6 +366,7 @@ app.post("/api/graphs", async (c) => {
     graph = instantiateTemplate(tpl, {
       id,
       name: body.name?.trim() || tpl.name,
+      fieldValues: body.fieldValues,
     });
   } else if (body.from) {
     const src = db.getGraph(body.from, userId);

@@ -206,13 +206,13 @@ export default function App() {
     [graph.id, flushSave, reset, setGraph],
   );
 
-  const createGraph = useCallback(async (template?: string) => {
+  const createGraph = useCallback(async (template?: string, fieldValues?: Record<string, string>) => {
     if (template) {
       const tpl = TEMPLATES.find((t) => t.id === template);
       if (tpl && nameTaken(tpl.name)) return reportDuplicate(tpl.name, graphs.find((g) => g.name.trim().toLowerCase() === tpl.name.trim().toLowerCase()) ?? null);
     }
     try {
-      const g = await api.createGraph(template ? { template } : undefined);
+      const g = await api.createGraph(template ? { template, fieldValues } : undefined);
       await refreshGraphs();
       reset();
       setGraph(g);
@@ -595,9 +595,9 @@ export default function App() {
       <NewGraphDialog
         open={newGraphOpen}
         onClose={() => setNewGraphOpen(false)}
-        onPick={(templateId) => {
+        onPick={(templateId, fieldValues) => {
           setNewGraphOpen(false);
-          void createGraph(templateId);
+          void createGraph(templateId, fieldValues);
         }}
       />
       <ConfirmDialog

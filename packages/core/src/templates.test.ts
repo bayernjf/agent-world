@@ -72,4 +72,40 @@ describe("templates", () => {
       }
     }
   });
+
+  it("applies field values at instantiation: explicit value wins, then default, and the template itself is not mutated", () => {
+    const tpl = getTemplate("tpl-patrol-alert")!;
+    const probeUrl = () =>
+      (tpl.graph.nodes.find((n) => n.id === "probe")!.http as { url: string }).url;
+
+    // No values and no explicit skip → defaultValue keeps out-of-box behaviour.
+    const a = instantiateTemplate(tpl, { id: "ga" });
+    const probeA = a.nodes.find((n) => n.name === "健康检查")!;
+    expect((probeA.http as { url: string }).url).toBe("https://httpbin.org/status/200");
+
+    // Explicit value replaces the whole value at the path.
+    const b = instantiateTemplate(tpl, { id: "gb", fieldValues: { targetUrl: "https://example.com/health" } });
+    const probeB = b.nodes.find((n) => n.name === "健康检查")!;
+    expect((probeB.http as { url: string }).url).toBe("https://example.com/health");
+
+    // Blank input falls back to the default (the web form sends "" for skipped inputs).
+    const c = instantiateTemplate(tpl, { id: "gc", fieldValues: { targetUrl: "  " } });
+    const probeC = c.nodes.find((n) => n.name === "健康检查")!;
+    expect((probeC.http as { url: string }).url).toBe("https://httpbin.org/status/200");
+
+    // The shared template definition is never mutated by instantiation.
+    expect(probeUrl()).toBe("https://httpbin.org/status/200");
+  });
+
+  it("applies multiple fields to their own targets (research brief sources)", () => {
+    const tpl = getTemplate("tpl-research-brief")!;
+    const g = instantiateTemplate(tpl, {
+      fieldValues: { srcAUrl: "https://a.example.com", srcBUrl: "https://b.example.com" },
+    });
+    const urls = g.nodes
+      .filter((n) => n.kind === "http")
+      .map((n) => (n.http as { url: string }).url)
+      .sort();
+    expect(urls).toEqual(["https://a.example.com", "https://b.example.com"]);
+  });
 });

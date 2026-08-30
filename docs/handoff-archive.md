@@ -1828,3 +1828,7 @@ modality 切片，统一严格过滤；同时把 agent 的占位文案从泛化�
 - `ffc34d9` — **refactor(web)**: 抽共享 TemplatePicker（Onboarding/NewGraphDialog 两份已漂移的模板网格合一，直读 core TEMPLATES 免网络往返）+ NewGraphDialog 补空白产线入口；删死代码 api.listTemplates。
 - `8f40a5e` — **feat(web)**: error 边画法支持——「容错线」连线模式、error 管道差异化渲染（暗红虚线芯）、通电逻辑失败感知。至此 Phase 4 错误处理在 UI 侧闭环。
 - `b1ad1af` — **docs(sandbox)**: docker 容器后端缓做决策记录（design §11）。
+- `4c4681a` — **feat(server)**: 保存前自动快照（pre-save snapshot）——PUT 保存路径写入新内容前落旧内容快照（note=auto），10 分钟同内容节流 + 每图滚动保留 30 条（人工快照永不删）；content_hash 列 migration；graph-versions.test.ts 6 用例。
+- `1f216c3` — **docs(versions)**: 版本管理现状盘点与补强设计（design-versions.md）。
+- `1413b1c` — **docs(templates)**: 模板体系落地后的文档同步（roadmap 5.5 行 + design-templates 状态 + handoff 轮转）。
+- `236b4bf` — **docs(versions)**: 版本管理补强收尾文档同步（roadmap 5.6 已落地 + design 状态行 + handoff 轮转）。

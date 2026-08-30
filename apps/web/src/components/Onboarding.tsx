@@ -1,15 +1,17 @@
 import { useMemo, useState } from "react";
 import { api } from "../lib/api";
 import TemplatePicker, { TEMPLATE_LIST } from "./TemplatePicker";
+import TemplateFieldDialog from "./TemplateFieldDialog";
 
 interface Props {
-  onCreate: (templateId?: string) => void;
+  onCreate: (templateId?: string, fieldValues?: Record<string, string>) => void;
 }
 
 export default function Onboarding({ onCreate }: Props) {
   const templates = useMemo(() => TEMPLATE_LIST, []);
 
   const [apiStatus, setApiStatus] = useState<"unknown" | "ok" | "fail">("unknown");
+  const [pending, setPending] = useState<(typeof TEMPLATE_LIST)[number] | null>(null);
   // Probe the engine once so the user knows whether saved-state features will work.
   useMemo(() => {
     api
@@ -35,7 +37,16 @@ export default function Onboarding({ onCreate }: Props) {
             模板预置了节点和连线，创建后可自由编辑。共 {templates.length} 个模板。
           </p>
 
-          <TemplatePicker templates={templates} onPick={onCreate} cardClass="onboarding" />
+          <TemplatePicker
+            templates={templates}
+            onPick={(id) => {
+              const tpl = id ? templates.find((t) => t.id === id) : undefined;
+              // Templates with declared fields get a parameter form first.
+              if (tpl && tpl.fields.length > 0) setPending(tpl);
+              else onCreate(id);
+            }}
+            cardClass="onboarding"
+          />
         </div>
 
         <div className="onboarding__divider">
@@ -62,6 +73,18 @@ export default function Onboarding({ onCreate }: Props) {
           )}
         </div>
       </div>
+
+      {pending && (
+        <TemplateFieldDialog
+          templateName={pending.name}
+          fields={pending.fields}
+          onCancel={() => setPending(null)}
+          onSubmit={(values) => {
+            setPending(null);
+            onCreate(pending.id, values);
+          }}
+        />
+      )}
     </div>
   );
 }
