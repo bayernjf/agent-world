@@ -169,7 +169,7 @@ export default function Canvas({ mode }: Props) {
       if (mod && (e.key === "c" || e.key === "C") && selectedId) {
         e.preventDefault();
         copyRef.current = { id: selectedId, n: 0 };
-        showToast("已复制厂房");
+        showToast("已复制节点");
         return;
       }
       if (mod && (e.key === "v" || e.key === "V") && copyRef.current) {
@@ -332,7 +332,7 @@ export default function Canvas({ mode }: Props) {
 
     if (mode === "delete") {
       removeNode(node.id);
-      flashDeleted("厂房已拆除");
+      flashDeleted("节点已拆除");
       return;
     }
 
@@ -607,7 +607,7 @@ export default function Canvas({ mode }: Props) {
       {graph.nodes.length === 0 && (
         <div className="canvas__empty">
           <p>画布是空的</p>
-          <p className="muted">点右上角「+ 厂房」开始搭建你的产线</p>
+          <p className="muted">点右上角「+ 文坊」开始搭建你的产线</p>
         </div>
       )}
     </div>

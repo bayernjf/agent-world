@@ -154,7 +154,7 @@ export default function FailurePanel({ onRerun }: Props) {
               <p className="failure-card__msg">{f.error}</p>
               {stranded > 0 && (
                 <p className="failure-card__impact">
-                  影响：{stranded} 座下游厂房未启动
+                  影响：{stranded} 座下游节点未启动
                 </p>
               )}
               <div className="failure-card__actions">
@@ -206,7 +206,7 @@ export default function FailurePanel({ onRerun }: Props) {
         </button>
         <span className="muted">
           {failedNodeIds.length > 0
-            ? "重试只重跑失败节点及下游；返工到上游会从所选厂房重新下料。"
+            ? "重试只重跑失败节点及下游；返工到上游会从所选节点重新下料。"
             : "预算停机后请调高预算再整条重跑。"}
         </span>
       </div>

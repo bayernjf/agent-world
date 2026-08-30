@@ -20,11 +20,11 @@ interface Props {
 }
 
 const MODES: { key: Mode; label: string; hint: string }[] = [
-  { key: "select", label: "选择", hint: "拖动厂房重新布局，单击查看详情" },
-  { key: "connect", label: "铺管道", hint: "依次点两座厂房，铺一条正向管道" },
-  { key: "rework", label: "返工线", hint: "从质检站点回上游厂房，铺一条返工线" },
-  { key: "error", label: "容错线", hint: "上游厂房故障时改走这条线，接到兜底厂房（catch）" },
-  { key: "delete", label: "拆除", hint: "点厂房或管道即拆除" },
+  { key: "select", label: "选择", hint: "拖动节点重新布局，单击查看详情" },
+  { key: "connect", label: "铺管道", hint: "依次点两座节点，铺一条正向管道" },
+  { key: "rework", label: "返工线", hint: "从质检站点回上游节点，铺一条返工线" },
+  { key: "error", label: "容错线", hint: "上游节点故障时改走这条线，接到兜底节点（catch）" },
+  { key: "delete", label: "拆除", hint: "点节点或管道即拆除" },
 ];
 
 const STATUS_TEXT: Record<string, string> = {
@@ -199,7 +199,7 @@ export default function ControlPanel(props: Props) {
           <h3 className="label">编译</h3>
           {errors.length === 0 && warnings.length === 0 && (
             <p className="diag diag--ok">
-              图可编译 · {graph.nodes.length} 座厂房
+              图可编译 · {graph.nodes.length} 座节点
               {saveState === "saved" && <span className="muted"> · 已保存</span>}
             </p>
           )}

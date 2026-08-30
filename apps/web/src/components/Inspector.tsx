@@ -401,12 +401,12 @@ function readStoredMainTab(): MainTab {
 }
 
 /** The 技能 tab only exists on agent nodes, so a remembered tab can be invalid. */
-function clampMainTab(tab: MainTab, isAgent: boolean): MainTab {
-  return tab === "skills" && !isAgent ? "output" : tab;
+function clampMainTab(tab: MainTab, isTextGen: boolean): MainTab {
+  return tab === "skills" && !isTextGen ? "output" : tab;
 }
 
-function nextMainTab(current: MainTab, isAgent: boolean): MainTab {
-  const order = MAIN_TAB_ORDER.filter((t) => t !== "skills" || isAgent);
+function nextMainTab(current: MainTab, isTextGen: boolean): MainTab {
+  const order = MAIN_TAB_ORDER.filter((t) => t !== "skills" || isTextGen);
   const i = order.indexOf(current);
   return order[(i + 1) % order.length]!;
 }
@@ -484,8 +484,8 @@ export default function Inspector({ onOpenSettings }: { onOpenSettings: () => vo
   // Moving between nodes keeps the tab the user last used; only fall back when
   // that tab does not exist on the newly selected node kind.
   useEffect(() => {
-    const isAgent = graph.nodes.find((n) => n.id === selectedId)?.kind === "agent";
-    setMainTabState((cur) => clampMainTab(cur, !!isAgent));
+    const isTextGen = graph.nodes.find((n) => n.id === selectedId)?.kind === "textGen";
+    setMainTabState((cur) => clampMainTab(cur, !!isTextGen));
   }, [selectedId, graph]);
 
   // E cycles 产出 → 配置 → 技能, alongside the existing single-key canvas bindings.
@@ -496,8 +496,8 @@ export default function Inspector({ onOpenSettings }: { onOpenSettings: () => vo
       const t = e.target as HTMLElement;
       if (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable) return;
       e.preventDefault();
-      const isAgent = graph.nodes.find((n) => n.id === selectedId)?.kind === "agent";
-      setMainTab(nextMainTab(mainTab, !!isAgent));
+      const isTextGen = graph.nodes.find((n) => n.id === selectedId)?.kind === "textGen";
+      setMainTab(nextMainTab(mainTab, !!isTextGen));
       triggerTabFlash();
     };
     window.addEventListener("keydown", onKey);
@@ -530,9 +530,9 @@ export default function Inspector({ onOpenSettings }: { onOpenSettings: () => vo
     return (
       <aside className="panel inspector">
         <div className="panel__bar">
-          <span>厂房详情</span>
+          <span>节点详情</span>
         </div>
-        <p className="empty">选中一座厂房查看详情</p>
+        <p className="empty">选中一座节点查看详情</p>
       </aside>
     );
   }
@@ -583,7 +583,7 @@ export default function Inspector({ onOpenSettings }: { onOpenSettings: () => vo
           className={`tab ${mainTab === "config" ? "is-on" : ""}`}
           onClick={() => setMainTab("config")}
         >配置</button>
-        {node.kind === "agent" && (
+        {node.kind === "textGen" && (
           <button
             type="button"
             className={`tab ${mainTab === "skills" ? "is-on" : ""}`}
@@ -775,20 +775,20 @@ export default function Inspector({ onOpenSettings }: { onOpenSettings: () => vo
           </>
         )}
 
-        {node.kind === "agent" && node.agent && (
+        {node.kind === "textGen" && node.textGen && (
           <>
             <label className="field">
               <span>模型</span>
               <select
                 className="select"
-                value={node.agent.model || "__unset__"}
+                value={node.textGen.model || "__unset__"}
                 onChange={(e) => {
                   if (e.target.value === "__unset__") return;
-                  updateNode(node.id, { agent: { ...node.agent!, model: e.target.value } });
+                  updateNode(node.id, { textGen: { ...node.textGen!, model: e.target.value } });
                 }}
               >
                 <option value="__unset__" disabled hidden>
-                  {!node.agent.model
+                  {!node.textGen.model
                     ? "（未配置 — 请先在「模型设置」中添加文本模型）"
                     : "（请选择）"}
                 </option>
@@ -797,23 +797,23 @@ export default function Inspector({ onOpenSettings }: { onOpenSettings: () => vo
                     {o.model} · {o.provider}
                   </option>
                 ))}
-                {!textModelOptions.some((o) => o.model === node.agent!.model) && node.agent.model && (
-                  <option value={node.agent.model}>{node.agent.model} (当前)</option>
+                {!textModelOptions.some((o) => o.model === node.textGen!.model) && node.textGen.model && (
+                  <option value={node.textGen.model}>{node.textGen.model} (当前)</option>
                 )}
               </select>
               <MissingModelHint hasModels={textModelOptions.length > 0} onOpenSettings={onOpenSettings} />
             </label>
             <label className="field">
-              <span>温度 ({node.agent.temperature.toFixed(2)})</span>
+              <span>温度 ({node.textGen.temperature.toFixed(2)})</span>
               <input
                 type="range"
                 min="0"
                 max="2"
                 step="0.05"
-                value={node.agent.temperature}
+                value={node.textGen.temperature}
                 onChange={(e) =>
                   updateNode(node.id, {
-                    agent: { ...node.agent!, temperature: Number(e.target.value) },
+                    textGen: { ...node.textGen!, temperature: Number(e.target.value) },
                   })
                 }
               />
@@ -825,11 +825,11 @@ export default function Inspector({ onOpenSettings }: { onOpenSettings: () => vo
                 min="0"
                 step="0.001"
                 placeholder="不限制"
-                value={node.agent.budgetUsd ?? ""}
+                value={node.textGen.budgetUsd ?? ""}
                 onChange={(e) =>
                   updateNode(node.id, {
-                    agent: {
-                      ...node.agent!,
+                    textGen: {
+                      ...node.textGen!,
                       budgetUsd: e.target.value === "" ? null : Number(e.target.value),
                     },
                   })
@@ -840,13 +840,13 @@ export default function Inspector({ onOpenSettings }: { onOpenSettings: () => vo
               <span>输入策略</span>
               <select
                 className="select"
-                value={node.agent.inputPolicy?.mode ?? "all"}
+                value={node.textGen.inputPolicy?.mode ?? "all"}
                 onChange={(e) =>
                   updateNode(node.id, {
-                    agent: {
-                      ...node.agent!,
+                    textGen: {
+                      ...node.textGen!,
                       inputPolicy: {
-                        ...(node.agent!.inputPolicy ?? { mode: "all" as const }),
+                        ...(node.textGen!.inputPolicy ?? { mode: "all" as const }),
                         mode: e.target.value as "all" | "last" | "truncate" | "summary",
                       },
                     },
@@ -861,7 +861,7 @@ export default function Inspector({ onOpenSettings }: { onOpenSettings: () => vo
             </label>
             <p className="note">
               {(() => {
-                switch (node.agent.inputPolicy?.mode ?? "all") {
+                switch (node.textGen.inputPolicy?.mode ?? "all") {
                   case "all":
                     return "默认：把全部上游输出按顺序拼接后作为输入。";
                   case "last":
@@ -875,21 +875,21 @@ export default function Inspector({ onOpenSettings }: { onOpenSettings: () => vo
                 }
               })()}
             </p>
-            {(node.agent.inputPolicy?.mode === "truncate" ||
-              node.agent.inputPolicy?.mode === "summary") && (
+            {(node.textGen.inputPolicy?.mode === "truncate" ||
+              node.textGen.inputPolicy?.mode === "summary") && (
               <label className="field">
                 <span>最大字符数</span>
                 <input
                   type="number"
                   min="500"
                   step="500"
-                  value={node.agent.inputPolicy?.maxChars ?? 8000}
+                  value={node.textGen.inputPolicy?.maxChars ?? 8000}
                   onChange={(e) =>
                     updateNode(node.id, {
-                      agent: {
-                        ...node.agent!,
+                      textGen: {
+                        ...node.textGen!,
                         inputPolicy: {
-                          mode: node.agent?.inputPolicy?.mode ?? "truncate",
+                          mode: node.textGen?.inputPolicy?.mode ?? "truncate",
                           maxChars: Number(e.target.value),
                         },
                       },
@@ -902,11 +902,11 @@ export default function Inspector({ onOpenSettings }: { onOpenSettings: () => vo
               <span>指令</span>
               <textarea
                 rows={4}
-                value={node.agent.prompt}
+                value={node.textGen.prompt}
                 onFocus={beginEdit}
                 onBlur={commitEdit}
                 onChange={(e) =>
-                  updateNode(node.id, { agent: { ...node.agent!, prompt: e.target.value } })
+                  updateNode(node.id, { textGen: { ...node.textGen!, prompt: e.target.value } })
                 }
               />
             </label>
@@ -915,10 +915,10 @@ export default function Inspector({ onOpenSettings }: { onOpenSettings: () => vo
               <textarea
                 rows={3}
                 placeholder="例：主图用竖图 3:4 居中；场景图卡用 2 列网格；细节图靠右"
-                value={node.agent.imageDirectives ?? ""}
+                value={node.textGen.imageDirectives ?? ""}
                 onChange={(e) =>
                   updateNode(node.id, {
-                    agent: { ...node.agent!, imageDirectives: e.target.value },
+                    textGen: { ...node.textGen!, imageDirectives: e.target.value },
                   })
                 }
               />
@@ -2694,11 +2694,11 @@ export default function Inspector({ onOpenSettings }: { onOpenSettings: () => vo
           </section>
         )}
         </>)}
-        {mainTab === "skills" && node.kind === "agent" && (
+        {mainTab === "skills" && node.kind === "textGen" && (
           <SkillPicker
-            mounted={node.agent?.skills ?? []}
+            mounted={node.textGen?.skills ?? []}
             onChange={(skills) =>
-              updateNode(node.id, { agent: { ...node.agent!, skills } })
+              updateNode(node.id, { textGen: { ...node.textGen!, skills } })
             }
           />
         )}

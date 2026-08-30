@@ -60,7 +60,7 @@ export default function BrandTermsModal({ open, onClose }: Props) {
         </div>
         <div className="modal__body">
           <p className="muted">
-            维护建议融入的品牌词。在厂房(agent)节点的「品牌词」处点「从品牌词库载入」即可一键带入；质检
+            维护建议融入的品牌词。在文坊(textGen)节点的「品牌词」处点「从品牌词库载入」即可一键带入；质检
             gate 可设「品牌词覆盖率门槛」，低于则打回上游重写。
           </p>
           <ul className="brand-list">

@@ -154,15 +154,15 @@ export default function App() {
 
   const commandItems: CommandItem[] = [
     // 节点
-    { id: "add-agent", label: "添加厂房", hint: "Agent 节点", group: "节点", onSelect: () => addNodeOrReport("agent", 300, 480) },
+    { id: "add-textgen", label: "添加文坊", hint: "TextGen 节点", group: "节点", onSelect: () => addNodeOrReport("textGen", 300, 480) },
     { id: "add-gate", label: "添加质检站", hint: "Gate 节点", group: "节点", onSelect: () => addNodeOrReport("gate", 500, 480) },
-    { id: "add-image", label: "添加 AI 生图", hint: "ImageGen 节点", group: "节点", onSelect: () => addNodeOrReport("imageGen", 300, 600) },
-    { id: "add-video", label: "添加 AI 视频", hint: "VideoGen 节点", group: "节点", onSelect: () => addNodeOrReport("videoGen", 300, 720) },
-    { id: "add-audio", label: "添加 AI 音频", hint: "AudioGen 节点", group: "节点", onSelect: () => addNodeOrReport("audioGen", 300, 840) },
+    { id: "add-image", label: "添加画坊", hint: "文字生成图片", group: "节点", onSelect: () => addNodeOrReport("imageGen", 300, 600) },
+    { id: "add-video", label: "添加影坊", hint: "文字生成视频", group: "节点", onSelect: () => addNodeOrReport("videoGen", 300, 720) },
+    { id: "add-audio", label: "添加音坊", hint: "文字生成语音/音乐", group: "节点", onSelect: () => addNodeOrReport("audioGen", 300, 840) },
     { id: "new-graph", label: "新建产线", hint: "从模板或空白创建", group: "节点", onSelect: () => setNewGraphOpen(true) },
     // 查看
     { id: "history", label: "运行历史", hint: "查看、加载、删除", group: "查看", onSelect: () => setHistoryOpen(true) },
-    { id: "cost", label: "成本报表", hint: "按产线 / 厂房 / 日期拆解", group: "查看", onSelect: () => setCostOpen(true) },
+    { id: "cost", label: "成本报表", hint: "按产线 / 文坊 / 日期拆解", group: "查看", onSelect: () => setCostOpen(true) },
     { id: "eval", label: "质量评估", hint: "通过率 / 返工 / 时长", group: "查看", onSelect: () => setEvalOpen(true) },
     { id: "gallery", label: "成品库", hint: "跨运行产出物画廊", group: "查看", onSelect: () => setGalleryOpen(true) },
     { id: "glossary", label: "术语对照表", hint: "标准术语 ⇄ Agent World 用词", group: "查看", onSelect: () => setGlossaryOpen(true) },
@@ -172,15 +172,23 @@ export default function App() {
     { id: "ab", label: "A/B 实验", hint: "同一节点多套 prompt 对比", group: "自动化", onSelect: () => setABOpen(true) },
     // 管理
     { id: "settings", label: "设置", hint: "Provider / 模型 / 单价 / 月度预算", group: "管理", onSelect: () => setSettingsOpen(true) },
-    { id: "brand", label: "品牌词库", hint: "可一键载入到厂房", group: "管理", onSelect: () => setBrandOpen(true) },
+    { id: "brand", label: "品牌词库", hint: "可一键载入到文坊", group: "管理", onSelect: () => setBrandOpen(true) },
     { id: "knowledge", label: "知识库", hint: "历史产线产出与质检结论", group: "管理", onSelect: () => setKnowledgeOpen(true) },
     { id: "version", label: "产线版本", hint: "快照 / 恢复", group: "管理", onSelect: () => setVersionOpen(true) },
     { id: "variables", label: "产线变量", hint: "跨运行持久化状态（${var.xxx} / set_variable）", group: "管理", onSelect: () => setVariablesOpen(true) },
+    { id: "reset-template", label: "还原到模板布局", hint: "只还原节点位置和连线", group: "管理", onSelect: () => {
+      const current = graphs.find((g) => g.id === graph.id);
+      if (!current?.originTemplateId) {
+        showError("此产线未从模板创建，无法还原布局。");
+        return;
+      }
+      resetGraph(graph.id);
+    }},
     // 画布
     { id: "undo", label: "撤销", group: "画布", shortcut: "⌘Z", onSelect: () => undo() },
     { id: "redo", label: "重做", group: "画布", shortcut: "⇧⌘Z", onSelect: () => redo() },
     { id: "toggle-panels", label: bothCollapsed ? "展开侧栏" : "收起侧栏", group: "画布", onSelect: toggleBoth },
-    { id: "toggle-tips", label: tipsEnabled ? "关闭厂房悬停信息" : "开启厂房悬停信息", group: "画布", shortcut: "T", onSelect: toggleTips },
+    { id: "toggle-tips", label: tipsEnabled ? "关闭文坊悬停信息" : "开启文坊悬停信息", group: "画布", shortcut: "T", onSelect: toggleTips },
   ];
 
   const refreshGraphs = useCallback(async () => {
@@ -275,6 +283,28 @@ export default function App() {
       }
     },
     [graph, refreshGraphs, setGraph, flushSave, nameTaken],
+  );
+
+  const resetGraph = useCallback(
+    async (id: string) => {
+      try {
+        if (id === graph.id) {
+          // Flush the user's latest edits first so the current state is
+          // auto-snapshotted before being overwritten by the reset.
+          await flushSave();
+        }
+        const g = await api.resetGraph(id);
+        await refreshGraphs();
+        if (id === graph.id) {
+          reset();
+          setGraph(g);
+          useGraph.temporal.getState().clear();
+        }
+      } catch (e) {
+        showError(String(e));
+      }
+    },
+    [graph.id, refreshGraphs, setGraph, reset, flushSave],
   );
 
   const confirmDelete = useCallback(async () => {
@@ -462,8 +492,9 @@ export default function App() {
               setDeleteTarget(graphs.find((g) => g.id === id) ?? null)
             }
             onRename={renameGraph}
+            onReset={resetGraph}
           />
-          <span className="muted">{graph.nodes.length} 座厂房</span>
+          <span className="muted">{graph.nodes.length} 座文坊</span>
           <span className="muted">{graph.edges.length} 条管道</span>
         </div>
         <div className="hud__actions">
@@ -475,7 +506,7 @@ export default function App() {
               {bothCollapsed ? "展开侧栏" : "收起侧栏"}
             </button>
           </Tooltip>
-          <Tooltip content={`厂房悬停信息：${tipsEnabled ? "开" : "关"}（快捷键 T 切换）`}>
+          <Tooltip content={`文坊悬停信息：${tipsEnabled ? "开" : "关"}（快捷键 T 切换）`}>
             <button
               className={`chip ${tipsEnabled ? "" : "chip--muted"}`}
               onClick={toggleTips}

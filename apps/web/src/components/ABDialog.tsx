@@ -10,7 +10,7 @@ interface Props {
 }
 
 export default function ABDialog({ open, graph, onClose, onLaunched }: Props) {
-  const agentNodes = graph?.nodes.filter((n) => n.kind === "agent") ?? [];
+  const textGenNodes = graph?.nodes.filter((n) => n.kind === "textGen") ?? [];
   const [targetNodeId, setTargetNodeId] = useState("");
   const [variantsText, setVariantsText] = useState("");
   const [budget, setBudget] = useState("");
@@ -30,7 +30,7 @@ export default function ABDialog({ open, graph, onClose, onLaunched }: Props) {
 
   if (!open) return null;
 
-  const effectiveTarget = targetNodeId || agentNodes[0]?.id || "";
+  const effectiveTarget = targetNodeId || textGenNodes[0]?.id || "";
   const variants = variantsText
     .split("\n")
     .map((v) => v.trim())
@@ -62,14 +62,14 @@ export default function ABDialog({ open, graph, onClose, onLaunched }: Props) {
           </button>
         </div>
         <div className="modal__body">
-          {agentNodes.length === 0 ? (
-            <p className="muted">当前产线没有厂房(agent)节点，无法发起 A/B。</p>
+          {textGenNodes.length === 0 ? (
+            <p className="muted">当前产线没有文坊(textGen)节点，无法发起 A/B。</p>
           ) : (
             <>
               <div className="field">
-                <span>目标厂房（将替换其 prompt）</span>
+                <span>目标文坊（将替换其 prompt）</span>
                 <select value={effectiveTarget} onChange={(e) => setTargetNodeId(e.target.value)}>
-                  {agentNodes.map((n) => (
+                  {textGenNodes.map((n) => (
                     <option key={n.id} value={n.id}>
                       {n.name}
                     </option>

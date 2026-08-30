@@ -26,8 +26,8 @@ export default function Onboarding({ onCreate }: Props) {
         <div className="onboarding__hero">
           <h1 className="onboarding__title">欢迎来到 Agent World</h1>
           <p className="onboarding__subtitle">
-            用可视化的方式编排多 Agent 工作流。每个 Agent 是产线上的一个厂房，
-            产出物通过管道在厂房间流动，质检站可以把不合格的工作打回重做。
+            用可视化的方式编排多 Agent 工作流。每个 Agent 是产线上的一个节点，
+            产出物通过管道在节点间流动，质检站可以把不合格的工作打回重做。
           </p>
         </div>
 

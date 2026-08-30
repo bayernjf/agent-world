@@ -248,7 +248,7 @@ export default function CostReport({ open, onClose }: Props) {
               </section>
 
               <section className="cost-section">
-                <h3 className="cost-section__title">最费钱的厂房（Top {report.byNode.length}）</h3>
+                <h3 className="cost-section__title">最费钱的节点（Top {report.byNode.length}）</h3>
                 {report.byNode.length === 0 ? (
                   <p className="muted">暂无数据</p>
                 ) : (
@@ -256,7 +256,7 @@ export default function CostReport({ open, onClose }: Props) {
                     <thead>
                       <tr>
                         <th>产线</th>
-                        <th>厂房</th>
+                        <th>节点</th>
                         <th className="num">尝试</th>
                         <th className="num">返工</th>
                         <th className="num">电费</th>
