@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import type { Graph } from "@agent-world/core";
+import { TemplatePreview } from "./TemplatePicker";
 
 interface VersionSummary {
   id: string;
@@ -33,6 +35,8 @@ export default function VersionPanel({ open, graphId, graphName, onClose, onRest
   const [newName, setNewName] = useState("");
   const [newNote, setNewNote] = useState("");
   const [saving, setSaving] = useState(false);
+  const [preview, setPreview] = useState<{ name: string; graph: Graph } | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
 
   useEffect(() => {
     if (open && graphId) load();
@@ -98,6 +102,20 @@ export default function VersionPanel({ open, graphId, graphName, onClose, onRest
     }
   }
 
+  /** Load a version's full snapshot for the preview overlay (read-only). */
+  async function openPreview(id: string) {
+    setPreviewLoading(true);
+    try {
+      const res = await fetch(`/api/graphs/${graphId}/versions/${id}`);
+      const data = (await res.json()) as { name: string; snapshot: Graph };
+      setPreview({ name: data.name, graph: data.snapshot });
+    } catch {
+      alert("预览加载失败");
+    } finally {
+      setPreviewLoading(false);
+    }
+  }
+
   if (!open) return null;
 
   return (
@@ -153,6 +171,9 @@ export default function VersionPanel({ open, graphId, graphName, onClose, onRest
               </div>
               {v.note && v.note !== "auto" && <p className="version-item__note muted">{v.note}</p>}
               <div className="version-item__actions">
+                <button className="btn btn--ghost btn--sm" onClick={() => openPreview(v.id)} disabled={previewLoading}>
+                  预览
+                </button>
                 <button className="btn btn--ghost btn--sm" onClick={() => restoreVersion(v.id)}>恢复</button>
                 <button className="btn btn--ghost btn--sm btn--danger" onClick={() => deleteVersion(v.id)}>删除</button>
               </div>
@@ -160,6 +181,34 @@ export default function VersionPanel({ open, graphId, graphName, onClose, onRest
           ))}
         </div>
       </div>
+
+      {preview && (
+        <div className="modal-overlay" onClick={() => setPreview(null)}>
+          <div className="modal version-preview" onClick={(e) => e.stopPropagation()}>
+            <div className="modal__header">
+              <h2>{preview.name}</h2>
+              <button className="btn btn--ghost btn--sm" onClick={() => setPreview(null)}>关闭</button>
+            </div>
+            <div className="version-preview__body">
+              <TemplatePreview
+                nodes={preview.graph.nodes.map((n) => ({ id: n.id, kind: n.kind, x: n.x, y: n.y }))}
+                edges={preview.graph.edges.map((e) => ({ from: e.from, to: e.to, kind: e.kind }))}
+              />
+              <p className="version-preview__summary muted">
+                {preview.graph.nodes.length} 个节点 · {preview.graph.edges.length} 条连线 ·{" "}
+                {Object.entries(
+                  preview.graph.nodes.reduce<Record<string, number>>((acc, n) => {
+                    acc[n.kind] = (acc[n.kind] ?? 0) + 1;
+                    return acc;
+                  }, {}),
+                )
+                  .map(([kind, count]) => `${kind}×${count}`)
+                  .join(" / ")}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
