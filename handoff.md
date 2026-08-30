@@ -12,6 +12,7 @@ State of Agent World as of 2026-08-30.
 - [README.md](README.md) — two core design decisions, layout, running instructions
 - [docs/technical-design.md](docs/technical-design.md) — architecture, data models, API
 - [docs/roadmap-generalization.md](docs/roadmap-generalization.md) — 通用化路线图（当前主线，5 阶段）
+- [docs/deferred-items.md](docs/deferred-items.md) — 缓做/低优事项登记表（挂起项 + 触发条件的单一事实源）
 - [docs/design-mcp-server.md](docs/design-mcp-server.md) — MCP Server 设计方案（让其他 AI 客户端接入 agent-world）
 - [docs/design-artifact-display.md](docs/design-artifact-display.md) — 产物统一渲染卡设计（ArtifactCard + 渲染器注册表；已落地）
 - [docs/design-artifact-attribution-repo.md](docs/design-artifact-attribution-repo.md) — 产物归属 + 按流水线分组成品仓库设计（已落地）
@@ -56,8 +57,12 @@ State of Agent World as of 2026-08-30.
 
 按优先级降序，标 `★` 的是当下要推的：
 
-1. **沙箱后续（低优）**：docker/podman 容器后端（生产级隔离，net allowlist 的终极形态）
-2. **模板市场（缓做）**：用户发布/安装模板，触发条件见 design-templates §4
+1. **README 演示 GIF（README 已重写待配套）**：README.md 已按对外受众重写（定位/Feature map/Quick start），预留了 `docs/images/` 截图 TODO 注释位——需录一段「画布运行 + rework 回环 + 时间轴回放」的 GIF（macOS 录屏 + `ffmpeg -i in.mov -vf "fps=10,scale=720:-1" out.gif`）。README 改动**尚未 commit**
+2. **git push（用户确认时机）**：本地有 10 个 commit 未 push（含 README 重写），等用户指示后统一 push 并观察 CI
+3. **沙箱后续（低优）**：docker/podman 容器后端（生产级隔离，net allowlist 的终极形态）
+4. **模板市场（缓做）**：用户发布/安装模板，触发条件见 design-templates §4
+
+> 全部缓做/低优事项（含上述两条）已统一登记在 [docs/deferred-items.md](docs/deferred-items.md)——每条带触发条件与决策详情链接，触发条件满足时移回本区并标注重启日期。
 
 ## Recently shipped (last 5)
 

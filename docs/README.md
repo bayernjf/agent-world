@@ -32,6 +32,7 @@
 | [CONTRIBUTING.md](../CONTRIBUTING.md) | 环境搭建、测试、commit 规范、PR 流程 | 贡献者 |
 | [technical-design.md](technical-design.md) | 技术方案结论：架构、数据模型、API、安全 | 开发者 |
 | [roadmap-generalization.md](roadmap-generalization.md) | 通用化路线图（当前主线，5 阶段） | 决策者 / 开发者 ★ |
+| [deferred-items.md](deferred-items.md) | 缓做/低优事项登记表（全部挂起项 + 触发条件的单一事实源） | 决策者 / 开发者 ★ |
 | [design-mcp-server.md](design-mcp-server.md) | MCP Server 设计（传输 / tools / resources / prompts） | 开发者 |
 | [design-code-sandbox.md](design-code-sandbox.md) | 代码节点运行沙箱设计（env / 网络 / 文件系统 / 资源 / 工作目录隔离，P0-P2） | 开发者 |
 | [design-artifact-display.md](design-artifact-display.md) | 产物统一渲染卡设计（ArtifactCard + 渲染器注册表） | 开发者 |
