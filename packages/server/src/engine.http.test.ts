@@ -205,4 +205,98 @@ describe("http node SSRF guard", () => {
     expect(spy).toHaveBeenCalledWith("http://127.0.0.1:8080/intranet", expect.anything());
     spy.mockRestore();
   });
+
+  it("refuses a redirect that lands on an internal address (audit C3)", async () => {
+    // First hop: public IP answers 302 -> cloud metadata. The guard must
+    // reject the *second* hop before any request to it is sent.
+    const spy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(null, { status: 302, headers: { location: "http://169.254.169.254/latest/meta-data/" } }),
+      )
+      .mockResolvedValue(new Response("leak", { status: 200 }));
+    const g = graph({ method: "GET", url: "http://8.8.8.8/redirect" });
+    const { plan } = compile(g)!;
+    const events: any[] = [];
+    for await (const e of execute({ runId: "r", graph: g, plan: plan!, worker: fakeWorker(), budgetUsd: null, now: () => 0 })) {
+      events.push(e);
+    }
+
+    const failed = events.find((e) => e.type === "node.failed" && e.nodeId === "api");
+    expect(failed).toBeTruthy();
+    expect(failed.errorCode).toBe("VALIDATION");
+    // Only the initial public request went out; the internal hop never did.
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(replay(events).status).toBe("failed");
+    spy.mockRestore();
+  });
+
+  it("follows legitimate redirects and produces the final response", async () => {
+    const spy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(null, { status: 302, headers: { location: "/hop2" } }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ hop: 2 }), { status: 200, headers: { "content-type": "application/json" } }),
+      );
+    const g = graph({ method: "GET", url: "http://8.8.8.8/hop1", outputMode: "auto" });
+    const { plan } = compile(g)!;
+    const events: any[] = [];
+    for await (const e of execute({ runId: "r", graph: g, plan: plan!, worker: fakeWorker(), budgetUsd: null, now: () => 0 })) {
+      events.push(e);
+    }
+
+    expect(replay(events).status).toBe("done");
+    expect(spy).toHaveBeenCalledTimes(2);
+    expect(spy.mock.calls[1]![0]).toBe("http://8.8.8.8/hop2");
+    const finished = events.find((e) => e.type === "node.finished" && e.nodeId === "api");
+    expect(finished.output).toBe(JSON.stringify({ hop: 2 }, null, 2));
+    spy.mockRestore();
+  });
+
+  it("strips Authorization when a redirect crosses origins", async () => {
+    const spy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(null, { status: 302, headers: { location: "http://9.9.9.9/elsewhere" } }),
+      )
+      .mockResolvedValueOnce(new Response("ok", { status: 200 }));
+    const g = graph({
+      method: "GET",
+      url: "http://8.8.8.8/auth",
+      headers: { authorization: "Bearer secret-token", "x-custom": "keep-me" },
+    });
+    const { plan } = compile(g)!;
+    const events: any[] = [];
+    for await (const e of execute({ runId: "r", graph: g, plan: plan!, worker: fakeWorker(), budgetUsd: null, now: () => 0 })) {
+      events.push(e);
+    }
+
+    expect(replay(events).status).toBe("done");
+    const secondInit = spy.mock.calls[1]![1] as { headers: Record<string, string> };
+    expect(secondInit.headers["authorization"]).toBeUndefined();
+    expect(secondInit.headers["x-custom"]).toBe("keep-me");
+    spy.mockRestore();
+  });
+
+  it("gives up after 5 redirects", async () => {
+    const spy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (url: string | URL | Request) => {
+        const u = typeof url === "string" ? url : url.toString();
+        const hop = Number(/\/hop(\d+)/.exec(u)?.[1] ?? 0) + 1;
+        return new Response(null, { status: 302, headers: { location: `/hop${hop}` } });
+      });
+    const g = graph({ method: "GET", url: "http://8.8.8.8/hop1" });
+    const { plan } = compile(g)!;
+    const events: any[] = [];
+    for await (const e of execute({ runId: "r", graph: g, plan: plan!, worker: fakeWorker(), budgetUsd: null, now: () => 0 })) {
+      events.push(e);
+    }
+
+    const failed = events.find((e) => e.type === "node.failed" && e.nodeId === "api");
+    expect(failed).toBeTruthy();
+    expect(spy).toHaveBeenCalledTimes(6); // initial + 5 hops
+    expect(replay(events).status).toBe("failed");
+    spy.mockRestore();
+  });
 });
