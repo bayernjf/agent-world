@@ -1,4 +1,5 @@
 import { type ChildProcess, fork } from "node:child_process";
+import path from "node:path";
 import { readFile, writeFile, readdir, stat, unlink, mkdir, rm, appendFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import type { Worker } from "./worker.js";
@@ -42,12 +43,58 @@ const SAFE_ENV_BASE = [
   "NODE_ENV",
 ];
 
-/** Build the environment a subprocess plugin receives: baseline + declared keys only. */
+/**
+ * Env keys whose names look like secrets are never forwarded to a plugin just
+ * because the plugin declared them (M6). The operator can still expose one
+ * explicitly via PLUGIN_ENV_ALLOWLIST (comma-separated exact names).
+ */
+const SENSITIVE_ENV_RE = /(KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTH)/i;
+export function isSensitiveEnvKey(key: string): boolean {
+  return SENSITIVE_ENV_RE.test(key);
+}
+function operatorEnvAllowlist(): Set<string> {
+  return new Set(
+    (process.env.PLUGIN_ENV_ALLOWLIST ?? "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean),
+  );
+}
+
+/**
+ * Build the environment a subprocess plugin receives: a fixed safe baseline
+ * plus only the keys the plugin declared — and even a declared key is stripped
+ * when its name looks like a secret unless the operator allowlisted it (M6),
+ * so a plugin cannot exfiltrate the host's API keys by declaring them.
+ */
 export function trimEnv(declared?: string[]): NodeJS.ProcessEnv {
   const out: Record<string, string> = {};
-  for (const k of SAFE_ENV_BASE) if (process.env[k] !== undefined) out[k] = process.env[k]!;
-  for (const k of declared ?? []) if (process.env[k] !== undefined) out[k] = process.env[k]!;
+  const allowSensitive = operatorEnvAllowlist();
+  const copy = (k: string): void => {
+    if (process.env[k] === undefined) return;
+    if (isSensitiveEnvKey(k) && !allowSensitive.has(k)) return;
+    out[k] = process.env[k]!;
+  };
+  for (const k of SAFE_ENV_BASE) copy(k);
+  for (const k of declared ?? []) copy(k);
   return out as NodeJS.ProcessEnv;
+}
+
+/**
+ * Boundary-safe allowlist check (H9). Resolve the lexical path first, then
+ * require the target to equal an allowed base or sit strictly inside it. A
+ * naive startsWith() lets a sibling such as "/allowed-evil" match base
+ * "/allowed"; path.relative makes the directory boundary explicit.
+ */
+export function isPathAllowed(target: string, allow: readonly string[] | undefined | null): boolean {
+  if (!allow || allow.length === 0) return true;
+  const resolved = path.resolve(target);
+  return allow.some((base) => {
+    const b = path.resolve(base);
+    if (resolved === b) return true;
+    const rel = path.relative(b, resolved);
+    return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
+  });
 }
 
 interface CallResultMsg {
@@ -183,10 +230,10 @@ export class IsolatedWorker implements Worker {
   }
 
   /** Enforce the fs allowlist on a path. Throws if the path is not permitted. */
-  private checkFsPath(path: string): void {
+  private checkFsPath(pathName: string): void {
     const cfg = loadPermissionConfig();
-    if (cfg.fsAllow && !cfg.fsAllow.some((p) => path.startsWith(p))) {
-      throw new Error(`filesystem path ${path} is not permitted`);
+    if (!isPathAllowed(pathName, cfg.fsAllow)) {
+      throw new Error(`filesystem path ${pathName} is not permitted`);
     }
   }
 
@@ -239,11 +286,19 @@ export class IsolatedWorker implements Worker {
 }
 
 /**
- * Fork a plugin entry into an isolated child process. Returns an `IsolatedWorker`
- * that proxies all calls. The plugin entry must be importable by plain Node
- * (`.js` / `.mjs`), since the child does not share the server's TS loader.
+ * Fork a plugin entry into an isolated child process and wait for it to signal
+ * readiness before returning. The child sends `{kind:"ready"}` once its entry
+ * is imported and its worker constructed; if it exits/errors first or fails to
+ * handshake in time, the promise rejects (H8 fail-closed) instead of returning
+ * a half-dead worker that the caller would silently run in the main process.
  */
-export function spawnIsolatedWorker(entryPath: string, pluginId: string, declaredEnv?: string[]): IsolatedWorker {
+export async function spawnIsolatedWorker(
+  entryPath: string,
+  pluginId: string,
+  declaredEnv?: string[],
+  opts: { handshakeTimeoutMs?: number } = {},
+): Promise<IsolatedWorker> {
+  const timeoutMs = opts.handshakeTimeoutMs ?? 5000;
   const child = fork(PROXY_ENTRY, [], {
     env: { ...trimEnv(declaredEnv), WORKER_PLUGIN_ENTRY: entryPath },
     stdio: ["ignore", "inherit", "inherit", "ipc"],
@@ -251,7 +306,43 @@ export function spawnIsolatedWorker(entryPath: string, pluginId: string, declare
     // in arbitrary plugins is intercepted and routed through the allowlist.
     execArgv: ["--import", FS_LOADER_REGISTER],
   });
-  return new IsolatedWorker(child, pluginId);
+
+  return await new Promise<IsolatedWorker>((resolve, reject) => {
+    let settled = false;
+    const finish = (err: Error | null): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      child.off("message", onReady);
+      child.off("exit", onExit);
+      child.off("error", onError);
+      if (err) {
+        try {
+          child.kill();
+        } catch {
+          /* already gone */
+        }
+        reject(err);
+      } else {
+        resolve(new IsolatedWorker(child, pluginId));
+      }
+    };
+    const timer = setTimeout(
+      () => finish(new Error(`plugin ${pluginId} did not signal ready within ${timeoutMs}ms`)),
+      timeoutMs,
+    );
+    const onReady = (m: unknown): void => {
+      if (m && (m as { dir?: string; kind?: string }).dir === "c2p" && (m as { kind?: string }).kind === "ready") {
+        finish(null);
+      }
+    };
+    const onExit = (code: number | null): void =>
+      finish(new Error(`plugin ${pluginId} exited during startup (exit code ${code ?? "null"})`));
+    const onError = (e: Error): void => finish(e);
+    child.on("message", onReady);
+    child.once("exit", onExit);
+    child.once("error", onError);
+  });
 }
 
 /** Dispose every isolated child (call on server shutdown). */
