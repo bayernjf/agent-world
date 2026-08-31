@@ -13,6 +13,7 @@ State of Agent World as of 2026-08-31.
 - [docs/technical-design.md](docs/technical-design.md) — architecture, data models, API
 - [docs/roadmap-generalization.md](docs/roadmap-generalization.md) — 通用化路线图（当前主线，5 阶段）
 - [docs/deferred-items.md](docs/deferred-items.md) — 缓做/低优事项登记表（挂起项 + 触发条件的单一事实源）
+- [docs/security-audit-2026-08-31.md](docs/security-audit-2026-08-31.md) — 安全审计报告 + 四批修复方案（3 Critical / 10 High，含两条旧"已解决"结论的更正）★
 - [docs/design-mcp-server.md](docs/design-mcp-server.md) — MCP Server 设计方案（让其他 AI 客户端接入 agent-world）
 - [docs/design-artifact-display.md](docs/design-artifact-display.md) — 产物统一渲染卡设计（ArtifactCard + 渲染器注册表；已落地）
 - [docs/design-artifact-attribution-repo.md](docs/design-artifact-attribution-repo.md) — 产物归属 + 按流水线分组成品仓库设计（已落地）
@@ -28,7 +29,7 @@ State of Agent World as of 2026-08-31.
 
 - **Monorepo**：`packages/core` / `packages/server` (Node + sqlite, 端口 8791) / `apps/web` (Vite, 端口 5173)
 - **核心能力**：4 类 AI 节点（agent / imageGen / videoGen / audioGen）+ **通用节点（HTTP 请求 / 代码执行 / 条件分支 / 映射 / 循环 / 并行聚合 / 表格处理 / 数据库查询 / 文件解析 / 翻译 / OCR / 文件转换 / 搜索 / 通知）**，**Phase 4 编排能力全部落地（2026-08-30 复核）：人工审批 human 节点 / subprocess 子流程调用 / graph 变量跨 run 持久化 / error 边 + catch 容错路径 / 失败级联 skip / 节点级重试基建（search/http/code/translate）/ 失败告警 + rerun；状态机按决策缓做**，**MCP Server（stdio + HTTP/SSE 双传输，15 工具 + resources + prompts + 实时 notifications 桥接 + Authorization Bearer 认证，P0-P2 全部落地）**，多产线管理，Inspector 模型下拉严格按 modality 过滤，多模态产出（Artifact 分层），流式 + SSE + 断线重连 + halt/resume，成本电表（token + 单价两种模式），评估体系雏形，产物落库归属流水线（artifacts 的 graph_id/role），**版本管理补强（2026-08-30）**：保存前自动快照（节流 + 每图滚动保留 30 条）+ 版本与最近 run 的 content hash 关联标记 + 只读恢复预览（结构摘要 + SVG 缩略图），**模板参数化全链路（2026-08-30）**：TemplateField 实例化应用（core）+ fieldValues API（server）+ TemplateFieldDialog 参数表单（web 双入口，4 个 HTTP 模板声明 URL 字段），**术语表弹窗（2026-08-30）**：GlossaryModal 标准术语 ⇄ Agent World 游戏化用词对照（design-glossary.md 单一事实源），**Inspector 交互修复（2026-08-30）**：面板改为显式**点击**节点才展开、拖拽节点不再误弹（store.inspectorOpen 信号驱动），**模板能力释放（2026-08-31）**：18 个实用模板覆盖全部节点能力（含 loop 批处理 / vcs / convert+ocr / search+TTS），现有模板容错加固（error 边兜底），routingWorker 补视频音频路由（此前 videoGen/audioGen 生产被静默跳过）
-- **安全基线（本轮升级）**：settings 按用户隔离（迁移 16，provider key 互不可见）+ **HTTP 节点 SSRF 防护**（fetch 时解析 IP 校验，DNS-rebinding 免疫，`ALLOW_PRIVATE_NETWORK=1` 逃生口）+ 登录 cookie 按 `SECURE_COOKIES`/production 加 `Secure` 标志（localhost 豁免）+ webhook 触发器强制非空 secret（杜绝匿名触发）+ **代码节点沙箱全栈**（P0 env/cwd 隔离 → P1 rlimit+Node permission → P2 可插拔后端 bwrap/sandbox-exec/noop → fs/net 策略字段 → **net allowlist SSRF 校验代理**：`TOOL_NETWORK_ALLOW` 白名单 + 内网 IP 拒绝 + 一次性 run token + 逐请求审计，协作式边界见 design §10）
+- **安全基线（本轮升级）**：⚠️ **2026-08-31 全量审计推翻两条旧结论**——"DNS-rebinding 免疫"实际是 check-then-fetch 双解析（仍可绕），"webhook 强制 secret"只覆盖单条路由（图保存路径可绕过），另发现 3 Critical / 10 High。以下基线描述保留为历史记录，**当前事实与修复方案以 [docs/security-audit-2026-08-31.md](docs/security-audit-2026-08-31.md) 为准**：~~settings 按用户隔离（迁移 16，provider key 互不可见）+ **HTTP 节点 SSRF 防护**（fetch 时解析 IP 校验，DNS-rebinding 免疫，`ALLOW_PRIVATE_NETWORK=1` 逃生口）+ 登录 cookie 按 `SECURE_COOKIES`/production 加 `Secure` 标志（localhost 豁免）+ webhook 触发器强制非空 secret（杜绝匿名触发）~~。其中仍成立的部分：settings 按用户隔离 ✓、Secure cookie ✓、`ALLOW_PRIVATE_NETWORK` 逃生口 ✓、代码沙箱 P0-P2 基建 ✓（但默认后端 fail-open，见审计 H8）
 - **本轮已落地（2026-08-29，均已提交）**：
   - **账号系统 / 按用户隔离**（`5b81c74` + `73d3610`）：users 表 + JWT(HS256, bcrypt12) HttpOnly cookie 会话 + graphs/runs/artifacts/brand_terms/成本全部按 `user_id` 过滤 + 前端登录/注册/用户菜单 + `authFetch(credentials:include)`。旧库升级自动回填归属（迁移 14/15 幂等，无法归属的行 fail closed 不可见）
   - **产物统一渲染**：`artifact-renderers.tsx`（ArtifactCard 外壳 + 7 类渲染器注册表 + JSON 树 + 共享 renderMarkdown），Inspector/成品面板/画廊三处接入，画廊按流水线分组，节点缩略图
@@ -57,10 +58,11 @@ State of Agent World as of 2026-08-31.
 
 按优先级降序，标 `★` 的是当下要推的：
 
-1. **README 演示 GIF**：README.md 已按对外受众重写并 commit（`1fc7f56`），预留了 `docs/images/` 截图 TODO 注释位——需录一段「画布运行 + rework 回环 + 时间轴回放」的 GIF（macOS 录屏 + `ffmpeg -i in.mov -vf "fps=10,scale=720:-1" out.gif"`）
-2. **git push（用户确认时机）**：本地领先 `origin/feature/20260824` 3 个 commit（routingWorker 视频音频路由 `c512921` / 四大能力模板 `d73067a` / 现有模板加固 `62fe326`），等用户指示后统一 push 并观察 CI
-3. **沙箱后续（低优）**：docker/podman 容器后端（生产级隔离，net allowlist 的终极形态）
-4. **模板市场（缓做）**：用户发布/安装模板，触发条件见 design-templates §4
+1. ★ **安全审计修复（2026-08-31）**：全量审计发现 3 Critical / 10 High，报告与四批修复方案见 [docs/security-audit-2026-08-31.md](docs/security-audit-2026-08-31.md)。进度：**C1 已修复（未提交）**——`/api/providers/test` 改为"已存密钥只允许发往已存 baseUrl"（密钥与端点同源），api.security.test.ts 新增 2 条用例（攻击路径 400 且 fetch 未发出 / 合法路径照常）；待办：C2（节点 id 字符集 + 存储路径约束）、C3（HTTP 节点重定向 SSRF）及其余批次
+2. **README 演示 GIF**：README.md 已按对外受众重写并 commit（`1fc7f56`），预留了 `docs/images/` 截图 TODO 注释位——需录一段「画布运行 + rework 回环 + 时间轴回放」的 GIF（macOS 录屏 + `ffmpeg -i in.mov -vf "fps=10,scale=720:-1" out.gif"`）
+3. **git push（用户确认时机）**：本地领先 `origin/feature/20260824` 3 个 commit（routingWorker 视频音频路由 `c512921` / 四大能力模板 `d73067a` / 现有模板加固 `62fe326`），等用户指示后统一 push 并观察 CI。⚠️ 建议在第一批安全修复提交后再 push，避免把 C1/C2/C3 原样推上远端
+4. **沙箱后续（低优）**：docker/podman 容器后端（生产级隔离，net allowlist 的终极形态）——与审计第四批"隔离诚实化"合并推进
+5. **模板市场（缓做）**：用户发布/安装模板，触发条件见 design-templates §4
 
 > 全部缓做/低优事项（含上述两条）已统一登记在 [docs/deferred-items.md](docs/deferred-items.md)——每条带触发条件与决策详情链接，触发条件满足时移回本区并标注重启日期。
 
@@ -82,7 +84,7 @@ State of Agent World as of 2026-08-31.
 
 - `pnpm -r typecheck`：全绿（2026-08-31 复核：core/server/mcp-server/web tsc --noEmit 全部干净）
 - `pnpm --filter @agent-world/core test`：**151/151 通过**（2026-08-31：新增 4 用例——四大能力模板 kind 覆盖 / loop items 引用重写到新 id / doc-ingest·review-publish·scan-ocr error 边兜底 / translation 专用 translate 节点；原有 EdgeKind error / 全量 compile / 字段引用用例）
-- `pnpm --filter @agent-world/server test`：**470/470 通过**（Node 24 下跑，2026-08-31 全绿含此前环境性失败；新增 routing.test.ts 锁定 routingWorker 视频音频委托）。templates-api.test.ts 3 个（/api/templates 返回 slim fields / fieldValues 应用到实例图 / 缺省保持默认）。版本管理 graph-versions.test.ts 6 个。SSRF 代理 13 个 code-proxy 单测 + 3 个 engine e2e。此前 fs/net 策略 5 个、P2 13 个、P1 13 个
+- `pnpm --filter @agent-world/server test`：**472/472 通过**（Node 24 下跑；2026-08-31 新增 api.security.test.ts 2 条——`/api/providers/test` 密钥外泄防护 C1 修复的正反用例）。**已知负载性 flaky**：全量并发跑时偶发 1-6 个用例超时（多为 bcrypt/计时敏感用例，如 Secure cookie、sse-resume、engine.code 沙箱计时），单独跑或复跑即绿——排查时先复跑再怀疑代码。此前 470/470（含 routing.test.ts 锁定 routingWorker 视频音频委托）。templates-api.test.ts 3 个（/api/templates 返回 slim fields / fieldValues 应用到实例图 / 缺省保持默认）。版本管理 graph-versions.test.ts 6 个。SSRF 代理 13 个 code-proxy 单测 + 3 个 engine e2e。此前 fs/net 策略 5 个、P2 13 个、P1 13 个
 - `pnpm --filter @agent-world/mcp-server test`：**50/50 通过**（新增 stdio 端到端冒烟 3 个：CLI 子进程真实回环 / parse error 容错 / 多字节 id 无分帧错位）
 - `pnpm --filter @agent-world/web exec vitest run`：19/19 通过
 - **注意**：依赖 `node:sqlite`，必须 Node ≥ 22（CI 用 Node 24；本地 shell 默认 Node 20 会误报 `No such built-in module: node:sqlite`，用 `fnm exec --using=24` 跑）。**P1 沙箱的实跑测试必须在 Node 24 下验证**——否则 `code-sandbox.test.ts` 的 spawnSync shell 脚本形状断言通过，但 `engine.code.test.ts` 中真正执行用户脚本时会因 `--permission` / `--experimental-permission` 形式与实际 Node 版本不一致而失败（`resolveInterpreter` 会对解释器路径做版本探针，跨版本跑会走不同分支）
