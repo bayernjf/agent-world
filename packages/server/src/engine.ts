@@ -3541,7 +3541,23 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           for (const n of graph.nodes) {
             if (states.get(n.id) !== "pending") continue;
             const errIns = incoming(graph, n.id, "error");
-            if (errIns.length > 0) continue; // catch node — waits for its error pred, not skipped here
+            if (errIns.length > 0) {
+              // A catch node is "dead" when every error predecessor is already
+              // terminal and none of them failed — no error packet will ever
+              // arrive, but it still holds a flow merge point hostage waiting
+              // for it. Skip it so the happy path can continue.
+              const allErrTerminal = errIns.every((e) => {
+                const s = states.get(e.from);
+                return s === "done" || s === "skipped" || s === "failed";
+              });
+              const anyFailed = errIns.some((e) => states.get(e.from) === "failed");
+              if (allErrTerminal && !anyFailed) {
+                states.set(n.id, "skipped");
+                emit({ type: "node.skipped", nodeId: n.id, attempt: attempts.get(n.id) ?? 1, reason: "no error arrived" });
+                changed = true;
+              }
+              continue;
+            }
             const ins = incoming(graph, n.id, "flow");
             if (ins.length === 0) continue;
             const allTerminal = ins.every(

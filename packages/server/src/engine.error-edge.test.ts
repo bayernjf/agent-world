@@ -84,6 +84,8 @@ describe("error handling — error edges + catch node", () => {
     expect(catchFinished).toBeTruthy();
     // An error packet travelled dl → catch.
     expect(events.some((e) => e.type === "packet.sent" && e.from === "dl" && e.to === "catch")).toBe(true);
+    // The merge sink ran on the failure path (via catch).
+    expect(events.some((e) => e.type === "node.finished" && e.nodeId === "sink")).toBe(true);
   });
 
   it("runs the happy branch when the node succeeds (no error packet)", async () => {
@@ -94,5 +96,8 @@ describe("error handling — error edges + catch node", () => {
     // catch never ran — no error packet.
     expect(events.some((e) => e.type === "packet.sent" && e.from === "dl" && e.to === "catch")).toBe(false);
     expect(events.some((e) => e.type === "node.started" && e.nodeId === "catch")).toBe(false);
+    // The dead catch is skipped, not left pending, so the merge sink still runs.
+    expect(events.some((e) => e.type === "node.skipped" && e.nodeId === "catch")).toBe(true);
+    expect(events.some((e) => e.type === "node.finished" && e.nodeId === "sink")).toBe(true);
   });
 });
