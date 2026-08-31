@@ -99,6 +99,33 @@ describe("TriggerService", () => {
     await expect(service.fireWebhook("g1", "s3cr3t", "x")).rejects.toBeInstanceOf(TriggerError);
   });
 
+  it("rejects an empty webhook secret without starting a run (audit H2)", async () => {
+    const { service, calls } = makeService([graphWith([webhookTrigger])]);
+    await expect(service.fireWebhook("g1", "", "x")).rejects.toMatchObject({ status: 401 });
+    await expect(service.fireWebhook("g1", "   ", "x")).rejects.toMatchObject({ status: 401 });
+    expect(calls).toHaveLength(0);
+  });
+
+  it("accepts a webhook timestamp inside the replay window (audit M1)", async () => {
+    const { service } = makeService([graphWith([webhookTrigger])]);
+    const res = await service.fireWebhook("g1", "s3cr3t", "x", Date.now());
+    expect(res.runId).toBe("run-1");
+  });
+
+  it("rejects a stale webhook timestamp outside the 5-minute window (audit M1)", async () => {
+    const { service, calls } = makeService([graphWith([webhookTrigger])]);
+    const stale = Date.now() - 6 * 60 * 1000;
+    await expect(service.fireWebhook("g1", "s3cr3t", "x", stale)).rejects.toMatchObject({ status: 401 });
+    expect(calls).toHaveLength(0);
+  });
+
+  it("restore() skips a webhook trigger persisted with an empty secret (audit H2)", () => {
+    const emptySecret = TriggerConfig.parse({ id: "te", type: "webhook", webhookSecret: "  " });
+    const { service } = makeService([graphWith([emptySecret, cronTrigger])]);
+    // The empty-secret webhook is never indexed; the valid cron trigger survives.
+    expect(service.list().map((t) => t.id)).toEqual(["t2"]);
+  });
+
   it("removes a trigger and persists the change", async () => {
     const { service, store } = makeService([graphWith([webhookTrigger, cronTrigger])]);
     await service.remove("g1", "t1");
