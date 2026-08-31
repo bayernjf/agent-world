@@ -127,7 +127,6 @@ export default function TemplatePicker({
           key="__blank__"
           className={`template-card template-card--blank ${cardClass ? `template-card--${cardClass}` : ""}`}
           onClick={() => onPick(undefined)}
-          title="从空白画布开始，不预置任何节点"
         >
           <TemplatePreview nodes={[]} edges={[]} />
           <span className="template-card__name">空白产线</span>
@@ -141,7 +140,6 @@ export default function TemplatePicker({
           key={t.id}
           className={`template-card ${cardClass ? `template-card--${cardClass}` : ""}`}
           onClick={() => onPick(t.id)}
-          title={t.description}
         >
           <TemplatePreview nodes={t.nodes} edges={t.edges} />
           <span className="template-card__name">{t.name}</span>
