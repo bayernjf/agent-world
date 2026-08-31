@@ -24,8 +24,13 @@ export interface TemplatePreviewData {
 }
 
 /** Template list read straight from core — no network round-trip, so the
- *  grid renders even when the engine is slow or unreachable. */
-export const TEMPLATE_LIST: TemplatePreviewData[] = TEMPLATES.map((t) => ({
+ *  grid renders even when the engine is slow or unreachable.
+ *
+ *  `tpl-blank` is intentionally excluded here: a blank canvas is offered as a
+ *  dedicated first card (see `blankFirst`), not as a template entry. */
+export const TEMPLATE_LIST: TemplatePreviewData[] = TEMPLATES.filter(
+  (t) => t.id !== "tpl-blank",
+).map((t) => ({
   id: t.id,
   name: t.name,
   description: t.description,
