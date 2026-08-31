@@ -27,6 +27,29 @@ export function isSafeUri(uri: string | null | undefined): boolean {
   return SAFE_URI.test(trimmed);
 }
 
+const HAS_SCHEME = /^[a-z][a-z0-9+.-]*:/i;
+const LINK_SAFE = /^(https?:|mailto:)/i;
+const IMAGE_SAFE = /^(https?:|data:image\/|blob:)/i;
+
+/**
+ * Single URL sanitizer for model/Markdown-derived links (audit M8), shared by
+ * renderInline (DOM) and inlineHtml (exported HTML). Returns the URL when its
+ * scheme is allowed, or "" so the caller drops href/src — neutralizes
+ * javascript:/vbscript:/data:text/html and same-word scheme smuggling.
+ * Relative paths and anchors have no scheme and are passed through.
+ */
+export function sanitizeUrl(raw: string | null | undefined, kind: "link" | "image" = "link"): string {
+  if (raw == null) return "";
+  const url = raw.trim();
+  if (!url) return "";
+  // Protocol-relative (//host) inherits the page's https: — safe, normalize.
+  if (url.startsWith("//")) return `https:${url}`;
+  // No explicit scheme: relative path, anchor or plain text — safe.
+  if (!HAS_SCHEME.test(url)) return url;
+  const allow = kind === "image" ? IMAGE_SAFE : LINK_SAFE;
+  return allow.test(url) ? url : "";
+}
+
 let configured = false;
 function ensureHooks(): void {
   if (configured) return;

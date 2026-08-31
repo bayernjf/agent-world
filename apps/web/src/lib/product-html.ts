@@ -1,5 +1,5 @@
 import type { ProductDocument, ProductBlock } from "@agent-world/core";
-import { sanitizeProductHtml } from "./sanitize-html";
+import { sanitizeProductHtml, sanitizeUrl } from "./sanitize-html";
 
 function escapeHtml(s: string): string {
   return s
@@ -14,8 +14,14 @@ function inlineHtml(text: string): string {
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
     .replace(/\*([^*]+)\*/g, "<em>$1</em>")
     .replace(/`([^`]+)`/g, "<code>$1</code>")
-    .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" loading="lazy" />')
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
+    .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_m, alt: string, url: string) => {
+      const src = sanitizeUrl(url, "image");
+      return src ? `<img src="${src}" alt="${alt}" loading="lazy" />` : alt;
+    })
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, label: string, url: string) => {
+      const href = sanitizeUrl(url, "link");
+      return href ? `<a href="${href}" target="_blank" rel="noopener noreferrer">${label}</a>` : label;
+    });
 }
 
 function blockToHtml(b: ProductBlock): string {

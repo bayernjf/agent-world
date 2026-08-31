@@ -6,6 +6,7 @@ import {
   type ArtifactKind,
 } from "@agent-world/core";
 import { proxyImageUrl } from "./api";
+import { sanitizeUrl } from "./sanitize-html";
 import Tooltip from "../components/Tooltip";
 
 /**
@@ -108,13 +109,21 @@ export function renderInline(text: string): ReactNode[] {
     const tok = m[0]!;
     if (tok.startsWith("![")) {
       const mm = tok.match(/!\[([^\]]*)\]\(([^)]+)\)/)!;
-      parts.push(<img key={k++} src={mm[2]} alt={mm[1]} loading="lazy" />);
+      const src = sanitizeUrl(mm[2], "image");
+      // Drop images whose URL scheme is not allowed (audit M8); keep alt text.
+      parts.push(src ? <img key={k++} src={src} alt={mm[1]} loading="lazy" /> : mm[1]);
     } else if (tok.startsWith("[")) {
       const mm = tok.match(/\[([^\]]+)\]\(([^)]+)\)/)!;
+      const href = sanitizeUrl(mm[2], "link");
+      // A disallowed scheme (e.g. javascript:) renders as inert label text (M8).
       parts.push(
-        <a key={k++} href={mm[2]} target="_blank" rel="noopener noreferrer">
-          {mm[1]}
-        </a>,
+        href ? (
+          <a key={k++} href={href} target="_blank" rel="noopener noreferrer">
+            {mm[1]}
+          </a>
+        ) : (
+          <span key={k++}>{mm[1]}</span>
+        ),
       );
     } else if (tok.startsWith("**")) {
       parts.push(<strong key={k++}>{tok.slice(2, -2)}</strong>);
