@@ -928,6 +928,344 @@ const competitorWatchGraph = {
   },
 } satisfies GraphTemplate;
 
+const batchContentGraph = {
+  id: "tpl-batch-content",
+  name: "批量内容工坊",
+  description: "批量清单 → 逐条简报 → 成批成稿 → 质检 → 成品（Map 批处理）",
+  category: "营销内容",
+  graph: {
+    id: "tpl-batch-content",
+    name: "批量内容工坊",
+    nodes: [
+      { id: "intake", kind: "source", name: "原料清单", x: 80, y: 300 },
+      {
+        id: "split",
+        kind: "code",
+        name: "拆条",
+        x: 360,
+        y: 300,
+        code: {
+          language: "javascript",
+          code: [
+            '// 读取上游粘贴的批量清单（一行一条），拆成一个待生产条目数组。',
+            'const raw = String(Object.values(inputs)[0] ?? "").trim();',
+            'const lines = raw.split(/\\r?\\n/).map(function (s) { return s.trim(); }).filter(Boolean);',
+            'const items = lines.map(function (title, i) { return { id: i + 1, title: title }; });',
+            'console.log(JSON.stringify({ items: items }));',
+          ].join("\n"),
+        },
+      },
+      {
+        id: "brief",
+        kind: "map",
+        name: "批量简报",
+        x: 640,
+        y: 300,
+        map: {
+          iterate: "items",
+          template: JSON.stringify({
+            seq: "${item.id}",
+            title: "${item.title}",
+            brief:
+              "围绕《${item.title}》写一篇公众号推文：先抛出一个痛点场景，再给出可落地的解决步骤，结尾自然引导关注。要求口语化、亲切，约 320 字。",
+          }),
+        },
+      },
+      {
+        id: "writer",
+        kind: "textGen",
+        name: "批量成稿",
+        x: 920,
+        y: 300,
+        textGen: {
+          model: "agnes-2.0-flash",
+          prompt:
+            "你是批量内容主编。下面是一批选题简报（JSON 数组），每项含 title 和 brief。请为每一条简报分别生成一篇完整的公众号推文正文，以编号“一、二、三…”分隔输出，篇与篇相互独立、可直接发布。",
+          skills: [],
+        },
+      },
+      {
+        id: "qc",
+        kind: "gate",
+        name: "质检",
+        x: 1180,
+        y: 300,
+        gate: {
+          maxAttempts: 3,
+          criterion: "每篇推文结构完整（标题+正文+结尾）、无空项、覆盖清单里的全部选题。",
+          onExhausted: "halt",
+        },
+      },
+      { id: "depot", kind: "sink", name: "成品库", x: 1460, y: 300 },
+    ],
+    edges: [
+      { id: "e1", from: "intake", to: "split", kind: "flow" },
+      { id: "e2", from: "split", to: "brief", kind: "flow" },
+      { id: "e3", from: "brief", to: "writer", kind: "flow" },
+      { id: "e4", from: "writer", to: "qc", kind: "flow" },
+      { id: "e5", from: "qc", to: "depot", kind: "flow" },
+      { id: "r1", from: "qc", to: "writer", kind: "rework" },
+    ],
+  },
+} satisfies GraphTemplate;
+
+const docIngestGraph = {
+  id: "tpl-doc-ingest",
+  name: "文档智能解析入库",
+  description: "拉文档 → 解析正文与图片 → OCR → 归纳入库（表格化清单）",
+  category: "办公协同",
+  fields: [
+    {
+      key: "docUrl",
+      label: "文档链接",
+      placeholder: "填入 PDF / DOCX 等文档的公开链接",
+      defaultValue: "https://raw.githubusercontent.com/mozilla/pdf.js/master/web/compressed.tracemonkey-pldi-09.pdf",
+      applyTo: [{ nodeId: "fetch", path: "http.url" }],
+    },
+  ],
+  graph: {
+    id: "tpl-doc-ingest",
+    name: "文档智能解析入库",
+    nodes: [
+      { id: "intake", kind: "source", name: "文档入口", x: 80, y: 140 },
+      {
+        id: "fetch",
+        kind: "http",
+        name: "拉取文档",
+        x: 360,
+        y: 140,
+        http: {
+          method: "GET",
+          url: "https://raw.githubusercontent.com/mozilla/pdf.js/master/web/compressed.tracemonkey-pldi-09.pdf",
+          outputMode: "file",
+          retry: { maxRetries: 1, baseDelayMs: 1000, maxDelayMs: 5000 },
+        },
+      },
+      {
+        id: "parse",
+        kind: "fileParse",
+        name: "文档解析",
+        x: 640,
+        y: 140,
+        fileParse: { maxImages: 10 },
+      },
+      {
+        id: "ocr",
+        kind: "ocr",
+        name: "图文 OCR",
+        x: 840,
+        y: 60,
+        ocr: { lang: "chi_sim+eng" },
+      },
+      {
+        id: "combine",
+        kind: "code",
+        name: "归纳入库",
+        x: 840,
+        y: 300,
+        code: {
+          language: "javascript",
+          code: [
+            '// 汇总正文文本与图片 OCR 文本，输出一行一字段的结构化清单。',
+            'const parseText = String(inputs["parse"] ?? "");',
+            'const ocrText = String(inputs["ocr"] ?? "");',
+            'const text = parseText + "\n" + ocrText;',
+            'const firstLine = (parseText.split("\n")[0] || "(无标题)").trim().slice(0, 40);',
+            'const rows = [',
+            '  { field: "文档字符数", value: text.length },',
+            '  { field: "段落数", value: parseText.split(/\\n{2,}/).length },',
+            '  { field: "图片 OCR 字符数", value: ocrText.length },',
+            '  { field: "首行摘录", value: firstLine },',
+            '];',
+            'console.log(JSON.stringify(rows));',
+          ].join("\n"),
+        },
+      },
+      {
+        id: "table",
+        kind: "table",
+        name: "结构化入库",
+        x: 1120,
+        y: 300,
+        table: {
+          steps: [{ op: "output", format: "json" }],
+        },
+      },
+      { id: "depot", kind: "sink", name: "入库清单", x: 1360, y: 300 },
+    ],
+    edges: [
+      { id: "e1", from: "intake", to: "fetch", kind: "flow" },
+      { id: "e2", from: "fetch", to: "parse", kind: "flow" },
+      { id: "e3", from: "parse", to: "ocr", kind: "flow" },
+      { id: "e4", from: "parse", to: "combine", kind: "flow" },
+      { id: "e5", from: "ocr", to: "combine", kind: "flow" },
+      { id: "e6", from: "combine", to: "table", kind: "flow" },
+      { id: "e7", from: "table", to: "depot", kind: "flow" },
+    ],
+  },
+} satisfies GraphTemplate;
+
+const reviewPublishGraph = {
+  id: "tpl-review-publish",
+  name: "人工审核发布",
+  description: "自动成稿 → N 次自检 → 送审通知 → 人工终审 → 正式发布（审校闭环）",
+  category: "营销内容",
+  fields: [
+    {
+      key: "reviewWebhookUrl",
+      label: "送审通知 Webhook",
+      placeholder: "填入飞书 / 钉钉 / 企业微信机器人的 webhook 地址",
+      applyTo: [{ nodeId: "notify", path: "notify.webhookUrl" }],
+    },
+  ],
+  graph: {
+    id: "tpl-review-publish",
+    name: "人工审核发布",
+    nodes: [
+      {
+        id: "intake",
+        kind: "source",
+        name: "素材输入",
+        x: 80,
+        y: 300,
+      },
+      {
+        id: "writer",
+        kind: "textGen",
+        name: "自动成稿",
+        x: 360,
+        y: 300,
+        textGen: {
+          model: "agnes-2.0-flash",
+          prompt:
+            "你是内容运营。根据上游提供的素材，产出一篇结构完整、可直接发布的文案：先提炼核心卖点，再分点展开，最后给出行动号召。口语化、有亲和力。",
+          skills: [],
+        },
+      },
+      {
+        id: "qc",
+        kind: "gate",
+        name: "自检把关",
+        x: 640,
+        y: 300,
+        gate: {
+          maxAttempts: 3,
+          criterion: "文案无事实性错误、无敏感词/违禁词、结构完整（标题+正文+行动号召）、语气统一。",
+          onExhausted: "halt",
+        },
+      },
+      {
+        id: "notify",
+        kind: "notify",
+        name: "送审通知",
+        x: 920,
+        y: 300,
+        notify: {
+          provider: "feishu",
+          format: "markdown",
+          // message 留空：notify 会把上游成稿文本作为送审内容原样发出。
+          message: "",
+        },
+      },
+      {
+        id: "human",
+        kind: "human",
+        name: "人工终审",
+        x: 1180,
+        y: 300,
+        human: {
+          prompt: "请审阅这篇待发布文案：通过则发布；如需修改请直接编辑；不符合要求可驳回（驳回将触发失败回退）。",
+        },
+      },
+      { id: "publish", kind: "sink", name: "正式发布", x: 1460, y: 300 },
+    ],
+    edges: [
+      { id: "e1", from: "intake", to: "writer", kind: "flow" },
+      { id: "e2", from: "writer", to: "qc", kind: "flow" },
+      { id: "e3", from: "qc", to: "notify", kind: "flow" },
+      { id: "e4", from: "notify", to: "human", kind: "flow" },
+      { id: "e5", from: "human", to: "publish", kind: "flow" },
+      { id: "r1", from: "qc", to: "writer", kind: "rework" },
+    ],
+  },
+} satisfies GraphTemplate;
+
+const customModelGraph = {
+  id: "tpl-custom-model",
+  name: "自定义模型接入",
+  description: "一组通用入口 → 编排多模态请求体 → 任意模型推理 → 成品（泛化节点 + 自定义模型）",
+  category: "开发集成",
+  fields: [
+    {
+      key: "modelName",
+      label: "模型名",
+      placeholder: "填入你要接入的模型（内置或自定义）",
+      defaultValue: "agnes-2.0-flash",
+      applyTo: [{ nodeId: "gen", path: "generic.model" }],
+    },
+    {
+      key: "customBaseUrl",
+      label: "自定义 Endpoint (可选)",
+      placeholder: "对接私有/第三方网关时填写，例如 https://gateway.example.com/v1",
+      applyTo: [{ nodeId: "gen", path: "generic.baseUrl" }],
+    },
+  ],
+  graph: {
+    id: "tpl-custom-model",
+    name: "自定义模型接入",
+    nodes: [
+      {
+        id: "intake",
+        kind: "source",
+        name: "请求输入",
+        x: 80,
+        y: 300,
+      },
+      {
+        id: "craft",
+        kind: "code",
+        name: "编排请求体",
+        x: 360,
+        y: 300,
+        code: {
+          language: "javascript",
+          code: [
+            '// 读取上游输入，按模态组装一条推理请求承载（文本 / 图片 / 视频 / 音频由泛化节点自动分派）。',
+            'const raw = String(Object.values(inputs)[0] ?? "");',
+            'const tone = "专业、通顺、信息密度高、避免车轱辘话";',
+            'const payload = {',
+            '  intent: "根据输入的原始内容进行一次高质量加工与润色",',
+            '  constraint: tone,',
+            '  sourceText: raw,',
+            '  outputShape: "回传一段可直接使用的文本；若输入为待总结内容则先给三点要点再给全文"。',
+            '};',
+            'console.log(JSON.stringify(payload));',
+          ].join("\n"),
+        },
+      },
+      {
+        id: "gen",
+        kind: "generic",
+        name: "自定义模型推理",
+        x: 640,
+        y: 300,
+        generic: {
+          model: "agnes-2.0-flash",
+          modality: "text",
+          prompt:
+            "下面是编排好的推理请求（JSON），请按其中的 intent / constraint / outputShape 执行并返回加工后的结果：\n${craft.output}",
+        },
+      },
+      { id: "depot", kind: "sink", name: "成品输出", x: 920, y: 300 },
+    ],
+    edges: [
+      { id: "e1", from: "intake", to: "craft", kind: "flow" },
+      { id: "e2", from: "craft", to: "gen", kind: "flow" },
+      { id: "e3", from: "gen", to: "depot", kind: "flow" },
+    ],
+  },
+} satisfies GraphTemplate;
+
 export const TEMPLATES: GraphTemplate[] = [
   productDetailGraph,
   xiaohongshuGraph,
@@ -939,6 +1277,10 @@ export const TEMPLATES: GraphTemplate[] = [
   patrolAlertGraph,
   researchBriefGraph,
   competitorWatchGraph,
+  batchContentGraph,
+  docIngestGraph,
+  reviewPublishGraph,
+  customModelGraph,
   blankGraph,
 ];
 
