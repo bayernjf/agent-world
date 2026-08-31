@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { fileURLToPath } from "node:url";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -90,11 +90,15 @@ describe("IsolatedWorker (4C.7)", () => {
     process.env.ALLOWED_KEY = "yes";
     process.env.NET_URL = `${baseUrl}/ok`;
     process.env.TOOL_NETWORK_ALLOW = "127.0.0.1";
+    // The proxy fetch goes through the guarded egress, which refuses 127.0.0.1
+    // by default; this case exercises allowlist + proxying, not the SSRF guard.
+    vi.stubEnv("ALLOW_PRIVATE_NETWORK", "1");
     const w = spawnIsolatedWorker(entry, "sample-iso", DECLARED);
     try {
       const out = await runOnce(w);
       expect(out.net).toBe("200:ok");
     } finally {
+      vi.unstubAllEnvs();
       w.dispose();
     }
   });

@@ -3,6 +3,7 @@ import { readFile, writeFile, readdir, stat, unlink, mkdir, rm, appendFile } fro
 import { pathToFileURL } from "node:url";
 import type { Worker } from "./worker.js";
 import { loadPermissionConfig, matchDomain } from "./permissions.js";
+import { guardedFetch } from "./ssrf.js";
 
 /**
  * Plugin process isolation (4C.7).
@@ -168,16 +169,17 @@ export class IsolatedWorker implements Worker {
     this.child.send(reply);
   }
 
-  private proxyFetch(payload: { url: string; init?: unknown }): Promise<unknown> {
+  private async proxyFetch(payload: { url: string; init?: unknown }): Promise<unknown> {
     const host = new URL(payload.url).host;
     const cfg = loadPermissionConfig();
     if (cfg.networkAllow && !matchDomain(host, cfg.networkAllow)) {
       throw new Error(`network access to ${host} is not permitted`);
     }
-    return fetch(payload.url, payload.init as RequestInit).then(async (r) => ({
-      status: r.status,
-      body: await r.text(),
-    }));
+    // Domain allowlists say nothing about where the host resolves — an
+    // allowed name can point at an internal address. The guarded egress
+    // refuses internal targets (pinned connection, per-hop re-checks).
+    const r = await guardedFetch(payload.url);
+    return { status: r.status, body: await r.text() };
   }
 
   /** Enforce the fs allowlist on a path. Throws if the path is not permitted. */

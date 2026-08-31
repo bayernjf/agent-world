@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createServer, type Server } from "node:http";
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -8,6 +8,13 @@ import { resolveConnector } from "./connectors.js";
 const dir = mkdtempSync(path.join(tmpdir(), "conn-"));
 let server: Server;
 let base = "";
+
+// The http-connector cases talk to a real local server (127.0.0.1); the SSRF
+// guard would refuse it. These tests exercise connector behavior, not the
+// guard, so bypass the internal-address check the way the other legacy-host
+// tests do.
+beforeEach(() => vi.stubEnv("ALLOW_PRIVATE_NETWORK", "1"));
+afterEach(() => vi.unstubAllEnvs());
 
 beforeAll(async () => {
   server = createServer((req, res) => {

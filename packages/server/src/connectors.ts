@@ -1,6 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { ConnectorConfig } from "@agent-world/core";
+import { guardedFetch } from "./ssrf.js";
 
 /** Raw material pulled from a connector, ready to feed a source node. */
 export interface ResolvedMaterial {
@@ -126,7 +127,6 @@ export async function resolveConnector(
     case "http": {
       const c = config.http;
       if (!c) throw new Error("http connector missing 'http' config");
-      const init: RequestInit = { method: c.method };
       const headers: Record<string, string> = { ...(c.headers ?? {}) };
       if (c.auth) {
         headers.Authorization =
@@ -134,11 +134,19 @@ export async function resolveConnector(
             ? `Bearer ${c.auth.token}`
             : `Basic ${Buffer.from(c.auth.token).toString("base64")}`;
       }
-      if (Object.keys(headers).length) init.headers = headers;
-      if (c.method === "POST" && c.body !== undefined) {
-        init.body = typeof c.body === "string" ? c.body : JSON.stringify(c.body);
-      }
-      const res = await fetch(c.url, init);
+      const body =
+        c.method === "POST" && c.body !== undefined
+          ? typeof c.body === "string"
+            ? c.body
+            : JSON.stringify(c.body)
+          : undefined;
+      // User-controlled URL/method/headers — must leave through the guarded
+      // egress (internal targets refused, redirects re-checked per hop).
+      const res = await guardedFetch(c.url, {
+        method: c.method,
+        headers,
+        body,
+      });
       if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
       const ct = res.headers.get("content-type") ?? "";
       let bodyText: string;

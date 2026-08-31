@@ -3,6 +3,7 @@ import path from "node:path";
 import type { Skill } from "@agent-world/core";
 import type { ToolDefinition } from "../worker.js";
 import type { MemoryBackend } from "../memory.js";
+import { guardedFetch } from "../ssrf.js";
 
 /**
  * Built-in skill catalog. Skills are capability cards mounted on agent nodes.
@@ -46,7 +47,7 @@ const webFetch: BuiltinSkill = {
       const { url } = (args ?? {}) as { url?: string };
       if (!url || typeof url !== "string") throw new Error("url is required");
       if (!url.startsWith("https://")) throw new Error("only https URLs are allowed");
-      const res = await fetch(url, {
+      const res = await guardedFetch(url, {
         headers: { "User-Agent": "AgentWorld/1.0" },
         signal: AbortSignal.timeout(15000),
       });
