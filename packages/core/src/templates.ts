@@ -1309,6 +1309,343 @@ const customModelGraph = {
   },
 } satisfies GraphTemplate;
 
+const newsPodcastGraph = {
+  id: "tpl-news-podcast",
+  name: "资讯播客工坊",
+  description: "话题 → 联网搜索 → 播客口播稿 → AI 配音 → 音频成品（search + TTS）",
+  category: "营销内容",
+  fields: [
+    {
+      key: "ttsModel",
+      label: "配音模型（TTS）",
+      placeholder: "如 tts-1；需供应商支持 /audio/speech 接口",
+      defaultValue: "tts-1",
+      applyTo: [{ nodeId: "voice", path: "audioGen.model" }],
+    },
+  ],
+  graph: {
+    id: "tpl-news-podcast",
+    name: "资讯播客工坊",
+    nodes: [
+      {
+        id: "intake",
+        kind: "source",
+        name: "话题输入",
+        x: 80,
+        y: 300,
+      },
+      {
+        id: "search",
+        kind: "search",
+        name: "联网搜索",
+        x: 340,
+        y: 300,
+        // query 留空：自动把上游话题文本作为搜索词（DuckDuckGo，无需 API Key）。
+        search: { query: "", provider: "duckduckgo", maxResults: 5 },
+      },
+      {
+        id: "script",
+        kind: "textGen",
+        name: "播客撰稿",
+        x: 620,
+        y: 300,
+        textGen: {
+          model: "agnes-2.0-flash",
+          prompt:
+            "你是播客主理人。基于上游搜索到的话题资讯，写一段约 2 分钟的单人口播稿：" +
+            "开头一句话点题 → 3-5 条资讯要点（每条一句话事实 + 一句话点评）→ 结尾互动引导。" +
+            "口语化、有节奏感，适合朗读；只输出稿件本身，不要标题和格式符号。",
+          skills: [],
+        },
+      },
+      {
+        id: "voice",
+        kind: "audioGen",
+        name: "AI 配音",
+        x: 900,
+        y: 300,
+        // prompt 留空：直接朗读上游口播稿。默认供应商不支持 TTS 时该节点会
+        // 软跳过（稿件文本仍完整产出），配置支持 /audio/speech 的模型即可出音频。
+        audioGen: { model: "tts-1", voice: "alloy", format: "mp3" },
+      },
+      { id: "depot", kind: "sink", name: "播客成品", x: 1180, y: 300 },
+    ],
+    edges: [
+      { id: "e1", from: "intake", to: "search", kind: "flow" },
+      { id: "e2", from: "search", to: "script", kind: "flow" },
+      { id: "e3", from: "script", to: "voice", kind: "flow" },
+      { id: "e4", from: "voice", to: "depot", kind: "flow" },
+    ],
+  },
+} satisfies GraphTemplate;
+
+const researchLoopGraph = {
+  id: "tpl-research-loop",
+  name: "多课题深度调研",
+  description: "课题清单 → 逐课题联网搜索 + 调研卡片 → 循环聚合（loop 批处理）",
+  category: "数据分析",
+  graph: {
+    id: "tpl-research-loop",
+    name: "多课题深度调研",
+    nodes: [
+      {
+        id: "intake",
+        kind: "source",
+        name: "课题清单",
+        x: 80,
+        y: 300,
+      },
+      {
+        id: "split",
+        kind: "code",
+        name: "拆题",
+        x: 340,
+        y: 300,
+        code: {
+          language: "javascript",
+          code: [
+            '// 读取上游粘贴的课题清单（一行一个课题），拆成一个字符串数组。',
+            'const raw = String(Object.values(inputs)[0] ?? "").trim();',
+            'const topics = raw.split(/\\r?\\n/).map(function (s) { return s.trim(); }).filter(Boolean);',
+            'console.log(JSON.stringify(topics));',
+          ].join("\n"),
+        },
+      },
+      {
+        // 循环体：出题 → 联网搜索 → 写调研卡片。循环节点把每一轮卡片的
+        // 输出聚合进 { results: [...] } JSON 产物，即最终调研合集。
+        id: "loop",
+        kind: "loop",
+        name: "逐课题循环",
+        x: 600,
+        y: 300,
+        loop: {
+          items: "${split}",
+          maxIterations: 20,
+        },
+      },
+      {
+        id: "kicker",
+        kind: "code",
+        name: "出题",
+        x: 860,
+        y: 300,
+        code: {
+          language: "javascript",
+          code: [
+            '// 当前课题（循环项）原样输出，作为下游搜索节点的搜索词。',
+            'console.log(String(inputs.item ?? ""));',
+          ].join("\n"),
+        },
+      },
+      {
+        id: "search",
+        kind: "search",
+        name: "联网搜索",
+        x: 1080,
+        y: 300,
+        // query 留空：自动用上游「出题」节点的课题文本作为搜索词。
+        search: { query: "", provider: "duckduckgo", maxResults: 4 },
+      },
+      {
+        id: "writer",
+        kind: "textGen",
+        name: "调研卡片",
+        x: 1320,
+        y: 300,
+        textGen: {
+          model: "agnes-2.0-flash",
+          prompt:
+            "你是研究助理。当前课题：${item}。上游提供了该课题的联网搜索结果，" +
+            "请写一张调研卡片：**结论**（1-2 句）→ **关键事实**（3-5 条，注明来自搜索结果）→ " +
+            "**待确认**（搜索结果没覆盖、需要二次核实的问题）。只输出卡片内容。",
+          skills: [],
+        },
+      },
+    ],
+    edges: [
+      { id: "e1", from: "intake", to: "split", kind: "flow" },
+      { id: "e2", from: "split", to: "loop", kind: "flow" },
+      { id: "e3", from: "loop", to: "kicker", kind: "flow" },
+      { id: "e4", from: "kicker", to: "search", kind: "flow" },
+      { id: "e5", from: "search", to: "writer", kind: "flow" },
+    ],
+  },
+} satisfies GraphTemplate;
+
+const releasePrGraph = {
+  id: "tpl-release-pr",
+  name: "发版 PR 助手",
+  description: "变更草稿 → AI 整理 PR 描述 → 人工确认 → 自动创建 PR（vcs 集成）",
+  category: "开发集成",
+  fields: [
+    {
+      key: "repoOwner",
+      label: "仓库 Owner",
+      placeholder: "GitHub 用户名或组织名",
+      applyTo: [{ nodeId: "submit", path: "vcs.owner" }],
+    },
+    {
+      key: "repoName",
+      label: "仓库名",
+      placeholder: "例如 agent-world",
+      applyTo: [{ nodeId: "submit", path: "vcs.repo" }],
+    },
+    {
+      key: "headBranch",
+      label: "来源分支（head）",
+      placeholder: "例如 feature/my-change",
+      applyTo: [{ nodeId: "submit", path: "vcs.head" }],
+    },
+    {
+      key: "baseBranch",
+      label: "目标分支（base）",
+      placeholder: "main",
+      defaultValue: "main",
+      applyTo: [{ nodeId: "submit", path: "vcs.base" }],
+    },
+  ],
+  graph: {
+    id: "tpl-release-pr",
+    name: "发版 PR 助手",
+    nodes: [
+      {
+        id: "intake",
+        kind: "source",
+        name: "变更草稿",
+        x: 80,
+        y: 300,
+      },
+      {
+        id: "polish",
+        kind: "textGen",
+        name: "PR 描述整理",
+        x: 340,
+        y: 300,
+        textGen: {
+          model: "agnes-2.0-flash",
+          prompt:
+            "你是发版工程师。把上游的变更草稿整理成规范的 PR 描述（Markdown）：" +
+            "## Summary（一段话说清这次改动）→ ## Changes（分点列出）→ ## Test Plan（如何验证）。" +
+            "忠实于草稿内容，不要编造未提及的改动。",
+          skills: [],
+        },
+      },
+      {
+        id: "confirm",
+        kind: "human",
+        name: "人工确认",
+        x: 620,
+        y: 300,
+        human: {
+          prompt: "确认这份 PR 描述：通过则提交到仓库；可直接编辑修改；驳回则本次不发版。",
+        },
+      },
+      {
+        // body 留空：自动使用上游人工确认后的 PR 描述文本。
+        // 凭证从服务器环境变量 GITHUB_TOKEN 读取，不会存进产线。
+        id: "submit",
+        kind: "vcs",
+        name: "创建 PR",
+        x: 900,
+        y: 300,
+        vcs: {
+          provider: "github",
+          action: "create_pr",
+          head: "feature/my-change",
+          base: "main",
+        },
+      },
+      { id: "depot", kind: "sink", name: "提交回执", x: 1180, y: 300 },
+    ],
+    edges: [
+      { id: "e1", from: "intake", to: "polish", kind: "flow" },
+      { id: "e2", from: "polish", to: "confirm", kind: "flow" },
+      { id: "e3", from: "confirm", to: "submit", kind: "flow" },
+      { id: "e4", from: "submit", to: "depot", kind: "flow" },
+    ],
+  },
+} satisfies GraphTemplate;
+
+const scanOcrGraph = {
+  id: "tpl-scan-ocr",
+  name: "扫描件数字化",
+  description: "拉取扫描 PDF → 逐页转图 → OCR 识别 → 文字成品（convert + ocr）",
+  category: "办公协同",
+  fields: [
+    {
+      key: "docUrl",
+      label: "扫描件链接",
+      placeholder: "填入扫描版 PDF（每页一张图）的公开链接",
+      defaultValue: "https://raw.githubusercontent.com/mozilla/pdf.js/master/web/compressed.tracemonkey-pldi-09.pdf",
+      applyTo: [{ nodeId: "fetch", path: "http.url" }],
+    },
+  ],
+  graph: {
+    id: "tpl-scan-ocr",
+    name: "扫描件数字化",
+    nodes: [
+      { id: "intake", kind: "source", name: "文件入口", x: 80, y: 300 },
+      {
+        id: "fetch",
+        kind: "http",
+        name: "拉取扫描件",
+        x: 340,
+        y: 300,
+        http: {
+          method: "GET",
+          url: "https://raw.githubusercontent.com/mozilla/pdf.js/master/web/compressed.tracemonkey-pldi-09.pdf",
+          outputMode: "file",
+          retry: { maxRetries: 1, baseDelayMs: 1000, maxDelayMs: 5000 },
+        },
+      },
+      {
+        id: "pages",
+        kind: "convert",
+        name: "逐页转图",
+        x: 600,
+        y: 300,
+        // PDF → 图片：扫描版 PDF 每页一张图，转出来正好逐页交给 OCR。
+        convert: { to: "image" },
+      },
+      {
+        id: "ocr",
+        kind: "ocr",
+        name: "文字识别",
+        x: 860,
+        y: 300,
+        ocr: { lang: "chi_sim+eng" },
+      },
+      { id: "depot", kind: "sink", name: "文字成品", x: 1140, y: 300 },
+      {
+        // 兜底：纯文字 PDF 没有可提取的页面图片时 convert 会失败，
+        // 这里接住并提示改用「文档智能解析入库」模板。
+        id: "convFallback",
+        kind: "textGen",
+        name: "转换兜底",
+        x: 600,
+        y: 560,
+        textGen: {
+          model: "agnes-2.0-flash",
+          prompt:
+            "上游 PDF 不是扫描件（没有可提取的页面图片），无法走「逐页转图 → OCR」流程。" +
+            "请输出一段简短说明：该文档有文字层，建议改用「文档智能解析入库」模板直接解析正文，" +
+            "或者更换为真正的扫描版 PDF 链接后重试。",
+          skills: [],
+        },
+      },
+    ],
+    edges: [
+      { id: "e1", from: "intake", to: "fetch", kind: "flow" },
+      { id: "e2", from: "fetch", to: "pages", kind: "flow" },
+      { id: "e3", from: "pages", to: "ocr", kind: "flow" },
+      { id: "e4", from: "ocr", to: "depot", kind: "flow" },
+      { id: "x1", from: "pages", to: "convFallback", kind: "error" },
+      { id: "x2", from: "convFallback", to: "depot", kind: "flow" },
+    ],
+  },
+} satisfies GraphTemplate;
+
 export const TEMPLATES: GraphTemplate[] = [
   productDetailGraph,
   xiaohongshuGraph,
@@ -1324,6 +1661,10 @@ export const TEMPLATES: GraphTemplate[] = [
   docIngestGraph,
   reviewPublishGraph,
   customModelGraph,
+  newsPodcastGraph,
+  researchLoopGraph,
+  releasePrGraph,
+  scanOcrGraph,
   blankGraph,
 ];
 
