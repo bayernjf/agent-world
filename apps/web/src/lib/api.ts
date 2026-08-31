@@ -223,10 +223,10 @@ export const api = {
   listSkills: () => authFetch("/api/skills").then(json<Skill[]>),
 
   listGraphs: () =>
-    authFetch("/api/graphs").then(json<{ id: string; name: string; updated_at: number; originTemplateId: string | null }[]>),
+    authFetch("/api/graphs").then(json<{ id: string; name: string; updated_at: number }[]>),
 
   getGraph: (id: string) =>
-    authFetch(`/api/graphs/${id}`).then(json<Graph & { version: number; originTemplateId: string | null }>),
+    authFetch(`/api/graphs/${id}`).then(json<Graph & { version: number }>),
 
   saveGraph: (graph: Graph, version?: number | null) =>
     authFetch(`/api/graphs/${graph.id}`, {

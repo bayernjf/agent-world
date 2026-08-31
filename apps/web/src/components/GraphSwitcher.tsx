@@ -6,7 +6,6 @@ export interface GraphSummary {
   id: string;
   name: string;
   updated_at: number;
-  originTemplateId: string | null;
 }
 
 interface Props {
