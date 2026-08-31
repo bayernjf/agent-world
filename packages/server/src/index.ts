@@ -54,6 +54,8 @@ import { createReadArtifact } from "./artifact-reader.js";
 import { hashPassword, verifyPassword, signToken, verifyToken, REMEMBER_MAX_AGE_SEC } from "./auth.js";
 
 const PORT = Number(process.env.PORT ?? 8791);
+/** Cap for /api/proxy responses (audit L7): 25 MiB of fetched body. */
+const MAX_PROXY_RESPONSE_BYTES = 25 * 1024 * 1024;
 /** Absolute origin advertised to models so artifact links are fully qualified. */
 const PUBLIC_URL = (process.env.AGENT_WORLD_PUBLIC_URL ?? `http://localhost:${PORT}`).replace(
   /\/+$/,
@@ -158,6 +160,16 @@ app.get("/api/health", (c) => c.json({ ok: true }));
 
 // --- Auth routes (no auth required) ---
 const AUTH_COOKIE = "auth_token";
+
+/**
+ * Whether a stored artifact `uri` is safe to send as a Location header (L2).
+ * Only http(s) redirects are allowed; file:/data:/javascript: and other
+ * schemes are refused to prevent protocol-smuggling redirects. Exported for
+ * unit tests.
+ */
+export function isSafeRedirectUri(uri: string): boolean {
+  return /^https?:\/\//i.test(uri);
+}
 
 /**
  * Secure-cookie policy: the SECURE_COOKIES env var overrides; without it,
@@ -1595,7 +1607,36 @@ app.get("/api/proxy", async (c) => {
     if (!upstream.ok) {
       return c.json({ error: `upstream returned ${upstream.status}` }, 502);
     }
-    const buf = Buffer.from(await upstream.arrayBuffer());
+    // Audit L7: bound the response body so a huge upstream cannot exhaust
+    // server memory via this proxy. Stream and count instead of buffering the
+    // whole body up front (also honors an early content-length rejection).
+    const declared = Number(upstream.headers.get("content-length") ?? 0);
+    if (declared > MAX_PROXY_RESPONSE_BYTES) {
+      return c.json({ error: "upstream response too large" }, 502);
+    }
+    const chunks: Buffer[] = [];
+    let total = 0;
+    if (upstream.body) {
+      const reader = upstream.body.getReader();
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        total += value.byteLength;
+        if (total > MAX_PROXY_RESPONSE_BYTES) {
+          await reader.cancel().catch(() => {});
+          return c.json({ error: "upstream response too large" }, 502);
+        }
+        chunks.push(Buffer.from(value));
+      }
+    } else {
+      const ab = await upstream.arrayBuffer();
+      total = ab.byteLength;
+      if (total > MAX_PROXY_RESPONSE_BYTES) {
+        return c.json({ error: "upstream response too large" }, 502);
+      }
+      chunks.push(Buffer.from(ab));
+    }
+    const buf = Buffer.concat(chunks, total);
     const ct = upstream.headers.get("content-type") ?? "application/octet-stream";
     return new Response(buf, {
       headers: {
@@ -1619,7 +1660,13 @@ app.get("/api/artifacts/:id", async (c) => {
   if (!meta) return c.json({ error: "not found" }, 404);
 
   if (meta.storage === "uri" && meta.uri) {
-    return c.redirect(meta.uri, 302);
+    // Audit L2: only redirect to http(s) locations. Refusing everything else
+    // (file:, data:, javascript:…) blocks protocol-smuggling redirects and
+    // prevents exposing local file semantics through a Location header.
+    if (isSafeRedirectUri(meta.uri)) {
+      return c.redirect(meta.uri, 302);
+    }
+    return c.json({ error: "artifact uri uses an unsafe protocol" }, 404);
   }
   if (meta.storage !== "local") {
     return c.json({ error: "artifact has no binary payload" }, 404);
