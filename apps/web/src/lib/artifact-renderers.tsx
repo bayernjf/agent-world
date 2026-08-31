@@ -112,7 +112,7 @@ export function renderInline(text: string): ReactNode[] {
     } else if (tok.startsWith("[")) {
       const mm = tok.match(/\[([^\]]+)\]\(([^)]+)\)/)!;
       parts.push(
-        <a key={k++} href={mm[2]} target="_blank" rel="noreferrer">
+        <a key={k++} href={mm[2]} target="_blank" rel="noopener noreferrer">
           {mm[1]}
         </a>,
       );
@@ -222,14 +222,14 @@ function ImageArtifact({ a }: { a: ArtifactLike }) {
       <div className="artifact-image-fallback">
         <span className="artifact-image-fallback__icon">IMG</span>
         <span>图片链接已失效或已过期</span>
-        <a href={a.uri} target="_blank" rel="noreferrer">
+        <a href={a.uri} target="_blank" rel="noopener noreferrer">
           查看原链接 ↗
         </a>
       </div>
     );
   }
   return (
-    <a className="artifact-media" href={a.uri} target="_blank" rel="noreferrer">
+    <a className="artifact-media" href={a.uri} target="_blank" rel="noopener noreferrer">
       <img
         src={proxyImageUrl(a.uri) ?? a.uri}
         alt={a.label ?? "image"}
@@ -267,7 +267,7 @@ function FileArtifact({ a }: { a: ArtifactLike }) {
       className="artifact-file"
       href={a.uri}
       target="_blank"
-      rel="noreferrer"
+      rel="noopener noreferrer"
       download={a.label ?? undefined}
     >
       <span className="artifact-file__icon">⬇</span>
@@ -296,7 +296,7 @@ function JsonArtifact({ a }: { a: ArtifactLike }) {
 function UriArtifact({ a }: { a: ArtifactLike }) {
   if (!a.uri) return placeholder("无链接");
   return (
-    <a className="artifact-uri" href={a.uri} target="_blank" rel="noreferrer">
+    <a className="artifact-uri" href={a.uri} target="_blank" rel="noopener noreferrer">
       {a.label ?? a.uri} ↗
     </a>
   );
@@ -378,7 +378,7 @@ export function ArtifactCard({
               <a
                 href={uri}
                 target="_blank"
-                rel="noreferrer"
+                rel="noopener noreferrer"
                 download={a.label ?? undefined}
               >
                 下载

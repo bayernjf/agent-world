@@ -351,7 +351,7 @@ function GalleryImageThumb({ url }: { url: string }) {
           className="gallery-card__doc-link"
           href={url}
           target="_blank"
-          rel="noreferrer"
+          rel="noopener noreferrer"
           onClick={(e) => e.stopPropagation()}
         >
           查看原链接 ↗
@@ -574,7 +574,7 @@ function ArtifactDetail({
             {url && (
               <>
                 <span>·</span>
-                <a href={url} target="_blank" rel="noreferrer">
+                <a href={url} target="_blank" rel="noopener noreferrer">
                   原链接 ↗
                 </a>
               </>
@@ -640,7 +640,7 @@ function ArtifactDetail({
             <div className="gallery-detail__file">
               <div>该类型产物不支持内嵌预览</div>
               {url && (
-                <a href={url} target="_blank" rel="noreferrer">
+                <a href={url} target="_blank" rel="noopener noreferrer">
                   打开链接 ↗
                 </a>
               )}
@@ -664,7 +664,7 @@ function ArtifactDetail({
           )}
           {a.kind === "image" && url && (
             <>
-              <a className="chip" href={url} target="_blank" rel="noreferrer">
+              <a className="chip" href={url} target="_blank" rel="noopener noreferrer">
                 打开原图
               </a>
               <a className="chip" href={url} download={a.label ?? true}>
