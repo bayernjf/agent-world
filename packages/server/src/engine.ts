@@ -1414,7 +1414,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
               nodeId,
               attempt,
               error: `代码执行失败（退出码 ${code}）: ${(stderr || "无 stderr 输出").slice(0, 300)}`,
-              errorCode: "PROVIDER_ERROR",
+              errorCode: "SCRIPT_ERROR",
             });
             return;
           }
@@ -2212,6 +2212,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
               | "TIMEOUT"
               | "RATE_LIMIT"
               | "PROVIDER_ERROR"
+              | "SCRIPT_ERROR"
               | "AUTH"
               | "VALIDATION"
               | "UNKNOWN"
@@ -3426,6 +3427,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
             | "TIMEOUT"
             | "RATE_LIMIT"
             | "PROVIDER_ERROR"
+            | "SCRIPT_ERROR"
             | "AUTH"
             | "VALIDATION"
             | "UNKNOWN"

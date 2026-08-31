@@ -81,7 +81,7 @@ describe("code node (javascript)", () => {
 
     const failed = events.find((e) => e.type === "node.failed" && e.nodeId === "calc");
     expect(failed).toBeTruthy();
-    expect(failed.errorCode).toBe("PROVIDER_ERROR");
+    expect(failed.errorCode).toBe("SCRIPT_ERROR");
     expect(replay(events).status).toBe("failed");
   });
 
@@ -220,7 +220,7 @@ describe("code node sandbox P1", () => {
         expect(ok).withContext(`output=${finished.output}`).toBe(true);
       } else {
         expect(failed).toBeTruthy();
-        expect(failed?.errorCode).toBe("PROVIDER_ERROR");
+        expect(failed?.errorCode).toBe("SCRIPT_ERROR");
       }
     } finally {
       if (prev === undefined) delete process.env.CODE_LIMIT_MAX_PROCS;
@@ -248,7 +248,7 @@ describe("code node sandbox P1", () => {
       const elapsed = Date.now() - t0;
       const failed = events.find((e) => e.type === "node.failed" && e.nodeId === "calc");
       expect(failed).withContext("expected SIGXCPU → non-zero exit → node.failed").toBeTruthy();
-      expect(failed?.errorCode).toBe("PROVIDER_ERROR");
+      expect(failed?.errorCode).toBe("SCRIPT_ERROR");
       // Expect << 12s. Give 7s headroom for slow CI.
       expect(elapsed).withContext(`elapsed=${elapsed}ms, should finish < 8s`).toBeLessThan(8000);
     } finally {
