@@ -526,7 +526,7 @@ select {
 /* ---------- new graph template picker ---------- */
 .template-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 10px;
 }
 /* Blank-graph entry is a plain empty canvas, not a template: dashed border

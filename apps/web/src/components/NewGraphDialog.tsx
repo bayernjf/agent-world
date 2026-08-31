@@ -35,7 +35,7 @@ export default function NewGraphDialog({ open, onClose, onPick }: Props) {
     <div className="modal-backdrop" onClick={onClose}>
       <div
         className="modal"
-        style={{ width: 520 }}
+        style={{ width: 640 }}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="modal__header">
