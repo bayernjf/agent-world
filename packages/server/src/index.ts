@@ -1138,7 +1138,7 @@ app.post("/api/connectors/test", async (c) => {
     const preview = material.text.length > 2000 ? material.text.slice(0, 2000) + "\n…(truncated)" : material.text;
     return c.json({ text: preview, images: material.images, fullLength: material.text.length });
   } catch (e) {
-    return c.json({ error: (e as Error).message }, 502);
+    return c.json({ error: sanitizeError(e) }, 502);
   }
 });
 
@@ -1177,7 +1177,7 @@ app.post("/api/runs/ab", async (c) => {
     });
     return c.json({ abGroup, arms });
   } catch (err) {
-    return c.json({ error: (err as Error).message }, 400);
+    return c.json({ error: sanitizeError(err) }, 400);
   }
 });
 
