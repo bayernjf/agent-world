@@ -2,10 +2,11 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { compile, replay, type Graph } from "@agent-world/core";
+import { compile, instantiateTemplate, replay, TEMPLATES, type Graph } from "@agent-world/core";
 import { ArtifactStore } from "../artifact-store.js";
 import { execute, resume } from "../engine.js";
 import { guardedFetch, hostIsInternal } from "../ssrf.js";
+import { fakeWorker } from "../worker.js";
 
 /**
  * Core-path regression baseline ("安全网").
@@ -158,6 +159,26 @@ describe("regression · engine core path", () => {
     expect(forgeRuns.length).toBeGreaterThanOrEqual(2);
   });
 
+  it("blank/empty graph fails closed with a clear error instead of a TypeError", async () => {
+    // A brand-new "空白产线" canvas has no nodes/edges, so compile() yields a
+    // null plan. execute() must reject with an actionable message, not blow up
+    // dereferencing plan.loops/order/levels.
+    const g: Graph = { id: "g", name: "g", nodes: [], edges: [] };
+    const { plan } = compile(g);
+    expect(plan).toBeNull();
+    const worker: any = {
+      runTextGen: async function* () {
+        throw new Error("unreachable");
+      },
+      judge: async () => ({ passed: true, reason: "ok" }),
+    };
+    await expect(async () => {
+      for await (const _e of execute({ runId: "r-blank", graph: g, plan: plan as any, worker, budgetUsd: null, input: "x", now: () => 0, sleep: async () => {} })) {
+        /* drain */
+      }
+    }).rejects.toThrow(/graph does not compile/);
+  });
+
   it("resume from an interrupted run reruns the failed node without duplicating upstream artifacts", async () => {
     // Regression guard for the reconstructState fix: node.finished may arrive
     // before artifact.produced (source nodes), so resume must not synthesize a
@@ -184,6 +205,54 @@ describe("regression · engine core path", () => {
     const forgeOut = cont.find((e) => e.type === "node.finished" && e.nodeId === "forge");
     // Upstream "raw" must appear exactly once, not "raw\n\nraw".
     expect(forgeOut.output).toBe("echo:raw");
+  });
+
+  it("error edge hands off to a catch node even when a human node will suspend the run", async () => {
+    // review-publish: notify (no webhook configured) fails, its error edge must
+    // still start notifyFallback instead of being starved by the suspended human.
+    const t = TEMPLATES.find((x: { id: string }) => x.id === "tpl-review-publish")!;
+    const graph = instantiateTemplate(t);
+    const { plan } = compile(graph)!;
+    const worker = fakeWorker({ failFirstAttempts: 0, chunkDelayMs: 0 });
+
+    const events = await drain(
+      execute({ runId: "r-rp", graph, plan: plan!, worker, budgetUsd: null, input: "测试内容", now: () => 0, sleep: async () => {} }),
+    );
+
+    const notifyId = graph.nodes.find((n) => n.name === "送审通知")?.id;
+    const fallbackId = graph.nodes.find((n) => n.name === "通知兜底")?.id;
+    expect(notifyId).toBeTruthy();
+    expect(fallbackId).toBeTruthy();
+    // notify must fail (missing webhook)
+    expect(events.some((e) => e.type === "node.failed" && e.nodeId === notifyId)).toBe(true);
+    // the error-edge catch node must actually run, not stay starved
+    expect(events.some((e) => e.type === "node.finished" && e.nodeId === fallbackId)).toBe(true);
+    // and the human node paused the run for operator review
+    expect(events.some((e) => e.type === "human.review")).toBe(true);
+  });
+
+  it("template code nodes read engine inputs via stdin (batch-content split)", async () => {
+    // Guards the code-node I/O contract: engine writes { inputs } to stdin and
+    // template scripts read it back — a bare `inputs` reference must not regress.
+    const t = TEMPLATES.find((x: { id: string }) => x.id === "tpl-batch-content")!;
+    const graph = instantiateTemplate(t);
+    const { plan } = compile(graph)!;
+    const worker = fakeWorker({ failFirstAttempts: 0, chunkDelayMs: 0 });
+
+    const events = await drain(
+      execute({ runId: "r-bc", graph, plan: plan!, worker, budgetUsd: null, input: "甲\n乙\n丙", now: () => 0, sleep: async () => {} }),
+    );
+
+    const splitId = graph.nodes.find((n) => n.name === "拆条")?.id;
+    expect(splitId).toBeTruthy();
+    expect(events.some((e) => e.type === "node.finished" && e.nodeId === splitId)).toBe(true);
+    // split emits a json artifact with the two items — prove stdin inputs flowed in
+    const splitArtifact = events.find(
+      (e) => e.type === "artifact.produced" && e.nodeId === splitId && e.artifact.kind === "json",
+    )?.artifact;
+    expect(splitArtifact).toBeTruthy();
+    expect(splitArtifact.content).toContain("甲");
+    expect(splitArtifact.content).toContain("丙");
   });
 });
 

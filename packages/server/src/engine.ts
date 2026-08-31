@@ -3513,6 +3513,40 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       sendPackets(nodeId, result.output.slice(0, 120), primaryKind);
     } finally {
       running--;
+      // 节点失败时立即把错误交给 error 边的下游 catch 节点，不等待全局静止
+      // （否则 human 等人工审批挂起时 running 永不归零，兜底会被永久阻塞）。
+      if (!aborted && states.get(nodeId) === "failed") {
+        const errOut = outgoing(graph, nodeId, "error");
+        if (errOut.length) {
+          const cause = lastError.get(nodeId);
+          if (cause && !artifacts.has(nodeId)) {
+            artifacts.set(nodeId, [
+              {
+                id: `${nodeId}-error`,
+                kind: "json",
+                content: JSON.stringify(
+                  { error: cause.error, errorCode: cause.errorCode ?? "UNKNOWN", nodeId },
+                  null,
+                  2,
+                ),
+                mimeType: "application/json",
+              },
+            ]);
+          }
+          for (const e of errOut) {
+            if (packetEdges.has(e.id)) continue;
+            packetEdges.add(e.id);
+            emit({
+              type: "packet.sent",
+              edgeId: e.id,
+              from: nodeId,
+              to: e.to,
+              summary: cause?.error ?? "upstream failed",
+              artifactKind: "json",
+            });
+          }
+        }
+      }
       // Defer to a microtask so a synchronous node finishing mid-launch
       // doesn't close the run before the scheduler starts the next plant.
       if (!aborted) queueMicrotask(schedule);
@@ -3686,6 +3720,14 @@ function fileLabelFromUrl(url: URL): string {
  * persistence concerns — callers fan the stream out to SQLite and to SSE.
  */
 export async function* execute(opts: ExecuteOptions): AsyncGenerator<RunEvent, void, void> {
+  // Fail closed on a graph that cannot compile (e.g. an empty "blank" canvas):
+  // the scheduler dereferences plan.loops/order/levels, so a null plan would
+  // otherwise surface as an opaque TypeError instead of a clear error.
+  if (!opts.plan) {
+    throw new Error(
+      "graph does not compile: the pipeline has no executable plan (missing intake or invalid edges)",
+    );
+  }
   const states = new Map<string, NodeState>();
   for (const n of opts.graph.nodes) states.set(n.id, "pending");
 
@@ -3880,6 +3922,13 @@ export interface ResumeOptions {
  * halted gate is treated as passing and flow proceeds downstream.
  */
 export async function* resume(opts: ResumeOptions): AsyncGenerator<RunEvent, void, void> {
+  // Same fail-closed guard as execute: a resumed run must have a valid plan,
+  // otherwise the scheduler dereferences plan.loops/order/levels on null.
+  if (!opts.plan) {
+    throw new Error(
+      "graph does not compile: the pipeline has no executable plan (missing intake or invalid edges)",
+    );
+  }
   const { runId, graph, plan, worker, budgetUsd, action } = opts;
   const now = opts.now ?? Date.now;
   const sleep = opts.sleep ?? delay;
