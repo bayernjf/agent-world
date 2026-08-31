@@ -51,6 +51,7 @@ import { SQLiteMemoryBackend, extractKnowledgeFromRun } from "./memory.js";
 import { fileURLToPath } from "node:url";
 import { sanitizeError } from "./sanitize.js";
 import { createReadArtifact } from "./artifact-reader.js";
+import { decryptString, encryptString } from "./at-rest.js";
 import { hashPassword, verifyPassword, signToken, verifyToken, REMEMBER_MAX_AGE_SEC } from "./auth.js";
 
 const PORT = Number(process.env.PORT ?? 8791);
@@ -66,8 +67,14 @@ backfillExistingData(db as any);
 // store while the legacy file config remains the shared baseline for users
 // who have never saved settings.
 bindSettingsStore({
-  get: (userId: string) => db.getSettings(userId),
-  set: (userId: string, data: string) => db.saveSettings(userId, data),
+  // Settings rows store the whole AppConfig JSON, including provider API keys.
+  // Encrypt at rest (audit L3); legacy plaintext rows decrypt as-is and are
+  // re-encrypted on the next save.
+  get: (userId: string) => {
+    const raw = db.getSettings(userId);
+    return raw ? decryptString(raw) : null;
+  },
+  set: (userId: string, data: string) => db.saveSettings(userId, encryptString(data)),
 });
 const artifacts = ArtifactStore.fromEnv();
 const readArtifact = createReadArtifact(db, artifacts);
