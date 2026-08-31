@@ -1184,10 +1184,10 @@ export function openDb(file: string) {
         if (snap) {
           try {
             const g = JSON.parse(snap.snapshot) as {
-              nodes?: Array<{ id: string; agent?: { prompt?: string } }>;
+              nodes?: Array<{ id: string; textGen?: { prompt?: string } }>;
             };
             const node = (g.nodes ?? []).find((n) => n.id === r.target);
-            prompt = node?.agent?.prompt ?? null;
+            prompt = node?.textGen?.prompt ?? null;
           } catch {
             /* ignore malformed snapshot */
           }
@@ -1369,7 +1369,12 @@ export function openDb(file: string) {
 
     saveGraphUnscoped(graph: Graph, at: number) {
       const doc = JSON.stringify(graph);
-      stmts.insertGraph.run(graph.id, null, graph.name, doc, at);
+      // Preserve template lineage: the upsert's update branch never touches
+      // origin_template_id, but the insert branch needs the existing value.
+      const row = db
+        .prepare(`SELECT origin_template_id FROM graphs WHERE id = ?`)
+        .get(graph.id) as { origin_template_id: string | null } | undefined;
+      stmts.insertGraph.run(graph.id, null, graph.name, doc, row?.origin_template_id ?? null, at);
     },
 
     close() {
