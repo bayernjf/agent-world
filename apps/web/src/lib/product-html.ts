@@ -1,4 +1,5 @@
 import type { ProductDocument, ProductBlock } from "@agent-world/core";
+import { sanitizeProductHtml } from "./sanitize-html";
 
 function escapeHtml(s: string): string {
   return s
@@ -270,7 +271,10 @@ export async function productToLongImage(
   text: string,
   title?: string,
 ): Promise<string> {
-  const bodyHtml = extractBody(productToHtml(doc, text, title));
+  // Model output may echo user/upstream input — sanitize before it touches the
+  // DOM or SVG foreignObject (audit L6/M8 XSS). The trusted <style> block is
+  // added later by toXhtmlFragment, outside the sanitized content.
+  const bodyHtml = sanitizeProductHtml(extractBody(productToHtml(doc, text, title)));
   const inlined = await inlineImages(bodyHtml);
   const height = await measureHeight(inlined);
   const scale = 2;
