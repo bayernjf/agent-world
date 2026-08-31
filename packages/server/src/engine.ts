@@ -64,7 +64,7 @@ import { executeVcs, VcsAuthError, VcsProviderError } from "./vcs.js";
 import { withRetry } from "./retry.js";
 import { createCodeWorkdir, cleanupCodeWorkdir, resolveSandbox, type CodeSandboxLimits } from "./code-sandbox.js";
 import { trimEnv } from "./isolation.js";
-import { allowPrivateNetwork, hostIsInternal } from "./ssrf.js";
+import { allowPrivateNetwork, guardedFetch, hostIsInternal } from "./ssrf.js";
 import { childProxyEnv, getCodeProxyUrl, registerNetToken, unregisterNetToken } from "./code-proxy.js";
 
 /**
@@ -1110,60 +1110,28 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           return;
         }
 
-        /** Thrown when a redirect hop would land on a private/internal host. */
-        const ssrfRejected = (where: string) =>
-          new Error(`HTTP 节点拒绝访问内网或私网地址（SSRF 防护，重定向到 ${where}）`);
-
         let response: Response;
         try {
           response = await withRetry(
             async () => {
-              // Follow redirects manually so every hop re-passes the SSRF
-              // check — the default "follow" mode only validates the first
-              // URL, letting a public endpoint 302 to 169.254.169.254.
+              // All outbound traffic leaves through guardedFetch: the DNS
+              // answer that passes the internal check is the one the TCP/TLS
+              // connection is pinned to (no check-vs-connect TOCTOU, audit
+              // H3), and redirects are re-validated on every hop (audit C3).
               const abort = new AbortController();
               const timer = setTimeout(() => abort.abort(), cfg.timeoutMs);
               try {
-                const MAX_REDIRECTS = 5;
-                let current = targetUrl;
-                let method = cfg.method;
-                let sendBody = body && method !== "GET" ? body : undefined;
-                let hopHeaders = { ...headers };
-                for (let hop = 0; ; hop++) {
-                  if (!allowPrivateNetwork() && (await hostIsInternal(current.hostname))) {
-                    throw ssrfRejected(current.hostname);
-                  }
-                  const r = await fetch(current.toString(), {
-                    method,
-                    headers: hopHeaders,
-                    body: sendBody,
-                    redirect: "manual",
-                    signal: abort.signal,
-                  });
-                  if (r.status >= 300 && r.status < 400) {
-                    const loc = r.headers.get("location");
-                    if (!loc) throw new Error(`HTTP ${r.status} without Location`);
-                    if (hop >= MAX_REDIRECTS) throw new Error(`重定向超过 ${MAX_REDIRECTS} 跳`);
-                    const next = new URL(loc, current);
-                    if (next.protocol !== "http:" && next.protocol !== "https:") {
-                      throw new Error(`重定向协议不允许: ${next.protocol}`);
-                    }
-                    if (next.host !== current.host) {
-                      // Mirror fetch's cross-origin behavior: never replay
-                      // credentials at a different origin.
-                      const { authorization, Authorization, cookie, Cookie, ...rest } = hopHeaders;
-                      hopHeaders = rest;
-                    }
-                    if (r.status === 303 || ((r.status === 301 || r.status === 302) && method !== "GET")) {
-                      method = "GET";
-                      sendBody = undefined;
-                    }
-                    current = next;
-                    continue;
-                  }
-                  if (r.status >= 500) throw new Error(`HTTP ${r.status}`);
-                  return r;
-                }
+                const r = await guardedFetch(targetUrl.toString(), {
+                  method: cfg.method,
+                  headers,
+                  body: body && cfg.method !== "GET" ? body : undefined,
+                  signal: abort.signal,
+                  maxRedirects: 5,
+                });
+                // 5xx triggers the retry path; deterministic guard rejections
+                // (GuardedFetchError) are excluded from retry below.
+                if (r.status >= 500) throw new Error(`HTTP ${r.status}`);
+                return r;
               } finally {
                 clearTimeout(timer);
               }
