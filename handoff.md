@@ -100,11 +100,14 @@ State of Agent World as of 2026-08-31.
 
 按优先级降序，标 `★` 的是当下要推的：
 
-1. **安全审计修复（2026-08-31，已完成）**：全量审计 3 Critical / 10 High / 8 Medium / 8 Low，**29 项全部修复**。里程碑提交：C1 `5ea9f06` / C2 `0adfcd7` / C3 `789cf52`；H3-H7/M7 出站防护 `1832020`/`0b05d62`/`aca2f3f`/`da23aa9`；H1/H2/M1-M4/L1 鉴权 `59c012c`/`8e7ac09`/`69699c8`；H8-H10/M5/M6/L4-L6/M8 沙箱与杂项 `1f7cc8d`/`7222ebb`/`09c5e92`/`fcba760`/`bbbf0ea`/`befc209`/`62d16d2`；L2/L7 `ae70ef9`/`d9e80fc`/`c3f5eae`；L3 静态加密 `9dc68ae`/`f73a606`；L8 `4eeee2c`。报告见 [docs/security-audit-2026-08-31.md](docs/security-audit-2026-08-31.md)
-2. **README 演示 GIF**：README.md 已按对外受众重写并 commit（`1fc7f56`），预留了 `docs/images/` 截图 TODO 注释位——需录一段「画布运行 + rework 回环 + 时间轴回放」的 GIF（macOS 录屏 + `ffmpeg -i in.mov -vf "fps=10,scale=720:-1" out.gif"`）
-3. **git push（用户确认时机）**：本地领先 `origin/feature/20260824` **7 个 commit**（安全审计 L2/L3/L7 + L8 前端文案 + handoff/方案文档），等用户指示后统一 push 并观察 CI
-4. **沙箱后续（低优）**：docker/podman 容器后端（生产级隔离，net allowlist 的终极形态）——与审计第四批"隔离诚实化"合并推进
-5. **模板市场（缓做）**：用户发布/安装模板，触发条件见 design-templates §4
+1. ★ **跑通真实产线（狗粮验证，2026-08-31 立项）**：roadmap-tasks 1.7.1——用产品自己跑一条端到端真实产线（如模板"多源研究简报"或内容产线），验证"新用户路径 → 配置 provider → 建产线 → 运行 → 看产物 → 复盘"全链路真实可用。产出：一份真实运行记录 + 暴露的体验/功能缺口清单。紧接回归测试集
+   - **2026-08-31 进展（文本链路已跑通）**：跑通「短视频广告工坊」真实产线（投料→文坊脚本→成品入库→全部出厂，run `e74cba65`），文本节点真实调用 agnes-2.5-flash 产出完整口播脚本（817/186 tokens）。**过程发现并修复关键 bug**：SSRF `pinnedAgent` 用 undici 8.x Agent 传给 Node 24 内置 7.x fetch 会报 `invalid onRequestStart method`，导致所有经 guardedFetch 的出站请求失败（产线 fetch failed 根因）——依赖降到 `undici@^7.8`（7.29）后对齐，server 557/557 回归通过。
+   - **剩余缺口**：① 画坊图片节点偶发 503（agnes 图片队列满，临时，重试即可）；② **影坊视频节点 400 `duration is not an allowed request field`**——agnes 视频 API 用 `input`+`mode`（如 `mode:"text_to_video"`）且不支持 `duration`，videoGen worker 目前发 `prompt`+`duration`+`aspect_ratio`，需做 agnes 视频适配（内置 provider 字段映射或产线模板调整）。
+2. ★ **回归测试集**：把已知 flaky（bcrypt/计时敏感用例）与核心路径做成可重复的回归基线与安全网；roadmap-tasks 5.5 登记项。目标：全量测试稳定复跑，避免"复跑即绿"掩盖真回归
+3. **README 演示 GIF**：README.md 已按对外受众重写并 commit（`1fc7f56`），预留了 `docs/images/` 截图 TODO 注释位——需录一段「画布运行 + rework 回环 + 时间轴回放」的 GIF（macOS 录屏 + `ffmpeg -i in.mov -vf "fps=10,scale=720:-1" out.gif"`）
+4. **git push（已完成，2026-08-31）**：安全审计批次已由用户 push 到 `origin/feature/20260824` 并观察 CI
+5. **沙箱后续（低优）**：docker/podman 容器后端（生产级隔离，net allowlist 的终极形态）——与审计第四批"隔离诚实化"合并推进
+6. **模板市场（缓做）**：用户发布/安装模板，触发条件见 design-templates §4
 
 > 全部缓做/低优事项（含上述两条）已统一登记在 [docs/deferred-items.md](docs/deferred-items.md)——每条带触发条件与决策详情链接，触发条件满足时移回本区并标注重启日期。
 
@@ -112,11 +115,11 @@ State of Agent World as of 2026-08-31.
 
 按 commit 时间倒序，每条一行影响面 + commit hash：
 
-1. `9dc68ae` — **feat(server)**: 静态加密（审计 L3）——settings apiKey 与 webhook secret（graphs.doc / versions.snapshot / runs.snapshot）落盘 AES-256-GCM 加密；at-rest.ts + seal/open 序列化边界 + contentHash 明文计算保持；7 单测 + 4 db 集成 + vitest setup 确定性密钥。
-2. `f73a606` — **docs**: 静态加密设计文档（design-at-rest-encryption.md）+ 审计报告 L3 标记已修复。
-3. `ce5635a` — **docs**: handoff 文档更新（格式规范化 + 当前状态/安全基线同步）。
-4. `4eeee2c` — **fix(web)**: 模型分配弹窗按钮文案改为单一动作（审计 L8）。
-5. `d9e80fc` — **fix(server)**: MCP 遗留 SSE `endpoint` 事件加同源校验（审计 L7，堵 SSRF）。
+1. `(pending)` — **fix(server)**: SSRF `guardedFetch` 的 pinned Agent 依赖对齐 Node 内置 undici（8.x→7.29），修 `invalid onRequestStart method` 导致所有出站 fetch 失败（跑真实产线时暴露）。
+2. `9dc68ae` — **feat(server)**: 静态加密（审计 L3）——settings apiKey 与 webhook secret（graphs.doc / versions.snapshot / runs.snapshot）落盘 AES-256-GCM 加密；at-rest.ts + seal/open 序列化边界 + contentHash 明文计算保持；7 单测 + 4 db 集成 + vitest setup 确定性密钥。
+3. `f73a606` — **docs**: 静态加密设计文档（design-at-rest-encryption.md）+ 审计报告 L3 标记已修复。
+4. `ce5635a` — **docs**: handoff 文档更新（格式规范化 + 当前状态/安全基线同步）。
+5. `4eeee2c` — **fix(web)**: 模型分配弹窗按钮文案改为单一动作（审计 L8）。
 
 最近 5 条之前的全部在 [docs/handoff-archive.md](docs/handoff-archive.md) 的"阶段 4 收尾"与"Additions (post-2026-08-27)"系列章节里（含 MCP stdio 分帧修复 `a2482ba`、P2 外部沙箱后端 `0a22b13`、P1 rlimit `ddb2e03`、P0 `6b2f92b`、HTTP 节点第一闭环 `1856d81`、账号系统 `5b81c74`/`73d3610` 等）。
 
@@ -128,7 +131,7 @@ State of Agent World as of 2026-08-31.
 
 * `pnpm --filter @agent-world/core test`：**152/152 通过**（2026-08-31：新增 4 用例——四大能力模板 kind 覆盖 / loop items 引用重写到新 id / doc-ingest·review-publish·scan-ocr error 边兜底 / translation 专用 translate 节点；原有 EdgeKind error / 全量 compile / 字段引用用例）
 
-* `pnpm --filter @agent-world/server test`：**557/557 通过**（80 文件；Node 24 下跑；2026-08-31 新增：at-rest 静态加密 7 单测 + 4 db 集成——磁盘无明文断言 / version·run hash 匹配 / 旧明文兼容；api.security 审计用例；routingWorker 视频音频委托；模板参数化全链路）。**已知负载性 flaky**：全量并发跑时偶发 1-6 个用例超时（多为 bcrypt/计时敏感用例，如 Secure cookie、sse-resume、engine.code 沙箱计时），单独跑或复跑即绿——排查时先复跑再怀疑代码。此前 546/546（含 L2/L3/L7 补批 + L8 文案）。
+* `pnpm --filter @agent-world/server test`：**557/557 通过**（80 文件；Node 24 下跑；2026-08-31 新增：at-rest 静态加密 7 单测 + 4 db 集成——磁盘无明文断言 / version·run hash 匹配 / 旧明文兼容；api.security 审计用例；routingWorker 视频音频委托；模板参数化全链路。同日 undici 对齐 8→7.29 后复跑 557/557 无回归）。**已知负载性 flaky**：全量并发跑时偶发 1-6 个用例超时（多为 bcrypt/计时敏感用例，如 Secure cookie、sse-resume、engine.code 沙箱计时），单独跑或复跑即绿——排查时先复跑再怀疑代码。此前 546/546（含 L2/L3/L7 补批 + L8 文案）。
 
 * `pnpm --filter @agent-world/mcp-server test`：**50/50 通过**（新增 stdio 端到端冒烟 3 个：CLI 子进程真实回环 / parse error 容错 / 多字节 id 无分帧错位）
 
