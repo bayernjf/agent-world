@@ -2,7 +2,16 @@ import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { bindSettingsStore, loadConfig, saveConfig, type AppConfig, type SettingsStore } from "./config.js";
+import {
+  bindSettingsStore,
+  endpointFor,
+  loadConfig,
+  MODALITY_ENDPOINT,
+  saveConfig,
+  type AppConfig,
+  type ProviderConfig,
+  type SettingsStore,
+} from "./config.js";
 
 function memStore(): { store: SettingsStore; map: Map<string, string> } {
   const map = new Map<string, string>();
@@ -62,8 +71,33 @@ describe("per-user config storage", () => {
   it("falls back to built-in defaults for a user who never saved settings", () => {
     bindSettingsStore(store);
     const cfg = loadConfig("ghost");
-    // No DB row, no file → the demo/fake baseline.
-    expect(cfg.providers.demo).toBeTruthy();
+    // No DB row, no file → the built-in agnes baseline.
+    expect(cfg.providers.agnes).toBeTruthy();
+  });
+
+  it("builtin providers always win the merge — a stored copy can't shadow them", () => {
+    bindSettingsStore(store);
+    // Simulate stale/crafted data: an agnes entry persisted before `source`
+    // existed (or hand-injected), with a rogue key and models.
+    saveConfig(
+      {
+        ...ALICE_CFG,
+        providers: {
+          ...ALICE_CFG.providers,
+          agnes: {
+            type: "openai-compatible",
+            baseUrl: "https://evil.example/v1",
+            apiKey: "sk-evil",
+            models: ["sneaky-model"],
+          },
+        },
+      },
+      "u-shadow",
+    );
+    const agnes = loadConfig("u-shadow").providers.agnes!;
+    expect(agnes.baseUrl).toBe("https://apihub.agnes-ai.com/v1");
+    expect(agnes.models).toContain("agnes-2.0-flash");
+    expect(agnes.models).not.toContain("sneaky-model");
   });
 });
 
@@ -86,8 +120,8 @@ describe("legacy file config remains the shared baseline", () => {
 
     const cfg = loadConfig();
     expect(cfg.providers.file).toBeTruthy();
-    // Backfill keeps the built-in demo provider available.
-    expect(cfg.providers.demo).toBeTruthy();
+    // Backfill keeps the built-in agnes provider available.
+    expect(cfg.providers.agnes).toBeTruthy();
   });
 
   it("saveConfig() without a userId writes the file", () => {
@@ -103,5 +137,32 @@ describe("legacy file config remains the shared baseline", () => {
     expect(path).toBe(file);
     const reloaded = loadConfig();
     expect(reloaded.providers.alice?.apiKey).toBe("sk-alice");
+  });
+});
+
+describe("endpointFor() — per-provider endpoint override", () => {
+  it("falls back to the global MODALITY_ENDPOINT default when unset", () => {
+    const prov: ProviderConfig = { type: "openai-compatible", models: ["m"] };
+    expect(endpointFor(prov, "m", "text")).toBe(MODALITY_ENDPOINT.text);
+    expect(endpointFor(prov, "m", "video")).toBe(MODALITY_ENDPOINT.video);
+  });
+
+  it("prefers the provider's per-modality override", () => {
+    const prov: ProviderConfig = {
+      type: "openai-compatible",
+      models: ["m"],
+      endpoints: { video: "/videos" },
+    };
+    expect(endpointFor(prov, "m", "video")).toBe("/videos");
+    // Other modalities are untouched by the override.
+    expect(endpointFor(prov, "m", "text")).toBe(MODALITY_ENDPOINT.text);
+    expect(endpointFor(prov, "m", "image")).toBe(MODALITY_ENDPOINT.image);
+  });
+
+  it("built-in agnes resolves video to /videos for both video models", () => {
+    const cfg = loadConfig("ghost");
+    const agnes = cfg.providers.agnes!;
+    expect(endpointFor(agnes, "agnes-video-v2.0", "video")).toBe("/videos");
+    expect(endpointFor(agnes, "agnes-video-2.5-flash", "video")).toBe("/videos");
   });
 });

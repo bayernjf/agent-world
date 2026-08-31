@@ -1,3 +1,5 @@
+// Load `.env` first so every later module sees env vars (e.g. AGNES_API_KEY).
+import "./load-env.js";
 import { serve } from "@hono/node-server";
 import { randomUUID } from "node:crypto";
 import { Hono } from "hono";
@@ -32,6 +34,7 @@ import {
   bindSettingsStore,
   normalizeBaseUrl,
   modalityOf,
+  endpointFor,
   MODALITY_ENDPOINT,
   DEFAULT_MODALITY,
   type AppConfig,
@@ -360,6 +363,7 @@ app.post("/api/graphs", async (c) => {
   };
   const id = randomUUID();
   let graph: Graph;
+  let originTemplateId: string | null = null;
   if (body.template) {
     const tpl = getTemplate(body.template);
     if (!tpl) return c.json({ error: "template not found" }, 404);
@@ -368,6 +372,7 @@ app.post("/api/graphs", async (c) => {
       name: body.name?.trim() || tpl.name,
       fieldValues: body.fieldValues,
     });
+    originTemplateId = body.template;
   } else if (body.from) {
     const src = db.getGraph(body.from, userId);
     if (!src) return c.json({ error: "source graph not found" }, 404);
@@ -380,6 +385,8 @@ app.post("/api/graphs", async (c) => {
       nodes: srcDoc.nodes.map((n) => ({ ...n })),
       edges: srcDoc.edges.map((e) => ({ ...e })),
     };
+    // Clone is an independent copy — not a template instance.
+    originTemplateId = null;
   } else {
     graph = {
       id,
@@ -387,6 +394,7 @@ app.post("/api/graphs", async (c) => {
       nodes: [],
       edges: [],
     };
+    originTemplateId = null;
   }
   const dup = findGraphIdByName(graph.name, userId);
   if (dup) {
@@ -395,7 +403,7 @@ app.post("/api/graphs", async (c) => {
       409,
     );
   }
-  db.saveGraph(graph, Date.now(), userId);
+  db.saveGraph(graph, Date.now(), userId, undefined, originTemplateId);
   return c.json(db.getGraph(id, userId), 201);
 });
 
@@ -409,6 +417,96 @@ app.delete("/api/graphs/:id", (c) => {
   const userId = c.get("userId");
   db.deleteGraph(c.req.param("id"), userId);
   return c.json({ ok: true });
+});
+
+/** Minimal duck-typed view of a template graph — only the layout fields
+ *  we touch (node id/kind/x/y, edge from/to/kind). The `kind` literals come
+ *  from `Graph` so our `.map` returns are still assignable back to the strict
+ *  `Graph["nodes"]` / `Graph["edges"]` arrays that saveGraph expects. */
+type NodeK = Graph["nodes"][number]["kind"];
+type EdgeK = Graph["edges"][number]["kind"];
+interface TemplateLike {
+  nodes: Array<{ id: string; kind: NodeK; x: number; y: number }>;
+  edges: Array<{ id: string; from: string; to: string; kind: EdgeK }>;
+}
+
+/**
+ * Restore only a graph's visual layout (node positions + edge topology) to
+ * the originating template. Everything the user configured — node prompts,
+ * model selections, node names, added/deleted nodes, triggers, variables —
+ * is preserved.
+ *
+ * Per-node semantics (matched by node.id):
+ *   - template node exists + user node exists  → overwrite only x / y (and
+ *     kind defensively; kind never changes between template & user).
+ *   - user added a node that the template never had  → keep it (preserve).
+ *   - user deleted a template node → don't revive it (honour user deletion).
+ *
+ * Edges: union — every edge in the template is guaranteed present (user's
+ * deletions of a template edge are undone), and any edges the user added
+ * beyond the template are kept.
+ */
+function restoreLayout(graph: Graph, template: TemplateLike): Graph {
+  const userNodesById = new Map(graph.nodes.map((n) => [n.id, n]));
+  const tplNodesById = new Map(template.nodes.map((n) => [n.id, n]));
+
+  const newNodes: Graph["nodes"] = graph.nodes.map((userNode) => {
+    const tpl = tplNodesById.get(userNode.id);
+    if (!tpl) return userNode; // user-added node — keep verbatim
+    // Template node: restore only positional fields.
+    return { ...userNode, kind: tpl.kind, x: tpl.x, y: tpl.y };
+  });
+
+  // Edges: start from user's set, add any template edges that are missing.
+  // Key by "from→to|kind" so duplicates get deduped cleanly.
+  const edgeKey = (e: { from: string; to: string; kind: string }) => `${e.from}→${e.to}|${e.kind}`;
+  const userEdgeKeys = new Set(graph.edges.map(edgeKey));
+  const newEdges = [...graph.edges];
+  for (const tplEdge of template.edges) {
+    if (!userEdgeKeys.has(edgeKey(tplEdge))) {
+      newEdges.push({ ...tplEdge });
+    }
+  }
+
+  return { ...graph, nodes: newNodes, edges: newEdges };
+}
+
+app.post("/api/graphs/:id/reset", (c) => {
+  const userId = c.get("userId");
+  const id = c.req.param("id");
+  const existing = db.getGraph(id, userId);
+  if (!existing) return c.json({ error: "not found" }, 404);
+  if (!existing.originTemplateId) {
+    return c.json(
+      { error: "not_template_instance", message: "此产线未从模板创建，无法还原。" },
+      400,
+    );
+  }
+  const tpl = getTemplate(existing.originTemplateId);
+  if (!tpl) {
+    return c.json(
+      { error: "template_missing", message: `模板「${existing.originTemplateId}」已不存在。` },
+      400,
+    );
+  }
+
+  // Snapshot current state so the reset itself is reversible via VersionPanel.
+  const s = autoSnapshotSettings(userId);
+  db.saveAutoSnapshot(id, JSON.stringify(existing), s.minIntervalMs, s.maxKeep);
+
+  const restored = restoreLayout(existing, tpl.graph);
+
+  const ifMatch = c.req.header("if-match");
+  const expectedVersion = ifMatch != null ? Number(ifMatch) : undefined;
+  const result = db.saveGraph(restored, Date.now(), userId, expectedVersion);
+  if (!result.ok) {
+    return c.json(
+      { error: "conflict", message: "该产线已在其他标签页被修改，请刷新后重试。" },
+      409,
+    );
+  }
+  // originTemplateId stays untouched — updateGraphIfVersion doesn't rewrite it.
+  return c.json(db.getGraph(id, userId));
 });
 
 /** Auto-snapshot parameters from user settings, falling back to the design
@@ -519,8 +617,10 @@ app.put("/api/settings", async (c) => {
 
 /**
  * Test a provider connection without saving. Accepts provider config in the
- * body so the user can verify before hitting save. Sends a minimal
- * non-streaming chat completion (max 1 token) and reports the result.
+ * body so the user can verify before hitting save. Text/embedding probe with a
+ * minimal non-streaming request; image/audio trigger a real generation (billed)
+ * and validate the response shape; video probes cheaply via GET /models and
+ * never submits a real generation job.
  */
 app.post("/api/providers/test", async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as {
@@ -539,17 +639,16 @@ app.post("/api/providers/test", async (c) => {
 
   // Resolve modality: explicit > saved for this model > text default.
   let modality = body.modality ?? DEFAULT_MODALITY;
-  if (body.providerName) {
-    const saved = loadConfig(c.get("userId")).providers[body.providerName];
-    if (saved) modality = body.modality ?? modalityOf(saved, model);
-  }
+  const saved = body.providerName
+    ? loadConfig(c.get("userId")).providers[body.providerName]
+    : undefined;
+  if (saved) modality = body.modality ?? modalityOf(saved, model);
 
   // The UI holds a redacted key for already-saved providers. If the caller did
   // not type a fresh key (empty or looks redacted), resolve the real key from
   // the saved config on the server.
   const looksRedacted = !apiKey || isRedactedKey(apiKey);
   if (looksRedacted && body.providerName) {
-    const saved = loadConfig(c.get("userId")).providers[body.providerName];
     if (saved?.apiKey && !isRedactedKey(saved.apiKey)) apiKey = saved.apiKey;
     else if (!saved) {
       return c.json({ ok: false, error: `Provider "${body.providerName}" 未保存，请先添加并保存` }, 400);
@@ -560,7 +659,16 @@ app.post("/api/providers/test", async (c) => {
     return c.json({ ok: false, error: "API Key 未配置或已失效，请重新填写" }, 400);
   }
 
-  const endpoint = MODALITY_ENDPOINT[modality];
+  // Prefer the saved provider's endpoint override (per modality); the probe and
+  // the real worker must agree on where to POST, so share endpointFor().
+  const endpoint = saved ? endpointFor(saved, model, modality) : MODALITY_ENDPOINT[modality];
+
+  // Video generation is slow and billed per job — "test connection" must not
+  // trigger a real job. Probe cheaply (GET /models), matching market practice.
+  if (modality === "video") {
+    return c.json(await probeVideo(baseUrl, apiKey, model));
+  }
+
   const payload = buildTestPayload(modality, model);
 
   // Image/video generation is much slower than chat; give those a longer leash.
@@ -594,6 +702,21 @@ app.post("/api/providers/test", async (c) => {
         status: res.status,
         error: sanitizeError(`HTTP ${res.status}: ${text.slice(0, 300)}`),
       });
+    }
+    // Image is a real, billed call — don't trust a bare 2xx, verify the
+    // response actually carries generated images.
+    if (modality === "image") {
+      const json = (await res.json().catch(() => ({}))) as {
+        data?: Array<{ b64_json?: string; url?: string }>;
+      };
+      const items = json.data ?? [];
+      if (items.length === 0 || items.some((it) => !it.b64_json && !it.url)) {
+        return c.json({
+          ok: false,
+          status: res.status,
+          error: "图片接口返回 2xx 但未包含有效图片数据（data 为空或缺少 url/b64_json）",
+        });
+      }
     }
     return c.json({ ok: true, modality, endpoint: `${baseUrl}${endpoint}` });
   } catch (err) {
@@ -978,7 +1101,7 @@ app.post("/api/runs/ab", async (c) => {
   if (!graph) return c.json({ error: "graph not found" }, 404);
   const target = graph.nodes.find((n) => n.id === body.targetNodeId);
   if (!target) return c.json({ error: "target node not found" }, 404);
-  if (target.kind !== "agent") {
+  if (target.kind !== "textGen") {
     return c.json({ error: "A/B 目标必须是厂房(agent)节点" }, 400);
   }
   try {
@@ -1530,8 +1653,97 @@ for (const sig of ["SIGINT", "SIGTERM"] as const) {
   });
 }
 
-/** Minimal request body for a connectivity probe, shaped per modality. */
-function buildTestPayload(modality: Modality, model: string): Record<string, unknown> {
+/**
+ * Lightweight video connectivity probe. Never submits a real generation job:
+ * generation is slow and billed per task, so "test connection" only verifies
+ * the key and model existence. Uses GET /models (the OpenAI-compatible
+ * standard for key + model-list validation); falls back to POSTing an empty
+ * prompt to the video endpoint, which providers reject fast with a 4xx
+ * validation error without doing any real work.
+ */
+async function probeVideo(
+  baseUrl: string,
+  apiKey: string,
+  model: string,
+): Promise<{ ok: boolean; status?: number; error?: string; modality: "video"; endpoint?: string; note?: string }> {
+  const PROBE_TIMEOUT_MS = 15_000;
+  const modelsUrl = `${baseUrl}/models`;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(modelsUrl, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      signal: controller.signal,
+    });
+  } catch (err) {
+    clearTimeout(timer);
+    if ((err as Error).name === "AbortError") return { ok: false, modality: "video", error: "连接超时（15s）" };
+    return { ok: false, modality: "video", error: sanitizeError((err as Error).message) };
+  } finally {
+    clearTimeout(timer);
+  }
+
+  if (res.ok) {
+    const json = (await res.json().catch(() => ({}))) as { data?: Array<{ id?: string }> };
+    const ids = (json.data ?? []).map((m) => m.id).filter(Boolean);
+    if (ids.length > 0) {
+      if (ids.includes(model)) return { ok: true, modality: "video", endpoint: modelsUrl };
+      return { ok: false, modality: "video", endpoint: modelsUrl, error: `模型 ${model} 不在服务商模型列表中` };
+    }
+    // Key + endpoint responded, but no model list was returned.
+    return { ok: true, modality: "video", endpoint: modelsUrl, note: "服务商未返回模型列表，仅校验到 Key 与端点可达" };
+  }
+
+  if (res.status === 401 || res.status === 403) {
+    const text = await res.text().catch(() => "");
+    return { ok: false, status: res.status, modality: "video", error: `HTTP ${res.status}: ${sanitizeError(text.slice(0, 300))}` };
+  }
+
+  // No GET /models on this provider (404/405): POST an empty prompt to the
+  // video endpoint. Valid providers reject it fast with a 4xx validation
+  // error — that proves the endpoint and key without starting a job.
+  if (res.status === 404 || res.status === 405) {
+    const postController = new AbortController();
+    const postTimer = setTimeout(() => postController.abort(), PROBE_TIMEOUT_MS);
+    try {
+      const postRes = await fetch(`${baseUrl}${MODALITY_ENDPOINT.video}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({ model, prompt: "" }),
+        signal: postController.signal,
+      });
+      if (postRes.status === 400 || postRes.status === 422) {
+        return {
+          ok: true,
+          modality: "video",
+          endpoint: `${baseUrl}${MODALITY_ENDPOINT.video}`,
+          note: "端点可达且 Key 有效（空 prompt 被参数校验拒绝，未触发生成）",
+        };
+      }
+      if (postRes.status === 401 || postRes.status === 403) {
+        return { ok: false, status: postRes.status, modality: "video", error: `HTTP ${postRes.status}: API Key 无效` };
+      }
+      if (postRes.ok) {
+        return { ok: false, modality: "video", error: "服务商接受了空 prompt（返回 2xx），疑似真实触发生成；请改用运行时验证" };
+      }
+      const text = await postRes.text().catch(() => "");
+      return { ok: false, status: postRes.status, modality: "video", error: `HTTP ${postRes.status}: ${sanitizeError(text.slice(0, 300))}` };
+    } finally {
+      clearTimeout(postTimer);
+    }
+  }
+
+  const text = await res.text().catch(() => "");
+  return { ok: false, status: res.status, modality: "video", error: `HTTP ${res.status}: ${sanitizeError(text.slice(0, 300))}` };
+}
+
+/**
+ * Minimal request body for a connectivity probe, shaped per modality. Video is
+ * excluded: it probes via GET /models and never sends a generation request.
+ */
+function buildTestPayload(modality: Exclude<Modality, "video">, model: string): Record<string, unknown> {
   switch (modality) {
     case "text":
       return { model, messages: [{ role: "user", content: "hi" }], max_tokens: 1, stream: false };
@@ -1542,8 +1754,6 @@ function buildTestPayload(modality: Modality, model: string): Record<string, unk
     case "audio":
       // OpenAI-compatible TTS. A one-character input keeps the response tiny.
       return { model, input: ".", voice: "alloy" };
-    case "video":
-      return { model, prompt: "test" };
   }
 }
 

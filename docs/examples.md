@@ -28,7 +28,7 @@ and on failure the draft goes back to the writer with the critic's feedback.
 
 **Nodes:**
 - `source` — input brief / topic
-- `agent` (writer) — writes a first draft
+- `textGen` (writer) — writes a first draft
 - `gate` (critic) — checks against `criterion`; on fail, sends a `rework` edge back to writer
 - `sink` — final output
 
@@ -56,7 +56,7 @@ Generate a complete e-commerce product listing from a brief: product photo
 **Nodes:**
 - `source` — product brief (name, brand, audience, price range, tone)
 - `imageGen` — generates a product scene image
-- `agent` (copywriter) — writes title, description, bullet points
+- `textGen` (copywriter) — writes title, description, bullet points
 - `sink` — final listing
 
 **Edges:**
@@ -84,7 +84,7 @@ synthesize a briefing.
 **Nodes:**
 - `source` (news) — HTTP connector to a news API
 - `source` (weather) — HTTP connector to a weather API
-- `agent` (synthesizer) — combines both sources into a morning briefing
+- `textGen` (synthesizer) — combines both sources into a morning briefing
 - `sink` — final briefing
 
 **Edges:**
@@ -117,7 +117,7 @@ video, assemble output.
 
 **Nodes:**
 - `source` — product / brand brief
-- `agent` (scriptwriter) — writes a 15-second ad script
+- `textGen` (scriptwriter) — writes a 15-second ad script
 - `audioGen` — TTS voiceover from the script
 - `videoGen` — generates video from the script + product brief
 - `sink` — final ad package (script + audio + video)
@@ -151,7 +151,7 @@ answers become the source input.
 
 **Nodes:**
 - `source` — form connector with fields
-- `agent` (writer) — generates content from form answers
+- `textGen` (writer) — generates content from form answers
 - `sink` — output
 
 **Edges:**
@@ -186,8 +186,8 @@ quality gate.
 
 **Nodes:**
 - `source` — input / topic
-- `agent` (writer A) — variant A prompt
-- `agent` (writer B) — variant B prompt
+- `textGen` (writer A) — variant A prompt
+- `textGen` (writer B) — variant B prompt
 - `gate` (judge) — picks the better output based on `criterion`
 - `sink` — winning output
 
@@ -216,7 +216,7 @@ APIs, and generates a report.
 **Nodes:**
 - `source` (sales API) — HTTP connector
 - `source` (support API) — HTTP connector
-- `agent` (analyst) — synthesizes a daily report
+- `textGen` (analyst) — synthesizes a daily report
 - `sink` — report
 
 **Trigger:**
@@ -237,7 +237,7 @@ your e-commerce platform, auto-generate its listing copy.
 
 **Nodes:**
 - `source` — receives the webhook payload as `sourceInput`
-- `agent` (copywriter) — generates listing from payload
+- `textGen` (copywriter) — generates listing from payload
 - `sink` — output
 
 **Trigger:**
@@ -261,7 +261,7 @@ automation, CI/CD documentation generation.
 ## 9. Ops Weekly Report (HTTP → Code → Agent → Sink) — 内置 `tpl-ops-weekly`
 
 拉取业务数据 → 代码节点清洗汇总 → AI 生成结构化周报。HTTP 拉取失败时走
-`error` 边到兜底 agent（说明换 URL 的操作指引），流水线依然完整跑通。
+`error` 边到兜底文坊（说明换 URL 的操作指引），流水线依然完整跑通。
 代码节点给出通用清洗骨架（TODO 标注），换成自己的业务字段即可。
 
 **Use when:** 数据运营周报、指标盘点、定期数据摘要。

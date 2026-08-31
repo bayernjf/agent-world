@@ -23,10 +23,10 @@ export function buildABVariants(graph: Graph, targetNodeId: string, variants: st
     const g = JSON.parse(JSON.stringify(graph)) as Graph;
     const node = g.nodes.find((n) => n.id === targetNodeId);
     if (!node) throw new Error(`A/B 目标节点不存在：${targetNodeId}`);
-    if (node.kind !== "agent") {
+    if (node.kind !== "textGen") {
       throw new Error(`A/B 目标必须是厂房(agent)节点，但「${node.name}」是 ${node.kind} 节点`);
     }
-    node.agent!.prompt = variant;
+    node.textGen!.prompt = variant;
     return { arm, graph: g };
   });
 }
@@ -58,7 +58,7 @@ export async function startABExperiment(
     if (!plan) throw new Error(`A/B 变体 ${arm} 未通过编译`);
     const runId = randomUUID();
     const targetNode = graph.nodes.find((n) => n.id === opts.targetNodeId)!;
-    const prompt = targetNode.agent!.prompt;
+    const prompt = targetNode.textGen!.prompt;
 
     db.createRun({
       id: runId,

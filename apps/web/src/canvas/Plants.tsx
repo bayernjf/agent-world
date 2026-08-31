@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import type { Graph, GraphNode, NodeRuntime, RuntimeState } from "@agent-world/core";
+import type {
+  Graph,
+  GraphNode,
+  NodeRuntime,
+  RuntimeState,
+} from "@agent-world/core";
 import { PLANT_H, PLANT_W } from "../store/graph";
 import Popover from "../components/Popover";
 import type { Rect } from "../components/Popover";
@@ -13,31 +18,32 @@ interface Props {
   onPointerDown: (node: GraphNode, e: React.PointerEvent) => void;
 }
 
-const KIND_LABEL: Record<GraphNode["kind"], string> = {
-  source: "投料口",
-  agent: "厂房",
+export const KIND_LABEL: Record<GraphNode["kind"], string> = {
+  source: "原料台",
+  textGen: "文坊",
   gate: "质检站",
-  sink: "成品仓",
-  imageGen: "AI 生图",
-  videoGen: "AI 生视频",
-  audioGen: "AI 生音频",
-  http: "HTTP",
-  code: "代码",
-  branch: "条件分支",
-  map: "映射",
-  loop: "循环",
-  parallel: "并行聚合",
-  table: "表格",
-  database: "数据库",
-  fileParse: "文件解析",
-  translate: "翻译",
-  ocr: "OCR",
-  convert: "转换",
-  search: "搜索",
-  notify: "通知",
-  vcs: "仓库",
-  human: "审批",
-  subprocess: "子流程",
+  sink: "成品库",
+  imageGen: "画坊",
+  videoGen: "影坊",
+  audioGen: "音坊",
+  http: "API 口岸",
+  code: "代码工坊",
+  branch: "分拣闸",
+  map: "改料台",
+  loop: "批处理站",
+  parallel: "汇流站",
+  table: "理货台",
+  database: "总账房",
+  fileParse: "拆包台",
+  translate: "翻译间",
+  ocr: "识图台",
+  convert: "换装台",
+  search: "瞭望塔",
+  notify: "广播站",
+  vcs: "档案柜",
+  human: "人工岗",
+  subprocess: "外包工坊",
+  generic: "多能坊",
 };
 
 const STATUS_LABEL: Record<NodeRuntime["status"], string> = {
@@ -94,7 +100,9 @@ export default function Plants({
     if (!tipsEnabled) setHoveredId(null);
   }, [tipsEnabled]);
 
-  const hovered = hoveredId ? graph.nodes.find((n) => n.id === hoveredId) : null;
+  const hovered = hoveredId
+    ? graph.nodes.find((n) => n.id === hoveredId)
+    : null;
   const hoveredRt = hovered ? runtime.nodes[hovered.id] : undefined;
 
   // While a plant is hovered, track its screen rectangle every frame so the
@@ -139,18 +147,26 @@ export default function Plants({
   const tooltipLines: TooltipLine[] = hovered
     ? [
         { label: "类型", value: KIND_LABEL[hovered.kind] },
-        ...(hovered.agent?.model
-          ? [{ label: "模型", value: hovered.agent.model }]
+        ...(hovered.textGen?.model
+          ? [{ label: "模型", value: hovered.textGen.model }]
           : []),
         ...(hovered.kind === "gate"
           ? [{ label: "上限", value: `${hovered.gate?.maxAttempts ?? 3} 次` }]
           : []),
         ...(hovered.kind === "source"
-          ? [{ label: "图片原料", value: `${hovered.source?.images?.length ?? 0} 张` }]
+          ? [
+              {
+                label: "图片原料",
+                value: `${hovered.source?.images?.length ?? 0} 张`,
+              },
+            ]
           : []),
         ...(hoveredRt
           ? [
-              { label: "状态", value: STATUS_LABEL[hoveredRt.status] ?? hoveredRt.status },
+              {
+                label: "状态",
+                value: STATUS_LABEL[hoveredRt.status] ?? hoveredRt.status,
+              },
               ...(hoveredRt.attempt > 1
                 ? [{ label: "返工", value: `${hoveredRt.attempt} 次` }]
                 : []),
@@ -165,11 +181,11 @@ export default function Plants({
               ...(hoveredRt.costUsd > 0
                 ? [{ label: "电费", value: `$${hoveredRt.costUsd.toFixed(4)}` }]
                 : []),
-              ...(hovered.agent?.budgetUsd
+              ...(hovered.textGen?.budgetUsd
                 ? [
                     {
                       label: "节点预算",
-                      value: `$${(hoveredRt?.costUsd ?? 0).toFixed(4)} / $${hovered.agent.budgetUsd.toFixed(4)}`,
+                      value: `$${(hoveredRt?.costUsd ?? 0).toFixed(4)} / $${hovered.textGen.budgetUsd.toFixed(4)}`,
                     },
                   ]
                 : []),
@@ -186,9 +202,13 @@ export default function Plants({
           const x = node.x - PLANT_W / 2;
           const y = node.y - PLANT_H / 2;
           const attempt = rt?.attempt ?? 0;
-          const model = node.agent?.model;
+          const model = node.textGen?.model;
           const nodeThumb = (rt?.artifacts ?? []).find(
-            (a) => (a.kind === "image" || a.kind === "video" || a.kind === "audio") && !!a.uri,
+            (a) =>
+              (a.kind === "image" ||
+                a.kind === "video" ||
+                a.kind === "audio") &&
+              !!a.uri,
           );
 
           return (
@@ -213,10 +233,18 @@ export default function Plants({
                 if (tipsEnabled) setHoveredId(node.id);
               }}
               onPointerLeave={() =>
-                setHoveredId((current) => (current === node.id ? null : current))
+                setHoveredId((current) =>
+                  current === node.id ? null : current,
+                )
               }
             >
-              <rect className="plant__shadow" x={3} y={4} width={PLANT_W} height={PLANT_H} />
+              <rect
+                className="plant__shadow"
+                x={3}
+                y={4}
+                width={PLANT_W}
+                height={PLANT_H}
+              />
               <rect className="plant__body" width={PLANT_W} height={PLANT_H} />
               <rect className="plant__bar" width={PLANT_W} height={22} />
 
@@ -229,7 +257,7 @@ export default function Plants({
                 {node.name}
               </text>
 
-              {node.kind === "agent" && model && (
+              {node.kind === "textGen" && model && (
                 <text className="plant__meta" x={12} y={68}>
                   {truncate(model)}
                 </text>
@@ -242,7 +270,12 @@ export default function Plants({
               {(node.kind === "imageGen" || node.kind === "videoGen") &&
                 (nodeThumb ? (
                   <g className="plant__thumb" transform="translate(12 58)">
-                    <rect className="plant__thumb-frame" width={26} height={26} rx={3} />
+                    <rect
+                      className="plant__thumb-frame"
+                      width={26}
+                      height={26}
+                      rx={3}
+                    />
                     {nodeThumb.kind === "image" ? (
                       <image
                         href={nodeThumb.uri!}
@@ -253,27 +286,44 @@ export default function Plants({
                         preserveAspectRatio="xMidYMid slice"
                       />
                     ) : (
-                      <text className="plant__thumb-glyph" x={13} y={17} textAnchor="middle">
+                      <text
+                        className="plant__thumb-glyph"
+                        x={13}
+                        y={17}
+                        textAnchor="middle"
+                      >
                         {nodeThumb.kind === "video" ? "▶" : "♪"}
                       </text>
                     )}
                   </g>
-                ) : node.kind === "imageGen" && node.imageGen?.model ? (
+                ) : (node.kind === "imageGen" && node.imageGen?.model) ||
+                  (node.kind === "videoGen" && node.videoGen?.model) ? (
                   <text className="plant__meta" x={12} y={68}>
-                    {truncate(node.imageGen.model)}
+                    {truncate(
+                      node.kind === "imageGen"
+                        ? node.imageGen!.model
+                        : node.videoGen!.model,
+                    )}
                   </text>
                 ) : null)}
-              {node.kind === "source" && (node.source?.images?.length ?? 0) > 0 && (
-                <g className="plant__images-chip" transform={`translate(12 ${PLANT_H - 22})`}>
-                  <rect width={50} height={15} rx={2} />
-                  <text x={25} y={11} textAnchor="middle">
-                    图 {node.source?.images?.length}
-                  </text>
-                </g>
-              )}
+              {node.kind === "source" &&
+                (node.source?.images?.length ?? 0) > 0 && (
+                  <g
+                    className="plant__images-chip"
+                    transform={`translate(12 ${PLANT_H - 22})`}
+                  >
+                    <rect width={50} height={15} rx={2} />
+                    <text x={25} y={11} textAnchor="middle">
+                      图 {node.source?.images?.length}
+                    </text>
+                  </g>
+                )}
 
               {attempt > 1 && (
-                <g className="plant__attempt" transform={`translate(${PLANT_W - 30} 34)`}>
+                <g
+                  className="plant__attempt"
+                  transform={`translate(${PLANT_W - 30} 34)`}
+                >
                   <rect x={-14} y={-11} width={28} height={22} rx={3} />
                   <text x={0} y={5}>
                     ×{attempt}
@@ -283,28 +333,48 @@ export default function Plants({
 
               {rt && rt.costUsd > 0 && (
                 <g className="plant__cost-chip">
-                  <rect x={PLANT_W - 62} y={PLANT_H - 22} width={50} height={15} rx={2} />
-                  <text className="plant__cost" x={PLANT_W - 37} y={PLANT_H - 11}>
+                  <rect
+                    x={PLANT_W - 62}
+                    y={PLANT_H - 22}
+                    width={50}
+                    height={15}
+                    rx={2}
+                  />
+                  <text
+                    className="plant__cost"
+                    x={PLANT_W - 37}
+                    y={PLANT_H - 11}
+                  >
                     ${rt.costUsd.toFixed(4)}
                   </text>
                 </g>
               )}
 
-              {node.agent?.budgetUsd ? (
+              {node.textGen?.budgetUsd ? (
                 <g
                   className={`plant__budget-chip ${
-                    rt && rt.costUsd > node.agent.budgetUsd ? "is-over" : ""
+                    rt && rt.costUsd > node.textGen.budgetUsd ? "is-over" : ""
                   }`}
                 >
                   <rect x={12} y={PLANT_H - 22} width={56} height={15} rx={2} />
-                  <text className="plant__budget" x={40} y={PLANT_H - 11} textAnchor="middle">
-                    ${node.agent.budgetUsd.toFixed(3)}
+                  <text
+                    className="plant__budget"
+                    x={40}
+                    y={PLANT_H - 11}
+                    textAnchor="middle"
+                  >
+                    ${node.textGen.budgetUsd.toFixed(3)}
                   </text>
                 </g>
               ) : null}
 
               <circle className="rivet" cx={6} cy={PLANT_H - 6} r={2} />
-              <circle className="rivet" cx={PLANT_W - 6} cy={PLANT_H - 6} r={2} />
+              <circle
+                className="rivet"
+                cx={PLANT_W - 6}
+                cy={PLANT_H - 6}
+                r={2}
+              />
             </g>
           );
         })}

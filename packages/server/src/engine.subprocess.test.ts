@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { execute, resume } from "./engine.js";
 import { type Worker } from "./worker.js";
 
-const AGENT = {
+const TEXTGEN = {
   model: "agnes-2.0-flash",
   prompt: "",
   skills: [],
@@ -15,7 +15,7 @@ const AGENT = {
 
 function fakeWorker(): Worker {
   return {
-    async *runAgent(args) {
+    async *runTextGen(args) {
       yield { type: "text-delta", text: "x" };
       return { output: `OUT-${(args.node as { id: string }).id}`, usage: { tokensIn: 1, tokensOut: 1, costUsd: 0.01 } };
     },
@@ -34,7 +34,7 @@ const CHILD_GRAPH: Graph = {
   name: "子流程",
   nodes: [
     { id: "cs", kind: "source", name: "子源", x: 0, y: 0, source: {} },
-    { id: "ca", kind: "agent", name: "子代理", x: 1, y: 0, agent: AGENT },
+    { id: "ca", kind: "textGen", name: "子代理", x: 1, y: 0, textGen: TEXTGEN },
     { id: "ck", kind: "sink", name: "子汇", x: 2, y: 0 },
   ],
   edges: [
@@ -124,7 +124,7 @@ describe("subprocess node", () => {
     const calls: Array<{ id: string; input: string }> = [];
     const worker: Worker = {
       ...fakeWorker(),
-      async *runAgent(args) {
+      async *runTextGen(args) {
         calls.push({ id: (args.node as { id: string }).id, input: args.input });
         yield { type: "text-delta", text: "x" };
         return { output: "ok", usage: { tokensIn: 0, tokensOut: 0, costUsd: 0 } };
@@ -277,7 +277,7 @@ describe("subprocess node", () => {
       id: "g-child-bad",
       nodes: [
         { id: "cs", kind: "source", name: "子源", x: 0, y: 0, source: {} },
-        { id: "ca", kind: "agent", name: "子代理", x: 1, y: 0, agent: AGENT },
+        { id: "ca", kind: "textGen", name: "子代理", x: 1, y: 0, textGen: TEXTGEN },
         { id: "ck", kind: "sink", name: "子汇", x: 2, y: 0 },
       ],
       edges: [
@@ -290,7 +290,7 @@ describe("subprocess node", () => {
     if (!plan) throw new Error("no plan");
     const worker: Worker = {
       ...fakeWorker(),
-      async *runAgent() {
+      async *runTextGen() {
         yield { type: "text-delta", text: "x" };
         throw new Error("child model blew up");
       },

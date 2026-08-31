@@ -78,7 +78,7 @@ describe("execute", () => {
       name: "warn",
       nodes: [
         { id: "in", kind: "source", name: "IN", x: 0, y: 0 },
-        { id: "a", kind: "agent", name: "A", x: 1, y: 0, agent: { model: "t", prompt: "", skills: [], temperature: 0.7, timeoutMs: 60000 } },
+        { id: "a", kind: "textGen", name: "A", x: 1, y: 0, textGen: { model: "t", prompt: "", skills: [], temperature: 0.7, timeoutMs: 60000 } },
         { id: "out", kind: "sink", name: "OUT", x: 2, y: 0 },
       ],
       edges: [
@@ -88,7 +88,7 @@ describe("execute", () => {
     };
     const { plan } = compile(g)!;
     const costWorker = {
-      async *runAgent() {
+      async *runTextGen() {
         return { output: "ok", usage: { tokensIn: 100, tokensOut: 50, costUsd: 0.0008 } };
       },
       async judge() { return { passed: true, reason: "ok" }; },
@@ -145,11 +145,11 @@ describe("execute", () => {
         },
         {
           id: "forge",
-          kind: "agent",
+          kind: "textGen",
           name: "FORGE",
           x: 1,
           y: 0,
-          agent: { model: "test", prompt: "", skills: [] },
+          textGen: { model: "test", prompt: "", skills: [] },
         },
         { id: "depot", kind: "sink", name: "DEPOT", x: 2, y: 0 },
       ],
@@ -162,9 +162,9 @@ describe("execute", () => {
     const seen: string[][] = [];
     const capturing = {
       ...fakeWorker({ chunkDelayMs: 0 }),
-      async *runAgent(args: Parameters<ReturnType<typeof fakeWorker>["runAgent"]>[0]) {
+      async *runTextGen(args: Parameters<ReturnType<typeof fakeWorker>["runTextGen"]>[0]) {
         seen.push(args.images ?? []);
-        return yield* fakeWorker({ chunkDelayMs: 0 }).runAgent(args);
+        return yield* fakeWorker({ chunkDelayMs: 0 }).runTextGen(args);
       },
     };
 
@@ -202,11 +202,11 @@ describe("execute", () => {
         },
         {
           id: "forge",
-          kind: "agent",
+          kind: "textGen",
           name: "FORGE",
           x: 1,
           y: 0,
-          agent: { model: "test", prompt: "", skills: [] },
+          textGen: { model: "test", prompt: "", skills: [] },
         },
         { id: "depot", kind: "sink", name: "DEPOT", x: 2, y: 0 },
       ],
@@ -219,9 +219,9 @@ describe("execute", () => {
     let capturedInput = "";
     const capturing = {
       ...fakeWorker({ chunkDelayMs: 0 }),
-      async *runAgent(args: Parameters<ReturnType<typeof fakeWorker>["runAgent"]>[0]) {
+      async *runTextGen(args: Parameters<ReturnType<typeof fakeWorker>["runTextGen"]>[0]) {
         capturedInput = args.input;
-        return yield* fakeWorker({ chunkDelayMs: 0 }).runAgent(args);
+        return yield* fakeWorker({ chunkDelayMs: 0 }).runTextGen(args);
       },
     };
 
@@ -252,7 +252,7 @@ describe("execute", () => {
       name: "art",
       nodes: [
         { id: "in", kind: "source", name: "IN", x: 0, y: 0 },
-        { id: "a", kind: "agent", name: "A", x: 1, y: 0, agent: { model: "t", prompt: "", skills: [], temperature: 0.7, timeoutMs: 60000 } },
+        { id: "a", kind: "textGen", name: "A", x: 1, y: 0, textGen: { model: "t", prompt: "", skills: [], temperature: 0.7, timeoutMs: 60000 } },
         { id: "out", kind: "sink", name: "OUT", x: 2, y: 0 },
       ],
       edges: [
@@ -262,7 +262,7 @@ describe("execute", () => {
     };
     const { plan } = compile(graph)!;
     const imgWorker = {
-      async *runAgent() {
+      async *runTextGen() {
         return {
           output: "Here is the result ![cover](https://example.com/cover.png)",
           usage: { tokensIn: 10, tokensOut: 20, costUsd: 0.001 },
@@ -296,7 +296,7 @@ describe("execute", () => {
       name: "m",
       nodes: [
         { id: "in", kind: "source", name: "IN", x: 0, y: 0 },
-        { id: "a", kind: "agent", name: "A", x: 1, y: 0, agent: { model: "t", prompt: "", skills: [], temperature: 0.7, timeoutMs: 60000 } },
+        { id: "a", kind: "textGen", name: "A", x: 1, y: 0, textGen: { model: "t", prompt: "", skills: [], temperature: 0.7, timeoutMs: 60000 } },
         { id: "out", kind: "sink", name: "OUT", x: 2, y: 0 },
       ],
       edges: [
@@ -306,7 +306,7 @@ describe("execute", () => {
     };
     const { plan } = compile(g)!;
     const costWorker = {
-      async *runAgent() {
+      async *runTextGen() {
         return { output: "ok", usage: { tokensIn: 100, tokensOut: 50, costUsd: 0.0011 } };
       },
       async judge() { return { passed: true, reason: "ok" }; },
@@ -337,7 +337,7 @@ describe("imageGen node", () => {
     nodes: [
       { id: "s", kind: "source", name: "S", x: 0, y: 0, source: { images: [] } },
       { id: "img", kind: "imageGen", name: "IMG", x: 0, y: 0, imageGen: { model: "m", prompt: "" } },
-      { id: "a", kind: "agent", name: "A", x: 0, y: 0, agent: { model: "m", prompt: "" } },
+      { id: "a", kind: "textGen", name: "A", x: 0, y: 0, textGen: { model: "m", prompt: "" } },
       { id: "k", kind: "sink", name: "K", x: 0, y: 0 },
     ],
     edges: [

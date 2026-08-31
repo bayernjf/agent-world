@@ -47,8 +47,18 @@ export interface ProviderConfig {
   pricing?: Record<string, ModelPricing>;
   /** Per-model modality; missing entries default to "text". */
   modalities?: Record<string, Modality>;
+  /**
+   * Per-provider endpoint override per modality (e.g. `{ video: "/videos" }`
+   * for a gateway whose video API lives at a non-standard path). Absent
+   * modalities fall back to the global MODALITY_ENDPOINT default.
+   */
+  endpoints?: Partial<Record<Modality, string>>;
   /** Disabled providers are kept in config but skipped by the router. */
   enabled?: boolean;
+  /** "builtin" = product-owned tier, injected from DEFAULT_CONFIG and
+   *  read-only in Settings (immutable, only selectable); absent/"custom"
+   *  = user-managed tier, fully editable. */
+  source?: "builtin" | "custom";
 }
 
 /** Normalize a Base URL: trim trailing slash and strip any accidentally-pasted
@@ -69,6 +79,18 @@ export function modalityOf(provider: ProviderConfig, model: string): Modality {
   return provider.modalities?.[model] ?? DEFAULT_MODALITY;
 }
 
+/**
+ * Resolve the API sub-path for a model's modality. Providers differ — one
+ * gateway hosts video at `/videos`, another at `/videos/generations`, and two
+ * models inside one provider can even split across paths. So the resolution
+ * is: provider.endpoints[modality] override > global MODALITY_ENDPOINT
+ * default. The worker and the "test connection" probe share this one helper
+ * so they always agree on where to POST.
+ */
+export function endpointFor(provider: ProviderConfig, model: string, modality: Modality): string {
+  return provider.endpoints?.[modality] ?? MODALITY_ENDPOINT[modality];
+}
+
 export interface AppConfig {
   providers: Record<string, ProviderConfig>;
   defaultModel: string;
@@ -85,30 +107,49 @@ export interface AppConfig {
   autoSnapshot?: { minIntervalMs?: number; maxKeep?: number };
 }
 
+/**
+ * Internal "fake" provider with zero models. It is not user-visible in
+ * Settings (no models) and only serves as the routing fallback when a node
+ * references an unknown model / an explicitly "fake" model string, so the
+ * engine degrades to the deterministic fake worker instead of crashing.
+ */
 const FAKE_PROVIDER: ProviderConfig = { type: "fake", models: [] };
 
 /**
- * Built-in "demo" provider that ships with the product. It uses the fake
- * worker (no network, deterministic placeholders) so a brand new user can
- * add nodes and run a line before configuring a real API key. Models are
- * grouped by modality so the addNode lookup can route each node kind to
- * a sensible default.
- *
- * The user can disable this provider (enabled: false) from Settings; it
- * cannot be permanently removed because the loadConfig merge always
- * re-injects it from DEFAULT_CONFIG. That trade-off is intentional: a
- * first-run user with no real provider must still be able to build a line.
+ * Built-in "agnes" provider: the product's hosted model gateway. Shipped as
+ * read-only so every user sees the same real models without configuring a
+ * key — matching the model-layering decision (product-vision-discussion §九).
+ * `source:"builtin"` makes it immutable in Settings (no delete / no key edit);
+ * it can only be selected, and can be disabled like demo.
  */
-const DEMO_PROVIDER: ProviderConfig = {
-  type: "fake",
+const AGNES_PROVIDER: ProviderConfig = {
+  type: "openai-compatible",
+  source: "builtin",
   enabled: true,
-  models: ["demo-chat", "demo-image", "demo-video", "demo-audio"],
+  baseUrl: "https://apihub.agnes-ai.com/v1",
+  // The gateway key is injected at deploy time via AGNES_API_KEY and must never
+  // be committed. Without it the built-in tier fails closed ("missing API key")
+  // instead of leaking a secret into the repo.
+  apiKey: process.env.AGNES_API_KEY,
+  models: [
+    "agnes-2.0-flash",
+    "agnes-2.5-flash",
+    "agnes-image-2.0-flash",
+    "agnes-image-2.1-flash",
+    "agnes-video-v2.0",
+    "agnes-video-2.5-flash",
+  ],
   modalities: {
-    "demo-chat": "text",
-    "demo-image": "image",
-    "demo-video": "video",
-    "demo-audio": "audio",
+    "agnes-2.0-flash": "text",
+    "agnes-2.5-flash": "text",
+    "agnes-image-2.0-flash": "image",
+    "agnes-image-2.1-flash": "image",
+    "agnes-video-v2.0": "video",
+    "agnes-video-2.5-flash": "video",
   },
+  // Agnes gateway serves video at POST /v1/videos (not /videos/generations),
+  // so declare it explicitly — independent of the global MODALITY_ENDPOINT default.
+  endpoints: { video: "/videos" },
 };
 
 const DEFAULT_CONFIG: AppConfig = {
@@ -116,11 +157,18 @@ const DEFAULT_CONFIG: AppConfig = {
     // Kept for backward compatibility — anything that still references
     // type:"fake" or model:"fake" routes to the same fakeWorker.
     fake: FAKE_PROVIDER,
-    demo: DEMO_PROVIDER,
+    agnes: AGNES_PROVIDER,
   },
-  defaultModel: "demo-chat",
-  defaultProvider: "demo",
-  modelOrder: ["demo::demo-chat", "demo::demo-image", "demo::demo-video", "demo::demo-audio"],
+  defaultModel: "agnes-2.0-flash",
+  defaultProvider: "agnes",
+  modelOrder: [
+    "agnes::agnes-2.0-flash",
+    "agnes::agnes-2.5-flash",
+    "agnes::agnes-image-2.0-flash",
+    "agnes::agnes-image-2.1-flash",
+    "agnes::agnes-video-v2.0",
+    "agnes::agnes-video-2.5-flash",
+  ],
 };
 
 /**
@@ -189,6 +237,12 @@ function parseRaw(raw: string | undefined): AppConfig | null {
   try {
     const parsed = JSON.parse(raw) as Partial<AppConfig>;
     const providers = { ...DEFAULT_CONFIG.providers, ...parsed.providers };
+    // Builtin tiers are product-owned: a user copy stored before the `source`
+    // field existed (or hand-crafted) must never shadow the injected default,
+    // so the builtin provider always wins the merge.
+    for (const [name, def] of Object.entries(DEFAULT_CONFIG.providers)) {
+      if (def.source === "builtin") providers[name] = def;
+    }
     // Backfill enabled: true for real providers that predate the field.
     for (const [name, prov] of Object.entries(providers)) {
       if (prov.type === "fake") continue;

@@ -1,4 +1,4 @@
-import { compile, replay, type GraphNode, type AgentConfig, type Usage } from "@agent-world/core";
+import { compile, replay, type GraphNode, type TextGenConfig, type Usage } from "@agent-world/core";
 import { describe, expect, it } from "vitest";
 import { execute, reconstructState, resume } from "./engine.js";
 import { fakeWorker, type AgentChunk, type Worker } from "./worker.js";
@@ -15,11 +15,11 @@ function linearGraph(): Graph {
       { id: "intake", kind: "source", name: "INTAKE", x: 0, y: 0 },
       {
         id: "forge",
-        kind: "agent",
+        kind: "textGen",
         name: "FORGE",
         x: 1,
         y: 0,
-        agent: {
+        textGen: {
           model: "test",
           prompt: "",
           skills: [],
@@ -59,7 +59,7 @@ describe("retry on technical failure", () => {
     const { plan } = compile(graph)!;
     let calls = 0;
     const worker: Worker = {
-      async *runAgent(): AsyncGenerator<AgentChunk, { output: string; usage: Usage }> {
+      async *runTextGen(): AsyncGenerator<AgentChunk, { output: string; usage: Usage }> {
         calls++;
         if (calls < 3) {
           throw new ProviderError("RATE_LIMIT", "429 slow down", 429);
@@ -97,7 +97,7 @@ describe("retry on technical failure", () => {
     const { plan } = compile(graph)!;
     let calls = 0;
     const worker: Worker = {
-      async *runAgent(): AsyncGenerator<AgentChunk, { output: string; usage: Usage }> {
+      async *runTextGen(): AsyncGenerator<AgentChunk, { output: string; usage: Usage }> {
         calls++;
         throw new ProviderError("AUTH", "bad key", 401);
       },
@@ -132,7 +132,7 @@ describe("rework feedback", () => {
     const seenInputs: string[] = [];
     let verdict = 0;
     const worker: Worker = {
-      async *runAgent({ input }): AsyncGenerator<AgentChunk, { output: string; usage: Usage }> {
+      async *runTextGen({ input }): AsyncGenerator<AgentChunk, { output: string; usage: Usage }> {
         seenInputs.push(input);
         yield { type: "text-delta", text: "draft" };
         return { output: `draft#${seenInputs.length}`, usage: USAGE };
@@ -163,7 +163,7 @@ describe("dispatch input", () => {
     const { plan } = compile(graph)!;
     const inputs: string[] = [];
     const worker: Worker = {
-      async *runAgent({ input }): AsyncGenerator<AgentChunk, { output: string; usage: Usage }> {
+      async *runTextGen({ input }): AsyncGenerator<AgentChunk, { output: string; usage: Usage }> {
         inputs.push(input);
         return { output: "x", usage: USAGE };
       },
@@ -193,7 +193,7 @@ describe("halt and resume", () => {
 
     // Run 1: critic always rejects -> halt.
     const haltWorker: Worker = {
-      async *runAgent(): AsyncGenerator<AgentChunk, { output: string; usage: Usage }> {
+      async *runTextGen(): AsyncGenerator<AgentChunk, { output: string; usage: Usage }> {
         return { output: "bad", usage: USAGE };
       },
       async judge() {
@@ -211,7 +211,7 @@ describe("halt and resume", () => {
     // Resume with an approving judge.
     let resumeJudgeInput: string | undefined;
     const resumeWorker: Worker = {
-      async *runAgent({ input }): AsyncGenerator<AgentChunk, { output: string; usage: Usage }> {
+      async *runTextGen({ input }): AsyncGenerator<AgentChunk, { output: string; usage: Usage }> {
         return { output: `polished:${input.length}`, usage: USAGE };
       },
       async judge({ output }) {
@@ -252,7 +252,7 @@ describe("halt and resume", () => {
         graph,
         plan: plan!,
         worker: {
-          async *runAgent() {
+          async *runTextGen() {
             return { output: "bad", usage: USAGE };
           },
           async judge() {
@@ -291,7 +291,7 @@ describe("prohibited words enforcement", () => {
     // Isolate the deterministic check: the model judge always passes, but the
     // writer deliberately emits the forbidden word so the gate must reject it.
     const worker: Worker = {
-      async *runAgent({ node, input }): AsyncGenerator<AgentChunk, { output: string; usage: Usage }> {
+      async *runTextGen({ node, input }): AsyncGenerator<AgentChunk, { output: string; usage: Usage }> {
         yield { type: "text-delta", text: "x" };
         const out = node.id === "forge" ? "这款产品绝对好用，闭眼入" : (input ?? "");
         return { output: out, usage: USAGE };
@@ -329,8 +329,8 @@ describe("prohibited words enforcement", () => {
 
     const seenPrompts: string[] = [];
     const worker: Worker = {
-      async *runAgent({ node, config }): AsyncGenerator<AgentChunk, { output: string; usage: Usage }> {
-        if (node.kind === "agent") seenPrompts.push(config.prompt);
+      async *runTextGen({ node, config }): AsyncGenerator<AgentChunk, { output: string; usage: Usage }> {
+        if (node.kind === "textGen") seenPrompts.push(config.prompt);
         yield { type: "text-delta", text: "x" };
         return { output: "这款产品很好用", usage: USAGE };
       },
@@ -366,7 +366,7 @@ describe("gate minScore linkage", () => {
     critic.gate = { ...critic.gate!, minScore: 8 };
 
     const worker: Worker = {
-      async *runAgent({ input }): AsyncGenerator<AgentChunk, { output: string; usage: Usage }> {
+      async *runTextGen({ input }): AsyncGenerator<AgentChunk, { output: string; usage: Usage }> {
         yield { type: "text-delta", text: "x" };
         return { output: input ?? "", usage: USAGE };
       },
@@ -402,7 +402,7 @@ describe("node-level budget", () => {
   it("fails a node when its per-node budget is exceeded", async () => {
     const graph = linearGraph();
     const forge = graph.nodes.find((n) => n.id === "forge")!;
-    forge.agent = { ...forge.agent!, budgetUsd: 0.0001 };
+    forge.textGen = { ...forge.textGen!, budgetUsd: 0.0001 };
     const { plan } = compile(graph)!;
 
     const events = (await drain(

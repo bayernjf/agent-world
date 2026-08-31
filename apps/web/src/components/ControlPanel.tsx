@@ -4,6 +4,7 @@ import type { Mode } from "../canvas/Canvas";
 import { useGraph } from "../store/graph";
 import { useRun, useVisibleRuntime, resumeRun } from "../store/run";
 import { api, type AppConfig } from "../lib/api";
+import Tooltip from "./Tooltip";
 
 interface Props {
   mode: Mode;
@@ -17,14 +18,23 @@ interface Props {
   onRun: () => void;
   onCancel: () => void;
   onOpenSettings: () => void;
+  onOpenHistory: () => void;
 }
 
 const MODES: { key: Mode; label: string; hint: string }[] = [
-  { key: "select", label: "选择", hint: "拖动厂房重新布局，单击查看详情" },
-  { key: "connect", label: "铺管道", hint: "依次点两座厂房，铺一条正向管道" },
-  { key: "rework", label: "返工线", hint: "从质检站点回上游厂房，铺一条返工线" },
-  { key: "error", label: "容错线", hint: "上游厂房故障时改走这条线，接到兜底厂房（catch）" },
-  { key: "delete", label: "拆除", hint: "点厂房或管道即拆除" },
+  { key: "select", label: "选择", hint: "拖动节点重新布局，单击查看详情" },
+  { key: "connect", label: "铺管道", hint: "依次点两座节点，铺一条正向管道" },
+  {
+    key: "rework",
+    label: "返工线",
+    hint: "从质检站点回上游节点，铺一条返工线",
+  },
+  {
+    key: "error",
+    label: "容错线",
+    hint: "上游节点故障时改走这条线，接到兜底节点（catch）",
+  },
+  { key: "delete", label: "拆除", hint: "点节点或管道即拆除" },
 ];
 
 const STATUS_TEXT: Record<string, string> = {
@@ -42,11 +52,26 @@ type MeterMode = "cost" | "tokens";
 
 function hasPricing(cfg: AppConfig | null): boolean {
   if (!cfg) return false;
-  return Object.values(cfg.providers).some((p) => !!p.pricing && Object.keys(p.pricing).length > 0);
+  return Object.values(cfg.providers).some(
+    (p) => !!p.pricing && Object.keys(p.pricing).length > 0,
+  );
 }
 
 export default function ControlPanel(props: Props) {
-  const { mode, setMode, budget, setBudget, rawMaterial, setRawMaterial, diagnostics, canRun, onRun, onCancel, onOpenSettings } = props;
+  const {
+    mode,
+    setMode,
+    budget,
+    setBudget,
+    rawMaterial,
+    setRawMaterial,
+    diagnostics,
+    canRun,
+    onRun,
+    onCancel,
+    onOpenSettings,
+    onOpenHistory,
+  } = props;
   const runtime = useVisibleRuntime();
   const { graph, saveState } = useGraph();
   const { runId, connecting, reconnecting } = useRun();
@@ -57,7 +82,10 @@ export default function ControlPanel(props: Props) {
   );
 
   useEffect(() => {
-    api.getSettings().then(setSettings).catch(() => undefined);
+    api
+      .getSettings()
+      .then(setSettings)
+      .catch(() => undefined);
   }, [saveState]);
 
   const pricingConfigured = hasPricing(settings);
@@ -78,9 +106,12 @@ export default function ControlPanel(props: Props) {
       : null;
   const humanHalt = halted && runtime.reason?.startsWith("human:");
   const humanReview =
-    humanHalt && runtime.haltedNodeId ? runtime.nodes[runtime.haltedNodeId]?.pendingReview : undefined;
+    humanHalt && runtime.haltedNodeId
+      ? runtime.nodes[runtime.haltedNodeId]?.pendingReview
+      : undefined;
   const materialEmpty = rawMaterial.trim() === "";
-  const pct = budget > 0 ? Math.min(100, (runtime.totalCostUsd / budget) * 100) : 0;
+  const pct =
+    budget > 0 ? Math.min(100, (runtime.totalCostUsd / budget) * 100) : 0;
   const hint = MODES.find((m) => m.key === mode)?.hint ?? "";
 
   return (
@@ -115,10 +146,14 @@ export default function ControlPanel(props: Props) {
             {effectiveMode === "cost" ? (
               <>
                 <div className="meter__row">
-                  <span className="readout">${runtime.totalCostUsd.toFixed(5)}</span>
+                  <span className="readout">
+                    ${runtime.totalCostUsd.toFixed(5)}
+                  </span>
                   <span className="muted">上限 ${budget.toFixed(4)}</span>
                 </div>
-                <div className={`gauge ${pct > 85 ? "is-hot" : runtime.budgetWarned ? "is-warn" : ""}`}>
+                <div
+                  className={`gauge ${pct > 85 ? "is-hot" : runtime.budgetWarned ? "is-warn" : ""}`}
+                >
                   <i style={{ width: `${pct}%` }} />
                 </div>
                 <label className="field">
@@ -134,24 +169,29 @@ export default function ControlPanel(props: Props) {
                 </label>
                 {runtime.budgetWarned && pct <= 100 && (
                   <p className="note note--warn">
-                    ⚠ 电费已达预算的 {Math.round(pct)}%，接近上限，注意控制返工。
+                    ⚠ 电费已达预算的 {Math.round(pct)}
+                    %，接近上限，注意控制返工。
                   </p>
                 )}
                 <p className="note">
-                  token 消耗只能在调用返回后计量，所以电表是事后读数；超过上限即刻跳闸停线。
+                  token
+                  消耗只能在调用返回后计量，所以电表是事后读数；超过上限即刻跳闸停线。
                 </p>
               </>
-            ) : (
+            ) : runtime.totalTokensIn > 0 || runtime.totalTokensOut > 0 ? (
               <>
                 <div className="meter__row">
                   <span className="readout">
-                    {runtime.totalTokensIn.toLocaleString()} / {runtime.totalTokensOut.toLocaleString()}
+                    {runtime.totalTokensIn.toLocaleString()} /{" "}
+                    {runtime.totalTokensOut.toLocaleString()}
                   </span>
                   <span className="muted">入 / 出</span>
                 </div>
                 {runtime.totalCachedTokens > 0 && (
                   <div className="meter__row">
-                    <span className="muted">缓存命中 {runtime.totalCachedTokens.toLocaleString()}</span>
+                    <span className="muted">
+                      缓存命中 {runtime.totalCachedTokens.toLocaleString()}
+                    </span>
                   </div>
                 )}
                 {Object.entries(runtime.totalUnits).some(([, v]) => v > 0) && (
@@ -164,17 +204,21 @@ export default function ControlPanel(props: Props) {
                     </span>
                   </div>
                 )}
-                {!pricingConfigured && (
-                  <p className="note">
-                    未配置模型单价，只显示 token 用量。在「设置」里填入单价后可显示电费和预算。
-                  </p>
-                )}
               </>
+            ) : (
+              <p className="muted">
+                电力读数待派发后出现 · 在
+                <Tooltip content="未配置模型单价时只显示 token 用量；在「设置」里填入单价后可显示电费和预算">
+                  <span className="inline-info">ⓘ 设置</span>
+                </Tooltip>
+                里填入单价可开启预算和电费读数
+              </p>
             )}
           </div>
           {runtime.monthlyBudgetWarned && (
             <p className="note note--warn">
-              ⚠ 本月累计电费已触及月度预算，请到「设置 → 月度预算」查看或调整上限。
+              ⚠ 本月累计电费已触及月度预算，请到「设置 →
+              月度预算」查看或调整上限。
             </p>
           )}
         </section>
@@ -187,20 +231,23 @@ export default function ControlPanel(props: Props) {
                 key={m.key}
                 className={`chip ${mode === m.key ? "is-on" : ""}`}
                 onClick={() => setMode(m.key)}
+                title={m.hint}
               >
                 {m.label}
               </button>
             ))}
           </div>
-          <p className="note">{hint}</p>
         </section>
 
         <section>
-          <h3 className="label">编译</h3>
+          <h3 className="label">状态</h3>
+          {/* 编译/保存状态：常态 → muted 文字；出错 → diag 高亮 */}
           {errors.length === 0 && warnings.length === 0 && (
-            <p className="diag diag--ok">
-              图可编译 · {graph.nodes.length} 座厂房
-              {saveState === "saved" && <span className="muted"> · 已保存</span>}
+            <p className="note note--compact">
+              图可编译 · {graph.nodes.length} 座节点
+              {saveState === "saved" && (
+                <span className="muted"> · 已保存</span>
+              )}
             </p>
           )}
           {errors.map((d, i) => (
@@ -213,14 +260,14 @@ export default function ControlPanel(props: Props) {
               {d.message}
             </p>
           ))}
-        </section>
-
-        <section>
-          <h3 className="label">状态</h3>
           <p className="status">
-            {humanHalt ? "等待人工审批" : STATUS_TEXT[runtime.status] ?? runtime.status}
+            {humanHalt
+              ? "等待人工审批"
+              : (STATUS_TEXT[runtime.status] ?? runtime.status)}
             {reconnecting && <span className="muted"> · 重连中…</span>}
-            {connecting && !reconnecting && <span className="muted"> · 连接中…</span>}
+            {connecting && !reconnecting && (
+              <span className="muted"> · 连接中…</span>
+            )}
           </p>
           {humanReview != null && (
             <div className="control-panel__review">
@@ -230,17 +277,21 @@ export default function ControlPanel(props: Props) {
           )}
           {!running && !halted && (
             <label className="field">
-              <span>原料（投递给进料口的任务）</span>
+              <span>原料（交给原料台的任务）</span>
               <textarea
                 rows={3}
-                placeholder="写下要交给这条产线加工的内容…"
+                placeholder="把素材或任务交给原料台…"
                 value={rawMaterial}
                 onChange={(e) => setRawMaterial(e.target.value)}
               />
             </label>
           )}
           {running ? (
-            <button className="btn btn--ghost" onClick={onCancel} disabled={!runId}>
+            <button
+              className="btn btn--ghost"
+              onClick={onCancel}
+              disabled={!runId}
+            >
               停机
             </button>
           ) : halted ? (
@@ -249,19 +300,25 @@ export default function ControlPanel(props: Props) {
                 <>
                   <button
                     className="btn"
-                    onClick={() => resumeRun("approve", undefined, undefined, [dangerTool])}
+                    onClick={() =>
+                      resumeRun("approve", undefined, undefined, [dangerTool])
+                    }
                   >
                     批准执行 {dangerTool}
                   </button>
                   <button
                     className="btn btn--warn"
                     onClick={() => {
-                      if (window.confirm("驳回此次运行？运行将以失败结束。")) resumeRun("reject");
+                      if (window.confirm("驳回此次运行？运行将以失败结束。"))
+                        resumeRun("reject");
                     }}
                   >
                     驳回
                   </button>
-                  <button className="btn btn--ghost" onClick={() => resumeRun("scrap")}>
+                  <button
+                    className="btn btn--ghost"
+                    onClick={() => resumeRun("scrap")}
+                  >
                     报废
                   </button>
                 </>
@@ -273,9 +330,12 @@ export default function ControlPanel(props: Props) {
                   <button
                     className="btn"
                     onClick={() => {
-                      const text = window.prompt("编辑该节点的产出（人工修正后继续）：");
+                      const text =
+                        window.prompt("编辑该节点的产出（人工修正后继续）：");
                       if (text != null && runtime.haltedNodeId) {
-                        resumeRun("edit", undefined, { [runtime.haltedNodeId]: text });
+                        resumeRun("edit", undefined, {
+                          [runtime.haltedNodeId]: text,
+                        });
                       }
                     }}
                   >
@@ -284,12 +344,16 @@ export default function ControlPanel(props: Props) {
                   <button
                     className="btn btn--warn"
                     onClick={() => {
-                      if (window.confirm("驳回此次运行？运行将以失败结束。")) resumeRun("reject");
+                      if (window.confirm("驳回此次运行？运行将以失败结束。"))
+                        resumeRun("reject");
                     }}
                   >
                     驳回
                   </button>
-                  <button className="btn btn--ghost" onClick={() => resumeRun("scrap")}>
+                  <button
+                    className="btn btn--ghost"
+                    onClick={() => resumeRun("scrap")}
+                  >
                     报废
                   </button>
                 </>
@@ -315,13 +379,21 @@ export default function ControlPanel(props: Props) {
             </p>
           )}
           {running && (
-            <p className="note">停机只停止后续工作，已产生的 token 仍会计费。</p>
+            <p className="note">
+              停机只停止后续工作，已产生的 token 仍会计费。
+            </p>
           )}
         </section>
 
-        <section>
-          <button className="btn btn--ghost btn--block" onClick={onOpenSettings}>
+        <section className="control__footer">
+          <button
+            className="btn btn--ghost btn--block"
+            onClick={onOpenSettings}
+          >
             设置 · 模型与密钥
+          </button>
+          <button className="btn btn--ghost btn--block" onClick={onOpenHistory}>
+            📋 运行历史
           </button>
         </section>
       </div>

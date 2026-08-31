@@ -11,11 +11,11 @@ const abGraph: Graph = {
     { id: "in", kind: "source", name: "IN", x: 0, y: 0 },
     {
       id: "a",
-      kind: "agent",
+      kind: "textGen",
       name: "Writer",
       x: 1,
       y: 0,
-      agent: { model: "t", prompt: "", skills: [], temperature: 0.7, timeoutMs: 60000 },
+      textGen: { model: "t", prompt: "", skills: [], temperature: 0.7, timeoutMs: 60000 },
     },
     { id: "out", kind: "sink", name: "OUT", x: 2, y: 0 },
   ],
@@ -26,7 +26,7 @@ const abGraph: Graph = {
 };
 
 const promptOf = (g: Graph, id: string) =>
-  (g.nodes.find((n) => n.id === id) as { agent: { prompt: string } }).agent.prompt;
+  (g.nodes.find((n) => n.id === id) as { textGen: { prompt: string } }).textGen.prompt;
 
 describe("buildABVariants", () => {
   it("clones the graph and substitutes each variant prompt, leaving the original untouched", () => {

@@ -77,7 +77,7 @@ process.on("message", async (m) => {
       const fn = worker[m.method];
       let result;
       let events;
-      if (m.method === "runAgent") {
+      if (m.method === "runTextGen") {
         const out = await collect(fn(...m.args));
         events = out.events;
         result = out.result;

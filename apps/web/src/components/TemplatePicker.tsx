@@ -44,7 +44,7 @@ export const TEMPLATE_LIST: TemplatePreviewData[] = TEMPLATES.map((t) => ({
 const NODE_COLORS: Record<string, string> = {
   sink: "#ef4444",
   gate: "#f59e0b",
-  agent: "#3b82f6",
+  textGen: "#3b82f6",
   source: "#22c55e",
   imageGen: "#a855f7",
   videoGen: "#ec4899",

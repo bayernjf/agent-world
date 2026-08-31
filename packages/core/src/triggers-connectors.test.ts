@@ -8,7 +8,7 @@ const baseGraph = () => ({
   name: "line",
   nodes: [
     { id: "intake", kind: "source", name: "INTAKE", x: 0, y: 0 },
-    { id: "forge", kind: "agent", name: "FORGE", x: 1, y: 0 },
+    { id: "forge", kind: "textGen", name: "FORGE", x: 1, y: 0 },
     { id: "depot", kind: "sink", name: "DEPOT", x: 2, y: 0 },
   ],
   edges: [
@@ -53,7 +53,7 @@ describe("source connector (4B.1)", () => {
     ...baseGraph(),
     nodes: [
       { id: "intake", kind: "source", name: "INTAKE", x: 0, y: 0, source: { connector } },
-      { id: "forge", kind: "agent", name: "FORGE", x: 1, y: 0 },
+      { id: "forge", kind: "textGen", name: "FORGE", x: 1, y: 0 },
       { id: "depot", kind: "sink", name: "DEPOT", x: 2, y: 0 },
     ],
   });

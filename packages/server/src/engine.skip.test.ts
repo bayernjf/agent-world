@@ -54,7 +54,7 @@ function downloadGraph(url: string) {
     nodes: [
       { id: "src", kind: "source", name: "SRC", x: 0, y: 0 },
       { id: "dl", kind: "http", name: "DL", x: 1, y: 0, http: { url, method: "GET", retry: { maxRetries: 0, baseDelayMs: 0, maxDelayMs: 0 } } },
-      { id: "agent", kind: "agent", name: "AGENT", x: 2, y: 0, agent: { model: "m", prompt: "summarise", skills: [], temperature: 0.7, timeoutMs: 60000, inputPolicy: { mode: "all" } } },
+      { id: "agent", kind: "textGen", name: "TEXTGEN", x: 2, y: 0, textGen: { model: "m", prompt: "summarise", skills: [], temperature: 0.7, timeoutMs: 60000, inputPolicy: { mode: "all" } } },
       { id: "sink", kind: "sink", name: "SINK", x: 3, y: 0 },
     ],
     edges: [

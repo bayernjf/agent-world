@@ -18,7 +18,6 @@ const cfg: AppConfig = {
       models: ["disabled-1"],
       modalities: { "disabled-1": "text" },
     },
-    demo: { type: "fake", enabled: true, models: ["demo-chat"], modalities: { "demo-chat": "text" } },
   },
   defaultModel: "agnes-2.0-flash",
   defaultProvider: "agnes",
@@ -37,11 +36,11 @@ function withNodes(...nodes: Graph["nodes"]): Graph {
 
 const agentNode = (id: string, model: string) => ({
   id,
-  kind: "agent" as const,
+  kind: "textGen" as const,
   name: `agent-${id}`,
   x: 0,
   y: 0,
-  agent: { model, prompt: "" },
+  textGen: { model, prompt: "" },
 });
 const imageNode = (id: string, model: string) => ({
   id,
@@ -99,10 +98,6 @@ describe("validateModels", () => {
     expect(r).toHaveLength(1);
     expect(r[0]!.severity).toBe("warning");
     expect(r[0]!.message).toMatch(/图片.*与该节点期望的.*文本/);
-  });
-
-  it("accepts the built-in demo provider (fake worker)", () => {
-    expect(validateModels(withNodes(agentNode("a1", "demo-chat")), cfg)).toEqual([]);
   });
 
   it("rejects empty imageGen model the same way", () => {

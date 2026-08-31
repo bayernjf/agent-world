@@ -108,4 +108,66 @@ describe("templates", () => {
       .sort();
     expect(urls).toEqual(["https://a.example.com", "https://b.example.com"]);
   });
+
+  it("rewrites node-id references so configs point at the fresh ids", () => {
+    const tpl = {
+      id: "tpl-ref",
+      name: "ref",
+      description: "ref",
+      category: "基础",
+      graph: {
+        id: "tpl-ref",
+        name: "ref",
+        nodes: [
+          { id: "src", kind: "source", name: "SRC", x: 0, y: 0 },
+          {
+            id: "split",
+            kind: "code",
+            name: "SPLIT",
+            x: 1,
+            y: 0,
+            code: {
+              language: "javascript",
+              code: 'const raw = Object.values(inputs["src"])[0]; console.log(raw);',
+            },
+          },
+          {
+            id: "writer",
+            kind: "textGen",
+            name: "WRITER",
+            x: 2,
+            y: 0,
+            textGen: {
+              model: "m",
+              prompt: "引用上游 ${src} 的内容，再关注 ${split.output}。",
+              skills: [],
+            },
+          },
+        ],
+        edges: [
+          { id: "e1", from: "src", to: "split", kind: "flow" },
+          { id: "e2", from: "split", to: "writer", kind: "flow" },
+        ],
+      },
+    } as const;
+    const g = instantiateTemplate(tpl);
+    const byName = new Map(g.nodes.map((n) => [n.name, n]));
+    const srcId = byName.get("SRC")!.id;
+    const splitId = byName.get("SPLIT")!.id;
+    // The fresh ids replaced the template ids.
+    expect(srcId).not.toBe("src");
+    expect(splitId).not.toBe("split");
+    // Code script's inputs ref points at the fresh src id.
+    const code = byName.get("SPLIT")!.code as { code: string };
+    expect(code.code).toContain(`inputs["${srcId}"]`);
+    // Prompt's ${...} refs point at the fresh ids.
+    const prompt = byName.get("WRITER")!.textGen as { prompt: string };
+    expect(prompt.prompt).toContain(`\${${srcId}`);
+    expect(prompt.prompt).toContain(`\${${splitId}`);
+    // The template definition is untouched.
+    expect((pl("split")!.code as { code: string }).code).toContain('inputs["src"]');
+    function pl(id: string) {
+      return tpl.graph.nodes.find((n) => n.id === id);
+    }
+  });
 });

@@ -1,4 +1,4 @@
-import { compile, Graph, replay, type AgentConfig } from "@agent-world/core";
+import { compile, Graph, replay, type TextGenConfig } from "@agent-world/core";
 import { describe, expect, it } from "vitest";
 import { execute } from "./engine.js";
 import type { AgentChunk, Worker } from "./worker.js";
@@ -14,18 +14,18 @@ function toolGraph(): Graph {
       { id: "src", kind: "source", name: "SRC", x: 0, y: 0 },
       {
         id: "agent",
-        kind: "agent",
+        kind: "textGen",
         name: "TOOL_USER",
         x: 300,
         y: 0,
-        agent: {
+        textGen: {
           model: "test",
           prompt: "use the tool",
           skills: [{ id: "json_extract", enabled: true, config: {} }],
           temperature: 0.7,
           timeoutMs: 5000,
           retry: { maxRetries: 0, baseDelayMs: 1, maxDelayMs: 1 },
-        } satisfies AgentConfig,
+        } satisfies TextGenConfig,
       },
       { id: "depot", kind: "sink", name: "DEPOT", x: 600, y: 0 },
     ],
@@ -42,7 +42,7 @@ function toolGraph(): Graph {
  */
 function toolWorker(): Worker {
   return {
-    async *runAgent({ executeTool }): AsyncGenerator<AgentChunk, { output: string; usage: { tokensIn: number; tokensOut: number; costUsd: number } }> {
+    async *runTextGen({ executeTool }): AsyncGenerator<AgentChunk, { output: string; usage: { tokensIn: number; tokensOut: number; costUsd: number } }> {
       expect(executeTool).toBeDefined();
       const callId = "call_1";
       yield {

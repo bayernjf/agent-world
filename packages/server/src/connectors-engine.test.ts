@@ -9,7 +9,7 @@ import path from "node:path";
 const worker = () => fakeWorker({ chunkDelayMs: 0 });
 const clock = () => 0;
 const dir = mkdtempSync(path.join(tmpdir(), "conn-eng-"));
-const agent = { model: "t", prompt: "", skills: [], temperature: 0.7, timeoutMs: 60000 };
+const textGen = { model: "t", prompt: "", skills: [], temperature: 0.7, timeoutMs: 60000 };
 
 function makeGraph(connector: ConnectorConfig): Graph {
   return {
@@ -17,7 +17,7 @@ function makeGraph(connector: ConnectorConfig): Graph {
     name: "cg",
     nodes: [
       { id: "in", kind: "source", name: "IN", x: 0, y: 0, source: { connector } },
-      { id: "a", kind: "agent", name: "A", x: 1, y: 0, agent },
+      { id: "a", kind: "textGen", name: "A", x: 1, y: 0, textGen },
       { id: "out", kind: "sink", name: "OUT", x: 2, y: 0 },
     ],
     edges: [

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type RunSummary, type TriggerConfig } from "../lib/api";
+import Tooltip from "./Tooltip";
 
 interface Props {
   open: boolean;
@@ -31,9 +32,13 @@ function summarize(t: TriggerConfig): string {
     case "cron":
       return t.cron ?? "未设置表达式";
     case "event":
-      return t.eventSource ? `${t.eventSource.kind}:${t.eventSource.id}` : "未设置事件源";
+      return t.eventSource
+        ? `${t.eventSource.kind}:${t.eventSource.id}`
+        : "未设置事件源";
     case "batch":
-      return t.batch ? `${t.batch.source}${t.batch.path ? ` (${t.batch.path})` : ""}` : "未设置批次";
+      return t.batch
+        ? `${t.batch.source}${t.batch.path ? ` (${t.batch.path})` : ""}`
+        : "未设置批次";
     default:
       return "";
   }
@@ -48,7 +53,10 @@ export default function TriggersPanel({ open, onClose, graphId }: Props) {
   const [nextRuns, setNextRuns] = useState<Record<string, number | null>>({});
   const [runs, setRuns] = useState<RunSummary[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [editing, setEditing] = useState<{ trigger: TriggerConfig; isNew: boolean } | null>(null);
+  const [editing, setEditing] = useState<{
+    trigger: TriggerConfig;
+    isNew: boolean;
+  } | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -116,9 +124,11 @@ export default function TriggersPanel({ open, onClose, graphId }: Props) {
       <div className="modal modal--wide" onClick={(e) => e.stopPropagation()}>
         <div className="modal__header">
           <h2>触发器</h2>
-          <button className="icon-btn" onClick={onClose} title="关闭">
-            ✕
-          </button>
+          <Tooltip content="关闭">
+            <button className="icon-btn" onClick={onClose}>
+              ✕
+            </button>
+          </Tooltip>
         </div>
         <div className="modal__body">
           <div className="triggers-toolbar">
@@ -127,7 +137,9 @@ export default function TriggersPanel({ open, onClose, graphId }: Props) {
             </p>
             <button
               className="btn btn--primary btn--sm"
-              onClick={() => setEditing({ trigger: blankTrigger(), isNew: true })}
+              onClick={() =>
+                setEditing({ trigger: blankTrigger(), isNew: true })
+              }
             >
               ＋ 添加触发器
             </button>
@@ -136,19 +148,30 @@ export default function TriggersPanel({ open, onClose, graphId }: Props) {
           {error && <div className="error-text">{error}</div>}
 
           <ul className="trigger-list">
-            {triggers.length === 0 && <li className="muted">暂无触发器，点「添加触发器」创建。</li>}
+            {triggers.length === 0 && (
+              <li className="muted">暂无触发器，点「添加触发器」创建。</li>
+            )}
             {triggers.map((t) => (
               <li key={t.id} className="trigger-row">
                 <div className="trigger-main">
-                  <span className={`badge badge--${t.type}`}>{TYPE_LABELS[t.type]}</span>
+                  <span className={`badge badge--${t.type}`}>
+                    {TYPE_LABELS[t.type]}
+                  </span>
                   <span className="trigger-id">{t.id}</span>
-                  {t.enabled === false && <span className="badge badge--off">已停用</span>}
+                  {t.enabled === false && (
+                    <span className="badge badge--off">已停用</span>
+                  )}
                   <span className="muted trigger-summary">{summarize(t)}</span>
                 </div>
                 <div className="trigger-meta">
-                  {t.type === "cron" && <span title="下次运行时间">⏱ {fmtTime(nextRuns[t.id])}</span>}
+                  {t.type === "cron" && (
+                    <span>⏱ {fmtTime(nextRuns[t.id])}</span>
+                  )}
                   {t.type === "webhook" && (
-                    <code className="muted">POST /api/graphs/{graphId}/webhook?secret={t.webhookSecret}</code>
+                    <code className="muted">
+                      POST /api/graphs/{graphId}/webhook?secret=
+                      {t.webhookSecret}
+                    </code>
                   )}
                 </div>
                 <div className="trigger-actions">
@@ -160,13 +183,23 @@ export default function TriggersPanel({ open, onClose, graphId }: Props) {
                     />
                     启用
                   </label>
-                  <button className="ghost-btn" disabled={busyId === t.id} onClick={() => void fire(t)}>
+                  <button
+                    className="ghost-btn"
+                    disabled={busyId === t.id}
+                    onClick={() => void fire(t)}
+                  >
                     运行一次
                   </button>
-                  <button className="ghost-btn" onClick={() => setEditing({ trigger: t, isNew: false })}>
+                  <button
+                    className="ghost-btn"
+                    onClick={() => setEditing({ trigger: t, isNew: false })}
+                  >
                     编辑
                   </button>
-                  <button className="ghost-btn ghost-btn--danger" onClick={() => void remove(t)}>
+                  <button
+                    className="ghost-btn ghost-btn--danger"
+                    onClick={() => void remove(t)}
+                  >
                     删除
                   </button>
                 </div>
@@ -179,9 +212,13 @@ export default function TriggersPanel({ open, onClose, graphId }: Props) {
             {runs.length === 0 && <li className="muted">暂无运行记录。</li>}
             {runs.map((r) => (
               <li key={r.id}>
-                <span className={`run-status run-status--${r.status}`}>{r.status}</span>
+                <span className={`run-status run-status--${r.status}`}>
+                  {r.status}
+                </span>
                 <span className="muted">触发：{r.trigger || "—"}</span>
-                <span className="muted">{new Date(r.started_at).toLocaleString()}</span>
+                <span className="muted">
+                  {new Date(r.started_at).toLocaleString()}
+                </span>
               </li>
             ))}
           </ul>
@@ -228,7 +265,10 @@ function TriggerEditor({
 
   useEffect(() => {
     if (form.type === "event" && form.eventSource?.kind === "graph") {
-      void api.listGraphs().then(setGraphs).catch(() => undefined);
+      void api
+        .listGraphs()
+        .then(setGraphs)
+        .catch(() => undefined);
     }
   }, [form.type, form.eventSource?.kind]);
 
@@ -292,7 +332,9 @@ function TriggerEditor({
           <span>类型</span>
           <select
             value={form.type}
-            onChange={(e) => patch({ type: e.target.value as TriggerConfig["type"] })}
+            onChange={(e) =>
+              patch({ type: e.target.value as TriggerConfig["type"] })
+            }
           >
             <option value="manual">手动</option>
             <option value="webhook">Webhook</option>
@@ -303,7 +345,11 @@ function TriggerEditor({
         </label>
         <label className="field">
           <span>触发器 ID</span>
-          <input value={form.id} disabled={!isNew} onChange={(e) => patch({ id: e.target.value })} />
+          <input
+            value={form.id}
+            disabled={!isNew}
+            onChange={(e) => patch({ id: e.target.value })}
+          />
         </label>
         <label className="field field--check">
           <input
@@ -334,7 +380,9 @@ function TriggerEditor({
             onChange={(e) => patch({ cron: e.target.value })}
             placeholder="0 9 * * *"
           />
-          <small className="muted">5 段：分 时 日 月 周。服务器以 UTC 计算下次运行。</small>
+          <small className="muted">
+            5 段：分 时 日 月 周。服务器以 UTC 计算下次运行。
+          </small>
         </label>
       )}
 
@@ -362,7 +410,9 @@ function TriggerEditor({
               <span>监听的产线</span>
               <select
                 value={form.eventSource?.id ?? ""}
-                onChange={(e) => patch({ eventSource: { kind: "graph", id: e.target.value } })}
+                onChange={(e) =>
+                  patch({ eventSource: { kind: "graph", id: e.target.value } })
+                }
               >
                 <option value="">— 选择产线 —</option>
                 {graphs.map((g) => (
@@ -377,7 +427,11 @@ function TriggerEditor({
               <span>产物 ID</span>
               <input
                 value={form.eventSource?.id ?? ""}
-                onChange={(e) => patch({ eventSource: { kind: "artifact", id: e.target.value } })}
+                onChange={(e) =>
+                  patch({
+                    eventSource: { kind: "artifact", id: e.target.value },
+                  })
+                }
                 placeholder="如 art-123"
               />
             </label>
@@ -393,7 +447,10 @@ function TriggerEditor({
               value={form.batch?.source ?? "rows"}
               onChange={(e) =>
                 patch({
-                  batch: { ...(form.batch ?? { source: "rows" }), source: e.target.value as "csv" | "rows" },
+                  batch: {
+                    ...(form.batch ?? { source: "rows" }),
+                    source: e.target.value as "csv" | "rows",
+                  },
                 })
               }
             >
@@ -407,7 +464,12 @@ function TriggerEditor({
               <input
                 value={form.batch?.path ?? ""}
                 onChange={(e) =>
-                  patch({ batch: { ...(form.batch ?? { source: "csv" }), path: e.target.value } })
+                  patch({
+                    batch: {
+                      ...(form.batch ?? { source: "csv" }),
+                      path: e.target.value,
+                    },
+                  })
                 }
                 placeholder="/data/inputs.csv"
               />
@@ -432,7 +494,11 @@ function TriggerEditor({
         <button className="btn btn--sm" onClick={onClose}>
           取消
         </button>
-        <button className="btn btn--primary btn--sm" onClick={() => void save()} disabled={busy}>
+        <button
+          className="btn btn--primary btn--sm"
+          onClick={() => void save()}
+          disabled={busy}
+        >
           保存
         </button>
       </div>

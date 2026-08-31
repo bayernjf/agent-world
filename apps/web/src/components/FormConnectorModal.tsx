@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { FormConnector } from "@agent-world/core";
+import Tooltip from "./Tooltip";
 
 type FormField = FormConnector["fields"][number];
 
@@ -9,16 +10,24 @@ interface Props {
   onCancel: () => void;
 }
 
-export default function FormConnectorModal({ fields, onSubmit, onCancel }: Props) {
+export default function FormConnectorModal({
+  fields,
+  onSubmit,
+  onCancel,
+}: Props) {
   const [values, setValues] = useState<Record<string, string>>(
     Object.fromEntries(fields.map((f) => [f.name, ""])),
   );
   const [err, setErr] = useState<string | null>(null);
 
   const submit = () => {
-    const missing = fields.filter((f) => f.required && !(values[f.name] ?? "").trim());
+    const missing = fields.filter(
+      (f) => f.required && !(values[f.name] ?? "").trim(),
+    );
     if (missing.length) {
-      setErr(`请填写必填项：${missing.map((m) => m.label ?? m.name).join("、")}`);
+      setErr(
+        `请填写必填项：${missing.map((m) => m.label ?? m.name).join("、")}`,
+      );
       return;
     }
     onSubmit(values);
@@ -29,12 +38,16 @@ export default function FormConnectorModal({ fields, onSubmit, onCancel }: Props
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal__header">
           <h2>填写数据源表单</h2>
-          <button className="btn btn--ghost btn--icon" onClick={onCancel} title="关闭">
-            ×
-          </button>
+          <Tooltip content="关闭">
+            <button className="btn btn--ghost btn--icon" onClick={onCancel}>
+              ×
+            </button>
+          </Tooltip>
         </div>
         <div className="modal__body">
-          <p className="hint">以下字段将作为数据源（Connector）注入 source 节点，再跑整条产线。</p>
+          <p className="hint">
+            以下字段将作为数据源（Connector）注入 source 节点，再跑整条产线。
+          </p>
           {fields.map((f, i) => (
             <label className="field" key={f.name || i}>
               <span>
@@ -44,7 +57,9 @@ export default function FormConnectorModal({ fields, onSubmit, onCancel }: Props
               <input
                 className="text-input"
                 value={values[f.name] ?? ""}
-                onChange={(e) => setValues((v) => ({ ...v, [f.name]: e.target.value }))}
+                onChange={(e) =>
+                  setValues((v) => ({ ...v, [f.name]: e.target.value }))
+                }
               />
             </label>
           ))}

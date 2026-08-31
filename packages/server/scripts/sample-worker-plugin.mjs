@@ -4,7 +4,7 @@
 // those are proxied through the parent).
 function makeWorker() {
   return {
-    async *runAgent() {
+    async *runTextGen() {
       const envKeys = Object.keys(process.env).sort();
       const secretLeaked = process.env.TOP_SECRET === "leaked";
       yield { type: "text-delta", text: "running in child" };

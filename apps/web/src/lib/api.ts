@@ -32,6 +32,8 @@ export interface AppConfig {
       enabled?: boolean;
       pricing?: Record<string, ModelPricing>;
       modalities?: Record<string, Modality>;
+      endpoints?: Partial<Record<Modality, string>>;
+      source?: "builtin" | "custom";
     }
   >;
   defaultModel: string;
@@ -221,10 +223,10 @@ export const api = {
   listSkills: () => authFetch("/api/skills").then(json<Skill[]>),
 
   listGraphs: () =>
-    authFetch("/api/graphs").then(json<{ id: string; name: string; updated_at: number }[]>),
+    authFetch("/api/graphs").then(json<{ id: string; name: string; updated_at: number; originTemplateId: string | null }[]>),
 
   getGraph: (id: string) =>
-    authFetch(`/api/graphs/${id}`).then(json<Graph & { version: number }>),
+    authFetch(`/api/graphs/${id}`).then(json<Graph & { version: number; originTemplateId: string | null }>),
 
   saveGraph: (graph: Graph, version?: number | null) =>
     authFetch(`/api/graphs/${graph.id}`, {
@@ -279,6 +281,11 @@ export const api = {
 
   deleteGraph: (id: string) =>
     authFetch(`/api/graphs/${id}`, { method: "DELETE" }).then(json<{ ok: true }>),
+
+  /** Reset a template-instance graph back to its originating template's shape.
+   *  Only graphs with `originTemplateId` can be reset — others 400. */
+  resetGraph: (id: string) =>
+    authFetch(`/api/graphs/${id}/reset`, { method: "POST" }).then(json<Graph & { version: number; originTemplateId: string | null }>),
 
   compile: (graph: Graph) =>
     authFetch("/api/compile", {

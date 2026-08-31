@@ -64,6 +64,12 @@ describe("template instantiation API", () => {
         placeholder: "https://your-service.example.com/health",
         defaultValue: "https://httpbin.org/status/200",
       },
+      {
+        key: "alarmWebhookUrl",
+        label: "告警通知 Webhook（群机器人地址）",
+        placeholder: "https://open.feishu.cn/open-apis/bot/v2/hook/xxxx",
+        defaultValue: "",
+      },
     ]);
     // Field-less templates get an empty array, not undefined, for a stable shape.
     const blank = templates.find((t) => t.id === "tpl-blank");
