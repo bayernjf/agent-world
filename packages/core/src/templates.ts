@@ -56,11 +56,66 @@ function setPath(obj: Record<string, unknown>, keys: string[], value: string): v
   cur[keys[keys.length - 1]!] = value;
 }
 
+/** Config fields whose value is (or starts with) a node id, not a plain string. */
+const NODE_ID_REF_FIELDS = new Set(["source", "target", "items", "iterate", "pick"]);
+
+/**
+ * Rewrite node-id references inside a node's config so they survive re-id.
+ * Handles three shapes:
+ *  - `${oldId.path}` and `inputs.oldId.path` variable references in any string;
+ *  - `inputs["oldId"]` (browser syntax) in code-node scripts;
+ *  - bare node-id values in reference fields (`source`/`target`/`items`/…).
+ * The node object is walked and mutated in place — callers must pass a clone.
+ */
+function rewriteNodeIdRefs(node: Record<string, unknown>, idMap: Map<string, string>): void {
+  const rewriteString = (s: string, field: string): string => {
+    let out = s;
+    for (const [oldId, newId] of idMap) {
+      out = out.split(`\${${oldId}`).join(`\${${newId}`);
+      out = out.split(`inputs.${oldId}`).join(`inputs.${newId}`);
+      out = out.split(`inputs["${oldId}"]`).join(`inputs["${newId}"]`);
+    }
+    if (NODE_ID_REF_FIELDS.has(field)) {
+      // Rewrite a leading node-id token (bare or a dotted path root).
+      const renamed = (() => {
+        if (out.trim() === "") return undefined;
+        const seg = out.trim().split(/[.:]/)[0]!;
+        return idMap.get(seg);
+      })();
+      if (renamed) {
+        out = out.replace(/^[^.:\[\]]+/, renamed);
+      }
+    }
+    return out;
+  };
+
+  const walk = (obj: Record<string, unknown>) => {
+    for (const key of Object.keys(obj)) {
+      if (key === "id") continue;
+      const v = obj[key];
+      if (typeof v === "string") {
+        obj[key] = rewriteString(v, key);
+      } else if (Array.isArray(v)) {
+        for (let i = 0; i < v.length; i++) {
+          const el = v[i];
+          if (typeof el === "string") v[i] = rewriteString(el, key);
+          else if (el && typeof el === "object") walk(el as Record<string, unknown>);
+        }
+      } else if (v && typeof v === "object") {
+        walk(v as Record<string, unknown>);
+      }
+    }
+  };
+  walk(node);
+}
+
 /**
  * Build a fresh graph from a template. Every node and edge id is replaced with a
- * short generated id so duplicated templates never collide. Declared `fields`
- * are applied on top: an explicit non-empty value wins, then the field's
- * defaultValue; fields with neither are left untouched.
+ * short generated id so duplicated templates never collide. Node-id references
+ * bound into configs (`${probe.url}`, `inputs.src`, branch targets, `source`
+ * fields) are rewritten to the fresh ids. Declared `fields` are applied on top:
+ * an explicit non-empty value wins, then the field's defaultValue; fields with
+ * neither are left untouched. The template definition itself is never mutated.
  */
 export function instantiateTemplate(
   template: GraphTemplate,
@@ -77,10 +132,15 @@ export function instantiateTemplate(
     return fresh;
   };
 
-  const nodes = template.graph.nodes.map((n) => ({
-    ...n,
-    id: uid(n.id),
-  }));
+  const nodes = template.graph.nodes.map((n) => {
+    // Deep clone so reference rewriting never mutates the shared template
+    // definition (configs are nested plain objects shared with
+    // template.graph.nodes, and are JSON-serializable).
+    const clone = JSON.parse(JSON.stringify(n)) as Record<string, unknown>;
+    clone.id = uid(clone.id as string);
+    rewriteNodeIdRefs(clone, idMap);
+    return clone;
+  });
   // applyTo references template node ids — resolve them to the instantiated nodes.
   const byOldId = new Map(template.graph.nodes.map((n, i) => [n.id, nodes[i]!]));
   for (const field of template.fields ?? []) {
