@@ -75,6 +75,16 @@ function mapHttpStatus(status: number): ProviderError["code"] {
   return "UNKNOWN";
 }
 
+/** Reads a value from a JSON object by dot path (e.g. "metadata.url"). */
+function dotPath(obj: unknown, path: string): unknown {
+  let cur: unknown = obj;
+  for (const key of path.split(".")) {
+    if (cur == null || typeof cur !== "object") return undefined;
+    cur = (cur as Record<string, unknown>)[key];
+  }
+  return cur;
+}
+
 /**
  * Builds the user message content. When `content` (4.5 multimodal parts) is
  * supplied it is the canonical representation; otherwise we fall back to the
@@ -555,7 +565,7 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
       if (!apiKey) {
         throw new ProviderError("AUTH", "Missing API key for video provider");
       }
-      const VIDEO_TIMEOUT_MS = 300_000; // video gen is slow
+      const VIDEO_TIMEOUT_MS = 900_000; // video gen is slow (agn queue + infer ~5min)
       const POLL_INTERVAL_MS = 3000;
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), VIDEO_TIMEOUT_MS);
@@ -565,9 +575,19 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
         else signal.addEventListener("abort", onAbort, { once: true });
       }
       try {
+        const adapter = provider.videoAdapter;
         const body: Record<string, unknown> = { model, prompt: input, n };
-        if (config.duration) body.duration = config.duration;
-        if (config.aspect) body.aspect_ratio = config.aspect;
+        if (adapter?.createBody) Object.assign(body, adapter.createBody);
+        if (config.duration && !adapter?.omitDuration) body.duration = config.duration;
+        if (config.aspect) {
+          const size = adapter?.aspectToSize?.[config.aspect];
+          if (size) {
+            body.width = size.width;
+            body.height = size.height;
+          } else if (!adapter?.createBody) {
+            body.aspect_ratio = config.aspect;
+          }
+        }
         if (config.size) body.size = config.size;
 
         const res = await guardedFetch(`${endpoint}${endpointFor(provider, model, "video")}`, {
@@ -597,8 +617,19 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
             if (!pollRes || !pollRes.ok) continue;
             const pollJson = (await pollRes.json()) as Record<string, unknown>;
             if (pollJson.status === "succeeded" || pollJson.status === "completed") {
-              const output = pollJson.output as Array<{ url?: string; b64_json?: string }> | undefined;
-              videoUrl = output?.[0]?.url;
+              if (adapter?.resultUrlPath) {
+                videoUrl = dotPath(pollJson, adapter.resultUrlPath) as string | undefined;
+                // Fallbacks for gateways that move the URL around in the
+                // completed payload (metadata.url or an OpenAI-style output).
+                if (!videoUrl) {
+                  videoUrl =
+                    (dotPath(pollJson, "metadata.url") as string) ??
+                    ((pollJson.output as Array<{ url?: string }> | undefined)?.[0]?.url);
+                }
+              } else {
+                const output = pollJson.output as Array<{ url?: string; b64_json?: string }> | undefined;
+                videoUrl = output?.[0]?.url ?? (dotPath(pollJson, "metadata.url") as string);
+              }
               break;
             }
             if (pollJson.status === "failed") {
