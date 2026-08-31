@@ -13,6 +13,7 @@ const SECRET_PATTERNS: RegExp[] = [
   /(bearer\s+)[A-Za-z0-9._\-]+/gi,
   /(authorization\s*[:=]\s*)\S+/gi,
   /(api[_-]?key\s*[:=]\s*)\S+/gi,
+  /([?&](?:api[_-]?key|apikey|key|token|secret)=)[^&\s"']+/gi,
   /sk-[A-Za-z0-9]{6,}/g,
   /ark-[A-Za-z0-9]{6,}/g,
   /"apiKey"\s*:\s*"[^"]+"/gi,

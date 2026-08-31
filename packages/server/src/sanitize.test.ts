@@ -32,6 +32,13 @@ describe("sanitizeError (audit L5)", () => {
     expect(out).not.toContain("/tmp/x");
   });
 
+  it("redacts API keys carried in URL query parameters (audit L6)", () => {
+    expect(sanitizeError("GET https://serpapi.com/search?q=a&api_key=SECRET123")).not.toContain("SECRET123");
+    expect(sanitizeError("https://googleapis.com/v1?key=ABCDE&cx=x")).not.toContain("ABCDE");
+    // Non-secret neighbouring params survive.
+    expect(sanitizeError("https://googleapis.com/v1?key=ABCDE&cx=x")).toContain("cx=x");
+  });
+
   it("truncates very long messages", () => {
     expect(sanitizeError("x".repeat(900)).length).toBeLessThanOrEqual(501);
   });
