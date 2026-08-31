@@ -61,15 +61,16 @@ function defaultModelFor(
     (o) => o.model === defaultModel && o.modality === wanted && o.enabled,
   );
   if (fromDefault) return { provider: fromDefault.provider, model: fromDefault.model, modality: wanted };
-  // Otherwise prefer a REAL provider (anything not the built-in fake/demo
-  // worker). The demo is only a last-resort so the picker respects the
+  // Otherwise prefer a REAL provider (anything not the internal fake
+  // worker). Legacy configs may still carry a "demo"/"fake" provider from
+  // before the demo tier was removed, so keep excluding them to respect the
   // user's configured models when they exist.
   const real = cached.find((o) => o.modality === wanted && o.enabled && o.provider !== "demo" && o.provider !== "fake");
   if (real) return { provider: real.provider, model: real.model, modality: wanted };
-  // No real model — fall back to the demo so addNode can still succeed
-  // for a brand-new user with zero configured models.
-  const demo = cached.find((o) => o.modality === wanted && o.enabled);
-  if (demo) return { provider: demo.provider, model: demo.model, modality: wanted };
+  // No real model — fall back to the first enabled model so addNode can
+  // still succeed for a brand-new user with zero configured models.
+  const fallback = cached.find((o) => o.modality === wanted && o.enabled);
+  if (fallback) return { provider: fallback.provider, model: fallback.model, modality: wanted };
   return null;
 }
 
@@ -86,7 +87,7 @@ function remapNodeModel(
   const wanted = modalityForKind(node.kind);
   if (!wanted) return false;
   const cfg =
-    node.kind === "agent" ? node.agent :
+    node.kind === "textGen" ? node.textGen :
     node.kind === "imageGen" ? node.imageGen :
     node.kind === "videoGen" ? node.videoGen :
     node.kind === "audioGen" ? node.audioGen : null;
@@ -100,7 +101,7 @@ function remapNodeModel(
   // and the dispatch validator has a single rule to check.
   const seed = defaultModelFor(node.kind, cached, defaultModel);
   const next = { ...cfg, model: seed ? seed.model : "" } as typeof cfg;
-  if (node.kind === "agent") node.agent = next as typeof node.agent;
+  if (node.kind === "textGen") node.textGen = next as typeof node.textGen;
   else if (node.kind === "imageGen") node.imageGen = next as typeof node.imageGen;
   else if (node.kind === "videoGen") node.videoGen = next as typeof node.videoGen;
   else if (node.kind === "audioGen") node.audioGen = next as typeof node.audioGen;
@@ -124,7 +125,7 @@ function migrateGraphModels(
 
 function modalityForKind(kind: NodeKind): Modality | null {
   switch (kind) {
-    case "agent":
+    case "textGen":
       return "text";
     case "imageGen":
       return "image";
@@ -219,8 +220,8 @@ const nextId = (prefix: string) => `${prefix}${++counter}-${Math.random().toStri
 const DEFAULTS: Record<NodeKind, Partial<GraphNode>> = {
   source: {},
   sink: {},
-  agent: {
-    agent: {
+  textGen: {
+    textGen: {
       model: "agnes-2.0-flash",
       prompt: "",
       skills: [],
@@ -251,6 +252,7 @@ const DEFAULTS: Record<NodeKind, Partial<GraphNode>> = {
   vcs: { vcs: { provider: "github", action: "list_issues", body: "", retry: { maxRetries: 2, baseDelayMs: 1000, maxDelayMs: 30000 } } },
   human: { human: { prompt: "" } },
   subprocess: { subprocess: { graphId: "", maxDepth: 3 } },
+  generic: { generic: { model: "agnes-2.0-flash", prompt: "", skills: [], modality: "text", retry: { maxRetries: 2, baseDelayMs: 1000, maxDelayMs: 30000 } } },
 };
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -414,8 +416,8 @@ export const useGraph = create<GraphState>()(
         // the empty config and surface a clear "configure the model first"
         // error.
         if (seed) {
-          if (kind === "agent" && node.agent) {
-            node.agent = { ...node.agent, model: seed.model };
+          if (kind === "textGen" && node.textGen) {
+            node.textGen = { ...node.textGen, model: seed.model };
           } else if (kind === "imageGen" && node.imageGen) {
             node.imageGen = { ...node.imageGen, model: seed.model };
           } else if (kind === "videoGen" && node.videoGen) {
@@ -424,8 +426,8 @@ export const useGraph = create<GraphState>()(
             node.audioGen = { ...node.audioGen, model: seed.model };
           }
         } else if (wanted) {
-          if (kind === "agent" && node.agent) {
-            node.agent = { ...node.agent, model: "" };
+          if (kind === "textGen" && node.textGen) {
+            node.textGen = { ...node.textGen, model: "" };
           } else if (kind === "imageGen" && node.imageGen) {
             node.imageGen = { ...node.imageGen, model: "" };
           } else if (kind === "videoGen" && node.videoGen) {

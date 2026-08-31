@@ -7,7 +7,7 @@ import { execute, resume } from "./engine.js";
 import { type Worker } from "./worker.js";
 import { isDangerousTool } from "./permissions.js";
 
-const AGENT = {
+const TEXTGEN = {
   model: "agnes-2.0-flash",
   prompt: "",
   skills: [],
@@ -31,7 +31,7 @@ function dangerGraph(): Graph {
   return {
     nodes: [
       { id: "s1", kind: "source", name: "Src", x: 0, y: 0, source: {} },
-      { id: "w1", kind: "agent", name: "Writer", x: 1, y: 0, agent: { ...AGENT, skills: ["fs_write"] } },
+      { id: "w1", kind: "textGen", name: "Writer", x: 1, y: 0, textGen: { ...TEXTGEN, skills: ["fs_write"] } },
       { id: "k1", kind: "sink", name: "Out", x: 2, y: 0 },
     ],
     edges: [
@@ -44,7 +44,7 @@ function dangerGraph(): Graph {
 /** Worker that calls the dangerous fs_write tool and lets a HaltRequested propagate. */
 function dangerWorker(fileName = "out.txt"): Worker {
   return {
-    async *runAgent(args) {
+    async *runTextGen(args) {
       const hasFsWrite = (args.tools ?? []).some((t) => t.name === "fs_write");
       if (hasFsWrite && args.executeTool) {
         const result = await args.executeTool("fs_write", { path: fileName, content: "hello danger" });

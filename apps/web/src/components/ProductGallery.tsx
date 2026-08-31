@@ -1,12 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ARTIFACT_COLORS, type Graph, type RuntimeState } from "@agent-world/core";
-import { api, proxyImageUrl, type RunSummary, type StoredArtifact } from "../lib/api";
 import {
-  JsonView,
-  renderMarkdown,
-  safeParse,
-} from "../lib/artifact-renderers";
+  ARTIFACT_COLORS,
+  type Graph,
+  type RuntimeState,
+} from "@agent-world/core";
+import {
+  api,
+  proxyImageUrl,
+  type RunSummary,
+  type StoredArtifact,
+} from "../lib/api";
+import { JsonView, renderMarkdown, safeParse } from "../lib/artifact-renderers";
 import FinishedProduct from "./FinishedProduct";
+import Tooltip from "./Tooltip";
 
 interface Props {
   open: boolean;
@@ -25,7 +31,16 @@ const KIND_LABEL: Record<StoredArtifact["kind"], string> = {
   uri: "链接",
 };
 
-const FILTERS: KindFilter[] = ["all", "image", "video", "audio", "text", "json", "file", "uri"];
+const FILTERS: KindFilter[] = [
+  "all",
+  "image",
+  "video",
+  "audio",
+  "text",
+  "json",
+  "file",
+  "uri",
+];
 const PAGE = 60;
 const RUN_PAGE = 20;
 
@@ -39,7 +54,11 @@ const RUN_STATUS_LABEL: Record<string, string> = {
 };
 
 function resolveUrl(a: StoredArtifact): string | null {
-  const raw = a.uri ?? (a.storage === "local" ? `/api/artifacts/${encodeURIComponent(a.id)}` : null);
+  const raw =
+    a.uri ??
+    (a.storage === "local"
+      ? `/api/artifacts/${encodeURIComponent(a.id)}`
+      : null);
   return proxyImageUrl(raw);
 }
 
@@ -184,20 +203,28 @@ export default function ProductGallery({ open, onClose }: Props) {
                 按运行
               </button>
             </div>
-            <button className="icon-btn" onClick={onClose} title="关闭">
-              ✕
-            </button>
+            <Tooltip content="关闭">
+              <button className="icon-btn" onClick={onClose}>
+                ✕
+              </button>
+            </Tooltip>
           </div>
         </div>
 
         <div className="modal__body">
           {view === "run" ? (
             runsLoading && runs.length === 0 ? (
-              <p className="muted" style={{ textAlign: "center", padding: "40px 0" }}>
+              <p
+                className="muted"
+                style={{ textAlign: "center", padding: "40px 0" }}
+              >
                 加载中…
               </p>
             ) : runs.length === 0 ? (
-              <p className="muted" style={{ textAlign: "center", padding: "40px 0" }}>
+              <p
+                className="muted"
+                style={{ textAlign: "center", padding: "40px 0" }}
+              >
                 暂无运行记录。派发产线后，每一次运行的最终成品可以在这里查看。
               </p>
             ) : (
@@ -209,13 +236,21 @@ export default function ProductGallery({ open, onClose }: Props) {
                   </h3>
                   <div className="runhistory-list">
                     {g.rs.map((r) => (
-                      <div key={r.id} className="runhistory-row" onClick={() => setViewRun(r)}>
+                      <div
+                        key={r.id}
+                        className="runhistory-row"
+                        onClick={() => setViewRun(r)}
+                      >
                         <div className="runhistory-row-main">
                           <div className="runhistory-row-title">
-                            <span className={`run-status run-status--${r.status}`}>
+                            <span
+                              className={`run-status run-status--${r.status}`}
+                            >
                               {RUN_STATUS_LABEL[r.status] ?? r.status}
                             </span>
-                            <span className="runhistory-id">{r.id.slice(0, 8)}</span>
+                            <span className="runhistory-id">
+                              {r.id.slice(0, 8)}
+                            </span>
                           </div>
                           <div className="runhistory-row-meta">
                             <span>{formatDate(r.started_at)}</span>
@@ -244,7 +279,10 @@ export default function ProductGallery({ open, onClose }: Props) {
               ))
             )
           ) : filtered.length === 0 && !loading ? (
-            <p className="muted" style={{ textAlign: "center", padding: "40px 0" }}>
+            <p
+              className="muted"
+              style={{ textAlign: "center", padding: "40px 0" }}
+            >
               暂无成品。运行产线后，产出的图片、文本、数据等会汇集到这里。
             </p>
           ) : view === "pipeline" && groups ? (
@@ -294,13 +332,10 @@ export default function ProductGallery({ open, onClose }: Props) {
           )}
         </div>
       </div>
-      {detail && (
-        <ArtifactDetail
-          a={detail}
-          onClose={() => setDetail(null)}
-        />
+      {detail && <ArtifactDetail a={detail} onClose={() => setDetail(null)} />}
+      {viewRun && (
+        <RunProductViewer run={viewRun} onClose={() => setViewRun(null)} />
       )}
-      {viewRun && <RunProductViewer run={viewRun} onClose={() => setViewRun(null)} />}
     </div>
   );
 }
@@ -521,7 +556,6 @@ function ArtifactDetail({
             className="gallery-detail__close icon-btn"
             onClick={onClose}
             aria-label="关闭"
-            title="关闭（Esc）"
           >
             ✕
           </button>
@@ -554,7 +588,7 @@ function ArtifactDetail({
             ) : err ? (
               <div className="gallery-detail__status gallery-detail__error">
                 无法加载正文：{err}
-            </div>
+              </div>
             ) : text == null ? (
               <div className="gallery-detail__status">正文不可用</div>
             ) : (
@@ -657,8 +691,17 @@ function ArtifactDetail({
  * the run started plus the replayed runtime state, fed into the same
  * FinishedProduct view used on the live canvas.
  */
-function RunProductViewer({ run, onClose }: { run: RunSummary; onClose: () => void }) {
-  const [data, setData] = useState<{ graph: Graph; runtime: RuntimeState } | null>(null);
+function RunProductViewer({
+  run,
+  onClose,
+}: {
+  run: RunSummary;
+  onClose: () => void;
+}) {
+  const [data, setData] = useState<{
+    graph: Graph;
+    runtime: RuntimeState;
+  } | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
@@ -695,7 +738,11 @@ function RunProductViewer({ run, onClose }: { run: RunSummary; onClose: () => vo
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="gallery-detail__panel run-product-panel" role="dialog" aria-modal="true">
+      <div
+        className="gallery-detail__panel run-product-panel"
+        role="dialog"
+        aria-modal="true"
+      >
         <header
           className="gallery-detail__header"
           style={{ borderBottom: "2px solid var(--power)" }}
@@ -707,7 +754,10 @@ function RunProductViewer({ run, onClose }: { run: RunSummary; onClose: () => vo
             >
               成品
             </span>
-            <span className="gallery-detail__name" title={run.graph_name || run.id}>
+            <span
+              className="gallery-detail__name"
+              title={run.graph_name || run.id}
+            >
               {run.graph_name || "(未命名流水线)"}
             </span>
           </div>
@@ -715,7 +765,6 @@ function RunProductViewer({ run, onClose }: { run: RunSummary; onClose: () => vo
             className="gallery-detail__close icon-btn"
             onClick={onClose}
             aria-label="关闭"
-            title="关闭（Esc）"
           >
             ✕
           </button>
@@ -728,7 +777,9 @@ function RunProductViewer({ run, onClose }: { run: RunSummary; onClose: () => vo
             <span>·</span>
             <span>
               耗时{" "}
-              {run.ended_at != null ? fmtDuration(run.ended_at - run.started_at) : "运行中"}
+              {run.ended_at != null
+                ? fmtDuration(run.ended_at - run.started_at)
+                : "运行中"}
             </span>
             <span>·</span>
             <span>{run.trigger}</span>
@@ -742,9 +793,15 @@ function RunProductViewer({ run, onClose }: { run: RunSummary; onClose: () => vo
           ) : !data ? (
             <div className="gallery-detail__status">加载中…</div>
           ) : !sink ? (
-            <div className="gallery-detail__status">该流水线没有出料节点，无法渲染成品。</div>
+            <div className="gallery-detail__status">
+              该流水线没有出料节点，无法渲染成品。
+            </div>
           ) : (
-            <FinishedProduct sinkId={sink.id} graph={data.graph} runtime={data.runtime} />
+            <FinishedProduct
+              sinkId={sink.id}
+              graph={data.graph}
+              runtime={data.runtime}
+            />
           )}
         </div>
       </div>

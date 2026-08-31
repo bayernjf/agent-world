@@ -9,11 +9,11 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 function agentNode(id: string, name: string, x: number, y: number): GraphNode {
   return {
     id,
-    kind: "agent",
+    kind: "textGen",
     name,
     x,
     y,
-    agent: {
+    textGen: {
       model: "test",
       prompt: "",
       skills: [],
@@ -55,7 +55,7 @@ function concurrencyWorker(onMax: (n: number) => void): Worker {
     active--;
   };
   return {
-    async *runAgent({ node, input }) {
+    async *runTextGen({ node, input }) {
       await gate();
       // JOIN echoes its merged input so the test can assert the barrier merge.
       const out = node.id === "join" ? input : `${node.name} done`;
@@ -113,11 +113,11 @@ describe("parallel execution", () => {
     const graph = diamond();
     // Plant A trips its own near-zero budget; B and the rest should still weld.
     const aNode = graph.nodes.find((n) => n.id === "a")!;
-    aNode.agent = { ...aNode.agent!, budgetUsd: 0.0000001 };
+    aNode.textGen = { ...aNode.textGen!, budgetUsd: 0.0000001 };
 
     let ranB = false;
     const worker: Worker = {
-      async *runAgent({ node }) {
+      async *runTextGen({ node }) {
         if (node.id === "b") ranB = true;
         await sleep(5);
         yield { type: "text-delta", text: `${node.name} done` };

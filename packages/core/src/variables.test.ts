@@ -37,7 +37,7 @@ describe("buildNodeContext", () => {
   const graph: Graph = {
     id: "g",
     name: "g",
-    nodes: [{ id: "upstream", kind: "agent", name: "UP", x: 0, y: 0 }],
+    nodes: [{ id: "upstream", kind: "textGen", name: "UP", x: 0, y: 0 }],
     edges: [{ id: "e1", from: "upstream", to: "http", kind: "flow" }],
   };
 

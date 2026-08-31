@@ -36,10 +36,10 @@ describe("addNode default model selection", () => {
       defaultProvider: "p1",
     });
     await refreshDefaultModel();
-    const r = useGraph.getState().addNode("agent", 10, 10);
+    const r = useGraph.getState().addNode("textGen", 10, 10);
     expect(r.missingModality).toBeNull();
     const node = useGraph.getState().graph.nodes.find((n) => n.id === r.id);
-    expect(node?.agent?.model).toBe("txt-1");
+    expect(node?.textGen?.model).toBe("txt-1");
   });
 
   it("picks the first enabled image model for imageGen", async () => {
@@ -125,9 +125,10 @@ describe("addNode default model selection", () => {
   });
 });
 
-  it("prefers a real provider over the built-in demo when both match the modality", async () => {
+  it("prefers a real provider over a legacy demo provider when both match the modality", async () => {
     const { useGraph, refreshDefaultModel } = await setup({
       providers: {
+        // A legacy config may still carry the removed demo provider.
         demo: { type: "fake", enabled: true, models: ["demo-image"], modalities: { "demo-image": "image" } },
         real: {
           type: "openai-compatible",
@@ -145,6 +146,6 @@ describe("addNode default model selection", () => {
     const r = useGraph.getState().addNode("imageGen", 10, 10);
     expect(r.missingModality).toBeNull();
     const node = useGraph.getState().graph.nodes.find((n) => n.id === r.id);
-    // Real provider wins over the demo fallback.
+    // Real provider wins over the legacy demo fallback.
     expect(node?.imageGen?.model).toBe("real-image-1");
   });

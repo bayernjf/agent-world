@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type ABReport as Report } from "../lib/api";
+import Tooltip from "./Tooltip";
 
 interface Props {
   open: boolean;
@@ -16,7 +17,8 @@ const fmtDuration = (ms: number) => {
   return `${Math.floor(s / 60)}m${Math.round(s % 60)}s`;
 };
 const fmtCost = (c: number) => (c ? `$${c.toFixed(4)}` : "$0");
-const passTone = (rate: number) => (rate >= 0.9 ? "good" : rate >= 0.6 ? "warn" : "bad");
+const passTone = (rate: number) =>
+  rate >= 0.9 ? "good" : rate >= 0.6 ? "warn" : "bad";
 
 export default function ABReport({ open, groupId, onClose }: Props) {
   const [report, setReport] = useState<Report | null>(null);
@@ -52,7 +54,9 @@ export default function ABReport({ open, groupId, onClose }: Props) {
   if (!open) return null;
 
   const allDone =
-    report != null && report.arms.length > 0 && report.arms.every((a) => a.done === a.runs && a.runs > 0);
+    report != null &&
+    report.arms.length > 0 &&
+    report.arms.every((a) => a.done === a.runs && a.runs > 0);
   const winner = report?.arms.find((a) => a.arm === report.recommendedArm);
 
   return (
@@ -61,17 +65,26 @@ export default function ABReport({ open, groupId, onClose }: Props) {
         <div className="modal__header">
           <h2>A/B 实验对比</h2>
           <div style={{ display: "flex", gap: 8 }}>
-            <button className="btn btn--ghost btn--sm" onClick={() => void load()} disabled={loading}>
+            <button
+              className="btn btn--ghost btn--sm"
+              onClick={() => void load()}
+              disabled={loading}
+            >
               刷新
             </button>
-            <button className="icon-btn" onClick={onClose} title="关闭">
-              ✕
-            </button>
+            <Tooltip content="关闭">
+              <button className="icon-btn" onClick={onClose}>
+                ✕
+              </button>
+            </Tooltip>
           </div>
         </div>
         <div className="modal__body">
           {!report ? (
-            <p className="muted" style={{ textAlign: "center", padding: "40px 0" }}>
+            <p
+              className="muted"
+              style={{ textAlign: "center", padding: "40px 0" }}
+            >
               加载中…
             </p>
           ) : report.arms.length === 0 ? (
@@ -103,19 +116,31 @@ export default function ABReport({ open, groupId, onClose }: Props) {
                       <tr key={a.arm} className={isWinner ? "winner" : ""}>
                         <td className="ab-arm">
                           <span className="ab-arm__label">{a.arm}</span>
-                          {isWinner && <span className="ab-badge is-winner">推荐</span>}
+                          {isWinner && (
+                            <span className="ab-badge is-winner">推荐</span>
+                          )}
                           <span
                             className={`ab-badge ${running ? "is-running" : a.done > 0 ? "is-done" : ""}`}
                           >
-                            {running ? `运行中 ${a.done}/${a.runs}` : a.done > 0 ? "完成" : "无运行"}
+                            {running
+                              ? `运行中 ${a.done}/${a.runs}`
+                              : a.done > 0
+                                ? "完成"
+                                : "无运行"}
                           </span>
                         </td>
                         <td className="ab-prompt">{a.prompt ?? "—"}</td>
                         <td>{a.runs}</td>
-                        <td className={`num mono eval-rate--${passTone(a.passRate)}`}>{pct(a.passRate)}</td>
+                        <td
+                          className={`num mono eval-rate--${passTone(a.passRate)}`}
+                        >
+                          {pct(a.passRate)}
+                        </td>
                         <td className="num mono">{a.avgScore.toFixed(2)}</td>
                         <td className="num mono">{a.avgRework.toFixed(2)}</td>
-                        <td className="num mono">{fmtDuration(a.avgDurationMs)}</td>
+                        <td className="num mono">
+                          {fmtDuration(a.avgDurationMs)}
+                        </td>
                         <td className="num mono">{fmtCost(a.avgCost)}</td>
                       </tr>
                     );
@@ -124,7 +149,8 @@ export default function ABReport({ open, groupId, onClose }: Props) {
               </table>
               {winner && allDone && (
                 <div className="ab-winner-note">
-                  建议采用 <strong>{winner.arm}</strong> 臂：已完成运行中质量分最高（合格率 {pct(winner.passRate)}）。
+                  建议采用 <strong>{winner.arm}</strong>{" "}
+                  臂：已完成运行中质量分最高（合格率 {pct(winner.passRate)}）。
                 </div>
               )}
             </>

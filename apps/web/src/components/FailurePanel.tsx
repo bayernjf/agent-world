@@ -3,6 +3,7 @@ import { incoming, outgoing, type Graph } from "@agent-world/core";
 import { useGraph } from "../store/graph";
 import { useVisibleRuntime, resumeRun, useRun } from "../store/run";
 import type { FailureRecord } from "@agent-world/core";
+import Tooltip from "./Tooltip";
 
 const ERROR_LABEL: Record<string, string> = {
   TIMEOUT: "超时",
@@ -35,7 +36,11 @@ function downstreamIds(graph: Graph, start: string): Set<string> {
   return out;
 }
 
-function upstreamDone(graph: Graph, failedNode: string, done: Set<string>): string[] {
+function upstreamDone(
+  graph: Graph,
+  failedNode: string,
+  done: Set<string>,
+): string[] {
   const found: string[] = [];
   const seen = new Set<string>();
   const queue = incoming(graph, failedNode, "flow").map((e) => e.from);
@@ -109,7 +114,9 @@ export default function FailurePanel({ onRerun }: Props) {
         <span className="failure-panel__icon">⚠</span>
         <div>
           <div className="failure-panel__title">
-            {runtime.status === "tripped" ? "电力不足，全厂停机" : "产线运行失败"}
+            {runtime.status === "tripped"
+              ? "电力不足，全厂停机"
+              : "产线运行失败"}
           </div>
           <div className="failure-panel__sub">
             共 {runtime.failures.length} 条失败记录 · 可重试或返工到上游
@@ -118,7 +125,7 @@ export default function FailurePanel({ onRerun }: Props) {
         <button
           className="icon-btn"
           onClick={() => reset()}
-          title="忽略并关闭面板"
+
           disabled={busy}
         >
           ✕
@@ -142,19 +149,23 @@ export default function FailurePanel({ onRerun }: Props) {
                   {nodeName(graph, f.nodeId)}
                 </span>
                 {f.errorCode && (
-                  <span className={`failure-code failure-code--${f.errorCode.toLowerCase()}`}>
+                  <span
+                    className={`failure-code failure-code--${f.errorCode.toLowerCase()}`}
+                  >
                     {ERROR_LABEL[f.errorCode] ?? f.errorCode}
                   </span>
                 )}
                 {f.attempt !== undefined && f.attempt > 0 && (
-                  <span className="failure-card__attempt">第 {f.attempt} 次</span>
+                  <span className="failure-card__attempt">
+                    第 {f.attempt} 次
+                  </span>
                 )}
                 <span className="failure-card__time">{formatTime(f.ts)}</span>
               </div>
               <p className="failure-card__msg">{f.error}</p>
               {stranded > 0 && (
                 <p className="failure-card__impact">
-                  影响：{stranded} 座下游厂房未启动
+                  影响：{stranded} 座下游节点未启动
                 </p>
               )}
               <div className="failure-card__actions">
@@ -206,7 +217,7 @@ export default function FailurePanel({ onRerun }: Props) {
         </button>
         <span className="muted">
           {failedNodeIds.length > 0
-            ? "重试只重跑失败节点及下游；返工到上游会从所选厂房重新下料。"
+            ? "重试只重跑失败节点及下游；返工到上游会从所选节点重新下料。"
             : "预算停机后请调高预算再整条重跑。"}
         </span>
       </div>

@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { execute, resume } from "./engine.js";
 import { type Worker } from "./worker.js";
 
-const AGENT = {
+const TEXTGEN = {
   model: "agnes-2.0-flash",
   prompt: "",
   skills: [],
@@ -17,7 +17,7 @@ const AGENT = {
 function humanLoopWorker(): { worker: Worker; calls: Array<{ id: string; input: string }> } {
   const calls: Array<{ id: string; input: string }> = [];
   const worker: Worker = {
-    async *runAgent(args) {
+    async *runTextGen(args) {
       calls.push({ id: (args.node as { id: string }).id, input: args.input });
       yield { type: "text-delta", text: "x" };
       return { output: `OUT-${(args.node as { id: string }).id}`, usage: { tokensIn: 0, tokensOut: 0, costUsd: 0 } };
@@ -36,9 +36,9 @@ function loopGraph(): Graph {
   return {
     nodes: [
       { id: "s1", kind: "source", name: "Src", x: 0, y: 0, source: {} },
-      { id: "w1", kind: "agent", name: "Writer", x: 1, y: 0, agent: AGENT },
+      { id: "w1", kind: "textGen", name: "Writer", x: 1, y: 0, textGen: TEXTGEN },
       { id: "g1", kind: "gate", name: "Critic", x: 2, y: 0, gate: { maxAttempts: 1, onExhausted: "halt" } },
-      { id: "a1", kind: "agent", name: "Downstream", x: 3, y: 0, agent: AGENT },
+      { id: "a1", kind: "textGen", name: "Downstream", x: 3, y: 0, textGen: TEXTGEN },
     ],
     edges: [
       { id: "e1", kind: "flow", from: "s1", to: "w1" },

@@ -264,7 +264,7 @@ export function openDb(file: string) {
       `UPDATE users SET password_hash = ? WHERE id = ?`,
     ),
     insertGraph: db.prepare(
-      `INSERT INTO graphs (id, user_id, name, doc, updated_at) VALUES (?, ?, ?, ?, ?)
+      `INSERT INTO graphs (id, user_id, name, doc, origin_template_id, updated_at) VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET name = excluded.name, doc = excluded.doc, version = version + 1, updated_at = excluded.updated_at`,
     ),
     // Conditional update: only succeeds when the row's current version matches
@@ -274,8 +274,8 @@ export function openDb(file: string) {
        WHERE id = ? AND version = ? AND user_id = ?`,
     ),
     getGraphVersion: db.prepare(`SELECT version FROM graphs WHERE id = ? AND user_id = ?`),
-    getGraph: db.prepare(`SELECT doc, version FROM graphs WHERE id = ? AND user_id = ?`),
-    listGraphs: db.prepare(`SELECT id, name, version, updated_at FROM graphs WHERE user_id = ? ORDER BY updated_at DESC`),
+    getGraph: db.prepare(`SELECT doc, version, origin_template_id FROM graphs WHERE id = ? AND user_id = ?`),
+    listGraphs: db.prepare(`SELECT id, name, version, updated_at, origin_template_id FROM graphs WHERE user_id = ? ORDER BY updated_at DESC`),
     listGraphVariables: db.prepare(
       `SELECT gv.key AS key, gv.value AS value
        FROM graph_variables gv JOIN graphs g ON g.id = gv.graph_id AND g.user_id = ?
@@ -418,6 +418,7 @@ export function openDb(file: string) {
       at: number,
       userId: string,
       expectedVersion?: number,
+      originTemplateId?: string | null,
     ): { ok: true; version: number } | { ok: false; conflict: true; serverVersion: number | null } {
       const doc = JSON.stringify(graph);
       if (expectedVersion != null) {
@@ -435,14 +436,33 @@ export function openDb(file: string) {
         }
         return { ok: true, version: expectedVersion + 1 };
       }
-      stmts.insertGraph.run(graph.id, userId, graph.name, doc, at);
+      stmts.insertGraph.run(graph.id, userId, graph.name, doc, originTemplateId ?? null, at);
       const row = stmts.getGraphVersion.get(graph.id, userId) as { version: number };
       return { ok: true, version: row.version };
     },
 
-    getGraph(id: string, userId: string): (Graph & { version: number }) | null {
-      const row = stmts.getGraph.get(id, userId) as { doc: string; version: number } | undefined;
-      return row ? { ...(JSON.parse(row.doc) as Graph), version: row.version } : null;
+    getGraph(id: string, userId: string): (Graph & { version: number; originTemplateId: string | null }) | null {
+      const row = stmts.getGraph.get(id, userId) as { doc: string; version: number; origin_template_id: string | null } | undefined;
+      return row ? { ...(JSON.parse(row.doc) as Graph), version: row.version, originTemplateId: row.origin_template_id } : null;
+    },
+
+    listGraphs(userId: string): Array<{
+      id: string;
+      name: string;
+      version: number;
+      updated_at: number;
+      originTemplateId: string | null;
+    }> {
+      const rows = stmts.listGraphs.all(userId) as Array<{
+        id: string; name: string; version: number; updated_at: number; origin_template_id: string | null;
+      }>;
+      return rows.map((r) => ({
+        id: r.id,
+        name: r.name,
+        version: r.version,
+        updated_at: r.updated_at,
+        originTemplateId: r.origin_template_id,
+      }));
     },
 
     /**
@@ -476,14 +496,6 @@ export function openDb(file: string) {
       }
     },
 
-    listGraphs(userId: string) {
-      return stmts.listGraphs.all(userId) as Array<{
-        id: string;
-        name: string;
-        version: number;
-        updated_at: number;
-      }>;
-    },
 
     deleteGraph(id: string, userId: string) {
       stmts.deleteGraph.run(id, userId);
@@ -1077,11 +1089,11 @@ export function openDb(file: string) {
         if (!inScope.has(row.id)) continue;
         try {
           const g = JSON.parse(row.snapshot) as {
-            nodes?: Array<{ kind?: string; agent?: { model?: string; prompt?: string } }>;
+            nodes?: Array<{ kind?: string; textGen?: { model?: string; prompt?: string } }>;
           };
           const sig = (g.nodes ?? [])
-            .filter((n) => n.kind === "agent")
-            .map((n) => `${n.agent?.model ?? ""}\0${n.agent?.prompt ?? ""}`)
+            .filter((n) => n.kind === "textGen")
+            .map((n) => `${n.textGen?.model ?? ""}\0${n.textGen?.prompt ?? ""}`)
             .sort()
             .join("\n");
           promptOf.set(row.id, createHash("sha1").update(sig).digest("hex").slice(0, 8));
@@ -1172,10 +1184,10 @@ export function openDb(file: string) {
         if (snap) {
           try {
             const g = JSON.parse(snap.snapshot) as {
-              nodes?: Array<{ id: string; agent?: { prompt?: string } }>;
+              nodes?: Array<{ id: string; textGen?: { prompt?: string } }>;
             };
             const node = (g.nodes ?? []).find((n) => n.id === r.target);
-            prompt = node?.agent?.prompt ?? null;
+            prompt = node?.textGen?.prompt ?? null;
           } catch {
             /* ignore malformed snapshot */
           }
@@ -1357,7 +1369,12 @@ export function openDb(file: string) {
 
     saveGraphUnscoped(graph: Graph, at: number) {
       const doc = JSON.stringify(graph);
-      stmts.insertGraph.run(graph.id, null, graph.name, doc, at);
+      // Preserve template lineage: the upsert's update branch never touches
+      // origin_template_id, but the insert branch needs the existing value.
+      const row = db
+        .prepare(`SELECT origin_template_id FROM graphs WHERE id = ?`)
+        .get(graph.id) as { origin_template_id: string | null } | undefined;
+      stmts.insertGraph.run(graph.id, null, graph.name, doc, row?.origin_template_id ?? null, at);
     },
 
     close() {
@@ -1589,6 +1606,13 @@ const MIGRATIONS: Migration[] = [
     detect: (db) => columnExists(db, "graph_versions", "content_hash"),
     up: (db) =>
       db.exec("ALTER TABLE graph_versions ADD COLUMN content_hash TEXT NOT NULL DEFAULT ''"),
+  },
+  {
+    version: 19,
+    description: "graphs.origin_template_id (template-instance reset anchor)",
+    detect: (db) => columnExists(db, "graphs", "origin_template_id"),
+    up: (db) =>
+      db.exec("ALTER TABLE graphs ADD COLUMN origin_template_id TEXT"),
   },
 ];
 

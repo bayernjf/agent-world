@@ -8,11 +8,11 @@ export const SEED_GRAPH = Graph.parse({
     { id: "intake", kind: "source", name: "INTAKE", x: 120, y: 300 },
     {
       id: "forge",
-      kind: "agent",
+      kind: "textGen",
       name: "FORGE",
       x: 420,
       y: 300,
-      agent: {
+      textGen: {
         model: "agnes-2.0-flash",
         prompt:
           "You are a writer on an assembly line. Given the task brief from intake, produce a concise first draft in 2-3 sentences.",
@@ -33,11 +33,11 @@ export const SEED_GRAPH = Graph.parse({
     },
     {
       id: "shipyard",
-      kind: "agent",
+      kind: "textGen",
       name: "SHIPYARD",
       x: 1000,
       y: 300,
-      agent: {
+      textGen: {
         model: "agnes-2.0-flash",
         prompt: "Polish the approved draft into final form. Keep it under 5 sentences.",
         skills: [],

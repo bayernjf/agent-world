@@ -20,11 +20,11 @@ function makeGraph(brandTerms: string, minBrandCoverage?: number): Graph {
       },
       {
         id: "a",
-        kind: "agent",
+        kind: "textGen",
         name: "W",
         x: 1,
         y: 0,
-        agent: { model: "t", prompt: "", skills: [], temperature: 0.7, timeoutMs: 60000 },
+        textGen: { model: "t", prompt: "", skills: [], temperature: 0.7, timeoutMs: 60000 },
       },
       {
         id: "g",

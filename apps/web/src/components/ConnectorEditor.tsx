@@ -1,7 +1,17 @@
 import { useEffect, useState } from "react";
-import type { ConnectorConfig, ConnectorType, FileConnector, FormConnector, HttpConnector } from "@agent-world/core";
+import type {
+  ConnectorConfig,
+  ConnectorType,
+  FileConnector,
+  FormConnector,
+  HttpConnector,
+} from "@agent-world/core";
+import Tooltip from "./Tooltip";
 
-async function testConnector(connector: ConnectorConfig, formValues?: Record<string, string>): Promise<{ text: string; images: string[]; fullLength: number }> {
+async function testConnector(
+  connector: ConnectorConfig,
+  formValues?: Record<string, string>,
+): Promise<{ text: string; images: string[]; fullLength: number }> {
   const res = await fetch("/api/connectors/test", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -33,7 +43,10 @@ const TYPE_LABELS: Record<SelectType, string> = {
 function defaultsFor(type: ConnectorType): ConnectorConfig {
   switch (type) {
     case "file":
-      return { type: "file", file: { path: "", encoding: "utf8", asImages: false } };
+      return {
+        type: "file",
+        file: { path: "", encoding: "utf8", asImages: false },
+      };
     case "http":
       return { type: "http", http: { url: "", method: "GET" } };
     case "form":
@@ -75,7 +88,10 @@ function FileForm({
         />
         <span>作为图片（不读文本，把路径作为附图喂下游）</span>
       </label>
-      <p className="hint">支持 <code>*</code> / <code>?</code> / <code>**</code>；目录会递归收集全部文件。</p>
+      <p className="hint">
+        支持 <code>*</code> / <code>?</code> / <code>**</code>
+        ；目录会递归收集全部文件。
+      </p>
     </>
   );
 }
@@ -98,7 +114,13 @@ function HttpForm({
     setHeadersText(value.headers ? JSON.stringify(value.headers, null, 2) : "");
   }, [value.headers]);
   useEffect(() => {
-    setBodyText(typeof value.body === "string" ? value.body : value.body ? JSON.stringify(value.body, null, 2) : "");
+    setBodyText(
+      typeof value.body === "string"
+        ? value.body
+        : value.body
+          ? JSON.stringify(value.body, null, 2)
+          : "",
+    );
   }, [value.body]);
 
   return (
@@ -109,7 +131,9 @@ function HttpForm({
           <select
             className="select"
             value={value.method ?? "GET"}
-            onChange={(e) => patch({ method: e.target.value as "GET" | "POST" })}
+            onChange={(e) =>
+              patch({ method: e.target.value as "GET" | "POST" })
+            }
           >
             <option value="GET">GET</option>
             <option value="POST">POST</option>
@@ -123,7 +147,8 @@ function HttpForm({
             onChange={(e) => {
               const t = e.target.value;
               if (t === "none") patch({ auth: undefined });
-              else patch({ auth: { type: t as "bearer" | "basic", token: "" } });
+              else
+                patch({ auth: { type: t as "bearer" | "basic", token: "" } });
             }}
           >
             <option value="none">无</option>
@@ -145,14 +170,23 @@ function HttpForm({
       </label>
       {authType !== "none" && (
         <label className="field">
-          <span>{authType === "bearer" ? "Token / API Key" : "user:pass 或 token"}</span>
+          <span>
+            {authType === "bearer" ? "Token / API Key" : "user:pass 或 token"}
+          </span>
           <input
             className="text-input"
             type="password"
             value={value.auth?.token ?? ""}
             onFocus={begin}
             onBlur={commit}
-            onChange={(e) => patch({ auth: { type: authType as "bearer" | "basic", token: e.target.value } })}
+            onChange={(e) =>
+              patch({
+                auth: {
+                  type: authType as "bearer" | "basic",
+                  token: e.target.value,
+                },
+              })
+            }
           />
         </label>
       )}
@@ -165,7 +199,12 @@ function HttpForm({
           onFocus={begin}
           onBlur={commit}
           onChange={(e) =>
-            patch({ extract: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })
+            patch({
+              extract: e.target.value
+                .split(",")
+                .map((s) => s.trim())
+                .filter(Boolean),
+            })
           }
         />
       </label>
@@ -230,12 +269,17 @@ function FormForm({
     };
     patch({ fields: next });
   };
-  const add = () => patch({ fields: [...fields, { name: "", label: "", required: false }] });
-  const remove = (i: number) => patch({ fields: fields.filter((_, j) => j !== i) });
+  const add = () =>
+    patch({ fields: [...fields, { name: "", label: "", required: false }] });
+  const remove = (i: number) =>
+    patch({ fields: fields.filter((_, j) => j !== i) });
 
   return (
     <>
-      <p className="hint">运行产线前会弹出此表单，收集的值将作为 source 文本注入。字段名需全局唯一。</p>
+      <p className="hint">
+        运行产线前会弹出此表单，收集的值将作为 source
+        文本注入。字段名需全局唯一。
+      </p>
       {fields.map((f, i) => (
         <div className="form-field-row" key={f.name || i}>
           <input
@@ -262,9 +306,14 @@ function FormForm({
             />
             <span>必填</span>
           </label>
-          <button className="btn btn--ghost btn--icon" onClick={() => remove(i)} title="删除字段">
-            ×
-          </button>
+          <Tooltip content="删除字段">
+            <button
+              className="btn btn--ghost btn--icon"
+              onClick={() => remove(i)}
+            >
+              ×
+            </button>
+          </Tooltip>
         </div>
       ))}
       <button className="btn btn--ghost" onClick={add}>
@@ -274,10 +323,21 @@ function FormForm({
   );
 }
 
-export default function ConnectorEditor({ connector, onChange, onBeginEdit, onCommitEdit }: Props) {
+export default function ConnectorEditor({
+  connector,
+  onChange,
+  onBeginEdit,
+  onCommitEdit,
+}: Props) {
   const current: SelectType = connector?.type ?? "none";
-  const [testState, setTestState] = useState<"idle" | "loading" | "ok" | "error">("idle");
-  const [testResult, setTestResult] = useState<{ text: string; images: string[]; fullLength: number } | null>(null);
+  const [testState, setTestState] = useState<
+    "idle" | "loading" | "ok" | "error"
+  >("idle");
+  const [testResult, setTestResult] = useState<{
+    text: string;
+    images: string[];
+    fullLength: number;
+  } | null>(null);
   const [testError, setTestError] = useState<string>("");
 
   const setType = (v: SelectType) => {
@@ -287,11 +347,20 @@ export default function ConnectorEditor({ connector, onChange, onBeginEdit, onCo
     setTestResult(null);
   };
   const patchFile = (p: Partial<FileConnector>) =>
-    onChange({ type: "file", file: { ...(connector as { file?: FileConnector }).file!, ...p } });
+    onChange({
+      type: "file",
+      file: { ...(connector as { file?: FileConnector }).file!, ...p },
+    });
   const patchHttp = (p: Partial<HttpConnector>) =>
-    onChange({ type: "http", http: { ...(connector as { http?: HttpConnector }).http!, ...p } });
+    onChange({
+      type: "http",
+      http: { ...(connector as { http?: HttpConnector }).http!, ...p },
+    });
   const patchForm = (p: Partial<FormConnector>) =>
-    onChange({ type: "form", form: { ...(connector as { form?: FormConnector }).form!, ...p } });
+    onChange({
+      type: "form",
+      form: { ...(connector as { form?: FormConnector }).form!, ...p },
+    });
 
   const runTest = async () => {
     if (!connector) return;
@@ -326,26 +395,48 @@ export default function ConnectorEditor({ connector, onChange, onBeginEdit, onCo
         </select>
       </label>
       {connector?.type === "file" && (
-        <FileForm value={connector.file!} patch={patchFile} begin={onBeginEdit} commit={onCommitEdit} />
+        <FileForm
+          value={connector.file!}
+          patch={patchFile}
+          begin={onBeginEdit}
+          commit={onCommitEdit}
+        />
       )}
       {connector?.type === "http" && (
-        <HttpForm value={connector.http!} patch={patchHttp} begin={onBeginEdit} commit={onCommitEdit} />
+        <HttpForm
+          value={connector.http!}
+          patch={patchHttp}
+          begin={onBeginEdit}
+          commit={onCommitEdit}
+        />
       )}
       {connector?.type === "form" && (
-        <FormForm value={connector.form!} patch={patchForm} begin={onBeginEdit} commit={onCommitEdit} />
+        <FormForm
+          value={connector.form!}
+          patch={patchForm}
+          begin={onBeginEdit}
+          commit={onCommitEdit}
+        />
       )}
       {connector && connector.type !== "manual" && (
         <div className="connector-test">
-          <button className="btn btn--ghost" onClick={runTest} disabled={testState === "loading"}>
+          <button
+            className="btn btn--ghost"
+            onClick={runTest}
+            disabled={testState === "loading"}
+          >
             {testState === "loading" ? "测试中…" : "测试连接"}
           </button>
           {testState === "ok" && testResult && (
             <div className="connector-test__result">
               <div className="connector-test__meta">
                 成功 · 文本 {testResult.fullLength} 字符
-                {testResult.images.length > 0 && ` · 图片 ${testResult.images.length} 张`}
+                {testResult.images.length > 0 &&
+                  ` · 图片 ${testResult.images.length} 张`}
               </div>
-              <pre className="connector-test__preview">{testResult.text || "(空)"}</pre>
+              <pre className="connector-test__preview">
+                {testResult.text || "(空)"}
+              </pre>
             </div>
           )}
           {testState === "error" && (

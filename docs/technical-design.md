@@ -112,7 +112,7 @@ Token 成本只有在模型返回后才知道，所以：
 Graph {
   id: string
   name: string
-  nodes: GraphNode[]    // source | agent | gate | sink
+  nodes: GraphNode[]    // source | textGen | gate | sink
   edges: GraphEdge[]   // flow | rework
 }
 
@@ -678,7 +678,7 @@ interface Skill {
 - `engine.ts` 内部 `artifacts: Map<string, string>`，key = nodeId，value = 该节点的文本 output 或图片 URI（imageGen 节点存 URI）
 - `artifact.produced` 事件已携带完整 `Artifact` 对象（core/artifact.ts），`runtime.NodeRuntime.artifacts: Artifact[]` 已按节点收集
 - 但 `inputFor()` 只从 `artifacts.get(nodeId)` 取**字符串**拼接，丢失了类型信息
-- 下游 agent 拿图片只能通过 `extraImages` 机制（从 source 节点的 `source.images` 解析），imageGen 节点产出的图片通过 `extraImages.push(uri)` 手动注入，不是通过 artifact 引用链
+- 下游文坊(textGen) 拿图片只能通过 `extraImages` 机制（从 source 节点的 `source.images` 解析），imageGen 节点产出的图片通过 `extraImages.push(uri)` 手动注入，不是通过 artifact 引用链
 - 多 artifact 场景（一个节点产出多张图、文本+图片混合）无法表达
 
 **核心矛盾：** 事件层和 runtime 层已经是 typed Artifact，但引擎调度层的 `artifacts` Map 还是 string，造成上下游之间的类型断层。

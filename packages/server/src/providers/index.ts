@@ -3,7 +3,7 @@ import { log } from "../logger.js";
 import { fakeWorker, type Worker, type AgentChunk } from "../worker.js";
 import { openAICompatibleWorker } from "./openai-compatible.js";
 import { currentUserId } from "../user-context.js";
-import type { AgentConfig, GraphNode, Usage } from "@agent-world/core";
+import type { TextGenConfig, GraphNode, Usage } from "@agent-world/core";
 
 export { ProviderError } from "./openai-compatible.js";
 
@@ -53,13 +53,13 @@ export function routingWorker(config?: AppConfig): Worker {
   };
 
   return {
-    async *runAgent(args): AsyncGenerator<AgentChunk, { output: string; usage: Usage }> {
-      return yield* workerFor(args.config.model).runAgent(args);
+    async *runTextGen(args): AsyncGenerator<AgentChunk, { output: string; usage: Usage }> {
+      return yield* workerFor(args.config.model).runTextGen(args);
     },
     async judge(args) {
       // Gates carry no agent config of their own, so judge with the live
       // default model (not a hard-coded provider-specific name).
-      const model = args.node.agent?.model || getConfig().defaultModel;
+      const model = args.node.textGen?.model || getConfig().defaultModel;
       return workerFor(model).judge(args);
     },
     async generateImage(args) {

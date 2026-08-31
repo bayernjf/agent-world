@@ -19,11 +19,11 @@ function linearGraph(retryOverrides?: { maxRetries: number; baseDelayMs: number;
       { id: "intake", kind: "source", name: "INTAKE", x: 0, y: 0 },
       {
         id: "forge",
-        kind: "agent",
+        kind: "textGen",
         name: "FORGE",
         x: 1,
         y: 0,
-        agent: {
+        textGen: {
           model: "test",
           prompt: "",
           skills: [],
@@ -61,7 +61,7 @@ function workerThat(
   fn: () => AsyncGenerator<AgentChunk, { output: string; usage: Usage }>,
   judge: Worker["judge"] = async () => ({ passed: true, reason: "ok" }),
 ): Worker {
-  return { runAgent: fn, judge };
+  return { runTextGen: fn, judge };
 }
 
 // ─── Retry exhaustion for each retryable error code ──────────────────────────
@@ -263,7 +263,7 @@ describe("resume continue", () => {
 
     // Run until halt: judge always rejects.
     const haltWorker: Worker = {
-      async *runAgent() { return { output: "draft", usage: USAGE }; },
+      async *runTextGen() { return { output: "draft", usage: USAGE }; },
       async judge() { return { passed: false, reason: "nope" }; },
     };
     const past = await drain(
@@ -273,7 +273,7 @@ describe("resume continue", () => {
 
     // Resume with continue.
     const resumeWorker: Worker = {
-      async *runAgent({ input }) { return { output: `final:${input.length}`, usage: USAGE }; },
+      async *runTextGen({ input }) { return { output: `final:${input.length}`, usage: USAGE }; },
       async judge() { return { passed: true, reason: "should not be called on resume" }; },
     };
 
@@ -306,7 +306,7 @@ describe("resume continue", () => {
     const graph = linearGraph();
     const { plan } = compile(graph)!;
     const haltWorker: Worker = {
-      async *runAgent() { return { output: "bad", usage: USAGE }; },
+      async *runTextGen() { return { output: "bad", usage: USAGE }; },
       async judge() { return { passed: false, reason: "no" }; },
     };
     const past = await drain(
@@ -320,7 +320,7 @@ describe("resume continue", () => {
         graph,
         plan: plan!,
         worker: {
-          async *runAgent({ input }) { return { output: `ok:${input.length}`, usage: USAGE }; },
+          async *runTextGen({ input }) { return { output: `ok:${input.length}`, usage: USAGE }; },
           async judge() { return { passed: true, reason: "ok" }; },
         },
         budgetUsd: null,
@@ -346,7 +346,7 @@ describe("resume continue", () => {
         graph,
         plan: plan!,
         worker: {
-          async *runAgent() { return { output: "bad", usage: USAGE }; },
+          async *runTextGen() { return { output: "bad", usage: USAGE }; },
           async judge() { return { passed: false, reason: "no" }; },
         },
         budgetUsd: null,
@@ -402,10 +402,10 @@ describe("resume with resetFrom", () => {
         { id: "intake", kind: "source", name: "INTAKE", x: 0, y: 0 },
         {
           id: "forge",
-          kind: "agent",
+          kind: "textGen",
           name: "FORGE",
           x: 1, y: 0,
-          agent: { model: "test", prompt: "", skills: [], temperature: 0.7, timeoutMs: 60_000, retry: { maxRetries: 0, baseDelayMs: 1, maxDelayMs: 1 } },
+          textGen: { model: "test", prompt: "", skills: [], temperature: 0.7, timeoutMs: 60_000, retry: { maxRetries: 0, baseDelayMs: 1, maxDelayMs: 1 } },
         },
         { id: "depot", kind: "sink", name: "DEPOT", x: 2, y: 0 },
       ],
@@ -417,7 +417,7 @@ describe("resume with resetFrom", () => {
     const { plan } = compile(graph)!;
 
     const failWorker: Worker = {
-      async *runAgent() {
+      async *runTextGen() {
         throw new ProviderError("UNSUPPORTED", "nope", 400);
       },
       async judge() { return { passed: false, reason: "x" }; },
@@ -429,7 +429,7 @@ describe("resume with resetFrom", () => {
     expect(replay(past).nodes.forge!.status).toBe("failed");
 
     const okWorker: Worker = {
-      async *runAgent({ input }) {
+      async *runTextGen({ input }) {
         yield { type: "text-delta", text: "fixed" };
         return { output: `fixed:${input}`, usage: USAGE };
       },

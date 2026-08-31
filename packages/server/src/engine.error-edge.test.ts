@@ -57,8 +57,8 @@ function catchGraph() {
     nodes: [
       { id: "src", kind: "source", name: "SRC", x: 0, y: 0 },
       { id: "dl", kind: "http", name: "DL", x: 1, y: 0, http: { url: "https://x.example.com/api", method: "GET", retry: { maxRetries: 0, baseDelayMs: 0, maxDelayMs: 0 } } },
-      { id: "happy", kind: "agent", name: "HAPPY", x: 2, y: -1, agent: { model: "m", prompt: "summarise the upstream", skills: [], temperature: 0.7, timeoutMs: 60000, inputPolicy: { mode: "all" } } },
-      { id: "catch", kind: "agent", name: "CATCH", x: 2, y: 1, agent: { model: "m", prompt: "the upstream failed; produce a fallback message from the error detail", skills: [], temperature: 0.7, timeoutMs: 60000, inputPolicy: { mode: "all" } } },
+      { id: "happy", kind: "textGen", name: "HAPPY", x: 2, y: -1, textGen: { model: "m", prompt: "summarise the upstream", skills: [], temperature: 0.7, timeoutMs: 60000, inputPolicy: { mode: "all" } } },
+      { id: "catch", kind: "textGen", name: "CATCH", x: 2, y: 1, textGen: { model: "m", prompt: "the upstream failed; produce a fallback message from the error detail", skills: [], temperature: 0.7, timeoutMs: 60000, inputPolicy: { mode: "all" } } },
       { id: "sink", kind: "sink", name: "SINK", x: 3, y: 0 },
     ],
     edges: [
@@ -84,6 +84,8 @@ describe("error handling — error edges + catch node", () => {
     expect(catchFinished).toBeTruthy();
     // An error packet travelled dl → catch.
     expect(events.some((e) => e.type === "packet.sent" && e.from === "dl" && e.to === "catch")).toBe(true);
+    // The merge sink ran on the failure path (via catch).
+    expect(events.some((e) => e.type === "node.finished" && e.nodeId === "sink")).toBe(true);
   });
 
   it("runs the happy branch when the node succeeds (no error packet)", async () => {
@@ -94,5 +96,8 @@ describe("error handling — error edges + catch node", () => {
     // catch never ran — no error packet.
     expect(events.some((e) => e.type === "packet.sent" && e.from === "dl" && e.to === "catch")).toBe(false);
     expect(events.some((e) => e.type === "node.started" && e.nodeId === "catch")).toBe(false);
+    // The dead catch is skipped, not left pending, so the merge sink still runs.
+    expect(events.some((e) => e.type === "node.skipped" && e.nodeId === "catch")).toBe(true);
+    expect(events.some((e) => e.type === "node.finished" && e.nodeId === "sink")).toBe(true);
   });
 });

@@ -192,7 +192,7 @@ export function compile(graph: Graph): CompileResult {
 
     const start = nodeById(graph, e.from);
     const startKind = start?.kind;
-    if (start && startKind !== "gate" && startKind !== "agent") {
+    if (start && startKind !== "gate" && startKind !== "textGen") {
       diagnostics.push({
         severity: "error",
         message: "A rework line can only start from a gate or an agent node",
@@ -222,7 +222,7 @@ export function compile(graph: Graph): CompileResult {
 
     const startGateMax =
       startKind === "gate" ? (start as GraphNode & { kind: "gate" }).gate?.maxAttempts : undefined;
-    const startAgent = startKind === "agent" ? (start as GraphNode & { kind: "agent" }).agent : undefined;
+    const startAgent = startKind === "textGen" ? (start as GraphNode & { kind: "textGen" }).textGen : undefined;
     const startAgentMax = (startAgent?.retry?.maxRetries ?? 2) + 1;
 
     loops.push({
