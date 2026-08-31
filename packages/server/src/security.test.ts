@@ -3,13 +3,14 @@ import { describe, expect, it } from "vitest";
 import { applyCors, applySecurityHeaders, resolveCorsOrigins } from "./security.js";
 
 describe("resolveCorsOrigins", () => {
-  it("returns undefined when unset (allow-all default)", () => {
+  it("returns undefined when unset (local-dev default)", () => {
     expect(resolveCorsOrigins(undefined)).toBeUndefined();
     expect(resolveCorsOrigins("")).toBeUndefined();
   });
 
-  it("returns '*' for an explicit wildcard", () => {
-    expect(resolveCorsOrigins("*")).toBe("*");
+  it("rejects an explicit wildcard (audit L3: '*' + credentials:true)", () => {
+    expect(() => resolveCorsOrigins("*")).toThrow(/unsafe|allowlist/i);
+    expect(() => resolveCorsOrigins("   ")).toThrow(/unsafe|allowlist/i);
   });
 
   it("collapses a single origin to a string", () => {
