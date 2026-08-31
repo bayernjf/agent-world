@@ -169,8 +169,8 @@ export default function TriggersPanel({ open, onClose, graphId }: Props) {
                   )}
                   {t.type === "webhook" && (
                     <code className="muted">
-                      POST /api/graphs/{graphId}/webhook?secret=
-                      {t.webhookSecret}
+                      POST /api/graphs/{graphId}/webhook，Header 带 X-Webhook-Secret: {t.webhookSecret}
+                      与 5 分钟内的 X-Webhook-Timestamp（毫秒）
                     </code>
                   )}
                 </div>
