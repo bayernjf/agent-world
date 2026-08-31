@@ -628,6 +628,12 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
   /** Last failure recorded per node, so error edges can carry the cause to catch nodes. */
   const lastError = new Map<string, { error: string; errorCode?: string }>();
   const emit = (e: DraftEvent): RunEvent => {
+    // Artifact ids are node-scoped (e.g. `video-0`) and repeat across runs;
+    // they are the DB primary key, so INSERT OR IGNORE silently drops every
+    // later run's artifacts. Prefix with the run id to keep them unique.
+    if (e.type === "artifact.produced") {
+      e = { ...e, artifact: { ...e.artifact, id: `${runId.slice(0, 8)}-${e.artifact.id}` } };
+    }
     const ev = { ...e, seq: seq++, ts: opts.now() } as RunEvent;
     queue.push(ev);
     if (ev.type === "node.failed") {
@@ -2884,6 +2890,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           id: `${nodeId}-vid-${idx}`,
           kind: "video",
           uri,
+          sizeBytes: res.data.length,
           mimeType: res.mimeType,
           label: results.length > 1 ? `${node.name || "AI 视频"} #${idx + 1}` : node.name || "AI 视频",
         };
@@ -2933,6 +2940,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           id: `${nodeId}-aud-${idx}`,
           kind: "audio",
           uri,
+          sizeBytes: res.data.length,
           mimeType: res.mimeType,
           label: results.length > 1 ? `${node.name || "AI 音频"} #${idx + 1}` : node.name || "AI 音频",
         };
@@ -2974,6 +2982,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           id: `${nodeId}-img-${idx}`,
           kind: "image",
           uri,
+          sizeBytes: res.data.length,
           mimeType: res.mimeType,
           label: results.length > 1 ? `${node.name || "AI 配图"} #${idx + 1}` : node.name || "AI 配图",
         };
@@ -3740,13 +3749,21 @@ export function reconstructState(events: RunEvent[]): ResumeState {
   let haltedReason: string | null = null;
   let lastSeq = -1;
 
+  // Pass 1: which nodes produced a typed artifact event. node.finished may
+  // arrive before artifact.produced (source nodes do), so the synthesis below
+  // must not assume "no artifacts yet" means "never produced any".
+  const producedBy = new Set<string>();
+  for (const e of events) {
+    if (e.type === "artifact.produced") producedBy.add(e.nodeId);
+  }
+
   for (const e of events) {
     lastSeq = Math.max(lastSeq, e.seq);
     switch (e.type) {
       case "node.finished":
         // If no typed artifacts were produced for this node (old runs / text-only),
         // synthesize a text artifact from the output so downstream input assembly works.
-        if (!artifacts.has(e.nodeId) || artifacts.get(e.nodeId)!.length === 0) {
+        if (!producedBy.has(e.nodeId) && (!artifacts.has(e.nodeId) || artifacts.get(e.nodeId)!.length === 0)) {
           artifacts.set(e.nodeId, [{ id: `${e.nodeId}-text`, kind: "text", content: e.output }]);
         }
         totalCostUsd += e.usage.costUsd;

@@ -92,7 +92,14 @@ export class ArtifactStore {
     const createdAt = meta.now ?? Date.now();
     const mimeType = artifact.mimeType ?? MIME_BY_KIND[artifact.kind];
 
-    if (isRemoteUri(artifact.uri)) {
+    // Local artifact-server references (e.g. /api/artifacts/up-...) are valid
+    // egress URIs too: the bytes already live in the artifact backend, so the
+    // artifact row just needs to point at them. Previously these fell through
+    // to the inline branch, producing empty (uri=null, size=0) rows for every
+    // generated image/video/audio.
+    const uri = artifact.uri;
+    const localRef = typeof uri === "string" && uri.startsWith("/api/artifacts/");
+    if (isRemoteUri(uri) || localRef) {
       return {
         id: artifact.id,
         runId: meta.runId,
@@ -104,8 +111,8 @@ export class ArtifactStore {
         mimeType,
         label: artifact.label ?? null,
         sizeBytes: artifact.sizeBytes ?? 0,
-        storage: "uri",
-        uri: artifact.uri!,
+        storage: localRef ? "local" : "uri",
+        uri: uri!,
         createdAt,
       };
     }
