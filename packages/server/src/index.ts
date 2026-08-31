@@ -40,7 +40,7 @@ import {
   type AppConfig,
   type Modality,
 } from "./config.js";
-import { hostIsInternal } from "./ssrf.js";
+import { GuardedFetchError, guardedFetch, hostIsInternal } from "./ssrf.js";
 import { runAsUser } from "./user-context.js";
 import { routingWorker } from "./providers/index.js";
 import { WorkerRegistry } from "./worker-plugins.js";
@@ -694,7 +694,10 @@ app.post("/api/providers/test", async (c) => {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), probeTimeoutMs);
   try {
-    const res = await fetch(`${baseUrl}${endpoint}`, {
+    // Provider probes hit a user-supplied baseUrl — route through the guarded
+    // egress so a custom endpoint can never be pointed at internal services
+    // (audit H5 SSRF half).
+    const res = await guardedFetch(`${baseUrl}${endpoint}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -1520,54 +1523,37 @@ app.get("/api/artifacts", (c) => {
  * return 502 so the client can show a graceful placeholder.
  */
 app.get("/api/proxy", async (c) => {
-  let target = c.req.query("url");
+  const target = c.req.query("url");
   if (!target || !/^https?:\/\//i.test(target)) {
     return c.json({ error: "invalid or missing url" }, 400);
   }
-  const MAX_REDIRECTS = 5;
   try {
-    for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-      let parsed: URL;
-      try {
-        parsed = new URL(target);
-      } catch {
-        return c.json({ error: "invalid or missing url" }, 400);
-      }
-      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-        return c.json({ error: "invalid or missing url" }, 400);
-      }
-      if (await hostIsInternal(parsed.hostname)) {
-        return c.json({ error: "refusing to fetch a private or internal address" }, 403);
-      }
-      const upstream = await fetch(target, {
-        redirect: "manual",
-        headers: {
-          "user-agent":
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
-          accept: "image/avif,image/webp,image/png,image/*,*/*;q=0.8",
-        },
-        signal: AbortSignal.timeout(15000),
-      });
-      if (upstream.status >= 300 && upstream.status < 400) {
-        const loc = upstream.headers.get("location");
-        if (!loc) return c.json({ error: `upstream returned ${upstream.status}` }, 502);
-        target = new URL(loc, target).toString();
-        continue;
-      }
-      if (!upstream.ok) {
-        return c.json({ error: `upstream returned ${upstream.status}` }, 502);
-      }
-      const buf = Buffer.from(await upstream.arrayBuffer());
-      const ct = upstream.headers.get("content-type") ?? "application/octet-stream";
-      return new Response(buf, {
-        headers: {
-          "content-type": ct,
-          "cache-control": "public, max-age=86400",
-        },
-      });
+    // Single guarded egress: resolves once and pins the connection (no
+    // check-vs-connect DNS gap), refuses internal targets, follows redirects
+    // manually with the guard re-run on every hop.
+    const upstream = await guardedFetch(target, {
+      headers: {
+        "user-agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+        accept: "image/avif,image/webp,image/png,image/*,*/*;q=0.8",
+      },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!upstream.ok) {
+      return c.json({ error: `upstream returned ${upstream.status}` }, 502);
     }
-    return c.json({ error: "too many redirects" }, 502);
-  } catch {
+    const buf = Buffer.from(await upstream.arrayBuffer());
+    const ct = upstream.headers.get("content-type") ?? "application/octet-stream";
+    return new Response(buf, {
+      headers: {
+        "content-type": ct,
+        "cache-control": "public, max-age=86400",
+      },
+    });
+  } catch (err) {
+    if (err instanceof GuardedFetchError) {
+      return c.json({ error: err.message }, 403);
+    }
     return c.json({ error: "failed to fetch upstream image" }, 502);
   }
 });
@@ -1683,7 +1669,9 @@ async function probeVideo(
   const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
   let res: Response;
   try {
-    res = await fetch(modelsUrl, {
+    // Provider probes hit a user-supplied baseUrl — leave through the guarded
+    // egress (audit H5 SSRF half).
+    res = await guardedFetch(modelsUrl, {
       headers: { Authorization: `Bearer ${apiKey}` },
       signal: controller.signal,
     });
@@ -1718,7 +1706,7 @@ async function probeVideo(
     const postController = new AbortController();
     const postTimer = setTimeout(() => postController.abort(), PROBE_TIMEOUT_MS);
     try {
-      const postRes = await fetch(`${baseUrl}${MODALITY_ENDPOINT.video}`, {
+      const postRes = await guardedFetch(`${baseUrl}${MODALITY_ENDPOINT.video}`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
         body: JSON.stringify({ model, prompt: "" }),

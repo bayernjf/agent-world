@@ -19,9 +19,14 @@ let fetchMock: ReturnType<typeof vi.fn>;
 beforeEach(() => {
   fetchMock = vi.fn();
   vi.stubGlobal("fetch", fetchMock);
+  // Video/audio generation leaves through the guarded egress; gw.example.com
+  // is a reserved hostname that cannot resolve in CI, so bypass the SSRF check
+  // for this routing/delegation test.
+  vi.stubEnv("ALLOW_PRIVATE_NETWORK", "1");
 });
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 describe("routingWorker modality delegation", () => {

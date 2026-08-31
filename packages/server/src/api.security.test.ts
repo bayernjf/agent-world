@@ -270,7 +270,36 @@ describe("/api/providers/test key exfiltration guard", () => {
     }
   });
 
+  it("refuses an internal baseUrl during a probe (audit H5 SSRF)", async () => {
+    // A fresh key + internal address: no saved-key pairing involved, but the
+    // probe must still be refused rather than used to reach into the network.
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const res = await app.request("/api/providers/test", {
+        method: "POST",
+        headers: authed(token, { "content-type": "application/json" }),
+        body: JSON.stringify({
+          baseUrl: "http://127.0.0.1:8080/v1",
+          apiKey: "sk-fresh",
+          model: "m1",
+        }),
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { ok?: boolean; error?: string };
+      expect(body.ok).toBe(false);
+      expect(body.error).toContain("SSRF 防护");
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("still allows the saved key against its own saved baseUrl", async () => {
+    // This case exercises the key-pairing logic (C1), not the SSRF guard —
+    // the reserved .example hostname cannot resolve in CI, so bypass the
+    // internal-address check the way the other legacy-host tests do.
+    vi.stubEnv("ALLOW_PRIVATE_NETWORK", "1");
     const fetchMock = vi.fn(
       async () =>
         new Response(
@@ -298,6 +327,7 @@ describe("/api/providers/test key exfiltration guard", () => {
       expect(headers.Authorization).toBe("Bearer sk-victim-real");
     } finally {
       vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
     }
   });
 });
