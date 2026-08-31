@@ -117,7 +117,7 @@ describe("buildRlimitWrapper", () => {
       interpreterArgs: ["-c", "print(1)"],
       limits,
     });
-    const script = w.args;
+    const script = w.args[1];
     if (platform() === "linux") expect(script).toContain("ulimit -v 89");
     else expect(script).not.toContain("ulimit -v");
   });
