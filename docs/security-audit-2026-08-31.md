@@ -64,7 +64,7 @@
 |---|------|------|
 | L1 | JWT 经 `?token=` 在**所有** /api 路由被接受（本意 SSE 兜底），密钥进日志/历史/Referer | `index.ts:301` |
 | L2 | 存储层无路径包含约束（当前键均为服务端生成，属纵深防御缺口；`GET /api/artifacts/:id` 302 直接重定向到存储的 `uri`，未校验协议） | `storage.ts:39-41`、`index.ts:1572-1573` |
-| L3 | API Key 明文存 sqlite `settings.data`（GET 脱敏正确，已验证）；webhook secret 明文存图文档；`CORS_ORIGINS="*"` + `credentials:true` 组合应拒绝 | `security.ts:34-38` |
+| L3 | ~~API Key 明文存 sqlite `settings.data`~~（已修复：settings 落盘 AES-256-GCM 加密，见 [design-at-rest-encryption](design-at-rest-encryption.md)）；~~webhook secret 明文存图文档~~（已修复：graphs.doc / graph_versions.snapshot / runs.snapshot 三处 webhookSecret 字段落盘加密，读时透明解密，兼容旧明文 lazy 迁移）；~~`CORS_ORIGINS="*"` + `credentials:true` 组合应拒绝~~（已修复：`c3f5eae` 配置层拒绝） | `security.ts:34-38` |
 | L4 | code-proxy 明文 HTTP 路径允许任意端口（CONNECT 已限 80/443） | `code-proxy.ts:246-252,315` |
 | L5 | vcs.ts 将 `owner/repo/number` 等直接插值进 URL（仅影响提供方主机内的路径/查询篡改） | `vcs.ts:110/124/130/139/160` |
 | L6 | SerpAPI/Google key 以 URL query 参数发送（中间代理可见） | `search.ts:107/122` |
