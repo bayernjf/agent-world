@@ -17,7 +17,6 @@ interface Props {
   onDuplicate: (id: string) => void;
   onDelete: (id: string) => void;
   onRename: (id: string, name: string) => void;
-  onReset: (id: string) => void;
 }
 
 export default function GraphSwitcher({
@@ -28,20 +27,17 @@ export default function GraphSwitcher({
   onDuplicate,
   onDelete,
   onRename,
-  onReset,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [anchor, setAnchor] = useState<Rect | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
-  const [resetConfirmId, setResetConfirmId] = useState<string | null>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
 
   const toggle = () => {
     if (!open && btnRef.current) setAnchor(btnRef.current.getBoundingClientRect());
     setOpen((v) => !v);
     setEditingId(null);
-    setResetConfirmId(null);
   };
 
   const commitRename = (id: string) => {
@@ -70,7 +66,7 @@ export default function GraphSwitcher({
               key={g.id}
               className={`graph-row ${g.id === currentId ? "is-current" : ""}`}
               onClick={() => {
-                if (editingId || resetConfirmId) return;
+                if (editingId) return;
                 onSwitch(g.id);
                 setOpen(false);
               }}
@@ -88,30 +84,6 @@ export default function GraphSwitcher({
                     if (e.key === "Escape") setEditingId(null);
                   }}
                 />
-              ) : resetConfirmId === g.id ? (
-                <span className="graph-row__confirm">
-                  还原布局？
-                  <button
-                    className="chip chip--xs"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setResetConfirmId(null);
-                      onReset(g.id);
-                      setOpen(false);
-                    }}
-                  >
-                    还原
-                  </button>
-                  <button
-                    className="chip chip--xs chip--muted"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setResetConfirmId(null);
-                    }}
-                  >
-                    取消
-                  </button>
-                </span>
               ) : (
                 <span
                   className="graph-row__name"
@@ -122,9 +94,6 @@ export default function GraphSwitcher({
                   }}
                 >
                   {g.name}
-                  {g.originTemplateId ? (
-                    <span className="graph-row__tpl-badge">模板</span>
-                  ) : null}
                 </span>
               )}
               <span className="graph-row__actions" onClick={(e) => e.stopPropagation()}>
@@ -147,16 +116,6 @@ export default function GraphSwitcher({
                     ⧉
                   </button>
                 </Tooltip>
-                {g.originTemplateId ? (
-                  <Tooltip content="还原布局">
-                    <button
-                      className="icon-btn"
-                      onClick={() => setResetConfirmId(g.id)}
-                    >
-                      ↺
-                    </button>
-                  </Tooltip>
-                ) : null}
                 <Tooltip content="删除">
                   <button
                     className="icon-btn icon-btn--danger"

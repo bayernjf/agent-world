@@ -282,11 +282,6 @@ export const api = {
   deleteGraph: (id: string) =>
     authFetch(`/api/graphs/${id}`, { method: "DELETE" }).then(json<{ ok: true }>),
 
-  /** Reset a template-instance graph back to its originating template's shape.
-   *  Only graphs with `originTemplateId` can be reset — others 400. */
-  resetGraph: (id: string) =>
-    authFetch(`/api/graphs/${id}/reset`, { method: "POST" }).then(json<Graph & { version: number; originTemplateId: string | null }>),
-
   compile: (graph: Graph) =>
     authFetch("/api/compile", {
       method: "POST",

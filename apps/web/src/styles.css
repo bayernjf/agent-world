@@ -256,26 +256,6 @@ select {
   font-family: var(--mono);
   outline: none;
 }
-.graph-row__tpl-badge {
-  margin-left: 6px;
-  padding: 1px 5px;
-  border-radius: 3px;
-  background: var(--steel-700);
-  color: var(--data);
-  font-size: 9px;
-  font-family: var(--mono);
-  letter-spacing: 0.06em;
-  vertical-align: middle;
-  text-transform: uppercase;
-}
-.graph-row__confirm {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--alert);
-  font-size: 11px;
-}
 .chip--xs {
   padding: 2px 7px;
   font-size: 11px;
