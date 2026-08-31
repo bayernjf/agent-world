@@ -1,6 +1,6 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   InMemoryStorageBackend,
@@ -26,6 +26,27 @@ describe("LocalStorageBackend", () => {
     expect(await backend.get("nope")).toBeNull();
     await backend.delete("a/b.txt");
     expect(await backend.get("a/b.txt")).toBeNull();
+  });
+
+  it("rejects keys that escape the base directory (audit C2)", async () => {
+    // Artifact keys derive from graph node ids; a crafted id like
+    // "../../evil" must not let writes land outside baseDir.
+    const evil = ["../x", "../../etc/passwd", "a/../../x", "..", "/etc/passwd"];
+    for (const key of evil) {
+      expect(() => backend.put(key, Buffer.from("pwn"))).toThrow(StorageError);
+    }
+    // Reads and deletes fail closed too (null / no-op) instead of touching
+    // anything outside baseDir.
+    expect(await backend.get("../x")).toBeNull();
+    expect(() => backend.delete("../x")).not.toThrow();
+    // Sibling-directory prefixes must not pass a naive startsWith check
+    // (e.g. baseDir "/tmp/aw-store-a" vs key "../aw-store-b/f").
+    const sibling = mkdtempSync(join(tmpdir(), "aw-store-"));
+    try {
+      expect(() => backend.put(`../${basename(sibling)}/f`, Buffer.from("x"))).toThrow(StorageError);
+    } finally {
+      rmSync(sibling, { recursive: true, force: true });
+    }
   });
 });
 
