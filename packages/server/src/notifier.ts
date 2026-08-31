@@ -2,6 +2,7 @@ import type { NotifyConfig } from "@agent-world/core";
 import { createHmac } from "node:crypto";
 import nodemailer from "nodemailer";
 import { withRetry } from "./retry.js";
+import { GuardedFetchError, guardedFetch } from "./ssrf.js";
 
 /**
  * Outbound notifications for the `notify` node. Group-bot providers
@@ -104,11 +105,20 @@ async function sendGroupBot(
   }
   const url = provider === "dingtalk" && cfg.secret ? signDingTalk(cfg.webhookUrl, cfg.secret) : cfg.webhookUrl;
   const body = groupBotBody(provider, cfg.format, message, subject);
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  // The webhook URL is user-supplied graph config — blind SSRF POST vector.
+  // GuardedFetch refuses internal targets (unless ALLOW_PRIVATE_NETWORK=1);
+  // GuardedFetchError is deterministic → map to a non-retryable auth error.
+  let res: Response;
+  try {
+    res = await guardedFetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch (err) {
+    if (err instanceof GuardedFetchError) throw new NotifyAuthError(err.message);
+    throw err;
+  }
   await assertOk(provider, res);
   const tail = url.slice(-8);
   return { provider, detail: `${provider} 群机器人 …${tail}` };

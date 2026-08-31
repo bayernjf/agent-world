@@ -104,6 +104,9 @@ async function searchTavily(query: string, maxResults: number): Promise<SearchHi
 
 async function searchSerpApi(query: string, maxResults: number): Promise<SearchHit[]> {
   const key = requireEnv("SERPAPI_API_KEY");
+  // Audit L6: SerpAPI only authenticates via the api_key query parameter (no
+  // header option). It stays in the query, but is protected by TLS in transit
+  // and is never placed in logs or error messages (the throws below are static).
   const url = `https://serpapi.com/search?q=${encodeURIComponent(query)}&num=${maxResults}&api_key=${encodeURIComponent(key)}`;
   const res = await fetch(url);
   if (res.status === 401 || res.status === 403) throw new SearchAuthError("SerpAPI key 无效或过期");
@@ -118,6 +121,9 @@ async function searchSerpApi(query: string, maxResults: number): Promise<SearchH
 async function searchGoogle(query: string, maxResults: number): Promise<SearchHit[]> {
   const key = requireEnv("GOOGLE_API_KEY");
   const cx = requireEnv("GOOGLE_CX");
+  // Audit L6: the Google Custom Search JSON API accepts its key only as the
+  // ?key= query parameter (no Authorization header). TLS protects it in
+  // transit and the URL is never logged or surfaced in thrown errors.
   const url =
     `https://www.googleapis.com/customsearch/v1?key=${encodeURIComponent(key)}` +
     `&cx=${encodeURIComponent(cx)}&q=${encodeURIComponent(query)}&num=${maxResults}`;

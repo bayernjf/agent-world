@@ -6,6 +6,7 @@ import {
   type ArtifactKind,
 } from "@agent-world/core";
 import { proxyImageUrl } from "./api";
+import { sanitizeUrl } from "./sanitize-html";
 import Tooltip from "../components/Tooltip";
 
 /**
@@ -108,13 +109,21 @@ export function renderInline(text: string): ReactNode[] {
     const tok = m[0]!;
     if (tok.startsWith("![")) {
       const mm = tok.match(/!\[([^\]]*)\]\(([^)]+)\)/)!;
-      parts.push(<img key={k++} src={mm[2]} alt={mm[1]} loading="lazy" />);
+      const src = sanitizeUrl(mm[2], "image");
+      // Drop images whose URL scheme is not allowed (audit M8); keep alt text.
+      parts.push(src ? <img key={k++} src={src} alt={mm[1]} loading="lazy" /> : mm[1]);
     } else if (tok.startsWith("[")) {
       const mm = tok.match(/\[([^\]]+)\]\(([^)]+)\)/)!;
+      const href = sanitizeUrl(mm[2], "link");
+      // A disallowed scheme (e.g. javascript:) renders as inert label text (M8).
       parts.push(
-        <a key={k++} href={mm[2]} target="_blank" rel="noreferrer">
-          {mm[1]}
-        </a>,
+        href ? (
+          <a key={k++} href={href} target="_blank" rel="noopener noreferrer">
+            {mm[1]}
+          </a>
+        ) : (
+          <span key={k++}>{mm[1]}</span>
+        ),
       );
     } else if (tok.startsWith("**")) {
       parts.push(<strong key={k++}>{tok.slice(2, -2)}</strong>);
@@ -222,14 +231,14 @@ function ImageArtifact({ a }: { a: ArtifactLike }) {
       <div className="artifact-image-fallback">
         <span className="artifact-image-fallback__icon">IMG</span>
         <span>图片链接已失效或已过期</span>
-        <a href={a.uri} target="_blank" rel="noreferrer">
+        <a href={a.uri} target="_blank" rel="noopener noreferrer">
           查看原链接 ↗
         </a>
       </div>
     );
   }
   return (
-    <a className="artifact-media" href={a.uri} target="_blank" rel="noreferrer">
+    <a className="artifact-media" href={a.uri} target="_blank" rel="noopener noreferrer">
       <img
         src={proxyImageUrl(a.uri) ?? a.uri}
         alt={a.label ?? "image"}
@@ -267,7 +276,7 @@ function FileArtifact({ a }: { a: ArtifactLike }) {
       className="artifact-file"
       href={a.uri}
       target="_blank"
-      rel="noreferrer"
+      rel="noopener noreferrer"
       download={a.label ?? undefined}
     >
       <span className="artifact-file__icon">⬇</span>
@@ -296,7 +305,7 @@ function JsonArtifact({ a }: { a: ArtifactLike }) {
 function UriArtifact({ a }: { a: ArtifactLike }) {
   if (!a.uri) return placeholder("无链接");
   return (
-    <a className="artifact-uri" href={a.uri} target="_blank" rel="noreferrer">
+    <a className="artifact-uri" href={a.uri} target="_blank" rel="noopener noreferrer">
       {a.label ?? a.uri} ↗
     </a>
   );
@@ -378,7 +387,7 @@ export function ArtifactCard({
               <a
                 href={uri}
                 target="_blank"
-                rel="noreferrer"
+                rel="noopener noreferrer"
                 download={a.label ?? undefined}
               >
                 下载

@@ -28,6 +28,10 @@ export function createReadArtifact(db: Db, artifacts: ArtifactStore) {
     const m = /^\/api\/artifacts\/([^/]+)$/.exec(uri);
     if (!m) return null;
     const id = decodeURIComponent(m[1]!);
+    // M4: validate *after* decoding — an encoded separator (%2f, %2e%2e) slips
+    // past the raw regex above. Artifact ids are a flat safe charset with no
+    // path separators or parent references.
+    if (!/^[A-Za-z0-9._-]+$/.test(id) || id.includes("..")) return null;
     const meta = db.getArtifactUnscoped(id);
     if (meta) {
       if (meta.sizeBytes > MAX_INLINE_BYTES) return null;

@@ -19,6 +19,7 @@ interface Props {
   onCancel: () => void;
   onOpenSettings: () => void;
   onOpenHistory: () => void;
+  onOpenModelAssign: () => void;
 }
 
 const MODES: { key: Mode; label: string; hint: string }[] = [
@@ -71,6 +72,7 @@ export default function ControlPanel(props: Props) {
     onCancel,
     onOpenSettings,
     onOpenHistory,
+    onOpenModelAssign,
   } = props;
   const runtime = useVisibleRuntime();
   const { graph, saveState } = useGraph();
@@ -391,6 +393,9 @@ export default function ControlPanel(props: Props) {
             onClick={onOpenSettings}
           >
             设置 · 模型与密钥
+          </button>
+          <button className="btn btn--ghost btn--block" onClick={onOpenModelAssign}>
+            模型分配 · 当前产线
           </button>
           <button className="btn btn--ghost btn--block" onClick={onOpenHistory}>
             📋 运行历史

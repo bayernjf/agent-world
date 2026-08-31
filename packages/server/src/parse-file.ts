@@ -1,6 +1,57 @@
-import { unzipSync } from "fflate";
+import { unzipSync, type Unzipped } from "fflate";
 import { OPS, getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { PNG } from "pngjs";
+
+// --- Decompression-bomb guards (M5) ---------------------------------------
+// Office documents are small ZIPs; these ceilings are generous for real
+// documents while stopping a zip bomb (high ratio / huge declared size / many
+// entries) from exhausting memory during synchronous extraction.
+/** Maximum accepted compressed archive size. */
+export const MAX_COMPRESSED_ARCHIVE_BYTES = 100 * 1024 * 1024;
+/** Maximum summed uncompressed size across all entries. */
+export const MAX_TOTAL_UNCOMPRESSED_BYTES = 500 * 1024 * 1024;
+/** Maximum number of entries in one archive. */
+export const MAX_ARCHIVE_ENTRIES = 20_000;
+
+/** Injectable limits so tests can exercise the guards without giant fixtures. */
+export interface UnzipLimits {
+  maxCompressed?: number;
+  maxTotalUncompressed?: number;
+  maxEntries?: number;
+}
+
+/**
+ * Safely unzip: reject an oversized archive, then use the central-directory
+ * metadata (originalSize) to bound declared output while extracting, and
+ * finally re-check the real byte total (a forged header can lie about size).
+ */
+export function safeUnzip(data: Uint8Array, limits: UnzipLimits = {}): Unzipped {
+  const maxCompressed = limits.maxCompressed ?? MAX_COMPRESSED_ARCHIVE_BYTES;
+  const maxTotal = limits.maxTotalUncompressed ?? MAX_TOTAL_UNCOMPRESSED_BYTES;
+  const maxEntries = limits.maxEntries ?? MAX_ARCHIVE_ENTRIES;
+  if (data.length > maxCompressed) {
+    throw new Error("压缩包超过大小上限");
+  }
+  let entries = 0;
+  let declaredTotal = 0;
+  const files = unzipSync(data, {
+    filter(file) {
+      entries += 1;
+      if (entries > maxEntries) throw new Error("压缩包条目数超过上限");
+      declaredTotal += file.originalSize || 0;
+      if (declaredTotal > maxTotal) {
+        throw new Error("压缩包解压后总大小超过上限（疑似解压炸弹）");
+      }
+      return true;
+    },
+  });
+  let actualTotal = 0;
+  for (const name of Object.keys(files)) actualTotal += files[name]!.length;
+  if (actualTotal > maxTotal) {
+    throw new Error("解压结果总大小超过上限（疑似解压炸弹）");
+  }
+  return files;
+}
 
 /**
  * File parsing for the `fileParse` node: extract text and embedded images from
@@ -198,7 +249,7 @@ export async function parseDocument(
   if (isPdfMagic || mimeType?.includes("pdf")) return parsePdf(b);
   const isZipMagic = b[0] === 0x50 && b[1] === 0x4b; // PK
   if (isZipMagic || mimeType?.includes("vnd.openxmlformats")) {
-    const files = unzipSync(b);
+    const files = safeUnzip(b);
     if (Object.keys(files).some((n) => n.startsWith("word/"))) return parseDocx(files);
     if (Object.keys(files).some((n) => n.startsWith("ppt/"))) return parsePptx(files);
     throw new Error("ZIP 文件不是 docx/pptx 文档");

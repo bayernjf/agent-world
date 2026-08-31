@@ -105,8 +105,10 @@ async function readJson(
 }
 
 async function githubAction(cfg: VcsConfig, body: string, title: string): Promise<VcsResult> {
-  const owner = cfg.owner!;
-  const repo = cfg.repo!;
+  // Audit L5: encode every user-supplied path segment so values cannot smuggle
+  // extra path/query components into the GitHub URL.
+  const owner = encodeURIComponent(cfg.owner!);
+  const repo = encodeURIComponent(cfg.repo!);
   const api = (p: string) => `https://api.github.com/repos/${owner}/${repo}${p}`;
   switch (cfg.action) {
     case "create_pr": {
@@ -127,7 +129,7 @@ async function githubAction(cfg: VcsConfig, body: string, title: string): Promis
     case "trigger_workflow": {
       requireProviderFields("github", cfg, ["owner", "repo", "workflowId", "ref"]);
       // GitHub returns 204 No Content on success.
-      await ghRequest("POST", api(`/actions/workflows/${cfg.workflowId}/dispatches`), cfg, {
+      await ghRequest("POST", api(`/actions/workflows/${encodeURIComponent(cfg.workflowId!)}/dispatches`), cfg, {
         ref: cfg.ref,
         inputs: cfg.inputs ?? {},
       });
@@ -135,7 +137,7 @@ async function githubAction(cfg: VcsConfig, body: string, title: string): Promis
     }
     case "list_issues": {
       requireProviderFields("github", cfg, ["owner", "repo"]);
-      const state = cfg.state ?? "open";
+      const state = encodeURIComponent(cfg.state ?? "open");
       const data = (await ghRequest("GET", `${api("/issues")}?state=${state}&per_page=30`, cfg)) as Array<{ number: number; title: string }>;
       return { provider: "github", action: "list_issues", detail: `${data.length} issues`, data };
     }

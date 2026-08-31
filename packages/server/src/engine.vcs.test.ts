@@ -125,6 +125,18 @@ describe("vcs node — github & gitlab", () => {
     expect(JSON.parse((init as any).body)).toEqual({ ref: "main", inputs: { env: "prod" } });
   });
 
+  it("percent-encodes user-supplied GitHub path segments (audit L5)", async () => {
+    vi.stubEnv("GITHUB_TOKEN", "ghp_test");
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify([]), { status: 200, headers: { "content-type": "application/json" } }),
+    );
+    await collect(vcsGraph({ provider: "github", action: "list_issues", owner: "evil/repos", repo: "r?x=1" }));
+    const [url] = fetchMock.mock.calls[0]!;
+    // "/" and "?" are encoded, so the values cannot inject extra path/query parts.
+    expect(url).toBe("https://api.github.com/repos/evil%2Frepos/r%3Fx%3D1/issues?state=open&per_page=30");
+    expect(url as string).not.toContain("/repos/evil/repos");
+  });
+
   it("fails with AUTH when the token env is missing", async () => {
     vi.stubEnv("GITHUB_TOKEN", "");
     const events = await collect(vcsGraph({ provider: "github", action: "list_issues", owner: "o", repo: "r" }));

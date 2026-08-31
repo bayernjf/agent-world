@@ -5651,3 +5651,233 @@ select {
   font-size: 12px;
 }
 
+/* ---- Model assign modal ---- */
+.model-assign__head-left {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+.model-assign__sub {
+  font-size: 11px;
+  color: var(--ink-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.model-assign__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  text-align: center;
+}
+.model-assign {
+  display: grid;
+  grid-template-columns: 236px 1fr;
+  height: 100%;
+  min-height: 0;
+}
+.model-assign__side {
+  border-right: var(--hair);
+  padding: 12px;
+  overflow-y: auto;
+  background: var(--steel-850, var(--steel-900));
+}
+.model-assign__group-label {
+  margin: 12px 0 4px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.model-assign__group:first-child .model-assign__group-label {
+  margin-top: 0;
+}
+.model-assign__model {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--ink);
+  font-size: 12px;
+  font-family: var(--mono);
+  cursor: pointer;
+  text-align: left;
+}
+.model-assign__model:hover {
+  background: var(--steel-800);
+}
+.model-assign__model.is-on {
+  background: var(--steel-800);
+  border-color: var(--data);
+}
+.model-assign__model-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.model-assign__model-count {
+  flex: none;
+  font-size: 10px;
+  color: var(--ink-faint);
+}
+.model-assign__dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+}
+.model-assign__dot--text { background: var(--data); }
+.model-assign__dot--image { background: var(--plasma); }
+.model-assign__dot--video { background: var(--power); }
+.model-assign__dot--audio { background: var(--ok); }
+
+.model-assign__main {
+  padding: 12px 16px;
+  overflow-y: auto;
+  min-width: 0;
+}
+.model-assign__hint {
+  color: var(--ink-dim);
+  font-size: 12px;
+  padding: 24px 4px;
+  text-align: center;
+}
+.model-assign__main-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  min-height: 24px;
+}
+.model-assign__picked {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.model-assign__toggle {
+  margin-left: auto;
+  background: transparent;
+  border: none;
+  color: var(--data);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  flex: none;
+}
+.model-assign__toggle:hover {
+  background: var(--steel-800);
+}
+.model-assign__node {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  background: var(--steel-900);
+  border: 1px solid var(--steel-800);
+  border-radius: 6px;
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+  opacity: 0.55;
+  transition: opacity 0.1s ease, border-color 0.1s ease;
+}
+.model-assign__node.is-on {
+  opacity: 1;
+  border-color: var(--steel-600, var(--steel-800));
+}
+.model-assign__node:hover {
+  border-color: var(--steel-600, var(--steel-800));
+}
+.model-assign__node.is-same,
+.model-assign__node:disabled {
+  opacity: 0.38;
+  cursor: default;
+}
+.model-assign__node.is-same:hover,
+.model-assign__node:disabled:hover {
+  border-color: var(--steel-800);
+}
+.model-assign__box {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid var(--ink-faint);
+  border-radius: 3px;
+  display: grid;
+  place-items: center;
+}
+.model-assign__node.is-on .model-assign__box {
+  background: var(--data);
+  border-color: var(--data);
+}
+.model-assign__node.is-on .model-assign__box::after {
+  content: "";
+  width: 7px;
+  height: 4px;
+  border-left: 2px solid var(--steel-900);
+  border-bottom: 2px solid var(--steel-900);
+  transform: rotate(-45deg) translateY(-1px);
+}
+.model-assign__node-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.model-assign__node-kind {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-faint);
+}
+.model-assign__node-cur {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-dim);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.model-assign__node-cur.is-same {
+  color: var(--ok);
+}
+.model-assign__foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 18px;
+  border-top: var(--hair);
+}
+.model-assign__summary {
+  flex: 1;
+  font-size: 11px;
+  color: var(--ink-dim);
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.model-assign__summary b {
+  color: var(--ink);
+  font-weight: 600;
+}
+

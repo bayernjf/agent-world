@@ -64,7 +64,7 @@ import { executeVcs, VcsAuthError, VcsProviderError } from "./vcs.js";
 import { withRetry } from "./retry.js";
 import { createCodeWorkdir, cleanupCodeWorkdir, resolveSandbox, type CodeSandboxLimits } from "./code-sandbox.js";
 import { trimEnv } from "./isolation.js";
-import { allowPrivateNetwork, hostIsInternal } from "./ssrf.js";
+import { allowPrivateNetwork, guardedFetch, hostIsInternal } from "./ssrf.js";
 import { childProxyEnv, getCodeProxyUrl, registerNetToken, unregisterNetToken } from "./code-proxy.js";
 
 /**
@@ -1114,15 +1114,22 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
         try {
           response = await withRetry(
             async () => {
+              // All outbound traffic leaves through guardedFetch: the DNS
+              // answer that passes the internal check is the one the TCP/TLS
+              // connection is pinned to (no check-vs-connect TOCTOU, audit
+              // H3), and redirects are re-validated on every hop (audit C3).
               const abort = new AbortController();
               const timer = setTimeout(() => abort.abort(), cfg.timeoutMs);
               try {
-                const r = await fetch(targetUrl.toString(), {
+                const r = await guardedFetch(targetUrl.toString(), {
                   method: cfg.method,
                   headers,
                   body: body && cfg.method !== "GET" ? body : undefined,
                   signal: abort.signal,
+                  maxRedirects: 5,
                 });
+                // 5xx triggers the retry path; deterministic guard rejections
+                // (GuardedFetchError) are excluded from retry below.
                 if (r.status >= 500) throw new Error(`HTTP ${r.status}`);
                 return r;
               } finally {
@@ -1130,7 +1137,11 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
               }
             },
             cfg.retry,
-            (err) => !(err instanceof Error && err.name === "AbortError"),
+            // AbortError means the attempt timed out; deterministic failures
+            // (SSRF rejection, redirect budget exhausted) must not be retried.
+            (err) =>
+              !(err instanceof Error && err.name === "AbortError") &&
+              !(err instanceof Error && /SSRF 防护|重定向超过/.test(err.message)),
             opts.sleep,
           );
         } catch (err) {
@@ -1142,7 +1153,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
             nodeId,
             attempt,
             error: `HTTP 请求失败: ${msg}`,
-            errorCode: "PROVIDER_ERROR",
+            errorCode: msg.includes("SSRF 防护") ? "VALIDATION" : "PROVIDER_ERROR",
           });
           return;
         }
@@ -1302,7 +1313,15 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
             return;
           }
           const proxyUrl = await getCodeProxyUrl();
-          netToken = registerNetToken({ runId, nodeId, allowlist: netAllow });
+          // Only 80/443 are reachable by default (audit L4: don't let code use
+          // the proxy as an arbitrary-port jump host). TOOL_NETWORK_EXTRA_PORTS
+          // is a comma-separated opt-in for non-standard ports (also the test
+          // hook for loopback fixtures on ephemeral ports).
+          const extraPorts = (process.env.TOOL_NETWORK_EXTRA_PORTS ?? "")
+            .split(",")
+            .map((s) => Number(s.trim()))
+            .filter((n) => Number.isInteger(n) && n > 0 && n <= 65535);
+          netToken = registerNetToken({ runId, nodeId, allowlist: netAllow, extraConnectPorts: extraPorts });
           netProxyEnv = childProxyEnv(netToken, proxyUrl);
         }
         // fs 策略：allowlist = 在 workdir 之外额外授予只读访问

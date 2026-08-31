@@ -40,7 +40,7 @@ import {
   type AppConfig,
   type Modality,
 } from "./config.js";
-import { hostIsInternal } from "./ssrf.js";
+import { GuardedFetchError, guardedFetch, hostIsInternal } from "./ssrf.js";
 import { runAsUser } from "./user-context.js";
 import { routingWorker } from "./providers/index.js";
 import { WorkerRegistry } from "./worker-plugins.js";
@@ -197,6 +197,16 @@ function clearAuthCookie(c: any) {
 }
 
 app.post("/api/auth/register", async (c) => {
+  // M3: the very first account bootstraps the instance. Once a user exists,
+  // self-registration is closed unless the operator opts in via
+  // ALLOW_REGISTRATION=1 — otherwise anyone who reaches the port can create
+  // an account and start running paid models.
+  if (db.countUsers() > 0) {
+    const flag = (process.env.ALLOW_REGISTRATION ?? "").trim().toLowerCase();
+    if (flag !== "1" && flag !== "true") {
+      return c.json({ error: "注册已关闭，请联系管理员开通账号" }, 403);
+    }
+  }
   const body = (await c.req.json().catch(() => ({}))) as { email?: string; password?: string };
   const email = (body.email ?? "").trim().toLowerCase();
   const password = body.password ?? "";
@@ -298,7 +308,12 @@ app.use("/api/*", async (c, next) => {
     const bearer = /^Bearer\s+(.+)$/i.exec(auth.trim());
     token = bearer?.[1];
   }
-  token = token ?? c.req.query("token") ?? undefined;
+  // Query-param token is accepted ONLY for the SSE stream route — EventSource
+  // cannot set headers, so it needs ?token=. Every other route must use the
+  // cookie or Bearer header, keeping tokens out of generic URLs/logs (L1).
+  if (!token && /\/stream$/.test(path)) {
+    token = c.req.query("token");
+  }
 
   if (!token) return c.json({ error: "not authenticated" }, 401);
   const payload = await verifyToken(token);
@@ -521,10 +536,27 @@ function autoSnapshotSettings(userId: string): { minIntervalMs: number; maxKeep:
 
 app.put("/api/graphs/:id", async (c) => {
   const userId = c.get("userId");
+  const paramId = c.req.param("id");
   const parsed = Graph.safeParse(await c.req.json());
   if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
 
-  const dupId = findGraphIdByName(parsed.data.name, userId, c.req.param("id"));
+  // H1: the body id must match the path — otherwise a crafted body could
+  // target a different document than the URL implies.
+  if (parsed.data.id !== paramId) {
+    return c.json({ error: "id_mismatch", message: "请求体中的产线 ID 与路径不一致" }, 400);
+  }
+
+  // H2: a graph document can carry triggers, so enforce the webhook-secret
+  // rule on the save path too (the create-trigger route alone is bypassable
+  // by writing graph.triggers directly through this PUT).
+  const emptySecretWebhook = (parsed.data.triggers ?? []).find(
+    (t) => t.type === "webhook" && !t.webhookSecret?.trim(),
+  );
+  if (emptySecretWebhook) {
+    return c.json({ error: "webhook 触发器必须设置 secret" }, 400);
+  }
+
+  const dupId = findGraphIdByName(parsed.data.name, userId, paramId);
   if (dupId) {
     return c.json(
       { error: "duplicate_name", message: `已存在同名产线「${parsed.data.name}」，请换一个名字。`, existingId: dupId },
@@ -548,10 +580,14 @@ app.put("/api/graphs/:id", async (c) => {
   const expectedVersion = ifMatch != null ? Number(ifMatch) : undefined;
   const result = db.saveGraph(parsed.data, Date.now(), userId, expectedVersion);
   if (!result.ok) {
-    return c.json(
-      { error: "conflict", message: "该产线已在其他标签页被修改，请刷新后重试。", serverVersion: result.serverVersion },
-      409,
-    );
+    if ("conflict" in result) {
+      return c.json(
+        { error: "conflict", message: "该产线已在其他标签页被修改，请刷新后重试。", serverVersion: result.serverVersion },
+        409,
+      );
+    }
+    // H1: id collides with another user's graph — never overwrite it.
+    return c.json({ error: "forbidden", message: "该产线不属于当前账号" }, 403);
   }
   return c.json({ ok: true, version: result.version });
 });
@@ -649,10 +685,20 @@ app.post("/api/providers/test", async (c) => {
   // the saved config on the server.
   const looksRedacted = !apiKey || isRedactedKey(apiKey);
   if (looksRedacted && body.providerName) {
-    if (saved?.apiKey && !isRedactedKey(saved.apiKey)) apiKey = saved.apiKey;
-    else if (!saved) {
+    if (!saved) {
       return c.json({ ok: false, error: `Provider "${body.providerName}" 未保存，请先添加并保存` }, 400);
     }
+    // A server-resolved key must never travel to a caller-chosen destination:
+    // pairing the saved key with a different baseUrl would let any user
+    // exfiltrate it to their own host. Key and endpoint must stay same-source;
+    // to test a new address, supply a fresh key in the same request.
+    if (normalizeBaseUrl(saved.baseUrl ?? "") !== baseUrl) {
+      return c.json(
+        { ok: false, error: "使用已保存的 API Key 时不能修改 Base URL；如需测试新地址，请同时填入新的 API Key" },
+        400,
+      );
+    }
+    if (saved.apiKey && !isRedactedKey(saved.apiKey)) apiKey = saved.apiKey;
   }
 
   if (!apiKey || isRedactedKey(apiKey)) {
@@ -684,7 +730,10 @@ app.post("/api/providers/test", async (c) => {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), probeTimeoutMs);
   try {
-    const res = await fetch(`${baseUrl}${endpoint}`, {
+    // Provider probes hit a user-supplied baseUrl — route through the guarded
+    // egress so a custom endpoint can never be pointed at internal services
+    // (audit H5 SSRF half).
+    const res = await guardedFetch(`${baseUrl}${endpoint}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -745,7 +794,10 @@ app.get("/api/runs", (c) => {
 });
 
 app.get("/api/runs/:id/stats", (c) => {
-  return c.json(db.runStats(c.req.param("id")));
+  const userId = c.get("userId");
+  const runId = c.req.param("id");
+  if (!db.runExists(runId, userId)) return c.json({ error: "not found" }, 404);
+  return c.json(db.runStats(runId));
 });
 
 /** The graph as it was when this run started (snapshot), used to render a
@@ -1014,9 +1066,12 @@ app.post("/api/graphs/:id/triggers", async (c) => {
 });
 
 app.delete("/api/graphs/:id/triggers/:tid", async (c) => {
+  const userId = c.get("userId");
+  const graphId = c.req.param("id");
+  if (!db.getGraph(graphId, userId)) return c.json({ error: "graph not found" }, 404);
   const tid = c.req.param("tid");
   scheduler.unsync(tid);
-  await triggers.remove(c.req.param("id"), tid);
+  await triggers.remove(graphId, tid);
   return c.body(null, 204);
 });
 
@@ -1052,10 +1107,17 @@ app.post("/api/graphs/:id/triggers/:tid/fire", async (c) => {
 
 app.post("/api/graphs/:id/webhook", async (c) => {
   const graphId = c.req.param("id");
-  const body = (await c.req.json().catch(() => ({}))) as { secret?: string; payload?: unknown };
+  const body = (await c.req.json().catch(() => ({}))) as { secret?: string; timestamp?: number; payload?: unknown };
   const secret = body.secret ?? c.req.header("x-webhook-secret") ?? "";
+  // M1 replay defence: external callers must send a fresh timestamp (header or
+  // body). Missing/stale requests are rejected before the secret is checked.
+  const rawTs = c.req.header("x-webhook-timestamp") ?? body.timestamp;
+  const timestampMs = rawTs != null ? Number(rawTs) : undefined;
+  if (timestampMs == null || !Number.isFinite(timestampMs)) {
+    return c.json({ error: "missing X-Webhook-Timestamp" }, 401);
+  }
   try {
-    const { runId } = await triggers.fireWebhook(graphId, secret, body.payload);
+    const { runId } = await triggers.fireWebhook(graphId, secret, body.payload, timestampMs);
     return c.json({ runId });
   } catch (e) {
     if (e instanceof TriggerError) {
@@ -1076,7 +1138,7 @@ app.post("/api/connectors/test", async (c) => {
     const preview = material.text.length > 2000 ? material.text.slice(0, 2000) + "\n…(truncated)" : material.text;
     return c.json({ text: preview, images: material.images, fullLength: material.text.length });
   } catch (e) {
-    return c.json({ error: (e as Error).message }, 502);
+    return c.json({ error: sanitizeError(e) }, 502);
   }
 });
 
@@ -1115,12 +1177,13 @@ app.post("/api/runs/ab", async (c) => {
     });
     return c.json({ abGroup, arms });
   } catch (err) {
-    return c.json({ error: (err as Error).message }, 400);
+    return c.json({ error: sanitizeError(err) }, 400);
   }
 });
 
 app.get("/api/ab/:groupId", (c) => {
-  const report = db.abReport(c.req.param("groupId"));
+  const userId = c.get("userId");
+  const report = db.abReport(c.req.param("groupId"), userId);
   if (!report) return c.json({ error: "not found" }, 404);
   return c.json(report);
 });
@@ -1196,7 +1259,10 @@ app.delete("/api/graphs/:id/versions/:vid", (c) => {
 });
 
 app.post("/api/runs/:id/cancel", (c) => {
-  const entry = live.get(c.req.param("id"));
+  const userId = c.get("userId");
+  const runId = c.req.param("id");
+  if (!db.runExists(runId, userId)) return c.json({ error: "not found" }, 404);
+  const entry = live.get(runId);
   if (!entry) return c.json({ error: "not live" }, 404);
   entry.controller.abort();
   return c.json({ ok: true });
@@ -1510,54 +1576,37 @@ app.get("/api/artifacts", (c) => {
  * return 502 so the client can show a graceful placeholder.
  */
 app.get("/api/proxy", async (c) => {
-  let target = c.req.query("url");
+  const target = c.req.query("url");
   if (!target || !/^https?:\/\//i.test(target)) {
     return c.json({ error: "invalid or missing url" }, 400);
   }
-  const MAX_REDIRECTS = 5;
   try {
-    for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-      let parsed: URL;
-      try {
-        parsed = new URL(target);
-      } catch {
-        return c.json({ error: "invalid or missing url" }, 400);
-      }
-      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-        return c.json({ error: "invalid or missing url" }, 400);
-      }
-      if (await hostIsInternal(parsed.hostname)) {
-        return c.json({ error: "refusing to fetch a private or internal address" }, 403);
-      }
-      const upstream = await fetch(target, {
-        redirect: "manual",
-        headers: {
-          "user-agent":
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
-          accept: "image/avif,image/webp,image/png,image/*,*/*;q=0.8",
-        },
-        signal: AbortSignal.timeout(15000),
-      });
-      if (upstream.status >= 300 && upstream.status < 400) {
-        const loc = upstream.headers.get("location");
-        if (!loc) return c.json({ error: `upstream returned ${upstream.status}` }, 502);
-        target = new URL(loc, target).toString();
-        continue;
-      }
-      if (!upstream.ok) {
-        return c.json({ error: `upstream returned ${upstream.status}` }, 502);
-      }
-      const buf = Buffer.from(await upstream.arrayBuffer());
-      const ct = upstream.headers.get("content-type") ?? "application/octet-stream";
-      return new Response(buf, {
-        headers: {
-          "content-type": ct,
-          "cache-control": "public, max-age=86400",
-        },
-      });
+    // Single guarded egress: resolves once and pins the connection (no
+    // check-vs-connect DNS gap), refuses internal targets, follows redirects
+    // manually with the guard re-run on every hop.
+    const upstream = await guardedFetch(target, {
+      headers: {
+        "user-agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+        accept: "image/avif,image/webp,image/png,image/*,*/*;q=0.8",
+      },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!upstream.ok) {
+      return c.json({ error: `upstream returned ${upstream.status}` }, 502);
     }
-    return c.json({ error: "too many redirects" }, 502);
-  } catch {
+    const buf = Buffer.from(await upstream.arrayBuffer());
+    const ct = upstream.headers.get("content-type") ?? "application/octet-stream";
+    return new Response(buf, {
+      headers: {
+        "content-type": ct,
+        "cache-control": "public, max-age=86400",
+      },
+    });
+  } catch (err) {
+    if (err instanceof GuardedFetchError) {
+      return c.json({ error: err.message }, 403);
+    }
     return c.json({ error: "failed to fetch upstream image" }, 502);
   }
 });
@@ -1673,7 +1722,9 @@ async function probeVideo(
   const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
   let res: Response;
   try {
-    res = await fetch(modelsUrl, {
+    // Provider probes hit a user-supplied baseUrl — leave through the guarded
+    // egress (audit H5 SSRF half).
+    res = await guardedFetch(modelsUrl, {
       headers: { Authorization: `Bearer ${apiKey}` },
       signal: controller.signal,
     });
@@ -1708,7 +1759,7 @@ async function probeVideo(
     const postController = new AbortController();
     const postTimer = setTimeout(() => postController.abort(), PROBE_TIMEOUT_MS);
     try {
-      const postRes = await fetch(`${baseUrl}${MODALITY_ENDPOINT.video}`, {
+      const postRes = await guardedFetch(`${baseUrl}${MODALITY_ENDPOINT.video}`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
         body: JSON.stringify({ model, prompt: "" }),
