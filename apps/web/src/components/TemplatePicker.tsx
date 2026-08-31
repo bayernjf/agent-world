@@ -109,11 +109,33 @@ interface PickerProps {
   onPick: (templateId?: string) => void;
   /** Extra class on each card (onboarding uses larger cards). */
   cardClass?: string;
+  /** Render a "blank line" card as the first grid item. It is a plain empty
+   *  canvas, not a template, so it carries no category/template badge. */
+  blankFirst?: boolean;
 }
 
-export default function TemplatePicker({ templates, onPick, cardClass }: PickerProps) {
+export default function TemplatePicker({
+  templates,
+  onPick,
+  cardClass,
+  blankFirst,
+}: PickerProps) {
   return (
     <div className={`template-grid ${cardClass ? `template-grid--${cardClass}` : ""}`}>
+      {blankFirst && (
+        <button
+          key="__blank__"
+          className={`template-card template-card--blank ${cardClass ? `template-card--${cardClass}` : ""}`}
+          onClick={() => onPick(undefined)}
+          title="从空白画布开始，不预置任何节点"
+        >
+          <TemplatePreview nodes={[]} edges={[]} />
+          <span className="template-card__name">空白产线</span>
+          <span className="template-card__desc">
+            从空白画布开始，不预置任何节点，搭建后自由编辑
+          </span>
+        </button>
+      )}
       {templates.map((t) => (
         <button
           key={t.id}
