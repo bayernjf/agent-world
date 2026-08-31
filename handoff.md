@@ -100,16 +100,18 @@ State of Agent World as of 2026-08-31.
 
 按优先级降序，标 `★` 的是当下要推的：
 
-1. ★ **跑通真实产线（狗粮验证，2026-08-31 立项）**：roadmap-tasks 1.7.1——用产品自己跑一条端到端真实产线（如模板"多源研究简报"或内容产线），验证"新用户路径 → 配置 provider → 建产线 → 运行 → 看产物 → 复盘"全链路真实可用。产出：一份真实运行记录 + 暴露的体验/功能缺口清单。紧接回归测试集
+1. ★ **自动数据接入 Connector（2026-08-31 立项）**：让产线能自动拉数据（数据库/API/文件），从"玩具"到"工具"的关键一步；配合 **4.6 定时 / 事件触发** 实现完全自动化的产线（当前靠手动运行）。整体进度基线见 [docs/project-progress.md](docs/project-progress.md)
+2. ★ **跑通真实产线（狗粮验证，2026-08-31 立项）**：roadmap-tasks 1.7.1——用产品自己跑一条端到端真实产线（如模板"多源研究简报"或内容产线），验证"新用户路径 → 配置 provider → 建产线 → 运行 → 看产物 → 复盘"全链路真实可用。产出：一份真实运行记录 + 暴露的体验/功能缺口清单。紧接回归测试集
    - **2026-08-31 进展（文本链路已跑通）**：跑通「短视频广告工坊」真实产线（投料→文坊脚本→成品入库→全部出厂，run `e74cba65`），文本节点真实调用 agnes-2.5-flash 产出完整口播脚本（817/186 tokens）。**过程发现并修复关键 bug**：SSRF `pinnedAgent` 用 undici 8.x Agent 传给 Node 24 内置 7.x fetch 会报 `invalid onRequestStart method`，导致所有经 guardedFetch 的出站请求失败（产线 fetch failed 根因）——依赖降到 `undici@^7.8`（7.29）后对齐，server 557/557 回归通过。
    - **2026-08-31 进展（全链路打通）**：**影坊视频节点适配完成并真实产出**（run `49e60631`，文坊脚本→画坊 PNG 1.27MB→影坊 MP4 1.9MB→成品库汇总，耗时 5m50s，UI 回放 23/23 收工）。关键点：① 产线 video 节点模型从 `agnes-video-2.5-flash` 切回 `agnes-video-v2.0`（2.5-flash 视频 API 无公开文档且实测禁 `width`/`num_frames`/`mode:ti2vid`，不可适配；v2.0 是模板默认且文档齐全）；② config.ts 新增 `ProviderConfig.videoAdapter`（createBody/omitDuration/aspectToSize/resultUrlPath），AGNES 内置配置 `{mode:"ti2vid"}` + width/height 映射 + 顶层 `url` 解析；③ 完成 URL 在任务顶层 `url` 字段（非文档所说 metadata.url），worker 轮询解析带 fallback；④ 视频轮询超时 300s→900s（agn 排队+推理实测约 5 分钟）。**另修复 artifact 落库双 bug**：`artifacts.save()` 不认本地 `/api/artifacts/` 引用导致 image/video/audio 落成 inline 空壳（图片/视频显示不出的根因）→ 识别本地引用为 `local` 存储；engine Artifact.id 跨 run 重复触发 DB 主键 INSERT OR IGNORE 吞行（后 run 产物全部丢失）→ emit 统一加 `runId` 前缀 + reconstructState 两遍扫描修复合成去重。
    - **剩余缺口**：画坊图片节点曾偶发 503（agnes 图片队列满，临时，本次已恢复）；agnes 视频生成慢（约 5-6 分钟/段，含排队），属 API 固有耗时。
-2. ★ ~~**回归测试集**~~（已完成，2026-08-31）：把已知 flaky（bcrypt/计时敏感用例）与核心路径做成可重复的回归基线与安全网；roadmap-tasks 5.5 登记项。目标：全量测试稳定复跑，避免"复跑即绿"掩盖真回归
+3. ★ ~~**回归测试集**~~（已完成，2026-08-31）：把已知 flaky（bcrypt/计时敏感用例）与核心路径做成可重复的回归基线与安全网；roadmap-tasks 5.5 登记项。目标：全量测试稳定复跑，避免"复跑即绿"掩盖真回归
    - **做法**：① `vitest.setup.ts` 全局 mock `bcryptjs`（cost-12 哈希是纯 CPU 消耗，API 层被测的是 auth 流程而非 bcrypt 本身）——注册/登录类测试提速且稳定；② `vitest.config.ts` 全局 `testTimeout:20s / hookTimeout:30s`，给 wall-clock 敏感用例（engine.code 沙箱 CPU 限时、SSE 流、retry 退避）在并行负载下留足余量；③ `engine.search` 的 PROVIDER_ERROR 用例显式 `retry:{maxRetries:0}` 去掉默认退避的真实 sleep；④ 新增 `src/regression/core-path.test.ts` 核心回归基线（compile→execute→done + rework 回环 + resume 不重复上游 artifact + 二进制 artifact 落库 sizeBytes + auth 注册/登录/受保护路由 + SSRF fail-closed），`pnpm --filter @agent-world/server test:regression` 2.8s 可跑。**结果：全量 571/571 连续 2 次复跑稳定通过**（此前 flaky 偶发 1-6 超时）。
-3. **README 演示 GIF**：README.md 已按对外受众重写并 commit（`1fc7f56`），预留了 `docs/images/` 截图 TODO 注释位——需录一段「画布运行 + rework 回环 + 时间轴回放」的 GIF（macOS 录屏 + `ffmpeg -i in.mov -vf "fps=10,scale=720:-1" out.gif"`）
-4. **git push（已完成，2026-08-31）**：安全审计批次已由用户 push 到 `origin/feature/20260824` 并观察 CI
-5. **沙箱后续（低优）**：docker/podman 容器后端（生产级隔离，net allowlist 的终极形态）——与审计第四批"隔离诚实化"合并推进
-6. **模板市场（缓做）**：用户发布/安装模板，触发条件见 design-templates §4
+4. ★ **模板全量测试（已完成，2026-08-31）**：19 个模板引擎级冒烟全跑通。**发现并修复**：① 7 个模板 code 节点裸引用 `inputs`（沙箱不注入，真实环境必挂）→ 改 stdin 读取（`01fad6c`）；② error 边兜底被 human 挂起饿死（review-publish notifyFallback 不触发）→ finally 即时触发（`8fa86c1`）；③ code 失败误标 PROVIDER_ERROR → 独立 `SCRIPT_ERROR`（`0cbce9d`）；④ 空白产线空图崩溃 → fail-closed（回归基线守护）。回归基线扩到 11 用例。整体进度见 [docs/project-progress.md](docs/project-progress.md)
+5. **README 演示 GIF**：README.md 已按对外受众重写并 commit（`1fc7f56`），预留了 `docs/images/` 截图 TODO 注释位——需录一段「画布运行 + rework 回环 + 时间轴回放」的 GIF（macOS 录屏 + `ffmpeg -i in.mov -vf "fps=10,scale=720:-1" out.gif"`）
+6. **git push（已完成，2026-08-31）**：安全审计批次已由用户 push 到 `origin/feature/20260824` 并观察 CI；**PR #90 title/description 已同步**到引擎稳健性主线（模板 code 节点 + error 边 + 空白画布）
+7. **沙箱后续（低优）**：docker/podman 容器后端（生产级隔离，net allowlist 的终极形态）——与审计第四批"隔离诚实化"合并推进
+8. **模板市场（缓做）**：用户发布/安装模板，触发条件见 design-templates §4
 
 > 全部缓做/低优事项（含上述两条）已统一登记在 [docs/deferred-items.md](docs/deferred-items.md)——每条带触发条件与决策详情链接，触发条件满足时移回本区并标注重启日期。
 
@@ -117,11 +119,13 @@ State of Agent World as of 2026-08-31.
 
 按 commit 时间倒序，每条一行影响面 + commit hash：
 
-1. `(pending)` — **fix(server)**: 影坊视频节点跑通真实产线——agnes 视频 API 适配（ProviderConfig.videoAdapter：mode=ti2vid + width/height + 顶层 url 解析 + 轮询超时 300s→900s，video 模型切回 v2.0）；artifact 落库修复（本地 /api/artifacts/ 引用识别 + Artifact.id 加 runId 前缀 + reconstructState 合成去重）。
-2. `(pending)` — **fix(server)**: SSRF `guardedFetch` 的 pinned Agent 依赖对齐 Node 内置 undici（8.x→7.29），修 `invalid onRequestStart method` 导致所有出站 fetch 失败（跑真实产线时暴露）。
-3. `9dc68ae` — **feat(server)**: 静态加密（审计 L3）——settings apiKey 与 webhook secret（graphs.doc / versions.snapshot / runs.snapshot）落盘 AES-256-GCM 加密；at-rest.ts + seal/open 序列化边界 + contentHash 明文计算保持；7 单测 + 4 db 集成 + vitest setup 确定性密钥。
-4. `f73a606` — **docs**: 静态加密设计文档（design-at-rest-encryption.md）+ 审计报告 L3 标记已修复。
-5. `ce5635a` — **docs**: handoff 文档更新（格式规范化 + 当前状态/安全基线同步）。
+1. `0cbce9d` — **fix(server)**: code 节点失败报 `SCRIPT_ERROR`（不再误标 PROVIDER_ERROR、不进重试），Inspector 显示"脚本执行错误"；engine.code 3 断言同步更新。
+2. `6dcce69` / `6f51eb1` / `b82c344` / `dbe260f` / `a6e1b52` — **feat/fix/refactor(web)**: 空白产线作为选卡器首卡片（非模板，dashed 空画布）+ 新建网格三列 + 去卡片 hover tooltip + 清理死 originTemplateId 类型（用户手动提交）。
+3. `8fa86c1` — **fix(server)**: error 边在节点失败时即时触发（finally），human 挂起不再饿死 catch 兜底（review-publish notifyFallback 修复）；回归基线扩到 11 用例。
+4. `01fad6c` — **fix(core)**: 模板 code 节点显式从 stdin 读引擎注入的 inputs（ops/competitor/batch/doc/custom/research 7 脚本不再 ReferenceError）+ branch forward-ref 重写修复 + custom-model 语法修复。
+5. `5cbc11d` — **feat(web)**: 空白产线入口从独立按钮改为选卡器首卡片（dashed 空画布卡片，非模板）。
+
+> 更早条目（影坊视频适配 `1358753`、undici 对齐 `4bb6168`、静态加密 `9dc68ae`、回归基线 `6a12a35` 等）见 [docs/handoff-archive.md](docs/handoff-archive.md) 与 [docs/security-audit-2026-08-31.md](docs/security-audit-2026-08-31.md)。
 
 最近 5 条之前的全部在 [docs/handoff-archive.md](docs/handoff-archive.md) 的"阶段 4 收尾"与"Additions (post-2026-08-27)"系列章节里（含 MCP stdio 分帧修复 `a2482ba`、P2 外部沙箱后端 `0a22b13`、P1 rlimit `ddb2e03`、P0 `6b2f92b`、HTTP 节点第一闭环 `1856d81`、账号系统 `5b81c74`/`73d3610` 等）。
 
