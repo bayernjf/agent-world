@@ -11,12 +11,18 @@ let app: Awaited<ReturnType<typeof import("./index.js")>>["app"];
 beforeAll(async () => {
   dir = mkdtempSync(join(tmpdir(), "aw-api-sec-"));
   process.env.DB_FILE = join(dir, "api.sqlite");
+  // Most suites here create a second account; the M3 registration gate has
+  // its own dedicated suite below that toggles this. Set process.env directly
+  // (not vi.stubEnv) so the local vi.unstubAllEnvs() calls in other suites
+  // don't strip it mid-file.
+  process.env.ALLOW_REGISTRATION = "1";
   const mod = await import("./index.js");
   app = mod.app;
 });
 
 afterAll(() => {
   delete process.env.DB_FILE;
+  delete process.env.ALLOW_REGISTRATION;
   rmSync(dir, { recursive: true, force: true });
   vi.unstubAllEnvs();
 });
@@ -328,6 +334,127 @@ describe("/api/providers/test key exfiltration guard", () => {
     } finally {
       vi.unstubAllGlobals();
       vi.unstubAllEnvs();
+    }
+  });
+});
+
+describe("batch-3 authorization & data integrity", () => {
+  let ownerToken: string;
+  let otherToken: string;
+  let ownerGraph: { id: string; name: string; nodes: unknown[]; edges: unknown[] };
+
+  async function createGraph(token: string, name: string) {
+    const res = await app.request("/api/graphs", {
+      method: "POST",
+      headers: authed(token, { "content-type": "application/json" }),
+      body: JSON.stringify({ name }),
+    });
+    return (await res.json()) as { id: string; name: string; nodes: unknown[]; edges: unknown[] };
+  }
+
+  beforeAll(async () => {
+    ownerToken = authToken(await register("frank@test.dev"));
+    otherToken = authToken(await register("grace@test.dev"));
+    ownerGraph = await createGraph(ownerToken, "frank-line");
+  });
+
+  it("rejects a PUT whose body id differs from the path id (H1)", async () => {
+    const res = await app.request(`/api/graphs/${ownerGraph.id}`, {
+      method: "PUT",
+      headers: authed(ownerToken, { "content-type": "application/json" }),
+      body: JSON.stringify({ ...ownerGraph, id: "some-other-id" }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("refuses to save over another user's graph id and leaves it intact (H1)", async () => {
+    const res = await app.request(`/api/graphs/${ownerGraph.id}`, {
+      method: "PUT",
+      headers: authed(otherToken, { "content-type": "application/json" }),
+      body: JSON.stringify({ ...ownerGraph, name: "hijacked" }),
+    });
+    expect(res.status).toBe(403);
+    const check = await app.request(`/api/graphs/${ownerGraph.id}`, { headers: authed(ownerToken) });
+    const g = (await check.json()) as { name: string };
+    expect(g.name).toBe("frank-line");
+  });
+
+  it("rejects saving a graph carrying an empty-secret webhook trigger (H2)", async () => {
+    const res = await app.request(`/api/graphs/${ownerGraph.id}`, {
+      method: "PUT",
+      headers: authed(ownerToken, { "content-type": "application/json" }),
+      body: JSON.stringify({
+        ...ownerGraph,
+        triggers: [{ id: "tw", type: "webhook", webhookSecret: "" }],
+      }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("does not let another user delete a trigger (M2)", async () => {
+    const mk = await app.request(`/api/graphs/${ownerGraph.id}/triggers`, {
+      method: "POST",
+      headers: authed(ownerToken, { "content-type": "application/json" }),
+      body: JSON.stringify({ id: "tw1", type: "webhook", webhookSecret: "s3cret" }),
+    });
+    expect(mk.status).toBe(201);
+    const del = await app.request(`/api/graphs/${ownerGraph.id}/triggers/tw1`, {
+      method: "DELETE",
+      headers: authed(otherToken),
+    });
+    expect(del.status).toBe(404);
+  });
+
+  it("hides run stats for a run the caller does not own (M2)", async () => {
+    const res = await app.request("/api/runs/no-such-run/stats", { headers: authed(otherToken) });
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 404 for an A/B group the caller does not own (M2)", async () => {
+    const res = await app.request("/api/ab/no-such-group", { headers: authed(otherToken) });
+    expect(res.status).toBe(404);
+  });
+
+  it("refuses to cancel a run the caller does not own (M2)", async () => {
+    const res = await app.request("/api/runs/no-such-run/cancel", {
+      method: "POST",
+      headers: authed(otherToken),
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it("ignores a ?token= query param on a non-SSE route (L1)", async () => {
+    // Even a valid token must be ignored outside the SSE stream (L1).
+    const res = await app.request(`/api/graphs?token=${encodeURIComponent(ownerToken)}`);
+    expect(res.status).toBe(401);
+  });
+
+  it("rejects a webhook call that carries no timestamp (M1)", async () => {
+    const res = await app.request(`/api/graphs/${ownerGraph.id}/webhook`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ secret: "s3cret", payload: {} }),
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it("rejects a webhook whose timestamp is outside the replay window (M1)", async () => {
+    const res = await app.request(`/api/graphs/${ownerGraph.id}/webhook`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ secret: "s3cret", timestamp: Date.now() - 10 * 60 * 1000, payload: {} }),
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it("closes self-registration once an account already exists (M3)", async () => {
+    const saved = process.env.ALLOW_REGISTRATION;
+    delete process.env.ALLOW_REGISTRATION;
+    try {
+      const res = await register("latecomer@test.dev");
+      expect(res.status).toBe(403);
+    } finally {
+      if (saved != null) process.env.ALLOW_REGISTRATION = saved;
     }
   });
 });

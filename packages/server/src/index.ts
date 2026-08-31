@@ -197,6 +197,16 @@ function clearAuthCookie(c: any) {
 }
 
 app.post("/api/auth/register", async (c) => {
+  // M3: the very first account bootstraps the instance. Once a user exists,
+  // self-registration is closed unless the operator opts in via
+  // ALLOW_REGISTRATION=1 — otherwise anyone who reaches the port can create
+  // an account and start running paid models.
+  if (db.countUsers() > 0) {
+    const flag = (process.env.ALLOW_REGISTRATION ?? "").trim().toLowerCase();
+    if (flag !== "1" && flag !== "true") {
+      return c.json({ error: "注册已关闭，请联系管理员开通账号" }, 403);
+    }
+  }
   const body = (await c.req.json().catch(() => ({}))) as { email?: string; password?: string };
   const email = (body.email ?? "").trim().toLowerCase();
   const password = body.password ?? "";
@@ -298,7 +308,12 @@ app.use("/api/*", async (c, next) => {
     const bearer = /^Bearer\s+(.+)$/i.exec(auth.trim());
     token = bearer?.[1];
   }
-  token = token ?? c.req.query("token") ?? undefined;
+  // Query-param token is accepted ONLY for the SSE stream route — EventSource
+  // cannot set headers, so it needs ?token=. Every other route must use the
+  // cookie or Bearer header, keeping tokens out of generic URLs/logs (L1).
+  if (!token && /\/stream$/.test(path)) {
+    token = c.req.query("token");
+  }
 
   if (!token) return c.json({ error: "not authenticated" }, 401);
   const payload = await verifyToken(token);
@@ -521,10 +536,27 @@ function autoSnapshotSettings(userId: string): { minIntervalMs: number; maxKeep:
 
 app.put("/api/graphs/:id", async (c) => {
   const userId = c.get("userId");
+  const paramId = c.req.param("id");
   const parsed = Graph.safeParse(await c.req.json());
   if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
 
-  const dupId = findGraphIdByName(parsed.data.name, userId, c.req.param("id"));
+  // H1: the body id must match the path — otherwise a crafted body could
+  // target a different document than the URL implies.
+  if (parsed.data.id !== paramId) {
+    return c.json({ error: "id_mismatch", message: "请求体中的产线 ID 与路径不一致" }, 400);
+  }
+
+  // H2: a graph document can carry triggers, so enforce the webhook-secret
+  // rule on the save path too (the create-trigger route alone is bypassable
+  // by writing graph.triggers directly through this PUT).
+  const emptySecretWebhook = (parsed.data.triggers ?? []).find(
+    (t) => t.type === "webhook" && !t.webhookSecret?.trim(),
+  );
+  if (emptySecretWebhook) {
+    return c.json({ error: "webhook 触发器必须设置 secret" }, 400);
+  }
+
+  const dupId = findGraphIdByName(parsed.data.name, userId, paramId);
   if (dupId) {
     return c.json(
       { error: "duplicate_name", message: `已存在同名产线「${parsed.data.name}」，请换一个名字。`, existingId: dupId },
@@ -548,10 +580,14 @@ app.put("/api/graphs/:id", async (c) => {
   const expectedVersion = ifMatch != null ? Number(ifMatch) : undefined;
   const result = db.saveGraph(parsed.data, Date.now(), userId, expectedVersion);
   if (!result.ok) {
-    return c.json(
-      { error: "conflict", message: "该产线已在其他标签页被修改，请刷新后重试。", serverVersion: result.serverVersion },
-      409,
-    );
+    if ("conflict" in result) {
+      return c.json(
+        { error: "conflict", message: "该产线已在其他标签页被修改，请刷新后重试。", serverVersion: result.serverVersion },
+        409,
+      );
+    }
+    // H1: id collides with another user's graph — never overwrite it.
+    return c.json({ error: "forbidden", message: "该产线不属于当前账号" }, 403);
   }
   return c.json({ ok: true, version: result.version });
 });
@@ -758,7 +794,10 @@ app.get("/api/runs", (c) => {
 });
 
 app.get("/api/runs/:id/stats", (c) => {
-  return c.json(db.runStats(c.req.param("id")));
+  const userId = c.get("userId");
+  const runId = c.req.param("id");
+  if (!db.runExists(runId, userId)) return c.json({ error: "not found" }, 404);
+  return c.json(db.runStats(runId));
 });
 
 /** The graph as it was when this run started (snapshot), used to render a
@@ -1027,9 +1066,12 @@ app.post("/api/graphs/:id/triggers", async (c) => {
 });
 
 app.delete("/api/graphs/:id/triggers/:tid", async (c) => {
+  const userId = c.get("userId");
+  const graphId = c.req.param("id");
+  if (!db.getGraph(graphId, userId)) return c.json({ error: "graph not found" }, 404);
   const tid = c.req.param("tid");
   scheduler.unsync(tid);
-  await triggers.remove(c.req.param("id"), tid);
+  await triggers.remove(graphId, tid);
   return c.body(null, 204);
 });
 
@@ -1065,10 +1107,17 @@ app.post("/api/graphs/:id/triggers/:tid/fire", async (c) => {
 
 app.post("/api/graphs/:id/webhook", async (c) => {
   const graphId = c.req.param("id");
-  const body = (await c.req.json().catch(() => ({}))) as { secret?: string; payload?: unknown };
+  const body = (await c.req.json().catch(() => ({}))) as { secret?: string; timestamp?: number; payload?: unknown };
   const secret = body.secret ?? c.req.header("x-webhook-secret") ?? "";
+  // M1 replay defence: external callers must send a fresh timestamp (header or
+  // body). Missing/stale requests are rejected before the secret is checked.
+  const rawTs = c.req.header("x-webhook-timestamp") ?? body.timestamp;
+  const timestampMs = rawTs != null ? Number(rawTs) : undefined;
+  if (timestampMs == null || !Number.isFinite(timestampMs)) {
+    return c.json({ error: "missing X-Webhook-Timestamp" }, 401);
+  }
   try {
-    const { runId } = await triggers.fireWebhook(graphId, secret, body.payload);
+    const { runId } = await triggers.fireWebhook(graphId, secret, body.payload, timestampMs);
     return c.json({ runId });
   } catch (e) {
     if (e instanceof TriggerError) {
@@ -1133,7 +1182,8 @@ app.post("/api/runs/ab", async (c) => {
 });
 
 app.get("/api/ab/:groupId", (c) => {
-  const report = db.abReport(c.req.param("groupId"));
+  const userId = c.get("userId");
+  const report = db.abReport(c.req.param("groupId"), userId);
   if (!report) return c.json({ error: "not found" }, 404);
   return c.json(report);
 });
@@ -1209,7 +1259,10 @@ app.delete("/api/graphs/:id/versions/:vid", (c) => {
 });
 
 app.post("/api/runs/:id/cancel", (c) => {
-  const entry = live.get(c.req.param("id"));
+  const userId = c.get("userId");
+  const runId = c.req.param("id");
+  if (!db.runExists(runId, userId)) return c.json({ error: "not found" }, 404);
+  const entry = live.get(runId);
   if (!entry) return c.json({ error: "not live" }, 404);
   entry.controller.abort();
   return c.json({ ok: true });
