@@ -1313,7 +1313,15 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
             return;
           }
           const proxyUrl = await getCodeProxyUrl();
-          netToken = registerNetToken({ runId, nodeId, allowlist: netAllow });
+          // Only 80/443 are reachable by default (audit L4: don't let code use
+          // the proxy as an arbitrary-port jump host). TOOL_NETWORK_EXTRA_PORTS
+          // is a comma-separated opt-in for non-standard ports (also the test
+          // hook for loopback fixtures on ephemeral ports).
+          const extraPorts = (process.env.TOOL_NETWORK_EXTRA_PORTS ?? "")
+            .split(",")
+            .map((s) => Number(s.trim()))
+            .filter((n) => Number.isInteger(n) && n > 0 && n <= 65535);
+          netToken = registerNetToken({ runId, nodeId, allowlist: netAllow, extraConnectPorts: extraPorts });
           netProxyEnv = childProxyEnv(netToken, proxyUrl);
         }
         // fs 策略：allowlist = 在 workdir 之外额外授予只读访问

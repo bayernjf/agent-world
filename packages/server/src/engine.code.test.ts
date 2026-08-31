@@ -335,8 +335,10 @@ describe("code node fs/net policy", () => {
     const targetPort = (target.address() as { port: number }).port;
     const savedAllow = process.env.TOOL_NETWORK_ALLOW;
     const savedPrivate = process.env.ALLOW_PRIVATE_NETWORK;
+    const savedPorts = process.env.TOOL_NETWORK_EXTRA_PORTS;
     process.env.TOOL_NETWORK_ALLOW = "localhost";
     process.env.ALLOW_PRIVATE_NETWORK = "1"; // 目标是回环地址，与 LAN 部署同款放宽
+    process.env.TOOL_NETWORK_EXTRA_PORTS = String(targetPort); // audit L4: 代理默认仅 80/443，放行本测试的临时端口
     try {
       const code = [
         "import urllib.request",
@@ -355,6 +357,8 @@ describe("code node fs/net policy", () => {
       else process.env.TOOL_NETWORK_ALLOW = savedAllow;
       if (savedPrivate === undefined) delete process.env.ALLOW_PRIVATE_NETWORK;
       else process.env.ALLOW_PRIVATE_NETWORK = savedPrivate;
+      if (savedPorts === undefined) delete process.env.TOOL_NETWORK_EXTRA_PORTS;
+      else process.env.TOOL_NETWORK_EXTRA_PORTS = savedPorts;
       target.close();
     }
   });
