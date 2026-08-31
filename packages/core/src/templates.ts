@@ -469,8 +469,17 @@ const draftGraph = {
 const translationGraph = {
   id: "tpl-translation",
   name: "翻译流水线",
-  description: "原文 → 初译 → 校对润色 → 质检 → 译文",
+  description: "原文 → 专用翻译节点初译 → 校对润色 → 质检 → 译文",
   category: "写作",
+  fields: [
+    {
+      key: "targetLang",
+      label: "目标语言",
+      placeholder: "简体中文 / English / 日本語 …",
+      defaultValue: "简体中文",
+      applyTo: [{ nodeId: "translate", path: "translate.target" }],
+    },
+  ],
   graph: {
     id: "tpl-translation",
     name: "翻译流水线",
@@ -478,16 +487,12 @@ const translationGraph = {
       { id: "intake", kind: "source", name: "原文", x: 80, y: 300 },
       {
         id: "translate",
-        kind: "textGen",
+        kind: "translate",
         name: "初译",
         x: 360,
         y: 300,
-        textGen: {
-          model: "agnes-2.0-flash",
-          prompt:
-            "你是专业译者。把输入文本翻译成中文，忠实原意，不增删信息。先给译文，再给术语说明。",
-          skills: [],
-        },
+        // 专用翻译节点：低温度保忠实，目标语言由模板字段控制。
+        translate: { target: "简体中文" },
       },
       {
         id: "review",
@@ -840,7 +845,7 @@ const competitorWatchGraph = {
   id: "tpl-competitor-watch",
   name: "竞品监控摘要",
   description: "拉取竞品页面 → 代码提取 → AI 对比摘要",
-  category: "IT 运维",
+  category: "数据分析",
   fields: [
     {
       key: "pageUrl",
@@ -1058,17 +1063,34 @@ const docIngestGraph = {
         ocr: { lang: "chi_sim+eng" },
       },
       {
+        // OCR 兜底：纯文字 PDF 没有嵌入图片时 OCR 节点会失败，这里接住它，
+        // 让"归纳入库"仍然拿到正文文本（图片 OCR 字符数记 0）。
+        id: "ocrFallback",
+        kind: "code",
+        name: "OCR 兜底",
+        x: 840,
+        y: 480,
+        code: {
+          language: "javascript",
+          code: [
+            '// OCR 失败（多数是文档没有嵌入图片）时输出空文本，保证主流程继续。',
+            'console.log("");',
+          ].join("\n"),
+        },
+      },
+      {
         id: "combine",
         kind: "code",
         name: "归纳入库",
-        x: 840,
+        x: 1080,
         y: 300,
         code: {
           language: "javascript",
           code: [
             '// 汇总正文文本与图片 OCR 文本，输出一行一字段的结构化清单。',
             'const parseText = String(inputs["parse"] ?? "");',
-            'const ocrText = String(inputs["ocr"] ?? "");',
+            '// OCR 失败时上游是错误对象而非文本，此时回退到兜底节点的空串。',
+            'const ocrText = typeof inputs["ocr"] === "string" ? inputs["ocr"] : String(inputs["ocrFallback"] ?? "");',
             'const text = parseText + "\n" + ocrText;',
             'const firstLine = (parseText.split("\n")[0] || "(无标题)").trim().slice(0, 40);',
             'const rows = [',
@@ -1085,13 +1107,13 @@ const docIngestGraph = {
         id: "table",
         kind: "table",
         name: "结构化入库",
-        x: 1120,
+        x: 1320,
         y: 300,
         table: {
           steps: [{ op: "output", format: "json" }],
         },
       },
-      { id: "depot", kind: "sink", name: "入库清单", x: 1360, y: 300 },
+      { id: "depot", kind: "sink", name: "入库清单", x: 1540, y: 300 },
     ],
     edges: [
       { id: "e1", from: "intake", to: "fetch", kind: "flow" },
@@ -1099,6 +1121,8 @@ const docIngestGraph = {
       { id: "e3", from: "parse", to: "ocr", kind: "flow" },
       { id: "e4", from: "parse", to: "combine", kind: "flow" },
       { id: "e5", from: "ocr", to: "combine", kind: "flow" },
+      { id: "x1", from: "ocr", to: "ocrFallback", kind: "error" },
+      { id: "e5b", from: "ocrFallback", to: "combine", kind: "flow" },
       { id: "e6", from: "combine", to: "table", kind: "flow" },
       { id: "e7", from: "table", to: "depot", kind: "flow" },
     ],
@@ -1159,12 +1183,28 @@ const reviewPublishGraph = {
         kind: "notify",
         name: "送审通知",
         x: 920,
-        y: 300,
+        y: 460,
         notify: {
           provider: "feishu",
           format: "markdown",
           // message 留空：notify 会把上游成稿文本作为送审内容原样发出。
           message: "",
+        },
+      },
+      {
+        // 送审通知兜底：未配置 webhook 时 notify 节点会失败，这里接住它，
+        // 人工终审照常进行（审核不依赖外部通知渠道）。
+        id: "notifyFallback",
+        kind: "code",
+        name: "通知兜底",
+        x: 1180,
+        y: 560,
+        code: {
+          language: "javascript",
+          code: [
+            '// 未配置送审 webhook 时走这里：直接放行，人工终审在界面上进行。',
+            'console.log("(未配置送审通知 webhook，已跳过外部通知)");',
+          ].join("\n"),
         },
       },
       {
@@ -1183,8 +1223,11 @@ const reviewPublishGraph = {
       { id: "e1", from: "intake", to: "writer", kind: "flow" },
       { id: "e2", from: "writer", to: "qc", kind: "flow" },
       { id: "e3", from: "qc", to: "notify", kind: "flow" },
-      { id: "e4", from: "notify", to: "human", kind: "flow" },
+      { id: "e4", from: "qc", to: "human", kind: "flow" },
       { id: "e5", from: "human", to: "publish", kind: "flow" },
+      { id: "e6", from: "notify", to: "publish", kind: "flow" },
+      { id: "x1", from: "notify", to: "notifyFallback", kind: "error" },
+      { id: "x2", from: "notifyFallback", to: "publish", kind: "flow" },
       { id: "r1", from: "qc", to: "writer", kind: "rework" },
     ],
   },
