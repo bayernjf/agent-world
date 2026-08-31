@@ -649,10 +649,20 @@ app.post("/api/providers/test", async (c) => {
   // the saved config on the server.
   const looksRedacted = !apiKey || isRedactedKey(apiKey);
   if (looksRedacted && body.providerName) {
-    if (saved?.apiKey && !isRedactedKey(saved.apiKey)) apiKey = saved.apiKey;
-    else if (!saved) {
+    if (!saved) {
       return c.json({ ok: false, error: `Provider "${body.providerName}" 未保存，请先添加并保存` }, 400);
     }
+    // A server-resolved key must never travel to a caller-chosen destination:
+    // pairing the saved key with a different baseUrl would let any user
+    // exfiltrate it to their own host. Key and endpoint must stay same-source;
+    // to test a new address, supply a fresh key in the same request.
+    if (normalizeBaseUrl(saved.baseUrl ?? "") !== baseUrl) {
+      return c.json(
+        { ok: false, error: "使用已保存的 API Key 时不能修改 Base URL；如需测试新地址，请同时填入新的 API Key" },
+        400,
+      );
+    }
+    if (saved.apiKey && !isRedactedKey(saved.apiKey)) apiKey = saved.apiKey;
   }
 
   if (!apiKey || isRedactedKey(apiKey)) {
