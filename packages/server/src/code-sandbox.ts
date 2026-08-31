@@ -132,19 +132,24 @@ export function resolveLimits(user?: CodeSandboxLimits): Required<CodeSandboxLim
  * broke until the wrapper was pinned to bash.
  */
 export function buildRlimitWrapper(params: {
+  language: "javascript" | "python";
   interpreterPath: string;
   interpreterArgs: string[];
   limits: Required<CodeSandboxLimits>;
 }): { command: string; args: [string, string] } {
-  const { interpreterPath, interpreterArgs, limits } = params;
+  const { language, interpreterPath, interpreterArgs, limits } = params;
   const parts: string[] = [];
   parts.push(`ulimit -t ${limits.cpuSec}`);      // RLIMIT_CPU seconds
   parts.push(`ulimit -u ${limits.maxProcs}`);    // RLIMIT_NPROC
   parts.push(`ulimit -f ${limits.maxFileKb}`);   // RLIMIT_FSIZE KB
   parts.push(`ulimit -n ${limits.maxFd}`);       // RLIMIT_NOFILE
-  if (platform() === "linux") {
-    // RLIMIT_AS on macOS historically does NOT enforce against malloc.
-    // Skip on Darwin; Node JS gets --max-old-space-size instead.
+  if (platform() === "linux" && language === "python") {
+    // RLIMIT_AS on macOS historically does NOT enforce against malloc,
+    // so skip it on Darwin entirely. Skip it for JS on Linux too: Node's
+    // V8 reserves a huge virtual address space (pointer-compression cage,
+    // ~400GB VSZ on Node 24) that a modest RLIMIT_AS cannot satisfy, and
+    // the heap is already capped via --max-old-space-size. Python has no
+    // runtime heap cap, so RLIMIT_AS stays its memory-bomb guard.
     parts.push(`ulimit -v ${limits.virtualMemoryKb}`);
   }
   parts.push(`exec ${q(interpreterPath)} ${interpreterArgs.map(q).join(" ")}`);
@@ -257,6 +262,7 @@ export function planCodeSpawn(opts: {
   }
 
   const wrapped = buildRlimitWrapper({
+    language: opts.language,
     interpreterPath: interpreter,
     interpreterArgs,
     limits,
@@ -341,7 +347,12 @@ export const bwrapBackend: CodeSandboxBackend = {
       limits,
       opts.extraFsReadPaths ?? [],
     );
-    const inner = buildRlimitWrapper({ interpreterPath, interpreterArgs, limits });
+    const inner = buildRlimitWrapper({
+      language: opts.language,
+      interpreterPath,
+      interpreterArgs,
+      limits,
+    });
     const args = [
       "--ro-bind", "/", "/",
       "--bind", opts.workdir, opts.workdir,
@@ -400,7 +411,12 @@ export const sandboxExecBackend: CodeSandboxBackend = {
     );
     // extraFsReadPaths need no explicit grant here: the profile already has
     // `(allow file-read*)` — reads are unrestricted, only writes are fenced.
-    const inner = buildRlimitWrapper({ interpreterPath, interpreterArgs, limits });
+    const inner = buildRlimitWrapper({
+      language: opts.language,
+      interpreterPath,
+      interpreterArgs,
+      limits,
+    });
     const args = ["-p", buildSeatbeltProfile(opts.workdir), inner.command, ...inner.args];
     return { command: "sandbox-exec", args, limits, wrapped: true };
   },
