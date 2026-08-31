@@ -31,6 +31,7 @@
 | [CHANGELOG.md](../CHANGELOG.md) | 按版本的变更日志（Keep a Changelog） | 所有人 |
 | [CONTRIBUTING.md](../CONTRIBUTING.md) | 环境搭建、测试、commit 规范、PR 流程 | 贡献者 |
 | [technical-design.md](technical-design.md) | 技术方案结论：架构、数据模型、API、安全 | 开发者 |
+| [security-audit-2026-08-31.md](security-audit-2026-08-31.md) | 安全审计报告 + 四批修复方案（3 Critical / 10 High；推翻两条旧"已解决"结论）★ | 开发者 / 决策者 |
 | [roadmap-generalization.md](roadmap-generalization.md) | 通用化路线图（当前主线，5 阶段） | 决策者 / 开发者 ★ |
 | [deferred-items.md](deferred-items.md) | 缓做/低优事项登记表（全部挂起项 + 触发条件的单一事实源） | 决策者 / 开发者 ★ |
 | [design-mcp-server.md](design-mcp-server.md) | MCP Server 设计（传输 / tools / resources / prompts） | 开发者 |

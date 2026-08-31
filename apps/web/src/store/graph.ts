@@ -4,7 +4,7 @@ import type { Graph, GraphEdge, GraphNode, NodeKind } from "@agent-world/core";
 import { api, GraphConflictError, type Modality } from "../lib/api";
 
 /** Cached settings used to seed newly added nodes with a sensible model. */
-interface ModelOption {
+export interface ModelOption {
   provider: string;
   model: string;
   modality: Modality;
@@ -42,6 +42,12 @@ export async function refreshDefaultModel() {
   }
 }
 void refreshDefaultModel();
+
+/** Read the cached enabled model options (built-in + user-configured).
+ *  The Model Assign modal groups these by modality as pick candidates. */
+export function getModelOptions(): ModelOption[] {
+  return cachedModelOptions;
+}
 
 /**
  * Pick the best model for a given node kind. The user's "default model" only
@@ -201,6 +207,13 @@ interface GraphState {
   /** Delete all selected nodes and edges. */
   deleteSelected: () => void;
   updateNode: (id: string, patch: Partial<GraphNode>) => void;
+  /**
+   * Batch-assign a model to the given AI nodes (textGen/imageGen/videoGen/
+   * audioGen). Only the `model` field of each node's sub-config is written —
+   * prompts, skills and other settings are untouched. Returns how many
+   * nodes actually changed.
+   */
+  assignModel: (ids: string[], model: string) => number;
   /** Replace the graph's default variables (cross-run persisted state). */
   updateGraphVariables: (variables: Record<string, unknown>) => void;
   beginHistoryBatch: () => void;
@@ -531,6 +544,43 @@ export const useGraph = create<GraphState>()(
           scheduleSave(graph);
           return { graph };
         }),
+
+      assignModel: (ids, model) => {
+        if (!model.trim() || ids.length === 0) return 0;
+        const idSet = new Set(ids);
+        let changed = 0;
+        useGraph.temporal.getState().resume();
+        set((s) => {
+          const nodes = s.graph.nodes.map((n) => {
+            if (!idSet.has(n.id)) return n;
+            // Write only the model field of the kind's sub-config; every
+            // other setting (prompt, skills, n, voice…) stays as-is.
+            let next: GraphNode = n;
+            if (n.kind === "textGen" && n.textGen) {
+              if (n.textGen.model === model) return n;
+              next = { ...n, textGen: { ...n.textGen, model } };
+            } else if (n.kind === "imageGen" && n.imageGen) {
+              if (n.imageGen.model === model) return n;
+              next = { ...n, imageGen: { ...n.imageGen, model } };
+            } else if (n.kind === "videoGen" && n.videoGen) {
+              if (n.videoGen.model === model) return n;
+              next = { ...n, videoGen: { ...n.videoGen, model } };
+            } else if (n.kind === "audioGen" && n.audioGen) {
+              if (n.audioGen.model === model) return n;
+              next = { ...n, audioGen: { ...n.audioGen, model } };
+            } else {
+              // Non-AI kinds carry no model field — skip silently.
+              return n;
+            }
+            changed += 1;
+            return next;
+          });
+          const graph = { ...s.graph, nodes };
+          if (changed > 0) scheduleSave(graph);
+          return changed > 0 ? { graph } : s;
+        });
+        return changed;
+      },
 
       updateGraphVariables: (variables) =>
         set((s) => {

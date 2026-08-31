@@ -83,7 +83,12 @@ describe("code-proxy token registry", () => {
   it("revokes access once the token is unregistered", async () => {
     const { server, port } = await listen((_q, s) => s.end("pong"));
     try {
-      const token = registerNetToken({ runId: "r1", nodeId: "n1", allowlist: ["localhost"] });
+      const token = registerNetToken({
+        runId: "r1",
+        nodeId: "n1",
+        allowlist: ["localhost"],
+        extraConnectPorts: [port],
+      });
       const p = await proxyPort();
       const ok = await proxyGet(p, `http://localhost:${port}/ping`, `Bearer ${token}`);
       expect(ok.status).toBe(200);
@@ -99,7 +104,12 @@ describe("code-proxy token registry", () => {
   it("isolates allowlists across runs (cross-token isolation)", async () => {
     const { server, port } = await listen((_q, s) => s.end("pong"));
     try {
-      const tLocal = registerNetToken({ runId: "rA", nodeId: "n1", allowlist: ["localhost"] });
+      const tLocal = registerNetToken({
+        runId: "rA",
+        nodeId: "n1",
+        allowlist: ["localhost"],
+        extraConnectPorts: [port],
+      });
       const tOther = registerNetToken({ runId: "rB", nodeId: "n1", allowlist: ["example.com"] });
       const p = await proxyPort();
       const viaA = await proxyGet(p, `http://localhost:${port}/x`, `Bearer ${tLocal}`);
@@ -123,7 +133,12 @@ describe("code-proxy HTTP forward", () => {
       s.end("pong");
     });
     try {
-      const token = registerNetToken({ runId: "r1", nodeId: "n1", allowlist: ["localhost"] });
+      const token = registerNetToken({
+        runId: "r1",
+        nodeId: "n1",
+        allowlist: ["localhost"],
+        extraConnectPorts: [port],
+      });
       const p = await proxyPort();
       const r = await proxyGet(p, `http://localhost:${port}/ping?a=1`, `Bearer ${token}`);
       expect(r.status).toBe(200);
@@ -139,7 +154,12 @@ describe("code-proxy HTTP forward", () => {
   it("accepts the Basic credentials real clients derive from the proxy URL", async () => {
     const { server, port } = await listen((_q, s) => s.end("pong"));
     try {
-      const token = registerNetToken({ runId: "r1", nodeId: "n1", allowlist: ["localhost"] });
+      const token = registerNetToken({
+        runId: "r1",
+        nodeId: "n1",
+        allowlist: ["localhost"],
+        extraConnectPorts: [port],
+      });
       const basic = Buffer.from(`aw:${token}`).toString("base64");
       const p = await proxyPort();
       const r = await proxyGet(p, `http://localhost:${port}/ping`, `Basic ${basic}`);
@@ -162,6 +182,21 @@ describe("code-proxy HTTP forward", () => {
     }
   });
 
+  it("denies plaintext forwards to ports outside the granted set (audit L4)", async () => {
+    const { server, port } = await listen((_q, s) => s.end("pong"));
+    try {
+      // allowlist matches the host, but no extraConnectPorts: the random high
+      // port must still be refused just like a non-80/443 CONNECT target.
+      const token = registerNetToken({ runId: "r1", nodeId: "n1", allowlist: ["localhost"] });
+      const p = await proxyPort();
+      const r = await proxyGet(p, `http://localhost:${port}/x`, `Bearer ${token}`);
+      expect(r.status).toBe(403);
+      expect(r.body).toContain("not allowed through the proxy");
+    } finally {
+      await close(server);
+    }
+  });
+
   it("rejects requests without valid credentials with 407", async () => {
     const { server, port } = await listen((_q, s) => s.end("pong"));
     try {
@@ -177,7 +212,12 @@ describe("code-proxy HTTP forward", () => {
     delete process.env.ALLOW_PRIVATE_NETWORK;
     const { server, port } = await listen((_q, s) => s.end("pong"));
     try {
-      const token = registerNetToken({ runId: "r1", nodeId: "n1", allowlist: ["127.0.0.1"] });
+      const token = registerNetToken({
+        runId: "r1",
+        nodeId: "n1",
+        allowlist: ["127.0.0.1"],
+        extraConnectPorts: [port],
+      });
       const p = await proxyPort();
       const r = await proxyGet(p, `http://127.0.0.1:${port}/x`, `Bearer ${token}`);
       expect(r.status).toBe(403);

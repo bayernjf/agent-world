@@ -109,6 +109,55 @@ describe("templates", () => {
     expect(urls).toEqual(["https://a.example.com", "https://b.example.com"]);
   });
 
+  it("ships the four capability templates exercising search+audio, loop+search, vcs and convert+ocr", () => {
+    const expectKinds = (id: string, kinds: string[]) => {
+      const tpl = getTemplate(id)!;
+      expect(tpl, `template ${id} should exist`).toBeTruthy();
+      const present = new Set(tpl.graph.nodes.map((n) => n.kind));
+      for (const k of kinds) expect(present.has(k), `${id} should contain a ${k} node`).toBe(true);
+    };
+    expectKinds("tpl-news-podcast", ["search", "audioGen"]);
+    expectKinds("tpl-research-loop", ["loop", "search"]);
+    expectKinds("tpl-release-pr", ["human", "vcs"]);
+    expectKinds("tpl-scan-ocr", ["convert", "ocr"]);
+  });
+
+  it("loop template's items ref is rewritten to the fresh split-node id", () => {
+    const tpl = getTemplate("tpl-research-loop")!;
+    const g = instantiateTemplate(tpl);
+    const split = g.nodes.find((n) => n.name === "拆题")!;
+    const loop = g.nodes.find((n) => n.name === "逐课题循环")!;
+    const items = (loop.loop as { items: string }).items;
+    // The ${split} placeholder now points at the fresh id, not the template id.
+    expect(items).toBe(`\${${split.id}}`);
+    expect(items).not.toContain("${split}");
+  });
+
+  it("fallible nodes route errors to a fallback instead of hard-failing the run", () => {
+    // doc-ingest: OCR on a text-only PDF must fall through to an empty-text node.
+    const docIngest = getTemplate("tpl-doc-ingest")!;
+    expect(
+      docIngest.graph.edges.some((e) => e.kind === "error" && e.from === "ocr" && e.to === "ocrFallback"),
+    ).toBe(true);
+    // review-publish: missing webhook must not block the human review flow.
+    const reviewPublish = getTemplate("tpl-review-publish")!;
+    expect(
+      reviewPublish.graph.edges.some((e) => e.kind === "error" && e.from === "notify" && e.to === "notifyFallback"),
+    ).toBe(true);
+    // scan-ocr: text-layer PDFs cannot be page-rendered; explain instead of failing.
+    const scanOcr = getTemplate("tpl-scan-ocr")!;
+    expect(
+      scanOcr.graph.edges.some((e) => e.kind === "error" && e.from === "pages" && e.to === "convFallback"),
+    ).toBe(true);
+  });
+
+  it("translation template uses the dedicated translate node with a target language", () => {
+    const g = instantiateTemplate(getTemplate("tpl-translation")!);
+    const translate = g.nodes.find((n) => n.kind === "translate");
+    expect(translate, "translation should use a translate node").toBeTruthy();
+    expect((translate!.translate as { target: string }).target).toBeTruthy();
+  });
+
   it("rewrites node-id references so configs point at the fresh ids", () => {
     const tpl = {
       id: "tpl-ref",

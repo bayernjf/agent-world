@@ -1,6 +1,6 @@
 import { createHash, createHmac } from "node:crypto";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 
 /**
  * Storage abstraction for generated/uploaded artifacts (4.4 / 4E).
@@ -33,15 +33,28 @@ export class StorageError extends Error {
 /** Files on the local filesystem. `key` is joined onto `baseDir`. */
 export class LocalStorageBackend implements StorageBackend {
   readonly kind = "local" as const;
-  constructor(private readonly baseDir: string) {
-    mkdirSync(baseDir, { recursive: true });
+  private readonly base: string;
+  constructor(baseDir: string) {
+    this.base = resolve(baseDir);
+    mkdirSync(this.base, { recursive: true });
   }
+  /**
+   * Keys reach us from artifact ids (`${nodeId}-text`, …) built off graph node
+   * ids, so they must never be trusted to stay inside `baseDir`. Resolve and
+   * assert containment on every access — defense in depth on top of the NodeId
+   * charset restriction in core.
+   */
   private path(key: string): string {
-    return join(this.baseDir, key);
+    const p = resolve(this.base, key);
+    if (p !== this.base && !p.startsWith(this.base + sep)) {
+      throw new StorageError(`storage key escapes base directory: ${JSON.stringify(key)}`);
+    }
+    return p;
   }
   put(key: string, data: Buffer): void {
-    mkdirSync(dirname(this.path(key)), { recursive: true });
-    writeFileSync(this.path(key), data);
+    const p = this.path(key);
+    mkdirSync(dirname(p), { recursive: true });
+    writeFileSync(p, data);
   }
   get(key: string): Buffer | null {
     try {

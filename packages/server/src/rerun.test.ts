@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 // The Hono app is a module singleton with DB/config env read at import time,
 // so give it a scratch database before importing.
@@ -11,6 +11,9 @@ let app: Awaited<ReturnType<typeof import("./index.js")>>["app"];
 beforeAll(async () => {
   dir = mkdtempSync(join(tmpdir(), "aw-rerun-"));
   process.env.DB_FILE = join(dir, "api.sqlite");
+  // These tests exercise the run API, not registration policy; allow account
+  // creation despite the M3 self-registration gate.
+  vi.stubEnv("ALLOW_REGISTRATION", "1");
   const mod = await import("./index.js");
   app = mod.app;
 });
@@ -18,6 +21,7 @@ beforeAll(async () => {
 afterAll(() => {
   delete process.env.DB_FILE;
   rmSync(dir, { recursive: true, force: true });
+  vi.unstubAllEnvs();
 });
 
 async function register(email: string): Promise<string> {

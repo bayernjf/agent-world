@@ -224,6 +224,16 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
     res.end(`host ${url.host} is not in this run's network allowlist`);
     return;
   }
+  // Audit L4: the plaintext forward path must apply the same 80/443 port
+  // whitelist as CONNECT, otherwise the proxy could be used as a jump host to
+  // arbitrary internal ports over http://host:NNNN.
+  const fwdPort = Number(url.port || 80);
+  if (!Number.isInteger(fwdPort) || !entry.connectPorts.has(fwdPort)) {
+    audit(entry, url.host, "deny", "port-not-allowed", t0);
+    res.writeHead(403, { "content-type": "text/plain; charset=utf-8" });
+    res.end(`port ${url.port || 80} is not allowed through the proxy`);
+    return;
+  }
   const address = await resolveConnectAddress(url.hostname);
   if (!address) {
     audit(entry, url.host, "deny", "internal-or-unresolvable", t0);
@@ -245,7 +255,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
   }
   const fwd = httpRequest({
     host: address,
-    port: url.port || 80,
+    port: fwdPort,
     method: req.method,
     path: url.pathname + url.search,
     headers,

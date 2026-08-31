@@ -1,6 +1,7 @@
 import { HaltRequested, type AgentChunk, type AgentResult, type AudioGenArgs, type AudioGenResult, type ImageGenResult, type VideoGenArgs, type VideoGenResult, type Worker } from "../worker.js";
 import type { TextGenConfig, ContentPart as MultimodalContent, GraphNode, Usage } from "@agent-world/core";
 import { computeCost, endpointFor, modalityOf, normalizeBaseUrl, type ModelPricing, type ProviderConfig } from "../config.js";
+import { GuardedFetchError, guardedFetch } from "../ssrf.js";
 
 export class ProviderError extends Error {
   constructor(
@@ -11,6 +12,40 @@ export class ProviderError extends Error {
     super(message);
     this.name = "ProviderError";
   }
+}
+
+/**
+ * Per-node endpoint/key resolution with the H5 rule: when the node overrides
+ * `baseUrl`, the provider's stored key must NOT be replayed to that
+ * user-chosen host — a graph author pointing baseUrl at their own server
+ * would otherwise exfiltrate the operator's gateway key. A node-level key must
+ * accompany a node-level baseUrl.
+ */
+function nodeEndpointKey(
+  baseUrl: string,
+  provider: ProviderConfig,
+  nodeBaseUrl?: string,
+  nodeApiKey?: string,
+): { endpoint: string; apiKey: string } {
+  if (nodeBaseUrl) {
+    const key = nodeApiKey || "";
+    if (!key) {
+      throw new ProviderError(
+        "AUTH",
+        "Node-level baseUrl override requires a node-level apiKey; the provider's stored key is never sent to a custom endpoint",
+      );
+    }
+    return { endpoint: normalizeBaseUrl(nodeBaseUrl), apiKey: key };
+  }
+  return { endpoint: baseUrl, apiKey: provider.apiKey ?? "" };
+}
+
+/** Map a guarded-egress rejection (deterministic) to a provider error. */
+function mapGuardedError(err: unknown): ProviderError {
+  if (err instanceof GuardedFetchError) {
+    return new ProviderError("PROVIDER_ERROR", err.message);
+  }
+  return new ProviderError("UNKNOWN", (err as Error).message);
 }
 
 /** OpenAI-style multimodal content part. Only text and image_url are used today. */
@@ -113,7 +148,7 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
 
     let response: Response;
     try {
-      response = await fetch(`${baseUrl}${endpointFor(provider, model, "text")}`, {
+      response = await guardedFetch(`${baseUrl}${endpointFor(provider, model, "text")}`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -133,7 +168,7 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
       if ((err as Error).name === "AbortError") {
         throw new ProviderError("TIMEOUT", `Request timed out after ${config.timeoutMs}ms`);
       }
-      throw new ProviderError("UNKNOWN", (err as Error).message);
+      throw mapGuardedError(err);
     }
 
     if (!response.ok || !response.body) {
@@ -243,7 +278,7 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
 
       let res: Response;
       try {
-        res = await fetch(`${baseUrl}${endpointFor(provider, model, "text")}`, {
+        res = await guardedFetch(`${baseUrl}${endpointFor(provider, model, "text")}`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -264,7 +299,7 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
         if ((err as Error).name === "AbortError") {
           throw new ProviderError("TIMEOUT", `Request timed out after ${config.timeoutMs}ms`);
         }
-        throw new ProviderError("UNKNOWN", (err as Error).message);
+        throw mapGuardedError(err);
       }
       clearTimeout(timeout);
       signal?.removeEventListener("abort", onAbort);
@@ -433,8 +468,9 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
       const n = Math.min(8, Math.max(1, Math.trunc(config.n ?? 1)));
       // Per-node endpoint / key override lets an imageGen node target a different
       // server (e.g. a local SD / ComfyUI OpenAI-compatible endpoint) than chat.
-      const endpoint = (config.baseUrl || baseUrl).replace(/\/+$/, "");
-      const apiKey = config.apiKey || provider.apiKey;
+      // H5: a custom baseUrl never receives the provider's stored key — a
+      // node-level key must accompany it.
+      const { endpoint, apiKey } = nodeEndpointKey(baseUrl, provider, config.baseUrl, config.apiKey);
       if (!apiKey) {
         throw new ProviderError(
           "AUTH",
@@ -452,14 +488,14 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
       }
       let res: Response;
       try {
-        res = await fetch(`${endpoint}${endpointFor(provider, model, "image")}`, {
+        res = await guardedFetch(`${endpoint}${endpointFor(provider, model, "image")}`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
           body: JSON.stringify({ model, prompt: input, n, size }),
           signal: controller.signal,
         });
       } catch (err) {
-        throw new ProviderError("UNKNOWN", (err as Error).message);
+        throw mapGuardedError(err);
       } finally {
         clearTimeout(timer);
         if (signal) signal.removeEventListener("abort", onAbort);
@@ -481,7 +517,12 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
         if (item.b64_json) {
           data = Buffer.from(item.b64_json, "base64");
         } else if (item.url) {
-          const imgRes = await fetch(item.url, { signal: controller.signal });
+          // H6: the "provider" (whose baseUrl a graph author can override)
+          // returns arbitrary URLs — fetch bytes through the guarded egress so
+          // internal addresses are refused instead of becoming artifacts.
+          const imgRes = await guardedFetch(item.url, { signal: controller.signal }).catch((err) => {
+            throw mapGuardedError(err);
+          });
           if (!imgRes.ok) {
             throw new ProviderError("PROVIDER_ERROR", `failed to fetch generated image: HTTP ${imgRes.status}`);
           }
@@ -509,8 +550,8 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
     async generateVideo({ config, input, signal }: VideoGenArgs): Promise<VideoGenResult[]> {
       const model = config.model || "video-gen";
       const n = Math.min(4, Math.max(1, Math.trunc(config.n ?? 1)));
-      const endpoint = (config.baseUrl || baseUrl).replace(/\/+$/, "");
-      const apiKey = config.apiKey || provider.apiKey;
+      // H5: custom baseUrl never receives the provider's stored key.
+      const { endpoint, apiKey } = nodeEndpointKey(baseUrl, provider, config.baseUrl, config.apiKey);
       if (!apiKey) {
         throw new ProviderError("AUTH", "Missing API key for video provider");
       }
@@ -529,11 +570,13 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
         if (config.aspect) body.aspect_ratio = config.aspect;
         if (config.size) body.size = config.size;
 
-        const res = await fetch(`${endpoint}${endpointFor(provider, model, "video")}`, {
+        const res = await guardedFetch(`${endpoint}${endpointFor(provider, model, "video")}`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
           body: JSON.stringify(body),
           signal: controller.signal,
+        }).catch((err) => {
+          throw mapGuardedError(err);
         });
         if (!res.ok) {
           const text = await res.text().catch(() => "");
@@ -547,11 +590,11 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
           let videoUrl: string | undefined;
           while (!controller.signal.aborted) {
             await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
-            const pollRes = await fetch(`${endpoint}${endpointFor(provider, model, "video")}/${taskId}`, {
+            const pollRes = await guardedFetch(`${endpoint}${endpointFor(provider, model, "video")}/${taskId}`, {
               headers: { Authorization: `Bearer ${apiKey}` },
               signal: controller.signal,
-            });
-            if (!pollRes.ok) continue;
+            }).catch(() => null);
+            if (!pollRes || !pollRes.ok) continue;
             const pollJson = (await pollRes.json()) as Record<string, unknown>;
             if (pollJson.status === "succeeded" || pollJson.status === "completed") {
               const output = pollJson.output as Array<{ url?: string; b64_json?: string }> | undefined;
@@ -563,7 +606,10 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
             }
           }
           if (!videoUrl) throw new ProviderError("PROVIDER_ERROR", "video generation timed out");
-          const vidRes = await fetch(videoUrl, { signal: controller.signal });
+          // H6: provider-supplied URL fetched through the guarded egress.
+          const vidRes = await guardedFetch(videoUrl, { signal: controller.signal }).catch((err) => {
+            throw mapGuardedError(err);
+          });
           if (!vidRes.ok) throw new ProviderError("PROVIDER_ERROR", `failed to fetch video: HTTP ${vidRes.status}`);
           const data = Buffer.from(await vidRes.arrayBuffer());
           const ct = vidRes.headers.get("content-type") || "video/mp4";
@@ -579,7 +625,10 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
           if (item.b64_json) {
             data = Buffer.from(item.b64_json, "base64");
           } else if (item.url) {
-            const vidRes = await fetch(item.url, { signal: controller.signal });
+            // H6: guarded egress for provider-supplied URLs.
+            const vidRes = await guardedFetch(item.url, { signal: controller.signal }).catch((err) => {
+              throw mapGuardedError(err);
+            });
             if (!vidRes.ok) throw new ProviderError("PROVIDER_ERROR", `failed to fetch video: HTTP ${vidRes.status}`);
             data = Buffer.from(await vidRes.arrayBuffer());
           } else {
@@ -599,8 +648,8 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
     async generateAudio({ config, input, signal }: AudioGenArgs): Promise<AudioGenResult[]> {
       const model = config.model || "tts-1";
       const n = Math.min(4, Math.max(1, Math.trunc(config.n ?? 1)));
-      const endpoint = (config.baseUrl || baseUrl).replace(/\/+$/, "");
-      const apiKey = config.apiKey || provider.apiKey;
+      // H5: custom baseUrl never receives the provider's stored key.
+      const { endpoint, apiKey } = nodeEndpointKey(baseUrl, provider, config.baseUrl, config.apiKey);
       if (!apiKey) {
         throw new ProviderError("AUTH", "Missing API key for audio provider");
       }
@@ -615,7 +664,10 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
       try {
         const results: AudioGenResult[] = [];
         for (let i = 0; i < n; i++) {
-          const res = await fetch(`${endpoint}${endpointFor(provider, model, "audio")}`, {
+          // H5/M7: audio endpoint leaves through the guarded egress too — the
+          // node-level baseUrl is user-controllable, so internal targets and
+          // redirect hops are refused like every other provider call.
+          const res = await guardedFetch(`${endpoint}${endpointFor(provider, model, "audio")}`, {
             method: "POST",
             headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
             body: JSON.stringify({
@@ -626,6 +678,8 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
               ...(config.speed != null ? { speed: config.speed } : {}),
             }),
             signal: controller.signal,
+          }).catch((err) => {
+            throw mapGuardedError(err);
           });
           if (!res.ok) {
             const text = await res.text().catch(() => "");

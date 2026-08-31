@@ -765,8 +765,20 @@ export const SourceConfig = z.object({
 });
 export type SourceConfig = z.infer<typeof SourceConfig>;
 
+/**
+ * Node ids end up interpolated into artifact keys (`${id}-text`, `${id}-img0`,
+ * …) that the storage layer joins onto a base directory, so they must be a
+ * tight charset with no path separators or traversal segments. Client-side
+ * generators (web store, template instantiation) already produce this shape.
+ */
+export const NodeId = z
+  .string()
+  .regex(/^[A-Za-z0-9]+[A-Za-z0-9._-]*$/, "id must be [A-Za-z0-9._-], start with an alphanumeric")
+  .max(64);
+export type NodeId = z.infer<typeof NodeId>;
+
 export const GraphNode = z.object({
-  id: z.string().min(1),
+  id: NodeId,
   kind: NodeKind,
   name: z.string().min(1),
   /** Canvas position of the plant's centre, in view units. */

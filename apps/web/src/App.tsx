@@ -18,6 +18,7 @@ import UndoRedo from "./components/UndoRedo";
 import Toast from "./components/Toast";
 import Timeline from "./components/Timeline";
 import RunHistory from "./components/RunHistory";
+import ModelAssignModal from "./components/ModelAssignModal";
 import VariablesModal from "./components/VariablesModal";
 import Tooltip from "./components/Tooltip";
 import { useTips } from "./store/tips";
@@ -103,6 +104,7 @@ export default function App() {
     [inspectorWidth],
   );
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [modelAssignOpen, setModelAssignOpen] = useState(false);
   const [costOpen, setCostOpen] = useState(false);
   const [evalOpen, setEvalOpen] = useState(false);
   const [abOpen, setABOpen] = useState(false);
@@ -303,6 +305,13 @@ export default function App() {
       hint: "Provider / 模型 / 单价 / 月度预算",
       group: "管理",
       onSelect: () => setSettingsOpen(true),
+    },
+    {
+      id: "model-assign",
+      label: "模型分配",
+      hint: "按模态批量切换当前产线节点的模型",
+      group: "管理",
+      onSelect: () => setModelAssignOpen(true),
     },
     {
       id: "brand",
@@ -777,6 +786,7 @@ export default function App() {
             onCancel={onCancel}
             onOpenSettings={() => setSettingsOpen(true)}
             onOpenHistory={() => setHistoryOpen(true)}
+            onOpenModelAssign={() => setModelAssignOpen(true)}
           />
 
           <main className="stage">
@@ -829,6 +839,14 @@ export default function App() {
           onOpen={(id) => {
             setHistoryOpen(false);
             void loadRun(id);
+          }}
+        />
+        <ModelAssignModal
+          open={modelAssignOpen}
+          onClose={() => setModelAssignOpen(false)}
+          onOpenSettings={() => {
+            setModelAssignOpen(false);
+            setSettingsOpen(true);
           }}
         />
         <CostReport open={costOpen} onClose={() => setCostOpen(false)} />

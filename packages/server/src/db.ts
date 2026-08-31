@@ -260,12 +260,14 @@ export function openDb(file: string) {
     findUserPasswordHash: db.prepare(
       `SELECT password_hash FROM users WHERE id = ?`,
     ),
+    countUsers: db.prepare(`SELECT COUNT(*) AS n FROM users`),
     updateUserPasswordHash: db.prepare(
       `UPDATE users SET password_hash = ? WHERE id = ?`,
     ),
     insertGraph: db.prepare(
       `INSERT INTO graphs (id, user_id, name, doc, origin_template_id, updated_at) VALUES (?, ?, ?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET name = excluded.name, doc = excluded.doc, version = version + 1, updated_at = excluded.updated_at`,
+       ON CONFLICT(id) DO UPDATE SET name = excluded.name, doc = excluded.doc, version = version + 1, updated_at = excluded.updated_at
+       WHERE graphs.user_id = excluded.user_id`,
     ),
     // Conditional update: only succeeds when the row's current version matches
     // the If-Match value, so a stale tab can't silently clobber a newer save.
@@ -403,6 +405,10 @@ export function openDb(file: string) {
       const row = stmts.findUserPasswordHash.get(id) as { password_hash: string } | undefined;
       return row?.password_hash;
     },
+    /** Total account count — gates self-registration once the first user exists (M3). */
+    countUsers(): number {
+      return (stmts.countUsers.get() as { n: number }).n;
+    },
     updateUserPasswordHash(id: string, passwordHash: string) {
       stmts.updateUserPasswordHash.run(passwordHash, id);
     },
@@ -419,8 +425,15 @@ export function openDb(file: string) {
       userId: string,
       expectedVersion?: number,
       originTemplateId?: string | null,
-    ): { ok: true; version: number } | { ok: false; conflict: true; serverVersion: number | null } {
+    ): { ok: true; version: number } | { ok: false; conflict: true; serverVersion: number | null } | { ok: false; foreign: true } {
       const doc = JSON.stringify(graph);
+      // Cross-tenant guard (H1): an upsert must never overwrite a graph that
+      // shares this id but belongs to another user. Checked in the app layer
+      // for a clear error; the UPSERT's WHERE clause is the SQL backstop.
+      const ownerRow = stmts.getGraphOwnerId.get(graph.id) as { user_id: string } | undefined;
+      if (ownerRow && ownerRow.user_id !== userId) {
+        return { ok: false, foreign: true };
+      }
       if (expectedVersion != null) {
         const result = stmts.updateGraphIfVersion.run(
           graph.name,
@@ -1143,7 +1156,7 @@ export function openDb(file: string) {
       };
     },
 
-    abReport(groupId: string): ABReport | null {
+    abReport(groupId: string, userId: string): ABReport | null {
       const rows = db
         .prepare(
           `SELECT
@@ -1156,11 +1169,11 @@ export function openDb(file: string) {
              AVG((SELECT COUNT(*) FROM node_runs nr WHERE nr.run_id = r.id AND nr.attempt > 1)) AS avgRework,
              SUM((SELECT COALESCE(SUM(cost_usd), 0) FROM node_runs nr WHERE nr.run_id = r.id)) AS totalCost
            FROM runs r
-           WHERE r.ab_group = ?
+           WHERE r.ab_group = ? AND r.user_id = ?
            GROUP BY r.ab_arm, r.ab_target
            ORDER BY r.ab_arm`,
         )
-        .all(groupId) as Array<{
+        .all(groupId, userId) as Array<{
         arm: string;
         target: string | null;
         runs: number;
@@ -1177,9 +1190,9 @@ export function openDb(file: string) {
       for (const r of rows) {
         const snap = db
           .prepare(
-            `SELECT snapshot FROM runs WHERE ab_group = ? AND ab_arm = ? AND snapshot IS NOT NULL LIMIT 1`,
+            `SELECT snapshot FROM runs WHERE ab_group = ? AND ab_arm = ? AND user_id = ? AND snapshot IS NOT NULL LIMIT 1`,
           )
-          .get(groupId, r.arm) as { snapshot: string } | undefined;
+          .get(groupId, r.arm, userId) as { snapshot: string } | undefined;
         let prompt: string | null = null;
         if (snap) {
           try {

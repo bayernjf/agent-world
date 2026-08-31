@@ -1789,6 +1789,20 @@ modality 切片，统一严格过滤；同时把 agent 的占位文案从泛化�
 
 > Entries rolled out of the active `handoff.md` "Recently shipped" list to keep it at 5 items.
 
+- `5b66996` — **fix(server)**: db.ts 两处 rename 回归补漏。
+- `daf632c` — **feat(core)**: 4 个能力演示模板——批量内容工坊 / 文档智能解析入库 / 人工审核发布 / 自定义模型接入（补 source 入口节点 + webhook/baseUrl 字段默认值防 zod .url() 校验失败）。
+- `96839c2` — **feat(core)**: 模板实例化重写节点 id 引用——code 脚本 `inputs["id"]`、prompt `${id}`、`source/target/items` 引用字段全部指向新 id，模板定义不被污染。
+- `385c298` — **fix(server)**: 死 catch 节点跳过，error 边汇合点仍执行。
+- `7a5c4f0` — **fix(core)**: 商品详情 / 小红书 / 巡检告警模板 production-ready——空 prompt 修复 + alarmWebhookUrl 模板字段。
+- `569229a` — **refactor(web)**: 全项目原生 `title=` 提示替换为统一 `<Tooltip>` 组件（24 文件，含 Modal 关闭钮 / Minimap 缩放 / 删除钮；App.tsx ConfirmDialog prop 除外）。
+- `17d56fc` — **feat(web)**: 状态栏节点计数按 kind 动态分解（如「3 文坊 · 1 质检站 · 1 原料台」），空图显示「0 节点」。
+- `99bca6a` — **feat(web)**: 设置页「Worker 插件与隔离」区默认折叠 + 可展开表头。
+- `07b8dbe` — **fix(web)**: RunHistory 行布局——重跑按钮定宽 92px hover 显示（失败行常显）、flex 防主内容压缩、模态 header/body 标准化居中。
+- `3a94392` — **fix(web)**: Inspector 面板改点击才展开（store.inspectorOpen 显式信号，拖拽不误弹）。
+- `218fb47` — **feat(web)**: 术语表弹窗 GlossaryModal（标准术语 ⇄ 游戏化用词对照，design-glossary.md 单一事实源）。
+- `c20de6d` — **docs**: 模型分层与商业化决策（内置模型订阅制只读 vs 自定义模型自主增删改）。
+- `1fc7f56` — **docs**: README 按对外受众重写（产品问题开场 / 技术差异点 / Feature map / Quick start / 截图占位）。
+- `ffdfe71` — **docs**: 缓做/低优事项登记表 deferred-items.md 建立。
 - `071002d` — **feat(web)**: **subprocess 节点 UI**。工具栏「子流程」入口 + Inspector 子流程图选择器（api.listGraphs 已保存产线下拉）+ 最大调用深度输入 + SUBPROCESS 错误标签。
 - `d66fe52` — **feat(subprocess)**: **子流程调用节点 subprocess（Phase 4 编排能力 PR3）**。core：NodeKind.subprocess + SubprocessConfig(graphId, maxDepth=3) + NodeErrorCode.SUBPROCESS。engine：runNode subprocess 分支以**隔离递归子调度器**执行子图——子图节点 id 统一加 `<subNode>#sub:` 前缀（事件/状态/产物不与父图冲突），上游文本作子图 source 输入，子图 sink 产物聚合为该节点 json 产物，maxDepth 防互递归；**halt 冒泡**：子流程内暂停（human/gate/dangerous-tool）整 run 暂停（haltNodeId 为前缀 id），resume 后 subprocess 节点重跑、子流程**从断点续跑**（extract/merge sub-init）；预算共享（子执行扣费并入父账，V1 子执行不做独立预算检查）；run.ts/index.ts 注入 loadSubgraph（限定本用户图）。7 个新测试（调用+聚合 / 输入透传 / 找不到图 / 递归防护 / halt 冒泡+恢复 / reject / 子流程失败）。
 - `f607dde` — **feat(web)**: **human 节点 UI**。工具栏「人工审批」入口 + Inspector 审批提示面板 + ControlPanel halted 时展示待审批内容（pendingReview）并保留批准/编辑/驳回按钮；状态文案 human halt 显示「等待人工审批」。

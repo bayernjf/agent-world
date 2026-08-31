@@ -65,6 +65,19 @@ export function routingWorker(config?: AppConfig): Worker {
     async generateImage(args) {
       return workerFor(args.config.model).generateImage(args);
     },
+    // Video and audio generation must route the same way as text/image —
+    // without these delegations the engine sees a worker without those
+    // methods and silently skips every videoGen / audioGen node in production.
+    // Both are optional on Worker: a provider without the modality yields no
+    // results, which the engine treats as an empty (not failed) output.
+    async generateVideo(args) {
+      const w = workerFor(args.config.model);
+      return w.generateVideo ? w.generateVideo(args) : [];
+    },
+    async generateAudio(args) {
+      const w = workerFor(args.config.model);
+      return w.generateAudio ? w.generateAudio(args) : [];
+    },
   };
 }
 

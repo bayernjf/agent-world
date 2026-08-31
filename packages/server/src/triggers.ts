@@ -1,6 +1,21 @@
 import * as fs from "node:fs";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { TriggerConfig, type Graph } from "@agent-world/core";
 import { nextRunAfter } from "./cron.js";
+
+/** Allowed clock skew / replay window for a webhook timestamp (M1): 5 minutes. */
+export const WEBHOOK_TIMESTAMP_WINDOW_MS = 5 * 60 * 1000;
+
+/**
+ * Constant-time secret comparison (M1). Both sides are hashed to a fixed-width
+ * digest first, so timingSafeEqual never sees differing lengths and cannot
+ * leak length through its early throw.
+ */
+function secretEqual(a: string, b: string): boolean {
+  const ha = createHash("sha256").update(a).digest();
+  const hb = createHash("sha256").update(b).digest();
+  return timingSafeEqual(ha, hb);
+}
 
 /** Thrown by the trigger service; carries an HTTP status for the route layer. */
 export class TriggerError extends Error {
@@ -41,12 +56,25 @@ export class TriggerService {
 
   /** Rebuild the in-memory index from persisted graphs. Call once at boot. */
   restore(): void {
+    let disabledEmptySecret = 0;
     for (const summary of this.deps.db.listAllGraphs()) {
       const graph = this.deps.db.getGraphById(summary.id);
       if (!graph) continue;
       for (const trigger of graph.triggers ?? []) {
+        // H2: a webhook persisted with an empty secret is anonymously
+        // triggerable — never index it. Such rows predate the create-time
+        // validation and stay disabled until the owner sets a secret.
+        if (trigger.type === "webhook" && !trigger.webhookSecret?.trim()) {
+          disabledEmptySecret++;
+          continue;
+        }
         this.index.set(trigger.id, { graphId: summary.id, trigger });
       }
+    }
+    if (disabledEmptySecret > 0) {
+      console.warn(
+        `[triggers] restore: skipped ${disabledEmptySecret} webhook trigger(s) with an empty secret (disabled until a secret is set)`,
+      );
     }
   }
 
@@ -107,10 +135,27 @@ export class TriggerService {
     return this.deps.startRun(graph, { trigger: triggerId, input: payloadToInput(payload) });
   }
 
-  /** Validate the webhook secret for a graph, then fire the matching webhook trigger. */
-  async fireWebhook(graphId: string, secret: string, payload?: unknown): Promise<{ runId: string }> {
+  /**
+   * Validate the webhook secret for a graph, then fire the matching webhook
+   * trigger. `timestampMs` (from X-Webhook-Timestamp) is checked against a
+   * short replay window when supplied. Comparison is constant-time (M1), and
+   * an empty/absent secret is rejected outright so it can never match (H2).
+   */
+  async fireWebhook(
+    graphId: string,
+    secret: string,
+    payload?: unknown,
+    timestampMs?: number,
+  ): Promise<{ runId: string }> {
+    if (!secret || !secret.trim()) throw new TriggerError("invalid webhook secret", 401);
+    if (timestampMs != null) {
+      const age = Date.now() - timestampMs;
+      if (!Number.isFinite(age) || Math.abs(age) > WEBHOOK_TIMESTAMP_WINDOW_MS) {
+        throw new TriggerError("webhook timestamp missing or outside the allowed replay window", 401);
+      }
+    }
     const candidate = this.listByGraph(graphId)
-      .find((t) => t.type === "webhook" && t.webhookSecret === secret);
+      .find((t) => t.type === "webhook" && secretEqual(t.webhookSecret ?? "", secret));
     if (!candidate) throw new TriggerError("invalid webhook secret", 401);
     return this.fire(candidate.id, payload, graphId);
   }

@@ -44,6 +44,6 @@ export const plugin = {
   id: "sample-iso",
   name: "Sample Iso",
   isolation: "subprocess",
-  env: ["ALLOWED_KEY"],
+  env: ["ALLOWED_FLAG"],
   createWorker: makeWorker,
 };
