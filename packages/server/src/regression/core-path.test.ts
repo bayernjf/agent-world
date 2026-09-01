@@ -451,6 +451,16 @@ describe("regression · engine core path", () => {
     expect(depotArtifact.content).toContain("producing artifact");
   });
 
+  it("travel-plan template fans the user requirements into the planner", () => {
+    // Dogfood tpl-travel-plan: the http research placeholder was the
+    // planner's only upstream, so it produced a "please tell me your
+    // destination" reply instead of an itinerary and the gate halted the run.
+    const t = TEMPLATES.find((x: { id: string }) => x.id === "tpl-travel-plan")!;
+    const planIn = t.graph.edges.filter((e) => e.to === "plan" && e.kind === "flow").map((e) => e.from);
+    expect(planIn).toContain("intake");
+    expect(planIn).toContain("research");
+  });
+
   it("source node with a database connector pulls live rows end to end", async () => {
     const dir = mkdtempSync(join(tmpdir(), "aw-reg-db-"));
     try {

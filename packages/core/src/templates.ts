@@ -2262,6 +2262,11 @@ const travelPlanGraph = {
     ],
     edges: [
       { id: "e1", from: "intake", to: "research", kind: "flow" },
+      // The research node is an http placeholder; without this fan-in the
+      // planner only saw the fetched JSON and produced a "please tell me your
+      // destination" placeholder instead of an itinerary (dogfood
+      // tpl-travel-plan). The user's requirements must reach the planner.
+      { id: "e1b", from: "intake", to: "plan", kind: "flow" },
       { id: "e2", from: "research", to: "plan", kind: "flow" },
       { id: "e3", from: "plan", to: "optimize", kind: "flow" },
       { id: "e4", from: "optimize", to: "gate", kind: "flow" },
