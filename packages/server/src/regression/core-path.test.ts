@@ -364,6 +364,10 @@ describe("regression · engine core path", () => {
       "2026-08-22, BX-2026-0143, 业务招待餐费, 860",
       "2026-08-22, BX-2026-0143, 业务招待餐费, 860",
       "2026-08-25, BX-2026-0144, 机票, 1520",
+      // Double-anomaly line: over the 1000 limit AND a duplicated voucher
+      // number — issueCount must be 2 (dogfood tpl-expense-review), which is
+      // what makes the issueCount-desc sort meaningful.
+      "2026-08-25, BX-2026-0144, 设备采购, 2200",
       "8月28日, BX-2026-0145, 办公用品, 129",
     ].join("\n");
 
@@ -381,9 +385,12 @@ describe("regression · engine core path", () => {
     const flagged = JSON.parse(checkArtifact.content).rows as {
       voucherNo: string; amount: number | ""; flags: string; issueCount: number; risk: string; category: string;
     }[];
-    expect(flagged).toHaveLength(5); // header skipped
-    expect(flagged.filter((r) => r.flags.includes("重复单号")).map((r) => r.voucherNo)).toEqual(["BX-2026-0143", "BX-2026-0143"]);
+    expect(flagged).toHaveLength(6); // header skipped
+    expect(flagged.filter((r) => r.flags.includes("重复单号")).map((r) => r.voucherNo)).toEqual(["BX-2026-0143", "BX-2026-0143", "BX-2026-0144", "BX-2026-0144"]);
     expect(flagged.find((r) => r.amount === 1520)?.flags).toContain("单笔超1000元");
+    // issueCount is the real flag count, not a boolean: the double-anomaly
+    // line carries 2.
+    expect(flagged.find((r) => r.amount === 2200)?.issueCount).toBe(2);
     const noDate = flagged.find((r) => r.voucherNo === "BX-2026-0145")!;
     expect(noDate.flags).toContain("日期缺失");
     expect(noDate.category).toBe("办公用品"); // "8月28日" must not be mistaken for the category
@@ -393,11 +400,15 @@ describe("regression · engine core path", () => {
       (e) => e.type === "artifact.produced" && e.nodeId === tableId && e.artifact.kind === "json",
     )?.artifact;
     expect(tableArtifact).toBeTruthy();
-    const sorted = JSON.parse(tableArtifact.content).rows as { issueCount: number }[];
-    expect(sorted).toHaveLength(5);
+    const sorted = JSON.parse(tableArtifact.content).rows as { issueCount: number; amount: number }[];
+    expect(sorted).toHaveLength(6);
     const counts = sorted.map((r) => r.issueCount);
     expect(counts).toEqual([...counts].sort((a, b) => b - a));
-    expect(sorted[0].issueCount).toBeGreaterThanOrEqual(1);
+    // Both double-anomaly rows (over-limit AND duplicated voucher number)
+    // sort ahead of every single-flag row.
+    expect(counts[0]).toBe(2);
+    expect(counts[1]).toBe(2);
+    expect(sorted.slice(0, 2).map((r) => r.amount).sort((a, b) => a - b)).toEqual([1520, 2200]);
   });
 
   it("source node with a database connector pulls live rows end to end", async () => {
