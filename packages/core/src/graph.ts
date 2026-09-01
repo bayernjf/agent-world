@@ -515,12 +515,20 @@ export const OcrConfig = z.object({
   source: z.string().optional(),
   /** Tesseract language code(s), comma-separated (e.g. "eng", "chi_sim", "chi_sim+eng"). */
   lang: z.string().min(1).default("eng"),
-  /** Base URL for .traineddata.gz language files. Defaults to the official CDN. */
-  langPath: z.string().url().optional(),
-  /** Override for the tesseract worker script URL (air-gapped deployments). */
-  workerPath: z.string().url().optional(),
-  /** Override for the tesseract-core WASM URL (air-gapped deployments). */
-  corePath: z.string().url().optional(),
+  /**
+   * Where to fetch `.traineddata.gz` language files from: an official-CDN URL or
+   * a local directory (air-gapped). Unset uses the official CDN. HTTP(S) sources
+   * are checked against the operator allowlist at run time, never before.
+   */
+  langPath: z.string().min(1).optional(),
+  /**
+   * Override for the tesseract worker script — a local path, or an allowlisted
+   * host. Leave unset under Node: the runtime resolves the bundled script, and
+   * a worker_threads URL here would be rejected outright.
+   */
+  workerPath: z.string().min(1).optional(),
+  /** Override for the tesseract-core WASM, same rules as `workerPath`. */
+  corePath: z.string().min(1).optional(),
 });
 export type OcrConfig = z.infer<typeof OcrConfig>;
 
