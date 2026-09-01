@@ -1,6 +1,6 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { ConnectorConfig } from "@agent-world/core";
 import { guardedFetch } from "./ssrf.js";
 
@@ -197,7 +197,8 @@ export async function resolveConnector(
         );
       }
       try {
-        const rows = db.prepare(trimmed).all(...(c.params ?? []));
+        const bindParams = toSqlBindParams(c.params ?? []);
+        const rows = db.prepare(trimmed).all(...bindParams);
         const text =
           c.format === "csv" ? rowsToCsv(rows) : JSON.stringify(rows, null, 2);
         return { text, images: [] };
@@ -208,9 +209,20 @@ export async function resolveConnector(
   }
 }
 
+/** Coerces user-supplied bind params to values node:sqlite accepts. Booleans
+ *  become 1/0; unsupported types throw so the caller gets a clear error. */
+function toSqlBindParams(params: unknown[]): SQLInputValue[] {
+  return params.map((p, i) => {
+    if (p == null) return null;
+    if (typeof p === "string" || typeof p === "number" || typeof p === "bigint") return p as SQLInputValue;
+    if (typeof p === "boolean") return p ? 1 : 0;
+    if (p instanceof Uint8Array) return p;
+    throw new Error(`database connector: 绑定参数 #${i + 1} 类型不支持（${typeof p}）`);
+  });
+}
+
 /** Serializes query rows to a simple CSV (header row + quoted value rows). */
-function rowsToCsv(rows: Array<Record<string, unknown>>): string {
-  if (rows.length === 0) return "";
+function rowsToCsv(rows: Array<Record<string, unknown>>): string {  if (rows.length === 0) return "";
   const cols = Object.keys(rows[0] ?? {});
   const esc = (v: unknown) => {
     const s = v == null ? "" : String(v);
