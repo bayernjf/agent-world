@@ -75,9 +75,13 @@ describe("template instantiation API", () => {
         defaultValue: "",
       },
     ]);
-    // Field-less templates get an empty array, not undefined, for a stable shape.
-    const blank = templates.find((t) => t.id === "tpl-blank");
-    expect(blank?.fields).toEqual([]);
+    // Since the blank canvas split (BLANK_TEMPLATE lives outside TEMPLATES),
+    // the template API must not list it — the web picker renders blank
+    // separately as the first creation card.
+    expect(templates.find((t) => t.id === "tpl-blank")).toBeUndefined();
+    // Field-less templates still get an empty array, not undefined, for a stable shape.
+    const evidence = templates.find((t) => t.id === "tpl-evidence-brief");
+    expect(evidence?.fields).toEqual([]);
   });
 
   it("POST /api/graphs applies fieldValues to the instantiated graph", async () => {
