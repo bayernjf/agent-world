@@ -258,6 +258,13 @@ export async function guardedFetch(url: string | URL, init: GuardedFetchInit = {
       dispatcher = pinnedAgent(resolved.pin, resolved.family);
     }
 
+    // The pinned Agent must come from the same undici build as the global
+    // fetch (Node's bundled undici). The pnpm dependency is pinned to that
+    // same major (^7.8) so passing `dispatcher` here stays protocol-compatible
+    // — an 8.x Agent handed to the 7.x global fetch throws "invalid
+    // onRequestStart method" and every pinned request would fail. The pinned
+    // agent routes the TCP/TLS connection to the validated IP; Host header and
+    // SNI still use the original hostname.
     const r = await fetch(current.toString(), {
       method,
       headers: hopHeaders,

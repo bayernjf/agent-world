@@ -35,7 +35,7 @@ export default function NewGraphDialog({ open, onClose, onPick }: Props) {
     <div className="modal-backdrop" onClick={onClose}>
       <div
         className="modal"
-        style={{ width: 520 }}
+        style={{ width: 640 }}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="modal__header">
@@ -47,9 +47,10 @@ export default function NewGraphDialog({ open, onClose, onPick }: Props) {
           </Tooltip>
         </div>
         <div className="modal__body">
-          <p className="form-hint">选择一个模板开始，或从空白产线搭建。</p>
+          <p className="form-hint">从空白产线开始搭建，或选择一个模板。</p>
           <TemplatePicker
             templates={TEMPLATE_LIST}
+            blankFirst
             onPick={(id) => {
               const tpl = id
                 ? TEMPLATE_LIST.find((t) => t.id === id)
@@ -59,12 +60,6 @@ export default function NewGraphDialog({ open, onClose, onPick }: Props) {
               else onPick(id);
             }}
           />
-          <button
-            className="btn new-graph__blank"
-            onClick={() => onPick(undefined)}
-          >
-            从空白产线开始
-          </button>
         </div>
       </div>
 

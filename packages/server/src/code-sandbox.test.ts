@@ -90,6 +90,7 @@ describe("buildRlimitWrapper", () => {
 
   it("wraps with /bin/bash -c and execs through to the interpreter", () => {
     const w = buildRlimitWrapper({
+      language: "javascript",
       interpreterPath: "/usr/bin/node",
       interpreterArgs: ["-e", "console.log(1)"],
       limits,
@@ -101,15 +102,29 @@ describe("buildRlimitWrapper", () => {
     expect(script).toContain("ulimit -u 23");
     expect(script).toContain("ulimit -f 45");
     expect(script).toContain("ulimit -n 67");
-    // Linux-only virtual memory gate
-    if (platform() === "linux") expect(script).toContain("ulimit -v 89");
-    else expect(script).not.toContain("ulimit -v");
+    // JS skips the RLIMIT_AS gate on every platform: Node's V8 needs a huge
+    // virtual address space and the heap is already capped by
+    // --max-old-space-size. Only python gets ulimit -v (covered below).
+    expect(script).not.toContain("ulimit -v");
     // Replaces shell image with the interpreter (no extra PID in the tree)
     expect(script).toContain("exec '/usr/bin/node' '-e' 'console.log(1)'");
   });
 
+  it("applies the RLIMIT_AS gate to python only on Linux", () => {
+    const w = buildRlimitWrapper({
+      language: "python",
+      interpreterPath: "/usr/bin/python3",
+      interpreterArgs: ["-c", "print(1)"],
+      limits,
+    });
+    const script = w.args[1];
+    if (platform() === "linux") expect(script).toContain("ulimit -v 89");
+    else expect(script).not.toContain("ulimit -v");
+  });
+
   it("shell-quotes arguments that carry embedded spaces and single quotes", () => {
     const w = buildRlimitWrapper({
+      language: "javascript",
       interpreterPath: "/weird path/node",
       interpreterArgs: ["-e", "console.log('x')"],
       limits,
@@ -120,19 +135,21 @@ describe("buildRlimitWrapper", () => {
     // node (which sh resolves to). If quoting is wrong the script fails
     // (syntax error or prints nothing we can recognize).
     const execPath = process.execPath;
-    // Execute with production-safe limits, NOT the tiny fake ones above:
-    // `ulimit -v 89` (KB) on Linux kills Node before it can even boot.
+    // Execute with production-safe limits, NOT the tiny fake ones above.
+    // JS skips the RLIMIT_AS gate, so the tiny virtualMemoryKb can no
+    // longer bite here — but maxProcs still matters:
+    // RLIMIT_NPROC caps the TOTAL task count (processes AND threads) of
+    // the invoking user — including the vitest workers and harness
+    // processes running this very test. When the user's session is
+    // already at ≥maxProcs tasks, node aborts at boot (uv_thread_create
+    // EAGAIN → SIGABRT, status=null) before our code ever runs — a CI
+    // Linux run showed exactly that signature. Quoting is what we test
+    // here; NPROC enforcement under production limits is covered by the
+    // engine.code integration tests.
     const runtime = buildRlimitWrapper({
+      language: "javascript",
       interpreterPath: execPath,
       interpreterArgs: ["-e", "console.log('x')"],
-      // RLIMIT_NPROC caps the TOTAL task count (processes AND threads) of
-      // the invoking user — including the vitest workers and harness
-      // processes running this very test. When the user's session is
-      // already at ≥maxProcs tasks, node aborts at boot (uv_thread_create
-      // EAGAIN → SIGABRT, status=null) before our code ever runs — a CI
-      // Linux run showed exactly that signature. Quoting is what we test
-      // here; NPROC enforcement under production limits is covered by the
-      // engine.code integration tests.
       limits: { ...resolveLimits(), maxProcs: 4096 },
     });
     // Use spawnSync to run the wrapper with a timeout. rlimits will be

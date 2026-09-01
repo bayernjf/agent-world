@@ -161,8 +161,10 @@ describe("search node — web search", () => {
   });
 
   it("fails with PROVIDER_ERROR when the provider errors out", async () => {
+    // Disable retry backoff: this case only asserts the error mapping, and the
+    // default retry would sleep real seconds waiting to re-hit the 502.
     fetchMock.mockResolvedValue(new Response("oops", { status: 502 }));
-    const events = await collect(searchGraph({ query: "q" }));
+    const events = await collect(searchGraph({ query: "q", retry: { maxRetries: 0 } }));
     expect(replay(events).status).toBe("failed");
     expect(
       events.some((e) => e.type === "node.failed" && e.nodeId === "se" && e.errorCode === "PROVIDER_ERROR"),

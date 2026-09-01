@@ -206,7 +206,7 @@ export default function ModelAssignModal({ open, onClose, onOpenSettings }: Prop
                         </span>
                         <span className="model-assign__picked">{picked.model}</span>
                         <button className="model-assign__toggle" onClick={toggleAll}>
-                          全选 / 清空
+                          全选
                         </button>
                       </div>
                       <div className="model-assign__list">

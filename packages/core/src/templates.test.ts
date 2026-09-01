@@ -219,4 +219,55 @@ describe("templates", () => {
       return tpl.graph.nodes.find((n) => n.id === id);
     }
   });
+
+  it("rewrites branch targets to fresh ids, including forward references", () => {
+    // A branch node's `rules[].target` and `defaultTarget` are bare node ids.
+    // Regression guard: they reference nodes that appear LATER in the nodes
+    // array (alarm/record come after judge), so id rewriting must not depend
+    // on array order (the old implementation only saw already-generated ids).
+    const tpl = {
+      id: "tpl-branch",
+      name: "branch",
+      description: "branch",
+      category: "基础",
+      graph: {
+        id: "tpl-branch",
+        name: "branch",
+        nodes: [
+          { id: "src", kind: "source", name: "SRC", x: 0, y: 0 },
+          {
+            id: "judge",
+            kind: "branch",
+            name: "JUDGE",
+            x: 1,
+            y: 0,
+            branch: {
+              rules: [{ id: "r1", when: "${src.ok} != true", target: "alarm" }],
+              defaultTarget: "record",
+            },
+          },
+          { id: "alarm", kind: "sink", name: "ALARM", x: 2, y: 0 },
+          { id: "record", kind: "sink", name: "RECORD", x: 3, y: 0 },
+        ],
+        edges: [
+          { id: "e1", from: "src", to: "judge", kind: "flow" },
+          { id: "e2", from: "judge", to: "alarm", kind: "flow" },
+          { id: "e3", from: "judge", to: "record", kind: "flow" },
+        ],
+      },
+    } as const;
+    const g = instantiateTemplate(tpl as never);
+    const byName = new Map(g.nodes.map((n) => [n.name, n]));
+    const judge = byName.get("JUDGE")!;
+    const alarmId = byName.get("ALARM")!.id;
+    const recordId = byName.get("RECORD")!.id;
+    const branch = judge.branch as { rules: { target: string }[]; defaultTarget: string };
+    // Both the rule target and the defaultTarget resolve to the fresh ids.
+    expect(branch.rules[0].target).toBe(alarmId);
+    expect(branch.defaultTarget).toBe(recordId);
+    // Both targets exist as real outgoing flow edges.
+    const out = g.edges.filter((e) => e.from === judge.id).map((e) => e.to);
+    expect(out).toContain(alarmId);
+    expect(out).toContain(recordId);
+  });
 });

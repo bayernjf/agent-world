@@ -53,6 +53,26 @@ export interface ProviderConfig {
    * modalities fall back to the global MODALITY_ENDPOINT default.
    */
   endpoints?: Partial<Record<Modality, string>>;
+  /**
+   * Optional adapter for gateways whose video API diverges from the standard
+   * OpenAI-compatible video shape. agnes is the shipped example: it requires a
+   * literal `mode` ("ti2vid"), rejects `duration`, takes explicit width/height
+   * instead of `aspect_ratio`, and returns the generated URL at `metadata.url`
+   * (not `output[0].url`).
+   */
+  videoAdapter?: {
+    /** Literal fields merged into the create-task body (e.g. `{ mode: "ti2vid" }`). */
+    createBody?: Record<string, unknown>;
+    /** Do not send `duration` (gateway rejects it; duration is controlled via
+     *  other fields such as num_frames/frame_rate). */
+    omitDuration?: boolean;
+    /** Maps a node's aspect string (e.g. "16:9") to explicit width/height for
+     *  gateways that take dimensions instead of `aspect_ratio`. */
+    aspectToSize?: Record<string, { width: number; height: number }>;
+    /** Dot path to the generated video URL inside the poll result
+     *  (default `output.0.url` for OpenAI-style `output` arrays). */
+    resultUrlPath?: string;
+  };
   /** Disabled providers are kept in config but skipped by the router. */
   enabled?: boolean;
   /** "builtin" = product-owned tier, injected from DEFAULT_CONFIG and
@@ -150,6 +170,23 @@ const AGNES_PROVIDER: ProviderConfig = {
   // Agnes gateway serves video at POST /v1/videos (not /videos/generations),
   // so declare it explicitly — independent of the global MODALITY_ENDPOINT default.
   endpoints: { video: "/videos" },
+  // agnes video API diverges from the OpenAI-compatible video shape: it wants
+  // a literal `mode` ("ti2vid"), rejects `duration`, takes width/height, and
+  // returns the finished URL at `metadata.url`.
+  videoAdapter: {
+    createBody: { mode: "ti2vid" },
+    omitDuration: true,
+    aspectToSize: {
+      "16:9": { width: 1280, height: 720 },
+      "9:16": { width: 720, height: 1280 },
+      "1:1": { width: 768, height: 768 },
+      "4:3": { width: 1024, height: 768 },
+      "3:4": { width: 768, height: 1024 },
+    },
+    // The completed task carries the video URL at the top-level `url` field
+    // (metadata is empty); the parser falls back to metadata.url/output[0].
+    resultUrlPath: "url",
+  },
 };
 
 const DEFAULT_CONFIG: AppConfig = {

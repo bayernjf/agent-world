@@ -55,6 +55,12 @@
 | Linear | 同 Notion | 同 Notion | [integrations-future.md §2](integrations-future.md#2-linear) |
 | 邮件收件/附件 | 是触发器架构扩展（IMAP 轮询/webhook），不是 notify 的增量 | 有"收到邮件自动触发产线"的明确场景 | [integrations-future.md §3](integrations-future.md#3-邮件收件--附件) |
 | 内容平台（小红书/抖音/淘宝） | 依赖商家 API 资质，走连接器市场不建原生节点 | 拿到平台 API 资质 | [integrations-future.md §4](integrations-future.md#4-内容平台小红书--抖音--淘宝) |
+
+### 安全/运维线
+
+| 事项 | 缓做/低优原因 | 触发条件 | 决策详情 |
+|---|---|---|---|
+| 静态加密的重加密 / 密钥轮换工具 | 换 key 后存量 secrets 需迁移重加密；当前可用 encryptString/decryptString 手写一次性迁移，影响面小 | 出现真实换 key / 轮换需求（或合规要求密钥定期轮换） | [design-at-rest-encryption.md §5](design-at-rest-encryption.md) |
 | Bitbucket/Gitea | vcs 节点同构可扩展，无紧迫需求 | 用户提出 | [integrations-future.md §5](integrations-future.md#5-bitbucket--gitea-等-vcs) |
 
 ### 数据处理线

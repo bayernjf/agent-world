@@ -4,6 +4,7 @@ import {
   McpClient,
   connectMcpServer,
   registerMcpTools,
+  resolveSsePostUrl,
   type McpTransport,
 } from "./mcp.js";
 import { executeBuiltinTool, listBuiltinSkills, registerSkill } from "./skills/registry.js";
@@ -164,6 +165,20 @@ describe("StreamableHttpMcpTransport (4D.7)", () => {
       srv.close();
     }
   }, 15000);
+});
+
+describe("resolveSsePostUrl (audit L7)", () => {
+  const stream = "https://mcp.example.com/sse";
+  it("keeps a same-origin relative or absolute endpoint", () => {
+    expect(resolveSsePostUrl(stream, "/messages")).toBe("https://mcp.example.com/messages");
+    expect(resolveSsePostUrl(stream, "https://mcp.example.com/msg")).toBe("https://mcp.example.com/msg");
+  });
+  it("falls back to the stream URL for a cross-origin or non-http endpoint", () => {
+    expect(resolveSsePostUrl(stream, "https://evil.example.com/x")).toBe(stream);
+    expect(resolveSsePostUrl(stream, "http://mcp.example.com/x")).toBe(stream); // scheme differs
+    expect(resolveSsePostUrl(stream, "file:///etc/passwd")).toBe(stream);
+    expect(resolveSsePostUrl(stream, "http://169.254.169.254/latest/meta-data")).toBe(stream); // cross-origin IP
+  });
 });
 
 describe("SseMcpTransport (4D.7)", () => {

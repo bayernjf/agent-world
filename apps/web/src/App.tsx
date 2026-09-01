@@ -341,20 +341,6 @@ export default function App() {
       group: "管理",
       onSelect: () => setVariablesOpen(true),
     },
-    {
-      id: "reset-template",
-      label: "还原到模板布局",
-      hint: "只还原节点位置和连线",
-      group: "管理",
-      onSelect: () => {
-        const current = graphs.find((g) => g.id === graph.id);
-        if (!current?.originTemplateId) {
-          showError("此产线未从模板创建，无法还原布局。");
-          return;
-        }
-        resetGraph(graph.id);
-      },
-    },
     // 画布
     {
       id: "undo",
@@ -489,28 +475,6 @@ export default function App() {
       }
     },
     [graph, refreshGraphs, setGraph, flushSave, nameTaken],
-  );
-
-  const resetGraph = useCallback(
-    async (id: string) => {
-      try {
-        if (id === graph.id) {
-          // Flush the user's latest edits first so the current state is
-          // auto-snapshotted before being overwritten by the reset.
-          await flushSave();
-        }
-        const g = await api.resetGraph(id);
-        await refreshGraphs();
-        if (id === graph.id) {
-          reset();
-          setGraph(g);
-          useGraph.temporal.getState().clear();
-        }
-      } catch (e) {
-        showError(String(e));
-      }
-    },
-    [graph.id, refreshGraphs, setGraph, reset, flushSave],
   );
 
   const confirmDelete = useCallback(async () => {
@@ -707,7 +671,6 @@ export default function App() {
                 setDeleteTarget(graphs.find((g) => g.id === id) ?? null)
               }
               onRename={renameGraph}
-              onReset={resetGraph}
             />
             <span className="muted">
               {graph.nodes.length > 0
