@@ -117,6 +117,35 @@ async function drain(gen: AsyncGenerator<unknown, void, unknown>): Promise<any[]
   return out;
 }
 
+/**
+ * Retry backoff for the cases that really execute a `code` node. The default
+ * code-node retry is { maxRetries: 2, baseDelayMs: 1000 }; a no-op sleep turns
+ * that into three attempts inside one microsecond, so a transient subprocess
+ * failure on a loaded 2-vCPU runner is never actually backed off. Sleep for
+ * real but capped: retries cost ≤ 200ms and mirror production behaviour instead
+ * of hiding a broken sandbox.
+ */
+function backoffSleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, Math.min(ms, 100)));
+}
+
+/**
+ * Assert a node reached node.finished, and name the reason when it did not.
+ * A bare `expected false to be true` cannot tell a script error apart from a
+ * starved subprocess — the CI log has to answer that by itself.
+ */
+function expectNodeFinished(events: any[], nodeId: string) {
+  const finished = events.some((e) => e.type === "node.finished" && e.nodeId === nodeId);
+  const failures = events.filter((e) => e.type === "node.failed" && e.nodeId === nodeId);
+  const detail = failures.length
+    ? `node.failed: ${failures.map((f) => `[${f.errorCode ?? "UNKNOWN"}] ${f.error}`).join(" | ")}`
+    : "该节点没有任何 node.failed —— 它被调度器饿死了（没启动，或停在 running）";
+  expect(
+    finished,
+    `node ${nodeId} 未到达 node.finished；${detail}；末尾事件: ${events.slice(-20).map((e) => e.type).join(" → ")}`,
+  ).toBe(true);
+}
+
 // ─── engine core path ────────────────────────────────────────────────────────
 
 describe("regression · engine core path", () => {
@@ -231,7 +260,7 @@ describe("regression · engine core path", () => {
     const worker = fakeWorker({ failFirstAttempts: 0, chunkDelayMs: 0 });
 
     const events = await drain(
-      execute({ runId: "r-rp", graph, plan: plan!, worker, budgetUsd: null, input: "测试内容", now: () => 0, sleep: async () => {} }),
+      execute({ runId: "r-rp", graph, plan: plan!, worker, budgetUsd: null, input: "测试内容", now: () => 0, sleep: backoffSleep }),
     );
 
     const notifyId = graph.nodes.find((n) => n.name === "送审通知")?.id;
@@ -241,7 +270,7 @@ describe("regression · engine core path", () => {
     // notify must fail (missing webhook)
     expect(events.some((e) => e.type === "node.failed" && e.nodeId === notifyId)).toBe(true);
     // the error-edge catch node must actually run, not stay starved
-    expect(events.some((e) => e.type === "node.finished" && e.nodeId === fallbackId)).toBe(true);
+    expectNodeFinished(events, fallbackId!);
     // and the human node paused the run for operator review
     expect(events.some((e) => e.type === "human.review")).toBe(true);
   });
@@ -255,12 +284,12 @@ describe("regression · engine core path", () => {
     const worker = fakeWorker({ failFirstAttempts: 0, chunkDelayMs: 0 });
 
     const events = await drain(
-      execute({ runId: "r-bc", graph, plan: plan!, worker, budgetUsd: null, input: "甲\n乙\n丙", now: () => 0, sleep: async () => {} }),
+      execute({ runId: "r-bc", graph, plan: plan!, worker, budgetUsd: null, input: "甲\n乙\n丙", now: () => 0, sleep: backoffSleep }),
     );
 
     const splitId = graph.nodes.find((n) => n.name === "拆条")?.id;
     expect(splitId).toBeTruthy();
-    expect(events.some((e) => e.type === "node.finished" && e.nodeId === splitId)).toBe(true);
+    expectNodeFinished(events, splitId!);
     // split emits a json artifact with the two items — prove stdin inputs flowed in
     const splitArtifact = events.find(
       (e) => e.type === "artifact.produced" && e.nodeId === splitId && e.artifact.kind === "json",
@@ -287,7 +316,7 @@ describe("regression · engine core path", () => {
     ].join("\n");
 
     const events = await drain(
-      execute({ runId: "r-ev", graph, plan: plan!, worker, budgetUsd: null, input, now: () => 0, sleep: async () => {} }),
+      execute({ runId: "r-ev", graph, plan: plan!, worker, budgetUsd: null, input, now: () => 0, sleep: backoffSleep }),
     );
 
     expect(replay(events).status).toBe("done");
@@ -333,7 +362,7 @@ describe("regression · engine core path", () => {
     ].join("\n");
 
     const events = await drain(
-      execute({ runId: "r-exp", graph, plan: plan!, worker, budgetUsd: null, input, now: () => 0, sleep: async () => {} }),
+      execute({ runId: "r-exp", graph, plan: plan!, worker, budgetUsd: null, input, now: () => 0, sleep: backoffSleep }),
     );
 
     expect(replay(events).status).toBe("done");

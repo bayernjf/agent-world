@@ -1439,6 +1439,20 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           emit({ type: "node.finished", nodeId, attempt, output, usage: zeroUsage() });
           sendPackets(nodeId, output.slice(0, 120), artifact.kind);
           return;
+        } catch (err) {
+          // 子进程根本起不来（解释器缺失、fork 被 EAGAIN 拒绝…）时 withRetry 会
+          // 重试后抛错。必须落成诚实的 node.failed：裸抛会让节点停在 "running"，
+          // 事件流里既没有 finished 也没有 failed，只留下一个查不出原因的缺失。
+          states.set(nodeId, "failed");
+          status = "failed";
+          emit({
+            type: "node.failed",
+            nodeId,
+            attempt,
+            error: `代码节点无法执行: ${sanitizeError(err instanceof Error ? err.message : String(err))}`,
+            errorCode: "SUBPROCESS",
+          });
+          return;
         } finally {
           if (netToken) unregisterNetToken(netToken);
           await cleanupCodeWorkdir(workdir);
@@ -3512,6 +3526,21 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       }
 
       sendPackets(nodeId, result.output.slice(0, 120), primaryKind);
+    } catch (err) {
+      // 兜底安全网：任何节点分支的意外抛错都必须留下一条 node.failed。否则会走
+      // 成 `void runNode()` 的 unhandled rejection —— 节点状态永久停在 "running"，
+      // error 边的 catch 节点不会接手，run 照常收尾，外部只看得见"少了某个
+      // node.finished"。2026-09-01 CI 上两条 code 节点回归用例的红就是这种形态。
+      const message = sanitizeError(err instanceof Error ? err.message : String(err));
+      console.warn(`[engine:${nodeId}] ${node.kind} 节点意外抛错:`, message);
+      states.set(nodeId, "failed");
+      emit({
+        type: "node.failed",
+        nodeId,
+        attempt,
+        error: `节点执行异常: ${message}`,
+        errorCode: "UNKNOWN",
+      });
     } finally {
       running--;
       // 节点失败时立即把错误交给 error 边的下游 catch 节点，不等待全局静止
