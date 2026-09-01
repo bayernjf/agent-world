@@ -108,10 +108,22 @@ export function sealGraphDoc(graph: Graph): Graph {
 
 /** Decrypt the webhook secrets inside a graph document (returns a copy). */
 export function openGraphDoc(graph: Graph): Graph {
-  if (!hasSecrets(graph)) return graph;
+  // Drop "ghost" edges whose endpoints no longer exist. A corrupted save can
+  // leave pipes referencing node ids that aren't in the graph; they are
+  // invisible on the canvas (no endpoint to click), so the UI can never
+  // delete them and compile() would keep reporting "Edge references a missing
+  // plant" forever. A valid graph never has such edges, so this normalization
+  // self-heals those rows on load. Returns the same reference when clean.
+  const liveIds = new Set(graph.nodes.map((n) => n.id));
+  const hasOrphanEdges = graph.edges.some((e) => !liveIds.has(e.from) || !liveIds.has(e.to));
+  const opened = hasOrphanEdges
+    ? { ...graph, edges: graph.edges.filter((e) => liveIds.has(e.from) && liveIds.has(e.to)) }
+    : graph;
+
+  if (!hasSecrets(opened)) return opened;
   return {
-    ...graph,
-    triggers: graph.triggers!.map((t) =>
+    ...opened,
+    triggers: opened.triggers!.map((t) =>
       t.webhookSecret ? { ...t, webhookSecret: decryptString(t.webhookSecret) } : t,
     ),
   };

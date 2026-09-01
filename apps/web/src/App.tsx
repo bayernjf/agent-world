@@ -40,7 +40,7 @@ import RunCompare from "./components/RunCompare";
 import CommandPalette, { type CommandItem } from "./components/CommandPalette";
 import { api, DuplicateGraphNameError } from "./lib/api";
 import { useToast } from "./store/toast";
-import { TEMPLATES } from "@agent-world/core";
+import { getTemplate } from "@agent-world/core";
 import { useGraph } from "./store/graph";
 import { useRun } from "./store/run";
 
@@ -402,7 +402,7 @@ export default function App() {
   const createGraph = useCallback(
     async (template?: string, fieldValues?: Record<string, string>) => {
       if (template) {
-        const tpl = TEMPLATES.find((t) => t.id === template);
+        const tpl = getTemplate(template);
         if (tpl && nameTaken(tpl.name))
           return reportDuplicate(
             tpl.name,

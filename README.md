@@ -56,14 +56,14 @@ change actually helped).
 
 | Area | What's there |
 |---|---|
-| **Nodes** | 24 types: agent, gate, HTTP (SSRF-guarded), code exec (JS/Python, sandboxed), branch, map, loop, parallel, table, database, file parse, translate, OCR, convert, search, notify, vcs, human approval, subprocess, image/video/audio gen, source, sink |
+| **Nodes** | 25 types: agent, gate, HTTP (SSRF-guarded), code exec (JS/Python, sandboxed), branch, map, loop, parallel, table, database, file parse, translate, OCR, convert, search, notify, vcs, human approval, subprocess, image/video/audio gen, generic (modality auto-dispatch), source, sink |
 | **Triggers** | Manual, webhook, cron (self-hosted parser), event, batch |
 | **Quality** | LLM-judge gates, score-rework loops, brand/banned terms, output-contract schema validation |
 | **Observability** | Live SSE streaming, replay scrubber, per-node cost, eval report (by day / by graph / by prompt fingerprint), CSV export |
 | **MCP** | Both directions: consume external MCP servers as tools; expose the platform itself as an MCP server (15 tools, stdio + HTTP/SSE) |
 | **Sandboxing** | 3-tier code exec: env/cwd isolation → rlimit + Node permission model → bwrap (Linux) / seatbelt (macOS); SSRF guard immune to DNS rebinding |
 | **Accounts** | JWT + bcrypt, all resources isolated per user |
-| **Templates** | 10 built-in pipelines with parameterizable fields (URLs, targets, brand terms) |
+| **Templates** | 27 built-in pipelines across 11 categories (grouped in the picker, blank canvas pinned first), with parameterizable fields (URLs, targets, brand terms) |
 
 ## Quick start
 
@@ -92,8 +92,9 @@ pnpm dev
 6. **Inspect** — click any node for attempts, scores, cost, and artifacts;
    the 成品仓 (sink) renders the final output with images and video inline.
 
-<!-- TODO: replace with an animated GIF of a run (canvas + rework loop + timeline scrub) -->
-<!-- ![Agent World run](docs/images/board-overview.png) -->
+![Agent World run](docs/images/demo-run.gif)
+
+*A pipeline run with timeline scrubbing — source intake → text generation → quality gate (with rework loop) → sink depot.*
 
 ### Run the checks
 

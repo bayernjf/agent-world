@@ -270,6 +270,101 @@ describe("regression · engine core path", () => {
     expect(splitArtifact.content).toContain("丙");
   });
 
+  it("evidence-brief template runs end to end: split → sorted table → gate pass", async () => {
+    // The lawyer evidence-list line: a real code-node parse of pasted material,
+    // a real table sort, and the deterministic split→sheet contract between them.
+    const t = TEMPLATES.find((x: { id: string }) => x.id === "tpl-evidence-brief")!;
+    const graph = instantiateTemplate(t);
+    const { plan } = compile(graph)!;
+    const worker = fakeWorker({ failFirstAttempts: 0, chunkDelayMs: 0 });
+
+    const input = [
+      "诉讼请求：判令张三偿还借款 10 万元。",
+      "",
+      "2024年3月5日 微信聊天记录：张三说“欠你的 10 万，三个月内还”。",
+      "",
+      "2024/3/1 银行转账凭证：向张三转账 100,000 元。",
+    ].join("\n");
+
+    const events = await drain(
+      execute({ runId: "r-ev", graph, plan: plan!, worker, budgetUsd: null, input, now: () => 0, sleep: async () => {} }),
+    );
+
+    expect(replay(events).status).toBe("done");
+    const splitId = graph.nodes.find((n) => n.name === "拆条编号")?.id;
+    const sheetId = graph.nodes.find((n) => n.name === "时间索引")?.id;
+    // split must emit one json row per pasted evidence chunk, with best-effort dates
+    const splitArtifact = events.find(
+      (e) => e.type === "artifact.produced" && e.nodeId === splitId && e.artifact.kind === "json",
+    )?.artifact;
+    expect(splitArtifact).toBeTruthy();
+    expect(splitArtifact.content).toContain("微信聊天记录");
+    expect(splitArtifact.content).toContain("转账凭证");
+    expect(splitArtifact.content).toContain("2024-03-05"); // 中文日期归一化
+    // table sorts chronologically: the 03-01 transfer row precedes the 03-05 chat row
+    const sheetArtifact = events.find(
+      (e) => e.type === "artifact.produced" && e.nodeId === sheetId && e.artifact.kind === "json",
+    )?.artifact;
+    expect(sheetArtifact).toBeTruthy();
+    const rows = JSON.parse(sheetArtifact.content).rows as { date: string }[];
+    expect(rows.length).toBeGreaterThanOrEqual(2);
+    const dates = rows.map((r) => r.date).filter(Boolean);
+    expect(dates).toEqual([...dates].sort());
+    expect(dates[0]).toBe("2024-03-01");
+  });
+
+  it("expense-review template runs end to end: rule flags → anomaly table sorted → gate pass", async () => {
+    // The accounting line: deterministic rule checks in a real code-node sandbox,
+    // a real table sort by issue count, and the check→anomalies contract.
+    const t = TEMPLATES.find((x: { id: string }) => x.id === "tpl-expense-review")!;
+    const graph = instantiateTemplate(t);
+    const { plan } = compile(graph)!;
+    const worker = fakeWorker({ failFirstAttempts: 0, chunkDelayMs: 0 });
+
+    // Covers all three anomaly families plus one clean line and a header row
+    // the script must skip. All dates are safely in the past.
+    const input = [
+      "日期, 单号, 科目, 金额",
+      "2026-08-21, BX-2026-0142, 市内交通费, 68.5",
+      "2026-08-22, BX-2026-0143, 业务招待餐费, 860",
+      "2026-08-22, BX-2026-0143, 业务招待餐费, 860",
+      "2026-08-25, BX-2026-0144, 机票, 1520",
+      "8月28日, BX-2026-0145, 办公用品, 129",
+    ].join("\n");
+
+    const events = await drain(
+      execute({ runId: "r-exp", graph, plan: plan!, worker, budgetUsd: null, input, now: () => 0, sleep: async () => {} }),
+    );
+
+    expect(replay(events).status).toBe("done");
+    const checkId = graph.nodes.find((n) => n.name === "规则校验")?.id;
+    const tableId = graph.nodes.find((n) => n.name === "异常清单")?.id;
+    const checkArtifact = events.find(
+      (e) => e.type === "artifact.produced" && e.nodeId === checkId && e.artifact.kind === "json",
+    )?.artifact;
+    expect(checkArtifact).toBeTruthy();
+    const flagged = JSON.parse(checkArtifact.content).rows as {
+      voucherNo: string; amount: number | ""; flags: string; issueCount: number; risk: string; category: string;
+    }[];
+    expect(flagged).toHaveLength(5); // header skipped
+    expect(flagged.filter((r) => r.flags.includes("重复单号")).map((r) => r.voucherNo)).toEqual(["BX-2026-0143", "BX-2026-0143"]);
+    expect(flagged.find((r) => r.amount === 1520)?.flags).toContain("单笔超1000元");
+    const noDate = flagged.find((r) => r.voucherNo === "BX-2026-0145")!;
+    expect(noDate.flags).toContain("日期缺失");
+    expect(noDate.category).toBe("办公用品"); // "8月28日" must not be mistaken for the category
+    expect(flagged.find((r) => r.voucherNo === "BX-2026-0142")?.risk).toBe("合格");
+    // table sorts anomalies first: issue counts non-increasing
+    const tableArtifact = events.find(
+      (e) => e.type === "artifact.produced" && e.nodeId === tableId && e.artifact.kind === "json",
+    )?.artifact;
+    expect(tableArtifact).toBeTruthy();
+    const sorted = JSON.parse(tableArtifact.content).rows as { issueCount: number }[];
+    expect(sorted).toHaveLength(5);
+    const counts = sorted.map((r) => r.issueCount);
+    expect(counts).toEqual([...counts].sort((a, b) => b - a));
+    expect(sorted[0].issueCount).toBeGreaterThanOrEqual(1);
+  });
+
   it("source node with a database connector pulls live rows end to end", async () => {
     const dir = mkdtempSync(join(tmpdir(), "aw-reg-db-"));
     try {

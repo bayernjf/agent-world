@@ -75,9 +75,23 @@ describe("template instantiation API", () => {
         defaultValue: "",
       },
     ]);
-    // Field-less templates get an empty array, not undefined, for a stable shape.
-    const blank = templates.find((t) => t.id === "tpl-blank");
-    expect(blank?.fields).toEqual([]);
+    // Since the blank canvas split (BLANK_TEMPLATE lives outside TEMPLATES),
+    // the template API must not list it — the web picker renders blank
+    // separately as the first creation card.
+    expect(templates.find((t) => t.id === "tpl-blank")).toBeUndefined();
+    // Field-less templates still get an empty array, not undefined, for a stable shape.
+    const evidence = templates.find((t) => t.id === "tpl-evidence-brief");
+    expect(evidence?.fields).toEqual([]);
+    // The customer-service notify fix: webhookUrl must be user-fillable via the form.
+    const cs = templates.find((t) => t.id === "tpl-customer-service");
+    expect(cs?.fields).toEqual([
+      {
+        key: "webhookUrl",
+        label: "通知 Webhook（飞书群机器人地址）",
+        placeholder: "https://open.feishu.cn/open-apis/bot/v2/hook/xxxx",
+        defaultValue: "",
+      },
+    ]);
   });
 
   it("POST /api/graphs applies fieldValues to the instantiated graph", async () => {
