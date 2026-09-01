@@ -20,9 +20,9 @@
 | Phase 3 集成与通知 | 95% | 🟡 主体完成 | notify/搜索/vcs/TTS 已落地；邮件收件、内容平台（小红书/抖音/淘宝）依赖 API 资质缓做 — [integrations-future.md](integrations-future.md) |
 | 模板体系 | 97% | 🟡 主体完成 | 27 个实用模板覆盖 25 种节点类型中的 23 种（database / subprocess 无模板）；分类收口为 core `TEMPLATE_CATEGORIES` 有序 11 类，选择器按分类分组展示、空白钉最前（含法律合规第二模板「证据清单整理」、财务审计首个模板「费用报销初审」）+ TemplateField 参数化全链路 + 空白产线入口（BLANK_TEMPLATE 独立导出，不计入模板数）；模板市场（发布/安装）缓做 — [design-templates.md](design-templates.md) |
 | Phase 4 高级编排 | 92% | 🟡 主体完成 | 6/7 项落地：并行聚合 / subprocess / error 边+catch / AI Agent 工具循环 / human 审批 / 变量持久化；**状态机缓做** — [phase4-design.md](phase4-design.md) |
-| 版本管理补强 | 90% | 🟡 主体完成 | 自动快照 + run 关联 hash + 恢复预览；diff 视图与 A/B 缓做 — [design-versions.md](design-versions.md) |
+| 版本管理补强 | 95% | 🟡 主体完成 | 自动快照 + run 关联 hash + 恢复预览；**A/B 实验已作为独立特性落地**（design-ab-testing.md）；仅剩 diff 视图缓做 — [design-versions.md](design-versions.md) |
 | 真实产线狗粮验证 | 90% | 🟢 基本完成 | 文本链路（短视频工坊）+ 全链路（文坊→画坊→影坊视频 MP4）已真实跑通；**README 演示 GIF 已完成（2026-09-01，时间轴回放）**；真实定时产线端到端验证通过（cron→database connector→event 触发下游） |
-| 文档完善 | 40% | 🔵 进行中 | 核心设计文档齐；4.8 文档穿插按模块补录，handoff 最近 5 条需回填 hash |
+| 文档完善 | 75% | 🟢 基本完成 | 核心设计文档齐；2026-09-01 完成文档-代码覆盖盘点：补齐知识记忆/A-B 设计文档、修正 technical-design 时效；handoff 最近 5 条 hash 已核实回填 |
 | 自动数据接入 Connector | 70% | 🟡 主体完成 ★ | file/http/form/manual 已落地；**SQLite database connector 已落地（2026-09-01，见 design-connector-database.md）**；剩 PG/MySQL 驱动接续（deferred） |
 | 定时 / 事件触发 | 95% | 🟢 基本完成 ★ | webhook/cron/event/batch 全落地（TriggersPanel+scheduler+27 测试）；**2026-09-01 修复 event 成功状态契约 bug**（见 design-triggers.md）；多实例分布式锁 deferred |
 | 商业化（定价/变现） | 5% | ⚪ 待启动 | 按产品决策**放后面** — [PRODUCT_STRATEGY.md](../PRODUCT_STRATEGY.md) |
@@ -49,8 +49,8 @@
 2. **★ 定时 / 事件触发（4.6）** —— ✅ 已落地（2026-09-01）。webhook/cron/event/batch 全落地，修复 event 成功状态 `done` 契约 bug；与 Connector 组合即无人值守产线（已端到端验证）。剩余仅多实例分布式锁（deferred）。
 3. **★ 模板体系扩充** —— ✅ 已完成（2026-09-01）。从 18 个扩充到 27 个业务模板（客服工单、代码审查、数据报表、合同审查、课程大纲、旅游行程、菜谱、证据清单整理、费用报销初审）；blankGraph 独立为 BLANK_TEMPLATE，不计入模板数；分类收口为 core `TEMPLATE_CATEGORIES` 有序 11 类，选择器按分类分组展示、空白钉最前 — [design-templates.md](design-templates.md) §6。
 4. **★ README 演示 GIF** —— ✅ 已完成（2026-09-01）。时间轴回放映示 GIF 已放入 README，替换 TODO 注释位。
-5. **文档穿插（4.8）** —— 进行中。每完成一个模块就补对应文档；当前核心设计文档齐，handoff 最近变更已回填。
-6. **低优 / 缓做** —— 沙箱 docker 容器后端、模板/节点市场、版本 diff/A-B、状态机、监控告警大盘、多租户、Notion/Linear/内容平台集成、Excel 读写、HTML→PDF。触发条件见 [deferred-items.md](deferred-items.md)。
+5. **文档穿插（4.8）** —— 基本完成（2026-09-01 盘点后核心设计文档覆盖全部已落地模块；低优余项见 deferred-items 文档线）。
+6. **低优 / 缓做** —— 沙箱 docker 容器后端、模板/节点市场、版本 diff 视图、状态机、监控告警大盘、多租户、Notion/Linear/内容平台集成、Excel 读写、HTML→PDF。触发条件见 [deferred-items.md](deferred-items.md)。
 7. **商业化** —— 放后面，决策基线见 [PRODUCT_STRATEGY.md](../PRODUCT_STRATEGY.md)。
 
 ---

@@ -30,6 +30,8 @@
 | [project-progress.md](project-progress.md) | 整体进度基线（模块完成度 + 待启动管线 + 迭代参考规则）★ | 决策者 / 开发者 |
 | [design-connector-database.md](design-connector-database.md) | Database Connector 设计（SQLite 只读拉数据；PG/MySQL 待触发） | 开发者 |
 | [design-triggers.md](design-triggers.md) | 触发方式（webhook/cron/event/batch）设计与使用、UTC cron、状态契约、与 Connector 的自动化闭环 | 开发者 / 使用者 |
+| [design-knowledge-memory.md](design-knowledge-memory.md) | 知识提取与记忆系统设计（run 结束自动提取 + FTS5 检索 + archive_search 技能卡；已落地） | 开发者 |
+| [design-ab-testing.md](design-ab-testing.md) | A/B 实验设计（同图多 prompt 变体并行对比；已落地，独立于版本管理） | 开发者 |
 | [PRD.md](../PRD.md) | 产品路线图（5 阶段）与架构护栏 | 产品 / 开发者 |
 | [PRODUCT_STRATEGY.md](../PRODUCT_STRATEGY.md) | 产品策略基线（成本 / 部署 / 定价 / 商业化） | 决策者 |
 | [CHANGELOG.md](../CHANGELOG.md) | 按版本的变更日志（Keep a Changelog） | 所有人 |

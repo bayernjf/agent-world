@@ -32,7 +32,7 @@ State of Agent World as of 2026-08-31.
 
 * [docs/design-templates.md](docs/design-templates.md) — 产线模板体系增强（老用户入口/覆盖面/参数化已落地，市场缓做；§6 = 分类分组展示与 `TEMPLATE_CATEGORIES` 单一事实源）
 
-* [docs/design-versions.md](docs/design-versions.md) — 产线版本管理补强（自动快照/run 关联 hash/恢复预览已落地，diff 与 A/B 缓做）
+* [docs/design-versions.md](docs/design-versions.md) — 产线版本管理补强（自动快照/run 关联 hash/恢复预览已落地，diff 缓做；A/B 实验为独立特性已落地另见 design-ab-testing.md）
 
 * [docs/phase4-design.md](docs/phase4-design.md) — Phase 4 高级编排落地方案（六项已落地，状态机缓做）
 
@@ -119,13 +119,13 @@ State of Agent World as of 2026-08-31.
 
 按 commit 时间倒序，每条一行影响面 + commit hash：
 
-1. `7b3e71e` — **fix(core)**: **客服工单模板 C 档缺口修复**——notify 节点无 webhookUrl 且无字段可填，通知步骤对每个实例必挂；声明 `webhookUrl` 字段 applyTo `notify.webhookUrl`（对齐巡检告警模式），core 实例化 + server API 契约双断言。
+1. `docs:` **文档-代码覆盖盘点（2026-09-01）**——补齐 [design-knowledge-memory.md](docs/design-knowledge-memory.md)（知识提取/FTS5/archive_search）与 [design-ab-testing.md](docs/design-ab-testing.md)（A/B 实验，此前四处文档误标"缓做"，实已落地）；technical-design 加时效注记并补 §3.1b/§4.1b 增量（25 节点/表/API 现状对齐）；docs-README 索引、project-progress、deferred-items 同步；handoff 最近 5 条 hash 经 git log 核实已全部回填。
 2. `fb05d1a` — **feat(core)**: **费用报销初审模板（会计/审计场景，共 27 个业务模板，新增财务审计分类）**——报销明细 → code 规则校验（单笔超 1000 元 / 重复单号 / 日期缺失或在未来，永不抛、保证表格至少一行）→ table 异常清单按异常数降序 → 初审报告 → 质检 gate；与证据清单同构，零凭证纯 agnes，core 形状断言 + 回归基线引擎级执行用例。
 3. `353dd21` — **fix(server)**: templates-api 测试对齐空白画布排除——`54a0ddb` 拆分后 `/api/templates` 不再返回 tpl-blank，陈旧断言一直靠未重建的 core dist 假绿；改断言为"不应出现"，空字段形状断言改挂新模板。
 4. `8747649` — **feat(core)**: **证据清单整理模板（律师场景，共 26 个业务模板）**——证据材料 → code 拆条编号（空行切分 + 中文/斜杠日期归一化，永不抛）→ table 按日期索引 → 清单起草（证明目的）→ 缺口分析（要件拆解 + 补证建议）→ 质检 gate；零凭证纯 agnes，core 形状断言 + 回归基线引擎级执行用例。
 5. `e9b55ae` — **fix(server)**: **event 触发状态契约修复**——引擎成功状态是 `done` 而非 `completed`，此前"产线完成自动起跑下游"与运行后知识提取在成功时永久失效（单测用假想值 `completed` 掩盖）；统一判 `done`，回归基线加契约用例（12→13）。详见 [docs/design-triggers.md](docs/design-triggers.md) §3。
 
-> 更早条目（ConnectorEditor database 分支 `9003120`、SQLite database connector `9657538`、进度基线 `064b67e`、SCRIPT_ERROR `0cbce9d`、空白产线首卡片系列 `6dcce69`/`6f51eb1`/`b82c344`/`dbe260f`/`a6e1b52`、error 边即时触发 `8fa86c1`、模板 code 节点 stdin 读 inputs `01fad6c`、空白产线首卡片 `5cbc11d`、影坊视频适配 `1358753`、undici 对齐 `4bb6168`、静态加密 `9dc68ae` 等）见 [docs/handoff-archive.md](docs/handoff-archive.md) 与 [docs/security-audit-2026-08-31.md](docs/security-audit-2026-08-31.md)。
+> 更早条目（客服工单模板 webhookUrl 修复 `7b3e71e`、ConnectorEditor database 分支 `9003120`、SQLite database connector `9657538`、进度基线 `064b67e`、SCRIPT_ERROR `0cbce9d`、空白产线首卡片系列 `6dcce69`/`6f51eb1`/`b82c344`/`dbe260f`/`a6e1b52`、error 边即时触发 `8fa86c1`、模板 code 节点 stdin 读 inputs `01fad6c`、空白产线首卡片 `5cbc11d`、影坊视频适配 `1358753`、undici 对齐 `4bb6168`、静态加密 `9dc68ae` 等）见 [docs/handoff-archive.md](docs/handoff-archive.md) 与 [docs/security-audit-2026-08-31.md](docs/security-audit-2026-08-31.md)。
 
 最近 5 条之前的全部在 [docs/handoff-archive.md](docs/handoff-archive.md) 的"阶段 4 收尾"与"Additions (post-2026-08-27)"系列章节里（含 MCP stdio 分帧修复 `a2482ba`、P2 外部沙箱后端 `0a22b13`、P1 rlimit `ddb2e03`、P0 `6b2f92b`、HTTP 节点第一闭环 `1856d81`、账号系统 `5b81c74`/`73d3610` 等）。
 
