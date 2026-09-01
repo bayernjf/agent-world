@@ -19,7 +19,7 @@
 |---|---|---|---|---|---|
 | 营销内容 | tpl-media-pipeline | 短视频广告工坊 | ✅ | run `e74cba65`（文本链路）+ `49e60631`（全链路 MP4，5m50s），2026-08-31 | 期间修复 undici 对齐、videoAdapter、artifact 落库双 bug；视频生成 5-6 分钟/段属 API 固有耗时 |
 | 营销内容 | tpl-product | 淘宝商品详情 | ✅ | run `8f205215`（真实投料“手工陶瓷马克杯”，2026-09-01） | 全链路真实跑通：3×textGen + **双 imageGen 真实出图**（场景图 1.57MB / 配图 1.10MB PNG 1024×1024）+ gate 一次通过无 rework。发现并修复 🔴 **产物服务 bug**：生成媒体的 run 行只存 `up-…` 本地引用、自身桶无字节，`GET /api/artifacts/:id` 返 404 “blob missing on disk”（UI 破图，影响历史所有生图 run）→ 路由改为跟随引用（`c91f973`，含越权用例） |
-| 营销内容 | tpl-xiaohongshu | 小红书种草笔记 | ⬜ | — | 含 2 个 imageGen 节点 |
+| 营销内容 | tpl-xiaohongshu | 小红书种草笔记 | ✅ | run `904d6a05`（真实投料“日系复古帆布托特包”，2026-09-01） | 与 tpl-product 同构（3×textGen + 双 imageGen + gate），全链路真实跑通：双图 1024×1024 PNG（配图 1.29MB / 场景图 1.57MB）、gate 一次通过无 rework。**同时复验 `c91f973` 产物修复**：新生成图经 `GET /api/artifacts/:id` 直接 200 可取完整 PNG（旧数据需同样跟随引用，已生效）；gate 判定理由确认图片 URL 正确传递至排版环节。无新发现 |
 | 营销内容 | tpl-batch-content | 批量内容工坊 | ⬜ | — | loop 批处理场景 |
 | 营销内容 | tpl-review-publish | 人工审核发布 | ⬜ | — | human 审批 + error 边兜底场景 |
 | 营销内容 | tpl-news-podcast | 资讯播客工坊 | 🟡 | 复验 run `b6ac0fee`（摘除 voice，代理已通）+ `d57a1b43`（同图），2026-09-01 | 首验 run `829d23af`/`c870fd4d` 发现的 4 条问题已全部修复并复验：① audioGen 静默吞 → 改 node.failed（`b6de7d9`）；② search 不可达 → 可行动报错 + `AGENT_WORLD_PROXY` 代理（`b82f89a`）；③ tts-1 modality 错配 → 派发期阻断（`7b7faf0`）；④ `template` 参数名已纠正文档。**剩余阻塞（非产品缺陷）**：DDG 反爬验证页（已改为响亮报错，不再静默 0 结果）→ 需配 TAVILY_API_KEY 等换源；agnes 无音频模型 → 需配 TTS 供应商才能出音频成品 |
