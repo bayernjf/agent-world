@@ -75,4 +75,22 @@ describe("at-rest encryption (audit L3)", () => {
     expect(sealGraphDoc(g)).toBe(g);
     expect(openGraphDoc(g)).toBe(g);
   });
+
+  it("drops orphan edges whose endpoints are missing on open", () => {
+    const g = baseGraph({
+      nodes: [
+        { id: "a", kind: "source", name: "A", x: 0, y: 0 },
+        { id: "b", kind: "sink", name: "B", x: 1, y: 1 },
+      ],
+      edges: [
+        { id: "e1", from: "a", to: "b", kind: "flow" },
+        { id: "e2", from: "a", to: "ghost", kind: "flow" },
+        { id: "e3", from: "ghost2", to: "b", kind: "flow" },
+      ],
+    });
+    const opened = openGraphDoc(g);
+    expect(opened.edges).toEqual([{ id: "e1", from: "a", to: "b", kind: "flow" }]);
+    // input untouched; only the returned copy is cleaned
+    expect(g.edges).toHaveLength(3);
+  });
 });
