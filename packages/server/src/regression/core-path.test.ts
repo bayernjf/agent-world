@@ -411,6 +411,46 @@ describe("regression · engine core path", () => {
     expect(sorted.slice(0, 2).map((r) => r.amount).sort((a, b) => a - b)).toEqual([1520, 2200]);
   });
 
+  it("recipe template runs end to end: the gate and the sink keep the full recipe, not only the nutrition JSON", async () => {
+    // Dogfood tpl-recipe, two layers: (1) the nutrition code node used to
+    // print only its JSON, so the gate judged the JSON alone and halted;
+    // (2) after the gate saw the recipe, its pass-through artifact — which
+    // is exactly its input — still reached the sink as JSON text only.
+    // The nutrition script now carries the upstream recipe through and
+    // appends the estimate, so both the judge input and the final artifact
+    // contain the whole dish.
+    const t = TEMPLATES.find((x: { id: string }) => x.id === "tpl-recipe")!;
+    const graph = instantiateTemplate(t);
+    const { plan } = compile(graph)!;
+    const worker = fakeWorker({ failFirstAttempts: 0, chunkDelayMs: 0 });
+    const gateInputs: string[] = [];
+    const judge = worker.judge!;
+    worker.judge = async (args: any) => {
+      gateInputs.push(args.input);
+      return judge(args);
+    };
+
+    const events = await drain(
+      execute({ runId: "r-recipe", graph, plan: plan!, worker, budgetUsd: null, input: "鸡胸肉 300g、西兰花 200g；少油低盐", now: () => 0, sleep: backoffSleep }),
+    );
+
+    expect(replay(events).status).toBe("done");
+    expectNodeFinished(events, graph.nodes.find((n) => n.name === "质检")!.id);
+    expect(gateInputs.length).toBeGreaterThanOrEqual(1);
+    for (const input of gateInputs) {
+      expect(input).toContain("estimatedCalories"); // the nutrition estimate…
+      expect(input).toContain("producing artifact"); // …and the text chain upstream
+    }
+    // The sink artifact is the gate's pass-through: the full recipe must survive.
+    const depotId = graph.nodes.find((n) => n.kind === "sink")!.id;
+    const depotArtifact = events.find(
+      (e) => e.type === "artifact.produced" && e.nodeId === depotId,
+    )?.artifact;
+    expect(depotArtifact).toBeTruthy();
+    expect(depotArtifact.content).toContain("estimatedCalories");
+    expect(depotArtifact.content).toContain("producing artifact");
+  });
+
   it("source node with a database connector pulls live rows end to end", async () => {
     const dir = mkdtempSync(join(tmpdir(), "aw-reg-db-"));
     try {
