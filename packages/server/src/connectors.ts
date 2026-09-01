@@ -1,5 +1,6 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { ConnectorConfig } from "@agent-world/core";
 import { guardedFetch } from "./ssrf.js";
 
@@ -174,5 +175,60 @@ export async function resolveConnector(
       const lines = c.fields.map((f) => `${f.label ?? f.name}: ${formValues[f.name] ?? ""}`);
       return { text: lines.join("\n"), images: [] };
     }
+
+    case "database": {
+      const c = config.database;
+      if (!c) throw new Error("database connector missing 'database' config");
+      const trimmed = c.query.trim();
+      // Read-only by contract: only a single SELECT / WITH…SELECT is allowed.
+      // The driver's readOnly:true open is the hard backstop for any slip.
+      if (!/^(select|with)\b/i.test(trimmed)) {
+        throw new Error("database connector 只允许 SELECT 查询，拒绝写语句");
+      }
+      if (/;\s*\S/.test(trimmed)) {
+        throw new Error("database connector 不支持多语句");
+      }
+      let db: DatabaseSync;
+      try {
+        db = new DatabaseSync(c.path, { readOnly: true });
+      } catch (err) {
+        throw new Error(
+          `无法打开数据库 ${c.path}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+      try {
+        const bindParams = toSqlBindParams(c.params ?? []);
+        const rows = db.prepare(trimmed).all(...bindParams);
+        const text =
+          c.format === "csv" ? rowsToCsv(rows) : JSON.stringify(rows, null, 2);
+        return { text, images: [] };
+      } finally {
+        db.close();
+      }
+    }
   }
+}
+
+/** Coerces user-supplied bind params to values node:sqlite accepts. Booleans
+ *  become 1/0; unsupported types throw so the caller gets a clear error. */
+function toSqlBindParams(params: unknown[]): SQLInputValue[] {
+  return params.map((p, i) => {
+    if (p == null) return null;
+    if (typeof p === "string" || typeof p === "number" || typeof p === "bigint") return p as SQLInputValue;
+    if (typeof p === "boolean") return p ? 1 : 0;
+    if (p instanceof Uint8Array) return p;
+    throw new Error(`database connector: 绑定参数 #${i + 1} 类型不支持（${typeof p}）`);
+  });
+}
+
+/** Serializes query rows to a simple CSV (header row + quoted value rows). */
+function rowsToCsv(rows: Array<Record<string, unknown>>): string {  if (rows.length === 0) return "";
+  const cols = Object.keys(rows[0] ?? {});
+  const esc = (v: unknown) => {
+    const s = v == null ? "" : String(v);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const header = cols.join(",");
+  const body = rows.map((r) => cols.map((col) => esc(r[col])).join(",")).join("\n");
+  return `${header}\n${body}`;
 }

@@ -691,7 +691,7 @@ export const GateConfig = z.object({
 });
 export type GateConfig = z.infer<typeof GateConfig>;
 
-export const ConnectorType = z.enum(["manual", "file", "http", "form"]);
+export const ConnectorType = z.enum(["manual", "file", "http", "form", "database"]);
 export type ConnectorType = z.infer<typeof ConnectorType>;
 
 /** Pulls text/images from the local filesystem (path or glob). */
@@ -729,12 +729,28 @@ export const FormConnector = z.object({
 });
 export type FormConnector = z.infer<typeof FormConnector>;
 
+/** Pulls rows from a SQL database; the query result becomes the source text. */
+export const DatabaseConnector = z.object({
+  /** sqlite only for now (Node built-in driver, zero deps, no secret in config). */
+  driver: z.enum(["sqlite"]).default("sqlite"),
+  /** SQLite database file path (resolved like the file connector's paths). */
+  path: z.string(),
+  /** Read-only query; must be a single SELECT / WITH…SELECT — writes are rejected. */
+  query: z.string(),
+  /** Optional bind parameters (positional `?` placeholders), for injection safety. */
+  params: z.array(z.unknown()).optional(),
+  /** Result serialization: json (pretty) or csv (header row + value rows). */
+  format: z.enum(["json", "csv"]).default("json"),
+});
+export type DatabaseConnector = z.infer<typeof DatabaseConnector>;
+
 /** Declarative data source for a source node. Replaces the old free-form connector stub. */
 export const ConnectorConfig = z.object({
   type: ConnectorType,
   file: FileConnector.optional(),
   http: HttpConnector.optional(),
   form: FormConnector.optional(),
+  database: DatabaseConnector.optional(),
 });
 export type ConnectorConfig = z.infer<typeof ConnectorConfig>;
 

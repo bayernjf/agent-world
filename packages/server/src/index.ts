@@ -122,7 +122,9 @@ const triggers = new TriggerService({
       ...opts,
       onFinish: (gid, status) => {
         void triggers.onGraphFinished(gid, status);
-        if (status === "completed" || status === "failed") {
+        // Engine success status is "done" (not "completed") — extract knowledge
+        // once a run settles as success or failure.
+        if (status === "done" || status === "failed") {
           try {
             const recent = db.listRunsByGraphUnscoped(gid, 1);
             if (recent.length > 0) {

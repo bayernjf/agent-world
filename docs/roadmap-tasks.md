@@ -388,7 +388,8 @@
 - [x] 实现 HTTP API connector：GET/POST 拉数据（headers/auth basic+bearer/extract 字段提取/body）
 - [x] Source 节点 UI：选择 connector、配置参数、测试连接（ConnectorEditor + POST /api/connectors/test 预览）
 - [x] form connector：运行前填表，答案作为 source 文本注入
-- [x] 退出条件：产线能从外部数据源自动拉原料
+- [x] database connector：SQLite 只读 SELECT 查询，json/csv 输出（2026-09-01，见 design-connector-database.md；PostgreSQL/MySQL 见 deferred）
+- [x] 退出条件：产线能从外部数据源自动拉原料（文件 / HTTP / SQLite 数据库 / 表单）
 
 ### 4.3 MCP 支持
 
@@ -428,6 +429,7 @@
 - [x] 触发管理 API：GET/POST/DELETE /api/graphs/:id/triggers，手动 fire，next-runs 预览
 - [x] 前端 TriggersPanel：列表/编辑/删除/手动触发/下次运行时间/运行历史
 - [x] 退出条件：不手动点派发也能自动跑
+- [x] 修复（2026-09-01）：event 触发状态契约——引擎成功状态是 `done` 而非 `completed`，此前"产线完成自动起跑下游"永久失效；统一为 `done` 并加回归契约用例（见 design-triggers.md §3）
 
 ### 4.7 人机协作增强
 
