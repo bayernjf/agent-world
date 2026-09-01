@@ -63,7 +63,7 @@ change actually helped).
 | **MCP** | Both directions: consume external MCP servers as tools; expose the platform itself as an MCP server (15 tools, stdio + HTTP/SSE) |
 | **Sandboxing** | 3-tier code exec: env/cwd isolation → rlimit + Node permission model → bwrap (Linux) / seatbelt (macOS); SSRF guard immune to DNS rebinding |
 | **Accounts** | JWT + bcrypt, all resources isolated per user |
-| **Templates** | 10 built-in pipelines with parameterizable fields (URLs, targets, brand terms) |
+| **Templates** | 27 built-in pipelines across 11 categories (grouped in the picker, blank canvas pinned first), with parameterizable fields (URLs, targets, brand terms) |
 
 ## Quick start
 
