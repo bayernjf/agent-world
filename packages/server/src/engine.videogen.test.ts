@@ -106,20 +106,21 @@ describe("videoGen node (P1-6)", () => {
     expect(produced.length).toBe(2);
   });
 
-  it("soft-fails when worker has no generateVideo method", async () => {
+  it("fails the node when worker has no generateVideo method (no silent skip)", async () => {
     const { worker } = spyWorker({ noVideo: true });
     const events = await run(graphVideoGenToSink(), worker);
 
-    // No artifact produced, but node still finishes (done, not error)
     const produced = events.filter((e) => e.type === "artifact.produced" && e.artifact.kind === "video");
     expect(produced.length).toBe(0);
 
-    const finished = events.find((e) => e.type === "node.finished" && e.nodeId === "vid");
-    expect(finished).toBeDefined();
+    // Honest failure instead of soft-skip (dogfood 2026-09-01)
+    const failed = events.find((e) => e.type === "node.failed" && e.nodeId === "vid");
+    expect(failed).toBeDefined();
+    expect(failed && failed.type === "node.failed" && failed.errorCode).toBe("VALIDATION");
 
-    // Pipeline continues to sink
+    // Downstream does NOT run as if nothing happened
     const sinkFinished = events.find((e) => e.type === "node.finished" && e.nodeId === "sink");
-    expect(sinkFinished).toBeDefined();
+    expect(sinkFinished).toBeUndefined();
   });
 
   it("video artifact flows to downstream agent via inputFor placeholder", async () => {

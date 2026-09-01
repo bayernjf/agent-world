@@ -2872,10 +2872,11 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     emit({ type: "node.started", nodeId, attempt });
     const cfg = node.videoGen ?? { model: "video-gen", n: 1 };
     if (!worker.generateVideo) {
-      console.warn(`[videoGen:${nodeId}] worker has no generateVideo, skipping`);
-      states.set(nodeId, "done");
-      emit({ type: "node.finished", nodeId, attempt, output: "", usage: zeroUsage() });
-      sendPackets(nodeId, "跳过（worker 无视频能力）", "text");
+      // Honest failure: media nodes are often the run's product (dogfood
+      // 2026-09-01). Silent skip reported done with no artifact. Templates
+      // that want a fallback should add an error edge instead.
+      states.set(nodeId, "failed");
+      emit({ type: "node.failed", nodeId, attempt, error: "worker 无视频生成能力", errorCode: "VALIDATION" });
       return;
     }
     const prompt = cfg.prompt?.trim() || (await inputFor(node));
@@ -2910,9 +2911,8 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       sendPackets(nodeId, `生成视频 ${results.length} 段`, "video");
     } catch (err) {
       console.warn(`[videoGen:${nodeId}] generation failed:`, (err as Error).message);
-      states.set(nodeId, "done");
-      emit({ type: "node.finished", nodeId, attempt, output: "", usage: zeroUsage() });
-      sendPackets(nodeId, "视频生成失败（已跳过）", "text");
+      states.set(nodeId, "failed");
+      emit({ type: "node.failed", nodeId, attempt, error: `视频生成失败: ${sanitizeError(err instanceof Error ? err.message : String(err))}`, errorCode: "PROVIDER_ERROR" });
     }
     return;
   }
@@ -2922,10 +2922,10 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     emit({ type: "node.started", nodeId, attempt });
     const cfg = node.audioGen ?? { model: "tts-1", format: "mp3", n: 1 };
     if (!worker.generateAudio) {
-      console.warn(`[audioGen:${nodeId}] worker has no generateAudio, skipping`);
-      states.set(nodeId, "done");
-      emit({ type: "node.finished", nodeId, attempt, output: "", usage: zeroUsage() });
-      sendPackets(nodeId, "跳过（worker 无音频能力）", "text");
+      // Honest failure: audio is often the run's product (dogfood 2026-09-01,
+      // tpl-news-podcast). Templates wanting a fallback add an error edge.
+      states.set(nodeId, "failed");
+      emit({ type: "node.failed", nodeId, attempt, error: "worker 无音频生成能力", errorCode: "VALIDATION" });
       return;
     }
     const prompt = cfg.prompt?.trim() || (await inputFor(node));
@@ -2960,9 +2960,8 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       sendPackets(nodeId, `生成音频 ${results.length} 段`, "audio");
     } catch (err) {
       console.warn(`[audioGen:${nodeId}] generation failed:`, (err as Error).message);
-      states.set(nodeId, "done");
-      emit({ type: "node.finished", nodeId, attempt, output: "", usage: zeroUsage() });
-      sendPackets(nodeId, "音频生成失败（已跳过）", "text");
+      states.set(nodeId, "failed");
+      emit({ type: "node.failed", nodeId, attempt, error: `音频生成失败: ${sanitizeError(err instanceof Error ? err.message : String(err))}`, errorCode: "PROVIDER_ERROR" });
     }
     return;
   }
