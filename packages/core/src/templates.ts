@@ -1831,7 +1831,7 @@ const codeReviewGraph = {
   fields: [
     {
       key: "prUrl",
-      label: "PR API 地址",
+      label: "PR API 地址（响应为 diff 文本）",
       placeholder: "https://api.github.com/repos/owner/repo/pulls/1",
       defaultValue: "https://api.github.com/repos/owner/repo/pulls/1",
       applyTo: [{ nodeId: "fetch", path: "http.url" }],
@@ -1851,7 +1851,10 @@ const codeReviewGraph = {
         http: {
           url: "https://api.github.com/repos/owner/repo/pulls/1",
           method: "GET",
-          outputMode: "json",
+          // 下游静态分析数的是 diff 行（+/-）：必须让 GitHub 直接返回
+          // diff 文本而非 PR JSON（dogfood tpl-code-review）。
+          headers: { accept: "application/vnd.github.v3.diff" },
+          outputMode: "text",
         },
       },
       {
