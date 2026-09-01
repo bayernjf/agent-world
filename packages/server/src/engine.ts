@@ -2080,7 +2080,8 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
             return;
           }
           const arts = artifacts.get(sourceId) ?? [];
-          const fileArt = arts.find((a) => a.kind === "file" && a.uri);
+          const fileArts = arts.filter((a) => a.kind === "file" && a.uri);
+          const fileArt = fileArts[0];
           if (!fileArt) {
             states.set(nodeId, "failed");
             emit({
@@ -2136,7 +2137,10 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           for (const a of produced) emit({ type: "artifact.produced", nodeId, attempt, artifact: a });
           states.set(nodeId, "done");
           const imgCount = produced.length - 1;
-          const summary = `解析完成：${parsed.text.length} 字符文本${imgCount ? `，提取 ${imgCount} 张图片` : ""}`;
+          // A source can carry several documents but only the first is parsed.
+          // Say so on the node instead of quietly dropping the rest.
+          const unparsed = fileArts.length - 1;
+          const summary = `解析完成：${parsed.text.length} 字符文本${imgCount ? `，提取 ${imgCount} 张图片` : ""}${unparsed > 0 ? `；另有 ${unparsed} 个文档未解析（本车间一次只读第一个）` : ""}`;
           emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
           sendPackets(nodeId, summary, "text");
         } catch (err) {

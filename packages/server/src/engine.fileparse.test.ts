@@ -314,6 +314,21 @@ describe("fileParse node — uploaded document on the source node", () => {
     expect(failed?.errorCode).toBe("VALIDATION");
     expect(failed?.error).toContain("没有产出文件产物");
   });
+
+  it("names the documents it leaves unparsed instead of dropping them quietly", async () => {
+    const store = artifactStore();
+    const dataUri = `data:application/pdf;base64,${pdfBytes().toString("base64")}`;
+    store.seed(UPLOAD_URI, dataUri);
+    store.seed("/api/artifacts/up-contract02", dataUri);
+
+    const events = await collect(
+      graphWithSource([UPLOADED_PDF, { ...UPLOADED_PDF, uri: "/api/artifacts/up-contract02" }]),
+      store,
+    );
+
+    const finished = events.find((e) => e.type === "node.finished" && e.nodeId === "fp");
+    expect(finished?.output).toContain("另有 1 个文档未解析");
+  });
 });
 
 
