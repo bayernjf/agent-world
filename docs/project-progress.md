@@ -13,12 +13,12 @@
 |---|---|---|---|
 | 安全加固（审计 29 项） | 100% | ✅ 已完成 | 3 Critical/10 High/8 Medium/8 Low 全部修复，含 CORS 通配符拒绝、SSRF、静态加密 L3；推翻 2 条旧"已解决"结论 — [security-audit-2026-08-31.md](security-audit-2026-08-31.md) |
 | 账号系统与用户隔离 | 100% | ✅ 已完成 | users 表 + JWT/HttpOnly cookie + 全量按 user_id 隔离 + 旧库回填迁移 |
-| 回归测试与质量门 | 100% | ✅ 已完成 | core 156 / server 586 / mcp 50 / web 32；core-path 回归基线 15 用例，Node 24 下稳定复跑 — [handoff.md Quality gate](../handoff.md) |
+| 回归测试与质量门 | 100% | ✅ 已完成 | core 157 / server 586 / mcp 50 / web 32；core-path 回归基线 15 用例，Node 24 下稳定复跑 — [handoff.md Quality gate](../handoff.md) |
 | MCP Server | 100% | ✅ 已完成 | stdio + HTTP/SSE 双传输、15 工具 + resources + prompts + notifications + Bearer 认证（P0-P2 全落地）— [design-mcp-server.md](design-mcp-server.md) |
 | Phase 1 基础通用能力 | 100% | ✅ 已完成 | HTTP/代码执行/条件分支/parallel/数据模型升级 — [roadmap-generalization.md](roadmap-generalization.md#phase-1基础通用能力2-3周) |
 | Phase 2 数据与文件处理 | 100% | ✅ 已完成 | 表格/数据库/文件解析/OCR/转换/搜索/翻译 — [roadmap-generalization.md](roadmap-generalization.md#phase-2数据与文件处理2-3周) |
 | Phase 3 集成与通知 | 95% | 🟡 主体完成 | notify/搜索/vcs/TTS 已落地；邮件收件、内容平台（小红书/抖音/淘宝）依赖 API 资质缓做 — [integrations-future.md](integrations-future.md) |
-| 模板体系 | 97% | 🟡 主体完成 | 27 个实用模板覆盖全部 28 种节点能力（含法律合规第二模板「证据清单整理」、财务审计首个模板「费用报销初审」）+ TemplateField 参数化全链路 + 空白产线入口（BLANK_TEMPLATE 独立导出，不计入模板数）；模板市场（发布/安装）缓做 — [design-templates.md](design-templates.md) |
+| 模板体系 | 97% | 🟡 主体完成 | 27 个实用模板覆盖 25 种节点类型中的 23 种（database / subprocess 无模板）；分类收口为 core `TEMPLATE_CATEGORIES` 有序 11 类，选择器按分类分组展示、空白钉最前（含法律合规第二模板「证据清单整理」、财务审计首个模板「费用报销初审」）+ TemplateField 参数化全链路 + 空白产线入口（BLANK_TEMPLATE 独立导出，不计入模板数）；模板市场（发布/安装）缓做 — [design-templates.md](design-templates.md) |
 | Phase 4 高级编排 | 92% | 🟡 主体完成 | 6/7 项落地：并行聚合 / subprocess / error 边+catch / AI Agent 工具循环 / human 审批 / 变量持久化；**状态机缓做** — [phase4-design.md](phase4-design.md) |
 | 版本管理补强 | 90% | 🟡 主体完成 | 自动快照 + run 关联 hash + 恢复预览；diff 视图与 A/B 缓做 — [design-versions.md](design-versions.md) |
 | 真实产线狗粮验证 | 90% | 🟢 基本完成 | 文本链路（短视频工坊）+ 全链路（文坊→画坊→影坊视频 MP4）已真实跑通；**README 演示 GIF 已完成（2026-09-01，时间轴回放）**；真实定时产线端到端验证通过（cron→database connector→event 触发下游） |
@@ -33,11 +33,11 @@
 
 ## 二、已完成版图（可迭代的基础能力）
 
-- **执行引擎**：4 类 AI 节点（agent/imageGen/videoGen/audioGen）+ 14 类通用节点（HTTP/代码/分支/映射/循环/并行聚合/表格/DB/文件解析/翻译/OCR/转换/搜索/通知），流式 + SSE + 断线重连 + halt/resume，成本电表（token + 单价）。
+- **执行引擎**：25 种节点类型，按 `NODE_CATEGORIES` 五组——AI 加工 5 / 车间调度 6 / 物料处理 7 / 外接设备 5 / 投料出料 2（逐种名称与中文术语见 [design-glossary.md](design-glossary.md)）；流式 + SSE + 断线重连 + halt/resume，成本电表（token + 单价）。
 - **高级编排**：subprocess 子流程、error 边 + catch 容错、失败级联 skip、节点级重试、失败告警 + rerun、人工审批节点、graph 变量跨 run 持久化。
 - **可信运行**：账号/用户隔离、静态加密（AES-256-GCM）、SSRF 防护 + 代码沙箱（P0-P2 + net allowlist 代理）、29 项安全审计闭环。
 - **质量体系**：core-path 回归基线（compile→execute→rework→resume→artifact→auth→SSRF）+ 全量测试稳定复跑；模板/引擎修复均带回归用例。
-- **可扩展面**：MCP Server（外部 AI 客户端接入）、版本快照与恢复预览、模板参数化、25 内置模板覆盖全节点能力（28 种节点类型）。
+- **可扩展面**：MCP Server（外部 AI 客户端接入）、版本快照与恢复预览、模板参数化、27 内置模板按 11 分类分组展示、覆盖 25 种节点类型中的 23 种。
 
 ---
 
@@ -47,7 +47,7 @@
 
 1. **★ 自动数据接入 Connector（4.2）** —— ✅ 已落地（2026-09-01）。file/http/form/manual + SQLite database connector 全链路验证通过；PG/MySQL 待驱动接续（deferred）。
 2. **★ 定时 / 事件触发（4.6）** —— ✅ 已落地（2026-09-01）。webhook/cron/event/batch 全落地，修复 event 成功状态 `done` 契约 bug；与 Connector 组合即无人值守产线（已端到端验证）。剩余仅多实例分布式锁（deferred）。
-3. **★ 模板体系扩充** —— ✅ 已完成（2026-09-01）。从 18 个扩充到 25 个业务模板，新增客服工单、代码审查、数据报表、合同审查、课程大纲、旅游行程、菜谱 7 个模板；blankGraph 独立为 BLANK_TEMPLATE，不计入模板数。
+3. **★ 模板体系扩充** —— ✅ 已完成（2026-09-01）。从 18 个扩充到 27 个业务模板（客服工单、代码审查、数据报表、合同审查、课程大纲、旅游行程、菜谱、证据清单整理、费用报销初审）；blankGraph 独立为 BLANK_TEMPLATE，不计入模板数；分类收口为 core `TEMPLATE_CATEGORIES` 有序 11 类，选择器按分类分组展示、空白钉最前 — [design-templates.md](design-templates.md) §6。
 4. **★ README 演示 GIF** —— ✅ 已完成（2026-09-01）。时间轴回放映示 GIF 已放入 README，替换 TODO 注释位。
 5. **文档穿插（4.8）** —— 进行中。每完成一个模块就补对应文档；当前核心设计文档齐，handoff 最近变更已回填。
 6. **低优 / 缓做** —— 沙箱 docker 容器后端、模板/节点市场、版本 diff/A-B、状态机、监控告警大盘、多租户、Notion/Linear/内容平台集成、Excel 读写、HTML→PDF。触发条件见 [deferred-items.md](deferred-items.md)。

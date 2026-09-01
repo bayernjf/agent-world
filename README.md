@@ -56,7 +56,7 @@ change actually helped).
 
 | Area | What's there |
 |---|---|
-| **Nodes** | 24 types: agent, gate, HTTP (SSRF-guarded), code exec (JS/Python, sandboxed), branch, map, loop, parallel, table, database, file parse, translate, OCR, convert, search, notify, vcs, human approval, subprocess, image/video/audio gen, source, sink |
+| **Nodes** | 25 types: agent, gate, HTTP (SSRF-guarded), code exec (JS/Python, sandboxed), branch, map, loop, parallel, table, database, file parse, translate, OCR, convert, search, notify, vcs, human approval, subprocess, image/video/audio gen, generic (modality auto-dispatch), source, sink |
 | **Triggers** | Manual, webhook, cron (self-hosted parser), event, batch |
 | **Quality** | LLM-judge gates, score-rework loops, brand/banned terms, output-contract schema validation |
 | **Observability** | Live SSE streaming, replay scrubber, per-node cost, eval report (by day / by graph / by prompt fingerprint), CSV export |

@@ -31,7 +31,7 @@
 
 | 维度 | 当前 | 通用化目标 |
 |------|------|-----------|
-| **节点类型** | 7种（source/textGen/imageGen/videoGen/audioGen/gate/sink） | 20+ 种，覆盖数据处理、API、代码、数据库、通知等 |
+| **节点类型** | 7种（source/textGen/imageGen/videoGen/audioGen/gate/sink） | 20+ 种，覆盖数据处理、API、代码、数据库、通知等 ✅ 已达 25 种 |
 | **数据模型** | 文本 + 图片 + artifact | 任意 JSON / 表格 / 二进制文件，节点间灵活映射 |
 | **编排方式** | 线性 + 质检返工循环 | 分支 / 合并 / 循环 / 并行 / 子流程 / 错误处理 |
 
