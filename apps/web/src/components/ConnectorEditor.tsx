@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type {
   ConnectorConfig,
   ConnectorType,
+  DatabaseConnector,
   FileConnector,
   FormConnector,
   HttpConnector,
@@ -38,6 +39,7 @@ const TYPE_LABELS: Record<SelectType, string> = {
   file: "文件（本地文件 / 目录 / glob）",
   http: "HTTP（拉取 JSON / 文本）",
   form: "表单（运行前填写）",
+  database: "数据库（SQLite 查询）",
 };
 
 function defaultsFor(type: ConnectorType): ConnectorConfig {
@@ -51,6 +53,11 @@ function defaultsFor(type: ConnectorType): ConnectorConfig {
       return { type: "http", http: { url: "", method: "GET" } };
     case "form":
       return { type: "form", form: { fields: [] } };
+    case "database":
+      return {
+        type: "database",
+        database: { driver: "sqlite", path: "", query: "SELECT * FROM ", format: "json" },
+      };
     case "manual":
       return { type: "manual" };
   }
@@ -323,6 +330,61 @@ function FormForm({
   );
 }
 
+function DatabaseForm({
+  value,
+  patch,
+  begin,
+  commit,
+}: {
+  value: DatabaseConnector;
+  patch: (p: Partial<DatabaseConnector>) => void;
+  begin: () => void;
+  commit: () => void;
+}) {
+  return (
+    <>
+      <label className="field">
+        <span>SQLite 数据库文件路径</span>
+        <input
+          className="text-input"
+          value={value.path}
+          placeholder="/abs/path/data.db"
+          onFocus={begin}
+          onBlur={commit}
+          onChange={(e) => patch({ path: e.target.value })}
+        />
+      </label>
+      <label className="field">
+        <span>查询（只读 SELECT，可带 ? 参数）</span>
+        <textarea
+          className="textarea"
+          rows={4}
+          value={value.query}
+          placeholder="SELECT * FROM products WHERE price > ?"
+          onFocus={begin}
+          onBlur={commit}
+          onChange={(e) => patch({ query: e.target.value })}
+        />
+      </label>
+      <label className="field field--inline">
+        <span>输出格式</span>
+        <select
+          className="select"
+          value={value.format ?? "json"}
+          onChange={(e) => patch({ format: e.target.value as "json" | "csv" })}
+        >
+          <option value="json">JSON</option>
+          <option value="csv">CSV</option>
+        </select>
+      </label>
+      <p className="hint">
+        每次运行产线时实时查询最新数据；只读打开，仅允许
+        <code>SELECT</code>，写语句会被拒绝。
+      </p>
+    </>
+  );
+}
+
 export default function ConnectorEditor({
   connector,
   onChange,
@@ -361,6 +423,11 @@ export default function ConnectorEditor({
       type: "form",
       form: { ...(connector as { form?: FormConnector }).form!, ...p },
     });
+  const patchDatabase = (p: Partial<DatabaseConnector>) =>
+    onChange({
+      type: "database",
+      database: { ...(connector as { database?: DatabaseConnector }).database!, ...p },
+    });
 
   const runTest = async () => {
     if (!connector) return;
@@ -387,7 +454,7 @@ export default function ConnectorEditor({
           value={current}
           onChange={(e) => setType(e.target.value as SelectType)}
         >
-          {(["none", "file", "http", "form"] as const).map((t) => (
+          {(["none", "file", "http", "form", "database"] as const).map((t) => (
             <option key={t} value={t}>
               {TYPE_LABELS[t]}
             </option>
@@ -414,6 +481,14 @@ export default function ConnectorEditor({
         <FormForm
           value={connector.form!}
           patch={patchForm}
+          begin={onBeginEdit}
+          commit={onCommitEdit}
+        />
+      )}
+      {connector?.type === "database" && (
+        <DatabaseForm
+          value={connector.database!}
+          patch={patchDatabase}
           begin={onBeginEdit}
           commit={onCommitEdit}
         />

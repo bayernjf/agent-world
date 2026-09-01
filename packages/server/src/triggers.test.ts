@@ -144,16 +144,19 @@ describe("TriggerService events (4A.5)", () => {
     const { service, calls } = makeService([
       graphWith([TriggerConfig.parse({ id: "ev1", type: "event", eventSource: { kind: "graph", id: "g1" } })]),
     ]);
-    await service.onGraphFinished("g1", "completed");
+    // The engine emits "done" on success — the trigger must key off that real value.
+    await service.onGraphFinished("g1", "done");
     expect(calls).toHaveLength(1);
     expect(calls[0].opts.trigger).toBe("ev1");
   });
 
-  it("does not fire on a non-completed status", async () => {
+  it("does not fire on a non-success status", async () => {
     const { service, calls } = makeService([
       graphWith([TriggerConfig.parse({ id: "ev1", type: "event", eventSource: { kind: "graph", id: "g1" } })]),
     ]);
     await service.onGraphFinished("g1", "failed");
+    expect(calls).toHaveLength(0);
+    await service.onGraphFinished("g1", "halted");
     expect(calls).toHaveLength(0);
   });
 
@@ -162,7 +165,7 @@ describe("TriggerService events (4A.5)", () => {
     const { service, calls } = makeService([
       { id: "g2", name: "G2", nodes: [], edges: [], triggers: [TriggerConfig.parse({ id: "ev2", type: "event", eventSource: { kind: "graph", id: "g1" } })] },
     ]);
-    await service.onGraphFinished("g1", "completed");
+    await service.onGraphFinished("g1", "done");
     expect(calls).toHaveLength(1);
     expect(calls[0].graphId).toBe("g2");
   });

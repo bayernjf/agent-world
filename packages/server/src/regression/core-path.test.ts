@@ -139,6 +139,21 @@ describe("regression · engine core path", () => {
     expect(forgeText.artifact.content).toContain("raw");
   });
 
+  it("contract: engine success emits run.finished status 'done' (event triggers key off it)", async () => {
+    // TriggerService.onGraphFinished and post-run knowledge extraction fire on
+    // the engine's real success status. It MUST be "done" — a nominal
+    // "completed" here silently breaks graph-completion event triggers.
+    const graph = linearGraph();
+    const { plan } = compile(graph)!;
+    const worker = echoWorker();
+    const events = await drain(
+      execute({ runId: "r-status", graph, plan: plan!, worker, budgetUsd: null, input: "raw", now: () => 0, sleep: async () => {} }),
+    );
+    const finished = events.find((e) => e.type === "run.finished");
+    expect(finished).toBeTruthy();
+    expect((finished as { status: string }).status).toBe("done");
+  });
+
   it("rework loop: gate rejects once, forge reruns, pipeline still reaches done", async () => {
     const graph = gateGraph();
     const { plan } = compile(graph)!;
@@ -253,6 +268,57 @@ describe("regression · engine core path", () => {
     expect(splitArtifact).toBeTruthy();
     expect(splitArtifact.content).toContain("甲");
     expect(splitArtifact.content).toContain("丙");
+  });
+
+  it("source node with a database connector pulls live rows end to end", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "aw-reg-db-"));
+    try {
+      const dbPath = join(dir, "seed.db");
+      const { DatabaseSync } = await import("node:sqlite");
+      const db = new DatabaseSync(dbPath);
+      db.exec(
+        "CREATE TABLE feed (id INTEGER, msg TEXT); INSERT INTO feed VALUES (1,'hello'),(2,'world');",
+      );
+      db.close();
+
+      const graph: Graph = {
+        id: "g-db",
+        name: "g-db",
+        nodes: [
+          {
+            id: "intake",
+            kind: "source",
+            name: "INTAKE",
+            x: 0,
+            y: 0,
+            source: {
+              connector: {
+                type: "database",
+                database: { driver: "sqlite", path: dbPath, query: "SELECT * FROM feed ORDER BY id" },
+              },
+            },
+          },
+          { id: "depot", kind: "sink", name: "DEPOT", x: 1, y: 0 },
+        ],
+        edges: [{ id: "e1", from: "intake", to: "depot", kind: "flow" }],
+      };
+      const { plan } = compile(graph)!;
+      const worker = fakeWorker({ failFirstAttempts: 0, chunkDelayMs: 0 });
+
+      const events = await drain(
+        execute({ runId: "r-db", graph, plan: plan!, worker, budgetUsd: null, input: "", now: () => 0, sleep: async () => {} }),
+      );
+
+      expect(replay(events).status).toBe("done");
+      const sinkArtifact = events.find(
+        (e) => e.type === "artifact.produced" && e.nodeId === "depot" && e.artifact.kind === "text",
+      )?.artifact;
+      expect(sinkArtifact).toBeTruthy();
+      const rows = JSON.parse(sinkArtifact.content) as Array<{ id: number; msg: string }>;
+      expect(rows.map((r) => r.msg)).toEqual(["hello", "world"]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

@@ -100,7 +100,7 @@ State of Agent World as of 2026-08-31.
 
 按优先级降序，标 `★` 的是当下要推的：
 
-1. ★ **自动数据接入 Connector（2026-08-31 立项）**：让产线能自动拉数据（数据库/API/文件），从"玩具"到"工具"的关键一步；配合 **4.6 定时 / 事件触发** 实现完全自动化的产线（当前靠手动运行）。整体进度基线见 [docs/project-progress.md](docs/project-progress.md)
+1. ✅ **自动数据接入 Connector + 触发方式（2026-08-31 立项，2026-09-01 推进）**：file/http/form/manual 本已落地，本次补齐 **SQLite database connector**（`9657538`+`9003120`，见 design-connector-database.md）；4.6 webhook/cron/event/batch 本已全链路落地，本次挖出并修复 **event 成功状态契约 bug**（`e9b55ae`，引擎发 `done` 而触发层等 `completed`，见 design-triggers.md）。**两者组合已是无人值守产线**；剩余仅 PG/MySQL 驱动、多实例分布式锁（均 deferred）。整体进度基线见 [docs/project-progress.md](docs/project-progress.md)
 2. ★ **跑通真实产线（狗粮验证，2026-08-31 立项）**：roadmap-tasks 1.7.1——用产品自己跑一条端到端真实产线（如模板"多源研究简报"或内容产线），验证"新用户路径 → 配置 provider → 建产线 → 运行 → 看产物 → 复盘"全链路真实可用。产出：一份真实运行记录 + 暴露的体验/功能缺口清单。紧接回归测试集
    - **2026-08-31 进展（文本链路已跑通）**：跑通「短视频广告工坊」真实产线（投料→文坊脚本→成品入库→全部出厂，run `e74cba65`），文本节点真实调用 agnes-2.5-flash 产出完整口播脚本（817/186 tokens）。**过程发现并修复关键 bug**：SSRF `pinnedAgent` 用 undici 8.x Agent 传给 Node 24 内置 7.x fetch 会报 `invalid onRequestStart method`，导致所有经 guardedFetch 的出站请求失败（产线 fetch failed 根因）——依赖降到 `undici@^7.8`（7.29）后对齐，server 557/557 回归通过。
    - **2026-08-31 进展（全链路打通）**：**影坊视频节点适配完成并真实产出**（run `49e60631`，文坊脚本→画坊 PNG 1.27MB→影坊 MP4 1.9MB→成品库汇总，耗时 5m50s，UI 回放 23/23 收工）。关键点：① 产线 video 节点模型从 `agnes-video-2.5-flash` 切回 `agnes-video-v2.0`（2.5-flash 视频 API 无公开文档且实测禁 `width`/`num_frames`/`mode:ti2vid`，不可适配；v2.0 是模板默认且文档齐全）；② config.ts 新增 `ProviderConfig.videoAdapter`（createBody/omitDuration/aspectToSize/resultUrlPath），AGNES 内置配置 `{mode:"ti2vid"}` + width/height 映射 + 顶层 `url` 解析；③ 完成 URL 在任务顶层 `url` 字段（非文档所说 metadata.url），worker 轮询解析带 fallback；④ 视频轮询超时 300s→900s（agn 排队+推理实测约 5 分钟）。**另修复 artifact 落库双 bug**：`artifacts.save()` 不认本地 `/api/artifacts/` 引用导致 image/video/audio 落成 inline 空壳（图片/视频显示不出的根因）→ 识别本地引用为 `local` 存储；engine Artifact.id 跨 run 重复触发 DB 主键 INSERT OR IGNORE 吞行（后 run 产物全部丢失）→ emit 统一加 `runId` 前缀 + reconstructState 两遍扫描修复合成去重。
@@ -119,13 +119,13 @@ State of Agent World as of 2026-08-31.
 
 按 commit 时间倒序，每条一行影响面 + commit hash：
 
-1. `0cbce9d` — **fix(server)**: code 节点失败报 `SCRIPT_ERROR`（不再误标 PROVIDER_ERROR、不进重试），Inspector 显示"脚本执行错误"；engine.code 3 断言同步更新。
-2. `6dcce69` / `6f51eb1` / `b82c344` / `dbe260f` / `a6e1b52` — **feat/fix/refactor(web)**: 空白产线作为选卡器首卡片（非模板，dashed 空画布）+ 新建网格三列 + 去卡片 hover tooltip + 清理死 originTemplateId 类型（用户手动提交）。
-3. `8fa86c1` — **fix(server)**: error 边在节点失败时即时触发（finally），human 挂起不再饿死 catch 兜底（review-publish notifyFallback 修复）；回归基线扩到 11 用例。
-4. `01fad6c` — **fix(core)**: 模板 code 节点显式从 stdin 读引擎注入的 inputs（ops/competitor/batch/doc/custom/research 7 脚本不再 ReferenceError）+ branch forward-ref 重写修复 + custom-model 语法修复。
-5. `5cbc11d` — **feat(web)**: 空白产线入口从独立按钮改为选卡器首卡片（dashed 空画布卡片，非模板）。
+1. `e9b55ae` — **fix(server)**: **event 触发状态契约修复**——引擎成功状态是 `done` 而非 `completed`，此前"产线完成自动起跑下游"与运行后知识提取在成功时永久失效（单测用假想值 `completed` 掩盖）；统一判 `done`，回归基线加契约用例（12→13）。详见 [docs/design-triggers.md](docs/design-triggers.md) §3。
+2. `9003120` — **feat(web)**: ConnectorEditor 加 database 分支（sqlite 路径 / 多行 SELECT / json\|csv 输出，测试连接复用既有端点）。
+3. `9657538` — **feat(core,server)**: **SQLite database connector**——source 节点可从数据库拉数据（core ConnectorType 加 `database` + DatabaseConnector schema；resolver 只读打开 + 仅 SELECT/WITH 单语句 + json/csv 序列化；6 单测 + 回归基线端到端用例）。详见 [docs/design-connector-database.md](docs/design-connector-database.md)。
+4. `064b67e` — **docs**: 新增整体进度基线 [docs/project-progress.md](docs/project-progress.md)（15 模块完成度快照 + 待办管线 + 迭代参考规则），handoff 同步，docs 索引登记。
+5. `0cbce9d` — **fix(server)**: code 节点失败报 `SCRIPT_ERROR`（不再误标 PROVIDER_ERROR、不进重试），Inspector 显示"脚本执行错误"；engine.code 3 断言同步更新。
 
-> 更早条目（影坊视频适配 `1358753`、undici 对齐 `4bb6168`、静态加密 `9dc68ae`、回归基线 `6a12a35` 等）见 [docs/handoff-archive.md](docs/handoff-archive.md) 与 [docs/security-audit-2026-08-31.md](docs/security-audit-2026-08-31.md)。
+> 更早条目（空白产线首卡片系列 `6dcce69`/`6f51eb1`/`b82c344`/`dbe260f`/`a6e1b52`、error 边即时触发 `8fa86c1`、模板 code 节点 stdin 读 inputs `01fad6c`、空白产线首卡片 `5cbc11d`、影坊视频适配 `1358753`、undici 对齐 `4bb6168`、静态加密 `9dc68ae` 等）见 [docs/handoff-archive.md](docs/handoff-archive.md) 与 [docs/security-audit-2026-08-31.md](docs/security-audit-2026-08-31.md)。
 
 最近 5 条之前的全部在 [docs/handoff-archive.md](docs/handoff-archive.md) 的"阶段 4 收尾"与"Additions (post-2026-08-27)"系列章节里（含 MCP stdio 分帧修复 `a2482ba`、P2 外部沙箱后端 `0a22b13`、P1 rlimit `ddb2e03`、P0 `6b2f92b`、HTTP 节点第一闭环 `1856d81`、账号系统 `5b81c74`/`73d3610` 等）。
 

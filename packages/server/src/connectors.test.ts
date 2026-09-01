@@ -3,6 +3,7 @@ import { createServer, type Server } from "node:http";
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { resolveConnector } from "./connectors.js";
 
 const dir = mkdtempSync(path.join(tmpdir(), "conn-"));
@@ -172,5 +173,69 @@ describe("resolveConnector - edge cases", () => {
 
   it("throws when http config is missing", async () => {
     await expect(resolveConnector({ type: "http" })).rejects.toThrow(/missing 'http'/);
+  });
+});
+
+describe("resolveConnector - database", () => {
+  let dbPath: string;
+  beforeAll(() => {
+    dbPath = path.join(dir, "seed.sqlite");
+    const db = new DatabaseSync(dbPath);
+    db.exec(
+      "CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT, price REAL);" +
+        "INSERT INTO products (name, price) VALUES ('alpha', 1.5), ('beta', 2.5);",
+    );
+    db.close();
+  });
+
+  it("reads rows as pretty JSON", async () => {
+    const r = await resolveConnector({
+      type: "database",
+      database: { driver: "sqlite", path: dbPath, query: "SELECT * FROM products ORDER BY id", format: "json" },
+    });
+    const rows = JSON.parse(r.text) as Array<Record<string, unknown>>;
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({ name: "alpha" });
+  });
+
+  it("supports bind parameters and csv format", async () => {
+    const r = await resolveConnector({
+      type: "database",
+      database: { driver: "sqlite", path: dbPath, query: "SELECT name, price FROM products WHERE id > ?", params: [0], format: "csv" },
+    });
+    const lines = r.text.trim().split("\n");
+    expect(lines[0]).toBe("name,price");
+    expect(lines[1]).toContain("alpha");
+  });
+
+  it("rejects write statements", async () => {
+    await expect(
+      resolveConnector({
+        type: "database",
+        database: { driver: "sqlite", path: dbPath, query: "UPDATE products SET price = 0" },
+      }),
+    ).rejects.toThrow(/只允许 SELECT/);
+  });
+
+  it("rejects multi-statement queries", async () => {
+    await expect(
+      resolveConnector({
+        type: "database",
+        database: { driver: "sqlite", path: dbPath, query: "SELECT * FROM products; DROP TABLE products" },
+      }),
+    ).rejects.toThrow(/多语句/);
+  });
+
+  it("fails clearly when the database file is missing", async () => {
+    await expect(
+      resolveConnector({
+        type: "database",
+        database: { driver: "sqlite", path: path.join(dir, "nope.sqlite"), query: "SELECT 1" },
+      }),
+    ).rejects.toThrow(/无法打开数据库/);
+  });
+
+  it("throws when database config is missing", async () => {
+    await expect(resolveConnector({ type: "database" })).rejects.toThrow(/missing 'database'/);
   });
 });
