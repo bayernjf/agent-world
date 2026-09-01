@@ -4,17 +4,22 @@ import { cors } from "hono/cors";
 /**
  * Resolve the CORS `origin` option from the `CORS_ORIGINS` env var.
  *
- * - unset      → `undefined`, which Hono treats as allow-all (`*`). Convenient
- *                for local dev, but any shared/staging/prod deployment should set
- *                an explicit allowlist.
- * - "*"        → allow every origin.
+ * - unset      → `undefined`, which the caller maps to a local-dev default.
+ * - "*"        → REJECTED. Combined with `credentials: true` (set below) an
+ *                allow-every-origin policy would let any site make
+ *                credentialed requests to the API (audit L3). Fail fast on
+ *                startup instead of shipping the dangerous combination.
  * - "a,b,c"    → explicit allowlist; Hono echoes the request `Origin` only when
  *                it is present in the list, otherwise sends no ACAO header.
  */
 export function resolveCorsOrigins(env?: string): string | string[] | undefined {
   if (!env) return undefined;
   const trimmed = env.trim();
-  if (trimmed === "" || trimmed === "*") return "*";
+  if (trimmed === "" || trimmed === "*") {
+    throw new Error(
+      'CORS_ORIGINS="*" is unsafe together with credentials:true; set an explicit origin allowlist or remove CORS_ORIGINS to use the local default',
+    );
+  }
   const list = trimmed
     .split(",")
     .map((s) => s.trim())

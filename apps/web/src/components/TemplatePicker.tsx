@@ -24,8 +24,13 @@ export interface TemplatePreviewData {
 }
 
 /** Template list read straight from core — no network round-trip, so the
- *  grid renders even when the engine is slow or unreachable. */
-export const TEMPLATE_LIST: TemplatePreviewData[] = TEMPLATES.map((t) => ({
+ *  grid renders even when the engine is slow or unreachable.
+ *
+ *  `tpl-blank` is intentionally excluded here: a blank canvas is offered as a
+ *  dedicated first card (see `blankFirst`), not as a template entry. */
+export const TEMPLATE_LIST: TemplatePreviewData[] = TEMPLATES.filter(
+  (t) => t.id !== "tpl-blank",
+).map((t) => ({
   id: t.id,
   name: t.name,
   description: t.description,
@@ -109,17 +114,37 @@ interface PickerProps {
   onPick: (templateId?: string) => void;
   /** Extra class on each card (onboarding uses larger cards). */
   cardClass?: string;
+  /** Render a "blank line" card as the first grid item. It is a plain empty
+   *  canvas, not a template, so it carries no category/template badge. */
+  blankFirst?: boolean;
 }
 
-export default function TemplatePicker({ templates, onPick, cardClass }: PickerProps) {
+export default function TemplatePicker({
+  templates,
+  onPick,
+  cardClass,
+  blankFirst,
+}: PickerProps) {
   return (
     <div className={`template-grid ${cardClass ? `template-grid--${cardClass}` : ""}`}>
+      {blankFirst && (
+        <button
+          key="__blank__"
+          className={`template-card template-card--blank ${cardClass ? `template-card--${cardClass}` : ""}`}
+          onClick={() => onPick(undefined)}
+        >
+          <TemplatePreview nodes={[]} edges={[]} />
+          <span className="template-card__name">空白产线</span>
+          <span className="template-card__desc">
+            从空白画布开始，不预置任何节点，搭建后自由编辑
+          </span>
+        </button>
+      )}
       {templates.map((t) => (
         <button
           key={t.id}
           className={`template-card ${cardClass ? `template-card--${cardClass}` : ""}`}
           onClick={() => onPick(t.id)}
-          title={t.description}
         >
           <TemplatePreview nodes={t.nodes} edges={t.edges} />
           <span className="template-card__name">{t.name}</span>

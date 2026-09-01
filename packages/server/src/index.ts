@@ -51,9 +51,12 @@ import { SQLiteMemoryBackend, extractKnowledgeFromRun } from "./memory.js";
 import { fileURLToPath } from "node:url";
 import { sanitizeError } from "./sanitize.js";
 import { createReadArtifact } from "./artifact-reader.js";
+import { decryptString, encryptString } from "./at-rest.js";
 import { hashPassword, verifyPassword, signToken, verifyToken, REMEMBER_MAX_AGE_SEC } from "./auth.js";
 
 const PORT = Number(process.env.PORT ?? 8791);
+/** Cap for /api/proxy responses (audit L7): 25 MiB of fetched body. */
+const MAX_PROXY_RESPONSE_BYTES = 25 * 1024 * 1024;
 /** Absolute origin advertised to models so artifact links are fully qualified. */
 const PUBLIC_URL = (process.env.AGENT_WORLD_PUBLIC_URL ?? `http://localhost:${PORT}`).replace(
   /\/+$/,
@@ -64,8 +67,14 @@ backfillExistingData(db as any);
 // store while the legacy file config remains the shared baseline for users
 // who have never saved settings.
 bindSettingsStore({
-  get: (userId: string) => db.getSettings(userId),
-  set: (userId: string, data: string) => db.saveSettings(userId, data),
+  // Settings rows store the whole AppConfig JSON, including provider API keys.
+  // Encrypt at rest (audit L3); legacy plaintext rows decrypt as-is and are
+  // re-encrypted on the next save.
+  get: (userId: string) => {
+    const raw = db.getSettings(userId);
+    return raw ? decryptString(raw) : null;
+  },
+  set: (userId: string, data: string) => db.saveSettings(userId, encryptString(data)),
 });
 const artifacts = ArtifactStore.fromEnv();
 const readArtifact = createReadArtifact(db, artifacts);
@@ -158,6 +167,16 @@ app.get("/api/health", (c) => c.json({ ok: true }));
 
 // --- Auth routes (no auth required) ---
 const AUTH_COOKIE = "auth_token";
+
+/**
+ * Whether a stored artifact `uri` is safe to send as a Location header (L2).
+ * Only http(s) redirects are allowed; file:/data:/javascript: and other
+ * schemes are refused to prevent protocol-smuggling redirects. Exported for
+ * unit tests.
+ */
+export function isSafeRedirectUri(uri: string): boolean {
+  return /^https?:\/\//i.test(uri);
+}
 
 /**
  * Secure-cookie policy: the SECURE_COOKIES env var overrides; without it,
@@ -432,96 +451,6 @@ app.delete("/api/graphs/:id", (c) => {
   const userId = c.get("userId");
   db.deleteGraph(c.req.param("id"), userId);
   return c.json({ ok: true });
-});
-
-/** Minimal duck-typed view of a template graph — only the layout fields
- *  we touch (node id/kind/x/y, edge from/to/kind). The `kind` literals come
- *  from `Graph` so our `.map` returns are still assignable back to the strict
- *  `Graph["nodes"]` / `Graph["edges"]` arrays that saveGraph expects. */
-type NodeK = Graph["nodes"][number]["kind"];
-type EdgeK = Graph["edges"][number]["kind"];
-interface TemplateLike {
-  nodes: Array<{ id: string; kind: NodeK; x: number; y: number }>;
-  edges: Array<{ id: string; from: string; to: string; kind: EdgeK }>;
-}
-
-/**
- * Restore only a graph's visual layout (node positions + edge topology) to
- * the originating template. Everything the user configured — node prompts,
- * model selections, node names, added/deleted nodes, triggers, variables —
- * is preserved.
- *
- * Per-node semantics (matched by node.id):
- *   - template node exists + user node exists  → overwrite only x / y (and
- *     kind defensively; kind never changes between template & user).
- *   - user added a node that the template never had  → keep it (preserve).
- *   - user deleted a template node → don't revive it (honour user deletion).
- *
- * Edges: union — every edge in the template is guaranteed present (user's
- * deletions of a template edge are undone), and any edges the user added
- * beyond the template are kept.
- */
-function restoreLayout(graph: Graph, template: TemplateLike): Graph {
-  const userNodesById = new Map(graph.nodes.map((n) => [n.id, n]));
-  const tplNodesById = new Map(template.nodes.map((n) => [n.id, n]));
-
-  const newNodes: Graph["nodes"] = graph.nodes.map((userNode) => {
-    const tpl = tplNodesById.get(userNode.id);
-    if (!tpl) return userNode; // user-added node — keep verbatim
-    // Template node: restore only positional fields.
-    return { ...userNode, kind: tpl.kind, x: tpl.x, y: tpl.y };
-  });
-
-  // Edges: start from user's set, add any template edges that are missing.
-  // Key by "from→to|kind" so duplicates get deduped cleanly.
-  const edgeKey = (e: { from: string; to: string; kind: string }) => `${e.from}→${e.to}|${e.kind}`;
-  const userEdgeKeys = new Set(graph.edges.map(edgeKey));
-  const newEdges = [...graph.edges];
-  for (const tplEdge of template.edges) {
-    if (!userEdgeKeys.has(edgeKey(tplEdge))) {
-      newEdges.push({ ...tplEdge });
-    }
-  }
-
-  return { ...graph, nodes: newNodes, edges: newEdges };
-}
-
-app.post("/api/graphs/:id/reset", (c) => {
-  const userId = c.get("userId");
-  const id = c.req.param("id");
-  const existing = db.getGraph(id, userId);
-  if (!existing) return c.json({ error: "not found" }, 404);
-  if (!existing.originTemplateId) {
-    return c.json(
-      { error: "not_template_instance", message: "此产线未从模板创建，无法还原。" },
-      400,
-    );
-  }
-  const tpl = getTemplate(existing.originTemplateId);
-  if (!tpl) {
-    return c.json(
-      { error: "template_missing", message: `模板「${existing.originTemplateId}」已不存在。` },
-      400,
-    );
-  }
-
-  // Snapshot current state so the reset itself is reversible via VersionPanel.
-  const s = autoSnapshotSettings(userId);
-  db.saveAutoSnapshot(id, JSON.stringify(existing), s.minIntervalMs, s.maxKeep);
-
-  const restored = restoreLayout(existing, tpl.graph);
-
-  const ifMatch = c.req.header("if-match");
-  const expectedVersion = ifMatch != null ? Number(ifMatch) : undefined;
-  const result = db.saveGraph(restored, Date.now(), userId, expectedVersion);
-  if (!result.ok) {
-    return c.json(
-      { error: "conflict", message: "该产线已在其他标签页被修改，请刷新后重试。" },
-      409,
-    );
-  }
-  // originTemplateId stays untouched — updateGraphIfVersion doesn't rewrite it.
-  return c.json(db.getGraph(id, userId));
 });
 
 /** Auto-snapshot parameters from user settings, falling back to the design
@@ -1595,7 +1524,36 @@ app.get("/api/proxy", async (c) => {
     if (!upstream.ok) {
       return c.json({ error: `upstream returned ${upstream.status}` }, 502);
     }
-    const buf = Buffer.from(await upstream.arrayBuffer());
+    // Audit L7: bound the response body so a huge upstream cannot exhaust
+    // server memory via this proxy. Stream and count instead of buffering the
+    // whole body up front (also honors an early content-length rejection).
+    const declared = Number(upstream.headers.get("content-length") ?? 0);
+    if (declared > MAX_PROXY_RESPONSE_BYTES) {
+      return c.json({ error: "upstream response too large" }, 502);
+    }
+    const chunks: Buffer[] = [];
+    let total = 0;
+    if (upstream.body) {
+      const reader = upstream.body.getReader();
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        total += value.byteLength;
+        if (total > MAX_PROXY_RESPONSE_BYTES) {
+          await reader.cancel().catch(() => {});
+          return c.json({ error: "upstream response too large" }, 502);
+        }
+        chunks.push(Buffer.from(value));
+      }
+    } else {
+      const ab = await upstream.arrayBuffer();
+      total = ab.byteLength;
+      if (total > MAX_PROXY_RESPONSE_BYTES) {
+        return c.json({ error: "upstream response too large" }, 502);
+      }
+      chunks.push(Buffer.from(ab));
+    }
+    const buf = Buffer.concat(chunks, total);
     const ct = upstream.headers.get("content-type") ?? "application/octet-stream";
     return new Response(buf, {
       headers: {
@@ -1619,7 +1577,13 @@ app.get("/api/artifacts/:id", async (c) => {
   if (!meta) return c.json({ error: "not found" }, 404);
 
   if (meta.storage === "uri" && meta.uri) {
-    return c.redirect(meta.uri, 302);
+    // Audit L2: only redirect to http(s) locations. Refusing everything else
+    // (file:, data:, javascript:…) blocks protocol-smuggling redirects and
+    // prevents exposing local file semantics through a Location header.
+    if (isSafeRedirectUri(meta.uri)) {
+      return c.redirect(meta.uri, 302);
+    }
+    return c.json({ error: "artifact uri uses an unsafe protocol" }, 404);
   }
   if (meta.storage !== "local") {
     return c.json({ error: "artifact has no binary payload" }, 404);

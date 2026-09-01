@@ -57,7 +57,7 @@ function setPath(obj: Record<string, unknown>, keys: string[], value: string): v
 }
 
 /** Config fields whose value is (or starts with) a node id, not a plain string. */
-const NODE_ID_REF_FIELDS = new Set(["source", "target", "items", "iterate", "pick"]);
+const NODE_ID_REF_FIELDS = new Set(["source", "target", "defaultTarget", "items", "iterate", "pick"]);
 
 /**
  * Rewrite node-id references inside a node's config so they survive re-id.
@@ -131,6 +131,14 @@ export function instantiateTemplate(
     idMap.set(oldId, fresh);
     return fresh;
   };
+
+  // First pass: seed idMap with every template node id up front. Reference
+  // rewriting (below) walks nodes in array order, but a node's config can
+  // reference a node that appears later in the array (e.g. a branch node whose
+  // `rules[].target` / `defaultTarget` points to a downstream node). Without
+  // this pre-seed those references would silently fail to rewrite and the
+  // instantiated graph would route to non-existent ids.
+  for (const n of template.graph.nodes) uid(n.id);
 
   const nodes = template.graph.nodes.map((n) => {
     // Deep clone so reference rewriting never mutates the shared template
@@ -632,7 +640,9 @@ const opsWeeklyGraph = {
           language: "javascript",
           code: [
             "// 读取上游数据（http 节点输出 JSON；失败时走 error 边到兜底节点）",
-            "const raw = JSON.parse(Object.values(inputs)[0] ?? \"{}\");",
+            "const fs = require(\"fs\");",
+            "const inputs = JSON.parse(fs.readFileSync(0, \"utf8\")).inputs ?? {};",
+            "const raw = Object.values(inputs)[0] ?? {};",
             "// TODO: 按你的业务字段做清洗与聚合，这里给出一个通用骨架",
             "const rows = Array.isArray(raw) ? raw : (raw.items ?? raw.data ?? [raw]);",
             "const summary = {",
@@ -882,6 +892,8 @@ const competitorWatchGraph = {
           language: "javascript",
           code: [
             "// 从页面文本里抽取关心的字段；替换成正则以匹配你的竞品页面结构",
+            "const fs = require(\"fs\");",
+            "const inputs = JSON.parse(fs.readFileSync(0, \"utf8\")).inputs ?? {};",
             "const html = String(Object.values(inputs)[0] ?? \"\");",
             "const text = html.replace(/<[^>]+>/g, \" \").replace(/\\s+/g, \" \").trim();",
             "console.log(JSON.stringify({",
@@ -952,6 +964,9 @@ const batchContentGraph = {
         code: {
           language: "javascript",
           code: [
+            '// 读取引擎注入的 inputs（code 节点把上游数据 JSON 写到 stdin）',
+            'const fs = require("fs");',
+            'const inputs = JSON.parse(fs.readFileSync(0, "utf8")).inputs ?? {};',
             '// 读取上游粘贴的批量清单（一行一条），拆成一个待生产条目数组。',
             'const raw = String(Object.values(inputs)[0] ?? "").trim();',
             'const lines = raw.split(/\\r?\\n/).map(function (s) { return s.trim(); }).filter(Boolean);',
@@ -1088,6 +1103,8 @@ const docIngestGraph = {
           language: "javascript",
           code: [
             '// 汇总正文文本与图片 OCR 文本，输出一行一字段的结构化清单。',
+            'const fs = require("fs");',
+            'const inputs = JSON.parse(fs.readFileSync(0, "utf8")).inputs ?? {};',
             'const parseText = String(inputs["parse"] ?? "");',
             '// OCR 失败时上游是错误对象而非文本，此时回退到兜底节点的空串。',
             'const ocrText = typeof inputs["ocr"] === "string" ? inputs["ocr"] : String(inputs["ocrFallback"] ?? "");',
@@ -1273,6 +1290,9 @@ const customModelGraph = {
         code: {
           language: "javascript",
           code: [
+            '// 读取引擎注入的 inputs（code 节点把上游数据 JSON 写到 stdin）',
+            'const fs = require("fs");',
+            'const inputs = JSON.parse(fs.readFileSync(0, "utf8")).inputs ?? {};',
             '// 读取上游输入，按模态组装一条推理请求承载（文本 / 图片 / 视频 / 音频由泛化节点自动分派）。',
             'const raw = String(Object.values(inputs)[0] ?? "");',
             'const tone = "专业、通顺、信息密度高、避免车轱辘话";',
@@ -1280,7 +1300,7 @@ const customModelGraph = {
             '  intent: "根据输入的原始内容进行一次高质量加工与润色",',
             '  constraint: tone,',
             '  sourceText: raw,',
-            '  outputShape: "回传一段可直接使用的文本；若输入为待总结内容则先给三点要点再给全文"。',
+            '  outputShape: "回传一段可直接使用的文本；若输入为待总结内容则先给三点要点再给全文",',
             '};',
             'console.log(JSON.stringify(payload));',
           ].join("\n"),
@@ -1404,6 +1424,9 @@ const researchLoopGraph = {
         code: {
           language: "javascript",
           code: [
+            '// 读取引擎注入的 inputs（code 节点把上游数据 JSON 写到 stdin）',
+            'const fs = require("fs");',
+            'const inputs = JSON.parse(fs.readFileSync(0, "utf8")).inputs ?? {};',
             '// 读取上游粘贴的课题清单（一行一个课题），拆成一个字符串数组。',
             'const raw = String(Object.values(inputs)[0] ?? "").trim();',
             'const topics = raw.split(/\\r?\\n/).map(function (s) { return s.trim(); }).filter(Boolean);',
@@ -1434,6 +1457,8 @@ const researchLoopGraph = {
           language: "javascript",
           code: [
             '// 当前课题（循环项）原样输出，作为下游搜索节点的搜索词。',
+            'const fs = require("fs");',
+            'const inputs = JSON.parse(fs.readFileSync(0, "utf8")).inputs ?? {};',
             'console.log(String(inputs.item ?? ""));',
           ].join("\n"),
         },

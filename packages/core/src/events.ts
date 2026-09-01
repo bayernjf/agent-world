@@ -30,6 +30,7 @@ export const ErrorCode = z.enum([
   "CONNECTOR",
   "UNKNOWN",
   "UNSUPPORTED",
+  "SCRIPT_ERROR",
   "SUBPROCESS",
 ]);
 export type ErrorCode = z.infer<typeof ErrorCode>;

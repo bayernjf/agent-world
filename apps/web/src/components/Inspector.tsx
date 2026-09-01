@@ -426,6 +426,7 @@ const ERROR_LABEL: Record<string, string> = {
   TIMEOUT: "超时",
   RATE_LIMIT: "限流",
   PROVIDER_ERROR: "模型服务错误",
+  SCRIPT_ERROR: "脚本执行错误",
   AUTH: "密钥错误",
   VALIDATION: "质检未通过",
   BUDGET: "节点预算超限",

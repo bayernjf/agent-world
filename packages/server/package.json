@@ -8,7 +8,8 @@
     "start": "node dist/index.js",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:regression": "vitest run src/regression/"
   },
   "dependencies": {
     "@agent-world/core": "workspace:*",
@@ -22,7 +23,7 @@
     "pdfjs-dist": "^6.2.108",
     "pngjs": "^7.0.0",
     "tesseract.js": "^7.0.0",
-    "undici": "^8.10.0"
+    "undici": "^7.8.0"
   },
   "devDependencies": {
     "@types/jpeg-js": "^0.3.7",

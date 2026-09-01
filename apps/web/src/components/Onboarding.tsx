@@ -32,13 +32,17 @@ export default function Onboarding({ onCreate }: Props) {
         </div>
 
         <div className="onboarding__section">
-          <h2 className="onboarding__section-title">选择一个模板开始</h2>
+          <h2 className="onboarding__section-title">
+            从空白产线开始，或选择一个模板
+          </h2>
           <p className="onboarding__section-hint">
-            模板预置了节点和连线，创建后可自由编辑。共 {templates.length} 个模板。
+            空白产线从零搭建；模板预置了节点和连线，创建后可自由编辑。共{" "}
+            {templates.length} 个模板。
           </p>
 
           <TemplatePicker
             templates={templates}
+            blankFirst
             onPick={(id) => {
               const tpl = id ? templates.find((t) => t.id === id) : undefined;
               // Templates with declared fields get a parameter form first.
@@ -47,16 +51,6 @@ export default function Onboarding({ onCreate }: Props) {
             }}
             cardClass="onboarding"
           />
-        </div>
-
-        <div className="onboarding__divider">
-          <span>或</span>
-        </div>
-
-        <div className="onboarding__actions">
-          <button className="btn btn--primary btn--lg" onClick={() => onCreate()}>
-            从空白产线开始
-          </button>
         </div>
 
         <div className="onboarding__tips">

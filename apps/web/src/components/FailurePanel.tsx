@@ -13,6 +13,7 @@ const ERROR_LABEL: Record<string, string> = {
   VALIDATION: "校验失败",
   BUDGET: "预算",
   UNSUPPORTED: "不支持",
+  SCRIPT_ERROR: "脚本执行错误",
   UNKNOWN: "未知错误",
 };
 

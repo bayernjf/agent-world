@@ -628,6 +628,12 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
   /** Last failure recorded per node, so error edges can carry the cause to catch nodes. */
   const lastError = new Map<string, { error: string; errorCode?: string }>();
   const emit = (e: DraftEvent): RunEvent => {
+    // Artifact ids are node-scoped (e.g. `video-0`) and repeat across runs;
+    // they are the DB primary key, so INSERT OR IGNORE silently drops every
+    // later run's artifacts. Prefix with the run id to keep them unique.
+    if (e.type === "artifact.produced") {
+      e = { ...e, artifact: { ...e.artifact, id: `${runId.slice(0, 8)}-${e.artifact.id}` } };
+    }
     const ev = { ...e, seq: seq++, ts: opts.now() } as RunEvent;
     queue.push(ev);
     if (ev.type === "node.failed") {
@@ -1408,7 +1414,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
               nodeId,
               attempt,
               error: `代码执行失败（退出码 ${code}）: ${(stderr || "无 stderr 输出").slice(0, 300)}`,
-              errorCode: "PROVIDER_ERROR",
+              errorCode: "SCRIPT_ERROR",
             });
             return;
           }
@@ -2206,6 +2212,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
               | "TIMEOUT"
               | "RATE_LIMIT"
               | "PROVIDER_ERROR"
+              | "SCRIPT_ERROR"
               | "AUTH"
               | "VALIDATION"
               | "UNKNOWN"
@@ -2884,6 +2891,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           id: `${nodeId}-vid-${idx}`,
           kind: "video",
           uri,
+          sizeBytes: res.data.length,
           mimeType: res.mimeType,
           label: results.length > 1 ? `${node.name || "AI 视频"} #${idx + 1}` : node.name || "AI 视频",
         };
@@ -2933,6 +2941,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           id: `${nodeId}-aud-${idx}`,
           kind: "audio",
           uri,
+          sizeBytes: res.data.length,
           mimeType: res.mimeType,
           label: results.length > 1 ? `${node.name || "AI 音频"} #${idx + 1}` : node.name || "AI 音频",
         };
@@ -2974,6 +2983,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           id: `${nodeId}-img-${idx}`,
           kind: "image",
           uri,
+          sizeBytes: res.data.length,
           mimeType: res.mimeType,
           label: results.length > 1 ? `${node.name || "AI 配图"} #${idx + 1}` : node.name || "AI 配图",
         };
@@ -3417,6 +3427,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
             | "TIMEOUT"
             | "RATE_LIMIT"
             | "PROVIDER_ERROR"
+            | "SCRIPT_ERROR"
             | "AUTH"
             | "VALIDATION"
             | "UNKNOWN"
@@ -3504,6 +3515,40 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       sendPackets(nodeId, result.output.slice(0, 120), primaryKind);
     } finally {
       running--;
+      // 节点失败时立即把错误交给 error 边的下游 catch 节点，不等待全局静止
+      // （否则 human 等人工审批挂起时 running 永不归零，兜底会被永久阻塞）。
+      if (!aborted && states.get(nodeId) === "failed") {
+        const errOut = outgoing(graph, nodeId, "error");
+        if (errOut.length) {
+          const cause = lastError.get(nodeId);
+          if (cause && !artifacts.has(nodeId)) {
+            artifacts.set(nodeId, [
+              {
+                id: `${nodeId}-error`,
+                kind: "json",
+                content: JSON.stringify(
+                  { error: cause.error, errorCode: cause.errorCode ?? "UNKNOWN", nodeId },
+                  null,
+                  2,
+                ),
+                mimeType: "application/json",
+              },
+            ]);
+          }
+          for (const e of errOut) {
+            if (packetEdges.has(e.id)) continue;
+            packetEdges.add(e.id);
+            emit({
+              type: "packet.sent",
+              edgeId: e.id,
+              from: nodeId,
+              to: e.to,
+              summary: cause?.error ?? "upstream failed",
+              artifactKind: "json",
+            });
+          }
+        }
+      }
       // Defer to a microtask so a synchronous node finishing mid-launch
       // doesn't close the run before the scheduler starts the next plant.
       if (!aborted) queueMicrotask(schedule);
@@ -3677,6 +3722,14 @@ function fileLabelFromUrl(url: URL): string {
  * persistence concerns — callers fan the stream out to SQLite and to SSE.
  */
 export async function* execute(opts: ExecuteOptions): AsyncGenerator<RunEvent, void, void> {
+  // Fail closed on a graph that cannot compile (e.g. an empty "blank" canvas):
+  // the scheduler dereferences plan.loops/order/levels, so a null plan would
+  // otherwise surface as an opaque TypeError instead of a clear error.
+  if (!opts.plan) {
+    throw new Error(
+      "graph does not compile: the pipeline has no executable plan (missing intake or invalid edges)",
+    );
+  }
   const states = new Map<string, NodeState>();
   for (const n of opts.graph.nodes) states.set(n.id, "pending");
 
@@ -3740,13 +3793,21 @@ export function reconstructState(events: RunEvent[]): ResumeState {
   let haltedReason: string | null = null;
   let lastSeq = -1;
 
+  // Pass 1: which nodes produced a typed artifact event. node.finished may
+  // arrive before artifact.produced (source nodes do), so the synthesis below
+  // must not assume "no artifacts yet" means "never produced any".
+  const producedBy = new Set<string>();
+  for (const e of events) {
+    if (e.type === "artifact.produced") producedBy.add(e.nodeId);
+  }
+
   for (const e of events) {
     lastSeq = Math.max(lastSeq, e.seq);
     switch (e.type) {
       case "node.finished":
         // If no typed artifacts were produced for this node (old runs / text-only),
         // synthesize a text artifact from the output so downstream input assembly works.
-        if (!artifacts.has(e.nodeId) || artifacts.get(e.nodeId)!.length === 0) {
+        if (!producedBy.has(e.nodeId) && (!artifacts.has(e.nodeId) || artifacts.get(e.nodeId)!.length === 0)) {
           artifacts.set(e.nodeId, [{ id: `${e.nodeId}-text`, kind: "text", content: e.output }]);
         }
         totalCostUsd += e.usage.costUsd;
@@ -3863,6 +3924,13 @@ export interface ResumeOptions {
  * halted gate is treated as passing and flow proceeds downstream.
  */
 export async function* resume(opts: ResumeOptions): AsyncGenerator<RunEvent, void, void> {
+  // Same fail-closed guard as execute: a resumed run must have a valid plan,
+  // otherwise the scheduler dereferences plan.loops/order/levels on null.
+  if (!opts.plan) {
+    throw new Error(
+      "graph does not compile: the pipeline has no executable plan (missing intake or invalid edges)",
+    );
+  }
   const { runId, graph, plan, worker, budgetUsd, action } = opts;
   const now = opts.now ?? Date.now;
   const sleep = opts.sleep ?? delay;

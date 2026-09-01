@@ -10,6 +10,7 @@
 |---|---|
 | 快速跑起来、了解项目门面 | [README.md](../README.md) |
 | 知道现在做到哪、接下来做什么 | [handoff.md](../handoff.md) ★ 交接必读 |
+| 看整体进度基线、迭代对照 | [project-progress.md](project-progress.md) |
 | 用画布（快捷键 / 交互） | README.md 的 Canvas interaction 一节 |
 | 套用现成产线模板 | [examples.md](examples.md) |
 | 给项目加节点 / Provider / 工具 | [extending.md](extending.md) + [CONTRIBUTING.md](../CONTRIBUTING.md) |
@@ -26,12 +27,14 @@
 |---|---|---|
 | [README.md](../README.md) | 项目门面：两个核心设计决策、架构图、画布交互、部署 | 所有人 |
 | [handoff.md](../handoff.md) | 交接文档：当前状态 + 活跃任务 + 最近 5 个变更 | 继续迭代的 AI / 开发者 ★ |
+| [project-progress.md](project-progress.md) | 整体进度基线（模块完成度 + 待启动管线 + 迭代参考规则）★ | 决策者 / 开发者 |
 | [PRD.md](../PRD.md) | 产品路线图（5 阶段）与架构护栏 | 产品 / 开发者 |
 | [PRODUCT_STRATEGY.md](../PRODUCT_STRATEGY.md) | 产品策略基线（成本 / 部署 / 定价 / 商业化） | 决策者 |
 | [CHANGELOG.md](../CHANGELOG.md) | 按版本的变更日志（Keep a Changelog） | 所有人 |
 | [CONTRIBUTING.md](../CONTRIBUTING.md) | 环境搭建、测试、commit 规范、PR 流程 | 贡献者 |
 | [technical-design.md](technical-design.md) | 技术方案结论：架构、数据模型、API、安全 | 开发者 |
-| [security-audit-2026-08-31.md](security-audit-2026-08-31.md) | 安全审计报告 + 四批修复方案（3 Critical / 10 High；推翻两条旧"已解决"结论）★ | 开发者 / 决策者 |
+| [security-audit-2026-08-31.md](security-audit-2026-08-31.md) | 安全审计报告 + 修复方案（3 Critical / 10 High / 8 Medium / 8 Low，**29 项全部修复**；推翻两条旧"已解决"结论）★ | 开发者 / 决策者 |
+| [design-at-rest-encryption.md](design-at-rest-encryption.md) | 静态加密设计（settings / webhook secret 落盘 AES-256-GCM；审计 L3，已落地） | 开发者 / 运维 |
 | [roadmap-generalization.md](roadmap-generalization.md) | 通用化路线图（当前主线，5 阶段） | 决策者 / 开发者 ★ |
 | [deferred-items.md](deferred-items.md) | 缓做/低优事项登记表（全部挂起项 + 触发条件的单一事实源） | 决策者 / 开发者 ★ |
 | [design-mcp-server.md](design-mcp-server.md) | MCP Server 设计（传输 / tools / resources / prompts） | 开发者 |

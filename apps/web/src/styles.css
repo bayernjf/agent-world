@@ -256,26 +256,6 @@ select {
   font-family: var(--mono);
   outline: none;
 }
-.graph-row__tpl-badge {
-  margin-left: 6px;
-  padding: 1px 5px;
-  border-radius: 3px;
-  background: var(--steel-700);
-  color: var(--data);
-  font-size: 9px;
-  font-family: var(--mono);
-  letter-spacing: 0.06em;
-  vertical-align: middle;
-  text-transform: uppercase;
-}
-.graph-row__confirm {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--alert);
-  font-size: 11px;
-}
 .chip--xs {
   padding: 2px 7px;
   font-size: 11px;
@@ -526,13 +506,13 @@ select {
 /* ---------- new graph template picker ---------- */
 .template-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 10px;
 }
-/* Blank-graph escape hatch under the template grid in NewGraphDialog */
-.new-graph__blank {
-  margin-top: 12px;
-  width: 100%;
+/* Blank-graph entry is a plain empty canvas, not a template: dashed border
+ * signals "empty", and it deliberately carries no category/template badge. */
+.template-card--blank {
+  border-style: dashed;
 }
 /* Parameter form shown before instantiating a template with declared fields */
 .template-fields {
@@ -4619,7 +4599,7 @@ select {
 .template-grid--onboarding {
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   gap: 12px;
-  /* Independent scroll inside the card so the hero/actions stay pinned.
+  /* Independent scroll inside the card so the hero stays pinned.
      Theme inherits from the global ::-webkit-scrollbar rules. */
   max-height: min(540px, 50vh);
   overflow-y: auto;
@@ -4646,36 +4626,6 @@ select {
 .template-card--onboarding:hover::after {
   opacity: 1;
   color: var(--power);
-}
-.onboarding__divider {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  margin: 20px 0;
-  color: var(--ink-faint);
-  font-family: var(--mono);
-  font-size: 11px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-}
-.onboarding__divider::before,
-.onboarding__divider::after {
-  content: "";
-  flex: 1;
-  height: 1px;
-  background: var(--hair);
-}
-.onboarding__actions {
-  text-align: center;
-  margin-bottom: 24px;
-}
-.btn--lg {
-  padding: 14px 40px;
-  font-size: 13px;
-  letter-spacing: 0.18em;
-  max-width: 360px;
-  margin: 0 auto;
-  display: block;
 }
 .onboarding__tips {
   background: var(--steel-850);

@@ -51,6 +51,14 @@ describe("artifact store", () => {
     expect(saved.uri).toBeNull();
   });
 
+  it("keeps local /api/artifacts refs as local rows instead of inline stubs", async () => {
+    const a: Artifact = { id: "img-0", kind: "image", uri: "/api/artifacts/up-abc", sizeBytes: 2048 };
+    const saved = await store.save(a, { runId: "r", nodeId: "n" });
+    expect(saved.storage).toBe("local");
+    expect(saved.uri).toBe("/api/artifacts/up-abc");
+    expect(saved.sizeBytes).toBe(2048);
+  });
+
   it("persists raw uploaded bytes as a local image artifact", async () => {
     const buf = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a]);
     const saved = await store.saveBinary({

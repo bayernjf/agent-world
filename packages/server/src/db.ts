@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { EVENT_SCHEMA_VERSION, type Graph, type RunEvent } from "@agent-world/core";
 import type { StoredArtifact } from "./artifact-store.js";
+import { openDocString, openGraphDoc, sealDocString, sealGraphDoc } from "./at-rest.js";
 
 /**
  * Events are the source of truth and append-only, so they get a plain prepared
@@ -426,7 +427,7 @@ export function openDb(file: string) {
       expectedVersion?: number,
       originTemplateId?: string | null,
     ): { ok: true; version: number } | { ok: false; conflict: true; serverVersion: number | null } | { ok: false; foreign: true } {
-      const doc = JSON.stringify(graph);
+      const doc = JSON.stringify(sealGraphDoc(graph));
       // Cross-tenant guard (H1): an upsert must never overwrite a graph that
       // shares this id but belongs to another user. Checked in the app layer
       // for a clear error; the UPSERT's WHERE clause is the SQL backstop.
@@ -456,7 +457,7 @@ export function openDb(file: string) {
 
     getGraph(id: string, userId: string): (Graph & { version: number; originTemplateId: string | null }) | null {
       const row = stmts.getGraph.get(id, userId) as { doc: string; version: number; origin_template_id: string | null } | undefined;
-      return row ? { ...(JSON.parse(row.doc) as Graph), version: row.version, originTemplateId: row.origin_template_id } : null;
+      return row ? { ...(openGraphDoc(JSON.parse(row.doc) as Graph)), version: row.version, originTemplateId: row.origin_template_id } : null;
     },
 
     listGraphs(userId: string): Array<{
@@ -530,7 +531,7 @@ export function openDb(file: string) {
         args.id,
         args.userId,
         args.graph.id,
-        JSON.stringify(args.graph),
+        JSON.stringify(sealGraphDoc(args.graph)),
         "running",
         args.trigger ?? "manual",
         args.input ?? null,
@@ -555,7 +556,7 @@ export function openDb(file: string) {
     },
 
     getRun(runId: string, userId: string) {
-      return stmts.getRun.get(runId, userId) as
+      const row = stmts.getRun.get(runId, userId) as
         | {
             id: string;
             graph_id: string;
@@ -568,6 +569,7 @@ export function openDb(file: string) {
             ended_at: number | null;
           }
         | undefined;
+      return row ? { ...row, snapshot: openDocString(row.snapshot) } : undefined;
     },
 
     listRuns(
@@ -946,7 +948,7 @@ export function openDb(file: string) {
       const nodeNames = new Map<string, string>();
       for (const row of snapshotRows) {
         try {
-          const g = JSON.parse(row.snapshot) as { nodes?: Array<{ id: string; name: string }> };
+          const g = JSON.parse(openDocString(row.snapshot)) as { nodes?: Array<{ id: string; name: string }> };
           for (const n of g.nodes ?? []) nodeNames.set(`${row.graph_id}:${n.id}`, n.name);
         } catch {
           // malformed snapshot — fall back to node_id
@@ -1101,7 +1103,7 @@ export function openDb(file: string) {
       for (const row of snapshotRows) {
         if (!inScope.has(row.id)) continue;
         try {
-          const g = JSON.parse(row.snapshot) as {
+          const g = JSON.parse(openDocString(row.snapshot)) as {
             nodes?: Array<{ kind?: string; textGen?: { model?: string; prompt?: string } }>;
           };
           const sig = (g.nodes ?? [])
@@ -1196,7 +1198,7 @@ export function openDb(file: string) {
         let prompt: string | null = null;
         if (snap) {
           try {
-            const g = JSON.parse(snap.snapshot) as {
+            const g = JSON.parse(openDocString(snap.snapshot)) as {
               nodes?: Array<{ id: string; textGen?: { prompt?: string } }>;
             };
             const node = (g.nodes ?? []).find((n) => n.id === r.target);
@@ -1289,19 +1291,20 @@ export function openDb(file: string) {
       const row = db
         .prepare(`SELECT snapshot FROM runs WHERE graph_id = ? AND user_id = ? ORDER BY started_at DESC, rowid DESC LIMIT 1`)
         .get(graphId, userId) as { snapshot: string } | undefined;
-      return row ? contentHash(row.snapshot) : null;
+      return row ? contentHash(openDocString(row.snapshot)) : null;
     },
     getVersion(id: string, userId: string) {
-      return db.prepare(`SELECT gv.* FROM graph_versions gv JOIN graphs g ON g.id = gv.graph_id
+      const row = db.prepare(`SELECT gv.* FROM graph_versions gv JOIN graphs g ON g.id = gv.graph_id
                           WHERE gv.id = ? AND g.user_id = ?`).get(id, userId) as
         | { id: string; graph_id: string; name: string; snapshot: string; note: string; created_at: number }
         | undefined;
+      return row ? { ...row, snapshot: openDocString(row.snapshot) } : undefined;
     },
     saveVersion(graphId: string, name: string, snapshot: string, note = "", contentHash = "") {
       const id = randomUUID();
       const now = Date.now();
       db.prepare(`INSERT INTO graph_versions (id, graph_id, name, snapshot, note, content_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`).run(
-        id, graphId, name, snapshot, note, contentHash, now,
+        id, graphId, name, sealDocString(snapshot), note, contentHash, now,
       );
       return { id, graphId, name, note, createdAt: now };
     },
@@ -1324,7 +1327,7 @@ export function openDb(file: string) {
       const id = randomUUID();
       const now = Date.now();
       db.prepare(`INSERT INTO graph_versions (id, graph_id, name, snapshot, note, content_hash, created_at) VALUES (?, ?, ?, ?, 'auto', ?, ?)`).run(
-        id, graphId, `auto-${new Date(now).toISOString().slice(0, 16).replace("T", " ")}`, snapshot, hash, now,
+        id, graphId, `auto-${new Date(now).toISOString().slice(0, 16).replace("T", " ")}`, sealDocString(snapshot), hash, now,
       );
       // Rolling retention: prune oldest auto-snapshots beyond maxKeep.
       const stale = db
@@ -1341,7 +1344,7 @@ export function openDb(file: string) {
 
     getGraphById(id: string): (Graph & { version: number }) | null {
       const row = stmts.getGraphById.get(id) as { doc: string; version: number } | undefined;
-      return row ? { ...(JSON.parse(row.doc) as Graph), version: row.version } : null;
+      return row ? { ...(openGraphDoc(JSON.parse(row.doc) as Graph)), version: row.version } : null;
     },
 
     listAllGraphs() {
@@ -1367,9 +1370,10 @@ export function openDb(file: string) {
     },
 
     getRunById(runId: string) {
-      return stmts.getRunById.get(runId) as
+      const row = stmts.getRunById.get(runId) as
         | { id: string; graph_id: string; snapshot: string; status: string; budget_usd: number | null; started_at: number; ended_at: number | null }
         | undefined;
+      return row ? { ...row, snapshot: openDocString(row.snapshot) } : undefined;
     },
 
     listRunsUnscoped(limit = 50, offset = 0) {
@@ -1381,7 +1385,7 @@ export function openDb(file: string) {
     },
 
     saveGraphUnscoped(graph: Graph, at: number) {
-      const doc = JSON.stringify(graph);
+      const doc = JSON.stringify(sealGraphDoc(graph));
       // Preserve template lineage: the upsert's update branch never touches
       // origin_template_id, but the insert branch needs the existing value.
       const row = db

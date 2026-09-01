@@ -200,6 +200,25 @@ function resolveUrl(base: string, target: string): string {
 }
 
 /**
+ * Decide the client→server POST target announced by a legacy SSE MCP server
+ * (audit L7): the `endpoint` event must stay on the same origin (protocol +
+ * host) as the operator-configured stream URL, otherwise a broken or hostile
+ * server could redirect POSTs to an arbitrary internal address (SSRF). On
+ * violation we fall back to the trusted stream URL itself.
+ */
+export function resolveSsePostUrl(streamUrl: string, endpoint: string): string {
+  const resolved = resolveUrl(streamUrl, endpoint);
+  if (!/^https?:\/\//i.test(resolved)) return streamUrl;
+  try {
+    const base = new URL(streamUrl);
+    const target = new URL(resolved);
+    return base.protocol === target.protocol && base.host === target.host ? resolved : streamUrl;
+  } catch {
+    return streamUrl;
+  }
+}
+
+/**
  * Streamable HTTP transport (MCP 2025-03-26). Every request is a POST carrying
  * a JSON-RPC body; the server responds with `application/json` *or*
  * `text/event-stream`. The client captures the `Mcp-Session-Id` header so
@@ -307,7 +326,9 @@ export class SseMcpTransport implements McpTransport {
       else if (line.startsWith("data:")) data += line.slice(5).replace(/^\s/, "");
     }
     if (event === "endpoint") {
-      this.postUrl = resolveUrl(this.url, data);
+      // Audit L7: only accept a same-origin endpoint; otherwise fall back to
+      // the trusted stream URL for POSTing (blocks SSRF via a hostile server).
+      this.postUrl = resolveSsePostUrl(this.url, data);
       this.postUrlResolve?.(this.postUrl);
       return;
     }
