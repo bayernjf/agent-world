@@ -25,6 +25,28 @@ export interface TemplateField {
 }
 
 /**
+ * Display categories for templates, in preferred order (high-frequency
+ * first). Shared metadata so the web picker's section grouping and the
+ * template catalog can never drift apart (mirrors NODE_CATEGORIES in graph.ts).
+ * "基础" is intentionally excluded — it belongs only to the blank-canvas
+ * entry, which is pinned first and never grouped.
+ */
+export const TEMPLATE_CATEGORIES = [
+  "营销内容",
+  "数据分析",
+  "写作",
+  "办公协同",
+  "开发集成",
+  "法律合规",
+  "财务审计",
+  "IT 运维",
+  "客户服务",
+  "教育",
+  "生活",
+] as const;
+export type TemplateCategory = (typeof TEMPLATE_CATEGORIES)[number];
+
+/**
  * A reusable production-line blueprint. Templates are plain graphs with stable
  * placeholder ids; the runtime strips ids when instantiating so each created
  * graph gets fresh identity.
@@ -33,7 +55,7 @@ export interface GraphTemplate {
   id: string;
   name: string;
   description: string;
-  category: string;
+  category: TemplateCategory | "基础";
   /** Optional user-fillable placeholders applied at instantiation time. */
   fields?: TemplateField[];
   /** The graph definition. Nodes/edges carry descriptive, human-readable names. */
@@ -543,7 +565,7 @@ const docReviewGraph = {
   id: "tpl-doc-review",
   name: "文档审查",
   description: "文档 → 问题清单 → 修订建议 → 质检 → 审查报告",
-  category: "审查",
+  category: "办公协同",
   graph: {
     id: "tpl-doc-review",
     name: "文档审查",
@@ -1794,7 +1816,7 @@ const codeReviewGraph = {
   id: "tpl-code-review",
   name: "代码审查助手",
   description: "PR → 拉取变更 → 静态分析 → AI审查 → 风险门禁 → 生成评论 → 报告",
-  category: "开发",
+  category: "开发集成",
   fields: [
     {
       key: "prUrl",

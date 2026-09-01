@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { compile } from "./compile.js";
-import { BLANK_TEMPLATE, getTemplate, instantiateTemplate, TEMPLATES } from "./templates.js";
+import {
+  BLANK_TEMPLATE,
+  getTemplate,
+  instantiateTemplate,
+  TEMPLATES,
+  TEMPLATE_CATEGORIES,
+} from "./templates.js";
 
 describe("templates", () => {
   it("ships business templates separately from the blank entry", () => {
@@ -10,6 +16,28 @@ describe("templates", () => {
     expect(ids).not.toContain("tpl-blank");
     expect(BLANK_TEMPLATE.id).toBe("tpl-blank");
     expect(TEMPLATES).toHaveLength(27);
+  });
+
+  it("categories cover every template and every category renders", () => {
+    for (const tpl of TEMPLATES) {
+      expect(
+        (TEMPLATE_CATEGORIES as readonly string[]).includes(tpl.category),
+        `${tpl.id} has category "${tpl.category}" outside TEMPLATE_CATEGORIES`,
+      ).toBe(true);
+    }
+    // A declared category with zero templates would render an empty section.
+    for (const cat of TEMPLATE_CATEGORIES) {
+      expect(
+        TEMPLATES.some((t) => t.category === cat),
+        `category "${cat}" has no template`,
+      ).toBe(true);
+    }
+    // Consolidated singletons merged into their sibling categories.
+    expect(getTemplate("tpl-code-review")!.category).toBe("开发集成");
+    expect(getTemplate("tpl-doc-review")!.category).toBe("办公协同");
+    // Blank stays ungrouped: pinned first, never a section of its own.
+    expect(BLANK_TEMPLATE.category).toBe("基础");
+    expect(TEMPLATE_CATEGORIES).not.toContain("基础");
   });
 
   it("instantiates with fresh node and edge ids", () => {
