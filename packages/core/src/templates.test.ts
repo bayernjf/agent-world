@@ -9,7 +9,7 @@ describe("templates", () => {
     // Blank canvas is a creation entry, NOT a business template.
     expect(ids).not.toContain("tpl-blank");
     expect(BLANK_TEMPLATE.id).toBe("tpl-blank");
-    expect(TEMPLATES).toHaveLength(18);
+    expect(TEMPLATES).toHaveLength(25);
   });
 
   it("instantiates with fresh node and edge ids", () => {

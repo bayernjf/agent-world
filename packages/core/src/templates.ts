@@ -1671,6 +1671,670 @@ const scanOcrGraph = {
   },
 } satisfies GraphTemplate;
 
+const customerServiceGraph = {
+  id: "tpl-customer-service",
+  name: "客服工单自动处理",
+  description: "工单 → AI分类 → 解析 → 分支判断 → 自动回复/人工审核 → 通知 → 记录",
+  category: "客户服务",
+  graph: {
+    id: "tpl-customer-service",
+    name: "客服工单自动处理",
+    nodes: [
+      { id: "intake", kind: "source", name: "工单", x: 80, y: 300 },
+      {
+        id: "classify",
+        kind: "textGen",
+        name: "工单分类",
+        x: 340,
+        y: 300,
+        textGen: {
+          model: "agnes-2.0-flash",
+          prompt:
+            "你是客服工单分类器。阅读用户工单，输出严格的JSON：{\"category\":\"咨询|投诉|售后|其他\",\"complex\":true|false,\"summary\":\"一句话摘要\"}。complex=true表示需要人工介入（涉及退款、投诉升级、复杂技术问题），false表示可自动回复。只输出JSON，不要其他文字。",
+          skills: [],
+        },
+      },
+      {
+        id: "parse",
+        kind: "code",
+        name: "解析分类",
+        x: 600,
+        y: 300,
+        code: {
+          language: "javascript",
+          code: [
+            "// 读取上游 textGen 输出的 JSON，提取 complex 字段供 branch 判断",
+            "let input = '';",
+            "process.stdin.on('data', (c) => (input += c));",
+            "process.stdin.on('end', () => {",
+            "  try {",
+            "    const text = input.trim();",
+            "    const match = text.match(/\\{[\\s\\S]*\\}/);",
+            "    const obj = match ? JSON.parse(match[0]) : { category: '其他', complex: true, summary: text };",
+            "    console.log(JSON.stringify({ category: obj.category || '其他', complex: obj.complex !== false, summary: obj.summary || '' }));",
+            "  } catch (e) {",
+            "    console.log(JSON.stringify({ category: '其他', complex: true, summary: input }));",
+            "  }",
+            "});",
+          ].join("\n"),
+        },
+      },
+      {
+        id: "judge",
+        kind: "branch",
+        name: "分流判断",
+        x: 860,
+        y: 300,
+        branch: {
+          rules: [
+            { id: "r-complex", when: "${parse.complex} == true", target: "humanReview" },
+          ],
+          defaultTarget: "autoReply",
+        },
+      },
+      {
+        id: "autoReply",
+        kind: "textGen",
+        name: "自动回复",
+        x: 1120,
+        y: 180,
+        textGen: {
+          model: "agnes-2.0-flash",
+          prompt:
+            "你是客服自动回复助手。根据工单分类和摘要，写一段礼貌、专业、有帮助的自动回复。控制在100字以内。",
+          skills: [],
+        },
+      },
+      {
+        id: "humanReview",
+        kind: "human",
+        name: "人工审核",
+        x: 1120,
+        y: 420,
+        human: {
+          prompt: "这是需要人工介入的工单。请审核内容并给出处理方案：通过则确认回复；如需修改请直接编辑；不符合要求可驳回。",
+        },
+      },
+      {
+        id: "notify",
+        kind: "notify",
+        name: "通知用户",
+        x: 1380,
+        y: 300,
+        notify: {
+          provider: "feishu",
+          format: "markdown",
+          message: "📋 工单处理完成：分类 ${parse.category}，摘要：${parse.summary}",
+        },
+      },
+      { id: "depot", kind: "sink", name: "处理记录", x: 1640, y: 300 },
+    ],
+    edges: [
+      { id: "e1", from: "intake", to: "classify", kind: "flow" },
+      { id: "e2", from: "classify", to: "parse", kind: "flow" },
+      { id: "e3", from: "parse", to: "judge", kind: "flow" },
+      { id: "e4", from: "judge", to: "autoReply", kind: "flow" },
+      { id: "e5", from: "judge", to: "humanReview", kind: "flow" },
+      { id: "e6", from: "autoReply", to: "notify", kind: "flow" },
+      { id: "e7", from: "humanReview", to: "notify", kind: "flow" },
+      { id: "e8", from: "notify", to: "depot", kind: "flow" },
+    ],
+  },
+} satisfies GraphTemplate;
+
+const codeReviewGraph = {
+  id: "tpl-code-review",
+  name: "代码审查助手",
+  description: "PR → 拉取变更 → 静态分析 → AI审查 → 风险门禁 → 生成评论 → 报告",
+  category: "开发",
+  fields: [
+    {
+      key: "prUrl",
+      label: "PR API 地址",
+      placeholder: "https://api.github.com/repos/owner/repo/pulls/1",
+      defaultValue: "https://api.github.com/repos/owner/repo/pulls/1",
+      applyTo: [{ nodeId: "fetch", path: "http.url" }],
+    },
+  ],
+  graph: {
+    id: "tpl-code-review",
+    name: "代码审查助手",
+    nodes: [
+      { id: "intake", kind: "source", name: "PR 输入", x: 80, y: 300 },
+      {
+        id: "fetch",
+        kind: "http",
+        name: "拉取变更",
+        x: 340,
+        y: 300,
+        http: {
+          url: "https://api.github.com/repos/owner/repo/pulls/1",
+          method: "GET",
+          outputMode: "json",
+        },
+      },
+      {
+        id: "analyze",
+        kind: "code",
+        name: "静态分析",
+        x: 600,
+        y: 300,
+        code: {
+          language: "javascript",
+          code: [
+            "// 读取上游 diff，统计变更规模和风险信号",
+            "let input = '';",
+            "process.stdin.on('data', (c) => (input += c));",
+            "process.stdin.on('end', () => {",
+            "  const lines = input.split('\\n');",
+            "  const additions = lines.filter((l) => l.startsWith('+') && !l.startsWith('+++')).length;",
+            "  const deletions = lines.filter((l) => l.startsWith('-') && !l.startsWith('---')).length;",
+            "  const files = (input.match(/^diff --git/gm) || []).length;",
+            "  const risky = /(password|secret|token|api_key|eval\\(|exec\\(|innerHTML)/i.test(input);",
+            "  console.log(JSON.stringify({ additions, deletions, files, risky, total: additions + deletions }));",
+            "});",
+          ].join("\n"),
+        },
+      },
+      {
+        id: "review",
+        kind: "textGen",
+        name: "AI 审查",
+        x: 860,
+        y: 300,
+        textGen: {
+          model: "agnes-2.0-flash",
+          prompt:
+            "你是资深代码审查员。阅读代码变更diff和静态分析结果，从以下维度审查：①逻辑正确性 ②安全漏洞 ③性能问题 ④代码风格 ⑤测试覆盖。对每个问题给出：文件位置、问题描述、严重程度（高/中/低）、修改建议。没有问题的维度明确说'未发现问题'。",
+          skills: [],
+        },
+      },
+      {
+        id: "gate",
+        kind: "gate",
+        name: "风险门禁",
+        x: 1120,
+        y: 300,
+        gate: {
+          maxAttempts: 2,
+          criterion: "审查报告必须覆盖全部5个维度，高严重度问题必须有明确的修改建议。",
+          onExhausted: "halt",
+        },
+      },
+      {
+        id: "comment",
+        kind: "textGen",
+        name: "生成评论",
+        x: 1380,
+        y: 300,
+        textGen: {
+          model: "agnes-2.0-flash",
+          prompt:
+            "把代码审查报告整理成一段可直接发布在PR下的评论。开头一句话总结整体评价，然后按严重程度列出问题（高→中→低），每个问题一行。结尾给出是否建议合并的结论。语气专业、建设性。",
+          skills: [],
+        },
+      },
+      { id: "depot", kind: "sink", name: "审查报告", x: 1640, y: 300 },
+    ],
+    edges: [
+      { id: "e1", from: "intake", to: "fetch", kind: "flow" },
+      { id: "e2", from: "fetch", to: "analyze", kind: "flow" },
+      { id: "e3", from: "analyze", to: "review", kind: "flow" },
+      { id: "e4", from: "review", to: "gate", kind: "flow" },
+      { id: "e5", from: "gate", to: "comment", kind: "flow" },
+      { id: "e6", from: "comment", to: "depot", kind: "flow" },
+      { id: "r1", from: "gate", to: "review", kind: "rework" },
+    ],
+  },
+} satisfies GraphTemplate;
+
+const dataReportGraph = {
+  id: "tpl-data-report",
+  name: "数据报表生成",
+  description: "API数据 → 清洗 → 聚合 → 分析 → 生成报表",
+  category: "数据分析",
+  fields: [
+    {
+      key: "apiUrl",
+      label: "数据 API 地址",
+      placeholder: "https://api.example.com/data",
+      defaultValue: "https://httpbin.org/json",
+      applyTo: [{ nodeId: "fetch", path: "http.url" }],
+    },
+  ],
+  graph: {
+    id: "tpl-data-report",
+    name: "数据报表生成",
+    nodes: [
+      { id: "intake", kind: "source", name: "数据源", x: 80, y: 300 },
+      {
+        id: "fetch",
+        kind: "http",
+        name: "拉取数据",
+        x: 340,
+        y: 300,
+        http: {
+          url: "https://httpbin.org/json",
+          method: "GET",
+          outputMode: "json",
+        },
+      },
+      {
+        id: "clean",
+        kind: "code",
+        name: "数据清洗",
+        x: 600,
+        y: 300,
+        code: {
+          language: "javascript",
+          code: [
+            "// 读取上游 JSON，清洗空值、去重、格式化",
+            "let input = '';",
+            "process.stdin.on('data', (c) => (input += c));",
+            "process.stdin.on('end', () => {",
+            "  try {",
+            "    const data = JSON.parse(input);",
+            "    const rows = Array.isArray(data) ? data : (data.data || data.items || data.rows || [data]);",
+            "    const cleaned = rows",
+            "      .filter((r) => r && Object.keys(r).length > 0)",
+            "      .map((r) => {",
+            "        const out = {};",
+            "        for (const k of Object.keys(r)) {",
+            "          const v = r[k];",
+            "          if (v !== null && v !== undefined && v !== '') out[k] = v;",
+            "        }",
+            "        return out;",
+            "      });",
+            "    console.log(JSON.stringify({ count: cleaned.length, rows: cleaned.slice(0, 100) }));",
+            "  } catch (e) {",
+            "    console.log(JSON.stringify({ count: 0, rows: [], error: String(e) }));",
+            "  }",
+            "});",
+          ].join("\n"),
+        },
+      },
+      {
+        id: "aggregate",
+        kind: "table",
+        name: "数据聚合",
+        x: 860,
+        y: 300,
+        table: {
+          steps: [{ op: "output", format: "json" }],
+        },
+      },
+      {
+        id: "analyze",
+        kind: "textGen",
+        name: "数据分析",
+        x: 1120,
+        y: 300,
+        textGen: {
+          model: "agnes-2.0-flash",
+          prompt:
+            "你是数据分析师。阅读清洗后的JSON数据，分析：①数据规模与完整性 ②关键指标趋势 ③异常值与离群点 ④核心发现（3-5条）。用数据说话，每个发现都要有具体数字支撑。",
+          skills: [],
+        },
+      },
+      {
+        id: "report",
+        kind: "textGen",
+        name: "生成报表",
+        x: 1380,
+        y: 300,
+        textGen: {
+          model: "agnes-2.0-flash",
+          prompt:
+            "把数据分析结果整理成一份结构化报表。格式：①执行摘要（3句话）②关键指标表格 ③趋势分析 ④风险与建议。用Markdown格式，语言简洁专业。",
+          skills: [],
+        },
+      },
+      { id: "depot", kind: "sink", name: "报表成品", x: 1640, y: 300 },
+    ],
+    edges: [
+      { id: "e1", from: "intake", to: "fetch", kind: "flow" },
+      { id: "e2", from: "fetch", to: "clean", kind: "flow" },
+      { id: "e3", from: "clean", to: "aggregate", kind: "flow" },
+      { id: "e4", from: "aggregate", to: "analyze", kind: "flow" },
+      { id: "e5", from: "analyze", to: "report", kind: "flow" },
+      { id: "e6", from: "report", to: "depot", kind: "flow" },
+    ],
+  },
+} satisfies GraphTemplate;
+
+const contractReviewGraph = {
+  id: "tpl-contract-review",
+  name: "合同审查助手",
+  description: "合同文件 → 解析 → 条款提取 → 风险检查 → 门禁 → 人工确认 → 报告",
+  category: "法律合规",
+  graph: {
+    id: "tpl-contract-review",
+    name: "合同审查助手",
+    nodes: [
+      { id: "intake", kind: "source", name: "合同文件", x: 80, y: 300 },
+      {
+        id: "parse",
+        kind: "fileParse",
+        name: "合同解析",
+        x: 340,
+        y: 300,
+        fileParse: { maxImages: 5 },
+      },
+      {
+        id: "extract",
+        kind: "textGen",
+        name: "条款提取",
+        x: 600,
+        y: 300,
+        textGen: {
+          model: "agnes-2.0-flash",
+          prompt:
+            "你是合同条款提取专家。阅读合同文本，提取以下关键条款：①合同主体 ②标的与数量 ③价款与支付方式 ④履行期限与地点 ⑤违约责任 ⑥争议解决 ⑦不可抗力 ⑧保密条款 ⑨知识产权 ⑩合同变更与解除。每个条款引用原文关键句。没有的条款标注'未约定'。",
+          skills: [],
+        },
+      },
+      {
+        id: "riskCheck",
+        kind: "textGen",
+        name: "风险检查",
+        x: 860,
+        y: 300,
+        textGen: {
+          model: "agnes-2.0-flash",
+          prompt:
+            "你是合同风险审查律师。基于提取的条款，逐一检查风险点：①权利义务不对等 ②违约责任过重或缺失 ③争议解决条款不利 ④保密条款过宽 ⑤知识产权归属不清 ⑥付款条件苛刻 ⑦解除合同限制过多 ⑧不可抗力范围不合理。每个风险点给出：风险描述、严重程度（高/中/低）、修改建议。没有风险的方面明确说'未发现风险'。",
+          skills: [],
+        },
+      },
+      {
+        id: "gate",
+        kind: "gate",
+        name: "风险门禁",
+        x: 1120,
+        y: 300,
+        gate: {
+          maxAttempts: 2,
+          criterion: "风险检查必须覆盖全部8个维度，高严重度风险必须有明确修改建议和法律依据。",
+          onExhausted: "halt",
+        },
+      },
+      {
+        id: "humanConfirm",
+        kind: "human",
+        name: "人工确认",
+        x: 1380,
+        y: 300,
+        human: {
+          prompt: "请审阅合同风险审查报告：确认风险点是否准确、修改建议是否可行。通过则确认；如需调整请直接编辑；有遗漏可驳回补充审查。",
+        },
+      },
+      { id: "depot", kind: "sink", name: "审查报告", x: 1640, y: 300 },
+    ],
+    edges: [
+      { id: "e1", from: "intake", to: "parse", kind: "flow" },
+      { id: "e2", from: "parse", to: "extract", kind: "flow" },
+      { id: "e3", from: "extract", to: "riskCheck", kind: "flow" },
+      { id: "e4", from: "riskCheck", to: "gate", kind: "flow" },
+      { id: "e5", from: "gate", to: "humanConfirm", kind: "flow" },
+      { id: "e6", from: "humanConfirm", to: "depot", kind: "flow" },
+      { id: "r1", from: "gate", to: "riskCheck", kind: "rework" },
+    ],
+  },
+} satisfies GraphTemplate;
+
+const courseOutlineGraph = {
+  id: "tpl-course-outline",
+  name: "课程大纲生成",
+  description: "主题 → 知识点调研 → 大纲生成 → 章节细化 → 质检 → 大纲",
+  category: "教育",
+  graph: {
+    id: "tpl-course-outline",
+    name: "课程大纲生成",
+    nodes: [
+      { id: "intake", kind: "source", name: "课程主题", x: 80, y: 300 },
+      {
+        id: "research",
+        kind: "textGen",
+        name: "知识点调研",
+        x: 340,
+        y: 300,
+        textGen: {
+          model: "agnes-2.0-flash",
+          prompt:
+            "你是课程设计专家。针对给定课程主题，列出该领域必须掌握的核心知识点（10-15个），按从基础到进阶排序。每个知识点给出：名称、重要性（核心/重要/了解）、一句话说明。",
+          skills: [],
+        },
+      },
+      {
+        id: "outline",
+        kind: "textGen",
+        name: "大纲生成",
+        x: 600,
+        y: 300,
+        textGen: {
+          model: "agnes-2.0-flash",
+          prompt:
+            "基于知识点调研结果，设计课程大纲。课程分为4-6个模块，每个模块包含3-5节课。每节课给出：标题、学习目标、核心知识点、建议时长。模块之间要有清晰的递进关系。",
+          skills: [],
+        },
+      },
+      {
+        id: "detail",
+        kind: "textGen",
+        name: "章节细化",
+        x: 860,
+        y: 300,
+        textGen: {
+          model: "agnes-2.0-flash",
+          prompt:
+            "把课程大纲细化为可执行的教学方案。对每节课补充：①教学重点与难点 ②教学方法（讲授/演示/练习/讨论）③课后作业建议 ④参考资料。保持原大纲结构不变，只补充细节。",
+          skills: [],
+        },
+      },
+      {
+        id: "gate",
+        kind: "gate",
+        name: "质检",
+        x: 1120,
+        y: 300,
+        gate: {
+          maxAttempts: 2,
+          criterion: "课程大纲必须有4-6个模块，每节课必须有学习目标和建议时长，知识点覆盖调研结果的80%以上。",
+          onExhausted: "halt",
+        },
+      },
+      { id: "depot", kind: "sink", name: "大纲成品", x: 1380, y: 300 },
+    ],
+    edges: [
+      { id: "e1", from: "intake", to: "research", kind: "flow" },
+      { id: "e2", from: "research", to: "outline", kind: "flow" },
+      { id: "e3", from: "outline", to: "detail", kind: "flow" },
+      { id: "e4", from: "detail", to: "gate", kind: "flow" },
+      { id: "e5", from: "gate", to: "depot", kind: "flow" },
+      { id: "r1", from: "gate", to: "detail", kind: "rework" },
+    ],
+  },
+} satisfies GraphTemplate;
+
+const travelPlanGraph = {
+  id: "tpl-travel-plan",
+  name: "旅游行程规划",
+  description: "目的地/天数 → 景点调研 → 行程规划 → 优化调整 → 质检 → 行程",
+  category: "生活",
+  fields: [
+    {
+      key: "destination",
+      label: "目的地",
+      placeholder: "如：东京、成都、巴厘岛",
+      applyTo: [{ nodeId: "research", path: "http.url" }],
+    },
+  ],
+  graph: {
+    id: "tpl-travel-plan",
+    name: "旅游行程规划",
+    nodes: [
+      { id: "intake", kind: "source", name: "需求输入", x: 80, y: 300 },
+      {
+        id: "research",
+        kind: "http",
+        name: "景点调研",
+        x: 340,
+        y: 300,
+        http: {
+          url: "https://httpbin.org/json",
+          method: "GET",
+          outputMode: "json",
+        },
+      },
+      {
+        id: "plan",
+        kind: "textGen",
+        name: "行程规划",
+        x: 600,
+        y: 300,
+        textGen: {
+          model: "agnes-2.0-flash",
+          prompt:
+            "你是旅行规划师。根据目的地和天数需求，设计一份详细行程。每天包含：①上午景点/活动 ②午餐推荐 ③下午景点/活动 ④晚餐推荐 ⑤住宿区域建议。考虑景点之间的地理位置合理安排路线，避免来回奔波。预算和出行方式在需求中说明的要纳入考虑。",
+          skills: [],
+        },
+      },
+      {
+        id: "optimize",
+        kind: "textGen",
+        name: "优化调整",
+        x: 860,
+        y: 300,
+        textGen: {
+          model: "agnes-2.0-flash",
+          prompt:
+            "优化这份行程：①检查每天的行程是否过于紧凑或松散 ②景点路线是否合理（减少折返）③餐饮推荐是否和景点位置匹配 ④是否有遗漏的必去景点 ⑤天气/季节因素是否考虑。给出优化后的完整行程，并在末尾列出'优化说明'（改了什么、为什么改）。",
+          skills: [],
+        },
+      },
+      {
+        id: "gate",
+        kind: "gate",
+        name: "质检",
+        x: 1120,
+        y: 300,
+        gate: {
+          maxAttempts: 2,
+          criterion: "每天行程必须包含上午、午餐、下午、晚餐、住宿五个部分，景点路线合理无明显折返，优化说明必须列出至少3项调整。",
+          onExhausted: "halt",
+        },
+      },
+      { id: "depot", kind: "sink", name: "行程成品", x: 1380, y: 300 },
+    ],
+    edges: [
+      { id: "e1", from: "intake", to: "research", kind: "flow" },
+      { id: "e2", from: "research", to: "plan", kind: "flow" },
+      { id: "e3", from: "plan", to: "optimize", kind: "flow" },
+      { id: "e4", from: "optimize", to: "gate", kind: "flow" },
+      { id: "e5", from: "gate", to: "depot", kind: "flow" },
+      { id: "r1", from: "gate", to: "optimize", kind: "rework" },
+    ],
+  },
+} satisfies GraphTemplate;
+
+const recipeGraph = {
+  id: "tpl-recipe",
+  name: "菜谱生成",
+  description: "食材/口味 → 菜谱生成 → 步骤细化 → 营养估算 → 质检 → 菜谱",
+  category: "生活",
+  graph: {
+    id: "tpl-recipe",
+    name: "菜谱生成",
+    nodes: [
+      { id: "intake", kind: "source", name: "食材口味", x: 80, y: 300 },
+      {
+        id: "generate",
+        kind: "textGen",
+        name: "菜谱生成",
+        x: 340,
+        y: 300,
+        textGen: {
+          model: "agnes-2.0-flash",
+          prompt:
+            "你是菜谱设计师。根据给定食材和口味偏好，设计一道菜。输出：①菜名 ②食材清单（主料、辅料、调料，各带用量）③烹饪步骤（分步骤，每步带操作要点和时间）④烹饪技巧与注意事项。食材用量要合理，步骤要可操作。",
+          skills: [],
+        },
+      },
+      {
+        id: "detail",
+        kind: "textGen",
+        name: "步骤细化",
+        x: 600,
+        y: 300,
+        textGen: {
+          model: "agnes-2.0-flash",
+          prompt:
+            "把菜谱步骤细化为新手也能看懂的操作指南。对每个步骤补充：①火候大小（大火/中火/小火）②具体时间（分钟）③操作关键判断（如'炒到变色'、'煮到沸腾'）④常见错误提醒。保持原菜谱结构，只补充细节。",
+          skills: [],
+        },
+      },
+      {
+        id: "nutrition",
+        kind: "code",
+        name: "营养估算",
+        x: 860,
+        y: 300,
+        code: {
+          language: "javascript",
+          code: [
+            "// 基于食材清单估算营养成分（粗略估算，非精确值）",
+            "let input = '';",
+            "process.stdin.on('data', (c) => (input += c));",
+            "process.stdin.on('end', () => {",
+            "  const text = input.toLowerCase();",
+            "  const hasMeat = /(猪|牛|鸡|羊|鱼|虾|肉|排骨|里脊|腿|胸)/.test(input);",
+            "  const hasVeg = /(菜|瓜|茄|椒|葱|姜|蒜|萝卜|白菜|菠菜|西兰花|蘑菇|笋)/.test(input);",
+            "  const hasCarb = /(米|面|粉|土豆|红薯|豆|豆腐|米饭|面条)/.test(input);",
+            "  const hasOil = /(油|煎|炸|炒|煸)/.test(input);",
+            "  let calories = 300 + (hasMeat ? 200 : 0) + (hasCarb ? 150 : 0) + (hasOil ? 100 : 0);",
+            "  let protein = hasMeat ? '25-35g' : '8-15g';",
+            "  let carbs = hasCarb ? '40-60g' : '10-20g';",
+            "  let fat = hasOil ? '15-25g' : '5-10g';",
+            "  const tags = [];",
+            "  if (hasMeat) tags.push('高蛋白');",
+            "  if (hasVeg) tags.push('含蔬菜');",
+            "  if (!hasMeat && hasVeg) tags.push('素食友好');",
+            "  if (hasOil) tags.push('含油脂');",
+            "  console.log(JSON.stringify({",
+            "    estimatedCalories: calories + ' kcal/份',",
+            "    protein, carbs, fat,",
+            "    tags,",
+            "    disclaimer: '以上为粗略估算，实际数值因食材用量和烹饪方式而异。'",
+            "  }));",
+            "});",
+          ].join("\n"),
+        },
+      },
+      {
+        id: "gate",
+        kind: "gate",
+        name: "质检",
+        x: 1120,
+        y: 300,
+        gate: {
+          maxAttempts: 2,
+          criterion: "菜谱必须包含菜名、食材清单（带用量）、烹饪步骤（带火候和时间）、注意事项四个部分；步骤细化必须每个步骤都有火候和时间；营养估算必须有热量和三大营养素。",
+          onExhausted: "halt",
+        },
+      },
+      { id: "depot", kind: "sink", name: "菜谱成品", x: 1380, y: 300 },
+    ],
+    edges: [
+      { id: "e1", from: "intake", to: "generate", kind: "flow" },
+      { id: "e2", from: "generate", to: "detail", kind: "flow" },
+      { id: "e3", from: "detail", to: "nutrition", kind: "flow" },
+      { id: "e4", from: "nutrition", to: "gate", kind: "flow" },
+      { id: "e5", from: "gate", to: "depot", kind: "flow" },
+      { id: "r1", from: "gate", to: "generate", kind: "rework" },
+    ],
+  },
+} satisfies GraphTemplate;
+
 export const TEMPLATES: GraphTemplate[] = [
   productDetailGraph,
   xiaohongshuGraph,
@@ -1690,12 +2354,19 @@ export const TEMPLATES: GraphTemplate[] = [
   researchLoopGraph,
   releasePrGraph,
   scanOcrGraph,
+  customerServiceGraph,
+  codeReviewGraph,
+  dataReportGraph,
+  contractReviewGraph,
+  courseOutlineGraph,
+  travelPlanGraph,
+  recipeGraph,
 ];
 
 /**
  * Blank canvas entry — NOT a business template.
  * Exported separately so `TEMPLATES.length` always equals the real
- * template count (18), and callers that need the blank entry opt in.
+ * template count (25), and callers that need the blank entry opt in.
  */
 export const BLANK_TEMPLATE: GraphTemplate = blankGraph;
 
