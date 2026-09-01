@@ -1745,9 +1745,17 @@ const customerServiceGraph = {
           language: "javascript",
           code: [
             "// 读取上游 textGen 输出的 JSON，提取 complex 字段供 branch 判断",
-            "let input = '';",
-            "process.stdin.on('data', (c) => (input += c));",
+            "let raw = '';",
+            "process.stdin.on('data', (c) => (raw += c));",
             "process.stdin.on('end', () => {",
+            "  // 引擎喂 stdin 的是 {inputs: {...}} 信封，先解包再提分类 JSON；",
+            "  // 否则正则会把整个信封当成分类结果，所有工单都被归为 complex=true",
+            "  //（dogfood tpl-customer-service）。",
+            "  let input = raw;",
+            "  try {",
+            "    const env = JSON.parse(raw);",
+            "    if (env && env.inputs) input = Object.values(env.inputs).map(String).join('\\n\\n');",
+            "  } catch (e) {}",
             "  try {",
             "    const text = input.trim();",
             "    const match = text.match(/\\{[\\s\\S]*\\}/);",
@@ -1818,6 +1826,10 @@ const customerServiceGraph = {
       { id: "e5", from: "judge", to: "humanReview", kind: "flow" },
       { id: "e6", from: "autoReply", to: "notify", kind: "flow" },
       { id: "e7", from: "humanReview", to: "notify", kind: "flow" },
+      // 通知文案引用 ${parse.category} / ${parse.summary}，但 parse 不是
+      // notify 的直接上游，插值解析不到——扇入让分类结果可达
+      //（dogfood tpl-customer-service）。
+      { id: "e9", from: "parse", to: "notify", kind: "flow" },
       { id: "e8", from: "notify", to: "depot", kind: "flow" },
     ],
   },
