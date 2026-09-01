@@ -220,6 +220,7 @@ export function ArtifactCard({ a, showMeta = true }: { a: ArtifactLike; showMeta
 - `artifacts` 表列（`db.ts:47`）：`id, run_id, node_id, attempt, kind, mime_type, label, size_bytes, storage, uri, created_at`。
 - `runs` 表（`db.ts:22`）：`graph_id TEXT NOT NULL` → 经 `graphs.id/name` 解析流水线名。
 - `artifact-store.ts:78 save()` 对 `content!=null` 的文本产物落盘（storage=local，uri=`/api/artifacts/:id`）。
+- **生成媒体的双行引用契约（2026-09-01 狗粮补充）**：imageGen/videoGen/audioGen 产物的字节先由 worker 以独立行入库（id 形如 `up-…`，字节在 `uploads/` 桶），引擎 emit 的 run 行仅携带 `storage=local` + `uri=/api/artifacts/up-…` 引用（**自身桶下无字节**）。因此 `GET /api/artifacts/:id` 必须在本行 blob 缺失时跟随该本地引用取字节（`index.ts` 路由，回归用例 `api.artifact-localref.test.ts`：引用不继承所有权，跨用户仍 404）——否则历史 run 的生成图片全部显示为破图（dogfood tpl-product 实锤）。
 - **整篇笔记其实已落库**：`run.ts:91-94` 对每一个 `artifact.produced` 事件（含 text）都调用 `artifacts.save()`，笔记以 `kind:"text"` 存进 artifacts 表；此前"未落库"的判断已纠正。仓库展示笔记时按需 `GET /api/artifacts/:id` 取内容即可。
 
 | 需求 | 现有字段 | 够不够 | 说明 |
