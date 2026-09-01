@@ -119,13 +119,13 @@ State of Agent World as of 2026-08-31.
 
 按 commit 时间倒序，每条一行影响面 + commit hash：
 
-1. `fb05d1a` — **feat(core)**: **费用报销初审模板（会计/审计场景，共 27 个业务模板，新增财务审计分类）**——报销明细 → code 规则校验（单笔超 1000 元 / 重复单号 / 日期缺失或在未来，永不抛、保证表格至少一行）→ table 异常清单按异常数降序 → 初审报告 → 质检 gate；与证据清单同构，零凭证纯 agnes，core 形状断言 + 回归基线引擎级执行用例。
-2. `353dd21` — **fix(server)**: templates-api 测试对齐空白画布排除——`54a0ddb` 拆分后 `/api/templates` 不再返回 tpl-blank，陈旧断言一直靠未重建的 core dist 假绿；改断言为"不应出现"，空字段形状断言改挂新模板。
-3. `8747649` — **feat(core)**: **证据清单整理模板（律师场景，共 26 个业务模板）**——证据材料 → code 拆条编号（空行切分 + 中文/斜杠日期归一化，永不抛）→ table 按日期索引 → 清单起草（证明目的）→ 缺口分析（要件拆解 + 补证建议）→ 质检 gate；零凭证纯 agnes，core 形状断言 + 回归基线引擎级执行用例。
-4. `e9b55ae` — **fix(server)**: **event 触发状态契约修复**——引擎成功状态是 `done` 而非 `completed`，此前"产线完成自动起跑下游"与运行后知识提取在成功时永久失效（单测用假想值 `completed` 掩盖）；统一判 `done`，回归基线加契约用例（12→13）。详见 [docs/design-triggers.md](docs/design-triggers.md) §3。
-5. `9003120` — **feat(web)**: ConnectorEditor 加 database 分支（sqlite 路径 / 多行 SELECT / json\|csv 输出，测试连接复用既有端点）。
+1. `7b3e71e` — **fix(core)**: **客服工单模板 C 档缺口修复**——notify 节点无 webhookUrl 且无字段可填，通知步骤对每个实例必挂；声明 `webhookUrl` 字段 applyTo `notify.webhookUrl`（对齐巡检告警模式），core 实例化 + server API 契约双断言。
+2. `fb05d1a` — **feat(core)**: **费用报销初审模板（会计/审计场景，共 27 个业务模板，新增财务审计分类）**——报销明细 → code 规则校验（单笔超 1000 元 / 重复单号 / 日期缺失或在未来，永不抛、保证表格至少一行）→ table 异常清单按异常数降序 → 初审报告 → 质检 gate；与证据清单同构，零凭证纯 agnes，core 形状断言 + 回归基线引擎级执行用例。
+3. `353dd21` — **fix(server)**: templates-api 测试对齐空白画布排除——`54a0ddb` 拆分后 `/api/templates` 不再返回 tpl-blank，陈旧断言一直靠未重建的 core dist 假绿；改断言为"不应出现"，空字段形状断言改挂新模板。
+4. `8747649` — **feat(core)**: **证据清单整理模板（律师场景，共 26 个业务模板）**——证据材料 → code 拆条编号（空行切分 + 中文/斜杠日期归一化，永不抛）→ table 按日期索引 → 清单起草（证明目的）→ 缺口分析（要件拆解 + 补证建议）→ 质检 gate；零凭证纯 agnes，core 形状断言 + 回归基线引擎级执行用例。
+5. `e9b55ae` — **fix(server)**: **event 触发状态契约修复**——引擎成功状态是 `done` 而非 `completed`，此前"产线完成自动起跑下游"与运行后知识提取在成功时永久失效（单测用假想值 `completed` 掩盖）；统一判 `done`，回归基线加契约用例（12→13）。详见 [docs/design-triggers.md](docs/design-triggers.md) §3。
 
-> 更早条目（SQLite database connector `9657538`、进度基线 `064b67e`、SCRIPT_ERROR `0cbce9d`、空白产线首卡片系列 `6dcce69`/`6f51eb1`/`b82c344`/`dbe260f`/`a6e1b52`、error 边即时触发 `8fa86c1`、模板 code 节点 stdin 读 inputs `01fad6c`、空白产线首卡片 `5cbc11d`、影坊视频适配 `1358753`、undici 对齐 `4bb6168`、静态加密 `9dc68ae` 等）见 [docs/handoff-archive.md](docs/handoff-archive.md) 与 [docs/security-audit-2026-08-31.md](docs/security-audit-2026-08-31.md)。
+> 更早条目（ConnectorEditor database 分支 `9003120`、SQLite database connector `9657538`、进度基线 `064b67e`、SCRIPT_ERROR `0cbce9d`、空白产线首卡片系列 `6dcce69`/`6f51eb1`/`b82c344`/`dbe260f`/`a6e1b52`、error 边即时触发 `8fa86c1`、模板 code 节点 stdin 读 inputs `01fad6c`、空白产线首卡片 `5cbc11d`、影坊视频适配 `1358753`、undici 对齐 `4bb6168`、静态加密 `9dc68ae` 等）见 [docs/handoff-archive.md](docs/handoff-archive.md) 与 [docs/security-audit-2026-08-31.md](docs/security-audit-2026-08-31.md)。
 
 最近 5 条之前的全部在 [docs/handoff-archive.md](docs/handoff-archive.md) 的"阶段 4 收尾"与"Additions (post-2026-08-27)"系列章节里（含 MCP stdio 分帧修复 `a2482ba`、P2 外部沙箱后端 `0a22b13`、P1 rlimit `ddb2e03`、P0 `6b2f92b`、HTTP 节点第一闭环 `1856d81`、账号系统 `5b81c74`/`73d3610` 等）。
 
@@ -135,7 +135,7 @@ State of Agent World as of 2026-08-31.
 
 * `pnpm -r typecheck`：全绿（2026-08-31 复核：core/server/mcp-server/web tsc --noEmit 全部干净）
 
-* `pnpm --filter @agent-world/core test`：**155/155 通过**（2026-09-01：新增费用报销初审模板形状断言——三类规则族齐备 + issueCount 降序排序 + rework 指向 + stdin 契约 + 空输入兜底行；此前同日新增证据清单模板形状断言——code/table/textGen/gate 构成 + rework 指向 + stdin 契约；2026-08-31 新增 4 用例——四大能力模板 kind 覆盖 / loop items 引用重写到新 id / doc-ingest·review-publish·scan-ocr error 边兜底 / translation 专用 translate 节点）
+* `pnpm --filter @agent-world/core test`：**156/156 通过**（2026-09-01：新增客服工单模板 webhookUrl 字段实例化落地断言；此前同日新增费用报销初审模板形状断言——三类规则族齐备 + issueCount 降序排序 + rework 指向 + stdin 契约 + 空输入兜底行、证据清单模板形状断言——code/table/textGen/gate 构成 + rework 指向 + stdin 契约；2026-08-31 新增 4 用例——四大能力模板 kind 覆盖 / loop items 引用重写到新 id / doc-ingest·review-publish·scan-ocr error 边兜底 / translation 专用 translate 节点）
 
 * `pnpm --filter @agent-world/server test`：**586/586 通过**（81 文件；Node 24 下跑。2026-09-01：回归基线再 +1 用例——费用报销初审模板引擎级执行（真实跑 code 规则校验：重复单号/超额/日期缺失三类异常全命中 + 表头跳过 + table 按 issueCount 降序）；此前同日 +1——证据清单模板引擎级执行（真实跑 code 拆条 + 中文日期归一化 + table 按日期排序）；修复 templates-api 陈旧断言——空白画布拆分（`54a0ddb`）后 API 不再返回 tpl-blank，旧断言一直靠未重建的 core dist 假绿。2026-08-31 新增：at-rest 静态加密 7 单测 + 4 db 集成——磁盘无明文断言 / version·run hash 匹配 / 旧明文兼容；api.security 审计用例；routingWorker 视频音频委托；模板参数化全链路；videoAdapter 3 用例；artifact-store 本地引用 1 用例）。此前 571/571 连续复跑稳定（vitest.setup mock bcryptjs + timeout 20s/30s 消已知负载性 flaky）。
 
