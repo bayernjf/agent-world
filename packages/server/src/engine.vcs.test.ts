@@ -91,7 +91,9 @@ describe("vcs node — github & gitlab", () => {
     expect((init as any).method).toBe("POST");
     expect((init as any).headers.authorization).toBe("Bearer ghp_test");
     const body = JSON.parse((init as any).body);
-    expect(body).toEqual({ title: "VCS", head: "feature/x", base: "main", body: "PR description from agent" });
+    // No cfg.title: the title derives from the first non-empty body line
+    // instead of the meaningless node name (dogfood tpl-release-pr).
+    expect(body).toEqual({ title: "PR description from agent", head: "feature/x", base: "main", body: "PR description from agent" });
     const art = jsonOf(events, "v");
     expect(art.kind).toBe("json");
     expect(JSON.parse(art.content)).toEqual({ number: 42, html_url: "https://github.com/o/r/pull/42" });
@@ -168,6 +170,36 @@ describe("vcs node — github & gitlab", () => {
     );
     expect(replay(events).status).toBe("done");
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("derives the PR title from the first markdown heading of the body (dogfood tpl-release-pr)", async () => {
+    vi.stubEnv("GITHUB_TOKEN", "ghp_test");
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ number: 7, html_url: "https://github.com/o/r/pull/7" }), { status: 201 }),
+    );
+    const events = await collect(
+      vcsGraph({ provider: "github", action: "create_pr", owner: "o", repo: "r", head: "f", base: "main" }),
+      "# 修复子进程 EPIPE 崩溃\n\n---\n\n## Summary\n\n修了个崩溃。",
+    );
+    expect(replay(events).status).toBe("done");
+    const [, init] = fetchMock.mock.calls[0]!;
+    const body = JSON.parse((init as any).body);
+    // Heading marks stripped; the horizontal rule line is skipped.
+    expect(body.title).toBe("修复子进程 EPIPE 崩溃");
+  });
+
+  it("keeps an explicit cfg.title over body-derived titles", async () => {
+    vi.stubEnv("GITHUB_TOKEN", "ghp_test");
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ number: 8, html_url: "https://github.com/o/r/pull/8" }), { status: 201 }),
+    );
+    const events = await collect(
+      vcsGraph({ provider: "github", action: "create_pr", owner: "o", repo: "r", head: "f", base: "main", title: "chore: release v1.2" }),
+      "# something else\n\nbody text",
+    );
+    expect(replay(events).status).toBe("done");
+    const [, init] = fetchMock.mock.calls[0]!;
+    expect(JSON.parse((init as any).body).title).toBe("chore: release v1.2");
   });
 
   it("routes provider calls through the outbound proxy when AGENT_WORLD_PROXY is set (dogfood tpl-release-pr)", async () => {

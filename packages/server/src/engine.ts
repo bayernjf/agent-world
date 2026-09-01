@@ -2746,7 +2746,20 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
             const t = (artifacts.get(sourceId) ?? []).find((a) => a.kind === "text")?.content;
             if (t?.trim()) body = t.trim();
           }
-          const title = cfg.title?.trim() || node.name || cfg.action;
+          // An empty title used to fall back to the node name ("创建 PR"), so
+          // every PR created by the template carried the same meaningless
+          // title (dogfood tpl-release-pr). Derive one from the body instead:
+          // first non-empty, non-horizontal-rule line, markdown heading marks
+          // stripped, clamped to a sane length. Explicit cfg.title still wins.
+          let title = cfg.title?.trim();
+          if (!title && cfg.action === "create_pr" && body) {
+            const line = body
+              .split("\n")
+              .map((l) => l.trim())
+              .find((l) => l && !/^[-=_*]{3,}$/.test(l));
+            if (line) title = line.replace(/^#{1,6}\s*/, "").trim().slice(0, 120);
+          }
+          if (!title) title = node.name || cfg.action;
           let result: { provider: string; action: string; detail: string; data: unknown };
           try {
             result = await executeVcs(cfg, body, title);
