@@ -281,18 +281,18 @@ function truncateText(body: string, maxChars: number): string {
  * Replace a node's artifacts with a single text artifact. Used when a node
  * finishes with a text output (agent/source/sink/gate).
  */
-function setTextArtifact(artifacts: Map<string, Artifact[]>, nodeId: string, text: string): void {
+function setTextArtifact(artifacts: Map<string, Artifact[]>, nodeId: string, text: string): Artifact {
   const headingMatch = text.match(/^\s*#\s+(.+?)\s*$/m);
   const label = headingMatch ? headingMatch[1] : undefined;
-  artifacts.set(nodeId, [
-    {
-      id: `${nodeId}-text`,
-      kind: "text",
-      content: text,
-      mimeType: "text/markdown",
-      ...(label ? { label } : {}),
-    },
-  ]);
+  const artifact: Artifact = {
+    id: `${nodeId}-text`,
+    kind: "text",
+    content: text,
+    mimeType: "text/markdown",
+    ...(label ? { label } : {}),
+  };
+  artifacts.set(nodeId, [artifact]);
+  return artifact;
 }
 
 /**
@@ -2880,8 +2880,14 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
         });
 
         if (verdict.passed) {
-          setTextArtifact(artifacts, nodeId, output);
+          const artifact = setTextArtifact(artifacts, nodeId, output);
           states.set(nodeId, "done");
+          // A failed gate emits node.failed, but a passing one used to slip
+          // through with only gate.verdict — no node.finished and no
+          // artifact.produced in the timeline, unlike every other node kind
+          // (dogfood tpl-recipe). Announce both for observability parity.
+          emit({ type: "artifact.produced", nodeId, attempt, artifact });
+          emit({ type: "node.finished", nodeId, attempt, output: verdict.reason, usage: zeroUsage() });
           sendPackets(nodeId, verdict.reason, "text");
           return;
         }
@@ -2904,8 +2910,10 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           const policy = node.gate?.onExhausted ?? "halt";
           emit({ type: "gate.exhausted", nodeId, attempts: attempt, policy });
           if (policy === "pass") {
-            setTextArtifact(artifacts, nodeId, output);
+            const artifact = setTextArtifact(artifacts, nodeId, output);
             states.set(nodeId, "done");
+            emit({ type: "artifact.produced", nodeId, attempt, artifact });
+            emit({ type: "node.finished", nodeId, attempt, output: verdict.reason, usage: zeroUsage() });
             sendPackets(nodeId, verdict.reason, "text");
             return;
           }
