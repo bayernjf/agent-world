@@ -38,7 +38,7 @@
 | 事项 | 缓做/低优原因 | 触发条件 | 决策详情 |
 |---|---|---|---|
 | 版本 diff 视图 | 恢复安全性已闭环（hash 标记 + 结构预览防盲恢复）；文本级 diff 是锦上添花，需要像样的 diff 组件才值得做 | 狗粮使用中真出现"必须逐字段对比两版本"的高频场景 | [design-versions.md §4](design-versions.md#4-p2-缓做决策记录) |
-| A/B 测试 | DB 已有 ab_group/ab_arm/ab_target 地基，但单人自用无流量分流诉求 | 多用户或同一产线需对比两套配置的效果 | [design-versions.md §4](design-versions.md#4-p2-缓做决策记录) |
+| A/B 测试 | **已落地**（2026-09-01 盘点确认：`ab.ts` + `/api/ab` + ABDialog/ABReport/RunCompare，用户隔离已覆盖）；本表原条目"单人自用无流量分流诉求"仅对**流量分流 / 统计显著性**仍成立 | 流量分流或多用户统计显著性诉求出现时重启扩展 | [design-ab-testing.md §4](design-ab-testing.md#4-边界与缓做) |
 
 ### 平台线
 
@@ -62,6 +62,13 @@
 |---|---|---|---|
 | 静态加密的重加密 / 密钥轮换工具 | 换 key 后存量 secrets 需迁移重加密；当前可用 encryptString/decryptString 手写一次性迁移，影响面小 | 出现真实换 key / 轮换需求（或合规要求密钥定期轮换） | [design-at-rest-encryption.md §5](design-at-rest-encryption.md) |
 | Bitbucket/Gitea | vcs 节点同构可扩展，无紧迫需求 | 用户提出 | [integrations-future.md §5](integrations-future.md#5-bitbucket--gitea-等-vcs) |
+
+### 文档线
+
+| 事项 | 缓做/低优原因 | 触发条件 | 决策详情 |
+|---|---|---|---|
+| Skill 体系独立设计文档 | extending.md §3（操作指南）+ core `skill.ts` 头注释（设计声明）已完整覆盖；独立设计决策文档属锦上添花 | 外部贡献者/多人协作需要设计论证文档时 | [extending.md §3](extending.md) + `packages/core/src/skill.ts` |
+| brand_terms（品牌术语库）设计文档 | 特性小（用户级术语 CRUD，服务内容产线），用途已在内容线专项规划中说明 | 术语库升级为产线强依赖（如自动注入 prompt / 按产线隔离）时 | [product-content-roadmap.md](product-content-roadmap.md) |
 
 ### 数据处理线
 
