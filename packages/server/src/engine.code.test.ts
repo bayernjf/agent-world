@@ -85,6 +85,23 @@ describe("code node (javascript)", () => {
     expect(replay(events).status).toBe("failed");
   });
 
+  it("keeps the engine alive when a script dies before draining a large stdin", async () => {
+    // Dogfood tpl-doc-ingest: a code node with a syntax error exits instantly,
+    // and feeding the input JSON into its broken stdin pipe emitted an unhandled
+    // 'error' event (EPIPE) that killed the whole server process. The node must
+    // fail honestly; the engine must survive. The input is deliberately larger
+    // than the OS pipe buffer so the write really breaks.
+    const events = await collect(
+      graph({ language: "javascript", code: "const broken = (;", timeoutMs: 10000 }),
+      "x".repeat(1024 * 1024),
+    );
+
+    const failed = events.find((e) => e.type === "node.failed" && e.nodeId === "calc");
+    expect(failed).toBeTruthy();
+    expect(failed.errorCode).toBe("SCRIPT_ERROR");
+    expect(replay(events).status).toBe("failed");
+  });
+
   it("kills a script that exceeds the timeout", async () => {
     const events = await collect(
       graph({ language: "javascript", code: "setTimeout(() => {}, 5000);", timeoutMs: 1000 }),

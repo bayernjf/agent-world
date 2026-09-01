@@ -1381,6 +1381,13 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
                 cwd: workdir,
                 env: childEnv,
               });
+              // If the interpreter dies before draining stdin (syntax error,
+              // early exit), feeding it the input emits 'error' (EPIPE) on the
+              // stream; with no listener that error event is unhandled and kills
+              // the whole engine process (dogfood tpl-doc-ingest: a broken code
+              // node took down the server). The failure is already reported via
+              // the child's exit code + stderr, so swallow the pipe error here.
+              child.stdin.on("error", () => {});
               child.stdin.end(inputJson);
               let stdout = "";
               let stderr = "";
