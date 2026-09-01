@@ -802,6 +802,19 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     for (const e of ins) {
       const st = states.get(e.from);
       if (st === "skipped") continue;
+      if (st === "failed") {
+        // A failed flow predecessor must not hold a merge point hostage when
+        // its failure was handled: every error edge led to a catch node that
+        // finished done. Waiting for it would strand the merge forever while
+        // the run still reports done — a silent drop (dogfood tpl-doc-ingest:
+        // combine never ran after ocr failed, ocrFallback finished, and the
+        // run ended "done" with no sink output).
+        const errOut = outgoing(graph, e.from, "error");
+        const handled =
+          errOut.length > 0 && errOut.every((ee) => states.get(ee.to) === "done");
+        if (!handled) return false;
+        continue;
+      }
       if (st !== "done") return false;
       if (packetEdges.has(e.id)) {
         anyPacket = true;
@@ -3714,9 +3727,11 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
         queueMicrotask(schedule);
         return;
       }
-      // Any pending node left is stranded behind a halted predecessor.
+      // Any pending node left is stranded behind a halted predecessor — or
+      // the scheduler simply never picked it up. Either way the run did not
+      // complete its graph, so claiming done would be a silent drop.
       const stranded = graph.nodes.some((n) => states.get(n.id) === "pending");
-      if (stranded && status === "done") status = "failed";
+      if (stranded && status !== "halted" && status !== "cancelled") status = "failed";
       finish();
     }
   };
