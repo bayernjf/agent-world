@@ -961,6 +961,11 @@ const competitorWatchGraph = {
     edges: [
       { id: "e0", from: "intake", to: "fetch", kind: "flow" },
       { id: "e1", from: "fetch", to: "extract", kind: "flow" },
+      // The prompt promises "我方产品信息会在运行时由上游输入提供", but the
+      // intake never reached the analyst — compare only saw the extracted
+      // page summary and had to answer "请补充我方产品信息" (dogfood
+      // tpl-competitor-watch). Fan the request in.
+      { id: "e1b", from: "intake", to: "compare", kind: "flow" },
       { id: "e2", from: "extract", to: "compare", kind: "flow" },
       { id: "e3", from: "compare", to: "depot", kind: "flow" },
       { id: "x1", from: "fetch", to: "fallback", kind: "error" },
@@ -2031,6 +2036,11 @@ const dataReportGraph = {
       { id: "e1", from: "intake", to: "fetch", kind: "flow" },
       { id: "e2", from: "fetch", to: "clean", kind: "flow" },
       { id: "e3", from: "clean", to: "aggregate", kind: "flow" },
+      // The report topic / focus metrics from the intake never reached the
+      // analyst (the http+code chain carries only fetched data), so the
+      // analysis ignored what the user asked to focus on (dogfood
+      // tpl-data-report). Fan the request in.
+      { id: "e3b", from: "intake", to: "analyze", kind: "flow" },
       { id: "e4", from: "aggregate", to: "analyze", kind: "flow" },
       { id: "e5", from: "analyze", to: "report", kind: "flow" },
       { id: "e6", from: "report", to: "depot", kind: "flow" },
