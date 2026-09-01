@@ -330,6 +330,12 @@ describe("regression · engine core path", () => {
     expect(splitArtifact.content).toContain("微信聊天记录");
     expect(splitArtifact.content).toContain("转账凭证");
     expect(splitArtifact.content).toContain("2024-03-05"); // 中文日期归一化
+    // The claim paragraph is evidence-free context: split must peel it off
+    // into `claim` instead of numbering it as an evidence row (dogfood
+    // tpl-evidence-brief: it used to float into the timeline table).
+    const splitJson = JSON.parse(splitArtifact.content) as { claim: string; rows: { excerpt: string }[] };
+    expect(splitJson.claim).toContain("诉讼请求");
+    expect(splitJson.rows.some((r) => r.excerpt.includes("诉讼请求"))).toBe(false);
     // table sorts chronologically: the 03-01 transfer row precedes the 03-05 chat row
     const sheetArtifact = events.find(
       (e) => e.type === "artifact.produced" && e.nodeId === sheetId && e.artifact.kind === "json",
