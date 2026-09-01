@@ -688,6 +688,12 @@ interface Skill {
 
 **跨库的 buffer 布局约定要在边界处显式转换。** pdfjs 交出来的是 1/3/4 通道的样本，pngjs 写 PNG 时永远按 RGBA 读 `png.data`——`colorType` 只决定输出标签，不改输入布局。直接把 3 通道 buffer 塞进去，每个像素错位、整张图纵向压成 3/4，OCR 只能出乱码（`4215d9c`，影响 `convert` 与 `fileParse` 仍共用的一条路）。规则：把一个库的原始 buffer 交给另一个编码库前，在边界处显式展开/压缩；回归用例要逐像素断言，只断“产出了 N 张图”看不了这个 bug。
 
+**TS 字符串字面量就是代码生成边界。** 模板的 code 脚本是用 TS 单引号字符串数组拼出来的，里面未转义的 `\n` 会变成真实换行，生成的 node 脚本在字符串字面量中间断行，子进程每次必挂 SyntaxError（tpl-doc-ingest 的 combine 节点，`86a513d`）。规则：凡是“用字符串生成代码”的地方，转义序列必须显式双重转义；core 层加了一条守护——遍历所有模板的 javascript code 脚本用 `new Function` 编译，不合法的模板永远到不了引擎。
+
+**向子进程的管道写入必须挂 error 监听。** code 节点秒退（语法错误）时，引擎还在用 `child.stdin.end(inputJson)` 灌输入；子进程先死，管道写入 EPIPE，而 stream 上没有监听器的 `error` 事件就是 uncaughtException——**一个坏脚本能把整个 server 进程杀死**（狗粮 tpl-doc-ingest 首验每次必崩，堆栈无应用帧，`b320f27`）。规则：引擎持有的每个子进程流（至少 stdin）都要挂 error 监听；失败报告只靠退出码 + stderr，管道写失败不另生语义。
+
+**error 边接住失败后，不能让 fan-in 汇聚点饿死。** 调度器的 `predecessorsReady` 曾要求所有 flow 上游 done：上游失败但被 error 边接住后，汇聚节点永不被调度，而 run 还报 done、无任何产物——静默丢弃，比报错更危险（run `ab5b20df`，`e6dc2c9`）。规则：失败但被 error 边妥善处理（catch 节点已 done）的上游视为已满足；收尾时仍有 pending 节点的 run 一律不得报 done。
+
 ### 12.2 阶段 2 并行时会撞墙
 
 **并发事件顺序竞态。** 引擎从单游标改为并发后，两个节点的事件会交错 yield。要保证：
@@ -701,7 +707,7 @@ interface Skill {
 
 **多标签页覆盖。** graph 自动保存是最后写入获胜，无版本号/ETag。开两个标签页编辑同一条产线，后保存静默覆盖前者。给 `graphs` 加 `version` 乐观锁，PUT 带 If-Match。
 
-**事件接口无分页。** `/api/runs/:id/events` 一次返回全部事件。长跑 + 工具调用 + 并行可能产生上万事件。加 `?from=&to=` 范围查询；SSE 本就是增量，主要影响历史回放首屏。
+**事件接口已改游标分页（曾是“无分页”，2026-09-01 前已落地 `?after=&limit=` + `nextCursor`）。** 注意默认首页只返回 30 条：查长跑/崩溃现场必须翻页到尾部，否则会把“截断处”误当“崩溃点”（狗粮 tpl-doc-ingest 曾因此误报“崩在 combine 启动”）。SSE 本就是增量，主要影响历史回放首屏。
 
 **结构化日志。** 现在只有 `console.error`。开源后用户报 bug 会瞎。需要最小结构化 logger，每条日志带 runId、级别、落盘轮转。不接 APM——事件流本身已是业务 trace。
 
@@ -758,6 +764,8 @@ artifacts: Map<string, Artifact[]>  // nodeId → 该节点产出的所有 artif
 - **ocr 节点**：只消费上游 `kind:"image"` 且带 uri 的产物，逐张识别后合并为**一个** text artifact（图片之间 `\n\n` 分隔），节点摘要带平均置信度；资产解析规则见 §12.1（worker/core 不预设 CDN）
 - **gate 节点**：通过时产出 text artifact（verdict.reason）；驳回时不产出（走返工环）
 - **sink 节点**：产出 text artifact（最终输出）
+- **table 节点**：按 `table.steps` 执行，`output` 步骤产出 `{kind:"json"}` artifact（`{rows,count,columns}`），节点摘要报「N 行 × M 列」；狗粮 tpl-doc-ingest 首次真实覆盖（run `b0f60b0b`，4 行×2 列）
+- **调度契约（error 边 × fan-in）**：失败上游被 error 边接住（catch 节点已 done）时，与它同汇入一个汇聚点的兄弟分支仍必须照常调度，汇聚点从 ctx 里读到的是失败节点的 error JSON + catch 节点的产出；收尾时仍有 pending 节点的 run 一律不得报 done（`e6dc2c9`）
 
 ### 13.3 inputFor() 兼容策略
 

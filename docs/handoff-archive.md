@@ -1789,6 +1789,7 @@ modality 切片，统一严格过滤；同时把 agent 的占位文案从泛化�
 
 > Entries rolled out of the active `handoff.md` "Recently shipped" list to keep it at 5 items.
 
+- `7b7faf0`…`530bfc5` — **狗粮验证四条修复系列（tpl-news-podcast 驱动）**：media 节点 modality 错配派发期阻断（`7b7faf0`）；audioGen/videoGen 静默跳过改诚实失败 node.failed 接入 error 边（`b6de7d9`）；search 不可达可行动报错（`bfc97dc`）+ `AGENT_WORLD_PROXY` opt-in 出站代理（`b82f89a`，SSRF trade-off 见 design-code-sandbox §12）；DDG 反爬页响亮报错不再静默 0 结果（`530bfc5`）。
 - `5b66996` — **fix(server)**: db.ts 两处 rename 回归补漏。
 - `daf632c` — **feat(core)**: 4 个能力演示模板——批量内容工坊 / 文档智能解析入库 / 人工审核发布 / 自定义模型接入（补 source 入口节点 + webhook/baseUrl 字段默认值防 zod .url() 校验失败）。
 - `96839c2` — **feat(core)**: 模板实例化重写节点 id 引用——code 脚本 `inputs["id"]`、prompt `${id}`、`source/target/items` 引用字段全部指向新 id，模板定义不被污染。
