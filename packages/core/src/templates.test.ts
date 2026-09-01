@@ -111,6 +111,17 @@ describe("templates", () => {
     expect(urls).toEqual(["https://a.example.com", "https://b.example.com"]);
   });
 
+  it("customer-service webhookUrl field lands on the notify node", () => {
+    const tpl = getTemplate("tpl-customer-service")!;
+    const g = instantiateTemplate(tpl, {
+      fieldValues: { webhookUrl: "https://open.feishu.cn/open-apis/bot/v2/hook/test" },
+    });
+    const notify = g.nodes.find((n) => n.name === "通知用户")!;
+    expect((notify.notify as { webhookUrl?: string }).webhookUrl).toBe(
+      "https://open.feishu.cn/open-apis/bot/v2/hook/test",
+    );
+  });
+
   it("ships the four capability templates exercising search+audio, loop+search, vcs and convert+ocr", () => {
     const expectKinds = (id: string, kinds: string[]) => {
       const tpl = getTemplate(id)!;

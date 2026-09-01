@@ -1676,6 +1676,14 @@ const customerServiceGraph = {
   name: "客服工单自动处理",
   description: "工单 → AI分类 → 解析 → 分支判断 → 自动回复/人工审核 → 通知 → 记录",
   category: "客户服务",
+  fields: [
+    {
+      key: "webhookUrl",
+      label: "通知 Webhook（飞书群机器人地址）",
+      placeholder: "https://open.feishu.cn/open-apis/bot/v2/hook/xxxx",
+      applyTo: [{ nodeId: "notify", path: "notify.webhookUrl" }],
+    },
+  ],
   graph: {
     id: "tpl-customer-service",
     name: "客服工单自动处理",
