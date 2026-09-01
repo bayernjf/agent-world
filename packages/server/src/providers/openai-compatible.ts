@@ -41,11 +41,23 @@ function nodeEndpointKey(
 }
 
 /** Map a guarded-egress rejection (deterministic) to a provider error. */
-function mapGuardedError(err: unknown): ProviderError {
+export function mapGuardedError(err: unknown): ProviderError {
   if (err instanceof GuardedFetchError) {
     return new ProviderError("PROVIDER_ERROR", err.message);
   }
-  return new ProviderError("UNKNOWN", (err as Error).message);
+  const message = (err as Error).message ?? String(err);
+  // undici/Node surface transient transport faults as a bare "fetch failed"
+  // (plus the usual ECONN*/DNS codes). These are exactly what the node-level
+  // retry policy exists for: mapped to UNKNOWN they never retry, so one proxy
+  // hiccup failed whole runs with an unactionable message (dogfood
+  // tpl-translation). Keep deterministic guard refusals (above) non-retryable.
+  if (/fetch failed|ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|UND_ERR/i.test(message)) {
+    return new ProviderError(
+      "PROVIDER_ERROR",
+      `${message}（瞬时网络故障，若重试后仍失败：检查 provider 可达性 / AGENT_WORLD_PROXY 出站代理配置）`,
+    );
+  }
+  return new ProviderError("UNKNOWN", message);
 }
 
 /** OpenAI-style multimodal content part. Only text and image_url are used today. */

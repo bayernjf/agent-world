@@ -1,6 +1,31 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ProviderConfig } from "../config.js";
-import { buildUserContent, openAICompatibleWorker } from "./openai-compatible.js";
+import { GuardedFetchError } from "../ssrf.js";
+import { buildUserContent, mapGuardedError, openAICompatibleWorker } from "./openai-compatible.js";
+
+describe("mapGuardedError", () => {
+  it("keeps deterministic guard refusals non-retryable-ish PROVIDER_ERROR with the original message", () => {
+    const err = mapGuardedError(new GuardedFetchError("internal-target", "SSRF 防护拒绝内网地址"));
+    expect(err.code).toBe("PROVIDER_ERROR");
+    expect(err.message).toContain("SSRF");
+  });
+
+  it("maps transient transport faults to PROVIDER_ERROR so the node-level retry policy can absorb them", () => {
+    // Dogfood tpl-translation: a proxy hiccup surfaced as a bare "fetch
+    // failed" mapped to UNKNOWN, which never retries and failed the whole
+    // run with an unactionable message.
+    for (const message of ["fetch failed", "connect ECONNREFUSED 127.0.0.1:7897", "read ECONNRESET", "getaddrinfo ENOTFOUND api.example.com"]) {
+      const err = mapGuardedError(new Error(message));
+      expect(err.code, message).toBe("PROVIDER_ERROR");
+      expect(err.message, message).toContain(message);
+    }
+  });
+
+  it("keeps truly unknown errors on UNKNOWN", () => {
+    const err = mapGuardedError(new Error("something else entirely"));
+    expect(err.code).toBe("UNKNOWN");
+  });
+});
 
 describe("buildUserContent (4.5)", () => {
   it("prefers multimodal content parts when supplied", () => {
