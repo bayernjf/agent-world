@@ -18,9 +18,9 @@
 | 内置模板 | 27 个业务模板 + 空白入口（`BLANK_TEMPLATE` 单独导出，不计入 `TEMPLATES.length`） | ✅ 已覆盖营销/数据/写作/办公/开发/法律/财务/运维/客服/教育/生活 |
 | 模板 API | `GET /api/templates`（含 slim geometry 缩略图）+ 建图 `template` 参数实例化 | ✅ 已有 |
 | 首启模板选择 | Onboarding.tsx 模板选择器（按分类分组区块 + 卡片 + SVG 预览，直读 core TEMPLATES 免网络往返；空白卡片钉在所有区块之前） | ✅ 已有 |
-| **老用户模板入口** | GraphSwitcher「+ 新建产线」**直接创建空图**，Onboarding 选择器仅首启出现 | ❌ **真缺（P0 核心）** |
-| examples.md 文档模板 | 9 个手工描述的模板（含 HTTP 聚合研究、多语言等），**无代码化**，文档与内置模板两张皮 | ❌ 真缺（P1） |
-| 模板参数化 | 无占位符机制；模板里写死的提示词/URL 实例化后需用户逐节点手改 | ❌ 真缺（P1） |
+| **老用户模板入口** | GraphSwitcher「+ 新建产线」→ NewGraphDialog 模板选择弹窗（共享 TemplatePicker，按分类分组 + 空白钉顶），首启/老用户双入口同一组件 | ✅ 已落地（`ffc34d9`，分组见 §6） |
+| examples.md 文档模板 | 内置模板目录表由 core `TEMPLATES` 三元组重建并按选择器分组顺序排列；§9-12 为可直接实例化的内置模板示例，§1-8 保留为手工搭图模式教程 | ✅ 已对齐（2026-09-01） |
+| 模板参数化 | `TemplateField`（name/label/type/defaultValue）+ `instantiateTemplate(tpl, fieldValues)` 显式值 > 默认值 + Web 参数表单 | ✅ 已落地（`242f706` / `8a1b1f9` / `e6bb9f3`） |
 | 用户发布/安装模板（真"市场"） | 无；依赖多租户与审核机制 | ⏸ 缓做（P2，见 §4 决策记录） |
 
 ---
