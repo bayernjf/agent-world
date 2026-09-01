@@ -46,7 +46,7 @@
 | [design-templates.md](design-templates.md) | 产线模板体系增强设计（老用户入口 / 覆盖面 / 参数化 / 市场缓做决策） | 开发者 |
 | [design-versions.md](design-versions.md) | 产线版本管理补强设计（自动快照 / 恢复预览 / run 关联 / diff 缓做决策） | 开发者 |
 | [design-glossary.md](design-glossary.md) | 术语对照表：标准术语 ⇄ Agent World 游戏化用词（本体论单一事实源） | 产品 / 开发者 |
-| [examples.md](examples.md) | 25 个可直接套用的产线模板（+ 1 个空白产线入口） | 新用户 |
+| [examples.md](examples.md) | 26 个可直接套用的产线模板（+ 1 个空白产线入口） | 新用户 |
 | [extending.md](extending.md) | 如何扩展：Worker / Connector / Skill / Trigger / 节点 | 开发者 |
 | [product-content-roadmap.md](product-content-roadmap.md) | 内容线（淘宝 / 小红书图文）专项规划 | 产品 |
 | [feedback-workflow.md](feedback-workflow.md) | 用户如何高效反馈给 AI（截图 / computer-use / 防丢） | 用户 |
