@@ -1347,7 +1347,7 @@ const customModelGraph = {
           model: "agnes-2.0-flash",
           modality: "text",
           prompt:
-            "下面是编排好的推理请求（JSON），请按其中的 intent / constraint / outputShape 执行并返回加工后的结果：\n${craft.output}",
+            "下面是编排好的推理请求（JSON），请按其中的 intent / constraint / outputShape 执行并返回加工后的结果：\n${craft}",
         },
       },
       { id: "depot", kind: "sink", name: "成品输出", x: 920, y: 300 },
