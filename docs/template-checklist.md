@@ -12,6 +12,7 @@
 - ⬜ 待真实验证（引擎冒烟已过，未真实跑过）
 - 🟡 部分验证（跑通但有关键缺口，见备注）
 - ✅ 已真实跑通（端到端产物可用）
+- ❌ **真实路径不可用**（产品能力缺口导致必败，非参数/环境问题；引擎冒烟能过是因为用例直接合成了产物）
 
 ## 待办表
 
@@ -36,7 +37,7 @@
 | 开发集成 | tpl-custom-model | 自定义模型接入 | ⬜ | — | http + code + vcs |
 | 开发集成 | tpl-release-pr | 发版 PR 助手 | ⬜ | — | vcs 节点 |
 | 开发集成 | tpl-code-review | 代码审查助手 | ⬜ | — | http + code + gate |
-| 法律合规 | tpl-contract-review | 合同审查助手 | ⬜ | — | fileParse + gate + human |
+| 法律合规 | tpl-contract-review | 合同审查助手 | ❌ | run `9b42e591`（真实投合同正文，2026-09-01）| 🔴 **能力缺口：真实产品里无法投料**——投料节点（source）只能传**图片**（`SourceImages.tsx` 过滤 `image/*`，engine source 仅产 text/image artifact），而 fileParse 只接受 `kind==="file"` 产物 → 报“上游「合同文件」没有产出文件产物”，run 必败。全库仅两个模板用 fileParse：tpl-doc-ingest 走 http 拉取（**不受影响**），本模板走 source（**受影响**）。修复方向待定：① source 支持任意文件上传（新增 `source.files` + engine 产 file artifact，需 UI 改动）；② fileParse 允许退化解析上游 text（粘贴正文即可审）；③ 改模板走 http 拉 URL（不贴实际）。注：引擎冒烟 27/27 能过是因为用例直接合成 file artifact，未走上传路径 |
 | 法律合规 | tpl-evidence-brief | 证据清单整理 | ⬜ | — | code 拆条 + table 排序 |
 | 财务审计 | tpl-expense-review | 费用报销初审 | ⬜ | — | code 规则校验 + table |
 | IT 运维 | tpl-patrol-alert | 定时巡检告警 | ⬜ | — | cron 触发 + notify webhook（需填 webhookUrl 字段） |
