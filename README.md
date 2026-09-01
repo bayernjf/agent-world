@@ -92,8 +92,9 @@ pnpm dev
 6. **Inspect** — click any node for attempts, scores, cost, and artifacts;
    the 成品仓 (sink) renders the final output with images and video inline.
 
-<!-- TODO: replace with an animated GIF of a run (canvas + rework loop + timeline scrub) -->
-<!-- ![Agent World run](docs/images/board-overview.png) -->
+![Agent World run](docs/images/demo-run.gif)
+
+*A pipeline run with timeline scrubbing — source intake → text generation → quality gate (with rework loop) → sink depot.*
 
 ### Run the checks
 
