@@ -429,6 +429,7 @@
 - [x] 触发管理 API：GET/POST/DELETE /api/graphs/:id/triggers，手动 fire，next-runs 预览
 - [x] 前端 TriggersPanel：列表/编辑/删除/手动触发/下次运行时间/运行历史
 - [x] 退出条件：不手动点派发也能自动跑
+- [x] 修复（2026-09-01）：event 触发状态契约——引擎成功状态是 `done` 而非 `completed`，此前"产线完成自动起跑下游"永久失效；统一为 `done` 并加回归契约用例（见 design-triggers.md §3）
 
 ### 4.7 人机协作增强
 

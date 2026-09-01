@@ -24,7 +24,7 @@
 | 真实产线狗粮验证 | 85% | 🔵 进行中 | 文本链路（短视频工坊）+ 全链路（文坊→画坊→影坊视频 MP4）已真实跑通；README GIF 演示与正式运行记录待收尾 |
 | 文档完善 | 40% | 🔵 进行中 | 核心设计文档齐；4.8 文档穿插按模块补录，handoff 最近 5 条需回填 hash |
 | 自动数据接入 Connector | 60% | 🟡 进行中 ★ | file/http/form/manual 已落地；**SQLite database 已落地（2026-09-01）**；剩 PG/MySQL 驱动接续（deferred） |
-| 定时 / 事件触发 | 10% | ⚪ 待启动 ★ | 配合 Connector 实现完全自动化的定时/事件驱动产线（规划 4.6） |
+| 定时 / 事件触发 | 95% | 🟢 基本完成 ★ | webhook/cron/event/batch 全落地（TriggersPanel+scheduler+27 测试）；**2026-09-01 修复 event 成功状态契约 bug**（见 design-triggers.md）；多实例分布式锁 deferred |
 | 商业化（定价/变现） | 5% | ⚪ 待启动 | 按产品决策**放后面** — [PRODUCT_STRATEGY.md](../PRODUCT_STRATEGY.md) |
 
 图例：✅ 已完成 · 🟡 主体完成（有缓做子项）· 🔵 进行中 · ⚪ 待启动
@@ -46,7 +46,7 @@
 > 优先级与决策依据以 [handoff.md 待办](../handoff.md) 与 [deferred-items.md](deferred-items.md) 为准，本文档只做总览。
 
 1. **★ 自动数据接入 Connector（4.2）** —— 让产线能自动拉数据（数据库/API/文件）。file/http/form 已落地；**SQLite database connector 已落地（2026-09-01，见 design-connector-database.md）**；PG/MySQL 待驱动接续（deferred）。
-2. **★ 定时 / 事件触发（4.6）** —— 配合 Connector 实现完全自动化的定时 / 事件驱动产线（当前产线靠手动运行）。
+2. **★ 定时 / 事件触发（4.6）** —— webhook/cron/event/batch 已全落地（2026-09-01 修复 event 成功状态 `done` 契约 bug，见 design-triggers.md）；与 Connector 组合即无人值守产线。剩余仅多实例分布式锁（deferred）。
 3. **文档穿插（4.8）** —— 每完成一个模块就补对应文档；当前 handoff 最近 5 条待回填 hash。
 4. **狗粮验证收尾** —— README 演示 GIF（画布运行 + rework 回环 + 时间轴回放）、真实运行记录归档。
 5. **低优 / 缓做** —— 沙箱 docker 容器后端、模板/节点市场、版本 diff/A-B、状态机、监控告警大盘、多租户、Notion/Linear/内容平台集成、Excel 读写、HTML→PDF。触发条件见 [deferred-items.md](deferred-items.md)。
