@@ -309,7 +309,7 @@ KnowledgeEntry {
 GET    /api/graphs              列出产线
 GET    /api/graphs/:id          获取产线
 PUT    /api/graphs/:id          保存产线
-POST   /api/graphs              新建产线（可带 templateId 从模板创建）
+POST   /api/graphs              新建产线（可带 `template` 从模板创建；参数名是 `template` 而非 templateId，2026-09-01 狗粮验证纠正）
 DELETE /api/graphs/:id          删除产线
 POST   /api/graphs/:id/duplicate 复制产线
 GET    /api/templates           产线模板目录

@@ -22,7 +22,7 @@
 | 营销内容 | tpl-xiaohongshu | 小红书种草笔记 | ⬜ | — | 含 2 个 imageGen 节点 |
 | 营销内容 | tpl-batch-content | 批量内容工坊 | ⬜ | — | loop 批处理场景 |
 | 营销内容 | tpl-review-publish | 人工审核发布 | ⬜ | — | human 审批 + error 边兜底场景 |
-| 营销内容 | tpl-news-podcast | 资讯播客工坊 | ⬜ | — | audioGen/TTS 链路 |
+| 营销内容 | tpl-news-podcast | 资讯播客工坊 | 🟡 | run `829d23af`（原版，search 即败）+ `c870fd4d`（摘除 search 后跑到终点），2026-09-01 | ① 🔴 audioGen 失败被静默吞（engine catch → node 标 done，run 判 done，**无音频产物**）；② 🔴 search 默认 duckduckgo 无代理不可达；③ 🟡 默认模型 `tts-1` 不在任何 provider 清单；④ 🟡 technical-design 误写 templateId（实为 `template`），传错时静默建空产线 |
 | 数据分析 | tpl-ops-weekly | 运营周报 | ⬜ | — | http + code + 无数据兜底 |
 | 数据分析 | tpl-research-brief | 多源研究简报 | ⬜ | — | parallel 汇聚场景 |
 | 数据分析 | tpl-competitor-watch | 竞品监控摘要 | ⬜ | — | http + 拉取失败兜底 |
