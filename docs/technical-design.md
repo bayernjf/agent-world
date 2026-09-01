@@ -5,6 +5,8 @@
 > 逐步任务拆解见 [roadmap-tasks.md](roadmap-tasks.md)。
 > 技术栈选型评估与边界见 [tech-stack-assessment.md](tech-stack-assessment.md)。
 
+> ⚠️ **时效注记（2026-09-01 盘点）**：本文档以阶段 1-3 期为基线写成，§3.1/§4.1 的"已实现"清单**落后于现状**——实际已演进到 25 种节点类型、账号隔离（users/JWT）、connectors/triggers/versions/knowledge/AB 等（迁移 16+）。增量事实已补入 §3.1b 与 §4.1b；各模块细节以 docs/ 下对应 design-*.md 为准。
+
 ---
 
 ## 1. 系统架构总览
@@ -176,7 +178,25 @@ node_runs (run_id, node_id, attempt, status, output, reasoning, error, error_cod
            tokens_in, tokens_out, cached_tokens, reasoning_tokens, cost_usd, units_json)
 ```
 
-`runs.snapshot` 存运行时的 graph 完整快照——产线定义之后改了，回放时仍用当时的版本。`events` 是真相源，`node_runs` 是事件 fold 的投影，用于快速查询。
+`runs.snapshot` 存运行时的 graph 完整快照——产线定义之后改了，回放时仍用当时的版 本。`events` 是真相源，`node_runs` 是事件 fold 的投影，用于快速查询。
+
+### 3.1b 2026-09-01 增量（现状对齐）
+
+- **节点类型**：从阶段 1 的 4 种（source/textGen/gate/sink）演进为 **25 种 `NodeKind`**（AI 加工 5 / 车间调度 6 / 物料处理 7 / 外接设备 5 / 投料出料 2），逐种名称与中文术语见 [design-glossary.md](design-glossary.md)；分类单一事实源在 core `NODE_CATEGORIES`。
+- **数据库表增量**（在 §3.1 的 graphs/runs/events/node_runs 之外，迁移 1-16+）：
+
+```sql
+users (id, username, password_hash, created_at)          -- 账号系统
+graphs.doc / graph_versions.snapshot / runs.snapshot     -- 落盘 AES-256-GCM 静态加密
+artifacts (id, run_id, graph_id, role, kind, ...)        -- 产物归属与成品仓库
+graph_versions (id, graph_id, snapshot, content_hash, …) -- 自动快照 + hash
+connectors / triggers                                    -- 数据接入与触发器
+brand_terms (id, user_id, term, note, created_at)        -- 品牌术语库
+knowledge (…, user_id) + knowledge_fts                   -- 见 §3.4 与 design-knowledge-memory.md
+```
+
+- **隔离**：graphs/runs/artifacts/brand_terms/knowledge/成本全部按 `user_id` 过滤；旧库迁移幂等回填。
+- 各模块设计细节：加密见 [design-at-rest-encryption.md](design-at-rest-encryption.md)、版本见 [design-versions.md](design-versions.md)、产物见 [design-artifact-attribution-repo.md](design-artifact-attribution-repo.md)、知识记忆见 [design-knowledge-memory.md](design-knowledge-memory.md)、A/B 见 [design-ab-testing.md](design-ab-testing.md)。
 
 ### 3.2 阶段 1 演进
 
@@ -266,6 +286,8 @@ Artifact {
 
 ### 3.4 阶段 5 演进：Knowledge 层
 
+> ✅ **已提前实现**（2026-09-01 盘点确认）：SQLite FTS5 版本已落地——`knowledge` 表 + FTS5 虚拟表 + 触发器同步 + run 结束自动提取 + `archive_search` 技能卡，详见 [design-knowledge-memory.md](design-knowledge-memory.md)。下述 embedding 演进（sqlite-vec → pgvector → Milvus）仍为未来方向。
+
 ```
 KnowledgeEntry {
   id, kind, content, embedding?, embeddingModel?
@@ -319,6 +341,36 @@ POST   /api/providers/test      测试 provider 连接
 
 引擎在 resume/retry 时不重发 `run.started`（`SchedulerOptions.resuming`），否则会把客户端已折叠的运行时（失败历史、累计电费）清空。
 
+### 4.1b 2026-09-01 增量 API（现状对齐，均按登录用户隔离）
+
+```
+# 账号（公开）
+POST   /api/auth/register|login   注册 / 登录（JWT HttpOnly cookie）
+GET    /api/auth/me               当前用户
+POST   /api/auth/password         修改密码
+POST   /api/auth/logout           退出
+
+# 数据接入与触发（连接器随产线 doc 存储；触发器挂在产线下）
+POST   /api/connectors/test           测试连接（返回预览，连接器本身随产线 doc 保存）
+GET|POST /api/graphs/:id/triggers      触发器列表 / upsert
+DELETE /api/graphs/:id/triggers/:tid   删除触发器
+GET    /api/graphs/:id/triggers/next-runs  cron 下次运行时间表
+POST   /api/graphs/:id/webhook         webhook 入口（带 secret）
+
+# 版本 / 产物 / 知识 / A/B
+GET|POST /api/graphs/:id/versions       版本列表 / 快照；GET /:vid 详情 + 「当前运行版本」标记
+POST   /api/graphs/:id/versions/:vid/restore  恢复（先预览后确认）
+DELETE /api/graphs/:id/versions/:vid    删除快照
+GET   /api/artifacts(:id)               产物列表 / 详情（按用户归属；POST /api/artifacts/upload 上传）
+GET|POST|DELETE /api/knowledge(/search) 知识库（见 design-knowledge-memory.md）
+POST   /api/ab + GET /api/ab/:groupId A/B 实验（见 design-ab-testing.md）
+GET|POST|DELETE /api/brand-terms      品牌术语库
+
+# 其他
+POST   /api/proxy                     出站代理（SSRF 防护 + 登录要求）
+*      /mcp                           MCP Server（stdio/HTTP+SSE，Bearer 认证）
+```
+
 ### 4.2 阶段 4-5 新增（概要）
 
 ```
@@ -328,7 +380,7 @@ POST   /api/webhooks/:graphId   Webhook 触发产线
 
 # 阶段 5
 GET    /api/tenants             多租户（企业版）
-POST   /api/memory/recall       档案室检索
+POST   /api/memory/recall       档案室检索（已提前落地，见 §4.1b 与 design-knowledge-memory.md）
 ```
 
 ---
