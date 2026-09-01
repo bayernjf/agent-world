@@ -13,12 +13,12 @@
 |---|---|---|---|
 | 安全加固（审计 29 项） | 100% | ✅ 已完成 | 3 Critical/10 High/8 Medium/8 Low 全部修复，含 CORS 通配符拒绝、SSRF、静态加密 L3；推翻 2 条旧"已解决"结论 — [security-audit-2026-08-31.md](security-audit-2026-08-31.md) |
 | 账号系统与用户隔离 | 100% | ✅ 已完成 | users 表 + JWT/HttpOnly cookie + 全量按 user_id 隔离 + 旧库回填迁移 |
-| 回归测试与质量门 | 100% | ✅ 已完成 | core 154 / server 585 / mcp 50 / web 32；core-path 回归基线 14 用例，Node 24 下稳定复跑 — [handoff.md Quality gate](../handoff.md) |
+| 回归测试与质量门 | 100% | ✅ 已完成 | core 155 / server 586 / mcp 50 / web 32；core-path 回归基线 15 用例，Node 24 下稳定复跑 — [handoff.md Quality gate](../handoff.md) |
 | MCP Server | 100% | ✅ 已完成 | stdio + HTTP/SSE 双传输、15 工具 + resources + prompts + notifications + Bearer 认证（P0-P2 全落地）— [design-mcp-server.md](design-mcp-server.md) |
 | Phase 1 基础通用能力 | 100% | ✅ 已完成 | HTTP/代码执行/条件分支/parallel/数据模型升级 — [roadmap-generalization.md](roadmap-generalization.md#phase-1基础通用能力2-3周) |
 | Phase 2 数据与文件处理 | 100% | ✅ 已完成 | 表格/数据库/文件解析/OCR/转换/搜索/翻译 — [roadmap-generalization.md](roadmap-generalization.md#phase-2数据与文件处理2-3周) |
 | Phase 3 集成与通知 | 95% | 🟡 主体完成 | notify/搜索/vcs/TTS 已落地；邮件收件、内容平台（小红书/抖音/淘宝）依赖 API 资质缓做 — [integrations-future.md](integrations-future.md) |
-| 模板体系 | 97% | 🟡 主体完成 | 26 个实用模板覆盖全部 28 种节点能力（含法律合规第二模板「证据清单整理」）+ TemplateField 参数化全链路 + 空白产线入口（BLANK_TEMPLATE 独立导出，不计入模板数）；模板市场（发布/安装）缓做 — [design-templates.md](design-templates.md) |
+| 模板体系 | 97% | 🟡 主体完成 | 27 个实用模板覆盖全部 28 种节点能力（含法律合规第二模板「证据清单整理」、财务审计首个模板「费用报销初审」）+ TemplateField 参数化全链路 + 空白产线入口（BLANK_TEMPLATE 独立导出，不计入模板数）；模板市场（发布/安装）缓做 — [design-templates.md](design-templates.md) |
 | Phase 4 高级编排 | 92% | 🟡 主体完成 | 6/7 项落地：并行聚合 / subprocess / error 边+catch / AI Agent 工具循环 / human 审批 / 变量持久化；**状态机缓做** — [phase4-design.md](phase4-design.md) |
 | 版本管理补强 | 90% | 🟡 主体完成 | 自动快照 + run 关联 hash + 恢复预览；diff 视图与 A/B 缓做 — [design-versions.md](design-versions.md) |
 | 真实产线狗粮验证 | 90% | 🟢 基本完成 | 文本链路（短视频工坊）+ 全链路（文坊→画坊→影坊视频 MP4）已真实跑通；**README 演示 GIF 已完成（2026-09-01，时间轴回放）**；真实定时产线端到端验证通过（cron→database connector→event 触发下游） |

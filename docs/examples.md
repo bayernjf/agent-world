@@ -31,6 +31,7 @@ board's **新建产线** dialog, or used as a starting point for your own.
 | `tpl-code-review` | 代码审查助手 | 开发 |
 | `tpl-contract-review` | 合同审查助手 | 法律合规 |
 | `tpl-evidence-brief` | 证据清单整理 | 法律合规 |
+| `tpl-expense-review` | 费用报销初审 | 财务审计 |
 | `tpl-course-outline` | 课程大纲生成 | 教育 |
 | `tpl-travel-plan` | 旅游行程规划 | 生活 |
 | `tpl-recipe` | 菜谱生成 | 生活 |
