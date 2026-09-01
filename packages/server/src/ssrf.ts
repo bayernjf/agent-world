@@ -1,6 +1,6 @@
 import { lookup as dnsLookup } from "node:dns/promises";
 import { isIP } from "node:net";
-import { Agent } from "undici";
+import { Agent, ProxyAgent, type Dispatcher } from "undici";
 
 /**
  * SSRF guard shared by every server-side outbound fetch (image proxy, HTTP
@@ -127,6 +127,44 @@ export function allowPrivateNetwork(): boolean {
 }
 
 /* ------------------------------------------------------------------ *
+ * Optional outbound proxy (AGENT_WORLD_PROXY) — dogfood 2026-09-01.
+ *
+ * Some networks cannot reach external hosts directly (e.g. DDG is blocked);
+ * a local trusted proxy is the standard fix. Opt-in via env:
+ *   AGENT_WORLD_PROXY=http://127.0.0.1:7897
+ *
+ * SSRF trade-off (documented in design-code-sandbox.md §13): when a proxy is
+ * active, DNS resolution and connection happen at the proxy, so the local
+ * resolve-and-pin check cannot defend the actual TCP path. Compensating
+ * controls: IP-literal internal targets and localhost-style hostnames are
+ * still refused locally; the proxy itself is user-configured trusted
+ * infrastructure. Default remains off (direct + full SSRF guard).
+ * ------------------------------------------------------------------ */
+
+let cachedProxy: { url: string; agent: ProxyAgent } | null = null;
+
+/** Proxy dispatcher for raw-fetch callers (e.g. search providers); undefined when unset. */
+export function outboundProxyDispatcher(): ProxyAgent | undefined {
+  const url = process.env.AGENT_WORLD_PROXY?.trim();
+  if (!url) return undefined;
+  if (cachedProxy?.url === url) return cachedProxy.agent;
+  const agent = new ProxyAgent(url);
+  cachedProxy = { url, agent };
+  return agent;
+}
+
+const PROXY_DENIED_HOSTNAME = /^(localhost|.*\.localhost|.*\.local|metadata\.google\.internal)$/i;
+
+/** Local (non-DNS) guard applied even when proxying. */
+function proxyGuardRejects(hostname: string): boolean {
+  const family = isIP(hostname);
+  if (family) {
+    return family === 4 ? ipv4IsInternal(hostname) : ipv6IsInternal(hostname);
+  }
+  return PROXY_DENIED_HOSTNAME.test(hostname);
+}
+
+/* ------------------------------------------------------------------ *
  * guardedFetch — the outbound boundary every server-side fetch should
  * go through (audit batch 2). Three properties:
  *
@@ -246,8 +284,19 @@ export async function guardedFetch(url: string | URL, init: GuardedFetchInit = {
     if (current.protocol !== "http:" && current.protocol !== "https:") {
       throw new GuardedFetchError("bad-url", `仅允许 http(s) 协议: ${current.protocol}`);
     }
-    let dispatcher: Agent | undefined;
-    if (!allowPrivateNetwork()) {
+    let dispatcher: Dispatcher | undefined;
+    const proxy = outboundProxyDispatcher();
+    if (proxy) {
+      // Proxy mode: resolution happens at the proxy (see trade-off above).
+      // Still refuse obvious internal targets by name/IP-literal.
+      if (proxyGuardRejects(current.hostname)) {
+        throw new GuardedFetchError(
+          "internal-target",
+          `拒绝访问内网或私网地址（SSRF 防护）: ${current.hostname}`,
+        );
+      }
+      dispatcher = proxy;
+    } else if (!allowPrivateNetwork()) {
       const resolved = await resolveGuarded(current.hostname);
       if (!resolved) {
         throw new GuardedFetchError(
