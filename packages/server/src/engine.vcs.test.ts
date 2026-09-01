@@ -62,6 +62,9 @@ let fetchMock: ReturnType<typeof vi.fn>;
 beforeEach(() => {
   fetchMock = vi.fn();
   vi.stubGlobal("fetch", fetchMock);
+  // Skip the real DNS resolve-and-pin path of guardedFetch so the mocked
+  // fetch receives every request verbatim (same contract as notify tests).
+  vi.stubEnv("ALLOW_PRIVATE_NETWORK", "1");
 });
 
 afterEach(() => {
@@ -165,5 +168,23 @@ describe("vcs node — github & gitlab", () => {
     );
     expect(replay(events).status).toBe("done");
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("routes provider calls through the outbound proxy when AGENT_WORLD_PROXY is set (dogfood tpl-release-pr)", async () => {
+    // The bare global fetch used to bypass AGENT_WORLD_PROXY, so on
+    // proxy-only networks every GitHub/GitLab call died with ECONNREFUSED.
+    vi.stubEnv("GITHUB_TOKEN", "ghp_test");
+    vi.stubEnv("ALLOW_PRIVATE_NETWORK", "");
+    vi.stubEnv("AGENT_WORLD_PROXY", "http://127.0.0.1:7897");
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify([]), { status: 200, headers: { "content-type": "application/json" } }),
+    );
+    const events = await collect(vcsGraph({ provider: "github", action: "list_issues", owner: "o", repo: "r" }));
+    expect(replay(events).status).toBe("done");
+    const [, init] = fetchMock.mock.calls[0]!;
+    // A dispatcher (the ProxyAgent) must ride along, i.e. the request leaves
+    // through the configured proxy instead of a direct connection.
+    expect((init as any).dispatcher).toBeDefined();
+    expect((init as any).dispatcher.constructor.name).toBe("ProxyAgent");
   });
 });
