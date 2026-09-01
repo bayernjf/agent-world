@@ -2448,6 +2448,139 @@ const evidenceBriefGraph = {
   },
 } satisfies GraphTemplate;
 
+const expenseReviewGraph = {
+  id: "tpl-expense-review",
+  name: "费用报销初审",
+  description: "报销明细 → 规则校验（超额/重复单号/日期异常）→ 异常清单 → 初审报告 → 质检",
+  category: "财务审计",
+  graph: {
+    id: "tpl-expense-review",
+    name: "费用报销初审",
+    nodes: [
+      { id: "intake", kind: "source", name: "报销明细台", x: 80, y: 300 },
+      {
+        id: "check",
+        kind: "code",
+        name: "规则校验",
+        x: 340,
+        y: 300,
+        code: {
+          language: "javascript",
+          code: [
+            '// 读取引擎注入的 inputs（code 节点把上游数据 JSON 写到 stdin）',
+            'const fs = require("fs");',
+            "let raw = '';",
+            "try {",
+            '  const inputs = JSON.parse(fs.readFileSync(0, "utf8")).inputs ?? {};',
+            "  raw = String(Object.values(inputs)[0] ?? '').trim();",
+            "} catch (e) { raw = ''; }",
+            '// 单笔报销上限（元），可按公司费用制度调整',
+            "var LIMIT = 1000;",
+            "var today = new Date().toISOString().slice(0, 10);",
+            "var lines = raw.split(/\\r?\\n/).map(function (s) { return s.trim(); }).filter(Boolean);",
+            '// 跳过明显的表头行（同时含"单号"与"金额"）',
+            "var items = lines.filter(function (l) { return !(l.indexOf('单号') >= 0 && l.indexOf('金额') >= 0); })",
+            "  .map(function (line, i) {",
+            "    var fields = line.split(/[,，\\t]/).map(function (s) { return s.trim(); }).filter(Boolean);",
+            '    // 日期：2026-08-21 / 2026/8/21 / 2026年8月21日，归一化为 YYYY-MM-DD',
+            "    var dm = line.match(/(\\d{4})\\s*[-\\/年]\\s*(\\d{1,2})\\s*[-\\/月]\\s*(\\d{1,2})/);",
+            "    var date = dm ? dm[1] + '-' + ('0' + dm[2]).slice(-2) + '-' + ('0' + dm[3]).slice(-2) : '';",
+            "    var rest = dm ? line.replace(dm[0], ' ') : line;",
+            '    // 单号：优先 字母-数字（BX-2026-0142，可多段连字符），其次 6 位以上纯数字',
+            "    var vm = line.match(/[A-Za-z]{2,}[-_][A-Za-z0-9]+(?:[-_][A-Za-z0-9]+)*/) || rest.match(/\\d{6,}/);",
+            "    var voucherNo = vm ? vm[0] : '';",
+            "    if (voucherNo) rest = rest.replace(voucherNo, ' ');",
+            '    // 金额：剔除日期与单号后取最后一个数字（允许 ¥/元 后缀）',
+            "    var nums = rest.match(/\\d+(?:\\.\\d+)?/g) || [];",
+            "    var amount = nums.length ? parseFloat(nums[nums.length - 1]) : '';",
+            '    // 科目：第一个含中文、不含四位数字、且非纯日期词（如"8月28日"）的字段',
+            "    var category = '';",
+            "    for (var f = 0; f < fields.length; f++) {",
+            "      if (/[\\u4e00-\\u9fa5]/.test(fields[f]) && !/\\d{4}/.test(fields[f]) && !/^[\\d年月日\\/\\-\\.\\s]+$/.test(fields[f])) { category = fields[f]; break; }",
+            "    }",
+            "    return { no: i + 1, date: date, amount: amount, category: category, voucherNo: voucherNo };",
+            "  });",
+            '// 单号重复需要全局视角：先计数，再逐行打标',
+            "var seen = Object.create(null);",
+            "items.forEach(function (it) { if (it.voucherNo) seen[it.voucherNo] = (seen[it.voucherNo] || 0) + 1; });",
+            "var rows = items.map(function (it) {",
+            "  var flags = [];",
+            "  if (it.amount === '') flags.push('金额缺失');",
+            "  else if (it.amount > LIMIT) flags.push('单笔超' + LIMIT + '元');",
+            "  if (!it.date) flags.push('日期缺失');",
+            "  else if (it.date > today) flags.push('日期在未来');",
+            "  if (!it.voucherNo) flags.push('单号缺失');",
+            "  else if (seen[it.voucherNo] > 1) flags.push('重复单号');",
+            "  return {",
+            "    no: it.no, date: it.date, amount: it.amount, category: it.category, voucherNo: it.voucherNo,",
+            "    flags: flags.join('；') || '无',",
+            "    issueCount: flags.length,",
+            "    risk: flags.length ? '异常' : '合格'",
+            "  };",
+            "});",
+            '// 表格节点要求至少一行：没解析到明细也给一行占位',
+            "if (!rows.length) rows = [{ no: 0, date: '', amount: '', category: '', voucherNo: '', flags: '未粘贴报销明细', issueCount: 1, risk: '异常' }];",
+            'console.log(JSON.stringify({ rows: rows }));',
+          ].join("\n"),
+        },
+      },
+      {
+        id: "anomalies",
+        kind: "table",
+        name: "异常清单",
+        x: 600,
+        y: 300,
+        table: {
+          steps: [
+            { op: "sort", column: "issueCount", direction: "desc" },
+            { op: "output", format: "json" },
+          ],
+        },
+      },
+      {
+        id: "report",
+        kind: "textGen",
+        name: "初审报告",
+        x: 860,
+        y: 300,
+        textGen: {
+          model: "agnes-2.0-flash",
+          prompt:
+            "你是企业费用审计专员。上游是规则校验后的报销明细（JSON，每条含 no / date / amount / category / voucherNo / flags / issueCount / risk）和用户粘贴的原始文本。" +
+            "任务：①总览统计：总笔数、总金额（amount 求和，缺失按 0 计）、异常笔数；" +
+            "②输出异常明细 Markdown 表：序号｜日期｜金额｜科目｜单号｜异常原因｜处理建议（异常行在前）；" +
+            "③每条异常给出具体处理建议（补发票/补说明/驳回/转上级复核，依据 flags 类型对应）；" +
+            "④若无异常，明确写「初审结论：全部合格」并列出已执行的校验规则。" +
+            "要求：不得虚构上游不存在的报销条目；不得把 flags 为「无」的条目标为异常；金额缺失时不得推测金额，建议核对原始票据。",
+          skills: [],
+        },
+      },
+      {
+        id: "qc",
+        kind: "gate",
+        name: "质检",
+        x: 1120,
+        y: 300,
+        gate: {
+          maxAttempts: 2,
+          criterion:
+            "初审报告覆盖上游标记异常的全部报销条目、每条异常均有处理建议、未把上游无异常条目标为异常、统计数字（笔数/金额/异常数）与上游数据一致。",
+          onExhausted: "halt",
+        },
+      },
+      { id: "depot", kind: "sink", name: "报告成品", x: 1380, y: 300 },
+    ],
+    edges: [
+      { id: "e1", from: "intake", to: "check", kind: "flow" },
+      { id: "e2", from: "check", to: "anomalies", kind: "flow" },
+      { id: "e3", from: "anomalies", to: "report", kind: "flow" },
+      { id: "e4", from: "report", to: "qc", kind: "flow" },
+      { id: "e5", from: "qc", to: "depot", kind: "flow" },
+      { id: "r1", from: "qc", to: "report", kind: "rework" },
+    ],
+  },
+} satisfies GraphTemplate;
+
 export const TEMPLATES: GraphTemplate[] = [
   productDetailGraph,
   xiaohongshuGraph,
@@ -2475,12 +2608,13 @@ export const TEMPLATES: GraphTemplate[] = [
   travelPlanGraph,
   recipeGraph,
   evidenceBriefGraph,
+  expenseReviewGraph,
 ];
 
 /**
  * Blank canvas entry — NOT a business template.
  * Exported separately so `TEMPLATES.length` always equals the real
- * template count (26), and callers that need the blank entry opt in.
+ * template count (27), and callers that need the blank entry opt in.
  */
 export const BLANK_TEMPLATE: GraphTemplate = blankGraph;
 

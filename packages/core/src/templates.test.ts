@@ -9,7 +9,7 @@ describe("templates", () => {
     // Blank canvas is a creation entry, NOT a business template.
     expect(ids).not.toContain("tpl-blank");
     expect(BLANK_TEMPLATE.id).toBe("tpl-blank");
-    expect(TEMPLATES).toHaveLength(26);
+    expect(TEMPLATES).toHaveLength(27);
   });
 
   it("instantiates with fresh node and edge ids", () => {
@@ -142,6 +142,31 @@ describe("templates", () => {
     const code = (byName.get("拆条编号")!.code as { code: string }).code;
     expect(code).toContain("fs.readFileSync(0");
     expect(code).not.toMatch(/[^."]inputs\./);
+  });
+
+  it("expense-review template chains rule checks, anomaly table and gate rework", () => {
+    const tpl = getTemplate("tpl-expense-review")!;
+    expect(tpl, "template tpl-expense-review should exist").toBeTruthy();
+    const byName = new Map(tpl.graph.nodes.map((n) => [n.name, n]));
+    expect(byName.get("规则校验")?.kind).toBe("code");
+    expect(byName.get("异常清单")?.kind).toBe("table");
+    expect(byName.get("初审报告")?.kind).toBe("textGen");
+    expect(byName.get("质检")?.kind).toBe("gate");
+    // Anomalies surface first: sort by issue count, descending.
+    const steps = (byName.get("异常清单")!.table as { steps: { op: string; column?: string; direction?: string }[] }).steps;
+    expect(steps.some((s) => s.op === "sort" && s.column === "issueCount" && s.direction === "desc")).toBe(true);
+    // Rework reruns the report draft, not the deterministic rule checks.
+    expect(tpl.graph.edges.some((e) => e.kind === "rework" && e.from === "qc" && e.to === "report")).toBe(true);
+    // Rule checks are deterministic code: the three promised anomaly families
+    // must all be implemented, and via the engine stdin contract.
+    const code = (byName.get("规则校验")!.code as { code: string }).code;
+    expect(code).toContain("fs.readFileSync(0");
+    expect(code).not.toMatch(/[^."]inputs\./);
+    expect(code).toContain("单笔超");
+    expect(code).toContain("重复单号");
+    expect(code).toContain("日期");
+    // Table nodes error on empty rows; the script must guarantee at least one row.
+    expect(code).toContain("if (!rows.length)");
   });
 
   it("loop template's items ref is rewritten to the fresh split-node id", () => {
