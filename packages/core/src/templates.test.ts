@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { compile } from "./compile.js";
-import { getTemplate, instantiateTemplate, TEMPLATES } from "./templates.js";
+import { BLANK_TEMPLATE, getTemplate, instantiateTemplate, TEMPLATES } from "./templates.js";
 
 describe("templates", () => {
-  it("ships a product-detail and a blank template", () => {
+  it("ships business templates separately from the blank entry", () => {
     const ids = TEMPLATES.map((t) => t.id);
     expect(ids).toContain("tpl-product");
-    expect(ids).toContain("tpl-blank");
+    // Blank canvas is a creation entry, NOT a business template.
+    expect(ids).not.toContain("tpl-blank");
+    expect(BLANK_TEMPLATE.id).toBe("tpl-blank");
+    expect(TEMPLATES).toHaveLength(18);
   });
 
   it("instantiates with fresh node and edge ids", () => {
@@ -42,9 +45,8 @@ describe("templates", () => {
     expect(graph.edges).toHaveLength(0);
   });
 
-  it("every non-blank template compiles without errors", () => {
+  it("every template compiles without errors", () => {
     for (const tpl of TEMPLATES) {
-      if (tpl.id === "tpl-blank") continue;
       const graph = instantiateTemplate(tpl);
       const result = compile(graph);
       const errors = result.diagnostics.filter((d) => d.severity === "error");

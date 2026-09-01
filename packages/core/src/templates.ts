@@ -1690,9 +1690,19 @@ export const TEMPLATES: GraphTemplate[] = [
   researchLoopGraph,
   releasePrGraph,
   scanOcrGraph,
-  blankGraph,
 ];
 
+/**
+ * Blank canvas entry — NOT a business template.
+ * Exported separately so `TEMPLATES.length` always equals the real
+ * template count (18), and callers that need the blank entry opt in.
+ */
+export const BLANK_TEMPLATE: GraphTemplate = blankGraph;
+
+/** Look up a template by id, including the blank canvas entry. */
 export function getTemplate(id: string): GraphTemplate | undefined {
-  return TEMPLATES.find((t) => t.id === id);
+  const found = TEMPLATES.find((t) => t.id === id);
+  if (found) return found;
+  if (BLANK_TEMPLATE.id === id) return BLANK_TEMPLATE;
+  return undefined;
 }
