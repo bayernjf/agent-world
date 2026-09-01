@@ -288,8 +288,10 @@ export async function guardedFetch(url: string | URL, init: GuardedFetchInit = {
     const proxy = outboundProxyDispatcher();
     if (proxy) {
       // Proxy mode: resolution happens at the proxy (see trade-off above).
-      // Still refuse obvious internal targets by name/IP-literal.
-      if (proxyGuardRejects(current.hostname)) {
+      // Still refuse obvious internal targets by name/IP-literal — unless the
+      // operator opted out with ALLOW_PRIVATE_NETWORK=1, which skips the
+      // internal checks entirely (same contract as the direct path below).
+      if (!allowPrivateNetwork() && proxyGuardRejects(current.hostname)) {
         throw new GuardedFetchError(
           "internal-target",
           `拒绝访问内网或私网地址（SSRF 防护）: ${current.hostname}`,

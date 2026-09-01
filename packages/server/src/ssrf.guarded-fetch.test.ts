@@ -182,4 +182,16 @@ describe("guardedFetch", () => {
     });
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it("ALLOW_PRIVATE_NETWORK=1 also lifts the proxy-mode internal-target block", async () => {
+    // Dogfood tpl-doc-ingest: with AGENT_WORLD_PROXY set, a local fixture URL
+    // was refused even though the operator had opted into private networks;
+    // the documented contract is "skips the internal checks entirely".
+    vi.stubEnv("AGENT_WORLD_PROXY", "http://127.0.0.1:7897");
+    vi.stubEnv("ALLOW_PRIVATE_NETWORK", "1");
+    const res = await guardedFetch("http://127.0.0.1:18900/fixture.pdf");
+    expect(res.status).toBe(200);
+    const init = fetchMock.mock.calls[0]![1] as { dispatcher?: unknown };
+    expect(init?.dispatcher).toBe(outboundProxyDispatcher());
+  });
 });
