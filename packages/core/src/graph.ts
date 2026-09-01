@@ -754,9 +754,28 @@ export const ConnectorConfig = z.object({
 });
 export type ConnectorConfig = z.infer<typeof ConnectorConfig>;
 
+/**
+ * A document attached to a source node. The bytes are already in the artifact
+ * store (`POST /api/artifacts/upload` returns this shape); the node only points
+ * at them, so the graph stays a set of references like `images`.
+ */
+export const SourceFile = z.object({
+  uri: z.string().min(1),
+  /** Original filename — shown in the inspector and carried onto the artifact. */
+  label: z.string().optional(),
+  mimeType: z.string().optional(),
+  sizeBytes: z.number().int().nonnegative().optional(),
+});
+export type SourceFile = z.infer<typeof SourceFile>;
+
 export const SourceConfig = z.object({
   /** Reference image URLs fed to vision-capable downstream textGen nodes. */
   images: z.array(z.string()).optional(),
+  /** Uploaded documents. The engine materializes each one as a kind="file"
+   *  artifact at dispatch, which is what a downstream fileParse node reads —
+   *  without this, a "投文件" source node had no way to produce a file at all
+   *  (dogfood 2026-09-01: tpl-contract-review). */
+  files: z.array(SourceFile).optional(),
   /** Product name / short title used in generated content. */
   productName: z.string().optional(),
   /** Brand or shop name. */

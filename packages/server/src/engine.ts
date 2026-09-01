@@ -50,6 +50,7 @@ import { spawn } from "node:child_process";
 import { HaltRequested, type ToolDefinition, type Worker } from "./worker.js";
 import { ProviderError } from "./providers/openai-compatible.js";
 import { sanitizeError } from "./sanitize.js";
+import { MAX_INLINE_BYTES } from "./artifact-reader.js";
 import { getSkill, resolveTools, executeBuiltinTool } from "./skills/registry.js";
 import { guardToolCall, isDangerousTool, loadPermissionConfig, type PermissionConfig } from "./permissions.js";
 import { notifyFailed, notifyHalt } from "./notify.js";
@@ -1004,6 +1005,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
         // source: optionally pull raw material from a connector before welding.
         let sourceText = opts.sourceInput ?? "";
         let sourceImages = node.source?.images ?? [];
+        const sourceFiles = node.source?.files ?? [];
         const conn = node.source?.connector;
         if (conn) {
           let ok = false;
@@ -1036,6 +1038,26 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
         emit({ type: "node.started", nodeId, attempt });
         emit({ type: "node.finished", nodeId, attempt, output, usage: zeroUsage() });
         let primaryKind: Artifact["kind"] | undefined;
+        // Uploaded documents become first-class file artifacts next to the text
+        // note, so a downstream fileParse node can find its `kind === "file"`
+        // input. Before this, no source node could produce a file at all — a
+        // 「合同文件」 intake left fileParse failing with 没有产出文件产物
+        // (dogfood 2026-09-01, tpl-contract-review).
+        if (sourceFiles.length) {
+          const nodeArts = artifacts.get(nodeId)!;
+          for (const [i, f] of sourceFiles.entries()) {
+            const a: Artifact = {
+              id: `${nodeId}-file${i}`,
+              kind: "file",
+              uri: f.uri,
+              mimeType: f.mimeType,
+              label: f.label,
+              sizeBytes: f.sizeBytes,
+            };
+            nodeArts.push(a);
+            emit({ type: "artifact.produced", nodeId, artifact: a });
+          }
+        }
         if (sourceImages.length) {
           const nodeArts = artifacts.get(nodeId)!;
           for (const [i, url] of sourceImages.entries()) {
@@ -2072,12 +2094,16 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           }
           const resolved = opts.readArtifact ? await opts.readArtifact(fileArt.uri!) : null;
           if (!resolved) {
+            const capMb = Math.floor(MAX_INLINE_BYTES / (1024 * 1024));
             states.set(nodeId, "failed");
             emit({
               type: "node.failed",
               nodeId,
               attempt,
-              error: `无法读取文件内容（${fileArt.uri}）`,
+              // "上传成功但解析读不到字节" has two causes, and the bare URI told
+              // the user neither: the bytes can be gone, or the file can sit
+              // above the inline ceiling (upload accepts 25MB, parsing 5MB).
+              error: `无法读取文件内容（${fileArt.uri}）：产物字节不存在，或文件超过解析上限 ${capMb}MB（上传允许 25MB，但解析需要整体内联读入）`,
               errorCode: "PROVIDER_ERROR",
             });
             return;

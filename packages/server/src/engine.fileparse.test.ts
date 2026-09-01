@@ -1,4 +1,4 @@
-import { compile, replay, type FileParseConfig, type Graph } from "@agent-world/core";
+import { compile, replay, type FileParseConfig, type Graph, type SourceFile } from "@agent-world/core";
 import { zipSync } from "fflate";
 import { PNG } from "pngjs";
 import { describe, expect, it, vi } from "vitest";
@@ -73,6 +73,8 @@ trailer<</Root 1 0 R/Size 7>>
 interface Store {
   storeBinary: (data: Buffer, mimeType: string, label?: string) => string;
   readArtifact: (uri: string) => Promise<string | null>;
+  /** Pre-seed a URI → data-URI entry, mimicking a file uploaded before any run. */
+  seed: (uri: string, dataUri: string) => void;
 }
 
 function artifactStore(): Store {
@@ -86,6 +88,9 @@ function artifactStore(): Store {
     },
     async readArtifact(uri: string) {
       return map.get(uri) ?? null;
+    },
+    seed(uri: string, dataUri: string) {
+      map.set(uri, dataUri);
     },
   };
 }
@@ -242,6 +247,72 @@ describe("fileParse node — format extraction", () => {
     const events = await collectDownload(Buffer.from("plain text, not a document"), "text/plain", {});
     expect(replay(events).status).toBe("failed");
     expect(events.some((e) => e.type === "node.failed" && e.nodeId === "fp")).toBe(true);
+  });
+});
+
+// Dogfood 2026-09-01 (tpl-contract-review): the intake node was named 「合同文件」
+// but no source node could ever produce a kind="file" artifact, so fileParse
+// always failed with 没有产出文件产物. Uploading a document onto the source is
+// the product path this covers — the HTTP download tests above never had it.
+describe("fileParse node — uploaded document on the source node", () => {
+  const UPLOAD_URI = "/api/artifacts/up-contract01";
+
+  const UPLOADED_PDF: SourceFile = {
+    uri: UPLOAD_URI,
+    label: "供货合同-2026.pdf",
+    mimeType: "application/pdf",
+  };
+
+  function graphWithSource(files: SourceFile[], images: string[] = []): Graph {
+    return {
+      id: "g",
+      name: "g",
+      nodes: [
+        { id: "src", kind: "source", name: "合同文件", x: 0, y: 0, source: { files, images } },
+        { id: "fp", kind: "fileParse", name: "PARSE", x: 2, y: 0, fileParse: {} },
+        { id: "sink", kind: "sink", name: "SINK", x: 3, y: 0 },
+      ],
+      edges: [
+        { id: "e1", from: "src", to: "fp", kind: "flow" },
+        { id: "e2", from: "fp", to: "sink", kind: "flow" },
+      ],
+    };
+  }
+
+  it("materializes source.files as a file artifact and parses it end to end", async () => {
+    const store = artifactStore();
+    store.seed(UPLOAD_URI, `data:application/pdf;base64,${pdfBytes().toString("base64")}`);
+
+    const events = await collect(graphWithSource([UPLOADED_PDF]), store);
+
+    const fileArts = artifactsOf(events, "src").filter((a) => a.kind === "file");
+    expect(fileArts.length).toBe(1);
+    expect(fileArts[0]!.uri).toBe(UPLOAD_URI);
+    expect(fileArts[0]!.label).toBe("供货合同-2026.pdf");
+
+    expect(replay(events).status, JSON.stringify(events.map((e) => ({ t: e.type, n: e.nodeId, err: e.error })))).toBe("done");
+    const parsed = artifactsOf(events, "fp").find((a) => a.kind === "text")?.content ?? "";
+    expect(parsed).toContain("Hello PDF World from Agent World");
+  });
+
+  it("keeps the image artifacts alongside uploaded files", async () => {
+    const store = artifactStore();
+    store.seed(UPLOAD_URI, `data:application/pdf;base64,${pdfBytes().toString("base64")}`);
+
+    const events = await collect(graphWithSource([UPLOADED_PDF], ["https://img.example.com/a.png"]), store);
+
+    const kinds = artifactsOf(events, "src").map((a) => a.kind);
+    expect(kinds).toContain("file");
+    expect(kinds).toContain("image");
+    expect(replay(events).status).toBe("done");
+  });
+
+  it("still fails with an actionable error when the source got no document", async () => {
+    const events = await collect(graphWithSource([]), artifactStore());
+    expect(replay(events).status).toBe("failed");
+    const failed = events.find((e) => e.type === "node.failed" && e.nodeId === "fp");
+    expect(failed?.errorCode).toBe("VALIDATION");
+    expect(failed?.error).toContain("没有产出文件产物");
   });
 });
 
