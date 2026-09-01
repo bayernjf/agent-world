@@ -17,6 +17,7 @@ import SkillPicker from "./SkillPicker";
 import FinishedProduct from "./FinishedProduct";
 import ProductBlocks from "./ProductBlocks";
 import SourceImages from "./SourceImages";
+import SourceFiles from "./SourceFiles";
 import ConnectorEditor from "./ConnectorEditor";
 import Tooltip from "./Tooltip";
 
@@ -737,6 +738,15 @@ export default function Inspector({
               <SourceImages
                 nodeId={node.id}
                 images={node.source?.images ?? []}
+                onBeginEdit={beginEdit}
+                onCommitEdit={commitEdit}
+              />
+            )}
+
+            {node.kind === "source" && (
+              <SourceFiles
+                nodeId={node.id}
+                files={node.source?.files ?? []}
                 onBeginEdit={beginEdit}
                 onCommitEdit={commitEdit}
               />
