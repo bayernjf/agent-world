@@ -139,20 +139,34 @@ async function searchGoogle(query: string, maxResults: number): Promise<SearchHi
 
 /** Run a web search with the configured provider, retrying transient faults. Throws SearchAuthError on missing/invalid keys. */
 export async function searchWeb(query: string, cfg: SearchConfig): Promise<SearchHit[]> {
-  return withRetry(
-    () => {
-      switch (cfg.provider) {
-        case "tavily":
-          return searchTavily(query, cfg.maxResults);
-        case "serpapi":
-          return searchSerpApi(query, cfg.maxResults);
-        case "google":
-          return searchGoogle(query, cfg.maxResults);
-        default:
-          return searchDuckDuckGo(query, cfg.maxResults);
-      }
-    },
-    cfg.retry,
-    (err) => !(err instanceof SearchAuthError),
-  );
+  try {
+    return await withRetry(
+      () => {
+        switch (cfg.provider) {
+          case "tavily":
+            return searchTavily(query, cfg.maxResults);
+          case "serpapi":
+            return searchSerpApi(query, cfg.maxResults);
+          case "google":
+            return searchGoogle(query, cfg.maxResults);
+          default:
+            return searchDuckDuckGo(query, cfg.maxResults);
+        }
+      },
+      cfg.retry,
+      (err) => !(err instanceof SearchAuthError),
+    );
+  } catch (err) {
+    if (err instanceof SearchAuthError) throw err;
+    const msg = err instanceof Error ? err.message : String(err);
+    // undici reports unreachable hosts/blocked networks as a bare "fetch failed"
+    // — surface an actionable hint instead (dogfood 2026-09-01: DDG is not
+    // directly reachable without an outbound proxy in some networks).
+    if (/fetch failed|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|UND_ERR/i.test(msg)) {
+      throw new Error(
+        `${msg} —— 本机网络无法直连该搜索源。可选：① 在节点配置改用 tavily/serpapi/google 搜索源（对应密钥走环境变量 TAVILY_API_KEY / SERPAPI_API_KEY / GOOGLE_API_KEY+GOOGLE_CX，重启 server 生效）；② 为 server 进程配置出站代理后重启（环境变量 AGENT_WORLD_PROXY，注意 SSRF 校验语义变化，见 docs/design-code-sandbox.md）`,
+      );
+    }
+    throw err;
+  }
 }

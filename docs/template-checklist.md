@@ -47,4 +47,6 @@
 
 > 空白产线入口（BLANK_TEMPLATE）不属业务模板，不进本表。
 >
+> **验证前置条件**（2026-09-01 狗粮总结）：含 `search` 节点的模板（research-brief / competitor-watch / news-podcast / research-loop 等）默认走 duckduckgo，**需要本机能直连或给 server 配置出站代理**（`AGENT_WORLD_PROXY`）；改用 tavily/serpapi/google 需对应环境变量（`TAVILY_API_KEY` 等）且重启 server。含 `audioGen` 的模板需要 provider 有音频模型（当前 agnes 无 TTS，需另配）。
+>
 > 验证顺序建议：优先覆盖**未验证的节点类型与组合**（imageGen 双图、audioGen 播客、ocr、vcs、loop、notify 告警），再补纯 textGen 的简单场景。
