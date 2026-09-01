@@ -9,15 +9,31 @@ board's **新建产线** dialog, or used as a starting point for your own.
 | 内置模板 id | 名称 | 类别 |
 |---|---|---|
 | `tpl-product` | 淘宝商品详情 | 营销内容 |
-| `tpl-xiaohongshu` | 小红书图文 | 营销内容 |
+| `tpl-xiaohongshu` | 小红书种草笔记 | 营销内容 |
+| `tpl-media-pipeline` | 短视频广告工坊 | 营销内容 |
 | `tpl-draft` | 写草稿 | 写作 |
-| `tpl-translation` | 翻译 | 写作 |
-| `tpl-doc-review` | 文档审阅 | 写作 |
+| `tpl-translation` | 翻译流水线 | 写作 |
+| `tpl-doc-review` | 文档审查 | 写作 |
 | `tpl-ops-weekly` | 运营周报 | 数据分析 |
-| `tpl-research-brief` | 多源研究简报 | 数据分析 |
+| `tpl-competitor-watch` | 竞品监控摘要 | 数据分析 |
+| `tpl-data-report` | 数据报表生成 | 数据分析 |
 | `tpl-patrol-alert` | 定时巡检告警 | IT 运维 |
-| `tpl-competitor-watch` | 竞品监控摘要 | IT 运维 |
-| `tpl-blank` | 空白产线 | 基础 |
+| `tpl-research-brief` | 多源研究简报 | 研究 |
+| `tpl-research-loop` | 多课题深度调研 | 研究 |
+| `tpl-news-podcast` | 资讯播客工坊 | 研究 |
+| `tpl-batch-content` | 批量内容工坊 | 内容生产 |
+| `tpl-doc-ingest` | 文档智能解析入库 | 文档处理 |
+| `tpl-scan-ocr` | 扫描件数字化 | 文档处理 |
+| `tpl-review-publish` | 人工审核发布 | 工作流 |
+| `tpl-custom-model` | 自定义模型接入 | 工作流 |
+| `tpl-release-pr` | 发版 PR 助手 | 工作流 |
+| `tpl-customer-service` | 客服工单自动处理 | 客户服务 |
+| `tpl-code-review` | 代码审查助手 | 开发 |
+| `tpl-contract-review` | 合同审查助手 | 法律合规 |
+| `tpl-course-outline` | 课程大纲生成 | 教育 |
+| `tpl-travel-plan` | 旅游行程规划 | 生活 |
+| `tpl-recipe` | 菜谱生成 | 生活 |
+| `tpl-blank` | 空白产线（创建入口，非业务模板） | 基础 |
 
 ---
 
