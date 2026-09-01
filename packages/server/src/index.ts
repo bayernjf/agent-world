@@ -1591,7 +1591,19 @@ app.get("/api/artifacts/:id", async (c) => {
     return c.json({ error: "artifact has no binary payload" }, 404);
   }
 
-  const file = await artifacts.open(meta.runId, meta.id);
+  let file = await artifacts.open(meta.runId, meta.id);
+  if (!file && meta.uri?.startsWith("/api/artifacts/")) {
+    // Media artifacts emitted by workers are stored once under their own row
+    // (e.g. an `up-…` id) and referenced from the run's row via a local
+    // `/api/artifacts/<id>` uri — the run row carries size/mime but no bytes
+    // of its own. Follow that reference once (dogfood 2026-09-01: generated
+    // images 404'd as "blob missing on disk" despite valid bytes on disk).
+    const refId = decodeURIComponent(meta.uri.slice("/api/artifacts/".length));
+    const ref = refId && refId !== meta.id ? db.getArtifact(refId, userId) : null;
+    if (ref && ref.storage === "local") {
+      file = await artifacts.open(ref.runId, ref.id);
+    }
+  }
   if (!file) return c.json({ error: "blob missing on disk" }, 404);
   const headers = new Headers();
   headers.set("content-type", meta.mimeType ?? "application/octet-stream");
