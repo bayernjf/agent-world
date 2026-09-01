@@ -704,6 +704,33 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       Object.fromEntries(variables),
     );
   };
+  /** Response metadata of http nodes (ok/status/url/method). Artifacts carry
+   * only the payload, but branch conditions and notify messages need to
+   * inspect `${probe.ok}` / `${probe.status}` (dogfood tpl-patrol-alert). */
+  const httpMeta = new Map<string, Record<string, unknown>>();
+  /** nodeCtx enriched with http response metadata. A direct flow upstream from
+   * an http node becomes its metadata merged with the payload (payload fields
+   * win on collision; a text payload sits under `content`, so `${nodeId}`
+   * still resolves to the body via primaryValue). Metadata of non-adjacent
+   * http nodes is exposed under their own ids so downstream notify messages
+   * can embed `${probe.url}` across the branch hop. Code-node stdin
+   * deliberately stays on plain nodeCtx so scripts keep seeing raw payloads. */
+  const interpCtx = (nodeId: string): Record<string, unknown> => {
+    const ctx = nodeCtx(nodeId);
+    for (const e of incoming(graph, nodeId, "flow")) {
+      const meta = httpMeta.get(e.from);
+      if (!meta) continue;
+      const cur = ctx[e.from];
+      ctx[e.from] =
+        cur && typeof cur === "object" && !Array.isArray(cur)
+          ? { ...meta, ...(cur as Record<string, unknown>) }
+          : { ...meta, content: cur };
+    }
+    for (const [id, meta] of httpMeta) {
+      if (!(id in ctx)) ctx[id] = meta;
+    }
+    return ctx;
+  };
   /** Flow edges that actually carried a packet this run (branch nodes only emit
    *  on the edges they routed to). Drives branch-aware scheduling. */
   const packetEdges = opts.init.packetEdges;
@@ -1090,7 +1117,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
         emit({ type: "node.started", nodeId, attempt });
         const cfg: HttpNodeConfig = HttpNodeConfig.parse(node.http ?? {});
 
-        const ctx = nodeCtx(nodeId);
+        const ctx = interpCtx(nodeId);
         const interpolatedUrl = evaluateTemplate(cfg.url, ctx);
         if (!interpolatedUrl.trim()) {
           states.set(nodeId, "failed");
@@ -1171,7 +1198,9 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
                 });
                 // 5xx triggers the retry path; deterministic guard rejections
                 // (GuardedFetchError) are excluded from retry below.
-                if (r.status >= 500) throw new Error(`HTTP ${r.status}`);
+                // failOnError: false means the caller wants the status as data
+                // (health checks), so 5xx must complete the node, not retry.
+                if (cfg.failOnError && r.status >= 500) throw new Error(`HTTP ${r.status}`);
                 return r;
               } finally {
                 clearTimeout(timer);
@@ -1198,6 +1227,15 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           });
           return;
         }
+
+        // Expose response metadata for branch / notify interpolation
+        // (`${nodeId.ok}` etc.); the artifact below carries only the payload.
+        httpMeta.set(nodeId, {
+          ok: response.ok,
+          status: response.status,
+          url: targetUrl.toString(),
+          method: cfg.method,
+        });
 
         if (cfg.outputMode === "file") {
           let arrayBuf: ArrayBuffer;
@@ -1387,6 +1425,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
             limits: cfgLimits,
             extraFsReadPaths,
           });
+          const spawnStartedAt = Date.now();
           const { stdout, stderr, killed, code } = await withRetry(
             async () => {
               const child = spawn(plan.command, plan.args, {
@@ -1436,6 +1475,15 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
             () => true,
             opts.sleep,
           );
+          // 取证：单个 code 节点耗时超过 5 秒，几乎总是 CI 机器饥饿（2-vCPU
+          // runner + 冷页缓存），而不是回归——2026-09-01 PR #98 就是在这一小段上
+          // 把 vitest 的测试预算耗光的。打出来，让下一次红 CI 自己给出答案。
+          const spawnWallMs = Date.now() - spawnStartedAt;
+          if (spawnWallMs > 5000) {
+            console.warn(
+              `[engine:${nodeId}] code 节点子进程墙钟耗时 ${spawnWallMs}ms（怀疑 runner 负载/饥饿，不一定是回归）`,
+            );
+          }
           if (killed) {
             states.set(nodeId, "failed");
             status = "failed";
@@ -1504,7 +1552,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       if (node.kind === "branch") {
         emit({ type: "node.started", nodeId, attempt });
         const cfg: BranchConfig = BranchConfig.parse(node.branch ?? {});
-        const ctx = nodeCtx(nodeId);
+        const ctx = interpCtx(nodeId);
         let target: string | undefined;
         let matchedRule: string | undefined;
         for (const rule of cfg.rules ?? []) {
@@ -2654,6 +2702,11 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
             });
             return;
           }
+          // Interpolate `${nodeId.field}` placeholders — e.g. patrol alarms
+          // embedding `${probe.url}` / `${probe.status}` (dogfood
+          // tpl-patrol-alert; the probe sits behind a branch hop, which
+          // interpCtx covers via the http-metadata registry).
+          message = evaluateTemplate(message, interpCtx(nodeId));
           if (cfg.provider === "slack" && !cfg.channel) {
             states.set(nodeId, "failed");
             emit({
@@ -3102,12 +3155,18 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     emit({ type: "node.started", nodeId, attempt });
     const gcfg: GenericConfig = node.generic ?? { model: "agnes-2.0-flash", modality: "text", skills: [], format: "mp3", n: 1 };
     const modality = gcfg.modality ?? "text";
-    const prompt = gcfg.prompt?.trim() || (await inputFor(node));
+    // Prompts may reference upstream artifacts (`${craft}` / `${probe.status}`),
+    // same contract as http url/body and notify messages — without this the
+    // placeholder reaches the model verbatim (dogfood tpl-custom-model).
+    const rawPrompt = gcfg.prompt?.trim()
+      ? evaluateTemplate(gcfg.prompt.trim(), interpCtx(nodeId))
+      : "";
+    const prompt = rawPrompt || (await inputFor(node));
 
     if (modality === "text") {
       const textCfg: TextGenConfig = {
         model: gcfg.model,
-        prompt: gcfg.prompt ?? "",
+        prompt: rawPrompt,
         skills: (gcfg.skills ?? []).map(s => typeof s === "string" ? { id: s, config: {}, enabled: true } : s),
         temperature: gcfg.temperature ?? 0.7,
         timeoutMs: gcfg.timeoutMs ?? 120000,
@@ -3159,7 +3218,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       }
       const imgCfg: ImageGenConfig = {
         model: gcfg.model,
-        prompt: gcfg.prompt ?? "",
+        prompt: rawPrompt,
         size: gcfg.size,
         aspect: gcfg.aspect,
         n: gcfg.n ?? 1,
@@ -3212,7 +3271,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       }
       const vidCfg: VideoGenConfig = {
         model: gcfg.model,
-        prompt: gcfg.prompt ?? "",
+        prompt: rawPrompt,
         duration: gcfg.duration,
         aspect: gcfg.aspect,
         size: gcfg.size,
@@ -3267,7 +3326,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       }
       const audCfg: AudioGenConfig = {
         model: gcfg.model,
-        prompt: gcfg.prompt ?? "",
+        prompt: rawPrompt,
         voice: gcfg.voice,
         format: gcfg.format ?? "mp3",
         speed: gcfg.speed,
