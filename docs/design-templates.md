@@ -15,12 +15,12 @@
 | 能力 | 现状 | 结论 |
 |---|---|---|
 | 模板数据模型 | `GraphTemplate`（id/name/description/category/graph）+ `instantiateTemplate`（节点/边 id 全量重生成，`Graph.parse` 兜底校验）于 core/templates.ts | ✅ 已有 |
-| 内置模板 | 6 个：淘宝商品详情 / 小红书图文 / 文案质检循环 / 翻译 / 文档审阅 / 空白 | ⚠️ 5/6 偏内容生成，数据分析/IT 运维类缺失 |
+| 内置模板 | 27 个业务模板 + 空白入口（`BLANK_TEMPLATE` 单独导出，不计入 `TEMPLATES.length`） | ✅ 已覆盖营销/数据/写作/办公/开发/法律/财务/运维/客服/教育/生活 |
 | 模板 API | `GET /api/templates`（含 slim geometry 缩略图）+ 建图 `template` 参数实例化 | ✅ 已有 |
-| 首启模板选择 | Onboarding.tsx 模板选择器（分类 tab + 卡片 + SVG 预览，直读 core TEMPLATES 免网络往返） | ✅ 已有 |
-| **老用户模板入口** | GraphSwitcher「+ 新建产线」**直接创建空图**，Onboarding 选择器仅首启出现 | ❌ **真缺（P0 核心）** |
-| examples.md 文档模板 | 9 个手工描述的模板（含 HTTP 聚合研究、多语言等），**无代码化**，文档与内置模板两张皮 | ❌ 真缺（P1） |
-| 模板参数化 | 无占位符机制；模板里写死的提示词/URL 实例化后需用户逐节点手改 | ❌ 真缺（P1） |
+| 首启模板选择 | Onboarding.tsx 模板选择器（按分类分组区块 + 卡片 + SVG 预览，直读 core TEMPLATES 免网络往返；空白卡片钉在所有区块之前） | ✅ 已有 |
+| **老用户模板入口** | GraphSwitcher「+ 新建产线」→ NewGraphDialog 模板选择弹窗（共享 TemplatePicker，按分类分组 + 空白钉顶），首启/老用户双入口同一组件 | ✅ 已落地（`ffc34d9`，分组见 §6） |
+| examples.md 文档模板 | 内置模板目录表由 core `TEMPLATES` 三元组重建并按选择器分组顺序排列；§9-12 为可直接实例化的内置模板示例，§1-8 保留为手工搭图模式教程 | ✅ 已对齐（2026-09-01） |
+| 模板参数化 | `TemplateField`（name/label/type/defaultValue）+ `instantiateTemplate(tpl, fieldValues)` 显式值 > 默认值 + Web 参数表单 | ✅ 已落地（`242f706` / `8a1b1f9` / `e6bb9f3`） |
 | 用户发布/安装模板（真"市场"） | 无；依赖多租户与审核机制 | ⏸ 缓做（P2，见 §4 决策记录） |
 
 ---
@@ -36,8 +36,8 @@
 
 **GraphSwitcher 的「+ 新建产线」改为二段式**：
 
-1. 点击后弹出模板选择弹窗（复用/抽取 Onboarding 的模板选择器组件，含分类 tab、卡片、SVG 预览）
-2. 卡片首格固定是「空白画布」（对应现 blankGraph），其余为内置模板
+1. 点击后弹出模板选择弹窗（复用/抽取 Onboarding 的模板选择器组件，按分类分组区块 + 卡片 + SVG 预览，见 §6）
+2. 「空白画布」卡片钉在所有分类区块之前（对应现 blankGraph），其余模板按分类分区展示
 3. 选中即调现有建图 API（`POST /api/graphs` + `template` 参数），落为当前用户的普通 graph，
    之后保存/运行/编辑一切照旧——模板与实例彻底解耦（现有 `instantiateTemplate` 语义不变）
 
@@ -53,7 +53,7 @@ Onboarding 与 GraphSwitcher 弹窗共用，避免两份渲染逻辑漂移。
 ### 1.3 明确不做
 
 - 不做模板收藏/最近使用（无数据支撑，先不加复杂度）
-- 不做服务端模板分页/搜索（6-12 个模板量级不需要）
+- 不做服务端模板分页/搜索（6-12 个模板量级不需要）——27 个时浏览确实吃力，但解法是 §6 的分类分组展示，仍不需要分页/搜索
 
 ---
 
@@ -120,3 +120,39 @@ NewGraphDialog / Onboarding 双入口复用；`instantiateTemplate` 按显式值
 | 4 | 文档同步（roadmap Phase 5 表 + handoff 轮转） | docs 单一事实源检查 |
 
 每步一个原子 commit；不碰 engine/scheduler，改动面限定在 core/templates.ts、web 两个组件、server 无改动（API 已够用）。
+
+---
+
+## 6. 落地补记（2026-09-01）：模板按分类分组展示
+
+模板长到 27 个后，一维平铺网格已经浏览不动，本节记录分类展示的取舍。
+
+### 6.1 分类清单是 core 的单一事实源
+
+`packages/core/src/templates.ts` 新增 `TEMPLATE_CATEGORIES`（有序 `as const` 数组）与
+`TemplateCategory` 类型，`GraphTemplate.category` 从 `string` 收窄为该联合类型（仿 `graph.ts`
+的 `NODE_CATEGORIES` 先例）。**顺序即展示顺序**（高频在前）：
+
+营销内容 → 数据分析 → 写作 → 办公协同 → 开发集成 → 法律合规 → 财务审计 → IT 运维 → 客户服务 → 教育 → 生活
+
+Web 端直接 import 这个常量分组，不维护第二份清单，分类漂移在类型层就被挡住。
+
+### 6.2 两处收并 + 单例保留
+
+- `tpl-code-review`：`开发` → `开发集成`（与「自定义模型接入」「发版 PR 助手」同类，避免近义分类并存）
+- `tpl-doc-review`：`审查` → `办公协同`（孤儿分类，收进同族）
+- 财务审计 / IT 运维 / 客户服务 / 教育 各只有 1 个模板，**不合并**：按职业长出的模板家族会继续变大，
+  提前塞进大类反而要在下一个成员到来时再搬一次。
+
+### 6.3 展示形态：分组区块滚动，不做 tab
+
+弹窗与首启容器都要能完整滚动，tab 会把「还有多少类」藏起来、并让键盘路径变长；
+分组区块（工业风小标题 + 数量徽标 + 每区块独立 grid）保持一次滚动可扫完全部 27 个。
+空白卡片**钉在所有区块之前**且不属于任何分类（`BLANK_TEMPLATE.category = "基础"` 有意排除在
+`TEMPLATE_CATEGORIES` 之外），因为它是创建入口不是模板。卡片上的分类徽标随之移除——区块标题已表达。
+
+### 6.4 防漂移
+
+`templates.test.ts` 新增断言：每个模板的 category ∈ `TEMPLATE_CATEGORIES`、每个分类至少 1 个模板
+（防空区块）、两处收并落位正确、空白仍为「基础」且不在分组列表内。server 无改动（`GET /api/templates`
+本就投影 category）。

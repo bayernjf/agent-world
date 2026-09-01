@@ -1,12 +1,43 @@
 import { describe, expect, it } from "vitest";
 import { compile } from "./compile.js";
-import { getTemplate, instantiateTemplate, TEMPLATES } from "./templates.js";
+import {
+  BLANK_TEMPLATE,
+  getTemplate,
+  instantiateTemplate,
+  TEMPLATES,
+  TEMPLATE_CATEGORIES,
+} from "./templates.js";
 
 describe("templates", () => {
-  it("ships a product-detail and a blank template", () => {
+  it("ships business templates separately from the blank entry", () => {
     const ids = TEMPLATES.map((t) => t.id);
     expect(ids).toContain("tpl-product");
-    expect(ids).toContain("tpl-blank");
+    // Blank canvas is a creation entry, NOT a business template.
+    expect(ids).not.toContain("tpl-blank");
+    expect(BLANK_TEMPLATE.id).toBe("tpl-blank");
+    expect(TEMPLATES).toHaveLength(27);
+  });
+
+  it("categories cover every template and every category renders", () => {
+    for (const tpl of TEMPLATES) {
+      expect(
+        (TEMPLATE_CATEGORIES as readonly string[]).includes(tpl.category),
+        `${tpl.id} has category "${tpl.category}" outside TEMPLATE_CATEGORIES`,
+      ).toBe(true);
+    }
+    // A declared category with zero templates would render an empty section.
+    for (const cat of TEMPLATE_CATEGORIES) {
+      expect(
+        TEMPLATES.some((t) => t.category === cat),
+        `category "${cat}" has no template`,
+      ).toBe(true);
+    }
+    // Consolidated singletons merged into their sibling categories.
+    expect(getTemplate("tpl-code-review")!.category).toBe("开发集成");
+    expect(getTemplate("tpl-doc-review")!.category).toBe("办公协同");
+    // Blank stays ungrouped: pinned first, never a section of its own.
+    expect(BLANK_TEMPLATE.category).toBe("基础");
+    expect(TEMPLATE_CATEGORIES).not.toContain("基础");
   });
 
   it("instantiates with fresh node and edge ids", () => {
@@ -42,9 +73,8 @@ describe("templates", () => {
     expect(graph.edges).toHaveLength(0);
   });
 
-  it("every non-blank template compiles without errors", () => {
+  it("every template compiles without errors", () => {
     for (const tpl of TEMPLATES) {
-      if (tpl.id === "tpl-blank") continue;
       const graph = instantiateTemplate(tpl);
       const result = compile(graph);
       const errors = result.diagnostics.filter((d) => d.severity === "error");
@@ -109,6 +139,17 @@ describe("templates", () => {
     expect(urls).toEqual(["https://a.example.com", "https://b.example.com"]);
   });
 
+  it("customer-service webhookUrl field lands on the notify node", () => {
+    const tpl = getTemplate("tpl-customer-service")!;
+    const g = instantiateTemplate(tpl, {
+      fieldValues: { webhookUrl: "https://open.feishu.cn/open-apis/bot/v2/hook/test" },
+    });
+    const notify = g.nodes.find((n) => n.name === "通知用户")!;
+    expect((notify.notify as { webhookUrl?: string }).webhookUrl).toBe(
+      "https://open.feishu.cn/open-apis/bot/v2/hook/test",
+    );
+  });
+
   it("ships the four capability templates exercising search+audio, loop+search, vcs and convert+ocr", () => {
     const expectKinds = (id: string, kinds: string[]) => {
       const tpl = getTemplate(id)!;
@@ -120,6 +161,51 @@ describe("templates", () => {
     expectKinds("tpl-research-loop", ["loop", "search"]);
     expectKinds("tpl-release-pr", ["human", "vcs"]);
     expectKinds("tpl-scan-ocr", ["convert", "ocr"]);
+  });
+
+  it("evidence-brief template chains code split, table sort and gate rework", () => {
+    const tpl = getTemplate("tpl-evidence-brief")!;
+    expect(tpl, "template tpl-evidence-brief should exist").toBeTruthy();
+    const byName = new Map(tpl.graph.nodes.map((n) => [n.name, n]));
+    expect(byName.get("拆条编号")?.kind).toBe("code");
+    expect(byName.get("时间索引")?.kind).toBe("table");
+    expect(byName.get("清单起草")?.kind).toBe("textGen");
+    expect(byName.get("缺口分析")?.kind).toBe("textGen");
+    expect(byName.get("质检")?.kind).toBe("gate");
+    // Table sorts chronologically so the catalog inherits a dated order.
+    const steps = (byName.get("时间索引")!.table as { steps: { op: string; column?: string }[] }).steps;
+    expect(steps.some((s) => s.op === "sort" && s.column === "date")).toBe(true);
+    // Rework reruns the catalog draft, not the deterministic upstream.
+    expect(tpl.graph.edges.some((e) => e.kind === "rework" && e.from === "qc" && e.to === "catalog")).toBe(true);
+    // The split script must use the engine stdin contract, never a bare `inputs`.
+    const code = (byName.get("拆条编号")!.code as { code: string }).code;
+    expect(code).toContain("fs.readFileSync(0");
+    expect(code).not.toMatch(/[^."]inputs\./);
+  });
+
+  it("expense-review template chains rule checks, anomaly table and gate rework", () => {
+    const tpl = getTemplate("tpl-expense-review")!;
+    expect(tpl, "template tpl-expense-review should exist").toBeTruthy();
+    const byName = new Map(tpl.graph.nodes.map((n) => [n.name, n]));
+    expect(byName.get("规则校验")?.kind).toBe("code");
+    expect(byName.get("异常清单")?.kind).toBe("table");
+    expect(byName.get("初审报告")?.kind).toBe("textGen");
+    expect(byName.get("质检")?.kind).toBe("gate");
+    // Anomalies surface first: sort by issue count, descending.
+    const steps = (byName.get("异常清单")!.table as { steps: { op: string; column?: string; direction?: string }[] }).steps;
+    expect(steps.some((s) => s.op === "sort" && s.column === "issueCount" && s.direction === "desc")).toBe(true);
+    // Rework reruns the report draft, not the deterministic rule checks.
+    expect(tpl.graph.edges.some((e) => e.kind === "rework" && e.from === "qc" && e.to === "report")).toBe(true);
+    // Rule checks are deterministic code: the three promised anomaly families
+    // must all be implemented, and via the engine stdin contract.
+    const code = (byName.get("规则校验")!.code as { code: string }).code;
+    expect(code).toContain("fs.readFileSync(0");
+    expect(code).not.toMatch(/[^."]inputs\./);
+    expect(code).toContain("单笔超");
+    expect(code).toContain("重复单号");
+    expect(code).toContain("日期");
+    // Table nodes error on empty rows; the script must guarantee at least one row.
+    expect(code).toContain("if (!rows.length)");
   });
 
   it("loop template's items ref is rewritten to the fresh split-node id", () => {

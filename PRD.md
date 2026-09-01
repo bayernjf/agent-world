@@ -26,7 +26,7 @@
 以下决策贯穿所有阶段，做任何功能时不能违反：
 
 1. **事件流是唯一真相源。** 运行时状态是事件的纯函数 fold，live 和 replay 用同一个 reducer。不引入旁路状态。
-2. **节点类型固定。** source / agent / gate / sink，未来可能加 join。变化通过 skill（装备卡）承载，不开放节点类型插件。_（本条已于 2026-08 被通用化路线图取代：扩展为 24 种通用节点，见 [docs/roadmap-generalization.md](docs/roadmap-generalization.md)；其余护栏不变。）_
+2. **节点类型固定。** source / agent / gate / sink，未来可能加 join。变化通过 skill（装备卡）承载，不开放节点类型插件。_（本条已于 2026-08 被通用化路线图取代：扩展为 25 种通用节点，见 [docs/roadmap-generalization.md](docs/roadmap-generalization.md)；其余护栏不变。）_
 3. **三个扩展接缝。** Worker（谁来干活，已有）、Connector（原料从哪来，阶段4）、MemoryBackend（档案怎么存，阶段5）。除此之外不做通用插件系统。
 4. **Attempt 是身份。** `(runId, nodeId, attempt)` 是主键，产出不被覆盖。重试（技术故障）不增加 attempt，返工（质检驳回）才增加。
 5. **成本事后计量。** 不预扣，每次调用后累加，预算是硬上限。

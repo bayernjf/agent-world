@@ -4,20 +4,39 @@ A collection of ready-to-use graph templates. Each can be imported via the
 board's **新建产线** dialog, or used as a starting point for your own.
 
 > **单一事实源**：可直接实例化的内置模板定义在 `packages/core/src/templates.ts`（`TEMPLATES` 导出），
-> 下表是文档导览；未标注模板 id 的条目是设计示例，需手工搭建。
+> 分类清单与顺序来自同文件的 `TEMPLATE_CATEGORIES`——**下表按选择器实际渲染顺序排列**（分类区块自上而下）；
+> 未标注模板 id 的条目是设计示例，需手工搭建。
 
-| 内置模板 id | 名称 | 类别 |
+| 分类 | 内置模板 id | 名称 |
 |---|---|---|
-| `tpl-product` | 淘宝商品详情 | 营销内容 |
-| `tpl-xiaohongshu` | 小红书图文 | 营销内容 |
-| `tpl-draft` | 写草稿 | 写作 |
-| `tpl-translation` | 翻译 | 写作 |
-| `tpl-doc-review` | 文档审阅 | 写作 |
-| `tpl-ops-weekly` | 运营周报 | 数据分析 |
-| `tpl-research-brief` | 多源研究简报 | 数据分析 |
-| `tpl-patrol-alert` | 定时巡检告警 | IT 运维 |
-| `tpl-competitor-watch` | 竞品监控摘要 | IT 运维 |
-| `tpl-blank` | 空白产线 | 基础 |
+| 营销内容 | `tpl-product` | 淘宝商品详情 |
+| 营销内容 | `tpl-xiaohongshu` | 小红书种草笔记 |
+| 营销内容 | `tpl-media-pipeline` | 短视频广告工坊 |
+| 营销内容 | `tpl-batch-content` | 批量内容工坊 |
+| 营销内容 | `tpl-review-publish` | 人工审核发布 |
+| 营销内容 | `tpl-news-podcast` | 资讯播客工坊 |
+| 数据分析 | `tpl-ops-weekly` | 运营周报 |
+| 数据分析 | `tpl-research-brief` | 多源研究简报 |
+| 数据分析 | `tpl-competitor-watch` | 竞品监控摘要 |
+| 数据分析 | `tpl-research-loop` | 多课题深度调研 |
+| 数据分析 | `tpl-data-report` | 数据报表生成 |
+| 写作 | `tpl-draft` | 写草稿 |
+| 写作 | `tpl-translation` | 翻译流水线 |
+| 办公协同 | `tpl-doc-review` | 文档审查 |
+| 办公协同 | `tpl-doc-ingest` | 文档智能解析入库 |
+| 办公协同 | `tpl-scan-ocr` | 扫描件数字化 |
+| 开发集成 | `tpl-custom-model` | 自定义模型接入 |
+| 开发集成 | `tpl-release-pr` | 发版 PR 助手 |
+| 开发集成 | `tpl-code-review` | 代码审查助手 |
+| 法律合规 | `tpl-contract-review` | 合同审查助手 |
+| 法律合规 | `tpl-evidence-brief` | 证据清单整理 |
+| 财务审计 | `tpl-expense-review` | 费用报销初审 |
+| IT 运维 | `tpl-patrol-alert` | 定时巡检告警 |
+| 客户服务 | `tpl-customer-service` | 客服工单自动处理 |
+| 教育 | `tpl-course-outline` | 课程大纲生成 |
+| 生活 | `tpl-travel-plan` | 旅游行程规划 |
+| 生活 | `tpl-recipe` | 菜谱生成 |
+| （不分组） | `tpl-blank` | 空白产线（创建入口，钉在选择器最前，非业务模板） |
 
 ---
 
