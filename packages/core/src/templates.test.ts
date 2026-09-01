@@ -9,7 +9,7 @@ describe("templates", () => {
     // Blank canvas is a creation entry, NOT a business template.
     expect(ids).not.toContain("tpl-blank");
     expect(BLANK_TEMPLATE.id).toBe("tpl-blank");
-    expect(TEMPLATES).toHaveLength(25);
+    expect(TEMPLATES).toHaveLength(26);
   });
 
   it("instantiates with fresh node and edge ids", () => {
@@ -122,6 +122,26 @@ describe("templates", () => {
     expectKinds("tpl-research-loop", ["loop", "search"]);
     expectKinds("tpl-release-pr", ["human", "vcs"]);
     expectKinds("tpl-scan-ocr", ["convert", "ocr"]);
+  });
+
+  it("evidence-brief template chains code split, table sort and gate rework", () => {
+    const tpl = getTemplate("tpl-evidence-brief")!;
+    expect(tpl, "template tpl-evidence-brief should exist").toBeTruthy();
+    const byName = new Map(tpl.graph.nodes.map((n) => [n.name, n]));
+    expect(byName.get("拆条编号")?.kind).toBe("code");
+    expect(byName.get("时间索引")?.kind).toBe("table");
+    expect(byName.get("清单起草")?.kind).toBe("textGen");
+    expect(byName.get("缺口分析")?.kind).toBe("textGen");
+    expect(byName.get("质检")?.kind).toBe("gate");
+    // Table sorts chronologically so the catalog inherits a dated order.
+    const steps = (byName.get("时间索引")!.table as { steps: { op: string; column?: string }[] }).steps;
+    expect(steps.some((s) => s.op === "sort" && s.column === "date")).toBe(true);
+    // Rework reruns the catalog draft, not the deterministic upstream.
+    expect(tpl.graph.edges.some((e) => e.kind === "rework" && e.from === "qc" && e.to === "catalog")).toBe(true);
+    // The split script must use the engine stdin contract, never a bare `inputs`.
+    const code = (byName.get("拆条编号")!.code as { code: string }).code;
+    expect(code).toContain("fs.readFileSync(0");
+    expect(code).not.toMatch(/[^."]inputs\./);
   });
 
   it("loop template's items ref is rewritten to the fresh split-node id", () => {

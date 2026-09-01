@@ -2335,6 +2335,119 @@ const recipeGraph = {
   },
 } satisfies GraphTemplate;
 
+const evidenceBriefGraph = {
+  id: "tpl-evidence-brief",
+  name: "证据清单整理",
+  description: "证据材料 → 拆条编号 → 时间索引 → 清单起草 → 缺口分析 → 质检（扫描件先走「扫描件数字化」再投料）",
+  category: "法律合规",
+  graph: {
+    id: "tpl-evidence-brief",
+    name: "证据清单整理",
+    nodes: [
+      { id: "intake", kind: "source", name: "证据材料台", x: 80, y: 300 },
+      {
+        id: "split",
+        kind: "code",
+        name: "拆条编号",
+        x: 340,
+        y: 300,
+        code: {
+          language: "javascript",
+          code: [
+            '// 读取引擎注入的 inputs（code 节点把上游数据 JSON 写到 stdin）',
+            'const fs = require("fs");',
+            "let raw = '';",
+            "try {",
+            '  const inputs = JSON.parse(fs.readFileSync(0, "utf8")).inputs ?? {};',
+            "  raw = String(Object.values(inputs)[0] ?? '').trim();",
+            "} catch (e) { raw = ''; }",
+            '// 按空行把证据材料拆成条目；整体只有一段时当作单条证据处理。',
+            "const chunks = raw.split(/\\n\\s*\\n/).map(function (s) { return s.trim(); }).filter(Boolean);",
+            "const pieces = chunks.length ? chunks : [raw || '（未粘贴证据材料）'];",
+            'const rows = pieces.map(function (chunk, i) {',
+            '  // 尽力提取日期（2024-03-01 / 2024/3/1 / 2024年3月1日），提不到留空',
+            "  const m = chunk.match(/(\\d{4})\\s*[-\\/年]\\s*(\\d{1,2})\\s*[-\\/月]\\s*(\\d{1,2})/);",
+            "  const date = m ? m[1] + '-' + ('0' + m[2]).slice(-2) + '-' + ('0' + m[3]).slice(-2) : '';",
+            '  return { no: i + 1, date: date, excerpt: chunk.slice(0, 300) };',
+            '});',
+            'console.log(JSON.stringify({ rows: rows }));',
+          ].join("\n"),
+        },
+      },
+      {
+        id: "sheet",
+        kind: "table",
+        name: "时间索引",
+        x: 600,
+        y: 300,
+        table: {
+          steps: [
+            { op: "sort", column: "date", direction: "asc" },
+            { op: "output", format: "json" },
+          ],
+        },
+      },
+      {
+        id: "catalog",
+        kind: "textGen",
+        name: "清单起草",
+        x: 860,
+        y: 300,
+        textGen: {
+          model: "agnes-2.0-flash",
+          prompt:
+            "你是诉讼律师助理。上游是结构化证据条目（JSON，每条含 no / date / excerpt）和用户粘贴的原始材料。" +
+            "任务：①为每条证据给出规范证据名称与证据来源（聊天记录/转账凭证/合同文书/书证等，依据 excerpt 判断，不得虚构）；" +
+            "②为每条写一句证明目的（证明何种事实）；③输出 Markdown 证据清单表：序号｜证据名称｜证据来源｜日期｜证明目的；" +
+            "④表后按日期先后输出「案件时间线」要点。要求：只整理上游真实存在的证据，不得新增；日期缺失写'日期不详'；" +
+            "原始材料如含诉讼请求/案由，先用一句话复述。",
+          skills: [],
+        },
+      },
+      {
+        id: "gaps",
+        kind: "textGen",
+        name: "缺口分析",
+        x: 1120,
+        y: 300,
+        textGen: {
+          model: "agnes-2.0-flash",
+          prompt:
+            "你是资深诉讼律师。基于上游证据清单与原始材料中的诉讼请求，做证据链完整性分析：" +
+            "①把每项请求拆解为必须证明的要件事实；②逐项指出哪些事实已有证据支撑、哪些没有；" +
+            "③每个缺口给出具体补证建议（补什么、从哪里取得，如银行流水、平台记录、公证等）。" +
+            "若上游未给出诉讼请求，先提示补充，再按一般要件做完整性检查（主体资格/法律关系成立/履行情况/损害金额/时效证据）。" +
+            "用 Markdown 输出，缺口必须指向具体缺失证据，禁止空泛套话。",
+          skills: [],
+        },
+      },
+      {
+        id: "qc",
+        kind: "gate",
+        name: "质检",
+        x: 1380,
+        y: 300,
+        gate: {
+          maxAttempts: 2,
+          criterion:
+            "证据清单覆盖上游全部证据条目、每条均有证明目的、未虚构上游不存在的证据；缺口分析指向具体缺失证据而非笼统表述。",
+          onExhausted: "halt",
+        },
+      },
+      { id: "depot", kind: "sink", name: "清单成品", x: 1640, y: 300 },
+    ],
+    edges: [
+      { id: "e1", from: "intake", to: "split", kind: "flow" },
+      { id: "e2", from: "split", to: "sheet", kind: "flow" },
+      { id: "e3", from: "sheet", to: "catalog", kind: "flow" },
+      { id: "e4", from: "catalog", to: "gaps", kind: "flow" },
+      { id: "e5", from: "gaps", to: "qc", kind: "flow" },
+      { id: "e6", from: "qc", to: "depot", kind: "flow" },
+      { id: "r1", from: "qc", to: "catalog", kind: "rework" },
+    ],
+  },
+} satisfies GraphTemplate;
+
 export const TEMPLATES: GraphTemplate[] = [
   productDetailGraph,
   xiaohongshuGraph,
@@ -2361,12 +2474,13 @@ export const TEMPLATES: GraphTemplate[] = [
   courseOutlineGraph,
   travelPlanGraph,
   recipeGraph,
+  evidenceBriefGraph,
 ];
 
 /**
  * Blank canvas entry — NOT a business template.
  * Exported separately so `TEMPLATES.length` always equals the real
- * template count (25), and callers that need the blank entry opt in.
+ * template count (26), and callers that need the blank entry opt in.
  */
 export const BLANK_TEMPLATE: GraphTemplate = blankGraph;
 

@@ -270,6 +270,49 @@ describe("regression · engine core path", () => {
     expect(splitArtifact.content).toContain("丙");
   });
 
+  it("evidence-brief template runs end to end: split → sorted table → gate pass", async () => {
+    // The lawyer evidence-list line: a real code-node parse of pasted material,
+    // a real table sort, and the deterministic split→sheet contract between them.
+    const t = TEMPLATES.find((x: { id: string }) => x.id === "tpl-evidence-brief")!;
+    const graph = instantiateTemplate(t);
+    const { plan } = compile(graph)!;
+    const worker = fakeWorker({ failFirstAttempts: 0, chunkDelayMs: 0 });
+
+    const input = [
+      "诉讼请求：判令张三偿还借款 10 万元。",
+      "",
+      "2024年3月5日 微信聊天记录：张三说“欠你的 10 万，三个月内还”。",
+      "",
+      "2024/3/1 银行转账凭证：向张三转账 100,000 元。",
+    ].join("\n");
+
+    const events = await drain(
+      execute({ runId: "r-ev", graph, plan: plan!, worker, budgetUsd: null, input, now: () => 0, sleep: async () => {} }),
+    );
+
+    expect(replay(events).status).toBe("done");
+    const splitId = graph.nodes.find((n) => n.name === "拆条编号")?.id;
+    const sheetId = graph.nodes.find((n) => n.name === "时间索引")?.id;
+    // split must emit one json row per pasted evidence chunk, with best-effort dates
+    const splitArtifact = events.find(
+      (e) => e.type === "artifact.produced" && e.nodeId === splitId && e.artifact.kind === "json",
+    )?.artifact;
+    expect(splitArtifact).toBeTruthy();
+    expect(splitArtifact.content).toContain("微信聊天记录");
+    expect(splitArtifact.content).toContain("转账凭证");
+    expect(splitArtifact.content).toContain("2024-03-05"); // 中文日期归一化
+    // table sorts chronologically: the 03-01 transfer row precedes the 03-05 chat row
+    const sheetArtifact = events.find(
+      (e) => e.type === "artifact.produced" && e.nodeId === sheetId && e.artifact.kind === "json",
+    )?.artifact;
+    expect(sheetArtifact).toBeTruthy();
+    const rows = JSON.parse(sheetArtifact.content).rows as { date: string }[];
+    expect(rows.length).toBeGreaterThanOrEqual(2);
+    const dates = rows.map((r) => r.date).filter(Boolean);
+    expect(dates).toEqual([...dates].sort());
+    expect(dates[0]).toBe("2024-03-01");
+  });
+
   it("source node with a database connector pulls live rows end to end", async () => {
     const dir = mkdtempSync(join(tmpdir(), "aw-reg-db-"));
     try {
