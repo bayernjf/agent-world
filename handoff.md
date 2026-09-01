@@ -38,6 +38,8 @@ State of Agent World as of 2026-08-31.
 
 * [docs/feedback-workflow.md](docs/feedback-workflow.md) — owner 怎么高效反馈给我（截图 / computer-use / 防丢）
 
+* [docs/template-checklist.md](docs/template-checklist.md) — 产线模板验证与评估待办表（逐模板真实狗粮验证状态，当前 27 个；**新增模板必登记**，与 core TEMPLATES 数对账）★
+
 * [docs/handoff-archive.md](docs/handoff-archive.md) — historical changes (pre-2026-08-27)
 
 * [PRODUCT\_STRATEGY.md](PRODUCT_STRATEGY.md) — 产品策略汇总（成本/部署/定价/商业化决策基线）
@@ -101,7 +103,7 @@ State of Agent World as of 2026-08-31.
 按优先级降序，标 `★` 的是当下要推的：
 
 1. ✅ **自动数据接入 Connector + 触发方式（2026-08-31 立项，2026-09-01 推进）**：file/http/form/manual 本已落地，本次补齐 **SQLite database connector**（`9657538`+`9003120`，见 design-connector-database.md）；4.6 webhook/cron/event/batch 本已全链路落地，本次挖出并修复 **event 成功状态契约 bug**（`e9b55ae`，引擎发 `done` 而触发层等 `completed`，见 design-triggers.md）。**两者组合已是无人值守产线**；剩余仅 PG/MySQL 驱动、多实例分布式锁（均 deferred）。整体进度基线见 [docs/project-progress.md](docs/project-progress.md)
-2. ★ **跑通真实产线（狗粮验证，2026-08-31 立项）**：roadmap-tasks 1.7.1——用产品自己跑一条端到端真实产线（如模板"多源研究简报"或内容产线），验证"新用户路径 → 配置 provider → 建产线 → 运行 → 看产物 → 复盘"全链路真实可用。产出：一份真实运行记录 + 暴露的体验/功能缺口清单。紧接回归测试集
+2. ★ **跑通真实产线（狗粮验证，2026-08-31 立项）**：roadmap-tasks 1.7.1——用产品自己跑一条端到端真实产线（如模板"多源研究简报"或内容产线），验证"新用户路径 → 配置 provider → 建产线 → 运行 → 看产物 → 复盘"全链路真实可用。产出：一份真实运行记录 + 暴露的体验/功能缺口清单。紧接回归测试集。**逐模板验证状态跟踪见 [docs/template-checklist.md](docs/template-checklist.md)**
    - **2026-08-31 进展（文本链路已跑通）**：跑通「短视频广告工坊」真实产线（投料→文坊脚本→成品入库→全部出厂，run `e74cba65`），文本节点真实调用 agnes-2.5-flash 产出完整口播脚本（817/186 tokens）。**过程发现并修复关键 bug**：SSRF `pinnedAgent` 用 undici 8.x Agent 传给 Node 24 内置 7.x fetch 会报 `invalid onRequestStart method`，导致所有经 guardedFetch 的出站请求失败（产线 fetch failed 根因）——依赖降到 `undici@^7.8`（7.29）后对齐，server 557/557 回归通过。
    - **2026-08-31 进展（全链路打通）**：**影坊视频节点适配完成并真实产出**（run `49e60631`，文坊脚本→画坊 PNG 1.27MB→影坊 MP4 1.9MB→成品库汇总，耗时 5m50s，UI 回放 23/23 收工）。关键点：① 产线 video 节点模型从 `agnes-video-2.5-flash` 切回 `agnes-video-v2.0`（2.5-flash 视频 API 无公开文档且实测禁 `width`/`num_frames`/`mode:ti2vid`，不可适配；v2.0 是模板默认且文档齐全）；② config.ts 新增 `ProviderConfig.videoAdapter`（createBody/omitDuration/aspectToSize/resultUrlPath），AGNES 内置配置 `{mode:"ti2vid"}` + width/height 映射 + 顶层 `url` 解析；③ 完成 URL 在任务顶层 `url` 字段（非文档所说 metadata.url），worker 轮询解析带 fallback；④ 视频轮询超时 300s→900s（agn 排队+推理实测约 5 分钟）。**另修复 artifact 落库双 bug**：`artifacts.save()` 不认本地 `/api/artifacts/` 引用导致 image/video/audio 落成 inline 空壳（图片/视频显示不出的根因）→ 识别本地引用为 `local` 存储；engine Artifact.id 跨 run 重复触发 DB 主键 INSERT OR IGNORE 吞行（后 run 产物全部丢失）→ emit 统一加 `runId` 前缀 + reconstructState 两遍扫描修复合成去重。
    - **剩余缺口**：画坊图片节点曾偶发 503（agnes 图片队列满，临时，本次已恢复）；agnes 视频生成慢（约 5-6 分钟/段，含排队），属 API 固有耗时。
