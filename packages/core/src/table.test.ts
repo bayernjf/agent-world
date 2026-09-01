@@ -116,6 +116,20 @@ describe("sortRows", () => {
     sortRows(rows, { op: "sort", column: "age", direction: "desc" });
     expect(JSON.stringify(rows)).toBe(before);
   });
+
+  it("sinks missing cells to the bottom regardless of direction (dogfood tpl-evidence-brief)", () => {
+    const withGaps = [
+      { name: "empty-string", age: "" },
+      { name: "young", age: 20 },
+      { name: "null", age: null },
+      { name: "old", age: 60 },
+      { name: "absent" },
+    ];
+    const asc = sortRows(withGaps, { op: "sort", column: "age", direction: "asc" });
+    expect(asc.map((r) => r.name)).toEqual(["young", "old", "empty-string", "null", "absent"]);
+    const desc = sortRows(withGaps, { op: "sort", column: "age", direction: "desc" });
+    expect(desc.map((r) => r.name)).toEqual(["old", "young", "empty-string", "null", "absent"]);
+  });
 });
 
 describe("aggregateRows", () => {
