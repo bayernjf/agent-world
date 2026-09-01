@@ -22,7 +22,7 @@
 | 营销内容 | tpl-xiaohongshu | 小红书种草笔记 | ⬜ | — | 含 2 个 imageGen 节点 |
 | 营销内容 | tpl-batch-content | 批量内容工坊 | ⬜ | — | loop 批处理场景 |
 | 营销内容 | tpl-review-publish | 人工审核发布 | ⬜ | — | human 审批 + error 边兜底场景 |
-| 营销内容 | tpl-news-podcast | 资讯播客工坊 | 🟡 | run `829d23af`（原版，search 即败）+ `c870fd4d`（摘除 search 后跑到终点），2026-09-01 | ① 🔴 audioGen 失败被静默吞（engine catch → node 标 done，run 判 done，**无音频产物**）；② 🔴 search 默认 duckduckgo 无代理不可达；③ 🟡 默认模型 `tts-1` 不在任何 provider 清单；④ 🟡 technical-design 误写 templateId（实为 `template`），传错时静默建空产线 |
+| 营销内容 | tpl-news-podcast | 资讯播客工坊 | 🟡 | 复验 run `b6ac0fee`（摘除 voice，代理已通）+ `d57a1b43`（同图），2026-09-01 | 首验 run `829d23af`/`c870fd4d` 发现的 4 条问题已全部修复并复验：① audioGen 静默吞 → 改 node.failed（`b6de7d9`）；② search 不可达 → 可行动报错 + `AGENT_WORLD_PROXY` 代理（`b82f89a`）；③ tts-1 modality 错配 → 派发期阻断（`7b7faf0`）；④ `template` 参数名已纠正文档。**剩余阻塞（非产品缺陷）**：DDG 反爬验证页（已改为响亮报错，不再静默 0 结果）→ 需配 TAVILY_API_KEY 等换源；agnes 无音频模型 → 需配 TTS 供应商才能出音频成品 |
 | 数据分析 | tpl-ops-weekly | 运营周报 | ⬜ | — | http + code + 无数据兜底 |
 | 数据分析 | tpl-research-brief | 多源研究简报 | ⬜ | — | parallel 汇聚场景 |
 | 数据分析 | tpl-competitor-watch | 竞品监控摘要 | ⬜ | — | http + 拉取失败兜底 |
