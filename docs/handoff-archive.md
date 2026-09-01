@@ -1851,3 +1851,4 @@ modality 切片，统一严格过滤；同时把 agent 的占位文案从泛化�
 - `242f706` — **feat(core)**: instantiateTemplate 应用 TemplateField（显式值 > defaultValue > 不动；copy-on-write 防浅拷贝污染模板；空串=跳过）+ 4 个 HTTP 模板（运营周报/定时巡检/多源简报/竞品监控）声明 URL 字段（默认值=原 URL 开箱不变）。core 146/146。
 - `e912eea` — **feat(web)**: VersionPanel 只读恢复预览——「预览」按钮 + 弹层复用 TemplatePreview SVG 缩略图 + 节点/连线/类型统计摘要，防"盲恢复"。遗留 gap：web 无组件测试基建，仅 typecheck 覆盖。
 - `27395a3` — **feat(server,web)**: 版本与最近 run 关联——GET versions 返回 latestRunHash/currentHash，面板给匹配快照打「最近运行」「与当前一致」标记（run 表 hash 复用 content_hash 计算，不加外键）。
+- `docs:` **文档-代码覆盖盘点（2026-09-01）**——补齐 [design-knowledge-memory.md](design-knowledge-memory.md)（知识提取/FTS5/archive_search）与 [design-ab-testing.md](design-ab-testing.md)（A/B 实验，此前四处文档误标“缓做”，实已落地）；technical-design 加时效注记并补 §3.1b/§4.1b 增量（25 节点/表/API 现状对齐）；docs-README 索引、project-progress、deferred-items 同步；handoff 最近 5 条 hash 经 git log 核实已全部回填。

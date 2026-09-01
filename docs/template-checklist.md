@@ -32,8 +32,8 @@
 | 写作 | tpl-draft | 写草稿 | ⬜ | — | 最简 textGen 链路 |
 | 写作 | tpl-translation | 翻译流水线 | ⬜ | — | 专用 translate 节点 |
 | 办公协同 | tpl-doc-review | 文档审查 | ⬜ | — | 基础 textGen + gate |
-| 办公协同 | tpl-doc-ingest | 文档智能解析入库 | ⬜ | — | fileParse + convert/ocr |
-| 办公协同 | tpl-scan-ocr | 扫描件数字化 | ⬜ | — | ocr 节点 |
+| 办公协同 | tpl-doc-ingest | 文档智能解析入库 | ⬜ | — | fileParse + convert/ocr（convert/ocr 两条路径已由 tpl-scan-ocr 单独修通，本模板仍待整体跑） |
+| 办公协同 | tpl-scan-ocr | 扫描件数字化 | ✅ | 复验 run `934474f3`/`f1a0237c`（真实上传 2 页扫描件 PDF，2026-09-01）；兜底分支 run `f92b24ae`；首验 run `7561d8d8` ❌ | **ocr 节点此前在生产里 100% 不可用**：`ocr.ts` 把 worker/core 钉在 tesseract.js **v5** 的 CDN URL 上，而 Node 侧 `worker_threads.Worker()` 直接拒绝 URL（`ERR_WORKER_PATH`），装的又是 v7 → 每个 ocr 节点必败；单测把 `ocrImage` 整个 mock 掉，所以全绿。修：不再注入默认 worker/core 路径，只透传显式覆盖（`5b71c9a`）。第二处 🔴：`convert`/`fileParse` 提取 PDF 内嵌图时把 pdfjs 的 3 通道样本直接喂给 pngjs（写 PNG 恒按 RGBA），**整张图像素错位、纵向压成 3/4**，OCR 只能出乱码 → 展开为不透明 RGBA 修复（`4215d9c`），修后产物字节数与源图一致、可读。第三处 🟡：`OcrConfig.langPath/workerPath/corePath` 是 `z.string().url()`，把文档与审计 M7③ 承诺的「本地路径离线部署」堵死 → 放宽为 `min(1)`，安全仍由运行期 `assertOcrSource` 白名单把关（`e2781ab`）。真实链路：上传扫描件 → convert「提取 2 张图片」→ ocr「132 字符/平均置信度 58%」→ sink 成品可对回夹具（`THUOICE 20:6 MO O0d42` ← `INVOICE 2026 NO 0042`）；纯文本 PDF 走 convert `ERR[VALIDATION] 文件中没有可提取的图片` → **error 边首次真实跑通** → textGen 给出改用建议 → sink → done。遗留（非缺陷）见 deferred：模板默认 `chi_sim+eng` 会把英文扫描件数字行识别成汉字；`convert` 名为逐页转图实为提取内嵌图；只支持 URL 投料 |
 | 开发集成 | tpl-custom-model | 自定义模型接入 | ⬜ | — | http + code + vcs |
 | 开发集成 | tpl-release-pr | 发版 PR 助手 | ⬜ | — | vcs 节点 |
 | 开发集成 | tpl-code-review | 代码审查助手 | ⬜ | — | http + code + gate |
@@ -48,8 +48,8 @@
 
 > 空白产线入口（BLANK_TEMPLATE）不属业务模板，不进本表。
 >
-> **验证前置条件**（2026-09-01 狗粮总结）：含 `search` 节点的模板（research-brief / competitor-watch / news-podcast / research-loop 等）默认走 duckduckgo，**需要本机能直连或给 server 配置出站代理**（`AGENT_WORLD_PROXY`）；改用 tavily/serpapi/google 需对应环境变量（`TAVILY_API_KEY` 等）且重启 server。含 `audioGen` 的模板需要 provider 有音频模型（当前 agnes 无 TTS，需另配）。含 `fileParse` 且仍靠 source 投料的模板（contract-review）：在投料车间的「文档」区上传 PDF/DOCX/PPTX，**单件 ≤5MB**（上传口允许 25MB，但解析需整体内联读入）。
+> **验证前置条件**（2026-09-01 狗粮总结）：含 `search` 节点的模板（research-brief / competitor-watch / news-podcast / research-loop 等）默认走 duckduckgo，**需要本机能直连或给 server 配置出站代理**（`AGENT_WORLD_PROXY`）；改用 tavily/serpapi/google 需对应环境变量（`TAVILY_API_KEY` 等）且重启 server。含 `audioGen` 的模板需要 provider 有音频模型（当前 agnes 无 TTS，需另配）。含 `fileParse` 且仍靠 source 投料的模板（contract-review）：在投料车间的「文档」区上传 PDF/DOCX/PPTX，**单件 ≤5MB**（上传口允许 25MB，但解析需整体内联读入）。含 `ocr` 的模板（scan-ocr / doc-ingest）：tesseract.js 自己拉语言包（`tessdata.projectnaptha.com`），**不走 `AGENT_WORLD_PROXY`**（那个只作用于 guardedFetch），本机需系统代理或直接把 `langPath` 指到本地目录；首次识别后 `<lang>.traineddata`（chi_sim 42MB）会落在 **server 进程 CWD**，已 gitignore，但目录权限不对时会直接报错。
 >
-> **当前进度（2026-09-01）**：真实狗粮验证 **6/27**——✅ 5（tpl-media-pipeline / tpl-product / tpl-xiaohongshu / tpl-batch-content / tpl-contract-review）+ 🟡 1（tpl-news-podcast，剩环境侧阻塞：需换搜索源 + 配 TTS 供应商）；已跑出的发现已全部流转为修复并复验。其余 21 个⬜。
+> **当前进度（2026-09-01）**：真实狗粮验证 **7/27**——✅ 6（tpl-media-pipeline / tpl-product / tpl-xiaohongshu / tpl-batch-content / tpl-contract-review / tpl-scan-ocr）+ 🟡 1（tpl-news-podcast，剩环境侧阻塞：需换搜索源 + 配 TTS 供应商）；已跑出的发现已全部流转为修复并复验。其余 20 个⬜。
 >
-> 验证顺序建议：**已覆盖节点类型**（2026-09-01）textGen / imageGen（双图）/ code / map / gate+rework / fileParse（真实上传路径）/ human 审批挂起与恢复 / sink 汇总；**尚未真实跑过**：ocr、convert、vcs、loop、parallel、branch、notify 告警、table 纯表输出、translate、subprocess/database。**下一批建议**：tpl-scan-ocr（ocr 单点）→ tpl-research-brief（parallel 汇聚，需搜索源）→ tpl-release-pr（vcs）→ tpl-review-publish（human + error 边兜底，与 contract-review 不同构），再补纯 textGen 的简单场景。
+> 验证顺序建议：**已覆盖节点类型**（2026-09-01）textGen / imageGen（双图）/ code / map / gate+rework / **error 边兜底** / fileParse（真实上传路径）/ **convert（PDF → 图片）** / **ocr（识别 + sink 汇总）** / human 审批挂起与恢复 / sink 汇总；**尚未真实跑过**：vcs、loop、parallel、branch、notify 告警、table 纯表输出、translate、subprocess/database。**下一批建议**：tpl-research-brief（parallel 汇聚，需搜索源）→ tpl-release-pr（vcs）→ tpl-review-publish（human + branch，与 contract-review 不同构）→ tpl-doc-ingest（convert+ocr 同族但面向入库），再补纯 textGen 的简单场景。

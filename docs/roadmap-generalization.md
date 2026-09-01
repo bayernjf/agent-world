@@ -91,7 +91,7 @@
 | **表格处理** | CSV/Excel 读写、筛选、排序、聚合（类似 pandas） | ✅ 已落地（table 节点，CSV/JSON 解析 + 筛选/排序/聚合步骤，JSON/CSV 双输出；Excel 未做） |
 | **文件解析** | PDF/Word/PPT 提取文本和图片 | ✅ 已落地（fileParse 节点，pdfjs-dist + fflate 纯 JS，提取文本与内嵌图片） |
 | **文件转换** | 格式转换（PDF→图片、HTML→PDF、图片格式转换） | ✅ 部分落地（convert 节点：PDF→提取内嵌图片 + PNG/JPEG 互转；HTML→PDF 纯 JS 无中文排版方案，暂缓） |
-| **OCR** | 图片文字识别 | ✅ 已落地（ocr 节点，tesseract.js WASM 零原生依赖，多语言 + 离线路径覆盖） |
+| **OCR** | 图片文字识别 | ✅ 已落地（ocr 节点，tesseract.js WASM 零原生依赖，多语言 + 离线路径覆盖）。注：这行到 2026-09-01 狗粮才真正成立——此前 worker/core 被钉在 v5 CDN URL 上，Node 下每个 ocr 节点必 `ERR_WORKER_PATH`（`5b71c9a` 修）；“离线路径覆盖”也一度被 schema 的 `.url()` 堵死（`e2781ab` 修） |
 | **翻译** | 多语言翻译（调用 LLM 或翻译 API） | ✅ 已落地（translate 节点，LLM 翻译 + 流式 + 重试 + 成本核算） |
 | **搜索** | 网络搜索（Google/Bing/SerpAPI） | ✅ 已落地（search 节点，DuckDuckGo 免 key 默认 + Tavily/SerpAPI/Google CSE，env key 不入图） |
 
@@ -101,7 +101,7 @@
 - [x] 表格节点能解析 CSV/JSON，支持筛选、排序、聚合，输出 JSON/CSV
 - [x] 文件解析节点能提取 PDF/DOCX/PPTX 的文本与内嵌图片
 - [x] 文件转换节点能 PDF→图片（提取内嵌图）与图片 PNG/JPEG 互转（HTML→PDF 需浏览器引擎或嵌入中文字体，暂缓）
-- [x] OCR 节点能识别图片文字（tesseract.js，eng/chi_sim 等多语言，支持离线部署）
+- [x] OCR 节点能识别图片文字（tesseract.js，eng/chi_sim 等多语言，支持离线部署）—— 2026-09-01 首次真实跑通（graph `8e204023`，上传 2 页扫描件→识别→sink），前提是上面两个修复
 - [x] 翻译节点能通过 LLM 翻译上游文本并保留结构
 - [x] 搜索节点能执行网络搜索并输出结构化结果（text + json 双产物）
 - [x] 能搭「HTTP 下载 → 文件解析 → OCR → 翻译」「搜索 → 总结」「数据库 → 表格聚合」等端到端产线

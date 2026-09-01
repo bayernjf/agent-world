@@ -684,6 +684,10 @@ interface Skill {
 
 **数据库迁移已改为有序版本化。** `db.ts` 维护 `schema_migrations(version, applied_at)` 表和 `MIGRATIONS` 数组，每个迁移带 version/description/up，在一个事务里按序执行并记录；旧库首次打开时通过 `detect` 做 baseline（已存在的列标记为已应用，不重复 ALTER）。新增迁移只需在数组末尾追加递增版本，不要改动已发布的条目。启动备份（VACUUM INTO）已在 3.5 完成；数据回填型迁移的实际用例验证仍待做。
 
+**第三方运行时资产不能钉在会变的 CDN 版本上。** ocr 节点曾经把 tesseract 的 worker/core 硬写为 `tesseract.js@v5.1.1` 的 CDN URL，而包已升到 v7；更致命的是 Node 侧 `worker_threads.Worker(workerPath)` 根本不接受 URL（`ERR_WORKER_PATH`）——**所有 ocr 节点在生产里 100% 必败**，而单测把 `ocrImage` 整个 mock 掉，所以一直是绿的（“测试与产品契约脱节”的又一例，同 `e9b55ae` 的 event 状态契约）。规则：包自己能解析的资产就不要自己拼 URL，覆盖只在显式配置时发生（`5b71c9a`）；相应地，单测要断言“传给 `createWorker` 的 options 里有什么/没有什么”，而不是 mock 掉整个边界。同理，能力承诺（文档/审计里的“本地路径离线部署”）必须由 schema 能表达，安全校验放在运行期白名单（`assertOcrSource`）而不是用 `z.string().url()` 把能力堵死（`e2781ab`）。
+
+**跨库的 buffer 布局约定要在边界处显式转换。** pdfjs 交出来的是 1/3/4 通道的样本，pngjs 写 PNG 时永远按 RGBA 读 `png.data`——`colorType` 只决定输出标签，不改输入布局。直接把 3 通道 buffer 塞进去，每个像素错位、整张图纵向压成 3/4，OCR 只能出乱码（`4215d9c`，影响 `convert` 与 `fileParse` 仍共用的一条路）。规则：把一个库的原始 buffer 交给另一个编码库前，在边界处显式展开/压缩；回归用例要逐像素断言，只断“产出了 N 张图”看不了这个 bug。
+
 ### 12.2 阶段 2 并行时会撞墙
 
 **并发事件顺序竞态。** 引擎从单游标改为并发后，两个节点的事件会交错 yield。要保证：
@@ -749,6 +753,9 @@ artifacts: Map<string, Artifact[]>  // nodeId → 该节点产出的所有 artif
 - **agent 节点**：产出至少一个 `{kind:"text", content: result.output, id: `${nodeId}-text`}` artifact；如果输出文本中通过 `extractArtifacts()` 检测到图片/视频/JSON URL，额外追加对应 artifact（这一步已有 `produceArtifacts()` 逻辑，改为 push 到数组而非只发事件）
 - **imageGen 节点**：每张生成的图产出一个 `{kind:"image", uri, mimeType, label}` artifact（已有逻辑，改为 push 到数组）
 - **source 节点**：`source.images` 中的每个 URL 产出一个 `{kind:"image", uri}` artifact；`source.files`（结构化条目 `{uri,label,mimeType,sizeBytes}`，由 `POST /api/artifacts/upload` 上传后得到）的每个文档产出一个 `{kind:"file", uri, mimeType, label, sizeBytes}` artifact——这是下游 fileParse 唯一认可的上游产物；`source.connector` 拉到的文本产出 text artifact
+- **fileParse 节点**：文档正文产出 text artifact；文档里的内嵌图逐张产出 `image` artifact（与 convert 共用 `parse-file.ts` 的提取路径）；上传文档读不到字节或无内容时诚实报 VALIDATION，不静默交空文本
+- **convert 节点**：读上游 `kind:"file"` / `kind:"image"` 产物，每张产出一个 `image` artifact（PDF 是**提取内嵌图**，不是逐页渲染，见 deferred）；一张图都提不出时报 `ERR[VALIDATION]`，可由 error 边兜底给下游 textGen 出说明
+- **ocr 节点**：只消费上游 `kind:"image"` 且带 uri 的产物，逐张识别后合并为**一个** text artifact（图片之间 `\n\n` 分隔），节点摘要带平均置信度；资产解析规则见 §12.1（worker/core 不预设 CDN）
 - **gate 节点**：通过时产出 text artifact（verdict.reason）；驳回时不产出（走返工环）
 - **sink 节点**：产出 text artifact（最终输出）
 
