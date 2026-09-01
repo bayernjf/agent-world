@@ -32,7 +32,11 @@ jobs:
         run: pnpm -r typecheck
 
       - name: Test
-        run: pnpm -r --if-present test
+        # 2-vCPU GitHub runners starve code-node subprocesses under full
+        # parallel load, turning healthy runs into spurious timeouts (even
+        # RLIMIT_CPU can't fire when a loop can't accumulate 1s of CPU).
+        # Run test files one at a time so code nodes get enough CPU.
+        run: pnpm -r --if-present test -- --maxWorkers=1
 
   secrets:
     name: Secret leak scan
