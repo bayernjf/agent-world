@@ -26,6 +26,13 @@ describe("searchWeb error surfacing", () => {
     );
   });
 
+  it("fails loudly on DDG anomaly challenge pages instead of silent zero results", async () => {
+    globalThis.fetch = vi.fn(async () =>
+      new Response("<html><body>anomaly detection challenge</body></html>", { status: 202 }),
+    ) as unknown as typeof fetch;
+    await expect(searchWeb("q", cfg)).rejects.toThrow(/反爬验证页.*tavily/s);
+  });
+
   it("keeps SearchAuthError untouched (no retry, no hint)", async () => {
     globalThis.fetch = vi.fn(async () => {
       throw new SearchAuthError("缺少环境变量 TAVILY_API_KEY");

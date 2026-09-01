@@ -70,6 +70,14 @@ async function searchDuckDuckGo(query: string, maxResults: number): Promise<Sear
   if (!res.ok) throw new Error(`DuckDuckGo 返回 ${res.status}`);
   const html = await res.text();
   const links = anchorsByClass(html, "result__a");
+  // Dogfood 2026-09-01: DDG serves a 202 anomaly/challenge page to scripted
+  // clients — the response is "ok" but contains zero results. Fail loudly
+  // instead of silently returning an empty hit list.
+  if (links.length === 0 && /anomaly|challenge|captcha/i.test(html)) {
+    throw new Error(
+      `DuckDuckGo 返回反爬验证页（无结果）。建议：① 在节点配置改用 tavily/serpapi/google 搜索源（对应密钥走环境变量，重启 server 生效）；② 稍后重试（反爬通常是间歇性的）`,
+    );
+  }
   const snippets = anchorsByClass(html, "result__snippet");
   const hits: SearchHit[] = [];
   for (const [i, link] of links.entries()) {
