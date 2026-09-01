@@ -3381,7 +3381,13 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       // agent
       const mounts = (node.textGen?.skills ?? []).map(toMount);
       const promptModules = collectPromptModules(mounts);
-      const basePrompt = withLayoutDirectives(node.textGen?.prompt ?? "", node.textGen?.imageDirectives);
+      // Prompts interpolate `${nodeId}` / `${item}` like every other template
+      // string (loop bodies reference the loop item via ${item}; dogfood
+      // tpl-research-loop sent the placeholder to the model verbatim).
+      const promptTemplate = node.textGen?.prompt
+        ? evaluateTemplate(node.textGen.prompt, interpCtx(nodeId))
+        : "";
+      const basePrompt = withLayoutDirectives(promptTemplate, node.textGen?.imageDirectives);
       let prompt = promptModules.length
         ? `${basePrompt}\n\n${promptModules.map((p) => `=== 已挂载模块提示 (prompt-module) ===\n${p}`).join("\n\n")}`
         : basePrompt;
