@@ -751,7 +751,9 @@ const patrolAlertGraph = {
         http: {
           url: "https://httpbin.org/status/200",
           method: "GET",
-          failOnError: true,
+          // 巡检语义：非 2xx 是判断依据而非节点故障，必须以 ok: false
+          // 流向分支判断；failOnError: true 会让探针直接失败、告警分支永不执行。
+          failOnError: false,
         },
       },
       {
