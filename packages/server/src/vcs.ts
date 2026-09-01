@@ -103,8 +103,24 @@ async function readJson(
     }
   }
   if (!res.ok) {
-    const apiMsg = (json as { message?: string; error?: string } | string | null);
-    const msg = typeof apiMsg === "string" ? apiMsg : apiMsg?.message ?? apiMsg?.error ?? `HTTP ${res.status}`;
+    const apiMsg = (json as {
+      message?: string;
+      error?: string;
+      errors?: Array<{ message?: string; code?: string }>;
+    } | string | null);
+    let msg: string;
+    if (typeof apiMsg === "string") {
+      msg = apiMsg;
+    } else {
+      msg = apiMsg?.message ?? apiMsg?.error ?? `HTTP ${res.status}`;
+      // GitHub 422 bodies carry the actionable reason in errors[] (e.g. "A
+      // pull request already exists for …") — without it the node failure
+      // only said "Validation Failed" (dogfood tpl-release-pr recheck).
+      const details = (apiMsg?.errors ?? [])
+        .map((e) => e.message ?? e.code)
+        .filter((d): d is string => Boolean(d));
+      if (details.length) msg += `（${details.join("; ")}）`;
+    }
     throw new VcsProviderError(`${provider} ${cfg.action} 失败（${method} ${url}）: ${msg}`);
   }
   return json;

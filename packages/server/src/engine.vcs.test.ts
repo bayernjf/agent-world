@@ -160,6 +160,23 @@ describe("vcs node — github & gitlab", () => {
     expect(failed.error).toContain("Validation Failed");
   });
 
+  it("surfaces the actionable 422 errors[] detail instead of a bare Validation Failed (dogfood tpl-release-pr)", async () => {
+    vi.stubEnv("GITHUB_TOKEN", "ghp_test");
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          message: "Validation Failed",
+          errors: [{ resource: "PullRequest", code: "custom", message: "A pull request already exists for o:f." }],
+        }),
+        { status: 422 },
+      ),
+    );
+    const events = await collect(vcsGraph({ provider: "github", action: "create_pr", owner: "o", repo: "r", head: "f", base: "main" }));
+    expect(replay(events).status).toBe("failed");
+    const failed = events.find((e) => e.type === "node.failed" && e.nodeId === "v");
+    expect(failed.error).toContain("A pull request already exists for o:f.");
+  });
+
   it("retries transient failures and succeeds on the second attempt", async () => {
     vi.stubEnv("GITHUB_TOKEN", "ghp_test");
     fetchMock
