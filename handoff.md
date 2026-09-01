@@ -119,13 +119,13 @@ State of Agent World as of 2026-08-31.
 
 按 commit 时间倒序，每条一行影响面 + commit hash：
 
-1. `0cbce9d` — **fix(server)**: code 节点失败报 `SCRIPT_ERROR`（不再误标 PROVIDER_ERROR、不进重试），Inspector 显示"脚本执行错误"；engine.code 3 断言同步更新。
-2. `6dcce69` / `6f51eb1` / `b82c344` / `dbe260f` / `a6e1b52` — **feat/fix/refactor(web)**: 空白产线作为选卡器首卡片（非模板，dashed 空画布）+ 新建网格三列 + 去卡片 hover tooltip + 清理死 originTemplateId 类型（用户手动提交）。
-3. `8fa86c1` — **fix(server)**: error 边在节点失败时即时触发（finally），human 挂起不再饿死 catch 兜底（review-publish notifyFallback 修复）；回归基线扩到 11 用例。
-4. `01fad6c` — **fix(core)**: 模板 code 节点显式从 stdin 读引擎注入的 inputs（ops/competitor/batch/doc/custom/research 7 脚本不再 ReferenceError）+ branch forward-ref 重写修复 + custom-model 语法修复。
-5. `5cbc11d` — **feat(web)**: 空白产线入口从独立按钮改为选卡器首卡片（dashed 空画布卡片，非模板）。
+1. `9003120` — **feat(web)**: ConnectorEditor 加 database 分支（sqlite 路径 / 多行 SELECT / json\|csv 输出，测试连接复用既有端点）。
+2. `9657538` — **feat(core,server)**: **SQLite database connector**——source 节点可从数据库拉数据（core ConnectorType 加 `database` + DatabaseConnector schema；resolver 只读打开 + 仅 SELECT/WITH 单语句 + json/csv 序列化；6 单测 + 回归基线端到端用例 11→12）。详见 [docs/design-connector-database.md](docs/design-connector-database.md)。
+3. `064b67e` — **docs**: 新增整体进度基线 [docs/project-progress.md](docs/project-progress.md)（15 模块完成度快照 + 待办管线 + 迭代参考规则），handoff 同步，docs 索引登记。
+4. `0cbce9d` — **fix(server)**: code 节点失败报 `SCRIPT_ERROR`（不再误标 PROVIDER_ERROR、不进重试），Inspector 显示"脚本执行错误"；engine.code 3 断言同步更新。
+5. `6dcce69` / `6f51eb1` / `b82c344` / `dbe260f` / `a6e1b52` — **feat/fix/refactor(web)**: 空白产线作为选卡器首卡片（非模板，dashed 空画布）+ 新建网格三列 + 去卡片 hover tooltip + 清理死 originTemplateId 类型（用户手动提交）。
 
-> 更早条目（影坊视频适配 `1358753`、undici 对齐 `4bb6168`、静态加密 `9dc68ae`、回归基线 `6a12a35` 等）见 [docs/handoff-archive.md](docs/handoff-archive.md) 与 [docs/security-audit-2026-08-31.md](docs/security-audit-2026-08-31.md)。
+> 更早条目（error 边即时触发 `8fa86c1`、模板 code 节点 stdin 读 inputs `01fad6c`、空白产线首卡片 `5cbc11d`、影坊视频适配 `1358753`、undici 对齐 `4bb6168`、静态加密 `9dc68ae`、回归基线 `6a12a35` 等）见 [docs/handoff-archive.md](docs/handoff-archive.md) 与 [docs/security-audit-2026-08-31.md](docs/security-audit-2026-08-31.md)。
 
 最近 5 条之前的全部在 [docs/handoff-archive.md](docs/handoff-archive.md) 的"阶段 4 收尾"与"Additions (post-2026-08-27)"系列章节里（含 MCP stdio 分帧修复 `a2482ba`、P2 外部沙箱后端 `0a22b13`、P1 rlimit `ddb2e03`、P0 `6b2f92b`、HTTP 节点第一闭环 `1856d81`、账号系统 `5b81c74`/`73d3610` 等）。
 

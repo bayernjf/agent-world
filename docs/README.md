@@ -28,6 +28,7 @@
 | [README.md](../README.md) | 项目门面：两个核心设计决策、架构图、画布交互、部署 | 所有人 |
 | [handoff.md](../handoff.md) | 交接文档：当前状态 + 活跃任务 + 最近 5 个变更 | 继续迭代的 AI / 开发者 ★ |
 | [project-progress.md](project-progress.md) | 整体进度基线（模块完成度 + 待启动管线 + 迭代参考规则）★ | 决策者 / 开发者 |
+| [design-connector-database.md](design-connector-database.md) | Database Connector 设计（SQLite 只读拉数据；PG/MySQL 待触发） | 开发者 |
 | [PRD.md](../PRD.md) | 产品路线图（5 阶段）与架构护栏 | 产品 / 开发者 |
 | [PRODUCT_STRATEGY.md](../PRODUCT_STRATEGY.md) | 产品策略基线（成本 / 部署 / 定价 / 商业化） | 决策者 |
 | [CHANGELOG.md](../CHANGELOG.md) | 按版本的变更日志（Keep a Changelog） | 所有人 |

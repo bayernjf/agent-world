@@ -23,7 +23,7 @@
 | 版本管理补强 | 90% | 🟡 主体完成 | 自动快照 + run 关联 hash + 恢复预览；diff 视图与 A/B 缓做 — [design-versions.md](design-versions.md) |
 | 真实产线狗粮验证 | 85% | 🔵 进行中 | 文本链路（短视频工坊）+ 全链路（文坊→画坊→影坊视频 MP4）已真实跑通；README GIF 演示与正式运行记录待收尾 |
 | 文档完善 | 40% | 🔵 进行中 | 核心设计文档齐；4.8 文档穿插按模块补录，handoff 最近 5 条需回填 hash |
-| 自动数据接入 Connector | 10% | ⚪ 待启动 ★ | 让产线自动拉数据，从"玩具"到"工具"的关键一步（规划 4.2） |
+| 自动数据接入 Connector | 60% | 🟡 进行中 ★ | file/http/form/manual 已落地；**SQLite database 已落地（2026-09-01）**；剩 PG/MySQL 驱动接续（deferred） |
 | 定时 / 事件触发 | 10% | ⚪ 待启动 ★ | 配合 Connector 实现完全自动化的定时/事件驱动产线（规划 4.6） |
 | 商业化（定价/变现） | 5% | ⚪ 待启动 | 按产品决策**放后面** — [PRODUCT_STRATEGY.md](../PRODUCT_STRATEGY.md) |
 
@@ -45,7 +45,7 @@
 
 > 优先级与决策依据以 [handoff.md 待办](../handoff.md) 与 [deferred-items.md](deferred-items.md) 为准，本文档只做总览。
 
-1. **★ 自动数据接入 Connector（4.2）** —— 让产线能自动拉数据（数据库/API/文件），当前需手工投料。这是从"玩具"到"工具"的关键一步。
+1. **★ 自动数据接入 Connector（4.2）** —— 让产线能自动拉数据（数据库/API/文件）。file/http/form 已落地；**SQLite database connector 已落地（2026-09-01，见 design-connector-database.md）**；PG/MySQL 待驱动接续（deferred）。
 2. **★ 定时 / 事件触发（4.6）** —— 配合 Connector 实现完全自动化的定时 / 事件驱动产线（当前产线靠手动运行）。
 3. **文档穿插（4.8）** —— 每完成一个模块就补对应文档；当前 handoff 最近 5 条待回填 hash。
 4. **狗粮验证收尾** —— README 演示 GIF（画布运行 + rework 回环 + 时间轴回放）、真实运行记录归档。

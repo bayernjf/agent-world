@@ -388,7 +388,8 @@
 - [x] 实现 HTTP API connector：GET/POST 拉数据（headers/auth basic+bearer/extract 字段提取/body）
 - [x] Source 节点 UI：选择 connector、配置参数、测试连接（ConnectorEditor + POST /api/connectors/test 预览）
 - [x] form connector：运行前填表，答案作为 source 文本注入
-- [x] 退出条件：产线能从外部数据源自动拉原料
+- [x] database connector：SQLite 只读 SELECT 查询，json/csv 输出（2026-09-01，见 design-connector-database.md；PostgreSQL/MySQL 见 deferred）
+- [x] 退出条件：产线能从外部数据源自动拉原料（文件 / HTTP / SQLite 数据库 / 表单）
 
 ### 4.3 MCP 支持
 
