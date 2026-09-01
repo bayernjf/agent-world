@@ -504,6 +504,42 @@ select {
 }
 
 /* ---------- new graph template picker ---------- */
+.template-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.template-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+/* Blank entry is pinned above all category sections: same footprint as one
+ * grid card, full width would look oversized. */
+.template-picker > .template-card--blank {
+  width: min(100%, 300px);
+}
+.template-section__title {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  color: var(--ink-faint);
+  border-bottom: var(--hair);
+  padding-bottom: 4px;
+}
+.template-section__count {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--power);
+  border: 1px solid var(--power-dim);
+  padding: 0 5px;
+}
 .template-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -555,14 +591,6 @@ select {
   font-size: 12px;
   color: var(--ink-dim);
   line-height: 1.5;
-}
-.template-card__cat {
-  font-size: 10px;
-  font-family: var(--mono);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  opacity: 0.6;
-  margin-top: 2px;
 }
 
 /* template structure thumbnail (SVG) */
@@ -4596,15 +4624,17 @@ select {
   font-size: 12px;
   letter-spacing: 0.06em;
 }
-.template-grid--onboarding {
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 12px;
+.template-picker--onboarding {
   /* Independent scroll inside the card so the hero stays pinned.
      Theme inherits from the global ::-webkit-scrollbar rules. */
   max-height: min(540px, 50vh);
   overflow-y: auto;
   scrollbar-gutter: stable;
   padding-right: 4px;
+}
+.template-grid--onboarding {
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
 }
 .template-card--onboarding {
   min-height: 168px;

@@ -1,4 +1,4 @@
-import { TEMPLATES } from "@agent-world/core";
+import { TEMPLATES, TEMPLATE_CATEGORIES } from "@agent-world/core";
 
 /**
  * Shared template preview + grid used by both the first-run Onboarding and
@@ -114,8 +114,8 @@ interface PickerProps {
   onPick: (templateId?: string) => void;
   /** Extra class on each card (onboarding uses larger cards). */
   cardClass?: string;
-  /** Render a "blank line" card as the first grid item. It is a plain empty
-   *  canvas, not a template, so it carries no category/template badge. */
+  /** Render a "blank line" card pinned first — above every category section.
+   *  It is a plain empty canvas, not a template, so it carries no badge. */
   blankFirst?: boolean;
 }
 
@@ -125,8 +125,13 @@ export default function TemplatePicker({
   cardClass,
   blankFirst,
 }: PickerProps) {
+  const gridClass = `template-grid ${cardClass ? `template-grid--${cardClass}` : ""}`;
+  const sections = TEMPLATE_CATEGORIES.map((cat) => ({
+    cat,
+    items: templates.filter((t) => t.category === cat),
+  })).filter((s) => s.items.length > 0);
   return (
-    <div className={`template-grid ${cardClass ? `template-grid--${cardClass}` : ""}`}>
+    <div className={`template-picker ${cardClass ? `template-picker--${cardClass}` : ""}`}>
       {blankFirst && (
         <button
           key="__blank__"
@@ -140,17 +145,26 @@ export default function TemplatePicker({
           </span>
         </button>
       )}
-      {templates.map((t) => (
-        <button
-          key={t.id}
-          className={`template-card ${cardClass ? `template-card--${cardClass}` : ""}`}
-          onClick={() => onPick(t.id)}
-        >
-          <TemplatePreview nodes={t.nodes} edges={t.edges} />
-          <span className="template-card__name">{t.name}</span>
-          <span className="template-card__desc">{t.description}</span>
-          <span className="template-card__cat">{t.category}</span>
-        </button>
+      {sections.map((s) => (
+        <section key={s.cat} className="template-section">
+          <h3 className="template-section__title">
+            {s.cat}
+            <span className="template-section__count">{s.items.length}</span>
+          </h3>
+          <div className={gridClass}>
+            {s.items.map((t) => (
+              <button
+                key={t.id}
+                className={`template-card ${cardClass ? `template-card--${cardClass}` : ""}`}
+                onClick={() => onPick(t.id)}
+              >
+                <TemplatePreview nodes={t.nodes} edges={t.edges} />
+                <span className="template-card__name">{t.name}</span>
+                <span className="template-card__desc">{t.description}</span>
+              </button>
+            ))}
+          </div>
+        </section>
       ))}
     </div>
   );
