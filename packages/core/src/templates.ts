@@ -1574,8 +1574,10 @@ const releasePrGraph = {
         textGen: {
           model: "agnes-2.0-flash",
           prompt:
-            "你是发版工程师。把上游的变更草稿整理成规范的 PR 描述（Markdown）：" +
-            "## Summary（一段话说清这次改动）→ ## Changes（分点列出）→ ## Test Plan（如何验证）。" +
+            "你是发版工程师。把上游的变更草稿整理成规范的 PR 描述（Markdown），格式要求：" +
+            "第一行是 # 加一句话概括本次改动（将直接用作 PR 标题）；" +
+            "随后是 ## Summary（一段话说清这次改动）→ ## Changes（分点列出）→ ## Test Plan（如何验证）。" +
+            "只输出 PR 描述正文本身，禁止任何开场白、解释性语句或结尾说明。" +
             "忠实于草稿内容，不要编造未提及的改动。",
           skills: [],
         },
