@@ -75,6 +75,7 @@
 | 事项 | 缓做/低优原因 | 触发条件 | 决策详情 |
 |---|---|---|---|
 | Excel 读写 | 纯 JS 方案（SheetJS CE）功能裁剪；CSV + 代码节点可兜底 | 狗粮使用中出现 Excel 文件为主的输入源 | [roadmap-generalization.md Phase 2](roadmap-generalization.md#phase-2数据与文件处理2-3周) |
+| fileParse 一次只解析一个文档 | source.files 可挂多份，但解析车间只读第一个（其余在节点摘要里点名未解析，不静默）；多文件可用多个解析车间或 http 节点兜底 | 狗粮中出现“一条产线同时审多份合同/文档”的真实诉求 | [technical-design.md 节点产物写入规则](technical-design.md) |
 | HTML→PDF | 纯 JS 无中文排版方案；引入浏览器引擎（playwright）代价过大 | 中文排版需求出现且无法用「截图拼接/截图转 PDF」兜底 | 同上 |
 
 ## 已重启 / 已砍掉

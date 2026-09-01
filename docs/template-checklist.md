@@ -37,7 +37,7 @@
 | 开发集成 | tpl-custom-model | 自定义模型接入 | ⬜ | — | http + code + vcs |
 | 开发集成 | tpl-release-pr | 发版 PR 助手 | ⬜ | — | vcs 节点 |
 | 开发集成 | tpl-code-review | 代码审查助手 | ⬜ | — | http + code + gate |
-| 法律合规 | tpl-contract-review | 合同审查助手 | ❌ | run `9b42e591`（真实投合同正文，2026-09-01）| 🔴 **能力缺口：真实产品里无法投料**——投料节点（source）只能传**图片**（`SourceImages.tsx` 过滤 `image/*`，engine source 仅产 text/image artifact），而 fileParse 只接受 `kind==="file"` 产物 → 报“上游「合同文件」没有产出文件产物”，run 必败。全库仅两个模板用 fileParse：tpl-doc-ingest 走 http 拉取（**不受影响**），本模板走 source（**受影响**）。修复方向待定：① source 支持任意文件上传（新增 `source.files` + engine 产 file artifact，需 UI 改动）；② fileParse 允许退化解析上游 text（粘贴正文即可审）；③ 改模板走 http 拉 URL（不贴实际）。注：引擎冒烟 27/27 能过是因为用例直接合成 file artifact，未走上传路径 |
+| 法律合规 | tpl-contract-review | 合同审查助手 | ✅ | 复验 run `084b6f63`（真实上传 PDF，2026-09-01）；首验 run `9b42e591` ❌ | 首验发现的 🔴 能力缺口已修：source 节点此前只能传图（`SourceImages.tsx` 过滤 `image/*`、engine 仅产 text/image），而 fileParse 只认 `kind==="file"` → 真实产品里根本无法投料。现：`SourceConfig.files` + source 产 file artifact（`2d3dfcf`）+ Inspector 文档上传区（`95c65a4`，不支持的类型/超 5MB 不静默丢弃）。复验全链路：上传 1.4KB 供货合同 PDF → fileParse「解析完成：750 字符文本」→ 条款提取 → 风险审查 → **gate 驳回一次后返工通过**（rework 边首次真实跑通）→ human 节点挂起 → `resume {action:"approve"}` → done，成品引用了 PDF 里的仲裁机构/验收期限/30% 定金。另：fileParse 读不到字节时的报错已带上 5MB 内联上限（`2d3dfcf`）。已知限制：多个文档只解析第一个，其余在摘要里点名未解析件数（`5cfd5bd`，已登记 deferred） |
 | 法律合规 | tpl-evidence-brief | 证据清单整理 | ⬜ | — | code 拆条 + table 排序 |
 | 财务审计 | tpl-expense-review | 费用报销初审 | ⬜ | — | code 规则校验 + table |
 | IT 运维 | tpl-patrol-alert | 定时巡检告警 | ⬜ | — | cron 触发 + notify webhook（需填 webhookUrl 字段） |
@@ -48,6 +48,8 @@
 
 > 空白产线入口（BLANK_TEMPLATE）不属业务模板，不进本表。
 >
-> **验证前置条件**（2026-09-01 狗粮总结）：含 `search` 节点的模板（research-brief / competitor-watch / news-podcast / research-loop 等）默认走 duckduckgo，**需要本机能直连或给 server 配置出站代理**（`AGENT_WORLD_PROXY`）；改用 tavily/serpapi/google 需对应环境变量（`TAVILY_API_KEY` 等）且重启 server。含 `audioGen` 的模板需要 provider 有音频模型（当前 agnes 无 TTS，需另配）。
+> **验证前置条件**（2026-09-01 狗粮总结）：含 `search` 节点的模板（research-brief / competitor-watch / news-podcast / research-loop 等）默认走 duckduckgo，**需要本机能直连或给 server 配置出站代理**（`AGENT_WORLD_PROXY`）；改用 tavily/serpapi/google 需对应环境变量（`TAVILY_API_KEY` 等）且重启 server。含 `audioGen` 的模板需要 provider 有音频模型（当前 agnes 无 TTS，需另配）。含 `fileParse` 且仍靠 source 投料的模板（contract-review）：在投料车间的「文档」区上传 PDF/DOCX/PPTX，**单件 ≤5MB**（上传口允许 25MB，但解析需整体内联读入）。
 >
-> 验证顺序建议：优先覆盖**未验证的节点类型与组合**（imageGen 双图、audioGen 播客、ocr、vcs、loop、notify 告警），再补纯 textGen 的简单场景。
+> **当前进度（2026-09-01）**：真实狗粮验证 **6/27**——✅ 5（tpl-media-pipeline / tpl-product / tpl-xiaohongshu / tpl-batch-content / tpl-contract-review）+ 🟡 1（tpl-news-podcast，剩环境侧阻塞：需换搜索源 + 配 TTS 供应商）；已跑出的发现已全部流转为修复并复验。其余 21 个⬜。
+>
+> 验证顺序建议：**已覆盖节点类型**（2026-09-01）textGen / imageGen（双图）/ code / map / gate+rework / fileParse（真实上传路径）/ human 审批挂起与恢复 / sink 汇总；**尚未真实跑过**：ocr、convert、vcs、loop、parallel、branch、notify 告警、table 纯表输出、translate、subprocess/database。**下一批建议**：tpl-scan-ocr（ocr 单点）→ tpl-research-brief（parallel 汇聚，需搜索源）→ tpl-release-pr（vcs）→ tpl-review-publish（human + error 边兜底，与 contract-review 不同构），再补纯 textGen 的简单场景。

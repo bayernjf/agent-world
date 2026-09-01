@@ -361,7 +361,7 @@ POST   /api/graphs/:id/webhook         webhook 入口（带 secret）
 GET|POST /api/graphs/:id/versions       版本列表 / 快照；GET /:vid 详情 + 「当前运行版本」标记
 POST   /api/graphs/:id/versions/:vid/restore  恢复（先预览后确认）
 DELETE /api/graphs/:id/versions/:vid    删除快照
-GET   /api/artifacts(:id)               产物列表 / 详情（按用户归属；POST /api/artifacts/upload 上传）
+GET   /api/artifacts(:id)               产物列表 / 详情（按用户归属；POST /api/artifacts/upload 上传，按 content-type 判 image/video/audio/file）
 GET|POST|DELETE /api/knowledge(/search) 知识库（见 design-knowledge-memory.md）
 POST   /api/ab + GET /api/ab/:groupId A/B 实验（见 design-ab-testing.md）
 GET|POST|DELETE /api/brand-terms      品牌术语库
@@ -748,7 +748,7 @@ artifacts: Map<string, Artifact[]>  // nodeId → 该节点产出的所有 artif
 **节点完成时的写入规则：**
 - **agent 节点**：产出至少一个 `{kind:"text", content: result.output, id: `${nodeId}-text`}` artifact；如果输出文本中通过 `extractArtifacts()` 检测到图片/视频/JSON URL，额外追加对应 artifact（这一步已有 `produceArtifacts()` 逻辑，改为 push 到数组而非只发事件）
 - **imageGen 节点**：每张生成的图产出一个 `{kind:"image", uri, mimeType, label}` artifact（已有逻辑，改为 push 到数组）
-- **source 节点**：`source.images` 中的每个 URL 产出一个 `{kind:"image", uri}` artifact；`source.connector` 拉到的文本产出 text artifact
+- **source 节点**：`source.images` 中的每个 URL 产出一个 `{kind:"image", uri}` artifact；`source.files`（结构化条目 `{uri,label,mimeType,sizeBytes}`，由 `POST /api/artifacts/upload` 上传后得到）的每个文档产出一个 `{kind:"file", uri, mimeType, label, sizeBytes}` artifact——这是下游 fileParse 唯一认可的上游产物；`source.connector` 拉到的文本产出 text artifact
 - **gate 节点**：通过时产出 text artifact（verdict.reason）；驳回时不产出（走返工环）
 - **sink 节点**：产出 text artifact（最终输出）
 
