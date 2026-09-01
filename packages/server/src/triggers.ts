@@ -160,9 +160,11 @@ export class TriggerService {
     return this.fire(candidate.id, payload, graphId);
   }
 
-  /** Fire event triggers subscribed to a graph finishing a run (only on success). */
+  /** Fire event triggers subscribed to a graph finishing a run (only on success).
+   *  The engine's success status is "done" (Status = done|failed|halted|
+   *  tripped|cancelled) — match that real contract, not a nominal "completed". */
   async onGraphFinished(graphId: string, status: string): Promise<void> {
-    if (status !== "completed") return;
+    if (status !== "done") return;
     const matches = this.list().filter(
       (t) => t.type === "event" && t.eventSource?.kind === "graph" && t.eventSource.id === graphId,
     );

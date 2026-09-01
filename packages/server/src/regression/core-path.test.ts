@@ -139,6 +139,21 @@ describe("regression · engine core path", () => {
     expect(forgeText.artifact.content).toContain("raw");
   });
 
+  it("contract: engine success emits run.finished status 'done' (event triggers key off it)", async () => {
+    // TriggerService.onGraphFinished and post-run knowledge extraction fire on
+    // the engine's real success status. It MUST be "done" — a nominal
+    // "completed" here silently breaks graph-completion event triggers.
+    const graph = linearGraph();
+    const { plan } = compile(graph)!;
+    const worker = echoWorker();
+    const events = await drain(
+      execute({ runId: "r-status", graph, plan: plan!, worker, budgetUsd: null, input: "raw", now: () => 0, sleep: async () => {} }),
+    );
+    const finished = events.find((e) => e.type === "run.finished");
+    expect(finished).toBeTruthy();
+    expect((finished as { status: string }).status).toBe("done");
+  });
+
   it("rework loop: gate rejects once, forge reruns, pipeline still reaches done", async () => {
     const graph = gateGraph();
     const { plan } = compile(graph)!;
