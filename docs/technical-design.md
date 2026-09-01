@@ -694,6 +694,10 @@ interface Skill {
 
 **error 边接住失败后，不能让 fan-in 汇聚点饿死。** 调度器的 `predecessorsReady` 曾要求所有 flow 上游 done：上游失败但被 error 边接住后，汇聚节点永不被调度，而 run 还报 done、无任何产物——静默丢弃，比报错更危险（run `ab5b20df`，`e6dc2c9`）。规则：失败但被 error 边妥善处理（catch 节点已 done）的上游视为已满足；收尾时仍有 pending 节点的 run 一律不得报 done。
 
+**服务端出站只有一条通道。** vcs 节点曾用裸全局 `fetch`，结果 `AGENT_WORLD_PROXY` 出站代理、SSRF 钉住解析、重定向复检全部不适用于它——与 http/通知节点的出站契约不一致，在仅代理可达的网络上必败，而且这种不一致只有真实跑过才会暴露（狗粮 tpl-release-pr，`b3e71e8`）。规则：新增任何服务端出站请求必须走 `guardedFetch`（或显式说明为何例外）；评审新出站模块时对照现有通道清单（http 节点 / 通知 / 搜索 / vcs）。
+
+**provider 报错必须带上可行动的详情。** GitHub 422 的真正原因在响应体的 `errors[]` 数组里（如「A pull request already exists for …」），只读顶层 `message` 就只剩一句「Validation Failed」，从 run 时间线上根本无法定位（`f034605`）。规则：包装三方 API 错误时，把结构化的逐条错误并入文案；单测直接拿真实响应形状（含 errors[]）做回归。
+
 ### 12.2 阶段 2 并行时会撞墙
 
 **并发事件顺序竞态。** 引擎从单游标改为并发后，两个节点的事件会交错 yield。要保证：
@@ -765,6 +769,7 @@ artifacts: Map<string, Artifact[]>  // nodeId → 该节点产出的所有 artif
 - **gate 节点**：通过时产出 text artifact（verdict.reason）；驳回时不产出（走返工环）
 - **sink 节点**：产出 text artifact（最终输出）
 - **table 节点**：按 `table.steps` 执行，`output` 步骤产出 `{kind:"json"}` artifact（`{rows,count,columns}`），节点摘要报「N 行 × M 列」；狗粮 tpl-doc-ingest 首次真实覆盖（run `b0f60b0b`，4 行×2 列）
+- **vcs 节点**：请求走 `guardedFetch`（与其他出站节点共用代理/SSRF/重定向契约，见 §12.1）；凭证只从服务器 env（`GITHUB_TOKEN`/`GITLAB_TOKEN`）读取，不进图；产出 `{kind:"json"}` artifact（API 原始响应）。`create_pr`/`comment_issue` 的 `body` 为空时回退上游 text 产物；`title` 未显式配置时从正文首个非空、非分隔线行推导（去标题符号、截断 120 字符），显式 `cfg.title` 始终优先（狗粮 tpl-release-pr，`dadeb05`）；GitHub 422 的 `errors[]` 逐条详情并入报错（`f034605`）
 - **调度契约（error 边 × fan-in）**：失败上游被 error 边接住（catch 节点已 done）时，与它同汇入一个汇聚点的兄弟分支仍必须照常调度，汇聚点从 ctx 里读到的是失败节点的 error JSON + catch 节点的产出；收尾时仍有 pending 节点的 run 一律不得报 done（`e6dc2c9`）
 
 ### 13.3 inputFor() 兼容策略
