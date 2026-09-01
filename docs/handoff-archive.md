@@ -1789,6 +1789,7 @@ modality 切片，统一严格过滤；同时把 agent 的占位文案从泛化�
 
 > Entries rolled out of the active `handoff.md` "Recently shipped" list to keep it at 5 items.
 
+- `fa2bed0` — **fix(server)**: 节点分支意外抛错不再吞成 unhandled rejection——runNode 外层加安全网发诚实 `node.failed`（此前节点永久停在 "running"，事件流既无 finished 也无 failed，只有 CI 上一条查不出原因的红）；code 节点子进程起不来同样落 failed(SUBPROCESS)。回归用例改为真实退避 + 失败原因可读。
 - `c91f973` — **fix(server)**: **生成媒体产物 404 修复（狗粮 tpl-product 驱动）**——imageGen/videoGen/audioGen 的 run 产物行只携带 `up-…` 本地引用（字节在引用行桶下），`GET /api/artifacts/:id` 在本行 blob 缺失时改为跟随引用取字节；此前 UI 上历史所有生图 run 均为破图（“blob missing on disk”）。新增 `api.artifact-localref.test.ts`（跟随成功 + 跨用户仍 404），契约写入 design-artifact-display.md。
 - `7b7faf0`…`530bfc5` — **狗粮验证四条修复系列（tpl-news-podcast 驱动）**：media 节点 modality 错配派发期阻断（`7b7faf0`）；audioGen/videoGen 静默跳过改诚实失败 node.failed 接入 error 边（`b6de7d9`）；search 不可达可行动报错（`bfc97dc`）+ `AGENT_WORLD_PROXY` opt-in 出站代理（`b82f89a`，SSRF trade-off 见 design-code-sandbox §12）；DDG 反爬页响亮报错不再静默 0 结果（`530bfc5`）。
 - `5b66996` — **fix(server)**: db.ts 两处 rename 回归补漏。
