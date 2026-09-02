@@ -58,6 +58,7 @@
 | Linear | 同 Notion | 同 Notion | [integrations-future.md §2](integrations-future.md#2-linear) |
 | 邮件收件/附件 | 是触发器架构扩展（IMAP 轮询/webhook），不是 notify 的增量 | 有"收到邮件自动触发产线"的明确场景 | [integrations-future.md §3](integrations-future.md#3-邮件收件--附件) |
 | 内容平台（小红书/抖音/淘宝） | 依赖商家 API 资质，走连接器市场不建原生节点 | 拿到平台 API 资质 | [integrations-future.md §4](integrations-future.md#4-内容平台小红书--抖音--淘宝) |
+| `search` / `vcs` 节点没有节点级凭证入口 | 两类节点的 schema **完全没有凭证字段**（`SearchConfig` 只有 query/provider/maxResults/retry；`VcsConfig` 无），密钥只能走 server 进程环境变量：搜索 `TAVILY_API_KEY` / `SERPAPI_API_KEY` / `GOOGLE_API_KEY`+`GOOGLE_CX`（`search.ts` 的 `requireEnv`），vcs `GITHUB_TOKEN` / `GITLAB_TOKEN`（`vcs.ts:55/71`）——**而“节点自带凭证”在本项目已是既有范式**：imageGen/videoGen/audioGen 有 `baseUrl`+`apiKey`、notify 有 `webhookUrl`+`secret`、http 有 `headers`（狗粮 tpl-code-review 就是用节点级 `authorization: Bearer …` 拉私有仓 PR diff 的），search/vcs 是漏网。代价已实测：① 换搜索源必须改 env + **重启 server**（Inspector 里改不了），两条模板的 happy path 就卡在这里（见本表“news-podcast / research-loop”行）；② 多用户部署下所有人共用服务端一份搜索/VCS 凭证，而 provider 级 key 已能按用户存进加密 settings，节点级反而没入口；③ 一条产线里无法混用两个搜索账号或两个仓库凭证。缓做原因：单用户自用阶段 env 够用；且**不能简单往图 JSON 加明文 key 字段**——图会进版本快照与导出，得先把凭证走 `at-rest.ts` 的加密存储（settings 已有 per-user 加密先例，审计 L3），成本在脱敏链路而不是字段本身 | 出现第二个用户需要自带搜索/VCS 凭证；或一条产线需要混用多个搜索账号/多个仓库凭证；或“换搜索源不重启 server”成为运维诉求 | [template-checklist.md](template-checklist.md) 两行 🟡 + `packages/server/src/search.ts` `requireEnv` / `packages/server/src/vcs.ts:55,71` + [design-at-rest-encryption.md](design-at-rest-encryption.md) |
 
 ### 安全/运维线
 
@@ -65,6 +66,7 @@
 |---|---|---|---|
 | 静态加密的重加密 / 密钥轮换工具 | 换 key 后存量 secrets 需迁移重加密；当前可用 encryptString/decryptString 手写一次性迁移，影响面小 | 出现真实换 key / 轮换需求（或合规要求密钥定期轮换） | [design-at-rest-encryption.md §5](design-at-rest-encryption.md) |
 | Bitbucket/Gitea | vcs 节点同构可扩展，无紧迫需求 | 用户提出 | [integrations-future.md §5](integrations-future.md#5-bitbucket--gitea-等-vcs) |
+| 🔐 **节点级 `apiKey` 明文落库**（imageGen / videoGen / audioGen） | 审计 L3 的静态加密只盖了两类位置：`settings.data`（provider 级 key）与图文档里的 `triggers[].webhookSecret`（graphs.doc / graph_versions.snapshot / runs.snapshot 三处）——`sealGraphDoc` 实现上也就只 map 了 triggers。而三个媒体节点的配置支持节点级 `apiKey`（`ImageGenConfig`/`VideoGenConfig`/`AudioGenConfig`），**这个值今天以明文进 sqlite 的图 JSON、并随版本快照一起留存、也能随图导出被带走**（审计文档未将其列为待修项，属 L3 的漏网）。修法已有现成范式：把节点凭证字段纳入 `sealGraphDoc`/`openGraphDoc`（落盘前加密、读时透明解密，旧明文 lazy 迁移），或干脆改成引用 per-user 加密 settings 里的 provider 而不存副本。**之所以先登记而不直接改**：当前为单用户本机部署，且改动涉及三处快照读写路径 + 内容 hash 对比语义（加密不能破坏版本 diff），需单独一轮带回归的改动；**但若开多用户/对外部署，此项应先于上线处理** | 开多用户或对外部署（他人可读 DB / 备份 / 导出图）之前必须完成；或任何一次图导出/版本快照被带出本机的场景出现 | [security-audit-2026-08-31.md L3](security-audit-2026-08-31.md) + `packages/server/src/at-rest.ts` `sealGraphDoc`/`openGraphDoc` + [design-at-rest-encryption.md](design-at-rest-encryption.md) |
 
 ### 文档线
 
