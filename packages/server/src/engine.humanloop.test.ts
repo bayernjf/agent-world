@@ -49,6 +49,39 @@ function loopGraph(): Graph {
   };
 }
 
+/**
+ * branch → (auto tail | human tail) → merge → sink: the tpl-customer-service
+ * shape that dogfood exposed — a merge point downstream of a branch whose
+ * un-routed tail must stay skipped across a resume.
+ */
+function branchHumanGraph(): Graph {
+  return {
+    nodes: [
+      { id: "s1", kind: "source", name: "Src", x: 0, y: 0, source: {} },
+      {
+        id: "br",
+        kind: "branch",
+        name: "Router",
+        x: 1,
+        y: 0,
+        branch: { rules: [{ id: "complex", when: "true", target: "hu" }], defaultTarget: "au" },
+      },
+      { id: "au", kind: "textGen", name: "Auto", x: 2, y: -1, textGen: TEXTGEN },
+      { id: "hu", kind: "human", name: "Human", x: 2, y: 1, human: { prompt: "审核" } },
+      { id: "mg", kind: "textGen", name: "Notify", x: 3, y: 0, textGen: TEXTGEN },
+      { id: "k1", kind: "sink", name: "Depot", x: 4, y: 0 },
+    ],
+    edges: [
+      { id: "e1", kind: "flow", from: "s1", to: "br" },
+      { id: "e2", kind: "flow", from: "br", to: "au" },
+      { id: "e3", kind: "flow", from: "br", to: "hu" },
+      { id: "e4", kind: "flow", from: "au", to: "mg" },
+      { id: "e5", kind: "flow", from: "hu", to: "mg" },
+      { id: "e6", kind: "flow", from: "mg", to: "k1" },
+    ],
+  };
+}
+
 async function collect(gen: AsyncGenerator<RunEvent>): Promise<RunEvent[]> {
   const out: RunEvent[] = [];
   for await (const e of gen) out.push(e);
@@ -128,7 +161,45 @@ describe("4.7 human-in-the-loop", () => {
     expect(decision.decision).toBe("rejected");
     expect(finished(events).status).toBe("failed");
   });
-});
+  it("approve on a branch-routed human tail still runs the merge and the sink", async () => {
+    const { worker } = humanLoopWorker();
+    const graph = branchHumanGraph();
+    const { plan } = compile(graph);
+    if (!plan) throw new Error("no plan");
+    const halted = await collect(execute({ runId: "r", graph, plan, worker, now: () => 0 }));
+    expect(finished(halted).status).toBe("halted");
+    // The un-routed tail is recorded, so the resume can reconstruct it.
+    expect(halted.some((e) => e.type === "node.skipped" && e.nodeId === "au")).toBe(true);
 
-// Keep vi import used (restoreAllMocks hygiene across suites).
-void vi;
+    const events = await collect(
+      resume({ runId: "r", graph, plan, worker, budgetUsd: null, pastEvents: halted, action: "approve", now: () => 0 }),
+    );
+    expect(finished(events).status).toBe("done");
+    // Dogfood tpl-customer-service: the merge and the sink used to be stranded
+    // behind the sibling tail that resume re-seeded as pending — the run then
+    // reported done with no notify sent and no product archived.
+    expect(events.some((e) => e.type === "node.finished" && e.nodeId === "mg")).toBe(true);
+    expect(events.some((e) => e.type === "node.finished" && e.nodeId === "k1")).toBe(true);
+  });
+
+  it("a resume that cannot reconstruct a skip fails loudly instead of reporting done", async () => {
+    // Event logs written before branch tails emitted node.skipped leave the
+    // un-routed tail unreconstructable, so the merge stays stranded. Claiming
+    // done would be a silent drop: the run must fail and name what it dropped.
+    const { worker } = humanLoopWorker();
+    const graph = branchHumanGraph();
+    const { plan } = compile(graph);
+    if (!plan) throw new Error("no plan");
+    const halted = await collect(execute({ runId: "r", graph, plan, worker, now: () => 0 }));
+    const legacyLog = halted.filter((e) => e.type !== "node.skipped");
+
+    const events = await collect(
+      resume({ runId: "r", graph, plan, worker, budgetUsd: null, pastEvents: legacyLog, action: "approve", now: () => 0 }),
+    );
+    const fin = finished(events);
+    expect(fin.status).toBe("failed");
+    expect(fin.reason).toContain("Notify");
+    expect(fin.reason).toContain("Depot");
+    expect(events.some((e) => e.type === "node.finished" && e.nodeId === "k1")).toBe(false);
+  });
+});
