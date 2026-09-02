@@ -211,6 +211,20 @@ describe("generic node — honest failure and artifact parity", () => {
     expect(replay(events).status).toBe("failed");
   });
 
+  it("fails when the provider returns zero results for a media modality", async () => {
+    // A worker can expose the capability and still hand back nothing —
+    // routingWorker returns [] for a provider without the modality. An empty
+    // result set is not a successful no-op (audit item L8): the node asked for
+    // n ≥ 1 items and got none, so there is no product.
+    const worker: Worker = { ...fakeWorker(), generateAudio: async () => [] };
+    const events = await collect(graph("audio"), worker);
+    const failed = events.find((e) => e.type === "node.failed" && e.nodeId === "gen");
+    expect(failed).toBeTruthy();
+    expect(failed.errorCode).toBe("UNSUPPORTED");
+    expect(events.some((e) => e.type === "node.finished" && e.nodeId === "gen")).toBe(false);
+    expect(replay(events).status).toBe("failed");
+  });
+
   it("can be caught by an error edge, so templates keep the fallback option", async () => {
     const worker: Worker = {
       ...fakeWorker(),
