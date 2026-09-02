@@ -6,8 +6,9 @@
  *  - every credential carried by a graph document / snapshot — trigger webhook
  *    secrets, node-level provider keys (imageGen / videoGen / audioGen /
  *    generic `apiKey`), notify `secret` and `webhookUrl` (group-bot URLs embed
- *    their token in the path), connector `auth.token`, and auth-ish HTTP header
- *    values on both http nodes and http connectors.
+ *    their token in the path), connector `auth.token`, and HTTP header values
+ *    whose name is auth-ish — on both http nodes and http connectors, including
+ *    custom names no fixed list could enumerate (`X-My-Auth`, `X-Signature`).
  *
  * Design: AES-256-GCM, one random 12-byte IV per encryption, stored as
  * `enc:v1:<iv b64>:<tag b64>:<cipher b64>`. Values without the prefix are
@@ -104,20 +105,34 @@ export function decryptString(stored: string): string {
  * `triggers[].webhookSecret`, which left every node-level key in plaintext —
  * the same defect class in a sibling branch.
  *
- * Header names are keys of a record, so the auth-ish ones are listed here too
- * and get sealed by the same rule. Boundary, stated honestly: a credential
- * hidden under an unlisted custom header name (e.g. `X-My-Auth`) is NOT caught.
+ * Header names are keys of a record and are user-chosen, so an exact list can
+ * never cover them: inside a `headers` record any name that looks auth-ish is
+ * sealed too (see AUTHISH_HEADER). Benign headers stay readable on disk, which
+ * is what makes a sealed doc debuggable. Boundary, stated honestly: a
+ * credential embedded in a URL query string (`?token=…`) is still NOT caught.
  */
 const SECRET_KEYS =
   /^(apikey|api_key|secret|webhooksecret|token|accesstoken|refreshtoken|webhookurl|authorization|proxy-authorization|cookie|set-cookie|x-api-key|x-auth-token|x-token|x-goog-api-key|ocp-apim-subscription-key)$/i;
 
+/** Header names that carry a credential even though no list could name them. */
+const AUTHISH_HEADER = /(auth|token|key|secret|credential|signature|password|passwd|session|cookie|bearer)/i;
+
+/**
+ * True when the string under `key` is a credential. `parentKey` is the key of
+ * the object holding it, which is how a `headers` record is recognised.
+ */
+function isSecretKey(key: string, parentKey?: string): boolean {
+  if (SECRET_KEYS.test(key)) return true;
+  return parentKey !== undefined && /^headers$/i.test(parentKey) && AUTHISH_HEADER.test(key);
+}
+
 /** True when a subtree carries at least one secret-keyed non-empty string. */
-function containsSecret(value: unknown): boolean {
-  if (Array.isArray(value)) return value.some(containsSecret);
+function containsSecret(value: unknown, parentKey?: string): boolean {
+  if (Array.isArray(value)) return value.some((v) => containsSecret(v, parentKey));
   if (value && typeof value === "object") {
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      if (typeof v === "string" && v && SECRET_KEYS.test(k)) return true;
-      if (containsSecret(v)) return true;
+      if (typeof v === "string" && v && isSecretKey(k, parentKey)) return true;
+      if (containsSecret(v, k)) return true;
     }
   }
   return false;
@@ -129,11 +144,11 @@ function containsSecret(value: unknown): boolean {
  * comparable). Returns the ORIGINAL reference when nothing changed, so graphs
  * without credentials keep their identity and cost nothing.
  */
-function mapSecrets(value: unknown, fn: (v: string) => string): { out: unknown; changed: boolean } {
+function mapSecrets(value: unknown, fn: (v: string) => string, parentKey?: string): { out: unknown; changed: boolean } {
   if (Array.isArray(value)) {
     let changed = false;
     const out = value.map((v) => {
-      const r = mapSecrets(v, fn);
+      const r = mapSecrets(v, fn, parentKey);
       if (r.changed) changed = true;
       return r.out;
     });
@@ -143,12 +158,12 @@ function mapSecrets(value: unknown, fn: (v: string) => string): { out: unknown; 
     let changed = false;
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      if (typeof v === "string" && v && SECRET_KEYS.test(k)) {
+      if (typeof v === "string" && v && isSecretKey(k, parentKey)) {
         const next = fn(v);
         out[k] = next;
         if (next !== v) changed = true;
       } else {
-        const r = mapSecrets(v, fn);
+        const r = mapSecrets(v, fn, k);
         out[k] = r.out;
         if (r.changed) changed = true;
       }

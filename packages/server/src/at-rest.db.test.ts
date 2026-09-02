@@ -100,6 +100,7 @@ describe("at-rest encryption: db integration (audit L3)", () => {
     const nodeKey = "sk-node-on-disk";
     const botToken = "bot-token-on-disk";
     const connToken = "conn-token-on-disk";
+    const hdrToken = "custom-hdr-on-disk";
     const graph: Graph = {
       id: "g1",
       name: "graph-g1",
@@ -121,12 +122,19 @@ describe("at-rest encryption: db integration (audit L3)", () => {
           id: "nt", kind: "notify", name: "NT", x: 2, y: 0,
           notify: { provider: "feishu", webhookUrl: `https://open.feishu.cn/hook/${botToken}`, message: "m" },
         } as never,
-        { id: "depot", kind: "sink", name: "DEPOT", x: 3, y: 0 },
+        {
+          // A credential under a header name no fixed list contains: the sealer
+          // matches auth-ish names inside a headers record.
+          id: "ht", kind: "http", name: "HT", x: 3, y: 0,
+          http: { url: "https://api.example.com/y", headers: { "X-My-Auth": hdrToken, Accept: "*/*" } },
+        } as never,
+        { id: "depot", kind: "sink", name: "DEPOT", x: 4, y: 0 },
       ],
       edges: [
         { id: "e1", from: "src", to: "aud", kind: "flow" },
         { id: "e2", from: "aud", to: "nt", kind: "flow" },
-        { id: "e3", from: "nt", to: "depot", kind: "flow" },
+        { id: "e3", from: "nt", to: "ht", kind: "flow" },
+        { id: "e4", from: "ht", to: "depot", kind: "flow" },
       ],
     };
 
@@ -148,6 +156,7 @@ describe("at-rest encryption: db integration (audit L3)", () => {
         expect(d).not.toContain(nodeKey);
         expect(d).not.toContain(botToken);
         expect(d).not.toContain(connToken);
+        expect(d).not.toContain(hdrToken);
         expect(d).toContain("enc:v1:");
       }
     } finally {
@@ -160,6 +169,8 @@ describe("at-rest encryption: db integration (audit L3)", () => {
     expect(nodes.find((n) => n.id === "aud")!.audioGen.apiKey).toBe(nodeKey);
     expect(nodes.find((n) => n.id === "nt")!.notify.webhookUrl).toContain(botToken);
     expect(nodes.find((n) => n.id === "src")!.source.connector.http.auth.token).toBe(connToken);
+    expect(nodes.find((n) => n.id === "ht")!.http.headers["X-My-Auth"]).toBe(hdrToken);
+    expect(nodes.find((n) => n.id === "ht")!.http.headers.Accept).toBe("*/*");
 
     // Hashes stay plaintext-based, so "matches what ran" still lines up.
     const versionHash = (db.listVersions("g1", "u1") as unknown as Array<{ contentHash: string }>)

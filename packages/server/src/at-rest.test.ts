@@ -189,4 +189,41 @@ describe("at-rest encryption — node-level credentials", () => {
     expect(sealGraphDoc(g)).toBe(g);
     expect(openGraphDoc(g)).toBe(g);
   });
+
+  it("seals a credential hidden under a custom header name no list could enumerate", () => {
+    // The exact SECRET_KEYS list covers `authorization` / `x-api-key` and friends,
+    // but header names are user-chosen: dogfood pipelines have used whatever the
+    // upstream API asked for. Name-pattern matching inside a headers record is
+    // what closes that gap.
+    const g = nodeGraph({
+      id: "n", kind: "http", name: "N", x: 0, y: 0,
+      http: {
+        url: "https://api.example.com/x",
+        headers: {
+          "X-My-Auth": "custom-header-token",
+          "X-Signature": "sig-9f8e7d",
+          "Content-Type": "application/json",
+        },
+      },
+    });
+    const json = JSON.stringify(sealGraphDoc(g));
+    expect(json).not.toContain("custom-header-token");
+    expect(json).not.toContain("sig-9f8e7d");
+    expect(json).toContain("application/json"); // benign headers stay debuggable
+    expect(json).toContain("https://api.example.com/x");
+
+    const opened = cfgOf(openGraphDoc(sealGraphDoc(g)), "http").headers as Record<string, string>;
+    expect(opened["X-My-Auth"]).toBe("custom-header-token");
+    expect(opened["X-Signature"]).toBe("sig-9f8e7d");
+    expect(opened["Content-Type"]).toBe("application/json");
+  });
+
+  it("keeps the same reference when a headers record holds nothing auth-ish", () => {
+    const g = nodeGraph({
+      id: "n", kind: "http", name: "N", x: 0, y: 0,
+      http: { url: "https://api.example.com/x", headers: { "Content-Type": "application/json", Accept: "*/*" } },
+    });
+    expect(sealGraphDoc(g)).toBe(g);
+    expect(openGraphDoc(g)).toBe(g);
+  });
 });
