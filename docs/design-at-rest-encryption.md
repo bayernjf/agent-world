@@ -88,7 +88,13 @@ export function openGraphDoc(graph: Graph): Graph      // 反向；解密失败�
 > **header 名由用户自定，名单枚举不可能穷尽**，故 `ff223bb` 起在任何 `headers` 记录内改按**名字模式**
 > （`AUTHISH_HEADER`：auth / token / key / secret / credential / signature / password / session / cookie / bearer）
 > 加密其值，良性 header（`Content-Type` 等）保持明文以便排查。
+> **URL 查询串里的凭证**（`?access_token=…`、Azure 的 `?api-key=…`）由 `043ce5c` 收口：字段名命中 `URL_KEYS`
+> 时按 `QUERY_SECRET` **精确匹配参数名**（不用子串，否则 `author` 含 auth、`keyboard` 含 key 会被误封），
+> **只封参数值、保留 host/path/良性参数可读**；密文内嵌进 URL 时必须 `encodeURIComponent`（base64 里的 `+`
+> 会被服务端解成空格），所以盘上原始字节看到的是 `enc%3Av1%3A`。
 > 两条不变量：键顺序不变（明文 contentHash 可比）、无凭证的文档返回**同一引用**（零成本、身份不变）。
+> 另注：原先独立的 `containsSecret` 探测函数已删除——探测器与改写器各写一份规则，正是 L3 首轮修复漏掉
+> 全部节点级 key 的成因；现在 seal/open 共用同一次遍历。
 
 ### 4.4 接入点
 
@@ -138,21 +144,34 @@ bindSettingsStore({
    - `saveVersion → getVersion → restore` 后 secret 一致；
    - `createRun → getRun` 一致；`getLatestRunContentHash` 与 version 表 hash 匹配；
    - 加密后 sqlite 原始字符串不含明文 secret（直接查 DB 断言）。
-3. 全量回归：546 用例 + typecheck。
+   - 后续追加：`?access_token=` / `?api-key=` 类 URL 凭证（`043ce5c`）、`search.apiKey` / `vcs.token` /
+     `vcs.baseUrl?access_token=`（`75f02b4`）——八处明文凭证 × ≥4 份原始存储副本。
+3. 全量回归：方案落地时 546 用例 + typecheck；收口时实测 core 164 / server 664 / web 32 + `pnpm -r typecheck`。
 
 ## 7. 验收标准
 
-- [ ] sqlite 中三张表（settings / graphs.doc / graph_versions.snapshot / runs.snapshot）无明文 API Key 与 webhookSecret；
-- [ ] API 语义不变：settings 读写、图保存/加载、版本预览/恢复、运行审计全部正常；
-- [ ] 新旧数据兼容：既有明文库升级后功能不受影响（lazy 迁移：下次写入自动加密）；
-- [ ] 全量测试通过、typecheck 通过。
+- [x] sqlite 中四张表（settings / graphs.doc / graph_versions.snapshot / runs.snapshot）无明文 API Key 与 webhookSecret；
+- [x] API 语义不变：settings 读写、图保存/加载、版本预览/恢复、运行审计全部正常；
+- [x] 新旧数据兼容：既有明文库升级后功能不受影响（lazy 迁移：下次写入自动加密）；
+- [x] 全量测试通过、typecheck 通过。
 
 ## 8. 残余风险与后续
 
 - **阶段划分**：settings + `graphs.doc` + `graph_versions.snapshot` 为本轮核心（L3 主目标）；`runs.snapshot` 因读取点分散（含成本/评估/缩略图裸 parse）在方案中一并设计，随代码落地验证。
 - 明文 secret 仍短暂存在于**内存**（运行期比对、fireWebhook），这是功能必需，不属静态加密范畴。
 - `config.json` 文件基线（无 user 的共享配置）仍为明文（0600 权限），属既有设计（团队共享基线），不在本轮范围。
-- **残留边界（`ff223bb` 后）**：http 节点 / 连接器 `url` 查询串里内嵌的凭证（`?token=…`）仍明文落库——按字段名加密无法区分"带 token 的 URL"与普通 endpoint，误伤面大于收益；如需收口应改为在写入前把 query 凭证搬进 `headers`。
+- ~~**残留边界（`ff223bb` 后）**：http 节点 / 连接器 `url` 查询串里内嵌的凭证仍明文落库~~ → **已收口 `043ce5c`**：
+  按字段名命中 `URL_KEYS` 后逐参数判定（见 §4.3），只封凭证参数的值、endpoint 与良性参数保持可读。
+  选择"就地封值"而不是方案里提过的"把 query 凭证搬进 `headers`"：后者要改写请求语义，bot/Azure 这类
+  **只认 query 参数**的端点会直接失效；封值不改变 URL 结构。
+- **`f914fa9`/`75f02b4` 后新增的凭证入口自动被覆盖**：`search.apiKey`、`vcs.token` 的字段名本就在
+  `SECRET_KEYS` 内，`vcs.baseUrl` 在 `URL_KEYS` 内，因此节点级密钥无需再改 sealer 即已加密；
+  db 集成用例把这三处（含 `baseUrl?access_token=`）一并计入盘上原始字节断言。
+- **仍然拦不到的**：写进自由文本的密钥——agent 的 prompt/`variables`、code 节点脚本正文、http 节点
+  body 里的字符串。这些位置按定义无法区分"密钥"与"普通文字"，静态加密不覆盖，属于使用侧约束
+  （文档与 Inspector 提示都引导用户把凭证放在专用字段里）。
+- **不在范畴内的一条**：API 返回给已登录用户的图 JSON 始终是明文（应用要用），静态加密只保证**盘上**
+  与**备份**不含明文；本项目也没有"图导出成文件"的功能，导出仅在 CSV（成本/评估）语境出现。
 
 ## 9. 相关文档
 

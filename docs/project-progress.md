@@ -11,9 +11,9 @@
 
 | 模块 | 完成度 | 状态 | 说明 / 关联文档 |
 |---|---|---|---|
-| 安全加固（审计 29 项） | 100% | ✅ 已完成 | 3 Critical/10 High/8 Medium/8 Low 全部修复，含 CORS 通配符拒绝、SSRF、静态加密 L3；推翻 2 条旧"已解决"结论。**2026-09-02 扩围**：L3 静态加密从仅 `triggers[].webhookSecret` 扩展到图文档内**所有节点级凭证**（imageGen/videoGen/audioGen/generic `apiKey`、notify `secret`+`webhookUrl`、连接器 `auth.token`+auth 类 `headers`），`sealGraphDoc`/`openGraphDoc` 改为按字段名递归遍历（`f7c333f`）；**再收口**：`headers` 里由自定义名字承载的凭证（`X-My-Auth`、`X-Signature`）按名字模式加密，固定名单枚举不到的漏网补上（`ff223bb`），残留边界只剩"凭证嵌在 URL query（`?token=…`）里"这一条 — [security-audit-2026-08-31.md](security-audit-2026-08-31.md) |
+| 安全加固（审计 29 项） | 100% | ✅ 已完成 | 3 Critical/10 High/8 Medium/8 Low 全部修复，含 CORS 通配符拒绝、SSRF、静态加密 L3；推翻 2 条旧"已解决"结论。**2026-09-02 扩围**：L3 静态加密从仅 `triggers[].webhookSecret` 扩展到图文档内**所有节点级凭证**（imageGen/videoGen/audioGen/generic `apiKey`、notify `secret`+`webhookUrl`、连接器 `auth.token`+auth 类 `headers`），`sealGraphDoc`/`openGraphDoc` 改为按字段名递归遍历（`f7c333f`）；**再收口**：`headers` 里由自定义名字承载的凭证（`X-My-Auth`、`X-Signature`）按名字模式加密，固定名单枚举不到的漏网补上（`ff223bb`）；**L3 声明的最后一条残留同日闭环**：嵌在 URL query 里的凭证（`?token=…`、Azure `?api-key=`）按**精确参数名**就地加密（良性参数与 endpoint 保持明文可排查，密文 percent-encode 往返），并删掉与改写器漂移的双检测器（`043ce5c`）；**同波补上 `search`/`vcs` 此前完全没有的节点级凭证入口**（`apiKey`/`cx`/`token`/`baseUrl`，落盘前即被既有 sealer 覆盖，不再只能靠 server 环境变量 + 重启，`f914fa9`+`75f02b4`+`817bff8`）。**真正剩下的边界**：写在自由文本里的密钥（prompt / `variables` / code 脚本 / http body）——按字段名加密拦不到 — [security-audit-2026-08-31.md](security-audit-2026-08-31.md) |
 | 账号系统与用户隔离 | 100% | ✅ 已完成 | users 表 + JWT/HttpOnly cookie + 全量按 user_id 隔离 + 旧库回填迁移 |
-| 回归测试与质量门 | 100% | ✅ 已完成 | core 162 / server 649 / mcp 50 / web 32；core-path 回归基线 17 用例，Node 24 下稳定复跑 — [handoff.md Quality gate](../handoff.md) |
+| 回归测试与质量门 | 100% | ✅ 已完成 | core 164 / server 664 / mcp 50 / web 32；core-path 回归基线 17 用例，Node 24 下稳定复跑 — [handoff.md Quality gate](../handoff.md) |
 | MCP Server | 100% | ✅ 已完成 | stdio + HTTP/SSE 双传输、15 工具 + resources + prompts + notifications + Bearer 认证（P0-P2 全落地）— [design-mcp-server.md](design-mcp-server.md) |
 | Phase 1 基础通用能力 | 100% | ✅ 已完成 | HTTP/代码执行/条件分支/parallel/数据模型升级 — [roadmap-generalization.md](roadmap-generalization.md#phase-1基础通用能力2-3周) |
 | Phase 2 数据与文件处理 | 100% | ✅ 已完成 | 表格/数据库/文件解析/OCR/转换/搜索/翻译 — [roadmap-generalization.md](roadmap-generalization.md#phase-2数据与文件处理2-3周) |
@@ -21,7 +21,7 @@
 | 模板体系 | 97% | 🟡 主体完成 | 27 个实用模板覆盖 25 种节点类型中的 23 种（database / subprocess 无模板）；分类收口为 core `TEMPLATE_CATEGORIES` 有序 11 类，选择器按分类分组展示、空白钉最前（含法律合规第二模板「证据清单整理」、财务审计首个模板「费用报销初审」）+ TemplateField 参数化全链路 + 空白产线入口（BLANK_TEMPLATE 独立导出，不计入模板数）；模板市场（发布/安装）缓做 — [design-templates.md](design-templates.md) |
 | Phase 4 高级编排 | 92% | 🟡 主体完成 | 6/7 项落地：并行聚合 / subprocess / error 边+catch / AI Agent 工具循环 / human 审批 / 变量持久化；**状态机缓做** — [phase4-design.md](phase4-design.md) |
 | 版本管理补强 | 95% | 🟡 主体完成 | 自动快照 + run 关联 hash + 恢复预览；**A/B 实验已作为独立特性落地**（design-ab-testing.md）；仅剩 diff 视图缓做 — [design-versions.md](design-versions.md) |
-| 真实产线狗粮验证 | 97% | 🟢 基本完成 | **27/27 模板全覆盖**（25 ✅ + 2 🟡 环境侧阻塞）；25 种节点类型全部有真实运行记录；四类自动触发（cron/webhook/event/batch）全部真实取证；**README 演示 GIF 已完成（2026-09-01，时间轴回放）**；剩余仅 `search`/`audioGen` 两类节点的成功路径证据（需凭证） |
+| 真实产线狗粮验证 | 97% | 🟢 基本完成 | **27/27 模板全覆盖**（25 ✅ + 2 🟡 环境侧阻塞）；25 种节点类型全部有真实运行记录；四类自动触发（cron/webhook/event/batch）全部真实取证；**README 演示 GIF 已完成（2026-09-01，时间轴回放）**；剩余仅 `search`/`audioGen` 两类节点的成功路径证据（纯凭证阻塞，产品侧无待修项——search 的 key 现在直接填在节点里即可，无需改 env 重启 server） |
 | 文档完善 | 75% | 🟢 基本完成 | 核心设计文档齐；2026-09-01 完成文档-代码覆盖盘点：补齐知识记忆/A-B 设计文档、修正 technical-design 时效；handoff 最近 5 条 hash 已核实回填 |
 | 自动数据接入 Connector | 70% | 🟡 主体完成 ★ | file/http/form/manual 已落地；**SQLite database connector 已落地（2026-09-01，见 design-connector-database.md）**；剩 PG/MySQL 驱动接续（deferred） |
 | 定时 / 事件触发 | 95% | 🟢 基本完成 ★ | webhook/cron/event/batch 全落地（TriggersPanel+scheduler+27 测试）；**2026-09-01 修复 event 成功状态契约 bug**（见 design-triggers.md）；多实例分布式锁 deferred |
@@ -35,7 +35,7 @@
 
 - **执行引擎**：25 种节点类型，按 `NODE_CATEGORIES` 五组——AI 加工 5 / 车间调度 6 / 物料处理 7 / 外接设备 5 / 投料出料 2（逐种名称与中文术语见 [design-glossary.md](design-glossary.md)）；流式 + SSE + 断线重连 + halt/resume，成本电表（token + 单价）。
 - **高级编排**：subprocess 子流程、error 边 + catch 容错、失败级联 skip、节点级重试、失败告警 + rerun、人工审批节点、graph 变量跨 run 持久化。
-- **可信运行**：账号/用户隔离、静态加密（AES-256-GCM，**2026-09-02 扩围至图文档内所有节点级凭证，并按 header 名字模式收口自定义凭证头**）、SSRF 防护 + 代码沙箱（P0-P2 + net allowlist 代理）、29 项安全审计闭环。
+- **可信运行**：账号/用户隔离、静态加密（AES-256-GCM，**2026-09-02 扩围至图文档内所有节点级凭证，按 header 名字模式收口自定义凭证头，并就地加密 URL query 里的凭证；同波补上 `search`/`vcs` 的节点级凭证入口**）、SSRF 防护 + 代码沙箱（P0-P2 + net allowlist 代理）、29 项安全审计闭环。
 - **质量体系**：core-path 回归基线（compile→execute→rework→resume→artifact→auth→SSRF）+ 全量测试稳定复跑；模板/引擎修复均带回归用例；**2026-09-02 按缺陷类横扫"静默成功"**——媒体节点抛错、provider 返回空结果、模型返回空补全/空译文一律改发诚实 `node.failed`（可被 error 边兜底），不再交出没有产物或空产物的"成功"run。
 - **可扩展面**：MCP Server（外部 AI 客户端接入）、版本快照与恢复预览、模板参数化、27 内置模板按 11 分类分组展示、覆盖 25 种节点类型中的 23 种。
 
