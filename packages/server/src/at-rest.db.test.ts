@@ -102,6 +102,9 @@ describe("at-rest encryption: db integration (audit L3)", () => {
     const connToken = "conn-token-on-disk";
     const hdrToken = "custom-hdr-on-disk";
     const urlToken = "query-token-on-disk";
+    const searchKey = "search-key-on-disk";
+    const vcsToken = "vcs-token-on-disk";
+    const vcsUrlToken = "vcs-url-token-on-disk";
     const urlWithToken = `https://api.example.com/y?access_token=${urlToken}&v=2`;
     const graph: Graph = {
       id: "g1",
@@ -131,13 +134,32 @@ describe("at-rest encryption: db integration (audit L3)", () => {
           id: "ht", kind: "http", name: "HT", x: 3, y: 0,
           http: { url: urlWithToken, headers: { "X-My-Auth": hdrToken, Accept: "*/*" } },
         } as never,
-        { id: "depot", kind: "sink", name: "DEPOT", x: 4, y: 0 },
+        {
+          // Node-scoped provider credentials (the newer entry points): their
+          // field names already fall inside SECRET_KEYS / URL_KEYS, so no new
+          // list had to be extended to cover them.
+          id: "se", kind: "search", name: "SE", x: 4, y: 0,
+          search: { query: "q", provider: "tavily", apiKey: searchKey },
+        } as never,
+        {
+          id: "vc", kind: "vcs", name: "VC", x: 5, y: 0,
+          vcs: {
+            provider: "gitlab",
+            action: "list_issues",
+            projectId: "7",
+            token: vcsToken,
+            baseUrl: `https://git.corp.example.com/api/v4?access_token=${vcsUrlToken}`,
+          },
+        } as never,
+        { id: "depot", kind: "sink", name: "DEPOT", x: 6, y: 0 },
       ],
       edges: [
         { id: "e1", from: "src", to: "aud", kind: "flow" },
         { id: "e2", from: "aud", to: "nt", kind: "flow" },
         { id: "e3", from: "nt", to: "ht", kind: "flow" },
-        { id: "e4", from: "ht", to: "depot", kind: "flow" },
+        { id: "e4", from: "ht", to: "se", kind: "flow" },
+        { id: "e5", from: "se", to: "vc", kind: "flow" },
+        { id: "e6", from: "vc", to: "depot", kind: "flow" },
       ],
     };
 
@@ -146,7 +168,7 @@ describe("at-rest encryption: db integration (audit L3)", () => {
     db.createRun({ id: "run1", userId: "u1", graph, budgetUsd: null, at: 1, trigger: "manual" });
     db.saveAutoSnapshot("g1", JSON.stringify(graph), 0, 10);
 
-    // Every stored copy must be free of all four plaintext credentials.
+    // Every stored copy must be free of all eight plaintext credentials.
     const raw = new DatabaseSync(path, { readOnly: true });
     try {
       const docs = [
@@ -161,10 +183,14 @@ describe("at-rest encryption: db integration (audit L3)", () => {
         expect(d).not.toContain(connToken);
         expect(d).not.toContain(hdrToken);
         expect(d).not.toContain(urlToken);
+        expect(d).not.toContain(searchKey);
+        expect(d).not.toContain(vcsToken);
+        expect(d).not.toContain(vcsUrlToken);
         expect(d).toContain("enc:v1:");
         // Only the param value is sealed — the endpoint itself stays readable.
         expect(d).toContain("https://api.example.com/y?access_token=enc%3Av1%3A");
         expect(d).toContain("&v=2");
+        expect(d).toContain("https://git.corp.example.com/api/v4?access_token=enc%3Av1%3A");
       }
     } finally {
       raw.close();
@@ -179,6 +205,11 @@ describe("at-rest encryption: db integration (audit L3)", () => {
     expect(nodes.find((n) => n.id === "ht")!.http.headers["X-My-Auth"]).toBe(hdrToken);
     expect(nodes.find((n) => n.id === "ht")!.http.headers.Accept).toBe("*/*");
     expect(nodes.find((n) => n.id === "ht")!.http.url).toBe(urlWithToken);
+    expect(nodes.find((n) => n.id === "se")!.search.apiKey).toBe(searchKey);
+    expect(nodes.find((n) => n.id === "vc")!.vcs.token).toBe(vcsToken);
+    expect(nodes.find((n) => n.id === "vc")!.vcs.baseUrl).toBe(
+      `https://git.corp.example.com/api/v4?access_token=${vcsUrlToken}`,
+    );
 
     // Hashes stay plaintext-based, so "matches what ran" still lines up.
     const versionHash = (db.listVersions("g1", "u1") as unknown as Array<{ contentHash: string }>)

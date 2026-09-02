@@ -5,8 +5,11 @@ import { outboundProxyDispatcher } from "./ssrf.js";
 /**
  * Web search providers for the `search` node. `duckduckgo` works without any
  * API key (HTML endpoint, parsed with tolerant regexes); the other providers
- * read their credentials from env vars at run time so no secret is stored in
- * the graph: TAVILY_API_KEY / SERPAPI_API_KEY / GOOGLE_API_KEY + GOOGLE_CX.
+ * resolve their credential **node first, env as fallback** — `search.apiKey`
+ * over TAVILY_API_KEY / SERPAPI_API_KEY / GOOGLE_API_KEY, and `search.cx` over
+ * GOOGLE_CX. A key typed into the Inspector therefore takes effect on the next
+ * run without restarting the server, and it is encrypted before it reaches
+ * disk (see at-rest.ts).
  */
 
 export interface SearchHit {
@@ -22,10 +25,15 @@ export class SearchAuthError extends Error {
   }
 }
 
-function requireEnv(name: string): string {
-  const v = process.env[name];
-  if (!v) throw new SearchAuthError(`缺少环境变量 ${name}（${name} 未配置时无法使用该搜索源）`);
-  return v;
+/** Node value wins; the env var is the deployment-wide fallback. */
+function resolveCredential(nodeValue: string | undefined, envName: string, field: string): string {
+  const fromNode = nodeValue?.trim();
+  if (fromNode) return fromNode;
+  const fromEnv = process.env[envName];
+  if (fromEnv) return fromEnv;
+  throw new SearchAuthError(
+    `缺少搜索凭证：节点的 ${field} 未填写，环境变量 ${envName} 也未配置（填在节点里无需重启 server）`,
+  );
 }
 
 /** fetch with the optional outbound proxy dispatcher attached (AGENT_WORLD_PROXY). */
@@ -107,54 +115,54 @@ interface GoogleResponse {
   items?: { title?: string; link?: string; snippet?: string }[];
 }
 
-async function searchTavily(query: string, maxResults: number): Promise<SearchHit[]> {
-  const key = requireEnv("TAVILY_API_KEY");
+async function searchTavily(query: string, cfg: SearchConfig): Promise<SearchHit[]> {
+  const key = resolveCredential(cfg.apiKey, "TAVILY_API_KEY", "apiKey");
   const res = await outboundFetch("https://api.tavily.com/search", {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
-    body: JSON.stringify({ query, max_results: maxResults }),
+    body: JSON.stringify({ query, max_results: cfg.maxResults }),
   });
   if (res.status === 401 || res.status === 403) throw new SearchAuthError("Tavily API key 无效或过期");
   if (!res.ok) throw new Error(`Tavily 返回 ${res.status}`);
   const json = (await res.json()) as TavilyResponse;
   return (json.results ?? [])
     .filter((r) => r.url && r.title)
-    .slice(0, maxResults)
+    .slice(0, cfg.maxResults)
     .map((r) => ({ title: r.title!, url: r.url!, snippet: r.content ?? "" }));
 }
 
-async function searchSerpApi(query: string, maxResults: number): Promise<SearchHit[]> {
-  const key = requireEnv("SERPAPI_API_KEY");
+async function searchSerpApi(query: string, cfg: SearchConfig): Promise<SearchHit[]> {
+  const key = resolveCredential(cfg.apiKey, "SERPAPI_API_KEY", "apiKey");
   // Audit L6: SerpAPI only authenticates via the api_key query parameter (no
   // header option). It stays in the query, but is protected by TLS in transit
   // and is never placed in logs or error messages (the throws below are static).
-  const url = `https://serpapi.com/search?q=${encodeURIComponent(query)}&num=${maxResults}&api_key=${encodeURIComponent(key)}`;
+  const url = `https://serpapi.com/search?q=${encodeURIComponent(query)}&num=${cfg.maxResults}&api_key=${encodeURIComponent(key)}`;
   const res = await outboundFetch(url);
   if (res.status === 401 || res.status === 403) throw new SearchAuthError("SerpAPI key 无效或过期");
   if (!res.ok) throw new Error(`SerpAPI 返回 ${res.status}`);
   const json = (await res.json()) as SerpApiResponse;
   return (json.organic_results ?? [])
     .filter((r) => r.link && r.title)
-    .slice(0, maxResults)
+    .slice(0, cfg.maxResults)
     .map((r) => ({ title: r.title!, url: r.link!, snippet: r.snippet ?? "" }));
 }
 
-async function searchGoogle(query: string, maxResults: number): Promise<SearchHit[]> {
-  const key = requireEnv("GOOGLE_API_KEY");
-  const cx = requireEnv("GOOGLE_CX");
+async function searchGoogle(query: string, cfg: SearchConfig): Promise<SearchHit[]> {
+  const key = resolveCredential(cfg.apiKey, "GOOGLE_API_KEY", "apiKey");
+  const cx = resolveCredential(cfg.cx, "GOOGLE_CX", "cx");
   // Audit L6: the Google Custom Search JSON API accepts its key only as the
   // ?key= query parameter (no Authorization header). TLS protects it in
   // transit and the URL is never logged or surfaced in thrown errors.
   const url =
     `https://www.googleapis.com/customsearch/v1?key=${encodeURIComponent(key)}` +
-    `&cx=${encodeURIComponent(cx)}&q=${encodeURIComponent(query)}&num=${maxResults}`;
+    `&cx=${encodeURIComponent(cx)}&q=${encodeURIComponent(query)}&num=${cfg.maxResults}`;
   const res = await outboundFetch(url);
   if (res.status === 401 || res.status === 403) throw new SearchAuthError("Google API key 无效或过期");
   if (!res.ok) throw new Error(`Google 返回 ${res.status}`);
   const json = (await res.json()) as GoogleResponse;
   return (json.items ?? [])
     .filter((r) => r.link && r.title)
-    .slice(0, maxResults)
+    .slice(0, cfg.maxResults)
     .map((r) => ({ title: r.title!, url: r.link!, snippet: r.snippet ?? "" }));
 }
 
@@ -165,11 +173,11 @@ export async function searchWeb(query: string, cfg: SearchConfig): Promise<Searc
       () => {
         switch (cfg.provider) {
           case "tavily":
-            return searchTavily(query, cfg.maxResults);
+            return searchTavily(query, cfg);
           case "serpapi":
-            return searchSerpApi(query, cfg.maxResults);
+            return searchSerpApi(query, cfg);
           case "google":
-            return searchGoogle(query, cfg.maxResults);
+            return searchGoogle(query, cfg);
           default:
             return searchDuckDuckGo(query, cfg.maxResults);
         }
@@ -185,7 +193,7 @@ export async function searchWeb(query: string, cfg: SearchConfig): Promise<Searc
     // directly reachable without an outbound proxy in some networks).
     if (/fetch failed|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|UND_ERR/i.test(msg)) {
       throw new Error(
-        `${msg} —— 本机网络无法直连该搜索源。可选：① 在节点配置改用 tavily/serpapi/google 搜索源（对应密钥走环境变量 TAVILY_API_KEY / SERPAPI_API_KEY / GOOGLE_API_KEY+GOOGLE_CX，重启 server 生效）；② 为 server 进程配置出站代理后重启（环境变量 AGENT_WORLD_PROXY，注意 SSRF 校验语义变化，见 docs/design-code-sandbox.md）`,
+        `${msg} —— 本机网络无法直连该搜索源。可选：① 改用 tavily/serpapi/google 搜索源并在节点里填 apiKey（留空则回落环境变量 TAVILY_API_KEY / SERPAPI_API_KEY / GOOGLE_API_KEY+GOOGLE_CX，节点内填写无需重启 server）；② 为 server 进程配置出站代理后重启（环境变量 AGENT_WORLD_PROXY，注意 SSRF 校验语义变化，见 docs/design-code-sandbox.md）`,
       );
     }
     throw err;

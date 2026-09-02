@@ -237,3 +237,63 @@ describe("vcs node — github & gitlab", () => {
     expect((init as any).dispatcher.constructor.name).toBe("ProxyAgent");
   });
 });
+
+describe("vcs node — node-level credentials", () => {
+  it("sends the node token instead of GITHUB_TOKEN when both are set", async () => {
+    vi.stubEnv("GITHUB_TOKEN", "ghp_from_env");
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify([]), { status: 200, headers: { "content-type": "application/json" } }),
+    );
+    const events = await collect(
+      vcsGraph({ provider: "github", action: "list_issues", owner: "o", repo: "r", token: "ghp_from_node" }),
+    );
+    expect(replay(events).status).toBe("done");
+    const [, init] = fetchMock.mock.calls[0]!;
+    expect((init as any).headers.authorization).toBe("Bearer ghp_from_node");
+  });
+
+  it("runs with only a node token when GITLAB_TOKEN is empty", async () => {
+    vi.stubEnv("GITLAB_TOKEN", "");
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify([{ iid: 1 }]), { status: 200, headers: { "content-type": "application/json" } }),
+    );
+    const events = await collect(
+      vcsGraph({ provider: "gitlab", action: "list_issues", projectId: "42", token: "glpat-from-node" }),
+    );
+    expect(replay(events).status).toBe("done");
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe("https://gitlab.com/api/v4/projects/42/issues?state=opened&per_page=30");
+    expect((init as any).headers["private-token"]).toBe("glpat-from-node");
+  });
+
+  it("sends gitlab calls to a node-level baseUrl instead of GITLAB_API_URL", async () => {
+    // guardedFetch covers this host, so a node-controlled self-hosted origin
+    // cannot be turned into an SSRF probe (the reason search has no override).
+    vi.stubEnv("GITLAB_TOKEN", "glpat-env");
+    vi.stubEnv("GITLAB_API_URL", "https://env-gitlab.example.com/api/v4");
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify([]), { status: 200, headers: { "content-type": "application/json" } }),
+    );
+    const events = await collect(
+      vcsGraph({
+        provider: "gitlab",
+        action: "list_issues",
+        projectId: "7",
+        baseUrl: "https://git.corp.example.com/api/v4",
+      }),
+    );
+    expect(replay(events).status).toBe("done");
+    const [url] = fetchMock.mock.calls[0]!;
+    expect(url).toBe("https://git.corp.example.com/api/v4/projects/7/issues?state=opened&per_page=30");
+  });
+
+  it("names both credential entry points when the token is missing in both", async () => {
+    vi.stubEnv("GITHUB_TOKEN", "");
+    const events = await collect(vcsGraph({ provider: "github", action: "list_issues", owner: "o", repo: "r" }));
+    const failed = events.find((e) => e.type === "node.failed" && e.nodeId === "v");
+    expect(failed.errorCode).toBe("AUTH");
+    expect(failed.error).toContain("节点的 token 未填写");
+    expect(failed.error).toContain("GITHUB_TOKEN");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
