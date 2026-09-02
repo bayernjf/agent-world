@@ -69,7 +69,7 @@
 | L5 | vcs.ts 将 `owner/repo/number` 等直接插值进 URL（仅影响提供方主机内的路径/查询篡改） | `vcs.ts:110/124/130/139/160` |
 | L6 | SerpAPI/Google key 以 URL query 参数发送（中间代理可见） | `search.ts:107/122` |
 | L7 | MCP `SseMcpTransport` 接受服务端 `endpoint` 事件作为 POST 目标不校验（受 `MCP_SERVERS` 运营方配置约束）；`/api/proxy` 每跳仍有 check-vs-connect 窗口且无响应体大小上限；Teredo `2001::/32` 未覆盖 | `mcp.ts:310/335`、`index.ts:1529-1550` |
-| L8 | 前端细节：未提交改动把"全选 / 清空"按钮改成"全选"但 `toggleAll` 仍是切换行为，文案与行为不符；~~`routingWorker` 对缺模态的 provider 静默返回空结果（会掩盖配置错误）~~（已修复 `2797011`：routingWorker 仍返回 `[]`，但引擎侧六个媒体分支——videoGen/audioGen/imageGen 与 generic 的 image/video/audio——不再把空结果当成功，改发 `UNSUPPORTED` 并在报错里带上模型名；此前空结果会走成 node.finished + 零产物 + “生成音频 0 段”报文 + run 报 done，+4 回归用例） | `ModelAssignModal.tsx:208-210`、`providers/index.ts:68-80` |
+| L8 | ~~前端细节：未提交改动把"全选 / 清空"按钮改成"全选"但 `toggleAll` 仍是切换行为，文案与行为不符~~（已修复 `b6b62d4`：把 all-on 计算提到渲染作用域，已全选时按钮显示「清空」、否则「全选」，两个动作都保留但文案与行为一致；“已使用”节点仍不参与计算）；~~`routingWorker` 对缺模态的 provider 静默返回空结果（会掩盖配置错误）~~（已修复 `2797011`：routingWorker 仍返回 `[]`，但引擎侧六个媒体分支——videoGen/audioGen/imageGen 与 generic 的 image/video/audio——不再把空结果当成功，改发 `UNSUPPORTED` 并在报错里带上模型名；此前空结果会走成 node.finished + 零产物 + “生成音频 0 段”报文 + run 报 done，+4 回归用例）——**本项两半均已关闭** | `ModelAssignModal.tsx:208-210`、`providers/index.ts:68-80` |
 
 ## 4. 修复方案
 
