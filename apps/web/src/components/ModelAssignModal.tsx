@@ -115,12 +115,13 @@ export default function ModelAssignModal({ open, onClose, onOpenSettings }: Prop
     });
   };
 
+  // Only consider enabled (non-same) nodes — "已使用" ones can't be
+  // toggled at all, so they mustn't flip the all-on / all-off branch.
+  const assignable = candidates.filter((n) => modelOf(n) !== picked?.model);
+  const allOn = assignable.length > 0 && assignable.every((n) => checked.has(n.id));
+
   const toggleAll = () => {
-    // Only consider enabled (non-same) nodes — "已使用" ones can't be
-    // toggled at all, so they mustn't flip the all-on / all-off branch.
-    const enabled = candidates.filter((n) => modelOf(n) !== picked?.model);
-    const allOn = enabled.length > 0 && enabled.every((n) => checked.has(n.id));
-    setChecked(allOn ? new Set() : new Set(enabled.map((n) => n.id)));
+    setChecked(allOn ? new Set() : new Set(assignable.map((n) => n.id)));
   };
 
   const selectedCount = candidates.filter((n) => checked.has(n.id)).length;
@@ -206,7 +207,10 @@ export default function ModelAssignModal({ open, onClose, onOpenSettings }: Prop
                         </span>
                         <span className="model-assign__picked">{picked.model}</span>
                         <button className="model-assign__toggle" onClick={toggleAll}>
-                          全选
+                          {/* The action toggles, so the label must say which way it
+                              is about to go — a static "全选" read as a promise and
+                              then cleared an all-selected list (audit L8). */}
+                          {allOn ? "清空" : "全选"}
                         </button>
                       </div>
                       <div className="model-assign__list">
