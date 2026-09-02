@@ -631,7 +631,12 @@ const opsWeeklyGraph = {
       key: "dataUrl",
       label: "数据接口地址",
       placeholder: "https://your-api.example.com/metrics",
-      defaultValue: "https://raw.githubusercontent.com/github/rest-api-description/main/examples/README.md",
+      // The previous default (a rest-api-description README path) 404s, so a
+      // new user running this template out of the box ALWAYS landed on the
+      // error-edge fallback and the happy path was un-demoable (dogfood
+      // tpl-ops-weekly, run 20aee494). Point at the same live sample endpoint
+      // the other data templates use.
+      defaultValue: "https://httpbin.org/json",
       applyTo: [{ nodeId: "fetch", path: "http.url" }],
     },
   ],
@@ -647,7 +652,7 @@ const opsWeeklyGraph = {
         x: 340,
         y: 300,
         http: {
-          url: "https://raw.githubusercontent.com/github/rest-api-description/main/examples/README.md",
+          url: "https://httpbin.org/json",
           method: "GET",
           outputMode: "json",
         },
@@ -815,7 +820,11 @@ const researchBriefGraph = {
       key: "srcBUrl",
       label: "数据源 B 地址",
       placeholder: "https://source-b.example.com/data.json",
-      defaultValue: "https://httpbin.org/json",
+      // Source B must differ from source A: with both defaulting to the same
+      // endpoint the cross-comparison degenerates into "the two sources are
+      // identical copies" and the parallel/merge path is indistinguishable
+      // from a single fetch (dogfood tpl-research-brief, run d063f5db).
+      defaultValue: "https://httpbin.org/get",
       applyTo: [{ nodeId: "srcB", path: "http.url" }],
     },
   ],
@@ -838,7 +847,7 @@ const researchBriefGraph = {
         name: "数据源 B",
         x: 340,
         y: 420,
-        http: { url: "https://httpbin.org/json", method: "GET", outputMode: "json" },
+        http: { url: "https://httpbin.org/get", method: "GET", outputMode: "json" },
       },
       {
         id: "merge",
@@ -1998,7 +2007,13 @@ const dataReportGraph = {
             "process.stdin.on('data', (c) => (input += c));",
             "process.stdin.on('end', () => {",
             "  try {",
-            "    const data = JSON.parse(input);",
+            "    // 引擎喂给 stdin 的是 {inputs: {...}} 信封，先解包成上游数据本身；",
+            "    // 否则整份信封被当成一行数据，报表里只剩一列 inputs（dogfood tpl-data-report）。",
+            "    let data = JSON.parse(input);",
+            "    if (data && data.inputs) {",
+            "      const vals = Object.values(data.inputs);",
+            "      data = vals.length === 1 ? vals[0] : vals;",
+            "    }",
             "    const rows = Array.isArray(data) ? data : (data.data || data.items || data.rows || [data]);",
             "    const cleaned = rows",
             "      .filter((r) => r && Object.keys(r).length > 0)",

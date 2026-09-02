@@ -53,6 +53,22 @@ describe("branch node", () => {
     expect(replay(events).status).toBe("done");
   });
 
+  it("emits node.skipped for the un-routed branch tail", async () => {
+    // The skip has to be visible in the event log: a resume reconstructs node
+    // states from events, and without a node.skipped record the un-routed tail
+    // comes back as pending — which strands every downstream merge point
+    // (dogfood tpl-customer-service: after a human approve the notify → depot
+    // tail never ran, yet the run reported done).
+    const branch: BranchConfig = {
+      rules: [{ id: "big", when: "${src} > 100", target: "yes" }],
+      defaultTarget: "no",
+    };
+    const events = await collect(graph(branch), "500");
+    const skipped = events.filter((e) => e.type === "node.skipped").map((e: any) => e.nodeId);
+    expect(skipped).toContain("no");
+    expect(replay(events).status).toBe("done");
+  });
+
   it("falls through to the default target when no rule matches", async () => {
     const branch: BranchConfig = {
       rules: [{ id: "big", when: "${src} > 100", target: "yes" }],
