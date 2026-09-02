@@ -144,7 +144,16 @@ describe("ocr node — image text recognition", () => {
     expect(replay(events).status).toBe("done");
     expect(vi.mocked(ocrImage)).toHaveBeenCalledTimes(1);
     const out = textOf(events, "ocr");
-    expect(out).toBe("FAKE[75B]"); // pdfjs-decoded 2x2 RGB image re-encoded as PNG
+    expect(out).toMatch(/^FAKE\[\d+B\]$/); // pdfjs-decoded 2x2 image, re-encoded as PNG
+    // Byte length says nothing useful; check what tesseract is actually handed.
+    // Feeding pngjs pdfjs's 3-channel samples shifted every pixel (dogfood
+    // tpl-scan-ocr: a scan came out 3/4 tall and OCR read garbage).
+    const [handed] = vi.mocked(ocrImage).mock.calls[0]!;
+    const decoded = PNG.sync.read(handed);
+    expect([decoded.width, decoded.height]).toEqual([2, 2]);
+    expect(Array.from(decoded.data)).toEqual([
+      255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255,
+    ]);
     const finished = events.find((e) => e.type === "node.finished" && e.nodeId === "ocr");
     expect(finished.output).toContain("平均置信度 95%");
     expect(events.some((e) => e.type === "packet.sent" && e.from === "ocr" && e.to === "sink")).toBe(true);

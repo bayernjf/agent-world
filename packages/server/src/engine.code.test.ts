@@ -85,6 +85,23 @@ describe("code node (javascript)", () => {
     expect(replay(events).status).toBe("failed");
   });
 
+  it("keeps the engine alive when a script dies before draining a large stdin", async () => {
+    // Dogfood tpl-doc-ingest: a code node with a syntax error exits instantly,
+    // and feeding the input JSON into its broken stdin pipe emitted an unhandled
+    // 'error' event (EPIPE) that killed the whole server process. The node must
+    // fail honestly; the engine must survive. The input is deliberately larger
+    // than the OS pipe buffer so the write really breaks.
+    const events = await collect(
+      graph({ language: "javascript", code: "const broken = (;", timeoutMs: 10000 }),
+      "x".repeat(1024 * 1024),
+    );
+
+    const failed = events.find((e) => e.type === "node.failed" && e.nodeId === "calc");
+    expect(failed).toBeTruthy();
+    expect(failed.errorCode).toBe("SCRIPT_ERROR");
+    expect(replay(events).status).toBe("failed");
+  });
+
   it("kills a script that exceeds the timeout", async () => {
     const events = await collect(
       graph({ language: "javascript", code: "setTimeout(() => {}, 5000);", timeoutMs: 1000 }),
@@ -390,6 +407,30 @@ describe("code node fs/net policy", () => {
       else process.env.TOOL_NETWORK_ALLOW = savedAllow;
       if (savedPrivate === undefined) delete process.env.ALLOW_PRIVATE_NETWORK;
       else process.env.ALLOW_PRIVATE_NETWORK = savedPrivate;
+    }
+  });
+
+  it("一个连沙箱都准备不出来的 code 节点仍然留下 node.failed", async () => {
+    // CI flaky 的那一类：code 节点的子进程压根没起来时，异常会从 runNode 裸抛到
+    // `void runNode(...)` 上——一个 unhandled rejection，节点永久停在 "running"，
+    // 事件流里既没有 node.finished 也没有 node.failed，红起来的 CI 说不出原因。
+    // 指向一个不存在的 TMPDIR，可以让 workdir 创建稳定失败，不必依赖负载时序。
+    const savedTmpdir = process.env.TMPDIR;
+    process.env.TMPDIR = join(tmpdir(), `aw-no-such-tmp-${Date.now()}`);
+    try {
+      const events = await collect(
+        graph({ language: "javascript", code: "console.log('never runs');", timeoutMs: 10000 }),
+        "x",
+      );
+      const failed = events.find((e) => e.type === "node.failed" && e.nodeId === "calc");
+      expect(failed).toBeTruthy();
+      expect(failed.error).toContain("节点执行异常");
+      expect(failed.errorCode).toBe("UNKNOWN");
+      expect(events.some((e) => e.type === "node.finished" && e.nodeId === "calc")).toBe(false);
+      expect(replay(events).status).toBe("failed");
+    } finally {
+      if (savedTmpdir === undefined) delete process.env.TMPDIR;
+      else process.env.TMPDIR = savedTmpdir;
     }
   });
 });

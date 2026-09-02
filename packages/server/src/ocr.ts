@@ -7,10 +7,20 @@ export interface OcrResult {
   confidence: number;
 }
 
-/** Official tesseract.js CDN endpoints. Overridable per-node via OcrConfig. */
+/**
+ * Official tessdata CDN. Language files are always fetched over the network
+ * (browser and Node alike), so this stays a URL; `cachePath` keeps a local copy
+ * after the first run. Overridable per node via OcrConfig.langPath.
+ */
 export const DEFAULT_LANG_PATH = "https://tessdata.projectnaptha.com/4.0.0";
-export const DEFAULT_WORKER_PATH = "https://cdn.jsdelivr.net/npm/tesseract.js@v5.1.1/dist/worker.min.js";
-export const DEFAULT_CORE_PATH = "https://cdn.jsdelivr.net/npm/tesseract.js-core@v5.1.0";
+
+/**
+ * Worker / core assets are **not** defaulted to a CDN on purpose. Under Node,
+ * tesseract.js spawns `new worker_threads.Worker(workerPath)`, which rejects any
+ * URL (`ERR_WORKER_PATH`), and it already resolves both assets to the files
+ * bundled with the installed packages. Passing the old CDN pins broke every ocr
+ * node in production *and* pointed v5 scripts at the installed v7 core.
+ */
 
 /**
  * Hosts whose assets tesseract.js may load over the network (M7③). Anything
@@ -52,19 +62,21 @@ export function assertOcrSource(kind: string, value: string): void {
 export async function ocrImage(image: Buffer, cfg: OcrConfig): Promise<OcrResult> {
   const Tesseract = await import("tesseract.js");
   const langPath = cfg.langPath ?? DEFAULT_LANG_PATH;
-  const workerPath = cfg.workerPath ?? DEFAULT_WORKER_PATH;
-  const corePath = cfg.corePath ?? DEFAULT_CORE_PATH;
   // A graph author must not make tesseract load JS/WASM from an arbitrary
   // (potentially internal) URL — local paths and the allowlisted CDNs only.
   assertOcrSource("langPath", langPath);
-  assertOcrSource("workerPath", workerPath);
-  assertOcrSource("corePath", corePath);
-  const worker = await Tesseract.createWorker(cfg.lang, 1, {
-    langPath,
-    workerPath,
-    corePath,
-    gzip: true,
-  });
+  const options: Parameters<typeof Tesseract.createWorker>[2] = { langPath, gzip: true };
+  // Explicit overrides stay for browser/self-hosted deployments; unset means
+  // "let tesseract.js resolve its own bundled assets" (the only thing Node accepts).
+  if (cfg.workerPath) {
+    assertOcrSource("workerPath", cfg.workerPath);
+    options.workerPath = cfg.workerPath;
+  }
+  if (cfg.corePath) {
+    assertOcrSource("corePath", cfg.corePath);
+    options.corePath = cfg.corePath;
+  }
+  const worker = await Tesseract.createWorker(cfg.lang, 1, options);
   try {
     const { data } = await worker.recognize(image);
     return { text: data.text ?? "", confidence: data.confidence ?? 0 };

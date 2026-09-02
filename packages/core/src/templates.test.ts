@@ -40,6 +40,24 @@ describe("templates", () => {
     expect(TEMPLATE_CATEGORIES).not.toContain("基础");
   });
 
+  it("every javascript code-node script is syntactically valid", () => {
+    // Dogfood tpl-doc-ingest shipped a code script whose string literal
+    // contained a real newline (unescaped \\n in the TS source); the child
+    // interpreter died with a SyntaxError and took the run down. Compile every
+    // shipped script (new Function parses without executing) so a broken
+    // template can never reach the engine again.
+    for (const tpl of [...TEMPLATES, BLANK_TEMPLATE]) {
+      for (const node of tpl.graph.nodes) {
+        const code = node.kind === "code" ? node.code : undefined;
+        if (!code || code.language !== "javascript") continue;
+        expect(
+          () => new Function(code.code ?? ""),
+          `${tpl.id} node "${node.id}" ships a syntactically invalid script`,
+        ).not.toThrow();
+      }
+    }
+  });
+
   it("instantiates with fresh node and edge ids", () => {
     const tpl = getTemplate("tpl-product")!;
     const a = instantiateTemplate(tpl, { id: "g1", name: "A" });

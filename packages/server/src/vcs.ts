@@ -1,5 +1,6 @@
 import type { VcsConfig } from "@agent-world/core";
 import { withRetry } from "./retry.js";
+import { GuardedFetchError, guardedFetch } from "./ssrf.js";
 
 /**
  * Version-control actions for the `vcs` node: GitHub and GitLab REST adapters
@@ -13,6 +14,11 @@ import { withRetry } from "./retry.js";
  * - VcsProviderError: the API rejected the action, e.g. 422 PR-already-exists
  *   or branch-not-found (→ PROVIDER_ERROR)
  * Transient faults (network reject, 5xx) are retried per `cfg.retry`.
+ *
+ * All requests go through guardedFetch (dogfood tpl-release-pr): the bare
+ * global fetch bypassed the outbound proxy (AGENT_WORLD_PROXY) and the SSRF
+ * boundary every other outbound node honors, so on proxy-only networks every
+ * provider call died with ECONNREFUSED while http/notify nodes worked fine.
  */
 
 export interface VcsResult {
@@ -48,7 +54,7 @@ function requireProviderFields(provider: string, cfg: VcsConfig, fields: (keyof 
 async function ghRequest(method: string, url: string, cfg: VcsConfig, body?: unknown): Promise<unknown> {
   const token = process.env.GITHUB_TOKEN;
   if (!token) throw new VcsAuthError("缺少环境变量 GITHUB_TOKEN（GitHub 集成需配置 Personal Access Token）");
-  const res = await fetch(url, {
+  const res = await guardedFetch(url, {
     method,
     headers: {
       authorization: `Bearer ${token}`,
@@ -66,7 +72,7 @@ async function glRequest(method: string, path: string, cfg: VcsConfig, body?: un
   if (!token) throw new VcsAuthError("缺少环境变量 GITLAB_TOKEN（GitLab 集成需配置 Access Token）");
   const base = process.env.GITLAB_API_URL ?? "https://gitlab.com/api/v4";
   const url = `${base}${path}`;
-  const res = await fetch(url, {
+  const res = await guardedFetch(url, {
     method,
     headers: {
       "private-token": token,
@@ -97,8 +103,24 @@ async function readJson(
     }
   }
   if (!res.ok) {
-    const apiMsg = (json as { message?: string; error?: string } | string | null);
-    const msg = typeof apiMsg === "string" ? apiMsg : apiMsg?.message ?? apiMsg?.error ?? `HTTP ${res.status}`;
+    const apiMsg = (json as {
+      message?: string;
+      error?: string;
+      errors?: Array<{ message?: string; code?: string }>;
+    } | string | null);
+    let msg: string;
+    if (typeof apiMsg === "string") {
+      msg = apiMsg;
+    } else {
+      msg = apiMsg?.message ?? apiMsg?.error ?? `HTTP ${res.status}`;
+      // GitHub 422 bodies carry the actionable reason in errors[] (e.g. "A
+      // pull request already exists for …") — without it the node failure
+      // only said "Validation Failed" (dogfood tpl-release-pr recheck).
+      const details = (apiMsg?.errors ?? [])
+        .map((e) => e.message ?? e.code)
+        .filter((d): d is string => Boolean(d));
+      if (details.length) msg += `（${details.join("; ")}）`;
+    }
     throw new VcsProviderError(`${provider} ${cfg.action} 失败（${method} ${url}）: ${msg}`);
   }
   return json;
@@ -184,6 +206,8 @@ export async function executeVcs(cfg: VcsConfig, body: string, title: string): P
   return withRetry(
     () => (cfg.provider === "gitlab" ? gitlabAction(cfg, body, title) : githubAction(cfg, body, title)),
     cfg.retry,
-    (err) => !(err instanceof VcsAuthError || err instanceof VcsProviderError),
+    // GuardedFetchError is a deterministic guard refusal (internal target,
+    // bad URL/redirect) — retrying can never change the outcome.
+    (err) => !(err instanceof VcsAuthError || err instanceof VcsProviderError || err instanceof GuardedFetchError),
   );
 }

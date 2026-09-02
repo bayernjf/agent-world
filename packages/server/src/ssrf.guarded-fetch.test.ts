@@ -1,6 +1,6 @@
 import { lookup as dnsLookup } from "node:dns/promises";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { GuardedFetchError, guardedFetch, hostIsInternal } from "./ssrf.js";
+import { GuardedFetchError, guardedFetch, hostIsInternal, outboundProxyDispatcher } from "./ssrf.js";
 
 vi.mock("node:dns/promises", () => ({
   lookup: vi.fn(),
@@ -150,5 +150,48 @@ describe("guardedFetch", () => {
     expect(res.status).toBe(200);
     const init = fetchMock.mock.calls[0]![1] as { dispatcher?: unknown };
     expect(init?.dispatcher).toBeUndefined(); // no pinning needed
+  });
+
+  it("outboundProxyDispatcher is undefined without AGENT_WORLD_PROXY", () => {
+    delete process.env.AGENT_WORLD_PROXY;
+    expect(outboundProxyDispatcher()).toBeUndefined();
+  });
+
+  it("AGENT_WORLD_PROXY routes through the proxy and still refuses internal literals", async () => {
+    vi.stubEnv("AGENT_WORLD_PROXY", "http://127.0.0.1:7897");
+    const agent = outboundProxyDispatcher();
+    expect(agent).toBeDefined();
+    expect(outboundProxyDispatcher()).toBe(agent); // cached
+
+    // Internal IP literal refused without fetching, even in proxy mode.
+    await expect(guardedFetch("http://169.254.169.254/latest/")).rejects.toMatchObject({
+      reason: "internal-target",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    // External hostname: no local DNS pinning — the request carries the proxy.
+    await guardedFetch("https://html.duckduckgo.com/html/");
+    const init = fetchMock.mock.calls[0]![1] as { dispatcher?: unknown };
+    expect(init?.dispatcher).toBe(agent);
+  });
+
+  it("proxy mode refuses localhost-style hostnames without fetching", async () => {
+    vi.stubEnv("AGENT_WORLD_PROXY", "http://127.0.0.1:7897");
+    await expect(guardedFetch("http://localhost:8791/api")).rejects.toMatchObject({
+      reason: "internal-target",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("ALLOW_PRIVATE_NETWORK=1 also lifts the proxy-mode internal-target block", async () => {
+    // Dogfood tpl-doc-ingest: with AGENT_WORLD_PROXY set, a local fixture URL
+    // was refused even though the operator had opted into private networks;
+    // the documented contract is "skips the internal checks entirely".
+    vi.stubEnv("AGENT_WORLD_PROXY", "http://127.0.0.1:7897");
+    vi.stubEnv("ALLOW_PRIVATE_NETWORK", "1");
+    const res = await guardedFetch("http://127.0.0.1:18900/fixture.pdf");
+    expect(res.status).toBe(200);
+    const init = fetchMock.mock.calls[0]![1] as { dispatcher?: unknown };
+    expect(init?.dispatcher).toBe(outboundProxyDispatcher());
   });
 });

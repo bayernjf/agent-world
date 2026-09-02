@@ -1,5 +1,6 @@
 import type { SearchConfig } from "@agent-world/core";
 import { withRetry } from "./retry.js";
+import { outboundProxyDispatcher } from "./ssrf.js";
 
 /**
  * Web search providers for the `search` node. `duckduckgo` works without any
@@ -25,6 +26,12 @@ function requireEnv(name: string): string {
   const v = process.env[name];
   if (!v) throw new SearchAuthError(`缺少环境变量 ${name}（${name} 未配置时无法使用该搜索源）`);
   return v;
+}
+
+/** fetch with the optional outbound proxy dispatcher attached (AGENT_WORLD_PROXY). */
+function outboundFetch(url: string, init?: RequestInit): Promise<Response> {
+  const dispatcher = outboundProxyDispatcher();
+  return fetch(url, { ...(init ?? {}), ...(dispatcher ? { dispatcher } : {}) } as RequestInit);
 }
 
 function stripTags(s: string): string {
@@ -55,7 +62,7 @@ function anchorsByClass(html: string, cls: string): { attrs: string; inner: stri
 }
 
 async function searchDuckDuckGo(query: string, maxResults: number): Promise<SearchHit[]> {
-  const res = await fetch("https://html.duckduckgo.com/html/", {
+  const res = await outboundFetch("https://html.duckduckgo.com/html/", {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({ q: query }).toString(),
@@ -63,6 +70,14 @@ async function searchDuckDuckGo(query: string, maxResults: number): Promise<Sear
   if (!res.ok) throw new Error(`DuckDuckGo 返回 ${res.status}`);
   const html = await res.text();
   const links = anchorsByClass(html, "result__a");
+  // Dogfood 2026-09-01: DDG serves a 202 anomaly/challenge page to scripted
+  // clients — the response is "ok" but contains zero results. Fail loudly
+  // instead of silently returning an empty hit list.
+  if (links.length === 0 && /anomaly|challenge|captcha/i.test(html)) {
+    throw new Error(
+      `DuckDuckGo 返回反爬验证页（无结果）。建议：① 在节点配置改用 tavily/serpapi/google 搜索源（对应密钥走环境变量，重启 server 生效）；② 稍后重试（反爬通常是间歇性的）`,
+    );
+  }
   const snippets = anchorsByClass(html, "result__snippet");
   const hits: SearchHit[] = [];
   for (const [i, link] of links.entries()) {
@@ -88,7 +103,7 @@ interface GoogleResponse {
 
 async function searchTavily(query: string, maxResults: number): Promise<SearchHit[]> {
   const key = requireEnv("TAVILY_API_KEY");
-  const res = await fetch("https://api.tavily.com/search", {
+  const res = await outboundFetch("https://api.tavily.com/search", {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
     body: JSON.stringify({ query, max_results: maxResults }),
@@ -108,7 +123,7 @@ async function searchSerpApi(query: string, maxResults: number): Promise<SearchH
   // header option). It stays in the query, but is protected by TLS in transit
   // and is never placed in logs or error messages (the throws below are static).
   const url = `https://serpapi.com/search?q=${encodeURIComponent(query)}&num=${maxResults}&api_key=${encodeURIComponent(key)}`;
-  const res = await fetch(url);
+  const res = await outboundFetch(url);
   if (res.status === 401 || res.status === 403) throw new SearchAuthError("SerpAPI key 无效或过期");
   if (!res.ok) throw new Error(`SerpAPI 返回 ${res.status}`);
   const json = (await res.json()) as SerpApiResponse;
@@ -127,7 +142,7 @@ async function searchGoogle(query: string, maxResults: number): Promise<SearchHi
   const url =
     `https://www.googleapis.com/customsearch/v1?key=${encodeURIComponent(key)}` +
     `&cx=${encodeURIComponent(cx)}&q=${encodeURIComponent(query)}&num=${maxResults}`;
-  const res = await fetch(url);
+  const res = await outboundFetch(url);
   if (res.status === 401 || res.status === 403) throw new SearchAuthError("Google API key 无效或过期");
   if (!res.ok) throw new Error(`Google 返回 ${res.status}`);
   const json = (await res.json()) as GoogleResponse;
@@ -139,20 +154,34 @@ async function searchGoogle(query: string, maxResults: number): Promise<SearchHi
 
 /** Run a web search with the configured provider, retrying transient faults. Throws SearchAuthError on missing/invalid keys. */
 export async function searchWeb(query: string, cfg: SearchConfig): Promise<SearchHit[]> {
-  return withRetry(
-    () => {
-      switch (cfg.provider) {
-        case "tavily":
-          return searchTavily(query, cfg.maxResults);
-        case "serpapi":
-          return searchSerpApi(query, cfg.maxResults);
-        case "google":
-          return searchGoogle(query, cfg.maxResults);
-        default:
-          return searchDuckDuckGo(query, cfg.maxResults);
-      }
-    },
-    cfg.retry,
-    (err) => !(err instanceof SearchAuthError),
-  );
+  try {
+    return await withRetry(
+      () => {
+        switch (cfg.provider) {
+          case "tavily":
+            return searchTavily(query, cfg.maxResults);
+          case "serpapi":
+            return searchSerpApi(query, cfg.maxResults);
+          case "google":
+            return searchGoogle(query, cfg.maxResults);
+          default:
+            return searchDuckDuckGo(query, cfg.maxResults);
+        }
+      },
+      cfg.retry,
+      (err) => !(err instanceof SearchAuthError),
+    );
+  } catch (err) {
+    if (err instanceof SearchAuthError) throw err;
+    const msg = err instanceof Error ? err.message : String(err);
+    // undici reports unreachable hosts/blocked networks as a bare "fetch failed"
+    // — surface an actionable hint instead (dogfood 2026-09-01: DDG is not
+    // directly reachable without an outbound proxy in some networks).
+    if (/fetch failed|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|UND_ERR/i.test(msg)) {
+      throw new Error(
+        `${msg} —— 本机网络无法直连该搜索源。可选：① 在节点配置改用 tavily/serpapi/google 搜索源（对应密钥走环境变量 TAVILY_API_KEY / SERPAPI_API_KEY / GOOGLE_API_KEY+GOOGLE_CX，重启 server 生效）；② 为 server 进程配置出站代理后重启（环境变量 AGENT_WORLD_PROXY，注意 SSRF 校验语义变化，见 docs/design-code-sandbox.md）`,
+      );
+    }
+    throw err;
+  }
 }

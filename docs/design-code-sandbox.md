@@ -316,3 +316,32 @@ export function resolveSandbox(env: NodeJS.ProcessEnv): CodeSandbox { /* 按 COD
 - **产品部署形态明确**（自托管单机 / K8s / 托管平台）之后再决策
 - 若最终跑在 Linux 且装了 bwrap：P2 已提供硬 fs/net 隔离，容器的**增量收益只剩 net allowlist 硬化 + Python 约束全覆盖**——是否值得为这两点引入镜像维护成本，届时再评估
 - 若部署在无 bwrap 的环境（如 macOS 自托管）且威胁模型要求硬隔离：优先级应上调
+
+---
+
+## 12. 出站代理 `AGENT_WORLD_PROXY`（已落地，2026-09-01 狗粮驱动）
+
+### 12.1 背景与决策
+
+狗粮验证 tpl-news-podcast 时发现：search 节点默认 duckduckgo 在部分网络（无直连出口）不可达，server 进程的出站 fetch（undici）默认不读 `HTTP(S)_PROXY` 环境变量。决策：加**显式 opt-in** 的出站代理——不默认读标准代理环境变量，避免无意中改变 SSRF 防护语义。
+
+### 12.2 语义
+
+- 配置 `AGENT_WORLD_PROXY=http://127.0.0.1:7897`（启动 server 前设置）后，`guardedFetch`（provider 调用 / HTTP 节点 / 图片代理）与 search provider 的出站请求均经 undici `ProxyAgent` 转发。
+- 未配置时行为完全不变：直连 + 完整 SSRF 防护（解析后 pin IP）。
+
+### 12.3 SSRF trade-off（务必知晓）
+
+代理激活后，DNS 解析与 TCP 连接发生在**代理侧**，本地的"先解析后 pin"防护无法覆盖实际连接路径。补偿控制：
+
+- IP 字面量的内网目标（127/10/172.16-31/192.168/169.254/…）仍在本地拒绝
+- `localhost` / `*.localhost` / `*.local` / `metadata.google.internal` 等主机名仍在本地拒绝
+- 其余主机名的内网判定**让渡给代理所在的可信网络**——前提是代理是用户自己配置的可信基础设施（本地 clash 等）
+
+因此：`AGENT_WORLD_PROXY` 只应在"代理可信 + 不依赖 SSRF 防 DNS-rebinding"的部署形态下启用（单人自用即此类）；多租户/不可信产线场景禁用（保持默认直连）。
+
+### 12.4 实现位置
+
+- `packages/server/src/ssrf.ts`：`outboundProxyDispatcher()`（缓存单例）+ `guardedFetch` 代理分支 + `proxyGuardRejects` 本地拒绝名单
+- `packages/server/src/search.ts`：`outboundFetch` 包装，4 个搜索 provider 均走代理 dispatcher
+- 测试：`ssrf.guarded-fetch.test.ts`（代理路由 + 内网字面量/localhost 拒绝）

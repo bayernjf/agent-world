@@ -126,11 +126,26 @@ describe("OcrConfig", () => {
     expect(cfg.corePath).toBe("https://cdn.example.com/core.wasm.js");
   });
 
-  it("rejects empty lang and non-URL paths", () => {
+  // The overrides used to be `z.string().url()`, which made the documented
+  // air-gapped escape hatch (point tesseract at files on disk) impossible to
+  // express from the inspector. Network sources are still gated at run time by
+  // the operator allowlist in server/src/ocr.ts — the schema only refuses empty.
+  it("accepts local filesystem paths as well as CDN URLs", () => {
+    const cfg = OcrConfig.parse({
+      langPath: "/usr/share/tessdata",
+      workerPath: "./vendor/ocr/worker.min.js",
+      corePath: "C:\\ocr\\tesseract-core",
+    });
+    expect(cfg.langPath).toBe("/usr/share/tessdata");
+    expect(cfg.workerPath).toBe("./vendor/ocr/worker.min.js");
+    expect(cfg.corePath).toBe("C:\\ocr\\tesseract-core");
+  });
+
+  it("rejects empty lang and blank paths", () => {
     expect(() => OcrConfig.parse({ lang: "" })).toThrow();
-    expect(() => OcrConfig.parse({ langPath: "not-a-url" })).toThrow();
-    expect(() => OcrConfig.parse({ workerPath: "not-a-url" })).toThrow();
-    expect(() => OcrConfig.parse({ corePath: "not-a-url" })).toThrow();
+    expect(() => OcrConfig.parse({ langPath: "" })).toThrow();
+    expect(() => OcrConfig.parse({ workerPath: "" })).toThrow();
+    expect(() => OcrConfig.parse({ corePath: "" })).toThrow();
   });
 
   it("round-trips inside a GraphNode", () => {

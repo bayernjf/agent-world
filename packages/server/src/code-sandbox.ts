@@ -91,7 +91,18 @@ const MB = 1024;
  */
 export const DEFAULT_SANDBOX_LIMITS: Required<CodeSandboxLimits> = {
   cpuSec: 30,
-  maxProcs: 128,
+  // 1024, NOT smaller: on Linux RLIMIT_NPROC counts the invoking user's
+  // TOTAL task count machine-wide (processes AND threads — Node burns a
+  // dozen threads at boot), including the vitest harness and runner agent
+  // that coexist with the sandboxed child on CI. At 128 the user's session
+  // crosses the cap under load and the child aborts at boot
+  // (uv_thread_create EAGAIN → SIGABRT) or stalls filling its threadpool
+  // until the engine's 30s code timeout fires — a trivial console.log
+  // node. CI showed both signatures (2026-09-02, PR #98). 1024 keeps the
+  // fork-bomb guard meaningful while leaving headroom for that global
+  // accounting; hard isolation needs a PID namespace (bwrap), not a
+  // tighter ulimit. Override via CODE_LIMIT_MAX_PROCS.
+  maxProcs: 1024,
   maxFileKb: 32 * MB,
   maxFd: 256,
   virtualMemoryKb: 2048 * MB,
@@ -178,10 +189,14 @@ function probeNodePermissionGate(interpreterPath: string): string {
   const cached = nodePermissionGateCache.get(interpreterPath);
   if (cached) return cached;
   // Try the stable form first (Node ≥ 22.2); fall back to experimental.
+  // Timeout stays modest: this probe runs SYNCHRONOUSLY ahead of the first
+  // code node in a process, and each flag costs up to `timeout` ms of blocked
+  // event loop — on a loaded CI runner two 5s probes can eat a test's whole
+  // wall-clock budget (2026-09-01, PR #98). A healthy Node answers in <100ms.
   for (const flag of ["--permission", "--experimental-permission"]) {
     const r = spawnSync(interpreterPath, [flag, "-e", "process.exit(0)"], {
       encoding: "utf8",
-      timeout: 5000,
+      timeout: 3000,
     });
     if (r.status === 0) {
       nodePermissionGateCache.set(interpreterPath, flag);

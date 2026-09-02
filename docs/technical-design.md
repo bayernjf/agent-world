@@ -5,6 +5,8 @@
 > 逐步任务拆解见 [roadmap-tasks.md](roadmap-tasks.md)。
 > 技术栈选型评估与边界见 [tech-stack-assessment.md](tech-stack-assessment.md)。
 
+> ⚠️ **时效注记（2026-09-01 盘点）**：本文档以阶段 1-3 期为基线写成，§3.1/§4.1 的"已实现"清单**落后于现状**——实际已演进到 25 种节点类型、账号隔离（users/JWT）、connectors/triggers/versions/knowledge/AB 等（迁移 16+）。增量事实已补入 §3.1b 与 §4.1b；各模块细节以 docs/ 下对应 design-*.md 为准。
+
 ---
 
 ## 1. 系统架构总览
@@ -176,7 +178,25 @@ node_runs (run_id, node_id, attempt, status, output, reasoning, error, error_cod
            tokens_in, tokens_out, cached_tokens, reasoning_tokens, cost_usd, units_json)
 ```
 
-`runs.snapshot` 存运行时的 graph 完整快照——产线定义之后改了，回放时仍用当时的版本。`events` 是真相源，`node_runs` 是事件 fold 的投影，用于快速查询。
+`runs.snapshot` 存运行时的 graph 完整快照——产线定义之后改了，回放时仍用当时的版 本。`events` 是真相源，`node_runs` 是事件 fold 的投影，用于快速查询。
+
+### 3.1b 2026-09-01 增量（现状对齐）
+
+- **节点类型**：从阶段 1 的 4 种（source/textGen/gate/sink）演进为 **25 种 `NodeKind`**（AI 加工 5 / 车间调度 6 / 物料处理 7 / 外接设备 5 / 投料出料 2），逐种名称与中文术语见 [design-glossary.md](design-glossary.md)；分类单一事实源在 core `NODE_CATEGORIES`。
+- **数据库表增量**（在 §3.1 的 graphs/runs/events/node_runs 之外，迁移 1-16+）：
+
+```sql
+users (id, username, password_hash, created_at)          -- 账号系统
+graphs.doc / graph_versions.snapshot / runs.snapshot     -- 落盘 AES-256-GCM 静态加密
+artifacts (id, run_id, graph_id, role, kind, ...)        -- 产物归属与成品仓库
+graph_versions (id, graph_id, snapshot, content_hash, …) -- 自动快照 + hash
+connectors / triggers                                    -- 数据接入与触发器
+brand_terms (id, user_id, term, note, created_at)        -- 品牌术语库
+knowledge (…, user_id) + knowledge_fts                   -- 见 §3.4 与 design-knowledge-memory.md
+```
+
+- **隔离**：graphs/runs/artifacts/brand_terms/knowledge/成本全部按 `user_id` 过滤；旧库迁移幂等回填。
+- 各模块设计细节：加密见 [design-at-rest-encryption.md](design-at-rest-encryption.md)、版本见 [design-versions.md](design-versions.md)、产物见 [design-artifact-attribution-repo.md](design-artifact-attribution-repo.md)、知识记忆见 [design-knowledge-memory.md](design-knowledge-memory.md)、A/B 见 [design-ab-testing.md](design-ab-testing.md)。
 
 ### 3.2 阶段 1 演进
 
@@ -266,6 +286,8 @@ Artifact {
 
 ### 3.4 阶段 5 演进：Knowledge 层
 
+> ✅ **已提前实现**（2026-09-01 盘点确认）：SQLite FTS5 版本已落地——`knowledge` 表 + FTS5 虚拟表 + 触发器同步 + run 结束自动提取 + `archive_search` 技能卡，详见 [design-knowledge-memory.md](design-knowledge-memory.md)。下述 embedding 演进（sqlite-vec → pgvector → Milvus）仍为未来方向。
+
 ```
 KnowledgeEntry {
   id, kind, content, embedding?, embeddingModel?
@@ -287,7 +309,7 @@ KnowledgeEntry {
 GET    /api/graphs              列出产线
 GET    /api/graphs/:id          获取产线
 PUT    /api/graphs/:id          保存产线
-POST   /api/graphs              新建产线（可带 templateId 从模板创建）
+POST   /api/graphs              新建产线（可带 `template` 从模板创建；参数名是 `template` 而非 templateId，2026-09-01 狗粮验证纠正）
 DELETE /api/graphs/:id          删除产线
 POST   /api/graphs/:id/duplicate 复制产线
 GET    /api/templates           产线模板目录
@@ -319,6 +341,36 @@ POST   /api/providers/test      测试 provider 连接
 
 引擎在 resume/retry 时不重发 `run.started`（`SchedulerOptions.resuming`），否则会把客户端已折叠的运行时（失败历史、累计电费）清空。
 
+### 4.1b 2026-09-01 增量 API（现状对齐，均按登录用户隔离）
+
+```
+# 账号（公开）
+POST   /api/auth/register|login   注册 / 登录（JWT HttpOnly cookie）
+GET    /api/auth/me               当前用户
+POST   /api/auth/password         修改密码
+POST   /api/auth/logout           退出
+
+# 数据接入与触发（连接器随产线 doc 存储；触发器挂在产线下）
+POST   /api/connectors/test           测试连接（返回预览，连接器本身随产线 doc 保存）
+GET|POST /api/graphs/:id/triggers      触发器列表 / upsert
+DELETE /api/graphs/:id/triggers/:tid   删除触发器
+GET    /api/graphs/:id/triggers/next-runs  cron 下次运行时间表
+POST   /api/graphs/:id/webhook         webhook 入口（带 secret）
+
+# 版本 / 产物 / 知识 / A/B
+GET|POST /api/graphs/:id/versions       版本列表 / 快照；GET /:vid 详情 + 「当前运行版本」标记
+POST   /api/graphs/:id/versions/:vid/restore  恢复（先预览后确认）
+DELETE /api/graphs/:id/versions/:vid    删除快照
+GET   /api/artifacts(:id)               产物列表 / 详情（按用户归属；POST /api/artifacts/upload 上传，按 content-type 判 image/video/audio/file）
+GET|POST|DELETE /api/knowledge(/search) 知识库（见 design-knowledge-memory.md）
+POST   /api/ab + GET /api/ab/:groupId A/B 实验（见 design-ab-testing.md）
+GET|POST|DELETE /api/brand-terms      品牌术语库
+
+# 其他
+POST   /api/proxy                     出站代理（SSRF 防护 + 登录要求）
+*      /mcp                           MCP Server（stdio/HTTP+SSE，Bearer 认证）
+```
+
 ### 4.2 阶段 4-5 新增（概要）
 
 ```
@@ -328,7 +380,7 @@ POST   /api/webhooks/:graphId   Webhook 触发产线
 
 # 阶段 5
 GET    /api/tenants             多租户（企业版）
-POST   /api/memory/recall       档案室检索
+POST   /api/memory/recall       档案室检索（已提前落地，见 §4.1b 与 design-knowledge-memory.md）
 ```
 
 ---
@@ -632,6 +684,22 @@ interface Skill {
 
 **数据库迁移已改为有序版本化。** `db.ts` 维护 `schema_migrations(version, applied_at)` 表和 `MIGRATIONS` 数组，每个迁移带 version/description/up，在一个事务里按序执行并记录；旧库首次打开时通过 `detect` 做 baseline（已存在的列标记为已应用，不重复 ALTER）。新增迁移只需在数组末尾追加递增版本，不要改动已发布的条目。启动备份（VACUUM INTO）已在 3.5 完成；数据回填型迁移的实际用例验证仍待做。
 
+**第三方运行时资产不能钉在会变的 CDN 版本上。** ocr 节点曾经把 tesseract 的 worker/core 硬写为 `tesseract.js@v5.1.1` 的 CDN URL，而包已升到 v7；更致命的是 Node 侧 `worker_threads.Worker(workerPath)` 根本不接受 URL（`ERR_WORKER_PATH`）——**所有 ocr 节点在生产里 100% 必败**，而单测把 `ocrImage` 整个 mock 掉，所以一直是绿的（“测试与产品契约脱节”的又一例，同 `e9b55ae` 的 event 状态契约）。规则：包自己能解析的资产就不要自己拼 URL，覆盖只在显式配置时发生（`5b71c9a`）；相应地，单测要断言“传给 `createWorker` 的 options 里有什么/没有什么”，而不是 mock 掉整个边界。同理，能力承诺（文档/审计里的“本地路径离线部署”）必须由 schema 能表达，安全校验放在运行期白名单（`assertOcrSource`）而不是用 `z.string().url()` 把能力堵死（`e2781ab`）。
+
+**跨库的 buffer 布局约定要在边界处显式转换。** pdfjs 交出来的是 1/3/4 通道的样本，pngjs 写 PNG 时永远按 RGBA 读 `png.data`——`colorType` 只决定输出标签，不改输入布局。直接把 3 通道 buffer 塞进去，每个像素错位、整张图纵向压成 3/4，OCR 只能出乱码（`4215d9c`，影响 `convert` 与 `fileParse` 仍共用的一条路）。规则：把一个库的原始 buffer 交给另一个编码库前，在边界处显式展开/压缩；回归用例要逐像素断言，只断“产出了 N 张图”看不了这个 bug。
+
+**TS 字符串字面量就是代码生成边界。** 模板的 code 脚本是用 TS 单引号字符串数组拼出来的，里面未转义的 `\n` 会变成真实换行，生成的 node 脚本在字符串字面量中间断行，子进程每次必挂 SyntaxError（tpl-doc-ingest 的 combine 节点，`86a513d`）。规则：凡是“用字符串生成代码”的地方，转义序列必须显式双重转义；core 层加了一条守护——遍历所有模板的 javascript code 脚本用 `new Function` 编译，不合法的模板永远到不了引擎。
+
+**向子进程的管道写入必须挂 error 监听。** code 节点秒退（语法错误）时，引擎还在用 `child.stdin.end(inputJson)` 灌输入；子进程先死，管道写入 EPIPE，而 stream 上没有监听器的 `error` 事件就是 uncaughtException——**一个坏脚本能把整个 server 进程杀死**（狗粮 tpl-doc-ingest 首验每次必崩，堆栈无应用帧，`b320f27`）。规则：引擎持有的每个子进程流（至少 stdin）都要挂 error 监听；失败报告只靠退出码 + stderr，管道写失败不另生语义。
+
+**error 边接住失败后，不能让 fan-in 汇聚点饿死。** 调度器的 `predecessorsReady` 曾要求所有 flow 上游 done：上游失败但被 error 边接住后，汇聚节点永不被调度，而 run 还报 done、无任何产物——静默丢弃，比报错更危险（run `ab5b20df`，`e6dc2c9`）。规则：失败但被 error 边妥善处理（catch 节点已 done）的上游视为已满足；收尾时仍有 pending 节点的 run 一律不得报 done。
+
+**服务端出站只有一条通道。** vcs 节点曾用裸全局 `fetch`，结果 `AGENT_WORLD_PROXY` 出站代理、SSRF 钉住解析、重定向复检全部不适用于它——与 http/通知节点的出站契约不一致，在仅代理可达的网络上必败，而且这种不一致只有真实跑过才会暴露（狗粮 tpl-release-pr，`b3e71e8`）。规则：新增任何服务端出站请求必须走 `guardedFetch`（或显式说明为何例外）；评审新出站模块时对照现有通道清单（http 节点 / 通知 / 搜索 / vcs）。
+
+**排序的空值语义必须显式定义，默认沉底。** `sortRows` 曾把空值当作最小值参与比较，升序时空值排最前——无日期的行浮在时间线开头，产物第一眼就是错的（狗粮 tpl-evidence-brief，`2c3cef8`）。这类缺陷单测很难想到（需要「升序 + 含空值」的夹具），只有真实投料（诉请段没有日期）才暴露。规则：排序/聚合类算子的空值行为必须写进契约并有定向用例（空串/null/缺字段三种空）；空值一律沉底，与排序方向无关。
+
+**provider 报错必须带上可行动的详情。** GitHub 422 的真正原因在响应体的 `errors[]` 数组里（如「A pull request already exists for …」），只读顶层 `message` 就只剩一句「Validation Failed」，从 run 时间线上根本无法定位（`f034605`）。规则：包装三方 API 错误时，把结构化的逐条错误并入文案；单测直接拿真实响应形状（含 errors[]）做回归。
+
 ### 12.2 阶段 2 并行时会撞墙
 
 **并发事件顺序竞态。** 引擎从单游标改为并发后，两个节点的事件会交错 yield。要保证：
@@ -645,7 +713,7 @@ interface Skill {
 
 **多标签页覆盖。** graph 自动保存是最后写入获胜，无版本号/ETag。开两个标签页编辑同一条产线，后保存静默覆盖前者。给 `graphs` 加 `version` 乐观锁，PUT 带 If-Match。
 
-**事件接口无分页。** `/api/runs/:id/events` 一次返回全部事件。长跑 + 工具调用 + 并行可能产生上万事件。加 `?from=&to=` 范围查询；SSE 本就是增量，主要影响历史回放首屏。
+**事件接口已改游标分页（曾是“无分页”，2026-09-01 前已落地 `?after=&limit=` + `nextCursor`）。** 注意默认首页只返回 30 条：查长跑/崩溃现场必须翻页到尾部，否则会把“截断处”误当“崩溃点”（狗粮 tpl-doc-ingest 曾因此误报“崩在 combine 启动”）。SSE 本就是增量，主要影响历史回放首屏。
 
 **结构化日志。** 现在只有 `console.error`。开源后用户报 bug 会瞎。需要最小结构化 logger，每条日志带 runId、级别、落盘轮转。不接 APM——事件流本身已是业务 trace。
 
@@ -696,9 +764,15 @@ artifacts: Map<string, Artifact[]>  // nodeId → 该节点产出的所有 artif
 **节点完成时的写入规则：**
 - **agent 节点**：产出至少一个 `{kind:"text", content: result.output, id: `${nodeId}-text`}` artifact；如果输出文本中通过 `extractArtifacts()` 检测到图片/视频/JSON URL，额外追加对应 artifact（这一步已有 `produceArtifacts()` 逻辑，改为 push 到数组而非只发事件）
 - **imageGen 节点**：每张生成的图产出一个 `{kind:"image", uri, mimeType, label}` artifact（已有逻辑，改为 push 到数组）
-- **source 节点**：`source.images` 中的每个 URL 产出一个 `{kind:"image", uri}` artifact；`source.connector` 拉到的文本产出 text artifact
+- **source 节点**：`source.images` 中的每个 URL 产出一个 `{kind:"image", uri}` artifact；`source.files`（结构化条目 `{uri,label,mimeType,sizeBytes}`，由 `POST /api/artifacts/upload` 上传后得到）的每个文档产出一个 `{kind:"file", uri, mimeType, label, sizeBytes}` artifact——这是下游 fileParse 唯一认可的上游产物；`source.connector` 拉到的文本产出 text artifact
+- **fileParse 节点**：文档正文产出 text artifact；文档里的内嵌图逐张产出 `image` artifact（与 convert 共用 `parse-file.ts` 的提取路径）；上传文档读不到字节或无内容时诚实报 VALIDATION，不静默交空文本
+- **convert 节点**：读上游 `kind:"file"` / `kind:"image"` 产物，每张产出一个 `image` artifact（PDF 是**提取内嵌图**，不是逐页渲染，见 deferred）；一张图都提不出时报 `ERR[VALIDATION]`，可由 error 边兜底给下游 textGen 出说明
+- **ocr 节点**：只消费上游 `kind:"image"` 且带 uri 的产物，逐张识别后合并为**一个** text artifact（图片之间 `\n\n` 分隔），节点摘要带平均置信度；资产解析规则见 §12.1（worker/core 不预设 CDN）
 - **gate 节点**：通过时产出 text artifact（verdict.reason）；驳回时不产出（走返工环）
 - **sink 节点**：产出 text artifact（最终输出）
+- **table 节点**：按 `table.steps` 执行，`output` 步骤产出 `{kind:"json"}` artifact（`{rows,count,columns}`），节点摘要报「N 行 × M 列」；`sort` 步骤空值（空串/null/缺字段）无论方向一律沉底（`2c3cef8`，狗粮 tpl-evidence-brief）；上游 JSON 含额外字段（如拆条产出的 `claim`）不影响取 `rows`；狗粮 tpl-doc-ingest 首次真实覆盖（run `b0f60b0b`，4 行×2 列），tpl-evidence-brief / tpl-expense-review 复验排序契约（run `ff5e4937`/`b46e620c`）
+- **vcs 节点**：请求走 `guardedFetch`（与其他出站节点共用代理/SSRF/重定向契约，见 §12.1）；凭证只从服务器 env（`GITHUB_TOKEN`/`GITLAB_TOKEN`）读取，不进图；产出 `{kind:"json"}` artifact（API 原始响应）。`create_pr`/`comment_issue` 的 `body` 为空时回退上游 text 产物；`title` 未显式配置时从正文首个非空、非分隔线行推导（去标题符号、截断 120 字符），显式 `cfg.title` 始终优先（狗粮 tpl-release-pr，`dadeb05`）；GitHub 422 的 `errors[]` 逐条详情并入报错（`f034605`）
+- **调度契约（error 边 × fan-in）**：失败上游被 error 边接住（catch 节点已 done）时，与它同汇入一个汇聚点的兄弟分支仍必须照常调度，汇聚点从 ctx 里读到的是失败节点的 error JSON + catch 节点的产出；收尾时仍有 pending 节点的 run 一律不得报 done（`e6dc2c9`）
 
 ### 13.3 inputFor() 兼容策略
 

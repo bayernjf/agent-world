@@ -28,6 +28,7 @@
 - ✅ source 节点支持点击/拖拽/粘贴产品图，`POST /api/artifacts/upload` 落盘，得到 `/api/artifacts/:id` URL，带缩略图预览。
 - ✅ 多张图按顺序作为主图→细节图，仍可手动填 URL。
 - ✅ 图片作为 image artifact 流向下游视觉模型。
+- ✅ **文档上传（2026-09-01 补）**：同一个上传接口早已能产 `kind="file"` 产物，但 source 节点只存/只产 image，导致靠 fileParse 的模板（合同审查）真实投不出料。现 `source.files` 挂 PDF/DOCX/PPTX，派发时物化为 file artifact 供解析车间读取（单件 ≤5MB，解析需整体内联读入）。
 
 ### 阶段 B：平台专属产线模板（核心，进行中）
 - ✅ 「淘宝商品详情」模板：排版节点输出结构化 ```product-json 区块（hero/heading/bullets/imageCards/paragraph/specs/cta）。

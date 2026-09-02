@@ -195,9 +195,23 @@ export function filterRows(rows: TableRow[], step: Extract<TableStep, { op: "fil
 
 export function sortRows(rows: TableRow[], step: Extract<TableStep, { op: "sort" }>): TableRow[] {
   const dir = step.direction === "desc" ? -1 : 1;
-  return [...rows].sort(
-    (a, b) => compareCells(a[step.column] ?? null, b[step.column] ?? null) * dir,
-  );
+  // Missing cells sink to the bottom regardless of direction: a missing date
+  // must not float to the top of an ascending timeline (dogfood
+  // tpl-evidence-brief).
+  return [...rows].sort((a, b) => {
+    const va = a[step.column] ?? null;
+    const vb = b[step.column] ?? null;
+    const ea = cellIsEmpty(va);
+    const eb = cellIsEmpty(vb);
+    if (ea && eb) return 0;
+    if (ea) return 1;
+    if (eb) return -1;
+    return compareCells(va, vb) * dir;
+  });
+}
+
+function cellIsEmpty(v: Cell): boolean {
+  return v == null || (typeof v === "string" && v.trim() === "");
 }
 
 function computeAgg(group: TableRow[], column: string, fn: "count" | "sum" | "avg" | "min" | "max"): Cell {

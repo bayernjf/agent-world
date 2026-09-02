@@ -26,5 +26,9 @@ artifacts/
 .codegraph/
 *.tsbuildinfo
 
+# tesseract.js drops downloaded language packs in the server CWD when no
+# cachePath is set (chi_sim alone is 42MB)
+*.traineddata
+
 # Personal Codex skills (project-local overrides; global at ~/.agents/skills/)
 .agents/
