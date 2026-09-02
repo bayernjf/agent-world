@@ -38,6 +38,7 @@ import {
   MODALITY_ENDPOINT,
   DEFAULT_MODALITY,
   MODALITIES,
+  AppConfigSchema,
   type AppConfig,
   type Modality,
 } from "./config.js";
@@ -579,7 +580,12 @@ app.get("/api/settings", (c) => {
 
 app.put("/api/settings", async (c) => {
   const userId = c.get("userId");
-  const body = (await c.req.json()) as Partial<AppConfig>;
+  const rawBody = await c.req.json();
+  const parsed = AppConfigSchema.partial().safeParse(rawBody);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid settings payload", details: parsed.error.flatten() }, 400);
+  }
+  const body = parsed.data as Partial<AppConfig>;
   const current = loadConfig(userId);
   const bodyProviders = body.providers ?? {};
   const mergedProviders: AppConfig["providers"] = {};
