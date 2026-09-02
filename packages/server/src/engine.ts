@@ -3074,6 +3074,22 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     const prompt = cfg.prompt?.trim() || (await inputFor(node));
     try {
       const results = await worker.generateVideo({ node, config: cfg, input: prompt, signal: opts.signal });
+      // Zero results is never a success: the node asked for n ≥ 1 clips and got
+      // none, which means the provider does not actually serve this modality or
+      // model (routingWorker hands back [] for a worker without the method).
+      // Reporting done with no artifact is the same fake success b6de7d9 removed
+      // for the throw path; audit item L8 flagged this empty-result half.
+      if (results.length === 0) {
+        states.set(nodeId, "failed");
+        emit({
+          type: "node.failed",
+          nodeId,
+          attempt,
+          error: `视频生成未返回任何结果（模型 ${cfg.model} 可能不支持该模态，或 provider 未提供该能力）`,
+          errorCode: "UNSUPPORTED",
+        });
+        return;
+      }
       let usage: Usage = { tokensIn: 0, tokensOut: 0, costUsd: 0, units: {} };
       const videoArts: Artifact[] = [];
       for (let idx = 0; idx < results.length; idx++) {
@@ -3123,6 +3139,19 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     const prompt = cfg.prompt?.trim() || (await inputFor(node));
     try {
       const results = await worker.generateAudio({ node, config: cfg, input: prompt, signal: opts.signal });
+      // See the videoGen branch: an empty result set means no audio was made,
+      // which for an audio-first pipeline is a failed run, not a done one.
+      if (results.length === 0) {
+        states.set(nodeId, "failed");
+        emit({
+          type: "node.failed",
+          nodeId,
+          attempt,
+          error: `音频生成未返回任何结果（模型 ${cfg.model} 可能不支持该模态，或 provider 未提供该能力）`,
+          errorCode: "UNSUPPORTED",
+        });
+        return;
+      }
       let usage: Usage = { tokensIn: 0, tokensOut: 0, costUsd: 0, units: {} };
       const audioArts: Artifact[] = [];
       for (let idx = 0; idx < results.length; idx++) {
@@ -3165,6 +3194,18 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     const prompt = cfg.prompt?.trim() || buildImagePrompt(node, graph);
     try {
       const results = await worker.generateImage({ node, config: cfg, input: prompt, signal: opts.signal });
+      // See the videoGen branch: zero images means nothing was produced.
+      if (results.length === 0) {
+        states.set(nodeId, "failed");
+        emit({
+          type: "node.failed",
+          nodeId,
+          attempt,
+          error: `配图生成未返回任何结果（模型 ${cfg.model} 可能不支持该模态，或 provider 未提供该能力）`,
+          errorCode: "UNSUPPORTED",
+        });
+        return;
+      }
       let usage: Usage = { tokensIn: 0, tokensOut: 0, costUsd: 0, units: { images: 0 } };
       const imageArts: Artifact[] = [];
       for (let idx = 0; idx < results.length; idx++) {
@@ -3290,6 +3331,19 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       };
       try {
         const results = await worker.generateImage({ node, config: imgCfg, input: prompt, signal: opts.signal });
+        // Zero results is a failure, not an empty success (same as the dedicated
+        // imageGen node): the provider does not serve this modality/model.
+        if (results.length === 0) {
+          states.set(nodeId, "failed");
+          emit({
+            type: "node.failed",
+            nodeId,
+            attempt,
+            error: `通用节点图片生成未返回任何结果（模型 ${imgCfg.model} 可能不支持该模态）`,
+            errorCode: "UNSUPPORTED",
+          });
+          return;
+        }
         let usage: Usage = { tokensIn: 0, tokensOut: 0, costUsd: 0, units: { images: 0 } };
         const arts: Artifact[] = [];
         for (let idx = 0; idx < results.length; idx++) {
@@ -3342,6 +3396,18 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       };
       try {
         const results = await worker.generateVideo({ node, config: vidCfg, input: prompt, signal: opts.signal });
+        // Zero results is a failure, not an empty success (see imageGen above).
+        if (results.length === 0) {
+          states.set(nodeId, "failed");
+          emit({
+            type: "node.failed",
+            nodeId,
+            attempt,
+            error: `通用节点视频生成未返回任何结果（模型 ${vidCfg.model} 可能不支持该模态）`,
+            errorCode: "UNSUPPORTED",
+          });
+          return;
+        }
         let usage: Usage = { tokensIn: 0, tokensOut: 0, costUsd: 0, units: { videos: 0 } };
         const arts: Artifact[] = [];
         for (let idx = 0; idx < results.length; idx++) {
@@ -3395,6 +3461,18 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       };
       try {
         const results = await worker.generateAudio({ node, config: audCfg, input: prompt, signal: opts.signal });
+        // Zero results is a failure, not an empty success (see imageGen above).
+        if (results.length === 0) {
+          states.set(nodeId, "failed");
+          emit({
+            type: "node.failed",
+            nodeId,
+            attempt,
+            error: `通用节点音频生成未返回任何结果（模型 ${audCfg.model} 可能不支持该模态）`,
+            errorCode: "UNSUPPORTED",
+          });
+          return;
+        }
         let usage: Usage = { tokensIn: 0, tokensOut: 0, costUsd: 0, units: {} };
         const arts: Artifact[] = [];
         for (let idx = 0; idx < results.length; idx++) {

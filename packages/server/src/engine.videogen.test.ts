@@ -123,6 +123,22 @@ describe("videoGen node (P1-6)", () => {
     expect(sinkFinished).toBeUndefined();
   });
 
+  it("fails the node when the provider returns zero clips (an empty result is not a success)", async () => {
+    // routingWorker returns [] for a provider without the modality, so the call
+    // can "succeed" while producing nothing — the fake-success half of audit
+    // item L8. Done-with-no-artifact hid exactly this before.
+    const { worker } = spyWorker({ videoCount: 0 });
+    const events = await run(graphVideoGenToSink(), worker);
+
+    const produced = events.filter((e) => e.type === "artifact.produced" && e.artifact.kind === "video");
+    expect(produced.length).toBe(0);
+    const failed = events.find((e) => e.type === "node.failed" && e.nodeId === "vid");
+    expect(failed).toBeDefined();
+    expect(failed && failed.type === "node.failed" && failed.errorCode).toBe("UNSUPPORTED");
+    expect(events.find((e) => e.type === "node.finished" && e.nodeId === "vid")).toBeUndefined();
+    expect(events.find((e) => e.type === "node.finished" && e.nodeId === "sink")).toBeUndefined();
+  });
+
   it("video artifact flows to downstream agent via inputFor placeholder", async () => {
     const { worker, calls } = spyWorker({ videoCount: 1 });
     const graph: Graph = {
