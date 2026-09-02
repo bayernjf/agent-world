@@ -2388,6 +2388,21 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           status = "failed";
           return;
         }
+        // Same contract as the textGen branch: a 200 with no text is not a
+        // translation. Shipping an empty artifact here means the run reports
+        // done with nothing translated.
+        if (!result.output.trim()) {
+          states.set(nodeId, "failed");
+          emit({
+            type: "node.failed",
+            nodeId,
+            attempt,
+            error: `模型 ${config.model} 返回了空译文（无正文可交付）`,
+            errorCode: "PROVIDER_ERROR",
+          });
+          status = "failed";
+          return;
+        }
         setTextArtifact(artifacts, nodeId, result.output);
         states.set(nodeId, "done");
         emit({ type: "node.finished", nodeId, attempt, output: result.output, usage: result.usage });
@@ -3292,6 +3307,13 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
             emit({ type: "node.delta", nodeId, attempt, text: chunk.text });
           }
         }
+        // Same contract as textGen/translate: an empty completion is not a
+        // product, and the generic node is often the run's only one.
+        if (!out.trim()) {
+          states.set(nodeId, "failed");
+          emit({ type: "node.failed", nodeId, attempt, error: `模型 ${gcfg.model} 返回了空内容（无正文可交付）`, errorCode: "PROVIDER_ERROR" });
+          return;
+        }
         // Observability parity: the text product must be inspectable in the
         // gallery like every other node kind's. setTextArtifact alone left the
         // generic node with a node.finished output but no artifact row (dogfood
@@ -3727,6 +3749,25 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
             | "UNKNOWN"
             | "UNSUPPORTED"
             | undefined) ?? "UNKNOWN",
+        });
+        status = "failed";
+        return;
+      }
+
+      // An empty completion is not a product. Providers can answer 200 with no
+      // text (openai-compatible falls back to `msg.content ?? ""`, e.g. a
+      // tool-call-only turn or a filtered reply); recording that as done handed
+      // downstream an empty string to interpolate and still reported the run as
+      // done — same class as the media branches fixed in 2797011. Templates that
+      // want to tolerate it can attach an error edge.
+      if (!result.output.trim()) {
+        states.set(nodeId, "failed");
+        emit({
+          type: "node.failed",
+          nodeId,
+          attempt,
+          error: `模型 ${config.model} 返回了空内容（无正文可交付）`,
+          errorCode: "PROVIDER_ERROR",
         });
         status = "failed";
         return;
