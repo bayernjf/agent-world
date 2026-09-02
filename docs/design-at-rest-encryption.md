@@ -78,9 +78,17 @@ enc:v1:<iv base64>:<authTag base64>:<cipher base64>
 // src/at-rest.ts
 export function encryptString(plain: string): string   // → enc:v1:...
 export function decryptString(stored: string): string  // 无前缀原样返回；密文解密失败抛错
-export function sealGraphDoc(graph: Graph): Graph      // 仅加密 triggers[].webhookSecret（深拷贝，不改入参）
+export function sealGraphDoc(graph: Graph): Graph      // 按字段名递归加密全部凭证（深拷贝，不改入参）
 export function openGraphDoc(graph: Graph): Graph      // 反向；解密失败抛错
 ```
+
+> **加密范围（`f7c333f` 起，不再是单字段路径）**：`SECRET_KEYS` 精确名单（`apiKey` / `secret` / `token` /
+> `webhookSecret` / `webhookUrl` / `authorization` / `cookie` …）递归匹配图文档任意层级——节点级 provider key、
+> notify 的 secret 与群机器人 URL、连接器 `auth.token`、trigger webhookSecret 全覆盖；
+> **header 名由用户自定，名单枚举不可能穷尽**，故 `ff223bb` 起在任何 `headers` 记录内改按**名字模式**
+> （`AUTHISH_HEADER`：auth / token / key / secret / credential / signature / password / session / cookie / bearer）
+> 加密其值，良性 header（`Content-Type` 等）保持明文以便排查。
+> 两条不变量：键顺序不变（明文 contentHash 可比）、无凭证的文档返回**同一引用**（零成本、身份不变）。
 
 ### 4.4 接入点
 
@@ -144,6 +152,7 @@ bindSettingsStore({
 - **阶段划分**：settings + `graphs.doc` + `graph_versions.snapshot` 为本轮核心（L3 主目标）；`runs.snapshot` 因读取点分散（含成本/评估/缩略图裸 parse）在方案中一并设计，随代码落地验证。
 - 明文 secret 仍短暂存在于**内存**（运行期比对、fireWebhook），这是功能必需，不属静态加密范畴。
 - `config.json` 文件基线（无 user 的共享配置）仍为明文（0600 权限），属既有设计（团队共享基线），不在本轮范围。
+- **残留边界（`ff223bb` 后）**：http 节点 / 连接器 `url` 查询串里内嵌的凭证（`?token=…`）仍明文落库——按字段名加密无法区分"带 token 的 URL"与普通 endpoint，误伤面大于收益；如需收口应改为在写入前把 query 凭证搬进 `headers`。
 
 ## 9. 相关文档
 

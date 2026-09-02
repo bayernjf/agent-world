@@ -11,9 +11,9 @@
 
 | 模块 | 完成度 | 状态 | 说明 / 关联文档 |
 |---|---|---|---|
-| 安全加固（审计 29 项） | 100% | ✅ 已完成 | 3 Critical/10 High/8 Medium/8 Low 全部修复，含 CORS 通配符拒绝、SSRF、静态加密 L3；推翻 2 条旧"已解决"结论。**2026-09-02 扩围**：L3 静态加密从仅 `triggers[].webhookSecret` 扩展到图文档内**所有节点级凭证**（imageGen/videoGen/audioGen/generic `apiKey`、notify `secret`+`webhookUrl`、连接器 `auth.token`+auth 类 `headers`），`sealGraphDoc`/`openGraphDoc` 改为按字段名递归遍历（`f7c333f`）— [security-audit-2026-08-31.md](security-audit-2026-08-31.md) |
+| 安全加固（审计 29 项） | 100% | ✅ 已完成 | 3 Critical/10 High/8 Medium/8 Low 全部修复，含 CORS 通配符拒绝、SSRF、静态加密 L3；推翻 2 条旧"已解决"结论。**2026-09-02 扩围**：L3 静态加密从仅 `triggers[].webhookSecret` 扩展到图文档内**所有节点级凭证**（imageGen/videoGen/audioGen/generic `apiKey`、notify `secret`+`webhookUrl`、连接器 `auth.token`+auth 类 `headers`），`sealGraphDoc`/`openGraphDoc` 改为按字段名递归遍历（`f7c333f`）；**再收口**：`headers` 里由自定义名字承载的凭证（`X-My-Auth`、`X-Signature`）按名字模式加密，固定名单枚举不到的漏网补上（`ff223bb`），残留边界只剩"凭证嵌在 URL query（`?token=…`）里"这一条 — [security-audit-2026-08-31.md](security-audit-2026-08-31.md) |
 | 账号系统与用户隔离 | 100% | ✅ 已完成 | users 表 + JWT/HttpOnly cookie + 全量按 user_id 隔离 + 旧库回填迁移 |
-| 回归测试与质量门 | 100% | ✅ 已完成 | core 162 / server 642 / mcp 50 / web 32；core-path 回归基线 15 用例，Node 24 下稳定复跑 — [handoff.md Quality gate](../handoff.md) |
+| 回归测试与质量门 | 100% | ✅ 已完成 | core 162 / server 649 / mcp 50 / web 32；core-path 回归基线 17 用例，Node 24 下稳定复跑 — [handoff.md Quality gate](../handoff.md) |
 | MCP Server | 100% | ✅ 已完成 | stdio + HTTP/SSE 双传输、15 工具 + resources + prompts + notifications + Bearer 认证（P0-P2 全落地）— [design-mcp-server.md](design-mcp-server.md) |
 | Phase 1 基础通用能力 | 100% | ✅ 已完成 | HTTP/代码执行/条件分支/parallel/数据模型升级 — [roadmap-generalization.md](roadmap-generalization.md#phase-1基础通用能力2-3周) |
 | Phase 2 数据与文件处理 | 100% | ✅ 已完成 | 表格/数据库/文件解析/OCR/转换/搜索/翻译 — [roadmap-generalization.md](roadmap-generalization.md#phase-2数据与文件处理2-3周) |
@@ -35,8 +35,8 @@
 
 - **执行引擎**：25 种节点类型，按 `NODE_CATEGORIES` 五组——AI 加工 5 / 车间调度 6 / 物料处理 7 / 外接设备 5 / 投料出料 2（逐种名称与中文术语见 [design-glossary.md](design-glossary.md)）；流式 + SSE + 断线重连 + halt/resume，成本电表（token + 单价）。
 - **高级编排**：subprocess 子流程、error 边 + catch 容错、失败级联 skip、节点级重试、失败告警 + rerun、人工审批节点、graph 变量跨 run 持久化。
-- **可信运行**：账号/用户隔离、静态加密（AES-256-GCM，**2026-09-02 扩围至图文档内所有节点级凭证**）、SSRF 防护 + 代码沙箱（P0-P2 + net allowlist 代理）、29 项安全审计闭环。
-- **质量体系**：core-path 回归基线（compile→execute→rework→resume→artifact→auth→SSRF）+ 全量测试稳定复跑；模板/引擎修复均带回归用例。
+- **可信运行**：账号/用户隔离、静态加密（AES-256-GCM，**2026-09-02 扩围至图文档内所有节点级凭证，并按 header 名字模式收口自定义凭证头**）、SSRF 防护 + 代码沙箱（P0-P2 + net allowlist 代理）、29 项安全审计闭环。
+- **质量体系**：core-path 回归基线（compile→execute→rework→resume→artifact→auth→SSRF）+ 全量测试稳定复跑；模板/引擎修复均带回归用例；**2026-09-02 按缺陷类横扫"静默成功"**——媒体节点抛错、provider 返回空结果、模型返回空补全/空译文一律改发诚实 `node.failed`（可被 error 边兜底），不再交出没有产物或空产物的"成功"run。
 - **可扩展面**：MCP Server（外部 AI 客户端接入）、版本快照与恢复预览、模板参数化、27 内置模板按 11 分类分组展示、覆盖 25 种节点类型中的 23 种。
 
 ---
