@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { anchorOf, pointsToPath, hitTestNode, edgeAnchors, orthogonalRoute, orthoArrows, pipePath, pipeArrows, pipeArrow, pipeCrossings } from "./geometry";
+import { anchorOf, pointsToPath, hitTestNode, edgeAnchors, orthogonalRoute, orthoArrows, pipePath, pipeArrows, pipeArrow, pipeCrossings, orthoCrossings } from "./geometry";
 import type { Point, Rect, Arrow, Crossing } from "./geometry";
 import { PLANT_W, PLANT_H } from "../store/graph";
 import type { Graph, GraphNode, GraphEdge } from "@agent-world/core";
@@ -740,5 +740,95 @@ describe("pipeCrossings", () => {
     expect(typeof c.y).toBe("number");
     expect(typeof c.over).toBe("string");
     expect(typeof c.under).toBe("string");
+  });
+});
+
+describe("orthoCrossings", () => {
+  function makeGraph(edges: { id: string; kind?: GraphEdge["kind"] }[]): Graph {
+    return {
+      id: "test",
+      name: "test",
+      nodes: [],
+      edges: edges.map((e) => ({
+        id: e.id,
+        from: "n1",
+        to: "n2",
+        kind: e.kind ?? "flow",
+      })) as GraphEdge[],
+      runs: [],
+    } as Graph;
+  }
+
+  it("returns empty array when no routes cross", () => {
+    const graph = makeGraph([{ id: "a" }, { id: "b" }]);
+    const routes = new Map([
+      ["a", [{ x: 0, y: 0 }, { x: 200, y: 0 }]],
+      ["b", [{ x: 0, y: 50 }, { x: 200, y: 50 }]],
+    ]);
+    expect(orthoCrossings(graph, new Map(), routes)).toEqual([]);
+  });
+
+  it("detects a crossing between a vertical and a horizontal route segment", () => {
+    const graph = makeGraph([{ id: "a" }, { id: "b" }]);
+    const routes = new Map([
+      // a: vertical then horizontal
+      ["a", [{ x: 0, y: 0 }, { x: 0, y: 100 }, { x: 200, y: 100 }]],
+      // b: pure vertical, crosses a's horizontal segment at (50, 100)
+      ["b", [{ x: 50, y: -50 }, { x: 50, y: 150 }]],
+    ]);
+    const crossings = orthoCrossings(graph, new Map(), routes);
+    expect(crossings.length).toBe(1);
+    expect(crossings[0]!.x).toBe(50);
+    expect(crossings[0]!.y).toBe(100);
+    // Vertical pipe (b) is "over", horizontal (a) is "under"
+    expect(crossings[0]!.over).toBe("b");
+    expect(crossings[0]!.under).toBe("a");
+  });
+
+  it("skips rework edges", () => {
+    const graph = makeGraph([{ id: "a" }, { id: "r", kind: "rework" }]);
+    const routes = new Map([
+      ["a", [{ x: 0, y: 0 }, { x: 0, y: 100 }, { x: 200, y: 100 }]],
+      ["r", [{ x: 50, y: -50 }, { x: 50, y: 150 }]],
+    ]);
+    // Rework edge is skipped, so no crossing detected
+    expect(orthoCrossings(graph, new Map(), routes)).toEqual([]);
+  });
+
+  it("skips edges without routes", () => {
+    const graph = makeGraph([{ id: "a" }, { id: "b" }]);
+    const routes = new Map([
+      ["a", [{ x: 0, y: 0 }, { x: 200, y: 0 }]],
+      // "b" has no route
+    ]);
+    expect(orthoCrossings(graph, new Map(), routes)).toEqual([]);
+  });
+
+  it("detects multiple crossings", () => {
+    const graph = makeGraph([{ id: "h1" }, { id: "h2" }, { id: "v" }]);
+    const routes = new Map([
+      ["h1", [{ x: 0, y: 0 }, { x: 200, y: 0 }]],
+      ["h2", [{ x: 0, y: 50 }, { x: 200, y: 50 }]],
+      ["v", [{ x: 100, y: -50 }, { x: 100, y: 150 }]],
+    ]);
+    const crossings = orthoCrossings(graph, new Map(), routes);
+    expect(crossings.length).toBe(2);
+    // Both crossings should be at x=100, vertical pipe over
+    crossings.forEach((c) => {
+      expect(c.x).toBe(100);
+      expect(c.over).toBe("v");
+    });
+  });
+
+  it("dedupes consecutive identical points before computing segments", () => {
+    const graph = makeGraph([{ id: "a" }, { id: "b" }]);
+    const routes = new Map([
+      ["a", [{ x: 0, y: 0 }, { x: 0, y: 0 }, { x: 0, y: 100 }, { x: 200, y: 100 }]],
+      ["b", [{ x: 50, y: -50 }, { x: 50, y: 150 }]],
+    ]);
+    const crossings = orthoCrossings(graph, new Map(), routes);
+    expect(crossings.length).toBe(1);
+    expect(crossings[0]!.x).toBe(50);
+    expect(crossings[0]!.y).toBe(100);
   });
 });
