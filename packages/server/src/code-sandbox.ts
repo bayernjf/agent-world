@@ -91,7 +91,18 @@ const MB = 1024;
  */
 export const DEFAULT_SANDBOX_LIMITS: Required<CodeSandboxLimits> = {
   cpuSec: 30,
-  maxProcs: 128,
+  // 1024, NOT smaller: on Linux RLIMIT_NPROC counts the invoking user's
+  // TOTAL task count machine-wide (processes AND threads — Node burns a
+  // dozen threads at boot), including the vitest harness and runner agent
+  // that coexist with the sandboxed child on CI. At 128 the user's session
+  // crosses the cap under load and the child aborts at boot
+  // (uv_thread_create EAGAIN → SIGABRT) or stalls filling its threadpool
+  // until the engine's 30s code timeout fires — a trivial console.log
+  // node. CI showed both signatures (2026-09-02, PR #98). 1024 keeps the
+  // fork-bomb guard meaningful while leaving headroom for that global
+  // accounting; hard isolation needs a PID namespace (bwrap), not a
+  // tighter ulimit. Override via CODE_LIMIT_MAX_PROCS.
+  maxProcs: 1024,
   maxFileKb: 32 * MB,
   maxFd: 256,
   virtualMemoryKb: 2048 * MB,
