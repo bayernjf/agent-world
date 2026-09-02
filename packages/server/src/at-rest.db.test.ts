@@ -91,6 +91,83 @@ describe("at-rest encryption: db integration (audit L3)", () => {
     db.close();
   });
 
+  // The L3 integration tests above only exercised `triggers[].webhookSecret`.
+  // Node-level credentials live in the same three places — graphs.doc, version
+  // snapshots and run snapshots — and were plaintext in all of them.
+  it("keeps node-level credentials off disk in the doc, version and run snapshots", () => {
+    const path = join(dir, "nodes.sqlite");
+    const db = openDb(path);
+    const nodeKey = "sk-node-on-disk";
+    const botToken = "bot-token-on-disk";
+    const connToken = "conn-token-on-disk";
+    const graph: Graph = {
+      id: "g1",
+      name: "graph-g1",
+      nodes: [
+        {
+          id: "src", kind: "source", name: "SRC", x: 0, y: 0,
+          source: {
+            connector: {
+              type: "http",
+              http: { url: "https://api.example.com/x", auth: { type: "bearer", token: connToken } },
+            },
+          },
+        } as never,
+        {
+          id: "aud", kind: "audioGen", name: "AUD", x: 1, y: 0,
+          audioGen: { model: "tts-1", apiKey: nodeKey },
+        } as never,
+        {
+          id: "nt", kind: "notify", name: "NT", x: 2, y: 0,
+          notify: { provider: "feishu", webhookUrl: `https://open.feishu.cn/hook/${botToken}`, message: "m" },
+        } as never,
+        { id: "depot", kind: "sink", name: "DEPOT", x: 3, y: 0 },
+      ],
+      edges: [
+        { id: "e1", from: "src", to: "aud", kind: "flow" },
+        { id: "e2", from: "aud", to: "nt", kind: "flow" },
+        { id: "e3", from: "nt", to: "depot", kind: "flow" },
+      ],
+    };
+
+    db.saveGraph(graph, 0, "u1");
+    db.saveVersion("g1", "v1", JSON.stringify(graph));
+    db.createRun({ id: "run1", userId: "u1", graph, budgetUsd: null, at: 1, trigger: "manual" });
+    db.saveAutoSnapshot("g1", JSON.stringify(graph), 0, 10);
+
+    // Every stored copy must be free of all three plaintext credentials.
+    const raw = new DatabaseSync(path, { readOnly: true });
+    try {
+      const docs = [
+        (raw.prepare(`SELECT doc AS d FROM graphs WHERE id = 'g1'`).get() as { d: string }).d,
+        ...(raw.prepare(`SELECT snapshot AS d FROM graph_versions WHERE graph_id = 'g1'`).all() as Array<{ d: string }>).map((r) => r.d),
+        (raw.prepare(`SELECT snapshot AS d FROM runs WHERE id = 'run1'`).get() as { d: string }).d,
+      ];
+      expect(docs.length).toBeGreaterThanOrEqual(4); // doc + manual & auto versions + run
+      for (const d of docs) {
+        expect(d).not.toContain(nodeKey);
+        expect(d).not.toContain(botToken);
+        expect(d).not.toContain(connToken);
+        expect(d).toContain("enc:v1:");
+      }
+    } finally {
+      raw.close();
+    }
+
+    // App-facing reads decrypt transparently, so nothing downstream changes.
+    const loaded = db.getGraph("g1", "u1")!;
+    const nodes = loaded.nodes as unknown as Array<Record<string, any>>;
+    expect(nodes.find((n) => n.id === "aud")!.audioGen.apiKey).toBe(nodeKey);
+    expect(nodes.find((n) => n.id === "nt")!.notify.webhookUrl).toContain(botToken);
+    expect(nodes.find((n) => n.id === "src")!.source.connector.http.auth.token).toBe(connToken);
+
+    // Hashes stay plaintext-based, so "matches what ran" still lines up.
+    const versionHash = (db.listVersions("g1", "u1") as unknown as Array<{ contentHash: string }>)
+      .find((v) => v.contentHash)?.contentHash;
+    expect(db.getLatestRunContentHash("g1", "u1")).toBe(versionHash);
+    db.close();
+  });
+
   it("keeps working with legacy plaintext rows (no prefix)", () => {
     const path = join(dir, "legacy.sqlite");
     // Create the schema through openDb, then write a legacy plaintext row

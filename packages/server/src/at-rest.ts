@@ -3,7 +3,11 @@
  *
  * Two kinds of secrets are encrypted before they touch disk:
  *  - provider API keys, inside the per-user `settings.data` JSON;
- *  - webhook secrets, inside graph docs / snapshots (`triggers[].webhookSecret`).
+ *  - every credential carried by a graph document / snapshot — trigger webhook
+ *    secrets, node-level provider keys (imageGen / videoGen / audioGen /
+ *    generic `apiKey`), notify `secret` and `webhookUrl` (group-bot URLs embed
+ *    their token in the path), connector `auth.token`, and auth-ish HTTP header
+ *    values on both http nodes and http connectors.
  *
  * Design: AES-256-GCM, one random 12-byte IV per encryption, stored as
  * `enc:v1:<iv b64>:<tag b64>:<cipher b64>`. Values without the prefix are
@@ -91,22 +95,86 @@ export function decryptString(stored: string): string {
   }
 }
 
-function hasSecrets(graph: Graph): boolean {
-  return !!graph.triggers?.some((t) => t.webhookSecret);
+/**
+ * Object keys whose string values are credentials, matched case-insensitively.
+ *
+ * Keyed by name rather than by a hard-coded field path so the walk covers
+ * wherever a credential is nested today (node configs, `source.connector.http`,
+ * triggers) and wherever it gets nested next. The L3 fix mapped only
+ * `triggers[].webhookSecret`, which left every node-level key in plaintext —
+ * the same defect class in a sibling branch.
+ *
+ * Header names are keys of a record, so the auth-ish ones are listed here too
+ * and get sealed by the same rule. Boundary, stated honestly: a credential
+ * hidden under an unlisted custom header name (e.g. `X-My-Auth`) is NOT caught.
+ */
+const SECRET_KEYS =
+  /^(apikey|api_key|secret|webhooksecret|token|accesstoken|refreshtoken|webhookurl|authorization|proxy-authorization|cookie|set-cookie|x-api-key|x-auth-token|x-token|x-goog-api-key|ocp-apim-subscription-key)$/i;
+
+/** True when a subtree carries at least one secret-keyed non-empty string. */
+function containsSecret(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(containsSecret);
+  if (value && typeof value === "object") {
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      if (typeof v === "string" && v && SECRET_KEYS.test(k)) return true;
+      if (containsSecret(v)) return true;
+    }
+  }
+  return false;
 }
 
-/** Encrypt the webhook secrets inside a graph document (returns a copy). */
+/**
+ * Rewrite every secret-keyed string in a document with `fn`, preserving key
+ * order (content hashes are computed on the plaintext and must stay
+ * comparable). Returns the ORIGINAL reference when nothing changed, so graphs
+ * without credentials keep their identity and cost nothing.
+ */
+function mapSecrets(value: unknown, fn: (v: string) => string): { out: unknown; changed: boolean } {
+  if (Array.isArray(value)) {
+    let changed = false;
+    const out = value.map((v) => {
+      const r = mapSecrets(v, fn);
+      if (r.changed) changed = true;
+      return r.out;
+    });
+    return changed ? { out, changed } : { out: value, changed: false };
+  }
+  if (value && typeof value === "object") {
+    let changed = false;
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      if (typeof v === "string" && v && SECRET_KEYS.test(k)) {
+        const next = fn(v);
+        out[k] = next;
+        if (next !== v) changed = true;
+      } else {
+        const r = mapSecrets(v, fn);
+        out[k] = r.out;
+        if (r.changed) changed = true;
+      }
+    }
+    return changed ? { out, changed } : { out: value, changed: false };
+  }
+  return { out: value, changed: false };
+}
+
+/** Encrypt unless already encrypted, so sealing is idempotent. */
+function sealValue(v: string): string {
+  return v.startsWith(ENC_PREFIX) ? v : encryptString(v);
+}
+
+function hasSecrets(graph: Graph): boolean {
+  return containsSecret(graph);
+}
+
+/** Encrypt every credential inside a graph document (returns a copy). */
 export function sealGraphDoc(graph: Graph): Graph {
   if (!hasSecrets(graph)) return graph;
-  return {
-    ...graph,
-    triggers: graph.triggers!.map((t) =>
-      t.webhookSecret ? { ...t, webhookSecret: encryptString(t.webhookSecret) } : t,
-    ),
-  };
+  const { out } = mapSecrets(graph, sealValue);
+  return out as Graph;
 }
 
-/** Decrypt the webhook secrets inside a graph document (returns a copy). */
+/** Decrypt every credential inside a graph document (returns a copy). */
 export function openGraphDoc(graph: Graph): Graph {
   // Drop "ghost" edges whose endpoints no longer exist. A corrupted save can
   // leave pipes referencing node ids that aren't in the graph; they are
@@ -121,12 +189,8 @@ export function openGraphDoc(graph: Graph): Graph {
     : graph;
 
   if (!hasSecrets(opened)) return opened;
-  return {
-    ...opened,
-    triggers: opened.triggers!.map((t) =>
-      t.webhookSecret ? { ...t, webhookSecret: decryptString(t.webhookSecret) } : t,
-    ),
-  };
+  const { out } = mapSecrets(opened, decryptString);
+  return out as Graph;
 }
 
 /**
