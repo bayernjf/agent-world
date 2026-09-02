@@ -265,14 +265,17 @@ describe("code node sandbox P1", () => {
       const elapsed = Date.now() - t0;
       const failed = events.find((e) => e.type === "node.failed" && e.nodeId === "calc");
       expect(failed).withContext("expected SIGXCPU → non-zero exit → node.failed").toBeTruthy();
-      expect(failed?.errorCode).toBe("SCRIPT_ERROR");
-      // Expect << 12s. Give 7s headroom for slow CI.
-      expect(elapsed).withContext(`elapsed=${elapsed}ms, should finish < 8s`).toBeLessThan(8000);
+      // errorCode is the discriminator, not wall time: a script the CPU limit
+      // never touched would end at timeoutMs with TIMEOUT, while 84 test files
+      // contending for cores can stretch 1s of CPU past any fixed second
+      // budget. Asserting elapsed there flakes under load and proves nothing
+      // this assertion does not.
+      expect(failed?.errorCode, `elapsed=${elapsed}ms`).toBe("SCRIPT_ERROR");
     } finally {
       if (prev === undefined) delete process.env.CODE_LIMIT_CPU_SEC;
       else process.env.CODE_LIMIT_CPU_SEC = prev;
     }
-  }, 15000);
+  }, 30000);
 });
 
 describe("code node fs/net policy", () => {
