@@ -73,9 +73,15 @@ async function searchDuckDuckGo(query: string, maxResults: number): Promise<Sear
   // Dogfood 2026-09-01: DDG serves a 202 anomaly/challenge page to scripted
   // clients — the response is "ok" but contains zero results. Fail loudly
   // instead of silently returning an empty hit list.
+  //
+  // The hint must not oversell retrying: across four dogfood attempts spanning
+  // ~2 hours on the same network (runs 9f700bdf / 7bc85525 / fe74e23a /
+  // 0f671a90) the challenge page was served every single time, so switching
+  // provider is the only fix that has ever worked here. Earlier wording called
+  // the block "usually intermittent", which sent operators into a retry loop.
   if (links.length === 0 && /anomaly|challenge|captcha/i.test(html)) {
     throw new Error(
-      `DuckDuckGo 返回反爬验证页（无结果）。建议：① 在节点配置改用 tavily/serpapi/google 搜索源（对应密钥走环境变量，重启 server 生效）；② 稍后重试（反爬通常是间歇性的）`,
+      `DuckDuckGo 返回反爬验证页（无结果）。建议：① 在节点配置改用 tavily/serpapi/google 搜索源（对应密钥走环境变量，重启 server 生效）——已验证唯一可靠解；② 稍后重试仅当反爬确属偶发时有效（实测同一网络下连续 4 次、跨 2 小时均被拦，重试无用）`,
     );
   }
   const snippets = anchorsByClass(html, "result__snippet");
