@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { anchorOf, pointsToPath, hitTestNode, edgeAnchors, orthogonalRoute, orthoArrows, pipePath, pipeArrows, pipeArrow } from "./geometry";
-import type { Point, Rect, Arrow } from "./geometry";
+import { anchorOf, pointsToPath, hitTestNode, edgeAnchors, orthogonalRoute, orthoArrows, pipePath, pipeArrows, pipeArrow, pipeCrossings } from "./geometry";
+import type { Point, Rect, Arrow, Crossing } from "./geometry";
 import { PLANT_W, PLANT_H } from "../store/graph";
 import type { Graph, GraphNode, GraphEdge } from "@agent-world/core";
 
@@ -648,5 +648,97 @@ describe("pipeArrow", () => {
 
   it("returns null for rework edges (no arrows)", () => {
     expect(pipeArrow({ x: 0, y: 0 }, { x: 200, y: 0 }, "rework")).toBeNull();
+  });
+});
+
+describe("pipeCrossings", () => {
+  function makeGraph(edges: { id: string; kind?: GraphEdge["kind"] }[]): Graph {
+    return {
+      id: "test",
+      name: "test",
+      nodes: [],
+      edges: edges.map((e) => ({
+        id: e.id,
+        from: "n1",
+        to: "n2",
+        kind: e.kind ?? "flow",
+      })) as GraphEdge[],
+      runs: [],
+    } as Graph;
+  }
+
+  it("returns empty array for parallel horizontal pipes (no crossing)", () => {
+    const graph = makeGraph([{ id: "a" }, { id: "b" }]);
+    const anchors = new Map([
+      ["a", { from: { x: 0, y: 0 }, to: { x: 200, y: 0 } }],
+      ["b", { from: { x: 0, y: 50 }, to: { x: 200, y: 50 } }],
+    ]);
+    expect(pipeCrossings(graph, anchors)).toEqual([]);
+  });
+
+  it("detects a crossing between a vertical and a horizontal pipe", () => {
+    const graph = makeGraph([{ id: "h" }, { id: "v" }]);
+    const anchors = new Map([
+      ["h", { from: { x: 0, y: 0 }, to: { x: 200, y: 0 } }],
+      // v.mid=50 is inside h's first horizontal segment [0, 100]
+      ["v", { from: { x: 50, y: -100 }, to: { x: 50, y: 100 } }],
+    ]);
+    const crossings = pipeCrossings(graph, anchors);
+    expect(crossings.length).toBe(1);
+    expect(crossings[0]!.x).toBe(50);
+    expect(crossings[0]!.y).toBe(0);
+    // Vertical pipe is "over", horizontal is "under"
+    expect(crossings[0]!.over).toBe("v");
+    expect(crossings[0]!.under).toBe("h");
+  });
+
+  it("skips rework edges", () => {
+    const graph = makeGraph([{ id: "h" }, { id: "r", kind: "rework" }]);
+    const anchors = new Map([
+      ["h", { from: { x: 0, y: 0 }, to: { x: 200, y: 0 } }],
+      ["r", { from: { x: 100, y: -100 }, to: { x: 100, y: 100 } }],
+    ]);
+    // Rework edge is skipped, so no crossing detected
+    expect(pipeCrossings(graph, anchors)).toEqual([]);
+  });
+
+  it("skips edges without anchors", () => {
+    const graph = makeGraph([{ id: "h" }, { id: "v" }]);
+    const anchors = new Map([
+      ["h", { from: { x: 0, y: 0 }, to: { x: 200, y: 0 } }],
+      // "v" has no anchor
+    ]);
+    expect(pipeCrossings(graph, anchors)).toEqual([]);
+  });
+
+  it("detects multiple crossings", () => {
+    const graph = makeGraph([{ id: "h1" }, { id: "h2" }, { id: "v" }]);
+    const anchors = new Map([
+      ["h1", { from: { x: 0, y: 0 }, to: { x: 200, y: 0 } }],
+      ["h2", { from: { x: 0, y: 50 }, to: { x: 200, y: 50 } }],
+      ["v", { from: { x: 50, y: -100 }, to: { x: 50, y: 100 } }],
+    ]);
+    const crossings = pipeCrossings(graph, anchors);
+    expect(crossings.length).toBe(2);
+    // Both crossings should be at x=50, vertical pipe over
+    crossings.forEach((c) => {
+      expect(c.x).toBe(50);
+      expect(c.over).toBe("v");
+    });
+  });
+
+  it("returns Crossing objects with x, y, over, under fields", () => {
+    const graph = makeGraph([{ id: "h" }, { id: "v" }]);
+    const anchors = new Map([
+      ["h", { from: { x: 0, y: 0 }, to: { x: 200, y: 0 } }],
+      ["v", { from: { x: 50, y: -100 }, to: { x: 50, y: 100 } }],
+    ]);
+    const crossings = pipeCrossings(graph, anchors);
+    expect(crossings.length).toBe(1);
+    const c = crossings[0]!;
+    expect(typeof c.x).toBe("number");
+    expect(typeof c.y).toBe("number");
+    expect(typeof c.over).toBe("string");
+    expect(typeof c.under).toBe("string");
   });
 });
