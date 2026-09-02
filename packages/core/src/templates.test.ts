@@ -58,6 +58,32 @@ describe("templates", () => {
     }
   });
 
+  it("every code node that reads stdin unwraps the engine {inputs} envelope", () => {
+    // The engine writes {inputs: {<nodeId>: <artifact>}} to the child's stdin.
+    // Dogfood tpl-customer-service (ece6e2b) matched its classifier regex
+    // against that envelope, so every ticket was routed to human review; dogfood
+    // tpl-data-report parsed it as the payload, so the report table collapsed to
+    // a single "inputs" column holding a JSON string. Guard the whole catalogue
+    // so a script can never ship treating the envelope as data again.
+    let stdinReaders = 0;
+    for (const tpl of [...TEMPLATES, BLANK_TEMPLATE]) {
+      for (const node of tpl.graph.nodes) {
+        const code = node.kind === "code" ? node.code : undefined;
+        if (!code || code.language !== "javascript") continue;
+        const src = code.code ?? "";
+        if (!/process\.stdin|readFileSync\(\s*0/.test(src)) continue;
+        stdinReaders++;
+        expect(
+          /\.inputs\b/.test(src),
+          `${tpl.id} node "${node.id}" reads stdin without unwrapping .inputs`,
+        ).toBe(true);
+      }
+    }
+    // Non-vacuity: the catalogue really does ship stdin-reading code nodes, so
+    // the guard above cannot pass by scanning nothing.
+    expect(stdinReaders).toBeGreaterThan(0);
+  });
+
   it("instantiates with fresh node and edge ids", () => {
     const tpl = getTemplate("tpl-product")!;
     const a = instantiateTemplate(tpl, { id: "g1", name: "A" });
