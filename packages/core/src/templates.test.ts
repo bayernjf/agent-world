@@ -84,6 +84,45 @@ describe("templates", () => {
     expect(stdinReaders).toBeGreaterThan(0);
   });
 
+  it("every ${node} interpolation resolves to an upstream node", () => {
+    // Dogfood tpl-customer-service: the notify message interpolated
+    // ${parse.category} although parse was not upstream of notify, so the
+    // reference silently resolved to nothing (fixed in ece6e2b by fanning parse
+    // in). Any ${id} naming a node of the same graph must be reachable through
+    // edges — otherwise the shipped prompt interpolates to empty text.
+    let interpolations = 0;
+    for (const tpl of [...TEMPLATES, BLANK_TEMPLATE]) {
+      const g = tpl.graph;
+      const ids = new Set(g.nodes.map((n) => n.id));
+      const preds = new Map<string, string[]>();
+      for (const e of g.edges) preds.set(e.to, [...(preds.get(e.to) ?? []), e.from]);
+      const upstream = (id: string): Set<string> => {
+        const seen = new Set<string>();
+        const stack = [...(preds.get(id) ?? [])];
+        while (stack.length) {
+          const cur = stack.pop()!;
+          if (seen.has(cur)) continue;
+          seen.add(cur);
+          stack.push(...(preds.get(cur) ?? []));
+        }
+        return seen;
+      };
+      for (const node of g.nodes) {
+        for (const m of JSON.stringify(node).matchAll(/\$\{([A-Za-z_][\w-]*)\}/g)) {
+          const ref = m[1];
+          // Template field placeholders (${topic} etc.) are not node ids.
+          if (!ids.has(ref)) continue;
+          interpolations++;
+          expect(
+            upstream(node.id).has(ref),
+            `${tpl.id} node "${node.id}" interpolates \${${ref}} which is not upstream`,
+          ).toBe(true);
+        }
+      }
+    }
+    expect(interpolations).toBeGreaterThan(0);
+  });
+
   it("instantiates with fresh node and edge ids", () => {
     const tpl = getTemplate("tpl-product")!;
     const a = instantiateTemplate(tpl, { id: "g1", name: "A" });
