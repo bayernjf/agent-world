@@ -1610,7 +1610,7 @@ const releasePrGraph = {
       },
       {
         // body 留空：自动使用上游人工确认后的 PR 描述文本。
-        // 凭证从服务器环境变量 GITHUB_TOKEN 读取，不会存进产线。
+        // 模板不预置 token（留空即回落服务器环境变量 GITHUB_TOKEN，不入图）。
         id: "submit",
         kind: "vcs",
         name: "创建 PR",
