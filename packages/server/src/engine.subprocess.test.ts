@@ -231,6 +231,12 @@ describe("subprocess node", () => {
     expect(fin2.status).toBe("done");
     expect(nodeState(all, "pp")?.output).toContain("子流程");
     expect(nodeState(all, "pk")).toBeDefined();
+    // The child's sink must actually run after the approve. The paused sub-flow
+    // re-enters with `ch` already done, and a done predecessor whose packet was
+    // never re-sent (the parent graph has no `pp#sub:ch` node, so sendPackets is
+    // a no-op) used to leave `ck` pending forever — the sub-flow then reported
+    // done with its sink never run, i.e. a silent drop.
+    expect(nodeState(newEvents, "pp#sub:ck")).toBeDefined();
     const decision = newEvents.find((e) => e.type === "human.decision") as
       | Extract<RunEvent, { type: "human.decision" }>
       | undefined;

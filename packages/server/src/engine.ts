@@ -872,12 +872,26 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       skipped.add(id);
       for (const e of outgoing(graph, id, "flow")) queue.push(e.to);
     }
-    for (const id of skipped) states.set(id, "skipped");
+    for (const id of skipped) {
+      states.set(id, "skipped");
+      // The un-routed tail must be visible in the event log: without a
+      // node.skipped event a resume cannot reconstruct the skip and re-seeds
+      // the node as pending, which strands every downstream merge point
+      // (dogfood tpl-customer-service: after a human approve the notify →
+      // depot tail never ran and the run still reported done).
+      emit({
+        type: "node.skipped",
+        nodeId: id,
+        attempt: attempts.get(id) ?? 1,
+        reason: "branch not taken",
+      });
+    }
   };
 
   const finish = () => {
     if (finished) return;
     finished = true;
+    let strandedNote: string | undefined;
     // A failed node is "handled" if it has an error edge to a catch node that
     // finished done — such failures don't sink the run (the catch produced a
     // fallback). Unhandled failures downgrade done → failed.
@@ -890,19 +904,39 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       const unhandled = [...states.entries()].some(
         ([id, s]) => s === "failed" && !id.includes("#sub:") && !isHandled(id),
       );
-      status = unhandled ? "failed" : "done";
+      // Nodes still pending here were never scheduled, so their products are
+      // silently missing. Recomputing the status from failures alone used to
+      // overwrite the scheduler's stranded verdict with "done" — the exact
+      // silent drop e6dc2c9 set out to outlaw (dogfood tpl-customer-service).
+      const stranded = [...states.entries()]
+        .filter(([id, s]) => s === "pending" && !id.includes("#sub:"))
+        .map(([id]) => id);
+      if (stranded.length > 0) {
+        strandedNote = `以下节点从未被调度、产物缺失：${stranded
+          .map((id) => nodeById(graph, id)?.name ?? id)
+          .join("、")}`;
+      }
+      status = unhandled || stranded.length > 0 ? "failed" : "done";
       if (status === "failed") {
-        // Alert the operator: which nodes failed (unhandled by a catch) and how
-        // many downstream nodes got skipped. Fire-and-forget, never blocks.
+        // Alert the operator: which nodes failed (unhandled by a catch), which
+        // were stranded, and how many downstream nodes got skipped.
+        // Fire-and-forget, never blocks.
         void notifyFailed({
           runId,
           graphId: graph.id,
-          failedNodes: [...states.entries()]
-            .filter(([id, s]) => s === "failed" && !isHandled(id))
-            .map(([id]) => {
-              const le = lastError.get(id);
-              return { nodeId: id, error: le?.error ?? "node failed", errorCode: le?.errorCode };
-            }),
+          failedNodes: [
+            ...[...states.entries()]
+              .filter(([id, s]) => s === "failed" && !isHandled(id))
+              .map(([id]) => {
+                const le = lastError.get(id);
+                return { nodeId: id, error: le?.error ?? "node failed", errorCode: le?.errorCode };
+              }),
+            ...stranded.map((id) => ({
+              nodeId: id,
+              error: "节点从未被调度（stranded pending），产物缺失",
+              errorCode: "STRANDED",
+            })),
+          ],
           skippedCount: [...states.values()].filter((s) => s === "skipped").length,
         });
       }
@@ -911,6 +945,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       type: "run.finished",
       runId,
       status,
+      ...(strandedNote ? { reason: strandedNote } : {}),
       ...(haltNodeId ? { haltedNodeId: haltNodeId, reason: haltReason } : {}),
     });
     queue.close();
@@ -992,6 +1027,25 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     for (const [k, v] of artifacts) if (k.startsWith(prefix)) childArtifacts.set(k.slice(prefix.length), v);
     for (const [k, v] of attempts) if (k.startsWith(prefix)) childAttempts.set(k.slice(prefix.length), v);
     for (const [k, v] of nodeCostUsd) if (k.startsWith(prefix)) childCosts.set(k.slice(prefix.length), v);
+    // Packets the paused sub-flow had already sent: the parent log records child
+    // edge ids verbatim, so intersect the parent's set with the child's edges.
+    const childEdgeIds = new Set(childGraph.edges.map((e) => e.id));
+    const childPackets = new Set<string>();
+    for (const e of packetEdges) if (childEdgeIds.has(e)) childPackets.add(e);
+    // A child node that is already done when the sub-flow re-enters (e.g. the
+    // human node the operator just approved) never re-sends its packets: the
+    // resume pre-marks the PREFIXED id, and `sendPackets` looks the node up in
+    // the parent graph, which has no such node or edge — so nothing is sent.
+    // Without the packet, branch-aware readiness keeps the child's downstream
+    // pending forever and the sub-flow used to report done with its sink never
+    // run (a silent drop; exposed by the stranded-pending guard). Restore the
+    // "done ⇒ packets sent" invariant for non-branch nodes — a branch only ever
+    // packets the edge it routed, which the log intersection above preserves.
+    for (const [id, v] of childStates) {
+      if (v !== "done") continue;
+      if (nodeById(childGraph, id)?.kind === "branch") continue;
+      for (const e of outgoing(childGraph, id, "flow")) childPackets.add(e.id);
+    }
     return {
       artifacts: childArtifacts,
       attempts: childAttempts,
@@ -1001,7 +1055,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       totalCostUsd: 0,
       states: childStates,
       approvedTools: [...approved],
-      packetEdges: new Set(),
+      packetEdges: childPackets,
       // Shared by reference: sub-process runs read/write the parent's variables.
       variables,
     };
@@ -3937,6 +3991,9 @@ export async function* execute(opts: ExecuteOptions): AsyncGenerator<RunEvent, v
 export interface ResumeState {
   artifacts: Map<string, Artifact[]>;
   attempts: Map<string, number>;
+  /** Nodes the log records as skipped (branch tail not taken / cascade-skipped).
+   *  Resume must re-seed them as skipped, not pending. */
+  skipped: Set<string>;
   totalCostUsd: number;
   nodeCostUsd: Map<string, number>;
   haltedNodeId: string | null;
@@ -3952,6 +4009,7 @@ export interface ResumeState {
 export function reconstructState(events: RunEvent[]): ResumeState {
   const artifacts = new Map<string, Artifact[]>();
   const attempts = new Map<string, number>();
+  const skipped = new Set<string>();
   const nodeCostUsd = new Map<string, number>();
   const approvedTools: string[] = [];
   let totalCostUsd = 0;
@@ -4009,6 +4067,9 @@ export function reconstructState(events: RunEvent[]): ResumeState {
       case "human.decision":
         attempts.set(e.nodeId, e.attempt);
         break;
+      case "node.skipped":
+        skipped.add(e.nodeId);
+        break;
       case "gate.exhausted":
         if (e.policy === "halt") haltedNodeId = e.nodeId;
         break;
@@ -4023,7 +4084,7 @@ export function reconstructState(events: RunEvent[]): ResumeState {
         break;
     }
   }
-  return { artifacts, attempts, totalCostUsd, nodeCostUsd, haltedNodeId, haltedReason, lastSeq, approvedTools };
+  return { artifacts, attempts, skipped, totalCostUsd, nodeCostUsd, haltedNodeId, haltedReason, lastSeq, approvedTools };
 }
 
 export interface ResumeOptions {
@@ -4119,6 +4180,7 @@ export async function* resume(opts: ResumeOptions): AsyncGenerator<RunEvent, voi
       state.artifacts.delete(id);
       state.attempts.delete(id);
       state.nodeCostUsd.delete(id);
+      state.skipped.delete(id);
     }
   }
 
@@ -4209,10 +4271,18 @@ export async function* resume(opts: ResumeOptions): AsyncGenerator<RunEvent, voi
   const startSeq = emitSeq + 1;
 
   // Seed the scheduler: every node that already produced an artifact is done;
-  // everything downstream of the halted gate is pending and will weld now.
+  // a node the log records as skipped (branch tail not taken, or cascade-skipped
+  // behind a failure) stays skipped — re-seeding it as pending strands every
+  // downstream merge point, because predecessorsReady waits for a terminal
+  // state that will never arrive (dogfood tpl-customer-service: human approve →
+  // notify → depot never ran, yet the run reported done).
+  // Everything else downstream of the halted gate is pending and will weld now.
   const states = new Map<string, NodeState>();
   for (const n of graph.nodes) {
-    states.set(n.id, state.artifacts.has(n.id) ? "done" : "pending");
+    states.set(
+      n.id,
+      state.artifacts.has(n.id) ? "done" : state.skipped.has(n.id) ? "skipped" : "pending",
+    );
   }
 
   const isToolHalt = (state.haltedReason ?? "").startsWith("dangerous-tool:");

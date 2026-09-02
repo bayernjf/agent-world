@@ -58,6 +58,71 @@ describe("templates", () => {
     }
   });
 
+  it("every code node that reads stdin unwraps the engine {inputs} envelope", () => {
+    // The engine writes {inputs: {<nodeId>: <artifact>}} to the child's stdin.
+    // Dogfood tpl-customer-service (ece6e2b) matched its classifier regex
+    // against that envelope, so every ticket was routed to human review; dogfood
+    // tpl-data-report parsed it as the payload, so the report table collapsed to
+    // a single "inputs" column holding a JSON string. Guard the whole catalogue
+    // so a script can never ship treating the envelope as data again.
+    let stdinReaders = 0;
+    for (const tpl of [...TEMPLATES, BLANK_TEMPLATE]) {
+      for (const node of tpl.graph.nodes) {
+        const code = node.kind === "code" ? node.code : undefined;
+        if (!code || code.language !== "javascript") continue;
+        const src = code.code ?? "";
+        if (!/process\.stdin|readFileSync\(\s*0/.test(src)) continue;
+        stdinReaders++;
+        expect(
+          /\.inputs\b/.test(src),
+          `${tpl.id} node "${node.id}" reads stdin without unwrapping .inputs`,
+        ).toBe(true);
+      }
+    }
+    // Non-vacuity: the catalogue really does ship stdin-reading code nodes, so
+    // the guard above cannot pass by scanning nothing.
+    expect(stdinReaders).toBeGreaterThan(0);
+  });
+
+  it("every ${node} interpolation resolves to an upstream node", () => {
+    // Dogfood tpl-customer-service: the notify message interpolated
+    // ${parse.category} although parse was not upstream of notify, so the
+    // reference silently resolved to nothing (fixed in ece6e2b by fanning parse
+    // in). Any ${id} naming a node of the same graph must be reachable through
+    // edges — otherwise the shipped prompt interpolates to empty text.
+    let interpolations = 0;
+    for (const tpl of [...TEMPLATES, BLANK_TEMPLATE]) {
+      const g = tpl.graph;
+      const ids = new Set(g.nodes.map((n) => n.id));
+      const preds = new Map<string, string[]>();
+      for (const e of g.edges) preds.set(e.to, [...(preds.get(e.to) ?? []), e.from]);
+      const upstream = (id: string): Set<string> => {
+        const seen = new Set<string>();
+        const stack = [...(preds.get(id) ?? [])];
+        while (stack.length) {
+          const cur = stack.pop()!;
+          if (seen.has(cur)) continue;
+          seen.add(cur);
+          stack.push(...(preds.get(cur) ?? []));
+        }
+        return seen;
+      };
+      for (const node of g.nodes) {
+        for (const m of JSON.stringify(node).matchAll(/\$\{([A-Za-z_][\w-]*)\}/g)) {
+          const ref = m[1];
+          // Template field placeholders (${topic} etc.) are not node ids.
+          if (!ids.has(ref)) continue;
+          interpolations++;
+          expect(
+            upstream(node.id).has(ref),
+            `${tpl.id} node "${node.id}" interpolates \${${ref}} which is not upstream`,
+          ).toBe(true);
+        }
+      }
+    }
+    expect(interpolations).toBeGreaterThan(0);
+  });
+
   it("instantiates with fresh node and edge ids", () => {
     const tpl = getTemplate("tpl-product")!;
     const a = instantiateTemplate(tpl, { id: "g1", name: "A" });
