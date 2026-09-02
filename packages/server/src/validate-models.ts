@@ -26,9 +26,11 @@ export interface ModelDiagnostic {
 /**
  * Validate that every node which needs a worker model actually has one that
  * the engine can route to. Missing/disabled/unknown models are reported as
- * errors so dispatch can refuse the run; a wrong-modality model is just a
- * warning (the user might be intentionally routing a multimodal model
- * through a text-mode agent for inspection).
+ * errors so dispatch can refuse the run. A wrong-modality model is an error
+ * for media nodes (imageGen/videoGen/audioGen — a text model can never
+ * produce their artifact, and a silent skip would mask the failure), but
+ * stays a warning for textGen (routing a multimodal model through a text
+ * agent for inspection is a legitimate use).
  */
 export function validateModels(graph: Graph, config: AppConfig): ModelDiagnostic[] {
   const out: ModelDiagnostic[] = [];
@@ -81,9 +83,16 @@ export function validateModels(graph: Graph, config: AppConfig): ModelDiagnostic
     }
     const mod = provider.modalities?.[model] ?? DEFAULT_MODALITY;
     if (mod !== wanted) {
+      // Media nodes can never produce their artifact from a wrong-modality
+      // model — the engine would soft-skip them and the run would report
+      // done with no product (dogfood 2026-09-01, tpl-news-podcast). Block
+      // at dispatch instead; textGen stays a warning (multimodal inspection).
+      const mediaNode = n.kind === "imageGen" || n.kind === "videoGen" || n.kind === "audioGen";
       out.push({
-        severity: "warning",
-        message: `节点「${n.name}」的模型「${model}」实际是 ${MODALITY_LABEL[mod] ?? mod} 类型，与该节点期望的 ${MODALITY_LABEL[wanted]} 不一致。`,
+        severity: mediaNode ? "error" : "warning",
+        message: mediaNode
+          ? `节点「${n.name}」的模型「${model}」实际是 ${MODALITY_LABEL[mod] ?? mod} 类型，无法产出${MODALITY_LABEL[wanted]}。请在 Inspector 中为该节点选择${MODALITY_LABEL[wanted]}类型模型后再派发。`
+          : `节点「${n.name}」的模型「${model}」实际是 ${MODALITY_LABEL[mod] ?? mod} 类型，与该节点期望的 ${MODALITY_LABEL[wanted]} 不一致。`,
         nodeId: n.id,
       });
     }

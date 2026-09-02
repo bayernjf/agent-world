@@ -50,6 +50,7 @@ import { spawn } from "node:child_process";
 import { HaltRequested, type ToolDefinition, type Worker } from "./worker.js";
 import { ProviderError } from "./providers/openai-compatible.js";
 import { sanitizeError } from "./sanitize.js";
+import { MAX_INLINE_BYTES } from "./artifact-reader.js";
 import { getSkill, resolveTools, executeBuiltinTool } from "./skills/registry.js";
 import { guardToolCall, isDangerousTool, loadPermissionConfig, type PermissionConfig } from "./permissions.js";
 import { notifyFailed, notifyHalt } from "./notify.js";
@@ -280,18 +281,18 @@ function truncateText(body: string, maxChars: number): string {
  * Replace a node's artifacts with a single text artifact. Used when a node
  * finishes with a text output (agent/source/sink/gate).
  */
-function setTextArtifact(artifacts: Map<string, Artifact[]>, nodeId: string, text: string): void {
+function setTextArtifact(artifacts: Map<string, Artifact[]>, nodeId: string, text: string): Artifact {
   const headingMatch = text.match(/^\s*#\s+(.+?)\s*$/m);
   const label = headingMatch ? headingMatch[1] : undefined;
-  artifacts.set(nodeId, [
-    {
-      id: `${nodeId}-text`,
-      kind: "text",
-      content: text,
-      mimeType: "text/markdown",
-      ...(label ? { label } : {}),
-    },
-  ]);
+  const artifact: Artifact = {
+    id: `${nodeId}-text`,
+    kind: "text",
+    content: text,
+    mimeType: "text/markdown",
+    ...(label ? { label } : {}),
+  };
+  artifacts.set(nodeId, [artifact]);
+  return artifact;
 }
 
 /**
@@ -703,6 +704,33 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       Object.fromEntries(variables),
     );
   };
+  /** Response metadata of http nodes (ok/status/url/method). Artifacts carry
+   * only the payload, but branch conditions and notify messages need to
+   * inspect `${probe.ok}` / `${probe.status}` (dogfood tpl-patrol-alert). */
+  const httpMeta = new Map<string, Record<string, unknown>>();
+  /** nodeCtx enriched with http response metadata. A direct flow upstream from
+   * an http node becomes its metadata merged with the payload (payload fields
+   * win on collision; a text payload sits under `content`, so `${nodeId}`
+   * still resolves to the body via primaryValue). Metadata of non-adjacent
+   * http nodes is exposed under their own ids so downstream notify messages
+   * can embed `${probe.url}` across the branch hop. Code-node stdin
+   * deliberately stays on plain nodeCtx so scripts keep seeing raw payloads. */
+  const interpCtx = (nodeId: string): Record<string, unknown> => {
+    const ctx = nodeCtx(nodeId);
+    for (const e of incoming(graph, nodeId, "flow")) {
+      const meta = httpMeta.get(e.from);
+      if (!meta) continue;
+      const cur = ctx[e.from];
+      ctx[e.from] =
+        cur && typeof cur === "object" && !Array.isArray(cur)
+          ? { ...meta, ...(cur as Record<string, unknown>) }
+          : { ...meta, content: cur };
+    }
+    for (const [id, meta] of httpMeta) {
+      if (!(id in ctx)) ctx[id] = meta;
+    }
+    return ctx;
+  };
   /** Flow edges that actually carried a packet this run (branch nodes only emit
    *  on the edges they routed to). Drives branch-aware scheduling. */
   const packetEdges = opts.init.packetEdges;
@@ -801,6 +829,19 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     for (const e of ins) {
       const st = states.get(e.from);
       if (st === "skipped") continue;
+      if (st === "failed") {
+        // A failed flow predecessor must not hold a merge point hostage when
+        // its failure was handled: every error edge led to a catch node that
+        // finished done. Waiting for it would strand the merge forever while
+        // the run still reports done — a silent drop (dogfood tpl-doc-ingest:
+        // combine never ran after ocr failed, ocrFallback finished, and the
+        // run ended "done" with no sink output).
+        const errOut = outgoing(graph, e.from, "error");
+        const handled =
+          errOut.length > 0 && errOut.every((ee) => states.get(ee.to) === "done");
+        if (!handled) return false;
+        continue;
+      }
       if (st !== "done") return false;
       if (packetEdges.has(e.id)) {
         anyPacket = true;
@@ -1004,6 +1045,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
         // source: optionally pull raw material from a connector before welding.
         let sourceText = opts.sourceInput ?? "";
         let sourceImages = node.source?.images ?? [];
+        const sourceFiles = node.source?.files ?? [];
         const conn = node.source?.connector;
         if (conn) {
           let ok = false;
@@ -1036,6 +1078,26 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
         emit({ type: "node.started", nodeId, attempt });
         emit({ type: "node.finished", nodeId, attempt, output, usage: zeroUsage() });
         let primaryKind: Artifact["kind"] | undefined;
+        // Uploaded documents become first-class file artifacts next to the text
+        // note, so a downstream fileParse node can find its `kind === "file"`
+        // input. Before this, no source node could produce a file at all — a
+        // 「合同文件」 intake left fileParse failing with 没有产出文件产物
+        // (dogfood 2026-09-01, tpl-contract-review).
+        if (sourceFiles.length) {
+          const nodeArts = artifacts.get(nodeId)!;
+          for (const [i, f] of sourceFiles.entries()) {
+            const a: Artifact = {
+              id: `${nodeId}-file${i}`,
+              kind: "file",
+              uri: f.uri,
+              mimeType: f.mimeType,
+              label: f.label,
+              sizeBytes: f.sizeBytes,
+            };
+            nodeArts.push(a);
+            emit({ type: "artifact.produced", nodeId, artifact: a });
+          }
+        }
         if (sourceImages.length) {
           const nodeArts = artifacts.get(nodeId)!;
           for (const [i, url] of sourceImages.entries()) {
@@ -1055,7 +1117,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
         emit({ type: "node.started", nodeId, attempt });
         const cfg: HttpNodeConfig = HttpNodeConfig.parse(node.http ?? {});
 
-        const ctx = nodeCtx(nodeId);
+        const ctx = interpCtx(nodeId);
         const interpolatedUrl = evaluateTemplate(cfg.url, ctx);
         if (!interpolatedUrl.trim()) {
           states.set(nodeId, "failed");
@@ -1136,7 +1198,9 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
                 });
                 // 5xx triggers the retry path; deterministic guard rejections
                 // (GuardedFetchError) are excluded from retry below.
-                if (r.status >= 500) throw new Error(`HTTP ${r.status}`);
+                // failOnError: false means the caller wants the status as data
+                // (health checks), so 5xx must complete the node, not retry.
+                if (cfg.failOnError && r.status >= 500) throw new Error(`HTTP ${r.status}`);
                 return r;
               } finally {
                 clearTimeout(timer);
@@ -1163,6 +1227,15 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           });
           return;
         }
+
+        // Expose response metadata for branch / notify interpolation
+        // (`${nodeId.ok}` etc.); the artifact below carries only the payload.
+        httpMeta.set(nodeId, {
+          ok: response.ok,
+          status: response.status,
+          url: targetUrl.toString(),
+          method: cfg.method,
+        });
 
         if (cfg.outputMode === "file") {
           let arrayBuf: ArrayBuffer;
@@ -1352,6 +1425,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
             limits: cfgLimits,
             extraFsReadPaths,
           });
+          const spawnStartedAt = Date.now();
           const { stdout, stderr, killed, code } = await withRetry(
             async () => {
               const child = spawn(plan.command, plan.args, {
@@ -1359,6 +1433,13 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
                 cwd: workdir,
                 env: childEnv,
               });
+              // If the interpreter dies before draining stdin (syntax error,
+              // early exit), feeding it the input emits 'error' (EPIPE) on the
+              // stream; with no listener that error event is unhandled and kills
+              // the whole engine process (dogfood tpl-doc-ingest: a broken code
+              // node took down the server). The failure is already reported via
+              // the child's exit code + stderr, so swallow the pipe error here.
+              child.stdin.on("error", () => {});
               child.stdin.end(inputJson);
               let stdout = "";
               let stderr = "";
@@ -1394,6 +1475,15 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
             () => true,
             opts.sleep,
           );
+          // 取证：单个 code 节点耗时超过 5 秒，几乎总是 CI 机器饥饿（2-vCPU
+          // runner + 冷页缓存），而不是回归——2026-09-01 PR #98 就是在这一小段上
+          // 把 vitest 的测试预算耗光的。打出来，让下一次红 CI 自己给出答案。
+          const spawnWallMs = Date.now() - spawnStartedAt;
+          if (spawnWallMs > 5000) {
+            console.warn(
+              `[engine:${nodeId}] code 节点子进程墙钟耗时 ${spawnWallMs}ms（怀疑 runner 负载/饥饿，不一定是回归）`,
+            );
+          }
           if (killed) {
             states.set(nodeId, "failed");
             status = "failed";
@@ -1439,6 +1529,20 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           emit({ type: "node.finished", nodeId, attempt, output, usage: zeroUsage() });
           sendPackets(nodeId, output.slice(0, 120), artifact.kind);
           return;
+        } catch (err) {
+          // 子进程根本起不来（解释器缺失、fork 被 EAGAIN 拒绝…）时 withRetry 会
+          // 重试后抛错。必须落成诚实的 node.failed：裸抛会让节点停在 "running"，
+          // 事件流里既没有 finished 也没有 failed，只留下一个查不出原因的缺失。
+          states.set(nodeId, "failed");
+          status = "failed";
+          emit({
+            type: "node.failed",
+            nodeId,
+            attempt,
+            error: `代码节点无法执行: ${sanitizeError(err instanceof Error ? err.message : String(err))}`,
+            errorCode: "SUBPROCESS",
+          });
+          return;
         } finally {
           if (netToken) unregisterNetToken(netToken);
           await cleanupCodeWorkdir(workdir);
@@ -1448,7 +1552,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       if (node.kind === "branch") {
         emit({ type: "node.started", nodeId, attempt });
         const cfg: BranchConfig = BranchConfig.parse(node.branch ?? {});
-        const ctx = nodeCtx(nodeId);
+        const ctx = interpCtx(nodeId);
         let target: string | undefined;
         let matchedRule: string | undefined;
         for (const rule of cfg.rules ?? []) {
@@ -2044,7 +2148,8 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
             return;
           }
           const arts = artifacts.get(sourceId) ?? [];
-          const fileArt = arts.find((a) => a.kind === "file" && a.uri);
+          const fileArts = arts.filter((a) => a.kind === "file" && a.uri);
+          const fileArt = fileArts[0];
           if (!fileArt) {
             states.set(nodeId, "failed");
             emit({
@@ -2058,12 +2163,16 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           }
           const resolved = opts.readArtifact ? await opts.readArtifact(fileArt.uri!) : null;
           if (!resolved) {
+            const capMb = Math.floor(MAX_INLINE_BYTES / (1024 * 1024));
             states.set(nodeId, "failed");
             emit({
               type: "node.failed",
               nodeId,
               attempt,
-              error: `无法读取文件内容（${fileArt.uri}）`,
+              // "上传成功但解析读不到字节" has two causes, and the bare URI told
+              // the user neither: the bytes can be gone, or the file can sit
+              // above the inline ceiling (upload accepts 25MB, parsing 5MB).
+              error: `无法读取文件内容（${fileArt.uri}）：产物字节不存在，或文件超过解析上限 ${capMb}MB（上传允许 25MB，但解析需要整体内联读入）`,
               errorCode: "PROVIDER_ERROR",
             });
             return;
@@ -2096,7 +2205,10 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           for (const a of produced) emit({ type: "artifact.produced", nodeId, attempt, artifact: a });
           states.set(nodeId, "done");
           const imgCount = produced.length - 1;
-          const summary = `解析完成：${parsed.text.length} 字符文本${imgCount ? `，提取 ${imgCount} 张图片` : ""}`;
+          // A source can carry several documents but only the first is parsed.
+          // Say so on the node instead of quietly dropping the rest.
+          const unparsed = fileArts.length - 1;
+          const summary = `解析完成：${parsed.text.length} 字符文本${imgCount ? `，提取 ${imgCount} 张图片` : ""}${unparsed > 0 ? `；另有 ${unparsed} 个文档未解析（本车间一次只读第一个）` : ""}`;
           emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
           sendPackets(nodeId, summary, "text");
         } catch (err) {
@@ -2590,6 +2702,11 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
             });
             return;
           }
+          // Interpolate `${nodeId.field}` placeholders — e.g. patrol alarms
+          // embedding `${probe.url}` / `${probe.status}` (dogfood
+          // tpl-patrol-alert; the probe sits behind a branch hop, which
+          // interpCtx covers via the http-metadata registry).
+          message = evaluateTemplate(message, interpCtx(nodeId));
           if (cfg.provider === "slack" && !cfg.channel) {
             states.set(nodeId, "failed");
             emit({
@@ -2682,7 +2799,20 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
             const t = (artifacts.get(sourceId) ?? []).find((a) => a.kind === "text")?.content;
             if (t?.trim()) body = t.trim();
           }
-          const title = cfg.title?.trim() || node.name || cfg.action;
+          // An empty title used to fall back to the node name ("创建 PR"), so
+          // every PR created by the template carried the same meaningless
+          // title (dogfood tpl-release-pr). Derive one from the body instead:
+          // first non-empty, non-horizontal-rule line, markdown heading marks
+          // stripped, clamped to a sane length. Explicit cfg.title still wins.
+          let title = cfg.title?.trim();
+          if (!title && cfg.action === "create_pr" && body) {
+            const line = body
+              .split("\n")
+              .map((l) => l.trim())
+              .find((l) => l && !/^[-=_*]{3,}$/.test(l));
+            if (line) title = line.replace(/^#{1,6}\s*/, "").trim().slice(0, 120);
+          }
+          if (!title) title = node.name || cfg.action;
           let result: { provider: string; action: string; detail: string; data: unknown };
           try {
             result = await executeVcs(cfg, body, title);
@@ -2803,8 +2933,14 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
         });
 
         if (verdict.passed) {
-          setTextArtifact(artifacts, nodeId, output);
+          const artifact = setTextArtifact(artifacts, nodeId, output);
           states.set(nodeId, "done");
+          // A failed gate emits node.failed, but a passing one used to slip
+          // through with only gate.verdict — no node.finished and no
+          // artifact.produced in the timeline, unlike every other node kind
+          // (dogfood tpl-recipe). Announce both for observability parity.
+          emit({ type: "artifact.produced", nodeId, attempt, artifact });
+          emit({ type: "node.finished", nodeId, attempt, output: verdict.reason, usage: zeroUsage() });
           sendPackets(nodeId, verdict.reason, "text");
           return;
         }
@@ -2827,8 +2963,10 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           const policy = node.gate?.onExhausted ?? "halt";
           emit({ type: "gate.exhausted", nodeId, attempts: attempt, policy });
           if (policy === "pass") {
-            setTextArtifact(artifacts, nodeId, output);
+            const artifact = setTextArtifact(artifacts, nodeId, output);
             states.set(nodeId, "done");
+            emit({ type: "artifact.produced", nodeId, attempt, artifact });
+            emit({ type: "node.finished", nodeId, attempt, output: verdict.reason, usage: zeroUsage() });
             sendPackets(nodeId, verdict.reason, "text");
             return;
           }
@@ -2872,10 +3010,11 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     emit({ type: "node.started", nodeId, attempt });
     const cfg = node.videoGen ?? { model: "video-gen", n: 1 };
     if (!worker.generateVideo) {
-      console.warn(`[videoGen:${nodeId}] worker has no generateVideo, skipping`);
-      states.set(nodeId, "done");
-      emit({ type: "node.finished", nodeId, attempt, output: "", usage: zeroUsage() });
-      sendPackets(nodeId, "跳过（worker 无视频能力）", "text");
+      // Honest failure: media nodes are often the run's product (dogfood
+      // 2026-09-01). Silent skip reported done with no artifact. Templates
+      // that want a fallback should add an error edge instead.
+      states.set(nodeId, "failed");
+      emit({ type: "node.failed", nodeId, attempt, error: "worker 无视频生成能力", errorCode: "VALIDATION" });
       return;
     }
     const prompt = cfg.prompt?.trim() || (await inputFor(node));
@@ -2910,9 +3049,8 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       sendPackets(nodeId, `生成视频 ${results.length} 段`, "video");
     } catch (err) {
       console.warn(`[videoGen:${nodeId}] generation failed:`, (err as Error).message);
-      states.set(nodeId, "done");
-      emit({ type: "node.finished", nodeId, attempt, output: "", usage: zeroUsage() });
-      sendPackets(nodeId, "视频生成失败（已跳过）", "text");
+      states.set(nodeId, "failed");
+      emit({ type: "node.failed", nodeId, attempt, error: `视频生成失败: ${sanitizeError(err instanceof Error ? err.message : String(err))}`, errorCode: "PROVIDER_ERROR" });
     }
     return;
   }
@@ -2922,10 +3060,10 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     emit({ type: "node.started", nodeId, attempt });
     const cfg = node.audioGen ?? { model: "tts-1", format: "mp3", n: 1 };
     if (!worker.generateAudio) {
-      console.warn(`[audioGen:${nodeId}] worker has no generateAudio, skipping`);
-      states.set(nodeId, "done");
-      emit({ type: "node.finished", nodeId, attempt, output: "", usage: zeroUsage() });
-      sendPackets(nodeId, "跳过（worker 无音频能力）", "text");
+      // Honest failure: audio is often the run's product (dogfood 2026-09-01,
+      // tpl-news-podcast). Templates wanting a fallback add an error edge.
+      states.set(nodeId, "failed");
+      emit({ type: "node.failed", nodeId, attempt, error: "worker 无音频生成能力", errorCode: "VALIDATION" });
       return;
     }
     const prompt = cfg.prompt?.trim() || (await inputFor(node));
@@ -2960,9 +3098,8 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       sendPackets(nodeId, `生成音频 ${results.length} 段`, "audio");
     } catch (err) {
       console.warn(`[audioGen:${nodeId}] generation failed:`, (err as Error).message);
-      states.set(nodeId, "done");
-      emit({ type: "node.finished", nodeId, attempt, output: "", usage: zeroUsage() });
-      sendPackets(nodeId, "音频生成失败（已跳过）", "text");
+      states.set(nodeId, "failed");
+      emit({ type: "node.failed", nodeId, attempt, error: `音频生成失败: ${sanitizeError(err instanceof Error ? err.message : String(err))}`, errorCode: "PROVIDER_ERROR" });
     }
     return;
   }
@@ -3018,12 +3155,18 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     emit({ type: "node.started", nodeId, attempt });
     const gcfg: GenericConfig = node.generic ?? { model: "agnes-2.0-flash", modality: "text", skills: [], format: "mp3", n: 1 };
     const modality = gcfg.modality ?? "text";
-    const prompt = gcfg.prompt?.trim() || (await inputFor(node));
+    // Prompts may reference upstream artifacts (`${craft}` / `${probe.status}`),
+    // same contract as http url/body and notify messages — without this the
+    // placeholder reaches the model verbatim (dogfood tpl-custom-model).
+    const rawPrompt = gcfg.prompt?.trim()
+      ? evaluateTemplate(gcfg.prompt.trim(), interpCtx(nodeId))
+      : "";
+    const prompt = rawPrompt || (await inputFor(node));
 
     if (modality === "text") {
       const textCfg: TextGenConfig = {
         model: gcfg.model,
-        prompt: gcfg.prompt ?? "",
+        prompt: rawPrompt,
         skills: (gcfg.skills ?? []).map(s => typeof s === "string" ? { id: s, config: {}, enabled: true } : s),
         temperature: gcfg.temperature ?? 0.7,
         timeoutMs: gcfg.timeoutMs ?? 120000,
@@ -3075,7 +3218,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       }
       const imgCfg: ImageGenConfig = {
         model: gcfg.model,
-        prompt: gcfg.prompt ?? "",
+        prompt: rawPrompt,
         size: gcfg.size,
         aspect: gcfg.aspect,
         n: gcfg.n ?? 1,
@@ -3128,7 +3271,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       }
       const vidCfg: VideoGenConfig = {
         model: gcfg.model,
-        prompt: gcfg.prompt ?? "",
+        prompt: rawPrompt,
         duration: gcfg.duration,
         aspect: gcfg.aspect,
         size: gcfg.size,
@@ -3183,7 +3326,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       }
       const audCfg: AudioGenConfig = {
         model: gcfg.model,
-        prompt: gcfg.prompt ?? "",
+        prompt: rawPrompt,
         voice: gcfg.voice,
         format: gcfg.format ?? "mp3",
         speed: gcfg.speed,
@@ -3238,7 +3381,13 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       // agent
       const mounts = (node.textGen?.skills ?? []).map(toMount);
       const promptModules = collectPromptModules(mounts);
-      const basePrompt = withLayoutDirectives(node.textGen?.prompt ?? "", node.textGen?.imageDirectives);
+      // Prompts interpolate `${nodeId}` / `${item}` like every other template
+      // string (loop bodies reference the loop item via ${item}; dogfood
+      // tpl-research-loop sent the placeholder to the model verbatim).
+      const promptTemplate = node.textGen?.prompt
+        ? evaluateTemplate(node.textGen.prompt, interpCtx(nodeId))
+        : "";
+      const basePrompt = withLayoutDirectives(promptTemplate, node.textGen?.imageDirectives);
       let prompt = promptModules.length
         ? `${basePrompt}\n\n${promptModules.map((p) => `=== 已挂载模块提示 (prompt-module) ===\n${p}`).join("\n\n")}`
         : basePrompt;
@@ -3513,6 +3662,21 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       }
 
       sendPackets(nodeId, result.output.slice(0, 120), primaryKind);
+    } catch (err) {
+      // 兜底安全网：任何节点分支的意外抛错都必须留下一条 node.failed。否则会走
+      // 成 `void runNode()` 的 unhandled rejection —— 节点状态永久停在 "running"，
+      // error 边的 catch 节点不会接手，run 照常收尾，外部只看得见"少了某个
+      // node.finished"。2026-09-01 CI 上两条 code 节点回归用例的红就是这种形态。
+      const message = sanitizeError(err instanceof Error ? err.message : String(err));
+      console.warn(`[engine:${nodeId}] ${node.kind} 节点意外抛错:`, message);
+      states.set(nodeId, "failed");
+      emit({
+        type: "node.failed",
+        nodeId,
+        attempt,
+        error: `节点执行异常: ${message}`,
+        errorCode: "UNKNOWN",
+      });
     } finally {
       running--;
       // 节点失败时立即把错误交给 error 边的下游 catch 节点，不等待全局静止
@@ -3649,9 +3813,11 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
         queueMicrotask(schedule);
         return;
       }
-      // Any pending node left is stranded behind a halted predecessor.
+      // Any pending node left is stranded behind a halted predecessor — or
+      // the scheduler simply never picked it up. Either way the run did not
+      // complete its graph, so claiming done would be a silent drop.
       const stranded = graph.nodes.some((n) => states.get(n.id) === "pending");
-      if (stranded && status === "done") status = "failed";
+      if (stranded && status !== "halted" && status !== "cancelled") status = "failed";
       finish();
     }
   };

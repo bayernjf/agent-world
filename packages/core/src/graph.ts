@@ -515,12 +515,20 @@ export const OcrConfig = z.object({
   source: z.string().optional(),
   /** Tesseract language code(s), comma-separated (e.g. "eng", "chi_sim", "chi_sim+eng"). */
   lang: z.string().min(1).default("eng"),
-  /** Base URL for .traineddata.gz language files. Defaults to the official CDN. */
-  langPath: z.string().url().optional(),
-  /** Override for the tesseract worker script URL (air-gapped deployments). */
-  workerPath: z.string().url().optional(),
-  /** Override for the tesseract-core WASM URL (air-gapped deployments). */
-  corePath: z.string().url().optional(),
+  /**
+   * Where to fetch `.traineddata.gz` language files from: an official-CDN URL or
+   * a local directory (air-gapped). Unset uses the official CDN. HTTP(S) sources
+   * are checked against the operator allowlist at run time, never before.
+   */
+  langPath: z.string().min(1).optional(),
+  /**
+   * Override for the tesseract worker script — a local path, or an allowlisted
+   * host. Leave unset under Node: the runtime resolves the bundled script, and
+   * a worker_threads URL here would be rejected outright.
+   */
+  workerPath: z.string().min(1).optional(),
+  /** Override for the tesseract-core WASM, same rules as `workerPath`. */
+  corePath: z.string().min(1).optional(),
 });
 export type OcrConfig = z.infer<typeof OcrConfig>;
 
@@ -754,9 +762,28 @@ export const ConnectorConfig = z.object({
 });
 export type ConnectorConfig = z.infer<typeof ConnectorConfig>;
 
+/**
+ * A document attached to a source node. The bytes are already in the artifact
+ * store (`POST /api/artifacts/upload` returns this shape); the node only points
+ * at them, so the graph stays a set of references like `images`.
+ */
+export const SourceFile = z.object({
+  uri: z.string().min(1),
+  /** Original filename — shown in the inspector and carried onto the artifact. */
+  label: z.string().optional(),
+  mimeType: z.string().optional(),
+  sizeBytes: z.number().int().nonnegative().optional(),
+});
+export type SourceFile = z.infer<typeof SourceFile>;
+
 export const SourceConfig = z.object({
   /** Reference image URLs fed to vision-capable downstream textGen nodes. */
   images: z.array(z.string()).optional(),
+  /** Uploaded documents. The engine materializes each one as a kind="file"
+   *  artifact at dispatch, which is what a downstream fileParse node reads —
+   *  without this, a "投文件" source node had no way to produce a file at all
+   *  (dogfood 2026-09-01: tpl-contract-review). */
+  files: z.array(SourceFile).optional(),
   /** Product name / short title used in generated content. */
   productName: z.string().optional(),
   /** Brand or shop name. */

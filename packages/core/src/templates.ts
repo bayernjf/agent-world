@@ -751,7 +751,9 @@ const patrolAlertGraph = {
         http: {
           url: "https://httpbin.org/status/200",
           method: "GET",
-          failOnError: true,
+          // 巡检语义：非 2xx 是判断依据而非节点故障，必须以 ok: false
+          // 流向分支判断；failOnError: true 会让探针直接失败、告警分支永不执行。
+          failOnError: false,
         },
       },
       {
@@ -959,6 +961,11 @@ const competitorWatchGraph = {
     edges: [
       { id: "e0", from: "intake", to: "fetch", kind: "flow" },
       { id: "e1", from: "fetch", to: "extract", kind: "flow" },
+      // The prompt promises "我方产品信息会在运行时由上游输入提供", but the
+      // intake never reached the analyst — compare only saw the extracted
+      // page summary and had to answer "请补充我方产品信息" (dogfood
+      // tpl-competitor-watch). Fan the request in.
+      { id: "e1b", from: "intake", to: "compare", kind: "flow" },
       { id: "e2", from: "extract", to: "compare", kind: "flow" },
       { id: "e3", from: "compare", to: "depot", kind: "flow" },
       { id: "x1", from: "fetch", to: "fallback", kind: "error" },
@@ -1130,8 +1137,10 @@ const docIngestGraph = {
             'const parseText = String(inputs["parse"] ?? "");',
             '// OCR 失败时上游是错误对象而非文本，此时回退到兜底节点的空串。',
             'const ocrText = typeof inputs["ocr"] === "string" ? inputs["ocr"] : String(inputs["ocrFallback"] ?? "");',
-            'const text = parseText + "\n" + ocrText;',
-            'const firstLine = (parseText.split("\n")[0] || "(无标题)").trim().slice(0, 40);',
+            '// 注意：下面的反斜杠 n 必须保持转义形式。这里是 TS 字符串，',
+            '// 一旦变成真实换行，生成的脚本会在字符串字面量中间断行，子进程直接语法错误。',
+            'const text = parseText + "\\n" + ocrText;',
+            'const firstLine = (parseText.split("\\n")[0] || "(无标题)").trim().slice(0, 40);',
             'const rows = [',
             '  { field: "文档字符数", value: text.length },',
             '  { field: "段落数", value: parseText.split(/\\n{2,}/).length },',
@@ -1338,7 +1347,7 @@ const customModelGraph = {
           model: "agnes-2.0-flash",
           modality: "text",
           prompt:
-            "下面是编排好的推理请求（JSON），请按其中的 intent / constraint / outputShape 执行并返回加工后的结果：\n${craft.output}",
+            "下面是编排好的推理请求（JSON），请按其中的 intent / constraint / outputShape 执行并返回加工后的结果：\n${craft}",
         },
       },
       { id: "depot", kind: "sink", name: "成品输出", x: 920, y: 300 },
@@ -1572,8 +1581,10 @@ const releasePrGraph = {
         textGen: {
           model: "agnes-2.0-flash",
           prompt:
-            "你是发版工程师。把上游的变更草稿整理成规范的 PR 描述（Markdown）：" +
-            "## Summary（一段话说清这次改动）→ ## Changes（分点列出）→ ## Test Plan（如何验证）。" +
+            "你是发版工程师。把上游的变更草稿整理成规范的 PR 描述（Markdown），格式要求：" +
+            "第一行是 # 加一句话概括本次改动（将直接用作 PR 标题）；" +
+            "随后是 ## Summary（一段话说清这次改动）→ ## Changes（分点列出）→ ## Test Plan（如何验证）。" +
+            "只输出 PR 描述正文本身，禁止任何开场白、解释性语句或结尾说明。" +
             "忠实于草稿内容，不要编造未提及的改动。",
           skills: [],
         },
@@ -1734,9 +1745,17 @@ const customerServiceGraph = {
           language: "javascript",
           code: [
             "// 读取上游 textGen 输出的 JSON，提取 complex 字段供 branch 判断",
-            "let input = '';",
-            "process.stdin.on('data', (c) => (input += c));",
+            "let raw = '';",
+            "process.stdin.on('data', (c) => (raw += c));",
             "process.stdin.on('end', () => {",
+            "  // 引擎喂 stdin 的是 {inputs: {...}} 信封，先解包再提分类 JSON；",
+            "  // 否则正则会把整个信封当成分类结果，所有工单都被归为 complex=true",
+            "  //（dogfood tpl-customer-service）。",
+            "  let input = raw;",
+            "  try {",
+            "    const env = JSON.parse(raw);",
+            "    if (env && env.inputs) input = Object.values(env.inputs).map(String).join('\\n\\n');",
+            "  } catch (e) {}",
             "  try {",
             "    const text = input.trim();",
             "    const match = text.match(/\\{[\\s\\S]*\\}/);",
@@ -1807,6 +1826,10 @@ const customerServiceGraph = {
       { id: "e5", from: "judge", to: "humanReview", kind: "flow" },
       { id: "e6", from: "autoReply", to: "notify", kind: "flow" },
       { id: "e7", from: "humanReview", to: "notify", kind: "flow" },
+      // 通知文案引用 ${parse.category} / ${parse.summary}，但 parse 不是
+      // notify 的直接上游，插值解析不到——扇入让分类结果可达
+      //（dogfood tpl-customer-service）。
+      { id: "e9", from: "parse", to: "notify", kind: "flow" },
       { id: "e8", from: "notify", to: "depot", kind: "flow" },
     ],
   },
@@ -1820,7 +1843,7 @@ const codeReviewGraph = {
   fields: [
     {
       key: "prUrl",
-      label: "PR API 地址",
+      label: "PR API 地址（响应为 diff 文本）",
       placeholder: "https://api.github.com/repos/owner/repo/pulls/1",
       defaultValue: "https://api.github.com/repos/owner/repo/pulls/1",
       applyTo: [{ nodeId: "fetch", path: "http.url" }],
@@ -1840,7 +1863,10 @@ const codeReviewGraph = {
         http: {
           url: "https://api.github.com/repos/owner/repo/pulls/1",
           method: "GET",
-          outputMode: "json",
+          // 下游静态分析数的是 diff 行（+/-）：必须让 GitHub 直接返回
+          // diff 文本而非 PR JSON（dogfood tpl-code-review）。
+          headers: { accept: "application/vnd.github.v3.diff" },
+          outputMode: "text",
         },
       },
       {
@@ -1852,16 +1878,25 @@ const codeReviewGraph = {
         code: {
           language: "javascript",
           code: [
-            "// 读取上游 diff，统计变更规模和风险信号",
-            "let input = '';",
-            "process.stdin.on('data', (c) => (input += c));",
+            "// 读取上游变更内容，统计变更规模和风险信号。",
+            "// 注意：gate 的产物是上游输入透传，下游 AI 审查也只能看到",
+            "// 本节点输出——所以必须把变更原文原样带出、再追加统计，",
+            "// 否则审查员只看到几个计数无法审查（dogfood tpl-code-review）。",
+            "let raw = '';",
+            "process.stdin.on('data', (c) => (raw += c));",
             "process.stdin.on('end', () => {",
-            "  const lines = input.split('\\n');",
+            "  let body = raw;",
+            "  try {",
+            "    const parsed = JSON.parse(raw);",
+            "    if (parsed && parsed.inputs) body = Object.values(parsed.inputs).map(String).join('\\n\\n');",
+            "  } catch (e) {}",
+            "  const lines = body.split('\\n');",
             "  const additions = lines.filter((l) => l.startsWith('+') && !l.startsWith('+++')).length;",
             "  const deletions = lines.filter((l) => l.startsWith('-') && !l.startsWith('---')).length;",
-            "  const files = (input.match(/^diff --git/gm) || []).length;",
-            "  const risky = /(password|secret|token|api_key|eval\\(|exec\\(|innerHTML)/i.test(input);",
-            "  console.log(JSON.stringify({ additions, deletions, files, risky, total: additions + deletions }));",
+            "  const files = (body.match(/^diff --git/gm) || []).length;",
+            "  const risky = /(password|secret|token|api_key|eval\\(|exec\\(|innerHTML)/i.test(body);",
+            "  const stats = JSON.stringify({ additions, deletions, files, risky, total: additions + deletions });",
+            "  console.log(body.trim() + '\\n\\n## 静态分析统计\\n\\n' + stats);",
             "});",
           ].join("\n"),
         },
@@ -2025,6 +2060,11 @@ const dataReportGraph = {
       { id: "e1", from: "intake", to: "fetch", kind: "flow" },
       { id: "e2", from: "fetch", to: "clean", kind: "flow" },
       { id: "e3", from: "clean", to: "aggregate", kind: "flow" },
+      // The report topic / focus metrics from the intake never reached the
+      // analyst (the http+code chain carries only fetched data), so the
+      // analysis ignored what the user asked to focus on (dogfood
+      // tpl-data-report). Fan the request in.
+      { id: "e3b", from: "intake", to: "analyze", kind: "flow" },
       { id: "e4", from: "aggregate", to: "analyze", kind: "flow" },
       { id: "e5", from: "analyze", to: "report", kind: "flow" },
       { id: "e6", from: "report", to: "depot", kind: "flow" },
@@ -2258,6 +2298,11 @@ const travelPlanGraph = {
     ],
     edges: [
       { id: "e1", from: "intake", to: "research", kind: "flow" },
+      // The research node is an http placeholder; without this fan-in the
+      // planner only saw the fetched JSON and produced a "please tell me your
+      // destination" placeholder instead of an itinerary (dogfood
+      // tpl-travel-plan). The user's requirements must reach the planner.
+      { id: "e1b", from: "intake", to: "plan", kind: "flow" },
       { id: "e2", from: "research", to: "plan", kind: "flow" },
       { id: "e3", from: "plan", to: "optimize", kind: "flow" },
       { id: "e4", from: "optimize", to: "gate", kind: "flow" },
@@ -2312,11 +2357,21 @@ const recipeGraph = {
         code: {
           language: "javascript",
           code: [
-            "// 基于食材清单估算营养成分（粗略估算，非精确值）",
-            "let input = '';",
-            "process.stdin.on('data', (c) => (input += c));",
+            "// 基于食材清单估算营养成分（粗略估算，非精确值）。",
+            "// 注意：gate 节点的产物就是它的上游输入透传，所以这里必须把",
+            "// 上游菜谱原文原样带出、再追加营养估算，否则成品只剩 JSON",
+            "// （dogfood tpl-recipe 首验：gate 看得到菜谱，产物却丢了菜谱）。",
+            "let raw = '';",
+            "process.stdin.on('data', (c) => (raw += c));",
             "process.stdin.on('end', () => {",
-            "  const text = input.toLowerCase();",
+            "  // 引擎喂 stdin 的是 {inputs: {上游节点: 内容}} JSON，先解包再透传。",
+            "  let body = raw;",
+            "  try {",
+            "    const parsed = JSON.parse(raw);",
+            "    if (parsed && parsed.inputs) body = Object.values(parsed.inputs).map(String).join('\\n\\n');",
+            "  } catch (e) {}",
+            "  const text = body.toLowerCase();",
+            "  const input = body;",
             "  const hasMeat = /(猪|牛|鸡|羊|鱼|虾|肉|排骨|里脊|腿|胸)/.test(input);",
             "  const hasVeg = /(菜|瓜|茄|椒|葱|姜|蒜|萝卜|白菜|菠菜|西兰花|蘑菇|笋)/.test(input);",
             "  const hasCarb = /(米|面|粉|土豆|红薯|豆|豆腐|米饭|面条)/.test(input);",
@@ -2330,12 +2385,13 @@ const recipeGraph = {
             "  if (hasVeg) tags.push('含蔬菜');",
             "  if (!hasMeat && hasVeg) tags.push('素食友好');",
             "  if (hasOil) tags.push('含油脂');",
-            "  console.log(JSON.stringify({",
+            "  const estimate = JSON.stringify({",
             "    estimatedCalories: calories + ' kcal/份',",
             "    protein, carbs, fat,",
             "    tags,",
             "    disclaimer: '以上为粗略估算，实际数值因食材用量和烹饪方式而异。'",
-            "  }));",
+            "  }, null, 2);",
+            "  console.log(input.trim() + '\\n\\n## ⑤ 营养估算\\n\\n' + estimate);",
             "});",
           ].join("\n"),
         },
@@ -2394,13 +2450,17 @@ const evidenceBriefGraph = {
             '// 按空行把证据材料拆成条目；整体只有一段时当作单条证据处理。',
             "const chunks = raw.split(/\\n\\s*\\n/).map(function (s) { return s.trim(); }).filter(Boolean);",
             "const pieces = chunks.length ? chunks : [raw || '（未粘贴证据材料）'];",
-            'const rows = pieces.map(function (chunk, i) {',
+            '// 诉讼请求/案由段不是证据：剥出去留给下游缺口分析，不参与证据编号（否则它会混进时间索引表）。',
+            "const isClaim = function (p) { return /^(诉讼请求|案由)\\s*[:：]/.test(p); };",
+            "const claimParts = pieces.filter(isClaim);",
+            "const evidence = pieces.filter(function (p) { return !isClaim(p); });",
+            'const rows = evidence.map(function (chunk, i) {',
             '  // 尽力提取日期（2024-03-01 / 2024/3/1 / 2024年3月1日），提不到留空',
             "  const m = chunk.match(/(\\d{4})\\s*[-\\/年]\\s*(\\d{1,2})\\s*[-\\/月]\\s*(\\d{1,2})/);",
             "  const date = m ? m[1] + '-' + ('0' + m[2]).slice(-2) + '-' + ('0' + m[3]).slice(-2) : '';",
             '  return { no: i + 1, date: date, excerpt: chunk.slice(0, 300) };',
             '});',
-            'console.log(JSON.stringify({ rows: rows }));',
+            'console.log(JSON.stringify({ claim: claimParts.join("\\n\\n"), rows: rows }));',
           ].join("\n"),
         },
       },

@@ -116,19 +116,21 @@ describe("audioGen node (P1-6)", () => {
     expect(produced.length).toBe(2);
   });
 
-  it("soft-fails when worker has no generateAudio method", async () => {
+  it("fails the node when worker has no generateAudio method (no silent skip)", async () => {
     const { worker } = spyWorker({ noAudio: true });
     const events = await run(graphAudioGenToSink(), worker);
 
     const produced = events.filter((e) => e.type === "artifact.produced" && e.artifact.kind === "audio");
     expect(produced.length).toBe(0);
 
-    const finished = events.find((e) => e.type === "node.finished" && e.nodeId === "aud");
-    expect(finished).toBeDefined();
+    // Honest failure instead of soft-skip (dogfood 2026-09-01)
+    const failed = events.find((e) => e.type === "node.failed" && e.nodeId === "aud");
+    expect(failed).toBeDefined();
+    expect(failed && failed.type === "node.failed" && failed.errorCode).toBe("VALIDATION");
 
-    // Pipeline continues
+    // Downstream does NOT run as if nothing happened
     const sinkFinished = events.find((e) => e.type === "node.finished" && e.nodeId === "sink");
-    expect(sinkFinished).toBeDefined();
+    expect(sinkFinished).toBeUndefined();
   });
 
   it("audio artifact flows to downstream agent via inputFor placeholder", async () => {

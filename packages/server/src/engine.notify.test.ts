@@ -198,6 +198,67 @@ describe("notify node — outbound notifications", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1); // only the http download
   });
 
+  it("interpolates http response metadata into the message across a branch hop", async () => {
+    // Dogfood tpl-patrol-alert: the alarm message embeds ${probe.url} /
+    // ${probe.status}, but the probe is not a direct upstream of the notify
+    // node (a branch sits in between).
+    vi.stubEnv("ALLOW_PRIVATE_NETWORK", "1");
+    fetchMock.mockImplementation(async (url: string | URL | Request) => {
+      const u = String(url);
+      if (u.includes("feishu")) {
+        return new Response(JSON.stringify({ code: 0 }), { status: 200 });
+      }
+      return new Response("boom", { status: 500, headers: { "content-type": "text/plain" } });
+    });
+    const g: Graph = {
+      id: "g",
+      name: "g",
+      nodes: [
+        { id: "src", kind: "source", name: "SRC", x: 0, y: 0 },
+        {
+          id: "probe",
+          kind: "http",
+          name: "PROBE",
+          x: 1,
+          y: 0,
+          http: { url: "https://x.example/health", failOnError: false },
+        },
+        {
+          id: "br",
+          kind: "branch",
+          name: "BR",
+          x: 2,
+          y: 0,
+          branch: { rules: [{ id: "down", when: "${probe.ok} != true", target: "nt" }], defaultTarget: "record" },
+        },
+        {
+          id: "nt",
+          kind: "notify",
+          name: "ALARM",
+          x: 3,
+          y: 0,
+          notify: {
+            provider: "feishu",
+            webhookUrl: "https://open.feishu.cn/open-apis/bot/v2/hook/x",
+            message: "probe down ${probe.url} status ${probe.status}",
+          },
+        },
+        { id: "record", kind: "sink", name: "RECORD", x: 3, y: 1 },
+      ],
+      edges: [
+        { id: "e1", from: "src", to: "probe", kind: "flow" },
+        { id: "e2", from: "probe", to: "br", kind: "flow" },
+        { id: "e3", from: "br", to: "nt", kind: "flow" },
+        { id: "e4", from: "br", to: "record", kind: "flow" },
+      ],
+    };
+    const events = await collect(g);
+    expect(replay(events).status).toBe("done");
+    const webhookCall = fetchMock.mock.calls.find(([u]) => String(u).includes("feishu"));
+    const body = JSON.parse((webhookCall![1] as any).body);
+    expect(body.content.text).toBe("probe down https://x.example/health status 500");
+  });
+
   it("renders feishu markdown as an interactive card", async () => {
     fetchMock.mockResolvedValue(new Response(JSON.stringify({ code: 0 }), { status: 200 }));
     const events = await collect(

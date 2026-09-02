@@ -117,6 +117,35 @@ async function drain(gen: AsyncGenerator<unknown, void, unknown>): Promise<any[]
   return out;
 }
 
+/**
+ * Retry backoff for the cases that really execute a `code` node. The default
+ * code-node retry is { maxRetries: 2, baseDelayMs: 1000 }; a no-op sleep turns
+ * that into three attempts inside one microsecond, so a transient subprocess
+ * failure on a loaded 2-vCPU runner is never actually backed off. Sleep for
+ * real but capped: retries cost ≤ 200ms and mirror production behaviour instead
+ * of hiding a broken sandbox.
+ */
+function backoffSleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, Math.min(ms, 100)));
+}
+
+/**
+ * Assert a node reached node.finished, and name the reason when it did not.
+ * A bare `expected false to be true` cannot tell a script error apart from a
+ * starved subprocess — the CI log has to answer that by itself.
+ */
+function expectNodeFinished(events: any[], nodeId: string) {
+  const finished = events.some((e) => e.type === "node.finished" && e.nodeId === nodeId);
+  const failures = events.filter((e) => e.type === "node.failed" && e.nodeId === nodeId);
+  const detail = failures.length
+    ? `node.failed: ${failures.map((f) => `[${f.errorCode ?? "UNKNOWN"}] ${f.error}`).join(" | ")}`
+    : "该节点没有任何 node.failed —— 它被调度器饿死了（没启动，或停在 running）";
+  expect(
+    finished,
+    `node ${nodeId} 未到达 node.finished；${detail}；末尾事件: ${events.slice(-20).map((e) => e.type).join(" → ")}`,
+  ).toBe(true);
+}
+
 // ─── engine core path ────────────────────────────────────────────────────────
 
 describe("regression · engine core path", () => {
@@ -231,7 +260,7 @@ describe("regression · engine core path", () => {
     const worker = fakeWorker({ failFirstAttempts: 0, chunkDelayMs: 0 });
 
     const events = await drain(
-      execute({ runId: "r-rp", graph, plan: plan!, worker, budgetUsd: null, input: "测试内容", now: () => 0, sleep: async () => {} }),
+      execute({ runId: "r-rp", graph, plan: plan!, worker, budgetUsd: null, input: "测试内容", now: () => 0, sleep: backoffSleep }),
     );
 
     const notifyId = graph.nodes.find((n) => n.name === "送审通知")?.id;
@@ -241,7 +270,7 @@ describe("regression · engine core path", () => {
     // notify must fail (missing webhook)
     expect(events.some((e) => e.type === "node.failed" && e.nodeId === notifyId)).toBe(true);
     // the error-edge catch node must actually run, not stay starved
-    expect(events.some((e) => e.type === "node.finished" && e.nodeId === fallbackId)).toBe(true);
+    expectNodeFinished(events, fallbackId!);
     // and the human node paused the run for operator review
     expect(events.some((e) => e.type === "human.review")).toBe(true);
   });
@@ -255,12 +284,12 @@ describe("regression · engine core path", () => {
     const worker = fakeWorker({ failFirstAttempts: 0, chunkDelayMs: 0 });
 
     const events = await drain(
-      execute({ runId: "r-bc", graph, plan: plan!, worker, budgetUsd: null, input: "甲\n乙\n丙", now: () => 0, sleep: async () => {} }),
+      execute({ runId: "r-bc", graph, plan: plan!, worker, budgetUsd: null, input: "甲\n乙\n丙", now: () => 0, sleep: backoffSleep }),
     );
 
     const splitId = graph.nodes.find((n) => n.name === "拆条")?.id;
     expect(splitId).toBeTruthy();
-    expect(events.some((e) => e.type === "node.finished" && e.nodeId === splitId)).toBe(true);
+    expectNodeFinished(events, splitId!);
     // split emits a json artifact with the two items — prove stdin inputs flowed in
     const splitArtifact = events.find(
       (e) => e.type === "artifact.produced" && e.nodeId === splitId && e.artifact.kind === "json",
@@ -287,7 +316,7 @@ describe("regression · engine core path", () => {
     ].join("\n");
 
     const events = await drain(
-      execute({ runId: "r-ev", graph, plan: plan!, worker, budgetUsd: null, input, now: () => 0, sleep: async () => {} }),
+      execute({ runId: "r-ev", graph, plan: plan!, worker, budgetUsd: null, input, now: () => 0, sleep: backoffSleep }),
     );
 
     expect(replay(events).status).toBe("done");
@@ -301,6 +330,12 @@ describe("regression · engine core path", () => {
     expect(splitArtifact.content).toContain("微信聊天记录");
     expect(splitArtifact.content).toContain("转账凭证");
     expect(splitArtifact.content).toContain("2024-03-05"); // 中文日期归一化
+    // The claim paragraph is evidence-free context: split must peel it off
+    // into `claim` instead of numbering it as an evidence row (dogfood
+    // tpl-evidence-brief: it used to float into the timeline table).
+    const splitJson = JSON.parse(splitArtifact.content) as { claim: string; rows: { excerpt: string }[] };
+    expect(splitJson.claim).toContain("诉讼请求");
+    expect(splitJson.rows.some((r) => r.excerpt.includes("诉讼请求"))).toBe(false);
     // table sorts chronologically: the 03-01 transfer row precedes the 03-05 chat row
     const sheetArtifact = events.find(
       (e) => e.type === "artifact.produced" && e.nodeId === sheetId && e.artifact.kind === "json",
@@ -329,11 +364,15 @@ describe("regression · engine core path", () => {
       "2026-08-22, BX-2026-0143, 业务招待餐费, 860",
       "2026-08-22, BX-2026-0143, 业务招待餐费, 860",
       "2026-08-25, BX-2026-0144, 机票, 1520",
+      // Double-anomaly line: over the 1000 limit AND a duplicated voucher
+      // number — issueCount must be 2 (dogfood tpl-expense-review), which is
+      // what makes the issueCount-desc sort meaningful.
+      "2026-08-25, BX-2026-0144, 设备采购, 2200",
       "8月28日, BX-2026-0145, 办公用品, 129",
     ].join("\n");
 
     const events = await drain(
-      execute({ runId: "r-exp", graph, plan: plan!, worker, budgetUsd: null, input, now: () => 0, sleep: async () => {} }),
+      execute({ runId: "r-exp", graph, plan: plan!, worker, budgetUsd: null, input, now: () => 0, sleep: backoffSleep }),
     );
 
     expect(replay(events).status).toBe("done");
@@ -346,9 +385,12 @@ describe("regression · engine core path", () => {
     const flagged = JSON.parse(checkArtifact.content).rows as {
       voucherNo: string; amount: number | ""; flags: string; issueCount: number; risk: string; category: string;
     }[];
-    expect(flagged).toHaveLength(5); // header skipped
-    expect(flagged.filter((r) => r.flags.includes("重复单号")).map((r) => r.voucherNo)).toEqual(["BX-2026-0143", "BX-2026-0143"]);
+    expect(flagged).toHaveLength(6); // header skipped
+    expect(flagged.filter((r) => r.flags.includes("重复单号")).map((r) => r.voucherNo)).toEqual(["BX-2026-0143", "BX-2026-0143", "BX-2026-0144", "BX-2026-0144"]);
     expect(flagged.find((r) => r.amount === 1520)?.flags).toContain("单笔超1000元");
+    // issueCount is the real flag count, not a boolean: the double-anomaly
+    // line carries 2.
+    expect(flagged.find((r) => r.amount === 2200)?.issueCount).toBe(2);
     const noDate = flagged.find((r) => r.voucherNo === "BX-2026-0145")!;
     expect(noDate.flags).toContain("日期缺失");
     expect(noDate.category).toBe("办公用品"); // "8月28日" must not be mistaken for the category
@@ -358,11 +400,65 @@ describe("regression · engine core path", () => {
       (e) => e.type === "artifact.produced" && e.nodeId === tableId && e.artifact.kind === "json",
     )?.artifact;
     expect(tableArtifact).toBeTruthy();
-    const sorted = JSON.parse(tableArtifact.content).rows as { issueCount: number }[];
-    expect(sorted).toHaveLength(5);
+    const sorted = JSON.parse(tableArtifact.content).rows as { issueCount: number; amount: number }[];
+    expect(sorted).toHaveLength(6);
     const counts = sorted.map((r) => r.issueCount);
     expect(counts).toEqual([...counts].sort((a, b) => b - a));
-    expect(sorted[0].issueCount).toBeGreaterThanOrEqual(1);
+    // Both double-anomaly rows (over-limit AND duplicated voucher number)
+    // sort ahead of every single-flag row.
+    expect(counts[0]).toBe(2);
+    expect(counts[1]).toBe(2);
+    expect(sorted.slice(0, 2).map((r) => r.amount).sort((a, b) => a - b)).toEqual([1520, 2200]);
+  });
+
+  it("recipe template runs end to end: the gate and the sink keep the full recipe, not only the nutrition JSON", async () => {
+    // Dogfood tpl-recipe, two layers: (1) the nutrition code node used to
+    // print only its JSON, so the gate judged the JSON alone and halted;
+    // (2) after the gate saw the recipe, its pass-through artifact — which
+    // is exactly its input — still reached the sink as JSON text only.
+    // The nutrition script now carries the upstream recipe through and
+    // appends the estimate, so both the judge input and the final artifact
+    // contain the whole dish.
+    const t = TEMPLATES.find((x: { id: string }) => x.id === "tpl-recipe")!;
+    const graph = instantiateTemplate(t);
+    const { plan } = compile(graph)!;
+    const worker = fakeWorker({ failFirstAttempts: 0, chunkDelayMs: 0 });
+    const gateInputs: string[] = [];
+    const judge = worker.judge!;
+    worker.judge = async (args: any) => {
+      gateInputs.push(args.input);
+      return judge(args);
+    };
+
+    const events = await drain(
+      execute({ runId: "r-recipe", graph, plan: plan!, worker, budgetUsd: null, input: "鸡胸肉 300g、西兰花 200g；少油低盐", now: () => 0, sleep: backoffSleep }),
+    );
+
+    expect(replay(events).status).toBe("done");
+    expectNodeFinished(events, graph.nodes.find((n) => n.name === "质检")!.id);
+    expect(gateInputs.length).toBeGreaterThanOrEqual(1);
+    for (const input of gateInputs) {
+      expect(input).toContain("estimatedCalories"); // the nutrition estimate…
+      expect(input).toContain("producing artifact"); // …and the text chain upstream
+    }
+    // The sink artifact is the gate's pass-through: the full recipe must survive.
+    const depotId = graph.nodes.find((n) => n.kind === "sink")!.id;
+    const depotArtifact = events.find(
+      (e) => e.type === "artifact.produced" && e.nodeId === depotId,
+    )?.artifact;
+    expect(depotArtifact).toBeTruthy();
+    expect(depotArtifact.content).toContain("estimatedCalories");
+    expect(depotArtifact.content).toContain("producing artifact");
+  });
+
+  it("travel-plan template fans the user requirements into the planner", () => {
+    // Dogfood tpl-travel-plan: the http research placeholder was the
+    // planner's only upstream, so it produced a "please tell me your
+    // destination" reply instead of an itinerary and the gate halted the run.
+    const t = TEMPLATES.find((x: { id: string }) => x.id === "tpl-travel-plan")!;
+    const planIn = t.graph.edges.filter((e) => e.to === "plan" && e.kind === "flow").map((e) => e.from);
+    expect(planIn).toContain("intake");
+    expect(planIn).toContain("research");
   });
 
   it("source node with a database connector pulls live rows end to end", async () => {

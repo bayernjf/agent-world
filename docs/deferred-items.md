@@ -31,6 +31,7 @@
 | 事项 | 缓做/低优原因 | 触发条件 | 决策详情 |
 |---|---|---|---|
 | 模板市场（用户发布/安装） | 冷启动死结（没内容没人用，没人用没内容）；需要审核/安全机制（用户模板可能带恶意配置）；TemplateField schema 已定型不会破坏性变更 | 多用户规模出现，有用户主动提出分享/安装诉求 | [design-templates.md §4](design-templates.md#4-p2-缓做决策记录用户发布安装模板真市场) |
+| tpl-scan-ocr 投料口只认 URL | 上传能力已落在 source 节点（`2d3dfcf` + Inspector 文档区 `95c65a4`），但模板 fields 只暴露 `docUrl` → 狗粮时验“上传扫描件”必须手工改图把 source 接到 convert（graph `8e204023` 就是手改出来的）；要模板开箱支持上传，先得给 TemplateField 加 file 类型并定义实例化时的上传时序 | 下一个真实用户拿扫描件走 scan-ocr，手改图这步被证明不可接受；或 TemplateField 支持文件型字段时 | [template-checklist.md tpl-scan-ocr 行](template-checklist.md) |
 | 节点市场（自定义节点） | 冷启动同上 + 更高成本（节点 SDK + 加载器 + 沙箱审查）；代码执行节点已兜底"临时需求" | 同模板市场，且代码节点兜底被证明不够用 | [roadmap-generalization.md Phase 5](roadmap-generalization.md#phase-5生态与平台化持续) |
 
 ### 版本线
@@ -38,7 +39,7 @@
 | 事项 | 缓做/低优原因 | 触发条件 | 决策详情 |
 |---|---|---|---|
 | 版本 diff 视图 | 恢复安全性已闭环（hash 标记 + 结构预览防盲恢复）；文本级 diff 是锦上添花，需要像样的 diff 组件才值得做 | 狗粮使用中真出现"必须逐字段对比两版本"的高频场景 | [design-versions.md §4](design-versions.md#4-p2-缓做决策记录) |
-| A/B 测试 | DB 已有 ab_group/ab_arm/ab_target 地基，但单人自用无流量分流诉求 | 多用户或同一产线需对比两套配置的效果 | [design-versions.md §4](design-versions.md#4-p2-缓做决策记录) |
+| A/B 测试 | **已落地**（2026-09-01 盘点确认：`ab.ts` + `/api/ab` + ABDialog/ABReport/RunCompare，用户隔离已覆盖）；本表原条目"单人自用无流量分流诉求"仅对**流量分流 / 统计显著性**仍成立 | 流量分流或多用户统计显著性诉求出现时重启扩展 | [design-ab-testing.md §4](design-ab-testing.md#4-边界与缓做) |
 
 ### 平台线
 
@@ -63,11 +64,23 @@
 | 静态加密的重加密 / 密钥轮换工具 | 换 key 后存量 secrets 需迁移重加密；当前可用 encryptString/decryptString 手写一次性迁移，影响面小 | 出现真实换 key / 轮换需求（或合规要求密钥定期轮换） | [design-at-rest-encryption.md §5](design-at-rest-encryption.md) |
 | Bitbucket/Gitea | vcs 节点同构可扩展，无紧迫需求 | 用户提出 | [integrations-future.md §5](integrations-future.md#5-bitbucket--gitea-等-vcs) |
 
+### 文档线
+
+| 事项 | 缓做/低优原因 | 触发条件 | 决策详情 |
+|---|---|---|---|
+| Skill 体系独立设计文档 | extending.md §3（操作指南）+ core `skill.ts` 头注释（设计声明）已完整覆盖；独立设计决策文档属锦上添花 | 外部贡献者/多人协作需要设计论证文档时 | [extending.md §3](extending.md) + `packages/core/src/skill.ts` |
+| brand_terms（品牌术语库）设计文档 | 特性小（用户级术语 CRUD，服务内容产线），用途已在内容线专项规划中说明 | 术语库升级为产线强依赖（如自动注入 prompt / 按产线隔离）时 | [product-content-roadmap.md](product-content-roadmap.md) |
+
 ### 数据处理线
 
 | 事项 | 缓做/低优原因 | 触发条件 | 决策详情 |
 |---|---|---|---|
+| convert 只提取内嵌图，不逐页渲染 | 节点叫「逐页转图」但实现是 pdfjs 取 Image XObject：纯文本 PDF 诚实报错（已被 error 边兜底），而**含装饰图的文本 PDF 会绕过兜底**（狗粮验证时一份 tracemonkey 文本 PDF 提出 90 张碎片图，喂给 OCR 全是噪声）；真逐页渲染需原生 canvas 依赖（`@napi-rs/canvas` 类），引入成本与镜像体积都不小 | 狗粮/真实使用中出现“文本层 PDF 被当成图片走 OCR”导致结果明显变差，且需要确定性正确而非靠模板名提示 | [template-checklist.md tpl-scan-ocr 行](template-checklist.md) + [technical-design.md 节点设计](technical-design.md) |
+| OCR 默认 `chi_sim+eng` 对纯英文扫描件注入 CJK 噪声 | 同一张图（graph `8e204023`）：`lang=eng` → `THUOICE 20:6 MO O0d42`（58%），模板默认 `chi_sim+eng` → `THUOICE 二 凹 已 “ 门 口 回 达 斗 不`（64%，数字行变汉字，置信度反而更高）。不是缺陷，是选型问题：改默认值会伤中文用户，自动判语言需先做启发式预处理（廉价但另属一个决策） | 真实用户以英文/多语扫描件为主，或“数字变汉字”这类反馈重复出现 | [template-checklist.md tpl-scan-ocr 行](template-checklist.md) |
+| Inspector 只能填 `langPath`，worker/core 覆盖无入口 | schema 已能接本地路径（`e2781ab`），但 `Inspector.tsx` 的 ocr 区块只有一个语言包输入框 → 普通用户依旧改不了 worker/core（手写 graph JSON 可绕）；Node 下乱填 URL 还会把节点弄回 `ERR_WORKER_PATH`，多两个控件也是多两个坑 | 离线/内网部署真正开工（否则只是给用不上的旋钮加控件） | `apps/web/src/components/Inspector.tsx` ocr 区块 |
+| tesseract 语言包落在 server CWD | 未传 `cachePath`，tesseract.js 按 `${cachePath || "."}/${lang}.traineddata` 写盘（chi_sim 42MB + eng 5MB）——本轮已先 `e77587a` gitignore 挡住误提交；真正修需要定数据目录约定（与 `artifacts/` 同一处）并处理只读 CWD | 部署形态确定（容器/只读工作目录），或 OCR 首次识别因写盘失败直接报错 | `packages/server/src/ocr.ts` 头注释 |
 | Excel 读写 | 纯 JS 方案（SheetJS CE）功能裁剪；CSV + 代码节点可兜底 | 狗粮使用中出现 Excel 文件为主的输入源 | [roadmap-generalization.md Phase 2](roadmap-generalization.md#phase-2数据与文件处理2-3周) |
+| fileParse 一次只解析一个文档 | source.files 可挂多份，但解析车间只读第一个（其余在节点摘要里点名未解析，不静默）；多文件可用多个解析车间或 http 节点兜底 | 狗粮中出现“一条产线同时审多份合同/文档”的真实诉求 | [technical-design.md 节点产物写入规则](technical-design.md) |
 | HTML→PDF | 纯 JS 无中文排版方案；引入浏览器引擎（playwright）代价过大 | 中文排版需求出现且无法用「截图拼接/截图转 PDF」兜底 | 同上 |
 
 ## 已重启 / 已砍掉

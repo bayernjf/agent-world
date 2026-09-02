@@ -1789,6 +1789,9 @@ modality 切片，统一严格过滤；同时把 agent 的占位文案从泛化�
 
 > Entries rolled out of the active `handoff.md` "Recently shipped" list to keep it at 5 items.
 
+- `fa2bed0` — **fix(server)**: 节点分支意外抛错不再吞成 unhandled rejection——runNode 外层加安全网发诚实 `node.failed`（此前节点永久停在 "running"，事件流既无 finished 也无 failed，只有 CI 上一条查不出原因的红）；code 节点子进程起不来同样落 failed(SUBPROCESS)。回归用例改为真实退避 + 失败原因可读。
+- `c91f973` — **fix(server)**: **生成媒体产物 404 修复（狗粮 tpl-product 驱动）**——imageGen/videoGen/audioGen 的 run 产物行只携带 `up-…` 本地引用（字节在引用行桶下），`GET /api/artifacts/:id` 在本行 blob 缺失时改为跟随引用取字节；此前 UI 上历史所有生图 run 均为破图（“blob missing on disk”）。新增 `api.artifact-localref.test.ts`（跟随成功 + 跨用户仍 404），契约写入 design-artifact-display.md。
+- `7b7faf0`…`530bfc5` — **狗粮验证四条修复系列（tpl-news-podcast 驱动）**：media 节点 modality 错配派发期阻断（`7b7faf0`）；audioGen/videoGen 静默跳过改诚实失败 node.failed 接入 error 边（`b6de7d9`）；search 不可达可行动报错（`bfc97dc`）+ `AGENT_WORLD_PROXY` opt-in 出站代理（`b82f89a`，SSRF trade-off 见 design-code-sandbox §12）；DDG 反爬页响亮报错不再静默 0 结果（`530bfc5`）。
 - `5b66996` — **fix(server)**: db.ts 两处 rename 回归补漏。
 - `daf632c` — **feat(core)**: 4 个能力演示模板——批量内容工坊 / 文档智能解析入库 / 人工审核发布 / 自定义模型接入（补 source 入口节点 + webhook/baseUrl 字段默认值防 zod .url() 校验失败）。
 - `96839c2` — **feat(core)**: 模板实例化重写节点 id 引用——code 脚本 `inputs["id"]`、prompt `${id}`、`source/target/items` 引用字段全部指向新 id，模板定义不被污染。
@@ -1851,3 +1854,4 @@ modality 切片，统一严格过滤；同时把 agent 的占位文案从泛化�
 - `242f706` — **feat(core)**: instantiateTemplate 应用 TemplateField（显式值 > defaultValue > 不动；copy-on-write 防浅拷贝污染模板；空串=跳过）+ 4 个 HTTP 模板（运营周报/定时巡检/多源简报/竞品监控）声明 URL 字段（默认值=原 URL 开箱不变）。core 146/146。
 - `e912eea` — **feat(web)**: VersionPanel 只读恢复预览——「预览」按钮 + 弹层复用 TemplatePreview SVG 缩略图 + 节点/连线/类型统计摘要，防"盲恢复"。遗留 gap：web 无组件测试基建，仅 typecheck 覆盖。
 - `27395a3` — **feat(server,web)**: 版本与最近 run 关联——GET versions 返回 latestRunHash/currentHash，面板给匹配快照打「最近运行」「与当前一致」标记（run 表 hash 复用 content_hash 计算，不加外键）。
+- `docs:` **文档-代码覆盖盘点（2026-09-01）**——补齐 [design-knowledge-memory.md](design-knowledge-memory.md)（知识提取/FTS5/archive_search）与 [design-ab-testing.md](design-ab-testing.md)（A/B 实验，此前四处文档误标“缓做”，实已落地）；technical-design 加时效注记并补 §3.1b/§4.1b 增量（25 节点/表/API 现状对齐）；docs-README 索引、project-progress、deferred-items 同步；handoff 最近 5 条 hash 经 git log 核实已全部回填。

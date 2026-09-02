@@ -93,11 +93,19 @@ describe("validateModels", () => {
     expect(r[0]!.message).toMatch(/Provider.*disabled.*已停用/);
   });
 
-  it("warns when the model modality doesn't match the node", () => {
+  it("warns when a textGen model modality doesn't match the node", () => {
     const r = validateModels(withNodes(agentNode("a1", "agnes-image")), cfg);
     expect(r).toHaveLength(1);
     expect(r[0]!.severity).toBe("warning");
     expect(r[0]!.message).toMatch(/图片.*与该节点期望的.*文本/);
+  });
+
+  it("errors when an imageGen node is given a text model (would soft-skip silently)", () => {
+    const r = validateModels(withNodes(imageNode("i1", "agnes-2.0-flash")), cfg);
+    expect(r).toHaveLength(1);
+    expect(r[0]!.severity).toBe("error");
+    expect(r[0]!.message).toMatch(/文本.*无法产出图片/);
+    expect(r[0]!.nodeId).toBe("i1");
   });
 
   it("rejects empty imageGen model the same way", () => {

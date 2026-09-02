@@ -123,4 +123,80 @@ describe("branch node", () => {
       vi.unstubAllEnvs();
     }
   });
+
+  // Health-check pattern (dogfood tpl-patrol-alert): the probe exposes
+  // response metadata (${probe.ok} / ${probe.status}) to branch rules; with
+  // failOnError disabled a non-2xx status is data, not a node failure.
+  function probeGraph(): Graph {
+    return {
+      id: "g",
+      name: "g",
+      nodes: [
+        { id: "src", kind: "source", name: "SRC", x: 0, y: 0 },
+        {
+          id: "probe",
+          kind: "http",
+          name: "PROBE",
+          x: 1,
+          y: 0,
+          http: {
+            method: "GET",
+            url: "https://x.example/health",
+            failOnError: false,
+            retry: { maxRetries: 2, baseDelayMs: 0, maxDelayMs: 0 },
+          },
+        },
+        {
+          id: "br",
+          kind: "branch",
+          name: "BR",
+          x: 2,
+          y: 0,
+          branch: { rules: [{ id: "down", when: "${probe.ok} != true", target: "alarm" }], defaultTarget: "record" },
+        },
+        { id: "alarm", kind: "sink", name: "ALARM", x: 3, y: 0 },
+        { id: "record", kind: "sink", name: "RECORD", x: 3, y: 1 },
+      ],
+      edges: [
+        { id: "e1", from: "src", to: "probe", kind: "flow" },
+        { id: "e2", from: "probe", to: "br", kind: "flow" },
+        { id: "e3", from: "br", to: "alarm", kind: "flow" },
+        { id: "e4", from: "br", to: "record", kind: "flow" },
+      ],
+    };
+  }
+
+  it("routes a 500 probe to the alarm branch (status is data, no 5xx retry)", async () => {
+    const spy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response("boom", { status: 500, headers: { "content-type": "text/plain" } }));
+    vi.stubEnv("ALLOW_PRIVATE_NETWORK", "1");
+    try {
+      const events = await collect(probeGraph(), "x");
+      expect(spy).toHaveBeenCalledTimes(1); // failOnError: false → status as data, never retried
+      expect(events.some((e) => e.type === "node.finished" && e.nodeId === "probe")).toBe(true);
+      expect(events.some((e) => e.type === "node.finished" && e.nodeId === "alarm")).toBe(true);
+      expect(events.some((e) => e.type === "node.finished" && e.nodeId === "record")).toBe(false);
+      expect(replay(events).status).toBe("done");
+    } finally {
+      spy.mockRestore();
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("routes a 200 probe to the default (record) branch", async () => {
+    const spy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response("healthy", { status: 200, headers: { "content-type": "text/plain" } }));
+    vi.stubEnv("ALLOW_PRIVATE_NETWORK", "1");
+    try {
+      const events = await collect(probeGraph(), "x");
+      expect(events.some((e) => e.type === "node.finished" && e.nodeId === "alarm")).toBe(false);
+      expect(events.some((e) => e.type === "node.finished" && e.nodeId === "record")).toBe(true);
+      expect(replay(events).status).toBe("done");
+    } finally {
+      spy.mockRestore();
+      vi.unstubAllEnvs();
+    }
+  });
 });

@@ -100,4 +100,37 @@ describe("error handling — error edges + catch node", () => {
     expect(events.some((e) => e.type === "node.skipped" && e.nodeId === "catch")).toBe(true);
     expect(events.some((e) => e.type === "node.finished" && e.nodeId === "sink")).toBe(true);
   });
+
+  it("a fan-in merge still runs when one flow predecessor failed but was caught", async () => {
+    // tpl-doc-ingest shape: source → src → { parse → merge, dl → merge } with
+    // dl also carrying an error edge to a catch node that feeds the SAME merge.
+    // Before the fix the merge waited for the failed predecessor forever and
+    // the run still reported done — a silent drop with no sink output.
+    const g = {
+      id: "g",
+      name: "g",
+      nodes: [
+        { id: "src", kind: "source", name: "SRC", x: 0, y: 0 },
+        { id: "parse", kind: "textGen", name: "PARSE", x: 1, y: -1, textGen: { model: "m", prompt: "pass upstream through", skills: [], temperature: 0.7, timeoutMs: 60000, inputPolicy: { mode: "all" } } },
+        { id: "dl", kind: "http", name: "DL", x: 1, y: 1, http: { url: "https://x.example.com/api", method: "GET", retry: { maxRetries: 0, baseDelayMs: 0, maxDelayMs: 0 } } },
+        { id: "catch", kind: "textGen", name: "CATCH", x: 2, y: 2, textGen: { model: "m", prompt: "fallback for the failed download", skills: [], temperature: 0.7, timeoutMs: 60000, inputPolicy: { mode: "all" } } },
+        { id: "merge", kind: "sink", name: "MERGE", x: 3, y: 0 },
+      ],
+      edges: [
+        { id: "e0", from: "src", to: "parse", kind: "flow" },
+        { id: "e1", from: "src", to: "dl", kind: "flow" },
+        { id: "e2", from: "parse", to: "merge", kind: "flow" },
+        { id: "e3", from: "dl", to: "merge", kind: "flow" },
+        { id: "e4", from: "dl", to: "catch", kind: "error" },
+        { id: "e5", from: "catch", to: "merge", kind: "flow" },
+      ],
+    } as Graph;
+    fetchMock.mockResolvedValue(new Response(null, { status: 502 }));
+    const events = await collect(g);
+    expect(events.some((e) => e.type === "node.failed" && e.nodeId === "dl")).toBe(true);
+    expect(events.some((e) => e.type === "node.finished" && e.nodeId === "catch")).toBe(true);
+    // The merge must run despite the failed dl input.
+    expect(events.some((e) => e.type === "node.finished" && e.nodeId === "merge")).toBe(true);
+    expect(replay(events).status).toBe("done");
+  });
 });

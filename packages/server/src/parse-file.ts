@@ -148,6 +148,29 @@ function mediaImages(files: Record<string, Uint8Array>, prefix: string): ParsedI
   return out;
 }
 
+/**
+ * Expand pdfjs's 1/3/4-channel sample buffer to the RGBA layout pngjs requires.
+ * Grayscale (typical for a black-and-white scanner at high dpi) becomes a neutral
+ * grey, RGB gets an opaque alpha, RGBA is copied through untouched.
+ */
+function toRgba(data: Uint8Array, width: number, height: number, channels: number): Buffer {
+  const total = width * height;
+  if (channels === 4) return Buffer.from(data);
+  const rgba = Buffer.alloc(total * 4);
+  for (let i = 0; i < total; i++) {
+    if (channels === 3) {
+      rgba.set(data.subarray(i * 3, i * 3 + 3), i * 4);
+    } else {
+      const g = data[i] ?? 0;
+      rgba[i * 4] = g;
+      rgba[i * 4 + 1] = g;
+      rgba[i * 4 + 2] = g;
+    }
+  }
+  for (let p = 3; p < rgba.length; p += 4) rgba[p] = 255;
+  return rgba;
+}
+
 /** Embedded images on one PDF page: decode to raw pixels, re-encode as PNG. */
 async function pdfPageImages(page: { getOperatorList: () => Promise<any>; commonObjs: any; objs: any }): Promise<ParsedImage[]> {
   const out: ParsedImage[] = [];
@@ -164,9 +187,12 @@ async function pdfPageImages(page: { getOperatorList: () => Promise<any>; common
       if (!data || !width || !height) continue;
       const channels = data.length / (width * height);
       if (![1, 3, 4].includes(channels)) continue;
-      const colorType = channels === 4 ? 6 : channels === 3 ? 2 : 0;
-      const png = new PNG({ width, height, colorType });
-      png.data = Buffer.from(data);
+      // pngjs always wants RGBA on write — feeding it the 1- or 3-channel buffer
+      // that pdfjs hands over shifts every pixel and squashes the picture
+      // (dogfood tpl-scan-ocr: a DeviceRGB scan came out at 3/4 height and OCR
+      // read garbage). Expand grayscale/RGB to opaque RGBA first.
+      const png = new PNG({ width, height, colorType: 6 });
+      png.data = toRgba(data, width, height, channels);
       out.push({ mimeType: "image/png", data: new Uint8Array(PNG.sync.write(png)) });
     }
   } catch {
