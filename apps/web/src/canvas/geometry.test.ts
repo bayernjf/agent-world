@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { anchorOf, pointsToPath, hitTestNode, edgeAnchors, orthogonalRoute } from "./geometry";
-import type { Point, Rect } from "./geometry";
+import { anchorOf, pointsToPath, hitTestNode, edgeAnchors, orthogonalRoute, orthoArrows } from "./geometry";
+import type { Point, Rect, Arrow } from "./geometry";
 import { PLANT_W, PLANT_H } from "../store/graph";
 import type { Graph, GraphNode, GraphEdge } from "@agent-world/core";
 
@@ -341,5 +341,125 @@ describe("orthogonalRoute", () => {
       const b = route[i + 1]!;
       expect(a.x === b.x || a.y === b.y).toBe(true);
     }
+  });
+});
+
+describe("orthoArrows", () => {
+  it("returns empty array for rework edges", () => {
+    const route = [
+      { x: 0, y: 0 },
+      { x: 100, y: 0 },
+    ];
+    expect(orthoArrows(route, "rework")).toEqual([]);
+  });
+
+  it("returns empty array for fewer than 2 points", () => {
+    expect(orthoArrows([], "flow")).toEqual([]);
+    expect(orthoArrows([{ x: 0, y: 0 }], "flow")).toEqual([]);
+  });
+
+  it("dedupes consecutive identical points before computing arrows", () => {
+    const route = [
+      { x: 0, y: 0 },
+      { x: 0, y: 0 },
+      { x: 100, y: 0 },
+    ];
+    const arrows = orthoArrows(route, "flow");
+    expect(arrows.length).toBe(2);
+  });
+
+  it("places arrows on a left-to-right horizontal segment with dir=1, angle=0", () => {
+    const route = [
+      { x: 0, y: 0 },
+      { x: 200, y: 0 },
+    ];
+    const arrows = orthoArrows(route, "flow");
+    expect(arrows.length).toBe(2);
+    // Source arrow: inset 20 from start
+    expect(arrows[0]!.x).toBe(20);
+    expect(arrows[0]!.y).toBe(0);
+    expect(arrows[0]!.dir).toBe(1);
+    expect(arrows[0]!.angle).toBe(0);
+    // Target arrow: inset 20 from end
+    expect(arrows[1]!.x).toBe(180);
+    expect(arrows[1]!.y).toBe(0);
+    expect(arrows[1]!.dir).toBe(1);
+    expect(arrows[1]!.angle).toBe(0);
+  });
+
+  it("places arrows on a right-to-left horizontal segment with dir=-1", () => {
+    const route = [
+      { x: 200, y: 0 },
+      { x: 0, y: 0 },
+    ];
+    const arrows = orthoArrows(route, "flow");
+    expect(arrows.length).toBe(2);
+    expect(arrows[0]!.dir).toBe(-1);
+    expect(arrows[0]!.x).toBe(180);
+    expect(arrows[1]!.dir).toBe(-1);
+    expect(arrows[1]!.x).toBe(20);
+  });
+
+  it("places arrows on a top-to-bottom vertical segment with angle=90", () => {
+    const route = [
+      { x: 0, y: 0 },
+      { x: 0, y: 200 },
+    ];
+    const arrows = orthoArrows(route, "flow");
+    expect(arrows.length).toBe(2);
+    expect(arrows[0]!.angle).toBe(90);
+    expect(arrows[0]!.y).toBe(20);
+    expect(arrows[1]!.angle).toBe(90);
+    expect(arrows[1]!.y).toBe(180);
+  });
+
+  it("places arrows on a bottom-to-top vertical segment with angle=-90", () => {
+    const route = [
+      { x: 0, y: 200 },
+      { x: 0, y: 0 },
+    ];
+    const arrows = orthoArrows(route, "flow");
+    expect(arrows.length).toBe(2);
+    expect(arrows[0]!.angle).toBe(-90);
+    expect(arrows[0]!.y).toBe(180);
+    expect(arrows[1]!.angle).toBe(-90);
+    expect(arrows[1]!.y).toBe(20);
+  });
+
+  it("returns no arrows for a segment shorter than the inset threshold", () => {
+    // Length 40 < ARROW_INSET * 2 + 4 = 44
+    const route = [
+      { x: 0, y: 0 },
+      { x: 40, y: 0 },
+    ];
+    const arrows = orthoArrows(route, "flow");
+    expect(arrows.length).toBe(0);
+  });
+
+  it("returns arrows for a segment just above the threshold", () => {
+    // Length 50 > 44
+    const route = [
+      { x: 0, y: 0 },
+      { x: 50, y: 0 },
+    ];
+    const arrows = orthoArrows(route, "flow");
+    expect(arrows.length).toBe(2);
+  });
+
+  it("uses the first and last segments of a multi-segment route", () => {
+    const route = [
+      { x: 0, y: 0 },
+      { x: 100, y: 0 },
+      { x: 100, y: 100 },
+      { x: 200, y: 100 },
+    ];
+    const arrows = orthoArrows(route, "flow");
+    expect(arrows.length).toBe(2);
+    // First arrow on the first (horizontal) segment
+    expect(arrows[0]!.x).toBe(20);
+    expect(arrows[0]!.y).toBe(0);
+    // Last arrow on the last (horizontal) segment
+    expect(arrows[1]!.x).toBe(180);
+    expect(arrows[1]!.y).toBe(100);
   });
 });
