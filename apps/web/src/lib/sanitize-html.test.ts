@@ -23,7 +23,13 @@ describe("isSafeUri (audit L6/M8)", () => {
   it("treats empty/relative values as safe", () => {
     expect(isSafeUri("")).toBe(true);
     expect(isSafeUri(undefined)).toBe(true);
+    expect(isSafeUri(null)).toBe(true);
     expect(isSafeUri("/relative/path")).toBe(true);
+  });
+
+  it("trims whitespace before checking", () => {
+    expect(isSafeUri("  https://example.com  ")).toBe(true);
+    expect(isSafeUri("  javascript:alert(1)  ")).toBe(false);
   });
 });
 
@@ -53,5 +59,25 @@ describe("sanitizeUrl (audit M8, shared by renderInline/inlineHtml)", () => {
 
   it("rejects data: links even when images allow data:image", () => {
     expect(sanitizeUrl("data:text/html,x", "link")).toBe("");
+  });
+
+  it("returns empty string for null/undefined/empty input", () => {
+    expect(sanitizeUrl(null)).toBe("");
+    expect(sanitizeUrl(undefined)).toBe("");
+    expect(sanitizeUrl("")).toBe("");
+    expect(sanitizeUrl("   ")).toBe("");
+  });
+
+  it("rejects mailto for image kind", () => {
+    expect(sanitizeUrl("mailto:a@b.com", "image")).toBe("");
+  });
+
+  it("rejects data:image for link kind", () => {
+    expect(sanitizeUrl("data:image/png;base64,AA", "link")).toBe("");
+  });
+
+  it("trims whitespace from input", () => {
+    expect(sanitizeUrl("  https://x.com/a  ")).toBe("https://x.com/a");
+    expect(sanitizeUrl("  javascript:alert(1)  ")).toBe("");
   });
 });
