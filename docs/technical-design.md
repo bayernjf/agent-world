@@ -771,7 +771,7 @@ artifacts: Map<string, Artifact[]>  // nodeId → 该节点产出的所有 artif
 - **gate 节点**：通过时产出 text artifact（verdict.reason）；驳回时不产出（走返工环）
 - **sink 节点**：产出 text artifact（最终输出）
 - **table 节点**：按 `table.steps` 执行，`output` 步骤产出 `{kind:"json"}` artifact（`{rows,count,columns}`），节点摘要报「N 行 × M 列」；`sort` 步骤空值（空串/null/缺字段）无论方向一律沉底（`2c3cef8`，狗粮 tpl-evidence-brief）；上游 JSON 含额外字段（如拆条产出的 `claim`）不影响取 `rows`；狗粮 tpl-doc-ingest 首次真实覆盖（run `b0f60b0b`，4 行×2 列），tpl-evidence-brief / tpl-expense-review 复验排序契约（run `ff5e4937`/`b46e620c`）
-- **vcs 节点**：请求走 `guardedFetch`（与其他出站节点共用代理/SSRF/重定向契约，见 §12.1）；凭证只从服务器 env（`GITHUB_TOKEN`/`GITLAB_TOKEN`）读取，不进图；产出 `{kind:"json"}` artifact（API 原始响应）。`create_pr`/`comment_issue` 的 `body` 为空时回退上游 text 产物；`title` 未显式配置时从正文首个非空、非分隔线行推导（去标题符号、截断 120 字符），显式 `cfg.title` 始终优先（狗粮 tpl-release-pr，`dadeb05`）；GitHub 422 的 `errors[]` 逐条详情并入报错（`f034605`）
+- **vcs 节点**：请求走 `guardedFetch`（与其他出站节点共用代理/SSRF/重定向契约，见 §12.1）；凭证解析顺序为**节点 `cfg.token` → 服务器 env（`GITHUB_TOKEN`/`GITLAB_TOKEN`）→ 抛 `AUTH` 且同时点名两处入口（在发出任何请求之前）**，`baseUrl` 同理压过 `GITLAB_API_URL`（自托管 GitLab）；两者都是节点级字段，落盘前由 `sealGraphDoc` 加密（`f914fa9`+`75f02b4`）；产出 `{kind:"json"}` artifact（API 原始响应）。`create_pr`/`comment_issue` 的 `body` 为空时回退上游 text 产物；`title` 未显式配置时从正文首个非空、非分隔线行推导（去标题符号、截断 120 字符），显式 `cfg.title` 始终优先（狗粮 tpl-release-pr，`dadeb05`）；GitHub 422 的 `errors[]` 逐条详情并入报错（`f034605`）
 - **调度契约（error 边 × fan-in）**：失败上游被 error 边接住（catch 节点已 done）时，与它同汇入一个汇聚点的兄弟分支仍必须照常调度，汇聚点从 ctx 里读到的是失败节点的 error JSON + catch 节点的产出；收尾时仍有 pending 节点的 run 一律不得报 done（`e6dc2c9`）
 
 ### 13.3 inputFor() 兼容策略

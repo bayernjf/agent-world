@@ -117,6 +117,47 @@ describe("per-user settings isolation", () => {
     expect(aBody.providers.theirs).toBeUndefined();
     expect(JSON.stringify(aBody)).not.toContain("sk-bbb");
   });
+
+  it("rejects a provider with an invalid type", async () => {
+    const res = await app.request("/api/settings", {
+      method: "PUT",
+      headers: authed(aToken, { "content-type": "application/json" }),
+      body: JSON.stringify({
+        providers: {
+          bad: { type: "invalid-type", baseUrl: "https://x.example/v1", apiKey: "sk-x", models: ["m"] },
+        },
+      }),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toContain("Invalid settings payload");
+  });
+
+  it("rejects a provider missing the required models array", async () => {
+    const res = await app.request("/api/settings", {
+      method: "PUT",
+      headers: authed(aToken, { "content-type": "application/json" }),
+      body: JSON.stringify({
+        providers: {
+          bad: { type: "openai-compatible", baseUrl: "https://x.example/v1", apiKey: "sk-x" },
+        },
+      }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("accepts a valid partial settings update", async () => {
+    const res = await app.request("/api/settings", {
+      method: "PUT",
+      headers: authed(aToken, { "content-type": "application/json" }),
+      body: JSON.stringify({
+        providers: {
+          partial: { type: "openai-compatible", baseUrl: "https://p.example/v1", apiKey: "sk-p", models: ["m1"] },
+        },
+      }),
+    });
+    expect(res.status).toBe(200);
+  });
 });
 
 describe("auth cookie Secure flag", () => {
@@ -334,6 +375,29 @@ describe("/api/providers/test key exfiltration guard", () => {
     } finally {
       vi.unstubAllGlobals();
       vi.unstubAllEnvs();
+    }
+  });
+
+  it("rejects an invalid modality with 400 before any network call", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const res = await app.request("/api/providers/test", {
+        method: "POST",
+        headers: authed(token, { "content-type": "application/json" }),
+        body: JSON.stringify({
+          baseUrl: "https://real.example/v1",
+          apiKey: "sk-fresh",
+          model: "m1",
+          modality: "invalid-modality",
+        }),
+      });
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error?: string };
+      expect(body.error).toContain("Invalid modality");
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
     }
   });
 });

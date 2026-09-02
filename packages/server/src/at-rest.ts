@@ -3,7 +3,15 @@
  *
  * Two kinds of secrets are encrypted before they touch disk:
  *  - provider API keys, inside the per-user `settings.data` JSON;
- *  - webhook secrets, inside graph docs / snapshots (`triggers[].webhookSecret`).
+ *  - every credential carried by a graph document / snapshot — trigger webhook
+ *    secrets, node-level provider keys (imageGen / videoGen / audioGen /
+ *    generic `apiKey`), notify `secret` and `webhookUrl` (group-bot URLs embed
+ *    their token in the path), connector `auth.token`, HTTP header values
+ *    whose name is auth-ish — on both http nodes and http connectors, including
+ *    custom names no fixed list could enumerate (`X-My-Auth`, `X-Signature`) —
+ *    and credential query params inside a URL (`…?access_token=…`, Azure's
+ *    `?api-key=…`), where only the param value is sealed so the endpoint stays
+ *    readable on disk.
  *
  * Design: AES-256-GCM, one random 12-byte IV per encryption, stored as
  * `enc:v1:<iv b64>:<tag b64>:<cipher b64>`. Values without the prefix are
@@ -91,22 +99,151 @@ export function decryptString(stored: string): string {
   }
 }
 
-function hasSecrets(graph: Graph): boolean {
-  return !!graph.triggers?.some((t) => t.webhookSecret);
+/**
+ * Object keys whose string values are credentials, matched case-insensitively.
+ *
+ * Keyed by name rather than by a hard-coded field path so the walk covers
+ * wherever a credential is nested today (node configs, `source.connector.http`,
+ * triggers) and wherever it gets nested next. The L3 fix mapped only
+ * `triggers[].webhookSecret`, which left every node-level key in plaintext —
+ * the same defect class in a sibling branch.
+ *
+ * Header names are keys of a record and are user-chosen, so an exact list can
+ * never cover them: inside a `headers` record any name that looks auth-ish is
+ * sealed too (see AUTHISH_HEADER). Benign headers stay readable on disk, which
+ * is what makes a sealed doc debuggable.
+ */
+const SECRET_KEYS =
+  /^(apikey|api_key|secret|webhooksecret|token|accesstoken|refreshtoken|webhookurl|authorization|proxy-authorization|cookie|set-cookie|x-api-key|x-auth-token|x-token|x-goog-api-key|ocp-apim-subscription-key)$/i;
+
+/** Header names that carry a credential even though no list could name them. */
+const AUTHISH_HEADER = /(auth|token|key|secret|credential|signature|password|passwd|session|cookie|bearer)/i;
+
+/**
+ * Field names whose value is a URL, so a credential may ride in its query
+ * string (`?access_token=…`, Azure's `?api-key=…`). The URL itself stays
+ * readable on disk; only the credential's value is sealed (see sealUrlQuery).
+ */
+const URL_KEYS =
+  /^(url|uri|href|endpoint|hook|hookurl|baseurl|apiurl|serviceurl|fullurl|callbackurl|redirecturl|targeturl)$/i;
+
+/**
+ * Query-parameter names that are credentials. Matched exactly, because an
+ * unanchored pattern would seal benign params (`author` contains "auth",
+ * `keyboard` contains "key").
+ */
+const QUERY_SECRET =
+  /^(token|access[-_]?token|refresh[-_]?token|id[-_]?token|api[-_]?key|apikey|key|app[-_]?key|secret|client[-_]?secret|app[-_]?secret|signature|sig|auth|authorization|password|passwd|pwd|credential|credentials|bearer|session|session[-_]?id|k)$/i;
+
+/** Ciphertext placed inside a query string is percent-encoded; see § sealUrlQuery. */
+const ENC_PREFIX_ENCODED = encodeURIComponent(ENC_PREFIX);
+
+/** One `?name=value` / `&name=value` pair, stopping at the next `&` or `#`. */
+const QUERY_PARAM = /([?&])([A-Za-z0-9_.%-]+)(=)([^&#]*)/g;
+
+/**
+ * True when the string under `key` is a credential. `parentKey` is the key of
+ * the object holding it, which is how a `headers` record is recognised.
+ */
+function isSecretKey(key: string, parentKey?: string): boolean {
+  if (SECRET_KEYS.test(key)) return true;
+  return parentKey !== undefined && /^headers$/i.test(parentKey) && AUTHISH_HEADER.test(key);
 }
 
-/** Encrypt the webhook secrets inside a graph document (returns a copy). */
+/**
+ * Seal the credential params inside a URL, leaving the URL itself readable:
+ * `https://h/robot/send?access_token=SECRET&t=1` becomes
+ * `…?access_token=enc%3Av1%3A…&t=1`.
+ *
+ * The ciphertext is percent-encoded because it is base64 and a raw `+` inside a
+ * query string decodes server-side as a space, which would silently corrupt the
+ * token. Values that already carry that encoded prefix are left alone, so
+ * sealing twice is a no-op.
+ */
+function sealUrlQuery(value: string): string {
+  return value.replace(QUERY_PARAM, (pair, sep: string, name: string, eq: string, val: string) => {
+    if (!val || !QUERY_SECRET.test(name)) return pair;
+    if (val.startsWith(ENC_PREFIX_ENCODED)) return pair;
+    return `${sep}${name}${eq}${encodeURIComponent(encryptString(val))}`;
+  });
+}
+
+/** Reverse of {@link sealUrlQuery}; a malformed or tampered value throws. */
+function openUrlQuery(value: string): string {
+  return value.replace(QUERY_PARAM, (pair, sep: string, name: string, eq: string, val: string) => {
+    if (!val.startsWith(ENC_PREFIX_ENCODED)) return pair;
+    return `${sep}${name}${eq}${decryptString(decodeURIComponent(val))}`;
+  });
+}
+
+/** Applied to every credential-bearing string the walk finds. */
+type SecretTransform = (key: string, parentKey: string | undefined, value: string) => string;
+
+const sealTransform: SecretTransform = (key, parentKey, value) =>
+  isSecretKey(key, parentKey) ? sealValue(value) : sealUrlQuery(value);
+
+const openTransform: SecretTransform = (key, parentKey, value) =>
+  isSecretKey(key, parentKey) ? decryptString(value) : openUrlQuery(value);
+
+/** True when the string under `key` is worth running a transform on. */
+function isCredentialCarrier(key: string, parentKey: string | undefined): boolean {
+  return isSecretKey(key, parentKey) || URL_KEYS.test(key);
+}
+
+/**
+ * Rewrite every credential in a document with `transform`, preserving key
+ * order (content hashes are computed on the plaintext and must stay
+ * comparable). Returns the ORIGINAL reference when nothing changed, so graphs
+ * without credentials keep their identity and cost nothing.
+ *
+ * There is deliberately no separate "does this doc contain a secret?" probe:
+ * the detector and the mutator drifting apart is how the first L3 fix shipped
+ * with every node-level key still in plaintext. This walk is the answer.
+ */
+function mapSecrets(
+  value: unknown,
+  transform: SecretTransform,
+  parentKey?: string,
+): { out: unknown; changed: boolean } {
+  if (Array.isArray(value)) {
+    let changed = false;
+    const out = value.map((v) => {
+      const r = mapSecrets(v, transform, parentKey);
+      if (r.changed) changed = true;
+      return r.out;
+    });
+    return changed ? { out, changed } : { out: value, changed: false };
+  }
+  if (value && typeof value === "object") {
+    let changed = false;
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      if (typeof v === "string" && v && isCredentialCarrier(k, parentKey)) {
+        const next = transform(k, parentKey, v);
+        out[k] = next;
+        if (next !== v) changed = true;
+      } else {
+        const r = mapSecrets(v, transform, k);
+        out[k] = r.out;
+        if (r.changed) changed = true;
+      }
+    }
+    return changed ? { out, changed } : { out: value, changed: false };
+  }
+  return { out: value, changed: false };
+}
+
+/** Encrypt unless already encrypted, so sealing is idempotent. */
+function sealValue(v: string): string {
+  return v.startsWith(ENC_PREFIX) ? v : encryptString(v);
+}
+
+/** Encrypt every credential inside a graph document (returns a copy). */
 export function sealGraphDoc(graph: Graph): Graph {
-  if (!hasSecrets(graph)) return graph;
-  return {
-    ...graph,
-    triggers: graph.triggers!.map((t) =>
-      t.webhookSecret ? { ...t, webhookSecret: encryptString(t.webhookSecret) } : t,
-    ),
-  };
+  return mapSecrets(graph, sealTransform).out as Graph;
 }
 
-/** Decrypt the webhook secrets inside a graph document (returns a copy). */
+/** Decrypt every credential inside a graph document (returns a copy). */
 export function openGraphDoc(graph: Graph): Graph {
   // Drop "ghost" edges whose endpoints no longer exist. A corrupted save can
   // leave pipes referencing node ids that aren't in the graph; they are
@@ -120,13 +257,7 @@ export function openGraphDoc(graph: Graph): Graph {
     ? { ...graph, edges: graph.edges.filter((e) => liveIds.has(e.from) && liveIds.has(e.to)) }
     : graph;
 
-  if (!hasSecrets(opened)) return opened;
-  return {
-    ...opened,
-    triggers: opened.triggers!.map((t) =>
-      t.webhookSecret ? { ...t, webhookSecret: decryptString(t.webhookSecret) } : t,
-    ),
-  };
+  return mapSecrets(opened, openTransform).out as Graph;
 }
 
 /**

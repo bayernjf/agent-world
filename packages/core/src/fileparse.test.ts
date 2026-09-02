@@ -218,6 +218,14 @@ describe("SearchConfig", () => {
     expect(cfg.maxResults).toBe(10);
   });
 
+  it("parses a node-level credential so one deployment can serve several accounts", () => {
+    const cfg = SearchConfig.parse({ provider: "tavily", apiKey: "tvly-node", cx: "engine-1" });
+    expect(cfg.apiKey).toBe("tvly-node");
+    expect(cfg.cx).toBe("engine-1");
+    // omitted means "fall back to the server env", not "empty string"
+    expect(SearchConfig.parse({ provider: "tavily" }).apiKey).toBeUndefined();
+  });
+
   it("rejects unknown providers and out-of-range maxResults", () => {
     expect(() => SearchConfig.parse({ provider: "bing" })).toThrow();
     expect(() => SearchConfig.parse({ maxResults: 0 })).toThrow();
@@ -344,6 +352,26 @@ describe("VcsConfig", () => {
     });
     expect(cfg.projectId).toBe("42");
     expect(cfg.inputs).toEqual({ env: "staging" });
+  });
+
+  it("parses a node-level token and self-hosted base URL", () => {
+    const cfg = VcsConfig.parse({
+      provider: "gitlab",
+      action: "list_issues",
+      projectId: "42",
+      token: "glpat-node",
+      baseUrl: "https://git.corp.example/api/v4",
+    });
+    expect(cfg.token).toBe("glpat-node");
+    expect(cfg.baseUrl).toBe("https://git.corp.example/api/v4");
+    expect(VcsConfig.parse({ action: "list_issues", owner: "o", repo: "r" }).token).toBeUndefined();
+    expect(VcsConfig.parse({ action: "list_issues", baseUrl: "http://git.local/api/v4" }).baseUrl).toBe(
+      "http://git.local/api/v4",
+    );
+    // guardedFetch validates the host at request time, but a base that cannot
+    // be an API origin should fail at parse, not halfway through a PR.
+    expect(() => VcsConfig.parse({ action: "list_issues", baseUrl: "git.corp:8080" })).toThrow();
+    expect(() => VcsConfig.parse({ action: "list_issues", baseUrl: "not a url" })).toThrow();
   });
 
   it("rejects unknown providers and actions", () => {

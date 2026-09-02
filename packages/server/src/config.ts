@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { z } from "zod";
 import {
   DEFAULT_MODALITY,
   MODALITIES,
@@ -126,6 +127,49 @@ export interface AppConfig {
    */
   autoSnapshot?: { minIntervalMs?: number; maxKeep?: number };
 }
+
+/**
+ * Zod schema for AppConfig, used to validate PUT /api/settings payloads.
+ * Kept in sync with the TS interfaces above; all fields optional except the
+ * three required ones (providers, defaultModel, defaultProvider).
+ */
+const ModelPricingSchema = z.object({
+  input: z.number().optional(),
+  output: z.number().optional(),
+  cacheRead: z.number().optional(),
+  perImage: z.number().optional(),
+  perSecond: z.number().optional(),
+  perKiloChar: z.number().optional(),
+});
+
+const VideoAdapterSchema = z.object({
+  createBody: z.record(z.unknown()).optional(),
+  omitDuration: z.boolean().optional(),
+  aspectToSize: z.record(z.object({ width: z.number(), height: z.number() })).optional(),
+  resultUrlPath: z.string().optional(),
+});
+
+const ProviderConfigSchema = z.object({
+  type: z.enum(["openai-compatible", "anthropic", "fake"]),
+  baseUrl: z.string().optional(),
+  apiKey: z.string().optional(),
+  models: z.array(z.string()),
+  pricing: z.record(ModelPricingSchema).optional(),
+  modalities: z.record(z.enum(MODALITIES as [Modality, ...Modality[]])).optional(),
+  endpoints: z.record(z.string()).optional(),
+  videoAdapter: VideoAdapterSchema.optional(),
+  enabled: z.boolean().optional(),
+  source: z.enum(["builtin", "custom"]).optional(),
+});
+
+export const AppConfigSchema = z.object({
+  providers: z.record(ProviderConfigSchema),
+  defaultModel: z.string(),
+  defaultProvider: z.string(),
+  modelOrder: z.array(z.string()).optional(),
+  monthlyBudgetUsd: z.number().nullable().optional(),
+  autoSnapshot: z.object({ minIntervalMs: z.number().optional(), maxKeep: z.number().optional() }).optional(),
+});
 
 /**
  * Internal "fake" provider with zero models. It is not user-visible in

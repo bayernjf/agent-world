@@ -2669,13 +2669,58 @@ export default function Inspector({
                     }
                   >
                     <option value="duckduckgo">DuckDuckGo（免 key）</option>
-                    <option value="tavily">Tavily（TAVILY_API_KEY）</option>
-                    <option value="serpapi">SerpAPI（SERPAPI_API_KEY）</option>
-                    <option value="google">
-                      Google CSE（GOOGLE_API_KEY + GOOGLE_CX）
-                    </option>
+                    <option value="tavily">Tavily</option>
+                    <option value="serpapi">SerpAPI</option>
+                    <option value="google">Google CSE</option>
                   </select>
                 </label>
+                {node.search.provider !== "duckduckgo" && (
+                  <>
+                    <label className="field">
+                      <span>
+                        API Key（可选，留空用服务端环境变量）
+                      </span>
+                      <input
+                        type="password"
+                        placeholder="填在节点里即刻生效，无需重启"
+                        value={node.search.apiKey ?? ""}
+                        onFocus={beginEdit}
+                        onBlur={commitEdit}
+                        onChange={(e) =>
+                          updateNode(node.id, {
+                            search: {
+                              ...node.search!,
+                              apiKey: e.target.value || undefined,
+                            },
+                          })
+                        }
+                      />
+                    </label>
+                    {node.search.provider === "google" && (
+                      <label className="field">
+                        <span>
+                          搜索引擎 ID cx（可选，留空用 GOOGLE_CX）
+                        </span>
+                        <input
+                          className="input"
+                          type="text"
+                          placeholder="e.g. a1b2c3d4e5"
+                          value={node.search.cx ?? ""}
+                          onFocus={beginEdit}
+                          onBlur={commitEdit}
+                          onChange={(e) =>
+                            updateNode(node.id, {
+                              search: {
+                                ...node.search!,
+                                cx: e.target.value || undefined,
+                              },
+                            })
+                          }
+                        />
+                      </label>
+                    )}
+                  </>
+                )}
                 <label className="field">
                   <span>结果数量（1-20）</span>
                   <input
@@ -2699,7 +2744,9 @@ export default function Inspector({
                   json（结构化结果）双产物，下游 agent
                   可直接阅读总结。搜索词留空时用上游 text 产物（可让 agent
                   先生成搜索词）；DuckDuckGo
-                  无需密钥，其余搜索源在服务端配置对应环境变量后可用。
+                  无需密钥，其余搜索源在节点里填 API Key
+                  即刻生效（落盘前加密），留空则回落服务端环境变量
+                  TAVILY_API_KEY / SERPAPI_API_KEY / GOOGLE_API_KEY+GOOGLE_CX。
                 </p>
               </>
             )}
@@ -2909,6 +2956,47 @@ export default function Inspector({
                     <option value="list_issues">列出 issue</option>
                   </select>
                 </label>
+                <label className="field">
+                  <span>
+                    Token（可选，留空用 GITHUB_TOKEN / GITLAB_TOKEN）
+                  </span>
+                  <input
+                    type="password"
+                    placeholder="ghp_... / glpat-..."
+                    value={node.vcs.token ?? ""}
+                    onFocus={beginEdit}
+                    onBlur={commitEdit}
+                    onChange={(e) =>
+                      updateNode(node.id, {
+                        vcs: {
+                          ...node.vcs!,
+                          token: e.target.value || undefined,
+                        },
+                      })
+                    }
+                  />
+                </label>
+                {node.vcs.provider === "gitlab" && (
+                  <label className="field">
+                    <span>API Base（可选，自托管；留空用 GITLAB_API_URL）</span>
+                    <input
+                      className="input"
+                      type="text"
+                      placeholder="https://git.corp.example/api/v4"
+                      value={node.vcs.baseUrl ?? ""}
+                      onFocus={beginEdit}
+                      onBlur={commitEdit}
+                      onChange={(e) =>
+                        updateNode(node.id, {
+                          vcs: {
+                            ...node.vcs!,
+                            baseUrl: e.target.value || undefined,
+                          },
+                        })
+                      }
+                    />
+                  </label>
+                )}
                 {node.vcs.provider === "github" ? (
                   <div className="field-row">
                     <label className="field">
@@ -3111,9 +3199,10 @@ export default function Inspector({
                 <p className="note">
                   对 GitHub / GitLab 执行版本控制动作，API 结果落为 json
                   产物。create_pr / comment_issue 的正文留空时用上游 text
-                  产物（可让 agent 先起草 PR 描述）；token 走 GITHUB_TOKEN /
-                  GITLAB_TOKEN 环境变量（自托管 GitLab 可设
-                  GITLAB_API_URL），密钥不入图。
+                  产物（可让 agent 先起草 PR 描述）；Token
+                  填在这里即刻生效（落盘前加密），留空则回落服务端环境变量
+                  GITHUB_TOKEN / GITLAB_TOKEN（自托管 GitLab 可设 API Base 或
+                  GITLAB_API_URL）。
                 </p>
               </>
             )}

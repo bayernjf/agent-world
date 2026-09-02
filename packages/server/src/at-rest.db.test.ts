@@ -91,6 +91,133 @@ describe("at-rest encryption: db integration (audit L3)", () => {
     db.close();
   });
 
+  // The L3 integration tests above only exercised `triggers[].webhookSecret`.
+  // Node-level credentials live in the same three places — graphs.doc, version
+  // snapshots and run snapshots — and were plaintext in all of them.
+  it("keeps node-level credentials off disk in the doc, version and run snapshots", () => {
+    const path = join(dir, "nodes.sqlite");
+    const db = openDb(path);
+    const nodeKey = "sk-node-on-disk";
+    const botToken = "bot-token-on-disk";
+    const connToken = "conn-token-on-disk";
+    const hdrToken = "custom-hdr-on-disk";
+    const urlToken = "query-token-on-disk";
+    const searchKey = "search-key-on-disk";
+    const vcsToken = "vcs-token-on-disk";
+    const vcsUrlToken = "vcs-url-token-on-disk";
+    const urlWithToken = `https://api.example.com/y?access_token=${urlToken}&v=2`;
+    const graph: Graph = {
+      id: "g1",
+      name: "graph-g1",
+      nodes: [
+        {
+          id: "src", kind: "source", name: "SRC", x: 0, y: 0,
+          source: {
+            connector: {
+              type: "http",
+              http: { url: "https://api.example.com/x", auth: { type: "bearer", token: connToken } },
+            },
+          },
+        } as never,
+        {
+          id: "aud", kind: "audioGen", name: "AUD", x: 1, y: 0,
+          audioGen: { model: "tts-1", apiKey: nodeKey },
+        } as never,
+        {
+          id: "nt", kind: "notify", name: "NT", x: 2, y: 0,
+          notify: { provider: "feishu", webhookUrl: `https://open.feishu.cn/hook/${botToken}`, message: "m" },
+        } as never,
+        {
+          // Two leftovers at once: a credential under a header name no fixed
+          // list contains (matched by auth-ish name inside a headers record),
+          // and one riding in the URL's query string (bot/Azure style).
+          id: "ht", kind: "http", name: "HT", x: 3, y: 0,
+          http: { url: urlWithToken, headers: { "X-My-Auth": hdrToken, Accept: "*/*" } },
+        } as never,
+        {
+          // Node-scoped provider credentials (the newer entry points): their
+          // field names already fall inside SECRET_KEYS / URL_KEYS, so no new
+          // list had to be extended to cover them.
+          id: "se", kind: "search", name: "SE", x: 4, y: 0,
+          search: { query: "q", provider: "tavily", apiKey: searchKey },
+        } as never,
+        {
+          id: "vc", kind: "vcs", name: "VC", x: 5, y: 0,
+          vcs: {
+            provider: "gitlab",
+            action: "list_issues",
+            projectId: "7",
+            token: vcsToken,
+            baseUrl: `https://git.corp.example.com/api/v4?access_token=${vcsUrlToken}`,
+          },
+        } as never,
+        { id: "depot", kind: "sink", name: "DEPOT", x: 6, y: 0 },
+      ],
+      edges: [
+        { id: "e1", from: "src", to: "aud", kind: "flow" },
+        { id: "e2", from: "aud", to: "nt", kind: "flow" },
+        { id: "e3", from: "nt", to: "ht", kind: "flow" },
+        { id: "e4", from: "ht", to: "se", kind: "flow" },
+        { id: "e5", from: "se", to: "vc", kind: "flow" },
+        { id: "e6", from: "vc", to: "depot", kind: "flow" },
+      ],
+    };
+
+    db.saveGraph(graph, 0, "u1");
+    db.saveVersion("g1", "v1", JSON.stringify(graph));
+    db.createRun({ id: "run1", userId: "u1", graph, budgetUsd: null, at: 1, trigger: "manual" });
+    db.saveAutoSnapshot("g1", JSON.stringify(graph), 0, 10);
+
+    // Every stored copy must be free of all eight plaintext credentials.
+    const raw = new DatabaseSync(path, { readOnly: true });
+    try {
+      const docs = [
+        (raw.prepare(`SELECT doc AS d FROM graphs WHERE id = 'g1'`).get() as { d: string }).d,
+        ...(raw.prepare(`SELECT snapshot AS d FROM graph_versions WHERE graph_id = 'g1'`).all() as Array<{ d: string }>).map((r) => r.d),
+        (raw.prepare(`SELECT snapshot AS d FROM runs WHERE id = 'run1'`).get() as { d: string }).d,
+      ];
+      expect(docs.length).toBeGreaterThanOrEqual(4); // doc + manual & auto versions + run
+      for (const d of docs) {
+        expect(d).not.toContain(nodeKey);
+        expect(d).not.toContain(botToken);
+        expect(d).not.toContain(connToken);
+        expect(d).not.toContain(hdrToken);
+        expect(d).not.toContain(urlToken);
+        expect(d).not.toContain(searchKey);
+        expect(d).not.toContain(vcsToken);
+        expect(d).not.toContain(vcsUrlToken);
+        expect(d).toContain("enc:v1:");
+        // Only the param value is sealed — the endpoint itself stays readable.
+        expect(d).toContain("https://api.example.com/y?access_token=enc%3Av1%3A");
+        expect(d).toContain("&v=2");
+        expect(d).toContain("https://git.corp.example.com/api/v4?access_token=enc%3Av1%3A");
+      }
+    } finally {
+      raw.close();
+    }
+
+    // App-facing reads decrypt transparently, so nothing downstream changes.
+    const loaded = db.getGraph("g1", "u1")!;
+    const nodes = loaded.nodes as unknown as Array<Record<string, any>>;
+    expect(nodes.find((n) => n.id === "aud")!.audioGen.apiKey).toBe(nodeKey);
+    expect(nodes.find((n) => n.id === "nt")!.notify.webhookUrl).toContain(botToken);
+    expect(nodes.find((n) => n.id === "src")!.source.connector.http.auth.token).toBe(connToken);
+    expect(nodes.find((n) => n.id === "ht")!.http.headers["X-My-Auth"]).toBe(hdrToken);
+    expect(nodes.find((n) => n.id === "ht")!.http.headers.Accept).toBe("*/*");
+    expect(nodes.find((n) => n.id === "ht")!.http.url).toBe(urlWithToken);
+    expect(nodes.find((n) => n.id === "se")!.search.apiKey).toBe(searchKey);
+    expect(nodes.find((n) => n.id === "vc")!.vcs.token).toBe(vcsToken);
+    expect(nodes.find((n) => n.id === "vc")!.vcs.baseUrl).toBe(
+      `https://git.corp.example.com/api/v4?access_token=${vcsUrlToken}`,
+    );
+
+    // Hashes stay plaintext-based, so "matches what ran" still lines up.
+    const versionHash = (db.listVersions("g1", "u1") as unknown as Array<{ contentHash: string }>)
+      .find((v) => v.contentHash)?.contentHash;
+    expect(db.getLatestRunContentHash("g1", "u1")).toBe(versionHash);
+    db.close();
+  });
+
   it("keeps working with legacy plaintext rows (no prefix)", () => {
     const path = join(dir, "legacy.sqlite");
     // Create the schema through openDb, then write a legacy plaintext row

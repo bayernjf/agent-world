@@ -1075,8 +1075,8 @@ const docIngestGraph = {
   fields: [
     {
       key: "docUrl",
-      label: "文档链接",
-      placeholder: "填入 PDF / DOCX 等文档的公开链接",
+      label: "文档链接（可选）",
+      placeholder: "填入 PDF / DOCX 等文档的公开链接；也可直接在「文档入口」上传本地文件",
       defaultValue: "https://raw.githubusercontent.com/mozilla/pdf.js/master/web/compressed.tracemonkey-pldi-09.pdf",
       applyTo: [{ nodeId: "fetch", path: "http.url" }],
     },
@@ -1173,7 +1173,11 @@ const docIngestGraph = {
       { id: "depot", kind: "sink", name: "入库清单", x: 1540, y: 300 },
     ],
     edges: [
-      { id: "e1", from: "intake", to: "fetch", kind: "flow" },
+      // 双投料入口并联：文件上传（intake）和 URL 拉取（fetch）都接到
+      // 文档解析（parse）。fileParse 节点只处理第一个 file 产物——
+      // 用户上传了文件时 intake 的 file 产物优先，没上传时 fetch 的
+      // URL 投料生效。
+      { id: "e1", from: "intake", to: "parse", kind: "flow" },
       { id: "e2", from: "fetch", to: "parse", kind: "flow" },
       { id: "e3", from: "parse", to: "ocr", kind: "flow" },
       { id: "e4", from: "parse", to: "combine", kind: "flow" },
@@ -1610,7 +1614,7 @@ const releasePrGraph = {
       },
       {
         // body 留空：自动使用上游人工确认后的 PR 描述文本。
-        // 凭证从服务器环境变量 GITHUB_TOKEN 读取，不会存进产线。
+        // 模板不预置 token（留空即回落服务器环境变量 GITHUB_TOKEN，不入图）。
         id: "submit",
         kind: "vcs",
         name: "创建 PR",
@@ -1642,8 +1646,8 @@ const scanOcrGraph = {
   fields: [
     {
       key: "docUrl",
-      label: "扫描件链接",
-      placeholder: "填入扫描版 PDF（每页一张图）的公开链接",
+      label: "扫描件链接（可选）",
+      placeholder: "填入扫描版 PDF 的公开链接；也可直接在「文件入口」上传本地文件",
       defaultValue: "https://raw.githubusercontent.com/mozilla/pdf.js/master/web/compressed.tracemonkey-pldi-09.pdf",
       applyTo: [{ nodeId: "fetch", path: "http.url" }],
     },
@@ -1703,7 +1707,12 @@ const scanOcrGraph = {
       },
     ],
     edges: [
-      { id: "e1", from: "intake", to: "fetch", kind: "flow" },
+      // 双投料入口并联：文件上传（intake）和 URL 拉取（fetch）都接到
+      // 逐页转图（pages）。convert 节点只处理第一个 file 产物——
+      // 用户上传了文件时 intake 的 file 产物优先，没上传时 fetch 的
+      // URL 投料生效。两个入口在 nodes 数组中 intake 在前，保证拓扑
+      // 调度时 intake 先于 fetch 产出 file 产物。
+      { id: "e1", from: "intake", to: "pages", kind: "flow" },
       { id: "e2", from: "fetch", to: "pages", kind: "flow" },
       { id: "e3", from: "pages", to: "ocr", kind: "flow" },
       { id: "e4", from: "ocr", to: "depot", kind: "flow" },

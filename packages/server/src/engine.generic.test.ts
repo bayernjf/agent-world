@@ -240,6 +240,26 @@ describe("generic node — honest failure and artifact parity", () => {
     expect(replay(events).status).toBe("done");
   });
 
+  it("fails when the model returns an empty completion (no text is no product)", async () => {
+    // openai-compatible falls back to `msg.content ?? ""`, so a 200 response can
+    // carry no text at all (tool-call-only turn, filtered reply). That used to be
+    // recorded as a done node with an empty text artifact and a done run.
+    const worker: Worker = {
+      ...fakeWorker(),
+      async *runTextGen() {
+        return { output: "  \n ", usage: { tokensIn: 1, tokensOut: 0, costUsd: 0 } };
+      },
+    };
+    const events = await collect(graph("text"), worker);
+    const failed = events.find((e) => e.type === "node.failed" && e.nodeId === "gen");
+    expect(failed).toBeTruthy();
+    expect(failed.errorCode).toBe("PROVIDER_ERROR");
+    expect(failed.error).toContain("agnes-2.0-flash");
+    expect(events.some((e) => e.type === "node.finished" && e.nodeId === "gen")).toBe(false);
+    expect(events.some((e) => e.type === "artifact.produced" && e.nodeId === "gen")).toBe(false);
+    expect(replay(events).status).toBe("failed");
+  });
+
   it("publishes its text product as an artifact like every other node kind", async () => {
     const worker: Worker = {
       ...fakeWorker(),

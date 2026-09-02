@@ -1,7 +1,7 @@
 import { compile, replay, type Graph, type TranslateConfig } from "@agent-world/core";
 import { describe, expect, it, vi } from "vitest";
 import { execute } from "./engine.js";
-import { fakeWorker } from "./worker.js";
+import { fakeWorker, type Worker } from "./worker.js";
 
 interface Store {
   storeBinary: (data: Buffer, mimeType: string, label?: string) => string;
@@ -23,14 +23,14 @@ function artifactStore(): Store {
   };
 }
 
-async function collect(g: Graph, store: Store, input?: string) {
+async function collect(g: Graph, store: Store, input?: string, worker: Worker = fakeWorker()) {
   const { plan } = compile(g)!;
   const events: any[] = [];
   for await (const e of execute({
     runId: "r",
     graph: g,
     plan: plan!,
-    worker: fakeWorker(),
+    worker,
     budgetUsd: null,
     now: () => 0,
     input,
@@ -147,5 +147,30 @@ describe("translate node — LLM translation", () => {
       spy.mockRestore();
       vi.unstubAllEnvs();
     }
+  });
+
+  it("fails with PROVIDER_ERROR when the model returns an empty translation", async () => {
+    // A 200 response can carry no text (openai-compatible falls back to
+    // `msg.content ?? ""`). Publishing that as a translation meant the run
+    // reported done with nothing translated — same contract as textGen.
+    const store = artifactStore();
+    const worker: Worker = {
+      ...fakeWorker(),
+      async *runTextGen() {
+        return { output: "", usage: { tokensIn: 1, tokensOut: 0, costUsd: 0 } };
+      },
+    };
+    const g = baseGraph(
+      { target: "English" },
+      [],
+      [{ id: "e1", from: "src", to: "tr", kind: "flow" }],
+    );
+    const events = await collect(g, store, INPUT, worker);
+    expect(replay(events).status).toBe("failed");
+    expect(
+      events.some((e) => e.type === "node.failed" && e.nodeId === "tr" && e.errorCode === "PROVIDER_ERROR"),
+    ).toBe(true);
+    expect(textOf(events, "tr")).toBeUndefined();
+    expect(events.some((e) => e.type === "node.finished" && e.nodeId === "sink")).toBe(false);
   });
 });

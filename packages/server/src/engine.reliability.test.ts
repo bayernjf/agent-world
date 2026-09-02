@@ -188,6 +188,36 @@ describe("retry backoff", () => {
   });
 });
 
+// ─── Empty completion is not a success ───────────────────────────────────────
+
+describe("empty model output fails honestly", () => {
+  it("emits node.failed PROVIDER_ERROR when the model returns no text", async () => {
+    // openai-compatible answers `msg.content ?? ""`, so a 200 response can carry
+    // no text at all (tool-call-only turn, filtered reply). Recording that as
+    // done handed downstream an empty string to interpolate and still reported
+    // the run as done — same class as the media branches fixed in 2797011.
+    const graph = linearGraph({ maxRetries: 0, baseDelayMs: 1, maxDelayMs: 2 });
+    const { plan } = compile(graph)!;
+    const worker = workerThat(async function* () {
+      return { output: "  \n ", usage: USAGE };
+    });
+
+    const events = await drain(
+      execute({ runId: "r", graph, plan: plan!, worker, budgetUsd: null, now: () => 0, sleep: async () => {} }),
+    );
+
+    const failed = events.find((e) => e.type === "node.failed" && e.nodeId === "forge")!;
+    expect(failed).toBeTruthy();
+    expect(failed.errorCode).toBe("PROVIDER_ERROR");
+    expect(failed.error).toContain("test");
+    expect(events.some((e) => e.type === "node.finished" && e.nodeId === "forge")).toBe(false);
+    expect(events.some((e) => e.type === "artifact.produced" && e.nodeId === "forge")).toBe(false);
+    // The gate and the sink must not run off an empty product.
+    expect(events.some((e) => e.type === "node.finished" && e.nodeId === "depot")).toBe(false);
+    expect(replay(events).status).toBe("failed");
+  });
+});
+
 // ─── End-to-end error sanitization in engine events ──────────────────────────
 
 describe("error sanitization in node.failed", () => {
