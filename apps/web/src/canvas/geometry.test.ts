@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { anchorOf, pointsToPath, hitTestNode, edgeAnchors } from "./geometry";
-import type { Point } from "./geometry";
+import { anchorOf, pointsToPath, hitTestNode, edgeAnchors, orthogonalRoute } from "./geometry";
+import type { Point, Rect } from "./geometry";
 import { PLANT_W, PLANT_H } from "../store/graph";
 import type { Graph, GraphNode, GraphEdge } from "@agent-world/core";
 
@@ -227,5 +227,119 @@ describe("edgeAnchors", () => {
     );
     const result = edgeAnchors(graph);
     expect(result.size).toBe(0);
+  });
+});
+
+describe("orthogonalRoute", () => {
+  function makeRect(id: string, x0: number, y0: number, x1: number, y1: number): Rect {
+    return { id, x0, y0, x1, y1 };
+  }
+
+  it("returns a straight horizontal line when from and to share the same y", () => {
+    const route = orthogonalRoute({ x: 0, y: 100 }, { x: 200, y: 100 }, []);
+    expect(route).toEqual([
+      { x: 0, y: 100 },
+      { x: 200, y: 100 },
+    ]);
+  });
+
+  it("returns a straight vertical line when from and to share the same x", () => {
+    const route = orthogonalRoute({ x: 100, y: 0 }, { x: 100, y: 200 }, []);
+    expect(route).toEqual([
+      { x: 100, y: 0 },
+      { x: 100, y: 200 },
+    ]);
+  });
+
+  it("returns an L-shaped route for diagonal endpoints with no obstacles", () => {
+    const route = orthogonalRoute({ x: 0, y: 0 }, { x: 200, y: 100 }, []);
+    // Should be a 3-point L-shape: from -> (from.x, someY) -> to
+    expect(route.length).toBe(3);
+    expect(route[0]).toEqual({ x: 0, y: 0 });
+    expect(route[2]).toEqual({ x: 200, y: 100 });
+    // The middle point should share x with from and y with to (or vice versa)
+    const mid = route[1]!;
+    expect(mid.x === 0 || mid.x === 200).toBe(true);
+    expect(mid.y === 0 || mid.y === 100).toBe(true);
+  });
+
+  it("starts at the from point and ends at the to point", () => {
+    const from = { x: 50, y: 60 };
+    const to = { x: 300, y: 200 };
+    const route = orthogonalRoute(from, to, []);
+    expect(route[0]).toEqual(from);
+    expect(route[route.length - 1]).toEqual(to);
+  });
+
+  it("produces only orthogonal segments (each segment is horizontal or vertical)", () => {
+    const route = orthogonalRoute({ x: 0, y: 0 }, { x: 200, y: 150 }, []);
+    for (let i = 0; i < route.length - 1; i++) {
+      const a = route[i]!;
+      const b = route[i + 1]!;
+      expect(a.x === b.x || a.y === b.y).toBe(true);
+    }
+  });
+
+  it("routes around an obstacle blocking the direct path", () => {
+    // Direct horizontal path at y=100 would pass through the obstacle.
+    const obstacle = makeRect("obs", 80, 80, 120, 120);
+    const route = orthogonalRoute({ x: 0, y: 100 }, { x: 200, y: 100 }, [obstacle]);
+    // The route should not have a horizontal segment at y=100 crossing the obstacle.
+    // It should detour above or below.
+    let hitsObstacle = false;
+    for (let i = 0; i < route.length - 1; i++) {
+      const a = route[i]!;
+      const b = route[i + 1]!;
+      if (a.y === b.y && a.y > 80 && a.y < 120) {
+        const xa = Math.min(a.x, b.x);
+        const xb = Math.max(a.x, b.x);
+        if (xa < 120 && xb > 80) hitsObstacle = true;
+      }
+    }
+    expect(hitsObstacle).toBe(false);
+    expect(route[0]).toEqual({ x: 0, y: 100 });
+    expect(route[route.length - 1]).toEqual({ x: 200, y: 100 });
+  });
+
+  it("prefers the shortest route when multiple obstacle-free routes exist", () => {
+    // No obstacles — the L-shape should have total length = |dx| + |dy|
+    const from = { x: 0, y: 0 };
+    const to = { x: 200, y: 100 };
+    const route = orthogonalRoute(from, to, []);
+    let totalLen = 0;
+    for (let i = 0; i < route.length - 1; i++) {
+      totalLen += Math.hypot(route[i + 1]!.x - route[i]!.x, route[i + 1]!.y - route[i]!.y);
+    }
+    // Manhattan distance = 200 + 100 = 300
+    expect(totalLen).toBe(300);
+  });
+
+  it("handles from and to being the same point", () => {
+    const route = orthogonalRoute({ x: 100, y: 100 }, { x: 100, y: 100 }, []);
+    expect(route.length).toBe(1);
+    expect(route[0]).toEqual({ x: 100, y: 100 });
+  });
+
+  it("dedupes consecutive identical points in the output", () => {
+    const route = orthogonalRoute({ x: 0, y: 0 }, { x: 100, y: 0 }, []);
+    for (let i = 0; i < route.length - 1; i++) {
+      expect(route[i]).not.toEqual(route[i + 1]);
+    }
+  });
+
+  it("routes around multiple obstacles", () => {
+    const obstacles = [
+      makeRect("obs1", 50, 50, 100, 100),
+      makeRect("obs2", 150, 50, 200, 100),
+    ];
+    const route = orthogonalRoute({ x: 0, y: 75 }, { x: 250, y: 75 }, obstacles);
+    expect(route[0]).toEqual({ x: 0, y: 75 });
+    expect(route[route.length - 1]).toEqual({ x: 250, y: 75 });
+    // All segments should be orthogonal
+    for (let i = 0; i < route.length - 1; i++) {
+      const a = route[i]!;
+      const b = route[i + 1]!;
+      expect(a.x === b.x || a.y === b.y).toBe(true);
+    }
   });
 });
