@@ -318,6 +318,18 @@ describe("templates", () => {
     expect(
       scanOcr.graph.edges.some((e) => e.kind === "error" && e.from === "pages" && e.to === "convFallback"),
     ).toBe(true);
+    // scan-ocr: dual intake — both file upload (intake) and URL fetch (fetch)
+    // feed into the convert node (pages), so users can upload a local file OR
+    // provide a URL. The convert node only reads the first file artifact, so
+    // intake (listed first) takes priority when a file is uploaded.
+    expect(scanOcr.graph.edges.some((e) => e.from === "intake" && e.to === "pages")).toBe(true);
+    expect(scanOcr.graph.edges.some((e) => e.from === "fetch" && e.to === "pages")).toBe(true);
+    expect(scanOcr.graph.edges.some((e) => e.from === "intake" && e.to === "fetch")).toBe(false);
+    // doc-ingest: same dual-intake pattern — file upload (intake) and URL fetch
+    // (fetch) both feed into the fileParse node (parse).
+    expect(docIngest.graph.edges.some((e) => e.from === "intake" && e.to === "parse")).toBe(true);
+    expect(docIngest.graph.edges.some((e) => e.from === "fetch" && e.to === "parse")).toBe(true);
+    expect(docIngest.graph.edges.some((e) => e.from === "intake" && e.to === "fetch")).toBe(false);
   });
 
   it("translation template uses the dedicated translate node with a target language", () => {

@@ -2388,6 +2388,21 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           status = "failed";
           return;
         }
+        // Same contract as the textGen branch: a 200 with no text is not a
+        // translation. Shipping an empty artifact here means the run reports
+        // done with nothing translated.
+        if (!result.output.trim()) {
+          states.set(nodeId, "failed");
+          emit({
+            type: "node.failed",
+            nodeId,
+            attempt,
+            error: `模型 ${config.model} 返回了空译文（无正文可交付）`,
+            errorCode: "PROVIDER_ERROR",
+          });
+          status = "failed";
+          return;
+        }
         setTextArtifact(artifacts, nodeId, result.output);
         states.set(nodeId, "done");
         emit({ type: "node.finished", nodeId, attempt, output: result.output, usage: result.usage });
@@ -3233,11 +3248,13 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       states.set(nodeId, "done");
       sendPackets(nodeId, `生成配图 ${results.length} 张`, "image");
     } catch (err) {
-      // 生图是增强项：无生图后端时优雅降级，整条线仍可继续运行。
-      console.warn(`[imageGen:${nodeId}] generation skipped:`, (err as Error).message);
-      states.set(nodeId, "done");
-      emit({ type: "node.finished", nodeId, attempt, output: "", usage: zeroUsage() });
-      sendPackets(nodeId, "生图失败（已降级跳过）", "text");
+      // Same rule as videoGen/audioGen: a throw is not a degrade-and-continue.
+      // 配图往往就是这条产线的产物（2026-08-31 狗粮撞过 agnes 图片 503），标 done
+      // 会交出一条没有图的成品；旧的兜底还往下游发一个 text 包「生图失败（已降级
+      // 跳过）」，写手会把这句报错当素材写进正文。要兜底就接 error 边。
+      console.warn(`[imageGen:${nodeId}] generation failed:`, (err as Error).message);
+      states.set(nodeId, "failed");
+      emit({ type: "node.failed", nodeId, attempt, error: `配图生成失败: ${sanitizeError(err instanceof Error ? err.message : String(err))}`, errorCode: "PROVIDER_ERROR" });
     }
     return;
   }
@@ -3289,6 +3306,13 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
             out += chunk.text;
             emit({ type: "node.delta", nodeId, attempt, text: chunk.text });
           }
+        }
+        // Same contract as textGen/translate: an empty completion is not a
+        // product, and the generic node is often the run's only one.
+        if (!out.trim()) {
+          states.set(nodeId, "failed");
+          emit({ type: "node.failed", nodeId, attempt, error: `模型 ${gcfg.model} 返回了空内容（无正文可交付）`, errorCode: "PROVIDER_ERROR" });
+          return;
         }
         // Observability parity: the text product must be inspectable in the
         // gallery like every other node kind's. setTextArtifact alone left the
@@ -3725,6 +3749,25 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
             | "UNKNOWN"
             | "UNSUPPORTED"
             | undefined) ?? "UNKNOWN",
+        });
+        status = "failed";
+        return;
+      }
+
+      // An empty completion is not a product. Providers can answer 200 with no
+      // text (openai-compatible falls back to `msg.content ?? ""`, e.g. a
+      // tool-call-only turn or a filtered reply); recording that as done handed
+      // downstream an empty string to interpolate and still reported the run as
+      // done — same class as the media branches fixed in 2797011. Templates that
+      // want to tolerate it can attach an error edge.
+      if (!result.output.trim()) {
+        states.set(nodeId, "failed");
+        emit({
+          type: "node.failed",
+          nodeId,
+          attempt,
+          error: `模型 ${config.model} 返回了空内容（无正文可交付）`,
+          errorCode: "PROVIDER_ERROR",
         });
         status = "failed";
         return;

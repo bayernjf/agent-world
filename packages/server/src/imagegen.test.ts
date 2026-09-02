@@ -27,10 +27,43 @@ function makeGraph(opts: { sourceImages?: string[]; n?: number }): Graph {
   };
 }
 
+/** Same chain, but the 配图 failure is caught by an error edge into a fallback. */
+function makeCatchGraph(): Graph {
+  return {
+    id: "ig",
+    name: "ig",
+    nodes: [
+      { id: "in", kind: "source", name: "IN", x: 0, y: 0, source: { images: [] } },
+      {
+        id: "img",
+        kind: "imageGen",
+        name: "IMG",
+        x: 1,
+        y: 0,
+        imageGen: { model: "agnes-image", prompt: "", n: 1 },
+      },
+      {
+        id: "catch",
+        kind: "textGen",
+        name: "CATCH",
+        x: 2,
+        y: 1,
+        textGen: { model: "agnes-2.0-flash", prompt: "无图兜底文案", skills: [] },
+      },
+      { id: "out", kind: "sink", name: "OUT", x: 3, y: 0 },
+    ],
+    edges: [
+      { id: "e1", from: "in", to: "img", kind: "flow" },
+      { id: "x1", from: "img", to: "catch", kind: "error" },
+      { id: "e2", from: "catch", to: "out", kind: "flow" },
+    ],
+  };
+}
+
 async function collect(g: Graph, worker: Worker = fakeWorker({ chunkDelayMs: 0 })) {
   const { plan } = compile(g);
   if (!plan) throw new Error("no plan");
-  const events: Array<{ type: string; nodeId?: string; errorCode?: string; artifact?: { kind: string }; usage?: { units?: Record<string, number> } }> = [];
+  const events: Array<{ type: string; nodeId?: string; errorCode?: string; artifact?: { kind: string }; usage?: { units?: Record<string, number> }; from?: string; to?: string }> = [];
   for await (const e of execute({
     runId: "r1",
     graph: g,
@@ -87,5 +120,40 @@ describe("imageGen node", () => {
     expect(events.find((e) => e.type === "node.failed" && e.nodeId === "img")?.errorCode).toBe("UNSUPPORTED");
     expect(events.some((e) => e.type === "node.finished" && e.nodeId === "img")).toBe(false);
     expect(events.some((e) => e.type === "node.finished" && e.nodeId === "out")).toBe(false);
+  });
+
+  it("fails the node when generation throws instead of degrading to an empty success", async () => {
+    // The 2026-08-31 dogfood hit real agnes image 503s. The old catch marked the
+    // node done with output "" and sent a text packet「生图失败（已降级跳过）」
+    // downstream, so a writer node received the error string as its material and
+    // the run still reported done without a single image.
+    const worker: Worker = {
+      ...fakeWorker({ chunkDelayMs: 0 }),
+      generateImage: async () => {
+        throw new Error("HTTP 503: image queue full");
+      },
+    };
+    const events = await collect(makeGraph({}), worker);
+
+    const failed = events.find((e) => e.type === "node.failed" && e.nodeId === "img");
+    expect(failed?.errorCode).toBe("PROVIDER_ERROR");
+    expect(events.some((e) => e.type === "node.finished" && e.nodeId === "img")).toBe(false);
+    // The error text must not travel downstream as if it were a product.
+    expect(events.some((e) => e.type === "packet.sent" && e.from === "img")).toBe(false);
+    expect(events.some((e) => e.type === "node.finished" && e.nodeId === "out")).toBe(false);
+  });
+
+  it("can be caught by an error edge, so templates keep the fallback option", async () => {
+    const worker: Worker = {
+      ...fakeWorker({ chunkDelayMs: 0 }),
+      generateImage: async () => {
+        throw new Error("HTTP 503: image queue full");
+      },
+    };
+    const events = await collect(makeCatchGraph(), worker);
+
+    expect(events.some((e) => e.type === "node.failed" && e.nodeId === "img")).toBe(true);
+    expect(events.some((e) => e.type === "node.finished" && e.nodeId === "catch")).toBe(true);
+    expect(events.some((e) => e.type === "node.finished" && e.nodeId === "out")).toBe(true);
   });
 });

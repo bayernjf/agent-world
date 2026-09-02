@@ -93,7 +93,7 @@
 | **文件转换** | 格式转换（PDF→图片、HTML→PDF、图片格式转换） | ✅ 部分落地（convert 节点：PDF→提取内嵌图片 + PNG/JPEG 互转；HTML→PDF 纯 JS 无中文排版方案，暂缓） |
 | **OCR** | 图片文字识别 | ✅ 已落地（ocr 节点，tesseract.js WASM 零原生依赖，多语言 + 离线路径覆盖）。注：这行到 2026-09-01 狗粮才真正成立——此前 worker/core 被钉在 v5 CDN URL 上，Node 下每个 ocr 节点必 `ERR_WORKER_PATH`（`5b71c9a` 修）；“离线路径覆盖”也一度被 schema 的 `.url()` 堵死（`e2781ab` 修） |
 | **翻译** | 多语言翻译（调用 LLM 或翻译 API） | ✅ 已落地（translate 节点，LLM 翻译 + 流式 + 重试 + 成本核算） |
-| **搜索** | 网络搜索（Google/Bing/SerpAPI） | ✅ 已落地（search 节点，DuckDuckGo 免 key 默认 + Tavily/SerpAPI/Google CSE，env key 不入图） |
+| **搜索** | 网络搜索（Google/Bing/SerpAPI） | ✅ 已落地（search 节点，DuckDuckGo 免 key 默认 + Tavily/SerpAPI/Google CSE；2026-09-02 起凭证优先从节点 `apiKey` 读（落盘前加密，改源无需重启 server），环境变量 `TAVILY_API_KEY` 等退为兜底） |
 
 #### 验收标准
 

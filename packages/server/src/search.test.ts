@@ -51,3 +51,42 @@ describe("searchWeb error surfacing", () => {
     ).rejects.toThrow(/^(?!.*无法直连该搜索源)/);
   });
 });
+
+// Credentials used to be env-only, which meant switching the search backend
+// required editing the server environment and restarting it.
+describe("searchWeb credential resolution", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  /** Run a tavily search against an empty result set and report the header sent. */
+  const sentAuthorization = async (over: Partial<SearchConfig>): Promise<string> => {
+    globalThis.fetch = vi.fn(async () =>
+      new Response(JSON.stringify({ results: [] }), { status: 200 }),
+    ) as unknown as typeof fetch;
+    await searchWeb("q", { ...cfg, provider: "tavily", ...over });
+    const call = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    const headers = (call[1] as RequestInit).headers as Record<string, string>;
+    return headers.authorization ?? "";
+  };
+
+  it("prefers the node key over the env var", async () => {
+    vi.stubEnv("TAVILY_API_KEY", "tvly-env");
+    expect(await sentAuthorization({ apiKey: "tvly-node" })).toBe("Bearer tvly-node");
+  });
+
+  it("still falls back to the env var when the node omits the key", async () => {
+    vi.stubEnv("TAVILY_API_KEY", "tvly-env");
+    expect(await sentAuthorization({})).toBe("Bearer tvly-env");
+  });
+
+  it("treats a whitespace-only node key as absent", async () => {
+    vi.stubEnv("TAVILY_API_KEY", "tvly-env");
+    expect(await sentAuthorization({ apiKey: "   " })).toBe("Bearer tvly-env");
+  });
+
+  it("names both places when neither side has a credential", async () => {
+    vi.stubEnv("TAVILY_API_KEY", "");
+    await expect(
+      searchWeb("q", { ...cfg, provider: "tavily", retry: { maxRetries: 0, baseDelayMs: 1, maxDelayMs: 1 } }),
+    ).rejects.toThrow(/节点的 apiKey 未填写.*TAVILY_API_KEY/s);
+  });
+});

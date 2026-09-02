@@ -553,10 +553,19 @@ export type ConvertConfig = z.infer<typeof ConvertConfig>;
 /**
  * Configuration for a `search` node: run a web search and emit the results as
  * `text` (readable list) + `json` artifacts. `duckduckgo` needs no API key
- * (default); the other providers read their credentials from env vars at run
- * time (TAVILY_API_KEY / SERPAPI_API_KEY / GOOGLE_API_KEY + GOOGLE_CX), so no
- * secret is ever stored in the graph. When `query` is empty the upstream text
- * artifact is searched instead — pairs with an textGen node that generates queries.
+ * (default). For the other providers the credential resolves **node value first,
+ * then the server env** (`apiKey` → TAVILY_API_KEY / SERPAPI_API_KEY /
+ * GOOGLE_API_KEY, `cx` → GOOGLE_CX), so a key typed into the node works without
+ * restarting the server and one deployment can serve several accounts. A node
+ * `apiKey` is encrypted before it touches disk, so it never appears in
+ * plaintext in graphs.doc, version snapshots or run snapshots.
+ *
+ * There is deliberately no `baseUrl` override here: the search adapters fetch
+ * through the proxy-aware path but not through `guardedFetch`, so a
+ * user-controlled host would open an SSRF surface the http node does not have.
+ *
+ * When `query` is empty the upstream text artifact is searched instead — pairs
+ * with an textGen node that generates queries.
  */
 export const SearchConfig = z.object({
   /** Static search query; falls back to the upstream text artifact when empty. */
@@ -565,6 +574,10 @@ export const SearchConfig = z.object({
   provider: z.enum(["duckduckgo", "tavily", "serpapi", "google"]).default("duckduckgo"),
   /** Maximum number of results to return. */
   maxResults: z.number().int().min(1).max(20).default(5),
+  /** Provider key for this node; falls back to the provider's env var. */
+  apiKey: z.string().optional(),
+  /** Google Custom Search engine id (provider = google); falls back to GOOGLE_CX. */
+  cx: z.string().optional(),
   /** Retry policy for transient failures (network drop, 5xx). Auth and provider rejections are not retried. */
   retry: RetryPolicy.default({ maxRetries: 2, baseDelayMs: 1000, maxDelayMs: 30000 }),
 });
@@ -609,10 +622,19 @@ export type NotifyConfig = z.infer<typeof NotifyConfig>;
 /**
  * Configuration for a `vcs` node: perform a version-control action on GitHub
  * or GitLab (create PR/MR, comment on an issue/PR, trigger a workflow/pipeline,
- * list issues) and emit the API result as a `json` artifact. Credentials read
- * from env (GITHUB_TOKEN / GITLAB_TOKEN, optionally GITLAB_API_URL for
- * self-hosted). `body`/`title` fall back to the upstream text artifact when
- * empty — pairs with an textGen node that drafts a PR description or issue body.
+ * list issues) and emit the API result as a `json` artifact. The credential
+ * resolves **node value first, then the server env** (`token` → GITHUB_TOKEN /
+ * GITLAB_TOKEN, `baseUrl` → GITLAB_API_URL), so a token typed into the node
+ * works without restarting the server and one graph can act on two accounts. A
+ * node `token` is encrypted before it touches disk, so it never appears in
+ * plaintext in graphs.doc, version snapshots or run snapshots.
+ *
+ * A node-controlled `baseUrl` is safe here (and only here among these adapters)
+ * because every vcs request goes through `guardedFetch`, so a self-hosted
+ * GitLab host is still subject to the same SSRF checks as the http node.
+ *
+ * `body`/`title` fall back to the upstream text artifact when empty — pairs
+ * with an textGen node that drafts a PR description or issue body.
  *
  * Future providers (Bitbucket, Gitea, …) fit the same provider/action shape;
  * the four actions here cover the bulk of automation needs.
@@ -622,6 +644,17 @@ export const VcsConfig = z.object({
   provider: z.enum(["github", "gitlab"]).default("github"),
   /** Action to perform. */
   action: z.enum(["create_pr", "comment_issue", "trigger_workflow", "list_issues"]),
+  /** Access token for this node; falls back to GITHUB_TOKEN / GITLAB_TOKEN. */
+  token: z.string().optional(),
+  /** Self-hosted GitLab API base (e.g. https://git.corp.example/api/v4); falls back to GITLAB_API_URL. */
+  baseUrl: z
+    .string()
+    .url()
+    // `.url()` alone accepts opaque schemes ("git.corp:8080" parses as scheme
+    // `git`), which would fail later inside the SSRF guard with a message about
+    // an empty hostname. Say what is actually wrong, at the field.
+    .refine((u) => /^https?:\/\//i.test(u), "baseUrl must be an http(s) URL")
+    .optional(),
   /** GitHub: repo owner (e.g. "bayernjf"). */
   owner: z.string().optional(),
   /** GitHub: repo name (e.g. "one-world"). */

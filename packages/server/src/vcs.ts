@@ -5,9 +5,14 @@ import { GuardedFetchError, guardedFetch } from "./ssrf.js";
 /**
  * Version-control actions for the `vcs` node: GitHub and GitLab REST adapters
  * for the four actions that cover the bulk of automation needs — create PR/MR,
- * comment on an issue/PR, trigger a workflow/pipeline, list issues. Credentials
- * read from env (GITHUB_TOKEN / GITLAB_TOKEN, optionally GITLAB_API_URL for
- * self-hosted), so the token never enters the graph.
+ * comment on an issue/PR, trigger a workflow/pipeline, list issues.
+ *
+ * Credentials resolve **node first, env as fallback**: `vcs.token` over
+ * GITHUB_TOKEN / GITLAB_TOKEN, `vcs.baseUrl` over GITLAB_API_URL. A token typed
+ * into the Inspector works on the next run without restarting the server, and
+ * two graphs can act under two accounts; a node token is encrypted before it
+ * reaches disk (see at-rest.ts). Missing in both places throws VcsAuthError
+ * before any request goes out.
  *
  * Non-retryable errors (matching the notify node's split):
  * - VcsAuthError: missing/invalid token, 401/403 (→ AUTH)
@@ -19,6 +24,8 @@ import { GuardedFetchError, guardedFetch } from "./ssrf.js";
  * global fetch bypassed the outbound proxy (AGENT_WORLD_PROXY) and the SSRF
  * boundary every other outbound node honors, so on proxy-only networks every
  * provider call died with ECONNREFUSED while http/notify nodes worked fine.
+ * That guard is also what makes a node-controlled `baseUrl` acceptable — a
+ * self-hosted GitLab host is validated like any other outbound target.
  */
 
 export interface VcsResult {
@@ -51,9 +58,19 @@ function requireProviderFields(provider: string, cfg: VcsConfig, fields: (keyof 
   }
 }
 
+/** Node value wins; the env var is the deployment-wide fallback. */
+function resolveCredential(nodeValue: string | undefined, envName: string, field: string): string {
+  const fromNode = nodeValue?.trim();
+  if (fromNode) return fromNode;
+  const fromEnv = process.env[envName];
+  if (fromEnv) return fromEnv;
+  throw new VcsAuthError(
+    `缺少访问凭证：节点的 ${field} 未填写，环境变量 ${envName} 也未配置（填在节点里无需重启 server）`,
+  );
+}
+
 async function ghRequest(method: string, url: string, cfg: VcsConfig, body?: unknown): Promise<unknown> {
-  const token = process.env.GITHUB_TOKEN;
-  if (!token) throw new VcsAuthError("缺少环境变量 GITHUB_TOKEN（GitHub 集成需配置 Personal Access Token）");
+  const token = resolveCredential(cfg.token, "GITHUB_TOKEN", "token");
   const res = await guardedFetch(url, {
     method,
     headers: {
@@ -68,9 +85,9 @@ async function ghRequest(method: string, url: string, cfg: VcsConfig, body?: unk
 }
 
 async function glRequest(method: string, path: string, cfg: VcsConfig, body?: unknown): Promise<unknown> {
-  const token = process.env.GITLAB_TOKEN;
-  if (!token) throw new VcsAuthError("缺少环境变量 GITLAB_TOKEN（GitLab 集成需配置 Access Token）");
-  const base = process.env.GITLAB_API_URL ?? "https://gitlab.com/api/v4";
+  const token = resolveCredential(cfg.token, "GITLAB_TOKEN", "token");
+  const base =
+    cfg.baseUrl?.trim() || process.env.GITLAB_API_URL || "https://gitlab.com/api/v4";
   const url = `${base}${path}`;
   const res = await guardedFetch(url, {
     method,
