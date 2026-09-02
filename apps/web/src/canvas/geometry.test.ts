@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { anchorOf, pointsToPath, hitTestNode, edgeAnchors, orthogonalRoute, orthoArrows, pipePath } from "./geometry";
+import { anchorOf, pointsToPath, hitTestNode, edgeAnchors, orthogonalRoute, orthoArrows, pipePath, pipeArrows, pipeArrow } from "./geometry";
 import type { Point, Rect, Arrow } from "./geometry";
 import { PLANT_W, PLANT_H } from "../store/graph";
 import type { Graph, GraphNode, GraphEdge } from "@agent-world/core";
@@ -529,5 +529,124 @@ describe("pipePath", () => {
     const flowD = pipePath({ x: 0, y: 0 }, { x: 200, y: 100 }, "flow");
     const errorD = pipePath({ x: 0, y: 0 }, { x: 200, y: 100 }, "error");
     expect(errorD).toBe(flowD);
+  });
+});
+
+describe("pipeArrows", () => {
+  it("returns empty array for rework edges", () => {
+    expect(pipeArrows({ x: 0, y: 0 }, { x: 200, y: 0 }, "rework")).toEqual([]);
+  });
+
+  it("returns a single centered arrow for short same-column vertical pipes", () => {
+    // span = 50 < 3*20+12 = 72
+    const arrows = pipeArrows({ x: 100, y: 0 }, { x: 100, y: 50 }, "flow");
+    expect(arrows.length).toBe(1);
+    expect(arrows[0]!.x).toBe(100);
+    expect(arrows[0]!.y).toBe(25); // midpoint
+    expect(arrows[0]!.angle).toBe(90); // downward
+  });
+
+  it("returns 3 arrows for long same-column vertical pipes", () => {
+    // span = 200 >= 72
+    const arrows = pipeArrows({ x: 100, y: 0 }, { x: 100, y: 200 }, "flow");
+    expect(arrows.length).toBe(3);
+    // First: inset 20 from start
+    expect(arrows[0]!.y).toBe(20);
+    // Middle: midpoint
+    expect(arrows[1]!.y).toBe(100);
+    // Last: inset 20 from end
+    expect(arrows[2]!.y).toBe(180);
+    // All vertical, downward
+    arrows.forEach((a) => {
+      expect(a.angle).toBe(90);
+      expect(a.x).toBe(100);
+    });
+  });
+
+  it("returns upward-pointing arrows for bottom-to-top vertical pipes", () => {
+    const arrows = pipeArrows({ x: 100, y: 200 }, { x: 100, y: 0 }, "flow");
+    expect(arrows.length).toBe(3);
+    arrows.forEach((a) => expect(a.angle).toBe(-90));
+  });
+
+  it("returns a single centered arrow for short horizontal pipes", () => {
+    // len = 50 < 72
+    const arrows = pipeArrows({ x: 0, y: 100 }, { x: 50, y: 100 }, "flow");
+    expect(arrows.length).toBe(1);
+    expect(arrows[0]!.x).toBe(25); // midpoint
+    expect(arrows[0]!.y).toBe(100);
+    expect(arrows[0]!.dir).toBe(1);
+    expect(arrows[0]!.angle).toBe(0);
+  });
+
+  it("returns 3 arrows for long horizontal pipes", () => {
+    // len = 200 >= 72
+    const arrows = pipeArrows({ x: 0, y: 100 }, { x: 200, y: 100 }, "flow");
+    expect(arrows.length).toBe(3);
+    expect(arrows[0]!.x).toBe(20); // inset from start
+    expect(arrows[1]!.x).toBe(100); // midpoint
+    expect(arrows[2]!.x).toBe(180); // inset from end
+    arrows.forEach((a) => {
+      expect(a.y).toBe(100);
+      expect(a.dir).toBe(1);
+      expect(a.angle).toBe(0);
+    });
+  });
+
+  it("returns dir=-1 for right-to-left horizontal pipes", () => {
+    const arrows = pipeArrows({ x: 200, y: 100 }, { x: 0, y: 100 }, "flow");
+    expect(arrows.length).toBe(3);
+    arrows.forEach((a) => expect(a.dir).toBe(-1));
+  });
+
+  it("returns arrows on all 3 segments for a dogleg pipe", () => {
+    // from (0,0) to (200,100): mid=100
+    // firstLen = 100 >= 28, vertical = 100 >= 72, lastLen = 100 >= 28
+    const arrows = pipeArrows({ x: 0, y: 0 }, { x: 200, y: 100 }, "flow");
+    expect(arrows.length).toBe(3);
+    // First: horizontal on first segment
+    expect(arrows[0]!.x).toBe(20);
+    expect(arrows[0]!.y).toBe(0);
+    expect(arrows[0]!.angle).toBe(0);
+    // Middle: vertical on middle segment
+    expect(arrows[1]!.x).toBe(100);
+    expect(arrows[1]!.y).toBe(50);
+    expect(arrows[1]!.angle).toBe(90);
+    // Last: horizontal on last segment
+    expect(arrows[2]!.x).toBe(180);
+    expect(arrows[2]!.y).toBe(100);
+    expect(arrows[2]!.angle).toBe(0);
+  });
+
+  it("skips the first arrow when the first horizontal segment is too short", () => {
+    // from (0,0) to (30,100): mid=15, firstLen=15 < 28
+    const arrows = pipeArrows({ x: 0, y: 0 }, { x: 30, y: 100 }, "flow");
+    // Should have at most 2 arrows (middle + last), first skipped
+    expect(arrows.length).toBeLessThanOrEqual(2);
+    if (arrows.length >= 1) {
+      // First arrow should not be at y=0 (first segment)
+      expect(arrows[0]!.y).not.toBe(0);
+    }
+  });
+
+  it("skips the middle arrow when the vertical segment is too short", () => {
+    // from (0,0) to (200,50): vertical=50 < 72
+    const arrows = pipeArrows({ x: 0, y: 0 }, { x: 200, y: 50 }, "flow");
+    // Should have at most 2 arrows (first + last), middle skipped
+    expect(arrows.length).toBeLessThanOrEqual(2);
+    // No arrow should be at x=100 (middle vertical)
+    arrows.forEach((a) => expect(a.x).not.toBe(100));
+  });
+});
+
+describe("pipeArrow", () => {
+  it("returns the last arrow from pipeArrows", () => {
+    const arrows = pipeArrows({ x: 0, y: 0 }, { x: 200, y: 100 }, "flow");
+    const single = pipeArrow({ x: 0, y: 0 }, { x: 200, y: 100 }, "flow");
+    expect(single).toEqual(arrows[arrows.length - 1]);
+  });
+
+  it("returns null for rework edges (no arrows)", () => {
+    expect(pipeArrow({ x: 0, y: 0 }, { x: 200, y: 0 }, "rework")).toBeNull();
   });
 });
