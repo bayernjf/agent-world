@@ -2,7 +2,7 @@ import type { Graph } from "@agent-world/core";
 import { compile } from "@agent-world/core";
 import { describe, expect, it } from "vitest";
 import { execute } from "./engine.js";
-import { fakeWorker } from "./worker.js";
+import { fakeWorker, type Worker } from "./worker.js";
 
 function makeGraph(opts: { sourceImages?: string[]; n?: number }): Graph {
   return {
@@ -27,15 +27,15 @@ function makeGraph(opts: { sourceImages?: string[]; n?: number }): Graph {
   };
 }
 
-async function collect(g: Graph) {
+async function collect(g: Graph, worker: Worker = fakeWorker({ chunkDelayMs: 0 })) {
   const { plan } = compile(g);
   if (!plan) throw new Error("no plan");
-  const events: Array<{ type: string; nodeId?: string; artifact?: { kind: string }; usage?: { units?: Record<string, number> } }> = [];
+  const events: Array<{ type: string; nodeId?: string; errorCode?: string; artifact?: { kind: string }; usage?: { units?: Record<string, number> } }> = [];
   for await (const e of execute({
     runId: "r1",
     graph: g,
     plan,
-    worker: fakeWorker({ chunkDelayMs: 0 }),
+    worker,
     input: "",
   })) {
     events.push(e as never);
@@ -74,5 +74,18 @@ describe("imageGen node", () => {
     );
     expect(imgsFromImgNode).toHaveLength(1);
     expect(events.some((e) => e.type === "node.finished" && e.nodeId === "img")).toBe(true);
+  });
+
+  it("fails the node when the provider returns zero images (an empty result is not a success)", async () => {
+    // routingWorker returns [] for a provider without the modality, so the call
+    // can "succeed" while producing nothing — the fake-success half of audit
+    // item L8. A 配图 node that yields no image must not report done.
+    const worker: Worker = { ...fakeWorker({ chunkDelayMs: 0 }), generateImage: async () => [] };
+    const events = await collect(makeGraph({}), worker);
+
+    expect(events.filter((e) => e.type === "artifact.produced" && e.nodeId === "img").length).toBe(0);
+    expect(events.find((e) => e.type === "node.failed" && e.nodeId === "img")?.errorCode).toBe("UNSUPPORTED");
+    expect(events.some((e) => e.type === "node.finished" && e.nodeId === "img")).toBe(false);
+    expect(events.some((e) => e.type === "node.finished" && e.nodeId === "out")).toBe(false);
   });
 });

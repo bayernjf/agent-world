@@ -133,6 +133,23 @@ describe("audioGen node (P1-6)", () => {
     expect(sinkFinished).toBeUndefined();
   });
 
+  it("fails the node when the provider returns zero clips (an empty result is not a success)", async () => {
+    // routingWorker hands back [] for a provider that lacks the modality, so a
+    // call can "succeed" while producing nothing. Reporting done with no
+    // artifact is the fake-success half of audit item L8; for an audio-first
+    // pipeline (tpl-news-podcast) the run's whole product is missing.
+    const { worker } = spyWorker({ audioCount: 0 });
+    const events = await run(graphAudioGenToSink(), worker);
+
+    expect(events.filter((e) => e.type === "artifact.produced" && e.nodeId === "aud").length).toBe(0);
+    const failed = events.find((e) => e.type === "node.failed" && e.nodeId === "aud");
+    expect(failed).toBeDefined();
+    expect(failed && failed.type === "node.failed" && failed.errorCode).toBe("UNSUPPORTED");
+    // Neither the node nor its downstream may look successful.
+    expect(events.find((e) => e.type === "node.finished" && e.nodeId === "aud")).toBeUndefined();
+    expect(events.find((e) => e.type === "node.finished" && e.nodeId === "sink")).toBeUndefined();
+  });
+
   it("audio artifact flows to downstream agent via inputFor placeholder", async () => {
     const { worker, calls } = spyWorker({ audioCount: 1 });
     const graph: Graph = {
