@@ -325,6 +325,11 @@ describe("templates", () => {
     expect(scanOcr.graph.edges.some((e) => e.from === "intake" && e.to === "pages")).toBe(true);
     expect(scanOcr.graph.edges.some((e) => e.from === "fetch" && e.to === "pages")).toBe(true);
     expect(scanOcr.graph.edges.some((e) => e.from === "intake" && e.to === "fetch")).toBe(false);
+    // doc-ingest: same dual-intake pattern — file upload (intake) and URL fetch
+    // (fetch) both feed into the fileParse node (parse).
+    expect(docIngest.graph.edges.some((e) => e.from === "intake" && e.to === "parse")).toBe(true);
+    expect(docIngest.graph.edges.some((e) => e.from === "fetch" && e.to === "parse")).toBe(true);
+    expect(docIngest.graph.edges.some((e) => e.from === "intake" && e.to === "fetch")).toBe(false);
   });
 
   it("translation template uses the dedicated translate node with a target language", () => {
