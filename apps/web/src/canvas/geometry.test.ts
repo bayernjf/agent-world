@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { anchorOf, pointsToPath, hitTestNode, edgeAnchors, orthogonalRoute, orthoArrows } from "./geometry";
+import { anchorOf, pointsToPath, hitTestNode, edgeAnchors, orthogonalRoute, orthoArrows, pipePath } from "./geometry";
 import type { Point, Rect, Arrow } from "./geometry";
 import { PLANT_W, PLANT_H } from "../store/graph";
 import type { Graph, GraphNode, GraphEdge } from "@agent-world/core";
@@ -461,5 +461,73 @@ describe("orthoArrows", () => {
     // Last arrow on the last (horizontal) segment
     expect(arrows[1]!.x).toBe(180);
     expect(arrows[1]!.y).toBe(100);
+  });
+});
+
+describe("pipePath", () => {
+  it("starts with M and the from point, ends at the to point", () => {
+    const d = pipePath({ x: 0, y: 0 }, { x: 200, y: 100 }, "flow");
+    expect(d.startsWith("M 0 0")).toBe(true);
+    expect(d.endsWith("L 200 100")).toBe(true);
+  });
+
+  it("returns a straight line for same-column vertical stacks", () => {
+    const d = pipePath({ x: 100, y: 0 }, { x: 100, y: 200 }, "flow");
+    expect(d).toBe("M 100 0 L 100 200");
+  });
+
+  it("returns a straight line for same-y horizontal edges", () => {
+    const d = pipePath({ x: 0, y: 100 }, { x: 200, y: 100 }, "flow");
+    expect(d).toBe("M 0 100 L 200 100");
+  });
+
+  it("returns an S-shaped curve with two quadratic corners for diagonal edges", () => {
+    const d = pipePath({ x: 0, y: 0 }, { x: 200, y: 100 }, "flow");
+    // Should have two Q (quadratic curve) commands
+    expect(d.match(/Q/g)?.length).toBe(2);
+    // Midpoint x should be 100
+    expect(d).toContain("100");
+  });
+
+  it("curves downward when target is below source", () => {
+    const d = pipePath({ x: 0, y: 0 }, { x: 200, y: 100 }, "flow");
+    // First curve: Q mid sy mid sy+r (r=12, so y=12)
+    expect(d).toContain("Q 100 0 100 12");
+    // Second curve: Q mid ty mid+r ty (y=100-12=88)
+    expect(d).toContain("Q 100 100 112 100");
+  });
+
+  it("curves upward when target is above source", () => {
+    const d = pipePath({ x: 0, y: 100 }, { x: 200, y: 0 }, "flow");
+    // First curve: Q mid sy mid sy-r (r=12, so y=88)
+    expect(d).toContain("Q 100 100 100 88");
+    // Second curve: Q mid ty mid+r ty (y=0+12=12)
+    expect(d).toContain("Q 100 0 112 0");
+  });
+
+  it("returns an arched path for rework edges", () => {
+    const d = pipePath({ x: 0, y: 100 }, { x: 200, y: 100 }, "rework");
+    // Rework path goes up and over, should have two Q commands
+    expect(d.match(/Q/g)?.length).toBe(2);
+    // Should start at from and end at to
+    expect(d.startsWith("M 0 100")).toBe(true);
+    expect(d.endsWith("L 200 100")).toBe(true);
+  });
+
+  it("rework arch lifts above the nodes (lift = minY - halfH - 58)", () => {
+    // from.y = to.y = 100, halfH = 46, lift = 100 - 46 - 58 = -4
+    const d = pipePath({ x: 0, y: 100 }, { x: 200, y: 100 }, "rework");
+    // First curve: Q from.x lift (from.x-16) lift
+    expect(d).toContain("Q 0 -4 -16 -4");
+    // Horizontal segment of the arch: L (to.x+16) lift
+    expect(d).toContain("L 216 -4");
+    // Second curve: Q to.x lift to.x (lift+14)
+    expect(d).toContain("Q 200 -4 200 10");
+  });
+
+  it("handles error edges the same as flow edges", () => {
+    const flowD = pipePath({ x: 0, y: 0 }, { x: 200, y: 100 }, "flow");
+    const errorD = pipePath({ x: 0, y: 0 }, { x: 200, y: 100 }, "error");
+    expect(errorD).toBe(flowD);
   });
 });
