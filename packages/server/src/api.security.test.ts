@@ -336,6 +336,29 @@ describe("/api/providers/test key exfiltration guard", () => {
       vi.unstubAllEnvs();
     }
   });
+
+  it("rejects an invalid modality with 400 before any network call", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const res = await app.request("/api/providers/test", {
+        method: "POST",
+        headers: authed(token, { "content-type": "application/json" }),
+        body: JSON.stringify({
+          baseUrl: "https://real.example/v1",
+          apiKey: "sk-fresh",
+          model: "m1",
+          modality: "invalid-modality",
+        }),
+      });
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error?: string };
+      expect(body.error).toContain("Invalid modality");
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });
 
 describe("batch-3 authorization & data integrity", () => {

@@ -37,6 +37,7 @@ import {
   endpointFor,
   MODALITY_ENDPOINT,
   DEFAULT_MODALITY,
+  MODALITIES,
   type AppConfig,
   type Modality,
 } from "./config.js";
@@ -398,6 +399,24 @@ app.post("/api/graphs", async (c) => {
     fieldValues?: Record<string, string>;
   };
   const id = randomUUID();
+  // Validate name length if provided; empty/whitespace falls back to defaults below.
+  if (body.name !== undefined) {
+    const trimmed = body.name.trim();
+    if (trimmed.length > 100) {
+      return c.json({ error: "产线名称不能超过 100 个字符" }, 400);
+    }
+  }
+  // fieldValues must be a plain object of string values when provided.
+  if (body.fieldValues !== undefined) {
+    if (typeof body.fieldValues !== "object" || body.fieldValues === null || Array.isArray(body.fieldValues)) {
+      return c.json({ error: "fieldValues must be an object of string values" }, 400);
+    }
+    for (const [k, v] of Object.entries(body.fieldValues)) {
+      if (typeof v !== "string") {
+        return c.json({ error: `fieldValues["${k}"] must be a string` }, 400);
+      }
+    }
+  }
   let graph: Graph;
   let originTemplateId: string | null = null;
   if (body.template) {
@@ -605,7 +624,13 @@ app.post("/api/providers/test", async (c) => {
   const model = body.model?.trim() || "agnes-2.0-flash";
 
   // Resolve modality: explicit > saved for this model > text default.
-  let modality = body.modality ?? DEFAULT_MODALITY;
+  if (body.modality !== undefined && !MODALITIES.includes(body.modality)) {
+    return c.json(
+      { ok: false, error: `Invalid modality "${body.modality}". Expected one of: ${MODALITIES.join(", ")}` },
+      400,
+    );
+  }
+  let modality: Modality = body.modality ?? DEFAULT_MODALITY;
   const saved = body.providerName
     ? loadConfig(c.get("userId")).providers[body.providerName]
     : undefined;

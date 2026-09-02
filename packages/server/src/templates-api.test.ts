@@ -122,4 +122,32 @@ describe("template instantiation API", () => {
     const probe = graph.nodes.find((n) => n.name === "健康检查")!;
     expect(probe.http?.url).toBe("https://httpbin.org/status/200");
   });
+
+  it("POST /api/graphs rejects a name longer than 100 chars", async () => {
+    const token = await register(`tpl-longname-${Date.now()}@t.test`);
+    const longName = "a".repeat(101);
+    const res = await createFromTemplate(token, { name: longName });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toContain("100");
+  });
+
+  it("POST /api/graphs rejects non-object fieldValues", async () => {
+    const token = await register(`tpl-badfv-${Date.now()}@t.test`);
+    const res = await createFromTemplate(token, { template: "tpl-patrol-alert", fieldValues: "not-an-object" });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toContain("fieldValues");
+  });
+
+  it("POST /api/graphs rejects fieldValues with non-string values", async () => {
+    const token = await register(`tpl-badfv2-${Date.now()}@t.test`);
+    const res = await createFromTemplate(token, {
+      template: "tpl-patrol-alert",
+      fieldValues: { targetUrl: 12345 },
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toContain("fieldValues");
+  });
 });
