@@ -3249,25 +3249,34 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
             emit({ type: "node.delta", nodeId, attempt, text: chunk.text });
           }
         }
+        // Observability parity: the text product must be inspectable in the
+        // gallery like every other node kind's. setTextArtifact alone left the
+        // generic node with a node.finished output but no artifact row (dogfood
+        // tpl-custom-model run dd9641af: intake/craft/depot had artifacts, the
+        // generic step between them had none) — same gap 8418d2e closed for gates.
+        const artifact = setTextArtifact(artifacts, nodeId, out);
+        emit({ type: "artifact.produced", nodeId, attempt, artifact });
         emit({ type: "node.finished", nodeId, attempt, output: out, usage });
         states.set(nodeId, "done");
-        setTextArtifact(artifacts, nodeId, out);
         sendPackets(nodeId, out.slice(0, 120), "text");
       } catch (err) {
         console.warn(`[generic:text:${nodeId}] failed:`, (err as Error).message);
-        states.set(nodeId, "done");
-        emit({ type: "node.finished", nodeId, attempt, output: "", usage: zeroUsage() });
-        sendPackets(nodeId, "通用节点文本生成失败（已跳过）", "text");
+        // Honest failure, mirroring b6de7d9 for the dedicated media nodes: the
+        // generic node is often the run's only product, so marking it done with
+        // an empty output reported a successful run that produced nothing.
+        // Templates that want a fallback should add an error edge.
+        states.set(nodeId, "failed");
+        emit({ type: "node.failed", nodeId, attempt, error: `通用节点文本生成失败: ${sanitizeError(err instanceof Error ? err.message : String(err))}`, errorCode: "PROVIDER_ERROR" });
       }
       return;
     }
 
     if (modality === "image") {
       if (!worker.generateImage) {
-        console.warn(`[generic:image:${nodeId}] worker has no generateImage, skipping`);
-        states.set(nodeId, "done");
-        emit({ type: "node.finished", nodeId, attempt, output: "", usage: zeroUsage() });
-        sendPackets(nodeId, "跳过（worker 无图片能力）", "text");
+        // Honest failure (same contract as the dedicated imageGen node): a
+        // missing capability is not a successful no-op.
+        states.set(nodeId, "failed");
+        emit({ type: "node.failed", nodeId, attempt, error: "worker 无图片生成能力", errorCode: "VALIDATION" });
         return;
       }
       const imgCfg: ImageGenConfig = {
@@ -3308,19 +3317,17 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
         sendPackets(nodeId, `通用节点生成图片 ${results.length} 张`, "image");
       } catch (err) {
         console.warn(`[generic:image:${nodeId}] failed:`, (err as Error).message);
-        states.set(nodeId, "done");
-        emit({ type: "node.finished", nodeId, attempt, output: "", usage: zeroUsage() });
-        sendPackets(nodeId, "通用节点图片生成失败（已跳过）", "text");
+        states.set(nodeId, "failed");
+        emit({ type: "node.failed", nodeId, attempt, error: `通用节点图片生成失败: ${sanitizeError(err instanceof Error ? err.message : String(err))}`, errorCode: "PROVIDER_ERROR" });
       }
       return;
     }
 
     if (modality === "video") {
       if (!worker.generateVideo) {
-        console.warn(`[generic:video:${nodeId}] worker has no generateVideo, skipping`);
-        states.set(nodeId, "done");
-        emit({ type: "node.finished", nodeId, attempt, output: "", usage: zeroUsage() });
-        sendPackets(nodeId, "跳过（worker 无视频能力）", "text");
+        // Honest failure, mirroring b6de7d9 for the dedicated videoGen node.
+        states.set(nodeId, "failed");
+        emit({ type: "node.failed", nodeId, attempt, error: "worker 无视频生成能力", errorCode: "VALIDATION" });
         return;
       }
       const vidCfg: VideoGenConfig = {
@@ -3363,19 +3370,17 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
         sendPackets(nodeId, `通用节点生成视频 ${results.length} 段`, "video");
       } catch (err) {
         console.warn(`[generic:video:${nodeId}] failed:`, (err as Error).message);
-        states.set(nodeId, "done");
-        emit({ type: "node.finished", nodeId, attempt, output: "", usage: zeroUsage() });
-        sendPackets(nodeId, "通用节点视频生成失败（已跳过）", "text");
+        states.set(nodeId, "failed");
+        emit({ type: "node.failed", nodeId, attempt, error: `通用节点视频生成失败: ${sanitizeError(err instanceof Error ? err.message : String(err))}`, errorCode: "PROVIDER_ERROR" });
       }
       return;
     }
 
     if (modality === "audio") {
       if (!worker.generateAudio) {
-        console.warn(`[generic:audio:${nodeId}] worker has no generateAudio, skipping`);
-        states.set(nodeId, "done");
-        emit({ type: "node.finished", nodeId, attempt, output: "", usage: zeroUsage() });
-        sendPackets(nodeId, "跳过（worker 无音频能力）", "text");
+        // Honest failure, mirroring b6de7d9 for the dedicated audioGen node.
+        states.set(nodeId, "failed");
+        emit({ type: "node.failed", nodeId, attempt, error: "worker 无音频生成能力", errorCode: "VALIDATION" });
         return;
       }
       const audCfg: AudioGenConfig = {
@@ -3418,17 +3423,23 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
         sendPackets(nodeId, `通用节点生成音频 ${results.length} 段`, "audio");
       } catch (err) {
         console.warn(`[generic:audio:${nodeId}] failed:`, (err as Error).message);
-        states.set(nodeId, "done");
-        emit({ type: "node.finished", nodeId, attempt, output: "", usage: zeroUsage() });
-        sendPackets(nodeId, "通用节点音频生成失败（已跳过）", "text");
+        states.set(nodeId, "failed");
+        emit({ type: "node.failed", nodeId, attempt, error: `通用节点音频生成失败: ${sanitizeError(err instanceof Error ? err.message : String(err))}`, errorCode: "PROVIDER_ERROR" });
       }
       return;
     }
 
-    console.warn(`[generic:${nodeId}] unknown modality "${modality}", defaulting to text`);
-    states.set(nodeId, "done");
-    emit({ type: "node.finished", nodeId, attempt, output: "", usage: zeroUsage() });
-    sendPackets(nodeId, `未知模态 "${modality}"，已跳过`, "text");
+    // An unknown modality is a configuration error, not a no-op: reporting done
+    // with an empty output would let a mistyped node pass as a successful run.
+    console.warn(`[generic:${nodeId}] unknown modality "${modality}"`);
+    states.set(nodeId, "failed");
+    emit({
+      type: "node.failed",
+      nodeId,
+      attempt,
+      error: `通用节点模态 "${modality}" 不受支持（应为 text / image / video / audio）`,
+      errorCode: "VALIDATION",
+    });
     return;
   }
 
