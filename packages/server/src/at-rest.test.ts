@@ -227,3 +227,76 @@ describe("at-rest encryption — node-level credentials", () => {
     expect(openGraphDoc(g)).toBe(g);
   });
 });
+
+// The boundary ff223bb left open: a credential riding in a URL's query string.
+// Real pipelines hit this constantly — DingTalk/WeCom bots take
+// `?access_token=…`, Azure OpenAI takes `?api-key=…`, and those URLs sit in
+// http node `url` and connector `url` fields, in version snapshots and exports.
+describe("at-rest encryption — credentials inside a URL query string", () => {
+  const nodeGraph = (node: Record<string, unknown>): Graph =>
+    baseGraph({ nodes: [node] as never, edges: [] });
+  const cfgOf = (g: Graph, kind: string): Record<string, unknown> =>
+    (g.nodes[0] as unknown as Record<string, unknown>)[kind] as Record<string, unknown>;
+  const httpUrl = (g: Graph): string => String(cfgOf(g, "http").url);
+  const withHttpUrl = (url: string): Graph =>
+    nodeGraph({ id: "n", kind: "http", name: "N", x: 0, y: 0, http: { method: "POST", url, body: "{}" } });
+
+  beforeEach(() => {
+    process.env.AGENT_WORLD_ENCRYPTION_KEY = "0".repeat(64);
+  });
+
+  it("seals the token param and nothing else, so the endpoint stays debuggable", () => {
+    const url = "https://oapi.dingtalk.com/robot/send?access_token=DING-BOT-TOKEN&timestamp=1700000000";
+    const json = JSON.stringify(sealGraphDoc(withHttpUrl(url)));
+    expect(json).not.toContain("DING-BOT-TOKEN");
+    // the host, path and benign params are still readable on disk
+    expect(json).toContain("https://oapi.dingtalk.com/robot/send?access_token=");
+    expect(json).toContain("&timestamp=1700000000");
+    // …and the ciphertext is percent-encoded: a raw base64 `+` in a query
+    // string is decoded server-side as a space, which would corrupt the token.
+    expect(httpUrl(sealGraphDoc(withHttpUrl(url)))).toContain("enc%3Av1%3A");
+  });
+
+  it("round-trips the URL byte for byte", () => {
+    const url = "https://x.openai.azure.com/openai/deployments/gpt?api-key=AZURE-KEY&api-version=2024-02-01#seg";
+    const sealed = sealGraphDoc(withHttpUrl(url));
+    expect(httpUrl(sealed)).not.toBe(url);
+    expect(httpUrl(openGraphDoc(sealed))).toBe(url);
+  });
+
+  it("is idempotent — an already-sealed param value is not wrapped again", () => {
+    const g = withHttpUrl("https://h/send?token=twice-sealed");
+    const once = sealGraphDoc(g);
+    const twice = sealGraphDoc(once);
+    expect(httpUrl(twice)).toBe(httpUrl(once));
+    expect(httpUrl(openGraphDoc(twice))).toBe("https://h/send?token=twice-sealed");
+  });
+
+  it("fails closed on a tampered param value instead of returning ciphertext", () => {
+    const sealed = httpUrl(sealGraphDoc(withHttpUrl("https://h/send?token=intact-value")));
+    const body = sealed.slice(sealed.indexOf("enc%3Av1%3A"));
+    expect(() => httpUrl(openGraphDoc(withHttpUrl(`https://h/send?token=${body}%3Ax`)))).toThrow();
+  });
+
+  it("leaves an empty credential param alone", () => {
+    const g = withHttpUrl("https://h/send?token=&q=1");
+    expect(sealGraphDoc(g)).toBe(g);
+  });
+
+  it("does not seal a benign param that merely contains a credential word", () => {
+    // QUERY_SECRET matches names exactly for this reason: `author` contains
+    // "auth" and `keyboard` contains "key", and neither is a secret.
+    const url = "https://h/list?author=jane&keyboard=1&sig=KEEP-ME";
+    const sealed = httpUrl(sealGraphDoc(withHttpUrl(url)));
+    expect(sealed).toContain("author=jane");
+    expect(sealed).toContain("keyboard=1");
+    expect(sealed).not.toContain("KEEP-ME");
+    expect(httpUrl(openGraphDoc(withHttpUrl(sealed)))).toBe(url);
+  });
+
+  it("leaves a URL without credential params at the same reference", () => {
+    const g = withHttpUrl("https://api.example.com/v1/items?page=2&sort=updated_at");
+    expect(sealGraphDoc(g)).toBe(g);
+    expect(openGraphDoc(g)).toBe(g);
+  });
+});

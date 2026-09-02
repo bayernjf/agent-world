@@ -101,6 +101,8 @@ describe("at-rest encryption: db integration (audit L3)", () => {
     const botToken = "bot-token-on-disk";
     const connToken = "conn-token-on-disk";
     const hdrToken = "custom-hdr-on-disk";
+    const urlToken = "query-token-on-disk";
+    const urlWithToken = `https://api.example.com/y?access_token=${urlToken}&v=2`;
     const graph: Graph = {
       id: "g1",
       name: "graph-g1",
@@ -123,10 +125,11 @@ describe("at-rest encryption: db integration (audit L3)", () => {
           notify: { provider: "feishu", webhookUrl: `https://open.feishu.cn/hook/${botToken}`, message: "m" },
         } as never,
         {
-          // A credential under a header name no fixed list contains: the sealer
-          // matches auth-ish names inside a headers record.
+          // Two leftovers at once: a credential under a header name no fixed
+          // list contains (matched by auth-ish name inside a headers record),
+          // and one riding in the URL's query string (bot/Azure style).
           id: "ht", kind: "http", name: "HT", x: 3, y: 0,
-          http: { url: "https://api.example.com/y", headers: { "X-My-Auth": hdrToken, Accept: "*/*" } },
+          http: { url: urlWithToken, headers: { "X-My-Auth": hdrToken, Accept: "*/*" } },
         } as never,
         { id: "depot", kind: "sink", name: "DEPOT", x: 4, y: 0 },
       ],
@@ -143,7 +146,7 @@ describe("at-rest encryption: db integration (audit L3)", () => {
     db.createRun({ id: "run1", userId: "u1", graph, budgetUsd: null, at: 1, trigger: "manual" });
     db.saveAutoSnapshot("g1", JSON.stringify(graph), 0, 10);
 
-    // Every stored copy must be free of all three plaintext credentials.
+    // Every stored copy must be free of all four plaintext credentials.
     const raw = new DatabaseSync(path, { readOnly: true });
     try {
       const docs = [
@@ -157,7 +160,11 @@ describe("at-rest encryption: db integration (audit L3)", () => {
         expect(d).not.toContain(botToken);
         expect(d).not.toContain(connToken);
         expect(d).not.toContain(hdrToken);
+        expect(d).not.toContain(urlToken);
         expect(d).toContain("enc:v1:");
+        // Only the param value is sealed — the endpoint itself stays readable.
+        expect(d).toContain("https://api.example.com/y?access_token=enc%3Av1%3A");
+        expect(d).toContain("&v=2");
       }
     } finally {
       raw.close();
@@ -171,6 +178,7 @@ describe("at-rest encryption: db integration (audit L3)", () => {
     expect(nodes.find((n) => n.id === "src")!.source.connector.http.auth.token).toBe(connToken);
     expect(nodes.find((n) => n.id === "ht")!.http.headers["X-My-Auth"]).toBe(hdrToken);
     expect(nodes.find((n) => n.id === "ht")!.http.headers.Accept).toBe("*/*");
+    expect(nodes.find((n) => n.id === "ht")!.http.url).toBe(urlWithToken);
 
     // Hashes stay plaintext-based, so "matches what ran" still lines up.
     const versionHash = (db.listVersions("g1", "u1") as unknown as Array<{ contentHash: string }>)
