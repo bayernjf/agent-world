@@ -12,6 +12,8 @@ import {
   VideoGenConfig,
   AudioGenConfig,
   TextGenConfig,
+  FanoutConfig,
+  SelectConfig,
   DatabaseConfig,
   FileParseConfig,
   HttpNodeConfig,
@@ -83,6 +85,121 @@ export function withLayoutDirectives(base: string, directives?: string): string 
   const d = directives?.trim();
   if (!d) return base;
   return `${base}\n\n排版附加要求（必须遵守）：\n${d}`;
+}
+
+// ---------------------------------------------------------------------------
+// F1: fanout / select variant lanes.
+// ---------------------------------------------------------------------------
+
+/** Flow-edge descendants of `id` (excludes `id`). */
+function descendants(graph: Graph, id: string): Set<string> {
+  const seen = new Set<string>();
+  const stack = [id];
+  while (stack.length) {
+    const cur = stack.pop()!;
+    for (const e of outgoing(graph, cur, "flow")) {
+      if (seen.has(e.to)) continue;
+      seen.add(e.to);
+      stack.push(e.to);
+    }
+  }
+  return seen;
+}
+
+/** Flow-edge ancestors of `id` (excludes `id`). */
+function ancestors(graph: Graph, id: string): Set<string> {
+  const seen = new Set<string>();
+  const stack = [id];
+  while (stack.length) {
+    const cur = stack.pop()!;
+    for (const e of incoming(graph, cur, "flow")) {
+      if (seen.has(e.from)) continue;
+      seen.add(e.from);
+      stack.push(e.from);
+    }
+  }
+  return seen;
+}
+
+/** One variant lane's differentiated parameters. */
+interface VariantParam {
+  id: string;
+  prompt?: string;
+  temperature?: number;
+  model?: string;
+}
+
+/** Expand a fanout config into N per-lane parameter sets. */
+function buildVariantParams(cfg: FanoutConfig, fallbackModel: string): VariantParam[] {
+  const count = cfg.count;
+  const out: VariantParam[] = [];
+  for (let i = 0; i < count; i++) {
+    const v: VariantParam = { id: `v${i + 1}` };
+    if (cfg.strategy === "prompt") {
+      const p = cfg.prompts?.[i];
+      if (p != null && p.trim() !== "") v.prompt = p;
+    } else if (cfg.strategy === "temperature") {
+      v.temperature = cfg.temperatures?.[i] ?? 0.3 + (0.9 - 0.3) * (i / Math.max(1, count - 1));
+    } else if (cfg.strategy === "model") {
+      v.model = cfg.models?.[i] ?? fallbackModel;
+    }
+    out.push(v);
+  }
+  return out;
+}
+
+/** Apply a variant's differentiated params onto a cloned node (textGen only — other kinds are copied verbatim). */
+function applyVariantConfig(n: GraphNode, v: VariantParam): GraphNode {
+  if (n.kind !== "textGen" || !n.textGen) return { ...n };
+  const tg = { ...n.textGen };
+  if (v.prompt != null) tg.prompt = v.prompt;
+  if (v.temperature != null) tg.temperature = v.temperature;
+  if (v.model != null) tg.model = v.model;
+  return { ...n, textGen: tg };
+}
+
+/** Ids of the lane nodes strictly between a fanout and its select (exclusive). */
+function variantLaneIds(graph: Graph, fanoutId: string, selectId: string): string[] {
+  const down = descendants(graph, fanoutId);
+  const up = ancestors(graph, selectId);
+  return [...down].filter((id) => id !== fanoutId && id !== selectId && up.has(id));
+}
+
+/** Clone the lane into a self-contained sub-graph (source → lane → sink). */
+function buildVariantGraph(
+  graph: Graph,
+  fanoutId: string,
+  selectId: string,
+  laneIds: string[],
+  v: VariantParam,
+): Graph {
+  const SOURCE = "__lane_source__";
+  const SINK = "__lane_sink__";
+  const nodes: GraphNode[] = graph.nodes.filter((n) => laneIds.includes(n.id)).map((n) => applyVariantConfig(n, v));
+  nodes.push({ id: SOURCE, kind: "source", name: "变体输入", x: 0, y: 0 });
+  nodes.push({ id: SINK, kind: "sink", name: "变体输出", x: 0, y: 0 });
+  const edges = graph.edges
+    .filter((e) => e.kind === "flow" && laneIds.includes(e.from) && laneIds.includes(e.to))
+    .map((e) => ({ ...e }));
+  const entryIds = laneIds.filter((id) => incoming(graph, id, "flow").some((e) => e.from === fanoutId));
+  const exitIds = laneIds.filter((id) => outgoing(graph, id, "flow").some((e) => e.to === selectId));
+  for (const id of entryIds) edges.push({ id: `e-${SOURCE}-${id}`, from: SOURCE, to: id, kind: "flow" as const });
+  for (const id of exitIds) edges.push({ id: `e-${id}-${SINK}`, from: id, to: SINK, kind: "flow" as const });
+  return { id: `${fanoutId}-lane-${v.id}`, name: `变体泳道 ${v.id}`, nodes, edges };
+}
+
+/** The select node reconverging a fanout's lanes (first one found downstream). */
+function firstSelectDownstream(graph: Graph, fanoutId: string): string | null {
+  const down = descendants(graph, fanoutId);
+  for (const id of down) if (nodeById(graph, id)?.kind === "select") return id;
+  return null;
+}
+
+/** The fanout node feeding a select's lanes (first one found upstream). */
+function firstFanoutUpstream(graph: Graph, selectId: string): string | null {
+  const up = ancestors(graph, selectId);
+  for (const id of up) if (nodeById(graph, id)?.kind === "fanout") return id;
+  return null;
 }
 
 /**
@@ -919,15 +1036,18 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       // Child-graph failures (prefix `#sub:`) are judged by the sub-flow's own
       // finish — they must not sink the parent when the child run itself ended
       // done (e.g. an error edge inside the sub-flow caught the failure).
+      // Variant lanes (`#var:`) are judged by the fanout/select that spawned
+      // them, so a failed sibling lane must not sink the parent run either.
+      const isNamespaced = (id: string) => id.includes("#sub:") || id.includes("#var:");
       const unhandled = [...states.entries()].some(
-        ([id, s]) => s === "failed" && !id.includes("#sub:") && !isHandled(id),
+        ([id, s]) => s === "failed" && !isNamespaced(id) && !isHandled(id),
       );
       // Nodes still pending here were never scheduled, so their products are
       // silently missing. Recomputing the status from failures alone used to
       // overwrite the scheduler's stranded verdict with "done" — the exact
       // silent drop e6dc2c9 set out to outlaw (dogfood tpl-customer-service).
       const stranded = [...states.entries()]
-        .filter(([id, s]) => s === "pending" && !id.includes("#sub:"))
+        .filter(([id, s]) => s === "pending" && !isNamespaced(id))
         .map(([id]) => id);
       if (stranded.length > 0) {
         strandedNote = `以下节点从未被调度、产物缺失：${stranded
@@ -1102,6 +1222,196 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     attempts.set(nodeId, attempt);
 
     try {
+      if (node.kind === "fanout") {
+        const cfg: FanoutConfig = node.fanout ?? FanoutConfig.parse({});
+        const input = await inputFor(node);
+        const variants = buildVariantParams(cfg, opts.fallbackModel);
+        const variantIds = variants.map((v) => v.id);
+        emit({ type: "node.started", nodeId, attempt });
+        emit({ type: "variants.spawned", nodeId, variantIds });
+
+        const selectId = firstSelectDownstream(graph, nodeId);
+        if (!selectId) {
+          states.set(nodeId, "failed");
+          emit({ type: "node.failed", nodeId, attempt, error: "扇出节点缺少下游择优节点", errorCode: "VALIDATION" });
+          return;
+        }
+        const laneIds = variantLaneIds(graph, nodeId, selectId);
+
+        // Each lane runs as an isolated sub-run (same mechanism as a subprocess
+        // node): one lane failing only ends that lane, never its siblings.
+        const results: Array<{ variant: string; output: string; ok: boolean; error?: string }> = [];
+        for (const v of variants) {
+          const subGraph = buildVariantGraph(graph, nodeId, selectId, laneIds, v);
+          const { plan: subPlan } = compile(subGraph);
+          if (!subPlan) {
+            results.push({ variant: v.id, output: "", ok: false, error: "泳道子图编译失败" });
+            continue;
+          }
+          const prefix = `${nodeId}#var:${v.id}:`;
+          const childInit: SchedulerInit = {
+            artifacts: new Map(),
+            attempts: new Map(),
+            nodeCostUsd: new Map(),
+            totalCostUsd: 0,
+            states: new Map(subGraph.nodes.map((n) => [n.id, "pending" as NodeState])),
+            approvedTools: [...approved],
+            packetEdges: new Set(),
+            variables,
+          };
+          const depth = opts.subprocessDepth ?? 0;
+          const childGen = await runScheduler({
+            runId,
+            graph: subGraph,
+            plan: subPlan,
+            worker,
+            budgetUsd: null,
+            monthlyBudgetUsd: null,
+            monthSpentUsd: 0,
+            fallbackModel: opts.fallbackModel,
+            startSeq: 0,
+            sourceInput: input,
+            connectorValues: opts.connectorValues,
+            signal: opts.signal,
+            now: opts.now,
+            sleep: opts.sleep,
+            init: childInit,
+            initialVariables: variables,
+            resuming: true,
+            subprocessDepth: depth + 1,
+            storeBinary: opts.storeBinary,
+            readArtifact: opts.readArtifact,
+            publicUrl: opts.publicUrl,
+            permissionConfig: opts.permissionConfig,
+            bannedTerms: opts.bannedTerms,
+            loadProducts: opts.loadProducts,
+          });
+          let childStatus: Status | undefined;
+          for await (const e of childGen) {
+            if (e.type === "run.finished") {
+              childStatus = e.status;
+              break;
+            }
+            emit(prefixEvent(e, prefix));
+          }
+          mergeSubInit(prefix, childInit);
+          totalCostUsd += childInit.totalCostUsd;
+          const sinkNode = subGraph.nodes.find((n) => n.kind === "sink");
+          const output = sinkNode ? artifactValue(prefix + sinkNode.id) : null;
+          const text = typeof output === "string" ? output : output == null ? "" : JSON.stringify(output);
+          results.push(childStatus === "done" ? { variant: v.id, output: text, ok: true } : { variant: v.id, output: "", ok: false, error: childStatus ?? "failed" });
+        }
+
+        const payload = JSON.stringify({ variants: results });
+        artifacts.set(nodeId, [{ id: `${nodeId}-variants`, kind: "json", content: payload, mimeType: "application/json" }]);
+        states.set(nodeId, "done");
+        emit({ type: "node.finished", nodeId, attempt, output: payload, usage: zeroUsage() });
+        produceArtifacts(nodeId, payload, attempt);
+        sendPackets(nodeId, `${results.length} 条变体`, "json");
+        return;
+      }
+
+      if (node.kind === "select") {
+        const cfg: SelectConfig = node.select ?? SelectConfig.parse({});
+        const fanoutId = firstFanoutUpstream(graph, nodeId);
+        if (!fanoutId) {
+          states.set(nodeId, "failed");
+          emit({ type: "node.failed", nodeId, attempt, error: "择优节点缺少上游扇出节点", errorCode: "VALIDATION" });
+          return;
+        }
+        const raw = artifacts.get(fanoutId) ?? [];
+        const summaryArt = raw.find((a) => a.kind === "json");
+        let variants: Array<{ variant: string; output: string; ok: boolean; error?: string }> = [];
+        try {
+          variants = (JSON.parse(summaryArt?.content ?? "{}") as { variants: typeof variants }).variants ?? [];
+        } catch {
+          variants = [];
+        }
+        const failed = variants.filter((v) => !v.ok).map((v) => v.variant);
+        const alive = variants.filter((v) => v.ok);
+
+        // Failure semantics: zero surviving lanes → select fails loudly, never
+        // "chooses 0 of an empty set" (the 2797011 class).
+        if (alive.length === 0) {
+          states.set(nodeId, "failed");
+          emit({
+            type: "node.failed",
+            nodeId,
+            attempt,
+            error: `全部变体泳道均失败，无法择优${failed.length ? `（失败：${failed.join("、")}）` : ""}`,
+            errorCode: "SUBPROCESS",
+          });
+          return;
+        }
+
+        // Rank by the configured mode (llm_score via the shared judge channel,
+        // or a deterministic rule).
+        let ranking: Array<{ variant: string; score: number; reason: string }>;
+        if (cfg.mode === "rule") {
+          const field = cfg.rule?.field ?? "length";
+          const desc = cfg.rule?.desc ?? true;
+          ranking = alive
+            .map((a) => {
+              let score = 0;
+              if (field === "length") score = a.output.length;
+              else if (field === "brandCoverage") {
+                const terms = upstreamBrandTerms(graph, nodeId);
+                const hits = terms.filter((t) => a.output.includes(t));
+                score = terms.length ? hits.length / terms.length : 0;
+              } else {
+                try {
+                  const val = getByPath(JSON.parse(a.output), cfg.rule?.path ?? "");
+                  score = typeof val === "number" ? val : String(val ?? "").length;
+                } catch {
+                  score = 0;
+                }
+              }
+              return { variant: a.variant, score, reason: `规则排序 ${field}` };
+            })
+            .sort((x, y) => (desc ? y.score - x.score : x.score - y.score));
+        } else {
+          ranking = [];
+          for (const a of alive) {
+            const verdict = await worker.judge({
+              node,
+              attempt,
+              input: a.output,
+              output: a.output,
+              criterion: cfg.rubric || "请根据文案质量、卖点表达、可读性综合打分（0-10）",
+              signal: opts.signal,
+            });
+            ranking.push({ variant: a.variant, score: verdict.score ?? 0, reason: verdict.reason });
+          }
+          ranking.sort((x, y) => y.score - x.score);
+        }
+
+        const topK = Math.min(cfg.topK, ranking.length);
+        const chosen = ranking.slice(0, topK).map((r) => r.variant);
+        emit({
+          type: "variants.ranked",
+          nodeId,
+          ranking,
+          chosen,
+          ...(failed.length ? { failed } : {}),
+        });
+
+        const chosenEntries = ranking.slice(0, topK).map((r) => {
+          const a = alive.find((x) => x.variant === r.variant);
+          return { variant: r.variant, score: r.score, reason: r.reason, content: a?.output ?? "" };
+        });
+        const output =
+          cfg.topK === 1 && chosenEntries.length === 1
+            ? chosenEntries[0]!.content
+            : JSON.stringify(chosenEntries, null, 2);
+        setTextArtifact(artifacts, nodeId, output);
+        states.set(nodeId, "done");
+        emit({ type: "node.started", nodeId, attempt });
+        emit({ type: "node.finished", nodeId, attempt, output, usage: zeroUsage() });
+        produceArtifacts(nodeId, output, attempt);
+        sendPackets(nodeId, output.slice(0, 120), "text");
+        return;
+      }
+
       if (node.kind === "source" || node.kind === "sink") {
         if (node.kind === "sink") {
           const output = await inputFor(node);
