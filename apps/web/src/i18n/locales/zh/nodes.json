@@ -81,5 +81,25 @@
     "dependencyFailed": "依赖节点失败",
     "nodeNotFound": "节点不存在",
     "edgeNotFound": "连线不存在"
+  },
+  "sourceImages": {
+    "label": "产品图片（上传或粘贴 URL，视觉模型可看图）",
+    "dropzone": "点击上传，或把产品图拖到这里",
+    "uploading": "上传中…",
+    "thumbFallback": "图",
+    "urlPlaceholder": "https://... 或 /api/artifacts/...",
+    "addUrl": "+ 添加图片 URL",
+    "uploadFailed": "上传失败"
+  },
+  "sourceFiles": {
+    "label": "文档（PDF / DOCX / PPTX，供「文件解析」车间读取）",
+    "dropzone": "点击上传文档，或把文件拖到这里",
+    "uploading": "上传中…",
+    "thumbFallback": "文",
+    "uploadFailed": "上传失败",
+    "rejectedUnsupported": "{{name}}（仅支持 PDF / DOCX / PPTX）",
+    "rejectedTooLarge": "{{name}}（{{size}}，解析上限 5 MB）",
+    "skipped": "已跳过：{{files}}",
+    "skippedSeparator": "；"
   }
 }

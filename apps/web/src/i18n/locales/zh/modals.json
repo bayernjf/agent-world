@@ -92,18 +92,22 @@
     "copied": "已复制"
   },
   "commandPalette": {
-    "title": "命令面板",
-    "placeholder": "输入命令或搜索...",
-    "empty": "未找到匹配的命令",
-    "recent": "最近使用",
-    "commands": "命令",
-    "nodes": "节点",
-    "graphs": "产线",
-    "settings": "设置",
-    "run": "运行",
-    "noResults": "无结果",
-    "pressEnterToExecute": "按 Enter 执行",
-    "pressEscToClose": "按 Esc 关闭"
+    "ariaLabel": "命令面板",
+    "placeholder": "搜索命令、动作或节点操作…",
+    "empty": "没有匹配的命令",
+    "recent": "最近",
+    "groups": {
+      "node": "节点",
+      "view": "查看",
+      "automation": "自动化",
+      "manage": "管理",
+      "canvas": "画布"
+    },
+    "foot": {
+      "move": "移动",
+      "run": "执行",
+      "close": "关闭"
+    }
   },
   "glossary": {
     "title": "术语表",
@@ -366,38 +370,6 @@
     "missingRequired": "请填写必填项：{{fields}}",
     "submit": "开始运行"
   },
-  "sourceImages": {
-    "title": "图片素材",
-    "empty": "暂无图片",
-    "upload": "上传图片",
-    "dragDrop": "拖拽图片到此处",
-    "or": "或",
-    "clickUpload": "点击上传",
-    "url": "图片 URL",
-    "addUrl": "添加 URL",
-    "delete": "删除图片",
-    "preview": "预览",
-    "loading": "加载中...",
-    "loadFailed": "加载失败",
-    "uploadFailed": "上传失败",
-    "invalidUrl": "无效的图片 URL",
-    "unsupportedFormat": "不支持的图片格式",
-    "fileTooLarge": "文件过大"
-  },
-  "sourceFiles": {
-    "title": "文档素材",
-    "description": "文档（PDF / DOCX / PPTX，供「文件解析」车间读取）",
-    "empty": "暂无文档",
-    "upload": "上传文档",
-    "dragDrop": "拖拽文档到此处，或点击上传",
-    "delete": "删除文档",
-    "loading": "上传中...",
-    "loadFailed": "加载失败",
-    "uploadFailed": "上传失败",
-    "unsupportedFormat": "仅支持 PDF / DOCX / PPTX",
-    "fileTooLarge": "{{name}}（{{size}}，解析上限 5 MB）",
-    "skippedFiles": "已跳过：{{files}}"
-  },
   "protectedRoute": {
     "loading": "加载中…"
   },
@@ -411,14 +383,8 @@
     "thenKey": "然后按 {{key}}"
   },
   "graphSwitcher": {
-    "title": "产线切换",
-    "newGraph": "+ 新建产线",
-    "rename": "重命名",
-    "duplicate": "复制",
-    "delete": "删除",
-    "deleteConfirm": "确定要删除产线「{{name}}」吗？此操作不可撤销。",
-    "noGraphs": "暂无产线",
-    "loading": "加载中..."
+    "fallbackName": "产线",
+    "create": "+ 新建产线"
   },
   "userMenu": {
     "account": "账户",

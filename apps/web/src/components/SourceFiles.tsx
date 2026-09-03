@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { SourceFile } from "@agent-world/core";
 import { api } from "../lib/api";
 import { useGraph } from "../store/graph";
@@ -41,6 +42,7 @@ export default function SourceFiles({
   onCommitEdit,
 }: Props) {
   const { updateNode, graph } = useGraph();
+  const { t } = useTranslation();
   const fileRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -62,12 +64,23 @@ export default function SourceFiles({
     const accepted: File[] = [];
     for (const f of list) {
       if (!SUPPORTED_EXT.includes(extOf(f.name) as (typeof SUPPORTED_EXT)[number]))
-        rejected.push(`${f.name}（仅支持 PDF / DOCX / PPTX）`);
+        rejected.push(t("nodes:sourceFiles.rejectedUnsupported", { name: f.name }));
       else if (f.size > MAX_PARSE_BYTES)
-        rejected.push(`${f.name}（${formatSize(f.size)}，解析上限 5 MB）`);
+        rejected.push(
+          t("nodes:sourceFiles.rejectedTooLarge", {
+            name: f.name,
+            size: formatSize(f.size),
+          }),
+        );
       else accepted.push(f);
     }
-    setError(rejected.length ? `已跳过：${rejected.join("；")}` : null);
+    setError(
+      rejected.length
+        ? t("nodes:sourceFiles.skipped", {
+            files: rejected.join(t("nodes:sourceFiles.skippedSeparator")),
+          })
+        : null,
+    );
     if (!accepted.length) return;
 
     setUploading(true);
@@ -81,7 +94,7 @@ export default function SourceFiles({
       }));
       setFiles([...files, ...added]);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "上传失败");
+      setError(e instanceof Error ? e.message : t("nodes:sourceFiles.uploadFailed"));
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = "";
@@ -92,7 +105,7 @@ export default function SourceFiles({
 
   return (
     <div className="field">
-      <span>文档（PDF / DOCX / PPTX，供「文件解析」车间读取）</span>
+      <span>{t("nodes:sourceFiles.label")}</span>
 
       <div
         className={`image-dropzone ${dragOver ? "is-over" : ""} ${uploading ? "is-loading" : ""}`}
@@ -118,7 +131,9 @@ export default function SourceFiles({
             if (e.target.files) void uploadFiles([...e.target.files]);
           }}
         />
-        {uploading ? "上传中…" : "点击上传文档，或把文件拖到这里"}
+        {uploading
+          ? t("nodes:sourceFiles.uploading")
+          : t("nodes:sourceFiles.dropzone")}
       </div>
 
       {files.length > 0 && (
@@ -128,7 +143,7 @@ export default function SourceFiles({
             return (
               <div className="image-row image-row--with-thumb" key={f.uri + i}>
                 <span className="image-row__thumb image-row__thumb--placeholder">
-                  {extOf(name).toUpperCase() || "文"}
+                  {extOf(name).toUpperCase() || t("nodes:sourceFiles.thumbFallback")}
                 </span>
                 <input
                   readOnly

@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import Popover, { type Rect } from "./Popover";
 import Tooltip from "./Tooltip";
 
@@ -27,6 +28,7 @@ export default function GraphSwitcher({
   onDelete,
   onRename,
 }: Props) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [anchor, setAnchor] = useState<Rect | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -54,7 +56,10 @@ export default function GraphSwitcher({
         aria-expanded={open}
         aria-haspopup="menu"
       >
-        <span className="hud__graph-name">{graphs.find((g) => g.id === currentId)?.name ?? "产线"}</span>
+        <span className="hud__graph-name">
+          {graphs.find((g) => g.id === currentId)?.name ??
+            t("modals:graphSwitcher.fallbackName")}
+        </span>
         <span className="caret">{open ? "▾" : "▾"}</span>
       </button>
 
@@ -96,7 +101,7 @@ export default function GraphSwitcher({
                 </span>
               )}
               <span className="graph-row__actions" onClick={(e) => e.stopPropagation()}>
-                <Tooltip content="重命名">
+                <Tooltip content={t("common.rename")}>
                   <button
                     className="icon-btn"
                     onClick={() => {
@@ -107,7 +112,7 @@ export default function GraphSwitcher({
                     ✎
                   </button>
                 </Tooltip>
-                <Tooltip content="复制">
+                <Tooltip content={t("common.duplicate")}>
                   <button
                     className="icon-btn"
                     onClick={() => onDuplicate(g.id)}
@@ -115,7 +120,7 @@ export default function GraphSwitcher({
                     ⧉
                   </button>
                 </Tooltip>
-                <Tooltip content="删除">
+                <Tooltip content={t("common.delete")}>
                   <button
                     className="icon-btn icon-btn--danger"
                     onClick={() => onDelete(g.id)}
@@ -135,7 +140,7 @@ export default function GraphSwitcher({
             setOpen(false);
           }}
         >
-          + 新建产线
+          {t("modals:graphSwitcher.create")}
         </button>
       </Popover>
     </>

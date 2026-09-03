@@ -92,18 +92,22 @@
     "copied": "Copied"
   },
   "commandPalette": {
-    "title": "Command Palette",
-    "placeholder": "Type a command or search...",
+    "ariaLabel": "Command palette",
+    "placeholder": "Search commands, actions or node operations…",
     "empty": "No matching commands",
     "recent": "Recent",
-    "commands": "Commands",
-    "nodes": "Nodes",
-    "graphs": "Graphs",
-    "settings": "Settings",
-    "run": "Run",
-    "noResults": "No results",
-    "pressEnterToExecute": "Press Enter to execute",
-    "pressEscToClose": "Press Esc to close"
+    "groups": {
+      "node": "Nodes",
+      "view": "View",
+      "automation": "Automation",
+      "manage": "Manage",
+      "canvas": "Canvas"
+    },
+    "foot": {
+      "move": "Move",
+      "run": "Run",
+      "close": "Close"
+    }
   },
   "glossary": {
     "title": "Glossary",
@@ -366,38 +370,6 @@
     "missingRequired": "Please fill in the required fields: {{fields}}",
     "submit": "Start run"
   },
-  "sourceImages": {
-    "title": "Image Assets",
-    "empty": "No images",
-    "upload": "Upload Image",
-    "dragDrop": "Drag images here",
-    "or": "or",
-    "clickUpload": "Click to upload",
-    "url": "Image URL",
-    "addUrl": "Add URL",
-    "delete": "Delete Image",
-    "preview": "Preview",
-    "loading": "Loading...",
-    "loadFailed": "Load failed",
-    "uploadFailed": "Upload failed",
-    "invalidUrl": "Invalid image URL",
-    "unsupportedFormat": "Unsupported image format",
-    "fileTooLarge": "File too large"
-  },
-  "sourceFiles": {
-    "title": "Document Assets",
-    "description": "Documents (PDF / DOCX / PPTX, for File Parse node)",
-    "empty": "No documents",
-    "upload": "Upload Document",
-    "dragDrop": "Drag documents here, or click to upload",
-    "delete": "Delete Document",
-    "loading": "Uploading...",
-    "loadFailed": "Load failed",
-    "uploadFailed": "Upload failed",
-    "unsupportedFormat": "Only PDF / DOCX / PPTX supported",
-    "fileTooLarge": "{{name}} ({{size}}, parse limit 5 MB)",
-    "skippedFiles": "Skipped: {{files}}"
-  },
   "protectedRoute": {
     "loading": "Loading…"
   },
@@ -411,14 +383,8 @@
     "thenKey": "then {{key}}"
   },
   "graphSwitcher": {
-    "title": "Graph Switcher",
-    "newGraph": "+ New Graph",
-    "rename": "Rename",
-    "duplicate": "Duplicate",
-    "delete": "Delete",
-    "deleteConfirm": "Are you sure you want to delete graph \"{{name}}\"? This action cannot be undone.",
-    "noGraphs": "No graphs",
-    "loading": "Loading..."
+    "fallbackName": "Line",
+    "create": "+ New line"
   },
   "userMenu": {
     "account": "Account",

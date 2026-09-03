@@ -81,5 +81,25 @@
     "dependencyFailed": "Dependency node failed",
     "nodeNotFound": "Node not found",
     "edgeNotFound": "Edge not found"
+  },
+  "sourceImages": {
+    "label": "Product images (upload or paste a URL — vision models can see them)",
+    "dropzone": "Click to upload, or drag product images here",
+    "uploading": "Uploading…",
+    "thumbFallback": "IMG",
+    "urlPlaceholder": "https://... or /api/artifacts/...",
+    "addUrl": "+ Add image URL",
+    "uploadFailed": "Upload failed"
+  },
+  "sourceFiles": {
+    "label": "Documents (PDF / DOCX / PPTX, read by the File Parse workshop)",
+    "dropzone": "Click to upload documents, or drag files here",
+    "uploading": "Uploading…",
+    "thumbFallback": "DOC",
+    "uploadFailed": "Upload failed",
+    "rejectedUnsupported": "{{name}} (only PDF / DOCX / PPTX supported)",
+    "rejectedTooLarge": "{{name}} ({{size}}, parse limit 5 MB)",
+    "skipped": "Skipped: {{files}}",
+    "skippedSeparator": "; "
   }
 }
