@@ -645,7 +645,7 @@ export default function Inspector({
   const prev = attempts.at(-2);
   const last = attempts.at(-1);
   const reasoning =
-    rt && activeAttempt ? rt.reasoning[activeAttempt] : undefined;
+    rt && activeAttempt ? rt.reasoning?.[activeAttempt] : undefined;
   const artifacts = rt?.artifacts ?? [];
   const saveIndicator =
     saveState === "saving"
