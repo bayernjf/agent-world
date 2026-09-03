@@ -112,6 +112,7 @@
       "product": { "label": "Product library", "hint": "Reusable product rows for one-click intake" },
       "brandAssets": { "label": "Brand assets", "hint": "Reusable logos, images and snippets" },
       "batch": { "label": "Batch jobs", "hint": "Run a line per row, with per-row retry" },
+      "calendar": { "label": "Content calendar", "hint": "Plan what to publish on which platform, by month" },
       "knowledge": { "label": "Knowledge base", "hint": "Historical line output and gate verdicts" },
       "version": { "label": "Line versions", "hint": "Snapshot / restore" },
       "variables": { "label": "Line variables", "hint": "Cross-run persisted state (${var.xxx} / set_variable)" },
@@ -279,6 +280,36 @@
     "inputLabel": "Input",
     "statusLabel": "Status",
     "retry": "Retry"
+  },
+  "calendar": {
+    "title": "Content calendar",
+    "addTitle": "Add plan",
+    "editTitle": "Edit plan",
+    "planTitle": "Title",
+    "planTitlePh": "e.g. New-product launch note",
+    "platform": "Target platform",
+    "scheduledAt": "Scheduled time",
+    "note": "Note (optional)",
+    "notePh": "Extra context, links, etc.",
+    "titleRequired": "Please enter a title",
+    "timeInvalid": "Invalid time",
+    "saveFailed": "Could not save",
+    "status": {
+      "draft": "Draft",
+      "pending_review": "In review",
+      "scheduled": "Scheduled",
+      "published": "Published",
+      "failed": "Failed"
+    },
+    "weekdays": {
+      "0": "Sun",
+      "1": "Mon",
+      "2": "Tue",
+      "3": "Wed",
+      "4": "Thu",
+      "5": "Fri",
+      "6": "Sat"
+    }
   },
   "knowledge": {
     "title": "Knowledge Base / Archive",

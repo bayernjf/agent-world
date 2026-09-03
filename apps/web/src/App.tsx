@@ -34,6 +34,7 @@ import BrandTermsModal from "./components/BrandTermsModal";
 import ProductLibrary from "./components/ProductLibrary";
 import BrandAssets from "./components/BrandAssets";
 import BatchManager from "./components/BatchManager";
+import CalendarView from "./components/CalendarView";
 import TriggersPanel from "./components/TriggersPanel";
 import ProductGallery from "./components/ProductGallery";
 import Onboarding from "./components/Onboarding";
@@ -127,6 +128,7 @@ export default function App() {
   const [productOpen, setProductOpen] = useState(false);
   const [brandAssetsOpen, setBrandAssetsOpen] = useState(false);
   const [batchOpen, setBatchOpen] = useState(false);
+  const [calendarOpen, setCalendarOpen] = useState(false);
   const [triggersOpen, setTriggersOpen] = useState(false);
   const [knowledgeOpen, setKnowledgeOpen] = useState(false);
   const [glossaryOpen, setGlossaryOpen] = useState(false);
@@ -362,6 +364,13 @@ export default function App() {
       hint: t("modals:commandPalette.commands.batch.hint"),
       group: "manage",
       onSelect: () => setBatchOpen(true),
+    },
+    {
+      id: "calendar",
+      label: t("modals:commandPalette.commands.calendar.label"),
+      hint: t("modals:commandPalette.commands.calendar.hint"),
+      group: "manage",
+      onSelect: () => setCalendarOpen(true),
     },
     {
       id: "knowledge",
@@ -954,6 +963,7 @@ export default function App() {
         <ProductLibrary open={productOpen} onClose={() => setProductOpen(false)} />
         <BrandAssets open={brandAssetsOpen} onClose={() => setBrandAssetsOpen(false)} />
         <BatchManager open={batchOpen} onClose={() => setBatchOpen(false)} />
+        <CalendarView open={calendarOpen} onClose={() => setCalendarOpen(false)} />
         <TriggersPanel
           open={triggersOpen}
           onClose={() => setTriggersOpen(false)}

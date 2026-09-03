@@ -333,6 +333,22 @@ export interface BatchItem {
   error: string | null;
 }
 
+/** A scheduled content item on the F8 calendar. */
+export interface ContentPlan {
+  id: string;
+  graphId: string | null;
+  runId: string | null;
+  artifactId: string | null;
+  platform: string | null;
+  title: string;
+  scheduledAt: number;
+  status: "draft" | "pending_review" | "scheduled" | "published" | "failed";
+  publishedUrl: string | null;
+  note: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export const api = {
   listSkills: () => authFetch("/api/skills").then(json<Skill[]>),
 
@@ -652,6 +668,42 @@ export const api = {
       if (!res.ok) throw new Error(await res.text());
       return res.json() as Promise<{ runId: string }>;
     }),
+
+  listPlans: (from?: number, to?: number) => {
+    const query = from != null && to != null ? `?from=${from}&to=${to}` : "";
+    return authFetch(`/api/plan${query}`).then(json<ContentPlan[]>);
+  },
+
+  createPlan: (input: {
+    graphId?: string | null;
+    runId?: string | null;
+    artifactId?: string | null;
+    platform?: string | null;
+    title: string;
+    scheduledAt: number;
+    note?: string | null;
+  }) =>
+    authFetch("/api/plan", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(input),
+    }).then(async (res) => {
+      if (!res.ok) throw new Error(await res.text());
+      return res.json() as Promise<ContentPlan>;
+    }),
+
+  updatePlan: (id: string, patch: Partial<ContentPlan>) =>
+    authFetch(`/api/plan/${id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(patch),
+    }).then(async (res) => {
+      if (!res.ok) throw new Error(await res.text());
+      return res.json() as Promise<ContentPlan>;
+    }),
+
+  deletePlan: (id: string) =>
+    authFetch(`/api/plan/${id}`, { method: "DELETE" }).then(() => undefined),
 
   listTriggers: (graphId: string) =>
     authFetch(`/api/graphs/${graphId}/triggers`).then(json<TriggerConfig[]>),

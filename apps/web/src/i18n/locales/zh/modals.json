@@ -112,6 +112,7 @@
       "product": { "label": "商品库", "hint": "可复用的商品资料，供原料台一键投料" },
       "brandAssets": { "label": "品牌素材库", "hint": "Logo / 图片 / 文案片段等可复用素材" },
       "batch": { "label": "批量任务", "hint": "一份清单逐行跑产线，失败可重跑" },
+      "calendar": { "label": "内容日历", "hint": "按月规划哪天哪个平台发什么" },
       "knowledge": { "label": "知识库", "hint": "历史产线产出与质检结论" },
       "version": { "label": "产线版本", "hint": "快照 / 恢复" },
       "variables": { "label": "产线变量", "hint": "跨运行持久化状态（${var.xxx} / set_variable）" },
@@ -279,6 +280,36 @@
     "inputLabel": "输入",
     "statusLabel": "状态",
     "retry": "重跑"
+  },
+  "calendar": {
+    "title": "内容日历",
+    "addTitle": "添加排期",
+    "editTitle": "编辑排期",
+    "planTitle": "标题",
+    "planTitlePh": "如 新品上架种草笔记",
+    "platform": "目标平台",
+    "scheduledAt": "排期时间",
+    "note": "备注（可选）",
+    "notePh": "补充说明、链接等",
+    "titleRequired": "请填写标题",
+    "timeInvalid": "时间无效",
+    "saveFailed": "保存失败",
+    "status": {
+      "draft": "草稿",
+      "pending_review": "待审核",
+      "scheduled": "已排期",
+      "published": "已发布",
+      "failed": "失败"
+    },
+    "weekdays": {
+      "0": "日",
+      "1": "一",
+      "2": "二",
+      "3": "三",
+      "4": "四",
+      "5": "五",
+      "6": "六"
+    }
   },
   "knowledge": {
     "title": "知识库 / 档案室",
