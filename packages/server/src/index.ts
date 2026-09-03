@@ -822,6 +822,12 @@ app.get("/api/costs", (c) => {
   const userId = c.get("userId");
   const from = c.req.query("from");
   const to = c.req.query("to");
+  const groupBy = c.req.query("groupBy");
+  // Content-level attribution (F9): aggregate cost/GMV/ROI by artifact/product/
+  // platform/variant from the content_costs snapshots.
+  if (groupBy && ["artifact_id", "product_id", "platform", "variant"].includes(groupBy)) {
+    return c.json(db.aggregateContentCosts(userId, groupBy));
+  }
   return c.json(
     db.costReport({
       userId,
@@ -829,6 +835,36 @@ app.get("/api/costs", (c) => {
       to: to ? Number(to) : undefined,
     }),
   );
+});
+
+app.post("/api/content-costs", async (c) => {
+  const userId = c.get("userId");
+  const body = (await c.req.json().catch(() => ({}))) as {
+    artifactId?: string | null;
+    productId?: string | null;
+    platform?: string | null;
+    variant?: string | null;
+    costUsd?: number;
+    gmv?: number;
+    capturedAt?: number;
+  };
+  const cost = db.insertContentCost({
+    id: randomUUID(),
+    userId,
+    artifactId: body.artifactId,
+    productId: body.productId,
+    platform: body.platform,
+    variant: body.variant,
+    costUsd: body.costUsd,
+    gmv: body.gmv,
+    capturedAt: body.capturedAt ?? Date.now(),
+  });
+  return c.json(cost, 201);
+});
+
+app.get("/api/content-costs", (c) => {
+  const userId = c.get("userId");
+  return c.json(db.listContentCosts(userId));
 });
 
 app.get("/api/costs.csv", (c) => {
@@ -1073,6 +1109,151 @@ app.post("/api/batches/:id/items/:itemId/retry", async (c) => {
   });
   db.markBatchItemRunning(item.id, runId);
   return c.json({ runId });
+});
+
+// --- Content calendar (F8: scheduled publishing plan) ---
+app.get("/api/plan", (c) => {
+  const userId = c.get("userId");
+  const from = c.req.query("from");
+  const to = c.req.query("to");
+  const plans =
+    from && to
+      ? db.listPlans(userId, Number(from), Number(to))
+      : db.listPlans(userId);
+  return c.json(plans);
+});
+
+app.post("/api/plan", async (c) => {
+  const userId = c.get("userId");
+  const body = (await c.req.json().catch(() => ({}))) as {
+    graphId?: string | null;
+    runId?: string | null;
+    artifactId?: string | null;
+    platform?: string | null;
+    title?: string;
+    scheduledAt?: number;
+    note?: string | null;
+  };
+  if (!body.title?.trim()) return c.json({ error: "title required" }, 400);
+  if (!body.scheduledAt) return c.json({ error: "scheduledAt required" }, 400);
+  const plan = db.createPlan({
+    id: randomUUID(),
+    userId,
+    graphId: body.graphId,
+    runId: body.runId,
+    artifactId: body.artifactId,
+    platform: body.platform,
+    title: body.title.trim(),
+    scheduledAt: body.scheduledAt,
+    note: body.note,
+  });
+  return c.json(plan, 201);
+});
+
+app.patch("/api/plan/:id", async (c) => {
+  const userId = c.get("userId");
+  const body = (await c.req.json().catch(() => ({}))) as Partial<{
+    graphId: string | null;
+    runId: string | null;
+    artifactId: string | null;
+    platform: string | null;
+    title: string;
+    scheduledAt: number;
+    status: "draft" | "pending_review" | "scheduled" | "published" | "failed";
+    publishedUrl: string | null;
+    note: string | null;
+  }>;
+  const plan = db.updatePlan(c.req.param("id"), userId, body);
+  if (!plan) return c.json({ error: "not found" }, 404);
+  return c.json(plan);
+});
+
+app.delete("/api/plan/:id", (c) => {
+  const userId = c.get("userId");
+  const plan = db.getPlan(c.req.param("id"), userId);
+  if (!plan) return c.json({ error: "not found" }, 404);
+  db.deletePlan(plan.id, userId);
+  return c.body(null, 204);
+});
+
+// --- Performance metrics (F6: content effect feedback loop) ---
+app.post("/api/metrics", async (c) => {
+  const userId = c.get("userId");
+  const body = (await c.req.json().catch(() => ({}))) as {
+    graphId?: string | null;
+    runId?: string | null;
+    nodeId?: string | null;
+    variant?: string | null;
+    artifactId?: string | null;
+    productId?: string | null;
+    platform?: string | null;
+    externalContentId?: string | null;
+    impressions?: number;
+    clicks?: number;
+    conversions?: number;
+    gmv?: number;
+    adSpend?: number;
+    recordedAt?: number;
+  };
+  const metric = db.insertMetric({
+    id: randomUUID(),
+    userId,
+    graphId: body.graphId,
+    runId: body.runId,
+    nodeId: body.nodeId,
+    variant: body.variant,
+    artifactId: body.artifactId,
+    productId: body.productId,
+    platform: body.platform,
+    externalContentId: body.externalContentId,
+    impressions: body.impressions,
+    clicks: body.clicks,
+    conversions: body.conversions,
+    gmv: body.gmv,
+    adSpend: body.adSpend,
+    recordedAt: body.recordedAt ?? Date.now(),
+  });
+  return c.json(metric, 201);
+});
+
+app.post("/api/metrics/import", async (c) => {
+  const userId = c.get("userId");
+  const body = (await c.req.json().catch(() => ({}))) as { csv?: string };
+  if (!body.csv) return c.json({ error: "csv required" }, 400);
+  const rows = parseCsv(body.csv, { hasHeader: true });
+  let imported = 0;
+  for (const row of rows) {
+    const num = (v: unknown) => (v === null || v === "" ? 0 : Number(v));
+    db.insertMetric({
+      id: randomUUID(),
+      userId,
+      graphId: row.graph_id ? String(row.graph_id) : null,
+      runId: row.run_id ? String(row.run_id) : null,
+      artifactId: row.artifact_id ? String(row.artifact_id) : null,
+      productId: row.product_id ? String(row.product_id) : null,
+      platform: row.platform ? String(row.platform) : null,
+      externalContentId: row.external_content_id ? String(row.external_content_id) : null,
+      impressions: num(row.impressions),
+      clicks: num(row.clicks),
+      conversions: num(row.conversions),
+      gmv: num(row.gmv),
+      adSpend: num(row.ad_spend),
+      recordedAt: row.recorded_at ? Number(row.recorded_at) : Date.now(),
+    });
+    imported += 1;
+  }
+  return c.json({ imported });
+});
+
+app.get("/api/metrics", (c) => {
+  const userId = c.get("userId");
+  return c.json(db.listMetrics(userId));
+});
+
+app.get("/api/performance", (c) => {
+  const userId = c.get("userId");
+  const groupBy = c.req.query("groupBy") ?? "graph_id";
+  return c.json(db.aggregatePerformance(userId, groupBy));
 });
 
 // --- Trigger management + webhook ---
