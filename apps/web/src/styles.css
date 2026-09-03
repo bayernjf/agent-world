@@ -6285,85 +6285,85 @@ select {
 .variant-compare__grid {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 8px;
+  gap: var(--gap-sm);
 }
 .variant-compare__failed {
-  margin: 0 0 8px;
-  font-size: 12px;
+  margin: 0 0 var(--gap-sm);
+  font-size: var(--text-sm);
 }
 .variant-card {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 10px;
-  background: var(--surface-2);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-xl);
+  padding: var(--gap-md);
+  background: var(--bg-elevated);
 }
 .variant-card.is-chosen {
   border-color: var(--accent);
   box-shadow: 0 0 0 1px var(--accent) inset;
 }
 .variant-card.is-failed {
-  border-color: var(--danger, #d33);
+  border-color: var(--error);
   opacity: 0.75;
 }
 .variant-card__head {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 6px;
+  gap: var(--gap-sm);
+  margin-bottom: var(--gap-xs);
 }
 .variant-card__name {
   font-weight: var(--font-semibold);
-  font-family: var(--font-mono);
+  font-family: var(--mono);
 }
 .variant-card__chosen {
-  font-size: 11px;
+  font-size: var(--text-xs);
   color: var(--accent);
   border: 1px solid var(--accent);
-  border-radius: 4px;
-  padding: 0 6px;
+  border-radius: var(--radius-md);
+  padding: 0 var(--space-1);
 }
 .variant-card__score {
   margin-left: auto;
-  font-family: var(--font-mono);
-  font-size: 12px;
+  font-family: var(--mono);
+  font-size: var(--text-sm);
   font-weight: var(--font-semibold);
 }
-.variant-card__score.is-good { color: var(--success, #2a8a4a); }
-.variant-card__score.is-warn { color: var(--warn, #b8860b); }
-.variant-card__score.is-bad { color: var(--danger, #d33); }
+.variant-card__score.is-good { color: var(--success); }
+.variant-card__score.is-warn { color: var(--warn); }
+.variant-card__score.is-bad { color: var(--error); }
 .variant-card__output {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--text-base);
   white-space: pre-wrap;
   word-break: break-word;
 }
 .variant-card__error {
-  margin: 0 0 4px;
-  font-size: 12px;
-  color: var(--danger, #d33);
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--error);
 }
 .variant-card__reason {
-  margin: 6px 0 0;
-  font-size: 12px;
+  margin: var(--gap-xs) 0 0;
+  font-size: var(--text-sm);
 }
 
 /* F10: compile-error nodes get a red frame on the canvas */
 .plant.is-error .plant__body {
-  stroke: var(--danger, #d33);
+  stroke: var(--error);
   stroke-width: 2;
 }
 .plant.is-error .plant__bar {
-  fill: var(--danger, #d33);
+  fill: var(--error);
 }
 
 /* F10: fanout lane collapse toggle chip */
 .plant__collapse-chip rect {
   fill: var(--steel-800);
-  stroke: var(--border);
+  stroke: var(--border-primary);
 }
 .plant__collapse-chip text {
   fill: var(--text-primary);
-  font-size: 12px;
+  font-size: var(--text-sm);
   font-weight: var(--font-semibold);
 }
 .plant__collapse-chip:hover rect {
