@@ -19,7 +19,7 @@ export default function UndoRedo() {
 
   return (
     <div className="undo-redo">
-      <Tooltip content={canUndo ? t("canvas.undoWithShortcut") : t("canvas.noUndo")}>
+      <Tooltip content={canUndo ? t("canvas:undoWithShortcut") : t("canvas:noUndo")}>
         <button
           type="button"
           className="icon-btn"
@@ -30,7 +30,7 @@ export default function UndoRedo() {
           ↶
         </button>
       </Tooltip>
-      <Tooltip content={canRedo ? t("canvas.redoWithShortcut") : t("canvas.noRedo")}>
+      <Tooltip content={canRedo ? t("canvas:redoWithShortcut") : t("canvas:noRedo")}>
         <button
           type="button"
           className="icon-btn"

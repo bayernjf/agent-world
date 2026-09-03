@@ -63,16 +63,24 @@ describe("UndoRedo", () => {
   });
 
   it("shows the correct tooltip via the mocked Tooltip", () => {
-    mockTemporal(1, 0);
+    mockTemporal(1, 1);
     render(<UndoRedo />);
-    const undoWrapper = screen.getByLabelText("撤销").closest("span");
-    expect(undoWrapper?.getAttribute("title")).toBe("canvas.undoWithShortcut");
+    expect(screen.getByLabelText("撤销").closest("span")?.getAttribute("title")).toBe(
+      "撤销 (⌘Z)",
+    );
+    expect(screen.getByLabelText("重做").closest("span")?.getAttribute("title")).toBe(
+      "重做 (⌘⇧Z)",
+    );
   });
 
-  it("shows disabled-state tooltip when undo is unavailable", () => {
-    mockTemporal(0, 1);
+  it("shows disabled-state tooltip when undo/redo are unavailable", () => {
+    mockTemporal(0, 0);
     render(<UndoRedo />);
-    const undoWrapper = screen.getByLabelText("撤销").closest("span");
-    expect(undoWrapper?.getAttribute("title")).toBe("canvas.noUndo");
+    expect(screen.getByLabelText("撤销").closest("span")?.getAttribute("title")).toBe(
+      "暂无可撤销操作",
+    );
+    expect(screen.getByLabelText("重做").closest("span")?.getAttribute("title")).toBe(
+      "暂无可重做操作",
+    );
   });
 });
