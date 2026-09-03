@@ -31,6 +31,8 @@ import EvalReport from "./components/EvalReport";
 import ABDialog from "./components/ABDialog";
 import ABReport from "./components/ABReport";
 import BrandTermsModal from "./components/BrandTermsModal";
+import ProductLibrary from "./components/ProductLibrary";
+import BrandAssets from "./components/BrandAssets";
 import TriggersPanel from "./components/TriggersPanel";
 import ProductGallery from "./components/ProductGallery";
 import Onboarding from "./components/Onboarding";
@@ -121,6 +123,8 @@ export default function App() {
   const [abGroup, setABGroup] = useState<string | null>(null);
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [brandOpen, setBrandOpen] = useState(false);
+  const [productOpen, setProductOpen] = useState(false);
+  const [brandAssetsOpen, setBrandAssetsOpen] = useState(false);
   const [triggersOpen, setTriggersOpen] = useState(false);
   const [knowledgeOpen, setKnowledgeOpen] = useState(false);
   const [glossaryOpen, setGlossaryOpen] = useState(false);
@@ -335,6 +339,20 @@ export default function App() {
       hint: t("modals:commandPalette.commands.brand.hint"),
       group: "manage",
       onSelect: () => setBrandOpen(true),
+    },
+    {
+      id: "product",
+      label: t("modals:commandPalette.commands.product.label"),
+      hint: t("modals:commandPalette.commands.product.hint"),
+      group: "manage",
+      onSelect: () => setProductOpen(true),
+    },
+    {
+      id: "brand-assets",
+      label: t("modals:commandPalette.commands.brandAssets.label"),
+      hint: t("modals:commandPalette.commands.brandAssets.hint"),
+      group: "manage",
+      onSelect: () => setBrandAssetsOpen(true),
     },
     {
       id: "knowledge",
@@ -924,6 +942,8 @@ export default function App() {
           onClose={() => setGalleryOpen(false)}
         />
         <BrandTermsModal open={brandOpen} onClose={() => setBrandOpen(false)} />
+        <ProductLibrary open={productOpen} onClose={() => setProductOpen(false)} />
+        <BrandAssets open={brandAssetsOpen} onClose={() => setBrandAssetsOpen(false)} />
         <TriggersPanel
           open={triggersOpen}
           onClose={() => setTriggersOpen(false)}

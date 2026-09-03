@@ -109,6 +109,8 @@
       "settings": { "label": "设置", "hint": "Provider / 模型 / 单价 / 月度预算" },
       "modelAssign": { "label": "模型分配", "hint": "按模态批量切换当前产线节点的模型" },
       "brand": { "label": "品牌词库", "hint": "可一键载入到文坊" },
+      "product": { "label": "商品库", "hint": "可复用的商品资料，供原料台一键投料" },
+      "brandAssets": { "label": "品牌素材库", "hint": "Logo / 图片 / 文案片段等可复用素材" },
       "knowledge": { "label": "知识库", "hint": "历史产线产出与质检结论" },
       "version": { "label": "产线版本", "hint": "快照 / 恢复" },
       "variables": { "label": "产线变量", "hint": "跨运行持久化状态（${var.xxx} / set_variable）" },
@@ -201,6 +203,51 @@
     "notePlaceholder": "备注（可选）",
     "addFailed": "添加失败"
   },
+  "productLibrary": {
+    "title": "商品库",
+    "hint": "维护可复用的商品资料，供「原料台」一键载入投料，避免每次手填。",
+    "namePh": "商品名（必填）",
+    "skuPh": "SKU（可选）",
+    "brandPh": "品牌（可选）",
+    "categoryPh": "分类（可选）",
+    "pricePh": "价格（可选）",
+    "add": "添加",
+    "colName": "商品名",
+    "colBrand": "品牌",
+    "colCategory": "分类",
+    "colPrice": "价格",
+    "colStatus": "状态",
+    "empty": "暂无商品，先在上方添加，或粘贴 CSV 批量导入。",
+    "active": "在用",
+    "archived": "已归档",
+    "archive": "归档",
+    "restore": "恢复",
+    "delete": "删除",
+    "csvHint": "CSV 批量导入：首行为表头，需含 name 列；sku / brand / category / price 可选，其余列作为属性。",
+    "csvPh": "name,sku,brand,category,price\n复古托特包,SKU-001,某某品牌,箱包,99.9",
+    "importCsv": "导入 CSV",
+    "importResult": "导入 {{imported}} 条，失败 {{failed}} 条{{errors}}",
+    "addFailed": "添加失败",
+    "importFailed": "导入失败"
+  },
+  "brandAssets": {
+    "title": "品牌素材库",
+    "hint": "维护 Logo、图片、文案片段等可复用的品牌素材。",
+    "labelPh": "素材名称（必填）",
+    "uriPh": "链接 / 内容（可选）",
+    "tagsPh": "标签，逗号分隔（可选）",
+    "add": "添加",
+    "empty": "暂无素材，先在下方添加。",
+    "delete": "删除",
+    "addFailed": "添加失败",
+    "types": {
+      "logo": "Logo",
+      "image": "图片",
+      "font": "字体",
+      "snippet": "文案片段",
+      "guideline": "品牌规范"
+    }
+  },
   "knowledge": {
     "title": "知识库 / 档案室",
     "searchPlaceholder": "搜索知识...",
@@ -244,7 +291,8 @@
       "file": "文件（本地文件 / 目录 / glob）",
       "http": "HTTP（拉取 JSON / 文本）",
       "form": "表单（运行前填写）",
-      "database": "数据库（SQLite 查询）"
+      "database": "数据库（SQLite 查询）",
+      "product": "商品库（从商品库读取）"
     },
     "file": {
       "pathLabel": "路径 / glob",
@@ -276,6 +324,17 @@
       "queryLabel": "查询（只读 SELECT，可带 ? 参数）",
       "format": "输出格式",
       "hint": "每次运行产线时实时查询最新数据；只读打开，仅允许 <code>SELECT</code>，写语句会被拒绝。"
+    },
+    "product": {
+      "selectionLabel": "选择方式",
+      "manual": "指定商品",
+      "all": "全部在用商品",
+      "filter": "按字段筛选",
+      "idsLabel": "商品 ID（逗号分隔）",
+      "idsPh": "在「商品库」里复制商品 ID，逗号分隔",
+      "filterLabel": "筛选条件（JSON）",
+      "filterPh": "{\"category\":\"美妆\"} 或 {\"brand\":\"某某品牌\"}",
+      "hint": "运行时会从商品库读取商品，把名称/品牌/分类/价格/属性喂给下游节点。"
     },
     "testResult": {
       "chars": "成功 · 文本 {{chars}} 字符",

@@ -109,6 +109,8 @@
       "settings": { "label": "Settings", "hint": "Provider / model / pricing / monthly budget" },
       "modelAssign": { "label": "Model assignment", "hint": "Batch-switch models by modality for the current line" },
       "brand": { "label": "Brand terms", "hint": "Load into Text Gen in one click" },
+      "product": { "label": "Product library", "hint": "Reusable product rows for one-click intake" },
+      "brandAssets": { "label": "Brand assets", "hint": "Reusable logos, images and snippets" },
       "knowledge": { "label": "Knowledge base", "hint": "Historical line output and gate verdicts" },
       "version": { "label": "Line versions", "hint": "Snapshot / restore" },
       "variables": { "label": "Line variables", "hint": "Cross-run persisted state (${var.xxx} / set_variable)" },
@@ -201,6 +203,51 @@
     "notePlaceholder": "Note (optional)",
     "addFailed": "Could not add the term"
   },
+  "productLibrary": {
+    "title": "Product library",
+    "hint": "Keep reusable product details for one-click intake at the Feed Station.",
+    "namePh": "Product name (required)",
+    "skuPh": "SKU (optional)",
+    "brandPh": "Brand (optional)",
+    "categoryPh": "Category (optional)",
+    "pricePh": "Price (optional)",
+    "add": "Add",
+    "colName": "Name",
+    "colBrand": "Brand",
+    "colCategory": "Category",
+    "colPrice": "Price",
+    "colStatus": "Status",
+    "empty": "No products yet — add one above, or paste a CSV to import in bulk.",
+    "active": "Active",
+    "archived": "Archived",
+    "archive": "Archive",
+    "restore": "Restore",
+    "delete": "Delete",
+    "csvHint": "CSV import: the first row is the header and must include name; sku / brand / category / price are optional, other columns become attributes.",
+    "csvPh": "name,sku,brand,category,price\nTote Bag,SKU-001,Some Brand,Bags,99.9",
+    "importCsv": "Import CSV",
+    "importResult": "Imported {{imported}}, failed {{failed}}{{errors}}",
+    "addFailed": "Could not add the product",
+    "importFailed": "Could not import"
+  },
+  "brandAssets": {
+    "title": "Brand assets",
+    "hint": "Keep reusable brand material: logos, images and snippets.",
+    "labelPh": "Asset name (required)",
+    "uriPh": "Link / content (optional)",
+    "tagsPh": "Tags, comma-separated (optional)",
+    "add": "Add",
+    "empty": "No assets yet — add the first one below.",
+    "delete": "Delete",
+    "addFailed": "Could not add the asset",
+    "types": {
+      "logo": "Logo",
+      "image": "Image",
+      "font": "Font",
+      "snippet": "Snippet",
+      "guideline": "Guideline"
+    }
+  },
   "knowledge": {
     "title": "Knowledge Base / Archive",
     "searchPlaceholder": "Search knowledge...",
@@ -244,7 +291,8 @@
       "file": "File (local files / directories / glob)",
       "http": "HTTP (fetch JSON / text)",
       "form": "Form (fill in before the run)",
-      "database": "Database (SQLite query)"
+      "database": "Database (SQLite query)",
+      "product": "Product library (read from the product library)"
     },
     "file": {
       "pathLabel": "Path / glob",
@@ -276,6 +324,17 @@
       "queryLabel": "Query (read-only SELECT, may take ? parameters)",
       "format": "Output format",
       "hint": "Queries the latest data on every run; opened read-only, only <code>SELECT</code> is allowed and writes are rejected."
+    },
+    "product": {
+      "selectionLabel": "Selection",
+      "manual": "Specific products",
+      "all": "All active products",
+      "filter": "Filter by fields",
+      "idsLabel": "Product IDs (comma-separated)",
+      "idsPh": "Copy product IDs from the Product library, comma-separated",
+      "filterLabel": "Filter (JSON)",
+      "filterPh": "{\"category\":\"beauty\"} or {\"brand\":\"Some Brand\"}",
+      "hint": "At run time the products are read from the product library and their name/brand/category/price/attributes feed downstream nodes."
     },
     "testResult": {
       "chars": "Success · {{chars}} text characters",
