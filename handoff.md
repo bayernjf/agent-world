@@ -135,6 +135,8 @@ State of Agent World as of 2026-09-02.
 6. **git push（已完成，2026-08-31）**：安全审计批次已由用户 push 到 `origin/feature/20260824` 并观察 CI；**PR #90 title/description 已同步**到引擎稳健性主线（模板 code 节点 + error 边 + 空白画布）
 7. ★ **web 前端组件测试零覆盖（2026-09-02 登记）**：当前 176/176 全是 store/lib/canvas 纯逻辑测试，63 个源文件中 44 个是组件，零组件测试。要做组件测试需先装 `@testing-library/react` + `jsdom` 并配置 vitest environment。工作量较大，可按组件优先级逐步推进
 8. **search/audioGen 两类节点成功路径零证据（环境侧阻塞，非产品缺陷）**：失败路径已诚实化，但成功路径从未真实产出过产物。需配 `TAVILY_API_KEY`（填在 search 节点的 `apiKey` 字段即可，无需重启 server——`75f02b4`+`817bff8` 已落地节点级凭证入口）和 TTS 供应商（agnes 无音频模型）。配齐后复跑 🟡 两条模板（tpl-news-podcast / tpl-research-loop），同时补齐 search/audioGen 成功路径证据
+9. ★ **设计 Token 体系完善（2026-09-03 立项，方案已出）**：当前只有 26 个基础 CSS 变量（颜色/字体/层级），缺失间距/圆角/阴影/字号/动画等基础 token，无语义化层，不支持明暗主题切换。方案见 [docs/design-design-tokens.md](docs/design-design-tokens.md)。核心内容：① 三层 Token 架构（Primitive → Semantic → Component）；② 补充缺失 token（间距 12 级/圆角 7 级/阴影 6 级/字号 8 级/行高 4 级/字重 4 级/动画 3 级）；③ 语义化 token 层（背景/文字/边框/功能色）；④ 明暗主题切换（`[data-theme]` 属性驱动）；⑤ Token 源文件（JSON 单一数据源，构建生成 CSS 变量）；⑥ 渐进式迁移（基础组件 → 画布 → 弹窗 → 节点 → 清理）。优先级 P0，与 i18n 可并行推进
+10. ★ **i18n 国际化（2026-09-03 立项，方案已出）**：当前无任何 i18n 基础设施，所有 UI 文本硬编码中文，无语言切换，无本地化格式。方案见 [docs/design-i18n.md](docs/design-i18n.md)。核心内容：① 技术选型 i18next + react-i18next；② 语言包按模块拆分（common/canvas/nodes/modals/settings/run/errors）；③ 翻译 key 命名规范（分层/语义化/命名空间）；④ 支持插值/复数/上下文/富文本翻译；⑤ 语言切换 UI + localStorage 持久化 + 跟随浏览器语言；⑥ 本地化格式（日期/数字/货币/相对时间，基于 Intl API）；⑦ 工具链（i18next-parser 自动提取 + 自定义校验脚本）；⑧ 渐进式迁移（基础设施 → 基础组件 → 画布 → 弹窗 → 节点 → 英文翻译 → 清理）。优先级 P0，与设计 token 可并行推进。预计 200+ 处硬编码中文需要改造
 
 > 全部缓做/低优事项（含上述两条）已统一登记在 [docs/deferred-items.md](docs/deferred-items.md)——每条带触发条件与决策详情链接，触发条件满足时移回本区并标注重启日期。
 
