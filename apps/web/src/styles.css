@@ -236,7 +236,7 @@
 /* Firefox */
 * {
   scrollbar-width: thin;
-  scrollbar-color: var(--steel-500) var(--steel-850);
+  scrollbar-color: var(--border-primary) var(--bg-secondary);
 }
 /* Webkit / Blink */
 ::-webkit-scrollbar {
@@ -244,29 +244,29 @@
   height: 10px;
 }
 ::-webkit-scrollbar-track {
-  background: var(--steel-850);
-  border-left: 1px solid var(--steel-700);
+  background: var(--bg-secondary);
+  border-left: var(--hair);
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--steel-500);
-  border: 2px solid var(--steel-850);
+  background: var(--border-primary);
+  border: 2px solid var(--bg-secondary);
   border-radius: 0;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--steel-400);
+  background: var(--border-hover);
 }
 ::-webkit-scrollbar-thumb:active {
-  background: var(--power);
+  background: var(--accent);
 }
 ::-webkit-scrollbar-corner {
-  background: var(--steel-850);
+  background: var(--bg-secondary);
 }
 
 /* ---------- Native <details> disclosure: replace default triangle ---------- */
 details > summary {
   list-style: none;
   position: relative;
-  padding-left: 14px;
+  padding-left: var(--space-4);
 }
 details > summary::-webkit-details-marker {
   display: none;
@@ -277,21 +277,22 @@ details > summary::before {
   left: 0;
   top: 50%;
   transform: translateY(-50%);
-  color: var(--data);
-  font-size: 10px;
-  transition: transform 0.12s;
+  color: var(--info);
+  font-size: var(--text-xs);
+  transition: transform var(--duration-fast);
 }
 details[open] > summary::before {
   content: "▾";
-  color: var(--power);
+  color: var(--accent);
 }
 
 body {
   margin: 0;
-  background: var(--steel-950);
-  color: var(--ink);
+  background: var(--bg-primary);
+  color: var(--text-primary);
   font-family: var(--sans);
-  font-size: 14px;
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
   overflow: hidden;
 }
 
@@ -315,9 +316,9 @@ select {
 .hud {
   display: flex;
   align-items: center;
-  gap: 24px;
-  padding: 10px 18px;
-  background: linear-gradient(180deg, var(--steel-800), var(--steel-900));
+  gap: var(--gap-xl);
+  padding: var(--space-3) var(--space-5);
+  background: linear-gradient(180deg, var(--bg-elevated), var(--bg-secondary));
   border-bottom: var(--hair);
   box-shadow: var(--bevel);
 }
@@ -325,14 +326,14 @@ select {
 .hud__brand {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: var(--space-3);
   font-family: var(--mono);
-  font-weight: 700;
+  font-weight: var(--font-bold);
   letter-spacing: 0.2em;
-  font-size: 13px;
+  font-size: var(--text-base);
 }
 .hud__brand-text span {
-  color: var(--power);
+  color: var(--accent);
 }
 
 .logo {
@@ -342,9 +343,9 @@ select {
 
 .hud__meta {
   display: flex;
-  gap: 16px;
+  gap: var(--gap-lg);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--text-xs);
   letter-spacing: 0.1em;
 }
 
@@ -352,52 +353,52 @@ select {
   margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--gap-sm);
 }
 
 /* ---------- popover base (portal container) ---------- */
 .popover {
-  background: var(--steel-900);
+  background: var(--bg-secondary);
   border: var(--hair);
-  box-shadow: var(--bevel), 0 16px 40px rgba(0, 0, 0, 0.7);
+  box-shadow: var(--shadow-popover);
   font-family: var(--mono);
-  color: var(--ink);
+  color: var(--text-primary);
 }
 
 /* ---------- graph switcher ---------- */
 .hud__graph-switcher {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--gap-xs);
   max-width: 240px;
-  padding: 5px 10px;
-  background: var(--steel-850);
+  padding: var(--space-1) var(--space-3);
+  background: var(--bg-tertiary);
   border: var(--hair);
   box-shadow: var(--bevel);
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--text-sm);
   letter-spacing: 0.04em;
-  color: var(--ink);
+  color: var(--text-primary);
   cursor: pointer;
-  transition: 0.12s;
+  transition: var(--duration-fast);
 }
 .hud__graph-switcher:hover {
-  border-color: var(--data);
-  color: var(--data);
+  border-color: var(--info);
+  color: var(--info);
 }
 .hud__graph-switcher[aria-expanded="true"] {
-  border-color: var(--power);
-  color: var(--power);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 .hud__graph-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-weight: 600;
+  font-weight: var(--font-semibold);
 }
 .hud__graph-switcher .caret {
   font-size: 9px;
-  color: var(--ink-faint);
+  color: var(--text-tertiary);
 }
 .graph-popover {
   width: 300px;
