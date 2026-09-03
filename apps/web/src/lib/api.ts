@@ -378,6 +378,27 @@ export interface PerformanceAggregate {
   adSpend: number;
 }
 
+/** A content-level cost snapshot (F9). */
+export interface ContentCost {
+  id: string;
+  artifactId: string | null;
+  productId: string | null;
+  platform: string | null;
+  variant: string | null;
+  costUsd: number;
+  gmv: number;
+  roi: number;
+  capturedAt: number;
+}
+
+/** Content-level cost/GMV/ROI aggregate bucket. */
+export interface ContentCostAggregate {
+  group: string;
+  costUsd: number;
+  gmv: number;
+  roi: number;
+}
+
 export const api = {
   listSkills: () => authFetch("/api/skills").then(json<Skill[]>),
 
@@ -758,6 +779,28 @@ export const api = {
 
   aggregatePerformance: (groupBy = "graph_id") =>
     authFetch(`/api/performance?groupBy=${groupBy}`).then(json<PerformanceAggregate[]>),
+
+  listContentCosts: () => authFetch("/api/content-costs").then(json<ContentCost[]>),
+
+  insertContentCost: (input: {
+    artifactId?: string | null;
+    productId?: string | null;
+    platform?: string | null;
+    variant?: string | null;
+    costUsd?: number;
+    gmv?: number;
+  }) =>
+    authFetch("/api/content-costs", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(input),
+    }).then(async (res) => {
+      if (!res.ok) throw new Error(await res.text());
+      return res.json() as Promise<ContentCost>;
+    }),
+
+  aggregateContentCosts: (groupBy = "artifact_id") =>
+    authFetch(`/api/costs?groupBy=${groupBy}`).then(json<ContentCostAggregate[]>),
 
   listTriggers: (graphId: string) =>
     authFetch(`/api/graphs/${graphId}/triggers`).then(json<TriggerConfig[]>),

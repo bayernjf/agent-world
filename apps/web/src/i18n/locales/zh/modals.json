@@ -336,7 +336,17 @@
     "csvPh": "impressions,clicks,conversions,gmv,ad_spend,platform\n1000,50,10,500,100,xiaohongshu",
     "importCsv": "导入 CSV",
     "addFailed": "录入失败",
-    "importFailed": "导入失败"
+    "importFailed": "导入失败",
+    "costTitle": "内容成本",
+    "costGroupBy": "成本维度",
+    "costByArtifact": "按产物",
+    "costByProduct": "按商品",
+    "costByPlatform": "按平台",
+    "costByVariant": "按变体",
+    "costUsd": "成本 (USD)",
+    "costUsdPh": "成本 USD（如 0.123）",
+    "costEmpty": "暂无内容成本，先在下方录入。",
+    "addCostFailed": "录入成本失败"
   },
   "knowledge": {
     "title": "知识库 / 档案室",

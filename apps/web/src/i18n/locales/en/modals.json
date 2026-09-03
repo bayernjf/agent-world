@@ -336,7 +336,17 @@
     "csvPh": "impressions,clicks,conversions,gmv,ad_spend,platform\n1000,50,10,500,100,xiaohongshu",
     "importCsv": "Import CSV",
     "addFailed": "Could not record",
-    "importFailed": "Could not import"
+    "importFailed": "Could not import",
+    "costTitle": "Content cost",
+    "costGroupBy": "Cost dimension",
+    "costByArtifact": "By artifact",
+    "costByProduct": "By product",
+    "costByPlatform": "By platform",
+    "costByVariant": "By variant",
+    "costUsd": "Cost (USD)",
+    "costUsdPh": "Cost USD (e.g. 0.123)",
+    "costEmpty": "No content cost yet — record one below.",
+    "addCostFailed": "Could not record the cost"
   },
   "knowledge": {
     "title": "Knowledge Base / Archive",

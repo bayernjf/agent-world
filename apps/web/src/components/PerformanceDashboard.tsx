@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { api, type ContentMetric, type PerformanceAggregate } from "../lib/api";
+import { api, type ContentCostAggregate, type ContentMetric, type PerformanceAggregate } from "../lib/api";
 import Tooltip from "./Tooltip";
 
 interface Props {
@@ -42,15 +42,19 @@ export default function PerformanceDashboard({ open, onClose }: Props) {
     gmv: "0",
     adSpend: "0",
   });
+  const [contentCosts, setContentCosts] = useState<ContentCostAggregate[]>([]);
+  const [costGroupBy, setCostGroupBy] = useState("artifact_id");
+  const [costForm, setCostForm] = useState({ platform: "", costUsd: "", gmv: "" });
 
   const load = useCallback(async () => {
     try {
       setMetrics(await api.listMetrics());
       setAggregates(await api.aggregatePerformance(groupBy));
+      setContentCosts(await api.aggregateContentCosts(costGroupBy));
     } catch {
       /* ignore transient failures */
     }
-  }, [groupBy]);
+  }, [groupBy, costGroupBy]);
 
   useEffect(() => {
     if (!open) return;
@@ -104,6 +108,22 @@ export default function PerformanceDashboard({ open, onClose }: Props) {
       void r;
     } catch (e) {
       setError(e instanceof Error ? e.message : t("modals:performance.importFailed"));
+    }
+  };
+
+  const addCost = async () => {
+    setError(null);
+    const n = (s: string) => (s.trim() === "" ? 0 : Number(s));
+    try {
+      await api.insertContentCost({
+        platform: costForm.platform || null,
+        costUsd: n(costForm.costUsd),
+        gmv: n(costForm.gmv),
+      });
+      setCostForm({ platform: "", costUsd: "", gmv: "" });
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t("modals:performance.addCostFailed"));
     }
   };
 
@@ -200,6 +220,70 @@ export default function PerformanceDashboard({ open, onClose }: Props) {
               ))}
             </tbody>
           </table>
+
+          <div className="perf-costs">
+            <h3 className="cost-section__title">{t("modals:performance.costTitle")}</h3>
+            <div className="perf-toolbar">
+              <label className="field field--inline">
+                <span>{t("modals:performance.costGroupBy")}</span>
+                <select value={costGroupBy} onChange={(e) => setCostGroupBy(e.target.value)}>
+                  <option value="artifact_id">{t("modals:performance.costByArtifact")}</option>
+                  <option value="product_id">{t("modals:performance.costByProduct")}</option>
+                  <option value="platform">{t("modals:performance.costByPlatform")}</option>
+                  <option value="variant">{t("modals:performance.costByVariant")}</option>
+                </select>
+              </label>
+            </div>
+            <table className="product-table">
+              <thead>
+                <tr>
+                  <th>{t("modals:performance.group")}</th>
+                  <th>{t("modals:performance.costUsd")}</th>
+                  <th>{t("modals:performance.gmv")}</th>
+                  <th>{t("modals:performance.roi")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {contentCosts.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="muted">
+                      {t("modals:performance.costEmpty")}
+                    </td>
+                  </tr>
+                )}
+                {contentCosts.map((c) => (
+                  <tr key={c.group || "(none)"}>
+                    <td>{c.group || t("modals:performance.ungrouped")}</td>
+                    <td>${c.costUsd.toFixed(4)}</td>
+                    <td>¥{c.gmv.toLocaleString()}</td>
+                    <td>{c.roi.toFixed(2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div className="product-add">
+              <input
+                placeholder={t("modals:performance.platformPh")}
+                value={costForm.platform}
+                onChange={(e) => setCostForm({ ...costForm, platform: e.target.value })}
+              />
+              <input
+                type="number"
+                placeholder={t("modals:performance.costUsdPh")}
+                value={costForm.costUsd}
+                onChange={(e) => setCostForm({ ...costForm, costUsd: e.target.value })}
+              />
+              <input
+                type="number"
+                placeholder={t("modals:performance.gmv")}
+                value={costForm.gmv}
+                onChange={(e) => setCostForm({ ...costForm, gmv: e.target.value })}
+              />
+              <button className="btn btn--primary btn--sm" onClick={() => void addCost()}>
+                {t("common.add")}
+              </button>
+            </div>
+          </div>
 
           <div className="perf-form">
             <p className="muted">{t("modals:performance.addHint")}</p>
