@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { ProductBlock, ProductDocument } from "@agent-world/core";
 import { proxyImageUrl } from "../lib/api";
 
@@ -71,10 +72,12 @@ function ProductImage({
   className?: string;
   style?: React.CSSProperties;
 }) {
+  const { t } = useTranslation();
   const [broken, setBroken] = useState(false);
-  if (broken) return <div className="pb-image-fallback">图片暂时无法加载</div>;
+  if (broken)
+    return <div className="pb-image-fallback">{t("run:product.imageLoadFailed")}</div>;
   const u = proxyImageUrl(src);
-  if (!u) return <div className="pb-image-fallback">无图片</div>;
+  if (!u) return <div className="pb-image-fallback">{t("run:product.noImage")}</div>;
   return (
     <img
       src={u}

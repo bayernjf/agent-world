@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { Navigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 
 export default function ProtectedRoute({ children }: { children: React.ReactNode }) {
+  const { t } = useTranslation();
   const [status, setStatus] = useState<"loading" | "ok" | "unauthorized">("loading");
 
   useEffect(() => {
@@ -13,7 +15,7 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
   if (status === "loading") {
     return (
       <div className="auth-page">
-        <p className="status">加载中…</p>
+        <p className="status">{t("modals:protectedRoute.loading")}</p>
       </div>
     );
   }

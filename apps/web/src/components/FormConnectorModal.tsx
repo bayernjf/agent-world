@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { FormConnector } from "@agent-world/core";
 import Tooltip from "./Tooltip";
 
@@ -15,6 +16,7 @@ export default function FormConnectorModal({
   onSubmit,
   onCancel,
 }: Props) {
+  const { t, i18n } = useTranslation();
   const [values, setValues] = useState<Record<string, string>>(
     Object.fromEntries(fields.map((f) => [f.name, ""])),
   );
@@ -25,8 +27,11 @@ export default function FormConnectorModal({
       (f) => f.required && !(values[f.name] ?? "").trim(),
     );
     if (missing.length) {
+      const list = new Intl.ListFormat(i18n.language, { type: "conjunction" });
       setErr(
-        `请填写必填项：${missing.map((m) => m.label ?? m.name).join("、")}`,
+        t("modals:formConnector.missingRequired", {
+          fields: list.format(missing.map((m) => m.label ?? m.name)),
+        }),
       );
       return;
     }
@@ -37,17 +42,15 @@ export default function FormConnectorModal({
     <div className="modal-backdrop" onClick={onCancel}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal__header">
-          <h2>填写数据源表单</h2>
-          <Tooltip content="关闭">
+          <h2>{t("modals:formConnector.title")}</h2>
+          <Tooltip content={t("common.close")}>
             <button className="btn btn--ghost btn--icon" onClick={onCancel}>
               ×
             </button>
           </Tooltip>
         </div>
         <div className="modal__body">
-          <p className="hint">
-            以下字段将作为数据源（Connector）注入 source 节点，再跑整条产线。
-          </p>
+          <p className="hint">{t("modals:formConnector.hint")}</p>
           {fields.map((f, i) => (
             <label className="field" key={f.name || i}>
               <span>
@@ -67,10 +70,10 @@ export default function FormConnectorModal({
         </div>
         <div className="modal__footer">
           <button className="btn btn--ghost" onClick={onCancel}>
-            取消
+            {t("common.cancel")}
           </button>
           <button className="btn btn--primary" onClick={submit}>
-            开始运行
+            {t("modals:formConnector.submit")}
           </button>
         </div>
       </div>

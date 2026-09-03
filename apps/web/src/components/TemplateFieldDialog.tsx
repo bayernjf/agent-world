@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { TemplateFieldData } from "./TemplatePicker";
 
 interface Props {
@@ -15,6 +16,7 @@ interface Props {
  * each field's defaultValue so "just confirm" keeps out-of-box behaviour.
  */
 export default function TemplateFieldDialog({ templateName, fields, onCancel, onSubmit }: Props) {
+  const { t } = useTranslation();
   const [values, setValues] = useState<Record<string, string>>(() =>
     Object.fromEntries(fields.map((f) => [f.key, f.defaultValue ?? ""])),
   );
@@ -31,10 +33,10 @@ export default function TemplateFieldDialog({ templateName, fields, onCancel, on
     >
       <div className="modal template-fields" onClick={(e) => e.stopPropagation()}>
         <div className="modal__header">
-          <h2>模板参数 — {templateName}</h2>
+          <h2>{t("modals:templateField.title", { name: templateName })}</h2>
         </div>
         <div className="modal__body">
-          <p className="form-hint">按需修改模板参数，保持默认值可直接创建。</p>
+          <p className="form-hint">{t("modals:templateField.hint")}</p>
           {fields.map((f) => (
             <label key={f.key} className="template-fields__row">
               <span className="template-fields__label">{f.label}</span>
@@ -50,10 +52,10 @@ export default function TemplateFieldDialog({ templateName, fields, onCancel, on
         </div>
         <div className="modal__footer">
           <button className="btn btn--ghost" onClick={onCancel}>
-            取消
+            {t("common.cancel")}
           </button>
           <button className="btn btn--primary" onClick={() => onSubmit(values)}>
-            创建产线
+            {t("modals:templateField.create")}
           </button>
         </div>
       </div>
