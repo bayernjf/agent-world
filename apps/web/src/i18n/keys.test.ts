@@ -18,18 +18,27 @@ function* walk(dir: string): Generator<string> {
 }
 
 const KEY_LITERAL = /\bt\(\s*"([^"]+)"/g;
+// Keys can also reach t() through a lookup table (SkillPicker maps a permission
+// id to its label key), so scan every namespace-qualified literal, not just the
+// ones inside t(). Dot-qualified literals stay out on purpose: "run.started" is
+// an SSE event name, not a key.
+const NS_KEY_LITERAL =
+  /"(?:common|canvas|nodes|modals|settings|run|errors):[^"]+"/g;
 
 function usedKeys(): Map<string, string[]> {
-  const found = new Map<string, string[]>();
+  const found = new Map<string, Set<string>>();
+  const add = (key: string, file: string) => {
+    const files = found.get(key) ?? new Set<string>();
+    files.add(file);
+    found.set(key, files);
+  };
   for (const file of walk(SRC_ROOT)) {
     const src = readFileSync(file, "utf8");
-    for (const m of src.matchAll(KEY_LITERAL)) {
-      const key = m[1]!;
-      const where = relative(SRC_ROOT, file);
-      found.set(key, [...(found.get(key) ?? []), where]);
-    }
+    const where = relative(SRC_ROOT, file);
+    for (const m of src.matchAll(KEY_LITERAL)) add(m[1]!, where);
+    for (const m of src.matchAll(NS_KEY_LITERAL)) add(m[0].slice(1, -1), where);
   }
-  return found;
+  return new Map([...found].map(([key, files]) => [key, [...files]]));
 }
 
 function flatten(value: unknown, prefix = ""): string[] {

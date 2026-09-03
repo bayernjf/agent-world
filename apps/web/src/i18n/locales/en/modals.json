@@ -345,46 +345,26 @@
     "step": "Step {{current}} of {{total}}"
   },
   "skillPicker": {
-    "title": "Skill Picker",
-    "empty": "No available skills",
-    "search": "Search skills",
-    "categories": "Categories",
-    "all": "All",
-    "install": "Install",
-    "installed": "Installed",
-    "uninstall": "Uninstall",
-    "permission": "Permission",
-    "permissions": {
-      "read": "Read",
-      "write": "Write",
-      "execute": "Execute",
-      "admin": "Admin"
-    },
-    "description": "Description",
-    "version": "Version",
-    "author": "Author",
-    "installing": "Installing...",
-    "installSuccess": "Installed successfully",
-    "installFailed": "Install failed"
+    "label": "Skill cards",
+    "equip": "Equip",
+    "equipped": "Equipped",
+    "perms": {
+      "network": "Network",
+      "fs": "Files",
+      "subprocess": "Subprocess",
+      "env": "Env vars"
+    }
   },
   "templateField": {
-    "title": "Template Parameters",
-    "description": "Please fill in the following parameters to create a graph",
-    "fieldRequired": "This field is required",
-    "create": "Create Graph",
-    "cancel": "Cancel",
-    "creating": "Creating...",
-    "createFailed": "Create failed"
+    "title": "Template parameters — {{name}}",
+    "hint": "Adjust the parameters if you need to; keeping the defaults creates the line as-is.",
+    "create": "Create line"
   },
   "formConnector": {
-    "title": "Form Connector",
-    "description": "Fill in the form data to trigger the graph run",
-    "fieldRequired": "This field is required",
-    "submit": "Start Run",
-    "cancel": "Cancel",
-    "submitting": "Running...",
-    "submitFailed": "Run failed",
-    "submitSuccess": "Run started"
+    "title": "Fill in the source form",
+    "hint": "These fields are injected into the source node as a connector, then the whole line runs.",
+    "missingRequired": "Please fill in the required fields: {{fields}}",
+    "submit": "Start run"
   },
   "sourceImages": {
     "title": "Image Assets",

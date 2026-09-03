@@ -345,46 +345,26 @@
     "step": "第 {{current}} 步，共 {{total}} 步"
   },
   "skillPicker": {
-    "title": "技能选择",
-    "empty": "暂无可用技能",
-    "search": "搜索技能",
-    "categories": "分类",
-    "all": "全部",
-    "install": "装备",
-    "installed": "已装备",
-    "uninstall": "卸载",
-    "permission": "权限",
-    "permissions": {
-      "read": "只读",
-      "write": "读写",
-      "execute": "执行",
-      "admin": "管理"
-    },
-    "description": "描述",
-    "version": "版本",
-    "author": "作者",
-    "installing": "装备中...",
-    "installSuccess": "装备成功",
-    "installFailed": "装备失败"
+    "label": "技能卡",
+    "equip": "装备",
+    "equipped": "已装备",
+    "perms": {
+      "network": "网络",
+      "fs": "文件",
+      "subprocess": "子进程",
+      "env": "环境变量"
+    }
   },
   "templateField": {
-    "title": "模板参数",
-    "description": "请填写以下参数以创建产线",
-    "fieldRequired": "此字段为必填项",
-    "create": "创建产线",
-    "cancel": "取消",
-    "creating": "创建中...",
-    "createFailed": "创建失败"
+    "title": "模板参数 — {{name}}",
+    "hint": "按需修改模板参数，保持默认值可直接创建。",
+    "create": "创建产线"
   },
   "formConnector": {
-    "title": "表单连接器",
-    "description": "填写表单数据以触发产线运行",
-    "fieldRequired": "此字段为必填项",
-    "submit": "开始运行",
-    "cancel": "取消",
-    "submitting": "运行中...",
-    "submitFailed": "运行失败",
-    "submitSuccess": "运行已启动"
+    "title": "填写数据源表单",
+    "hint": "以下字段将作为数据源（Connector）注入 source 节点，再跑整条产线。",
+    "missingRequired": "请填写必填项：{{fields}}",
+    "submit": "开始运行"
   },
   "sourceImages": {
     "title": "图片素材",
