@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useGraph } from "../store/graph";
 import { MAX_ZOOM, MIN_ZOOM, useCanvas, type Bounds } from "../store/canvas";
 import { PLANT_H, PLANT_W } from "../store/graph";
@@ -48,6 +49,7 @@ function clientToContent(
  *   - click-drag on the viewport rectangle → pans the canvas (move the viewport)
  */
 export default function Minimap() {
+  const { t } = useTranslation();
   const { graph } = useGraph();
   const { viewport, setViewport, zoomTo, fitToBounds } = useCanvas();
   const dragRef = useRef<ViewDrag | null>(null);
@@ -244,7 +246,7 @@ export default function Minimap() {
       </svg>
 
       <div className="minimap__zoom minimap__zoom--left">
-        <Tooltip content="放大">
+        <Tooltip content={t("canvas:zoomIn")}>
           <button
             className="chip"
             onClick={() => zoomTo(1.2)}
@@ -254,7 +256,7 @@ export default function Minimap() {
           </button>
         </Tooltip>
         <span className="muted">{Math.round(viewport.zoom * 100)}%</span>
-        <Tooltip content="缩小">
+        <Tooltip content={t("canvas:zoomOut")}>
           <button
             className="chip"
             onClick={() => zoomTo(1 / 1.2)}
@@ -265,9 +267,9 @@ export default function Minimap() {
         </Tooltip>
       </div>
       <div className="minimap__zoom minimap__zoom--right">
-        <Tooltip content="适应屏幕">
+        <Tooltip content={t("canvas:fitView")}>
           <button className="chip" onClick={fitScreen}>
-            适应
+            {t("canvas:fit")}
           </button>
         </Tooltip>
       </div>

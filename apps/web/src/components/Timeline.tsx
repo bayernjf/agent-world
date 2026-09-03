@@ -1,18 +1,20 @@
+import { useTranslation } from "react-i18next";
 import { useRun } from "../store/run";
 import Tooltip from "./Tooltip";
 
-const LABEL: Record<string, string> = {
-  "run.started": "开工",
-  "node.started": "开始作业",
-  "node.delta": "产出流入",
-  "node.finished": "作业完成",
-  "node.failed": "作业失败",
-  "packet.sent": "货物发出",
-  "gate.verdict": "质检判定",
-  "gate.exhausted": "返工次数耗尽",
-  "power.metered": "电表读数",
-  "power.tripped": "跳闸",
-  "run.finished": "收工",
+// Event types are engine-side ids, so they map to pack keys instead of copy.
+const EVENT_LABELS: Record<string, string> = {
+  "run.started": "run:timeline.events.runStarted",
+  "node.started": "run:timeline.events.nodeStarted",
+  "node.delta": "run:timeline.events.nodeDelta",
+  "node.finished": "run:timeline.events.nodeFinished",
+  "node.failed": "run:timeline.events.nodeFailed",
+  "packet.sent": "run:timeline.events.packetSent",
+  "gate.verdict": "run:timeline.events.gateVerdict",
+  "gate.exhausted": "run:timeline.events.gateExhausted",
+  "power.metered": "run:timeline.events.powerMetered",
+  "power.tripped": "run:timeline.events.powerTripped",
+  "run.finished": "run:timeline.events.runFinished",
 };
 
 /**
@@ -20,30 +22,34 @@ const LABEL: Record<string, string> = {
  * state, which is why the reducer has to stay pure.
  */
 export default function Timeline() {
+  const { t } = useTranslation();
   const { events, scrubSeq, scrubTo, view, reset } = useRun();
   if (events.length === 0) return null;
 
   const maxSeq = events.at(-1)!.seq;
   const at = scrubSeq ?? maxSeq;
   const current = events.filter((e) => e.seq <= at).at(-1);
+  // Unknown event types still show their raw id rather than a missing key.
+  const currentKey = current ? EVENT_LABELS[current.type] : undefined;
+  const currentLabel = current ? (currentKey ? t(currentKey) : current.type) : "";
 
   return (
     <div className="panel timeline">
       <div className="timeline__head">
-        <span className="label">回放</span>
+        <span className="label">{t("run:timeline.replay")}</span>
         <span className="muted">
           seq {at} / {maxSeq}
-          {current ? ` · ${LABEL[current.type] ?? current.type}` : ""}
+          {current ? ` · ${currentLabel}` : ""}
         </span>
         {scrubSeq !== null && (
           <button className="chip" onClick={() => scrubTo(null)}>
-            回到实时
+            {t("run:timeline.backToLive")}
           </button>
         )}
         {view === "replay" && scrubSeq === null && (
-          <Tooltip content="退出历史回放，回到当前产线">
+          <Tooltip content={t("run:timeline.exitReplayHint")}>
             <button className="chip" onClick={() => reset()}>
-              退出回放
+              {t("run:timeline.exitReplay")}
             </button>
           </Tooltip>
         )}

@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { temporal } from "zundo";
 import type { Graph, GraphEdge, GraphNode, NodeKind } from "@agent-world/core";
+import i18n from "../i18n";
 import { api, GraphConflictError, type Modality } from "../lib/api";
 
 /** Cached settings used to seed newly added nodes with a sensible model. */
@@ -484,7 +485,7 @@ export const useGraph = create<GraphState>()(
         const node: GraphNode = {
           ...rest,
           id: newId,
-          name: `${src.name} 副本`,
+          name: i18n.t("canvas:copySuffix", { name: src.name }),
           x: snap(src.x + dx),
           y: snap(src.y + dy),
         };
@@ -498,9 +499,9 @@ export const useGraph = create<GraphState>()(
         {
           const state = get();
           useGraph.temporal.getState().resume();
-          if (from === to) return { ok: false, reason: "不能连接到自身" };
+          if (from === to) return { ok: false, reason: i18n.t("errors:graph.selfLoop") };
           const exists = state.graph.edges.some((e) => e.from === from && e.to === to);
-          if (exists) return { ok: false, reason: "这条管道已经存在" };
+          if (exists) return { ok: false, reason: i18n.t("errors:graph.duplicateEdge") };
           set((s) => {
           const edge: GraphEdge = { id: nextId("e"), from, to, kind };
           const graph = { ...s.graph, edges: [...s.graph.edges, edge] };

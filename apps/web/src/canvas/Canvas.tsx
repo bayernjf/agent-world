@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { Graph, GraphNode } from "@agent-world/core";
 import { useGraph } from "../store/graph";
 import { useRun, useVisibleRuntime } from "../store/run";
@@ -10,9 +11,10 @@ import PacketLayer from "./PacketLayer";
 import Pipes from "./Pipes";
 import Plants from "./Plants";
 
-const flashDeleted = (message: string) =>
+/** `undoLabel` comes from the caller: this helper runs outside React, so it has no t(). */
+const flashDeleted = (message: string, undoLabel: string) =>
   useToast.getState().show(message, {
-    actions: [{ label: "撤销", onClick: () => useGraph.getState().undo() }],
+    actions: [{ label: undoLabel, onClick: () => useGraph.getState().undo() }],
   });
 
 export type Mode = "select" | "connect" | "rework" | "error" | "delete";
@@ -64,6 +66,7 @@ export default function Canvas({ mode }: Props) {
   const scrubbing = useRun((s) => s.scrubSeq !== null);
   const { viewport, setViewport, setFit: syncFit, setStageSize, fitToBounds } = useCanvas();
   const showToast = useToast((s) => s.show);
+  const { t } = useTranslation();
 
   const svgRef = useRef<SVGSVGElement>(null);
   const dragRef = useRef<{
@@ -169,7 +172,7 @@ export default function Canvas({ mode }: Props) {
       if (mod && (e.key === "c" || e.key === "C") && selectedId) {
         e.preventDefault();
         copyRef.current = { id: selectedId, n: 0 };
-        showToast("已复制节点");
+        showToast(t("canvas:nodeCopied"));
         return;
       }
       if (mod && (e.key === "v" || e.key === "V") && copyRef.current) {
@@ -201,7 +204,7 @@ export default function Canvas({ mode }: Props) {
           e.preventDefault();
           const count = selectedNodeIds.length + selectedEdgeIds.length;
           deleteSelected();
-          flashDeleted(`已删除 ${count} 个元素`);
+          flashDeleted(t("canvas:deletedElements", { count }), t("actions.undo"));
           return;
         }
       }
@@ -230,7 +233,7 @@ export default function Canvas({ mode }: Props) {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
     };
-  }, [selectedEdgeId, removeEdge, selectedId, selectedNodeIds, selectedEdgeIds, removeNode, deleteSelected, selectAllNodes, duplicateNode, graph.nodes, fitToBounds, showToast]);
+  }, [selectedEdgeId, removeEdge, selectedId, selectedNodeIds, selectedEdgeIds, removeNode, deleteSelected, selectAllNodes, duplicateNode, graph.nodes, fitToBounds, showToast, t]);
 
   const toView = useCallback((clientX: number, clientY: number) => {
     const svg = svgRef.current;
@@ -332,7 +335,7 @@ export default function Canvas({ mode }: Props) {
 
     if (mode === "delete") {
       removeNode(node.id);
-      flashDeleted("节点已拆除");
+      flashDeleted(t("canvas:nodeRemoved"), t("actions.undo"));
       return;
     }
 
@@ -562,7 +565,7 @@ export default function Canvas({ mode }: Props) {
             runtime={runtime}
             onRemove={(id) => {
               removeEdge(id);
-              flashDeleted("管道已拆除");
+              flashDeleted(t("canvas:edgeRemoved"), t("actions.undo"));
             }}
             interactive={mode === "delete"}
             hoverable={mode === "select" || mode === "delete"}
@@ -606,8 +609,10 @@ export default function Canvas({ mode }: Props) {
 
       {graph.nodes.length === 0 && (
         <div className="canvas__empty">
-          <p>画布是空的</p>
-          <p className="muted">点右上角「+ 文坊」开始搭建你的产线</p>
+          <p>{t("canvas:emptyCanvas")}</p>
+          <p className="muted">
+            {t("canvas:emptyCanvasHint", { node: t("nodes:textGen") })}
+          </p>
         </div>
       )}
     </div>

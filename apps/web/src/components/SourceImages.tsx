@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { api } from "../lib/api";
 import { useGraph } from "../store/graph";
-import Tooltip from "./Tooltip";
 
 interface Props {
   nodeId: string;
@@ -21,6 +21,7 @@ export default function SourceImages({
   onCommitEdit,
 }: Props) {
   const { updateNode, graph } = useGraph();
+  const { t } = useTranslation();
   const fileRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -46,7 +47,7 @@ export default function SourceImages({
       const urls = uploaded.map((a) => a.uri).filter((u): u is string => !!u);
       setImages([...images, ...urls]);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "上传失败");
+      setError(e instanceof Error ? e.message : t("nodes:sourceImages.uploadFailed"));
     } finally {
       setUploading(false);
     }
@@ -61,7 +62,7 @@ export default function SourceImages({
 
   return (
     <div className="field">
-      <span>产品图片（上传或粘贴 URL，视觉模型可看图）</span>
+      <span>{t("nodes:sourceImages.label")}</span>
 
       <div
         className={`image-dropzone ${dragOver ? "is-over" : ""} ${uploading ? "is-loading" : ""}`}
@@ -89,7 +90,9 @@ export default function SourceImages({
             e.target.value = "";
           }}
         />
-        {uploading ? "上传中…" : "点击上传，或把产品图拖到这里"}
+        {uploading
+          ? t("nodes:sourceImages.uploading")
+          : t("nodes:sourceImages.dropzone")}
       </div>
 
       <div className="image-list">
@@ -104,12 +107,12 @@ export default function SourceImages({
               />
             ) : (
               <span className="image-row__thumb image-row__thumb--placeholder">
-                图
+                {t("nodes:sourceImages.thumbFallback")}
               </span>
             )}
             <input
               value={url}
-              placeholder="https://... 或 /api/artifacts/..."
+              placeholder={t("nodes:sourceImages.urlPlaceholder")}
               onFocus={onBeginEdit}
               onBlur={onCommitEdit}
               onChange={(e) => updateUrl(i, e.target.value)}
@@ -127,7 +130,7 @@ export default function SourceImages({
           className="btn image-list__add"
           onClick={() => setImages([...images, ""])}
         >
-          + 添加图片 URL
+          {t("nodes:sourceImages.addUrl")}
         </button>
       </div>
 

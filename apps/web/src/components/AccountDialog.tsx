@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
+import { useTranslation } from "react-i18next";
 import type { Me } from "./UserMenu";
 
 interface Props {
@@ -8,6 +9,7 @@ interface Props {
 }
 
 export default function AccountDialog({ open, me, onClose }: Props) {
+  const { t, i18n } = useTranslation();
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -41,7 +43,7 @@ export default function AccountDialog({ open, me, onClose }: Props) {
     setError("");
     setOk(false);
     if (next !== confirm) {
-      setError("两次输入的新密码不一致");
+      setError(t("auth:account.passwordMismatch"));
       return;
     }
     setBusy(true);
@@ -53,7 +55,9 @@ export default function AccountDialog({ open, me, onClose }: Props) {
         body: JSON.stringify({ currentPassword: current, newPassword: next }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error((data as any).error ?? `请求失败 (${res.status})`);
+      if (!res.ok) {
+        throw new Error((data as any).error ?? t("errors:api.requestFailed", { status: res.status }));
+      }
       setOk(true);
       setCurrent("");
       setNext("");
@@ -65,14 +69,16 @@ export default function AccountDialog({ open, me, onClose }: Props) {
     }
   };
 
-  const joined = me?.createdAt ? new Date(me.createdAt).toLocaleDateString("zh-CN") : "";
+  const joined = me?.createdAt
+    ? new Date(me.createdAt).toLocaleDateString(i18n.language)
+    : "";
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal account-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal__header">
-          <h2>个人中心</h2>
-          <button className="icon-btn" onClick={onClose} aria-label="关闭">
+          <h2>{t("auth:account.title")}</h2>
+          <button className="icon-btn" onClick={onClose} aria-label={t("common.close")}>
             ✕
           </button>
         </div>
@@ -83,15 +89,17 @@ export default function AccountDialog({ open, me, onClose }: Props) {
             </div>
             <div className="account-info__text">
               <div className="account-info__email">{me?.email ?? "…"}</div>
-              {joined && <div className="account-info__sub">注册于 {joined}</div>}
+              {joined && (
+                <div className="account-info__sub">{t("auth:account.joinedAt", { date: joined })}</div>
+              )}
             </div>
           </div>
           <form className="account-form" onSubmit={submit}>
-            <h3 className="label">修改密码</h3>
+            <h3 className="label">{t("auth:account.changePassword")}</h3>
             {error && <div className="auth-error">{error}</div>}
-            {ok && <div className="account-ok">密码已更新</div>}
+            {ok && <div className="account-ok">{t("auth:account.passwordUpdated")}</div>}
             <label className="field">
-              <span>当前密码</span>
+              <span>{t("auth:account.currentPassword")}</span>
               <input
                 type="password"
                 value={current}
@@ -101,7 +109,7 @@ export default function AccountDialog({ open, me, onClose }: Props) {
               />
             </label>
             <label className="field">
-              <span>新密码</span>
+              <span>{t("auth:account.newPassword")}</span>
               <input
                 type="password"
                 value={next}
@@ -112,7 +120,7 @@ export default function AccountDialog({ open, me, onClose }: Props) {
               />
             </label>
             <label className="field">
-              <span>确认新密码</span>
+              <span>{t("auth:account.confirmNewPassword")}</span>
               <input
                 type="password"
                 value={confirm}
@@ -123,7 +131,7 @@ export default function AccountDialog({ open, me, onClose }: Props) {
               />
             </label>
             <button className="btn" type="submit" disabled={busy}>
-              {busy ? "提交中…" : "更新密码"}
+              {busy ? t("auth:account.submitting") : t("auth:account.submit")}
             </button>
           </form>
         </div>

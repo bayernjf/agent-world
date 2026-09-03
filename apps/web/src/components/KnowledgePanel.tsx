@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 interface KnowledgeEntry {
   id: string;
@@ -15,6 +16,7 @@ interface Props {
 }
 
 export default function KnowledgePanel({ open, onClose }: Props) {
+  const { t, i18n } = useTranslation();
   const [entries, setEntries] = useState<KnowledgeEntry[]>([]);
   const [total, setTotal] = useState(0);
   const [query, setQuery] = useState("");
@@ -64,7 +66,7 @@ export default function KnowledgePanel({ open, onClose }: Props) {
           title: newTitle,
           content: newContent,
           source: "manual",
-          tags: newTags.split(",").map((t) => t.trim()).filter(Boolean),
+          tags: newTags.split(",").map((tag) => tag.trim()).filter(Boolean),
         }),
       });
       setNewTitle("");
@@ -73,17 +75,17 @@ export default function KnowledgePanel({ open, onClose }: Props) {
       setAdding(false);
       load();
     } catch (e) {
-      alert("添加失败: " + (e as Error).message);
+      alert(t("modals:knowledge.addFailed", { message: (e as Error).message }));
     }
   }
 
   async function deleteEntry(id: string) {
-    if (!confirm("确定删除这条知识吗？")) return;
+    if (!confirm(t("modals:knowledge.deleteConfirm"))) return;
     try {
       await fetch(`/api/knowledge/${id}`, { method: "DELETE" });
       load();
     } catch (e) {
-      alert("删除失败: " + (e as Error).message);
+      alert(t("modals:knowledge.deleteFailed", { message: (e as Error).message }));
     }
   }
 
@@ -93,14 +95,14 @@ export default function KnowledgePanel({ open, onClose }: Props) {
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal knowledge-panel" onClick={(e) => e.stopPropagation()}>
         <div className="modal__header">
-          <h2>知识库 / 档案室</h2>
-          <button className="btn btn--ghost btn--sm" onClick={onClose}>关闭</button>
+          <h2>{t("modals:knowledge.title")}</h2>
+          <button className="btn btn--ghost btn--sm" onClick={onClose}>{t("common.close")}</button>
         </div>
 
         <div className="knowledge-panel__toolbar">
           <input
             type="text"
-            placeholder="搜索知识..."
+            placeholder={t("modals:knowledge.searchPlaceholder")}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && doSearch()}
@@ -108,11 +110,11 @@ export default function KnowledgePanel({ open, onClose }: Props) {
             style={{ flex: 1 }}
           />
           <button className="btn btn--sm" onClick={doSearch} disabled={searching}>
-            {searching ? "搜索中..." : "搜索"}
+            {searching ? t("modals:knowledge.searching") : t("common.search")}
           </button>
-          <button className="btn btn--ghost btn--sm" onClick={() => { setQuery(""); load(); }}>重置</button>
+          <button className="btn btn--ghost btn--sm" onClick={() => { setQuery(""); load(); }}>{t("common.reset")}</button>
           <button className="btn btn--sm" onClick={() => setAdding(!adding)}>
-            {adding ? "取消" : "+ 添加"}
+            {adding ? t("common.cancel") : t("modals:knowledge.add")}
           </button>
         </div>
 
@@ -120,13 +122,13 @@ export default function KnowledgePanel({ open, onClose }: Props) {
           <div className="knowledge-panel__add">
             <input
               type="text"
-              placeholder="标题"
+              placeholder={t("modals:knowledge.titlePlaceholder")}
               value={newTitle}
               onChange={(e) => setNewTitle(e.target.value)}
               className="input"
             />
             <textarea
-              placeholder="内容"
+              placeholder={t("modals:knowledge.contentPlaceholder")}
               value={newContent}
               onChange={(e) => setNewContent(e.target.value)}
               className="input"
@@ -134,36 +136,40 @@ export default function KnowledgePanel({ open, onClose }: Props) {
             />
             <input
               type="text"
-              placeholder="标签（逗号分隔）"
+              placeholder={t("modals:knowledge.tagsPlaceholder")}
               value={newTags}
               onChange={(e) => setNewTags(e.target.value)}
               className="input"
             />
-            <button className="btn btn--sm" onClick={addEntry}>保存</button>
+            <button className="btn btn--sm" onClick={addEntry}>{t("common.save")}</button>
           </div>
         )}
 
         <div className="knowledge-panel__count muted">
-          共 {total} 条知识{query ? `，搜索结果 ${entries.length} 条` : ""}
+          {query
+            ? t("modals:knowledge.countFiltered", { total, results: entries.length })
+            : t("modals:knowledge.countAll", { total })}
         </div>
 
         <div className="knowledge-panel__list">
           {entries.length === 0 && (
             <p className="muted" style={{ textAlign: "center", padding: "40px" }}>
-              {query ? "没有匹配的知识。" : "知识库为空。运行产线后会自动提取产出，或手动添加。"}
+              {query ? t("modals:knowledge.emptySearch") : t("modals:knowledge.empty")}
             </p>
           )}
           {entries.map((entry) => (
             <div key={entry.id} className="knowledge-item">
               <div className="knowledge-item__head">
                 <span className="knowledge-item__title">{entry.title}</span>
-                <button className="btn btn--ghost btn--sm" onClick={() => deleteEntry(entry.id)}>删除</button>
+                <button className="btn btn--ghost btn--sm" onClick={() => deleteEntry(entry.id)}>{t("common.delete")}</button>
               </div>
               <p className="knowledge-item__content">{entry.content.slice(0, 300)}{entry.content.length > 300 ? "..." : ""}</p>
               <div className="knowledge-item__meta muted">
-                <span>来源: {entry.source}</span>
-                <span>{new Date(entry.created_at).toLocaleString()}</span>
-                {entry.tags.length > 0 && <span>标签: {entry.tags.join(", ")}</span>}
+                <span>{t("modals:knowledge.source", { source: entry.source })}</span>
+                <span>{new Date(entry.created_at).toLocaleString(i18n.language)}</span>
+                {entry.tags.length > 0 && (
+                  <span>{t("modals:knowledge.tags", { tags: entry.tags.join(", ") })}</span>
+                )}
               </div>
             </div>
           ))}

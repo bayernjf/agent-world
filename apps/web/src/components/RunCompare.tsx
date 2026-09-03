@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { runStatusLabel } from "../lib/run-status";
 
 interface RunSummary {
   id: string;
@@ -30,6 +32,7 @@ interface Props {
 }
 
 export default function RunCompare({ open, graphId, onClose }: Props) {
+  const { t, i18n } = useTranslation();
   const [runs, setRuns] = useState<RunSummary[]>([]);
   const [runA, setRunA] = useState<string>("");
   const [runB, setRunB] = useState<string>("");
@@ -68,7 +71,7 @@ export default function RunCompare({ open, graphId, onClose }: Props) {
       setOutputsA(extractOutputs(eA.events ?? eA));
       setOutputsB(extractOutputs(eB.events ?? eB));
     } catch (e) {
-      alert("对比失败: " + (e as Error).message);
+      alert(t("modals:runCompare.compareFailed", { message: (e as Error).message }));
     } finally {
       setLoading(false);
     }
@@ -101,53 +104,55 @@ export default function RunCompare({ open, graphId, onClose }: Props) {
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal run-compare" onClick={(e) => e.stopPropagation()}>
         <div className="modal__header">
-          <h2>运行对比</h2>
-          <button className="btn btn--ghost btn--sm" onClick={onClose}>关闭</button>
+          <h2>{t("modals:runCompare.title")}</h2>
+          <button className="btn btn--ghost btn--sm" onClick={onClose}>
+            {t("common.close")}
+          </button>
         </div>
 
         <div className="run-compare__selectors">
           <div>
-            <label className="label">运行 A</label>
+            <label className="label">{t("modals:runCompare.runA")}</label>
             <select className="input" value={runA} onChange={(e) => setRunA(e.target.value)}>
-              <option value="">选择运行...</option>
+              <option value="">{t("modals:runCompare.selectRun")}</option>
               {runs.map((r) => (
                 <option key={r.id} value={r.id}>
-                  {new Date(r.started_at).toLocaleString()} — {r.status}
+                  {new Date(r.started_at).toLocaleString(i18n.language)} — {runStatusLabel(r.status)}
                 </option>
               ))}
             </select>
           </div>
           <div>
-            <label className="label">运行 B</label>
+            <label className="label">{t("modals:runCompare.runB")}</label>
             <select className="input" value={runB} onChange={(e) => setRunB(e.target.value)}>
-              <option value="">选择运行...</option>
+              <option value="">{t("modals:runCompare.selectRun")}</option>
               {runs.map((r) => (
                 <option key={r.id} value={r.id}>
-                  {new Date(r.started_at).toLocaleString()} — {r.status}
+                  {new Date(r.started_at).toLocaleString(i18n.language)} — {runStatusLabel(r.status)}
                 </option>
               ))}
             </select>
           </div>
           <button className="btn btn--sm" onClick={compare} disabled={!runA || !runB || loading}>
-            {loading ? "对比中..." : "开始对比"}
+            {loading ? t("modals:runCompare.comparing") : t("modals:runCompare.start")}
           </button>
         </div>
 
         {statsA && statsB && (
           <div className="run-compare__stats">
-            <h3>成本与用量对比</h3>
+            <h3>{t("modals:runCompare.statsTitle")}</h3>
             <table className="compare-table">
               <thead>
                 <tr>
-                  <th>指标</th>
-                  <th>运行 A</th>
-                  <th>运行 B</th>
-                  <th>差异 (B-A)</th>
+                  <th>{t("modals:runCompare.metric")}</th>
+                  <th>{t("modals:runCompare.runA")}</th>
+                  <th>{t("modals:runCompare.runB")}</th>
+                  <th>{t("modals:runCompare.difference")}</th>
                 </tr>
               </thead>
               <tbody>
                 <tr>
-                  <td>总成本 (USD)</td>
+                  <td>{t("modals:runCompare.totalCost")}</td>
                   <td>${statsA.cost_usd.toFixed(4)}</td>
                   <td>${statsB.cost_usd.toFixed(4)}</td>
                   <td className={statsB.cost_usd > statsA.cost_usd ? "diff-up" : "diff-down"}>
@@ -155,19 +160,23 @@ export default function RunCompare({ open, graphId, onClose }: Props) {
                   </td>
                 </tr>
                 <tr>
-                  <td>输入 Token</td>
-                  <td>{statsA.tokens_in.toLocaleString()}</td>
-                  <td>{statsB.tokens_in.toLocaleString()}</td>
-                  <td>{(statsB.tokens_in - statsA.tokens_in).toLocaleString()}</td>
+                  <td>{t("modals:runCompare.inputTokens")}</td>
+                  <td>{statsA.tokens_in.toLocaleString(i18n.language)}</td>
+                  <td>{statsB.tokens_in.toLocaleString(i18n.language)}</td>
+                  <td>
+                    {(statsB.tokens_in - statsA.tokens_in).toLocaleString(i18n.language)}
+                  </td>
                 </tr>
                 <tr>
-                  <td>输出 Token</td>
-                  <td>{statsA.tokens_out.toLocaleString()}</td>
-                  <td>{statsB.tokens_out.toLocaleString()}</td>
-                  <td>{(statsB.tokens_out - statsA.tokens_out).toLocaleString()}</td>
+                  <td>{t("modals:runCompare.outputTokens")}</td>
+                  <td>{statsA.tokens_out.toLocaleString(i18n.language)}</td>
+                  <td>{statsB.tokens_out.toLocaleString(i18n.language)}</td>
+                  <td>
+                    {(statsB.tokens_out - statsA.tokens_out).toLocaleString(i18n.language)}
+                  </td>
                 </tr>
                 <tr>
-                  <td>节点数</td>
+                  <td>{t("modals:runCompare.nodeCount")}</td>
                   <td>{statsA.nodes}</td>
                   <td>{statsB.nodes}</td>
                   <td>{statsB.nodes - statsA.nodes}</td>
@@ -179,7 +188,7 @@ export default function RunCompare({ open, graphId, onClose }: Props) {
 
         {outputsA.length > 0 && outputsB.length > 0 && (
           <div className="run-compare__outputs">
-            <h3>节点输出对比</h3>
+            <h3>{t("modals:runCompare.outputsTitle")}</h3>
             <div className="output-diff-list">
               {allNodeIds.map((nodeId) => {
                 const a = outputsA.find((o) => o.nodeId === nodeId);
@@ -191,18 +200,25 @@ export default function RunCompare({ open, graphId, onClose }: Props) {
                       <span className="output-diff-item__node">{nodeId}</span>
                       {diff && (
                         <span className="muted">
-                          +{diff.added} / -{diff.removed} 行
+                          {t("modals:runCompare.diffLines", {
+                            added: diff.added,
+                            removed: diff.removed,
+                          })}
                         </span>
                       )}
                     </div>
                     <div className="output-diff-item__cols">
                       <div className="output-diff-col">
                         <div className="output-diff-col__label">A</div>
-                        <pre className="output-diff-col__text">{a?.output ?? "(无输出)"}</pre>
+                        <pre className="output-diff-col__text">
+                          {a?.output ?? t("modals:runCompare.noOutput")}
+                        </pre>
                       </div>
                       <div className="output-diff-col">
                         <div className="output-diff-col__label">B</div>
-                        <pre className="output-diff-col__text">{b?.output ?? "(无输出)"}</pre>
+                        <pre className="output-diff-col__text">
+                          {b?.output ?? t("modals:runCompare.noOutput")}
+                        </pre>
                       </div>
                     </div>
                   </div>

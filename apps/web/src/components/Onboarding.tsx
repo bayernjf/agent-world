@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { Trans, useTranslation } from "react-i18next";
 import { api } from "../lib/api";
 import TemplatePicker, { TEMPLATE_LIST } from "./TemplatePicker";
 import TemplateFieldDialog from "./TemplateFieldDialog";
@@ -8,6 +9,7 @@ interface Props {
 }
 
 export default function Onboarding({ onCreate }: Props) {
+  const { t } = useTranslation();
   const templates = useMemo(() => TEMPLATE_LIST, []);
 
   const [apiStatus, setApiStatus] = useState<"unknown" | "ok" | "fail">("unknown");
@@ -24,27 +26,23 @@ export default function Onboarding({ onCreate }: Props) {
     <div className="onboarding">
       <div className="onboarding__content">
         <div className="onboarding__hero">
-          <h1 className="onboarding__title">欢迎来到 Agent World</h1>
-          <p className="onboarding__subtitle">
-            用可视化的方式编排多 Agent 工作流。每个 Agent 是产线上的一个节点，
-            产出物通过管道在节点间流动，质检站可以把不合格的工作打回重做。
-          </p>
+          <h1 className="onboarding__title">{t("modals:onboarding.title")}</h1>
+          <p className="onboarding__subtitle">{t("modals:onboarding.subtitle")}</p>
         </div>
 
         <div className="onboarding__section">
           <h2 className="onboarding__section-title">
-            从空白产线开始，或选择一个模板
+            {t("modals:onboarding.sectionTitle")}
           </h2>
           <p className="onboarding__section-hint">
-            空白产线从零搭建；模板预置了节点和连线，创建后可自由编辑。共{" "}
-            {templates.length} 个模板。
+            {t("modals:onboarding.sectionHint", { count: templates.length })}
           </p>
 
           <TemplatePicker
             templates={templates}
             blankFirst
             onPick={(id) => {
-              const tpl = id ? templates.find((t) => t.id === id) : undefined;
+              const tpl = id ? templates.find((x) => x.id === id) : undefined;
               // Templates with declared fields get a parameter form first.
               if (tpl && tpl.fields.length > 0) setPending(tpl);
               else onCreate(id);
@@ -55,14 +53,17 @@ export default function Onboarding({ onCreate }: Props) {
 
         <div className="onboarding__tips">
           <p>
-            <strong>提示：</strong>
-            运行产线前需要在设置（⚙️）中配置模型 Provider。未配置时会使用内置的假 Worker，
-            适合熟悉界面和测试流程。
+            <Trans
+              i18nKey="modals:onboarding.tips"
+              components={{ strong: <strong /> }}
+            />
           </p>
           {apiStatus === "fail" && (
             <p className="onboarding__tip-warn">
-              ⚠ 后端引擎未响应（http://localhost:8791）。点击创建时如失败，请先{" "}
-              <code>pnpm --filter @agent-world/server dev</code> 启动后端。
+              <Trans
+                i18nKey="modals:onboarding.engineDown"
+                components={{ code: <code /> }}
+              />
             </p>
           )}
         </div>

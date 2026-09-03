@@ -3,7 +3,8 @@ import { join, relative } from "node:path";
 import i18n from "./index";
 
 const SRC_ROOT = join(__dirname, "..");
-const NAMESPACES = ["common", "canvas", "nodes", "modals", "settings", "run", "errors"];
+// Read from the instance so a newly registered namespace is guarded automatically.
+const NAMESPACES = (i18n.options.ns ?? []) as string[];
 
 function* walk(dir: string): Generator<string> {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -22,8 +23,7 @@ const KEY_LITERAL = /\bt\(\s*"([^"]+)"/g;
 // id to its label key), so scan every namespace-qualified literal, not just the
 // ones inside t(). Dot-qualified literals stay out on purpose: "run.started" is
 // an SSE event name, not a key.
-const NS_KEY_LITERAL =
-  /"(?:common|canvas|nodes|modals|settings|run|errors):[^"]+"/g;
+const NS_KEY_LITERAL = new RegExp(`"(?:${NAMESPACES.join("|")}):[^"]+"`, "g");
 
 function usedKeys(): Map<string, string[]> {
   const found = new Map<string, Set<string>>();

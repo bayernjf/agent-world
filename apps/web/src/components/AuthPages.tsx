@@ -1,5 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { Trans, useTranslation } from "react-i18next";
+import i18n from "../i18n";
 import Logo from "./Logo";
 
 async function postAuth(url: string, body: Record<string, string | boolean>) {
@@ -10,7 +12,12 @@ async function postAuth(url: string, body: Record<string, string | boolean>) {
     body: JSON.stringify(body),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error((data as any).error ?? `请求失败 (${res.status})`);
+  if (!res.ok) {
+    // Outside React, so only the singleton knows the current language.
+    throw new Error(
+      (data as any).error ?? i18n.t("errors:api.requestFailed", { status: res.status }),
+    );
+  }
   return data;
 }
 
@@ -25,6 +32,7 @@ function readLastEmail(): string {
 }
 
 export function LoginPage() {
+  const { t } = useTranslation();
   const [email, setEmail] = useState(readLastEmail);
   const [password, setPassword] = useState("");
   const [remember, setRemember] = useState(true);
@@ -57,19 +65,20 @@ export function LoginPage() {
       <div className="auth-card">
         <div className="auth-card__head">
           <Logo size={28} />
-          <h1 className="auth-card__title">Agent World</h1>
+          <h1 className="auth-card__title">{t("app.name")}</h1>
         </div>
         <p className="auth-card__sub">
-          还没有账号？ <Link to="/register">注册</Link>
+          {/* Not named `link`: react-i18next parses HTML void elements as self-closing. */}
+          <Trans i18nKey="auth:login.noAccount" components={{ routerLink: <Link to="/register" /> }} />
         </p>
         <form className="auth-card__body" onSubmit={handleSubmit}>
           {error && <div className="auth-error">{error}</div>}
           <label className="field">
-            <span>邮箱</span>
+            <span>{t("auth:login.email")}</span>
             <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus={email === ""} />
           </label>
           <label className="field">
-            <span>密码</span>
+            <span>{t("auth:login.password")}</span>
             <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoFocus={email !== ""} />
           </label>
           <label className="auth-remember">
@@ -78,11 +87,11 @@ export function LoginPage() {
               checked={remember}
               onChange={(e) => setRemember(e.target.checked)}
             />
-            <span>记住我</span>
-            <span className="auth-remember__hint">记住账号 · 7 天内免登录</span>
+            <span>{t("auth:login.remember")}</span>
+            <span className="auth-remember__hint">{t("auth:login.rememberHint")}</span>
           </label>
           <button className="btn" type="submit" disabled={loading}>
-            {loading ? "登录中…" : "登录"}
+            {loading ? t("auth:login.submitting") : t("auth:login.submit")}
           </button>
         </form>
       </div>
@@ -91,6 +100,7 @@ export function LoginPage() {
 }
 
 export function RegisterPage() {
+  const { t } = useTranslation();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -102,7 +112,7 @@ export function RegisterPage() {
     e.preventDefault();
     setError("");
     if (password !== confirm) {
-      setError("两次输入的密码不一致");
+      setError(t("auth:register.passwordMismatch"));
       return;
     }
     setLoading(true);
@@ -121,27 +131,27 @@ export function RegisterPage() {
       <div className="auth-card">
         <div className="auth-card__head">
           <Logo size={28} />
-          <h1 className="auth-card__title">Agent World</h1>
+          <h1 className="auth-card__title">{t("app.name")}</h1>
         </div>
         <p className="auth-card__sub">
-          已有账号？ <Link to="/login">登录</Link>
+          <Trans i18nKey="auth:register.hasAccount" components={{ routerLink: <Link to="/login" /> }} />
         </p>
         <form className="auth-card__body" onSubmit={handleSubmit}>
           {error && <div className="auth-error">{error}</div>}
           <label className="field">
-            <span>邮箱</span>
+            <span>{t("auth:register.email")}</span>
             <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus />
           </label>
           <label className="field">
-            <span>密码</span>
+            <span>{t("auth:register.password")}</span>
             <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} />
           </label>
           <label className="field">
-            <span>确认密码</span>
+            <span>{t("auth:register.confirmPassword")}</span>
             <input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} required minLength={6} />
           </label>
           <button className="btn" type="submit" disabled={loading}>
-            {loading ? "注册中…" : "注册"}
+            {loading ? t("auth:register.submitting") : t("auth:register.submit")}
           </button>
         </form>
       </div>

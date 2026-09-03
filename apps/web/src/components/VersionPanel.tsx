@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { Graph } from "@agent-world/core";
 import { TemplatePreview } from "./TemplatePicker";
 
@@ -28,6 +29,7 @@ interface Props {
 }
 
 export default function VersionPanel({ open, graphId, graphName, onClose, onRestored }: Props) {
+  const { t, i18n } = useTranslation();
   const [versions, setVersions] = useState<VersionSummary[]>([]);
   const [latestRunHash, setLatestRunHash] = useState<string | null>(null);
   const [currentHash, setCurrentHash] = useState<string | null>(null);
@@ -61,44 +63,47 @@ export default function VersionPanel({ open, graphId, graphName, onClose, onRest
 
   async function saveVersion() {
     if (!newName.trim()) {
-      setNewName(new Date().toLocaleString());
+      setNewName(new Date().toLocaleString(i18n.language));
     }
     setSaving(true);
     try {
       await fetch(`/api/graphs/${graphId}/versions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: newName || new Date().toLocaleString(), note: newNote }),
+        body: JSON.stringify({
+          name: newName || new Date().toLocaleString(i18n.language),
+          note: newNote,
+        }),
       });
       setNewName("");
       setNewNote("");
       load();
     } catch (e) {
-      alert("保存失败: " + (e as Error).message);
+      alert(t("modals:versionPanel.saveFailed", { message: (e as Error).message }));
     } finally {
       setSaving(false);
     }
   }
 
   async function restoreVersion(id: string) {
-    if (!confirm("确定恢复到此版本吗？当前产线的修改将被覆盖。")) return;
+    if (!confirm(t("modals:versionPanel.restoreConfirm"))) return;
     try {
       const res = await fetch(`/api/graphs/${graphId}/versions/${id}/restore`, { method: "POST" });
-      if (!res.ok) throw new Error("恢复失败");
+      if (!res.ok) throw new Error(t("modals:versionPanel.restoreError"));
       onRestored();
       onClose();
     } catch (e) {
-      alert("恢复失败: " + (e as Error).message);
+      alert(t("modals:versionPanel.restoreFailed", { message: (e as Error).message }));
     }
   }
 
   async function deleteVersion(id: string) {
-    if (!confirm("确定删除此版本吗？")) return;
+    if (!confirm(t("modals:versionPanel.deleteConfirm"))) return;
     try {
       await fetch(`/api/graphs/${graphId}/versions/${id}`, { method: "DELETE" });
       load();
     } catch (e) {
-      alert("删除失败: " + (e as Error).message);
+      alert(t("modals:versionPanel.deleteFailed", { message: (e as Error).message }));
     }
   }
 
@@ -110,7 +115,7 @@ export default function VersionPanel({ open, graphId, graphName, onClose, onRest
       const data = (await res.json()) as { name: string; snapshot: Graph };
       setPreview({ name: data.name, graph: data.snapshot });
     } catch {
-      alert("预览加载失败");
+      alert(t("modals:versionPanel.previewFailed"));
     } finally {
       setPreviewLoading(false);
     }
@@ -118,18 +123,30 @@ export default function VersionPanel({ open, graphId, graphName, onClose, onRest
 
   if (!open) return null;
 
+  // Hoisted out of the JSX so the summary line stays a single translated string.
+  const previewKinds = preview
+    ? Object.entries(
+        preview.graph.nodes.reduce<Record<string, number>>((acc, n) => {
+          acc[n.kind] = (acc[n.kind] ?? 0) + 1;
+          return acc;
+        }, {}),
+      )
+        .map(([kind, count]) => `${kind}×${count}`)
+        .join(" / ")
+    : "";
+
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal version-panel" onClick={(e) => e.stopPropagation()}>
         <div className="modal__header">
-          <h2>产线版本 — {graphName}</h2>
-          <button className="btn btn--ghost btn--sm" onClick={onClose}>关闭</button>
+          <h2>{t("modals:versionPanel.title", { name: graphName })}</h2>
+          <button className="btn btn--ghost btn--sm" onClick={onClose}>{t("common.close")}</button>
         </div>
 
         <div className="version-panel__save">
           <input
             type="text"
-            placeholder="版本名称（留空用时间戳）"
+            placeholder={t("modals:versionPanel.namePlaceholder")}
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
             className="input"
@@ -137,22 +154,28 @@ export default function VersionPanel({ open, graphId, graphName, onClose, onRest
           />
           <input
             type="text"
-            placeholder="备注（可选）"
+            placeholder={t("modals:versionPanel.notePlaceholder")}
             value={newNote}
             onChange={(e) => setNewNote(e.target.value)}
             className="input"
             style={{ flex: 1 }}
           />
           <button className="btn btn--sm" onClick={saveVersion} disabled={saving}>
-            {saving ? "保存中..." : "保存当前版本"}
+            {saving ? t("modals:versionPanel.saving") : t("modals:versionPanel.saveCurrent")}
           </button>
         </div>
 
         <div className="version-panel__list">
-          {loading && <p className="muted" style={{ textAlign: "center", padding: "20px" }}>加载中...</p>}
+          {loading && (
+            <p className="muted" style={{ textAlign: "center", padding: "20px" }}>
+              {t("common.loading")}
+            </p>
+          )}
           {!loading && versions.length === 0 && (
             <p className="muted" style={{ textAlign: "center", padding: "40px" }}>
-              暂无版本。点击上方"保存当前版本"创建第一个快照。
+              {t("modals:versionPanel.empty", {
+                button: t("modals:versionPanel.saveCurrent"),
+              })}
             </p>
           )}
           {versions.map((v) => (
@@ -161,21 +184,21 @@ export default function VersionPanel({ open, graphId, graphName, onClose, onRest
                 <span className="version-item__name">
                   {v.name}
                   {latestRunHash && v.contentHash === latestRunHash && (
-                    <span className="version-item__flag version-item__flag--ran">最近运行</span>
+                    <span className="version-item__flag version-item__flag--ran">{t("modals:versionPanel.flagLastRun")}</span>
                   )}
                   {currentHash && v.contentHash === currentHash && (
-                    <span className="version-item__flag version-item__flag--current">与当前一致</span>
+                    <span className="version-item__flag version-item__flag--current">{t("modals:versionPanel.flagCurrent")}</span>
                   )}
                 </span>
-                <span className="muted">{new Date(v.createdAt).toLocaleString()}</span>
+                <span className="muted">{new Date(v.createdAt).toLocaleString(i18n.language)}</span>
               </div>
               {v.note && v.note !== "auto" && <p className="version-item__note muted">{v.note}</p>}
               <div className="version-item__actions">
                 <button className="btn btn--ghost btn--sm" onClick={() => openPreview(v.id)} disabled={previewLoading}>
-                  预览
+                  {t("modals:versionPanel.preview")}
                 </button>
-                <button className="btn btn--ghost btn--sm" onClick={() => restoreVersion(v.id)}>恢复</button>
-                <button className="btn btn--ghost btn--sm btn--danger" onClick={() => deleteVersion(v.id)}>删除</button>
+                <button className="btn btn--ghost btn--sm" onClick={() => restoreVersion(v.id)}>{t("modals:versionPanel.restore")}</button>
+                <button className="btn btn--ghost btn--sm btn--danger" onClick={() => deleteVersion(v.id)}>{t("common.delete")}</button>
               </div>
             </div>
           ))}
@@ -187,7 +210,7 @@ export default function VersionPanel({ open, graphId, graphName, onClose, onRest
           <div className="modal version-preview" onClick={(e) => e.stopPropagation()}>
             <div className="modal__header">
               <h2>{preview.name}</h2>
-              <button className="btn btn--ghost btn--sm" onClick={() => setPreview(null)}>关闭</button>
+              <button className="btn btn--ghost btn--sm" onClick={() => setPreview(null)}>{t("common.close")}</button>
             </div>
             <div className="version-preview__body">
               <TemplatePreview
@@ -195,15 +218,11 @@ export default function VersionPanel({ open, graphId, graphName, onClose, onRest
                 edges={preview.graph.edges.map((e) => ({ from: e.from, to: e.to, kind: e.kind }))}
               />
               <p className="version-preview__summary muted">
-                {preview.graph.nodes.length} 个节点 · {preview.graph.edges.length} 条连线 ·{" "}
-                {Object.entries(
-                  preview.graph.nodes.reduce<Record<string, number>>((acc, n) => {
-                    acc[n.kind] = (acc[n.kind] ?? 0) + 1;
-                    return acc;
-                  }, {}),
-                )
-                  .map(([kind, count]) => `${kind}×${count}`)
-                  .join(" / ")}
+                {t("modals:versionPanel.previewSummary", {
+                  nodes: preview.graph.nodes.length,
+                  edges: preview.graph.edges.length,
+                  kinds: previewKinds,
+                })}
               </p>
             </div>
           </div>

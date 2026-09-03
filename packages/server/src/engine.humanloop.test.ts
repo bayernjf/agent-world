@@ -82,6 +82,39 @@ function branchHumanGraph(): Graph {
   };
 }
 
+/**
+ * source → human → sink, with an error edge off the human node: rejecting the
+ * review fails that node, and the fallback branch is what catches it.
+ */
+function humanRejectGraph(): Graph {
+  return {
+    nodes: [
+      { id: "s1", kind: "source", name: "Src", x: 0, y: 0, source: {} },
+      { id: "hu", kind: "human", name: "Human", x: 1, y: 0, human: { prompt: "确认可否发布" } },
+      { id: "fb", kind: "textGen", name: "Fallback", x: 2, y: 1, textGen: TEXTGEN },
+      { id: "k1", kind: "sink", name: "Depot", x: 3, y: 0 },
+    ],
+    edges: [
+      { id: "e1", kind: "flow", from: "s1", to: "hu" },
+      { id: "e2", kind: "flow", from: "hu", to: "k1" },
+      { id: "e3", kind: "error", from: "hu", to: "fb" },
+      { id: "e4", kind: "flow", from: "fb", to: "k1" },
+    ],
+  };
+}
+
+/**
+ * Resume appends to the same event log, so its seqs must continue the halted
+ * run's without reusing a slot — persisting a duplicate fails the
+ * UNIQUE(run_id, seq) constraint and kills the resume mid-stream.
+ */
+function expectSeqsAppendCleanly(past: RunEvent[], next: RunEvent[]) {
+  const seqs = [...past, ...next].map((e) => e.seq);
+  expect(new Set(seqs).size).toBe(seqs.length);
+  const resumed = next.map((e) => e.seq);
+  expect(Math.min(...resumed)).toBeGreaterThan(Math.max(...past.map((e) => e.seq)));
+}
+
 async function collect(gen: AsyncGenerator<RunEvent>): Promise<RunEvent[]> {
   const out: RunEvent[] = [];
   for await (const e of gen) out.push(e);
@@ -159,6 +192,48 @@ describe("4.7 human-in-the-loop", () => {
     );
     const decision = events.find((e) => e.type === "gate.verdict") as Extract<RunEvent, { type: "gate.verdict" }>;
     expect(decision.decision).toBe("rejected");
+    expect(finished(events).status).toBe("failed");
+  });
+
+  it("a rejected human node is caught by its error edge and the run still delivers", async () => {
+    const { worker } = humanLoopWorker();
+    const graph = humanRejectGraph();
+    const { plan } = compile(graph);
+    if (!plan) throw new Error("no plan");
+    const halted = await collect(execute({ runId: "r", graph, plan, worker, now: () => 0 }));
+    expect(finished(halted).status).toBe("halted");
+
+    const events = await collect(
+      resume({ runId: "r", graph, plan, worker, budgetUsd: null, pastEvents: halted, action: "reject", now: () => 0 }),
+    );
+    // The decision is recorded before the scheduler runs, so its seq must not be
+    // the one the scheduler starts on — that collision aborted the resume right
+    // here, leaving the fallback branch and the sink stranded.
+    expectSeqsAppendCleanly(halted, events);
+    const decision = events.find((e) => e.type === "human.decision") as Extract<RunEvent, { type: "human.decision" }>;
+    expect(decision.decision).toBe("rejected");
+    expect(events.some((e) => e.type === "node.failed" && e.nodeId === "hu")).toBe(true);
+    expect(events.some((e) => e.type === "node.finished" && e.nodeId === "fb")).toBe(true);
+    expect(events.some((e) => e.type === "node.finished" && e.nodeId === "k1")).toBe(true);
+    // A caught failure is handled, so the run is done rather than failed.
+    expect(finished(events).status).toBe("done");
+  });
+
+  it("an uncaught rejection fails the node loudly and then the run", async () => {
+    const { worker } = humanLoopWorker();
+    const graph = humanRejectGraph();
+    // Drop the error edge: nothing catches the rejected review.
+    graph.edges = graph.edges.filter((e) => e.kind !== "error");
+    const { plan } = compile(graph);
+    if (!plan) throw new Error("no plan");
+    const halted = await collect(execute({ runId: "r", graph, plan, worker, now: () => 0 }));
+
+    const events = await collect(
+      resume({ runId: "r", graph, plan, worker, budgetUsd: null, pastEvents: halted, action: "reject", now: () => 0 }),
+    );
+    expectSeqsAppendCleanly(halted, events);
+    expect(events.some((e) => e.type === "node.failed" && e.nodeId === "hu")).toBe(true);
+    expect(events.some((e) => e.type === "node.finished" && e.nodeId === "k1")).toBe(false);
     expect(finished(events).status).toBe("failed");
   });
   it("approve on a branch-routed human tail still runs the merge and the sink", async () => {
