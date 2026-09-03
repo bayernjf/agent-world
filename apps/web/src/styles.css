@@ -1981,6 +1981,17 @@ select {
   stroke: var(--accent);
 }
 
+/* The run is parked on this plant, waiting for a human decision. The node is
+   still marked running, so this has to come after the is-running rules to win. */
+.plant.is-awaiting-review .plant__body {
+  stroke: var(--warning);
+  stroke-width: 2;
+}
+.plant.is-awaiting-review .plant__led {
+  fill: var(--warning);
+  animation: pulse 1.1s ease-in-out infinite;
+}
+
 .plant__kind {
   fill: var(--text-tertiary);
   font-family: var(--mono);
@@ -5824,6 +5835,219 @@ select {
 .compare-table td {
   color: var(--text-primary);
   font-size: var(--text-sm);
+}
+
+/* ---------- ReviewQueue (跨产线审核队列) ---------- */
+.reviewqueue__head-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-sm);
+}
+
+.reviewqueue__bar {
+  display: flex;
+  align-items: baseline;
+  gap: var(--gap-lg);
+  padding: var(--gap-md) var(--gap-xl);
+  border-bottom: var(--hair);
+}
+.reviewqueue__subtitle {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+.reviewqueue__count {
+  margin-left: auto;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  font-family: var(--mono);
+  white-space: nowrap;
+}
+
+.reviewqueue__body {
+  padding: var(--gap-md) var(--gap-xl);
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-sm);
+}
+.reviewqueue__error {
+  padding: var(--gap-sm) var(--gap-lg);
+  background: var(--error-bg);
+  border: 1px solid var(--error);
+  color: var(--error);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+}
+
+.reviewqueue__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-md);
+}
+
+.reviewqueue__row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-sm);
+  padding: var(--gap-lg);
+  border: 1px solid var(--hair);
+  border-left: 3px solid var(--border-primary);
+  border-radius: var(--radius-card);
+  background: var(--bg-tertiary);
+  cursor: pointer;
+  transition: border-color var(--duration-fast) ease, opacity var(--duration-fast) ease;
+}
+.reviewqueue__row:hover { border-color: var(--border-hover); }
+.reviewqueue__row.is-active {
+  border-color: var(--border-focus);
+  border-left-color: var(--accent);
+}
+.reviewqueue__row.is-busy { opacity: 0.6; }
+.reviewqueue__row--human { border-left-color: var(--warning); }
+.reviewqueue__row--tool  { border-left-color: var(--error); }
+.reviewqueue__row--gate  { border-left-color: var(--info); }
+
+.reviewqueue__row-head {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-md);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.reviewqueue__row-head input[type="checkbox"] {
+  accent-color: var(--accent);
+  flex-shrink: 0;
+}
+.reviewqueue__kind { flex-shrink: 0; }
+.reviewqueue__kind--human { background: var(--warning-bg); color: var(--warning); border: 1px solid var(--warning); }
+.reviewqueue__kind--tool  { background: var(--error-bg); color: var(--error); border: 1px solid var(--error); }
+.reviewqueue__kind--gate  { background: var(--info-bg); color: var(--info); border: 1px solid var(--info); }
+.reviewqueue__graph {
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+}
+.reviewqueue__node {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.reviewqueue__meta {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  font-family: var(--mono);
+  white-space: nowrap;
+}
+.reviewqueue__id {
+  margin-left: auto;
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  font-family: var(--mono);
+}
+
+.reviewqueue__why {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+.reviewqueue__why em {
+  font-style: normal;
+  color: var(--text-tertiary);
+  margin-right: var(--gap-xs);
+}
+.reviewqueue__why code {
+  font-family: var(--mono);
+  color: var(--text-primary);
+}
+
+.reviewqueue__content-label {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  letter-spacing: 0.04em;
+}
+.reviewqueue__content {
+  margin: 0;
+  padding: var(--gap-md);
+  max-height: 220px;
+  overflow-y: auto;
+  background: var(--bg-input);
+  border: var(--hair);
+  border-radius: var(--radius-md);
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.reviewqueue__edit {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-sm);
+}
+.reviewqueue__edit textarea {
+  width: 100%;
+  resize: vertical;
+  padding: var(--gap-md);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  border: var(--hair);
+  border-radius: var(--radius-md);
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+}
+
+.reviewqueue__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-sm);
+  flex-wrap: wrap;
+}
+.reviewqueue__open { margin-left: auto; }
+
+.reviewqueue__footer {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-lg);
+  padding: var(--gap-md) var(--gap-xl);
+  border-top: var(--hair);
+}
+.reviewqueue__hint {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-xs);
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+}
+.reviewqueue__hint kbd {
+  padding: 1px var(--gap-xs);
+  border: var(--hair);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  margin-left: var(--gap-sm);
+}
+.reviewqueue__hint kbd:first-child { margin-left: 0; }
+
+/* Nav chip badge: how many runs are waiting on a human across every line. */
+.chip__badge {
+  display: inline-block;
+  min-width: 1.4em;
+  margin-left: var(--gap-xs);
+  padding: 0 var(--gap-xs);
+  border-radius: var(--radius-pill);
+  background: var(--warning);
+  color: var(--text-inverse);
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  text-align: center;
 }
 
 /* ---- Model assign modal ---- */

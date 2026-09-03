@@ -40,6 +40,15 @@ const GROUPS: { title: string; items: { keys: string; desc: string }[] }[] = [
       { keys: "modals:shortcutsHelp.other.drawerKeys", desc: "modals:shortcutsHelp.other.drawerDesc" },
     ],
   },
+  {
+    title: "reviews:shortcuts.group",
+    items: [
+      { keys: "reviews:shortcuts.approveKeys", desc: "reviews:shortcuts.approveDesc" },
+      { keys: "reviews:shortcuts.rejectKeys", desc: "reviews:shortcuts.rejectDesc" },
+      { keys: "reviews:shortcuts.editKeys", desc: "reviews:shortcuts.editDesc" },
+      { keys: "reviews:shortcuts.closeKeys", desc: "reviews:shortcuts.closeDesc" },
+    ],
+  },
 ];
 
 export default function ShortcutsHelp() {

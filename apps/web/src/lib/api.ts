@@ -119,6 +119,48 @@ export interface RunSummary {
   ended_at: number | null;
 }
 
+/** A run parked on a human decision, across every pipeline (F2 review queue). */
+export interface PendingReview {
+  runId: string;
+  graphId: string;
+  graphName: string;
+  /** Null only for runs whose log predates halt recording. */
+  nodeId: string | null;
+  nodeName: string | null;
+  kind: "human" | "tool" | "gate";
+  reason: string | null;
+  /** Text awaiting the decision, already trimmed to a server-side preview. */
+  content: string | null;
+  contentTruncated: boolean;
+  /** Judge's verdict reason, for gate halts. */
+  detail: string | null;
+  /** Tool name to approve, for dangerous-action halts. */
+  tool: string | null;
+  startedAt: number;
+  haltedAt: number;
+  waitingMs: number;
+  trigger: string;
+  abGroup: string | null;
+  abArm: string | null;
+}
+
+export type ReviewAction = "continue" | "approve" | "reject" | "edit" | "scrap";
+
+export interface ReviewDecision {
+  runId: string;
+  action: ReviewAction;
+  editOutput?: Record<string, string>;
+  approveTools?: string[];
+}
+
+/**
+ * Per-item outcome of a batch decision. The endpoint answers 200 even when some
+ * items fail (not found / still active), so each has to be checked individually.
+ */
+export type ReviewDecisionResult =
+  | { runId: string; ok: true; action: ReviewAction }
+  | { runId: string; ok: false; status: number; error: string };
+
 export class GraphConflictError extends Error {
   serverVersion: number | undefined;
   constructor(message: string, serverVersion?: number) {
@@ -319,6 +361,25 @@ export const api = {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ action, resetFrom, editOutput, approveTools }),
     }).then(json<{ ok: true }>),
+
+  /** Every run of the caller parked on a human decision, longest-waiting first. */
+  listPendingReviews: (opts: { limit?: number; offset?: number; graphId?: string } = {}) => {
+    const qs = new URLSearchParams();
+    if (opts.limit !== undefined) qs.set("limit", String(opts.limit));
+    if (opts.offset !== undefined) qs.set("offset", String(opts.offset));
+    if (opts.graphId) qs.set("graphId", opts.graphId);
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return authFetch(`/api/reviews/pending${suffix}`).then(
+      json<{ reviews: PendingReview[]; total: number }>,
+    );
+  },
+
+  decideReviews: (decisions: ReviewDecision[]) =>
+    authFetch("/api/reviews/decide", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(decisions),
+    }).then(json<{ ok: true; results: ReviewDecisionResult[] }>),
 
   getEvents: (runId: string) =>
     authFetch(`/api/runs/${runId}/events`).then(json<{ events: RunEvent[]; state: RuntimeState }>),

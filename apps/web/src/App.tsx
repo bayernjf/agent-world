@@ -19,6 +19,7 @@ import UndoRedo from "./components/UndoRedo";
 import Toast from "./components/Toast";
 import Timeline from "./components/Timeline";
 import RunHistory from "./components/RunHistory";
+import ReviewQueue from "./components/ReviewQueue";
 import ModelAssignModal from "./components/ModelAssignModal";
 import VariablesModal from "./components/VariablesModal";
 import Tooltip from "./components/Tooltip";
@@ -45,6 +46,9 @@ import { getTemplate } from "@agent-world/core";
 import { useGraph } from "./store/graph";
 import { useRun } from "./store/run";
 
+/** How often the HUD badge re-counts runs waiting on a human. */
+const REVIEW_POLL_MS = 20_000;
+
 export default function App() {
   const { t } = useTranslation();
   const {
@@ -59,6 +63,7 @@ export default function App() {
     inspectorOpen,
   } = useGraph();
   const { connect, reset, runId, loadRun } = useRun();
+  const runStatus = useRun((s) => s.live.status);
 
   const [mode, setMode] = useState<Mode>("select");
   const [budget, setBudget] = useState(0.01);
@@ -106,6 +111,9 @@ export default function App() {
     [inspectorWidth],
   );
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  /** Runs parked on a human decision across every line — the HUD badge. */
+  const [pendingReviews, setPendingReviews] = useState(0);
   const [modelAssignOpen, setModelAssignOpen] = useState(false);
   const [costOpen, setCostOpen] = useState(false);
   const [evalOpen, setEvalOpen] = useState(false);
@@ -251,6 +259,13 @@ export default function App() {
       onSelect: () => setHistoryOpen(true),
     },
     {
+      id: "reviews",
+      label: t("reviews:command.label"),
+      hint: t("reviews:command.hint"),
+      group: "view",
+      onSelect: () => setReviewOpen(true),
+    },
+    {
       id: "cost",
       label: "成本报表",
       hint: "按产线 / 文坊 / 日期拆解",
@@ -383,6 +398,26 @@ export default function App() {
       return [];
     }
   }, []);
+
+  /** Only the count is read here; the queue itself fetches the rows. */
+  const refreshPendingReviews = useCallback(() => {
+    api
+      .listPendingReviews({ limit: 1 })
+      .then((d) => setPendingReviews(d.total))
+      // The badge is cosmetic: a failed poll must not toast every 20s.
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    refreshPendingReviews();
+    const timer = setInterval(refreshPendingReviews, REVIEW_POLL_MS);
+    return () => clearInterval(timer);
+  }, [refreshPendingReviews]);
+
+  // A run halting on the canvas lights the badge at once instead of at the next poll.
+  useEffect(() => {
+    if (runStatus === "halted") refreshPendingReviews();
+  }, [runStatus, refreshPendingReviews]);
 
   const switchGraph = useCallback(
     async (id: string) => {
@@ -711,6 +746,22 @@ export default function App() {
                 提示
               </button>
             </Tooltip>
+            <Tooltip content={t("reviews:nav.tooltip")}>
+              <button
+                className="chip"
+                onClick={() => setReviewOpen(true)}
+                aria-label={
+                  pendingReviews > 0
+                    ? t("reviews:nav.badge", { n: pendingReviews })
+                    : t("reviews:nav.label")
+                }
+              >
+                {t("reviews:nav.label")}
+                {pendingReviews > 0 && (
+                  <span className="chip__badge">{pendingReviews}</span>
+                )}
+              </button>
+            </Tooltip>
             <Tooltip content="跨运行成品库：查看所有产线的历史产出，无需派发任务">
               <button className="chip" onClick={() => setGalleryOpen(true)}>
                 成品库
@@ -805,6 +856,15 @@ export default function App() {
             setHistoryOpen(false);
             void loadRun(id);
           }}
+        />
+        <ReviewQueue
+          open={reviewOpen}
+          onClose={() => setReviewOpen(false)}
+          onOpenRun={(id) => {
+            setReviewOpen(false);
+            void loadRun(id);
+          }}
+          onChanged={refreshPendingReviews}
         />
         <ModelAssignModal
           open={modelAssignOpen}

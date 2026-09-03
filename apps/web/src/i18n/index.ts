@@ -10,6 +10,7 @@ import zhSettings from "./locales/zh/settings.json";
 import zhRun from "./locales/zh/run.json";
 import zhErrors from "./locales/zh/errors.json";
 import zhAuth from "./locales/zh/auth.json";
+import zhReviews from "./locales/zh/reviews.json";
 
 import enCommon from "./locales/en/common.json";
 import enCanvas from "./locales/en/canvas.json";
@@ -19,6 +20,7 @@ import enSettings from "./locales/en/settings.json";
 import enRun from "./locales/en/run.json";
 import enErrors from "./locales/en/errors.json";
 import enAuth from "./locales/en/auth.json";
+import enReviews from "./locales/en/reviews.json";
 
 const STORAGE_KEY = "agent-world.language";
 
@@ -46,6 +48,7 @@ i18n.use(initReactI18next).init({
       run: zhRun,
       errors: zhErrors,
       auth: zhAuth,
+      reviews: zhReviews,
     },
     en: {
       common: enCommon,
@@ -56,11 +59,12 @@ i18n.use(initReactI18next).init({
       run: enRun,
       errors: enErrors,
       auth: enAuth,
+      reviews: enReviews,
     },
   },
   lng: detectLanguage(),
   fallbackLng: "zh",
-  ns: ["common", "canvas", "nodes", "modals", "settings", "run", "errors", "auth"],
+  ns: ["common", "canvas", "nodes", "modals", "settings", "run", "errors", "auth", "reviews"],
   defaultNS: "common",
   interpolation: {
     escapeValue: false, // React already escapes
