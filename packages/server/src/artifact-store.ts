@@ -28,6 +28,8 @@ export interface StoredArtifact {
   runId: string;
   nodeId: string;
   attempt: number | null;
+  /** Variant lane id; 'main' on the primary path (F1). */
+  variant?: string | null;
   graphId?: string | null;
   role?: "source" | "intermediate" | "final" | null;
   graphName?: string | null;
@@ -84,6 +86,7 @@ export class ArtifactStore {
       runId: string;
       nodeId: string;
       attempt?: number;
+      variant?: string | null;
       now?: number;
       graphId?: string | null;
       role?: "source" | "intermediate" | "final" | null;
@@ -105,6 +108,7 @@ export class ArtifactStore {
         runId: meta.runId,
         nodeId: meta.nodeId,
         attempt: meta.attempt ?? null,
+        variant: meta.variant ?? "main",
         graphId: meta.graphId ?? null,
         role: meta.role ?? null,
         kind: artifact.kind,
@@ -125,6 +129,7 @@ export class ArtifactStore {
         runId: meta.runId,
         nodeId: meta.nodeId,
         attempt: meta.attempt ?? null,
+        variant: meta.variant ?? "main",
         graphId: meta.graphId ?? null,
         role: meta.role ?? null,
         kind: artifact.kind,
