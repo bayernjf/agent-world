@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { useTranslation } from "react-i18next";
 
 interface Props {
   open: boolean;
@@ -15,12 +16,14 @@ export default function ConfirmDialog({
   open,
   title,
   description,
-  confirmLabel = "确定",
-  cancelLabel = "取消",
+  confirmLabel,
+  cancelLabel,
   danger = false,
   onConfirm,
   onCancel,
 }: Props) {
+  const { t } = useTranslation();
+
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -43,14 +46,14 @@ export default function ConfirmDialog({
         {description ? <p className="modal-confirm__desc">{description}</p> : null}
         <div className="modal-confirm__actions">
           <button className="btn" onClick={onCancel}>
-            {cancelLabel}
+            {cancelLabel ?? t("common.cancel")}
           </button>
           <button
             className={`btn ${danger ? "btn--danger" : ""}`}
             onClick={onConfirm}
             autoFocus
           >
-            {confirmLabel}
+            {confirmLabel ?? t("common.confirm")}
           </button>
         </div>
       </div>
