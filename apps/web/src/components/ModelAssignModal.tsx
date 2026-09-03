@@ -26,10 +26,10 @@ const MODALITY_KINDS: Record<Exclude<Modality, "embedding">, GraphNode["kind"][]
 };
 
 const MODALITY_KEY: Record<Exclude<Modality, "embedding">, string> = {
-  text: "modals:modelAssign.modality.text",
-  image: "modals:modelAssign.modality.image",
-  video: "modals:modelAssign.modality.video",
-  audio: "modals:modelAssign.modality.audio",
+  text: "nodes:modality.text",
+  image: "nodes:modality.image",
+  video: "nodes:modality.video",
+  audio: "nodes:modality.audio",
 };
 
 const MODALITY_ORDER: Exclude<Modality, "embedding">[] = ["text", "image", "video", "audio"];

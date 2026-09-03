@@ -251,12 +251,6 @@
     "sub": "当前产线：{{name}} · 只改选中节点的模型字段",
     "empty": "尚未配置任何可用模型。",
     "goSettings": "去设置 · 模型与密钥",
-    "modality": {
-      "text": "文本",
-      "image": "图片",
-      "video": "视频",
-      "audio": "音频"
-    },
     "groupLabel": "{{modality}}模型",
     "usedNodes": "{{used}} 节点",
     "unused": "未使用",

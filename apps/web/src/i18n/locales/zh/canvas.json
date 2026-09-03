@@ -84,5 +84,12 @@
   "nodeCopied": "已复制节点",
   "deletedElements": "已删除 {{count}} 个元素",
   "nodeRemoved": "节点已拆除",
-  "edgeRemoved": "管道已拆除"
+  "edgeRemoved": "管道已拆除",
+  "toolbar": {
+    "more": "更多",
+    "palette": "节点库",
+    "searchPlaceholder": "搜索节点…",
+    "search": "搜索节点",
+    "noMatch": "没有匹配的节点"
+  }
 }

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { Diagnostic, FormConnector, Graph } from "@agent-world/core";
 
 type FormField = FormConnector["fields"][number];
 import Canvas, { type Mode } from "./canvas/Canvas";
-import { KIND_LABEL } from "./canvas/Plants";
+import { KIND_KEY } from "./canvas/Plants";
 import Minimap from "./canvas/Minimap";
 import CanvasToolbar from "./components/CanvasToolbar";
 import ControlPanel from "./components/ControlPanel";
@@ -45,6 +46,7 @@ import { useGraph } from "./store/graph";
 import { useRun } from "./store/run";
 
 export default function App() {
+  const { t } = useTranslation();
   const {
     graph,
     setGraph,
@@ -681,10 +683,10 @@ export default function App() {
                     }, {}),
                   )
                     .sort((a, b) => b[1] - a[1])
-                    .map(
-                      ([k, v]) =>
-                        `${v} ${KIND_LABEL[k as keyof typeof KIND_LABEL] ?? k}`,
-                    )
+                    .map(([k, v]) => {
+                      const key = KIND_KEY[k as keyof typeof KIND_KEY];
+                      return `${v} ${key ? t(key) : k}`;
+                    })
                     .join(" · ")
                 : "0 节点"}
             </span>

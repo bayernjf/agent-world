@@ -105,7 +105,7 @@ export default function SourceFiles({
 
   return (
     <div className="field">
-      <span>{t("nodes:sourceFiles.label")}</span>
+      <span>{t("nodes:sourceFiles.label", { node: t("nodes:fileParse") })}</span>
 
       <div
         className={`image-dropzone ${dragOver ? "is-over" : ""} ${uploading ? "is-loading" : ""}`}

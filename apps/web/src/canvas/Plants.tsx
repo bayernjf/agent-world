@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type {
   Graph,
   GraphNode,
@@ -18,41 +19,41 @@ interface Props {
   onPointerDown: (node: GraphNode, e: React.PointerEvent) => void;
 }
 
-export const KIND_LABEL: Record<GraphNode["kind"], string> = {
-  source: "原料台",
-  textGen: "文坊",
-  gate: "质检站",
-  sink: "成品库",
-  imageGen: "画坊",
-  videoGen: "影坊",
-  audioGen: "音坊",
-  http: "API 口岸",
-  code: "代码工坊",
-  branch: "分拣闸",
-  map: "改料台",
-  loop: "批处理站",
-  parallel: "汇流站",
-  table: "理货台",
-  database: "总账房",
-  fileParse: "拆包台",
-  translate: "翻译间",
-  ocr: "识图台",
-  convert: "换装台",
-  search: "瞭望塔",
-  notify: "广播站",
-  vcs: "档案柜",
-  human: "人工岗",
-  subprocess: "外包工坊",
-  generic: "多能坊",
+export const KIND_KEY: Record<GraphNode["kind"], string> = {
+  source: "nodes:source",
+  textGen: "nodes:textGen",
+  gate: "nodes:gate",
+  sink: "nodes:sink",
+  imageGen: "nodes:imageGen",
+  videoGen: "nodes:videoGen",
+  audioGen: "nodes:audioGen",
+  http: "nodes:http",
+  code: "nodes:code",
+  branch: "nodes:branch",
+  map: "nodes:map",
+  loop: "nodes:loop",
+  parallel: "nodes:parallel",
+  table: "nodes:table",
+  database: "nodes:database",
+  fileParse: "nodes:fileParse",
+  translate: "nodes:translate",
+  ocr: "nodes:ocr",
+  convert: "nodes:convert",
+  search: "nodes:search",
+  notify: "nodes:notify",
+  vcs: "nodes:vcs",
+  human: "nodes:human",
+  subprocess: "nodes:subprocess",
+  generic: "nodes:generic",
 };
 
-const STATUS_LABEL: Record<NodeRuntime["status"], string> = {
-  idle: "待机",
-  running: "运行中",
-  done: "完成",
-  failed: "失败",
-  skipped: "已跳过",
-  scrapped: "已报废",
+const STATUS_KEY: Record<NodeRuntime["status"], string> = {
+  idle: "nodes:status.idle",
+  running: "nodes:status.running",
+  done: "nodes:status.done",
+  failed: "nodes:status.failed",
+  skipped: "nodes:status.skipped",
+  scrapped: "nodes:status.scrapped",
 };
 
 /** Maximum model-name characters before ellipsis. */
@@ -81,6 +82,7 @@ export default function Plants({
 }: Props) {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [anchor, setAnchor] = useState<Rect | null>(null);
+  const { t } = useTranslation();
   const tipsEnabled = useTips((s) => s.enabled);
   const nodeRefs = useRef<Map<string, SVGGElement>>(new Map());
 
@@ -146,45 +148,64 @@ export default function Plants({
 
   const tooltipLines: TooltipLine[] = hovered
     ? [
-        { label: "类型", value: KIND_LABEL[hovered.kind] },
+        { label: t("nodes:tip.kind"), value: t(KIND_KEY[hovered.kind]) },
         ...(hovered.textGen?.model
-          ? [{ label: "模型", value: hovered.textGen.model }]
+          ? [{ label: t("nodes:tip.model"), value: hovered.textGen.model }]
           : []),
         ...(hovered.kind === "gate"
-          ? [{ label: "上限", value: `${hovered.gate?.maxAttempts ?? 3} 次` }]
+          ? [
+              {
+                label: t("nodes:tip.gateLimit"),
+                value: t("nodes:attempts", {
+                  n: hovered.gate?.maxAttempts ?? 3,
+                }),
+              },
+            ]
           : []),
         ...(hovered.kind === "source"
           ? [
               {
-                label: "图片原料",
-                value: `${hovered.source?.images?.length ?? 0} 张`,
+                label: t("nodes:tip.images"),
+                value: t("nodes:imageCount", {
+                  n: hovered.source?.images?.length ?? 0,
+                }),
               },
             ]
           : []),
         ...(hoveredRt
           ? [
               {
-                label: "状态",
-                value: STATUS_LABEL[hoveredRt.status] ?? hoveredRt.status,
+                label: t("nodes:tip.status"),
+                value: t(STATUS_KEY[hoveredRt.status] ?? hoveredRt.status),
               },
               ...(hoveredRt.attempt > 1
-                ? [{ label: "返工", value: `${hoveredRt.attempt} 次` }]
+                ? [
+                    {
+                      label: t("nodes:tip.rework"),
+                      value: t("nodes:attempts", { n: hoveredRt.attempt }),
+                    },
+                  ]
                 : []),
               ...(hoveredRt.tokensIn || hoveredRt.tokensOut
                 ? [
                     {
-                      label: "Token",
+                      label: t("nodes:tip.tokens"),
                       value: `${(hoveredRt.tokensIn ?? 0) + (hoveredRt.tokensOut ?? 0)}`,
                     },
                   ]
                 : []),
               ...(hoveredRt.costUsd > 0
-                ? [{ label: "电费", value: `$${hoveredRt.costUsd.toFixed(4)}` }]
+                ? [
+                    {
+                      label: t("nodes:tip.power"),
+                      value: `$${hoveredRt.costUsd.toFixed(4)}`,
+                    },
+                  ]
                 : []),
               ...(hovered.textGen?.budgetUsd
                 ? [
                     {
-                      label: "节点预算",
+                      label: t("nodes:tip.budget"),
                       value: `$${(hoveredRt?.costUsd ?? 0).toFixed(4)} / $${hovered.textGen.budgetUsd.toFixed(4)}`,
                     },
                   ]
@@ -250,7 +271,7 @@ export default function Plants({
 
               <circle className="plant__led" cx={12} cy={11} r={3.5} />
               <text className="plant__kind" x={26} y={15}>
-                {KIND_LABEL[node.kind]}
+                {t(KIND_KEY[node.kind])}
               </text>
 
               <text className="plant__name" x={12} y={48}>
@@ -264,7 +285,7 @@ export default function Plants({
               )}
               {node.kind === "gate" && (
                 <text className="plant__meta" x={12} y={68}>
-                  上限 {node.gate?.maxAttempts ?? 3} 次
+                  {t("nodes:gateLimitMeta", { n: node.gate?.maxAttempts ?? 3 })}
                 </text>
               )}
               {(node.kind === "imageGen" || node.kind === "videoGen") &&
@@ -314,7 +335,9 @@ export default function Plants({
                   >
                     <rect width={50} height={15} rx={2} />
                     <text x={25} y={11} textAnchor="middle">
-                      图 {node.source?.images?.length}
+                      {t("nodes:imageChip", {
+                        n: node.source?.images?.length ?? 0,
+                      })}
                     </text>
                   </g>
                 )}

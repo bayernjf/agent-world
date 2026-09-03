@@ -84,5 +84,12 @@
   "nodeCopied": "Node copied",
   "deletedElements": "Deleted {{count}} elements",
   "nodeRemoved": "Node removed",
-  "edgeRemoved": "Pipe removed"
+  "edgeRemoved": "Pipe removed",
+  "toolbar": {
+    "more": "More",
+    "palette": "Node library",
+    "searchPlaceholder": "Search nodes…",
+    "search": "Search nodes",
+    "noMatch": "No matching nodes"
+  }
 }

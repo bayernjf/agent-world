@@ -251,12 +251,6 @@
     "sub": "Line: {{name}} · only the selected nodes change model",
     "empty": "No usable models configured yet.",
     "goSettings": "Open Settings · Models & keys",
-    "modality": {
-      "text": "Text",
-      "image": "Image",
-      "video": "Video",
-      "audio": "Audio"
-    },
     "groupLabel": "{{modality}} models",
     "usedNodes": "{{used}} nodes",
     "unused": "Unused",
