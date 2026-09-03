@@ -55,9 +55,10 @@
 6. **web 前端组件测试** —— ✅ 已完成（2026-09-03）。从 176 个纯逻辑测试（零组件测试）推进到 **1460 个测试**，其中组件测试 **1223 个**，覆盖 **39 个组件**。分四批推进：P0（5 组件/112 用例）、P1（5 组件/174 用例）、P2（10 组件/285 用例）、P3（19 组件/652 用例）。基础设施 @testing-library/react + jsdom + vitest.config.ts + setup.ts + utils.tsx。过程中发现并修复 Inspector.tsx 可选链 bug。全量 1460/1460 稳定通过，56 个测试文件 — [web-component-testing-plan.md](web-component-testing-plan.md)。
 7. **设计 Token 体系完善** —— ✅ 已完成（2026-09-03）。Primitive 层（间距/圆角/阴影/字号/行高/字重/动画）+ Semantic 层（背景/文字/边框/功能色/accent/语义间距圆角阴影）+ 明暗主题切换（`[data-theme="light"]`）全部落地，保留原有 26 个 token 向后兼容。**渐进式迁移已完成（30 批）**：styles.css 全局样式全部迁移到 semantic token，全量 1460 测试每批验证通过无回归 — [design-design-tokens.md](design-design-tokens.md)。
 8. **i18n 国际化** —— 🟡 组件级迁移进行中（2026-09-03）。i18next + react-i18next + 7 命名空间 + 完整 zh/en 双语翻译包（1800+ keys）+ 语言自动检测 + localStorage 持久化全部落地，全量 1460 测试无回归。**组件级迁移已开始（3/41 组件）**：Toast、UndoRedo、ConfirmDialog 已迁移到 useTranslation hook；测试设置已添加 i18n 初始化（强制中文语言，现有测试断言继续有效）。剩余渐进式迁移：38/41 组件逐步用 `useTranslation()` hook 替换硬编码中文（预计 200+ 处），添加语言切换 UI，本地化格式 — [design-i18n.md](design-i18n.md)。
-9. **文档穿插（4.8）** —— 基本完成（2026-09-01 盘点后核心设计文档覆盖全部已落地模块；低优余项见 deferred-items 文档线）。
-10. **低优 / 缓做** —— 沙箱 docker 容器后端、模板/节点市场、版本 diff 视图、状态机、监控告警大盘、多租户、Notion/Linear/内容平台集成、Excel 读写、HTML→PDF。触发条件见 [deferred-items.md](deferred-items.md)。
-11. **商业化** —— 放后面，决策基线见 [PRODUCT_STRATEGY.md](../PRODUCT_STRATEGY.md)。
+9. **自媒体电商方向能力升级** —— ⚪ 待启动（2026-09-03 立项，方案评审通过）。F1-F10 十个特性（run 内多变体择优引擎 + 画布泳道 / 人工审核队列 / 平台适配与合规校验 / 商品库素材库 / 批量任务 / 效果回流 / 发布集成 / 内容日历 / 内容级成本），里程碑 M1-M6；节点策略收口为**只新增 4 个节点**（fanout/select/compliance/publish），其余靠扩 ConnectorType 与平台层数据表 + 工作台 UI。已对 HEAD 抽查 8 处行级引用核准，并补写 F1 失败语义（防 silent-success，与调度器改造同批落地）— [design-ecommerce-roadmap.md](design-ecommerce-roadmap.md)。
+10. **文档穿插（4.8）** —— 基本完成（2026-09-01 盘点后核心设计文档覆盖全部已落地模块；低优余项见 deferred-items 文档线）。
+11. **低优 / 缓做** —— 沙箱 docker 容器后端、模板/节点市场、版本 diff 视图、状态机、监控告警大盘、多租户、Notion/Linear/内容平台集成、Excel 读写、HTML→PDF。触发条件见 [deferred-items.md](deferred-items.md)。
+12. **商业化** —— 放后面，决策基线见 [PRODUCT_STRATEGY.md](../PRODUCT_STRATEGY.md)。
 
 ---
 
