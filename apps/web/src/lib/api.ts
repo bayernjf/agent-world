@@ -349,6 +349,35 @@ export interface ContentPlan {
   updatedAt: number;
 }
 
+/** One performance metric row (F6). */
+export interface ContentMetric {
+  id: string;
+  graphId: string | null;
+  runId: string | null;
+  nodeId: string | null;
+  variant: string | null;
+  artifactId: string | null;
+  productId: string | null;
+  platform: string | null;
+  externalContentId: string | null;
+  impressions: number;
+  clicks: number;
+  conversions: number;
+  gmv: number;
+  adSpend: number;
+  recordedAt: number;
+}
+
+/** Aggregated performance bucket. */
+export interface PerformanceAggregate {
+  group: string;
+  impressions: number;
+  clicks: number;
+  conversions: number;
+  gmv: number;
+  adSpend: number;
+}
+
 export const api = {
   listSkills: () => authFetch("/api/skills").then(json<Skill[]>),
 
@@ -704,6 +733,31 @@ export const api = {
 
   deletePlan: (id: string) =>
     authFetch(`/api/plan/${id}`, { method: "DELETE" }).then(() => undefined),
+
+  listMetrics: () => authFetch("/api/metrics").then(json<ContentMetric[]>),
+
+  insertMetric: (input: Partial<ContentMetric> & { recordedAt?: number }) =>
+    authFetch("/api/metrics", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(input),
+    }).then(async (res) => {
+      if (!res.ok) throw new Error(await res.text());
+      return res.json() as Promise<ContentMetric>;
+    }),
+
+  importMetrics: (csv: string) =>
+    authFetch("/api/metrics/import", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ csv }),
+    }).then(async (res) => {
+      if (!res.ok) throw new Error(await res.text());
+      return res.json() as Promise<{ imported: number }>;
+    }),
+
+  aggregatePerformance: (groupBy = "graph_id") =>
+    authFetch(`/api/performance?groupBy=${groupBy}`).then(json<PerformanceAggregate[]>),
 
   listTriggers: (graphId: string) =>
     authFetch(`/api/graphs/${graphId}/triggers`).then(json<TriggerConfig[]>),

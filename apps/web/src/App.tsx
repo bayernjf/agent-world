@@ -35,6 +35,7 @@ import ProductLibrary from "./components/ProductLibrary";
 import BrandAssets from "./components/BrandAssets";
 import BatchManager from "./components/BatchManager";
 import CalendarView from "./components/CalendarView";
+import PerformanceDashboard from "./components/PerformanceDashboard";
 import TriggersPanel from "./components/TriggersPanel";
 import ProductGallery from "./components/ProductGallery";
 import Onboarding from "./components/Onboarding";
@@ -129,6 +130,7 @@ export default function App() {
   const [brandAssetsOpen, setBrandAssetsOpen] = useState(false);
   const [batchOpen, setBatchOpen] = useState(false);
   const [calendarOpen, setCalendarOpen] = useState(false);
+  const [performanceOpen, setPerformanceOpen] = useState(false);
   const [triggersOpen, setTriggersOpen] = useState(false);
   const [knowledgeOpen, setKnowledgeOpen] = useState(false);
   const [glossaryOpen, setGlossaryOpen] = useState(false);
@@ -371,6 +373,13 @@ export default function App() {
       hint: t("modals:commandPalette.commands.calendar.hint"),
       group: "manage",
       onSelect: () => setCalendarOpen(true),
+    },
+    {
+      id: "performance",
+      label: t("modals:commandPalette.commands.performance.label"),
+      hint: t("modals:commandPalette.commands.performance.hint"),
+      group: "manage",
+      onSelect: () => setPerformanceOpen(true),
     },
     {
       id: "knowledge",
@@ -964,6 +973,7 @@ export default function App() {
         <BrandAssets open={brandAssetsOpen} onClose={() => setBrandAssetsOpen(false)} />
         <BatchManager open={batchOpen} onClose={() => setBatchOpen(false)} />
         <CalendarView open={calendarOpen} onClose={() => setCalendarOpen(false)} />
+        <PerformanceDashboard open={performanceOpen} onClose={() => setPerformanceOpen(false)} />
         <TriggersPanel
           open={triggersOpen}
           onClose={() => setTriggersOpen(false)}
