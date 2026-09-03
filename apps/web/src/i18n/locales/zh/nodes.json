@@ -360,7 +360,9 @@
       "models": "模型列表（逗号分隔，数量需等于变体数）",
       "angleBrief": "自动生成角度指令（提示词为空时生效）",
       "hint": "扇出台把一份输入复制成 N 个变体泳道，下游子图对每个变体独立执行，最终由「择优台」汇聚选出 TopK。",
-      "laneCards": "变体泳道"
+      "laneCards": "变体泳道",
+      "arrangeLanes": "整理泳道布局",
+      "duplicateLanes": "复制支路结构"
     },
     "select": {
       "mode": "择优方式",

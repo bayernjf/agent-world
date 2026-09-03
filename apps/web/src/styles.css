@@ -6346,3 +6346,26 @@ select {
   margin: 6px 0 0;
   font-size: 12px;
 }
+
+/* F10: compile-error nodes get a red frame on the canvas */
+.plant.is-error .plant__body {
+  stroke: var(--danger, #d33);
+  stroke-width: 2;
+}
+.plant.is-error .plant__bar {
+  fill: var(--danger, #d33);
+}
+
+/* F10: fanout lane collapse toggle chip */
+.plant__collapse-chip rect {
+  fill: var(--steel-800);
+  stroke: var(--border);
+}
+.plant__collapse-chip text {
+  fill: var(--text-primary);
+  font-size: 12px;
+  font-weight: var(--font-semibold);
+}
+.plant__collapse-chip:hover rect {
+  fill: var(--steel-700);
+}

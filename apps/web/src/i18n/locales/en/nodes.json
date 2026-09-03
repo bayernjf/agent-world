@@ -360,7 +360,9 @@
       "models": "Models (comma-separated; count must equal variants)",
       "angleBrief": "Auto-angle brief (used when prompts are empty)",
       "hint": "Fan-out copies one input into N variant lanes; the downstream sub-graph runs independently per variant and reconverges at a Select desk.",
-      "laneCards": "Variant lanes"
+      "laneCards": "Variant lanes",
+      "arrangeLanes": "Arrange lanes",
+      "duplicateLanes": "Duplicate lanes"
     },
     "select": {
       "mode": "Selection mode",

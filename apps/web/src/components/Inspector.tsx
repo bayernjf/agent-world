@@ -498,7 +498,7 @@ export default function Inspector({
   onOpenSettings: () => void;
 }) {
   const { t } = useTranslation();
-  const { graph, selectedId, updateNode, saveState, reloadGraph } = useGraph();
+  const { graph, selectedId, updateNode, saveState, reloadGraph, arrangeLanes, duplicateLanes } = useGraph();
   const runtime = useVisibleRuntime();
   // Saved graphs for the subprocess node's graph picker (refresh on mount).
   const [graphs, setGraphs] = useState<{ id: string; name: string }[]>([]);
@@ -1979,6 +1979,20 @@ export default function Inspector({
                   </label>
                 )}
                 <div className="field__hint">{t("nodes:inspector.fanout.hint")}</div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    className="btn btn--sm"
+                    onClick={() => duplicateLanes(node.id)}
+                  >
+                    {t("nodes:inspector.fanout.duplicateLanes")}
+                  </button>
+                  <button
+                    className="btn btn--sm"
+                    onClick={() => arrangeLanes(node.id)}
+                  >
+                    {t("nodes:inspector.fanout.arrangeLanes")}
+                  </button>
+                </div>
               </>
             )}
 

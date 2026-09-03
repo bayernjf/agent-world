@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type {
+  Diagnostic,
   Graph,
   GraphNode,
   NodeRuntime,
@@ -17,6 +18,12 @@ interface Props {
   selectedNodeIds: string[];
   connectFrom: string | null;
   onPointerDown: (node: GraphNode, e: React.PointerEvent) => void;
+  /** Compile diagnostics — error nodes get a red frame (F10 validation viz). */
+  diagnostics?: Diagnostic[];
+  /** Lane nodes hidden by collapsed fanouts (F10 fold/expand). */
+  hiddenNodeIds?: Set<string>;
+  collapsedFans?: Record<string, boolean>;
+  onToggleCollapse?: (fanoutId: string) => void;
 }
 
 export const KIND_KEY: Record<GraphNode["kind"], string> = {
@@ -83,12 +90,21 @@ export default function Plants({
   selectedNodeIds,
   connectFrom,
   onPointerDown,
+  diagnostics = [],
+  hiddenNodeIds,
+  collapsedFans = {},
+  onToggleCollapse,
 }: Props) {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [anchor, setAnchor] = useState<Rect | null>(null);
   const { t } = useTranslation();
   const tipsEnabled = useTips((s) => s.enabled);
   const nodeRefs = useRef<Map<string, SVGGElement>>(new Map());
+
+  // Nodes the compiler flagged (severity error) — red-framed on the canvas (F10).
+  const errorNodeIds = new Set(
+    diagnostics.filter((d) => d.severity === "error" && d.nodeId).map((d) => d.nodeId!),
+  );
 
   // T toggles hover nameplates on/off.
   useEffect(() => {
@@ -223,6 +239,7 @@ export default function Plants({
     <>
       <g className="plants">
         {graph.nodes.map((node) => {
+          if (hiddenNodeIds?.has(node.id)) return null;
           const rt = runtime.nodes[node.id];
           const x = node.x - PLANT_W / 2;
           const y = node.y - PLANT_H / 2;
@@ -255,6 +272,7 @@ export default function Plants({
                   : "",
                 selectedNodeIds.includes(node.id) ? "is-selected" : "",
                 connectFrom === node.id ? "is-connect-src" : "",
+                errorNodeIds.has(node.id) ? "is-error" : "",
               ]
                 .filter(Boolean)
                 .join(" ")}
@@ -351,6 +369,23 @@ export default function Plants({
                     </text>
                   </g>
                 )}
+
+              {node.kind === "fanout" && onToggleCollapse && (
+                <g
+                  className="plant__collapse-chip"
+                  transform={`translate(${PLANT_W - 18} ${PLANT_H - 40})`}
+                  style={{ cursor: "pointer" }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onToggleCollapse(node.id);
+                  }}
+                >
+                  <rect x={-13} y={-9} width={26} height={18} rx={3} />
+                  <text x={0} y={2} textAnchor="middle">
+                    {collapsedFans[node.id] ? "＋" : "－"}
+                  </text>
+                </g>
+              )}
 
               {attempt > 1 && (
                 <g
