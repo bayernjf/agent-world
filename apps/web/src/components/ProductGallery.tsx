@@ -12,6 +12,7 @@ import {
 } from "../lib/api";
 import { JsonView, renderMarkdown, safeParse } from "../lib/artifact-renderers";
 import FinishedProduct from "./FinishedProduct";
+import { useTranslation } from "react-i18next";
 import Tooltip from "./Tooltip";
 
 interface Props {
@@ -22,13 +23,13 @@ interface Props {
 type KindFilter = "all" | StoredArtifact["kind"];
 
 const KIND_LABEL: Record<StoredArtifact["kind"], string> = {
-  text: "文本",
-  image: "图片",
-  video: "视频",
-  audio: "音频",
-  file: "文件",
-  json: "数据",
-  uri: "链接",
+  text: "modals:productGallery.kinds.text",
+  image: "modals:productGallery.kinds.image",
+  video: "modals:productGallery.kinds.video",
+  audio: "modals:productGallery.kinds.audio",
+  file: "modals:productGallery.kinds.file",
+  json: "modals:productGallery.kinds.json",
+  uri: "modals:productGallery.kinds.uri",
 };
 
 const FILTERS: KindFilter[] = [
@@ -45,12 +46,12 @@ const PAGE = 60;
 const RUN_PAGE = 20;
 
 const RUN_STATUS_LABEL: Record<string, string> = {
-  running: "运行中",
-  done: "已完成",
-  completed: "已完成",
-  failed: "失败",
-  cancelled: "已取消",
-  halted: "待人工",
+  running: "modals:productGallery.runStatus.running",
+  done: "modals:productGallery.runStatus.done",
+  completed: "modals:productGallery.runStatus.completed",
+  failed: "modals:productGallery.runStatus.failed",
+  cancelled: "modals:productGallery.runStatus.cancelled",
+  halted: "modals:productGallery.runStatus.halted",
 };
 
 function resolveUrl(a: StoredArtifact): string | null {
@@ -84,6 +85,7 @@ function fmtDuration(ms: number): string {
 }
 
 export default function ProductGallery({ open, onClose }: Props) {
+  const { t } = useTranslation();
   const [filter, setFilter] = useState<KindFilter>("all");
   const [view, setView] = useState<"kind" | "pipeline" | "run">("kind");
   const [items, setItems] = useState<StoredArtifact[]>([]);
@@ -144,7 +146,7 @@ export default function ProductGallery({ open, onClose }: Props) {
     if (view !== "pipeline") return null;
     const m = new Map<string, StoredArtifact[]>();
     for (const a of filtered) {
-      const key = a.graphName ?? "(未归属流水线)";
+      const key = a.graphName ?? t("modals:productGallery.unassignedGraph");
       if (!m.has(key)) m.set(key, []);
       m.get(key)!.push(a);
     }
@@ -155,7 +157,7 @@ export default function ProductGallery({ open, onClose }: Props) {
     if (view !== "run") return null;
     const m = new Map<string, RunSummary[]>();
     for (const r of runs) {
-      const key = r.graph_name || "(未命名流水线)";
+      const key = r.graph_name || t("modals:productGallery.unnamedGraph");
       if (!m.has(key)) m.set(key, []);
       m.get(key)!.push(r);
     }
@@ -168,7 +170,7 @@ export default function ProductGallery({ open, onClose }: Props) {
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal modal--wide" onClick={(e) => e.stopPropagation()}>
         <div className="modal__header">
-          <h2>成品库</h2>
+          <h2>{t("modals:productGallery.title")}</h2>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             {view !== "run" && (
               <div className="seg">
@@ -178,7 +180,9 @@ export default function ProductGallery({ open, onClose }: Props) {
                     className={`seg__btn ${filter === k ? "is-on" : ""}`}
                     onClick={() => setFilter(k)}
                   >
-                    {k === "all" ? "全部" : KIND_LABEL[k]}
+                    {k === "all"
+                      ? t("modals:productGallery.all")
+                      : t(KIND_LABEL[k])}
                   </button>
                 ))}
               </div>
@@ -188,22 +192,22 @@ export default function ProductGallery({ open, onClose }: Props) {
                 className={`seg__btn ${view === "kind" ? "is-on" : ""}`}
                 onClick={() => setView("kind")}
               >
-                按类型
+                {t("modals:productGallery.byKind")}
               </button>
               <button
                 className={`seg__btn ${view === "pipeline" ? "is-on" : ""}`}
                 onClick={() => setView("pipeline")}
               >
-                按流水线
+                {t("modals:productGallery.byPipeline")}
               </button>
               <button
                 className={`seg__btn ${view === "run" ? "is-on" : ""}`}
                 onClick={() => setView("run")}
               >
-                按运行
+                {t("modals:productGallery.byRun")}
               </button>
             </div>
-            <Tooltip content="关闭">
+            <Tooltip content={t("common.close")}>
               <button className="icon-btn" onClick={onClose}>
                 ✕
               </button>
@@ -218,14 +222,14 @@ export default function ProductGallery({ open, onClose }: Props) {
                 className="muted"
                 style={{ textAlign: "center", padding: "40px 0" }}
               >
-                加载中…
+                {t("modals:productGallery.loading")}
               </p>
             ) : runs.length === 0 ? (
               <p
                 className="muted"
                 style={{ textAlign: "center", padding: "40px 0" }}
               >
-                暂无运行记录。派发产线后，每一次运行的最终成品可以在这里查看。
+                {t("modals:productGallery.noRuns")}
               </p>
             ) : (
               runGroups!.map((g) => (
@@ -246,7 +250,9 @@ export default function ProductGallery({ open, onClose }: Props) {
                             <span
                               className={`run-status run-status--${r.status}`}
                             >
-                              {RUN_STATUS_LABEL[r.status] ?? r.status}
+                              {RUN_STATUS_LABEL[r.status]
+                                ? t(RUN_STATUS_LABEL[r.status]!)
+                                : r.status}
                             </span>
                             <span className="runhistory-id">
                               {r.id.slice(0, 8)}
@@ -255,10 +261,10 @@ export default function ProductGallery({ open, onClose }: Props) {
                           <div className="runhistory-row-meta">
                             <span>{formatDate(r.started_at)}</span>
                             <span>
-                              耗时{" "}
+                              {t("modals:productGallery.duration")}{" "}
                               {r.ended_at != null
                                 ? fmtDuration(r.ended_at - r.started_at)
-                                : "运行中"}
+                                : t("modals:productGallery.runStatus.running")}
                             </span>
                             <span>{r.trigger}</span>
                           </div>
@@ -270,7 +276,7 @@ export default function ProductGallery({ open, onClose }: Props) {
                             setViewRun(r);
                           }}
                         >
-                          查看成品
+                          {t("modals:productGallery.viewProduct")}
                         </button>
                       </div>
                     ))}
@@ -283,7 +289,7 @@ export default function ProductGallery({ open, onClose }: Props) {
               className="muted"
               style={{ textAlign: "center", padding: "40px 0" }}
             >
-              暂无成品。运行产线后，产出的图片、文本、数据等会汇集到这里。
+              {t("modals:productGallery.noProducts")}
             </p>
           ) : view === "pipeline" && groups ? (
             groups.map((g) => (
@@ -314,7 +320,9 @@ export default function ProductGallery({ open, onClose }: Props) {
                 disabled={runsLoading}
                 onClick={() => void loadRuns(runs.length)}
               >
-                {runsLoading ? "加载中…" : "加载更多"}
+                {runsLoading
+                  ? t("modals:productGallery.loading")
+                  : t("modals:productGallery.loadMore")}
               </button>
             </div>
           )}
@@ -326,7 +334,9 @@ export default function ProductGallery({ open, onClose }: Props) {
                 disabled={loading}
                 onClick={() => void load(items.length)}
               >
-                {loading ? "加载中…" : "加载更多"}
+                {loading
+                  ? t("modals:productGallery.loading")
+                  : t("modals:productGallery.loadMore")}
               </button>
             </div>
           )}
@@ -341,12 +351,15 @@ export default function ProductGallery({ open, onClose }: Props) {
 }
 
 function GalleryImageThumb({ url }: { url: string }) {
+  const { t } = useTranslation();
   const [broken, setBroken] = useState(false);
   if (broken) {
     return (
       <div className="gallery-card__doc">
         <div className="gallery-card__doc-icon">IMG</div>
-        <div className="gallery-card__doc-name">图片链接已失效</div>
+        <div className="gallery-card__doc-name">
+          {t("modals:productGallery.imageBroken")}
+        </div>
         <a
           className="gallery-card__doc-link"
           href={url}
@@ -354,7 +367,7 @@ function GalleryImageThumb({ url }: { url: string }) {
           rel="noopener noreferrer"
           onClick={(e) => e.stopPropagation()}
         >
-          查看原链接 ↗
+          {t("modals:productGallery.openOriginal")}
         </a>
       </div>
     );
@@ -371,12 +384,15 @@ function GalleryImageThumb({ url }: { url: string }) {
 }
 
 function GalleryThumb({ a }: { a: StoredArtifact }) {
+  const { t } = useTranslation();
   const url = resolveUrl(a);
   if (a.kind === "image") {
     return url ? (
       <GalleryImageThumb url={url} />
     ) : (
-      <div className="gallery-card__empty">无图片</div>
+      <div className="gallery-card__empty">
+        {t("modals:productGallery.noImage")}
+      </div>
     );
   }
   if (a.kind === "video" && url) {
@@ -396,7 +412,9 @@ function GalleryThumb({ a }: { a: StoredArtifact }) {
               ? "URI"
               : "TXT";
   const hint =
-    a.kind === "text" || a.kind === "json" ? "点击查看正文" : "点击查看详情";
+    a.kind === "text" || a.kind === "json"
+      ? t("modals:productGallery.viewBody")
+      : t("modals:productGallery.viewDetail");
   return (
     <div className="gallery-card__doc" style={{ borderTopColor: color }}>
       <div className="gallery-card__doc-icon" style={{ color }}>
@@ -406,7 +424,7 @@ function GalleryThumb({ a }: { a: StoredArtifact }) {
         {a.label ?? a.id}
       </div>
       <div className="gallery-card__doc-meta">
-        {KIND_LABEL[a.kind]} · {formatSize(a.sizeBytes)}
+        {t(KIND_LABEL[a.kind])} · {formatSize(a.sizeBytes)}
       </div>
       <div className="gallery-card__doc-hint">{hint}</div>
     </div>
@@ -420,8 +438,9 @@ function GalleryCard({
   artifact: StoredArtifact;
   onOpen: (a: StoredArtifact) => void;
 }) {
+  const { t } = useTranslation();
   const color = ARTIFACT_COLORS[a.kind] ?? "#ffb020";
-  const title = a.label ?? `${KIND_LABEL[a.kind]} · ${a.id}`;
+  const title = a.label ?? `${t(KIND_LABEL[a.kind])} · ${a.id}`;
   return (
     <div
       className="gallery-card"
@@ -459,8 +478,9 @@ function ArtifactDetail({
   a: StoredArtifact;
   onClose: () => void;
 }) {
+  const { t } = useTranslation();
   const color = ARTIFACT_COLORS[a.kind] ?? "#ffb020";
-  const klabel = KIND_LABEL[a.kind] ?? a.kind;
+  const klabel = KIND_LABEL[a.kind] ? t(KIND_LABEL[a.kind]) : a.kind;
   const date = formatDate(a.createdAt);
   const [text, setText] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -555,7 +575,7 @@ function ArtifactDetail({
           <button
             className="gallery-detail__close icon-btn"
             onClick={onClose}
-            aria-label="关闭"
+            aria-label={t("common.close")}
           >
             ✕
           </button>
@@ -566,16 +586,16 @@ function ArtifactDetail({
             <span>·</span>
             <span>
               {a.storage === "local"
-                ? "本地存储"
+                ? t("modals:productGallery.storageLocal")
                 : a.storage === "uri"
-                  ? "外链"
-                  : "元数据"}
+                  ? t("modals:productGallery.storageUri")
+                  : t("modals:productGallery.storageMeta")}
             </span>
             {url && (
               <>
                 <span>·</span>
                 <a href={url} target="_blank" rel="noopener noreferrer">
-                  原链接 ↗
+                  {t("modals:productGallery.originalLink")}
                 </a>
               </>
             )}
@@ -584,25 +604,33 @@ function ArtifactDetail({
         <div className="gallery-detail__body">
           {a.kind === "text" &&
             (loading ? (
-              <div className="gallery-detail__status">加载中…</div>
+              <div className="gallery-detail__status">
+                {t("modals:productGallery.loading")}
+              </div>
             ) : err ? (
               <div className="gallery-detail__status gallery-detail__error">
-                无法加载正文：{err}
+                {t("modals:productGallery.loadBodyFailed", { err })}
               </div>
             ) : text == null ? (
-              <div className="gallery-detail__status">正文不可用</div>
+              <div className="gallery-detail__status">
+                {t("modals:productGallery.bodyUnavailable")}
+              </div>
             ) : (
               <div className="artifact-md">{renderMarkdown(text)}</div>
             ))}
           {a.kind === "json" &&
             (loading ? (
-              <div className="gallery-detail__status">加载中…</div>
+              <div className="gallery-detail__status">
+                {t("modals:productGallery.loading")}
+              </div>
             ) : err ? (
               <div className="gallery-detail__status gallery-detail__error">
-                无法加载：{err}
+                {t("modals:productGallery.loadFailed", { err })}
               </div>
             ) : text == null ? (
-              <div className="gallery-detail__status">正文不可用</div>
+              <div className="gallery-detail__status">
+                {t("modals:productGallery.bodyUnavailable")}
+              </div>
             ) : (
               <JsonView data={safeParse(text)} />
             ))}
@@ -612,7 +640,9 @@ function ArtifactDetail({
                 <img src={proxyImageUrl(url) ?? ""} alt={a.label ?? ""} />
               </div>
             ) : (
-              <div className="gallery-detail__status">无图片</div>
+              <div className="gallery-detail__status">
+                {t("modals:productGallery.noImage")}
+              </div>
             ))}
           {a.kind === "video" &&
             (url ? (
@@ -623,7 +653,9 @@ function ArtifactDetail({
                 preload="metadata"
               />
             ) : (
-              <div className="gallery-detail__status">无视频</div>
+              <div className="gallery-detail__status">
+                {t("modals:productGallery.noVideo")}
+              </div>
             ))}
           {a.kind === "audio" &&
             (url ? (
@@ -634,14 +666,16 @@ function ArtifactDetail({
                 preload="none"
               />
             ) : (
-              <div className="gallery-detail__status">无音频</div>
+              <div className="gallery-detail__status">
+                {t("modals:productGallery.noAudio")}
+              </div>
             ))}
           {(a.kind === "file" || a.kind === "uri") && (
             <div className="gallery-detail__file">
-              <div>该类型产物不支持内嵌预览</div>
+              <div>{t("modals:productGallery.noPreview")}</div>
               {url && (
                 <a href={url} target="_blank" rel="noopener noreferrer">
-                  打开链接 ↗
+                  {t("modals:productGallery.openLink")}
                 </a>
               )}
             </div>
@@ -651,34 +685,34 @@ function ArtifactDetail({
           {(a.kind === "text" || a.kind === "json") && (
             <>
               <button className="chip" onClick={copy} disabled={text == null}>
-                复制
+                {t("modals:productGallery.copy")}
               </button>
               <button
                 className="chip"
                 onClick={download}
                 disabled={text == null}
               >
-                下载
+                {t("modals:productGallery.download")}
               </button>
             </>
           )}
           {a.kind === "image" && url && (
             <>
               <a className="chip" href={url} target="_blank" rel="noopener noreferrer">
-                打开原图
+                {t("modals:productGallery.openImage")}
               </a>
               <a className="chip" href={url} download={a.label ?? true}>
-                下载
+                {t("modals:productGallery.download")}
               </a>
             </>
           )}
           {(a.kind === "video" || a.kind === "audio") && url && (
             <a className="chip" href={url} download={a.label ?? true}>
-              下载
+              {t("modals:productGallery.download")}
             </a>
           )}
           <button className="chip" onClick={onClose}>
-            关闭
+            {t("common.close")}
           </button>
         </footer>
       </div>
@@ -698,6 +732,7 @@ function RunProductViewer({
   run: RunSummary;
   onClose: () => void;
 }) {
+  const { t } = useTranslation();
   const [data, setData] = useState<{
     graph: Graph;
     runtime: RuntimeState;
@@ -752,34 +787,36 @@ function RunProductViewer({
               className="gallery-detail__kind"
               style={{ color: "var(--power)", borderColor: "var(--power)" }}
             >
-              成品
+              {t("modals:productGallery.product")}
             </span>
             <span
               className="gallery-detail__name"
               title={run.graph_name || run.id}
             >
-              {run.graph_name || "(未命名流水线)"}
+              {run.graph_name || t("modals:productGallery.unnamedGraph")}
             </span>
           </div>
           <button
             className="gallery-detail__close icon-btn"
             onClick={onClose}
-            aria-label="关闭"
+            aria-label={t("common.close")}
           >
             ✕
           </button>
           <div className="gallery-detail__sub">
             <span className={`run-status run-status--${run.status}`}>
-              {RUN_STATUS_LABEL[run.status] ?? run.status}
+              {RUN_STATUS_LABEL[run.status]
+                ? t(RUN_STATUS_LABEL[run.status]!)
+                : run.status}
             </span>
             <span>·</span>
             <span>{formatDate(run.started_at)}</span>
             <span>·</span>
             <span>
-              耗时{" "}
+              {t("modals:productGallery.duration")}{" "}
               {run.ended_at != null
                 ? fmtDuration(run.ended_at - run.started_at)
-                : "运行中"}
+                : t("modals:productGallery.runStatus.running")}
             </span>
             <span>·</span>
             <span>{run.trigger}</span>
@@ -788,13 +825,15 @@ function RunProductViewer({
         <div className="gallery-detail__body">
           {err ? (
             <div className="gallery-detail__status gallery-detail__error">
-              无法加载这次运行：{err}
+              {t("modals:productGallery.runFailed", { err })}
             </div>
           ) : !data ? (
-            <div className="gallery-detail__status">加载中…</div>
+            <div className="gallery-detail__status">
+              {t("modals:productGallery.loading")}
+            </div>
           ) : !sink ? (
             <div className="gallery-detail__status">
-              该流水线没有出料节点，无法渲染成品。
+              {t("modals:productGallery.noSink")}
             </div>
           ) : (
             <FinishedProduct

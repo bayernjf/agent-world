@@ -224,12 +224,12 @@ describe("ShortcutsHelp", () => {
       expect(document.querySelector(".shortcuts__grid")).toBeInTheDocument();
     });
 
-    it("有 4 个 shortcuts__group", () => {
-      expect(document.querySelectorAll(".shortcuts__group").length).toBe(4);
+    it("有 5 个 shortcuts__group（含审核队列）", () => {
+      expect(document.querySelectorAll(".shortcuts__group").length).toBe(5);
     });
 
     it("有 shortcuts__group-title class", () => {
-      expect(document.querySelectorAll(".shortcuts__group-title").length).toBe(4);
+      expect(document.querySelectorAll(".shortcuts__group-title").length).toBe(5);
     });
 
     it("有 shortcuts__row class", () => {

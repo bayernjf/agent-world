@@ -42,6 +42,7 @@ const NODE_HINT_KEY: Record<NodeKind, string> = {
   source: "nodes:hints.source",
   sink: "nodes:hints.sink",
   generic: "nodes:hints.generic",
+  compliance: "nodes:hints.compliance",
 };
 
 /** High-frequency kinds shown directly in the toolbar; the rest live in the palette. */

@@ -4,6 +4,7 @@ import type { Mode } from "../canvas/Canvas";
 import { useGraph } from "../store/graph";
 import { useRun, useVisibleRuntime, resumeRun } from "../store/run";
 import { api, type AppConfig } from "../lib/api";
+import { useTranslation } from "react-i18next";
 import Tooltip from "./Tooltip";
 
 interface Props {
@@ -23,30 +24,30 @@ interface Props {
 }
 
 const MODES: { key: Mode; label: string; hint: string }[] = [
-  { key: "select", label: "选择", hint: "拖动节点重新布局，单击查看详情" },
-  { key: "connect", label: "铺管道", hint: "依次点两座节点，铺一条正向管道" },
+  { key: "select", label: "run:control.modes.select", hint: "run:control.modes.selectHint" },
+  { key: "connect", label: "run:control.modes.connect", hint: "run:control.modes.connectHint" },
   {
     key: "rework",
-    label: "返工线",
-    hint: "从质检站点回上游节点，铺一条返工线",
+    label: "run:control.modes.rework",
+    hint: "run:control.modes.reworkHint",
   },
   {
     key: "error",
-    label: "容错线",
-    hint: "上游节点故障时改走这条线，接到兜底节点（catch）",
+    label: "run:control.modes.error",
+    hint: "run:control.modes.errorHint",
   },
-  { key: "delete", label: "拆除", hint: "点节点或管道即拆除" },
+  { key: "delete", label: "run:control.modes.delete", hint: "run:control.modes.deleteHint" },
 ];
 
 const STATUS_TEXT: Record<string, string> = {
-  idle: "产线就绪 · 等待投料",
-  running: "运行中",
-  done: "全部出厂",
-  failed: "产线故障",
-  halted: "返工次数耗尽 · 等待人工",
-  tripped: "电力不足 · 全厂停机",
-  cancelled: "已取消",
-  interrupted: "上次运行中断（服务重启）",
+  idle: "run:control.statusText.idle",
+  running: "run:control.statusText.running",
+  done: "run:control.statusText.done",
+  failed: "run:control.statusText.failed",
+  halted: "run:control.statusText.halted",
+  tripped: "run:control.statusText.tripped",
+  cancelled: "run:control.statusText.cancelled",
+  interrupted: "run:control.statusText.interrupted",
 };
 
 type MeterMode = "cost" | "tokens";
@@ -74,6 +75,7 @@ export default function ControlPanel(props: Props) {
     onOpenHistory,
     onOpenModelAssign,
   } = props;
+  const { t } = useTranslation();
   const runtime = useVisibleRuntime();
   const { graph, saveState } = useGraph();
   const { runId, connecting, reconnecting } = useRun();
@@ -119,27 +121,27 @@ export default function ControlPanel(props: Props) {
   return (
     <aside className="panel control">
       <div className="panel__bar">
-        <span>控制面板</span>
+        <span>{t("run:control.title")}</span>
         <span className={`led led--${runtime.status}`} />
       </div>
 
       <div className="control__body">
         <section>
           <div className="meter__head">
-            <h3 className="label">电力</h3>
+            <h3 className="label">{t("run:control.power")}</h3>
             {pricingConfigured && (
               <div className="seg">
                 <button
                   className={`seg__btn ${effectiveMode === "cost" ? "is-on" : ""}`}
                   onClick={() => setMeterMode("cost")}
                 >
-                  电费
+                  {t("run:control.cost")}
                 </button>
                 <button
                   className={`seg__btn ${effectiveMode === "tokens" ? "is-on" : ""}`}
                   onClick={() => setMeterMode("tokens")}
                 >
-                  Token
+                  {t("run:control.token")}
                 </button>
               </div>
             )}
@@ -151,7 +153,9 @@ export default function ControlPanel(props: Props) {
                   <span className="readout">
                     ${runtime.totalCostUsd.toFixed(5)}
                   </span>
-                  <span className="muted">上限 ${budget.toFixed(4)}</span>
+                  <span className="muted">
+                    {t("run:control.capUsd", { budget: budget.toFixed(4) })}
+                  </span>
                 </div>
                 <div
                   className={`gauge ${pct > 85 ? "is-hot" : runtime.budgetWarned ? "is-warn" : ""}`}
@@ -159,7 +163,7 @@ export default function ControlPanel(props: Props) {
                   <i style={{ width: `${pct}%` }} />
                 </div>
                 <label className="field">
-                  <span>预算上限 (USD)</span>
+                  <span>{t("run:control.budgetCap")}</span>
                   <input
                     type="number"
                     step="0.0001"
@@ -171,14 +175,10 @@ export default function ControlPanel(props: Props) {
                 </label>
                 {runtime.budgetWarned && pct <= 100 && (
                   <p className="note note--warn">
-                    ⚠ 电费已达预算的 {Math.round(pct)}
-                    %，接近上限，注意控制返工。
+                    {t("run:control.budgetWarn", { pct: Math.round(pct) })}
                   </p>
                 )}
-                <p className="note">
-                  token
-                  消耗只能在调用返回后计量，所以电表是事后读数；超过上限即刻跳闸停线。
-                </p>
+                <p className="note">{t("run:control.meterNote")}</p>
               </>
             ) : runtime.totalTokensIn > 0 || runtime.totalTokensOut > 0 ? (
               <>
@@ -187,12 +187,14 @@ export default function ControlPanel(props: Props) {
                     {runtime.totalTokensIn.toLocaleString()} /{" "}
                     {runtime.totalTokensOut.toLocaleString()}
                   </span>
-                  <span className="muted">入 / 出</span>
+                  <span className="muted">{t("run:control.inOut")}</span>
                 </div>
                 {runtime.totalCachedTokens > 0 && (
                   <div className="meter__row">
                     <span className="muted">
-                      缓存命中 {runtime.totalCachedTokens.toLocaleString()}
+                      {t("run:control.cacheHit", {
+                        n: runtime.totalCachedTokens.toLocaleString(),
+                      })}
                     </span>
                   </div>
                 )}
@@ -209,46 +211,45 @@ export default function ControlPanel(props: Props) {
               </>
             ) : (
               <p className="muted">
-                电力读数待派发后出现 · 在
-                <Tooltip content="未配置模型单价时只显示 token 用量；在「设置」里填入单价后可显示电费和预算">
-                  <span className="inline-info">ⓘ 设置</span>
+                {t("run:control.meterEmptyBefore")}
+                <Tooltip content={t("run:control.meterEmptyInfo")}>
+                  <span className="inline-info">
+                    {t("run:control.meterEmptySetting")}
+                  </span>
                 </Tooltip>
-                里填入单价可开启预算和电费读数
+                {t("run:control.meterEmptyAfter")}
               </p>
             )}
           </div>
           {runtime.monthlyBudgetWarned && (
-            <p className="note note--warn">
-              ⚠ 本月累计电费已触及月度预算，请到「设置 →
-              月度预算」查看或调整上限。
-            </p>
+            <p className="note note--warn">{t("run:control.monthlyWarn")}</p>
           )}
         </section>
 
         <section>
-          <h3 className="label">工具</h3>
+          <h3 className="label">{t("run:control.tools")}</h3>
           <div className="modes">
             {MODES.map((m) => (
               <button
                 key={m.key}
                 className={`chip ${mode === m.key ? "is-on" : ""}`}
                 onClick={() => setMode(m.key)}
-                title={m.hint}
+                title={t(m.hint)}
               >
-                {m.label}
+                {t(m.label)}
               </button>
             ))}
           </div>
         </section>
 
         <section>
-          <h3 className="label">状态</h3>
+          <h3 className="label">{t("run:control.status")}</h3>
           {/* 编译/保存状态：常态 → muted 文字；出错 → diag 高亮 */}
           {errors.length === 0 && warnings.length === 0 && (
             <p className="note note--compact">
-              图可编译 · {graph.nodes.length} 座节点
+              {t("run:control.compileOk", { n: graph.nodes.length })}
               {saveState === "saved" && (
-                <span className="muted"> · 已保存</span>
+                <span className="muted"> · {t("run:control.saved")}</span>
               )}
             </p>
           )}
@@ -264,25 +265,29 @@ export default function ControlPanel(props: Props) {
           ))}
           <p className="status">
             {humanHalt
-              ? "等待人工审批"
-              : (STATUS_TEXT[runtime.status] ?? runtime.status)}
-            {reconnecting && <span className="muted"> · 重连中…</span>}
+              ? t("run:control.waitingApproval")
+              : STATUS_TEXT[runtime.status]
+                ? t(STATUS_TEXT[runtime.status]!)
+                : runtime.status}
+            {reconnecting && (
+              <span className="muted"> · {t("run:control.reconnecting")}</span>
+            )}
             {connecting && !reconnecting && (
-              <span className="muted"> · 连接中…</span>
+              <span className="muted"> · {t("run:control.connecting")}</span>
             )}
           </p>
           {humanReview != null && (
             <div className="control-panel__review">
-              <span className="muted">待审批内容：</span>
+              <span className="muted">{t("run:control.pendingReview")}</span>
               <pre className="control-panel__review-text">{humanReview}</pre>
             </div>
           )}
           {!running && !halted && (
             <label className="field">
-              <span>原料（交给原料台的任务）</span>
+              <span>{t("run:control.material")}</span>
               <textarea
                 rows={3}
-                placeholder="把素材或任务交给原料台…"
+                placeholder={t("run:control.materialPlaceholder")}
                 value={rawMaterial}
                 onChange={(e) => setRawMaterial(e.target.value)}
               />
@@ -294,7 +299,7 @@ export default function ControlPanel(props: Props) {
               onClick={onCancel}
               disabled={!runId}
             >
-              停机
+              {t("run:control.stop")}
             </button>
           ) : halted ? (
             <div className="btn-row btn-row--wrap">
@@ -306,34 +311,33 @@ export default function ControlPanel(props: Props) {
                       resumeRun("approve", undefined, undefined, [dangerTool])
                     }
                   >
-                    批准执行 {dangerTool}
+                    {t("run:control.approveTool", { tool: dangerTool })}
                   </button>
                   <button
                     className="btn btn--warn"
                     onClick={() => {
-                      if (window.confirm("驳回此次运行？运行将以失败结束。"))
+                      if (window.confirm(t("run:control.rejectConfirm")))
                         resumeRun("reject");
                     }}
                   >
-                    驳回
+                    {t("run:control.reject")}
                   </button>
                   <button
                     className="btn btn--ghost"
                     onClick={() => resumeRun("scrap")}
                   >
-                    报废
+                    {t("run:control.scrap")}
                   </button>
                 </>
               ) : (
                 <>
                   <button className="btn" onClick={() => resumeRun("approve")}>
-                    批准继续
+                    {t("run:control.approve")}
                   </button>
                   <button
                     className="btn"
                     onClick={() => {
-                      const text =
-                        window.prompt("编辑该节点的产出（人工修正后继续）：");
+                      const text = window.prompt(t("run:control.editPrompt"));
                       if (text != null && runtime.haltedNodeId) {
                         resumeRun("edit", undefined, {
                           [runtime.haltedNodeId]: text,
@@ -341,22 +345,22 @@ export default function ControlPanel(props: Props) {
                       }
                     }}
                   >
-                    编辑后继续
+                    {t("run:control.editContinue")}
                   </button>
                   <button
                     className="btn btn--warn"
                     onClick={() => {
-                      if (window.confirm("驳回此次运行？运行将以失败结束。"))
+                      if (window.confirm(t("run:control.rejectConfirm")))
                         resumeRun("reject");
                     }}
                   >
-                    驳回
+                    {t("run:control.reject")}
                   </button>
                   <button
                     className="btn btn--ghost"
                     onClick={() => resumeRun("scrap")}
                   >
-                    报废
+                    {t("run:control.scrap")}
                   </button>
                 </>
               )}
@@ -367,23 +371,21 @@ export default function ControlPanel(props: Props) {
               onClick={() => onRun()}
               disabled={!canRun || materialEmpty}
             >
-              派发任务
+              {t("run:control.dispatch")}
             </button>
           )}
           {!running && !halted && materialEmpty && (
-            <p className="note">先填入原料才能派发给进料口。</p>
+            <p className="note">{t("run:control.fillMaterialFirst")}</p>
           )}
           {!running && !halted && !materialEmpty && !canRun && (
             <p className="note note--warn">
               {errors.length > 0
-                ? "修复上方「编译」里的错误后才能派发。"
-                : "编译检查未通过，请刷新页面重试；若仍不行，检查「编译」区块的报错。"}
+                ? t("run:control.fixErrorsFirst")
+                : t("run:control.compileNotPassed")}
             </p>
           )}
           {running && (
-            <p className="note">
-              停机只停止后续工作，已产生的 token 仍会计费。
-            </p>
+            <p className="note">{t("run:control.stopNote")}</p>
           )}
         </section>
 
@@ -392,13 +394,13 @@ export default function ControlPanel(props: Props) {
             className="btn btn--ghost btn--block"
             onClick={onOpenSettings}
           >
-            设置 · 模型与密钥
+            {t("run:control.settingsKey")}
           </button>
           <button className="btn btn--ghost btn--block" onClick={onOpenModelAssign}>
-            模型分配 · 当前产线
+            {t("run:control.modelAssign")}
           </button>
           <button className="btn btn--ghost btn--block" onClick={onOpenHistory}>
-            📋 运行历史
+            {t("run:control.runHistory")}
           </button>
         </section>
       </div>

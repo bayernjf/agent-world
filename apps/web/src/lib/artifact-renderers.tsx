@@ -8,6 +8,8 @@ import {
 import { proxyImageUrl } from "./api";
 import { sanitizeUrl } from "./sanitize-html";
 import Tooltip from "../components/Tooltip";
+import i18n from "../i18n";
+import { useTranslation } from "react-i18next";
 
 /**
  * Shape shared by runtime `Artifact` (core) and persisted `StoredArtifact` (api).
@@ -208,12 +210,12 @@ export function JsonView({ data }: { data: unknown }) {
 /* per-kind renderers                                                  */
 /* ------------------------------------------------------------------ */
 
-const placeholder = (text: string) => (
-  <span className="artifact-empty">{text}</span>
+const placeholder = (key: string) => (
+  <span className="artifact-empty">{i18n.t(key)}</span>
 );
 
 function TextArtifact({ a }: { a: ArtifactLike }) {
-  if (!a.content) return placeholder("无内容");
+  if (!a.content) return placeholder("run:artifacts.noContent");
   if (a.mimeType === "text/markdown" || a.mimeType === "text/x-markdown") {
     return <div className="artifact-md">{renderMarkdown(a.content)}</div>;
   }
@@ -225,14 +227,14 @@ function TextArtifact({ a }: { a: ArtifactLike }) {
 
 function ImageArtifact({ a }: { a: ArtifactLike }) {
   const [broken, setBroken] = useState(false);
-  if (!a.uri) return placeholder("无图片");
+  if (!a.uri) return placeholder("run:artifacts.noImage");
   if (broken) {
     return (
       <div className="artifact-image-fallback">
         <span className="artifact-image-fallback__icon">IMG</span>
-        <span>图片链接已失效或已过期</span>
+        <span>{i18n.t("run:artifacts.imageBroken")}</span>
         <a href={a.uri} target="_blank" rel="noopener noreferrer">
-          查看原链接 ↗
+          {i18n.t("run:artifacts.openOriginal")}
         </a>
       </div>
     );
@@ -250,7 +252,7 @@ function ImageArtifact({ a }: { a: ArtifactLike }) {
 }
 
 function VideoArtifact({ a }: { a: ArtifactLike }) {
-  if (!a.uri) return placeholder("无视频");
+  if (!a.uri) return placeholder("run:artifacts.noVideo");
   return (
     <video
       className="artifact-media"
@@ -263,14 +265,14 @@ function VideoArtifact({ a }: { a: ArtifactLike }) {
 }
 
 function AudioArtifact({ a }: { a: ArtifactLike }) {
-  if (!a.uri) return placeholder("无音频");
+  if (!a.uri) return placeholder("run:artifacts.noAudio");
   return (
     <audio className="artifact-media" src={a.uri} controls preload="none" />
   );
 }
 
 function FileArtifact({ a }: { a: ArtifactLike }) {
-  if (!a.uri) return placeholder("无文件");
+  if (!a.uri) return placeholder("run:artifacts.noFile");
   return (
     <a
       className="artifact-file"
@@ -280,13 +282,15 @@ function FileArtifact({ a }: { a: ArtifactLike }) {
       download={a.label ?? undefined}
     >
       <span className="artifact-file__icon">⬇</span>
-      <span className="artifact-file__name">{a.label ?? "文件"}</span>
+      <span className="artifact-file__name">
+        {a.label ?? i18n.t("run:artifacts.fileLabel")}
+      </span>
     </a>
   );
 }
 
 function JsonArtifact({ a }: { a: ArtifactLike }) {
-  if (!a.content) return placeholder("无数据");
+  if (!a.content) return placeholder("run:artifacts.noData");
   let data: unknown = safeParse(a.content);
   // Tolerant of double-encoded JSON (a JSON *string* value).
   if (typeof data === "string") {
@@ -303,7 +307,7 @@ function JsonArtifact({ a }: { a: ArtifactLike }) {
 }
 
 function UriArtifact({ a }: { a: ArtifactLike }) {
-  if (!a.uri) return placeholder("无链接");
+  if (!a.uri) return placeholder("run:artifacts.noLink");
   return (
     <a className="artifact-uri" href={a.uri} target="_blank" rel="noopener noreferrer">
       {a.label ?? a.uri} ↗
@@ -329,13 +333,13 @@ export const artifactRenderers: Record<
 /* ------------------------------------------------------------------ */
 
 const KIND_LABEL: Record<ArtifactKind, string> = {
-  text: "文本",
-  image: "图片",
-  video: "视频",
-  audio: "音频",
-  file: "文件",
-  json: "JSON",
-  uri: "链接",
+  text: "run:artifacts.type.text",
+  image: "run:artifacts.type.image",
+  video: "run:artifacts.type.video",
+  audio: "run:artifacts.type.audio",
+  file: "run:artifacts.type.file",
+  json: "run:artifacts.type.json",
+  uri: "run:artifacts.type.uri",
 };
 
 export function ArtifactCard({
@@ -345,11 +349,13 @@ export function ArtifactCard({
   a: ArtifactLike;
   showMeta?: boolean;
 }) {
+  const { t } = useTranslation();
   const color = ARTIFACT_COLORS[a.kind] ?? "#ffb020";
   const uri = a.uri ?? undefined;
   const render =
     artifactRenderers[a.kind] ??
-    (({ a: x }: { a: ArtifactLike }) => placeholder("未知类型"));
+    (({ a: x }: { a: ArtifactLike }) =>
+      placeholder("run:artifacts.unknownType"));
   const label = a.label ?? artifactLabel(a as unknown as Artifact);
 
   return (
@@ -365,10 +371,10 @@ export function ArtifactCard({
             {label}
           </span>
           <span className="artifact-card__kind" style={{ color }}>
-            {KIND_LABEL[a.kind]}
+            {t(KIND_LABEL[a.kind])}
           </span>
           {a.graphName && (
-            <Tooltip content="所属流水线">
+            <Tooltip content={t("run:artifacts.sourceGraph")}>
               <span className="artifact-card__source">{a.graphName}</span>
             </Tooltip>
           )}
@@ -380,7 +386,9 @@ export function ArtifactCard({
             ) : null}
           </span>
           {a.status === "failed" && (
-            <span className="artifact-card__failed">生成失败</span>
+            <span className="artifact-card__failed">
+              {t("run:artifacts.generateFailed")}
+            </span>
           )}
           <span className="artifact-card__actions">
             {uri && (
@@ -390,12 +398,12 @@ export function ArtifactCard({
                 rel="noopener noreferrer"
                 download={a.label ?? undefined}
               >
-                下载
+                {t("run:artifacts.download")}
               </a>
             )}
             {a.content && (
               <button type="button" onClick={() => copyText(a.content!)}>
-                复制
+                {t("run:artifacts.copy")}
               </button>
             )}
           </span>

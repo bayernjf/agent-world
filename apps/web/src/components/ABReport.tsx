@@ -87,7 +87,7 @@ export default function ABReport({ open, groupId, onClose }: Props) {
               className="muted"
               style={{ textAlign: "center", padding: "40px 0" }}
             >
-              {t("modals:abReport.loading")}
+              {t("modals:reports.loading")}
             </p>
           ) : report.arms.length === 0 ? (
             <p className="muted">{t("modals:abReport.empty")}</p>
@@ -106,11 +106,11 @@ export default function ABReport({ open, groupId, onClose }: Props) {
                   <tr>
                     <th>{t("modals:abReport.arm")}</th>
                     <th>{t("modals:abReport.promptVariant")}</th>
-                    <th className="num">{t("modals:abReport.runs")}</th>
-                    <th className="num">{t("modals:abReport.passRate")}</th>
+                    <th className="num">{t("modals:reports.runs")}</th>
+                    <th className="num">{t("modals:reports.passRate")}</th>
                     <th className="num">{t("modals:abReport.qualityScore")}</th>
-                    <th className="num">{t("modals:abReport.avgRework")}</th>
-                    <th className="num">{t("modals:abReport.avgDuration")}</th>
+                    <th className="num">{t("modals:reports.avgRework")}</th>
+                    <th className="num">{t("modals:reports.avgDuration")}</th>
                     <th className="num">{t("modals:abReport.avgCost")}</th>
                   </tr>
                 </thead>

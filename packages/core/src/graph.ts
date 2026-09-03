@@ -32,6 +32,7 @@ export const NodeKind = z.enum([
   "human",
   "subprocess",
   "generic",
+  "compliance",
 ]);
 export type NodeKind = z.infer<typeof NodeKind>;
 
@@ -72,6 +73,7 @@ export const NODE_CATEGORY: Record<NodeKind, NodeCategory> = {
   loop: "control",
   parallel: "control",
   subprocess: "control",
+  compliance: "control",
   table: "data",
   database: "data",
   fileParse: "data",
@@ -701,6 +703,26 @@ export const HumanConfig = z.object({
 export type HumanConfig = z.infer<typeof HumanConfig>;
 
 /**
+ * Configuration for a `compliance` node (F3): deterministic platform/regulatory
+ * compliance check. Unlike `gate` (an LLM judge with a rework loop), compliance
+ * runs word-list / length / hashtag rules and produces a sanitized rewrite. The
+ * two chain together: compliance washes the text, gate re-judges quality.
+ */
+export const ComplianceConfig = z.object({
+  /** Which upstream node supplies the body text. Defaults to the single flow predecessor. */
+  source: z.string().optional(),
+  /** Target platform profile id. */
+  platform: z.enum(["taobao", "xiaohongshu", "douyin", "wechat", "custom"]).default("xiaohongshu"),
+  /** User-supplied banned words, comma/newline separated. */
+  extraBanned: z.string().default(""),
+  /** Produce a sanitized rewrite for downstream use. */
+  autoFix: z.boolean().default(true),
+  /** true = route to the error edge on any violation instead of passing through. */
+  failOnViolation: z.boolean().default(false),
+});
+export type ComplianceConfig = z.infer<typeof ComplianceConfig>;
+
+/**
  * Subprocess node: call another saved graph as a sub-flow (function-call
  * semantics). The upstream text becomes the sub-flow's source input; every
  * sink node of the sub-flow feeds the subprocess node's output back up.
@@ -884,6 +906,7 @@ export const GraphNode = z.object({
   human: HumanConfig.optional(),
   subprocess: SubprocessConfig.optional(),
   source: SourceConfig.optional(),
+  compliance: ComplianceConfig.optional(),
 });
 export type GraphNode = z.infer<typeof GraphNode>;
 

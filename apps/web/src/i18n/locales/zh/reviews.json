@@ -1,0 +1,78 @@
+{
+  "nav": {
+    "label": "待审核",
+    "tooltip": "跨产线审核队列：所有停在人工决策上的运行",
+    "badge": "{{n}} 条运行等待人工决策"
+  },
+  "command": {
+    "label": "审核队列",
+    "hint": "跨产线处理等待人工决策的运行"
+  },
+  "title": "审核队列",
+  "subtitle": "所有停在人工决策上的运行，等待最久的排在最前",
+  "close": "关闭",
+  "refresh": "刷新",
+  "loading": "加载中…",
+  "empty": "没有等待审核的运行",
+  "loadFailed": "加载审核队列失败：{{message}}",
+  "decideFailed": "提交决策失败：{{message}}",
+  "total": "共 {{n}} 条待审核",
+  "showing": "只显示前 {{shown}} 条，共 {{n}} 条",
+  "confirm": {
+    "reject": "驳回 {{n}} 条待审运行？这些运行将以失败结束。",
+    "scrap": "报废 {{n}} 条待审运行？这些运行将以失败结束。"
+  },
+  "kind": {
+    "human": "人工确认",
+    "tool": "危险操作",
+    "gate": "质检未过"
+  },
+  "row": {
+    "waiting": "已等待 {{time}}",
+    "unknownNode": "未记录节点",
+    "trigger": "触发：{{trigger}}",
+    "abArm": "A/B 分支：{{arm}}",
+    "openRun": "打开运行",
+    "select": "选择这条待审运行"
+  },
+  "content": {
+    "label": "待审内容",
+    "empty": "这条运行没有记录待审文本",
+    "truncated": "内容较长，只显示前 {{n}} 字",
+    "reason": "暂停原因",
+    "verdict": "质检结论",
+    "tool": "待批准工具"
+  },
+  "action": {
+    "approve": "通过",
+    "reject": "拒绝",
+    "edit": "改后通过",
+    "scrap": "废弃",
+    "deciding": "处理中…",
+    "editSave": "保存并通过",
+    "editCancel": "取消",
+    "editHint": "改后的文本会替代模型产出，直接送往下游节点",
+    "editUnavailable": "这条运行没有记录暂停节点，无法定向修改"
+  },
+  "batch": {
+    "enter": "批量选择",
+    "exit": "退出选择",
+    "approveSelected": "批量通过 ({{n}})",
+    "selected": "已选 {{n}} 条"
+  },
+  "result": {
+    "submitted": "已提交 {{n}} 条决策",
+    "partial": "{{n}} 条决策失败：{{message}}"
+  },
+  "shortcuts": {
+    "group": "审核队列（打开时）",
+    "approveKeys": "A",
+    "approveDesc": "通过选中的待审运行",
+    "rejectKeys": "R",
+    "rejectDesc": "拒绝选中的待审运行",
+    "editKeys": "E",
+    "editDesc": "改后通过选中的待审运行",
+    "closeKeys": "Esc",
+    "closeDesc": "关闭审核队列"
+  }
+}

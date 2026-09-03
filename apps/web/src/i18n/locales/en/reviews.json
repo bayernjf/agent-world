@@ -1,0 +1,78 @@
+{
+  "nav": {
+    "label": "Reviews",
+    "tooltip": "Cross-line review queue: every run waiting on a human decision",
+    "badge": "{{n}} run(s) waiting on a human decision"
+  },
+  "command": {
+    "label": "Review Queue",
+    "hint": "Decide on runs waiting for a human across every line"
+  },
+  "title": "Review Queue",
+  "subtitle": "Every run parked on a human decision, longest-waiting first",
+  "close": "Close",
+  "refresh": "Refresh",
+  "loading": "Loading…",
+  "empty": "No run is waiting for a review",
+  "loadFailed": "Failed to load the review queue: {{message}}",
+  "decideFailed": "Failed to submit the decision: {{message}}",
+  "total": "{{n}} pending",
+  "showing": "Showing the first {{shown}} of {{n}}",
+  "confirm": {
+    "reject": "Reject {{n}} pending run(s)? They will finish as failed.",
+    "scrap": "Scrap {{n}} pending run(s)? They will finish as failed."
+  },
+  "kind": {
+    "human": "Human approval",
+    "tool": "Dangerous action",
+    "gate": "Gate exhausted"
+  },
+  "row": {
+    "waiting": "waiting {{time}}",
+    "unknownNode": "node not recorded",
+    "trigger": "trigger: {{trigger}}",
+    "abArm": "A/B arm: {{arm}}",
+    "openRun": "Open run",
+    "select": "Select this pending review"
+  },
+  "content": {
+    "label": "Awaiting review",
+    "empty": "This run recorded no text to review",
+    "truncated": "Long content, showing the first {{n}} characters",
+    "reason": "Halt reason",
+    "verdict": "Judge verdict",
+    "tool": "Tool to approve"
+  },
+  "action": {
+    "approve": "Approve",
+    "reject": "Reject",
+    "edit": "Edit & approve",
+    "scrap": "Scrap",
+    "deciding": "Working…",
+    "editSave": "Save & approve",
+    "editCancel": "Cancel",
+    "editHint": "The edited text replaces the model output and flows downstream",
+    "editUnavailable": "This run recorded no halted node, so the edit cannot be addressed"
+  },
+  "batch": {
+    "enter": "Select",
+    "exit": "Exit select",
+    "approveSelected": "Approve selected ({{n}})",
+    "selected": "{{n}} selected"
+  },
+  "result": {
+    "submitted": "{{n}} decision(s) submitted",
+    "partial": "{{n}} decision(s) failed: {{message}}"
+  },
+  "shortcuts": {
+    "group": "Review queue (while open)",
+    "approveKeys": "A",
+    "approveDesc": "Approve the selected pending run",
+    "rejectKeys": "R",
+    "rejectDesc": "Reject the selected pending run",
+    "editKeys": "E",
+    "editDesc": "Edit & approve the selected pending run",
+    "closeKeys": "Esc",
+    "closeDesc": "Close the review queue"
+  }
+}
