@@ -1800,57 +1800,57 @@ select {
   stroke: var(--border-hover);
 }
 .pipe--hot .pipe__core {
-  stroke: var(--data);
+  stroke: var(--info);
   stroke-width: 3;
   filter: drop-shadow(0 0 4px rgba(53, 224, 240, 0.45));
 }
 /* The directly hovered/selected pipe in a highlighted flow reads strongest. */
 .pipe--focus .pipe__core,
 .pipe--focus.pipe--hot .pipe__core {
-  stroke: var(--data);
+  stroke: var(--info);
   stroke-width: 5;
   filter: drop-shadow(0 0 9px rgba(53, 224, 240, 0.9));
 }
 .pipe--focus .pipe__casing {
-  stroke: var(--steel-500);
+  stroke: var(--border-hover);
 }
 .pipe--hot.pipe--rework .pipe__casing {
   stroke: #4a3516;
 }
 .pipe--hot.pipe--rework .pipe__core {
-  stroke: var(--power);
+  stroke: var(--accent);
   filter: drop-shadow(0 0 6px rgba(255, 176, 32, 0.6));
 }
 
 /* crossing bridges: the vertical pipe arcs over the horizontal one. */
 .pipe-bridge__mask {
   fill: none;
-  stroke: var(--steel-950);
+  stroke: var(--bg-primary);
   stroke-width: 10;
   stroke-linecap: butt;
 }
 .pipe-bridge__casing {
   fill: none;
-  stroke: var(--steel-600);
+  stroke: var(--border-primary);
   stroke-width: 9;
   stroke-linecap: butt;
   transition: opacity 120ms ease;
 }
 .pipe-bridge__core {
   fill: none;
-  stroke: var(--steel-500);
+  stroke: var(--border-hover);
   stroke-width: 3;
   stroke-linecap: butt;
   transition: opacity 120ms ease, stroke 120ms ease;
 }
 .pipe-bridge__core.is-live {
-  stroke: var(--power);
+  stroke: var(--accent);
 }
 .pipe-bridge--hot .pipe-bridge__casing {
-  stroke: var(--steel-500);
+  stroke: var(--border-hover);
 }
 .pipe-bridge--hot .pipe-bridge__core {
-  stroke: var(--data);
+  stroke: var(--info);
   stroke-width: 4;
   filter: drop-shadow(0 0 5px rgba(53, 224, 240, 0.6));
 }
@@ -1860,18 +1860,18 @@ select {
 
 /* flow direction arrows on forward pipes. */
 .pipe-arrow__shape {
-  fill: var(--steel-500);
-  stroke: var(--steel-950);
+  fill: var(--border-hover);
+  stroke: var(--bg-primary);
   stroke-width: 1.5;
   transition: opacity 120ms ease, fill 120ms ease;
 }
 .pipe-arrow--hot .pipe-arrow__shape {
-  fill: var(--data);
+  fill: var(--info);
   opacity: 0.7;
 }
 .pipe-arrow--focus .pipe-arrow__shape,
 .pipe-arrow--focus.pipe-arrow--hot .pipe-arrow__shape {
-  fill: var(--data);
+  fill: var(--info);
   opacity: 1;
   stroke-width: 1;
 }
@@ -1886,19 +1886,19 @@ select {
 .plant-tip__inner {
   min-width: 240px;
   max-width: 380px;
-  padding: 12px 14px;
-  background: rgba(10, 15, 18, 0.97);
+  padding: var(--gap-md) var(--gap-lg);
+  background: var(--bg-primary);
   border: var(--hair);
-  border-radius: 6px;
-  box-shadow: var(--bevel), 0 12px 32px rgba(0, 0, 0, 0.6);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-popover);
   backdrop-filter: blur(4px);
 }
 .plant-tip__title {
-  color: var(--ink);
+  color: var(--text-primary);
   font-family: var(--mono);
-  font-weight: 700;
-  font-size: 16px;
-  margin-bottom: 8px;
+  font-weight: var(--font-bold);
+  font-size: var(--text-lg);
+  margin-bottom: var(--gap-sm);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1907,25 +1907,25 @@ select {
   margin: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-1);
 }
 .plant-tip__row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--gap-lg);
   margin: 0;
 }
 .plant-tip__row dt {
-  color: var(--ink-faint);
+  color: var(--text-tertiary);
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 .plant-tip__row dd {
   margin: 0;
-  color: var(--ink);
+  color: var(--text-primary);
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--text-sm);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1943,59 +1943,59 @@ select {
   fill: rgba(0, 0, 0, 0.55);
 }
 .plant__body {
-  fill: var(--steel-800);
-  stroke: var(--steel-600);
+  fill: var(--bg-elevated);
+  stroke: var(--border-primary);
   stroke-width: 1;
 }
 .plant__bar {
-  fill: var(--steel-700);
+  fill: var(--bg-hover);
 }
 .plant.is-selected .plant__body {
-  stroke: var(--data);
+  stroke: var(--info);
   stroke-width: 2;
   filter: drop-shadow(0 0 8px rgba(53, 224, 240, 0.5));
 }
 .plant.is-connect-src .plant__body {
-  stroke: var(--power);
+  stroke: var(--accent);
   stroke-width: 2;
 }
 
 .plant__led {
-  fill: var(--ink-faint);
+  fill: var(--text-tertiary);
 }
 .plant.is-running .plant__led {
-  fill: var(--power);
+  fill: var(--accent);
   animation: pulse 1s ease-in-out infinite;
 }
 .plant.is-done .plant__led {
-  fill: var(--ok);
+  fill: var(--success);
 }
 .plant.is-failed .plant__led {
-  fill: var(--alert);
+  fill: var(--error);
 }
 .plant.is-scrapped .plant__led {
-  fill: var(--alert);
+  fill: var(--error);
 }
 
 .plant.is-running .plant__body {
-  stroke: var(--power);
+  stroke: var(--accent);
 }
 
 .plant__kind {
-  fill: var(--ink-faint);
+  fill: var(--text-tertiary);
   font-family: var(--mono);
   font-size: 9px;
   letter-spacing: 0.14em;
 }
 .plant__name {
-  fill: var(--ink);
+  fill: var(--text-primary);
   font-family: var(--mono);
   font-size: 15px;
-  font-weight: 700;
+  font-weight: var(--font-bold);
   letter-spacing: 0.06em;
 }
 .plant__meta {
-  fill: var(--ink-faint);
+  fill: var(--text-tertiary);
   font-family: var(--mono);
   font-size: 10px;
 }
