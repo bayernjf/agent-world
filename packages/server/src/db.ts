@@ -164,6 +164,23 @@ CREATE TABLE IF NOT EXISTS batch_items (
 );
 CREATE INDEX IF NOT EXISTS idx_batch_items_batch ON batch_items(batch_id, row_index);
 
+CREATE TABLE IF NOT EXISTS content_plan (
+  id            TEXT PRIMARY KEY,
+  user_id       TEXT,
+  graph_id      TEXT,
+  run_id        TEXT,
+  artifact_id   TEXT,
+  platform      TEXT,
+  title         TEXT,
+  scheduled_at  INTEGER NOT NULL,
+  status        TEXT NOT NULL DEFAULT 'draft',
+  published_url TEXT,
+  note          TEXT,
+  created_at    INTEGER NOT NULL,
+  updated_at    INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_content_plan_time ON content_plan(user_id, scheduled_at);
+
 CREATE TABLE IF NOT EXISTS graph_versions (
   id           TEXT PRIMARY KEY,
   graph_id     TEXT NOT NULL,
@@ -312,6 +329,22 @@ export interface BatchItem {
   error: string | null;
 }
 
+/** A scheduled content item on the F8 calendar. */
+export interface ContentPlan {
+  id: string;
+  graphId: string | null;
+  runId: string | null;
+  artifactId: string | null;
+  platform: string | null;
+  title: string;
+  scheduledAt: number;
+  status: "draft" | "pending_review" | "scheduled" | "published" | "failed";
+  publishedUrl: string | null;
+  note: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
 /** Parse a raw products row (snake_case JSON columns) into a Product. */
 function productFromRow(r: Record<string, unknown>): Product {
   let attributes: Record<string, unknown> = {};
@@ -353,6 +386,24 @@ function batchFromRow(r: Record<string, unknown>): BatchJob {
     sourceName: r.source_name ? String(r.source_name) : null,
     createdAt: Number(r.created_at),
     finishedAt: r.finished_at ? Number(r.finished_at) : null,
+  };
+}
+
+/** Parse a raw content_plan row into a ContentPlan. */
+function planFromRow(r: Record<string, unknown>): ContentPlan {
+  return {
+    id: String(r.id),
+    graphId: r.graph_id ? String(r.graph_id) : null,
+    runId: r.run_id ? String(r.run_id) : null,
+    artifactId: r.artifact_id ? String(r.artifact_id) : null,
+    platform: r.platform ? String(r.platform) : null,
+    title: String(r.title ?? ""),
+    scheduledAt: Number(r.scheduled_at),
+    status: String(r.status ?? "draft") as ContentPlan["status"],
+    publishedUrl: r.published_url ? String(r.published_url) : null,
+    note: r.note ? String(r.note) : null,
+    createdAt: Number(r.created_at),
+    updatedAt: Number(r.updated_at),
   };
 }
 
@@ -1784,6 +1835,112 @@ export function openDb(file: string) {
       db.prepare(`UPDATE batch_jobs SET succeeded = ?, failed = ? WHERE id = ?`).run(succeeded, failed, id);
     },
 
+    // --- Content calendar (F8: scheduled publishing plan) ---
+    createPlan(input: {
+      id: string;
+      userId: string;
+      graphId?: string | null;
+      runId?: string | null;
+      artifactId?: string | null;
+      platform?: string | null;
+      title: string;
+      scheduledAt: number;
+      note?: string | null;
+    }): ContentPlan {
+      const now = Date.now();
+      db.prepare(
+        `INSERT INTO content_plan (id, user_id, graph_id, run_id, artifact_id, platform, title, scheduled_at, status, published_url, note, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft', NULL, ?, ?, ?)`,
+      ).run(
+        input.id,
+        input.userId,
+        input.graphId ?? null,
+        input.runId ?? null,
+        input.artifactId ?? null,
+        input.platform ?? null,
+        input.title,
+        input.scheduledAt,
+        input.note ?? null,
+        now,
+        now,
+      );
+      return {
+        id: input.id,
+        graphId: input.graphId ?? null,
+        runId: input.runId ?? null,
+        artifactId: input.artifactId ?? null,
+        platform: input.platform ?? null,
+        title: input.title,
+        scheduledAt: input.scheduledAt,
+        status: "draft",
+        publishedUrl: null,
+        note: input.note ?? null,
+        createdAt: now,
+        updatedAt: now,
+      };
+    },
+
+    listPlans(userId: string, from?: number, to?: number): ContentPlan[] {
+      const rows = (
+        from != null && to != null
+          ? db
+              .prepare(`SELECT * FROM content_plan WHERE user_id = ? AND scheduled_at >= ? AND scheduled_at <= ? ORDER BY scheduled_at ASC`)
+              .all(userId, from, to)
+          : db
+              .prepare(`SELECT * FROM content_plan WHERE user_id = ? ORDER BY scheduled_at ASC`)
+              .all(userId)
+      ) as Array<Record<string, unknown>>;
+      return rows.map(planFromRow);
+    },
+
+    getPlan(id: string, userId: string): ContentPlan | null {
+      const row = db.prepare(`SELECT * FROM content_plan WHERE id = ? AND user_id = ?`).get(id, userId) as
+        | Record<string, unknown>
+        | undefined;
+      return row ? planFromRow(row) : null;
+    },
+
+    updatePlan(
+      id: string,
+      userId: string,
+      patch: Partial<{
+        graphId: string | null;
+        runId: string | null;
+        artifactId: string | null;
+        platform: string | null;
+        title: string;
+        scheduledAt: number;
+        status: ContentPlan["status"];
+        publishedUrl: string | null;
+        note: string | null;
+      }>,
+    ): ContentPlan | null {
+      const existing = this.getPlan(id, userId);
+      if (!existing) return null;
+      const next = { ...existing, ...patch, updatedAt: Date.now() };
+      db.prepare(
+        `UPDATE content_plan SET graph_id = ?, run_id = ?, artifact_id = ?, platform = ?, title = ?, scheduled_at = ?, status = ?, published_url = ?, note = ?, updated_at = ? WHERE id = ? AND user_id = ?`,
+      ).run(
+        next.graphId,
+        next.runId,
+        next.artifactId,
+        next.platform,
+        next.title,
+        next.scheduledAt,
+        next.status,
+        next.publishedUrl,
+        next.note,
+        next.updatedAt,
+        id,
+        userId,
+      );
+      return next;
+    },
+
+    deletePlan(id: string, userId: string) {
+      db.prepare(`DELETE FROM content_plan WHERE id = ? AND user_id = ?`).run(id, userId);
+    },
+
     // --- Graph versions (5.6) ---
     listVersions(graphId: string, userId: string) {
       return db
@@ -2238,6 +2395,29 @@ const MIGRATIONS: Migration[] = [
         error TEXT
       )`);
       db.exec("CREATE INDEX IF NOT EXISTS idx_batch_items_batch ON batch_items(batch_id, row_index)");
+    },
+  },
+  {
+    version: 24,
+    description: "content_plan per-user scheduling calendar (F8)",
+    detect: (db) => tableExists(db, "content_plan"),
+    up: (db) => {
+      db.exec(`CREATE TABLE IF NOT EXISTS content_plan (
+        id TEXT PRIMARY KEY,
+        user_id TEXT,
+        graph_id TEXT,
+        run_id TEXT,
+        artifact_id TEXT,
+        platform TEXT,
+        title TEXT,
+        scheduled_at INTEGER NOT NULL,
+        status TEXT NOT NULL DEFAULT 'draft',
+        published_url TEXT,
+        note TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )`);
+      db.exec("CREATE INDEX IF NOT EXISTS idx_content_plan_time ON content_plan(user_id, scheduled_at)");
     },
   },
 ];

@@ -1075,6 +1075,71 @@ app.post("/api/batches/:id/items/:itemId/retry", async (c) => {
   return c.json({ runId });
 });
 
+// --- Content calendar (F8: scheduled publishing plan) ---
+app.get("/api/plan", (c) => {
+  const userId = c.get("userId");
+  const from = c.req.query("from");
+  const to = c.req.query("to");
+  const plans =
+    from && to
+      ? db.listPlans(userId, Number(from), Number(to))
+      : db.listPlans(userId);
+  return c.json(plans);
+});
+
+app.post("/api/plan", async (c) => {
+  const userId = c.get("userId");
+  const body = (await c.req.json().catch(() => ({}))) as {
+    graphId?: string | null;
+    runId?: string | null;
+    artifactId?: string | null;
+    platform?: string | null;
+    title?: string;
+    scheduledAt?: number;
+    note?: string | null;
+  };
+  if (!body.title?.trim()) return c.json({ error: "title required" }, 400);
+  if (!body.scheduledAt) return c.json({ error: "scheduledAt required" }, 400);
+  const plan = db.createPlan({
+    id: randomUUID(),
+    userId,
+    graphId: body.graphId,
+    runId: body.runId,
+    artifactId: body.artifactId,
+    platform: body.platform,
+    title: body.title.trim(),
+    scheduledAt: body.scheduledAt,
+    note: body.note,
+  });
+  return c.json(plan, 201);
+});
+
+app.patch("/api/plan/:id", async (c) => {
+  const userId = c.get("userId");
+  const body = (await c.req.json().catch(() => ({}))) as Partial<{
+    graphId: string | null;
+    runId: string | null;
+    artifactId: string | null;
+    platform: string | null;
+    title: string;
+    scheduledAt: number;
+    status: "draft" | "pending_review" | "scheduled" | "published" | "failed";
+    publishedUrl: string | null;
+    note: string | null;
+  }>;
+  const plan = db.updatePlan(c.req.param("id"), userId, body);
+  if (!plan) return c.json({ error: "not found" }, 404);
+  return c.json(plan);
+});
+
+app.delete("/api/plan/:id", (c) => {
+  const userId = c.get("userId");
+  const plan = db.getPlan(c.req.param("id"), userId);
+  if (!plan) return c.json({ error: "not found" }, 404);
+  db.deletePlan(plan.id, userId);
+  return c.body(null, 204);
+});
+
 // --- Trigger management + webhook ---
 app.get("/api/graphs/:id/triggers", (c) => {
   const userId = c.get("userId");
