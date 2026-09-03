@@ -1140,6 +1140,86 @@ app.delete("/api/plan/:id", (c) => {
   return c.body(null, 204);
 });
 
+// --- Performance metrics (F6: content effect feedback loop) ---
+app.post("/api/metrics", async (c) => {
+  const userId = c.get("userId");
+  const body = (await c.req.json().catch(() => ({}))) as {
+    graphId?: string | null;
+    runId?: string | null;
+    nodeId?: string | null;
+    variant?: string | null;
+    artifactId?: string | null;
+    productId?: string | null;
+    platform?: string | null;
+    externalContentId?: string | null;
+    impressions?: number;
+    clicks?: number;
+    conversions?: number;
+    gmv?: number;
+    adSpend?: number;
+    recordedAt?: number;
+  };
+  const metric = db.insertMetric({
+    id: randomUUID(),
+    userId,
+    graphId: body.graphId,
+    runId: body.runId,
+    nodeId: body.nodeId,
+    variant: body.variant,
+    artifactId: body.artifactId,
+    productId: body.productId,
+    platform: body.platform,
+    externalContentId: body.externalContentId,
+    impressions: body.impressions,
+    clicks: body.clicks,
+    conversions: body.conversions,
+    gmv: body.gmv,
+    adSpend: body.adSpend,
+    recordedAt: body.recordedAt ?? Date.now(),
+  });
+  return c.json(metric, 201);
+});
+
+app.post("/api/metrics/import", async (c) => {
+  const userId = c.get("userId");
+  const body = (await c.req.json().catch(() => ({}))) as { csv?: string };
+  if (!body.csv) return c.json({ error: "csv required" }, 400);
+  const rows = parseCsv(body.csv, { hasHeader: true });
+  let imported = 0;
+  for (const row of rows) {
+    const num = (v: unknown) => (v === null || v === "" ? 0 : Number(v));
+    db.insertMetric({
+      id: randomUUID(),
+      userId,
+      graphId: row.graph_id ? String(row.graph_id) : null,
+      runId: row.run_id ? String(row.run_id) : null,
+      artifactId: row.artifact_id ? String(row.artifact_id) : null,
+      productId: row.product_id ? String(row.product_id) : null,
+      platform: row.platform ? String(row.platform) : null,
+      externalContentId: row.external_content_id ? String(row.external_content_id) : null,
+      impressions: num(row.impressions),
+      clicks: num(row.clicks),
+      conversions: num(row.conversions),
+      gmv: num(row.gmv),
+      adSpend: num(row.ad_spend),
+      recordedAt: row.recorded_at ? Number(row.recorded_at) : Date.now(),
+    });
+    imported += 1;
+  }
+  return c.json({ imported });
+});
+
+app.get("/api/metrics", (c) => {
+  const userId = c.get("userId");
+  return c.json(db.listMetrics(userId));
+});
+
+app.get("/api/performance", (c) => {
+  const userId = c.get("userId");
+  const groupBy = c.req.query("groupBy") ?? "graph_id";
+  return c.json(db.aggregatePerformance(userId, groupBy));
+});
+
 // --- Trigger management + webhook ---
 app.get("/api/graphs/:id/triggers", (c) => {
   const userId = c.get("userId");

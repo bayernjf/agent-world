@@ -181,6 +181,27 @@ CREATE TABLE IF NOT EXISTS content_plan (
 );
 CREATE INDEX IF NOT EXISTS idx_content_plan_time ON content_plan(user_id, scheduled_at);
 
+CREATE TABLE IF NOT EXISTS content_metrics (
+  id                  TEXT PRIMARY KEY,
+  user_id             TEXT,
+  graph_id            TEXT,
+  run_id              TEXT,
+  node_id             TEXT,
+  variant             TEXT,
+  artifact_id         TEXT,
+  product_id          TEXT,
+  platform            TEXT,
+  external_content_id TEXT,
+  impressions         INTEGER DEFAULT 0,
+  clicks              INTEGER DEFAULT 0,
+  conversions         INTEGER DEFAULT 0,
+  gmv                 REAL DEFAULT 0,
+  ad_spend            REAL DEFAULT 0,
+  recorded_at         INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_metrics_content ON content_metrics(artifact_id, recorded_at);
+CREATE INDEX IF NOT EXISTS idx_metrics_user ON content_metrics(user_id, recorded_at);
+
 CREATE TABLE IF NOT EXISTS graph_versions (
   id           TEXT PRIMARY KEY,
   graph_id     TEXT NOT NULL,
@@ -345,6 +366,35 @@ export interface ContentPlan {
   updatedAt: number;
 }
 
+/** One performance metric row (F6). */
+export interface ContentMetric {
+  id: string;
+  graphId: string | null;
+  runId: string | null;
+  nodeId: string | null;
+  variant: string | null;
+  artifactId: string | null;
+  productId: string | null;
+  platform: string | null;
+  externalContentId: string | null;
+  impressions: number;
+  clicks: number;
+  conversions: number;
+  gmv: number;
+  adSpend: number;
+  recordedAt: number;
+}
+
+/** Aggregated performance buckets returned by /api/performance. */
+export interface PerformanceAggregate {
+  group: string;
+  impressions: number;
+  clicks: number;
+  conversions: number;
+  gmv: number;
+  adSpend: number;
+}
+
 /** Parse a raw products row (snake_case JSON columns) into a Product. */
 function productFromRow(r: Record<string, unknown>): Product {
   let attributes: Record<string, unknown> = {};
@@ -404,6 +454,27 @@ function planFromRow(r: Record<string, unknown>): ContentPlan {
     note: r.note ? String(r.note) : null,
     createdAt: Number(r.created_at),
     updatedAt: Number(r.updated_at),
+  };
+}
+
+/** Parse a raw content_metrics row into a ContentMetric. */
+function metricFromRow(r: Record<string, unknown>): ContentMetric {
+  return {
+    id: String(r.id),
+    graphId: r.graph_id ? String(r.graph_id) : null,
+    runId: r.run_id ? String(r.run_id) : null,
+    nodeId: r.node_id ? String(r.node_id) : null,
+    variant: r.variant ? String(r.variant) : null,
+    artifactId: r.artifact_id ? String(r.artifact_id) : null,
+    productId: r.product_id ? String(r.product_id) : null,
+    platform: r.platform ? String(r.platform) : null,
+    externalContentId: r.external_content_id ? String(r.external_content_id) : null,
+    impressions: Number(r.impressions ?? 0),
+    clicks: Number(r.clicks ?? 0),
+    conversions: Number(r.conversions ?? 0),
+    gmv: Number(r.gmv ?? 0),
+    adSpend: Number(r.ad_spend ?? 0),
+    recordedAt: Number(r.recorded_at),
   };
 }
 
@@ -1941,6 +2012,93 @@ export function openDb(file: string) {
       db.prepare(`DELETE FROM content_plan WHERE id = ? AND user_id = ?`).run(id, userId);
     },
 
+    // --- Performance metrics (F6: content effect feedback loop) ---
+    insertMetric(input: {
+      id: string;
+      userId: string;
+      graphId?: string | null;
+      runId?: string | null;
+      nodeId?: string | null;
+      variant?: string | null;
+      artifactId?: string | null;
+      productId?: string | null;
+      platform?: string | null;
+      externalContentId?: string | null;
+      impressions?: number;
+      clicks?: number;
+      conversions?: number;
+      gmv?: number;
+      adSpend?: number;
+      recordedAt: number;
+    }): ContentMetric {
+      db.prepare(
+        `INSERT INTO content_metrics (id, user_id, graph_id, run_id, node_id, variant, artifact_id, product_id, platform, external_content_id, impressions, clicks, conversions, gmv, ad_spend, recorded_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        input.id,
+        input.userId,
+        input.graphId ?? null,
+        input.runId ?? null,
+        input.nodeId ?? null,
+        input.variant ?? null,
+        input.artifactId ?? null,
+        input.productId ?? null,
+        input.platform ?? null,
+        input.externalContentId ?? null,
+        input.impressions ?? 0,
+        input.clicks ?? 0,
+        input.conversions ?? 0,
+        input.gmv ?? 0,
+        input.adSpend ?? 0,
+        input.recordedAt,
+      );
+      return metricFromRow({
+        id: input.id,
+        graph_id: input.graphId,
+        run_id: input.runId,
+        node_id: input.nodeId,
+        variant: input.variant,
+        artifact_id: input.artifactId,
+        product_id: input.productId,
+        platform: input.platform,
+        external_content_id: input.externalContentId,
+        impressions: input.impressions ?? 0,
+        clicks: input.clicks ?? 0,
+        conversions: input.conversions ?? 0,
+        gmv: input.gmv ?? 0,
+        ad_spend: input.adSpend ?? 0,
+        recorded_at: input.recordedAt,
+      });
+    },
+
+    listMetrics(userId: string): ContentMetric[] {
+      const rows = db
+        .prepare(`SELECT * FROM content_metrics WHERE user_id = ? ORDER BY recorded_at DESC`)
+        .all(userId) as Array<Record<string, unknown>>;
+      return rows.map(metricFromRow);
+    },
+
+    /** Aggregate metrics by one column (graph_id/run_id/platform/product_id/artifact_id). */
+    aggregatePerformance(userId: string, groupBy: string): PerformanceAggregate[] {
+      const allowed = new Set(["graph_id", "run_id", "node_id", "variant", "artifact_id", "product_id", "platform", "external_content_id"]);
+      const col = allowed.has(groupBy) ? groupBy : "graph_id";
+      const rows = db
+        .prepare(
+          `SELECT COALESCE(${col}, '') AS grp, SUM(impressions) AS impressions, SUM(clicks) AS clicks,
+                  SUM(conversions) AS conversions, SUM(gmv) AS gmv, SUM(ad_spend) AS ad_spend
+           FROM content_metrics WHERE user_id = ? GROUP BY ${col} ORDER BY impressions DESC`,
+        )
+        .all(userId) as Array<Record<string, unknown>>;
+      return rows.map((r) => ({
+        group: String(r.grp ?? ""),
+        impressions: Number(r.impressions ?? 0),
+        clicks: Number(r.clicks ?? 0),
+        conversions: Number(r.conversions ?? 0),
+        gmv: Number(r.gmv ?? 0),
+        adSpend: Number(r.ad_spend ?? 0),
+      }));
+    },
+
     // --- Graph versions (5.6) ---
     listVersions(graphId: string, userId: string) {
       return db
@@ -2418,6 +2576,33 @@ const MIGRATIONS: Migration[] = [
         updated_at INTEGER NOT NULL
       )`);
       db.exec("CREATE INDEX IF NOT EXISTS idx_content_plan_time ON content_plan(user_id, scheduled_at)");
+    },
+  },
+  {
+    version: 25,
+    description: "content_metrics per-user performance feedback (F6)",
+    detect: (db) => tableExists(db, "content_metrics"),
+    up: (db) => {
+      db.exec(`CREATE TABLE IF NOT EXISTS content_metrics (
+        id TEXT PRIMARY KEY,
+        user_id TEXT,
+        graph_id TEXT,
+        run_id TEXT,
+        node_id TEXT,
+        variant TEXT,
+        artifact_id TEXT,
+        product_id TEXT,
+        platform TEXT,
+        external_content_id TEXT,
+        impressions INTEGER DEFAULT 0,
+        clicks INTEGER DEFAULT 0,
+        conversions INTEGER DEFAULT 0,
+        gmv REAL DEFAULT 0,
+        ad_spend REAL DEFAULT 0,
+        recorded_at INTEGER NOT NULL
+      )`);
+      db.exec("CREATE INDEX IF NOT EXISTS idx_metrics_content ON content_metrics(artifact_id, recorded_at)");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_metrics_user ON content_metrics(user_id, recorded_at)");
     },
   },
 ];
