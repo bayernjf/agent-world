@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Trans, useTranslation } from "react-i18next";
 import type { GraphNode } from "@agent-world/core";
 import type { Modality } from "../lib/api";
 import { useToast } from "../store/toast";
@@ -24,11 +25,11 @@ const MODALITY_KINDS: Record<Exclude<Modality, "embedding">, GraphNode["kind"][]
   audio: ["audioGen"],
 };
 
-const MODALITY_LABEL: Record<Exclude<Modality, "embedding">, string> = {
-  text: "文本",
-  image: "图片",
-  video: "视频",
-  audio: "音频",
+const MODALITY_KEY: Record<Exclude<Modality, "embedding">, string> = {
+  text: "modals:modelAssign.modality.text",
+  image: "modals:modelAssign.modality.image",
+  video: "modals:modelAssign.modality.video",
+  audio: "modals:modelAssign.modality.audio",
 };
 
 const MODALITY_ORDER: Exclude<Modality, "embedding">[] = ["text", "image", "video", "audio"];
@@ -52,6 +53,7 @@ function modalityOfNode(node: GraphNode): AiModality | null {
 }
 
 export default function ModelAssignModal({ open, onClose, onOpenSettings }: Props) {
+  const { t } = useTranslation();
   const { graph, assignModel } = useGraph();
   const [options, setOptions] = useState<ModelOption[]>([]);
   const [picked, setPicked] = useState<{ provider: string; model: string; modality: AiModality } | null>(null);
@@ -72,7 +74,7 @@ export default function ModelAssignModal({ open, onClose, onOpenSettings }: Prop
   );
 
   // Models grouped by modality, with the number of current-graph nodes that
-  // already use each one (the "N 节点 / 未使用" hint on the left list).
+  // already use each one (the usedNodes / unused hint on the left list).
   const grouped = useMemo(() => {
     const byMod = new Map<AiModality, { option: ModelOption; used: number }[]>();
     for (const option of options) {
@@ -115,7 +117,7 @@ export default function ModelAssignModal({ open, onClose, onOpenSettings }: Prop
     });
   };
 
-  // Only consider enabled (non-same) nodes — "已使用" ones can't be
+  // Only consider enabled (non-same) nodes — the "in use" ones can't be
   // toggled at all, so they mustn't flip the all-on / all-off branch.
   const assignable = candidates.filter((n) => modelOf(n) !== picked?.model);
   const allOn = assignable.length > 0 && assignable.every((n) => checked.has(n.id));
@@ -130,7 +132,9 @@ export default function ModelAssignModal({ open, onClose, onOpenSettings }: Prop
     if (!picked || selectedCount === 0) return;
     const changed = assignModel([...checked], picked.model);
     useToast.getState().show(
-      changed > 0 ? `已将 ${changed} 个节点切换为 ${picked.model}` : "所选节点均已在用该模型",
+      changed > 0
+        ? t("modals:modelAssign.toastApplied", { changed, model: picked.model })
+        : t("modals:modelAssign.toastNoChange"),
       { ttlMs: 3500 },
     );
     // Keep the modal open so the user can switch another model or adjust
@@ -148,12 +152,12 @@ export default function ModelAssignModal({ open, onClose, onOpenSettings }: Prop
       <div className="modal modal--wide modal--tall" onClick={(e) => e.stopPropagation()}>
         <div className="modal__header">
           <div className="model-assign__head-left">
-            <h2>模型分配</h2>
+            <h2>{t("modals:modelAssign.title")}</h2>
             <span className="model-assign__sub">
-              当前产线：{graph.name} · 只改选中节点的模型字段
+              {t("modals:modelAssign.sub", { name: graph.name })}
             </span>
           </div>
-          <Tooltip content="关闭">
+          <Tooltip content={t("common.close")}>
             <button className="icon-btn" onClick={onClose}>
               ✕
             </button>
@@ -162,9 +166,9 @@ export default function ModelAssignModal({ open, onClose, onOpenSettings }: Prop
 
         {noModels ? (
           <div className="modal__body model-assign__empty">
-            <p>尚未配置任何可用模型。</p>
+            <p>{t("modals:modelAssign.empty")}</p>
             <button className="btn" onClick={onOpenSettings}>
-              去设置 · 模型与密钥
+              {t("modals:modelAssign.goSettings")}
             </button>
           </div>
         ) : (
@@ -174,7 +178,11 @@ export default function ModelAssignModal({ open, onClose, onOpenSettings }: Prop
                 <div className="model-assign__side">
                   {MODALITY_ORDER.filter((mod) => (grouped.get(mod)?.length ?? 0) > 0).map((mod) => (
                     <div key={mod} className="model-assign__group">
-                      <p className="model-assign__group-label">{MODALITY_LABEL[mod]}模型</p>
+                      <p className="model-assign__group-label">
+                        {t("modals:modelAssign.groupLabel", {
+                          modality: t(MODALITY_KEY[mod]),
+                        })}
+                      </p>
                       {(grouped.get(mod) ?? []).map(({ option, used }) => (
                         <button
                           key={`${option.provider}/${option.model}`}
@@ -184,7 +192,9 @@ export default function ModelAssignModal({ open, onClose, onOpenSettings }: Prop
                           <span className={`model-assign__dot model-assign__dot--${mod}`} />
                           <span className="model-assign__model-name">{option.model}</span>
                           <span className="model-assign__model-count">
-                            {used > 0 ? `${used} 节点` : "未使用"}
+                            {used > 0
+                              ? t("modals:modelAssign.usedNodes", { used })
+                              : t("modals:modelAssign.unused")}
                           </span>
                         </button>
                       ))}
@@ -194,23 +204,27 @@ export default function ModelAssignModal({ open, onClose, onOpenSettings }: Prop
 
                 <div className="model-assign__main">
                   {!picked ? (
-                    <p className="model-assign__hint">点击左侧模型，查看当前产线中可指派的节点。</p>
+                    <p className="model-assign__hint">{t("modals:modelAssign.pickHint")}</p>
                   ) : candidates.length === 0 ? (
                     <p className="model-assign__hint">
-                      当前产线没有{MODALITY_LABEL[picked.modality]}类节点。
+                      {t("modals:modelAssign.noNodes", {
+                        modality: t(MODALITY_KEY[picked.modality]),
+                      })}
                     </p>
                   ) : (
                     <>
                       <div className="model-assign__main-head">
                         <span className={`modality-badge modality--${picked.modality}`}>
-                          {MODALITY_LABEL[picked.modality]}
+                          {t(MODALITY_KEY[picked.modality])}
                         </span>
                         <span className="model-assign__picked">{picked.model}</span>
                         <button className="model-assign__toggle" onClick={toggleAll}>
                           {/* The action toggles, so the label must say which way it
-                              is about to go — a static "全选" read as a promise and
-                              then cleared an all-selected list (audit L8). */}
-                          {allOn ? "清空" : "全选"}
+                              is about to go — a static "select all" read as a promise
+                              and then cleared an all-selected list (audit L8). */}
+                          {allOn
+                            ? t("modals:modelAssign.clearAll")
+                            : t("modals:modelAssign.selectAll")}
                         </button>
                       </div>
                       <div className="model-assign__list">
@@ -228,7 +242,9 @@ export default function ModelAssignModal({ open, onClose, onOpenSettings }: Prop
                               <span className="model-assign__node-name">{n.name}</span>
                               <span className="model-assign__node-kind">{n.kind}</span>
                               <span className={`model-assign__node-cur ${same ? "is-same" : ""}`}>
-                                {same ? "已使用" : modelOf(n) || "(未配置)"}
+                                {same
+                                  ? t("modals:modelAssign.inUse")
+                                  : modelOf(n) || t("modals:modelAssign.unset")}
                               </span>
                             </button>
                           );
@@ -243,16 +259,17 @@ export default function ModelAssignModal({ open, onClose, onOpenSettings }: Prop
             <div className="model-assign__foot">
               <span className="model-assign__summary">
                 {picked && selectedCount > 0 ? (
-                  <>
-                    将把 <b>{selectedCount}</b> 个节点的模型切换为 <b>{picked.model}</b>
-                    （保存时自动快照，可 Ctrl+Z 撤销）
-                  </>
+                  <Trans
+                    i18nKey="modals:modelAssign.summary"
+                    values={{ nodes: selectedCount, model: picked.model }}
+                    components={{ b: <b /> }}
+                  />
                 ) : (
-                  "未选中任何节点"
+                  t("modals:modelAssign.noSelection")
                 )}
               </span>
               <button className="btn" onClick={apply} disabled={!picked || selectedCount === 0}>
-                确认应用
+                {t("modals:modelAssign.apply")}
               </button>
             </div>
           </>

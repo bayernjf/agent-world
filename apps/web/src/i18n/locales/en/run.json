@@ -167,22 +167,6 @@
       "runFinished": "Run finished"
     }
   },
-  "compare": {
-    "title": "Run Compare",
-    "selectRunA": "Select Run A",
-    "selectRunB": "Select Run B",
-    "startCompare": "Start Compare",
-    "comparing": "Comparing...",
-    "statsComparison": "Stats Comparison",
-    "outputComparison": "Output Comparison",
-    "metric": "Metric",
-    "runA": "Run A",
-    "runB": "Run B",
-    "difference": "Diff (B-A)",
-    "noRuns": "No runs",
-    "selectBothRuns": "Select two runs to compare",
-    "compareFailed": "Compare failed"
-  },
   "failure": {
     "trippedTitle": "Out of power — the whole plant stopped",
     "failedTitle": "Pipeline run failed",

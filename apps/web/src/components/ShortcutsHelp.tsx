@@ -1,47 +1,49 @@
 import { useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import Popover, { type Rect } from "./Popover";
 
 const GROUPS: { title: string; items: { keys: string; desc: string }[] }[] = [
   {
-    title: "画布",
+    title: "modals:shortcutsHelp.groups.canvas",
     items: [
-      { keys: "拖动画布 / 空格拖拽", desc: "移动画布" },
-      { keys: "滚轮", desc: "缩放画布" },
-      { keys: "↑ ↓ ← →", desc: "方向键平移画布（Shift 加速）" },
-      { keys: "F", desc: "缩放并居中到选中节点" },
+      { keys: "modals:shortcutsHelp.canvas.panKeys", desc: "modals:shortcutsHelp.canvas.panDesc" },
+      { keys: "modals:shortcutsHelp.canvas.wheelKeys", desc: "modals:shortcutsHelp.canvas.wheelDesc" },
+      { keys: "modals:shortcutsHelp.canvas.arrowsKeys", desc: "modals:shortcutsHelp.canvas.arrowsDesc" },
+      { keys: "modals:shortcutsHelp.canvas.fitKeys", desc: "modals:shortcutsHelp.canvas.fitDesc" },
     ],
   },
   {
-    title: "编辑",
+    title: "modals:shortcutsHelp.groups.edit",
     items: [
-      { keys: "⌘/Ctrl + C", desc: "复制选中节点" },
-      { keys: "⌘/Ctrl + V", desc: "粘贴节点（连续粘贴自动错位）" },
-      { keys: "⌘/Ctrl + Z", desc: "撤销" },
-      { keys: "⌘/Ctrl + Shift + Z", desc: "重做" },
-      { keys: "Delete / Backspace", desc: "删除选中节点或管道" },
+      { keys: "modals:shortcutsHelp.edit.copyKeys", desc: "modals:shortcutsHelp.edit.copyDesc" },
+      { keys: "modals:shortcutsHelp.edit.pasteKeys", desc: "modals:shortcutsHelp.edit.pasteDesc" },
+      { keys: "modals:shortcutsHelp.edit.undoKeys", desc: "modals:shortcutsHelp.edit.undoDesc" },
+      { keys: "modals:shortcutsHelp.edit.redoKeys", desc: "modals:shortcutsHelp.edit.redoDesc" },
+      { keys: "modals:shortcutsHelp.edit.deleteKeys", desc: "modals:shortcutsHelp.edit.deleteDesc" },
     ],
   },
   {
-    title: "工具",
+    title: "modals:shortcutsHelp.groups.tools",
     items: [
-      { keys: "选择", desc: "拖动节点、点选管道锁定高亮" },
-      { keys: "连线", desc: "依次点两个节点建立正向管道" },
-      { keys: "返工", desc: "建立回退管道（质检打回）" },
-      { keys: "拆除", desc: "点击节点或管道删除" },
+      { keys: "modals:shortcutsHelp.tools.selectKeys", desc: "modals:shortcutsHelp.tools.selectDesc" },
+      { keys: "modals:shortcutsHelp.tools.connectKeys", desc: "modals:shortcutsHelp.tools.connectDesc" },
+      { keys: "modals:shortcutsHelp.tools.reworkKeys", desc: "modals:shortcutsHelp.tools.reworkDesc" },
+      { keys: "modals:shortcutsHelp.tools.removeKeys", desc: "modals:shortcutsHelp.tools.removeDesc" },
     ],
   },
   {
-    title: "其他",
+    title: "modals:shortcutsHelp.groups.other",
     items: [
-      { keys: "悬停节点", desc: "查看模型、状态、Token、电费" },
-      { keys: "悬停管道", desc: "高亮整条上下游流向" },
-      { keys: "T", desc: "开启/关闭节点悬停名牌" },
-      { keys: "E", desc: "切换详情抽屉的 产出 / 配置 / 技能" },
+      { keys: "modals:shortcutsHelp.other.hoverNodeKeys", desc: "modals:shortcutsHelp.other.hoverNodeDesc" },
+      { keys: "modals:shortcutsHelp.other.hoverPipeKeys", desc: "modals:shortcutsHelp.other.hoverPipeDesc" },
+      { keys: "modals:shortcutsHelp.other.nameplateKeys", desc: "modals:shortcutsHelp.other.nameplateDesc" },
+      { keys: "modals:shortcutsHelp.other.drawerKeys", desc: "modals:shortcutsHelp.other.drawerDesc" },
     ],
   },
 ];
 
 export default function ShortcutsHelp() {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [anchor, setAnchor] = useState<Rect | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -79,25 +81,25 @@ export default function ShortcutsHelp() {
 
         onClick={updateAnchor}
       >
-        快捷键 ?
+        {t("modals:shortcutsHelp.trigger")}
       </button>
       <Popover open={open} anchor={anchor} placement="bottom" className="shortcuts__pop">
         <div
           className="shortcuts__panel"
           role="dialog"
-          aria-label="快捷键说明"
+          aria-label={t("modals:shortcutsHelp.ariaLabel")}
           onMouseEnter={() => setOpen(true)}
           onMouseLeave={() => setOpen(false)}
         >
-          <div className="shortcuts__head">快捷键</div>
+          <div className="shortcuts__head">{t("modals:shortcutsHelp.title")}</div>
           <div className="shortcuts__grid">
             {GROUPS.map((group) => (
               <div key={group.title} className="shortcuts__group">
-                <div className="shortcuts__group-title">{group.title}</div>
+                <div className="shortcuts__group-title">{t(group.title)}</div>
                 {group.items.map((item) => (
                   <div key={item.keys} className="shortcuts__row">
-                    <kbd className="shortcuts__keys">{item.keys}</kbd>
-                    <span className="shortcuts__desc">{item.desc}</span>
+                    <kbd className="shortcuts__keys">{t(item.keys)}</kbd>
+                    <span className="shortcuts__desc">{t(item.desc)}</span>
                   </div>
                 ))}
               </div>

@@ -148,27 +148,6 @@
     "loadFailed": "Load failed",
     "noData": "No data"
   },
-  "abTest": {
-    "title": "A/B Test",
-    "selectRunA": "Select Run A",
-    "selectRunB": "Select Run B",
-    "startCompare": "Start Compare",
-    "comparing": "Comparing...",
-    "statsComparison": "Stats Comparison",
-    "outputComparison": "Output Comparison",
-    "metric": "Metric",
-    "runA": "Run A",
-    "runB": "Run B",
-    "difference": "Diff (B-A)",
-    "totalCost": "Total Cost (USD)",
-    "inputTokens": "Input Tokens",
-    "outputTokens": "Output Tokens",
-    "nodeCount": "Node Count",
-    "noRuns": "No runs",
-    "selectBothRuns": "Select two runs to compare",
-    "compareFailed": "Compare failed",
-    "close": "Close"
-  },
   "variables": {
     "title": "Pipeline Variables",
     "hint": "Variables are state that persists across runs: nodes read them with <code>${var.xxx}</code> (for example <code>${var.brand}</code>), and agents read and write them with the built-in <code>set_variable</code> / <code>get_variable</code> tools. These are defaults; writes during a run override them.",
@@ -269,13 +248,29 @@
   },
   "modelAssign": {
     "title": "Model Assignment",
-    "description": "Assign default models for different node types, can be overridden in node config.",
-    "nodeType": "Node Type",
-    "defaultModel": "Default Model",
-    "fallbackModel": "Fallback Model",
-    "save": "Save",
-    "cancel": "Cancel",
-    "reset": "Reset to Default"
+    "sub": "Line: {{name}} · only the selected nodes change model",
+    "empty": "No usable models configured yet.",
+    "goSettings": "Open Settings · Models & keys",
+    "modality": {
+      "text": "Text",
+      "image": "Image",
+      "video": "Video",
+      "audio": "Audio"
+    },
+    "groupLabel": "{{modality}} models",
+    "usedNodes": "{{used}} nodes",
+    "unused": "Unused",
+    "pickHint": "Pick a model on the left to see which nodes in this line it can be assigned to.",
+    "noNodes": "This line has no {{modality}} nodes.",
+    "selectAll": "Select all",
+    "clearAll": "Clear",
+    "inUse": "In use",
+    "unset": "(unset)",
+    "noSelection": "No nodes selected",
+    "summary": "Will switch <b>{{nodes}}</b> nodes to <b>{{model}}</b> (snapshotted on save, Ctrl+Z to undo)",
+    "apply": "Apply",
+    "toastApplied": "Switched {{changed}} nodes to {{model}}",
+    "toastNoChange": "The selected nodes already use this model"
   },
   "onboarding": {
     "title": "Welcome to Agent World",
@@ -311,13 +306,57 @@
     "loading": "Loading…"
   },
   "shortcutsHelp": {
+    "trigger": "Shortcuts ?",
+    "ariaLabel": "Keyboard shortcuts",
     "title": "Shortcuts",
-    "canvas": "Canvas",
-    "editing": "Editing",
-    "tools": "Tools",
-    "other": "Other",
-    "pressKey": "Press {{key}}",
-    "thenKey": "then {{key}}"
+    "groups": {
+      "canvas": "Canvas",
+      "edit": "Editing",
+      "tools": "Tools",
+      "other": "Other"
+    },
+    "canvas": {
+      "panKeys": "Drag canvas / Space + drag",
+      "panDesc": "Pan the canvas",
+      "wheelKeys": "Scroll wheel",
+      "wheelDesc": "Zoom the canvas",
+      "arrowsKeys": "↑ ↓ ← →",
+      "arrowsDesc": "Pan with arrow keys (Shift to speed up)",
+      "fitKeys": "F",
+      "fitDesc": "Zoom and centre on the selection"
+    },
+    "edit": {
+      "copyKeys": "⌘/Ctrl + C",
+      "copyDesc": "Copy selected nodes",
+      "pasteKeys": "⌘/Ctrl + V",
+      "pasteDesc": "Paste nodes (repeated paste offsets automatically)",
+      "undoKeys": "⌘/Ctrl + Z",
+      "undoDesc": "Undo",
+      "redoKeys": "⌘/Ctrl + Shift + Z",
+      "redoDesc": "Redo",
+      "deleteKeys": "Delete / Backspace",
+      "deleteDesc": "Delete selected nodes or pipes"
+    },
+    "tools": {
+      "selectKeys": "Select",
+      "selectDesc": "Drag nodes, click a pipe to lock the highlight",
+      "connectKeys": "Connect",
+      "connectDesc": "Click two nodes in turn to lay a forward pipe",
+      "reworkKeys": "Rework",
+      "reworkDesc": "Lay a return pipe (gate sends work back)",
+      "removeKeys": "Remove",
+      "removeDesc": "Click a node or pipe to delete it"
+    },
+    "other": {
+      "hoverNodeKeys": "Hover a node",
+      "hoverNodeDesc": "See model, status, tokens and power cost",
+      "hoverPipeKeys": "Hover a pipe",
+      "hoverPipeDesc": "Highlight the whole upstream/downstream flow",
+      "nameplateKeys": "T",
+      "nameplateDesc": "Toggle node hover nameplates",
+      "drawerKeys": "E",
+      "drawerDesc": "Cycle the inspector drawer: output / config / skills"
+    }
   },
   "graphSwitcher": {
     "fallbackName": "Line",
@@ -343,5 +382,25 @@
     "inputPlaceholder": "Leave blank to use the pipeline default",
     "launch": "Launch A/B ({{count}} arms)",
     "launching": "Launching…"
+  },
+  "abReport": {
+    "title": "A/B Comparison",
+    "loading": "Loading…",
+    "empty": "No experiment data.",
+    "groupLine": "Experiment group <mono>{{id}}</mono>",
+    "partial": " · some arms are still running, results keep updating",
+    "arm": "Arm",
+    "promptVariant": "Prompt variant",
+    "runs": "Runs",
+    "passRate": "Pass rate",
+    "qualityScore": "Quality",
+    "avgRework": "Avg rework",
+    "avgDuration": "Avg duration",
+    "avgCost": "Cost per run",
+    "recommended": "Recommended",
+    "running": "Running {{done}}/{{runs}}",
+    "done": "Done",
+    "noRuns": "No runs",
+    "winnerNote": "Adopt arm <strong>{{arm}}</strong>: among completed runs it scores highest on quality (pass rate {{rate}})."
   }
 }

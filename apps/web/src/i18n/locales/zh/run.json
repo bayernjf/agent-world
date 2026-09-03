@@ -167,22 +167,6 @@
       "runFinished": "收工"
     }
   },
-  "compare": {
-    "title": "运行对比",
-    "selectRunA": "选择运行 A",
-    "selectRunB": "选择运行 B",
-    "startCompare": "开始对比",
-    "comparing": "对比中...",
-    "statsComparison": "成本与用量对比",
-    "outputComparison": "节点输出对比",
-    "metric": "指标",
-    "runA": "运行 A",
-    "runB": "运行 B",
-    "difference": "差异 (B-A)",
-    "noRuns": "暂无运行记录",
-    "selectBothRuns": "请选择两个运行进行对比",
-    "compareFailed": "对比失败"
-  },
   "failure": {
     "trippedTitle": "电力不足，全厂停机",
     "failedTitle": "产线运行失败",
