@@ -5200,47 +5200,47 @@ select {
   margin-top: var(--space-1);
 }
 .canvas-toolbar__group-title {
-  padding: 8px 14px 4px;
-  color: var(--power);
+  padding: var(--gap-sm) var(--gap-lg) var(--space-1);
+  color: var(--accent);
   font-size: 10px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
 }
 .canvas-toolbar__empty {
-  padding: 16px 14px;
-  color: var(--ink-faint);
+  padding: var(--gap-lg) var(--gap-lg);
+  color: var(--text-tertiary);
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 .canvas-toolbar__menu-item {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 2px;
+  gap: var(--space-1);
   width: 100%;
-  padding: 8px 14px;
+  padding: var(--gap-sm) var(--gap-lg);
   background: transparent;
   border: none;
-  color: var(--ink);
+  color: var(--text-primary);
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--text-sm);
   text-align: left;
   cursor: pointer;
 }
 .canvas-toolbar__menu-item:hover {
-  background: var(--steel-800);
-  color: var(--data);
+  background: var(--bg-elevated);
+  color: var(--info);
 }
 .canvas-toolbar__menu-label {
   letter-spacing: 0.04em;
 }
 .canvas-toolbar__menu-hint {
   font-size: 10px;
-  color: var(--ink-faint);
+  color: var(--text-tertiary);
   letter-spacing: 0;
 }
 .canvas-toolbar__menu-item:hover .canvas-toolbar__menu-hint {
-  color: var(--ink-dim);
+  color: var(--text-secondary);
 }
 
 /* ---------- Auth pages ---------- */
@@ -5250,44 +5250,44 @@ select {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--steel-950);
+  background: var(--bg-primary);
 }
 
 .auth-card {
   width: 400px;
   max-width: 92vw;
-  background: var(--steel-900);
+  background: var(--bg-secondary);
   border: var(--hair);
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6), 0 0 40px -12px rgba(53, 224, 240, 0.08);
   clip-path: polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px);
 }
 
 .auth-card__head {
-  padding: 24px 28px 0;
+  padding: var(--space-6) var(--space-7) 0;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--gap-lg);
 }
 
 .auth-card__title {
   margin: 0;
   font-family: var(--mono);
-  font-size: 14px;
-  font-weight: 700;
+  font-size: var(--text-base);
+  font-weight: var(--font-bold);
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--ink);
+  color: var(--text-primary);
 }
 
 .auth-card__sub {
-  margin: 8px 0 0;
-  padding: 0 28px;
-  font-size: 11px;
-  color: var(--ink-faint);
+  margin: var(--gap-sm) 0 0;
+  padding: 0 var(--space-7);
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
 }
 
 .auth-card__sub a {
-  color: var(--data);
+  color: var(--info);
   text-decoration: none;
 }
 
@@ -5296,46 +5296,46 @@ select {
 }
 
 .auth-card__body {
-  padding: 20px 28px 28px;
+  padding: var(--space-5) var(--space-7) var(--space-7);
 }
 
 .auth-error {
-  margin-bottom: 14px;
-  padding: 8px 10px;
-  border-left: 2px solid var(--alert);
+  margin-bottom: var(--gap-lg);
+  padding: var(--gap-sm) var(--gap-md);
+  border-left: 2px solid var(--error);
   background: rgba(255, 74, 61, 0.08);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--text-xs);
   color: #ffb4ad;
 }
 
 .auth-card__body .field {
-  margin-top: 14px;
+  margin-top: var(--gap-lg);
 }
 
 .auth-remember {
   display: flex;
   align-items: center;
   gap: 7px;
-  margin-top: 14px;
-  font-size: 12px;
-  color: var(--ink-dim);
+  margin-top: var(--gap-lg);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
   cursor: pointer;
   user-select: none;
 }
 .auth-remember input {
-  accent-color: var(--power);
+  accent-color: var(--accent);
   cursor: pointer;
 }
 .auth-remember__hint {
   margin-left: auto;
   font-family: var(--mono);
   font-size: 10px;
-  color: var(--ink-faint);
+  color: var(--text-tertiary);
 }
 
 .auth-card__body .btn {
-  margin-top: 20px;
+  margin-top: var(--space-5);
 }
 
 /* ---------- user menu (HUD) ---------- */
@@ -5355,11 +5355,11 @@ select {
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  background: var(--power);
+  background: var(--accent);
   color: #1a1206;
   font-family: var(--mono);
-  font-size: 11px;
-  font-weight: 700;
+  font-size: var(--text-xs);
+  font-weight: var(--font-bold);
 }
 .user-menu__pop {
   position: absolute;
@@ -5367,35 +5367,35 @@ select {
   right: 0;
   z-index: var(--z-popover);
   min-width: 190px;
-  padding: 6px;
+  padding: var(--gap-xs);
   display: flex;
   flex-direction: column;
-  background: var(--steel-900);
+  background: var(--bg-secondary);
   border: var(--hair);
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
 }
 .user-menu__email {
-  padding: 7px 9px 8px;
+  padding: var(--space-2) var(--space-2) var(--gap-sm);
   border-bottom: var(--hair);
-  margin-bottom: 4px;
+  margin-bottom: var(--space-1);
   font-family: var(--mono);
-  font-size: 11px;
-  color: var(--ink-dim);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .user-menu__pop button {
-  padding: 8px 9px;
+  padding: var(--gap-sm) var(--space-2);
   text-align: left;
-  font-size: 12px;
-  color: var(--ink);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
   background: none;
   border: none;
   cursor: pointer;
 }
 .user-menu__pop button:hover {
-  background: var(--steel-800);
+  background: var(--bg-elevated);
 }
 .user-menu__logout {
   color: var(--alert) !important;
