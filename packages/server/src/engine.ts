@@ -2,6 +2,9 @@ import {
   BranchConfig,
   ComplianceConfig,
   CodeNodeConfig,
+  PublishConfig,
+  buildPublishPackage,
+  publishArtifact,
   checkCompliance,
   complianceArtifact,
   GenericConfig,
@@ -3018,6 +3021,53 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
             nodeId,
             attempt,
             error: `合规校验节点执行出错: ${err instanceof Error ? err.message : String(err)}`,
+          });
+        }
+        return;
+      }
+
+      if (node.kind === "publish") {
+        emit({ type: "node.started", nodeId, attempt });
+        try {
+          const cfg = PublishConfig.parse(node.publish ?? {});
+          const output = await inputFor(node);
+          if (!output.trim()) {
+            states.set(nodeId, "failed");
+            emit({
+              type: "node.failed",
+              nodeId,
+              attempt,
+              error: "发布节点没有收到可整理的文本",
+              errorCode: "VALIDATION",
+            });
+            return;
+          }
+          const pkg = buildPublishPackage(output, cfg);
+          const payload = publishArtifact(pkg);
+          const jsonArtifact: Artifact = {
+            id: `${nodeId}-publish`,
+            kind: "json",
+            content: JSON.stringify(payload),
+            mimeType: "application/json",
+          };
+          const produced: Artifact[] = [jsonArtifact];
+          // Downstream nodes consume the assembled body (falls back to the title).
+          const downstreamText = pkg.body || pkg.title;
+          setTextArtifact(artifacts, nodeId, downstreamText);
+          artifacts.set(nodeId, [...produced, ...(artifacts.get(nodeId) ?? [])]);
+          for (const a of produced) emit({ type: "artifact.produced", nodeId, attempt, artifact: a });
+
+          states.set(nodeId, "done");
+          const summary = `已整理为${pkg.platformLabel}待发布包（标题 ${pkg.title.length} 字 / 正文 ${pkg.body.length} 字）`;
+          emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
+          sendPackets(nodeId, summary, "json");
+        } catch (err) {
+          states.set(nodeId, "failed");
+          emit({
+            type: "node.failed",
+            nodeId,
+            attempt,
+            error: `发布节点执行出错: ${err instanceof Error ? err.message : String(err)}`,
           });
         }
         return;
