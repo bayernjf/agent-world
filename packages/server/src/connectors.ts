@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
-import { ConnectorConfig } from "@agent-world/core";
+import { ConnectorConfig, type ProductConnector } from "@agent-world/core";
 import { guardedFetch } from "./ssrf.js";
 
 /** Raw material pulled from a connector, ready to feed a source node. */
@@ -103,6 +103,7 @@ async function expandPaths(pattern: string): Promise<string[]> {
 export async function resolveConnector(
   config: ConnectorConfig,
   formValues?: Record<string, string>,
+  loadProducts?: (connector: ProductConnector) => Promise<ResolvedMaterial>,
 ): Promise<ResolvedMaterial> {
   switch (config.type) {
     case "manual":
@@ -205,6 +206,13 @@ export async function resolveConnector(
       } finally {
         db.close();
       }
+    }
+
+    case "product": {
+      const c = config.product;
+      if (!c) throw new Error("product connector missing 'product' config");
+      if (!loadProducts) throw new Error("product connector 需要服务端商品库支持");
+      return loadProducts(c);
     }
   }
 }

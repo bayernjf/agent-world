@@ -25,6 +25,7 @@
   "subprocess": "外包工坊",
   "generic": "多能坊",
   "compliance": "合规台",
+  "publish": "发布台",
   "categories": {
     "generation": "AI 加工",
     "control": "车间调度",
@@ -73,7 +74,8 @@
     "human": "暂停等人工点头（人工岗）",
     "subprocess": "调用另一张产线（外包工坊）",
     "generic": "多能坊：自由选模型提供方，按模态自动 dispatch",
-    "compliance": "平台规则与广告法合规校验（合规台）"
+    "compliance": "平台规则与广告法合规校验（合规台）",
+    "publish": "按平台规范整理成待发布包（发布台）"
   },
   "tip": {
     "kind": "类型",
@@ -231,6 +233,275 @@
     "reasoningHide": "隐藏思考过程",
     "toolCalls": "工具调用",
     "toolStatusDone": "完成",
-    "artifacts": "产出物"
+    "artifacts": "产出物",
+    "common": {
+      "model": "模型",
+      "modelUnset": "（未配置 — 请先在「模型设置」中添加{{modality}}模型）",
+      "modelUnsetDefault": "（未配置 — 使用运行时的默认模型）",
+      "modelSelect": "（请选择）",
+      "modelCurrent": " (当前)",
+      "source": "数据来源（上游节点）",
+      "sourceAuto": "自动（唯一上游）",
+      "timeoutMs": "超时（毫秒）",
+      "customEndpoint": "自定义端点（可选）",
+      "apiKeyOptional": "密钥（可选，留空用 provider 的 key）",
+      "apiKey": "密钥（可选）"
+    },
+    "source": {
+      "briefTitle": "创作简报（可选）",
+      "productName": "商品名称",
+      "brand": "品牌 / 店铺",
+      "audience": "目标人群（如 20-30岁通勤女生）",
+      "priceRange": "价格定位（如 中端 99-199 元）",
+      "tone": "语气调性（如 真诚种草、口语化）",
+      "prohibited": "禁用词 / 禁用说法",
+      "prohibitedPh": "用逗号或换行分隔，如 最、第一、国家级",
+      "brandTerms": "品牌词（建议融入）",
+      "brandTermsPh": "用逗号或换行分隔，如 显瘦、透气、百搭",
+      "loadBrandTerms": "从品牌词库载入",
+      "notes": "补充说明",
+      "notesPh": "其他想让写手知道的背景、卖点、参考风格等"
+    },
+    "textGen": {
+      "temperature": "温度 ({{temp}})",
+      "budget": "节点预算 (USD，留空不限制)",
+      "budgetPh": "不限制",
+      "inputPolicy": "输入策略",
+      "inputPolicyAll": "全部拼接（默认）",
+      "inputPolicyLast": "仅最近上游",
+      "inputPolicyTruncate": "截断保留尾部",
+      "inputPolicySummary": "摘要压缩（超阈值时）",
+      "inputPolicyNoteAll": "默认：把全部上游输出按顺序拼接后作为输入。",
+      "inputPolicyNoteLast": "只取最近一个上游节点的输出作为输入。",
+      "inputPolicyNoteTruncate": "超过「最大字符数」时丢弃前面的内容、保留尾部最近片段（不调用模型，零额外开销）。",
+      "inputPolicyNoteSummary": "超过「最大字符数」时调用 LLM 滚动摘要压缩、保留关键信息（更省 context，但会产生少量额外 token 消耗）；未超阈值则原样传递。",
+      "maxChars": "最大字符数",
+      "prompt": "指令",
+      "imageDirectives": "排版指令（图片位置/比例，下次运行生效）",
+      "imageDirectivesPh": "例：主图用竖图 3:4 居中；场景图卡用 2 列网格；细节图靠右"
+    },
+    "imageGen": {
+      "model": "生图模型",
+      "size": "尺寸 (如 1024x1024)",
+      "sizePh": "1024x1024",
+      "prompt": "生图提示词（留空则按品牌简报自动生成）",
+      "promptPh": "如：清新日系风格的主图，突出产品质感",
+      "count": "生成数量 (1–8)",
+      "baseUrl": "生图端点 baseURL"
+    },
+    "videoGen": {
+      "model": "视频模型",
+      "prompt": "视频提示词（留空则用上游文本）",
+      "promptPh": "如：产品在阳光下旋转展示，背景为渐变色",
+      "duration": "时长 (秒)",
+      "durationPh": "5",
+      "aspect": "宽高比",
+      "aspectDefault": "默认",
+      "aspect169": "16:9 横屏",
+      "aspect916": "9:16 竖屏",
+      "aspect11": "1:1 方形",
+      "count": "生成数量 (1–4)",
+      "baseUrl": "视频端点 baseURL"
+    },
+    "audioGen": {
+      "model": "音频模型",
+      "prompt": "文本 / 提示词（留空则用上游文本）",
+      "promptPh": "TTS：要朗读的文本；音乐：风格描述",
+      "voice": "语音 (TTS)",
+      "voicePh": "alloy / echo / fable...",
+      "format": "输出格式",
+      "speed": "语速 (0.25–4.0)",
+      "speedPh": "1.0",
+      "count": "生成数量 (1–4)",
+      "baseUrl": "音频端点 baseURL"
+    },
+    "gate": {
+      "criterion": "质检标准",
+      "criterionPh": "产出必须满足什么条件？不合格将沿返工线退回。",
+      "maxAttempts": "返工次数上限",
+      "minScore": "质量分门槛（0–10，留空不卡）",
+      "minBrandCoverage": "品牌词覆盖率门槛（0–100%，留空不卡）",
+      "onExhausted": "次数耗尽后",
+      "onExhaustedHalt": "停线等人工",
+      "onExhaustedScrap": "报废",
+      "onExhaustedPass": "放行"
+    },
+    "compliance": {
+      "platform": "目标平台",
+      "platformTaobao": "淘宝",
+      "platformXiaohongshu": "小红书",
+      "platformDouyin": "抖音",
+      "platformWechat": "微信公众号",
+      "platformCustom": "自定义",
+      "extraBanned": "补充违禁词（逗号/换行分隔）",
+      "extraBannedPh": "每行一个词，或逗号分隔。与内置《广告法》极限词库合并生效。",
+      "autoFix": "自动产出修复版",
+      "failOnViolation": "有违规即走 error 边",
+      "hint": "合规台做确定性规则检查（广告法极限词、字数、话题标签），产出一份洗稿后的文本；可与「质检站」串联（先洗稿后质检）。"
+    },
+    "publish": {
+      "platform": "目标平台",
+      "title": "标题（可选，缺省取上游第一行）",
+      "titlePh": "留空则用上游文本第一行作标题",
+      "hint": "发布台按平台规范把上游成稿整理成待发布包：拆分标题/正文、提取话题标签、给出主图比例清单，人工复制零排版。"
+    },
+    "http": {
+      "method": "方法",
+      "url": "URL",
+      "urlPh": "https://api.example.com/data",
+      "query": "Query 参数（每行 key: value）",
+      "headers": "请求头（每行 key: value）",
+      "body": "请求体",
+      "outputMode": "输出模式",
+      "outputModeAuto": "自动（JSON 响应存为 json artifact）",
+      "outputModeJson": "强制 JSON",
+      "outputModeText": "强制文本",
+      "outputModeFile": "文件（二进制下载，供文件解析节点使用）",
+      "failOnError": "非 2xx 响应视为节点失败",
+      "note": "URL / 请求头 / Query / 请求体支持变量插值：${上游节点id.字段}，例如 ${source.price}。"
+    },
+    "code": {
+      "language": "语言",
+      "languageJs": "JavaScript (Node.js)",
+      "languagePy": "Python 3",
+      "script": "脚本",
+      "note": "脚本经 stdin 收到 JSON：{\"inputs\": {上游节点id: 值}}；stdout 输出单个 JSON 对象/数组 → json artifact，其他文本 → text artifact；退出码非 0 或超时视为节点失败。脚本内可引用上游变量：${source.price}。"
+    },
+    "branch": {
+      "rulesTitle": "分支规则（按顺序匹配第一个命中）",
+      "selectTarget": "选择目标…",
+      "addRule": "+ 添加规则",
+      "defaultTarget": "默认分支（未命中任何规则）",
+      "dropMessage": "丢弃报文",
+      "note": "条件表达式示例：${api.price} > 100 && ${api.stock} > 0。支持 == != > < >= <= && || ! 与括号；未命中且无默认分支时报文被丢弃，该分支下游不执行。"
+    },
+    "map": {
+      "iterate": "迭代数组路径（可选）",
+      "iteratePh": "如 data.items；留空则映射单个对象",
+      "template": "输出模板（JSON）",
+      "note": "模板是合法 JSON，${...} 写在字符串值内：${item.name} 引用当前项、${上游节点id.字段} 引用任意上游。纯占位符自动保留数字/对象类型；配置了迭代数组时对每项生成一份并输出数组。"
+    },
+    "loop": {
+      "items": "循环数组表达式",
+      "itemsPh": "如 ${api.data} 或 ${api.data.items}",
+      "maxIterations": "最大迭代次数（防呆）",
+      "note": "对数组的每一项执行下游子图（循环体），循环体内可通过 ${item.字段} 引用当前项；循环结束后聚合每轮输出为 { \"results\": [...] } 供下游引用。超过最大迭代次数会被截断。"
+    },
+    "parallel": {
+      "asObject": "按节点输出对象（{ 上游节点id: 值 }）",
+      "pick": "提取字段路径（可选）",
+      "pickPh": "如 data.text；留空取完整输出",
+      "note": "等待所有上游分支完成后聚合输出（数组或对象）。各分支本身已并行执行，本节点提供显式的结构化汇合点。"
+    },
+    "table": {
+      "stepsTitle": "处理步骤（按顺序执行）",
+      "addStep": "+ 添加步骤",
+      "note": "输入：上游 CSV 文本（需先加「解析」步骤）、JSON 数组或 { rows: [...] }。输出 {rows, count, columns}；「输出格式 = CSV」时额外产出一份 CSV 文本。空步骤列表会把输入原样包装成表格。"
+    },
+    "database": {
+      "path": "数据库文件（SQLite）",
+      "pathPh": "留空 = 内存数据库（每次运行临时创建）",
+      "setupSql": "初始化 SQL（可多条，结果丢弃）",
+      "sql": "主 SQL（单条）",
+      "note": "查询语句输出 {rows, count, columns}，可直连下游「表格」节点继续筛选/排序/聚合；INSERT/UPDATE/DELETE 等输出 {affectedRows, lastInsertId}。文件路径相对 server 工作目录（packages/server）解析。SQL 语法错误或参数不匹配时节点运行失败。"
+    },
+    "fileParse": {
+      "maxImages": "最大提取图片数（0 = 不提取）",
+      "note": "从上游的 file artifact 提取文本与内嵌图片（PDF / DOCX / PPTX）。文本输出为 text artifact（可直接供 agent 节点消费）；图片输出为 image artifact。上游可用「HTTP 节点 + 输出模式 = 文件」下载文档，或接入其他产出 file 的节点。"
+    },
+    "translate": {
+      "target": "目标语言",
+      "targetPh": "如：简体中文 / English / 日本語",
+      "temperature": "温度 ({{temp}})",
+      "note": "读取上游的 text 产物（无 text 时回退到 JSON 序列化），调用 LLM 翻译成目标语言并输出 text 产物。可与「文件解析」节点串联：先提取文档文本，再翻译。"
+    },
+    "ocr": {
+      "lang": "识别语言",
+      "langEng": "英语 eng",
+      "langChiSim": "简体中文 chi_sim",
+      "langChiTra": "繁体中文 chi_tra",
+      "langJpn": "日语 jpn",
+      "langKor": "韩语 kor",
+      "langSpa": "西班牙语 spa",
+      "langFra": "法语 fra",
+      "langDeu": "德语 deu",
+      "langPath": "语言数据路径（可选）",
+      "langPathPh": "https://…/tessdata（离线部署时使用）",
+      "note": "读取上游的 image 产物，用 tesseract.js 识别文字并输出 text 产物。可与「文件解析」节点串联：先提取 PDF / Word 里的图片，再 OCR 成文本；识别语言默认 eng，中文请选 chi_sim。"
+    },
+    "convert": {
+      "to": "目标格式",
+      "toImage": "PDF → 图片（提取内嵌图片）",
+      "toPng": "图片 → PNG",
+      "toJpeg": "图片 → JPEG",
+      "quality": "JPEG 质量（1-100）",
+      "note": "目标格式为「PDF → 图片」时读取上游 file 产物，提取每页内嵌图片（扫描版 PDF 每页一张，可与 OCR 串联）；为「PNG / JPEG」时把上游图片重新编码为对应格式（支持批量，JPEG 可调质量）。"
+    },
+    "search": {
+      "query": "搜索词",
+      "queryPh": "留空则使用上游 text 产物作为搜索词",
+      "provider": "搜索源",
+      "providerDdg": "DuckDuckGo（免 key）",
+      "apiKey": "API Key（可选，留空用服务端环境变量）",
+      "apiKeyPh": "填在节点里即刻生效，无需重启",
+      "cx": "搜索引擎 ID cx（可选，留空用 GOOGLE_CX）",
+      "maxResults": "结果数量（1-20）",
+      "note": "执行网络搜索并输出 text（可读列表）+ json（结构化结果）双产物，下游 agent 可直接阅读总结。搜索词留空时用上游 text 产物（可让 agent 先生成搜索词）；DuckDuckGo 无需密钥，其余搜索源在节点里填 API Key 即刻生效（落盘前加密），留空则回落服务端环境变量 TAVILY_API_KEY / SERPAPI_API_KEY / GOOGLE_API_KEY+GOOGLE_CX。"
+    },
+    "notify": {
+      "provider": "通知渠道",
+      "providerFeishu": "飞书群机器人",
+      "providerDingtalk": "钉钉群机器人",
+      "providerWecom": "企业微信群机器人",
+      "providerSlack": "Slack（SLACK_BOT_TOKEN）",
+      "providerEmail": "邮件（SMTP）",
+      "format": "消息格式",
+      "formatText": "纯文本",
+      "formatMarkdown": "Markdown（各平台原生渲染）",
+      "message": "消息内容",
+      "messagePh": "留空则发送上游 text 产物作为消息",
+      "webhookUrl": "Webhook 地址",
+      "secret": "加签密钥（可选）",
+      "secretPh": "SEC…（机器人开启「加签」时填写）",
+      "channel": "频道 ID",
+      "to": "收件人",
+      "subject": "邮件主题（可选）",
+      "subjectPh": "默认为节点名",
+      "note": "把消息发送到飞书 / 钉钉 / 企业微信群机器人或邮件，发送结果落为 json 产物可审计。消息留空时发送上游 text 产物——「搜索 → 总结 → 通知」的最后一公里；邮件需在服务端配置 SMTP_HOST / SMTP_USER / SMTP_PASS 环境变量。"
+    },
+    "vcs": {
+      "provider": "仓库平台",
+      "providerGithub": "GitHub（GITHUB_TOKEN）",
+      "providerGitlab": "GitLab（GITLAB_TOKEN）",
+      "action": "动作",
+      "actionCreatePr": "创建 PR / MR",
+      "actionCommentIssue": "评论 issue / PR",
+      "actionTriggerWorkflow": "触发 workflow / pipeline",
+      "actionListIssues": "列出 issue",
+      "token": "Token（可选，留空用 GITHUB_TOKEN / GITLAB_TOKEN）",
+      "baseUrl": "API Base（可选，自托管；留空用 GITLAB_API_URL）",
+      "projectId": "Project ID / 路径",
+      "projectIdPh": "42 或 group/proj",
+      "prTitle": "PR 标题（可选，默认节点名）",
+      "commentBody": "评论正文（可选，默认上游 text）",
+      "head": "源分支 head",
+      "base": "目标分支 base",
+      "number": "Issue / PR 编号",
+      "workflowId": "Workflow ID",
+      "ref": "触发分支 ref",
+      "state": "Issue 状态",
+      "note": "对 GitHub / GitLab 执行版本控制动作，API 结果落为 json 产物。create_pr / comment_issue 的正文留空时用上游 text 产物（可让 agent 先起草 PR 描述）；Token 填在这里即刻生效（落盘前加密），留空则回落服务端环境变量 GITHUB_TOKEN / GITLAB_TOKEN（自托管 GitLab 可设 API Base 或 GITLAB_API_URL）。"
+    },
+    "human": {
+      "prompt": "审批提示",
+      "promptPh": "如：确认这段文案是否可以发布",
+      "note": "运行到该节点会暂停，等待人工审批。上游文本会展示给审批人：批准后原样交给下游；编辑后以编辑内容继续；驳回则节点失败（可被 error 边接住，否则产线失败）。"
+    },
+    "subprocess": {
+      "graphId": "子流程图（被调用）",
+      "graphEmpty": "（暂无已保存产线）",
+      "maxDepth": "最大调用深度",
+      "note": "运行到该节点会调用另一张已保存的产线（子流程）作为函数：上游文本成为子流程的输入，子流程所有 sink 节点的产物聚合为本节点的 json 产物。子流程内的暂停（人工审批/危险工具）会冒泡暂停整个产线，恢复后从子流程断点继续。maxDepth 防止循环调用。"
+    }
   }
 }

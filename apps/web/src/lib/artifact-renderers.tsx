@@ -9,6 +9,7 @@ import { proxyImageUrl } from "./api";
 import { sanitizeUrl } from "./sanitize-html";
 import Tooltip from "../components/Tooltip";
 import i18n from "../i18n";
+import { formatShortDateTime } from "../i18n/utils";
 import { useTranslation } from "react-i18next";
 
 /**
@@ -38,13 +39,6 @@ export function formatSize(bytes?: number | null): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-}
-
-export function formatDate(ts?: number | null): string {
-  if (!ts) return "";
-  const d = new Date(ts);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getMonth() + 1}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 function copyText(text: string) {
@@ -379,7 +373,7 @@ export function ArtifactCard({
             </Tooltip>
           )}
           <span className="artifact-card__sub muted mono">
-            {formatDate(a.createdAt)}
+            {formatShortDateTime(a.createdAt)}
             {a.sizeBytes ? ` · ${formatSize(a.sizeBytes)}` : ""}
             {a.cost != null ? (
               <span className="cost"> · ¥{a.cost.toFixed(4)}</span>

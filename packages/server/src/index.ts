@@ -14,7 +14,9 @@ import {
   getTemplate,
   Graph,
   instantiateTemplate,
+  parseCsv,
   replay,
+  rowsToCsv,
   TEMPLATES,
   TriggerConfig,
   type RunEvent,
@@ -25,6 +27,7 @@ import { findGraphIdByName as findGraphIdByNameCore } from "./graphs-name.js";
 import { ArtifactStore } from "./artifact-store.js";
 import { log } from "./logger.js";
 import { startRun, resumeRun, RunStartError, type ResumeAction } from "./run.js";
+import { runBatch } from "./batch.js";
 import { listPendingReviews, parseDecisions } from "./reviews.js";
 import { TriggerService, TriggerError } from "./triggers.js";
 import { TriggerScheduler } from "./scheduler.js";
@@ -993,6 +996,85 @@ app.post("/api/runs", async (c) => {
   }
 });
 
+// --- Batch jobs (F5: one run per input row, grouped for progress) ---
+app.post("/api/batches", async (c) => {
+  const userId = c.get("userId");
+  const body = (await c.req.json().catch(() => ({}))) as {
+    graphId?: string;
+    rows?: Record<string, unknown>[];
+    csv?: string;
+    concurrency?: number;
+    sourceName?: string;
+  };
+  const graphId = body.graphId;
+  if (!graphId) return c.json({ error: "graphId required" }, 400);
+  const graph = db.getGraph(graphId, userId);
+  if (!graph) return c.json({ error: "graph not found" }, 404);
+
+  let rows: Record<string, unknown>[] = body.rows ?? [];
+  if (body.csv) rows = parseCsv(body.csv, { hasHeader: true });
+  if (rows.length === 0) return c.json({ error: "no rows to run" }, 400);
+
+  const batchId = randomUUID();
+  db.createBatch({ id: batchId, userId, graphId, sourceName: body.sourceName, rows });
+
+  const concurrency = Math.min(Math.max(body.concurrency ?? 2, 1), 8);
+  void runBatch({
+    db,
+    userId,
+    worker: workerRegistry.get(undefined),
+    artifacts,
+    live,
+    graph,
+    batchId,
+    concurrency,
+    publicUrl: PUBLIC_URL,
+  });
+
+  return c.json({ batchId }, 201);
+});
+
+app.get("/api/batches", (c) => {
+  const userId = c.get("userId");
+  return c.json(db.listBatches(userId));
+});
+
+app.get("/api/batches/:id", (c) => {
+  const userId = c.get("userId");
+  const batch = db.getBatch(c.req.param("id"), userId);
+  if (!batch) return c.json({ error: "not found" }, 404);
+  const items = db.listBatchItems(batch.id);
+  return c.json({ ...batch, items });
+});
+
+app.post("/api/batches/:id/items/:itemId/retry", async (c) => {
+  const userId = c.get("userId");
+  const batch = db.getBatch(c.req.param("id"), userId);
+  if (!batch) return c.json({ error: "not found" }, 404);
+  const graph = db.getGraph(batch.graphId, userId);
+  if (!graph) return c.json({ error: "graph not found" }, 404);
+  const item = db.listBatchItems(batch.id).find((i) => i.id === c.req.param("itemId"));
+  if (!item) return c.json({ error: "item not found" }, 404);
+
+  const { runId } = await startRun({
+    db,
+    userId,
+    worker: workerRegistry.get(undefined),
+    artifacts,
+    live,
+    graph,
+    trigger: "batch-retry",
+    input: JSON.stringify(item.input),
+    publicUrl: PUBLIC_URL,
+    onFinish: (_gid, status) => {
+      if (status === "done") db.markBatchItemDone(item.id, null, []);
+      else db.markBatchItemFailed(item.id, `run ${status}`);
+    },
+  });
+  db.markBatchItemRunning(item.id, runId);
+  return c.json({ runId });
+});
+
 // --- Trigger management + webhook ---
 app.get("/api/graphs/:id/triggers", (c) => {
   const userId = c.get("userId");
@@ -1164,6 +1246,141 @@ app.post("/api/brand-terms", async (c) => {
 app.delete("/api/brand-terms/:id", (c) => {
   const userId = c.get("userId");
   db.deleteBrandTerm(c.req.param("id"), userId);
+  return c.body(null, 204);
+});
+
+// --- Products (F4: reusable product library) ---
+app.get("/api/products", (c) => {
+  const userId = c.get("userId");
+  const search = c.req.query("search");
+  const category = c.req.query("category");
+  const status = c.req.query("status");
+  return c.json(db.listProducts(userId, { search, category, status }));
+});
+
+app.post("/api/products", async (c) => {
+  const userId = c.get("userId");
+  const body = (await c.req.json().catch(() => ({}))) as {
+    sku?: string;
+    name?: string;
+    brand?: string;
+    category?: string;
+    price?: number | null;
+    attributes?: Record<string, unknown>;
+    images?: string[];
+  };
+  if (!body.name?.trim()) return c.json({ error: "name required" }, 400);
+  try {
+    return c.json(db.addProduct(userId, { ...body, name: body.name }), 201);
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : "invalid" }, 400);
+  }
+});
+
+app.post("/api/products/import", async (c) => {
+  const userId = c.get("userId");
+  const body = (await c.req.json().catch(() => ({}))) as { csv?: string };
+  const csv = body.csv?.trim();
+  if (!csv) return c.json({ error: "csv required" }, 400);
+  const rows = parseCsv(csv, { hasHeader: true });
+  const report = { imported: 0, failed: 0, errors: [] as string[] };
+  const created: unknown[] = [];
+  for (const [i, row] of rows.entries()) {
+    const name = String(row.name ?? "").trim();
+    if (!name) {
+      report.failed++;
+      report.errors.push(`第 ${i + 2} 行缺少 name 列`);
+      continue;
+    }
+    const attributes: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(row)) {
+      if (!["name", "sku", "brand", "category", "price"].includes(k)) attributes[k] = v;
+    }
+    try {
+      const p = db.addProduct(userId, {
+        name,
+        sku: String(row.sku ?? ""),
+        brand: String(row.brand ?? ""),
+        category: String(row.category ?? ""),
+        price: row.price == null || row.price === "" ? null : Number(row.price),
+        attributes,
+      });
+      created.push(p);
+      report.imported++;
+    } catch (err) {
+      report.failed++;
+      report.errors.push(`第 ${i + 2} 行: ${err instanceof Error ? err.message : "导入失败"}`);
+    }
+  }
+  return c.json({ ...report, products: created });
+});
+
+app.get("/api/products/export", (c) => {
+  const userId = c.get("userId");
+  const products = db.listProducts(userId);
+  const rows = products.map((p) => ({
+    name: p.name,
+    sku: p.sku,
+    brand: p.brand,
+    category: p.category,
+    price: p.price ?? "",
+  }));
+  const csv = rowsToCsv(rows, ["name", "sku", "brand", "category", "price"]);
+  return c.text(csv, 200, { "content-type": "text/csv; charset=utf-8" });
+});
+
+app.patch("/api/products/:id", async (c) => {
+  const userId = c.get("userId");
+  const body = (await c.req.json().catch(() => ({}))) as {
+    sku?: string;
+    name?: string;
+    brand?: string;
+    category?: string;
+    price?: number | null;
+    attributes?: Record<string, unknown>;
+    images?: string[];
+    status?: "active" | "archived";
+  };
+  const updated = db.updateProduct(c.req.param("id"), userId, body);
+  if (!updated) return c.json({ error: "not found" }, 404);
+  return c.json(updated);
+});
+
+app.delete("/api/products/:id", (c) => {
+  const userId = c.get("userId");
+  db.deleteProduct(c.req.param("id"), userId);
+  return c.body(null, 204);
+});
+
+// --- Brand assets (F4: reusable brand material) ---
+app.get("/api/brand-assets", (c) => {
+  const userId = c.get("userId");
+  return c.json(db.listBrandAssets(userId));
+});
+
+app.post("/api/brand-assets", async (c) => {
+  const userId = c.get("userId");
+  const body = (await c.req.json().catch(() => ({}))) as {
+    type?: string;
+    label?: string;
+    uri?: string;
+    tags?: string[];
+  };
+  if (!body.label?.trim()) return c.json({ error: "label required" }, 400);
+  return c.json(
+    db.addBrandAsset(userId, {
+      type: body.type ?? "image",
+      label: body.label,
+      uri: body.uri ?? "",
+      tags: body.tags ?? [],
+    }),
+    201,
+  );
+});
+
+app.delete("/api/brand-assets/:id", (c) => {
+  const userId = c.get("userId");
+  db.deleteBrandAsset(c.req.param("id"), userId);
   return c.body(null, 204);
 });
 

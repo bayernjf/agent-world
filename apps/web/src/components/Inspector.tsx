@@ -762,13 +762,13 @@ export default function Inspector({
               <>
                 <div className="source-brief">
                   <div className="source-brief__head label">
-                    创作简报（可选）
+                    {t("nodes:inspector.source.briefTitle")}
                   </div>
                   <label className="field">
-                    <span>商品名称</span>
+                    <span>{t("nodes:inspector.source.productName")}</span>
                     <input
                       value={node.source?.productName ?? ""}
-                      placeholder="商品名称"
+                      placeholder={t("nodes:inspector.source.productName")}
                       onFocus={beginEdit}
                       onBlur={commitEdit}
                       onChange={(e) =>
@@ -782,10 +782,10 @@ export default function Inspector({
                     />
                   </label>
                   <label className="field">
-                    <span>品牌 / 店铺</span>
+                    <span>{t("nodes:inspector.source.brand")}</span>
                     <input
                       value={node.source?.brand ?? ""}
-                      placeholder="品牌 / 店铺"
+                      placeholder={t("nodes:inspector.source.brand")}
                       onFocus={beginEdit}
                       onBlur={commitEdit}
                       onChange={(e) =>
@@ -799,10 +799,10 @@ export default function Inspector({
                     />
                   </label>
                   <label className="field">
-                    <span>目标人群（如 20-30岁通勤女生）</span>
+                    <span>{t("nodes:inspector.source.audience")}</span>
                     <input
                       value={node.source?.audience ?? ""}
-                      placeholder="目标人群（如 20-30岁通勤女生）"
+                      placeholder={t("nodes:inspector.source.audience")}
                       onFocus={beginEdit}
                       onBlur={commitEdit}
                       onChange={(e) =>
@@ -816,10 +816,10 @@ export default function Inspector({
                     />
                   </label>
                   <label className="field">
-                    <span>价格定位（如 中端 99-199 元）</span>
+                    <span>{t("nodes:inspector.source.priceRange")}</span>
                     <input
                       value={node.source?.priceRange ?? ""}
-                      placeholder="价格定位（如 中端 99-199 元）"
+                      placeholder={t("nodes:inspector.source.priceRange")}
                       onFocus={beginEdit}
                       onBlur={commitEdit}
                       onChange={(e) =>
@@ -833,10 +833,10 @@ export default function Inspector({
                     />
                   </label>
                   <label className="field">
-                    <span>语气调性（如 真诚种草、口语化）</span>
+                    <span>{t("nodes:inspector.source.tone")}</span>
                     <input
                       value={node.source?.tone ?? ""}
-                      placeholder="语气调性（如 真诚种草、口语化）"
+                      placeholder={t("nodes:inspector.source.tone")}
                       onFocus={beginEdit}
                       onBlur={commitEdit}
                       onChange={(e) =>
@@ -850,11 +850,11 @@ export default function Inspector({
                     />
                   </label>
                   <label className="field">
-                    <span>禁用词 / 禁用说法</span>
+                    <span>{t("nodes:inspector.source.prohibited")}</span>
                     <textarea
                       rows={2}
                       value={node.source?.prohibited ?? ""}
-                      placeholder="用逗号或换行分隔，如 最、第一、国家级"
+                      placeholder={t("nodes:inspector.source.prohibitedPh")}
                       onFocus={beginEdit}
                       onBlur={commitEdit}
                       onChange={(e) =>
@@ -868,11 +868,11 @@ export default function Inspector({
                     />
                   </label>
                   <label className="field">
-                    <span>品牌词（建议融入）</span>
+                    <span>{t("nodes:inspector.source.brandTerms")}</span>
                     <textarea
                       rows={2}
                       value={node.source?.brandTerms ?? ""}
-                      placeholder="用逗号或换行分隔，如 显瘦、透气、百搭"
+                      placeholder={t("nodes:inspector.source.brandTermsPh")}
                       onFocus={beginEdit}
                       onBlur={commitEdit}
                       onChange={(e) =>
@@ -904,15 +904,15 @@ export default function Inspector({
                         });
                       }}
                     >
-                      从品牌词库载入
+                      {t("nodes:inspector.source.loadBrandTerms")}
                     </button>
                   </label>
                   <label className="field">
-                    <span>补充说明</span>
+                    <span>{t("nodes:inspector.source.notes")}</span>
                     <textarea
                       rows={3}
                       value={node.source?.notes ?? ""}
-                      placeholder="其他想让写手知道的背景、卖点、参考风格等"
+                      placeholder={t("nodes:inspector.source.notesPh")}
                       onFocus={beginEdit}
                       onBlur={commitEdit}
                       onChange={(e) =>
@@ -943,7 +943,7 @@ export default function Inspector({
             {node.kind === "textGen" && node.textGen && (
               <>
                 <label className="field">
-                  <span>模型</span>
+                  <span>{t("nodes:inspector.common.model")}</span>
                   <select
                     className="select"
                     value={node.textGen.model || "__unset__"}
@@ -956,8 +956,10 @@ export default function Inspector({
                   >
                     <option value="__unset__" disabled hidden>
                       {!node.textGen.model
-                        ? "（未配置 — 请先在「模型设置」中添加文本模型）"
-                        : "（请选择）"}
+                        ? t("nodes:inspector.common.modelUnset", {
+                            modality: t("nodes:modality.text"),
+                          })
+                        : t("nodes:inspector.common.modelSelect")}
                     </option>
                     {textModelOptions.map((o) => (
                       <option key={`${o.provider}::${o.model}`} value={o.model}>
@@ -969,7 +971,8 @@ export default function Inspector({
                     ) &&
                       node.textGen.model && (
                         <option value={node.textGen.model}>
-                          {node.textGen.model} (当前)
+                          {node.textGen.model}
+                          {t("nodes:inspector.common.modelCurrent")}
                         </option>
                       )}
                   </select>
@@ -979,7 +982,11 @@ export default function Inspector({
                   />
                 </label>
                 <label className="field">
-                  <span>温度 ({node.textGen.temperature.toFixed(2)})</span>
+                  <span>
+                    {t("nodes:inspector.textGen.temperature", {
+                      temp: node.textGen.temperature.toFixed(2),
+                    })}
+                  </span>
                   <input
                     type="range"
                     min="0"
@@ -997,12 +1004,12 @@ export default function Inspector({
                   />
                 </label>
                 <label className="field">
-                  <span>节点预算 (USD，留空不限制)</span>
+                  <span>{t("nodes:inspector.textGen.budget")}</span>
                   <input
                     type="number"
                     min="0"
                     step="0.001"
-                    placeholder="不限制"
+                    placeholder={t("nodes:inspector.textGen.budgetPh")}
                     value={node.textGen.budgetUsd ?? ""}
                     onChange={(e) =>
                       updateNode(node.id, {
@@ -1018,7 +1025,7 @@ export default function Inspector({
                   />
                 </label>
                 <label className="field">
-                  <span>输入策略</span>
+                  <span>{t("nodes:inspector.textGen.inputPolicy")}</span>
                   <select
                     className="select"
                     value={node.textGen.inputPolicy?.mode ?? "all"}
@@ -1037,23 +1044,35 @@ export default function Inspector({
                       })
                     }
                   >
-                    <option value="all">全部拼接（默认）</option>
-                    <option value="last">仅最近上游</option>
-                    <option value="truncate">截断保留尾部</option>
-                    <option value="summary">摘要压缩（超阈值时）</option>
+                    <option value="all">
+                      {t("nodes:inspector.textGen.inputPolicyAll")}
+                    </option>
+                    <option value="last">
+                      {t("nodes:inspector.textGen.inputPolicyLast")}
+                    </option>
+                    <option value="truncate">
+                      {t("nodes:inspector.textGen.inputPolicyTruncate")}
+                    </option>
+                    <option value="summary">
+                      {t("nodes:inspector.textGen.inputPolicySummary")}
+                    </option>
                   </select>
                 </label>
                 <p className="note">
                   {(() => {
                     switch (node.textGen.inputPolicy?.mode ?? "all") {
                       case "all":
-                        return "默认：把全部上游输出按顺序拼接后作为输入。";
+                        return t("nodes:inspector.textGen.inputPolicyNoteAll");
                       case "last":
-                        return "只取最近一个上游节点的输出作为输入。";
+                        return t("nodes:inspector.textGen.inputPolicyNoteLast");
                       case "truncate":
-                        return "超过「最大字符数」时丢弃前面的内容、保留尾部最近片段（不调用模型，零额外开销）。";
+                        return t(
+                          "nodes:inspector.textGen.inputPolicyNoteTruncate",
+                        );
                       case "summary":
-                        return "超过「最大字符数」时调用 LLM 滚动摘要压缩、保留关键信息（更省 context，但会产生少量额外 token 消耗）；未超阈值则原样传递。";
+                        return t(
+                          "nodes:inspector.textGen.inputPolicyNoteSummary",
+                        );
                       default:
                         return "";
                     }
@@ -1062,7 +1081,7 @@ export default function Inspector({
                 {(node.textGen.inputPolicy?.mode === "truncate" ||
                   node.textGen.inputPolicy?.mode === "summary") && (
                   <label className="field">
-                    <span>最大字符数</span>
+                    <span>{t("nodes:inspector.textGen.maxChars")}</span>
                     <input
                       type="number"
                       min="500"
@@ -1084,7 +1103,7 @@ export default function Inspector({
                   </label>
                 )}
                 <label className="field">
-                  <span>指令</span>
+                  <span>{t("nodes:inspector.textGen.prompt")}</span>
                   <textarea
                     rows={4}
                     value={node.textGen.prompt}
@@ -1098,10 +1117,10 @@ export default function Inspector({
                   />
                 </label>
                 <label className="field">
-                  <span>排版指令（图片位置/比例，下次运行生效）</span>
+                  <span>{t("nodes:inspector.textGen.imageDirectives")}</span>
                   <textarea
                     rows={3}
-                    placeholder="例：主图用竖图 3:4 居中；场景图卡用 2 列网格；细节图靠右"
+                    placeholder={t("nodes:inspector.textGen.imageDirectivesPh")}
                     value={node.textGen.imageDirectives ?? ""}
                     onChange={(e) =>
                       updateNode(node.id, {
@@ -1120,7 +1139,7 @@ export default function Inspector({
             {node.kind === "imageGen" && node.imageGen && (
               <>
                 <label className="field">
-                  <span>生图模型</span>
+                  <span>{t("nodes:inspector.imageGen.model")}</span>
                   <select
                     className="select"
                     value={node.imageGen.model || "__unset__"}
@@ -1133,8 +1152,10 @@ export default function Inspector({
                   >
                     <option value="__unset__" disabled hidden>
                       {!node.imageGen.model
-                        ? "（未配置 — 请先在「模型设置」中添加图片模型）"
-                        : "（请选择）"}
+                        ? t("nodes:inspector.common.modelUnset", {
+                            modality: t("nodes:modality.image"),
+                          })
+                        : t("nodes:inspector.common.modelSelect")}
                     </option>
                     {imageModelOptions.map((o) => (
                       <option key={`${o.provider}::${o.model}`} value={o.model}>
@@ -1146,7 +1167,8 @@ export default function Inspector({
                     ) &&
                       node.imageGen.model && (
                         <option value={node.imageGen.model}>
-                          {node.imageGen.model} (当前)
+                          {node.imageGen.model}
+                          {t("nodes:inspector.common.modelCurrent")}
                         </option>
                       )}
                   </select>
@@ -1156,10 +1178,10 @@ export default function Inspector({
                   />
                 </label>
                 <label className="field">
-                  <span>尺寸 (如 1024x1024)</span>
+                  <span>{t("nodes:inspector.imageGen.size")}</span>
                   <input
                     type="text"
-                    placeholder="1024x1024"
+                    placeholder={t("nodes:inspector.imageGen.sizePh")}
                     value={node.imageGen.size ?? ""}
                     onFocus={beginEdit}
                     onBlur={commitEdit}
@@ -1174,10 +1196,10 @@ export default function Inspector({
                   />
                 </label>
                 <label className="field">
-                  <span>生图提示词（留空则按品牌简报自动生成）</span>
+                  <span>{t("nodes:inspector.imageGen.prompt")}</span>
                   <textarea
                     rows={4}
-                    placeholder="如：清新日系风格的主图，突出产品质感"
+                    placeholder={t("nodes:inspector.imageGen.promptPh")}
                     value={node.imageGen.prompt ?? ""}
                     onFocus={beginEdit}
                     onBlur={commitEdit}
@@ -1189,7 +1211,7 @@ export default function Inspector({
                   />
                 </label>
                 <label className="field">
-                  <span>生成数量 (1–8)</span>
+                  <span>{t("nodes:inspector.imageGen.count")}</span>
                   <input
                     type="number"
                     min={1}
@@ -1211,9 +1233,9 @@ export default function Inspector({
                   />
                 </label>
                 <details className="adv">
-                  <summary>自定义端点（可选）</summary>
+                  <summary>{t("nodes:inspector.common.customEndpoint")}</summary>
                   <label className="field">
-                    <span>生图端点 baseURL</span>
+                    <span>{t("nodes:inspector.imageGen.baseUrl")}</span>
                     <input
                       type="text"
                       placeholder="https://your-sd-server/v1"
@@ -1231,7 +1253,7 @@ export default function Inspector({
                     />
                   </label>
                   <label className="field">
-                    <span>密钥（可选，留空用 provider 的 key）</span>
+                    <span>{t("nodes:inspector.common.apiKeyOptional")}</span>
                     <input
                       type="password"
                       placeholder="sk-..."
@@ -1255,7 +1277,7 @@ export default function Inspector({
             {node.kind === "videoGen" && node.videoGen && (
               <>
                 <label className="field">
-                  <span>视频模型</span>
+                  <span>{t("nodes:inspector.videoGen.model")}</span>
                   <select
                     className="select"
                     value={node.videoGen.model || "__unset__"}
@@ -1268,8 +1290,10 @@ export default function Inspector({
                   >
                     <option value="__unset__" disabled hidden>
                       {!node.videoGen.model
-                        ? "（未配置 — 请先在「模型设置」中添加视频模型）"
-                        : "（请选择）"}
+                        ? t("nodes:inspector.common.modelUnset", {
+                            modality: t("nodes:modality.video"),
+                          })
+                        : t("nodes:inspector.common.modelSelect")}
                     </option>
                     {videoModelOptions.map((o) => (
                       <option key={`${o.provider}::${o.model}`} value={o.model}>
@@ -1281,7 +1305,8 @@ export default function Inspector({
                     ) &&
                       node.videoGen.model && (
                         <option value={node.videoGen.model}>
-                          {node.videoGen.model} (当前)
+                          {node.videoGen.model}
+                          {t("nodes:inspector.common.modelCurrent")}
                         </option>
                       )}
                   </select>
@@ -1291,10 +1316,10 @@ export default function Inspector({
                   />
                 </label>
                 <label className="field">
-                  <span>视频提示词（留空则用上游文本）</span>
+                  <span>{t("nodes:inspector.videoGen.prompt")}</span>
                   <textarea
                     rows={4}
-                    placeholder="如：产品在阳光下旋转展示，背景为渐变色"
+                    placeholder={t("nodes:inspector.videoGen.promptPh")}
                     value={node.videoGen.prompt ?? ""}
                     onFocus={beginEdit}
                     onBlur={commitEdit}
@@ -1307,12 +1332,12 @@ export default function Inspector({
                 </label>
                 <div className="field-row">
                   <label className="field">
-                    <span>时长 (秒)</span>
+                    <span>{t("nodes:inspector.videoGen.duration")}</span>
                     <input
                       type="number"
                       min={1}
                       max={60}
-                      placeholder="5"
+                      placeholder={t("nodes:inspector.videoGen.durationPh")}
                       value={node.videoGen.duration ?? ""}
                       onFocus={beginEdit}
                       onBlur={commitEdit}
@@ -1332,7 +1357,7 @@ export default function Inspector({
                     />
                   </label>
                   <label className="field">
-                    <span>宽高比</span>
+                    <span>{t("nodes:inspector.videoGen.aspect")}</span>
                     <select
                       className="select"
                       value={node.videoGen.aspect ?? ""}
@@ -1346,17 +1371,25 @@ export default function Inspector({
                         })
                       }
                     >
-                      <option value="">默认</option>
-                      <option value="16:9">16:9 横屏</option>
-                      <option value="9:16">9:16 竖屏</option>
-                      <option value="1:1">1:1 方形</option>
+                      <option value="">
+                        {t("nodes:inspector.videoGen.aspectDefault")}
+                      </option>
+                      <option value="16:9">
+                        {t("nodes:inspector.videoGen.aspect169")}
+                      </option>
+                      <option value="9:16">
+                        {t("nodes:inspector.videoGen.aspect916")}
+                      </option>
+                      <option value="1:1">
+                        {t("nodes:inspector.videoGen.aspect11")}
+                      </option>
                       <option value="4:3">4:3</option>
                       <option value="3:4">3:4</option>
                     </select>
                   </label>
                 </div>
                 <label className="field">
-                  <span>生成数量 (1–4)</span>
+                  <span>{t("nodes:inspector.videoGen.count")}</span>
                   <input
                     type="number"
                     min={1}
@@ -1378,9 +1411,9 @@ export default function Inspector({
                   />
                 </label>
                 <details className="adv">
-                  <summary>自定义端点（可选）</summary>
+                  <summary>{t("nodes:inspector.common.customEndpoint")}</summary>
                   <label className="field">
-                    <span>视频端点 baseURL</span>
+                    <span>{t("nodes:inspector.videoGen.baseUrl")}</span>
                     <input
                       type="text"
                       placeholder="https://your-video-server/v1"
@@ -1398,7 +1431,7 @@ export default function Inspector({
                     />
                   </label>
                   <label className="field">
-                    <span>密钥（可选）</span>
+                    <span>{t("nodes:inspector.common.apiKey")}</span>
                     <input
                       type="password"
                       placeholder="sk-..."
@@ -1422,7 +1455,7 @@ export default function Inspector({
             {node.kind === "audioGen" && node.audioGen && (
               <>
                 <label className="field">
-                  <span>音频模型</span>
+                  <span>{t("nodes:inspector.audioGen.model")}</span>
                   <select
                     className="select"
                     value={node.audioGen.model || "__unset__"}
@@ -1435,8 +1468,10 @@ export default function Inspector({
                   >
                     <option value="__unset__" disabled hidden>
                       {!node.audioGen.model
-                        ? "（未配置 — 请先在「模型设置」中添加音频模型）"
-                        : "（请选择）"}
+                        ? t("nodes:inspector.common.modelUnset", {
+                            modality: t("nodes:modality.audio"),
+                          })
+                        : t("nodes:inspector.common.modelSelect")}
                     </option>
                     {audioModelOptions.map((o) => (
                       <option key={`${o.provider}::${o.model}`} value={o.model}>
@@ -1448,7 +1483,8 @@ export default function Inspector({
                     ) &&
                       node.audioGen.model && (
                         <option value={node.audioGen.model}>
-                          {node.audioGen.model} (当前)
+                          {node.audioGen.model}
+                          {t("nodes:inspector.common.modelCurrent")}
                         </option>
                       )}
                   </select>
@@ -1458,10 +1494,10 @@ export default function Inspector({
                   />
                 </label>
                 <label className="field">
-                  <span>文本 / 提示词（留空则用上游文本）</span>
+                  <span>{t("nodes:inspector.audioGen.prompt")}</span>
                   <textarea
                     rows={4}
-                    placeholder="TTS：要朗读的文本；音乐：风格描述"
+                    placeholder={t("nodes:inspector.audioGen.promptPh")}
                     value={node.audioGen.prompt ?? ""}
                     onFocus={beginEdit}
                     onBlur={commitEdit}
@@ -1474,10 +1510,10 @@ export default function Inspector({
                 </label>
                 <div className="field-row">
                   <label className="field">
-                    <span>语音 (TTS)</span>
+                    <span>{t("nodes:inspector.audioGen.voice")}</span>
                     <input
                       type="text"
-                      placeholder="alloy / echo / fable..."
+                      placeholder={t("nodes:inspector.audioGen.voicePh")}
                       value={node.audioGen.voice ?? ""}
                       onFocus={beginEdit}
                       onBlur={commitEdit}
@@ -1492,7 +1528,7 @@ export default function Inspector({
                     />
                   </label>
                   <label className="field">
-                    <span>输出格式</span>
+                    <span>{t("nodes:inspector.audioGen.format")}</span>
                     <select
                       className="select"
                       value={node.audioGen.format ?? "mp3"}
@@ -1515,13 +1551,13 @@ export default function Inspector({
                 </div>
                 <div className="field-row">
                   <label className="field">
-                    <span>语速 (0.25–4.0)</span>
+                    <span>{t("nodes:inspector.audioGen.speed")}</span>
                     <input
                       type="number"
                       min={0.25}
                       max={4}
                       step={0.25}
-                      placeholder="1.0"
+                      placeholder={t("nodes:inspector.audioGen.speedPh")}
                       value={node.audioGen.speed ?? ""}
                       onFocus={beginEdit}
                       onBlur={commitEdit}
@@ -1541,7 +1577,7 @@ export default function Inspector({
                     />
                   </label>
                   <label className="field">
-                    <span>生成数量 (1–4)</span>
+                    <span>{t("nodes:inspector.audioGen.count")}</span>
                     <input
                       type="number"
                       min={1}
@@ -1564,9 +1600,9 @@ export default function Inspector({
                   </label>
                 </div>
                 <details className="adv">
-                  <summary>自定义端点（可选）</summary>
+                  <summary>{t("nodes:inspector.common.customEndpoint")}</summary>
                   <label className="field">
-                    <span>音频端点 baseURL</span>
+                    <span>{t("nodes:inspector.audioGen.baseUrl")}</span>
                     <input
                       type="text"
                       placeholder="https://your-audio-server/v1"
@@ -1584,7 +1620,7 @@ export default function Inspector({
                     />
                   </label>
                   <label className="field">
-                    <span>密钥（可选）</span>
+                    <span>{t("nodes:inspector.common.apiKey")}</span>
                     <input
                       type="password"
                       placeholder="sk-..."
@@ -1608,10 +1644,10 @@ export default function Inspector({
             {node.kind === "gate" && node.gate && (
               <>
                 <label className="field">
-                  <span>质检标准</span>
+                  <span>{t("nodes:inspector.gate.criterion")}</span>
                   <textarea
                     rows={3}
-                    placeholder="产出必须满足什么条件？不合格将沿返工线退回。"
+                    placeholder={t("nodes:inspector.gate.criterionPh")}
                     value={node.gate.criterion}
                     onFocus={beginEdit}
                     onBlur={commitEdit}
@@ -1623,7 +1659,7 @@ export default function Inspector({
                   />
                 </label>
                 <label className="field">
-                  <span>返工次数上限</span>
+                  <span>{t("nodes:inspector.gate.maxAttempts")}</span>
                   <input
                     type="number"
                     min={1}
@@ -1640,7 +1676,7 @@ export default function Inspector({
                   />
                 </label>
                 <label className="field">
-                  <span>质量分门槛（0–10，留空不卡）</span>
+                  <span>{t("nodes:inspector.gate.minScore")}</span>
                   <input
                     type="number"
                     min={0}
@@ -1660,7 +1696,7 @@ export default function Inspector({
                   />
                 </label>
                 <label className="field">
-                  <span>品牌词覆盖率门槛（0–100%，留空不卡）</span>
+                  <span>{t("nodes:inspector.gate.minBrandCoverage")}</span>
                   <input
                     type="number"
                     min={0}
@@ -1684,7 +1720,7 @@ export default function Inspector({
                   />
                 </label>
                 <label className="field">
-                  <span>次数耗尽后</span>
+                  <span>{t("nodes:inspector.gate.onExhausted")}</span>
                   <select
                     value={node.gate.onExhausted}
                     onChange={(e) =>
@@ -1697,9 +1733,15 @@ export default function Inspector({
                       })
                     }
                   >
-                    <option value="halt">停线等人工</option>
-                    <option value="scrap">报废</option>
-                    <option value="pass">放行</option>
+                    <option value="halt">
+                      {t("nodes:inspector.gate.onExhaustedHalt")}
+                    </option>
+                    <option value="scrap">
+                      {t("nodes:inspector.gate.onExhaustedScrap")}
+                    </option>
+                    <option value="pass">
+                      {t("nodes:inspector.gate.onExhaustedPass")}
+                    </option>
                   </select>
                 </label>
               </>
@@ -1708,7 +1750,7 @@ export default function Inspector({
             {node.kind === "compliance" && node.compliance && (
               <>
                 <label className="field">
-                  <span>目标平台</span>
+                  <span>{t("nodes:inspector.compliance.platform")}</span>
                   <select
                     value={node.compliance.platform}
                     onChange={(e) =>
@@ -1725,18 +1767,28 @@ export default function Inspector({
                       })
                     }
                   >
-                    <option value="taobao">淘宝</option>
-                    <option value="xiaohongshu">小红书</option>
-                    <option value="douyin">抖音</option>
-                    <option value="wechat">微信公众号</option>
-                    <option value="custom">自定义</option>
+                    <option value="taobao">
+                      {t("nodes:inspector.compliance.platformTaobao")}
+                    </option>
+                    <option value="xiaohongshu">
+                      {t("nodes:inspector.compliance.platformXiaohongshu")}
+                    </option>
+                    <option value="douyin">
+                      {t("nodes:inspector.compliance.platformDouyin")}
+                    </option>
+                    <option value="wechat">
+                      {t("nodes:inspector.compliance.platformWechat")}
+                    </option>
+                    <option value="custom">
+                      {t("nodes:inspector.compliance.platformCustom")}
+                    </option>
                   </select>
                 </label>
                 <label className="field">
-                  <span>补充违禁词（逗号/换行分隔）</span>
+                  <span>{t("nodes:inspector.compliance.extraBanned")}</span>
                   <textarea
                     rows={2}
-                    placeholder="每行一个词，或逗号分隔。与内置《广告法》极限词库合并生效。"
+                    placeholder={t("nodes:inspector.compliance.extraBannedPh")}
                     value={node.compliance.extraBanned}
                     onFocus={beginEdit}
                     onBlur={commitEdit}
@@ -1748,7 +1800,7 @@ export default function Inspector({
                   />
                 </label>
                 <label className="field field--row">
-                  <span>自动产出修复版</span>
+                  <span>{t("nodes:inspector.compliance.autoFix")}</span>
                   <input
                     type="checkbox"
                     checked={node.compliance.autoFix}
@@ -1760,7 +1812,7 @@ export default function Inspector({
                   />
                 </label>
                 <label className="field field--row">
-                  <span>有违规即走 error 边</span>
+                  <span>{t("nodes:inspector.compliance.failOnViolation")}</span>
                   <input
                     type="checkbox"
                     checked={node.compliance.failOnViolation}
@@ -1772,15 +1824,62 @@ export default function Inspector({
                   />
                 </label>
                 <div className="field__hint">
-                  合规台做确定性规则检查（广告法极限词、字数、话题标签），产出一份洗稿后的文本；可与「质检站」串联（先洗稿后质检）。
+                  {t("nodes:inspector.compliance.hint")}
                 </div>
+              </>
+            )}
+
+            {node.kind === "publish" && node.publish && (
+              <>
+                <label className="field">
+                  <span>{t("nodes:inspector.publish.platform")}</span>
+                  <select
+                    value={node.publish.platform}
+                    onChange={(e) =>
+                      updateNode(node.id, {
+                        publish: {
+                          ...node.publish!,
+                          platform: e.target.value as
+                            | "taobao"
+                            | "xiaohongshu"
+                            | "douyin"
+                            | "wechat"
+                            | "custom",
+                        },
+                      })
+                    }
+                  >
+                    <option value="taobao">{t("nodes:inspector.compliance.platformTaobao")}</option>
+                    <option value="xiaohongshu">
+                      {t("nodes:inspector.compliance.platformXiaohongshu")}
+                    </option>
+                    <option value="douyin">{t("nodes:inspector.compliance.platformDouyin")}</option>
+                    <option value="wechat">{t("nodes:inspector.compliance.platformWechat")}</option>
+                    <option value="custom">{t("nodes:inspector.compliance.platformCustom")}</option>
+                  </select>
+                </label>
+                <label className="field">
+                  <span>{t("nodes:inspector.publish.title")}</span>
+                  <input
+                    value={node.publish.title ?? ""}
+                    placeholder={t("nodes:inspector.publish.titlePh")}
+                    onFocus={beginEdit}
+                    onBlur={commitEdit}
+                    onChange={(e) =>
+                      updateNode(node.id, {
+                        publish: { ...node.publish!, title: e.target.value },
+                      })
+                    }
+                  />
+                </label>
+                <div className="field__hint">{t("nodes:inspector.publish.hint")}</div>
               </>
             )}
 
             {node.kind === "http" && node.http && (
               <>
                 <label className="field">
-                  <span>方法</span>
+                  <span>{t("nodes:inspector.http.method")}</span>
                   <select
                     className="select"
                     value={node.http.method}
@@ -1801,10 +1900,10 @@ export default function Inspector({
                   </select>
                 </label>
                 <label className="field">
-                  <span>URL</span>
+                  <span>{t("nodes:inspector.http.url")}</span>
                   <input
                     type="text"
-                    placeholder="https://api.example.com/data"
+                    placeholder={t("nodes:inspector.http.urlPh")}
                     value={node.http.url}
                     onChange={(e) =>
                       updateNode(node.id, {
@@ -1814,7 +1913,7 @@ export default function Inspector({
                   />
                 </label>
                 <label className="field">
-                  <span>Query 参数（每行 key: value）</span>
+                  <span>{t("nodes:inspector.http.query")}</span>
                   <textarea
                     rows={3}
                     placeholder="page: 1&#10;limit: 10"
@@ -1830,7 +1929,7 @@ export default function Inspector({
                   />
                 </label>
                 <label className="field">
-                  <span>请求头（每行 key: value）</span>
+                  <span>{t("nodes:inspector.http.headers")}</span>
                   <textarea
                     rows={3}
                     placeholder="Authorization: Bearer xxx"
@@ -1846,7 +1945,7 @@ export default function Inspector({
                   />
                 </label>
                 <label className="field">
-                  <span>请求体</span>
+                  <span>{t("nodes:inspector.http.body")}</span>
                   <textarea
                     rows={4}
                     placeholder='{"foo": "${source}"}'
@@ -1859,7 +1958,7 @@ export default function Inspector({
                   />
                 </label>
                 <label className="field">
-                  <span>超时（毫秒）</span>
+                  <span>{t("nodes:inspector.common.timeoutMs")}</span>
                   <input
                     type="number"
                     min={1000}
@@ -1876,7 +1975,7 @@ export default function Inspector({
                   />
                 </label>
                 <label className="field">
-                  <span>输出模式</span>
+                  <span>{t("nodes:inspector.http.outputMode")}</span>
                   <select
                     className="select"
                     value={node.http.outputMode}
@@ -1891,12 +1990,16 @@ export default function Inspector({
                     }
                   >
                     <option value="auto">
-                      自动（JSON 响应存为 json artifact）
+                      {t("nodes:inspector.http.outputModeAuto")}
                     </option>
-                    <option value="json">强制 JSON</option>
-                    <option value="text">强制文本</option>
+                    <option value="json">
+                      {t("nodes:inspector.http.outputModeJson")}
+                    </option>
+                    <option value="text">
+                      {t("nodes:inspector.http.outputModeText")}
+                    </option>
                     <option value="file">
-                      文件（二进制下载，供文件解析节点使用）
+                      {t("nodes:inspector.http.outputModeFile")}
                     </option>
                   </select>
                 </label>
@@ -1910,19 +2013,16 @@ export default function Inspector({
                       })
                     }
                   />
-                  <span>非 2xx 响应视为节点失败</span>
+                  <span>{t("nodes:inspector.http.failOnError")}</span>
                 </label>
-                <p className="note">
-                  URL / 请求头 / Query / 请求体支持变量插值：${"{"}上游节点id
-                  {".字段}"}，例如 ${"{"}source.price{"}"}。
-                </p>
+                <p className="note">{t("nodes:inspector.http.note")}</p>
               </>
             )}
 
             {node.kind === "code" && node.code && (
               <>
                 <label className="field">
-                  <span>语言</span>
+                  <span>{t("nodes:inspector.code.language")}</span>
                   <select
                     className="select"
                     value={node.code.language}
@@ -1935,12 +2035,16 @@ export default function Inspector({
                       })
                     }
                   >
-                    <option value="javascript">JavaScript (Node.js)</option>
-                    <option value="python">Python 3</option>
+                    <option value="javascript">
+                      {t("nodes:inspector.code.languageJs")}
+                    </option>
+                    <option value="python">
+                      {t("nodes:inspector.code.languagePy")}
+                    </option>
                   </select>
                 </label>
                 <label className="field">
-                  <span>脚本</span>
+                  <span>{t("nodes:inspector.code.script")}</span>
                   <textarea
                     className="mono"
                     rows={9}
@@ -1956,7 +2060,7 @@ export default function Inspector({
                   />
                 </label>
                 <label className="field">
-                  <span>超时（毫秒）</span>
+                  <span>{t("nodes:inspector.common.timeoutMs")}</span>
                   <input
                     type="number"
                     min={1000}
@@ -1972,22 +2076,14 @@ export default function Inspector({
                     }
                   />
                 </label>
-                <p className="note">
-                  脚本经 stdin 收到 JSON：{"{"}"inputs": {"{"}上游节点id: 值
-                  {"}"}
-                  {"}"}
-                  {"}"}；stdout 输出单个 JSON 对象/数组 → json
-                  artifact，其他文本 → text artifact；退出码非 0
-                  或超时视为节点失败。脚本内可引用上游 变量：${"{"}source.price
-                  {"}"}。
-                </p>
+                <p className="note">{t("nodes:inspector.code.note")}</p>
               </>
             )}
 
             {node.kind === "branch" && node.branch && (
               <>
                 <div className="field">
-                  <span>分支规则（按顺序匹配第一个命中）</span>
+                  <span>{t("nodes:inspector.branch.rulesTitle")}</span>
                   {(node.branch.rules ?? []).map((rule) => (
                     <div key={rule.id} className="branch-rule">
                       <input
@@ -2024,7 +2120,9 @@ export default function Inspector({
                           })
                         }
                       >
-                        <option value="">选择目标…</option>
+                        <option value="">
+                          {t("nodes:inspector.branch.selectTarget")}
+                        </option>
                         {graph.nodes
                           .filter((n) => n.id !== node.id)
                           .map((n) => (
@@ -2065,11 +2163,11 @@ export default function Inspector({
                       })
                     }
                   >
-                    + 添加规则
+                    {t("nodes:inspector.branch.addRule")}
                   </button>
                 </div>
                 <label className="field">
-                  <span>默认分支（未命中任何规则）</span>
+                  <span>{t("nodes:inspector.branch.defaultTarget")}</span>
                   <select
                     className="select"
                     value={node.branch.defaultTarget ?? ""}
@@ -2082,7 +2180,9 @@ export default function Inspector({
                       })
                     }
                   >
-                    <option value="">丢弃报文</option>
+                    <option value="">
+                      {t("nodes:inspector.branch.dropMessage")}
+                    </option>
                     {graph.nodes
                       .filter((n) => n.id !== node.id)
                       .map((n) => (
@@ -2092,19 +2192,14 @@ export default function Inspector({
                       ))}
                   </select>
                 </label>
-                <p className="note">
-                  条件表达式示例：${"{"}api.price{"}"} &gt; 100 &amp;&amp; $
-                  {"{"}api.stock{"}"} &gt; 0。支持 == != &gt; &lt; &gt;= &lt;=
-                  &amp;&amp; || !
-                  与括号；未命中且无默认分支时报文被丢弃，该分支下游不执行。
-                </p>
+                <p className="note">{t("nodes:inspector.branch.note")}</p>
               </>
             )}
 
             {node.kind === "map" && node.map && (
               <>
                 <label className="field">
-                  <span>数据来源（上游节点）</span>
+                  <span>{t("nodes:inspector.common.source")}</span>
                   <select
                     className="select"
                     value={node.map.source ?? ""}
@@ -2117,7 +2212,9 @@ export default function Inspector({
                       })
                     }
                   >
-                    <option value="">自动（唯一上游）</option>
+                    <option value="">
+                      {t("nodes:inspector.common.sourceAuto")}
+                    </option>
                     {graph.nodes
                       .filter((n) => n.id !== node.id)
                       .map((n) => (
@@ -2128,11 +2225,11 @@ export default function Inspector({
                   </select>
                 </label>
                 <label className="field">
-                  <span>迭代数组路径（可选）</span>
+                  <span>{t("nodes:inspector.map.iterate")}</span>
                   <input
                     type="text"
                     className="input mono"
-                    placeholder="如 data.items；留空则映射单个对象"
+                    placeholder={t("nodes:inspector.map.iteratePh")}
                     value={node.map.iterate ?? ""}
                     onChange={(e) =>
                       updateNode(node.id, {
@@ -2145,7 +2242,7 @@ export default function Inspector({
                   />
                 </label>
                 <label className="field">
-                  <span>输出模板（JSON）</span>
+                  <span>{t("nodes:inspector.map.template")}</span>
                   <textarea
                     className="textarea mono"
                     rows={5}
@@ -2158,23 +2255,18 @@ export default function Inspector({
                     }
                   />
                 </label>
-                <p className="note">
-                  模板是合法 JSON，${"{"}...{"}"} 写在字符串值内：${"{"}
-                  item.name{"}"} 引用当前项、${"{"}上游节点id.字段{"}"}{" "}
-                  引用任意上游。纯占位符（如 "${"{"}item.addr{"}"}
-                  "）自动保留数字/对象类型；配置了迭代数组时对每项生成一份并输出数组。
-                </p>
+                <p className="note">{t("nodes:inspector.map.note")}</p>
               </>
             )}
 
             {node.kind === "loop" && node.loop && (
               <>
                 <label className="field">
-                  <span>循环数组表达式</span>
+                  <span>{t("nodes:inspector.loop.items")}</span>
                   <input
                     type="text"
                     className="input mono"
-                    placeholder='如 ${"{"}api.data{"}"} 或 ${"{"}api.data.items{"}"}'
+                    placeholder={t("nodes:inspector.loop.itemsPh")}
                     value={node.loop.items ?? ""}
                     onChange={(e) =>
                       updateNode(node.id, {
@@ -2187,7 +2279,7 @@ export default function Inspector({
                   />
                 </label>
                 <label className="field">
-                  <span>最大迭代次数（防呆）</span>
+                  <span>{t("nodes:inspector.loop.maxIterations")}</span>
                   <input
                     type="number"
                     min={1}
@@ -2207,11 +2299,7 @@ export default function Inspector({
                     }
                   />
                 </label>
-                <p className="note">
-                  对数组的每一项执行下游子图（循环体），循环体内可通过 ${"{"}
-                  item.字段{"}"} 引用当前项；循环结束后聚合每轮 输出为 {"{"}{" "}
-                  "results": [...] {"}"} 供下游引用。超过最大迭代次数会被截断。
-                </p>
+                <p className="note">{t("nodes:inspector.loop.note")}</p>
               </>
             )}
 
@@ -2231,14 +2319,14 @@ export default function Inspector({
                       })
                     }
                   />
-                  <span>按节点输出对象（{"{ 上游节点id: 值 }"}）</span>
+                  <span>{t("nodes:inspector.parallel.asObject")}</span>
                 </label>
                 <label className="field">
-                  <span>提取字段路径（可选）</span>
+                  <span>{t("nodes:inspector.parallel.pick")}</span>
                   <input
                     type="text"
                     className="input mono"
-                    placeholder="如 data.text；留空取完整输出"
+                    placeholder={t("nodes:inspector.parallel.pickPh")}
                     value={node.parallel.pick ?? ""}
                     onChange={(e) =>
                       updateNode(node.id, {
@@ -2250,16 +2338,14 @@ export default function Inspector({
                     }
                   />
                 </label>
-                <p className="note">
-                  等待所有上游分支完成后聚合输出（数组或对象）。各分支本身已并行执行，本节点提供显式的结构化汇合点。
-                </p>
+                <p className="note">{t("nodes:inspector.parallel.note")}</p>
               </>
             )}
 
             {node.kind === "table" && node.table && (
               <>
                 <label className="field">
-                  <span>数据来源（上游节点）</span>
+                  <span>{t("nodes:inspector.common.source")}</span>
                   <select
                     className="select"
                     value={node.table.source ?? ""}
@@ -2272,7 +2358,9 @@ export default function Inspector({
                       })
                     }
                   >
-                    <option value="">自动（唯一上游）</option>
+                    <option value="">
+                      {t("nodes:inspector.common.sourceAuto")}
+                    </option>
                     {graph.nodes
                       .filter((n) => n.id !== node.id)
                       .map((n) => (
@@ -2284,7 +2372,7 @@ export default function Inspector({
                 </label>
                 <div className="table-steps">
                   <span className="table-steps__title">
-                    处理步骤（按顺序执行）
+                    {t("nodes:inspector.table.stepsTitle")}
                   </span>
                   {(node.table.steps ?? []).map((step, i) => (
                     <TableStepEditor
@@ -2331,26 +2419,20 @@ export default function Inspector({
                       })
                     }
                   >
-                    + 添加步骤
+                    {t("nodes:inspector.table.addStep")}
                   </button>
                 </div>
-                <p className="note">
-                  输入：上游 CSV 文本（需先加「解析」步骤）、JSON 数组或 {"{"}
-                  rows: [...]{"}"}。输出
-                  {"{"}rows, count, columns{"}"}；「输出格式 =
-                  CSV」时额外产出一份 CSV
-                  文本。空步骤列表会把输入原样包装成表格。
-                </p>
+                <p className="note">{t("nodes:inspector.table.note")}</p>
               </>
             )}
 
             {node.kind === "database" && node.database && (
               <>
                 <label className="field">
-                  <span>数据库文件（SQLite）</span>
+                  <span>{t("nodes:inspector.database.path")}</span>
                   <input
                     className="input mono"
-                    placeholder="留空 = 内存数据库（每次运行临时创建）"
+                    placeholder={t("nodes:inspector.database.pathPh")}
                     value={node.database.path ?? ""}
                     onChange={(e) =>
                       updateNode(node.id, {
@@ -2363,7 +2445,7 @@ export default function Inspector({
                   />
                 </label>
                 <label className="field">
-                  <span>初始化 SQL（可多条，结果丢弃）</span>
+                  <span>{t("nodes:inspector.database.setupSql")}</span>
                   <textarea
                     className="textarea mono"
                     rows={4}
@@ -2382,7 +2464,7 @@ export default function Inspector({
                   />
                 </label>
                 <label className="field">
-                  <span>主 SQL（单条）</span>
+                  <span>{t("nodes:inspector.database.sql")}</span>
                   <textarea
                     className="textarea mono"
                     rows={5}
@@ -2395,21 +2477,14 @@ export default function Inspector({
                     }
                   />
                 </label>
-                <p className="note">
-                  查询语句输出 {"{"}rows, count, columns{"}"}
-                  ，可直连下游「表格」节点继续筛选/排序/聚合；
-                  INSERT/UPDATE/DELETE 等输出 {"{"}affectedRows, lastInsertId
-                  {"}"}。文件路径相对 server 工作目录
-                  （packages/server）解析。SQL
-                  语法错误或参数不匹配时节点运行失败。
-                </p>
+                <p className="note">{t("nodes:inspector.database.note")}</p>
               </>
             )}
 
             {node.kind === "fileParse" && node.fileParse && (
               <>
                 <label className="field">
-                  <span>数据来源（上游节点）</span>
+                  <span>{t("nodes:inspector.common.source")}</span>
                   <select
                     className="select"
                     value={node.fileParse.source ?? ""}
@@ -2422,7 +2497,9 @@ export default function Inspector({
                       })
                     }
                   >
-                    <option value="">自动（唯一上游）</option>
+                    <option value="">
+                      {t("nodes:inspector.common.sourceAuto")}
+                    </option>
                     {graph.nodes
                       .filter((n) => n.id !== node.id)
                       .map((n) => (
@@ -2433,7 +2510,7 @@ export default function Inspector({
                   </select>
                 </label>
                 <label className="field">
-                  <span>最大提取图片数（0 = 不提取）</span>
+                  <span>{t("nodes:inspector.fileParse.maxImages")}</span>
                   <input
                     className="input"
                     type="number"
@@ -2450,19 +2527,14 @@ export default function Inspector({
                     }
                   />
                 </label>
-                <p className="note">
-                  从上游的 file artifact 提取文本与内嵌图片（PDF / DOCX /
-                  PPTX）。文本输出为 text artifact（可直接供 agent
-                  节点消费）；图片输出为 image artifact。 上游可用「HTTP 节点 +
-                  输出模式 = 文件」下载文档，或接入其他产出 file 的节点。
-                </p>
+                <p className="note">{t("nodes:inspector.fileParse.note")}</p>
               </>
             )}
 
             {node.kind === "translate" && node.translate && (
               <>
                 <label className="field">
-                  <span>数据来源（上游节点）</span>
+                  <span>{t("nodes:inspector.common.source")}</span>
                   <select
                     className="select"
                     value={node.translate.source ?? ""}
@@ -2475,7 +2547,9 @@ export default function Inspector({
                       })
                     }
                   >
-                    <option value="">自动（唯一上游）</option>
+                    <option value="">
+                      {t("nodes:inspector.common.sourceAuto")}
+                    </option>
                     {graph.nodes
                       .filter((n) => n.id !== node.id)
                       .map((n) => (
@@ -2486,11 +2560,11 @@ export default function Inspector({
                   </select>
                 </label>
                 <label className="field">
-                  <span>目标语言</span>
+                  <span>{t("nodes:inspector.translate.target")}</span>
                   <input
                     className="input"
                     type="text"
-                    placeholder="如：简体中文 / English / 日本語"
+                    placeholder={t("nodes:inspector.translate.targetPh")}
                     value={node.translate.target}
                     onChange={(e) =>
                       updateNode(node.id, {
@@ -2503,7 +2577,7 @@ export default function Inspector({
                   />
                 </label>
                 <label className="field">
-                  <span>模型</span>
+                  <span>{t("nodes:inspector.common.model")}</span>
                   <select
                     className="select"
                     value={node.translate.model || "__unset__"}
@@ -2519,8 +2593,8 @@ export default function Inspector({
                   >
                     <option value="__unset__" disabled hidden>
                       {!node.translate.model
-                        ? "（未配置 — 使用运行时的默认模型）"
-                        : "（请选择）"}
+                        ? t("nodes:inspector.common.modelUnsetDefault")
+                        : t("nodes:inspector.common.modelSelect")}
                     </option>
                     {textModelOptions.map((o) => (
                       <option key={`${o.provider}::${o.model}`} value={o.model}>
@@ -2532,7 +2606,8 @@ export default function Inspector({
                     ) &&
                       node.translate.model && (
                         <option value={node.translate.model}>
-                          {node.translate.model} (当前)
+                          {node.translate.model}
+                          {t("nodes:inspector.common.modelCurrent")}
                         </option>
                       )}
                   </select>
@@ -2542,7 +2617,11 @@ export default function Inspector({
                   />
                 </label>
                 <label className="field">
-                  <span>温度 ({node.translate.temperature.toFixed(2)})</span>
+                  <span>
+                    {t("nodes:inspector.translate.temperature", {
+                      temp: node.translate.temperature.toFixed(2),
+                    })}
+                  </span>
                   <input
                     className="input"
                     type="range"
@@ -2560,18 +2639,14 @@ export default function Inspector({
                     }
                   />
                 </label>
-                <p className="note">
-                  读取上游的 text 产物（无 text 时回退到 JSON 序列化），调用 LLM
-                  翻译成目标语言并输出 text
-                  产物。可与「文件解析」节点串联：先提取文档文本，再翻译。
-                </p>
+                <p className="note">{t("nodes:inspector.translate.note")}</p>
               </>
             )}
 
             {node.kind === "ocr" && node.ocr && (
               <>
                 <label className="field">
-                  <span>数据来源（上游节点）</span>
+                  <span>{t("nodes:inspector.common.source")}</span>
                   <select
                     className="select"
                     value={node.ocr.source ?? ""}
@@ -2584,7 +2659,9 @@ export default function Inspector({
                       })
                     }
                   >
-                    <option value="">自动（唯一上游）</option>
+                    <option value="">
+                      {t("nodes:inspector.common.sourceAuto")}
+                    </option>
                     {graph.nodes
                       .filter((n) => n.id !== node.id)
                       .map((n) => (
@@ -2595,7 +2672,7 @@ export default function Inspector({
                   </select>
                 </label>
                 <label className="field">
-                  <span>识别语言</span>
+                  <span>{t("nodes:inspector.ocr.lang")}</span>
                   <select
                     className="select"
                     value={node.ocr.lang}
@@ -2605,22 +2682,26 @@ export default function Inspector({
                       })
                     }
                   >
-                    <option value="eng">英语 eng</option>
-                    <option value="chi_sim">简体中文 chi_sim</option>
-                    <option value="chi_tra">繁体中文 chi_tra</option>
-                    <option value="jpn">日语 jpn</option>
-                    <option value="kor">韩语 kor</option>
-                    <option value="spa">西班牙语 spa</option>
-                    <option value="fra">法语 fra</option>
-                    <option value="deu">德语 deu</option>
+                    <option value="eng">{t("nodes:inspector.ocr.langEng")}</option>
+                    <option value="chi_sim">
+                      {t("nodes:inspector.ocr.langChiSim")}
+                    </option>
+                    <option value="chi_tra">
+                      {t("nodes:inspector.ocr.langChiTra")}
+                    </option>
+                    <option value="jpn">{t("nodes:inspector.ocr.langJpn")}</option>
+                    <option value="kor">{t("nodes:inspector.ocr.langKor")}</option>
+                    <option value="spa">{t("nodes:inspector.ocr.langSpa")}</option>
+                    <option value="fra">{t("nodes:inspector.ocr.langFra")}</option>
+                    <option value="deu">{t("nodes:inspector.ocr.langDeu")}</option>
                   </select>
                 </label>
                 <label className="field">
-                  <span>语言数据路径（可选）</span>
+                  <span>{t("nodes:inspector.ocr.langPath")}</span>
                   <input
                     className="input"
                     type="text"
-                    placeholder="https://…/tessdata（离线部署时使用）"
+                    placeholder={t("nodes:inspector.ocr.langPathPh")}
                     value={node.ocr.langPath ?? ""}
                     onChange={(e) =>
                       updateNode(node.id, {
@@ -2632,18 +2713,14 @@ export default function Inspector({
                     }
                   />
                 </label>
-                <p className="note">
-                  读取上游的 image 产物，用 tesseract.js 识别文字并输出 text
-                  产物。可与「文件解析」节点串联： 先提取 PDF / Word
-                  里的图片，再 OCR 成文本；识别语言默认 eng，中文请选 chi_sim。
-                </p>
+                <p className="note">{t("nodes:inspector.ocr.note")}</p>
               </>
             )}
 
             {node.kind === "convert" && node.convert && (
               <>
                 <label className="field">
-                  <span>数据来源（上游节点）</span>
+                  <span>{t("nodes:inspector.common.source")}</span>
                   <select
                     className="select"
                     value={node.convert.source ?? ""}
@@ -2656,7 +2733,9 @@ export default function Inspector({
                       })
                     }
                   >
-                    <option value="">自动（唯一上游）</option>
+                    <option value="">
+                      {t("nodes:inspector.common.sourceAuto")}
+                    </option>
                     {graph.nodes
                       .filter((n) => n.id !== node.id)
                       .map((n) => (
@@ -2667,7 +2746,7 @@ export default function Inspector({
                   </select>
                 </label>
                 <label className="field">
-                  <span>目标格式</span>
+                  <span>{t("nodes:inspector.convert.to")}</span>
                   <select
                     className="select"
                     value={node.convert.to}
@@ -2680,14 +2759,18 @@ export default function Inspector({
                       })
                     }
                   >
-                    <option value="image">PDF → 图片（提取内嵌图片）</option>
-                    <option value="png">图片 → PNG</option>
-                    <option value="jpeg">图片 → JPEG</option>
+                    <option value="image">
+                      {t("nodes:inspector.convert.toImage")}
+                    </option>
+                    <option value="png">{t("nodes:inspector.convert.toPng")}</option>
+                    <option value="jpeg">
+                      {t("nodes:inspector.convert.toJpeg")}
+                    </option>
                   </select>
                 </label>
                 {node.convert.to === "jpeg" && (
                   <label className="field">
-                    <span>JPEG 质量（1-100）</span>
+                    <span>{t("nodes:inspector.convert.quality")}</span>
                     <input
                       className="input"
                       type="number"
@@ -2705,24 +2788,18 @@ export default function Inspector({
                     />
                   </label>
                 )}
-                <p className="note">
-                  目标格式为「PDF → 图片」时读取上游 file
-                  产物，提取每页内嵌图片（扫描版 PDF 每页一张，可与 OCR
-                  串联）；为「PNG /
-                  JPEG」时把上游图片重新编码为对应格式（支持批量，JPEG
-                  可调质量）。
-                </p>
+                <p className="note">{t("nodes:inspector.convert.note")}</p>
               </>
             )}
 
             {node.kind === "search" && node.search && (
               <>
                 <label className="field">
-                  <span>搜索词</span>
+                  <span>{t("nodes:inspector.search.query")}</span>
                   <input
                     className="input"
                     type="text"
-                    placeholder="留空则使用上游 text 产物作为搜索词"
+                    placeholder={t("nodes:inspector.search.queryPh")}
                     value={node.search.query}
                     onChange={(e) =>
                       updateNode(node.id, {
@@ -2732,7 +2809,7 @@ export default function Inspector({
                   />
                 </label>
                 <label className="field">
-                  <span>搜索源</span>
+                  <span>{t("nodes:inspector.search.provider")}</span>
                   <select
                     className="select"
                     value={node.search.provider}
@@ -2746,7 +2823,9 @@ export default function Inspector({
                       })
                     }
                   >
-                    <option value="duckduckgo">DuckDuckGo（免 key）</option>
+                    <option value="duckduckgo">
+                      {t("nodes:inspector.search.providerDdg")}
+                    </option>
                     <option value="tavily">Tavily</option>
                     <option value="serpapi">SerpAPI</option>
                     <option value="google">Google CSE</option>
@@ -2755,12 +2834,10 @@ export default function Inspector({
                 {node.search.provider !== "duckduckgo" && (
                   <>
                     <label className="field">
-                      <span>
-                        API Key（可选，留空用服务端环境变量）
-                      </span>
+                      <span>{t("nodes:inspector.search.apiKey")}</span>
                       <input
                         type="password"
-                        placeholder="填在节点里即刻生效，无需重启"
+                        placeholder={t("nodes:inspector.search.apiKeyPh")}
                         value={node.search.apiKey ?? ""}
                         onFocus={beginEdit}
                         onBlur={commitEdit}
@@ -2776,9 +2853,7 @@ export default function Inspector({
                     </label>
                     {node.search.provider === "google" && (
                       <label className="field">
-                        <span>
-                          搜索引擎 ID cx（可选，留空用 GOOGLE_CX）
-                        </span>
+                        <span>{t("nodes:inspector.search.cx")}</span>
                         <input
                           className="input"
                           type="text"
@@ -2800,7 +2875,7 @@ export default function Inspector({
                   </>
                 )}
                 <label className="field">
-                  <span>结果数量（1-20）</span>
+                  <span>{t("nodes:inspector.search.maxResults")}</span>
                   <input
                     className="input"
                     type="number"
@@ -2817,22 +2892,14 @@ export default function Inspector({
                     }
                   />
                 </label>
-                <p className="note">
-                  执行网络搜索并输出 text（可读列表）+
-                  json（结构化结果）双产物，下游 agent
-                  可直接阅读总结。搜索词留空时用上游 text 产物（可让 agent
-                  先生成搜索词）；DuckDuckGo
-                  无需密钥，其余搜索源在节点里填 API Key
-                  即刻生效（落盘前加密），留空则回落服务端环境变量
-                  TAVILY_API_KEY / SERPAPI_API_KEY / GOOGLE_API_KEY+GOOGLE_CX。
-                </p>
+                <p className="note">{t("nodes:inspector.search.note")}</p>
               </>
             )}
 
             {node.kind === "notify" && node.notify && (
               <>
                 <label className="field">
-                  <span>通知渠道</span>
+                  <span>{t("nodes:inspector.notify.provider")}</span>
                   <select
                     className="select"
                     value={node.notify.provider}
@@ -2846,15 +2913,25 @@ export default function Inspector({
                       })
                     }
                   >
-                    <option value="feishu">飞书群机器人</option>
-                    <option value="dingtalk">钉钉群机器人</option>
-                    <option value="wecom">企业微信群机器人</option>
-                    <option value="slack">Slack（SLACK_BOT_TOKEN）</option>
-                    <option value="email">邮件（SMTP）</option>
+                    <option value="feishu">
+                      {t("nodes:inspector.notify.providerFeishu")}
+                    </option>
+                    <option value="dingtalk">
+                      {t("nodes:inspector.notify.providerDingtalk")}
+                    </option>
+                    <option value="wecom">
+                      {t("nodes:inspector.notify.providerWecom")}
+                    </option>
+                    <option value="slack">
+                      {t("nodes:inspector.notify.providerSlack")}
+                    </option>
+                    <option value="email">
+                      {t("nodes:inspector.notify.providerEmail")}
+                    </option>
                   </select>
                 </label>
                 <label className="field">
-                  <span>消息格式</span>
+                  <span>{t("nodes:inspector.notify.format")}</span>
                   <select
                     className="select"
                     value={node.notify.format}
@@ -2867,15 +2944,19 @@ export default function Inspector({
                       })
                     }
                   >
-                    <option value="text">纯文本</option>
-                    <option value="markdown">Markdown（各平台原生渲染）</option>
+                    <option value="text">
+                      {t("nodes:inspector.notify.formatText")}
+                    </option>
+                    <option value="markdown">
+                      {t("nodes:inspector.notify.formatMarkdown")}
+                    </option>
                   </select>
                 </label>
                 <label className="field">
-                  <span>消息内容</span>
+                  <span>{t("nodes:inspector.notify.message")}</span>
                   <textarea
                     rows={3}
-                    placeholder="留空则发送上游 text 产物作为消息"
+                    placeholder={t("nodes:inspector.notify.messagePh")}
                     value={node.notify.message}
                     onChange={(e) =>
                       updateNode(node.id, {
@@ -2886,7 +2967,7 @@ export default function Inspector({
                 </label>
                 {node.notify.provider !== "email" && (
                   <label className="field">
-                    <span>Webhook 地址</span>
+                    <span>{t("nodes:inspector.notify.webhookUrl")}</span>
                     <input
                       className="input"
                       type="text"
@@ -2905,11 +2986,11 @@ export default function Inspector({
                 )}
                 {node.notify.provider === "dingtalk" && (
                   <label className="field">
-                    <span>加签密钥（可选）</span>
+                    <span>{t("nodes:inspector.notify.secret")}</span>
                     <input
                       className="input"
                       type="text"
-                      placeholder="SEC…（机器人开启「加签」时填写）"
+                      placeholder={t("nodes:inspector.notify.secretPh")}
                       value={node.notify.secret ?? ""}
                       onChange={(e) =>
                         updateNode(node.id, {
@@ -2924,7 +3005,7 @@ export default function Inspector({
                 )}
                 {node.notify.provider === "slack" && (
                   <label className="field">
-                    <span>频道 ID</span>
+                    <span>{t("nodes:inspector.notify.channel")}</span>
                     <input
                       className="input"
                       type="text"
@@ -2944,7 +3025,7 @@ export default function Inspector({
                 {node.notify.provider === "email" && (
                   <>
                     <label className="field">
-                      <span>收件人</span>
+                      <span>{t("nodes:inspector.notify.to")}</span>
                       <input
                         className="input"
                         type="text"
@@ -2961,11 +3042,11 @@ export default function Inspector({
                       />
                     </label>
                     <label className="field">
-                      <span>邮件主题（可选）</span>
+                      <span>{t("nodes:inspector.notify.subject")}</span>
                       <input
                         className="input"
                         type="text"
-                        placeholder="默认为节点名"
+                        placeholder={t("nodes:inspector.notify.subjectPh")}
                         value={node.notify.subject ?? ""}
                         onChange={(e) =>
                           updateNode(node.id, {
@@ -2979,19 +3060,14 @@ export default function Inspector({
                     </label>
                   </>
                 )}
-                <p className="note">
-                  把消息发送到飞书 / 钉钉 / 企业微信群机器人或邮件，发送结果落为
-                  json 产物可审计。消息留空时发送上游 text 产物——「搜索 → 总结 →
-                  通知」的最后一公里；邮件需在服务端配置 SMTP_HOST / SMTP_USER /
-                  SMTP_PASS 环境变量。
-                </p>
+                <p className="note">{t("nodes:inspector.notify.note")}</p>
               </>
             )}
 
             {node.kind === "vcs" && node.vcs && (
               <>
                 <label className="field">
-                  <span>仓库平台</span>
+                  <span>{t("nodes:inspector.vcs.provider")}</span>
                   <select
                     className="select"
                     value={node.vcs.provider}
@@ -3004,12 +3080,16 @@ export default function Inspector({
                       })
                     }
                   >
-                    <option value="github">GitHub（GITHUB_TOKEN）</option>
-                    <option value="gitlab">GitLab（GITLAB_TOKEN）</option>
+                    <option value="github">
+                      {t("nodes:inspector.vcs.providerGithub")}
+                    </option>
+                    <option value="gitlab">
+                      {t("nodes:inspector.vcs.providerGitlab")}
+                    </option>
                   </select>
                 </label>
                 <label className="field">
-                  <span>动作</span>
+                  <span>{t("nodes:inspector.vcs.action")}</span>
                   <select
                     className="select"
                     value={node.vcs.action}
@@ -3026,18 +3106,22 @@ export default function Inspector({
                       })
                     }
                   >
-                    <option value="create_pr">创建 PR / MR</option>
-                    <option value="comment_issue">评论 issue / PR</option>
-                    <option value="trigger_workflow">
-                      触发 workflow / pipeline
+                    <option value="create_pr">
+                      {t("nodes:inspector.vcs.actionCreatePr")}
                     </option>
-                    <option value="list_issues">列出 issue</option>
+                    <option value="comment_issue">
+                      {t("nodes:inspector.vcs.actionCommentIssue")}
+                    </option>
+                    <option value="trigger_workflow">
+                      {t("nodes:inspector.vcs.actionTriggerWorkflow")}
+                    </option>
+                    <option value="list_issues">
+                      {t("nodes:inspector.vcs.actionListIssues")}
+                    </option>
                   </select>
                 </label>
                 <label className="field">
-                  <span>
-                    Token（可选，留空用 GITHUB_TOKEN / GITLAB_TOKEN）
-                  </span>
+                  <span>{t("nodes:inspector.vcs.token")}</span>
                   <input
                     type="password"
                     placeholder="ghp_... / glpat-..."
@@ -3056,7 +3140,7 @@ export default function Inspector({
                 </label>
                 {node.vcs.provider === "gitlab" && (
                   <label className="field">
-                    <span>API Base（可选，自托管；留空用 GITLAB_API_URL）</span>
+                    <span>{t("nodes:inspector.vcs.baseUrl")}</span>
                     <input
                       className="input"
                       type="text"
@@ -3112,11 +3196,11 @@ export default function Inspector({
                   </div>
                 ) : (
                   <label className="field">
-                    <span>Project ID / 路径</span>
+                    <span>{t("nodes:inspector.vcs.projectId")}</span>
                     <input
                       className="input"
                       type="text"
-                      placeholder="42 或 group/proj"
+                      placeholder={t("nodes:inspector.vcs.projectIdPh")}
                       value={node.vcs.projectId ?? ""}
                       onChange={(e) =>
                         updateNode(node.id, {
@@ -3134,8 +3218,8 @@ export default function Inspector({
                   <label className="field">
                     <span>
                       {node.vcs.action === "create_pr"
-                        ? "PR 标题（可选，默认节点名）"
-                        : "评论正文（可选，默认上游 text）"}
+                        ? t("nodes:inspector.vcs.prTitle")
+                        : t("nodes:inspector.vcs.commentBody")}
                     </span>
                     <input
                       className="input"
@@ -3161,7 +3245,7 @@ export default function Inspector({
                 {node.vcs.action === "create_pr" && (
                   <div className="field-row">
                     <label className="field">
-                      <span>源分支 head</span>
+                      <span>{t("nodes:inspector.vcs.head")}</span>
                       <input
                         className="input"
                         type="text"
@@ -3177,7 +3261,7 @@ export default function Inspector({
                       />
                     </label>
                     <label className="field">
-                      <span>目标分支 base</span>
+                      <span>{t("nodes:inspector.vcs.base")}</span>
                       <input
                         className="input"
                         type="text"
@@ -3196,7 +3280,7 @@ export default function Inspector({
                 )}
                 {node.vcs.action === "comment_issue" && (
                   <label className="field">
-                    <span>Issue / PR 编号</span>
+                    <span>{t("nodes:inspector.vcs.number")}</span>
                     <input
                       className="input"
                       type="number"
@@ -3219,7 +3303,7 @@ export default function Inspector({
                   <div className="field-row">
                     {node.vcs.provider === "github" && (
                       <label className="field">
-                        <span>Workflow ID</span>
+                        <span>{t("nodes:inspector.vcs.workflowId")}</span>
                         <input
                           className="input"
                           type="text"
@@ -3236,7 +3320,7 @@ export default function Inspector({
                       </label>
                     )}
                     <label className="field">
-                      <span>触发分支 ref</span>
+                      <span>{t("nodes:inspector.vcs.ref")}</span>
                       <input
                         className="input"
                         type="text"
@@ -3255,7 +3339,7 @@ export default function Inspector({
                 )}
                 {node.vcs.action === "list_issues" && (
                   <label className="field">
-                    <span>Issue 状态</span>
+                    <span>{t("nodes:inspector.vcs.state")}</span>
                     <select
                       className="select"
                       value={node.vcs.state ?? "open"}
@@ -3274,26 +3358,19 @@ export default function Inspector({
                     </select>
                   </label>
                 )}
-                <p className="note">
-                  对 GitHub / GitLab 执行版本控制动作，API 结果落为 json
-                  产物。create_pr / comment_issue 的正文留空时用上游 text
-                  产物（可让 agent 先起草 PR 描述）；Token
-                  填在这里即刻生效（落盘前加密），留空则回落服务端环境变量
-                  GITHUB_TOKEN / GITLAB_TOKEN（自托管 GitLab 可设 API Base 或
-                  GITLAB_API_URL）。
-                </p>
+                <p className="note">{t("nodes:inspector.vcs.note")}</p>
               </>
             )}
 
             {node.kind === "human" && node.human && (
               <>
                 <label className="field">
-                  <span>审批提示</span>
+                  <span>{t("nodes:inspector.human.prompt")}</span>
                   <input
                     className="input"
                     type="text"
                     value={node.human.prompt}
-                    placeholder="如：确认这段文案是否可以发布"
+                    placeholder={t("nodes:inspector.human.promptPh")}
                     onChange={(e) =>
                       updateNode(node.id, {
                         human: { ...node.human!, prompt: e.target.value },
@@ -3301,18 +3378,14 @@ export default function Inspector({
                     }
                   />
                 </label>
-                <p className="note">
-                  运行到该节点会暂停，等待人工审批。上游文本会展示给审批人：批准后原样交给下游；
-                  编辑后以编辑内容继续；驳回则节点失败（可被 error
-                  边接住，否则产线失败）。
-                </p>
+                <p className="note">{t("nodes:inspector.human.note")}</p>
               </>
             )}
 
             {node.kind === "subprocess" && node.subprocess && (
               <>
                 <label className="field">
-                  <span>子流程图（被调用）</span>
+                  <span>{t("nodes:inspector.subprocess.graphId")}</span>
                   <select
                     className="input"
                     value={node.subprocess.graphId}
@@ -3326,7 +3399,9 @@ export default function Inspector({
                     }
                   >
                     {graphs.length === 0 && (
-                      <option value="">（暂无已保存产线）</option>
+                      <option value="">
+                        {t("nodes:inspector.subprocess.graphEmpty")}
+                      </option>
                     )}
                     {graphs.map((g) => (
                       <option key={g.id} value={g.id}>
@@ -3336,7 +3411,7 @@ export default function Inspector({
                   </select>
                 </label>
                 <label className="field">
-                  <span>最大调用深度</span>
+                  <span>{t("nodes:inspector.subprocess.maxDepth")}</span>
                   <input
                     className="input"
                     type="number"
@@ -3356,13 +3431,7 @@ export default function Inspector({
                     }
                   />
                 </label>
-                <p className="note">
-                  运行到该节点会调用另一张已保存的产线（子流程）作为函数：上游文本成为子流程的输入，
-                  子流程所有 sink 节点的产物聚合为本节点的 json
-                  产物。子流程内的暂停（人工审批/危险工具）
-                  会冒泡暂停整个产线，恢复后从子流程断点继续。maxDepth
-                  防止循环调用。
-                </p>
+                <p className="note">{t("nodes:inspector.subprocess.note")}</p>
               </>
             )}
           </>
