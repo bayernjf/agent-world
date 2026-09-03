@@ -5398,7 +5398,7 @@ select {
   background: var(--bg-elevated);
 }
 .user-menu__logout {
-  color: var(--alert) !important;
+  color: var(--error) !important;
 }
 
 /* ---------- account dialog (个人中心) ---------- */
@@ -5409,10 +5409,10 @@ select {
 .account-info {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 4px 0 16px;
+  gap: var(--gap-lg);
+  padding: var(--space-1) 0 var(--gap-lg);
   border-bottom: var(--hair);
-  margin-bottom: 16px;
+  margin-bottom: var(--gap-lg);
 }
 .account-info__avatar {
   display: flex;
@@ -5422,37 +5422,37 @@ select {
   height: 40px;
   flex: none;
   border-radius: 50%;
-  background: var(--power);
+  background: var(--accent);
   color: #1a1206;
   font-family: var(--mono);
-  font-size: 18px;
-  font-weight: 700;
+  font-size: var(--text-xl);
+  font-weight: var(--font-bold);
 }
 .account-info__email {
-  font-size: 13px;
-  color: var(--ink);
+  font-size: var(--text-base);
+  color: var(--text-primary);
   word-break: break-all;
 }
 .account-info__sub {
   margin-top: 3px;
   font-family: var(--mono);
   font-size: 10px;
-  color: var(--ink-faint);
+  color: var(--text-tertiary);
 }
 .account-form .field {
-  margin-top: 10px;
+  margin-top: var(--gap-md);
 }
 .account-form .btn {
-  margin-top: 16px;
+  margin-top: var(--gap-lg);
 }
 .account-ok {
-  margin-bottom: 14px;
-  padding: 8px 10px;
-  border-left: 2px solid var(--power);
+  margin-bottom: var(--gap-lg);
+  padding: var(--gap-sm) var(--gap-md);
+  border-left: 2px solid var(--accent);
   background: rgba(255, 176, 32, 0.08);
   font-family: var(--mono);
-  font-size: 11px;
-  color: var(--power);
+  font-size: var(--text-xs);
+  color: var(--accent);
 }
 
 /* ---------- Table node step editor ---------- */
@@ -5460,33 +5460,33 @@ select {
 .table-steps {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin-top: 4px;
+  gap: var(--gap-sm);
+  margin-top: var(--space-1);
 }
 .table-steps__title {
-  font-size: 11px;
-  color: var(--ink-faint);
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
 .table-step {
   border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 8px;
+  border-radius: var(--radius-lg);
+  padding: var(--gap-sm);
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--space-1);
   background: var(--bg);
 }
 .table-step__head {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-bottom: 4px;
+  gap: var(--gap-xs);
+  margin-bottom: var(--space-1);
 }
 .table-step__index {
-  font-size: 11px;
-  color: var(--ink-faint);
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
   font-family: var(--mono);
   flex: none;
 }
@@ -5495,13 +5495,13 @@ select {
   min-width: 0;
 }
 .table-step .field {
-  margin-top: 6px;
+  margin-top: var(--gap-xs);
 }
 .table-step__agg {
   display: flex;
-  gap: 6px;
+  gap: var(--gap-xs);
   align-items: center;
-  margin-top: 6px;
+  margin-top: var(--gap-xs);
 }
 .table-step__agg .input {
   flex: 1;
@@ -5514,27 +5514,27 @@ select {
 
 /* ---------- Glossary（术语对照表）---------- */
 .glossary__intro {
-  margin: 0 0 14px;
+  margin: 0 0 var(--gap-lg);
   line-height: 1.6;
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 .glossary__group {
   border: var(--hair);
-  margin-bottom: 10px;
-  background: var(--steel-850);
+  margin-bottom: var(--gap-md);
+  background: var(--bg-tertiary);
 }
 .glossary__group > summary {
-  padding: 9px 14px;
+  padding: var(--space-2) var(--gap-lg);
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--text-sm);
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--power);
+  color: var(--accent);
   cursor: pointer;
   user-select: none;
 }
 .glossary__group > summary:hover {
-  background: var(--steel-800);
+  background: var(--bg-elevated);
 }
 .glossary__table-wrap {
   overflow: auto;
@@ -5544,26 +5544,26 @@ select {
 .glossary__table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 .glossary__table th {
   position: sticky;
   top: 0;
-  background: var(--steel-800);
+  background: var(--bg-elevated);
   text-align: left;
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--text-xs);
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--ink-faint);
-  font-weight: 600;
-  padding: 7px 14px;
+  color: var(--text-tertiary);
+  font-weight: var(--font-semibold);
+  padding: var(--space-2) var(--gap-lg);
   border-bottom: var(--hair);
   white-space: nowrap;
 }
 .glossary__table td {
-  padding: 6px 14px;
-  border-bottom: 1px solid var(--steel-800);
+  padding: var(--space-1) var(--gap-lg);
+  border-bottom: 1px solid var(--bg-elevated);
   vertical-align: top;
 }
 .glossary__table tbody tr:last-child td {
@@ -5574,23 +5574,23 @@ select {
 }
 .glossary__std {
   font-family: var(--mono);
-  font-size: 11px;
-  color: var(--ink-dim);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
   white-space: nowrap;
 }
 .glossary__game {
-  font-weight: 600;
-  color: var(--data);
+  font-weight: var(--font-semibold);
+  color: var(--info);
   white-space: nowrap;
 }
 .glossary__note {
-  color: var(--ink-faint);
+  color: var(--text-tertiary);
   line-height: 1.5;
   min-width: 140px;
 }
 .glossary__foot {
-  margin: 12px 0 0;
-  font-size: 12px;
+  margin: var(--gap-lg) 0 0;
+  font-size: var(--text-sm);
   line-height: 1.6;
 }
 
