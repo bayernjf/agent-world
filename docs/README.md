@@ -52,6 +52,7 @@
 | [template-checklist.md](template-checklist.md) | 产线模板验证与评估待办表（逐模板真实狗粮验证状态；新增模板必登记）★ | 开发者 / 使用者 |
 | [extending.md](extending.md) | 如何扩展：Worker / Connector / Skill / Trigger / 节点 | 开发者 |
 | [product-content-roadmap.md](product-content-roadmap.md) | 内容线（淘宝 / 小红书图文）专项规划 | 产品 |
+| [design-ecommerce-roadmap.md](design-ecommerce-roadmap.md) | 自媒体电商方向能力升级方案（F1-F10：run 内多变体择优引擎 / 审核队列 / 平台合规 / 商品库 / 批量 / 发布闭环；待启动） | 产品 / 开发者 |
 | [feedback-workflow.md](feedback-workflow.md) | 用户如何高效反馈给 AI（截图 / computer-use / 防丢） | 用户 |
 
 ### 历史（决策记录，保留参考，勿据此实现）

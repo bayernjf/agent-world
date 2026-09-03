@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { copyToClipboard, useToast, type ToastAction } from "../store/toast";
 
 /**
@@ -9,6 +10,7 @@ import { copyToClipboard, useToast, type ToastAction } from "../store/toast";
  * with one click when they need to report it.
  */
 export default function Toast() {
+  const { t } = useTranslation();
   const toast = useToast((s) => s.toast);
   const clear = useToast((s) => s.clear);
 
@@ -25,7 +27,7 @@ export default function Toast() {
   const actions: ToastAction[] =
     toast.actions ?? [
       {
-        label: "复制",
+        label: t("actions.copy"),
         onClick: async () => {
           const ok = await copyToClipboard(toast.message);
           if (ok) {
@@ -33,7 +35,7 @@ export default function Toast() {
               toast: {
                 ...toast,
                 id: toast.id + 1,
-                message: "已复制",
+                message: t("common.copied"),
                 ttlMs: 1500,
                 actions: [],
               },

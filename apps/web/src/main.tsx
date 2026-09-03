@@ -5,6 +5,7 @@ import App from "./App";
 import { LoginPage, RegisterPage } from "./components/AuthPages";
 import ProtectedRoute from "./components/ProtectedRoute";
 import "./styles.css";
+import "./i18n";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

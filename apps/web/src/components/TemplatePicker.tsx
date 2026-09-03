@@ -1,4 +1,5 @@
 import { TEMPLATES, TEMPLATE_CATEGORIES } from "@agent-world/core";
+import { useTranslation } from "react-i18next";
 
 /**
  * Shared template preview + grid used by both the first-run Onboarding and
@@ -67,8 +68,13 @@ export function TemplatePreview({
   nodes: TemplatePreviewData["nodes"];
   edges: TemplatePreviewData["edges"];
 }) {
+  const { t } = useTranslation();
   if (nodes.length === 0) {
-    return <div className="template-preview template-preview--empty">空白</div>;
+    return (
+      <div className="template-preview template-preview--empty">
+        {t("modals:templatePicker.emptyPreview")}
+      </div>
+    );
   }
   const xs = nodes.map((n) => n.x);
   const ys = nodes.map((n) => n.y);
@@ -86,7 +92,7 @@ export function TemplatePreview({
       viewBox={`${minX - pad} ${minY - pad} ${w} ${h}`}
       preserveAspectRatio="xMidYMid meet"
       role="img"
-      aria-label="模板结构预览"
+      aria-label={t("modals:templatePicker.structurePreview")}
     >
       {edges.map((e, i) => {
         const a = pos.get(e.from);
@@ -125,10 +131,11 @@ export default function TemplatePicker({
   cardClass,
   blankFirst,
 }: PickerProps) {
+  const { t } = useTranslation();
   const gridClass = `template-grid ${cardClass ? `template-grid--${cardClass}` : ""}`;
   const sections = TEMPLATE_CATEGORIES.map((cat) => ({
     cat,
-    items: templates.filter((t) => t.category === cat),
+    items: templates.filter((tpl) => tpl.category === cat),
   })).filter((s) => s.items.length > 0);
   return (
     <div className={`template-picker ${cardClass ? `template-picker--${cardClass}` : ""}`}>
@@ -139,9 +146,11 @@ export default function TemplatePicker({
           onClick={() => onPick(undefined)}
         >
           <TemplatePreview nodes={[]} edges={[]} />
-          <span className="template-card__name">空白产线</span>
+          <span className="template-card__name">
+            {t("modals:templatePicker.blankGraph")}
+          </span>
           <span className="template-card__desc">
-            从空白画布开始，不预置任何节点，搭建后自由编辑
+            {t("modals:templatePicker.blankGraphDesc")}
           </span>
         </button>
       )}

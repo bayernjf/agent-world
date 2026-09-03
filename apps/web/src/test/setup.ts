@@ -1,4 +1,8 @@
 import "@testing-library/jest-dom";
+import i18n from "../i18n";
+
+// Force Chinese language in tests to match existing test assertions
+i18n.changeLanguage("zh");
 
 // ResizeObserver mock (components use it for size tracking)
 class ResizeObserverMock {
