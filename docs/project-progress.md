@@ -5,7 +5,7 @@
 
 ---
 
-## 一、进度快照（2026-09-02）
+## 一、进度快照（2026-09-03）
 
 > 完成度为基于项目文档状态的**估算**，用于快速判断"哪块做完了、哪块没动"，不是精确度量。按完成度降序。
 
@@ -13,16 +13,18 @@
 |---|---|---|---|
 | 安全加固（审计 29 项） | 100% | ✅ 已完成 | 3 Critical/10 High/8 Medium/8 Low 全部修复，含 CORS 通配符拒绝、SSRF、静态加密 L3；推翻 2 条旧"已解决"结论。**2026-09-02 扩围**：L3 静态加密从仅 `triggers[].webhookSecret` 扩展到图文档内**所有节点级凭证**（imageGen/videoGen/audioGen/generic `apiKey`、notify `secret`+`webhookUrl`、连接器 `auth.token`+auth 类 `headers`），`sealGraphDoc`/`openGraphDoc` 改为按字段名递归遍历（`f7c333f`）；**再收口**：`headers` 里由自定义名字承载的凭证（`X-My-Auth`、`X-Signature`）按名字模式加密，固定名单枚举不到的漏网补上（`ff223bb`）；**L3 声明的最后一条残留同日闭环**：嵌在 URL query 里的凭证（`?token=…`、Azure `?api-key=`）按**精确参数名**就地加密（良性参数与 endpoint 保持明文可排查，密文 percent-encode 往返），并删掉与改写器漂移的双检测器（`043ce5c`）；**同波补上 `search`/`vcs` 此前完全没有的节点级凭证入口**（`apiKey`/`cx`/`token`/`baseUrl`，落盘前即被既有 sealer 覆盖，不再只能靠 server 环境变量 + 重启，`f914fa9`+`75f02b4`+`817bff8`）。**真正剩下的边界**：写在自由文本里的密钥（prompt / `variables` / code 脚本 / http body）——按字段名加密拦不到 — [security-audit-2026-08-31.md](security-audit-2026-08-31.md) |
 | 账号系统与用户隔离 | 100% | ✅ 已完成 | users 表 + JWT/HttpOnly cookie + 全量按 user_id 隔离 + 旧库回填迁移 |
-| 回归测试与质量门 | 100% | ✅ 已完成 | core 164 / server 671 / mcp 50 / **web 176**（2026-09-02 从 32 提升到 176，+144 用例，覆盖 geometry.ts 全部 11 个导出函数 + sanitize-html 边界 + tips/run store）；core-path 回归基线 17 用例，Node 24 下稳定复跑 — [handoff.md Quality gate](../handoff.md) |
+| 回归测试与质量门 | 100% | ✅ 已完成 | core 164 / server 671 / mcp 50 / **web 1460**（2026-09-03 从 176 提升到 1460，+1284 用例——组件测试全覆盖 39 个组件，P0/P1/P2/P3 四批全部完成；基础设施 @testing-library/react + jsdom + vitest.config.ts + setup.ts + utils.tsx；过程中修复 Inspector.tsx 可选链 bug；全量稳定通过无回归）；core-path 回归基线 17 用例，Node 24 下稳定复跑 — [handoff.md Quality gate](../handoff.md) |
 | MCP Server | 100% | ✅ 已完成 | stdio + HTTP/SSE 双传输、15 工具 + resources + prompts + notifications + Bearer 认证（P0-P2 全落地）— [design-mcp-server.md](design-mcp-server.md) |
 | Phase 1 基础通用能力 | 100% | ✅ 已完成 | HTTP/代码执行/条件分支/parallel/数据模型升级 — [roadmap-generalization.md](roadmap-generalization.md#phase-1基础通用能力2-3周) |
 | Phase 2 数据与文件处理 | 100% | ✅ 已完成 | 表格/数据库/文件解析/OCR/转换/搜索/翻译 — [roadmap-generalization.md](roadmap-generalization.md#phase-2数据与文件处理2-3周) |
+| 设计 Token 体系 | 40% | 🟡 基础设施完成 | **2026-09-03 基础设施落地**（`9259a38`）：① Primitive 层完整——间距 12 级（8pt grid）、圆角 7 级、阴影 6 级、字号 8 级、行高 4 级、字重 4 级、动画 3 级（duration + easing）；② Semantic 层——背景 7 角色、文字 5 角色、边框 5 角色、功能色 4 组（success/warning/error/info 含 bg 变体）、accent 交互色 4 角色、语义间距/圆角/阴影；③ 明暗主题切换——`[data-theme="light"]` 属性驱动，所有 semantic token 完整映射浅色值，滚动条颜色同步；④ 保留原有 26 个原始 token 向后兼容，semantic token 映射到 primitive，主题切换单属性即可。**剩余渐进式迁移**：组件逐步替换硬编码值为 semantic token（基础组件 → 画布 → 弹窗 → 节点 → 清理） — [design-design-tokens.md](design-design-tokens.md) |
+| i18n 国际化 | 30% | 🟡 基础设施完成 | **2026-09-03 基础设施落地**（`008c844`）：① 技术栈 i18next + react-i18next（运行时）+ i18next-parser（开发工具）；② 7 个命名空间（common/canvas/nodes/modals/settings/run/errors）；③ 完整双语翻译包——中文 + 英文各 1800+ keys，覆盖 25 种弹窗类型、6 大类错误、全部通用 UI 文本；④ 语言自动检测（localStorage > 浏览器语言），变更时持久化 + 同步 `document.lang`；⑤ TypeScript 编译通过，全量 1460 测试无回归。**剩余渐进式迁移**：组件逐步用 `useTranslation()` hook 替换硬编码中文（预计 200+ 处），添加语言切换 UI，本地化格式（日期/数字/货币/相对时间） — [design-i18n.md](design-i18n.md) |
 | Phase 3 集成与通知 | 95% | 🟡 主体完成 | notify/搜索/vcs/TTS 已落地；邮件收件、内容平台（小红书/抖音/淘宝）依赖 API 资质缓做 — [integrations-future.md](integrations-future.md) |
 | 模板体系 | 97% | 🟡 主体完成 | 27 个实用模板覆盖 25 种节点类型中的 23 种（database / subprocess 无模板）；分类收口为 core `TEMPLATE_CATEGORIES` 有序 11 类，选择器按分类分组展示、空白钉最前（含法律合规第二模板「证据清单整理」、财务审计首个模板「费用报销初审」）+ TemplateField 参数化全链路 + 空白产线入口（BLANK_TEMPLATE 独立导出，不计入模板数）；模板市场（发布/安装）缓做 — [design-templates.md](design-templates.md) |
 | Phase 4 高级编排 | 92% | 🟡 主体完成 | 6/7 项落地：并行聚合 / subprocess / error 边+catch / AI Agent 工具循环 / human 审批 / 变量持久化；**状态机缓做** — [phase4-design.md](phase4-design.md) |
 | 版本管理补强 | 95% | 🟡 主体完成 | 自动快照 + run 关联 hash + 恢复预览；**A/B 实验已作为独立特性落地**（design-ab-testing.md）；仅剩 diff 视图缓做 — [design-versions.md](design-versions.md) |
 | 真实产线狗粮验证 | 100% | ✅ 已完成 | **27/27 模板全覆盖**（25 ✅ + 2 🟡 环境侧阻塞）；25 种节点类型全部有真实运行记录；四类自动触发（cron/webhook/event/batch）全部真实取证；**README 演示 GIF 已完成（2026-09-01，时间轴回放）**；9 波验证共修复 20+ 产品缺陷（静默成功/静默失败、测试与产品契约脱节、引擎级调度缺陷、凭证安全、稳定性）；剩余仅 `search`/`audioGen` 两类节点的成功路径证据（纯凭证阻塞，产品侧无待修项——search 的 key 现在直接填在节点里即可，无需改 env 重启 server） — [template-checklist.md](template-checklist.md) |
-| 文档完善 | 75% | 🟢 基本完成 | 核心设计文档齐；2026-09-01 完成文档-代码覆盖盘点：补齐知识记忆/A-B 设计文档、修正 technical-design 时效；handoff 最近 5 条 hash 已核实回填 |
+| 文档完善 | 75% | 🟢 基本完成 | 核心设计文档齐；2026-09-01 完成文档-代码覆盖盘点：补齐知识记忆/A-B 设计文档、修正 technical-design 时效；handoff 最近 5 条 hash 已核实回填；**2026-09-03 新增设计 token 与 i18n 方案文档**（design-design-tokens.md / design-i18n.md） |
 | 自动数据接入 Connector | 70% | 🟡 主体完成 | file/http/form/manual 已落地；**SQLite database connector 已落地（2026-09-01，见 design-connector-database.md）**；剩 PG/MySQL 驱动接续（deferred） |
 | 定时 / 事件触发 | 95% | 🟢 基本完成 | webhook/cron/event/batch 全落地（TriggersPanel+scheduler+27 测试）；**2026-09-01 修复 event 成功状态契约 bug**（见 design-triggers.md）；**2026-09-02 触发层全型实跑零缺陷**（webhook 401 诚实拒绝/batch 3 行并发/event 自动级联/cron 无人值守闭环，均有真实 run 取证）；多实例分布式锁 deferred |
 | 商业化（定价/变现） | 5% | ⚪ 待启动 | 按产品决策**放后面** — [PRODUCT_STRATEGY.md](../PRODUCT_STRATEGY.md) |
@@ -50,9 +52,12 @@
 3. **模板体系扩充** —— ✅ 已完成（2026-09-01）。从 18 个扩充到 27 个业务模板（客服工单、代码审查、数据报表、合同审查、课程大纲、旅游行程、菜谱、证据清单整理、费用报销初审）；blankGraph 独立为 BLANK_TEMPLATE，不计入模板数；分类收口为 core `TEMPLATE_CATEGORIES` 有序 11 类，选择器按分类分组展示、空白钉最前 — [design-templates.md](design-templates.md) §6。
 4. **README 演示 GIF** —— ✅ 已完成（2026-09-01）。时间轴回放映示 GIF 已放入 README，替换 TODO 注释位。
 5. **真实产线狗粮验证** —— ✅ 已完成（2026-09-02）。27/27 模板全覆盖，9 波验证修复 20+ 产品缺陷；剩余 2 个 🟡 为环境侧阻塞（缺 TTS 供应商、缺搜索源 API key），产品侧无待修项 — [template-checklist.md](template-checklist.md)。
-6. **文档穿插（4.8）** —— 基本完成（2026-09-01 盘点后核心设计文档覆盖全部已落地模块；低优余项见 deferred-items 文档线）。
-7. **低优 / 缓做** —— 沙箱 docker 容器后端、模板/节点市场、版本 diff 视图、状态机、监控告警大盘、多租户、Notion/Linear/内容平台集成、Excel 读写、HTML→PDF。触发条件见 [deferred-items.md](deferred-items.md)。
-8. **商业化** —— 放后面，决策基线见 [PRODUCT_STRATEGY.md](../PRODUCT_STRATEGY.md)。
+6. **web 前端组件测试** —— ✅ 已完成（2026-09-03）。从 176 个纯逻辑测试（零组件测试）推进到 **1460 个测试**，其中组件测试 **1223 个**，覆盖 **39 个组件**。分四批推进：P0（5 组件/112 用例）、P1（5 组件/174 用例）、P2（10 组件/285 用例）、P3（19 组件/652 用例）。基础设施 @testing-library/react + jsdom + vitest.config.ts + setup.ts + utils.tsx。过程中发现并修复 Inspector.tsx 可选链 bug。全量 1460/1460 稳定通过，56 个测试文件 — [web-component-testing-plan.md](web-component-testing-plan.md)。
+7. **设计 Token 体系完善** —— 🟡 基础设施完成（2026-09-03）。Primitive 层（间距/圆角/阴影/字号/行高/字重/动画）+ Semantic 层（背景/文字/边框/功能色/accent/语义间距圆角阴影）+ 明暗主题切换（`[data-theme="light"]`）全部落地，保留原有 26 个 token 向后兼容。剩余渐进式迁移：组件逐步替换硬编码值为 semantic token — [design-design-tokens.md](design-design-tokens.md)。
+8. **i18n 国际化** —— 🟡 基础设施完成（2026-09-03）。i18next + react-i18next + 7 命名空间 + 完整 zh/en 双语翻译包（1800+ keys）+ 语言自动检测 + localStorage 持久化全部落地，全量 1460 测试无回归。剩余渐进式迁移：组件逐步用 `useTranslation()` hook 替换硬编码中文（预计 200+ 处），添加语言切换 UI，本地化格式 — [design-i18n.md](design-i18n.md)。
+9. **文档穿插（4.8）** —— 基本完成（2026-09-01 盘点后核心设计文档覆盖全部已落地模块；低优余项见 deferred-items 文档线）。
+10. **低优 / 缓做** —— 沙箱 docker 容器后端、模板/节点市场、版本 diff 视图、状态机、监控告警大盘、多租户、Notion/Linear/内容平台集成、Excel 读写、HTML→PDF。触发条件见 [deferred-items.md](deferred-items.md)。
+11. **商业化** —— 放后面，决策基线见 [PRODUCT_STRATEGY.md](../PRODUCT_STRATEGY.md)。
 
 ---
 
