@@ -10,9 +10,15 @@ global.ResizeObserver = ResizeObserverMock;
 
 // IntersectionObserver mock (lazy loading, infinite scroll)
 class IntersectionObserverMock {
+  readonly root: Element | null = null;
+  readonly rootMargin = "0px";
+  readonly thresholds: number[] = [];
   observe() {}
   unobserve() {}
   disconnect() {}
+  takeRecords(): IntersectionObserverEntry[] {
+    return [];
+  }
 }
 global.IntersectionObserver = IntersectionObserverMock;
 

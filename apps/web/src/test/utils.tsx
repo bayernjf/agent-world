@@ -1,5 +1,5 @@
 import { render } from "@testing-library/react";
-import { ReactNode } from "react";
+import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
 
 /**
