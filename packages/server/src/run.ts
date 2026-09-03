@@ -1,12 +1,41 @@
 import { randomUUID } from "node:crypto";
-import { compile, type Graph, type RunEvent } from "@agent-world/core";
-import type { Db } from "./db.js";
+import { compile, type Graph, type ProductConnector, type RunEvent } from "@agent-world/core";
+import type { Db, Product } from "./db.js";
 import { ArtifactStore } from "./artifact-store.js";
 import { log } from "./logger.js";
 import { execute, resume } from "./engine.js";
 import { loadConfig } from "./config.js";
 import { runAsUser } from "./user-context.js";
 import { createReadArtifact } from "./artifact-reader.js";
+
+/** Maps a `product` connector to raw source material by reading the user's product library. */
+function productConnectorLoader(db: Db, userId: string) {
+  return async (connector: ProductConnector): Promise<{ text: string; images: string[] }> => {
+    let products: Product[];
+    if (connector.selection === "all") {
+      products = db.listProducts(userId, { status: "active" });
+    } else if (connector.selection === "filter") {
+      products = db.listProducts(userId, connector.filter ?? {});
+    } else {
+      products = db.getProductsByIds(userId, connector.productIds ?? []);
+    }
+    const text = products.map(formatProduct).join("\n\n---\n\n");
+    const images = products.flatMap((p) => p.images);
+    return { text, images };
+  };
+}
+
+/** Render one product into the plain-text shape a source node feeds downstream. */
+function formatProduct(p: Product): string {
+  const lines = [`# ${p.name}`];
+  if (p.brand) lines.push(`品牌：${p.brand}`);
+  if (p.category) lines.push(`分类：${p.category}`);
+  if (p.price != null) lines.push(`价格：${p.price}`);
+  for (const [k, v] of Object.entries(p.attributes)) {
+    if (v != null && v !== "") lines.push(`${k}：${String(v)}`);
+  }
+  return lines.join("\n");
+}
 
 /** Worker type derived from the engine so we don't reach into provider internals. */
 type Worker = Parameters<typeof execute>[0]["worker"];
@@ -87,6 +116,7 @@ export async function startRun(args: StartRunArgs): Promise<{ runId: string; dia
         connectorValues,
         initialVariables: variables,
         bannedTerms: db.bannedTermsText(userId),
+        loadProducts: productConnectorLoader(db, userId),
         budgetUsd: budgetUsd ?? null,
         monthlyBudgetUsd: cfg.monthlyBudgetUsd ?? null,
         monthSpentUsd: db.costForMonth(now.getFullYear(), now.getMonth() + 1, userId),
@@ -239,6 +269,7 @@ export async function resumeRun(args: ResumeRunArgs): Promise<{ runId: string; a
         budgetUsd: row.budget_usd ?? null,
         initialVariables: variables,
         bannedTerms: db.bannedTermsText(userId),
+        loadProducts: productConnectorLoader(db, userId),
         monthlyBudgetUsd: cfg.monthlyBudgetUsd ?? null,
         monthSpentUsd: db.costForMonth(now.getFullYear(), now.getMonth() + 1, userId),
         defaultModel: cfg.defaultModel,
