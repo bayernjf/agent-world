@@ -333,6 +333,72 @@ export interface BatchItem {
   error: string | null;
 }
 
+/** A scheduled content item on the F8 calendar. */
+export interface ContentPlan {
+  id: string;
+  graphId: string | null;
+  runId: string | null;
+  artifactId: string | null;
+  platform: string | null;
+  title: string;
+  scheduledAt: number;
+  status: "draft" | "pending_review" | "scheduled" | "published" | "failed";
+  publishedUrl: string | null;
+  note: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** One performance metric row (F6). */
+export interface ContentMetric {
+  id: string;
+  graphId: string | null;
+  runId: string | null;
+  nodeId: string | null;
+  variant: string | null;
+  artifactId: string | null;
+  productId: string | null;
+  platform: string | null;
+  externalContentId: string | null;
+  impressions: number;
+  clicks: number;
+  conversions: number;
+  gmv: number;
+  adSpend: number;
+  recordedAt: number;
+}
+
+/** Aggregated performance bucket. */
+export interface PerformanceAggregate {
+  group: string;
+  impressions: number;
+  clicks: number;
+  conversions: number;
+  gmv: number;
+  adSpend: number;
+}
+
+/** A content-level cost snapshot (F9). */
+export interface ContentCost {
+  id: string;
+  artifactId: string | null;
+  productId: string | null;
+  platform: string | null;
+  variant: string | null;
+  costUsd: number;
+  gmv: number;
+  roi: number;
+  capturedAt: number;
+}
+
+/** Content-level cost/GMV/ROI aggregate bucket. */
+export interface ContentCostAggregate {
+  group: string;
+  costUsd: number;
+  gmv: number;
+  roi: number;
+}
+
 export const api = {
   listSkills: () => authFetch("/api/skills").then(json<Skill[]>),
 
@@ -652,6 +718,89 @@ export const api = {
       if (!res.ok) throw new Error(await res.text());
       return res.json() as Promise<{ runId: string }>;
     }),
+
+  listPlans: (from?: number, to?: number) => {
+    const query = from != null && to != null ? `?from=${from}&to=${to}` : "";
+    return authFetch(`/api/plan${query}`).then(json<ContentPlan[]>);
+  },
+
+  createPlan: (input: {
+    graphId?: string | null;
+    runId?: string | null;
+    artifactId?: string | null;
+    platform?: string | null;
+    title: string;
+    scheduledAt: number;
+    note?: string | null;
+  }) =>
+    authFetch("/api/plan", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(input),
+    }).then(async (res) => {
+      if (!res.ok) throw new Error(await res.text());
+      return res.json() as Promise<ContentPlan>;
+    }),
+
+  updatePlan: (id: string, patch: Partial<ContentPlan>) =>
+    authFetch(`/api/plan/${id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(patch),
+    }).then(async (res) => {
+      if (!res.ok) throw new Error(await res.text());
+      return res.json() as Promise<ContentPlan>;
+    }),
+
+  deletePlan: (id: string) =>
+    authFetch(`/api/plan/${id}`, { method: "DELETE" }).then(() => undefined),
+
+  listMetrics: () => authFetch("/api/metrics").then(json<ContentMetric[]>),
+
+  insertMetric: (input: Partial<ContentMetric> & { recordedAt?: number }) =>
+    authFetch("/api/metrics", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(input),
+    }).then(async (res) => {
+      if (!res.ok) throw new Error(await res.text());
+      return res.json() as Promise<ContentMetric>;
+    }),
+
+  importMetrics: (csv: string) =>
+    authFetch("/api/metrics/import", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ csv }),
+    }).then(async (res) => {
+      if (!res.ok) throw new Error(await res.text());
+      return res.json() as Promise<{ imported: number }>;
+    }),
+
+  aggregatePerformance: (groupBy = "graph_id") =>
+    authFetch(`/api/performance?groupBy=${groupBy}`).then(json<PerformanceAggregate[]>),
+
+  listContentCosts: () => authFetch("/api/content-costs").then(json<ContentCost[]>),
+
+  insertContentCost: (input: {
+    artifactId?: string | null;
+    productId?: string | null;
+    platform?: string | null;
+    variant?: string | null;
+    costUsd?: number;
+    gmv?: number;
+  }) =>
+    authFetch("/api/content-costs", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(input),
+    }).then(async (res) => {
+      if (!res.ok) throw new Error(await res.text());
+      return res.json() as Promise<ContentCost>;
+    }),
+
+  aggregateContentCosts: (groupBy = "artifact_id") =>
+    authFetch(`/api/costs?groupBy=${groupBy}`).then(json<ContentCostAggregate[]>),
 
   listTriggers: (graphId: string) =>
     authFetch(`/api/graphs/${graphId}/triggers`).then(json<TriggerConfig[]>),
