@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import Tooltip from "./Tooltip";
 import AccountDialog from "./AccountDialog";
 import { logout } from "./AuthPages";
@@ -10,6 +11,7 @@ export interface Me {
 }
 
 export default function UserMenu() {
+  const { t } = useTranslation();
   const [me, setMe] = useState<Me | null>(null);
   const [open, setOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
@@ -47,14 +49,20 @@ export default function UserMenu() {
 
   return (
     <div className="user-menu" ref={rootRef}>
-      <Tooltip content={me ? `已登录：${me.email}` : "账户"}>
+      <Tooltip
+        content={
+          me
+            ? t("modals:userMenu.loggedInAs", { email: me.email })
+            : t("modals:userMenu.account")
+        }
+      >
         <button
           className="chip user-menu__chip"
           onClick={() => setOpen((v) => !v)}
-          aria-label="账户菜单"
+          aria-label={t("modals:userMenu.accountMenu")}
         >
           <span className="user-menu__avatar">{initial}</span>
-          账户
+          {t("modals:userMenu.account")}
         </button>
       </Tooltip>
       {open && (
@@ -69,10 +77,10 @@ export default function UserMenu() {
               setAccountOpen(true);
             }}
           >
-            个人中心
+            {t("modals:userMenu.profile")}
           </button>
           <button type="button" className="user-menu__logout" onClick={handleLogout}>
-            退出登录
+            {t("modals:userMenu.logout")}
           </button>
         </div>
       )}
