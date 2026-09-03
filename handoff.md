@@ -152,13 +152,16 @@ State of Agent World as of 2026-09-03.
 
 17. ✅ **F8 内容日历（已落地，本次完成）**：按 [design-ecommerce-roadmap.md](docs/design-ecommerce-roadmap.md) §F8 实现（**先做手动排期，自动发布待 F7-B**）。① **server**：`content_plan` 表（迁移 24）+ db 方法（createPlan/listPlans 按时间范围过滤/getPlan/updatePlan/deletePlan）+ `/api/plan` CRUD（GET 支持 from/to 过滤、POST/PATCH/DELETE）。② **web**：`CalendarView.tsx`（月视图网格 + 月份导航 + 按天展示排期 chip + 状态色）+ PlanDrawer（标题/平台/排期时间/备注 + 创建/编辑/删除）+ 命令面板入口 + 完整 i18n（zh/en modals.json calendar 段）。③ **测试**：server `db.plan.test.ts` 2 例（CRUD 生命周期 / 时间范围过滤+用户隔离）。④ **遵守 AGENTS.md**：UI 文案全 `t()` 化，keys.test 硬编码中文守护通过。
 
+18. ✅ **F6 效果数据回流（已落地，本次完成）**：按 [design-ecommerce-roadmap.md](docs/design-ecommerce-roadmap.md) §F6 实现（**先只采集，不急于做 few-shot 沉淀**；external id 允许手动填写先跑起来，不依赖 F7-B）。① **server**：`content_metrics` 表（迁移 25）+ db 方法（insertMetric/listMetrics/aggregatePerformance 按 graph_id/run_id/node_id/variant/artifact_id/product_id/platform/external_content_id 分组聚合）+ `/api/metrics`（单条手填 + CSV 批量 import）+ `/api/performance?groupBy=`（多维聚合）。② **web**：`PerformanceDashboard.tsx`（汇总指标卡：曝光/点击/转化/CTR/CVR/GMV/广告花费/ROI + 聚合表按产线/平台/商品/产物切换 + 手工录入表单 + CSV 导入）+ 命令面板入口 + 完整 i18n（zh/en modals.json performance 段）。③ **测试**：server `db.metrics.test.ts` 3 例（插入/列表、按平台聚合、用户隔离）。④ **遵守 AGENTS.md**：UI 文案全 `t()` 化，keys.test 硬编码中文守护通过。
+
 > 全部缓做/低优事项（含上述两条）已统一登记在 [docs/deferred-items.md](docs/deferred-items.md)——每条带触发条件与决策详情链接，触发条件满足时移回本区并标注重启日期。
 
 ## Recently shipped (last 5)
 
 按 commit 时间倒序，每条一行影响面 + commit hash：
 
-1. **feat(server,web) F8 内容日历（2026-09-03，commits `73d7eb3`/`3b8b513`）**——按 design-ecommerce-roadmap §F8：server 增 `content_plan` 表（迁移 24）+ `/api/plan` CRUD；web 增 CalendarView 月视图 + PlanDrawer 抽屉 + 命令入口。新增 2 用例（server）。
+1. **feat(server,web) F6 效果数据回流（2026-09-03，commits `b716bf5`/`a2d4309`）**——按 design-ecommerce-roadmap §F6：server 增 `content_metrics` 表（迁移 25）+ `/api/metrics`（单条+CSV）+ `/api/performance` 聚合；web 增 PerformanceDashboard（CTR/CVR/ROI + 聚合 + 录入/导入）。新增 3 用例（server）。
+2. **feat(server,web) F8 内容日历（2026-09-03，commits `73d7eb3`/`3b8b513`）**——按 design-ecommerce-roadmap §F8：server 增 `content_plan` 表（迁移 24）+ `/api/plan` CRUD；web 增 CalendarView 月视图 + PlanDrawer 抽屉 + 命令入口。新增 2 用例（server）。
 2. **feat(core,server,web) F7-A 平台化导出包（2026-09-03，commits `f5565f2`/`aefbf24`/`1fdbe2a`/`09acd9d`）**——按 design-ecommerce-roadmap §F7 阶段 A：core 增 `publish` 节点 + `buildPublishPackage`（复用 F3 profile 拆标题/正文/话题标签/比例清单）；server 增 publish 执行块；web 增「发布台」节点 + Inspector 面板。新增 7 用例（core 5 / server 2）。
 2. **feat(server,web) F5 批量任务编排（2026-09-03，commits `075ffea`/`3cadbfc`）**——按 design-ecommerce-roadmap §F5：server 增 `batch_jobs`/`batch_items` 表（迁移 23）+ runs 加 batch_id/batch_item_id + `/api/batches` create/list/detail/retry + `batch.ts` 并发调度器（逐行 startRun、onFinish 回写状态）；web 增 BatchManager（创建/轮询/展开详情/失败重跑）。新增 2 用例（server）。
 2. **feat(core,server,web) F4 商品库 / 品牌素材库（2026-09-03，commits `0bcc730`/`1c77a6d`/`d8bc148`）**——按 design-ecommerce-roadmap §F4：core 增 `product` connector；server 增 `products`/`brand_assets` 表（迁移 22）+ CRUD + CSV import/export + engine product connector 执行（`loadProducts` 注入映射字段）；web 增 ProductLibrary/BrandAssets 弹窗 + ConnectorEditor product 表单 + 命令面板入口，全量 i18n。新增 8 用例（server）。
