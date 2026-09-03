@@ -802,11 +802,11 @@ select {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--ink-faint);
-  font-size: 12px;
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
 }
 .template-edge {
-  stroke: var(--ink-faint, #475569);
+  stroke: var(--text-tertiary);
   stroke-width: 2;
 }
 
@@ -824,56 +824,56 @@ select {
 .shortcuts__panel {
   width: 560px;
   max-width: calc(100vw - 40px);
-  padding: 14px;
-  background: rgba(10, 15, 18, 0.97);
+  padding: var(--gap-lg);
+  background: var(--bg-primary);
   border: var(--hair);
-  border-radius: 6px;
-  box-shadow: var(--bevel), 0 12px 32px rgba(0, 0, 0, 0.6);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-popover);
   backdrop-filter: blur(4px);
 }
 .shortcuts__head {
   font-family: var(--mono);
-  font-weight: 700;
+  font-weight: var(--font-bold);
   letter-spacing: 0.18em;
-  color: var(--power);
-  margin-bottom: 10px;
+  color: var(--accent);
+  margin-bottom: var(--gap-md);
 }
 .shortcuts__grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 14px 22px;
+  gap: var(--gap-lg) var(--gap-xl);
 }
 .shortcuts__group-title {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--text-xs);
   letter-spacing: 0.14em;
-  color: var(--ink-faint);
-  margin-bottom: 6px;
+  color: var(--text-tertiary);
+  margin-bottom: var(--gap-xs);
 }
 .shortcuts__row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 4px 0;
+  gap: var(--gap-lg);
+  padding: var(--space-1) 0;
 }
 .shortcuts__keys {
   flex: none;
   max-width: 58%;
-  padding: 2px 7px;
-  background: var(--steel-800);
+  padding: var(--space-1) var(--space-2);
+  background: var(--bg-hover);
   border: var(--hair);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   font-family: var(--mono);
-  font-size: 11px;
-  color: var(--ink);
+  font-size: var(--text-xs);
+  color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .shortcuts__desc {
-  color: var(--ink-dim);
-  font-size: 12px;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
   text-align: right;
 }
 
@@ -894,21 +894,21 @@ select {
   justify-content: center;
   background: transparent;
   border: var(--hair);
-  border-radius: 4px;
-  color: var(--ink-dim);
-  font-size: 16px;
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: var(--text-lg);
   line-height: 1;
   cursor: pointer;
 }
 .icon-btn:hover:not(:disabled) {
-  color: var(--ink);
-  border-color: var(--steel-400);
-  background: var(--steel-800);
+  color: var(--text-primary);
+  border-color: var(--border-hover);
+  background: var(--bg-hover);
 }
 .icon-btn:active:not(:disabled) {
-  background: var(--steel-700);
-  border-color: var(--data);
-  color: var(--data);
+  background: var(--bg-active);
+  border-color: var(--info);
+  color: var(--info);
   transform: translateY(1px);
 }
 .icon-btn:disabled {
@@ -917,7 +917,7 @@ select {
 }
 
 .muted {
-  color: var(--ink-faint);
+  color: var(--text-tertiary);
 }
 
 /* ---------- layout ---------- */
@@ -948,8 +948,8 @@ select {
   width: var(--inspector-width, 420px);
   display: flex;
   pointer-events: none;
-  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.5);
-  transition: transform 0.22s ease;
+  box-shadow: var(--shadow-lg);
+  transition: transform var(--duration-slow) var(--ease-default);
 }
 .inspector-slot .inspector,
 .inspector-drag-handle {
@@ -966,13 +966,13 @@ select {
 .inspector-drag-handle {
   width: 5px;
   cursor: col-resize;
-  background: var(--steel-600);
+  background: var(--border-primary);
   flex: none;
-  transition: background 0.15s;
+  transition: background var(--duration-normal);
 }
 .inspector-drag-handle:hover,
 .inspector-drag-handle.is-dragging {
-  background: var(--power);
+  background: var(--accent);
 }
 .stage__inspector-toggle {
   position: absolute;
@@ -982,19 +982,19 @@ select {
   width: 22px;
   height: 48px;
   z-index: var(--z-canvas-chrome);
-  background: var(--steel-800);
+  background: var(--bg-hover);
   border: var(--hair);
   border-right: 0;
-  border-radius: 4px 0 0 4px;
-  color: var(--ink-dim);
-  font-size: 16px;
+  border-radius: var(--radius-md) 0 0 var(--radius-md);
+  color: var(--text-secondary);
+  font-size: var(--text-lg);
   line-height: 1;
   cursor: pointer;
   box-shadow: var(--bevel);
 }
 .stage__inspector-toggle:hover {
-  color: var(--ink);
-  border-color: var(--steel-400);
+  color: var(--text-primary);
+  border-color: var(--border-hover);
 }
 .stage__control-toggle {
   position: absolute;
