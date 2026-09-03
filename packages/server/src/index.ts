@@ -822,6 +822,12 @@ app.get("/api/costs", (c) => {
   const userId = c.get("userId");
   const from = c.req.query("from");
   const to = c.req.query("to");
+  const groupBy = c.req.query("groupBy");
+  // Content-level attribution (F9): aggregate cost/GMV/ROI by artifact/product/
+  // platform/variant from the content_costs snapshots.
+  if (groupBy && ["artifact_id", "product_id", "platform", "variant"].includes(groupBy)) {
+    return c.json(db.aggregateContentCosts(userId, groupBy));
+  }
   return c.json(
     db.costReport({
       userId,
@@ -829,6 +835,36 @@ app.get("/api/costs", (c) => {
       to: to ? Number(to) : undefined,
     }),
   );
+});
+
+app.post("/api/content-costs", async (c) => {
+  const userId = c.get("userId");
+  const body = (await c.req.json().catch(() => ({}))) as {
+    artifactId?: string | null;
+    productId?: string | null;
+    platform?: string | null;
+    variant?: string | null;
+    costUsd?: number;
+    gmv?: number;
+    capturedAt?: number;
+  };
+  const cost = db.insertContentCost({
+    id: randomUUID(),
+    userId,
+    artifactId: body.artifactId,
+    productId: body.productId,
+    platform: body.platform,
+    variant: body.variant,
+    costUsd: body.costUsd,
+    gmv: body.gmv,
+    capturedAt: body.capturedAt ?? Date.now(),
+  });
+  return c.json(cost, 201);
+});
+
+app.get("/api/content-costs", (c) => {
+  const userId = c.get("userId");
+  return c.json(db.listContentCosts(userId));
 });
 
 app.get("/api/costs.csv", (c) => {

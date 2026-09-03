@@ -202,6 +202,20 @@ CREATE TABLE IF NOT EXISTS content_metrics (
 CREATE INDEX IF NOT EXISTS idx_metrics_content ON content_metrics(artifact_id, recorded_at);
 CREATE INDEX IF NOT EXISTS idx_metrics_user ON content_metrics(user_id, recorded_at);
 
+CREATE TABLE IF NOT EXISTS content_costs (
+  id          TEXT PRIMARY KEY,
+  user_id     TEXT,
+  artifact_id TEXT,
+  product_id  TEXT,
+  platform    TEXT,
+  variant     TEXT,
+  cost_usd    REAL DEFAULT 0,
+  gmv         REAL DEFAULT 0,
+  roi         REAL DEFAULT 0,
+  captured_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_content_costs_user ON content_costs(user_id, captured_at);
+
 CREATE TABLE IF NOT EXISTS graph_versions (
   id           TEXT PRIMARY KEY,
   graph_id     TEXT NOT NULL,
@@ -395,6 +409,27 @@ export interface PerformanceAggregate {
   adSpend: number;
 }
 
+/** A content-level cost snapshot (F9). */
+export interface ContentCost {
+  id: string;
+  artifactId: string | null;
+  productId: string | null;
+  platform: string | null;
+  variant: string | null;
+  costUsd: number;
+  gmv: number;
+  roi: number;
+  capturedAt: number;
+}
+
+/** Content-level cost/GMV/ROI aggregate bucket. */
+export interface ContentCostAggregate {
+  group: string;
+  costUsd: number;
+  gmv: number;
+  roi: number;
+}
+
 /** Parse a raw products row (snake_case JSON columns) into a Product. */
 function productFromRow(r: Record<string, unknown>): Product {
   let attributes: Record<string, unknown> = {};
@@ -475,6 +510,21 @@ function metricFromRow(r: Record<string, unknown>): ContentMetric {
     gmv: Number(r.gmv ?? 0),
     adSpend: Number(r.ad_spend ?? 0),
     recordedAt: Number(r.recorded_at),
+  };
+}
+
+/** Parse a raw content_costs row into a ContentCost. */
+function costFromRow(r: Record<string, unknown>): ContentCost {
+  return {
+    id: String(r.id),
+    artifactId: r.artifact_id ? String(r.artifact_id) : null,
+    productId: r.product_id ? String(r.product_id) : null,
+    platform: r.platform ? String(r.platform) : null,
+    variant: r.variant ? String(r.variant) : null,
+    costUsd: Number(r.cost_usd ?? 0),
+    gmv: Number(r.gmv ?? 0),
+    roi: Number(r.roi ?? 0),
+    capturedAt: Number(r.captured_at),
   };
 }
 
@@ -2099,6 +2149,78 @@ export function openDb(file: string) {
       }));
     },
 
+    // --- Content costs (F9: content-level cost attribution) ---
+    insertContentCost(input: {
+      id: string;
+      userId: string;
+      artifactId?: string | null;
+      productId?: string | null;
+      platform?: string | null;
+      variant?: string | null;
+      costUsd?: number;
+      gmv?: number;
+      capturedAt: number;
+    }): ContentCost {
+      const costUsd = input.costUsd ?? 0;
+      const gmv = input.gmv ?? 0;
+      const roi = costUsd > 0 ? gmv / costUsd : 0;
+      db.prepare(
+        `INSERT INTO content_costs (id, user_id, artifact_id, product_id, platform, variant, cost_usd, gmv, roi, captured_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        input.id,
+        input.userId,
+        input.artifactId ?? null,
+        input.productId ?? null,
+        input.platform ?? null,
+        input.variant ?? null,
+        costUsd,
+        gmv,
+        roi,
+        input.capturedAt,
+      );
+      return {
+        id: input.id,
+        artifactId: input.artifactId ?? null,
+        productId: input.productId ?? null,
+        platform: input.platform ?? null,
+        variant: input.variant ?? null,
+        costUsd,
+        gmv,
+        roi,
+        capturedAt: input.capturedAt,
+      };
+    },
+
+    listContentCosts(userId: string): ContentCost[] {
+      const rows = db
+        .prepare(`SELECT * FROM content_costs WHERE user_id = ? ORDER BY captured_at DESC`)
+        .all(userId) as Array<Record<string, unknown>>;
+      return rows.map(costFromRow);
+    },
+
+    /** Aggregate content costs by artifact_id/product_id/platform/variant. */
+    aggregateContentCosts(userId: string, groupBy: string): ContentCostAggregate[] {
+      const allowed = new Set(["artifact_id", "product_id", "platform", "variant"]);
+      const col = allowed.has(groupBy) ? groupBy : "artifact_id";
+      const rows = db
+        .prepare(
+          `SELECT COALESCE(${col}, '') AS grp, SUM(cost_usd) AS cost_usd, SUM(gmv) AS gmv
+           FROM content_costs WHERE user_id = ? GROUP BY ${col} ORDER BY cost_usd DESC`,
+        )
+        .all(userId) as Array<Record<string, unknown>>;
+      return rows.map((r) => {
+        const costUsd = Number(r.cost_usd ?? 0);
+        const gmv = Number(r.gmv ?? 0);
+        return {
+          group: String(r.grp ?? ""),
+          costUsd,
+          gmv,
+          roi: costUsd > 0 ? gmv / costUsd : 0,
+        };
+      });
+    },
+
     // --- Graph versions (5.6) ---
     listVersions(graphId: string, userId: string) {
       return db
@@ -2603,6 +2725,26 @@ const MIGRATIONS: Migration[] = [
       )`);
       db.exec("CREATE INDEX IF NOT EXISTS idx_metrics_content ON content_metrics(artifact_id, recorded_at)");
       db.exec("CREATE INDEX IF NOT EXISTS idx_metrics_user ON content_metrics(user_id, recorded_at)");
+    },
+  },
+  {
+    version: 26,
+    description: "content_costs per-user content-level cost snapshot (F9)",
+    detect: (db) => tableExists(db, "content_costs"),
+    up: (db) => {
+      db.exec(`CREATE TABLE IF NOT EXISTS content_costs (
+        id TEXT PRIMARY KEY,
+        user_id TEXT,
+        artifact_id TEXT,
+        product_id TEXT,
+        platform TEXT,
+        variant TEXT,
+        cost_usd REAL DEFAULT 0,
+        gmv REAL DEFAULT 0,
+        roi REAL DEFAULT 0,
+        captured_at INTEGER NOT NULL
+      )`);
+      db.exec("CREATE INDEX IF NOT EXISTS idx_content_costs_user ON content_costs(user_id, captured_at)");
     },
   },
 ];
