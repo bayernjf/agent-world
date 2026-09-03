@@ -88,4 +88,25 @@ describe("i18n language packs", () => {
     }
     expect(bad).toEqual([]);
   });
+
+  it("no hard-coded Chinese in JSX text nodes or string attributes", () => {
+    const offenders: string[] = [];
+    // JSX text node: `>中文<` (excludes `{expr}` and tag boundaries).
+    const jsxText = />([^<>{}]*[\u4e00-\u9fa5][^<>{}]*)</g;
+    // JSX string attributes: `placeholder="中文"` (excludes `attr={expr}`).
+    const jsxAttr =
+      /\b(placeholder|label|title|alt|content|aria-label|summary)="[^"]*[\u4e00-\u9fa5][^"]*"/g;
+
+    for (const file of walk(SRC_ROOT)) {
+      const src = readFileSync(file, "utf8");
+      const where = relative(SRC_ROOT, file);
+      for (const m of src.matchAll(jsxText)) {
+        offenders.push(`${where}: JSX text "${m[1]!.trim()}"`);
+      }
+      for (const m of src.matchAll(jsxAttr)) {
+        offenders.push(`${where}: ${m[0]}`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
 });

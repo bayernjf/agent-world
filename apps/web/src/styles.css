@@ -2287,7 +2287,7 @@ select {
   color: var(--text-secondary);
 }
 .artifact-card[data-status="failed"] {
-  border-color: #ff5c5c;
+  border-color: var(--error);
 }
 .artifact-card__bar {
   height: 3px;
@@ -2424,7 +2424,7 @@ select {
   color: var(--accent);
 }
 .artifact-card__failed {
-  color: #ff5c5c;
+  color: var(--error);
 }
 .artifact-card__actions {
   margin-left: auto;
@@ -2753,7 +2753,7 @@ select {
   font-size: var(--text-sm);
 }
 .gallery-detail__error {
-  color: #ff6b6b;
+  color: var(--error);
 }
 .gallery-detail__image {
   display: flex;
@@ -3147,7 +3147,7 @@ select {
   gap: var(--gap-sm);
 }
 .form-error {
-  color: #ef4444;
+  color: var(--error);
   margin-top: var(--gap-sm);
   font-size: var(--text-sm);
 }
@@ -3342,10 +3342,10 @@ select {
   padding: 0;
 }
 .link--danger {
-  color: #ff6b6b;
+  color: var(--error);
 }
 .link--danger:hover {
-  color: #ff4444;
+  color: var(--error);
 }
 
 /* Standalone input (outside .field) — mirrors .field input tokens */
@@ -4418,7 +4418,7 @@ select {
   background: rgba(102, 224, 122, 0.08);
 }
 .ab-badge.is-running {
-  color: #ffb020;
+  color: var(--accent);
   border-color: rgba(255, 176, 32, 0.4);
 }
 .ab-badge.is-done {
@@ -4512,7 +4512,7 @@ select {
 
 .error-text {
   margin-top: var(--gap-sm);
-  color: #ff6b6b;
+  color: var(--error);
   font-size: var(--text-sm);
 }
 

@@ -2,6 +2,9 @@ import {
   BranchConfig,
   ComplianceConfig,
   CodeNodeConfig,
+  PublishConfig,
+  buildPublishPackage,
+  publishArtifact,
   checkCompliance,
   complianceArtifact,
   GenericConfig,
@@ -44,6 +47,7 @@ import {
   type Graph,
   type GraphNode,
   type Plan,
+  type ProductConnector,
   type RunEvent,
   type SkillMount,
   type TableInput,
@@ -57,7 +61,7 @@ import { MAX_INLINE_BYTES } from "./artifact-reader.js";
 import { getSkill, resolveTools, executeBuiltinTool } from "./skills/registry.js";
 import { guardToolCall, isDangerousTool, loadPermissionConfig, type PermissionConfig } from "./permissions.js";
 import { notifyFailed, notifyHalt } from "./notify.js";
-import { resolveConnector } from "./connectors.js";
+import { resolveConnector, type ResolvedMaterial } from "./connectors.js";
 import { createSqliteDriver } from "./db-drivers.js";
 import { dataUriToBuffer, parseDocument, extractPdfImages } from "./parse-file.js";
 import { ocrImage } from "./ocr.js";
@@ -221,6 +225,8 @@ export interface ExecuteOptions {
    * comma-joined. Merged into every compliance node's word list at run time.
    */
   bannedTerms?: string;
+  /** Resolves a `product` connector against the user's product library (injected by the HTTP layer). */
+  loadProducts?: (connector: ProductConnector) => Promise<ResolvedMaterial>;
 }
 
 /**
@@ -618,6 +624,8 @@ interface SchedulerOptions {
   initialVariables?: Map<string, unknown>;
   /** User's banned-word library (comma-joined), merged into compliance nodes. */
   bannedTerms?: string;
+  /** Resolves a `product` connector against the user's product library (injected by the HTTP layer). */
+  loadProducts?: (connector: ProductConnector) => Promise<ResolvedMaterial>;
 }
 
 /**
@@ -1116,7 +1124,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
           let lastErr: unknown;
           for (let i = 0; i <= CONNECTOR_MAX_RETRIES && !ok; i++) {
             try {
-              const m = await resolveConnector(conn, opts.connectorValues);
+              const m = await resolveConnector(conn, opts.connectorValues, opts.loadProducts);
               sourceText = m.text || opts.sourceInput || "";
               sourceImages = [...m.images, ...(node.source?.images ?? [])];
               ok = true;
@@ -1932,6 +1940,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
             publicUrl: opts.publicUrl,
             permissionConfig: opts.permissionConfig,
             bannedTerms: opts.bannedTerms,
+            loadProducts: opts.loadProducts,
           });
 
           let childStatus: Status | undefined;
@@ -3012,6 +3021,53 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
             nodeId,
             attempt,
             error: `合规校验节点执行出错: ${err instanceof Error ? err.message : String(err)}`,
+          });
+        }
+        return;
+      }
+
+      if (node.kind === "publish") {
+        emit({ type: "node.started", nodeId, attempt });
+        try {
+          const cfg = PublishConfig.parse(node.publish ?? {});
+          const output = await inputFor(node);
+          if (!output.trim()) {
+            states.set(nodeId, "failed");
+            emit({
+              type: "node.failed",
+              nodeId,
+              attempt,
+              error: "发布节点没有收到可整理的文本",
+              errorCode: "VALIDATION",
+            });
+            return;
+          }
+          const pkg = buildPublishPackage(output, cfg);
+          const payload = publishArtifact(pkg);
+          const jsonArtifact: Artifact = {
+            id: `${nodeId}-publish`,
+            kind: "json",
+            content: JSON.stringify(payload),
+            mimeType: "application/json",
+          };
+          const produced: Artifact[] = [jsonArtifact];
+          // Downstream nodes consume the assembled body (falls back to the title).
+          const downstreamText = pkg.body || pkg.title;
+          setTextArtifact(artifacts, nodeId, downstreamText);
+          artifacts.set(nodeId, [...produced, ...(artifacts.get(nodeId) ?? [])]);
+          for (const a of produced) emit({ type: "artifact.produced", nodeId, attempt, artifact: a });
+
+          states.set(nodeId, "done");
+          const summary = `已整理为${pkg.platformLabel}待发布包（标题 ${pkg.title.length} 字 / 正文 ${pkg.body.length} 字）`;
+          emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
+          sendPackets(nodeId, summary, "json");
+        } catch (err) {
+          states.set(nodeId, "failed");
+          emit({
+            type: "node.failed",
+            nodeId,
+            attempt,
+            error: `发布节点执行出错: ${err instanceof Error ? err.message : String(err)}`,
           });
         }
         return;
@@ -4189,6 +4245,7 @@ export async function* execute(opts: ExecuteOptions): AsyncGenerator<RunEvent, v
     loadSubgraph: opts.loadSubgraph,
     initialVariables: opts.initialVariables,
     bannedTerms: opts.bannedTerms,
+    loadProducts: opts.loadProducts,
     init: {
       artifacts: new Map(),
       attempts: new Map(),
@@ -4360,6 +4417,8 @@ export interface ResumeOptions {
   loadSubgraph?: (graphId: string) => Graph | null;
   /** User's banned-word library (comma-joined), merged into compliance nodes. */
   bannedTerms?: string;
+  /** Resolves a `product` connector against the user's product library (injected by the HTTP layer). */
+  loadProducts?: (connector: ProductConnector) => Promise<ResolvedMaterial>;
 }
 
 /**
@@ -4541,6 +4600,7 @@ export async function* resume(opts: ResumeOptions): AsyncGenerator<RunEvent, voi
     loadSubgraph: opts.loadSubgraph,
     initialVariables: opts.initialVariables,
     bannedTerms: opts.bannedTerms,
+    loadProducts: opts.loadProducts,
     init: {
       artifacts: state.artifacts,
       attempts: state.attempts,

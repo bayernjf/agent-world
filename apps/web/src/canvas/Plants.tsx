@@ -46,6 +46,7 @@ export const KIND_KEY: Record<GraphNode["kind"], string> = {
   subprocess: "nodes:subprocess",
   generic: "nodes:generic",
   compliance: "nodes:compliance",
+  publish: "nodes:publish",
 };
 
 const STATUS_KEY: Record<NodeRuntime["status"], string> = {

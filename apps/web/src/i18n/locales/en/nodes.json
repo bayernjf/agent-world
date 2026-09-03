@@ -25,6 +25,7 @@
   "subprocess": "Outsource Shop",
   "generic": "Multi Shop",
   "compliance": "Compliance Bench",
+  "publish": "Publish Bench",
   "categories": {
     "generation": "AI Processing",
     "control": "Shop Scheduling",
@@ -73,7 +74,8 @@
     "human": "Pause until a human signs off (Manual Post)",
     "subprocess": "Call another line (Outsource Shop)",
     "generic": "Multi Shop: pick any model provider, dispatched automatically by modality",
-    "compliance": "Platform rules and ad-law compliance check (Compliance Bench)"
+    "compliance": "Platform rules and ad-law compliance check (Compliance Bench)",
+    "publish": "Assemble a platform-ready package (Publish Bench)"
   },
   "tip": {
     "kind": "Kind",
@@ -231,6 +233,275 @@
     "reasoningHide": "Hide reasoning",
     "toolCalls": "Tool calls",
     "toolStatusDone": "Done",
-    "artifacts": "Artifacts"
+    "artifacts": "Artifacts",
+    "common": {
+      "model": "Model",
+      "modelUnset": "(Not configured — add a {{modality}} model in Settings first)",
+      "modelUnsetDefault": "(Not configured — uses the default model at runtime)",
+      "modelSelect": "(Select)",
+      "modelCurrent": " (current)",
+      "source": "Source (upstream node)",
+      "sourceAuto": "Auto (single upstream)",
+      "timeoutMs": "Timeout (ms)",
+      "customEndpoint": "Custom endpoint (optional)",
+      "apiKeyOptional": "API key (optional; blank = provider key)",
+      "apiKey": "API key (optional)"
+    },
+    "source": {
+      "briefTitle": "Creative brief (optional)",
+      "productName": "Product name",
+      "brand": "Brand / store",
+      "audience": "Target audience (e.g. commuter women 20–30)",
+      "priceRange": "Price range (e.g. mid-tier ¥99–199)",
+      "tone": "Tone (e.g. sincere, conversational)",
+      "prohibited": "Banned words / phrases",
+      "prohibitedPh": "Comma or newline separated, e.g. best, #1, national-grade",
+      "brandTerms": "Brand terms (suggest to weave in)",
+      "brandTermsPh": "Comma or newline separated, e.g. slimming, breathable, versatile",
+      "loadBrandTerms": "Load from brand library",
+      "notes": "Extra notes",
+      "notesPh": "Other background, selling points, reference style, etc."
+    },
+    "textGen": {
+      "temperature": "Temperature ({{temp}})",
+      "budget": "Node budget (USD, blank = unlimited)",
+      "budgetPh": "Unlimited",
+      "inputPolicy": "Input policy",
+      "inputPolicyAll": "Concatenate all (default)",
+      "inputPolicyLast": "Latest upstream only",
+      "inputPolicyTruncate": "Truncate to tail",
+      "inputPolicySummary": "Summarize (when over threshold)",
+      "inputPolicyNoteAll": "Default: concatenate all upstream outputs in order as the input.",
+      "inputPolicyNoteLast": "Use only the most recent upstream node's output as input.",
+      "inputPolicyNoteTruncate": "When over the max length, drop the front and keep the most recent tail (no model call, zero extra cost).",
+      "inputPolicyNoteSummary": "When over the max length, call an LLM to rolling-summarize and keep key info (saves context, but costs a few extra tokens); passed through unchanged when under the threshold.",
+      "maxChars": "Max characters",
+      "prompt": "Instruction",
+      "imageDirectives": "Layout directives (image placement/ratio, applied next run)",
+      "imageDirectivesPh": "e.g. hero image portrait 3:4 centered; scene cards in a 2-column grid; detail shots right-aligned"
+    },
+    "imageGen": {
+      "model": "Image model",
+      "size": "Size (e.g. 1024x1024)",
+      "sizePh": "1024x1024",
+      "prompt": "Image prompt (blank = auto-generate from brand brief)",
+      "promptPh": "e.g. fresh Japanese-style hero image that highlights the product texture",
+      "count": "Count (1–8)",
+      "baseUrl": "Image endpoint baseURL"
+    },
+    "videoGen": {
+      "model": "Video model",
+      "prompt": "Video prompt (blank = use upstream text)",
+      "promptPh": "e.g. product rotating in sunlight with a gradient background",
+      "duration": "Duration (seconds)",
+      "durationPh": "5",
+      "aspect": "Aspect ratio",
+      "aspectDefault": "Default",
+      "aspect169": "16:9 landscape",
+      "aspect916": "9:16 portrait",
+      "aspect11": "1:1 square",
+      "count": "Count (1–4)",
+      "baseUrl": "Video endpoint baseURL"
+    },
+    "audioGen": {
+      "model": "Audio model",
+      "prompt": "Text / prompt (blank = use upstream text)",
+      "promptPh": "TTS: text to read aloud; music: style description",
+      "voice": "Voice (TTS)",
+      "voicePh": "alloy / echo / fable...",
+      "format": "Output format",
+      "speed": "Speed (0.25–4.0)",
+      "speedPh": "1.0",
+      "count": "Count (1–4)",
+      "baseUrl": "Audio endpoint baseURL"
+    },
+    "gate": {
+      "criterion": "Quality standard",
+      "criterionPh": "What must the output satisfy? Failures are sent back along the rework line.",
+      "maxAttempts": "Rework attempt cap",
+      "minScore": "Quality score threshold (0–10, blank = no gate)",
+      "minBrandCoverage": "Brand term coverage threshold (0–100%, blank = no gate)",
+      "onExhausted": "When attempts run out",
+      "onExhaustedHalt": "Halt for human",
+      "onExhaustedScrap": "Scrap",
+      "onExhaustedPass": "Pass through"
+    },
+    "compliance": {
+      "platform": "Target platform",
+      "platformTaobao": "Taobao",
+      "platformXiaohongshu": "Xiaohongshu",
+      "platformDouyin": "Douyin",
+      "platformWechat": "WeChat Official Account",
+      "platformCustom": "Custom",
+      "extraBanned": "Extra banned words (comma/newline separated)",
+      "extraBannedPh": "One word per line, or comma separated. Merged with the built-in Ad Law superlative list.",
+      "autoFix": "Auto-produce a sanitized rewrite",
+      "failOnViolation": "Route to error edge on violation",
+      "hint": "The compliance desk runs deterministic rule checks (Ad Law superlatives, length, hashtags) and emits a sanitized rewrite; chain it with the gate for wash-then-judge."
+    },
+    "publish": {
+      "platform": "Target platform",
+      "title": "Title (optional, defaults to the first line upstream)",
+      "titlePh": "Leave blank to use the first line upstream as the title",
+      "hint": "The publish desk assembles the upstream copy into a platform-ready package: split title/body, extract hashtags, and list image ratios for zero-formatting manual copy."
+    },
+    "http": {
+      "method": "Method",
+      "url": "URL",
+      "urlPh": "https://api.example.com/data",
+      "query": "Query params (one key: value per line)",
+      "headers": "Headers (one key: value per line)",
+      "body": "Body",
+      "outputMode": "Output mode",
+      "outputModeAuto": "Auto (JSON response stored as json artifact)",
+      "outputModeJson": "Force JSON",
+      "outputModeText": "Force text",
+      "outputModeFile": "File (binary download for the file-parse node)",
+      "failOnError": "Treat non-2xx responses as node failure",
+      "note": "URL / headers / query / body support variable interpolation: ${upstreamNodeId.field}, e.g. ${source.price}."
+    },
+    "code": {
+      "language": "Language",
+      "languageJs": "JavaScript (Node.js)",
+      "languagePy": "Python 3",
+      "script": "Script",
+      "note": "The script receives JSON on stdin: {\"inputs\": {upstreamNodeId: value}}; stdout outputting a single JSON object/array becomes a json artifact, other text becomes a text artifact; a non-zero exit code or timeout is treated as node failure. Scripts can reference upstream variables: ${source.price}."
+    },
+    "branch": {
+      "rulesTitle": "Branch rules (first match wins, in order)",
+      "selectTarget": "Select target…",
+      "addRule": "+ Add rule",
+      "defaultTarget": "Default branch (when no rule matches)",
+      "dropMessage": "Drop the message",
+      "note": "Example conditions: ${api.price} > 100 && ${api.stock} > 0. Supports == != > < >= <= && || ! and parentheses; with no match and no default branch, the message is dropped and downstream of that branch does not run."
+    },
+    "map": {
+      "iterate": "Iteration array path (optional)",
+      "iteratePh": "e.g. data.items; blank maps a single object",
+      "template": "Output template (JSON)",
+      "note": "The template is valid JSON with ${...} inside string values: ${item.name} references the current item, ${upstreamNodeId.field} references any upstream. Pure placeholders keep number/object types; with an iteration array, one output is produced per item and returned as an array."
+    },
+    "loop": {
+      "items": "Loop array expression",
+      "itemsPh": "e.g. ${api.data} or ${api.data.items}",
+      "maxIterations": "Max iterations (guard)",
+      "note": "Runs the downstream subgraph (loop body) once per array item; the body can reference ${item.field}. After the loop, each round's output is aggregated into { \"results\": [...] } for downstream. Iterations are truncated past the max."
+    },
+    "parallel": {
+      "asObject": "Output as object ({ upstreamNodeId: value })",
+      "pick": "Extract field path (optional)",
+      "pickPh": "e.g. data.text; blank takes the full output",
+      "note": "Waits for all upstream branches then aggregates their output (array or object). Each branch already runs in parallel; this node provides an explicit structured join point."
+    },
+    "table": {
+      "stepsTitle": "Steps (run in order)",
+      "addStep": "+ Add step",
+      "note": "Input: upstream CSV text (add a Parse step first), a JSON array, or { rows: [...] }. Output {rows, count, columns}; with output format = CSV, an extra CSV text is produced. An empty step list wraps the input into a table unchanged."
+    },
+    "database": {
+      "path": "Database file (SQLite)",
+      "pathPh": "Blank = in-memory database (recreated each run)",
+      "setupSql": "Setup SQL (multiple statements, results discarded)",
+      "sql": "Main SQL (single statement)",
+      "note": "Queries output {rows, count, columns} and feed straight into a downstream Table node for filtering/sorting/aggregation; INSERT/UPDATE/DELETE output {affectedRows, lastInsertId}. File paths resolve relative to the server working directory (packages/server). SQL syntax errors or parameter mismatches fail the node."
+    },
+    "fileParse": {
+      "maxImages": "Max images to extract (0 = none)",
+      "note": "Extracts text and embedded images (PDF / DOCX / PPTX) from the upstream file artifact. Text becomes a text artifact (directly consumable by agent nodes); images become image artifacts. Upstream can download documents via an HTTP node with output mode = file, or other nodes that produce files."
+    },
+    "translate": {
+      "target": "Target language",
+      "targetPh": "e.g. Simplified Chinese / English / 日本語",
+      "temperature": "Temperature ({{temp}})",
+      "note": "Reads the upstream text artifact (falls back to JSON serialization when there is no text), translates it to the target language via an LLM, and outputs a text artifact. Chain with the file-parse node: extract document text first, then translate."
+    },
+    "ocr": {
+      "lang": "Recognition language",
+      "langEng": "English eng",
+      "langChiSim": "Simplified Chinese chi_sim",
+      "langChiTra": "Traditional Chinese chi_tra",
+      "langJpn": "Japanese jpn",
+      "langKor": "Korean kor",
+      "langSpa": "Spanish spa",
+      "langFra": "French fra",
+      "langDeu": "German deu",
+      "langPath": "Language data path (optional)",
+      "langPathPh": "https://…/tessdata (for offline deployment)",
+      "note": "Reads the upstream image artifact, recognizes text with tesseract.js, and outputs a text artifact. Chain with the file-parse node: extract images from PDF / Word first, then OCR to text; default language is eng, choose chi_sim for Chinese."
+    },
+    "convert": {
+      "to": "Target format",
+      "toImage": "PDF → images (extract embedded images)",
+      "toPng": "Image → PNG",
+      "toJpeg": "Image → JPEG",
+      "quality": "JPEG quality (1-100)",
+      "note": "With target = PDF → images, reads the upstream file artifact and extracts each page's embedded images (one per page for scanned PDFs; chain with OCR); with PNG / JPEG, re-encodes upstream images to that format (batch supported, JPEG quality adjustable)."
+    },
+    "search": {
+      "query": "Search query",
+      "queryPh": "Blank = use the upstream text artifact as the query",
+      "provider": "Search provider",
+      "providerDdg": "DuckDuckGo (no key)",
+      "apiKey": "API key (optional; blank = server env)",
+      "apiKeyPh": "Fill here to take effect immediately, no restart",
+      "cx": "Engine ID cx (optional; blank = GOOGLE_CX)",
+      "maxResults": "Result count (1-20)",
+      "note": "Runs a web search and outputs both a text (readable list) and json (structured) artifact; downstream agent nodes can read and summarize directly. Blank query uses the upstream text artifact (let an agent generate the query first); DuckDuckGo needs no key, other providers accept an API key in the node (encrypted before persisting), falling back to server env TAVILY_API_KEY / SERPAPI_API_KEY / GOOGLE_API_KEY+GOOGLE_CX."
+    },
+    "notify": {
+      "provider": "Channel",
+      "providerFeishu": "Feishu bot",
+      "providerDingtalk": "DingTalk bot",
+      "providerWecom": "WeCom bot",
+      "providerSlack": "Slack (SLACK_BOT_TOKEN)",
+      "providerEmail": "Email (SMTP)",
+      "format": "Message format",
+      "formatText": "Plain text",
+      "formatMarkdown": "Markdown (native per platform)",
+      "message": "Message content",
+      "messagePh": "Blank = send the upstream text artifact as the message",
+      "webhookUrl": "Webhook URL",
+      "secret": "Signing secret (optional)",
+      "secretPh": "SEC… (fill when the bot has signing enabled)",
+      "channel": "Channel ID",
+      "to": "Recipient",
+      "subject": "Email subject (optional)",
+      "subjectPh": "Defaults to the node name",
+      "note": "Sends a message to a Feishu / DingTalk / WeCom bot or email; the send result is stored as an auditable json artifact. A blank message sends the upstream text artifact — the last mile of search → summarize → notify; email requires SMTP_HOST / SMTP_USER / SMTP_PASS env vars on the server."
+    },
+    "vcs": {
+      "provider": "Platform",
+      "providerGithub": "GitHub (GITHUB_TOKEN)",
+      "providerGitlab": "GitLab (GITLAB_TOKEN)",
+      "action": "Action",
+      "actionCreatePr": "Create PR / MR",
+      "actionCommentIssue": "Comment on issue / PR",
+      "actionTriggerWorkflow": "Trigger workflow / pipeline",
+      "actionListIssues": "List issues",
+      "token": "Token (optional; blank = GITHUB_TOKEN / GITLAB_TOKEN)",
+      "baseUrl": "API base (optional, self-hosted; blank = GITLAB_API_URL)",
+      "projectId": "Project ID / path",
+      "projectIdPh": "42 or group/proj",
+      "prTitle": "PR title (optional, defaults to node name)",
+      "commentBody": "Comment body (optional, defaults to upstream text)",
+      "head": "Source branch head",
+      "base": "Target branch base",
+      "number": "Issue / PR number",
+      "workflowId": "Workflow ID",
+      "ref": "Trigger branch ref",
+      "state": "Issue state",
+      "note": "Performs version-control actions on GitHub / GitLab; API results are stored as a json artifact. create_pr / comment_issue with a blank body uses the upstream text artifact (let an agent draft the PR description first); a Token filled here takes effect immediately (encrypted before persisting), falling back to server env GITHUB_TOKEN / GITLAB_TOKEN (self-hosted GitLab can set an API base or GITLAB_API_URL)."
+    },
+    "human": {
+      "prompt": "Approval prompt",
+      "promptPh": "e.g. confirm this copy is ready to publish",
+      "note": "The run pauses at this node and waits for human approval. Upstream text is shown to the approver: approve passes it through unchanged; edit continues with the edited content; reject fails the node (caught by an error edge, otherwise the line fails)."
+    },
+    "subprocess": {
+      "graphId": "Sub-graph to call",
+      "graphEmpty": "(no saved lines yet)",
+      "maxDepth": "Max call depth",
+      "note": "This node calls another saved line (sub-flow) as a function: upstream text becomes the sub-flow's input, and all of its sink outputs are aggregated into this node's json artifact. Pauses inside the sub-flow (human approval / dangerous tools) bubble up to pause the whole line, resuming from the sub-flow checkpoint. maxDepth guards against circular calls."
+    }
   }
 }

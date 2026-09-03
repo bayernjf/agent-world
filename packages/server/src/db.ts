@@ -43,7 +43,9 @@ CREATE TABLE IF NOT EXISTS runs (
   ab_arm     TEXT,
   ab_target  TEXT,
   halted_node_id TEXT,
-  halted_reason  TEXT
+  halted_reason  TEXT,
+  batch_id      TEXT,
+  batch_item_id TEXT
 );
 
 CREATE TABLE IF NOT EXISTS events (
@@ -107,6 +109,60 @@ CREATE TABLE IF NOT EXISTS banned_terms (
   note        TEXT NOT NULL DEFAULT '',
   created_at  INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS products (
+  id              TEXT PRIMARY KEY,
+  user_id         TEXT,
+  sku             TEXT NOT NULL DEFAULT '',
+  name            TEXT NOT NULL,
+  brand           TEXT NOT NULL DEFAULT '',
+  category        TEXT NOT NULL DEFAULT '',
+  price           REAL,
+  attributes_json TEXT NOT NULL DEFAULT '{}',
+  images_json     TEXT NOT NULL DEFAULT '[]',
+  status          TEXT NOT NULL DEFAULT 'active',
+  created_at      INTEGER NOT NULL,
+  updated_at      INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_products_user ON products(user_id, status);
+
+CREATE TABLE IF NOT EXISTS brand_assets (
+  id          TEXT PRIMARY KEY,
+  user_id     TEXT,
+  type        TEXT NOT NULL,
+  label       TEXT NOT NULL,
+  uri         TEXT NOT NULL DEFAULT '',
+  tags_json   TEXT NOT NULL DEFAULT '[]',
+  created_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_brand_assets_user ON brand_assets(user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS batch_jobs (
+  id            TEXT PRIMARY KEY,
+  user_id       TEXT,
+  graph_id      TEXT NOT NULL,
+  status        TEXT NOT NULL,
+  total         INTEGER NOT NULL DEFAULT 0,
+  succeeded     INTEGER NOT NULL DEFAULT 0,
+  failed        INTEGER NOT NULL DEFAULT 0,
+  source_name   TEXT,
+  created_at    INTEGER NOT NULL,
+  finished_at   INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_batch_jobs_user ON batch_jobs(user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS batch_items (
+  id                TEXT PRIMARY KEY,
+  batch_id          TEXT NOT NULL,
+  row_index         INTEGER NOT NULL,
+  input_json        TEXT NOT NULL,
+  run_id            TEXT,
+  status            TEXT NOT NULL,
+  output_summary    TEXT,
+  artifact_ids_json TEXT,
+  error             TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_batch_items_batch ON batch_items(batch_id, row_index);
 
 CREATE TABLE IF NOT EXISTS graph_versions (
   id           TEXT PRIMARY KEY,
@@ -205,6 +261,100 @@ function mapArtifacts(rows: ArtifactRow[]): StoredArtifact[] {
 
 export type Db = ReturnType<typeof openDb>;
 
+/** A reusable product row from the F4 product library. */
+export interface Product {
+  id: string;
+  sku: string;
+  name: string;
+  brand: string;
+  category: string;
+  price: number | null;
+  attributes: Record<string, unknown>;
+  images: string[];
+  status: "active" | "archived";
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** A reusable brand material (logo/image/snippet/guideline). */
+export interface BrandAsset {
+  id: string;
+  type: string;
+  label: string;
+  uri: string;
+  tags: string[];
+  createdAt: number;
+}
+
+/** A batch run job (F5): one graph run per input row, grouped for progress tracking. */
+export interface BatchJob {
+  id: string;
+  graphId: string;
+  status: "pending" | "running" | "done" | "partial" | "failed" | "cancelled";
+  total: number;
+  succeeded: number;
+  failed: number;
+  sourceName: string | null;
+  createdAt: number;
+  finishedAt: number | null;
+}
+
+/** One row of a batch job (F5). */
+export interface BatchItem {
+  id: string;
+  batchId: string;
+  rowIndex: number;
+  input: Record<string, unknown>;
+  runId: string | null;
+  status: "pending" | "running" | "done" | "failed";
+  outputSummary: string | null;
+  artifactIds: string[];
+  error: string | null;
+}
+
+/** Parse a raw products row (snake_case JSON columns) into a Product. */
+function productFromRow(r: Record<string, unknown>): Product {
+  let attributes: Record<string, unknown> = {};
+  let images: string[] = [];
+  try {
+    attributes = JSON.parse(String(r.attributes_json ?? "{}"));
+  } catch {
+    /* keep {} */
+  }
+  try {
+    images = JSON.parse(String(r.images_json ?? "[]"));
+  } catch {
+    /* keep [] */
+  }
+  return {
+    id: r.id as string,
+    sku: (r.sku as string) ?? "",
+    name: r.name as string,
+    brand: (r.brand as string) ?? "",
+    category: (r.category as string) ?? "",
+    price: (r.price as number | null) ?? null,
+    attributes,
+    images,
+    status: ((r.status as string) ?? "active") as "active" | "archived",
+    createdAt: r.created_at as number,
+    updatedAt: r.updated_at as number,
+  };
+}
+
+/** Parse a raw batch_jobs row into a BatchJob. */
+function batchFromRow(r: Record<string, unknown>): BatchJob {
+  return {
+    id: String(r.id),
+    graphId: String(r.graph_id),
+    status: String(r.status) as BatchJob["status"],
+    total: Number(r.total ?? 0),
+    succeeded: Number(r.succeeded ?? 0),
+    failed: Number(r.failed ?? 0),
+    sourceName: r.source_name ? String(r.source_name) : null,
+    createdAt: Number(r.created_at),
+    finishedAt: r.finished_at ? Number(r.finished_at) : null,
+  };
+}
 
 /** Number of startup snapshots to retain alongside the database. */
 export const BACKUP_RETENTION = 5;
@@ -1374,6 +1524,266 @@ export function openDb(file: string) {
       return rows.map((r) => r.term).join(",");
     },
 
+    // --- Products (F4: reusable product library) ---
+    listProducts(
+      userId: string,
+      opts: { search?: string; category?: string; status?: string } = {},
+    ): Product[] {
+      const where = ["user_id = ?"];
+      const params: string[] = [userId];
+      if (opts.category) {
+        where.push("category = ?");
+        params.push(opts.category);
+      }
+      if (opts.status) {
+        where.push("status = ?");
+        params.push(opts.status);
+      }
+      if (opts.search) {
+        const like = `%${opts.search}%`;
+        where.push("(name LIKE ? OR brand LIKE ? OR sku LIKE ?)");
+        params.push(like, like, like);
+      }
+      const rows = db
+        .prepare(`SELECT * FROM products WHERE ${where.join(" AND ")} ORDER BY created_at DESC`)
+        .all(...params) as Array<Record<string, unknown>>;
+      return rows.map(productFromRow);
+    },
+
+    /** Active products by id, in the given order — feeds the `product` connector. */
+    getProductsByIds(userId: string, ids: string[]): Product[] {
+      if (ids.length === 0) return [];
+      const placeholders = ids.map(() => "?").join(",");
+      const rows = db
+        .prepare(`SELECT * FROM products WHERE user_id = ? AND id IN (${placeholders})`)
+        .all(userId, ...ids) as Array<Record<string, unknown>>;
+      const byId = new Map(rows.map((r) => [r.id as string, productFromRow(r)]));
+      return ids.map((id) => byId.get(id)).filter((p): p is Product => p != null);
+    },
+
+    addProduct(
+      userId: string,
+      input: {
+        sku?: string;
+        name: string;
+        brand?: string;
+        category?: string;
+        price?: number | null;
+        attributes?: Record<string, unknown>;
+        images?: string[];
+      },
+    ): Product {
+      const name = input.name.trim();
+      if (!name) throw new Error("商品名不能为空");
+      const id = randomUUID();
+      const now = Date.now();
+      db.prepare(
+        `INSERT INTO products (id, user_id, sku, name, brand, category, price, attributes_json, images_json, status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
+      ).run(
+        id,
+        userId,
+        input.sku ?? "",
+        name,
+        input.brand ?? "",
+        input.category ?? "",
+        input.price ?? null,
+        JSON.stringify(input.attributes ?? {}),
+        JSON.stringify(input.images ?? []),
+        now,
+        now,
+      );
+      return this.getProductsByIds(userId, [id])[0]!;
+    },
+
+    updateProduct(
+      id: string,
+      userId: string,
+      patch: {
+        sku?: string;
+        name?: string;
+        brand?: string;
+        category?: string;
+        price?: number | null;
+        attributes?: Record<string, unknown>;
+        images?: string[];
+        status?: "active" | "archived";
+      },
+    ): Product | undefined {
+      const cur = this.getProductsByIds(userId, [id])[0];
+      if (!cur) return undefined;
+      const next = {
+        sku: patch.sku ?? cur.sku,
+        name: patch.name ?? cur.name,
+        brand: patch.brand ?? cur.brand,
+        category: patch.category ?? cur.category,
+        price: patch.price !== undefined ? patch.price : cur.price,
+        attributes: patch.attributes ?? cur.attributes,
+        images: patch.images ?? cur.images,
+        status: patch.status ?? cur.status,
+      };
+      db.prepare(
+        `UPDATE products SET sku = ?, name = ?, brand = ?, category = ?, price = ?, attributes_json = ?, images_json = ?, status = ?, updated_at = ? WHERE id = ? AND user_id = ?`,
+      ).run(
+        next.sku,
+        next.name,
+        next.brand,
+        next.category,
+        next.price,
+        JSON.stringify(next.attributes),
+        JSON.stringify(next.images),
+        next.status,
+        Date.now(),
+        id,
+        userId,
+      );
+      return this.getProductsByIds(userId, [id])[0]!;
+    },
+
+    deleteProduct(id: string, userId: string) {
+      db.prepare(`DELETE FROM products WHERE id = ? AND user_id = ?`).run(id, userId);
+    },
+
+    // --- Brand assets (F4: reusable brand material) ---
+    listBrandAssets(userId: string): BrandAsset[] {
+      const rows = db
+        .prepare(`SELECT * FROM brand_assets WHERE user_id = ? ORDER BY created_at DESC`)
+        .all(userId) as Array<Record<string, unknown>>;
+      return rows.map((r) => {
+        let tags: string[] = [];
+        try {
+          tags = JSON.parse(String(r.tags_json ?? "[]"));
+        } catch {
+          /* keep [] */
+        }
+        return {
+          id: r.id as string,
+          type: r.type as string,
+          label: r.label as string,
+          uri: (r.uri as string) ?? "",
+          tags,
+          createdAt: r.created_at as number,
+        };
+      });
+    },
+
+    addBrandAsset(
+      userId: string,
+      input: { type: string; label: string; uri?: string; tags?: string[] },
+    ): BrandAsset {
+      const label = input.label.trim();
+      if (!label) throw new Error("素材名称不能为空");
+      const id = randomUUID();
+      const now = Date.now();
+      db.prepare(
+        `INSERT INTO brand_assets (id, user_id, type, label, uri, tags_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      ).run(id, userId, input.type, label, input.uri ?? "", JSON.stringify(input.tags ?? []), now);
+      return { id, type: input.type, label, uri: input.uri ?? "", tags: input.tags ?? [], createdAt: now };
+    },
+
+    deleteBrandAsset(id: string, userId: string) {
+      db.prepare(`DELETE FROM brand_assets WHERE id = ? AND user_id = ?`).run(id, userId);
+    },
+
+    // --- Batch jobs (F5: one run per input row, grouped for progress) ---
+    createBatch(input: {
+      id: string;
+      userId: string;
+      graphId: string;
+      sourceName?: string;
+      rows: Record<string, unknown>[];
+    }): BatchJob {
+      const now = Date.now();
+      db.prepare(
+        `INSERT INTO batch_jobs (id, user_id, graph_id, status, total, succeeded, failed, source_name, created_at)
+         VALUES (?, ?, ?, 'pending', ?, 0, 0, ?, ?)`,
+      ).run(input.id, input.userId, input.graphId, input.rows.length, input.sourceName ?? null, now);
+      const insertItem = db.prepare(
+        `INSERT INTO batch_items (id, batch_id, row_index, input_json, status) VALUES (?, ?, ?, ?, 'pending')`,
+      );
+      for (let i = 0; i < input.rows.length; i++) {
+        insertItem.run(randomUUID(), input.id, i, JSON.stringify(input.rows[i]));
+      }
+      return {
+        id: input.id,
+        graphId: input.graphId,
+        status: "pending",
+        total: input.rows.length,
+        succeeded: 0,
+        failed: 0,
+        sourceName: input.sourceName ?? null,
+        createdAt: now,
+        finishedAt: null,
+      };
+    },
+
+    listBatches(userId: string): BatchJob[] {
+      const rows = db
+        .prepare(`SELECT * FROM batch_jobs WHERE user_id = ? ORDER BY created_at DESC`)
+        .all(userId) as Array<Record<string, unknown>>;
+      return rows.map(batchFromRow);
+    },
+
+    getBatch(id: string, userId: string): BatchJob | null {
+      const row = db.prepare(`SELECT * FROM batch_jobs WHERE id = ? AND user_id = ?`).get(id, userId) as
+        | Record<string, unknown>
+        | undefined;
+      return row ? batchFromRow(row) : null;
+    },
+
+    listBatchItems(batchId: string): BatchItem[] {
+      const rows = db
+        .prepare(`SELECT * FROM batch_items WHERE batch_id = ? ORDER BY row_index ASC`)
+        .all(batchId) as Array<Record<string, unknown>>;
+      return rows.map((r) => {
+        let input: Record<string, unknown> = {};
+        let artifactIds: string[] = [];
+        try {
+          input = JSON.parse(String(r.input_json ?? "{}"));
+        } catch {
+          /* keep {} */
+        }
+        try {
+          artifactIds = JSON.parse(String(r.artifact_ids_json ?? "[]"));
+        } catch {
+          /* keep [] */
+        }
+        return {
+          id: String(r.id),
+          batchId: String(r.batch_id),
+          rowIndex: Number(r.row_index),
+          input,
+          runId: r.run_id ? String(r.run_id) : null,
+          status: String(r.status) as BatchItem["status"],
+          outputSummary: r.output_summary ? String(r.output_summary) : null,
+          artifactIds,
+          error: r.error ? String(r.error) : null,
+        };
+      });
+    },
+
+    markBatchItemRunning(itemId: string, runId: string) {
+      db.prepare(`UPDATE batch_items SET status = 'running', run_id = ? WHERE id = ?`).run(runId, itemId);
+    },
+
+    markBatchItemDone(itemId: string, outputSummary: string | null, artifactIds: string[]) {
+      db.prepare(
+        `UPDATE batch_items SET status = 'done', output_summary = ?, artifact_ids_json = ?, error = NULL WHERE id = ?`,
+      ).run(outputSummary ?? "", JSON.stringify(artifactIds), itemId);
+    },
+
+    markBatchItemFailed(itemId: string, error: string) {
+      db.prepare(`UPDATE batch_items SET status = 'failed', error = ? WHERE id = ?`).run(error, itemId);
+    },
+
+    setBatchStatus(id: string, status: BatchJob["status"], finishedAt: number | null) {
+      db.prepare(`UPDATE batch_jobs SET status = ?, finished_at = ? WHERE id = ?`).run(status, finishedAt, id);
+    },
+
+    updateBatchCounts(id: string, succeeded: number, failed: number) {
+      db.prepare(`UPDATE batch_jobs SET succeeded = ?, failed = ? WHERE id = ?`).run(succeeded, failed, id);
+    },
+
     // --- Graph versions (5.6) ---
     listVersions(graphId: string, userId: string) {
       return db
@@ -1761,6 +2171,74 @@ const MIGRATIONS: Migration[] = [
         note TEXT NOT NULL DEFAULT '',
         created_at INTEGER NOT NULL
       )`),
+  },
+  {
+    version: 22,
+    description: "products + brand_assets per-user library (F4)",
+    detect: (db) => tableExists(db, "products"),
+    up: (db) => {
+      db.exec(`CREATE TABLE IF NOT EXISTS products (
+        id TEXT PRIMARY KEY,
+        user_id TEXT,
+        sku TEXT NOT NULL DEFAULT '',
+        name TEXT NOT NULL,
+        brand TEXT NOT NULL DEFAULT '',
+        category TEXT NOT NULL DEFAULT '',
+        price REAL,
+        attributes_json TEXT NOT NULL DEFAULT '{}',
+        images_json TEXT NOT NULL DEFAULT '[]',
+        status TEXT NOT NULL DEFAULT 'active',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )`);
+      db.exec("CREATE INDEX IF NOT EXISTS idx_products_user ON products(user_id, status)");
+      db.exec(`CREATE TABLE IF NOT EXISTS brand_assets (
+        id TEXT PRIMARY KEY,
+        user_id TEXT,
+        type TEXT NOT NULL,
+        label TEXT NOT NULL,
+        uri TEXT NOT NULL DEFAULT '',
+        tags_json TEXT NOT NULL DEFAULT '[]',
+        created_at INTEGER NOT NULL
+      )`);
+      db.exec(
+        "CREATE INDEX IF NOT EXISTS idx_brand_assets_user ON brand_assets(user_id, created_at DESC)",
+      );
+    },
+  },
+  {
+    version: 23,
+    description: "batch_jobs + batch_items + runs.batch_id/batch_item_id (F5)",
+    detect: (db) => tableExists(db, "batch_jobs"),
+    up: (db) => {
+      db.exec("ALTER TABLE runs ADD COLUMN batch_id TEXT");
+      db.exec("ALTER TABLE runs ADD COLUMN batch_item_id TEXT");
+      db.exec(`CREATE TABLE IF NOT EXISTS batch_jobs (
+        id TEXT PRIMARY KEY,
+        user_id TEXT,
+        graph_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        total INTEGER NOT NULL DEFAULT 0,
+        succeeded INTEGER NOT NULL DEFAULT 0,
+        failed INTEGER NOT NULL DEFAULT 0,
+        source_name TEXT,
+        created_at INTEGER NOT NULL,
+        finished_at INTEGER
+      )`);
+      db.exec("CREATE INDEX IF NOT EXISTS idx_batch_jobs_user ON batch_jobs(user_id, created_at DESC)");
+      db.exec(`CREATE TABLE IF NOT EXISTS batch_items (
+        id TEXT PRIMARY KEY,
+        batch_id TEXT NOT NULL,
+        row_index INTEGER NOT NULL,
+        input_json TEXT NOT NULL,
+        run_id TEXT,
+        status TEXT NOT NULL,
+        output_summary TEXT,
+        artifact_ids_json TEXT,
+        error TEXT
+      )`);
+      db.exec("CREATE INDEX IF NOT EXISTS idx_batch_items_batch ON batch_items(batch_id, row_index)");
+    },
   },
 ];
 

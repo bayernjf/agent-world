@@ -13,6 +13,7 @@ import {
 import { JsonView, renderMarkdown, safeParse } from "../lib/artifact-renderers";
 import FinishedProduct from "./FinishedProduct";
 import { useTranslation } from "react-i18next";
+import { formatShortDateTime } from "../i18n/utils";
 import Tooltip from "./Tooltip";
 
 interface Props {
@@ -68,12 +69,6 @@ function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-}
-
-function formatDate(ts: number): string {
-  const d = new Date(ts);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getMonth() + 1}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 function fmtDuration(ms: number): string {
@@ -259,7 +254,7 @@ export default function ProductGallery({ open, onClose }: Props) {
                             </span>
                           </div>
                           <div className="runhistory-row-meta">
-                            <span>{formatDate(r.started_at)}</span>
+                            <span>{formatShortDateTime(r.started_at)}</span>
                             <span>
                               {t("modals:productGallery.duration")}{" "}
                               {r.ended_at != null
@@ -463,7 +458,7 @@ function GalleryCard({
           {title}
         </span>
         <span className="gallery-card__sub muted mono">
-          {formatDate(a.createdAt)}
+          {formatShortDateTime(a.createdAt)}
           {a.sizeBytes ? ` · ${formatSize(a.sizeBytes)}` : ""}
         </span>
       </div>
@@ -481,7 +476,7 @@ function ArtifactDetail({
   const { t } = useTranslation();
   const color = ARTIFACT_COLORS[a.kind] ?? "#ffb020";
   const klabel = KIND_LABEL[a.kind] ? t(KIND_LABEL[a.kind]) : a.kind;
-  const date = formatDate(a.createdAt);
+  const date = formatShortDateTime(a.createdAt);
   const [text, setText] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -810,7 +805,7 @@ function RunProductViewer({
                 : run.status}
             </span>
             <span>·</span>
-            <span>{formatDate(run.started_at)}</span>
+            <span>{formatShortDateTime(run.started_at)}</span>
             <span>·</span>
             <span>
               {t("modals:productGallery.duration")}{" "}

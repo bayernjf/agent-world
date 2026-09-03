@@ -6,6 +6,7 @@ import type {
   FileConnector,
   FormConnector,
   HttpConnector,
+  ProductConnector,
 } from "@agent-world/core";
 import { Trans, useTranslation } from "react-i18next";
 import Tooltip from "./Tooltip";
@@ -41,6 +42,7 @@ const TYPE_LABELS: Record<SelectType, string> = {
   http: "modals:connector.typesFull.http",
   form: "modals:connector.typesFull.form",
   database: "modals:connector.typesFull.database",
+  product: "modals:connector.typesFull.product",
 };
 
 function defaultsFor(type: ConnectorType): ConnectorConfig {
@@ -59,6 +61,8 @@ function defaultsFor(type: ConnectorType): ConnectorConfig {
         type: "database",
         database: { driver: "sqlite", path: "", query: "SELECT * FROM ", format: "json" },
       };
+    case "product":
+      return { type: "product", product: { selection: "all" } };
     case "manual":
       return { type: "manual" };
   }
@@ -393,6 +397,77 @@ function DatabaseForm({
   );
 }
 
+function ProductForm({
+  value,
+  patch,
+  begin,
+  commit,
+}: {
+  value: ProductConnector;
+  patch: (p: Partial<ProductConnector>) => void;
+  begin: () => void;
+  commit: () => void;
+}) {
+  const { t } = useTranslation();
+  const [idsText, setIdsText] = useState((value.productIds ?? []).join(", "));
+  const [filterText, setFilterText] = useState(JSON.stringify(value.filter ?? {}, null, 2));
+  return (
+    <>
+      <label className="field field--inline">
+        <span>{t("modals:connector.product.selectionLabel")}</span>
+        <select
+          className="select"
+          value={value.selection ?? "manual"}
+          onChange={(e) => patch({ selection: e.target.value as "manual" | "filter" | "all" })}
+        >
+          <option value="manual">{t("modals:connector.product.manual")}</option>
+          <option value="all">{t("modals:connector.product.all")}</option>
+          <option value="filter">{t("modals:connector.product.filter")}</option>
+        </select>
+      </label>
+      {value.selection === "manual" && (
+        <label className="field">
+          <span>{t("modals:connector.product.idsLabel")}</span>
+          <textarea
+            className="textarea"
+            rows={2}
+            value={idsText}
+            placeholder={t("modals:connector.product.idsPh")}
+            onFocus={begin}
+            onBlur={() => {
+              patch({ productIds: idsText.split(/[,，\s]+/).filter(Boolean) });
+              commit();
+            }}
+            onChange={(e) => setIdsText(e.target.value)}
+          />
+        </label>
+      )}
+      {value.selection === "filter" && (
+        <label className="field">
+          <span>{t("modals:connector.product.filterLabel")}</span>
+          <textarea
+            className="textarea"
+            rows={3}
+            value={filterText}
+            placeholder={t("modals:connector.product.filterPh")}
+            onFocus={begin}
+            onBlur={() => {
+              try {
+                patch({ filter: JSON.parse(filterText) });
+              } catch {
+                /* ignore invalid JSON while typing */
+              }
+              commit();
+            }}
+            onChange={(e) => setFilterText(e.target.value)}
+          />
+        </label>
+      )}
+      <p className="hint">{t("modals:connector.product.hint")}</p>
+    </>
+  );
+}
+
 export default function ConnectorEditor({
   connector,
   onChange,
@@ -437,6 +512,11 @@ export default function ConnectorEditor({
       type: "database",
       database: { ...(connector as { database?: DatabaseConnector }).database!, ...p },
     });
+  const patchProduct = (p: Partial<ProductConnector>) =>
+    onChange({
+      type: "product",
+      product: { ...(connector as { product?: ProductConnector }).product!, ...p },
+    });
 
   const runTest = async () => {
     if (!connector) return;
@@ -463,7 +543,7 @@ export default function ConnectorEditor({
           value={current}
           onChange={(e) => setType(e.target.value as SelectType)}
         >
-          {(["none", "file", "http", "form", "database"] as const).map((typ) => (
+          {(["none", "file", "http", "form", "database", "product"] as const).map((typ) => (
             <option key={typ} value={typ}>
               {t(TYPE_LABELS[typ])}
             </option>
@@ -498,6 +578,14 @@ export default function ConnectorEditor({
         <DatabaseForm
           value={connector.database!}
           patch={patchDatabase}
+          begin={onBeginEdit}
+          commit={onCommitEdit}
+        />
+      )}
+      {connector?.type === "product" && (
+        <ProductForm
+          value={connector.product!}
+          patch={patchProduct}
           begin={onBeginEdit}
           commit={onCommitEdit}
         />
