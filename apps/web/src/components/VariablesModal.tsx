@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Trans, useTranslation } from "react-i18next";
 import Tooltip from "./Tooltip";
 
 interface Props {
@@ -18,6 +19,7 @@ export default function VariablesModal({
   onClose,
   onSave,
 }: Props) {
+  const { t } = useTranslation();
   const [rows, setRows] = useState<Array<{ key: string; value: string }>>([]);
   const [error, setError] = useState<string | null>(null);
 
@@ -52,20 +54,18 @@ export default function VariablesModal({
       const key = r.key.trim();
       if (!key) continue;
       if (Object.prototype.hasOwnProperty.call(out, key)) {
-        setError(`变量名重复：${key}`);
+        setError(t("modals:variables.duplicateKey", { key }));
         return;
       }
       const text = r.value.trim();
       if (text === "") {
-        setError(`变量 ${key} 缺少值`);
+        setError(t("modals:variables.missingValue", { key }));
         return;
       }
       try {
         out[key] = JSON.parse(text);
       } catch {
-        setError(
-          `变量 ${key} 的值不是合法 JSON（字符串需加引号，如 "文本"；对象/数组用 {...} / [...]）`,
-        );
+        setError(t("modals:variables.invalidJson", { key }));
         return;
       }
     }
@@ -81,8 +81,8 @@ export default function VariablesModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="modal__header">
-          <h2>产线变量</h2>
-          <Tooltip content="关闭">
+          <h2>{t("modals:variables.title")}</h2>
+          <Tooltip content={t("common.close")}>
             <button className="icon-btn" onClick={onClose}>
               ✕
             </button>
@@ -90,15 +90,12 @@ export default function VariablesModal({
         </div>
         <div className="modal__body">
           <p className="form-hint">
-            变量是跨运行持久化的状态：节点可用 <code>{"${var.xxx}"}</code>{" "}
-            读取（如 <code>{"${var.brand}"}</code>），agent 可用内置工具{" "}
-            <code>set_variable</code> /<code>get_variable</code>{" "}
-            读写。此处为默认值，运行后的写入会覆盖它。
+            <Trans i18nKey="modals:variables.hint" components={{ code: <code /> }} />
           </p>
           <div className="var-table">
             <div className="var-table__head">
-              <span>变量名（key）</span>
-              <span>值（JSON）</span>
+              <span>{t("modals:variables.key")}</span>
+              <span>{t("modals:variables.value")}</span>
               <span />
             </div>
             {rows.map((r, i) => (
@@ -106,13 +103,13 @@ export default function VariablesModal({
                 <input
                   className="input var-table__key"
                   value={r.key}
-                  placeholder="如 stats.count"
+                  placeholder={t("modals:variables.keyPlaceholder")}
                   onChange={(e) => setRow(i, { key: e.target.value })}
                 />
                 <input
                   className="input var-table__value"
                   value={r.value}
-                  placeholder='如 "可口可乐" 或 {"n": 3} 或 3'
+                  placeholder={t("modals:variables.valuePlaceholder")}
                   onChange={(e) => setRow(i, { value: e.target.value })}
                 />
                 <button
@@ -129,16 +126,16 @@ export default function VariablesModal({
             className="chip"
             onClick={() => setRows((rs) => [...rs, { key: "", value: "" }])}
           >
-            + 添加变量
+            {t("modals:variables.addVariable")}
           </button>
           {error && <p className="form-error">{error}</p>}
         </div>
         <div className="modal__footer">
           <button className="btn" onClick={onClose}>
-            取消
+            {t("common.cancel")}
           </button>
           <button className="btn btn--primary" onClick={commit}>
-            保存
+            {t("common.save")}
           </button>
         </div>
       </div>

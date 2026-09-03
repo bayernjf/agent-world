@@ -149,15 +149,23 @@
     "copied": "已复制"
   },
   "timeline": {
-    "title": "时间轴",
-    "play": "播放",
-    "pause": "暂停",
-    "stop": "停止",
-    "speed": "速度",
-    "currentTime": "当前时间",
-    "totalTime": "总时长",
-    "events": "事件",
-    "scrub": "拖动查看"
+    "replay": "回放",
+    "backToLive": "回到实时",
+    "exitReplay": "退出回放",
+    "exitReplayHint": "退出历史回放，回到当前产线",
+    "events": {
+      "runStarted": "开工",
+      "nodeStarted": "开始作业",
+      "nodeDelta": "产出流入",
+      "nodeFinished": "作业完成",
+      "nodeFailed": "作业失败",
+      "packetSent": "货物发出",
+      "gateVerdict": "质检判定",
+      "gateExhausted": "返工次数耗尽",
+      "powerMetered": "电表读数",
+      "powerTripped": "跳闸",
+      "runFinished": "收工"
+    }
   },
   "compare": {
     "title": "运行对比",
@@ -174,5 +182,29 @@
     "noRuns": "暂无运行记录",
     "selectBothRuns": "请选择两个运行进行对比",
     "compareFailed": "对比失败"
+  },
+  "failure": {
+    "trippedTitle": "电力不足，全厂停机",
+    "failedTitle": "产线运行失败",
+    "summary": "共 {{total}} 条失败记录 · 可重试或返工到上游",
+    "wholePipeline": "整条产线",
+    "attempt": "第 {{attempt}} 次",
+    "impact": "影响：{{stranded}} 座下游节点未启动",
+    "retryNode": "重试该节点",
+    "reworkUpstream": "返工到上游 ▾",
+    "rerunAll": "整条重跑",
+    "hintRetry": "重试只重跑失败节点及下游；返工到上游会从所选节点重新下料。",
+    "hintTripped": "预算停机后请调高预算再整条重跑。",
+    "codes": {
+      "timeout": "超时",
+      "rateLimit": "限流",
+      "providerError": "模型服务异常",
+      "auth": "鉴权失败",
+      "validation": "校验失败",
+      "budget": "预算",
+      "unsupported": "不支持",
+      "scriptError": "脚本执行错误",
+      "unknown": "未知错误"
+    }
   }
 }
