@@ -33,6 +33,199 @@
   --z-toast: 600;
   --z-modal: 800;
   --z-popover: 1000;
+
+  /* ---------- Spacing scale (8pt grid) ---------- */
+  --space-0: 0;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --space-20: 80px;
+
+  /* ---------- Radius scale ---------- */
+  --radius-none: 0;
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --radius-lg: 6px;
+  --radius-xl: 8px;
+  --radius-2xl: 12px;
+  --radius-full: 9999px;
+
+  /* ---------- Shadow scale ---------- */
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4), 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.4), 0 2px 4px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.4), 0 4px 6px rgba(0, 0, 0, 0.3);
+  --shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.4), 0 10px 10px rgba(0, 0, 0, 0.3);
+  --shadow-2xl: 0 25px 50px rgba(0, 0, 0, 0.5);
+
+  /* ---------- Font size scale ---------- */
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-base: 13px;
+  --text-lg: 15px;
+  --text-xl: 17px;
+  --text-2xl: 20px;
+  --text-3xl: 24px;
+  --text-4xl: 30px;
+
+  /* ---------- Line height scale ---------- */
+  --leading-none: 1;
+  --leading-tight: 1.25;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.75;
+
+  /* ---------- Font weight scale ---------- */
+  --font-normal: 400;
+  --font-medium: 500;
+  --font-semibold: 600;
+  --font-bold: 700;
+
+  /* ---------- Animation scale ---------- */
+  --duration-fast: 100ms;
+  --duration-normal: 200ms;
+  --duration-slow: 300ms;
+  --ease-default: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --ease-out: cubic-bezier(0, 0, 0.2, 1);
+
+  /* ============================================================
+     Semantic tokens (dark theme default)
+     These map primitive tokens to semantic roles.
+     Light theme overrides are in [data-theme="light"] below.
+     ============================================================ */
+
+  /* Background */
+  --bg-primary: var(--steel-950);
+  --bg-secondary: var(--steel-900);
+  --bg-tertiary: var(--steel-850);
+  --bg-elevated: var(--steel-800);
+  --bg-hover: var(--steel-700);
+  --bg-active: var(--steel-600);
+  --bg-input: var(--steel-900);
+
+  /* Text */
+  --text-primary: var(--ink);
+  --text-secondary: var(--ink-dim);
+  --text-tertiary: var(--ink-faint);
+  --text-disabled: var(--steel-500);
+  --text-inverse: var(--steel-950);
+
+  /* Border */
+  --border-primary: var(--steel-600);
+  --border-secondary: var(--steel-700);
+  --border-tertiary: var(--steel-800);
+  --border-hover: var(--steel-500);
+  --border-focus: var(--power);
+
+  /* Functional colors */
+  --success: var(--ok);
+  --success-bg: rgba(102, 224, 122, 0.1);
+  --warning: var(--warn);
+  --warning-bg: rgba(255, 157, 46, 0.1);
+  --error: var(--alert);
+  --error-bg: rgba(255, 74, 61, 0.1);
+  --info: var(--data);
+  --info-bg: rgba(53, 224, 240, 0.1);
+
+  /* Accent (interactive) */
+  --accent: var(--power);
+  --accent-hover: #ffc04a;
+  --accent-active: #e69a10;
+  --accent-bg: rgba(255, 176, 32, 0.1);
+  --accent-contrast: var(--steel-950);
+
+  /* Semantic spacing (component-level) */
+  --gap-xs: var(--space-1);
+  --gap-sm: var(--space-2);
+  --gap-md: var(--space-3);
+  --gap-lg: var(--space-4);
+  --gap-xl: var(--space-6);
+
+  /* Semantic radius */
+  --radius-control: var(--radius-md);
+  --radius-card: var(--radius-lg);
+  --radius-modal: var(--radius-xl);
+  --radius-pill: var(--radius-full);
+
+  /* Semantic shadow */
+  --shadow-control: var(--shadow-xs);
+  --shadow-card: var(--shadow-sm);
+  --shadow-modal: var(--shadow-lg);
+  --shadow-popover: var(--shadow-xl);
+}
+
+/* ============================================================
+   Light theme overrides
+   Activate by setting data-theme="light" on <html> or <body>
+   ============================================================ */
+[data-theme="light"] {
+  /* Background */
+  --bg-primary: #f5f7f8;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #eef1f3;
+  --bg-elevated: #ffffff;
+  --bg-hover: #e4e8eb;
+  --bg-active: #d8dde1;
+  --bg-input: #ffffff;
+
+  /* Text */
+  --text-primary: #1a1f24;
+  --text-secondary: #4a5560;
+  --text-tertiary: #7a8590;
+  --text-disabled: #a0aab3;
+  --text-inverse: #ffffff;
+
+  /* Border */
+  --border-primary: #c8d0d6;
+  --border-secondary: #dde3e7;
+  --border-tertiary: #e8ecf0;
+  --border-hover: #a8b3bc;
+  --border-focus: var(--power);
+
+  /* Functional colors (slightly adjusted for light bg) */
+  --success: #2d9d4a;
+  --success-bg: rgba(45, 157, 74, 0.1);
+  --warning: #c77a10;
+  --warning-bg: rgba(199, 122, 16, 0.1);
+  --error: #d4382c;
+  --error-bg: rgba(212, 56, 44, 0.1);
+  --info: #0a8aa0;
+  --info-bg: rgba(10, 138, 160, 0.1);
+
+  /* Accent */
+  --accent: #e69a10;
+  --accent-hover: #ffb020;
+  --accent-active: #c77f08;
+  --accent-bg: rgba(230, 154, 16, 0.1);
+  --accent-contrast: #ffffff;
+
+  /* Scrollbar */
+  scrollbar-color: #a8b3bc #e8ecf0;
+}
+
+[data-theme="light"] ::-webkit-scrollbar-track {
+  background: #e8ecf0;
+  border-left: 1px solid #dde3e7;
+}
+[data-theme="light"] ::-webkit-scrollbar-thumb {
+  background: #a8b3bc;
+  border: 2px solid #e8ecf0;
+}
+[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
+  background: #8a96a0;
+}
+[data-theme="light"] ::-webkit-scrollbar-thumb:active {
+  background: var(--accent);
+}
+[data-theme="light"] ::-webkit-scrollbar-corner {
+  background: #e8ecf0;
 }
 
 * {
