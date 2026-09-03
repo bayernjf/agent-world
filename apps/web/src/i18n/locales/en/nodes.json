@@ -359,7 +359,8 @@
       "temperatures": "Temperatures (comma-separated; count must equal variants)",
       "models": "Models (comma-separated; count must equal variants)",
       "angleBrief": "Auto-angle brief (used when prompts are empty)",
-      "hint": "Fan-out copies one input into N variant lanes; the downstream sub-graph runs independently per variant and reconverges at a Select desk."
+      "hint": "Fan-out copies one input into N variant lanes; the downstream sub-graph runs independently per variant and reconverges at a Select desk.",
+      "laneCards": "Variant lanes"
     },
     "select": {
       "mode": "Selection mode",
@@ -374,7 +375,11 @@
       "ruleBrand": "Brand coverage",
       "ruleJsonPath": "JSON path",
       "ruleDesc": "Descending (higher wins)",
-      "hint": "The Select desk waits for every variant lane to reach a terminal state, then keeps TopK by LLM score / rule / human. A failed lane only ends that lane; survivors still rank."
+      "hint": "The Select desk waits for every variant lane to reach a terminal state, then keeps TopK by LLM score / rule / human. A failed lane only ends that lane; survivors still rank.",
+      "variantCards": "Variant comparison",
+      "chosen": "Chosen",
+      "failedLanes": "{{n}} failed lane(s): {{lanes}}",
+      "laneFailed": "This lane failed"
     },
     "http": {
       "method": "Method",

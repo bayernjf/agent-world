@@ -17,6 +17,7 @@ import { useGraph } from "../store/graph";
 import { useVisibleRuntime } from "../store/run";
 import SkillPicker from "./SkillPicker";
 import FinishedProduct from "./FinishedProduct";
+import VariantComparison from "./VariantComparison";
 import ProductBlocks from "./ProductBlocks";
 import SourceImages from "./SourceImages";
 import SourceFiles from "./SourceFiles";
@@ -3690,6 +3691,10 @@ export default function Inspector({
                   )}
                 </dl>
               </section>
+            )}
+
+            {(node.kind === "select" || node.kind === "fanout") && (
+              <VariantComparison graph={graph} runtime={runtime} nodeId={node.id} />
             )}
 
             {node.kind === "sink" && attempts.length > 0 && (

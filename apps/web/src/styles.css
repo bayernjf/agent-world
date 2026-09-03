@@ -6280,3 +6280,69 @@ select {
   font-weight: var(--font-semibold);
 }
 
+
+/* F1: variant comparison cards (select node) */
+.variant-compare__grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+.variant-compare__failed {
+  margin: 0 0 8px;
+  font-size: 12px;
+}
+.variant-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--surface-2);
+}
+.variant-card.is-chosen {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent) inset;
+}
+.variant-card.is-failed {
+  border-color: var(--danger, #d33);
+  opacity: 0.75;
+}
+.variant-card__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.variant-card__name {
+  font-weight: var(--font-semibold);
+  font-family: var(--font-mono);
+}
+.variant-card__chosen {
+  font-size: 11px;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 0 6px;
+}
+.variant-card__score {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: var(--font-semibold);
+}
+.variant-card__score.is-good { color: var(--success, #2a8a4a); }
+.variant-card__score.is-warn { color: var(--warn, #b8860b); }
+.variant-card__score.is-bad { color: var(--danger, #d33); }
+.variant-card__output {
+  margin: 0;
+  font-size: 13px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.variant-card__error {
+  margin: 0 0 4px;
+  font-size: 12px;
+  color: var(--danger, #d33);
+}
+.variant-card__reason {
+  margin: 6px 0 0;
+  font-size: 12px;
+}
