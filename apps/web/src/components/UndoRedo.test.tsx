@@ -66,13 +66,13 @@ describe("UndoRedo", () => {
     mockTemporal(1, 0);
     render(<UndoRedo />);
     const undoWrapper = screen.getByLabelText("撤销").closest("span");
-    expect(undoWrapper?.getAttribute("title")).toBe("撤销 (⌘Z)");
+    expect(undoWrapper?.getAttribute("title")).toBe("canvas.undoWithShortcut");
   });
 
   it("shows disabled-state tooltip when undo is unavailable", () => {
     mockTemporal(0, 1);
     render(<UndoRedo />);
     const undoWrapper = screen.getByLabelText("撤销").closest("span");
-    expect(undoWrapper?.getAttribute("title")).toBe("暂无可撤销操作");
+    expect(undoWrapper?.getAttribute("title")).toBe("canvas.noUndo");
   });
 });
