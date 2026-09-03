@@ -241,7 +241,8 @@
     "failedDependency": "依赖失败",
     "notImplemented": "功能未实现",
     "httpVersionNotSupported": "不支持的 HTTP 版本",
-    "networkAuthenticationRequired": "需要网络认证"
+    "networkAuthenticationRequired": "需要网络认证",
+    "requestFailed": "请求失败 ({{status}})"
   },
   "validation": {
     "required": "此字段为必填项",

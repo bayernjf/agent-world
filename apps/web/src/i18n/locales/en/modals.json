@@ -205,18 +205,12 @@
     "invalidJson": "Invalid JSON for {{key}} (strings need quotes, e.g. \"text\"; objects/arrays use {...} / [...])"
   },
   "brandTerms": {
-    "title": "Brand Terms",
-    "description": "Brand terms are automatically injected into all text generation node prompts to ensure brand compliance.",
-    "empty": "No brand terms",
-    "addTerm": "Add Brand Term",
-    "term": "Term",
-    "definition": "Definition",
-    "deleteTerm": "Delete Brand Term",
-    "deleteConfirm": "Are you sure you want to delete this brand term?",
-    "save": "Save",
-    "cancel": "Cancel",
-    "termPlaceholder": "e.g. Brand Name",
-    "definitionPlaceholder": "e.g. Always use full name, no abbreviation"
+    "title": "Brand term library",
+    "hint": "Keep the brand terms you want woven into the copy here. In a Text Gen node's “Brand terms” field, click “Load from library” to pull them in; a Gate can enforce a brand-term coverage threshold and send the work back upstream when it falls short.",
+    "empty": "No brand terms yet — add the first one below.",
+    "termPlaceholder": "Brand term, e.g. slimming",
+    "notePlaceholder": "Note (optional)",
+    "addFailed": "Could not add the term"
   },
   "knowledge": {
     "title": "Knowledge Base",
@@ -304,49 +298,13 @@
     "cancel": "Cancel",
     "reset": "Reset to Default"
   },
-  "account": {
-    "title": "Account Settings",
-    "profile": "Profile",
-    "email": "Email",
-    "username": "Username",
-    "avatar": "Avatar",
-    "changePassword": "Change Password",
-    "currentPassword": "Current Password",
-    "newPassword": "New Password",
-    "confirmPassword": "Confirm Password",
-    "passwordMismatch": "Passwords do not match",
-    "passwordTooShort": "Password must be at least 6 characters",
-    "save": "Save",
-    "cancel": "Cancel",
-    "saving": "Saving...",
-    "saveSuccess": "Saved successfully",
-    "saveFailed": "Save failed",
-    "logout": "Logout",
-    "logoutConfirm": "Are you sure you want to logout?",
-    "deleteAccount": "Delete Account",
-    "deleteConfirm": "Are you sure you want to delete your account? This action cannot be undone and all data will be permanently deleted."
-  },
   "onboarding": {
-    "welcome": "Welcome to Agent World",
-    "welcomeDescription": "AI pipeline orchestration platform that makes AI capabilities composable, reusable, and observable.",
-    "getStarted": "Get Started",
-    "selectTemplate": "Select Template",
-    "templateDescription": "Choose a template to get started quickly, or start from a blank graph.",
-    "blankGraph": "Blank Graph",
-    "blankGraphDescription": "Build your graph from scratch",
-    "configureProvider": "Configure Provider",
-    "providerDescription": "Configure your AI model provider to run graphs.",
-    "providerName": "Provider Name",
-    "apiKey": "API Key",
-    "baseUrl": "Base URL",
-    "testConnection": "Test Connection",
-    "skip": "Skip",
-    "skipConfirm": "You can configure providers later in Settings. Are you sure you want to skip?",
-    "finish": "Finish",
-    "finishDescription": "Configuration complete! You can now start creating and running graphs.",
-    "next": "Next",
-    "previous": "Previous",
-    "step": "Step {{current}} of {{total}}"
+    "title": "Welcome to Agent World",
+    "subtitle": "Compose multi-agent workflows visually. Each agent is a node on the line, output travels between nodes through pipes, and a gate can send sub-par work back for a redo.",
+    "sectionTitle": "Start from a blank line, or pick a template",
+    "sectionHint": "A blank line is built from scratch; a template comes with nodes and pipes prewired and stays editable after creation. Templates available: {{count}}.",
+    "tips": "<strong>Tip:</strong> configure a model provider in Settings (⚙️) before running a line. Without one the built-in fake workers run instead, which is fine for learning the UI and trying out flows.",
+    "engineDown": "⚠ The backend engine is not responding (http://localhost:8791). If creating fails, start it first with <code>pnpm --filter @agent-world/server dev</code>."
   },
   "skillPicker": {
     "label": "Skill cards",
@@ -406,5 +364,19 @@
     "events": "Events",
     "scrub": "Scrub",
     "live": "Live"
+  },
+  "abDialog": {
+    "title": "A/B Test",
+    "noTextGen": "This pipeline has no {{node}} (textGen) nodes, so A/B cannot start.",
+    "targetLabel": "Target {{node}} (its prompt will be replaced)",
+    "variantsLabel": "Prompt variants (one per line, used as arms A / B / C…)",
+    "variantsPlaceholder": "Variant 1: rewrite in a more conversational tone\nVariant 2: lead with the promotion\nVariant 3: stress ingredient safety",
+    "variantsHint": "Detected {{count}} variants (at least 2 required).",
+    "budgetLabel": "Budget cap (USD, optional)",
+    "budgetPlaceholder": "Leave blank for no limit",
+    "inputLabel": "Raw material (optional)",
+    "inputPlaceholder": "Leave blank to use the pipeline default",
+    "launch": "Launch A/B ({{count}} arms)",
+    "launching": "Launching…"
   }
 }
