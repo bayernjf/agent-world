@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { Artifact, Graph, RuntimeState } from "@agent-world/core";
 import { incoming, parseProductDocument } from "@agent-world/core";
 import ProductBlocks from "./ProductBlocks";
@@ -31,6 +32,7 @@ function collectUpstreamArtifacts(sinkId: string, graph: Graph, runtime: Runtime
 }
 
 export default function FinishedProduct({ sinkId, graph, runtime }: Props) {
+  const { t } = useTranslation();
   const sinkRt = runtime.nodes[sinkId];
   const output = sinkRt?.outputs ? Math.max(...Object.keys(sinkRt.outputs).map(Number)) : -1;
   const text = output >= 0 ? sinkRt!.outputs[output] ?? "" : "";
@@ -110,7 +112,7 @@ export default function FinishedProduct({ sinkId, graph, runtime }: Props) {
   if (!text && artifacts.length === 0) {
     return (
       <div className="product product--empty">
-        <p className="empty">产线运行后，成品将在这里展示。</p>
+        <p className="empty">{t("run:product.empty")}</p>
       </div>
     );
   }
@@ -119,8 +121,10 @@ export default function FinishedProduct({ sinkId, graph, runtime }: Props) {
     <div className="product">
       <div className="product__bar">
         <div className="product__title">
-          <span className="product__label">成品</span>
-          <span className="product__name">{graph.name ?? "未命名流水线"}</span>
+          <span className="product__label">{t("run:product.label")}</span>
+          <span className="product__name">
+            {graph.name ?? t("run:product.unnamedGraph")}
+          </span>
         </div>
         <div className="product__actions">
           <div className="product__action-group">
@@ -131,15 +135,18 @@ export default function FinishedProduct({ sinkId, graph, runtime }: Props) {
               <span className="chip__icon">⤓</span> MD
             </button>
             <button className="chip chip--export" onClick={downloadLongImage} disabled={imgBusy}>
-              <span className="chip__icon">⤓</span> {imgBusy ? "生成中…" : "长图"}
+              <span className="chip__icon">⤓</span>{" "}
+              {imgBusy ? t("run:product.generating") : t("run:product.longImage")}
             </button>
           </div>
           <div className="product__action-group">
             <button className="chip chip--copy" onClick={copyRichText}>
-              <span className="chip__icon">⧉</span> {htmlCopied ? "已复制" : "富文本"}
+              <span className="chip__icon">⧉</span>{" "}
+              {htmlCopied ? t("common.copied") : t("run:product.richText")}
             </button>
             <button className="chip chip--copy" onClick={copyText}>
-              <span className="chip__icon">⧉</span> {copied ? "已复制" : "原文"}
+              <span className="chip__icon">⧉</span>{" "}
+              {copied ? t("common.copied") : t("run:product.rawText")}
             </button>
           </div>
         </div>

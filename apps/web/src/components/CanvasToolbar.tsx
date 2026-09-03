@@ -1,7 +1,9 @@
 import { useState, useRef, useEffect, useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { useGraph } from "../store/graph";
 import { useCanvas } from "../store/canvas";
 import { VIEW_W, VIEW_H } from "../canvas/board";
+import { KIND_KEY } from "../canvas/Plants";
 import {
   NODE_CATEGORIES,
   NODE_CATEGORY,
@@ -9,78 +11,37 @@ import {
 } from "@agent-world/core";
 import Tooltip from "./Tooltip";
 
-interface NodeButton {
-  kind: NodeKind;
-  label: string;
-  hint: string;
-}
-
-const NODE_META: Record<NodeKind, NodeButton> = {
-  textGen: {
-    kind: "textGen",
-    label: "文坊",
-    hint: "LLM 文本生成（文坊），可挂技能卡",
-  },
-  imageGen: { kind: "imageGen", label: "画坊", hint: "文字生成图片" },
-  videoGen: { kind: "videoGen", label: "影坊", hint: "文字生成视频" },
-  audioGen: { kind: "audioGen", label: "音坊", hint: "文字生成语音/音乐" },
-  gate: {
-    kind: "gate",
-    label: "质检站",
-    hint: "LLM-as-judge 质量检验门（质检站）",
-  },
-  branch: { kind: "branch", label: "分拣闸", hint: "按条件分流到不同管道" },
-  map: { kind: "map", label: "改料台", hint: "JSON 模板重排/转换（改料台）" },
-  loop: { kind: "loop", label: "批处理站", hint: "对数组逐项重复下游工序" },
-  parallel: { kind: "parallel", label: "汇流站", hint: "等齐多路后合并输出" },
-  subprocess: {
-    kind: "subprocess",
-    label: "外包工坊",
-    hint: "调用另一张产线（外包工坊）",
-  },
-  table: {
-    kind: "table",
-    label: "理货台",
-    hint: "CSV 筛选/排序/聚合（理货台）",
-  },
-  database: { kind: "database", label: "总账房", hint: "SQL 查询（总账房）" },
-  fileParse: {
-    kind: "fileParse",
-    label: "拆包台",
-    hint: "提取 PDF/Word/PPT（拆包台）",
-  },
-  convert: {
-    kind: "convert",
-    label: "换装台",
-    hint: "PDF 提图 / 图片格式转换（换装台）",
-  },
-  translate: {
-    kind: "translate",
-    label: "翻译间",
-    hint: "上游文本译到目标语言（翻译间）",
-  },
-  ocr: { kind: "ocr", label: "识图台", hint: "图片识文字（识图台）" },
-  code: {
-    kind: "code",
-    label: "代码工坊",
-    hint: "跑 JS / Python 脚本（代码工坊）",
-  },
-  http: { kind: "http", label: "API 口岸", hint: "调用外部 API（API 口岸）" },
-  search: { kind: "search", label: "瞭望塔", hint: "联网搜集（瞭望塔）" },
-  notify: {
-    kind: "notify",
-    label: "广播站",
-    hint: "发消息到群/邮件（广播站）",
-  },
-  vcs: { kind: "vcs", label: "档案柜", hint: "GitHub/GitLab 操作（档案柜）" },
-  human: { kind: "human", label: "人工岗", hint: "暂停等人工点头（人工岗）" },
-  source: { kind: "source", label: "原料台", hint: "产线投料入口（原料台）" },
-  sink: { kind: "sink", label: "成品库", hint: "产线产物出口（成品库）" },
-  generic: {
-    kind: "generic",
-    label: "多能坊",
-    hint: "多能坊：自由选模型提供方，按模态自动 dispatch",
-  },
+/**
+ * Palette hints, in menu order — `Object.keys` is what lays the palette out.
+ * Labels are not repeated here: they come from the shared kind table so the
+ * palette and the canvas plants cannot drift apart.
+ */
+const NODE_HINT_KEY: Record<NodeKind, string> = {
+  textGen: "nodes:hints.textGen",
+  imageGen: "nodes:hints.imageGen",
+  videoGen: "nodes:hints.videoGen",
+  audioGen: "nodes:hints.audioGen",
+  gate: "nodes:hints.gate",
+  branch: "nodes:hints.branch",
+  map: "nodes:hints.map",
+  loop: "nodes:hints.loop",
+  parallel: "nodes:hints.parallel",
+  subprocess: "nodes:hints.subprocess",
+  table: "nodes:hints.table",
+  database: "nodes:hints.database",
+  fileParse: "nodes:hints.fileParse",
+  convert: "nodes:hints.convert",
+  translate: "nodes:hints.translate",
+  ocr: "nodes:hints.ocr",
+  code: "nodes:hints.code",
+  http: "nodes:hints.http",
+  search: "nodes:hints.search",
+  notify: "nodes:hints.notify",
+  vcs: "nodes:hints.vcs",
+  human: "nodes:hints.human",
+  source: "nodes:hints.source",
+  sink: "nodes:hints.sink",
+  generic: "nodes:hints.generic",
 };
 
 /** High-frequency kinds shown directly in the toolbar; the rest live in the palette. */
@@ -93,12 +54,21 @@ const PRIMARY_KINDS: NodeKind[] = [
   "sink",
 ];
 
-const MODALITY_PROMPT_LABEL: Record<string, string> = {
-  text: "文本",
-  image: "图片",
-  video: "视频",
-  audio: "音频",
-  embedding: "向量",
+const MODALITY_KEY: Record<string, string> = {
+  text: "nodes:modality.text",
+  image: "nodes:modality.image",
+  video: "nodes:modality.video",
+  audio: "nodes:modality.audio",
+  embedding: "nodes:modality.embedding",
+};
+
+/** Core owns the category ids; the pack owns how they read on screen. */
+const CATEGORY_KEY: Record<string, string> = {
+  generation: "nodes:categories.generation",
+  control: "nodes:categories.control",
+  data: "nodes:categories.data",
+  integrations: "nodes:categories.integrations",
+  io: "nodes:categories.io",
 };
 
 interface Props {
@@ -106,6 +76,7 @@ interface Props {
 }
 
 export default function CanvasToolbar({ onError }: Props = {}) {
+  const { t } = useTranslation();
   const addNode = useGraph((s) => s.addNode);
   const { zoom, panX, panY } = useCanvas((s) => s.viewport);
   const [moreOpen, setMoreOpen] = useState(false);
@@ -146,9 +117,11 @@ export default function CanvasToolbar({ onError }: Props = {}) {
     const cy = (VIEW_H / 2 - panY) / zoom;
     const r = addNode(kind, cx, cy);
     if (r.missingModality) {
-      const label = MODALITY_PROMPT_LABEL[r.missingModality] ?? "对应";
+      const key = MODALITY_KEY[r.missingModality];
       onError?.(
-        `该节点需要${label}模型，但当前没有配置；节点已添加，请在「模型设置」中添加后再派发。`,
+        t("nodes:missingModality", {
+          modality: key ? t(key) : t("nodes:modalityFallback"),
+        }),
       );
     }
   }
@@ -161,13 +134,20 @@ export default function CanvasToolbar({ onError }: Props = {}) {
 
   const groups = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const all = NODE_CATEGORIES.map((cat) => ({
-      id: cat.id,
-      label: cat.label,
-      items: (Object.keys(NODE_META) as NodeKind[])
-        .filter((kind) => NODE_CATEGORY[kind] === cat.id)
-        .map((kind) => NODE_META[kind]),
-    }));
+    const all = NODE_CATEGORIES.map((cat) => {
+      const catKey = CATEGORY_KEY[cat.id];
+      return {
+        id: cat.id,
+        label: catKey ? t(catKey) : cat.label,
+        items: (Object.keys(NODE_HINT_KEY) as NodeKind[])
+          .filter((kind) => NODE_CATEGORY[kind] === cat.id)
+          .map((kind) => ({
+            kind,
+            label: t(KIND_KEY[kind]),
+            hint: t(NODE_HINT_KEY[kind]),
+          })),
+      };
+    });
     if (!q) return all;
     return all
       .map((g) => ({
@@ -180,7 +160,7 @@ export default function CanvasToolbar({ onError }: Props = {}) {
         ),
       }))
       .filter((g) => g.items.length > 0);
-  }, [query]);
+  }, [query, t]);
 
   const totalItems = useMemo(
     () => groups.reduce((n, g) => n + g.items.length, 0),
@@ -188,16 +168,16 @@ export default function CanvasToolbar({ onError }: Props = {}) {
   );
 
   return (
-    <div className="canvas-toolbar" role="toolbar" aria-label="添加节点">
+    <div className="canvas-toolbar" role="toolbar" aria-label={t("canvas:addNode")}>
       <span className="canvas-toolbar__prefix">▌</span>
       {PRIMARY_KINDS.map((kind) => (
         <button
           key={kind}
           className="canvas-toolbar__btn"
           onClick={() => addAtViewCenter(kind)}
-          title={NODE_META[kind].hint}
+          title={t(NODE_HINT_KEY[kind])}
         >
-          + {NODE_META[kind].label}
+          + {t(KIND_KEY[kind])}
         </button>
       ))}
       <div className="canvas-toolbar__more" ref={moreRef}>
@@ -207,13 +187,13 @@ export default function CanvasToolbar({ onError }: Props = {}) {
           aria-expanded={moreOpen}
           aria-haspopup="dialog"
         >
-          更多 <span className="canvas-toolbar__caret">▾</span>
+          {t("canvas:toolbar.more")} <span className="canvas-toolbar__caret">▾</span>
         </button>
         {moreOpen && (
           <div
             className="canvas-toolbar__menu"
             role="dialog"
-            aria-label="节点库"
+            aria-label={t("canvas:toolbar.palette")}
           >
             <div className="canvas-toolbar__search">
               <input
@@ -221,8 +201,8 @@ export default function CanvasToolbar({ onError }: Props = {}) {
                 className="canvas-toolbar__search-input"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="搜索节点…"
-                aria-label="搜索节点"
+                placeholder={t("canvas:toolbar.searchPlaceholder")}
+                aria-label={t("canvas:toolbar.search")}
               />
             </div>
             <div className="canvas-toolbar__groups">
@@ -247,7 +227,7 @@ export default function CanvasToolbar({ onError }: Props = {}) {
                 </div>
               ))}
               {totalItems === 0 && (
-                <div className="canvas-toolbar__empty">没有匹配的节点</div>
+                <div className="canvas-toolbar__empty">{t("canvas:toolbar.noMatch")}</div>
               )}
             </div>
           </div>

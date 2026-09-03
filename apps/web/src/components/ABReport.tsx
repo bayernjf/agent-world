@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { Trans, useTranslation } from "react-i18next";
 import { api, type ABReport as Report } from "../lib/api";
 import Tooltip from "./Tooltip";
 
@@ -21,6 +22,7 @@ const passTone = (rate: number) =>
   rate >= 0.9 ? "good" : rate >= 0.6 ? "warn" : "bad";
 
 export default function ABReport({ open, groupId, onClose }: Props) {
+  const { t } = useTranslation();
   const [report, setReport] = useState<Report | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -38,8 +40,8 @@ export default function ABReport({ open, groupId, onClose }: Props) {
   useEffect(() => {
     if (!open || !groupId) return;
     void load();
-    const t = setInterval(() => void load(), 2000);
-    return () => clearInterval(t);
+    const timer = setInterval(() => void load(), 2000);
+    return () => clearInterval(timer);
   }, [open, groupId, load]);
 
   useEffect(() => {
@@ -63,16 +65,16 @@ export default function ABReport({ open, groupId, onClose }: Props) {
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal modal--wide" onClick={(e) => e.stopPropagation()}>
         <div className="modal__header">
-          <h2>A/B 实验对比</h2>
+          <h2>{t("modals:abReport.title")}</h2>
           <div style={{ display: "flex", gap: 8 }}>
             <button
               className="btn btn--ghost btn--sm"
               onClick={() => void load()}
               disabled={loading}
             >
-              刷新
+              {t("common.refresh")}
             </button>
-            <Tooltip content="关闭">
+            <Tooltip content={t("common.close")}>
               <button className="icon-btn" onClick={onClose}>
                 ✕
               </button>
@@ -85,27 +87,31 @@ export default function ABReport({ open, groupId, onClose }: Props) {
               className="muted"
               style={{ textAlign: "center", padding: "40px 0" }}
             >
-              加载中…
+              {t("modals:abReport.loading")}
             </p>
           ) : report.arms.length === 0 ? (
-            <p className="muted">没有实验数据。</p>
+            <p className="muted">{t("modals:abReport.empty")}</p>
           ) : (
             <>
               <p className="muted">
-                实验组 <span className="mono">{report.groupId}</span>
-                {!allDone && " · 部分臂仍在运行，结果会持续更新"}
+                <Trans
+                  i18nKey="modals:abReport.groupLine"
+                  values={{ id: report.groupId }}
+                  components={{ mono: <span className="mono" /> }}
+                />
+                {!allDone && t("modals:abReport.partial")}
               </p>
               <table className="run-table abtable">
                 <thead>
                   <tr>
-                    <th>臂</th>
-                    <th>Prompt 变体</th>
-                    <th className="num">运行</th>
-                    <th className="num">合格率</th>
-                    <th className="num">质量分</th>
-                    <th className="num">平均返工</th>
-                    <th className="num">平均耗时</th>
-                    <th className="num">单跑成本</th>
+                    <th>{t("modals:abReport.arm")}</th>
+                    <th>{t("modals:abReport.promptVariant")}</th>
+                    <th className="num">{t("modals:abReport.runs")}</th>
+                    <th className="num">{t("modals:abReport.passRate")}</th>
+                    <th className="num">{t("modals:abReport.qualityScore")}</th>
+                    <th className="num">{t("modals:abReport.avgRework")}</th>
+                    <th className="num">{t("modals:abReport.avgDuration")}</th>
+                    <th className="num">{t("modals:abReport.avgCost")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -117,16 +123,21 @@ export default function ABReport({ open, groupId, onClose }: Props) {
                         <td className="ab-arm">
                           <span className="ab-arm__label">{a.arm}</span>
                           {isWinner && (
-                            <span className="ab-badge is-winner">推荐</span>
+                            <span className="ab-badge is-winner">
+                              {t("modals:abReport.recommended")}
+                            </span>
                           )}
                           <span
                             className={`ab-badge ${running ? "is-running" : a.done > 0 ? "is-done" : ""}`}
                           >
                             {running
-                              ? `运行中 ${a.done}/${a.runs}`
+                              ? t("modals:abReport.running", {
+                                  done: a.done,
+                                  runs: a.runs,
+                                })
                               : a.done > 0
-                                ? "完成"
-                                : "无运行"}
+                                ? t("modals:abReport.done")
+                                : t("modals:abReport.noRuns")}
                           </span>
                         </td>
                         <td className="ab-prompt">{a.prompt ?? "—"}</td>
@@ -149,8 +160,11 @@ export default function ABReport({ open, groupId, onClose }: Props) {
               </table>
               {winner && allDone && (
                 <div className="ab-winner-note">
-                  建议采用 <strong>{winner.arm}</strong>{" "}
-                  臂：已完成运行中质量分最高（合格率 {pct(winner.passRate)}）。
+                  <Trans
+                    i18nKey="modals:abReport.winnerNote"
+                    values={{ arm: winner.arm, rate: pct(winner.passRate) }}
+                    components={{ strong: <strong /> }}
+                  />
                 </div>
               )}
             </>

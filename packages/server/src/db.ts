@@ -41,7 +41,9 @@ CREATE TABLE IF NOT EXISTS runs (
   ended_at   INTEGER,
   ab_group   TEXT,
   ab_arm     TEXT,
-  ab_target  TEXT
+  ab_target  TEXT,
+  halted_node_id TEXT,
+  halted_reason  TEXT
 );
 
 CREATE TABLE IF NOT EXISTS events (
@@ -292,8 +294,12 @@ export function openDb(file: string) {
     createRun: db.prepare(
       `INSERT INTO runs (id, user_id, graph_id, snapshot, status, trigger, input, budget_usd, started_at, ab_group, ab_arm, ab_target) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ),
-    finishRun: db.prepare(`UPDATE runs SET status = ?, ended_at = ? WHERE id = ? AND user_id = ?`),
-    markRunning: db.prepare(`UPDATE runs SET status = 'running', ended_at = NULL WHERE id = ? AND user_id = ?`),
+    finishRun: db.prepare(
+      `UPDATE runs SET status = ?, ended_at = ?, halted_node_id = ?, halted_reason = ? WHERE id = ? AND user_id = ?`,
+    ),
+    markRunning: db.prepare(
+      `UPDATE runs SET status = 'running', ended_at = NULL, halted_node_id = NULL, halted_reason = NULL WHERE id = ? AND user_id = ?`,
+    ),
     getRun: db.prepare(`SELECT * FROM runs WHERE id = ? AND user_id = ?`),
     listRuns: db.prepare(
       `SELECT r.id, r.graph_id, COALESCE(g.name, '(已删除产线)') AS graph_name, r.status, r.trigger, r.budget_usd, r.started_at, r.ended_at
@@ -372,7 +378,9 @@ export function openDb(file: string) {
     listAllGraphs: db.prepare(`SELECT id, name, version, updated_at FROM graphs ORDER BY updated_at DESC`),
     getGraphOwnerId: db.prepare(`SELECT user_id FROM graphs WHERE id = ?`),
     finishRunById: db.prepare(`UPDATE runs SET status = ?, ended_at = ? WHERE id = ?`),
-    markRunningById: db.prepare(`UPDATE runs SET status = 'running', ended_at = NULL WHERE id = ?`),
+    markRunningById: db.prepare(
+      `UPDATE runs SET status = 'running', ended_at = NULL, halted_node_id = NULL, halted_reason = NULL WHERE id = ?`,
+    ),
     getRunById: db.prepare(`SELECT * FROM runs WHERE id = ?`),
     listRunsUnscoped: db.prepare(
       `SELECT r.id, r.graph_id, COALESCE(g.name, '(已删除产线)') AS graph_name, r.status, r.trigger, r.budget_usd, r.started_at, r.ended_at
@@ -543,8 +551,14 @@ export function openDb(file: string) {
       );
     },
 
-    finishRun(runId: string, userId: string, status: string, at: number) {
-      stmts.finishRun.run(status, at, runId, userId);
+    finishRun(
+      runId: string,
+      userId: string,
+      status: string,
+      at: number,
+      halted?: { nodeId: string | null; reason: string | null },
+    ) {
+      stmts.finishRun.run(status, at, halted?.nodeId ?? null, halted?.reason ?? null, runId, userId);
     },
 
     markRunning(runId: string, userId: string) {
@@ -608,6 +622,49 @@ export function openDb(file: string) {
         budget_usd: number | null;
         started_at: number;
         ended_at: number | null;
+      }>;
+      const total = (
+        db.prepare(`SELECT COUNT(*) AS n FROM runs r ${clause}`).get(...params) as { n: number }
+      ).n;
+      return { rows, total };
+    },
+
+    /**
+     * Runs waiting on a human decision, oldest first so the longest-blocked item
+     * surfaces at the top of the review queue.
+     */
+    pendingReviews(userId: string, opts: { limit?: number; offset?: number; graphId?: string } = {}) {
+      const limit = Math.min(Math.max(opts.limit ?? 50, 1), 200);
+      const offset = Math.max(opts.offset ?? 0, 0);
+      const where: string[] = ["r.user_id = ?", "r.status = 'halted'"];
+      const params: (string | number)[] = [userId];
+      if (opts.graphId) {
+        where.push("r.graph_id = ?");
+        params.push(opts.graphId);
+      }
+      const clause = `WHERE ${where.join(" AND ")}`;
+      const rows = db
+        .prepare(
+          `SELECT r.id AS id, r.graph_id AS graph_id, COALESCE(g.name, '(已删除产线)') AS graph_name,
+                  r.halted_node_id AS halted_node_id, r.halted_reason AS halted_reason,
+                  r.trigger AS trigger, r.ab_group AS ab_group, r.ab_arm AS ab_arm,
+                  r.started_at AS started_at, COALESCE(r.ended_at, r.started_at) AS halted_at
+           FROM runs r LEFT JOIN graphs g ON g.id = r.graph_id
+           ${clause}
+           ORDER BY COALESCE(r.ended_at, r.started_at) ASC
+           LIMIT ? OFFSET ?`,
+        )
+        .all(...params, limit, offset) as Array<{
+        id: string;
+        graph_id: string;
+        graph_name: string;
+        halted_node_id: string | null;
+        halted_reason: string | null;
+        trigger: string;
+        ab_group: string | null;
+        ab_arm: string | null;
+        started_at: number;
+        halted_at: number;
       }>;
       const total = (
         db.prepare(`SELECT COUNT(*) AS n FROM runs r ${clause}`).get(...params) as { n: number }
@@ -1630,6 +1687,23 @@ const MIGRATIONS: Migration[] = [
     detect: (db) => columnExists(db, "graphs", "origin_template_id"),
     up: (db) =>
       db.exec("ALTER TABLE graphs ADD COLUMN origin_template_id TEXT"),
+  },
+  {
+    version: 20,
+    description: "runs.halted_node_id/halted_reason (review queue lists pending decisions)",
+    // No `detect`: fresh databases carry both columns from the base DDL, and
+    // baselining would record this as applied without creating the index.
+    // Runs that halted before this migration keep NULL — the API layer resolves
+    // those from the run's event log instead of dropping them from the queue.
+    up: (db) => {
+      if (!columnExists(db, "runs", "halted_node_id")) {
+        db.exec("ALTER TABLE runs ADD COLUMN halted_node_id TEXT");
+      }
+      if (!columnExists(db, "runs", "halted_reason")) {
+        db.exec("ALTER TABLE runs ADD COLUMN halted_reason TEXT");
+      }
+      db.exec("CREATE INDEX IF NOT EXISTS idx_runs_user_status ON runs(user_id, status)");
+    },
   },
 ];
 

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { Graph } from "@agent-world/core";
 import { api } from "../lib/api";
 import Tooltip from "./Tooltip";
@@ -11,6 +12,7 @@ interface Props {
 }
 
 export default function ABDialog({ open, graph, onClose, onLaunched }: Props) {
+  const { t } = useTranslation();
   const textGenNodes = graph?.nodes.filter((n) => n.kind === "textGen") ?? [];
   const [targetNodeId, setTargetNodeId] = useState("");
   const [variantsText, setVariantsText] = useState("");
@@ -67,8 +69,8 @@ export default function ABDialog({ open, graph, onClose, onLaunched }: Props) {
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal modal--wide" onClick={(e) => e.stopPropagation()}>
         <div className="modal__header">
-          <h2>A/B 实验</h2>
-          <Tooltip content="关闭">
+          <h2>{t("modals:abDialog.title")}</h2>
+          <Tooltip content={t("common.close")}>
             <button className="icon-btn" onClick={onClose}>
               ✕
             </button>
@@ -77,12 +79,12 @@ export default function ABDialog({ open, graph, onClose, onLaunched }: Props) {
         <div className="modal__body">
           {textGenNodes.length === 0 ? (
             <p className="muted">
-              当前产线没有文坊(textGen)节点，无法发起 A/B。
+              {t("modals:abDialog.noTextGen", { node: t("nodes:textGen") })}
             </p>
           ) : (
             <>
               <div className="field">
-                <span>目标文坊（将替换其 prompt）</span>
+                <span>{t("modals:abDialog.targetLabel", { node: t("nodes:textGen") })}</span>
                 <select
                   value={effectiveTarget}
                   onChange={(e) => setTargetNodeId(e.target.value)}
@@ -95,34 +97,32 @@ export default function ABDialog({ open, graph, onClose, onLaunched }: Props) {
                 </select>
               </div>
               <div className="field">
-                <span>Prompt 变体（每行一个，将作为 A / B / C… 各臂）</span>
+                <span>{t("modals:abDialog.variantsLabel")}</span>
                 <textarea
                   rows={6}
-                  placeholder={
-                    "版本一：用更口语的方式改写\n版本二：突出促销信息\n版本三：强调成分安全"
-                  }
+                  placeholder={t("modals:abDialog.variantsPlaceholder")}
                   value={variantsText}
                   onChange={(e) => setVariantsText(e.target.value)}
                 />
                 <div className="field__hint">
-                  已识别 {variants.length} 个变体（至少需要 2 个）。
+                  {t("modals:abDialog.variantsHint", { count: variants.length })}
                 </div>
               </div>
               <div className="field">
-                <span>预算上限（USD，可选）</span>
+                <span>{t("modals:abDialog.budgetLabel")}</span>
                 <input
                   value={budget}
                   onChange={(e) => setBudget(e.target.value)}
-                  placeholder="留空则不限制"
+                  placeholder={t("modals:abDialog.budgetPlaceholder")}
                 />
               </div>
               <div className="field">
-                <span>原材料（可选）</span>
+                <span>{t("modals:abDialog.inputLabel")}</span>
                 <textarea
                   rows={2}
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  placeholder="留空则使用产线默认原材料"
+                  placeholder={t("modals:abDialog.inputPlaceholder")}
                 />
               </div>
               {error && (
@@ -136,7 +136,9 @@ export default function ABDialog({ open, graph, onClose, onLaunched }: Props) {
                   disabled={!canLaunch}
                   onClick={launch}
                 >
-                  {launching ? "发起中…" : `发起 A/B（${variants.length} 臂）`}
+                  {launching
+                    ? t("modals:abDialog.launching")
+                    : t("modals:abDialog.launch", { count: variants.length })}
                 </button>
               </div>
             </>

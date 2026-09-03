@@ -1,24 +1,26 @@
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { incoming, outgoing, type Graph } from "@agent-world/core";
 import { useGraph } from "../store/graph";
 import { useVisibleRuntime, resumeRun, useRun } from "../store/run";
 import type { FailureRecord } from "@agent-world/core";
-import Tooltip from "./Tooltip";
 
+// Engine-side error codes, so they map to pack keys instead of copy.
 const ERROR_LABEL: Record<string, string> = {
-  TIMEOUT: "超时",
-  RATE_LIMIT: "限流",
-  PROVIDER_ERROR: "模型服务异常",
-  AUTH: "鉴权失败",
-  VALIDATION: "校验失败",
-  BUDGET: "预算",
-  UNSUPPORTED: "不支持",
-  SCRIPT_ERROR: "脚本执行错误",
-  UNKNOWN: "未知错误",
+  TIMEOUT: "run:failure.codes.timeout",
+  RATE_LIMIT: "run:failure.codes.rateLimit",
+  PROVIDER_ERROR: "run:failure.codes.providerError",
+  AUTH: "run:failure.codes.auth",
+  VALIDATION: "run:failure.codes.validation",
+  BUDGET: "run:failure.codes.budget",
+  UNSUPPORTED: "run:failure.codes.unsupported",
+  SCRIPT_ERROR: "run:failure.codes.scriptError",
+  UNKNOWN: "run:failure.codes.unknown",
 };
 
-function nodeName(graph: Graph, id: string | undefined): string {
-  if (!id) return "整条产线";
+/** `fallback` comes from the caller: this helper has no t() of its own. */
+function nodeName(graph: Graph, id: string | undefined, fallback: string): string {
+  if (!id) return fallback;
   return graph.nodes.find((n) => n.id === id)?.name ?? id;
 }
 
@@ -66,6 +68,7 @@ interface Props {
 }
 
 export default function FailurePanel({ onRerun }: Props) {
+  const { t } = useTranslation();
   const { graph } = useGraph();
   const runtime = useVisibleRuntime();
   const reset = useRun((s) => s.reset);
@@ -116,11 +119,11 @@ export default function FailurePanel({ onRerun }: Props) {
         <div>
           <div className="failure-panel__title">
             {runtime.status === "tripped"
-              ? "电力不足，全厂停机"
-              : "产线运行失败"}
+              ? t("run:failure.trippedTitle")
+              : t("run:failure.failedTitle")}
           </div>
           <div className="failure-panel__sub">
-            共 {runtime.failures.length} 条失败记录 · 可重试或返工到上游
+            {t("run:failure.summary", { total: runtime.failures.length })}
           </div>
         </div>
         <button
@@ -143,22 +146,24 @@ export default function FailurePanel({ onRerun }: Props) {
           const upstream = f.nodeId
             ? upstreamDone(graph, f.nodeId, doneNodes)
             : [];
+          const codeKey = f.errorCode ? ERROR_LABEL[f.errorCode] : undefined;
+          const whole = t("run:failure.wholePipeline");
           return (
             <div className="failure-card" key={`${f.seq}-${i}`}>
               <div className="failure-card__top">
                 <span className="failure-card__node">
-                  {nodeName(graph, f.nodeId)}
+                  {nodeName(graph, f.nodeId, whole)}
                 </span>
                 {f.errorCode && (
                   <span
                     className={`failure-code failure-code--${f.errorCode.toLowerCase()}`}
                   >
-                    {ERROR_LABEL[f.errorCode] ?? f.errorCode}
+                    {codeKey ? t(codeKey) : f.errorCode}
                   </span>
                 )}
                 {f.attempt !== undefined && f.attempt > 0 && (
                   <span className="failure-card__attempt">
-                    第 {f.attempt} 次
+                    {t("run:failure.attempt", { attempt: f.attempt })}
                   </span>
                 )}
                 <span className="failure-card__time">{formatTime(f.ts)}</span>
@@ -166,7 +171,7 @@ export default function FailurePanel({ onRerun }: Props) {
               <p className="failure-card__msg">{f.error}</p>
               {stranded > 0 && (
                 <p className="failure-card__impact">
-                  影响：{stranded} 座下游节点未启动
+                  {t("run:failure.impact", { stranded })}
                 </p>
               )}
               <div className="failure-card__actions">
@@ -176,7 +181,7 @@ export default function FailurePanel({ onRerun }: Props) {
                     disabled={busy}
                     onClick={() => retryNode(f)}
                   >
-                    重试该节点
+                    {t("run:failure.retryNode")}
                   </button>
                 )}
                 {f.nodeId && upstream.length > 0 && (
@@ -188,7 +193,7 @@ export default function FailurePanel({ onRerun }: Props) {
                         setReworkFor(reworkFor === f.seq ? null : f.seq)
                       }
                     >
-                      返工到上游 ▾
+                      {t("run:failure.reworkUpstream")}
                     </button>
                     {reworkFor === f.seq && (
                       <div className="rework-popover">
@@ -199,7 +204,7 @@ export default function FailurePanel({ onRerun }: Props) {
                             disabled={busy}
                             onClick={() => reworkTo(id)}
                           >
-                            {nodeName(graph, id)}
+                            {nodeName(graph, id, whole)}
                           </button>
                         ))}
                       </div>
@@ -214,12 +219,12 @@ export default function FailurePanel({ onRerun }: Props) {
 
       <div className="failure-panel__footer">
         <button className="btn btn--ghost" disabled={busy} onClick={onRerun}>
-          整条重跑
+          {t("run:failure.rerunAll")}
         </button>
         <span className="muted">
           {failedNodeIds.length > 0
-            ? "重试只重跑失败节点及下游；返工到上游会从所选节点重新下料。"
-            : "预算停机后请调高预算再整条重跑。"}
+            ? t("run:failure.hintRetry")
+            : t("run:failure.hintTripped")}
         </span>
       </div>
     </div>

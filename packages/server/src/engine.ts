@@ -4316,6 +4316,12 @@ export async function* resume(opts: ResumeOptions): AsyncGenerator<RunEvent, voi
     }
   }
 
+  // Seq of the next unused slot. Every event resume yields before handing off to
+  // the scheduler consumes one, and the scheduler starts at whatever is left:
+  // reusing state.lastSeq + 1 for both collides on the UNIQUE(run_id, seq)
+  // constraint and kills the resume mid-stream.
+  let nextSeq = state.lastSeq + 1;
+
   // 4.7 — a human node's pending review is its artifact: approving it passes
   // the reviewed text downstream (the approveGate pre-mark reads it back).
   // editOutput below then overrides it when the operator edited the text.
@@ -4349,7 +4355,19 @@ export async function* resume(opts: ResumeOptions): AsyncGenerator<RunEvent, voi
         nodeId: state.haltedNodeId,
         attempt,
         decision: "rejected",
-        seq: state.lastSeq + 1,
+        seq: nextSeq++,
+        ts: now(),
+      };
+      // The scheduler pre-marks this node failed so error edges can catch it,
+      // but a pre-mark writes no event: without this the node stays "running" in
+      // the projection after the run ends and a later resume cannot see it failed.
+      yield {
+        type: "node.failed",
+        nodeId: state.haltedNodeId,
+        attempt,
+        error: "Rejected by human operator",
+        errorCode: "VALIDATION",
+        seq: nextSeq++,
         ts: now(),
       };
     } else {
@@ -4363,7 +4381,7 @@ export async function* resume(opts: ResumeOptions): AsyncGenerator<RunEvent, voi
           reason: "Rejected by human operator",
           decision: "rejected",
           by: "human",
-          seq: state.lastSeq + 1,
+          seq: nextSeq++,
           ts: now(),
         };
       }
@@ -4373,7 +4391,7 @@ export async function* resume(opts: ResumeOptions): AsyncGenerator<RunEvent, voi
         status: "failed",
         reason: "Rejected by human operator",
         haltedNodeId: state.haltedNodeId ?? undefined,
-        seq: state.lastSeq + 2,
+        seq: nextSeq++,
         ts: now(),
       };
       return;
@@ -4385,7 +4403,7 @@ export async function* resume(opts: ResumeOptions): AsyncGenerator<RunEvent, voi
       type: "run.finished",
       runId,
       status: "failed",
-      seq: state.lastSeq + 1,
+      seq: nextSeq++,
       ts: now(),
     };
     yield ev;
@@ -4395,12 +4413,11 @@ export async function* resume(opts: ResumeOptions): AsyncGenerator<RunEvent, voi
   // 4D.7 — dangerous-action approval: persist newly-approved tools as events
   // (replay-consistent) and resume with them pre-approved.
   const approveTools = opts.approveTools ?? [];
-  let emitSeq = state.lastSeq;
   const toEmit = approveTools.filter((t) => !state.approvedTools.includes(t));
   for (const t of toEmit) {
-    yield { type: "tool.approved", tool: t, seq: ++emitSeq, ts: now() };
+    yield { type: "tool.approved", tool: t, seq: nextSeq++, ts: now() };
   }
-  const startSeq = emitSeq + 1;
+  const startSeq = nextSeq;
 
   // Seed the scheduler: every node that already produced an artifact is done;
   // a node the log records as skipped (branch tail not taken, or cascade-skipped

@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
+import i18n from "../i18n";
 import { api, type RunSummary } from "../lib/api";
+import { runStatusLabel } from "../lib/run-status";
 import Tooltip from "./Tooltip";
 
 interface Props {
@@ -9,7 +12,7 @@ interface Props {
 }
 
 const PAGE_SIZES = [10, 20, 50, 100];
-// Engine 真实 run status，对齐 ControlPanel.STATUS_TEXT
+// Engine 真实 run status；这些是列表用的短标签，ControlPanel 状态行是另一套更长的说法
 const STATUSES = [
   "running",
   "done",
@@ -19,21 +22,6 @@ const STATUSES = [
   "cancelled",
   "interrupted",
 ];
-
-const STATUS_LABEL: Record<string, string> = {
-  idle: "待派发",
-  running: "运行中",
-  done: "全部出厂",
-  halted: "等待人工",
-  failed: "产线故障",
-  tripped: "电力跳闸",
-  cancelled: "已取消",
-  interrupted: "上次中断",
-  // 兼容旧数据或 A/B 报告
-  completed: "已完成",
-  approved: "已通过",
-  rejected: "已拒绝",
-};
 
 // 状态 → 语义色（工厂系）
 const STATUS_COLOR: Record<string, string> = {
@@ -51,14 +39,16 @@ const STATUS_COLOR: Record<string, string> = {
 
 function fmtRelative(ts: number): string {
   const diff = Date.now() - ts;
-  if (diff < 60_000) return "刚刚";
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`;
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前`;
-  return `${Math.floor(diff / 86_400_000)} 天前`;
+  if (diff < 60_000) return i18n.t("run:relative.justNow");
+  if (diff < 3_600_000)
+    return i18n.t("run:relative.minutesAgo", { n: Math.floor(diff / 60_000) });
+  if (diff < 86_400_000)
+    return i18n.t("run:relative.hoursAgo", { n: Math.floor(diff / 3_600_000) });
+  return i18n.t("run:relative.daysAgo", { n: Math.floor(diff / 86_400_000) });
 }
 
 function fmtDuration(ms: number | null): string {
-  if (ms == null) return "运行中";
+  if (ms == null) return i18n.t("run:status.running");
   const s = Math.round(ms / 1000);
   if (s < 60) return `${s}s`;
   const m = Math.floor(s / 60);
@@ -83,6 +73,7 @@ function CompareView({
   stats: Record<string, RunStats>;
   onBack: () => void;
 }) {
+  const { t, i18n } = useTranslation();
   const byId = new Map(runs.map((r) => [r.id, r]));
   const cols = selected.map((id) => ({
     id,
@@ -90,18 +81,21 @@ function CompareView({
     stat: stats[id],
   }));
   const rows: { label: string; get: (c: (typeof cols)[number]) => string }[] = [
-    { label: "产线", get: (c) => c.run?.graph_name || "(未命名产线)" },
     {
-      label: "状态",
-      get: (c) => (c.run ? (STATUS_LABEL[c.run.status] ?? c.run.status) : "—"),
+      label: t("run:history.graph"),
+      get: (c) => c.run?.graph_name || t("run:history.unnamedGraph"),
     },
-    { label: "触发", get: (c) => c.run?.trigger ?? "—" },
     {
-      label: "开始",
+      label: t("run:history.status"),
+      get: (c) => (c.run ? runStatusLabel(c.run.status) : "—"),
+    },
+    { label: t("run:history.trigger"), get: (c) => c.run?.trigger ?? "—" },
+    {
+      label: t("run:history.started"),
       get: (c) => (c.run ? fmtRelative(c.run.started_at) : "—"),
     },
     {
-      label: "耗时",
+      label: t("run:history.duration"),
       get: (c) =>
         c.run
           ? fmtDuration(
@@ -109,17 +103,21 @@ function CompareView({
             )
           : "—",
     },
-    { label: "节点数", get: (c) => (c.stat ? String(c.stat.nodes) : "—") },
     {
-      label: "输入 tokens",
-      get: (c) => (c.stat ? c.stat.tokensIn.toLocaleString() : "—"),
+      label: t("run:history.nodeCount"),
+      get: (c) => (c.stat ? String(c.stat.nodes) : "—"),
     },
     {
-      label: "输出 tokens",
-      get: (c) => (c.stat ? c.stat.tokensOut.toLocaleString() : "—"),
+      label: t("run:history.tokensIn"),
+      get: (c) => (c.stat ? c.stat.tokensIn.toLocaleString(i18n.language) : "—"),
     },
     {
-      label: "成本",
+      label: t("run:history.tokensOut"),
+      get: (c) =>
+        c.stat ? c.stat.tokensOut.toLocaleString(i18n.language) : "—",
+    },
+    {
+      label: t("run:history.cost"),
       get: (c) => (c.stat ? `$${c.stat.costUsd.toFixed(4)}` : "—"),
     },
   ];
@@ -127,13 +125,13 @@ function CompareView({
     <div>
       <div className="dialog-actions" style={{ marginBottom: 8 }}>
         <button className="btn" onClick={onBack}>
-          返回列表
+          {t("run:history.backToList")}
         </button>
       </div>
       <table className="compare-table">
         <thead>
           <tr>
-            <th>指标</th>
+            <th>{t("run:history.metric")}</th>
             {cols.map((c) => (
               <th key={c.id}>{c.run?.graph_name || c.id.slice(0, 8)}</th>
             ))}
@@ -155,6 +153,7 @@ function CompareView({
 }
 
 export default function RunHistory({ open, onClose, onOpen }: Props) {
+  const { t } = useTranslation();
   const [runs, setRuns] = useState<RunSummary[]>([]);
   const [graphs, setGraphs] = useState<{ id: string; name: string }[]>([]);
   const [total, setTotal] = useState(0);
@@ -227,7 +226,9 @@ export default function RunHistory({ open, onClose, onOpen }: Props) {
       load();
       onOpen?.(runId);
     } catch (e) {
-      setErrorMsg(`重新运行失败：${(e as Error).message}`);
+      setErrorMsg(
+        t("run:history.rerunFailed", { message: (e as Error).message }),
+      );
     } finally {
       setRerunning(null);
     }
@@ -250,12 +251,14 @@ export default function RunHistory({ open, onClose, onOpen }: Props) {
         onClick={(e) => e.stopPropagation()}
       >
         <div className="modal__header">
-          <h2>运行历史</h2>
+          <h2>{t("run:history.title")}</h2>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <button className="btn" onClick={() => setCompareMode((v) => !v)}>
-              {compareMode ? "退出选择" : "选择对比"}
+              {compareMode
+                ? t("run:history.exitCompare")
+                : t("run:history.enterCompare")}
             </button>
-            <Tooltip content="关闭">
+            <Tooltip content={t("common.close")}>
               <button className="icon-btn" onClick={onClose}>
                 ✕
               </button>
@@ -265,7 +268,7 @@ export default function RunHistory({ open, onClose, onOpen }: Props) {
 
         <div className="runhistory-filters">
           <label>
-            产线
+            {t("run:history.graph")}
             <select
               value={graphId}
               onChange={(e) => {
@@ -273,7 +276,7 @@ export default function RunHistory({ open, onClose, onOpen }: Props) {
                 setPage(0);
               }}
             >
-              <option value="">全部</option>
+              <option value="">{t("run:history.all")}</option>
               {graphs.map((g) => (
                 <option key={g.id} value={g.id}>
                   {g.name}
@@ -282,7 +285,7 @@ export default function RunHistory({ open, onClose, onOpen }: Props) {
             </select>
           </label>
           <label>
-            状态
+            {t("run:history.status")}
             <select
               value={status}
               onChange={(e) => {
@@ -290,15 +293,17 @@ export default function RunHistory({ open, onClose, onOpen }: Props) {
                 setPage(0);
               }}
             >
-              <option value="">全部</option>
+              <option value="">{t("run:history.all")}</option>
               {STATUSES.map((s) => (
                 <option key={s} value={s}>
-                  {STATUS_LABEL[s] ?? s}
+                  {runStatusLabel(s)}
                 </option>
               ))}
             </select>
           </label>
-          <span className="runhistory-count">共 {total} 条</span>
+          <span className="runhistory-count">
+            {t("run:history.total", { n: total })}
+          </span>
         </div>
         <div className="modal__body runhistory-body">
           {errorMsg && <div className="runhistory-error">{errorMsg}</div>}
@@ -313,9 +318,9 @@ export default function RunHistory({ open, onClose, onOpen }: Props) {
           ) : (
             <>
               <div className="runhistory-list">
-                {loading && <div className="note">加载中…</div>}
+                {loading && <div className="note">{t("run:history.loading")}</div>}
                 {!loading && runs.length === 0 && (
-                  <div className="note">没有匹配的运行</div>
+                  <div className="note">{t("run:history.empty")}</div>
                 )}
                 {runs.map((r) => (
                   <div
@@ -341,10 +346,10 @@ export default function RunHistory({ open, onClose, onOpen }: Props) {
                         <span
                           className={`run-status ${STATUS_COLOR[r.status] ?? "run-status--default"}`}
                         >
-                          {STATUS_LABEL[r.status] ?? r.status}
+                          {runStatusLabel(r.status)}
                         </span>
                         <span className="runhistory-name">
-                          {r.graph_name || "(未命名产线)"}
+                          {r.graph_name || t("run:history.unnamedGraph")}
                         </span>
                         <span className="runhistory-id">
                           {r.id.slice(0, 8)}
@@ -353,7 +358,7 @@ export default function RunHistory({ open, onClose, onOpen }: Props) {
                       <div className="runhistory-row-meta">
                         <span>{fmtRelative(r.started_at)}</span>
                         <span>
-                          耗时{" "}
+                          {t("run:history.duration")}{" "}
                           {fmtDuration(
                             r.ended_at != null
                               ? r.ended_at - r.started_at
@@ -362,7 +367,11 @@ export default function RunHistory({ open, onClose, onOpen }: Props) {
                         </span>
                         <span>{r.trigger}</span>
                         {r.budget_usd != null && (
-                          <span>预算 ${r.budget_usd.toFixed(4)}</span>
+                          <span>
+                            {t("run:history.budget", {
+                              amount: r.budget_usd.toFixed(4),
+                            })}
+                          </span>
                         )}
                       </div>
                     </div>
@@ -376,7 +385,9 @@ export default function RunHistory({ open, onClose, onOpen }: Props) {
                           void handleRerun(r);
                         }}
                       >
-                        {rerunning === r.id ? "重跑中…" : "重新运行"}
+                        {rerunning === r.id
+                          ? t("run:history.rerunning")
+                          : t("run:history.rerun")}
                       </button>
                     )}
                   </div>
@@ -385,7 +396,7 @@ export default function RunHistory({ open, onClose, onOpen }: Props) {
 
               <div className="runhistory-pager">
                 <label className="runhistory-pager-size">
-                  每页
+                  {t("run:history.perPage")}
                   <select
                     value={pageSize}
                     onChange={(e) => changePageSize(Number(e.target.value))}
@@ -396,24 +407,27 @@ export default function RunHistory({ open, onClose, onOpen }: Props) {
                       </option>
                     ))}
                   </select>
-                  条
+                  {t("run:history.perPageUnit")}
                 </label>
                 <button
                   className="btn"
                   disabled={page === 0}
                   onClick={() => setPage((p) => Math.max(0, p - 1))}
                 >
-                  上一页
+                  {t("run:history.prevPage")}
                 </button>
                 <span>
-                  第 {page + 1} / {pageCount} 页
+                  {t("run:history.pageInfo", {
+                    page: page + 1,
+                    pages: pageCount,
+                  })}
                 </span>
                 <button
                   className="btn"
                   disabled={(page + 1) * pageSize >= total}
                   onClick={() => setPage((p) => p + 1)}
                 >
-                  下一页
+                  {t("run:history.nextPage")}
                 </button>
                 {compareMode && (
                   <button
@@ -421,7 +435,7 @@ export default function RunHistory({ open, onClose, onOpen }: Props) {
                     disabled={selected.length < 2}
                     onClick={runCompare}
                   >
-                    对比选中 ({selected.length})
+                    {t("run:history.compareSelected", { n: selected.length })}
                   </button>
                 )}
               </div>

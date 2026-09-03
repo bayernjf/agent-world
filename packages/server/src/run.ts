@@ -3,7 +3,7 @@ import { compile, type Graph, type RunEvent } from "@agent-world/core";
 import type { Db } from "./db.js";
 import { ArtifactStore } from "./artifact-store.js";
 import { log } from "./logger.js";
-import { execute } from "./engine.js";
+import { execute, resume } from "./engine.js";
 import { loadConfig } from "./config.js";
 import { runAsUser } from "./user-context.js";
 import { createReadArtifact } from "./artifact-reader.js";
@@ -104,24 +104,12 @@ export async function startRun(args: StartRunArgs): Promise<{ runId: string; dia
       })) {
         db.record(runId, event);
         if (event.type === "artifact.produced") {
-          const nodeKind = graph.nodes?.find((n) => n.id === event.nodeId)?.kind;
-          const role: "source" | "intermediate" | "final" =
-            nodeKind === "sink" ? "final" : nodeKind === "source" ? "source" : "intermediate";
-          db.insertArtifact(
-            await artifacts.save(event.artifact, {
-              runId,
-              nodeId: event.nodeId,
-              attempt: event.attempt,
-              graphId: graph.id,
-              role,
-            }),
-            userId,
-          );
+          await persistArtifact({ db, artifacts, userId, graph, runId, event });
           args.onArtifact?.(event.artifact.id);
         }
         entry.events.push(event);
         if (event.type === "run.finished") {
-          db.finishRun(runId, userId, event.status, Date.now());
+          db.finishRun(runId, userId, event.status, Date.now(), haltedOf(event));
           // Persist the run's (possibly mutated) variables for the next run.
           db.saveGraphVariables(graph.id, userId, Object.fromEntries(variables));
           args.onFinish?.(graph.id, event.status);
@@ -136,4 +124,160 @@ export async function startRun(args: StartRunArgs): Promise<{ runId: string; dia
   });
 
   return { runId, diagnostics };
+}
+
+type RunFinishedEvent = Extract<RunEvent, { type: "run.finished" }>;
+type ArtifactEvent = Extract<RunEvent, { type: "artifact.produced" }>;
+
+/** What a halted run is waiting on; every other final status clears it. */
+export function haltedOf(event: RunFinishedEvent): { nodeId: string | null; reason: string | null } {
+  return event.status === "halted"
+    ? { nodeId: event.haltedNodeId ?? null, reason: event.reason ?? null }
+    : { nodeId: null, reason: null };
+}
+
+/**
+ * Single artifact-write path for every dispatcher. The resume path used to save
+ * without graphId/role, so a human-approved run's finished product showed up in
+ * the gallery as "(未知流水线)" instead of under its pipeline.
+ */
+async function persistArtifact(args: {
+  db: Db;
+  artifacts: ArtifactStore;
+  userId: string;
+  graph: Graph;
+  runId: string;
+  event: ArtifactEvent;
+}): Promise<void> {
+  const { db, artifacts, userId, graph, runId, event } = args;
+  const nodeKind = graph.nodes?.find((n) => n.id === event.nodeId)?.kind;
+  const role: "source" | "intermediate" | "final" =
+    nodeKind === "sink" ? "final" : nodeKind === "source" ? "source" : "intermediate";
+  db.insertArtifact(
+    await artifacts.save(event.artifact, {
+      runId,
+      nodeId: event.nodeId,
+      attempt: event.attempt,
+      graphId: graph.id,
+      role,
+    }),
+    userId,
+  );
+}
+
+export type ResumeAction = "continue" | "approve" | "reject" | "edit" | "scrap";
+
+export interface ResumeRunArgs {
+  db: Db;
+  userId: string;
+  worker: Worker;
+  artifacts: ArtifactStore;
+  live: LiveMap;
+  runId: string;
+  action?: ResumeAction;
+  editOutput?: Record<string, string>;
+  /** Retry a failed/tripped run from this node instead of continuing forward. */
+  resetFrom?: string;
+  approveTools?: string[];
+  publicUrl?: string;
+  /** Called when the run finishes (used to fire downstream event triggers). */
+  onFinish?: (graphId: string, status: string) => void;
+  /** Called for each produced artifact (used to fire artifact event triggers). */
+  onArtifact?: (artifactId: string) => void;
+}
+
+/**
+ * Resumes a halted/failed run: validates ownership and liveness, replays the
+ * stored event log into engine state, then drains the resumed stream in the
+ * background. Shared by `/api/runs/:id/resume` and the review queue's batch
+ * decide so one human decision and ten take exactly the same path.
+ */
+export async function resumeRun(args: ResumeRunArgs): Promise<{ runId: string; action: ResumeAction }> {
+  const { db, userId, worker, artifacts, live, runId, publicUrl } = args;
+  const action: ResumeAction = args.action ?? "continue";
+  const row = db.getRun(runId, userId);
+  if (!row) throw new RunStartError("not found", 404);
+
+  // A live entry exists while the generator runs. Reject only if it is still
+  // actively executing; a halted/done entry is safe to resume.
+  const active = live.get(runId);
+  if (active && !active.done) throw new RunStartError("run is still active", 409);
+  if (active) live.delete(runId);
+
+  const graph = JSON.parse(row.snapshot) as Graph;
+  const { plan, diagnostics } = compile(graph);
+  if (!plan) throw new RunStartError("graph does not compile", 422, diagnostics);
+
+  const pastEvents = db.events(runId);
+  const controller = new AbortController();
+  const entry: LiveEntry = { events: [], done: false, controller };
+  live.set(runId, entry);
+  const runLog = log.child({ runId, graphId: graph.id });
+  runLog.info("run resumed", { action, resetFrom: args.resetFrom ?? null, nodes: graph.nodes.length });
+  // A retry from a failed/tripped run reopens the same run; flip its status
+  // back to running so listings/UIs reflect the active attempt.
+  if (args.resetFrom || row.status === "failed" || row.status === "tripped") {
+    db.markRunning(runId, userId);
+  }
+
+  void runAsUser(userId, async () => {
+    try {
+      const cfg = loadConfig(userId);
+      const now = new Date();
+      // Graph variables: defaults overridden by persisted values. Re-loaded on
+      // resume so another run's writes since the halt are not lost; written
+      // back once the run finishes.
+      const variables = new Map<string, unknown>(
+        Object.entries({ ...(graph.variables ?? {}), ...db.loadGraphVariables(graph.id, userId) }),
+      );
+      for await (const event of resume({
+        runId,
+        graph,
+        plan,
+        worker,
+        budgetUsd: row.budget_usd ?? null,
+        initialVariables: variables,
+        monthlyBudgetUsd: cfg.monthlyBudgetUsd ?? null,
+        monthSpentUsd: db.costForMonth(now.getFullYear(), now.getMonth() + 1, userId),
+        defaultModel: cfg.defaultModel,
+        pastEvents,
+        action,
+        resetFrom: args.resetFrom,
+        editOutput: args.editOutput,
+        approveTools: args.approveTools,
+        signal: controller.signal,
+        storeBinary: async (data, mimeType, label) => {
+          const saved = await artifacts.saveBinary({ userId, data, kind: "image", mimeType, label });
+          db.insertArtifact(saved, userId);
+          return saved.uri ?? `data:${mimeType};base64,${data.toString("base64")}`;
+        },
+        // Inline local /api/artifacts/<id> URIs as data:<mime>;base64,... for
+        // cloud vision models (they can't reach our localhost).
+        readArtifact: createReadArtifact(db, artifacts),
+        publicUrl,
+        // Subprocess nodes call other saved graphs — resolve them within the
+        // same user's scope so users can't invoke graphs they can't see.
+        loadSubgraph: (graphId) => db.getGraph(graphId, userId) ?? null,
+      })) {
+        db.record(runId, event);
+        if (event.type === "artifact.produced") {
+          await persistArtifact({ db, artifacts, userId, graph, runId, event });
+          args.onArtifact?.(event.artifact.id);
+        }
+        entry.events.push(event);
+        if (event.type === "run.finished") {
+          db.finishRun(runId, userId, event.status, Date.now(), haltedOf(event));
+          db.saveGraphVariables(graph.id, userId, Object.fromEntries(variables));
+          args.onFinish?.(graph.id, event.status);
+        }
+      }
+    } catch (err) {
+      db.finishRun(runId, userId, "failed", Date.now());
+      runLog.error("resume crashed", { error: (err as Error)?.message ?? String(err) });
+    } finally {
+      entry.done = true;
+    }
+  });
+
+  return { runId, action };
 }

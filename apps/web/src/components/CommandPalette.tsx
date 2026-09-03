@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
+
+export type CommandGroup = "node" | "view" | "automation" | "manage" | "canvas";
 
 export interface CommandItem {
   id: string;
   label: string;
   hint?: string;
   shortcut?: string;
-  group: "节点" | "查看" | "自动化" | "管理" | "画布";
+  group: CommandGroup;
   onSelect: () => void;
   keywords?: string;
 }
@@ -38,9 +41,18 @@ function saveRecents(ids: string[]) {
   }
 }
 
-const GROUP_ORDER: CommandItem["group"][] = ["节点", "查看", "自动化", "管理", "画布"];
+const GROUP_ORDER: CommandGroup[] = ["node", "view", "automation", "manage", "canvas"];
+
+const GROUP_LABELS: Record<CommandGroup, string> = {
+  node: "modals:commandPalette.groups.node",
+  view: "modals:commandPalette.groups.view",
+  automation: "modals:commandPalette.groups.automation",
+  manage: "modals:commandPalette.groups.manage",
+  canvas: "modals:commandPalette.groups.canvas",
+};
 
 export default function CommandPalette({ open, onClose, items }: Props) {
+  const { t } = useTranslation();
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const [recents, setRecents] = useState<string[]>([]);
@@ -65,20 +77,26 @@ export default function CommandPalette({ open, onClose, items }: Props) {
         .filter((it): it is CommandItem => Boolean(it));
       const seen = new Set(recentItems.map((it) => it.id));
       const rest = items.filter((it) => !seen.has(it.id));
-      return { sections: [{ group: "最近" as const, items: recentItems }, ...groupByGroup(rest)], flat: [...recentItems, ...rest] };
+      return {
+        sections: [
+          { label: t("modals:commandPalette.recent"), items: recentItems },
+          ...groupByGroup(rest),
+        ],
+        flat: [...recentItems, ...rest],
+      };
     }
     const matches = items.filter((it) => {
       const hay = `${it.label} ${it.hint ?? ""} ${it.keywords ?? ""}`.toLowerCase();
       return hay.includes(q);
     });
     return { sections: groupByGroup(matches), flat: matches };
-  }, [items, query, recents]);
+  }, [items, query, recents, t]);
 
-  function groupByGroup(list: CommandItem[]): { group: string; items: CommandItem[] }[] {
-    const out: { group: string; items: CommandItem[] }[] = [];
+  function groupByGroup(list: CommandItem[]): { label: string; items: CommandItem[] }[] {
+    const out: { label: string; items: CommandItem[] }[] = [];
     for (const g of GROUP_ORDER) {
       const inGroup = list.filter((it) => it.group === g);
-      if (inGroup.length) out.push({ group: g, items: inGroup });
+      if (inGroup.length) out.push({ label: t(GROUP_LABELS[g]), items: inGroup });
     }
     return out;
   }
@@ -136,22 +154,22 @@ export default function CommandPalette({ open, onClose, items }: Props) {
         onMouseDown={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
-        aria-label="命令面板"
+        aria-label={t("modals:commandPalette.ariaLabel")}
       >
         <input
           ref={inputRef}
           className="palette__input"
-          placeholder="搜索命令、动作或节点操作…"
+          placeholder={t("modals:commandPalette.placeholder")}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
         <div ref={listRef} className="palette__list">
           {filtered.sections.length === 0 && (
-            <p className="palette__empty">没有匹配的命令</p>
+            <p className="palette__empty">{t("modals:commandPalette.empty")}</p>
           )}
           {filtered.sections.map((section) => (
-            <div key={section.group} className="palette__section">
-              <p className="palette__group">{section.group}</p>
+            <div key={section.label} className="palette__section">
+              <p className="palette__group">{section.label}</p>
               {section.items.map((item) => {
                 const idx = flatIdx++;
                 const isActive = idx === active;
@@ -174,9 +192,9 @@ export default function CommandPalette({ open, onClose, items }: Props) {
           ))}
         </div>
         <div className="palette__foot">
-          <span><kbd>↑</kbd><kbd>↓</kbd> 移动</span>
-          <span><kbd>↵</kbd> 执行</span>
-          <span><kbd>Esc</kbd> 关闭</span>
+          <span><kbd>↑</kbd><kbd>↓</kbd> {t("modals:commandPalette.foot.move")}</span>
+          <span><kbd>↵</kbd> {t("modals:commandPalette.foot.run")}</span>
+          <span><kbd>Esc</kbd> {t("modals:commandPalette.foot.close")}</span>
         </div>
       </div>
     </div>
