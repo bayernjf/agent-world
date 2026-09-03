@@ -47,6 +47,8 @@ export const KIND_KEY: Record<GraphNode["kind"], string> = {
   generic: "nodes:generic",
   compliance: "nodes:compliance",
   publish: "nodes:publish",
+  fanout: "nodes:fanout",
+  select: "nodes:select",
 };
 
 const STATUS_KEY: Record<NodeRuntime["status"], string> = {

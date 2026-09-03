@@ -269,6 +269,8 @@ const DEFAULTS: Record<NodeKind, Partial<GraphNode>> = {
   generic: { generic: { model: "agnes-2.0-flash", prompt: "", skills: [], modality: "text", retry: { maxRetries: 2, baseDelayMs: 1000, maxDelayMs: 30000 } } },
   compliance: { compliance: { platform: "xiaohongshu", extraBanned: "", autoFix: true, failOnViolation: false } },
   publish: { publish: { platform: "xiaohongshu" } },
+  fanout: { fanout: { count: 3, strategy: "prompt", angleBrief: "" } },
+  select: { select: { mode: "llm_score", topK: 1, rubric: "", passThroughAll: false } },
 };
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
