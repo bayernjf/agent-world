@@ -57,6 +57,7 @@ import { SQLiteMemoryBackend, extractKnowledgeFromRun } from "./memory.js";
 import { fileURLToPath } from "node:url";
 import { sanitizeError } from "./sanitize.js";
 import { decryptString, encryptString } from "./at-rest.js";
+import { publishToChannel } from "./publish.js";
 import { hashPassword, verifyPassword, signToken, verifyToken, REMEMBER_MAX_AGE_SEC } from "./auth.js";
 
 const PORT = Number(process.env.PORT ?? 8791);
@@ -865,6 +866,101 @@ app.post("/api/content-costs", async (c) => {
 app.get("/api/content-costs", (c) => {
   const userId = c.get("userId");
   return c.json(db.listContentCosts(userId));
+});
+
+// --- Publish targets & open-channel publishing (F7-B) ---
+
+app.post("/api/publish-targets", async (c) => {
+  const userId = c.get("userId");
+  const body = (await c.req.json().catch(() => ({}))) as {
+    platform?: string;
+    name?: string;
+    provider?: string;
+    url?: string;
+    token?: string;
+  };
+  if (!body.platform || !body.provider || !body.url) {
+    return c.json({ error: "platform/provider/url are required" }, 400);
+  }
+  const configEncrypted = encryptString(JSON.stringify({ url: body.url, token: body.token ?? "" }));
+  const target = db.createPublishTarget({
+    id: randomUUID(),
+    userId,
+    platform: body.platform,
+    name: body.name,
+    provider: body.provider,
+    configEncrypted,
+    createdAt: Date.now(),
+  });
+  return c.json(target, 201);
+});
+
+app.get("/api/publish-targets", (c) => {
+  const userId = c.get("userId");
+  const targets = db.listPublishTargets(userId).map((t) => {
+    let config: { url?: string; token?: string } = {};
+    try {
+      config = JSON.parse(decryptString(t.configEncrypted));
+    } catch {
+      /* leave empty */
+    }
+    return { ...t, config };
+  });
+  return c.json(targets);
+});
+
+app.delete("/api/publish-targets/:id", (c) => {
+  const userId = c.get("userId");
+  const ok = db.deletePublishTarget(c.req.param("id"), userId);
+  return c.json({ ok });
+});
+
+app.post("/api/publish", async (c) => {
+  const userId = c.get("userId");
+  const body = (await c.req.json().catch(() => ({}))) as {
+    targetId?: string;
+    title?: string;
+    body?: string;
+    tags?: string[];
+    graphId?: string;
+    runId?: string;
+    artifactId?: string;
+  };
+  const target = db.listPublishTargets(userId).find((t) => t.id === body.targetId);
+  if (!target) return c.json({ error: "publish target not found" }, 404);
+  let config: { url?: string; token?: string } = {};
+  try {
+    config = JSON.parse(decryptString(target.configEncrypted));
+  } catch {
+    return c.json({ error: "target config is unreadable" }, 400);
+  }
+  try {
+    const result = await publishToChannel(
+      { provider: target.provider, url: config.url ?? "", token: config.token },
+      { title: body.title ?? "", body: body.body ?? "", tags: body.tags ?? [] },
+    );
+    const record = db.insertPublishedContent({
+      id: randomUUID(),
+      userId,
+      graphId: body.graphId,
+      runId: body.runId,
+      artifactId: body.artifactId,
+      platform: target.platform,
+      status: "published",
+      externalId: result.externalId,
+      externalUrl: result.externalUrl,
+      publishedAt: Date.now(),
+      detailJson: JSON.stringify(result.detail),
+    });
+    return c.json(record, 201);
+  } catch (e) {
+    return c.json({ error: e instanceof Error ? e.message : "publish failed" }, 502);
+  }
+});
+
+app.get("/api/published", (c) => {
+  const userId = c.get("userId");
+  return c.json(db.listPublishedContents(userId));
 });
 
 app.get("/api/costs.csv", (c) => {
