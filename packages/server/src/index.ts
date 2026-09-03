@@ -22,8 +22,8 @@ import { openDb, backfillExistingData, contentHash } from "./db.js";
 import { findGraphIdByName as findGraphIdByNameCore } from "./graphs-name.js";
 import { ArtifactStore } from "./artifact-store.js";
 import { log } from "./logger.js";
-import { execute, resume } from "./engine.js";
-import { startRun, RunStartError } from "./run.js";
+import { startRun, resumeRun, RunStartError, type ResumeAction } from "./run.js";
+import { listPendingReviews, parseDecisions } from "./reviews.js";
 import { TriggerService, TriggerError } from "./triggers.js";
 import { TriggerScheduler } from "./scheduler.js";
 import { resolveConnector } from "./connectors.js";
@@ -43,7 +43,6 @@ import {
   type Modality,
 } from "./config.js";
 import { GuardedFetchError, guardedFetch, hostIsInternal } from "./ssrf.js";
-import { runAsUser } from "./user-context.js";
 import { routingWorker } from "./providers/index.js";
 import { WorkerRegistry } from "./worker-plugins.js";
 import { connectMcpServer, registerMcpTools, type McpClient, type McpServerSpec } from "./mcp.js";
@@ -52,7 +51,6 @@ import { registerSkill, setMemoryBackend, listBuiltinSkills } from "./skills/reg
 import { SQLiteMemoryBackend, extractKnowledgeFromRun } from "./memory.js";
 import { fileURLToPath } from "node:url";
 import { sanitizeError } from "./sanitize.js";
-import { createReadArtifact } from "./artifact-reader.js";
 import { decryptString, encryptString } from "./at-rest.js";
 import { hashPassword, verifyPassword, signToken, verifyToken, REMEMBER_MAX_AGE_SEC } from "./auth.js";
 
@@ -79,7 +77,6 @@ bindSettingsStore({
   set: (userId: string, data: string) => db.saveSettings(userId, encryptString(data)),
 });
 const artifacts = ArtifactStore.fromEnv();
-const readArtifact = createReadArtifact(db, artifacts);
 
 // First-run onboarding is handled by the web UI (shows a template picker when
 // no graphs exist). We no longer seed a default graph on startup — existing
@@ -1247,17 +1244,15 @@ app.delete("/api/runs/:id", (c) => {
 app.post("/api/runs/:id/resume", async (c) => {
   const userId = c.get("userId");
   const runId = c.req.param("id");
-  const row = db.getRun(runId, userId);
-  if (!row) return c.json({ error: "not found" }, 404);
 
   const body = (await c.req.json().catch(() => ({}))) as {
-    action?: "continue" | "approve" | "reject" | "edit" | "scrap";
+    action?: ResumeAction;
     editOutput?: Record<string, string>;
     resetFrom?: string;
     approveTools?: unknown;
     workerId?: string;
   };
-  const action: "continue" | "approve" | "reject" | "edit" | "scrap" =
+  const action: ResumeAction =
     body.action === "scrap" ||
     body.action === "approve" ||
     body.action === "reject" ||
@@ -1269,89 +1264,98 @@ app.post("/api/runs/:id/resume", async (c) => {
   const approveTools =
     Array.isArray(body.approveTools) ? body.approveTools.filter((t) => typeof t === "string") : undefined;
 
-  // A live entry exists while the generator runs. Reject only if it is still
-  // actively executing; a halted/done entry is safe to resume.
-  const active = live.get(runId);
-  if (active && !active.done) return c.json({ error: "run is still active" }, 409);
-  if (active) live.delete(runId);
-
-  const graph = JSON.parse(row.snapshot) as Graph;
-  const { plan, diagnostics } = compile(graph);
-  if (!plan) return c.json({ error: "graph does not compile", diagnostics }, 422);
-
-  const pastEvents = db.events(runId);
-  const controller = new AbortController();
-  const entry = { events: [] as RunEvent[], done: false, controller };
-  live.set(runId, entry);
-  const runLog = log.child({ runId, graphId: graph.id });
-  runLog.info("run resumed", { action, resetFrom: resetFrom ?? null, nodes: graph.nodes.length });
-  // A retry from a failed/tripped run reopens the same run; flip its status
-  // back to running so listings/UIs reflect the active attempt.
-  if (resetFrom || row.status === "failed" || row.status === "tripped") {
-    db.markRunning(runId, userId);
-  }
-
-  void runAsUser(userId, async () => {
-    try {
-      const cfg = loadConfig(userId);
-      const now = new Date();
-      // Graph variables: defaults overridden by persisted values. Re-loaded on
-      // resume so another run's writes since the halt are not lost; written
-      // back once the run finishes.
-      const variables = new Map<string, unknown>(
-        Object.entries({ ...(graph.variables ?? {}), ...db.loadGraphVariables(graph.id, userId) }),
-      );
-      for await (const event of resume({
-        runId,
-        graph,
-        plan,
-        worker: workerRegistry.get(body.workerId),
-        budgetUsd: row.budget_usd ?? null,
-        initialVariables: variables,
-        monthlyBudgetUsd: cfg.monthlyBudgetUsd ?? null,
-        monthSpentUsd: db.costForMonth(now.getFullYear(), now.getMonth() + 1, userId),
-        defaultModel: cfg.defaultModel,
-        pastEvents,
-        action,
-        resetFrom,
-        editOutput,
-        approveTools,
-        signal: controller.signal,
-        storeBinary: async (data, mimeType, label) => {
-          const saved = await artifacts.saveBinary({ userId, data, kind: "image", mimeType, label });
-          db.insertArtifact(saved, userId);
-          return saved.uri ?? `data:${mimeType};base64,${data.toString("base64")}`;
-        },
-        // Inline local /api/artifacts/<id> URIs as data:<mime>;base64,... for
-        // cloud vision models (they can't reach our localhost).
-        readArtifact,
-        publicUrl: PUBLIC_URL,
-        // Subprocess nodes call other saved graphs — resolve them within the
-        // same user's scope so users can't invoke graphs they can't see.
-        loadSubgraph: (graphId) => db.getGraph(graphId, userId) ?? null,
-      })) {
-        db.record(runId, event);
-        if (event.type === "artifact.produced") {
-          db.insertArtifact(
-            await artifacts.save(event.artifact, { runId, nodeId: event.nodeId, attempt: event.attempt }),
-            userId,
-          );
-        }
-        entry.events.push(event);
-        if (event.type === "run.finished") {
-          db.finishRun(runId, userId, event.status, Date.now());
-          db.saveGraphVariables(graph.id, userId, Object.fromEntries(variables));
-        }
-      }
-    } catch (err) {
-      db.finishRun(runId, userId, "failed", Date.now());
-      log.child({ runId }).error("resume crashed", { error: (err as Error)?.message ?? String(err) });
-    } finally {
-      entry.done = true;
+  try {
+    const out = await resumeRun({
+      db,
+      userId,
+      worker: workerRegistry.get(body.workerId),
+      artifacts,
+      live,
+      runId,
+      action,
+      resetFrom,
+      editOutput,
+      approveTools,
+      publicUrl: PUBLIC_URL,
+      onFinish: (gid, status) => {
+        void triggers.onGraphFinished(gid, status);
+      },
+      onArtifact: (aid) => {
+        void triggers.onArtifact(aid);
+      },
+    });
+    return c.json({ ok: true, action: out.action });
+  } catch (e) {
+    if (e instanceof RunStartError) {
+      return jsonResponse(e.status, { error: e.message, diagnostics: e.extra });
     }
-  });
+    throw e;
+  }
+});
 
-  return c.json({ ok: true, action });
+/**
+ * Review queue (F2): every run parked on a human decision, across pipelines,
+ * longest-waiting first. The engine already halts and resumes; this only makes
+ * the pending work discoverable outside a single run view.
+ */
+app.get("/api/reviews/pending", (c) => {
+  const userId = c.get("userId");
+  const limit = Number(c.req.query("limit"));
+  const offset = Number(c.req.query("offset"));
+  const graphId = c.req.query("graphId") || undefined;
+  const { reviews, total } = listPendingReviews(db, userId, {
+    ...(Number.isFinite(limit) && limit > 0 ? { limit } : {}),
+    ...(Number.isFinite(offset) && offset > 0 ? { offset } : {}),
+    ...(graphId ? { graphId } : {}),
+  });
+  return c.json({ reviews, total });
+});
+
+/**
+ * Batch decision. Dispatches each item through the same resume path as a single
+ * decision; per-item failures (not found / still active / won't compile) come
+ * back in `results` with 200 rather than aborting the rest of the batch.
+ */
+app.post("/api/reviews/decide", async (c) => {
+  const userId = c.get("userId");
+  const body = await c.req.json().catch(() => null);
+  const { decisions, error } = parseDecisions(body);
+  if (!decisions) return c.json({ error: error ?? "请求体必须是决策数组" }, 400);
+
+  const results: Array<
+    | { runId: string; ok: true; action: ResumeAction }
+    | { runId: string; ok: false; status: number; error: string }
+  > = [];
+  for (const decision of decisions) {
+    try {
+      await resumeRun({
+        db,
+        userId,
+        worker: workerRegistry.get(),
+        artifacts,
+        live,
+        runId: decision.runId,
+        action: decision.action,
+        editOutput: decision.editOutput,
+        approveTools: decision.approveTools,
+        publicUrl: PUBLIC_URL,
+        onFinish: (gid, status) => {
+          void triggers.onGraphFinished(gid, status);
+        },
+        onArtifact: (aid) => {
+          void triggers.onArtifact(aid);
+        },
+      });
+      results.push({ runId: decision.runId, ok: true, action: decision.action });
+    } catch (e) {
+      if (e instanceof RunStartError) {
+        results.push({ runId: decision.runId, ok: false, status: e.status, error: e.message });
+        continue;
+      }
+      throw e;
+    }
+  }
+  return c.json({ ok: true, results });
 });
 
 /**

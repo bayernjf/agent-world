@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { compile, type Graph } from "@agent-world/core";
 import { openDb } from "./db.js";
 import { execute } from "./engine.js";
+import { haltedOf } from "./run.js";
 import type { Worker } from "./worker.js";
 
 type DB = ReturnType<typeof openDb>;
@@ -85,7 +86,9 @@ export async function startABExperiment(
           signal: opts.signal,
         })) {
           db.record(runId, event);
-          if (event.type === "run.finished") db.finishRun(runId, opts.userId, event.status, Date.now());
+          if (event.type === "run.finished") {
+            db.finishRun(runId, opts.userId, event.status, Date.now(), haltedOf(event));
+          }
         }
       } catch {
         db.finishRun(runId, opts.userId, "failed", Date.now());
