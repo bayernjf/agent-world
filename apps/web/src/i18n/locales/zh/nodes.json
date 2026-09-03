@@ -24,6 +24,7 @@
   "human": "人工岗",
   "subprocess": "外包工坊",
   "generic": "多能坊",
+  "compliance": "合规台",
   "categories": {
     "generation": "AI 加工",
     "control": "车间调度",
@@ -71,7 +72,8 @@
     "sink": "产线产物出口（成品库）",
     "human": "暂停等人工点头（人工岗）",
     "subprocess": "调用另一张产线（外包工坊）",
-    "generic": "多能坊：自由选模型提供方，按模态自动 dispatch"
+    "generic": "多能坊：自由选模型提供方，按模态自动 dispatch",
+    "compliance": "平台规则与广告法合规校验（合规台）"
   },
   "tip": {
     "kind": "类型",

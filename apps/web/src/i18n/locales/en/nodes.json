@@ -24,6 +24,7 @@
   "human": "Manual Post",
   "subprocess": "Outsource Shop",
   "generic": "Multi Shop",
+  "compliance": "Compliance Bench",
   "categories": {
     "generation": "AI Processing",
     "control": "Shop Scheduling",
@@ -71,7 +72,8 @@
     "sink": "Where finished goods leave the line (Goods Store)",
     "human": "Pause until a human signs off (Manual Post)",
     "subprocess": "Call another line (Outsource Shop)",
-    "generic": "Multi Shop: pick any model provider, dispatched automatically by modality"
+    "generic": "Multi Shop: pick any model provider, dispatched automatically by modality",
+    "compliance": "Platform rules and ad-law compliance check (Compliance Bench)"
   },
   "tip": {
     "kind": "Kind",

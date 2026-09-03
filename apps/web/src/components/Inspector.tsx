@@ -1699,6 +1699,78 @@ export default function Inspector({
               </>
             )}
 
+            {node.kind === "compliance" && node.compliance && (
+              <>
+                <label className="field">
+                  <span>目标平台</span>
+                  <select
+                    value={node.compliance.platform}
+                    onChange={(e) =>
+                      updateNode(node.id, {
+                        compliance: {
+                          ...node.compliance!,
+                          platform: e.target.value as
+                            | "taobao"
+                            | "xiaohongshu"
+                            | "douyin"
+                            | "wechat"
+                            | "custom",
+                        },
+                      })
+                    }
+                  >
+                    <option value="taobao">淘宝</option>
+                    <option value="xiaohongshu">小红书</option>
+                    <option value="douyin">抖音</option>
+                    <option value="wechat">微信公众号</option>
+                    <option value="custom">自定义</option>
+                  </select>
+                </label>
+                <label className="field">
+                  <span>补充违禁词（逗号/换行分隔）</span>
+                  <textarea
+                    rows={2}
+                    placeholder="每行一个词，或逗号分隔。与内置《广告法》极限词库合并生效。"
+                    value={node.compliance.extraBanned}
+                    onFocus={beginEdit}
+                    onBlur={commitEdit}
+                    onChange={(e) =>
+                      updateNode(node.id, {
+                        compliance: { ...node.compliance!, extraBanned: e.target.value },
+                      })
+                    }
+                  />
+                </label>
+                <label className="field field--row">
+                  <span>自动产出修复版</span>
+                  <input
+                    type="checkbox"
+                    checked={node.compliance.autoFix}
+                    onChange={(e) =>
+                      updateNode(node.id, {
+                        compliance: { ...node.compliance!, autoFix: e.target.checked },
+                      })
+                    }
+                  />
+                </label>
+                <label className="field field--row">
+                  <span>有违规即走 error 边</span>
+                  <input
+                    type="checkbox"
+                    checked={node.compliance.failOnViolation}
+                    onChange={(e) =>
+                      updateNode(node.id, {
+                        compliance: { ...node.compliance!, failOnViolation: e.target.checked },
+                      })
+                    }
+                  />
+                </label>
+                <div className="field__hint">
+                  合规台做确定性规则检查（广告法极限词、字数、话题标签），产出一份洗稿后的文本；可与「质检站」串联（先洗稿后质检）。
+                </div>
+              </>
+            )}
+
             {node.kind === "http" && node.http && (
               <>
                 <label className="field">

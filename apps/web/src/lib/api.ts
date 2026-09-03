@@ -261,6 +261,25 @@ export interface BrandTerm {
   createdAt: number;
 }
 
+/** A platform's publishing profile (F3 compliance). */
+export interface PlatformProfile {
+  id: string;
+  label: string;
+  titleMax: number;
+  bodyMax: number;
+  hashtag: { prefix: string; max: number };
+  imageRatios: string[];
+  bannedWords: string[];
+  required: string[];
+}
+
+export interface BannedTerm {
+  id: string;
+  term: string;
+  note: string;
+  createdAt: number;
+}
+
 export const api = {
   listSkills: () => authFetch("/api/skills").then(json<Skill[]>),
 
@@ -455,6 +474,27 @@ export const api = {
 
   deleteBrandTerm: (id: string) =>
     authFetch(`/api/brand-terms/${id}`, { method: "DELETE" }).then(() => undefined),
+
+  listPlatforms: () =>
+    authFetch("/api/platforms").then(
+      json<{ profiles: Record<string, PlatformProfile>; adLawBannedWords: string[] }>,
+    ),
+
+  listBannedTerms: () =>
+    authFetch("/api/banned-terms").then((res) => res.json() as Promise<BannedTerm[]>),
+
+  addBannedTerm: (term: string, note = "") =>
+    authFetch("/api/banned-terms", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ term, note }),
+    }).then(async (res) => {
+      if (!res.ok) throw new Error(await res.text());
+      return res.json() as Promise<BannedTerm>;
+    }),
+
+  deleteBannedTerm: (id: string) =>
+    authFetch(`/api/banned-terms/${id}`, { method: "DELETE" }).then(() => undefined),
 
   listTriggers: (graphId: string) =>
     authFetch(`/api/graphs/${graphId}/triggers`).then(json<TriggerConfig[]>),
