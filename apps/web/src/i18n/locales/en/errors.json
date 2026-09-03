@@ -80,6 +80,8 @@
     "templateNotFound": "Template not found",
     "nodeNotFound": "Node not found",
     "edgeNotFound": "Edge not found",
+    "selfLoop": "A node cannot connect to itself",
+    "duplicateEdge": "This pipe already exists",
     "invalidNodeConfig": "Invalid node config",
     "invalidEdgeConfig": "Invalid edge config",
     "cycleDetected": "Cycle detected",

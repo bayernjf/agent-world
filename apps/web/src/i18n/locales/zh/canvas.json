@@ -82,6 +82,7 @@
   "noRedo": "暂无可重做操作",
   "fit": "适应",
   "nodeCopied": "已复制节点",
+  "copySuffix": "{{name}} 副本",
   "deletedElements": "已删除 {{count}} 个元素",
   "nodeRemoved": "节点已拆除",
   "edgeRemoved": "管道已拆除",

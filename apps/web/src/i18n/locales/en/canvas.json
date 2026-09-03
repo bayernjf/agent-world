@@ -82,6 +82,7 @@
   "noRedo": "Nothing to redo",
   "fit": "Fit",
   "nodeCopied": "Node copied",
+  "copySuffix": "{{name}} (copy)",
   "deletedElements": "Deleted {{count}} elements",
   "nodeRemoved": "Node removed",
   "edgeRemoved": "Pipe removed",
