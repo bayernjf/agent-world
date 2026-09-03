@@ -402,5 +402,24 @@
     "done": "Done",
     "noRuns": "No runs",
     "winnerNote": "Adopt arm <strong>{{arm}}</strong>: among completed runs it scores highest on quality (pass rate {{rate}})."
+  },
+  "runCompare": {
+    "title": "Run Compare",
+    "runA": "Run A",
+    "runB": "Run B",
+    "selectRun": "Select a run...",
+    "start": "Start compare",
+    "comparing": "Comparing...",
+    "statsTitle": "Cost & usage",
+    "metric": "Metric",
+    "difference": "Diff (B-A)",
+    "totalCost": "Total cost (USD)",
+    "inputTokens": "Input tokens",
+    "outputTokens": "Output tokens",
+    "nodeCount": "Nodes",
+    "outputsTitle": "Node output compare",
+    "diffLines": "+{{added}} / -{{removed}} lines",
+    "noOutput": "(no output)",
+    "compareFailed": "Compare failed: {{message}}"
   }
 }

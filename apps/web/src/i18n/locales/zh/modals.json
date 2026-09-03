@@ -402,5 +402,24 @@
     "done": "完成",
     "noRuns": "无运行",
     "winnerNote": "建议采用 <strong>{{arm}}</strong> 臂：已完成运行中质量分最高（合格率 {{rate}}）。"
+  },
+  "runCompare": {
+    "title": "运行对比",
+    "runA": "运行 A",
+    "runB": "运行 B",
+    "selectRun": "选择运行...",
+    "start": "开始对比",
+    "comparing": "对比中...",
+    "statsTitle": "成本与用量对比",
+    "metric": "指标",
+    "difference": "差异 (B-A)",
+    "totalCost": "总成本 (USD)",
+    "inputTokens": "输入 Token",
+    "outputTokens": "输出 Token",
+    "nodeCount": "节点数",
+    "outputsTitle": "节点输出对比",
+    "diffLines": "+{{added}} / -{{removed}} 行",
+    "noOutput": "(无输出)",
+    "compareFailed": "对比失败: {{message}}"
   }
 }
