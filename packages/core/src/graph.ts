@@ -754,7 +754,7 @@ export const GateConfig = z.object({
 });
 export type GateConfig = z.infer<typeof GateConfig>;
 
-export const ConnectorType = z.enum(["manual", "file", "http", "form", "database"]);
+export const ConnectorType = z.enum(["manual", "file", "http", "form", "database", "product"]);
 export type ConnectorType = z.infer<typeof ConnectorType>;
 
 /** Pulls text/images from the local filesystem (path or glob). */
@@ -807,6 +807,22 @@ export const DatabaseConnector = z.object({
 });
 export type DatabaseConnector = z.infer<typeof DatabaseConnector>;
 
+/**
+ * Pulls product rows from the user's product library into a source node. The
+ * engine maps each product's name/brand/category/attributes/images onto the
+ * source's productName/brand/notes/images fields, so downstream nodes need no
+ * change. F4 (docs/design-ecommerce-roadmap.md §F4).
+ */
+export const ProductConnector = z.object({
+  /** Explicit product ids, used when `selection` is "manual". */
+  productIds: z.array(z.string()).optional(),
+  /** How products are chosen: explicit ids, a field filter, or every active row. */
+  selection: z.enum(["manual", "filter", "all"]).default("manual"),
+  /** Field filters applied when `selection` is "filter" (e.g. `{ category: "美妆" }`). */
+  filter: z.record(z.string()).optional(),
+});
+export type ProductConnector = z.infer<typeof ProductConnector>;
+
 /** Declarative data source for a source node. Replaces the old free-form connector stub. */
 export const ConnectorConfig = z.object({
   type: ConnectorType,
@@ -814,6 +830,7 @@ export const ConnectorConfig = z.object({
   http: HttpConnector.optional(),
   form: FormConnector.optional(),
   database: DatabaseConnector.optional(),
+  product: ProductConnector.optional(),
 });
 export type ConnectorConfig = z.infer<typeof ConnectorConfig>;
 
