@@ -35,6 +35,8 @@ export const NodeKind = z.enum([
   "generic",
   "compliance",
   "publish",
+  "fanout",
+  "select",
 ]);
 export type NodeKind = z.infer<typeof NodeKind>;
 
@@ -76,6 +78,8 @@ export const NODE_CATEGORY: Record<NodeKind, NodeCategory> = {
   parallel: "control",
   subprocess: "control",
   compliance: "control",
+  fanout: "control",
+  select: "control",
   table: "data",
   database: "data",
   fileParse: "data",
@@ -374,6 +378,55 @@ export const ParallelConfig = z.object({
   pick: z.string().optional(),
 });
 export type ParallelConfig = z.infer<typeof ParallelConfig>;
+
+/**
+ * Configuration for a `fanout` node (F1): split one upstream input into N
+ * variant lanes. Each lane re-executes the downstream sub-graph with a
+ * differentiated prompt / sampling temperature / model. The lanes reconverge
+ * at a `select` node.
+ */
+export const FanoutConfig = z.object({
+  /** How many variant lanes to spawn (2-8). */
+  count: z.number().int().min(2).max(8).default(3),
+  /** What differs between lanes. */
+  strategy: z.enum(["prompt", "temperature", "model"]).default("prompt"),
+  /** strategy=prompt: N prompts (length must equal count); empty → engine auto-generates differentiated angles. */
+  prompts: z.array(z.string()).optional(),
+  /** strategy=temperature: one temperature per lane (0-2). */
+  temperatures: z.array(z.number().min(0).max(2)).optional(),
+  /** strategy=model: one model id per lane. */
+  models: z.array(z.string()).optional(),
+  /** Brief given to the LLM when auto-generating variant angles (strategy=prompt, prompts empty). */
+  angleBrief: z.string().default(""),
+});
+export type FanoutConfig = z.infer<typeof FanoutConfig>;
+
+/**
+ * Configuration for a `select` node (F1): reconverge N variant lanes and pick
+ * TopK by LLM score / deterministic rule / human choice. Output carries only
+ * the chosen variants downstream (or all with scores when `passThroughAll`).
+ */
+export const SelectConfig = z.object({
+  /** Selection mechanism. */
+  mode: z.enum(["llm_score", "rule", "human"]).default("llm_score"),
+  /** How many variants to keep (1-8). */
+  topK: z.number().int().min(1).max(8).default(1),
+  /** llm_score: scoring rubric fed to the judge model (0-10 + reason). */
+  rubric: z.string().default(""),
+  /** llm_score: judge model id; defaults to the graph fallback when omitted. */
+  model: z.string().optional(),
+  /** rule: deterministic ranking. */
+  rule: z
+    .object({
+      field: z.enum(["length", "brandCoverage", "jsonPath"]).default("length"),
+      path: z.string().optional(),
+      desc: z.boolean().default(true),
+    })
+    .optional(),
+  /** mode=human: pause and let the operator pick among the variants. */
+  passThroughAll: z.boolean().default(false),
+});
+export type SelectConfig = z.infer<typeof SelectConfig>;
 
 /** One row of a table: column name → scalar value. */
 export type TableRow = Record<string, string | number | boolean | null>;
@@ -928,6 +981,8 @@ export const GraphNode = z.object({
   source: SourceConfig.optional(),
   compliance: ComplianceConfig.optional(),
   publish: PublishConfig.optional(),
+  fanout: FanoutConfig.optional(),
+  select: SelectConfig.optional(),
 });
 export type GraphNode = z.infer<typeof GraphNode>;
 

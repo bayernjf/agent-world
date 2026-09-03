@@ -339,6 +339,14 @@ export function reduce(state: RuntimeState, event: RunEvent): RuntimeState {
           haltedNodeId: event.haltedNodeId ?? state.haltedNodeId,
           reason: event.reason ?? state.reason,
         };
+
+      // F1 variant-lane events are informational (fanout/select publish their
+      // own node.* lifecycle via the standard keys) — the reducer treats them
+      // as no-ops, and any unknown future event falls through to state too.
+      case "variants.spawned":
+      case "variants.ranked":
+      default:
+        return state;
     }
   })();
 
