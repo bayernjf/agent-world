@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { api, type CostReport as Report } from "../lib/api";
 import Tooltip from "./Tooltip";
 
@@ -10,16 +11,17 @@ interface Props {
 type Range = "7d" | "30d" | "all";
 type Granularity = "day" | "week" | "month";
 
-const RANGE_LABEL: Record<Range, string> = {
-  "7d": "近 7 天",
-  "30d": "近 30 天",
-  all: "全部",
+/** Key order is what lays the segmented control out. */
+const RANGE_KEY: Record<Range, string> = {
+  "7d": "modals:reports.range7d",
+  "30d": "modals:reports.range30d",
+  all: "common.all",
 };
 
-const GRAN_LABEL: Record<Granularity, string> = {
-  day: "日",
-  week: "周",
-  month: "月",
+const GRAN_KEY: Record<Granularity, string> = {
+  day: "modals:costReport.granDay",
+  week: "modals:costReport.granWeek",
+  month: "modals:costReport.granMonth",
 };
 
 /** Smart default granularity based on time range. */
@@ -38,9 +40,10 @@ function rangeToBounds(range: Range): { from?: number; to?: number } {
 }
 
 const fmtUsd = (n: number) => `$${n.toFixed(5)}`;
-const fmtInt = (n: number) => n.toLocaleString("en-US");
 
 export default function CostReport({ open, onClose }: Props) {
+  const { t, i18n } = useTranslation();
+  const fmtInt = (n: number) => n.toLocaleString(i18n.language);
   const [range, setRange] = useState<Range>("30d");
   const [granularity, setGranularity] = useState<Granularity>("week");
   const [report, setReport] = useState<Report | null>(null);
@@ -93,11 +96,10 @@ export default function CostReport({ open, onClose }: Props) {
           week?: string;
           month?: string;
         }>,
-        label: "日",
       };
-    if (granularity === "week") return { rows: report.byWeek, label: "周" };
-    if (granularity === "month") return { rows: report.byMonth, label: "月" };
-    return { rows: report.byDay, label: "日" };
+    if (granularity === "week") return { rows: report.byWeek };
+    if (granularity === "month") return { rows: report.byMonth };
+    return { rows: report.byDay };
   }, [report, granularity]);
 
   const maxChartCost = useMemo(
@@ -116,7 +118,7 @@ export default function CostReport({ open, onClose }: Props) {
 
   if (!open) return null;
 
-  const t = report?.totals;
+  const totals = report?.totals;
   const reworkCost =
     report?.byAttempt
       .filter((a) => a.attempt > 1)
@@ -126,27 +128,27 @@ export default function CostReport({ open, onClose }: Props) {
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal modal--wide" onClick={(e) => e.stopPropagation()}>
         <div className="modal__header">
-          <h2>成本报表</h2>
+          <h2>{t("modals:costReport.title")}</h2>
           <div style={{ display: "flex", gap: 8 }}>
             <div className="seg">
-              {(Object.keys(RANGE_LABEL) as Range[]).map((r) => (
+              {(Object.keys(RANGE_KEY) as Range[]).map((r) => (
                 <button
                   key={r}
                   className={`seg__btn ${range === r ? "is-on" : ""}`}
                   onClick={() => setRange(r)}
                 >
-                  {RANGE_LABEL[r]}
+                  {t(RANGE_KEY[r])}
                 </button>
               ))}
             </div>
             <div className="seg">
-              {(Object.keys(GRAN_LABEL) as Granularity[]).map((g) => (
+              {(Object.keys(GRAN_KEY) as Granularity[]).map((g) => (
                 <button
                   key={g}
                   className={`seg__btn ${granularity === g ? "is-on" : ""}`}
                   onClick={() => setGranularity(g)}
                 >
-                  {GRAN_LABEL[g]}
+                  {t(GRAN_KEY[g])}
                 </button>
               ))}
             </div>
@@ -158,9 +160,9 @@ export default function CostReport({ open, onClose }: Props) {
                 if (!report) e.preventDefault();
               }}
             >
-              导出 CSV
+              {t("modals:reports.exportCsv")}
             </a>
-            <Tooltip content="关闭">
+            <Tooltip content={t("common.close")}>
               <button className="icon-btn" onClick={onClose}>
                 ✕
               </button>
@@ -169,42 +171,58 @@ export default function CostReport({ open, onClose }: Props) {
         </div>
 
         <div className="modal__body">
-          {loading || !report || !t ? (
+          {loading || !report || !totals ? (
             <p
               className="muted"
               style={{ textAlign: "center", padding: "40px 0" }}
             >
-              {loading ? "加载中…" : "暂无数据"}
+              {loading ? t("modals:reports.loading") : t("common.empty")}
             </p>
           ) : (
             <>
               <div className="cost-stats">
                 <div className="cost-stat">
-                  <div className="cost-stat__label">总电费</div>
+                  <div className="cost-stat__label">
+                    {t("modals:costReport.totalCost")}
+                  </div>
                   <div className="cost-stat__value cost-stat__value--accent">
-                    {fmtUsd(t.cost_usd)}
+                    {fmtUsd(totals.cost_usd)}
                   </div>
                 </div>
                 <div className="cost-stat">
-                  <div className="cost-stat__label">运行次数</div>
-                  <div className="cost-stat__value">{t.runs}</div>
+                  <div className="cost-stat__label">
+                    {t("modals:reports.runCount")}
+                  </div>
+                  <div className="cost-stat__value">{totals.runs}</div>
                 </div>
                 <div className="cost-stat">
-                  <div className="cost-stat__label">输入 token</div>
-                  <div className="cost-stat__value">{fmtInt(t.tokens_in)}</div>
-                </div>
-                <div className="cost-stat">
-                  <div className="cost-stat__label">输出 token</div>
-                  <div className="cost-stat__value">{fmtInt(t.tokens_out)}</div>
-                </div>
-                <div className="cost-stat">
-                  <div className="cost-stat__label">缓存命中</div>
+                  <div className="cost-stat__label">
+                    {t("modals:costReport.tokensIn")}
+                  </div>
                   <div className="cost-stat__value">
-                    {fmtInt(t.cached_tokens)}
+                    {fmtInt(totals.tokens_in)}
                   </div>
                 </div>
                 <div className="cost-stat">
-                  <div className="cost-stat__label">返工电费</div>
+                  <div className="cost-stat__label">
+                    {t("modals:costReport.tokensOut")}
+                  </div>
+                  <div className="cost-stat__value">
+                    {fmtInt(totals.tokens_out)}
+                  </div>
+                </div>
+                <div className="cost-stat">
+                  <div className="cost-stat__label">
+                    {t("modals:costReport.cachedTokens")}
+                  </div>
+                  <div className="cost-stat__value">
+                    {fmtInt(totals.cached_tokens)}
+                  </div>
+                </div>
+                <div className="cost-stat">
+                  <div className="cost-stat__label">
+                    {t("modals:costReport.reworkCost")}
+                  </div>
                   <div className="cost-stat__value cost-stat__value--warn">
                     {fmtUsd(reworkCost)}
                   </div>
@@ -214,14 +232,20 @@ export default function CostReport({ open, onClose }: Props) {
               {chartData.rows.length > 0 && (
                 <section className="cost-section">
                   <h3 className="cost-section__title">
-                    {chartData.label}电费趋势
+                    {t("modals:costReport.trend", {
+                      gran: t(GRAN_KEY[granularity]),
+                    })}
                   </h3>
                   <div className="cost-chart">
                     {chartData.rows.map((d) => (
                       <div
                         className="cost-chart__col"
                         key={chartKey(d)}
-                        title={`${chartKey(d)}: ${fmtUsd(d.cost_usd)} (${d.runs} 次)`}
+                        title={t("modals:costReport.barTitle", {
+                          key: chartKey(d),
+                          cost: fmtUsd(d.cost_usd),
+                          runs: d.runs,
+                        })}
                       >
                         <div className="cost-chart__bar-wrap">
                           <div
@@ -239,18 +263,22 @@ export default function CostReport({ open, onClose }: Props) {
               )}
 
               <section className="cost-section">
-                <h3 className="cost-section__title">按产线</h3>
+                <h3 className="cost-section__title">
+                  {t("modals:reports.byGraph")}
+                </h3>
                 {report.byGraph.length === 0 ? (
-                  <p className="muted">暂无数据</p>
+                  <p className="muted">{t("common.empty")}</p>
                 ) : (
                   <table className="run-table cost-table">
                     <thead>
                       <tr>
-                        <th>产线</th>
-                        <th>运行</th>
-                        <th className="num">输入</th>
-                        <th className="num">输出</th>
-                        <th className="num">电费</th>
+                        <th>{t("modals:reports.graph")}</th>
+                        <th>{t("modals:reports.runs")}</th>
+                        <th className="num">{t("modals:costReport.thInput")}</th>
+                        <th className="num">
+                          {t("modals:costReport.thOutput")}
+                        </th>
+                        <th className="num">{t("modals:costReport.thCost")}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -270,19 +298,23 @@ export default function CostReport({ open, onClose }: Props) {
 
               <section className="cost-section">
                 <h3 className="cost-section__title">
-                  最费钱的节点（Top {report.byNode.length}）
+                  {t("modals:costReport.topNodes", { n: report.byNode.length })}
                 </h3>
                 {report.byNode.length === 0 ? (
-                  <p className="muted">暂无数据</p>
+                  <p className="muted">{t("common.empty")}</p>
                 ) : (
                   <table className="run-table cost-table">
                     <thead>
                       <tr>
-                        <th>产线</th>
-                        <th>节点</th>
-                        <th className="num">尝试</th>
-                        <th className="num">返工</th>
-                        <th className="num">电费</th>
+                        <th>{t("modals:reports.graph")}</th>
+                        <th>{t("modals:costReport.thNode")}</th>
+                        <th className="num">
+                          {t("modals:costReport.thAttempts")}
+                        </th>
+                        <th className="num">
+                          {t("modals:costReport.thRework")}
+                        </th>
+                        <th className="num">{t("modals:costReport.thCost")}</th>
                       </tr>
                     </thead>
                     <tbody>

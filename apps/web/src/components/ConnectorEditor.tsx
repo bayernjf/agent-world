@@ -7,6 +7,7 @@ import type {
   FormConnector,
   HttpConnector,
 } from "@agent-world/core";
+import { Trans, useTranslation } from "react-i18next";
 import Tooltip from "./Tooltip";
 
 async function testConnector(
@@ -34,12 +35,12 @@ interface Props {
 
 type SelectType = "none" | ConnectorType;
 const TYPE_LABELS: Record<SelectType, string> = {
-  none: "无（用下方「创作简报 / 原始物料」）",
-  manual: "手动（同「无」）",
-  file: "文件（本地文件 / 目录 / glob）",
-  http: "HTTP（拉取 JSON / 文本）",
-  form: "表单（运行前填写）",
-  database: "数据库（SQLite 查询）",
+  none: "modals:connector.typesFull.none",
+  manual: "modals:connector.typesFull.manual",
+  file: "modals:connector.typesFull.file",
+  http: "modals:connector.typesFull.http",
+  form: "modals:connector.typesFull.form",
+  database: "modals:connector.typesFull.database",
 };
 
 function defaultsFor(type: ConnectorType): ConnectorConfig {
@@ -74,14 +75,15 @@ function FileForm({
   begin: () => void;
   commit: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <>
       <label className="field">
-        <span>路径 / glob</span>
+        <span>{t("modals:connector.file.pathLabel")}</span>
         <input
           className="text-input"
           value={value.path}
-          placeholder="/abs/path/data.txt 或 ./dir/**/*.txt"
+          placeholder={t("modals:connector.file.pathPlaceholder")}
           onFocus={begin}
           onBlur={commit}
           onChange={(e) => patch({ path: e.target.value })}
@@ -93,11 +95,13 @@ function FileForm({
           checked={value.asImages ?? false}
           onChange={(e) => patch({ asImages: e.target.checked })}
         />
-        <span>作为图片（不读文本，把路径作为附图喂下游）</span>
+        <span>{t("modals:connector.file.asImages")}</span>
       </label>
       <p className="hint">
-        支持 <code>*</code> / <code>?</code> / <code>**</code>
-        ；目录会递归收集全部文件。
+        <Trans
+          i18nKey="modals:connector.file.hint"
+          components={{ code: <code /> }}
+        />
       </p>
     </>
   );
@@ -114,6 +118,7 @@ function HttpForm({
   begin: () => void;
   commit: () => void;
 }) {
+  const { t } = useTranslation();
   const authType = value.auth?.type ?? "none";
   const [headersText, setHeadersText] = useState("");
   const [bodyText, setBodyText] = useState("");
@@ -134,7 +139,7 @@ function HttpForm({
     <>
       <div className="field-row">
         <label className="field field--inline">
-          <span>方法</span>
+          <span>{t("modals:connector.http.method")}</span>
           <select
             className="select"
             value={value.method ?? "GET"}
@@ -147,25 +152,25 @@ function HttpForm({
           </select>
         </label>
         <label className="field field--inline">
-          <span>鉴权</span>
+          <span>{t("modals:connector.http.auth")}</span>
           <select
             className="select"
             value={authType}
             onChange={(e) => {
-              const t = e.target.value;
-              if (t === "none") patch({ auth: undefined });
+              const v = e.target.value;
+              if (v === "none") patch({ auth: undefined });
               else
-                patch({ auth: { type: t as "bearer" | "basic", token: "" } });
+                patch({ auth: { type: v as "bearer" | "basic", token: "" } });
             }}
           >
-            <option value="none">无</option>
+            <option value="none">{t("modals:connector.http.authNone")}</option>
             <option value="bearer">Bearer</option>
             <option value="basic">Basic</option>
           </select>
         </label>
       </div>
       <label className="field">
-        <span>URL</span>
+        <span>{t("modals:connector.http.url")}</span>
         <input
           className="text-input"
           value={value.url}
@@ -178,7 +183,9 @@ function HttpForm({
       {authType !== "none" && (
         <label className="field">
           <span>
-            {authType === "bearer" ? "Token / API Key" : "user:pass 或 token"}
+            {authType === "bearer"
+              ? t("modals:connector.http.tokenLabel")
+              : t("modals:connector.http.tokenLabelBasic")}
           </span>
           <input
             className="text-input"
@@ -198,7 +205,7 @@ function HttpForm({
         </label>
       )}
       <label className="field">
-        <span>提取字段（逗号分隔的 dot-path，可空）</span>
+        <span>{t("modals:connector.http.extract")}</span>
         <input
           className="text-input"
           value={(value.extract ?? []).join(", ")}
@@ -216,7 +223,7 @@ function HttpForm({
         />
       </label>
       <label className="field">
-        <span>请求头（JSON 对象，可空）</span>
+        <span>{t("modals:connector.http.headers")}</span>
         <textarea
           className="textarea"
           rows={3}
@@ -235,7 +242,7 @@ function HttpForm({
       </label>
       {value.method === "POST" && (
         <label className="field">
-          <span>请求体（JSON 或文本，可空）</span>
+          <span>{t("modals:connector.http.body")}</span>
           <textarea
             className="textarea"
             rows={3}
@@ -264,6 +271,7 @@ function FormForm({
   begin: () => void;
   commit: () => void;
 }) {
+  const { t } = useTranslation();
   const fields = value.fields;
   const update = (i: number, p: Partial<FormField>) => {
     const cur = fields[i];
@@ -283,15 +291,12 @@ function FormForm({
 
   return (
     <>
-      <p className="hint">
-        运行产线前会弹出此表单，收集的值将作为 source
-        文本注入。字段名需全局唯一。
-      </p>
+      <p className="hint">{t("modals:connector.form.hint")}</p>
       {fields.map((f, i) => (
         <div className="form-field-row" key={f.name || i}>
           <input
             className="text-input"
-            placeholder="字段名(name)"
+            placeholder={t("modals:connector.form.namePlaceholder")}
             value={f.name}
             onFocus={begin}
             onBlur={commit}
@@ -299,7 +304,7 @@ function FormForm({
           />
           <input
             className="text-input"
-            placeholder="显示(label)"
+            placeholder={t("modals:connector.form.labelPlaceholder")}
             value={f.label ?? ""}
             onFocus={begin}
             onBlur={commit}
@@ -311,9 +316,9 @@ function FormForm({
               checked={f.required ?? false}
               onChange={(e) => update(i, { required: e.target.checked })}
             />
-            <span>必填</span>
+            <span>{t("modals:connector.form.required")}</span>
           </label>
-          <Tooltip content="删除字段">
+          <Tooltip content={t("modals:connector.form.deleteField")}>
             <button
               className="btn btn--ghost btn--icon"
               onClick={() => remove(i)}
@@ -324,7 +329,7 @@ function FormForm({
         </div>
       ))}
       <button className="btn btn--ghost" onClick={add}>
-        + 添加字段
+        {t("modals:connector.form.addField")}
       </button>
     </>
   );
@@ -341,10 +346,11 @@ function DatabaseForm({
   begin: () => void;
   commit: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <>
       <label className="field">
-        <span>SQLite 数据库文件路径</span>
+        <span>{t("modals:connector.database.pathLabel")}</span>
         <input
           className="text-input"
           value={value.path}
@@ -355,7 +361,7 @@ function DatabaseForm({
         />
       </label>
       <label className="field">
-        <span>查询（只读 SELECT，可带 ? 参数）</span>
+        <span>{t("modals:connector.database.queryLabel")}</span>
         <textarea
           className="textarea"
           rows={4}
@@ -367,7 +373,7 @@ function DatabaseForm({
         />
       </label>
       <label className="field field--inline">
-        <span>输出格式</span>
+        <span>{t("modals:connector.database.format")}</span>
         <select
           className="select"
           value={value.format ?? "json"}
@@ -378,8 +384,10 @@ function DatabaseForm({
         </select>
       </label>
       <p className="hint">
-        每次运行产线时实时查询最新数据；只读打开，仅允许
-        <code>SELECT</code>，写语句会被拒绝。
+        <Trans
+          i18nKey="modals:connector.database.hint"
+          components={{ code: <code /> }}
+        />
       </p>
     </>
   );
@@ -391,6 +399,7 @@ export default function ConnectorEditor({
   onBeginEdit,
   onCommitEdit,
 }: Props) {
+  const { t } = useTranslation();
   const current: SelectType = connector?.type ?? "none";
   const [testState, setTestState] = useState<
     "idle" | "loading" | "ok" | "error"
@@ -446,17 +455,17 @@ export default function ConnectorEditor({
 
   return (
     <div className="section connector">
-      <div className="label">数据源接入（Connector）</div>
+      <div className="label">{t("modals:connector.sectionLabel")}</div>
       <label className="field field--inline">
-        <span>接入方式</span>
+        <span>{t("modals:connector.sourceType")}</span>
         <select
           className="select"
           value={current}
           onChange={(e) => setType(e.target.value as SelectType)}
         >
-          {(["none", "file", "http", "form", "database"] as const).map((t) => (
-            <option key={t} value={t}>
-              {TYPE_LABELS[t]}
+          {(["none", "file", "http", "form", "database"] as const).map((typ) => (
+            <option key={typ} value={typ}>
+              {t(TYPE_LABELS[typ])}
             </option>
           ))}
         </select>
@@ -500,22 +509,30 @@ export default function ConnectorEditor({
             onClick={runTest}
             disabled={testState === "loading"}
           >
-            {testState === "loading" ? "测试中…" : "测试连接"}
+            {testState === "loading"
+              ? t("modals:connector.testing")
+              : t("modals:connector.test")}
           </button>
           {testState === "ok" && testResult && (
             <div className="connector-test__result">
               <div className="connector-test__meta">
-                成功 · 文本 {testResult.fullLength} 字符
+                {t("modals:connector.testResult.chars", {
+                  chars: testResult.fullLength,
+                })}
                 {testResult.images.length > 0 &&
-                  ` · 图片 ${testResult.images.length} 张`}
+                  t("modals:connector.testResult.images", {
+                    n: testResult.images.length,
+                  })}
               </div>
               <pre className="connector-test__preview">
-                {testResult.text || "(空)"}
+                {testResult.text || t("modals:connector.testResult.empty")}
               </pre>
             </div>
           )}
           {testState === "error" && (
-            <div className="connector-test__error">失败：{testError}</div>
+            <div className="connector-test__error">
+              {t("modals:connector.testResult.failed", { error: testError })}
+            </div>
           )}
         </div>
       )}

@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import Tooltip from "./Tooltip";
 
 interface Props {
@@ -258,6 +259,7 @@ const GROUPS: GlossaryGroup[] = [
 ];
 
 export default function GlossaryModal({ open, onClose }: Props) {
+  const { t } = useTranslation();
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -276,18 +278,15 @@ export default function GlossaryModal({ open, onClose }: Props) {
         onClick={(e) => e.stopPropagation()}
       >
         <div className="modal__header">
-          <h2>术语对照表</h2>
-          <Tooltip content="关闭">
+          <h2>{t("modals:glossary.comparisonTitle")}</h2>
+          <Tooltip content={t("common.close")}>
             <button className="icon-btn" onClick={onClose}>
               ✕
             </button>
           </Tooltip>
         </div>
         <div className="modal__body">
-          <p className="muted glossary__intro">
-            左侧为标准术语（行业通用 / 代码字段），右侧为 Agent World
-            的工厂系用词。UI 产品文案使用右侧；代码、API、文档使用左侧。
-          </p>
+          <p className="muted glossary__intro">{t("modals:glossary.intro")}</p>
           {GROUPS.map((g) => (
             <details
               key={g.id}
@@ -299,9 +298,9 @@ export default function GlossaryModal({ open, onClose }: Props) {
                 <table className="glossary__table">
                   <thead>
                     <tr>
-                      <th>标准术语</th>
-                      <th>Agent World</th>
-                      <th>说明</th>
+                      <th>{t("modals:glossary.thStd")}</th>
+                      <th>{t("modals:glossary.thGame")}</th>
+                      <th>{t("modals:glossary.thNote")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -317,10 +316,7 @@ export default function GlossaryModal({ open, onClose }: Props) {
               </div>
             </details>
           ))}
-          <p className="muted glossary__foot">
-            完整版见
-            docs/design-glossary.md。路径规则：新增概念先在此表落位，找不到工厂位置的暂不做。
-          </p>
+          <p className="muted glossary__foot">{t("modals:glossary.foot")}</p>
         </div>
       </div>
     </div>

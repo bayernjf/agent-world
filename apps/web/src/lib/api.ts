@@ -9,6 +9,7 @@ import type {
 
 export type { TriggerConfig } from "@agent-world/core";
 import type { Skill } from "@agent-world/core";
+import i18n from "../i18n";
 
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
@@ -119,6 +120,48 @@ export interface RunSummary {
   ended_at: number | null;
 }
 
+/** A run parked on a human decision, across every pipeline (F2 review queue). */
+export interface PendingReview {
+  runId: string;
+  graphId: string;
+  graphName: string;
+  /** Null only for runs whose log predates halt recording. */
+  nodeId: string | null;
+  nodeName: string | null;
+  kind: "human" | "tool" | "gate";
+  reason: string | null;
+  /** Text awaiting the decision, already trimmed to a server-side preview. */
+  content: string | null;
+  contentTruncated: boolean;
+  /** Judge's verdict reason, for gate halts. */
+  detail: string | null;
+  /** Tool name to approve, for dangerous-action halts. */
+  tool: string | null;
+  startedAt: number;
+  haltedAt: number;
+  waitingMs: number;
+  trigger: string;
+  abGroup: string | null;
+  abArm: string | null;
+}
+
+export type ReviewAction = "continue" | "approve" | "reject" | "edit" | "scrap";
+
+export interface ReviewDecision {
+  runId: string;
+  action: ReviewAction;
+  editOutput?: Record<string, string>;
+  approveTools?: string[];
+}
+
+/**
+ * Per-item outcome of a batch decision. The endpoint answers 200 even when some
+ * items fail (not found / still active), so each has to be checked individually.
+ */
+export type ReviewDecisionResult =
+  | { runId: string; ok: true; action: ReviewAction }
+  | { runId: string; ok: false; status: number; error: string };
+
 export class GraphConflictError extends Error {
   serverVersion: number | undefined;
   constructor(message: string, serverVersion?: number) {
@@ -219,6 +262,25 @@ export interface BrandTerm {
   createdAt: number;
 }
 
+/** A platform's publishing profile (F3 compliance). */
+export interface PlatformProfile {
+  id: string;
+  label: string;
+  titleMax: number;
+  bodyMax: number;
+  hashtag: { prefix: string; max: number };
+  imageRatios: string[];
+  bannedWords: string[];
+  required: string[];
+}
+
+export interface BannedTerm {
+  id: string;
+  term: string;
+  note: string;
+  createdAt: number;
+}
+
 export const api = {
   listSkills: () => authFetch("/api/skills").then(json<Skill[]>),
 
@@ -245,9 +307,15 @@ export const api = {
           existingId?: string;
         };
         if (body.error === "duplicate_name") {
-          throw new DuplicateGraphNameError(body.message ?? "产线名重复", body.existingId);
+          throw new DuplicateGraphNameError(
+            body.message ?? i18n.t("errors:graph.duplicateNameShort"),
+            body.existingId,
+          );
         }
-        throw new GraphConflictError(body.message ?? "保存冲突", body.serverVersion);
+        throw new GraphConflictError(
+          body.message ?? i18n.t("errors:graph.saveConflict"),
+          body.serverVersion,
+        );
       }
       if (!res.ok) throw new Error(`save failed: ${res.status}`);
       return res.json() as Promise<{ ok: true; version: number }>;
@@ -271,7 +339,10 @@ export const api = {
         existingId?: string;
       };
       if (body.error === "duplicate_name") {
-        throw new DuplicateGraphNameError(body.message ?? "产线名重复", body.existingId);
+        throw new DuplicateGraphNameError(
+          body.message ?? i18n.t("errors:graph.duplicateNameShort"),
+          body.existingId,
+        );
       }
       throw new Error(`create failed: 409 ${JSON.stringify(body)}`);
     }
@@ -319,6 +390,25 @@ export const api = {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ action, resetFrom, editOutput, approveTools }),
     }).then(json<{ ok: true }>),
+
+  /** Every run of the caller parked on a human decision, longest-waiting first. */
+  listPendingReviews: (opts: { limit?: number; offset?: number; graphId?: string } = {}) => {
+    const qs = new URLSearchParams();
+    if (opts.limit !== undefined) qs.set("limit", String(opts.limit));
+    if (opts.offset !== undefined) qs.set("offset", String(opts.offset));
+    if (opts.graphId) qs.set("graphId", opts.graphId);
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return authFetch(`/api/reviews/pending${suffix}`).then(
+      json<{ reviews: PendingReview[]; total: number }>,
+    );
+  },
+
+  decideReviews: (decisions: ReviewDecision[]) =>
+    authFetch("/api/reviews/decide", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(decisions),
+    }).then(json<{ ok: true; results: ReviewDecisionResult[] }>),
 
   getEvents: (runId: string) =>
     authFetch(`/api/runs/${runId}/events`).then(json<{ events: RunEvent[]; state: RuntimeState }>),
@@ -376,7 +466,10 @@ export const api = {
 
   abReport: (groupId: string) =>
     authFetch(`/api/ab/${groupId}`).then((res) => {
-      if (!res.ok) throw new Error(`A/B 报表加载失败：${res.status}`);
+      if (!res.ok)
+        throw new Error(
+          i18n.t("errors:api.abReportLoadFailed", { status: res.status }),
+        );
       return res.json() as Promise<ABReport>;
     }),
 
@@ -394,6 +487,27 @@ export const api = {
 
   deleteBrandTerm: (id: string) =>
     authFetch(`/api/brand-terms/${id}`, { method: "DELETE" }).then(() => undefined),
+
+  listPlatforms: () =>
+    authFetch("/api/platforms").then(
+      json<{ profiles: Record<string, PlatformProfile>; adLawBannedWords: string[] }>,
+    ),
+
+  listBannedTerms: () =>
+    authFetch("/api/banned-terms").then((res) => res.json() as Promise<BannedTerm[]>),
+
+  addBannedTerm: (term: string, note = "") =>
+    authFetch("/api/banned-terms", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ term, note }),
+    }).then(async (res) => {
+      if (!res.ok) throw new Error(await res.text());
+      return res.json() as Promise<BannedTerm>;
+    }),
+
+  deleteBannedTerm: (id: string) =>
+    authFetch(`/api/banned-terms/${id}`, { method: "DELETE" }).then(() => undefined),
 
   listTriggers: (graphId: string) =>
     authFetch(`/api/graphs/${graphId}/triggers`).then(json<TriggerConfig[]>),

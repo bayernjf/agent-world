@@ -6,6 +6,8 @@ import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { applyCors, applySecurityHeaders } from "./security.js";
 import {
+  AD_LAW_BANNED_WORDS,
+  PLATFORM_PROFILES,
   compile,
   ConnectorConfig,
   envelope,
@@ -1162,6 +1164,35 @@ app.post("/api/brand-terms", async (c) => {
 app.delete("/api/brand-terms/:id", (c) => {
   const userId = c.get("userId");
   db.deleteBrandTerm(c.req.param("id"), userId);
+  return c.body(null, 204);
+});
+
+/**
+ * Platform compliance profiles (F3). Returns the built-in profiles and the
+ * regulatory banned-word baseline meta so the Inspector can render rules.
+ */
+app.get("/api/platforms", (c) => {
+  return c.json({
+    profiles: PLATFORM_PROFILES,
+    adLawBannedWords: AD_LAW_BANNED_WORDS,
+  });
+});
+
+app.get("/api/banned-terms", (c) => {
+  const userId = c.get("userId");
+  return c.json(db.listBannedTerms(userId));
+});
+
+app.post("/api/banned-terms", async (c) => {
+  const userId = c.get("userId");
+  const body = (await c.req.json().catch(() => ({}))) as { term?: string; note?: string };
+  if (!body.term?.trim()) return c.json({ error: "term required" }, 400);
+  return c.json(db.addBannedTerm(userId, body.term, body.note ?? ""), 201);
+});
+
+app.delete("/api/banned-terms/:id", (c) => {
+  const userId = c.get("userId");
+  db.deleteBannedTerm(c.req.param("id"), userId);
   return c.body(null, 204);
 });
 

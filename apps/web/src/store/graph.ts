@@ -267,6 +267,7 @@ const DEFAULTS: Record<NodeKind, Partial<GraphNode>> = {
   human: { human: { prompt: "" } },
   subprocess: { subprocess: { graphId: "", maxDepth: 3 } },
   generic: { generic: { model: "agnes-2.0-flash", prompt: "", skills: [], modality: "text", retry: { maxRetries: 2, baseDelayMs: 1000, maxDelayMs: 30000 } } },
+  compliance: { compliance: { platform: "xiaohongshu", extraBanned: "", autoFix: true, failOnViolation: false } },
 };
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;

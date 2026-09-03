@@ -45,6 +45,7 @@ export const KIND_KEY: Record<GraphNode["kind"], string> = {
   human: "nodes:human",
   subprocess: "nodes:subprocess",
   generic: "nodes:generic",
+  compliance: "nodes:compliance",
 };
 
 const STATUS_KEY: Record<NodeRuntime["status"], string> = {
@@ -243,6 +244,12 @@ export default function Plants({
                 "plant",
                 `plant--${node.kind}`,
                 statusClass(rt),
+                // Node status has no "halted" value — the node is still marked
+                // running — so the run-level halt is what flags a plant as
+                // waiting on a human.
+                runtime.status === "halted" && runtime.haltedNodeId === node.id
+                  ? "is-awaiting-review"
+                  : "",
                 selectedNodeIds.includes(node.id) ? "is-selected" : "",
                 connectFrom === node.id ? "is-connect-src" : "",
               ]

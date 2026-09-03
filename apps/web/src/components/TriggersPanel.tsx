@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { api, type RunSummary, type TriggerConfig } from "../lib/api";
+import i18n from "../i18n";
 import Tooltip from "./Tooltip";
 
 interface Props {
@@ -9,11 +11,11 @@ interface Props {
 }
 
 const TYPE_LABELS: Record<TriggerConfig["type"], string> = {
-  manual: "手动",
-  webhook: "Webhook",
-  cron: "定时",
-  event: "事件",
-  batch: "批量",
+  manual: "modals:triggers.typeShort.manual",
+  webhook: "modals:triggers.typeShort.webhook",
+  cron: "modals:triggers.typeShort.cron",
+  event: "modals:triggers.typeShort.event",
+  batch: "modals:triggers.typeShort.batch",
 };
 
 function blankTrigger(): TriggerConfig {
@@ -28,17 +30,19 @@ function blankTrigger(): TriggerConfig {
 function summarize(t: TriggerConfig): string {
   switch (t.type) {
     case "webhook":
-      return t.webhookSecret ? `secret: ${t.webhookSecret}` : "未设置 secret";
+      return t.webhookSecret
+        ? `secret: ${t.webhookSecret}`
+        : i18n.t("modals:triggers.summarize.noSecret");
     case "cron":
-      return t.cron ?? "未设置表达式";
+      return t.cron ?? i18n.t("modals:triggers.summarize.noCron");
     case "event":
       return t.eventSource
         ? `${t.eventSource.kind}:${t.eventSource.id}`
-        : "未设置事件源";
+        : i18n.t("modals:triggers.summarize.noEventSource");
     case "batch":
       return t.batch
         ? `${t.batch.source}${t.batch.path ? ` (${t.batch.path})` : ""}`
-        : "未设置批次";
+        : i18n.t("modals:triggers.summarize.noBatch");
     default:
       return "";
   }
@@ -49,6 +53,7 @@ function fmtTime(ms: number | null | undefined): string {
 }
 
 export default function TriggersPanel({ open, onClose, graphId }: Props) {
+  const { t } = useTranslation();
   const [triggers, setTriggers] = useState<TriggerConfig[]>([]);
   const [nextRuns, setNextRuns] = useState<Record<string, number | null>>({});
   const [runs, setRuns] = useState<RunSummary[]>([]);
@@ -70,7 +75,7 @@ export default function TriggersPanel({ open, onClose, graphId }: Props) {
       setNextRuns(nr);
       setRuns(allRuns.runs.filter((r) => r.graph_id === graphId));
     } catch (e) {
-      setError(e instanceof Error ? e.message : "加载失败");
+      setError(e instanceof Error ? e.message : t("modals:triggers.loadFailed"));
     }
   }, [graphId]);
 
@@ -86,36 +91,36 @@ export default function TriggersPanel({ open, onClose, graphId }: Props) {
 
   if (!open) return null;
 
-  const fire = async (t: TriggerConfig) => {
-    setBusyId(t.id);
+  const fire = async (trigger: TriggerConfig) => {
+    setBusyId(trigger.id);
     setError(null);
     try {
-      await api.fireTrigger(graphId, t.id);
+      await api.fireTrigger(graphId, trigger.id);
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "触发失败");
+      setError(e instanceof Error ? e.message : t("modals:triggers.fireFailed"));
     } finally {
       setBusyId(null);
     }
   };
 
-  const remove = async (t: TriggerConfig) => {
+  const remove = async (trigger: TriggerConfig) => {
     setError(null);
     try {
-      await api.deleteTrigger(graphId, t.id);
+      await api.deleteTrigger(graphId, trigger.id);
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "删除失败");
+      setError(e instanceof Error ? e.message : t("modals:triggers.removeFailed"));
     }
   };
 
-  const toggleEnabled = async (t: TriggerConfig) => {
+  const toggleEnabled = async (trigger: TriggerConfig) => {
     setError(null);
     try {
-      await api.createTrigger(graphId, { ...t, enabled: !(t.enabled ?? true) });
+      await api.createTrigger(graphId, { ...trigger, enabled: !(trigger.enabled ?? true) });
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "更新失败");
+      setError(e instanceof Error ? e.message : t("modals:triggers.updateFailed"));
     }
   };
 
@@ -123,8 +128,8 @@ export default function TriggersPanel({ open, onClose, graphId }: Props) {
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal modal--wide" onClick={(e) => e.stopPropagation()}>
         <div className="modal__header">
-          <h2>触发器</h2>
-          <Tooltip content="关闭">
+          <h2>{t("modals:triggers.panelTitle")}</h2>
+          <Tooltip content={t("common.close")}>
             <button className="icon-btn" onClick={onClose}>
               ✕
             </button>
@@ -132,16 +137,14 @@ export default function TriggersPanel({ open, onClose, graphId }: Props) {
         </div>
         <div className="modal__body">
           <div className="triggers-toolbar">
-            <p className="muted">
-              配置自动运行：Webhook、定时（cron）、事件、批量。手动触发器可在此点「运行一次」。
-            </p>
+            <p className="muted">{t("modals:triggers.intro")}</p>
             <button
               className="btn btn--primary btn--sm"
               onClick={() =>
                 setEditing({ trigger: blankTrigger(), isNew: true })
               }
             >
-              ＋ 添加触发器
+              {t("modals:triggers.addTriggerButton")}
             </button>
           </div>
 
@@ -149,28 +152,32 @@ export default function TriggersPanel({ open, onClose, graphId }: Props) {
 
           <ul className="trigger-list">
             {triggers.length === 0 && (
-              <li className="muted">暂无触发器，点「添加触发器」创建。</li>
+              <li className="muted">{t("modals:triggers.emptyList")}</li>
             )}
-            {triggers.map((t) => (
-              <li key={t.id} className="trigger-row">
+            {triggers.map((trg) => (
+              <li key={trg.id} className="trigger-row">
                 <div className="trigger-main">
-                  <span className={`badge badge--${t.type}`}>
-                    {TYPE_LABELS[t.type]}
+                  <span className={`badge badge--${trg.type}`}>
+                    {t(TYPE_LABELS[trg.type])}
                   </span>
-                  <span className="trigger-id">{t.id}</span>
-                  {t.enabled === false && (
-                    <span className="badge badge--off">已停用</span>
+                  <span className="trigger-id">{trg.id}</span>
+                  {trg.enabled === false && (
+                    <span className="badge badge--off">
+                      {t("modals:triggers.disabledBadge")}
+                    </span>
                   )}
-                  <span className="muted trigger-summary">{summarize(t)}</span>
+                  <span className="muted trigger-summary">{summarize(trg)}</span>
                 </div>
                 <div className="trigger-meta">
-                  {t.type === "cron" && (
-                    <span>⏱ {fmtTime(nextRuns[t.id])}</span>
+                  {trg.type === "cron" && (
+                    <span>⏱ {fmtTime(nextRuns[trg.id])}</span>
                   )}
-                  {t.type === "webhook" && (
+                  {trg.type === "webhook" && (
                     <code className="muted">
-                      POST /api/graphs/{graphId}/webhook，Header 带 X-Webhook-Secret: {t.webhookSecret}
-                      与 5 分钟内的 X-Webhook-Timestamp（毫秒）
+                      {t("modals:triggers.editor.webhookHint", {
+                        graphId,
+                        secret: trg.webhookSecret,
+                      })}
                     </code>
                   )}
                 </div>
@@ -178,44 +185,48 @@ export default function TriggersPanel({ open, onClose, graphId }: Props) {
                   <label className="trigger-toggle">
                     <input
                       type="checkbox"
-                      checked={t.enabled !== false}
-                      onChange={() => void toggleEnabled(t)}
+                      checked={trg.enabled !== false}
+                      onChange={() => void toggleEnabled(trg)}
                     />
-                    启用
+                    {t("modals:triggers.enabled")}
                   </label>
                   <button
                     className="ghost-btn"
-                    disabled={busyId === t.id}
-                    onClick={() => void fire(t)}
+                    disabled={busyId === trg.id}
+                    onClick={() => void fire(trg)}
                   >
-                    运行一次
+                    {t("modals:triggers.runOnce")}
                   </button>
                   <button
                     className="ghost-btn"
-                    onClick={() => setEditing({ trigger: t, isNew: false })}
+                    onClick={() => setEditing({ trigger: trg, isNew: false })}
                   >
-                    编辑
+                    {t("common.edit")}
                   </button>
                   <button
                     className="ghost-btn ghost-btn--danger"
-                    onClick={() => void remove(t)}
+                    onClick={() => void remove(trg)}
                   >
-                    删除
+                    {t("common.delete")}
                   </button>
                 </div>
               </li>
             ))}
           </ul>
 
-          <h3 className="section-title">最近运行</h3>
+          <h3 className="section-title">{t("modals:triggers.recentRuns")}</h3>
           <ul className="run-history">
-            {runs.length === 0 && <li className="muted">暂无运行记录。</li>}
+            {runs.length === 0 && <li className="muted">{t("modals:triggers.noRuns")}</li>}
             {runs.map((r) => (
               <li key={r.id}>
                 <span className={`run-status run-status--${r.status}`}>
                   {r.status}
                 </span>
-                <span className="muted">触发：{r.trigger || "—"}</span>
+                <span className="muted">
+                  {t("modals:triggers.triggeredBy", {
+                    trigger: r.trigger || "—",
+                  })}
+                </span>
                 <span className="muted">
                   {new Date(r.started_at).toLocaleString()}
                 </span>
@@ -255,6 +266,7 @@ function TriggerEditor({
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
+  const { t } = useTranslation();
   const [form, setForm] = useState<TriggerConfig>(initial);
   const [graphs, setGraphs] = useState<{ id: string; name: string }[]>([]);
   const [rowsText, setRowsText] = useState<string>(
@@ -277,35 +289,36 @@ function TriggerEditor({
   const save = async () => {
     setError(null);
     if (!form.id.trim()) {
-      setError("触发器 ID 不能为空");
+      setError(t("modals:triggers.editor.errIdEmpty"));
       return;
     }
     const payload: TriggerConfig = { ...form, enabled: form.enabled ?? true };
     if (payload.type === "webhook" && !payload.webhookSecret?.trim()) {
-      setError("Webhook 触发器需设置 secret");
+      setError(t("modals:triggers.editor.errWebhookSecret"));
       return;
     }
     if (payload.type === "cron" && !payload.cron?.trim()) {
-      setError("定时触发器需设置 cron 表达式");
+      setError(t("modals:triggers.editor.errCron"));
       return;
     }
     if (payload.type === "event" && !payload.eventSource?.id.trim()) {
-      setError("事件触发器需设置事件源 ID");
+      setError(t("modals:triggers.editor.errEventSource"));
       return;
     }
     if (payload.type === "batch") {
       const source = payload.batch?.source ?? "rows";
       if (source === "csv" && !payload.batch?.path?.trim()) {
-        setError("CSV 批次需设置文件路径");
+        setError(t("modals:triggers.editor.errCsvPath"));
         return;
       }
       if (source === "rows") {
         try {
           const rows = rowsText.trim() ? JSON.parse(rowsText) : [];
-          if (!Array.isArray(rows)) throw new Error("rows 必须是数组");
+          if (!Array.isArray(rows))
+            throw new Error(t("modals:triggers.editor.errRowsArray"));
           payload.batch = { source: "rows", rows };
         } catch {
-          setError("rows 必须是合法的 JSON 数组");
+          setError(t("modals:triggers.editor.errRowsJson"));
           return;
         }
       } else {
@@ -317,7 +330,7 @@ function TriggerEditor({
       await api.createTrigger(graphId, payload);
       await onSaved();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "保存失败");
+      setError(e instanceof Error ? e.message : t("modals:triggers.editor.saveFailed"));
     } finally {
       setBusy(false);
     }
@@ -325,26 +338,30 @@ function TriggerEditor({
 
   return (
     <div className="trigger-editor">
-      <h3>{isNew ? "新建触发器" : `编辑触发器 · ${initial.id}`}</h3>
+      <h3>
+        {isNew
+          ? t("modals:triggers.editor.create")
+          : t("modals:triggers.editor.edit", { id: initial.id })}
+      </h3>
 
       <div className="editor-grid">
         <label className="field">
-          <span>类型</span>
+          <span>{t("modals:triggers.editor.type")}</span>
           <select
             value={form.type}
             onChange={(e) =>
               patch({ type: e.target.value as TriggerConfig["type"] })
             }
           >
-            <option value="manual">手动</option>
-            <option value="webhook">Webhook</option>
-            <option value="cron">定时 (cron)</option>
-            <option value="event">事件</option>
-            <option value="batch">批量</option>
+            <option value="manual">{t("modals:triggers.editor.typeManual")}</option>
+            <option value="webhook">{t("modals:triggers.editor.typeWebhook")}</option>
+            <option value="cron">{t("modals:triggers.editor.typeCron")}</option>
+            <option value="event">{t("modals:triggers.editor.typeEvent")}</option>
+            <option value="batch">{t("modals:triggers.editor.typeBatch")}</option>
           </select>
         </label>
         <label className="field">
-          <span>触发器 ID</span>
+          <span>{t("modals:triggers.editor.triggerId")}</span>
           <input
             value={form.id}
             disabled={!isNew}
@@ -357,39 +374,37 @@ function TriggerEditor({
             checked={form.enabled !== false}
             onChange={(e) => patch({ enabled: e.target.checked })}
           />
-          <span>启用</span>
+          <span>{t("modals:triggers.enabled")}</span>
         </label>
       </div>
 
       {form.type === "webhook" && (
         <label className="field">
-          <span>Webhook Secret</span>
+          <span>{t("modals:triggers.editor.webhookSecret")}</span>
           <input
             value={form.webhookSecret ?? ""}
             onChange={(e) => patch({ webhookSecret: e.target.value })}
-            placeholder="调用 /webhook?secret= 时使用的密钥"
+            placeholder={t("modals:triggers.editor.webhookSecretPlaceholder")}
           />
         </label>
       )}
 
       {form.type === "cron" && (
         <label className="field">
-          <span>Cron 表达式 (UTC)</span>
+          <span>{t("modals:triggers.editor.cronExpr")}</span>
           <input
             value={form.cron ?? ""}
             onChange={(e) => patch({ cron: e.target.value })}
             placeholder="0 9 * * *"
           />
-          <small className="muted">
-            5 段：分 时 日 月 周。服务器以 UTC 计算下次运行。
-          </small>
+          <small className="muted">{t("modals:triggers.editor.cronHint")}</small>
         </label>
       )}
 
       {form.type === "event" && (
         <>
           <label className="field">
-            <span>事件源类型</span>
+            <span>{t("modals:triggers.editor.eventSourceType")}</span>
             <select
               value={form.eventSource?.kind ?? "graph"}
               onChange={(e) =>
@@ -401,20 +416,20 @@ function TriggerEditor({
                 })
               }
             >
-              <option value="graph">另一个产线完成</option>
-              <option value="artifact">某产物生成</option>
+              <option value="graph">{t("modals:triggers.editor.eventGraph")}</option>
+              <option value="artifact">{t("modals:triggers.editor.eventArtifact")}</option>
             </select>
           </label>
           {form.eventSource?.kind === "graph" ? (
             <label className="field">
-              <span>监听的产线</span>
+              <span>{t("modals:triggers.editor.listenGraph")}</span>
               <select
                 value={form.eventSource?.id ?? ""}
                 onChange={(e) =>
                   patch({ eventSource: { kind: "graph", id: e.target.value } })
                 }
               >
-                <option value="">— 选择产线 —</option>
+                <option value="">{t("modals:triggers.editor.selectGraph")}</option>
                 {graphs.map((g) => (
                   <option key={g.id} value={g.id}>
                     {g.name} ({g.id})
@@ -424,7 +439,7 @@ function TriggerEditor({
             </label>
           ) : (
             <label className="field">
-              <span>产物 ID</span>
+              <span>{t("modals:triggers.editor.artifactId")}</span>
               <input
                 value={form.eventSource?.id ?? ""}
                 onChange={(e) =>
@@ -432,7 +447,7 @@ function TriggerEditor({
                     eventSource: { kind: "artifact", id: e.target.value },
                   })
                 }
-                placeholder="如 art-123"
+                placeholder={t("modals:triggers.editor.artifactPlaceholder")}
               />
             </label>
           )}
@@ -442,7 +457,7 @@ function TriggerEditor({
       {form.type === "batch" && (
         <>
           <label className="field">
-            <span>输入来源</span>
+            <span>{t("modals:triggers.editor.inputSource")}</span>
             <select
               value={form.batch?.source ?? "rows"}
               onChange={(e) =>
@@ -454,13 +469,13 @@ function TriggerEditor({
                 })
               }
             >
-              <option value="rows">直接填写行 (JSON)</option>
-              <option value="csv">CSV 文件</option>
+              <option value="rows">{t("modals:triggers.editor.sourceRows")}</option>
+              <option value="csv">{t("modals:triggers.editor.sourceCsv")}</option>
             </select>
           </label>
           {form.batch?.source === "csv" ? (
             <label className="field">
-              <span>CSV 文件路径</span>
+              <span>{t("modals:triggers.editor.csvPath")}</span>
               <input
                 value={form.batch?.path ?? ""}
                 onChange={(e) =>
@@ -476,7 +491,7 @@ function TriggerEditor({
             </label>
           ) : (
             <label className="field">
-              <span>行 (JSON 数组)</span>
+              <span>{t("modals:triggers.editor.rowsLabel")}</span>
               <textarea
                 className="row-json"
                 value={rowsText}
@@ -492,14 +507,14 @@ function TriggerEditor({
       {error && <div className="error-text">{error}</div>}
       <div className="btn-row">
         <button className="btn btn--sm" onClick={onClose}>
-          取消
+          {t("common.cancel")}
         </button>
         <button
           className="btn btn--primary btn--sm"
           onClick={() => void save()}
           disabled={busy}
         >
-          保存
+          {t("common.save")}
         </button>
       </div>
     </div>

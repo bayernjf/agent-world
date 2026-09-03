@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { api, type EvalReport as Report } from "../lib/api";
 import Tooltip from "./Tooltip";
 
@@ -10,10 +11,11 @@ interface Props {
 
 type Range = "7d" | "30d" | "all";
 
-const RANGE_LABEL: Record<Range, string> = {
-  "7d": "近 7 天",
-  "30d": "近 30 天",
-  all: "全部",
+/** Key order is what lays the segmented control out. */
+const RANGE_KEY: Record<Range, string> = {
+  "7d": "modals:reports.range7d",
+  "30d": "modals:reports.range30d",
+  all: "common.all",
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -41,6 +43,7 @@ function passTone(rate: number): string {
 }
 
 export default function EvalReport({ open, onClose, graphId }: Props) {
+  const { t } = useTranslation();
   const [range, setRange] = useState<Range>("30d");
   const [report, setReport] = useState<Report | null>(null);
   const [loading, setLoading] = useState(false);
@@ -89,7 +92,7 @@ export default function EvalReport({ open, onClose, graphId }: Props) {
 
   if (!open) return null;
 
-  const t = report?.totals;
+  const totals = report?.totals;
 
   const evalCsvHref = (() => {
     const p = new URLSearchParams();
@@ -104,23 +107,23 @@ export default function EvalReport({ open, onClose, graphId }: Props) {
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal modal--wide" onClick={(e) => e.stopPropagation()}>
         <div className="modal__header">
-          <h2>质量评估</h2>
+          <h2>{t("modals:evalReport.title")}</h2>
           <div style={{ display: "flex", gap: 8 }}>
             <div className="seg">
-              {(Object.keys(RANGE_LABEL) as Range[]).map((r) => (
+              {(Object.keys(RANGE_KEY) as Range[]).map((r) => (
                 <button
                   key={r}
                   className={`seg__btn ${range === r ? "is-on" : ""}`}
                   onClick={() => setRange(r)}
                 >
-                  {RANGE_LABEL[r]}
+                  {t(RANGE_KEY[r])}
                 </button>
               ))}
             </div>
             <a className="btn" href={evalCsvHref}>
-              导出 CSV
+              {t("modals:reports.exportCsv")}
             </a>
-            <Tooltip content="关闭">
+            <Tooltip content={t("common.close")}>
               <button className="icon-btn" onClick={onClose}>
                 ✕
               </button>
@@ -129,61 +132,82 @@ export default function EvalReport({ open, onClose, graphId }: Props) {
         </div>
 
         <div className="modal__body">
-          {loading || !report || !t ? (
+          {loading || !report || !totals ? (
             <p
               className="muted"
               style={{ textAlign: "center", padding: "40px 0" }}
             >
-              {loading ? "加载中…" : "暂无数据"}
+              {loading ? t("modals:reports.loading") : t("common.empty")}
             </p>
           ) : (
             <>
               <div className="cost-stats">
                 <div className="cost-stat">
-                  <div className="cost-stat__label">合格率</div>
+                  <div className="cost-stat__label">
+                    {t("modals:reports.passRate")}
+                  </div>
                   <div
-                    className={`cost-stat__value cost-stat__value--${passTone(t.passRate)}`}
+                    className={`cost-stat__value cost-stat__value--${passTone(totals.passRate)}`}
                   >
-                    {pct(t.passRate)}
+                    {pct(totals.passRate)}
                   </div>
                 </div>
                 <div className="cost-stat">
-                  <div className="cost-stat__label">运行次数</div>
-                  <div className="cost-stat__value">{t.runs}</div>
+                  <div className="cost-stat__label">
+                    {t("modals:reports.runCount")}
+                  </div>
+                  <div className="cost-stat__value">{totals.runs}</div>
                 </div>
                 <div className="cost-stat">
-                  <div className="cost-stat__label">通过 / 总数</div>
+                  <div className="cost-stat__label">
+                    {t("modals:evalReport.passedOverTotal")}
+                  </div>
                   <div className="cost-stat__value">
-                    {t.passed}/{t.runs}
+                    {totals.passed}/{totals.runs}
                   </div>
                 </div>
                 <div className="cost-stat">
-                  <div className="cost-stat__label">平均返工</div>
+                  <div className="cost-stat__label">
+                    {t("modals:reports.avgRework")}
+                  </div>
                   <div className="cost-stat__value">
-                    {t.avgRework.toFixed(2)}
+                    {totals.avgRework.toFixed(2)}
                   </div>
                 </div>
                 <div className="cost-stat">
-                  <div className="cost-stat__label">平均耗时</div>
+                  <div className="cost-stat__label">
+                    {t("modals:reports.avgDuration")}
+                  </div>
                   <div className="cost-stat__value">
-                    {fmtDuration(t.avgDurationMs)}
+                    {fmtDuration(totals.avgDurationMs)}
                   </div>
                 </div>
                 <div className="cost-stat">
-                  <div className="cost-stat__label">平均质量分</div>
-                  <div className="cost-stat__value">{fmtScore(t.avgScore)}</div>
+                  <div className="cost-stat__label">
+                    {t("modals:evalReport.avgScoreStat")}
+                  </div>
+                  <div className="cost-stat__value">
+                    {fmtScore(totals.avgScore)}
+                  </div>
                 </div>
               </div>
 
               {report.byDay.length > 0 && (
                 <section className="cost-section">
-                  <h3 className="cost-section__title">每日合格率趋势</h3>
+                  <h3 className="cost-section__title">
+                    {t("modals:evalReport.dailyTrend")}
+                  </h3>
                   <div className="cost-chart">
                     {report.byDay.map((d) => (
                       <div
                         className="cost-chart__col"
                         key={d.day}
-                        title={`${d.day}: ${pct(d.passRate)} (${d.passed}/${d.runs})`}
+                        title={t("modals:evalReport.barTitle", {
+                          day: d.day,
+                          rate: pct(d.passRate),
+                          passed: d.passed,
+                          runs: d.runs,
+                        })}
                       >
                         <div className="cost-chart__bar-wrap">
                           <div
@@ -203,19 +227,21 @@ export default function EvalReport({ open, onClose, graphId }: Props) {
               )}
 
               <section className="cost-section">
-                <h3 className="cost-section__title">按产线</h3>
+                <h3 className="cost-section__title">
+                  {t("modals:reports.byGraph")}
+                </h3>
                 {report.byGraph.length === 0 ? (
-                  <p className="muted">暂无数据</p>
+                  <p className="muted">{t("common.empty")}</p>
                 ) : (
                   <table className="run-table cost-table">
                     <thead>
                       <tr>
-                        <th>产线</th>
-                        <th className="num">运行</th>
-                        <th className="num">合格率</th>
-                        <th className="num">平均返工</th>
-                        <th className="num">平均耗时</th>
-                        <th className="num">平均质量</th>
+                        <th>{t("modals:reports.graph")}</th>
+                        <th className="num">{t("modals:reports.runs")}</th>
+                        <th className="num">{t("modals:reports.passRate")}</th>
+                        <th className="num">{t("modals:reports.avgRework")}</th>
+                        <th className="num">{t("modals:reports.avgDuration")}</th>
+                        <th className="num">{t("modals:reports.avgScore")}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -241,24 +267,25 @@ export default function EvalReport({ open, onClose, graphId }: Props) {
               </section>
 
               <section className="cost-section">
-                <h3 className="cost-section__title">Prompt 版本对比</h3>
+                <h3 className="cost-section__title">
+                  {t("modals:evalReport.promptVersions")}
+                </h3>
                 <p className="muted cost-section__hint">
-                  同一产线每次修改 agent 的
-                  prompt/模型会生成新版本（v1、v2…），用于对比改动前后的合格率。
+                  {t("modals:evalReport.promptVersionsHint")}
                 </p>
                 {report.byPrompt.length === 0 ? (
-                  <p className="muted">暂无数据</p>
+                  <p className="muted">{t("common.empty")}</p>
                 ) : (
                   <table className="run-table cost-table">
                     <thead>
                       <tr>
-                        <th>产线</th>
-                        <th>版本</th>
-                        <th className="num">运行</th>
-                        <th className="num">合格率</th>
-                        <th className="num">平均返工</th>
-                        <th className="num">平均耗时</th>
-                        <th className="num">平均质量</th>
+                        <th>{t("modals:reports.graph")}</th>
+                        <th>{t("modals:evalReport.thVersion")}</th>
+                        <th className="num">{t("modals:reports.runs")}</th>
+                        <th className="num">{t("modals:reports.passRate")}</th>
+                        <th className="num">{t("modals:reports.avgRework")}</th>
+                        <th className="num">{t("modals:reports.avgDuration")}</th>
+                        <th className="num">{t("modals:reports.avgScore")}</th>
                       </tr>
                     </thead>
                     <tbody>

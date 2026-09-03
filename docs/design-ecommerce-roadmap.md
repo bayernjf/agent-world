@@ -561,6 +561,7 @@ CREATE INDEX idx_metrics_content ON content_metrics(artifact_id, recorded_at);
 2. F2/F3 与引擎解耦，可以和 F1 **并行开发**、提前上线拿正反馈。
 3. F7 坚决先做"导出包"，不向用户承诺自动发布到主流 C 端平台，规避合规与封号风险。
 4. 每个特性独立成系列原子提交（沿用现有 conventional commits 习惯），DB 变更统一走 schema_migrations，保证旧图/旧 run 可回放。
+5. **兼容性承诺（现有产线/模板零破坏）**：所有增强一律走"加枚举值 / 加可选字段 / 加新表 / 加新 API"的增量路径，不修改既有节点语义、不重排事件、不改旧数据主键。唯一例外是 F1 的 variant 维度——已设计缺省 `'main'` 兜底，保证不含 fanout/select 的旧图执行路径、事件、成本**完全不变**（见 §F1「迁移与兼容」）。**已验证（2026-09-03）**：F2/F3 落地后，27 个内置模板（`packages/core/src/templates.ts`）在新 schema 下全部兼容；F2 的 `runs.halted_node_id/halted_reason`、F3 的 `banned_terms` 表均为纯增量迁移，旧图/旧 run 可回放。
 
 ---
 

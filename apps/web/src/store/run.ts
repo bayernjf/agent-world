@@ -192,3 +192,23 @@ export async function resumeRun(
   });
   openStream(runId, useRun.getState().events.at(-1)?.seq ?? -1);
 }
+
+/**
+ * Re-attach to a run the engine resumed without this store asking for it — the
+ * review queue decides through POST /api/reviews/decide. Without it, a canvas
+ * looking at that run stays frozen on its halted frame with a closed stream.
+ * No-op for any run other than the one currently loaded.
+ */
+export function reattachRun(runId: string) {
+  const state = useRun.getState();
+  if (state.runId !== runId) return;
+  state.disconnect();
+  useRun.setState({
+    connection: "connecting",
+    connecting: true,
+    reconnecting: false,
+    view: "live",
+    live: { ...useRun.getState().live, status: "running" },
+  });
+  openStream(runId, useRun.getState().events.at(-1)?.seq ?? -1);
+}
