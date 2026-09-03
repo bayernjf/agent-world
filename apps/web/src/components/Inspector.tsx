@@ -20,6 +20,8 @@ import SourceImages from "./SourceImages";
 import SourceFiles from "./SourceFiles";
 import ConnectorEditor from "./ConnectorEditor";
 import Tooltip from "./Tooltip";
+import { useTranslation } from "react-i18next";
+import i18n from "../i18n";
 
 function formatUnits(units: Record<string, number> | undefined): string | null {
   if (!units) return null;
@@ -73,9 +75,9 @@ function MissingModelHint({
   if (hasModels) return null;
   return (
     <p className="field__hint">
-      尚未配置该类型模型，运行前需先
+      {i18n.t("nodes:inspector.missingModel")}
       <button type="button" className="link" onClick={onOpenSettings}>
-        前往「设置 · 模型与密钥」
+        {i18n.t("nodes:inspector.goSettings")}
       </button>
     </p>
   );
@@ -88,11 +90,11 @@ function replaceAt<T>(arr: T[], i: number, v: T): T[] {
 }
 
 const STEP_OP_LABELS: Record<TableStep["op"], string> = {
-  parse: "解析（CSV/JSON → 表格）",
-  filter: "筛选行",
-  sort: "排序",
-  aggregate: "聚合统计",
-  output: "输出格式",
+  parse: "nodes:inspector.stepOp.parse",
+  filter: "nodes:inspector.stepOp.filter",
+  sort: "nodes:inspector.stepOp.sort",
+  aggregate: "nodes:inspector.stepOp.aggregate",
+  output: "nodes:inspector.stepOp.output",
 };
 
 function stepField(label: string, children: ReactNode) {
@@ -150,7 +152,7 @@ function TableStepEditor({
             </option>
           ))}
         </select>
-        <Tooltip content="删除该步骤">
+        <Tooltip content={i18n.t("nodes:inspector.deleteStep")}>
           <button
             type="button"
             className="btn btn--small btn--ghost"
@@ -164,7 +166,7 @@ function TableStepEditor({
       {step.op === "parse" && (
         <>
           {stepField(
-            "格式",
+            i18n.t("nodes:inspector.format"),
             <select
               className="select"
               value={step.format}
@@ -172,14 +174,14 @@ function TableStepEditor({
                 onChange({ ...step, format: e.target.value as "csv" | "json" })
               }
             >
-              <option value="csv">CSV 文本</option>
-              <option value="json">JSON 数组</option>
+              <option value="csv">{i18n.t("nodes:inspector.csvText")}</option>
+              <option value="json">{i18n.t("nodes:inspector.jsonArray")}</option>
             </select>,
           )}
           {step.format === "csv" && (
             <>
               {stepField(
-                "分隔符",
+                i18n.t("nodes:inspector.delimiter"),
                 <input
                   type="text"
                   className="input mono"
@@ -199,7 +201,7 @@ function TableStepEditor({
                     onChange({ ...step, hasHeader: e.target.checked })
                   }
                 />
-                <span>首行为表头</span>
+                <span>{i18n.t("nodes:inspector.hasHeader")}</span>
               </label>
             </>
           )}
@@ -209,7 +211,7 @@ function TableStepEditor({
       {step.op === "filter" && (
         <>
           {stepField(
-            "列名",
+            i18n.t("nodes:inspector.column"),
             <input
               type="text"
               className="input mono"
@@ -218,7 +220,7 @@ function TableStepEditor({
             />,
           )}
           {stepField(
-            "操作符",
+            i18n.t("nodes:inspector.operator"),
             <select
               className="select"
               value={step.operator}
@@ -230,17 +232,17 @@ function TableStepEditor({
                 })
               }
             >
-              <option value="eq">等于</option>
-              <option value="ne">不等于</option>
-              <option value="gt">大于</option>
-              <option value="gte">大于等于</option>
-              <option value="lt">小于</option>
-              <option value="lte">小于等于</option>
-              <option value="contains">包含（忽略大小写）</option>
+              <option value="eq">{i18n.t("nodes:inspector.opEq")}</option>
+              <option value="ne">{i18n.t("nodes:inspector.opNe")}</option>
+              <option value="gt">{i18n.t("nodes:inspector.opGt")}</option>
+              <option value="gte">{i18n.t("nodes:inspector.opGte")}</option>
+              <option value="lt">{i18n.t("nodes:inspector.opLt")}</option>
+              <option value="lte">{i18n.t("nodes:inspector.opLte")}</option>
+              <option value="contains">{i18n.t("nodes:inspector.opContains")}</option>
             </select>,
           )}
           {stepField(
-            "比较值",
+            i18n.t("nodes:inspector.value"),
             <input
               type="text"
               className="input mono"
@@ -254,7 +256,7 @@ function TableStepEditor({
       {step.op === "sort" && (
         <>
           {stepField(
-            "列名",
+            i18n.t("nodes:inspector.column"),
             <input
               type="text"
               className="input mono"
@@ -263,7 +265,7 @@ function TableStepEditor({
             />,
           )}
           {stepField(
-            "方向",
+            i18n.t("nodes:inspector.direction"),
             <select
               className="select"
               value={step.direction}
@@ -274,8 +276,8 @@ function TableStepEditor({
                 })
               }
             >
-              <option value="asc">升序</option>
-              <option value="desc">降序</option>
+              <option value="asc">{i18n.t("nodes:inspector.asc")}</option>
+              <option value="desc">{i18n.t("nodes:inspector.desc")}</option>
             </select>,
           )}
         </>
@@ -284,7 +286,7 @@ function TableStepEditor({
       {step.op === "aggregate" && (
         <>
           {stepField(
-            "分组列（留空 = 全表聚合）",
+            i18n.t("nodes:inspector.groupBy"),
             <input
               type="text"
               className="input mono"
@@ -299,7 +301,7 @@ function TableStepEditor({
               <input
                 type="text"
                 className="input mono"
-                placeholder="列名"
+                placeholder={i18n.t("nodes:inspector.columnPlaceholder")}
                 value={agg.column}
                 onChange={(e) =>
                   onChange({
@@ -324,16 +326,16 @@ function TableStepEditor({
                   })
                 }
               >
-                <option value="count">计数</option>
-                <option value="sum">求和</option>
-                <option value="avg">平均</option>
-                <option value="min">最小</option>
-                <option value="max">最大</option>
+                <option value="count">{i18n.t("nodes:inspector.aggCount")}</option>
+                <option value="sum">{i18n.t("nodes:inspector.aggSum")}</option>
+                <option value="avg">{i18n.t("nodes:inspector.aggAvg")}</option>
+                <option value="min">{i18n.t("nodes:inspector.aggMin")}</option>
+                <option value="max">{i18n.t("nodes:inspector.aggMax")}</option>
               </select>
               <input
                 type="text"
                 className="input mono"
-                placeholder="输出列名"
+                placeholder={i18n.t("nodes:inspector.outputColumn")}
                 value={agg.as ?? ""}
                 onChange={(e) =>
                   onChange({
@@ -369,7 +371,7 @@ function TableStepEditor({
               })
             }
           >
-            + 添加聚合
+            {i18n.t("nodes:inspector.addAgg")}
           </button>
         </>
       )}
@@ -377,7 +379,7 @@ function TableStepEditor({
       {step.op === "output" && (
         <>
           {stepField(
-            "输出格式",
+            i18n.t("nodes:inspector.stepOp.output"),
             <select
               className="select"
               value={step.format}
@@ -386,9 +388,9 @@ function TableStepEditor({
               }
             >
               <option value="json">
-                JSON（{"{ rows, count, columns }"} 对象）
+                {i18n.t("nodes:inspector.jsonObject")}
               </option>
-              <option value="csv">CSV 文本（额外产出）</option>
+              <option value="csv">{i18n.t("nodes:inspector.csvExtra")}</option>
             </select>,
           )}
         </>
@@ -424,16 +426,16 @@ function diffLines(a: string, b: string) {
 }
 
 const ERROR_LABEL: Record<string, string> = {
-  TIMEOUT: "超时",
-  RATE_LIMIT: "限流",
-  PROVIDER_ERROR: "模型服务错误",
-  SCRIPT_ERROR: "脚本执行错误",
-  AUTH: "密钥错误",
-  VALIDATION: "质检未通过",
-  BUDGET: "节点预算超限",
-  UNKNOWN: "未知错误",
-  UNSUPPORTED: "暂不支持",
-  SUBPROCESS: "子流程错误",
+  TIMEOUT: "nodes:inspector.errorLabel.TIMEOUT",
+  RATE_LIMIT: "nodes:inspector.errorLabel.RATE_LIMIT",
+  PROVIDER_ERROR: "nodes:inspector.errorLabel.PROVIDER_ERROR",
+  SCRIPT_ERROR: "nodes:inspector.errorLabel.SCRIPT_ERROR",
+  AUTH: "nodes:inspector.errorLabel.AUTH",
+  VALIDATION: "nodes:inspector.errorLabel.VALIDATION",
+  BUDGET: "nodes:inspector.errorLabel.BUDGET",
+  UNKNOWN: "nodes:inspector.errorLabel.UNKNOWN",
+  UNSUPPORTED: "nodes:inspector.errorLabel.UNSUPPORTED",
+  SUBPROCESS: "nodes:inspector.errorLabel.SUBPROCESS",
 };
 
 /** 富渲染节点文本产出：含 product-json 走结构化成品，否则走 Markdown。 */
@@ -448,7 +450,7 @@ function renderNodeOutput(text: string): React.ReactNode {
       return <div className="artifact-md">{renderMarkdown(cleaned)}</div>;
     return (
       <div className="artifact-md muted">
-        结构化成品解析失败（JSON 不合法），暂无法富渲染。
+        {i18n.t("nodes:inspector.structuredParseFailed")}
       </div>
     );
   }
@@ -492,6 +494,7 @@ export default function Inspector({
 }: {
   onOpenSettings: () => void;
 }) {
+  const { t } = useTranslation();
   const { graph, selectedId, updateNode, saveState, reloadGraph } = useGraph();
   const runtime = useVisibleRuntime();
   // Saved graphs for the subprocess node's graph picker (refresh on mount).
@@ -628,9 +631,9 @@ export default function Inspector({
     return (
       <aside className="panel inspector">
         <div className="panel__bar">
-          <span>节点详情</span>
+          <span>{t("nodes:inspector.nodeDetail")}</span>
         </div>
-        <p className="empty">选中一座节点查看详情</p>
+        <p className="empty">{t("nodes:inspector.selectNode")}</p>
       </aside>
     );
   }
@@ -649,11 +652,11 @@ export default function Inspector({
   const artifacts = rt?.artifacts ?? [];
   const saveIndicator =
     saveState === "saving"
-      ? "保存中…"
+      ? t("nodes:inspector.saving")
       : saveState === "saved"
-        ? "已保存"
+        ? t("nodes:inspector.saved")
         : saveState === "error"
-          ? "保存失败"
+          ? t("nodes:inspector.saveFailed")
           : "";
 
   return (
@@ -664,9 +667,12 @@ export default function Inspector({
         {rt?.lastVerdict?.score != null && (
           <span
             className={`chip chip--score chip--score-${rt.lastVerdict.score >= 7 ? "good" : rt.lastVerdict.score >= 4 ? "warn" : "bad"}`}
-            title={`质检评分 ${rt.lastVerdict.score}/10 — ${rt.lastVerdict.reason}`}
+            title={t("nodes:inspector.qualityScore", {
+              score: rt.lastVerdict.score,
+              reason: rt.lastVerdict.reason,
+            })}
           >
-            质量 {rt.lastVerdict.score}/10
+            {t("nodes:inspector.quality", { score: rt.lastVerdict.score })}
           </span>
         )}
       </div>
@@ -677,14 +683,14 @@ export default function Inspector({
           className={`tab ${mainTab === "output" ? "is-on" : ""}`}
           onClick={() => setMainTab("output")}
         >
-          产出
+          {t("nodes:inspector.tabOutput")}
         </button>
         <button
           type="button"
           className={`tab ${mainTab === "config" ? "is-on" : ""}`}
           onClick={() => setMainTab("config")}
         >
-          配置
+          {t("nodes:inspector.tabConfig")}
         </button>
         {node.kind === "textGen" && (
           <button
@@ -692,13 +698,13 @@ export default function Inspector({
             className={`tab ${mainTab === "skills" ? "is-on" : ""}`}
             onClick={() => setMainTab("skills")}
           >
-            技能
+            {t("nodes:inspector.tabSkills")}
           </button>
         )}
         <span
           className="inspector__tab-hint"
 
-          aria-label="按 E 循环切换标签页"
+          aria-label={t("nodes:inspector.tabSkillsAria")}
         >
           <kbd className="kbd-inline">E</kbd>
         </span>
@@ -709,19 +715,19 @@ export default function Inspector({
           <>
             {saveState === "conflict" && (
               <div className="conflict-banner" role="alert">
-                <span>该产线已在其他标签页被修改，当前改动未保存。</span>
+                <span>{t("nodes:inspector.conflict")}</span>
                 <button
                   type="button"
                   className="btn btn--small"
                   onClick={() => void reloadGraph()}
                 >
-                  重新载入
+                  {t("nodes:inspector.reload")}
                 </button>
               </div>
             )}
             <label className="field">
               <span>
-                名称{" "}
+                {t("nodes:inspector.name")}{" "}
                 {saveIndicator && (
                   <em className="save-state">{saveIndicator}</em>
                 )}
@@ -3367,8 +3373,10 @@ export default function Inspector({
               <section className="error-box">
                 <h3 className="label">
                   {rt.errorCode
-                    ? (ERROR_LABEL[rt.errorCode] ?? "错误")
-                    : "错误"}
+                    ? ERROR_LABEL[rt.errorCode]
+                      ? t(ERROR_LABEL[rt.errorCode]!)
+                      : t("nodes:inspector.errorLabel.UNKNOWN")
+                    : t("nodes:inspector.errorLabel.UNKNOWN")}
                 </h3>
                 <p className="error-msg">{rt.error}</p>
                 {rt.errorCode && (
@@ -3379,19 +3387,19 @@ export default function Inspector({
 
             {rt && (
               <section className="usage">
-                <h3 className="label">本次运行</h3>
+                <h3 className="label">{t("nodes:inspector.thisRun")}</h3>
                 <dl>
                   <div>
-                    <dt>状态</dt>
+                    <dt>{t("nodes:inspector.runStatus")}</dt>
                     <dd>{rt.status}</dd>
                   </div>
                   <div>
-                    <dt>尝试</dt>
+                    <dt>{t("nodes:inspector.runAttempt")}</dt>
                     <dd>{rt.attempt}</dd>
                   </div>
                   {rt.startedAt && (
                     <div>
-                      <dt>耗时</dt>
+                      <dt>{t("nodes:inspector.runDuration")}</dt>
                       <dd>
                         {formatDuration(
                           (rt.finishedAt ?? Date.now()) - rt.startedAt,
@@ -3410,13 +3418,13 @@ export default function Inspector({
                   </div>
                   {formatUnits(rt.units) && (
                     <div>
-                      <dt>用量</dt>
+                      <dt>{t("nodes:inspector.runUsage")}</dt>
                       <dd>{formatUnits(rt.units)}</dd>
                     </div>
                   )}
                   {rt.costUsd > 0 && (
                     <div>
-                      <dt>电费</dt>
+                      <dt>{t("nodes:inspector.runCost")}</dt>
                       <dd>${rt.costUsd.toFixed(5)}</dd>
                     </div>
                   )}
@@ -3434,7 +3442,7 @@ export default function Inspector({
 
             {node.kind !== "sink" && attempts.length > 0 && (
               <section className="attempts">
-                <h3 className="label">产出</h3>
+                <h3 className="label">{t("nodes:inspector.tabOutput")}</h3>
                 <div className="tabs">
                   {attempts.map((a) => (
                     <button
@@ -3442,7 +3450,7 @@ export default function Inspector({
                       className={`chip ${tab === a ? "is-on" : ""}`}
                       onClick={() => setTab(a)}
                     >
-                      尝试 {a}
+                      {t("nodes:inspector.attempt", { n: a })}
                     </button>
                   ))}
                   {attempts.length >= 2 && (
@@ -3450,7 +3458,7 @@ export default function Inspector({
                       className={`chip ${tab === "diff" ? "is-on" : ""}`}
                       onClick={() => setTab("diff")}
                     >
-                      对比
+                      {t("nodes:inspector.compare")}
                     </button>
                   )}
                 </div>
@@ -3461,7 +3469,9 @@ export default function Inspector({
                       className="link"
                       onClick={() => setShowReasoning((v) => !v)}
                     >
-                      {showReasoning ? "隐藏" : "查看"}思考过程
+                      {showReasoning
+                        ? t("nodes:inspector.reasoningHide")
+                        : t("nodes:inspector.reasoningShow")}
                     </button>
                     {showReasoning && (
                       <pre className="output reasoning__text">{reasoning}</pre>
@@ -3471,17 +3481,21 @@ export default function Inspector({
 
                 {rt?.toolCalls && rt.toolCalls.length > 0 && (
                   <div className="tool-calls">
-                    <span className="tool-calls__label">工具调用</span>
+                    <span className="tool-calls__label">
+                      {t("nodes:inspector.toolCalls")}
+                    </span>
                     {rt.toolCalls.map((tc) => (
                       <div key={tc.callId} className="tool-call">
                         <div className="tool-call__head">
                           <span className="tool-call__name">{tc.name}</span>
                           {tc.error ? (
                             <span className="tool-call__status tool-call__status--err">
-                              错误
+                              {t("nodes:inspector.errorLabel.UNKNOWN")}
                             </span>
                           ) : (
-                            <span className="tool-call__status">完成</span>
+                            <span className="tool-call__status">
+                              {t("nodes:inspector.toolStatusDone")}
+                            </span>
                           )}
                         </div>
                         <pre className="tool-call__args">
@@ -3524,7 +3538,7 @@ export default function Inspector({
                 {artifacts.filter((a) => !isProductJsonSource(a)).length >
                   0 && (
                   <div className="artifacts">
-                    <h4 className="label">产出物</h4>
+                    <h4 className="label">{t("nodes:inspector.artifacts")}</h4>
                     <div className="artifacts__grid">
                       {artifacts
                         .filter((a) => !isProductJsonSource(a))

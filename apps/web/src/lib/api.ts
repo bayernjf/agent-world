@@ -9,6 +9,7 @@ import type {
 
 export type { TriggerConfig } from "@agent-world/core";
 import type { Skill } from "@agent-world/core";
+import i18n from "../i18n";
 
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
@@ -306,9 +307,15 @@ export const api = {
           existingId?: string;
         };
         if (body.error === "duplicate_name") {
-          throw new DuplicateGraphNameError(body.message ?? "产线名重复", body.existingId);
+          throw new DuplicateGraphNameError(
+            body.message ?? i18n.t("errors:graph.duplicateNameShort"),
+            body.existingId,
+          );
         }
-        throw new GraphConflictError(body.message ?? "保存冲突", body.serverVersion);
+        throw new GraphConflictError(
+          body.message ?? i18n.t("errors:graph.saveConflict"),
+          body.serverVersion,
+        );
       }
       if (!res.ok) throw new Error(`save failed: ${res.status}`);
       return res.json() as Promise<{ ok: true; version: number }>;
@@ -332,7 +339,10 @@ export const api = {
         existingId?: string;
       };
       if (body.error === "duplicate_name") {
-        throw new DuplicateGraphNameError(body.message ?? "产线名重复", body.existingId);
+        throw new DuplicateGraphNameError(
+          body.message ?? i18n.t("errors:graph.duplicateNameShort"),
+          body.existingId,
+        );
       }
       throw new Error(`create failed: 409 ${JSON.stringify(body)}`);
     }
@@ -456,7 +466,10 @@ export const api = {
 
   abReport: (groupId: string) =>
     authFetch(`/api/ab/${groupId}`).then((res) => {
-      if (!res.ok) throw new Error(`A/B 报表加载失败：${res.status}`);
+      if (!res.ok)
+        throw new Error(
+          i18n.t("errors:api.abReportLoadFailed", { status: res.status }),
+        );
       return res.json() as Promise<ABReport>;
     }),
 

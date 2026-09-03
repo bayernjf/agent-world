@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState, type DragEvent } from "react";
 const STATUS_AUTOHIDE_MS = 2000;
 const MODALITY_LABELS: Record<Modality, string> = {
-  text: "文本",
-  image: "图片",
-  video: "视频",
-  audio: "音频",
-  embedding: "向量",
+  text: "settings:modelKeys.modality.text",
+  image: "settings:modelKeys.modality.image",
+  video: "settings:modelKeys.modality.video",
+  audio: "settings:modelKeys.modality.audio",
+  embedding: "settings:modelKeys.modality.embedding",
 };
 const MODALITY_OPTIONS = Object.entries(MODALITY_LABELS) as [
   Modality,
@@ -21,6 +21,7 @@ import {
 import { refreshDefaultModel, useGraph } from "../store/graph";
 import type { GraphNode, NodeKind } from "@agent-world/core";
 import Tooltip from "./Tooltip";
+import { useTranslation } from "react-i18next";
 
 interface Props {
   open: boolean;
@@ -55,6 +56,7 @@ function buildPricingFromForm(
 }
 
 export default function Settings({ open, onClose }: Props) {
+  const { t } = useTranslation();
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [savedConfig, setSavedConfig] = useState<AppConfig | null>(null);
   const [workers, setWorkers] = useState<
@@ -139,7 +141,9 @@ export default function Settings({ open, onClose }: Props) {
           setConfig(cfg);
           setSavedConfig(cfg);
         })
-        .catch((e) => setStatus(`加载失败: ${e}`));
+        .catch((e) =>
+          setStatus(t("settings:modelKeys.loadFailed", { error: String(e) })),
+        );
       fetch("/api/workers")
         .then((r) => r.json())
         .then((list) => setWorkers(list))
@@ -273,14 +277,14 @@ export default function Settings({ open, onClose }: Props) {
     if (!p.baseUrl) {
       setTestStates((s) => ({
         ...s,
-        [key]: { status: "fail", message: "Base URL 未填写" },
+        [key]: { status: "fail", message: t("settings:modelKeys.baseUrlRequired") },
       }));
       return;
     }
     if (!usableKey && !p.apiKey) {
       setTestStates((s) => ({
         ...s,
-        [key]: { status: "fail", message: "API Key 未填写" },
+        [key]: { status: "fail", message: t("settings:modelKeys.apiKeyRequired") },
       }));
       return;
     }
@@ -297,7 +301,7 @@ export default function Settings({ open, onClose }: Props) {
       if (result.ok) {
         setTestStates((s) => ({
           ...s,
-          [key]: { status: "ok", message: "连接成功" },
+          [key]: { status: "ok", message: t("settings:modelKeys.connectionOk") },
         }));
       } else {
         setTestStates((s) => ({
@@ -326,7 +330,10 @@ export default function Settings({ open, onClose }: Props) {
       if (!owner?.baseUrl) {
         setTestStates((s) => ({
           ...s,
-          [fk]: { status: "fail", message: "该 Provider 未配置 Base URL" },
+          [fk]: {
+            status: "fail",
+            message: t("settings:modelKeys.providerNoBaseUrl"),
+          },
         }));
         return;
       }
@@ -342,7 +349,7 @@ export default function Settings({ open, onClose }: Props) {
         if (result.ok) {
           setTestStates((s) => ({
             ...s,
-            [fk]: { status: "ok", message: "连接成功" },
+            [fk]: { status: "ok", message: t("settings:modelKeys.connectionOk") },
           }));
         } else {
           setTestStates((s) => ({
@@ -369,14 +376,14 @@ export default function Settings({ open, onClose }: Props) {
     if (!baseUrl) {
       setTestStates((s) => ({
         ...s,
-        [fk]: { status: "fail", message: "Base URL 未填写" },
+        [fk]: { status: "fail", message: t("settings:modelKeys.baseUrlRequired") },
       }));
       return;
     }
     if (!apiKey) {
       setTestStates((s) => ({
         ...s,
-        [fk]: { status: "fail", message: "API Key 未填写" },
+        [fk]: { status: "fail", message: t("settings:modelKeys.apiKeyRequired") },
       }));
       return;
     }
@@ -393,7 +400,7 @@ export default function Settings({ open, onClose }: Props) {
       if (result.ok) {
         setTestStates((s) => ({
           ...s,
-          [fk]: { status: "ok", message: "连接成功" },
+          [fk]: { status: "ok", message: t("settings:modelKeys.connectionOk") },
         }));
       } else {
         setTestStates((s) => ({
@@ -432,7 +439,7 @@ export default function Settings({ open, onClose }: Props) {
   const addModel = () => {
     const name = form.model.trim();
     if (!name) {
-      setFormError("请填写模型名称");
+      setFormError(t("settings:modelKeys.modelNameRequired"));
       return;
     }
     const ci = (s: string) => s.toLowerCase();
@@ -441,11 +448,11 @@ export default function Settings({ open, onClose }: Props) {
     if (form.connectTo !== "__new__") {
       const owner = config.providers[form.connectTo];
       if (!owner) {
-        setFormError("所选 Provider 不存在");
+        setFormError(t("settings:modelKeys.providerNotFound"));
         return;
       }
       if (owner.models.some((m) => ci(m) === ci(name))) {
-        setFormError(`模型 "${name}" 已在该 Provider 下`);
+        setFormError(t("settings:modelKeys.modelExists", { model: name }));
         return;
       }
       const pricing = { ...(owner.pricing ?? {}) };
@@ -469,12 +476,14 @@ export default function Settings({ open, onClose }: Props) {
       });
     } else {
       if (form.type === "openai-compatible" && !form.baseUrl.trim()) {
-        setFormError("请填写 Base URL");
+        setFormError(t("settings:modelKeys.baseUrlRequiredNew"));
         return;
       }
       const slug = providerSlug;
       if (providerExists) {
-        setFormError(`Provider 名 "${slug}" 已存在，请换一个`);
+        setFormError(
+          t("settings:modelKeys.providerNameExists", { slug }),
+        );
         return;
       }
       const pricing: Record<string, ModelPricing> = {};
@@ -689,7 +698,7 @@ export default function Settings({ open, onClose }: Props) {
       setConfirmClose(false);
       onClose();
     } catch (e) {
-      setStatus(`保存失败: ${e}`);
+      setStatus(t("settings:modelKeys.saveFailed", { error: String(e) }));
     }
   };
 
@@ -717,7 +726,7 @@ export default function Settings({ open, onClose }: Props) {
         });
       }, 1500);
     } catch (e) {
-      setStatus(`保存失败: ${e}`);
+      setStatus(t("settings:modelKeys.saveFailed", { error: String(e) }));
     }
   };
 
@@ -775,10 +784,10 @@ export default function Settings({ open, onClose }: Props) {
       setSavedConfig(toSave);
       setNewKey({});
       void refreshDefaultModel();
-      flashStatus("已保存");
+      flashStatus(t("settings:modelKeys.saved"));
       setTimeout(onClose, 800);
     } catch (e) {
-      setStatus(`保存失败: ${e}`);
+      setStatus(t("settings:modelKeys.saveFailed", { error: String(e) }));
     }
   };
 
@@ -786,15 +795,15 @@ export default function Settings({ open, onClose }: Props) {
     <div className="modal-backdrop" onClick={requestClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal__header">
-          <h2>设置 · 模型与密钥</h2>
+          <h2>{t("settings:modelKeys.title")}</h2>
           <button className="link" onClick={requestClose}>
-            关闭
+            {t("settings:modelKeys.close")}
           </button>
         </div>
 
         <div className="modal__body">
           <div className="settings-section-head">
-            <h3 className="label">模型</h3>
+            <h3 className="label">{t("settings:modelKeys.models")}</h3>
             <button
               className="btn btn--ghost btn--icon"
               onClick={() => (adding ? setAdding(false) : startAdd())}
@@ -806,16 +815,16 @@ export default function Settings({ open, onClose }: Props) {
           {adding && (
             <div className="model-form">
               <label className="field">
-                <span>模型名称</span>
+                <span>{t("settings:modelKeys.modelName")}</span>
                 <input
                   autoFocus
-                  placeholder="如 gpt-4o, deepseek-chat, agnes-2.0-flash"
+                  placeholder={t("settings:modelKeys.modelNamePlaceholder")}
                   value={form.model}
                   onChange={(e) => setForm({ ...form, model: e.target.value })}
                 />
               </label>
               <label className="field">
-                <span>模型类型</span>
+                <span>{t("settings:modelKeys.modalityLabel")}</span>
                 <select
                   className="select"
                   value={form.modality}
@@ -829,13 +838,13 @@ export default function Settings({ open, onClose }: Props) {
                 >
                   {MODALITY_OPTIONS.map(([value, label]) => (
                     <option key={value} value={value}>
-                      {label}
+                      {t(label)}
                     </option>
                   ))}
                 </select>
               </label>
               <label className="field">
-                <span>Provider</span>
+                <span>{t("settings:modelKeys.provider")}</span>
                 <select
                   className="select"
                   value={form.connectTo}
@@ -844,29 +853,34 @@ export default function Settings({ open, onClose }: Props) {
                   }
                 >
                   {customProviders.length === 0 && (
-                    <option value="__new__">新建 Provider</option>
+                    <option value="__new__">
+                      {t("settings:modelKeys.newProvider")}
+                    </option>
                   )}
                   {customProviders.map(([pname, pp]) => (
                     <option key={pname} value={pname}>
-                      {pname} — {pp.baseUrl ?? "(无 URL)"}
+                      {pname} — {pp.baseUrl ?? t("settings:modelKeys.noUrl")}
                     </option>
                   ))}
-                  <option value="__new__">+ 新建 Provider…</option>
+                  <option value="__new__">
+                    {t("settings:modelKeys.newProviderEllipsis")}
+                  </option>
                 </select>
               </label>
 
               {form.connectTo !== "__new__" ? (
                 <p className="diag diag--ok form-hint">
-                  将复用 Provider「{form.connectTo}」的 Base URL 和 API
-                  Key，只需填写模型名即可。
+                  {t("settings:modelKeys.reuseHint", {
+                    provider: form.connectTo,
+                  })}
                 </p>
               ) : (
                 <>
                   <label className="field">
-                    <span>Provider 名称（默认同模型名）</span>
+                    <span>{t("settings:modelKeys.providerNameLabel")}</span>
                     <input
                       className={providerExists ? "input--error" : undefined}
-                      placeholder="如 agnes、openai、deepseek"
+                      placeholder={t("settings:modelKeys.providerNamePlaceholder")}
                       value={form.providerName}
                       onChange={(e) => {
                         setForm({ ...form, providerName: e.target.value });
@@ -875,16 +889,18 @@ export default function Settings({ open, onClose }: Props) {
                     />
                     {providerExists ? (
                       <span className="field__error">
-                        Provider「{providerSlug}」已存在
+                        {t("settings:modelKeys.providerExists", {
+                          slug: providerSlug,
+                        })}
                       </span>
                     ) : form.providerName.trim() ? (
                       <span className="field__hint">
-                        将保存为：{providerSlug}
+                        {t("settings:modelKeys.willSaveAs", { slug: providerSlug })}
                       </span>
                     ) : null}
                   </label>
                   <label className="field">
-                    <span>Provider 类型</span>
+                    <span>{t("settings:modelKeys.providerType")}</span>
                     <select
                       className="select"
                       value={form.type}
@@ -896,12 +912,12 @@ export default function Settings({ open, onClose }: Props) {
                         openai-compatible
                       </option>
                       <option value="anthropic" disabled>
-                        anthropic (即将支持)
+                        {t("settings:modelKeys.anthropicSoon")}
                       </option>
                     </select>
                   </label>
                   <label className="field">
-                    <span>Base URL</span>
+                    <span>{t("settings:modelKeys.baseUrl")}</span>
                     <input
                       placeholder="https://api.example.com/v1"
                       value={form.baseUrl}
@@ -911,7 +927,7 @@ export default function Settings({ open, onClose }: Props) {
                     />
                   </label>
                   <label className="field">
-                    <span>API Key</span>
+                    <span>{t("settings:modelKeys.apiKey")}</span>
                     <div className="key-input">
                       <input
                         type="text"
@@ -934,7 +950,9 @@ export default function Settings({ open, onClose }: Props) {
                         onClick={() => toggleReveal("__form__")}
                         tabIndex={-1}
                       >
-                        {revealKeys.has("__form__") ? "隐藏" : "显示"}
+                        {revealKeys.has("__form__")
+                          ? t("settings:modelKeys.hide")
+                          : t("settings:modelKeys.show")}
                       </button>
                     </div>
                   </label>
@@ -943,7 +961,9 @@ export default function Settings({ open, onClose }: Props) {
               <div className="field">
                 <span>{PRICING_HEADING[form.modality]}</span>
                 <div className="price-row">
-                  <code className="price-name">{form.model || "(模型)"}</code>
+                  <code className="price-name">
+                    {form.model || t("settings:modelKeys.modelPlaceholder")}
+                  </code>
                   {PRICING_FIELDS[form.modality].map((field) => (
                     <input
                       key={field.key}
@@ -985,8 +1005,8 @@ export default function Settings({ open, onClose }: Props) {
                   disabled={testStates["__form__"]?.status === "testing"}
                 >
                   {testStates["__form__"]?.status === "testing"
-                    ? "测试中…"
-                    : "测试连接"}
+                    ? t("settings:modelKeys.testing")
+                    : t("settings:modelKeys.test")}
                 </button>
                 <div className="model-form__actions-right">
                   <button
@@ -996,10 +1016,10 @@ export default function Settings({ open, onClose }: Props) {
                       setFormError("");
                     }}
                   >
-                    取消
+                    {t("settings:modelKeys.cancel")}
                   </button>
                   <button className="btn btn--sm" onClick={addModel}>
-                    添加模型
+                    {t("settings:modelKeys.addModel")}
                   </button>
                 </div>
               </div>
@@ -1007,7 +1027,7 @@ export default function Settings({ open, onClose }: Props) {
           )}
 
           {cards.length === 0 && !adding && (
-            <p className="muted settings-empty">还没有配置模型，点 + 添加</p>
+            <p className="muted settings-empty">{t("settings:modelKeys.empty")}</p>
           )}
 
           {cards.map((c) => {
@@ -1099,19 +1119,23 @@ export default function Settings({ open, onClose }: Props) {
                   <span
                     className={`modality-badge modality--${p.modalities?.[c.model] ?? "text"}`}
                   >
-                    {
+                    {t(
                       MODALITY_LABELS[
                         (p.modalities?.[c.model] ?? "text") as Modality
-                      ]
-                    }
+                      ],
+                    )}
                   </span>
                   {p.source === "builtin" && (
-                    <Tooltip content="系统内置模型，只读选择，不可删除或改 Key">
-                      <span className="badge badge--builtin">内置</span>
+                    <Tooltip content={t("settings:modelKeys.builtinTooltip")}>
+                      <span className="badge badge--builtin">
+                        {t("settings:modelKeys.builtin")}
+                      </span>
                     </Tooltip>
                   )}
                   {isDefault && (
-                    <span className="badge badge--default">默认</span>
+                    <span className="badge badge--default">
+                      {t("settings:modelKeys.default")}
+                    </span>
                   )}
                   <div
                     className="model-card__head-actions"
@@ -1122,7 +1146,7 @@ export default function Settings({ open, onClose }: Props) {
                         className="link link--sm"
                         onClick={() => setDefault(c)}
                       >
-                        设为默认
+                        {t("settings:modelKeys.setDefault")}
                       </button>
                     )}
                     {p.source !== "builtin" && (
@@ -1144,7 +1168,7 @@ export default function Settings({ open, onClose }: Props) {
                           setDeleteReplacement(candidates[0]?.model ?? "");
                         }}
                       >
-                        删除
+                        {t("settings:modelKeys.delete")}
                       </button>
                     )}
                   </div>
@@ -1153,7 +1177,7 @@ export default function Settings({ open, onClose }: Props) {
                 {isOpen && (
                   <div className="model-card__body">
                     <label className="field">
-                      <span>模型类型</span>
+                      <span>{t("settings:modelKeys.modalityLabel")}</span>
                       <select
                         className="select"
                         disabled
@@ -1167,19 +1191,21 @@ export default function Settings({ open, onClose }: Props) {
                       </select>
                     </label>
                     <label className="field">
-                      <span>Provider 类型</span>
+                      <span>{t("settings:modelKeys.providerType")}</span>
                       <select className="select" disabled value={p.type}>
                         <option value="openai-compatible">
                           openai-compatible
                         </option>
                         <option value="anthropic" disabled>
-                          anthropic (即将支持)
+                          {t("settings:modelKeys.anthropicSoon")}
                         </option>
-                        <option value="fake">fake (内置测试)</option>
+                        <option value="fake">
+                          {t("settings:modelKeys.fakeBuiltin")}
+                        </option>
                       </select>
                     </label>
                     <label className="field">
-                      <span>Base URL</span>
+                      <span>{t("settings:modelKeys.baseUrl")}</span>
                       <input
                         disabled
                         value={p.baseUrl ?? ""}
@@ -1187,7 +1213,7 @@ export default function Settings({ open, onClose }: Props) {
                       />
                     </label>
                     <label className="field">
-                      <span>API Key</span>
+                      <span>{t("settings:modelKeys.apiKey")}</span>
                       <div className="key-input">
                         <input
                           type="text"
@@ -1204,11 +1230,11 @@ export default function Settings({ open, onClose }: Props) {
                           placeholder={
                             p.source === "builtin"
                               ? p.apiKey
-                                ? "系统内置 Key（只读）"
-                                : "系统内置，无需 Key"
+                                ? t("settings:modelKeys.builtinKeyReadonly")
+                                : t("settings:modelKeys.builtinNoKey")
                               : p.apiKey
-                                ? "已配置（留空保持不变）"
-                                : "未配置"
+                                ? t("settings:modelKeys.keyConfigured")
+                                : t("settings:modelKeys.keyNotConfigured")
                           }
                           value={newKey[c.providerName] ?? ""}
                           onChange={(e) =>
@@ -1224,7 +1250,9 @@ export default function Settings({ open, onClose }: Props) {
                           onClick={() => toggleReveal(c.providerName)}
                           tabIndex={-1}
                         >
-                          {revealKeys.has(c.providerName) ? "隐藏" : "显示"}
+                          {revealKeys.has(c.providerName)
+                            ? t("settings:modelKeys.hide")
+                            : t("settings:modelKeys.show")}
                         </button>
                       </div>
                     </label>
@@ -1268,7 +1296,9 @@ export default function Settings({ open, onClose }: Props) {
                           onClick={() => testConnection(c)}
                           disabled={ts?.status === "testing"}
                         >
-                          {ts?.status === "testing" ? "测试中…" : "测试连接"}
+                          {ts?.status === "testing"
+                            ? t("settings:modelKeys.testing")
+                            : t("settings:modelKeys.test")}
                         </button>
                       )}
                       {ts?.status === "ok" && (
@@ -1284,13 +1314,15 @@ export default function Settings({ open, onClose }: Props) {
                           className="btn btn--ghost btn--sm"
                           onClick={() => revertCard(c)}
                         >
-                          撤销修改
+                          {t("settings:modelKeys.revert")}
                         </button>
                         <button
                           className="btn btn--sm"
                           onClick={() => updateCard(c)}
                         >
-                          {cardSaved.has(key) ? "已更新 ✓" : "更新"}
+                          {cardSaved.has(key)
+                            ? t("settings:modelKeys.updated")
+                            : t("settings:modelKeys.update")}
                         </button>
                       </div>
                     )}
@@ -1301,15 +1333,15 @@ export default function Settings({ open, onClose }: Props) {
           })}
 
           <div className="settings-section-head">
-            <h3 className="label">月度预算</h3>
+            <h3 className="label">{t("settings:modelKeys.monthlyBudget")}</h3>
           </div>
           <label className="field">
-            <span>每月软上限（USD）</span>
+            <span>{t("settings:modelKeys.monthlySoftCap")}</span>
             <input
               type="number"
               min="0"
               step="0.01"
-              placeholder="留空表示不限制"
+              placeholder={t("settings:modelKeys.monthlyCapPlaceholder")}
               value={config.monthlyBudgetUsd ?? ""}
               onChange={(e) =>
                 setConfig({
@@ -1319,10 +1351,7 @@ export default function Settings({ open, onClose }: Props) {
                 })
               }
             />
-            <small className="muted">
-              当月累计花费达到 80% 和 100%
-              时，运行中的产线会收到警告（不会强制跳闸）。
-            </small>
+            <small className="muted">{t("settings:modelKeys.monthlyCapHint")}</small>
           </label>
 
           <button
@@ -1331,7 +1360,7 @@ export default function Settings({ open, onClose }: Props) {
             onClick={() => setWorkersOpen((v) => !v)}
             aria-expanded={workersOpen}
           >
-            <h3 className="label">Worker 插件与隔离</h3>
+            <h3 className="label">{t("settings:modelKeys.workers")}</h3>
             <span className={`chevron ${workersOpen ? "chevron--open" : ""}`}>
               ▸
             </span>
@@ -1346,10 +1375,14 @@ export default function Settings({ open, onClose }: Props) {
                       <span
                         className={`chip chip--${w.isolation === "subprocess" ? "warn" : "ok"}`}
                       >
-                        {w.isolation === "subprocess" ? "子进程隔离" : "进程内"}
+                        {w.isolation === "subprocess"
+                          ? t("settings:modelKeys.subprocessIsolation")
+                          : t("settings:modelKeys.inProcess")}
                       </span>
                       {w.builtin && (
-                        <span className="chip chip--muted">内置</span>
+                        <span className="chip chip--muted">
+                          {t("settings:modelKeys.builtin")}
+                        </span>
                       )}
                     </div>
                     {w.description && (
@@ -1357,26 +1390,29 @@ export default function Settings({ open, onClose }: Props) {
                     )}
                     {w.models && w.models.length > 0 && (
                       <p className="worker-item__models muted">
-                        模型: {w.models.join(", ")}
+                        {t("settings:modelKeys.modelsList", {
+                          models: w.models.join(", "),
+                        })}
                       </p>
                     )}
                     {w.env && w.env.length > 0 && (
                       <p className="worker-item__env muted">
-                        允许环境变量: {w.env.join(", ")}
+                        {t("settings:modelKeys.allowedEnv", {
+                          env: w.env.join(", "),
+                        })}
                       </p>
                     )}
                   </div>
                 ))}
                 {workers.length === 0 && (
-                  <p className="muted">未发现 Worker 插件。</p>
+                  <p className="muted">{t("settings:modelKeys.noWorkers")}</p>
                 )}
               </div>
               <p
                 className="muted"
                 style={{ fontSize: "12px", marginTop: "8px" }}
               >
-                子进程隔离的插件运行在独立 fork 进程中，环境变量被裁剪到安全基线
-                + 声明的 key，网络和文件系统访问经父进程白名单代理。
+                {t("settings:modelKeys.workersHint")}
               </p>
             </>
           )}
@@ -1404,13 +1440,18 @@ export default function Settings({ open, onClose }: Props) {
                   className="modal-confirm modal-confirm--danger"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  <p className="modal-confirm__title">删除模型</p>
+                  <p className="modal-confirm__title">
+                    {t("settings:modelKeys.deleteModel")}
+                  </p>
                   <p className="modal-confirm__desc">
-                    确定删除模型「{deleteTarget.model}」吗？
+                    {t("settings:modelKeys.deleteConfirm", {
+                      model: deleteTarget.model,
+                    })}
                     <br />
-                    所属连接：<code>{deleteTarget.providerName}</code>
+                    {t("settings:modelKeys.belongsTo")}
+                    <code>{deleteTarget.providerName}</code>
                     {prov && prov.models.length === 1
-                      ? "（该连接下只有这一个模型，删除后连接配置也会一并移除）"
+                      ? t("settings:modelKeys.deleteLastModelNote")
                       : ""}
                   </p>
                   <div className="modal-confirm__actions">
@@ -1418,7 +1459,7 @@ export default function Settings({ open, onClose }: Props) {
                       className="btn btn--ghost btn--sm"
                       onClick={() => setDeleteTarget(null)}
                     >
-                      取消
+                      {t("settings:modelKeys.cancel")}
                     </button>
                     <button
                       className="btn btn--sm btn--danger"
@@ -1427,7 +1468,7 @@ export default function Settings({ open, onClose }: Props) {
                         setDeleteTarget(null);
                       }}
                     >
-                      删除
+                      {t("settings:modelKeys.delete")}
                     </button>
                   </div>
                 </div>
@@ -1447,21 +1488,24 @@ export default function Settings({ open, onClose }: Props) {
                 onClick={(e) => e.stopPropagation()}
               >
                 <p className="modal-confirm__title">
-                  删除模型会影响 {affected.length} 个节点
+                  {t("settings:modelKeys.deleteAffects", {
+                    n: affected.length,
+                  })}
                 </p>
                 <p className="modal-confirm__desc">
-                  模型「<code>{deleteTarget.model}</code>」(
-                  {MODALITY_LABELS[mod ?? "text"]})
-                  正被以下节点使用，删除前请先选一个替代模型。
+                  {t("settings:modelKeys.deleteAffectsDesc", {
+                    model: deleteTarget.model,
+                    modality: t(MODALITY_LABELS[mod ?? "text"]),
+                  })}
                 </p>
                 <ul className="modal-confirm__list">
                   {[...groups.entries()].map(([kind, list]) => (
                     <li key={kind}>
                       <span className="modal-confirm__list-kind">
-                        {MODALITY_LABELS[kindModality(kind) ?? "text"]}
+                        {t(MODALITY_LABELS[kindModality(kind) ?? "text"])}
                       </span>
                       <span>
-                        {list.length} 个：
+                        {t("settings:modelKeys.nodesCount", { n: list.length })}
                         {list
                           .slice(0, 4)
                           .map((n) => n.name)
@@ -1472,7 +1516,7 @@ export default function Settings({ open, onClose }: Props) {
                   ))}
                 </ul>
                 <label className="field modal-confirm__field">
-                  <span>替换为</span>
+                  <span>{t("settings:modelKeys.replaceWith")}</span>
                   <select
                     className="select"
                     value={deleteReplacement}
@@ -1480,7 +1524,7 @@ export default function Settings({ open, onClose }: Props) {
                   >
                     {candidates.length === 0 && (
                       <option value="" disabled>
-                        （暂无同类型模型可选）
+                        {t("settings:modelKeys.noSameModality")}
                       </option>
                     )}
                     {candidates.map((c) => (
@@ -1492,8 +1536,7 @@ export default function Settings({ open, onClose }: Props) {
                 </label>
                 {candidates.length === 0 && (
                   <p className="diag diag--warn">
-                    暂无同类型模型。点击确认会清空这些节点的 model
-                    字段（派发时会再次报错）。
+                    {t("settings:modelKeys.noSameModalityWarn")}
                   </p>
                 )}
                 <div className="modal-confirm__actions">
@@ -1504,7 +1547,7 @@ export default function Settings({ open, onClose }: Props) {
                       setDeleteReplacement("");
                     }}
                   >
-                    取消
+                    {t("settings:modelKeys.cancel")}
                   </button>
                   <button
                     className="btn btn--sm btn--danger"
@@ -1531,8 +1574,8 @@ export default function Settings({ open, onClose }: Props) {
                     }}
                   >
                     {candidates.length > 0
-                      ? "确认替换并删除"
-                      : "确认清空并删除"}
+                      ? t("settings:modelKeys.confirmReplaceDelete")
+                      : t("settings:modelKeys.confirmClearDelete")}
                   </button>
                 </div>
               </div>
@@ -1541,25 +1584,27 @@ export default function Settings({ open, onClose }: Props) {
 
         {confirmClose && (
           <div className="modal-confirm" onClick={(e) => e.stopPropagation()}>
-            <p className="modal-confirm__title">有未保存的更改</p>
+            <p className="modal-confirm__title">
+              {t("settings:modelKeys.unsavedTitle")}
+            </p>
             <p className="modal-confirm__desc">
-              保存后关闭，还是放弃这些更改？
+              {t("settings:modelKeys.unsavedDesc")}
             </p>
             <div className="modal-confirm__actions">
               <button
                 className="btn btn--ghost btn--sm"
                 onClick={() => setConfirmClose(false)}
               >
-                继续编辑
+                {t("settings:modelKeys.keepEditing")}
               </button>
               <button
                 className="btn btn--ghost btn--sm"
                 onClick={discardAndClose}
               >
-                不保存
+                {t("settings:modelKeys.discard")}
               </button>
               <button className="btn btn--sm" onClick={saveAndClose}>
-                保存并关闭
+                {t("settings:modelKeys.saveAndClose")}
               </button>
             </div>
           </div>
@@ -1567,10 +1612,10 @@ export default function Settings({ open, onClose }: Props) {
 
         <div className="modal__footer">
           <button className="btn btn--ghost" onClick={requestClose}>
-            取消
+            {t("settings:modelKeys.cancel")}
           </button>
           <button className="btn" onClick={save}>
-            保存
+            {t("settings:modelKeys.save")}
           </button>
         </div>
       </div>

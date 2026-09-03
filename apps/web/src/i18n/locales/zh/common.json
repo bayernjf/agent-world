@@ -1,7 +1,32 @@
 {
   "app": {
     "name": "Agent World",
-    "tagline": "AI 产线编排平台"
+    "tagline": "AI 产线编排平台",
+    "duplicateName": "已存在同名产线「{{name}}」，请换一个名字。",
+    "compileFailed": "编译检查请求失败（{{error}}），请刷新页面重试",
+    "zeroNodes": "0 节点",
+    "pipeCount": "{{n}} 条管道",
+    "expandPanels": "展开全部侧栏",
+    "collapsePanels": "收起全部侧栏",
+    "expandPanel": "展开侧栏",
+    "collapsePanel": "收起侧栏",
+    "tipsToggle": "文坊悬停信息：{{state}}（快捷键 T 切换）",
+    "tipsOn": "开",
+    "tipsOff": "关",
+    "tips": "提示",
+    "galleryTooltip": "跨运行成品库：查看所有产线的历史产出，无需派发任务",
+    "gallery": "成品库",
+    "glossaryTooltip": "术语对照表：标准术语 ⇄ Agent World 用词",
+    "glossary": "术语表",
+    "paletteTooltip": "打开命令面板：弹窗、添加节点、画布动作",
+    "palette": "菜单",
+    "paletteAria": "打开命令面板",
+    "expandControl": "展开控制面板",
+    "collapseControl": "收起控制面板",
+    "expandInspector": "展开详情",
+    "collapseInspector": "收起详情",
+    "deleteGraphTitle": "删除产线",
+    "deleteGraphDesc": "确定删除「{{name}}」吗？该产线的所有运行记录不会被删除，但此操作不可撤销。"
   },
   "common": {
     "save": "保存",

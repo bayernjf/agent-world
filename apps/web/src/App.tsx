@@ -147,7 +147,7 @@ export default function App() {
     dup: { name: string } | null,
   ): boolean => {
     if (!dup) return false;
-    showError(`已存在同名产线「${name}」，请换一个名字。`);
+    showError(t("common:app.duplicateName", { name }));
     return true;
   };
 
@@ -161,11 +161,11 @@ export default function App() {
   };
 
   const MODALITY_PROMPT_LABEL: Record<string, string> = {
-    text: "文本",
-    image: "图片",
-    video: "视频",
-    audio: "音频",
-    embedding: "向量",
+    text: "nodes:modality.text",
+    image: "nodes:modality.image",
+    video: "nodes:modality.video",
+    audio: "nodes:modality.audio",
+    embedding: "nodes:modality.embedding",
   };
 
   /** Soft warning when the user adds a node whose modality has no configured
@@ -178,10 +178,9 @@ export default function App() {
   ) => {
     const r = addNode(kind, x, y);
     if (r.missingModality) {
-      const label = MODALITY_PROMPT_LABEL[r.missingModality] ?? "对应";
-      showError(
-        `该节点需要${label}模型，但当前没有配置；节点已添加，请在「模型设置」中添加后再派发。`,
-      );
+      const label =
+        MODALITY_PROMPT_LABEL[r.missingModality] ?? "nodes:modalityFallback";
+      showError(t("nodes:missingModality", { modality: t(label) }));
     }
   };
 
@@ -189,72 +188,72 @@ export default function App() {
     // 节点
     {
       id: "add-source",
-      label: "添加原料台",
-      hint: "产线投料入口（原料台）",
+      label: t("modals:commandPalette.commands.addSource.label"),
+      hint: t("modals:commandPalette.commands.addSource.hint"),
       group: "node",
       onSelect: () => addNodeOrReport("source", 300, 360),
     },
     {
       id: "add-textgen",
-      label: "添加文坊",
-      hint: "LLM 文本生成（文坊），可挂技能卡",
+      label: t("modals:commandPalette.commands.addTextGen.label"),
+      hint: t("modals:commandPalette.commands.addTextGen.hint"),
       group: "node",
       onSelect: () => addNodeOrReport("textGen", 300, 480),
     },
     {
       id: "add-gate",
-      label: "添加质检站",
-      hint: "LLM-as-judge 质量检验门（质检站）",
+      label: t("modals:commandPalette.commands.addGate.label"),
+      hint: t("modals:commandPalette.commands.addGate.hint"),
       group: "node",
       onSelect: () => addNodeOrReport("gate", 500, 480),
     },
     {
       id: "add-image",
-      label: "添加画坊",
-      hint: "文字生成图片",
+      label: t("modals:commandPalette.commands.addImage.label"),
+      hint: t("modals:commandPalette.commands.addImage.hint"),
       group: "node",
       onSelect: () => addNodeOrReport("imageGen", 300, 600),
     },
     {
       id: "add-http",
-      label: "添加 API 口岸",
-      hint: "调用外部 REST API（API 口岸）",
+      label: t("modals:commandPalette.commands.addHttp.label"),
+      hint: t("modals:commandPalette.commands.addHttp.hint"),
       group: "node",
       onSelect: () => addNodeOrReport("http", 300, 720),
     },
     {
       id: "add-sink",
-      label: "添加成品库",
-      hint: "产线产物出口（成品库）",
+      label: t("modals:commandPalette.commands.addSink.label"),
+      hint: t("modals:commandPalette.commands.addSink.hint"),
       group: "node",
       onSelect: () => addNodeOrReport("sink", 300, 840),
     },
     {
       id: "add-video",
-      label: "添加影坊",
-      hint: "文字生成视频",
+      label: t("modals:commandPalette.commands.addVideo.label"),
+      hint: t("modals:commandPalette.commands.addVideo.hint"),
       group: "node",
       onSelect: () => addNodeOrReport("videoGen", 300, 720),
     },
     {
       id: "add-audio",
-      label: "添加音坊",
-      hint: "文字生成语音/音乐",
+      label: t("modals:commandPalette.commands.addAudio.label"),
+      hint: t("modals:commandPalette.commands.addAudio.hint"),
       group: "node",
       onSelect: () => addNodeOrReport("audioGen", 300, 840),
     },
     {
       id: "new-graph",
-      label: "新建产线",
-      hint: "从模板或空白创建",
+      label: t("modals:commandPalette.commands.newGraph.label"),
+      hint: t("modals:commandPalette.commands.newGraph.hint"),
       group: "node",
       onSelect: () => setNewGraphOpen(true),
     },
     // 查看
     {
       id: "history",
-      label: "运行历史",
-      hint: "查看、加载、删除",
+      label: t("modals:commandPalette.commands.history.label"),
+      hint: t("modals:commandPalette.commands.history.hint"),
       group: "view",
       onSelect: () => setHistoryOpen(true),
     },
@@ -267,121 +266,125 @@ export default function App() {
     },
     {
       id: "cost",
-      label: "成本报表",
-      hint: "按产线 / 文坊 / 日期拆解",
+      label: t("modals:commandPalette.commands.cost.label"),
+      hint: t("modals:commandPalette.commands.cost.hint"),
       group: "view",
       onSelect: () => setCostOpen(true),
     },
     {
       id: "eval",
-      label: "质量评估",
-      hint: "通过率 / 返工 / 时长",
+      label: t("modals:commandPalette.commands.eval.label"),
+      hint: t("modals:commandPalette.commands.eval.hint"),
       group: "view",
       onSelect: () => setEvalOpen(true),
     },
     {
       id: "gallery",
-      label: "成品库",
-      hint: "跨运行产出物画廊",
+      label: t("modals:commandPalette.commands.gallery.label"),
+      hint: t("modals:commandPalette.commands.gallery.hint"),
       group: "view",
       onSelect: () => setGalleryOpen(true),
     },
     {
       id: "glossary",
-      label: "术语对照表",
-      hint: "标准术语 ⇄ Agent World 用词",
+      label: t("modals:commandPalette.commands.glossary.label"),
+      hint: t("modals:commandPalette.commands.glossary.hint"),
       group: "view",
       onSelect: () => setGlossaryOpen(true),
     },
     {
       id: "compare",
-      label: "运行对比",
-      hint: "两次运行的成本与节点输出",
+      label: t("modals:commandPalette.commands.compare.label"),
+      hint: t("modals:commandPalette.commands.compare.hint"),
       group: "view",
       onSelect: () => setCompareOpen(true),
     },
     // 自动化
     {
       id: "triggers",
-      label: "触发器",
-      hint: "Webhook / 定时 / 事件 / 批量",
+      label: t("modals:commandPalette.commands.triggers.label"),
+      hint: t("modals:commandPalette.commands.triggers.hint"),
       group: "automation",
       onSelect: () => setTriggersOpen(true),
     },
     {
       id: "ab",
-      label: "A/B 实验",
-      hint: "同一节点多套 prompt 对比",
+      label: t("modals:commandPalette.commands.ab.label"),
+      hint: t("modals:commandPalette.commands.ab.hint"),
       group: "automation",
       onSelect: () => setABOpen(true),
     },
     // 管理
     {
       id: "settings",
-      label: "设置",
-      hint: "Provider / 模型 / 单价 / 月度预算",
+      label: t("modals:commandPalette.commands.settings.label"),
+      hint: t("modals:commandPalette.commands.settings.hint"),
       group: "manage",
       onSelect: () => setSettingsOpen(true),
     },
     {
       id: "model-assign",
-      label: "模型分配",
-      hint: "按模态批量切换当前产线节点的模型",
+      label: t("modals:commandPalette.commands.modelAssign.label"),
+      hint: t("modals:commandPalette.commands.modelAssign.hint"),
       group: "manage",
       onSelect: () => setModelAssignOpen(true),
     },
     {
       id: "brand",
-      label: "品牌词库",
-      hint: "可一键载入到文坊",
+      label: t("modals:commandPalette.commands.brand.label"),
+      hint: t("modals:commandPalette.commands.brand.hint"),
       group: "manage",
       onSelect: () => setBrandOpen(true),
     },
     {
       id: "knowledge",
-      label: "知识库",
-      hint: "历史产线产出与质检结论",
+      label: t("modals:commandPalette.commands.knowledge.label"),
+      hint: t("modals:commandPalette.commands.knowledge.hint"),
       group: "manage",
       onSelect: () => setKnowledgeOpen(true),
     },
     {
       id: "version",
-      label: "产线版本",
-      hint: "快照 / 恢复",
+      label: t("modals:commandPalette.commands.version.label"),
+      hint: t("modals:commandPalette.commands.version.hint"),
       group: "manage",
       onSelect: () => setVersionOpen(true),
     },
     {
       id: "variables",
-      label: "产线变量",
-      hint: "跨运行持久化状态（${var.xxx} / set_variable）",
+      label: t("modals:commandPalette.commands.variables.label"),
+      hint: t("modals:commandPalette.commands.variables.hint"),
       group: "manage",
       onSelect: () => setVariablesOpen(true),
     },
     // 画布
     {
       id: "undo",
-      label: "撤销",
+      label: t("modals:commandPalette.commands.undo.label"),
       group: "canvas",
       shortcut: "⌘Z",
       onSelect: () => undo(),
     },
     {
       id: "redo",
-      label: "重做",
+      label: t("modals:commandPalette.commands.redo.label"),
       group: "canvas",
       shortcut: "⇧⌘Z",
       onSelect: () => redo(),
     },
     {
       id: "toggle-panels",
-      label: bothCollapsed ? "展开侧栏" : "收起侧栏",
+      label: bothCollapsed
+        ? t("modals:commandPalette.commands.togglePanels.expand")
+        : t("modals:commandPalette.commands.togglePanels.collapse"),
       group: "canvas",
       onSelect: toggleBoth,
     },
     {
       id: "toggle-tips",
-      label: tipsEnabled ? "关闭文坊悬停信息" : "开启文坊悬停信息",
+      label: tipsEnabled
+        ? t("modals:commandPalette.commands.toggleTips.off")
+        : t("modals:commandPalette.commands.toggleTips.on"),
       group: "canvas",
       shortcut: "T",
       onSelect: toggleTips,
@@ -567,7 +570,7 @@ export default function App() {
   useEffect(() => {
     if (graph.nodes.length === 0) return;
     let cancelled = false;
-    const t = setTimeout(() => {
+    const timer = setTimeout(() => {
       api
         .compile(graph)
         .then((r) => {
@@ -580,7 +583,7 @@ export default function App() {
           setDiagnostics([
             {
               severity: "error",
-              message: `编译检查请求失败（${e}），请刷新页面重试`,
+              message: t("common:app.compileFailed", { error: String(e) }),
             },
           ]);
           setCanRun(false);
@@ -588,7 +591,7 @@ export default function App() {
     }, 180);
     return () => {
       cancelled = true;
-      clearTimeout(t);
+      clearTimeout(timer);
     };
   }, [graph]);
 
@@ -723,27 +726,41 @@ export default function App() {
                       return `${v} ${key ? t(key) : k}`;
                     })
                     .join(" · ")
-                : "0 节点"}
+                : t("common:app.zeroNodes")}
             </span>
-            <span className="muted">{graph.edges.length} 条管道</span>
+            <span className="muted">
+              {t("common:app.pipeCount", { n: graph.edges.length })}
+            </span>
           </div>
           <div className="hud__actions">
             <div className="hud__undo-redo">
               <UndoRedo />
             </div>
-            <Tooltip content={bothCollapsed ? "展开全部侧栏" : "收起全部侧栏"}>
+            <Tooltip
+              content={
+                bothCollapsed
+                  ? t("common:app.expandPanels")
+                  : t("common:app.collapsePanels")
+              }
+            >
               <button className="chip stage__panel-toggle" onClick={toggleBoth}>
-                {bothCollapsed ? "展开侧栏" : "收起侧栏"}
+                {bothCollapsed
+                  ? t("common:app.expandPanel")
+                  : t("common:app.collapsePanel")}
               </button>
             </Tooltip>
             <Tooltip
-              content={`文坊悬停信息：${tipsEnabled ? "开" : "关"}（快捷键 T 切换）`}
+              content={t("common:app.tipsToggle", {
+                state: tipsEnabled
+                  ? t("common:app.tipsOn")
+                  : t("common:app.tipsOff"),
+              })}
             >
               <button
                 className={`chip ${tipsEnabled ? "" : "chip--muted"}`}
                 onClick={toggleTips}
               >
-                提示
+                {t("common:app.tips")}
               </button>
             </Tooltip>
             <Tooltip content={t("reviews:nav.tooltip")}>
@@ -762,24 +779,24 @@ export default function App() {
                 )}
               </button>
             </Tooltip>
-            <Tooltip content="跨运行成品库：查看所有产线的历史产出，无需派发任务">
+            <Tooltip content={t("common:app.galleryTooltip")}>
               <button className="chip" onClick={() => setGalleryOpen(true)}>
-                成品库
+                {t("common:app.gallery")}
               </button>
             </Tooltip>
-            <Tooltip content="术语对照表：标准术语 ⇄ Agent World 用词">
+            <Tooltip content={t("common:app.glossaryTooltip")}>
               <button className="chip" onClick={() => setGlossaryOpen(true)}>
-                术语表
+                {t("common:app.glossary")}
               </button>
             </Tooltip>
             <ShortcutsHelp />
-            <Tooltip content="打开命令面板：弹窗、添加节点、画布动作">
+            <Tooltip content={t("common:app.paletteTooltip")}>
               <button
                 className="chip hud__menu"
                 onClick={() => setPaletteOpen(true)}
-                aria-label="打开命令面板"
+                aria-label={t("common:app.paletteAria")}
               >
-                菜单 <kbd className="kbd-inline">⌘K</kbd>
+                {t("common:app.palette")} <kbd className="kbd-inline">⌘K</kbd>
               </button>
             </Tooltip>
             <UserMenu />
@@ -815,7 +832,11 @@ export default function App() {
             <button
               className={`stage__control-toggle ${controlCollapsed ? "is-collapsed" : ""}`}
               onClick={() => setControlCollapsed((v) => !v)}
-              title={controlCollapsed ? "展开控制面板" : "收起控制面板"}
+              title={
+                controlCollapsed
+                  ? t("common:app.expandControl")
+                  : t("common:app.collapseControl")
+              }
             >
               {controlCollapsed ? "›" : "‹"}
             </button>
@@ -827,7 +848,11 @@ export default function App() {
                   : { right: `${inspectorWidth}px` }
               }
               onClick={() => setInspectorCollapsed((v) => !v)}
-              title={inspectorCollapsed ? "展开详情" : "收起详情"}
+              title={
+                inspectorCollapsed
+                  ? t("common:app.expandInspector")
+                  : t("common:app.collapseInspector")
+              }
             >
               {inspectorCollapsed ? "‹" : "›"}
             </button>
@@ -957,13 +982,13 @@ export default function App() {
         />
         <ConfirmDialog
           open={deleteTarget !== null}
-          title="删除产线"
+          title={t("common:app.deleteGraphTitle")}
           description={
             deleteTarget
-              ? `确定删除「${deleteTarget.name}」吗？该产线的所有运行记录不会被删除，但此操作不可撤销。`
+              ? t("common:app.deleteGraphDesc", { name: deleteTarget.name })
               : ""
           }
-          confirmLabel="删除"
+          confirmLabel={t("common.delete")}
           danger
           onConfirm={confirmDelete}
           onCancel={() => setDeleteTarget(null)}

@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import Tooltip from "./Tooltip";
 import AccountDialog from "./AccountDialog";
 import { logout } from "./AuthPages";
+import LanguageSwitcher from "./LanguageSwitcher";
 
 export interface Me {
   id: string;
@@ -79,6 +80,7 @@ export default function UserMenu() {
           >
             {t("modals:userMenu.profile")}
           </button>
+          <LanguageSwitcher />
           <button type="button" className="user-menu__logout" onClick={handleLogout}>
             {t("modals:userMenu.logout")}
           </button>

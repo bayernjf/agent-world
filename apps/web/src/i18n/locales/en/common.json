@@ -1,7 +1,32 @@
 {
   "app": {
     "name": "Agent World",
-    "tagline": "AI Pipeline Orchestration Platform"
+    "tagline": "AI Pipeline Orchestration Platform",
+    "duplicateName": "A line named \"{{name}}\" already exists — pick a different name.",
+    "compileFailed": "Compile request failed ({{error}}) — refresh and retry",
+    "zeroNodes": "0 nodes",
+    "pipeCount": "{{n}} pipes",
+    "expandPanels": "Expand both panels",
+    "collapsePanels": "Collapse both panels",
+    "expandPanel": "Expand panels",
+    "collapsePanel": "Collapse panels",
+    "tipsToggle": "Text Gen hover tips: {{state}} (T to toggle)",
+    "tipsOn": "on",
+    "tipsOff": "off",
+    "tips": "Tips",
+    "galleryTooltip": "Cross-run gallery: view every line's historical output without dispatching",
+    "gallery": "Gallery",
+    "glossaryTooltip": "Glossary: standard terms ⇄ Agent World vocabulary",
+    "glossary": "Glossary",
+    "paletteTooltip": "Open the command palette: dialogs, add node, canvas actions",
+    "palette": "Menu",
+    "paletteAria": "Open command palette",
+    "expandControl": "Expand control panel",
+    "collapseControl": "Collapse control panel",
+    "expandInspector": "Expand inspector",
+    "collapseInspector": "Collapse inspector",
+    "deleteGraphTitle": "Delete line",
+    "deleteGraphDesc": "Delete \"{{name}}\"? Its run history is kept, but this cannot be undone."
   },
   "common": {
     "save": "Save",

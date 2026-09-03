@@ -73,6 +73,8 @@
     "createFailed": "产线创建失败",
     "updateFailed": "产线更新失败",
     "duplicateName": "产线名称已存在",
+    "duplicateNameShort": "产线名重复",
+    "saveConflict": "保存冲突",
     "nameRequired": "产线名称不能为空",
     "nameTooLong": "产线名称过长",
     "invalidConfig": "产线配置无效",
@@ -244,7 +246,8 @@
     "notImplemented": "功能未实现",
     "httpVersionNotSupported": "不支持的 HTTP 版本",
     "networkAuthenticationRequired": "需要网络认证",
-    "requestFailed": "请求失败 ({{status}})"
+    "requestFailed": "请求失败 ({{status}})",
+    "abReportLoadFailed": "A/B 报表加载失败：{{status}}"
   },
   "validation": {
     "required": "此字段为必填项",

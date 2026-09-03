@@ -1,6 +1,26 @@
 # i18n 国际化方案
 
-> 状态：待实施 | 优先级：P0 | 创建日期：2026-09-03
+> 状态：实施中（基础设施 + 组件迁移基本完成） | 优先级：P0 | 创建日期：2026-09-03
+
+## 0. 实施进度（2026-09-03 更新）
+
+**已完成**：
+
+- 技术栈落地：i18next + react-i18next（运行时）+ i18next-parser（开发工具）
+- **9 个命名空间**（比方案多 `auth`、`reviews`）：common / canvas / nodes / modals / settings / run / errors / auth / reviews
+- 完整 zh / en 双语翻译包（1800+ keys）
+- 语言自动检测（localStorage > 浏览器语言）+ 持久化 + 同步 `document.lang`
+- **全部 41 个业务组件**迁移到 `useTranslation()`（Toast / UndoRedo / ConfirmDialog / ConnectorEditor / TriggersPanel / ControlPanel / ProductGallery / GlossaryModal / Settings / Inspector / ABReport / CanvasToolbar / CostReport / EvalReport / ProductBlocks 等）
+- **顶层 `App.tsx`** 迁移：commandItems 27 个命令 → `modals.commandPalette.commands`、hud 工具提示/按钮 → `common.app`、删除确认弹窗、showError 消息
+- **语言切换器 `LanguageSwitcher.tsx`** 落地，集成到 `UserMenu`（中文 ⇄ English 一键切换）
+- 测试适配：`test/setup.ts` 强制中文语言，现有组件测试断言无需改动
+- keys 一致性守护 `keys.test.ts`（zh/en 结构对齐 + key 字面量可达）
+
+**剩余**：
+
+- `Inspector.tsx` 内 25 种节点的配置字段（source 电商字段 / textGen / imageGen / videoGen / audioGen / gate / compliance / http / translate / code / branch / map / loop / parallel / table / database / fileParse / ocr / convert / search / notify / vcs / human / subprocess 的 label/placeholder/hint，约 250 处）
+- 本地化格式 `i18n/utils.ts`（第 9 章 `Intl.DateTimeFormat` / `NumberFormat` / `RelativeTimeFormat`，尚未落地，组件仍用各自本地 formatDate）
+- 第 10 章工具链（i18next-parser 提取脚本、check-i18n 校验脚本、TS 类型提示）尚未接入，目前以 `keys.test.ts` 作为轻量守护
 
 ## 1. 背景与现状
 
