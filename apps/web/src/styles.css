@@ -2998,13 +2998,13 @@ select {
   justify-content: space-between;
   gap: var(--gap-sm);
   padding: var(--gap-sm) var(--gap-md);
-  margin-bottom: 10px;
-  font-size: 12px;
+  margin-bottom: var(--gap-md);
+  font-size: var(--text-sm);
   line-height: 1.4;
-  color: var(--power);
-  background: var(--steel-850);
-  border: 1px solid var(--power-dim);
-  border-radius: 6px;
+  color: var(--accent);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--accent-bg);
+  border-radius: var(--radius-lg);
 }
 .conflict-banner .btn--small {
   flex-shrink: 0;
@@ -3012,7 +3012,7 @@ select {
 
 .btn-row {
   display: flex;
-  gap: 8px;
+  gap: var(--gap-sm);
 }
 .btn-row--wrap {
   flex-wrap: wrap;
@@ -3033,35 +3033,35 @@ select {
 }
 
 .error-box {
-  margin-top: 8px;
-  padding: 10px;
+  margin-top: var(--gap-sm);
+  padding: var(--gap-md);
   background: rgba(255, 74, 61, 0.08);
   border: 1px solid rgba(255, 74, 61, 0.4);
 }
 .error-box .label {
-  color: var(--alert);
-  margin: 0 0 4px;
+  color: var(--error);
+  margin: 0 0 var(--space-1);
 }
 .error-msg {
-  margin: 0 0 6px;
-  font-size: 11px;
+  margin: 0 0 var(--gap-xs);
+  font-size: var(--text-xs);
   font-family: var(--mono);
-  color: var(--ink-dim);
+  color: var(--text-secondary);
   white-space: pre-wrap;
   word-break: break-word;
 }
 .error-code {
   font-size: 10px;
-  color: var(--alert);
-  background: var(--steel-950);
-  padding: 2px 6px;
+  color: var(--error);
+  background: var(--bg-primary);
+  padding: var(--space-1) var(--space-2);
 }
 
 .reasoning {
-  margin: 8px 0;
+  margin: var(--gap-sm) 0;
 }
 .reasoning__text {
-  margin-top: 6px;
+  margin-top: var(--gap-xs);
   opacity: 0.7;
   font-style: italic;
   max-height: 160px;
@@ -3070,9 +3070,9 @@ select {
 .link {
   background: none;
   border: none;
-  color: var(--data);
+  color: var(--info);
   cursor: pointer;
-  font-size: 11px;
+  font-size: var(--text-xs);
   padding: 0;
   text-decoration: underline;
 }
@@ -3089,25 +3089,25 @@ select {
   z-index: var(--z-modal);
 }
 .modal {
-  background: var(--steel-900);
+  background: var(--bg-secondary);
   border: var(--hair);
   width: 560px;
   max-width: 92vw;
   max-height: 86vh;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+  box-shadow: var(--shadow-modal);
 }
 .modal__header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 14px 18px;
+  padding: var(--gap-lg) var(--gap-xl);
   border-bottom: var(--hair);
 }
 .modal__header h2 {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--text-base);
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -3115,8 +3115,8 @@ select {
 .control__footer {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 0 0 4px;
+  gap: var(--gap-xs);
+  padding: 0 0 var(--space-1);
 }
 .control__footer .btn--block {
   width: 100%;
@@ -3124,55 +3124,55 @@ select {
 }
 
 .modal__body {
-  padding: 16px 18px;
+  padding: var(--gap-lg) var(--gap-xl);
   overflow-y: auto;
   flex: 1;
 }
 .modal__footer {
-  padding: 12px 18px;
+  padding: var(--gap-md) var(--gap-xl);
   border-top: var(--hair);
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
+  gap: var(--gap-sm);
 }
 .form-error {
   color: #ef4444;
-  margin-top: 8px;
-  font-size: 12px;
+  margin-top: var(--gap-sm);
+  font-size: var(--text-sm);
 }
 .var-table {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin: 12px 0;
+  gap: var(--gap-xs);
+  margin: var(--gap-md) 0;
 }
 .var-table__head,
 .var-table__row {
   display: grid;
   grid-template-columns: 1fr 2fr 32px;
-  gap: 8px;
+  gap: var(--gap-sm);
   align-items: center;
 }
 .var-table__head {
-  font-size: 11px;
+  font-size: var(--text-xs);
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
 .var-table__row input {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 .provider-card {
-  background: var(--steel-850);
+  background: var(--bg-tertiary);
   border: var(--hair);
-  padding: 12px;
-  margin: 10px 0;
+  padding: var(--gap-md);
+  margin: var(--gap-md) 0;
 }
 .provider-card__head {
   display: flex;
   justify-content: space-between;
-  margin-bottom: 8px;
+  margin-bottom: var(--gap-sm);
 }
 
 /* ---------- meter segmented toggle ---------- */
@@ -3184,16 +3184,16 @@ select {
 .seg {
   display: inline-flex;
   border: var(--hair);
-  background: var(--steel-900);
+  background: var(--bg-secondary);
 }
 .seg__btn {
   appearance: none;
   background: transparent;
   border: none;
-  color: var(--ink-faint);
+  color: var(--text-tertiary);
   font-family: var(--mono);
   font-size: 10px;
-  padding: 3px 8px;
+  padding: 3px var(--space-2);
   cursor: pointer;
   text-transform: uppercase;
   letter-spacing: 0.08em;
