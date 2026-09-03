@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { SkillMount } from "./skill.js";
+import { PublishConfig } from "./publish.js";
 
 /**
  * A gate's `fail` edge points backwards, so the graph is not a DAG. The invariant
@@ -33,6 +34,7 @@ export const NodeKind = z.enum([
   "subprocess",
   "generic",
   "compliance",
+  "publish",
 ]);
 export type NodeKind = z.infer<typeof NodeKind>;
 
@@ -86,6 +88,7 @@ export const NODE_CATEGORY: Record<NodeKind, NodeCategory> = {
   notify: "integrations",
   vcs: "integrations",
   human: "integrations",
+  publish: "integrations",
   source: "io",
   sink: "io",
 };
@@ -924,6 +927,7 @@ export const GraphNode = z.object({
   subprocess: SubprocessConfig.optional(),
   source: SourceConfig.optional(),
   compliance: ComplianceConfig.optional(),
+  publish: PublishConfig.optional(),
 });
 export type GraphNode = z.infer<typeof GraphNode>;
 
