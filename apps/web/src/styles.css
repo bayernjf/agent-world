@@ -1402,19 +1402,19 @@ select {
 
 .btn {
   width: 100%;
-  margin-top: 10px;
-  padding: 12px 18px;
-  background: linear-gradient(180deg, #ffc247, var(--power));
+  margin-top: var(--gap-md);
+  padding: var(--gap-md) var(--gap-xl);
+  background: linear-gradient(180deg, #ffc247, var(--accent));
   border: 1px solid #8a5c11;
   clip-path: polygon(9px 0, 100% 0, 100% calc(100% - 9px), calc(100% - 9px) 100%, 0 100%, 0 9px);
-  color: var(--steel-950);
+  color: var(--accent-contrast);
   font-family: var(--mono);
-  font-size: 12px;
-  font-weight: 700;
+  font-size: var(--text-sm);
+  font-weight: var(--font-bold);
   letter-spacing: 0.14em;
   text-transform: uppercase;
   cursor: pointer;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), 0 0 22px -8px var(--power);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), 0 0 22px -8px var(--accent);
 }
 .btn:hover:not(:disabled) {
   filter: brightness(1.08);
@@ -1424,22 +1424,22 @@ select {
   cursor: not-allowed;
 }
 .btn--ghost {
-  background: linear-gradient(180deg, var(--steel-700), var(--steel-800));
-  border-color: var(--steel-500);
-  color: var(--ink);
+  background: linear-gradient(180deg, var(--bg-hover), var(--bg-elevated));
+  border-color: var(--border-primary);
+  color: var(--text-primary);
   box-shadow: var(--bevel);
 }
 
 .mono {
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 
 .branch-rule {
   display: flex;
-  gap: 6px;
+  gap: var(--gap-xs);
   align-items: center;
-  margin: 6px 0;
+  margin: var(--gap-xs) 0;
 }
 
 .branch-rule__when {
@@ -1453,10 +1453,10 @@ select {
 }
 
 .branch-rule__del {
-  border: 1px solid var(--steel-500);
+  border: 1px solid var(--border-primary);
   background: transparent;
-  color: var(--ink-dim);
-  border-radius: 4px;
+  color: var(--text-secondary);
+  border-radius: var(--radius-md);
   width: 24px;
   height: 24px;
   cursor: pointer;
@@ -1464,35 +1464,35 @@ select {
 }
 
 .branch-rule__del:hover {
-  color: #ff6b6b;
-  border-color: #ff6b6b;
+  color: var(--error);
+  border-color: var(--error);
 }
 
 .status {
   margin: 0;
   font-family: var(--mono);
-  font-size: 12px;
-  color: var(--ink-dim);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
 }
 
 .diag {
-  margin: 0 0 6px;
-  padding: 7px 9px;
+  margin: 0 0 var(--gap-xs);
+  padding: var(--space-2) var(--space-2);
   border-left: 2px solid;
   background: rgba(0, 0, 0, 0.28);
-  font-size: 11px;
-  line-height: 1.5;
+  font-size: var(--text-xs);
+  line-height: var(--leading-normal);
 }
 .diag--ok {
-  border-color: var(--ok);
-  color: var(--ink-dim);
+  border-color: var(--success);
+  color: var(--text-secondary);
 }
 .diag--error {
-  border-color: var(--alert);
+  border-color: var(--error);
   color: #ffb4ad;
 }
 .diag--warn {
-  border-color: var(--warn);
+  border-color: var(--warning);
   color: #ffd8a8;
 }
 
@@ -1554,28 +1554,28 @@ select {
 
 /* Delete mode: plants flash red on hover so the destructive target is obvious. */
 .canvas__svg.mode-delete .plant:hover .plant__body {
-  stroke: var(--alert);
+  stroke: var(--error);
   stroke-width: 2;
   filter: drop-shadow(0 0 8px rgba(255, 74, 61, 0.5));
 }
 
 .canvas__zoom {
   position: absolute;
-  right: 12px;
-  bottom: 12px;
+  right: var(--gap-md);
+  bottom: var(--gap-md);
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px;
-  background: rgba(10, 15, 18, 0.8);
+  gap: var(--gap-xs);
+  padding: var(--space-1);
+  background: var(--bg-primary);
   border: var(--hair);
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--text-xs);
   z-index: 2;
 }
 .canvas__zoom .chip {
-  padding: 2px 8px;
+  padding: var(--space-1) var(--space-2);
   min-width: 28px;
 }
 .canvas__zoom .muted {
@@ -1590,10 +1590,10 @@ select {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: var(--gap-xs);
   pointer-events: none;
   font-family: var(--mono);
-  color: var(--ink);
+  color: var(--text-primary);
 }
 .canvas__empty p {
   margin: 0;
