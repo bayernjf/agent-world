@@ -306,6 +306,33 @@ export interface BrandAsset {
   createdAt: number;
 }
 
+/** A batch run job (F5). */
+export interface BatchJob {
+  id: string;
+  graphId: string;
+  status: "pending" | "running" | "done" | "partial" | "failed" | "cancelled";
+  total: number;
+  succeeded: number;
+  failed: number;
+  sourceName: string | null;
+  createdAt: number;
+  finishedAt: number | null;
+  items?: BatchItem[];
+}
+
+/** One row of a batch job (F5). */
+export interface BatchItem {
+  id: string;
+  batchId: string;
+  rowIndex: number;
+  input: Record<string, unknown>;
+  runId: string | null;
+  status: "pending" | "running" | "done" | "failed";
+  outputSummary: string | null;
+  artifactIds: string[];
+  error: string | null;
+}
+
 export const api = {
   listSkills: () => authFetch("/api/skills").then(json<Skill[]>),
 
@@ -603,6 +630,28 @@ export const api = {
 
   deleteBrandAsset: (id: string) =>
     authFetch(`/api/brand-assets/${id}`, { method: "DELETE" }).then(() => undefined),
+
+  listBatches: () => authFetch("/api/batches").then(json<BatchJob[]>),
+
+  getBatch: (id: string) => authFetch(`/api/batches/${id}`).then(json<BatchJob>),
+
+  createBatch: (input: { graphId: string; rows?: Record<string, unknown>[]; csv?: string; concurrency?: number }) =>
+    authFetch("/api/batches", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(input),
+    }).then(async (res) => {
+      if (!res.ok) throw new Error(await res.text());
+      return res.json() as Promise<{ batchId: string }>;
+    }),
+
+  retryBatchItem: (batchId: string, itemId: string) =>
+    authFetch(`/api/batches/${batchId}/items/${itemId}/retry`, {
+      method: "POST",
+    }).then(async (res) => {
+      if (!res.ok) throw new Error(await res.text());
+      return res.json() as Promise<{ runId: string }>;
+    }),
 
   listTriggers: (graphId: string) =>
     authFetch(`/api/graphs/${graphId}/triggers`).then(json<TriggerConfig[]>),

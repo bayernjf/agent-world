@@ -111,6 +111,7 @@
       "brand": { "label": "品牌词库", "hint": "可一键载入到文坊" },
       "product": { "label": "商品库", "hint": "可复用的商品资料，供原料台一键投料" },
       "brandAssets": { "label": "品牌素材库", "hint": "Logo / 图片 / 文案片段等可复用素材" },
+      "batch": { "label": "批量任务", "hint": "一份清单逐行跑产线，失败可重跑" },
       "knowledge": { "label": "知识库", "hint": "历史产线产出与质检结论" },
       "version": { "label": "产线版本", "hint": "快照 / 恢复" },
       "variables": { "label": "产线变量", "hint": "跨运行持久化状态（${var.xxx} / set_variable）" },
@@ -247,6 +248,37 @@
       "snippet": "文案片段",
       "guideline": "品牌规范"
     }
+  },
+  "batchManager": {
+    "title": "批量任务",
+    "hint": "一份清单批量跑产线：每行一条输入，逐行起 run，失败可单独重跑。",
+    "graphPh": "选择产线",
+    "concurrencyLabel": "并发上限",
+    "csvPh": "name,title\n商品A,标题A\n商品B,标题B",
+    "create": "创建批次",
+    "graphRequired": "请先选择目标产线",
+    "csvRequired": "请粘贴批量清单（CSV）",
+    "createFailed": "创建批次失败",
+    "empty": "暂无批次，先在上方粘贴清单创建。",
+    "status": {
+      "pending": "待运行",
+      "running": "运行中",
+      "done": "已完成",
+      "partial": "部分失败",
+      "failed": "失败",
+      "cancelled": "已取消"
+    },
+    "itemStatus": {
+      "pending": "待运行",
+      "running": "运行中",
+      "done": "成功",
+      "failed": "失败"
+    },
+    "progress": "成功 {{succeeded}} / 失败 {{failed}} / 共 {{total}}",
+    "rowIndexHeader": "行",
+    "inputLabel": "输入",
+    "statusLabel": "状态",
+    "retry": "重跑"
   },
   "knowledge": {
     "title": "知识库 / 档案室",

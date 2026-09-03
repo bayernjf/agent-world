@@ -111,6 +111,7 @@
       "brand": { "label": "Brand terms", "hint": "Load into Text Gen in one click" },
       "product": { "label": "Product library", "hint": "Reusable product rows for one-click intake" },
       "brandAssets": { "label": "Brand assets", "hint": "Reusable logos, images and snippets" },
+      "batch": { "label": "Batch jobs", "hint": "Run a line per row, with per-row retry" },
       "knowledge": { "label": "Knowledge base", "hint": "Historical line output and gate verdicts" },
       "version": { "label": "Line versions", "hint": "Snapshot / restore" },
       "variables": { "label": "Line variables", "hint": "Cross-run persisted state (${var.xxx} / set_variable)" },
@@ -247,6 +248,37 @@
       "snippet": "Snippet",
       "guideline": "Guideline"
     }
+  },
+  "batchManager": {
+    "title": "Batch jobs",
+    "hint": "Run a line over a list: one input per row, one run per row, with per-row retry.",
+    "graphPh": "Choose a line",
+    "concurrencyLabel": "Concurrency",
+    "csvPh": "name,title\nProduct A,Title A\nProduct B,Title B",
+    "create": "Create batch",
+    "graphRequired": "Choose a target line first",
+    "csvRequired": "Paste a batch list (CSV)",
+    "createFailed": "Could not create the batch",
+    "empty": "No batches yet — paste a list above to create one.",
+    "status": {
+      "pending": "Pending",
+      "running": "Running",
+      "done": "Done",
+      "partial": "Partial",
+      "failed": "Failed",
+      "cancelled": "Cancelled"
+    },
+    "itemStatus": {
+      "pending": "Pending",
+      "running": "Running",
+      "done": "Done",
+      "failed": "Failed"
+    },
+    "progress": "Succeeded {{succeeded}} / Failed {{failed}} / Total {{total}}",
+    "rowIndexHeader": "Row",
+    "inputLabel": "Input",
+    "statusLabel": "Status",
+    "retry": "Retry"
   },
   "knowledge": {
     "title": "Knowledge Base / Archive",
