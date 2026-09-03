@@ -43,7 +43,9 @@ CREATE TABLE IF NOT EXISTS runs (
   ab_arm     TEXT,
   ab_target  TEXT,
   halted_node_id TEXT,
-  halted_reason  TEXT
+  halted_reason  TEXT,
+  batch_id      TEXT,
+  batch_item_id TEXT
 );
 
 CREATE TABLE IF NOT EXISTS events (
@@ -134,6 +136,33 @@ CREATE TABLE IF NOT EXISTS brand_assets (
   created_at  INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_brand_assets_user ON brand_assets(user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS batch_jobs (
+  id            TEXT PRIMARY KEY,
+  user_id       TEXT,
+  graph_id      TEXT NOT NULL,
+  status        TEXT NOT NULL,
+  total         INTEGER NOT NULL DEFAULT 0,
+  succeeded     INTEGER NOT NULL DEFAULT 0,
+  failed        INTEGER NOT NULL DEFAULT 0,
+  source_name   TEXT,
+  created_at    INTEGER NOT NULL,
+  finished_at   INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_batch_jobs_user ON batch_jobs(user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS batch_items (
+  id                TEXT PRIMARY KEY,
+  batch_id          TEXT NOT NULL,
+  row_index         INTEGER NOT NULL,
+  input_json        TEXT NOT NULL,
+  run_id            TEXT,
+  status            TEXT NOT NULL,
+  output_summary    TEXT,
+  artifact_ids_json TEXT,
+  error             TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_batch_items_batch ON batch_items(batch_id, row_index);
 
 CREATE TABLE IF NOT EXISTS graph_versions (
   id           TEXT PRIMARY KEY,
@@ -257,6 +286,32 @@ export interface BrandAsset {
   createdAt: number;
 }
 
+/** A batch run job (F5): one graph run per input row, grouped for progress tracking. */
+export interface BatchJob {
+  id: string;
+  graphId: string;
+  status: "pending" | "running" | "done" | "partial" | "failed" | "cancelled";
+  total: number;
+  succeeded: number;
+  failed: number;
+  sourceName: string | null;
+  createdAt: number;
+  finishedAt: number | null;
+}
+
+/** One row of a batch job (F5). */
+export interface BatchItem {
+  id: string;
+  batchId: string;
+  rowIndex: number;
+  input: Record<string, unknown>;
+  runId: string | null;
+  status: "pending" | "running" | "done" | "failed";
+  outputSummary: string | null;
+  artifactIds: string[];
+  error: string | null;
+}
+
 /** Parse a raw products row (snake_case JSON columns) into a Product. */
 function productFromRow(r: Record<string, unknown>): Product {
   let attributes: Record<string, unknown> = {};
@@ -283,6 +338,21 @@ function productFromRow(r: Record<string, unknown>): Product {
     status: ((r.status as string) ?? "active") as "active" | "archived",
     createdAt: r.created_at as number,
     updatedAt: r.updated_at as number,
+  };
+}
+
+/** Parse a raw batch_jobs row into a BatchJob. */
+function batchFromRow(r: Record<string, unknown>): BatchJob {
+  return {
+    id: String(r.id),
+    graphId: String(r.graph_id),
+    status: String(r.status) as BatchJob["status"],
+    total: Number(r.total ?? 0),
+    succeeded: Number(r.succeeded ?? 0),
+    failed: Number(r.failed ?? 0),
+    sourceName: r.source_name ? String(r.source_name) : null,
+    createdAt: Number(r.created_at),
+    finishedAt: r.finished_at ? Number(r.finished_at) : null,
   };
 }
 
@@ -1615,6 +1685,105 @@ export function openDb(file: string) {
       db.prepare(`DELETE FROM brand_assets WHERE id = ? AND user_id = ?`).run(id, userId);
     },
 
+    // --- Batch jobs (F5: one run per input row, grouped for progress) ---
+    createBatch(input: {
+      id: string;
+      userId: string;
+      graphId: string;
+      sourceName?: string;
+      rows: Record<string, unknown>[];
+    }): BatchJob {
+      const now = Date.now();
+      db.prepare(
+        `INSERT INTO batch_jobs (id, user_id, graph_id, status, total, succeeded, failed, source_name, created_at)
+         VALUES (?, ?, ?, 'pending', ?, 0, 0, ?, ?)`,
+      ).run(input.id, input.userId, input.graphId, input.rows.length, input.sourceName ?? null, now);
+      const insertItem = db.prepare(
+        `INSERT INTO batch_items (id, batch_id, row_index, input_json, status) VALUES (?, ?, ?, ?, 'pending')`,
+      );
+      for (let i = 0; i < input.rows.length; i++) {
+        insertItem.run(randomUUID(), input.id, i, JSON.stringify(input.rows[i]));
+      }
+      return {
+        id: input.id,
+        graphId: input.graphId,
+        status: "pending",
+        total: input.rows.length,
+        succeeded: 0,
+        failed: 0,
+        sourceName: input.sourceName ?? null,
+        createdAt: now,
+        finishedAt: null,
+      };
+    },
+
+    listBatches(userId: string): BatchJob[] {
+      const rows = db
+        .prepare(`SELECT * FROM batch_jobs WHERE user_id = ? ORDER BY created_at DESC`)
+        .all(userId) as Array<Record<string, unknown>>;
+      return rows.map(batchFromRow);
+    },
+
+    getBatch(id: string, userId: string): BatchJob | null {
+      const row = db.prepare(`SELECT * FROM batch_jobs WHERE id = ? AND user_id = ?`).get(id, userId) as
+        | Record<string, unknown>
+        | undefined;
+      return row ? batchFromRow(row) : null;
+    },
+
+    listBatchItems(batchId: string): BatchItem[] {
+      const rows = db
+        .prepare(`SELECT * FROM batch_items WHERE batch_id = ? ORDER BY row_index ASC`)
+        .all(batchId) as Array<Record<string, unknown>>;
+      return rows.map((r) => {
+        let input: Record<string, unknown> = {};
+        let artifactIds: string[] = [];
+        try {
+          input = JSON.parse(String(r.input_json ?? "{}"));
+        } catch {
+          /* keep {} */
+        }
+        try {
+          artifactIds = JSON.parse(String(r.artifact_ids_json ?? "[]"));
+        } catch {
+          /* keep [] */
+        }
+        return {
+          id: String(r.id),
+          batchId: String(r.batch_id),
+          rowIndex: Number(r.row_index),
+          input,
+          runId: r.run_id ? String(r.run_id) : null,
+          status: String(r.status) as BatchItem["status"],
+          outputSummary: r.output_summary ? String(r.output_summary) : null,
+          artifactIds,
+          error: r.error ? String(r.error) : null,
+        };
+      });
+    },
+
+    markBatchItemRunning(itemId: string, runId: string) {
+      db.prepare(`UPDATE batch_items SET status = 'running', run_id = ? WHERE id = ?`).run(runId, itemId);
+    },
+
+    markBatchItemDone(itemId: string, outputSummary: string | null, artifactIds: string[]) {
+      db.prepare(
+        `UPDATE batch_items SET status = 'done', output_summary = ?, artifact_ids_json = ?, error = NULL WHERE id = ?`,
+      ).run(outputSummary ?? "", JSON.stringify(artifactIds), itemId);
+    },
+
+    markBatchItemFailed(itemId: string, error: string) {
+      db.prepare(`UPDATE batch_items SET status = 'failed', error = ? WHERE id = ?`).run(error, itemId);
+    },
+
+    setBatchStatus(id: string, status: BatchJob["status"], finishedAt: number | null) {
+      db.prepare(`UPDATE batch_jobs SET status = ?, finished_at = ? WHERE id = ?`).run(status, finishedAt, id);
+    },
+
+    updateBatchCounts(id: string, succeeded: number, failed: number) {
+      db.prepare(`UPDATE batch_jobs SET succeeded = ?, failed = ? WHERE id = ?`).run(succeeded, failed, id);
+    },
+
     // --- Graph versions (5.6) ---
     listVersions(graphId: string, userId: string) {
       return db
@@ -2035,6 +2204,40 @@ const MIGRATIONS: Migration[] = [
       db.exec(
         "CREATE INDEX IF NOT EXISTS idx_brand_assets_user ON brand_assets(user_id, created_at DESC)",
       );
+    },
+  },
+  {
+    version: 23,
+    description: "batch_jobs + batch_items + runs.batch_id/batch_item_id (F5)",
+    detect: (db) => tableExists(db, "batch_jobs"),
+    up: (db) => {
+      db.exec("ALTER TABLE runs ADD COLUMN batch_id TEXT");
+      db.exec("ALTER TABLE runs ADD COLUMN batch_item_id TEXT");
+      db.exec(`CREATE TABLE IF NOT EXISTS batch_jobs (
+        id TEXT PRIMARY KEY,
+        user_id TEXT,
+        graph_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        total INTEGER NOT NULL DEFAULT 0,
+        succeeded INTEGER NOT NULL DEFAULT 0,
+        failed INTEGER NOT NULL DEFAULT 0,
+        source_name TEXT,
+        created_at INTEGER NOT NULL,
+        finished_at INTEGER
+      )`);
+      db.exec("CREATE INDEX IF NOT EXISTS idx_batch_jobs_user ON batch_jobs(user_id, created_at DESC)");
+      db.exec(`CREATE TABLE IF NOT EXISTS batch_items (
+        id TEXT PRIMARY KEY,
+        batch_id TEXT NOT NULL,
+        row_index INTEGER NOT NULL,
+        input_json TEXT NOT NULL,
+        run_id TEXT,
+        status TEXT NOT NULL,
+        output_summary TEXT,
+        artifact_ids_json TEXT,
+        error TEXT
+      )`);
+      db.exec("CREATE INDEX IF NOT EXISTS idx_batch_items_batch ON batch_items(batch_id, row_index)");
     },
   },
 ];

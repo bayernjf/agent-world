@@ -27,6 +27,7 @@ import { findGraphIdByName as findGraphIdByNameCore } from "./graphs-name.js";
 import { ArtifactStore } from "./artifact-store.js";
 import { log } from "./logger.js";
 import { startRun, resumeRun, RunStartError, type ResumeAction } from "./run.js";
+import { runBatch } from "./batch.js";
 import { listPendingReviews, parseDecisions } from "./reviews.js";
 import { TriggerService, TriggerError } from "./triggers.js";
 import { TriggerScheduler } from "./scheduler.js";
@@ -993,6 +994,85 @@ app.post("/api/runs", async (c) => {
     }
     throw e;
   }
+});
+
+// --- Batch jobs (F5: one run per input row, grouped for progress) ---
+app.post("/api/batches", async (c) => {
+  const userId = c.get("userId");
+  const body = (await c.req.json().catch(() => ({}))) as {
+    graphId?: string;
+    rows?: Record<string, unknown>[];
+    csv?: string;
+    concurrency?: number;
+    sourceName?: string;
+  };
+  const graphId = body.graphId;
+  if (!graphId) return c.json({ error: "graphId required" }, 400);
+  const graph = db.getGraph(graphId, userId);
+  if (!graph) return c.json({ error: "graph not found" }, 404);
+
+  let rows: Record<string, unknown>[] = body.rows ?? [];
+  if (body.csv) rows = parseCsv(body.csv, { hasHeader: true });
+  if (rows.length === 0) return c.json({ error: "no rows to run" }, 400);
+
+  const batchId = randomUUID();
+  db.createBatch({ id: batchId, userId, graphId, sourceName: body.sourceName, rows });
+
+  const concurrency = Math.min(Math.max(body.concurrency ?? 2, 1), 8);
+  void runBatch({
+    db,
+    userId,
+    worker: workerRegistry.get(undefined),
+    artifacts,
+    live,
+    graph,
+    batchId,
+    concurrency,
+    publicUrl: PUBLIC_URL,
+  });
+
+  return c.json({ batchId }, 201);
+});
+
+app.get("/api/batches", (c) => {
+  const userId = c.get("userId");
+  return c.json(db.listBatches(userId));
+});
+
+app.get("/api/batches/:id", (c) => {
+  const userId = c.get("userId");
+  const batch = db.getBatch(c.req.param("id"), userId);
+  if (!batch) return c.json({ error: "not found" }, 404);
+  const items = db.listBatchItems(batch.id);
+  return c.json({ ...batch, items });
+});
+
+app.post("/api/batches/:id/items/:itemId/retry", async (c) => {
+  const userId = c.get("userId");
+  const batch = db.getBatch(c.req.param("id"), userId);
+  if (!batch) return c.json({ error: "not found" }, 404);
+  const graph = db.getGraph(batch.graphId, userId);
+  if (!graph) return c.json({ error: "graph not found" }, 404);
+  const item = db.listBatchItems(batch.id).find((i) => i.id === c.req.param("itemId"));
+  if (!item) return c.json({ error: "item not found" }, 404);
+
+  const { runId } = await startRun({
+    db,
+    userId,
+    worker: workerRegistry.get(undefined),
+    artifacts,
+    live,
+    graph,
+    trigger: "batch-retry",
+    input: JSON.stringify(item.input),
+    publicUrl: PUBLIC_URL,
+    onFinish: (_gid, status) => {
+      if (status === "done") db.markBatchItemDone(item.id, null, []);
+      else db.markBatchItemFailed(item.id, `run ${status}`);
+    },
+  });
+  db.markBatchItemRunning(item.id, runId);
+  return c.json({ runId });
 });
 
 // --- Trigger management + webhook ---
