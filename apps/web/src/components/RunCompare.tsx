@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { runStatusLabel } from "../lib/run-status";
 
 interface RunSummary {
   id: string;
@@ -116,7 +117,7 @@ export default function RunCompare({ open, graphId, onClose }: Props) {
               <option value="">{t("modals:runCompare.selectRun")}</option>
               {runs.map((r) => (
                 <option key={r.id} value={r.id}>
-                  {new Date(r.started_at).toLocaleString(i18n.language)} — {r.status}
+                  {new Date(r.started_at).toLocaleString(i18n.language)} — {runStatusLabel(r.status)}
                 </option>
               ))}
             </select>
@@ -127,7 +128,7 @@ export default function RunCompare({ open, graphId, onClose }: Props) {
               <option value="">{t("modals:runCompare.selectRun")}</option>
               {runs.map((r) => (
                 <option key={r.id} value={r.id}>
-                  {new Date(r.started_at).toLocaleString(i18n.language)} — {r.status}
+                  {new Date(r.started_at).toLocaleString(i18n.language)} — {runStatusLabel(r.status)}
                 </option>
               ))}
             </select>
