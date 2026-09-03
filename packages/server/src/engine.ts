@@ -1,6 +1,9 @@
 import {
   BranchConfig,
+  ComplianceConfig,
   CodeNodeConfig,
+  checkCompliance,
+  complianceArtifact,
   GenericConfig,
   ImageGenConfig,
   VideoGenConfig,
@@ -213,6 +216,11 @@ export interface ExecuteOptions {
    * can persist it back to the DB after the run finishes.
    */
   initialVariables?: Map<string, unknown>;
+  /**
+   * The calling user's supplementary banned-word library (banned_terms table),
+   * comma-joined. Merged into every compliance node's word list at run time.
+   */
+  bannedTerms?: string;
 }
 
 /**
@@ -608,6 +616,8 @@ interface SchedulerOptions {
    * can persist it back to the DB after the run finishes.
    */
   initialVariables?: Map<string, unknown>;
+  /** User's banned-word library (comma-joined), merged into compliance nodes. */
+  bannedTerms?: string;
 }
 
 /**
@@ -1921,6 +1931,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
             readArtifact: opts.readArtifact,
             publicUrl: opts.publicUrl,
             permissionConfig: opts.permissionConfig,
+            bannedTerms: opts.bannedTerms,
           });
 
           let childStatus: Status | undefined;
@@ -2932,6 +2943,77 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
         status = "halted";
         aborted = true;
         void notifyHalt({ runId, graphId: graph.id, nodeId, reason: haltReason });
+        return;
+      }
+
+      if (node.kind === "compliance") {
+        emit({ type: "node.started", nodeId, attempt });
+        try {
+          const cfg = ComplianceConfig.parse(node.compliance ?? {});
+          const output = await inputFor(node);
+          if (!output.trim()) {
+            states.set(nodeId, "failed");
+            emit({
+              type: "node.failed",
+              nodeId,
+              attempt,
+              error: "合规节点没有收到可校验的文本",
+              errorCode: "VALIDATION",
+            });
+            return;
+          }
+          // Merge the user's stored banned terms with the node's extra list, so
+          // the vocabulary library is honoured without the user re-typing it.
+          const extra = [cfg.extraBanned, opts.bannedTerms ?? ""].filter(Boolean).join(",");
+          const result = checkCompliance({
+            platform: cfg.platform,
+            extraBanned: extra,
+            autoFix: cfg.autoFix,
+            text: output,
+          });
+          const payload = complianceArtifact(result);
+          const jsonArtifact: Artifact = {
+            id: `${nodeId}-compliance`,
+            kind: "json",
+            content: JSON.stringify(payload),
+            mimeType: "application/json",
+          };
+          const produced: Artifact[] = [jsonArtifact];
+          // Downstream nodes consume the sanitized text (autoFix on) or the
+          // original (autoFix off / no violations).
+          const downstreamText = result.sanitized || result.original;
+          setTextArtifact(artifacts, nodeId, downstreamText);
+          artifacts.set(nodeId, [...produced, ...(artifacts.get(nodeId) ?? [])]);
+          for (const a of produced) emit({ type: "artifact.produced", nodeId, attempt, artifact: a });
+
+          if (cfg.failOnViolation && !result.passed) {
+            const first = result.violations[0];
+            states.set(nodeId, "failed");
+            emit({
+              type: "node.failed",
+              nodeId,
+              attempt,
+              error: `合规校验未通过（${result.violations.length} 处违规，首条：${first?.rule ?? ""}）`,
+              errorCode: "VALIDATION",
+            });
+            return;
+          }
+
+          states.set(nodeId, "done");
+          const summary = result.passed
+            ? "合规校验通过"
+            : `合规校验发现 ${result.violations.length} 处违规（已${cfg.autoFix ? "自动修复" : "标注"}）`;
+          emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
+          sendPackets(nodeId, summary, "json");
+        } catch (err) {
+          states.set(nodeId, "failed");
+          emit({
+            type: "node.failed",
+            nodeId,
+            attempt,
+            error: `合规校验节点执行出错: ${err instanceof Error ? err.message : String(err)}`,
+          });
+        }
         return;
       }
 
@@ -4106,6 +4188,7 @@ export async function* execute(opts: ExecuteOptions): AsyncGenerator<RunEvent, v
     permissionConfig: opts.permissionConfig,
     loadSubgraph: opts.loadSubgraph,
     initialVariables: opts.initialVariables,
+    bannedTerms: opts.bannedTerms,
     init: {
       artifacts: new Map(),
       attempts: new Map(),
@@ -4275,6 +4358,8 @@ export interface ResumeOptions {
   permissionConfig?: PermissionConfig;
   /** Resolves a subprocess node's referenced graph (db lookup, injected by the HTTP layer). */
   loadSubgraph?: (graphId: string) => Graph | null;
+  /** User's banned-word library (comma-joined), merged into compliance nodes. */
+  bannedTerms?: string;
 }
 
 /**
@@ -4455,6 +4540,7 @@ export async function* resume(opts: ResumeOptions): AsyncGenerator<RunEvent, voi
     editOutput: opts.editOutput,
     loadSubgraph: opts.loadSubgraph,
     initialVariables: opts.initialVariables,
+    bannedTerms: opts.bannedTerms,
     init: {
       artifacts: state.artifacts,
       attempts: state.attempts,

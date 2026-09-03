@@ -100,6 +100,14 @@ CREATE TABLE IF NOT EXISTS brand_terms (
   created_at  INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS banned_terms (
+  id          TEXT PRIMARY KEY,
+  user_id     TEXT,
+  term        TEXT NOT NULL,
+  note        TEXT NOT NULL DEFAULT '',
+  created_at  INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS graph_versions (
   id           TEXT PRIMARY KEY,
   graph_id     TEXT NOT NULL,
@@ -1330,6 +1338,42 @@ export function openDb(file: string) {
       db.prepare(`DELETE FROM brand_terms WHERE id = ? AND user_id = ?`).run(id, userId);
     },
 
+    // --- Banned terms (F3 compliance: per-user supplementary banned words) ---
+    listBannedTerms(userId: string) {
+      return db
+        .prepare(
+          `SELECT id, term, note, created_at AS createdAt FROM banned_terms WHERE user_id = ? ORDER BY created_at ASC`,
+        )
+        .all(userId) as Array<{ id: string; term: string; note: string; createdAt: number }>;
+    },
+
+    addBannedTerm(userId: string, term: string, note = "") {
+      const t = term.trim();
+      if (!t) throw new Error("违禁词不能为空");
+      const id = randomUUID();
+      const now = Date.now();
+      db.prepare(`INSERT INTO banned_terms (id, user_id, term, note, created_at) VALUES (?, ?, ?, ?, ?)`).run(
+        id,
+        userId,
+        t,
+        note,
+        now,
+      );
+      return { id, term: t, note, createdAt: now };
+    },
+
+    deleteBannedTerm(id: string, userId: string) {
+      db.prepare(`DELETE FROM banned_terms WHERE id = ? AND user_id = ?`).run(id, userId);
+    },
+
+    /** All banned terms of a user, comma-joined for the compliance check. */
+    bannedTermsText(userId: string): string {
+      const rows = db
+        .prepare(`SELECT term FROM banned_terms WHERE user_id = ? ORDER BY created_at ASC`)
+        .all(userId) as Array<{ term: string }>;
+      return rows.map((r) => r.term).join(",");
+    },
+
     // --- Graph versions (5.6) ---
     listVersions(graphId: string, userId: string) {
       return db
@@ -1704,6 +1748,19 @@ const MIGRATIONS: Migration[] = [
       }
       db.exec("CREATE INDEX IF NOT EXISTS idx_runs_user_status ON runs(user_id, status)");
     },
+  },
+  {
+    version: 21,
+    description: "banned_terms per-user compliance vocabulary (F3)",
+    detect: (db) => tableExists(db, "banned_terms"),
+    up: (db) =>
+      db.exec(`CREATE TABLE IF NOT EXISTS banned_terms (
+        id TEXT PRIMARY KEY,
+        user_id TEXT,
+        term TEXT NOT NULL,
+        note TEXT NOT NULL DEFAULT '',
+        created_at INTEGER NOT NULL
+      )`),
   },
 ];
 
