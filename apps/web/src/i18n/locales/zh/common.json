@@ -57,7 +57,8 @@
     "pending": "待处理",
     "queued": "排队中",
     "cancelled": "已取消",
-    "unknown": "未知"
+    "unknown": "未知",
+    "copied": "已复制"
   },
   "actions": {
     "save": "保存",

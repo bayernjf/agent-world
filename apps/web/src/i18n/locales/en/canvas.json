@@ -76,6 +76,10 @@
     "clearCanvasConfirm": "Are you sure you want to clear the canvas? This action cannot be undone.",
     "zoomLevel": "Zoom: {{percent}}%",
     "position": "Position: ({{x}}, {{y}})",
-    "size": "Size: {{width}} × {{height}}"
+    "size": "Size: {{width}} × {{height}}",
+    "undoWithShortcut": "Undo (⌘Z)",
+    "noUndo": "Nothing to undo",
+    "redoWithShortcut": "Redo (⌘⇧Z)",
+    "noRedo": "Nothing to redo"
   }
 }

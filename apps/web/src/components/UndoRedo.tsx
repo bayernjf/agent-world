@@ -1,4 +1,5 @@
 import { useStore } from "zustand";
+import { useTranslation } from "react-i18next";
 import { useGraph } from "../store/graph";
 import Tooltip from "./Tooltip";
 
@@ -8,6 +9,7 @@ import Tooltip from "./Tooltip";
  * state is intentionally not undoable.
  */
 export default function UndoRedo() {
+  const { t } = useTranslation();
   const pastLen = useStore(useGraph.temporal, (s) => s.pastStates.length);
   const futureLen = useStore(useGraph.temporal, (s) => s.futureStates.length);
   const undo = useGraph((s) => s.undo);
@@ -17,24 +19,24 @@ export default function UndoRedo() {
 
   return (
     <div className="undo-redo">
-      <Tooltip content={canUndo ? "撤销 (⌘Z)" : "暂无可撤销操作"}>
+      <Tooltip content={canUndo ? t("canvas.undoWithShortcut") : t("canvas.noUndo")}>
         <button
           type="button"
           className="icon-btn"
           onClick={() => undo()}
           disabled={!canUndo}
-          aria-label="撤销"
+          aria-label={t("actions.undo")}
         >
           ↶
         </button>
       </Tooltip>
-      <Tooltip content={canRedo ? "重做 (⌘⇧Z)" : "暂无可重做操作"}>
+      <Tooltip content={canRedo ? t("canvas.redoWithShortcut") : t("canvas.noRedo")}>
         <button
           type="button"
           className="icon-btn"
           onClick={() => redo()}
           disabled={!canRedo}
-          aria-label="重做"
+          aria-label={t("actions.redo")}
         >
           ↷
         </button>

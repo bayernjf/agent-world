@@ -57,7 +57,8 @@
     "pending": "Pending",
     "queued": "Queued",
     "cancelled": "Cancelled",
-    "unknown": "Unknown"
+    "unknown": "Unknown",
+    "copied": "Copied"
   },
   "actions": {
     "save": "Save",

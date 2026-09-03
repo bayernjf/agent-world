@@ -76,6 +76,10 @@
     "clearCanvasConfirm": "确定要清空画布吗？此操作不可撤销。",
     "zoomLevel": "缩放：{{percent}}%",
     "position": "位置：({{x}}, {{y}})",
-    "size": "尺寸：{{width}} × {{height}}"
+    "size": "尺寸：{{width}} × {{height}}",
+    "undoWithShortcut": "撤销 (⌘Z)",
+    "noUndo": "暂无可撤销操作",
+    "redoWithShortcut": "重做 (⌘⇧Z)",
+    "noRedo": "暂无可重做操作"
   }
 }
