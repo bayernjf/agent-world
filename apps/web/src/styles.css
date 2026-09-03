@@ -4398,11 +4398,11 @@ select {
   font-size: 10px;
   font-family: var(--mono);
   border: 1px solid var(--bg-elevated);
-  color: var(--ink-dim);
+  color: var(--text-secondary);
   letter-spacing: 0.04em;
 }
 .ab-badge.is-winner {
-  color: var(--ok);
+  color: var(--success);
   border-color: rgba(102, 224, 122, 0.45);
   background: rgba(102, 224, 122, 0.08);
 }
@@ -4411,44 +4411,44 @@ select {
   border-color: rgba(255, 176, 32, 0.4);
 }
 .ab-badge.is-done {
-  color: var(--ok);
+  color: var(--success);
   border-color: rgba(102, 224, 122, 0.35);
 }
 .ab-winner-note {
-  margin-top: 14px;
-  padding: 11px 14px;
+  margin-top: var(--gap-lg);
+  padding: var(--gap-sm) var(--gap-lg);
   border: 1px solid rgba(102, 224, 122, 0.4);
   background: rgba(102, 224, 122, 0.06);
-  border-radius: 8px;
-  font-size: 13px;
-  color: var(--ink);
+  border-radius: var(--radius-xl);
+  font-size: var(--text-base);
+  color: var(--text-primary);
 }
 
 .ghost-btn {
   align-self: flex-start;
-  margin-top: 6px;
-  padding: 3px 10px;
-  font-size: 12px;
-  color: var(--data);
+  margin-top: var(--gap-xs);
+  padding: 3px var(--gap-md);
+  font-size: var(--text-sm);
+  color: var(--info);
   background: transparent;
-  border: 1px solid var(--steel-800);
-  border-radius: 6px;
+  border: 1px solid var(--bg-elevated);
+  border-radius: var(--radius-lg);
   cursor: pointer;
 }
 .ghost-btn:hover {
-  border-color: var(--data);
+  border-color: var(--info);
   background: rgba(102, 224, 122, 0.06);
 }
 
 /* source Connector 配置编辑器 */
 .connector {
-  margin-top: 14px;
-  padding-top: 12px;
+  margin-top: var(--gap-lg);
+  padding-top: var(--gap-md);
   border-top: var(--hair);
 }
 .connector .field-row {
   display: flex;
-  gap: 10px;
+  gap: var(--gap-md);
   flex-wrap: wrap;
 }
 .connector .field-row .field {
@@ -4457,80 +4457,80 @@ select {
 }
 .form-field-row {
   display: flex;
-  gap: 8px;
+  gap: var(--gap-sm);
   align-items: center;
-  margin-top: 8px;
+  margin-top: var(--gap-sm);
 }
 .form-field-row .text-input {
   flex: 1;
 }
 .btn--icon {
-  padding: 4px 10px;
+  padding: var(--space-1) var(--gap-md);
   line-height: 1;
-  font-size: 16px;
+  font-size: var(--text-lg);
 }
 .connector-test {
-  margin-top: 12px;
-  padding-top: 10px;
+  margin-top: var(--gap-md);
+  padding-top: var(--gap-md);
   border-top: var(--hair);
 }
 .connector-test__result {
-  margin-top: 8px;
+  margin-top: var(--gap-sm);
 }
 .connector-test__meta {
-  font-size: 12px;
-  color: var(--text-dim);
-  margin-bottom: 4px;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  margin-bottom: var(--space-1);
 }
 .connector-test__preview {
   background: var(--bg-elevated);
   border: var(--hair);
-  border-radius: 6px;
-  padding: 8px 10px;
-  font-size: 12px;
+  border-radius: var(--radius-lg);
+  padding: var(--gap-sm) var(--gap-md);
+  font-size: var(--text-sm);
   max-height: 160px;
   overflow: auto;
   white-space: pre-wrap;
   word-break: break-all;
 }
 .connector-test__error {
-  margin-top: 8px;
-  font-size: 12px;
-  color: var(--danger, #e5484d);
+  margin-top: var(--gap-sm);
+  font-size: var(--text-sm);
+  color: var(--error, #e5484d);
 }
 
 .error-text {
-  margin-top: 8px;
+  margin-top: var(--gap-sm);
   color: #ff6b6b;
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 
 .brand-list {
   list-style: none;
-  margin: 10px 0;
+  margin: var(--gap-md) 0;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--gap-xs);
 }
 .brand-list li {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 7px 10px;
+  gap: var(--gap-lg);
+  padding: var(--space-2) var(--gap-md);
   border: var(--hair);
-  border-radius: 7px;
-  font-size: 13px;
+  border-radius: var(--radius-xl);
+  font-size: var(--text-base);
 }
 .brand-term {
-  font-weight: 700;
-  color: var(--data);
+  font-weight: var(--font-bold);
+  color: var(--info);
 }
 .brand-add {
   display: flex;
-  gap: 8px;
-  margin-top: 8px;
+  gap: var(--gap-sm);
+  margin-top: var(--gap-sm);
 }
 .brand-add input {
   flex: 1;
@@ -4538,18 +4538,18 @@ select {
 }
 
 .adv {
-  margin: 8px 0 2px;
+  margin: var(--gap-sm) 0 var(--space-1);
   border-top: var(--hair);
-  padding-top: 6px;
+  padding-top: var(--gap-xs);
 }
 .adv summary {
   cursor: pointer;
-  color: var(--data);
-  font-size: 12px;
+  color: var(--info);
+  font-size: var(--text-sm);
   user-select: none;
 }
 .adv .field {
-  margin-top: 8px;
+  margin-top: var(--gap-sm);
 }
 
 /* ---- Triggers panel (4A.7) ---- */
@@ -4557,8 +4557,8 @@ select {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
+  gap: var(--gap-lg);
+  margin-bottom: var(--gap-md);
 }
 .triggers-toolbar p {
   margin: 0;
@@ -4570,32 +4570,32 @@ select {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--gap-sm);
 }
 .trigger-row {
   display: grid;
   grid-template-columns: 1fr auto;
   grid-template-areas: "main actions" "meta actions";
-  gap: 4px 12px;
-  padding: 10px 12px;
-  border: 1px solid var(--steel-700, rgba(255, 255, 255, 0.08));
-  border-radius: 8px;
+  gap: var(--space-1) var(--gap-lg);
+  padding: var(--gap-md) var(--gap-lg);
+  border: 1px solid var(--bg-hover, rgba(255, 255, 255, 0.08));
+  border-radius: var(--radius-xl);
   background: rgba(255, 255, 255, 0.02);
 }
 .trigger-main {
   grid-area: main;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--gap-sm);
   flex-wrap: wrap;
 }
 .trigger-id {
   font-family: var(--mono, monospace);
-  font-size: 12px;
-  color: var(--ink-dim);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
 }
 .trigger-summary {
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 .trigger-meta {
   grid-area: meta;
