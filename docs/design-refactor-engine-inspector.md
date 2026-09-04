@@ -1,17 +1,15 @@
 # 核心文件重构方案（engine.ts / Inspector.tsx）
 
-> 状态：进行中（阶段 1 完成，阶段 2.1 进行中 14/27 分支） | 优先级：P1 | 创建日期：2026-09-04
+> 状态：阶段 2.1 完成（28/29 提取，notify 刻意保内联） | 优先级：P1 | 创建日期：2026-09-04
 
 ## 0. 实施进度（2026-09-04 更新）
 
 **已完成**：
 
 - **阶段 1（拆 Inspector.tsx）**：`Inspector.tsx` 3848 → **611 行**（-84%）；新增 `apps/web/src/components/InspectorFields/`（`types.ts` + `shared.tsx` + `registry.tsx` + 27 个 `XxxFields.tsx`，共 3358 行）；主组件用 `FIELD_COMPONENTS[node.kind]` 注册表分发。web 测试 1500/1500 全绿。
-- **阶段 2.1（runNode 闭包提取）**：已提取 **14/27** 个分支（human / compliance / publish / map / parallel / database / branch / ocr / convert / search / http / table / fileParse / translate）为 `runScheduler` 内部的 `runXxx` 闭包函数（`node`/`nodeId`/`attempt` 显式传参，共享状态闭包访问，行为不变）。`runNode` 从 ~3160 行降到 **~1200 行**（-62%）。每批 `typecheck` + 全量 server 测试 **747/747** 全绿，5 个原子 commit（`c31d659`→`9e5375f`）。
+- **阶段 2.1（runNode 闭包提取）**：29 个 `if (node.kind === "…")` 分支已提取 **28/29** 为 `runScheduler` 内部的 `runXxx` 闭包函数（`node`/`nodeId`/`attempt` 显式传参，共享状态闭包访问，行为不变）：human / compliance / publish / map / parallel / database / branch / ocr / convert / search / http / table / fileParse / translate / vcs / code / videoGen / audioGen / imageGen / source / sink / loop / subprocess / gate / generic / fanout / select。**唯一刻意保留内联的是 `notify`**——提取为闭包后引入的异步边界会把 error 边派发推迟一个微任务，破坏「notify 失败→catch 节点接管」的语义（见 `regression/core-path.test.ts`）。`runNode` 从 ~3160 行降到 **~380 行** 的分发器（-88%），每批 `typecheck` + 全量 server 测试全绿，原子 commit 共 10 个（`c31d659`→`847195a`）。
 
-**进行中**：剩余 13 个分支——中等 6 个（notify / vcs / code / videoGen / audioGen / imageGen）+ 复杂 7 个（fanout / select / source-sink / loop / subprocess / gate / generic，涉及递归 `runScheduler`/`runNode`、返工环、四模态分发、成本累计）。
-
-**未开始**：阶段 2.2（抽 `NodeRunContext` 搬节点执行体到 `nodes/` 目录）、阶段 3（接口实现风格收敛约定）。
+**进行中**：阶段 2.2（抽 `NodeRunContext` 搬节点执行体到 `nodes/` 目录）、阶段 3（接口实现风格收敛约定）。
 
 ## 1. 摘要
 
