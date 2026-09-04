@@ -36,7 +36,7 @@ State of Agent World as of 2026-09-04.
 
 * [docs/phase4-design.md](docs/phase4-design.md) — Phase 4 高级编排落地方案（六项已落地，状态机缓做）
 
-* [docs/design-refactor-engine-inspector.md](docs/design-refactor-engine-inspector.md) — 核心文件重构方案（engine.ts 的 runNode / Inspector.tsx 拆分 + 接口风格收敛；待立项）
+* [docs/design-refactor-engine-inspector.md](docs/design-refactor-engine-inspector.md) — 核心文件重构方案（engine.ts 的 runNode / Inspector.tsx 拆分 + 接口风格收敛；进行中）
 
 * [docs/feedback-workflow.md](docs/feedback-workflow.md) — owner 怎么高效反馈给我（截图 / computer-use / 防丢）
 
@@ -179,7 +179,7 @@ State of Agent World as of 2026-09-04.
 
 29. ✅ **fileParse 多文档增强 + 「尽调清单」模板（tpl-due-diligence，2026-09-04）**：① 引擎增强——fileParse 从「只解析第一个文档」改为「解析所有文档」，多文档 text 用 `===== 文件名 =====` 头分隔（单文档路径字节不变、向后兼容），读不到/解析失败的文档跳过并计数；解锁批量合同/尽调场景，更新 engine.fileparse.test.ts 契约（10/10）。② 模板——专业服务方向法律合规第五个模板（第 33 个业务模板）：source 投多份尽调材料 → fileParse 解析所有文档 → textGen 尽调盘点（7 事项：工商/财务/资产/合同/诉讼/人力/税务）→ textGen 缺口清单（补充材料 + 风险提示 + 优先级）→ gate 质检。真实狗粮（聚焦 audit/gap/gate，run `dogfood-dd`）：投 2 份材料，agnes 正确盘点（1 覆盖 + 2 不完整 + 4 缺失）、缺口清单逐项补充；首次 run halted——gate criterion「已覆盖事项引用原文」对「不完整」事项过严（材料本身缺失无法引用）且 rework 回不到 audit，放宽 criterion 后 done。**教训**：criterion 的「引用原文」要求只适用于「已覆盖」事项，对缺失/不完整事项不合理，且 gate 的 rework 只能回最后一段 textGen。至此专业服务方向累计 9 个模板（法律合规 5 + 财务审计 4）。
 
-30. ⬜ **核心文件重构（2026-09-04 立项，待启动）**：`engine.ts`（4954 行，`runNode` 单函数 3160 行占 64%）与 `Inspector.tsx`（3848 行，主组件 3350 行占 87%）已到可维护性临界点。方案见 [docs/design-refactor-engine-inspector.md](docs/design-refactor-engine-inspector.md)：**阶段 1** 拆 Inspector 按 `NodeKind` 抽 `fields/` 字段组件（低风险，先做）→ **阶段 2** 拆 `runNode` 两步走（2.1 机械提取收敛样板 → 2.2 抽 `NodeRunContext` 搬节点执行体到 `nodes/`）→ **阶段 3** 收敛接口实现风格约定。红线：纯重构不改行为、小步原子提交、测试（server 671+/web 1460）是唯一验收。**前置：CI 绿 + 相关 PR 合并后再动。**
+30. 🔵 **核心文件重构（2026-09-04 立项，进行中）**：`engine.ts`（4954 行，`runNode` 单函数 3160 行占 64%）与 `Inspector.tsx`（3848 行，主组件 3350 行占 87%）已到可维护性临界点。方案见 [docs/design-refactor-engine-inspector.md](docs/design-refactor-engine-inspector.md)。**进度**：① **阶段 1（拆 Inspector）已完成**——`Inspector.tsx` 3848→611 行，新增 `apps/web/src/components/InspectorFields/`（types/shared/registry + 27 个 `XxxFields.tsx`），主组件用 `FIELD_COMPONENTS[node.kind]` 注册表分发，web 测试 1500/1500 全绿；② **阶段 2.1（runNode 闭包提取）进行中 14/27 分支**——human/compliance/publish/map/parallel/database/branch/ocr/convert/search/http/table/fileParse/translate 已提取为 `runScheduler` 内部 `runXxx` 闭包函数（`node`/`nodeId`/`attempt` 显式传参），`runNode` 3160→~1200 行，每批 `typecheck` + server 747/747 全绿（5 个 commit `c31d659`→`9e5375f`，未 push）。**剩余**：中等 6 个（notify/vcs/code/videoGen/audioGen/imageGen）+ 复杂 7 个（fanout/select/source-sink/loop/subprocess/gate/generic，涉及递归/返工环/多模态）+ 阶段 2.2（`NodeRunContext` 搬 `nodes/`）/ 阶段 3。红线：纯重构不改行为、小步原子提交、测试是唯一验收。
 
 > 全部缓做/低优事项（含上述两条）已统一登记在 [docs/deferred-items.md](docs/deferred-items.md)——每条带触发条件与决策详情链接，触发条件满足时移回本区并标注重启日期。
 

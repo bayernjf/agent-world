@@ -1,8 +1,19 @@
 # 核心文件重构方案（engine.ts / Inspector.tsx）
 
-> 状态：待立项（未开始） | 优先级：P1 | 创建日期：2026-09-04
+> 状态：进行中（阶段 1 完成，阶段 2.1 进行中 14/27 分支） | 优先级：P1 | 创建日期：2026-09-04
 
-## 0. 摘要
+## 0. 实施进度（2026-09-04 更新）
+
+**已完成**：
+
+- **阶段 1（拆 Inspector.tsx）**：`Inspector.tsx` 3848 → **611 行**（-84%）；新增 `apps/web/src/components/InspectorFields/`（`types.ts` + `shared.tsx` + `registry.tsx` + 27 个 `XxxFields.tsx`，共 3358 行）；主组件用 `FIELD_COMPONENTS[node.kind]` 注册表分发。web 测试 1500/1500 全绿。
+- **阶段 2.1（runNode 闭包提取）**：已提取 **14/27** 个分支（human / compliance / publish / map / parallel / database / branch / ocr / convert / search / http / table / fileParse / translate）为 `runScheduler` 内部的 `runXxx` 闭包函数（`node`/`nodeId`/`attempt` 显式传参，共享状态闭包访问，行为不变）。`runNode` 从 ~3160 行降到 **~1200 行**（-62%）。每批 `typecheck` + 全量 server 测试 **747/747** 全绿，5 个原子 commit（`c31d659`→`9e5375f`）。
+
+**进行中**：剩余 13 个分支——中等 6 个（notify / vcs / code / videoGen / audioGen / imageGen）+ 复杂 7 个（fanout / select / source-sink / loop / subprocess / gate / generic，涉及递归 `runScheduler`/`runNode`、返工环、四模态分发、成本累计）。
+
+**未开始**：阶段 2.2（抽 `NodeRunContext` 搬节点执行体到 `nodes/` 目录）、阶段 3（接口实现风格收敛约定）。
+
+## 1. 摘要
 
 本项目核心逻辑集中在两个巨型文件上：
 
@@ -15,7 +26,7 @@
 
 本文档给出**分阶段、低风险优先、每步可验证**的重构方案。核心原则：**纯重构、行为不变、测试是唯一验收**。
 
-## 1. 背景与现状
+## 2. 背景与现状
 
 ### 1.1 `engine.ts` 内部结构
 
@@ -67,20 +78,20 @@ emit node.started → try → 执行 → emit artifact.produced / node.finished 
 
 这是历史演进留下的轻微不一致，非 bug，但应在重构中收敛约定。
 
-## 2. 目标
+## 3. 目标
 
 1. `Inspector.tsx` 主组件从 ~3350 行降到 ~300 行，字段按 `NodeKind` 拆成独立组件。
 2. `engine.ts` 的 `runNode` 从 ~3160 行退化成 ~50 行的 `switch (node.kind)` 分发器，节点执行体搬进 `nodes/` 目录。
 3. 收敛接口实现风格约定，不强行大改已有代码。
 4. **全程行为不变**：产线执行结果、事件流、产物、成本计量、失败语义均不得改变。
 
-## 3. 总体原则（红线）
+## 4. 总体原则（红线）
 
 1. **纯重构，不改功能**：任何一步都不得改变执行结果、事件流、产物、错误码语义。
 2. **小步原子提交**：每步一个 commit（沿用 `<type>(scope):` 英文规范），每步跑绿再进下一步。
 3. **测试是唯一验收**：不靠「看起来对」，靠 server 671+ / web 1460 / core 164 / mcp 50 全绿 + 真实跑一条产线。
 
-## 4. 阶段方案
+## 5. 阶段方案
 
 ### 阶段 0 —— 前置条件
 
@@ -217,7 +228,7 @@ for (const node of ready) {
 
 **结论**：现有风格其实各有其合理场景，本阶段主要产出是**把「何时用 class、何时用对象字面量」的约定写进 `CONTRIBUTING.md` 或 `extending.md`**，不强行重构已有代码。
 
-## 5. 风险与缓解
+## 6. 风险与缓解
 
 | 风险 | 缓解 |
 |---|---|
@@ -226,7 +237,7 @@ for (const node of ready) {
 | `NodeRunContext` 字段漏传导致运行时 undefined | 用 TS 强类型 + 编译期检查；迁移时保持原函数签名，逐个搬 |
 | 与并行会话的改动冲突 | 阶段 1（Inspector）与阶段 2（engine）文件不同，尽量不同时动同一文件 |
 
-## 6. 实施顺序
+## 7. 实施顺序
 
 ```
 阶段 0 收口（CI 绿 + 基线锁定）
@@ -236,7 +247,7 @@ for (const node of ready) {
   → 阶段 3 定风格约定（文档，可延后）
 ```
 
-## 7. 非目标（明确不做）
+## 8. 非目标（明确不做）
 
 - 不重写引擎的调度算法、事件模型、成本计量。
 - 不改任何节点类型的行为语义。
