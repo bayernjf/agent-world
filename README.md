@@ -3,7 +3,7 @@
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![node](https://img.shields.io/badge/node-%3E%3D24-339933)](https://nodejs.org)
 [![pnpm](https://img.shields.io/badge/package%20manager-pnpm-ffc611)](https://pnpm.io)
-[![tests](https://img.shields.io/badge/tests-680%2B%20passing-2ea44f)](#run-the-checks)
+[![tests](https://img.shields.io/badge/tests-2485%2B%20passing-2ea44f)](#run-the-checks)
 
 **A visual pipeline platform for AI agents — orchestrate LLMs, tools, and quality
 control into production lines that actually finish.**
@@ -56,14 +56,14 @@ change actually helped).
 
 | Area | What's there |
 |---|---|
-| **Nodes** | 25 types: agent, gate, HTTP (SSRF-guarded), code exec (JS/Python, sandboxed), branch, map, loop, parallel, table, database, file parse, translate, OCR, convert, search, notify, vcs, human approval, subprocess, image/video/audio gen, generic (modality auto-dispatch), source, sink |
+| **Nodes** | 29 types: agent, gate, HTTP (SSRF-guarded), code exec (JS/Python, sandboxed), branch, map, loop, parallel, table, database, file parse, translate, OCR, convert, search, notify, vcs, human approval, subprocess, image/video/audio gen, generic (modality auto-dispatch), compliance, publish, fanout, select, source, sink |
 | **Triggers** | Manual, webhook, cron (self-hosted parser), event, batch |
 | **Quality** | LLM-judge gates, score-rework loops, brand/banned terms, output-contract schema validation |
 | **Observability** | Live SSE streaming, replay scrubber, per-node cost, eval report (by day / by graph / by prompt fingerprint), CSV export |
 | **MCP** | Both directions: consume external MCP servers as tools; expose the platform itself as an MCP server (15 tools, stdio + HTTP/SSE) |
 | **Sandboxing** | 3-tier code exec: env/cwd isolation → rlimit + Node permission model → bwrap (Linux) / seatbelt (macOS); SSRF guard immune to DNS rebinding |
 | **Accounts** | JWT + bcrypt, all resources isolated per user |
-| **Templates** | 27 built-in pipelines across 11 categories (grouped in the picker, blank canvas pinned first), with parameterizable fields (URLs, targets, brand terms) |
+| **Templates** | 33 built-in pipelines across 11 categories (grouped in the picker, blank canvas pinned first), with parameterizable fields (URLs, targets, brand terms) |
 
 ## Quick start
 
@@ -99,7 +99,7 @@ pnpm dev
 ### Run the checks
 
 ```bash
-pnpm -r test       # 680+ tests: core 146 / server 466 / mcp-server 50 / web 19
+pnpm -r test       # 2485+ tests: core 188 / server 747 / mcp-server 50 / web 1500
 pnpm -r typecheck
 pnpm -r build
 ```
@@ -134,7 +134,7 @@ The full index (every doc, tagged current/historical/archived) lives in
 [docs/README.md](docs/README.md). Quick pointers:
 
 - [handoff.md](handoff.md) — current state and active work (read first when resuming)
-- [docs/examples.md](docs/examples.md) — 12 ready-to-use pipeline examples
+- [docs/examples.md](docs/examples.md) — 33 ready-to-use pipeline templates
 - [docs/extending.md](docs/extending.md) — add workers, connectors, skills, triggers, node types
 - [docs/design-code-sandbox.md](docs/design-code-sandbox.md) — why the sandbox has 3 tiers
 - [docs/design-mcp-server.md](docs/design-mcp-server.md) — MCP server design

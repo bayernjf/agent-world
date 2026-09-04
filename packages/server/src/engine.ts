@@ -1206,6 +1206,1237 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     for (const [k, v] of childInit.nodeCostUsd) nodeCostUsd.set(prefix + k, v);
   };
 
+  // --- Per-node-kind execution bodies, extracted from runNode's if-chain (2.1).
+  // They close over the scheduler's shared state and are invoked from runNode's
+  // dispatch switch. `node`/`nodeId`/`attempt` are runNode-local, so passed in.
+
+  const runHuman = async (node: GraphNode, nodeId: string, attempt: number) => {
+    // Pause the run at an arbitrary point for an operator decision. The
+    // upstream text becomes the pending review; approve/edit passes it
+    // downstream, reject fails the node (error edges can catch it).
+    const output = await inputFor(node);
+    emit({ type: "node.started", nodeId, attempt });
+    emit({ type: "human.review", nodeId, attempt, content: output });
+    haltNodeId = nodeId;
+    haltReason = `human:${node.human?.prompt || node.name}`;
+    status = "halted";
+    aborted = true;
+    void notifyHalt({ runId, graphId: graph.id, nodeId, reason: haltReason });
+  };
+
+  const runCompliance = async (node: GraphNode, nodeId: string, attempt: number) => {
+    emit({ type: "node.started", nodeId, attempt });
+    try {
+      const cfg = ComplianceConfig.parse(node.compliance ?? {});
+      const output = await inputFor(node);
+      if (!output.trim()) {
+        states.set(nodeId, "failed");
+        emit({
+          type: "node.failed",
+          nodeId,
+          attempt,
+          error: "合规节点没有收到可校验的文本",
+          errorCode: "VALIDATION",
+        });
+        return;
+      }
+      // Merge the user's stored banned terms with the node's extra list, so
+      // the vocabulary library is honoured without the user re-typing it.
+      const extra = [cfg.extraBanned, opts.bannedTerms ?? ""].filter(Boolean).join(",");
+      const result = checkCompliance({
+        platform: cfg.platform,
+        extraBanned: extra,
+        autoFix: cfg.autoFix,
+        text: output,
+      });
+      const payload = complianceArtifact(result);
+      const jsonArtifact: Artifact = {
+        id: `${nodeId}-compliance`,
+        kind: "json",
+        content: JSON.stringify(payload),
+        mimeType: "application/json",
+      };
+      const produced: Artifact[] = [jsonArtifact];
+      // Downstream nodes consume the sanitized text (autoFix on) or the
+      // original (autoFix off / no violations).
+      const downstreamText = result.sanitized || result.original;
+      setTextArtifact(artifacts, nodeId, downstreamText);
+      artifacts.set(nodeId, [...produced, ...(artifacts.get(nodeId) ?? [])]);
+      for (const a of produced) emit({ type: "artifact.produced", nodeId, attempt, artifact: a });
+
+      if (cfg.failOnViolation && !result.passed) {
+        const first = result.violations[0];
+        states.set(nodeId, "failed");
+        emit({
+          type: "node.failed",
+          nodeId,
+          attempt,
+          error: `合规校验未通过（${result.violations.length} 处违规，首条：${first?.rule ?? ""}）`,
+          errorCode: "VALIDATION",
+        });
+        return;
+      }
+
+      states.set(nodeId, "done");
+      const summary = result.passed
+        ? "合规校验通过"
+        : `合规校验发现 ${result.violations.length} 处违规（已${cfg.autoFix ? "自动修复" : "标注"}）`;
+      emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
+      sendPackets(nodeId, summary, "json");
+    } catch (err) {
+      states.set(nodeId, "failed");
+      emit({
+        type: "node.failed",
+        nodeId,
+        attempt,
+        error: `合规校验节点执行出错: ${err instanceof Error ? err.message : String(err)}`,
+      });
+    }
+  };
+
+  const runPublish = async (node: GraphNode, nodeId: string, attempt: number) => {
+    emit({ type: "node.started", nodeId, attempt });
+    try {
+      const cfg = PublishConfig.parse(node.publish ?? {});
+      const output = await inputFor(node);
+      if (!output.trim()) {
+        states.set(nodeId, "failed");
+        emit({
+          type: "node.failed",
+          nodeId,
+          attempt,
+          error: "发布节点没有收到可整理的文本",
+          errorCode: "VALIDATION",
+        });
+        return;
+      }
+      const pkg = buildPublishPackage(output, cfg);
+      const payload = publishArtifact(pkg);
+      const jsonArtifact: Artifact = {
+        id: `${nodeId}-publish`,
+        kind: "json",
+        content: JSON.stringify(payload),
+        mimeType: "application/json",
+      };
+      const produced: Artifact[] = [jsonArtifact];
+      // Downstream nodes consume the assembled body (falls back to the title).
+      const downstreamText = pkg.body || pkg.title;
+      setTextArtifact(artifacts, nodeId, downstreamText);
+      artifacts.set(nodeId, [...produced, ...(artifacts.get(nodeId) ?? [])]);
+      for (const a of produced) emit({ type: "artifact.produced", nodeId, attempt, artifact: a });
+
+      states.set(nodeId, "done");
+      const summary = `已整理为${pkg.platformLabel}待发布包（标题 ${pkg.title.length} 字 / 正文 ${pkg.body.length} 字）`;
+      emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
+      sendPackets(nodeId, summary, "json");
+    } catch (err) {
+      states.set(nodeId, "failed");
+      emit({
+        type: "node.failed",
+        nodeId,
+        attempt,
+        error: `发布节点执行出错: ${err instanceof Error ? err.message : String(err)}`,
+      });
+    }
+  };
+
+  const runMap = async (node: GraphNode, nodeId: string, attempt: number) => {
+    emit({ type: "node.started", nodeId, attempt });
+    try {
+      const cfg = MapConfig.parse(node.map ?? {});
+      const ctx = nodeCtx(nodeId);
+      const sources = incoming(graph, nodeId, "flow").map((e) => e.from);
+      const sourceId = cfg.source ?? (sources.length === 1 ? sources[0] : undefined);
+      if (!sourceId) {
+        states.set(nodeId, "failed");
+        emit({
+          type: "node.failed",
+          nodeId,
+          attempt,
+          error: "Map 节点需要恰好一个上游节点（或在设置中指定 source）",
+          errorCode: "VALIDATION",
+        });
+        return;
+      }
+      let template: unknown;
+      try {
+        template = JSON.parse(cfg.template);
+      } catch {
+        states.set(nodeId, "failed");
+        emit({
+          type: "node.failed",
+          nodeId,
+          attempt,
+          error:
+            "映射模板不是合法的 JSON：模板整体须是 JSON 文档，${...} 占位符请写在字符串值内（如 \"age\": \"${item.age}\"，纯占位符会自动保留数字/对象类型）",
+          errorCode: "VALIDATION",
+        });
+        return;
+      }
+      const sourceVal = ctx[sourceId];
+      let out: unknown;
+      if (cfg.iterate) {
+        const arr = getByPath(sourceVal, cfg.iterate);
+        if (!Array.isArray(arr)) {
+          states.set(nodeId, "failed");
+          emit({
+            type: "node.failed",
+            nodeId,
+            attempt,
+            error: `iterate 路径 "${cfg.iterate}" 解析结果不是数组`,
+            errorCode: "VALIDATION",
+          });
+          return;
+        }
+        out = arr.map((item) => transformJson(template, { ...ctx, item }));
+      } else {
+        out = transformJson(template, { ...ctx, item: sourceVal });
+      }
+      const content = JSON.stringify(out);
+      const artifact: Artifact = {
+        id: `${nodeId}-map-json`,
+        kind: "json",
+        content,
+        mimeType: "application/json",
+      };
+      artifacts.set(nodeId, [artifact]);
+      emit({ type: "artifact.produced", nodeId, attempt, artifact });
+      states.set(nodeId, "done");
+      const summary =
+        cfg.iterate && Array.isArray(out)
+          ? `映射 ${out.length} 项 → ${truncateText(content, 60)}`
+          : `映射完成 → ${truncateText(content, 60)}`;
+      emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
+      sendPackets(nodeId, summary, "json");
+    } catch (err) {
+      states.set(nodeId, "failed");
+      emit({
+        type: "node.failed",
+        nodeId,
+        attempt,
+        error: `Map 节点执行出错: ${err instanceof Error ? err.message : String(err)}`,
+      });
+    }
+  };
+
+  const runParallel = async (node: GraphNode, nodeId: string, attempt: number) => {
+    emit({ type: "node.started", nodeId, attempt });
+    try {
+      const cfg = ParallelConfig.parse(node.parallel ?? {});
+      const ins = incoming(graph, nodeId, "flow");
+      const values: unknown[] = [];
+      const byId: Record<string, unknown> = {};
+      for (const e of ins) {
+        const arts = artifacts.get(e.from) ?? [];
+        const json = arts.find((a) => a.kind === "json");
+        let val: unknown = null;
+        if (json?.content) {
+          try {
+            val = JSON.parse(json.content);
+          } catch {
+            val = json.content;
+          }
+        } else {
+          const text = arts.find((a) => a.kind === "text");
+          val = text?.content ?? "";
+        }
+        if (cfg.pick) {
+          const picked = getByPath(val, cfg.pick);
+          if (picked !== undefined) val = picked;
+        }
+        values.push(val);
+        byId[e.from] = val;
+      }
+      const out = cfg.asObject ? byId : values;
+      const content = JSON.stringify(out);
+      const artifact: Artifact = {
+        id: `${nodeId}-parallel-json`,
+        kind: "json",
+        content,
+        mimeType: "application/json",
+      };
+      artifacts.set(nodeId, [artifact]);
+      emit({ type: "artifact.produced", nodeId, attempt, artifact });
+      states.set(nodeId, "done");
+      const summary = `聚合 ${ins.length} 个分支 → ${truncateText(content, 60)}`;
+      emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
+      sendPackets(nodeId, summary, "json");
+    } catch (err) {
+      states.set(nodeId, "failed");
+      emit({
+        type: "node.failed",
+        nodeId,
+        attempt,
+        error: `Parallel 节点执行出错: ${err instanceof Error ? err.message : String(err)}`,
+      });
+    }
+  };
+
+  const runDatabase = async (node: GraphNode, nodeId: string, attempt: number) => {
+    emit({ type: "node.started", nodeId, attempt });
+    try {
+      const cfg = DatabaseConfig.parse(node.database ?? {});
+      if (!cfg.sql.trim()) {
+        states.set(nodeId, "failed");
+        emit({
+          type: "node.failed",
+          nodeId,
+          attempt,
+          error: "数据库节点需要填写 SQL 语句",
+          errorCode: "VALIDATION",
+        });
+        return;
+      }
+      const driver = createSqliteDriver(cfg.path);
+      try {
+        driver.setup(cfg.setupSql);
+        const result = driver.query(cfg.sql, {
+          positional: cfg.positionalParams,
+          named: cfg.namedParams,
+        });
+        if (result.rows !== undefined) {
+          const content = JSON.stringify({
+            rows: result.rows,
+            count: result.rows.length,
+            columns: result.columns ?? [],
+          });
+          const produced: Artifact[] = [
+            { id: `${nodeId}-db-json`, kind: "json", content, mimeType: "application/json" },
+          ];
+          artifacts.set(nodeId, produced);
+          for (const a of produced) emit({ type: "artifact.produced", nodeId, attempt, artifact: a });
+          states.set(nodeId, "done");
+          const summary = `数据库查询完成：${result.rows.length} 行 × ${(result.columns ?? []).length} 列`;
+          emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
+          sendPackets(nodeId, summary, "json");
+        } else {
+          const content = JSON.stringify({
+            affectedRows: result.affectedRows ?? 0,
+            lastInsertId: result.lastInsertId ?? null,
+          });
+          const produced: Artifact[] = [
+            { id: `${nodeId}-db-json`, kind: "json", content, mimeType: "application/json" },
+          ];
+          artifacts.set(nodeId, produced);
+          for (const a of produced) emit({ type: "artifact.produced", nodeId, attempt, artifact: a });
+          states.set(nodeId, "done");
+          const summary = `数据库执行完成：影响 ${result.affectedRows ?? 0} 行`;
+          emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
+          sendPackets(nodeId, summary, "json");
+        }
+      } finally {
+        driver.close();
+      }
+    } catch (err) {
+      states.set(nodeId, "failed");
+      emit({
+        type: "node.failed",
+        nodeId,
+        attempt,
+        error: `数据库节点执行出错: ${err instanceof Error ? err.message : String(err)}`,
+      });
+    }
+  };
+
+  const runBranch = async (node: GraphNode, nodeId: string, attempt: number) => {
+    emit({ type: "node.started", nodeId, attempt });
+    const cfg: BranchConfig = BranchConfig.parse(node.branch ?? {});
+    const ctx = interpCtx(nodeId);
+    let target: string | undefined;
+    let matchedRule: string | undefined;
+    for (const rule of cfg.rules ?? []) {
+      if (evaluateCondition(rule.when, ctx)) {
+        target = rule.target;
+        matchedRule = rule.id;
+        break;
+      }
+    }
+    if (!target && cfg.defaultTarget) {
+      target = cfg.defaultTarget;
+      matchedRule = undefined;
+    }
+    if (target) {
+      const edge = outgoing(graph, nodeId, "flow").find((e) => e.to === target);
+      if (edge) {
+        packetEdges.add(edge.id);
+        emit({
+          type: "packet.sent",
+          edgeId: edge.id,
+          from: nodeId,
+          to: target,
+          summary: matchedRule ? `命中分支 ${matchedRule}` : "默认分支",
+          artifactKind: "text",
+        });
+      }
+    }
+    states.set(nodeId, "done");
+    markBranchSkipped(nodeId, target);
+    const output = target
+      ? `路由 → ${nodeById(graph, target)?.name ?? target}${matchedRule ? `（${matchedRule}）` : "（默认）"}`
+      : "未命中任何分支，报文被丢弃";
+    emit({ type: "node.finished", nodeId, attempt, output, usage: zeroUsage() });
+  };
+
+  const runOcr = async (node: GraphNode, nodeId: string, attempt: number) => {
+    emit({ type: "node.started", nodeId, attempt });
+    try {
+      const cfg = OcrConfig.parse(node.ocr ?? {});
+      const sources = incoming(graph, nodeId, "flow").map((e) => e.from);
+      const sourceId = cfg.source ?? (sources.length === 1 ? sources[0] : undefined);
+      if (!sourceId) {
+        states.set(nodeId, "failed");
+        emit({
+          type: "node.failed",
+          nodeId,
+          attempt,
+          error: "OCR 节点需要唯一上游，或在配置中显式指定数据来源",
+          errorCode: "VALIDATION",
+        });
+        return;
+      }
+      const arts = artifacts.get(sourceId) ?? [];
+      const images = arts.filter((a) => a.kind === "image" && a.uri);
+      if (images.length === 0) {
+        states.set(nodeId, "failed");
+        emit({
+          type: "node.failed",
+          nodeId,
+          attempt,
+          error: `上游「${nodeById(graph, sourceId)?.name ?? sourceId}」没有产出可识别的图片（需要 image 产物）`,
+          errorCode: "VALIDATION",
+        });
+        return;
+      }
+      const blocks: string[] = [];
+      let totalConfidence = 0;
+      for (const art of images) {
+        const resolved = opts.readArtifact ? await opts.readArtifact(art.uri!) : null;
+        if (!resolved) {
+          states.set(nodeId, "failed");
+          emit({
+            type: "node.failed",
+            nodeId,
+            attempt,
+            error: `无法读取图片内容（${art.uri}）`,
+            errorCode: "PROVIDER_ERROR",
+          });
+          return;
+        }
+        const buf = dataUriToBuffer(resolved);
+        let res: { text: string; confidence: number };
+        try {
+          res = await ocrImage(buf, cfg);
+        } catch (err) {
+          states.set(nodeId, "failed");
+          emit({
+            type: "node.failed",
+            nodeId,
+            attempt,
+            error: `OCR 识别失败: ${sanitizeError(err instanceof Error ? err.message : String(err))}`,
+            errorCode: "PROVIDER_ERROR",
+          });
+          return;
+        }
+        blocks.push(res.text);
+        totalConfidence += res.confidence;
+      }
+      const output = blocks.join("\n\n").trim();
+      setTextArtifact(artifacts, nodeId, output);
+      states.set(nodeId, "done");
+      const avgConf = images.length ? Math.round(totalConfidence / images.length) : 0;
+      const summary = output
+        ? `识别完成：${images.length} 张图片，${output.length} 字符，平均置信度 ${avgConf}%`
+        : "识别完成：未识别到文字";
+      emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
+      const primaryKind = produceArtifacts(nodeId, output, attempt);
+      sendPackets(nodeId, summary, primaryKind);
+    } catch (err) {
+      states.set(nodeId, "failed");
+      emit({
+        type: "node.failed",
+        nodeId,
+        attempt,
+        error: `OCR 节点执行出错: ${sanitizeError(err instanceof Error ? err.message : String(err))}`,
+      });
+    }
+  };
+
+  const runConvert = async (node: GraphNode, nodeId: string, attempt: number) => {
+    emit({ type: "node.started", nodeId, attempt });
+    try {
+      const cfg = ConvertConfig.parse(node.convert ?? {});
+      const sources = incoming(graph, nodeId, "flow").map((e) => e.from);
+      const sourceId = cfg.source ?? (sources.length === 1 ? sources[0] : undefined);
+      if (!sourceId) {
+        states.set(nodeId, "failed");
+        emit({
+          type: "node.failed",
+          nodeId,
+          attempt,
+          error: "文件转换节点需要唯一上游，或在配置中显式指定数据来源",
+          errorCode: "VALIDATION",
+        });
+        return;
+      }
+      const arts = artifacts.get(sourceId) ?? [];
+      const produced: Artifact[] = [];
+      const ext = (mime: string) => (mime === "image/png" ? "png" : mime === "image/jpeg" ? "jpg" : (mime.split("/")[1] ?? "bin"));
+      if (cfg.to === "image") {
+        // pdf → image: extract every embedded image (scanned pages = one image each).
+        const fileArt = arts.find((a) => a.kind === "file" && a.uri);
+        if (!fileArt) {
+          states.set(nodeId, "failed");
+          emit({
+            type: "node.failed",
+            nodeId,
+            attempt,
+            error: `上游「${nodeById(graph, sourceId)?.name ?? sourceId}」没有产出可转换的文件产物（PDF → 图片需要 file 产物）`,
+            errorCode: "VALIDATION",
+          });
+          return;
+        }
+        const resolved = opts.readArtifact ? await opts.readArtifact(fileArt.uri!) : null;
+        if (!resolved) {
+          states.set(nodeId, "failed");
+          emit({
+            type: "node.failed",
+            nodeId,
+            attempt,
+            error: `无法读取文件内容（${fileArt.uri}）`,
+            errorCode: "PROVIDER_ERROR",
+          });
+          return;
+        }
+        const buf = dataUriToBuffer(resolved);
+        const images = await extractPdfImages(
+          new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength),
+        );
+        if (images.length === 0) {
+          states.set(nodeId, "failed");
+          emit({
+            type: "node.failed",
+            nodeId,
+            attempt,
+            error: "文件中没有可提取的图片（纯文本 PDF 无法转为图片）",
+            errorCode: "VALIDATION",
+          });
+          return;
+        }
+        for (const [idx, img] of images.entries()) {
+          const uri = await opts.storeBinary(
+            Buffer.from(img.data),
+            img.mimeType,
+            `${node.name || "convert"}-${idx + 1}.${ext(img.mimeType)}`,
+          );
+          produced.push({
+            id: `${nodeId}-img-${idx}`,
+            kind: "image",
+            uri,
+            mimeType: img.mimeType,
+            label: `${fileArt.label ?? "文件"} 图片 ${idx + 1}`,
+          });
+        }
+      } else {
+        // image → png/jpeg: re-encode every upstream image artifact.
+        const inputs = arts.filter(
+          (a) =>
+            a.uri &&
+            (a.kind === "image" || (a.kind === "file" && (a.mimeType ?? "").startsWith("image/"))),
+        );
+        if (inputs.length === 0) {
+          states.set(nodeId, "failed");
+          emit({
+            type: "node.failed",
+            nodeId,
+            attempt,
+            error: `上游「${nodeById(graph, sourceId)?.name ?? sourceId}」没有产出可转换的图片（需要 image 产物或图片类文件）`,
+            errorCode: "VALIDATION",
+          });
+          return;
+        }
+        const mime = cfg.to === "jpeg" ? "image/jpeg" : "image/png";
+        for (const [idx, art] of inputs.entries()) {
+          const resolved = opts.readArtifact ? await opts.readArtifact(art.uri!) : null;
+          if (!resolved) {
+            states.set(nodeId, "failed");
+            emit({
+              type: "node.failed",
+              nodeId,
+              attempt,
+              error: `无法读取图片内容（${art.uri}）`,
+              errorCode: "PROVIDER_ERROR",
+            });
+            return;
+          }
+          const buf = dataUriToBuffer(resolved);
+          let out: Buffer;
+          try {
+            const decoded = decodeImage(buf);
+            out = cfg.to === "jpeg" ? encodeJpeg(decoded, cfg.quality) : encodePng(decoded);
+          } catch (err) {
+            states.set(nodeId, "failed");
+            emit({
+              type: "node.failed",
+              nodeId,
+              attempt,
+              error: `图片转换失败: ${err instanceof Error ? err.message : String(err)}`,
+              errorCode: "PROVIDER_ERROR",
+            });
+            return;
+          }
+          const uri = await opts.storeBinary(
+            out,
+            mime,
+            `${node.name || "convert"}-${idx + 1}.${cfg.to}`,
+          );
+          produced.push({
+            id: `${nodeId}-img-${idx}`,
+            kind: "image",
+            uri,
+            mimeType: mime,
+            label: `${art.label ?? "图片"} → ${cfg.to.toUpperCase()}`,
+          });
+        }
+      }
+      artifacts.set(nodeId, produced);
+      for (const a of produced) emit({ type: "artifact.produced", nodeId, attempt, artifact: a });
+      states.set(nodeId, "done");
+      const summary =
+        cfg.to === "image"
+          ? `转换完成：提取 ${produced.length} 张图片`
+          : `转换完成：${produced.length} 张图片转为 ${cfg.to.toUpperCase()}`;
+      emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
+      sendPackets(nodeId, summary, "image");
+    } catch (err) {
+      states.set(nodeId, "failed");
+      emit({
+        type: "node.failed",
+        nodeId,
+        attempt,
+        error: `文件转换节点执行出错: ${sanitizeError(err instanceof Error ? err.message : String(err))}`,
+      });
+    }
+  };
+
+  const runSearch = async (node: GraphNode, nodeId: string, attempt: number) => {
+    emit({ type: "node.started", nodeId, attempt });
+    try {
+      const cfg = SearchConfig.parse(node.search ?? {});
+      let query = cfg.query.trim();
+      if (!query) {
+        // Fall back to the first upstream text artifact — lets an agent
+        // generate the query and a search node execute it.
+        const sources = incoming(graph, nodeId, "flow").map((e) => e.from);
+        for (const s of sources) {
+          const t = (artifacts.get(s) ?? []).find((a) => a.kind === "text")?.content;
+          if (t?.trim()) {
+            query = t.trim().slice(0, 300);
+            break;
+          }
+        }
+      }
+      if (!query) {
+        states.set(nodeId, "failed");
+        emit({
+          type: "node.failed",
+          nodeId,
+          attempt,
+          error: "没有可用的搜索词（请在配置中填写 query，或连接产出 text 的上游）",
+          errorCode: "VALIDATION",
+        });
+        return;
+      }
+      let hits: { title: string; url: string; snippet: string }[];
+      try {
+        hits = await searchWeb(query, cfg);
+      } catch (err) {
+        states.set(nodeId, "failed");
+        emit({
+          type: "node.failed",
+          nodeId,
+          attempt,
+          error: `搜索失败: ${sanitizeError(err instanceof Error ? err.message : String(err))}`,
+          errorCode: err instanceof SearchAuthError ? "AUTH" : "PROVIDER_ERROR",
+        });
+        return;
+      }
+      const listing = hits
+        .map((h, i) => `${i + 1}. ${h.title}\n   ${h.url}${h.snippet ? `\n   ${h.snippet}` : ""}`)
+        .join("\n\n");
+      const output = listing || `没有找到与「${query}」相关的结果`;
+      const produced: Artifact[] = [
+        { id: `${nodeId}-txt`, kind: "text", content: output, mimeType: "text/plain" },
+        {
+          id: `${nodeId}-json`,
+          kind: "json",
+          content: JSON.stringify({ query, provider: cfg.provider, results: hits }, null, 2),
+          mimeType: "application/json",
+        },
+      ];
+      artifacts.set(nodeId, produced);
+      for (const a of produced) emit({ type: "artifact.produced", nodeId, attempt, artifact: a });
+      states.set(nodeId, "done");
+      const summary = `搜索完成：「${query}」→ ${hits.length} 条结果（${cfg.provider}）`;
+      emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
+      sendPackets(nodeId, summary, "text");
+    } catch (err) {
+      states.set(nodeId, "failed");
+      emit({
+        type: "node.failed",
+        nodeId,
+        attempt,
+        error: `搜索节点执行出错: ${sanitizeError(err instanceof Error ? err.message : String(err))}`,
+      });
+    }
+  };
+
+  const runHttp = async (node: GraphNode, nodeId: string, attempt: number) => {
+    emit({ type: "node.started", nodeId, attempt });
+    const cfg: HttpNodeConfig = HttpNodeConfig.parse(node.http ?? {});
+
+    const ctx = interpCtx(nodeId);
+    const interpolatedUrl = evaluateTemplate(cfg.url, ctx);
+    if (!interpolatedUrl.trim()) {
+      states.set(nodeId, "failed");
+      status = "failed";
+      emit({
+        type: "node.failed",
+        nodeId,
+        attempt,
+        error: "HTTP 节点 URL 为空",
+        errorCode: "VALIDATION",
+      });
+      return;
+    }
+
+    let targetUrl: URL;
+    try {
+      targetUrl = new URL(interpolatedUrl);
+    } catch {
+      states.set(nodeId, "failed");
+      status = "failed";
+      emit({
+        type: "node.failed",
+        nodeId,
+        attempt,
+        error: `HTTP 节点 URL 不合法: ${interpolatedUrl}`,
+        errorCode: "VALIDATION",
+      });
+      return;
+    }
+
+    for (const [key, raw] of Object.entries(cfg.query ?? {})) {
+      try {
+        targetUrl.searchParams.set(key, evaluateTemplate(raw, ctx));
+      } catch {
+        // skip invalid params
+      }
+    }
+
+    const headers: Record<string, string> = {};
+    for (const [key, raw] of Object.entries(cfg.headers ?? {})) {
+      headers[key] = evaluateTemplate(raw, ctx);
+    }
+    const contentType = headers["content-type"] ?? headers["Content-Type"];
+    const body = cfg.body ? evaluateTemplate(cfg.body, ctx) : undefined;
+
+    // SSRF guard: refuse private/internal targets (resolved at fetch time,
+    // so DNS rebinding can't smuggle an internal address past the check).
+    if (!allowPrivateNetwork() && (await hostIsInternal(targetUrl.hostname))) {
+      states.set(nodeId, "failed");
+      status = "failed";
+      emit({
+        type: "node.failed",
+        nodeId,
+        attempt,
+        error: "HTTP 节点拒绝访问内网或私网地址（SSRF 防护）",
+        errorCode: "VALIDATION",
+      });
+      return;
+    }
+
+    let response: Response;
+    try {
+      response = await withRetry(
+        async () => {
+          // All outbound traffic leaves through guardedFetch: the DNS
+          // answer that passes the internal check is the one the TCP/TLS
+          // connection is pinned to (no check-vs-connect TOCTOU, audit
+          // H3), and redirects are re-validated on every hop (audit C3).
+          const abort = new AbortController();
+          const timer = setTimeout(() => abort.abort(), cfg.timeoutMs);
+          try {
+            const r = await guardedFetch(targetUrl.toString(), {
+              method: cfg.method,
+              headers,
+              body: body && cfg.method !== "GET" ? body : undefined,
+              signal: abort.signal,
+              maxRedirects: 5,
+            });
+            // 5xx triggers the retry path; deterministic guard rejections
+            // (GuardedFetchError) are excluded from retry below.
+            // failOnError: false means the caller wants the status as data
+            // (health checks), so 5xx must complete the node, not retry.
+            if (cfg.failOnError && r.status >= 500) throw new Error(`HTTP ${r.status}`);
+            return r;
+          } finally {
+            clearTimeout(timer);
+          }
+        },
+        cfg.retry,
+        // AbortError means the attempt timed out; deterministic failures
+        // (SSRF rejection, redirect budget exhausted) must not be retried.
+        (err) =>
+          !(err instanceof Error && err.name === "AbortError") &&
+          !(err instanceof Error && /SSRF 防护|重定向超过/.test(err.message)),
+        opts.sleep,
+      );
+    } catch (err) {
+      states.set(nodeId, "failed");
+      status = "failed";
+      const msg = err instanceof Error ? err.message : String(err);
+      emit({
+        type: "node.failed",
+        nodeId,
+        attempt,
+        error: `HTTP 请求失败: ${msg}`,
+        errorCode: msg.includes("SSRF 防护") ? "VALIDATION" : "PROVIDER_ERROR",
+      });
+      return;
+    }
+
+    // Expose response metadata for branch / notify interpolation
+    // (`${nodeId.ok}` etc.); the artifact below carries only the payload.
+    httpMeta.set(nodeId, {
+      ok: response.ok,
+      status: response.status,
+      url: targetUrl.toString(),
+      method: cfg.method,
+    });
+
+    if (cfg.outputMode === "file") {
+      let arrayBuf: ArrayBuffer;
+      try {
+        arrayBuf = await response.arrayBuffer();
+      } catch (err) {
+        states.set(nodeId, "failed");
+        status = "failed";
+        const msg = err instanceof Error ? err.message : String(err);
+        emit({
+          type: "node.failed",
+          nodeId,
+          attempt,
+          error: `读取 HTTP 响应失败: ${msg}`,
+          errorCode: "PROVIDER_ERROR",
+        });
+        return;
+      }
+      if (cfg.failOnError && (response.status < 200 || response.status >= 300)) {
+        states.set(nodeId, "failed");
+        status = "failed";
+        emit({
+          type: "node.failed",
+          nodeId,
+          attempt,
+          error: `HTTP ${cfg.method} ${targetUrl.toString()} 返回 ${response.status}`,
+          errorCode: "PROVIDER_ERROR",
+        });
+        return;
+      }
+      const bytes = Buffer.from(arrayBuf);
+      const ctHeader = response.headers.get("content-type") ?? "";
+      const mime = (ctHeader.split(";")[0] ?? "").trim() || "application/octet-stream";
+      const fileName = fileLabelFromUrl(targetUrl);
+      const uri = await opts.storeBinary(bytes, mime, fileName);
+      const artifact: Artifact = {
+        id: `${nodeId}-file`,
+        kind: "file",
+        uri,
+        mimeType: mime,
+        label: fileName,
+        sizeBytes: bytes.length,
+      };
+      artifacts.set(nodeId, [artifact]);
+      emit({ type: "artifact.produced", nodeId, attempt, artifact });
+      states.set(nodeId, "done");
+      const summary = `已下载文件：${fileName}（${bytes.length} 字节，${mime}）`;
+      emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
+      sendPackets(nodeId, summary, "file");
+      return;
+    }
+
+    let responseText: string;
+    try {
+      responseText = await response.text();
+    } catch (err) {
+      states.set(nodeId, "failed");
+      status = "failed";
+      const msg = err instanceof Error ? err.message : String(err);
+      emit({
+        type: "node.failed",
+        nodeId,
+        attempt,
+        error: `读取 HTTP 响应失败: ${msg}`,
+        errorCode: "PROVIDER_ERROR",
+      });
+      return;
+    }
+
+    const contentTypeHeader = response.headers.get("content-type") ?? "";
+    const isJsonByHeader = /application\/json|text\/json/i.test(contentTypeHeader);
+    const canParseJson = (() => {
+      try {
+        JSON.parse(responseText);
+        return true;
+      } catch {
+        return false;
+      }
+    })();
+    const asJson = cfg.outputMode === "json" || (cfg.outputMode === "auto" && isJsonByHeader && canParseJson);
+
+    if (cfg.failOnError && (response.status < 200 || response.status >= 300)) {
+      states.set(nodeId, "failed");
+      status = "failed";
+      emit({
+        type: "node.failed",
+        nodeId,
+        attempt,
+        error: `HTTP ${cfg.method} ${targetUrl.toString()} 返回 ${response.status}: ${responseText.slice(0, 200)}`,
+        errorCode: "PROVIDER_ERROR",
+      });
+      return;
+    }
+
+    const output = asJson ? JSON.stringify(JSON.parse(responseText), null, 2) : responseText;
+    const artifact: Artifact = asJson
+      ? { id: `${nodeId}-json`, kind: "json", content: output, mimeType: "application/json" }
+      : { id: `${nodeId}-text`, kind: "text", content: output, mimeType: "text/plain" };
+    artifacts.set(nodeId, [artifact]);
+    emit({ type: "artifact.produced", nodeId, attempt, artifact });
+    states.set(nodeId, "done");
+    emit({ type: "node.finished", nodeId, attempt, output, usage: zeroUsage() });
+    sendPackets(nodeId, output.slice(0, 120), artifact.kind);
+  };
+
+  const runTable = async (node: GraphNode, nodeId: string, attempt: number) => {
+    emit({ type: "node.started", nodeId, attempt });
+    try {
+      const cfg = TableConfig.parse(node.table ?? {});
+      const ctx = nodeCtx(nodeId);
+      const sources = incoming(graph, nodeId, "flow").map((e) => e.from);
+      const sourceId = cfg.source ?? (sources.length === 1 ? sources[0] : undefined);
+      if (!sourceId) {
+        states.set(nodeId, "failed");
+        emit({
+          type: "node.failed",
+          nodeId,
+          attempt,
+          error: "Table 节点需要恰好一个上游节点（或在设置中指定 source）",
+          errorCode: "VALIDATION",
+        });
+        return;
+      }
+      let input: TableInput;
+      try {
+        input = tableInputFrom(ctx[sourceId]);
+      } catch (err) {
+        states.set(nodeId, "failed");
+        emit({
+          type: "node.failed",
+          nodeId,
+          attempt,
+          error: err instanceof Error ? err.message : String(err),
+          errorCode: "VALIDATION",
+        });
+        return;
+      }
+      const { rows, output } = applyTableSteps(input, cfg.steps);
+      const columns = collectColumns(rows);
+      const content = JSON.stringify({ rows, count: rows.length, columns });
+      const produced: Artifact[] = [
+        { id: `${nodeId}-table-json`, kind: "json", content, mimeType: "application/json" },
+      ];
+      if (output === "csv") {
+        produced.push({
+          id: `${nodeId}-table-csv`,
+          kind: "text",
+          content: rowsToCsv(rows, columns),
+          mimeType: "text/csv",
+        });
+      }
+      artifacts.set(nodeId, produced);
+      for (const a of produced) emit({ type: "artifact.produced", nodeId, attempt, artifact: a });
+      states.set(nodeId, "done");
+      const summary = `表格处理完成：${rows.length} 行 × ${columns.length} 列（${output === "csv" ? "CSV" : "JSON"} 输出）`;
+      emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
+      sendPackets(nodeId, summary, "json");
+    } catch (err) {
+      states.set(nodeId, "failed");
+      emit({
+        type: "node.failed",
+        nodeId,
+        attempt,
+        error: `Table 节点执行出错: ${err instanceof Error ? err.message : String(err)}`,
+      });
+    }
+  };
+
+  const runFileParse = async (node: GraphNode, nodeId: string, attempt: number) => {
+    emit({ type: "node.started", nodeId, attempt });
+    try {
+      const cfg = FileParseConfig.parse(node.fileParse ?? {});
+      const sources = incoming(graph, nodeId, "flow").map((e) => e.from);
+      const sourceId = cfg.source ?? (sources.length === 1 ? sources[0] : undefined);
+      if (!sourceId) {
+        states.set(nodeId, "failed");
+        emit({
+          type: "node.failed",
+          nodeId,
+          attempt,
+          error: "文件解析节点需要唯一上游，或在配置中显式指定数据来源",
+          errorCode: "VALIDATION",
+        });
+        return;
+      }
+      const arts = artifacts.get(sourceId) ?? [];
+      const fileArts = arts.filter((a) => a.kind === "file" && a.uri);
+      if (fileArts.length === 0) {
+        states.set(nodeId, "failed");
+        emit({
+          type: "node.failed",
+          nodeId,
+          attempt,
+          error: `上游「${nodeById(graph, sourceId)?.name ?? sourceId}」没有产出文件产物`,
+          errorCode: "VALIDATION",
+        });
+        return;
+      }
+      // Parse every uploaded document (was: first only — a batch of contracts
+      // or due-diligence files silently dropped all but the first). Multi-doc
+      // text is joined under per-file headers so downstream textGen can tell
+      // the documents apart; the single-doc path stays byte-identical.
+      const blocks: string[] = [];
+      const images: { data: Buffer; mimeType: string; label: string }[] = [];
+      let unresolvedCount = 0;
+      for (const [i, fileArt] of fileArts.entries()) {
+        const resolved = opts.readArtifact ? await opts.readArtifact(fileArt.uri!) : null;
+        if (!resolved) {
+          unresolvedCount++;
+          continue;
+        }
+        const parsed = await parseDocument(dataUriToBuffer(resolved), fileArt.mimeType);
+        const label = fileArt.label ?? `文档 ${i + 1}`;
+        const header = fileArts.length > 1 ? `===== ${label} =====` : "";
+        blocks.push(header ? `${header}\n${parsed.text}` : parsed.text);
+        for (const img of parsed.images) {
+          images.push({ data: Buffer.from(img.data), mimeType: img.mimeType, label: `${label} 图片 ${images.length + 1}` });
+        }
+      }
+      if (blocks.length === 0) {
+        const capMb = Math.floor(MAX_INLINE_BYTES / (1024 * 1024));
+        states.set(nodeId, "failed");
+        emit({
+          type: "node.failed",
+          nodeId,
+          attempt,
+          error: `无法读取文件内容（${fileArts[0]!.uri}）：产物字节不存在，或文件超过解析上限 ${capMb}MB（上传允许 25MB，但解析需要整体内联读入）`,
+          errorCode: "PROVIDER_ERROR",
+        });
+        return;
+      }
+      const output = blocks.join("\n\n");
+      const produced: Artifact[] = [
+        { id: `${nodeId}-txt`, kind: "text", content: output, mimeType: "text/plain" },
+      ];
+      for (const [idx, img] of images.slice(0, cfg.maxImages).entries()) {
+        const ext =
+          img.mimeType === "image/png"
+            ? "png"
+            : img.mimeType === "image/jpeg"
+              ? "jpg"
+              : (img.mimeType.split("/")[1] ?? "bin");
+        const uri = await opts.storeBinary(
+          Buffer.from(img.data),
+          img.mimeType,
+          `${node.name || "file-parse"}-${idx + 1}.${ext}`,
+        );
+        produced.push({
+          id: `${nodeId}-img-${idx}`,
+          kind: "image",
+          uri,
+          mimeType: img.mimeType,
+          label: img.label,
+        });
+      }
+      artifacts.set(nodeId, produced);
+      for (const a of produced) emit({ type: "artifact.produced", nodeId, attempt, artifact: a });
+      states.set(nodeId, "done");
+      const imgCount = produced.length - 1;
+      const parsedCount = fileArts.length - unresolvedCount;
+      const summary = `解析完成：${parsedCount} 个文档，${output.length} 字符文本${imgCount ? `，提取 ${imgCount} 张图片` : ""}${unresolvedCount > 0 ? `；另有 ${unresolvedCount} 个文档无法读取` : ""}`;
+      emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
+      sendPackets(nodeId, summary, "text");
+    } catch (err) {
+      states.set(nodeId, "failed");
+      emit({
+        type: "node.failed",
+        nodeId,
+        attempt,
+        error: `文件解析节点执行出错: ${err instanceof Error ? err.message : String(err)}`,
+      });
+    }
+  };
+
+  const runTranslate = async (node: GraphNode, nodeId: string, attempt: number) => {
+    emit({ type: "node.started", nodeId, attempt });
+    const cfg = TranslateConfig.parse(node.translate ?? {});
+    const sources = incoming(graph, nodeId, "flow").map((e) => e.from);
+    const sourceId = cfg.source ?? (sources.length === 1 ? sources[0] : undefined);
+    if (!sourceId) {
+      states.set(nodeId, "failed");
+      emit({
+        type: "node.failed",
+        nodeId,
+        attempt,
+        error: "翻译节点需要唯一上游，或在配置中显式指定数据来源",
+        errorCode: "VALIDATION",
+      });
+      return;
+    }
+    const arts = artifacts.get(sourceId) ?? [];
+    const textArt = arts.find((a) => a.kind === "text");
+    const jsonArt = arts.find((a) => a.kind === "json");
+    let sourceText = textArt?.content ?? "";
+    if (!sourceText && jsonArt) {
+      sourceText =
+        typeof jsonArt.content === "string" ? jsonArt.content : JSON.stringify(jsonArt.content, null, 2);
+    }
+    if (!sourceText.trim()) {
+      states.set(nodeId, "failed");
+      emit({
+        type: "node.failed",
+        nodeId,
+        attempt,
+        error: `上游「${nodeById(graph, sourceId)?.name ?? sourceId}」没有产出可翻译的文本`,
+        errorCode: "VALIDATION",
+      });
+      return;
+    }
+    const config = {
+      model: cfg.model || fallbackModel,
+      prompt: [
+        `你是专业的翻译引擎。请把用户提供的文本翻译成${cfg.target}。`,
+        "要求：忠实原文、不增删内容、不解释不改写；保留原文的换行、编号与段落结构；",
+        "直接输出译文本身，不要加任何说明、引号或前后缀。",
+      ].join("\n"),
+      skills: [],
+      temperature: cfg.temperature,
+      timeoutMs: 120000,
+      inputPolicy: { mode: "all" as const },
+      retry: cfg.retry,
+    };
+    let result: { output: string; usage: Usage } | null = null;
+    let lastError: { message: string; code?: string } | null = null;
+    const maxAttempts = 1 + config.retry.maxRetries;
+    for (let tryIdx = 0; tryIdx < maxAttempts; tryIdx++) {
+      if (opts.signal?.aborted || aborted) {
+        aborted = true;
+        return;
+      }
+      try {
+        const gen = worker.runTextGen({
+          node,
+          config,
+          attempt,
+          input: sourceText,
+          signal: opts.signal,
+        });
+        let output = "";
+        let usage: Usage | null = null;
+        while (true) {
+          const step = await gen.next();
+          if (step.done) {
+            output = step.value.output;
+            usage = step.value.usage;
+            break;
+          }
+          if (opts.signal?.aborted || aborted) {
+            aborted = true;
+            return;
+          }
+          if (step.value.type === "text-delta") {
+            emit({ type: "node.delta", nodeId, attempt, text: step.value.text });
+          }
+        }
+        result = { output, usage: usage ?? zeroUsage() };
+        break;
+      } catch (err) {
+        const code = err instanceof ProviderError ? err.code : "UNKNOWN";
+        lastError = { message: (err as Error).message, code };
+        if (!RETRYABLE.has(code) || tryIdx >= maxAttempts - 1) break;
+        await opts.sleep(Math.min(config.retry.maxDelayMs, config.retry.baseDelayMs * 2 ** tryIdx));
+      }
+    }
+    if (!result) {
+      states.set(nodeId, "failed");
+      emit({
+        type: "node.failed",
+        nodeId,
+        attempt,
+        error: sanitizeError(lastError?.message ?? "翻译调用失败，无输出"),
+        errorCode: (lastError?.code as
+          | "TIMEOUT"
+          | "RATE_LIMIT"
+          | "PROVIDER_ERROR"
+          | "SCRIPT_ERROR"
+          | "AUTH"
+          | "VALIDATION"
+          | "UNKNOWN"
+          | "UNSUPPORTED"
+          | undefined) ?? "UNKNOWN",
+      });
+      status = "failed";
+      return;
+    }
+    // Same contract as the textGen branch: a 200 with no text is not a
+    // translation. Shipping an empty artifact here means the run reports
+    // done with nothing translated.
+    if (!result.output.trim()) {
+      states.set(nodeId, "failed");
+      emit({
+        type: "node.failed",
+        nodeId,
+        attempt,
+        error: `模型 ${config.model} 返回了空译文（无正文可交付）`,
+        errorCode: "PROVIDER_ERROR",
+      });
+      status = "failed";
+      return;
+    }
+    setTextArtifact(artifacts, nodeId, result.output);
+    states.set(nodeId, "done");
+    emit({ type: "node.finished", nodeId, attempt, output: result.output, usage: result.usage });
+    const primaryKind = produceArtifacts(nodeId, result.output, attempt);
+    totalCostUsd += result.usage.costUsd;
+    emit({ type: "power.metered", totalCostUsd, budgetUsd });
+    const nodeSpent = (nodeCostUsd.get(nodeId) ?? 0) + result.usage.costUsd;
+    nodeCostUsd.set(nodeId, nodeSpent);
+    const nodeBudget = cfg.budgetUsd;
+    if (nodeBudget != null && nodeBudget > 0 && nodeSpent > nodeBudget) {
+      states.set(nodeId, "failed");
+      emit({
+        type: "node.failed",
+        nodeId,
+        attempt,
+        error: `节点预算 $${nodeBudget.toFixed(4)} 已超出（已花 $${nodeSpent.toFixed(4)}）`,
+        errorCode: "BUDGET",
+      });
+      status = "failed";
+      return;
+    }
+    sendPackets(nodeId, result.output.slice(0, 120), primaryKind);
+  };
+
   // Runs a single source/sink/gate/agent to completion. Resolves when the node
   // reaches a terminal state (done/failed) so the scheduler can relaunch.
   const runNode = async (nodeId: string) => {
@@ -1496,231 +2727,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       }
 
       if (node.kind === "http") {
-        emit({ type: "node.started", nodeId, attempt });
-        const cfg: HttpNodeConfig = HttpNodeConfig.parse(node.http ?? {});
-
-        const ctx = interpCtx(nodeId);
-        const interpolatedUrl = evaluateTemplate(cfg.url, ctx);
-        if (!interpolatedUrl.trim()) {
-          states.set(nodeId, "failed");
-          status = "failed";
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: "HTTP 节点 URL 为空",
-            errorCode: "VALIDATION",
-          });
-          return;
-        }
-
-        let targetUrl: URL;
-        try {
-          targetUrl = new URL(interpolatedUrl);
-        } catch {
-          states.set(nodeId, "failed");
-          status = "failed";
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: `HTTP 节点 URL 不合法: ${interpolatedUrl}`,
-            errorCode: "VALIDATION",
-          });
-          return;
-        }
-
-        for (const [key, raw] of Object.entries(cfg.query ?? {})) {
-          try {
-            targetUrl.searchParams.set(key, evaluateTemplate(raw, ctx));
-          } catch {
-            // skip invalid params
-          }
-        }
-
-        const headers: Record<string, string> = {};
-        for (const [key, raw] of Object.entries(cfg.headers ?? {})) {
-          headers[key] = evaluateTemplate(raw, ctx);
-        }
-        const contentType = headers["content-type"] ?? headers["Content-Type"];
-        const body = cfg.body ? evaluateTemplate(cfg.body, ctx) : undefined;
-
-        // SSRF guard: refuse private/internal targets (resolved at fetch time,
-        // so DNS rebinding can't smuggle an internal address past the check).
-        if (!allowPrivateNetwork() && (await hostIsInternal(targetUrl.hostname))) {
-          states.set(nodeId, "failed");
-          status = "failed";
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: "HTTP 节点拒绝访问内网或私网地址（SSRF 防护）",
-            errorCode: "VALIDATION",
-          });
-          return;
-        }
-
-        let response: Response;
-        try {
-          response = await withRetry(
-            async () => {
-              // All outbound traffic leaves through guardedFetch: the DNS
-              // answer that passes the internal check is the one the TCP/TLS
-              // connection is pinned to (no check-vs-connect TOCTOU, audit
-              // H3), and redirects are re-validated on every hop (audit C3).
-              const abort = new AbortController();
-              const timer = setTimeout(() => abort.abort(), cfg.timeoutMs);
-              try {
-                const r = await guardedFetch(targetUrl.toString(), {
-                  method: cfg.method,
-                  headers,
-                  body: body && cfg.method !== "GET" ? body : undefined,
-                  signal: abort.signal,
-                  maxRedirects: 5,
-                });
-                // 5xx triggers the retry path; deterministic guard rejections
-                // (GuardedFetchError) are excluded from retry below.
-                // failOnError: false means the caller wants the status as data
-                // (health checks), so 5xx must complete the node, not retry.
-                if (cfg.failOnError && r.status >= 500) throw new Error(`HTTP ${r.status}`);
-                return r;
-              } finally {
-                clearTimeout(timer);
-              }
-            },
-            cfg.retry,
-            // AbortError means the attempt timed out; deterministic failures
-            // (SSRF rejection, redirect budget exhausted) must not be retried.
-            (err) =>
-              !(err instanceof Error && err.name === "AbortError") &&
-              !(err instanceof Error && /SSRF 防护|重定向超过/.test(err.message)),
-            opts.sleep,
-          );
-        } catch (err) {
-          states.set(nodeId, "failed");
-          status = "failed";
-          const msg = err instanceof Error ? err.message : String(err);
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: `HTTP 请求失败: ${msg}`,
-            errorCode: msg.includes("SSRF 防护") ? "VALIDATION" : "PROVIDER_ERROR",
-          });
-          return;
-        }
-
-        // Expose response metadata for branch / notify interpolation
-        // (`${nodeId.ok}` etc.); the artifact below carries only the payload.
-        httpMeta.set(nodeId, {
-          ok: response.ok,
-          status: response.status,
-          url: targetUrl.toString(),
-          method: cfg.method,
-        });
-
-        if (cfg.outputMode === "file") {
-          let arrayBuf: ArrayBuffer;
-          try {
-            arrayBuf = await response.arrayBuffer();
-          } catch (err) {
-            states.set(nodeId, "failed");
-            status = "failed";
-            const msg = err instanceof Error ? err.message : String(err);
-            emit({
-              type: "node.failed",
-              nodeId,
-              attempt,
-              error: `读取 HTTP 响应失败: ${msg}`,
-              errorCode: "PROVIDER_ERROR",
-            });
-            return;
-          }
-          if (cfg.failOnError && (response.status < 200 || response.status >= 300)) {
-            states.set(nodeId, "failed");
-            status = "failed";
-            emit({
-              type: "node.failed",
-              nodeId,
-              attempt,
-              error: `HTTP ${cfg.method} ${targetUrl.toString()} 返回 ${response.status}`,
-              errorCode: "PROVIDER_ERROR",
-            });
-            return;
-          }
-          const bytes = Buffer.from(arrayBuf);
-          const ctHeader = response.headers.get("content-type") ?? "";
-          const mime = (ctHeader.split(";")[0] ?? "").trim() || "application/octet-stream";
-          const fileName = fileLabelFromUrl(targetUrl);
-          const uri = await opts.storeBinary(bytes, mime, fileName);
-          const artifact: Artifact = {
-            id: `${nodeId}-file`,
-            kind: "file",
-            uri,
-            mimeType: mime,
-            label: fileName,
-            sizeBytes: bytes.length,
-          };
-          artifacts.set(nodeId, [artifact]);
-          emit({ type: "artifact.produced", nodeId, attempt, artifact });
-          states.set(nodeId, "done");
-          const summary = `已下载文件：${fileName}（${bytes.length} 字节，${mime}）`;
-          emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
-          sendPackets(nodeId, summary, "file");
-          return;
-        }
-
-        let responseText: string;
-        try {
-          responseText = await response.text();
-        } catch (err) {
-          states.set(nodeId, "failed");
-          status = "failed";
-          const msg = err instanceof Error ? err.message : String(err);
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: `读取 HTTP 响应失败: ${msg}`,
-            errorCode: "PROVIDER_ERROR",
-          });
-          return;
-        }
-
-        const contentTypeHeader = response.headers.get("content-type") ?? "";
-        const isJsonByHeader = /application\/json|text\/json/i.test(contentTypeHeader);
-        const canParseJson = (() => {
-          try {
-            JSON.parse(responseText);
-            return true;
-          } catch {
-            return false;
-          }
-        })();
-        const asJson = cfg.outputMode === "json" || (cfg.outputMode === "auto" && isJsonByHeader && canParseJson);
-
-        if (cfg.failOnError && (response.status < 200 || response.status >= 300)) {
-          states.set(nodeId, "failed");
-          status = "failed";
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: `HTTP ${cfg.method} ${targetUrl.toString()} 返回 ${response.status}: ${responseText.slice(0, 200)}`,
-            errorCode: "PROVIDER_ERROR",
-          });
-          return;
-        }
-
-        const output = asJson ? JSON.stringify(JSON.parse(responseText), null, 2) : responseText;
-        const artifact: Artifact = asJson
-          ? { id: `${nodeId}-json`, kind: "json", content: output, mimeType: "application/json" }
-          : { id: `${nodeId}-text`, kind: "text", content: output, mimeType: "text/plain" };
-        artifacts.set(nodeId, [artifact]);
-        emit({ type: "artifact.produced", nodeId, attempt, artifact });
-        states.set(nodeId, "done");
-        emit({ type: "node.finished", nodeId, attempt, output, usage: zeroUsage() });
-        sendPackets(nodeId, output.slice(0, 120), artifact.kind);
+        await runHttp(node, nodeId, attempt);
         return;
       }
 
@@ -1932,122 +2939,12 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       }
 
       if (node.kind === "branch") {
-        emit({ type: "node.started", nodeId, attempt });
-        const cfg: BranchConfig = BranchConfig.parse(node.branch ?? {});
-        const ctx = interpCtx(nodeId);
-        let target: string | undefined;
-        let matchedRule: string | undefined;
-        for (const rule of cfg.rules ?? []) {
-          if (evaluateCondition(rule.when, ctx)) {
-            target = rule.target;
-            matchedRule = rule.id;
-            break;
-          }
-        }
-        if (!target && cfg.defaultTarget) {
-          target = cfg.defaultTarget;
-          matchedRule = undefined;
-        }
-        if (target) {
-          const edge = outgoing(graph, nodeId, "flow").find((e) => e.to === target);
-          if (edge) {
-            packetEdges.add(edge.id);
-            emit({
-              type: "packet.sent",
-              edgeId: edge.id,
-              from: nodeId,
-              to: target,
-              summary: matchedRule ? `命中分支 ${matchedRule}` : "默认分支",
-              artifactKind: "text",
-            });
-          }
-        }
-        states.set(nodeId, "done");
-        markBranchSkipped(nodeId, target);
-        const output = target
-          ? `路由 → ${nodeById(graph, target)?.name ?? target}${matchedRule ? `（${matchedRule}）` : "（默认）"}`
-          : "未命中任何分支，报文被丢弃";
-        emit({ type: "node.finished", nodeId, attempt, output, usage: zeroUsage() });
+        await runBranch(node, nodeId, attempt);
         return;
       }
 
       if (node.kind === "map") {
-        emit({ type: "node.started", nodeId, attempt });
-        try {
-          const cfg = MapConfig.parse(node.map ?? {});
-          const ctx = nodeCtx(nodeId);
-          const sources = incoming(graph, nodeId, "flow").map((e) => e.from);
-          const sourceId = cfg.source ?? (sources.length === 1 ? sources[0] : undefined);
-          if (!sourceId) {
-            states.set(nodeId, "failed");
-            emit({
-              type: "node.failed",
-              nodeId,
-              attempt,
-              error: "Map 节点需要恰好一个上游节点（或在设置中指定 source）",
-              errorCode: "VALIDATION",
-            });
-            return;
-          }
-          let template: unknown;
-          try {
-            template = JSON.parse(cfg.template);
-          } catch {
-            states.set(nodeId, "failed");
-            emit({
-              type: "node.failed",
-              nodeId,
-              attempt,
-              error:
-                "映射模板不是合法的 JSON：模板整体须是 JSON 文档，${...} 占位符请写在字符串值内（如 \"age\": \"${item.age}\"，纯占位符会自动保留数字/对象类型）",
-              errorCode: "VALIDATION",
-            });
-            return;
-          }
-          const sourceVal = ctx[sourceId];
-          let out: unknown;
-          if (cfg.iterate) {
-            const arr = getByPath(sourceVal, cfg.iterate);
-            if (!Array.isArray(arr)) {
-              states.set(nodeId, "failed");
-              emit({
-                type: "node.failed",
-                nodeId,
-                attempt,
-                error: `iterate 路径 "${cfg.iterate}" 解析结果不是数组`,
-                errorCode: "VALIDATION",
-              });
-              return;
-            }
-            out = arr.map((item) => transformJson(template, { ...ctx, item }));
-          } else {
-            out = transformJson(template, { ...ctx, item: sourceVal });
-          }
-          const content = JSON.stringify(out);
-          const artifact: Artifact = {
-            id: `${nodeId}-map-json`,
-            kind: "json",
-            content,
-            mimeType: "application/json",
-          };
-          artifacts.set(nodeId, [artifact]);
-          emit({ type: "artifact.produced", nodeId, attempt, artifact });
-          states.set(nodeId, "done");
-          const summary =
-            cfg.iterate && Array.isArray(out)
-              ? `映射 ${out.length} 项 → ${truncateText(content, 60)}`
-              : `映射完成 → ${truncateText(content, 60)}`;
-          emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
-          sendPackets(nodeId, summary, "json");
-        } catch (err) {
-          states.set(nodeId, "failed");
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: `Map 节点执行出错: ${err instanceof Error ? err.message : String(err)}`,
-          });
-        }
+        await runMap(node, nodeId, attempt);
         return;
       }
 
@@ -2330,761 +3227,42 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       }
 
       if (node.kind === "parallel") {
-        emit({ type: "node.started", nodeId, attempt });
-        try {
-          const cfg = ParallelConfig.parse(node.parallel ?? {});
-          const ins = incoming(graph, nodeId, "flow");
-          const values: unknown[] = [];
-          const byId: Record<string, unknown> = {};
-          for (const e of ins) {
-            const arts = artifacts.get(e.from) ?? [];
-            const json = arts.find((a) => a.kind === "json");
-            let val: unknown = null;
-            if (json?.content) {
-              try {
-                val = JSON.parse(json.content);
-              } catch {
-                val = json.content;
-              }
-            } else {
-              const text = arts.find((a) => a.kind === "text");
-              val = text?.content ?? "";
-            }
-            if (cfg.pick) {
-              const picked = getByPath(val, cfg.pick);
-              if (picked !== undefined) val = picked;
-            }
-            values.push(val);
-            byId[e.from] = val;
-          }
-          const out = cfg.asObject ? byId : values;
-          const content = JSON.stringify(out);
-          const artifact: Artifact = {
-            id: `${nodeId}-parallel-json`,
-            kind: "json",
-            content,
-            mimeType: "application/json",
-          };
-          artifacts.set(nodeId, [artifact]);
-          emit({ type: "artifact.produced", nodeId, attempt, artifact });
-          states.set(nodeId, "done");
-          const summary = `聚合 ${ins.length} 个分支 → ${truncateText(content, 60)}`;
-          emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
-          sendPackets(nodeId, summary, "json");
-        } catch (err) {
-          states.set(nodeId, "failed");
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: `Parallel 节点执行出错: ${err instanceof Error ? err.message : String(err)}`,
-          });
-        }
+        await runParallel(node, nodeId, attempt);
         return;
       }
 
       if (node.kind === "table") {
-        emit({ type: "node.started", nodeId, attempt });
-        try {
-          const cfg = TableConfig.parse(node.table ?? {});
-          const ctx = nodeCtx(nodeId);
-          const sources = incoming(graph, nodeId, "flow").map((e) => e.from);
-          const sourceId = cfg.source ?? (sources.length === 1 ? sources[0] : undefined);
-          if (!sourceId) {
-            states.set(nodeId, "failed");
-            emit({
-              type: "node.failed",
-              nodeId,
-              attempt,
-              error: "Table 节点需要恰好一个上游节点（或在设置中指定 source）",
-              errorCode: "VALIDATION",
-            });
-            return;
-          }
-          let input: TableInput;
-          try {
-            input = tableInputFrom(ctx[sourceId]);
-          } catch (err) {
-            states.set(nodeId, "failed");
-            emit({
-              type: "node.failed",
-              nodeId,
-              attempt,
-              error: err instanceof Error ? err.message : String(err),
-              errorCode: "VALIDATION",
-            });
-            return;
-          }
-          const { rows, output } = applyTableSteps(input, cfg.steps);
-          const columns = collectColumns(rows);
-          const content = JSON.stringify({ rows, count: rows.length, columns });
-          const produced: Artifact[] = [
-            { id: `${nodeId}-table-json`, kind: "json", content, mimeType: "application/json" },
-          ];
-          if (output === "csv") {
-            produced.push({
-              id: `${nodeId}-table-csv`,
-              kind: "text",
-              content: rowsToCsv(rows, columns),
-              mimeType: "text/csv",
-            });
-          }
-          artifacts.set(nodeId, produced);
-          for (const a of produced) emit({ type: "artifact.produced", nodeId, attempt, artifact: a });
-          states.set(nodeId, "done");
-          const summary = `表格处理完成：${rows.length} 行 × ${columns.length} 列（${output === "csv" ? "CSV" : "JSON"} 输出）`;
-          emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
-          sendPackets(nodeId, summary, "json");
-        } catch (err) {
-          states.set(nodeId, "failed");
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: `Table 节点执行出错: ${err instanceof Error ? err.message : String(err)}`,
-          });
-        }
+        await runTable(node, nodeId, attempt);
         return;
       }
 
       if (node.kind === "database") {
-        emit({ type: "node.started", nodeId, attempt });
-        try {
-          const cfg = DatabaseConfig.parse(node.database ?? {});
-          if (!cfg.sql.trim()) {
-            states.set(nodeId, "failed");
-            emit({
-              type: "node.failed",
-              nodeId,
-              attempt,
-              error: "数据库节点需要填写 SQL 语句",
-              errorCode: "VALIDATION",
-            });
-            return;
-          }
-          const driver = createSqliteDriver(cfg.path);
-          try {
-            driver.setup(cfg.setupSql);
-            const result = driver.query(cfg.sql, {
-              positional: cfg.positionalParams,
-              named: cfg.namedParams,
-            });
-            if (result.rows !== undefined) {
-              const content = JSON.stringify({
-                rows: result.rows,
-                count: result.rows.length,
-                columns: result.columns ?? [],
-              });
-              const produced: Artifact[] = [
-                { id: `${nodeId}-db-json`, kind: "json", content, mimeType: "application/json" },
-              ];
-              artifacts.set(nodeId, produced);
-              for (const a of produced) emit({ type: "artifact.produced", nodeId, attempt, artifact: a });
-              states.set(nodeId, "done");
-              const summary = `数据库查询完成：${result.rows.length} 行 × ${(result.columns ?? []).length} 列`;
-              emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
-              sendPackets(nodeId, summary, "json");
-            } else {
-              const content = JSON.stringify({
-                affectedRows: result.affectedRows ?? 0,
-                lastInsertId: result.lastInsertId ?? null,
-              });
-              const produced: Artifact[] = [
-                { id: `${nodeId}-db-json`, kind: "json", content, mimeType: "application/json" },
-              ];
-              artifacts.set(nodeId, produced);
-              for (const a of produced) emit({ type: "artifact.produced", nodeId, attempt, artifact: a });
-              states.set(nodeId, "done");
-              const summary = `数据库执行完成：影响 ${result.affectedRows ?? 0} 行`;
-              emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
-              sendPackets(nodeId, summary, "json");
-            }
-          } finally {
-            driver.close();
-          }
-        } catch (err) {
-          states.set(nodeId, "failed");
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: `数据库节点执行出错: ${err instanceof Error ? err.message : String(err)}`,
-          });
-        }
+        await runDatabase(node, nodeId, attempt);
         return;
       }
 
       if (node.kind === "fileParse") {
-        emit({ type: "node.started", nodeId, attempt });
-        try {
-          const cfg = FileParseConfig.parse(node.fileParse ?? {});
-          const sources = incoming(graph, nodeId, "flow").map((e) => e.from);
-          const sourceId = cfg.source ?? (sources.length === 1 ? sources[0] : undefined);
-          if (!sourceId) {
-            states.set(nodeId, "failed");
-            emit({
-              type: "node.failed",
-              nodeId,
-              attempt,
-              error: "文件解析节点需要唯一上游，或在配置中显式指定数据来源",
-              errorCode: "VALIDATION",
-            });
-            return;
-          }
-          const arts = artifacts.get(sourceId) ?? [];
-          const fileArts = arts.filter((a) => a.kind === "file" && a.uri);
-          if (fileArts.length === 0) {
-            states.set(nodeId, "failed");
-            emit({
-              type: "node.failed",
-              nodeId,
-              attempt,
-              error: `上游「${nodeById(graph, sourceId)?.name ?? sourceId}」没有产出文件产物`,
-              errorCode: "VALIDATION",
-            });
-            return;
-          }
-          // Parse every uploaded document (was: first only — a batch of contracts
-          // or due-diligence files silently dropped all but the first). Multi-doc
-          // text is joined under per-file headers so downstream textGen can tell
-          // the documents apart; the single-doc path stays byte-identical.
-          const blocks: string[] = [];
-          const images: { data: Buffer; mimeType: string; label: string }[] = [];
-          let unresolvedCount = 0;
-          for (const [i, fileArt] of fileArts.entries()) {
-            const resolved = opts.readArtifact ? await opts.readArtifact(fileArt.uri!) : null;
-            if (!resolved) {
-              unresolvedCount++;
-              continue;
-            }
-            const parsed = await parseDocument(dataUriToBuffer(resolved), fileArt.mimeType);
-            const label = fileArt.label ?? `文档 ${i + 1}`;
-            const header = fileArts.length > 1 ? `===== ${label} =====` : "";
-            blocks.push(header ? `${header}\n${parsed.text}` : parsed.text);
-            for (const img of parsed.images) {
-              images.push({ data: Buffer.from(img.data), mimeType: img.mimeType, label: `${label} 图片 ${images.length + 1}` });
-            }
-          }
-          if (blocks.length === 0) {
-            const capMb = Math.floor(MAX_INLINE_BYTES / (1024 * 1024));
-            states.set(nodeId, "failed");
-            emit({
-              type: "node.failed",
-              nodeId,
-              attempt,
-              error: `无法读取文件内容（${fileArts[0]!.uri}）：产物字节不存在，或文件超过解析上限 ${capMb}MB（上传允许 25MB，但解析需要整体内联读入）`,
-              errorCode: "PROVIDER_ERROR",
-            });
-            return;
-          }
-          const output = blocks.join("\n\n");
-          const produced: Artifact[] = [
-            { id: `${nodeId}-txt`, kind: "text", content: output, mimeType: "text/plain" },
-          ];
-          for (const [idx, img] of images.slice(0, cfg.maxImages).entries()) {
-            const ext =
-              img.mimeType === "image/png"
-                ? "png"
-                : img.mimeType === "image/jpeg"
-                  ? "jpg"
-                  : (img.mimeType.split("/")[1] ?? "bin");
-            const uri = await opts.storeBinary(
-              Buffer.from(img.data),
-              img.mimeType,
-              `${node.name || "file-parse"}-${idx + 1}.${ext}`,
-            );
-            produced.push({
-              id: `${nodeId}-img-${idx}`,
-              kind: "image",
-              uri,
-              mimeType: img.mimeType,
-              label: img.label,
-            });
-          }
-          artifacts.set(nodeId, produced);
-          for (const a of produced) emit({ type: "artifact.produced", nodeId, attempt, artifact: a });
-          states.set(nodeId, "done");
-          const imgCount = produced.length - 1;
-          const parsedCount = fileArts.length - unresolvedCount;
-          const summary = `解析完成：${parsedCount} 个文档，${output.length} 字符文本${imgCount ? `，提取 ${imgCount} 张图片` : ""}${unresolvedCount > 0 ? `；另有 ${unresolvedCount} 个文档无法读取` : ""}`;
-          emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
-          sendPackets(nodeId, summary, "text");
-        } catch (err) {
-          states.set(nodeId, "failed");
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: `文件解析节点执行出错: ${err instanceof Error ? err.message : String(err)}`,
-          });
-        }
+        await runFileParse(node, nodeId, attempt);
         return;
       }
 
       if (node.kind === "translate") {
-        emit({ type: "node.started", nodeId, attempt });
-        const cfg = TranslateConfig.parse(node.translate ?? {});
-        const sources = incoming(graph, nodeId, "flow").map((e) => e.from);
-        const sourceId = cfg.source ?? (sources.length === 1 ? sources[0] : undefined);
-        if (!sourceId) {
-          states.set(nodeId, "failed");
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: "翻译节点需要唯一上游，或在配置中显式指定数据来源",
-            errorCode: "VALIDATION",
-          });
-          return;
-        }
-        const arts = artifacts.get(sourceId) ?? [];
-        const textArt = arts.find((a) => a.kind === "text");
-        const jsonArt = arts.find((a) => a.kind === "json");
-        let sourceText = textArt?.content ?? "";
-        if (!sourceText && jsonArt) {
-          sourceText =
-            typeof jsonArt.content === "string" ? jsonArt.content : JSON.stringify(jsonArt.content, null, 2);
-        }
-        if (!sourceText.trim()) {
-          states.set(nodeId, "failed");
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: `上游「${nodeById(graph, sourceId)?.name ?? sourceId}」没有产出可翻译的文本`,
-            errorCode: "VALIDATION",
-          });
-          return;
-        }
-        const config = {
-          model: cfg.model || fallbackModel,
-          prompt: [
-            `你是专业的翻译引擎。请把用户提供的文本翻译成${cfg.target}。`,
-            "要求：忠实原文、不增删内容、不解释不改写；保留原文的换行、编号与段落结构；",
-            "直接输出译文本身，不要加任何说明、引号或前后缀。",
-          ].join("\n"),
-          skills: [],
-          temperature: cfg.temperature,
-          timeoutMs: 120000,
-          inputPolicy: { mode: "all" as const },
-          retry: cfg.retry,
-        };
-        let result: { output: string; usage: Usage } | null = null;
-        let lastError: { message: string; code?: string } | null = null;
-        const maxAttempts = 1 + config.retry.maxRetries;
-        for (let tryIdx = 0; tryIdx < maxAttempts; tryIdx++) {
-          if (opts.signal?.aborted || aborted) {
-            aborted = true;
-            return;
-          }
-          try {
-            const gen = worker.runTextGen({
-              node,
-              config,
-              attempt,
-              input: sourceText,
-              signal: opts.signal,
-            });
-            let output = "";
-            let usage: Usage | null = null;
-            while (true) {
-              const step = await gen.next();
-              if (step.done) {
-                output = step.value.output;
-                usage = step.value.usage;
-                break;
-              }
-              if (opts.signal?.aborted || aborted) {
-                aborted = true;
-                return;
-              }
-              if (step.value.type === "text-delta") {
-                emit({ type: "node.delta", nodeId, attempt, text: step.value.text });
-              }
-            }
-            result = { output, usage: usage ?? zeroUsage() };
-            break;
-          } catch (err) {
-            const code = err instanceof ProviderError ? err.code : "UNKNOWN";
-            lastError = { message: (err as Error).message, code };
-            if (!RETRYABLE.has(code) || tryIdx >= maxAttempts - 1) break;
-            await opts.sleep(Math.min(config.retry.maxDelayMs, config.retry.baseDelayMs * 2 ** tryIdx));
-          }
-        }
-        if (!result) {
-          states.set(nodeId, "failed");
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: sanitizeError(lastError?.message ?? "翻译调用失败，无输出"),
-            errorCode: (lastError?.code as
-              | "TIMEOUT"
-              | "RATE_LIMIT"
-              | "PROVIDER_ERROR"
-              | "SCRIPT_ERROR"
-              | "AUTH"
-              | "VALIDATION"
-              | "UNKNOWN"
-              | "UNSUPPORTED"
-              | undefined) ?? "UNKNOWN",
-          });
-          status = "failed";
-          return;
-        }
-        // Same contract as the textGen branch: a 200 with no text is not a
-        // translation. Shipping an empty artifact here means the run reports
-        // done with nothing translated.
-        if (!result.output.trim()) {
-          states.set(nodeId, "failed");
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: `模型 ${config.model} 返回了空译文（无正文可交付）`,
-            errorCode: "PROVIDER_ERROR",
-          });
-          status = "failed";
-          return;
-        }
-        setTextArtifact(artifacts, nodeId, result.output);
-        states.set(nodeId, "done");
-        emit({ type: "node.finished", nodeId, attempt, output: result.output, usage: result.usage });
-        const primaryKind = produceArtifacts(nodeId, result.output, attempt);
-        totalCostUsd += result.usage.costUsd;
-        emit({ type: "power.metered", totalCostUsd, budgetUsd });
-        const nodeSpent = (nodeCostUsd.get(nodeId) ?? 0) + result.usage.costUsd;
-        nodeCostUsd.set(nodeId, nodeSpent);
-        const nodeBudget = cfg.budgetUsd;
-        if (nodeBudget != null && nodeBudget > 0 && nodeSpent > nodeBudget) {
-          states.set(nodeId, "failed");
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: `节点预算 $${nodeBudget.toFixed(4)} 已超出（已花 $${nodeSpent.toFixed(4)}）`,
-            errorCode: "BUDGET",
-          });
-          status = "failed";
-          return;
-        }
-        sendPackets(nodeId, result.output.slice(0, 120), primaryKind);
+        await runTranslate(node, nodeId, attempt);
         return;
       }
 
       if (node.kind === "ocr") {
-        emit({ type: "node.started", nodeId, attempt });
-        try {
-          const cfg = OcrConfig.parse(node.ocr ?? {});
-          const sources = incoming(graph, nodeId, "flow").map((e) => e.from);
-          const sourceId = cfg.source ?? (sources.length === 1 ? sources[0] : undefined);
-          if (!sourceId) {
-            states.set(nodeId, "failed");
-            emit({
-              type: "node.failed",
-              nodeId,
-              attempt,
-              error: "OCR 节点需要唯一上游，或在配置中显式指定数据来源",
-              errorCode: "VALIDATION",
-            });
-            return;
-          }
-          const arts = artifacts.get(sourceId) ?? [];
-          const images = arts.filter((a) => a.kind === "image" && a.uri);
-          if (images.length === 0) {
-            states.set(nodeId, "failed");
-            emit({
-              type: "node.failed",
-              nodeId,
-              attempt,
-              error: `上游「${nodeById(graph, sourceId)?.name ?? sourceId}」没有产出可识别的图片（需要 image 产物）`,
-              errorCode: "VALIDATION",
-            });
-            return;
-          }
-          const blocks: string[] = [];
-          let totalConfidence = 0;
-          for (const art of images) {
-            const resolved = opts.readArtifact ? await opts.readArtifact(art.uri!) : null;
-            if (!resolved) {
-              states.set(nodeId, "failed");
-              emit({
-                type: "node.failed",
-                nodeId,
-                attempt,
-                error: `无法读取图片内容（${art.uri}）`,
-                errorCode: "PROVIDER_ERROR",
-              });
-              return;
-            }
-            const buf = dataUriToBuffer(resolved);
-            let res: { text: string; confidence: number };
-            try {
-              res = await ocrImage(buf, cfg);
-            } catch (err) {
-              states.set(nodeId, "failed");
-              emit({
-                type: "node.failed",
-                nodeId,
-                attempt,
-                error: `OCR 识别失败: ${sanitizeError(err instanceof Error ? err.message : String(err))}`,
-                errorCode: "PROVIDER_ERROR",
-              });
-              return;
-            }
-            blocks.push(res.text);
-            totalConfidence += res.confidence;
-          }
-          const output = blocks.join("\n\n").trim();
-          setTextArtifact(artifacts, nodeId, output);
-          states.set(nodeId, "done");
-          const avgConf = images.length ? Math.round(totalConfidence / images.length) : 0;
-          const summary = output
-            ? `识别完成：${images.length} 张图片，${output.length} 字符，平均置信度 ${avgConf}%`
-            : "识别完成：未识别到文字";
-          emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
-          const primaryKind = produceArtifacts(nodeId, output, attempt);
-          sendPackets(nodeId, summary, primaryKind);
-        } catch (err) {
-          states.set(nodeId, "failed");
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: `OCR 节点执行出错: ${sanitizeError(err instanceof Error ? err.message : String(err))}`,
-          });
-        }
+        await runOcr(node, nodeId, attempt);
         return;
       }
 
       if (node.kind === "convert") {
-        emit({ type: "node.started", nodeId, attempt });
-        try {
-          const cfg = ConvertConfig.parse(node.convert ?? {});
-          const sources = incoming(graph, nodeId, "flow").map((e) => e.from);
-          const sourceId = cfg.source ?? (sources.length === 1 ? sources[0] : undefined);
-          if (!sourceId) {
-            states.set(nodeId, "failed");
-            emit({
-              type: "node.failed",
-              nodeId,
-              attempt,
-              error: "文件转换节点需要唯一上游，或在配置中显式指定数据来源",
-              errorCode: "VALIDATION",
-            });
-            return;
-          }
-          const arts = artifacts.get(sourceId) ?? [];
-          const produced: Artifact[] = [];
-          const ext = (mime: string) => (mime === "image/png" ? "png" : mime === "image/jpeg" ? "jpg" : (mime.split("/")[1] ?? "bin"));
-          if (cfg.to === "image") {
-            // pdf → image: extract every embedded image (scanned pages = one image each).
-            const fileArt = arts.find((a) => a.kind === "file" && a.uri);
-            if (!fileArt) {
-              states.set(nodeId, "failed");
-              emit({
-                type: "node.failed",
-                nodeId,
-                attempt,
-                error: `上游「${nodeById(graph, sourceId)?.name ?? sourceId}」没有产出可转换的文件产物（PDF → 图片需要 file 产物）`,
-                errorCode: "VALIDATION",
-              });
-              return;
-            }
-            const resolved = opts.readArtifact ? await opts.readArtifact(fileArt.uri!) : null;
-            if (!resolved) {
-              states.set(nodeId, "failed");
-              emit({
-                type: "node.failed",
-                nodeId,
-                attempt,
-                error: `无法读取文件内容（${fileArt.uri}）`,
-                errorCode: "PROVIDER_ERROR",
-              });
-              return;
-            }
-            const buf = dataUriToBuffer(resolved);
-            const images = await extractPdfImages(
-              new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength),
-            );
-            if (images.length === 0) {
-              states.set(nodeId, "failed");
-              emit({
-                type: "node.failed",
-                nodeId,
-                attempt,
-                error: "文件中没有可提取的图片（纯文本 PDF 无法转为图片）",
-                errorCode: "VALIDATION",
-              });
-              return;
-            }
-            for (const [idx, img] of images.entries()) {
-              const uri = await opts.storeBinary(
-                Buffer.from(img.data),
-                img.mimeType,
-                `${node.name || "convert"}-${idx + 1}.${ext(img.mimeType)}`,
-              );
-              produced.push({
-                id: `${nodeId}-img-${idx}`,
-                kind: "image",
-                uri,
-                mimeType: img.mimeType,
-                label: `${fileArt.label ?? "文件"} 图片 ${idx + 1}`,
-              });
-            }
-          } else {
-            // image → png/jpeg: re-encode every upstream image artifact.
-            const inputs = arts.filter(
-              (a) =>
-                a.uri &&
-                (a.kind === "image" || (a.kind === "file" && (a.mimeType ?? "").startsWith("image/"))),
-            );
-            if (inputs.length === 0) {
-              states.set(nodeId, "failed");
-              emit({
-                type: "node.failed",
-                nodeId,
-                attempt,
-                error: `上游「${nodeById(graph, sourceId)?.name ?? sourceId}」没有产出可转换的图片（需要 image 产物或图片类文件）`,
-                errorCode: "VALIDATION",
-              });
-              return;
-            }
-            const mime = cfg.to === "jpeg" ? "image/jpeg" : "image/png";
-            for (const [idx, art] of inputs.entries()) {
-              const resolved = opts.readArtifact ? await opts.readArtifact(art.uri!) : null;
-              if (!resolved) {
-                states.set(nodeId, "failed");
-                emit({
-                  type: "node.failed",
-                  nodeId,
-                  attempt,
-                  error: `无法读取图片内容（${art.uri}）`,
-                  errorCode: "PROVIDER_ERROR",
-                });
-                return;
-              }
-              const buf = dataUriToBuffer(resolved);
-              let out: Buffer;
-              try {
-                const decoded = decodeImage(buf);
-                out = cfg.to === "jpeg" ? encodeJpeg(decoded, cfg.quality) : encodePng(decoded);
-              } catch (err) {
-                states.set(nodeId, "failed");
-                emit({
-                  type: "node.failed",
-                  nodeId,
-                  attempt,
-                  error: `图片转换失败: ${err instanceof Error ? err.message : String(err)}`,
-                  errorCode: "PROVIDER_ERROR",
-                });
-                return;
-              }
-              const uri = await opts.storeBinary(
-                out,
-                mime,
-                `${node.name || "convert"}-${idx + 1}.${cfg.to}`,
-              );
-              produced.push({
-                id: `${nodeId}-img-${idx}`,
-                kind: "image",
-                uri,
-                mimeType: mime,
-                label: `${art.label ?? "图片"} → ${cfg.to.toUpperCase()}`,
-              });
-            }
-          }
-          artifacts.set(nodeId, produced);
-          for (const a of produced) emit({ type: "artifact.produced", nodeId, attempt, artifact: a });
-          states.set(nodeId, "done");
-          const summary =
-            cfg.to === "image"
-              ? `转换完成：提取 ${produced.length} 张图片`
-              : `转换完成：${produced.length} 张图片转为 ${cfg.to.toUpperCase()}`;
-          emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
-          sendPackets(nodeId, summary, "image");
-        } catch (err) {
-          states.set(nodeId, "failed");
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: `文件转换节点执行出错: ${sanitizeError(err instanceof Error ? err.message : String(err))}`,
-          });
-        }
+        await runConvert(node, nodeId, attempt);
         return;
       }
 
       if (node.kind === "search") {
-        emit({ type: "node.started", nodeId, attempt });
-        try {
-          const cfg = SearchConfig.parse(node.search ?? {});
-          let query = cfg.query.trim();
-          if (!query) {
-            // Fall back to the first upstream text artifact — lets an agent
-            // generate the query and a search node execute it.
-            const sources = incoming(graph, nodeId, "flow").map((e) => e.from);
-            for (const s of sources) {
-              const t = (artifacts.get(s) ?? []).find((a) => a.kind === "text")?.content;
-              if (t?.trim()) {
-                query = t.trim().slice(0, 300);
-                break;
-              }
-            }
-          }
-          if (!query) {
-            states.set(nodeId, "failed");
-            emit({
-              type: "node.failed",
-              nodeId,
-              attempt,
-              error: "没有可用的搜索词（请在配置中填写 query，或连接产出 text 的上游）",
-              errorCode: "VALIDATION",
-            });
-            return;
-          }
-          let hits: { title: string; url: string; snippet: string }[];
-          try {
-            hits = await searchWeb(query, cfg);
-          } catch (err) {
-            states.set(nodeId, "failed");
-            emit({
-              type: "node.failed",
-              nodeId,
-              attempt,
-              error: `搜索失败: ${sanitizeError(err instanceof Error ? err.message : String(err))}`,
-              errorCode: err instanceof SearchAuthError ? "AUTH" : "PROVIDER_ERROR",
-            });
-            return;
-          }
-          const listing = hits
-            .map((h, i) => `${i + 1}. ${h.title}\n   ${h.url}${h.snippet ? `\n   ${h.snippet}` : ""}`)
-            .join("\n\n");
-          const output = listing || `没有找到与「${query}」相关的结果`;
-          const produced: Artifact[] = [
-            { id: `${nodeId}-txt`, kind: "text", content: output, mimeType: "text/plain" },
-            {
-              id: `${nodeId}-json`,
-              kind: "json",
-              content: JSON.stringify({ query, provider: cfg.provider, results: hits }, null, 2),
-              mimeType: "application/json",
-            },
-          ];
-          artifacts.set(nodeId, produced);
-          for (const a of produced) emit({ type: "artifact.produced", nodeId, attempt, artifact: a });
-          states.set(nodeId, "done");
-          const summary = `搜索完成：「${query}」→ ${hits.length} 条结果（${cfg.provider}）`;
-          emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
-          sendPackets(nodeId, summary, "text");
-        } catch (err) {
-          states.set(nodeId, "failed");
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: `搜索节点执行出错: ${sanitizeError(err instanceof Error ? err.message : String(err))}`,
-          });
-        }
+        await runSearch(node, nodeId, attempt);
         return;
       }
 
@@ -3265,135 +3443,17 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       }
 
       if (node.kind === "human") {
-        // Pause the run at an arbitrary point for an operator decision. The
-        // upstream text becomes the pending review; approve/edit passes it
-        // downstream, reject fails the node (error edges can catch it).
-        const output = await inputFor(node);
-        emit({ type: "node.started", nodeId, attempt });
-        emit({ type: "human.review", nodeId, attempt, content: output });
-        haltNodeId = nodeId;
-        haltReason = `human:${node.human?.prompt || node.name}`;
-        status = "halted";
-        aborted = true;
-        void notifyHalt({ runId, graphId: graph.id, nodeId, reason: haltReason });
+        await runHuman(node, nodeId, attempt);
         return;
       }
 
       if (node.kind === "compliance") {
-        emit({ type: "node.started", nodeId, attempt });
-        try {
-          const cfg = ComplianceConfig.parse(node.compliance ?? {});
-          const output = await inputFor(node);
-          if (!output.trim()) {
-            states.set(nodeId, "failed");
-            emit({
-              type: "node.failed",
-              nodeId,
-              attempt,
-              error: "合规节点没有收到可校验的文本",
-              errorCode: "VALIDATION",
-            });
-            return;
-          }
-          // Merge the user's stored banned terms with the node's extra list, so
-          // the vocabulary library is honoured without the user re-typing it.
-          const extra = [cfg.extraBanned, opts.bannedTerms ?? ""].filter(Boolean).join(",");
-          const result = checkCompliance({
-            platform: cfg.platform,
-            extraBanned: extra,
-            autoFix: cfg.autoFix,
-            text: output,
-          });
-          const payload = complianceArtifact(result);
-          const jsonArtifact: Artifact = {
-            id: `${nodeId}-compliance`,
-            kind: "json",
-            content: JSON.stringify(payload),
-            mimeType: "application/json",
-          };
-          const produced: Artifact[] = [jsonArtifact];
-          // Downstream nodes consume the sanitized text (autoFix on) or the
-          // original (autoFix off / no violations).
-          const downstreamText = result.sanitized || result.original;
-          setTextArtifact(artifacts, nodeId, downstreamText);
-          artifacts.set(nodeId, [...produced, ...(artifacts.get(nodeId) ?? [])]);
-          for (const a of produced) emit({ type: "artifact.produced", nodeId, attempt, artifact: a });
-
-          if (cfg.failOnViolation && !result.passed) {
-            const first = result.violations[0];
-            states.set(nodeId, "failed");
-            emit({
-              type: "node.failed",
-              nodeId,
-              attempt,
-              error: `合规校验未通过（${result.violations.length} 处违规，首条：${first?.rule ?? ""}）`,
-              errorCode: "VALIDATION",
-            });
-            return;
-          }
-
-          states.set(nodeId, "done");
-          const summary = result.passed
-            ? "合规校验通过"
-            : `合规校验发现 ${result.violations.length} 处违规（已${cfg.autoFix ? "自动修复" : "标注"}）`;
-          emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
-          sendPackets(nodeId, summary, "json");
-        } catch (err) {
-          states.set(nodeId, "failed");
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: `合规校验节点执行出错: ${err instanceof Error ? err.message : String(err)}`,
-          });
-        }
+        await runCompliance(node, nodeId, attempt);
         return;
       }
 
       if (node.kind === "publish") {
-        emit({ type: "node.started", nodeId, attempt });
-        try {
-          const cfg = PublishConfig.parse(node.publish ?? {});
-          const output = await inputFor(node);
-          if (!output.trim()) {
-            states.set(nodeId, "failed");
-            emit({
-              type: "node.failed",
-              nodeId,
-              attempt,
-              error: "发布节点没有收到可整理的文本",
-              errorCode: "VALIDATION",
-            });
-            return;
-          }
-          const pkg = buildPublishPackage(output, cfg);
-          const payload = publishArtifact(pkg);
-          const jsonArtifact: Artifact = {
-            id: `${nodeId}-publish`,
-            kind: "json",
-            content: JSON.stringify(payload),
-            mimeType: "application/json",
-          };
-          const produced: Artifact[] = [jsonArtifact];
-          // Downstream nodes consume the assembled body (falls back to the title).
-          const downstreamText = pkg.body || pkg.title;
-          setTextArtifact(artifacts, nodeId, downstreamText);
-          artifacts.set(nodeId, [...produced, ...(artifacts.get(nodeId) ?? [])]);
-          for (const a of produced) emit({ type: "artifact.produced", nodeId, attempt, artifact: a });
-
-          states.set(nodeId, "done");
-          const summary = `已整理为${pkg.platformLabel}待发布包（标题 ${pkg.title.length} 字 / 正文 ${pkg.body.length} 字）`;
-          emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
-          sendPackets(nodeId, summary, "json");
-        } catch (err) {
-          states.set(nodeId, "failed");
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: `发布节点执行出错: ${err instanceof Error ? err.message : String(err)}`,
-          });
-        }
+        await runPublish(node, nodeId, attempt);
         return;
       }
 
