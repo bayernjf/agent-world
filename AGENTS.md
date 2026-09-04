@@ -34,6 +34,12 @@ Agent World 项目的 AI 编码规范。写任何代码前先读本节，尤其�
 
 > 注意：`--text-*` 有两套——颜色是 `--text-primary/secondary/tertiary/disabled/inverse`，字号是 `--text-xs/sm/base/lg/xl/2xl/3xl/4xl`，别混用。
 
+**禁止（本项目最常被违反，2026-09-04 又踩一次）：**
+
+1. **用不存在的 token 名**——`--danger`、`--border`、`--surface-2`、`--font-mono` 都不存在，会静默失效或 fallback 到裸色。真实名字是 `--error`、`--border-primary`、`--bg-*`、`--mono`。写 `var(--xxx)` 前先 `grep` 确认它在 `:root` / `[data-theme]` 里定义过。
+2. **带硬编码 fallback**——`var(--xxx, #hex)` 里的 `#hex` 是藏在 token 后的硬编码，token 不存在时就会生效。禁止写 fallback，token 名必须本身存在。
+3. **间距/字号/圆角硬编码 px**——`gap: 8px` / `font-size: 12px` / `border-radius: 8px` 都是违规，必须用 `--gap-*` / `--text-*` / `--radius-*` / `--space-*`。
+
 **允许硬编码颜色的场景（仅限）：**
 
 - token 定义本身（`:root` 和 `[data-theme="light"]` 里的 `--xxx: #hex`）
