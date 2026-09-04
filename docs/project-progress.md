@@ -36,11 +36,11 @@
 
 ## 二、已完成版图（可迭代的基础能力）
 
-- **执行引擎**：25 种节点类型，按 `NODE_CATEGORIES` 五组——AI 加工 5 / 车间调度 6 / 物料处理 7 / 外接设备 5 / 投料出料 2（逐种名称与中文术语见 [design-glossary.md](design-glossary.md)）；流式 + SSE + 断线重连 + halt/resume，成本电表（token + 单价）。
+- **执行引擎**：29 种节点类型，按 `NODE_CATEGORIES` 五组——AI 加工 5 / 车间调度 9 / 物料处理 7 / 外接设备 6 / 投料出料 2（逐种名称与中文术语见 [design-glossary.md](design-glossary.md)）；流式 + SSE + 断线重连 + halt/resume，成本电表（token + 单价）。
 - **高级编排**：subprocess 子流程、error 边 + catch 容错、失败级联 skip、节点级重试、失败告警 + rerun、人工审批节点、graph 变量跨 run 持久化。
 - **可信运行**：账号/用户隔离、静态加密（AES-256-GCM，**2026-09-02 扩围至图文档内所有节点级凭证，按 header 名字模式收口自定义凭证头，并就地加密 URL query 里的凭证；同波补上 `search`/`vcs` 的节点级凭证入口**）、SSRF 防护 + 代码沙箱（P0-P2 + net allowlist 代理）、29 项安全审计闭环。
 - **质量体系**：core-path 回归基线（compile→execute→rework→resume→artifact→auth→SSRF）+ 全量测试稳定复跑；模板/引擎修复均带回归用例；**2026-09-02 按缺陷类横扫"静默成功"**——媒体节点抛错、provider 返回空结果、模型返回空补全/空译文一律改发诚实 `node.failed`（可被 error 边兜底），不再交出没有产物或空产物的"成功"run。
-- **可扩展面**：MCP Server（外部 AI 客户端接入）、版本快照与恢复预览、模板参数化、27 内置模板按 11 分类分组展示、覆盖 25 种节点类型中的 23 种。
+- **可扩展面**：MCP Server（外部 AI 客户端接入）、版本快照与恢复预览、模板参数化、27 内置模板按 11 分类分组展示、覆盖 29 种节点类型中的 23 种。
 
 ---
 
