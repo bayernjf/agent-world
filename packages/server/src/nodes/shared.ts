@@ -310,3 +310,6 @@ export function fileLabelFromUrl(url: URL): string {
   const base = url.pathname.split("/").filter(Boolean).pop();
   return base || "download";
 }
+
+/** Provider error codes that may be retried. */
+export const RETRYABLE: ReadonlySet<string> = new Set(["TIMEOUT", "RATE_LIMIT", "PROVIDER_ERROR"]);
