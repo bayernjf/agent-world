@@ -2890,6 +2890,90 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     }
   };
 
+  const runSink = async (node: GraphNode, nodeId: string, attempt: number) => {
+    const output = await inputFor(node);
+    setTextArtifact(artifacts, nodeId, output);
+    states.set(nodeId, "done");
+    emit({ type: "node.started", nodeId, attempt });
+    emit({ type: "node.finished", nodeId, attempt, output, usage: zeroUsage() });
+    produceArtifacts(nodeId, output, attempt);
+    sendPackets(nodeId, output.slice(0, 120), "text");
+    return;
+  };
+
+  const runSource = async (node: GraphNode, nodeId: string, attempt: number) => {
+    // source: optionally pull raw material from a connector before welding.
+    let sourceText = opts.sourceInput ?? "";
+    let sourceImages = node.source?.images ?? [];
+    const sourceFiles = node.source?.files ?? [];
+    const conn = node.source?.connector;
+    if (conn) {
+      let ok = false;
+      let lastErr: unknown;
+      for (let i = 0; i <= CONNECTOR_MAX_RETRIES && !ok; i++) {
+        try {
+          const m = await resolveConnector(conn, opts.connectorValues, opts.loadProducts);
+          sourceText = m.text || opts.sourceInput || "";
+          sourceImages = [...m.images, ...(node.source?.images ?? [])];
+          ok = true;
+        } catch (err) {
+          lastErr = err;
+          if (i < CONNECTOR_MAX_RETRIES) await opts.sleep(CONNECTOR_RETRY_DELAY_MS);
+        }
+      }
+      if (!ok) {
+        const msg = `Connector "${conn.type}" 拉取失败：${
+          lastErr instanceof Error ? lastErr.message : String(lastErr)
+        }`;
+        states.set(nodeId, "failed");
+        status = "failed";
+        emit({ type: "node.failed", nodeId, attempt, error: msg, errorCode: "CONNECTOR" });
+        return;
+      }
+    }
+
+    const output = buildSourceBrief(node, sourceText);
+    setTextArtifact(artifacts, nodeId, output);
+    states.set(nodeId, "done");
+    emit({ type: "node.started", nodeId, attempt });
+    emit({ type: "node.finished", nodeId, attempt, output, usage: zeroUsage() });
+    let primaryKind: Artifact["kind"] | undefined;
+    // Uploaded documents become first-class file artifacts next to the text
+    // note, so a downstream fileParse node can find its `kind === "file"`
+    // input. Before this, no source node could produce a file at all — a
+    // 「合同文件」 intake left fileParse failing with 没有产出文件产物
+    // (dogfood 2026-09-01, tpl-contract-review).
+    if (sourceFiles.length) {
+      const nodeArts = artifacts.get(nodeId)!;
+      for (const [i, f] of sourceFiles.entries()) {
+        const a: Artifact = {
+          id: `${nodeId}-file${i}`,
+          kind: "file",
+          uri: f.uri,
+          mimeType: f.mimeType,
+          label: f.label,
+          sizeBytes: f.sizeBytes,
+        };
+        nodeArts.push(a);
+        emit({ type: "artifact.produced", nodeId, artifact: a });
+      }
+    }
+    if (sourceImages.length) {
+      const nodeArts = artifacts.get(nodeId)!;
+      for (const [i, url] of sourceImages.entries()) {
+        const a: Artifact = { id: `${nodeId}-img${i}`, kind: "image", uri: url };
+        nodeArts.push(a);
+        emit({ type: "artifact.produced", nodeId, artifact: a });
+      }
+      primaryKind = "image";
+    } else {
+      primaryKind = produceArtifacts(nodeId, output, attempt);
+    }
+    sendPackets(nodeId, output.slice(0, 120), primaryKind);
+    return;
+  };
+
+
   // Runs a single source/sink/gate/agent to completion. Resolves when the node
   // reaches a terminal state (done/failed) so the scheduler can relaunch.
   const runNode = async (nodeId: string) => {
@@ -3096,89 +3180,15 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
         return;
       }
 
-      if (node.kind === "source" || node.kind === "sink") {
-        if (node.kind === "sink") {
-          const output = await inputFor(node);
-          setTextArtifact(artifacts, nodeId, output);
-          states.set(nodeId, "done");
-          emit({ type: "node.started", nodeId, attempt });
-          emit({ type: "node.finished", nodeId, attempt, output, usage: zeroUsage() });
-          produceArtifacts(nodeId, output, attempt);
-          sendPackets(nodeId, output.slice(0, 120), "text");
-          return;
-        }
-
-        // source: optionally pull raw material from a connector before welding.
-        let sourceText = opts.sourceInput ?? "";
-        let sourceImages = node.source?.images ?? [];
-        const sourceFiles = node.source?.files ?? [];
-        const conn = node.source?.connector;
-        if (conn) {
-          let ok = false;
-          let lastErr: unknown;
-          for (let i = 0; i <= CONNECTOR_MAX_RETRIES && !ok; i++) {
-            try {
-              const m = await resolveConnector(conn, opts.connectorValues, opts.loadProducts);
-              sourceText = m.text || opts.sourceInput || "";
-              sourceImages = [...m.images, ...(node.source?.images ?? [])];
-              ok = true;
-            } catch (err) {
-              lastErr = err;
-              if (i < CONNECTOR_MAX_RETRIES) await opts.sleep(CONNECTOR_RETRY_DELAY_MS);
-            }
-          }
-          if (!ok) {
-            const msg = `Connector "${conn.type}" 拉取失败：${
-              lastErr instanceof Error ? lastErr.message : String(lastErr)
-            }`;
-            states.set(nodeId, "failed");
-            status = "failed";
-            emit({ type: "node.failed", nodeId, attempt, error: msg, errorCode: "CONNECTOR" });
-            return;
-          }
-        }
-
-        const output = buildSourceBrief(node, sourceText);
-        setTextArtifact(artifacts, nodeId, output);
-        states.set(nodeId, "done");
-        emit({ type: "node.started", nodeId, attempt });
-        emit({ type: "node.finished", nodeId, attempt, output, usage: zeroUsage() });
-        let primaryKind: Artifact["kind"] | undefined;
-        // Uploaded documents become first-class file artifacts next to the text
-        // note, so a downstream fileParse node can find its `kind === "file"`
-        // input. Before this, no source node could produce a file at all — a
-        // 「合同文件」 intake left fileParse failing with 没有产出文件产物
-        // (dogfood 2026-09-01, tpl-contract-review).
-        if (sourceFiles.length) {
-          const nodeArts = artifacts.get(nodeId)!;
-          for (const [i, f] of sourceFiles.entries()) {
-            const a: Artifact = {
-              id: `${nodeId}-file${i}`,
-              kind: "file",
-              uri: f.uri,
-              mimeType: f.mimeType,
-              label: f.label,
-              sizeBytes: f.sizeBytes,
-            };
-            nodeArts.push(a);
-            emit({ type: "artifact.produced", nodeId, artifact: a });
-          }
-        }
-        if (sourceImages.length) {
-          const nodeArts = artifacts.get(nodeId)!;
-          for (const [i, url] of sourceImages.entries()) {
-            const a: Artifact = { id: `${nodeId}-img${i}`, kind: "image", uri: url };
-            nodeArts.push(a);
-            emit({ type: "artifact.produced", nodeId, artifact: a });
-          }
-          primaryKind = "image";
-        } else {
-          primaryKind = produceArtifacts(nodeId, output, attempt);
-        }
-        sendPackets(nodeId, output.slice(0, 120), primaryKind);
+      if (node.kind === "source") {
+        await runSource(node, nodeId, attempt);
         return;
       }
 
+      if (node.kind === "sink") {
+        await runSink(node, nodeId, attempt);
+        return;
+      }
       if (node.kind === "http") {
         await runHttp(node, nodeId, attempt);
         return;
