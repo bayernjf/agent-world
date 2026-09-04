@@ -21,6 +21,7 @@
     "jpeg-js": "^0.4.4",
     "nodemailer": "^9.0.6",
     "pdfjs-dist": "^6.2.108",
+    "playwright": "^1.62.1",
     "pngjs": "^7.0.0",
     "tesseract.js": "^7.0.0",
     "undici": "^7.8.0",

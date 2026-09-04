@@ -358,6 +358,7 @@
     "url": "Destination",
     "urlPh": "Webhook URL (e.g. https://your-mid-tier.example.com/publish)",
     "token": "Access token (optional)",
+    "metricsSecret": "Metrics webhook secret (for external effect-data push)",
     "addHint": "Add a channel",
     "missingFields": "Platform and destination are required",
     "addFailed": "Could not add the channel",

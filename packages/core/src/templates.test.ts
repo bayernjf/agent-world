@@ -15,7 +15,7 @@ describe("templates", () => {
     // Blank canvas is a creation entry, NOT a business template.
     expect(ids).not.toContain("tpl-blank");
     expect(BLANK_TEMPLATE.id).toBe("tpl-blank");
-    expect(TEMPLATES).toHaveLength(27);
+    expect(TEMPLATES).toHaveLength(33);
   });
 
   it("categories cover every template and every category renders", () => {
@@ -289,6 +289,136 @@ describe("templates", () => {
     expect(code).toContain("日期");
     // Table nodes error on empty rows; the script must guarantee at least one row.
     expect(code).toContain("if (!rows.length)");
+  });
+
+  it("reconciliation template pairs two ledgers then sorts differences by amount", () => {
+    const tpl = getTemplate("tpl-reconciliation")!;
+    expect(tpl, "template tpl-reconciliation should exist").toBeTruthy();
+    const byName = new Map(tpl.graph.nodes.map((n) => [n.name, n]));
+    expect(byName.get("逐笔配对")?.kind).toBe("code");
+    expect(byName.get("差异清单")?.kind).toBe("table");
+    expect(byName.get("对账报告")?.kind).toBe("textGen");
+    expect(byName.get("质检")?.kind).toBe("gate");
+    // Differences surface by amount, descending (numeric-aware column).
+    const steps = (byName.get("差异清单")!.table as { steps: { op: string; column?: string; direction?: string }[] }).steps;
+    expect(steps.some((s) => s.op === "sort" && s.column === "amountNum" && s.direction === "desc")).toBe(true);
+    // Rework reruns the report draft, not the deterministic pairing.
+    expect(tpl.graph.edges.some((e) => e.kind === "rework" && e.from === "qc" && e.to === "report")).toBe(true);
+    // Pairing is deterministic code via the engine stdin contract, and both
+    // sides of the mismatch must be detected.
+    const code = (byName.get("逐笔配对")!.code as { code: string }).code;
+    expect(code).toContain("fs.readFileSync(0");
+    expect(code).not.toMatch(/[^."]inputs\./);
+    expect(code).toContain("银行有、账无");
+    expect(code).toContain("账有、银行无");
+    // Table nodes error on empty rows; the script must guarantee at least one row.
+    expect(code).toContain("if (!rows.length)");
+  });
+
+  it("privacy-review template chains parse → compliance audit → fix → gate rework", () => {
+    const tpl = getTemplate("tpl-privacy-review")!;
+    expect(tpl, "template tpl-privacy-review should exist").toBeTruthy();
+    const byName = new Map(tpl.graph.nodes.map((n) => [n.name, n]));
+    expect(byName.get("政策解析")?.kind).toBe("fileParse");
+    expect(byName.get("合规盘点")?.kind).toBe("textGen");
+    expect(byName.get("整改建议")?.kind).toBe("textGen");
+    expect(byName.get("风险门禁")?.kind).toBe("gate");
+    expect(byName.get("人工确认")?.kind).toBe("human");
+    // Rework reruns the fix draft, not the deterministic parse.
+    expect(tpl.graph.edges.some((e) => e.kind === "rework" && e.from === "gate" && e.to === "fix")).toBe(true);
+    // The audit prompt must enumerate the full 11-dimension checklist.
+    const auditPrompt = (byName.get("合规盘点")!.textGen as { prompt: string }).prompt;
+    expect(auditPrompt).toContain("11 个合规维度");
+    expect(auditPrompt).toContain("第三方共享");
+    expect(auditPrompt).toContain("数据保留期限");
+  });
+
+  it("invoice-ocr template chains ocr → extract → clean → ledger sort", () => {
+    const tpl = getTemplate("tpl-invoice-ocr")!;
+    expect(tpl, "template tpl-invoice-ocr should exist").toBeTruthy();
+    const byName = new Map(tpl.graph.nodes.map((n) => [n.name, n]));
+    expect(byName.get("文字识别")?.kind).toBe("ocr");
+    expect(byName.get("字段提取")?.kind).toBe("textGen");
+    expect(byName.get("台账清洗")?.kind).toBe("code");
+    expect(byName.get("发票台账")?.kind).toBe("table");
+    // OCR lang covers Chinese invoices + latin digits.
+    expect((byName.get("文字识别")!.ocr as { lang: string }).lang).toBe("chi_sim+eng");
+    // Ledger sorts chronologically.
+    const steps = (byName.get("发票台账")!.table as { steps: { op: string; column?: string; direction?: string }[] }).steps;
+    expect(steps.some((s) => s.op === "sort" && s.column === "date" && s.direction === "asc")).toBe(true);
+    // The extract prompt demands a strict JSON array of the invoice fields.
+    const prompt = (byName.get("字段提取")!.textGen as { prompt: string }).prompt;
+    expect(prompt).toContain("invoiceNo");
+    expect(prompt).toContain("价税合计金额");
+    // The clean script unwraps the engine envelope and guarantees ≥1 row.
+    const code = (byName.get("台账清洗")!.code as { code: string }).code;
+    expect(code).toContain("fs.readFileSync(0");
+    expect(code).not.toMatch(/[^."]inputs\./);
+    expect(code).toContain("if (!rows.length)");
+  });
+
+  it("batch-contract-review template splits multiple contracts then aggregates risks", () => {
+    const tpl = getTemplate("tpl-batch-contract-review")!;
+    expect(tpl, "template tpl-batch-contract-review should exist").toBeTruthy();
+    const byName = new Map(tpl.graph.nodes.map((n) => [n.name, n]));
+    expect(byName.get("拆条")?.kind).toBe("code");
+    expect(byName.get("逐份审查")?.kind).toBe("textGen");
+    expect(byName.get("汇总清洗")?.kind).toBe("code");
+    expect(byName.get("风险汇总")?.kind).toBe("table");
+    expect(byName.get("质检")?.kind).toBe("gate");
+    // Split uses the ===== separator to divide multiple contracts.
+    const splitCode = (byName.get("拆条")!.code as { code: string }).code;
+    expect(splitCode).toContain("={5,}");
+    expect(splitCode).toContain("if (!items.length)");
+    // Review emits a flat risk-row JSON array keyed by contractNo.
+    const prompt = (byName.get("逐份审查")!.textGen as { prompt: string }).prompt;
+    expect(prompt).toContain("contractNo");
+    expect(prompt).toContain("severity");
+    // Summary sorts by contractNo ascending.
+    const steps = (byName.get("风险汇总")!.table as { steps: { op: string; column?: string; direction?: string }[] }).steps;
+    expect(steps.some((s) => s.op === "sort" && s.column === "contractNo" && s.direction === "asc")).toBe(true);
+    // Rework reruns the review, not the deterministic split.
+    expect(tpl.graph.edges.some((e) => e.kind === "rework" && e.from === "qc" && e.to === "review")).toBe(true);
+  });
+
+  it("audit-sampling template flags large/duplicate/weekend entries then drafts workpapers", () => {
+    const tpl = getTemplate("tpl-audit-sampling")!;
+    expect(tpl, "template tpl-audit-sampling should exist").toBeTruthy();
+    const byName = new Map(tpl.graph.nodes.map((n) => [n.name, n]));
+    expect(byName.get("抽样规则")?.kind).toBe("code");
+    expect(byName.get("抽样清单")?.kind).toBe("table");
+    expect(byName.get("审计底稿")?.kind).toBe("textGen");
+    expect(byName.get("质检")?.kind).toBe("gate");
+    // The sample script must implement all three promised rules.
+    const code = (byName.get("抽样规则")!.code as { code: string }).code;
+    expect(code).toContain("大额必查");
+    expect(code).toContain("重复交易");
+    expect(code).toContain("非工作日");
+    expect(code).toContain("fs.readFileSync(0");
+    expect(code).not.toMatch(/[^."]inputs\./);
+    expect(code).toContain("if (!rows.length)");
+    // Sample table surfaces the largest amounts first.
+    const steps = (byName.get("抽样清单")!.table as { steps: { op: string; column?: string; direction?: string }[] }).steps;
+    expect(steps.some((s) => s.op === "sort" && s.column === "amount" && s.direction === "desc")).toBe(true);
+    // Rework reruns the workpaper draft, not the deterministic sampling.
+    expect(tpl.graph.edges.some((e) => e.kind === "rework" && e.from === "qc" && e.to === "report")).toBe(true);
+  });
+
+  it("due-diligence template parses multiple materials then drafts a gap checklist", () => {
+    const tpl = getTemplate("tpl-due-diligence")!;
+    expect(tpl, "template tpl-due-diligence should exist").toBeTruthy();
+    const byName = new Map(tpl.graph.nodes.map((n) => [n.name, n]));
+    expect(byName.get("材料解析")?.kind).toBe("fileParse");
+    expect(byName.get("尽调盘点")?.kind).toBe("textGen");
+    expect(byName.get("缺口清单")?.kind).toBe("textGen");
+    expect(byName.get("质检")?.kind).toBe("gate");
+    // The audit prompt must enumerate the 7 due-diligence items.
+    const prompt = (byName.get("尽调盘点")!.textGen as { prompt: string }).prompt;
+    expect(prompt).toContain("7 个尽调事项");
+    expect(prompt).toContain("股权结构");
+    expect(prompt).toContain("关联交易");
+    // Rework reruns the gap draft, not the deterministic parse.
+    expect(tpl.graph.edges.some((e) => e.kind === "rework" && e.from === "qc" && e.to === "gap")).toBe(true);
   });
 
   it("loop template's items ref is rewritten to the fresh split-node id", () => {

@@ -29,7 +29,7 @@ import { log } from "./logger.js";
 import { startRun, resumeRun, RunStartError, type ResumeAction } from "./run.js";
 import { runBatch } from "./batch.js";
 import { listPendingReviews, parseDecisions } from "./reviews.js";
-import { TriggerService, TriggerError } from "./triggers.js";
+import { TriggerService, TriggerError, secretEqual, WEBHOOK_TIMESTAMP_WINDOW_MS } from "./triggers.js";
 import { TriggerScheduler } from "./scheduler.js";
 import { resolveConnector } from "./connectors.js";
 import { startABExperiment } from "./ab.js";
@@ -322,6 +322,7 @@ app.use("/api/*", async (c, next) => {
   if (path === "/api/health" || path.startsWith("/api/auth/")) return next();
   // Webhook endpoints use their own secret-based auth
   if (/\/api\/graphs\/[^/]+\/webhook$/.test(path)) return next();
+  if (/\/api\/metrics\/webhook\/[^/]+$/.test(path)) return next();
 
   // Extract token from cookie, Authorization Bearer header, or query param
   // (SSE fallback). Precedence: cookie → Bearer header → ?token= query.
@@ -878,11 +879,14 @@ app.post("/api/publish-targets", async (c) => {
     provider?: string;
     url?: string;
     token?: string;
+    metricsSecret?: string;
   };
   if (!body.platform || !body.provider || !body.url) {
     return c.json({ error: "platform/provider/url are required" }, 400);
   }
-  const configEncrypted = encryptString(JSON.stringify({ url: body.url, token: body.token ?? "" }));
+  // metricsSecret is the inbound webhook secret for effect-feedback collection;
+  // it rides inside the encrypted config like `token`.
+  const configEncrypted = encryptString(JSON.stringify({ url: body.url, token: body.token ?? "", metricsSecret: body.metricsSecret ?? "" }));
   const target = db.createPublishTarget({
     id: randomUUID(),
     userId,
@@ -898,7 +902,7 @@ app.post("/api/publish-targets", async (c) => {
 app.get("/api/publish-targets", (c) => {
   const userId = c.get("userId");
   const targets = db.listPublishTargets(userId).map((t) => {
-    let config: { url?: string; token?: string } = {};
+    let config: { url?: string; token?: string; metricsSecret?: string } = {};
     try {
       config = JSON.parse(decryptString(t.configEncrypted));
     } catch {
@@ -961,6 +965,90 @@ app.post("/api/publish", async (c) => {
 app.get("/api/published", (c) => {
   const userId = c.get("userId");
   return c.json(db.listPublishedContents(userId));
+});
+
+// --- Metrics webhook (F6: effect-feedback auto-collection, read-only inbound) ---
+// A merchant's own middle tier / third-party data tool pushes impressions/clicks/
+// conversions/GMV back by content id. Auth is per-channel secret + timestamp
+// (same replay window as the trigger webhook); no session user is involved.
+app.post("/api/metrics/webhook/:targetId", async (c) => {
+  const targetId = c.req.param("targetId");
+  const body = (await c.req.json().catch(() => ({}))) as {
+    secret?: string;
+    timestamp?: number;
+    metrics?: Array<{
+      external_content_id?: string | null;
+      artifact_id?: string | null;
+      impressions?: number;
+      clicks?: number;
+      conversions?: number;
+      gmv?: number;
+      ad_spend?: number;
+      recorded_at?: number;
+    }>;
+  };
+
+  const target = db.getPublishTarget(targetId);
+  if (!target) return c.json({ error: "publish target not found" }, 404);
+
+  let config: { metricsSecret?: string } = {};
+  try {
+    config = JSON.parse(decryptString(target.configEncrypted));
+  } catch {
+    return c.json({ error: "target config is unreadable" }, 400);
+  }
+
+  const secret = body.secret ?? c.req.header("x-webhook-secret") ?? "";
+  const expected = config.metricsSecret ?? "";
+  const insecureAllowed = process.env.ALLOW_INSECURE_METRICS_WEBHOOK === "1";
+
+  // Secret gate: a channel must have a configured secret, unless the insecure
+  // escape hatch is explicitly enabled for a trusted intranet middle tier.
+  if (!expected && !insecureAllowed) {
+    return c.json({ error: "this channel has no metrics secret configured" }, 401);
+  }
+  if (expected && !secretEqual(expected, secret)) {
+    return c.json({ error: "invalid metrics webhook secret" }, 401);
+  }
+
+  // Replay defence: fresh timestamp required, same window as the trigger webhook.
+  const rawTs = c.req.header("x-webhook-timestamp") ?? body.timestamp;
+  const timestampMs = rawTs != null ? Number(rawTs) : undefined;
+  if (
+    timestampMs == null ||
+    !Number.isFinite(timestampMs) ||
+    Math.abs(Date.now() - timestampMs) > WEBHOOK_TIMESTAMP_WINDOW_MS
+  ) {
+    return c.json({ error: "webhook timestamp missing or outside the allowed replay window" }, 401);
+  }
+
+  const metrics = Array.isArray(body.metrics) ? body.metrics : [];
+  if (metrics.length === 0) return c.json({ error: "metrics array is required" }, 400);
+
+  let inserted = 0;
+  const num = (v: unknown) => (v == null || v === "" ? 0 : Number(v));
+  for (const m of metrics) {
+    const externalId = m.external_content_id ? String(m.external_content_id) : null;
+    const artifactId = m.artifact_id ? String(m.artifact_id) : null;
+    // A metric that links to nothing is noise — skip it instead of inventing a row.
+    if (!externalId && !artifactId) continue;
+    db.insertMetric({
+      id: randomUUID(),
+      userId: target.userId,
+      artifactId,
+      platform: target.platform,
+      externalContentId: externalId,
+      impressions: num(m.impressions),
+      clicks: num(m.clicks),
+      conversions: num(m.conversions),
+      gmv: num(m.gmv),
+      adSpend: num(m.ad_spend),
+      recordedAt: m.recorded_at ? Number(m.recorded_at) : Date.now(),
+    });
+    inserted++;
+  }
+
+  return c.json({ inserted }, 201);
 });
 
 app.get("/api/costs.csv", (c) => {

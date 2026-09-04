@@ -25,6 +25,15 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Install Playwright browsers
+        # The RPA read-back browser tests (rpa.browser.test.ts) launch a real
+        # Chromium; `pnpm install` does not fetch the browser binary, so it must
+        # be installed explicitly or those tests fail with "Executable doesn't
+        # exist". playwright is a dependency of @agent-world/server, so scope the
+        # exec to that package (a bare `pnpm exec` from the workspace root can't
+        # resolve the binary).
+        run: pnpm --filter @agent-world/server exec playwright install --with-deps chromium
+
       - name: Build
         run: pnpm -r build
 

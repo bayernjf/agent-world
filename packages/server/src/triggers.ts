@@ -11,7 +11,7 @@ export const WEBHOOK_TIMESTAMP_WINDOW_MS = 5 * 60 * 1000;
  * digest first, so timingSafeEqual never sees differing lengths and cannot
  * leak length through its early throw.
  */
-function secretEqual(a: string, b: string): boolean {
+export function secretEqual(a: string, b: string): boolean {
   const ha = createHash("sha256").update(a).digest();
   const hb = createHash("sha256").update(b).digest();
   return timingSafeEqual(ha, hb);
