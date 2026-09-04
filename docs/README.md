@@ -61,7 +61,7 @@
 | [design-design-tokens.md](design-design-tokens.md) | 设计 Token 体系（Primitive + Semantic 两层 + 明暗主题；已落地） | 开发者 |
 | [design-i18n.md](design-i18n.md) | i18n 国际化（i18next + 7 命名空间 + zh/en 双语；已落地） | 开发者 |
 | [web-component-testing-plan.md](web-component-testing-plan.md) | web 组件测试计划（P0-P3 四批，39 组件；已落地） | 开发者 |
-| [design-refactor-engine-inspector.md](design-refactor-engine-inspector.md) | 核心文件重构方案（engine.ts 的 runNode / Inspector.tsx 拆分 + 接口风格收敛；待立项） | 开发者 |
+| [design-refactor-engine-inspector.md](design-refactor-engine-inspector.md) | 核心文件重构方案（Inspector.tsx 拆分 + engine.ts 的 runNode / nodes/ 迁移；**阶段 1+2 已落地**，阶段 3 延后） | 开发者 |
 
 ### 历史（决策记录，保留参考，勿据此实现）
 
