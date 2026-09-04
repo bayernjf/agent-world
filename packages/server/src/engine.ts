@@ -1206,6 +1206,140 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     for (const [k, v] of childInit.nodeCostUsd) nodeCostUsd.set(prefix + k, v);
   };
 
+  // --- Per-node-kind execution bodies, extracted from runNode's if-chain (2.1).
+  // They close over the scheduler's shared state and are invoked from runNode's
+  // dispatch switch. `node`/`nodeId`/`attempt` are runNode-local, so passed in.
+
+  const runHuman = async (node: GraphNode, nodeId: string, attempt: number) => {
+    // Pause the run at an arbitrary point for an operator decision. The
+    // upstream text becomes the pending review; approve/edit passes it
+    // downstream, reject fails the node (error edges can catch it).
+    const output = await inputFor(node);
+    emit({ type: "node.started", nodeId, attempt });
+    emit({ type: "human.review", nodeId, attempt, content: output });
+    haltNodeId = nodeId;
+    haltReason = `human:${node.human?.prompt || node.name}`;
+    status = "halted";
+    aborted = true;
+    void notifyHalt({ runId, graphId: graph.id, nodeId, reason: haltReason });
+  };
+
+  const runCompliance = async (node: GraphNode, nodeId: string, attempt: number) => {
+    emit({ type: "node.started", nodeId, attempt });
+    try {
+      const cfg = ComplianceConfig.parse(node.compliance ?? {});
+      const output = await inputFor(node);
+      if (!output.trim()) {
+        states.set(nodeId, "failed");
+        emit({
+          type: "node.failed",
+          nodeId,
+          attempt,
+          error: "合规节点没有收到可校验的文本",
+          errorCode: "VALIDATION",
+        });
+        return;
+      }
+      // Merge the user's stored banned terms with the node's extra list, so
+      // the vocabulary library is honoured without the user re-typing it.
+      const extra = [cfg.extraBanned, opts.bannedTerms ?? ""].filter(Boolean).join(",");
+      const result = checkCompliance({
+        platform: cfg.platform,
+        extraBanned: extra,
+        autoFix: cfg.autoFix,
+        text: output,
+      });
+      const payload = complianceArtifact(result);
+      const jsonArtifact: Artifact = {
+        id: `${nodeId}-compliance`,
+        kind: "json",
+        content: JSON.stringify(payload),
+        mimeType: "application/json",
+      };
+      const produced: Artifact[] = [jsonArtifact];
+      // Downstream nodes consume the sanitized text (autoFix on) or the
+      // original (autoFix off / no violations).
+      const downstreamText = result.sanitized || result.original;
+      setTextArtifact(artifacts, nodeId, downstreamText);
+      artifacts.set(nodeId, [...produced, ...(artifacts.get(nodeId) ?? [])]);
+      for (const a of produced) emit({ type: "artifact.produced", nodeId, attempt, artifact: a });
+
+      if (cfg.failOnViolation && !result.passed) {
+        const first = result.violations[0];
+        states.set(nodeId, "failed");
+        emit({
+          type: "node.failed",
+          nodeId,
+          attempt,
+          error: `合规校验未通过（${result.violations.length} 处违规，首条：${first?.rule ?? ""}）`,
+          errorCode: "VALIDATION",
+        });
+        return;
+      }
+
+      states.set(nodeId, "done");
+      const summary = result.passed
+        ? "合规校验通过"
+        : `合规校验发现 ${result.violations.length} 处违规（已${cfg.autoFix ? "自动修复" : "标注"}）`;
+      emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
+      sendPackets(nodeId, summary, "json");
+    } catch (err) {
+      states.set(nodeId, "failed");
+      emit({
+        type: "node.failed",
+        nodeId,
+        attempt,
+        error: `合规校验节点执行出错: ${err instanceof Error ? err.message : String(err)}`,
+      });
+    }
+  };
+
+  const runPublish = async (node: GraphNode, nodeId: string, attempt: number) => {
+    emit({ type: "node.started", nodeId, attempt });
+    try {
+      const cfg = PublishConfig.parse(node.publish ?? {});
+      const output = await inputFor(node);
+      if (!output.trim()) {
+        states.set(nodeId, "failed");
+        emit({
+          type: "node.failed",
+          nodeId,
+          attempt,
+          error: "发布节点没有收到可整理的文本",
+          errorCode: "VALIDATION",
+        });
+        return;
+      }
+      const pkg = buildPublishPackage(output, cfg);
+      const payload = publishArtifact(pkg);
+      const jsonArtifact: Artifact = {
+        id: `${nodeId}-publish`,
+        kind: "json",
+        content: JSON.stringify(payload),
+        mimeType: "application/json",
+      };
+      const produced: Artifact[] = [jsonArtifact];
+      // Downstream nodes consume the assembled body (falls back to the title).
+      const downstreamText = pkg.body || pkg.title;
+      setTextArtifact(artifacts, nodeId, downstreamText);
+      artifacts.set(nodeId, [...produced, ...(artifacts.get(nodeId) ?? [])]);
+      for (const a of produced) emit({ type: "artifact.produced", nodeId, attempt, artifact: a });
+
+      states.set(nodeId, "done");
+      const summary = `已整理为${pkg.platformLabel}待发布包（标题 ${pkg.title.length} 字 / 正文 ${pkg.body.length} 字）`;
+      emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
+      sendPackets(nodeId, summary, "json");
+    } catch (err) {
+      states.set(nodeId, "failed");
+      emit({
+        type: "node.failed",
+        nodeId,
+        attempt,
+        error: `发布节点执行出错: ${err instanceof Error ? err.message : String(err)}`,
+      });
+    }
+  };
+
   // Runs a single source/sink/gate/agent to completion. Resolves when the node
   // reaches a terminal state (done/failed) so the scheduler can relaunch.
   const runNode = async (nodeId: string) => {
@@ -3265,135 +3399,17 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       }
 
       if (node.kind === "human") {
-        // Pause the run at an arbitrary point for an operator decision. The
-        // upstream text becomes the pending review; approve/edit passes it
-        // downstream, reject fails the node (error edges can catch it).
-        const output = await inputFor(node);
-        emit({ type: "node.started", nodeId, attempt });
-        emit({ type: "human.review", nodeId, attempt, content: output });
-        haltNodeId = nodeId;
-        haltReason = `human:${node.human?.prompt || node.name}`;
-        status = "halted";
-        aborted = true;
-        void notifyHalt({ runId, graphId: graph.id, nodeId, reason: haltReason });
+        await runHuman(node, nodeId, attempt);
         return;
       }
 
       if (node.kind === "compliance") {
-        emit({ type: "node.started", nodeId, attempt });
-        try {
-          const cfg = ComplianceConfig.parse(node.compliance ?? {});
-          const output = await inputFor(node);
-          if (!output.trim()) {
-            states.set(nodeId, "failed");
-            emit({
-              type: "node.failed",
-              nodeId,
-              attempt,
-              error: "合规节点没有收到可校验的文本",
-              errorCode: "VALIDATION",
-            });
-            return;
-          }
-          // Merge the user's stored banned terms with the node's extra list, so
-          // the vocabulary library is honoured without the user re-typing it.
-          const extra = [cfg.extraBanned, opts.bannedTerms ?? ""].filter(Boolean).join(",");
-          const result = checkCompliance({
-            platform: cfg.platform,
-            extraBanned: extra,
-            autoFix: cfg.autoFix,
-            text: output,
-          });
-          const payload = complianceArtifact(result);
-          const jsonArtifact: Artifact = {
-            id: `${nodeId}-compliance`,
-            kind: "json",
-            content: JSON.stringify(payload),
-            mimeType: "application/json",
-          };
-          const produced: Artifact[] = [jsonArtifact];
-          // Downstream nodes consume the sanitized text (autoFix on) or the
-          // original (autoFix off / no violations).
-          const downstreamText = result.sanitized || result.original;
-          setTextArtifact(artifacts, nodeId, downstreamText);
-          artifacts.set(nodeId, [...produced, ...(artifacts.get(nodeId) ?? [])]);
-          for (const a of produced) emit({ type: "artifact.produced", nodeId, attempt, artifact: a });
-
-          if (cfg.failOnViolation && !result.passed) {
-            const first = result.violations[0];
-            states.set(nodeId, "failed");
-            emit({
-              type: "node.failed",
-              nodeId,
-              attempt,
-              error: `合规校验未通过（${result.violations.length} 处违规，首条：${first?.rule ?? ""}）`,
-              errorCode: "VALIDATION",
-            });
-            return;
-          }
-
-          states.set(nodeId, "done");
-          const summary = result.passed
-            ? "合规校验通过"
-            : `合规校验发现 ${result.violations.length} 处违规（已${cfg.autoFix ? "自动修复" : "标注"}）`;
-          emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
-          sendPackets(nodeId, summary, "json");
-        } catch (err) {
-          states.set(nodeId, "failed");
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: `合规校验节点执行出错: ${err instanceof Error ? err.message : String(err)}`,
-          });
-        }
+        await runCompliance(node, nodeId, attempt);
         return;
       }
 
       if (node.kind === "publish") {
-        emit({ type: "node.started", nodeId, attempt });
-        try {
-          const cfg = PublishConfig.parse(node.publish ?? {});
-          const output = await inputFor(node);
-          if (!output.trim()) {
-            states.set(nodeId, "failed");
-            emit({
-              type: "node.failed",
-              nodeId,
-              attempt,
-              error: "发布节点没有收到可整理的文本",
-              errorCode: "VALIDATION",
-            });
-            return;
-          }
-          const pkg = buildPublishPackage(output, cfg);
-          const payload = publishArtifact(pkg);
-          const jsonArtifact: Artifact = {
-            id: `${nodeId}-publish`,
-            kind: "json",
-            content: JSON.stringify(payload),
-            mimeType: "application/json",
-          };
-          const produced: Artifact[] = [jsonArtifact];
-          // Downstream nodes consume the assembled body (falls back to the title).
-          const downstreamText = pkg.body || pkg.title;
-          setTextArtifact(artifacts, nodeId, downstreamText);
-          artifacts.set(nodeId, [...produced, ...(artifacts.get(nodeId) ?? [])]);
-          for (const a of produced) emit({ type: "artifact.produced", nodeId, attempt, artifact: a });
-
-          states.set(nodeId, "done");
-          const summary = `已整理为${pkg.platformLabel}待发布包（标题 ${pkg.title.length} 字 / 正文 ${pkg.body.length} 字）`;
-          emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
-          sendPackets(nodeId, summary, "json");
-        } catch (err) {
-          states.set(nodeId, "failed");
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: `发布节点执行出错: ${err instanceof Error ? err.message : String(err)}`,
-          });
-        }
+        await runPublish(node, nodeId, attempt);
         return;
       }
 
