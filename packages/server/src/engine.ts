@@ -1890,6 +1890,297 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     }
   };
 
+  const runHttp = async (node: GraphNode, nodeId: string, attempt: number) => {
+    emit({ type: "node.started", nodeId, attempt });
+    const cfg: HttpNodeConfig = HttpNodeConfig.parse(node.http ?? {});
+
+    const ctx = interpCtx(nodeId);
+    const interpolatedUrl = evaluateTemplate(cfg.url, ctx);
+    if (!interpolatedUrl.trim()) {
+      states.set(nodeId, "failed");
+      status = "failed";
+      emit({
+        type: "node.failed",
+        nodeId,
+        attempt,
+        error: "HTTP 节点 URL 为空",
+        errorCode: "VALIDATION",
+      });
+      return;
+    }
+
+    let targetUrl: URL;
+    try {
+      targetUrl = new URL(interpolatedUrl);
+    } catch {
+      states.set(nodeId, "failed");
+      status = "failed";
+      emit({
+        type: "node.failed",
+        nodeId,
+        attempt,
+        error: `HTTP 节点 URL 不合法: ${interpolatedUrl}`,
+        errorCode: "VALIDATION",
+      });
+      return;
+    }
+
+    for (const [key, raw] of Object.entries(cfg.query ?? {})) {
+      try {
+        targetUrl.searchParams.set(key, evaluateTemplate(raw, ctx));
+      } catch {
+        // skip invalid params
+      }
+    }
+
+    const headers: Record<string, string> = {};
+    for (const [key, raw] of Object.entries(cfg.headers ?? {})) {
+      headers[key] = evaluateTemplate(raw, ctx);
+    }
+    const contentType = headers["content-type"] ?? headers["Content-Type"];
+    const body = cfg.body ? evaluateTemplate(cfg.body, ctx) : undefined;
+
+    // SSRF guard: refuse private/internal targets (resolved at fetch time,
+    // so DNS rebinding can't smuggle an internal address past the check).
+    if (!allowPrivateNetwork() && (await hostIsInternal(targetUrl.hostname))) {
+      states.set(nodeId, "failed");
+      status = "failed";
+      emit({
+        type: "node.failed",
+        nodeId,
+        attempt,
+        error: "HTTP 节点拒绝访问内网或私网地址（SSRF 防护）",
+        errorCode: "VALIDATION",
+      });
+      return;
+    }
+
+    let response: Response;
+    try {
+      response = await withRetry(
+        async () => {
+          // All outbound traffic leaves through guardedFetch: the DNS
+          // answer that passes the internal check is the one the TCP/TLS
+          // connection is pinned to (no check-vs-connect TOCTOU, audit
+          // H3), and redirects are re-validated on every hop (audit C3).
+          const abort = new AbortController();
+          const timer = setTimeout(() => abort.abort(), cfg.timeoutMs);
+          try {
+            const r = await guardedFetch(targetUrl.toString(), {
+              method: cfg.method,
+              headers,
+              body: body && cfg.method !== "GET" ? body : undefined,
+              signal: abort.signal,
+              maxRedirects: 5,
+            });
+            // 5xx triggers the retry path; deterministic guard rejections
+            // (GuardedFetchError) are excluded from retry below.
+            // failOnError: false means the caller wants the status as data
+            // (health checks), so 5xx must complete the node, not retry.
+            if (cfg.failOnError && r.status >= 500) throw new Error(`HTTP ${r.status}`);
+            return r;
+          } finally {
+            clearTimeout(timer);
+          }
+        },
+        cfg.retry,
+        // AbortError means the attempt timed out; deterministic failures
+        // (SSRF rejection, redirect budget exhausted) must not be retried.
+        (err) =>
+          !(err instanceof Error && err.name === "AbortError") &&
+          !(err instanceof Error && /SSRF 防护|重定向超过/.test(err.message)),
+        opts.sleep,
+      );
+    } catch (err) {
+      states.set(nodeId, "failed");
+      status = "failed";
+      const msg = err instanceof Error ? err.message : String(err);
+      emit({
+        type: "node.failed",
+        nodeId,
+        attempt,
+        error: `HTTP 请求失败: ${msg}`,
+        errorCode: msg.includes("SSRF 防护") ? "VALIDATION" : "PROVIDER_ERROR",
+      });
+      return;
+    }
+
+    // Expose response metadata for branch / notify interpolation
+    // (`${nodeId.ok}` etc.); the artifact below carries only the payload.
+    httpMeta.set(nodeId, {
+      ok: response.ok,
+      status: response.status,
+      url: targetUrl.toString(),
+      method: cfg.method,
+    });
+
+    if (cfg.outputMode === "file") {
+      let arrayBuf: ArrayBuffer;
+      try {
+        arrayBuf = await response.arrayBuffer();
+      } catch (err) {
+        states.set(nodeId, "failed");
+        status = "failed";
+        const msg = err instanceof Error ? err.message : String(err);
+        emit({
+          type: "node.failed",
+          nodeId,
+          attempt,
+          error: `读取 HTTP 响应失败: ${msg}`,
+          errorCode: "PROVIDER_ERROR",
+        });
+        return;
+      }
+      if (cfg.failOnError && (response.status < 200 || response.status >= 300)) {
+        states.set(nodeId, "failed");
+        status = "failed";
+        emit({
+          type: "node.failed",
+          nodeId,
+          attempt,
+          error: `HTTP ${cfg.method} ${targetUrl.toString()} 返回 ${response.status}`,
+          errorCode: "PROVIDER_ERROR",
+        });
+        return;
+      }
+      const bytes = Buffer.from(arrayBuf);
+      const ctHeader = response.headers.get("content-type") ?? "";
+      const mime = (ctHeader.split(";")[0] ?? "").trim() || "application/octet-stream";
+      const fileName = fileLabelFromUrl(targetUrl);
+      const uri = await opts.storeBinary(bytes, mime, fileName);
+      const artifact: Artifact = {
+        id: `${nodeId}-file`,
+        kind: "file",
+        uri,
+        mimeType: mime,
+        label: fileName,
+        sizeBytes: bytes.length,
+      };
+      artifacts.set(nodeId, [artifact]);
+      emit({ type: "artifact.produced", nodeId, attempt, artifact });
+      states.set(nodeId, "done");
+      const summary = `已下载文件：${fileName}（${bytes.length} 字节，${mime}）`;
+      emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
+      sendPackets(nodeId, summary, "file");
+      return;
+    }
+
+    let responseText: string;
+    try {
+      responseText = await response.text();
+    } catch (err) {
+      states.set(nodeId, "failed");
+      status = "failed";
+      const msg = err instanceof Error ? err.message : String(err);
+      emit({
+        type: "node.failed",
+        nodeId,
+        attempt,
+        error: `读取 HTTP 响应失败: ${msg}`,
+        errorCode: "PROVIDER_ERROR",
+      });
+      return;
+    }
+
+    const contentTypeHeader = response.headers.get("content-type") ?? "";
+    const isJsonByHeader = /application\/json|text\/json/i.test(contentTypeHeader);
+    const canParseJson = (() => {
+      try {
+        JSON.parse(responseText);
+        return true;
+      } catch {
+        return false;
+      }
+    })();
+    const asJson = cfg.outputMode === "json" || (cfg.outputMode === "auto" && isJsonByHeader && canParseJson);
+
+    if (cfg.failOnError && (response.status < 200 || response.status >= 300)) {
+      states.set(nodeId, "failed");
+      status = "failed";
+      emit({
+        type: "node.failed",
+        nodeId,
+        attempt,
+        error: `HTTP ${cfg.method} ${targetUrl.toString()} 返回 ${response.status}: ${responseText.slice(0, 200)}`,
+        errorCode: "PROVIDER_ERROR",
+      });
+      return;
+    }
+
+    const output = asJson ? JSON.stringify(JSON.parse(responseText), null, 2) : responseText;
+    const artifact: Artifact = asJson
+      ? { id: `${nodeId}-json`, kind: "json", content: output, mimeType: "application/json" }
+      : { id: `${nodeId}-text`, kind: "text", content: output, mimeType: "text/plain" };
+    artifacts.set(nodeId, [artifact]);
+    emit({ type: "artifact.produced", nodeId, attempt, artifact });
+    states.set(nodeId, "done");
+    emit({ type: "node.finished", nodeId, attempt, output, usage: zeroUsage() });
+    sendPackets(nodeId, output.slice(0, 120), artifact.kind);
+  };
+
+  const runTable = async (node: GraphNode, nodeId: string, attempt: number) => {
+    emit({ type: "node.started", nodeId, attempt });
+    try {
+      const cfg = TableConfig.parse(node.table ?? {});
+      const ctx = nodeCtx(nodeId);
+      const sources = incoming(graph, nodeId, "flow").map((e) => e.from);
+      const sourceId = cfg.source ?? (sources.length === 1 ? sources[0] : undefined);
+      if (!sourceId) {
+        states.set(nodeId, "failed");
+        emit({
+          type: "node.failed",
+          nodeId,
+          attempt,
+          error: "Table 节点需要恰好一个上游节点（或在设置中指定 source）",
+          errorCode: "VALIDATION",
+        });
+        return;
+      }
+      let input: TableInput;
+      try {
+        input = tableInputFrom(ctx[sourceId]);
+      } catch (err) {
+        states.set(nodeId, "failed");
+        emit({
+          type: "node.failed",
+          nodeId,
+          attempt,
+          error: err instanceof Error ? err.message : String(err),
+          errorCode: "VALIDATION",
+        });
+        return;
+      }
+      const { rows, output } = applyTableSteps(input, cfg.steps);
+      const columns = collectColumns(rows);
+      const content = JSON.stringify({ rows, count: rows.length, columns });
+      const produced: Artifact[] = [
+        { id: `${nodeId}-table-json`, kind: "json", content, mimeType: "application/json" },
+      ];
+      if (output === "csv") {
+        produced.push({
+          id: `${nodeId}-table-csv`,
+          kind: "text",
+          content: rowsToCsv(rows, columns),
+          mimeType: "text/csv",
+        });
+      }
+      artifacts.set(nodeId, produced);
+      for (const a of produced) emit({ type: "artifact.produced", nodeId, attempt, artifact: a });
+      states.set(nodeId, "done");
+      const summary = `表格处理完成：${rows.length} 行 × ${columns.length} 列（${output === "csv" ? "CSV" : "JSON"} 输出）`;
+      emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
+      sendPackets(nodeId, summary, "json");
+    } catch (err) {
+      states.set(nodeId, "failed");
+      emit({
+        type: "node.failed",
+        nodeId,
+        attempt,
+        error: `Table 节点执行出错: ${err instanceof Error ? err.message : String(err)}`,
+      });
+    }
+  };
+
   // Runs a single source/sink/gate/agent to completion. Resolves when the node
   // reaches a terminal state (done/failed) so the scheduler can relaunch.
   const runNode = async (nodeId: string) => {
@@ -2180,231 +2471,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       }
 
       if (node.kind === "http") {
-        emit({ type: "node.started", nodeId, attempt });
-        const cfg: HttpNodeConfig = HttpNodeConfig.parse(node.http ?? {});
-
-        const ctx = interpCtx(nodeId);
-        const interpolatedUrl = evaluateTemplate(cfg.url, ctx);
-        if (!interpolatedUrl.trim()) {
-          states.set(nodeId, "failed");
-          status = "failed";
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: "HTTP 节点 URL 为空",
-            errorCode: "VALIDATION",
-          });
-          return;
-        }
-
-        let targetUrl: URL;
-        try {
-          targetUrl = new URL(interpolatedUrl);
-        } catch {
-          states.set(nodeId, "failed");
-          status = "failed";
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: `HTTP 节点 URL 不合法: ${interpolatedUrl}`,
-            errorCode: "VALIDATION",
-          });
-          return;
-        }
-
-        for (const [key, raw] of Object.entries(cfg.query ?? {})) {
-          try {
-            targetUrl.searchParams.set(key, evaluateTemplate(raw, ctx));
-          } catch {
-            // skip invalid params
-          }
-        }
-
-        const headers: Record<string, string> = {};
-        for (const [key, raw] of Object.entries(cfg.headers ?? {})) {
-          headers[key] = evaluateTemplate(raw, ctx);
-        }
-        const contentType = headers["content-type"] ?? headers["Content-Type"];
-        const body = cfg.body ? evaluateTemplate(cfg.body, ctx) : undefined;
-
-        // SSRF guard: refuse private/internal targets (resolved at fetch time,
-        // so DNS rebinding can't smuggle an internal address past the check).
-        if (!allowPrivateNetwork() && (await hostIsInternal(targetUrl.hostname))) {
-          states.set(nodeId, "failed");
-          status = "failed";
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: "HTTP 节点拒绝访问内网或私网地址（SSRF 防护）",
-            errorCode: "VALIDATION",
-          });
-          return;
-        }
-
-        let response: Response;
-        try {
-          response = await withRetry(
-            async () => {
-              // All outbound traffic leaves through guardedFetch: the DNS
-              // answer that passes the internal check is the one the TCP/TLS
-              // connection is pinned to (no check-vs-connect TOCTOU, audit
-              // H3), and redirects are re-validated on every hop (audit C3).
-              const abort = new AbortController();
-              const timer = setTimeout(() => abort.abort(), cfg.timeoutMs);
-              try {
-                const r = await guardedFetch(targetUrl.toString(), {
-                  method: cfg.method,
-                  headers,
-                  body: body && cfg.method !== "GET" ? body : undefined,
-                  signal: abort.signal,
-                  maxRedirects: 5,
-                });
-                // 5xx triggers the retry path; deterministic guard rejections
-                // (GuardedFetchError) are excluded from retry below.
-                // failOnError: false means the caller wants the status as data
-                // (health checks), so 5xx must complete the node, not retry.
-                if (cfg.failOnError && r.status >= 500) throw new Error(`HTTP ${r.status}`);
-                return r;
-              } finally {
-                clearTimeout(timer);
-              }
-            },
-            cfg.retry,
-            // AbortError means the attempt timed out; deterministic failures
-            // (SSRF rejection, redirect budget exhausted) must not be retried.
-            (err) =>
-              !(err instanceof Error && err.name === "AbortError") &&
-              !(err instanceof Error && /SSRF 防护|重定向超过/.test(err.message)),
-            opts.sleep,
-          );
-        } catch (err) {
-          states.set(nodeId, "failed");
-          status = "failed";
-          const msg = err instanceof Error ? err.message : String(err);
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: `HTTP 请求失败: ${msg}`,
-            errorCode: msg.includes("SSRF 防护") ? "VALIDATION" : "PROVIDER_ERROR",
-          });
-          return;
-        }
-
-        // Expose response metadata for branch / notify interpolation
-        // (`${nodeId.ok}` etc.); the artifact below carries only the payload.
-        httpMeta.set(nodeId, {
-          ok: response.ok,
-          status: response.status,
-          url: targetUrl.toString(),
-          method: cfg.method,
-        });
-
-        if (cfg.outputMode === "file") {
-          let arrayBuf: ArrayBuffer;
-          try {
-            arrayBuf = await response.arrayBuffer();
-          } catch (err) {
-            states.set(nodeId, "failed");
-            status = "failed";
-            const msg = err instanceof Error ? err.message : String(err);
-            emit({
-              type: "node.failed",
-              nodeId,
-              attempt,
-              error: `读取 HTTP 响应失败: ${msg}`,
-              errorCode: "PROVIDER_ERROR",
-            });
-            return;
-          }
-          if (cfg.failOnError && (response.status < 200 || response.status >= 300)) {
-            states.set(nodeId, "failed");
-            status = "failed";
-            emit({
-              type: "node.failed",
-              nodeId,
-              attempt,
-              error: `HTTP ${cfg.method} ${targetUrl.toString()} 返回 ${response.status}`,
-              errorCode: "PROVIDER_ERROR",
-            });
-            return;
-          }
-          const bytes = Buffer.from(arrayBuf);
-          const ctHeader = response.headers.get("content-type") ?? "";
-          const mime = (ctHeader.split(";")[0] ?? "").trim() || "application/octet-stream";
-          const fileName = fileLabelFromUrl(targetUrl);
-          const uri = await opts.storeBinary(bytes, mime, fileName);
-          const artifact: Artifact = {
-            id: `${nodeId}-file`,
-            kind: "file",
-            uri,
-            mimeType: mime,
-            label: fileName,
-            sizeBytes: bytes.length,
-          };
-          artifacts.set(nodeId, [artifact]);
-          emit({ type: "artifact.produced", nodeId, attempt, artifact });
-          states.set(nodeId, "done");
-          const summary = `已下载文件：${fileName}（${bytes.length} 字节，${mime}）`;
-          emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
-          sendPackets(nodeId, summary, "file");
-          return;
-        }
-
-        let responseText: string;
-        try {
-          responseText = await response.text();
-        } catch (err) {
-          states.set(nodeId, "failed");
-          status = "failed";
-          const msg = err instanceof Error ? err.message : String(err);
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: `读取 HTTP 响应失败: ${msg}`,
-            errorCode: "PROVIDER_ERROR",
-          });
-          return;
-        }
-
-        const contentTypeHeader = response.headers.get("content-type") ?? "";
-        const isJsonByHeader = /application\/json|text\/json/i.test(contentTypeHeader);
-        const canParseJson = (() => {
-          try {
-            JSON.parse(responseText);
-            return true;
-          } catch {
-            return false;
-          }
-        })();
-        const asJson = cfg.outputMode === "json" || (cfg.outputMode === "auto" && isJsonByHeader && canParseJson);
-
-        if (cfg.failOnError && (response.status < 200 || response.status >= 300)) {
-          states.set(nodeId, "failed");
-          status = "failed";
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: `HTTP ${cfg.method} ${targetUrl.toString()} 返回 ${response.status}: ${responseText.slice(0, 200)}`,
-            errorCode: "PROVIDER_ERROR",
-          });
-          return;
-        }
-
-        const output = asJson ? JSON.stringify(JSON.parse(responseText), null, 2) : responseText;
-        const artifact: Artifact = asJson
-          ? { id: `${nodeId}-json`, kind: "json", content: output, mimeType: "application/json" }
-          : { id: `${nodeId}-text`, kind: "text", content: output, mimeType: "text/plain" };
-        artifacts.set(nodeId, [artifact]);
-        emit({ type: "artifact.produced", nodeId, attempt, artifact });
-        states.set(nodeId, "done");
-        emit({ type: "node.finished", nodeId, attempt, output, usage: zeroUsage() });
-        sendPackets(nodeId, output.slice(0, 120), artifact.kind);
+        await runHttp(node, nodeId, attempt);
         return;
       }
 
@@ -2909,66 +2976,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       }
 
       if (node.kind === "table") {
-        emit({ type: "node.started", nodeId, attempt });
-        try {
-          const cfg = TableConfig.parse(node.table ?? {});
-          const ctx = nodeCtx(nodeId);
-          const sources = incoming(graph, nodeId, "flow").map((e) => e.from);
-          const sourceId = cfg.source ?? (sources.length === 1 ? sources[0] : undefined);
-          if (!sourceId) {
-            states.set(nodeId, "failed");
-            emit({
-              type: "node.failed",
-              nodeId,
-              attempt,
-              error: "Table 节点需要恰好一个上游节点（或在设置中指定 source）",
-              errorCode: "VALIDATION",
-            });
-            return;
-          }
-          let input: TableInput;
-          try {
-            input = tableInputFrom(ctx[sourceId]);
-          } catch (err) {
-            states.set(nodeId, "failed");
-            emit({
-              type: "node.failed",
-              nodeId,
-              attempt,
-              error: err instanceof Error ? err.message : String(err),
-              errorCode: "VALIDATION",
-            });
-            return;
-          }
-          const { rows, output } = applyTableSteps(input, cfg.steps);
-          const columns = collectColumns(rows);
-          const content = JSON.stringify({ rows, count: rows.length, columns });
-          const produced: Artifact[] = [
-            { id: `${nodeId}-table-json`, kind: "json", content, mimeType: "application/json" },
-          ];
-          if (output === "csv") {
-            produced.push({
-              id: `${nodeId}-table-csv`,
-              kind: "text",
-              content: rowsToCsv(rows, columns),
-              mimeType: "text/csv",
-            });
-          }
-          artifacts.set(nodeId, produced);
-          for (const a of produced) emit({ type: "artifact.produced", nodeId, attempt, artifact: a });
-          states.set(nodeId, "done");
-          const summary = `表格处理完成：${rows.length} 行 × ${columns.length} 列（${output === "csv" ? "CSV" : "JSON"} 输出）`;
-          emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
-          sendPackets(nodeId, summary, "json");
-        } catch (err) {
-          states.set(nodeId, "failed");
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: `Table 节点执行出错: ${err instanceof Error ? err.message : String(err)}`,
-          });
-        }
+        await runTable(node, nodeId, attempt);
         return;
       }
 
