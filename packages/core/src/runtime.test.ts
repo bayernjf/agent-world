@@ -168,6 +168,28 @@ describe("runtime", () => {
     expect(state.packets[0]!.artifactKind).toBe("image");
   });
 
+  it("records variant lanes spawned by a fanout and the ranking a select produced", () => {
+    seq = 0;
+    const state = replay([
+      ev({ type: "run.started", runId: "r1", graphId: "g1", budgetUsd: null }),
+      ev({ type: "variants.spawned", nodeId: "split", variantIds: ["v1", "v2", "v3"] }),
+      ev({
+        type: "variants.ranked",
+        nodeId: "pick",
+        ranking: [
+          { variant: "v2", score: 9, reason: "longest" },
+          { variant: "v3", score: 7, reason: "mid" },
+        ],
+        chosen: ["v2"],
+        failed: ["v1"],
+      }),
+    ]);
+    expect(state.variants.split).toMatchObject({ kind: "fanout", variantIds: ["v1", "v2", "v3"] });
+    expect(state.variants.pick).toMatchObject({ kind: "select", chosen: ["v2"], failed: ["v1"] });
+    expect(state.variants.pick!.ranking).toHaveLength(2);
+    expect(state.variants.pick!.ranking![0]).toMatchObject({ variant: "v2", score: 9 });
+  });
+
   it("is pure — reducing does not mutate the input state", () => {
     const before = structuredClone(initialRuntime);
     reduce(initialRuntime, reworkRun()[1]!);

@@ -189,6 +189,7 @@ async function persistArtifact(args: {
       runId,
       nodeId: event.nodeId,
       attempt: event.attempt,
+      variant: event.variant ?? "main",
       graphId: graph.id,
       role,
     }),

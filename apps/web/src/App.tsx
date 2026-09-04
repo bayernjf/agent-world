@@ -36,6 +36,7 @@ import BrandAssets from "./components/BrandAssets";
 import BatchManager from "./components/BatchManager";
 import CalendarView from "./components/CalendarView";
 import PerformanceDashboard from "./components/PerformanceDashboard";
+import PublishTargets from "./components/PublishTargets";
 import TriggersPanel from "./components/TriggersPanel";
 import ProductGallery from "./components/ProductGallery";
 import Onboarding from "./components/Onboarding";
@@ -131,6 +132,7 @@ export default function App() {
   const [batchOpen, setBatchOpen] = useState(false);
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [performanceOpen, setPerformanceOpen] = useState(false);
+  const [publishTargetsOpen, setPublishTargetsOpen] = useState(false);
   const [triggersOpen, setTriggersOpen] = useState(false);
   const [knowledgeOpen, setKnowledgeOpen] = useState(false);
   const [glossaryOpen, setGlossaryOpen] = useState(false);
@@ -380,6 +382,13 @@ export default function App() {
       hint: t("modals:commandPalette.commands.performance.hint"),
       group: "manage",
       onSelect: () => setPerformanceOpen(true),
+    },
+    {
+      id: "publishTargets",
+      label: t("modals:commandPalette.commands.publishTargets.label"),
+      hint: t("modals:commandPalette.commands.publishTargets.hint"),
+      group: "manage",
+      onSelect: () => setPublishTargetsOpen(true),
     },
     {
       id: "knowledge",
@@ -873,7 +882,7 @@ export default function App() {
             </div>
             <Timeline />
             <FailurePanel onRerun={onRun} />
-            <Canvas mode={mode} />
+            <Canvas mode={mode} diagnostics={diagnostics} />
             <button
               className={`stage__control-toggle ${controlCollapsed ? "is-collapsed" : ""}`}
               onClick={() => setControlCollapsed((v) => !v)}
@@ -974,6 +983,7 @@ export default function App() {
         <BatchManager open={batchOpen} onClose={() => setBatchOpen(false)} />
         <CalendarView open={calendarOpen} onClose={() => setCalendarOpen(false)} />
         <PerformanceDashboard open={performanceOpen} onClose={() => setPerformanceOpen(false)} />
+        <PublishTargets open={publishTargetsOpen} onClose={() => setPublishTargetsOpen(false)} />
         <TriggersPanel
           open={triggersOpen}
           onClose={() => setTriggersOpen(false)}

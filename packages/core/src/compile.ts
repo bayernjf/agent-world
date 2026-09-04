@@ -125,6 +125,21 @@ function ancestorsOf(graph: Graph, id: string): Set<string> {
   return seen;
 }
 
+/** Descendants of `id` following flow edges forwards (excludes `id` itself). */
+function descendantsOf(graph: Graph, id: string): Set<string> {
+  const seen = new Set<string>();
+  const stack = [id];
+  while (stack.length) {
+    const cur = stack.pop()!;
+    for (const e of outgoing(graph, cur, "flow")) {
+      if (seen.has(e.to)) continue;
+      seen.add(e.to);
+      stack.push(e.to);
+    }
+  }
+  return seen;
+}
+
 /**
  * Group nodes into topological levels by longest-path rank over flow edges.
  * Nodes in the same level have no flow dependency on each other and can weld
@@ -241,6 +256,42 @@ export function compile(graph: Graph): CompileResult {
         severity: "warning",
         message: `Gate "${n.name}" has no rework line, so failures cannot be retried`,
         nodeId: n.id,
+      });
+    }
+  }
+
+  // F1: fanout / select must form a closed variant lane. A fanout whose lanes
+  // never reconverge at a select would run forever as N duplicated tails; a
+  // select with no fanout upstream has no lanes to rank.
+  for (const f of graph.nodes) {
+    if (f.kind !== "fanout") continue;
+    if (outgoing(graph, f.id, "flow").length === 0) {
+      diagnostics.push({
+        severity: "error",
+        message: `扇出节点 "${f.name}" 没有正向连线`,
+        nodeId: f.id,
+      });
+      continue;
+    }
+    const downstream = descendantsOf(graph, f.id);
+    const hasSelect = [...downstream].some((id) => nodeById(graph, id)?.kind === "select");
+    if (!hasSelect) {
+      diagnostics.push({
+        severity: "error",
+        message: `扇出节点 "${f.name}" 的每条支路都必须最终汇入一个择优节点`,
+        nodeId: f.id,
+      });
+    }
+  }
+  for (const s of graph.nodes) {
+    if (s.kind !== "select") continue;
+    const upstream = ancestorsOf(graph, s.id);
+    const hasFanout = [...upstream].some((id) => nodeById(graph, id)?.kind === "fanout");
+    if (!hasFanout) {
+      diagnostics.push({
+        severity: "error",
+        message: `择优节点 "${s.name}" 缺少上游的扇出节点`,
+        nodeId: s.id,
       });
     }
   }

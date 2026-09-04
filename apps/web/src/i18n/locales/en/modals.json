@@ -114,6 +114,7 @@
       "batch": { "label": "Batch jobs", "hint": "Run a line per row, with per-row retry" },
       "calendar": { "label": "Content calendar", "hint": "Plan what to publish on which platform, by month" },
       "performance": { "label": "Performance", "hint": "Impressions/clicks/conversions/GMV feedback and ROI" },
+      "publishTargets": { "label": "Publish channels", "hint": "Configure open channels you can publish to (webhook)" },
       "knowledge": { "label": "Knowledge base", "hint": "Historical line output and gate verdicts" },
       "version": { "label": "Line versions", "hint": "Snapshot / restore" },
       "variables": { "label": "Line variables", "hint": "Cross-run persisted state (${var.xxx} / set_variable)" },
@@ -347,6 +348,21 @@
     "costUsdPh": "Cost USD (e.g. 0.123)",
     "costEmpty": "No content cost yet — record one below.",
     "addCostFailed": "Could not record the cost"
+  },
+  "publishTargets": {
+    "title": "Publish channels",
+    "hint": "Configure open channels you can actually publish to (currently webhook to a self-hosted middle tier; tokens encrypted at rest).",
+    "platform": "Platform",
+    "name": "Name",
+    "provider": "Provider",
+    "url": "Destination",
+    "urlPh": "Webhook URL (e.g. https://your-mid-tier.example.com/publish)",
+    "token": "Access token (optional)",
+    "addHint": "Add a channel",
+    "missingFields": "Platform and destination are required",
+    "addFailed": "Could not add the channel",
+    "loading": "Loading…",
+    "empty": "No publish channels yet — add one below."
   },
   "knowledge": {
     "title": "Knowledge Base / Archive",

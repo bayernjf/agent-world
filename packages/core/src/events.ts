@@ -17,6 +17,10 @@ export const EVENT_SCHEMA_VERSION = 1;
 export const NodeRunKey = z.object({
   nodeId: z.string(),
   attempt: z.number().int().min(1),
+  /** Variant lane id (e.g. "v1".."vN"). Absent on the main path — the identity
+   *  of a node execution inside a fanout/select sub-graph is
+   *  `(nodeId, variant, attempt)`. Backward compatible: legacy events lack it. */
+  variant: z.string().optional(),
 });
 export type NodeRunKey = z.infer<typeof NodeRunKey>;
 
@@ -140,6 +144,8 @@ export const RunEvent = z.discriminatedUnion("type", [
     type: z.literal("artifact.produced"),
     nodeId: z.string(),
     attempt: z.number().int().min(1).optional(),
+    /** Variant lane id; absent on the main path. */
+    variant: z.string().optional(),
     artifact: Artifact,
   }),
   z.object({
@@ -164,6 +170,23 @@ export const RunEvent = z.discriminatedUnion("type", [
     nodeId: z.string(),
     attempts: z.number().int().min(1),
     policy: z.enum(["pass", "scrap", "halt"]),
+  }),
+  /** A fanout node spawned N variant lanes (F1). */
+  z.object({
+    ...base,
+    type: z.literal("variants.spawned"),
+    nodeId: z.string(),
+    variantIds: z.array(z.string()),
+  }),
+  /** A select node ranked the lanes and chose a subset (F1). */
+  z.object({
+    ...base,
+    type: z.literal("variants.ranked"),
+    nodeId: z.string(),
+    ranking: z.array(z.object({ variant: z.string(), score: z.number(), reason: z.string() })),
+    chosen: z.array(z.string()),
+    /** Lanes that reached a terminal failure and were excluded from ranking. */
+    failed: z.array(z.string()).optional(),
   }),
   z.object({
     ...base,

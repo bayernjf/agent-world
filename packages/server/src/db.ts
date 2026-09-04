@@ -64,6 +64,7 @@ CREATE TABLE IF NOT EXISTS artifacts (
   user_id     TEXT,
   node_id     TEXT NOT NULL,
   attempt     INTEGER,
+  variant     TEXT NOT NULL DEFAULT 'main',
   kind        TEXT NOT NULL,
   mime_type   TEXT,
   label       TEXT,
@@ -74,11 +75,13 @@ CREATE TABLE IF NOT EXISTS artifacts (
 );
 CREATE INDEX IF NOT EXISTS idx_artifacts_run ON artifacts(run_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_artifacts_node ON artifacts(run_id, node_id);
+CREATE INDEX IF NOT EXISTS idx_artifacts_variant ON artifacts(run_id, node_id, variant);
 
 CREATE TABLE IF NOT EXISTS node_runs (
   run_id         TEXT NOT NULL,
   node_id        TEXT NOT NULL,
   attempt        INTEGER NOT NULL,
+  variant        TEXT NOT NULL DEFAULT 'main',
   status         TEXT NOT NULL,
   output         TEXT,
   reasoning      TEXT,
@@ -91,7 +94,7 @@ CREATE TABLE IF NOT EXISTS node_runs (
   cost_usd       REAL NOT NULL DEFAULT 0,
   units_json     TEXT,
   score          REAL,
-  PRIMARY KEY (run_id, node_id, attempt)
+  PRIMARY KEY (run_id, node_id, attempt, variant)
 );
 
 CREATE TABLE IF NOT EXISTS brand_terms (
@@ -215,6 +218,32 @@ CREATE TABLE IF NOT EXISTS content_costs (
   captured_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_content_costs_user ON content_costs(user_id, captured_at);
+
+CREATE TABLE IF NOT EXISTS publish_targets (
+  id               TEXT PRIMARY KEY,
+  user_id          TEXT,
+  platform         TEXT NOT NULL,
+  name             TEXT,
+  provider         TEXT NOT NULL,
+  config_encrypted TEXT NOT NULL,
+  created_at       INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_publish_targets_user ON publish_targets(user_id);
+
+CREATE TABLE IF NOT EXISTS published_contents (
+  id           TEXT PRIMARY KEY,
+  user_id      TEXT,
+  graph_id     TEXT,
+  run_id       TEXT,
+  artifact_id  TEXT,
+  platform     TEXT,
+  status       TEXT NOT NULL,
+  external_id  TEXT,
+  external_url TEXT,
+  published_at INTEGER,
+  detail_json  TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_published_user ON published_contents(user_id, published_at);
 
 CREATE TABLE IF NOT EXISTS graph_versions (
   id           TEXT PRIMARY KEY,
@@ -428,6 +457,30 @@ export interface ContentCostAggregate {
   costUsd: number;
   gmv: number;
   roi: number;
+}
+
+/** An open-channel publish target (F7-B). */
+export interface PublishTarget {
+  id: string;
+  platform: string;
+  name: string | null;
+  provider: string;
+  configEncrypted: string;
+  createdAt: number;
+}
+
+/** A published-content record (F7-B). */
+export interface PublishedContent {
+  id: string;
+  graphId: string | null;
+  runId: string | null;
+  artifactId: string | null;
+  platform: string | null;
+  status: string;
+  externalId: string | null;
+  externalUrl: string | null;
+  publishedAt: number | null;
+  detailJson: string | null;
 }
 
 /** Parse a raw products row (snake_case JSON columns) into a Product. */
@@ -645,22 +698,22 @@ export function openDb(file: string) {
     ),
     maxSeq: db.prepare(`SELECT COALESCE(MAX(seq), -1) as seq FROM events WHERE run_id = ?`),
     upsertNodeRun: db.prepare(
-      `INSERT INTO node_runs (run_id, node_id, attempt, status) VALUES (?, ?, ?, ?)
-       ON CONFLICT(run_id, node_id, attempt) DO UPDATE SET status = excluded.status`,
+      `INSERT INTO node_runs (run_id, node_id, attempt, variant, status) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(run_id, node_id, attempt, variant) DO UPDATE SET status = excluded.status`,
     ),
     appendReasoning: db.prepare(
-      `UPDATE node_runs SET reasoning = COALESCE(reasoning, '') || ? WHERE run_id = ? AND node_id = ? AND attempt = ?`,
+      `UPDATE node_runs SET reasoning = COALESCE(reasoning, '') || ? WHERE run_id = ? AND node_id = ? AND attempt = ? AND variant = ?`,
     ),
     finishNodeRun: db.prepare(
       `UPDATE node_runs SET status = ?, output = ?, tokens_in = ?, tokens_out = ?,
         cached_tokens = ?, reasoning_tokens = ?, cost_usd = ?, units_json = ?
-       WHERE run_id = ? AND node_id = ? AND attempt = ?`,
+       WHERE run_id = ? AND node_id = ? AND attempt = ? AND variant = ?`,
     ),
     failNodeRun: db.prepare(
-      `UPDATE node_runs SET status = 'failed', error = ?, error_code = ? WHERE run_id = ? AND node_id = ? AND attempt = ?`,
+      `UPDATE node_runs SET status = 'failed', error = ?, error_code = ? WHERE run_id = ? AND node_id = ? AND attempt = ? AND variant = ?`,
     ),
     setNodeScore: db.prepare(
-      `UPDATE node_runs SET score = ? WHERE run_id = ? AND node_id = ? AND attempt = ?`,
+      `UPDATE node_runs SET score = ? WHERE run_id = ? AND node_id = ? AND attempt = ? AND variant = ?`,
     ),
     markInterrupted: db.prepare(
       `UPDATE runs SET status = 'interrupted', ended_at = ? WHERE status = 'running'`,
@@ -673,8 +726,8 @@ export function openDb(file: string) {
     deleteEvents: db.prepare(`DELETE FROM events WHERE run_id = ?`),
     deleteNodeRuns: db.prepare(`DELETE FROM node_runs WHERE run_id = ?`),
     insertArtifact: db.prepare(
-      `INSERT INTO artifacts (id, run_id, user_id, node_id, attempt, graph_id, role, kind, mime_type, label, size_bytes, storage, uri, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO artifacts (id, run_id, user_id, node_id, attempt, variant, graph_id, role, kind, mime_type, label, size_bytes, storage, uri, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO NOTHING`,
     ),
     listArtifactsByRun: db.prepare(
@@ -1039,15 +1092,15 @@ export function openDb(file: string) {
 
       switch (event.type) {
         case "node.started":
-          stmts.upsertNodeRun.run(runId, event.nodeId, event.attempt, "running");
+          stmts.upsertNodeRun.run(runId, event.nodeId, event.attempt, event.variant ?? "main", "running");
           break;
         case "node.reasoning":
           // Ensure the row exists then append.
-          stmts.upsertNodeRun.run(runId, event.nodeId, event.attempt, "running");
-          stmts.appendReasoning.run(event.text, runId, event.nodeId, event.attempt);
+          stmts.upsertNodeRun.run(runId, event.nodeId, event.attempt, event.variant ?? "main", "running");
+          stmts.appendReasoning.run(event.text, runId, event.nodeId, event.attempt, event.variant ?? "main");
           break;
         case "node.finished":
-          stmts.upsertNodeRun.run(runId, event.nodeId, event.attempt, "done");
+          stmts.upsertNodeRun.run(runId, event.nodeId, event.attempt, event.variant ?? "main", "done");
           stmts.finishNodeRun.run(
             "done",
             event.output,
@@ -1060,23 +1113,25 @@ export function openDb(file: string) {
             runId,
             event.nodeId,
             event.attempt,
+            event.variant ?? "main",
           );
           break;
         case "node.failed":
-          stmts.upsertNodeRun.run(runId, event.nodeId, event.attempt, "failed");
+          stmts.upsertNodeRun.run(runId, event.nodeId, event.attempt, event.variant ?? "main", "failed");
           stmts.failNodeRun.run(
             event.error,
             event.errorCode ?? null,
             runId,
             event.nodeId,
             event.attempt,
+            event.variant ?? "main",
           );
           break;
         case "gate.verdict":
           // Persist the judge's quality score so the eval report can aggregate
           // it per prompt version (the "evaluation linkage").
           if (typeof event.score === "number") {
-            stmts.setNodeScore.run(event.score, runId, event.nodeId, event.attempt);
+            stmts.setNodeScore.run(event.score, runId, event.nodeId, event.attempt, event.variant ?? "main");
           }
           break;
       }
@@ -1118,7 +1173,7 @@ export function openDb(file: string) {
 
     insertArtifact(a: StoredArtifact, userId: string) {
       stmts.insertArtifact.run(
-        a.id, a.runId, userId, a.nodeId, a.attempt, a.graphId ?? null, a.role ?? null,
+        a.id, a.runId, userId, a.nodeId, a.attempt, a.variant ?? "main", a.graphId ?? null, a.role ?? null,
         a.kind, a.mimeType, a.label, a.sizeBytes, a.storage, a.uri, a.createdAt,
       );
     },
@@ -2221,6 +2276,102 @@ export function openDb(file: string) {
       });
     },
 
+    // --- Publish targets & published contents (F7-B) ---
+    createPublishTarget(input: {
+      id: string;
+      userId: string;
+      platform: string;
+      name?: string | null;
+      provider: string;
+      configEncrypted: string;
+      createdAt: number;
+    }): PublishTarget {
+      db.prepare(
+        `INSERT INTO publish_targets (id, user_id, platform, name, provider, config_encrypted, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      ).run(input.id, input.userId, input.platform, input.name ?? null, input.provider, input.configEncrypted, input.createdAt);
+      return {
+        id: input.id,
+        platform: input.platform,
+        name: input.name ?? null,
+        provider: input.provider,
+        configEncrypted: input.configEncrypted,
+        createdAt: input.createdAt,
+      };
+    },
+
+    listPublishTargets(userId: string): PublishTarget[] {
+      return db
+        .prepare(`SELECT * FROM publish_targets WHERE user_id = ? ORDER BY created_at DESC`)
+        .all(userId)
+        .map((r) => ({
+          id: String(r.id),
+          platform: String(r.platform),
+          name: r.name ? String(r.name) : null,
+          provider: String(r.provider),
+          configEncrypted: String(r.config_encrypted),
+          createdAt: Number(r.created_at),
+        }));
+    },
+
+    deletePublishTarget(id: string, userId: string): boolean {
+      const r = db.prepare(`DELETE FROM publish_targets WHERE id = ? AND user_id = ?`).run(id, userId);
+      return r.changes > 0;
+    },
+
+    insertPublishedContent(input: {
+      id: string;
+      userId: string;
+      graphId?: string | null;
+      runId?: string | null;
+      artifactId?: string | null;
+      platform?: string | null;
+      status: string;
+      externalId?: string | null;
+      externalUrl?: string | null;
+      publishedAt?: number | null;
+      detailJson?: string | null;
+    }): PublishedContent {
+      db.prepare(
+        `INSERT INTO published_contents (id, user_id, graph_id, run_id, artifact_id, platform, status, external_id, external_url, published_at, detail_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        input.id, input.userId, input.graphId ?? null, input.runId ?? null, input.artifactId ?? null,
+        input.platform ?? null, input.status, input.externalId ?? null, input.externalUrl ?? null,
+        input.publishedAt ?? null, input.detailJson ?? null,
+      );
+      return {
+        id: input.id,
+        graphId: input.graphId ?? null,
+        runId: input.runId ?? null,
+        artifactId: input.artifactId ?? null,
+        platform: input.platform ?? null,
+        status: input.status,
+        externalId: input.externalId ?? null,
+        externalUrl: input.externalUrl ?? null,
+        publishedAt: input.publishedAt ?? null,
+        detailJson: input.detailJson ?? null,
+      };
+    },
+
+    listPublishedContents(userId: string): PublishedContent[] {
+      return db
+        .prepare(`SELECT * FROM published_contents WHERE user_id = ? ORDER BY published_at DESC`)
+        .all(userId)
+        .map((r) => ({
+          id: String(r.id),
+          graphId: r.graph_id ? String(r.graph_id) : null,
+          runId: r.run_id ? String(r.run_id) : null,
+          artifactId: r.artifact_id ? String(r.artifact_id) : null,
+          platform: r.platform ? String(r.platform) : null,
+          status: String(r.status),
+          externalId: r.external_id ? String(r.external_id) : null,
+          externalUrl: r.external_url ? String(r.external_url) : null,
+          publishedAt: r.published_at != null ? Number(r.published_at) : null,
+          detailJson: r.detail_json ? String(r.detail_json) : null,
+        }));
+    },
+
     // --- Graph versions (5.6) ---
     listVersions(graphId: string, userId: string) {
       return db
@@ -2745,6 +2896,71 @@ const MIGRATIONS: Migration[] = [
         captured_at INTEGER NOT NULL
       )`);
       db.exec("CREATE INDEX IF NOT EXISTS idx_content_costs_user ON content_costs(user_id, captured_at)");
+    },
+  },
+  {
+    version: 27,
+    description: "node_runs/artifacts variant dimension (F1)",
+    detect: (db) => columnExists(db, "node_runs", "variant"),
+    up: (db) => {
+      // artifacts: single-column `id` PK, so the variant dimension is just an
+      // appended column + index — no rebuild needed. Guard with columnExists:
+      // `openDb` runs DDL (which already includes variant) before migrations,
+      // so a pre-artifacts database can already have the column.
+      if (!columnExists(db, "artifacts", "variant")) {
+        db.exec("ALTER TABLE artifacts ADD COLUMN variant TEXT NOT NULL DEFAULT 'main'");
+      }
+      db.exec("CREATE INDEX IF NOT EXISTS idx_artifacts_variant ON artifacts(run_id, node_id, variant)");
+      // node_runs: fold `variant` into the composite primary key. SQLite cannot
+      // alter a PK, so rebuild: create → copy (variant = 'main') → drop → rename.
+      db.exec(`
+        CREATE TABLE node_runs_new (
+          run_id TEXT NOT NULL, node_id TEXT NOT NULL, attempt INTEGER NOT NULL,
+          variant TEXT NOT NULL DEFAULT 'main', status TEXT NOT NULL, output TEXT,
+          reasoning TEXT, error TEXT, error_code TEXT,
+          tokens_in INTEGER NOT NULL DEFAULT 0, tokens_out INTEGER NOT NULL DEFAULT 0,
+          cached_tokens INTEGER NOT NULL DEFAULT 0, reasoning_tokens INTEGER NOT NULL DEFAULT 0,
+          cost_usd REAL NOT NULL DEFAULT 0, units_json TEXT, score REAL,
+          PRIMARY KEY (run_id, node_id, attempt, variant)
+        );
+        INSERT INTO node_runs_new (run_id, node_id, attempt, variant, status, output, reasoning, error, error_code,
+          tokens_in, tokens_out, cached_tokens, reasoning_tokens, cost_usd, units_json, score)
+          SELECT run_id, node_id, attempt, 'main', status, output, reasoning, error, error_code,
+          tokens_in, tokens_out, cached_tokens, reasoning_tokens, cost_usd, units_json, score FROM node_runs;
+        DROP TABLE node_runs;
+        ALTER TABLE node_runs_new RENAME TO node_runs;
+      `);
+    },
+  },
+  {
+    version: 28,
+    description: "publish_targets/published_contents for open-channel publishing (F7-B)",
+    detect: (db) => tableExists(db, "publish_targets"),
+    up: (db) => {
+      db.exec(`CREATE TABLE IF NOT EXISTS publish_targets (
+        id TEXT PRIMARY KEY,
+        user_id TEXT,
+        platform TEXT NOT NULL,
+        name TEXT,
+        provider TEXT NOT NULL,
+        config_encrypted TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      )`);
+      db.exec(`CREATE TABLE IF NOT EXISTS published_contents (
+        id TEXT PRIMARY KEY,
+        user_id TEXT,
+        graph_id TEXT,
+        run_id TEXT,
+        artifact_id TEXT,
+        platform TEXT,
+        status TEXT NOT NULL,
+        external_id TEXT,
+        external_url TEXT,
+        published_at INTEGER,
+        detail_json TEXT
+      )`);
+      db.exec("CREATE INDEX IF NOT EXISTS idx_publish_targets_user ON publish_targets(user_id)");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_published_user ON published_contents(user_id, published_at)");
     },
   },
 ];

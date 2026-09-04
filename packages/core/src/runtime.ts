@@ -56,6 +56,25 @@ export interface PacketRuntime {
   seq: number;
 }
 
+/** A single variant lane's ranking entry (F1). */
+export interface VariantRankingItem {
+  variant: string;
+  score: number;
+  reason: string;
+}
+
+/** Variant-lane bookkeeping for a fanout or select node (F1). */
+export interface VariantGroup {
+  nodeId: string;
+  kind: "fanout" | "select";
+  /** Lanes spawned by a fanout. */
+  variantIds?: string[];
+  /** Ranking produced by a select. */
+  ranking?: VariantRankingItem[];
+  chosen?: string[];
+  failed?: string[];
+}
+
 /** A single failure recorded during a run (node error, gate scrap, budget trip). */
 export interface FailureRecord {
   kind: "node" | "gate" | "budget";
@@ -79,6 +98,8 @@ export interface RuntimeState {
   approvedTools: string[];
   nodes: Record<string, NodeRuntime>;
   packets: PacketRuntime[];
+  /** Variant-lane bookkeeping keyed by fanout/select node id (F1). */
+  variants: Record<string, VariantGroup>;
   totalCostUsd: number;
   totalTokensIn: number;
   totalTokensOut: number;
@@ -100,6 +121,7 @@ export const initialRuntime: RuntimeState = {
   status: "idle",
   nodes: {},
   packets: [],
+  variants: {},
   totalCostUsd: 0,
   totalTokensIn: 0,
   totalTokensOut: 0,
@@ -339,6 +361,37 @@ export function reduce(state: RuntimeState, event: RunEvent): RuntimeState {
           haltedNodeId: event.haltedNodeId ?? state.haltedNodeId,
           reason: event.reason ?? state.reason,
         };
+
+      // F1 variant-lane bookkeeping: fanout records the lanes it spawned, and
+      // select records the ranking it produced. Both still emit their own
+      // node.* lifecycle via the standard keys; these groups are extra metadata
+      // the comparison view and the variant-grouped tree read from.
+      case "variants.spawned":
+        return {
+          ...state,
+          variants: {
+            ...state.variants,
+            [event.nodeId]: { nodeId: event.nodeId, kind: "fanout", variantIds: event.variantIds },
+          },
+        };
+
+      case "variants.ranked":
+        return {
+          ...state,
+          variants: {
+            ...state.variants,
+            [event.nodeId]: {
+              nodeId: event.nodeId,
+              kind: "select",
+              ranking: event.ranking,
+              chosen: event.chosen,
+              failed: event.failed,
+            },
+          },
+        };
+
+      default:
+        return state;
     }
   })();
 

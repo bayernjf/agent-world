@@ -51,16 +51,17 @@ describe("ConnectorEditor", () => {
       expect(select.value).toBe("none");
     });
 
-    it("下拉框包含所有 5 种接入方式", () => {
+    it("下拉框包含所有 6 种接入方式", () => {
       renderEditor();
       const select = screen.getByLabelText("接入方式");
       const options = within(select).getAllByRole("option");
-      expect(options).toHaveLength(5);
+      expect(options).toHaveLength(6);
       expect(options[0]).toHaveValue("none");
       expect(options[1]).toHaveValue("file");
       expect(options[2]).toHaveValue("http");
       expect(options[3]).toHaveValue("form");
       expect(options[4]).toHaveValue("database");
+      expect(options[5]).toHaveValue("product");
     });
 
     it("无 connector 时不显示测试连接按钮", () => {

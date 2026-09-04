@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { Graph, GraphNode } from "@agent-world/core";
+import type { Diagnostic, Graph, GraphNode } from "@agent-world/core";
 import { useGraph } from "../store/graph";
 import { useRun, useVisibleRuntime } from "../store/run";
 import { MAX_ZOOM, MIN_ZOOM, useCanvas } from "../store/canvas";
 import { useToast } from "../store/toast";
 import { PLANT_H, PLANT_W, snap } from "../store/graph";
 import { VIEW_H, VIEW_W } from "./board";
+import { hiddenLaneNodeIds } from "./layout";
 import PacketLayer from "./PacketLayer";
 import Pipes from "./Pipes";
 import Plants from "./Plants";
@@ -38,9 +39,11 @@ function fitOf(r: { width: number; height: number }) {
 
 interface Props {
   mode: Mode;
+  /** Compile diagnostics, used to red-frame nodes that failed validation (F10). */
+  diagnostics?: Diagnostic[];
 }
 
-export default function Canvas({ mode }: Props) {
+export default function Canvas({ mode, diagnostics = [] }: Props) {
   const {
     graph,
     selectedId,
@@ -60,6 +63,8 @@ export default function Canvas({ mode }: Props) {
     beginHistoryBatch,
     commitHistoryBatch,
     abortHistoryBatch,
+    collapsedFans,
+    toggleLaneCollapse,
   } = useGraph();
   const duplicateNode = useGraph((s) => s.duplicateNode);
   const runtime = useVisibleRuntime();
@@ -95,6 +100,9 @@ export default function Canvas({ mode }: Props) {
   const reworkEdges = new Set(
     graph.edges.filter((e) => e.kind === "rework").map((e) => e.id),
   );
+
+  // Lane nodes hidden by collapsed fanout groups (F10 fold/expand).
+  const hiddenNodeIds = hiddenLaneNodeIds(graph, collapsedFans);
 
   const [fit, setFitState] = useState({ scale: 1, x: 0, y: 0 });
 
@@ -563,6 +571,7 @@ export default function Canvas({ mode }: Props) {
           <Pipes
             graph={graph}
             runtime={runtime}
+            hiddenNodeIds={hiddenNodeIds}
             onRemove={(id) => {
               removeEdge(id);
               flashDeleted(t("canvas:edgeRemoved"), t("actions.undo"));
@@ -578,6 +587,10 @@ export default function Canvas({ mode }: Props) {
             selectedNodeIds={selectedNodeIds}
             connectFrom={connectFrom}
             onPointerDown={onPlantPointerDown}
+            diagnostics={diagnostics}
+            hiddenNodeIds={hiddenNodeIds}
+            collapsedFans={collapsedFans}
+            onToggleCollapse={toggleLaneCollapse}
           />
           {marquee && (
             <rect

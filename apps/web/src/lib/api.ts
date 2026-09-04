@@ -399,6 +399,15 @@ export interface ContentCostAggregate {
   roi: number;
 }
 
+/** An open-channel publish target (F7-B). */
+export interface PublishTarget {
+  id: string;
+  platform: string;
+  name: string | null;
+  provider: string;
+  config?: { url?: string; token?: string };
+}
+
 export const api = {
   listSkills: () => authFetch("/api/skills").then(json<Skill[]>),
 
@@ -801,6 +810,21 @@ export const api = {
 
   aggregateContentCosts: (groupBy = "artifact_id") =>
     authFetch(`/api/costs?groupBy=${groupBy}`).then(json<ContentCostAggregate[]>),
+
+  listPublishTargets: () => authFetch("/api/publish-targets").then(json<PublishTarget[]>),
+
+  createPublishTarget: (input: { platform: string; name?: string; provider: string; url: string; token?: string }) =>
+    authFetch("/api/publish-targets", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(input),
+    }).then(async (res) => {
+      if (!res.ok) throw new Error(await res.text());
+      return res.json() as Promise<PublishTarget>;
+    }),
+
+  deletePublishTarget: (id: string) =>
+    authFetch(`/api/publish-targets/${id}`, { method: "DELETE" }).then(json<{ ok: boolean }>),
 
   listTriggers: (graphId: string) =>
     authFetch(`/api/graphs/${graphId}/triggers`).then(json<TriggerConfig[]>),
