@@ -405,7 +405,7 @@ export interface PublishTarget {
   platform: string;
   name: string | null;
   provider: string;
-  config?: { url?: string; token?: string };
+  config?: { url?: string; token?: string; metricsSecret?: string };
 }
 
 export const api = {
@@ -813,7 +813,7 @@ export const api = {
 
   listPublishTargets: () => authFetch("/api/publish-targets").then(json<PublishTarget[]>),
 
-  createPublishTarget: (input: { platform: string; name?: string; provider: string; url: string; token?: string }) =>
+  createPublishTarget: (input: { platform: string; name?: string; provider: string; url: string; token?: string; metricsSecret?: string }) =>
     authFetch("/api/publish-targets", {
       method: "POST",
       headers: { "content-type": "application/json" },

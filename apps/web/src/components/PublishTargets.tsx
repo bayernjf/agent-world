@@ -14,7 +14,7 @@ export default function PublishTargets({ open, onClose }: Props) {
   const [targets, setTargets] = useState<PublishTarget[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [form, setForm] = useState({ platform: "", name: "", provider: "webhook", url: "", token: "" });
+  const [form, setForm] = useState({ platform: "", name: "", provider: "webhook", url: "", token: "", metricsSecret: "" });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -52,8 +52,9 @@ export default function PublishTargets({ open, onClose }: Props) {
         provider: form.provider,
         url: form.url,
         token: form.token || undefined,
+        metricsSecret: form.metricsSecret || undefined,
       });
-      setForm({ platform: "", name: "", provider: "webhook", url: "", token: "" });
+      setForm({ platform: "", name: "", provider: "webhook", url: "", token: "", metricsSecret: "" });
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : t("modals:publishTargets.addFailed"));
@@ -121,6 +122,7 @@ export default function PublishTargets({ open, onClose }: Props) {
               <input placeholder={t("modals:publishTargets.name")} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
               <input placeholder={t("modals:publishTargets.urlPh")} value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} />
               <input placeholder={t("modals:publishTargets.token")} value={form.token} onChange={(e) => setForm({ ...form, token: e.target.value })} />
+              <input placeholder={t("modals:publishTargets.metricsSecret")} value={form.metricsSecret} onChange={(e) => setForm({ ...form, metricsSecret: e.target.value })} />
               <button className="btn btn--primary btn--sm" onClick={() => void add()}>
                 {t("common.add")}
               </button>
