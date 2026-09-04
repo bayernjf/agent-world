@@ -3263,6 +3263,75 @@ const auditSamplingGraph = {
   },
 } satisfies GraphTemplate;
 
+const dueDiligenceGraph = {
+  id: "tpl-due-diligence",
+  name: "尽调清单",
+  description: "多份尽调材料 → 逐份解析 → 尽调盘点 → 缺口清单 → 质检",
+  category: "法律合规",
+  graph: {
+    id: "tpl-due-diligence",
+    name: "尽调清单",
+    nodes: [
+      { id: "intake", kind: "source", name: "尽调材料台", x: 80, y: 300 },
+      {
+        id: "parse",
+        kind: "fileParse",
+        name: "材料解析",
+        x: 340,
+        y: 300,
+        fileParse: { maxImages: 5 },
+      },
+      {
+        id: "audit",
+        kind: "textGen",
+        name: "尽调盘点",
+        x: 600,
+        y: 300,
+        textGen: {
+          model: "agnes-2.0-flash",
+          prompt:
+            "你是投资尽调分析师。上游是多份尽调材料（解析后的文本，每份用「===== 文件名 =====」分隔）。逐项检查以下 7 个尽调事项是否在材料中有覆盖：①公司基本信息（工商登记/股权结构）②财务状况（资产负债/利润/现金流）③资产与知识产权 ④重大合同与关联交易 ⑤诉讼与行政处罚 ⑥人力资源（社保/劳动）⑦税务（纳税记录）。每项标注：已覆盖（引用材料原文关键句）/ 缺失 / 不完整。只输出结构化盘点，不得编造材料不存在的信息。",
+          skills: [],
+        },
+      },
+      {
+        id: "gap",
+        kind: "textGen",
+        name: "缺口清单",
+        x: 860,
+        y: 300,
+        textGen: {
+          model: "agnes-2.0-flash",
+          prompt:
+            "你是投资尽调顾问。基于上游的尽调盘点，针对每个「缺失」或「不完整」的事项给出：①需补充的材料清单（具体文件名称）②风险提示（缺失该事项可能隐藏的风险）③优先级（高/中/低）。已覆盖且完整的事项明确说「已核查」。不得虚构上游不存在的缺失项。",
+          skills: [],
+        },
+      },
+      {
+        id: "qc",
+        kind: "gate",
+        name: "质检",
+        x: 1120,
+        y: 300,
+        gate: {
+          maxAttempts: 2,
+          criterion: "尽调盘点覆盖全部 7 个事项、缺口清单针对每个缺失/不完整事项给出具体补充材料与风险提示且无虚构、盘点结论与材料内容一致。",
+          onExhausted: "halt",
+        },
+      },
+      { id: "depot", kind: "sink", name: "尽调清单", x: 1380, y: 300 },
+    ],
+    edges: [
+      { id: "e1", from: "intake", to: "parse", kind: "flow" },
+      { id: "e2", from: "parse", to: "audit", kind: "flow" },
+      { id: "e3", from: "audit", to: "gap", kind: "flow" },
+      { id: "e4", from: "gap", to: "qc", kind: "flow" },
+      { id: "e5", from: "qc", to: "depot", kind: "flow" },
+      { id: "r1", from: "qc", to: "gap", kind: "rework" },
+    ],
+  },
+} satisfies GraphTemplate;
+
 export const TEMPLATES: GraphTemplate[] = [
   productDetailGraph,
   xiaohongshuGraph,
@@ -3296,6 +3365,7 @@ export const TEMPLATES: GraphTemplate[] = [
   invoiceOcrGraph,
   batchContractReviewGraph,
   auditSamplingGraph,
+  dueDiligenceGraph,
 ];
 
 /**

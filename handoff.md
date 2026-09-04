@@ -38,7 +38,7 @@ State of Agent World as of 2026-09-03.
 
 * [docs/feedback-workflow.md](docs/feedback-workflow.md) — owner 怎么高效反馈给我（截图 / computer-use / 防丢）
 
-* [docs/template-checklist.md](docs/template-checklist.md) — 产线模板验证与评估待办表（逐模板真实狗粮验证状态，当前 32 个；**新增模板必登记**，与 core TEMPLATES 数对账）★
+* [docs/template-checklist.md](docs/template-checklist.md) — 产线模板验证与评估待办表（逐模板真实狗粮验证状态，当前 33 个；**新增模板必登记**，与 core TEMPLATES 数对账）★
 
 * [docs/handoff-archive.md](docs/handoff-archive.md) — historical changes (pre-2026-08-27)
 
@@ -174,6 +174,8 @@ State of Agent World as of 2026-09-03.
 27. ✅ **「批量合同审查」模板（tpl-batch-contract-review，2026-09-04）**：专业服务方向法律合规第四个模板（第 31 个业务模板）。结构：source 投多份合同（`=====` 分隔文本）→ code 拆条 → textGen 逐份风险审查（8 维度，扁平风险行 JSON）→ code 汇总清洗 → table 风险汇总按合同号升序 → gate 质检（rework 回审查）。用文本投料 + code 拆分绕开 fileParse 单文档限制，零新节点。已加：core 形状断言（templates.test.ts，模板数 30→31 守护同步）。真实狗粮（完整跑，run `dogfood-batch-contract`）：投 2 份埋风险合同，agnes 精确识别 7 风险点（合同1 四项 + 合同2 三项，severity 分级合理、建议具体）→ table 按合同号升序 → gate 通过 → done。**至此专业服务方向第一档候选全部落地**（法律合规「合同审查/证据清单/隐私合规/批量合同审查」4 个 + 财务审计「报销初审/银行对账/发票 OCR」3 个，共 7 个模板）。
 
 28. ✅ **「审计抽样底稿」模板（tpl-audit-sampling，2026-09-04）**：专业服务方向财务审计第四个模板（第 32 个业务模板）。结构：source 投账目明细（CSV：日期,金额,科目,对方）→ code 抽样规则（大额≥10 万必查 / 重复交易 / 非工作日）→ table 抽样清单按金额降序（展示分支）→ textGen 审计底稿（引用 summary 统计 + 每类核查要点 + 结论建议）→ gate 质检（rework 回 report）。零新节点。已加：core 形状断言（templates.test.ts，模板数 31→32 守护同步）。真实狗粮（完整跑，run `dogfood-audit`）：投 6 笔账目，code 抽样正确（total 6 / sampled 5 / large 1 / duplicate 2 / weekend 3——08-01/08-02/08-08 均为周末），agnes 底稿统计正确、重点行在前、核查要点具体、结论建议合理 → gate 通过 → done。**至此专业服务方向累计 8 个模板**（法律合规 4 + 财务审计 4）。
+
+29. ✅ **fileParse 多文档增强 + 「尽调清单」模板（tpl-due-diligence，2026-09-04）**：① 引擎增强——fileParse 从「只解析第一个文档」改为「解析所有文档」，多文档 text 用 `===== 文件名 =====` 头分隔（单文档路径字节不变、向后兼容），读不到/解析失败的文档跳过并计数；解锁批量合同/尽调场景，更新 engine.fileparse.test.ts 契约（10/10）。② 模板——专业服务方向法律合规第五个模板（第 33 个业务模板）：source 投多份尽调材料 → fileParse 解析所有文档 → textGen 尽调盘点（7 事项：工商/财务/资产/合同/诉讼/人力/税务）→ textGen 缺口清单（补充材料 + 风险提示 + 优先级）→ gate 质检。真实狗粮（聚焦 audit/gap/gate，run `dogfood-dd`）：投 2 份材料，agnes 正确盘点（1 覆盖 + 2 不完整 + 4 缺失）、缺口清单逐项补充；首次 run halted——gate criterion「已覆盖事项引用原文」对「不完整」事项过严（材料本身缺失无法引用）且 rework 回不到 audit，放宽 criterion 后 done。**教训**：criterion 的「引用原文」要求只适用于「已覆盖」事项，对缺失/不完整事项不合理，且 gate 的 rework 只能回最后一段 textGen。至此专业服务方向累计 9 个模板（法律合规 5 + 财务审计 4）。
 
 > 全部缓做/低优事项（含上述两条）已统一登记在 [docs/deferred-items.md](docs/deferred-items.md)——每条带触发条件与决策详情链接，触发条件满足时移回本区并标注重启日期。
 

@@ -32,6 +32,7 @@ board's **新建产线** dialog, or used as a starting point for your own.
 | 法律合规 | `tpl-evidence-brief` | 证据清单整理 |
 | 法律合规 | `tpl-privacy-review` | 隐私政策合规审查 |
 | 法律合规 | `tpl-batch-contract-review` | 批量合同审查 |
+| 法律合规 | `tpl-due-diligence` | 尽调清单 |
 | 财务审计 | `tpl-expense-review` | 费用报销初审 |
 | 财务审计 | `tpl-reconciliation` | 银行流水对账 |
 | 财务审计 | `tpl-invoice-ocr` | 发票批量 OCR 台账 |

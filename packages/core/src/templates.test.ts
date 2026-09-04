@@ -15,7 +15,7 @@ describe("templates", () => {
     // Blank canvas is a creation entry, NOT a business template.
     expect(ids).not.toContain("tpl-blank");
     expect(BLANK_TEMPLATE.id).toBe("tpl-blank");
-    expect(TEMPLATES).toHaveLength(32);
+    expect(TEMPLATES).toHaveLength(33);
   });
 
   it("categories cover every template and every category renders", () => {
@@ -402,6 +402,23 @@ describe("templates", () => {
     expect(steps.some((s) => s.op === "sort" && s.column === "amount" && s.direction === "desc")).toBe(true);
     // Rework reruns the workpaper draft, not the deterministic sampling.
     expect(tpl.graph.edges.some((e) => e.kind === "rework" && e.from === "qc" && e.to === "report")).toBe(true);
+  });
+
+  it("due-diligence template parses multiple materials then drafts a gap checklist", () => {
+    const tpl = getTemplate("tpl-due-diligence")!;
+    expect(tpl, "template tpl-due-diligence should exist").toBeTruthy();
+    const byName = new Map(tpl.graph.nodes.map((n) => [n.name, n]));
+    expect(byName.get("材料解析")?.kind).toBe("fileParse");
+    expect(byName.get("尽调盘点")?.kind).toBe("textGen");
+    expect(byName.get("缺口清单")?.kind).toBe("textGen");
+    expect(byName.get("质检")?.kind).toBe("gate");
+    // The audit prompt must enumerate the 7 due-diligence items.
+    const prompt = (byName.get("尽调盘点")!.textGen as { prompt: string }).prompt;
+    expect(prompt).toContain("7 个尽调事项");
+    expect(prompt).toContain("股权结构");
+    expect(prompt).toContain("关联交易");
+    // Rework reruns the gap draft, not the deterministic parse.
+    expect(tpl.graph.edges.some((e) => e.kind === "rework" && e.from === "qc" && e.to === "gap")).toBe(true);
   });
 
   it("loop template's items ref is rewritten to the fresh split-node id", () => {
