@@ -15,7 +15,7 @@ describe("templates", () => {
     // Blank canvas is a creation entry, NOT a business template.
     expect(ids).not.toContain("tpl-blank");
     expect(BLANK_TEMPLATE.id).toBe("tpl-blank");
-    expect(TEMPLATES).toHaveLength(31);
+    expect(TEMPLATES).toHaveLength(32);
   });
 
   it("categories cover every template and every category renders", () => {
@@ -379,6 +379,29 @@ describe("templates", () => {
     expect(steps.some((s) => s.op === "sort" && s.column === "contractNo" && s.direction === "asc")).toBe(true);
     // Rework reruns the review, not the deterministic split.
     expect(tpl.graph.edges.some((e) => e.kind === "rework" && e.from === "qc" && e.to === "review")).toBe(true);
+  });
+
+  it("audit-sampling template flags large/duplicate/weekend entries then drafts workpapers", () => {
+    const tpl = getTemplate("tpl-audit-sampling")!;
+    expect(tpl, "template tpl-audit-sampling should exist").toBeTruthy();
+    const byName = new Map(tpl.graph.nodes.map((n) => [n.name, n]));
+    expect(byName.get("抽样规则")?.kind).toBe("code");
+    expect(byName.get("抽样清单")?.kind).toBe("table");
+    expect(byName.get("审计底稿")?.kind).toBe("textGen");
+    expect(byName.get("质检")?.kind).toBe("gate");
+    // The sample script must implement all three promised rules.
+    const code = (byName.get("抽样规则")!.code as { code: string }).code;
+    expect(code).toContain("大额必查");
+    expect(code).toContain("重复交易");
+    expect(code).toContain("非工作日");
+    expect(code).toContain("fs.readFileSync(0");
+    expect(code).not.toMatch(/[^."]inputs\./);
+    expect(code).toContain("if (!rows.length)");
+    // Sample table surfaces the largest amounts first.
+    const steps = (byName.get("抽样清单")!.table as { steps: { op: string; column?: string; direction?: string }[] }).steps;
+    expect(steps.some((s) => s.op === "sort" && s.column === "amount" && s.direction === "desc")).toBe(true);
+    // Rework reruns the workpaper draft, not the deterministic sampling.
+    expect(tpl.graph.edges.some((e) => e.kind === "rework" && e.from === "qc" && e.to === "report")).toBe(true);
   });
 
   it("loop template's items ref is rewritten to the fresh split-node id", () => {
