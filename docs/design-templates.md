@@ -15,7 +15,7 @@
 | 能力 | 现状 | 结论 |
 |---|---|---|
 | 模板数据模型 | `GraphTemplate`（id/name/description/category/graph）+ `instantiateTemplate`（节点/边 id 全量重生成，`Graph.parse` 兜底校验）于 core/templates.ts | ✅ 已有 |
-| 内置模板 | 27 个业务模板 + 空白入口（`BLANK_TEMPLATE` 单独导出，不计入 `TEMPLATES.length`） | ✅ 已覆盖营销/数据/写作/办公/开发/法律/财务/运维/客服/教育/生活 |
+| 内置模板 | 33 个业务模板 + 空白入口（`BLANK_TEMPLATE` 单独导出，不计入 `TEMPLATES.length`） | ✅ 已覆盖营销/数据/写作/办公/开发/法律/财务/运维/客服/教育/生活 |
 | 模板 API | `GET /api/templates`（含 slim geometry 缩略图）+ 建图 `template` 参数实例化 | ✅ 已有 |
 | 首启模板选择 | Onboarding.tsx 模板选择器（按分类分组区块 + 卡片 + SVG 预览，直读 core TEMPLATES 免网络往返；空白卡片钉在所有区块之前） | ✅ 已有 |
 | **老用户模板入口** | GraphSwitcher「+ 新建产线」→ NewGraphDialog 模板选择弹窗（共享 TemplatePicker，按分类分组 + 空白钉顶），首启/老用户双入口同一组件 | ✅ 已落地（`ffc34d9`，分组见 §6） |

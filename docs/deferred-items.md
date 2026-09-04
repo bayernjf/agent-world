@@ -83,7 +83,7 @@
 | Inspector 只能填 `langPath`，worker/core 覆盖无入口 | schema 已能接本地路径（`e2781ab`），但 `Inspector.tsx` 的 ocr 区块只有一个语言包输入框 → 普通用户依旧改不了 worker/core（手写 graph JSON 可绕）；Node 下乱填 URL 还会把节点弄回 `ERR_WORKER_PATH`，多两个控件也是多两个坑 | 离线/内网部署真正开工（否则只是给用不上的旋钮加控件） | `apps/web/src/components/Inspector.tsx` ocr 区块 |
 | tesseract 语言包落在 server CWD | 未传 `cachePath`，tesseract.js 按 `${cachePath || "."}/${lang}.traineddata` 写盘（chi_sim 42MB + eng 5MB）——本轮已先 `e77587a` gitignore 挡住误提交；真正修需要定数据目录约定（与 `artifacts/` 同一处）并处理只读 CWD | 部署形态确定（容器/只读工作目录），或 OCR 首次识别因写盘失败直接报错 | `packages/server/src/ocr.ts` 头注释 |
 | Excel 读写 | 纯 JS 方案（SheetJS CE）功能裁剪；CSV + 代码节点可兜底 | 狗粮使用中出现 Excel 文件为主的输入源 | [roadmap-generalization.md Phase 2](roadmap-generalization.md#phase-2数据与文件处理2-3周) |
-| fileParse 一次只解析一个文档 | source.files 可挂多份，但解析车间只读第一个（其余在节点摘要里点名未解析，不静默）；多文件可用多个解析车间或 http 节点兜底 | 狗粮中出现“一条产线同时审多份合同/文档”的真实诉求 | [technical-design.md 节点产物写入规则](technical-design.md) |
+| ~~fileParse 一次只解析一个文档~~ **已修复 2026-09-04（`e813e43`）——「尽调清单」模板触发了真实诉求，当轮就修了** | 原：source.files 可挂多份但解析车间只读第一个。现：fileParse 遍历所有 file artifact、每份都解析，多文档 text 用 `===== 文件名 =====` 头分隔（单文档路径字节不变、向后兼容），读不到/解析失败的文档跳过并计数；`engine.fileparse.test.ts` 契约同步更新（10/10） | 已完成（不再等触发条件） | `packages/server/src/engine.ts` fileParse 节点 + `engine.fileparse.test.ts`「parses every uploaded document」 |
 | HTML→PDF | 纯 JS 无中文排版方案；引入浏览器引擎（playwright）代价过大 | 中文排版需求出现且无法用「截图拼接/截图转 PDF」兜底 | 同上 |
 
 ## 已重启 / 已砍掉
