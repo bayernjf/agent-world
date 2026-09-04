@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { chromium } from "playwright";
 import { launchRpaBrowser, saveSession } from "./browser.js";
 import { registerMetricsAdapter, getMetricsAdapter } from "./index.js";
 import { type MetricsAdapter } from "./adapter.js";
@@ -17,7 +18,13 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-describe("RPA browser lifecycle (F7-C)", () => {
+// These two cases launch a real Chromium. Skip them (rather than fail) when the
+// Playwright browser binary is absent — e.g. a local checkout that only ran
+// `pnpm install` without `playwright install`. CI installs the binary explicitly
+// (see .github/workflows/ci.yml), so they run for real there.
+const chromiumAvailable = !!chromium.executablePath();
+
+describe.skipIf(!chromiumAvailable)("RPA browser lifecycle (F7-C)", () => {
   it("launches chromium and evaluates page content", async () => {
     const rpa = await launchRpaBrowser({ headless: true });
     try {
