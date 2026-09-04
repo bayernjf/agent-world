@@ -30,7 +30,13 @@ board's **新建产线** dialog, or used as a starting point for your own.
 | 开发集成 | `tpl-code-review` | 代码审查助手 |
 | 法律合规 | `tpl-contract-review` | 合同审查助手 |
 | 法律合规 | `tpl-evidence-brief` | 证据清单整理 |
+| 法律合规 | `tpl-privacy-review` | 隐私政策合规审查 |
+| 法律合规 | `tpl-batch-contract-review` | 批量合同审查 |
+| 法律合规 | `tpl-due-diligence` | 尽调清单 |
 | 财务审计 | `tpl-expense-review` | 费用报销初审 |
+| 财务审计 | `tpl-reconciliation` | 银行流水对账 |
+| 财务审计 | `tpl-invoice-ocr` | 发票批量 OCR 台账 |
+| 财务审计 | `tpl-audit-sampling` | 审计抽样底稿 |
 | IT 运维 | `tpl-patrol-alert` | 定时巡检告警 |
 | 客户服务 | `tpl-customer-service` | 客服工单自动处理 |
 | 教育 | `tpl-course-outline` | 课程大纲生成 |

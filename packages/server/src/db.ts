@@ -2319,6 +2319,21 @@ export function openDb(file: string) {
       return r.changes > 0;
     },
 
+    /** Cross-user lookup for the metrics webhook (no session user in an inbound webhook). */
+    getPublishTarget(id: string): (PublishTarget & { userId: string }) | null {
+      const r = db.prepare(`SELECT * FROM publish_targets WHERE id = ?`).get(id) as Record<string, unknown> | undefined;
+      if (!r) return null;
+      return {
+        id: String(r.id),
+        userId: String(r.user_id),
+        platform: String(r.platform),
+        name: r.name ? String(r.name) : null,
+        provider: String(r.provider),
+        configEncrypted: String(r.config_encrypted),
+        createdAt: Number(r.created_at),
+      };
+    },
+
     insertPublishedContent(input: {
       id: string;
       userId: string;

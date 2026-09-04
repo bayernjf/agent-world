@@ -315,19 +315,28 @@ describe("fileParse node — uploaded document on the source node", () => {
     expect(failed?.error).toContain("没有产出文件产物");
   });
 
-  it("names the documents it leaves unparsed instead of dropping them quietly", async () => {
+  it("parses every uploaded document instead of dropping all but the first", async () => {
     const store = artifactStore();
     const dataUri = `data:application/pdf;base64,${pdfBytes().toString("base64")}`;
     store.seed(UPLOAD_URI, dataUri);
     store.seed("/api/artifacts/up-contract02", dataUri);
 
     const events = await collect(
-      graphWithSource([UPLOADED_PDF, { ...UPLOADED_PDF, uri: "/api/artifacts/up-contract02" }]),
+      graphWithSource([
+        UPLOADED_PDF,
+        { ...UPLOADED_PDF, uri: "/api/artifacts/up-contract02", label: "供货合同-2026b.pdf" },
+      ]),
       store,
     );
 
+    expect(replay(events).status).toBe("done");
+    const text = artifactsOf(events, "fp").find((a) => a.kind === "text")?.content ?? "";
+    // Both documents' text is present, separated by a per-file header.
+    expect(text).toContain("===== 供货合同-2026.pdf =====");
+    expect(text).toContain("===== 供货合同-2026b.pdf =====");
+    expect(text.split("Hello PDF World from Agent World").length - 1).toBe(2);
     const finished = events.find((e) => e.type === "node.finished" && e.nodeId === "fp");
-    expect(finished?.output).toContain("另有 1 个文档未解析");
+    expect(finished?.output).toContain("2 个文档");
   });
 });
 

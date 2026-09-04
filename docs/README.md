@@ -48,11 +48,13 @@
 | [design-templates.md](design-templates.md) | 产线模板体系增强设计（老用户入口 / 覆盖面 / 参数化 / 分类分组展示 / 市场缓做决策） | 开发者 |
 | [design-versions.md](design-versions.md) | 产线版本管理补强设计（自动快照 / 恢复预览 / run 关联 / diff 缓做决策） | 开发者 |
 | [design-glossary.md](design-glossary.md) | 术语对照表：标准术语 ⇄ Agent World 游戏化用词（本体论单一事实源） | 产品 / 开发者 |
-| [examples.md](examples.md) | 27 个可直接套用的产线模板（+ 1 个空白产线入口） | 新用户 |
+| [examples.md](examples.md) | 33 个可直接套用的产线模板（+ 1 个空白产线入口） | 新用户 |
 | [template-checklist.md](template-checklist.md) | 产线模板验证与评估待办表（逐模板真实狗粮验证状态；新增模板必登记）★ | 开发者 / 使用者 |
 | [extending.md](extending.md) | 如何扩展：Worker / Connector / Skill / Trigger / 节点 | 开发者 |
 | [product-content-roadmap.md](product-content-roadmap.md) | 内容线（淘宝 / 小红书图文）专项规划 | 产品 |
-| [design-ecommerce-roadmap.md](design-ecommerce-roadmap.md) | 自媒体电商方向能力升级方案（F1-F10：run 内多变体择优引擎 / 审核队列 / 平台合规 / 商品库 / 批量 / 发布闭环；待启动） | 产品 / 开发者 |
+| [product-industry-roi.md](product-industry-roi.md) | 行业 ROI 评估：多 agent 流水编排的切入方向排序（专业服务 = 交集最优）+ 垂直模板候选清单 | 产品 / 决策者 |
+| [design-ecommerce-roadmap.md](design-ecommerce-roadmap.md) | 自媒体电商方向能力升级方案（F1-F10：run 内多变体择优引擎 / 审核队列 / 平台合规 / 商品库 / 批量 / 发布闭环；**已全部落地**） | 产品 / 开发者 |
+| [rpa-readback-onboarding.md](rpa-readback-onboarding.md) | RPA 回读真实环境接入清单（框架已落地，选择器待真实账号逆向） | 开发者 |
 | [feedback-workflow.md](feedback-workflow.md) | 用户如何高效反馈给 AI（截图 / computer-use / 防丢） | 用户 |
 
 ### 历史（决策记录，保留参考，勿据此实现）

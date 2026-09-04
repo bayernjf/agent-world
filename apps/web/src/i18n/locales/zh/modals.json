@@ -358,6 +358,7 @@
     "url": "目标地址",
     "urlPh": "Webhook URL（如 https://your-mid-tier.example.com/publish）",
     "token": "访问令牌（可选）",
+    "metricsSecret": "效果回流密钥（用于外部回传效果数据）",
     "addHint": "新增渠道",
     "missingFields": "平台与目标地址不能为空",
     "addFailed": "新增渠道失败",

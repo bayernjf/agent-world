@@ -411,6 +411,57 @@ describe("regression · engine core path", () => {
     expect(sorted.slice(0, 2).map((r) => r.amount).sort((a, b) => a - b)).toEqual([1520, 2200]);
   });
 
+  it("reconciliation template runs end to end: pairwise match → difference table sorted → gate pass", async () => {
+    // The accounting line, second template: two ledgers (bank vs book) are
+    // paired by date+amount in a real code-node sandbox; mismatches become a
+    // table sorted by amount, and the report/gate read the pairing summary.
+    const t = TEMPLATES.find((x: { id: string }) => x.id === "tpl-reconciliation")!;
+    const graph = instantiateTemplate(t);
+    const { plan } = compile(graph)!;
+    const worker = fakeWorker({ failFirstAttempts: 0, chunkDelayMs: 0 });
+
+    // 3 bank lines + 3 book lines; two match exactly (08-01 100 / 08-05 200),
+    // one bank-only (08-02 50) and one book-only (08-03 30).
+    const input = [
+      "银行流水",
+      "2026-08-01 100.00 收款A",
+      "2026-08-02 50.00 付款B",
+      "2026-08-05 200.00 收款C",
+      "企业账簿",
+      "2026-08-01 100.00 收款A",
+      "2026-08-03 30.00 付款D",
+      "2026-08-05 200.00 收款C",
+    ].join("\n");
+
+    const events = await drain(
+      execute({ runId: "r-rec", graph, plan: plan!, worker, budgetUsd: null, input, now: () => 0, sleep: backoffSleep }),
+    );
+
+    expect(replay(events).status).toBe("done");
+    const recId = graph.nodes.find((n) => n.name === "逐笔配对")?.id;
+    const recArtifact = events.find(
+      (e) => e.type === "artifact.produced" && e.nodeId === recId && e.artifact.kind === "json",
+    )?.artifact;
+    expect(recArtifact).toBeTruthy();
+    const rec = JSON.parse(recArtifact.content) as {
+      rows: { side: string; amount: string; amountNum: number }[];
+      summary: { bankCount: number; bookCount: number; matchedCount: number; diffCount: number };
+    };
+    expect(rec.summary).toEqual({ bankCount: 3, bookCount: 3, matchedCount: 2, diffCount: 2 });
+    expect(rec.rows.map((r) => r.side).sort()).toEqual(["账有、银行无", "银行有、账无"]);
+    expect(rec.rows.find((r) => r.amount === "50.00")?.side).toBe("银行有、账无");
+    expect(rec.rows.find((r) => r.amount === "30.00")?.side).toBe("账有、银行无");
+
+    // Table sorts differences by amount descending (numeric-aware, 50 > 30).
+    const tableId = graph.nodes.find((n) => n.name === "差异清单")?.id;
+    const tableArtifact = events.find(
+      (e) => e.type === "artifact.produced" && e.nodeId === tableId && e.artifact.kind === "json",
+    )?.artifact;
+    expect(tableArtifact).toBeTruthy();
+    const sorted = JSON.parse(tableArtifact.content).rows as { amountNum: number }[];
+    expect(sorted.map((r) => r.amountNum)).toEqual([50, 30]);
+  });
+
   it("recipe template runs end to end: the gate and the sink keep the full recipe, not only the nutrition JSON", async () => {
     // Dogfood tpl-recipe, two layers: (1) the nutrition code node used to
     // print only its JSON, so the gate judged the JSON alone and halted;
