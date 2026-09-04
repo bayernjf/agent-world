@@ -3012,6 +3012,126 @@ const invoiceOcrGraph = {
   },
 } satisfies GraphTemplate;
 
+const batchContractReviewGraph = {
+  id: "tpl-batch-contract-review",
+  name: "批量合同审查",
+  description: "多份合同（===== 分隔）→ 拆条 → 逐份风险审查 → 风险汇总表 → 质检",
+  category: "法律合规",
+  graph: {
+    id: "tpl-batch-contract-review",
+    name: "批量合同审查",
+    nodes: [
+      { id: "intake", kind: "source", name: "合同投料台", x: 80, y: 300 },
+      {
+        id: "split",
+        kind: "code",
+        name: "拆条",
+        x: 340,
+        y: 300,
+        code: {
+          language: "javascript",
+          code: [
+            '// 读取引擎注入的 inputs（code 节点把上游数据 JSON 写到 stdin）',
+            'const fs = require("fs");',
+            "let raw = '';",
+            "try {",
+            '  const inputs = JSON.parse(fs.readFileSync(0, "utf8")).inputs ?? {};',
+            "  raw = String(Object.values(inputs)[0] ?? '').trim();",
+            "} catch (e) { raw = ''; }",
+            '// 多份合同用「=====」分隔，拆成一个待审查条目数组',
+            "var parts = raw.split(/={5,}/).map(function (s) { return s.trim(); }).filter(Boolean);",
+            "var items = parts.map(function (text, i) { return { id: i + 1, text: text }; });",
+            '// 保证至少一份（没拆到也给一份占位）',
+            "if (!items.length) items = [{ id: 1, text: raw || '（未粘贴合同文本）' }];",
+            "console.log(JSON.stringify({ items: items }));",
+          ].join("\n"),
+        },
+      },
+      {
+        id: "review",
+        kind: "textGen",
+        name: "逐份审查",
+        x: 600,
+        y: 300,
+        textGen: {
+          model: "agnes-2.0-flash",
+          prompt:
+            "你是合同风险审查律师。上游是拆条后的多份合同（JSON 数组 items，每项含 id 和 text 全文）。逐份审查每份合同的风险点：①权利义务不对等 ②违约责任过重或缺失 ③争议解决条款不利 ④保密条款过宽 ⑤知识产权归属不清 ⑥付款条件苛刻 ⑦解除合同限制过多 ⑧不可抗力范围不合理。输出严格 JSON 数组，每个风险一行：[{\"contractNo\":数字,\"dimension\":\"...\",\"severity\":\"高|中|低\",\"description\":\"...\",\"suggestion\":\"...\"}]。无风险的合同不产出风险行。只输出 JSON，不得编造。",
+          skills: [],
+        },
+      },
+      {
+        id: "rows",
+        kind: "code",
+        name: "汇总清洗",
+        x: 860,
+        y: 300,
+        code: {
+          language: "javascript",
+          code: [
+            '// 读取引擎注入的 inputs',
+            'const fs = require("fs");',
+            "let raw = '';",
+            "try {",
+            '  const inputs = JSON.parse(fs.readFileSync(0, "utf8")).inputs ?? {};',
+            "  raw = String(Object.values(inputs)[0] ?? '').trim();",
+            "} catch (e) { raw = ''; }",
+            '// 提取 JSON 数组（textGen 输出可能带 markdown 代码块）',
+            "var rows = [];",
+            "var m = raw.match(/\\[[\\s\\S]*\\]/);",
+            "if (m) {",
+            "  try {",
+            "    var arr = JSON.parse(m[0]);",
+            "    if (Array.isArray(arr)) rows = arr;",
+            "  } catch (e) { rows = []; }",
+            "}",
+            '// 表格节点要求至少一行',
+            "if (!rows.length) {",
+            '  rows = [{ contractNo: 0, dimension: "", severity: "", description: "未识别到风险", suggestion: "" }];',
+            "}",
+            "console.log(JSON.stringify({ rows: rows }));",
+          ].join("\n"),
+        },
+      },
+      {
+        id: "summary",
+        kind: "table",
+        name: "风险汇总",
+        x: 1120,
+        y: 300,
+        table: {
+          steps: [
+            { op: "sort", column: "contractNo", direction: "asc" },
+            { op: "output", format: "json" },
+          ],
+        },
+      },
+      {
+        id: "qc",
+        kind: "gate",
+        name: "质检",
+        x: 1380,
+        y: 300,
+        gate: {
+          maxAttempts: 2,
+          criterion: "风险审查覆盖投料的每一份合同、风险维度与严重程度合理、每条风险有可落地的修改建议、无虚构合同。",
+          onExhausted: "halt",
+        },
+      },
+      { id: "depot", kind: "sink", name: "风险清单", x: 1640, y: 300 },
+    ],
+    edges: [
+      { id: "e1", from: "intake", to: "split", kind: "flow" },
+      { id: "e2", from: "split", to: "review", kind: "flow" },
+      { id: "e3", from: "review", to: "rows", kind: "flow" },
+      { id: "e4", from: "rows", to: "summary", kind: "flow" },
+      { id: "e5", from: "summary", to: "qc", kind: "flow" },
+      { id: "e6", from: "qc", to: "depot", kind: "flow" },
+      { id: "r1", from: "qc", to: "review", kind: "rework" },
+    ],
+  },
+} satisfies GraphTemplate;
+
 export const TEMPLATES: GraphTemplate[] = [
   productDetailGraph,
   xiaohongshuGraph,
@@ -3043,6 +3163,7 @@ export const TEMPLATES: GraphTemplate[] = [
   reconciliationGraph,
   privacyReviewGraph,
   invoiceOcrGraph,
+  batchContractReviewGraph,
 ];
 
 /**

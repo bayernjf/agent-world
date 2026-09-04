@@ -38,7 +38,7 @@ State of Agent World as of 2026-09-03.
 
 * [docs/feedback-workflow.md](docs/feedback-workflow.md) — owner 怎么高效反馈给我（截图 / computer-use / 防丢）
 
-* [docs/template-checklist.md](docs/template-checklist.md) — 产线模板验证与评估待办表（逐模板真实狗粮验证状态，当前 30 个；**新增模板必登记**，与 core TEMPLATES 数对账）★
+* [docs/template-checklist.md](docs/template-checklist.md) — 产线模板验证与评估待办表（逐模板真实狗粮验证状态，当前 31 个；**新增模板必登记**，与 core TEMPLATES 数对账）★
 
 * [docs/handoff-archive.md](docs/handoff-archive.md) — historical changes (pre-2026-08-27)
 
@@ -170,6 +170,8 @@ State of Agent World as of 2026-09-03.
 25. ✅ **「隐私政策合规审查」模板（tpl-privacy-review，2026-09-04）**：专业服务方向法律合规第三个模板（第 29 个业务模板）。结构：source 投料隐私政策 → fileParse 解析 → textGen 合规盘点（11 维度：PII 披露/同意/第三方共享/用户权利/保留期限/安全/跨境/未成年人/联系方式/更新通知）→ textGen 整改建议（缺失维度 + 风险分级）→ gate 风险门禁（rework 边回 fix）→ human 人工确认 → sink。复用 contract-review 的 fileParse + 双 textGen + gate + human 结构，零新节点；合规条款覆盖是**模型判断**（区别于 compliance 节点的广告法极限词确定性规则）。已加：core 形状断言（templates.test.ts，模板数 28→29 守护同步）。真实狗粮（engine 层聚焦 audit/fix/gate 真实调用 agnes，run `dogfood-privacy`）：投料故意缺失多维度的隐私政策（仅 3 条），agnes 精确盘点 11 维度（2 覆盖 + 1 不完整「第三方共享只声明不出售」+ 7 缺失、均引用原文），整改建议逐维度带整改建议 + 风险等级（高/中）+ 法律依据（个保法/GDPR 具体条款）+ 合规优先级汇总 → gate 通过 → done。fileParse/human 集成由 contract-review 真实狗粮覆盖。
 
 26. ✅ **「发票批量 OCR 台账」模板（tpl-invoice-ocr，2026-09-04）**：专业服务方向财务审计第三个模板（第 30 个业务模板）。结构：source 投发票图片（source.images）→ ocr（chi_sim+eng）识别 → textGen 字段提取（发票号/日期/抬头/销售方/价税合计/税额/税率，严格 JSON 数组）→ code 台账清洗（正则提取 JSON 数组、保证至少一行）→ table 发票台账按日期升序 → sink。零新节点（ocr + textGen + code + table）。已加：core 形状断言（templates.test.ts，模板数 29→30 守护同步）。真实狗粮（engine 层聚焦 extract/code/table，跳过 OCR——OCR 由 scan-ocr 已覆盖，run `dogfood-invoice`）：投 2 张发票模拟 OCR 文字，agnes 精确提取 7 字段（金额 1130/226、税额 130/26 正确）→ code 清洗 → table 台账按日期升序 → done。**发现 table 通用局限**：`coerce` 把纯数字字符串转 number，发票号「044001900111」前导 0 在台账展示时丢失（extract/rows 阶段仍保留字符串），标识符列前导 0 敏感场景待定。
+
+27. ✅ **「批量合同审查」模板（tpl-batch-contract-review，2026-09-04）**：专业服务方向法律合规第四个模板（第 31 个业务模板）。结构：source 投多份合同（`=====` 分隔文本）→ code 拆条 → textGen 逐份风险审查（8 维度，扁平风险行 JSON）→ code 汇总清洗 → table 风险汇总按合同号升序 → gate 质检（rework 回审查）。用文本投料 + code 拆分绕开 fileParse 单文档限制，零新节点。已加：core 形状断言（templates.test.ts，模板数 30→31 守护同步）。真实狗粮（完整跑，run `dogfood-batch-contract`）：投 2 份埋风险合同，agnes 精确识别 7 风险点（合同1 四项 + 合同2 三项，severity 分级合理、建议具体）→ table 按合同号升序 → gate 通过 → done。**至此专业服务方向第一档候选全部落地**（法律合规「合同审查/证据清单/隐私合规/批量合同审查」4 个 + 财务审计「报销初审/银行对账/发票 OCR」3 个，共 7 个模板）。
 
 > 全部缓做/低优事项（含上述两条）已统一登记在 [docs/deferred-items.md](docs/deferred-items.md)——每条带触发条件与决策详情链接，触发条件满足时移回本区并标注重启日期。
 

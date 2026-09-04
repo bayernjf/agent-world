@@ -15,7 +15,7 @@ describe("templates", () => {
     // Blank canvas is a creation entry, NOT a business template.
     expect(ids).not.toContain("tpl-blank");
     expect(BLANK_TEMPLATE.id).toBe("tpl-blank");
-    expect(TEMPLATES).toHaveLength(30);
+    expect(TEMPLATES).toHaveLength(31);
   });
 
   it("categories cover every template and every category renders", () => {
@@ -355,6 +355,30 @@ describe("templates", () => {
     expect(code).toContain("fs.readFileSync(0");
     expect(code).not.toMatch(/[^."]inputs\./);
     expect(code).toContain("if (!rows.length)");
+  });
+
+  it("batch-contract-review template splits multiple contracts then aggregates risks", () => {
+    const tpl = getTemplate("tpl-batch-contract-review")!;
+    expect(tpl, "template tpl-batch-contract-review should exist").toBeTruthy();
+    const byName = new Map(tpl.graph.nodes.map((n) => [n.name, n]));
+    expect(byName.get("拆条")?.kind).toBe("code");
+    expect(byName.get("逐份审查")?.kind).toBe("textGen");
+    expect(byName.get("汇总清洗")?.kind).toBe("code");
+    expect(byName.get("风险汇总")?.kind).toBe("table");
+    expect(byName.get("质检")?.kind).toBe("gate");
+    // Split uses the ===== separator to divide multiple contracts.
+    const splitCode = (byName.get("拆条")!.code as { code: string }).code;
+    expect(splitCode).toContain("={5,}");
+    expect(splitCode).toContain("if (!items.length)");
+    // Review emits a flat risk-row JSON array keyed by contractNo.
+    const prompt = (byName.get("逐份审查")!.textGen as { prompt: string }).prompt;
+    expect(prompt).toContain("contractNo");
+    expect(prompt).toContain("severity");
+    // Summary sorts by contractNo ascending.
+    const steps = (byName.get("风险汇总")!.table as { steps: { op: string; column?: string; direction?: string }[] }).steps;
+    expect(steps.some((s) => s.op === "sort" && s.column === "contractNo" && s.direction === "asc")).toBe(true);
+    // Rework reruns the review, not the deterministic split.
+    expect(tpl.graph.edges.some((e) => e.kind === "rework" && e.from === "qc" && e.to === "review")).toBe(true);
   });
 
   it("loop template's items ref is rewritten to the fresh split-node id", () => {
