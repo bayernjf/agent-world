@@ -12,7 +12,7 @@
 
 - **阶段 2.2（NodeRunContext + nodes/ 目录）**：`runScheduler` 构建单一 `NodeRunContext`（`nodes/types.ts`），把阶段 2.1 的全部闭包状态显式化——Maps/函数直接挂载，可变标量（status/running/aborted/finished/haltNodeId/haltReason/totalCostUsd/budgetWarned/monthlyWarned80/100）经 getter/setter 与调度器本地变量双向绑定，`runScheduler`/`runNode` 递归入口经 ctx 注入（无模块环依赖的运行时引用）。节点执行体全部迁至 `packages/server/src/nodes/`（28 个 `<kind>.ts` + `types.ts` + `shared.ts` 纯函数集），`runNode` 退化为 `NODE_HANDLERS` 注册表分发器（未知 kind 回落 textGen handler，与旧 if 链一致；notify 仍内联）。`engine.ts` 4954 → **1828 行**（-63%），每批迁移 `typecheck` + 全量 server 测试 **747/747** 全绿，原子 commit 9 个（`e89c30d`→`d379b93`）。
 
-**进行中**：阶段 3（接口实现风格收敛约定，可延后）。
+**收尾**：阶段 3（接口实现风格收敛约定）**已标记延后（低价值纯文档项，验收风险不在它，见 §7 实施顺序注记）**；真正关掉重构风险敞口的是回归实跑验证。
 
 ## 1. 摘要
 
@@ -217,7 +217,7 @@ for (const node of ready) {
 
 **为什么风险高、为什么仍值得**：改的是核心执行引擎，但有 671 个 server 测试（含 9 波狗粮修出的静默失败、fan-in、error 边等回归）做安全网。两步走 + 每步全绿，风险可控。
 
-**验收**：server 671+ 全绿 + `test:regression` 复跑 + 浏览器真跑一条产线确认行为不变。
+**验收**：server 747/747 全绿 + `test:regression` **18/18 复跑通过**（2026-09-04 重构完成后）——rlimit code 沙箱端到端模板执行（evidence-brief / expense-review / reconciliation / recipe split→table→gate 均真实跑通）+ error 边 + resume + 静态加密。行为不变验收达成。
 
 ### 阶段 3 —— 统一接口实现风格（顺手，可延后）
 
@@ -244,11 +244,14 @@ for (const node of ready) {
 
 ```
 阶段 0 收口（CI 绿 + 基线锁定）
-  → 阶段 1 拆 Inspector（低风险，立范本）
-  → 阶段 2.1 收敛 runNode 样板（机械提取）
-  → 阶段 2.2 抽 NodeRunContext 搬节点文件
-  → 阶段 3 定风格约定（文档，可延后）
+  → 阶段 1 拆 Inspector（低风险，立范本）✅
+  → 阶段 2.1 收敛 runNode 样板（机械提取）✅
+  → 阶段 2.2 抽 NodeRunContext 搬节点文件 ✅
+  → 回归实跑验证（重构后行为不变的验收，见 §验收）✅
+  → 阶段 3 定风格约定（文档，可延后）——暂不推进
 ```
+
+> **阶段 3 暂不推进**：纯文档「风格约定」项，不产功能、不可测、价值低；真正的重构风险在「静默行为变化」，已由回归实跑验证覆盖。何时值得回头：后续大量新增节点类型、多人协作风格失控时，再把约定落进 `AGENTS.md`（而非独立文档）。
 
 ## 8. 非目标（明确不做）
 
