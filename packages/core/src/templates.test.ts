@@ -15,7 +15,7 @@ describe("templates", () => {
     // Blank canvas is a creation entry, NOT a business template.
     expect(ids).not.toContain("tpl-blank");
     expect(BLANK_TEMPLATE.id).toBe("tpl-blank");
-    expect(TEMPLATES).toHaveLength(28);
+    expect(TEMPLATES).toHaveLength(29);
   });
 
   it("categories cover every template and every category renders", () => {
@@ -313,6 +313,24 @@ describe("templates", () => {
     expect(code).toContain("账有、银行无");
     // Table nodes error on empty rows; the script must guarantee at least one row.
     expect(code).toContain("if (!rows.length)");
+  });
+
+  it("privacy-review template chains parse → compliance audit → fix → gate rework", () => {
+    const tpl = getTemplate("tpl-privacy-review")!;
+    expect(tpl, "template tpl-privacy-review should exist").toBeTruthy();
+    const byName = new Map(tpl.graph.nodes.map((n) => [n.name, n]));
+    expect(byName.get("政策解析")?.kind).toBe("fileParse");
+    expect(byName.get("合规盘点")?.kind).toBe("textGen");
+    expect(byName.get("整改建议")?.kind).toBe("textGen");
+    expect(byName.get("风险门禁")?.kind).toBe("gate");
+    expect(byName.get("人工确认")?.kind).toBe("human");
+    // Rework reruns the fix draft, not the deterministic parse.
+    expect(tpl.graph.edges.some((e) => e.kind === "rework" && e.from === "gate" && e.to === "fix")).toBe(true);
+    // The audit prompt must enumerate the full 11-dimension checklist.
+    const auditPrompt = (byName.get("合规盘点")!.textGen as { prompt: string }).prompt;
+    expect(auditPrompt).toContain("11 个合规维度");
+    expect(auditPrompt).toContain("第三方共享");
+    expect(auditPrompt).toContain("数据保留期限");
   });
 
   it("loop template's items ref is rewritten to the fresh split-node id", () => {

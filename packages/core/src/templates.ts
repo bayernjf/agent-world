@@ -2843,6 +2843,86 @@ const reconciliationGraph = {
   },
 } satisfies GraphTemplate;
 
+const privacyReviewGraph = {
+  id: "tpl-privacy-review",
+  name: "隐私政策合规审查",
+  description: "隐私政策/用户协议 → 合规条款盘点 → 整改建议 → 风险门禁 → 人工确认 → 报告",
+  category: "法律合规",
+  graph: {
+    id: "tpl-privacy-review",
+    name: "隐私政策合规审查",
+    nodes: [
+      { id: "intake", kind: "source", name: "隐私政策文件", x: 80, y: 300 },
+      {
+        id: "parse",
+        kind: "fileParse",
+        name: "政策解析",
+        x: 340,
+        y: 300,
+        fileParse: { maxImages: 5 },
+      },
+      {
+        id: "audit",
+        kind: "textGen",
+        name: "合规盘点",
+        x: 600,
+        y: 300,
+        textGen: {
+          model: "agnes-2.0-flash",
+          prompt:
+            "你是数据合规专家。阅读隐私政策/用户协议文本，逐条检查以下 11 个合规维度是否覆盖：①收集的个人信息类型 ②收集目的与使用方式 ③第三方共享/委托处理 ④用户同意与撤回机制 ⑤用户权利（访问/更正/删除/注销）⑥数据保留期限 ⑦数据安全措施 ⑧跨境数据传输 ⑨未成年人保护 ⑩联系方式（隐私负责人）⑪政策更新通知。每个维度标注：已覆盖（引用原文关键句）/ 缺失 / 不完整（说明缺什么）。只输出结构化盘点，不得编造原文不存在的条款。",
+          skills: [],
+        },
+      },
+      {
+        id: "fix",
+        kind: "textGen",
+        name: "整改建议",
+        x: 860,
+        y: 300,
+        textGen: {
+          model: "agnes-2.0-flash",
+          prompt:
+            "你是数据合规顾问。基于上游的合规条款盘点，针对每个「缺失」或「不完整」的维度给出：①整改建议（具体可落地的条款表述方向）②风险等级（高/中/低，依据是否触及个保法/GDPR 等法规）③建议新增条款的位置。已覆盖且完整的维度明确说「已合规」。不得虚构上游不存在的缺失项。",
+          skills: [],
+        },
+      },
+      {
+        id: "gate",
+        kind: "gate",
+        name: "风险门禁",
+        x: 1120,
+        y: 300,
+        gate: {
+          maxAttempts: 2,
+          criterion: "合规盘点覆盖全部 11 个维度、整改建议针对每个缺失/不完整维度且无虚构、风险等级合理、已覆盖维度引用原文关键句。",
+          onExhausted: "halt",
+        },
+      },
+      {
+        id: "humanConfirm",
+        kind: "human",
+        name: "人工确认",
+        x: 1380,
+        y: 300,
+        human: {
+          prompt: "请审阅隐私合规审查报告：确认条款盘点是否准确、整改建议是否可行。通过则确认；如需调整请直接编辑；有遗漏可驳回补充审查。",
+        },
+      },
+      { id: "depot", kind: "sink", name: "审查报告", x: 1640, y: 300 },
+    ],
+    edges: [
+      { id: "e1", from: "intake", to: "parse", kind: "flow" },
+      { id: "e2", from: "parse", to: "audit", kind: "flow" },
+      { id: "e3", from: "audit", to: "fix", kind: "flow" },
+      { id: "e4", from: "fix", to: "gate", kind: "flow" },
+      { id: "e5", from: "gate", to: "humanConfirm", kind: "flow" },
+      { id: "e6", from: "humanConfirm", to: "depot", kind: "flow" },
+      { id: "r1", from: "gate", to: "fix", kind: "rework" },
+    ],
+  },
+} satisfies GraphTemplate;
+
 export const TEMPLATES: GraphTemplate[] = [
   productDetailGraph,
   xiaohongshuGraph,
@@ -2872,6 +2952,7 @@ export const TEMPLATES: GraphTemplate[] = [
   evidenceBriefGraph,
   expenseReviewGraph,
   reconciliationGraph,
+  privacyReviewGraph,
 ];
 
 /**

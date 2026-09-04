@@ -38,7 +38,7 @@ State of Agent World as of 2026-09-03.
 
 * [docs/feedback-workflow.md](docs/feedback-workflow.md) — owner 怎么高效反馈给我（截图 / computer-use / 防丢）
 
-* [docs/template-checklist.md](docs/template-checklist.md) — 产线模板验证与评估待办表（逐模板真实狗粮验证状态，当前 28 个；**新增模板必登记**，与 core TEMPLATES 数对账）★
+* [docs/template-checklist.md](docs/template-checklist.md) — 产线模板验证与评估待办表（逐模板真实狗粮验证状态，当前 29 个；**新增模板必登记**，与 core TEMPLATES 数对账）★
 
 * [docs/handoff-archive.md](docs/handoff-archive.md) — historical changes (pre-2026-08-27)
 
@@ -166,6 +166,8 @@ State of Agent World as of 2026-09-03.
 23. ✅ **状态机方案 A 验证（2026-09-04）**：确认「variables + branch 组合」足以表达状态机，无需新节点类型。新增 `packages/server/src/engine.statemachine.test.ts`（2 例）——构造订单状态机（待支付→已支付→已发货→已完成），用 graph variables 跨 run 持久（`graph.variables` 默认值 + `db.loadGraphVariables` 合并 → engine `set_variable`/`get_variable` 内置工具推进 → run 结束 `db.saveGraphVariables` 写回）+ branch 按 `${var.orderState}` 路由。验证：① 订单状态跨 4 次 run 逐步推进、未路由分支正确发 `node.skipped`、终态走 `defaultTarget` 不再迁移；② 无持久化值时从图级默认状态起步。**结论**：方案 A 可用，状态机无需一等节点。**方案 B（正式 `statemachine` 节点：core `StateMachineConfig` + 编译期迁移校验 + engine 执行块 + web 表单）已登记 [deferred-items 编排线](docs/deferred-items.md)**，触发条件：非法迁移在画布拦不住 / 状态流转图不可见 / branch 规则随状态增多膨胀。
 
 24. ✅ **「银行流水对账」模板（tpl-reconciliation，2026-09-04）**：按 [product-industry-roi.md](docs/product-industry-roi.md) 的「专业服务高 ROI 切入」落地，财务审计第二个模板（第 28 个业务模板）。结构：source 投料两段流水（`银行流水`/`企业账簿` 标记分段，每行 `日期 金额 摘要`）→ code 逐笔配对（date+amount 键，两侧差异分「银行有、账无」/「账有、银行无」）→ table 差异清单按金额降序（数值感知 `amountNum` 列）→ textGen 对账报告（引用 summary 统计、不得编造）→ gate 质检（rework 边回 report）。纯确定性 code + 零外部凭证。已加：core 形状断言（templates.test.ts，模板数 27→28 守护同步）+ 引擎级执行用例（regression/core-path.test.ts：3 银 + 3 账、2 匹配 2 差异、排序 50>30）+ template-checklist 登记（⬜ 待真实狗粮）。验证：core templates 22/22、server regression 18/18（**需 `NODE_OPTIONS=` 清空**——code 节点沙箱在 IDE 内与 Node 24 `--permission` 冲突）。**真实狗粮已跑通（engine 层真实调用 agnes，run `dogfood-rec`）**：agnes key 经仓库根 `.env` 的 `AGNES_API_KEY` 注入（`load-env.ts` 在 `index.ts` 首位 `import` 自动加载到 `process.env`，`ps eww` 看不到属正常——`process.loadEnvFile` 只更新内存对象），3 银 + 3 账 → 2 匹配 2 差异 → agnes 真实产出对账报告（总览统计 3/3/2/2、差异明细按金额降序 50>30、每条差异带排查建议、结论「存在差异」）→ gate 通过 → done。
+
+25. ✅ **「隐私政策合规审查」模板（tpl-privacy-review，2026-09-04）**：专业服务方向法律合规第三个模板（第 29 个业务模板）。结构：source 投料隐私政策 → fileParse 解析 → textGen 合规盘点（11 维度：PII 披露/同意/第三方共享/用户权利/保留期限/安全/跨境/未成年人/联系方式/更新通知）→ textGen 整改建议（缺失维度 + 风险分级）→ gate 风险门禁（rework 边回 fix）→ human 人工确认 → sink。复用 contract-review 的 fileParse + 双 textGen + gate + human 结构，零新节点；合规条款覆盖是**模型判断**（区别于 compliance 节点的广告法极限词确定性规则）。已加：core 形状断言（templates.test.ts，模板数 28→29 守护同步）。真实狗粮（engine 层聚焦 audit/fix/gate 真实调用 agnes，run `dogfood-privacy`）：投料故意缺失多维度的隐私政策（仅 3 条），agnes 精确盘点 11 维度（2 覆盖 + 1 不完整「第三方共享只声明不出售」+ 7 缺失、均引用原文），整改建议逐维度带整改建议 + 风险等级（高/中）+ 法律依据（个保法/GDPR 具体条款）+ 合规优先级汇总 → gate 通过 → done。fileParse/human 集成由 contract-review 真实狗粮覆盖。
 
 > 全部缓做/低优事项（含上述两条）已统一登记在 [docs/deferred-items.md](docs/deferred-items.md)——每条带触发条件与决策详情链接，触发条件满足时移回本区并标注重启日期。
 
