@@ -77,6 +77,13 @@ import { trimEnv } from "./isolation.js";
 import { allowPrivateNetwork, guardedFetch, hostIsInternal } from "./ssrf.js";
 import { childProxyEnv, getCodeProxyUrl, registerNetToken, unregisterNetToken } from "./code-proxy.js";
 import type { NodeRunContext } from "./nodes/types.js";
+import { databaseNode } from "./nodes/database.js";
+import { parallelNode } from "./nodes/parallel.js";
+import { mapNode } from "./nodes/map.js";
+import { complianceNode } from "./nodes/compliance.js";
+import { humanNode } from "./nodes/human.js";
+import { sinkNode } from "./nodes/sink.js";
+import { publishNode } from "./nodes/publish.js";
 import { runVcsNode } from "./nodes/vcs.js";
 import {
   ARTIFACT_URL_NOTE,
@@ -1045,333 +1052,11 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
   // They close over the scheduler's shared state and are invoked from runNode's
   // dispatch switch. `node`/`nodeId`/`attempt` are runNode-local, so passed in.
 
-  const runHuman = async (node: GraphNode, nodeId: string, attempt: number) => {
-    // Pause the run at an arbitrary point for an operator decision. The
-    // upstream text becomes the pending review; approve/edit passes it
-    // downstream, reject fails the node (error edges can catch it).
-    const output = await inputFor(node);
-    emit({ type: "node.started", nodeId, attempt });
-    emit({ type: "human.review", nodeId, attempt, content: output });
-    haltNodeId = nodeId;
-    haltReason = `human:${node.human?.prompt || node.name}`;
-    status = "halted";
-    aborted = true;
-    void notifyHalt({ runId, graphId: graph.id, nodeId, reason: haltReason });
-  };
 
-  const runCompliance = async (node: GraphNode, nodeId: string, attempt: number) => {
-    emit({ type: "node.started", nodeId, attempt });
-    try {
-      const cfg = ComplianceConfig.parse(node.compliance ?? {});
-      const output = await inputFor(node);
-      if (!output.trim()) {
-        states.set(nodeId, "failed");
-        emit({
-          type: "node.failed",
-          nodeId,
-          attempt,
-          error: "合规节点没有收到可校验的文本",
-          errorCode: "VALIDATION",
-        });
-        return;
-      }
-      // Merge the user's stored banned terms with the node's extra list, so
-      // the vocabulary library is honoured without the user re-typing it.
-      const extra = [cfg.extraBanned, opts.bannedTerms ?? ""].filter(Boolean).join(",");
-      const result = checkCompliance({
-        platform: cfg.platform,
-        extraBanned: extra,
-        autoFix: cfg.autoFix,
-        text: output,
-      });
-      const payload = complianceArtifact(result);
-      const jsonArtifact: Artifact = {
-        id: `${nodeId}-compliance`,
-        kind: "json",
-        content: JSON.stringify(payload),
-        mimeType: "application/json",
-      };
-      const produced: Artifact[] = [jsonArtifact];
-      // Downstream nodes consume the sanitized text (autoFix on) or the
-      // original (autoFix off / no violations).
-      const downstreamText = result.sanitized || result.original;
-      setTextArtifact(artifacts, nodeId, downstreamText);
-      artifacts.set(nodeId, [...produced, ...(artifacts.get(nodeId) ?? [])]);
-      for (const a of produced) emit({ type: "artifact.produced", nodeId, attempt, artifact: a });
 
-      if (cfg.failOnViolation && !result.passed) {
-        const first = result.violations[0];
-        states.set(nodeId, "failed");
-        emit({
-          type: "node.failed",
-          nodeId,
-          attempt,
-          error: `合规校验未通过（${result.violations.length} 处违规，首条：${first?.rule ?? ""}）`,
-          errorCode: "VALIDATION",
-        });
-        return;
-      }
 
-      states.set(nodeId, "done");
-      const summary = result.passed
-        ? "合规校验通过"
-        : `合规校验发现 ${result.violations.length} 处违规（已${cfg.autoFix ? "自动修复" : "标注"}）`;
-      emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
-      sendPackets(nodeId, summary, "json");
-    } catch (err) {
-      states.set(nodeId, "failed");
-      emit({
-        type: "node.failed",
-        nodeId,
-        attempt,
-        error: `合规校验节点执行出错: ${err instanceof Error ? err.message : String(err)}`,
-      });
-    }
-  };
 
-  const runPublish = async (node: GraphNode, nodeId: string, attempt: number) => {
-    emit({ type: "node.started", nodeId, attempt });
-    try {
-      const cfg = PublishConfig.parse(node.publish ?? {});
-      const output = await inputFor(node);
-      if (!output.trim()) {
-        states.set(nodeId, "failed");
-        emit({
-          type: "node.failed",
-          nodeId,
-          attempt,
-          error: "发布节点没有收到可整理的文本",
-          errorCode: "VALIDATION",
-        });
-        return;
-      }
-      const pkg = buildPublishPackage(output, cfg);
-      const payload = publishArtifact(pkg);
-      const jsonArtifact: Artifact = {
-        id: `${nodeId}-publish`,
-        kind: "json",
-        content: JSON.stringify(payload),
-        mimeType: "application/json",
-      };
-      const produced: Artifact[] = [jsonArtifact];
-      // Downstream nodes consume the assembled body (falls back to the title).
-      const downstreamText = pkg.body || pkg.title;
-      setTextArtifact(artifacts, nodeId, downstreamText);
-      artifacts.set(nodeId, [...produced, ...(artifacts.get(nodeId) ?? [])]);
-      for (const a of produced) emit({ type: "artifact.produced", nodeId, attempt, artifact: a });
 
-      states.set(nodeId, "done");
-      const summary = `已整理为${pkg.platformLabel}待发布包（标题 ${pkg.title.length} 字 / 正文 ${pkg.body.length} 字）`;
-      emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
-      sendPackets(nodeId, summary, "json");
-    } catch (err) {
-      states.set(nodeId, "failed");
-      emit({
-        type: "node.failed",
-        nodeId,
-        attempt,
-        error: `发布节点执行出错: ${err instanceof Error ? err.message : String(err)}`,
-      });
-    }
-  };
-
-  const runMap = async (node: GraphNode, nodeId: string, attempt: number) => {
-    emit({ type: "node.started", nodeId, attempt });
-    try {
-      const cfg = MapConfig.parse(node.map ?? {});
-      const ctx = nodeCtx(nodeId);
-      const sources = incoming(graph, nodeId, "flow").map((e) => e.from);
-      const sourceId = cfg.source ?? (sources.length === 1 ? sources[0] : undefined);
-      if (!sourceId) {
-        states.set(nodeId, "failed");
-        emit({
-          type: "node.failed",
-          nodeId,
-          attempt,
-          error: "Map 节点需要恰好一个上游节点（或在设置中指定 source）",
-          errorCode: "VALIDATION",
-        });
-        return;
-      }
-      let template: unknown;
-      try {
-        template = JSON.parse(cfg.template);
-      } catch {
-        states.set(nodeId, "failed");
-        emit({
-          type: "node.failed",
-          nodeId,
-          attempt,
-          error:
-            "映射模板不是合法的 JSON：模板整体须是 JSON 文档，${...} 占位符请写在字符串值内（如 \"age\": \"${item.age}\"，纯占位符会自动保留数字/对象类型）",
-          errorCode: "VALIDATION",
-        });
-        return;
-      }
-      const sourceVal = ctx[sourceId];
-      let out: unknown;
-      if (cfg.iterate) {
-        const arr = getByPath(sourceVal, cfg.iterate);
-        if (!Array.isArray(arr)) {
-          states.set(nodeId, "failed");
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: `iterate 路径 "${cfg.iterate}" 解析结果不是数组`,
-            errorCode: "VALIDATION",
-          });
-          return;
-        }
-        out = arr.map((item) => transformJson(template, { ...ctx, item }));
-      } else {
-        out = transformJson(template, { ...ctx, item: sourceVal });
-      }
-      const content = JSON.stringify(out);
-      const artifact: Artifact = {
-        id: `${nodeId}-map-json`,
-        kind: "json",
-        content,
-        mimeType: "application/json",
-      };
-      artifacts.set(nodeId, [artifact]);
-      emit({ type: "artifact.produced", nodeId, attempt, artifact });
-      states.set(nodeId, "done");
-      const summary =
-        cfg.iterate && Array.isArray(out)
-          ? `映射 ${out.length} 项 → ${truncateText(content, 60)}`
-          : `映射完成 → ${truncateText(content, 60)}`;
-      emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
-      sendPackets(nodeId, summary, "json");
-    } catch (err) {
-      states.set(nodeId, "failed");
-      emit({
-        type: "node.failed",
-        nodeId,
-        attempt,
-        error: `Map 节点执行出错: ${err instanceof Error ? err.message : String(err)}`,
-      });
-    }
-  };
-
-  const runParallel = async (node: GraphNode, nodeId: string, attempt: number) => {
-    emit({ type: "node.started", nodeId, attempt });
-    try {
-      const cfg = ParallelConfig.parse(node.parallel ?? {});
-      const ins = incoming(graph, nodeId, "flow");
-      const values: unknown[] = [];
-      const byId: Record<string, unknown> = {};
-      for (const e of ins) {
-        const arts = artifacts.get(e.from) ?? [];
-        const json = arts.find((a) => a.kind === "json");
-        let val: unknown = null;
-        if (json?.content) {
-          try {
-            val = JSON.parse(json.content);
-          } catch {
-            val = json.content;
-          }
-        } else {
-          const text = arts.find((a) => a.kind === "text");
-          val = text?.content ?? "";
-        }
-        if (cfg.pick) {
-          const picked = getByPath(val, cfg.pick);
-          if (picked !== undefined) val = picked;
-        }
-        values.push(val);
-        byId[e.from] = val;
-      }
-      const out = cfg.asObject ? byId : values;
-      const content = JSON.stringify(out);
-      const artifact: Artifact = {
-        id: `${nodeId}-parallel-json`,
-        kind: "json",
-        content,
-        mimeType: "application/json",
-      };
-      artifacts.set(nodeId, [artifact]);
-      emit({ type: "artifact.produced", nodeId, attempt, artifact });
-      states.set(nodeId, "done");
-      const summary = `聚合 ${ins.length} 个分支 → ${truncateText(content, 60)}`;
-      emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
-      sendPackets(nodeId, summary, "json");
-    } catch (err) {
-      states.set(nodeId, "failed");
-      emit({
-        type: "node.failed",
-        nodeId,
-        attempt,
-        error: `Parallel 节点执行出错: ${err instanceof Error ? err.message : String(err)}`,
-      });
-    }
-  };
-
-  const runDatabase = async (node: GraphNode, nodeId: string, attempt: number) => {
-    emit({ type: "node.started", nodeId, attempt });
-    try {
-      const cfg = DatabaseConfig.parse(node.database ?? {});
-      if (!cfg.sql.trim()) {
-        states.set(nodeId, "failed");
-        emit({
-          type: "node.failed",
-          nodeId,
-          attempt,
-          error: "数据库节点需要填写 SQL 语句",
-          errorCode: "VALIDATION",
-        });
-        return;
-      }
-      const driver = createSqliteDriver(cfg.path);
-      try {
-        driver.setup(cfg.setupSql);
-        const result = driver.query(cfg.sql, {
-          positional: cfg.positionalParams,
-          named: cfg.namedParams,
-        });
-        if (result.rows !== undefined) {
-          const content = JSON.stringify({
-            rows: result.rows,
-            count: result.rows.length,
-            columns: result.columns ?? [],
-          });
-          const produced: Artifact[] = [
-            { id: `${nodeId}-db-json`, kind: "json", content, mimeType: "application/json" },
-          ];
-          artifacts.set(nodeId, produced);
-          for (const a of produced) emit({ type: "artifact.produced", nodeId, attempt, artifact: a });
-          states.set(nodeId, "done");
-          const summary = `数据库查询完成：${result.rows.length} 行 × ${(result.columns ?? []).length} 列`;
-          emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
-          sendPackets(nodeId, summary, "json");
-        } else {
-          const content = JSON.stringify({
-            affectedRows: result.affectedRows ?? 0,
-            lastInsertId: result.lastInsertId ?? null,
-          });
-          const produced: Artifact[] = [
-            { id: `${nodeId}-db-json`, kind: "json", content, mimeType: "application/json" },
-          ];
-          artifacts.set(nodeId, produced);
-          for (const a of produced) emit({ type: "artifact.produced", nodeId, attempt, artifact: a });
-          states.set(nodeId, "done");
-          const summary = `数据库执行完成：影响 ${result.affectedRows ?? 0} 行`;
-          emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
-          sendPackets(nodeId, summary, "json");
-        }
-      } finally {
-        driver.close();
-      }
-    } catch (err) {
-      states.set(nodeId, "failed");
-      emit({
-        type: "node.failed",
-        nodeId,
-        attempt,
-        error: `数据库节点执行出错: ${err instanceof Error ? err.message : String(err)}`,
-      });
-    }
-  };
 
   const runBranch = async (node: GraphNode, nodeId: string, attempt: number) => {
     emit({ type: "node.started", nodeId, attempt });
@@ -2659,16 +2344,6 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     }
   };
 
-  const runSink = async (node: GraphNode, nodeId: string, attempt: number) => {
-    const output = await inputFor(node);
-    setTextArtifact(artifacts, nodeId, output);
-    states.set(nodeId, "done");
-    emit({ type: "node.started", nodeId, attempt });
-    emit({ type: "node.finished", nodeId, attempt, output, usage: zeroUsage() });
-    produceArtifacts(nodeId, output, attempt);
-    sendPackets(nodeId, output.slice(0, 120), "text");
-    return;
-  };
 
   const runSource = async (node: GraphNode, nodeId: string, attempt: number) => {
     // source: optionally pull raw material from a connector before welding.
@@ -3661,7 +3336,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       }
 
       if (node.kind === "sink") {
-        await runSink(node, nodeId, attempt);
+        await sinkNode(ctx, node, nodeId, attempt);
         return;
       }
       if (node.kind === "http") {
@@ -3680,7 +3355,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       }
 
       if (node.kind === "map") {
-        await runMap(node, nodeId, attempt);
+        await mapNode(ctx, node, nodeId, attempt);
         return;
       }
 
@@ -3693,7 +3368,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
         return;
       }
       if (node.kind === "parallel") {
-        await runParallel(node, nodeId, attempt);
+        await parallelNode(ctx, node, nodeId, attempt);
         return;
       }
 
@@ -3703,7 +3378,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       }
 
       if (node.kind === "database") {
-        await runDatabase(node, nodeId, attempt);
+        await databaseNode(ctx, node, nodeId, attempt);
         return;
       }
 
@@ -3846,17 +3521,17 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       }
 
       if (node.kind === "human") {
-        await runHuman(node, nodeId, attempt);
+        await humanNode(ctx, node, nodeId, attempt);
         return;
       }
 
       if (node.kind === "compliance") {
-        await runCompliance(node, nodeId, attempt);
+        await complianceNode(ctx, node, nodeId, attempt);
         return;
       }
 
       if (node.kind === "publish") {
-        await runPublish(node, nodeId, attempt);
+        await publishNode(ctx, node, nodeId, attempt);
         return;
       }
 
