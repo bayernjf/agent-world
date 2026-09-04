@@ -15,7 +15,7 @@ describe("templates", () => {
     // Blank canvas is a creation entry, NOT a business template.
     expect(ids).not.toContain("tpl-blank");
     expect(BLANK_TEMPLATE.id).toBe("tpl-blank");
-    expect(TEMPLATES).toHaveLength(29);
+    expect(TEMPLATES).toHaveLength(30);
   });
 
   it("categories cover every template and every category renders", () => {
@@ -331,6 +331,30 @@ describe("templates", () => {
     expect(auditPrompt).toContain("11 个合规维度");
     expect(auditPrompt).toContain("第三方共享");
     expect(auditPrompt).toContain("数据保留期限");
+  });
+
+  it("invoice-ocr template chains ocr → extract → clean → ledger sort", () => {
+    const tpl = getTemplate("tpl-invoice-ocr")!;
+    expect(tpl, "template tpl-invoice-ocr should exist").toBeTruthy();
+    const byName = new Map(tpl.graph.nodes.map((n) => [n.name, n]));
+    expect(byName.get("文字识别")?.kind).toBe("ocr");
+    expect(byName.get("字段提取")?.kind).toBe("textGen");
+    expect(byName.get("台账清洗")?.kind).toBe("code");
+    expect(byName.get("发票台账")?.kind).toBe("table");
+    // OCR lang covers Chinese invoices + latin digits.
+    expect((byName.get("文字识别")!.ocr as { lang: string }).lang).toBe("chi_sim+eng");
+    // Ledger sorts chronologically.
+    const steps = (byName.get("发票台账")!.table as { steps: { op: string; column?: string; direction?: string }[] }).steps;
+    expect(steps.some((s) => s.op === "sort" && s.column === "date" && s.direction === "asc")).toBe(true);
+    // The extract prompt demands a strict JSON array of the invoice fields.
+    const prompt = (byName.get("字段提取")!.textGen as { prompt: string }).prompt;
+    expect(prompt).toContain("invoiceNo");
+    expect(prompt).toContain("价税合计金额");
+    // The clean script unwraps the engine envelope and guarantees ≥1 row.
+    const code = (byName.get("台账清洗")!.code as { code: string }).code;
+    expect(code).toContain("fs.readFileSync(0");
+    expect(code).not.toMatch(/[^."]inputs\./);
+    expect(code).toContain("if (!rows.length)");
   });
 
   it("loop template's items ref is rewritten to the fresh split-node id", () => {

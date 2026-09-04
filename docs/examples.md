@@ -33,6 +33,7 @@ board's **新建产线** dialog, or used as a starting point for your own.
 | 法律合规 | `tpl-privacy-review` | 隐私政策合规审查 |
 | 财务审计 | `tpl-expense-review` | 费用报销初审 |
 | 财务审计 | `tpl-reconciliation` | 银行流水对账 |
+| 财务审计 | `tpl-invoice-ocr` | 发票批量 OCR 台账 |
 | IT 运维 | `tpl-patrol-alert` | 定时巡检告警 |
 | 客户服务 | `tpl-customer-service` | 客服工单自动处理 |
 | 教育 | `tpl-course-outline` | 课程大纲生成 |

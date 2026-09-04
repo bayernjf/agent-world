@@ -2923,6 +2923,95 @@ const privacyReviewGraph = {
   },
 } satisfies GraphTemplate;
 
+const invoiceOcrGraph = {
+  id: "tpl-invoice-ocr",
+  name: "发票批量 OCR 台账",
+  description: "发票图片 → OCR 识别 → 字段提取 → 台账 → 质检",
+  category: "财务审计",
+  graph: {
+    id: "tpl-invoice-ocr",
+    name: "发票批量 OCR 台账",
+    nodes: [
+      { id: "intake", kind: "source", name: "发票图片", x: 80, y: 300 },
+      {
+        id: "ocr",
+        kind: "ocr",
+        name: "文字识别",
+        x: 340,
+        y: 300,
+        ocr: { lang: "chi_sim+eng" },
+      },
+      {
+        id: "extract",
+        kind: "textGen",
+        name: "字段提取",
+        x: 600,
+        y: 300,
+        textGen: {
+          model: "agnes-2.0-flash",
+          prompt:
+            "你是发票信息提取专家。上游是多张发票的 OCR 识别文字（每张发票用空行分隔）。从每张发票提取结构化字段：发票号码 invoiceNo、开票日期 date、购买方抬头 buyer、销售方 seller、价税合计金额 amount、税额 tax、税率 rate。输出严格 JSON 数组（不要 markdown 代码块、不要任何解释文字）：[{\"invoiceNo\":\"...\",\"date\":\"...\",\"buyer\":\"...\",\"seller\":\"...\",\"amount\":数字,\"tax\":数字,\"rate\":\"...\"}]。识别不清的字段填 null，amount/tax 必须是数字，不得编造。",
+          skills: [],
+        },
+      },
+      {
+        id: "rows",
+        kind: "code",
+        name: "台账清洗",
+        x: 860,
+        y: 300,
+        code: {
+          language: "javascript",
+          code: [
+            '// 读取引擎注入的 inputs（code 节点把上游数据 JSON 写到 stdin）',
+            'const fs = require("fs");',
+            "let raw = '';",
+            "try {",
+            '  const inputs = JSON.parse(fs.readFileSync(0, "utf8")).inputs ?? {};',
+            "  raw = String(Object.values(inputs)[0] ?? '').trim();",
+            "} catch (e) { raw = ''; }",
+            '// 提取 JSON 数组：textGen 输出可能带 markdown 代码块或解释文字',
+            "var rows = [];",
+            "var m = raw.match(/\\[[\\s\\S]*\\]/);",
+            "if (m) {",
+            "  try {",
+            "    var arr = JSON.parse(m[0]);",
+            "    if (Array.isArray(arr)) rows = arr;",
+            "  } catch (e) { rows = []; }",
+            "}",
+            '// 表格节点要求至少一行：没识别到发票也给一行占位',
+            "if (!rows.length) {",
+            '  rows = [{ invoiceNo: "", date: "", buyer: "", seller: "", amount: null, tax: null, rate: "", remark: "未识别到发票" }];',
+            "}",
+            "console.log(JSON.stringify({ rows: rows }));",
+          ].join("\n"),
+        },
+      },
+      {
+        id: "ledger",
+        kind: "table",
+        name: "发票台账",
+        x: 1120,
+        y: 300,
+        table: {
+          steps: [
+            { op: "sort", column: "date", direction: "asc" },
+            { op: "output", format: "json" },
+          ],
+        },
+      },
+      { id: "depot", kind: "sink", name: "台账成品", x: 1380, y: 300 },
+    ],
+    edges: [
+      { id: "e1", from: "intake", to: "ocr", kind: "flow" },
+      { id: "e2", from: "ocr", to: "extract", kind: "flow" },
+      { id: "e3", from: "extract", to: "rows", kind: "flow" },
+      { id: "e4", from: "rows", to: "ledger", kind: "flow" },
+      { id: "e5", from: "ledger", to: "depot", kind: "flow" },
+    ],
+  },
+} satisfies GraphTemplate;
+
 export const TEMPLATES: GraphTemplate[] = [
   productDetailGraph,
   xiaohongshuGraph,
@@ -2953,6 +3042,7 @@ export const TEMPLATES: GraphTemplate[] = [
   expenseReviewGraph,
   reconciliationGraph,
   privacyReviewGraph,
+  invoiceOcrGraph,
 ];
 
 /**
