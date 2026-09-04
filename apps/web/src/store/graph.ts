@@ -3,6 +3,7 @@ import { temporal } from "zundo";
 import type { Graph, GraphEdge, GraphNode, NodeKind } from "@agent-world/core";
 import i18n from "../i18n";
 import { api, GraphConflictError, type Modality } from "../lib/api";
+import { arrangeVariantLanes, duplicateLaneStructure } from "../canvas/layout";
 
 /** Cached settings used to seed newly added nodes with a sensible model. */
 export interface ModelOption {
@@ -208,6 +209,13 @@ interface GraphState {
   /** Delete all selected nodes and edges. */
   deleteSelected: () => void;
   updateNode: (id: string, patch: Partial<GraphNode>) => void;
+  /** Auto-arrange a fanout's variant lanes into parallel tracks (F10). */
+  arrangeLanes: (fanoutId: string) => void;
+  /** Duplicate a fanout's first lane structure across its variant count (F10). */
+  duplicateLanes: (fanoutId: string) => void;
+  /** Collapsed fanout lane groups, keyed by fanout id (F10). */
+  collapsedFans: Record<string, boolean>;
+  toggleLaneCollapse: (fanoutId: string) => void;
   /**
    * Batch-assign a model to the given AI nodes (textGen/imageGen/videoGen/
    * audioGen). Only the `model` field of each node's sub-config is written —
@@ -269,6 +277,8 @@ const DEFAULTS: Record<NodeKind, Partial<GraphNode>> = {
   generic: { generic: { model: "agnes-2.0-flash", prompt: "", skills: [], modality: "text", retry: { maxRetries: 2, baseDelayMs: 1000, maxDelayMs: 30000 } } },
   compliance: { compliance: { platform: "xiaohongshu", extraBanned: "", autoFix: true, failOnViolation: false } },
   publish: { publish: { platform: "xiaohongshu" } },
+  fanout: { fanout: { count: 3, strategy: "prompt", angleBrief: "" } },
+  select: { select: { mode: "llm_score", topK: 1, rubric: "", passThroughAll: false } },
 };
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -297,6 +307,7 @@ export const useGraph = create<GraphState>()(
       selectedEdgeIds: [],
       saveState: "idle",
       serverVersion: null,
+      collapsedFans: {},
 
       // Accepts a graph possibly carrying a server-injected `version` field
       // (from GET /api/graphs/:id). Strip it from the document (it is not part
@@ -547,6 +558,29 @@ export const useGraph = create<GraphState>()(
           scheduleSave(graph);
           return { graph };
         }),
+
+      arrangeLanes: (fanoutId) => {
+        useGraph.temporal.getState().resume();
+        set((s) => {
+          const graph = arrangeVariantLanes(s.graph, fanoutId);
+          scheduleSave(graph);
+          return { graph };
+        });
+      },
+
+      duplicateLanes: (fanoutId) => {
+        useGraph.temporal.getState().resume();
+        set((s) => {
+          const graph = duplicateLaneStructure(s.graph, fanoutId);
+          scheduleSave(graph);
+          return { graph };
+        });
+      },
+
+      toggleLaneCollapse: (fanoutId) =>
+        set((s) => ({
+          collapsedFans: { ...s.collapsedFans, [fanoutId]: !s.collapsedFans[fanoutId] },
+        })),
 
       assignModel: (ids, model) => {
         if (!model.trim() || ids.length === 0) return 0;

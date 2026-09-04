@@ -62,6 +62,7 @@ describe("ordered schema migrations", () => {
     expect(nodeCols).toContain("cached_tokens");
     expect(nodeCols).toContain("reasoning_tokens");
     expect(nodeCols).toContain("units_json");
+    expect(nodeCols).toContain("variant");
 
     // Reopening is a no-op (no duplicate columns, no errors).
     expect(() => openDb(file)).not.toThrow();

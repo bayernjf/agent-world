@@ -93,4 +93,45 @@ describe("compile", () => {
     g.edges = [...g.edges, edge("s1", "forge", "forge")];
     expect(errors(g)).toContain("A plant cannot feed itself");
   });
+
+  // F1: fanout / select structural validation.
+  const fanoutGraph = (): Graph => ({
+    id: "g2",
+    name: "variants",
+    nodes: [
+      node("intake", "source"),
+      node("split", "fanout", { fanout: { count: 3, strategy: "prompt" } }),
+      node("forge", "textGen", { textGen: { model: "m", prompt: "p" } }),
+      node("pick", "select", { select: { mode: "llm_score", topK: 1 } }),
+      node("depot", "sink"),
+    ],
+    edges: [
+      edge("e1", "intake", "split"),
+      edge("e2", "split", "forge"),
+      edge("e3", "forge", "pick"),
+      edge("e4", "pick", "depot"),
+    ],
+  });
+
+  it("accepts a fanout that reconverges at a select", () => {
+    const { plan, diagnostics } = compile(fanoutGraph());
+    expect(diagnostics).toEqual([]);
+    expect(plan?.order).toEqual(["intake", "split", "forge", "pick", "depot"]);
+  });
+
+  it("rejects a fanout whose lanes never reach a select", () => {
+    const g = fanoutGraph();
+    g.nodes = g.nodes.filter((n) => n.kind !== "select");
+    g.edges = g.edges.filter((e) => e.to !== "pick");
+    g.edges = [...g.edges, edge("e4", "forge", "depot")];
+    expect(errors(g)).toContain("扇出节点 \"SPLIT\" 的每条支路都必须最终汇入一个择优节点");
+  });
+
+  it("rejects a select with no fanout upstream", () => {
+    const g = fanoutGraph();
+    g.nodes = g.nodes.filter((n) => n.kind !== "fanout");
+    g.edges = g.edges.filter((e) => e.from !== "split");
+    g.edges = [...g.edges, edge("e1", "intake", "forge")];
+    expect(errors(g)).toContain("择优节点 \"PICK\" 缺少上游的扇出节点");
+  });
 });

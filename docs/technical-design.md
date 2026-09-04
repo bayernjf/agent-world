@@ -5,7 +5,7 @@
 > 逐步任务拆解见 [roadmap-tasks.md](roadmap-tasks.md)。
 > 技术栈选型评估与边界见 [tech-stack-assessment.md](tech-stack-assessment.md)。
 
-> ⚠️ **时效注记（2026-09-01 盘点）**：本文档以阶段 1-3 期为基线写成，§3.1/§4.1 的"已实现"清单**落后于现状**——实际已演进到 25 种节点类型、账号隔离（users/JWT）、connectors/triggers/versions/knowledge/AB 等（迁移 16+）。增量事实已补入 §3.1b 与 §4.1b；各模块细节以 docs/ 下对应 design-*.md 为准。
+> ⚠️ **时效注记（2026-09-01 盘点，2026-09-04 复校）**：本文档以阶段 1-3 期为基线写成，§3.1/§4.1 的"已实现"清单**落后于现状**——实际已演进到 29 种节点类型、账号隔离（users/JWT）、connectors/triggers/versions/knowledge/AB 等（迁移 28+）。增量事实已补入 §3.1b 与 §4.1b；各模块细节以 docs/ 下对应 design-*.md 为准。
 
 ---
 
@@ -182,7 +182,7 @@ node_runs (run_id, node_id, attempt, status, output, reasoning, error, error_cod
 
 ### 3.1b 2026-09-01 增量（现状对齐）
 
-- **节点类型**：从阶段 1 的 4 种（source/textGen/gate/sink）演进为 **25 种 `NodeKind`**（AI 加工 5 / 车间调度 6 / 物料处理 7 / 外接设备 5 / 投料出料 2），逐种名称与中文术语见 [design-glossary.md](design-glossary.md)；分类单一事实源在 core `NODE_CATEGORIES`。
+- **节点类型**：从阶段 1 的 4 种（source/textGen/gate/sink）演进为 **29 种 `NodeKind`**（AI 加工 5 / 车间调度 9 / 物料处理 7 / 外接设备 6 / 投料出料 2），逐种名称与中文术语见 [design-glossary.md](design-glossary.md)；分类单一事实源在 core `NODE_CATEGORIES`。
 - **数据库表增量**（在 §3.1 的 graphs/runs/events/node_runs 之外，迁移 1-16+）：
 
 ```sql

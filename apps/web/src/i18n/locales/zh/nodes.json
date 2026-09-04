@@ -26,6 +26,8 @@
   "generic": "多能坊",
   "compliance": "合规台",
   "publish": "发布台",
+  "fanout": "扇出",
+  "select": "择优",
   "categories": {
     "generation": "AI 加工",
     "control": "车间调度",
@@ -75,7 +77,9 @@
     "subprocess": "调用另一张产线（外包工坊）",
     "generic": "多能坊：自由选模型提供方，按模态自动 dispatch",
     "compliance": "平台规则与广告法合规校验（合规台）",
-    "publish": "按平台规范整理成待发布包（发布台）"
+    "publish": "按平台规范整理成待发布包（发布台）",
+    "fanout": "扇出：把一份输入复制成 N 个变体泳道（不同提示词/温度/模型）",
+    "select": "择优：汇聚变体泳道并按 LLM 打分/规则/人工选出 TopK"
   },
   "tip": {
     "kind": "类型",
@@ -344,6 +348,40 @@
       "title": "标题（可选，缺省取上游第一行）",
       "titlePh": "留空则用上游文本第一行作标题",
       "hint": "发布台按平台规范把上游成稿整理成待发布包：拆分标题/正文、提取话题标签、给出主图比例清单，人工复制零排版。"
+    },
+    "fanout": {
+      "count": "变体数量",
+      "strategy": "变体来源",
+      "strategyPrompt": "不同提示词",
+      "strategyTemperature": "不同温度",
+      "strategyModel": "不同模型",
+      "prompts": "提示词列表（每行一个，数量需等于变体数）",
+      "temperatures": "温度列表（逗号分隔，数量需等于变体数）",
+      "models": "模型列表（逗号分隔，数量需等于变体数）",
+      "angleBrief": "自动生成角度指令（提示词为空时生效）",
+      "hint": "扇出台把一份输入复制成 N 个变体泳道，下游子图对每个变体独立执行，最终由「择优台」汇聚选出 TopK。",
+      "laneCards": "变体泳道",
+      "arrangeLanes": "整理泳道布局",
+      "duplicateLanes": "复制支路结构"
+    },
+    "select": {
+      "mode": "择优方式",
+      "modeLlmScore": "LLM 打分",
+      "modeRule": "规则排序",
+      "modeHuman": "人工勾选",
+      "topK": "保留数量 (TopK)",
+      "rubric": "打分标准（喂给裁判模型）",
+      "model": "裁判模型（可选）",
+      "ruleField": "排序字段",
+      "ruleLength": "长度",
+      "ruleBrand": "品牌词覆盖",
+      "ruleJsonPath": "JSON 路径",
+      "ruleDesc": "降序（越大越优）",
+      "hint": "择优台等所有变体泳道到达终态后，按 LLM 打分/规则/人工选出 TopK，后续节点只处理选中项。某条泳道失败只影响该泳道，其余照常择优。",
+      "variantCards": "变体对比",
+      "chosen": "已选中",
+      "failedLanes": "失败泳道 {{n}} 条：{{lanes}}",
+      "laneFailed": "该泳道失败"
     },
     "http": {
       "method": "方法",

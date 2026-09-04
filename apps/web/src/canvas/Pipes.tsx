@@ -18,6 +18,8 @@ import { registerPath } from "./pathRegistry";
 interface Props {
   graph: Graph;
   runtime: RuntimeState;
+  /** Lane nodes hidden by collapsed fanouts — edges touching them are skipped (F10). */
+  hiddenNodeIds?: Set<string>;
   onRemove: (edgeId: string) => void;
   interactive: boolean;
   hoverable: boolean;
@@ -64,6 +66,7 @@ const BRIDGE_R = 6;
 export default function Pipes({
   graph,
   runtime,
+  hiddenNodeIds,
   onRemove,
   interactive,
   hoverable,
@@ -116,6 +119,7 @@ export default function Pipes({
   return (
     <g className="pipes">
       {graph.edges.map((edge) => {
+        if (hiddenNodeIds && (hiddenNodeIds.has(edge.from) || hiddenNodeIds.has(edge.to))) return null;
         const anchor = anchors.get(edge.id);
         if (!anchor) return null;
 
