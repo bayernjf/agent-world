@@ -5,6 +5,20 @@ All notable changes are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+- **专业服务方向 6 个新模板**（第 28–33 个业务模板，全部复用现有节点、零新引擎能力；逐一真实狗粮验证）：
+  - 银行流水对账（`tpl-reconciliation`）：两段流水投料 → code 逐笔配对（date+amount）→ table 差异清单按金额降序 → 对账报告
+  - 隐私政策合规审查（`tpl-privacy-review`）：fileParse → 11 维度合规盘点 → 整改建议 + 风险分级 → 人工确认
+  - 发票批量 OCR 台账（`tpl-invoice-ocr`）：发票图片 → OCR（chi_sim+eng）→ 字段提取 → 台账按日期排序
+  - 批量合同审查（`tpl-batch-contract-review`）：多份合同文本（`=====` 分隔）→ 拆条 → 逐份 8 维度风险审查 → 风险汇总表
+  - 审计抽样底稿（`tpl-audit-sampling`）：账目明细 → 抽样规则（大额/重复/非工作日）→ 审计底稿
+  - 尽调清单（`tpl-due-diligence`）：多份尽调材料 → 解析 → 7 事项盘点 → 缺口清单
+- **fileParse 多文档能力** — fileParse 从「只解析第一个文档」改为「解析所有文档」，多文档 text 用 `===== 文件名 =====` 头分隔，单文档路径字节不变（向后兼容）；解锁批量 PDF 合同审查、尽调等场景
+- **行业 ROI 评估文档**（`docs/product-industry-roi.md`）— 多 agent 流水编排的行业切入方向排序 + 专业服务垂直模板候选清单
+
+### Changed
+- 模板总数从 27 增至 33（覆盖 25 种节点类型中的 23 种）
+
 ## [0.3.0] - 2026-08-29
 
 ### Added
