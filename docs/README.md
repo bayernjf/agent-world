@@ -56,6 +56,11 @@
 | [design-ecommerce-roadmap.md](design-ecommerce-roadmap.md) | 自媒体电商方向能力升级方案（F1-F10：run 内多变体择优引擎 / 审核队列 / 平台合规 / 商品库 / 批量 / 发布闭环；**已全部落地**） | 产品 / 开发者 |
 | [rpa-readback-onboarding.md](rpa-readback-onboarding.md) | RPA 回读真实环境接入清单（框架已落地，选择器待真实账号逆向） | 开发者 |
 | [feedback-workflow.md](feedback-workflow.md) | 用户如何高效反馈给 AI（截图 / computer-use / 防丢） | 用户 |
+| [phase4-design.md](phase4-design.md) | Phase 4 高级编排落地方案（subprocess / error 边 / human / 变量持久化；状态机缓做） | 开发者 |
+| [integrations-future.md](integrations-future.md) | 集成线（Notion / Linear / 邮件收件 / 内容平台 / VCS 扩展；缓做） | 产品 / 开发者 |
+| [design-design-tokens.md](design-design-tokens.md) | 设计 Token 体系（Primitive + Semantic 两层 + 明暗主题；已落地） | 开发者 |
+| [design-i18n.md](design-i18n.md) | i18n 国际化（i18next + 7 命名空间 + zh/en 双语；已落地） | 开发者 |
+| [web-component-testing-plan.md](web-component-testing-plan.md) | web 组件测试计划（P0-P3 四批，39 组件；已落地） | 开发者 |
 
 ### 历史（决策记录，保留参考，勿据此实现）
 

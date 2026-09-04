@@ -17,7 +17,7 @@ All notable changes are documented here. The format is based on
 - **行业 ROI 评估文档**（`docs/product-industry-roi.md`）— 多 agent 流水编排的行业切入方向排序 + 专业服务垂直模板候选清单
 
 ### Changed
-- 模板总数从 27 增至 33（覆盖 25 种节点类型中的 23 种）
+- 模板总数从 27 增至 33（覆盖 29 种节点类型中的 23 种）
 
 ## [0.3.0] - 2026-08-29
 
