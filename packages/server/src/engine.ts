@@ -3672,6 +3672,194 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     return;
   };
 
+  const runFanout = async (node: GraphNode, nodeId: string, attempt: number) => {
+    const cfg: FanoutConfig = node.fanout ?? FanoutConfig.parse({});
+    const input = await inputFor(node);
+    const variants = buildVariantParams(cfg, opts.fallbackModel);
+    const variantIds = variants.map((v) => v.id);
+    emit({ type: "node.started", nodeId, attempt });
+    emit({ type: "variants.spawned", nodeId, variantIds });
+
+    const selectId = firstSelectDownstream(graph, nodeId);
+    if (!selectId) {
+      states.set(nodeId, "failed");
+      emit({ type: "node.failed", nodeId, attempt, error: "扇出节点缺少下游择优节点", errorCode: "VALIDATION" });
+      return;
+    }
+    const laneIds = variantLaneIds(graph, nodeId, selectId);
+
+    // Each lane runs as an isolated sub-run (same mechanism as a subprocess
+    // node): one lane failing only ends that lane, never its siblings.
+    const results: Array<{ variant: string; output: string; ok: boolean; error?: string }> = [];
+    for (const v of variants) {
+      const subGraph = buildVariantGraph(graph, nodeId, selectId, laneIds, v);
+      const { plan: subPlan } = compile(subGraph);
+      if (!subPlan) {
+        results.push({ variant: v.id, output: "", ok: false, error: "泳道子图编译失败" });
+        continue;
+      }
+      const prefix = `${nodeId}#var:${v.id}:`;
+      const childInit: SchedulerInit = {
+        artifacts: new Map(),
+        attempts: new Map(),
+        nodeCostUsd: new Map(),
+        totalCostUsd: 0,
+        states: new Map(subGraph.nodes.map((n) => [n.id, "pending" as NodeState])),
+        approvedTools: [...approved],
+        packetEdges: new Set(),
+        variables,
+      };
+      const depth = opts.subprocessDepth ?? 0;
+      const childGen = await runScheduler({
+        runId,
+        graph: subGraph,
+        plan: subPlan,
+        worker,
+        budgetUsd: null,
+        monthlyBudgetUsd: null,
+        monthSpentUsd: 0,
+        fallbackModel: opts.fallbackModel,
+        startSeq: 0,
+        sourceInput: input,
+        connectorValues: opts.connectorValues,
+        signal: opts.signal,
+        now: opts.now,
+        sleep: opts.sleep,
+        init: childInit,
+        initialVariables: variables,
+        resuming: true,
+        subprocessDepth: depth + 1,
+        storeBinary: opts.storeBinary,
+        readArtifact: opts.readArtifact,
+        publicUrl: opts.publicUrl,
+        permissionConfig: opts.permissionConfig,
+        bannedTerms: opts.bannedTerms,
+        loadProducts: opts.loadProducts,
+      });
+      let childStatus: Status | undefined;
+      for await (const e of childGen) {
+        if (e.type === "run.finished") {
+          childStatus = e.status;
+          break;
+        }
+        emit(prefixEvent(e, prefix));
+      }
+      mergeSubInit(prefix, childInit);
+      totalCostUsd += childInit.totalCostUsd;
+      const sinkNode = subGraph.nodes.find((n) => n.kind === "sink");
+      const output = sinkNode ? artifactValue(prefix + sinkNode.id) : null;
+      const text = typeof output === "string" ? output : output == null ? "" : JSON.stringify(output);
+      results.push(childStatus === "done" ? { variant: v.id, output: text, ok: true } : { variant: v.id, output: "", ok: false, error: childStatus ?? "failed" });
+    }
+
+    const payload = JSON.stringify({ variants: results });
+    artifacts.set(nodeId, [{ id: `${nodeId}-variants`, kind: "json", content: payload, mimeType: "application/json" }]);
+    states.set(nodeId, "done");
+    emit({ type: "node.finished", nodeId, attempt, output: payload, usage: zeroUsage() });
+    produceArtifacts(nodeId, payload, attempt);
+    sendPackets(nodeId, `${results.length} 条变体`, "json");
+  };
+
+  const runSelect = async (node: GraphNode, nodeId: string, attempt: number) => {
+    const cfg: SelectConfig = node.select ?? SelectConfig.parse({});
+    const fanoutId = firstFanoutUpstream(graph, nodeId);
+    if (!fanoutId) {
+      states.set(nodeId, "failed");
+      emit({ type: "node.failed", nodeId, attempt, error: "择优节点缺少上游扇出节点", errorCode: "VALIDATION" });
+      return;
+    }
+    const raw = artifacts.get(fanoutId) ?? [];
+    const summaryArt = raw.find((a) => a.kind === "json");
+    let variants: Array<{ variant: string; output: string; ok: boolean; error?: string }> = [];
+    try {
+      variants = (JSON.parse(summaryArt?.content ?? "{}") as { variants: typeof variants }).variants ?? [];
+    } catch {
+      variants = [];
+    }
+    const failed = variants.filter((v) => !v.ok).map((v) => v.variant);
+    const alive = variants.filter((v) => v.ok);
+
+    // Failure semantics: zero surviving lanes → select fails loudly, never
+    // "chooses 0 of an empty set" (the 2797011 class).
+    if (alive.length === 0) {
+      states.set(nodeId, "failed");
+      emit({
+        type: "node.failed",
+        nodeId,
+        attempt,
+        error: `全部变体泳道均失败，无法择优${failed.length ? `（失败：${failed.join("、")}）` : ""}`,
+        errorCode: "SUBPROCESS",
+      });
+      return;
+    }
+
+    // Rank by the configured mode (llm_score via the shared judge channel,
+    // or a deterministic rule).
+    let ranking: Array<{ variant: string; score: number; reason: string }>;
+    if (cfg.mode === "rule") {
+      const field = cfg.rule?.field ?? "length";
+      const desc = cfg.rule?.desc ?? true;
+      ranking = alive
+        .map((a) => {
+          let score = 0;
+          if (field === "length") score = a.output.length;
+          else if (field === "brandCoverage") {
+            const terms = upstreamBrandTerms(graph, nodeId);
+            const hits = terms.filter((t) => a.output.includes(t));
+            score = terms.length ? hits.length / terms.length : 0;
+          } else {
+            try {
+              const val = getByPath(JSON.parse(a.output), cfg.rule?.path ?? "");
+              score = typeof val === "number" ? val : String(val ?? "").length;
+            } catch {
+              score = 0;
+            }
+          }
+          return { variant: a.variant, score, reason: `规则排序 ${field}` };
+        })
+        .sort((x, y) => (desc ? y.score - x.score : x.score - y.score));
+    } else {
+      ranking = [];
+      for (const a of alive) {
+        const verdict = await worker.judge({
+          node,
+          attempt,
+          input: a.output,
+          output: a.output,
+          criterion: cfg.rubric || "请根据文案质量、卖点表达、可读性综合打分（0-10）",
+          signal: opts.signal,
+        });
+        ranking.push({ variant: a.variant, score: verdict.score ?? 0, reason: verdict.reason });
+      }
+      ranking.sort((x, y) => y.score - x.score);
+    }
+
+    const topK = Math.min(cfg.topK, ranking.length);
+    const chosen = ranking.slice(0, topK).map((r) => r.variant);
+    emit({
+      type: "variants.ranked",
+      nodeId,
+      ranking,
+      chosen,
+      ...(failed.length ? { failed } : {}),
+    });
+
+    const chosenEntries = ranking.slice(0, topK).map((r) => {
+      const a = alive.find((x) => x.variant === r.variant);
+      return { variant: r.variant, score: r.score, reason: r.reason, content: a?.output ?? "" };
+    });
+    const output =
+      cfg.topK === 1 && chosenEntries.length === 1
+        ? chosenEntries[0]!.content
+        : JSON.stringify(chosenEntries, null, 2);
+    setTextArtifact(artifacts, nodeId, output);
+    states.set(nodeId, "done");
+    emit({ type: "node.started", nodeId, attempt });
+    emit({ type: "node.finished", nodeId, attempt, output, usage: zeroUsage() });
+    produceArtifacts(nodeId, output, attempt);
+    sendPackets(nodeId, output.slice(0, 120), "text");
+  };
+
   // Runs a single source/sink/gate/agent to completion. Resolves when the node
   // reaches a terminal state (done/failed) so the scheduler can relaunch.
   const runNode = async (nodeId: string) => {
@@ -3689,192 +3877,12 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
 
     try {
       if (node.kind === "fanout") {
-        const cfg: FanoutConfig = node.fanout ?? FanoutConfig.parse({});
-        const input = await inputFor(node);
-        const variants = buildVariantParams(cfg, opts.fallbackModel);
-        const variantIds = variants.map((v) => v.id);
-        emit({ type: "node.started", nodeId, attempt });
-        emit({ type: "variants.spawned", nodeId, variantIds });
-
-        const selectId = firstSelectDownstream(graph, nodeId);
-        if (!selectId) {
-          states.set(nodeId, "failed");
-          emit({ type: "node.failed", nodeId, attempt, error: "扇出节点缺少下游择优节点", errorCode: "VALIDATION" });
-          return;
-        }
-        const laneIds = variantLaneIds(graph, nodeId, selectId);
-
-        // Each lane runs as an isolated sub-run (same mechanism as a subprocess
-        // node): one lane failing only ends that lane, never its siblings.
-        const results: Array<{ variant: string; output: string; ok: boolean; error?: string }> = [];
-        for (const v of variants) {
-          const subGraph = buildVariantGraph(graph, nodeId, selectId, laneIds, v);
-          const { plan: subPlan } = compile(subGraph);
-          if (!subPlan) {
-            results.push({ variant: v.id, output: "", ok: false, error: "泳道子图编译失败" });
-            continue;
-          }
-          const prefix = `${nodeId}#var:${v.id}:`;
-          const childInit: SchedulerInit = {
-            artifacts: new Map(),
-            attempts: new Map(),
-            nodeCostUsd: new Map(),
-            totalCostUsd: 0,
-            states: new Map(subGraph.nodes.map((n) => [n.id, "pending" as NodeState])),
-            approvedTools: [...approved],
-            packetEdges: new Set(),
-            variables,
-          };
-          const depth = opts.subprocessDepth ?? 0;
-          const childGen = await runScheduler({
-            runId,
-            graph: subGraph,
-            plan: subPlan,
-            worker,
-            budgetUsd: null,
-            monthlyBudgetUsd: null,
-            monthSpentUsd: 0,
-            fallbackModel: opts.fallbackModel,
-            startSeq: 0,
-            sourceInput: input,
-            connectorValues: opts.connectorValues,
-            signal: opts.signal,
-            now: opts.now,
-            sleep: opts.sleep,
-            init: childInit,
-            initialVariables: variables,
-            resuming: true,
-            subprocessDepth: depth + 1,
-            storeBinary: opts.storeBinary,
-            readArtifact: opts.readArtifact,
-            publicUrl: opts.publicUrl,
-            permissionConfig: opts.permissionConfig,
-            bannedTerms: opts.bannedTerms,
-            loadProducts: opts.loadProducts,
-          });
-          let childStatus: Status | undefined;
-          for await (const e of childGen) {
-            if (e.type === "run.finished") {
-              childStatus = e.status;
-              break;
-            }
-            emit(prefixEvent(e, prefix));
-          }
-          mergeSubInit(prefix, childInit);
-          totalCostUsd += childInit.totalCostUsd;
-          const sinkNode = subGraph.nodes.find((n) => n.kind === "sink");
-          const output = sinkNode ? artifactValue(prefix + sinkNode.id) : null;
-          const text = typeof output === "string" ? output : output == null ? "" : JSON.stringify(output);
-          results.push(childStatus === "done" ? { variant: v.id, output: text, ok: true } : { variant: v.id, output: "", ok: false, error: childStatus ?? "failed" });
-        }
-
-        const payload = JSON.stringify({ variants: results });
-        artifacts.set(nodeId, [{ id: `${nodeId}-variants`, kind: "json", content: payload, mimeType: "application/json" }]);
-        states.set(nodeId, "done");
-        emit({ type: "node.finished", nodeId, attempt, output: payload, usage: zeroUsage() });
-        produceArtifacts(nodeId, payload, attempt);
-        sendPackets(nodeId, `${results.length} 条变体`, "json");
+        await runFanout(node, nodeId, attempt);
         return;
       }
 
       if (node.kind === "select") {
-        const cfg: SelectConfig = node.select ?? SelectConfig.parse({});
-        const fanoutId = firstFanoutUpstream(graph, nodeId);
-        if (!fanoutId) {
-          states.set(nodeId, "failed");
-          emit({ type: "node.failed", nodeId, attempt, error: "择优节点缺少上游扇出节点", errorCode: "VALIDATION" });
-          return;
-        }
-        const raw = artifacts.get(fanoutId) ?? [];
-        const summaryArt = raw.find((a) => a.kind === "json");
-        let variants: Array<{ variant: string; output: string; ok: boolean; error?: string }> = [];
-        try {
-          variants = (JSON.parse(summaryArt?.content ?? "{}") as { variants: typeof variants }).variants ?? [];
-        } catch {
-          variants = [];
-        }
-        const failed = variants.filter((v) => !v.ok).map((v) => v.variant);
-        const alive = variants.filter((v) => v.ok);
-
-        // Failure semantics: zero surviving lanes → select fails loudly, never
-        // "chooses 0 of an empty set" (the 2797011 class).
-        if (alive.length === 0) {
-          states.set(nodeId, "failed");
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: `全部变体泳道均失败，无法择优${failed.length ? `（失败：${failed.join("、")}）` : ""}`,
-            errorCode: "SUBPROCESS",
-          });
-          return;
-        }
-
-        // Rank by the configured mode (llm_score via the shared judge channel,
-        // or a deterministic rule).
-        let ranking: Array<{ variant: string; score: number; reason: string }>;
-        if (cfg.mode === "rule") {
-          const field = cfg.rule?.field ?? "length";
-          const desc = cfg.rule?.desc ?? true;
-          ranking = alive
-            .map((a) => {
-              let score = 0;
-              if (field === "length") score = a.output.length;
-              else if (field === "brandCoverage") {
-                const terms = upstreamBrandTerms(graph, nodeId);
-                const hits = terms.filter((t) => a.output.includes(t));
-                score = terms.length ? hits.length / terms.length : 0;
-              } else {
-                try {
-                  const val = getByPath(JSON.parse(a.output), cfg.rule?.path ?? "");
-                  score = typeof val === "number" ? val : String(val ?? "").length;
-                } catch {
-                  score = 0;
-                }
-              }
-              return { variant: a.variant, score, reason: `规则排序 ${field}` };
-            })
-            .sort((x, y) => (desc ? y.score - x.score : x.score - y.score));
-        } else {
-          ranking = [];
-          for (const a of alive) {
-            const verdict = await worker.judge({
-              node,
-              attempt,
-              input: a.output,
-              output: a.output,
-              criterion: cfg.rubric || "请根据文案质量、卖点表达、可读性综合打分（0-10）",
-              signal: opts.signal,
-            });
-            ranking.push({ variant: a.variant, score: verdict.score ?? 0, reason: verdict.reason });
-          }
-          ranking.sort((x, y) => y.score - x.score);
-        }
-
-        const topK = Math.min(cfg.topK, ranking.length);
-        const chosen = ranking.slice(0, topK).map((r) => r.variant);
-        emit({
-          type: "variants.ranked",
-          nodeId,
-          ranking,
-          chosen,
-          ...(failed.length ? { failed } : {}),
-        });
-
-        const chosenEntries = ranking.slice(0, topK).map((r) => {
-          const a = alive.find((x) => x.variant === r.variant);
-          return { variant: r.variant, score: r.score, reason: r.reason, content: a?.output ?? "" };
-        });
-        const output =
-          cfg.topK === 1 && chosenEntries.length === 1
-            ? chosenEntries[0]!.content
-            : JSON.stringify(chosenEntries, null, 2);
-        setTextArtifact(artifacts, nodeId, output);
-        states.set(nodeId, "done");
-        emit({ type: "node.started", nodeId, attempt });
-        emit({ type: "node.finished", nodeId, attempt, output, usage: zeroUsage() });
-        produceArtifacts(nodeId, output, attempt);
-        sendPackets(nodeId, output.slice(0, 120), "text");
+        await runSelect(node, nodeId, attempt);
         return;
       }
 
