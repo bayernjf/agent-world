@@ -38,7 +38,7 @@ State of Agent World as of 2026-09-03.
 
 * [docs/feedback-workflow.md](docs/feedback-workflow.md) — owner 怎么高效反馈给我（截图 / computer-use / 防丢）
 
-* [docs/template-checklist.md](docs/template-checklist.md) — 产线模板验证与评估待办表（逐模板真实狗粮验证状态，当前 27 个；**新增模板必登记**，与 core TEMPLATES 数对账）★
+* [docs/template-checklist.md](docs/template-checklist.md) — 产线模板验证与评估待办表（逐模板真实狗粮验证状态，当前 28 个；**新增模板必登记**，与 core TEMPLATES 数对账）★
 
 * [docs/handoff-archive.md](docs/handoff-archive.md) — historical changes (pre-2026-08-27)
 
@@ -164,6 +164,8 @@ State of Agent World as of 2026-09-03.
 22. ✅ **F7-B 开放渠道发布（已落地，本次完成）**：按 [design-ecommerce-roadmap.md](docs/design-ecommerce-roadmap.md) §F7 阶段 B 实现（**先落最通用、零资质的 Webhook 渠道**：POST 到自建中台；飞书/钉钉/微信适配器可后续按同一 Publisher 接口独立增量）。① **server**：`publish_targets`/`published_contents` 表（迁移 28）+ `publish.ts`（`publishToChannel` 抽象 + `webhook` provider，走 guardedFetch SSRF 边界）+ `/api/publish-targets` CRUD（config token 用 encryptString 落盘加密）+ `/api/publish`（调用渠道 + 写 published_contents）+ `/api/published` 查询。② **web**：`PublishTargets.tsx`（渠道列表/新增/删除）+ api client + 命令面板入口 + zh/en i18n。③ **测试**：server `db.publish.test.ts` 3 例（CRUD / 发布记录 / 用户隔离）。④ **遵守 AGENTS.md**：UI 文案全 `t()` 化，keys.test 硬编码中文守护通过。
 
 23. ✅ **状态机方案 A 验证（2026-09-04）**：确认「variables + branch 组合」足以表达状态机，无需新节点类型。新增 `packages/server/src/engine.statemachine.test.ts`（2 例）——构造订单状态机（待支付→已支付→已发货→已完成），用 graph variables 跨 run 持久（`graph.variables` 默认值 + `db.loadGraphVariables` 合并 → engine `set_variable`/`get_variable` 内置工具推进 → run 结束 `db.saveGraphVariables` 写回）+ branch 按 `${var.orderState}` 路由。验证：① 订单状态跨 4 次 run 逐步推进、未路由分支正确发 `node.skipped`、终态走 `defaultTarget` 不再迁移；② 无持久化值时从图级默认状态起步。**结论**：方案 A 可用，状态机无需一等节点。**方案 B（正式 `statemachine` 节点：core `StateMachineConfig` + 编译期迁移校验 + engine 执行块 + web 表单）已登记 [deferred-items 编排线](docs/deferred-items.md)**，触发条件：非法迁移在画布拦不住 / 状态流转图不可见 / branch 规则随状态增多膨胀。
+
+24. ✅ **「银行流水对账」模板（tpl-reconciliation，2026-09-04）**：按 [product-industry-roi.md](docs/product-industry-roi.md) 的「专业服务高 ROI 切入」落地，财务审计第二个模板（第 28 个业务模板）。结构：source 投料两段流水（`银行流水`/`企业账簿` 标记分段，每行 `日期 金额 摘要`）→ code 逐笔配对（date+amount 键，两侧差异分「银行有、账无」/「账有、银行无」）→ table 差异清单按金额降序（数值感知 `amountNum` 列）→ textGen 对账报告（引用 summary 统计、不得编造）→ gate 质检（rework 边回 report）。纯确定性 code + 零外部凭证。已加：core 形状断言（templates.test.ts，模板数 27→28 守护同步）+ 引擎级执行用例（regression/core-path.test.ts：3 银 + 3 账、2 匹配 2 差异、排序 50>30）+ template-checklist 登记（⬜ 待真实狗粮）。验证：core templates 22/22、server regression 18/18（**需 `NODE_OPTIONS=` 清空**——code 节点沙箱在 IDE 内与 Node 24 `--permission` 冲突）。
 
 > 全部缓做/低优事项（含上述两条）已统一登记在 [docs/deferred-items.md](docs/deferred-items.md)——每条带触发条件与决策详情链接，触发条件满足时移回本区并标注重启日期。
 
