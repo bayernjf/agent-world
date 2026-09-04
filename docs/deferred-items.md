@@ -24,7 +24,7 @@
 
 | 事项 | 缓做/低优原因 | 触发条件 | 决策详情 |
 |---|---|---|---|
-| 状态机节点 | variables + branch 组合可兜底绝大多数场景；引入新执行语义，引擎/前端/测试复杂度齐涨，过度设计风险 | 兜底组合在真实产线中反复出现表达不了的流程语义 | [phase4-design.md §5](phase4-design.md#5-状态机缓做) |
+| 状态机节点 | variables + branch 组合可兜底绝大多数场景；引入新执行语义，引擎/前端/测试复杂度齐涨，过度设计风险。**2026-09-04 双方案定案**：方案 A（零代码，用现有 `graph variables` 跨 run 持久 + `branch` 按 `${var.xxx}` 路由 + `set_variable`/`get_variable` 内置工具推进状态）已落地验证；方案 B（正式 `statemachine` 节点：core `StateMachineConfig` + 编译期迁移校验 + engine 执行块 + web 表单 + 测试）留待触发 | 兜底组合在真实产线中反复出现表达不了的流程语义（典型：非法迁移在画布上拦不住、状态流转图上不可见、branch 规则随状态增多而膨胀） | [phase4-design.md §5](phase4-design.md#5-状态机缓做) |
 
 ### 模板/生态线
 

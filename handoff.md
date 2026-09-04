@@ -163,6 +163,8 @@ State of Agent World as of 2026-09-03.
 
 22. ✅ **F7-B 开放渠道发布（已落地，本次完成）**：按 [design-ecommerce-roadmap.md](docs/design-ecommerce-roadmap.md) §F7 阶段 B 实现（**先落最通用、零资质的 Webhook 渠道**：POST 到自建中台；飞书/钉钉/微信适配器可后续按同一 Publisher 接口独立增量）。① **server**：`publish_targets`/`published_contents` 表（迁移 28）+ `publish.ts`（`publishToChannel` 抽象 + `webhook` provider，走 guardedFetch SSRF 边界）+ `/api/publish-targets` CRUD（config token 用 encryptString 落盘加密）+ `/api/publish`（调用渠道 + 写 published_contents）+ `/api/published` 查询。② **web**：`PublishTargets.tsx`（渠道列表/新增/删除）+ api client + 命令面板入口 + zh/en i18n。③ **测试**：server `db.publish.test.ts` 3 例（CRUD / 发布记录 / 用户隔离）。④ **遵守 AGENTS.md**：UI 文案全 `t()` 化，keys.test 硬编码中文守护通过。
 
+23. ✅ **状态机方案 A 验证（2026-09-04）**：确认「variables + branch 组合」足以表达状态机，无需新节点类型。新增 `packages/server/src/engine.statemachine.test.ts`（2 例）——构造订单状态机（待支付→已支付→已发货→已完成），用 graph variables 跨 run 持久（`graph.variables` 默认值 + `db.loadGraphVariables` 合并 → engine `set_variable`/`get_variable` 内置工具推进 → run 结束 `db.saveGraphVariables` 写回）+ branch 按 `${var.orderState}` 路由。验证：① 订单状态跨 4 次 run 逐步推进、未路由分支正确发 `node.skipped`、终态走 `defaultTarget` 不再迁移；② 无持久化值时从图级默认状态起步。**结论**：方案 A 可用，状态机无需一等节点。**方案 B（正式 `statemachine` 节点：core `StateMachineConfig` + 编译期迁移校验 + engine 执行块 + web 表单）已登记 [deferred-items 编排线](docs/deferred-items.md)**，触发条件：非法迁移在画布拦不住 / 状态流转图不可见 / branch 规则随状态增多膨胀。
+
 > 全部缓做/低优事项（含上述两条）已统一登记在 [docs/deferred-items.md](docs/deferred-items.md)——每条带触发条件与决策详情链接，触发条件满足时移回本区并标注重启日期。
 
 ## Recently shipped (last 5)
