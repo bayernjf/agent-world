@@ -1,24 +1,27 @@
 # 核心文件重构方案（engine.ts / Inspector.tsx）
 
-> 状态：阶段 2.1 完成（28/29 提取，notify 刻意保内联） | 优先级：P1 | 创建日期：2026-09-04
+> 状态：阶段 2.2 完成（28 节点迁至 nodes/，NodeRunContext 显式化，注册表分发） | 优先级：P1 | 创建日期：2026-09-04
 
 ## 0. 实施进度（2026-09-04 更新）
 
 **已完成**：
 
 - **阶段 1（拆 Inspector.tsx）**：`Inspector.tsx` 3848 → **611 行**（-84%）；新增 `apps/web/src/components/InspectorFields/`（`types.ts` + `shared.tsx` + `registry.tsx` + 27 个 `XxxFields.tsx`，共 3358 行）；主组件用 `FIELD_COMPONENTS[node.kind]` 注册表分发。web 测试 1500/1500 全绿。
-- **阶段 2.1（runNode 闭包提取）**：29 个 `if (node.kind === "…")` 分支已提取 **28/29** 为 `runScheduler` 内部的 `runXxx` 闭包函数（`node`/`nodeId`/`attempt` 显式传参，共享状态闭包访问，行为不变）：human / compliance / publish / map / parallel / database / branch / ocr / convert / search / http / table / fileParse / translate / vcs / code / videoGen / audioGen / imageGen / source / sink / loop / subprocess / gate / generic / fanout / select。**唯一刻意保留内联的是 `notify`**——提取为闭包后引入的异步边界会把 error 边派发推迟一个微任务，破坏「notify 失败→catch 节点接管」的语义（见 `regression/core-path.test.ts`）。`runNode` 从 ~3160 行降到 **~380 行** 的分发器（-88%），每批 `typecheck` + 全量 server 测试全绿，原子 commit 共 10 个（`c31d659`→`847195a`）。
 
-**进行中**：阶段 2.2（抽 `NodeRunContext` 搬节点执行体到 `nodes/` 目录）、阶段 3（接口实现风格收敛约定）。
+- **阶段 2.1（runNode 闭包提取）**：29 个 `if (node.kind === "…")` 分支已提取 **28/29** 为 `runScheduler` 内部的 `runXxx` 闭包函数（`node`/`nodeId`/`attempt` 显式传参，共享状态闭包访问，行为不变）：human / compliance / publish / map / parallel / database / branch / ocr / convert / search / http / table / fileParse / translate / vcs / code / videoGen / audioGen / imageGen / source / sink / loop / subprocess / gate / generic / fanout / select。**唯一刻意保留内联的是** **`notify`**——提取为闭包后引入的异步边界会把 error 边派发推迟一个微任务，破坏「notify 失败→catch 节点接管」的语义（见 `regression/core-path.test.ts`）。`runNode` 从 \~3160 行降到 **\~380 行** 的分发器（-88%），每批 `typecheck` + 全量 server 测试全绿，原子 commit 共 10 个（`c31d659`→`847195a`）。
+
+- **阶段 2.2（NodeRunContext + nodes/ 目录）**：`runScheduler` 构建单一 `NodeRunContext`（`nodes/types.ts`），把阶段 2.1 的全部闭包状态显式化——Maps/函数直接挂载，可变标量（status/running/aborted/finished/haltNodeId/haltReason/totalCostUsd/budgetWarned/monthlyWarned80/100）经 getter/setter 与调度器本地变量双向绑定，`runScheduler`/`runNode` 递归入口经 ctx 注入（无模块环依赖的运行时引用）。节点执行体全部迁至 `packages/server/src/nodes/`（28 个 `<kind>.ts` + `types.ts` + `shared.ts` 纯函数集），`runNode` 退化为 `NODE_HANDLERS` 注册表分发器（未知 kind 回落 textGen handler，与旧 if 链一致；notify 仍内联）。`engine.ts` 4954 → **1828 行**（-63%），每批迁移 `typecheck` + 全量 server 测试 **747/747** 全绿，原子 commit 9 个（`e89c30d`→`d379b93`）。
+
+**进行中**：阶段 3（接口实现风格收敛约定，可延后）。
 
 ## 1. 摘要
 
 本项目核心逻辑集中在两个巨型文件上：
 
-| 文件 | 总行数 | 症结 | 风险 |
-|---|---|---|---|
-| `packages/server/src/engine.ts` | 4954 | `runNode` 一个函数约 3160 行（占 64%），29 种节点执行逻辑塞在一个 `if (node.kind === …)` 分支链里 | 高 |
-| `apps/web/src/components/Inspector.tsx` | 3848 | `Inspector` 主组件约 3350 行（占 87%），25+ 种节点、约 250 个字段的内联 JSX 全堆在一个组件里 | 低 |
+| 文件                                      | 总行数  | 症结                                                                       | 风险 |
+| --------------------------------------- | ---- | ------------------------------------------------------------------------ | -- |
+| `packages/server/src/engine.ts`         | 4954 | `runNode` 一个函数约 3160 行（占 64%），29 种节点执行逻辑塞在一个 `if (node.kind === …)` 分支链里 | 高  |
+| `apps/web/src/components/Inspector.tsx` | 3848 | `Inspector` 主组件约 3350 行（占 87%），25+ 种节点、约 250 个字段的内联 JSX 全堆在一个组件里         | 低  |
 
 另有轻微问题：接口实现风格不统一（对象字面量 vs 工厂函数 vs class）。
 
@@ -28,19 +31,19 @@
 
 ### 1.1 `engine.ts` 内部结构
 
-| 区间 | 内容 | 行数 |
-|---|---|---|
-| L84–L210 | 工具函数 + variant 系列（`buildVariantGraph` 等） | ~130 |
-| L211–L290 | skill 处理（`collectPromptModules`、`validateContract`） | ~80 |
-| L291–L400 | 类型 + 常量（`ExecuteOptions`、`VARIABLE_TOOLS`、`NodeState`） | ~110 |
-| L406–L640 | artifact 工具（`setTextArtifact`、`collectUpstreamImages` 等） | ~230 |
-| L648–L755 | `EventQueue` + `SchedulerInit`/`SchedulerOptions` | ~110 |
-| L755–L1210 | `runScheduler`（`emit`/`finish`/`sendPackets`/`inputFor` 等辅助） | ~455 |
-| **L1211–L4370** | **`runNode`（巨型函数）** | **~3160（占 64%）** |
-| L4371–L4520 | `schedule` | ~150 |
-| L4538–L4585 | `execute` | ~50 |
-| L4587–L4750 | `ResumeState`/`reconstructState`/`ResumeOptions` | ~160 |
-| L4753–L4954 | `resume` | ~200 |
+| 区间              | 内容                                                           | 行数                |
+| --------------- | ------------------------------------------------------------ | ----------------- |
+| L84–L210        | 工具函数 + variant 系列（`buildVariantGraph` 等）                     | \~130             |
+| L211–L290       | skill 处理（`collectPromptModules`、`validateContract`）          | \~80              |
+| L291–L400       | 类型 + 常量（`ExecuteOptions`、`VARIABLE_TOOLS`、`NodeState`）       | \~110             |
+| L406–L640       | artifact 工具（`setTextArtifact`、`collectUpstreamImages` 等）     | \~230             |
+| L648–L755       | `EventQueue` + `SchedulerInit`/`SchedulerOptions`            | \~110             |
+| L755–L1210      | `runScheduler`（`emit`/`finish`/`sendPackets`/`inputFor` 等辅助） | \~455             |
+| **L1211–L4370** | **`runNode`（巨型函数）**                                          | **\~3160（占 64%）** |
+| L4371–L4520     | `schedule`                                                   | \~150             |
+| L4538–L4585     | `execute`                                                    | \~50              |
+| L4587–L4750     | `ResumeState`/`reconstructState`/`ResumeOptions`             | \~160             |
+| L4753–L4954     | `resume`                                                     | \~200             |
 
 **症结**：`runNode` 把 29 种节点（source/textGen/imageGen/videoGen/audioGen/gate/http/code/branch/map/loop/parallel/table/database/fileParse/translate/ocr/convert/search/notify/vcs/human/subprocess/compliance/fanout/select/publish/generic）的执行逻辑塞在一条 `if (node.kind === "xxx")` 分支链里，每个分支重复同一套生命周期样板：
 
@@ -54,32 +57,32 @@ emit node.started → try → 执行 → emit artifact.produced / node.finished 
 
 ### 1.2 `Inspector.tsx` 内部结构
 
-| 区间 | 内容 | 行数 |
-|---|---|---|
-| L29–L100 | 工具函数（`formatUnits`/`formatDuration`/`parsePairs` 等） | ~70 |
-| L113–L405 | `TableStepEditor`（表格步骤编辑器） | ~290 |
-| L406–L470 | 辅助（`diffLines`/`ERROR_LABEL`/`renderNodeOutput`） | ~65 |
-| L471–L495 | `MainTab` | ~25 |
-| **L495–L3848** | **`Inspector` 主组件** | **~3350（占 87%）** |
+| 区间             | 内容                                                  | 行数                |
+| -------------- | --------------------------------------------------- | ----------------- |
+| L29–L100       | 工具函数（`formatUnits`/`formatDuration`/`parsePairs` 等） | \~70              |
+| L113–L405      | `TableStepEditor`（表格步骤编辑器）                          | \~290             |
+| L406–L470      | 辅助（`diffLines`/`ERROR_LABEL`/`renderNodeOutput`）    | \~65              |
+| L471–L495      | `MainTab`                                           | \~25              |
+| **L495–L3848** | **`Inspector`** **主组件**                             | **\~3350（占 87%）** |
 
 **症结**：`Inspector` 主组件里每个节点类型一个配置面板、每个字段一段内联 JSX，全部堆在一个组件函数里。字段之间几乎没有共享闭包耦合，本质是 `读 node.xxx 配置 → 渲染 → updateNode 回写` 的 props 传递。
 
 ### 1.3 接口实现风格不统一
 
-| 接口 | 当前实现风格 |
-|---|---|
-| `StorageBackend` | class（`LocalStorageBackend implements StorageBackend` 等） |
-| `MemoryBackend` | class（`SQLiteMemoryBackend implements MemoryBackend`） |
-| `McpTransport` | class（`StdioMcpTransport implements McpTransport` 等） |
-| `Worker` | 工厂函数 `fakeWorker()`（测试替身）+ class（`IsolatedWorker`、真实 provider） |
+| 接口                   | 当前实现风格                                                                   |
+| -------------------- | ------------------------------------------------------------------------ |
+| `StorageBackend`     | class（`LocalStorageBackend implements StorageBackend` 等）                 |
+| `MemoryBackend`      | class（`SQLiteMemoryBackend implements MemoryBackend`）                    |
+| `McpTransport`       | class（`StdioMcpTransport implements McpTransport` 等）                     |
+| `Worker`             | 工厂函数 `fakeWorker()`（测试替身）+ class（`IsolatedWorker`、真实 provider）           |
 | `CodeSandboxBackend` | 对象字面量（`rlimitBackend`/`bwrapBackend`/`sandboxExecBackend`/`noopBackend`） |
 
 这是历史演进留下的轻微不一致，非 bug，但应在重构中收敛约定。
 
 ## 3. 目标
 
-1. `Inspector.tsx` 主组件从 ~3350 行降到 ~300 行，字段按 `NodeKind` 拆成独立组件。
-2. `engine.ts` 的 `runNode` 从 ~3160 行退化成 ~50 行的 `switch (node.kind)` 分发器，节点执行体搬进 `nodes/` 目录。
+1. `Inspector.tsx` 主组件从 \~3350 行降到 \~300 行，字段按 `NodeKind` 拆成独立组件。
+2. `engine.ts` 的 `runNode` 从 \~3160 行退化成 \~50 行的 `switch (node.kind)` 分发器，节点执行体搬进 `nodes/` 目录。
 3. 收敛接口实现风格约定，不强行大改已有代码。
 4. **全程行为不变**：产线执行结果、事件流、产物、成本计量、失败语义均不得改变。
 
@@ -159,7 +162,7 @@ export function VcsFields({ node, updateNode, t }: FieldProps) { ... }
 
 #### 2.1 收敛样板（机械提取，不改逻辑）
 
-把 `runNode` 里每个 `if (node.kind === "xxx")` 分支**提取成独立的 `async function runXxxNode(...)` 私有函数**（先留在 `engine.ts`，或抽到同目录 `engine-nodes.ts`）。这一步是**纯机械搬移，零逻辑改动**，测试完全兜底。
+把 `runNode` 里每个 `if (node.kind === "xxx")` 分支**提取成独立的** **`async function runXxxNode(...)`** **私有函数**（先留在 `engine.ts`，或抽到同目录 `engine-nodes.ts`）。这一步是**纯机械搬移，零逻辑改动**，测试完全兜底。
 
 #### 2.2 抽出共享上下文，搬到独立文件
 
@@ -221,19 +224,21 @@ for (const node of ready) {
 收敛约定而非大改代码：
 
 - **有状态、多实例的** → class（`implements`）。`StorageBackend`/`MemoryBackend`/`McpTransport` 已符合，保持。
+
 - **无状态、单例的** → 对象字面量。`CodeSandboxBackend` 的 4 个 backend 符合，保持。
+
 - **需要测试替身 + 真实实现的** → 工厂函数（替身）+ class（真实现）并存。`Worker` 符合，保持。
 
-**结论**：现有风格其实各有其合理场景，本阶段主要产出是**把「何时用 class、何时用对象字面量」的约定写进 `CONTRIBUTING.md` 或 `extending.md`**，不强行重构已有代码。
+**结论**：现有风格其实各有其合理场景，本阶段主要产出是**把「何时用 class、何时用对象字面量」的约定写进** **`CONTRIBUTING.md`** **或** **`extending.md`**，不强行重构已有代码。
 
 ## 6. 风险与缓解
 
-| 风险 | 缓解 |
-|---|---|
-| 阶段 2 改动核心引擎，可能引入静默行为变化 | 两步走 + 671 个测试兜底 + 真实跑产线；狗粮修过的静默失败/空补全/error 边语义在测试里有覆盖 |
-| 巨型 diff 难以 review | 每步原子提交，单步只做「提取」或「搬移」一件事 |
-| `NodeRunContext` 字段漏传导致运行时 undefined | 用 TS 强类型 + 编译期检查；迁移时保持原函数签名，逐个搬 |
-| 与并行会话的改动冲突 | 阶段 1（Inspector）与阶段 2（engine）文件不同，尽量不同时动同一文件 |
+| 风险                                   | 缓解                                                     |
+| ------------------------------------ | ------------------------------------------------------ |
+| 阶段 2 改动核心引擎，可能引入静默行为变化               | 两步走 + 671 个测试兜底 + 真实跑产线；狗粮修过的静默失败/空补全/error 边语义在测试里有覆盖 |
+| 巨型 diff 难以 review                    | 每步原子提交，单步只做「提取」或「搬移」一件事                                |
+| `NodeRunContext` 字段漏传导致运行时 undefined | 用 TS 强类型 + 编译期检查；迁移时保持原函数签名，逐个搬                        |
+| 与并行会话的改动冲突                           | 阶段 1（Inspector）与阶段 2（engine）文件不同，尽量不同时动同一文件            |
 
 ## 7. 实施顺序
 
@@ -248,6 +253,11 @@ for (const node of ready) {
 ## 8. 非目标（明确不做）
 
 - 不重写引擎的调度算法、事件模型、成本计量。
+
 - 不改任何节点类型的行为语义。
+
 - 不引入新的依赖、框架或构建工具。
+
 - 不做「拆分后立即合并超大重构」——严格按阶段原子提交。
+
+<br />
