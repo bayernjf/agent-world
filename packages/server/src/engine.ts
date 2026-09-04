@@ -2181,6 +2181,262 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     }
   };
 
+  const runFileParse = async (node: GraphNode, nodeId: string, attempt: number) => {
+    emit({ type: "node.started", nodeId, attempt });
+    try {
+      const cfg = FileParseConfig.parse(node.fileParse ?? {});
+      const sources = incoming(graph, nodeId, "flow").map((e) => e.from);
+      const sourceId = cfg.source ?? (sources.length === 1 ? sources[0] : undefined);
+      if (!sourceId) {
+        states.set(nodeId, "failed");
+        emit({
+          type: "node.failed",
+          nodeId,
+          attempt,
+          error: "文件解析节点需要唯一上游，或在配置中显式指定数据来源",
+          errorCode: "VALIDATION",
+        });
+        return;
+      }
+      const arts = artifacts.get(sourceId) ?? [];
+      const fileArts = arts.filter((a) => a.kind === "file" && a.uri);
+      if (fileArts.length === 0) {
+        states.set(nodeId, "failed");
+        emit({
+          type: "node.failed",
+          nodeId,
+          attempt,
+          error: `上游「${nodeById(graph, sourceId)?.name ?? sourceId}」没有产出文件产物`,
+          errorCode: "VALIDATION",
+        });
+        return;
+      }
+      // Parse every uploaded document (was: first only — a batch of contracts
+      // or due-diligence files silently dropped all but the first). Multi-doc
+      // text is joined under per-file headers so downstream textGen can tell
+      // the documents apart; the single-doc path stays byte-identical.
+      const blocks: string[] = [];
+      const images: { data: Buffer; mimeType: string; label: string }[] = [];
+      let unresolvedCount = 0;
+      for (const [i, fileArt] of fileArts.entries()) {
+        const resolved = opts.readArtifact ? await opts.readArtifact(fileArt.uri!) : null;
+        if (!resolved) {
+          unresolvedCount++;
+          continue;
+        }
+        const parsed = await parseDocument(dataUriToBuffer(resolved), fileArt.mimeType);
+        const label = fileArt.label ?? `文档 ${i + 1}`;
+        const header = fileArts.length > 1 ? `===== ${label} =====` : "";
+        blocks.push(header ? `${header}\n${parsed.text}` : parsed.text);
+        for (const img of parsed.images) {
+          images.push({ data: Buffer.from(img.data), mimeType: img.mimeType, label: `${label} 图片 ${images.length + 1}` });
+        }
+      }
+      if (blocks.length === 0) {
+        const capMb = Math.floor(MAX_INLINE_BYTES / (1024 * 1024));
+        states.set(nodeId, "failed");
+        emit({
+          type: "node.failed",
+          nodeId,
+          attempt,
+          error: `无法读取文件内容（${fileArts[0]!.uri}）：产物字节不存在，或文件超过解析上限 ${capMb}MB（上传允许 25MB，但解析需要整体内联读入）`,
+          errorCode: "PROVIDER_ERROR",
+        });
+        return;
+      }
+      const output = blocks.join("\n\n");
+      const produced: Artifact[] = [
+        { id: `${nodeId}-txt`, kind: "text", content: output, mimeType: "text/plain" },
+      ];
+      for (const [idx, img] of images.slice(0, cfg.maxImages).entries()) {
+        const ext =
+          img.mimeType === "image/png"
+            ? "png"
+            : img.mimeType === "image/jpeg"
+              ? "jpg"
+              : (img.mimeType.split("/")[1] ?? "bin");
+        const uri = await opts.storeBinary(
+          Buffer.from(img.data),
+          img.mimeType,
+          `${node.name || "file-parse"}-${idx + 1}.${ext}`,
+        );
+        produced.push({
+          id: `${nodeId}-img-${idx}`,
+          kind: "image",
+          uri,
+          mimeType: img.mimeType,
+          label: img.label,
+        });
+      }
+      artifacts.set(nodeId, produced);
+      for (const a of produced) emit({ type: "artifact.produced", nodeId, attempt, artifact: a });
+      states.set(nodeId, "done");
+      const imgCount = produced.length - 1;
+      const parsedCount = fileArts.length - unresolvedCount;
+      const summary = `解析完成：${parsedCount} 个文档，${output.length} 字符文本${imgCount ? `，提取 ${imgCount} 张图片` : ""}${unresolvedCount > 0 ? `；另有 ${unresolvedCount} 个文档无法读取` : ""}`;
+      emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
+      sendPackets(nodeId, summary, "text");
+    } catch (err) {
+      states.set(nodeId, "failed");
+      emit({
+        type: "node.failed",
+        nodeId,
+        attempt,
+        error: `文件解析节点执行出错: ${err instanceof Error ? err.message : String(err)}`,
+      });
+    }
+  };
+
+  const runTranslate = async (node: GraphNode, nodeId: string, attempt: number) => {
+    emit({ type: "node.started", nodeId, attempt });
+    const cfg = TranslateConfig.parse(node.translate ?? {});
+    const sources = incoming(graph, nodeId, "flow").map((e) => e.from);
+    const sourceId = cfg.source ?? (sources.length === 1 ? sources[0] : undefined);
+    if (!sourceId) {
+      states.set(nodeId, "failed");
+      emit({
+        type: "node.failed",
+        nodeId,
+        attempt,
+        error: "翻译节点需要唯一上游，或在配置中显式指定数据来源",
+        errorCode: "VALIDATION",
+      });
+      return;
+    }
+    const arts = artifacts.get(sourceId) ?? [];
+    const textArt = arts.find((a) => a.kind === "text");
+    const jsonArt = arts.find((a) => a.kind === "json");
+    let sourceText = textArt?.content ?? "";
+    if (!sourceText && jsonArt) {
+      sourceText =
+        typeof jsonArt.content === "string" ? jsonArt.content : JSON.stringify(jsonArt.content, null, 2);
+    }
+    if (!sourceText.trim()) {
+      states.set(nodeId, "failed");
+      emit({
+        type: "node.failed",
+        nodeId,
+        attempt,
+        error: `上游「${nodeById(graph, sourceId)?.name ?? sourceId}」没有产出可翻译的文本`,
+        errorCode: "VALIDATION",
+      });
+      return;
+    }
+    const config = {
+      model: cfg.model || fallbackModel,
+      prompt: [
+        `你是专业的翻译引擎。请把用户提供的文本翻译成${cfg.target}。`,
+        "要求：忠实原文、不增删内容、不解释不改写；保留原文的换行、编号与段落结构；",
+        "直接输出译文本身，不要加任何说明、引号或前后缀。",
+      ].join("\n"),
+      skills: [],
+      temperature: cfg.temperature,
+      timeoutMs: 120000,
+      inputPolicy: { mode: "all" as const },
+      retry: cfg.retry,
+    };
+    let result: { output: string; usage: Usage } | null = null;
+    let lastError: { message: string; code?: string } | null = null;
+    const maxAttempts = 1 + config.retry.maxRetries;
+    for (let tryIdx = 0; tryIdx < maxAttempts; tryIdx++) {
+      if (opts.signal?.aborted || aborted) {
+        aborted = true;
+        return;
+      }
+      try {
+        const gen = worker.runTextGen({
+          node,
+          config,
+          attempt,
+          input: sourceText,
+          signal: opts.signal,
+        });
+        let output = "";
+        let usage: Usage | null = null;
+        while (true) {
+          const step = await gen.next();
+          if (step.done) {
+            output = step.value.output;
+            usage = step.value.usage;
+            break;
+          }
+          if (opts.signal?.aborted || aborted) {
+            aborted = true;
+            return;
+          }
+          if (step.value.type === "text-delta") {
+            emit({ type: "node.delta", nodeId, attempt, text: step.value.text });
+          }
+        }
+        result = { output, usage: usage ?? zeroUsage() };
+        break;
+      } catch (err) {
+        const code = err instanceof ProviderError ? err.code : "UNKNOWN";
+        lastError = { message: (err as Error).message, code };
+        if (!RETRYABLE.has(code) || tryIdx >= maxAttempts - 1) break;
+        await opts.sleep(Math.min(config.retry.maxDelayMs, config.retry.baseDelayMs * 2 ** tryIdx));
+      }
+    }
+    if (!result) {
+      states.set(nodeId, "failed");
+      emit({
+        type: "node.failed",
+        nodeId,
+        attempt,
+        error: sanitizeError(lastError?.message ?? "翻译调用失败，无输出"),
+        errorCode: (lastError?.code as
+          | "TIMEOUT"
+          | "RATE_LIMIT"
+          | "PROVIDER_ERROR"
+          | "SCRIPT_ERROR"
+          | "AUTH"
+          | "VALIDATION"
+          | "UNKNOWN"
+          | "UNSUPPORTED"
+          | undefined) ?? "UNKNOWN",
+      });
+      status = "failed";
+      return;
+    }
+    // Same contract as the textGen branch: a 200 with no text is not a
+    // translation. Shipping an empty artifact here means the run reports
+    // done with nothing translated.
+    if (!result.output.trim()) {
+      states.set(nodeId, "failed");
+      emit({
+        type: "node.failed",
+        nodeId,
+        attempt,
+        error: `模型 ${config.model} 返回了空译文（无正文可交付）`,
+        errorCode: "PROVIDER_ERROR",
+      });
+      status = "failed";
+      return;
+    }
+    setTextArtifact(artifacts, nodeId, result.output);
+    states.set(nodeId, "done");
+    emit({ type: "node.finished", nodeId, attempt, output: result.output, usage: result.usage });
+    const primaryKind = produceArtifacts(nodeId, result.output, attempt);
+    totalCostUsd += result.usage.costUsd;
+    emit({ type: "power.metered", totalCostUsd, budgetUsd });
+    const nodeSpent = (nodeCostUsd.get(nodeId) ?? 0) + result.usage.costUsd;
+    nodeCostUsd.set(nodeId, nodeSpent);
+    const nodeBudget = cfg.budgetUsd;
+    if (nodeBudget != null && nodeBudget > 0 && nodeSpent > nodeBudget) {
+      states.set(nodeId, "failed");
+      emit({
+        type: "node.failed",
+        nodeId,
+        attempt,
+        error: `节点预算 $${nodeBudget.toFixed(4)} 已超出（已花 $${nodeSpent.toFixed(4)}）`,
+        errorCode: "BUDGET",
+      });
+      status = "failed";
+      return;
+    }
+    sendPackets(nodeId, result.output.slice(0, 120), primaryKind);
+  };
+
   // Runs a single source/sink/gate/agent to completion. Resolves when the node
   // reaches a terminal state (done/failed) so the scheduler can relaunch.
   const runNode = async (nodeId: string) => {
@@ -2986,260 +3242,12 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       }
 
       if (node.kind === "fileParse") {
-        emit({ type: "node.started", nodeId, attempt });
-        try {
-          const cfg = FileParseConfig.parse(node.fileParse ?? {});
-          const sources = incoming(graph, nodeId, "flow").map((e) => e.from);
-          const sourceId = cfg.source ?? (sources.length === 1 ? sources[0] : undefined);
-          if (!sourceId) {
-            states.set(nodeId, "failed");
-            emit({
-              type: "node.failed",
-              nodeId,
-              attempt,
-              error: "文件解析节点需要唯一上游，或在配置中显式指定数据来源",
-              errorCode: "VALIDATION",
-            });
-            return;
-          }
-          const arts = artifacts.get(sourceId) ?? [];
-          const fileArts = arts.filter((a) => a.kind === "file" && a.uri);
-          if (fileArts.length === 0) {
-            states.set(nodeId, "failed");
-            emit({
-              type: "node.failed",
-              nodeId,
-              attempt,
-              error: `上游「${nodeById(graph, sourceId)?.name ?? sourceId}」没有产出文件产物`,
-              errorCode: "VALIDATION",
-            });
-            return;
-          }
-          // Parse every uploaded document (was: first only — a batch of contracts
-          // or due-diligence files silently dropped all but the first). Multi-doc
-          // text is joined under per-file headers so downstream textGen can tell
-          // the documents apart; the single-doc path stays byte-identical.
-          const blocks: string[] = [];
-          const images: { data: Buffer; mimeType: string; label: string }[] = [];
-          let unresolvedCount = 0;
-          for (const [i, fileArt] of fileArts.entries()) {
-            const resolved = opts.readArtifact ? await opts.readArtifact(fileArt.uri!) : null;
-            if (!resolved) {
-              unresolvedCount++;
-              continue;
-            }
-            const parsed = await parseDocument(dataUriToBuffer(resolved), fileArt.mimeType);
-            const label = fileArt.label ?? `文档 ${i + 1}`;
-            const header = fileArts.length > 1 ? `===== ${label} =====` : "";
-            blocks.push(header ? `${header}\n${parsed.text}` : parsed.text);
-            for (const img of parsed.images) {
-              images.push({ data: Buffer.from(img.data), mimeType: img.mimeType, label: `${label} 图片 ${images.length + 1}` });
-            }
-          }
-          if (blocks.length === 0) {
-            const capMb = Math.floor(MAX_INLINE_BYTES / (1024 * 1024));
-            states.set(nodeId, "failed");
-            emit({
-              type: "node.failed",
-              nodeId,
-              attempt,
-              error: `无法读取文件内容（${fileArts[0]!.uri}）：产物字节不存在，或文件超过解析上限 ${capMb}MB（上传允许 25MB，但解析需要整体内联读入）`,
-              errorCode: "PROVIDER_ERROR",
-            });
-            return;
-          }
-          const output = blocks.join("\n\n");
-          const produced: Artifact[] = [
-            { id: `${nodeId}-txt`, kind: "text", content: output, mimeType: "text/plain" },
-          ];
-          for (const [idx, img] of images.slice(0, cfg.maxImages).entries()) {
-            const ext =
-              img.mimeType === "image/png"
-                ? "png"
-                : img.mimeType === "image/jpeg"
-                  ? "jpg"
-                  : (img.mimeType.split("/")[1] ?? "bin");
-            const uri = await opts.storeBinary(
-              Buffer.from(img.data),
-              img.mimeType,
-              `${node.name || "file-parse"}-${idx + 1}.${ext}`,
-            );
-            produced.push({
-              id: `${nodeId}-img-${idx}`,
-              kind: "image",
-              uri,
-              mimeType: img.mimeType,
-              label: img.label,
-            });
-          }
-          artifacts.set(nodeId, produced);
-          for (const a of produced) emit({ type: "artifact.produced", nodeId, attempt, artifact: a });
-          states.set(nodeId, "done");
-          const imgCount = produced.length - 1;
-          const parsedCount = fileArts.length - unresolvedCount;
-          const summary = `解析完成：${parsedCount} 个文档，${output.length} 字符文本${imgCount ? `，提取 ${imgCount} 张图片` : ""}${unresolvedCount > 0 ? `；另有 ${unresolvedCount} 个文档无法读取` : ""}`;
-          emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
-          sendPackets(nodeId, summary, "text");
-        } catch (err) {
-          states.set(nodeId, "failed");
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: `文件解析节点执行出错: ${err instanceof Error ? err.message : String(err)}`,
-          });
-        }
+        await runFileParse(node, nodeId, attempt);
         return;
       }
 
       if (node.kind === "translate") {
-        emit({ type: "node.started", nodeId, attempt });
-        const cfg = TranslateConfig.parse(node.translate ?? {});
-        const sources = incoming(graph, nodeId, "flow").map((e) => e.from);
-        const sourceId = cfg.source ?? (sources.length === 1 ? sources[0] : undefined);
-        if (!sourceId) {
-          states.set(nodeId, "failed");
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: "翻译节点需要唯一上游，或在配置中显式指定数据来源",
-            errorCode: "VALIDATION",
-          });
-          return;
-        }
-        const arts = artifacts.get(sourceId) ?? [];
-        const textArt = arts.find((a) => a.kind === "text");
-        const jsonArt = arts.find((a) => a.kind === "json");
-        let sourceText = textArt?.content ?? "";
-        if (!sourceText && jsonArt) {
-          sourceText =
-            typeof jsonArt.content === "string" ? jsonArt.content : JSON.stringify(jsonArt.content, null, 2);
-        }
-        if (!sourceText.trim()) {
-          states.set(nodeId, "failed");
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: `上游「${nodeById(graph, sourceId)?.name ?? sourceId}」没有产出可翻译的文本`,
-            errorCode: "VALIDATION",
-          });
-          return;
-        }
-        const config = {
-          model: cfg.model || fallbackModel,
-          prompt: [
-            `你是专业的翻译引擎。请把用户提供的文本翻译成${cfg.target}。`,
-            "要求：忠实原文、不增删内容、不解释不改写；保留原文的换行、编号与段落结构；",
-            "直接输出译文本身，不要加任何说明、引号或前后缀。",
-          ].join("\n"),
-          skills: [],
-          temperature: cfg.temperature,
-          timeoutMs: 120000,
-          inputPolicy: { mode: "all" as const },
-          retry: cfg.retry,
-        };
-        let result: { output: string; usage: Usage } | null = null;
-        let lastError: { message: string; code?: string } | null = null;
-        const maxAttempts = 1 + config.retry.maxRetries;
-        for (let tryIdx = 0; tryIdx < maxAttempts; tryIdx++) {
-          if (opts.signal?.aborted || aborted) {
-            aborted = true;
-            return;
-          }
-          try {
-            const gen = worker.runTextGen({
-              node,
-              config,
-              attempt,
-              input: sourceText,
-              signal: opts.signal,
-            });
-            let output = "";
-            let usage: Usage | null = null;
-            while (true) {
-              const step = await gen.next();
-              if (step.done) {
-                output = step.value.output;
-                usage = step.value.usage;
-                break;
-              }
-              if (opts.signal?.aborted || aborted) {
-                aborted = true;
-                return;
-              }
-              if (step.value.type === "text-delta") {
-                emit({ type: "node.delta", nodeId, attempt, text: step.value.text });
-              }
-            }
-            result = { output, usage: usage ?? zeroUsage() };
-            break;
-          } catch (err) {
-            const code = err instanceof ProviderError ? err.code : "UNKNOWN";
-            lastError = { message: (err as Error).message, code };
-            if (!RETRYABLE.has(code) || tryIdx >= maxAttempts - 1) break;
-            await opts.sleep(Math.min(config.retry.maxDelayMs, config.retry.baseDelayMs * 2 ** tryIdx));
-          }
-        }
-        if (!result) {
-          states.set(nodeId, "failed");
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: sanitizeError(lastError?.message ?? "翻译调用失败，无输出"),
-            errorCode: (lastError?.code as
-              | "TIMEOUT"
-              | "RATE_LIMIT"
-              | "PROVIDER_ERROR"
-              | "SCRIPT_ERROR"
-              | "AUTH"
-              | "VALIDATION"
-              | "UNKNOWN"
-              | "UNSUPPORTED"
-              | undefined) ?? "UNKNOWN",
-          });
-          status = "failed";
-          return;
-        }
-        // Same contract as the textGen branch: a 200 with no text is not a
-        // translation. Shipping an empty artifact here means the run reports
-        // done with nothing translated.
-        if (!result.output.trim()) {
-          states.set(nodeId, "failed");
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: `模型 ${config.model} 返回了空译文（无正文可交付）`,
-            errorCode: "PROVIDER_ERROR",
-          });
-          status = "failed";
-          return;
-        }
-        setTextArtifact(artifacts, nodeId, result.output);
-        states.set(nodeId, "done");
-        emit({ type: "node.finished", nodeId, attempt, output: result.output, usage: result.usage });
-        const primaryKind = produceArtifacts(nodeId, result.output, attempt);
-        totalCostUsd += result.usage.costUsd;
-        emit({ type: "power.metered", totalCostUsd, budgetUsd });
-        const nodeSpent = (nodeCostUsd.get(nodeId) ?? 0) + result.usage.costUsd;
-        nodeCostUsd.set(nodeId, nodeSpent);
-        const nodeBudget = cfg.budgetUsd;
-        if (nodeBudget != null && nodeBudget > 0 && nodeSpent > nodeBudget) {
-          states.set(nodeId, "failed");
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: `节点预算 $${nodeBudget.toFixed(4)} 已超出（已花 $${nodeSpent.toFixed(4)}）`,
-            errorCode: "BUDGET",
-          });
-          status = "failed";
-          return;
-        }
-        sendPackets(nodeId, result.output.slice(0, 120), primaryKind);
+        await runTranslate(node, nodeId, attempt);
         return;
       }
 
