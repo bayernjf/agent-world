@@ -69,8 +69,8 @@ describe("TEMPLATE_LIST", () => {
     });
   });
 
-  it("模板数量为 27（不含空白产线）", () => {
-    expect(TEMPLATE_LIST).toHaveLength(27);
+  it("模板数量为 33（不含空白产线）", () => {
+    expect(TEMPLATE_LIST).toHaveLength(33);
   });
 
   it("每个模板的节点都有 id、kind、x、y", () => {
