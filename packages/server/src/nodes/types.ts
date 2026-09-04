@@ -1,5 +1,6 @@
 import type { Artifact, DraftEvent, Graph, GraphNode, Plan, RunEvent } from "@agent-world/core";
 import type { Worker } from "../worker.js";
+import type { PermissionConfig } from "../permissions.js";
 import type { NodeState, SchedulerInit, SchedulerOptions, Status } from "../engine.js";
 
 /**
@@ -58,6 +59,12 @@ export interface NodeRunContext {
   haltNodeId: string | undefined;
   haltReason: string | undefined;
   totalCostUsd: number;
+  /** Run budget warning already emitted (80% threshold). */
+  budgetWarned: boolean;
+  /** Monthly budget 80% warning already emitted. */
+  monthlyWarned80: boolean;
+  /** Monthly budget 100% warning already emitted. */
+  monthlyWarned100: boolean;
 
   // --- shared operations (scheduler closures) ---
   emit: (e: DraftEvent) => RunEvent;
@@ -71,6 +78,12 @@ export interface NodeRunContext {
   extractSubInit: (prefix: string, childGraph: Graph) => SchedulerInit | null;
   mergeSubInit: (prefix: string, childInit: SchedulerInit) => void;
   finish: () => void;
+  /** Tool-call permission governance config for this run. */
+  permCfg: PermissionConfig;
+  /** Upstream image URIs reachable from a node (transitive, deduped). */
+  imagesFor: (nodeId: string) => string[];
+  /** Built-in set_variable / get_variable tool execution (graph variables). */
+  handleVariableTool: (name: string, args: unknown) => unknown;
 
   // --- recursion entry points (subprocess/fanout spawn child schedulers, loop relaunches nodes) ---
   scheduler: (opts: SchedulerOptions) => Promise<AsyncGenerator<RunEvent>>;

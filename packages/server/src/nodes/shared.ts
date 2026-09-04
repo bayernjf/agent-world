@@ -7,8 +7,11 @@ import {
   type Graph,
   type GraphNode,
   type RunEvent,
+  type SkillMount,
   type Usage,
 } from "@agent-world/core";
+import { getSkill } from "../skills/registry.js";
+import type { ToolDefinition } from "../worker.js";
 
 // Shared pure helpers extracted from engine.ts so node execution bodies in
 // nodes/*.ts can reuse them without importing the engine (no cycle).
@@ -313,3 +316,122 @@ export function fileLabelFromUrl(url: URL): string {
 
 /** Provider error codes that may be retried. */
 export const RETRYABLE: ReadonlySet<string> = new Set(["TIMEOUT", "RATE_LIMIT", "PROVIDER_ERROR"]);
+
+/** Normalize a skill entry (id string or mount) into a full SkillMount. */
+export function toMount(s: string | SkillMount): SkillMount {
+  return typeof s === "string" ? { id: s, config: {}, enabled: true } : { ...s, config: s.config ?? {} };
+}
+
+export function collectPromptModules(mounts: SkillMount[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const queue: SkillMount[] = [...mounts];
+  while (queue.length) {
+    const m = queue.shift()!;
+    if (seen.has(m.id)) continue;
+    seen.add(m.id);
+    const skill = getSkill(m.id);
+    if (!skill) continue;
+    const config = { ...(skill.config ?? {}), ...(m.config ?? {}) };
+    if (skill.kind === "prompt-module" && typeof config.prompt === "string" && config.prompt.trim()) {
+      out.push(config.prompt);
+    }
+    const equips = Array.isArray(config.equips) ? (config.equips as string[]) : [];
+    for (const id of equips) {
+      if (!seen.has(id)) queue.push({ id, config: {}, enabled: true });
+    }
+  }
+  return out;
+}
+
+/**
+ * E.3 — find the output contract (JSON-schema) declared by a mounted
+ * `output-contract` skill, if any. Returns the schema object or null.
+ */
+export function getOutputContract(mounts: SkillMount[]): Record<string, unknown> | null {
+  for (const m of mounts) {
+    const skill = getSkill(m.id);
+    if (!skill || skill.kind !== "output-contract") continue;
+    const config = { ...(skill.config ?? {}), ...(m.config ?? {}) };
+    if (config.schema && typeof config.schema === "object") {
+      return config.schema as Record<string, unknown>;
+    }
+  }
+  return null;
+}
+
+/**
+ * E.3 — validate an agent's output against a JSON-schema contract. Strips
+ * optional ```json fences, requires a JSON object, enforces `required` keys and
+ * per-property `type`. Returns a human-readable failure reason or null if valid.
+ */
+export function validateContract(output: string, schema: Record<string, unknown>): string | null {
+  let text = output.trim();
+  const fence = text.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/);
+  if (fence && fence[1]) text = fence[1].trim();
+  let data: unknown;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    return "输出不是合法 JSON";
+  }
+  if (typeof data !== "object" || data === null || Array.isArray(data)) {
+    return "输出必须是 JSON 对象";
+  }
+  const obj = data as Record<string, unknown>;
+  const required = Array.isArray(schema.required) ? (schema.required as string[]) : [];
+  for (const key of required) {
+    if (!(key in obj)) return `缺少必填字段 "${key}"`;
+  }
+  const props =
+    schema.properties && typeof schema.properties === "object"
+      ? (schema.properties as Record<string, { type?: string }>)
+      : {};
+  for (const [key, spec] of Object.entries(props)) {
+    if (!(key in obj)) continue;
+    const expected = spec?.type;
+    if (expected) {
+      const actual = Array.isArray(obj[key]) ? "array" : typeof obj[key];
+      if (actual !== expected) return `字段 "${key}" 类型应为 ${expected}，实际为 ${actual}`;
+    }
+  }
+  return null;
+}
+
+/**
+ * Built-in graph-variable tools (cross-run persisted state). They are appended
+ * to every agent's tool list; the engine routes their execution to the run's
+ * variables map (see `handleVariableTool`). Safe tools — no approval needed.
+ */
+export const VARIABLE_TOOLS: ToolDefinition[] = [
+  {
+    name: "set_variable",
+    description:
+      "Write/update a graph variable (persisted across runs, read via ${var.xxx} or get_variable). " +
+      "Value can be a string, number, boolean, object or array.",
+    parameters: {
+      type: "object",
+      properties: {
+        key: { type: "string", description: "Variable name, dot path supported (e.g. stats.count)." },
+        value: { description: "Value to store (JSON-serializable)." },
+      },
+      required: ["key", "value"],
+    },
+  },
+  {
+    name: "get_variable",
+    description:
+      "Read a graph variable (persisted across runs; the same value ${var.xxx} resolves). " +
+      "Returns null when the key does not exist.",
+    parameters: {
+      type: "object",
+      properties: {
+        key: { type: "string", description: "Variable name, dot path supported (e.g. stats.count)." },
+      },
+      required: ["key"],
+    },
+  },
+];
+
+/** Budget warning threshold (fraction of the run budget). */
+export const BUDGET_WARN = 0.8;

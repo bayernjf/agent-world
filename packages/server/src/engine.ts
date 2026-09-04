@@ -77,6 +77,7 @@ import { trimEnv } from "./isolation.js";
 import { allowPrivateNetwork, guardedFetch, hostIsInternal } from "./ssrf.js";
 import { childProxyEnv, getCodeProxyUrl, registerNetToken, unregisterNetToken } from "./code-proxy.js";
 import type { NodeRunContext } from "./nodes/types.js";
+import { textGenNode } from "./nodes/textgen.js";
 import { httpNode } from "./nodes/http.js";
 import { selectNode } from "./nodes/select.js";
 import { fanoutNode } from "./nodes/fanout.js";
@@ -119,6 +120,12 @@ import {
   fileLabelFromUrl,
   firstFanoutUpstream,
   firstSelectDownstream,
+  BUDGET_WARN,
+  collectPromptModules,
+  getOutputContract,
+  toMount,
+  validateContract,
+  VARIABLE_TOOLS,
   prefixEvent,
   RETRYABLE,
   prohibitedSnippets,
@@ -151,86 +158,6 @@ export function withLayoutDirectives(base: string, directives?: string): string 
  * Returns the ordered module prompts to inject into the agent's system prompt.
  */
 /** Normalize a skill entry (id string or mount) into a full SkillMount. */
-function toMount(s: string | SkillMount): SkillMount {
-  return typeof s === "string" ? { id: s, config: {}, enabled: true } : { ...s, config: s.config ?? {} };
-}
-
-export function collectPromptModules(mounts: SkillMount[]): string[] {
-  const out: string[] = [];
-  const seen = new Set<string>();
-  const queue: SkillMount[] = [...mounts];
-  while (queue.length) {
-    const m = queue.shift()!;
-    if (seen.has(m.id)) continue;
-    seen.add(m.id);
-    const skill = getSkill(m.id);
-    if (!skill) continue;
-    const config = { ...(skill.config ?? {}), ...(m.config ?? {}) };
-    if (skill.kind === "prompt-module" && typeof config.prompt === "string" && config.prompt.trim()) {
-      out.push(config.prompt);
-    }
-    const equips = Array.isArray(config.equips) ? (config.equips as string[]) : [];
-    for (const id of equips) {
-      if (!seen.has(id)) queue.push({ id, config: {}, enabled: true });
-    }
-  }
-  return out;
-}
-
-/**
- * E.3 — find the output contract (JSON-schema) declared by a mounted
- * `output-contract` skill, if any. Returns the schema object or null.
- */
-export function getOutputContract(mounts: SkillMount[]): Record<string, unknown> | null {
-  for (const m of mounts) {
-    const skill = getSkill(m.id);
-    if (!skill || skill.kind !== "output-contract") continue;
-    const config = { ...(skill.config ?? {}), ...(m.config ?? {}) };
-    if (config.schema && typeof config.schema === "object") {
-      return config.schema as Record<string, unknown>;
-    }
-  }
-  return null;
-}
-
-/**
- * E.3 — validate an agent's output against a JSON-schema contract. Strips
- * optional ```json fences, requires a JSON object, enforces `required` keys and
- * per-property `type`. Returns a human-readable failure reason or null if valid.
- */
-export function validateContract(output: string, schema: Record<string, unknown>): string | null {
-  let text = output.trim();
-  const fence = text.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/);
-  if (fence && fence[1]) text = fence[1].trim();
-  let data: unknown;
-  try {
-    data = JSON.parse(text);
-  } catch {
-    return "输出不是合法 JSON";
-  }
-  if (typeof data !== "object" || data === null || Array.isArray(data)) {
-    return "输出必须是 JSON 对象";
-  }
-  const obj = data as Record<string, unknown>;
-  const required = Array.isArray(schema.required) ? (schema.required as string[]) : [];
-  for (const key of required) {
-    if (!(key in obj)) return `缺少必填字段 "${key}"`;
-  }
-  const props =
-    schema.properties && typeof schema.properties === "object"
-      ? (schema.properties as Record<string, { type?: string }>)
-      : {};
-  for (const [key, spec] of Object.entries(props)) {
-    if (!(key in obj)) continue;
-    const expected = spec?.type;
-    if (expected) {
-      const actual = Array.isArray(obj[key]) ? "array" : typeof obj[key];
-      if (actual !== expected) return `字段 "${key}" 类型应为 ${expected}，实际为 ${actual}`;
-    }
-  }
-  return null;
-}
-
 export interface ExecuteOptions {
   runId: string;
   graph: Graph;
@@ -288,41 +215,6 @@ export interface ExecuteOptions {
   /** Resolves a `product` connector against the user's product library (injected by the HTTP layer). */
   loadProducts?: (connector: ProductConnector) => Promise<ResolvedMaterial>;
 }
-
-/**
- * Built-in graph-variable tools (cross-run persisted state). They are appended
- * to every agent's tool list; the engine routes their execution to the run's
- * variables map (see `handleVariableTool`). Safe tools — no approval needed.
- */
-const VARIABLE_TOOLS: ToolDefinition[] = [
-  {
-    name: "set_variable",
-    description:
-      "Write/update a graph variable (persisted across runs, read via ${var.xxx} or get_variable). " +
-      "Value can be a string, number, boolean, object or array.",
-    parameters: {
-      type: "object",
-      properties: {
-        key: { type: "string", description: "Variable name, dot path supported (e.g. stats.count)." },
-        value: { description: "Value to store (JSON-serializable)." },
-      },
-      required: ["key", "value"],
-    },
-  },
-  {
-    name: "get_variable",
-    description:
-      "Read a graph variable (persisted across runs; the same value ${var.xxx} resolves). " +
-      "Returns null when the key does not exist.",
-    parameters: {
-      type: "object",
-      properties: {
-        key: { type: "string", description: "Variable name, dot path supported (e.g. stats.count)." },
-      },
-      required: ["key"],
-    },
-  },
-];
 
 export type Status = "done" | "failed" | "halted" | "tripped" | "cancelled";
 /**
@@ -567,7 +459,6 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     lastError.set(nodeId, { error: "Rejected by human operator", errorCode: "VALIDATION" });
   }
   let totalCostUsd = opts.init.totalCostUsd;
-  const BUDGET_WARN = 0.8;
   let budgetWarned =
     budgetUsd !== null && budgetUsd > 0 && totalCostUsd >= budgetUsd * BUDGET_WARN;
   let monthlyWarned80 =
@@ -1052,6 +943,24 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     set totalCostUsd(v: number) {
       totalCostUsd = v;
     },
+    get budgetWarned() {
+      return budgetWarned;
+    },
+    set budgetWarned(v: boolean) {
+      budgetWarned = v;
+    },
+    get monthlyWarned80() {
+      return monthlyWarned80;
+    },
+    set monthlyWarned80(v: boolean) {
+      monthlyWarned80 = v;
+    },
+    get monthlyWarned100() {
+      return monthlyWarned100;
+    },
+    set monthlyWarned100(v: boolean) {
+      monthlyWarned100 = v;
+    },
     emit,
     inputFor,
     nodeCtx,
@@ -1063,6 +972,9 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     extractSubInit,
     mergeSubInit,
     finish,
+    permCfg,
+    imagesFor,
+    handleVariableTool,
     scheduler: runScheduler,
     runNode: undefined as unknown as NodeRunContext["runNode"],
   };
@@ -1101,310 +1013,6 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
 
   // --- Agent / textGen node: conversational generation with tools (the
   // default branch — every unhandled kind runs here).
-  const runAgent = async (node: GraphNode, nodeId: string, attempt: number) => {
-  const mounts = (node.textGen?.skills ?? []).map(toMount);
-  const promptModules = collectPromptModules(mounts);
-  // Prompts interpolate `${nodeId}` / `${item}` like every other template
-  // string (loop bodies reference the loop item via ${item}; dogfood
-  // tpl-research-loop sent the placeholder to the model verbatim).
-  const promptTemplate = node.textGen?.prompt
-    ? evaluateTemplate(node.textGen.prompt, interpCtx(nodeId))
-    : "";
-  const basePrompt = withLayoutDirectives(promptTemplate, node.textGen?.imageDirectives);
-  let prompt = promptModules.length
-    ? `${basePrompt}\n\n${promptModules.map((p) => `=== 已挂载模块提示 (prompt-module) ===\n${p}`).join("\n\n")}`
-    : basePrompt;
-  // Engine-level hard constraint: upstream source prohibited/brand terms are
-  // always injected into the SYSTEM prompt here, regardless of what the user
-  // wrote in the node prompt, so every pipeline (incl. user-customized ones)
-  // is constrained at generation time. The gate remains the deterministic
-  // backstop. Living in the system prompt also survives input truncation /
-  // summarization, unlike appending to the user input body.
-  const constraintBlocks: string[] = [];
-  const prohibited = upstreamProhibitedTerms(graph, node.id);
-  if (prohibited.length > 0) {
-    constraintBlocks.push(
-      `[硬性约束 — 禁用词] 生成的任何内容中都绝对不能出现以下词语/说法：${prohibited.join("、")}。` +
-        `质检按“包含”匹配：任何包含这些字的短语同样被禁止（例如禁用“第一”时，“第一缕阳光”“第一杯咖啡”这类表达也不允许），必须换用不含这些字的说法。`,
-    );
-  }
-  const brandTerms = upstreamBrandTerms(graph, node.id);
-  if (brandTerms.length > 0) {
-    constraintBlocks.push(`[品牌词] 建议在文案中自然融入以下品牌词，不必全部使用：${brandTerms.join("、")}`);
-  }
-  if (constraintBlocks.length > 0) {
-    prompt = prompt ? `${prompt}\n\n${constraintBlocks.join("\n\n")}` : constraintBlocks.join("\n\n");
-  }
-  const config = {
-    model: node.textGen?.model || fallbackModel,
-    prompt,
-    skills: node.textGen?.skills ?? [],
-    temperature: node.textGen?.temperature ?? 0.7,
-    timeoutMs: node.textGen?.timeoutMs ?? 120000,
-    inputPolicy: node.textGen?.inputPolicy ?? { mode: "all" as const },
-    retry: node.textGen?.retry ?? { maxRetries: 2, baseDelayMs: 1000, maxDelayMs: 30000 },
-  };
-  emit({ type: "node.started", nodeId, attempt });
-
-  let result: { output: string; usage: Usage } | null = null;
-  let lastError: { message: string; code?: string } | null = null;
-  const maxAttempts = 1 + config.retry.maxRetries;
-
-  for (let tryIdx = 0; tryIdx < maxAttempts; tryIdx++) {
-    if (opts.signal?.aborted || aborted) {
-      aborted = true;
-      return;
-    }
-    try {
-      const agentInput = await inputFor(node);
-      reworkNotes.delete(nodeId);
-      // Variable tools ride along on every agent (safe, no approval needed).
-      const tools = [...resolveTools(mounts), ...VARIABLE_TOOLS];
-      const rawImageUris = imagesFor(nodeId);
-      const referenceImages = opts.readArtifact
-        ? await Promise.all(rawImageUris.map((u) => inlineImageUrl(u, opts.readArtifact!)))
-        : rawImageUris;
-      const content: ContentPart[] | undefined = referenceImages.length
-        ? [{ type: "text", text: agentInput }, ...referenceImages.map((u): ContentPart => ({ type: "image", image: u }))]
-        : undefined;
-      const gen = worker.runTextGen({
-        node,
-        config,
-        attempt,
-        input: agentInput,
-        images: referenceImages,
-        content,
-        tools,
-        executeTool: async (name, args) => {
-          if (name === "set_variable" || name === "get_variable") return handleVariableTool(name, args);
-          guardToolCall(name, args, permCfg);
-          if (isDangerousTool(name) && !approved.has(name)) {
-            throw new HaltRequested(name, nodeId);
-          }
-          return executeBuiltinTool(name, args);
-        },
-        signal: opts.signal,
-      });
-      let output = "";
-      let usage: Usage | null = null;
-      while (true) {
-        const step = await gen.next();
-        if (step.done) {
-          output = step.value.output;
-          usage = step.value.usage;
-          break;
-        }
-        if (opts.signal?.aborted || aborted) {
-          aborted = true;
-          return;
-        }
-        const chunk = step.value;
-        if (chunk.type === "text-delta") {
-          emit({ type: "node.delta", nodeId, attempt, text: chunk.text });
-        } else if (chunk.type === "reasoning-delta") {
-          emit({ type: "node.reasoning", nodeId, attempt, text: chunk.text });
-        } else if (chunk.type === "tool-call") {
-          emit({
-            type: "tool.called",
-            nodeId,
-            attempt,
-            callId: chunk.id,
-            name: chunk.name,
-            args: chunk.arguments,
-          });
-        } else if (chunk.type === "tool-result") {
-          emit({
-            type: "tool.result",
-            nodeId,
-            attempt,
-            callId: chunk.id,
-            name: chunk.name,
-            result: chunk.result,
-            error: chunk.error,
-          });
-        }
-      }
-      result = { output, usage: usage ?? zeroUsage() };
-      break;
-    } catch (err) {
-      if (err instanceof HaltRequested) {
-        // A dangerous tool was called without prior human approval: halt the
-        // run and wait for a decision (4D.7). The node is intentionally left
-        // incomplete so a resume re-runs it with the tool now approved.
-        haltNodeId = err.nodeId;
-        haltReason = `dangerous-tool:${err.toolName}`;
-        status = "halted";
-        aborted = true;
-        void notifyHalt({ runId, graphId: graph.id, nodeId: err.nodeId, reason: haltReason });
-        return;
-      }
-      const code = err instanceof ProviderError ? err.code : "UNKNOWN";
-      lastError = { message: (err as Error).message, code };
-      const canRetry = RETRYABLE.has(code) && tryIdx < maxAttempts - 1;
-      if (!canRetry) break;
-      await opts.sleep(
-        Math.min(config.retry.maxDelayMs, config.retry.baseDelayMs * 2 ** tryIdx),
-      );
-    }
-  }
-
-  // E.3 output-contract: validate the agent's output against a mounted
-  // output-contract skill, reworking (reusing the existing rework line) or
-  // failing when the contract isn't satisfied.
-  if (result) {
-    const contract = getOutputContract(mounts);
-    if (contract) {
-      const contractErr = validateContract(result.output, contract);
-      if (contractErr) {
-        const loop = loopByGate.get(nodeId);
-        const maxRework = loop?.maxAttempts ?? config.retry.maxRetries + 1;
-        if (loop && attempt < maxRework) {
-          reworkNotes.set(loop.entryId, `输出未满足契约：${contractErr}`);
-          emit({
-            type: "packet.sent",
-            edgeId: loop.edge.id,
-            from: nodeId,
-            to: loop.entryId,
-            summary: `输出未满足契约：${contractErr}`,
-            artifactKind: "text",
-          });
-          for (const bodyId of loop.body) {
-            states.set(bodyId, "pending");
-            artifacts.set(bodyId, []);
-          }
-          return;
-        }
-        states.set(nodeId, "failed");
-        emit({
-          type: "node.failed",
-          nodeId,
-          attempt,
-          error: `输出未满足契约：${contractErr}`,
-          errorCode: "VALIDATION",
-        });
-        status = "failed";
-        return;
-      }
-    }
-  }
-
-  if (!result) {
-    states.set(nodeId, "failed");
-    emit({
-      type: "node.failed",
-      nodeId,
-      attempt,
-      error: sanitizeError(lastError?.message ?? "agent failed with no output"),
-      errorCode: (lastError?.code as
-        | "TIMEOUT"
-        | "RATE_LIMIT"
-        | "PROVIDER_ERROR"
-        | "SCRIPT_ERROR"
-        | "AUTH"
-        | "VALIDATION"
-        | "UNKNOWN"
-        | "UNSUPPORTED"
-        | undefined) ?? "UNKNOWN",
-    });
-    status = "failed";
-    return;
-  }
-
-  // An empty completion is not a product. Providers can answer 200 with no
-  // text (openai-compatible falls back to `msg.content ?? ""`, e.g. a
-  // tool-call-only turn or a filtered reply); recording that as done handed
-  // downstream an empty string to interpolate and still reported the run as
-  // done — same class as the media branches fixed in 2797011. Templates that
-  // want to tolerate it can attach an error edge.
-  if (!result.output.trim()) {
-    states.set(nodeId, "failed");
-    emit({
-      type: "node.failed",
-      nodeId,
-      attempt,
-      error: `模型 ${config.model} 返回了空内容（无正文可交付）`,
-      errorCode: "PROVIDER_ERROR",
-    });
-    status = "failed";
-    return;
-  }
-
-  setTextArtifact(artifacts, nodeId, result.output);
-  states.set(nodeId, "done");
-  emit({ type: "node.finished", nodeId, attempt, output: result.output, usage: result.usage });
-  const primaryKind = produceArtifacts(nodeId, result.output, attempt);
-
-  // Cost accounting runs in a single synchronous block so concurrent
-  // completions can't race the budget check.
-  totalCostUsd += result.usage.costUsd;
-  emit({ type: "power.metered", totalCostUsd, budgetUsd });
-
-  const nodeSpent = (nodeCostUsd.get(nodeId) ?? 0) + result.usage.costUsd;
-  nodeCostUsd.set(nodeId, nodeSpent);
-  const nodeBudget = node.textGen?.budgetUsd;
-  if (nodeBudget != null && nodeBudget > 0 && nodeSpent > nodeBudget) {
-    states.set(nodeId, "failed");
-    emit({
-      type: "node.failed",
-      nodeId,
-      attempt,
-      error: `节点预算 $${nodeBudget.toFixed(4)} 已超出（已花 $${nodeSpent.toFixed(4)}）`,
-      errorCode: "BUDGET",
-    });
-    status = "failed";
-    return;
-  }
-
-  if (
-    budgetUsd !== null &&
-    budgetUsd > 0 &&
-    !budgetWarned &&
-    totalCostUsd >= budgetUsd * BUDGET_WARN
-  ) {
-    budgetWarned = true;
-    emit({
-      type: "power.warning",
-      totalCostUsd,
-      budgetUsd,
-      threshold: BUDGET_WARN,
-    });
-  }
-
-  if (budgetUsd !== null && totalCostUsd > budgetUsd) {
-    emit({ type: "power.tripped", totalCostUsd, budgetUsd });
-    status = "tripped";
-    aborted = true;
-    return;
-  }
-
-  // Monthly budget is advisory: warn at 80% and again at 100%, but don't
-  // take the line down (a hard monthly trip would strand in-flight runs).
-  if (monthlyBudgetUsd !== null && monthlyBudgetUsd > 0) {
-    const monthlyTotal = monthSpentUsd + totalCostUsd;
-    if (!monthlyWarned80 && monthlyTotal >= monthlyBudgetUsd * BUDGET_WARN) {
-      monthlyWarned80 = true;
-      emit({
-        type: "power.warning",
-        totalCostUsd: monthlyTotal,
-        budgetUsd: monthlyBudgetUsd,
-        threshold: BUDGET_WARN,
-        scope: "monthly",
-      });
-    }
-    if (!monthlyWarned100 && monthlyTotal >= monthlyBudgetUsd) {
-      monthlyWarned100 = true;
-      emit({
-        type: "power.warning",
-        totalCostUsd: monthlyTotal,
-        budgetUsd: monthlyBudgetUsd,
-        threshold: 1,
-        scope: "monthly",
-      });
-    }
-  }
-
-  sendPackets(nodeId, result.output.slice(0, 120), primaryKind);
-  };
 
   // Runs a single source/sink/gate/agent to completion. Resolves when the node
   // reaches a terminal state (done/failed) so the scheduler can relaunch.
@@ -1669,7 +1277,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       }
       // agent
       // agent / textGen default branch
-      await runAgent(node, nodeId, attempt);
+      await textGenNode(ctx, node, nodeId, attempt);
     } catch (err) {
       // 兜底安全网：任何节点分支的意外抛错都必须留下一条 node.failed。否则会走
       // 成 `void runNode()` 的 unhandled rejection —— 节点状态永久停在 "running"，
