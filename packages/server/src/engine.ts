@@ -76,7 +76,7 @@ import { createCodeWorkdir, cleanupCodeWorkdir, resolveSandbox, type CodeSandbox
 import { trimEnv } from "./isolation.js";
 import { allowPrivateNetwork, guardedFetch, hostIsInternal } from "./ssrf.js";
 import { childProxyEnv, getCodeProxyUrl, registerNetToken, unregisterNetToken } from "./code-proxy.js";
-import type { NodeRunContext } from "./nodes/types.js";
+import type { NodeRunContext, NodeHandler } from "./nodes/types.js";
 import { textGenNode } from "./nodes/textgen.js";
 import { httpNode } from "./nodes/http.js";
 import { selectNode } from "./nodes/select.js";
@@ -136,6 +136,44 @@ import {
   variantLaneIds,
   zeroUsage,
 } from "./nodes/shared.js";
+
+/**
+ * Stage 2.2 node dispatch table: one handler per node kind, each living in
+ * nodes/*.ts and receiving the explicit NodeRunContext built by runScheduler.
+ * `notify` is deliberately absent — it runs inline in runNode (see the comment
+ * there). Kinds missing from the table fall back to the agent/textGen handler,
+ * mirroring the old if-chain fallthrough.
+ */
+const NODE_HANDLERS: Partial<Record<GraphNode["kind"], NodeHandler>> = {
+  fanout: fanoutNode,
+  select: selectNode,
+  source: sourceNode,
+  sink: sinkNode,
+  http: httpNode,
+  code: codeNode,
+  branch: branchNode,
+  map: mapNode,
+  loop: loopNode,
+  subprocess: subprocessNode,
+  parallel: parallelNode,
+  table: tableNode,
+  database: databaseNode,
+  fileParse: fileParseNode,
+  translate: translateNode,
+  ocr: ocrNode,
+  convert: convertNode,
+  search: searchNode,
+  vcs: runVcsNode,
+  human: humanNode,
+  compliance: complianceNode,
+  publish: publishNode,
+  gate: gateNode,
+  videoGen: videoGenNode,
+  audioGen: audioGenNode,
+  imageGen: imageGenNode,
+  generic: genericNode,
+  textGen: textGenNode,
+};
 
 /**
  * Append free-text layout directives (manual image-position overrides) to an
@@ -1030,90 +1068,14 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     attempts.set(nodeId, attempt);
 
     try {
-      if (node.kind === "fanout") {
-        await fanoutNode(ctx, node, nodeId, attempt);
-        return;
-      }
-
-      if (node.kind === "select") {
-        await selectNode(ctx, node, nodeId, attempt);
-        return;
-      }
-
-      if (node.kind === "source") {
-        await sourceNode(ctx, node, nodeId, attempt);
-        return;
-      }
-
-      if (node.kind === "sink") {
-        await sinkNode(ctx, node, nodeId, attempt);
-        return;
-      }
-      if (node.kind === "http") {
-        await httpNode(ctx, node, nodeId, attempt);
-        return;
-      }
-
-      if (node.kind === "code") {
-        await codeNode(ctx, node, nodeId, attempt);
-        return;
-      }
-
-      if (node.kind === "branch") {
-        await branchNode(ctx, node, nodeId, attempt);
-        return;
-      }
-
-      if (node.kind === "map") {
-        await mapNode(ctx, node, nodeId, attempt);
-        return;
-      }
-
-      if (node.kind === "loop") {
-        await loopNode(ctx, node, nodeId, attempt);
-        return;
-      }
-      if (node.kind === "subprocess") {
-        await subprocessNode(ctx, node, nodeId, attempt);
-        return;
-      }
-      if (node.kind === "parallel") {
-        await parallelNode(ctx, node, nodeId, attempt);
-        return;
-      }
-
-      if (node.kind === "table") {
-        await tableNode(ctx, node, nodeId, attempt);
-        return;
-      }
-
-      if (node.kind === "database") {
-        await databaseNode(ctx, node, nodeId, attempt);
-        return;
-      }
-
-      if (node.kind === "fileParse") {
-        await fileParseNode(ctx, node, nodeId, attempt);
-        return;
-      }
-
-      if (node.kind === "translate") {
-        await translateNode(ctx, node, nodeId, attempt);
-        return;
-      }
-
-      if (node.kind === "ocr") {
-        await ocrNode(ctx, node, nodeId, attempt);
-        return;
-      }
-
-      if (node.kind === "convert") {
-        await convertNode(ctx, node, nodeId, attempt);
-        return;
-      }
-
-      if (node.kind === "search") {
-        await searchNode(ctx, node, nodeId, attempt);
+      // Stage 2.2: every migrated kind dispatches through the module-level
+      // NODE_HANDLERS registry. `notify` stays inline below — extracting it
+      // once introduced an await boundary that deferred error-edge dispatch by
+      // a microtask and broke the "notify failure → catch node" contract
+      // (regression/core-path.test.ts).
+      if (node.kind !== "notify") {
+        const handler = NODE_HANDLERS[node.kind] ?? textGenNode;
+        await handler(ctx, node, nodeId, attempt);
         return;
       }
 
@@ -1224,60 +1186,6 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
         }
         return;
       }
-
-      if (node.kind === "vcs") {
-        await runVcsNode(ctx, node, nodeId, attempt);
-        return;
-      }
-
-      if (node.kind === "human") {
-        await humanNode(ctx, node, nodeId, attempt);
-        return;
-      }
-
-      if (node.kind === "compliance") {
-        await complianceNode(ctx, node, nodeId, attempt);
-        return;
-      }
-
-      if (node.kind === "publish") {
-        await publishNode(ctx, node, nodeId, attempt);
-        return;
-      }
-
-      if (node.kind === "gate") {
-        await gateNode(ctx, node, nodeId, attempt);
-        return;
-      }
-  // --- Video generation node: produce a short video clip from a prompt ---
-  if (node.kind === "videoGen") {
-    await videoGenNode(ctx, node, nodeId, attempt);
-    return;
-  }
-
-  // --- Audio generation node: TTS / music from text ---
-  if (node.kind === "audioGen") {
-    await audioGenNode(ctx, node, nodeId, attempt);
-    return;
-  }
-
-  // --- Image generation node: produce a banner/scene image when source lacks photos ---
-  if (node.kind === "imageGen") {
-    await imageGenNode(ctx, node, nodeId, attempt);
-    return;
-  }
-
-      // agent
-     
-
-  // --- Generic node: auto-dispatches by user-picked modality ---
-      if (node.kind === "generic") {
-        await genericNode(ctx, node, nodeId, attempt);
-        return;
-      }
-      // agent
-      // agent / textGen default branch
-      await textGenNode(ctx, node, nodeId, attempt);
     } catch (err) {
       // 兜底安全网：任何节点分支的意外抛错都必须留下一条 node.failed。否则会走
       // 成 `void runNode()` 的 unhandled rejection —— 节点状态永久停在 "running"，
