@@ -76,6 +76,7 @@ import { createCodeWorkdir, cleanupCodeWorkdir, resolveSandbox, type CodeSandbox
 import { trimEnv } from "./isolation.js";
 import { allowPrivateNetwork, guardedFetch, hostIsInternal } from "./ssrf.js";
 import { childProxyEnv, getCodeProxyUrl, registerNetToken, unregisterNetToken } from "./code-proxy.js";
+import type { NodeRunContext } from "./nodes/types.js";
 import {
   ARTIFACT_URL_NOTE,
   CONNECTOR_MAX_RETRIES,
@@ -295,12 +296,12 @@ const VARIABLE_TOOLS: ToolDefinition[] = [
   },
 ];
 
-type Status = "done" | "failed" | "halted" | "tripped" | "cancelled";
+export type Status = "done" | "failed" | "halted" | "tripped" | "cancelled";
 /**
  * - skipped: a branch node did not route here; the node is never launched and
  *   its own un-routed subtree is skipped the same way.
  */
-type NodeState = "pending" | "running" | "done" | "failed" | "skipped";
+export type NodeState = "pending" | "running" | "done" | "failed" | "skipped";
 
 const RETRYABLE: ReadonlySet<string> = new Set(["TIMEOUT", "RATE_LIMIT", "PROVIDER_ERROR"]);
 
@@ -426,7 +427,7 @@ class EventQueue {
   }
 }
 
-interface SchedulerInit {
+export interface SchedulerInit {
   artifacts: Map<string, Artifact[]>;
   attempts: Map<string, number>;
   nodeCostUsd: Map<string, number>;
@@ -440,7 +441,7 @@ interface SchedulerInit {
   variables: Map<string, unknown>;
 }
 
-interface SchedulerOptions {
+export interface SchedulerOptions {
   runId: string;
   graph: Graph;
   plan: Plan;
@@ -953,6 +954,92 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     for (const [k, v] of childInit.attempts) attempts.set(prefix + k, v);
     for (const [k, v] of childInit.nodeCostUsd) nodeCostUsd.set(prefix + k, v);
   };
+
+  // --- Explicit execution context for node handlers in nodes/*.ts (stage 2.2).
+  // Makes the scheduler's shared state explicit: handlers receive this object
+  // instead of closing over runScheduler's locals. Mutable scalars are wired
+  // through getters/setters so scheduler core (bare identifiers) and handlers
+  // (ctx.xxx) read/write the same state. runNode is assigned after its const
+  // declaration below — handlers only ever run after that point.
+  const ctx: NodeRunContext = {
+    opts,
+    runId,
+    graph,
+    plan,
+    worker,
+    budgetUsd,
+    fallbackModel,
+    monthlyBudgetUsd,
+    monthSpentUsd,
+    approved,
+    artifacts,
+    attempts,
+    nodeCostUsd,
+    states,
+    lastError,
+    reworkNotes,
+    loopByGate,
+    loopItemByNode,
+    variables,
+    httpMeta,
+    packetEdges,
+    get status() {
+      return status;
+    },
+    set status(v: Status) {
+      status = v;
+    },
+    get running() {
+      return running;
+    },
+    set running(v: number) {
+      running = v;
+    },
+    get aborted() {
+      return aborted;
+    },
+    set aborted(v: boolean) {
+      aborted = v;
+    },
+    get finished() {
+      return finished;
+    },
+    set finished(v: boolean) {
+      finished = v;
+    },
+    get haltNodeId() {
+      return haltNodeId;
+    },
+    set haltNodeId(v: string | undefined) {
+      haltNodeId = v;
+    },
+    get haltReason() {
+      return haltReason;
+    },
+    set haltReason(v: string | undefined) {
+      haltReason = v;
+    },
+    get totalCostUsd() {
+      return totalCostUsd;
+    },
+    set totalCostUsd(v: number) {
+      totalCostUsd = v;
+    },
+    emit,
+    inputFor,
+    nodeCtx,
+    interpCtx,
+    sendPackets,
+    artifactValue,
+    produceArtifacts,
+    markBranchSkipped,
+    extractSubInit,
+    mergeSubInit,
+    finish,
+    scheduler: runScheduler,
+    runNode: undefined as unknown as NodeRunContext["runNode"],
+  };
+  void ctx; // consumed by nodes/*.ts handlers as they are migrated off closures
 
   // --- Per-node-kind execution bodies, extracted from runNode's if-chain (2.1).
   // They close over the scheduler's shared state and are invoked from runNode's
@@ -4229,6 +4316,9 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       else if (running === 0) finish();
     }
   };
+  // Wired here (after runNode's declaration) for node handlers in nodes/*.ts;
+  // see the ctx construction above.
+  ctx.runNode = runNode;
 
   const schedule = async () => {
     // Bounded concurrency: launch every ready plant up to the free slots.
