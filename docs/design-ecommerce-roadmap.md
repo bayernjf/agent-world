@@ -443,6 +443,15 @@ runs 表加列 `batch_id TEXT`、`batch_item_id TEXT` 便于反查。
 - **读数据优先于写数据**：RPA 的价值更该用在**回读**（把小红书/抖音后台的曝光/点击/GMV 读回来，补 F6 的自动采集）——"读"的风控风险远低于"写"，且直接补上 ROI 闭环这个最值钱的缺口。
 - 工作量：读数据回传 中；半自动发布 大且持续维护（平台 DOM 一变脚本即失效）。
 
+**技术选型与落地路径（RPA 怎么落地，2026-09-04 补）**
+
+- **自建 Playwright，不用商业 RPA**：agent-world 要的是「数据闭环」（发布状态回写 `published_contents`、指标回流 `content_metrics`），商业 RPA（影刀/来也/八爪鱼）是给人用的桌面工具、不是给程序用的 API，无法把数据喂回流水线。server 本就是 Node 24，Playwright 官方 Node 库天然集成。商业 RPA 最多做「导出影刀可导入流程文件」的桥接，留给已在用影刀的客户。
+- **读/写两条腿分开，先读后写**：读（回读后台曝光/点击/GMV → content_metrics）风控风险低、最该先做、直接补 ROI 闭环；写（发布）只做半自动（自动填表 + 停在发布键），不做无人值守。
+- **登录态**：用户首次扫码登录一次，Playwright `storageState` 保存会话复用，过期再扫。
+- **风控对策（无 100% 保证）**：有头模式（headful 非 headless）+ 真实 UA + 关闭自动化特征（`--disable-blink-features=AutomationControlled` + stealth 补丁）——正是因为没有保证，"写"必须留人点最后一下。
+- **平台适配器**：每个平台一个独立 adapter（`rpa/adapters/xiaohongshu.ts` 等），DOM 选择器集中一处，平台改版只改适配器，对齐现有 `Publisher` 思路。
+- **落地顺序**：① Playwright 基建 + 登录态 → ② 读数据适配器（小红书/抖音创作者后台）→ ③ 半自动发布 → ④（可选）浏览器扩展。
+
 ### 配套数据
 ```sql
 CREATE TABLE publish_targets (id TEXT PRIMARY KEY, user_id TEXT, platform TEXT, name TEXT, config_encrypted TEXT, created_at INTEGER NOT NULL);
