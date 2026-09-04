@@ -2437,6 +2437,252 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     sendPackets(nodeId, result.output.slice(0, 120), primaryKind);
   };
 
+  const runVcs = async (node: GraphNode, nodeId: string, attempt: number) => {
+    emit({ type: "node.started", nodeId, attempt });
+    try {
+      const cfg = VcsConfig.parse(node.vcs ?? {});
+      const sources = incoming(graph, nodeId, "flow").map((e) => e.from);
+      const sourceId = cfg.source ?? (sources.length === 1 ? sources[0] : undefined);
+      if (cfg.source && !sources.includes(cfg.source)) {
+        states.set(nodeId, "failed");
+        emit({ type: "node.failed", nodeId, attempt, error: `数据来源 ${cfg.source} 不是上游节点`, errorCode: "VALIDATION" });
+        return;
+      }
+      let body = cfg.body.trim();
+      if (!body && (cfg.action === "create_pr" || cfg.action === "comment_issue") && sourceId) {
+        const t = (artifacts.get(sourceId) ?? []).find((a) => a.kind === "text")?.content;
+        if (t?.trim()) body = t.trim();
+      }
+      // An empty title used to fall back to the node name ("创建 PR"), so
+      // every PR created by the template carried the same meaningless
+      // title (dogfood tpl-release-pr). Derive one from the body instead:
+      // first non-empty, non-horizontal-rule line, markdown heading marks
+      // stripped, clamped to a sane length. Explicit cfg.title still wins.
+      let title = cfg.title?.trim();
+      if (!title && cfg.action === "create_pr" && body) {
+        const line = body
+          .split("\n")
+          .map((l) => l.trim())
+          .find((l) => l && !/^[-=_*]{3,}$/.test(l));
+        if (line) title = line.replace(/^#{1,6}\s*/, "").trim().slice(0, 120);
+      }
+      if (!title) title = node.name || cfg.action;
+      let result: { provider: string; action: string; detail: string; data: unknown };
+      try {
+        result = await executeVcs(cfg, body, title);
+      } catch (err) {
+        states.set(nodeId, "failed");
+        emit({
+          type: "node.failed",
+          nodeId,
+          attempt,
+          error: `VCS 操作失败: ${sanitizeError(err instanceof Error ? err.message : String(err))}`,
+          errorCode: err instanceof VcsAuthError ? "AUTH" : "PROVIDER_ERROR",
+        });
+        return;
+      }
+      const artifact: Artifact = {
+        id: `${nodeId}-json`,
+        kind: "json",
+        content: JSON.stringify(result.data, null, 2),
+        mimeType: "application/json",
+      };
+      artifacts.set(nodeId, [artifact]);
+      emit({ type: "artifact.produced", nodeId, attempt, artifact });
+      states.set(nodeId, "done");
+      const summary = `${result.provider} ${result.action} 完成：${result.detail}`;
+      emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
+      sendPackets(nodeId, summary, "json");
+    } catch (err) {
+      states.set(nodeId, "failed");
+      emit({
+        type: "node.failed",
+        nodeId,
+        attempt,
+        error: `VCS 节点执行出错: ${sanitizeError(err instanceof Error ? err.message : String(err))}`,
+      });
+    }
+  };
+
+  const runVideoGen = async (node: GraphNode, nodeId: string, attempt: number) => {
+    emit({ type: "node.started", nodeId, attempt });
+    const cfg = node.videoGen ?? { model: "video-gen", n: 1 };
+    if (!worker.generateVideo) {
+      // Honest failure: media nodes are often the run's product (dogfood
+      // 2026-09-01). Silent skip reported done with no artifact. Templates
+      // that want a fallback should add an error edge instead.
+      states.set(nodeId, "failed");
+      emit({ type: "node.failed", nodeId, attempt, error: "worker 无视频生成能力", errorCode: "VALIDATION" });
+      return;
+    }
+    const prompt = cfg.prompt?.trim() || (await inputFor(node));
+    try {
+      const results = await worker.generateVideo({ node, config: cfg, input: prompt, signal: opts.signal });
+      // Zero results is never a success: the node asked for n ≥ 1 clips and got
+      // none, which means the provider does not actually serve this modality or
+      // model (routingWorker hands back [] for a worker without the method).
+      // Reporting done with no artifact is the same fake success b6de7d9 removed
+      // for the throw path; audit item L8 flagged this empty-result half.
+      if (results.length === 0) {
+        states.set(nodeId, "failed");
+        emit({
+          type: "node.failed",
+          nodeId,
+          attempt,
+          error: `视频生成未返回任何结果（模型 ${cfg.model} 可能不支持该模态，或 provider 未提供该能力）`,
+          errorCode: "UNSUPPORTED",
+        });
+        return;
+      }
+      let usage: Usage = { tokensIn: 0, tokensOut: 0, costUsd: 0, units: {} };
+      const videoArts: Artifact[] = [];
+      for (let idx = 0; idx < results.length; idx++) {
+        const res = results[idx]!;
+        const ext = res.mimeType.includes("mp4") ? "mp4" : res.mimeType.includes("webm") ? "webm" : "mp4";
+        const uri = await opts.storeBinary(res.data, res.mimeType, `${node.name || "ai-video"}-${idx + 1}.${ext}`);
+        const a: Artifact = {
+          id: `${nodeId}-vid-${idx}`,
+          kind: "video",
+          uri,
+          sizeBytes: res.data.length,
+          mimeType: res.mimeType,
+          label: results.length > 1 ? `${node.name || "AI 视频"} #${idx + 1}` : node.name || "AI 视频",
+        };
+        videoArts.push(a);
+        emit({ type: "artifact.produced", nodeId, artifact: a });
+        usage = {
+          tokensIn: (usage.tokensIn ?? 0) + (res.usage.tokensIn ?? 0),
+          tokensOut: (usage.tokensOut ?? 0) + (res.usage.tokensOut ?? 0),
+          costUsd: (usage.costUsd ?? 0) + (res.usage.costUsd ?? 0),
+          units: { ...usage.units, ...res.usage.units },
+        };
+      }
+      artifacts.set(nodeId, videoArts);
+      emit({ type: "node.finished", nodeId, attempt, output: "", usage });
+      states.set(nodeId, "done");
+      sendPackets(nodeId, `生成视频 ${results.length} 段`, "video");
+    } catch (err) {
+      console.warn(`[videoGen:${nodeId}] generation failed:`, (err as Error).message);
+      states.set(nodeId, "failed");
+      emit({ type: "node.failed", nodeId, attempt, error: `视频生成失败: ${sanitizeError(err instanceof Error ? err.message : String(err))}`, errorCode: "PROVIDER_ERROR" });
+    }
+  };
+
+  const runAudioGen = async (node: GraphNode, nodeId: string, attempt: number) => {
+    emit({ type: "node.started", nodeId, attempt });
+    const cfg = node.audioGen ?? { model: "tts-1", format: "mp3", n: 1 };
+    if (!worker.generateAudio) {
+      // Honest failure: audio is often the run's product (dogfood 2026-09-01,
+      // tpl-news-podcast). Templates wanting a fallback add an error edge.
+      states.set(nodeId, "failed");
+      emit({ type: "node.failed", nodeId, attempt, error: "worker 无音频生成能力", errorCode: "VALIDATION" });
+      return;
+    }
+    const prompt = cfg.prompt?.trim() || (await inputFor(node));
+    try {
+      const results = await worker.generateAudio({ node, config: cfg, input: prompt, signal: opts.signal });
+      // See the videoGen branch: an empty result set means no audio was made,
+      // which for an audio-first pipeline is a failed run, not a done one.
+      if (results.length === 0) {
+        states.set(nodeId, "failed");
+        emit({
+          type: "node.failed",
+          nodeId,
+          attempt,
+          error: `音频生成未返回任何结果（模型 ${cfg.model} 可能不支持该模态，或 provider 未提供该能力）`,
+          errorCode: "UNSUPPORTED",
+        });
+        return;
+      }
+      let usage: Usage = { tokensIn: 0, tokensOut: 0, costUsd: 0, units: {} };
+      const audioArts: Artifact[] = [];
+      for (let idx = 0; idx < results.length; idx++) {
+        const res = results[idx]!;
+        const ext = res.mimeType.includes("wav") ? "wav" : res.mimeType.includes("ogg") ? "ogg" : res.mimeType.includes("opus") ? "opus" : "mp3";
+        const uri = await opts.storeBinary(res.data, res.mimeType, `${node.name || "ai-audio"}-${idx + 1}.${ext}`);
+        const a: Artifact = {
+          id: `${nodeId}-aud-${idx}`,
+          kind: "audio",
+          uri,
+          sizeBytes: res.data.length,
+          mimeType: res.mimeType,
+          label: results.length > 1 ? `${node.name || "AI 音频"} #${idx + 1}` : node.name || "AI 音频",
+        };
+        audioArts.push(a);
+        emit({ type: "artifact.produced", nodeId, artifact: a });
+        usage = {
+          tokensIn: (usage.tokensIn ?? 0) + (res.usage.tokensIn ?? 0),
+          tokensOut: (usage.tokensOut ?? 0) + (res.usage.tokensOut ?? 0),
+          costUsd: (usage.costUsd ?? 0) + (res.usage.costUsd ?? 0),
+          units: { ...usage.units, ...res.usage.units },
+        };
+      }
+      artifacts.set(nodeId, audioArts);
+      emit({ type: "node.finished", nodeId, attempt, output: "", usage });
+      states.set(nodeId, "done");
+      sendPackets(nodeId, `生成音频 ${results.length} 段`, "audio");
+    } catch (err) {
+      console.warn(`[audioGen:${nodeId}] generation failed:`, (err as Error).message);
+      states.set(nodeId, "failed");
+      emit({ type: "node.failed", nodeId, attempt, error: `音频生成失败: ${sanitizeError(err instanceof Error ? err.message : String(err))}`, errorCode: "PROVIDER_ERROR" });
+    }
+  };
+
+  const runImageGen = async (node: GraphNode, nodeId: string, attempt: number) => {
+    emit({ type: "node.started", nodeId, attempt });
+    const cfg = node.imageGen ?? { model: "agnes-image", prompt: "", n: 1 };
+    const prompt = cfg.prompt?.trim() || buildImagePrompt(node, graph);
+    try {
+      const results = await worker.generateImage({ node, config: cfg, input: prompt, signal: opts.signal });
+      // See the videoGen branch: zero images means nothing was produced.
+      if (results.length === 0) {
+        states.set(nodeId, "failed");
+        emit({
+          type: "node.failed",
+          nodeId,
+          attempt,
+          error: `配图生成未返回任何结果（模型 ${cfg.model} 可能不支持该模态，或 provider 未提供该能力）`,
+          errorCode: "UNSUPPORTED",
+        });
+        return;
+      }
+      let usage: Usage = { tokensIn: 0, tokensOut: 0, costUsd: 0, units: { images: 0 } };
+      const imageArts: Artifact[] = [];
+      for (let idx = 0; idx < results.length; idx++) {
+        const res = results[idx]!;
+        const uri = await opts.storeBinary(res.data, res.mimeType, `${node.name || "ai-image"}-${idx + 1}.png`);
+        const a: Artifact = {
+          id: `${nodeId}-img-${idx}`,
+          kind: "image",
+          uri,
+          sizeBytes: res.data.length,
+          mimeType: res.mimeType,
+          label: results.length > 1 ? `${node.name || "AI 配图"} #${idx + 1}` : node.name || "AI 配图",
+        };
+        imageArts.push(a);
+        emit({ type: "artifact.produced", nodeId, artifact: a });
+        usage = {
+          tokensIn: (usage.tokensIn ?? 0) + (res.usage.tokensIn ?? 0),
+          tokensOut: (usage.tokensOut ?? 0) + (res.usage.tokensOut ?? 0),
+          costUsd: (usage.costUsd ?? 0) + (res.usage.costUsd ?? 0),
+          units: { ...usage.units, images: (usage.units?.images ?? 0) + (res.usage.units?.images ?? 0) },
+        };
+      }
+      artifacts.set(nodeId, imageArts);
+      emit({ type: "node.finished", nodeId, attempt, output: "", usage });
+      states.set(nodeId, "done");
+      sendPackets(nodeId, `生成配图 ${results.length} 张`, "image");
+    } catch (err) {
+      // Same rule as videoGen/audioGen: a throw is not a degrade-and-continue.
+      // 配图往往就是这条产线的产物（2026-08-31 狗粮撞过 agnes 图片 503），标 done
+      // 会交出一条没有图的成品；旧的兜底还往下游发一个 text 包「生图失败（已降级
+      // 跳过）」，写手会把这句报错当素材写进正文。要兜底就接 error 边。
+      console.warn(`[imageGen:${nodeId}] generation failed:`, (err as Error).message);
+      states.set(nodeId, "failed");
+      emit({ type: "node.failed", nodeId, attempt, error: `配图生成失败: ${sanitizeError(err instanceof Error ? err.message : String(err))}`, errorCode: "PROVIDER_ERROR" });
+    }
+  };
+
   // Runs a single source/sink/gate/agent to completion. Resolves when the node
   // reaches a terminal state (done/failed) so the scheduler can relaunch.
   const runNode = async (nodeId: string) => {
@@ -3375,70 +3621,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       }
 
       if (node.kind === "vcs") {
-        emit({ type: "node.started", nodeId, attempt });
-        try {
-          const cfg = VcsConfig.parse(node.vcs ?? {});
-          const sources = incoming(graph, nodeId, "flow").map((e) => e.from);
-          const sourceId = cfg.source ?? (sources.length === 1 ? sources[0] : undefined);
-          if (cfg.source && !sources.includes(cfg.source)) {
-            states.set(nodeId, "failed");
-            emit({ type: "node.failed", nodeId, attempt, error: `数据来源 ${cfg.source} 不是上游节点`, errorCode: "VALIDATION" });
-            return;
-          }
-          let body = cfg.body.trim();
-          if (!body && (cfg.action === "create_pr" || cfg.action === "comment_issue") && sourceId) {
-            const t = (artifacts.get(sourceId) ?? []).find((a) => a.kind === "text")?.content;
-            if (t?.trim()) body = t.trim();
-          }
-          // An empty title used to fall back to the node name ("创建 PR"), so
-          // every PR created by the template carried the same meaningless
-          // title (dogfood tpl-release-pr). Derive one from the body instead:
-          // first non-empty, non-horizontal-rule line, markdown heading marks
-          // stripped, clamped to a sane length. Explicit cfg.title still wins.
-          let title = cfg.title?.trim();
-          if (!title && cfg.action === "create_pr" && body) {
-            const line = body
-              .split("\n")
-              .map((l) => l.trim())
-              .find((l) => l && !/^[-=_*]{3,}$/.test(l));
-            if (line) title = line.replace(/^#{1,6}\s*/, "").trim().slice(0, 120);
-          }
-          if (!title) title = node.name || cfg.action;
-          let result: { provider: string; action: string; detail: string; data: unknown };
-          try {
-            result = await executeVcs(cfg, body, title);
-          } catch (err) {
-            states.set(nodeId, "failed");
-            emit({
-              type: "node.failed",
-              nodeId,
-              attempt,
-              error: `VCS 操作失败: ${sanitizeError(err instanceof Error ? err.message : String(err))}`,
-              errorCode: err instanceof VcsAuthError ? "AUTH" : "PROVIDER_ERROR",
-            });
-            return;
-          }
-          const artifact: Artifact = {
-            id: `${nodeId}-json`,
-            kind: "json",
-            content: JSON.stringify(result.data, null, 2),
-            mimeType: "application/json",
-          };
-          artifacts.set(nodeId, [artifact]);
-          emit({ type: "artifact.produced", nodeId, attempt, artifact });
-          states.set(nodeId, "done");
-          const summary = `${result.provider} ${result.action} 完成：${result.detail}`;
-          emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
-          sendPackets(nodeId, summary, "json");
-        } catch (err) {
-          states.set(nodeId, "failed");
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: `VCS 节点执行出错: ${sanitizeError(err instanceof Error ? err.message : String(err))}`,
-          });
-        }
+        await runVcs(node, nodeId, attempt);
         return;
       }
 
@@ -3598,186 +3781,19 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
 
   // --- Video generation node: produce a short video clip from a prompt ---
   if (node.kind === "videoGen") {
-    emit({ type: "node.started", nodeId, attempt });
-    const cfg = node.videoGen ?? { model: "video-gen", n: 1 };
-    if (!worker.generateVideo) {
-      // Honest failure: media nodes are often the run's product (dogfood
-      // 2026-09-01). Silent skip reported done with no artifact. Templates
-      // that want a fallback should add an error edge instead.
-      states.set(nodeId, "failed");
-      emit({ type: "node.failed", nodeId, attempt, error: "worker 无视频生成能力", errorCode: "VALIDATION" });
-      return;
-    }
-    const prompt = cfg.prompt?.trim() || (await inputFor(node));
-    try {
-      const results = await worker.generateVideo({ node, config: cfg, input: prompt, signal: opts.signal });
-      // Zero results is never a success: the node asked for n ≥ 1 clips and got
-      // none, which means the provider does not actually serve this modality or
-      // model (routingWorker hands back [] for a worker without the method).
-      // Reporting done with no artifact is the same fake success b6de7d9 removed
-      // for the throw path; audit item L8 flagged this empty-result half.
-      if (results.length === 0) {
-        states.set(nodeId, "failed");
-        emit({
-          type: "node.failed",
-          nodeId,
-          attempt,
-          error: `视频生成未返回任何结果（模型 ${cfg.model} 可能不支持该模态，或 provider 未提供该能力）`,
-          errorCode: "UNSUPPORTED",
-        });
-        return;
-      }
-      let usage: Usage = { tokensIn: 0, tokensOut: 0, costUsd: 0, units: {} };
-      const videoArts: Artifact[] = [];
-      for (let idx = 0; idx < results.length; idx++) {
-        const res = results[idx]!;
-        const ext = res.mimeType.includes("mp4") ? "mp4" : res.mimeType.includes("webm") ? "webm" : "mp4";
-        const uri = await opts.storeBinary(res.data, res.mimeType, `${node.name || "ai-video"}-${idx + 1}.${ext}`);
-        const a: Artifact = {
-          id: `${nodeId}-vid-${idx}`,
-          kind: "video",
-          uri,
-          sizeBytes: res.data.length,
-          mimeType: res.mimeType,
-          label: results.length > 1 ? `${node.name || "AI 视频"} #${idx + 1}` : node.name || "AI 视频",
-        };
-        videoArts.push(a);
-        emit({ type: "artifact.produced", nodeId, artifact: a });
-        usage = {
-          tokensIn: (usage.tokensIn ?? 0) + (res.usage.tokensIn ?? 0),
-          tokensOut: (usage.tokensOut ?? 0) + (res.usage.tokensOut ?? 0),
-          costUsd: (usage.costUsd ?? 0) + (res.usage.costUsd ?? 0),
-          units: { ...usage.units, ...res.usage.units },
-        };
-      }
-      artifacts.set(nodeId, videoArts);
-      emit({ type: "node.finished", nodeId, attempt, output: "", usage });
-      states.set(nodeId, "done");
-      sendPackets(nodeId, `生成视频 ${results.length} 段`, "video");
-    } catch (err) {
-      console.warn(`[videoGen:${nodeId}] generation failed:`, (err as Error).message);
-      states.set(nodeId, "failed");
-      emit({ type: "node.failed", nodeId, attempt, error: `视频生成失败: ${sanitizeError(err instanceof Error ? err.message : String(err))}`, errorCode: "PROVIDER_ERROR" });
-    }
+    await runVideoGen(node, nodeId, attempt);
     return;
   }
 
   // --- Audio generation node: TTS / music from text ---
   if (node.kind === "audioGen") {
-    emit({ type: "node.started", nodeId, attempt });
-    const cfg = node.audioGen ?? { model: "tts-1", format: "mp3", n: 1 };
-    if (!worker.generateAudio) {
-      // Honest failure: audio is often the run's product (dogfood 2026-09-01,
-      // tpl-news-podcast). Templates wanting a fallback add an error edge.
-      states.set(nodeId, "failed");
-      emit({ type: "node.failed", nodeId, attempt, error: "worker 无音频生成能力", errorCode: "VALIDATION" });
-      return;
-    }
-    const prompt = cfg.prompt?.trim() || (await inputFor(node));
-    try {
-      const results = await worker.generateAudio({ node, config: cfg, input: prompt, signal: opts.signal });
-      // See the videoGen branch: an empty result set means no audio was made,
-      // which for an audio-first pipeline is a failed run, not a done one.
-      if (results.length === 0) {
-        states.set(nodeId, "failed");
-        emit({
-          type: "node.failed",
-          nodeId,
-          attempt,
-          error: `音频生成未返回任何结果（模型 ${cfg.model} 可能不支持该模态，或 provider 未提供该能力）`,
-          errorCode: "UNSUPPORTED",
-        });
-        return;
-      }
-      let usage: Usage = { tokensIn: 0, tokensOut: 0, costUsd: 0, units: {} };
-      const audioArts: Artifact[] = [];
-      for (let idx = 0; idx < results.length; idx++) {
-        const res = results[idx]!;
-        const ext = res.mimeType.includes("wav") ? "wav" : res.mimeType.includes("ogg") ? "ogg" : res.mimeType.includes("opus") ? "opus" : "mp3";
-        const uri = await opts.storeBinary(res.data, res.mimeType, `${node.name || "ai-audio"}-${idx + 1}.${ext}`);
-        const a: Artifact = {
-          id: `${nodeId}-aud-${idx}`,
-          kind: "audio",
-          uri,
-          sizeBytes: res.data.length,
-          mimeType: res.mimeType,
-          label: results.length > 1 ? `${node.name || "AI 音频"} #${idx + 1}` : node.name || "AI 音频",
-        };
-        audioArts.push(a);
-        emit({ type: "artifact.produced", nodeId, artifact: a });
-        usage = {
-          tokensIn: (usage.tokensIn ?? 0) + (res.usage.tokensIn ?? 0),
-          tokensOut: (usage.tokensOut ?? 0) + (res.usage.tokensOut ?? 0),
-          costUsd: (usage.costUsd ?? 0) + (res.usage.costUsd ?? 0),
-          units: { ...usage.units, ...res.usage.units },
-        };
-      }
-      artifacts.set(nodeId, audioArts);
-      emit({ type: "node.finished", nodeId, attempt, output: "", usage });
-      states.set(nodeId, "done");
-      sendPackets(nodeId, `生成音频 ${results.length} 段`, "audio");
-    } catch (err) {
-      console.warn(`[audioGen:${nodeId}] generation failed:`, (err as Error).message);
-      states.set(nodeId, "failed");
-      emit({ type: "node.failed", nodeId, attempt, error: `音频生成失败: ${sanitizeError(err instanceof Error ? err.message : String(err))}`, errorCode: "PROVIDER_ERROR" });
-    }
+    await runAudioGen(node, nodeId, attempt);
     return;
   }
 
   // --- Image generation node: produce a banner/scene image when source lacks photos ---
   if (node.kind === "imageGen") {
-    emit({ type: "node.started", nodeId, attempt });
-    const cfg = node.imageGen ?? { model: "agnes-image", prompt: "", n: 1 };
-    const prompt = cfg.prompt?.trim() || buildImagePrompt(node, graph);
-    try {
-      const results = await worker.generateImage({ node, config: cfg, input: prompt, signal: opts.signal });
-      // See the videoGen branch: zero images means nothing was produced.
-      if (results.length === 0) {
-        states.set(nodeId, "failed");
-        emit({
-          type: "node.failed",
-          nodeId,
-          attempt,
-          error: `配图生成未返回任何结果（模型 ${cfg.model} 可能不支持该模态，或 provider 未提供该能力）`,
-          errorCode: "UNSUPPORTED",
-        });
-        return;
-      }
-      let usage: Usage = { tokensIn: 0, tokensOut: 0, costUsd: 0, units: { images: 0 } };
-      const imageArts: Artifact[] = [];
-      for (let idx = 0; idx < results.length; idx++) {
-        const res = results[idx]!;
-        const uri = await opts.storeBinary(res.data, res.mimeType, `${node.name || "ai-image"}-${idx + 1}.png`);
-        const a: Artifact = {
-          id: `${nodeId}-img-${idx}`,
-          kind: "image",
-          uri,
-          sizeBytes: res.data.length,
-          mimeType: res.mimeType,
-          label: results.length > 1 ? `${node.name || "AI 配图"} #${idx + 1}` : node.name || "AI 配图",
-        };
-        imageArts.push(a);
-        emit({ type: "artifact.produced", nodeId, artifact: a });
-        usage = {
-          tokensIn: (usage.tokensIn ?? 0) + (res.usage.tokensIn ?? 0),
-          tokensOut: (usage.tokensOut ?? 0) + (res.usage.tokensOut ?? 0),
-          costUsd: (usage.costUsd ?? 0) + (res.usage.costUsd ?? 0),
-          units: { ...usage.units, images: (usage.units?.images ?? 0) + (res.usage.units?.images ?? 0) },
-        };
-      }
-      artifacts.set(nodeId, imageArts);
-      emit({ type: "node.finished", nodeId, attempt, output: "", usage });
-      states.set(nodeId, "done");
-      sendPackets(nodeId, `生成配图 ${results.length} 张`, "image");
-    } catch (err) {
-      // Same rule as videoGen/audioGen: a throw is not a degrade-and-continue.
-      // 配图往往就是这条产线的产物（2026-08-31 狗粮撞过 agnes 图片 503），标 done
-      // 会交出一条没有图的成品；旧的兜底还往下游发一个 text 包「生图失败（已降级
-      // 跳过）」，写手会把这句报错当素材写进正文。要兜底就接 error 边。
-      console.warn(`[imageGen:${nodeId}] generation failed:`, (err as Error).message);
-      states.set(nodeId, "failed");
-      emit({ type: "node.failed", nodeId, attempt, error: `配图生成失败: ${sanitizeError(err instanceof Error ? err.message : String(err))}`, errorCode: "PROVIDER_ERROR" });
-    }
+    await runImageGen(node, nodeId, attempt);
     return;
   }
 
@@ -4435,6 +4451,9 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
         (n) => states.get(n.id) === "pending" && predecessorsReady(n.id),
       );
       if (!ready) break;
+      if (ready.kind === "code" || ready.kind === "notify" || ready.kind === "human") {
+        console.error(`[dbg] SCHEDULE launch nodeId=${ready.id} kind=${ready.kind} running=${running}`);
+      }
       states.set(ready.id, "running");
       running++;
       void runNode(ready.id);
