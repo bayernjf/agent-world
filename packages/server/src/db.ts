@@ -729,6 +729,31 @@ export function openDb(file: string) {
     findUserPasswordHash: db.prepare(
       `SELECT password_hash FROM users WHERE id = ?`,
     ),
+    // Resource sharing (design-rbac P1). Only editor/viewer rows live here —
+    // the resource owner is resolved from the owning table's user_id.
+    saveResourceAccess: db.prepare(
+      `INSERT INTO resource_access (resource_type, resource_id, user_id, role, created_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(resource_type, resource_id, user_id) DO UPDATE SET role = excluded.role`,
+    ),
+    deleteResourceAccess: db.prepare(
+      `DELETE FROM resource_access WHERE resource_type = ? AND resource_id = ? AND user_id = ?`,
+    ),
+    getResourceAccess: db.prepare(
+      `SELECT role, created_at FROM resource_access WHERE resource_type = ? AND resource_id = ? AND user_id = ?`,
+    ),
+    listResourceAccess: db.prepare(
+      `SELECT user_id, role, created_at FROM resource_access WHERE resource_type = ? AND resource_id = ? ORDER BY created_at`,
+    ),
+    listResourceAccessForUser: db.prepare(
+      `SELECT resource_id, role FROM resource_access WHERE resource_type = ? AND user_id = ?`,
+    ),
+    getRunGraphRef: db.prepare(
+      `SELECT user_id, graph_id FROM runs WHERE id = ?`,
+    ),
+    getArtifactGraphRef: db.prepare(
+      `SELECT user_id, graph_id, run_id FROM artifacts WHERE id = ?`,
+    ),
     countUsers: db.prepare(`SELECT COUNT(*) AS n FROM users`),
     updateUserPasswordHash: db.prepare(
       `UPDATE users SET password_hash = ? WHERE id = ?`,
@@ -891,6 +916,56 @@ export function openDb(file: string) {
     },
     updateUserPasswordHash(id: string, passwordHash: string) {
       stmts.updateUserPasswordHash.run(passwordHash, id);
+    },
+
+    /** Grant or overwrite a shared role (editor/viewer) on a resource. */
+    saveResourceAccess(resourceType: string, resourceId: string, userId: string, role: string) {
+      stmts.saveResourceAccess.run(resourceType, resourceId, userId, role, Date.now());
+    },
+    /** Revoke a user's shared access. Returns true when a row was removed. */
+    deleteResourceAccess(resourceType: string, resourceId: string, userId: string): boolean {
+      return stmts.deleteResourceAccess.run(resourceType, resourceId, userId).changes > 0;
+    },
+    getResourceAccess(resourceType: string, resourceId: string, userId: string): { role: string } | undefined {
+      return stmts.getResourceAccess.get(resourceType, resourceId, userId) as
+        | { role: string }
+        | undefined;
+    },
+    /** All shared collaborators on one resource (for the owner's ACL UI). */
+    listResourceAccess(resourceType: string, resourceId: string): Array<{ user_id: string; role: string; created_at: number }> {
+      return stmts.listResourceAccess.all(resourceType, resourceId) as Array<{
+        user_id: string;
+        role: string;
+        created_at: number;
+      }>;
+    },
+    /** Everything shared TO one user (for list filtering). */
+    listResourceAccessForUser(resourceType: string, userId: string): Array<{ resource_id: string; role: string }> {
+      return stmts.listResourceAccessForUser.all(resourceType, userId) as Array<{
+        resource_id: string;
+        role: string;
+      }>;
+    },
+    /** The run row's owner + graph, for resolving a run back to its graph ACL. */
+    getRunGraphRef(runId: string): { userId: string; graphId: string } | undefined {
+      const row = stmts.getRunGraphRef.get(runId) as
+        | { user_id: string; graph_id: string }
+        | undefined;
+      return row ? { userId: row.user_id, graphId: row.graph_id } : undefined;
+    },
+    /** The artifact row's owner + graph, for resolving an artifact back to its graph ACL. */
+    getArtifactGraphRef(artifactId: string): { userId: string; graphId: string; runId: string } | undefined {
+      const row = stmts.getArtifactGraphRef.get(artifactId) as
+        | { user_id: string; graph_id: string | null; run_id: string }
+        | undefined;
+      return row
+        ? { userId: row.user_id, graphId: row.graph_id ?? "", runId: row.run_id }
+        : undefined;
+    },
+    /** The owning user of a graph, or undefined when the graph does not exist. */
+    graphOwnerId(graphId: string): string | undefined {
+      const row = stmts.getGraphOwnerId.get(graphId) as { user_id: string } | undefined;
+      return row?.user_id;
     },
 
     /**
@@ -3248,6 +3323,22 @@ const MIGRATIONS: Migration[] = [
       db.exec(`UPDATE users SET role = 'owner' WHERE id = (
         SELECT id FROM users ORDER BY created_at ASC, rowid ASC LIMIT 1
       ) AND NOT EXISTS (SELECT 1 FROM users WHERE role = 'owner')`);
+    },
+  },
+  {
+    version: 32,
+    description: "resource_access for resource-level sharing (design-rbac P1)",
+    detect: (db) => tableExists(db, "resource_access"),
+    up: (db) => {
+      db.exec(`CREATE TABLE IF NOT EXISTS resource_access (
+        resource_type TEXT NOT NULL,
+        resource_id   TEXT NOT NULL,
+        user_id       TEXT NOT NULL,
+        role          TEXT NOT NULL,
+        created_at    INTEGER NOT NULL,
+        PRIMARY KEY (resource_type, resource_id, user_id)
+      )`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_resource_access_user ON resource_access(user_id, resource_type)`);
     },
   },
 ];
