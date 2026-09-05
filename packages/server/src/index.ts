@@ -22,7 +22,7 @@ import {
   type RunEvent,
   type SkillPermissions,
 } from "@agent-world/core";
-import { openDb, backfillExistingData, contentHash, SCHEMA_VERSION } from "./db.js";
+import { openDb, backfillExistingData, contentHash, SCHEMA_VERSION, type Db } from "./db.js";
 import { findGraphIdByName as findGraphIdByNameCore } from "./graphs-name.js";
 import { ArtifactStore } from "./artifact-store.js";
 import { log } from "./logger.js";
@@ -1033,6 +1033,29 @@ function isAnnouncementAdmin(userId: string): boolean {
   return user?.role === "owner" || user?.role === "admin";
 }
 
+/**
+ * P3 targeting: does this user belong to the announcement's audience?
+ * `graph:<id>` → anyone who can still open that pipeline (owner/editor/
+ * viewer — a deprecation notice matters to read-only collaborators too);
+ * `template:<id>` → anyone who owns or was shared a graph created from that
+ * template. Unknown prefixes never match (fail closed), so a malformed row
+ * is invisible rather than leaked to everyone.
+ */
+function announcementTargetsUser(
+  db: Db,
+  userId: string,
+  target: string | null | undefined,
+): boolean {
+  if (target == null) return true;
+  if (target.startsWith("graph:")) {
+    return graphAccessRole(db, userId, target.slice("graph:".length)) != null;
+  }
+  if (target.startsWith("template:")) {
+    return db.userUsesTemplate(userId, target.slice("template:".length));
+  }
+  return false;
+}
+
 /** Active announcements plus the caller's read state (idempotent display). */
 app.get("/api/announcements", (c) => {
   const userId = c.get("userId");
@@ -1040,14 +1063,14 @@ app.get("/api/announcements", (c) => {
   const reads = db.announcementReads(userId);
   const items = db
     .listActiveAnnouncements(now)
-    // target is a future column (P3); only global (NULL) rows ship for now.
-    .filter((a) => a.target == null)
+    .filter((a) => announcementTargetsUser(db, userId, a.target as string | null))
     .map((a) => ({
       id: a.id,
       level: a.level,
       startsAt: a.starts_at,
       endsAt: a.ends_at,
       createdAt: a.created_at,
+      target: (a.target as string | null) ?? null,
       titleZh: a.title_zh,
       titleEn: a.title_en,
       bodyZh: a.body_zh,
@@ -1066,6 +1089,7 @@ app.get("/api/announcements/manage", async (c) => {
     startsAt: a.starts_at,
     endsAt: a.ends_at,
     createdAt: a.created_at,
+    target: (a.target as string | null) ?? null,
     titleZh: a.title_zh,
     titleEn: a.title_en,
     bodyZh: a.body_zh,
@@ -1084,10 +1108,12 @@ app.post("/api/announcements/:id/read", (c) => {
 
 const ANNOUNCEMENT_LEVELS = new Set(["info", "warning", "critical"]);
 const ANNOUNCEMENT_BODY_MAX = 20_000;
+/** P3 targeting: `graph:<id>` / `template:<id>` with a conservative id charset. */
+const ANNOUNCEMENT_TARGET_RE = /^(graph|template):[A-Za-z0-9_-]+$/;
 
 /** Shared shape validation for create/update bodies. */
 function parseAnnouncementBody(raw: unknown):
-  | { ok: true; value: { titleZh: string; titleEn: string; bodyZh?: string | null; bodyEn?: string | null; level: string; startsAt: number; endsAt?: number | null } }
+  | { ok: true; value: { titleZh: string; titleEn: string; bodyZh?: string | null; bodyEn?: string | null; level: string; startsAt: number; endsAt?: number | null; target?: string | null } }
   | { ok: false; error: string } {
   const b = (raw ?? {}) as Record<string, unknown>;
   const titleZh = typeof b.titleZh === "string" ? b.titleZh.trim() : "";
@@ -1106,12 +1132,24 @@ function parseAnnouncementBody(raw: unknown):
     if (!Number.isFinite(endsAt)) return { ok: false, error: "endsAt must be a number" };
     if (endsAt <= startsAt) return { ok: false, error: "endsAt must be after startsAt" };
   }
+  // Targeting: null/undefined → everyone; otherwise one of the two known forms.
+  // Fail closed so malformed values can never be persisted and later silently
+  // match nobody/everybody.
+  let target: string | null = null;
+  if (typeof b.target === "string" && b.target.trim()) {
+    target = b.target.trim();
+    if (!ANNOUNCEMENT_TARGET_RE.test(target)) {
+      return { ok: false, error: 'target must be "graph:<id>" or "template:<id>"' };
+    }
+  } else if (b.target != null) {
+    return { ok: false, error: 'target must be "graph:<id>" or "template:<id>"' };
+  }
   const read = (v: unknown): string | null =>
     typeof v === "string" && v.trim() ? (v.length > ANNOUNCEMENT_BODY_MAX ? "" : v) : null;
   const bodyZh = read(b.bodyZh);
   const bodyEn = read(b.bodyEn);
   if (bodyZh === "" || bodyEn === "") return { ok: false, error: `body must be at most ${ANNOUNCEMENT_BODY_MAX} characters` };
-  return { ok: true, value: { titleZh, titleEn, bodyZh, bodyEn, level, startsAt, endsAt } };
+  return { ok: true, value: { titleZh, titleEn, bodyZh, bodyEn, level, startsAt, endsAt, target } };
 }
 
 app.post("/api/announcements", async (c) => {
