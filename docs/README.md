@@ -42,9 +42,9 @@
 | [design-key-rotation.md](design-key-rotation.md)                           | 密钥轮换设计（keyring + v2 密文格式 + 重加密脚本 runbook；**方案定稿未实施**）                                      | 开发者 / 运维         |
 | [design-audit-log.md](design-audit-log.md)                                 | 审计日志设计（audit_log 表 + 路由层埋点 + detail 永不含值红线；**P1+P2 已实施，P3 待触发**）                                  | 开发者 / 运维         |
 | [design-logging.md](design-logging.md)                                     | 服务端日志设计（console 收编 + 默认落盘 + 请求中间件 + 关键路径；**P1-P3 全部实施**）                                     | 开发者 / 运维         |
-| [design-announcement.md](design-announcement.md)                           | 公告设计（双语内联表 + level 驱动 UI 强度 + env 白名单管理；**P1+P2 已实施，P3 待触发**）                            | 开发者 / 运维         |
+| [design-announcement.md](design-announcement.md)                           | 公告设计（双语内联表 + level 驱动 UI 强度 + owner/admin 角色管理；**P1+P2 已实施，P3 待触发**）                       | 开发者 / 运维         |
 | [design-feedback.md](design-feedback.md)                                   | 用户反馈设计（上下文自动采集白名单 + 截图粘贴 + 三态流转；**方案定稿未实施**）                                        | 开发者 / 运维         |
-| [design-rbac.md](design-rbac.md)                                           | 角色权限设计（全局 owner/admin/user + 资源级 editor/viewer 共享 + resource_access 表；**方案定稿未实施**）        | 决策者 / 开发者         |
+| [design-rbac.md](design-rbac.md)                                           | 角色权限设计（全局 owner/admin/user + 资源级 editor/viewer 共享 + resource_access 表；**P0 已落地，P1-P3 待做**） | 决策者 / 开发者         |
 | [roadmap-generalization.md](roadmap-generalization.md)                     | 通用化路线图（当前主线，5 阶段）                                                                   | 决策者 / 开发者 ★      |
 | [deferred-items.md](deferred-items.md)                                     | 缓做/低优事项登记表（全部挂起项 + 触发条件的单一事实源）                                                      | 决策者 / 开发者 ★      |
 | [design-mcp-server.md](design-mcp-server.md)                               | MCP Server 设计（传输 / tools / resources / prompts）                                     | 开发者              |

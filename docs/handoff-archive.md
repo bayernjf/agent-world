@@ -1789,6 +1789,10 @@ modality 切片，统一严格过滤；同时把 agent 的占位文案从泛化�
 
 > Entries rolled out of the active `handoff.md` "Recently shipped" list to keep it at 5 items.
 
+<!-- rolled in from handoff.md 2026-09-05 (RBAC P0 入列，原第 5 条滚出) -->
+
+- **feat(web,server,core) F1 收尾 + F10 画布 + F7-B 开放渠道（2026-09-04，commits** **`8252375`/`f42280b`/`4a4e9fa`/`76c707f`/`19f9b7a`/`9ad9902`）**——F1 补变体对比视图（core reducer 记录 variant + web VariantComparison 变体卡片）；F10 画布编排（自动泳道布局/折叠展开/复制支路/校验红框）；F7-B 开放渠道（server publish\_targets+webhook Publisher+`/api/publish-targets` + web PublishTargets）。新增 8 用例（core runtime 1 / server db.publish 3 / 已有 5 变体用例）+ 修复 ConnectorEditor 测试。
+
 <!-- rolled in from handoff.md 2026-09-05 (items 6-21 of the shipped list) -->
 
 6. **feat(server,web) F9 内容级成本归因（2026-09-03，commits** **`069ee05`/`59424bc`）**——按 design-ecommerce-roadmap §F9：server 增 `content_costs` 表（迁移 26）+ `/api/content-costs` + `/api/costs?groupBy=` 内容级聚合；web 在 PerformanceDashboard 增「内容成本」区块（成本/GMV/ROI 聚合 + 录入）。新增 3 用例（server）。

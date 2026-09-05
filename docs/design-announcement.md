@@ -62,7 +62,7 @@ CREATE TABLE IF NOT EXISTS announcement_reads (
 | `POST /api/announcements/:id/read` | 登录用户 | 写 announcement_reads（幂等 upsert） |
 | `POST /api/announcements` / `PATCH` / `DELETE` | **管理员** | 内容管理 |
 
-**管理员判定**：项目当前无角色体系。首期用最小方案——`ANNOUNCEMENT_ADMIN_EMAILS` env 白名单（逗号分隔），命中才放行管理路由。多租户角色体系上线后（[deferred-items 平台线](deferred-items.md)）换角色判定，env 方案退役。
+**管理员判定**：RBAC P0 已落地（2026-09-05）——全局 `owner/admin` 角色放行管理路由（`isAnnouncementAdmin` 读 `users.role`）。此前的 `ANNOUNCEMENT_ADMIN_EMAILS` env 白名单方案已退役（[design-rbac.md](design-rbac.md)）。
 
 ### 3.3 前端 UI
 

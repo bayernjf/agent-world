@@ -1,7 +1,8 @@
 # 角色权限（RBAC）设计方案
 
-> 状态：**方案设计（2026-09-05）**。目标：把当前「`user_id` 硬隔离 + 公告管理员 env 白名单」升级为**全局角色 + 资源级共享权限**的正式 RBAC，为路线图 Phase 5 多租户/团队协作铺底。
+> 状态：**P0 已实施（2026-09-05），P1-P3 方案定稿待做**。目标：把当前「`user_id` 硬隔离 + 公告管理员 env 白名单」升级为**全局角色 + 资源级共享权限**的正式 RBAC，为路线图 Phase 5 多租户/团队协作铺底。
 > 创建：2026-09-05 ｜ 触发：用户明确要求（不等 deferred-items 的"团队场景出现"），见 [handoff.md](../handoff.md) 待办 #34。
+> **P0 落地记录（2026-09-05）**：迁移 v31（`users.role` 列 + `idx_users_owner` 部分唯一索引 + 最早注册用户升 owner bootstrap）；`createUser` 无 owner 时首账号为 owner；`isAnnouncementAdmin` 改读 `owner/admin` 角色，`ANNOUNCEMENT_ADMIN_EMAILS` env 白名单退役（`.env` 已删）；`/api/auth/me` 返回 `role`。测试 `api.rbac.test.ts`（首账号 owner/单 owner 不变量/owner 可管公告/旧库 v31 bootstrap）+ `api.announcements.test.ts` 改角色提升。
 
 ## 1. 背景与现状
 
