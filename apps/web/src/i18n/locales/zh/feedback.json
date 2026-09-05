@@ -1,0 +1,48 @@
+{
+  "entry": {
+    "button": "反馈"
+  },
+  "form": {
+    "title": "发送反馈",
+    "messageLabel": "说说遇到的问题或想法",
+    "messagePlaceholder": "一句话描述，例如：报表导出在 Safari 下没反应",
+    "categoryLabel": "类型",
+    "categories": {
+      "bug": "缺陷",
+      "feature": "功能建议",
+      "ux": "体验问题",
+      "other": "其他"
+    },
+    "screenshotLabel": "截图（可选，直接粘贴）",
+    "screenshotHint": "在页面上截图后按 ⌘V / Ctrl+V 粘贴",
+    "screenshotRemove": "移除截图",
+    "screenshotTooLarge": "截图超过 1MB，请裁剪后重试",
+    "screenshotInvalid": "仅支持粘贴 PNG / JPEG / WebP / GIF 图片",
+    "diagnosticsLabel": "附带诊断信息（页面位置、浏览器、最近错误）",
+    "diagnosticsHint": "帮助定位问题；不包含任何密钥或工作区内容",
+    "submit": "发送",
+    "submitting": "发送中…",
+    "cancel": "取消",
+    "submitted": "已收到，感谢反馈",
+    "submitFailed": "发送失败，请稍后重试",
+    "messageRequired": "请先描述问题"
+  },
+  "admin": {
+    "title": "反馈",
+    "filterAll": "全部",
+    "empty": "暂无反馈",
+    "loadFailed": "反馈加载失败",
+    "statusFailed": "状态更新失败",
+    "unknownUser": "未知用户",
+    "attachmentAlt": "反馈截图",
+    "contextRoute": "页面",
+    "contextRun": "Run",
+    "contextError": "最近错误",
+    "noContext": "无诊断信息"
+  },
+  "status": {
+    "open": "待处理",
+    "acknowledged": "已确认",
+    "closed": "已关闭"
+  }
+}

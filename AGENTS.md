@@ -12,7 +12,7 @@ Agent World 项目的 AI 编码规范。写任何代码前先读本节，尤其�
 2. 在 `apps/web/src/i18n/locales/en/<namespace>.json` 加对应英文 key（key 结构与 zh 完全一致）
 3. 组件里 `const { t } = useTranslation()`，用 `t("namespace:key")` 引用
 
-**命名空间**：`common` / `canvas` / `nodes` / `modals` / `settings` / `run` / `errors` / `auth` / `reviews`
+**命名空间**：`common` / `canvas` / `nodes` / `modals` / `settings` / `run` / `errors` / `auth` / `reviews` / `announcements` / `feedback`
 
 **允许硬编码中文的场景（仅限以下四类）：**
 

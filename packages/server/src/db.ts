@@ -288,6 +288,20 @@ CREATE TABLE IF NOT EXISTS announcement_reads (
   PRIMARY KEY (user_id, announcement_id)
 );
 
+CREATE TABLE IF NOT EXISTS feedback (
+  id              TEXT PRIMARY KEY,
+  user_id         TEXT NOT NULL,
+  message         TEXT NOT NULL,
+  category        TEXT NOT NULL DEFAULT 'other',
+  context         TEXT NOT NULL,
+  attachment      BLOB,
+  attachment_mime TEXT,
+  status          TEXT NOT NULL DEFAULT 'open',
+  created_at      INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_feedback_user_time ON feedback(user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_feedback_status ON feedback(status, created_at);
+
 CREATE TABLE IF NOT EXISTS graph_versions (
   id           TEXT PRIMARY KEY,
   graph_id     TEXT NOT NULL,
@@ -743,6 +757,30 @@ export function openDb(file: string) {
     listAnnouncementReads: db.prepare(
       `SELECT announcement_id FROM announcement_reads WHERE user_id = ?`,
     ),
+    // User feedback (design-feedback.md). Attachment bytes stay in sqlite
+    // (≤1MB, single image); the list queries never select the BLOB itself —
+    // `has_attachment` lets the admin UI lazy-load via the attachment route.
+    insertFeedback: db.prepare(
+      `INSERT INTO feedback (id, user_id, message, category, context, attachment, attachment_mime, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ),
+    countFeedbackSince: db.prepare(
+      `SELECT COUNT(*) AS n FROM feedback WHERE user_id = ? AND created_at >= ?`,
+    ),
+    listFeedbackAll: db.prepare(
+      `SELECT f.id, f.user_id, u.email, f.message, f.category, f.context,
+              f.attachment IS NOT NULL AS has_attachment, f.status, f.created_at
+       FROM feedback f LEFT JOIN users u ON u.id = f.user_id
+       ORDER BY f.created_at DESC LIMIT ?`,
+    ),
+    listFeedbackByStatus: db.prepare(
+      `SELECT f.id, f.user_id, u.email, f.message, f.category, f.context,
+              f.attachment IS NOT NULL AS has_attachment, f.status, f.created_at
+       FROM feedback f LEFT JOIN users u ON u.id = f.user_id
+       WHERE f.status = ? ORDER BY f.created_at DESC LIMIT ?`,
+    ),
+    getFeedback: db.prepare(`SELECT * FROM feedback WHERE id = ?`),
+    updateFeedbackStatus: db.prepare(`UPDATE feedback SET status = ? WHERE id = ?`),
     findUserByEmail: db.prepare(
       `SELECT id, email, role, created_at FROM users WHERE email = ?`,
     ),
@@ -2088,6 +2126,47 @@ export function openDb(file: string) {
     announcementReads(userId: string): Set<string> {
       const rows = stmts.listAnnouncementReads.all(userId) as Array<{ announcement_id: string }>;
       return new Set(rows.map((r) => r.announcement_id));
+    },
+    // --- User feedback (33, design-feedback.md) ---
+    insertFeedback(input: {
+      id: string;
+      userId: string;
+      message: string;
+      category: string;
+      context: string;
+      attachment?: Uint8Array | null;
+      attachmentMime?: string | null;
+    }): void {
+      stmts.insertFeedback.run(
+        input.id,
+        input.userId,
+        input.message,
+        input.category,
+        input.context,
+        input.attachment ?? null,
+        input.attachmentMime ?? null,
+        "open",
+        Date.now(),
+      );
+    },
+    countFeedbackSince(userId: string, since: number): number {
+      const row = stmts.countFeedbackSince.get(userId, since) as { n: number };
+      return row?.n ?? 0;
+    },
+    listFeedback(
+      opts: { status?: string; limit?: number } = {},
+    ): Array<Record<string, unknown>> {
+      const limit = Math.min(Math.max(opts.limit ?? 200, 1), 500);
+      if (opts.status) {
+        return stmts.listFeedbackByStatus.all(opts.status, limit) as Array<Record<string, unknown>>;
+      }
+      return stmts.listFeedbackAll.all(limit) as Array<Record<string, unknown>>;
+    },
+    getFeedback(id: string): Record<string, unknown> | undefined {
+      return stmts.getFeedback.get(id) as Record<string, unknown> | undefined;
+    },
+    updateFeedbackStatus(id: string, status: string): void {
+      stmts.updateFeedbackStatus.run(status, id);
     },
     addBrandTerm(userId: string, term: string, note = "") {
       const t = term.trim();
@@ -3478,6 +3557,26 @@ const MIGRATIONS: Migration[] = [
         PRIMARY KEY (resource_type, resource_id, user_id)
       )`);
       db.exec(`CREATE INDEX IF NOT EXISTS idx_resource_access_user ON resource_access(user_id, resource_type)`);
+    },
+  },
+  {
+    version: 33,
+    description: "feedback for in-product user feedback (design-feedback P1)",
+    detect: (db) => tableExists(db, "feedback"),
+    up: (db) => {
+      db.exec(`CREATE TABLE IF NOT EXISTS feedback (
+        id              TEXT PRIMARY KEY,
+        user_id         TEXT NOT NULL,
+        message         TEXT NOT NULL,
+        category        TEXT NOT NULL DEFAULT 'other',
+        context         TEXT NOT NULL,
+        attachment      BLOB,
+        attachment_mime TEXT,
+        status          TEXT NOT NULL DEFAULT 'open',
+        created_at      INTEGER NOT NULL
+      )`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_feedback_user_time ON feedback(user_id, created_at)`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_feedback_status ON feedback(status, created_at)`);
     },
   },
 ];

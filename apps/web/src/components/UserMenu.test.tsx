@@ -34,6 +34,11 @@ vi.mock("./AdminPanel", () => ({
     open ? <div data-testid="admin-panel" data-role={me?.role ?? ""} /> : null,
 }));
 
+// Mock FeedbackModal
+vi.mock("./FeedbackModal", () => ({
+  default: ({ open }: any) => (open ? <div data-testid="feedback-modal" /> : null),
+}));
+
 function mockFetchMe(user: { id: string; email: string } | null) {
   global.fetch = vi.fn(async () => {
     if (user) {
@@ -287,6 +292,38 @@ describe("UserMenu", () => {
       fireEvent.click(screen.getByText("管理"));
       expect(screen.getByTestId("admin-panel")).toBeInTheDocument();
       expect(screen.getByTestId("admin-panel")).toHaveAttribute("data-role", "owner");
+      expect(screen.queryByText("个人中心")).not.toBeInTheDocument();
+    });
+  });
+
+  describe("反馈入口", () => {
+    async function openMenu(role?: string) {
+      mockFetchMe({ id: "user-1", email: "test@example.com", role });
+      render(<UserMenu />);
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /账户/ })).toBeInTheDocument();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /账户/ }));
+    }
+
+    it("登录用户显示'反馈'入口（普通用户也有）", async () => {
+      await openMenu("user");
+      expect(screen.getByText("反馈")).toBeInTheDocument();
+    });
+
+    it("未登录不显示'反馈'入口", async () => {
+      mockFetchMe(null);
+      render(<UserMenu />);
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /账户/ })).toBeInTheDocument();
+      });
+      expect(screen.queryByText("反馈")).not.toBeInTheDocument();
+    });
+
+    it("点击'反馈'打开 FeedbackModal 并关闭菜单", async () => {
+      await openMenu("user");
+      fireEvent.click(screen.getByText("反馈"));
+      expect(screen.getByTestId("feedback-modal")).toBeInTheDocument();
       expect(screen.queryByText("个人中心")).not.toBeInTheDocument();
     });
   });
