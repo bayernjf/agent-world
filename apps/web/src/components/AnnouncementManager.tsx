@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { TEMPLATE_LIST } from "./TemplatePicker";
 
 export interface ManageAnnouncement {
   id: string;
@@ -11,6 +12,8 @@ export interface ManageAnnouncement {
   titleEn: string;
   bodyZh: string | null;
   bodyEn: string | null;
+  /** null = everyone; "graph:<id>" / "template:<id>" = targeted (P3). */
+  target: string | null;
 }
 
 interface Props {
@@ -22,6 +25,7 @@ interface Props {
 
 const LEVELS = ["info", "warning", "critical"] as const;
 type Level = (typeof LEVELS)[number];
+type TargetKind = "all" | "template" | "graph";
 const LEVEL_KEY: Record<Level, string> = {
   info: "announcements:manager.levelInfo",
   warning: "announcements:manager.levelWarning",
@@ -62,6 +66,9 @@ export default function AnnouncementManager({ open, onClose, onChanged }: Props)
     level: "info",
     startsAt: "",
     endsAt: "",
+    targetKind: "all" as TargetKind,
+    targetTemplate: "",
+    targetGraph: "",
   });
   const [status, setStatus] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<ManageAnnouncement | null>(null);
@@ -84,6 +91,7 @@ export default function AnnouncementManager({ open, onClose, onChanged }: Props)
 
   const openForm = (a: ManageAnnouncement | null) => {
     if (a) {
+      const m = /^(graph|template):(.+)$/.exec(a.target ?? "");
       setForm({
         id: a.id,
         titleZh: a.titleZh,
@@ -93,6 +101,11 @@ export default function AnnouncementManager({ open, onClose, onChanged }: Props)
         level: a.level,
         startsAt: toLocalInput(a.startsAt),
         endsAt: a.endsAt ? toLocalInput(a.endsAt) : "",
+        // Rows with an unrecognized target (pre-P3 legacy) fall back to
+        // "everyone"; saving normalizes the row to NULL.
+        targetKind: m ? (m[1] as TargetKind) : "all",
+        targetTemplate: m?.[1] === "template" ? m[2]! : "",
+        targetGraph: m?.[1] === "graph" ? m[2]! : "",
       });
       setEditing(a.id);
     } else {
@@ -105,12 +118,21 @@ export default function AnnouncementManager({ open, onClose, onChanged }: Props)
         level: "info",
         startsAt: toLocalInput(Date.now()),
         endsAt: "",
+        targetKind: "all",
+        targetTemplate: "",
+        targetGraph: "",
       });
       setEditing("new");
     }
   };
 
   const save = async () => {
+    let target: string | null = null;
+    if (form.targetKind === "template" && form.targetTemplate) {
+      target = `template:${form.targetTemplate}`;
+    } else if (form.targetKind === "graph" && form.targetGraph.trim()) {
+      target = `graph:${form.targetGraph.trim()}`;
+    }
     const payload = {
       titleZh: form.titleZh.trim(),
       titleEn: form.titleEn.trim(),
@@ -119,6 +141,7 @@ export default function AnnouncementManager({ open, onClose, onChanged }: Props)
       level: form.level,
       startsAt: fromLocalInput(form.startsAt),
       endsAt: form.endsAt ? fromLocalInput(form.endsAt) : null,
+      target,
     };
     setStatus("");
     try {
@@ -170,6 +193,18 @@ export default function AnnouncementManager({ open, onClose, onChanged }: Props)
 
   const title = (a: ManageAnnouncement) => a.titleZh || a.titleEn;
 
+  /** Short audience label for the list rows, e.g. "模板定向 · tpl-x" or "产线定向 · g-abc…". */
+  const targetLabel = (a: ManageAnnouncement): string | null => {
+    const m = /^(graph|template):(.+)$/.exec(a.target ?? "");
+    if (!m) return null;
+    if (m[1] === "template") {
+      const name = TEMPLATE_LIST.find((tpl) => tpl.id === m[2])?.name ?? m[2];
+      return `${t("announcements:manager.badgeTemplate")} · ${name}`;
+    }
+    const id = m[2]!;
+    return `${t("announcements:manager.badgeGraph")} · ${id.slice(0, 12)}${id.length > 12 ? "…" : ""}`;
+  };
+
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal announcement-manager" onClick={(e) => e.stopPropagation()}>
@@ -198,6 +233,11 @@ export default function AnnouncementManager({ open, onClose, onChanged }: Props)
                       <span className="announcement-manager__title">
                         {t(LEVEL_KEY[a.level])} · {title(a)}
                       </span>
+                      {targetLabel(a) && (
+                        <span className="announcement-manager__target">
+                          {targetLabel(a)}
+                        </span>
+                      )}
                       <span className="announcements__date">
                         {new Date(a.startsAt).toLocaleDateString()}
                       </span>
@@ -276,6 +316,52 @@ export default function AnnouncementManager({ open, onClose, onChanged }: Props)
                 />
                 <small className="muted">{t("announcements:manager.endsAtHint")}</small>
               </label>
+              <label className="field">
+                <span>{t("announcements:manager.target")}</span>
+                <select
+                  className="select"
+                  value={form.targetKind}
+                  onChange={(e) =>
+                    setForm({ ...form, targetKind: e.target.value as TargetKind })
+                  }
+                >
+                  <option value="all">{t("announcements:manager.targetAll")}</option>
+                  <option value="template">
+                    {t("announcements:manager.targetTemplate")}
+                  </option>
+                  <option value="graph">{t("announcements:manager.targetGraph")}</option>
+                </select>
+                <small className="muted">{t("announcements:manager.targetHint")}</small>
+              </label>
+              {form.targetKind === "template" && (
+                <label className="field">
+                  <span>{t("announcements:manager.targetTemplateSelect")}</span>
+                  <select
+                    className="select"
+                    value={form.targetTemplate}
+                    onChange={(e) => setForm({ ...form, targetTemplate: e.target.value })}
+                  >
+                    <option value="">{t("announcements:manager.targetTemplateChoose")}</option>
+                    {TEMPLATE_LIST.map((tpl) => (
+                      <option key={tpl.id} value={tpl.id}>
+                        {tpl.name} · {tpl.id}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              {form.targetKind === "graph" && (
+                <label className="field">
+                  <span>{t("announcements:manager.targetGraphId")}</span>
+                  <input
+                    value={form.targetGraph}
+                    onChange={(e) => setForm({ ...form, targetGraph: e.target.value })}
+                    placeholder="g-…"
+                    autoComplete="off"
+                  />
+                  <small className="muted">{t("announcements:manager.targetGraphHint")}</small>
+                </label>
+              )}
               {status && <p className="diag diag--ok">{status}</p>}
               <div className="announcement-manager__actions">
                 <button className="btn btn--ghost btn--sm" onClick={() => setEditing(null)}>
