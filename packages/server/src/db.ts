@@ -263,6 +263,27 @@ CREATE TABLE IF NOT EXISTS audit_log (
 CREATE INDEX IF NOT EXISTS idx_audit_log_user ON audit_log(user_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_audit_log_time ON audit_log(created_at);
 
+CREATE TABLE IF NOT EXISTS announcements (
+  id          TEXT PRIMARY KEY,
+  title_zh    TEXT NOT NULL,
+  title_en    TEXT NOT NULL,
+  body_zh     TEXT,
+  body_en     TEXT,
+  level       TEXT NOT NULL DEFAULT 'info',
+  starts_at   INTEGER NOT NULL,
+  ends_at     INTEGER,
+  target      TEXT,
+  created_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_announcements_window ON announcements(starts_at);
+
+CREATE TABLE IF NOT EXISTS announcement_reads (
+  user_id         TEXT NOT NULL,
+  announcement_id TEXT NOT NULL,
+  read_at         INTEGER NOT NULL,
+  PRIMARY KEY (user_id, announcement_id)
+);
+
 CREATE TABLE IF NOT EXISTS graph_versions (
   id           TEXT PRIMARY KEY,
   graph_id     TEXT NOT NULL,
@@ -668,6 +689,28 @@ export function openDb(file: string) {
     listAuditFirst: db.prepare(
       `SELECT id, user_id, action, object_type, object_id, detail, ip, created_at
        FROM audit_log WHERE user_id = ? ORDER BY created_at DESC LIMIT ?`,
+    ),
+    listActiveAnnouncements: db.prepare(
+      `SELECT * FROM announcements
+       WHERE starts_at <= ? AND (ends_at IS NULL OR ends_at >= ?)
+       ORDER BY created_at DESC`,
+    ),
+    getAnnouncement: db.prepare(`SELECT * FROM announcements WHERE id = ?`),
+    insertAnnouncement: db.prepare(
+      `INSERT INTO announcements (id, title_zh, title_en, body_zh, body_en, level, starts_at, ends_at, target, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ),
+    updateAnnouncement: db.prepare(
+      `UPDATE announcements SET title_zh = ?, title_en = ?, body_zh = ?, body_en = ?,
+        level = ?, starts_at = ?, ends_at = ?, target = ? WHERE id = ?`,
+    ),
+    deleteAnnouncement: db.prepare(`DELETE FROM announcements WHERE id = ?`),
+    insertAnnouncementRead: db.prepare(
+      `INSERT INTO announcement_reads (user_id, announcement_id, read_at) VALUES (?, ?, ?)
+       ON CONFLICT(user_id, announcement_id) DO NOTHING`,
+    ),
+    listAnnouncementReads: db.prepare(
+      `SELECT announcement_id FROM announcement_reads WHERE user_id = ?`,
     ),
     findUserByEmail: db.prepare(
       `SELECT id, email, created_at FROM users WHERE email = ?`,
@@ -1761,6 +1804,74 @@ export function openDb(file: string) {
           : stmts.listAuditFirst.all(userId, limit)
       ) as Array<Record<string, unknown>>;
       return rows;
+    },
+    // --- Announcements (30) ---
+    listActiveAnnouncements(now = Date.now()): Array<Record<string, unknown>> {
+      return stmts.listActiveAnnouncements.all(now, now) as Array<Record<string, unknown>>;
+    },
+    getAnnouncement(id: string): Record<string, unknown> | undefined {
+      return stmts.getAnnouncement.get(id) as Record<string, unknown> | undefined;
+    },
+    createAnnouncement(input: {
+      id: string;
+      titleZh: string;
+      titleEn: string;
+      bodyZh?: string | null;
+      bodyEn?: string | null;
+      level: string;
+      startsAt: number;
+      endsAt?: number | null;
+      target?: string | null;
+    }): void {
+      stmts.insertAnnouncement.run(
+        input.id,
+        input.titleZh,
+        input.titleEn,
+        input.bodyZh ?? null,
+        input.bodyEn ?? null,
+        input.level,
+        input.startsAt,
+        input.endsAt ?? null,
+        input.target ?? null,
+        Date.now(),
+      );
+    },
+    updateAnnouncement(
+      id: string,
+      patch: {
+        titleZh: string;
+        titleEn: string;
+        bodyZh?: string | null;
+        bodyEn?: string | null;
+        level: string;
+        startsAt: number;
+        endsAt?: number | null;
+        target?: string | null;
+      },
+    ): boolean {
+      const res = stmts.updateAnnouncement.run(
+        patch.titleZh,
+        patch.titleEn,
+        patch.bodyZh ?? null,
+        patch.bodyEn ?? null,
+        patch.level,
+        patch.startsAt,
+        patch.endsAt ?? null,
+        patch.target ?? null,
+        id,
+      ) as { changes: number };
+      return res.changes > 0;
+    },
+    deleteAnnouncement(id: string): boolean {
+      const res = stmts.deleteAnnouncement.run(id) as { changes: number };
+      return res.changes > 0;
+    },
+    markAnnouncementRead(userId: string, announcementId: string): void {
+      stmts.insertAnnouncementRead.run(userId, announcementId, Date.now());
+    },
+    announcementReads(userId: string): Set<string> {
+      const rows = stmts.listAnnouncementReads.all(userId) as Array<{ announcement_id: string }>;
+      return new Set(rows.map((r) => r.announcement_id));
     },
     addBrandTerm(userId: string, term: string, note = "") {
       const t = term.trim();
@@ -3072,6 +3183,32 @@ const MIGRATIONS: Migration[] = [
       )`);
       db.exec("CREATE INDEX IF NOT EXISTS idx_audit_log_user ON audit_log(user_id, created_at)");
       db.exec("CREATE INDEX IF NOT EXISTS idx_audit_log_time ON audit_log(created_at)");
+    },
+  },
+  {
+    version: 30,
+    description: "announcements/announcement_reads for in-product notices",
+    detect: (db) => tableExists(db, "announcements"),
+    up: (db) => {
+      db.exec(`CREATE TABLE IF NOT EXISTS announcements (
+        id          TEXT PRIMARY KEY,
+        title_zh    TEXT NOT NULL,
+        title_en    TEXT NOT NULL,
+        body_zh     TEXT,
+        body_en     TEXT,
+        level       TEXT NOT NULL DEFAULT 'info',
+        starts_at   INTEGER NOT NULL,
+        ends_at     INTEGER,
+        target      TEXT,
+        created_at  INTEGER NOT NULL
+      )`);
+      db.exec("CREATE INDEX IF NOT EXISTS idx_announcements_window ON announcements(starts_at)");
+      db.exec(`CREATE TABLE IF NOT EXISTS announcement_reads (
+        user_id         TEXT NOT NULL,
+        announcement_id TEXT NOT NULL,
+        read_at         INTEGER NOT NULL,
+        PRIMARY KEY (user_id, announcement_id)
+      )`);
     },
   },
 ];

@@ -653,6 +653,132 @@ app.get("/api/audit", (c) => {
   return c.json({ items: rows });
 });
 
+// --- Announcements (design-announcement) ---
+// Admin gate: no role system yet, so an env allowlist of emails is the
+// minimum viable check (retire it when the multi-tenant role system lands).
+function announcementAdminEmails(): Set<string> {
+  return new Set(
+    (process.env.ANNOUNCEMENT_ADMIN_EMAILS ?? "")
+      .split(",")
+      .map((e) => e.trim().toLowerCase())
+      .filter(Boolean),
+  );
+}
+
+async function isAnnouncementAdmin(userId: string): Promise<boolean> {
+  const user = db.findUserById(userId);
+  if (!user) return false;
+  return announcementAdminEmails().has(user.email.toLowerCase());
+}
+
+/** Active announcements plus the caller's read state (idempotent display). */
+app.get("/api/announcements", (c) => {
+  const userId = c.get("userId");
+  const now = Date.now();
+  const reads = db.announcementReads(userId);
+  const items = db
+    .listActiveAnnouncements(now)
+    // target is a future column (P3); only global (NULL) rows ship for now.
+    .filter((a) => a.target == null)
+    .map((a) => ({
+      id: a.id,
+      level: a.level,
+      startsAt: a.starts_at,
+      endsAt: a.ends_at,
+      createdAt: a.created_at,
+      titleZh: a.title_zh,
+      titleEn: a.title_en,
+      bodyZh: a.body_zh,
+      bodyEn: a.body_en,
+      read: reads.has(a.id as string),
+    }));
+  return c.json({ items });
+});
+
+app.post("/api/announcements/:id/read", (c) => {
+  const userId = c.get("userId");
+  const id = c.req.param("id");
+  if (!db.getAnnouncement(id)) return c.json({ error: "announcement not found" }, 404);
+  db.markAnnouncementRead(userId, id); // upsert → idempotent
+  return c.json({ ok: true });
+});
+
+const ANNOUNCEMENT_LEVELS = new Set(["info", "warning", "critical"]);
+const ANNOUNCEMENT_BODY_MAX = 20_000;
+
+/** Shared shape validation for create/update bodies. */
+function parseAnnouncementBody(raw: unknown):
+  | { ok: true; value: { titleZh: string; titleEn: string; bodyZh?: string | null; bodyEn?: string | null; level: string; startsAt: number; endsAt?: number | null } }
+  | { ok: false; error: string } {
+  const b = (raw ?? {}) as Record<string, unknown>;
+  const titleZh = typeof b.titleZh === "string" ? b.titleZh.trim() : "";
+  const titleEn = typeof b.titleEn === "string" ? b.titleEn.trim() : "";
+  if (!titleZh || !titleEn) return { ok: false, error: "titleZh and titleEn are required" };
+  if (titleZh.length > 200 || titleEn.length > 200) {
+    return { ok: false, error: "titles must be at most 200 characters" };
+  }
+  const level = typeof b.level === "string" ? b.level : "info";
+  if (!ANNOUNCEMENT_LEVELS.has(level)) return { ok: false, error: `invalid level "${level}"` };
+  const startsAt = b.startsAt === undefined ? Date.now() : Number(b.startsAt);
+  if (!Number.isFinite(startsAt)) return { ok: false, error: "startsAt must be a number" };
+  let endsAt: number | null = null;
+  if (b.endsAt !== undefined && b.endsAt !== null) {
+    endsAt = Number(b.endsAt);
+    if (!Number.isFinite(endsAt)) return { ok: false, error: "endsAt must be a number" };
+    if (endsAt <= startsAt) return { ok: false, error: "endsAt must be after startsAt" };
+  }
+  const read = (v: unknown): string | null =>
+    typeof v === "string" && v.trim() ? (v.length > ANNOUNCEMENT_BODY_MAX ? "" : v) : null;
+  const bodyZh = read(b.bodyZh);
+  const bodyEn = read(b.bodyEn);
+  if (bodyZh === "" || bodyEn === "") return { ok: false, error: `body must be at most ${ANNOUNCEMENT_BODY_MAX} characters` };
+  return { ok: true, value: { titleZh, titleEn, bodyZh, bodyEn, level, startsAt, endsAt } };
+}
+
+app.post("/api/announcements", async (c) => {
+  if (!(await isAnnouncementAdmin(c.get("userId")))) return c.json({ error: "forbidden" }, 403);
+  const parsed = parseAnnouncementBody(await c.req.json().catch(() => ({})));
+  if (!parsed.ok) return c.json({ error: parsed.error }, 400);
+  const id = randomUUID();
+  db.createAnnouncement({ id, ...parsed.value });
+  audit(db, c.get("userId"), "announcement.create", {
+    objectType: "announcement",
+    objectId: id,
+    detail: { level: parsed.value.level },
+    ip: clientIp(c),
+  });
+  return c.json(db.getAnnouncement(id), 201);
+});
+
+app.patch("/api/announcements/:id", async (c) => {
+  if (!(await isAnnouncementAdmin(c.get("userId")))) return c.json({ error: "forbidden" }, 403);
+  const id = c.req.param("id");
+  if (!db.getAnnouncement(id)) return c.json({ error: "announcement not found" }, 404);
+  const parsed = parseAnnouncementBody(await c.req.json().catch(() => ({})));
+  if (!parsed.ok) return c.json({ error: parsed.error }, 400);
+  const ok = db.updateAnnouncement(id, parsed.value);
+  audit(db, c.get("userId"), "announcement.update", {
+    objectType: "announcement",
+    objectId: id,
+    detail: { level: parsed.value.level },
+    ip: clientIp(c),
+  });
+  return c.json({ ok });
+});
+
+app.delete("/api/announcements/:id", async (c) => {
+  if (!(await isAnnouncementAdmin(c.get("userId")))) return c.json({ error: "forbidden" }, 403);
+  const id = c.req.param("id");
+  const ok = db.deleteAnnouncement(id);
+  if (!ok) return c.json({ error: "announcement not found" }, 404);
+  audit(db, c.get("userId"), "announcement.delete", {
+    objectType: "announcement",
+    objectId: id,
+    ip: clientIp(c),
+  });
+  return c.json({ ok: true });
+});
+
 app.put("/api/settings", async (c) => {
   const userId = c.get("userId");
   const rawBody = await c.req.json();
