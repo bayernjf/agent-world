@@ -264,7 +264,8 @@
       "brandTermsPh": "用逗号或换行分隔，如 显瘦、透气、百搭",
       "loadBrandTerms": "从品牌词库载入",
       "notes": "补充说明",
-      "notesPh": "其他想让写手知道的背景、卖点、参考风格等"
+      "notesPh": "其他想让写手知道的背景、卖点、参考风格等",
+      "dataHint": "留空自动取商品库值；可用 ${product.name} 引用"
     },
     "textGen": {
       "temperature": "温度 ({{temp}})",

@@ -211,7 +211,12 @@ const GROUPS: GlossaryGroup[] = [
       {
         std: "connector",
         game: "原料来源 / 接头",
-        note: "manual / file / http / form",
+        note: "manual / file / http / form / database / product",
+      },
+      {
+        std: "connector data interpolation（${product.name}）",
+        game: "数据引用 / 取料",
+        note: "prompt 里用 ${product.name} 取商品库字段；简报留空自动回填",
       },
       { std: "skill mount", game: "装备技能卡", note: "" },
       { std: "MCP tool", game: "MCP 工具卡", note: "自动成为技能卡" },

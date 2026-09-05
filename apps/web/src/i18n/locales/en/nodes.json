@@ -264,7 +264,8 @@
       "brandTermsPh": "Comma or newline separated, e.g. slimming, breathable, versatile",
       "loadBrandTerms": "Load from brand library",
       "notes": "Extra notes",
-      "notesPh": "Other background, selling points, reference style, etc."
+      "notesPh": "Other background, selling points, reference style, etc.",
+      "dataHint": "Leave empty to auto-fill from the product library; reference with ${product.name}"
     },
     "textGen": {
       "temperature": "Temperature ({{temp}})",

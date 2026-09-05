@@ -8,7 +8,36 @@ import { guardedFetch } from "./ssrf.js";
 export interface ResolvedMaterial {
   text: string;
   images: string[];
+  /**
+   * Structured payload of the connector (design-data-interpolation.md D1).
+   * product connectors expose `Product[]` so downstream fields can reference
+   * `${product.name}` / `${srcId.data[0].name}`; other connector types leave
+   * it undefined for now — http/database/file adopt the same channel when
+   * they need field-level references. The plain-text `text` stays the source
+   * node's material block regardless.
+   */
+  data?: unknown;
 }
+
+/**
+ * Shortcut-name registry (design-data-interpolation.md §3.2, D3). Per-connector
+ * global names derived from the source node's structured data. A shortcut is
+ * injected into the interpolation context only when the graph has exactly ONE
+ * source of that connector type (deterministic, independent of execution
+ * order); with ≥2 the shortcut degrades to the `${srcId.data[0]…}` namespace
+ * form. Node ctx entries always win over shortcut names (design §3.2 priority).
+ *
+ * Consumed by both `engine.ts` (downstream `${name.path}`) and `nodes/source.ts`
+ * (brief-field `${name}`) — keep them in sync by importing from here.
+ */
+export const CONNECTOR_SHORTCUTS: ReadonlyArray<{
+  name: string;
+  connector: string;
+  pick: (data: unknown) => unknown;
+}> = [
+  { name: "product", connector: "product", pick: (d) => (Array.isArray(d) ? d[0] : undefined) },
+  { name: "products", connector: "product", pick: (d) => d },
+];
 
 const TEXT_SEP = "\n\n---\n\n";
 

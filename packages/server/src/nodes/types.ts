@@ -51,6 +51,11 @@ export interface NodeRunContext {
   variables: Map<string, unknown>;
   /** Response metadata of http nodes (ok/status/url/method). */
   httpMeta: Map<string, Record<string, unknown>>;
+  /** Structured connector data of source nodes ({data, content}), mirroring
+   *  httpMeta: interpCtx merges it so `${srcId.data[0].name}` reaches the
+   *  connector's structured payload while `${srcId}` keeps resolving to the
+   *  brief text (design-data-interpolation.md D2). */
+  sourceMeta: Map<string, Record<string, unknown>>;
   /** Flow edges that actually carried a packet this run. */
   packetEdges: Set<string>;
 

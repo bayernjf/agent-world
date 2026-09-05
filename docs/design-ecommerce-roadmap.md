@@ -372,6 +372,14 @@ source 节点选 product 连接器后，运行时把商品字段映射进现有 
 
 ---
 
+## F4.1　商品数据接入插值上下文（指针）
+
+> 状态：**已实施（2026-09-05），方案移至 [design-data-interpolation.md](design-data-interpolation.md)**。源起：F4 落地后复查发现 source 简报字段与商品库数据是「双来源文本拼接」，双填优先级无从推理；`graph.ts` ProductConnector 注释宣称的「字段级映射」与实现不符。
+>
+> **为什么不放在本文档**：连接器结构化数据进插值上下文（`${product.name}` / 简报事实字段留空回填库值）是**引擎级通用机制，行业无关**——product 只是第一个带结构化数据的 connector 消费者，未来 http/database/file 及各行各业 connector（法律 case、财务 invoice…）走同一条通道 + 快捷名注册表。完整设计（D1-D7 决策表 / 改动清单 / 测试计划 / 4 个原子 commit 切分）见通用文档；电商视角只需知道：商品库数据可被 `${product.*}` 引用、`productName`/`brand` 留空自动回填库值。
+
+---
+
 ## F5　批量任务编排（Batch Jobs）
 
 ### 现状与缺口
