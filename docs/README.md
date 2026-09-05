@@ -29,7 +29,7 @@
 | [handoff.md](../handoff.md)                                                | 交接文档：当前状态 + 活跃任务 + 最近 5 个变更                                                            | 继续迭代的 AI / 开发者 ★ |
 | [project-progress.md](project-progress.md)                                 | 整体进度基线（模块完成度 + 待启动管线 + 迭代参考规则）★                                                        | 决策者 / 开发者        |
 | [design-connector-database.md](design-connector-database.md)               | Database Connector 设计（SQLite 只读拉数据；PG/MySQL 待触发）                                       | 开发者              |
-| [design-data-interpolation.md](design-data-interpolation.md)               | 连接器数据插值设计（结构化数据进插值上下文 + 快捷名注册表 + 简报 fallback 合并；机制行业无关，product 为首个消费者；**方案定稿待实施**） | 开发者 / 使用者        |
+| [design-data-interpolation.md](design-data-interpolation.md)               | 连接器数据插值设计（结构化数据进插值上下文 + 快捷名注册表 + 简报 fallback 合并；机制行业无关，product 为首个消费者；**已实施**） | 开发者 / 使用者        |
 | [design-triggers.md](design-triggers.md)                                   | 触发方式（webhook/cron/event/batch）设计与使用、UTC cron、状态契约、与 Connector 的自动化闭环                   | 开发者 / 使用者        |
 | [design-knowledge-memory.md](design-knowledge-memory.md)                   | 知识提取与记忆系统设计（run 结束自动提取 + FTS5 检索 + archive\_search 技能卡；已落地）                            | 开发者              |
 | [design-ab-testing.md](design-ab-testing.md)                               | A/B 实验设计（同图多 prompt 变体并行对比；已落地，独立于版本管理）                                                | 开发者              |
