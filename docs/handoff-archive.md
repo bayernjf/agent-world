@@ -1789,6 +1789,14 @@ modality 切片，统一严格过滤；同时把 agent 的占位文案从泛化�
 
 > Entries rolled out of the active `handoff.md` "Recently shipped" list to keep it at 5 items.
 
+<!-- rolled in from handoff.md 2026-09-05 (RBAC P3 入列，原第 5 条滚出) -->
+
+- **refactor(server,web) 核心文件重构阶段 1+2 全部完成（2026-09-03~04，方案见 design-refactor-engine-inspector.md）**——**阶段 1 拆 Inspector.tsx**（`2bc114d`）：3848→611 行（-84%），27 个节点配置面板拆到 `InspectorFields/`（types+shared+registry+27 个 XxxFields，FIELD_COMPONENTS 注册表分发）；**阶段 2.1 收敛 runNode 样板**（`c31d659`~`847195a`）：29 个 `if (node.kind)` 分支提取 28 个为 runXxx 闭包（**notify 刻意保内联**——提取引入的 await 边界会把 error 边派发推迟一个微任务，破坏「notify 失败→catch 节点接管」语义，regression/core-path.test.ts 覆盖），runNode ~3160→~380 行；**阶段 2.2 NodeRunContext + nodes/ 目录**（`e89c30d`~`2d7b3cd`）：调度器共享状态显式化为 `nodes/types.ts` 的 NodeRunContext（Maps/函数直接挂载；10 个可变标量 status/running/aborted/finished/haltNodeId/haltReason/totalCostUsd/budgetWarned/monthlyWarned80/100 经 getter/setter 与调度器本地变量双向绑定，调度器原代码零改动；runScheduler/runNode 递归入口经 ctx 注入避免模块环），28 个节点执行体迁至 `nodes/<kind>.ts`（统一签名 `handler(ctx, node, nodeId, attempt)`，迁移中处理了局部 ctx/plan 遮蔽改名、速记属性、`...approved` 展开等坑），runNode 退化为 NODE_HANDLERS 注册表分发器（未知 kind 回落 textGen handler，与旧 if 链一致），纯函数下沉 `nodes/shared.ts`。**engine.ts 4954→1828 行（-63%）**，每步原子提交 + 全量 typecheck + server 747/747 兜底，阶段 3（接口风格约定文档化）可延后。
+
+<!-- rolled in from handoff.md 2026-09-05 (RBAC P0 入列，原第 5 条滚出) -->
+
+- **feat(web,server,core) F1 收尾 + F10 画布 + F7-B 开放渠道（2026-09-04，commits** **`8252375`/`f42280b`/`4a4e9fa`/`76c707f`/`19f9b7a`/`9ad9902`）**——F1 补变体对比视图（core reducer 记录 variant + web VariantComparison 变体卡片）；F10 画布编排（自动泳道布局/折叠展开/复制支路/校验红框）；F7-B 开放渠道（server publish\_targets+webhook Publisher+`/api/publish-targets` + web PublishTargets）。新增 8 用例（core runtime 1 / server db.publish 3 / 已有 5 变体用例）+ 修复 ConnectorEditor 测试。
+
 <!-- rolled in from handoff.md 2026-09-05 (items 6-21 of the shipped list) -->
 
 6. **feat(server,web) F9 内容级成本归因（2026-09-03，commits** **`069ee05`/`59424bc`）**——按 design-ecommerce-roadmap §F9：server 增 `content_costs` 表（迁移 26）+ `/api/content-costs` + `/api/costs?groupBy=` 内容级聚合；web 在 PerformanceDashboard 增「内容成本」区块（成本/GMV/ROI 聚合 + 录入）。新增 3 用例（server）。

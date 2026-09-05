@@ -1,7 +1,32 @@
 {
   "nav": {
     "label": "Notices",
-    "withUnread": "Notices ({{n}} unread)"
+    "withUnread": "Notices ({{n}} unread)",
+    "manage": "Manage notices"
+  },
+  "manager": {
+    "title": "Manage notices",
+    "list": "All notices",
+    "new": "New",
+    "create": "Create",
+    "edit": "Edit",
+    "delete": "Delete",
+    "deleteConfirm": "Delete this notice?",
+    "noItems": "No notices",
+    "titleZh": "Title (Chinese)",
+    "titleEn": "Title (English)",
+    "bodyZh": "Body (Chinese, optional)",
+    "bodyEn": "Body (English, optional)",
+    "level": "Level",
+    "levelInfo": "Info",
+    "levelWarning": "Warning",
+    "levelCritical": "Critical",
+    "startsAt": "Starts at",
+    "endsAt": "Ends at",
+    "endsAtHint": "Leave empty for a standing notice",
+    "save": "Save",
+    "saved": "Saved",
+    "cancel": "Cancel"
   },
   "empty": "No notices",
   "noBody": "(no body)",

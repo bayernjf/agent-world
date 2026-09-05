@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import AnnouncementManager from "./AnnouncementManager";
 
 export interface AnnouncementItem {
   id: string;
@@ -28,7 +29,17 @@ export default function AnnouncementBell() {
   const [dismissedBanner, setDismissedBanner] = useState<Set<string>>(new Set());
   const [acknowledgedCritical, setAcknowledgedCritical] = useState<Set<string>>(new Set());
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [canManage, setCanManage] = useState(false);
+  const [managerOpen, setManagerOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+
+  // Only admins get the "manage" action; the server re-checks on every call.
+  useEffect(() => {
+    fetch("/api/auth/me", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d?.user && setCanManage(!!d.user.canManageAnnouncements))
+      .catch(() => undefined);
+  }, []);
 
   const load = useCallback(() => {
     fetch("/api/announcements", { credentials: "include" })
@@ -106,6 +117,18 @@ export default function AnnouncementBell() {
       </button>
       {open && (
         <div className="announcements__pop">
+          {canManage && (
+            <button
+              type="button"
+              className="announcements__manage"
+              onClick={() => {
+                setOpen(false);
+                setManagerOpen(true);
+              }}
+            >
+              {t("announcements:nav.manage")}
+            </button>
+          )}
           {items.length === 0 && <div className="announcements__empty">{t("announcements:empty")}</div>}
           {items.map((a) => (
             <button
@@ -189,6 +212,11 @@ export default function AnnouncementBell() {
           </div>
         </div>
       )}
+      <AnnouncementManager
+        open={managerOpen}
+        onClose={() => setManagerOpen(false)}
+        onChanged={load}
+      />
     </div>
   );
 }

@@ -3,7 +3,8 @@
 > 状态：**P1+P2 已落地（2026-09-05，迁移 v30）**。目标：产品内向用户展示「停机通知 / 版本说明 / breaking change 提醒」的公告体系。
 > 创建：2026-09-05
 >
-> 实施说明：①迁移版本实际为 **v30**（v29 被审计日志占用）；②公告正文以纯文本 `pre-wrap` 渲染（设计稿的 md 渲染暂缓，运维粘贴纯文本即可用）；③管理端无 UI，通过 API + `ANNOUNCEMENT_ADMIN_EMAILS` env 白名单操作。
+> 实施说明：①迁移版本实际为 **v30**（v29 被审计日志占用）；②公告正文以纯文本 `pre-wrap` 渲染（设计稿的 md 渲染暂缓，运维粘贴纯文本即可用）；③**管理端 UI 已就位**（2026-09-05 增补）——管理员点铃铛下拉出现「管理公告」，打开 `AnnouncementManager`（全量列表 + 新建/编辑/删除，双语标题正文 + level + 生效/失效窗口），权限判定靠 `ANNOUNCEMENT_ADMIN_EMAILS` env 白名单，经 `/api/auth/me` 的 `canManageAnnouncements` 下发前端仅对管理员显示入口；管理专用全量列表接口 `GET /api/announcements/manage`（含未开始/已过期）。
+> **env 白名单将退役**：见 [design-rbac.md](design-rbac.md) P0——公告管理改走全局 `admin` 角色（owner 在系统内授予，owner=首个注册用户），`ANNOUNCEMENT_ADMIN_EMAILS` 不再需要。
 > P3（target 定向逻辑）待触发。
 
 ## 1. 背景
@@ -61,7 +62,7 @@ CREATE TABLE IF NOT EXISTS announcement_reads (
 | `POST /api/announcements/:id/read` | 登录用户 | 写 announcement_reads（幂等 upsert） |
 | `POST /api/announcements` / `PATCH` / `DELETE` | **管理员** | 内容管理 |
 
-**管理员判定**：项目当前无角色体系。首期用最小方案——`ANNOUNCEMENT_ADMIN_EMAILS` env 白名单（逗号分隔），命中才放行管理路由。多租户角色体系上线后（[deferred-items 平台线](deferred-items.md)）换角色判定，env 方案退役。
+**管理员判定**：RBAC P0 已落地（2026-09-05）——全局 `owner/admin` 角色放行管理路由（`isAnnouncementAdmin` 读 `users.role`）。此前的 `ANNOUNCEMENT_ADMIN_EMAILS` env 白名单方案已退役（[design-rbac.md](design-rbac.md)）。
 
 ### 3.3 前端 UI
 

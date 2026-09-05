@@ -1,7 +1,32 @@
 {
   "nav": {
     "label": "公告",
-    "withUnread": "公告（{{n}} 条未读）"
+    "withUnread": "公告（{{n}} 条未读）",
+    "manage": "管理公告"
+  },
+  "manager": {
+    "title": "公告管理",
+    "list": "全部公告",
+    "new": "新建",
+    "create": "创建",
+    "edit": "编辑",
+    "delete": "删除",
+    "deleteConfirm": "确定删除这条公告？",
+    "noItems": "暂无公告",
+    "titleZh": "标题（中文）",
+    "titleEn": "标题（English）",
+    "bodyZh": "正文（中文，可留空）",
+    "bodyEn": "正文（English，可留空）",
+    "level": "级别",
+    "levelInfo": "普通",
+    "levelWarning": "警告",
+    "levelCritical": "紧急",
+    "startsAt": "生效时间",
+    "endsAt": "失效时间",
+    "endsAtHint": "留空表示长期有效",
+    "save": "保存",
+    "saved": "已保存",
+    "cancel": "取消"
   },
   "empty": "暂无公告",
   "noBody": "（无正文）",

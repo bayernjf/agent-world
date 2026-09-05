@@ -46,6 +46,7 @@ import KnowledgePanel from "./components/KnowledgePanel";
 import GlossaryModal from "./components/GlossaryModal";
 import VersionPanel from "./components/VersionPanel";
 import RunCompare from "./components/RunCompare";
+import CollaboratorsModal from "./components/CollaboratorsModal";
 import CommandPalette, { type CommandItem } from "./components/CommandPalette";
 import { api, DuplicateGraphNameError } from "./lib/api";
 import { useToast } from "./store/toast";
@@ -68,6 +69,7 @@ export default function App() {
     selectedId,
     updateGraphVariables,
     inspectorOpen,
+    setReadOnly,
   } = useGraph();
   const { connect, reset, runId, loadRun } = useRun();
   const runStatus = useRun((s) => s.live.status);
@@ -85,6 +87,8 @@ export default function App() {
   const [newGraphOpen, setNewGraphOpen] = useState(false);
   const [graphs, setGraphs] = useState<GraphSummary[]>([]);
   const [deleteTarget, setDeleteTarget] = useState<GraphSummary | null>(null);
+  const currentSharedRole = graphs.find((g) => g.id === graph.id)?.sharedRole ?? null;
+  const isViewer = currentSharedRole === "viewer";
   const [controlCollapsed, setControlCollapsed] = useState(false);
   // 默认收起，与"无选中节点"状态一致——初始展开会在刷新首帧闪一下又被
   // selectedId effect 收起（下方 421-424 行），造成"出现又收起"的视觉闪烁。
@@ -141,6 +145,7 @@ export default function App() {
   const [variablesOpen, setVariablesOpen] = useState(false);
   const [compareOpen, setCompareOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [shareTargetId, setShareTargetId] = useState<string | null>(null);
   const [graphsReady, setGraphsReady] = useState(false);
 
   /** Case-insensitive, trimmed duplicate check across the local graph list. */
@@ -484,6 +489,8 @@ export default function App() {
       reset();
       try {
         const g = await api.getGraph(id);
+        const sharedRole = graphs.find((gr) => gr.id === id)?.sharedRole ?? null;
+        setReadOnly(sharedRole === "viewer");
         setGraph(g);
         useGraph.temporal.getState().clear();
         /* toast cleared by the producer */
@@ -491,7 +498,7 @@ export default function App() {
         showError(String(e));
       }
     },
-    [graph.id, flushSave, reset, setGraph],
+    [graph.id, flushSave, reset, setGraph, graphs, setReadOnly],
   );
 
   const createGraph = useCallback(
@@ -611,6 +618,8 @@ export default function App() {
           api
             .getGraph(list[0]!.id)
             .then((g) => {
+              const sharedRole = list[0]!.sharedRole ?? null;
+              setReadOnly(sharedRole === "viewer");
               setGraph(g);
               useGraph.temporal.getState().clear();
             })
@@ -766,6 +775,7 @@ export default function App() {
                 setDeleteTarget(graphs.find((g) => g.id === id) ?? null)
               }
               onRename={renameGraph}
+              onShare={(id) => setShareTargetId(id)}
             />
             <span className="muted">
               {graph.nodes.length > 0
@@ -876,6 +886,7 @@ export default function App() {
             onOpenSettings={() => setSettingsOpen(true)}
             onOpenHistory={() => setHistoryOpen(true)}
             onOpenModelAssign={() => setModelAssignOpen(true)}
+            readOnly={isViewer}
           />
 
           <main className="stage">
@@ -1054,6 +1065,12 @@ export default function App() {
           danger
           onConfirm={confirmDelete}
           onCancel={() => setDeleteTarget(null)}
+        />
+        <CollaboratorsModal
+          open={shareTargetId !== null}
+          graphId={shareTargetId ?? ""}
+          graphName={graphs.find((g) => g.id === shareTargetId)?.name ?? ""}
+          onClose={() => setShareTargetId(null)}
         />
       </div>
     </>

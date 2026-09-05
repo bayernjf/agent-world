@@ -60,6 +60,7 @@ import { decryptString, encryptString } from "./at-rest.js";
 import { publishToChannel } from "./publish.js";
 import { hashPassword, verifyPassword, signToken, verifyToken, REMEMBER_MAX_AGE_SEC } from "./auth.js";
 import { audit, changedFields } from "./audit.js";
+import { graphAccessRole, requireGraph, visibleGraphs, requireRun, runAccessRole, artifactAccessRole, hasAtLeast } from "./rbac.js";
 
 const PORT = Number(process.env.PORT ?? 8791);
 /** Cap for /api/proxy responses (audit L7): 25 MiB of fetched body. */
@@ -307,7 +308,15 @@ app.get("/api/auth/me", async (c) => {
   if (!payload) return c.json({ error: "not authenticated" }, 401);
   const user = db.findUserById(payload.userId);
   if (!user) return c.json({ error: "not authenticated" }, 401);
-  return c.json({ user: { id: user.id, email: user.email, createdAt: user.created_at } });
+  return c.json({
+    user: {
+      id: user.id,
+      email: user.email,
+      createdAt: user.created_at,
+      role: user.role,
+      canManageAnnouncements: isAnnouncementAdmin(user.id),
+    },
+  });
 });
 
 app.post("/api/auth/password", async (c) => {
@@ -395,7 +404,26 @@ app.get("/api/skills", (c) => c.json(listBuiltinSkills()));
 
 app.get("/api/graphs", (c) => {
   const userId = c.get("userId");
-  return c.json(db.listGraphs(userId));
+  // Owned graphs + graphs shared to this user (design-rbac P1). Owned rows
+  // carry sharedRole: null; shared rows carry the granted role so the UI can
+  // badge them and hide owner-only actions.
+  const visible = visibleGraphs(db, userId);
+  const owned = new Map(db.listGraphs(userId).map((g) => [g.id, g]));
+  const out: Array<{
+    id: string;
+    name: string;
+    version: number;
+    updated_at: number;
+    originTemplateId: string | null;
+    sharedRole: string | null;
+  }> = [];
+  for (const [gid, role] of visible) {
+    const meta = role === null ? owned.get(gid) : db.getGraphMeta(gid);
+    if (!meta) continue;
+    out.push({ ...meta, sharedRole: role });
+  }
+  out.sort((a, b) => b.updated_at - a.updated_at);
+  return c.json(out);
 });
 
 // Reject names that collide (case-insensitive, trimmed) with any other graph.
@@ -475,7 +503,9 @@ app.post("/api/graphs", async (c) => {
     });
     originTemplateId = body.template;
   } else if (body.from) {
-    const src = db.getGraph(body.from, userId);
+    // Cloning requires read access to the source (a shared viewer may clone).
+    const access = requireGraph(db, userId, body.from, "viewer");
+    const src = access ? db.getGraph(body.from, access.graphOwnerId) : null;
     if (!src) return c.json({ error: "source graph not found" }, 404);
     const { version: _srcVersion, ...srcDoc } = src;
     void _srcVersion;
@@ -516,16 +546,89 @@ app.post("/api/graphs", async (c) => {
 
 app.get("/api/graphs/:id", (c) => {
   const userId = c.get("userId");
-  const graph = db.getGraph(c.req.param("id"), userId);
+  const graphId = c.req.param("id");
+  const access = requireGraph(db, userId, graphId, "viewer");
+  if (!access) return c.json({ error: "not found" }, 404);
+  const graph = db.getGraph(graphId, access.graphOwnerId);
   return graph ? c.json(graph) : c.json({ error: "not found" }, 404);
 });
 
 app.delete("/api/graphs/:id", (c) => {
   const userId = c.get("userId");
   const id = c.req.param("id");
-  db.deleteGraph(id, userId);
+  if (graphAccessRole(db, userId, id) == null) return c.json({ error: "not found" }, 404);
+  if (graphAccessRole(db, userId, id) !== "owner") {
+    return c.json({ error: "forbidden", message: "仅产线所有者可删除" }, 403);
+  }
+  const ownerId = db.graphOwnerId(id)!;
+  db.deleteGraph(id, ownerId);
   audit(db, userId, "graph.delete", { objectType: "graph", objectId: id, ip: clientIp(c) });
   return c.json({ ok: true });
+});
+
+// --- Graph sharing ACL (design-rbac P1) -----------------------------------
+// Only the graph owner may read or change the collaborator list. Editors and
+// viewers get 403 (they can see the graph, not its ACL); unknown graphs 404.
+
+app.get("/api/graphs/:id/access", (c) => {
+  const userId = c.get("userId");
+  const graphId = c.req.param("id");
+  if (graphAccessRole(db, userId, graphId) == null) return c.json({ error: "not found" }, 404);
+  if (graphAccessRole(db, userId, graphId) !== "owner") {
+    return c.json({ error: "forbidden", message: "仅产线所有者可管理共享" }, 403);
+  }
+  const collaborators = db.listResourceAccess("graph", graphId).map((row) => {
+    const user = db.findUserById(row.user_id);
+    return { userId: row.user_id, email: user?.email ?? null, role: row.role, createdAt: row.created_at };
+  });
+  return c.json({ collaborators });
+});
+
+app.put("/api/graphs/:id/access", async (c) => {
+  const userId = c.get("userId");
+  const graphId = c.req.param("id");
+  if (graphAccessRole(db, userId, graphId) == null) return c.json({ error: "not found" }, 404);
+  if (graphAccessRole(db, userId, graphId) !== "owner") {
+    return c.json({ error: "forbidden", message: "仅产线所有者可管理共享" }, 403);
+  }
+
+  const body = (await c.req.json().catch(() => ({}))) as { email?: string; role?: string | null };
+  const email = (body.email ?? "").trim().toLowerCase();
+  if (!email) return c.json({ error: "email is required" }, 400);
+  // role: "editor" | "viewer" to grant/overwrite, null (or omitted) to revoke.
+  const role = body.role ?? null;
+  if (role !== null && role !== "editor" && role !== "viewer") {
+    return c.json({ error: "role must be editor, viewer, or null" }, 400);
+  }
+
+  const target = db.findUserByEmail(email);
+  if (!target) return c.json({ error: "user not found", message: "该邮箱尚未注册" }, 404);
+  const graphOwnerId = db.graphOwnerId(graphId)!;
+  if (target.id === graphOwnerId) {
+    return c.json({ error: "cannot share with owner", message: "所有者无需共享" }, 400);
+  }
+
+  if (role === null) {
+    const removed = db.deleteResourceAccess("graph", graphId, target.id);
+    if (removed) {
+      audit(db, userId, "access.revoke", {
+        objectType: "graph",
+        objectId: graphId,
+        detail: { grantee: target.id },
+        ip: clientIp(c),
+      });
+    }
+    return c.json({ ok: true, revoked: removed });
+  }
+
+  db.saveResourceAccess("graph", graphId, target.id, role);
+  audit(db, userId, "access.grant", {
+    objectType: "graph",
+    objectId: graphId,
+    detail: { grantee: target.id, role },
+    ip: clientIp(c),
+  });
+  return c.json({ ok: true, role });
 });
 
 /** Auto-snapshot parameters from user settings, falling back to the design
@@ -550,6 +653,16 @@ app.put("/api/graphs/:id", async (c) => {
     return c.json({ error: "id_mismatch", message: "请求体中的产线 ID 与路径不一致" }, 400);
   }
 
+  // ACL (design-rbac P1): owner or shared editor may save; the graph stays
+  // owned by its owner, so every scoped write below runs as that owner.
+  const access = requireGraph(db, userId, paramId, "editor");
+  if (!access) {
+    return graphAccessRole(db, userId, paramId) == null
+      ? c.json({ error: "not found" }, 404)
+      : c.json({ error: "forbidden", message: "只读协作者不能修改产线" }, 403);
+  }
+  const ownerId = access.graphOwnerId;
+
   // H2: a graph document can carry triggers, so enforce the webhook-secret
   // rule on the save path too (the create-trigger route alone is bypassable
   // by writing graph.triggers directly through this PUT).
@@ -560,7 +673,7 @@ app.put("/api/graphs/:id", async (c) => {
     return c.json({ error: "webhook 触发器必须设置 secret" }, 400);
   }
 
-  const dupId = findGraphIdByName(parsed.data.name, userId, paramId);
+  const dupId = findGraphIdByName(parsed.data.name, ownerId, paramId);
   if (dupId) {
     return c.json(
       { error: "duplicate_name", message: `已存在同名产线「${parsed.data.name}」，请换一个名字。`, existingId: dupId },
@@ -571,9 +684,9 @@ app.put("/api/graphs/:id", async (c) => {
   // Pre-save auto-snapshot: capture what's about to be overwritten so a bad
   // edit that gets saved can always be rolled back. Throttled and pruned by
   // db.saveAutoSnapshot; parameters come from user settings when configured.
-  const existing = db.getGraph(parsed.data.id, userId);
+  const existing = db.getGraph(parsed.data.id, ownerId);
   if (existing) {
-    const s = autoSnapshotSettings(userId);
+    const s = autoSnapshotSettings(ownerId);
     db.saveAutoSnapshot(parsed.data.id, JSON.stringify(existing), s.minIntervalMs, s.maxKeep);
   }
 
@@ -582,7 +695,7 @@ app.put("/api/graphs/:id", async (c) => {
   // refuse instead of silently overwriting their edits.
   const ifMatch = c.req.header("if-match");
   const expectedVersion = ifMatch != null ? Number(ifMatch) : undefined;
-  const result = db.saveGraph(parsed.data, Date.now(), userId, expectedVersion);
+  const result = db.saveGraph(parsed.data, Date.now(), ownerId, expectedVersion);
   if (!result.ok) {
     if ("conflict" in result) {
       return c.json(
@@ -640,35 +753,83 @@ app.get("/api/settings", (c) => {
   return c.json(redacted);
 });
 
-// Security audit trail (design-audit-log §3.4): own records only, newest
-// first, cursor-paginated. No cross-user query until an admin role exists.
+// Security audit trail (design-audit-log §3.4). Plain users see their own
+// records only (the userId query param is ignored — no cross-user leak);
+// owner/admin (design-rbac P3) see every user's rows, with an optional
+// userId filter. Newest first, cursor-paginated.
 app.get("/api/audit", (c) => {
   const userId = c.get("userId");
   const limit = Number(c.req.query("limit") ?? 100);
   const before = Number(c.req.query("before") ?? 0);
-  const rows = db.listAudit(userId, {
+  const opts = {
     limit: Number.isFinite(limit) ? limit : undefined,
     before: Number.isFinite(before) && before > 0 ? before : undefined,
+  };
+  const role = db.findUserById(userId)?.role;
+  if (role === "owner" || role === "admin") {
+    return c.json({ items: db.listAuditAdmin({ ...opts, userId: c.req.query("userId") || undefined }) });
+  }
+  return c.json({ items: db.listAudit(userId, opts) });
+});
+
+// --- Admin operations (design-rbac P3) ------------------------------------
+// Route naming note: design-rbac §9 sketched /api/admin/members/:id/role;
+// shipped as /api/admin/users/:id/role to match the /api/admin/users
+// resource. User management is the instance owner's exclusive power —
+// admins (who only gain cross-user audit viewing) get 403 here.
+
+/** RBAC P3: global role changes are the instance owner's exclusive power. */
+function isOwner(userId: string): boolean {
+  return db.findUserById(userId)?.role === "owner";
+}
+
+app.get("/api/admin/users", (c) => {
+  if (!isOwner(c.get("userId"))) return c.json({ error: "forbidden" }, 403);
+  const users = db.listUsers().map((u) => ({
+    id: u.id,
+    email: u.email,
+    role: u.role,
+    createdAt: u.created_at,
+  }));
+  return c.json({ users });
+});
+
+app.post("/api/admin/users/:id/role", async (c) => {
+  const callerId = c.get("userId");
+  if (!isOwner(callerId)) return c.json({ error: "forbidden" }, 403);
+  const body = (await c.req.json().catch(() => ({}))) as { role?: string };
+  // Only "admin" | "user" are grantable — "owner" is bootstrapped, never
+  // granted (idx_users_owner guards the single-owner invariant).
+  if (body.role !== "admin" && body.role !== "user") {
+    return c.json({ error: "role must be admin or user" }, 400);
+  }
+  const target = db.findUserById(c.req.param("id"));
+  if (!target) return c.json({ error: "user not found" }, 404);
+  // §9: the owner cannot be demoted; self-target is always the owner here.
+  if (target.id === callerId || target.role === "owner") {
+    return c.json({ error: "cannot change the owner's role" }, 400);
+  }
+  // Idempotent no-op: success without an audit row (access.grant precedent).
+  if (target.role === body.role) {
+    return c.json({ ok: true, role: target.role, unchanged: true });
+  }
+  db.updateUserRole(target.id, body.role);
+  audit(db, callerId, "role.update", {
+    objectType: "user",
+    objectId: target.id,
+    detail: { grantee: target.id, role: body.role },
+    ip: clientIp(c),
   });
-  return c.json({ items: rows });
+  return c.json({ ok: true, role: body.role });
 });
 
 // --- Announcements (design-announcement) ---
-// Admin gate: no role system yet, so an env allowlist of emails is the
-// minimum viable check (retire it when the multi-tenant role system lands).
-function announcementAdminEmails(): Set<string> {
-  return new Set(
-    (process.env.ANNOUNCEMENT_ADMIN_EMAILS ?? "")
-      .split(",")
-      .map((e) => e.trim().toLowerCase())
-      .filter(Boolean),
-  );
-}
-
-async function isAnnouncementAdmin(userId: string): Promise<boolean> {
+// Admin gate (RBAC P0, design-rbac.md): global owner/admin roles decide who
+// manages announcements. The ANNOUNCEMENT_ADMIN_EMAILS env allowlist is
+// retired — owner is assigned at bootstrap, admins by owner via role grant.
+function isAnnouncementAdmin(userId: string): boolean {
   const user = db.findUserById(userId);
-  if (!user) return false;
-  return announcementAdminEmails().has(user.email.toLowerCase());
+  return user?.role === "owner" || user?.role === "admin";
 }
 
 /** Active announcements plus the caller's read state (idempotent display). */
@@ -692,6 +853,23 @@ app.get("/api/announcements", (c) => {
       bodyEn: a.body_en,
       read: reads.has(a.id as string),
     }));
+  return c.json({ items });
+});
+
+/** Full list (including not-yet-started / expired) for the admin manager UI. */
+app.get("/api/announcements/manage", async (c) => {
+  if (!(await isAnnouncementAdmin(c.get("userId")))) return c.json({ error: "forbidden" }, 403);
+  const items = db.listAnnouncements().map((a) => ({
+    id: a.id,
+    level: a.level,
+    startsAt: a.starts_at,
+    endsAt: a.ends_at,
+    createdAt: a.created_at,
+    titleZh: a.title_zh,
+    titleEn: a.title_en,
+    bodyZh: a.body_zh,
+    bodyEn: a.body_en,
+  }));
   return c.json({ items });
 });
 
@@ -767,7 +945,7 @@ app.patch("/api/announcements/:id", async (c) => {
 });
 
 app.delete("/api/announcements/:id", async (c) => {
-  if (!(await isAnnouncementAdmin(c.get("userId")))) return c.json({ error: "forbidden" }, 403);
+  if (!isAnnouncementAdmin(c.get("userId"))) return c.json({ error: "forbidden" }, 403);
   const id = c.req.param("id");
   const ok = db.deleteAnnouncement(id);
   if (!ok) return c.json({ error: "announcement not found" }, 404);
@@ -969,11 +1147,15 @@ app.get("/api/runs", (c) => {
   const offset = Number(c.req.query("offset") ?? 0);
   const graphId = c.req.query("graphId");
   const status = c.req.query("status");
+  // Runs of owned + shared graphs (design-rbac P1). Collaborators' runs are
+  // saved under the graph owner, so we scope by visible graph ids, not user_id.
+  const graphIds = [...visibleGraphs(db, userId).keys()];
   const { rows, total } = db.listRuns(userId, {
     limit,
     offset,
     graphId: graphId || undefined,
     status: status || undefined,
+    graphIds,
   });
   return c.json({ runs: rows, total });
 });
@@ -981,7 +1163,7 @@ app.get("/api/runs", (c) => {
 app.get("/api/runs/:id/stats", (c) => {
   const userId = c.get("userId");
   const runId = c.req.param("id");
-  if (!db.runExists(runId, userId)) return c.json({ error: "not found" }, 404);
+  if (!requireRun(db, userId, runId, "viewer")) return c.json({ error: "not found" }, 404);
   return c.json(db.runStats(runId));
 });
 
@@ -989,7 +1171,9 @@ app.get("/api/runs/:id/stats", (c) => {
  *  historical run's finished product in the gallery. */
 app.get("/api/runs/:id/graph", (c) => {
   const userId = c.get("userId");
-  const run = db.getRun(c.req.param("id"), userId);
+  const runId = c.req.param("id");
+  if (!requireRun(db, userId, runId, "viewer")) return c.json({ error: "not found" }, 404);
+  const run = db.getRunById(runId);
   if (!run) return c.json({ error: "not found" }, 404);
   try {
     return c.json(JSON.parse(run.snapshot));
@@ -1393,13 +1577,25 @@ app.post("/api/runs", async (c) => {
     connectorValues?: Record<string, string>;
     workerId?: string;
   };
-  const graphs = db.listGraphs(userId);
-  const graphId = body.graphId ?? graphs[0]?.id;
+  // Default to the most recently updated graph the caller can see (owned or
+  // shared), so a collaborator with no owned graphs can still hit Run.
+  const visible = visibleGraphs(db, userId);
+  const graphId = body.graphId ?? [...visible.keys()][0];
   if (!graphId) return c.json({ error: "no graphs found — create one first" }, 400);
-  const graph = db.getGraph(graphId, userId);
+  // Running requires editor access. The run executes under the graph OWNER's
+  // identity so config (models/keys), variables, banned terms, cost accounting,
+  // and subgraph resolution stay consistent with the owner's context.
+  const access = requireGraph(db, userId, graphId, "editor");
+  if (!access) {
+    return graphAccessRole(db, userId, graphId) == null
+      ? c.json({ error: "not found" }, 404)
+      : c.json({ error: "forbidden", message: "只读协作者不能运行产线" }, 403);
+  }
+  const ownerId = access.graphOwnerId;
+  const graph = db.getGraph(graphId, ownerId);
   if (!graph) return c.json({ error: "graph not found" }, 404);
 
-  const modelDiags = validateModels(graph, loadConfig(c.get("userId")));
+  const modelDiags = validateModels(graph, loadConfig(ownerId));
   const modelErrors = modelDiags.filter((d) => d.severity === "error");
   if (modelErrors.length > 0) {
     const summary =
@@ -1418,7 +1614,7 @@ app.post("/api/runs", async (c) => {
   try {
     const { runId, diagnostics } = await startRun({
       db,
-      userId,
+      userId: ownerId,
       worker: workerRegistry.get(body.workerId),
       artifacts,
       live,
@@ -1435,6 +1631,7 @@ app.post("/api/runs", async (c) => {
         void triggers.onArtifact(aid);
       },
     });
+    // Audit records the actual operator, not the owner the ran as.
     audit(db, userId, "run.start", {
       objectType: "run",
       objectId: runId,
@@ -1462,7 +1659,14 @@ app.post("/api/batches", async (c) => {
   };
   const graphId = body.graphId;
   if (!graphId) return c.json({ error: "graphId required" }, 400);
-  const graph = db.getGraph(graphId, userId);
+  const access = requireGraph(db, userId, graphId, "editor");
+  if (!access) {
+    return graphAccessRole(db, userId, graphId) == null
+      ? c.json({ error: "not found" }, 404)
+      : c.json({ error: "forbidden", message: "只读协作者不能运行产线" }, 403);
+  }
+  const ownerId = access.graphOwnerId;
+  const graph = db.getGraph(graphId, ownerId);
   if (!graph) return c.json({ error: "graph not found" }, 404);
 
   let rows: Record<string, unknown>[] = body.rows ?? [];
@@ -1470,12 +1674,12 @@ app.post("/api/batches", async (c) => {
   if (rows.length === 0) return c.json({ error: "no rows to run" }, 400);
 
   const batchId = randomUUID();
-  db.createBatch({ id: batchId, userId, graphId, sourceName: body.sourceName, rows });
+  db.createBatch({ id: batchId, userId: ownerId, graphId, sourceName: body.sourceName, rows });
 
   const concurrency = Math.min(Math.max(body.concurrency ?? 2, 1), 8);
   void runBatch({
     db,
-    userId,
+    userId: ownerId,
     worker: workerRegistry.get(undefined),
     artifacts,
     live,
@@ -1490,29 +1694,34 @@ app.post("/api/batches", async (c) => {
 
 app.get("/api/batches", (c) => {
   const userId = c.get("userId");
-  return c.json(db.listBatches(userId));
+  const graphIds = [...visibleGraphs(db, userId).keys()];
+  return c.json(db.listBatches(userId, graphIds));
 });
 
 app.get("/api/batches/:id", (c) => {
   const userId = c.get("userId");
-  const batch = db.getBatch(c.req.param("id"), userId);
+  const batch = db.getBatchUnscoped(c.req.param("id"));
   if (!batch) return c.json({ error: "not found" }, 404);
+  if (!requireGraph(db, userId, batch.graphId, "viewer")) return c.json({ error: "not found" }, 404);
   const items = db.listBatchItems(batch.id);
   return c.json({ ...batch, items });
 });
 
 app.post("/api/batches/:id/items/:itemId/retry", async (c) => {
   const userId = c.get("userId");
-  const batch = db.getBatch(c.req.param("id"), userId);
+  const batch = db.getBatchUnscoped(c.req.param("id"));
   if (!batch) return c.json({ error: "not found" }, 404);
-  const graph = db.getGraph(batch.graphId, userId);
+  const access = requireGraph(db, userId, batch.graphId, "editor");
+  if (!access) return c.json({ error: "not found" }, 404);
+  const ownerId = access.graphOwnerId;
+  const graph = db.getGraph(batch.graphId, ownerId);
   if (!graph) return c.json({ error: "graph not found" }, 404);
   const item = db.listBatchItems(batch.id).find((i) => i.id === c.req.param("itemId"));
   if (!item) return c.json({ error: "item not found" }, 404);
 
   const { runId } = await startRun({
     db,
-    userId,
+    userId: ownerId,
     worker: workerRegistry.get(undefined),
     artifacts,
     live,
@@ -1678,7 +1887,7 @@ app.get("/api/performance", (c) => {
 app.get("/api/graphs/:id/triggers", (c) => {
   const userId = c.get("userId");
   const graphId = c.req.param("id");
-  if (!db.getGraph(graphId, userId)) return c.json({ error: "graph not found" }, 404);
+  if (!requireGraph(db, userId, graphId, "viewer")) return c.json({ error: "graph not found" }, 404);
   return c.json(triggers.listByGraph(graphId));
 });
 
@@ -1721,7 +1930,7 @@ app.delete("/api/graphs/:id/triggers/:tid", async (c) => {
 app.get("/api/graphs/:id/triggers/next-runs", (c) => {
   const userId = c.get("userId");
   const graphId = c.req.param("id");
-  if (!db.getGraph(graphId, userId)) return c.json({ error: "graph not found" }, 404);
+  if (!requireGraph(db, userId, graphId, "viewer")) return c.json({ error: "graph not found" }, 404);
   return c.json(triggers.nextRunMap(graphId));
 });
 
@@ -1801,7 +2010,14 @@ app.post("/api/runs/ab", async (c) => {
   ) {
     return c.json({ error: "需要 graphId、targetNodeId 与至少 2 个 variants" }, 400);
   }
-  const graph = db.getGraph(body.graphId, userId);
+  const access = requireGraph(db, userId, body.graphId, "editor");
+  if (!access) {
+    return graphAccessRole(db, userId, body.graphId) == null
+      ? c.json({ error: "not found" }, 404)
+      : c.json({ error: "forbidden", message: "只读协作者不能运行产线" }, 403);
+  }
+  const ownerId = access.graphOwnerId;
+  const graph = db.getGraph(body.graphId, ownerId);
   if (!graph) return c.json({ error: "graph not found" }, 404);
   const target = graph.nodes.find((n) => n.id === body.targetNodeId);
   if (!target) return c.json({ error: "target node not found" }, 404);
@@ -1810,7 +2026,7 @@ app.post("/api/runs/ab", async (c) => {
   }
   try {
     const { abGroup, arms } = await startABExperiment(db, worker, {
-      userId,
+      userId: ownerId,
       graph,
       targetNodeId: body.targetNodeId,
       variants: body.variants,
@@ -1825,7 +2041,11 @@ app.post("/api/runs/ab", async (c) => {
 
 app.get("/api/ab/:groupId", (c) => {
   const userId = c.get("userId");
-  const report = db.abReport(c.req.param("groupId"), userId);
+  const groupId = c.req.param("groupId");
+  const graphId = db.abGroupGraphId(groupId);
+  if (!graphId || !requireGraph(db, userId, graphId, "viewer")) return c.json({ error: "not found" }, 404);
+  const ownerId = db.graphOwnerId(graphId)!;
+  const report = db.abReport(groupId, ownerId);
   if (!report) return c.json({ error: "not found" }, 404);
   return c.json(report);
 });
@@ -2016,13 +2236,15 @@ app.delete("/api/banned-terms/:id", (c) => {
 app.get("/api/graphs/:id/versions", (c) => {
   const userId = c.get("userId");
   const graphId = c.req.param("id");
-  const graph = db.getGraph(graphId, userId);
+  const access = requireGraph(db, userId, graphId, "viewer");
+  if (!access) return c.json({ error: "graph not found" }, 404);
+  const graph = db.getGraph(graphId, access.graphOwnerId);
   if (!graph) return c.json({ error: "graph not found" }, 404);
   // Run-correlation hashes (design-versions §3): which snapshot matches what
   // actually ran last, and whether the live graph still matches it.
-  const latestRunHash = db.getLatestRunContentHash(graphId, userId);
+  const latestRunHash = db.getLatestRunContentHash(graphId, access.graphOwnerId);
   return c.json({
-    versions: db.listVersions(graphId, userId),
+    versions: db.listVersions(graphId, access.graphOwnerId),
     latestRunHash,
     currentHash: contentHash(JSON.stringify(graph)),
   });
@@ -2031,7 +2253,9 @@ app.get("/api/graphs/:id/versions", (c) => {
 app.post("/api/graphs/:id/versions", async (c) => {
   const userId = c.get("userId");
   const graphId = c.req.param("id");
-  const graph = db.getGraph(graphId, userId);
+  const access = requireGraph(db, userId, graphId, "editor");
+  if (!access) return c.json({ error: "graph not found" }, 404);
+  const graph = db.getGraph(graphId, access.graphOwnerId);
   if (!graph) return c.json({ error: "graph not found" }, 404);
   const body = (await c.req.json().catch(() => ({}))) as { name?: string; note?: string };
   const name = body.name?.trim() || new Date().toLocaleString();
@@ -2042,7 +2266,10 @@ app.post("/api/graphs/:id/versions", async (c) => {
 
 app.get("/api/graphs/:id/versions/:vid", (c) => {
   const userId = c.get("userId");
-  const v = db.getVersion(c.req.param("vid"), userId);
+  const graphId = c.req.param("id");
+  const access = requireGraph(db, userId, graphId, "viewer");
+  if (!access) return c.json({ error: "graph not found" }, 404);
+  const v = db.getVersion(c.req.param("vid"), access.graphOwnerId);
   if (!v) return c.json({ error: "version not found" }, 404);
   return c.json({ id: v.id, graphId: v.graph_id, name: v.name, note: v.note, createdAt: v.created_at, snapshot: JSON.parse(v.snapshot) });
 });
@@ -2050,11 +2277,13 @@ app.get("/api/graphs/:id/versions/:vid", (c) => {
 app.post("/api/graphs/:id/versions/:vid/restore", (c) => {
   const userId = c.get("userId");
   const graphId = c.req.param("id");
-  const v = db.getVersion(c.req.param("vid"), userId);
+  const access = requireGraph(db, userId, graphId, "editor");
+  if (!access) return c.json({ error: "graph not found" }, 404);
+  const v = db.getVersion(c.req.param("vid"), access.graphOwnerId);
   if (!v) return c.json({ error: "version not found" }, 404);
   if (v.graph_id !== graphId) return c.json({ error: "version does not belong to this graph" }, 400);
   const snapshot = JSON.parse(v.snapshot);
-  db.saveGraph(snapshot, Date.now(), userId);
+  db.saveGraph(snapshot, Date.now(), access.graphOwnerId);
   audit(db, userId, "graph.restore_version", {
     objectType: "graph",
     objectId: graphId,
@@ -2066,14 +2295,21 @@ app.post("/api/graphs/:id/versions/:vid/restore", (c) => {
 
 app.delete("/api/graphs/:id/versions/:vid", (c) => {
   const userId = c.get("userId");
-  db.deleteVersion(c.req.param("vid"), userId);
+  const graphId = c.req.param("id");
+  const access = requireGraph(db, userId, graphId, "editor");
+  if (!access) return c.json({ error: "graph not found" }, 404);
+  db.deleteVersion(c.req.param("vid"), access.graphOwnerId);
   return c.body(null, 204);
 });
 
 app.post("/api/runs/:id/cancel", (c) => {
   const userId = c.get("userId");
   const runId = c.req.param("id");
-  if (!db.runExists(runId, userId)) return c.json({ error: "not found" }, 404);
+  // Cancel is a write action: editor or owner. Viewers with read access get
+  // 403; outsiders get 404 (no existence leak).
+  const role = runAccessRole(db, userId, runId);
+  if (role == null) return c.json({ error: "not found" }, 404);
+  if (!hasAtLeast(role, "editor")) return c.json({ error: "forbidden", message: "只读协作者不能取消运行" }, 403);
   const entry = live.get(runId);
   if (!entry) return c.json({ error: "not live" }, 404);
   entry.controller.abort();
@@ -2084,13 +2320,17 @@ app.post("/api/runs/:id/cancel", (c) => {
 app.delete("/api/runs/:id", (c) => {
   const userId = c.get("userId");
   const runId = c.req.param("id");
-  if (!db.runExists(runId, userId)) return c.json({ error: "not found" }, 404);
+  // Only the graph owner may delete runs (design-rbac: editors can't delete).
+  const role = runAccessRole(db, userId, runId);
+  if (role == null) return c.json({ error: "not found" }, 404);
+  if (role !== "owner") return c.json({ error: "forbidden", message: "仅产线所有者可删除运行" }, 403);
+  const runOwnerId = db.getRunGraphRef(runId)!.userId;
   const entry = live.get(runId);
   if (entry && !entry.done) {
     return c.json({ error: "run is still in progress; cancel it first" }, 409);
   }
   live.delete(runId);
-  db.deleteRun(runId, userId);
+  db.deleteRun(runId, runOwnerId);
   return c.json({ ok: true });
 });
 
@@ -2098,6 +2338,12 @@ app.delete("/api/runs/:id", (c) => {
 app.post("/api/runs/:id/resume", async (c) => {
   const userId = c.get("userId");
   const runId = c.req.param("id");
+  // Resume is a write action: editor or owner. Runs execute under the run
+  // owner's identity (same as startRun) so state stays consistent.
+  const role = runAccessRole(db, userId, runId);
+  if (role == null) return c.json({ error: "not found" }, 404);
+  if (!hasAtLeast(role, "editor")) return c.json({ error: "forbidden", message: "只读协作者不能恢复运行" }, 403);
+  const runOwnerId = db.getRunGraphRef(runId)!.userId;
 
   const body = (await c.req.json().catch(() => ({}))) as {
     action?: ResumeAction;
@@ -2121,7 +2367,7 @@ app.post("/api/runs/:id/resume", async (c) => {
   try {
     const out = await resumeRun({
       db,
-      userId,
+      userId: runOwnerId,
       worker: workerRegistry.get(body.workerId),
       artifacts,
       live,
@@ -2157,10 +2403,12 @@ app.get("/api/reviews/pending", (c) => {
   const limit = Number(c.req.query("limit"));
   const offset = Number(c.req.query("offset"));
   const graphId = c.req.query("graphId") || undefined;
+  const graphIds = [...visibleGraphs(db, userId).keys()];
   const { reviews, total } = listPendingReviews(db, userId, {
     ...(Number.isFinite(limit) && limit > 0 ? { limit } : {}),
     ...(Number.isFinite(offset) && offset > 0 ? { offset } : {}),
     ...(graphId ? { graphId } : {}),
+    graphIds,
   });
   return c.json({ reviews, total });
 });
@@ -2182,9 +2430,16 @@ app.post("/api/reviews/decide", async (c) => {
   > = [];
   for (const decision of decisions) {
     try {
+      // Each decision requires editor access to that run's graph; runs resume
+      // under the run owner's identity.
+      const access = requireRun(db, userId, decision.runId, "editor");
+      if (!access) {
+        results.push({ runId: decision.runId, ok: false, status: 404, error: "not found" });
+        continue;
+      }
       await resumeRun({
         db,
-        userId,
+        userId: access.runOwnerId,
         worker: workerRegistry.get(),
         artifacts,
         live,
@@ -2219,7 +2474,12 @@ app.post("/api/reviews/decide", async (c) => {
  */
 app.post("/api/runs/:id/rerun", async (c) => {
   const userId = c.get("userId");
-  const run = db.getRun(c.req.param("id"), userId);
+  const runId = c.req.param("id");
+  const role = runAccessRole(db, userId, runId);
+  if (role == null) return c.json({ error: "not found" }, 404);
+  if (!hasAtLeast(role, "editor")) return c.json({ error: "forbidden", message: "只读协作者不能重跑运行" }, 403);
+  const runOwnerId = db.getRunGraphRef(runId)!.userId;
+  const run = db.getRunById(runId);
   if (!run) return c.json({ error: "not found" }, 404);
   if (run.status === "running") return c.json({ error: "run is still live" }, 409);
   let graph: Graph;
@@ -2230,7 +2490,7 @@ app.post("/api/runs/:id/rerun", async (c) => {
   }
   if (!graph?.nodes?.length) return c.json({ error: "run snapshot is empty" }, 422);
 
-  const modelDiags = validateModels(graph, loadConfig(userId));
+  const modelDiags = validateModels(graph, loadConfig(runOwnerId));
   const modelErrors = modelDiags.filter((d) => d.severity === "error");
   if (modelErrors.length > 0) {
     return c.json(
@@ -2245,7 +2505,7 @@ app.post("/api/runs/:id/rerun", async (c) => {
   try {
     const { runId, diagnostics } = await startRun({
       db,
-      userId,
+      userId: runOwnerId,
       worker: workerRegistry.get(undefined),
       artifacts,
       live,
@@ -2274,7 +2534,7 @@ app.post("/api/runs/:id/rerun", async (c) => {
 app.get("/api/runs/:id/events", (c) => {
   const userId = c.get("userId");
   const runId = c.req.param("id");
-  if (!db.runExists(runId, userId)) return c.json({ error: "not found" }, 404);
+  if (!requireRun(db, userId, runId, "viewer")) return c.json({ error: "not found" }, 404);
 
   // Pagination: ?after=<seq> (exclusive) and ?limit=<n>. With no params the
   // full history is returned together with the reconstructed runtime state,
@@ -2300,7 +2560,7 @@ app.get("/api/runs/:id/events", (c) => {
 app.get("/api/runs/:id/stream", (c) => {
   const userId = c.get("userId");
   const runId = c.req.param("id");
-  if (!db.runExists(runId, userId)) return c.json({ error: "not found" }, 404);
+  if (!requireRun(db, userId, runId, "viewer")) return c.json({ error: "not found" }, 404);
   // Resume point: explicit ?after= wins; otherwise honor the native
   // Last-Event-ID header the browser sends automatically when reconnecting to
   // a stream that carried `id:` frames.
@@ -2347,8 +2607,8 @@ app.get("/api/runs/:id/stream", (c) => {
 app.get("/api/runs/:id/artifacts", (c) => {
   const userId = c.get("userId");
   const runId = c.req.param("id");
-  if (!db.runExists(runId, userId)) return c.json({ error: "not found" }, 404);
-  return c.json(db.listArtifactsForRun(runId, userId));
+  if (!requireRun(db, userId, runId, "viewer")) return c.json({ error: "not found" }, 404);
+  return c.json(db.listArtifactsForRunUnscoped(runId));
 });
 
 /** Upload a raw product image/file. Returns a StoredArtifact with a /api/artifacts/:id URI. */
@@ -2382,7 +2642,9 @@ app.get("/api/artifacts", (c) => {
   const userId = c.get("userId");
   const limit = Math.min(Number(c.req.query("limit") ?? 100), 500);
   const offset = Number(c.req.query("offset") ?? 0);
-  return c.json(db.listArtifacts(userId, limit, offset));
+  // Include artifacts of shared graphs alongside the caller's own.
+  const graphIds = [...visibleGraphs(db, userId).keys()];
+  return c.json(db.listArtifacts(userId, limit, offset, graphIds));
 });
 
 /**
@@ -2464,7 +2726,10 @@ app.get("/api/proxy", async (c) => {
 app.get("/api/artifacts/:id", async (c) => {
   const userId = c.get("userId");
   const id = c.req.param("id");
-  const meta = db.getArtifact(id, userId);
+  // Access inherits from the artifact's graph (design-rbac P1). Uploads not
+  // yet attached to a run fall back to ownership (artifact's own user_id).
+  if (artifactAccessRole(db, userId, id) == null) return c.json({ error: "not found" }, 404);
+  const meta = db.getArtifactUnscoped(id);
   if (!meta) return c.json({ error: "not found" }, 404);
 
   if (meta.storage === "uri" && meta.uri) {
@@ -2488,7 +2753,7 @@ app.get("/api/artifacts/:id", async (c) => {
     // of its own. Follow that reference once (dogfood 2026-09-01: generated
     // images 404'd as "blob missing on disk" despite valid bytes on disk).
     const refId = decodeURIComponent(meta.uri.slice("/api/artifacts/".length));
-    const ref = refId && refId !== meta.id ? db.getArtifact(refId, userId) : null;
+    const ref = refId && refId !== meta.id ? db.getArtifactUnscoped(refId) : null;
     if (ref && ref.storage === "local") {
       file = await artifacts.open(ref.runId, ref.id);
     }

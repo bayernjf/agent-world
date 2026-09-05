@@ -12,6 +12,7 @@ dist/
 .encryption-key
 logs/
 .claude/
+.trae/
 agent-world.config.json
 *.config.local.json
 
