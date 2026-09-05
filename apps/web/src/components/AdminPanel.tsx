@@ -4,9 +4,11 @@ import {
   api,
   type AdminUser,
   type AuditItem,
+  type FeedbackCategory,
   type FeedbackItem,
   type FeedbackStatus,
 } from "../lib/api";
+import { useToast } from "../store/toast";
 import Tooltip from "./Tooltip";
 import ConfirmDialog from "./ConfirmDialog";
 
@@ -18,6 +20,15 @@ const ROLE_LABEL: Record<string, string> = {
 
 const AUDIT_PAGE_SIZE = 50;
 const FEEDBACK_STATUSES: FeedbackStatus[] = ["open", "acknowledged", "closed"];
+const ANNOUNCE_LEVELS = ["info", "warning", "critical"] as const;
+const ANNOUNCE_LEVEL_LABEL: Record<(typeof ANNOUNCE_LEVELS)[number], string> = {
+  info: "announcements:manager.levelInfo",
+  warning: "announcements:manager.levelWarning",
+  critical: "announcements:manager.levelCritical",
+};
+/** Messages folded into the pre-filled announcement body. */
+const ANNOUNCE_DIGEST_MAX = 5;
+const ANNOUNCE_DIGEST_CHARS = 80;
 
 interface Props {
   open: boolean;
@@ -62,6 +73,7 @@ function contextDigest(
 
 export default function AdminPanel({ open, me, onClose }: Props) {
   const { t, i18n } = useTranslation();
+  const showToast = useToast((s) => s.show);
   const isOwner = me?.role === "owner";
   const isAdmin = me?.role === "owner" || me?.role === "admin";
   const [tab, setTab] = useState<"users" | "audit" | "feedback">("audit");
@@ -76,6 +88,19 @@ export default function AdminPanel({ open, me, onClose }: Props) {
   const [feedbackStatus, setFeedbackStatus] = useState<FeedbackStatus | "all">("all");
   const [feedbackLoading, setFeedbackLoading] = useState(false);
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
+  // Feedback → announcement merge (design-feedback P3).
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [announceOpen, setAnnounceOpen] = useState(false);
+  const [announceForm, setAnnounceForm] = useState({
+    titleZh: "",
+    titleEn: "",
+    bodyZh: "",
+    bodyEn: "",
+    level: "warning",
+    endsAt: "",
+  });
+  const [announceBusy, setAnnounceBusy] = useState(false);
+  const [announceError, setAnnounceError] = useState<string | null>(null);
   const [roleBusy, setRoleBusy] = useState(false);
   const [roleError, setRoleError] = useState<string | null>(null);
   const [confirmTarget, setConfirmTarget] = useState<{ user: AdminUser; role: "admin" | "user" } | null>(
@@ -134,6 +159,9 @@ export default function AdminPanel({ open, me, onClose }: Props) {
     setRoleError(null);
     setAudit([]);
     setAuditDone(false);
+    setSelected(new Set());
+    setAnnounceOpen(false);
+    setAnnounceError(null);
     if (isOwner) void loadUsers();
     if (isAdmin) void loadAudit();
   }, [open, isOwner, isAdmin, loadUsers, loadAudit]);
@@ -143,16 +171,21 @@ export default function AdminPanel({ open, me, onClose }: Props) {
     if (open && isAdmin) void loadFeedback();
   }, [open, isAdmin, loadFeedback]);
 
-  // Escape closes the panel — unless the confirm dialog is open, in which
-  // case ConfirmDialog owns the Escape key.
+  // Escape closes the announce form first, then the panel — unless the confirm
+  // dialog is open, in which case ConfirmDialog owns the Escape key.
   useEffect(() => {
     if (!open || confirmTarget) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key !== "Escape") return;
+      if (announceOpen) {
+        setAnnounceOpen(false);
+        return;
+      }
+      onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, confirmTarget, onClose]);
+  }, [open, confirmTarget, announceOpen, onClose]);
 
   if (!open) return null;
 
@@ -180,6 +213,80 @@ export default function AdminPanel({ open, me, onClose }: Props) {
     } catch {
       setFeedback(prev);
       setFeedbackError(t("feedback:admin.statusFailed"));
+    }
+  };
+
+  const toggleSelect = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  /** Pre-fill the announce form from the selected batch (design-feedback P3):
+   * dominant category + report count in the titles, message digest in the body. */
+  const openAnnounceForm = () => {
+    const items = feedback.filter((f) => selected.has(f.id));
+    if (items.length === 0) return;
+    const counts = new Map<FeedbackCategory, number>();
+    for (const it of items) {
+      counts.set(it.category, (counts.get(it.category) ?? 0) + 1);
+    }
+    const top = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]![0];
+    const count = items.length;
+    const digest = items
+      .slice(0, ANNOUNCE_DIGEST_MAX)
+      .map((it) => `· ${it.message.slice(0, ANNOUNCE_DIGEST_CHARS)}`)
+      .join("\n");
+    const categoryZh = i18n.t(`feedback:form.categories.${top}`, { lng: "zh" });
+    const categoryEn = i18n.t(`feedback:form.categories.${top}`, { lng: "en" });
+    setAnnounceForm({
+      titleZh: t("feedback:admin.announce.templateTitleZh", {
+        category: categoryZh,
+        count,
+      }),
+      titleEn: t("feedback:admin.announce.templateTitleEn", {
+        category: categoryEn,
+        count,
+      }),
+      bodyZh: t("feedback:admin.announce.templateBodyZh", { count, items: digest }),
+      bodyEn: t("feedback:admin.announce.templateBodyEn", { count, items: digest }),
+      level: "warning",
+      endsAt: "",
+    });
+    setAnnounceError(null);
+    setAnnounceOpen(true);
+  };
+
+  const submitAnnounce = async () => {
+    const titleZh = announceForm.titleZh.trim();
+    const titleEn = announceForm.titleEn.trim();
+    if (!titleZh || !titleEn) {
+      setAnnounceError(t("feedback:admin.announce.titleRequired"));
+      return;
+    }
+    setAnnounceBusy(true);
+    setAnnounceError(null);
+    const ids = [...selected];
+    try {
+      await api.announceFeedback(ids, {
+        titleZh,
+        titleEn,
+        bodyZh: announceForm.bodyZh.trim() || null,
+        bodyEn: announceForm.bodyEn.trim() || null,
+        level: announceForm.level as (typeof ANNOUNCE_LEVELS)[number],
+        endsAt: announceForm.endsAt ? new Date(announceForm.endsAt).getTime() : null,
+      });
+      showToast(t("feedback:admin.announce.success", { count: ids.length }));
+      setAnnounceOpen(false);
+      setSelected(new Set());
+      await loadFeedback();
+    } catch {
+      setAnnounceError(t("feedback:admin.announce.failed"));
+    } finally {
+      setAnnounceBusy(false);
     }
   };
 
@@ -327,6 +434,84 @@ export default function AdminPanel({ open, me, onClose }: Props) {
                   </div>
                 )}
               </div>
+            ) : announceOpen ? (
+              <div className="admin-feedback__announce">
+                <p className="muted">{t("feedback:admin.announce.hint")}</p>
+                <p className="muted">
+                  {t("feedback:admin.announce.selected", { count: selected.size })}
+                </p>
+                <label className="field">
+                  <span>{t("feedback:admin.announce.titleZh")}</span>
+                  <input
+                    value={announceForm.titleZh}
+                    onChange={(e) => setAnnounceForm({ ...announceForm, titleZh: e.target.value })}
+                  />
+                </label>
+                <label className="field">
+                  <span>{t("feedback:admin.announce.titleEn")}</span>
+                  <input
+                    value={announceForm.titleEn}
+                    onChange={(e) => setAnnounceForm({ ...announceForm, titleEn: e.target.value })}
+                  />
+                </label>
+                <label className="field">
+                  <span>{t("feedback:admin.announce.bodyZh")}</span>
+                  <textarea
+                    rows={4}
+                    value={announceForm.bodyZh}
+                    onChange={(e) => setAnnounceForm({ ...announceForm, bodyZh: e.target.value })}
+                  />
+                </label>
+                <label className="field">
+                  <span>{t("feedback:admin.announce.bodyEn")}</span>
+                  <textarea
+                    rows={4}
+                    value={announceForm.bodyEn}
+                    onChange={(e) => setAnnounceForm({ ...announceForm, bodyEn: e.target.value })}
+                  />
+                </label>
+                <label className="field">
+                  <span>{t("feedback:admin.announce.level")}</span>
+                  <select
+                    value={announceForm.level}
+                    onChange={(e) => setAnnounceForm({ ...announceForm, level: e.target.value })}
+                  >
+                    {ANNOUNCE_LEVELS.map((l) => (
+                      <option key={l} value={l}>
+                        {t(ANNOUNCE_LEVEL_LABEL[l])}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="field">
+                  <span>{t("feedback:admin.announce.endsAt")}</span>
+                  <input
+                    type="datetime-local"
+                    value={announceForm.endsAt}
+                    onChange={(e) => setAnnounceForm({ ...announceForm, endsAt: e.target.value })}
+                  />
+                </label>
+                {announceError && <div className="form-error">{announceError}</div>}
+                <div className="admin-feedback__announce-actions">
+                  <button
+                    type="button"
+                    className="ghost-btn"
+                    disabled={announceBusy}
+                    onClick={() => setAnnounceOpen(false)}
+                  >
+                    {t("feedback:admin.announce.cancel")}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={announceBusy}
+                    onClick={() => void submitAnnounce()}
+                  >
+                    {announceBusy
+                      ? t("feedback:admin.announce.submitting")
+                      : t("feedback:admin.announce.submit")}
+                  </button>
+                </div>
+              </div>
             ) : (
               <div>
                 <div className="admin-feedback__filters">
@@ -336,11 +521,23 @@ export default function AdminPanel({ open, me, onClose }: Props) {
                         type="radio"
                         name="feedback-status-filter"
                         checked={feedbackStatus === s}
-                        onChange={() => setFeedbackStatus(s)}
+                        onChange={() => {
+                          setSelected(new Set());
+                          setFeedbackStatus(s);
+                        }}
                       />
                       {s === "all" ? t("feedback:admin.filterAll") : t(`feedback:status.${s}`)}
                     </label>
                   ))}
+                  {selected.size > 0 && (
+                    <button
+                      type="button"
+                      className="ghost-btn admin-feedback__announce-btn"
+                      onClick={openAnnounceForm}
+                    >
+                      {t("feedback:admin.announce.button", { count: selected.size })}
+                    </button>
+                  )}
                 </div>
                 {feedbackError && <div className="form-error">{feedbackError}</div>}
                 {feedback.length === 0 ? (
@@ -352,6 +549,13 @@ export default function AdminPanel({ open, me, onClose }: Props) {
                     {feedback.map((f) => (
                       <li key={f.id} className="admin-feedback__row">
                         <div className="admin-feedback__head">
+                          <input
+                            type="checkbox"
+                            className="admin-feedback__select"
+                            checked={selected.has(f.id)}
+                            aria-label={t("feedback:admin.select")}
+                            onChange={() => toggleSelect(f.id)}
+                          />
                           <span className="admin-feedback__email" title={f.email ?? undefined}>
                             {f.email ?? t("feedback:admin.unknownUser")}
                           </span>

@@ -2,6 +2,8 @@ import { render, screen, fireEvent, waitFor, within } from "@testing-library/rea
 import AdminPanel from "./AdminPanel";
 import { api, type AdminUser, type AuditItem, type FeedbackItem } from "../lib/api";
 
+const { mockShowToast } = vi.hoisted(() => ({ mockShowToast: vi.fn() }));
+
 // Mock api
 vi.mock("../lib/api", () => ({
   api: {
@@ -10,8 +12,13 @@ vi.mock("../lib/api", () => ({
     listAudit: vi.fn(),
     listFeedback: vi.fn(),
     updateFeedbackStatus: vi.fn(),
+    announceFeedback: vi.fn(),
     feedbackAttachmentUrl: (id: string) => `/api/feedback/${id}/attachment`,
   },
+}));
+
+vi.mock("../store/toast", () => ({
+  useToast: (selector: (s: { show: unknown }) => unknown) => selector({ show: mockShowToast }),
 }));
 
 // Mock Tooltip
@@ -47,6 +54,7 @@ const mockAdminSetUserRole = api.adminSetUserRole as unknown as ReturnType<typeo
 const mockListAudit = api.listAudit as unknown as ReturnType<typeof vi.fn>;
 const mockListFeedback = api.listFeedback as unknown as ReturnType<typeof vi.fn>;
 const mockUpdateFeedbackStatus = api.updateFeedbackStatus as unknown as ReturnType<typeof vi.fn>;
+const mockAnnounceFeedback = api.announceFeedback as unknown as ReturnType<typeof vi.fn>;
 
 const OWNER: AdminUser = {
   id: "u-owner",
@@ -103,6 +111,7 @@ beforeEach(() => {
   mockAdminListUsers.mockResolvedValue({ users: [OWNER, ADMIN, USER] });
   mockListAudit.mockResolvedValue({ items: [auditItem(0), auditItem(1)] });
   mockListFeedback.mockResolvedValue({ items: [] });
+  mockAnnounceFeedback.mockResolvedValue({ ok: true, announcementId: "a-1", closed: 2 });
 });
 
 describe("AdminPanel", () => {
@@ -366,6 +375,96 @@ describe("AdminPanel", () => {
       await waitFor(() => {
         expect(screen.getByText("反馈加载失败")).toBeInTheDocument();
       });
+    });
+  });
+
+  describe("反馈合并公告（P3）", () => {
+    async function openFeedbackTabWithItems() {
+      mockListFeedback.mockResolvedValue({
+        items: [feedbackItem(0), feedbackItem(1, { category: "feature" })],
+      });
+      const onClose = vi.fn();
+      render(<AdminPanel open me={OWNER_ME} onClose={onClose} />);
+      fireEvent.click(await screen.findByRole("button", { name: "反馈" }));
+      await screen.findByText("反馈内容 0");
+      return { onClose };
+    }
+
+    async function selectBothAndOpenForm() {
+      const boxes = screen.getAllByLabelText("选中");
+      fireEvent.click(boxes[0]);
+      fireEvent.click(boxes[1]);
+      fireEvent.click(screen.getByRole("button", { name: "合并发公告（2）" }));
+      await screen.findByText("已选 2 条反馈");
+    }
+
+    it("未选中时不显示合并按钮，选中后出现并打开预填表单", async () => {
+      await openFeedbackTabWithItems();
+      expect(screen.queryByRole("button", { name: /合并发公告/ })).not.toBeInTheDocument();
+      await selectBothAndOpenForm();
+      // 模板标题：主分类（bug 出现 2 次中的 1 次 + feature 1 次平票取先者 bug）
+      expect(screen.getByDisplayValue(/已知问题：缺陷（2 条反馈）/)).toBeInTheDocument();
+      expect(screen.getByDisplayValue(/Known issue: Bug \(2 reports\)/)).toBeInTheDocument();
+      // 正文 digest 含两条消息（bodyZh / bodyEn 各一份）
+      expect(screen.getAllByDisplayValue(/反馈内容 0/).length).toBeGreaterThanOrEqual(2);
+      expect(screen.getAllByDisplayValue(/反馈内容 1/).length).toBeGreaterThanOrEqual(2);
+      // 默认级别 warning
+      const level = screen.getByRole("combobox") as HTMLSelectElement;
+      expect(level.value).toBe("warning");
+    });
+
+    it("提交调用 announceFeedback，成功后 toast、清空选择并重载列表", async () => {
+      await openFeedbackTabWithItems();
+      await selectBothAndOpenForm();
+      const before = mockListFeedback.mock.calls.length;
+      fireEvent.click(screen.getByRole("button", { name: "发布公告并关闭反馈" }));
+      await waitFor(() => {
+        expect(mockAnnounceFeedback).toHaveBeenCalledTimes(1);
+      });
+      expect(mockAnnounceFeedback).toHaveBeenCalledWith(
+        ["f-0", "f-1"],
+        expect.objectContaining({
+          titleZh: expect.stringContaining("已知问题"),
+          titleEn: expect.stringContaining("Known issue"),
+          bodyZh: expect.stringContaining("反馈内容 0"),
+          bodyEn: expect.stringContaining("反馈内容 0"),
+          level: "warning",
+          endsAt: null,
+        }),
+      );
+      await waitFor(() => {
+        expect(mockListFeedback.mock.calls.length).toBeGreaterThan(before);
+      });
+      expect(mockShowToast).toHaveBeenCalledWith("公告已发布，2 条反馈已关闭");
+      // 回到列表视图，选择已清空
+      await screen.findByText("反馈内容 0");
+      expect(screen.queryByRole("button", { name: /合并发公告/ })).not.toBeInTheDocument();
+    });
+
+    it("标题必填：清空中文标题后提交显示错误且不调 API", async () => {
+      await openFeedbackTabWithItems();
+      await selectBothAndOpenForm();
+      fireEvent.change(screen.getByLabelText("标题（中文）"), { target: { value: "  " } });
+      fireEvent.click(screen.getByRole("button", { name: "发布公告并关闭反馈" }));
+      expect(await screen.findByText("请填写中英文标题")).toBeInTheDocument();
+      expect(mockAnnounceFeedback).not.toHaveBeenCalled();
+    });
+
+    it("发布失败显示错误并保留表单", async () => {
+      mockAnnounceFeedback.mockRejectedValue(new Error("boom"));
+      await openFeedbackTabWithItems();
+      await selectBothAndOpenForm();
+      fireEvent.click(screen.getByRole("button", { name: "发布公告并关闭反馈" }));
+      expect(await screen.findByText("发布失败，请稍后重试")).toBeInTheDocument();
+      expect(screen.getByText("已选 2 条反馈")).toBeInTheDocument();
+    });
+
+    it("Escape 关闭表单但不关闭面板", async () => {
+      const { onClose } = await openFeedbackTabWithItems();
+      await selectBothAndOpenForm();
+      fireEvent.keyDown(window, { key: "Escape" });
+      await screen.findByText("反馈内容 0");
+      expect(onClose).not.toHaveBeenCalled();
     });
   });
 
