@@ -1,6 +1,6 @@
 # Handoff
 
-State of Agent World as of 2026-09-04.
+State of Agent World as of 2026-09-05.
 
 > **历史内容已归档**：2026-08-27 之前的全部变更记录、各阶段详细描述、质量门与已知 gap，已整体搬到 [docs/handoff-archive.md](docs/handoff-archive.md)。本文件只保留"项目当前状态 + 活跃任务 + 最近 5 个变更"。
 
@@ -232,6 +232,8 @@ State of Agent World as of 2026-09-04.
 | P3 | admin 运营/用户管理 UI（owner 授/撤 admin，跨用户审计） | ✅ 已完成 2026-09-05（`GET /api/admin/users` + `POST /api/admin/users/:id/role` owner 专属 + `GET /api/audit` owner/admin 全量/`?userId=` 过滤；AdminPanel（owner 双 tab 用户/审计，admin 仅审计）+ UserMenu 管理入口；server `api.rbac.test.ts` P3 17 例 + web AdminPanel.test 17 例/UserMenu 管理入口 5 例；server 820/820 + web 1522/1522） |
 
 前身：公告管理曾用 `ANNOUNCEMENT_ADMIN_EMAILS` env 白名单（`2467055074@qq.com`），**已于 P0 落地（2026-09-05）退役**——`2467055074@qq.com` 作为最早注册用户经迁移 v31 自动升为全局 `owner`（公告管理权限随之保留）；公告本身功能已完成（见 commit `3e41c16`/`356b1c7`/`8ac324b`/`07fb540`）。deferred-items「多租户/权限」触发行已更新为「底层 RBAC 就位，团队协作本身仍待真实需求」。
+
+35. ★ **连接器数据插值（2026-09-05 方案定稿，[docs/design-data-interpolation.md](docs/design-data-interpolation.md)）**：源起——用户质疑「原料台右边的节点面板为什么还有商品店铺字段，属性要适配各行各业」，复查发现 connector 结构化数据在 loader 出口被压成纯文本、简报字段与 connector 数据双来源拼接无提示、`graph.ts` 注释宣称字段级映射实为文本拼接。**定位为引擎级通用机制（行业无关）而非电商特性**：① `ResolvedMaterial` 加通用 `data?: unknown` 通道（product 填 `Product[]`，未来 http/database/各行业 connector 免费复用）；② engine 加 `sourceMeta` 旁路 Map（复刻 httpMeta 模式）+ interpCtx 合并 → 下游可写 `${srcId.data[0].name}`；③ **快捷名注册表**（connector 类型→名字，product 注册 `product`/`products`，仅图中恰 1 个该类型 source 时注入全局名，法律 case/财务 invoice 未来各自注册）；④ `buildSourceBrief` 加通用 `fallbacks` 参（留空回填/手填覆写，映射由行业适配层声明——product：productName←name、brand←brand；调性字段永远纯手工），shared.ts 零领域知识；⑤ 简报 8 字段支持 `${product.*}` 插值；⑥ 修 `graph.ts` 失实注释；⑦ SourceFields hint。新行业接入 = 四件适配声明（data 结构/快捷名/映射/hint 文案），引擎零改动。**方案全貌（2026-09-05 定稿，13 节）**：§3.1 面板适配三段式（感知=前端查 connector.type 挂 hint / 适配=引擎 fallback 合并 / 换字段=未来行业包走 TemplateField 模式）、§6 语义边界（data[0] 须稳定 ORDER BY / 空 data 不报错 / 防重入单遍 replace）、§7 生命周期（resume 后 meta 内存 Map 为空，与 httpMeta 同级既有语义；brief artifact 含 fallback 结果持久化=历史回看数据快照）、§8 免费能力（`${product.price} > 100` branch 数值条件自动可用，CondParser 字面量嵌入已验证）、§12 使用维护（使用者零预设，无映射规则表无 YAML；三层维护=机制一次写完/适配每类型一次性四件套/数据变更零配置变更；商品库加列 `${product.sku}` 自动可用）。测试：buildSourceBrief 单测 + `engine.products.test.ts` 2→10 例（⑧防重入 ⑨branch 数值 ⑩纯手工模板逐字节基线）。4 个原子 commit 切分见方案 §11。电商 roadmap §F4.1 留指针。**待用户确认全局 `product` 快捷名取舍后实施**（多 source 自动退化为命名空间形式）。
 
 > 全部缓做/低优事项（含上述两条）已统一登记在 [docs/deferred-items.md](docs/deferred-items.md)——每条带触发条件与决策详情链接，触发条件满足时移回本区并标注重启日期。
 
