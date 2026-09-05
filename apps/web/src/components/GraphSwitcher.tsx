@@ -7,6 +7,7 @@ export interface GraphSummary {
   id: string;
   name: string;
   updated_at: number;
+  sharedRole?: string | null;
 }
 
 interface Props {
@@ -17,7 +18,13 @@ interface Props {
   onDuplicate: (id: string) => void;
   onDelete: (id: string) => void;
   onRename: (id: string, name: string) => void;
+  onShare: (id: string) => void;
 }
+
+const SHARED_ROLE_LABEL: Record<string, string> = {
+  editor: "modals:sharedRole.editor",
+  viewer: "modals:sharedRole.viewer",
+};
 
 export default function GraphSwitcher({
   graphs,
@@ -27,6 +34,7 @@ export default function GraphSwitcher({
   onDuplicate,
   onDelete,
   onRename,
+  onShare,
 }: Props) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -98,20 +106,43 @@ export default function GraphSwitcher({
                   }}
                 >
                   {g.name}
+                  {(() => {
+                    const role = g.sharedRole;
+                    if (!role) return null;
+                    const labelKey = SHARED_ROLE_LABEL[role];
+                    if (!labelKey) return null;
+                    return (
+                      <span className={`graph-row__badge graph-row__badge--${role}`}>
+                        {t(labelKey)}
+                      </span>
+                    );
+                  })()}
                 </span>
               )}
               <span className="graph-row__actions" onClick={(e) => e.stopPropagation()}>
-                <Tooltip content={t("common.rename")}>
-                  <button
-                    className="icon-btn"
-                    onClick={() => {
-                      setEditingId(g.id);
-                      setDraft(g.name);
-                    }}
-                  >
-                    ✎
-                  </button>
-                </Tooltip>
+                {!g.sharedRole && (
+                  <Tooltip content={t("modals:shareButton.label")}>
+                    <button
+                      className="icon-btn"
+                      onClick={() => onShare(g.id)}
+                    >
+                      ⤴
+                    </button>
+                  </Tooltip>
+                )}
+                {!g.sharedRole && (
+                  <Tooltip content={t("common.rename")}>
+                    <button
+                      className="icon-btn"
+                      onClick={() => {
+                        setEditingId(g.id);
+                        setDraft(g.name);
+                      }}
+                    >
+                      ✎
+                    </button>
+                  </Tooltip>
+                )}
                 <Tooltip content={t("common.duplicate")}>
                   <button
                     className="icon-btn"
@@ -120,14 +151,16 @@ export default function GraphSwitcher({
                     ⧉
                   </button>
                 </Tooltip>
-                <Tooltip content={t("common.delete")}>
-                  <button
-                    className="icon-btn icon-btn--danger"
-                    onClick={() => onDelete(g.id)}
-                  >
-                    ✕
-                  </button>
-                </Tooltip>
+                {!g.sharedRole && (
+                  <Tooltip content={t("common.delete")}>
+                    <button
+                      className="icon-btn icon-btn--danger"
+                      onClick={() => onDelete(g.id)}
+                    >
+                      ✕
+                    </button>
+                  </Tooltip>
+                )}
               </span>
             </div>
           ))}

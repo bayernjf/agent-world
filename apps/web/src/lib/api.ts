@@ -268,6 +268,13 @@ export interface BrandTerm {
   createdAt: number;
 }
 
+export interface Collaborator {
+  userId: string;
+  email: string | null;
+  role: string;
+  createdAt: number;
+}
+
 /** A platform's publishing profile (F3 compliance). */
 export interface PlatformProfile {
   id: string;
@@ -418,7 +425,7 @@ export const api = {
   listSkills: () => authFetch("/api/skills").then(json<Skill[]>),
 
   listGraphs: () =>
-    authFetch("/api/graphs").then(json<{ id: string; name: string; updated_at: number }[]>),
+    authFetch("/api/graphs").then(json<{ id: string; name: string; updated_at: number; sharedRole: string | null }[]>),
 
   getGraph: (id: string) =>
     authFetch(`/api/graphs/${id}`).then(json<Graph & { version: number }>),
@@ -485,6 +492,24 @@ export const api = {
 
   deleteGraph: (id: string) =>
     authFetch(`/api/graphs/${id}`, { method: "DELETE" }).then(json<{ ok: true }>),
+
+  getGraphAccess: (graphId: string) =>
+    authFetch(`/api/graphs/${graphId}/access`).then(
+      json<{ collaborators: Collaborator[] }>,
+    ),
+
+  putGraphAccess: (graphId: string, email: string, role: "editor" | "viewer" | null) =>
+    authFetch(`/api/graphs/${graphId}/access`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email, role }),
+    }).then(async (res) => {
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string; message?: string };
+        throw new Error(body.message ?? body.error ?? `access update failed: ${res.status}`);
+      }
+      return res.json() as Promise<{ ok: true }>;
+    }),
 
   compile: (graph: Graph) =>
     authFetch("/api/compile", {
