@@ -1385,7 +1385,11 @@ export default function Settings({ open, onClose }: Props) {
               <label className="field">
                 <span>{t("settings:search.apiKey")}</span>
                 <input
-                  type="password"
+                  type="text"
+                  autoComplete="off"
+                  data-lpignore="true"
+                  data-1p-ignore="true"
+                  data-form-type="other"
                   placeholder={t("settings:search.apiKeyPlaceholder")}
                   value={config.searchConfig?.apiKey ?? ""}
                   onChange={(e) =>
@@ -1404,6 +1408,10 @@ export default function Settings({ open, onClose }: Props) {
                   <span>{t("settings:search.cx")}</span>
                   <input
                     placeholder="0123456789abcdef:xyz"
+                    autoComplete="off"
+                    data-lpignore="true"
+                    data-1p-ignore="true"
+                    data-form-type="other"
                     value={config.searchConfig?.cx ?? ""}
                     onChange={(e) =>
                       setConfig({
