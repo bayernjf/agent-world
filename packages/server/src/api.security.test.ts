@@ -215,9 +215,9 @@ describe("user-level search config", () => {
 });
 
 // Provider keys (and the user-level search key) must be encrypted at rest in
-// the settings table — AES-256-GCM (`enc:v1:...`) via the bound settingsStore.
-// The API layers redaction + masked-key round-trips on top, but the disk row
-// itself must never hold a plaintext secret.
+// the settings table — AES-256-GCM (`enc:v2:...`, keyring envelope) via the
+// bound settingsStore. The API layers redaction + masked-key round-trips on
+// top, but the disk row itself must never hold a plaintext secret.
 describe("settings at-rest encryption (audit L3)", () => {
   let token: string;
   const email = "encuser@test.dev";
@@ -267,7 +267,7 @@ describe("settings at-rest encryption (audit L3)", () => {
     const stored = rawSettings();
     expect(stored).not.toContain(providerKey);
     expect(stored).not.toContain(searchKey);
-    expect(stored).toContain("enc:v1:");
+    expect(stored).toContain("enc:v2:");
   });
 
   it("stores both the provider key and the search key encrypted and decryptable", () => {

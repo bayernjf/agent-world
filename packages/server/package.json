@@ -9,7 +9,8 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "test:regression": "vitest run src/regression/"
+    "test:regression": "vitest run src/regression/",
+    "rotate:reencrypt": "tsx scripts/rotate-reencrypt.ts"
   },
   "dependencies": {
     "@agent-world/core": "workspace:*",

@@ -50,7 +50,7 @@ describe("at-rest encryption: db integration (audit L3)", () => {
     // What is actually on disk must not contain the plaintext secret.
     const onDisk = rawDoc(path, "g1");
     expect(onDisk).not.toContain(secret);
-    expect(onDisk).toContain("enc:v1:");
+    expect(onDisk).toContain("enc:v2:");
 
     // The app-facing read decrypts transparently.
     const loaded = db.getGraph("g1", "u1");
@@ -186,11 +186,11 @@ describe("at-rest encryption: db integration (audit L3)", () => {
         expect(d).not.toContain(searchKey);
         expect(d).not.toContain(vcsToken);
         expect(d).not.toContain(vcsUrlToken);
-        expect(d).toContain("enc:v1:");
+        expect(d).toContain("enc:v2:");
         // Only the param value is sealed — the endpoint itself stays readable.
-        expect(d).toContain("https://api.example.com/y?access_token=enc%3Av1%3A");
+        expect(d).toContain("https://api.example.com/y?access_token=enc%3Av2%3A");
         expect(d).toContain("&v=2");
-        expect(d).toContain("https://git.corp.example.com/api/v4?access_token=enc%3Av1%3A");
+        expect(d).toContain("https://git.corp.example.com/api/v4?access_token=enc%3Av2%3A");
       }
     } finally {
       raw.close();
