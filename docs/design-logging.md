@@ -1,6 +1,6 @@
 # 服务端日志（Server Logging）设计方案
 
-> 状态：**方案设计，未实施**。目标：把排障需要的结构化日志从「8 处调用 + 15 个文件裸 console」收编成统一体系，并让日志**默认落盘**。
+> 状态：**P1+P2 已实施（2026-09-05）**——默认落盘（`<DB dir>/logs/server.log`，`LOG_FILE=""` 显式禁用）+ console 收编（约 15 个文件改走 Logger；节点经 `ctx.log`，NodeRunContext 新增 runId 绑定的 child logger；例外保留 load-env/at-rest——Logger 初始化前的启动路径）+ `/api/*` 请求中间件（status 分级 + latencyMs + userId，不记 query）。logger 首写自动建父目录；测试 `LOG_FILE=""` 隔离。**P3 未实施**：触发器/迁移/启动信息补齐与 run.resumed 等关键路径，触发条件不变（再遇排障定位困难）。测试：server 747→760（+3 logger 断言），另见 handoff 待办 33。
 > 创建：2026-09-05
 
 ## 1. 现状盘点
