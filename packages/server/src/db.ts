@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { EVENT_SCHEMA_VERSION, type Graph, type RunEvent } from "@agent-world/core";
 import type { StoredArtifact } from "./artifact-store.js";
 import { openDocString, openGraphDoc, sealDocString, sealGraphDoc } from "./at-rest.js";
+import { log } from "./logger.js";
 
 /**
  * Events are the source of truth and append-only, so they get a plain prepared
@@ -3103,22 +3104,32 @@ function runMigrations(db: DatabaseSync) {
   const now = Date.now();
 
   db.exec("BEGIN");
+  const migrated: number[] = [];
   try {
     for (const m of MIGRATIONS) {
       if (applied.has(m.version)) continue;
       if (baselining && m.detect?.(db)) {
         record.run(m.version, now);
+        migrated.push(m.version);
         continue;
       }
       m.up(db);
       record.run(m.version, now);
+      migrated.push(m.version);
     }
     db.exec("COMMIT");
   } catch (err) {
     db.exec("ROLLBACK");
     throw err;
   }
-
+  // One line per applied migration (baseline skips count too) — schema
+  // upgrades are the classic "server boots weird" suspect.
+  for (const version of migrated) {
+    log.info("migration applied", { version });
+  }
+  if (migrated.length > 0) {
+    log.info("migrations complete", { count: migrated.length, totalMs: Date.now() - now });
+  }
 }
 
 /** The schema version this build expects. Exposed for diagnostics/backups. */

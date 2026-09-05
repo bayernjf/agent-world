@@ -22,7 +22,7 @@ import {
   type RunEvent,
   type SkillPermissions,
 } from "@agent-world/core";
-import { openDb, backfillExistingData, contentHash } from "./db.js";
+import { openDb, backfillExistingData, contentHash, SCHEMA_VERSION } from "./db.js";
 import { findGraphIdByName as findGraphIdByNameCore } from "./graphs-name.js";
 import { ArtifactStore } from "./artifact-store.js";
 import { log } from "./logger.js";
@@ -2430,10 +2430,22 @@ async function connectMcpServers(): Promise<void> {
 }
 if (process.env.NODE_ENV !== "test") void connectMcpServers();
 
-if (process.env.NODE_ENV !== "test")
-serve({ fetch: app.fetch, port: PORT }, (info) => {
-  log.info("engine listening", { port: info.port, url: `http://localhost:${info.port}` });
-});
+if (process.env.NODE_ENV !== "test") {
+  // One startup summary: what the server booted against. The key source is
+  // named (env|file|memory) but the material itself is never logged.
+  const encryptionKeySource = process.env.AGENT_WORLD_ENCRYPTION_KEY
+    ? "env"
+    : "file"; // absent env falls back to the .encryption-key file next to the DB
+  log.info("server starting", {
+    dbFile: process.env.DB_FILE ?? "agent-world.sqlite",
+    schemaVersion: SCHEMA_VERSION,
+    encryptionKeySource,
+    logFile: process.env.LOG_FILE ?? "<db-dir>/logs/server.log",
+  });
+  serve({ fetch: app.fetch, port: PORT }, (info) => {
+    log.info("engine listening", { port: info.port, url: `http://localhost:${info.port}` });
+  });
+}
 
 // Tear down any forked, isolated worker subprocesses on shutdown.
 for (const sig of ["SIGINT", "SIGTERM"] as const) {
