@@ -597,6 +597,22 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       );
     }
   }
+  // 悬空引用守护（design-data-interpolation.md §3.2）：图里写了 `${shortcut…}`
+  // 但对应 connector 没有任何 source（删 connector 后遗留），引用会静默解析为
+  // 空串——warn 一次。只匹配字段访问（`.` / `[`），避开纯 `${product}` 整节点
+  // 引用（可能是节点 id 就叫 product 的合法场景）。
+  const graphText = JSON.stringify(graph);
+  const warnedConnectors = new Set<string>();
+  for (const s of CONNECTOR_SHORTCUTS) {
+    if (warnedConnectors.has(s.connector)) continue;
+    if ((sourcesByConnector.get(s.connector)?.length ?? 0) > 0) continue;
+    if (new RegExp(`\\$\\{\\s*${s.name}(?:\\.|\\[)`).test(graphText)) {
+      runLog.warn(
+        `graph references "\${${s.name}…}" but has no ${s.connector} connector source — resolves to empty string`,
+      );
+      warnedConnectors.add(s.connector);
+    }
+  }
   /** nodeCtx enriched with sidecar metadata (http responses, connector data).
    * A direct flow upstream from a sidecar node becomes its metadata merged
    * with the payload (payload fields win on collision; a text payload sits

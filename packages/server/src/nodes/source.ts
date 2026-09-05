@@ -43,6 +43,11 @@ export async function sourceNode(ctx: NodeRunContext, node: GraphNode, nodeId: s
     }
   }
 
+  // 空 data 守护（design-data-interpolation.md §6.2）：product connector 库空/筛空
+  // 时快捷名解析全空串，不 fail run，但 warn 一条避免下游 `${product.name}` 静默空。
+  if (conn && conn.type === "product" && (!Array.isArray(sourceData) || sourceData.length === 0)) {
+    ctx.log.warn("product connector returned empty data; ${product.name} resolves to empty string", { nodeId });
+  }
   const output = (() => {
     // D5 (design-data-interpolation.md): brief fields interpolate `${product.x}`
     // against the connector's structured data and the registered global
