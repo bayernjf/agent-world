@@ -753,17 +753,74 @@ app.get("/api/settings", (c) => {
   return c.json(redacted);
 });
 
-// Security audit trail (design-audit-log §3.4): own records only, newest
-// first, cursor-paginated. No cross-user query until an admin role exists.
+// Security audit trail (design-audit-log §3.4). Plain users see their own
+// records only (the userId query param is ignored — no cross-user leak);
+// owner/admin (design-rbac P3) see every user's rows, with an optional
+// userId filter. Newest first, cursor-paginated.
 app.get("/api/audit", (c) => {
   const userId = c.get("userId");
   const limit = Number(c.req.query("limit") ?? 100);
   const before = Number(c.req.query("before") ?? 0);
-  const rows = db.listAudit(userId, {
+  const opts = {
     limit: Number.isFinite(limit) ? limit : undefined,
     before: Number.isFinite(before) && before > 0 ? before : undefined,
+  };
+  const role = db.findUserById(userId)?.role;
+  if (role === "owner" || role === "admin") {
+    return c.json({ items: db.listAuditAdmin({ ...opts, userId: c.req.query("userId") || undefined }) });
+  }
+  return c.json({ items: db.listAudit(userId, opts) });
+});
+
+// --- Admin operations (design-rbac P3) ------------------------------------
+// Route naming note: design-rbac §9 sketched /api/admin/members/:id/role;
+// shipped as /api/admin/users/:id/role to match the /api/admin/users
+// resource. User management is the instance owner's exclusive power —
+// admins (who only gain cross-user audit viewing) get 403 here.
+
+/** RBAC P3: global role changes are the instance owner's exclusive power. */
+function isOwner(userId: string): boolean {
+  return db.findUserById(userId)?.role === "owner";
+}
+
+app.get("/api/admin/users", (c) => {
+  if (!isOwner(c.get("userId"))) return c.json({ error: "forbidden" }, 403);
+  const users = db.listUsers().map((u) => ({
+    id: u.id,
+    email: u.email,
+    role: u.role,
+    createdAt: u.created_at,
+  }));
+  return c.json({ users });
+});
+
+app.post("/api/admin/users/:id/role", async (c) => {
+  const callerId = c.get("userId");
+  if (!isOwner(callerId)) return c.json({ error: "forbidden" }, 403);
+  const body = (await c.req.json().catch(() => ({}))) as { role?: string };
+  // Only "admin" | "user" are grantable — "owner" is bootstrapped, never
+  // granted (idx_users_owner guards the single-owner invariant).
+  if (body.role !== "admin" && body.role !== "user") {
+    return c.json({ error: "role must be admin or user" }, 400);
+  }
+  const target = db.findUserById(c.req.param("id"));
+  if (!target) return c.json({ error: "user not found" }, 404);
+  // §9: the owner cannot be demoted; self-target is always the owner here.
+  if (target.id === callerId || target.role === "owner") {
+    return c.json({ error: "cannot change the owner's role" }, 400);
+  }
+  // Idempotent no-op: success without an audit row (access.grant precedent).
+  if (target.role === body.role) {
+    return c.json({ ok: true, role: target.role, unchanged: true });
+  }
+  db.updateUserRole(target.id, body.role);
+  audit(db, callerId, "role.update", {
+    objectType: "user",
+    objectId: target.id,
+    detail: { grantee: target.id, role: body.role },
+    ip: clientIp(c),
   });
-  return c.json({ items: rows });
+  return c.json({ ok: true, role: body.role });
 });
 
 // --- Announcements (design-announcement) ---

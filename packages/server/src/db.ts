@@ -695,6 +695,29 @@ export function openDb(file: string) {
       `SELECT id, user_id, action, object_type, object_id, detail, ip, created_at
        FROM audit_log WHERE user_id = ? ORDER BY created_at DESC LIMIT ?`,
     ),
+    // RBAC P3 (design-rbac.md): cross-user audit listing for owner/admin,
+    // with the actor email resolved via LEFT JOIN (login_failed rows carry
+    // user_id 'unknown' and surface with email = null).
+    listAuditAdminFirst: db.prepare(
+      `SELECT a.id, a.user_id, u.email, a.action, a.object_type, a.object_id, a.detail, a.ip, a.created_at
+       FROM audit_log a LEFT JOIN users u ON u.id = a.user_id
+       ORDER BY a.created_at DESC LIMIT ?`,
+    ),
+    listAuditAdmin: db.prepare(
+      `SELECT a.id, a.user_id, u.email, a.action, a.object_type, a.object_id, a.detail, a.ip, a.created_at
+       FROM audit_log a LEFT JOIN users u ON u.id = a.user_id
+       WHERE a.created_at < ? ORDER BY a.created_at DESC LIMIT ?`,
+    ),
+    listAuditUserFirst: db.prepare(
+      `SELECT a.id, a.user_id, u.email, a.action, a.object_type, a.object_id, a.detail, a.ip, a.created_at
+       FROM audit_log a LEFT JOIN users u ON u.id = a.user_id
+       WHERE a.user_id = ? ORDER BY a.created_at DESC LIMIT ?`,
+    ),
+    listAuditUser: db.prepare(
+      `SELECT a.id, a.user_id, u.email, a.action, a.object_type, a.object_id, a.detail, a.ip, a.created_at
+       FROM audit_log a LEFT JOIN users u ON u.id = a.user_id
+       WHERE a.user_id = ? AND a.created_at < ? ORDER BY a.created_at DESC LIMIT ?`,
+    ),
     listActiveAnnouncements: db.prepare(
       `SELECT * FROM announcements
        WHERE starts_at <= ? AND (ends_at IS NULL OR ends_at >= ?)
@@ -729,6 +752,12 @@ export function openDb(file: string) {
     findUserPasswordHash: db.prepare(
       `SELECT password_hash FROM users WHERE id = ?`,
     ),
+    // RBAC P3 (design-rbac.md): full account list for the owner's admin panel.
+    // Same ordering as the v31 owner bootstrap — the owner always sorts first.
+    listUsers: db.prepare(
+      `SELECT id, email, role, created_at FROM users ORDER BY created_at ASC, rowid ASC`,
+    ),
+    updateUserRole: db.prepare(`UPDATE users SET role = ? WHERE id = ?`),
     // Resource sharing (design-rbac P1). Only editor/viewer rows live here —
     // the resource owner is resolved from the owning table's user_id.
     saveResourceAccess: db.prepare(
@@ -929,6 +958,14 @@ export function openDb(file: string) {
     },
     updateUserPasswordHash(id: string, passwordHash: string) {
       stmts.updateUserPasswordHash.run(passwordHash, id);
+    },
+    /** RBAC P3: full account list for the owner's admin panel. */
+    listUsers(): Array<{ id: string; email: string; role: string; created_at: string }> {
+      return stmts.listUsers.all() as Array<{ id: string; email: string; role: string; created_at: string }>;
+    },
+    /** RBAC P3: grant or revoke the global admin role (owner-only route). */
+    updateUserRole(id: string, role: string) {
+      stmts.updateUserRole.run(role, id);
     },
 
     /** Grant or overwrite a shared role (editor/viewer) on a resource. */
@@ -1962,6 +1999,24 @@ export function openDb(file: string) {
           : stmts.listAuditFirst.all(userId, limit)
       ) as Array<Record<string, unknown>>;
       return rows;
+    },
+    /** RBAC P3: owner/admin cross-user audit listing, actor email resolved. */
+    listAuditAdmin(
+      opts: { limit?: number; before?: number; userId?: string } = {},
+    ): Array<Record<string, unknown>> {
+      const limit = Math.min(Math.max(opts.limit ?? 100, 1), 500);
+      if (opts.userId) {
+        return (
+          opts.before && opts.before > 0
+            ? stmts.listAuditUser.all(opts.userId, opts.before, limit)
+            : stmts.listAuditUserFirst.all(opts.userId, limit)
+        ) as Array<Record<string, unknown>>;
+      }
+      return (
+        opts.before && opts.before > 0
+          ? stmts.listAuditAdmin.all(opts.before, limit)
+          : stmts.listAuditAdminFirst.all(limit)
+      ) as Array<Record<string, unknown>>;
     },
     // --- Announcements (30) ---
     listActiveAnnouncements(now = Date.now()): Array<Record<string, unknown>> {
