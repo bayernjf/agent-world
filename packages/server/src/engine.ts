@@ -76,6 +76,104 @@ import { createCodeWorkdir, cleanupCodeWorkdir, resolveSandbox, type CodeSandbox
 import { trimEnv } from "./isolation.js";
 import { allowPrivateNetwork, guardedFetch, hostIsInternal } from "./ssrf.js";
 import { childProxyEnv, getCodeProxyUrl, registerNetToken, unregisterNetToken } from "./code-proxy.js";
+import type { NodeRunContext, NodeHandler } from "./nodes/types.js";
+import { textGenNode } from "./nodes/textgen.js";
+import { httpNode } from "./nodes/http.js";
+import { selectNode } from "./nodes/select.js";
+import { fanoutNode } from "./nodes/fanout.js";
+import { gateNode } from "./nodes/gate.js";
+import { subprocessNode } from "./nodes/subprocess.js";
+import { codeNode } from "./nodes/code.js";
+import { loopNode } from "./nodes/loop.js";
+import { sourceNode } from "./nodes/source.js";
+import { genericNode } from "./nodes/generic.js";
+import { imageGenNode } from "./nodes/imagegen.js";
+import { audioGenNode } from "./nodes/audiogen.js";
+import { videoGenNode } from "./nodes/videogen.js";
+import { translateNode } from "./nodes/translate.js";
+import { fileParseNode } from "./nodes/fileParse.js";
+import { tableNode } from "./nodes/table.js";
+import { searchNode } from "./nodes/search.js";
+import { convertNode } from "./nodes/convert.js";
+import { ocrNode } from "./nodes/ocr.js";
+import { branchNode } from "./nodes/branch.js";
+import { databaseNode } from "./nodes/database.js";
+import { parallelNode } from "./nodes/parallel.js";
+import { mapNode } from "./nodes/map.js";
+import { complianceNode } from "./nodes/compliance.js";
+import { humanNode } from "./nodes/human.js";
+import { sinkNode } from "./nodes/sink.js";
+import { publishNode } from "./nodes/publish.js";
+import { runVcsNode } from "./nodes/vcs.js";
+import {
+  ARTIFACT_URL_NOTE,
+  CONNECTOR_MAX_RETRIES,
+  CONNECTOR_RETRY_DELAY_MS,
+  ancestors,
+  applyVariantConfig,
+  buildImagePrompt,
+  buildSourceBrief,
+  buildVariantGraph,
+  buildVariantParams,
+  detectProhibited,
+  descendants,
+  fileLabelFromUrl,
+  firstFanoutUpstream,
+  firstSelectDownstream,
+  BUDGET_WARN,
+  collectPromptModules,
+  getOutputContract,
+  toMount,
+  validateContract,
+  VARIABLE_TOOLS,
+  prefixEvent,
+  RETRYABLE,
+  prohibitedSnippets,
+  setTextArtifact,
+  truncateText,
+  upstreamBrandTerms,
+  upstreamProhibitedTerms,
+  variantLaneIds,
+  zeroUsage,
+} from "./nodes/shared.js";
+
+/**
+ * Stage 2.2 node dispatch table: one handler per node kind, each living in
+ * nodes/*.ts and receiving the explicit NodeRunContext built by runScheduler.
+ * `notify` is deliberately absent — it runs inline in runNode (see the comment
+ * there). Kinds missing from the table fall back to the agent/textGen handler,
+ * mirroring the old if-chain fallthrough.
+ */
+const NODE_HANDLERS: Partial<Record<GraphNode["kind"], NodeHandler>> = {
+  fanout: fanoutNode,
+  select: selectNode,
+  source: sourceNode,
+  sink: sinkNode,
+  http: httpNode,
+  code: codeNode,
+  branch: branchNode,
+  map: mapNode,
+  loop: loopNode,
+  subprocess: subprocessNode,
+  parallel: parallelNode,
+  table: tableNode,
+  database: databaseNode,
+  fileParse: fileParseNode,
+  translate: translateNode,
+  ocr: ocrNode,
+  convert: convertNode,
+  search: searchNode,
+  vcs: runVcsNode,
+  human: humanNode,
+  compliance: complianceNode,
+  publish: publishNode,
+  gate: gateNode,
+  videoGen: videoGenNode,
+  audioGen: audioGenNode,
+  imageGen: imageGenNode,
+  generic: genericNode,
+  textGen: textGenNode,
+};
 
 /**
  * Append free-text layout directives (manual image-position overrides) to an
@@ -91,116 +189,6 @@ export function withLayoutDirectives(base: string, directives?: string): string 
 // F1: fanout / select variant lanes.
 // ---------------------------------------------------------------------------
 
-/** Flow-edge descendants of `id` (excludes `id`). */
-function descendants(graph: Graph, id: string): Set<string> {
-  const seen = new Set<string>();
-  const stack = [id];
-  while (stack.length) {
-    const cur = stack.pop()!;
-    for (const e of outgoing(graph, cur, "flow")) {
-      if (seen.has(e.to)) continue;
-      seen.add(e.to);
-      stack.push(e.to);
-    }
-  }
-  return seen;
-}
-
-/** Flow-edge ancestors of `id` (excludes `id`). */
-function ancestors(graph: Graph, id: string): Set<string> {
-  const seen = new Set<string>();
-  const stack = [id];
-  while (stack.length) {
-    const cur = stack.pop()!;
-    for (const e of incoming(graph, cur, "flow")) {
-      if (seen.has(e.from)) continue;
-      seen.add(e.from);
-      stack.push(e.from);
-    }
-  }
-  return seen;
-}
-
-/** One variant lane's differentiated parameters. */
-interface VariantParam {
-  id: string;
-  prompt?: string;
-  temperature?: number;
-  model?: string;
-}
-
-/** Expand a fanout config into N per-lane parameter sets. */
-function buildVariantParams(cfg: FanoutConfig, fallbackModel: string): VariantParam[] {
-  const count = cfg.count;
-  const out: VariantParam[] = [];
-  for (let i = 0; i < count; i++) {
-    const v: VariantParam = { id: `v${i + 1}` };
-    if (cfg.strategy === "prompt") {
-      const p = cfg.prompts?.[i];
-      if (p != null && p.trim() !== "") v.prompt = p;
-    } else if (cfg.strategy === "temperature") {
-      v.temperature = cfg.temperatures?.[i] ?? 0.3 + (0.9 - 0.3) * (i / Math.max(1, count - 1));
-    } else if (cfg.strategy === "model") {
-      v.model = cfg.models?.[i] ?? fallbackModel;
-    }
-    out.push(v);
-  }
-  return out;
-}
-
-/** Apply a variant's differentiated params onto a cloned node (textGen only — other kinds are copied verbatim). */
-function applyVariantConfig(n: GraphNode, v: VariantParam): GraphNode {
-  if (n.kind !== "textGen" || !n.textGen) return { ...n };
-  const tg = { ...n.textGen };
-  if (v.prompt != null) tg.prompt = v.prompt;
-  if (v.temperature != null) tg.temperature = v.temperature;
-  if (v.model != null) tg.model = v.model;
-  return { ...n, textGen: tg };
-}
-
-/** Ids of the lane nodes strictly between a fanout and its select (exclusive). */
-function variantLaneIds(graph: Graph, fanoutId: string, selectId: string): string[] {
-  const down = descendants(graph, fanoutId);
-  const up = ancestors(graph, selectId);
-  return [...down].filter((id) => id !== fanoutId && id !== selectId && up.has(id));
-}
-
-/** Clone the lane into a self-contained sub-graph (source → lane → sink). */
-function buildVariantGraph(
-  graph: Graph,
-  fanoutId: string,
-  selectId: string,
-  laneIds: string[],
-  v: VariantParam,
-): Graph {
-  const SOURCE = "__lane_source__";
-  const SINK = "__lane_sink__";
-  const nodes: GraphNode[] = graph.nodes.filter((n) => laneIds.includes(n.id)).map((n) => applyVariantConfig(n, v));
-  nodes.push({ id: SOURCE, kind: "source", name: "变体输入", x: 0, y: 0 });
-  nodes.push({ id: SINK, kind: "sink", name: "变体输出", x: 0, y: 0 });
-  const edges = graph.edges
-    .filter((e) => e.kind === "flow" && laneIds.includes(e.from) && laneIds.includes(e.to))
-    .map((e) => ({ ...e }));
-  const entryIds = laneIds.filter((id) => incoming(graph, id, "flow").some((e) => e.from === fanoutId));
-  const exitIds = laneIds.filter((id) => outgoing(graph, id, "flow").some((e) => e.to === selectId));
-  for (const id of entryIds) edges.push({ id: `e-${SOURCE}-${id}`, from: SOURCE, to: id, kind: "flow" as const });
-  for (const id of exitIds) edges.push({ id: `e-${id}-${SINK}`, from: id, to: SINK, kind: "flow" as const });
-  return { id: `${fanoutId}-lane-${v.id}`, name: `变体泳道 ${v.id}`, nodes, edges };
-}
-
-/** The select node reconverging a fanout's lanes (first one found downstream). */
-function firstSelectDownstream(graph: Graph, fanoutId: string): string | null {
-  const down = descendants(graph, fanoutId);
-  for (const id of down) if (nodeById(graph, id)?.kind === "select") return id;
-  return null;
-}
-
-/** The fanout node feeding a select's lanes (first one found upstream). */
-function firstFanoutUpstream(graph: Graph, selectId: string): string | null {
-  const up = ancestors(graph, selectId);
-  for (const id of up) if (nodeById(graph, id)?.kind === "fanout") return id;
-  return null;
-}
 
 /**
  * E.2 — collect prompt text from every mounted `prompt-module` skill, including
@@ -208,86 +196,6 @@ function firstFanoutUpstream(graph: Graph, selectId: string): string | null {
  * Returns the ordered module prompts to inject into the agent's system prompt.
  */
 /** Normalize a skill entry (id string or mount) into a full SkillMount. */
-function toMount(s: string | SkillMount): SkillMount {
-  return typeof s === "string" ? { id: s, config: {}, enabled: true } : { ...s, config: s.config ?? {} };
-}
-
-export function collectPromptModules(mounts: SkillMount[]): string[] {
-  const out: string[] = [];
-  const seen = new Set<string>();
-  const queue: SkillMount[] = [...mounts];
-  while (queue.length) {
-    const m = queue.shift()!;
-    if (seen.has(m.id)) continue;
-    seen.add(m.id);
-    const skill = getSkill(m.id);
-    if (!skill) continue;
-    const config = { ...(skill.config ?? {}), ...(m.config ?? {}) };
-    if (skill.kind === "prompt-module" && typeof config.prompt === "string" && config.prompt.trim()) {
-      out.push(config.prompt);
-    }
-    const equips = Array.isArray(config.equips) ? (config.equips as string[]) : [];
-    for (const id of equips) {
-      if (!seen.has(id)) queue.push({ id, config: {}, enabled: true });
-    }
-  }
-  return out;
-}
-
-/**
- * E.3 — find the output contract (JSON-schema) declared by a mounted
- * `output-contract` skill, if any. Returns the schema object or null.
- */
-export function getOutputContract(mounts: SkillMount[]): Record<string, unknown> | null {
-  for (const m of mounts) {
-    const skill = getSkill(m.id);
-    if (!skill || skill.kind !== "output-contract") continue;
-    const config = { ...(skill.config ?? {}), ...(m.config ?? {}) };
-    if (config.schema && typeof config.schema === "object") {
-      return config.schema as Record<string, unknown>;
-    }
-  }
-  return null;
-}
-
-/**
- * E.3 — validate an agent's output against a JSON-schema contract. Strips
- * optional ```json fences, requires a JSON object, enforces `required` keys and
- * per-property `type`. Returns a human-readable failure reason or null if valid.
- */
-export function validateContract(output: string, schema: Record<string, unknown>): string | null {
-  let text = output.trim();
-  const fence = text.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/);
-  if (fence && fence[1]) text = fence[1].trim();
-  let data: unknown;
-  try {
-    data = JSON.parse(text);
-  } catch {
-    return "输出不是合法 JSON";
-  }
-  if (typeof data !== "object" || data === null || Array.isArray(data)) {
-    return "输出必须是 JSON 对象";
-  }
-  const obj = data as Record<string, unknown>;
-  const required = Array.isArray(schema.required) ? (schema.required as string[]) : [];
-  for (const key of required) {
-    if (!(key in obj)) return `缺少必填字段 "${key}"`;
-  }
-  const props =
-    schema.properties && typeof schema.properties === "object"
-      ? (schema.properties as Record<string, { type?: string }>)
-      : {};
-  for (const [key, spec] of Object.entries(props)) {
-    if (!(key in obj)) continue;
-    const expected = spec?.type;
-    if (expected) {
-      const actual = Array.isArray(obj[key]) ? "array" : typeof obj[key];
-      if (actual !== expected) return `字段 "${key}" 类型应为 ${expected}，实际为 ${actual}`;
-    }
-  }
-  return null;
-}
-
 export interface ExecuteOptions {
   runId: string;
   graph: Graph;
@@ -346,85 +254,21 @@ export interface ExecuteOptions {
   loadProducts?: (connector: ProductConnector) => Promise<ResolvedMaterial>;
 }
 
-/**
- * Built-in graph-variable tools (cross-run persisted state). They are appended
- * to every agent's tool list; the engine routes their execution to the run's
- * variables map (see `handleVariableTool`). Safe tools — no approval needed.
- */
-const VARIABLE_TOOLS: ToolDefinition[] = [
-  {
-    name: "set_variable",
-    description:
-      "Write/update a graph variable (persisted across runs, read via ${var.xxx} or get_variable). " +
-      "Value can be a string, number, boolean, object or array.",
-    parameters: {
-      type: "object",
-      properties: {
-        key: { type: "string", description: "Variable name, dot path supported (e.g. stats.count)." },
-        value: { description: "Value to store (JSON-serializable)." },
-      },
-      required: ["key", "value"],
-    },
-  },
-  {
-    name: "get_variable",
-    description:
-      "Read a graph variable (persisted across runs; the same value ${var.xxx} resolves). " +
-      "Returns null when the key does not exist.",
-    parameters: {
-      type: "object",
-      properties: {
-        key: { type: "string", description: "Variable name, dot path supported (e.g. stats.count)." },
-      },
-      required: ["key"],
-    },
-  },
-];
-
-type Status = "done" | "failed" | "halted" | "tripped" | "cancelled";
+export type Status = "done" | "failed" | "halted" | "tripped" | "cancelled";
 /**
  * - skipped: a branch node did not route here; the node is never launched and
  *   its own un-routed subtree is skipped the same way.
  */
-type NodeState = "pending" | "running" | "done" | "failed" | "skipped";
+export type NodeState = "pending" | "running" | "done" | "failed" | "skipped";
 
-const RETRYABLE: ReadonlySet<string> = new Set(["TIMEOUT", "RATE_LIMIT", "PROVIDER_ERROR"]);
 
 /** Connector pull resilience: how many extra attempts and the gap between them. */
-const CONNECTOR_MAX_RETRIES = 2;
-const CONNECTOR_RETRY_DELAY_MS = 1000;
 /** Max plants welding at once. Keeps a burst of parallel branches from hammering the provider. */
 const MAX_CONCURRENCY = 6;
 
 const delay = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
-/**
- * Hard-truncate a body to `maxChars`, keeping the tail and a small head marker.
- * Used as the deterministic fallback when a `summary` policy has no summarizer
- * or the summarizer fails.
- */
-function truncateText(body: string, maxChars: number): string {
-  const head = `...[前 ${body.length - maxChars} 字符已截断]...\n`;
-  return head + body.slice(body.length - maxChars + head.length);
-}
 
-/**
- * Replace a node's artifacts with a single text artifact. Used when a node
- * finishes with a text output (agent/source/sink/gate).
- */
-function setTextArtifact(artifacts: Map<string, Artifact[]>, nodeId: string, text: string): Artifact {
-  const headingMatch = text.match(/^\s*#\s+(.+?)\s*$/m);
-  const label = headingMatch ? headingMatch[1] : undefined;
-  const artifact: Artifact = {
-    id: `${nodeId}-text`,
-    kind: "text",
-    content: text,
-    mimeType: "text/markdown",
-    ...(label ? { label } : {}),
-  };
-  artifacts.set(nodeId, [artifact]);
-  return artifact;
-}
 
 /**
  * Inlines a relative /api/artifacts/<id> URI as a data:<mime>;base64,... URI
@@ -442,15 +286,6 @@ export async function inlineImageUrl(uri: string, readArtifact: (uri: string) =>
   }
 }
 
-/**
- * Supplemental judging rule appended to every gate criterion. Locally stored
- * artifacts surface as …/api/artifacts/<id> URLs (often on a localhost origin),
- * and model judges otherwise reject them as "not a real upstream URL" — even
- * though they ARE the real upstream output. Enforced here at engine level so
- * no graph config can trip over it.
- */
-const ARTIFACT_URL_NOTE =
-  "\n补充判定规则：凡 URL 路径中包含 /api/artifacts/ 的图片或媒体链接，都是本系统产物库中由上游节点真实产出的存储地址，属于有效的上游真实 URL；不得仅因其域名是本机或内网地址（如 localhost、127.0.0.1）而判定为无效、编造或不符合「真实 URL」要求。";
 
 /**
  * Collect all image URIs reachable from a node via its flow-upstream artifacts
@@ -503,146 +338,17 @@ function assembleInput(
   return body;
 }
 
-/**
- * Build the source brief: the raw material fed at run time plus the structured
- * product/brand/audience fields configured on the source node. This text flows
- * downstream as the first node's artifact, so every writer sees it.
- */
-function buildSourceBrief(node: GraphNode, sourceInput: string | undefined): string {
-  const src = node.source;
-  const lines: string[] = [];
-  if (src?.productName) lines.push(`商品名称：${src.productName}`);
-  if (src?.brand) lines.push(`品牌/店铺：${src.brand}`);
-  if (src?.audience) lines.push(`目标人群：${src.audience}`);
-  if (src?.priceRange) lines.push(`价格定位：${src.priceRange}`);
-  if (src?.tone) lines.push(`语气调性：${src.tone}`);
-  if (src?.prohibited?.trim()) lines.push(`禁用词/禁用说法：${src.prohibited.trim()}`);
-  if (src?.brandTerms?.trim()) lines.push(`品牌词（建议融入）：${src.brandTerms.trim()}`);
-  if (src?.notes?.trim()) lines.push(`补充说明：${src.notes.trim()}`);
-  const raw = sourceInput?.trim();
-  const hasBrief = lines.length > 0;
-  if (raw) lines.push(hasBrief ? `商品描述/原料:\n${raw}` : raw);
-  if (lines.length === 0) return `Task intake at ${node.name}`;
-  return lines.join("\n");
-}
 
-/**
- * Collect prohibited terms declared on any upstream `source` node (reached via
- * flow edges). Splitting on common separators keeps the input forgiving
- * (comma / 空格 / 换行 / 中英文顿号分号 all work). De-duplicated.
- */
-function upstreamProhibitedTerms(graph: Graph, nodeId: string): string[] {
-  const seen = new Set<string>();
-  const stack = [nodeId];
-  const terms = new Set<string>();
-  while (stack.length) {
-    const id = stack.pop()!;
-    for (const e of incoming(graph, id, "flow")) {
-      if (seen.has(e.from)) continue;
-      seen.add(e.from);
-      const n = nodeById(graph, e.from);
-      if (n?.kind === "source" && n.source?.prohibited?.trim()) {
-        for (const raw of n.source.prohibited.split(/[\n,，、;；\s]+/)) {
-          const t = raw.trim();
-          if (t) terms.add(t);
-        }
-      }
-      stack.push(e.from);
-    }
-  }
-  return [...terms];
-}
 
-/**
- * Collect brand terms declared on any upstream `source` node (reached via flow
- * edges). Splitting mirrors upstreamProhibitedTerms. De-duplicated.
- */
-function upstreamBrandTerms(graph: Graph, nodeId: string): string[] {
-  const seen = new Set<string>();
-  const stack = [nodeId];
-  const terms = new Set<string>();
-  while (stack.length) {
-    const id = stack.pop()!;
-    for (const e of incoming(graph, id, "flow")) {
-      if (seen.has(e.from)) continue;
-      seen.add(e.from);
-      const n = nodeById(graph, e.from);
-      if (n?.kind === "source" && n.source?.brandTerms?.trim()) {
-        for (const raw of n.source.brandTerms.split(/[\n,，、;；\s]+/)) {
-          const t = raw.trim();
-          if (t) terms.add(t);
-        }
-      }
-      stack.push(e.from);
-    }
-  }
-  return [...terms];
-}
 
-/** Returns the prohibited terms actually present in `text` (empty if none). */
-function detectProhibited(text: string, terms: string[]): string[] {
-  if (terms.length === 0 || !text) return [];
-  return terms.filter((t) => text.includes(t));
-}
 
-/** Short context snippets around each hit so rework feedback names the exact offending phrases. */
-function prohibitedSnippets(text: string, hits: string[], maxSnippets = 3): string[] {
-  const out: string[] = [];
-  for (const h of hits.slice(0, maxSnippets)) {
-    const i = text.indexOf(h);
-    if (i < 0) continue;
-    const start = Math.max(0, i - 12);
-    const end = Math.min(text.length, i + h.length + 12);
-    const core = text.slice(start, end).replace(/\s+/g, "");
-    out.push(`“${start > 0 ? "…" : ""}${core}${end < text.length ? "…" : ""}”`);
-  }
-  return out;
-}
 
-/** Build a banner-generation prompt from the upstream source's product brief. */
-function buildImagePrompt(node: GraphNode, graph: Graph): string {
-  const seen = new Set<string>();
-  const stack = [node.id];
-  let src: GraphNode | undefined;
-  while (stack.length && !src) {
-    const id = stack.pop()!;
-    for (const e of incoming(graph, id, "flow")) {
-      if (seen.has(e.from)) continue;
-      seen.add(e.from);
-      const n = nodeById(graph, e.from);
-      if (n?.kind === "source") {
-        src = n;
-        break;
-      }
-      stack.push(e.from);
-    }
-  }
-  const s = src?.source;
-  const parts: string[] = [];
-  const name = s?.productName || node.name || "商品";
-  parts.push(`为电商商品「${name}」生成一张高质量主图/Banner`);
-  if (s?.brand) parts.push(`品牌调性：${s.brand}`);
-  if (s?.audience) parts.push(`目标人群：${s.audience}`);
-  if (s?.tone) parts.push(`风格语气：${s.tone}`);
-  if (s?.priceRange) parts.push(`价格定位：${s.priceRange}`);
-  parts.push("构图干净、留白充足、突出卖点，适合作为商品详情页主视觉");
-  return parts.join("；");
-}
 
 /** Default storeBinary: inline the bytes as a data URI (used in tests / when no artifact store is wired). */
 function defaultStoreBinary(data: Buffer, mimeType: string): string {
   return `data:${mimeType};base64,${data.toString("base64")}`;
 }
 
-/**
- * Prefix every node-scoped event with a subprocess scope id
- * (`<subNode>#sub:`), so child-graph events can't collide with parent nodes.
- * Run-level events (run.started/run.finished) pass through untouched.
- */
-function prefixEvent(e: RunEvent, prefix: string): RunEvent {
-  if (!("nodeId" in e) || e.nodeId === undefined) return e;
-  return { ...e, nodeId: prefix + e.nodeId };
-}
 
 /** Simple async event queue so many concurrent node workers can feed one ordered stream. */
 class EventQueue {
@@ -678,7 +384,7 @@ class EventQueue {
   }
 }
 
-interface SchedulerInit {
+export interface SchedulerInit {
   artifacts: Map<string, Artifact[]>;
   attempts: Map<string, number>;
   nodeCostUsd: Map<string, number>;
@@ -692,7 +398,7 @@ interface SchedulerInit {
   variables: Map<string, unknown>;
 }
 
-interface SchedulerOptions {
+export interface SchedulerOptions {
   runId: string;
   graph: Graph;
   plan: Plan;
@@ -791,7 +497,6 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     lastError.set(nodeId, { error: "Rejected by human operator", errorCode: "VALIDATION" });
   }
   let totalCostUsd = opts.init.totalCostUsd;
-  const BUDGET_WARN = 0.8;
   let budgetWarned =
     budgetUsd !== null && budgetUsd > 0 && totalCostUsd >= budgetUsd * BUDGET_WARN;
   let monthlyWarned80 =
@@ -1206,1236 +911,146 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     for (const [k, v] of childInit.nodeCostUsd) nodeCostUsd.set(prefix + k, v);
   };
 
+  // --- Explicit execution context for node handlers in nodes/*.ts (stage 2.2).
+  // Makes the scheduler's shared state explicit: handlers receive this object
+  // instead of closing over runScheduler's locals. Mutable scalars are wired
+  // through getters/setters so scheduler core (bare identifiers) and handlers
+  // (ctx.xxx) read/write the same state. runNode is assigned after its const
+  // declaration below — handlers only ever run after that point.
+  const ctx: NodeRunContext = {
+    opts,
+    runId,
+    graph,
+    plan,
+    worker,
+    budgetUsd,
+    fallbackModel,
+    monthlyBudgetUsd,
+    monthSpentUsd,
+    approved,
+    artifacts,
+    attempts,
+    nodeCostUsd,
+    states,
+    lastError,
+    reworkNotes,
+    loopByGate,
+    loopItemByNode,
+    variables,
+    httpMeta,
+    packetEdges,
+    get status() {
+      return status;
+    },
+    set status(v: Status) {
+      status = v;
+    },
+    get running() {
+      return running;
+    },
+    set running(v: number) {
+      running = v;
+    },
+    get aborted() {
+      return aborted;
+    },
+    set aborted(v: boolean) {
+      aborted = v;
+    },
+    get finished() {
+      return finished;
+    },
+    set finished(v: boolean) {
+      finished = v;
+    },
+    get haltNodeId() {
+      return haltNodeId;
+    },
+    set haltNodeId(v: string | undefined) {
+      haltNodeId = v;
+    },
+    get haltReason() {
+      return haltReason;
+    },
+    set haltReason(v: string | undefined) {
+      haltReason = v;
+    },
+    get totalCostUsd() {
+      return totalCostUsd;
+    },
+    set totalCostUsd(v: number) {
+      totalCostUsd = v;
+    },
+    get budgetWarned() {
+      return budgetWarned;
+    },
+    set budgetWarned(v: boolean) {
+      budgetWarned = v;
+    },
+    get monthlyWarned80() {
+      return monthlyWarned80;
+    },
+    set monthlyWarned80(v: boolean) {
+      monthlyWarned80 = v;
+    },
+    get monthlyWarned100() {
+      return monthlyWarned100;
+    },
+    set monthlyWarned100(v: boolean) {
+      monthlyWarned100 = v;
+    },
+    emit,
+    inputFor,
+    nodeCtx,
+    interpCtx,
+    sendPackets,
+    artifactValue,
+    produceArtifacts,
+    markBranchSkipped,
+    extractSubInit,
+    mergeSubInit,
+    finish,
+    permCfg,
+    imagesFor,
+    handleVariableTool,
+    scheduler: runScheduler,
+    runNode: undefined as unknown as NodeRunContext["runNode"],
+  };
+
   // --- Per-node-kind execution bodies, extracted from runNode's if-chain (2.1).
   // They close over the scheduler's shared state and are invoked from runNode's
   // dispatch switch. `node`/`nodeId`/`attempt` are runNode-local, so passed in.
 
-  const runHuman = async (node: GraphNode, nodeId: string, attempt: number) => {
-    // Pause the run at an arbitrary point for an operator decision. The
-    // upstream text becomes the pending review; approve/edit passes it
-    // downstream, reject fails the node (error edges can catch it).
-    const output = await inputFor(node);
-    emit({ type: "node.started", nodeId, attempt });
-    emit({ type: "human.review", nodeId, attempt, content: output });
-    haltNodeId = nodeId;
-    haltReason = `human:${node.human?.prompt || node.name}`;
-    status = "halted";
-    aborted = true;
-    void notifyHalt({ runId, graphId: graph.id, nodeId, reason: haltReason });
-  };
 
-  const runCompliance = async (node: GraphNode, nodeId: string, attempt: number) => {
-    emit({ type: "node.started", nodeId, attempt });
-    try {
-      const cfg = ComplianceConfig.parse(node.compliance ?? {});
-      const output = await inputFor(node);
-      if (!output.trim()) {
-        states.set(nodeId, "failed");
-        emit({
-          type: "node.failed",
-          nodeId,
-          attempt,
-          error: "合规节点没有收到可校验的文本",
-          errorCode: "VALIDATION",
-        });
-        return;
-      }
-      // Merge the user's stored banned terms with the node's extra list, so
-      // the vocabulary library is honoured without the user re-typing it.
-      const extra = [cfg.extraBanned, opts.bannedTerms ?? ""].filter(Boolean).join(",");
-      const result = checkCompliance({
-        platform: cfg.platform,
-        extraBanned: extra,
-        autoFix: cfg.autoFix,
-        text: output,
-      });
-      const payload = complianceArtifact(result);
-      const jsonArtifact: Artifact = {
-        id: `${nodeId}-compliance`,
-        kind: "json",
-        content: JSON.stringify(payload),
-        mimeType: "application/json",
-      };
-      const produced: Artifact[] = [jsonArtifact];
-      // Downstream nodes consume the sanitized text (autoFix on) or the
-      // original (autoFix off / no violations).
-      const downstreamText = result.sanitized || result.original;
-      setTextArtifact(artifacts, nodeId, downstreamText);
-      artifacts.set(nodeId, [...produced, ...(artifacts.get(nodeId) ?? [])]);
-      for (const a of produced) emit({ type: "artifact.produced", nodeId, attempt, artifact: a });
 
-      if (cfg.failOnViolation && !result.passed) {
-        const first = result.violations[0];
-        states.set(nodeId, "failed");
-        emit({
-          type: "node.failed",
-          nodeId,
-          attempt,
-          error: `合规校验未通过（${result.violations.length} 处违规，首条：${first?.rule ?? ""}）`,
-          errorCode: "VALIDATION",
-        });
-        return;
-      }
 
-      states.set(nodeId, "done");
-      const summary = result.passed
-        ? "合规校验通过"
-        : `合规校验发现 ${result.violations.length} 处违规（已${cfg.autoFix ? "自动修复" : "标注"}）`;
-      emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
-      sendPackets(nodeId, summary, "json");
-    } catch (err) {
-      states.set(nodeId, "failed");
-      emit({
-        type: "node.failed",
-        nodeId,
-        attempt,
-        error: `合规校验节点执行出错: ${err instanceof Error ? err.message : String(err)}`,
-      });
-    }
-  };
 
-  const runPublish = async (node: GraphNode, nodeId: string, attempt: number) => {
-    emit({ type: "node.started", nodeId, attempt });
-    try {
-      const cfg = PublishConfig.parse(node.publish ?? {});
-      const output = await inputFor(node);
-      if (!output.trim()) {
-        states.set(nodeId, "failed");
-        emit({
-          type: "node.failed",
-          nodeId,
-          attempt,
-          error: "发布节点没有收到可整理的文本",
-          errorCode: "VALIDATION",
-        });
-        return;
-      }
-      const pkg = buildPublishPackage(output, cfg);
-      const payload = publishArtifact(pkg);
-      const jsonArtifact: Artifact = {
-        id: `${nodeId}-publish`,
-        kind: "json",
-        content: JSON.stringify(payload),
-        mimeType: "application/json",
-      };
-      const produced: Artifact[] = [jsonArtifact];
-      // Downstream nodes consume the assembled body (falls back to the title).
-      const downstreamText = pkg.body || pkg.title;
-      setTextArtifact(artifacts, nodeId, downstreamText);
-      artifacts.set(nodeId, [...produced, ...(artifacts.get(nodeId) ?? [])]);
-      for (const a of produced) emit({ type: "artifact.produced", nodeId, attempt, artifact: a });
 
-      states.set(nodeId, "done");
-      const summary = `已整理为${pkg.platformLabel}待发布包（标题 ${pkg.title.length} 字 / 正文 ${pkg.body.length} 字）`;
-      emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
-      sendPackets(nodeId, summary, "json");
-    } catch (err) {
-      states.set(nodeId, "failed");
-      emit({
-        type: "node.failed",
-        nodeId,
-        attempt,
-        error: `发布节点执行出错: ${err instanceof Error ? err.message : String(err)}`,
-      });
-    }
-  };
 
-  const runMap = async (node: GraphNode, nodeId: string, attempt: number) => {
-    emit({ type: "node.started", nodeId, attempt });
-    try {
-      const cfg = MapConfig.parse(node.map ?? {});
-      const ctx = nodeCtx(nodeId);
-      const sources = incoming(graph, nodeId, "flow").map((e) => e.from);
-      const sourceId = cfg.source ?? (sources.length === 1 ? sources[0] : undefined);
-      if (!sourceId) {
-        states.set(nodeId, "failed");
-        emit({
-          type: "node.failed",
-          nodeId,
-          attempt,
-          error: "Map 节点需要恰好一个上游节点（或在设置中指定 source）",
-          errorCode: "VALIDATION",
-        });
-        return;
-      }
-      let template: unknown;
-      try {
-        template = JSON.parse(cfg.template);
-      } catch {
-        states.set(nodeId, "failed");
-        emit({
-          type: "node.failed",
-          nodeId,
-          attempt,
-          error:
-            "映射模板不是合法的 JSON：模板整体须是 JSON 文档，${...} 占位符请写在字符串值内（如 \"age\": \"${item.age}\"，纯占位符会自动保留数字/对象类型）",
-          errorCode: "VALIDATION",
-        });
-        return;
-      }
-      const sourceVal = ctx[sourceId];
-      let out: unknown;
-      if (cfg.iterate) {
-        const arr = getByPath(sourceVal, cfg.iterate);
-        if (!Array.isArray(arr)) {
-          states.set(nodeId, "failed");
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: `iterate 路径 "${cfg.iterate}" 解析结果不是数组`,
-            errorCode: "VALIDATION",
-          });
-          return;
-        }
-        out = arr.map((item) => transformJson(template, { ...ctx, item }));
-      } else {
-        out = transformJson(template, { ...ctx, item: sourceVal });
-      }
-      const content = JSON.stringify(out);
-      const artifact: Artifact = {
-        id: `${nodeId}-map-json`,
-        kind: "json",
-        content,
-        mimeType: "application/json",
-      };
-      artifacts.set(nodeId, [artifact]);
-      emit({ type: "artifact.produced", nodeId, attempt, artifact });
-      states.set(nodeId, "done");
-      const summary =
-        cfg.iterate && Array.isArray(out)
-          ? `映射 ${out.length} 项 → ${truncateText(content, 60)}`
-          : `映射完成 → ${truncateText(content, 60)}`;
-      emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
-      sendPackets(nodeId, summary, "json");
-    } catch (err) {
-      states.set(nodeId, "failed");
-      emit({
-        type: "node.failed",
-        nodeId,
-        attempt,
-        error: `Map 节点执行出错: ${err instanceof Error ? err.message : String(err)}`,
-      });
-    }
-  };
 
-  const runParallel = async (node: GraphNode, nodeId: string, attempt: number) => {
-    emit({ type: "node.started", nodeId, attempt });
-    try {
-      const cfg = ParallelConfig.parse(node.parallel ?? {});
-      const ins = incoming(graph, nodeId, "flow");
-      const values: unknown[] = [];
-      const byId: Record<string, unknown> = {};
-      for (const e of ins) {
-        const arts = artifacts.get(e.from) ?? [];
-        const json = arts.find((a) => a.kind === "json");
-        let val: unknown = null;
-        if (json?.content) {
-          try {
-            val = JSON.parse(json.content);
-          } catch {
-            val = json.content;
-          }
-        } else {
-          const text = arts.find((a) => a.kind === "text");
-          val = text?.content ?? "";
-        }
-        if (cfg.pick) {
-          const picked = getByPath(val, cfg.pick);
-          if (picked !== undefined) val = picked;
-        }
-        values.push(val);
-        byId[e.from] = val;
-      }
-      const out = cfg.asObject ? byId : values;
-      const content = JSON.stringify(out);
-      const artifact: Artifact = {
-        id: `${nodeId}-parallel-json`,
-        kind: "json",
-        content,
-        mimeType: "application/json",
-      };
-      artifacts.set(nodeId, [artifact]);
-      emit({ type: "artifact.produced", nodeId, attempt, artifact });
-      states.set(nodeId, "done");
-      const summary = `聚合 ${ins.length} 个分支 → ${truncateText(content, 60)}`;
-      emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
-      sendPackets(nodeId, summary, "json");
-    } catch (err) {
-      states.set(nodeId, "failed");
-      emit({
-        type: "node.failed",
-        nodeId,
-        attempt,
-        error: `Parallel 节点执行出错: ${err instanceof Error ? err.message : String(err)}`,
-      });
-    }
-  };
 
-  const runDatabase = async (node: GraphNode, nodeId: string, attempt: number) => {
-    emit({ type: "node.started", nodeId, attempt });
-    try {
-      const cfg = DatabaseConfig.parse(node.database ?? {});
-      if (!cfg.sql.trim()) {
-        states.set(nodeId, "failed");
-        emit({
-          type: "node.failed",
-          nodeId,
-          attempt,
-          error: "数据库节点需要填写 SQL 语句",
-          errorCode: "VALIDATION",
-        });
-        return;
-      }
-      const driver = createSqliteDriver(cfg.path);
-      try {
-        driver.setup(cfg.setupSql);
-        const result = driver.query(cfg.sql, {
-          positional: cfg.positionalParams,
-          named: cfg.namedParams,
-        });
-        if (result.rows !== undefined) {
-          const content = JSON.stringify({
-            rows: result.rows,
-            count: result.rows.length,
-            columns: result.columns ?? [],
-          });
-          const produced: Artifact[] = [
-            { id: `${nodeId}-db-json`, kind: "json", content, mimeType: "application/json" },
-          ];
-          artifacts.set(nodeId, produced);
-          for (const a of produced) emit({ type: "artifact.produced", nodeId, attempt, artifact: a });
-          states.set(nodeId, "done");
-          const summary = `数据库查询完成：${result.rows.length} 行 × ${(result.columns ?? []).length} 列`;
-          emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
-          sendPackets(nodeId, summary, "json");
-        } else {
-          const content = JSON.stringify({
-            affectedRows: result.affectedRows ?? 0,
-            lastInsertId: result.lastInsertId ?? null,
-          });
-          const produced: Artifact[] = [
-            { id: `${nodeId}-db-json`, kind: "json", content, mimeType: "application/json" },
-          ];
-          artifacts.set(nodeId, produced);
-          for (const a of produced) emit({ type: "artifact.produced", nodeId, attempt, artifact: a });
-          states.set(nodeId, "done");
-          const summary = `数据库执行完成：影响 ${result.affectedRows ?? 0} 行`;
-          emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
-          sendPackets(nodeId, summary, "json");
-        }
-      } finally {
-        driver.close();
-      }
-    } catch (err) {
-      states.set(nodeId, "failed");
-      emit({
-        type: "node.failed",
-        nodeId,
-        attempt,
-        error: `数据库节点执行出错: ${err instanceof Error ? err.message : String(err)}`,
-      });
-    }
-  };
 
-  const runBranch = async (node: GraphNode, nodeId: string, attempt: number) => {
-    emit({ type: "node.started", nodeId, attempt });
-    const cfg: BranchConfig = BranchConfig.parse(node.branch ?? {});
-    const ctx = interpCtx(nodeId);
-    let target: string | undefined;
-    let matchedRule: string | undefined;
-    for (const rule of cfg.rules ?? []) {
-      if (evaluateCondition(rule.when, ctx)) {
-        target = rule.target;
-        matchedRule = rule.id;
-        break;
-      }
-    }
-    if (!target && cfg.defaultTarget) {
-      target = cfg.defaultTarget;
-      matchedRule = undefined;
-    }
-    if (target) {
-      const edge = outgoing(graph, nodeId, "flow").find((e) => e.to === target);
-      if (edge) {
-        packetEdges.add(edge.id);
-        emit({
-          type: "packet.sent",
-          edgeId: edge.id,
-          from: nodeId,
-          to: target,
-          summary: matchedRule ? `命中分支 ${matchedRule}` : "默认分支",
-          artifactKind: "text",
-        });
-      }
-    }
-    states.set(nodeId, "done");
-    markBranchSkipped(nodeId, target);
-    const output = target
-      ? `路由 → ${nodeById(graph, target)?.name ?? target}${matchedRule ? `（${matchedRule}）` : "（默认）"}`
-      : "未命中任何分支，报文被丢弃";
-    emit({ type: "node.finished", nodeId, attempt, output, usage: zeroUsage() });
-  };
 
-  const runOcr = async (node: GraphNode, nodeId: string, attempt: number) => {
-    emit({ type: "node.started", nodeId, attempt });
-    try {
-      const cfg = OcrConfig.parse(node.ocr ?? {});
-      const sources = incoming(graph, nodeId, "flow").map((e) => e.from);
-      const sourceId = cfg.source ?? (sources.length === 1 ? sources[0] : undefined);
-      if (!sourceId) {
-        states.set(nodeId, "failed");
-        emit({
-          type: "node.failed",
-          nodeId,
-          attempt,
-          error: "OCR 节点需要唯一上游，或在配置中显式指定数据来源",
-          errorCode: "VALIDATION",
-        });
-        return;
-      }
-      const arts = artifacts.get(sourceId) ?? [];
-      const images = arts.filter((a) => a.kind === "image" && a.uri);
-      if (images.length === 0) {
-        states.set(nodeId, "failed");
-        emit({
-          type: "node.failed",
-          nodeId,
-          attempt,
-          error: `上游「${nodeById(graph, sourceId)?.name ?? sourceId}」没有产出可识别的图片（需要 image 产物）`,
-          errorCode: "VALIDATION",
-        });
-        return;
-      }
-      const blocks: string[] = [];
-      let totalConfidence = 0;
-      for (const art of images) {
-        const resolved = opts.readArtifact ? await opts.readArtifact(art.uri!) : null;
-        if (!resolved) {
-          states.set(nodeId, "failed");
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: `无法读取图片内容（${art.uri}）`,
-            errorCode: "PROVIDER_ERROR",
-          });
-          return;
-        }
-        const buf = dataUriToBuffer(resolved);
-        let res: { text: string; confidence: number };
-        try {
-          res = await ocrImage(buf, cfg);
-        } catch (err) {
-          states.set(nodeId, "failed");
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: `OCR 识别失败: ${sanitizeError(err instanceof Error ? err.message : String(err))}`,
-            errorCode: "PROVIDER_ERROR",
-          });
-          return;
-        }
-        blocks.push(res.text);
-        totalConfidence += res.confidence;
-      }
-      const output = blocks.join("\n\n").trim();
-      setTextArtifact(artifacts, nodeId, output);
-      states.set(nodeId, "done");
-      const avgConf = images.length ? Math.round(totalConfidence / images.length) : 0;
-      const summary = output
-        ? `识别完成：${images.length} 张图片，${output.length} 字符，平均置信度 ${avgConf}%`
-        : "识别完成：未识别到文字";
-      emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
-      const primaryKind = produceArtifacts(nodeId, output, attempt);
-      sendPackets(nodeId, summary, primaryKind);
-    } catch (err) {
-      states.set(nodeId, "failed");
-      emit({
-        type: "node.failed",
-        nodeId,
-        attempt,
-        error: `OCR 节点执行出错: ${sanitizeError(err instanceof Error ? err.message : String(err))}`,
-      });
-    }
-  };
 
-  const runConvert = async (node: GraphNode, nodeId: string, attempt: number) => {
-    emit({ type: "node.started", nodeId, attempt });
-    try {
-      const cfg = ConvertConfig.parse(node.convert ?? {});
-      const sources = incoming(graph, nodeId, "flow").map((e) => e.from);
-      const sourceId = cfg.source ?? (sources.length === 1 ? sources[0] : undefined);
-      if (!sourceId) {
-        states.set(nodeId, "failed");
-        emit({
-          type: "node.failed",
-          nodeId,
-          attempt,
-          error: "文件转换节点需要唯一上游，或在配置中显式指定数据来源",
-          errorCode: "VALIDATION",
-        });
-        return;
-      }
-      const arts = artifacts.get(sourceId) ?? [];
-      const produced: Artifact[] = [];
-      const ext = (mime: string) => (mime === "image/png" ? "png" : mime === "image/jpeg" ? "jpg" : (mime.split("/")[1] ?? "bin"));
-      if (cfg.to === "image") {
-        // pdf → image: extract every embedded image (scanned pages = one image each).
-        const fileArt = arts.find((a) => a.kind === "file" && a.uri);
-        if (!fileArt) {
-          states.set(nodeId, "failed");
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: `上游「${nodeById(graph, sourceId)?.name ?? sourceId}」没有产出可转换的文件产物（PDF → 图片需要 file 产物）`,
-            errorCode: "VALIDATION",
-          });
-          return;
-        }
-        const resolved = opts.readArtifact ? await opts.readArtifact(fileArt.uri!) : null;
-        if (!resolved) {
-          states.set(nodeId, "failed");
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: `无法读取文件内容（${fileArt.uri}）`,
-            errorCode: "PROVIDER_ERROR",
-          });
-          return;
-        }
-        const buf = dataUriToBuffer(resolved);
-        const images = await extractPdfImages(
-          new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength),
-        );
-        if (images.length === 0) {
-          states.set(nodeId, "failed");
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: "文件中没有可提取的图片（纯文本 PDF 无法转为图片）",
-            errorCode: "VALIDATION",
-          });
-          return;
-        }
-        for (const [idx, img] of images.entries()) {
-          const uri = await opts.storeBinary(
-            Buffer.from(img.data),
-            img.mimeType,
-            `${node.name || "convert"}-${idx + 1}.${ext(img.mimeType)}`,
-          );
-          produced.push({
-            id: `${nodeId}-img-${idx}`,
-            kind: "image",
-            uri,
-            mimeType: img.mimeType,
-            label: `${fileArt.label ?? "文件"} 图片 ${idx + 1}`,
-          });
-        }
-      } else {
-        // image → png/jpeg: re-encode every upstream image artifact.
-        const inputs = arts.filter(
-          (a) =>
-            a.uri &&
-            (a.kind === "image" || (a.kind === "file" && (a.mimeType ?? "").startsWith("image/"))),
-        );
-        if (inputs.length === 0) {
-          states.set(nodeId, "failed");
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: `上游「${nodeById(graph, sourceId)?.name ?? sourceId}」没有产出可转换的图片（需要 image 产物或图片类文件）`,
-            errorCode: "VALIDATION",
-          });
-          return;
-        }
-        const mime = cfg.to === "jpeg" ? "image/jpeg" : "image/png";
-        for (const [idx, art] of inputs.entries()) {
-          const resolved = opts.readArtifact ? await opts.readArtifact(art.uri!) : null;
-          if (!resolved) {
-            states.set(nodeId, "failed");
-            emit({
-              type: "node.failed",
-              nodeId,
-              attempt,
-              error: `无法读取图片内容（${art.uri}）`,
-              errorCode: "PROVIDER_ERROR",
-            });
-            return;
-          }
-          const buf = dataUriToBuffer(resolved);
-          let out: Buffer;
-          try {
-            const decoded = decodeImage(buf);
-            out = cfg.to === "jpeg" ? encodeJpeg(decoded, cfg.quality) : encodePng(decoded);
-          } catch (err) {
-            states.set(nodeId, "failed");
-            emit({
-              type: "node.failed",
-              nodeId,
-              attempt,
-              error: `图片转换失败: ${err instanceof Error ? err.message : String(err)}`,
-              errorCode: "PROVIDER_ERROR",
-            });
-            return;
-          }
-          const uri = await opts.storeBinary(
-            out,
-            mime,
-            `${node.name || "convert"}-${idx + 1}.${cfg.to}`,
-          );
-          produced.push({
-            id: `${nodeId}-img-${idx}`,
-            kind: "image",
-            uri,
-            mimeType: mime,
-            label: `${art.label ?? "图片"} → ${cfg.to.toUpperCase()}`,
-          });
-        }
-      }
-      artifacts.set(nodeId, produced);
-      for (const a of produced) emit({ type: "artifact.produced", nodeId, attempt, artifact: a });
-      states.set(nodeId, "done");
-      const summary =
-        cfg.to === "image"
-          ? `转换完成：提取 ${produced.length} 张图片`
-          : `转换完成：${produced.length} 张图片转为 ${cfg.to.toUpperCase()}`;
-      emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
-      sendPackets(nodeId, summary, "image");
-    } catch (err) {
-      states.set(nodeId, "failed");
-      emit({
-        type: "node.failed",
-        nodeId,
-        attempt,
-        error: `文件转换节点执行出错: ${sanitizeError(err instanceof Error ? err.message : String(err))}`,
-      });
-    }
-  };
 
-  const runSearch = async (node: GraphNode, nodeId: string, attempt: number) => {
-    emit({ type: "node.started", nodeId, attempt });
-    try {
-      const cfg = SearchConfig.parse(node.search ?? {});
-      let query = cfg.query.trim();
-      if (!query) {
-        // Fall back to the first upstream text artifact — lets an agent
-        // generate the query and a search node execute it.
-        const sources = incoming(graph, nodeId, "flow").map((e) => e.from);
-        for (const s of sources) {
-          const t = (artifacts.get(s) ?? []).find((a) => a.kind === "text")?.content;
-          if (t?.trim()) {
-            query = t.trim().slice(0, 300);
-            break;
-          }
-        }
-      }
-      if (!query) {
-        states.set(nodeId, "failed");
-        emit({
-          type: "node.failed",
-          nodeId,
-          attempt,
-          error: "没有可用的搜索词（请在配置中填写 query，或连接产出 text 的上游）",
-          errorCode: "VALIDATION",
-        });
-        return;
-      }
-      let hits: { title: string; url: string; snippet: string }[];
-      try {
-        hits = await searchWeb(query, cfg);
-      } catch (err) {
-        states.set(nodeId, "failed");
-        emit({
-          type: "node.failed",
-          nodeId,
-          attempt,
-          error: `搜索失败: ${sanitizeError(err instanceof Error ? err.message : String(err))}`,
-          errorCode: err instanceof SearchAuthError ? "AUTH" : "PROVIDER_ERROR",
-        });
-        return;
-      }
-      const listing = hits
-        .map((h, i) => `${i + 1}. ${h.title}\n   ${h.url}${h.snippet ? `\n   ${h.snippet}` : ""}`)
-        .join("\n\n");
-      const output = listing || `没有找到与「${query}」相关的结果`;
-      const produced: Artifact[] = [
-        { id: `${nodeId}-txt`, kind: "text", content: output, mimeType: "text/plain" },
-        {
-          id: `${nodeId}-json`,
-          kind: "json",
-          content: JSON.stringify({ query, provider: cfg.provider, results: hits }, null, 2),
-          mimeType: "application/json",
-        },
-      ];
-      artifacts.set(nodeId, produced);
-      for (const a of produced) emit({ type: "artifact.produced", nodeId, attempt, artifact: a });
-      states.set(nodeId, "done");
-      const summary = `搜索完成：「${query}」→ ${hits.length} 条结果（${cfg.provider}）`;
-      emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
-      sendPackets(nodeId, summary, "text");
-    } catch (err) {
-      states.set(nodeId, "failed");
-      emit({
-        type: "node.failed",
-        nodeId,
-        attempt,
-        error: `搜索节点执行出错: ${sanitizeError(err instanceof Error ? err.message : String(err))}`,
-      });
-    }
-  };
 
-  const runHttp = async (node: GraphNode, nodeId: string, attempt: number) => {
-    emit({ type: "node.started", nodeId, attempt });
-    const cfg: HttpNodeConfig = HttpNodeConfig.parse(node.http ?? {});
 
-    const ctx = interpCtx(nodeId);
-    const interpolatedUrl = evaluateTemplate(cfg.url, ctx);
-    if (!interpolatedUrl.trim()) {
-      states.set(nodeId, "failed");
-      status = "failed";
-      emit({
-        type: "node.failed",
-        nodeId,
-        attempt,
-        error: "HTTP 节点 URL 为空",
-        errorCode: "VALIDATION",
-      });
-      return;
-    }
 
-    let targetUrl: URL;
-    try {
-      targetUrl = new URL(interpolatedUrl);
-    } catch {
-      states.set(nodeId, "failed");
-      status = "failed";
-      emit({
-        type: "node.failed",
-        nodeId,
-        attempt,
-        error: `HTTP 节点 URL 不合法: ${interpolatedUrl}`,
-        errorCode: "VALIDATION",
-      });
-      return;
-    }
 
-    for (const [key, raw] of Object.entries(cfg.query ?? {})) {
-      try {
-        targetUrl.searchParams.set(key, evaluateTemplate(raw, ctx));
-      } catch {
-        // skip invalid params
-      }
-    }
 
-    const headers: Record<string, string> = {};
-    for (const [key, raw] of Object.entries(cfg.headers ?? {})) {
-      headers[key] = evaluateTemplate(raw, ctx);
-    }
-    const contentType = headers["content-type"] ?? headers["Content-Type"];
-    const body = cfg.body ? evaluateTemplate(cfg.body, ctx) : undefined;
 
-    // SSRF guard: refuse private/internal targets (resolved at fetch time,
-    // so DNS rebinding can't smuggle an internal address past the check).
-    if (!allowPrivateNetwork() && (await hostIsInternal(targetUrl.hostname))) {
-      states.set(nodeId, "failed");
-      status = "failed";
-      emit({
-        type: "node.failed",
-        nodeId,
-        attempt,
-        error: "HTTP 节点拒绝访问内网或私网地址（SSRF 防护）",
-        errorCode: "VALIDATION",
-      });
-      return;
-    }
 
-    let response: Response;
-    try {
-      response = await withRetry(
-        async () => {
-          // All outbound traffic leaves through guardedFetch: the DNS
-          // answer that passes the internal check is the one the TCP/TLS
-          // connection is pinned to (no check-vs-connect TOCTOU, audit
-          // H3), and redirects are re-validated on every hop (audit C3).
-          const abort = new AbortController();
-          const timer = setTimeout(() => abort.abort(), cfg.timeoutMs);
-          try {
-            const r = await guardedFetch(targetUrl.toString(), {
-              method: cfg.method,
-              headers,
-              body: body && cfg.method !== "GET" ? body : undefined,
-              signal: abort.signal,
-              maxRedirects: 5,
-            });
-            // 5xx triggers the retry path; deterministic guard rejections
-            // (GuardedFetchError) are excluded from retry below.
-            // failOnError: false means the caller wants the status as data
-            // (health checks), so 5xx must complete the node, not retry.
-            if (cfg.failOnError && r.status >= 500) throw new Error(`HTTP ${r.status}`);
-            return r;
-          } finally {
-            clearTimeout(timer);
-          }
-        },
-        cfg.retry,
-        // AbortError means the attempt timed out; deterministic failures
-        // (SSRF rejection, redirect budget exhausted) must not be retried.
-        (err) =>
-          !(err instanceof Error && err.name === "AbortError") &&
-          !(err instanceof Error && /SSRF 防护|重定向超过/.test(err.message)),
-        opts.sleep,
-      );
-    } catch (err) {
-      states.set(nodeId, "failed");
-      status = "failed";
-      const msg = err instanceof Error ? err.message : String(err);
-      emit({
-        type: "node.failed",
-        nodeId,
-        attempt,
-        error: `HTTP 请求失败: ${msg}`,
-        errorCode: msg.includes("SSRF 防护") ? "VALIDATION" : "PROVIDER_ERROR",
-      });
-      return;
-    }
 
-    // Expose response metadata for branch / notify interpolation
-    // (`${nodeId.ok}` etc.); the artifact below carries only the payload.
-    httpMeta.set(nodeId, {
-      ok: response.ok,
-      status: response.status,
-      url: targetUrl.toString(),
-      method: cfg.method,
-    });
 
-    if (cfg.outputMode === "file") {
-      let arrayBuf: ArrayBuffer;
-      try {
-        arrayBuf = await response.arrayBuffer();
-      } catch (err) {
-        states.set(nodeId, "failed");
-        status = "failed";
-        const msg = err instanceof Error ? err.message : String(err);
-        emit({
-          type: "node.failed",
-          nodeId,
-          attempt,
-          error: `读取 HTTP 响应失败: ${msg}`,
-          errorCode: "PROVIDER_ERROR",
-        });
-        return;
-      }
-      if (cfg.failOnError && (response.status < 200 || response.status >= 300)) {
-        states.set(nodeId, "failed");
-        status = "failed";
-        emit({
-          type: "node.failed",
-          nodeId,
-          attempt,
-          error: `HTTP ${cfg.method} ${targetUrl.toString()} 返回 ${response.status}`,
-          errorCode: "PROVIDER_ERROR",
-        });
-        return;
-      }
-      const bytes = Buffer.from(arrayBuf);
-      const ctHeader = response.headers.get("content-type") ?? "";
-      const mime = (ctHeader.split(";")[0] ?? "").trim() || "application/octet-stream";
-      const fileName = fileLabelFromUrl(targetUrl);
-      const uri = await opts.storeBinary(bytes, mime, fileName);
-      const artifact: Artifact = {
-        id: `${nodeId}-file`,
-        kind: "file",
-        uri,
-        mimeType: mime,
-        label: fileName,
-        sizeBytes: bytes.length,
-      };
-      artifacts.set(nodeId, [artifact]);
-      emit({ type: "artifact.produced", nodeId, attempt, artifact });
-      states.set(nodeId, "done");
-      const summary = `已下载文件：${fileName}（${bytes.length} 字节，${mime}）`;
-      emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
-      sendPackets(nodeId, summary, "file");
-      return;
-    }
 
-    let responseText: string;
-    try {
-      responseText = await response.text();
-    } catch (err) {
-      states.set(nodeId, "failed");
-      status = "failed";
-      const msg = err instanceof Error ? err.message : String(err);
-      emit({
-        type: "node.failed",
-        nodeId,
-        attempt,
-        error: `读取 HTTP 响应失败: ${msg}`,
-        errorCode: "PROVIDER_ERROR",
-      });
-      return;
-    }
 
-    const contentTypeHeader = response.headers.get("content-type") ?? "";
-    const isJsonByHeader = /application\/json|text\/json/i.test(contentTypeHeader);
-    const canParseJson = (() => {
-      try {
-        JSON.parse(responseText);
-        return true;
-      } catch {
-        return false;
-      }
-    })();
-    const asJson = cfg.outputMode === "json" || (cfg.outputMode === "auto" && isJsonByHeader && canParseJson);
 
-    if (cfg.failOnError && (response.status < 200 || response.status >= 300)) {
-      states.set(nodeId, "failed");
-      status = "failed";
-      emit({
-        type: "node.failed",
-        nodeId,
-        attempt,
-        error: `HTTP ${cfg.method} ${targetUrl.toString()} 返回 ${response.status}: ${responseText.slice(0, 200)}`,
-        errorCode: "PROVIDER_ERROR",
-      });
-      return;
-    }
 
-    const output = asJson ? JSON.stringify(JSON.parse(responseText), null, 2) : responseText;
-    const artifact: Artifact = asJson
-      ? { id: `${nodeId}-json`, kind: "json", content: output, mimeType: "application/json" }
-      : { id: `${nodeId}-text`, kind: "text", content: output, mimeType: "text/plain" };
-    artifacts.set(nodeId, [artifact]);
-    emit({ type: "artifact.produced", nodeId, attempt, artifact });
-    states.set(nodeId, "done");
-    emit({ type: "node.finished", nodeId, attempt, output, usage: zeroUsage() });
-    sendPackets(nodeId, output.slice(0, 120), artifact.kind);
-  };
 
-  const runTable = async (node: GraphNode, nodeId: string, attempt: number) => {
-    emit({ type: "node.started", nodeId, attempt });
-    try {
-      const cfg = TableConfig.parse(node.table ?? {});
-      const ctx = nodeCtx(nodeId);
-      const sources = incoming(graph, nodeId, "flow").map((e) => e.from);
-      const sourceId = cfg.source ?? (sources.length === 1 ? sources[0] : undefined);
-      if (!sourceId) {
-        states.set(nodeId, "failed");
-        emit({
-          type: "node.failed",
-          nodeId,
-          attempt,
-          error: "Table 节点需要恰好一个上游节点（或在设置中指定 source）",
-          errorCode: "VALIDATION",
-        });
-        return;
-      }
-      let input: TableInput;
-      try {
-        input = tableInputFrom(ctx[sourceId]);
-      } catch (err) {
-        states.set(nodeId, "failed");
-        emit({
-          type: "node.failed",
-          nodeId,
-          attempt,
-          error: err instanceof Error ? err.message : String(err),
-          errorCode: "VALIDATION",
-        });
-        return;
-      }
-      const { rows, output } = applyTableSteps(input, cfg.steps);
-      const columns = collectColumns(rows);
-      const content = JSON.stringify({ rows, count: rows.length, columns });
-      const produced: Artifact[] = [
-        { id: `${nodeId}-table-json`, kind: "json", content, mimeType: "application/json" },
-      ];
-      if (output === "csv") {
-        produced.push({
-          id: `${nodeId}-table-csv`,
-          kind: "text",
-          content: rowsToCsv(rows, columns),
-          mimeType: "text/csv",
-        });
-      }
-      artifacts.set(nodeId, produced);
-      for (const a of produced) emit({ type: "artifact.produced", nodeId, attempt, artifact: a });
-      states.set(nodeId, "done");
-      const summary = `表格处理完成：${rows.length} 行 × ${columns.length} 列（${output === "csv" ? "CSV" : "JSON"} 输出）`;
-      emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
-      sendPackets(nodeId, summary, "json");
-    } catch (err) {
-      states.set(nodeId, "failed");
-      emit({
-        type: "node.failed",
-        nodeId,
-        attempt,
-        error: `Table 节点执行出错: ${err instanceof Error ? err.message : String(err)}`,
-      });
-    }
-  };
 
-  const runFileParse = async (node: GraphNode, nodeId: string, attempt: number) => {
-    emit({ type: "node.started", nodeId, attempt });
-    try {
-      const cfg = FileParseConfig.parse(node.fileParse ?? {});
-      const sources = incoming(graph, nodeId, "flow").map((e) => e.from);
-      const sourceId = cfg.source ?? (sources.length === 1 ? sources[0] : undefined);
-      if (!sourceId) {
-        states.set(nodeId, "failed");
-        emit({
-          type: "node.failed",
-          nodeId,
-          attempt,
-          error: "文件解析节点需要唯一上游，或在配置中显式指定数据来源",
-          errorCode: "VALIDATION",
-        });
-        return;
-      }
-      const arts = artifacts.get(sourceId) ?? [];
-      const fileArts = arts.filter((a) => a.kind === "file" && a.uri);
-      if (fileArts.length === 0) {
-        states.set(nodeId, "failed");
-        emit({
-          type: "node.failed",
-          nodeId,
-          attempt,
-          error: `上游「${nodeById(graph, sourceId)?.name ?? sourceId}」没有产出文件产物`,
-          errorCode: "VALIDATION",
-        });
-        return;
-      }
-      // Parse every uploaded document (was: first only — a batch of contracts
-      // or due-diligence files silently dropped all but the first). Multi-doc
-      // text is joined under per-file headers so downstream textGen can tell
-      // the documents apart; the single-doc path stays byte-identical.
-      const blocks: string[] = [];
-      const images: { data: Buffer; mimeType: string; label: string }[] = [];
-      let unresolvedCount = 0;
-      for (const [i, fileArt] of fileArts.entries()) {
-        const resolved = opts.readArtifact ? await opts.readArtifact(fileArt.uri!) : null;
-        if (!resolved) {
-          unresolvedCount++;
-          continue;
-        }
-        const parsed = await parseDocument(dataUriToBuffer(resolved), fileArt.mimeType);
-        const label = fileArt.label ?? `文档 ${i + 1}`;
-        const header = fileArts.length > 1 ? `===== ${label} =====` : "";
-        blocks.push(header ? `${header}\n${parsed.text}` : parsed.text);
-        for (const img of parsed.images) {
-          images.push({ data: Buffer.from(img.data), mimeType: img.mimeType, label: `${label} 图片 ${images.length + 1}` });
-        }
-      }
-      if (blocks.length === 0) {
-        const capMb = Math.floor(MAX_INLINE_BYTES / (1024 * 1024));
-        states.set(nodeId, "failed");
-        emit({
-          type: "node.failed",
-          nodeId,
-          attempt,
-          error: `无法读取文件内容（${fileArts[0]!.uri}）：产物字节不存在，或文件超过解析上限 ${capMb}MB（上传允许 25MB，但解析需要整体内联读入）`,
-          errorCode: "PROVIDER_ERROR",
-        });
-        return;
-      }
-      const output = blocks.join("\n\n");
-      const produced: Artifact[] = [
-        { id: `${nodeId}-txt`, kind: "text", content: output, mimeType: "text/plain" },
-      ];
-      for (const [idx, img] of images.slice(0, cfg.maxImages).entries()) {
-        const ext =
-          img.mimeType === "image/png"
-            ? "png"
-            : img.mimeType === "image/jpeg"
-              ? "jpg"
-              : (img.mimeType.split("/")[1] ?? "bin");
-        const uri = await opts.storeBinary(
-          Buffer.from(img.data),
-          img.mimeType,
-          `${node.name || "file-parse"}-${idx + 1}.${ext}`,
-        );
-        produced.push({
-          id: `${nodeId}-img-${idx}`,
-          kind: "image",
-          uri,
-          mimeType: img.mimeType,
-          label: img.label,
-        });
-      }
-      artifacts.set(nodeId, produced);
-      for (const a of produced) emit({ type: "artifact.produced", nodeId, attempt, artifact: a });
-      states.set(nodeId, "done");
-      const imgCount = produced.length - 1;
-      const parsedCount = fileArts.length - unresolvedCount;
-      const summary = `解析完成：${parsedCount} 个文档，${output.length} 字符文本${imgCount ? `，提取 ${imgCount} 张图片` : ""}${unresolvedCount > 0 ? `；另有 ${unresolvedCount} 个文档无法读取` : ""}`;
-      emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
-      sendPackets(nodeId, summary, "text");
-    } catch (err) {
-      states.set(nodeId, "failed");
-      emit({
-        type: "node.failed",
-        nodeId,
-        attempt,
-        error: `文件解析节点执行出错: ${err instanceof Error ? err.message : String(err)}`,
-      });
-    }
-  };
 
-  const runTranslate = async (node: GraphNode, nodeId: string, attempt: number) => {
-    emit({ type: "node.started", nodeId, attempt });
-    const cfg = TranslateConfig.parse(node.translate ?? {});
-    const sources = incoming(graph, nodeId, "flow").map((e) => e.from);
-    const sourceId = cfg.source ?? (sources.length === 1 ? sources[0] : undefined);
-    if (!sourceId) {
-      states.set(nodeId, "failed");
-      emit({
-        type: "node.failed",
-        nodeId,
-        attempt,
-        error: "翻译节点需要唯一上游，或在配置中显式指定数据来源",
-        errorCode: "VALIDATION",
-      });
-      return;
-    }
-    const arts = artifacts.get(sourceId) ?? [];
-    const textArt = arts.find((a) => a.kind === "text");
-    const jsonArt = arts.find((a) => a.kind === "json");
-    let sourceText = textArt?.content ?? "";
-    if (!sourceText && jsonArt) {
-      sourceText =
-        typeof jsonArt.content === "string" ? jsonArt.content : JSON.stringify(jsonArt.content, null, 2);
-    }
-    if (!sourceText.trim()) {
-      states.set(nodeId, "failed");
-      emit({
-        type: "node.failed",
-        nodeId,
-        attempt,
-        error: `上游「${nodeById(graph, sourceId)?.name ?? sourceId}」没有产出可翻译的文本`,
-        errorCode: "VALIDATION",
-      });
-      return;
-    }
-    const config = {
-      model: cfg.model || fallbackModel,
-      prompt: [
-        `你是专业的翻译引擎。请把用户提供的文本翻译成${cfg.target}。`,
-        "要求：忠实原文、不增删内容、不解释不改写；保留原文的换行、编号与段落结构；",
-        "直接输出译文本身，不要加任何说明、引号或前后缀。",
-      ].join("\n"),
-      skills: [],
-      temperature: cfg.temperature,
-      timeoutMs: 120000,
-      inputPolicy: { mode: "all" as const },
-      retry: cfg.retry,
-    };
-    let result: { output: string; usage: Usage } | null = null;
-    let lastError: { message: string; code?: string } | null = null;
-    const maxAttempts = 1 + config.retry.maxRetries;
-    for (let tryIdx = 0; tryIdx < maxAttempts; tryIdx++) {
-      if (opts.signal?.aborted || aborted) {
-        aborted = true;
-        return;
-      }
-      try {
-        const gen = worker.runTextGen({
-          node,
-          config,
-          attempt,
-          input: sourceText,
-          signal: opts.signal,
-        });
-        let output = "";
-        let usage: Usage | null = null;
-        while (true) {
-          const step = await gen.next();
-          if (step.done) {
-            output = step.value.output;
-            usage = step.value.usage;
-            break;
-          }
-          if (opts.signal?.aborted || aborted) {
-            aborted = true;
-            return;
-          }
-          if (step.value.type === "text-delta") {
-            emit({ type: "node.delta", nodeId, attempt, text: step.value.text });
-          }
-        }
-        result = { output, usage: usage ?? zeroUsage() };
-        break;
-      } catch (err) {
-        const code = err instanceof ProviderError ? err.code : "UNKNOWN";
-        lastError = { message: (err as Error).message, code };
-        if (!RETRYABLE.has(code) || tryIdx >= maxAttempts - 1) break;
-        await opts.sleep(Math.min(config.retry.maxDelayMs, config.retry.baseDelayMs * 2 ** tryIdx));
-      }
-    }
-    if (!result) {
-      states.set(nodeId, "failed");
-      emit({
-        type: "node.failed",
-        nodeId,
-        attempt,
-        error: sanitizeError(lastError?.message ?? "翻译调用失败，无输出"),
-        errorCode: (lastError?.code as
-          | "TIMEOUT"
-          | "RATE_LIMIT"
-          | "PROVIDER_ERROR"
-          | "SCRIPT_ERROR"
-          | "AUTH"
-          | "VALIDATION"
-          | "UNKNOWN"
-          | "UNSUPPORTED"
-          | undefined) ?? "UNKNOWN",
-      });
-      status = "failed";
-      return;
-    }
-    // Same contract as the textGen branch: a 200 with no text is not a
-    // translation. Shipping an empty artifact here means the run reports
-    // done with nothing translated.
-    if (!result.output.trim()) {
-      states.set(nodeId, "failed");
-      emit({
-        type: "node.failed",
-        nodeId,
-        attempt,
-        error: `模型 ${config.model} 返回了空译文（无正文可交付）`,
-        errorCode: "PROVIDER_ERROR",
-      });
-      status = "failed";
-      return;
-    }
-    setTextArtifact(artifacts, nodeId, result.output);
-    states.set(nodeId, "done");
-    emit({ type: "node.finished", nodeId, attempt, output: result.output, usage: result.usage });
-    const primaryKind = produceArtifacts(nodeId, result.output, attempt);
-    totalCostUsd += result.usage.costUsd;
-    emit({ type: "power.metered", totalCostUsd, budgetUsd });
-    const nodeSpent = (nodeCostUsd.get(nodeId) ?? 0) + result.usage.costUsd;
-    nodeCostUsd.set(nodeId, nodeSpent);
-    const nodeBudget = cfg.budgetUsd;
-    if (nodeBudget != null && nodeBudget > 0 && nodeSpent > nodeBudget) {
-      states.set(nodeId, "failed");
-      emit({
-        type: "node.failed",
-        nodeId,
-        attempt,
-        error: `节点预算 $${nodeBudget.toFixed(4)} 已超出（已花 $${nodeSpent.toFixed(4)}）`,
-        errorCode: "BUDGET",
-      });
-      status = "failed";
-      return;
-    }
-    sendPackets(nodeId, result.output.slice(0, 120), primaryKind);
-  };
+  // --- Agent / textGen node: conversational generation with tools (the
+  // default branch — every unhandled kind runs here).
 
   // Runs a single source/sink/gate/agent to completion. Resolves when the node
   // reaches a terminal state (done/failed) so the scheduler can relaunch.
@@ -2453,816 +1068,14 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     attempts.set(nodeId, attempt);
 
     try {
-      if (node.kind === "fanout") {
-        const cfg: FanoutConfig = node.fanout ?? FanoutConfig.parse({});
-        const input = await inputFor(node);
-        const variants = buildVariantParams(cfg, opts.fallbackModel);
-        const variantIds = variants.map((v) => v.id);
-        emit({ type: "node.started", nodeId, attempt });
-        emit({ type: "variants.spawned", nodeId, variantIds });
-
-        const selectId = firstSelectDownstream(graph, nodeId);
-        if (!selectId) {
-          states.set(nodeId, "failed");
-          emit({ type: "node.failed", nodeId, attempt, error: "扇出节点缺少下游择优节点", errorCode: "VALIDATION" });
-          return;
-        }
-        const laneIds = variantLaneIds(graph, nodeId, selectId);
-
-        // Each lane runs as an isolated sub-run (same mechanism as a subprocess
-        // node): one lane failing only ends that lane, never its siblings.
-        const results: Array<{ variant: string; output: string; ok: boolean; error?: string }> = [];
-        for (const v of variants) {
-          const subGraph = buildVariantGraph(graph, nodeId, selectId, laneIds, v);
-          const { plan: subPlan } = compile(subGraph);
-          if (!subPlan) {
-            results.push({ variant: v.id, output: "", ok: false, error: "泳道子图编译失败" });
-            continue;
-          }
-          const prefix = `${nodeId}#var:${v.id}:`;
-          const childInit: SchedulerInit = {
-            artifacts: new Map(),
-            attempts: new Map(),
-            nodeCostUsd: new Map(),
-            totalCostUsd: 0,
-            states: new Map(subGraph.nodes.map((n) => [n.id, "pending" as NodeState])),
-            approvedTools: [...approved],
-            packetEdges: new Set(),
-            variables,
-          };
-          const depth = opts.subprocessDepth ?? 0;
-          const childGen = await runScheduler({
-            runId,
-            graph: subGraph,
-            plan: subPlan,
-            worker,
-            budgetUsd: null,
-            monthlyBudgetUsd: null,
-            monthSpentUsd: 0,
-            fallbackModel: opts.fallbackModel,
-            startSeq: 0,
-            sourceInput: input,
-            connectorValues: opts.connectorValues,
-            signal: opts.signal,
-            now: opts.now,
-            sleep: opts.sleep,
-            init: childInit,
-            initialVariables: variables,
-            resuming: true,
-            subprocessDepth: depth + 1,
-            storeBinary: opts.storeBinary,
-            readArtifact: opts.readArtifact,
-            publicUrl: opts.publicUrl,
-            permissionConfig: opts.permissionConfig,
-            bannedTerms: opts.bannedTerms,
-            loadProducts: opts.loadProducts,
-          });
-          let childStatus: Status | undefined;
-          for await (const e of childGen) {
-            if (e.type === "run.finished") {
-              childStatus = e.status;
-              break;
-            }
-            emit(prefixEvent(e, prefix));
-          }
-          mergeSubInit(prefix, childInit);
-          totalCostUsd += childInit.totalCostUsd;
-          const sinkNode = subGraph.nodes.find((n) => n.kind === "sink");
-          const output = sinkNode ? artifactValue(prefix + sinkNode.id) : null;
-          const text = typeof output === "string" ? output : output == null ? "" : JSON.stringify(output);
-          results.push(childStatus === "done" ? { variant: v.id, output: text, ok: true } : { variant: v.id, output: "", ok: false, error: childStatus ?? "failed" });
-        }
-
-        const payload = JSON.stringify({ variants: results });
-        artifacts.set(nodeId, [{ id: `${nodeId}-variants`, kind: "json", content: payload, mimeType: "application/json" }]);
-        states.set(nodeId, "done");
-        emit({ type: "node.finished", nodeId, attempt, output: payload, usage: zeroUsage() });
-        produceArtifacts(nodeId, payload, attempt);
-        sendPackets(nodeId, `${results.length} 条变体`, "json");
-        return;
-      }
-
-      if (node.kind === "select") {
-        const cfg: SelectConfig = node.select ?? SelectConfig.parse({});
-        const fanoutId = firstFanoutUpstream(graph, nodeId);
-        if (!fanoutId) {
-          states.set(nodeId, "failed");
-          emit({ type: "node.failed", nodeId, attempt, error: "择优节点缺少上游扇出节点", errorCode: "VALIDATION" });
-          return;
-        }
-        const raw = artifacts.get(fanoutId) ?? [];
-        const summaryArt = raw.find((a) => a.kind === "json");
-        let variants: Array<{ variant: string; output: string; ok: boolean; error?: string }> = [];
-        try {
-          variants = (JSON.parse(summaryArt?.content ?? "{}") as { variants: typeof variants }).variants ?? [];
-        } catch {
-          variants = [];
-        }
-        const failed = variants.filter((v) => !v.ok).map((v) => v.variant);
-        const alive = variants.filter((v) => v.ok);
-
-        // Failure semantics: zero surviving lanes → select fails loudly, never
-        // "chooses 0 of an empty set" (the 2797011 class).
-        if (alive.length === 0) {
-          states.set(nodeId, "failed");
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: `全部变体泳道均失败，无法择优${failed.length ? `（失败：${failed.join("、")}）` : ""}`,
-            errorCode: "SUBPROCESS",
-          });
-          return;
-        }
-
-        // Rank by the configured mode (llm_score via the shared judge channel,
-        // or a deterministic rule).
-        let ranking: Array<{ variant: string; score: number; reason: string }>;
-        if (cfg.mode === "rule") {
-          const field = cfg.rule?.field ?? "length";
-          const desc = cfg.rule?.desc ?? true;
-          ranking = alive
-            .map((a) => {
-              let score = 0;
-              if (field === "length") score = a.output.length;
-              else if (field === "brandCoverage") {
-                const terms = upstreamBrandTerms(graph, nodeId);
-                const hits = terms.filter((t) => a.output.includes(t));
-                score = terms.length ? hits.length / terms.length : 0;
-              } else {
-                try {
-                  const val = getByPath(JSON.parse(a.output), cfg.rule?.path ?? "");
-                  score = typeof val === "number" ? val : String(val ?? "").length;
-                } catch {
-                  score = 0;
-                }
-              }
-              return { variant: a.variant, score, reason: `规则排序 ${field}` };
-            })
-            .sort((x, y) => (desc ? y.score - x.score : x.score - y.score));
-        } else {
-          ranking = [];
-          for (const a of alive) {
-            const verdict = await worker.judge({
-              node,
-              attempt,
-              input: a.output,
-              output: a.output,
-              criterion: cfg.rubric || "请根据文案质量、卖点表达、可读性综合打分（0-10）",
-              signal: opts.signal,
-            });
-            ranking.push({ variant: a.variant, score: verdict.score ?? 0, reason: verdict.reason });
-          }
-          ranking.sort((x, y) => y.score - x.score);
-        }
-
-        const topK = Math.min(cfg.topK, ranking.length);
-        const chosen = ranking.slice(0, topK).map((r) => r.variant);
-        emit({
-          type: "variants.ranked",
-          nodeId,
-          ranking,
-          chosen,
-          ...(failed.length ? { failed } : {}),
-        });
-
-        const chosenEntries = ranking.slice(0, topK).map((r) => {
-          const a = alive.find((x) => x.variant === r.variant);
-          return { variant: r.variant, score: r.score, reason: r.reason, content: a?.output ?? "" };
-        });
-        const output =
-          cfg.topK === 1 && chosenEntries.length === 1
-            ? chosenEntries[0]!.content
-            : JSON.stringify(chosenEntries, null, 2);
-        setTextArtifact(artifacts, nodeId, output);
-        states.set(nodeId, "done");
-        emit({ type: "node.started", nodeId, attempt });
-        emit({ type: "node.finished", nodeId, attempt, output, usage: zeroUsage() });
-        produceArtifacts(nodeId, output, attempt);
-        sendPackets(nodeId, output.slice(0, 120), "text");
-        return;
-      }
-
-      if (node.kind === "source" || node.kind === "sink") {
-        if (node.kind === "sink") {
-          const output = await inputFor(node);
-          setTextArtifact(artifacts, nodeId, output);
-          states.set(nodeId, "done");
-          emit({ type: "node.started", nodeId, attempt });
-          emit({ type: "node.finished", nodeId, attempt, output, usage: zeroUsage() });
-          produceArtifacts(nodeId, output, attempt);
-          sendPackets(nodeId, output.slice(0, 120), "text");
-          return;
-        }
-
-        // source: optionally pull raw material from a connector before welding.
-        let sourceText = opts.sourceInput ?? "";
-        let sourceImages = node.source?.images ?? [];
-        const sourceFiles = node.source?.files ?? [];
-        const conn = node.source?.connector;
-        if (conn) {
-          let ok = false;
-          let lastErr: unknown;
-          for (let i = 0; i <= CONNECTOR_MAX_RETRIES && !ok; i++) {
-            try {
-              const m = await resolveConnector(conn, opts.connectorValues, opts.loadProducts);
-              sourceText = m.text || opts.sourceInput || "";
-              sourceImages = [...m.images, ...(node.source?.images ?? [])];
-              ok = true;
-            } catch (err) {
-              lastErr = err;
-              if (i < CONNECTOR_MAX_RETRIES) await opts.sleep(CONNECTOR_RETRY_DELAY_MS);
-            }
-          }
-          if (!ok) {
-            const msg = `Connector "${conn.type}" 拉取失败：${
-              lastErr instanceof Error ? lastErr.message : String(lastErr)
-            }`;
-            states.set(nodeId, "failed");
-            status = "failed";
-            emit({ type: "node.failed", nodeId, attempt, error: msg, errorCode: "CONNECTOR" });
-            return;
-          }
-        }
-
-        const output = buildSourceBrief(node, sourceText);
-        setTextArtifact(artifacts, nodeId, output);
-        states.set(nodeId, "done");
-        emit({ type: "node.started", nodeId, attempt });
-        emit({ type: "node.finished", nodeId, attempt, output, usage: zeroUsage() });
-        let primaryKind: Artifact["kind"] | undefined;
-        // Uploaded documents become first-class file artifacts next to the text
-        // note, so a downstream fileParse node can find its `kind === "file"`
-        // input. Before this, no source node could produce a file at all — a
-        // 「合同文件」 intake left fileParse failing with 没有产出文件产物
-        // (dogfood 2026-09-01, tpl-contract-review).
-        if (sourceFiles.length) {
-          const nodeArts = artifacts.get(nodeId)!;
-          for (const [i, f] of sourceFiles.entries()) {
-            const a: Artifact = {
-              id: `${nodeId}-file${i}`,
-              kind: "file",
-              uri: f.uri,
-              mimeType: f.mimeType,
-              label: f.label,
-              sizeBytes: f.sizeBytes,
-            };
-            nodeArts.push(a);
-            emit({ type: "artifact.produced", nodeId, artifact: a });
-          }
-        }
-        if (sourceImages.length) {
-          const nodeArts = artifacts.get(nodeId)!;
-          for (const [i, url] of sourceImages.entries()) {
-            const a: Artifact = { id: `${nodeId}-img${i}`, kind: "image", uri: url };
-            nodeArts.push(a);
-            emit({ type: "artifact.produced", nodeId, artifact: a });
-          }
-          primaryKind = "image";
-        } else {
-          primaryKind = produceArtifacts(nodeId, output, attempt);
-        }
-        sendPackets(nodeId, output.slice(0, 120), primaryKind);
-        return;
-      }
-
-      if (node.kind === "http") {
-        await runHttp(node, nodeId, attempt);
-        return;
-      }
-
-      if (node.kind === "code") {
-        emit({ type: "node.started", nodeId, attempt });
-        const cfg = CodeNodeConfig.parse(node.code ?? {});
-        if (!cfg.code.trim()) {
-          states.set(nodeId, "failed");
-          status = "failed";
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: "代码节点脚本为空",
-            errorCode: "VALIDATION",
-          });
-          return;
-        }
-        // net 策略：none = 不注入任何出口（子进程环境里没有代理变量）；
-        // allowlist = rlimit/noop 后端下经本地 SSRF 校验代理放行 TOOL_NETWORK_ALLOW
-        // 白名单（协作式：约束走 HTTP(S)_PROXY 的客户端，裸 socket 可绕过，
-        // 见 design-code-sandbox.md §10）。bwrap / sandbox-exec 后端硬断网
-        //（unshare-net / deny network*），代理不可达——诚实拒绝，绝不静默降级。
-        let netToken: string | undefined;
-        let netProxyEnv: Record<string, string> = {};
-        if (cfg.net === "allowlist") {
-          const backendName = resolveSandbox().name;
-          if (backendName === "bwrap" || backendName === "sandbox-exec") {
-            states.set(nodeId, "failed");
-            status = "failed";
-            emit({
-              type: "node.failed",
-              nodeId,
-              attempt,
-              error: `代码节点 net: "allowlist" 需要校验代理，但 ${backendName} 后端是硬断网（仅支持 net: "none"）`,
-              errorCode: "VALIDATION",
-            });
-            return;
-          }
-          const netAllow = loadPermissionConfig().networkAllow;
-          if (!netAllow || netAllow.length === 0) {
-            states.set(nodeId, "failed");
-            status = "failed";
-            emit({
-              type: "node.failed",
-              nodeId,
-              attempt,
-              error: '代码节点 net: "allowlist" 需要服务端配置 TOOL_NETWORK_ALLOW（逗号分隔的域名白名单）',
-              errorCode: "VALIDATION",
-            });
-            return;
-          }
-          const proxyUrl = await getCodeProxyUrl();
-          // Only 80/443 are reachable by default (audit L4: don't let code use
-          // the proxy as an arbitrary-port jump host). TOOL_NETWORK_EXTRA_PORTS
-          // is a comma-separated opt-in for non-standard ports (also the test
-          // hook for loopback fixtures on ephemeral ports).
-          const extraPorts = (process.env.TOOL_NETWORK_EXTRA_PORTS ?? "")
-            .split(",")
-            .map((s) => Number(s.trim()))
-            .filter((n) => Number.isInteger(n) && n > 0 && n <= 65535);
-          netToken = registerNetToken({ runId, nodeId, allowlist: netAllow, extraConnectPorts: extraPorts });
-          netProxyEnv = childProxyEnv(netToken, proxyUrl);
-        }
-        // fs 策略：allowlist = 在 workdir 之外额外授予只读访问
-        // （TOOL_FS_ALLOW 前缀）。写入仍然仅限 workdir。
-        const extraFsReadPaths =
-          cfg.fs === "allowlist" ? (loadPermissionConfig().fsAllow ?? []) : [];
-        // P0 sandbox: isolate cwd (per-run temp dir) + env allowlist + absolute
-        // interpreter path. The temp dir is removed even on failure/timeout.
-        const workdir = await createCodeWorkdir(runId, nodeId, attempt);
-        try {
-          const ctx = nodeCtx(nodeId);
-          const inputJson = JSON.stringify({ inputs: ctx });
-          // 代理 env 由 sandbox 注入（含 token），不走 trimEnv 的声明白名单
-          const childEnv = { ...trimEnv(cfg.env), ...netProxyEnv };
-          // P1+P2 sandbox: backend selected via CODE_SANDBOX (rlimit default;
-          // bwrap / sandbox-exec / noop opt-in with loud degrade warnings).
-          const cfgLimits = (cfg as unknown as { limits?: CodeSandboxLimits }).limits;
-          const plan = resolveSandbox().planSpawn({
-            language: cfg.language,
-            code: cfg.code,
-            workdir,
-            limits: cfgLimits,
-            extraFsReadPaths,
-          });
-          const spawnStartedAt = Date.now();
-          const { stdout, stderr, killed, code } = await withRetry(
-            async () => {
-              const child = spawn(plan.command, plan.args, {
-                stdio: ["pipe", "pipe", "pipe"],
-                cwd: workdir,
-                env: childEnv,
-              });
-              // If the interpreter dies before draining stdin (syntax error,
-              // early exit), feeding it the input emits 'error' (EPIPE) on the
-              // stream; with no listener that error event is unhandled and kills
-              // the whole engine process (dogfood tpl-doc-ingest: a broken code
-              // node took down the server). The failure is already reported via
-              // the child's exit code + stderr, so swallow the pipe error here.
-              child.stdin.on("error", () => {});
-              child.stdin.end(inputJson);
-              let stdout = "";
-              let stderr = "";
-              let killed = false;
-              const cap = 1_000_000;
-              child.stdout.on("data", (chunk: Buffer) => {
-                if (stdout.length < cap) stdout += chunk.toString().slice(0, cap - stdout.length);
-              });
-              child.stderr.on("data", (chunk: Buffer) => {
-                if (stderr.length < cap) stderr += chunk.toString().slice(0, cap - stderr.length);
-              });
-              const r = await new Promise<{ code: number | null; signal: string | null }>((resolve) => {
-                const timer = setTimeout(() => {
-                  killed = true;
-                  child.kill("SIGKILL");
-                  resolve({ code: null, signal: "timeout" });
-                }, cfg.timeoutMs);
-                child.on("error", (err) => {
-                  clearTimeout(timer);
-                  resolve({ code: -1, signal: err.message });
-                });
-                child.on("close", (code, signal) => {
-                  clearTimeout(timer);
-                  resolve({ code, signal });
-                });
-              });
-              // Spawn failure (binary missing, etc.) → throw so withRetry can retry.
-              // Non-zero exit and timeout are business errors, returned as-is.
-              if (r.code === -1) throw new Error(`代码节点子进程启动失败: ${r.signal}`);
-              return { stdout, stderr, killed, code: r.code };
-            },
-            cfg.retry,
-            () => true,
-            opts.sleep,
-          );
-          // 取证：单个 code 节点耗时超过 5 秒，几乎总是 CI 机器饥饿（2-vCPU
-          // runner + 冷页缓存），而不是回归——2026-09-01 PR #98 就是在这一小段上
-          // 把 vitest 的测试预算耗光的。打出来，让下一次红 CI 自己给出答案。
-          const spawnWallMs = Date.now() - spawnStartedAt;
-          if (spawnWallMs > 5000) {
-            console.warn(
-              `[engine:${nodeId}] code 节点子进程墙钟耗时 ${spawnWallMs}ms（怀疑 runner 负载/饥饿，不一定是回归）`,
-            );
-          }
-          if (killed) {
-            states.set(nodeId, "failed");
-            status = "failed";
-            emit({
-              type: "node.failed",
-              nodeId,
-              attempt,
-              error: `代码执行超时（${cfg.timeoutMs}ms）${stderr.slice(0, 200)}`,
-              errorCode: "TIMEOUT",
-            });
-            return;
-          }
-          if (code !== 0) {
-            states.set(nodeId, "failed");
-            status = "failed";
-            emit({
-              type: "node.failed",
-              nodeId,
-              attempt,
-              error: `代码执行失败（退出码 ${code}）: ${(stderr || "无 stderr 输出").slice(0, 300)}`,
-              errorCode: "SCRIPT_ERROR",
-            });
-            return;
-          }
-          const raw = stdout.trim();
-          let output = raw;
-          let asJson = false;
-          if (raw) {
-            try {
-              const parsed = JSON.parse(raw);
-              if (parsed !== null && typeof parsed === "object") asJson = true;
-            } catch {
-              // plain text output
-            }
-          }
-          if (asJson) output = JSON.stringify(JSON.parse(raw), null, 2);
-          const artifact: Artifact = asJson
-            ? { id: `${nodeId}-code-json`, kind: "json", content: output, mimeType: "application/json" }
-            : { id: `${nodeId}-code-text`, kind: "text", content: output, mimeType: "text/plain" };
-          artifacts.set(nodeId, [artifact]);
-          emit({ type: "artifact.produced", nodeId, attempt, artifact });
-          states.set(nodeId, "done");
-          emit({ type: "node.finished", nodeId, attempt, output, usage: zeroUsage() });
-          sendPackets(nodeId, output.slice(0, 120), artifact.kind);
-          return;
-        } catch (err) {
-          // 子进程根本起不来（解释器缺失、fork 被 EAGAIN 拒绝…）时 withRetry 会
-          // 重试后抛错。必须落成诚实的 node.failed：裸抛会让节点停在 "running"，
-          // 事件流里既没有 finished 也没有 failed，只留下一个查不出原因的缺失。
-          states.set(nodeId, "failed");
-          status = "failed";
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: `代码节点无法执行: ${sanitizeError(err instanceof Error ? err.message : String(err))}`,
-            errorCode: "SUBPROCESS",
-          });
-          return;
-        } finally {
-          if (netToken) unregisterNetToken(netToken);
-          await cleanupCodeWorkdir(workdir);
-        }
-      }
-
-      if (node.kind === "branch") {
-        await runBranch(node, nodeId, attempt);
-        return;
-      }
-
-      if (node.kind === "map") {
-        await runMap(node, nodeId, attempt);
-        return;
-      }
-
-      if (node.kind === "loop") {
-        emit({ type: "node.started", nodeId, attempt });
-        const bodyIds = new Set<string>();
-        try {
-          const cfg = LoopConfig.parse(node.loop ?? {});
-          const ctx = nodeCtx(nodeId);
-          const sources = incoming(graph, nodeId, "flow").map((e) => e.from);
-          const defaultSource = sources.length === 1 ? sources[0] : undefined;
-          const itemsExpr = cfg.items ?? (defaultSource ? `\${${defaultSource}}` : "");
-          if (!itemsExpr) {
-            states.set(nodeId, "failed");
-            emit({
-              type: "node.failed",
-              nodeId,
-              attempt,
-              error: "Loop 节点需要 items 表达式（或恰好一个上游节点提供数组）",
-              errorCode: "VALIDATION",
-            });
-            return;
-          }
-          const raw = transformJson(itemsExpr, ctx);
-          if (!Array.isArray(raw)) {
-            states.set(nodeId, "failed");
-            emit({
-              type: "node.failed",
-              nodeId,
-              attempt,
-              error: `items 表达式求值结果不是数组（当前: ${typeof raw}）`,
-              errorCode: "VALIDATION",
-            });
-            return;
-          }
-          const max = cfg.maxIterations ?? 100;
-          const slice = raw.slice(0, max);
-
-          // Loop body: BFS from the loop's flow edges. A node is part of the
-          // body iff every flow predecessor is the loop itself or already in
-          // the body — this stops at merge points that have outside inputs.
-          const queue = outgoing(graph, nodeId, "flow").map((e) => e.to);
-          while (queue.length > 0) {
-            const id = queue.shift()!;
-            if (bodyIds.has(id)) continue;
-            const ins = incoming(graph, id, "flow");
-            const allInside = ins.every((e) => e.from === nodeId || bodyIds.has(e.from));
-            if (!allInside) continue;
-            bodyIds.add(id);
-            for (const e of outgoing(graph, id, "flow")) queue.push(e.to);
-          }
-          const bodyOrder = plan.order.filter((id) => bodyIds.has(id));
-          if (bodyOrder.length === 0) {
-            states.set(nodeId, "failed");
-            emit({
-              type: "node.failed",
-              nodeId,
-              attempt,
-              error: "Loop 节点没有可执行的循环体，请连接下游节点",
-              errorCode: "VALIDATION",
-            });
-            return;
-          }
-          // Terminal nodes of the body: all flow edges point outside it.
-          const endNodes = bodyOrder.filter((id) =>
-            outgoing(graph, id, "flow").every((e) => !bodyIds.has(e.to)),
-          );
-          const results: unknown[] = [];
-          for (let i = 0; i < slice.length; i++) {
-            const item = slice[i];
-            for (const bodyId of bodyOrder) loopItemByNode.set(bodyId, item);
-            for (const bodyId of bodyOrder) {
-              // Borrow a running slot: runNode's finally decrements it, so
-              // this keeps the run open while the loop executes its body
-              // inline (otherwise running hits 0 mid-loop and the run closes).
-              running++;
-              await runNode(bodyId);
-              if (states.get(bodyId) === "failed") {
-                throw new Error(`循环体节点「${nodeById(graph, bodyId)?.name ?? bodyId}」执行失败`);
-              }
-            }
-            if (endNodes.length === 1) {
-              results.push(artifactValue(endNodes[0]!));
-            } else {
-              const round: Record<string, unknown> = {};
-              for (const id of endNodes) round[id] = artifactValue(id);
-              results.push(round);
-            }
-          }
-          for (const bodyId of bodyIds) loopItemByNode.delete(bodyId);
-          const content = JSON.stringify({ results });
-          const artifact: Artifact = {
-            id: `${nodeId}-loop-json`,
-            kind: "json",
-            content,
-            mimeType: "application/json",
-          };
-          artifacts.set(nodeId, [artifact]);
-          emit({ type: "artifact.produced", nodeId, attempt, artifact });
-          states.set(nodeId, "done");
-          const summary = `循环 ${slice.length} 次完成`;
-          emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
-          sendPackets(nodeId, summary, "json");
-        } catch (err) {
-          for (const bodyId of bodyIds) loopItemByNode.delete(bodyId);
-          states.set(nodeId, "failed");
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: `Loop 节点执行出错: ${err instanceof Error ? err.message : String(err)}`,
-          });
-        }
-        return;
-      }
-
-      if (node.kind === "subprocess") {
-        emit({ type: "node.started", nodeId, attempt });
-        try {
-          const cfg = SubprocessConfig.parse(node.subprocess ?? {});
-          const depth = opts.subprocessDepth ?? 0;
-          if (depth >= cfg.maxDepth) {
-            states.set(nodeId, "failed");
-            emit({
-              type: "node.failed",
-              nodeId,
-              attempt,
-              error: `子流程调用深度超限（第 ${depth + 1} 层超过 maxDepth ${cfg.maxDepth}），可能存在循环调用`,
-              errorCode: "VALIDATION",
-            });
-            return;
-          }
-          const childGraph = opts.loadSubgraph?.(cfg.graphId);
-          if (!childGraph) {
-            states.set(nodeId, "failed");
-            emit({
-              type: "node.failed",
-              nodeId,
-              attempt,
-              error: `找不到子流程图「${cfg.graphId}」`,
-              errorCode: "VALIDATION",
-            });
-            return;
-          }
-          const { plan: childPlan, diagnostics } = compile(childGraph);
-          if (!childPlan) {
-            states.set(nodeId, "failed");
-            emit({
-              type: "node.failed",
-              nodeId,
-              attempt,
-              error: `子流程图编译失败：${diagnostics.map((d) => d.message).join("；")}`,
-              errorCode: "VALIDATION",
-            });
-            return;
-          }
-
-          // Isolated namespace: every child node id is prefixed with
-          // `<subNode>#sub:` in the parent's maps/events so child ids can't
-          // collide with (or leak into) the parent graph.
-          const prefix = `${nodeId}#sub:`;
-          const saved = extractSubInit(prefix, childGraph);
-          const childInit: SchedulerInit = saved ?? {
-            artifacts: new Map(),
-            attempts: new Map(),
-            nodeCostUsd: new Map(),
-            totalCostUsd: 0,
-            states: new Map(childGraph.nodes.map((n) => [n.id, "pending" as NodeState])),
-            approvedTools: [...approved],
-            packetEdges: new Set(),
-            // Shared by reference: sub-process runs read/write the parent's variables.
-            variables,
-          };
-          const sourceText = await inputFor(node);
-          const childGen = await runScheduler({
-            runId,
-            graph: childGraph,
-            plan: childPlan,
-            worker,
-            budgetUsd: null,
-            monthlyBudgetUsd: null,
-            monthSpentUsd: 0,
-            fallbackModel: opts.fallbackModel,
-            startSeq: 0,
-            sourceInput: sourceText,
-            connectorValues: opts.connectorValues,
-            signal: opts.signal,
-            now: opts.now,
-            sleep: opts.sleep,
-            init: childInit,
-            // Shared by reference: sub-process runs read/write the parent's variables.
-            initialVariables: variables,
-            // Skip run.started (the parent already announced the run); the
-            // child's run.finished is intercepted below and re-emitted by the
-            // parent's own finish.
-            resuming: true,
-            subprocessDepth: depth + 1,
-            storeBinary: opts.storeBinary,
-            readArtifact: opts.readArtifact,
-            publicUrl: opts.publicUrl,
-            permissionConfig: opts.permissionConfig,
-            bannedTerms: opts.bannedTerms,
-            loadProducts: opts.loadProducts,
-          });
-
-          let childStatus: Status | undefined;
-          let childHaltedId: string | undefined;
-          let childHaltedReason: string | undefined;
-          for await (const e of childGen) {
-            if (e.type === "run.finished") {
-              childStatus = e.status;
-              childHaltedId = e.haltedNodeId;
-              childHaltedReason = e.reason;
-              break;
-            }
-            emit(prefixEvent(e, prefix));
-          }
-          // Persist the child's state under the prefix (whatever the outcome):
-          // a halt must survive a resume so the sub-flow continues in place,
-          // and a done child's sink products feed the aggregation below.
-          mergeSubInit(prefix, childInit);
-          // Shared budget: the child's spend joins the parent's ledger (V1 —
-          // the child does not run its own budget check, documented limitation).
-          totalCostUsd += childInit.totalCostUsd;
-
-          if (childStatus === "halted") {
-            haltNodeId = childHaltedId ? prefix + childHaltedId : nodeId;
-            haltReason = childHaltedReason;
-            status = "halted";
-            aborted = true;
-            return;
-          }
-          if (childStatus === "failed" || childStatus === "cancelled" || childStatus === "tripped") {
-            if (aborted) return; // parent abort won the race — let the parent finish it
-            states.set(nodeId, "failed");
-            emit({
-              type: "node.failed",
-              nodeId,
-              attempt,
-              error:
-                childStatus === "failed"
-                  ? "子流程执行失败"
-                  : `子流程中止（${childStatus}）`,
-              errorCode: "SUBPROCESS",
-            });
-            return;
-          }
-
-          // Child finished done: aggregate its sink outputs as this node's
-          // product (single sink → its value; multiple sinks → {sinkId: value}).
-          const sinks = childGraph.nodes.filter((n) => n.kind === "sink");
-          const values = sinks.map((s) => [s.id, artifactValue(prefix + s.id)] as const);
-          const content =
-            sinks.length === 1
-              ? JSON.stringify(values[0]?.[1] ?? null)
-              : JSON.stringify(Object.fromEntries(values));
-          const artifact: Artifact = {
-            id: `${nodeId}-sub-json`,
-            kind: "json",
-            content,
-            mimeType: "application/json",
-          };
-          artifacts.set(nodeId, [artifact]);
-          emit({ type: "artifact.produced", nodeId, attempt, artifact });
-          states.set(nodeId, "done");
-          const summary = `子流程「${childGraph.name}」完成`;
-          emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
-          sendPackets(nodeId, summary, "json");
-        } catch (err) {
-          states.set(nodeId, "failed");
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: `Subprocess 节点执行出错: ${err instanceof Error ? err.message : String(err)}`,
-            errorCode: "SUBPROCESS",
-          });
-        }
-        return;
-      }
-
-      if (node.kind === "parallel") {
-        await runParallel(node, nodeId, attempt);
-        return;
-      }
-
-      if (node.kind === "table") {
-        await runTable(node, nodeId, attempt);
-        return;
-      }
-
-      if (node.kind === "database") {
-        await runDatabase(node, nodeId, attempt);
-        return;
-      }
-
-      if (node.kind === "fileParse") {
-        await runFileParse(node, nodeId, attempt);
-        return;
-      }
-
-      if (node.kind === "translate") {
-        await runTranslate(node, nodeId, attempt);
-        return;
-      }
-
-      if (node.kind === "ocr") {
-        await runOcr(node, nodeId, attempt);
-        return;
-      }
-
-      if (node.kind === "convert") {
-        await runConvert(node, nodeId, attempt);
-        return;
-      }
-
-      if (node.kind === "search") {
-        await runSearch(node, nodeId, attempt);
+      // Stage 2.2: every migrated kind dispatches through the module-level
+      // NODE_HANDLERS registry. `notify` stays inline below — extracting it
+      // once introduced an await boundary that deferred error-edge dispatch by
+      // a microtask and broke the "notify failure → catch node" contract
+      // (regression/core-path.test.ts).
+      if (node.kind !== "notify") {
+        const handler = NODE_HANDLERS[node.kind] ?? textGenNode;
+        await handler(ctx, node, nodeId, attempt);
         return;
       }
 
@@ -3373,1003 +1186,6 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
         }
         return;
       }
-
-      if (node.kind === "vcs") {
-        emit({ type: "node.started", nodeId, attempt });
-        try {
-          const cfg = VcsConfig.parse(node.vcs ?? {});
-          const sources = incoming(graph, nodeId, "flow").map((e) => e.from);
-          const sourceId = cfg.source ?? (sources.length === 1 ? sources[0] : undefined);
-          if (cfg.source && !sources.includes(cfg.source)) {
-            states.set(nodeId, "failed");
-            emit({ type: "node.failed", nodeId, attempt, error: `数据来源 ${cfg.source} 不是上游节点`, errorCode: "VALIDATION" });
-            return;
-          }
-          let body = cfg.body.trim();
-          if (!body && (cfg.action === "create_pr" || cfg.action === "comment_issue") && sourceId) {
-            const t = (artifacts.get(sourceId) ?? []).find((a) => a.kind === "text")?.content;
-            if (t?.trim()) body = t.trim();
-          }
-          // An empty title used to fall back to the node name ("创建 PR"), so
-          // every PR created by the template carried the same meaningless
-          // title (dogfood tpl-release-pr). Derive one from the body instead:
-          // first non-empty, non-horizontal-rule line, markdown heading marks
-          // stripped, clamped to a sane length. Explicit cfg.title still wins.
-          let title = cfg.title?.trim();
-          if (!title && cfg.action === "create_pr" && body) {
-            const line = body
-              .split("\n")
-              .map((l) => l.trim())
-              .find((l) => l && !/^[-=_*]{3,}$/.test(l));
-            if (line) title = line.replace(/^#{1,6}\s*/, "").trim().slice(0, 120);
-          }
-          if (!title) title = node.name || cfg.action;
-          let result: { provider: string; action: string; detail: string; data: unknown };
-          try {
-            result = await executeVcs(cfg, body, title);
-          } catch (err) {
-            states.set(nodeId, "failed");
-            emit({
-              type: "node.failed",
-              nodeId,
-              attempt,
-              error: `VCS 操作失败: ${sanitizeError(err instanceof Error ? err.message : String(err))}`,
-              errorCode: err instanceof VcsAuthError ? "AUTH" : "PROVIDER_ERROR",
-            });
-            return;
-          }
-          const artifact: Artifact = {
-            id: `${nodeId}-json`,
-            kind: "json",
-            content: JSON.stringify(result.data, null, 2),
-            mimeType: "application/json",
-          };
-          artifacts.set(nodeId, [artifact]);
-          emit({ type: "artifact.produced", nodeId, attempt, artifact });
-          states.set(nodeId, "done");
-          const summary = `${result.provider} ${result.action} 完成：${result.detail}`;
-          emit({ type: "node.finished", nodeId, attempt, output: summary, usage: zeroUsage() });
-          sendPackets(nodeId, summary, "json");
-        } catch (err) {
-          states.set(nodeId, "failed");
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: `VCS 节点执行出错: ${sanitizeError(err instanceof Error ? err.message : String(err))}`,
-          });
-        }
-        return;
-      }
-
-      if (node.kind === "human") {
-        await runHuman(node, nodeId, attempt);
-        return;
-      }
-
-      if (node.kind === "compliance") {
-        await runCompliance(node, nodeId, attempt);
-        return;
-      }
-
-      if (node.kind === "publish") {
-        await runPublish(node, nodeId, attempt);
-        return;
-      }
-
-      if (node.kind === "gate") {
-        emit({ type: "node.started", nodeId, attempt });
-        const output = await inputFor(node);
-        const modelVerdict = await worker.judge({
-          node,
-          attempt,
-          input: output,
-          output,
-          criterion: (node.gate?.criterion ?? "") + ARTIFACT_URL_NOTE,
-          signal: opts.signal,
-        });
-
-        // Hard rule: any prohibited term declared on an upstream source must
-        // never pass, regardless of what the model judge decides. Deterministic
-        // so forbidden copy is always caught even if the model slips it in.
-        const prohibitedHits = detectProhibited(output, upstreamProhibitedTerms(graph, nodeId));
-
-        // Brand-term coverage: how many of the upstream brand words actually
-        // appear in the artifact. An optional gate threshold fails the gate
-        // (and triggers a rewrite) when coverage is too low.
-        const brandAll = upstreamBrandTerms(graph, nodeId);
-        const brandHits = brandAll.filter((t) => output.includes(t));
-        const brandCoverage = brandAll.length ? brandHits.length / brandAll.length : 1;
-        const minBrand = node.gate?.minBrandCoverage;
-
-        const minScore = node.gate?.minScore;
-        const belowScore =
-          minScore != null && modelVerdict.score != null && modelVerdict.score < minScore;
-        const belowBrand = minBrand != null && brandCoverage < minBrand;
-
-        let verdict = modelVerdict;
-        if (prohibitedHits.length > 0) {
-          // Actionable rework feedback: name the exact offending phrases and
-          // the attempt number. Varying the note per attempt matters — with a
-          // deterministic endpoint, an identical rework note produces identical
-          // input and the model regenerates the same violating copy forever.
-          const snippets = prohibitedSnippets(output, prohibitedHits);
-          const where = snippets.length ? `，出现位置：${snippets.join("、")}` : "";
-          verdict = {
-            passed: false,
-            reason: `命中禁用词：${prohibitedHits.join("、")}（第 ${attempt} 次质检${where}）。重写时必须完全避开这些词及任何包含它们的短语，已退回上游重写`,
-            score: modelVerdict.score,
-          };
-        } else if (belowBrand) {
-          verdict = {
-            passed: false,
-            reason: `品牌词覆盖率 ${Math.round(brandCoverage * 100)}% 低于门槛 ${Math.round(minBrand! * 100)}%（已退回上游重写）`,
-            score: modelVerdict.score,
-          };
-        } else if (belowScore) {
-          verdict = {
-            passed: false,
-            reason: `质量分 ${modelVerdict.score} 低于门槛 ${minScore}（已退回上游重写）`,
-            score: modelVerdict.score,
-          };
-        }
-
-        emit({
-          type: "gate.verdict",
-          nodeId,
-          attempt,
-          passed: verdict.passed,
-          reason: verdict.reason,
-          ...(verdict.score != null ? { score: verdict.score } : {}),
-        });
-
-        if (verdict.passed) {
-          const artifact = setTextArtifact(artifacts, nodeId, output);
-          states.set(nodeId, "done");
-          // A failed gate emits node.failed, but a passing one used to slip
-          // through with only gate.verdict — no node.finished and no
-          // artifact.produced in the timeline, unlike every other node kind
-          // (dogfood tpl-recipe). Announce both for observability parity.
-          emit({ type: "artifact.produced", nodeId, attempt, artifact });
-          emit({ type: "node.finished", nodeId, attempt, output: verdict.reason, usage: zeroUsage() });
-          sendPackets(nodeId, verdict.reason, "text");
-          return;
-        }
-
-        const loop = loopByGate.get(nodeId);
-        if (!loop) {
-          states.set(nodeId, "failed");
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: verdict.reason,
-            errorCode: "VALIDATION",
-          });
-          status = "failed";
-          return;
-        }
-
-        if (attempt >= loop.maxAttempts) {
-          const policy = node.gate?.onExhausted ?? "halt";
-          emit({ type: "gate.exhausted", nodeId, attempts: attempt, policy });
-          if (policy === "pass") {
-            const artifact = setTextArtifact(artifacts, nodeId, output);
-            states.set(nodeId, "done");
-            emit({ type: "artifact.produced", nodeId, attempt, artifact });
-            emit({ type: "node.finished", nodeId, attempt, output: verdict.reason, usage: zeroUsage() });
-            sendPackets(nodeId, verdict.reason, "text");
-            return;
-          }
-          states.set(nodeId, "failed");
-          status = policy === "halt" ? "halted" : "failed";
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: verdict.reason,
-            errorCode: "VALIDATION",
-          });
-          if (policy === "halt") {
-            haltNodeId = nodeId;
-            haltReason = verdict.reason;
-            void notifyHalt({ runId, graphId: graph.id, nodeId, reason: verdict.reason });
-          }
-          aborted = true;
-          return;
-        }
-
-        // Rework: reset the loop body so it welds again, and tell the entry why.
-        reworkNotes.set(loop.entryId, verdict.reason);
-        emit({
-          type: "packet.sent",
-          edgeId: loop.edge.id,
-          from: nodeId,
-          to: loop.entryId,
-          summary: verdict.reason,
-          artifactKind: "text",
-        });
-        for (const bodyId of loop.body) {
-          states.set(bodyId, "pending");
-          artifacts.set(bodyId, []);
-        }
-        return;
-      }
-
-  // --- Video generation node: produce a short video clip from a prompt ---
-  if (node.kind === "videoGen") {
-    emit({ type: "node.started", nodeId, attempt });
-    const cfg = node.videoGen ?? { model: "video-gen", n: 1 };
-    if (!worker.generateVideo) {
-      // Honest failure: media nodes are often the run's product (dogfood
-      // 2026-09-01). Silent skip reported done with no artifact. Templates
-      // that want a fallback should add an error edge instead.
-      states.set(nodeId, "failed");
-      emit({ type: "node.failed", nodeId, attempt, error: "worker 无视频生成能力", errorCode: "VALIDATION" });
-      return;
-    }
-    const prompt = cfg.prompt?.trim() || (await inputFor(node));
-    try {
-      const results = await worker.generateVideo({ node, config: cfg, input: prompt, signal: opts.signal });
-      // Zero results is never a success: the node asked for n ≥ 1 clips and got
-      // none, which means the provider does not actually serve this modality or
-      // model (routingWorker hands back [] for a worker without the method).
-      // Reporting done with no artifact is the same fake success b6de7d9 removed
-      // for the throw path; audit item L8 flagged this empty-result half.
-      if (results.length === 0) {
-        states.set(nodeId, "failed");
-        emit({
-          type: "node.failed",
-          nodeId,
-          attempt,
-          error: `视频生成未返回任何结果（模型 ${cfg.model} 可能不支持该模态，或 provider 未提供该能力）`,
-          errorCode: "UNSUPPORTED",
-        });
-        return;
-      }
-      let usage: Usage = { tokensIn: 0, tokensOut: 0, costUsd: 0, units: {} };
-      const videoArts: Artifact[] = [];
-      for (let idx = 0; idx < results.length; idx++) {
-        const res = results[idx]!;
-        const ext = res.mimeType.includes("mp4") ? "mp4" : res.mimeType.includes("webm") ? "webm" : "mp4";
-        const uri = await opts.storeBinary(res.data, res.mimeType, `${node.name || "ai-video"}-${idx + 1}.${ext}`);
-        const a: Artifact = {
-          id: `${nodeId}-vid-${idx}`,
-          kind: "video",
-          uri,
-          sizeBytes: res.data.length,
-          mimeType: res.mimeType,
-          label: results.length > 1 ? `${node.name || "AI 视频"} #${idx + 1}` : node.name || "AI 视频",
-        };
-        videoArts.push(a);
-        emit({ type: "artifact.produced", nodeId, artifact: a });
-        usage = {
-          tokensIn: (usage.tokensIn ?? 0) + (res.usage.tokensIn ?? 0),
-          tokensOut: (usage.tokensOut ?? 0) + (res.usage.tokensOut ?? 0),
-          costUsd: (usage.costUsd ?? 0) + (res.usage.costUsd ?? 0),
-          units: { ...usage.units, ...res.usage.units },
-        };
-      }
-      artifacts.set(nodeId, videoArts);
-      emit({ type: "node.finished", nodeId, attempt, output: "", usage });
-      states.set(nodeId, "done");
-      sendPackets(nodeId, `生成视频 ${results.length} 段`, "video");
-    } catch (err) {
-      console.warn(`[videoGen:${nodeId}] generation failed:`, (err as Error).message);
-      states.set(nodeId, "failed");
-      emit({ type: "node.failed", nodeId, attempt, error: `视频生成失败: ${sanitizeError(err instanceof Error ? err.message : String(err))}`, errorCode: "PROVIDER_ERROR" });
-    }
-    return;
-  }
-
-  // --- Audio generation node: TTS / music from text ---
-  if (node.kind === "audioGen") {
-    emit({ type: "node.started", nodeId, attempt });
-    const cfg = node.audioGen ?? { model: "tts-1", format: "mp3", n: 1 };
-    if (!worker.generateAudio) {
-      // Honest failure: audio is often the run's product (dogfood 2026-09-01,
-      // tpl-news-podcast). Templates wanting a fallback add an error edge.
-      states.set(nodeId, "failed");
-      emit({ type: "node.failed", nodeId, attempt, error: "worker 无音频生成能力", errorCode: "VALIDATION" });
-      return;
-    }
-    const prompt = cfg.prompt?.trim() || (await inputFor(node));
-    try {
-      const results = await worker.generateAudio({ node, config: cfg, input: prompt, signal: opts.signal });
-      // See the videoGen branch: an empty result set means no audio was made,
-      // which for an audio-first pipeline is a failed run, not a done one.
-      if (results.length === 0) {
-        states.set(nodeId, "failed");
-        emit({
-          type: "node.failed",
-          nodeId,
-          attempt,
-          error: `音频生成未返回任何结果（模型 ${cfg.model} 可能不支持该模态，或 provider 未提供该能力）`,
-          errorCode: "UNSUPPORTED",
-        });
-        return;
-      }
-      let usage: Usage = { tokensIn: 0, tokensOut: 0, costUsd: 0, units: {} };
-      const audioArts: Artifact[] = [];
-      for (let idx = 0; idx < results.length; idx++) {
-        const res = results[idx]!;
-        const ext = res.mimeType.includes("wav") ? "wav" : res.mimeType.includes("ogg") ? "ogg" : res.mimeType.includes("opus") ? "opus" : "mp3";
-        const uri = await opts.storeBinary(res.data, res.mimeType, `${node.name || "ai-audio"}-${idx + 1}.${ext}`);
-        const a: Artifact = {
-          id: `${nodeId}-aud-${idx}`,
-          kind: "audio",
-          uri,
-          sizeBytes: res.data.length,
-          mimeType: res.mimeType,
-          label: results.length > 1 ? `${node.name || "AI 音频"} #${idx + 1}` : node.name || "AI 音频",
-        };
-        audioArts.push(a);
-        emit({ type: "artifact.produced", nodeId, artifact: a });
-        usage = {
-          tokensIn: (usage.tokensIn ?? 0) + (res.usage.tokensIn ?? 0),
-          tokensOut: (usage.tokensOut ?? 0) + (res.usage.tokensOut ?? 0),
-          costUsd: (usage.costUsd ?? 0) + (res.usage.costUsd ?? 0),
-          units: { ...usage.units, ...res.usage.units },
-        };
-      }
-      artifacts.set(nodeId, audioArts);
-      emit({ type: "node.finished", nodeId, attempt, output: "", usage });
-      states.set(nodeId, "done");
-      sendPackets(nodeId, `生成音频 ${results.length} 段`, "audio");
-    } catch (err) {
-      console.warn(`[audioGen:${nodeId}] generation failed:`, (err as Error).message);
-      states.set(nodeId, "failed");
-      emit({ type: "node.failed", nodeId, attempt, error: `音频生成失败: ${sanitizeError(err instanceof Error ? err.message : String(err))}`, errorCode: "PROVIDER_ERROR" });
-    }
-    return;
-  }
-
-  // --- Image generation node: produce a banner/scene image when source lacks photos ---
-  if (node.kind === "imageGen") {
-    emit({ type: "node.started", nodeId, attempt });
-    const cfg = node.imageGen ?? { model: "agnes-image", prompt: "", n: 1 };
-    const prompt = cfg.prompt?.trim() || buildImagePrompt(node, graph);
-    try {
-      const results = await worker.generateImage({ node, config: cfg, input: prompt, signal: opts.signal });
-      // See the videoGen branch: zero images means nothing was produced.
-      if (results.length === 0) {
-        states.set(nodeId, "failed");
-        emit({
-          type: "node.failed",
-          nodeId,
-          attempt,
-          error: `配图生成未返回任何结果（模型 ${cfg.model} 可能不支持该模态，或 provider 未提供该能力）`,
-          errorCode: "UNSUPPORTED",
-        });
-        return;
-      }
-      let usage: Usage = { tokensIn: 0, tokensOut: 0, costUsd: 0, units: { images: 0 } };
-      const imageArts: Artifact[] = [];
-      for (let idx = 0; idx < results.length; idx++) {
-        const res = results[idx]!;
-        const uri = await opts.storeBinary(res.data, res.mimeType, `${node.name || "ai-image"}-${idx + 1}.png`);
-        const a: Artifact = {
-          id: `${nodeId}-img-${idx}`,
-          kind: "image",
-          uri,
-          sizeBytes: res.data.length,
-          mimeType: res.mimeType,
-          label: results.length > 1 ? `${node.name || "AI 配图"} #${idx + 1}` : node.name || "AI 配图",
-        };
-        imageArts.push(a);
-        emit({ type: "artifact.produced", nodeId, artifact: a });
-        usage = {
-          tokensIn: (usage.tokensIn ?? 0) + (res.usage.tokensIn ?? 0),
-          tokensOut: (usage.tokensOut ?? 0) + (res.usage.tokensOut ?? 0),
-          costUsd: (usage.costUsd ?? 0) + (res.usage.costUsd ?? 0),
-          units: { ...usage.units, images: (usage.units?.images ?? 0) + (res.usage.units?.images ?? 0) },
-        };
-      }
-      artifacts.set(nodeId, imageArts);
-      emit({ type: "node.finished", nodeId, attempt, output: "", usage });
-      states.set(nodeId, "done");
-      sendPackets(nodeId, `生成配图 ${results.length} 张`, "image");
-    } catch (err) {
-      // Same rule as videoGen/audioGen: a throw is not a degrade-and-continue.
-      // 配图往往就是这条产线的产物（2026-08-31 狗粮撞过 agnes 图片 503），标 done
-      // 会交出一条没有图的成品；旧的兜底还往下游发一个 text 包「生图失败（已降级
-      // 跳过）」，写手会把这句报错当素材写进正文。要兜底就接 error 边。
-      console.warn(`[imageGen:${nodeId}] generation failed:`, (err as Error).message);
-      states.set(nodeId, "failed");
-      emit({ type: "node.failed", nodeId, attempt, error: `配图生成失败: ${sanitizeError(err instanceof Error ? err.message : String(err))}`, errorCode: "PROVIDER_ERROR" });
-    }
-    return;
-  }
-
-      // agent
-     
-
-  // --- Generic node: auto-dispatches by user-picked modality ---
-  if (node.kind === "generic") {
-    emit({ type: "node.started", nodeId, attempt });
-    const gcfg: GenericConfig = node.generic ?? { model: "agnes-2.0-flash", modality: "text", skills: [], format: "mp3", n: 1 };
-    const modality = gcfg.modality ?? "text";
-    // Prompts may reference upstream artifacts (`${craft}` / `${probe.status}`),
-    // same contract as http url/body and notify messages — without this the
-    // placeholder reaches the model verbatim (dogfood tpl-custom-model).
-    const rawPrompt = gcfg.prompt?.trim()
-      ? evaluateTemplate(gcfg.prompt.trim(), interpCtx(nodeId))
-      : "";
-    const prompt = rawPrompt || (await inputFor(node));
-
-    if (modality === "text") {
-      const textCfg: TextGenConfig = {
-        model: gcfg.model,
-        prompt: rawPrompt,
-        skills: (gcfg.skills ?? []).map(s => typeof s === "string" ? { id: s, config: {}, enabled: true } : s),
-        temperature: gcfg.temperature ?? 0.7,
-        timeoutMs: gcfg.timeoutMs ?? 120000,
-        inputPolicy: gcfg.inputPolicy ?? { mode: "all" },
-        budgetUsd: gcfg.budgetUsd ?? null,
-        retry: gcfg.retry ?? { maxRetries: 2, baseDelayMs: 1000, maxDelayMs: 30000 },
-      };
-      try {
-        const gen = worker.runTextGen({ node, config: textCfg, attempt, input: prompt, signal: opts.signal });
-        let out = "";
-        let usage: Usage = zeroUsage();
-        while (true) {
-          const step = await gen.next();
-          if (step.done) {
-            out = step.value.output;
-            usage = step.value.usage;
-            break;
-          }
-          if (opts.signal?.aborted || aborted) {
-            aborted = true;
-            return;
-          }
-          const chunk = step.value;
-          if (chunk.type === "text-delta") {
-            out += chunk.text;
-            emit({ type: "node.delta", nodeId, attempt, text: chunk.text });
-          }
-        }
-        // Same contract as textGen/translate: an empty completion is not a
-        // product, and the generic node is often the run's only one.
-        if (!out.trim()) {
-          states.set(nodeId, "failed");
-          emit({ type: "node.failed", nodeId, attempt, error: `模型 ${gcfg.model} 返回了空内容（无正文可交付）`, errorCode: "PROVIDER_ERROR" });
-          return;
-        }
-        // Observability parity: the text product must be inspectable in the
-        // gallery like every other node kind's. setTextArtifact alone left the
-        // generic node with a node.finished output but no artifact row (dogfood
-        // tpl-custom-model run dd9641af: intake/craft/depot had artifacts, the
-        // generic step between them had none) — same gap 8418d2e closed for gates.
-        const artifact = setTextArtifact(artifacts, nodeId, out);
-        emit({ type: "artifact.produced", nodeId, attempt, artifact });
-        emit({ type: "node.finished", nodeId, attempt, output: out, usage });
-        states.set(nodeId, "done");
-        sendPackets(nodeId, out.slice(0, 120), "text");
-      } catch (err) {
-        console.warn(`[generic:text:${nodeId}] failed:`, (err as Error).message);
-        // Honest failure, mirroring b6de7d9 for the dedicated media nodes: the
-        // generic node is often the run's only product, so marking it done with
-        // an empty output reported a successful run that produced nothing.
-        // Templates that want a fallback should add an error edge.
-        states.set(nodeId, "failed");
-        emit({ type: "node.failed", nodeId, attempt, error: `通用节点文本生成失败: ${sanitizeError(err instanceof Error ? err.message : String(err))}`, errorCode: "PROVIDER_ERROR" });
-      }
-      return;
-    }
-
-    if (modality === "image") {
-      if (!worker.generateImage) {
-        // Honest failure (same contract as the dedicated imageGen node): a
-        // missing capability is not a successful no-op.
-        states.set(nodeId, "failed");
-        emit({ type: "node.failed", nodeId, attempt, error: "worker 无图片生成能力", errorCode: "VALIDATION" });
-        return;
-      }
-      const imgCfg: ImageGenConfig = {
-        model: gcfg.model,
-        prompt: rawPrompt,
-        size: gcfg.size,
-        aspect: gcfg.aspect,
-        n: gcfg.n ?? 1,
-        baseUrl: gcfg.baseUrl,
-        apiKey: gcfg.apiKey,
-      };
-      try {
-        const results = await worker.generateImage({ node, config: imgCfg, input: prompt, signal: opts.signal });
-        // Zero results is a failure, not an empty success (same as the dedicated
-        // imageGen node): the provider does not serve this modality/model.
-        if (results.length === 0) {
-          states.set(nodeId, "failed");
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: `通用节点图片生成未返回任何结果（模型 ${imgCfg.model} 可能不支持该模态）`,
-            errorCode: "UNSUPPORTED",
-          });
-          return;
-        }
-        let usage: Usage = { tokensIn: 0, tokensOut: 0, costUsd: 0, units: { images: 0 } };
-        const arts: Artifact[] = [];
-        for (let idx = 0; idx < results.length; idx++) {
-          const res = results[idx]!;
-          const uri = await opts.storeBinary(res.data, res.mimeType, `${node.name || "generic-img"}-${idx + 1}.png`);
-          const a: Artifact = {
-            id: `${nodeId}-gimg-${idx}`,
-            kind: "image",
-            uri,
-            mimeType: res.mimeType,
-            label: results.length > 1 ? `${node.name || "通用图片"} #${idx + 1}` : node.name || "通用图片",
-          };
-          arts.push(a);
-          emit({ type: "artifact.produced", nodeId, artifact: a });
-          usage = {
-            tokensIn: usage.tokensIn + (res.usage.tokensIn ?? 0),
-            tokensOut: usage.tokensOut + (res.usage.tokensOut ?? 0),
-            costUsd: usage.costUsd + (res.usage.costUsd ?? 0),
-            units: { ...usage.units, ...res.usage.units },
-          };
-        }
-        artifacts.set(nodeId, arts);
-        emit({ type: "node.finished", nodeId, attempt, output: "", usage });
-        states.set(nodeId, "done");
-        sendPackets(nodeId, `通用节点生成图片 ${results.length} 张`, "image");
-      } catch (err) {
-        console.warn(`[generic:image:${nodeId}] failed:`, (err as Error).message);
-        states.set(nodeId, "failed");
-        emit({ type: "node.failed", nodeId, attempt, error: `通用节点图片生成失败: ${sanitizeError(err instanceof Error ? err.message : String(err))}`, errorCode: "PROVIDER_ERROR" });
-      }
-      return;
-    }
-
-    if (modality === "video") {
-      if (!worker.generateVideo) {
-        // Honest failure, mirroring b6de7d9 for the dedicated videoGen node.
-        states.set(nodeId, "failed");
-        emit({ type: "node.failed", nodeId, attempt, error: "worker 无视频生成能力", errorCode: "VALIDATION" });
-        return;
-      }
-      const vidCfg: VideoGenConfig = {
-        model: gcfg.model,
-        prompt: rawPrompt,
-        duration: gcfg.duration,
-        aspect: gcfg.aspect,
-        size: gcfg.size,
-        n: gcfg.n ?? 1,
-        baseUrl: gcfg.baseUrl,
-        apiKey: gcfg.apiKey,
-      };
-      try {
-        const results = await worker.generateVideo({ node, config: vidCfg, input: prompt, signal: opts.signal });
-        // Zero results is a failure, not an empty success (see imageGen above).
-        if (results.length === 0) {
-          states.set(nodeId, "failed");
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: `通用节点视频生成未返回任何结果（模型 ${vidCfg.model} 可能不支持该模态）`,
-            errorCode: "UNSUPPORTED",
-          });
-          return;
-        }
-        let usage: Usage = { tokensIn: 0, tokensOut: 0, costUsd: 0, units: { videos: 0 } };
-        const arts: Artifact[] = [];
-        for (let idx = 0; idx < results.length; idx++) {
-          const res = results[idx]!;
-          const ext = res.mimeType.includes("mp4") ? "mp4" : res.mimeType.includes("webm") ? "webm" : "mov";
-          const uri = await opts.storeBinary(res.data, res.mimeType, `${node.name || "generic-video"}-${idx + 1}.${ext}`);
-          const a: Artifact = {
-            id: `${nodeId}-gvid-${idx}`,
-            kind: "video",
-            uri,
-            mimeType: res.mimeType,
-            label: results.length > 1 ? `${node.name || "通用视频"} #${idx + 1}` : node.name || "通用视频",
-          };
-          arts.push(a);
-          emit({ type: "artifact.produced", nodeId, artifact: a });
-          usage = {
-            tokensIn: usage.tokensIn + (res.usage.tokensIn ?? 0),
-            tokensOut: usage.tokensOut + (res.usage.tokensOut ?? 0),
-            costUsd: usage.costUsd + (res.usage.costUsd ?? 0),
-            units: { ...usage.units, ...res.usage.units },
-          };
-        }
-        artifacts.set(nodeId, arts);
-        emit({ type: "node.finished", nodeId, attempt, output: "", usage });
-        states.set(nodeId, "done");
-        sendPackets(nodeId, `通用节点生成视频 ${results.length} 段`, "video");
-      } catch (err) {
-        console.warn(`[generic:video:${nodeId}] failed:`, (err as Error).message);
-        states.set(nodeId, "failed");
-        emit({ type: "node.failed", nodeId, attempt, error: `通用节点视频生成失败: ${sanitizeError(err instanceof Error ? err.message : String(err))}`, errorCode: "PROVIDER_ERROR" });
-      }
-      return;
-    }
-
-    if (modality === "audio") {
-      if (!worker.generateAudio) {
-        // Honest failure, mirroring b6de7d9 for the dedicated audioGen node.
-        states.set(nodeId, "failed");
-        emit({ type: "node.failed", nodeId, attempt, error: "worker 无音频生成能力", errorCode: "VALIDATION" });
-        return;
-      }
-      const audCfg: AudioGenConfig = {
-        model: gcfg.model,
-        prompt: rawPrompt,
-        voice: gcfg.voice,
-        format: gcfg.format ?? "mp3",
-        speed: gcfg.speed,
-        n: gcfg.n ?? 1,
-        baseUrl: gcfg.baseUrl,
-        apiKey: gcfg.apiKey,
-      };
-      try {
-        const results = await worker.generateAudio({ node, config: audCfg, input: prompt, signal: opts.signal });
-        // Zero results is a failure, not an empty success (see imageGen above).
-        if (results.length === 0) {
-          states.set(nodeId, "failed");
-          emit({
-            type: "node.failed",
-            nodeId,
-            attempt,
-            error: `通用节点音频生成未返回任何结果（模型 ${audCfg.model} 可能不支持该模态）`,
-            errorCode: "UNSUPPORTED",
-          });
-          return;
-        }
-        let usage: Usage = { tokensIn: 0, tokensOut: 0, costUsd: 0, units: {} };
-        const arts: Artifact[] = [];
-        for (let idx = 0; idx < results.length; idx++) {
-          const res = results[idx]!;
-          const ext = res.mimeType.includes("wav") ? "wav" : res.mimeType.includes("ogg") ? "ogg" : res.mimeType.includes("opus") ? "opus" : res.mimeType.includes("flac") ? "flac" : "mp3";
-          const uri = await opts.storeBinary(res.data, res.mimeType, `${node.name || "generic-audio"}-${idx + 1}.${ext}`);
-          const a: Artifact = {
-            id: `${nodeId}-gaud-${idx}`,
-            kind: "audio",
-            uri,
-            mimeType: res.mimeType,
-            label: results.length > 1 ? `${node.name || "通用音频"} #${idx + 1}` : node.name || "通用音频",
-          };
-          arts.push(a);
-          emit({ type: "artifact.produced", nodeId, artifact: a });
-          usage = {
-            tokensIn: usage.tokensIn + (res.usage.tokensIn ?? 0),
-            tokensOut: usage.tokensOut + (res.usage.tokensOut ?? 0),
-            costUsd: usage.costUsd + (res.usage.costUsd ?? 0),
-            units: { ...usage.units, ...res.usage.units },
-          };
-        }
-        artifacts.set(nodeId, arts);
-        emit({ type: "node.finished", nodeId, attempt, output: "", usage });
-        states.set(nodeId, "done");
-        sendPackets(nodeId, `通用节点生成音频 ${results.length} 段`, "audio");
-      } catch (err) {
-        console.warn(`[generic:audio:${nodeId}] failed:`, (err as Error).message);
-        states.set(nodeId, "failed");
-        emit({ type: "node.failed", nodeId, attempt, error: `通用节点音频生成失败: ${sanitizeError(err instanceof Error ? err.message : String(err))}`, errorCode: "PROVIDER_ERROR" });
-      }
-      return;
-    }
-
-    // An unknown modality is a configuration error, not a no-op: reporting done
-    // with an empty output would let a mistyped node pass as a successful run.
-    console.warn(`[generic:${nodeId}] unknown modality "${modality}"`);
-    states.set(nodeId, "failed");
-    emit({
-      type: "node.failed",
-      nodeId,
-      attempt,
-      error: `通用节点模态 "${modality}" 不受支持（应为 text / image / video / audio）`,
-      errorCode: "VALIDATION",
-    });
-    return;
-  }
-
-      // agent
-      const mounts = (node.textGen?.skills ?? []).map(toMount);
-      const promptModules = collectPromptModules(mounts);
-      // Prompts interpolate `${nodeId}` / `${item}` like every other template
-      // string (loop bodies reference the loop item via ${item}; dogfood
-      // tpl-research-loop sent the placeholder to the model verbatim).
-      const promptTemplate = node.textGen?.prompt
-        ? evaluateTemplate(node.textGen.prompt, interpCtx(nodeId))
-        : "";
-      const basePrompt = withLayoutDirectives(promptTemplate, node.textGen?.imageDirectives);
-      let prompt = promptModules.length
-        ? `${basePrompt}\n\n${promptModules.map((p) => `=== 已挂载模块提示 (prompt-module) ===\n${p}`).join("\n\n")}`
-        : basePrompt;
-      // Engine-level hard constraint: upstream source prohibited/brand terms are
-      // always injected into the SYSTEM prompt here, regardless of what the user
-      // wrote in the node prompt, so every pipeline (incl. user-customized ones)
-      // is constrained at generation time. The gate remains the deterministic
-      // backstop. Living in the system prompt also survives input truncation /
-      // summarization, unlike appending to the user input body.
-      const constraintBlocks: string[] = [];
-      const prohibited = upstreamProhibitedTerms(graph, node.id);
-      if (prohibited.length > 0) {
-        constraintBlocks.push(
-          `[硬性约束 — 禁用词] 生成的任何内容中都绝对不能出现以下词语/说法：${prohibited.join("、")}。` +
-            `质检按“包含”匹配：任何包含这些字的短语同样被禁止（例如禁用“第一”时，“第一缕阳光”“第一杯咖啡”这类表达也不允许），必须换用不含这些字的说法。`,
-        );
-      }
-      const brandTerms = upstreamBrandTerms(graph, node.id);
-      if (brandTerms.length > 0) {
-        constraintBlocks.push(`[品牌词] 建议在文案中自然融入以下品牌词，不必全部使用：${brandTerms.join("、")}`);
-      }
-      if (constraintBlocks.length > 0) {
-        prompt = prompt ? `${prompt}\n\n${constraintBlocks.join("\n\n")}` : constraintBlocks.join("\n\n");
-      }
-      const config = {
-        model: node.textGen?.model || fallbackModel,
-        prompt,
-        skills: node.textGen?.skills ?? [],
-        temperature: node.textGen?.temperature ?? 0.7,
-        timeoutMs: node.textGen?.timeoutMs ?? 120000,
-        inputPolicy: node.textGen?.inputPolicy ?? { mode: "all" as const },
-        retry: node.textGen?.retry ?? { maxRetries: 2, baseDelayMs: 1000, maxDelayMs: 30000 },
-      };
-      emit({ type: "node.started", nodeId, attempt });
-
-      let result: { output: string; usage: Usage } | null = null;
-      let lastError: { message: string; code?: string } | null = null;
-      const maxAttempts = 1 + config.retry.maxRetries;
-
-      for (let tryIdx = 0; tryIdx < maxAttempts; tryIdx++) {
-        if (opts.signal?.aborted || aborted) {
-          aborted = true;
-          return;
-        }
-        try {
-          const agentInput = await inputFor(node);
-          reworkNotes.delete(nodeId);
-          // Variable tools ride along on every agent (safe, no approval needed).
-          const tools = [...resolveTools(mounts), ...VARIABLE_TOOLS];
-          const rawImageUris = imagesFor(nodeId);
-          const referenceImages = opts.readArtifact
-            ? await Promise.all(rawImageUris.map((u) => inlineImageUrl(u, opts.readArtifact!)))
-            : rawImageUris;
-          const content: ContentPart[] | undefined = referenceImages.length
-            ? [{ type: "text", text: agentInput }, ...referenceImages.map((u): ContentPart => ({ type: "image", image: u }))]
-            : undefined;
-          const gen = worker.runTextGen({
-            node,
-            config,
-            attempt,
-            input: agentInput,
-            images: referenceImages,
-            content,
-            tools,
-            executeTool: async (name, args) => {
-              if (name === "set_variable" || name === "get_variable") return handleVariableTool(name, args);
-              guardToolCall(name, args, permCfg);
-              if (isDangerousTool(name) && !approved.has(name)) {
-                throw new HaltRequested(name, nodeId);
-              }
-              return executeBuiltinTool(name, args);
-            },
-            signal: opts.signal,
-          });
-          let output = "";
-          let usage: Usage | null = null;
-          while (true) {
-            const step = await gen.next();
-            if (step.done) {
-              output = step.value.output;
-              usage = step.value.usage;
-              break;
-            }
-            if (opts.signal?.aborted || aborted) {
-              aborted = true;
-              return;
-            }
-            const chunk = step.value;
-            if (chunk.type === "text-delta") {
-              emit({ type: "node.delta", nodeId, attempt, text: chunk.text });
-            } else if (chunk.type === "reasoning-delta") {
-              emit({ type: "node.reasoning", nodeId, attempt, text: chunk.text });
-            } else if (chunk.type === "tool-call") {
-              emit({
-                type: "tool.called",
-                nodeId,
-                attempt,
-                callId: chunk.id,
-                name: chunk.name,
-                args: chunk.arguments,
-              });
-            } else if (chunk.type === "tool-result") {
-              emit({
-                type: "tool.result",
-                nodeId,
-                attempt,
-                callId: chunk.id,
-                name: chunk.name,
-                result: chunk.result,
-                error: chunk.error,
-              });
-            }
-          }
-          result = { output, usage: usage ?? zeroUsage() };
-          break;
-        } catch (err) {
-          if (err instanceof HaltRequested) {
-            // A dangerous tool was called without prior human approval: halt the
-            // run and wait for a decision (4D.7). The node is intentionally left
-            // incomplete so a resume re-runs it with the tool now approved.
-            haltNodeId = err.nodeId;
-            haltReason = `dangerous-tool:${err.toolName}`;
-            status = "halted";
-            aborted = true;
-            void notifyHalt({ runId, graphId: graph.id, nodeId: err.nodeId, reason: haltReason });
-            return;
-          }
-          const code = err instanceof ProviderError ? err.code : "UNKNOWN";
-          lastError = { message: (err as Error).message, code };
-          const canRetry = RETRYABLE.has(code) && tryIdx < maxAttempts - 1;
-          if (!canRetry) break;
-          await opts.sleep(
-            Math.min(config.retry.maxDelayMs, config.retry.baseDelayMs * 2 ** tryIdx),
-          );
-        }
-      }
-
-      // E.3 output-contract: validate the agent's output against a mounted
-      // output-contract skill, reworking (reusing the existing rework line) or
-      // failing when the contract isn't satisfied.
-      if (result) {
-        const contract = getOutputContract(mounts);
-        if (contract) {
-          const contractErr = validateContract(result.output, contract);
-          if (contractErr) {
-            const loop = loopByGate.get(nodeId);
-            const maxRework = loop?.maxAttempts ?? config.retry.maxRetries + 1;
-            if (loop && attempt < maxRework) {
-              reworkNotes.set(loop.entryId, `输出未满足契约：${contractErr}`);
-              emit({
-                type: "packet.sent",
-                edgeId: loop.edge.id,
-                from: nodeId,
-                to: loop.entryId,
-                summary: `输出未满足契约：${contractErr}`,
-                artifactKind: "text",
-              });
-              for (const bodyId of loop.body) {
-                states.set(bodyId, "pending");
-                artifacts.set(bodyId, []);
-              }
-              return;
-            }
-            states.set(nodeId, "failed");
-            emit({
-              type: "node.failed",
-              nodeId,
-              attempt,
-              error: `输出未满足契约：${contractErr}`,
-              errorCode: "VALIDATION",
-            });
-            status = "failed";
-            return;
-          }
-        }
-      }
-
-      if (!result) {
-        states.set(nodeId, "failed");
-        emit({
-          type: "node.failed",
-          nodeId,
-          attempt,
-          error: sanitizeError(lastError?.message ?? "agent failed with no output"),
-          errorCode: (lastError?.code as
-            | "TIMEOUT"
-            | "RATE_LIMIT"
-            | "PROVIDER_ERROR"
-            | "SCRIPT_ERROR"
-            | "AUTH"
-            | "VALIDATION"
-            | "UNKNOWN"
-            | "UNSUPPORTED"
-            | undefined) ?? "UNKNOWN",
-        });
-        status = "failed";
-        return;
-      }
-
-      // An empty completion is not a product. Providers can answer 200 with no
-      // text (openai-compatible falls back to `msg.content ?? ""`, e.g. a
-      // tool-call-only turn or a filtered reply); recording that as done handed
-      // downstream an empty string to interpolate and still reported the run as
-      // done — same class as the media branches fixed in 2797011. Templates that
-      // want to tolerate it can attach an error edge.
-      if (!result.output.trim()) {
-        states.set(nodeId, "failed");
-        emit({
-          type: "node.failed",
-          nodeId,
-          attempt,
-          error: `模型 ${config.model} 返回了空内容（无正文可交付）`,
-          errorCode: "PROVIDER_ERROR",
-        });
-        status = "failed";
-        return;
-      }
-
-      setTextArtifact(artifacts, nodeId, result.output);
-      states.set(nodeId, "done");
-      emit({ type: "node.finished", nodeId, attempt, output: result.output, usage: result.usage });
-      const primaryKind = produceArtifacts(nodeId, result.output, attempt);
-
-      // Cost accounting runs in a single synchronous block so concurrent
-      // completions can't race the budget check.
-      totalCostUsd += result.usage.costUsd;
-      emit({ type: "power.metered", totalCostUsd, budgetUsd });
-
-      const nodeSpent = (nodeCostUsd.get(nodeId) ?? 0) + result.usage.costUsd;
-      nodeCostUsd.set(nodeId, nodeSpent);
-      const nodeBudget = node.textGen?.budgetUsd;
-      if (nodeBudget != null && nodeBudget > 0 && nodeSpent > nodeBudget) {
-        states.set(nodeId, "failed");
-        emit({
-          type: "node.failed",
-          nodeId,
-          attempt,
-          error: `节点预算 $${nodeBudget.toFixed(4)} 已超出（已花 $${nodeSpent.toFixed(4)}）`,
-          errorCode: "BUDGET",
-        });
-        status = "failed";
-        return;
-      }
-
-      if (
-        budgetUsd !== null &&
-        budgetUsd > 0 &&
-        !budgetWarned &&
-        totalCostUsd >= budgetUsd * BUDGET_WARN
-      ) {
-        budgetWarned = true;
-        emit({
-          type: "power.warning",
-          totalCostUsd,
-          budgetUsd,
-          threshold: BUDGET_WARN,
-        });
-      }
-
-      if (budgetUsd !== null && totalCostUsd > budgetUsd) {
-        emit({ type: "power.tripped", totalCostUsd, budgetUsd });
-        status = "tripped";
-        aborted = true;
-        return;
-      }
-
-      // Monthly budget is advisory: warn at 80% and again at 100%, but don't
-      // take the line down (a hard monthly trip would strand in-flight runs).
-      if (monthlyBudgetUsd !== null && monthlyBudgetUsd > 0) {
-        const monthlyTotal = monthSpentUsd + totalCostUsd;
-        if (!monthlyWarned80 && monthlyTotal >= monthlyBudgetUsd * BUDGET_WARN) {
-          monthlyWarned80 = true;
-          emit({
-            type: "power.warning",
-            totalCostUsd: monthlyTotal,
-            budgetUsd: monthlyBudgetUsd,
-            threshold: BUDGET_WARN,
-            scope: "monthly",
-          });
-        }
-        if (!monthlyWarned100 && monthlyTotal >= monthlyBudgetUsd) {
-          monthlyWarned100 = true;
-          emit({
-            type: "power.warning",
-            totalCostUsd: monthlyTotal,
-            budgetUsd: monthlyBudgetUsd,
-            threshold: 1,
-            scope: "monthly",
-          });
-        }
-      }
-
-      sendPackets(nodeId, result.output.slice(0, 120), primaryKind);
     } catch (err) {
       // 兜底安全网：任何节点分支的意外抛错都必须留下一条 node.failed。否则会走
       // 成 `void runNode()` 的 unhandled rejection —— 节点状态永久停在 "running"，
@@ -4427,6 +1243,9 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       else if (running === 0) finish();
     }
   };
+  // Wired here (after runNode's declaration) for node handlers in nodes/*.ts;
+  // see the ctx construction above.
+  ctx.runNode = runNode;
 
   const schedule = async () => {
     // Bounded concurrency: launch every ready plant up to the free slots.
@@ -4435,6 +1254,9 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
         (n) => states.get(n.id) === "pending" && predecessorsReady(n.id),
       );
       if (!ready) break;
+      if (ready.kind === "code" || ready.kind === "notify" || ready.kind === "human") {
+        console.error(`[dbg] SCHEDULE launch nodeId=${ready.id} kind=${ready.kind} running=${running}`);
+      }
       states.set(ready.id, "running");
       running++;
       void runNode(ready.id);
@@ -4581,15 +1403,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
   return queue.stream();
 }
 
-function zeroUsage(): Usage {
-  return { tokensIn: 0, tokensOut: 0, costUsd: 0 };
-}
 
-/** Best-effort filename from a URL path, e.g. https://x/y/report.pdf → report.pdf. */
-function fileLabelFromUrl(url: URL): string {
-  const base = url.pathname.split("/").filter(Boolean).pop();
-  return base || "download";
-}
 
 /**
  * Yields the run's event stream. The engine holds no rendering concerns and no

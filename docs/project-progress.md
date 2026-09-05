@@ -36,7 +36,7 @@
 
 ## 二、已完成版图（可迭代的基础能力）
 
-- **执行引擎**：29 种节点类型，按 `NODE_CATEGORIES` 五组——AI 加工 5 / 车间调度 9 / 物料处理 7 / 外接设备 6 / 投料出料 2（逐种名称与中文术语见 [design-glossary.md](design-glossary.md)）；流式 + SSE + 断线重连 + halt/resume，成本电表（token + 单价）。
+- **执行引擎**：29 种节点类型，按 `NODE_CATEGORIES` 五组——AI 加工 5 / 车间调度 9 / 物料处理 7 / 外接设备 6 / 投料出料 2（逐种名称与中文术语见 [design-glossary.md](design-glossary.md)）；流式 + SSE + 断线重连 + halt/resume，成本电表（token + 单价）。**2026-09-04 代码重构完成**：节点执行体迁至 `packages/server/src/nodes/`（`NodeRunContext` + `NODE_HANDLERS` 注册表分发），`engine.ts` 4954→1828 行、`Inspector.tsx` 3848→611 行，纯重构行为零变化。
 - **高级编排**：subprocess 子流程、error 边 + catch 容错、失败级联 skip、节点级重试、失败告警 + rerun、人工审批节点、graph 变量跨 run 持久化。
 - **可信运行**：账号/用户隔离、静态加密（AES-256-GCM，**2026-09-02 扩围至图文档内所有节点级凭证，按 header 名字模式收口自定义凭证头，并就地加密 URL query 里的凭证；同波补上 `search`/`vcs` 的节点级凭证入口**）、SSRF 防护 + 代码沙箱（P0-P2 + net allowlist 代理）、29 项安全审计闭环。
 - **质量体系**：core-path 回归基线（compile→execute→rework→resume→artifact→auth→SSRF）+ 全量测试稳定复跑；模板/引擎修复均带回归用例；**2026-09-02 按缺陷类横扫"静默成功"**——媒体节点抛错、provider 返回空结果、模型返回空补全/空译文一律改发诚实 `node.failed`（可被 error 边兜底），不再交出没有产物或空产物的"成功"run。
@@ -57,9 +57,10 @@
 7. **设计 Token 体系完善** —— ✅ 已完成（2026-09-03）。Primitive 层（间距/圆角/阴影/字号/行高/字重/动画）+ Semantic 层（背景/文字/边框/功能色/accent/语义间距圆角阴影）+ 明暗主题切换（`[data-theme="light"]`）全部落地，保留原有 26 个 token 向后兼容。**渐进式迁移已完成（30 批）**：styles.css 全局样式全部迁移到 semantic token，全量 1460 测试每批验证通过无回归 — [design-design-tokens.md](design-design-tokens.md)。
 8. **i18n 国际化** —— ✅ 已完成（2026-09-03 立项 → 2026-09-04 收尾全部完成）。i18next + react-i18next + 7 命名空间 + 完整 zh/en 双语翻译包（1800+ keys）+ 语言自动检测 + localStorage 持久化全部落地；组件迁移 41/41 组件 + 顶层 App.tsx；Inspector 内 29 种节点配置字段（约 250 处）全部迁入 nodes.inspector（Inspector.tsx 341 处 t() 调用，keys.test 硬编码中文守护通过）；语言切换 UI（LanguageSwitcher）落地；本地化格式 i18n/utils.ts（formatDate/DateTime/Number/Currency/RelativeTime，基于 Intl）落地 — [design-i18n.md](design-i18n.md)。
 9. **自媒体电商方向能力升级** —— ✅ 已完成（2026-09-03 立项 → 2026-09-04 十个特性全部落地）。F1-F10 十个特性全部交付，里程碑 M1-M6 全部闭环：**M1 引擎差异化**（F1 run 内多变体择优引擎 + 变体对比视图 + F10 画布泳道编排）/ **M2 提效快赢**（F2 审核队列 + F3 平台合规校验）/ **M3 数据资产**（F4 商品库素材库）/ **M4 规模化生产**（F5 批量任务）/ **M5 发布与排期**（F7-A 平台化导出包 + F8 内容日历）/ **M6 效果闭环**（F6 效果回流 + F9 内容级成本 + F7-B 开放渠道 Webhook 发布）。节点策略收口为**只新增 4 个节点**（fanout/select/compliance/publish），其余靠扩 ConnectorType（product）+ 平台层数据表 + 工作台 UI。F7-C 浏览器/RPA 自动化按方案默认不做（合规/封号风险）— [design-ecommerce-roadmap.md](design-ecommerce-roadmap.md)。
-10. **文档穿插（4.8）** —— 基本完成（2026-09-01 盘点后核心设计文档覆盖全部已落地模块；低优余项见 deferred-items 文档线）。
-11. **低优 / 缓做** —— 沙箱 docker 容器后端、模板/节点市场、版本 diff 视图、状态机、监控告警大盘、多租户、Notion/Linear/内容平台集成、Excel 读写、HTML→PDF。触发条件见 [deferred-items.md](deferred-items.md)。
-12. **商业化** —— 放后面，决策基线见 [PRODUCT_STRATEGY.md](../PRODUCT_STRATEGY.md)。
+10. **核心文件重构（工程质量）** —— ✅ 已完成（2026-09-03 立项 → 2026-09-04 阶段 1+2 全部落地）。**Inspector.tsx** 3848→611 行（节点配置面板拆到 `InspectorFields/` 27 文件 + 注册表分发）；**engine.ts** 4954→1828 行，29 种节点执行体从巨型 `runNode` 迁至 `packages/server/src/nodes/`（28 个 `<kind>.ts` handler + `NodeRunContext` 显式上下文 + `NODE_HANDLERS` 注册表分发，notify 刻意保留内联以守住 error 边微任务时序）。纯重构、行为零变化，全量 server 747/747 + core-path 回归 18/18 复跑通过。阶段 3（接口风格约定，纯文档）延后 — [design-refactor-engine-inspector.md](design-refactor-engine-inspector.md)。
+11. **文档穿插（4.8）** —— 基本完成（2026-09-01 盘点后核心设计文档覆盖全部已落地模块；低优余项见 deferred-items 文档线）。
+12. **低优 / 缓做** —— 沙箱 docker 容器后端、模板/节点市场、版本 diff 视图、状态机、监控告警大盘、多租户、Notion/Linear/内容平台集成、Excel 读写、HTML→PDF。触发条件见 [deferred-items.md](deferred-items.md)。
+13. **商业化** —— 放后面，决策基线见 [PRODUCT_STRATEGY.md](../PRODUCT_STRATEGY.md)。
 
 ---
 
