@@ -56,7 +56,7 @@ import { registerSkill, setMemoryBackend, listBuiltinSkills } from "./skills/reg
 import { SQLiteMemoryBackend, extractKnowledgeFromRun } from "./memory.js";
 import { fileURLToPath } from "node:url";
 import { sanitizeError } from "./sanitize.js";
-import { decryptString, encryptString } from "./at-rest.js";
+import { decryptString, encryptString, getEncryptionRing } from "./at-rest.js";
 import { publishToChannel } from "./publish.js";
 import { hashPassword, verifyPassword, signToken, verifyToken, REMEMBER_MAX_AGE_SEC } from "./auth.js";
 import { audit, changedFields } from "./audit.js";
@@ -3023,15 +3023,20 @@ async function connectMcpServers(): Promise<void> {
 if (process.env.NODE_ENV !== "test") void connectMcpServers();
 
 if (process.env.NODE_ENV !== "test") {
-  // One startup summary: what the server booted against. The key source is
-  // named (env|file|memory) but the material itself is never logged.
-  const encryptionKeySource = process.env.AGENT_WORLD_ENCRYPTION_KEY
-    ? "env"
-    : "file"; // absent env falls back to the .encryption-key file next to the DB
+  // One startup summary: what the server booted against. The key source and
+  // ring size are named (env-keys|env|file) but the material itself is never
+  // logged. A ring larger than 1 means a rotation is mid-flight: oldest keys
+  // decrypt only, converge with scripts/rotate-reencrypt.ts then shrink it.
+  const encryptionKeySource = process.env.AGENT_WORLD_ENCRYPTION_KEYS
+    ? "env-keys"
+    : process.env.AGENT_WORLD_ENCRYPTION_KEY
+      ? "env"
+      : "file"; // absent env falls back to the keyring file next to the DB
   log.info("server starting", {
     dbFile: process.env.DB_FILE ?? "agent-world.sqlite",
     schemaVersion: SCHEMA_VERSION,
     encryptionKeySource,
+    encryptionKeyringSize: getEncryptionRing().length,
     logFile: process.env.LOG_FILE ?? "<db-dir>/logs/server.log",
   });
   serve({ fetch: app.fetch, port: PORT }, (info) => {
