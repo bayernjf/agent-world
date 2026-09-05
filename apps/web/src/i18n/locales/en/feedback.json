@@ -38,7 +38,30 @@
     "contextRoute": "Page",
     "contextRun": "Run",
     "contextError": "Last error",
-    "noContext": "No diagnostics"
+    "noContext": "No diagnostics",
+    "select": "Select",
+    "announce": {
+      "button": "Merge to announcement ({{count}})",
+      "title": "Merge into announcement",
+      "hint": "Merge the selected similar reports into one product announcement; they are closed automatically after publishing.",
+      "selected": "{{count}} feedback items selected",
+      "titleZh": "Title (Chinese)",
+      "titleEn": "Title (English)",
+      "bodyZh": "Body (Chinese)",
+      "bodyEn": "Body (English)",
+      "level": "Level",
+      "endsAt": "End time (optional)",
+      "submit": "Publish & close feedback",
+      "submitting": "Publishing…",
+      "cancel": "Cancel",
+      "success": "Announcement published; {{count}} feedback items closed",
+      "failed": "Publish failed, please try again later",
+      "titleRequired": "Both Chinese and English titles are required",
+      "templateTitleZh": "已知问题：{{category}}（{{count}} 条反馈）",
+      "templateTitleEn": "Known issue: {{category}} ({{count}} reports)",
+      "templateBodyZh": "收到 {{count}} 条同类反馈，我们正在处理：\n{{items}}",
+      "templateBodyEn": "We received {{count}} similar reports and are working on it:\n{{items}}"
+    }
   },
   "status": {
     "open": "Open",

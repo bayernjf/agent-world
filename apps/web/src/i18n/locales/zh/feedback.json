@@ -38,7 +38,30 @@
     "contextRoute": "页面",
     "contextRun": "Run",
     "contextError": "最近错误",
-    "noContext": "无诊断信息"
+    "noContext": "无诊断信息",
+    "select": "选中",
+    "announce": {
+      "button": "合并发公告（{{count}}）",
+      "title": "合并为公告",
+      "hint": "选中同类反馈合并成一条产品公告，发布后这些反馈将自动关闭。",
+      "selected": "已选 {{count}} 条反馈",
+      "titleZh": "标题（中文）",
+      "titleEn": "标题（英文）",
+      "bodyZh": "正文（中文）",
+      "bodyEn": "正文（英文）",
+      "level": "级别",
+      "endsAt": "结束时间（可选）",
+      "submit": "发布公告并关闭反馈",
+      "submitting": "发布中…",
+      "cancel": "取消",
+      "success": "公告已发布，{{count}} 条反馈已关闭",
+      "failed": "发布失败，请稍后重试",
+      "titleRequired": "请填写中英文标题",
+      "templateTitleZh": "已知问题：{{category}}（{{count}} 条反馈）",
+      "templateTitleEn": "Known issue: {{category}} ({{count}} reports)",
+      "templateBodyZh": "收到 {{count}} 条同类反馈，我们正在处理：\n{{items}}",
+      "templateBodyEn": "We received {{count}} similar reports and are working on it:\n{{items}}"
+    }
   },
   "status": {
     "open": "待处理",

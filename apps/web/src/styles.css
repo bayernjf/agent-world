@@ -873,6 +873,25 @@ select {
   gap: var(--gap-xs);
   margin-bottom: var(--gap-sm);
 }
+.admin-feedback__filters .admin-feedback__announce-btn {
+  margin-left: auto;
+}
+.admin-feedback__select {
+  margin: 0;
+  align-self: center;
+  flex: none;
+}
+.admin-feedback__announce {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-sm);
+}
+.admin-feedback__announce-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--gap-sm);
+  margin-top: var(--gap-sm);
+}
 
 /* ---------- source image list ---------- */
 .image-list {
