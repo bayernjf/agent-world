@@ -1,9 +1,10 @@
 # 角色权限（RBAC）设计方案
 
-> 状态：**P0 + P1 已实施（2026-09-05），P2-P3 方案定稿待做**。目标：把当前「`user_id` 硬隔离 + 公告管理员 env 白名单」升级为**全局角色 + 资源级共享权限**的正式 RBAC，为路线图 Phase 5 多租户/团队协作铺底。
+> 状态：**P0 + P1 + P2 已实施（2026-09-05），P3 方案定稿待做**。目标：把当前「`user_id` 硬隔离 + 公告管理员 env 白名单」升级为**全局角色 + 资源级共享权限**的正式 RBAC，为路线图 Phase 5 多租户/团队协作铺底。
 > 创建：2026-09-05 ｜ 触发：用户明确要求（不等 deferred-items 的"团队场景出现"），见 [handoff.md](../handoff.md) 待办 #34。
 > **P0 落地记录（2026-09-05）**：迁移 v31（`users.role` 列 + `idx_users_owner` 部分唯一索引 + 最早注册用户升 owner bootstrap）；`createUser` 无 owner 时首账号为 owner；`isAnnouncementAdmin` 改读 `owner/admin` 角色，`ANNOUNCEMENT_ADMIN_EMAILS` env 白名单退役（`.env` 已删）；`/api/auth/me` 返回 `role`。测试 `api.rbac.test.ts`（首账号 owner/单 owner 不变量/owner 可管公告/旧库 v31 bootstrap）+ `api.announcements.test.ts` 改角色提升。
 > **P1 落地记录（2026-09-05）**：迁移 v32（`resource_access` 表）；`src/rbac.ts` 判定层（`graphAccessRole`/`requireGraph`/`visibleGraphs`/`runAccessRole`/`requireRun`/`artifactAccessRole`/`hasAtLeast`）——graph 是共享单元，runs/artifacts/batches/AB 通过 `graph_id` 向上继承；协作者操作（save/run/resume/rerun/cancel/batch-retry/AB）执行以 graph owner 身份，保持 config/variables/cost 一致性；`GET /api/graphs` 合并 owned + shared（带 `sharedRole`）；`GET /api/runs`、`GET /api/artifacts`、`GET /api/batches` 按 visibleGraphs 过滤；变更路由 viewer→403、outsider→404（不泄露存在性）；ACL 管理（`PUT/GET /api/graphs/:id/access`）限 owner；`access.grant`/`access.revoke` 审计。测试 `api.access.test.ts` 14 例（graph ACL 授权/回收/幂等/校验/审计 + run/artifact 共享继承 viewer 可读/editor 可写/outsider 404）。server 803/803。
+> **P2 落地记录（2026-09-05）**：前端 Collaborators 共享 UI。`api.ts` 加 `sharedRole` 返回类型 + `getGraphAccess`/`putGraphAccess` + `Collaborator` 接口；`CollaboratorsModal.tsx` 新组件（协作者列表 + email/role 添加 + 移除）；`GraphSwitcher` 共享图显示 editor/viewer badge、隐藏 rename/delete（保留 duplicate）、owned 图加 Share(⤴) 按钮；`App.tsx` 接线 `shareTargetId` 状态 + 从 `graphs` 派生 `isViewer` 传 `readOnly` 给 `ControlPanel`（禁用 Dispatch + 提示文案）；`store/graph.ts` 加 `readOnly` flag 抑制 `scheduleSave`/`flushSave`（防 viewer 自动保存 403 刷屏）。i18n keys 加 `collaborators`/`sharedRole`/`shareButton`/`viewerRestriction`（zh/en）。typecheck 全绿 + i18n keys 4/4 + web 1500/1500。
 
 ## 1. 背景与现状
 
@@ -163,7 +164,7 @@ hasAtLeast(role, min): boolean  // owner>=editor>=viewer
 | -- | ------------------------------------------------------------------------------------------------------------------------------- | ------ |
 | P0 | users.role 列 + owner bootstrap + `permissions.ts` 基础判定 + `isAnnouncementAdmin`→全局角色（env 退役）+ /me 返回 role                        | ✅ 已完成  |
 | P1 | resource\_access 表 + `rbac.ts`（`requireGraph`/`visibleGraphs`/`requireRun`/`artifactAccessRole`）+ 越权基线改造（graph 及跟随资源的读/写/运行/分支） | ✅ 已完成  |
-| P2 | 前端 Collaborators 共享 UI + 资源列表过滤 + 角色显隐                                                                                          | 未做     |
+| P2 | 前端 Collaborators 共享 UI + 资源列表过滤 + 角色显隐                                                                                          | ✅ 已完成 2026-09-05 |
 | P3 | 运营管理 UI（用户列表、owner 授/撤 admin）；admin 跨用户审计查看（可选）                                                                                 | 未做     |
 
 > P0 是"把 env 白名单落成正规能力"的最小闭环，可独立交付；P1 是数据面真正的资源共享。P2/P3 是 UI 与运营面。
