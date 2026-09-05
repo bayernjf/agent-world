@@ -150,12 +150,18 @@ export class TriggerService {
     if (timestampMs != null) {
       const age = Date.now() - timestampMs;
       if (!Number.isFinite(age) || Math.abs(age) > WEBHOOK_TIMESTAMP_WINDOW_MS) {
+        log.warn("webhook rejected: timestamp outside replay window", { graphId });
         throw new TriggerError("webhook timestamp missing or outside the allowed replay window", 401);
       }
     }
     const candidate = this.listByGraph(graphId)
       .find((t) => t.type === "webhook" && secretEqual(t.webhookSecret ?? "", secret));
-    if (!candidate) throw new TriggerError("invalid webhook secret", 401);
+    if (!candidate) {
+      // Never log the presented secret — the rejection reason is the actionable fact.
+      log.warn("webhook rejected: no matching secret", { graphId });
+      throw new TriggerError("invalid webhook secret", 401);
+    }
+    log.info("webhook accepted", { graphId, triggerId: candidate.id });
     return this.fire(candidate.id, payload, graphId);
   }
 

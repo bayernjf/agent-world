@@ -2,7 +2,7 @@ import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BACKUP_RETENTION, openDb, SCHEMA_VERSION } from "./db.js";
 
 function cols(db: DatabaseSync, table: string): string[] {
@@ -10,6 +10,48 @@ function cols(db: DatabaseSync, table: string): string[] {
     (r) => r.name,
   );
 }
+
+describe("migration logging", () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "aw-mig-log-"));
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("logs one line per applied migration plus a summary (P3 logging)", () => {
+    const write = vi.spyOn(process.stdout, "write").mockImplementation(() => true as never);
+    // A pre-migration database forces several migrations to actually run.
+    const file = join(dir, "old.sqlite");
+    const old = new DatabaseSync(file);
+    old.exec(`
+      CREATE TABLE graphs (id TEXT PRIMARY KEY, name TEXT NOT NULL, doc TEXT NOT NULL, updated_at INTEGER NOT NULL);
+      CREATE TABLE runs (id TEXT PRIMARY KEY, graph_id TEXT NOT NULL, snapshot TEXT NOT NULL,
+        status TEXT NOT NULL, budget_usd REAL, started_at INTEGER NOT NULL, ended_at INTEGER);
+      CREATE TABLE events (run_id TEXT NOT NULL, seq INTEGER NOT NULL, ts INTEGER NOT NULL,
+        version INTEGER NOT NULL, type TEXT NOT NULL, payload TEXT NOT NULL, PRIMARY KEY (run_id, seq));
+      CREATE TABLE node_runs (run_id TEXT NOT NULL, node_id TEXT NOT NULL, attempt INTEGER NOT NULL,
+        status TEXT NOT NULL, output TEXT, error TEXT, tokens_in INTEGER NOT NULL DEFAULT 0,
+        tokens_out INTEGER NOT NULL DEFAULT 0, cost_usd REAL NOT NULL DEFAULT 0,
+        PRIMARY KEY (run_id, node_id, attempt));
+    `);
+    old.close();
+    openDb(file).close();
+
+    const lines = write.mock.calls.map((c) => String(c[0])).join("");
+    const applied = lines.match(/"msg":"migration applied"/g) ?? [];
+    expect(applied.length).toBeGreaterThanOrEqual(1);
+    expect(lines).toContain('"msg":"migrations complete"');
+    // Reopening an already-current database logs no migration lines.
+    write.mockClear();
+    openDb(file).close();
+    const reopen = write.mock.calls.map((c) => String(c[0])).join("");
+    expect(reopen).not.toContain("migration applied");
+    expect(reopen).not.toContain("migrations complete");
+  });
+});
 
 describe("ordered schema migrations", () => {
   let dir: string;

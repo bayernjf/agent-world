@@ -1,0 +1,11 @@
+{
+  "nav": {
+    "label": "Notices",
+    "withUnread": "Notices ({{n}} unread)"
+  },
+  "empty": "No notices",
+  "noBody": "(no body)",
+  "close": "Close",
+  "dismiss": "Got it",
+  "acknowledge": "Acknowledge"
+}

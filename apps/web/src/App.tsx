@@ -41,6 +41,7 @@ import TriggersPanel from "./components/TriggersPanel";
 import ProductGallery from "./components/ProductGallery";
 import Onboarding from "./components/Onboarding";
 import UserMenu from "./components/UserMenu";
+import AnnouncementBell from "./components/AnnouncementBell";
 import KnowledgePanel from "./components/KnowledgePanel";
 import GlossaryModal from "./components/GlossaryModal";
 import VersionPanel from "./components/VersionPanel";
@@ -854,6 +855,7 @@ export default function App() {
               </button>
             </Tooltip>
             <UserMenu />
+            <AnnouncementBell />
           </div>
         </header>
 

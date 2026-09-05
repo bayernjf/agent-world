@@ -1,7 +1,7 @@
 # 审计日志（Audit Log）设计方案
 
-> 状态：**方案设计，未实施**。对接合规要求（SOC 2 CC7.x / ISO 27001 A.8.15 / GDPR 可追溯性）：回答「谁在何时查看/修改了什么」。
-> 创建：2026-09-05
+> 状态：**P1+P2 已实施（2026-09-05）**——audit_log 表（迁移 29）+ `audit()` helper + 全部词表埋点（account/register/login/login_failed/logout/password_change、settings.update/test_provider、graph.create/update/delete/restore_version、run.start/cancel、publish_target.create/delete）+ `GET /api/audit` 查询接口 + 专项测试（动作覆盖/detail 红线/写失败不阻塞/隔离分页）。**P3 未实施**：180 天清理与 hash chain 防篡改（触发条件不变）。
+> 创建：2026-09-05；实施与方案的两处偏差见 §3.2/§3.3 备注。
 
 ## 1. 背景
 
@@ -54,7 +54,11 @@ CREATE INDEX idx_audit_log_time ON audit_log(created_at);
 
 **刻意排除**：只读操作（GET settings / 看图）不记——脱敏后 GET 已无敏感值可读，记录它只产生噪声；多用户对外部署时再评估是否加 `settings.view`。
 
-**detail 的红线**：值一律不进日志。改 key 记成 `providers.my.apiKey`（字段路径），不记新旧值；这同时规避了脱敏值回显被当作真值的混淆。
+**实施时新增的一条**：`account.password_change`——改密码是账户组内最敏感的动作，原词表遗漏。
+
+**实施偏差**：`settings.test_provider` 记的是「验证通过、真实 key 即将用于出站探测」这一刻（detail 只有 provider 名），不带 result——result 分支太多，而安全取证关心的是 key 何时被用过。
+
+**detail 的红线**：值一律不进日志。改 key 记成 `providers.my.apiKey`（字段路径），不记新旧值；这同时规避了脱敏值回显被当作真值的混淆。新增 provider（旧值不存在）报 provider 级路径 `providers.my`，字段级路径只在同名字段变化时报——由 `changedFields` 递归 diff（深度上限 4）产生。
 
 ### 3.3 写入路径：路由层 helper
 

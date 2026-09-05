@@ -1,6 +1,6 @@
 # 服务端日志（Server Logging）设计方案
 
-> 状态：**方案设计，未实施**。目标：把排障需要的结构化日志从「8 处调用 + 15 个文件裸 console」收编成统一体系，并让日志**默认落盘**。
+> 状态：**已全部实施（P1+P2 于 2026-09-05，P3 同日推进）**——P1 默认落盘（`<DB dir>/logs/server.log`，`LOG_FILE=""` 显式禁用）+ console 收编（约 15 个文件改走 Logger；节点经 `ctx.log`；例外保留 load-env/at-rest）；P2 `/api/*` 请求中间件（status 分级 + latencyMs + userId，不记 query）；P3 关键路径补齐：**启动摘要**（dbFile/schemaVersion/encryptionKeySource=env|file/logFile，key 只记来源不记值）、**迁移**（每条应用一行 + 汇总含耗时，重开零输出）、**触发器**（cron tick、webhook accepted/rejected——拒绝只记原因永不记呈现的 secret）、**run.resumed**（P1 时已有）。server 测试 747→**771**（+3 logger + 1 migration 日志断言）。
 > 创建：2026-09-05
 
 ## 1. 现状盘点

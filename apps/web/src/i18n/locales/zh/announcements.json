@@ -1,0 +1,11 @@
+{
+  "nav": {
+    "label": "公告",
+    "withUnread": "公告（{{n}} 条未读）"
+  },
+  "empty": "暂无公告",
+  "noBody": "（无正文）",
+  "close": "关闭",
+  "dismiss": "知道了",
+  "acknowledge": "我已知晓"
+}
