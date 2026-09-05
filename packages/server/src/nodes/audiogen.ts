@@ -62,7 +62,7 @@ export async function audioGenNode(ctx: NodeRunContext, node: GraphNode, nodeId:
     states.set(nodeId, "done");
     sendPackets(nodeId, `生成音频 ${results.length} 段`, "audio");
   } catch (err) {
-    console.warn(`[audioGen:${nodeId}] generation failed:`, (err as Error).message);
+    ctx.log.warn("audioGen generation failed", { nodeId, error: (err as Error).message });
     states.set(nodeId, "failed");
     emit({ type: "node.failed", nodeId, attempt, error: `音频生成失败: ${sanitizeError(err instanceof Error ? err.message : String(err))}`, errorCode: "PROVIDER_ERROR" });
   }

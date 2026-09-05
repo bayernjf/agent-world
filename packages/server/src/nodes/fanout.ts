@@ -73,6 +73,7 @@ export async function fanoutNode(ctx: NodeRunContext, node: GraphNode, nodeId: s
       publicUrl: opts.publicUrl,
       permissionConfig: opts.permissionConfig,
       bannedTerms: opts.bannedTerms,
+      searchConfig: opts.searchConfig,
       loadProducts: opts.loadProducts,
     });
     let childStatus: Status | undefined;

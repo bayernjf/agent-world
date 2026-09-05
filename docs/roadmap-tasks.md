@@ -1,6 +1,6 @@
 # Agent World 任务路线图
 
-> ⚠️ **历史文档**：阶段 1-5 的旧任务清单，已被 [PRD.md](../PRD.md)（产品阶段）与 [roadmap-generalization.md](roadmap-generalization.md)（当前主线，通用化）取代。保留供追溯，新任务一律挂在现行路线图下。
+> ⚠️ **历史文档**：阶段 1-5 的旧任务清单，已被 [PRD.md](PRD.md)（产品阶段）与 [roadmap-generalization.md](roadmap-generalization.md)（当前主线，通用化）取代。保留供追溯，新任务一律挂在现行路线图下。
 
 > 本文档把 PRD 中每个阶段拆解为可执行的具体任务。
 > 产品愿景见 [product-vision-discussion.md](product-vision-discussion.md)。

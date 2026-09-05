@@ -5,11 +5,12 @@ import { outboundProxyDispatcher } from "./ssrf.js";
 /**
  * Web search providers for the `search` node. `duckduckgo` works without any
  * API key (HTML endpoint, parsed with tolerant regexes); the other providers
- * resolve their credential **node first, env as fallback** — `search.apiKey`
- * over TAVILY_API_KEY / SERPAPI_API_KEY / GOOGLE_API_KEY, and `search.cx` over
- * GOOGLE_CX. A key typed into the Inspector therefore takes effect on the next
- * run without restarting the server, and it is encrypted before it reaches
- * disk (see at-rest.ts).
+ * resolve their credential **node first, user-level Settings next, env last** —
+ * `search.apiKey` over the user's Settings 搜索服务 apiKey over
+ * TAVILY_API_KEY / SERPAPI_API_KEY / GOOGLE_API_KEY, and `search.cx` over the
+ * user's cx over GOOGLE_CX. A key typed into the Inspector or Settings
+ * therefore takes effect on the next run without restarting the server, and
+ * both are encrypted before they reach disk (see at-rest.ts).
  */
 
 export interface SearchHit {
@@ -25,14 +26,31 @@ export class SearchAuthError extends Error {
   }
 }
 
-/** Node value wins; the env var is the deployment-wide fallback. */
-function resolveCredential(nodeValue: string | undefined, envName: string, field: string): string {
+/**
+ * User-level web search service from Settings. Same shape as the search
+ * node's own credential fields; resolution order is node → user → env.
+ */
+export interface UserSearchConfig {
+  provider?: string;
+  apiKey?: string;
+  cx?: string;
+}
+
+/** Node value wins; the user-level Settings value is next; the env var is the deployment-wide fallback. */
+function resolveCredential(
+  nodeValue: string | undefined,
+  userValue: string | undefined,
+  envName: string,
+  field: string,
+): string {
   const fromNode = nodeValue?.trim();
   if (fromNode) return fromNode;
+  const fromUser = userValue?.trim();
+  if (fromUser) return fromUser;
   const fromEnv = process.env[envName];
   if (fromEnv) return fromEnv;
   throw new SearchAuthError(
-    `缺少搜索凭证：节点的 ${field} 未填写，环境变量 ${envName} 也未配置（填在节点里无需重启 server）`,
+    `缺少搜索凭证：节点的 ${field} 未填写，用户级设置（Settings → 搜索服务）与环境变量 ${envName} 也未配置（填在节点里无需重启 server）`,
   );
 }
 
@@ -115,8 +133,8 @@ interface GoogleResponse {
   items?: { title?: string; link?: string; snippet?: string }[];
 }
 
-async function searchTavily(query: string, cfg: SearchConfig): Promise<SearchHit[]> {
-  const key = resolveCredential(cfg.apiKey, "TAVILY_API_KEY", "apiKey");
+async function searchTavily(query: string, cfg: SearchConfig, user?: UserSearchConfig): Promise<SearchHit[]> {
+  const key = resolveCredential(cfg.apiKey, user?.apiKey, "TAVILY_API_KEY", "apiKey");
   const res = await outboundFetch("https://api.tavily.com/search", {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
@@ -131,8 +149,8 @@ async function searchTavily(query: string, cfg: SearchConfig): Promise<SearchHit
     .map((r) => ({ title: r.title!, url: r.url!, snippet: r.content ?? "" }));
 }
 
-async function searchSerpApi(query: string, cfg: SearchConfig): Promise<SearchHit[]> {
-  const key = resolveCredential(cfg.apiKey, "SERPAPI_API_KEY", "apiKey");
+async function searchSerpApi(query: string, cfg: SearchConfig, user?: UserSearchConfig): Promise<SearchHit[]> {
+  const key = resolveCredential(cfg.apiKey, user?.apiKey, "SERPAPI_API_KEY", "apiKey");
   // Audit L6: SerpAPI only authenticates via the api_key query parameter (no
   // header option). It stays in the query, but is protected by TLS in transit
   // and is never placed in logs or error messages (the throws below are static).
@@ -147,9 +165,9 @@ async function searchSerpApi(query: string, cfg: SearchConfig): Promise<SearchHi
     .map((r) => ({ title: r.title!, url: r.link!, snippet: r.snippet ?? "" }));
 }
 
-async function searchGoogle(query: string, cfg: SearchConfig): Promise<SearchHit[]> {
-  const key = resolveCredential(cfg.apiKey, "GOOGLE_API_KEY", "apiKey");
-  const cx = resolveCredential(cfg.cx, "GOOGLE_CX", "cx");
+async function searchGoogle(query: string, cfg: SearchConfig, user?: UserSearchConfig): Promise<SearchHit[]> {
+  const key = resolveCredential(cfg.apiKey, user?.apiKey, "GOOGLE_API_KEY", "apiKey");
+  const cx = resolveCredential(cfg.cx, user?.cx, "GOOGLE_CX", "cx");
   // Audit L6: the Google Custom Search JSON API accepts its key only as the
   // ?key= query parameter (no Authorization header). TLS protects it in
   // transit and the URL is never logged or surfaced in thrown errors.
@@ -166,18 +184,30 @@ async function searchGoogle(query: string, cfg: SearchConfig): Promise<SearchHit
     .map((r) => ({ title: r.title!, url: r.link!, snippet: r.snippet ?? "" }));
 }
 
-/** Run a web search with the configured provider, retrying transient faults. Throws SearchAuthError on missing/invalid keys. */
-export async function searchWeb(query: string, cfg: SearchConfig): Promise<SearchHit[]> {
+/**
+ * Run a web search with the configured provider, retrying transient faults.
+ * Throws SearchAuthError on missing/invalid keys.
+ *
+ * The user-level service (Settings → 搜索服务) participates two ways:
+ *  - credentials: node apiKey/cx → user-level → env var;
+ *  - backend: a user-configured provider replaces the node's provider when the
+ *    node sits on the keyless duckduckgo default (which is dead in practice —
+ *    anti-bot). A node that explicitly picks a keyed provider keeps its choice,
+ *    so per-node overrides still work.
+ */
+export async function searchWeb(query: string, cfg: SearchConfig, user?: UserSearchConfig): Promise<SearchHit[]> {
   try {
     return await withRetry(
       () => {
-        switch (cfg.provider) {
+        const provider =
+          user?.provider && cfg.provider === "duckduckgo" ? user.provider : cfg.provider;
+        switch (provider) {
           case "tavily":
-            return searchTavily(query, cfg);
+            return searchTavily(query, cfg, user);
           case "serpapi":
-            return searchSerpApi(query, cfg);
+            return searchSerpApi(query, cfg, user);
           case "google":
-            return searchGoogle(query, cfg);
+            return searchGoogle(query, cfg, user);
           default:
             return searchDuckDuckGo(query, cfg.maxResults);
         }

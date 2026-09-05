@@ -66,7 +66,7 @@ export async function videoGenNode(ctx: NodeRunContext, node: GraphNode, nodeId:
     states.set(nodeId, "done");
     sendPackets(nodeId, `生成视频 ${results.length} 段`, "video");
   } catch (err) {
-    console.warn(`[videoGen:${nodeId}] generation failed:`, (err as Error).message);
+    ctx.log.warn("videoGen generation failed", { nodeId, error: (err as Error).message });
     states.set(nodeId, "failed");
     emit({ type: "node.failed", nodeId, attempt, error: `视频生成失败: ${sanitizeError(err instanceof Error ? err.message : String(err))}`, errorCode: "PROVIDER_ERROR" });
   }

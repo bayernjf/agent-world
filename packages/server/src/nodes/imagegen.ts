@@ -58,7 +58,7 @@ export async function imageGenNode(ctx: NodeRunContext, node: GraphNode, nodeId:
     // 配图往往就是这条产线的产物（2026-08-31 狗粮撞过 agnes 图片 503），标 done
     // 会交出一条没有图的成品；旧的兜底还往下游发一个 text 包「生图失败（已降级
     // 跳过）」，写手会把这句报错当素材写进正文。要兜底就接 error 边。
-    console.warn(`[imageGen:${nodeId}] generation failed:`, (err as Error).message);
+    ctx.log.warn("imageGen generation failed", { nodeId, error: (err as Error).message });
     states.set(nodeId, "failed");
     emit({ type: "node.failed", nodeId, attempt, error: `配图生成失败: ${sanitizeError(err instanceof Error ? err.message : String(err))}`, errorCode: "PROVIDER_ERROR" });
   }

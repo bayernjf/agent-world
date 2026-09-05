@@ -1,7 +1,9 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { decryptString } from "./at-rest.js";
 
 // The Hono app is a module singleton with DB/config env read at import time,
 // so give it a scratch database before importing.
@@ -157,6 +159,124 @@ describe("per-user settings isolation", () => {
       }),
     });
     expect(res.status).toBe(200);
+  });
+});
+
+// User-level search service (Settings → 搜索服务) rides in the same AppConfig
+// row: validated on PUT, redacted on GET, and the masked-key round-trip keeps
+// the stored secret.
+describe("user-level search config", () => {
+  let token: string;
+
+  beforeAll(async () => {
+    token = authToken(await register("searchuser@test.dev"));
+  });
+
+  it("saves, redacts on read, and keeps the real key across a masked round-trip", async () => {
+    const put = await app.request("/api/settings", {
+      method: "PUT",
+      headers: authed(token, { "content-type": "application/json" }),
+      body: JSON.stringify({
+        searchConfig: { provider: "tavily", apiKey: "tvly-secret-123456" },
+      }),
+    });
+    expect(put.status).toBe(200);
+
+    const get = await app.request("/api/settings", { headers: authed(token) });
+    const body = (await get.json()) as {
+      searchConfig?: { provider?: string; apiKey?: string };
+    };
+    expect(body.searchConfig?.provider).toBe("tavily");
+    expect(body.searchConfig?.apiKey).not.toBe("tvly-secret-123456");
+    const masked = body.searchConfig?.apiKey!;
+
+    // Echo the masked key back (the UI does this when saving other fields).
+    const roundTrip = await app.request("/api/settings", {
+      method: "PUT",
+      headers: authed(token, { "content-type": "application/json" }),
+      body: JSON.stringify({ searchConfig: { provider: "tavily", apiKey: masked } }),
+    });
+    expect(roundTrip.status).toBe(200);
+
+    const after = await app.request("/api/settings", { headers: authed(token) });
+    const afterBody = (await after.json()) as { searchConfig?: { apiKey?: string } };
+    expect(afterBody.searchConfig?.apiKey).toBe(masked);
+    expect(JSON.stringify(afterBody)).not.toContain("tvly-secret-123456");
+  });
+
+  it("rejects an unknown search provider", async () => {
+    const res = await app.request("/api/settings", {
+      method: "PUT",
+      headers: authed(token, { "content-type": "application/json" }),
+      body: JSON.stringify({ searchConfig: { provider: "bing" } }),
+    });
+    expect(res.status).toBe(400);
+  });
+});
+
+// Provider keys (and the user-level search key) must be encrypted at rest in
+// the settings table — AES-256-GCM (`enc:v1:...`) via the bound settingsStore.
+// The API layers redaction + masked-key round-trips on top, but the disk row
+// itself must never hold a plaintext secret.
+describe("settings at-rest encryption (audit L3)", () => {
+  let token: string;
+  const email = "encuser@test.dev";
+  const providerKey = "sk-encverify-secret";
+  const searchKey = "tvly-encverify-secret";
+
+  beforeAll(async () => {
+    token = authToken(await register(email));
+    const put = await app.request("/api/settings", {
+      method: "PUT",
+      headers: authed(token, { "content-type": "application/json" }),
+      body: JSON.stringify({
+        providers: {
+          enc: {
+            type: "openai-compatible",
+            baseUrl: "https://enc.example/v1",
+            apiKey: providerKey,
+            models: ["m1"],
+            enabled: true,
+          },
+        },
+        searchConfig: { provider: "tavily", apiKey: searchKey },
+      }),
+    });
+    expect(put.status).toBe(200);
+  }, 10000);
+
+  /** Read the raw `settings.data` string straight off the test database. */
+  const rawSettings = (): string => {
+    const raw = new DatabaseSync(process.env.DB_FILE!, { readOnly: true });
+    try {
+      const user = raw
+        .prepare(`SELECT id FROM users WHERE email = ?`)
+        .get(email) as { id: string } | undefined;
+      if (!user) throw new Error(`user ${email} missing`);
+      const row = raw
+        .prepare(`SELECT data FROM settings WHERE user_id = ?`)
+        .get(user.id) as { data: string } | undefined;
+      if (!row) throw new Error("settings row missing");
+      return row.data;
+    } finally {
+      raw.close();
+    }
+  };
+
+  it("never stores a plaintext key in the settings row", () => {
+    const stored = rawSettings();
+    expect(stored).not.toContain(providerKey);
+    expect(stored).not.toContain(searchKey);
+    expect(stored).toContain("enc:v1:");
+  });
+
+  it("stores both the provider key and the search key encrypted and decryptable", () => {
+    const config = JSON.parse(decryptString(rawSettings())) as {
+      providers: Record<string, { apiKey?: string }>;
+      searchConfig?: { apiKey?: string };
+    };
+    expect(config.providers.enc.apiKey).toBe(providerKey);
+    expect(config.searchConfig?.apiKey).toBe(searchKey);
   });
 });
 

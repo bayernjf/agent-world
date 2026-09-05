@@ -273,24 +273,23 @@ describe("resolveSandbox (P2 backend selection)", () => {
   });
 
   it("degrades to rlimit with a loud warn when the requested binary is missing", () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warn = vi.spyOn(process.stdout, "write").mockImplementation(() => true as never);
     expect(resolveSandbox({ CODE_SANDBOX: "bwrap" }, () => false).name).toBe("rlimit");
     expect(resolveSandbox({ CODE_SANDBOX: "sandbox-exec" }, () => false).name).toBe("rlimit");
-    expect(warn).toHaveBeenCalledTimes(2);
-    expect(warn.mock.calls[0][0]).toContain("degrading to rlimit");
+    const joined = warn.mock.calls.map((c) => String(c[0])).join("");
+    expect(joined.match(/degrading to rlimit/g)).toHaveLength(2);
   });
 
   it("degrades to rlimit with a warn on an unknown backend name", () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warn = vi.spyOn(process.stdout, "write").mockImplementation(() => true as never);
     expect(resolveSandbox({ CODE_SANDBOX: "gvisor" }, () => true).name).toBe("rlimit");
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn.mock.calls[0][0]).toContain("unknown CODE_SANDBOX");
+    expect(warn.mock.calls.map((c) => String(c[0])).join("")).toContain("unknown CODE_SANDBOX");
   });
 
   it("noop is selectable (escape hatch) and warns about the missing sandbox", () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warn = vi.spyOn(process.stdout, "write").mockImplementation(() => true as never);
     expect(resolveSandbox({ CODE_SANDBOX: "noop" }, () => true).name).toBe("noop");
-    expect(warn.mock.calls[0][0]).toContain("WITHOUT rlimits");
+    expect(warn.mock.calls.map((c) => String(c[0])).join("")).toContain("WITHOUT rlimits");
   });
 });
 

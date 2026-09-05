@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SearchConfig } from "@agent-world/core";
-import { searchWeb, SearchAuthError } from "./search.js";
+import { searchWeb, SearchAuthError, type UserSearchConfig } from "./search.js";
 
 const cfg: SearchConfig = {
   query: "q",
@@ -88,5 +88,59 @@ describe("searchWeb credential resolution", () => {
     await expect(
       searchWeb("q", { ...cfg, provider: "tavily", retry: { maxRetries: 0, baseDelayMs: 1, maxDelayMs: 1 } }),
     ).rejects.toThrow(/节点的 apiKey 未填写.*TAVILY_API_KEY/s);
+  });
+});
+
+// User-level search service (Settings → 搜索服务): a default beneath the node's
+// own credentials but above the env vars, plus a backend override for nodes
+// sitting on the keyless duckduckgo default.
+describe("searchWeb user-level service", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  const sentAuthorization = async (over: Partial<SearchConfig>, user?: UserSearchConfig): Promise<string> => {
+    globalThis.fetch = vi.fn(async () =>
+      new Response(JSON.stringify({ results: [] }), { status: 200 }),
+    ) as unknown as typeof fetch;
+    await searchWeb("q", { ...cfg, provider: "tavily", ...over }, user);
+    const call = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    const headers = (call[1] as RequestInit).headers as Record<string, string>;
+    return headers.authorization ?? "";
+  };
+
+  it("falls back to the user-level key between the node key and the env var", async () => {
+    vi.stubEnv("TAVILY_API_KEY", "tvly-env");
+    expect(await sentAuthorization({}, { apiKey: "tvly-user" })).toBe("Bearer tvly-user");
+  });
+
+  it("lets the node key win over the user-level key", async () => {
+    vi.stubEnv("TAVILY_API_KEY", "tvly-env");
+    expect(await sentAuthorization({ apiKey: "tvly-node" }, { apiKey: "tvly-user" })).toBe("Bearer tvly-node");
+  });
+
+  it("still reaches the env var when the user level is blank", async () => {
+    vi.stubEnv("TAVILY_API_KEY", "tvly-env");
+    expect(await sentAuthorization({}, { apiKey: "   " })).toBe("Bearer tvly-env");
+  });
+
+  it("routes a duckduckgo-default node through the user-level provider", async () => {
+    globalThis.fetch = vi.fn(async () =>
+      new Response(JSON.stringify({ results: [] }), { status: 200 }),
+    ) as unknown as typeof fetch;
+    // Node cfg stays on the keyless default; the user-level tavily takes over.
+    await searchWeb("q", { ...cfg, provider: "duckduckgo" }, { provider: "tavily", apiKey: "tvly-user" });
+    const call = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(call[0]).toBe("https://api.tavily.com/search");
+    const headers = (call[1] as RequestInit).headers as Record<string, string>;
+    expect(headers.authorization).toBe("Bearer tvly-user");
+  });
+
+  it("keeps the node's explicit keyed provider over the user-level one", async () => {
+    globalThis.fetch = vi.fn(async () =>
+      new Response(JSON.stringify({ organic_results: [] }), { status: 200 }),
+    ) as unknown as typeof fetch;
+    await searchWeb("q", { ...cfg, provider: "serpapi", apiKey: "serp-node" }, { provider: "tavily" });
+    const call = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(String(call[0])).toContain("https://serpapi.com/search");
+    expect(String(call[0])).toContain("api_key=serp-node");
   });
 });
