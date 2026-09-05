@@ -32,3 +32,4 @@ artifacts/
 
 # Personal Codex skills (project-local overrides; global at ~/.agents/skills/)
 .agents/
+*.sqlite.bak-*
