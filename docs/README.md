@@ -39,7 +39,8 @@
 | [technical-design.md](technical-design.md)                                 | 技术方案结论：架构、数据模型、API、安全                                                                  | 开发者              |
 | [security-audit-2026-08-31.md](security-audit-2026-08-31.md)               | 安全审计报告 + 修复方案（3 Critical / 10 High / 8 Medium / 8 Low，**29 项全部修复**；推翻两条旧"已解决"结论）★      | 开发者 / 决策者        |
 | [design-at-rest-encryption.md](design-at-rest-encryption.md)               | 静态加密设计（settings / webhook secret 落盘 AES-256-GCM；审计 L3，已落地）                             | 开发者 / 运维         |
-| [design-key-rotation.md](design-key-rotation.md)                           | 密钥轮换设计（keyring + v2 密文格式 + 重加密脚本 runbook；**方案定稿未实施**）                                  | 开发者 / 运维         |
+| [design-key-rotation.md](design-key-rotation.md)                           | 密钥轮换设计（keyring + v2 密文格式 + 重加密脚本；**已实施 2026-09-05**，运维手册见 [runbooks/key-rotation.md](runbooks/key-rotation.md)）                                  | 开发者 / 运维         |
+| [runbooks/key-rotation.md](runbooks/key-rotation.md)                     | 密钥轮换运维手册（定期轮换五步 / 泄露应急 / 常见错误排查 / 验证清单）                                                | 运维                |
 | [design-audit-log.md](design-audit-log.md)                                 | 审计日志设计（audit\_log 表 + 路由层埋点 + detail 永不含值红线；**P1+P2 已实施，P3 待触发**）                      | 开发者 / 运维         |
 | [design-logging.md](design-logging.md)                                     | 服务端日志设计（console 收编 + 默认落盘 + 请求中间件 + 关键路径；**P1-P3 全部实施**）                               | 开发者 / 运维         |
 | [design-announcement.md](design-announcement.md)                           | 公告设计（双语内联表 + level 驱动 UI 强度 + owner/admin 角色管理；**P1+P2 已实施，P3 待触发**）                   | 开发者 / 运维         |
