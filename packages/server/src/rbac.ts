@@ -95,7 +95,12 @@ export function artifactAccessRole(db: Db, userId: string, artifactId: string): 
   // Prefer the artifact's own graph link; older rows (or pre-run uploads) may
   // only carry a run_id, so resolve through the run instead.
   const graphId = ref.graphId || db.getRunGraphRef(ref.runId)?.graphId;
-  const ownerId = graphId != null ? db.graphOwnerId(graphId) : undefined;
-  if (ownerId == null) return ref.userId === userId ? "owner" : null;
-  return graphAccessRole(db, userId, graphId!);
+  if (graphId != null) {
+    const role = graphAccessRole(db, userId, graphId);
+    if (role != null) return role;
+  }
+  // Fall back to the artifact's own user_id: an upload not yet attached to a
+  // shared graph, or an artifact on a graph the user can't otherwise access
+  // but that they personally created, still belongs to its creator.
+  return ref.userId === userId ? "owner" : null;
 }
