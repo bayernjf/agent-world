@@ -17,8 +17,12 @@ CREATE TABLE IF NOT EXISTS users (
   id            TEXT PRIMARY KEY,
   email         TEXT UNIQUE NOT NULL,
   password_hash TEXT NOT NULL,
+  role          TEXT NOT NULL DEFAULT 'user',
   created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
 );
+-- idx_users_owner is NOT here on purpose: the role column is only added by
+-- migration 31 for pre-RBAC databases, and an index in this DDL runs before
+-- migrations -- an older file dies in db.exec(DDL) with "no such column: role".
 
 CREATE TABLE IF NOT EXISTS graphs (
   id         TEXT PRIMARY KEY,
@@ -669,8 +673,9 @@ export function openDb(file: string) {
 
   const stmts = {
     createUser: db.prepare(
-      `INSERT INTO users (id, email, password_hash) VALUES (?, ?, ?)`,
+      `INSERT INTO users (id, email, password_hash, role) VALUES (?, ?, ?, ?)`,
     ),
+    countOwners: db.prepare(`SELECT COUNT(*) AS n FROM users WHERE role = 'owner'`),
     getSettings: db.prepare(`SELECT data FROM settings WHERE user_id = ?`),
     saveSettings: db.prepare(
       `INSERT INTO settings (user_id, data, updated_at) VALUES (?, ?, ?)
@@ -716,10 +721,10 @@ export function openDb(file: string) {
       `SELECT announcement_id FROM announcement_reads WHERE user_id = ?`,
     ),
     findUserByEmail: db.prepare(
-      `SELECT id, email, created_at FROM users WHERE email = ?`,
+      `SELECT id, email, role, created_at FROM users WHERE email = ?`,
     ),
     findUserById: db.prepare(
-      `SELECT id, email, created_at FROM users WHERE id = ?`,
+      `SELECT id, email, role, created_at FROM users WHERE id = ?`,
     ),
     findUserPasswordHash: db.prepare(
       `SELECT password_hash FROM users WHERE id = ?`,
@@ -858,17 +863,22 @@ export function openDb(file: string) {
 
   return {
     createUser(id: string, email: string, passwordHash: string) {
-      stmts.createUser.run(id, email, passwordHash);
-      return { id, email };
+      // RBAC P0 (design-rbac.md): the very first account bootstraps the
+      // instance owner. The single-owner invariant is enforced by the partial
+      // unique index idx_users_owner.
+      const role =
+        (stmts.countOwners.get() as { n: number }).n === 0 ? "owner" : "user";
+      stmts.createUser.run(id, email, passwordHash, role);
+      return { id, email, role };
     },
     findUserByEmail(email: string) {
       return stmts.findUserByEmail.get(email) as
-        | { id: string; email: string; created_at: string }
+        | { id: string; email: string; role: string; created_at: string }
         | undefined;
     },
     findUserById(id: string) {
       return stmts.findUserById.get(id) as
-        | { id: string; email: string; created_at: string }
+        | { id: string; email: string; role: string; created_at: string }
         | undefined;
     },
     findUserPasswordHash(id: string) {
@@ -3217,6 +3227,29 @@ const MIGRATIONS: Migration[] = [
       )`);
     },
   },
+  {
+    version: 31,
+    description: "users.role global RBAC column + single-owner bootstrap (design-rbac P0)",
+    // Detect on the INDEX, not the users.role column: the column is already in
+    // the fresh-database DDL above, so a fresh DB would detect "done" and skip
+    // this migration — but the DDL does not create the partial unique index
+    // (see the comment there), so baselining must still run this up() to build
+    // it and bootstrap the owner.
+    detect: (db) => indexExists(db, "idx_users_owner"),
+    up: (db) => {
+      if (!columnExists(db, "users", "role")) {
+        db.exec("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'");
+      }
+      db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_owner ON users(role) WHERE role = 'owner'");
+      // Owner bootstrap: with no owner yet, promote the earliest-registered
+      // user (created_at is ISO text, lexicographically ordered; rowid breaks
+      // ties within one second). Existing databases therefore keep exactly
+      // one owner; fresh ones start empty and createUser assigns it.
+      db.exec(`UPDATE users SET role = 'owner' WHERE id = (
+        SELECT id FROM users ORDER BY created_at ASC, rowid ASC LIMIT 1
+      ) AND NOT EXISTS (SELECT 1 FROM users WHERE role = 'owner')`);
+    },
+  },
 ];
 
 const LATEST_VERSION = MIGRATIONS.at(-1)!.version;
@@ -3294,7 +3327,9 @@ export function backfillExistingData(database: { prepare(sql: string): { get(...
   const defaultEmail = "admin@local.dev";
   const placeholderHash = "__no_login__";
 
-  database.prepare("INSERT INTO users (id, email, password_hash) VALUES (?, ?, ?)").run(
+  // The backfilled user is the only account in this scenario — it bootstraps
+  // as owner (RBAC P0, design-rbac.md).
+  database.prepare("INSERT INTO users (id, email, password_hash, role) VALUES (?, ?, ?, 'owner')").run(
     defaultUserId,
     defaultEmail,
     placeholderHash,

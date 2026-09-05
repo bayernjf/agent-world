@@ -307,13 +307,13 @@ app.get("/api/auth/me", async (c) => {
   if (!payload) return c.json({ error: "not authenticated" }, 401);
   const user = db.findUserById(payload.userId);
   if (!user) return c.json({ error: "not authenticated" }, 401);
-  const canManageAnnouncements = await isAnnouncementAdmin(user.id);
   return c.json({
     user: {
       id: user.id,
       email: user.email,
       createdAt: user.created_at,
-      canManageAnnouncements,
+      role: user.role,
+      canManageAnnouncements: isAnnouncementAdmin(user.id),
     },
   });
 });
@@ -662,21 +662,12 @@ app.get("/api/audit", (c) => {
 });
 
 // --- Announcements (design-announcement) ---
-// Admin gate: no role system yet, so an env allowlist of emails is the
-// minimum viable check (retire it when the multi-tenant role system lands).
-function announcementAdminEmails(): Set<string> {
-  return new Set(
-    (process.env.ANNOUNCEMENT_ADMIN_EMAILS ?? "")
-      .split(",")
-      .map((e) => e.trim().toLowerCase())
-      .filter(Boolean),
-  );
-}
-
-async function isAnnouncementAdmin(userId: string): Promise<boolean> {
+// Admin gate (RBAC P0, design-rbac.md): global owner/admin roles decide who
+// manages announcements. The ANNOUNCEMENT_ADMIN_EMAILS env allowlist is
+// retired — owner is assigned at bootstrap, admins by owner via role grant.
+function isAnnouncementAdmin(userId: string): boolean {
   const user = db.findUserById(userId);
-  if (!user) return false;
-  return announcementAdminEmails().has(user.email.toLowerCase());
+  return user?.role === "owner" || user?.role === "admin";
 }
 
 /** Active announcements plus the caller's read state (idempotent display). */
@@ -792,7 +783,7 @@ app.patch("/api/announcements/:id", async (c) => {
 });
 
 app.delete("/api/announcements/:id", async (c) => {
-  if (!(await isAnnouncementAdmin(c.get("userId")))) return c.json({ error: "forbidden" }, 403);
+  if (!isAnnouncementAdmin(c.get("userId"))) return c.json({ error: "forbidden" }, 403);
   const id = c.req.param("id");
   const ok = db.deleteAnnouncement(id);
   if (!ok) return c.json({ error: "announcement not found" }, 404);

@@ -12,7 +12,6 @@ beforeAll(async () => {
   dir = mkdtempSync(join(tmpdir(), "aw-ann-"));
   process.env.DB_FILE = join(dir, "ann.sqlite");
   process.env.ALLOW_REGISTRATION = "1";
-  process.env.ANNOUNCEMENT_ADMIN_EMAILS = "boss@test.dev";
   const mod = await import("./index.js");
   app = mod.app;
   db = openDb(process.env.DB_FILE!);
@@ -22,7 +21,6 @@ afterAll(() => {
   db.close();
   delete process.env.DB_FILE;
   delete process.env.ALLOW_REGISTRATION;
-  delete process.env.ANNOUNCEMENT_ADMIN_EMAILS;
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -125,6 +123,9 @@ describe("announcements: admin gate", () => {
   beforeAll(async () => {
     admin = await register("boss@test.dev");
     pleb = await register("pleb@test.dev");
+    // RBAC P0: announcement admins are users with the global admin role —
+    // grant it directly (owner-grant UI is P3, out of scope here).
+    db.prepare("UPDATE users SET role = 'admin' WHERE email = ?").run("boss@test.dev");
   });
 
   it("rejects create/update/delete for non-admins", async () => {
@@ -193,17 +194,19 @@ describe("announcements: admin gate", () => {
     expect(items2.map((a) => a.id)).not.toContain(created.id);
   });
 
-  it("exposes the announcement-admin flag only to allowlisted emails via /me", async () => {
+  it("exposes the announcement-admin flag only to global admin/owner roles via /me", async () => {
     const meAdmin = await app.request("/api/auth/me", { headers: auth(admin) });
     const { user: adminUser } = (await meAdmin.json()) as {
-      user: { canManageAnnouncements?: boolean };
+      user: { role?: string; canManageAnnouncements?: boolean };
     };
+    expect(adminUser.role).toBe("admin");
     expect(adminUser.canManageAnnouncements).toBe(true);
 
     const mePleb = await app.request("/api/auth/me", { headers: auth(pleb) });
     const { user: plebUser } = (await mePleb.json()) as {
-      user: { canManageAnnouncements?: boolean };
+      user: { role?: string; canManageAnnouncements?: boolean };
     };
+    expect(plebUser.role).toBe("user");
     expect(plebUser.canManageAnnouncements).toBe(false);
   });
 
