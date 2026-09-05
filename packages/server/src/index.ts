@@ -315,6 +315,28 @@ app.post("/api/auth/password", async (c) => {
   return c.json({ ok: true });
 });
 
+// --- Request log middleware ---
+// Records every /api call with latency. Runs before auth so 401s are visible,
+// but never logs query params (they can carry tokens, L1) or SSE bodies.
+app.use("/api/*", async (c, next) => {
+  const start = Date.now();
+  const path = c.req.path;
+  await next();
+  const latencyMs = Date.now() - start;
+  const status = c.res.status;
+  const record: Record<string, unknown> = {
+    method: c.req.method,
+    path,
+    status,
+    latencyMs,
+  };
+  const uid = c.get("userId") as string | undefined;
+  if (uid) record.userId = uid;
+  if (status >= 500) log.error("http request", record);
+  else if (status >= 400) log.warn("http request", record);
+  else log.info("http request", record);
+});
+
 // --- Auth middleware ---
 app.use("/api/*", async (c, next) => {
   const path = c.req.path;

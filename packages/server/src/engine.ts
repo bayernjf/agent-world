@@ -105,6 +105,7 @@ import { humanNode } from "./nodes/human.js";
 import { sinkNode } from "./nodes/sink.js";
 import { publishNode } from "./nodes/publish.js";
 import { runVcsNode } from "./nodes/vcs.js";
+import { type Logger, log } from "./logger.js";
 import {
   ARTIFACT_URL_NOTE,
   CONNECTOR_MAX_RETRIES,
@@ -259,6 +260,8 @@ export interface ExecuteOptions {
   searchConfig?: { provider?: string; apiKey?: string; cx?: string };
   /** Resolves a `product` connector against the user's product library (injected by the HTTP layer). */
   loadProducts?: (connector: ProductConnector) => Promise<ResolvedMaterial>;
+  /** Run-scoped structured logger, bound to runId/graphId by the caller. */
+  log?: Logger;
 }
 
 export type Status = "done" | "failed" | "halted" | "tripped" | "cancelled";
@@ -458,6 +461,8 @@ export interface SchedulerOptions {
   searchConfig?: { provider?: string; apiKey?: string; cx?: string };
   /** Resolves a `product` connector against the user's product library (injected by the HTTP layer). */
   loadProducts?: (connector: ProductConnector) => Promise<ResolvedMaterial>;
+  /** Run-scoped structured logger, bound to runId/graphId by the caller. */
+  log?: Logger;
 }
 
 /**
@@ -469,6 +474,7 @@ export interface SchedulerOptions {
  */
 async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunEvent>> {
   const { runId, graph, plan, worker, budgetUsd, fallbackModel } = opts;
+  const runLog = (opts.log ?? log).child({ runId });
   const permCfg = opts.permissionConfig ?? loadPermissionConfig();
   const approved = new Set<string>(opts.approveTools ?? []);
   const monthlyBudgetUsd = opts.monthlyBudgetUsd ?? null;
@@ -929,6 +935,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
   const ctx: NodeRunContext = {
     opts,
     runId,
+    log: runLog,
     graph,
     plan,
     worker,
@@ -1201,7 +1208,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       // error 边的 catch 节点不会接手，run 照常收尾，外部只看得见"少了某个
       // node.finished"。2026-09-01 CI 上两条 code 节点回归用例的红就是这种形态。
       const message = sanitizeError(err instanceof Error ? err.message : String(err));
-      console.warn(`[engine:${nodeId}] ${node.kind} 节点意外抛错:`, message);
+      runLog.warn("node threw unexpectedly", { nodeId, kind: node.kind, error: message });
       states.set(nodeId, "failed");
       emit({
         type: "node.failed",
@@ -1264,7 +1271,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       );
       if (!ready) break;
       if (ready.kind === "code" || ready.kind === "notify" || ready.kind === "human") {
-        console.error(`[dbg] SCHEDULE launch nodeId=${ready.id} kind=${ready.kind} running=${running}`);
+        runLog.debug("schedule launch", { nodeId: ready.id, kind: ready.kind, running });
       }
       states.set(ready.id, "running");
       running++;
@@ -1439,6 +1446,7 @@ export async function* execute(opts: ExecuteOptions): AsyncGenerator<RunEvent, v
     monthlyBudgetUsd: opts.monthlyBudgetUsd ?? null,
     monthSpentUsd: opts.monthSpentUsd ?? 0,
     fallbackModel: opts.defaultModel ?? "agnes-2.0-flash",
+    log: opts.log,
     startSeq: 0,
     sourceInput: opts.input,
     connectorValues: opts.connectorValues,
@@ -1629,6 +1637,8 @@ export interface ResumeOptions {
   searchConfig?: { provider?: string; apiKey?: string; cx?: string };
   /** Resolves a `product` connector against the user's product library (injected by the HTTP layer). */
   loadProducts?: (connector: ProductConnector) => Promise<ResolvedMaterial>;
+  /** Run-scoped structured logger, bound to runId/graphId by the caller. */
+  log?: Logger;
 }
 
 /**
@@ -1798,6 +1808,7 @@ export async function* resume(opts: ResumeOptions): AsyncGenerator<RunEvent, voi
     monthlyBudgetUsd: opts.monthlyBudgetUsd ?? null,
     monthSpentUsd: opts.monthSpentUsd ?? 0,
     fallbackModel: opts.defaultModel ?? "agnes-2.0-flash",
+    log: opts.log,
     startSeq,
     signal: opts.signal,
     now,

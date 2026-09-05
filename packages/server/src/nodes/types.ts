@@ -1,6 +1,7 @@
 import type { Artifact, DraftEvent, Graph, GraphNode, Plan, RunEvent } from "@agent-world/core";
 import type { Worker } from "../worker.js";
 import type { PermissionConfig } from "../permissions.js";
+import type { Logger } from "../logger.js";
 import type { NodeState, SchedulerInit, SchedulerOptions, Status } from "../engine.js";
 
 /**
@@ -21,6 +22,8 @@ export interface NodeRunContext {
   // --- scheduler options & derived values ---
   opts: SchedulerOptions;
   runId: string;
+  /** Run-scoped structured logger (bound to runId). Handlers log via this. */
+  log: Logger;
   graph: Graph;
   plan: Plan;
   worker: Worker;

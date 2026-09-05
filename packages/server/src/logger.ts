@@ -1,5 +1,5 @@
 import { appendFileSync, existsSync, renameSync, statSync, mkdirSync } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
 
@@ -21,11 +21,26 @@ export interface LoggerOptions {
 }
 
 /**
+ * Default on-disk log location: `<DB dir>/logs/server.log`. Falling back to the
+ * DB's directory (same pattern as `.encryption-key`) makes logs durable even
+ * when `LOG_FILE` is not set, so post-mortems survive a process restart.
+ */
+function defaultLogFile(): string | undefined {
+  // A test/instrumented process sets this to the empty string to opt out of
+  // disk logging entirely (logs go to stdout only).
+  if (process.env.LOG_FILE !== undefined) {
+    return process.env.LOG_FILE === "" ? undefined : process.env.LOG_FILE;
+  }
+  const dbFile = process.env.DB_FILE ?? "agent-world.sqlite";
+  return join(dirname(dbFile), "logs", "server.log");
+}
+
+/**
  * Minimal structured JSON-line logger. Every line carries an ISO timestamp, a
- * level, a message and arbitrary bindings (runId, nodeId, ...). When `file` is
- * set it additionally appends to disk with size-based rotation, so long-running
- * engines (and post-mortems) have durable, greppable logs without an external
- * dependency.
+ * level, a message and arbitrary bindings (runId, nodeId, ...). When a log file
+ * is configured it additionally appends to disk with size-based rotation, so
+ * long-running engines (and post-mortems) have durable, greppable logs without
+ * an external dependency.
  */
 export class Logger {
   private readonly level: number;
@@ -39,7 +54,7 @@ export class Logger {
     opts: LoggerOptions = {},
   ) {
     this.level = LEVEL_WEIGHT[opts.level ?? parseLevel(process.env.LOG_LEVEL)];
-    this.file = opts.file ?? process.env.LOG_FILE;
+    this.file = opts.file ?? defaultLogFile();
     this.maxBytes = opts.maxBytes ?? DEFAULT_MAX_BYTES;
     this.keep = opts.keep ?? DEFAULT_KEEP;
     if (this.file && existsSync(this.file)) {
@@ -97,6 +112,14 @@ export class Logger {
     try {
       if (this.bytesWritten >= this.maxBytes) this.rotate();
       const payload = line + "\n";
+      // Ensure the parent directory exists (e.g. the default <DB dir>/logs/)
+      // before the very first write; appendFileSync won't create it.
+      try {
+        mkdirSync(dirname(this.file), { recursive: true });
+      } catch {
+        // dir may already exist or be unwritable; the append below will surface
+        // that as the real error.
+      }
       appendFileSync(this.file, payload, { encoding: "utf8" });
       this.bytesWritten += Buffer.byteLength(payload);
     } catch (err) {

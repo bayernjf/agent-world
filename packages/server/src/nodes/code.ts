@@ -156,9 +156,7 @@ export async function codeNode(ctx: NodeRunContext, node: GraphNode, nodeId: str
     // 把 vitest 的测试预算耗光的。打出来，让下一次红 CI 自己给出答案。
     const spawnWallMs = Date.now() - spawnStartedAt;
     if (spawnWallMs > 5000) {
-      console.warn(
-        `[engine:${nodeId}] code 节点子进程墙钟耗时 ${spawnWallMs}ms（怀疑 runner 负载/饥饿，不一定是回归）`,
-      );
+      ctx.log.warn("code subprocess wall-clock slow", { nodeId, spawnWallMs });
     }
     if (killed) {
       states.set(nodeId, "failed");

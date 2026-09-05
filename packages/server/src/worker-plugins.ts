@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { Worker } from "./worker.js";
 import { spawnIsolatedWorker } from "./isolation.js";
+import { log } from "./logger.js";
 
 export interface WorkerPlugin {
   id: string;
@@ -89,7 +90,7 @@ export class WorkerRegistry {
           // process when its child can't start. Keep it disabled (get() falls
           // back to the built-in) and surface the reason in the registry.
           const reason = (err as Error).message;
-          console.error(`[worker-plugins] ${p.id} isolation failed; plugin kept disabled (fail-closed):`, reason);
+          log.error("plugin isolation failed; kept disabled (fail-closed)", { id: p.id, error: reason });
           this.info.set(p.id, { ...(this.info.get(p.id) ?? { id: p.id, name: p.name }), available: false, error: reason });
           continue;
         }
@@ -168,7 +169,7 @@ export async function loadWorkerPlugins(dir: string): Promise<WorkerPlugin[]> {
       const plugin = mod.plugin ?? mod.default;
       if (isWorkerPlugin(plugin)) out.push({ ...plugin, entry: join(dir, entry.name) });
     } catch (err) {
-      console.warn(`[worker-plugins] failed to load ${entry.name}:`, (err as Error).message);
+      log.warn("failed to load plugin entry", { name: entry.name, error: (err as Error).message });
     }
   }
   return out;
