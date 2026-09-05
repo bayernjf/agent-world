@@ -60,6 +60,9 @@ export default function SourceFields({
             }
           />
         </label>
+        {node.source?.connector?.type === "product" && (
+          <span className="field__hint">{t("nodes:inspector.source.dataHint")}</span>
+        )}
         <label className="field">
           <span>{t("nodes:inspector.source.audience")}</span>
           <input
