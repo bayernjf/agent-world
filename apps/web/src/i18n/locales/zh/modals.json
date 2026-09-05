@@ -674,6 +674,33 @@
     "fallbackName": "产线",
     "create": "+ 新建产线"
   },
+  "collaborators": {
+    "title": "协作者 — {{name}}",
+    "hint": "邀请他人协作此产线。编辑者可修改和运行；查看者只读。",
+    "empty": "暂无协作者",
+    "emailLabel": "邮箱",
+    "emailPlaceholder": "collaborator@example.com",
+    "roleLabel": "角色",
+    "add": "添加",
+    "adding": "添加中…",
+    "remove": "移除",
+    "roleEditor": "编辑者",
+    "roleViewer": "查看者",
+    "addFailed": "添加失败：{{message}}",
+    "removeFailed": "移除失败：{{message}}",
+    "loading": "加载中…",
+    "loadFailed": "加载协作者列表失败"
+  },
+  "sharedRole": {
+    "editor": "编辑者",
+    "viewer": "查看者"
+  },
+  "shareButton": {
+    "label": "共享"
+  },
+  "viewerRestriction": {
+    "dispatchDisabled": "查看者不可运行产线"
+  },
   "userMenu": {
     "account": "账户",
     "accountMenu": "账户菜单",

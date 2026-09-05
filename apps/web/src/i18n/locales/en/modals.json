@@ -674,6 +674,33 @@
     "fallbackName": "Line",
     "create": "+ New line"
   },
+  "collaborators": {
+    "title": "Collaborators — {{name}}",
+    "hint": "Invite others to collaborate on this line. Editors can edit and run; viewers are read-only.",
+    "empty": "No collaborators yet",
+    "emailLabel": "Email",
+    "emailPlaceholder": "collaborator@example.com",
+    "roleLabel": "Role",
+    "add": "Add",
+    "adding": "Adding…",
+    "remove": "Remove",
+    "roleEditor": "Editor",
+    "roleViewer": "Viewer",
+    "addFailed": "Add failed: {{message}}",
+    "removeFailed": "Remove failed: {{message}}",
+    "loading": "Loading…",
+    "loadFailed": "Failed to load collaborators"
+  },
+  "sharedRole": {
+    "editor": "Editor",
+    "viewer": "Viewer"
+  },
+  "shareButton": {
+    "label": "Share"
+  },
+  "viewerRestriction": {
+    "dispatchDisabled": "Viewers cannot run a line"
+  },
   "userMenu": {
     "account": "Account",
     "accountMenu": "Account menu",
