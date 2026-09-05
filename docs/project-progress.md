@@ -1,7 +1,7 @@
 # Agent World 项目进度总览
 
 > **单一入口**：整体进度基线，供后续产品迭代对照参考。创建：2026-08-31。
-> 各文档分工：阶段定义见 [PRD.md](../PRD.md)；通用化主线见 [roadmap-generalization.md](roadmap-generalization.md)；活跃待办见 [handoff.md](../handoff.md)；缓做/低优挂起项见 [deferred-items.md](deferred-items.md)。
+> 各文档分工：阶段定义见 [PRD.md](PRD.md)；通用化主线见 [roadmap-generalization.md](roadmap-generalization.md)；活跃待办见 [handoff.md](../handoff.md)；缓做/低优挂起项见 [deferred-items.md](deferred-items.md)。
 
 ---
 
@@ -28,7 +28,7 @@
 | 文档完善 | 75% | 🟢 基本完成 | 核心设计文档齐；2026-09-01 完成文档-代码覆盖盘点：补齐知识记忆/A-B 设计文档、修正 technical-design 时效；handoff 最近 5 条 hash 已核实回填；**2026-09-03 新增设计 token 与 i18n 方案文档**（design-design-tokens.md / design-i18n.md） |
 | 自动数据接入 Connector | 70% | 🟡 主体完成 | file/http/form/manual 已落地；**SQLite database connector 已落地（2026-09-01，见 design-connector-database.md）**；剩 PG/MySQL 驱动接续（deferred） |
 | 定时 / 事件触发 | 95% | 🟢 基本完成 | webhook/cron/event/batch 全落地（TriggersPanel+scheduler+27 测试）；**2026-09-01 修复 event 成功状态契约 bug**（见 design-triggers.md）；**2026-09-02 触发层全型实跑零缺陷**（webhook 401 诚实拒绝/batch 3 行并发/event 自动级联/cron 无人值守闭环，均有真实 run 取证）；多实例分布式锁 deferred |
-| 商业化（定价/变现） | 5% | ⚪ 待启动 | 按产品决策**放后面** — [PRODUCT_STRATEGY.md](../PRODUCT_STRATEGY.md) |
+| 商业化（定价/变现） | 5% | ⚪ 待启动 | 按产品决策**放后面** — [PRODUCT_STRATEGY.md](PRODUCT_STRATEGY.md) |
 
 图例：✅ 已完成 · 🟡 主体完成（有缓做子项）· 🔵 进行中 · ⚪ 待启动
 
@@ -60,7 +60,7 @@
 10. **核心文件重构（工程质量）** —— ✅ 已完成（2026-09-03 立项 → 2026-09-04 阶段 1+2 全部落地）。**Inspector.tsx** 3848→611 行（节点配置面板拆到 `InspectorFields/` 27 文件 + 注册表分发）；**engine.ts** 4954→1828 行，29 种节点执行体从巨型 `runNode` 迁至 `packages/server/src/nodes/`（28 个 `<kind>.ts` handler + `NodeRunContext` 显式上下文 + `NODE_HANDLERS` 注册表分发，notify 刻意保留内联以守住 error 边微任务时序）。纯重构、行为零变化，全量 server 747/747 + core-path 回归 18/18 复跑通过。阶段 3（接口风格约定，纯文档）延后 — [design-refactor-engine-inspector.md](design-refactor-engine-inspector.md)。
 11. **文档穿插（4.8）** —— 基本完成（2026-09-01 盘点后核心设计文档覆盖全部已落地模块；低优余项见 deferred-items 文档线）。
 12. **低优 / 缓做** —— 沙箱 docker 容器后端、模板/节点市场、版本 diff 视图、状态机、监控告警大盘、多租户、Notion/Linear/内容平台集成、Excel 读写、HTML→PDF。触发条件见 [deferred-items.md](deferred-items.md)。
-13. **商业化** —— 放后面，决策基线见 [PRODUCT_STRATEGY.md](../PRODUCT_STRATEGY.md)。
+13. **商业化** —— 放后面，决策基线见 [PRODUCT_STRATEGY.md](PRODUCT_STRATEGY.md)。
 
 ---
 

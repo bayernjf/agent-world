@@ -15,7 +15,7 @@
 | 套用现成产线模板               | [examples.md](examples.md)                                                     |
 | 给项目加节点 / Provider / 工具 | [extending.md](extending.md) + [CONTRIBUTING.md](../CONTRIBUTING.md)           |
 | 理解架构 / 数据模型 / API      | [technical-design.md](technical-design.md)                                     |
-| 知道产品往哪走                | [PRD.md](../PRD.md) + [roadmap-generalization.md](roadmap-generalization.md) ★ |
+| 知道产品往哪走                | [PRD.md](PRD.md) + [roadmap-generalization.md](roadmap-generalization.md) ★ |
 | 接手某个模块的设计决策            | 对应 [design-\*.md](design-mcp-server.md)                                        |
 | 看按版本的变更记录              | [CHANGELOG.md](../CHANGELOG.md)（最近 5 条以内看 handoff）                             |
 
@@ -32,13 +32,18 @@
 | [design-triggers.md](design-triggers.md)                                   | 触发方式（webhook/cron/event/batch）设计与使用、UTC cron、状态契约、与 Connector 的自动化闭环                | 开发者 / 使用者        |
 | [design-knowledge-memory.md](design-knowledge-memory.md)                   | 知识提取与记忆系统设计（run 结束自动提取 + FTS5 检索 + archive\_search 技能卡；已落地）                         | 开发者              |
 | [design-ab-testing.md](design-ab-testing.md)                               | A/B 实验设计（同图多 prompt 变体并行对比；已落地，独立于版本管理）                                             | 开发者              |
-| [PRD.md](../PRD.md)                                                        | 产品路线图（5 阶段）与架构护栏                                                                    | 产品 / 开发者         |
-| [PRODUCT\_STRATEGY.md](../PRODUCT_STRATEGY.md)                             | 产品策略基线（成本 / 部署 / 定价 / 商业化）                                                          | 决策者              |
+| [PRD.md](PRD.md)                                                          | 产品路线图（5 阶段）与架构护栏                                                                    | 产品 / 开发者         |
+| [PRODUCT\_STRATEGY.md](PRODUCT_STRATEGY.md)                               | 产品策略基线（成本 / 部署 / 定价 / 商业化）                                                          | 决策者              |
 | [CHANGELOG.md](../CHANGELOG.md)                                            | 按版本的变更日志（Keep a Changelog）                                                          | 所有人              |
 | [CONTRIBUTING.md](../CONTRIBUTING.md)                                      | 环境搭建、测试、commit 规范、PR 流程                                                             | 贡献者              |
 | [technical-design.md](technical-design.md)                                 | 技术方案结论：架构、数据模型、API、安全                                                               | 开发者              |
 | [security-audit-2026-08-31.md](security-audit-2026-08-31.md)               | 安全审计报告 + 修复方案（3 Critical / 10 High / 8 Medium / 8 Low，**29 项全部修复**；推翻两条旧"已解决"结论）★   | 开发者 / 决策者        |
 | [design-at-rest-encryption.md](design-at-rest-encryption.md)               | 静态加密设计（settings / webhook secret 落盘 AES-256-GCM；审计 L3，已落地）                          | 开发者 / 运维         |
+| [design-key-rotation.md](design-key-rotation.md)                           | 密钥轮换设计（keyring + v2 密文格式 + 重加密脚本 runbook；**方案定稿未实施**）                                      | 开发者 / 运维         |
+| [design-audit-log.md](design-audit-log.md)                                 | 审计日志设计（audit_log 表 + 路由层埋点 + detail 永不含值红线；**方案定稿未实施**）                                    | 开发者 / 运维         |
+| [design-logging.md](design-logging.md)                                     | 服务端日志设计（console 收编 + 默认落盘 + 请求中间件；**方案定稿未实施**）                                          | 开发者 / 运维         |
+| [design-announcement.md](design-announcement.md)                           | 公告设计（双语内联表 + level 驱动 UI 强度 + env 白名单管理；**方案定稿未实施**）                                      | 开发者 / 运维         |
+| [design-feedback.md](design-feedback.md)                                   | 用户反馈设计（上下文自动采集白名单 + 截图粘贴 + 三态流转；**方案定稿未实施**）                                        | 开发者 / 运维         |
 | [roadmap-generalization.md](roadmap-generalization.md)                     | 通用化路线图（当前主线，5 阶段）                                                                   | 决策者 / 开发者 ★      |
 | [deferred-items.md](deferred-items.md)                                     | 缓做/低优事项登记表（全部挂起项 + 触发条件的单一事实源）                                                      | 决策者 / 开发者 ★      |
 | [design-mcp-server.md](design-mcp-server.md)                               | MCP Server 设计（传输 / tools / resources / prompts）                                     | 开发者              |

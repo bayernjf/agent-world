@@ -1,7 +1,7 @@
 # Feedback Workflow（用户与 Codex 沟通效率指南）
 
 > 本文档讲"owner 怎么最快把迭代中的问题反馈给我"——**不是**产品功能。
-> 产品方向上的"反馈节点"在 [PRD.md](PRD.md) 和 [docs/product-vision-discussion.md](docs/product-vision-discussion.md)。
+> 产品方向上的"反馈节点"在 [PRD.md](PRD.md) 和 [product-vision-discussion.md](product-vision-discussion.md)。
 
 ## 一句话原则
 
