@@ -865,9 +865,13 @@ export type DatabaseConnector = z.infer<typeof DatabaseConnector>;
 
 /**
  * Pulls product rows from the user's product library into a source node. The
- * engine maps each product's name/brand/category/attributes/images onto the
- * source's productName/brand/notes/images fields, so downstream nodes need no
- * change. F4 (docs/design-ecommerce-roadmap.md §F4).
+ * engine exposes the raw product array via the source-meta channel so
+ * downstream fields can reference `${srcId.data[0].name}` / `${product.name}`
+ * (and the brief auto-fills empty productName/brand from `data[0]` —
+ * `docs/design-data-interpolation.md` D2/D4/D5). The plain-text product
+ * summary still flows into the source's material block as before; this
+ * connector does NOT field-map onto `source.productName` etc. F4
+ * (`docs/design-ecommerce-roadmap.md` §F4).
  */
 export const ProductConnector = z.object({
   /** Explicit product ids, used when `selection` is "manual". */

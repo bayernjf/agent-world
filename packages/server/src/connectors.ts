@@ -19,6 +19,26 @@ export interface ResolvedMaterial {
   data?: unknown;
 }
 
+/**
+ * Shortcut-name registry (design-data-interpolation.md §3.2, D3). Per-connector
+ * global names derived from the source node's structured data. A shortcut is
+ * injected into the interpolation context only when the graph has exactly ONE
+ * source of that connector type (deterministic, independent of execution
+ * order); with ≥2 the shortcut degrades to the `${srcId.data[0]…}` namespace
+ * form. Node ctx entries always win over shortcut names (design §3.2 priority).
+ *
+ * Consumed by both `engine.ts` (downstream `${name.path}`) and `nodes/source.ts`
+ * (brief-field `${name}`) — keep them in sync by importing from here.
+ */
+export const CONNECTOR_SHORTCUTS: ReadonlyArray<{
+  name: string;
+  connector: string;
+  pick: (data: unknown) => unknown;
+}> = [
+  { name: "product", connector: "product", pick: (d) => (Array.isArray(d) ? d[0] : undefined) },
+  { name: "products", connector: "product", pick: (d) => d },
+];
+
 const TEXT_SEP = "\n\n---\n\n";
 
 /** Reads a dot-path (e.g. "items.0.name") out of an arbitrary JSON value. */

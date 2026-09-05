@@ -172,12 +172,30 @@ export const ARTIFACT_URL_NOTE =
  * Build the source brief: the raw material fed at run time plus the structured
  * product/brand/audience fields configured on the source node. This text flows
  * downstream as the first node's artifact, so every writer sees it.
+ *
+ * `fallbacks` (design-data-interpolation.md D4) only fills FACT fields
+ * (productName/brand) and only when the user left them empty — non-empty user
+ * input is treated as a deliberate override. Tone fields (audience/priceRange/
+ * tone/prohibited/brandTerms/notes) never receive a fallback because data sources
+ * have no semantic for them. Pure source nodes without a structured connector
+ * pass `undefined` and keep byte-identical output to the pre-fallback era.
  */
-export function buildSourceBrief(node: GraphNode, sourceInput: string | undefined): string {
+export function buildSourceBrief(
+  node: GraphNode,
+  sourceInput: string | undefined,
+  fallbacks?: Record<string, string>,
+): string {
   const src = node.source;
+  const factFallback = (key: "productName" | "brand"): string => {
+    const user = src?.[key];
+    if (typeof user === "string" && user.trim() !== "") return user;
+    return fallbacks?.[key] ?? "";
+  };
   const lines: string[] = [];
-  if (src?.productName) lines.push(`商品名称：${src.productName}`);
-  if (src?.brand) lines.push(`品牌/店铺：${src.brand}`);
+  const productName = factFallback("productName");
+  if (productName) lines.push(`商品名称：${productName}`);
+  const brand = factFallback("brand");
+  if (brand) lines.push(`品牌/店铺：${brand}`);
   if (src?.audience) lines.push(`目标人群：${src.audience}`);
   if (src?.priceRange) lines.push(`价格定位：${src.priceRange}`);
   if (src?.tone) lines.push(`语气调性：${src.tone}`);

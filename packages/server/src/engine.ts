@@ -63,7 +63,7 @@ import { MAX_INLINE_BYTES } from "./artifact-reader.js";
 import { getSkill, resolveTools, executeBuiltinTool } from "./skills/registry.js";
 import { guardToolCall, isDangerousTool, loadPermissionConfig, type PermissionConfig } from "./permissions.js";
 import { notifyFailed, notifyHalt } from "./notify.js";
-import { resolveConnector, type ResolvedMaterial } from "./connectors.js";
+import { CONNECTOR_SHORTCUTS, resolveConnector, type ResolvedMaterial } from "./connectors.js";
 import { createSqliteDriver } from "./db-drivers.js";
 import { dataUriToBuffer, parseDocument, extractPdfImages } from "./parse-file.js";
 import { ocrImage } from "./ocr.js";
@@ -580,17 +580,6 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
    * Node ctx entries always win over shortcut names, so a node id that
    * literally spells `product` keeps resolving to the node.
    */
-  /** Node ctx entries always win over shortcut names, so a node id that
-   * literally spells `product` keeps resolving to the node.
-   */
-  const CONNECTOR_SHORTCUTS: Array<{
-    name: string;
-    connector: string;
-    pick: (data: unknown) => unknown;
-  }> = [
-    { name: "product", connector: "product", pick: (d) => (Array.isArray(d) ? d[0] : undefined) },
-    { name: "products", connector: "product", pick: (d) => d },
-  ];
   const sourcesByConnector = new Map<string, string[]>();
   for (const n of graph.nodes) {
     if (n.kind !== "source") continue;
