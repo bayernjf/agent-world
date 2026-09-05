@@ -41,6 +41,12 @@ export interface AppConfig {
   defaultProvider: string;
   modelOrder?: string[];
   monthlyBudgetUsd?: number | null;
+  /** User-level web search service for `search` nodes (node config wins, env is last). */
+  searchConfig?: {
+    provider?: string;
+    apiKey?: string;
+    cx?: string;
+  };
 }
 
 export interface ProviderTestResult {

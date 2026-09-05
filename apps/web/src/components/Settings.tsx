@@ -1354,6 +1354,74 @@ export default function Settings({ open, onClose }: Props) {
             <small className="muted">{t("settings:modelKeys.monthlyCapHint")}</small>
           </label>
 
+          <div className="settings-section-head">
+            <h3 className="label">{t("settings:search.title")}</h3>
+          </div>
+          <p className="muted" style={{ marginTop: 0 }}>
+            {t("settings:search.description")}
+          </p>
+          <label className="field">
+            <span>{t("settings:search.provider")}</span>
+            <select
+              value={config.searchConfig?.provider ?? ""}
+              onChange={(e) =>
+                setConfig({
+                  ...config,
+                  searchConfig: {
+                    ...(config.searchConfig ?? {}),
+                    provider: e.target.value || undefined,
+                  },
+                })
+              }
+            >
+              <option value="">{t("settings:search.providerDuckduckgo")}</option>
+              <option value="tavily">{t("settings:search.providerTavily")}</option>
+              <option value="serpapi">{t("settings:search.providerSerpapi")}</option>
+              <option value="google">{t("settings:search.providerGoogle")}</option>
+            </select>
+          </label>
+          {(config.searchConfig?.provider ?? "") !== "" && (
+            <>
+              <label className="field">
+                <span>{t("settings:search.apiKey")}</span>
+                <input
+                  type="password"
+                  placeholder={t("settings:search.apiKeyPlaceholder")}
+                  value={config.searchConfig?.apiKey ?? ""}
+                  onChange={(e) =>
+                    setConfig({
+                      ...config,
+                      searchConfig: {
+                        ...(config.searchConfig ?? {}),
+                        apiKey: e.target.value || undefined,
+                      },
+                    })
+                  }
+                />
+              </label>
+              {config.searchConfig?.provider === "google" && (
+                <label className="field">
+                  <span>{t("settings:search.cx")}</span>
+                  <input
+                    placeholder="0123456789abcdef:xyz"
+                    value={config.searchConfig?.cx ?? ""}
+                    onChange={(e) =>
+                      setConfig({
+                        ...config,
+                        searchConfig: {
+                          ...(config.searchConfig ?? {}),
+                          cx: e.target.value || undefined,
+                        },
+                      })
+                    }
+                  />
+                  <small className="muted">{t("settings:search.cxDescription")}</small>
+                </label>
+              )}
+              <small className="muted">{t("settings:search.note")}</small>
+            </>
+          )}
+
           <button
             type="button"
             className="settings-section-head settings-section-head--clickable"

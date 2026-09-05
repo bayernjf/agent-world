@@ -253,5 +253,19 @@
     "modelExists": "模型 \"{{model}}\" 已在该 Provider 下",
     "baseUrlRequiredNew": "请填写 Base URL",
     "providerNameExists": "Provider 名 \"{{slug}}\" 已存在，请换一个"
+  },
+  "search": {
+    "title": "搜索服务",
+    "description": "用户级搜索服务：所有 search 节点的默认后端与凭证。节点内单独配置的优先于此，环境变量最后。",
+    "provider": "搜索源",
+    "providerDuckduckgo": "DuckDuckGo（免密钥，易被反爬拦截）",
+    "providerTavily": "Tavily",
+    "providerSerpapi": "SerpAPI",
+    "providerGoogle": "Google Custom Search",
+    "apiKey": "API Key",
+    "apiKeyPlaceholder": "留空则回落节点配置 / 环境变量",
+    "cx": "搜索引擎 ID（cx）",
+    "cxDescription": "仅 Google 需要：在 cse.google.com 创建后获取。",
+    "note": "配置后无需重启，下一次运行即生效；Key 落盘前静态加密。"
   }
 }
