@@ -1,10 +1,11 @@
 # 角色权限（RBAC）设计方案
 
-> 状态：**P0 + P1 + P2 已实施（2026-09-05），P3 方案定稿待做**。目标：把当前「`user_id` 硬隔离 + 公告管理员 env 白名单」升级为**全局角色 + 资源级共享权限**的正式 RBAC，为路线图 Phase 5 多租户/团队协作铺底。
+> 状态：**全量落地：P0 + P1 + P2 + P3 已实施（2026-09-05）**。目标：把当前「`user_id` 硬隔离 + 公告管理员 env 白名单」升级为**全局角色 + 资源级共享权限**的正式 RBAC，为路线图 Phase 5 多租户/团队协作铺底。
 > 创建：2026-09-05 ｜ 触发：用户明确要求（不等 deferred-items 的"团队场景出现"），见 [handoff.md](../handoff.md) 待办 #34。
 > **P0 落地记录（2026-09-05）**：迁移 v31（`users.role` 列 + `idx_users_owner` 部分唯一索引 + 最早注册用户升 owner bootstrap）；`createUser` 无 owner 时首账号为 owner；`isAnnouncementAdmin` 改读 `owner/admin` 角色，`ANNOUNCEMENT_ADMIN_EMAILS` env 白名单退役（`.env` 已删）；`/api/auth/me` 返回 `role`。测试 `api.rbac.test.ts`（首账号 owner/单 owner 不变量/owner 可管公告/旧库 v31 bootstrap）+ `api.announcements.test.ts` 改角色提升。
 > **P1 落地记录（2026-09-05）**：迁移 v32（`resource_access` 表）；`src/rbac.ts` 判定层（`graphAccessRole`/`requireGraph`/`visibleGraphs`/`runAccessRole`/`requireRun`/`artifactAccessRole`/`hasAtLeast`）——graph 是共享单元，runs/artifacts/batches/AB 通过 `graph_id` 向上继承；协作者操作（save/run/resume/rerun/cancel/batch-retry/AB）执行以 graph owner 身份，保持 config/variables/cost 一致性；`GET /api/graphs` 合并 owned + shared（带 `sharedRole`）；`GET /api/runs`、`GET /api/artifacts`、`GET /api/batches` 按 visibleGraphs 过滤；变更路由 viewer→403、outsider→404（不泄露存在性）；ACL 管理（`PUT/GET /api/graphs/:id/access`）限 owner；`access.grant`/`access.revoke` 审计。测试 `api.access.test.ts` 14 例（graph ACL 授权/回收/幂等/校验/审计 + run/artifact 共享继承 viewer 可读/editor 可写/outsider 404）。server 803/803。
 > **P2 落地记录（2026-09-05）**：前端 Collaborators 共享 UI。`api.ts` 加 `sharedRole` 返回类型 + `getGraphAccess`/`putGraphAccess` + `Collaborator` 接口；`CollaboratorsModal.tsx` 新组件（协作者列表 + email/role 添加 + 移除）；`GraphSwitcher` 共享图显示 editor/viewer badge、隐藏 rename/delete（保留 duplicate）、owned 图加 Share(⤴) 按钮；`App.tsx` 接线 `shareTargetId` 状态 + 从 `graphs` 派生 `isViewer` 传 `readOnly` 给 `ControlPanel`（禁用 Dispatch + 提示文案）；`store/graph.ts` 加 `readOnly` flag 抑制 `scheduleSave`/`flushSave`（防 viewer 自动保存 403 刷屏）。i18n keys 加 `collaborators`/`sharedRole`/`shareButton`/`viewerRestriction`（zh/en）。typecheck 全绿 + i18n keys 4/4 + web 1500/1500。
+> **P3 落地记录（2026-09-05）**：运营管理 UI + admin 跨用户审计，无新迁移。server：db 层加 `listUsers`（按 created_at ASC，owner 排最前）/`updateUserRole`/`listAuditAdmin`（LEFT JOIN users 解析 email，`?userId=` 过滤 + limit/before 游标分页，limit 夹 1-500）；路由 `GET /api/admin/users` + `POST /api/admin/users/:id/role`（owner 专属，admin 亦 403；role 仅收 `admin|user`，目标为 owner 或自身→400，未知用户→404，同角色幂等返回 `unchanged` 不写审计）+ `GET /api/audit` 改造（owner/admin 走 `listAuditAdmin` 全量 + 可选 userId 过滤；普通用户路径字节不变，userId 参数被忽略）。web：`api.ts` 加 `AdminUser`/`AuditItem` 接口 + `adminListUsers`/`adminSetUserRole`/`listAudit`；`AdminPanel.tsx` 新组件（owner 双 tab 用户/审计，admin 仅审计 tab；grant/revoke 走 ConfirmDialog；审计行含时间/email（unknown→未知用户）/action/detail 压缩 JSON/ip，满页显示「加载更多」游标翻页）；`UserMenu` 加「管理」入口（role 为 owner/admin 时显示）。i18n 加 `userMenu.admin` + `adminPanel` 段（zh/en）。**与 §9 的两处偏差**：路径 `POST /api/admin/members/:id/role` → 实际 `POST /api/admin/users/:id/role`（与 `GET /api/admin/users` 资源命名一致）；用户列表 owner-only（admin 只看审计 tab）——最小权限原则。测试 `api.rbac.test.ts` P3 17 例（列表/授予/幂等/撤回/400/403/404/审计留痕/跨用户 email/unknown null/userId 过滤/游标分页）+ web `AdminPanel.test` 17 例 + `UserMenu.test` 管理入口 5 例。typecheck 全绿 + server 820/820 + web 1522/1522（含 i18n keys 守护）。
 
 ## 1. 背景与现状
 
@@ -145,16 +146,20 @@ hasAtLeast(role, min): boolean  // owner>=editor>=viewer
 
 - `role.update`（owner 授/撤 admin）、`access.grant` / `access.revoke`（共享 editor/viewer）写 audit\_log（det「谁、对哪个资源、给了什么」path，不含值，符合红线）；
 
-- 沿用 `audit()` helper + `GET /api/audit`（当前仅本人可见；admin 角色的跨用户审计查看是 admin 权限的自然扩展，本方案先保留"本人"边界，admin 全量查看列为 admin 能力的一个后续项）。
+- 沿用 `audit()` helper + `GET /api/audit`（普通用户仅本人可见；owner/admin 自 P3 起可看全量并支持 `?userId=` 过滤，`role.update` 审计 detail 记 grantee/role）。
 
 ## 9. 管理运作
 
 | 动作       | 谁        | 路径                                           |
 | -------- | -------- | -------------------------------------------- |
-| 提升 admin | owner    | `POST /api/admin/members/:id/role`（owner 专属） |
+| 提升 admin | owner    | `POST /api/admin/users/:id/role`（owner 专属） |
 | 撤收 admin | owner    | 同上（admin 不自我管理；owner 不可被降权）                  |
+| 查看用户列表   | owner    | `GET /api/admin/users`（owner-only，最小权限）     |
+| 跨用户审计   | owner/admin | `GET /api/audit`（全量，可选 `?userId=` 过滤）      |
 | 声明 owner | 首个注册     | 迁移 bootstrap + 注册逻辑兜底（见下）                    |
 | 共享资源     | 资源 owner | `PUT /api/resources/{type}/{id}/access`      |
+
+> P3 落地偏差：§9 初稿的管理路径为 `POST /api/admin/members/:id/role`，实际随 `GET /api/admin/users` 的资源命名落地为 `POST /api/admin/users/:id/role`。
 
 **owner bootstrap 规则**：注册函数里——若 `users` 无任何 `role='owner'`，则本次注册用户成为 owner（满足"首个注册用户=owner"）。迁移 v31 对既有库用最老 `created_at` 升 owner，保证当前真实用户（`2467055074@qq.com`）秒变 owner、无感接管公告管理。
 
@@ -165,7 +170,7 @@ hasAtLeast(role, min): boolean  // owner>=editor>=viewer
 | P0 | users.role 列 + owner bootstrap + `permissions.ts` 基础判定 + `isAnnouncementAdmin`→全局角色（env 退役）+ /me 返回 role                        | ✅ 已完成  |
 | P1 | resource\_access 表 + `rbac.ts`（`requireGraph`/`visibleGraphs`/`requireRun`/`artifactAccessRole`）+ 越权基线改造（graph 及跟随资源的读/写/运行/分支） | ✅ 已完成  |
 | P2 | 前端 Collaborators 共享 UI + 资源列表过滤 + 角色显隐                                                                                          | ✅ 已完成 2026-09-05 |
-| P3 | 运营管理 UI（用户列表、owner 授/撤 admin）；admin 跨用户审计查看（可选）                                                                                 | 未做     |
+| P3 | 运营管理 UI（用户列表、owner 授/撤 admin）；admin 跨用户审计查看（可选）                                                                                 | ✅ 已完成 2026-09-05 |
 
 > P0 是"把 env 白名单落成正规能力"的最小闭环，可独立交付；P1 是数据面真正的资源共享。P2/P3 是 UI 与运营面。
 
@@ -189,7 +194,7 @@ hasAtLeast(role, min): boolean  // owner>=editor>=viewer
 
 - **P2**：Collaborators 授权/回收/覆盖写（editor→viewer）；列表共享标记；
 
-- **P3**：owner 授/撤 admin 幂等 + 自身不可降权；每次变更 audit 留痕（沿用 audit.test 模式）。
+- **P3**：owner 授/撤 admin 幂等 + 自身不可降权；每次变更 audit 留痕（沿用 audit.test 模式）；✅ 已完成（`api.rbac.test.ts` P3 17 例：列表 owner-only/授予/幂等/撤回/owner 自身与 grant "owner" 400/404/403/审计 detail 断言/跨用户 email + unknown null/userId 过滤双向/limit+before 游标分页）
 
 ## 13. 相关文档
 
