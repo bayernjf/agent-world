@@ -41,7 +41,10 @@ export async function searchNode(ctx: NodeRunContext, node: GraphNode, nodeId: s
     }
     let hits: { title: string; url: string; snippet: string }[];
     try {
-      hits = await searchWeb(query, cfg);
+      // ctx.opts.searchConfig is the user-level service (Settings → 搜索服务):
+      // credential fallback beneath node-level fields, and a backend override
+      // when the node sits on the keyless duckduckgo default.
+      hits = await searchWeb(query, cfg, ctx.opts.searchConfig);
     } catch (err) {
       states.set(nodeId, "failed");
       emit({

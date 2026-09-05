@@ -160,6 +160,58 @@ describe("per-user settings isolation", () => {
   });
 });
 
+// User-level search service (Settings → 搜索服务) rides in the same AppConfig
+// row: validated on PUT, redacted on GET, and the masked-key round-trip keeps
+// the stored secret.
+describe("user-level search config", () => {
+  let token: string;
+
+  beforeAll(async () => {
+    token = authToken(await register("searchuser@test.dev"));
+  });
+
+  it("saves, redacts on read, and keeps the real key across a masked round-trip", async () => {
+    const put = await app.request("/api/settings", {
+      method: "PUT",
+      headers: authed(token, { "content-type": "application/json" }),
+      body: JSON.stringify({
+        searchConfig: { provider: "tavily", apiKey: "tvly-secret-123456" },
+      }),
+    });
+    expect(put.status).toBe(200);
+
+    const get = await app.request("/api/settings", { headers: authed(token) });
+    const body = (await get.json()) as {
+      searchConfig?: { provider?: string; apiKey?: string };
+    };
+    expect(body.searchConfig?.provider).toBe("tavily");
+    expect(body.searchConfig?.apiKey).not.toBe("tvly-secret-123456");
+    const masked = body.searchConfig?.apiKey!;
+
+    // Echo the masked key back (the UI does this when saving other fields).
+    const roundTrip = await app.request("/api/settings", {
+      method: "PUT",
+      headers: authed(token, { "content-type": "application/json" }),
+      body: JSON.stringify({ searchConfig: { provider: "tavily", apiKey: masked } }),
+    });
+    expect(roundTrip.status).toBe(200);
+
+    const after = await app.request("/api/settings", { headers: authed(token) });
+    const afterBody = (await after.json()) as { searchConfig?: { apiKey?: string } };
+    expect(afterBody.searchConfig?.apiKey).toBe(masked);
+    expect(JSON.stringify(afterBody)).not.toContain("tvly-secret-123456");
+  });
+
+  it("rejects an unknown search provider", async () => {
+    const res = await app.request("/api/settings", {
+      method: "PUT",
+      headers: authed(token, { "content-type": "application/json" }),
+      body: JSON.stringify({ searchConfig: { provider: "bing" } }),
+    });
+    expect(res.status).toBe(400);
+  });
+});
+
 describe("auth cookie Secure flag", () => {
   it("no Secure by default outside production", async () => {
     const res = await register("secure-none@test.dev");

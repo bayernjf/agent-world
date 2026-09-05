@@ -250,6 +250,13 @@ export interface ExecuteOptions {
    * comma-joined. Merged into every compliance node's word list at run time.
    */
   bannedTerms?: string;
+  /**
+   * The calling user's web search service (Settings → 搜索服务). Feeds every
+   * search node as the default beneath node-level credentials: node apiKey/cx
+   * → this → env vars. A configured provider here also replaces the node's
+   * keyless duckduckgo default. Injected by the HTTP layer.
+   */
+  searchConfig?: { provider?: string; apiKey?: string; cx?: string };
   /** Resolves a `product` connector against the user's product library (injected by the HTTP layer). */
   loadProducts?: (connector: ProductConnector) => Promise<ResolvedMaterial>;
 }
@@ -447,6 +454,8 @@ export interface SchedulerOptions {
   initialVariables?: Map<string, unknown>;
   /** User's banned-word library (comma-joined), merged into compliance nodes. */
   bannedTerms?: string;
+  /** User's web search service (Settings), default beneath node-level search credentials. */
+  searchConfig?: { provider?: string; apiKey?: string; cx?: string };
   /** Resolves a `product` connector against the user's product library (injected by the HTTP layer). */
   loadProducts?: (connector: ProductConnector) => Promise<ResolvedMaterial>;
 }
@@ -1443,6 +1452,7 @@ export async function* execute(opts: ExecuteOptions): AsyncGenerator<RunEvent, v
     loadSubgraph: opts.loadSubgraph,
     initialVariables: opts.initialVariables,
     bannedTerms: opts.bannedTerms,
+    searchConfig: opts.searchConfig,
     loadProducts: opts.loadProducts,
     init: {
       artifacts: new Map(),
@@ -1615,6 +1625,8 @@ export interface ResumeOptions {
   loadSubgraph?: (graphId: string) => Graph | null;
   /** User's banned-word library (comma-joined), merged into compliance nodes. */
   bannedTerms?: string;
+  /** User's web search service (Settings), default beneath node-level search credentials. */
+  searchConfig?: { provider?: string; apiKey?: string; cx?: string };
   /** Resolves a `product` connector against the user's product library (injected by the HTTP layer). */
   loadProducts?: (connector: ProductConnector) => Promise<ResolvedMaterial>;
 }
@@ -1798,6 +1810,7 @@ export async function* resume(opts: ResumeOptions): AsyncGenerator<RunEvent, voi
     loadSubgraph: opts.loadSubgraph,
     initialVariables: opts.initialVariables,
     bannedTerms: opts.bannedTerms,
+    searchConfig: opts.searchConfig,
     loadProducts: opts.loadProducts,
     init: {
       artifacts: state.artifacts,

@@ -578,6 +578,9 @@ app.get("/api/settings", (c) => {
         { ...p, apiKey: p.apiKey ? redactKey(p.apiKey) : undefined },
       ]),
     ),
+    searchConfig: cfg.searchConfig
+      ? { ...cfg.searchConfig, apiKey: cfg.searchConfig.apiKey ? redactKey(cfg.searchConfig.apiKey) : undefined }
+      : undefined,
   };
   return c.json(redacted);
 });
@@ -607,6 +610,14 @@ app.put("/api/settings", async (c) => {
     ...body,
     providers: mergedProviders,
   };
+  // Same redacted-key round-trip rule for the user-level search service: if the
+  // UI echoed the masked key back, keep the stored one.
+  if (body.searchConfig?.apiKey && isRedactedKey(body.searchConfig.apiKey)) {
+    merged.searchConfig = {
+      ...body.searchConfig,
+      apiKey: current.searchConfig?.apiKey ?? body.searchConfig.apiKey,
+    };
+  }
   const path = saveConfig(merged, userId);
   return c.json({ ok: true, path });
 });
