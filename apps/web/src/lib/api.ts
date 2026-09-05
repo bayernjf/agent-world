@@ -321,6 +321,17 @@ export interface FeedbackContext {
 export type FeedbackCategory = FeedbackItem["category"];
 export type FeedbackStatus = FeedbackItem["status"];
 
+/** Announcement payload for the feedback → announcement merge (design-feedback P3). */
+export interface FeedbackAnnouncement {
+  titleZh: string;
+  titleEn: string;
+  bodyZh?: string | null;
+  bodyEn?: string | null;
+  level: "info" | "warning" | "critical";
+  startsAt?: number;
+  endsAt?: number | null;
+}
+
 /** A platform's publishing profile (F3 compliance). */
 export interface PlatformProfile {
   id: string;
@@ -623,6 +634,20 @@ export const api = {
     }),
 
   feedbackAttachmentUrl: (id: string) => `/api/feedback/${id}/attachment`,
+
+  /** Merge a batch of feedback into one announcement; server closes the batch. */
+  announceFeedback: (feedbackIds: string[], announcement: FeedbackAnnouncement) =>
+    authFetch("/api/feedback/announce", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ feedbackIds, announcement }),
+    }).then(async (res) => {
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string; message?: string };
+        throw new Error(body.message ?? body.error ?? `announce failed: ${res.status}`);
+      }
+      return res.json() as Promise<{ ok: true; announcementId: string; closed: number }>;
+    }),
 
   compile: (graph: Graph) =>
     authFetch("/api/compile", {

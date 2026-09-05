@@ -341,3 +341,104 @@ describe("feedback: admin listing and status flow", () => {
     expect(JSON.parse(rows.at(-1)!.detail)).toHaveProperty("category");
   });
 });
+
+describe("feedback: announce linkage (P3)", () => {
+  let owner: string;
+  let pleb: string;
+  let fb1: string;
+  let fb2: string;
+  let fbClosed: string;
+
+  const ANNOUNCEMENT = {
+    titleZh: "已知问题：导出失败",
+    titleEn: "Known issue: export failure",
+    bodyZh: "共收到多条同类反馈，正在修复。",
+    bodyEn: "Multiple reports received; a fix is in progress.",
+    level: "warning",
+  };
+
+  function announce(token: string, feedbackIds: string[], announcement: unknown = ANNOUNCEMENT): Promise<Response> {
+    return app.request("/api/feedback/announce", {
+      method: "POST",
+      headers: { ...auth(token), "content-type": "application/json" },
+      body: JSON.stringify({ feedbackIds, announcement }),
+    });
+  }
+
+  beforeAll(async () => {
+    const stamp = Date.now();
+    const ownerEmail = (
+      db.prepare("SELECT email FROM users WHERE role = 'owner'").get() as { email: string }
+    ).email;
+    owner = await login(ownerEmail);
+    pleb = await register(`announce-${stamp}@t.example`);
+    const r1 = await post(pleb, { message: "video export stuck at 50%", category: "bug" });
+    const r2 = await post(pleb, { message: "no output from video node", category: "bug" });
+    const r3 = await post(pleb, { message: "already handled elsewhere", category: "bug" });
+    fb1 = ((await r1.json()) as { id: string }).id;
+    fb2 = ((await r2.json()) as { id: string }).id;
+    fbClosed = ((await r3.json()) as { id: string }).id;
+    const pre = await app.request(`/api/feedback/${fbClosed}`, {
+      method: "PATCH",
+      headers: { ...auth(owner), "content-type": "application/json" },
+      body: JSON.stringify({ status: "closed" }),
+    });
+    expect(pre.status).toBe(200);
+  });
+
+  it("forbids non-admin callers (403)", async () => {
+    expect((await announce(pleb, [fb1])).status).toBe(403);
+  });
+
+  it("rejects empty feedbackIds and malformed announcements with 400", async () => {
+    expect((await announce(owner, [])).status).toBe(400);
+    expect((await announce(owner, [fb1], { titleZh: "", titleEn: "" })).status).toBe(400);
+    expect((await announce(owner, [fb1], { ...ANNOUNCEMENT, level: "loud" })).status).toBe(400);
+  });
+
+  it("aborts the whole merge on unknown ids (no announcement side effect)", async () => {
+    const before = (
+      db.prepare("SELECT COUNT(*) AS n FROM announcements").get() as { n: number }
+    ).n;
+    const res = await announce(owner, [fb1, "00000000-0000-4000-8000-000000000000"]);
+    expect(res.status).toBe(404);
+    const after = (
+      db.prepare("SELECT COUNT(*) AS n FROM announcements").get() as { n: number }
+    ).n;
+    expect(after).toBe(before);
+    const row = db.prepare("SELECT status FROM feedback WHERE id = ?").get(fb1) as { status: string };
+    expect(row.status).toBe("open");
+  });
+
+  it("merges a batch: creates the announcement, closes open items, skips already-closed", async () => {
+    const res = await announce(owner, [fb1, fb2, fbClosed]);
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { ok: boolean; announcementId: string; closed: number };
+    expect(body.ok).toBe(true);
+    expect(body.closed).toBe(2); // fbClosed was already closed → skipped
+
+    const ann = db
+      .prepare("SELECT title_zh, level FROM announcements WHERE id = ?")
+      .get(body.announcementId) as { title_zh: string; level: string };
+    expect(ann.title_zh).toBe("已知问题：导出失败");
+    expect(ann.level).toBe("warning");
+
+    for (const id of [fb1, fb2, fbClosed]) {
+      const row = db.prepare("SELECT status FROM feedback WHERE id = ?").get(id) as { status: string };
+      expect(row.status).toBe("closed");
+    }
+
+    const audits = db
+      .prepare("SELECT detail FROM audit_log WHERE action = 'feedback.announce' AND object_id = ?")
+      .all(body.announcementId) as Array<{ detail: string }>;
+    expect(audits).toHaveLength(1);
+    expect(JSON.parse(audits[0]!.detail)).toEqual({ count: 3, level: "warning" });
+  });
+
+  it("is idempotent for re-announced closed batches (closed counts stay honest)", async () => {
+    const res = await announce(owner, [fb1, fb2]);
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { closed: number };
+    expect(body.closed).toBe(0);
+  });
+});
