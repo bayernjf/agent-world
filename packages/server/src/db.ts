@@ -757,6 +757,18 @@ export function openDb(file: string) {
     listAnnouncementReads: db.prepare(
       `SELECT announcement_id FROM announcement_reads WHERE user_id = ?`,
     ),
+    // P3 targeting: does this user "use" a template? Owned graphs…
+    templateGraphOwned: db.prepare(
+      `SELECT 1 AS hit FROM graphs WHERE user_id = ? AND origin_template_id = ? LIMIT 1`,
+    ),
+    // …and graphs shared to them (stale ACL rows are harmless here — the join
+    // requires the graph to still exist and carry that origin_template_id).
+    templateGraphShared: db.prepare(
+      `SELECT 1 AS hit
+       FROM resource_access ra JOIN graphs g ON g.id = ra.resource_id
+       WHERE ra.resource_type = 'graph' AND ra.user_id = ? AND g.origin_template_id = ?
+       LIMIT 1`,
+    ),
     // User feedback (design-feedback.md). Attachment bytes stay in sqlite
     // (≤1MB, single image); the list queries never select the BLOB itself —
     // `has_attachment` lets the admin UI lazy-load via the attachment route.
@@ -2126,6 +2138,16 @@ export function openDb(file: string) {
     announcementReads(userId: string): Set<string> {
       const rows = stmts.listAnnouncementReads.all(userId) as Array<{ announcement_id: string }>;
       return new Set(rows.map((r) => r.announcement_id));
+    },
+    /**
+     * P3 targeting: does the user "use" this template? True when they own a
+     * graph created from it, or one was shared to them (any role).
+     */
+    userUsesTemplate(userId: string, templateId: string): boolean {
+      return (
+        !!stmts.templateGraphOwned.get(userId, templateId) ||
+        !!stmts.templateGraphShared.get(userId, templateId)
+      );
     },
     // --- User feedback (33, design-feedback.md) ---
     insertFeedback(input: {

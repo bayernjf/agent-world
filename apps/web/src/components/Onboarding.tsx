@@ -3,6 +3,7 @@ import { Trans, useTranslation } from "react-i18next";
 import { api } from "../lib/api";
 import TemplatePicker, { TEMPLATE_LIST } from "./TemplatePicker";
 import TemplateFieldDialog from "./TemplateFieldDialog";
+import { useTemplateAlerts } from "./AnnouncementAlerts";
 
 interface Props {
   onCreate: (templateId?: string, fieldValues?: Record<string, string>) => void;
@@ -11,6 +12,8 @@ interface Props {
 export default function Onboarding({ onCreate }: Props) {
   const { t } = useTranslation();
   const templates = useMemo(() => TEMPLATE_LIST, []);
+  // P3 targeting: deprecation-style notices pinned to their template's card.
+  const alerts = useTemplateAlerts();
 
   const [apiStatus, setApiStatus] = useState<"unknown" | "ok" | "fail">("unknown");
   const [pending, setPending] = useState<(typeof TEMPLATE_LIST)[number] | null>(null);
@@ -41,6 +44,7 @@ export default function Onboarding({ onCreate }: Props) {
           <TemplatePicker
             templates={templates}
             blankFirst
+            alerts={alerts}
             onPick={(id) => {
               const tpl = id ? templates.find((x) => x.id === id) : undefined;
               // Templates with declared fields get a parameter form first.

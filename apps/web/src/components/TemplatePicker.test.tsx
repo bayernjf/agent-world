@@ -301,4 +301,25 @@ describe("TemplatePicker", () => {
     const cardA = screen.getByText("测试模板 A").closest("button")!;
     expect(cardA.querySelector("svg")).toBeInTheDocument();
   });
+
+  it("alerts 给对应模板卡片挂'有公告'角标，其余卡片不受影响", () => {
+    render(
+      <TemplatePicker
+        templates={sampleTemplates}
+        onPick={mockOnPick}
+        alerts={{ "tpl-test-1": "该模板即将废弃" }}
+      />,
+    );
+    const cardA = screen.getByText("测试模板 A").closest("button")!;
+    const cardB = screen.getByText("测试模板 B").closest("button")!;
+    expect(cardA).toHaveClass("template-card--alerted");
+    expect(within(cardA).getByText("有公告")).toBeInTheDocument();
+    expect(cardB).not.toHaveClass("template-card--alerted");
+    expect(within(cardB).queryByText("有公告")).toBeNull();
+  });
+
+  it("不传 alerts 时所有卡片都没有角标", () => {
+    render(<TemplatePicker templates={sampleTemplates} onPick={mockOnPick} />);
+    expect(screen.queryByText("有公告")).toBeNull();
+  });
 });

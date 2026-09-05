@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import TemplatePicker, { TEMPLATE_LIST } from "./TemplatePicker";
 import TemplateFieldDialog from "./TemplateFieldDialog";
 import Tooltip from "./Tooltip";
+import { useTemplateAlerts } from "./AnnouncementAlerts";
 
 interface Props {
   open: boolean;
@@ -17,6 +18,8 @@ export default function NewGraphDialog({ open, onClose, onPick }: Props) {
   const [pending, setPending] = useState<(typeof TEMPLATE_LIST)[number] | null>(
     null,
   );
+  // P3 targeting: deprecation-style notices pinned to their template's card.
+  const alerts = useTemplateAlerts();
 
   useEffect(() => {
     if (!open) return;
@@ -53,6 +56,7 @@ export default function NewGraphDialog({ open, onClose, onPick }: Props) {
           <TemplatePicker
             templates={TEMPLATE_LIST}
             blankFirst
+            alerts={alerts}
             onPick={(id) => {
               const tpl = id
                 ? TEMPLATE_LIST.find((x) => x.id === id)
