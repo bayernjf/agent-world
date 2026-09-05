@@ -75,7 +75,11 @@ CREATE TABLE IF NOT EXISTS artifacts (
 );
 CREATE INDEX IF NOT EXISTS idx_artifacts_run ON artifacts(run_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_artifacts_node ON artifacts(run_id, node_id);
-CREATE INDEX IF NOT EXISTS idx_artifacts_variant ON artifacts(run_id, node_id, variant);
+-- idx_artifacts_variant is NOT here on purpose: the variant column is only
+-- added by migration 27 for pre-variant databases, and an index in this DDL
+-- runs before migrations -- an older file dies in db.exec(DDL) with
+-- "no such column: variant" before migration 27 can add it. The index is
+-- created in migration 27 (and by its baselining detect for fresh DBs).
 
 CREATE TABLE IF NOT EXISTS node_runs (
   run_id         TEXT NOT NULL,
@@ -2544,6 +2548,13 @@ function tableExists(db: DatabaseSync, table: string): boolean {
   return !!row;
 }
 
+function indexExists(db: DatabaseSync, name: string): boolean {
+  const row = db
+    .prepare(`SELECT name FROM sqlite_master WHERE type='index' AND name=?`)
+    .get(name) as { name?: string } | undefined;
+  return !!row;
+}
+
 /**
  * Ordered, versioned migrations. The DDL constant above always creates the
  * LATEST schema for fresh databases; these only run against older files. Each
@@ -2916,7 +2927,12 @@ const MIGRATIONS: Migration[] = [
   {
     version: 27,
     description: "node_runs/artifacts variant dimension (F1)",
-    detect: (db) => columnExists(db, "node_runs", "variant"),
+    // Detect on the INDEX, not the node_runs column: the column is already in
+    // the fresh-database DDL above, so a fresh DB would detect "done" and skip
+    // this migration — but since the DDL no longer creates the artifacts
+    // variant index itself (see the comment there), baselining must still run
+    // this up() so the index gets built.
+    detect: (db) => indexExists(db, "idx_artifacts_variant"),
     up: (db) => {
       // artifacts: single-column `id` PK, so the variant dimension is just an
       // appended column + index — no rebuild needed. Guard with columnExists:

@@ -187,9 +187,15 @@ To add a new one:
 
 1. Add the kind to `NodeKind`.
 2. Add a config object (e.g. `MyNodeConfig`) and an optional field on `GraphNode`.
-3. Add a branch in `packages/server/src/engine.ts`'s `runNode` function.
-   Place it **before** the `textGen` branch (TypeScript narrows `node.kind` after
-   each `return`ing branch).
+3. Create a handler file `packages/server/src/nodes/<kind>.ts` exporting a
+   `async function <kind>Node(ctx: NodeRunContext, node, nodeId, attempt)`.
+   Register it in the `NODE_HANDLERS` table at the top of
+   `packages/server/src/engine.ts` (kinds missing from the table fall back to
+   the agent/textGen handler — add an explicit entry unless your node is a
+   text-generation variant).
+   > Exceptions: `notify` intentionally stays inline in `runNode` (see the
+   > comment there — an async boundary defers error-edge dispatch by a
+   > microtask and breaks the "notify failure → catch node" contract).
 4. Add a config panel in `apps/web/src/components/Inspector.tsx`.
 5. Add a label in `apps/web/src/canvas/Plants.tsx` (`KIND_LABEL`).
 6. Add a default in `apps/web/src/store/graph.ts` (`DEFAULTS`).
