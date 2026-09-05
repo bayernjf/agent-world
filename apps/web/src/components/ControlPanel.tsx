@@ -21,6 +21,7 @@ interface Props {
   onOpenSettings: () => void;
   onOpenHistory: () => void;
   onOpenModelAssign: () => void;
+  readOnly?: boolean;
 }
 
 const MODES: { key: Mode; label: string; hint: string }[] = [
@@ -74,6 +75,7 @@ export default function ControlPanel(props: Props) {
     onOpenSettings,
     onOpenHistory,
     onOpenModelAssign,
+    readOnly,
   } = props;
   const { t } = useTranslation();
   const runtime = useVisibleRuntime();
@@ -369,10 +371,13 @@ export default function ControlPanel(props: Props) {
             <button
               className="btn"
               onClick={() => onRun()}
-              disabled={!canRun || materialEmpty}
+              disabled={!canRun || materialEmpty || readOnly}
             >
               {t("run:control.dispatch")}
             </button>
+          )}
+          {readOnly && (
+            <p className="note note--warn">{t("modals:viewerRestriction.dispatchDisabled")}</p>
           )}
           {!running && !halted && materialEmpty && (
             <p className="note">{t("run:control.fillMaterialFirst")}</p>
