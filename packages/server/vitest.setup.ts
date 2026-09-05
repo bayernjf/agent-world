@@ -2,6 +2,10 @@
 // writes never fall back to creating a `.encryption-key` file inside the repo.
 process.env.AGENT_WORLD_ENCRYPTION_KEY ??= "0".repeat(64);
 
+// Keep structured log lines on stdout during tests but never write the default
+// `<DB dir>/logs/server.log` file into the repo tree.
+process.env.LOG_FILE ??= "";
+
 // bcrypt (cost 12) is a deliberately slow hasher; hashing on every
 // register/login in the API tests is pure CPU burn that makes the full suite
 // flaky under parallel load. The auth flow under test is the API layer

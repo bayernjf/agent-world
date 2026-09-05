@@ -1,6 +1,6 @@
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Logger } from "./logger.js";
 
@@ -47,5 +47,43 @@ describe("structured logger", () => {
     // The active file plus at least one rotated slice.
     expect(rotated).toContain("engine.log");
     expect(rotated.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("falls back to <DB dir>/logs/server.log when LOG_FILE is unset", () => {
+    const savedLogFile = process.env.LOG_FILE;
+    const savedDbFile = process.env.DB_FILE;
+    delete process.env.LOG_FILE;
+    process.env.DB_FILE = join(dir, "data.sqlite");
+    try {
+      const log = new Logger();
+      expect(log).toBeInstanceOf(Logger);
+      log.info("default path");
+      // The module-level singleton reads these envs at construction; here we
+      // construct fresh, so the resolved default file must exist after a write.
+      expect(existsSync(join(dir, "logs", "server.log"))).toBe(true);
+    } finally {
+      if (savedLogFile === undefined) delete process.env.LOG_FILE;
+      else process.env.LOG_FILE = savedLogFile;
+      if (savedDbFile === undefined) delete process.env.DB_FILE;
+      else process.env.DB_FILE = savedDbFile;
+    }
+  });
+
+  it("disables disk logging when LOG_FILE is explicitly empty", () => {
+    const savedLogFile = process.env.LOG_FILE;
+    const savedDbFile = process.env.DB_FILE;
+    process.env.LOG_FILE = "";
+    process.env.DB_FILE = join(dir, "data.sqlite");
+    try {
+      const log = new Logger();
+      log.info("stdout only");
+      // stdout is spied in beforeEach; no file may be created under the DB dir.
+      expect(existsSync(join(dir, "logs", "server.log"))).toBe(false);
+    } finally {
+      if (savedLogFile === undefined) delete process.env.LOG_FILE;
+      else process.env.LOG_FILE = savedLogFile;
+      if (savedDbFile === undefined) delete process.env.DB_FILE;
+      else process.env.DB_FILE = savedDbFile;
+    }
   });
 });
