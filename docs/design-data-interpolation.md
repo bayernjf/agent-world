@@ -1,6 +1,6 @@
 # 连接器数据插值（Connector Data Interpolation）设计方案
 
-> 状态：**方案定稿待实施（2026-09-05）**。目标：让连接器的**结构化数据**成为一等公民——节点的任何配置字段（prompt、简报、notify 文案、branch 条件）都能用 `${...}` 引用数据源的值，而不是像现在这样被压成一段纯文本拼进原料。这是**引擎级通用能力，行业无关**；product（商品库）只是第一个带结构化数据的 connector 消费者。
+> 状态：**方案定稿待实施（2026-09-05，含全局快捷名决策：做）**。目标：让连接器的**结构化数据**成为一等公民——节点的任何配置字段（prompt、简报、notify 文案、branch 条件）都能用 `${...}` 引用数据源的值，而不是像现在这样被压成一段纯文本拼进原料。这是**引擎级通用能力，行业无关**；product（商品库）只是第一个带结构化数据的 connector 消费者。
 > 创建：2026-09-05
 >
 > 源起：用户质疑「原料台节点面板为什么还有商品店铺字段，属性要适配各行各业」。复查发现两个裂缝：① source 简报字段与 connector 数据是「双来源文本拼接」，双填无提示、优先级靠猜；② `graph.ts` ProductConnector 注释宣称「字段级映射到 source 字段」，实现实为整块文本渲染进原料段——注释是理想态，实现是拼接态。市场对照：n8n 字段级表达式（`{{ $json.x }}`）、Dify 输入变量 + context 槽、ComfyUI widget→input，走的都是「内容是数据，节点表单只放行为参数」的同一条路。
@@ -33,7 +33,7 @@
 |---|---|---|
 | D1 | 通用数据通道 | `ResolvedMaterial`（`connectors.ts`）加可选 `data?: unknown`——任意 connector 的结构化数据。product connector 填 `Product[]`；未来 http（解析后 JSON）、database（rows）、file（文档元数据）免费获得同样通道。文本 `text` 照旧（原料块字节不变） |
 | D2 | 上下文暴露 | 复刻 httpMeta 旁路模式新增 `sourceMeta: Map<nodeId, {data, content}>`，经 NodeRunContext 传入 source handler；interpCtx 对相邻 source 上游做同款合并——`${srcId}` 整节点引用仍解析为简报文本（不破坏），`${srcId.data[0].name}` 新增可用 |
-| D3 | 快捷名注册表 | connector 类型 → 快捷名映射（product：`product`=data[0]、`products`=data）。仅当图中**恰好 1 个**该类型 source 时注入全局名（确定性，不依赖执行时序），≥2 个退化为命名空间形式 + log.info 提示。注册表放引擎初始化，新 connector 类型加一行注册 |
+| D3 | 快捷名注册表 | connector 类型 → 快捷名映射（product：`product`=data[0]、`products`=data）。仅当图中**恰好 1 个**该类型 source 时注入全局名（确定性，不依赖执行时序），≥2 个退化为命名空间形式 + log.info 提示。注册表放引擎初始化，新 connector 类型加一行注册。**全局快捷名已拍板做（2026-09-05）**，理由与语义见 §3.2 |
 | D4 | 简报 fallback 合并 | `buildSourceBrief` 加第三参 `fallbacks?: Record<string, string>`（字段名→回填值），映射由各行业适配层声明（product：`{productName: name, brand: brand}`）；仅事实字段做 fallback（手填空→回填，非空→有意覆写），调性字段（audience/priceRange/tone/prohibited/brandTerms/notes）永远纯手工——数据源没有这些语义。`shared.ts` 保持零领域知识 |
 | D5 | 简报字段可插值 | sourceNode 在 resolveConnector 成功后、buildSourceBrief 前对 8 个简报字段跑 `evaluateTemplate(field, {data, ...快捷名})`，先插值再 fallback（插值结果空串视同留空）；效果如商品名称写 `「${product.name}」双11限定款` |
 | D6 | 注释修正 | `graph.ts` ProductConnector 失实注释改为真实语义：结构化数据经 sourceMeta 暴露为 `${srcId.data[0].name}`（及快捷名），文本块仍进原料段 |
@@ -51,6 +51,23 @@
 
 一句话：**「知道」= 面板读 connector.type 查本地注册表（几行代码）；「适配」= 引擎按 fallback 映射合并（面板无感）；「换字段」= 留给 TemplateField 模式的行业包。**
 
+### 3.2 全局快捷名决策记录（2026-09-05 拍板：做）
+
+**决策**：product 适配层注册全局快捷名 `product`（=data[0]）与 `products`（=data），图中恰好 1 个 product-source 时注入插值上下文，运营直接写 `${product.name}` 而非 `${src-a1b2.data[0].name}`。
+
+**做的理由（权衡后采信）**：
+1. **可用性差距是真实的**——主流场景（单 product-source 推广/单品产线）下，不做则表达式要求用户去画布抄内部 nodeId；做则与领域心智直接对应，这个差距每天都在；
+2. **与既有先例一致**——`var` 命名空间（`${var.xxx}` 无需 nodeId）与 httpMeta 跨分支暴露（`${probe.url}`）已是全局短名，项目哲学「常用表达式应该短」，不做反而破坏惯例；
+3. **退化安全已设计**——≥2 个 product-source 时自动退化为命名空间形式 + log.info，代价是「没有全局名」而非「解析错数据」；
+4. **hint 能写出确定语义**——「可用 ${product.name}」教得会普通运营；「用 ${<节点id>.data[0].name}」教不会。
+
+**采信的风险与兜底**：
+- 踩名（`product` 与节点 id 同命名空间）→ 理论风险，节点 id 为生成形态（`n-xxx`）；与 `var` 已接受的同级风险一致；**解析优先级钉死：节点 ctx 条目优先于快捷名**，并加守护测试防回归；
+- 悬空引用更隐蔽（删 connector 后 `${product.name}` 静默空串）→ 缓解：run 日志 warn + hint 文案说明数据源依赖；
+- 多 source 规模化时全局名失效退化 → 属减法设计非错误状态，log.info 提示切换。
+
+**否决方理由存档**（不做）：踩名理论风险 / 悬空排查多一跳 / 多 source 场景习惯迁移成本 / 省约 15 行注册逻辑——均不构成否决级重量。
+
 ## 4. 改动清单
 
 | 文件 | 改动 |
@@ -67,7 +84,7 @@
 ## 5. 测试计划
 
 - **单测**（buildSourceBrief，通用 fallback 语义）：留空回填 / 手填覆写 / `${product.name}` 插值 / 无 data 向后兼容（现有 loader 测试只返回 text/images，天然不破坏）；
-- **引擎集成**（`engine.products.test.ts` 2→10 例，product 作为首个消费者验证机制）：① 下游 textGen prompt 里 `${product.name}` 解析到库值；② 简报留空→输出含库值且与原料块不矛盾；③ 手填覆写优先；④ notify message 嵌 `${product.brand}`；⑤ 多 product-source：全局名不注入但 `${srcId.data[0].name}` 仍可用；⑥ 无 product connector 时 `${product.name}` 解析空串（与现有 missing-value 行为一致）；⑦ 纯占位符 `${products}` 类型保持（数组→primaryValue join）；⑧ **防重入守护**——商品名含 `${var.x}` 字面输出不被二次展开（`evaluateTemplate` 单遍 replace 语义的回归锚）；⑨ **branch 数值条件**——`${product.price} > 100` 路由正确（CondParser 占位符以字面量嵌入，number 保持数值比较语义）；⑩ **回归基线**——纯手工模板 brief 逐字节不变的快照测试。
+- **引擎集成**（`engine.products.test.ts` 2→11 例，product 作为首个消费者验证机制）：① 下游 textGen prompt 里 `${product.name}` 解析到库值；② 简报留空→输出含库值且与原料块不矛盾；③ 手填覆写优先；④ notify message 嵌 `${product.brand}`；⑤ 多 product-source：全局名不注入但 `${srcId.data[0].name}` 仍可用；⑥ 无 product connector 时 `${product.name}` 解析空串（与现有 missing-value 行为一致）；⑦ 纯占位符 `${products}` 类型保持（数组→primaryValue join）；⑧ **防重入守护**——商品名含 `${var.x}` 字面输出不被二次展开（`evaluateTemplate` 单遍 replace 语义的回归锚）；⑨ **branch 数值条件**——`${product.price} > 100` 路由正确（CondParser 占位符以字面量嵌入，number 保持数值比较语义）；⑩ **回归基线**——纯手工模板 brief 逐字节不变的快照测试；⑪ **踩名守护**——命名/生成 id 恰为 `product` 的节点存在时，节点 ctx 优先于快捷名（§3.2 优先级规则的回归锚）。
 
 ## 6. 语义边界（使用前必读）
 
@@ -91,7 +108,7 @@
 
 - **interpCtx 动刀** → httpMeta 合并既有 notify/branch 测试守护，source 分支新增用例覆盖；
 - **brief 输出文本变化** → 纯手工模板逐字节不变（data undefined 时零行为差异）；有 connector 的简报多出 fallback 行属预期变化，实施前 grep 现有测试对简报文本的断言；
-- **快捷名与节点 id 撞名**（`product`）→ 与 `var` 同级保留字风险，注释 + 本节记录；
+- **快捷名与节点 id 撞名**（`product`）→ 已拍板做全局名（§3.2）：解析优先级钉死「节点 ctx 条目优先于快捷名」+ ⑪ 号守护测试；与 `var` 同级风险项目已接受；
 - **模板不跟改** → V1 内置模板零改动（`${product.x}` 写进无 product connector 的模板会解析成空串，反而危险），dogfood 留给真实电商产线；
 - **SourceConfig 的 8 个电商字段挂在通用 source 节点上** → 本方案不动 schema（无破坏），用 fallback 映射让它们消费数据源；字段本身行业化的长期演进（行业包/模板自定义字段）是独立话题，见 §13。
 
