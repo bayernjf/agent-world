@@ -59,6 +59,7 @@ import { sanitizeError } from "./sanitize.js";
 import { decryptString, encryptString } from "./at-rest.js";
 import { publishToChannel } from "./publish.js";
 import { hashPassword, verifyPassword, signToken, verifyToken, REMEMBER_MAX_AGE_SEC } from "./auth.js";
+import { audit, changedFields } from "./audit.js";
 
 const PORT = Number(process.env.PORT ?? 8791);
 /** Cap for /api/proxy responses (audit L7): 25 MiB of fetched body. */
@@ -222,6 +223,13 @@ function clearAuthCookie(c: any) {
   c.header("set-cookie", `${AUTH_COOKIE}=; HttpOnly; Path=/; Max-Age=0${secure}; SameSite=Lax`);
 }
 
+/** Client IP for the audit trail: first X-Forwarded-For hop behind a proxy. */
+function clientIp(c: any): string | undefined {
+  const fwd = c.req.header("x-forwarded-for");
+  if (fwd) return fwd.split(",")[0]!.trim();
+  return undefined;
+}
+
 app.post("/api/auth/register", async (c) => {
   // M3: the very first account bootstraps the instance. Once a user exists,
   // self-registration is closed unless the operator opts in via
@@ -248,6 +256,7 @@ app.post("/api/auth/register", async (c) => {
   const id = randomUUID();
   const passwordHash = await hashPassword(password);
   db.createUser(id, email, passwordHash);
+  audit(db, id, "account.register", { ip: clientIp(c) });
   const token = await signToken(id, email, true);
   setAuthCookie(c, token, true);
   return c.json({ user: { id, email } }, 201);
@@ -264,18 +273,27 @@ app.post("/api/auth/login", async (c) => {
   const remember = body.remember === true;
   const user = db.findUserByEmail(email);
   if (!user) {
+    audit(db, "unknown", "account.login_failed", { ip: clientIp(c) });
     return c.json({ error: "邮箱或密码错误" }, 401);
   }
   const hash = db.findUserPasswordHash(user.id);
   if (!hash || !(await verifyPassword(password, hash))) {
+    audit(db, user.id, "account.login_failed", { ip: clientIp(c) });
     return c.json({ error: "邮箱或密码错误" }, 401);
   }
+  audit(db, user.id, "account.login", { ip: clientIp(c) });
   const token = await signToken(user.id, user.email, remember);
   setAuthCookie(c, token, remember);
   return c.json({ user: { id: user.id, email: user.email } });
 });
 
-app.post("/api/auth/logout", (c) => {
+app.post("/api/auth/logout", async (c) => {
+  // /api/auth/* bypasses the auth middleware, so resolve the caller from the
+  // cookie manually — best effort, an anonymous logout isn't worth a row.
+  const cookie = c.req.header("cookie") ?? "";
+  const token = cookie.match(new RegExp(`${AUTH_COOKIE}=([^;]+)`))?.[1];
+  const payload = token ? await verifyToken(token) : null;
+  if (payload?.userId) audit(db, payload.userId, "auth.logout", { ip: clientIp(c) });
   clearAuthCookie(c);
   return c.body(null, 204);
 });
@@ -312,6 +330,7 @@ app.post("/api/auth/password", async (c) => {
     return c.json({ error: "当前密码不正确" }, 401);
   }
   db.updateUserPasswordHash(user.id, await hashPassword(newPassword));
+  audit(db, user.id, "account.password_change", { objectType: "account", ip: clientIp(c) });
   return c.json({ ok: true });
 });
 
@@ -486,6 +505,12 @@ app.post("/api/graphs", async (c) => {
     );
   }
   db.saveGraph(graph, Date.now(), userId, undefined, originTemplateId);
+  audit(db, userId, "graph.create", {
+    objectType: "graph",
+    objectId: id,
+    detail: { nodes: graph.nodes.length, originTemplateId },
+    ip: clientIp(c),
+  });
   return c.json(db.getGraph(id, userId), 201);
 });
 
@@ -497,7 +522,9 @@ app.get("/api/graphs/:id", (c) => {
 
 app.delete("/api/graphs/:id", (c) => {
   const userId = c.get("userId");
-  db.deleteGraph(c.req.param("id"), userId);
+  const id = c.req.param("id");
+  db.deleteGraph(id, userId);
+  audit(db, userId, "graph.delete", { objectType: "graph", objectId: id, ip: clientIp(c) });
   return c.json({ ok: true });
 });
 
@@ -566,6 +593,12 @@ app.put("/api/graphs/:id", async (c) => {
     // H1: id collides with another user's graph — never overwrite it.
     return c.json({ error: "forbidden", message: "该产线不属于当前账号" }, 403);
   }
+  audit(db, userId, "graph.update", {
+    objectType: "graph",
+    objectId: paramId,
+    detail: { nodes: parsed.data.nodes.length, version: result.version },
+    ip: clientIp(c),
+  });
   return c.json({ ok: true, version: result.version });
 });
 
@@ -607,6 +640,19 @@ app.get("/api/settings", (c) => {
   return c.json(redacted);
 });
 
+// Security audit trail (design-audit-log §3.4): own records only, newest
+// first, cursor-paginated. No cross-user query until an admin role exists.
+app.get("/api/audit", (c) => {
+  const userId = c.get("userId");
+  const limit = Number(c.req.query("limit") ?? 100);
+  const before = Number(c.req.query("before") ?? 0);
+  const rows = db.listAudit(userId, {
+    limit: Number.isFinite(limit) ? limit : undefined,
+    before: Number.isFinite(before) && before > 0 ? before : undefined,
+  });
+  return c.json({ items: rows });
+});
+
 app.put("/api/settings", async (c) => {
   const userId = c.get("userId");
   const rawBody = await c.req.json();
@@ -641,6 +687,12 @@ app.put("/api/settings", async (c) => {
     };
   }
   const path = saveConfig(merged, userId);
+  // Audit field PATHS only — never values (red line in design-audit-log §3.2).
+  audit(db, userId, "settings.update", {
+    objectType: "settings",
+    detail: { fields: changedFields(current as unknown as Record<string, unknown>, merged as unknown as Record<string, unknown>) },
+    ip: clientIp(c),
+  });
   return c.json({ ok: true, path });
 });
 
@@ -703,6 +755,14 @@ app.post("/api/providers/test", async (c) => {
   if (!apiKey || isRedactedKey(apiKey)) {
     return c.json({ ok: false, error: "API Key 未配置或已失效，请重新填写" }, 400);
   }
+
+  // A real key is about to leave the process for a probe — audit the attempt
+  // (design-audit-log §3.2). Provider name only, never the key or baseUrl.
+  audit(db, c.get("userId"), "settings.test_provider", {
+    objectType: "settings",
+    detail: { provider: body.providerName ?? null },
+    ip: clientIp(c),
+  });
 
   // Prefer the saved provider's endpoint override (per modality); the probe and
   // the real worker must agree on where to POST, so share endpointFor().
@@ -929,6 +989,13 @@ app.post("/api/publish-targets", async (c) => {
     configEncrypted,
     createdAt: Date.now(),
   });
+  // Platform/provider ids only — never the webhook url or token it wraps.
+  audit(db, userId, "publish_target.create", {
+    objectType: "publish_target",
+    objectId: target.id,
+    detail: { platform: body.platform, provider: body.provider, hasToken: Boolean(body.token) },
+    ip: clientIp(c),
+  });
   return c.json(target, 201);
 });
 
@@ -948,7 +1015,9 @@ app.get("/api/publish-targets", (c) => {
 
 app.delete("/api/publish-targets/:id", (c) => {
   const userId = c.get("userId");
-  const ok = db.deletePublishTarget(c.req.param("id"), userId);
+  const id = c.req.param("id");
+  const ok = db.deletePublishTarget(id, userId);
+  if (ok) audit(db, userId, "publish_target.delete", { objectType: "publish_target", objectId: id, ip: clientIp(c) });
   return c.json({ ok });
 });
 
@@ -1239,6 +1308,12 @@ app.post("/api/runs", async (c) => {
       onArtifact: (aid) => {
         void triggers.onArtifact(aid);
       },
+    });
+    audit(db, userId, "run.start", {
+      objectType: "run",
+      objectId: runId,
+      detail: { graph: graphId, trigger: body.trigger ?? "manual" },
+      ip: clientIp(c),
     });
     return c.json({ runId, diagnostics, modelWarnings: modelDiags });
   } catch (e) {
@@ -1854,6 +1929,12 @@ app.post("/api/graphs/:id/versions/:vid/restore", (c) => {
   if (v.graph_id !== graphId) return c.json({ error: "version does not belong to this graph" }, 400);
   const snapshot = JSON.parse(v.snapshot);
   db.saveGraph(snapshot, Date.now(), userId);
+  audit(db, userId, "graph.restore_version", {
+    objectType: "graph",
+    objectId: graphId,
+    detail: { version: c.req.param("vid") },
+    ip: clientIp(c),
+  });
   return c.json({ ok: true, graph: snapshot });
 });
 
@@ -1870,6 +1951,7 @@ app.post("/api/runs/:id/cancel", (c) => {
   const entry = live.get(runId);
   if (!entry) return c.json({ error: "not live" }, 404);
   entry.controller.abort();
+  audit(db, userId, "run.cancel", { objectType: "run", objectId: runId, ip: clientIp(c) });
   return c.json({ ok: true });
 });
 

@@ -249,6 +249,19 @@ CREATE TABLE IF NOT EXISTS published_contents (
 );
 CREATE INDEX IF NOT EXISTS idx_published_user ON published_contents(user_id, published_at);
 
+CREATE TABLE IF NOT EXISTS audit_log (
+  id          TEXT PRIMARY KEY,
+  user_id     TEXT NOT NULL,
+  action      TEXT NOT NULL,
+  object_type TEXT,
+  object_id   TEXT,
+  detail      TEXT,
+  ip          TEXT,
+  created_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_audit_log_user ON audit_log(user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_audit_log_time ON audit_log(created_at);
+
 CREATE TABLE IF NOT EXISTS graph_versions (
   id           TEXT PRIMARY KEY,
   graph_id     TEXT NOT NULL,
@@ -640,6 +653,20 @@ export function openDb(file: string) {
     saveSettings: db.prepare(
       `INSERT INTO settings (user_id, data, updated_at) VALUES (?, ?, ?)
        ON CONFLICT(user_id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`,
+    ),
+    insertAudit: db.prepare(
+      `INSERT INTO audit_log (id, user_id, action, object_type, object_id, detail, ip, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    ),
+    listAudit: db.prepare(
+      `SELECT id, user_id, action, object_type, object_id, detail, ip, created_at
+       FROM audit_log WHERE user_id = ? AND created_at < ? ORDER BY created_at DESC LIMIT ?`,
+    ),
+    // Slightly different prepared statement: the first page has no "before"
+    // cursor, so accept 0 (older than anything).
+    listAuditFirst: db.prepare(
+      `SELECT id, user_id, action, object_type, object_id, detail, ip, created_at
+       FROM audit_log WHERE user_id = ? ORDER BY created_at DESC LIMIT ?`,
     ),
     findUserByEmail: db.prepare(
       `SELECT id, email, created_at FROM users WHERE email = ?`,
@@ -1700,6 +1727,39 @@ export function openDb(file: string) {
     },
     saveSettings(userId: string, data: string): void {
       stmts.saveSettings.run(userId, data, Date.now());
+    },
+    // --- Audit log (29) ---
+    insertAudit(entry: {
+      id: string;
+      userId: string;
+      action: string;
+      objectType?: string;
+      objectId?: string;
+      detail?: string;
+      ip?: string;
+    }): void {
+      stmts.insertAudit.run(
+        entry.id,
+        entry.userId,
+        entry.action,
+        entry.objectType ?? null,
+        entry.objectId ?? null,
+        entry.detail ?? null,
+        entry.ip ?? null,
+        Date.now(),
+      );
+    },
+    listAudit(
+      userId: string,
+      opts: { limit?: number; before?: number } = {},
+    ): Array<Record<string, unknown>> {
+      const limit = Math.min(Math.max(opts.limit ?? 100, 1), 500);
+      const rows = (
+        opts.before && opts.before > 0
+          ? stmts.listAudit.all(userId, opts.before, limit)
+          : stmts.listAuditFirst.all(userId, limit)
+      ) as Array<Record<string, unknown>>;
+      return rows;
     },
     addBrandTerm(userId: string, term: string, note = "") {
       const t = term.trim();
@@ -2992,6 +3052,25 @@ const MIGRATIONS: Migration[] = [
       )`);
       db.exec("CREATE INDEX IF NOT EXISTS idx_publish_targets_user ON publish_targets(user_id)");
       db.exec("CREATE INDEX IF NOT EXISTS idx_published_user ON published_contents(user_id, published_at)");
+    },
+  },
+  {
+    version: 29,
+    description: "audit_log for security/compliance actions (who changed what when)",
+    detect: (db) => tableExists(db, "audit_log"),
+    up: (db) => {
+      db.exec(`CREATE TABLE IF NOT EXISTS audit_log (
+        id          TEXT PRIMARY KEY,
+        user_id     TEXT NOT NULL,
+        action      TEXT NOT NULL,
+        object_type TEXT,
+        object_id   TEXT,
+        detail      TEXT,
+        ip          TEXT,
+        created_at  INTEGER NOT NULL
+      )`);
+      db.exec("CREATE INDEX IF NOT EXISTS idx_audit_log_user ON audit_log(user_id, created_at)");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_audit_log_time ON audit_log(created_at)");
     },
   },
 ];
