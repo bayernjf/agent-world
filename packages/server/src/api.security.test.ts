@@ -557,7 +557,9 @@ describe("batch-3 authorization & data integrity", () => {
       headers: authed(otherToken, { "content-type": "application/json" }),
       body: JSON.stringify({ ...ownerGraph, name: "hijacked" }),
     });
-    expect(res.status).toBe(403);
+    // Outsider with no access gets 404 (no existence leak); the graph is left
+    // intact either way.
+    expect(res.status).toBe(404);
     const check = await app.request(`/api/graphs/${ownerGraph.id}`, { headers: authed(ownerToken) });
     const g = (await check.json()) as { name: string };
     expect(g.name).toBe("frank-line");
