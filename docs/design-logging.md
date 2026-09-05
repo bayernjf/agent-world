@@ -1,6 +1,6 @@
 # 服务端日志（Server Logging）设计方案
 
-> 状态：**P1+P2 已实施（2026-09-05）**——默认落盘（`<DB dir>/logs/server.log`，`LOG_FILE=""` 显式禁用）+ console 收编（约 15 个文件改走 Logger；节点经 `ctx.log`，NodeRunContext 新增 runId 绑定的 child logger；例外保留 load-env/at-rest——Logger 初始化前的启动路径）+ `/api/*` 请求中间件（status 分级 + latencyMs + userId，不记 query）。logger 首写自动建父目录；测试 `LOG_FILE=""` 隔离。**P3 未实施**：触发器/迁移/启动信息补齐与 run.resumed 等关键路径，触发条件不变（再遇排障定位困难）。测试：server 747→760（+3 logger 断言），另见 handoff 待办 33。
+> 状态：**已全部实施（P1+P2 于 2026-09-05，P3 同日推进）**——P1 默认落盘（`<DB dir>/logs/server.log`，`LOG_FILE=""` 显式禁用）+ console 收编（约 15 个文件改走 Logger；节点经 `ctx.log`；例外保留 load-env/at-rest）；P2 `/api/*` 请求中间件（status 分级 + latencyMs + userId，不记 query）；P3 关键路径补齐：**启动摘要**（dbFile/schemaVersion/encryptionKeySource=env|file/logFile，key 只记来源不记值）、**迁移**（每条应用一行 + 汇总含耗时，重开零输出）、**触发器**（cron tick、webhook accepted/rejected——拒绝只记原因永不记呈现的 secret）、**run.resumed**（P1 时已有）。server 测试 747→**771**（+3 logger + 1 migration 日志断言）。
 > 创建：2026-09-05
 
 ## 1. 现状盘点

@@ -66,7 +66,7 @@
 | 静态加密的重加密 / 密钥轮换工具 | 方案已定稿（keyring + v2 密文格式 + 重加密脚本，runbook 齐备）；当前单密钥可用 encryptString/decryptString 手写一次性迁移，影响面小 | 出现真实换 key / 轮换需求（或合规要求密钥定期轮换） | [design-key-rotation.md](design-key-rotation.md)（2026-09-05 定稿）+ [design-at-rest-encryption.md §5](design-at-rest-encryption.md) |
 | ~~审计日志（audit_log）~~ **P1+P2 已实施 2026-09-05**（迁移 29 + audit() helper + 全词表埋点 + GET /api/audit + 专项测试；见 design-audit-log.md 状态行），剩余 P3 | P3（180 天清理 + hash chain）未做：单用户量级（每日 <百行）远未到清理阈值；hash chain 触发条件不变 | 180 天清理：审计表体积成为可感知负担时；hash chain：对外合规审计明确要求防篡改审计（SOC 2 现场核查） | [design-audit-log.md](design-audit-log.md)（P1+P2 已实施，P3 待触发） |
 | 审计日志 tamper-evidence（hash chain / 外部 syslog） | sqlite 同库同权限下 append-only 防不住有库写权限的攻击者；hash chain 是纯增量，不急于首期 | 对外合规审计明确要求防篡改审计（SOC 2 现场核查） | [design-audit-log.md §4](design-audit-log.md#4-防篡改边界诚实声明) |
-| ~~服务端日志收编与默认落盘~~ **P1+P2 已实施 2026-09-05**（默认落盘 + console 收编 + 请求中间件），剩余 P3 | P3（触发器/迁移/启动信息补齐 + run.resumed 等关键路径）未做：主排障路径已覆盖 | 再遇排障定位困难（引擎/节点执行路径无结构化日志） | [design-logging.md](design-logging.md)（P1+P2 已实施，P3 待触发） |
+| ~~服务端日志收编与默认落盘~~ **P1+P2+P3 全部已实施 2026-09-05**（默认落盘 + console 收编 + 请求中间件 + P3 关键路径：启动摘要/迁移/触发器/run.resumed），见 design-logging.md 状态行 | 无剩余项（方案全量落地） | ——（已关闭） | [design-logging.md](design-logging.md)（已全部实施） |
 | 公告（announcements） | 方案已定稿（双语内联表 + level 驱动 UI 强度 + env 白名单管理）；单人自用无消费场景 | 对外/多用户部署启动时 | [design-announcement.md](design-announcement.md)（2026-09-05 定稿） |
 | 用户反馈（feedback） | 方案已定稿（上下文自动采集白名单 + 截图粘贴 + 三态流转）；当前 owner 截图流程（feedback-workflow.md）已覆盖唯一用户 | 出现非 owner 的真实用户，且截图流程被证明不可交接 | [design-feedback.md](design-feedback.md)（2026-09-05 定稿） |
 | Bitbucket/Gitea | vcs 节点同构可扩展，无紧迫需求 | 用户提出 | [integrations-future.md §5](integrations-future.md#5-bitbucket--gitea-等-vcs) |
