@@ -222,6 +222,8 @@ State of Agent World as of 2026-09-04.
 
 33. ✅ **服务端日志收编 + 默认落盘 + 请求日志 + P3 关键路径（2026-09-05 推进 31-③，P1+P2+P3 全部完成）**：按 [design-logging.md](docs/design-logging.md)——① **默认落盘**：`LOG_FILE` 未设时落 `<DB dir>/logs/server.log`（与 `.encryption-key` 同目录模式），自动建目录，`LOG_FILE=""` 可显式禁用（测试用）；② **console 收编**：engine/nodes(generic·code·imagegen·videogen·audiogen)/notify/triggers/code-sandbox/worker-plugins/auth 的裸 console 全部改走 Logger，节点经 `ctx.log`（NodeRunContext 新增 `log` 字段，绑定 runId），工具函数用全局 `log`；例外保留 load-env/at-rest（Logger 初始化前）；③ **请求中间件**：`/api/*` 每次调用按 status 分级记日志（≥500 error / ≥400 warn / 其余 info）+ latencyMs + userId，不记 query（防 token 泄露）；④ **P3 关键路径**：启动摘要（dbFile/schemaVersion/encryptionKeySource=env|file/logFile，key 只记来源）、迁移日志（每条应用一行 + 汇总，重开零输出）、触发器（cron tick fired + webhook accepted/rejected，拒绝永不记呈现的 secret）、run.resumed（P1 已有）。logger 首次写前自动建父目录。测试：server 747→**771/771**（+3 logger 断言 + 1 migration 日志断言），sandbox/code 用例 spy 从 console.warn 改为 process.stdout.write。`.gitignore` 加 `logs/`。**方案全量落地，无剩余项**（deferred-items 该行已关闭）。
 
+34. 🟡 **公告管理 UI 已落地 + 角色权限管理方案（2026-09-05 推进 31-④）**：**已完成**——管理员点铃铛下拉出现「管理公告」，打开 `AnnouncementManager` 弹窗（`GET /api/announcements/manage` 全量列表含未开始/已过期 + 新建/编辑/删除，双语标题正文 + level + 生效/失效窗口），权限沿用 `ANNOUNCEMENT_ADMIN_EMAILS` env 白名单（本轮写入 `2467055074@qq.com`，`.env` gitignored 不入版本库），`/api/auth/me` 新增 `canManageAnnouncements` 仅对管理员下发，前端据此显隐入口；server +3 断言（manage 鉴权 403 + me 标志 admin/pleb + manage 返回全量）→ 780/780，web 1500/1500。**剩余待办**：用户明确「再设计一份**角色权限管理**方案」——将 env 白名单升级为正式角色体系（陈旧 env 方案退役），触发点与范围未定，作为本行待办登记。
+
 > 全部缓做/低优事项（含上述两条）已统一登记在 [docs/deferred-items.md](docs/deferred-items.md)——每条带触发条件与决策详情链接，触发条件满足时移回本区并标注重启日期。
 
 ## Recently shipped (last 5)

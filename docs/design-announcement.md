@@ -3,7 +3,7 @@
 > 状态：**P1+P2 已落地（2026-09-05，迁移 v30）**。目标：产品内向用户展示「停机通知 / 版本说明 / breaking change 提醒」的公告体系。
 > 创建：2026-09-05
 >
-> 实施说明：①迁移版本实际为 **v30**（v29 被审计日志占用）；②公告正文以纯文本 `pre-wrap` 渲染（设计稿的 md 渲染暂缓，运维粘贴纯文本即可用）；③管理端无 UI，通过 API + `ANNOUNCEMENT_ADMIN_EMAILS` env 白名单操作。
+> 实施说明：①迁移版本实际为 **v30**（v29 被审计日志占用）；②公告正文以纯文本 `pre-wrap` 渲染（设计稿的 md 渲染暂缓，运维粘贴纯文本即可用）；③**管理端 UI 已就位**（2026-09-05 增补）——管理员点铃铛下拉出现「管理公告」，打开 `AnnouncementManager`（全量列表 + 新建/编辑/删除，双语标题正文 + level + 生效/失效窗口），权限判定靠 `ANNOUNCEMENT_ADMIN_EMAILS` env 白名单，经 `/api/auth/me` 的 `canManageAnnouncements` 下发前端仅对管理员显示入口；管理专用全量列表接口 `GET /api/announcements/manage`（含未开始/已过期）。
 > P3（target 定向逻辑）待触发。
 
 ## 1. 背景
