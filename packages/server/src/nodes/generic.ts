@@ -72,7 +72,7 @@ export async function genericNode(ctx: NodeRunContext, node: GraphNode, nodeId: 
       states.set(nodeId, "done");
       sendPackets(nodeId, out.slice(0, 120), "text");
     } catch (err) {
-      console.warn(`[generic:text:${nodeId}] failed:`, (err as Error).message);
+      ctx.log.warn("generic node failed", { kind: "text", nodeId, error: (err as Error).message });
       // Honest failure, mirroring b6de7d9 for the dedicated media nodes: the
       // generic node is often the run's only product, so marking it done with
       // an empty output reported a successful run that produced nothing.
@@ -141,7 +141,7 @@ export async function genericNode(ctx: NodeRunContext, node: GraphNode, nodeId: 
       states.set(nodeId, "done");
       sendPackets(nodeId, `通用节点生成图片 ${results.length} 张`, "image");
     } catch (err) {
-      console.warn(`[generic:image:${nodeId}] failed:`, (err as Error).message);
+      ctx.log.warn("generic node failed", { kind: "image", nodeId, error: (err as Error).message });
       states.set(nodeId, "failed");
       emit({ type: "node.failed", nodeId, attempt, error: `通用节点图片生成失败: ${sanitizeError(err instanceof Error ? err.message : String(err))}`, errorCode: "PROVIDER_ERROR" });
     }
@@ -206,7 +206,7 @@ export async function genericNode(ctx: NodeRunContext, node: GraphNode, nodeId: 
       states.set(nodeId, "done");
       sendPackets(nodeId, `通用节点生成视频 ${results.length} 段`, "video");
     } catch (err) {
-      console.warn(`[generic:video:${nodeId}] failed:`, (err as Error).message);
+      ctx.log.warn("generic node failed", { kind: "video", nodeId, error: (err as Error).message });
       states.set(nodeId, "failed");
       emit({ type: "node.failed", nodeId, attempt, error: `通用节点视频生成失败: ${sanitizeError(err instanceof Error ? err.message : String(err))}`, errorCode: "PROVIDER_ERROR" });
     }
@@ -271,7 +271,7 @@ export async function genericNode(ctx: NodeRunContext, node: GraphNode, nodeId: 
       states.set(nodeId, "done");
       sendPackets(nodeId, `通用节点生成音频 ${results.length} 段`, "audio");
     } catch (err) {
-      console.warn(`[generic:audio:${nodeId}] failed:`, (err as Error).message);
+      ctx.log.warn("generic node failed", { kind: "audio", nodeId, error: (err as Error).message });
       states.set(nodeId, "failed");
       emit({ type: "node.failed", nodeId, attempt, error: `通用节点音频生成失败: ${sanitizeError(err instanceof Error ? err.message : String(err))}`, errorCode: "PROVIDER_ERROR" });
     }
@@ -280,7 +280,7 @@ export async function genericNode(ctx: NodeRunContext, node: GraphNode, nodeId: 
 
   // An unknown modality is a configuration error, not a no-op: reporting done
   // with an empty output would let a mistyped node pass as a successful run.
-  console.warn(`[generic:${nodeId}] unknown modality "${modality}"`);
+  ctx.log.warn("generic node unknown modality", { nodeId, modality });
   states.set(nodeId, "failed");
   emit({
     type: "node.failed",

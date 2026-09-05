@@ -126,6 +126,16 @@ export interface AppConfig {
    * retention for auto snapshots (manual ones are never pruned).
    */
   autoSnapshot?: { minIntervalMs?: number; maxKeep?: number };
+  /**
+   * User-level web search service. Applies to every `search` node as a default
+   * beneath the node-level credentials but above the env vars: resolution is
+   *  node apiKey/cx → user-level → env (TAVILY_API_KEY / SERPAPI_API_KEY /
+   *  GOOGLE_API_KEY + GOOGLE_CX). `provider` selects the backend; absent means
+   *  the user has not configured one and nodes fall back to their own config.
+   *  `apiKey` is a credential and is sealed (SECRET_KEYS); `cx` (Google search
+   *  engine id) is not secret.
+   */
+  searchConfig?: { provider?: string; apiKey?: string; cx?: string };
 }
 
 /**
@@ -149,6 +159,12 @@ const VideoAdapterSchema = z.object({
   resultUrlPath: z.string().optional(),
 });
 
+const SearchConfigSchema = z.object({
+  provider: z.enum(["duckduckgo", "tavily", "serpapi", "google"]).optional(),
+  apiKey: z.string().optional(),
+  cx: z.string().optional(),
+});
+
 const ProviderConfigSchema = z.object({
   type: z.enum(["openai-compatible", "anthropic", "fake"]),
   baseUrl: z.string().optional(),
@@ -169,6 +185,7 @@ export const AppConfigSchema = z.object({
   modelOrder: z.array(z.string()).optional(),
   monthlyBudgetUsd: z.number().nullable().optional(),
   autoSnapshot: z.object({ minIntervalMs: z.number().optional(), maxKeep: z.number().optional() }).optional(),
+  searchConfig: SearchConfigSchema.optional(),
 });
 
 /**

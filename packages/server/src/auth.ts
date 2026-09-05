@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import bcrypt from "bcryptjs";
 import { SignJWT, jwtVerify } from "jose";
 import { randomBytes } from "node:crypto";
+import { log } from "./logger.js";
 
 function loadSecret(): string {
   if (process.env.JWT_SECRET) return process.env.JWT_SECRET;
@@ -19,7 +20,7 @@ function loadSecret(): string {
   try {
     writeFileSync(secretFile, fresh, { mode: 0o600 });
   } catch (err) {
-    console.warn("[auth] could not persist JWT secret, sessions will reset on restart:", err);
+    log.warn("could not persist JWT secret, sessions will reset on restart", { error: String(err) });
   }
   return fresh;
 }

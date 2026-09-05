@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { TriggerConfig, type Graph } from "@agent-world/core";
 import { nextRunAfter } from "./cron.js";
+import { log } from "./logger.js";
 
 /** Allowed clock skew / replay window for a webhook timestamp (M1): 5 minutes. */
 export const WEBHOOK_TIMESTAMP_WINDOW_MS = 5 * 60 * 1000;
@@ -72,9 +73,7 @@ export class TriggerService {
       }
     }
     if (disabledEmptySecret > 0) {
-      console.warn(
-        `[triggers] restore: skipped ${disabledEmptySecret} webhook trigger(s) with an empty secret (disabled until a secret is set)`,
-      );
+      log.warn("restore skipped webhook triggers with empty secret", { count: disabledEmptySecret });
     }
   }
 

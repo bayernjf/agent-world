@@ -10,6 +10,7 @@ dist/
 *.sqlite-shm
 .jwt-secret
 .encryption-key
+logs/
 .claude/
 agent-world.config.json
 *.config.local.json

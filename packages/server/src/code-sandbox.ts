@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { realpathSync } from "node:fs";
 import { tmpdir, platform } from "node:os";
 import { join } from "node:path";
+import { log } from "./logger.js";
 
 /**
  * Sandbox helpers for the `code` node. P0 (env + cwd + interpreter),
@@ -469,7 +470,7 @@ const degradeWarned = new Set<string>();
 function warnOnce(msg: string): void {
   if (degradeWarned.has(msg)) return;
   degradeWarned.add(msg);
-  console.warn(msg);
+  log.warn(msg);
 }
 
 /**

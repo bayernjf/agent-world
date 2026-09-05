@@ -129,7 +129,7 @@ bindSettingsStore({
 - **推荐**：生产注入 `AGENT_WORLD_ENCRYPTION_KEY`（env），避免密钥文件随 sqlite 一起备份泄露。
 - 本地开发：不设 env，首次启动自动生成 `.encryption-key`（0600），sessions 不丢。
 - `.gitignore` 应包含 `.encryption-key`（若 DB 目录在仓库内）。
-- **换 key 流程**：本方案不提供自动重加密工具（低优，登记 deferred-items）；如需，用 `encryptString/decryptString` 写一次性迁移脚本。
+- **换 key 流程**：方案已定稿 [design-key-rotation.md](design-key-rotation.md)（keyring + 重加密脚本，2026-09-05），实施仍缓做（登记 deferred-items）；在实施前，用 `encryptString/decryptString` 写一次性迁移脚本仍可行。
 
 ## 6. 测试计划
 
@@ -176,4 +176,6 @@ bindSettingsStore({
 ## 9. 相关文档
 
 - [security-audit-2026-08-31.md](security-audit-2026-08-31.md) — L3
+- [design-key-rotation.md](design-key-rotation.md) — 密钥轮换（承接本方案 §5 的换 key 流程）
+- [design-audit-log.md](design-audit-log.md) — 审计日志（同批合规补强）
 - [deferred-items.md](deferred-items.md) — 重加密工具 / key 轮换（登记）

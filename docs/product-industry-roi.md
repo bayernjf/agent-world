@@ -85,4 +85,4 @@ ROI = 人力成本节省 ÷ (所需新功能投入 + 容错成本)
 
 ---
 
-相关文档：[PRD.md](../PRD.md) · [PRODUCT_STRATEGY.md](../PRODUCT_STRATEGY.md) · [product-content-roadmap.md](product-content-roadmap.md) · [design-ecommerce-roadmap.md](design-ecommerce-roadmap.md) · [template-checklist.md](template-checklist.md)
+相关文档：[PRD.md](PRD.md) · [PRODUCT_STRATEGY.md](PRODUCT_STRATEGY.md) · [product-content-roadmap.md](product-content-roadmap.md) · [design-ecommerce-roadmap.md](design-ecommerce-roadmap.md) · [template-checklist.md](template-checklist.md)

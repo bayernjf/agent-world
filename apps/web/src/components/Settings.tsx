@@ -21,6 +21,7 @@ import {
 import { refreshDefaultModel, useGraph } from "../store/graph";
 import type { GraphNode, NodeKind } from "@agent-world/core";
 import Tooltip from "./Tooltip";
+import KeyInput from "./KeyInput";
 import { useTranslation } from "react-i18next";
 
 interface Props {
@@ -928,33 +929,13 @@ export default function Settings({ open, onClose }: Props) {
                   </label>
                   <label className="field">
                     <span>{t("settings:modelKeys.apiKey")}</span>
-                    <div className="key-input">
-                      <input
-                        type="text"
-                        autoComplete="off"
-                        data-lpignore="true"
-                        data-1p-ignore="true"
-                        data-form-type="other"
-                        className={
-                          revealKeys.has("__form__") ? "" : "key-input__masked"
-                        }
-                        placeholder="sk-..."
-                        value={form.apiKey}
-                        onChange={(e) =>
-                          setForm({ ...form, apiKey: e.target.value })
-                        }
-                      />
-                      <button
-                        type="button"
-                        className="link link--sm key-input__toggle"
-                        onClick={() => toggleReveal("__form__")}
-                        tabIndex={-1}
-                      >
-                        {revealKeys.has("__form__")
-                          ? t("settings:modelKeys.hide")
-                          : t("settings:modelKeys.show")}
-                      </button>
-                    </div>
+                    <KeyInput
+                      reveal={revealKeys.has("__form__")}
+                      onToggle={() => toggleReveal("__form__")}
+                      placeholder="sk-..."
+                      value={form.apiKey}
+                      onChange={(v) => setForm({ ...form, apiKey: v })}
+                    />
                   </label>
                 </>
               )}
@@ -1214,47 +1195,22 @@ export default function Settings({ open, onClose }: Props) {
                     </label>
                     <label className="field">
                       <span>{t("settings:modelKeys.apiKey")}</span>
-                      <div className="key-input">
-                        <input
-                          type="text"
-                          autoComplete="off"
-                          data-lpignore="true"
-                          data-1p-ignore="true"
-                          data-form-type="other"
-                          disabled={p.source === "builtin"}
-                          className={
-                            revealKeys.has(c.providerName)
-                              ? ""
-                              : "key-input__masked"
-                          }
-                          placeholder={
-                            p.source === "builtin"
-                              ? p.apiKey
-                                ? t("settings:modelKeys.builtinKeyReadonly")
-                                : t("settings:modelKeys.builtinNoKey")
-                              : p.apiKey
-                                ? t("settings:modelKeys.keyConfigured")
-                                : t("settings:modelKeys.keyNotConfigured")
-                          }
-                          value={newKey[c.providerName] ?? ""}
-                          onChange={(e) =>
-                            setNewKey({
-                              ...newKey,
-                              [c.providerName]: e.target.value,
-                            })
-                          }
-                        />
-                        <button
-                          type="button"
-                          className="link link--sm key-input__toggle"
-                          onClick={() => toggleReveal(c.providerName)}
-                          tabIndex={-1}
-                        >
-                          {revealKeys.has(c.providerName)
-                            ? t("settings:modelKeys.hide")
-                            : t("settings:modelKeys.show")}
-                        </button>
-                      </div>
+                      <KeyInput
+                        reveal={revealKeys.has(c.providerName)}
+                        onToggle={() => toggleReveal(c.providerName)}
+                        disabled={p.source === "builtin"}
+                        placeholder={
+                          p.source === "builtin"
+                            ? p.apiKey
+                              ? t("settings:modelKeys.builtinKeyReadonly")
+                              : t("settings:modelKeys.builtinNoKey")
+                            : p.apiKey
+                              ? t("settings:modelKeys.keyConfigured")
+                              : t("settings:modelKeys.keyNotConfigured")
+                        }
+                        value={newKey[c.providerName] ?? ""}
+                        onChange={(v) => setNewKey({ ...newKey, [c.providerName]: v })}
+                      />
                     </label>
                     <div className="field">
                       <span>
@@ -1353,6 +1309,77 @@ export default function Settings({ open, onClose }: Props) {
             />
             <small className="muted">{t("settings:modelKeys.monthlyCapHint")}</small>
           </label>
+
+          <div className="settings-section-head">
+            <h3 className="label">{t("settings:search.title")}</h3>
+          </div>
+          <p className="muted" style={{ marginTop: 0 }}>
+            {t("settings:search.description")}
+          </p>
+          <label className="field">
+            <span>{t("settings:search.provider")}</span>
+            <select
+              value={config.searchConfig?.provider ?? ""}
+              onChange={(e) =>
+                setConfig({
+                  ...config,
+                  searchConfig: {
+                    ...(config.searchConfig ?? {}),
+                    provider: e.target.value || undefined,
+                  },
+                })
+              }
+            >
+              <option value="">{t("settings:search.providerDuckduckgo")}</option>
+              <option value="tavily">{t("settings:search.providerTavily")}</option>
+              <option value="serpapi">{t("settings:search.providerSerpapi")}</option>
+              <option value="google">{t("settings:search.providerGoogle")}</option>
+            </select>
+          </label>
+          {(config.searchConfig?.provider ?? "") !== "" && (
+            <>
+              <label className="field">
+                <span>{t("settings:search.apiKey")}</span>
+                <KeyInput
+                  reveal={revealKeys.has("search-api")}
+                  onToggle={() => toggleReveal("search-api")}
+                  placeholder={t("settings:search.apiKeyPlaceholder")}
+                  value={config.searchConfig?.apiKey ?? ""}
+                  onChange={(v) =>
+                    setConfig({
+                      ...config,
+                      searchConfig: {
+                        ...(config.searchConfig ?? {}),
+                        apiKey: v || undefined,
+                      },
+                    })
+                  }
+                />
+              </label>
+              {config.searchConfig?.provider === "google" && (
+                <label className="field">
+                  <span>{t("settings:search.cx")}</span>
+                  <KeyInput
+                    reveal={revealKeys.has("search-cx")}
+                    onToggle={() => toggleReveal("search-cx")}
+                    placeholder="0123456789abcdef:xyz"
+                    value={config.searchConfig?.cx ?? ""}
+                    onChange={(v) =>
+                      setConfig({
+                        ...config,
+                        searchConfig: {
+                          ...(config.searchConfig ?? {}),
+                          cx: v || undefined,
+                        },
+                      })
+                    }
+                  />
+                  <small className="muted">{t("settings:search.cxDescription")}</small>
+                </label>
+              )}
+              <small className="muted">{t("settings:search.note")}</small>
+            </>
+          )}
 
           <button
             type="button"

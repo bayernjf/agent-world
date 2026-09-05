@@ -253,5 +253,19 @@
     "modelExists": "Model \"{{model}}\" already exists under this provider",
     "baseUrlRequiredNew": "Please enter a Base URL",
     "providerNameExists": "Provider name \"{{slug}}\" already exists, pick another"
+  },
+  "search": {
+    "title": "Search service",
+    "description": "User-level search service: the default backend and credentials for every search node. Node-level config wins over this; env vars are the last fallback.",
+    "provider": "Provider",
+    "providerDuckduckgo": "DuckDuckGo (no key; often anti-bot blocked)",
+    "providerTavily": "Tavily",
+    "providerSerpapi": "SerpAPI",
+    "providerGoogle": "Google Custom Search",
+    "apiKey": "API Key",
+    "apiKeyPlaceholder": "Empty falls back to node config / env var",
+    "cx": "Search engine id (cx)",
+    "cxDescription": "Google only: create one at cse.google.com.",
+    "note": "Takes effect on the next run without a restart; the key is encrypted at rest."
   }
 }

@@ -1,5 +1,7 @@
 /** Notifications fired from engine lifecycle events (4.7). */
 
+import { log } from "./logger.js";
+
 export interface HaltNotification {
   runId: string;
   graphId: string;
@@ -23,7 +25,7 @@ export async function notifyHalt(n: HaltNotification): Promise<void> {
       signal: AbortSignal.timeout(5000),
     });
   } catch (err) {
-    console.warn("[notify] halt webhook failed:", (err as Error).message);
+    log.warn("halt webhook failed", { runId: n.runId, error: (err as Error).message });
   }
 }
 
@@ -57,6 +59,6 @@ export async function notifyFailed(n: FailedNotification): Promise<void> {
       signal: AbortSignal.timeout(5000),
     });
   } catch (err) {
-    console.warn("[notify] failed webhook failed:", (err as Error).message);
+    log.warn("failed webhook failed", { runId: n.runId, error: (err as Error).message });
   }
 }

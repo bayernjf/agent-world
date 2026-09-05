@@ -96,6 +96,7 @@ export async function subprocessNode(ctx: NodeRunContext, node: GraphNode, nodeI
       publicUrl: opts.publicUrl,
       permissionConfig: opts.permissionConfig,
       bannedTerms: opts.bannedTerms,
+      searchConfig: opts.searchConfig,
       loadProducts: opts.loadProducts,
     });
 
