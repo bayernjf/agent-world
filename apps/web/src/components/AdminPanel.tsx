@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { api, type AdminUser, type AuditItem } from "../lib/api";
+import {
+  api,
+  type AdminUser,
+  type AuditItem,
+  type FeedbackItem,
+  type FeedbackStatus,
+} from "../lib/api";
 import Tooltip from "./Tooltip";
 import ConfirmDialog from "./ConfirmDialog";
 
@@ -11,6 +17,7 @@ const ROLE_LABEL: Record<string, string> = {
 };
 
 const AUDIT_PAGE_SIZE = 50;
+const FEEDBACK_STATUSES: FeedbackStatus[] = ["open", "acknowledged", "closed"];
 
 interface Props {
   open: boolean;
@@ -28,10 +35,36 @@ function compactDetail(detail: string | null): string {
   }
 }
 
+/** One-line digest of the whitelisted feedback context for the admin list. */
+function contextDigest(
+  context: string,
+  t: (k: string) => string,
+): string {
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(context) as Record<string, unknown>;
+  } catch {
+    return t("feedback:admin.noContext");
+  }
+  const parts: string[] = [];
+  if (typeof parsed.route === "string" && parsed.route) {
+    parts.push(`${t("feedback:admin.contextRoute")}: ${parsed.route}`);
+  }
+  if (typeof parsed.lastRunId === "string" && parsed.lastRunId) {
+    parts.push(`${t("feedback:admin.contextRun")}: ${parsed.lastRunId.slice(0, 8)}`);
+  }
+  const err = parsed.lastError as { message?: unknown } | undefined;
+  if (err && typeof err.message === "string" && err.message) {
+    parts.push(`${t("feedback:admin.contextError")}: ${err.message.slice(0, 80)}`);
+  }
+  return parts.length ? parts.join(" · ") : t("feedback:admin.noContext");
+}
+
 export default function AdminPanel({ open, me, onClose }: Props) {
   const { t, i18n } = useTranslation();
   const isOwner = me?.role === "owner";
-  const [tab, setTab] = useState<"users" | "audit">("audit");
+  const isAdmin = me?.role === "owner" || me?.role === "admin";
+  const [tab, setTab] = useState<"users" | "audit" | "feedback">("audit");
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [usersLoading, setUsersLoading] = useState(false);
   const [usersError, setUsersError] = useState<string | null>(null);
@@ -39,6 +72,10 @@ export default function AdminPanel({ open, me, onClose }: Props) {
   const [auditLoading, setAuditLoading] = useState(false);
   const [auditError, setAuditError] = useState<string | null>(null);
   const [auditDone, setAuditDone] = useState(false);
+  const [feedback, setFeedback] = useState<FeedbackItem[]>([]);
+  const [feedbackStatus, setFeedbackStatus] = useState<FeedbackStatus | "all">("all");
+  const [feedbackLoading, setFeedbackLoading] = useState(false);
+  const [feedbackError, setFeedbackError] = useState<string | null>(null);
   const [roleBusy, setRoleBusy] = useState(false);
   const [roleError, setRoleError] = useState<string | null>(null);
   const [confirmTarget, setConfirmTarget] = useState<{ user: AdminUser; role: "admin" | "user" } | null>(
@@ -72,8 +109,24 @@ export default function AdminPanel({ open, me, onClose }: Props) {
     }
   }, [t]);
 
+  const loadFeedback = useCallback(async () => {
+    setFeedbackLoading(true);
+    setFeedbackError(null);
+    try {
+      const data = await api.listFeedback(
+        feedbackStatus === "all" ? {} : { status: feedbackStatus },
+      );
+      setFeedback(data.items);
+    } catch {
+      setFeedbackError(t("feedback:admin.loadFailed"));
+    } finally {
+      setFeedbackLoading(false);
+    }
+  }, [t, feedbackStatus]);
+
   // Fresh data each time the panel opens. Admins land on the audit tab —
-  // the user list is the owner's exclusive view (design-rbac P3).
+  // the user list is the owner's exclusive view (design-rbac P3). The
+  // feedback tab (design-feedback P2) is visible to owner and admin alike.
   useEffect(() => {
     if (!open) return;
     setTab(isOwner ? "users" : "audit");
@@ -82,8 +135,13 @@ export default function AdminPanel({ open, me, onClose }: Props) {
     setAudit([]);
     setAuditDone(false);
     if (isOwner) void loadUsers();
-    void loadAudit();
-  }, [open, isOwner, loadUsers, loadAudit]);
+    if (isAdmin) void loadAudit();
+  }, [open, isOwner, isAdmin, loadUsers, loadAudit]);
+
+  // Refetch when the admin flips the status filter.
+  useEffect(() => {
+    if (open && isAdmin) void loadFeedback();
+  }, [open, isAdmin, loadFeedback]);
 
   // Escape closes the panel — unless the confirm dialog is open, in which
   // case ConfirmDialog owns the Escape key.
@@ -110,6 +168,18 @@ export default function AdminPanel({ open, me, onClose }: Props) {
       setRoleError(t("modals:adminPanel.roleUpdateFailed"));
     } finally {
       setRoleBusy(false);
+    }
+  };
+
+  const setFeedbackRowStatus = async (id: string, status: FeedbackStatus) => {
+    // Optimistic flip; reload on failure so the UI never drifts from the DB.
+    const prev = feedback;
+    setFeedback((rows) => rows.map((r) => (r.id === id ? { ...r, status } : r)));
+    try {
+      await api.updateFeedbackStatus(id, status);
+    } catch {
+      setFeedback(prev);
+      setFeedbackError(t("feedback:admin.statusFailed"));
     }
   };
 
@@ -146,6 +216,13 @@ export default function AdminPanel({ open, me, onClose }: Props) {
                 onClick={() => setTab("audit")}
               >
                 {t("modals:adminPanel.tabAudit")}
+              </button>
+              <button
+                type="button"
+                className={`admin-panel__tab ${tab === "feedback" ? "is-on" : ""}`}
+                onClick={() => setTab("feedback")}
+              >
+                {t("feedback:admin.title")}
               </button>
             </div>
 
@@ -198,7 +275,7 @@ export default function AdminPanel({ open, me, onClose }: Props) {
                 )}
                 {roleError && <div className="form-error">{roleError}</div>}
               </div>
-            ) : (
+            ) : tab === "audit" ? (
               <div>
                 <p className="muted">{t("modals:adminPanel.auditHint")}</p>
                 {auditError ? (
@@ -248,6 +325,72 @@ export default function AdminPanel({ open, me, onClose }: Props) {
                       </button>
                     )}
                   </div>
+                )}
+              </div>
+            ) : (
+              <div>
+                <div className="admin-feedback__filters">
+                  {(["all", ...FEEDBACK_STATUSES] as const).map((s) => (
+                    <label key={s} className="feedback-modal__category">
+                      <input
+                        type="radio"
+                        name="feedback-status-filter"
+                        checked={feedbackStatus === s}
+                        onChange={() => setFeedbackStatus(s)}
+                      />
+                      {s === "all" ? t("feedback:admin.filterAll") : t(`feedback:status.${s}`)}
+                    </label>
+                  ))}
+                </div>
+                {feedbackError && <div className="form-error">{feedbackError}</div>}
+                {feedback.length === 0 ? (
+                  <p className="muted">
+                    {feedbackLoading ? t("modals:adminPanel.loading") : t("feedback:admin.empty")}
+                  </p>
+                ) : (
+                  <ul className="admin-feedback">
+                    {feedback.map((f) => (
+                      <li key={f.id} className="admin-feedback__row">
+                        <div className="admin-feedback__head">
+                          <span className="admin-feedback__email" title={f.email ?? undefined}>
+                            {f.email ?? t("feedback:admin.unknownUser")}
+                          </span>
+                          <span
+                            className={`admin-feedback__category admin-feedback__category--${f.category}`}
+                          >
+                            {t(`feedback:form.categories.${f.category}`)}
+                          </span>
+                          <span className="admin-feedback__time">
+                            {new Date(f.created_at).toLocaleString(i18n.language)}
+                          </span>
+                          <select
+                            className="admin-feedback__status"
+                            value={f.status}
+                            aria-label={t("feedback:admin.title")}
+                            onChange={(e) =>
+                              void setFeedbackRowStatus(f.id, e.target.value as FeedbackStatus)
+                            }
+                          >
+                            {FEEDBACK_STATUSES.map((s) => (
+                              <option key={s} value={s}>
+                                {t(`feedback:status.${s}`)}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <p className="admin-feedback__message">{f.message}</p>
+                        <p className="admin-feedback__context">{contextDigest(f.context, t)}</p>
+                        {!!f.has_attachment && (
+                          <img
+                            className="admin-feedback__attachment"
+                            src={api.feedbackAttachmentUrl(f.id)}
+                            alt={t("feedback:admin.attachmentAlt")}
+                            loading="lazy"
+                          />
+                        )}
+                      </li>
+                    ))}
+                  </ul>
                 )}
               </div>
             )}
