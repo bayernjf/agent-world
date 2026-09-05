@@ -307,7 +307,15 @@ app.get("/api/auth/me", async (c) => {
   if (!payload) return c.json({ error: "not authenticated" }, 401);
   const user = db.findUserById(payload.userId);
   if (!user) return c.json({ error: "not authenticated" }, 401);
-  return c.json({ user: { id: user.id, email: user.email, createdAt: user.created_at } });
+  const canManageAnnouncements = await isAnnouncementAdmin(user.id);
+  return c.json({
+    user: {
+      id: user.id,
+      email: user.email,
+      createdAt: user.created_at,
+      canManageAnnouncements,
+    },
+  });
 });
 
 app.post("/api/auth/password", async (c) => {
@@ -692,6 +700,23 @@ app.get("/api/announcements", (c) => {
       bodyEn: a.body_en,
       read: reads.has(a.id as string),
     }));
+  return c.json({ items });
+});
+
+/** Full list (including not-yet-started / expired) for the admin manager UI. */
+app.get("/api/announcements/manage", async (c) => {
+  if (!(await isAnnouncementAdmin(c.get("userId")))) return c.json({ error: "forbidden" }, 403);
+  const items = db.listAnnouncements().map((a) => ({
+    id: a.id,
+    level: a.level,
+    startsAt: a.starts_at,
+    endsAt: a.ends_at,
+    createdAt: a.created_at,
+    titleZh: a.title_zh,
+    titleEn: a.title_en,
+    bodyZh: a.body_zh,
+    bodyEn: a.body_en,
+  }));
   return c.json({ items });
 });
 

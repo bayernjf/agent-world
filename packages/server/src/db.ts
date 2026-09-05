@@ -695,6 +695,9 @@ export function openDb(file: string) {
        WHERE starts_at <= ? AND (ends_at IS NULL OR ends_at >= ?)
        ORDER BY created_at DESC`,
     ),
+    listAllAnnouncements: db.prepare(
+      `SELECT * FROM announcements ORDER BY created_at DESC`,
+    ),
     getAnnouncement: db.prepare(`SELECT * FROM announcements WHERE id = ?`),
     insertAnnouncement: db.prepare(
       `INSERT INTO announcements (id, title_zh, title_en, body_zh, body_en, level, starts_at, ends_at, target, created_at)
@@ -1808,6 +1811,9 @@ export function openDb(file: string) {
     // --- Announcements (30) ---
     listActiveAnnouncements(now = Date.now()): Array<Record<string, unknown>> {
       return stmts.listActiveAnnouncements.all(now, now) as Array<Record<string, unknown>>;
+    },
+    listAnnouncements(): Array<Record<string, unknown>> {
+      return stmts.listAllAnnouncements.all() as Array<Record<string, unknown>>;
     },
     getAnnouncement(id: string): Record<string, unknown> | undefined {
       return stmts.getAnnouncement.get(id) as Record<string, unknown> | undefined;

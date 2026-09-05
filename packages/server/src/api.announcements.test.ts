@@ -192,4 +192,33 @@ describe("announcements: admin gate", () => {
     const { items: items2 } = (await list2.json()) as { items: Array<{ id: string }> };
     expect(items2.map((a) => a.id)).not.toContain(created.id);
   });
+
+  it("exposes the announcement-admin flag only to allowlisted emails via /me", async () => {
+    const meAdmin = await app.request("/api/auth/me", { headers: auth(admin) });
+    const { user: adminUser } = (await meAdmin.json()) as {
+      user: { canManageAnnouncements?: boolean };
+    };
+    expect(adminUser.canManageAnnouncements).toBe(true);
+
+    const mePleb = await app.request("/api/auth/me", { headers: auth(pleb) });
+    const { user: plebUser } = (await mePleb.json()) as {
+      user: { canManageAnnouncements?: boolean };
+    };
+    expect(plebUser.canManageAnnouncements).toBe(false);
+  });
+
+  it("returns the full manage list (including not-yet-started / expired) to an admin", async () => {
+    const res = await app.request("/api/announcements/manage", { headers: auth(admin) });
+    expect(res.status).toBe(200);
+    const { items } = (await res.json()) as { items: Array<{ id: string }> };
+    const ids = items.map((a) => a.id);
+    expect(ids).toContain("a-future");
+    expect(ids).toContain("a-expired");
+    expect(ids).toContain("a-active");
+  });
+
+  it("forbids the manage list for non-admins", async () => {
+    const res = await app.request("/api/announcements/manage", { headers: auth(pleb) });
+    expect(res.status).toBe(403);
+  });
 });
