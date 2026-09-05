@@ -980,6 +980,49 @@ app.get("/api/feedback/:id/attachment", (c) => {
   });
 });
 
+// Feedback → announcement linkage (design-feedback P3): merge a batch of
+// similar reports into one product-wide announcement, then close the batch.
+// Single round trip so the UI never lands in the half state "announcement
+// created but feedback still open".
+const FEEDBACK_ANNOUNCE_MAX = 50;
+
+app.post("/api/feedback/announce", async (c) => {
+  if (!(await isAnnouncementAdmin(c.get("userId")))) return c.json({ error: "forbidden" }, 403);
+  const body = (await c.req.json().catch(() => ({}))) as {
+    feedbackIds?: unknown;
+    announcement?: unknown;
+  };
+  const rawIds = Array.isArray(body.feedbackIds) ? body.feedbackIds : [];
+  const ids = [
+    ...new Set(rawIds.filter((v): v is string => typeof v === "string" && v.length > 0)),
+  ];
+  if (ids.length === 0) return c.json({ error: "feedbackIds is required" }, 400);
+  if (ids.length > FEEDBACK_ANNOUNCE_MAX) {
+    return c.json({ error: `feedbackIds must be at most ${FEEDBACK_ANNOUNCE_MAX} items` }, 400);
+  }
+  // Fail closed: unknown ids abort the whole merge (no partial apply).
+  const missing = ids.filter((id) => !db.getFeedback(id));
+  if (missing.length) return c.json({ error: "feedback not found" }, 404);
+  const parsed = parseAnnouncementBody(body.announcement);
+  if (!parsed.ok) return c.json({ error: parsed.error }, 400);
+  const announcementId = randomUUID();
+  db.createAnnouncement({ id: announcementId, ...parsed.value });
+  let closed = 0;
+  for (const id of ids) {
+    const item = db.getFeedback(id);
+    if (item?.status === "closed") continue; // idempotent, not re-counted
+    db.updateFeedbackStatus(id, "closed");
+    closed++;
+  }
+  audit(db, c.get("userId"), "feedback.announce", {
+    objectType: "announcement",
+    objectId: announcementId,
+    detail: { count: ids.length, level: parsed.value.level },
+    ip: clientIp(c),
+  });
+  return c.json({ ok: true, announcementId, closed }, 201);
+});
+
 
 // --- Announcements (design-announcement) ---
 // Admin gate (RBAC P0, design-rbac.md): global owner/admin roles decide who
