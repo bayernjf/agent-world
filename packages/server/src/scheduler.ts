@@ -1,5 +1,6 @@
 import { TriggerConfig } from "@agent-world/core";
 import { nextRunAfter } from "./cron.js";
+import { log } from "./logger.js";
 import type { TriggerService } from "./triggers.js";
 
 /**
@@ -63,14 +64,16 @@ export class TriggerScheduler {
 
   private async fireAndReschedule(id: string): Promise<void> {
     this.timers.delete(id);
+    const trigger = this.service.get(id);
+    log.info("cron tick fired", { triggerId: id, cron: trigger?.cron, enabled: trigger?.enabled });
     try {
       await this.service.fire(id);
     } catch (err) {
       this.onError?.(err);
     }
-    const trigger = this.service.get(id);
-    if (trigger && trigger.type === "cron" && trigger.enabled !== false) {
-      this.schedule(trigger);
+    const after = this.service.get(id);
+    if (after && after.type === "cron" && after.enabled !== false) {
+      this.schedule(after);
     } else {
       this.nextRun.delete(id);
     }
