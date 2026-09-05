@@ -748,6 +748,9 @@ export function openDb(file: string) {
     listResourceAccessForUser: db.prepare(
       `SELECT resource_id, role FROM resource_access WHERE resource_type = ? AND user_id = ?`,
     ),
+    deleteResourceAccessForResource: db.prepare(
+      `DELETE FROM resource_access WHERE resource_type = ? AND resource_id = ?`,
+    ),
     getRunGraphRef: db.prepare(
       `SELECT user_id, graph_id FROM runs WHERE id = ?`,
     ),
@@ -845,6 +848,13 @@ export function openDb(file: string) {
        WHERE a.run_id = ? AND a.user_id = ?
        ORDER BY a.created_at`,
     ),
+    listArtifactsByRunUnscoped: db.prepare(
+      `SELECT a.id, a.run_id, a.node_id, a.attempt, a.graph_id, a.role, a.kind, a.mime_type, a.label, a.size_bytes, a.storage, a.uri, a.created_at,
+              COALESCE(g.name, '(未知流水线)') AS graph_name
+       FROM artifacts a LEFT JOIN graphs g ON g.id = a.graph_id
+       WHERE a.run_id = ?
+       ORDER BY a.created_at`,
+    ),
     getArtifact: db.prepare(
       `SELECT a.id, a.run_id, a.node_id, a.attempt, a.graph_id, a.role, a.kind, a.mime_type, a.label, a.size_bytes, a.storage, a.uri, a.created_at,
               COALESCE(g.name, '(未知流水线)') AS graph_name
@@ -866,6 +876,9 @@ export function openDb(file: string) {
     ),
     deleteArtifactsForRun: db.prepare(`DELETE FROM artifacts WHERE run_id = ?`),
     getGraphById: db.prepare(`SELECT doc, version FROM graphs WHERE id = ?`),
+    getGraphMeta: db.prepare(
+      `SELECT id, name, version, updated_at, origin_template_id FROM graphs WHERE id = ?`,
+    ),
     listAllGraphs: db.prepare(`SELECT id, name, version, updated_at FROM graphs ORDER BY updated_at DESC`),
     getGraphOwnerId: db.prepare(`SELECT user_id FROM graphs WHERE id = ?`),
     finishRunById: db.prepare(`UPDATE runs SET status = ?, ended_at = ? WHERE id = ?`),
@@ -1014,6 +1027,21 @@ export function openDb(file: string) {
       return row ? { ...(openGraphDoc(JSON.parse(row.doc) as Graph)), version: row.version, originTemplateId: row.origin_template_id } : null;
     },
 
+    /** Unscoped list-row metadata (id/name/version/updated_at) for one graph —
+     *  used to append shared graphs (design-rbac P1) to the caller's list. */
+    getGraphMeta(id: string): {
+      id: string;
+      name: string;
+      version: number;
+      updated_at: number;
+      originTemplateId: string | null;
+    } | undefined {
+      const row = stmts.getGraphMeta.get(id) as
+        | { id: string; name: string; version: number; updated_at: number; origin_template_id: string | null }
+        | undefined;
+      return row && { id: row.id, name: row.name, version: row.version, updated_at: row.updated_at, originTemplateId: row.origin_template_id };
+    },
+
     listGraphs(userId: string): Array<{
       id: string;
       name: string;
@@ -1067,6 +1095,9 @@ export function openDb(file: string) {
 
     deleteGraph(id: string, userId: string) {
       stmts.deleteGraph.run(id, userId);
+      // Drop stale ACL rows so a future graph with the same id can't inherit
+      // old shares (and so the collaborator lists don't leak deleted graphs).
+      stmts.deleteResourceAccessForResource.run("graph", id);
     },
 
     createRun(args: {
@@ -1134,12 +1165,16 @@ export function openDb(file: string) {
 
     listRuns(
       userId: string,
-      opts: { limit?: number; offset?: number; graphId?: string; status?: string } = {},
+      opts: { limit?: number; offset?: number; graphId?: string; status?: string; graphIds?: string[] } = {},
     ) {
       const limit = Math.min(Math.max(opts.limit ?? 50, 1), 200);
       const offset = Math.max(opts.offset ?? 0, 0);
-      const where: string[] = ["r.user_id = ?"];
-      const params: (string | number)[] = [userId];
+      // When `graphIds` is supplied (shared-graph visibility, design-rbac P1),
+      // scope by graph membership instead of run ownership — runs started by
+      // collaborators are saved under the graph owner, so user_id scoping
+      // would hide them from the collaborator.
+      const where: string[] = opts.graphIds ? ["r.graph_id IN (" + opts.graphIds.map(() => "?").join(",") + ")"] : ["r.user_id = ?"];
+      const params: (string | number)[] = opts.graphIds ? [...opts.graphIds] : [userId];
       if (opts.graphId) {
         where.push("r.graph_id = ?");
         params.push(opts.graphId);
@@ -1179,11 +1214,16 @@ export function openDb(file: string) {
      * Runs waiting on a human decision, oldest first so the longest-blocked item
      * surfaces at the top of the review queue.
      */
-    pendingReviews(userId: string, opts: { limit?: number; offset?: number; graphId?: string } = {}) {
+    pendingReviews(userId: string, opts: { limit?: number; offset?: number; graphId?: string; graphIds?: string[] } = {}) {
       const limit = Math.min(Math.max(opts.limit ?? 50, 1), 200);
       const offset = Math.max(opts.offset ?? 0, 0);
-      const where: string[] = ["r.user_id = ?", "r.status = 'halted'"];
-      const params: (string | number)[] = [userId];
+      // With graphIds (shared-graph visibility), scope by graph membership
+      // instead of run ownership — halted runs on shared graphs belong to the
+      // graph owner but must surface to editors who can decide on them.
+      const where: string[] = opts.graphIds
+        ? ["r.graph_id IN (" + opts.graphIds.map(() => "?").join(",") + ")", "r.status = 'halted'"]
+        : ["r.user_id = ?", "r.status = 'halted'"];
+      const params: (string | number)[] = opts.graphIds ? [...opts.graphIds] : [userId];
       if (opts.graphId) {
         where.push("r.graph_id = ?");
         params.push(opts.graphId);
@@ -1345,6 +1385,12 @@ export function openDb(file: string) {
       return mapArtifacts(stmts.listArtifactsByRun.all(runId, userId) as ArtifactRow[]);
     },
 
+    /** Unscoped run-artifact list for shared-graph viewers (design-rbac P1).
+     *  Callers must have already verified graph-level access via rbac. */
+    listArtifactsForRunUnscoped(runId: string): StoredArtifact[] {
+      return mapArtifacts(stmts.listArtifactsByRunUnscoped.all(runId) as ArtifactRow[]);
+    },
+
     getArtifact(id: string, userId: string): StoredArtifact | null {
       const row = stmts.getArtifact.get(id, userId) as ArtifactRow | undefined;
       return row ? mapArtifact(row) : null;
@@ -1356,8 +1402,24 @@ export function openDb(file: string) {
       return row ? mapArtifact(row) : null;
     },
 
-    listArtifacts(userId: string, limit = 100, offset = 0): StoredArtifact[] {
-      return mapArtifacts(stmts.listArtifacts.all(userId, limit, offset) as ArtifactRow[]);
+    listArtifacts(userId: string, limit = 100, offset = 0, graphIds?: string[]): StoredArtifact[] {
+      // With `graphIds` (shared-graph visibility), show artifacts whose graph
+      // is visible to the caller OR that the caller owns (e.g. uploads not
+      // yet attached to a run). Without it, keep the legacy user_id scoping.
+      if (!graphIds) {
+        return mapArtifacts(stmts.listArtifacts.all(userId, limit, offset) as ArtifactRow[]);
+      }
+      const placeholders = graphIds.map(() => "?").join(",");
+      const rows = db
+        .prepare(
+          `SELECT a.id, a.run_id, a.node_id, a.attempt, a.graph_id, a.role, a.kind, a.mime_type, a.label, a.size_bytes, a.storage, a.uri, a.created_at,
+                  COALESCE(g.name, '(未知流水线)') AS graph_name
+           FROM artifacts a LEFT JOIN graphs g ON g.id = a.graph_id
+           WHERE a.user_id = ? OR a.graph_id IN (${placeholders})
+           ORDER BY a.created_at DESC, a.rowid DESC LIMIT ? OFFSET ?`,
+        )
+        .all(userId, ...graphIds, limit, offset) as ArtifactRow[];
+      return mapArtifacts(rows);
     },
 
     deleteRun(runId: string, userId: string) {
@@ -1761,6 +1823,14 @@ export function openDb(file: string) {
           .map(([day, rows]) => ({ day, ...summarize(rows) })),
         byPrompt,
       };
+    },
+
+    /** Graph id that an A/B experiment group belongs to (for access checks). */
+    abGroupGraphId(groupId: string): string | undefined {
+      const row = db
+        .prepare(`SELECT graph_id FROM runs WHERE ab_group = ? LIMIT 1`)
+        .get(groupId) as { graph_id: string } | undefined;
+      return row?.graph_id;
     },
 
     abReport(groupId: string, userId: string): ABReport | null {
@@ -2211,15 +2281,29 @@ export function openDb(file: string) {
       };
     },
 
-    listBatches(userId: string): BatchJob[] {
-      const rows = db
-        .prepare(`SELECT * FROM batch_jobs WHERE user_id = ? ORDER BY created_at DESC`)
-        .all(userId) as Array<Record<string, unknown>>;
+    listBatches(userId: string, graphIds?: string[]): BatchJob[] {
+      // With graphIds (shared-graph visibility), scope by graph membership
+      // instead of batch ownership.
+      const rows = graphIds
+        ? (db
+            .prepare(`SELECT * FROM batch_jobs WHERE graph_id IN (${graphIds.map(() => "?").join(",")}) ORDER BY created_at DESC`)
+            .all(...graphIds) as Array<Record<string, unknown>>)
+        : (db
+            .prepare(`SELECT * FROM batch_jobs WHERE user_id = ? ORDER BY created_at DESC`)
+            .all(userId) as Array<Record<string, unknown>>);
       return rows.map(batchFromRow);
     },
 
     getBatch(id: string, userId: string): BatchJob | null {
       const row = db.prepare(`SELECT * FROM batch_jobs WHERE id = ? AND user_id = ?`).get(id, userId) as
+        | Record<string, unknown>
+        | undefined;
+      return row ? batchFromRow(row) : null;
+    },
+
+    /** Unscoped batch lookup for shared-graph access (caller verified graph ACL). */
+    getBatchUnscoped(id: string): BatchJob | null {
+      const row = db.prepare(`SELECT * FROM batch_jobs WHERE id = ?`).get(id) as
         | Record<string, unknown>
         | undefined;
       return row ? batchFromRow(row) : null;
@@ -2752,7 +2836,7 @@ export function openDb(file: string) {
 
     getRunById(runId: string) {
       const row = stmts.getRunById.get(runId) as
-        | { id: string; graph_id: string; snapshot: string; status: string; budget_usd: number | null; started_at: number; ended_at: number | null }
+        | { id: string; graph_id: string; snapshot: string; status: string; trigger: string; input: string | null; budget_usd: number | null; started_at: number; ended_at: number | null }
         | undefined;
       return row ? { ...row, snapshot: openDocString(row.snapshot) } : undefined;
     },
