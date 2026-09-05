@@ -4,6 +4,7 @@
 > 创建：2026-09-05
 >
 > 实施说明：①迁移版本实际为 **v30**（v29 被审计日志占用）；②公告正文以纯文本 `pre-wrap` 渲染（设计稿的 md 渲染暂缓，运维粘贴纯文本即可用）；③**管理端 UI 已就位**（2026-09-05 增补）——管理员点铃铛下拉出现「管理公告」，打开 `AnnouncementManager`（全量列表 + 新建/编辑/删除，双语标题正文 + level + 生效/失效窗口），权限判定靠 `ANNOUNCEMENT_ADMIN_EMAILS` env 白名单，经 `/api/auth/me` 的 `canManageAnnouncements` 下发前端仅对管理员显示入口；管理专用全量列表接口 `GET /api/announcements/manage`（含未开始/已过期）。
+> **env 白名单将退役**：见 [design-rbac.md](design-rbac.md) P0——公告管理改走全局 `admin` 角色（owner 在系统内授予，owner=首个注册用户），`ANNOUNCEMENT_ADMIN_EMAILS` 不再需要。
 > P3（target 定向逻辑）待触发。
 
 ## 1. 背景
