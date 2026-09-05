@@ -220,6 +220,8 @@ State of Agent World as of 2026-09-04.
 
 32. 🔵 **search 成功路径补证（待用户提供 API key）**：search/audioGen 两类节点成功路径零证据，需 Tavily/SerpAPI key（用户级 Settings 搜索服务或节点级 `apiKey` 均可，无需重启 server）。配齐后复跑 tpl-research-loop / tpl-news-podcast。**本批已完成的前置**：用户级搜索服务（Settings 搜索服务区块 + `searchConfig` 走 `AppConfigSchema` 验证 + GET 脱敏 + PUT 遮罩回写保留真实 key + 凭证解析链 节点→用户级→env）；KeyInput 可复用组件（遮罩 + 显示/隐藏按钮 + 防浏览器 autofill，模型/搜索 key 输入框样式统一）。
 
+33. ✅ **服务端日志收编 + 默认落盘 + 请求日志（2026-09-05 推进 31-③，P1+P2 完成）**：按 [design-logging.md](docs/design-logging.md)——① **默认落盘**：`LOG_FILE` 未设时落 `<DB dir>/logs/server.log`（与 `.encryption-key` 同目录模式），自动建目录，`LOG_FILE=""` 可显式禁用（测试用）；② **console 收编**：engine/nodes(generic·code·imagegen·videogen·audiogen)/notify/triggers/code-sandbox/worker-plugins/auth 的裸 console 全部改走 Logger，节点经 `ctx.log`（NodeRunContext 新增 `log` 字段，绑定 runId），工具函数用全局 `log`；例外保留 load-env/at-rest（Logger 初始化前）；③ **请求中间件**：`/api/*` 每次调用按 status 分级记日志（≥500 error / ≥400 warn / 其余 info）+ latencyMs + userId，不记 query（防 token 泄露）。logger 首次写前自动建父目录。测试：server 747→**760/760**（+3 logger 断言：默认落盘路径 / `LOG_FILE=""` 禁用 / rotate 数组断言修正），sandbox/code 用例 spy 从 console.warn 改为 process.stdout.write。`.gitignore` 加 `logs/`。**下一步（P3 待触发）**：触发器/迁移/启动信息补齐，及 run.resumed 等关键路径补日志。
+
 > 全部缓做/低优事项（含上述两条）已统一登记在 [docs/deferred-items.md](docs/deferred-items.md)——每条带触发条件与决策详情链接，触发条件满足时移回本区并标注重启日期。
 
 ## Recently shipped (last 5)
