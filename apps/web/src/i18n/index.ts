@@ -12,6 +12,7 @@ import zhErrors from "./locales/zh/errors.json";
 import zhAuth from "./locales/zh/auth.json";
 import zhReviews from "./locales/zh/reviews.json";
 import zhAnnouncements from "./locales/zh/announcements.json";
+import zhFeedback from "./locales/zh/feedback.json";
 
 import enCommon from "./locales/en/common.json";
 import enCanvas from "./locales/en/canvas.json";
@@ -23,6 +24,7 @@ import enErrors from "./locales/en/errors.json";
 import enAuth from "./locales/en/auth.json";
 import enReviews from "./locales/en/reviews.json";
 import enAnnouncements from "./locales/en/announcements.json";
+import enFeedback from "./locales/en/feedback.json";
 
 const STORAGE_KEY = "agent-world.language";
 
@@ -52,6 +54,7 @@ i18n.use(initReactI18next).init({
       auth: zhAuth,
       reviews: zhReviews,
       announcements: zhAnnouncements,
+      feedback: zhFeedback,
     },
     en: {
       common: enCommon,
@@ -64,11 +67,12 @@ i18n.use(initReactI18next).init({
       auth: enAuth,
       reviews: enReviews,
       announcements: enAnnouncements,
+      feedback: enFeedback,
     },
   },
   lng: detectLanguage(),
   fallbackLng: "zh",
-  ns: ["common", "canvas", "nodes", "modals", "settings", "run", "errors", "auth", "reviews", "announcements"],
+  ns: ["common", "canvas", "nodes", "modals", "settings", "run", "errors", "auth", "reviews", "announcements", "feedback"],
   defaultNS: "common",
   interpolation: {
     escapeValue: false, // React already escapes

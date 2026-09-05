@@ -296,6 +296,31 @@ export interface AuditItem {
   created_at: number;
 }
 
+/** One user feedback row (design-feedback). context is the whitelisted JSON. */
+export interface FeedbackItem {
+  id: string;
+  user_id: string;
+  email: string | null;
+  message: string;
+  category: "bug" | "feature" | "ux" | "other";
+  context: string;
+  has_attachment: number;
+  status: "open" | "acknowledged" | "closed";
+  created_at: number;
+}
+
+/** Client-collected diagnostics, whitelisted server-side (design-feedback §3.2). */
+export interface FeedbackContext {
+  route: string;
+  userAgent: string;
+  locale: string;
+  lastRunId?: string;
+  lastError?: { message: string; lineno: number };
+}
+
+export type FeedbackCategory = FeedbackItem["category"];
+export type FeedbackStatus = FeedbackItem["status"];
+
 /** A platform's publishing profile (F3 compliance). */
 export interface PlatformProfile {
   id: string;
@@ -554,12 +579,50 @@ export const api = {
     const params = new URLSearchParams();
     if (opts.limit != null) params.set("limit", String(opts.limit));
     if (opts.before != null) params.set("before", String(opts.before));
-    if (opts.userId != null) params.set("userId", opts.userId);
+    if (opts.userId != null) params.set("userId", String(opts.userId));
     const qs = params.toString();
     return authFetch(qs ? `/api/audit?${qs}` : "/api/audit").then(
       json<{ items: AuditItem[] }>,
     );
   },
+
+  submitFeedback: (
+    message: string,
+    category: FeedbackCategory,
+    context: FeedbackContext,
+    attachment?: { data: string; mimeType: string } | null,
+  ) =>
+    authFetch("/api/feedback", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message, category, context, attachment: attachment ?? undefined }),
+    }).then(async (res) => {
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string; message?: string };
+        throw new Error(body.message ?? body.error ?? `feedback submit failed: ${res.status}`);
+      }
+      return res.json() as Promise<{ ok: true; id: string }>;
+    }),
+
+  listFeedback: (opts: { status?: FeedbackStatus } = {}) => {
+    const qs = opts.status ? `?status=${opts.status}` : "";
+    return authFetch(`/api/feedback${qs}`).then(json<{ items: FeedbackItem[] }>);
+  },
+
+  updateFeedbackStatus: (id: string, status: FeedbackStatus) =>
+    authFetch(`/api/feedback/${id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ status }),
+    }).then(async (res) => {
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string; message?: string };
+        throw new Error(body.message ?? body.error ?? `status update failed: ${res.status}`);
+      }
+      return res.json() as Promise<{ ok: true; status: FeedbackStatus; unchanged?: boolean }>;
+    }),
+
+  feedbackAttachmentUrl: (id: string) => `/api/feedback/${id}/attachment`,
 
   compile: (graph: Graph) =>
     authFetch("/api/compile", {

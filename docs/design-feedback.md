@@ -1,7 +1,11 @@
 # 用户反馈（User Feedback）设计方案
 
-> 状态：**方案设计，未实施**。目标：产品内的「用户 → 维护者」反馈通道，替代当前「截图发 AI 会话」的人工流程（见 [feedback-workflow.md](feedback-workflow.md)，那是 owner 侧指南，不是产品功能）。
+> 状态：**P1+P2 已实施（2026-09-05），P3 待触发**。目标：产品内的「用户 → 维护者」反馈通道，替代当前「截图发 AI 会话」的人工流程（见 [feedback-workflow.md](feedback-workflow.md)，那是 owner 侧指南，不是产品功能）。
 > 创建：2026-09-05
+>
+> **落地记录（2026-09-05）**：迁移 **v33**（方案写作时预留的 v30 已被公告/RBAC 占用）+ 新库 DDL 双轨。server：`POST /api/feedback`（登录用户，message ≤2000 字 + category ∈ bug/feature/ux/other + **服务端二次白名单脱敏**（route/userAgent/locale/lastRunId/lastError{message,lineno}，白名单外字段一律丢弃——客户端被篡改也拦得住）+ 截图 base64 ≤1MB 限 png/jpeg/webp/gif + 每用户滚动小时 10 条限流（DB 计数，重启不重置））；`GET /api/feedback`（owner/admin，LEFT JOIN users 解析 email，`?status=` 过滤）；`PATCH /api/feedback/:id`（三态 open/acknowledged/closed，同状态幂等返回 `unchanged` 不写审计）；`GET /api/feedback/:id/attachment`（原图字节，cookie 认证天然支持 `<img src>`）。审计埋点 `feedback.submit`（detail 只含 category，不含 message 正文）与 `feedback.status_change`（detail `{to}`）。web：`FeedbackModal`（一句话 + 分类 + 粘贴截图（≤1MB 前端预检 + 预览/移除）+ 诊断勾选默认开（透明原则），lastRunId 取自 run store、lastError 由 `lib/lastError.ts` 全局监听器采集 message+lineno）；入口在 UserMenu（登录即见）；管理端是 **AdminPanel 第三个 tab**（方案写作时的 Settings 区块被 RBAC P3 的 AdminPanel 架构取代）；状态筛选 + 乐观更新三态流转 + 附件懒加载。i18n 新 namespace `feedback`（zh/en）。测试 server 18 例 + web FeedbackModal 11 例 + AdminPanel 反馈 tab 6 例 + UserMenu 入口 3 例；server 838/838 + web 1542/1542（含 i18n 守护）。
+>
+> **与 §3 的四处偏差**：① 迁移号 v30→v33；② 管理员判定 `FEEDBACK_ADMIN_EMAILS` env 白名单 → RBAC owner/admin 角色（P0 已退役 env 白名单模式，公告同轨）；③ 管理端 Settings 区块 → AdminPanel 反馈 tab（架构随 RBAC P3 演进，且 owner/admin 均可见——与审计 tab 一致）；④ 表加 `attachment_mime` 列 + 新增附件独立端点（列表不传 BLOB，`has_attachment` 布尔 + 懒加载）。
 
 ## 1. 背景
 

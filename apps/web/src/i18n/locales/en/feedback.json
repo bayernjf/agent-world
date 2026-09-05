@@ -1,0 +1,48 @@
+{
+  "entry": {
+    "button": "Feedback"
+  },
+  "form": {
+    "title": "Send feedback",
+    "messageLabel": "What happened, or what would you like?",
+    "messagePlaceholder": "One line, e.g. report export does nothing on Safari",
+    "categoryLabel": "Category",
+    "categories": {
+      "bug": "Bug",
+      "feature": "Feature request",
+      "ux": "UX issue",
+      "other": "Other"
+    },
+    "screenshotLabel": "Screenshot (optional, paste directly)",
+    "screenshotHint": "Take a screenshot on the page, then press ⌘V / Ctrl+V",
+    "screenshotRemove": "Remove screenshot",
+    "screenshotTooLarge": "Screenshot is over 1MB — please crop and retry",
+    "screenshotInvalid": "Only PNG / JPEG / WebP / GIF images can be pasted",
+    "diagnosticsLabel": "Attach diagnostics (page, browser, last error)",
+    "diagnosticsHint": "Helps locate the issue; contains no keys or workspace content",
+    "submit": "Send",
+    "submitting": "Sending…",
+    "cancel": "Cancel",
+    "submitted": "Received — thanks for the feedback",
+    "submitFailed": "Failed to send, please try again later",
+    "messageRequired": "Please describe the issue first"
+  },
+  "admin": {
+    "title": "Feedback",
+    "filterAll": "All",
+    "empty": "No feedback yet",
+    "loadFailed": "Failed to load feedback",
+    "statusFailed": "Failed to update status",
+    "unknownUser": "Unknown user",
+    "attachmentAlt": "Feedback screenshot",
+    "contextRoute": "Page",
+    "contextRun": "Run",
+    "contextError": "Last error",
+    "noContext": "No diagnostics"
+  },
+  "status": {
+    "open": "Open",
+    "acknowledged": "Acknowledged",
+    "closed": "Closed"
+  }
+}

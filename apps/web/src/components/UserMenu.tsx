@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import Tooltip from "./Tooltip";
 import AccountDialog from "./AccountDialog";
 import AdminPanel from "./AdminPanel";
+import FeedbackModal from "./FeedbackModal";
 import { logout } from "./AuthPages";
 import LanguageSwitcher from "./LanguageSwitcher";
 
@@ -19,6 +20,7 @@ export default function UserMenu() {
   const [open, setOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -94,6 +96,17 @@ export default function UserMenu() {
               {t("modals:userMenu.admin")}
             </button>
           )}
+          {me && (
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                setFeedbackOpen(true);
+              }}
+            >
+              {t("feedback:entry.button")}
+            </button>
+          )}
           <LanguageSwitcher />
           <button type="button" className="user-menu__logout" onClick={handleLogout}>
             {t("modals:userMenu.logout")}
@@ -102,6 +115,7 @@ export default function UserMenu() {
       )}
       <AccountDialog open={accountOpen} me={me} onClose={() => setAccountOpen(false)} />
       <AdminPanel open={adminOpen} me={me} onClose={() => setAdminOpen(false)} />
+      <FeedbackModal open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
     </div>
   );
 }
