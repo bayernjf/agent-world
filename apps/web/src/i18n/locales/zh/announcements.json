@@ -39,6 +39,10 @@
     "saved": "已保存",
     "cancel": "取消"
   },
+  "alerts": {
+    "templateBadge": "有公告",
+    "graphLabel": "本产线公告："
+  },
   "empty": "暂无公告",
   "noBody": "（无正文）",
   "close": "关闭",

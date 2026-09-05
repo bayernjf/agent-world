@@ -1,5 +1,6 @@
 import { TEMPLATES, TEMPLATE_CATEGORIES } from "@agent-world/core";
 import { useTranslation } from "react-i18next";
+import Tooltip from "./Tooltip";
 
 /**
  * Shared template preview + grid used by both the first-run Onboarding and
@@ -123,6 +124,9 @@ interface PickerProps {
   /** Render a "blank line" card pinned first — above every category section.
    *  It is a plain empty canvas, not a template, so it carries no badge. */
   blankFirst?: boolean;
+  /** templateId → localized title of its active targeted announcement
+   *  (design-announcement P3): e.g. a deprecation notice pinned to the card. */
+  alerts?: Record<string, string>;
 }
 
 export default function TemplatePicker({
@@ -130,6 +134,7 @@ export default function TemplatePicker({
   onPick,
   cardClass,
   blankFirst,
+  alerts = {},
 }: PickerProps) {
   const { t } = useTranslation();
   const gridClass = `template-grid ${cardClass ? `template-grid--${cardClass}` : ""}`;
@@ -161,17 +166,27 @@ export default function TemplatePicker({
             <span className="template-section__count">{s.items.length}</span>
           </h3>
           <div className={gridClass}>
-            {s.items.map((t) => (
-              <button
-                key={t.id}
-                className={`template-card ${cardClass ? `template-card--${cardClass}` : ""}`}
-                onClick={() => onPick(t.id)}
-              >
-                <TemplatePreview nodes={t.nodes} edges={t.edges} />
-                <span className="template-card__name">{t.name}</span>
-                <span className="template-card__desc">{t.description}</span>
-              </button>
-            ))}
+            {s.items.map((tpl) => {
+              const alert = alerts[tpl.id];
+              return (
+                <button
+                  key={tpl.id}
+                  className={`template-card ${alert ? "template-card--alerted" : ""} ${cardClass ? `template-card--${cardClass}` : ""}`}
+                  onClick={() => onPick(tpl.id)}
+                >
+                  <TemplatePreview nodes={tpl.nodes} edges={tpl.edges} />
+                  <span className="template-card__name">{tpl.name}</span>
+                  <span className="template-card__desc">{tpl.description}</span>
+                  {alert && (
+                    <Tooltip content={alert}>
+                      <span className="template-card__alert">
+                        {t("announcements:alerts.templateBadge")}
+                      </span>
+                    </Tooltip>
+                  )}
+                </button>
+              );
+            })}
           </div>
         </section>
       ))}

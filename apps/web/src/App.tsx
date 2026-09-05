@@ -42,6 +42,7 @@ import ProductGallery from "./components/ProductGallery";
 import Onboarding from "./components/Onboarding";
 import UserMenu from "./components/UserMenu";
 import AnnouncementBell from "./components/AnnouncementBell";
+import { GraphAnnouncementBar } from "./components/AnnouncementAlerts";
 import KnowledgePanel from "./components/KnowledgePanel";
 import GlossaryModal from "./components/GlossaryModal";
 import VersionPanel from "./components/VersionPanel";
@@ -868,6 +869,8 @@ export default function App() {
             <AnnouncementBell />
           </div>
         </header>
+
+        <GraphAnnouncementBar graphId={graph.id} />
 
         <div
           className={`workspace ${controlCollapsed ? "workspace--control-collapsed" : ""}`}

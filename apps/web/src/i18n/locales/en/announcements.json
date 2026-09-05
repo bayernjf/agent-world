@@ -39,6 +39,10 @@
     "saved": "Saved",
     "cancel": "Cancel"
   },
+  "alerts": {
+    "templateBadge": "Notice",
+    "graphLabel": "Pipeline notice:"
+  },
   "empty": "No notices",
   "noBody": "(no body)",
   "close": "Close",
