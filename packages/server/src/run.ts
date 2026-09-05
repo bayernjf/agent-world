@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { compile, type Graph, type ProductConnector, type RunEvent } from "@agent-world/core";
 import type { Db, Product } from "./db.js";
+import type { ResolvedMaterial } from "./connectors.js";
 import { ArtifactStore } from "./artifact-store.js";
 import { log } from "./logger.js";
 import { execute, resume } from "./engine.js";
@@ -10,7 +11,7 @@ import { createReadArtifact } from "./artifact-reader.js";
 
 /** Maps a `product` connector to raw source material by reading the user's product library. */
 function productConnectorLoader(db: Db, userId: string) {
-  return async (connector: ProductConnector): Promise<{ text: string; images: string[] }> => {
+  return async (connector: ProductConnector): Promise<ResolvedMaterial> => {
     let products: Product[];
     if (connector.selection === "all") {
       products = db.listProducts(userId, { status: "active" });
@@ -21,7 +22,10 @@ function productConnectorLoader(db: Db, userId: string) {
     }
     const text = products.map(formatProduct).join("\n\n---\n\n");
     const images = products.flatMap((p) => p.images);
-    return { text, images };
+    // Structured payload for interpolation (`${product.name}` etc.);
+    // listProducts orders by created_at DESC, getProductsByIds keeps the
+    // caller's id order — data[0] is deterministic either way.
+    return { text, images, data: products };
   };
 }
 

@@ -15,6 +15,7 @@ export async function sourceNode(ctx: NodeRunContext, node: GraphNode, nodeId: s
   let sourceImages = node.source?.images ?? [];
   const sourceFiles = node.source?.files ?? [];
   const conn = node.source?.connector;
+  let sourceData: unknown;
   if (conn) {
     let ok = false;
     let lastErr: unknown;
@@ -23,6 +24,7 @@ export async function sourceNode(ctx: NodeRunContext, node: GraphNode, nodeId: s
         const m = await resolveConnector(conn, opts.connectorValues, opts.loadProducts);
         sourceText = m.text || opts.sourceInput || "";
         sourceImages = [...m.images, ...(node.source?.images ?? [])];
+        sourceData = m.data;
         ok = true;
       } catch (err) {
         lastErr = err;
@@ -41,6 +43,15 @@ export async function sourceNode(ctx: NodeRunContext, node: GraphNode, nodeId: s
   }
 
   const output = buildSourceBrief(node, sourceText);
+  // D2 (design-data-interpolation.md): expose {data, content} for interpCtx —
+  // `${srcId}` keeps resolving to the brief text, `${srcId.data[0].name}`
+  // reaches the connector's structured payload. Only written when the
+  // connector supplied structured data (product): plain sources keep their
+  // ctx entry a bare string, so branch conditions like `${src} > 100` on
+  // manual input stay byte-identical.
+  if (sourceData !== undefined) {
+    ctx.sourceMeta.set(nodeId, { data: sourceData, content: output });
+  }
   setTextArtifact(artifacts, nodeId, output);
   states.set(nodeId, "done");
   emit({ type: "node.started", nodeId, attempt });

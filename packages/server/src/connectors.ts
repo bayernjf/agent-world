@@ -8,6 +8,15 @@ import { guardedFetch } from "./ssrf.js";
 export interface ResolvedMaterial {
   text: string;
   images: string[];
+  /**
+   * Structured payload of the connector (design-data-interpolation.md D1).
+   * product connectors expose `Product[]` so downstream fields can reference
+   * `${product.name}` / `${srcId.data[0].name}`; other connector types leave
+   * it undefined for now — http/database/file adopt the same channel when
+   * they need field-level references. The plain-text `text` stays the source
+   * node's material block regardless.
+   */
+  data?: unknown;
 }
 
 const TEXT_SEP = "\n\n---\n\n";

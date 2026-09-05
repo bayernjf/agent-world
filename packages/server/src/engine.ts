@@ -563,26 +563,84 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
    * only the payload, but branch conditions and notify messages need to
    * inspect `${probe.ok}` / `${probe.status}` (dogfood tpl-patrol-alert). */
   const httpMeta = new Map<string, Record<string, unknown>>();
-  /** nodeCtx enriched with http response metadata. A direct flow upstream from
-   * an http node becomes its metadata merged with the payload (payload fields
-   * win on collision; a text payload sits under `content`, so `${nodeId}`
-   * still resolves to the body via primaryValue). Metadata of non-adjacent
-   * http nodes is exposed under their own ids so downstream notify messages
-   * can embed `${probe.url}` across the branch hop. Code-node stdin
-   * deliberately stays on plain nodeCtx so scripts keep seeing raw payloads. */
+  /** Structured connector data of source nodes ({data, content}), mirroring
+   * httpMeta (design-data-interpolation.md D2): a direct flow upstream from
+   * a source node becomes `{data, content}` — `${srcId}` still resolves to
+   * the brief text via primaryValue, while `${srcId.data[0].name}` reaches
+   * the connector's structured payload. Non-adjacent source nodes are
+   * exposed under their own ids so cross-branch references work. Code-node
+   * stdin deliberately stays on plain nodeCtx (same as httpMeta). */
+  const sourceMeta = new Map<string, Record<string, unknown>>();
+  /**
+   * Shortcut-name registry (design-data-interpolation.md §3.2): per-connector
+   * global names derived from the source node's structured data. A shortcut
+   * is injected into interpCtx only when the graph has exactly ONE source of
+   * that connector type (deterministic, independent of execution order);
+   * with ≥2 the shortcut degrades to the `${srcId.data[0]…}` namespace form.
+   * Node ctx entries always win over shortcut names, so a node id that
+   * literally spells `product` keeps resolving to the node.
+   */
+  /** Node ctx entries always win over shortcut names, so a node id that
+   * literally spells `product` keeps resolving to the node.
+   */
+  const CONNECTOR_SHORTCUTS: Array<{
+    name: string;
+    connector: string;
+    pick: (data: unknown) => unknown;
+  }> = [
+    { name: "product", connector: "product", pick: (d) => (Array.isArray(d) ? d[0] : undefined) },
+    { name: "products", connector: "product", pick: (d) => d },
+  ];
+  const sourcesByConnector = new Map<string, string[]>();
+  for (const n of graph.nodes) {
+    if (n.kind !== "source") continue;
+    const t = n.source?.connector?.type;
+    if (!t) continue;
+    const list = sourcesByConnector.get(t) ?? [];
+    list.push(n.id);
+    sourcesByConnector.set(t, list);
+  }
+  for (const s of CONNECTOR_SHORTCUTS) {
+    const count = sourcesByConnector.get(s.connector)?.length ?? 0;
+    if (count > 1) {
+      runLog.info(
+        `connector shortcut "${s.name}" disabled: ${count} ${s.connector} sources, use "\${srcId.data[0]…}" instead`,
+      );
+    }
+  }
+  /** nodeCtx enriched with sidecar metadata (http responses, connector data).
+   * A direct flow upstream from a sidecar node becomes its metadata merged
+   * with the payload (payload fields win on collision; a text payload sits
+   * under `content`, so `${nodeId}` still resolves to the body via
+   * primaryValue). Metadata of non-adjacent sidecar nodes is exposed under
+   * their own ids so downstream notify messages can embed `${probe.url}`
+   * across the branch hop. Code-node stdin deliberately stays on plain
+   * nodeCtx so scripts keep seeing raw payloads. */
   const interpCtx = (nodeId: string): Record<string, unknown> => {
     const ctx = nodeCtx(nodeId);
-    for (const e of incoming(graph, nodeId, "flow")) {
-      const meta = httpMeta.get(e.from);
+    const mergeSidecar = (metaMap: Map<string, Record<string, unknown>>) => {
+      for (const e of incoming(graph, nodeId, "flow")) {
+        const meta = metaMap.get(e.from);
+        if (!meta) continue;
+        const cur = ctx[e.from];
+        ctx[e.from] =
+          cur && typeof cur === "object" && !Array.isArray(cur)
+            ? { ...meta, ...(cur as Record<string, unknown>) }
+            : { ...meta, content: cur };
+      }
+      for (const [id, meta] of metaMap) {
+        if (!(id in ctx)) ctx[id] = meta;
+      }
+    };
+    mergeSidecar(httpMeta);
+    mergeSidecar(sourceMeta);
+    for (const s of CONNECTOR_SHORTCUTS) {
+      if (s.name in ctx) continue; // node ctx entries win over shortcuts
+      const sources = sourcesByConnector.get(s.connector);
+      if (!sources || sources.length !== 1) continue;
+      const meta = sourceMeta.get(sources[0]!);
       if (!meta) continue;
-      const cur = ctx[e.from];
-      ctx[e.from] =
-        cur && typeof cur === "object" && !Array.isArray(cur)
-          ? { ...meta, ...(cur as Record<string, unknown>) }
-          : { ...meta, content: cur };
-    }
-    for (const [id, meta] of httpMeta) {
-      if (!(id in ctx)) ctx[id] = meta;
+      ctx[s.name] = s.pick(meta.data);
     }
     return ctx;
   };
@@ -954,6 +1012,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     loopItemByNode,
     variables,
     httpMeta,
+    sourceMeta,
     packetEdges,
     get status() {
       return status;
