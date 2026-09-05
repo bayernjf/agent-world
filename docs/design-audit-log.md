@@ -56,6 +56,8 @@ CREATE INDEX idx_audit_log_time ON audit_log(created_at);
 
 **实施时新增的一条**：`account.password_change`——改密码是账户组内最敏感的动作，原词表遗漏。
 
+**实施后追加的词表**（RBAC P3 与用户反馈线）：`role.update`（detail `{grantee, role}`，owner 专属操作）、`access.grant` / `access.revoke`（graph ACL，detail `{resourceType, resourceId, grantee, role}`）、`announcement.create` / `update` / `delete`、`feedback.submit`（detail 只含 `{category}`——**不含 message 正文**，正文属用户内容非取证要素，且避免敏感叙述进审计表）、`feedback.status_change`（detail `{to}`，同状态幂等不写）。
+
 **实施偏差**：`settings.test_provider` 记的是「验证通过、真实 key 即将用于出站探测」这一刻（detail 只有 provider 名），不带 result——result 分支太多，而安全取证关心的是 key 何时被用过。
 
 **detail 的红线**：值一律不进日志。改 key 记成 `providers.my.apiKey`（字段路径），不记新旧值；这同时规避了脱敏值回显被当作真值的混淆。新增 provider（旧值不存在）报 provider 级路径 `providers.my`，字段级路径只在同名字段变化时报——由 `changedFields` 递归 diff（深度上限 4）产生。
