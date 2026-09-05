@@ -60,4 +60,4 @@ Agent World 项目的 AI 编码规范。写任何代码前先读本节，尤其�
 - i18n 守护：`pnpm --filter @agent-world/web exec vitest run src/i18n/keys.test.ts`
 - web 全量：`pnpm --filter @agent-world/web exec vitest run`
 
-git commit message 规范，看git-commit-message.md
+git commit message 规范，看 [git-commit-message.md](git-commit-message.md)
