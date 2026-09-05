@@ -28,6 +28,12 @@ vi.mock("./AuthPages", () => ({
   logout: () => mockLogout(),
 }));
 
+// Mock AdminPanel
+vi.mock("./AdminPanel", () => ({
+  default: ({ open, me }: any) =>
+    open ? <div data-testid="admin-panel" data-role={me?.role ?? ""} /> : null,
+}));
+
 function mockFetchMe(user: { id: string; email: string } | null) {
   global.fetch = vi.fn(async () => {
     if (user) {
@@ -243,6 +249,45 @@ describe("UserMenu", () => {
       await waitFor(() => {
         expect((window as any).location.assign).toHaveBeenCalledWith("/login");
       });
+    });
+  });
+
+  describe("管理入口", () => {
+    async function openMenu(role?: string) {
+      mockFetchMe({ id: "user-1", email: "test@example.com", role });
+      render(<UserMenu />);
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /账户/ })).toBeInTheDocument();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /账户/ }));
+    }
+
+    it("owner 显示'管理'入口", async () => {
+      await openMenu("owner");
+      expect(screen.getByText("管理")).toBeInTheDocument();
+    });
+
+    it("admin 显示'管理'入口", async () => {
+      await openMenu("admin");
+      expect(screen.getByText("管理")).toBeInTheDocument();
+    });
+
+    it("普通用户不显示'管理'入口", async () => {
+      await openMenu("user");
+      expect(screen.queryByText("管理")).not.toBeInTheDocument();
+    });
+
+    it("无角色信息不显示'管理'入口", async () => {
+      await openMenu(undefined);
+      expect(screen.queryByText("管理")).not.toBeInTheDocument();
+    });
+
+    it("点击'管理'打开 AdminPanel 并关闭菜单", async () => {
+      await openMenu("owner");
+      fireEvent.click(screen.getByText("管理"));
+      expect(screen.getByTestId("admin-panel")).toBeInTheDocument();
+      expect(screen.getByTestId("admin-panel")).toHaveAttribute("data-role", "owner");
+      expect(screen.queryByText("个人中心")).not.toBeInTheDocument();
     });
   });
 
