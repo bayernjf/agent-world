@@ -674,12 +674,69 @@
     "fallbackName": "Line",
     "create": "+ New line"
   },
+  "collaborators": {
+    "title": "Collaborators — {{name}}",
+    "hint": "Invite others to collaborate on this line. Editors can edit and run; viewers are read-only.",
+    "empty": "No collaborators yet",
+    "emailLabel": "Email",
+    "emailPlaceholder": "collaborator@example.com",
+    "roleLabel": "Role",
+    "add": "Add",
+    "adding": "Adding…",
+    "remove": "Remove",
+    "roleEditor": "Editor",
+    "roleViewer": "Viewer",
+    "addFailed": "Add failed: {{message}}",
+    "removeFailed": "Remove failed: {{message}}",
+    "loading": "Loading…",
+    "loadFailed": "Failed to load collaborators"
+  },
+  "sharedRole": {
+    "editor": "Editor",
+    "viewer": "Viewer"
+  },
+  "shareButton": {
+    "label": "Share"
+  },
+  "viewerRestriction": {
+    "dispatchDisabled": "Viewers cannot run a line"
+  },
   "userMenu": {
     "account": "Account",
     "accountMenu": "Account menu",
     "loggedInAs": "Signed in: {{email}}",
     "profile": "Profile",
+    "admin": "Admin",
     "logout": "Log out"
+  },
+  "adminPanel": {
+    "title": "Admin",
+    "tabUsers": "Users",
+    "tabAudit": "Audit Log",
+    "loading": "Loading…",
+    "loadUsersFailed": "Failed to load users",
+    "loadAuditFailed": "Failed to load audit log",
+    "usersHint": "Admins are granted by the instance owner; the owner role cannot be changed.",
+    "auditHint": "Newest first; security-relevant events only.",
+    "colEmail": "Email",
+    "colRole": "Role",
+    "colCreatedAt": "Registered",
+    "colActions": "Actions",
+    "roleOwner": "Owner",
+    "roleAdmin": "Admin",
+    "roleUser": "User",
+    "grantAdmin": "Grant admin",
+    "revokeAdmin": "Revoke admin",
+    "grantConfirmTitle": "Grant admin?",
+    "grantConfirmDesc": "{{email}} will gain admin privileges such as cross-user audit viewing.",
+    "revokeConfirmTitle": "Revoke admin?",
+    "revokeConfirmDesc": "{{email}} will be restored to a regular user.",
+    "roleUpdateFailed": "Role update failed",
+    "emptyUsers": "No users yet",
+    "emptyAudit": "No audit records yet",
+    "loadMore": "Load more",
+    "noMore": "No more records",
+    "unknownUser": "Unknown user"
   },
   "abDialog": {
     "title": "A/B Test",

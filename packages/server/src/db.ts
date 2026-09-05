@@ -17,8 +17,12 @@ CREATE TABLE IF NOT EXISTS users (
   id            TEXT PRIMARY KEY,
   email         TEXT UNIQUE NOT NULL,
   password_hash TEXT NOT NULL,
+  role          TEXT NOT NULL DEFAULT 'user',
   created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
 );
+-- idx_users_owner is NOT here on purpose: the role column is only added by
+-- migration 31 for pre-RBAC databases, and an index in this DDL runs before
+-- migrations -- an older file dies in db.exec(DDL) with "no such column: role".
 
 CREATE TABLE IF NOT EXISTS graphs (
   id         TEXT PRIMARY KEY,
@@ -669,8 +673,9 @@ export function openDb(file: string) {
 
   const stmts = {
     createUser: db.prepare(
-      `INSERT INTO users (id, email, password_hash) VALUES (?, ?, ?)`,
+      `INSERT INTO users (id, email, password_hash, role) VALUES (?, ?, ?, ?)`,
     ),
+    countOwners: db.prepare(`SELECT COUNT(*) AS n FROM users WHERE role = 'owner'`),
     getSettings: db.prepare(`SELECT data FROM settings WHERE user_id = ?`),
     saveSettings: db.prepare(
       `INSERT INTO settings (user_id, data, updated_at) VALUES (?, ?, ?)
@@ -690,10 +695,36 @@ export function openDb(file: string) {
       `SELECT id, user_id, action, object_type, object_id, detail, ip, created_at
        FROM audit_log WHERE user_id = ? ORDER BY created_at DESC LIMIT ?`,
     ),
+    // RBAC P3 (design-rbac.md): cross-user audit listing for owner/admin,
+    // with the actor email resolved via LEFT JOIN (login_failed rows carry
+    // user_id 'unknown' and surface with email = null).
+    listAuditAdminFirst: db.prepare(
+      `SELECT a.id, a.user_id, u.email, a.action, a.object_type, a.object_id, a.detail, a.ip, a.created_at
+       FROM audit_log a LEFT JOIN users u ON u.id = a.user_id
+       ORDER BY a.created_at DESC LIMIT ?`,
+    ),
+    listAuditAdmin: db.prepare(
+      `SELECT a.id, a.user_id, u.email, a.action, a.object_type, a.object_id, a.detail, a.ip, a.created_at
+       FROM audit_log a LEFT JOIN users u ON u.id = a.user_id
+       WHERE a.created_at < ? ORDER BY a.created_at DESC LIMIT ?`,
+    ),
+    listAuditUserFirst: db.prepare(
+      `SELECT a.id, a.user_id, u.email, a.action, a.object_type, a.object_id, a.detail, a.ip, a.created_at
+       FROM audit_log a LEFT JOIN users u ON u.id = a.user_id
+       WHERE a.user_id = ? ORDER BY a.created_at DESC LIMIT ?`,
+    ),
+    listAuditUser: db.prepare(
+      `SELECT a.id, a.user_id, u.email, a.action, a.object_type, a.object_id, a.detail, a.ip, a.created_at
+       FROM audit_log a LEFT JOIN users u ON u.id = a.user_id
+       WHERE a.user_id = ? AND a.created_at < ? ORDER BY a.created_at DESC LIMIT ?`,
+    ),
     listActiveAnnouncements: db.prepare(
       `SELECT * FROM announcements
        WHERE starts_at <= ? AND (ends_at IS NULL OR ends_at >= ?)
        ORDER BY created_at DESC`,
+    ),
+    listAllAnnouncements: db.prepare(
+      `SELECT * FROM announcements ORDER BY created_at DESC`,
     ),
     getAnnouncement: db.prepare(`SELECT * FROM announcements WHERE id = ?`),
     insertAnnouncement: db.prepare(
@@ -713,13 +744,47 @@ export function openDb(file: string) {
       `SELECT announcement_id FROM announcement_reads WHERE user_id = ?`,
     ),
     findUserByEmail: db.prepare(
-      `SELECT id, email, created_at FROM users WHERE email = ?`,
+      `SELECT id, email, role, created_at FROM users WHERE email = ?`,
     ),
     findUserById: db.prepare(
-      `SELECT id, email, created_at FROM users WHERE id = ?`,
+      `SELECT id, email, role, created_at FROM users WHERE id = ?`,
     ),
     findUserPasswordHash: db.prepare(
       `SELECT password_hash FROM users WHERE id = ?`,
+    ),
+    // RBAC P3 (design-rbac.md): full account list for the owner's admin panel.
+    // Same ordering as the v31 owner bootstrap — the owner always sorts first.
+    listUsers: db.prepare(
+      `SELECT id, email, role, created_at FROM users ORDER BY created_at ASC, rowid ASC`,
+    ),
+    updateUserRole: db.prepare(`UPDATE users SET role = ? WHERE id = ?`),
+    // Resource sharing (design-rbac P1). Only editor/viewer rows live here —
+    // the resource owner is resolved from the owning table's user_id.
+    saveResourceAccess: db.prepare(
+      `INSERT INTO resource_access (resource_type, resource_id, user_id, role, created_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(resource_type, resource_id, user_id) DO UPDATE SET role = excluded.role`,
+    ),
+    deleteResourceAccess: db.prepare(
+      `DELETE FROM resource_access WHERE resource_type = ? AND resource_id = ? AND user_id = ?`,
+    ),
+    getResourceAccess: db.prepare(
+      `SELECT role, created_at FROM resource_access WHERE resource_type = ? AND resource_id = ? AND user_id = ?`,
+    ),
+    listResourceAccess: db.prepare(
+      `SELECT user_id, role, created_at FROM resource_access WHERE resource_type = ? AND resource_id = ? ORDER BY created_at`,
+    ),
+    listResourceAccessForUser: db.prepare(
+      `SELECT resource_id, role FROM resource_access WHERE resource_type = ? AND user_id = ?`,
+    ),
+    deleteResourceAccessForResource: db.prepare(
+      `DELETE FROM resource_access WHERE resource_type = ? AND resource_id = ?`,
+    ),
+    getRunGraphRef: db.prepare(
+      `SELECT user_id, graph_id FROM runs WHERE id = ?`,
+    ),
+    getArtifactGraphRef: db.prepare(
+      `SELECT user_id, graph_id, run_id FROM artifacts WHERE id = ?`,
     ),
     countUsers: db.prepare(`SELECT COUNT(*) AS n FROM users`),
     updateUserPasswordHash: db.prepare(
@@ -812,6 +877,13 @@ export function openDb(file: string) {
        WHERE a.run_id = ? AND a.user_id = ?
        ORDER BY a.created_at`,
     ),
+    listArtifactsByRunUnscoped: db.prepare(
+      `SELECT a.id, a.run_id, a.node_id, a.attempt, a.graph_id, a.role, a.kind, a.mime_type, a.label, a.size_bytes, a.storage, a.uri, a.created_at,
+              COALESCE(g.name, '(未知流水线)') AS graph_name
+       FROM artifacts a LEFT JOIN graphs g ON g.id = a.graph_id
+       WHERE a.run_id = ?
+       ORDER BY a.created_at`,
+    ),
     getArtifact: db.prepare(
       `SELECT a.id, a.run_id, a.node_id, a.attempt, a.graph_id, a.role, a.kind, a.mime_type, a.label, a.size_bytes, a.storage, a.uri, a.created_at,
               COALESCE(g.name, '(未知流水线)') AS graph_name
@@ -833,6 +905,9 @@ export function openDb(file: string) {
     ),
     deleteArtifactsForRun: db.prepare(`DELETE FROM artifacts WHERE run_id = ?`),
     getGraphById: db.prepare(`SELECT doc, version FROM graphs WHERE id = ?`),
+    getGraphMeta: db.prepare(
+      `SELECT id, name, version, updated_at, origin_template_id FROM graphs WHERE id = ?`,
+    ),
     listAllGraphs: db.prepare(`SELECT id, name, version, updated_at FROM graphs ORDER BY updated_at DESC`),
     getGraphOwnerId: db.prepare(`SELECT user_id FROM graphs WHERE id = ?`),
     finishRunById: db.prepare(`UPDATE runs SET status = ?, ended_at = ? WHERE id = ?`),
@@ -855,17 +930,22 @@ export function openDb(file: string) {
 
   return {
     createUser(id: string, email: string, passwordHash: string) {
-      stmts.createUser.run(id, email, passwordHash);
-      return { id, email };
+      // RBAC P0 (design-rbac.md): the very first account bootstraps the
+      // instance owner. The single-owner invariant is enforced by the partial
+      // unique index idx_users_owner.
+      const role =
+        (stmts.countOwners.get() as { n: number }).n === 0 ? "owner" : "user";
+      stmts.createUser.run(id, email, passwordHash, role);
+      return { id, email, role };
     },
     findUserByEmail(email: string) {
       return stmts.findUserByEmail.get(email) as
-        | { id: string; email: string; created_at: string }
+        | { id: string; email: string; role: string; created_at: string }
         | undefined;
     },
     findUserById(id: string) {
       return stmts.findUserById.get(id) as
-        | { id: string; email: string; created_at: string }
+        | { id: string; email: string; role: string; created_at: string }
         | undefined;
     },
     findUserPasswordHash(id: string) {
@@ -878,6 +958,64 @@ export function openDb(file: string) {
     },
     updateUserPasswordHash(id: string, passwordHash: string) {
       stmts.updateUserPasswordHash.run(passwordHash, id);
+    },
+    /** RBAC P3: full account list for the owner's admin panel. */
+    listUsers(): Array<{ id: string; email: string; role: string; created_at: string }> {
+      return stmts.listUsers.all() as Array<{ id: string; email: string; role: string; created_at: string }>;
+    },
+    /** RBAC P3: grant or revoke the global admin role (owner-only route). */
+    updateUserRole(id: string, role: string) {
+      stmts.updateUserRole.run(role, id);
+    },
+
+    /** Grant or overwrite a shared role (editor/viewer) on a resource. */
+    saveResourceAccess(resourceType: string, resourceId: string, userId: string, role: string) {
+      stmts.saveResourceAccess.run(resourceType, resourceId, userId, role, Date.now());
+    },
+    /** Revoke a user's shared access. Returns true when a row was removed. */
+    deleteResourceAccess(resourceType: string, resourceId: string, userId: string): boolean {
+      return stmts.deleteResourceAccess.run(resourceType, resourceId, userId).changes > 0;
+    },
+    getResourceAccess(resourceType: string, resourceId: string, userId: string): { role: string } | undefined {
+      return stmts.getResourceAccess.get(resourceType, resourceId, userId) as
+        | { role: string }
+        | undefined;
+    },
+    /** All shared collaborators on one resource (for the owner's ACL UI). */
+    listResourceAccess(resourceType: string, resourceId: string): Array<{ user_id: string; role: string; created_at: number }> {
+      return stmts.listResourceAccess.all(resourceType, resourceId) as Array<{
+        user_id: string;
+        role: string;
+        created_at: number;
+      }>;
+    },
+    /** Everything shared TO one user (for list filtering). */
+    listResourceAccessForUser(resourceType: string, userId: string): Array<{ resource_id: string; role: string }> {
+      return stmts.listResourceAccessForUser.all(resourceType, userId) as Array<{
+        resource_id: string;
+        role: string;
+      }>;
+    },
+    /** The run row's owner + graph, for resolving a run back to its graph ACL. */
+    getRunGraphRef(runId: string): { userId: string; graphId: string } | undefined {
+      const row = stmts.getRunGraphRef.get(runId) as
+        | { user_id: string; graph_id: string }
+        | undefined;
+      return row ? { userId: row.user_id, graphId: row.graph_id } : undefined;
+    },
+    /** The artifact row's owner + graph, for resolving an artifact back to its graph ACL. */
+    getArtifactGraphRef(artifactId: string): { userId: string; graphId: string; runId: string } | undefined {
+      const row = stmts.getArtifactGraphRef.get(artifactId) as
+        | { user_id: string; graph_id: string | null; run_id: string }
+        | undefined;
+      return row
+        ? { userId: row.user_id, graphId: row.graph_id ?? "", runId: row.run_id }
+        : undefined;
+    },
+    /** The owning user of a graph, or undefined when the graph does not exist. */
+    graphOwnerId(graphId: string): string | undefined {
+      const row = stmts.getGraphOwnerId.get(graphId) as { user_id: string } | undefined;
+      return row?.user_id;
     },
 
     /**
@@ -924,6 +1062,21 @@ export function openDb(file: string) {
     getGraph(id: string, userId: string): (Graph & { version: number; originTemplateId: string | null }) | null {
       const row = stmts.getGraph.get(id, userId) as { doc: string; version: number; origin_template_id: string | null } | undefined;
       return row ? { ...(openGraphDoc(JSON.parse(row.doc) as Graph)), version: row.version, originTemplateId: row.origin_template_id } : null;
+    },
+
+    /** Unscoped list-row metadata (id/name/version/updated_at) for one graph —
+     *  used to append shared graphs (design-rbac P1) to the caller's list. */
+    getGraphMeta(id: string): {
+      id: string;
+      name: string;
+      version: number;
+      updated_at: number;
+      originTemplateId: string | null;
+    } | undefined {
+      const row = stmts.getGraphMeta.get(id) as
+        | { id: string; name: string; version: number; updated_at: number; origin_template_id: string | null }
+        | undefined;
+      return row && { id: row.id, name: row.name, version: row.version, updated_at: row.updated_at, originTemplateId: row.origin_template_id };
     },
 
     listGraphs(userId: string): Array<{
@@ -979,6 +1132,9 @@ export function openDb(file: string) {
 
     deleteGraph(id: string, userId: string) {
       stmts.deleteGraph.run(id, userId);
+      // Drop stale ACL rows so a future graph with the same id can't inherit
+      // old shares (and so the collaborator lists don't leak deleted graphs).
+      stmts.deleteResourceAccessForResource.run("graph", id);
     },
 
     createRun(args: {
@@ -1046,12 +1202,16 @@ export function openDb(file: string) {
 
     listRuns(
       userId: string,
-      opts: { limit?: number; offset?: number; graphId?: string; status?: string } = {},
+      opts: { limit?: number; offset?: number; graphId?: string; status?: string; graphIds?: string[] } = {},
     ) {
       const limit = Math.min(Math.max(opts.limit ?? 50, 1), 200);
       const offset = Math.max(opts.offset ?? 0, 0);
-      const where: string[] = ["r.user_id = ?"];
-      const params: (string | number)[] = [userId];
+      // When `graphIds` is supplied (shared-graph visibility, design-rbac P1),
+      // scope by graph membership instead of run ownership — runs started by
+      // collaborators are saved under the graph owner, so user_id scoping
+      // would hide them from the collaborator.
+      const where: string[] = opts.graphIds ? ["r.graph_id IN (" + opts.graphIds.map(() => "?").join(",") + ")"] : ["r.user_id = ?"];
+      const params: (string | number)[] = opts.graphIds ? [...opts.graphIds] : [userId];
       if (opts.graphId) {
         where.push("r.graph_id = ?");
         params.push(opts.graphId);
@@ -1091,11 +1251,16 @@ export function openDb(file: string) {
      * Runs waiting on a human decision, oldest first so the longest-blocked item
      * surfaces at the top of the review queue.
      */
-    pendingReviews(userId: string, opts: { limit?: number; offset?: number; graphId?: string } = {}) {
+    pendingReviews(userId: string, opts: { limit?: number; offset?: number; graphId?: string; graphIds?: string[] } = {}) {
       const limit = Math.min(Math.max(opts.limit ?? 50, 1), 200);
       const offset = Math.max(opts.offset ?? 0, 0);
-      const where: string[] = ["r.user_id = ?", "r.status = 'halted'"];
-      const params: (string | number)[] = [userId];
+      // With graphIds (shared-graph visibility), scope by graph membership
+      // instead of run ownership — halted runs on shared graphs belong to the
+      // graph owner but must surface to editors who can decide on them.
+      const where: string[] = opts.graphIds
+        ? ["r.graph_id IN (" + opts.graphIds.map(() => "?").join(",") + ")", "r.status = 'halted'"]
+        : ["r.user_id = ?", "r.status = 'halted'"];
+      const params: (string | number)[] = opts.graphIds ? [...opts.graphIds] : [userId];
       if (opts.graphId) {
         where.push("r.graph_id = ?");
         params.push(opts.graphId);
@@ -1257,6 +1422,12 @@ export function openDb(file: string) {
       return mapArtifacts(stmts.listArtifactsByRun.all(runId, userId) as ArtifactRow[]);
     },
 
+    /** Unscoped run-artifact list for shared-graph viewers (design-rbac P1).
+     *  Callers must have already verified graph-level access via rbac. */
+    listArtifactsForRunUnscoped(runId: string): StoredArtifact[] {
+      return mapArtifacts(stmts.listArtifactsByRunUnscoped.all(runId) as ArtifactRow[]);
+    },
+
     getArtifact(id: string, userId: string): StoredArtifact | null {
       const row = stmts.getArtifact.get(id, userId) as ArtifactRow | undefined;
       return row ? mapArtifact(row) : null;
@@ -1268,8 +1439,24 @@ export function openDb(file: string) {
       return row ? mapArtifact(row) : null;
     },
 
-    listArtifacts(userId: string, limit = 100, offset = 0): StoredArtifact[] {
-      return mapArtifacts(stmts.listArtifacts.all(userId, limit, offset) as ArtifactRow[]);
+    listArtifacts(userId: string, limit = 100, offset = 0, graphIds?: string[]): StoredArtifact[] {
+      // With `graphIds` (shared-graph visibility), show artifacts whose graph
+      // is visible to the caller OR that the caller owns (e.g. uploads not
+      // yet attached to a run). Without it, keep the legacy user_id scoping.
+      if (!graphIds) {
+        return mapArtifacts(stmts.listArtifacts.all(userId, limit, offset) as ArtifactRow[]);
+      }
+      const placeholders = graphIds.map(() => "?").join(",");
+      const rows = db
+        .prepare(
+          `SELECT a.id, a.run_id, a.node_id, a.attempt, a.graph_id, a.role, a.kind, a.mime_type, a.label, a.size_bytes, a.storage, a.uri, a.created_at,
+                  COALESCE(g.name, '(未知流水线)') AS graph_name
+           FROM artifacts a LEFT JOIN graphs g ON g.id = a.graph_id
+           WHERE a.user_id = ? OR a.graph_id IN (${placeholders})
+           ORDER BY a.created_at DESC, a.rowid DESC LIMIT ? OFFSET ?`,
+        )
+        .all(userId, ...graphIds, limit, offset) as ArtifactRow[];
+      return mapArtifacts(rows);
     },
 
     deleteRun(runId: string, userId: string) {
@@ -1675,6 +1862,14 @@ export function openDb(file: string) {
       };
     },
 
+    /** Graph id that an A/B experiment group belongs to (for access checks). */
+    abGroupGraphId(groupId: string): string | undefined {
+      const row = db
+        .prepare(`SELECT graph_id FROM runs WHERE ab_group = ? LIMIT 1`)
+        .get(groupId) as { graph_id: string } | undefined;
+      return row?.graph_id;
+    },
+
     abReport(groupId: string, userId: string): ABReport | null {
       const rows = db
         .prepare(
@@ -1805,9 +2000,30 @@ export function openDb(file: string) {
       ) as Array<Record<string, unknown>>;
       return rows;
     },
+    /** RBAC P3: owner/admin cross-user audit listing, actor email resolved. */
+    listAuditAdmin(
+      opts: { limit?: number; before?: number; userId?: string } = {},
+    ): Array<Record<string, unknown>> {
+      const limit = Math.min(Math.max(opts.limit ?? 100, 1), 500);
+      if (opts.userId) {
+        return (
+          opts.before && opts.before > 0
+            ? stmts.listAuditUser.all(opts.userId, opts.before, limit)
+            : stmts.listAuditUserFirst.all(opts.userId, limit)
+        ) as Array<Record<string, unknown>>;
+      }
+      return (
+        opts.before && opts.before > 0
+          ? stmts.listAuditAdmin.all(opts.before, limit)
+          : stmts.listAuditAdminFirst.all(limit)
+      ) as Array<Record<string, unknown>>;
+    },
     // --- Announcements (30) ---
     listActiveAnnouncements(now = Date.now()): Array<Record<string, unknown>> {
       return stmts.listActiveAnnouncements.all(now, now) as Array<Record<string, unknown>>;
+    },
+    listAnnouncements(): Array<Record<string, unknown>> {
+      return stmts.listAllAnnouncements.all() as Array<Record<string, unknown>>;
     },
     getAnnouncement(id: string): Record<string, unknown> | undefined {
       return stmts.getAnnouncement.get(id) as Record<string, unknown> | undefined;
@@ -2120,15 +2336,29 @@ export function openDb(file: string) {
       };
     },
 
-    listBatches(userId: string): BatchJob[] {
-      const rows = db
-        .prepare(`SELECT * FROM batch_jobs WHERE user_id = ? ORDER BY created_at DESC`)
-        .all(userId) as Array<Record<string, unknown>>;
+    listBatches(userId: string, graphIds?: string[]): BatchJob[] {
+      // With graphIds (shared-graph visibility), scope by graph membership
+      // instead of batch ownership.
+      const rows = graphIds
+        ? (db
+            .prepare(`SELECT * FROM batch_jobs WHERE graph_id IN (${graphIds.map(() => "?").join(",")}) ORDER BY created_at DESC`)
+            .all(...graphIds) as Array<Record<string, unknown>>)
+        : (db
+            .prepare(`SELECT * FROM batch_jobs WHERE user_id = ? ORDER BY created_at DESC`)
+            .all(userId) as Array<Record<string, unknown>>);
       return rows.map(batchFromRow);
     },
 
     getBatch(id: string, userId: string): BatchJob | null {
       const row = db.prepare(`SELECT * FROM batch_jobs WHERE id = ? AND user_id = ?`).get(id, userId) as
+        | Record<string, unknown>
+        | undefined;
+      return row ? batchFromRow(row) : null;
+    },
+
+    /** Unscoped batch lookup for shared-graph access (caller verified graph ACL). */
+    getBatchUnscoped(id: string): BatchJob | null {
+      const row = db.prepare(`SELECT * FROM batch_jobs WHERE id = ?`).get(id) as
         | Record<string, unknown>
         | undefined;
       return row ? batchFromRow(row) : null;
@@ -2661,7 +2891,7 @@ export function openDb(file: string) {
 
     getRunById(runId: string) {
       const row = stmts.getRunById.get(runId) as
-        | { id: string; graph_id: string; snapshot: string; status: string; budget_usd: number | null; started_at: number; ended_at: number | null }
+        | { id: string; graph_id: string; snapshot: string; status: string; trigger: string; input: string | null; budget_usd: number | null; started_at: number; ended_at: number | null }
         | undefined;
       return row ? { ...row, snapshot: openDocString(row.snapshot) } : undefined;
     },
@@ -3211,6 +3441,45 @@ const MIGRATIONS: Migration[] = [
       )`);
     },
   },
+  {
+    version: 31,
+    description: "users.role global RBAC column + single-owner bootstrap (design-rbac P0)",
+    // Detect on the INDEX, not the users.role column: the column is already in
+    // the fresh-database DDL above, so a fresh DB would detect "done" and skip
+    // this migration — but the DDL does not create the partial unique index
+    // (see the comment there), so baselining must still run this up() to build
+    // it and bootstrap the owner.
+    detect: (db) => indexExists(db, "idx_users_owner"),
+    up: (db) => {
+      if (!columnExists(db, "users", "role")) {
+        db.exec("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'");
+      }
+      db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_owner ON users(role) WHERE role = 'owner'");
+      // Owner bootstrap: with no owner yet, promote the earliest-registered
+      // user (created_at is ISO text, lexicographically ordered; rowid breaks
+      // ties within one second). Existing databases therefore keep exactly
+      // one owner; fresh ones start empty and createUser assigns it.
+      db.exec(`UPDATE users SET role = 'owner' WHERE id = (
+        SELECT id FROM users ORDER BY created_at ASC, rowid ASC LIMIT 1
+      ) AND NOT EXISTS (SELECT 1 FROM users WHERE role = 'owner')`);
+    },
+  },
+  {
+    version: 32,
+    description: "resource_access for resource-level sharing (design-rbac P1)",
+    detect: (db) => tableExists(db, "resource_access"),
+    up: (db) => {
+      db.exec(`CREATE TABLE IF NOT EXISTS resource_access (
+        resource_type TEXT NOT NULL,
+        resource_id   TEXT NOT NULL,
+        user_id       TEXT NOT NULL,
+        role          TEXT NOT NULL,
+        created_at    INTEGER NOT NULL,
+        PRIMARY KEY (resource_type, resource_id, user_id)
+      )`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_resource_access_user ON resource_access(user_id, resource_type)`);
+    },
+  },
 ];
 
 const LATEST_VERSION = MIGRATIONS.at(-1)!.version;
@@ -3288,7 +3557,9 @@ export function backfillExistingData(database: { prepare(sql: string): { get(...
   const defaultEmail = "admin@local.dev";
   const placeholderHash = "__no_login__";
 
-  database.prepare("INSERT INTO users (id, email, password_hash) VALUES (?, ?, ?)").run(
+  // The backfilled user is the only account in this scenario — it bootstraps
+  // as owner (RBAC P0, design-rbac.md).
+  database.prepare("INSERT INTO users (id, email, password_hash, role) VALUES (?, ?, ?, 'owner')").run(
     defaultUserId,
     defaultEmail,
     placeholderHash,

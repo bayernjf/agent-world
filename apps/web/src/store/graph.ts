@@ -167,6 +167,9 @@ interface GraphState {
   saveState: "idle" | "saving" | "saved" | "error" | "conflict";
   /** Document version last loaded/saved from the server, for optimistic locking. */
   serverVersion: number | null;
+  /** When true, suppresses auto-save and flushSave (viewer mode). */
+  readOnly: boolean;
+  setReadOnly: (v: boolean) => void;
   setGraph: (graph: Graph) => void;
   /** Reload server version after a conflict resolution / forced refresh. */
   syncServerVersion: (version: number | null) => void;
@@ -285,6 +288,7 @@ let saveTimer: ReturnType<typeof setTimeout> | null = null;
 const historyBatch = { depth: 0, start: null as Graph | null };
 
 function scheduleSave(graph: Graph) {
+  if (useGraph.getState().readOnly) return;
   if (saveTimer) clearTimeout(saveTimer);
   useGraph.setState({ saveState: "saving" });
   saveTimer = setTimeout(async () => {
@@ -307,6 +311,7 @@ export const useGraph = create<GraphState>()(
       selectedEdgeIds: [],
       saveState: "idle",
       serverVersion: null,
+      readOnly: false,
       collapsedFans: {},
 
       // Accepts a graph possibly carrying a server-injected `version` field
@@ -339,6 +344,7 @@ export const useGraph = create<GraphState>()(
         }
       },
       syncServerVersion: (serverVersion) => set({ serverVersion }),
+      setReadOnly: (v: boolean) => set({ readOnly: v }),
 
       reloadGraph: async () => {
         const id = get().graph.id;
@@ -670,6 +676,7 @@ export const useGraph = create<GraphState>()(
       },
 
       flushSave: async () => {
+        if (get().readOnly) return;
         if (saveTimer) {
           clearTimeout(saveTimer);
           saveTimer = null;

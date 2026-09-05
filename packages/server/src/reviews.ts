@@ -61,7 +61,7 @@ function preview(text: string): { content: string; truncated: boolean } {
 export function listPendingReviews(
   db: Db,
   userId: string,
-  opts: { limit?: number; offset?: number; graphId?: string; now?: number } = {},
+  opts: { limit?: number; offset?: number; graphId?: string; graphIds?: string[]; now?: number } = {},
 ): { reviews: PendingReview[]; total: number } {
   const now = opts.now ?? Date.now();
   const { rows, total } = db.pendingReviews(userId, opts);
@@ -88,7 +88,7 @@ export function listPendingReviews(
       if (e.type === "gate.verdict") detail = e.reason;
     }
 
-    const run = db.getRun(row.id, userId);
+    const run = db.getRunById(row.id);
     let nodeName: string | null = null;
     if (run && nodeId) {
       const graph = JSON.parse(run.snapshot) as Graph;

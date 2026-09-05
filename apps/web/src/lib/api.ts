@@ -268,6 +268,34 @@ export interface BrandTerm {
   createdAt: number;
 }
 
+export interface Collaborator {
+  userId: string;
+  email: string | null;
+  role: string;
+  createdAt: number;
+}
+
+/** An account row in the owner's admin panel (design-rbac P3). */
+export interface AdminUser {
+  id: string;
+  email: string;
+  role: "owner" | "admin" | "user";
+  createdAt: string;
+}
+
+/** One security audit row (design-rbac P3). email is null for unknown actors. */
+export interface AuditItem {
+  id: string;
+  user_id: string;
+  email: string | null;
+  action: string;
+  object_type: string | null;
+  object_id: string | null;
+  detail: string | null;
+  ip: string | null;
+  created_at: number;
+}
+
 /** A platform's publishing profile (F3 compliance). */
 export interface PlatformProfile {
   id: string;
@@ -418,7 +446,7 @@ export const api = {
   listSkills: () => authFetch("/api/skills").then(json<Skill[]>),
 
   listGraphs: () =>
-    authFetch("/api/graphs").then(json<{ id: string; name: string; updated_at: number }[]>),
+    authFetch("/api/graphs").then(json<{ id: string; name: string; updated_at: number; sharedRole: string | null }[]>),
 
   getGraph: (id: string) =>
     authFetch(`/api/graphs/${id}`).then(json<Graph & { version: number }>),
@@ -485,6 +513,53 @@ export const api = {
 
   deleteGraph: (id: string) =>
     authFetch(`/api/graphs/${id}`, { method: "DELETE" }).then(json<{ ok: true }>),
+
+  getGraphAccess: (graphId: string) =>
+    authFetch(`/api/graphs/${graphId}/access`).then(
+      json<{ collaborators: Collaborator[] }>,
+    ),
+
+  putGraphAccess: (graphId: string, email: string, role: "editor" | "viewer" | null) =>
+    authFetch(`/api/graphs/${graphId}/access`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email, role }),
+    }).then(async (res) => {
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string; message?: string };
+        throw new Error(body.message ?? body.error ?? `access update failed: ${res.status}`);
+      }
+      return res.json() as Promise<{ ok: true }>;
+    }),
+
+  // --- Admin operations (design-rbac P3) ---
+
+  adminListUsers: () =>
+    authFetch("/api/admin/users").then(json<{ users: AdminUser[] }>),
+
+  adminSetUserRole: (userId: string, role: "admin" | "user") =>
+    authFetch(`/api/admin/users/${userId}/role`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ role }),
+    }).then(async (res) => {
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string; message?: string };
+        throw new Error(body.message ?? body.error ?? `role update failed: ${res.status}`);
+      }
+      return res.json() as Promise<{ ok: true; role: "admin" | "user"; unchanged?: boolean }>;
+    }),
+
+  listAudit: (opts: { limit?: number; before?: number; userId?: string } = {}) => {
+    const params = new URLSearchParams();
+    if (opts.limit != null) params.set("limit", String(opts.limit));
+    if (opts.before != null) params.set("before", String(opts.before));
+    if (opts.userId != null) params.set("userId", opts.userId);
+    const qs = params.toString();
+    return authFetch(qs ? `/api/audit?${qs}` : "/api/audit").then(
+      json<{ items: AuditItem[] }>,
+    );
+  },
 
   compile: (graph: Graph) =>
     authFetch("/api/compile", {

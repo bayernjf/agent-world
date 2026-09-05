@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import Tooltip from "./Tooltip";
 import AccountDialog from "./AccountDialog";
+import AdminPanel from "./AdminPanel";
 import { logout } from "./AuthPages";
 import LanguageSwitcher from "./LanguageSwitcher";
 
@@ -9,6 +10,7 @@ export interface Me {
   id: string;
   email: string;
   createdAt?: string;
+  role?: string;
 }
 
 export default function UserMenu() {
@@ -16,6 +18,7 @@ export default function UserMenu() {
   const [me, setMe] = useState<Me | null>(null);
   const [open, setOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
+  const [adminOpen, setAdminOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -80,6 +83,17 @@ export default function UserMenu() {
           >
             {t("modals:userMenu.profile")}
           </button>
+          {(me?.role === "owner" || me?.role === "admin") && (
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                setAdminOpen(true);
+              }}
+            >
+              {t("modals:userMenu.admin")}
+            </button>
+          )}
           <LanguageSwitcher />
           <button type="button" className="user-menu__logout" onClick={handleLogout}>
             {t("modals:userMenu.logout")}
@@ -87,6 +101,7 @@ export default function UserMenu() {
         </div>
       )}
       <AccountDialog open={accountOpen} me={me} onClose={() => setAccountOpen(false)} />
+      <AdminPanel open={adminOpen} me={me} onClose={() => setAdminOpen(false)} />
     </div>
   );
 }
