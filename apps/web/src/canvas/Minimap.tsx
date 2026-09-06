@@ -77,11 +77,9 @@ export default function Minimap() {
   const offY = (MAP - bh * scale) / 2;
   const tx = (x: number) => offX + (x - minX) * scale;
   const ty = (y: number) => offY + (y - minY) * scale;
-  // In 3D the view rect also scales with the 3D camera zoom (camera.zoom),
-  // stacked on the 2D viewport zoom, so zooming in 3D shrinks the rect just
-  // like it does in 2D. sqrt keeps the plant size bounded.
+  // In 3D the view rect scales with the 3D camera zoom (camera.zoom), stacked
+  // on the 2D viewport zoom, just like zooming in 2D.
   const effZoom = is3d ? viewport.zoom * camera3dZoom : viewport.zoom;
-  const nodeFactor = Math.min(1.8, Math.max(0.5, Math.sqrt(effZoom)));
 
   // Viewport in board user-space (content coords). The SVG board uses a
   // fixed viewBox of VIEW_W × VIEW_H; letterbox fit only controls where
@@ -92,8 +90,8 @@ export default function Minimap() {
   const vh = VIEW_H / effZoom;
   const vx = -viewport.panX / viewport.zoom;
   const vy = -viewport.panY / viewport.zoom;
-  const viewW = Math.min(vw * scale * nodeFactor, MAP);
-  const viewH = Math.min(vh * scale * nodeFactor, MAP);
+  const viewW = Math.min(vw * scale, MAP);
+  const viewH = Math.min(vh * scale, MAP);
   // In 3D the view rect is centered on the 3D camera target; in 2D its top-left
   // tracks the viewport.
   const centerBoard = is3d && camera3dTarget
@@ -260,10 +258,10 @@ export default function Minimap() {
         {graph.nodes.map((n) => (
           <rect
             key={n.id}
-            x={tx(n.x) - (PLANT_W * scale * nodeFactor) / 2}
-            y={ty(n.y) - (PLANT_H * scale * nodeFactor) / 2}
-            width={PLANT_W * scale * nodeFactor}
-            height={PLANT_H * scale * nodeFactor}
+            x={tx(n.x) - (PLANT_W * scale) / 2}
+            y={ty(n.y) - (PLANT_H * scale) / 2}
+            width={PLANT_W * scale}
+            height={PLANT_H * scale}
             rx={2}
             className="minimap__plant"
             style={{ fill: KIND_FILL[n.kind] }}
