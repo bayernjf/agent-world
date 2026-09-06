@@ -12,6 +12,7 @@ import { VIEW_H, VIEW_W } from "./board";
 import {
   buildNodeShape,
   NODE_HEIGHT,
+  PIPE_RADIUS,
   PIPE_Y,
   SELECT_COLOR,
   setGroupEmissive,
@@ -72,6 +73,8 @@ export default function Canvas3D() {
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setPixelRatio(window.devicePixelRatio);
     renderer.setSize(mount.clientWidth, mount.clientHeight);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     mount.appendChild(renderer.domElement);
 
     const scene = new THREE.Scene();
@@ -110,7 +113,30 @@ export default function Canvas3D() {
     // faces fall into shadow, making the block faces read as 3D even in a
     // straight-on horizontal layout.
     dir.position.set(-300, 600, -300);
+    dir.castShadow = true;
+    dir.shadow.mapSize.set(2048, 2048);
+    dir.shadow.camera.left = -900;
+    dir.shadow.camera.right = 900;
+    dir.shadow.camera.top = 900;
+    dir.shadow.camera.bottom = -900;
+    dir.shadow.camera.near = 100;
+    dir.shadow.camera.far = 2000;
+    dir.shadow.bias = -0.0005;
     scene.add(ambient, dir);
+
+    // Ground plane (receives shadows) + reference grid so blocks and pipes sit
+    // in space instead of floating on the background.
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(3000, 3000),
+      new THREE.MeshLambertMaterial({ color: 0x1c2229 }),
+    );
+    ground.rotation.x = -Math.PI / 2;
+    ground.receiveShadow = true;
+    scene.add(ground);
+
+    const grid = new THREE.GridHelper(3000, 60, 0x2a323b, 0x20262d);
+    grid.position.y = 0.5;
+    scene.add(grid);
 
     // --- Nodes: programmatic shapes, colored by category, silhouette by kind. ---
     const nodeGroup = new THREE.Group();
@@ -122,7 +148,13 @@ export default function Canvas3D() {
       shape.group.userData.nodeId = n.id;
       // Tag every mesh (topper parts included) so raycasts resolve to the node.
       shape.group.traverse((obj) => {
-        if ((obj as THREE.Mesh).isMesh) obj.userData.nodeId = n.id;
+        const mesh = obj as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        mesh.userData.nodeId = n.id;
+        if (mesh.userData.role !== "led") {
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+        }
       });
       nodeGroup.add(shape.group);
       nodeShapes.set(n.id, shape);
@@ -156,10 +188,18 @@ export default function Canvas3D() {
       const color =
         e.kind === "error" ? 0xff5252 : e.kind === "rework" ? 0xff9d2e : 0x8aa6c0;
       edgePaths.set(e.id, { polyline: xzPolyline(points), color, rework: e.kind === "rework" });
-      const geo = new THREE.BufferGeometry().setFromPoints(
+      // Solid tube instead of a flat line, so each pipe reads as a 3D cylinder
+      // with lighting/shading and casts a shadow onto the ground.
+      const curve = new THREE.CatmullRomCurve3(
         points.map((p) => new THREE.Vector3(p.x, PIPE_Y, p.z)),
       );
-      edgeGroup.add(new THREE.Line(geo, new THREE.LineBasicMaterial({ color })));
+      const tube = new THREE.Mesh(
+        new THREE.TubeGeometry(curve, 64, PIPE_RADIUS, 10, false),
+        new THREE.MeshLambertMaterial({ color }),
+      );
+      tube.castShadow = true;
+      tube.receiveShadow = true;
+      edgeGroup.add(tube);
     }
     scene.add(edgeGroup);
 
@@ -332,7 +372,7 @@ export default function Canvas3D() {
           continue;
         }
         const at = xzPolylinePointAt(t.polyline, travelled);
-        t.mesh.position.set(at.x, PIPE_Y + 4, at.z);
+        t.mesh.position.set(at.x, PIPE_Y + PIPE_RADIUS + 4, at.z);
         t.mesh.rotation.y = at.angle;
       }
 

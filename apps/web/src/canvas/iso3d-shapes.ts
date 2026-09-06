@@ -12,6 +12,8 @@ import { PLANT_H, PLANT_W } from "../store/graph";
 export const NODE_HEIGHT = 50;
 /** Y the pipes (and freight) run at, level with the block mid-height. */
 export const PIPE_Y = NODE_HEIGHT / 2;
+/** Radius of the solid 3D pipe (tube) drawn for each edge. */
+export const PIPE_RADIUS = 3;
 /** Emissive color applied to the selected node. */
 export const SELECT_COLOR = 0xffd54a;
 
