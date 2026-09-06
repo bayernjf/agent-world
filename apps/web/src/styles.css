@@ -2043,8 +2043,8 @@ select {
   left: var(--gap-md);
   bottom: calc(var(--gap-md) + 40px);
   z-index: 3;
-  width: 186px;
-  height: 186px;
+  width: 176px;
+  height: 176px;
   box-sizing: border-box;
   padding: var(--gap-xs);
   background: var(--bg-primary);
@@ -2088,11 +2088,11 @@ select {
   position: absolute;
   left: var(--gap-md);
   bottom: var(--gap-md);
-  width: 186px;
+  width: 176px;
   box-sizing: border-box;
   display: flex;
   align-items: center;
-  gap: 3px;
+  gap: 2px;
   padding: 2px var(--space-1);
   background: var(--bg-primary);
   border: var(--hair);
@@ -2101,16 +2101,16 @@ select {
   font-size: 10px;
 }
 .minimap__zoom .chip {
-  padding: 0 var(--space-1);
+  padding: 0 2px;
   min-width: 20px;
   height: 20px;
   line-height: 20px;
   box-sizing: border-box;
 }
 .minimap__zoom .muted {
-  min-width: 30px;
   text-align: center;
   font-size: 9px;
+  flex-shrink: 0;
 }
 .minimap__zoom .minimap__zoom-step {
   background: transparent;
