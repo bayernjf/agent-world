@@ -900,14 +900,6 @@ export default function App() {
           <main className="stage">
             <div className="canvas-toolbar-row">
               <CanvasToolbar onError={showError} />
-              <button
-                className="btn btn--ghost"
-                style={{ width: "auto", flexShrink: 0 }}
-                onClick={toggleViewMode}
-                title={viewMode === "2d" ? t("canvas:view3d") : t("canvas:view2d")}
-              >
-                {viewMode === "2d" ? t("canvas:view3d") : t("canvas:view2d")}
-              </button>
             </div>
             <Timeline />
             <FailurePanel onRerun={onRun} />
@@ -944,6 +936,13 @@ export default function App() {
               }
             >
               {inspectorCollapsed ? "‹" : "›"}
+            </button>
+            <button
+              className="stage__view-toggle"
+              onClick={toggleViewMode}
+              title={viewMode === "2d" ? t("canvas:view3d") : t("canvas:view2d")}
+            >
+              {viewMode === "2d" ? t("canvas:view3dShort") : t("canvas:view2dShort")}
             </button>
             <Minimap />
             <div

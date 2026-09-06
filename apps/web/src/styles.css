@@ -2011,6 +2011,25 @@ select {
 
 /* ---------- minimap ---------- */
 
+.stage__view-toggle {
+  position: absolute;
+  right: var(--gap-md);
+  bottom: var(--gap-md);
+  z-index: 3;
+  padding: var(--space-1) var(--gap-md);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  box-shadow: var(--bevel);
+}
+.stage__view-toggle:hover {
+  border-color: var(--info);
+  color: var(--info);
+}
+
 .minimap {
   position: absolute;
   left: var(--gap-md);
