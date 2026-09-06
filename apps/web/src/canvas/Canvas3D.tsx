@@ -7,7 +7,7 @@ import { PLANT_H, PLANT_W } from "../store/graph";
 import { MAX_ZOOM, MIN_ZOOM, useCanvas } from "../store/canvas";
 import { useViewMode } from "../store/view-mode";
 import { useVisibleRuntime } from "../store/run";
-import { boardToWorld, viewportCenterToWorld, xzPolyline, xzPolylinePointAt, zoomToFrustum, type XZPolyline } from "./iso3d";
+import { boardToWorld, worldToBoard, viewportCenterToWorld, xzPolyline, xzPolylinePointAt, zoomToFrustum, type XZPolyline } from "./iso3d";
 import { VIEW_H, VIEW_W } from "./board";
 import {
   buildNodeShape,
@@ -38,6 +38,7 @@ interface EdgePath {
   polyline: XZPolyline;
   color: number;
   rework: boolean;
+  mesh: THREE.Mesh;
 }
 
 interface Truck {
@@ -61,6 +62,7 @@ export default function Canvas3D() {
   const setCamera3d = useViewMode((s) => s.setCamera3d);
   const select = useGraph((s) => s.select);
   const selectNone = useGraph((s) => s.selectNone);
+  const moveNode = useGraph((s) => s.moveNode);
   // Runtime is read per-frame via a ref so the scene isn't rebuilt on every event.
   const runtime = useVisibleRuntime();
   const runtimeRef = useRef(runtime);
@@ -77,6 +79,8 @@ export default function Canvas3D() {
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     mount.appendChild(renderer.domElement);
+    // Grab cursor over the canvas: left-drag pans (empty space) or moves a node.
+    renderer.domElement.style.cursor = "grab";
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x14181d);
@@ -165,13 +169,6 @@ export default function Canvas3D() {
     // --- Edges: orthogonal routes (same geometry the 2D canvas draws). ---
     const anchors = edgeAnchors(graph);
     const nodeById = new Map(graph.nodes.map((n) => [n.id, n]));
-    const obstacles = graph.nodes.map((n) => ({
-      id: n.id,
-      x0: n.x - PLANT_W / 2 - ROUTE_PAD,
-      y0: n.y - PLANT_H / 2 - ROUTE_PAD,
-      x1: n.x + PLANT_W / 2 + ROUTE_PAD,
-      y1: n.y + PLANT_H / 2 + ROUTE_PAD,
-    }));
     // Rotate an anchor around its node's center so it lands on the rotated
     // node's face (3D blocks are rotated NODE_ROTATION on the ground plane).
     const rotateAnchor = (center: { x: number; y: number } | undefined, p: Point): Point => {
@@ -181,6 +178,27 @@ export default function Canvas3D() {
       const c = Math.cos(NODE_ROTATION);
       const s = Math.sin(NODE_ROTATION);
       return { x: center.x + dx * c + dy * s, y: center.y - dx * s + dy * c };
+    };
+    // Compute obstacle rects from the CURRENT node positions. Dragging mutates
+    // nodeById live, so re-running this keeps routing around the moved node.
+    const buildObstacles = () =>
+      [...nodeById.values()].map((n) => ({
+        id: n.id,
+        x0: n.x - PLANT_W / 2 - ROUTE_PAD,
+        y0: n.y - PLANT_H / 2 - ROUTE_PAD,
+        x1: n.x + PLANT_W / 2 + ROUTE_PAD,
+        y1: n.y + PLANT_H / 2 + ROUTE_PAD,
+      }));
+    // Route + tube geometry for one edge, from its board-space anchors.
+    const buildTube = (route: Point[]) => {
+      const points = route.map((p) => {
+        const w = boardToWorld(p.x, p.y);
+        return { x: w.x, z: w.z };
+      });
+      const curve = new THREE.CatmullRomCurve3(
+        points.map((p) => new THREE.Vector3(p.x, PIPE_Y, p.z)),
+      );
+      return { points, geometry: new THREE.TubeGeometry(curve, 64, PIPE_RADIUS, 10, false) };
     };
     const edgePaths = new Map<string, EdgePath>();
     const edgeGroup = new THREE.Group();
@@ -193,29 +211,44 @@ export default function Canvas3D() {
       if (e.kind === "rework") {
         route = [af, at];
       } else {
-        route = orthogonalRoute(af, at, obstacles.filter((o) => o.id !== e.from && o.id !== e.to));
+        route = orthogonalRoute(af, at, buildObstacles().filter((o) => o.id !== e.from && o.id !== e.to));
       }
-      const points = route.map((p) => {
-        const w = boardToWorld(p.x, p.y);
-        return { x: w.x, z: w.z };
-      });
+      const { points, geometry } = buildTube(route);
       const color =
         e.kind === "error" ? 0xff5252 : e.kind === "rework" ? 0xff9d2e : 0x8aa6c0;
-      edgePaths.set(e.id, { polyline: xzPolyline(points), color, rework: e.kind === "rework" });
-      // Solid tube instead of a flat line, so each pipe reads as a 3D cylinder
-      // with lighting/shading and casts a shadow onto the ground.
-      const curve = new THREE.CatmullRomCurve3(
-        points.map((p) => new THREE.Vector3(p.x, PIPE_Y, p.z)),
-      );
-      const tube = new THREE.Mesh(
-        new THREE.TubeGeometry(curve, 64, PIPE_RADIUS, 10, false),
-        new THREE.MeshLambertMaterial({ color }),
-      );
+      const tube = new THREE.Mesh(geometry, new THREE.MeshLambertMaterial({ color }));
       tube.castShadow = true;
       tube.receiveShadow = true;
       edgeGroup.add(tube);
+      edgePaths.set(e.id, { polyline: xzPolyline(points), color, rework: e.kind === "rework", mesh: tube });
     }
     scene.add(edgeGroup);
+    // Re-route every edge touching a dragged node and rebuild its tube geometry,
+    // so pipes stay attached to the node faces while dragging.
+    const rebuildEdgesForNode = (nodeId: string, bx: number, by: number) => {
+      const orig = nodeById.get(nodeId);
+      if (!orig) return;
+      nodeById.set(nodeId, { ...orig, x: bx, y: by });
+      const obstacles = buildObstacles();
+      for (const e of graph.edges) {
+        if (e.from !== nodeId && e.to !== nodeId) continue;
+        const a = anchors.get(e.id);
+        const ep = edgePaths.get(e.id);
+        if (!a || !ep) continue;
+        const af = rotateAnchor(nodeById.get(e.from), a.from);
+        const at = rotateAnchor(nodeById.get(e.to), a.to);
+        let route: Point[];
+        if (e.kind === "rework") {
+          route = [af, at];
+        } else {
+          route = orthogonalRoute(af, at, obstacles.filter((o) => o.id !== e.from && o.id !== e.to));
+        }
+        const { points, geometry } = buildTube(route);
+        ep.polyline = xzPolyline(points);
+        ep.mesh.geometry.dispose();
+        ep.mesh.geometry = geometry;
+      }
+    };
 
     // --- Trucks: one shared box geometry, materials cached per artifact color. ---
     const truckGroup = new THREE.Group();
@@ -225,13 +258,29 @@ export default function Canvas3D() {
     const trucks: Truck[] = [];
     const seen = new Set<string>();
 
-    // --- Raycast selection: click a block to select + open the Inspector. ---
+    // --- Raycast selection: click to select + open Inspector, drag to move. ---
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
+    const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
     let downX = 0;
     let downY = 0;
     let downHitId: string | null = null;
     let rightDown = false;
+    // Drag state: while a node is grabbed we move it live in the scene and
+    // commit the final position to the graph store on release.
+    let draggingNodeId: string | null = null;
+    let dragStartBoard = { x: 0, y: 0 };
+    let dragStartWorld = { x: 0, z: 0 };
+
+    const mouseToGround = (e: PointerEvent): { x: number; z: number } | null => {
+      const rect = renderer.domElement.getBoundingClientRect();
+      pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(pointer, camera);
+      const out = new THREE.Vector3();
+      return raycaster.ray.intersectPlane(groundPlane, out) ? { x: out.x, z: out.z } : null;
+    };
+
     const onPointerDown = (e: PointerEvent) => {
       if (e.button === 2) {
         rightDown = true;
@@ -250,10 +299,33 @@ export default function Canvas3D() {
       if (hitId) {
         downHitId = hitId;
         select(hitId);
+        const node = nodeById.get(hitId);
+        if (node) {
+          draggingNodeId = hitId;
+          dragStartBoard = { x: node.x, y: node.y };
+          const g = mouseToGround(e);
+          if (g) dragStartWorld = g;
+          // Left-drag moves the node instead of panning the camera.
+          controls.enabled = false;
+        }
       } else {
         downHitId = null;
         selectNone();
       }
+      renderer.domElement.style.cursor = "grabbing";
+    };
+    const onPointerMove = (e: PointerEvent) => {
+      if (!draggingNodeId) return;
+      const g = mouseToGround(e);
+      if (!g) return;
+      const dx = g.x - dragStartWorld.x;
+      const dz = g.z - dragStartWorld.z;
+      const bx = dragStartBoard.x + dx;
+      const by = dragStartBoard.y + dz;
+      const w = boardToWorld(bx, by);
+      const shape = nodeShapes.get(draggingNodeId);
+      if (shape) shape.group.position.set(w.x, 0, w.z);
+      rebuildEdgesForNode(draggingNodeId, bx, by);
     };
     const onPointerUp = (e: PointerEvent) => {
       if (e.button === 2) {
@@ -262,11 +334,21 @@ export default function Canvas3D() {
       }
       if (e.button !== 0) return;
       const moved = Math.hypot(e.clientX - downX, e.clientY - downY) > 4;
-      if (downHitId && !moved) {
+      if (draggingNodeId) {
+        const shape = nodeShapes.get(draggingNodeId);
+        if (shape) {
+          const b = worldToBoard(shape.group.position.x, shape.group.position.z);
+          moveNode(draggingNodeId, b.x, b.y);
+        }
+        draggingNodeId = null;
+        controls.enabled = true;
+      } else if (downHitId && !moved) {
         useGraph.getState().setInspectorOpen(true);
       }
+      renderer.domElement.style.cursor = "grab";
     };
     renderer.domElement.addEventListener("pointerdown", onPointerDown);
+    renderer.domElement.addEventListener("pointermove", onPointerMove);
     renderer.domElement.addEventListener("pointerup", onPointerUp);
 
     // Wheel and arrow keys also rotate the view horizontally (zoom stays locked).
@@ -435,6 +517,7 @@ export default function Canvas3D() {
     return () => {
       cancelAnimationFrame(rafId);
       renderer.domElement.removeEventListener("pointerdown", onPointerDown);
+      renderer.domElement.removeEventListener("pointermove", onPointerMove);
       renderer.domElement.removeEventListener("pointerup", onPointerUp);
       renderer.domElement.removeEventListener("wheel", onWheel, true);
       renderer.domElement.removeEventListener("contextmenu", preventContextMenu);
