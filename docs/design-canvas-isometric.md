@@ -135,20 +135,29 @@ worldY = 0                        // 地面
 - **组件测试**：`Canvas3D` 用 `vi.mock("three")` mock 掉，断言「切换模式渲染正确组件 + 状态正确传递」
 - **WebGL 真渲染**：jsdom 无 WebGL，3D 的视觉正确性靠浏览器手工验证，不写自动化像素断言
 
-## 十、分期实施
+## 十、落地步骤（第一期，9 步原子提交）
 
-**第一期 MVP（验证体验，纯占位造型）**：
+每步一个 commit、一个验收标准，出问题可精确回滚。**每步之间跑全量测试，绿了才进下一步**。
 
-1. 引入 `three.js` + `React.lazy` 代码分割
-2. `Canvas3D`：正交场景 + 锁俯角摄像机（旋转/平移）+ 方块占位 + 3D 管道
-3. 2D ↔ 3D 切换（锚点 + 朝向 + 淡切 + 状态记忆）
-4. 3D 只读（raycast 选中 + 详情弹窗）
+| 步 | 改动 | 验收 | commit |
+|---|---|---|---|
+| 1 | `pnpm --filter @agent-world/web add three` + `-D @types/three` | 安装成功、typecheck 通过 | `chore(web): add three.js dependency` |
+| 2 | 新建 `store/view-mode.ts`（`viewMode: "2d"\|"3d"`，persist） | typecheck | `feat(web): add view-mode store` |
+| 3 | 新建 `canvas/iso3d.ts`（`boardToWorld` / `worldToBoard` / `viewportCenterToWorld` / `zoomToFrustum`） | vitest 单测 | `feat(web): add 2D/3D coordinate mapping` |
+| 4 | 新建 `canvas/Canvas3D.tsx`：renderer + scene + 正交相机，方块(`InstancedMesh`)+管道(`Line`)，暂不接切换 | typecheck + 浏览器看「方块立起来」 | `feat(web): render static 3D plant scene` |
+| 5 | `Canvas3D` 配 OrbitControls：`enableRotate`/`enablePan`，`minPolarAngle=maxPolarAngle=π/4`，`enableZoom=false` | 浏览器验证「能旋转/平移，不能上下/缩放」 | `feat(web): constrain 3D camera to fixed pitch` |
+| 6 ⚠️ | `App.tsx` 加 `{viewMode==="2d" ? <Canvas/> : <Suspense><Canvas3D/></Suspense>}` + 「视角」按钮（`React.lazy`） | 浏览器验证切换 + **跑 2D 相关测试确认零回归** | `feat(web): toggle between 2D and 3D views` |
+| 7 | 切换时 `viewportCenterToWorld` → `controls.target`；frustum 按 zoom 初始化；3D yaw/pan persist | 浏览器验证「切过去看同一块、切回来不丢」 | `feat(web): align camera and preserve state across view switch` |
+| 8 | raycast 点选方块 → 高亮 + 弹 `Inspector` | 浏览器验证「3D 点节点看详情」 | `feat(web): select node in 3D view` |
+| 9 | 交叉淡切 250ms + 「视角」按钮 i18n + `renderer.dispose()` | 全量 vitest（1561）+ typecheck 全绿 | `feat(web): polish view-switch transition and i18n` |
 
-**第二期（完整效果）**：
+**关键**：Step 6 是唯一动现有代码的（App.tsx 加 if），其余 8 步全新增；Step 1-3 纯地基零风险，视觉结果从 Step 4 逐步可见。
 
-5. 29 种程序化几何造型（双点医院式示意）
-6. 卡车沿 3D 管道跑（复用 `PacketRuntime`）
-7. 运行状态亮灯（质检/返工/失败）
+**第二期（完整效果，后续）**：
+
+1. 29 种程序化几何造型（双点医院式示意）
+2. 卡车沿 3D 管道跑（复用 `PacketRuntime`，独立 rAF，不动 2D `PacketLayer`）
+3. 运行状态亮灯（质检/返工/失败）
 
 ## 十一、已拍板决策
 
