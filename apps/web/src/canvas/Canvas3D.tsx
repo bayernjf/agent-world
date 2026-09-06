@@ -294,6 +294,15 @@ export default function Canvas3D() {
         ledMat.emissiveIntensity = running ? 0.5 + 0.4 * Math.sin(now * 0.006) : 0.25;
       }
 
+      // Publish the camera target to the minimap and apply any move request it
+      // sends back (click/drag on the minimap while in 3D).
+      useViewMode.getState().setCamera3dLive({
+        targetX: controls.target.x,
+        targetZ: controls.target.z,
+      });
+      const req = useViewMode.getState().consumeCamera3dRequest();
+      if (req) controls.target.set(req.targetX, 0, req.targetZ);
+
       controls.update();
       renderer.render(scene, camera);
     };

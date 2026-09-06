@@ -4,6 +4,8 @@ import { useGraph } from "../store/graph";
 import { MAX_ZOOM, MIN_ZOOM, useCanvas, type Bounds } from "../store/canvas";
 import { PLANT_H, PLANT_W } from "../store/graph";
 import { VIEW_H, VIEW_W } from "./board";
+import { useViewMode } from "../store/view-mode";
+import { boardToWorld, worldToBoard } from "./iso3d";
 import Tooltip from "../components/Tooltip";
 
 /** Minimap square size in stage pixels. Matches the zoom control row width (189 + 8 padding + 2 border = 199). */
@@ -52,6 +54,10 @@ export default function Minimap() {
   const { t } = useTranslation();
   const { graph } = useGraph();
   const { viewport, setViewport, zoomTo, fitToBounds } = useCanvas();
+  const viewMode = useViewMode((s) => s.viewMode);
+  const camera3dLive = useViewMode((s) => s.camera3dLive);
+  const requestCamera3dMove = useViewMode((s) => s.requestCamera3dMove);
+  const is3d = viewMode === "3d";
   const dragRef = useRef<ViewDrag | null>(null);
   const [dragging, setDragging] = useState(false);
 
@@ -86,6 +92,10 @@ export default function Minimap() {
   // never grows past it — keeps every plant inside the rect at every zoom.
   const viewW = Math.min(vw * scale * nodeFactor, MAP);
   const viewH = Math.min(vh * scale * nodeFactor, MAP);
+  // In 3D the view rect tracks the 3D camera target instead of the 2D viewport.
+  const centerBoard = is3d && camera3dLive
+    ? worldToBoard(camera3dLive.targetX, camera3dLive.targetZ)
+    : { x: vx, y: vy };
 
   // Pan delta to content-space delta: dpix (SVG user) = dcontent * zoom.
   // Minimap content delta minimap-pixels / scale → graph units → * zoom → pan delta.
@@ -129,13 +139,18 @@ export default function Minimap() {
       if (!d) return;
       const dx = e.clientX - d.startClientX;
       const dy = e.clientY - d.startClientY;
-      // Minimap pixel delta → canvas pan delta (negated: viewport right = canvas content shift left).
-      const { dx: panDX, dy: panDY } = contentDeltaFromMinimapDelta(dx, dy);
-      setViewport({
-        ...viewport,
-        panX: d.originPanX + panDX,
-        panY: d.originPanY + panDY,
-      });
+      if (is3d) {
+        // Minimap pixel delta → world units (XZ): dragging the rect pans the 3D camera.
+        requestCamera3dMove(d.originPanX + dx / scale, d.originPanY + dy / scale);
+      } else {
+        // Minimap pixel delta → canvas pan delta (negated: viewport right = canvas content shift left).
+        const { dx: panDX, dy: panDY } = contentDeltaFromMinimapDelta(dx, dy);
+        setViewport({
+          ...viewport,
+          panX: d.originPanX + panDX,
+          panY: d.originPanY + panDY,
+        });
+      }
     };
     const onUp = () => {
       dragRef.current = null;
@@ -149,7 +164,7 @@ export default function Minimap() {
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onUp);
     };
-  }, [dragging, viewport, setViewport, scale]);
+  }, [dragging, viewport, setViewport, scale, is3d, requestCamera3dMove]);
 
   const onViewPointerDown = (e: React.PointerEvent<SVGRectElement>) => {
     e.stopPropagation(); // don't bubble to svg's "jump to" handler
@@ -157,8 +172,9 @@ export default function Minimap() {
     dragRef.current = {
       startClientX: e.clientX,
       startClientY: e.clientY,
-      originPanX: viewport.panX,
-      originPanY: viewport.panY,
+      // In 3D the drag origin is the camera target; in 2D it's the viewport pan.
+      originPanX: is3d && camera3dLive ? camera3dLive.targetX : viewport.panX,
+      originPanY: is3d && camera3dLive ? camera3dLive.targetZ : viewport.panY,
     };
     setDragging(true);
   };
@@ -173,7 +189,12 @@ export default function Minimap() {
       minX,
       minY,
     );
-    centerOnContent(x, y);
+    if (is3d) {
+      const w = boardToWorld(x, y);
+      requestCamera3dMove(w.x, w.z);
+    } else {
+      centerOnContent(x, y);
+    }
   };
 
   const onWheel = (e: React.WheelEvent<SVGSVGElement>) => {
@@ -242,8 +263,8 @@ export default function Minimap() {
           />
         ))}
         <rect
-          x={Math.max(0, Math.min(tx(vx), MAP - viewW))}
-          y={Math.max(0, Math.min(ty(vy), MAP - viewH))}
+          x={Math.max(0, Math.min(tx(centerBoard.x), MAP - viewW))}
+          y={Math.max(0, Math.min(ty(centerBoard.y), MAP - viewH))}
           width={viewW}
           height={viewH}
           className="minimap__view"
