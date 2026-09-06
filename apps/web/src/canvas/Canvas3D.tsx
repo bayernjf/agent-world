@@ -20,7 +20,7 @@ import {
   statusLedColor,
   type NodeShape,
 } from "./iso3d-shapes";
-import { edgeAnchors, orthogonalRoute, ROUTE_PAD, type Point } from "./geometry";
+import { edgeAnchors, orthoCrossings, orthogonalRoute, ROUTE_PAD, type Point } from "./geometry";
 
 /** Fixed camera pitch (angle from vertical): locks the isometric tilt.
  *  π/3 ≈ 60° from vertical (30° above the horizon) — a low, side-on RTS angle
@@ -33,6 +33,8 @@ const YAW = (5 * Math.PI) / 4;
 const CAMERA_DIST = 1200;
 /** Freight speed along a pipe, in board/world units per second (matches 2D). */
 const SPEED = 340;
+/** Height a pipe lifts to arc over another pipe at a crossing. */
+const BRIDGE_HEIGHT = 18;
 
 interface EdgePath {
   polyline: XZPolyline;
@@ -167,7 +169,6 @@ export default function Canvas3D() {
     scene.add(nodeGroup);
 
     // --- Edges: orthogonal routes (same geometry the 2D canvas draws). ---
-    const anchors = edgeAnchors(graph);
     const nodeById = new Map(graph.nodes.map((n) => [n.id, n]));
     // Rotate an anchor around its node's center so it lands on the rotated
     // node's face (3D blocks are rotated NODE_ROTATION on the ground plane).
@@ -189,31 +190,70 @@ export default function Canvas3D() {
         x1: n.x + PLANT_W / 2 + ROUTE_PAD,
         y1: n.y + PLANT_H / 2 + ROUTE_PAD,
       }));
-    // Route + tube geometry for one edge, from its board-space anchors.
-    const buildTube = (route: Point[]) => {
-      const points = route.map((p) => {
+    // Anchors + routes recomputed from the live node positions (dragging mutates
+    // nodeById), so pipes always attach to the current node faces.
+    const computeAnchors = () => edgeAnchors({ ...graph, nodes: [...nodeById.values()] });
+    const computeRoutes = (anchors: Map<string, { from: Point; to: Point }>) => {
+      const routes = new Map<string, Point[]>();
+      for (const e of graph.edges) {
+        const a = anchors.get(e.id);
+        if (!a) continue;
+        const af = rotateAnchor(nodeById.get(e.from), a.from);
+        const at = rotateAnchor(nodeById.get(e.to), a.to);
+        if (e.kind === "rework") {
+          routes.set(e.id, [af, at]);
+        } else {
+          routes.set(e.id, orthogonalRoute(af, at, buildObstacles().filter((o) => o.id !== e.from && o.id !== e.to)));
+        }
+      }
+      return routes;
+    };
+    // Where two forward pipes cross, the vertical one arcs OVER the horizontal
+    // one (same bridge semantics as the 2D canvas). Group bridge points by the
+    // "over" edge so its tube can lift over each crossing.
+    const computeBridges = (anchors: Map<string, { from: Point; to: Point }>, routes: Map<string, Point[]>) => {
+      const bridges = new Map<string, Point[]>();
+      for (const c of orthoCrossings(graph, anchors, routes)) {
+        const list = bridges.get(c.over) ?? [];
+        list.push({ x: c.x, y: c.y });
+        bridges.set(c.over, list);
+      }
+      return bridges;
+    };
+    // Route + tube geometry for one edge. `bridges` are board-space points where
+    // this edge lifts over another pipe.
+    const buildTube = (route: Point[], bridges: Point[]) => {
+      const ground = route.map((p) => {
         const w = boardToWorld(p.x, p.y);
         return { x: w.x, z: w.z };
       });
-      const curve = new THREE.CatmullRomCurve3(
-        points.map((p) => new THREE.Vector3(p.x, PIPE_Y, p.z)),
-      );
-      return { points, geometry: new THREE.TubeGeometry(curve, 64, PIPE_RADIUS, 10, false) };
+      const pts: { x: number; y: number; z: number }[] = ground.map((p) => ({ ...p, y: PIPE_Y }));
+      for (const b of bridges) {
+        const bw = boardToWorld(b.x, b.y);
+        for (let i = 0; i < pts.length - 1; i++) {
+          const a = pts[i]!;
+          const c = pts[i + 1]!;
+          if (a.x !== c.x || Math.abs(a.x - bw.x) > 0.5) continue; // vertical segment only
+          const zMin = Math.min(a.z, c.z);
+          const zMax = Math.max(a.z, c.z);
+          if (bw.z > zMin && bw.z < zMax) {
+            pts.splice(i + 1, 0, { x: bw.x, y: PIPE_Y + BRIDGE_HEIGHT, z: bw.z });
+            break;
+          }
+        }
+      }
+      const curve = new THREE.CatmullRomCurve3(pts.map((p) => new THREE.Vector3(p.x, p.y, p.z)));
+      return { points: ground, geometry: new THREE.TubeGeometry(curve, 64, PIPE_RADIUS, 10, false) };
     };
+    const anchors = computeAnchors();
+    const routes = computeRoutes(anchors);
+    const bridges = computeBridges(anchors, routes);
     const edgePaths = new Map<string, EdgePath>();
     const edgeGroup = new THREE.Group();
     for (const e of graph.edges) {
-      const a = anchors.get(e.id);
-      if (!a) continue;
-      const af = rotateAnchor(nodeById.get(e.from), a.from);
-      const at = rotateAnchor(nodeById.get(e.to), a.to);
-      let route: Point[];
-      if (e.kind === "rework") {
-        route = [af, at];
-      } else {
-        route = orthogonalRoute(af, at, buildObstacles().filter((o) => o.id !== e.from && o.id !== e.to));
-      }
-      const { points, geometry } = buildTube(route);
+      const route = routes.get(e.id);
+      if (!route) continue;
+      const { points, geometry } = buildTube(route, bridges.get(e.id) ?? []);
       const color =
         e.kind === "error" ? 0xff5252 : e.kind === "rework" ? 0xff9d2e : 0x8aa6c0;
       const tube = new THREE.Mesh(geometry, new THREE.MeshLambertMaterial({ color }));
@@ -229,21 +269,15 @@ export default function Canvas3D() {
       const orig = nodeById.get(nodeId);
       if (!orig) return;
       nodeById.set(nodeId, { ...orig, x: bx, y: by });
-      const obstacles = buildObstacles();
+      const liveAnchors = computeAnchors();
+      const liveRoutes = computeRoutes(liveAnchors);
+      const liveBridges = computeBridges(liveAnchors, liveRoutes);
       for (const e of graph.edges) {
         if (e.from !== nodeId && e.to !== nodeId) continue;
-        const a = anchors.get(e.id);
+        const route = liveRoutes.get(e.id);
         const ep = edgePaths.get(e.id);
-        if (!a || !ep) continue;
-        const af = rotateAnchor(nodeById.get(e.from), a.from);
-        const at = rotateAnchor(nodeById.get(e.to), a.to);
-        let route: Point[];
-        if (e.kind === "rework") {
-          route = [af, at];
-        } else {
-          route = orthogonalRoute(af, at, obstacles.filter((o) => o.id !== e.from && o.id !== e.to));
-        }
-        const { points, geometry } = buildTube(route);
+        if (!route || !ep) continue;
+        const { points, geometry } = buildTube(route, liveBridges.get(e.id) ?? []);
         ep.polyline = xzPolyline(points);
         ep.mesh.geometry.dispose();
         ep.mesh.geometry = geometry;
