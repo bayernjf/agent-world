@@ -2103,8 +2103,8 @@ select {
 .minimap__zoom .chip {
   padding: 0 2px;
   min-width: 20px;
-  height: 20px;
-  line-height: 20px;
+  height: 18px;
+  line-height: 18px;
   box-sizing: border-box;
 }
 .minimap__zoom .muted {
@@ -2123,7 +2123,8 @@ select {
   color: var(--text-primary);
 }
 .minimap__slider {
-  width: 56px;
+  flex: 1 1 auto;
+  min-width: 30px;
   margin: 0;
   accent-color: var(--text-secondary);
   cursor: pointer;
