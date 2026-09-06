@@ -264,10 +264,13 @@ export default function Canvas3D() {
       const cy = (minY + maxY) / 2;
       const wc = boardToWorld(cx, cy);
       controls.target.set(wc.x, 0, wc.z);
-      // Classic RTS isometric: left-rear low-pitch view.
+      // "Fit" aligns the graph with the 2D layout: choose a yaw that puts the
+      // longer edge horizontally, so rows/columns read the same way as on the
+      // 2D canvas instead of running diagonally.
+      const fitYaw = bw >= bh ? Math.PI / 2 : 0;
       const h = CAMERA_DIST * Math.sin(PITCH);
       const y = CAMERA_DIST * Math.cos(PITCH);
-      camera.position.set(wc.x + h * Math.cos(YAW), y, wc.z + h * Math.sin(YAW));
+      camera.position.set(wc.x + h * Math.cos(fitYaw), y, wc.z + h * Math.sin(fitYaw));
       // Fit the whole graph (plus padding) into the visible frustum. The frustum
       // stays tied to the 2D viewport.zoom; camera.zoom supplies the rest, so the
       // total scale (viewport.zoom * camera.zoom) equals min(VIEW_W/bw, VIEW_H/bh).
