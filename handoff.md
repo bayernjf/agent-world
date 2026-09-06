@@ -6,7 +6,7 @@ State of Agent World as of 2026-09-06.
 
 ## Project documents
 
-完整索引（按读者分类 + 现行/历史/归档标注）见 [docs/README.md](docs/README.md)。核心文档直达：
+📚 **文档地图（按场景怎么读 + 状态约定）**：[docs/README.md](docs/README.md)。以下为全部文档直达（本区是完整清单的单一事实源，README 只做场景导航、不重复清单）：
 
 * [docs/PRD.md](docs/PRD.md) — phased roadmap and architectural guardrails
 * [README.md](README.md) — two core design decisions, layout, running instructions
@@ -44,6 +44,29 @@ State of Agent World as of 2026-09-06.
 * [docs/handoff-archive.md](docs/handoff-archive.md) — historical changes (pre-2026-08-27)
 
 * [docs/PRODUCT\_STRATEGY.md](docs/PRODUCT_STRATEGY.md) — 产品策略汇总（成本/部署/定价/商业化决策基线）
+
+* [docs/project-progress.md](docs/project-progress.md) — 整体进度基线（模块完成度 + 待启动管线 + 迭代规则）
+
+* [docs/design-ecommerce-roadmap.md](docs/design-ecommerce-roadmap.md) — 自媒体电商方向 F1-F10（run 内多变体/审核队列/合规/商品库/批量/效果回流/发布，已全部落地）
+* [docs/design-monetization.md](docs/design-monetization.md) — 商业化实施方案（三层计费 / 订阅 gate / P0-P3，已设计未实施）
+* [docs/product-content-roadmap.md](docs/product-content-roadmap.md) / [docs/product-industry-roi.md](docs/product-industry-roi.md) — 内容线规划 / 行业 ROI 评估
+* [docs/rpa-readback-onboarding.md](docs/rpa-readback-onboarding.md) — RPA 回读真实环境接入清单
+
+* [docs/design-connector-database.md](docs/design-connector-database.md) / [docs/design-data-interpolation.md](docs/design-data-interpolation.md) / [docs/design-triggers.md](docs/design-triggers.md) — Database 连接器 / 数据插值 / 触发方式
+* [docs/design-knowledge-memory.md](docs/design-knowledge-memory.md) — 知识提取与记忆系统
+
+* [docs/design-rbac.md](docs/design-rbac.md) / [docs/design-audit-log.md](docs/design-audit-log.md) / [docs/design-logging.md](docs/design-logging.md) — 角色权限 / 审计日志 / 服务端日志
+* [docs/design-announcement.md](docs/design-announcement.md) / [docs/design-feedback.md](docs/design-feedback.md) — 公告 / 用户反馈
+* [docs/design-key-rotation.md](docs/design-key-rotation.md) + [docs/runbooks/key-rotation.md](docs/runbooks/key-rotation.md) — 密钥轮换设计 + 运维手册
+
+* [docs/design-ab-testing.md](docs/design-ab-testing.md) / [docs/design-skill.md](docs/design-skill.md) / [docs/design-glossary.md](docs/design-glossary.md) — A/B 实验 / Skill 体系 / 术语表
+* [docs/design-design-tokens.md](docs/design-design-tokens.md) / [docs/design-i18n.md](docs/design-i18n.md) / [docs/web-component-testing-plan.md](docs/web-component-testing-plan.md) — 设计 Token / i18n / 组件测试
+
+* [docs/examples.md](docs/examples.md) / [docs/extending.md](docs/extending.md) / [docs/integrations-future.md](docs/integrations-future.md) — 模板示例 / 扩展指南 / 未来集成（Notion/Linear/邮件/内容平台）
+
+* 历史（决策记录，勿据此实现）：[docs/product-vision-discussion.md](docs/product-vision-discussion.md) / [docs/tech-stack-assessment.md](docs/tech-stack-assessment.md) / [docs/roadmap-tasks.md](docs/roadmap-tasks.md)
+
+* 根目录元文档：[CHANGELOG.md](CHANGELOG.md)（变更日志） / [CONTRIBUTING.md](CONTRIBUTING.md)（贡献指南） / [AGENTS.md](AGENTS.md)（AI 行为规范：commit / i18n / UI 文案约定，**新会话必读**） / [git-commit-message.md](git-commit-message.md)（commit message 详细规范）
 
 ## Current state
 
@@ -194,7 +217,7 @@ State of Agent World as of 2026-09-06.
 
 19. ✅ **F9 内容级成本归因（已落地，本次完成）**：按 [design-ecommerce-roadmap.md](docs/design-ecommerce-roadmap.md) §F9 实现（**先用 artifact/product/platform 维度跑通，variant 依赖 F1 后续补**）。① **server**：`content_costs` 表（迁移 26）+ db 方法（insertContentCost 存 cost\_usd/gmv 并算 roi=gmv/cost、listContentCosts、aggregateContentCosts 按 artifact\_id/product\_id/platform/variant 分组聚合并重算 roi）+ `/api/content-costs`（POST 快照 / GET 列表）+ `/api/costs` 扩展 `groupBy` 参数（内容级维度返回成本/GMV/ROI 聚合，否则走原 run/node 粒度报表）。② **web**：`PerformanceDashboard.tsx` 增「内容成本」区块（成本维度切换 按产物/商品/平台/变体 + 成本/GMV/ROI 聚合表 + 手工录入成本），与 F6 效果数据同屏联动。③ **测试**：server `db.costs.test.ts` 3 例（roi 计算 / 按平台聚合重算 roi / 用户隔离）。④ **遵守 AGENTS.md**：UI 文案全 `t()` 化，keys.test 硬编码中文守护通过。
 
-20. ✅ **F1 run 内多变体 + 择优（已落地，本次完整完成）**：按 [design-ecommerce-roadmap.md](docs/design-ecommerce-roadmap.md) §F1 实现（**采用 sub-run 泳道方案**：fanout 对每个 variant 起一条隔离 sub-run 泳道，复用 subprocess 机制，避免改写 runNode 内部 200+ 处执行身份；泳道状态以 `#var:` 前缀命名空间隔离，兄弟 lane 失败不沉没父 run）。① **core**：NodeKind 加 `fanout`/`select`（归 control）+ `FanoutConfig`/`SelectConfig` schema + `NodeRunKey` 加可选 `variant` 字段（`artifact.produced` 同步）+ 新事件 `variants.spawned`/`variants.ranked` + compile 校验（fanout 出边必须最终汇入 select、select 必须有上游 fanout）+ runtime reducer 记录 `RuntimeState.variants`（fanout variantIds + select ranking/chosen/failed）。② **server**：DB 迁移 27（`node_runs` 复合主键重建为 `(run_id,node_id,attempt,variant)`、`artifacts` 加 variant 列+索引）+ 持久化贯穿 variant（缺省 `'main'`，旧图字节级不变）+ 引擎 fanout/select 执行块（fanout 按 prompt/temperature/model 三种策略扇出、select 按 llm\_score/rule 择优 + `variants.ranked` 显式计数失败 lane）。③ **web**：画布注册 fanout/select 节点 + Inspector 配置表单 + **变体对比视图**（`VariantComparison.tsx`：select/fanout 节点并排 N 张变体卡片——内容/分数/理由/chosen/failed）+ run 状态树按 variant 分组 + zh/en i18n。④ **测试**：core compile 3 例 + runtime 1 例 + server engine.variants 5 例（扇出择优 / 全失败 select 报 failed / 单 lane 隔离失败仍择优 / llm\_score 通道 / replay 不吞产物）。**已知环境问题（非本特性引入）**：CodeBuddy 注入 `NODE_OPTIONS=--require node-language-shim.cjs` 与 Node 24 `--permission` 冲突，导致 code 节点沙箱探测失败（34 个 code/模板用例在 IDE 内红），`NODE_OPTIONS=` 清空后全量测试全绿。
+20. ✅ **F1 run 内多变体 + 择优（已落地，本次完整完成）**：按 [design-ecommerce-roadmap.md](docs/design-ecommerce-roadmap.md) §F1 实现（**采用 sub-run 泳道方案**：fanout 对每个 variant 起一条隔离 sub-run 泳道，复用 subprocess 机制，避免改写 runNode 内部 200+ 处执行身份；泳道状态以 `#var:` 前缀命名空间隔离，兄弟 lane 失败不沉没父 run）。① **core**：NodeKind 加 `fanout`/`select`（归 control）+ `FanoutConfig`/`SelectConfig` schema + `NodeRunKey` 加可选 `variant` 字段（`artifact.produced` 同步）+ 新事件 `variants.spawned`/`variants.ranked` + compile 校验（fanout 出边必须最终汇入 select、select 必须有上游 fanout）+ runtime reducer 记录 `RuntimeState.variants`（fanout variantIds + select ranking/chosen/failed）。② **server**：DB 迁移 27（`node_runs` 复合主键重建为 `(run_id,node_id,attempt,variant)`、`artifacts` 加 variant 列+索引）+ 持久化贯穿 variant（缺省 `'main'`，旧图字节级不变）+ 引擎 fanout/select 执行块（fanout 按 prompt/temperature/model 三种策略扇出、select 按 llm\_score/rule 择优 + `variants.ranked` 显式计数失败 lane）。③ **web**：画布注册 fanout/select 节点 + Inspector 配置表单 + **变体对比视图**（`VariantComparison.tsx`：select/fanout 节点并排 N 张变体卡片——内容/分数/理由/chosen/failed）+ run 状态树按 variant 分组 + zh/en i18n。④ **测试**：core compile 3 例 + runtime 1 例 + server engine.variants 5 例（扇出择优 / 全失败 select 报 failed / 单 lane 隔离失败仍择优 / llm\_score 通道 / replay 不吞产物）。**已知环境问题（非本特性引入，2026-09-06 已修复 `145f83c`）**：CodeBuddy 注入 `NODE_OPTIONS=--require node-language-shim.cjs` 与 Node 24 `--permission` 冲突，导致 code 节点沙箱探测失败（34 个 code/模板用例在 IDE 内红）——根因两层：① 探针继承 host `NODE_OPTIONS`，`--require` shim 启动需 fs 读、被权限模型默认拒绝 → 探针误报「无门控」；② gate 判定后仍无条件追加 `--allow-fs-*`，`none` 时发出「无 `--permission` 前置的 `--allow-fs-*`」→ `ERR_MISSING_OPTION`。已修为探针 clean env（剥 `NODE_OPTIONS`）+ `--allow-*` 收进 `if (gate !== "none")` 块，IDE 内**无需再手动 `NODE_OPTIONS=` 清空**。
 
 21. ✅ **F10 fan-out/fan-in 画布编排体验（已落地，本次完成）**：按 [design-ecommerce-roadmap.md](docs/design-ecommerce-roadmap.md) §F10 实现。① **自动泳道布局**：`canvas/layout.ts` 的 `arrangeVariantLanes`（BFS 分层，fanout 下游 lane 等距平行展开、select 推到右侧）+ store `arrangeLanes` action + Inspector「整理泳道布局」按钮。② **折叠/展开**：store `collapsedFans`/`toggleLaneCollapse` + fanout 节点折叠 chip（＋/－）+ Pipes/Plants 跳过隐藏 lane 节点与边。③ **连线辅助**：`duplicateLaneStructure`（把 fanout 第一条支路结构按 count 复制 N-1 份，节点+连边纵向偏移）+ Inspector「复制支路结构」按钮。④ **校验可视化**：compile diagnostics（含 nodeId）透传到 Canvas/Plants，error 节点红框高亮（`.plant.is-error`）。
 
@@ -243,7 +266,7 @@ State of Agent World as of 2026-09-06.
 
 按 commit 时间倒序，每条一行影响面 + commit hash：
 
-1. **feat(server)+docs tesseract cachePath 数据目录 + generic image 模态狗粮（2026-09-06，deferred「现在能做」两项）**——① `dedb647` tesseract `cachePath` 数据目录约定：`ocr.ts` 新增 `defaultTessdataDir()`，语言包缓存到 `<DB dir>/tessdata`（与 `artifacts/`、`logs/`、`.encryption-key` 同级），`ocrImage` 传 `cachePath` + `mkdirSync`（只读 CWD 诚实报错），47MB chi_sim+eng 不再污染 server CWD；`ocr.test.ts` 加 cachePath 断言 + `stubEnv DB_FILE` 到临时目录（顺带修掉测试向 cwd 建 `tessdata/` 的污染）。② `89791ff` generic 节点 image 模态真实狗粮：generic 接 `agnes-image-2.0-flash` 真实出图 **1.75MB PNG**（run `dogfood-generic-img`），补上「generic 媒体分支零真实证据」缺口（剩 video/audio 仍零证据，受限 agnes 无音频模型）；deferred 两行同步关闭/更新。server 883→**884/884**。
+1. **fix(server)+feat(server)+docs 沙箱权限门控探针修复 + tesseract cachePath + generic image 狗粮（2026-09-06，deferred「现在能做」两项 + code 节点 IDE 内必挂修复）**——① `145f83c` code 沙箱权限门控探针 clean env：修掉 code 节点在 IDE 内必挂的 `--permission` 问题（两层根因：探针继承 host `NODE_OPTIONS`，CodeBuddy 注入的 `--require node-language-shim.cjs` 让 `node --permission` 探针误报 `none` → 探针改在 clean env 跑；gate 判定后原实现仍无条件追加 `--allow-fs-read/write`，`none` 时发出「无 `--permission` 前置的 `--allow-*`」→ `ERR_MISSING_OPTION` → `--allow-*` 收进 `if (gate !== "none")` 块）。修复后 IDE 内无需手动 `NODE_OPTIONS=` 清空即全绿。② `dedb647` tesseract `cachePath` 数据目录约定：`ocr.ts` 新增 `defaultTessdataDir()`，语言包缓存到 `<DB dir>/tessdata`（与 `artifacts/`、`logs/`、`.encryption-key` 同级），`ocrImage` 传 `cachePath` + `mkdirSync`（只读 CWD 诚实报错），47MB chi_sim+eng 不再污染 server CWD；`ocr.test.ts` 加 cachePath 断言 + `stubEnv DB_FILE` 到临时目录（顺带修掉测试向 cwd 建 `tessdata/` 的污染）。③ `89791ff` generic 节点 image 模态真实狗粮：generic 接 `agnes-image-2.0-flash` 真实出图 **1.75MB PNG**（run `dogfood-generic-img`），补上「generic 媒体分支零真实证据」缺口（剩 video/audio 仍零证据，受限 agnes 无音频模型）；deferred 两行同步关闭/更新。server 883→**884/884**。
 
 2. **docs Skill 体系设计文档 + 关闭 brand_terms 待办（2026-09-06，deferred 文档线还债）**——`68b62a9` 新增 [docs/design-skill.md](docs/design-skill.md)（把散落在 `skill.ts` 头注释、technical-design §11、extending §3 的决策收拢为单一事实源：设计原则 / 4 种 kind / 权限模型与演进 / source 三态 / 运行时消费链 / equips 依赖 / 内置清单 / 扩展点）+ README 索引；`c9c96ca` brand_terms 待办标记「已关闭（无需独立文档）」（用途已被 product-content-roadmap §44 + technical-design 数据模型覆盖，单独开文档属过度设计）。
 
@@ -334,6 +357,8 @@ cd apps/web && pnpm dev
 * **UI 文案**：中文，遵循 `--steel-*` / `--power` / `--ink*` / `--alert` 等设计 token，**不改主题样式**
 
 * **新增功能必加 handoff 章节**：本文件只记最近 5 个 + 待办；超过 5 个的全部进 archive
+
+* **Active work 完成项归档**：编号待办标 ✅ 后，详细过程记录滚到 [docs/handoff-archive.md](docs/handoff-archive.md)，本文件只留一行结论 + commit hash，避免无限膨胀
 
 ### ⚠️ server 重启 bug（2026-08-27 14:40 踩过）
 
