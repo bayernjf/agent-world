@@ -246,6 +246,25 @@ export default function Minimap() {
       </svg>
 
       <div className="minimap__zoom minimap__zoom--left">
+        <Tooltip content={t("canvas:zoomOut")}>
+          <button
+            className="chip"
+            onClick={() => zoomTo(1 / 1.2)}
+            disabled={viewport.zoom <= MIN_ZOOM}
+          >
+            −
+          </button>
+        </Tooltip>
+        <input
+          className="minimap__slider"
+          type="range"
+          min={MIN_ZOOM}
+          max={MAX_ZOOM}
+          step={0.01}
+          value={viewport.zoom}
+          onChange={(e) => setViewport({ ...viewport, zoom: Number(e.target.value) })}
+          aria-label={t("canvas:zoom")}
+        />
         <Tooltip content={t("canvas:zoomIn")}>
           <button
             className="chip"
@@ -256,15 +275,6 @@ export default function Minimap() {
           </button>
         </Tooltip>
         <span className="muted">{Math.round(viewport.zoom * 100)}%</span>
-        <Tooltip content={t("canvas:zoomOut")}>
-          <button
-            className="chip"
-            onClick={() => zoomTo(1 / 1.2)}
-            disabled={viewport.zoom <= MIN_ZOOM}
-          >
-            −
-          </button>
-        </Tooltip>
       </div>
       <div className="minimap__zoom minimap__zoom--right">
         <Tooltip content={t("canvas:fitView")}>

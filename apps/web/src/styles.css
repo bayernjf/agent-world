@@ -2103,6 +2103,12 @@ select {
   min-width: 34px;
   text-align: center;
 }
+.minimap__slider {
+  width: 72px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
 .minimap__zoom--right {
   position: absolute;
   left: auto;
