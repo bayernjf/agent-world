@@ -216,6 +216,13 @@ export default function Minimap() {
 
   const onWheel = (e: React.WheelEvent<SVGSVGElement>) => {
     e.preventDefault();
+    const factor = Math.exp(-e.deltaY * 0.0015);
+    if (is3d) {
+      // Zoom the 3D camera (orthographic camera.zoom), centered on the target.
+      const zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, camera3dZoom * factor));
+      requestCamera3dZoom(zoom);
+      return;
+    }
     const rect = e.currentTarget.getBoundingClientRect();
     // (cx, cy): content-space point currently under the minimap cursor.
     // Keep this point pinned under the cursor before/after zoom — same
@@ -228,7 +235,6 @@ export default function Minimap() {
       minX,
       minY,
     );
-    const factor = Math.exp(-e.deltaY * 0.0015);
     const zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, viewport.zoom * factor));
     // Current anchor position in the viewBox coordinate space.
     const anchorX = viewport.panX + cx * viewport.zoom;
