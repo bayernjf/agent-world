@@ -156,8 +156,10 @@ export default function Minimap() {
       const dx = e.clientX - d.startClientX;
       const dy = e.clientY - d.startClientY;
       if (is3d) {
-        // Minimap pixel delta → world units (XZ): dragging the rect pans the 3D camera.
-        requestCamera3dMove(d.originPanX + dx / scale, d.originPanY + dy / scale);
+        // Dragging the minimap rect pans the 3D view the same way left-dragging
+        // the canvas does (OrbitControls PAN): the scene follows the cursor, so
+        // the camera target moves opposite the pointer delta.
+        requestCamera3dMove(d.originPanX - dx / scale, d.originPanY - dy / scale);
       } else {
         // Minimap pixel delta → canvas pan delta (negated: viewport right = canvas content shift left).
         const { dx: panDX, dy: panDY } = contentDeltaFromMinimapDelta(dx, dy);
