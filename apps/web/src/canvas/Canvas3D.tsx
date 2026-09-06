@@ -22,9 +22,9 @@ import {
 import { edgeAnchors, orthogonalRoute, ROUTE_PAD, type Point } from "./geometry";
 
 /** Fixed camera pitch (angle from vertical): locks the isometric tilt.
- *  π/5 ≈ 36° is closer to classic RTS (Age of Empires) dimetric views —
- *  lower than a pure 45° isometric, so walls and roofs read as 3D volume. */
-const PITCH = Math.PI / 5;
+ *  π/3 ≈ 60° from vertical (30° above the horizon) — a low, side-on RTS angle
+ *  so walls and side faces read clearly as 3D volume. */
+const PITCH = Math.PI / 3;
 /** Horizontal yaw around the target: 225° places the camera in the left-rear
  *  quadrant, looking down toward the right/front — the classic RTS angle. */
 const YAW = (5 * Math.PI) / 4;
