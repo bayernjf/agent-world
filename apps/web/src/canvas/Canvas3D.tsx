@@ -104,9 +104,12 @@ export default function Canvas3D() {
     controls.maxPolarAngle = PITCH;
     controls.update();
 
-    const ambient = new THREE.AmbientLight(0xffffff, 0.7);
-    const dir = new THREE.DirectionalLight(0xffffff, 0.8);
-    dir.position.set(200, 400, 200);
+    const ambient = new THREE.AmbientLight(0xffffff, 0.5);
+    const dir = new THREE.DirectionalLight(0xffffff, 0.9);
+    // Light from left-rear-above so the top face is bright and the front/back
+    // faces fall into shadow, making the block faces read as 3D even in a
+    // straight-on horizontal layout.
+    dir.position.set(-300, 600, -300);
     scene.add(ambient, dir);
 
     // --- Nodes: programmatic shapes, colored by category, silhouette by kind. ---

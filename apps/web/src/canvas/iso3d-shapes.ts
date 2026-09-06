@@ -8,7 +8,7 @@ import {
 import { PLANT_H, PLANT_W } from "../store/graph";
 
 /** Height of the base node block in 3D world units. */
-export const NODE_HEIGHT = 60;
+export const NODE_HEIGHT = 120;
 /** Y the pipes (and freight) run at, level with the block mid-height. */
 export const PIPE_Y = NODE_HEIGHT / 2;
 /** Emissive color applied to the selected node. */
@@ -54,9 +54,30 @@ export function setGroupEmissive(group: THREE.Group, color: number): void {
   group.traverse((obj) => {
     const mesh = obj as THREE.Mesh;
     if (!mesh.isMesh || mesh.userData.role === "led") return;
-    const mat = mesh.material as THREE.MeshLambertMaterial;
-    if (mat && "emissive" in mat) mat.emissive.setHex(color);
+    const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    for (const mat of materials) {
+      if (mat && "emissive" in mat) (mat as THREE.MeshLambertMaterial).emissive.setHex(color);
+    }
   });
+}
+
+/** Create six materials for a box so top, sides and front/back read as 3D faces. */
+function shadedMaterials(color: number): THREE.MeshLambertMaterial[] {
+  const base = new THREE.Color(color);
+  const top = base.clone().offsetHSL(0, 0, 0.1);
+  const front = base.clone().offsetHSL(0, 0, -0.05);
+  const back = base.clone().offsetHSL(0, 0, -0.15);
+  const side = base.clone().offsetHSL(0, 0, -0.1);
+  const bottom = base.clone().offsetHSL(0, 0, -0.2);
+  // BoxGeometry face groups: +x, -x, +y, -y, +z, -z.
+  return [
+    new THREE.MeshLambertMaterial({ color: side }),
+    new THREE.MeshLambertMaterial({ color: side }),
+    new THREE.MeshLambertMaterial({ color: top }),
+    new THREE.MeshLambertMaterial({ color: bottom }),
+    new THREE.MeshLambertMaterial({ color: front }),
+    new THREE.MeshLambertMaterial({ color: back }),
+  ];
 }
 
 /** A node's 3D group: the base block, its kind-specific topper, and a status LED. */
@@ -72,7 +93,7 @@ export function buildNodeShape(kind: NodeKind): NodeShape {
 
   const base = new THREE.Mesh(
     new THREE.BoxGeometry(PLANT_W, NODE_HEIGHT, PLANT_H),
-    new THREE.MeshLambertMaterial({ color }),
+    shadedMaterials(color),
   );
   base.position.y = NODE_HEIGHT / 2;
   base.userData.role = "body";
