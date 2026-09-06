@@ -79,7 +79,7 @@
 
 | 事项                      | 缓做/低优原因                                                             | 触发条件                               | 决策详情                                                           |
 | ----------------------- | ------------------------------------------------------------------- | ---------------------------------- | -------------------------------------------------------------- |
-| Skill 体系独立设计文档          | extending.md §3（操作指南）+ core `skill.ts` 头注释（设计声明）已完整覆盖；独立设计决策文档属锦上添花 | 外部贡献者/多人协作需要设计论证文档时                | [extending.md §3](extending.md) + `packages/core/src/skill.ts` |
+| ~~Skill 体系独立设计文档~~ **已落地 2026-09-06**（[design-skill.md](design-skill.md)：设计原则 / 4 种 kind / 权限模型与演进 / source 三态 / 运行时消费链 / equips 依赖 / 内置清单 / 扩展点） | 原登记「独立文档属锦上添花」；现提前还清文档债——skill 体系已演进得较复杂（4 kind + 权限声明 + SkillMount per-mount config + source 三态 + danger 审批 + MCP 接入），决策散落三处缺单一事实源，集中成文对后续做 Skill 生态（本地 skill / 节点市场）有真实价值 | ——（已关闭，未等触发条件，登记当轮就做）                | [design-skill.md](design-skill.md) + [extending.md §3](extending.md) + `packages/core/src/skill.ts` |
 | brand\_terms（品牌术语库）设计文档 | 特性小（用户级术语 CRUD，服务内容产线），用途已在内容线专项规划中说明                               | 术语库升级为产线强依赖（如自动注入 prompt / 按产线隔离）时 | [product-content-roadmap.md](product-content-roadmap.md)       |
 
 ### 数据处理线
