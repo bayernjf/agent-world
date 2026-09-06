@@ -234,6 +234,28 @@ export default function Canvas3D() {
     renderer.domElement.addEventListener("contextmenu", preventContextMenu);
     window.addEventListener("keydown", onKeyDown);
 
+    // Fit/reset: center on the graph, restore the default yaw/pitch and zoom, and
+    // re-derive the frustum from the 2D viewport zoom (canvas aspect, so plants
+    // keep their shape instead of stretching).
+    const resetCamera = () => {
+      const xs = graph.nodes.map((n) => n.x);
+      const ys = graph.nodes.map((n) => n.y);
+      if (xs.length === 0) return;
+      const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
+      const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+      const wc = boardToWorld(cx, cy);
+      controls.target.set(wc.x, 0, wc.z);
+      camera.position.set(wc.x, 900, wc.z + 900);
+      const f = zoomToFrustum(viewport.zoom);
+      camera.left = f.left;
+      camera.right = f.right;
+      camera.top = f.top;
+      camera.bottom = f.bottom;
+      camera.zoom = 1;
+      camera.updateProjectionMatrix();
+      controls.update();
+    };
+
     let lastRunId = runtimeRef.current.runId;
     let rafId = 0;
     const loop = (now: number) => {
@@ -294,9 +316,21 @@ export default function Canvas3D() {
         ledMat.emissiveIntensity = running ? 0.5 + 0.4 * Math.sin(now * 0.006) : 0.25;
       }
 
-      controls.update();
-      // Publish the 3D zoom so the minimap view rect scales with it.
+      // Apply minimap-originated move/zoom/reset requests, then publish live state.
+      const mr = useViewMode.getState().consumeCamera3dMoveRequest();
+      if (mr) controls.target.set(mr.x, 0, mr.z);
+      const zr = useViewMode.getState().consumeCamera3dZoomRequest();
+      if (zr != null) {
+        camera.zoom = zr;
+        camera.updateProjectionMatrix();
+      }
+      if (useViewMode.getState().consumeCamera3dResetRequest()) {
+        resetCamera();
+      }
       useViewMode.getState().setCamera3dZoom(camera.zoom);
+      useViewMode.getState().setCamera3dTarget({ x: controls.target.x, z: controls.target.z });
+
+      controls.update();
       renderer.render(scene, camera);
     };
     rafId = requestAnimationFrame(loop);
