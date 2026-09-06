@@ -83,7 +83,7 @@ export default function Canvas3D() {
     }
     controls.enableRotate = true;
     controls.enablePan = true;
-    controls.enableZoom = false;
+    controls.enableZoom = true;
     // Left-drag pans the canvas; right-drag is disabled. Rotation stays on the
     // wheel (and touchpad single-finger), pan also on arrow keys below.
     controls.mouseButtons.LEFT = THREE.MOUSE.PAN;
@@ -162,7 +162,12 @@ export default function Canvas3D() {
     let downX = 0;
     let downY = 0;
     let downHitId: string | null = null;
+    let rightDown = false;
     const onPointerDown = (e: PointerEvent) => {
+      if (e.button === 2) {
+        rightDown = true;
+        return;
+      }
       if (e.button !== 0) return;
       downX = e.clientX;
       downY = e.clientY;
@@ -182,6 +187,10 @@ export default function Canvas3D() {
       }
     };
     const onPointerUp = (e: PointerEvent) => {
+      if (e.button === 2) {
+        rightDown = false;
+        return;
+      }
       if (e.button !== 0) return;
       const moved = Math.hypot(e.clientX - downX, e.clientY - downY) > 4;
       if (downHitId && !moved) {
@@ -194,9 +203,15 @@ export default function Canvas3D() {
     // Wheel and arrow keys also rotate the view horizontally (zoom stays locked).
     // Touchpad two-finger scroll emits wheel events, so it rotates too.
     const onWheel = (e: WheelEvent) => {
-      e.preventDefault();
-      controls.rotateLeft(e.deltaY * 0.0025);
+      // Right button held + wheel = horizontal rotate; plain wheel = zoom
+      // (OrbitControls handles the dolly now that enableZoom is on).
+      if (rightDown) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        controls.rotateLeft(e.deltaY * 0.0025);
+      }
     };
+    const preventContextMenu = (e: Event) => e.preventDefault();
     const onKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
       if (target.tagName === "INPUT" || target.tagName === "TEXTAREA") return;
@@ -215,7 +230,8 @@ export default function Canvas3D() {
         controls.pan(-step, 0);
       }
     };
-    renderer.domElement.addEventListener("wheel", onWheel, { passive: false });
+    renderer.domElement.addEventListener("wheel", onWheel, { passive: false, capture: true });
+    renderer.domElement.addEventListener("contextmenu", preventContextMenu);
     window.addEventListener("keydown", onKeyDown);
 
     let lastRunId = runtimeRef.current.runId;
@@ -287,7 +303,8 @@ export default function Canvas3D() {
       cancelAnimationFrame(rafId);
       renderer.domElement.removeEventListener("pointerdown", onPointerDown);
       renderer.domElement.removeEventListener("pointerup", onPointerUp);
-      renderer.domElement.removeEventListener("wheel", onWheel);
+      renderer.domElement.removeEventListener("wheel", onWheel, true);
+      renderer.domElement.removeEventListener("contextmenu", preventContextMenu);
       window.removeEventListener("keydown", onKeyDown);
       setCamera3d({
         posX: camera.position.x,
