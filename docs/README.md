@@ -50,6 +50,7 @@
 | [roadmap-generalization.md](roadmap-generalization.md)                     | 通用化路线图（当前主线，5 阶段）                                                                      | 决策者 / 开发者 ★      |
 | [deferred-items.md](deferred-items.md)                                     | 缓做/低优事项登记表（全部挂起项 + 触发条件的单一事实源）                                                         | 决策者 / 开发者 ★      |
 | [design-mcp-server.md](design-mcp-server.md)                               | MCP Server 设计（传输 / tools / resources / prompts）                                        | 开发者              |
+| [design-skill.md](design-skill.md)                                         | Skill 体系设计（技能卡：4 种 kind / 权限模型与演进 / source 三态 / 运行时消费 / 扩展点；已落地，2026-09-06 文档化） | 开发者              |
 | [design-code-sandbox.md](design-code-sandbox.md)                           | 代码节点运行沙箱设计（env / 网络 / 文件系统 / 资源 / 工作目录隔离，P0-P2）                                        | 开发者              |
 | [design-artifact-display.md](design-artifact-display.md)                   | 产物统一渲染卡设计（ArtifactCard + 渲染器注册表）                                                       | 开发者              |
 | [design-artifact-attribution-repo.md](design-artifact-attribution-repo.md) | 产物归属 + 按流水线分组成品仓库设计                                                                    | 开发者              |

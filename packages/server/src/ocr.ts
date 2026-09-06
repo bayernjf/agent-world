@@ -1,3 +1,5 @@
+import { mkdirSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import type { OcrConfig } from "@agent-world/core";
 
 export interface OcrResult {
@@ -13,6 +15,23 @@ export interface OcrResult {
  * after the first run. Overridable per node via OcrConfig.langPath.
  */
 export const DEFAULT_LANG_PATH = "https://tessdata.projectnaptha.com/4.0.0";
+
+/**
+ * On-disk cache directory for tesseract language data: `<DB dir>/tessdata`
+ * (same "everything durable lives next to the DB" pattern as `.encryption-key`,
+ * `<DB dir>/logs` and `<DB dir>/artifacts`). Without an explicit cachePath,
+ * tesseract.js writes `${lang}.traineddata` into the process CWD — a ~47MB
+ * chi_sim+eng payload polluting the repo working dir (deferred 数据处理线,
+ * previously only masked by a .gitignore entry). mkdirSync fails loudly on a
+ * read-only CWD, which the engine surfaces as an honest node failure rather
+ * than a silent fallback to a junk directory.
+ */
+function defaultTessdataDir(): string {
+  const dbFile = process.env.DB_FILE ?? "agent-world.sqlite";
+  const dir = join(dirname(resolve(dbFile)), "tessdata");
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
 
 /**
  * Worker / core assets are **not** defaulted to a CDN on purpose. Under Node,
@@ -65,7 +84,12 @@ export async function ocrImage(image: Buffer, cfg: OcrConfig): Promise<OcrResult
   // A graph author must not make tesseract load JS/WASM from an arbitrary
   // (potentially internal) URL — local paths and the allowlisted CDNs only.
   assertOcrSource("langPath", langPath);
-  const options: Parameters<typeof Tesseract.createWorker>[2] = { langPath, gzip: true };
+  const options: Parameters<typeof Tesseract.createWorker>[2] = {
+    langPath,
+    gzip: true,
+    // Cache downloaded language packs under the data dir instead of the CWD.
+    cachePath: defaultTessdataDir(),
+  };
   // Explicit overrides stay for browser/self-hosted deployments; unset means
   // "let tesseract.js resolve its own bundled assets" (the only thing Node accepts).
   if (cfg.workerPath) {
