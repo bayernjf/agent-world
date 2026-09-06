@@ -53,7 +53,7 @@
 2. **定时 / 事件触发（4.6）** —— ✅ 已落地（2026-09-01）。webhook/cron/event/batch 全落地，修复 event 成功状态 `done` 契约 bug；与 Connector 组合即无人值守产线（已端到端验证，2026-09-02 触发层全型实跑零缺陷）。剩余仅多实例分布式锁（deferred）。
 3. **模板体系扩充** —— ✅ 已完成（2026-09-01）。从 18 个扩充到 27 个业务模板（客服工单、代码审查、数据报表、合同审查、课程大纲、旅游行程、菜谱、证据清单整理、费用报销初审）；blankGraph 独立为 BLANK_TEMPLATE，不计入模板数；分类收口为 core `TEMPLATE_CATEGORIES` 有序 11 类，选择器按分类分组展示、空白钉最前 — [design-templates.md](design-templates.md) §6。
 4. **README 演示 GIF** —— ✅ 已完成（2026-09-01）。时间轴回放映示 GIF 已放入 README，替换 TODO 注释位。
-5. **真实产线狗粮验证** —— ✅ 已完成（2026-09-02）。27/27 模板全覆盖，9 波验证修复 20+ 产品缺陷；剩余 2 个 🟡 为环境侧阻塞（缺 TTS 供应商、缺搜索源 API key），产品侧无待修项 — [template-checklist.md](template-checklist.md)。
+5. **真实产线狗粮验证** —— ✅ 已完成（2026-09-02 起）。27/27 → 33 模板全覆盖，9 波验证修复 20+ 产品缺陷；剩余仅 1 个 🟡 为环境侧阻塞（缺 TTS 供应商；search 已于 2026-09-06 真实取证解锁），产品侧无待修项 — [template-checklist.md](template-checklist.md)。
 6. **web 前端组件测试** —— ✅ 已完成（2026-09-03）。从 176 个纯逻辑测试（零组件测试）推进到 **1460 个测试**，其中组件测试 **1223 个**，覆盖 **39 个组件**。分四批推进：P0（5 组件/112 用例）、P1（5 组件/174 用例）、P2（10 组件/285 用例）、P3（19 组件/652 用例）。基础设施 @testing-library/react + jsdom + vitest.config.ts + setup.ts + utils.tsx。过程中发现并修复 Inspector.tsx 可选链 bug。全量 1460/1460 稳定通过，56 个测试文件 — [web-component-testing-plan.md](web-component-testing-plan.md)。
 7. **设计 Token 体系完善** —— ✅ 已完成（2026-09-03）。Primitive 层（间距/圆角/阴影/字号/行高/字重/动画）+ Semantic 层（背景/文字/边框/功能色/accent/语义间距圆角阴影）+ 明暗主题切换（`[data-theme="light"]`）全部落地，保留原有 26 个 token 向后兼容。**渐进式迁移已完成（30 批）**：styles.css 全局样式全部迁移到 semantic token，全量 1460 测试每批验证通过无回归 — [design-design-tokens.md](design-design-tokens.md)。
 8. **i18n 国际化** —— ✅ 已完成（2026-09-03 立项 → 2026-09-04 收尾全部完成）。i18next + react-i18next + 7 命名空间 + 完整 zh/en 双语翻译包（1800+ keys）+ 语言自动检测 + localStorage 持久化全部落地；组件迁移 41/41 组件 + 顶层 App.tsx；Inspector 内 29 种节点配置字段（约 250 处）全部迁入 nodes.inspector（Inspector.tsx 341 处 t() 调用，keys.test 硬编码中文守护通过）；语言切换 UI（LanguageSwitcher）落地；本地化格式 i18n/utils.ts（formatDate/DateTime/Number/Currency/RelativeTime，基于 Intl）落地 — [design-i18n.md](design-i18n.md)。
@@ -62,7 +62,7 @@
 11. **合规/运营能力批次** —— ✅ 已完成（2026-09-05 立项并实施）。围绕「用户存的 key 能否合规安全保存」评估后补齐六份方案并实施五项：RBAC P0-P3（design-rbac.md，详见进度快照行）、审计日志 P1+P2（design-audit-log.md）、服务端日志 P1+P2+P3（design-logging.md）、公告 P1+P2（design-announcement.md）、用户反馈 P1+P2（design-feedback.md）。仅密钥轮换（design-key-rotation.md）定稿未实施（触发：合规准备启动）；各 P3 项（审计 180 天清理 + hash chain、公告 target 定向、反馈→公告联动）按 deferred-items 触发条件推进。
 12. **文档穿插（4.8）** —— 基本完成（2026-09-01 盘点后核心设计文档覆盖全部已落地模块；低优余项见 deferred-items 文档线）。
 13. **低优 / 缓做** —— 沙箱 docker 容器后端、模板/节点市场、版本 diff 视图、状态机、监控告警大盘、多租户、Notion/Linear/内容平台集成、Excel 读写、HTML→PDF。触发条件见 [deferred-items.md](deferred-items.md)。
-14. **商业化** —— 放后面，决策基线见 [PRODUCT_STRATEGY.md](PRODUCT_STRATEGY.md)。
+14. **商业化** —— **方案已设计（2026-09-06）**，见 [design-monetization.md](design-monetization.md)（三层计费 / 套餐 / 订阅 gate / 企业版 / P0-P3；实施未启动）；决策基线见 [PRODUCT_STRATEGY.md](PRODUCT_STRATEGY.md)。
 
 ---
 
