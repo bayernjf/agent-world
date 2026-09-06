@@ -194,10 +194,19 @@ function probeNodePermissionGate(interpreterPath: string): string {
   // code node in a process, and each flag costs up to `timeout` ms of blocked
   // event loop — on a loaded CI runner two 5s probes can eat a test's whole
   // wall-clock budget (2026-09-01, PR #98). A healthy Node answers in <100ms.
+  //
+  // Probe under a clean env: the actual code-node child is spawned via
+  // trimEnv(), which drops NODE_OPTIONS. A host NODE_OPTIONS `--require`
+  // (e.g. an IDE language shim) needs fs read at startup, which the
+  // permission model denies by default — so probing with the inherited env
+  // falsely reports "no gate" and then the allow-* flags crash the child.
+  const cleanEnv = { ...process.env } as Record<string, string | undefined>;
+  delete cleanEnv.NODE_OPTIONS;
   for (const flag of ["--permission", "--experimental-permission"]) {
     const r = spawnSync(interpreterPath, [flag, "-e", "process.exit(0)"], {
       encoding: "utf8",
       timeout: 3000,
+      env: cleanEnv,
     });
     if (r.status === 0) {
       nodePermissionGateCache.set(interpreterPath, flag);
@@ -227,10 +236,17 @@ export function buildNodePermissionArgs(params: {
   const { interpreterPath, workdir, limits, extraFsReadPaths = [] } = params;
   const gate = probeNodePermissionGate(interpreterPath);
   const args: string[] = [];
-  if (gate !== "none") args.push(gate);
-  args.push(`--allow-fs-read=${workdir}`);
-  for (const p of extraFsReadPaths) args.push(`--allow-fs-read=${p}`);
-  args.push(`--allow-fs-write=${workdir}`);
+  // Node ≥ 22.2 requires a --permission gate before any --allow-* flag; an
+  // --allow-* flag alone aborts the child with ERR_MISSING_OPTION. When the
+  // runtime has no permission model at all (gate === "none"), emit no
+  // --allow-* flags — they'd be both meaningless and fatal. The V8 heap cap
+  // is permission-independent and always applied.
+  if (gate !== "none") {
+    args.push(gate);
+    args.push(`--allow-fs-read=${workdir}`);
+    for (const p of extraFsReadPaths) args.push(`--allow-fs-read=${p}`);
+    args.push(`--allow-fs-write=${workdir}`);
+  }
   args.push(`--max-old-space-size=${limits.nodeMaxOldSpaceMb}`);
   return args;
 }

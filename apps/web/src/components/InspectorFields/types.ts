@@ -1,6 +1,6 @@
 import type { Graph, GraphNode } from "@agent-world/core";
 import type { TFunction } from "i18next";
-import type { Modality } from "../../lib/api";
+import type { AppConfig, Modality } from "../../lib/api";
 
 /** A flattened model option shown in the per-node model selects. */
 export interface ModelOption {
@@ -30,4 +30,6 @@ export interface FieldsProps {
   graphs: { id: string; name: string }[];
   duplicateLanes: (fanoutId: string) => void;
   arrangeLanes: (fanoutId: string) => void;
+  /** User-level search service (Settings → 搜索服务), used to gate the search node's provider choices. */
+  searchConfig?: AppConfig["searchConfig"];
 }
