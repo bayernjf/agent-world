@@ -14,6 +14,8 @@ export const NODE_HEIGHT = 50;
 export const PIPE_Y = NODE_HEIGHT / 2;
 /** Radius of the solid 3D pipe (tube) drawn for each edge. */
 export const PIPE_RADIUS = 3;
+/** Ground-plane rotation of every node (radians), so a straight-on view reveals side faces. */
+export const NODE_ROTATION = Math.PI / 8;
 /** Emissive color applied to the selected node. */
 export const SELECT_COLOR = 0xffd54a;
 
@@ -102,9 +104,9 @@ export function buildNodeShape(kind: NodeKind): NodeShape {
   base.userData.role = "body";
   group.add(base);
 
-  // Rotate the whole node 22.5° on the ground plane to reveal a side face
+  // Rotate the whole node on the ground plane to reveal a side face
   // without turning the footprint into a sharp diamond.
-  group.rotation.y = Math.PI / 8;
+  group.rotation.y = NODE_ROTATION;
 
   // Status LED, mounted on the front face's top edge so it never fights the topper.
   const led = new THREE.Mesh(

@@ -12,6 +12,7 @@ import { VIEW_H, VIEW_W } from "./board";
 import {
   buildNodeShape,
   NODE_HEIGHT,
+  NODE_ROTATION,
   PIPE_RADIUS,
   PIPE_Y,
   SELECT_COLOR,
@@ -163,6 +164,7 @@ export default function Canvas3D() {
 
     // --- Edges: orthogonal routes (same geometry the 2D canvas draws). ---
     const anchors = edgeAnchors(graph);
+    const nodeById = new Map(graph.nodes.map((n) => [n.id, n]));
     const obstacles = graph.nodes.map((n) => ({
       id: n.id,
       x0: n.x - PLANT_W / 2 - ROUTE_PAD,
@@ -170,16 +172,28 @@ export default function Canvas3D() {
       x1: n.x + PLANT_W / 2 + ROUTE_PAD,
       y1: n.y + PLANT_H / 2 + ROUTE_PAD,
     }));
+    // Rotate an anchor around its node's center so it lands on the rotated
+    // node's face (3D blocks are rotated NODE_ROTATION on the ground plane).
+    const rotateAnchor = (center: { x: number; y: number } | undefined, p: Point): Point => {
+      if (!center) return p;
+      const dx = p.x - center.x;
+      const dy = p.y - center.y;
+      const c = Math.cos(NODE_ROTATION);
+      const s = Math.sin(NODE_ROTATION);
+      return { x: center.x + dx * c + dy * s, y: center.y - dx * s + dy * c };
+    };
     const edgePaths = new Map<string, EdgePath>();
     const edgeGroup = new THREE.Group();
     for (const e of graph.edges) {
       const a = anchors.get(e.id);
       if (!a) continue;
+      const af = rotateAnchor(nodeById.get(e.from), a.from);
+      const at = rotateAnchor(nodeById.get(e.to), a.to);
       let route: Point[];
       if (e.kind === "rework") {
-        route = [a.from, a.to];
+        route = [af, at];
       } else {
-        route = orthogonalRoute(a.from, a.to, obstacles.filter((o) => o.id !== e.from && o.id !== e.to));
+        route = orthogonalRoute(af, at, obstacles.filter((o) => o.id !== e.from && o.id !== e.to));
       }
       const points = route.map((p) => {
         const w = boardToWorld(p.x, p.y);
