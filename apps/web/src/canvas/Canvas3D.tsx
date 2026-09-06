@@ -4,10 +4,11 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { ARTIFACT_COLORS } from "@agent-world/core";
 import { useGraph } from "../store/graph";
 import { PLANT_H, PLANT_W } from "../store/graph";
-import { useCanvas } from "../store/canvas";
+import { MAX_ZOOM, MIN_ZOOM, useCanvas } from "../store/canvas";
 import { useViewMode } from "../store/view-mode";
 import { useVisibleRuntime } from "../store/run";
 import { boardToWorld, viewportCenterToWorld, xzPolyline, xzPolylinePointAt, zoomToFrustum, type XZPolyline } from "./iso3d";
+import { VIEW_H, VIEW_W } from "./board";
 import {
   buildNodeShape,
   NODE_HEIGHT,
@@ -241,17 +242,28 @@ export default function Canvas3D() {
       const xs = graph.nodes.map((n) => n.x);
       const ys = graph.nodes.map((n) => n.y);
       if (xs.length === 0) return;
-      const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
-      const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+      const PAD = 24;
+      const minX = Math.min(...xs) - PLANT_W / 2 - PAD;
+      const maxX = Math.max(...xs) + PLANT_W / 2 + PAD;
+      const minY = Math.min(...ys) - PLANT_H / 2 - PAD;
+      const maxY = Math.max(...ys) + PLANT_H / 2 + PAD;
+      const bw = Math.max(maxX - minX, 1);
+      const bh = Math.max(maxY - minY, 1);
+      const cx = (minX + maxX) / 2;
+      const cy = (minY + maxY) / 2;
       const wc = boardToWorld(cx, cy);
       controls.target.set(wc.x, 0, wc.z);
       camera.position.set(wc.x, 900, wc.z + 900);
+      // Fit the whole graph (plus padding) into the visible frustum. The frustum
+      // stays tied to the 2D viewport.zoom; camera.zoom supplies the rest, so the
+      // total scale (viewport.zoom * camera.zoom) equals min(VIEW_W/bw, VIEW_H/bh).
       const f = zoomToFrustum(viewport.zoom);
       camera.left = f.left;
       camera.right = f.right;
       camera.top = f.top;
       camera.bottom = f.bottom;
-      camera.zoom = 1;
+      const fitZoom = Math.min(VIEW_W / bw, VIEW_H / bh);
+      camera.zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, fitZoom / viewport.zoom));
       camera.updateProjectionMatrix();
       controls.update();
     };
