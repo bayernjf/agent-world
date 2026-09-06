@@ -208,8 +208,6 @@ export default function Minimap() {
     <>
       <div className="minimap">
         <svg
-          width={MAP}
-          height={MAP}
           viewBox={`0 0 ${MAP} ${MAP}`}
           onPointerDown={onBackgroundPointerDown}
           onWheel={onWheel}
