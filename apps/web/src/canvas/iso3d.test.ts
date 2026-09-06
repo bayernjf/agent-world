@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { boardToWorld, viewportCenterToWorld, worldToBoard, zoomToFrustum } from "./iso3d";
+import {
+  boardToWorld,
+  viewportCenterToWorld,
+  worldToBoard,
+  xzPolyline,
+  xzPolylinePointAt,
+  zoomToFrustum,
+} from "./iso3d";
 import { VIEW_H, VIEW_W } from "./board";
 
 describe("iso3d coordinate mapping", () => {
@@ -33,5 +40,48 @@ describe("iso3d coordinate mapping", () => {
     });
     expect(zoomToFrustum(2).right).toBe(VIEW_W / 4);
     expect(zoomToFrustum(2).top).toBe(VIEW_H / 4);
+  });
+});
+
+describe("iso3d polyline", () => {
+  it("accumulates segment lengths", () => {
+    // 3-4-5 triangle in the XZ plane.
+    const line = xzPolyline([
+      { x: 0, z: 0 },
+      { x: 3, z: 0 },
+      { x: 3, z: 4 },
+    ]);
+    expect(line.cum).toEqual([0, 3, 7]);
+    expect(line.total).toBe(7);
+  });
+
+  it("places a point mid-segment with the correct heading", () => {
+    const line = xzPolyline([
+      { x: 0, z: 0 },
+      { x: 10, z: 0 },
+      { x: 10, z: 10 },
+    ]);
+    // 5 units in: still on the first (horizontal) segment, heading +X.
+    expect(xzPolylinePointAt(line, 5)).toEqual({ x: 5, z: 0, angle: 0 });
+    // 15 units in: 5 units along the vertical segment, heading +Z.
+    const at = xzPolylinePointAt(line, 15);
+    expect(at.x).toBe(10);
+    expect(at.z).toBeCloseTo(5);
+    expect(at.angle).toBeCloseTo(Math.PI / 2);
+  });
+
+  it("clamps distance to the polyline bounds", () => {
+    const line = xzPolyline([
+      { x: 0, z: 0 },
+      { x: 0, z: 4 },
+    ]);
+    expect(xzPolylinePointAt(line, -5)).toEqual({ x: 0, z: 0, angle: Math.PI / 2 });
+    expect(xzPolylinePointAt(line, 99)).toEqual({ x: 0, z: 4, angle: Math.PI / 2 });
+  });
+
+  it("handles a degenerate single-point polyline", () => {
+    const line = xzPolyline([{ x: 2, z: 3 }]);
+    expect(line.total).toBe(0);
+    expect(xzPolylinePointAt(line, 1)).toEqual({ x: 2, z: 3, angle: 0 });
   });
 });
