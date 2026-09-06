@@ -89,14 +89,17 @@ export default function Minimap() {
   const vh = VIEW_H / viewport.zoom;
   const vx = -viewport.panX / viewport.zoom;
   const vy = -viewport.panY / viewport.zoom;
-  // Clamp the view rect to the minimap so it never spills outside the SVG and
-  // never grows past it — keeps every plant inside the rect at every zoom.
-  const viewW = Math.min(vw * scale * nodeFactor, MAP);
-  const viewH = Math.min(vh * scale * nodeFactor, MAP);
-  // In 3D the view rect tracks the 3D camera target instead of the 2D viewport.
+  // In 3D the view rect tracks the 3D camera target; size it to the graph bounds
+  // (not the 2D viewport) so every plant sits centered inside the rect.
   const centerBoard = is3d && camera3dLive
     ? worldToBoard(camera3dLive.targetX, camera3dLive.targetZ)
     : { x: vx, y: vy };
+  const viewW = is3d
+    ? Math.min(bw * scale * nodeFactor, MAP)
+    : Math.min(vw * scale * nodeFactor, MAP);
+  const viewH = is3d
+    ? Math.min(bh * scale * nodeFactor, MAP)
+    : Math.min(vh * scale * nodeFactor, MAP);
 
   // Pan delta to content-space delta: dpix (SVG user) = dcontent * zoom.
   // Minimap content delta minimap-pixels / scale → graph units → * zoom → pan delta.
