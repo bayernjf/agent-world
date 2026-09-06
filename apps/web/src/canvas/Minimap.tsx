@@ -245,7 +245,7 @@ export default function Minimap() {
         />
       </svg>
 
-      <div className="minimap__zoom minimap__zoom--left">
+      <div className="minimap__zoom">
         <Tooltip content={t("canvas:zoomOut")}>
           <button
             className="chip"
@@ -275,8 +275,7 @@ export default function Minimap() {
           </button>
         </Tooltip>
         <span className="muted">{Math.round(viewport.zoom * 100)}%</span>
-      </div>
-      <div className="minimap__zoom minimap__zoom--right">
+        <span className="minimap__zoom-sep" aria-hidden="true" />
         <Tooltip content={t("canvas:fitView")}>
           <button className="chip" onClick={fitScreen}>
             {t("canvas:fit")}

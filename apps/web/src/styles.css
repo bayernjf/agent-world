@@ -2079,9 +2079,6 @@ select {
   vector-effect: non-scaling-stroke;
 }
 .minimap__zoom {
-  position: absolute;
-  left: var(--gap-md);
-  bottom: var(--gap-md);
   display: flex;
   align-items: center;
   gap: var(--space-1);
@@ -2109,15 +2106,11 @@ select {
   accent-color: var(--text-secondary);
   cursor: pointer;
 }
-.minimap__zoom--right {
-  position: absolute;
-  left: auto;
-  right: var(--gap-md);
-  bottom: var(--gap-md);
-}
-.minimap__zoom--right .chip {
-  padding: 1px var(--space-2);
-  min-width: auto;
+.minimap__zoom-sep {
+  width: 1px;
+  height: 16px;
+  background: var(--border-primary);
+  margin: 0 var(--space-1);
 }
 
 /* ---------- toast (center pop-up, one-click copy on the right) ---------- */
