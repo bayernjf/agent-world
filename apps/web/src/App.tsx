@@ -902,6 +902,7 @@ export default function App() {
               <CanvasToolbar onError={showError} />
               <button
                 className="btn btn--ghost"
+                style={{ width: "auto", flexShrink: 0 }}
                 onClick={toggleViewMode}
                 title={viewMode === "2d" ? t("canvas:view3d") : t("canvas:view2d")}
               >
