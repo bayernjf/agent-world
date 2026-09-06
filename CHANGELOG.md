@@ -6,6 +6,10 @@ All notable changes are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **搜索服务按源绑定凭证 + 节点 gating** — `searchConfig` 从单一扁平 `apiKey`/`cx` 升级为按搜索源独立绑定（`tavily.apiKey`/`serpapi.apiKey`/`google.apiKey`+`cx`），切换搜索源不再丢失或串用其他源的 key；凭证解析按源隔离（跨源绝不复用，`userSlot` 只取当前源槽）。Settings → 搜索服务按所选源展示对应 key 输入框（并提示其他源配置状态）；search 节点下拉只可选已配置 key 的源（未配源置灰 + 直达设置入口）；旧扁平凭证读时自动迁入对应源槽。本地开发不再依赖 `.env` 的 `TAVILY_API_KEY`。
+- **连接器数据插值** — `ResolvedMaterial.data?` 通用通道 + `sourceMeta` 旁路 Map + 快捷名注册表（`product`/`products`）+ `buildSourceBrief(fallbacks)` 留空回填/手填覆写 + 简报 8 字段 `${product.*}` 插值；机制行业无关，product 为首个消费者。详见 [docs/design-data-interpolation.md](docs/design-data-interpolation.md)。
+- **Skill 体系设计文档** — 收拢散落三处的 skill 决策（设计原则 / 4 种 kind / 权限模型 / source 三态 / 扩展点）为单一事实源。详见 [docs/design-skill.md](docs/design-skill.md)。
+- **商业化详细实施方案** — 把 PRODUCT_STRATEGY 的「方向」落成可实施规格：三层计费模型（内置模型订阅制 / 自定义模型 BYOK / 平台资源）+ 套餐档位 + 配额与订阅 gate（`subscriptions`/`usage_ledger` 表 + `enforceSubscription()` 挂点）+ 账单支付 + 企业版能力 + P0-P3 分阶段路线（方案已设计，未实施）。详见 [docs/design-monetization.md](docs/design-monetization.md)。
 - **公告 target 定向（P3）** — `announcements.target` 三态生效：NULL=全员 / `graph:<id>`=能打开该产线的用户（owner/editor/viewer 均命中，复用 RBAC 判定）/ `template:<id>`=自有或被共享了该模板产线的用户（`db.userUsesTemplate`）。`GET /api/announcements` 服务端按受众过滤并下发 `target` 字段；未知前缀 fail-closed（谁都看不见，含历史脏数据 `role:admin`），写入侧只放行两种合法形态（400）；`/manage` 全量列表带 target 供编辑回显。入口级展示：模板卡「有公告」warning 角标（Tooltip 显示公告标题，NewGraphDialog/Onboarding 生效）+ 打开定向产线时 header 下方 dismissable 横幅（`GraphAnnouncementBar`）；AnnouncementManager 表单支持全员/按模板（33 模板下拉）/按产线（graph id 输入）三种受众，列表行显示受众徽标。详见 [docs/design-announcement.md](docs/design-announcement.md)。
 - **密钥轮换（at-rest 主密钥，P1+P2+P3）** — keyring（`AGENT_WORLD_ENCRYPTION_KEYS` 逗号有序列表，第一个为加密密钥，其余仅解密；`.encryption-keys` JSON 数组文件模式，旧单值 env/文件等价兼容）+ `enc:v2:<keyId>:` 密文格式（keyId = 密钥材料前 6 hex，解密按 id 路由，未知 id fail-closed；v1 旧密文逐 key 尝试，全兼容）+ 重加密收敛工具 `scripts/rotate-reencrypt.ts`（覆盖 settings.data / publish_targets.config_encrypted / graphs.doc / graph_versions.snapshot / runs.snapshot 五密文面；幂等可续跑、坏密文点名行中止、`--dry-run` 预检、`--table` 分批、residue 报告 + 退出码门禁「可删旧密钥」；顺手补封 whole-column 历史明文行）+ 运维手册 [docs/runbooks/key-rotation.md](docs/runbooks/key-rotation.md)（定期轮换五步 / 泄露应急 / 常见错误排查 / 验证清单）。详见 [docs/design-key-rotation.md](docs/design-key-rotation.md)。
 - **用户反馈（P1+P2+P3）** — `feedback` 表（迁移 33）+ `POST /api/feedback`（消息 ≤2000 字符 + 分类白名单 + 服务端上下文白名单二次脱敏 + 截图 base64 ≤1MB + 每用户滚动小时 10 条限流）+ owner/admin 管理端（列表 / 三态流转 / 附件端点，cookie 认证支持 `<img src>`）+ 前端 `FeedbackModal`（分类 + 粘贴截图 + 诊断信息勾选）+ UserMenu「反馈」入口 + AdminPanel 反馈 tab；P3 反馈→公告联动：`POST /api/feedback/announce` 单请求合并同类反馈为产品公告并批量关闭（fail-closed 校验 + 幂等跳过已关闭项 + `feedback.announce` 审计），AdminPanel 多选 + 合并表单（主分类/条数模板预填 + 消息摘要折叠）。详见 [docs/design-feedback.md](docs/design-feedback.md)。
@@ -29,6 +33,10 @@ All notable changes are documented here. The format is based on
 ### Changed
 - **核心文件重构（行为零变化）** — `engine.ts` 4954→1828 行：29 种节点执行体迁至 `packages/server/src/nodes/`（28 个 handler + `NodeRunContext` + `NODE_HANDLERS` 注册表分发）；`Inspector.tsx` 3848→611 行：节点配置面板拆至 `InspectorFields/` 27 文件 + 注册表分发。详见 [docs/design-refactor-engine-inspector.md](docs/design-refactor-engine-inspector.md)。
 - 模板总数从 27 增至 33（覆盖 29 种节点类型中的 23 种）
+
+### Fixed
+- **代码沙箱 Node 权限门控探测** — `probeNodePermissionGate` 剥离 `NODE_OPTIONS` 后探测（宿主 `--require` 语言 shim 需要 fs 读、被权限模型默认拒绝，导致误判「无权限模型」）；`--allow-fs-*` 只在检测到 `--permission`/`--experimental-permission` 门控后才发出，杜绝 Node ≥ 22.2 下「无门控的 allow 参数」触发 `ERR_MISSING_OPTION` 崩溃。详见 [docs/design-code-sandbox.md](docs/design-code-sandbox.md)。
+- **tesseract 语言包缓存目录** — 从 server 进程 CWD 改到 `<DB dir>/tessdata`（与 `artifacts/`、`logs/`、`.encryption-key` 同级），47MB chi_sim+eng 不再污染 CWD。
 
 ## [0.3.0] - 2026-08-29
 

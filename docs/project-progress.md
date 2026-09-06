@@ -25,11 +25,11 @@
 | 模板体系 | 97% | 🟡 主体完成 | 33 个实用模板覆盖 29 种节点类型中的 23 种（database / subprocess 无模板）；分类收口为 core `TEMPLATE_CATEGORIES` 有序 11 类，选择器按分类分组展示、空白钉最前（法律合规「合同审查」+「证据清单整理」+「隐私政策合规审查」+「批量合同审查」+「尽调清单」、财务审计「费用报销初审」+「银行流水对账」+「发票批量 OCR 台账」+「审计抽样底稿」）+ TemplateField 参数化全链路 + 空白产线入口（BLANK_TEMPLATE 独立导出，不计入模板数）；模板市场（发布/安装）缓做 — [design-templates.md](design-templates.md) |
 | Phase 4 高级编排 | 92% | 🟡 主体完成 | 6/7 项落地：并行聚合 / subprocess / error 边+catch / AI Agent 工具循环 / human 审批 / 变量持久化；**状态机缓做** — [phase4-design.md](phase4-design.md) |
 | 版本管理补强 | 95% | 🟡 主体完成 | 自动快照 + run 关联 hash + 恢复预览；**A/B 实验已作为独立特性落地**（design-ab-testing.md）；仅剩 diff 视图缓做 — [design-versions.md](design-versions.md) |
-| 真实产线狗粮验证 | 100% | ✅ 已完成 | **33 个模板全覆盖**（历史 27/27 基线 + 2026-09-04 专业服务 9 个新模板逐一真实狗粮；剩 2 🟡 环境侧阻塞）；29 种节点类型均有运行记录（新增 4 种电商节点为引擎级测试覆盖）；四类自动触发（cron/webhook/event/batch）全部真实取证；**README 演示 GIF 已完成（2026-09-01，时间轴回放）**；9 波验证共修复 20+ 产品缺陷（静默成功/静默失败、测试与产品契约脱节、引擎级调度缺陷、凭证安全、稳定性）；`search` 成功路径 2026-09-06 已真实取证（Tavily 3 条结果）；剩余仅 `audioGen` 成功路径证据（缺 TTS 供应商，环境侧阻塞）。搜索凭证改在「设置 · 搜索服务」按源独立绑定（节点只可选已配 key 的源） — [template-checklist.md](template-checklist.md) |
-| 文档完善 | 75% | 🟢 基本完成 | 核心设计文档齐；2026-09-01 完成文档-代码覆盖盘点：补齐知识记忆/A-B 设计文档、修正 technical-design 时效；handoff 最近 5 条 hash 已核实回填；**2026-09-03 新增设计 token 与 i18n 方案文档**（design-design-tokens.md / design-i18n.md）；**2026-09-05 新增合规运营批次六份方案**（design-key-rotation / design-audit-log / design-logging / design-announcement / design-feedback / design-rbac，均已登记 docs/README.md 索引并同步实施状态）；**2026-09-06 新增 Skill 体系设计文档**（design-skill.md，收拢散落三处的 skill 决策为单一事实源）+ brand_terms 待办关闭（用途已由 product-content-roadmap §44 覆盖，无需独立文档）+ 连接器数据插值 / tesseract cachePath / generic image 狗粮的文档状态同步 |
+| 真实产线狗粮验证 | 100% | ✅ 已完成 | **33 个模板全覆盖**（历史 27/27 基线 + 2026-09-04 专业服务 6 个新模板逐一真实狗粮）；29 种节点类型均有运行记录（新增 4 种电商节点为引擎级测试覆盖）；四类自动触发（cron/webhook/event/batch）全部真实取证；**README 演示 GIF 已完成（2026-09-01，时间轴回放）**；9 波验证共修复 20+ 产品缺陷（静默成功/静默失败、测试与产品契约脱节、引擎级调度缺陷、凭证安全、稳定性）；`search` 成功路径 2026-09-06 已真实取证（Tavily 3 条结果）；剩余仅 `audioGen` 成功路径证据（缺 TTS 供应商，环境侧阻塞）。搜索凭证改在「设置 · 搜索服务」按源独立绑定（节点只可选已配 key 的源） — [template-checklist.md](template-checklist.md) |
+| 文档完善 | 75% | 🟢 基本完成 | 核心设计文档齐；2026-09-01 完成文档-代码覆盖盘点：补齐知识记忆/A-B 设计文档、修正 technical-design 时效；handoff 最近 5 条 hash 已核实回填；**2026-09-03 新增设计 token 与 i18n 方案文档**（design-design-tokens.md / design-i18n.md）；**2026-09-05 新增合规运营批次六份方案**（design-key-rotation / design-audit-log / design-logging / design-announcement / design-feedback / design-rbac，均已登记 docs/README.md 索引并同步实施状态）；**2026-09-06 新增 Skill 体系设计文档**（design-skill.md，收拢散落三处的 skill 决策为单一事实源）+ brand_terms 待办关闭（用途已由 product-content-roadmap §44 覆盖，无需独立文档）+ 连接器数据插值 / tesseract cachePath / generic image 狗粮的文档状态同步 + **商业化详细实施方案**（design-monetization.md：三层计费 / 套餐 / 订阅 gate / 账单 / 企业版 / 启动前置 / P0-P3，方案已设计未实施）+ technical-design 补 search 节点契约 |
 | 自动数据接入 Connector | 70% | 🟡 主体完成 | file/http/form/manual 已落地；**SQLite database connector 已落地（2026-09-01，见 design-connector-database.md）**；**连接器结构化数据进插值上下文已落地（2026-09-05，`${product.name}` / 简报留空回填库值，见 design-data-interpolation.md）**；剩 PG/MySQL 驱动接续（deferred） |
 | 定时 / 事件触发 | 95% | 🟢 基本完成 | webhook/cron/event/batch 全落地（TriggersPanel+scheduler+27 测试）；**2026-09-01 修复 event 成功状态契约 bug**（见 design-triggers.md）；**2026-09-02 触发层全型实跑零缺陷**（webhook 401 诚实拒绝/batch 3 行并发/event 自动级联/cron 无人值守闭环，均有真实 run 取证）；多实例分布式锁 deferred |
-| 商业化（定价/变现） | 5% | ⚪ 待启动 | 按产品决策**放后面** — [PRODUCT_STRATEGY.md](PRODUCT_STRATEGY.md) |
+| 商业化（定价/变现） | 10% | ⚪ 待启动 | **2026-09-06 详细实施方案已设计**（[design-monetization.md](design-monetization.md)：三层计费 / 套餐档位 / 订阅 gate / 账单 / 企业版 / P0-P3 路线），**实施未启动**（先跑成本计量再定价）；按产品决策放后面 — [PRODUCT_STRATEGY.md](PRODUCT_STRATEGY.md) |
 
 图例：✅ 已完成 · 🟡 主体完成（有缓做子项）· 🔵 进行中 · ⚪ 待启动
 
@@ -53,7 +53,7 @@
 2. **定时 / 事件触发（4.6）** —— ✅ 已落地（2026-09-01）。webhook/cron/event/batch 全落地，修复 event 成功状态 `done` 契约 bug；与 Connector 组合即无人值守产线（已端到端验证，2026-09-02 触发层全型实跑零缺陷）。剩余仅多实例分布式锁（deferred）。
 3. **模板体系扩充** —— ✅ 已完成（2026-09-01）。从 18 个扩充到 27 个业务模板（客服工单、代码审查、数据报表、合同审查、课程大纲、旅游行程、菜谱、证据清单整理、费用报销初审）；blankGraph 独立为 BLANK_TEMPLATE，不计入模板数；分类收口为 core `TEMPLATE_CATEGORIES` 有序 11 类，选择器按分类分组展示、空白钉最前 — [design-templates.md](design-templates.md) §6。
 4. **README 演示 GIF** —— ✅ 已完成（2026-09-01）。时间轴回放映示 GIF 已放入 README，替换 TODO 注释位。
-5. **真实产线狗粮验证** —— ✅ 已完成（2026-09-02）。27/27 模板全覆盖，9 波验证修复 20+ 产品缺陷；剩余 2 个 🟡 为环境侧阻塞（缺 TTS 供应商、缺搜索源 API key），产品侧无待修项 — [template-checklist.md](template-checklist.md)。
+5. **真实产线狗粮验证** —— ✅ 已完成（2026-09-02 起）。27/27 → 33 模板全覆盖，9 波验证修复 20+ 产品缺陷；剩余仅 1 个 🟡 为环境侧阻塞（缺 TTS 供应商；search 已于 2026-09-06 真实取证解锁），产品侧无待修项 — [template-checklist.md](template-checklist.md)。
 6. **web 前端组件测试** —— ✅ 已完成（2026-09-03）。从 176 个纯逻辑测试（零组件测试）推进到 **1460 个测试**，其中组件测试 **1223 个**，覆盖 **39 个组件**。分四批推进：P0（5 组件/112 用例）、P1（5 组件/174 用例）、P2（10 组件/285 用例）、P3（19 组件/652 用例）。基础设施 @testing-library/react + jsdom + vitest.config.ts + setup.ts + utils.tsx。过程中发现并修复 Inspector.tsx 可选链 bug。全量 1460/1460 稳定通过，56 个测试文件 — [web-component-testing-plan.md](web-component-testing-plan.md)。
 7. **设计 Token 体系完善** —— ✅ 已完成（2026-09-03）。Primitive 层（间距/圆角/阴影/字号/行高/字重/动画）+ Semantic 层（背景/文字/边框/功能色/accent/语义间距圆角阴影）+ 明暗主题切换（`[data-theme="light"]`）全部落地，保留原有 26 个 token 向后兼容。**渐进式迁移已完成（30 批）**：styles.css 全局样式全部迁移到 semantic token，全量 1460 测试每批验证通过无回归 — [design-design-tokens.md](design-design-tokens.md)。
 8. **i18n 国际化** —— ✅ 已完成（2026-09-03 立项 → 2026-09-04 收尾全部完成）。i18next + react-i18next + 7 命名空间 + 完整 zh/en 双语翻译包（1800+ keys）+ 语言自动检测 + localStorage 持久化全部落地；组件迁移 41/41 组件 + 顶层 App.tsx；Inspector 内 29 种节点配置字段（约 250 处）全部迁入 nodes.inspector（Inspector.tsx 341 处 t() 调用，keys.test 硬编码中文守护通过）；语言切换 UI（LanguageSwitcher）落地；本地化格式 i18n/utils.ts（formatDate/DateTime/Number/Currency/RelativeTime，基于 Intl）落地 — [design-i18n.md](design-i18n.md)。
@@ -62,7 +62,7 @@
 11. **合规/运营能力批次** —— ✅ 已完成（2026-09-05 立项并实施）。围绕「用户存的 key 能否合规安全保存」评估后补齐六份方案并实施五项：RBAC P0-P3（design-rbac.md，详见进度快照行）、审计日志 P1+P2（design-audit-log.md）、服务端日志 P1+P2+P3（design-logging.md）、公告 P1+P2（design-announcement.md）、用户反馈 P1+P2（design-feedback.md）。仅密钥轮换（design-key-rotation.md）定稿未实施（触发：合规准备启动）；各 P3 项（审计 180 天清理 + hash chain、公告 target 定向、反馈→公告联动）按 deferred-items 触发条件推进。
 12. **文档穿插（4.8）** —— 基本完成（2026-09-01 盘点后核心设计文档覆盖全部已落地模块；低优余项见 deferred-items 文档线）。
 13. **低优 / 缓做** —— 沙箱 docker 容器后端、模板/节点市场、版本 diff 视图、状态机、监控告警大盘、多租户、Notion/Linear/内容平台集成、Excel 读写、HTML→PDF。触发条件见 [deferred-items.md](deferred-items.md)。
-14. **商业化** —— 放后面，决策基线见 [PRODUCT_STRATEGY.md](PRODUCT_STRATEGY.md)。
+14. **商业化** —— **方案已设计（2026-09-06）**，见 [design-monetization.md](design-monetization.md)（三层计费 / 套餐 / 订阅 gate / 企业版 / P0-P3；实施未启动）；决策基线见 [PRODUCT_STRATEGY.md](PRODUCT_STRATEGY.md)。
 
 ---
 
