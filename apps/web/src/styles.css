@@ -2043,8 +2043,8 @@ select {
   left: var(--gap-md);
   bottom: calc(var(--gap-md) + 40px);
   z-index: 3;
-  width: 224px;
-  height: 224px;
+  width: 218px;
+  height: 218px;
   box-sizing: border-box;
   padding: var(--gap-xs);
   background: var(--bg-primary);
@@ -2088,7 +2088,7 @@ select {
   position: absolute;
   left: var(--gap-md);
   bottom: var(--gap-md);
-  width: 224px;
+  width: 218px;
   box-sizing: border-box;
   display: flex;
   align-items: center;
