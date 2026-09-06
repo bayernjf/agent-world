@@ -2102,9 +2102,11 @@ select {
 }
 .minimap__zoom .chip {
   padding: 0 2px;
-  min-width: 20px;
+  min-width: 24px;
   height: 18px;
   line-height: 18px;
+  white-space: nowrap;
+  flex-shrink: 0;
   box-sizing: border-box;
 }
 .minimap__zoom .muted {
