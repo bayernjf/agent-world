@@ -84,6 +84,10 @@ export default function Canvas3D() {
     controls.enableRotate = true;
     controls.enablePan = true;
     controls.enableZoom = false;
+    // Left-drag pans the canvas; right-drag is disabled. Rotation stays on the
+    // wheel (and touchpad single-finger), pan also on arrow keys below.
+    controls.mouseButtons.LEFT = THREE.MOUSE.PAN;
+    controls.mouseButtons.RIGHT = undefined;
     controls.minPolarAngle = PITCH;
     controls.maxPolarAngle = PITCH;
     controls.update();
@@ -196,12 +200,19 @@ export default function Canvas3D() {
     const onKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
       if (target.tagName === "INPUT" || target.tagName === "TEXTAREA") return;
-      if (e.key === "ArrowLeft") {
+      const step = 24;
+      if (e.key === "ArrowUp") {
         e.preventDefault();
-        controls.rotateLeft(0.1);
+        controls.pan(0, step);
+      } else if (e.key === "ArrowDown") {
+        e.preventDefault();
+        controls.pan(0, -step);
+      } else if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        controls.pan(step, 0);
       } else if (e.key === "ArrowRight") {
         e.preventDefault();
-        controls.rotateLeft(-0.1);
+        controls.pan(-step, 0);
       }
     };
     renderer.domElement.addEventListener("wheel", onWheel, { passive: false });
