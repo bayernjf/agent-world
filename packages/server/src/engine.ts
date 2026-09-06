@@ -571,32 +571,6 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
    * exposed under their own ids so cross-branch references work. Code-node
    * stdin deliberately stays on plain nodeCtx (same as httpMeta). */
   const sourceMeta = new Map<string, Record<string, unknown>>();
-  /**
-   * Shortcut-name registry (design-data-interpolation.md §3.2): per-connector
-   * global names derived from the source node's structured data. A shortcut
-   * is injected into interpCtx only when the graph has exactly ONE source of
-   * that connector type (deterministic, independent of execution order);
-   * with ≥2 the shortcut degrades to the `${srcId.data[0]…}` namespace form.
-   * Node ctx entries always win over shortcut names, so a node id that
-   * literally spells `product` keeps resolving to the node.
-   */
-  const sourcesByConnector = new Map<string, string[]>();
-  for (const n of graph.nodes) {
-    if (n.kind !== "source") continue;
-    const t = n.source?.connector?.type;
-    if (!t) continue;
-    const list = sourcesByConnector.get(t) ?? [];
-    list.push(n.id);
-    sourcesByConnector.set(t, list);
-  }
-  for (const s of CONNECTOR_SHORTCUTS) {
-    const count = sourcesByConnector.get(s.connector)?.length ?? 0;
-    if (count > 1) {
-      runLog.info(
-        `connector shortcut "${s.name}" disabled: ${count} ${s.connector} sources, use "\${srcId.data[0]…}" instead`,
-      );
-    }
-  }
   /** nodeCtx enriched with sidecar metadata (http responses, connector data).
    * A direct flow upstream from a sidecar node becomes its metadata merged
    * with the payload (payload fields win on collision; a text payload sits
@@ -623,14 +597,6 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     };
     mergeSidecar(httpMeta);
     mergeSidecar(sourceMeta);
-    for (const s of CONNECTOR_SHORTCUTS) {
-      if (s.name in ctx) continue; // node ctx entries win over shortcuts
-      const sources = sourcesByConnector.get(s.connector);
-      if (!sources || sources.length !== 1) continue;
-      const meta = sourceMeta.get(sources[0]!);
-      if (!meta) continue;
-      ctx[s.name] = s.pick(meta.data);
-    }
     return ctx;
   };
   /** Flow edges that actually carried a packet this run (branch nodes only emit

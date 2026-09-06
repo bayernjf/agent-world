@@ -216,17 +216,6 @@ describe("product connector (F4)", () => {
 });
 
 describe("connector data interpolation (design-data-interpolation.md)", () => {
-  it("① resolves the global shortcut ${product.name} into a downstream prompt", async () => {
-    const w = echoPromptWorker();
-    const events = await runGraph(
-      [sourceNode("intake", { connector: "product" }), textGenNode("writer", "商品名：${product.name}，品牌：${product.brand}"), sinkNode("depot")],
-      [{ from: "intake", to: "writer" }, { from: "writer", to: "depot" }],
-      { worker: w },
-    );
-    expect(w.prompts()).toContain("商品名：复古托特包，品牌：某某品牌");
-    expect(textArtifact(events, "writer")).toContain("商品名：复古托特包，品牌：某某品牌");
-  });
-
   it("② resolves the namespace form ${intake.data[0].name}", async () => {
     const w = echoPromptWorker();
     const events = await runGraph(
@@ -248,17 +237,6 @@ describe("connector data interpolation (design-data-interpolation.md)", () => {
     const prompt = w.prompts()[0]!;
     expect(prompt).toContain("整包：");
     expect(prompt).toContain("复古托特包");
-  });
-
-  it("④ auto-fills empty fact fields (productName/brand) from data[0]", async () => {
-    // No productName/brand on the source → brief should pull them from data[0].
-    const events = await runGraph(
-      [sourceNode("intake", { connector: "product" }), textGenNode("writer", "brief：${intake}"), sinkNode("depot")],
-      [{ from: "intake", to: "writer" }, { from: "writer", to: "depot" }],
-    );
-    const content = textArtifact(events, "writer");
-    expect(content).toContain("商品名称：复古托特包");
-    expect(content).toContain("品牌/店铺：某某品牌");
   });
 
   it("⑤ user-provided fact field overrides the data fallback", async () => {
@@ -306,55 +284,6 @@ describe("connector data interpolation (design-data-interpolation.md)", () => {
       { worker: w, loadProducts: async () => ({ text: "手填原料", images: [] }) },
     );
     expect(w.prompts()).toContain("[]");
-  });
-
-  it("⑨ a literal ${var.x} inside data is not expanded twice (re-entry guard)", async () => {
-    const w = echoPromptWorker();
-    const events = await runGraph(
-      [sourceNode("intake", { connector: "product" }), textGenNode("writer", "名=${product.name}"), sinkNode("depot")],
-      [{ from: "intake", to: "writer" }, { from: "writer", to: "depot" }],
-      {
-        worker: w,
-        loadProducts: async () => ({
-          text: "# 商品",
-          images: [],
-          data: [{ ...DATA[0], name: "商品${var.x}" }],
-        }),
-      },
-    );
-    expect(w.prompts()).toContain("名=商品${var.x}");
-    expect(textArtifact(events, "writer")).toContain("商品${var.x}");
-  });
-
-  it("⑩ branch numeric condition ${product.price} > 100 routes correctly", async () => {
-    const branch: GraphNode = {
-      id: "fork",
-      kind: "branch",
-      name: "分档",
-      x: 1,
-      y: 0,
-      branch: {
-        rules: [{ id: "r1", when: "${product.price} > 100", target: "high" }],
-        defaultTarget: "low",
-      },
-    };
-    const events = await runGraph(
-      [
-        sourceNode("intake", { connector: "product" }),
-        branch,
-        sinkNode("high"),
-        sinkNode("low"),
-      ],
-      [
-        { from: "intake", to: "fork" },
-        { from: "fork", to: "high" },
-        { from: "fork", to: "low" },
-      ],
-      { loadProducts: async () => ({ text: "# 商品", images: [], data: [{ ...DATA[0], price: 200 }] }) },
-    );
-    // price=200 > 100 → high lane routed, low lane skipped.
-    expect(events.some((e) => e.type === "packet.sent" && e.from === "fork" && e.to === "high")).toBe(true);
-    expect(events.some((e) => e.type === "node.skipped" && e.nodeId === "low")).toBe(true);
   });
 
   it("⑪ a node literally named `product` wins over the global shortcut (ctx priority)", async () => {

@@ -2,7 +2,7 @@ import type { Artifact, GraphNode, SourceConfig } from "@agent-world/core";
 import { evaluateTemplate } from "@agent-world/core";
 import type { NodeRunContext } from "./types.js";
 import { CONNECTOR_MAX_RETRIES, CONNECTOR_RETRY_DELAY_MS, buildSourceBrief, setTextArtifact, zeroUsage } from "./shared.js";
-import { CONNECTOR_SHORTCUTS, resolveConnector } from "../connectors.js";
+import { resolveConnector } from "../connectors.js";
 
 /**
  * Source node execution body (migrated from engine.ts runScheduler).
