@@ -7,7 +7,7 @@ import { VIEW_H, VIEW_W } from "./board";
 import Tooltip from "../components/Tooltip";
 
 /** Minimap square size in stage pixels. */
-const MAP = 240;
+const MAP = 184;
 const PAD = 24;
 
 const KIND_FILL: Record<string, string> = {
