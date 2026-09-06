@@ -2092,8 +2092,8 @@ select {
   box-sizing: border-box;
   display: flex;
   align-items: center;
-  gap: var(--space-1);
-  padding: var(--space-1);
+  gap: 2px;
+  padding: 2px var(--space-1);
   background: var(--bg-primary);
   border: var(--hair);
   border-radius: var(--radius-sm);
@@ -2101,8 +2101,8 @@ select {
   font-size: 10px;
 }
 .minimap__zoom .chip {
-  padding: 1px var(--space-2);
-  min-width: 26px;
+  padding: 1px var(--space-1);
+  min-width: 22px;
   height: 20px;
   line-height: 18px;
   box-sizing: border-box;
