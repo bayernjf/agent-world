@@ -19,16 +19,24 @@ interface ViewModeState {
   toggle: () => void;
   camera3d: Camera3D | null;
   setCamera3d: (c: Camera3D) => void;
+  /** Live 3D camera zoom (orthographic camera.zoom), synced by Canvas3D for the minimap. */
+  camera3dZoom: number;
+  setCamera3dZoom: (zoom: number) => void;
 }
 
 export const useViewMode = create<ViewModeState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       viewMode: "2d",
       setViewMode: (mode) => set({ viewMode: mode }),
       toggle: () => set((s) => ({ viewMode: s.viewMode === "2d" ? "3d" : "2d" })),
       camera3d: null,
       setCamera3d: (c) => set({ camera3d: c }),
+      camera3dZoom: 1,
+      setCamera3dZoom: (zoom) => {
+        if (get().camera3dZoom === zoom) return;
+        set({ camera3dZoom: zoom });
+      },
     }),
     {
       name: "agent-world-view-mode",

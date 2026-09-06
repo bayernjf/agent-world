@@ -4,6 +4,7 @@ import { useGraph } from "../store/graph";
 import { MAX_ZOOM, MIN_ZOOM, useCanvas, type Bounds } from "../store/canvas";
 import { PLANT_H, PLANT_W } from "../store/graph";
 import { VIEW_H, VIEW_W } from "./board";
+import { useViewMode } from "../store/view-mode";
 import Tooltip from "../components/Tooltip";
 
 /** Minimap square size in stage pixels. Matches the zoom control row width (189 + 8 padding + 2 border = 199). */
@@ -52,6 +53,9 @@ export default function Minimap() {
   const { t } = useTranslation();
   const { graph } = useGraph();
   const { viewport, setViewport, zoomTo, fitToBounds } = useCanvas();
+  const viewMode = useViewMode((s) => s.viewMode);
+  const camera3dZoom = useViewMode((s) => s.camera3dZoom);
+  const is3d = viewMode === "3d";
   const dragRef = useRef<ViewDrag | null>(null);
   const [dragging, setDragging] = useState(false);
 
@@ -68,18 +72,19 @@ export default function Minimap() {
   const offY = (MAP - bh * scale) / 2;
   const tx = (x: number) => offX + (x - minX) * scale;
   const ty = (y: number) => offY + (y - minY) * scale;
-  // Plants breathe with the canvas zoom so the minimap reflects how much
-  // detail the user is looking at — sqrt keeps it bounded, clamp avoids
-  // overflow at the extremes of MIN_ZOOM / MAX_ZOOM.
-  const nodeFactor = Math.min(1.8, Math.max(0.5, Math.sqrt(viewport.zoom)));
+  // In 3D the view rect also scales with the 3D camera zoom (camera.zoom),
+  // stacked on the 2D viewport zoom, so zooming in 3D shrinks the rect just
+  // like it does in 2D. sqrt keeps the plant size bounded.
+  const effZoom = is3d ? viewport.zoom * camera3dZoom : viewport.zoom;
+  const nodeFactor = Math.min(1.8, Math.max(0.5, Math.sqrt(effZoom)));
 
   // Viewport in board user-space (content coords). The SVG board uses a
   // fixed viewBox of VIEW_W × VIEW_H; letterbox fit only controls where
   // that board sits inside the stage but never changes the viewBox itself.
   // So the visible rectangle in content space is simply the inverted pan/zoom:
   //   rect = (viewBox - pan) / zoom
-  const vw = VIEW_W / viewport.zoom;
-  const vh = VIEW_H / viewport.zoom;
+  const vw = VIEW_W / effZoom;
+  const vh = VIEW_H / effZoom;
   const vx = -viewport.panX / viewport.zoom;
   const vy = -viewport.panY / viewport.zoom;
   const viewW = Math.min(vw * scale * nodeFactor, MAP);

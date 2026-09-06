@@ -295,6 +295,8 @@ export default function Canvas3D() {
       }
 
       controls.update();
+      // Publish the 3D zoom so the minimap view rect scales with it.
+      useViewMode.getState().setCamera3dZoom(camera.zoom);
       renderer.render(scene, camera);
     };
     rafId = requestAnimationFrame(loop);
