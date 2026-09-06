@@ -153,5 +153,5 @@ export default function Canvas3D() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph]);
 
-  return <div ref={mountRef} style={{ width: "100%", height: "100%" }} />;
+  return <div ref={mountRef} className="canvas3d" style={{ width: "100%", height: "100%" }} />;
 }

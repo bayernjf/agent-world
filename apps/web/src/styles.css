@@ -2026,6 +2026,18 @@ select {
   color: var(--info);
 }
 
+.canvas3d {
+  animation: canvas3d-fade var(--duration-normal) var(--ease-default);
+}
+@keyframes canvas3d-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 .minimap {
   position: absolute;
   left: var(--gap-md);
