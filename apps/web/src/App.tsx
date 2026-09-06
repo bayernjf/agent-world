@@ -939,6 +939,7 @@ export default function App() {
             </button>
             <button
               className="stage__view-toggle"
+              style={{ position: "fixed", right: 16, bottom: 16, zIndex: 9999 }}
               onClick={toggleViewMode}
               title={viewMode === "2d" ? t("canvas:view3d") : t("canvas:view2d")}
             >

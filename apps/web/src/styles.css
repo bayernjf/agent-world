@@ -2012,10 +2012,6 @@ select {
 /* ---------- minimap ---------- */
 
 .stage__view-toggle {
-  position: absolute;
-  right: var(--gap-md);
-  bottom: var(--gap-md);
-  z-index: 3;
   padding: var(--space-1) var(--gap-md);
   font-size: var(--text-sm);
   color: var(--text-primary);
