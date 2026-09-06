@@ -5,7 +5,7 @@
 > 逐步任务拆解见 [roadmap-tasks.md](roadmap-tasks.md)。
 > 技术栈选型评估与边界见 [tech-stack-assessment.md](tech-stack-assessment.md)。
 
-> ⚠️ **时效注记（2026-09-01 盘点，2026-09-04 复校）**：本文档以阶段 1-3 期为基线写成，§3.1/§4.1 的"已实现"清单**落后于现状**——实际已演进到 29 种节点类型、账号隔离（users/JWT）、connectors/triggers/versions/knowledge/AB 等（迁移 28+）。增量事实已补入 §3.1b 与 §4.1b；各模块细节以 docs/ 下对应 design-*.md 为准。
+> ⚠️ **时效注记（2026-09-01 盘点，2026-09-06 复校）**：本文档以阶段 1-3 期为基线写成，§3.1/§4.1 的"已实现"清单**落后于现状**——实际已演进到 29 种节点类型、账号隔离（users/JWT）、connectors/triggers/versions/knowledge/AB、RBAC/审计/日志/公告/反馈等（迁移 33）。增量事实已补入 §3.1b 与 §4.1b；**09-04 电商（F1-F10：reviews/metrics/batches/publish/products/plan 等表与 API）与 09-05 合规运营（announcements/feedback/audit_log/resource_access 等）的新增表/API 未在 §3.1b/§4.1b 逐一展开，见 [design-ecommerce-roadmap.md](design-ecommerce-roadmap.md)、[design-rbac.md](design-rbac.md)、[design-announcement.md](design-announcement.md)、[design-feedback.md](design-feedback.md)、[design-audit-log.md](design-audit-log.md)、[design-logging.md](design-logging.md)**；各模块细节以 docs/ 下对应 design-*.md 为准。
 
 ---
 
@@ -493,7 +493,9 @@ Backdrop / pan-surface
 
 ## 7. 配置与密钥
 
-### 7.1 阶段 1 方案
+### 7.1 阶段 1 方案（历史基线）
+
+> ⚠️ **现状已演进**：API key 现存在 sqlite `settings` 表（按 `user_id` 隔离），落盘 AES-256-GCM 静态加密 + keyring 可轮换（`enc:v2:<keyId>:`），见 [design-at-rest-encryption.md](design-at-rest-encryption.md) 与 [design-key-rotation.md](design-key-rotation.md)。下述「本地配置文件」是阶段 1 的历史方案。
 
 - API key 存在本地配置文件（如 `~/.agent-world/config.json` 或项目 `.env.local`）
 - 文件权限 600，路径在 `.gitignore` 里
@@ -655,6 +657,8 @@ interface Skill {
 
 ### 11.4 API key 安全（阶段 1 起）
 
+> ⚠️ **现状已演进**：不再是「本地配置文件」——现为 sqlite `settings` 表 + AES-256-GCM 静态加密（`enc:v2:<keyId>:` keyring），`/api/settings` 按用户隔离、脱敏回写保留真实 key。见 [design-at-rest-encryption.md](design-at-rest-encryption.md)。
+
 - 存本地配置文件，权限 600，路径在 `.gitignore`
 - `/api/settings` 返回时脱敏（`sk-...abcd`），前端不回显明文
 - 写回时若收到含 `*` 的脱敏值，保留原 key 不覆盖
@@ -735,9 +739,9 @@ interface Skill {
 
 ---
 
-## 13. ArtifactRef 升级设计（P1-4）
+## 13. ArtifactRef 升级设计（已实施）
 
-> 状态：设计完成，待实施。对应 roadmap-tasks.md P1-4。
+> 状态：**已实施**——`artifacts: Map<string, Artifact[]>` 已落地，各节点的写入规则即 §13.2 的现状契约。本节保留为设计记录 + 现状契约。
 > 目标：把引擎内部 `artifacts: Map<string, string>` 升级为 `Map<string, Artifact[]>`，让下游节点能直接引用 typed artifact（图片/视频/文件），而不是只能拿到文本字符串。
 
 ### 13.1 背景与问题
@@ -771,6 +775,7 @@ artifacts: Map<string, Artifact[]>  // nodeId → 该节点产出的所有 artif
 - **gate 节点**：通过时产出 text artifact（verdict.reason）；驳回时不产出（走返工环）
 - **sink 节点**：产出 text artifact（最终输出）
 - **table 节点**：按 `table.steps` 执行，`output` 步骤产出 `{kind:"json"}` artifact（`{rows,count,columns}`），节点摘要报「N 行 × M 列」；`sort` 步骤空值（空串/null/缺字段）无论方向一律沉底（`2c3cef8`，狗粮 tpl-evidence-brief）；上游 JSON 含额外字段（如拆条产出的 `claim`）不影响取 `rows`；狗粮 tpl-doc-ingest 首次真实覆盖（run `b0f60b0b`，4 行×2 列），tpl-evidence-brief / tpl-expense-review 复验排序契约（run `ff5e4937`/`b46e620c`）
+- **search 节点**：请求走 `outboundFetch`（可配 `AGENT_WORLD_PROXY` 的代理化 fetch；**不过** `guardedFetch`，故刻意不开放 `baseUrl` 以免新增 SSRF 面，见 §12.1）。provider 默认 `duckduckgo`（免 key，但实测被反爬拦——202 anomaly 验证页已改为响亮报错提示换源，不再静默 0 结果）。凭证解析顺序为**节点 `search.apiKey`/`cx` → 用户级「设置 · 搜索服务」对应源槽（`tavily`/`serpapi`/`google` 各自独立绑定，切换源不丢也不串、跨源绝不复用）→ 服务器 env（`TAVILY_API_KEY` / `SERPAPI_API_KEY` / `GOOGLE_API_KEY`+`GOOGLE_CX`）→ 抛 `AUTH` 且同时点名三处入口（在发出任何请求之前）**；`google` 另需 `cx`。`query` 留空时回退上游首个 text 产物（≤300 字符）。产出双 artifact：`{kind:"text"}`（编号可读列表）+ `{kind:"json"}`（`{query,provider,results}`）。transient 故障（fetch failed/5xx）按 retry 重试，`AUTH` 与反爬拒绝不重试。狗粮 2026-09-06 真实取证（Tavily 3 条结果，run `d80040c5`）
 - **vcs 节点**：请求走 `guardedFetch`（与其他出站节点共用代理/SSRF/重定向契约，见 §12.1）；凭证解析顺序为**节点 `cfg.token` → 服务器 env（`GITHUB_TOKEN`/`GITLAB_TOKEN`）→ 抛 `AUTH` 且同时点名两处入口（在发出任何请求之前）**，`baseUrl` 同理压过 `GITLAB_API_URL`（自托管 GitLab）；两者都是节点级字段，落盘前由 `sealGraphDoc` 加密（`f914fa9`+`75f02b4`）；产出 `{kind:"json"}` artifact（API 原始响应）。`create_pr`/`comment_issue` 的 `body` 为空时回退上游 text 产物；`title` 未显式配置时从正文首个非空、非分隔线行推导（去标题符号、截断 120 字符），显式 `cfg.title` 始终优先（狗粮 tpl-release-pr，`dadeb05`）；GitHub 422 的 `errors[]` 逐条详情并入报错（`f034605`）
 - **调度契约（error 边 × fan-in）**：失败上游被 error 边接住（catch 节点已 done）时，与它同汇入一个汇聚点的兄弟分支仍必须照常调度，汇聚点从 ctx 里读到的是失败节点的 error JSON + catch 节点的产出；收尾时仍有 pending 节点的 run 一律不得报 done（`e6dc2c9`）
 

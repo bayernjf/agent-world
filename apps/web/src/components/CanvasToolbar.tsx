@@ -10,6 +10,7 @@ import {
   type NodeKind,
 } from "@agent-world/core";
 import Tooltip from "./Tooltip";
+import { useViewMode } from "../store/view-mode";
 
 /**
  * Palette hints, in menu order — `Object.keys` is what lays the palette out.
@@ -82,6 +83,8 @@ interface Props {
 export default function CanvasToolbar({ onError }: Props = {}) {
   const { t } = useTranslation();
   const addNode = useGraph((s) => s.addNode);
+  const viewMode = useViewMode((s) => s.viewMode);
+  const toggleViewMode = useViewMode((s) => s.toggle);
   const { zoom, panX, panY } = useCanvas((s) => s.viewport);
   const [moreOpen, setMoreOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -174,6 +177,13 @@ export default function CanvasToolbar({ onError }: Props = {}) {
   return (
     <div className="canvas-toolbar" role="toolbar" aria-label={t("canvas:addNode")}>
       <span className="canvas-toolbar__prefix">▌</span>
+      <button
+        className="canvas-toolbar__btn"
+        onClick={toggleViewMode}
+        title={viewMode === "2d" ? t("canvas:view3d") : t("canvas:view2d")}
+      >
+        {viewMode === "2d" ? t("canvas:view3dShort") : t("canvas:view2dShort")}
+      </button>
       {PRIMARY_KINDS.map((kind) => (
         <button
           key={kind}

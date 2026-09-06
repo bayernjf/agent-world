@@ -18,7 +18,7 @@
 
 **剩余**：
 
-- `Inspector.tsx` 内 25 种节点的配置字段（source 电商字段 / textGen / imageGen / videoGen / audioGen / gate / compliance / http / translate / code / branch / map / loop / parallel / table / database / fileParse / ocr / convert / search / notify / vcs / human / subprocess 的 label/placeholder/hint，约 250 处）
+- `Inspector.tsx` 内 29 种节点的配置字段（source 电商字段 / textGen / imageGen / videoGen / audioGen / gate / compliance / http / translate / code / branch / map / loop / parallel / table / database / fileParse / ocr / convert / search / notify / vcs / human / subprocess / fanout / select / publish / generic 的 label/placeholder/hint，约 250 处）
 - 本地化格式 `i18n/utils.ts`（第 9 章 `Intl.DateTimeFormat` / `NumberFormat` / `RelativeTimeFormat`，尚未落地，组件仍用各自本地 formatDate）
 - 第 10 章工具链（i18next-parser 提取脚本、check-i18n 校验脚本、TS 类型提示）尚未接入，目前以 `keys.test.ts` 作为轻量守护
 

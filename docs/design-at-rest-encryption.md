@@ -167,6 +167,9 @@ bindSettingsStore({
 - **`f914fa9`/`75f02b4` 后新增的凭证入口自动被覆盖**：`search.apiKey`、`vcs.token` 的字段名本就在
   `SECRET_KEYS` 内，`vcs.baseUrl` 在 `URL_KEYS` 内，因此节点级密钥无需再改 sealer 即已加密；
   db 集成用例把这三处（含 `baseUrl?access_token=`）一并计入盘上原始字节断言。
+- **search 凭证主路径已演进（2026-09-06）**：搜索 key 改为「设置 · 搜索服务」按源绑定（`tavily`/`serpapi`/`google`
+  各自一个槽），存于 `settings.data`（整份 AppConfig 落盘 AES-256-GCM 加密，见 §1），同样受本方案保护；
+  节点级 `search.apiKey` 仍保留为覆盖项，凭证链 节点级 → 用户级对应源槽 → env 兜底。
 - **仍然拦不到的**：写进自由文本的密钥——agent 的 prompt/`variables`、code 节点脚本正文、http 节点
   body 里的字符串。这些位置按定义无法区分"密钥"与"普通文字"，静态加密不覆盖，属于使用侧约束
   （文档与 Inspector 提示都引导用户把凭证放在专用字段里）。
