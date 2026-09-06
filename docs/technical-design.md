@@ -5,7 +5,7 @@
 > 逐步任务拆解见 [roadmap-tasks.md](roadmap-tasks.md)。
 > 技术栈选型评估与边界见 [tech-stack-assessment.md](tech-stack-assessment.md)。
 
-> ⚠️ **时效注记（2026-09-01 盘点，2026-09-04 复校）**：本文档以阶段 1-3 期为基线写成，§3.1/§4.1 的"已实现"清单**落后于现状**——实际已演进到 29 种节点类型、账号隔离（users/JWT）、connectors/triggers/versions/knowledge/AB 等（迁移 28+）。增量事实已补入 §3.1b 与 §4.1b；各模块细节以 docs/ 下对应 design-*.md 为准。
+> ⚠️ **时效注记（2026-09-01 盘点，2026-09-06 复校）**：本文档以阶段 1-3 期为基线写成，§3.1/§4.1 的"已实现"清单**落后于现状**——实际已演进到 29 种节点类型、账号隔离（users/JWT）、connectors/triggers/versions/knowledge/AB、RBAC/审计/日志/公告/反馈等（迁移 33）。增量事实已补入 §3.1b 与 §4.1b；**09-04 电商（F1-F10：reviews/metrics/batches/publish/products/plan 等表与 API）与 09-05 合规运营（announcements/feedback/audit_log/resource_access 等）的新增表/API 未在 §3.1b/§4.1b 逐一展开，见 [design-ecommerce-roadmap.md](design-ecommerce-roadmap.md)、[design-rbac.md](design-rbac.md)、[design-announcement.md](design-announcement.md)、[design-feedback.md](design-feedback.md)、[design-audit-log.md](design-audit-log.md)、[design-logging.md](design-logging.md)**；各模块细节以 docs/ 下对应 design-*.md 为准。
 
 ---
 
@@ -493,7 +493,9 @@ Backdrop / pan-surface
 
 ## 7. 配置与密钥
 
-### 7.1 阶段 1 方案
+### 7.1 阶段 1 方案（历史基线）
+
+> ⚠️ **现状已演进**：API key 现存在 sqlite `settings` 表（按 `user_id` 隔离），落盘 AES-256-GCM 静态加密 + keyring 可轮换（`enc:v2:<keyId>:`），见 [design-at-rest-encryption.md](design-at-rest-encryption.md) 与 [design-key-rotation.md](design-key-rotation.md)。下述「本地配置文件」是阶段 1 的历史方案。
 
 - API key 存在本地配置文件（如 `~/.agent-world/config.json` 或项目 `.env.local`）
 - 文件权限 600，路径在 `.gitignore` 里
@@ -655,6 +657,8 @@ interface Skill {
 
 ### 11.4 API key 安全（阶段 1 起）
 
+> ⚠️ **现状已演进**：不再是「本地配置文件」——现为 sqlite `settings` 表 + AES-256-GCM 静态加密（`enc:v2:<keyId>:` keyring），`/api/settings` 按用户隔离、脱敏回写保留真实 key。见 [design-at-rest-encryption.md](design-at-rest-encryption.md)。
+
 - 存本地配置文件，权限 600，路径在 `.gitignore`
 - `/api/settings` 返回时脱敏（`sk-...abcd`），前端不回显明文
 - 写回时若收到含 `*` 的脱敏值，保留原 key 不覆盖
@@ -735,9 +739,9 @@ interface Skill {
 
 ---
 
-## 13. ArtifactRef 升级设计（P1-4）
+## 13. ArtifactRef 升级设计（已实施）
 
-> 状态：设计完成，待实施。对应 roadmap-tasks.md P1-4。
+> 状态：**已实施**——`artifacts: Map<string, Artifact[]>` 已落地，各节点的写入规则即 §13.2 的现状契约。本节保留为设计记录 + 现状契约。
 > 目标：把引擎内部 `artifacts: Map<string, string>` 升级为 `Map<string, Artifact[]>`，让下游节点能直接引用 typed artifact（图片/视频/文件），而不是只能拿到文本字符串。
 
 ### 13.1 背景与问题
