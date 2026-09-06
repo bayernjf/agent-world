@@ -2104,9 +2104,9 @@ select {
   text-align: center;
 }
 .minimap__slider {
-  width: 72px;
+  width: 56px;
   margin: 0;
-  accent-color: var(--accent);
+  accent-color: var(--text-secondary);
   cursor: pointer;
 }
 .minimap__zoom--right {
