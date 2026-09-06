@@ -80,7 +80,7 @@
 | 事项                      | 缓做/低优原因                                                             | 触发条件                               | 决策详情                                                           |
 | ----------------------- | ------------------------------------------------------------------- | ---------------------------------- | -------------------------------------------------------------- |
 | ~~Skill 体系独立设计文档~~ **已落地 2026-09-06**（[design-skill.md](design-skill.md)：设计原则 / 4 种 kind / 权限模型与演进 / source 三态 / 运行时消费链 / equips 依赖 / 内置清单 / 扩展点） | 原登记「独立文档属锦上添花」；现提前还清文档债——skill 体系已演进得较复杂（4 kind + 权限声明 + SkillMount per-mount config + source 三态 + danger 审批 + MCP 接入），决策散落三处缺单一事实源，集中成文对后续做 Skill 生态（本地 skill / 节点市场）有真实价值 | ——（已关闭，未等触发条件，登记当轮就做）                | [design-skill.md](design-skill.md) + [extending.md §3](extending.md) + `packages/core/src/skill.ts` |
-| brand\_terms（品牌术语库）设计文档 | 特性小（用户级术语 CRUD，服务内容产线），用途已在内容线专项规划中说明                               | 术语库升级为产线强依赖（如自动注入 prompt / 按产线隔离）时 | [product-content-roadmap.md](product-content-roadmap.md)       |
+| ~~brand\_terms（品牌术语库）设计文档~~ **已关闭（无需独立文档）** | 特性太小（一个表 + CRUD + 一键载入 + `minBrandCoverage` 门槛），用途已由 `product-content-roadmap.md` §44 一句话讲清、数据模型在 `technical-design.md` 有记录；单独开设计文档属过度设计 | ——（已关闭，不设触发条件） | [product-content-roadmap.md](product-content-roadmap.md) + `technical-design.md` 数据模型 |
 
 ### 数据处理线
 
