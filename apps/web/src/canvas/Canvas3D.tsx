@@ -11,6 +11,8 @@ import { boardToWorld, viewportCenterToWorld, zoomToFrustum } from "./iso3d";
 const NODE_HEIGHT = 60;
 /** Fixed camera pitch (angle from vertical): locks the isometric tilt. */
 const PITCH = Math.PI / 4;
+/** Emissive color applied to the selected node block. */
+const SELECT_COLOR = 0xffd54a;
 
 /**
  * Read-only 3D display view: renders the same graph the 2D editor shows, as
@@ -18,12 +20,15 @@ const PITCH = Math.PI / 4;
  * a fixed pitch with horizontal rotate and pan only (no zoom, no tilt). On
  * mount the camera anchors to the 2D viewport center and inherits its zoom;
  * its pose is saved on unmount and restored the next time 3D is opened.
+ * Clicking a block selects the same node the 2D editor tracks.
  */
 export default function Canvas3D() {
   const graph = useGraph((s) => s.graph);
   const viewport = useCanvas((s) => s.viewport);
   const camera3d = useViewMode((s) => s.camera3d);
   const setCamera3d = useViewMode((s) => s.setCamera3d);
+  const select = useGraph((s) => s.select);
+  const selectNone = useGraph((s) => s.selectNone);
   const mountRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -71,7 +76,9 @@ export default function Canvas3D() {
     for (const n of graph.nodes) {
       const w = boardToWorld(n.x, n.y);
       const geo = new THREE.BoxGeometry(PLANT_W, NODE_HEIGHT, PLANT_H);
-      const mesh = new THREE.Mesh(geo, nodeMat);
+      // One material per mesh so selection can highlight a single block.
+      const mesh = new THREE.Mesh(geo, nodeMat.clone());
+      mesh.userData.nodeId = n.id;
       mesh.position.set(w.x, NODE_HEIGHT / 2, w.z);
       nodeGroup.add(mesh);
     }
@@ -93,9 +100,31 @@ export default function Canvas3D() {
     }
     scene.add(edgeGroup);
 
+    // Raycast selection: click a block to select the node (mirrors 2D state).
+    const raycaster = new THREE.Raycaster();
+    const pointer = new THREE.Vector2();
+    const onPointerDown = (e: PointerEvent) => {
+      if (e.button !== 0) return;
+      const rect = renderer.domElement.getBoundingClientRect();
+      pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(pointer, camera);
+      const hits = raycaster.intersectObjects(nodeGroup.children, false);
+      const hitId = hits[0]?.object.userData.nodeId as string | undefined;
+      if (hitId) select(hitId);
+      else selectNone();
+    };
+    renderer.domElement.addEventListener("pointerdown", onPointerDown);
+
     let rafId = 0;
     const loop = () => {
       rafId = requestAnimationFrame(loop);
+      // Highlight the selected block.
+      const sel = useGraph.getState().selectedId;
+      for (const child of nodeGroup.children) {
+        const mat = (child as THREE.Mesh).material as THREE.MeshLambertMaterial;
+        mat.emissive.setHex(child.userData.nodeId === sel ? SELECT_COLOR : 0x000000);
+      }
       controls.update();
       renderer.render(scene, camera);
     };
@@ -103,6 +132,7 @@ export default function Canvas3D() {
 
     return () => {
       cancelAnimationFrame(rafId);
+      renderer.domElement.removeEventListener("pointerdown", onPointerDown);
       setCamera3d({
         posX: camera.position.x,
         posY: camera.position.y,
@@ -113,6 +143,7 @@ export default function Canvas3D() {
       controls.dispose();
       scene.traverse((obj) => {
         if (obj instanceof THREE.Mesh || obj instanceof THREE.Line) obj.geometry.dispose();
+        if (obj instanceof THREE.Mesh && obj.material instanceof THREE.Material) obj.material.dispose();
       });
       nodeMat.dispose();
       edgeMat.dispose();
