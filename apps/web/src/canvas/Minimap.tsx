@@ -89,17 +89,16 @@ export default function Minimap() {
   const vh = VIEW_H / viewport.zoom;
   const vx = -viewport.panX / viewport.zoom;
   const vy = -viewport.panY / viewport.zoom;
-  // In 3D the view rect tracks the 3D camera target; size it to the graph bounds
-  // (not the 2D viewport) so every plant sits centered inside the rect.
+  // In 3D the view rect tracks the 3D camera target and is kept square (the
+// graph is usually much wider than tall, so using bh for the height would
+// produce a thin horizontal strip).
   const centerBoard = is3d && camera3dLive
     ? worldToBoard(camera3dLive.targetX, camera3dLive.targetZ)
     : { x: vx, y: vy };
   const viewW = is3d
     ? Math.min(bw * scale * nodeFactor, MAP)
     : Math.min(vw * scale * nodeFactor, MAP);
-  const viewH = is3d
-    ? Math.min(bh * scale * nodeFactor, MAP)
-    : Math.min(vh * scale * nodeFactor, MAP);
+  const viewH = is3d ? viewW : Math.min(vh * scale * nodeFactor, MAP);
 
   // Pan delta to content-space delta: dpix (SVG user) = dcontent * zoom.
   // Minimap content delta minimap-pixels / scale → graph units → * zoom → pan delta.
