@@ -2100,6 +2100,16 @@ select {
   min-width: 34px;
   text-align: center;
 }
+.minimap__zoom .minimap__zoom-step {
+  background: transparent;
+  border: none;
+  min-width: 20px;
+  padding: 0;
+}
+.minimap__zoom .minimap__zoom-step:hover {
+  border: none;
+  color: var(--text-primary);
+}
 .minimap__slider {
   width: 56px;
   margin: 0;

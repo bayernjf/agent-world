@@ -248,7 +248,7 @@ export default function Minimap() {
       <div className="minimap__zoom">
         <Tooltip content={t("canvas:zoomOut")}>
           <button
-            className="chip"
+            className="chip minimap__zoom-step"
             onClick={() => zoomTo(1 / 1.2)}
             disabled={viewport.zoom <= MIN_ZOOM}
           >
@@ -267,7 +267,7 @@ export default function Minimap() {
         />
         <Tooltip content={t("canvas:zoomIn")}>
           <button
-            className="chip"
+            className="chip minimap__zoom-step"
             onClick={() => zoomTo(1.2)}
             disabled={viewport.zoom >= MAX_ZOOM}
           >
