@@ -4,10 +4,12 @@ import { useGraph } from "../store/graph";
 import { MAX_ZOOM, MIN_ZOOM, useCanvas, type Bounds } from "../store/canvas";
 import { PLANT_H, PLANT_W } from "../store/graph";
 import { VIEW_H, VIEW_W } from "./board";
+import { useViewMode } from "../store/view-mode";
+import { boardToWorld, worldToBoard } from "./iso3d";
 import Tooltip from "../components/Tooltip";
 
-/** Minimap square size in stage pixels. */
-const MAP = 168;
+/** Minimap square size in stage pixels. Matches the zoom control row width (189 + 8 padding + 2 border = 199). */
+const MAP = 189;
 const PAD = 24;
 
 const KIND_FILL: Record<string, string> = {
@@ -52,6 +54,13 @@ export default function Minimap() {
   const { t } = useTranslation();
   const { graph } = useGraph();
   const { viewport, setViewport, zoomTo, fitToBounds } = useCanvas();
+  const viewMode = useViewMode((s) => s.viewMode);
+  const camera3dZoom = useViewMode((s) => s.camera3dZoom);
+  const camera3dTarget = useViewMode((s) => s.camera3dTarget);
+  const requestCamera3dMove = useViewMode((s) => s.requestCamera3dMove);
+  const requestCamera3dZoom = useViewMode((s) => s.requestCamera3dZoom);
+  const requestCamera3dReset = useViewMode((s) => s.requestCamera3dReset);
+  const is3d = viewMode === "3d";
   const dragRef = useRef<ViewDrag | null>(null);
   const [dragging, setDragging] = useState(false);
 
@@ -68,16 +77,37 @@ export default function Minimap() {
   const offY = (MAP - bh * scale) / 2;
   const tx = (x: number) => offX + (x - minX) * scale;
   const ty = (y: number) => offY + (y - minY) * scale;
+  // In 3D the view rect scales with the 3D camera zoom (camera.zoom), stacked
+  // on the 2D viewport zoom, just like zooming in 2D.
+  const effZoom = is3d ? viewport.zoom * camera3dZoom : viewport.zoom;
 
   // Viewport in board user-space (content coords). The SVG board uses a
   // fixed viewBox of VIEW_W × VIEW_H; letterbox fit only controls where
   // that board sits inside the stage but never changes the viewBox itself.
   // So the visible rectangle in content space is simply the inverted pan/zoom:
   //   rect = (viewBox - pan) / zoom
-  const vw = VIEW_W / viewport.zoom;
-  const vh = VIEW_H / viewport.zoom;
+  const vw = VIEW_W / effZoom;
+  const vh = VIEW_H / effZoom;
   const vx = -viewport.panX / viewport.zoom;
   const vy = -viewport.panY / viewport.zoom;
+  // Keep the view rect's true aspect (VIEW_W:VIEW_H = 2.25:1) instead of
+  // clamping its size to MAP: clamping made the wider axis stick to the minimap
+  // edge with zero pan range, so it could only be dragged vertically. Let it
+  // overflow the square minimap and clamp only its leading edge.
+  const viewW = vw * scale;
+  const viewH = vh * scale;
+  // Clamp the view rect's CENTER (not its leading edge) into the minimap. This
+  // lets the rect overflow the square minimap symmetrically and stay in sync when
+  // panning in any direction — clamping the leading edge to [0, MAP-size] froze
+  // the wider axis whenever the viewport was as wide as the whole graph (viewW
+  // === MAP after a fit), which read as "can't drag left/right".
+  const clampViewCenter = (center: number, size: number) =>
+    Math.max(0, Math.min(center, MAP)) - size / 2;
+  // Viewport center in content coords: the 3D camera target, or the 2D viewport
+  // center (top-left + half extent).
+  const viewCenter = is3d && camera3dTarget
+    ? worldToBoard(camera3dTarget.x, camera3dTarget.z)
+    : { x: vx + vw / 2, y: vy + vh / 2 };
 
   // Pan delta to content-space delta: dpix (SVG user) = dcontent * zoom.
   // Minimap content delta minimap-pixels / scale → graph units → * zoom → pan delta.
@@ -101,6 +131,10 @@ export default function Minimap() {
   );
 
   const fitScreen = () => {
+    if (is3d) {
+      requestCamera3dReset();
+      return;
+    }
     if (graph.nodes.length === 0) return;
     const xs = graph.nodes.map((n) => n.x);
     const ys = graph.nodes.map((n) => n.y);
@@ -121,13 +155,19 @@ export default function Minimap() {
       if (!d) return;
       const dx = e.clientX - d.startClientX;
       const dy = e.clientY - d.startClientY;
-      // Minimap pixel delta → canvas pan delta (negated: viewport right = canvas content shift left).
-      const { dx: panDX, dy: panDY } = contentDeltaFromMinimapDelta(dx, dy);
-      setViewport({
-        ...viewport,
-        panX: d.originPanX + panDX,
-        panY: d.originPanY + panDY,
-      });
+      if (is3d) {
+        // Dragging the minimap rect moves the viewport (the rect follows the
+        // cursor), matching 2D. The camera target moves WITH the pointer delta.
+        requestCamera3dMove(d.originPanX + dx / scale, d.originPanY + dy / scale);
+      } else {
+        // Minimap pixel delta → canvas pan delta (negated: viewport right = canvas content shift left).
+        const { dx: panDX, dy: panDY } = contentDeltaFromMinimapDelta(dx, dy);
+        setViewport({
+          ...viewport,
+          panX: d.originPanX + panDX,
+          panY: d.originPanY + panDY,
+        });
+      }
     };
     const onUp = () => {
       dragRef.current = null;
@@ -141,7 +181,7 @@ export default function Minimap() {
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onUp);
     };
-  }, [dragging, viewport, setViewport, scale]);
+  }, [dragging, viewport, setViewport, scale, is3d, requestCamera3dMove]);
 
   const onViewPointerDown = (e: React.PointerEvent<SVGRectElement>) => {
     e.stopPropagation(); // don't bubble to svg's "jump to" handler
@@ -149,8 +189,9 @@ export default function Minimap() {
     dragRef.current = {
       startClientX: e.clientX,
       startClientY: e.clientY,
-      originPanX: viewport.panX,
-      originPanY: viewport.panY,
+      // In 3D the drag origin is the camera target; in 2D it's the viewport pan.
+      originPanX: is3d && camera3dTarget ? camera3dTarget.x : viewport.panX,
+      originPanY: is3d && camera3dTarget ? camera3dTarget.z : viewport.panY,
     };
     setDragging(true);
   };
@@ -165,11 +206,23 @@ export default function Minimap() {
       minX,
       minY,
     );
-    centerOnContent(x, y);
+    if (is3d) {
+      const w = boardToWorld(x, y);
+      requestCamera3dMove(w.x, w.z);
+    } else {
+      centerOnContent(x, y);
+    }
   };
 
   const onWheel = (e: React.WheelEvent<SVGSVGElement>) => {
     e.preventDefault();
+    const factor = Math.exp(-e.deltaY * 0.0015);
+    if (is3d) {
+      // Zoom the 3D camera (orthographic camera.zoom), centered on the target.
+      const zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, camera3dZoom * factor));
+      requestCamera3dZoom(zoom);
+      return;
+    }
     const rect = e.currentTarget.getBoundingClientRect();
     // (cx, cy): content-space point currently under the minimap cursor.
     // Keep this point pinned under the cursor before/after zoom — same
@@ -182,7 +235,6 @@ export default function Minimap() {
       minX,
       minY,
     );
-    const factor = Math.exp(-e.deltaY * 0.0015);
     const zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, viewport.zoom * factor));
     // Current anchor position in the viewBox coordinate space.
     const anchorX = viewport.panX + cx * viewport.zoom;
@@ -197,15 +249,14 @@ export default function Minimap() {
   };
 
   return (
-    <div className="minimap">
-      <svg
-        width={MAP}
-        height={MAP}
-        viewBox={`0 0 ${MAP} ${MAP}`}
-        onPointerDown={onBackgroundPointerDown}
-        onWheel={onWheel}
-        style={{ cursor: dragging ? "grabbing" : "pointer" }}
-      >
+    <>
+      <div className="minimap">
+        <svg
+          viewBox={`0 0 ${MAP} ${MAP}`}
+          onPointerDown={onBackgroundPointerDown}
+          onWheel={onWheel}
+          style={{ cursor: dragging ? "grabbing" : "pointer" }}
+        >
         <rect className="minimap__bg" width={MAP} height={MAP} />
         {graph.edges.map((edge) => {
           const a = graph.nodes.find((n) => n.id === edge.from);
@@ -235,44 +286,66 @@ export default function Minimap() {
           />
         ))}
         <rect
-          x={tx(vx)}
-          y={ty(vy)}
-          width={vw * scale}
-          height={vh * scale}
+          x={clampViewCenter(tx(viewCenter.x), viewW)}
+          y={clampViewCenter(ty(viewCenter.y), viewH)}
+          width={viewW}
+          height={viewH}
           className="minimap__view"
           onPointerDown={onViewPointerDown}
           style={{ cursor: "grab" }}
         />
       </svg>
+      </div>
 
-      <div className="minimap__zoom minimap__zoom--left">
-        <Tooltip content={t("canvas:zoomIn")}>
-          <button
-            className="chip"
-            onClick={() => zoomTo(1.2)}
-            disabled={viewport.zoom >= MAX_ZOOM}
-          >
-            +
-          </button>
-        </Tooltip>
-        <span className="muted">{Math.round(viewport.zoom * 100)}%</span>
+      <div className="minimap__zoom">
         <Tooltip content={t("canvas:zoomOut")}>
           <button
-            className="chip"
-            onClick={() => zoomTo(1 / 1.2)}
-            disabled={viewport.zoom <= MIN_ZOOM}
+            className="chip minimap__zoom-step"
+            onClick={() =>
+              is3d
+                ? requestCamera3dZoom(Math.max(MIN_ZOOM, camera3dZoom / 1.2))
+                : zoomTo(1 / 1.2)
+            }
+            disabled={is3d ? camera3dZoom <= MIN_ZOOM : viewport.zoom <= MIN_ZOOM}
           >
             −
           </button>
         </Tooltip>
-      </div>
-      <div className="minimap__zoom minimap__zoom--right">
+        <input
+          className="minimap__slider"
+          type="range"
+          min={MIN_ZOOM}
+          max={MAX_ZOOM}
+          step={0.01}
+          value={is3d ? camera3dZoom : viewport.zoom}
+          onChange={(e) =>
+            is3d
+              ? requestCamera3dZoom(Number(e.target.value))
+              : setViewport({ ...viewport, zoom: Number(e.target.value) })
+          }
+          aria-label={t("canvas:zoom")}
+        />
+        <Tooltip content={t("canvas:zoomIn")}>
+          <button
+            className="chip minimap__zoom-step"
+            onClick={() =>
+              is3d
+                ? requestCamera3dZoom(Math.min(MAX_ZOOM, camera3dZoom * 1.2))
+                : zoomTo(1.2)
+            }
+            disabled={is3d ? camera3dZoom >= MAX_ZOOM : viewport.zoom >= MAX_ZOOM}
+          >
+            +
+          </button>
+        </Tooltip>
+        <span className="muted">{Math.round((is3d ? camera3dZoom : viewport.zoom) * 100)}%</span>
+        <span className="minimap__zoom-sep" aria-hidden="true" />
         <Tooltip content={t("canvas:fitView")}>
           <button className="chip" onClick={fitScreen}>
             {t("canvas:fit")}
           </button>
         </Tooltip>
       </div>
-    </div>
+    </>
   );
 }

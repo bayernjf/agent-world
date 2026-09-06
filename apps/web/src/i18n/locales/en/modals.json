@@ -623,6 +623,7 @@
     "title": "Shortcuts",
     "groups": {
       "canvas": "Canvas",
+      "view3d": "3D view",
       "edit": "Editing",
       "tools": "Tools",
       "other": "Other"
@@ -636,6 +637,18 @@
       "arrowsDesc": "Pan with arrow keys (Shift to speed up)",
       "fitKeys": "F",
       "fitDesc": "Zoom and centre on the selection"
+    },
+    "view3d": {
+      "dragKeys": "Left-drag",
+      "dragDesc": "Pan the canvas",
+      "wheelKeys": "Scroll wheel",
+      "wheelDesc": "Zoom the view",
+      "rotateKeys": "Right-drag + wheel",
+      "rotateDesc": "Rotate the view horizontally",
+      "arrowsKeys": "↑ ↓ ← →",
+      "arrowsDesc": "Pan with arrow keys",
+      "clickKeys": "Click a node",
+      "clickDesc": "View details"
     },
     "edit": {
       "copyKeys": "⌘/Ctrl + C",
