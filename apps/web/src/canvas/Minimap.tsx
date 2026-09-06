@@ -271,8 +271,16 @@ export default function Minimap() {
           />
         ))}
         <rect
-          x={Math.max(viewW / 2, Math.min(tx(centerBoard.x), MAP - viewW / 2)) - viewW / 2}
-          y={Math.max(viewH / 2, Math.min(ty(centerBoard.y), MAP - viewH / 2)) - viewH / 2}
+          x={
+            is3d
+              ? Math.max(viewW / 2, Math.min(tx(centerBoard.x), MAP - viewW / 2)) - viewW / 2
+              : Math.max(0, Math.min(tx(centerBoard.x), MAP - viewW))
+          }
+          y={
+            is3d
+              ? Math.max(viewH / 2, Math.min(ty(centerBoard.y), MAP - viewH / 2)) - viewH / 2
+              : Math.max(0, Math.min(ty(centerBoard.y), MAP - viewH))
+          }
           width={viewW}
           height={viewH}
           className="minimap__view"
