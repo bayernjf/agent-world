@@ -7,8 +7,9 @@ import {
 } from "@agent-world/core";
 import { PLANT_H, PLANT_W } from "../store/graph";
 
-/** Height of the base node block in 3D world units. */
-export const NODE_HEIGHT = 120;
+/** Height of the base node block in 3D world units.
+ *  Kept low like an RTS building so blocks read as squat, solid volumes. */
+export const NODE_HEIGHT = 50;
 /** Y the pipes (and freight) run at, level with the block mid-height. */
 export const PIPE_Y = NODE_HEIGHT / 2;
 /** Emissive color applied to the selected node. */
@@ -64,11 +65,11 @@ export function setGroupEmissive(group: THREE.Group, color: number): void {
 /** Create six materials for a box so top, sides and front/back read as 3D faces. */
 function shadedMaterials(color: number): THREE.MeshLambertMaterial[] {
   const base = new THREE.Color(color);
-  const top = base.clone().offsetHSL(0, 0, 0.1);
-  const front = base.clone().offsetHSL(0, 0, -0.05);
-  const back = base.clone().offsetHSL(0, 0, -0.15);
-  const side = base.clone().offsetHSL(0, 0, -0.1);
-  const bottom = base.clone().offsetHSL(0, 0, -0.2);
+  const top = base.clone().offsetHSL(0, 0, 0.06);
+  const front = base.clone().offsetHSL(0, 0, -0.03);
+  const back = base.clone().offsetHSL(0, 0, -0.08);
+  const side = base.clone().offsetHSL(0, 0, -0.05);
+  const bottom = base.clone().offsetHSL(0, 0, -0.12);
   // BoxGeometry face groups: +x, -x, +y, -y, +z, -z.
   return [
     new THREE.MeshLambertMaterial({ color: side }),
@@ -99,9 +100,9 @@ export function buildNodeShape(kind: NodeKind): NodeShape {
   base.userData.role = "body";
   group.add(base);
 
-  // Rotate the whole node 45° on the ground plane so even a straight-on view
-  // shows two side faces instead of a flat rectangle.
-  group.rotation.y = Math.PI / 4;
+  // Rotate the whole node 22.5° on the ground plane to reveal a side face
+  // without turning the footprint into a sharp diamond.
+  group.rotation.y = Math.PI / 8;
 
   // Status LED, mounted on the front face's top edge so it never fights the topper.
   const led = new THREE.Mesh(
