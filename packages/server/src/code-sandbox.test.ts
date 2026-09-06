@@ -182,21 +182,20 @@ describe("buildNodePermissionArgs", () => {
     });
     // Gate flag: either --permission (Node ≥ 22.2 stable) or --experimental-permission
     // (older Node). If neither is supported by the resolved interpreter the probe
-    // records "none" and emits no gate, so fall back to checking there's an FS
-    // grant at minimum.
+    // records "none" and emits no gate.
     const hasGate = a.includes("--permission") || a.includes("--experimental-permission");
-    expect(a).toContain("--allow-fs-read=/tmp/aw-code-abc/");
-    expect(a).toContain("--allow-fs-write=/tmp/aw-code-abc/");
-    expect(a).toContain("--max-old-space-size=96");
-    // Never grant --allow-net — P1's JS sandbox must be zero-network by default.
+    // The allow-* flags are only valid *behind* a gate — Node ≥ 22.2 aborts a
+    // child with ERR_MISSING_OPTION when an --allow-* flag appears without one.
+    // So FS grants must appear iff the gate does, never standalone.
     if (hasGate) {
-      // Either stable (--permission) or experimental form; both have the
-      // word "permission" in them so match case-insensitively on a leading `--`.
       const found = a.some((f) => /^--(experimental-)?permission$/i.test(f));
       expect(found).withContext(`flags=${a.join(" ")}`).toBe(true);
+      expect(a).toContain("--allow-fs-read=/tmp/aw-code-abc/");
+      expect(a).toContain("--allow-fs-write=/tmp/aw-code-abc/");
+    } else {
+      expect(a.some((f) => f.startsWith("--allow-fs-"))).toBe(false);
     }
-    expect(a).toContain("--allow-fs-read=/tmp/aw-code-abc/");
-    expect(a).toContain("--allow-fs-write=/tmp/aw-code-abc/");
+    // Heap cap is permission-independent and always applied.
     expect(a).toContain("--max-old-space-size=96");
     // Never grant --allow-net — P1's JS sandbox must be zero-network by default.
     expect(a.some((f) => f.startsWith("--allow-net"))).toBe(false);
