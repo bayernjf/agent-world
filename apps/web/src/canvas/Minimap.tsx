@@ -82,6 +82,10 @@ export default function Minimap() {
   const vh = VIEW_H / viewport.zoom;
   const vx = -viewport.panX / viewport.zoom;
   const vy = -viewport.panY / viewport.zoom;
+  // Clamp the view rect to the minimap so it never spills outside the SVG and
+  // never grows past it — keeps every plant inside the rect at every zoom.
+  const viewW = Math.min(vw * scale * nodeFactor, MAP);
+  const viewH = Math.min(vh * scale * nodeFactor, MAP);
 
   // Pan delta to content-space delta: dpix (SVG user) = dcontent * zoom.
   // Minimap content delta minimap-pixels / scale → graph units → * zoom → pan delta.
@@ -239,10 +243,10 @@ export default function Minimap() {
           />
         ))}
         <rect
-          x={tx(vx)}
-          y={ty(vy)}
-          width={vw * scale * nodeFactor}
-          height={vh * scale * nodeFactor}
+          x={Math.max(0, Math.min(tx(vx), MAP - viewW))}
+          y={Math.max(0, Math.min(ty(vy), MAP - viewH))}
+          width={viewW}
+          height={viewH}
           className="minimap__view"
           onPointerDown={onViewPointerDown}
           style={{ cursor: "grab" }}
