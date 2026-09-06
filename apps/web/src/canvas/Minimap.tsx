@@ -6,8 +6,8 @@ import { PLANT_H, PLANT_W } from "../store/graph";
 import { VIEW_H, VIEW_W } from "./board";
 import Tooltip from "../components/Tooltip";
 
-/** Minimap square size in stage pixels. */
-const MAP = 200;
+/** Minimap square size in stage pixels. Matches the zoom control row width (189 + 8 padding + 2 border = 199). */
+const MAP = 189;
 const PAD = 24;
 
 const KIND_FILL: Record<string, string> = {
