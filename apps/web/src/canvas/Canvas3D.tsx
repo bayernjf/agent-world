@@ -187,6 +187,26 @@ export default function Canvas3D() {
     renderer.domElement.addEventListener("pointerdown", onPointerDown);
     renderer.domElement.addEventListener("pointerup", onPointerUp);
 
+    // Wheel and arrow keys also rotate the view horizontally (zoom stays locked).
+    // Touchpad two-finger scroll emits wheel events, so it rotates too.
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      controls.rotateLeft(e.deltaY * 0.0025);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA") return;
+      if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        controls.rotateLeft(0.1);
+      } else if (e.key === "ArrowRight") {
+        e.preventDefault();
+        controls.rotateLeft(-0.1);
+      }
+    };
+    renderer.domElement.addEventListener("wheel", onWheel, { passive: false });
+    window.addEventListener("keydown", onKeyDown);
+
     let lastRunId = runtimeRef.current.runId;
     let rafId = 0;
     const loop = (now: number) => {
@@ -256,6 +276,8 @@ export default function Canvas3D() {
       cancelAnimationFrame(rafId);
       renderer.domElement.removeEventListener("pointerdown", onPointerDown);
       renderer.domElement.removeEventListener("pointerup", onPointerUp);
+      renderer.domElement.removeEventListener("wheel", onWheel);
+      window.removeEventListener("keydown", onKeyDown);
       setCamera3d({
         posX: camera.position.x,
         posY: camera.position.y,
