@@ -2077,8 +2077,9 @@ select {
 }
 .minimap__zoom {
   position: absolute;
-  left: var(--gap-md);
+  left: calc(var(--gap-md) + var(--gap-xs));
   bottom: var(--gap-md);
+  width: 240px;
   display: flex;
   align-items: center;
   gap: var(--space-1);
