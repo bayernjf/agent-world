@@ -271,8 +271,8 @@ export default function Minimap() {
           />
         ))}
         <rect
-          x={Math.max(0, Math.min(tx(centerBoard.x), MAP - viewW))}
-          y={Math.max(0, Math.min(ty(centerBoard.y), MAP - viewH))}
+          x={Math.max(viewW / 2, Math.min(tx(centerBoard.x), MAP - viewW / 2)) - viewW / 2}
+          y={Math.max(viewH / 2, Math.min(ty(centerBoard.y), MAP - viewH / 2)) - viewH / 2}
           width={viewW}
           height={viewH}
           className="minimap__view"
