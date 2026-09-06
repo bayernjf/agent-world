@@ -256,7 +256,9 @@ export default function Canvas3D() {
       const xs = graph.nodes.map((n) => n.x);
       const ys = graph.nodes.map((n) => n.y);
       if (xs.length === 0) return;
-      const PAD = 24;
+      // Larger padding because each node is rotated 45°, so its footprint's
+      // bounding box on the ground plane is bigger than PLANT_W × PLANT_H.
+      const PAD = 64;
       const minX = Math.min(...xs) - PLANT_W / 2 - PAD;
       const maxX = Math.max(...xs) + PLANT_W / 2 + PAD;
       const minY = Math.min(...ys) - PLANT_H / 2 - PAD;

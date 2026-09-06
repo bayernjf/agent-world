@@ -99,6 +99,10 @@ export function buildNodeShape(kind: NodeKind): NodeShape {
   base.userData.role = "body";
   group.add(base);
 
+  // Rotate the whole node 45° on the ground plane so even a straight-on view
+  // shows two side faces instead of a flat rectangle.
+  group.rotation.y = Math.PI / 4;
+
   // Status LED, mounted on the front face's top edge so it never fights the topper.
   const led = new THREE.Mesh(
     new THREE.SphereGeometry(5, 12, 12),
