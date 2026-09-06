@@ -234,28 +234,6 @@ export default function Canvas3D() {
     renderer.domElement.addEventListener("contextmenu", preventContextMenu);
     window.addEventListener("keydown", onKeyDown);
 
-    // Fit/reset: center on the graph and restore the default yaw, pitch and
-    // frustum. Restoring the canvas-aspect frustum (not the graph bounds) keeps
-    // plants from looking stretched when the graph is much wider than tall.
-    const resetCamera = () => {
-      const xs = graph.nodes.map((n) => n.x);
-      const ys = graph.nodes.map((n) => n.y);
-      if (xs.length === 0) return;
-      const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
-      const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
-      const wc = boardToWorld(cx, cy);
-      controls.target.set(wc.x, 0, wc.z);
-      const f = zoomToFrustum(viewport.zoom);
-      camera.left = f.left;
-      camera.right = f.right;
-      camera.top = f.top;
-      camera.bottom = f.bottom;
-      camera.zoom = 1;
-      camera.updateProjectionMatrix();
-      camera.position.set(wc.x, 900, wc.z + 900);
-      controls.update();
-    };
-
     let lastRunId = runtimeRef.current.runId;
     let rafId = 0;
     const loop = (now: number) => {
@@ -314,18 +292,6 @@ export default function Canvas3D() {
         ledMat.color.setHex(ledColor);
         ledMat.emissive.setHex(ledColor);
         ledMat.emissiveIntensity = running ? 0.5 + 0.4 * Math.sin(now * 0.006) : 0.25;
-      }
-
-      // Publish the camera target to the minimap and apply any move request it
-      // sends back (click/drag on the minimap while in 3D).
-      useViewMode.getState().setCamera3dLive({
-        targetX: controls.target.x,
-        targetZ: controls.target.z,
-      });
-      const req = useViewMode.getState().consumeCamera3dRequest();
-      if (req) controls.target.set(req.targetX, 0, req.targetZ);
-      if (useViewMode.getState().consumeCamera3dResetRequest()) {
-        resetCamera();
       }
 
       controls.update();

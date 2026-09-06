@@ -4,8 +4,6 @@ import { useGraph } from "../store/graph";
 import { MAX_ZOOM, MIN_ZOOM, useCanvas, type Bounds } from "../store/canvas";
 import { PLANT_H, PLANT_W } from "../store/graph";
 import { VIEW_H, VIEW_W } from "./board";
-import { useViewMode } from "../store/view-mode";
-import { boardToWorld, worldToBoard } from "./iso3d";
 import Tooltip from "../components/Tooltip";
 
 /** Minimap square size in stage pixels. Matches the zoom control row width (189 + 8 padding + 2 border = 199). */
@@ -54,11 +52,6 @@ export default function Minimap() {
   const { t } = useTranslation();
   const { graph } = useGraph();
   const { viewport, setViewport, zoomTo, fitToBounds } = useCanvas();
-  const viewMode = useViewMode((s) => s.viewMode);
-  const camera3dLive = useViewMode((s) => s.camera3dLive);
-  const requestCamera3dMove = useViewMode((s) => s.requestCamera3dMove);
-  const requestCamera3dReset = useViewMode((s) => s.requestCamera3dReset);
-  const is3d = viewMode === "3d";
   const dragRef = useRef<ViewDrag | null>(null);
   const [dragging, setDragging] = useState(false);
 
@@ -89,16 +82,8 @@ export default function Minimap() {
   const vh = VIEW_H / viewport.zoom;
   const vx = -viewport.panX / viewport.zoom;
   const vy = -viewport.panY / viewport.zoom;
-  // In 3D the view rect tracks the 3D camera target and is kept square (the
-// graph is usually much wider than tall, so using bh for the height would
-// produce a thin horizontal strip).
-  const centerBoard = is3d && camera3dLive
-    ? worldToBoard(camera3dLive.targetX, camera3dLive.targetZ)
-    : { x: vx, y: vy };
-  const viewW = is3d
-    ? Math.min(bw * scale * nodeFactor, MAP)
-    : Math.min(vw * scale * nodeFactor, MAP);
-  const viewH = is3d ? viewW : Math.min(vh * scale * nodeFactor, MAP);
+  const viewW = Math.min(vw * scale * nodeFactor, MAP);
+  const viewH = Math.min(vh * scale * nodeFactor, MAP);
 
   // Pan delta to content-space delta: dpix (SVG user) = dcontent * zoom.
   // Minimap content delta minimap-pixels / scale → graph units → * zoom → pan delta.
@@ -122,10 +107,6 @@ export default function Minimap() {
   );
 
   const fitScreen = () => {
-    if (is3d) {
-      requestCamera3dReset();
-      return;
-    }
     if (graph.nodes.length === 0) return;
     const xs = graph.nodes.map((n) => n.x);
     const ys = graph.nodes.map((n) => n.y);
@@ -146,18 +127,13 @@ export default function Minimap() {
       if (!d) return;
       const dx = e.clientX - d.startClientX;
       const dy = e.clientY - d.startClientY;
-      if (is3d) {
-        // Minimap pixel delta → world units (XZ): dragging the rect pans the 3D camera.
-        requestCamera3dMove(d.originPanX + dx / scale, d.originPanY + dy / scale);
-      } else {
-        // Minimap pixel delta → canvas pan delta (negated: viewport right = canvas content shift left).
-        const { dx: panDX, dy: panDY } = contentDeltaFromMinimapDelta(dx, dy);
-        setViewport({
-          ...viewport,
-          panX: d.originPanX + panDX,
-          panY: d.originPanY + panDY,
-        });
-      }
+      // Minimap pixel delta → canvas pan delta (negated: viewport right = canvas content shift left).
+      const { dx: panDX, dy: panDY } = contentDeltaFromMinimapDelta(dx, dy);
+      setViewport({
+        ...viewport,
+        panX: d.originPanX + panDX,
+        panY: d.originPanY + panDY,
+      });
     };
     const onUp = () => {
       dragRef.current = null;
@@ -171,7 +147,7 @@ export default function Minimap() {
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onUp);
     };
-  }, [dragging, viewport, setViewport, scale, is3d, requestCamera3dMove]);
+  }, [dragging, viewport, setViewport, scale]);
 
   const onViewPointerDown = (e: React.PointerEvent<SVGRectElement>) => {
     e.stopPropagation(); // don't bubble to svg's "jump to" handler
@@ -179,9 +155,8 @@ export default function Minimap() {
     dragRef.current = {
       startClientX: e.clientX,
       startClientY: e.clientY,
-      // In 3D the drag origin is the camera target; in 2D it's the viewport pan.
-      originPanX: is3d && camera3dLive ? camera3dLive.targetX : viewport.panX,
-      originPanY: is3d && camera3dLive ? camera3dLive.targetZ : viewport.panY,
+      originPanX: viewport.panX,
+      originPanY: viewport.panY,
     };
     setDragging(true);
   };
@@ -196,12 +171,7 @@ export default function Minimap() {
       minX,
       minY,
     );
-    if (is3d) {
-      const w = boardToWorld(x, y);
-      requestCamera3dMove(w.x, w.z);
-    } else {
-      centerOnContent(x, y);
-    }
+    centerOnContent(x, y);
   };
 
   const onWheel = (e: React.WheelEvent<SVGSVGElement>) => {
@@ -270,16 +240,8 @@ export default function Minimap() {
           />
         ))}
         <rect
-          x={
-            is3d
-              ? Math.max(viewW / 2, Math.min(tx(centerBoard.x), MAP - viewW / 2)) - viewW / 2
-              : Math.max(0, Math.min(tx(centerBoard.x), MAP - viewW))
-          }
-          y={
-            is3d
-              ? Math.max(viewH / 2, Math.min(ty(centerBoard.y), MAP - viewH / 2)) - viewH / 2
-              : Math.max(0, Math.min(ty(centerBoard.y), MAP - viewH))
-          }
+          x={Math.max(0, Math.min(tx(vx), MAP - viewW))}
+          y={Math.max(0, Math.min(ty(vy), MAP - viewH))}
           width={viewW}
           height={viewH}
           className="minimap__view"
