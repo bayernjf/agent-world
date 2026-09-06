@@ -2043,8 +2043,8 @@ select {
   left: var(--gap-md);
   bottom: calc(var(--gap-md) + 40px);
   z-index: 3;
-  width: 204px;
-  height: 204px;
+  width: 186px;
+  height: 186px;
   box-sizing: border-box;
   padding: var(--gap-xs);
   background: var(--bg-primary);
@@ -2088,11 +2088,11 @@ select {
   position: absolute;
   left: var(--gap-md);
   bottom: var(--gap-md);
-  width: 204px;
+  width: 186px;
   box-sizing: border-box;
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 3px;
   padding: 2px var(--space-1);
   background: var(--bg-primary);
   border: var(--hair);
@@ -2101,21 +2101,21 @@ select {
   font-size: 10px;
 }
 .minimap__zoom .chip {
-  padding: 1px var(--space-1);
-  min-width: 22px;
+  padding: 0 var(--space-1);
+  min-width: 20px;
   height: 20px;
-  line-height: 18px;
+  line-height: 20px;
   box-sizing: border-box;
 }
 .minimap__zoom .muted {
-  min-width: 34px;
+  min-width: 30px;
   text-align: center;
   font-size: 9px;
 }
 .minimap__zoom .minimap__zoom-step {
   background: transparent;
   border: none;
-  min-width: 20px;
+  min-width: 18px;
   padding: 0;
 }
 .minimap__zoom .minimap__zoom-step:hover {
