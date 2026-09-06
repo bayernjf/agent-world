@@ -205,15 +205,16 @@ export default function Minimap() {
   };
 
   return (
-    <div className="minimap">
-      <svg
-        width={MAP}
-        height={MAP}
-        viewBox={`0 0 ${MAP} ${MAP}`}
-        onPointerDown={onBackgroundPointerDown}
-        onWheel={onWheel}
-        style={{ cursor: dragging ? "grabbing" : "pointer" }}
-      >
+    <>
+      <div className="minimap">
+        <svg
+          width={MAP}
+          height={MAP}
+          viewBox={`0 0 ${MAP} ${MAP}`}
+          onPointerDown={onBackgroundPointerDown}
+          onWheel={onWheel}
+          style={{ cursor: dragging ? "grabbing" : "pointer" }}
+        >
         <rect className="minimap__bg" width={MAP} height={MAP} />
         {graph.edges.map((edge) => {
           const a = graph.nodes.find((n) => n.id === edge.from);
@@ -252,6 +253,7 @@ export default function Minimap() {
           style={{ cursor: "grab" }}
         />
       </svg>
+      </div>
 
       <div className="minimap__zoom">
         <Tooltip content={t("canvas:zoomOut")}>
@@ -290,6 +292,6 @@ export default function Minimap() {
           </button>
         </Tooltip>
       </div>
-    </div>
+    </>
   );
 }
