@@ -1,26 +1,48 @@
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { ARTIFACT_COLORS } from "@agent-world/core";
 import { useGraph } from "../store/graph";
 import { PLANT_H, PLANT_W } from "../store/graph";
 import { useCanvas } from "../store/canvas";
 import { useViewMode } from "../store/view-mode";
-import { boardToWorld, viewportCenterToWorld, zoomToFrustum } from "./iso3d";
+import { useVisibleRuntime } from "../store/run";
+import { boardToWorld, viewportCenterToWorld, xzPolyline, xzPolylinePointAt, zoomToFrustum, type XZPolyline } from "./iso3d";
+import {
+  buildNodeShape,
+  NODE_HEIGHT,
+  PIPE_Y,
+  SELECT_COLOR,
+  setGroupEmissive,
+  statusLedColor,
+  type NodeShape,
+} from "./iso3d-shapes";
+import { edgeAnchors, orthogonalRoute, ROUTE_PAD, type Point } from "./geometry";
 
-/** Height of the placeholder node block in 3D world units. */
-const NODE_HEIGHT = 60;
 /** Fixed camera pitch (angle from vertical): locks the isometric tilt. */
 const PITCH = Math.PI / 4;
-/** Emissive color applied to the selected node block. */
-const SELECT_COLOR = 0xffd54a;
+/** Freight speed along a pipe, in board/world units per second (matches 2D). */
+const SPEED = 340;
+
+interface EdgePath {
+  polyline: XZPolyline;
+  color: number;
+  rework: boolean;
+}
+
+interface Truck {
+  mesh: THREE.Mesh;
+  polyline: XZPolyline;
+  startedAt: number;
+}
 
 /**
- * Read-only 3D display view: renders the same graph the 2D editor shows, as
- * placeholder blocks and pipes on the XZ ground plane. Camera is constrained to
- * a fixed pitch with horizontal rotate and pan only (no zoom, no tilt). On
- * mount the camera anchors to the 2D viewport center and inherits its zoom;
- * its pose is saved on unmount and restored the next time 3D is opened.
- * Clicking a block selects the same node the 2D editor tracks.
+ * Read-only 3D display view: renders the same graph the 2D editor shows as
+ * programmatic machine blocks (colored by category, silhouetted by kind) and
+ * orthogonal pipes on the XZ ground plane. Camera is constrained to a fixed
+ * pitch with horizontal rotate and pan only. Live run state drives a status LED
+ * on each block and freight trucks along the pipes; clicking a block selects the
+ * node and opens the Inspector.
  */
 export default function Canvas3D() {
   const graph = useGraph((s) => s.graph);
@@ -29,6 +51,10 @@ export default function Canvas3D() {
   const setCamera3d = useViewMode((s) => s.setCamera3d);
   const select = useGraph((s) => s.select);
   const selectNone = useGraph((s) => s.selectNone);
+  // Runtime is read per-frame via a ref so the scene isn't rebuilt on every event.
+  const runtime = useVisibleRuntime();
+  const runtimeRef = useRef(runtime);
+  runtimeRef.current = runtime;
   const mountRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -43,12 +69,10 @@ export default function Canvas3D() {
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x14181d);
 
-    // Frustum mirrors the 2D zoom so the visible extent stays consistent.
     const f = zoomToFrustum(viewport.zoom);
     const camera = new THREE.OrthographicCamera(f.left, f.right, f.top, f.bottom, 0.1, 4000);
 
     const controls = new OrbitControls(camera, renderer.domElement);
-    // Anchor to the 2D viewport center on first open, or restore the last 3D pose.
     if (camera3d) {
       camera.position.set(camera3d.posX, camera3d.posY, camera3d.posZ);
       controls.target.set(camera3d.targetX, 0, camera3d.targetZ);
@@ -69,39 +93,66 @@ export default function Canvas3D() {
     dir.position.set(200, 400, 200);
     scene.add(ambient, dir);
 
-    const nodeMat = new THREE.MeshLambertMaterial({ color: 0x4a90d9 });
-    const edgeMat = new THREE.LineBasicMaterial({ color: 0x8aa6c0 });
-
+    // --- Nodes: programmatic shapes, colored by category, silhouette by kind. ---
     const nodeGroup = new THREE.Group();
+    const nodeShapes = new Map<string, NodeShape>();
     for (const n of graph.nodes) {
+      const shape = buildNodeShape(n.kind);
       const w = boardToWorld(n.x, n.y);
-      const geo = new THREE.BoxGeometry(PLANT_W, NODE_HEIGHT, PLANT_H);
-      // One material per mesh so selection can highlight a single block.
-      const mesh = new THREE.Mesh(geo, nodeMat.clone());
-      mesh.userData.nodeId = n.id;
-      mesh.position.set(w.x, NODE_HEIGHT / 2, w.z);
-      nodeGroup.add(mesh);
+      shape.group.position.set(w.x, 0, w.z);
+      shape.group.userData.nodeId = n.id;
+      // Tag every mesh (topper parts included) so raycasts resolve to the node.
+      shape.group.traverse((obj) => {
+        if ((obj as THREE.Mesh).isMesh) obj.userData.nodeId = n.id;
+      });
+      nodeGroup.add(shape.group);
+      nodeShapes.set(n.id, shape);
     }
     scene.add(nodeGroup);
 
-    const nodeById = new Map(graph.nodes.map((n) => [n.id, n]));
+    // --- Edges: orthogonal routes (same geometry the 2D canvas draws). ---
+    const anchors = edgeAnchors(graph);
+    const obstacles = graph.nodes.map((n) => ({
+      id: n.id,
+      x0: n.x - PLANT_W / 2 - ROUTE_PAD,
+      y0: n.y - PLANT_H / 2 - ROUTE_PAD,
+      x1: n.x + PLANT_W / 2 + ROUTE_PAD,
+      y1: n.y + PLANT_H / 2 + ROUTE_PAD,
+    }));
+    const edgePaths = new Map<string, EdgePath>();
     const edgeGroup = new THREE.Group();
     for (const e of graph.edges) {
-      const a = nodeById.get(e.from);
-      const b = nodeById.get(e.to);
-      if (!a || !b) continue;
-      const wa = boardToWorld(a.x, a.y);
-      const wb = boardToWorld(b.x, b.y);
-      const geo = new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(wa.x, NODE_HEIGHT / 2, wa.z),
-        new THREE.Vector3(wb.x, NODE_HEIGHT / 2, wb.z),
-      ]);
-      edgeGroup.add(new THREE.Line(geo, edgeMat));
+      const a = anchors.get(e.id);
+      if (!a) continue;
+      let route: Point[];
+      if (e.kind === "rework") {
+        route = [a.from, a.to];
+      } else {
+        route = orthogonalRoute(a.from, a.to, obstacles.filter((o) => o.id !== e.from && o.id !== e.to));
+      }
+      const points = route.map((p) => {
+        const w = boardToWorld(p.x, p.y);
+        return { x: w.x, z: w.z };
+      });
+      const color =
+        e.kind === "error" ? 0xff5252 : e.kind === "rework" ? 0xff9d2e : 0x8aa6c0;
+      edgePaths.set(e.id, { polyline: xzPolyline(points), color, rework: e.kind === "rework" });
+      const geo = new THREE.BufferGeometry().setFromPoints(
+        points.map((p) => new THREE.Vector3(p.x, PIPE_Y, p.z)),
+      );
+      edgeGroup.add(new THREE.Line(geo, new THREE.LineBasicMaterial({ color })));
     }
     scene.add(edgeGroup);
 
-    // Raycast selection: click a block to select the node (mirrors 2D state),
-    // and a click (not a rotate/pan drag) opens the Inspector panel.
+    // --- Trucks: one shared box geometry, materials cached per artifact color. ---
+    const truckGroup = new THREE.Group();
+    scene.add(truckGroup);
+    const truckGeo = new THREE.BoxGeometry(16, 7, 10);
+    const truckMats = new Map<string, THREE.MeshLambertMaterial>();
+    const trucks: Truck[] = [];
+    const seen = new Set<string>();
+
+    // --- Raycast selection: click a block to select + open the Inspector. ---
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
     let downX = 0;
@@ -115,8 +166,9 @@ export default function Canvas3D() {
       pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
       pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
       raycaster.setFromCamera(pointer, camera);
-      const hits = raycaster.intersectObjects(nodeGroup.children, false);
-      const hitId = hits[0]?.object.userData.nodeId as string | undefined;
+      const hits = raycaster.intersectObjects(nodeGroup.children, true);
+      const hit = hits.find((h) => h.object.userData.role !== "led");
+      const hitId = hit?.object.userData.nodeId as string | undefined;
       if (hitId) {
         downHitId = hitId;
         select(hitId);
@@ -135,19 +187,70 @@ export default function Canvas3D() {
     renderer.domElement.addEventListener("pointerdown", onPointerDown);
     renderer.domElement.addEventListener("pointerup", onPointerUp);
 
+    let lastRunId = runtimeRef.current.runId;
     let rafId = 0;
-    const loop = () => {
+    const loop = (now: number) => {
       rafId = requestAnimationFrame(loop);
-      // Highlight the selected block.
-      const sel = useGraph.getState().selectedId;
-      for (const child of nodeGroup.children) {
-        const mat = (child as THREE.Mesh).material as THREE.MeshLambertMaterial;
-        mat.emissive.setHex(child.userData.nodeId === sel ? SELECT_COLOR : 0x000000);
+      const rt = runtimeRef.current;
+
+      // Reset freight bookkeeping when a new run takes over.
+      if (rt.runId !== lastRunId) {
+        lastRunId = rt.runId;
+        seen.clear();
+        for (const t of trucks) truckGroup.remove(t.mesh);
+        trucks.length = 0;
       }
+
+      // Spawn a truck for each newly-seen packet.
+      for (const p of rt.packets) {
+        const key = `${p.edgeId}:${p.seq}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const path = edgePaths.get(p.edgeId);
+        if (!path) continue;
+        const color = path.rework ? "#ff9d2e" : p.artifactKind ? ARTIFACT_COLORS[p.artifactKind] : "#ffb020";
+        let mat = truckMats.get(color);
+        if (!mat) {
+          mat = new THREE.MeshLambertMaterial({ color });
+          truckMats.set(color, mat);
+        }
+        const mesh = new THREE.Mesh(truckGeo, mat);
+        truckGroup.add(mesh);
+        trucks.push({ mesh, polyline: path.polyline, startedAt: now });
+      }
+
+      // Advance/retire trucks along their pipes.
+      for (let i = trucks.length - 1; i >= 0; i--) {
+        const t = trucks[i]!;
+        const travelled = ((now - t.startedAt) / 1000) * SPEED;
+        if (travelled > t.polyline.total) {
+          truckGroup.remove(t.mesh);
+          trucks.splice(i, 1);
+          continue;
+        }
+        const at = xzPolylinePointAt(t.polyline, travelled);
+        t.mesh.position.set(at.x, PIPE_Y + 4, at.z);
+        t.mesh.rotation.y = at.angle;
+      }
+
+      // Highlight selection and drive status LEDs.
+      const sel = useGraph.getState().selectedId;
+      const haltedId = rt.status === "halted" ? rt.haltedNodeId : undefined;
+      for (const [id, shape] of nodeShapes) {
+        setGroupEmissive(shape.group, id === sel ? SELECT_COLOR : 0x000000);
+        const nodeRt = rt.nodes[id];
+        const running = nodeRt?.status === "running";
+        const ledColor = statusLedColor(nodeRt?.status, haltedId === id);
+        const ledMat = shape.led.material as THREE.MeshLambertMaterial;
+        ledMat.color.setHex(ledColor);
+        ledMat.emissive.setHex(ledColor);
+        ledMat.emissiveIntensity = running ? 0.5 + 0.4 * Math.sin(now * 0.006) : 0.25;
+      }
+
       controls.update();
       renderer.render(scene, camera);
     };
-    loop();
+    rafId = requestAnimationFrame(loop);
 
     return () => {
       cancelAnimationFrame(rafId);
@@ -165,8 +268,6 @@ export default function Canvas3D() {
         if (obj instanceof THREE.Mesh || obj instanceof THREE.Line) obj.geometry.dispose();
         if (obj instanceof THREE.Mesh && obj.material instanceof THREE.Material) obj.material.dispose();
       });
-      nodeMat.dispose();
-      edgeMat.dispose();
       renderer.dispose();
       if (renderer.domElement.parentNode === mount) mount.removeChild(renderer.domElement);
     };
