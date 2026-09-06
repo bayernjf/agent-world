@@ -241,8 +241,8 @@ export default function Minimap() {
         <rect
           x={tx(vx)}
           y={ty(vy)}
-          width={vw * scale}
-          height={vh * scale}
+          width={vw * scale * nodeFactor}
+          height={vh * scale * nodeFactor}
           className="minimap__view"
           onPointerDown={onViewPointerDown}
           style={{ cursor: "grab" }}
