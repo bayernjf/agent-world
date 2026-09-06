@@ -90,8 +90,16 @@ export default function Minimap() {
   const vh = VIEW_H / effZoom;
   const vx = -viewport.panX / viewport.zoom;
   const vy = -viewport.panY / viewport.zoom;
-  const viewW = Math.min(vw * scale, MAP);
-  const viewH = Math.min(vh * scale, MAP);
+  // Keep the view rect's true aspect (VIEW_W:VIEW_H = 2.25:1) instead of
+  // clamping its size to MAP: clamping made the wider axis stick to the minimap
+  // edge with zero pan range, so it could only be dragged vertically. Let it
+  // overflow the square minimap and clamp only its leading edge.
+  const viewW = vw * scale;
+  const viewH = vh * scale;
+  // Clamp a rect's leading edge so it stays within [0, MAP] but may overflow the
+  // opposite side when the rect is larger than the minimap.
+  const clampViewPos = (pos: number, size: number) =>
+    Math.max(Math.min(0, MAP - size), Math.min(pos, Math.max(0, MAP - size)));
   // In 3D the view rect is centered on the 3D camera target; in 2D its top-left
   // tracks the viewport.
   const centerBoard = is3d && camera3dTarget
@@ -270,13 +278,13 @@ export default function Minimap() {
         <rect
           x={
             is3d
-              ? Math.max(viewW / 2, Math.min(tx(centerBoard.x), MAP - viewW / 2)) - viewW / 2
-              : Math.max(0, Math.min(tx(vx), MAP - viewW))
+              ? clampViewPos(tx(centerBoard.x) - viewW / 2, viewW)
+              : clampViewPos(tx(vx), viewW)
           }
           y={
             is3d
-              ? Math.max(viewH / 2, Math.min(ty(centerBoard.y), MAP - viewH / 2)) - viewH / 2
-              : Math.max(0, Math.min(ty(vy), MAP - viewH))
+              ? clampViewPos(ty(centerBoard.y) - viewH / 2, viewH)
+              : clampViewPos(ty(vy), viewH)
           }
           width={viewW}
           height={viewH}
