@@ -20,8 +20,15 @@ import {
 } from "./iso3d-shapes";
 import { edgeAnchors, orthogonalRoute, ROUTE_PAD, type Point } from "./geometry";
 
-/** Fixed camera pitch (angle from vertical): locks the isometric tilt. */
-const PITCH = Math.PI / 4;
+/** Fixed camera pitch (angle from vertical): locks the isometric tilt.
+ *  π/5 ≈ 36° is closer to classic RTS (Age of Empires) dimetric views —
+ *  lower than a pure 45° isometric, so walls and roofs read as 3D volume. */
+const PITCH = Math.PI / 5;
+/** Horizontal yaw around the target: 225° places the camera in the left-rear
+ *  quadrant, looking down toward the right/front — the classic RTS angle. */
+const YAW = (5 * Math.PI) / 4;
+/** Eye-to-target distance. Controls how much of the scene fills the viewport. */
+const CAMERA_DIST = 1200;
 /** Freight speed along a pipe, in board/world units per second (matches 2D). */
 const SPEED = 340;
 
@@ -78,8 +85,12 @@ export default function Canvas3D() {
       camera.position.set(camera3d.posX, camera3d.posY, camera3d.posZ);
       controls.target.set(camera3d.targetX, 0, camera3d.targetZ);
     } else {
-      camera.position.set(0, 900, 900);
+      // Classic RTS camera: left-rear, low pitch, so roofs and side faces read
+      // as 3D volume (Age-of-Empires-style dimetric view).
+      const h = CAMERA_DIST * Math.sin(PITCH);
+      const y = CAMERA_DIST * Math.cos(PITCH);
       const center = viewportCenterToWorld(viewport);
+      camera.position.set(center.x + h * Math.cos(YAW), y, center.z + h * Math.sin(YAW));
       controls.target.set(center.x, 0, center.z);
     }
     controls.enableRotate = true;
@@ -253,7 +264,10 @@ export default function Canvas3D() {
       const cy = (minY + maxY) / 2;
       const wc = boardToWorld(cx, cy);
       controls.target.set(wc.x, 0, wc.z);
-      camera.position.set(wc.x, 900, wc.z + 900);
+      // Classic RTS isometric: left-rear low-pitch view.
+      const h = CAMERA_DIST * Math.sin(PITCH);
+      const y = CAMERA_DIST * Math.cos(PITCH);
+      camera.position.set(wc.x + h * Math.cos(YAW), y, wc.z + h * Math.sin(YAW));
       // Fit the whole graph (plus padding) into the visible frustum. The frustum
       // stays tied to the 2D viewport.zoom; camera.zoom supplies the rest, so the
       // total scale (viewport.zoom * camera.zoom) equals min(VIEW_W/bw, VIEW_H/bh).
