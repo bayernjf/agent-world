@@ -1336,50 +1336,94 @@ export default function Settings({ open, onClose }: Props) {
               <option value="google">{t("settings:search.providerGoogle")}</option>
             </select>
           </label>
-          {(config.searchConfig?.provider ?? "") !== "" && (
-            <>
-              <label className="field">
-                <span>{t("settings:search.apiKey")}</span>
-                <KeyInput
-                  reveal={revealKeys.has("search-api")}
-                  onToggle={() => toggleReveal("search-api")}
-                  placeholder={t("settings:search.apiKeyPlaceholder")}
-                  value={config.searchConfig?.apiKey ?? ""}
-                  onChange={(v) =>
-                    setConfig({
-                      ...config,
-                      searchConfig: {
-                        ...(config.searchConfig ?? {}),
-                        apiKey: v || undefined,
-                      },
-                    })
-                  }
-                />
-              </label>
-              {config.searchConfig?.provider === "google" && (
+          {(() => {
+            const p = config.searchConfig?.provider;
+            if (p !== "tavily" && p !== "serpapi" && p !== "google") {
+              return (
+                <small className="muted">
+                  {t("settings:search.noKeyNeeded")}
+                </small>
+              );
+            }
+            const label = t(
+              p === "tavily"
+                ? "settings:search.providerTavily"
+                : p === "serpapi"
+                ? "settings:search.providerSerpapi"
+                : "settings:search.providerGoogle",
+            );
+            const others = (["tavily", "serpapi", "google"] as const).filter(
+              (o) => o !== p,
+            );
+            const status = others
+              .map((o) => {
+                const has = !!config.searchConfig?.[o]?.apiKey;
+                const name = t(
+                  o === "tavily"
+                    ? "settings:search.providerTavily"
+                    : o === "serpapi"
+                    ? "settings:search.providerSerpapi"
+                    : "settings:search.providerGoogle",
+                );
+                return `${name} ${has ? t("settings:search.configured") : t("settings:search.unconfigured")}`;
+              })
+              .join(" · ");
+            return (
+              <>
                 <label className="field">
-                  <span>{t("settings:search.cx")}</span>
+                  <span>{t("settings:search.apiKeyFor", { provider: label })}</span>
                   <KeyInput
-                    reveal={revealKeys.has("search-cx")}
-                    onToggle={() => toggleReveal("search-cx")}
-                    placeholder="0123456789abcdef:xyz"
-                    value={config.searchConfig?.cx ?? ""}
+                    reveal={revealKeys.has(`search-${p}`)}
+                    onToggle={() => toggleReveal(`search-${p}`)}
+                    placeholder={t("settings:search.apiKeyPlaceholder")}
+                    value={config.searchConfig?.[p]?.apiKey ?? ""}
                     onChange={(v) =>
                       setConfig({
                         ...config,
                         searchConfig: {
                           ...(config.searchConfig ?? {}),
-                          cx: v || undefined,
+                          [p]: {
+                            ...(config.searchConfig?.[p] ?? {}),
+                            apiKey: v || undefined,
+                          },
                         },
                       })
                     }
                   />
-                  <small className="muted">{t("settings:search.cxDescription")}</small>
                 </label>
-              )}
-              <small className="muted">{t("settings:search.note")}</small>
-            </>
-          )}
+                {p === "google" && (
+                  <label className="field">
+                    <span>{t("settings:search.cx")}</span>
+                    <KeyInput
+                      reveal={revealKeys.has("search-cx")}
+                      onToggle={() => toggleReveal("search-cx")}
+                      placeholder="0123456789abcdef:xyz"
+                      value={config.searchConfig?.google?.cx ?? ""}
+                      onChange={(v) =>
+                        setConfig({
+                          ...config,
+                          searchConfig: {
+                            ...(config.searchConfig ?? {}),
+                            google: {
+                              ...(config.searchConfig?.google ?? {}),
+                              cx: v || undefined,
+                            },
+                          },
+                        })
+                      }
+                    />
+                    <small className="muted">{t("settings:search.cxDescription")}</small>
+                  </label>
+                )}
+                <p className="muted" style={{ margin: "0 0 8px" }}>
+                  {t("settings:search.otherSourcesStatus", { status })}
+                </p>
+              </>
+            );
+          })()}
+          <p className="muted" style={{ margin: 0 }}>
+            {t("settings:search.note")}
+          </p>
 
           <button
             type="button"

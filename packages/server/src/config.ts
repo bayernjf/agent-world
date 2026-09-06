@@ -129,13 +129,27 @@ export interface AppConfig {
   /**
    * User-level web search service. Applies to every `search` node as a default
    * beneath the node-level credentials but above the env vars: resolution is
-   *  node apiKey/cx → user-level → env (TAVILY_API_KEY / SERPAPI_API_KEY /
-   *  GOOGLE_API_KEY + GOOGLE_CX). `provider` selects the backend; absent means
-   *  the user has not configured one and nodes fall back to their own config.
-   *  `apiKey` is a credential and is sealed (SECRET_KEYS); `cx` (Google search
+   *  node apiKey/cx → user-level slot for that provider → env (TAVILY_API_KEY /
+   *  SERPAPI_API_KEY / GOOGLE_API_KEY + GOOGLE_CX). `provider` selects the
+   *  active backend; absent means the user has not configured one and nodes
+   *  fall back to their own config.
+   *
+   *  Credentials are bound per provider (`tavily.apiKey` / `serpapi.apiKey` /
+   *  `google.{apiKey,cx}`) so switching the active backend never re-assigns or
+   *  loses another source's key. The legacy flat `apiKey`/`cx` (pre-binding
+   *  data) is still accepted on write and honoured on read — but only for the
+   *  provider it was configured against, never across providers. `apiKey`
+   *  fields are credentials and are sealed (SECRET_KEYS); `cx` (Google search
    *  engine id) is not secret.
    */
-  searchConfig?: { provider?: string; apiKey?: string; cx?: string };
+  searchConfig?: {
+    provider?: string;
+    tavily?: { apiKey?: string };
+    serpapi?: { apiKey?: string };
+    google?: { apiKey?: string; cx?: string };
+    apiKey?: string;
+    cx?: string;
+  };
 }
 
 /**
@@ -161,6 +175,9 @@ const VideoAdapterSchema = z.object({
 
 const SearchConfigSchema = z.object({
   provider: z.enum(["duckduckgo", "tavily", "serpapi", "google"]).optional(),
+  tavily: z.object({ apiKey: z.string().optional() }).optional(),
+  serpapi: z.object({ apiKey: z.string().optional() }).optional(),
+  google: z.object({ apiKey: z.string().optional(), cx: z.string().optional() }).optional(),
   apiKey: z.string().optional(),
   cx: z.string().optional(),
 });

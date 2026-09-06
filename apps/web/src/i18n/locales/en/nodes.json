@@ -485,7 +485,10 @@
       "apiKeyPh": "Fill here to take effect immediately, no restart",
       "cx": "Engine ID cx (optional; blank = GOOGLE_CX)",
       "maxResults": "Result count (1-20)",
-      "note": "Runs a web search and outputs both a text (readable list) and json (structured) artifact; downstream agent nodes can read and summarize directly. Blank query uses the upstream text artifact (let an agent generate the query first); DuckDuckGo needs no key, other providers accept an API key in the node (encrypted before persisting), falling back to server env TAVILY_API_KEY / SERPAPI_API_KEY / GOOGLE_API_KEY+GOOGLE_CX."
+      "note": "Runs a web search and emits text (readable list) + json (structured results), so a downstream agent can read the summary directly. When the query is empty the upstream text artifact is used. Provider keys are configured per source in Settings → Search service; sources without a key cannot be selected.",
+      "providerNoKey": " (no key set)",
+      "noKeyHint": "These sources have no key configured in Settings → Search service and cannot be selected: {{providers}}",
+      "goSearchSettings": "Go to Settings → Search service"
     },
     "notify": {
       "provider": "Channel",

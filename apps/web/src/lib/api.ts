@@ -41,9 +41,14 @@ export interface AppConfig {
   defaultProvider: string;
   modelOrder?: string[];
   monthlyBudgetUsd?: number | null;
-  /** User-level web search service for `search` nodes (node config wins, env is last). */
+  /** User-level web search service for `search` nodes (node config wins, env is last).
+   *  Credentials are bound per provider so switching the active backend never
+   *  re-assigns or loses another source's key; the flat fields are legacy. */
   searchConfig?: {
     provider?: string;
+    tavily?: { apiKey?: string };
+    serpapi?: { apiKey?: string };
+    google?: { apiKey?: string; cx?: string };
     apiKey?: string;
     cx?: string;
   };

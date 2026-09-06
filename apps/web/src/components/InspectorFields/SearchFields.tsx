@@ -1,13 +1,29 @@
 import type { FieldsProps } from "./types";
 
+/** A keyed provider is selectable only once the user has saved its key in Settings. */
+function hasProviderKey(
+  searchConfig: FieldsProps["searchConfig"],
+  provider: "tavily" | "serpapi" | "google",
+): boolean {
+  return !!searchConfig?.[provider]?.apiKey;
+}
+
 export default function SearchFields({
   node,
   updateNode,
-  beginEdit,
-  commitEdit,
   t,
+  searchConfig,
+  onOpenSettings,
 }: FieldsProps) {
   if (!node.search) return null;
+  const keyed = [
+    { value: "tavily", label: "Tavily" },
+    { value: "serpapi", label: "SerpAPI" },
+    { value: "google", label: "Google CSE" },
+  ] as const;
+  const missingKeys = keyed
+    .filter(({ value }) => !hasProviderKey(searchConfig, value))
+    .map(({ label }) => label);
   return (
     <>
       <label className="field">
@@ -45,53 +61,24 @@ export default function SearchFields({
           <option value="duckduckgo">
             {t("nodes:inspector.search.providerDdg")}
           </option>
-          <option value="tavily">Tavily</option>
-          <option value="serpapi">SerpAPI</option>
-          <option value="google">Google CSE</option>
+          {keyed.map(({ value, label }) => {
+            const ready = hasProviderKey(searchConfig, value);
+            return (
+              <option key={value} value={value} disabled={!ready}>
+                {label}
+                {!ready ? ` ${t("nodes:inspector.search.providerNoKey")}` : ""}
+              </option>
+            );
+          })}
         </select>
       </label>
-      {node.search.provider !== "duckduckgo" && (
-        <>
-          <label className="field">
-            <span>{t("nodes:inspector.search.apiKey")}</span>
-            <input
-              type="password"
-              placeholder={t("nodes:inspector.search.apiKeyPh")}
-              value={node.search.apiKey ?? ""}
-              onFocus={beginEdit}
-              onBlur={commitEdit}
-              onChange={(e) =>
-                updateNode(node.id, {
-                  search: {
-                    ...node.search!,
-                    apiKey: e.target.value || undefined,
-                  },
-                })
-              }
-            />
-          </label>
-          {node.search.provider === "google" && (
-            <label className="field">
-              <span>{t("nodes:inspector.search.cx")}</span>
-              <input
-                className="input"
-                type="text"
-                placeholder="e.g. a1b2c3d4e5"
-                value={node.search.cx ?? ""}
-                onFocus={beginEdit}
-                onBlur={commitEdit}
-                onChange={(e) =>
-                  updateNode(node.id, {
-                    search: {
-                      ...node.search!,
-                      cx: e.target.value || undefined,
-                    },
-                  })
-                }
-              />
-            </label>
-          )}
-        </>
+      {missingKeys.length > 0 && (
+        <p className="field__hint">
+          {t("nodes:inspector.search.noKeyHint", { providers: missingKeys.join(" / ") })}
+          <button type="button" className="link" onClick={onOpenSettings}>
+            {t("nodes:inspector.search.goSearchSettings")}
+          </button>
+        </p>
       )}
       <label className="field">
         <span>{t("nodes:inspector.search.maxResults")}</span>

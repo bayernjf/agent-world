@@ -317,6 +317,7 @@ export default function Inspector({
     videoModelOptions,
     audioModelOptions,
     graphs,
+    searchConfig: settings?.searchConfig,
     duplicateLanes,
     arrangeLanes,
   };

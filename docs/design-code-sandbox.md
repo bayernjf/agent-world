@@ -12,6 +12,7 @@
   - Node JS 权限：`--permission`（≥ Node 22.2 稳定形式）或 `--experimental-permission`（Node 20 旧形式）——启动时对 `resolveInterpreter` 跑一次探针二选一，按解释器路径缓存。`--allow-fs-read=<workdir>` / `--allow-fs-write=<workdir>` 严格限到工作目录；不注入 `--allow-worker` / `--allow-child-process` / `--allow-addons` / `--allow-wasi`，所以子进程 / Worker / 原生 addon 都被 Node 拒绝。
   - **诚实边界已在测试注释中记录**：Node ≥ 24 的稳定 permission model 已**移除** `--allow-net` / `--deny-net` 粒度参数（只有 fs / child / worker / addon / wasi）。JS 代码的**网络隔离在 P1 不覆盖**，要靠 P2 的 OS 级后端（bwrap / sandbox-exec / 容器）。测试用「child_process 被拒绝」替代「fetch 被拒绝」，避免假装不具备的能力。
   - macOS `/var` → `/private/var` 符号链接修复：`createCodeWorkdir` 返回 `realpathSync()` 后的规范路径，spawn 的 `cwd` 和 Node 的 `--allow-fs-*` grant 两边都用同一身份，避免权限模型的 path-compare 错配。
+  - **探针环境与 `--allow-*` 门控（2026-09-06 修复）**：① `probeNodePermissionGate` 在**剥离 `NODE_OPTIONS` 的干净环境**里探针（真实 code 子进程经 `trimEnv` 本来就不带 `NODE_OPTIONS`；宿主若经 `--require` 注入语言 shim，shim 需要 fs 读、被权限模型默认拒绝 → 探针误判「无权限模型」）；② `buildNodePermissionArgs` 只在 gate 存在时才发 `--allow-fs-*`——Node ≥ 22.2 要求 `--allow-*` 前必须有 `--permission`，单独发会 `ERR_MISSING_OPTION` 崩掉子进程；gate 为 `"none"` 时只发权限无关的 `--max-old-space-size`。
   - 测试：code-sandbox 12/12 通过 + engine.code 11/11 通过。全 server suite 411 → 424 通过。
 - [x] **Phase P2 外部沙箱后端（工作树）**：
   - `CodeSandboxBackend` 接口（`planSpawn` → command/argv），`resolveSandbox(env, probe)` 按 `CODE_SANDBOX` 选择：`rlimit`（默认）/ `bwrap` / `sandbox-exec` / `noop`；二进制缺失或名字不认识时**降级 rlimit + console.warn（warn-once，绝不静默）**；probe 可注入方便测试。
