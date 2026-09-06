@@ -96,15 +96,18 @@ export default function Minimap() {
   // overflow the square minimap and clamp only its leading edge.
   const viewW = vw * scale;
   const viewH = vh * scale;
-  // Clamp a rect's leading edge so it stays within [0, MAP] but may overflow the
-  // opposite side when the rect is larger than the minimap.
-  const clampViewPos = (pos: number, size: number) =>
-    Math.max(Math.min(0, MAP - size), Math.min(pos, Math.max(0, MAP - size)));
-  // In 3D the view rect is centered on the 3D camera target; in 2D its top-left
-  // tracks the viewport.
-  const centerBoard = is3d && camera3dTarget
+  // Clamp the view rect's CENTER (not its leading edge) into the minimap. This
+  // lets the rect overflow the square minimap symmetrically and stay in sync when
+  // panning in any direction — clamping the leading edge to [0, MAP-size] froze
+  // the wider axis whenever the viewport was as wide as the whole graph (viewW
+  // === MAP after a fit), which read as "can't drag left/right".
+  const clampViewCenter = (center: number, size: number) =>
+    Math.max(0, Math.min(center, MAP)) - size / 2;
+  // Viewport center in content coords: the 3D camera target, or the 2D viewport
+  // center (top-left + half extent).
+  const viewCenter = is3d && camera3dTarget
     ? worldToBoard(camera3dTarget.x, camera3dTarget.z)
-    : { x: vx, y: vy };
+    : { x: vx + vw / 2, y: vy + vh / 2 };
 
   // Pan delta to content-space delta: dpix (SVG user) = dcontent * zoom.
   // Minimap content delta minimap-pixels / scale → graph units → * zoom → pan delta.
@@ -276,16 +279,8 @@ export default function Minimap() {
           />
         ))}
         <rect
-          x={
-            is3d
-              ? clampViewPos(tx(centerBoard.x) - viewW / 2, viewW)
-              : clampViewPos(tx(vx), viewW)
-          }
-          y={
-            is3d
-              ? clampViewPos(ty(centerBoard.y) - viewH / 2, viewH)
-              : clampViewPos(ty(vy), viewH)
-          }
+          x={clampViewCenter(tx(viewCenter.x), viewW)}
+          y={clampViewCenter(ty(viewCenter.y), viewH)}
           width={viewW}
           height={viewH}
           className="minimap__view"
