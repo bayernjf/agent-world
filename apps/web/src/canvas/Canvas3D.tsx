@@ -100,21 +100,40 @@ export default function Canvas3D() {
     }
     scene.add(edgeGroup);
 
-    // Raycast selection: click a block to select the node (mirrors 2D state).
+    // Raycast selection: click a block to select the node (mirrors 2D state),
+    // and a click (not a rotate/pan drag) opens the Inspector panel.
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
+    let downX = 0;
+    let downY = 0;
+    let downHitId: string | null = null;
     const onPointerDown = (e: PointerEvent) => {
       if (e.button !== 0) return;
+      downX = e.clientX;
+      downY = e.clientY;
       const rect = renderer.domElement.getBoundingClientRect();
       pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
       pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
       raycaster.setFromCamera(pointer, camera);
       const hits = raycaster.intersectObjects(nodeGroup.children, false);
       const hitId = hits[0]?.object.userData.nodeId as string | undefined;
-      if (hitId) select(hitId);
-      else selectNone();
+      if (hitId) {
+        downHitId = hitId;
+        select(hitId);
+      } else {
+        downHitId = null;
+        selectNone();
+      }
+    };
+    const onPointerUp = (e: PointerEvent) => {
+      if (e.button !== 0) return;
+      const moved = Math.hypot(e.clientX - downX, e.clientY - downY) > 4;
+      if (downHitId && !moved) {
+        useGraph.getState().setInspectorOpen(true);
+      }
     };
     renderer.domElement.addEventListener("pointerdown", onPointerDown);
+    renderer.domElement.addEventListener("pointerup", onPointerUp);
 
     let rafId = 0;
     const loop = () => {
@@ -133,6 +152,7 @@ export default function Canvas3D() {
     return () => {
       cancelAnimationFrame(rafId);
       renderer.domElement.removeEventListener("pointerdown", onPointerDown);
+      renderer.domElement.removeEventListener("pointerup", onPointerUp);
       setCamera3d({
         posX: camera.position.x,
         posY: camera.position.y,
