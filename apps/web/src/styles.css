@@ -2067,21 +2067,23 @@ select {
   stroke-width: 1;
 }
 .minimap__edge {
-  stroke: var(--border-primary);
+  stroke: var(--text-secondary);
   stroke-width: 1;
+  vector-effect: non-scaling-stroke;
 }
 .minimap__edge--rework {
-  stroke: var(--accent-bg);
-  stroke-dasharray: 2 2;
+  stroke: var(--accent);
+  stroke-dasharray: 3 2;
+  vector-effect: non-scaling-stroke;
 }
 .minimap__plant {
   stroke: var(--border-primary);
   stroke-width: 0.5;
 }
 .minimap__view {
-  fill: var(--info-bg);
+  fill: rgba(53, 224, 240, 0.18);
   stroke: var(--info);
-  stroke-width: 1;
+  stroke-width: 1.5;
   vector-effect: non-scaling-stroke;
 }
 .minimap__zoom {
