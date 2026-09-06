@@ -26,6 +26,10 @@ interface ViewModeState {
   camera3dRequest: { targetX: number; targetZ: number } | null;
   requestCamera3dMove: (targetX: number, targetZ: number) => void;
   consumeCamera3dRequest: () => { targetX: number; targetZ: number } | null;
+  /** One-shot "reset the 3D camera" request (fit button in 3D), consumed by Canvas3D. */
+  camera3dResetRequest: boolean;
+  requestCamera3dReset: () => void;
+  consumeCamera3dResetRequest: () => boolean;
 }
 
 export const useViewMode = create<ViewModeState>()(
@@ -49,6 +53,13 @@ export const useViewMode = create<ViewModeState>()(
       consumeCamera3dRequest: () => {
         const r = get().camera3dRequest;
         if (r) set({ camera3dRequest: null });
+        return r;
+      },
+      camera3dResetRequest: false,
+      requestCamera3dReset: () => set({ camera3dResetRequest: true }),
+      consumeCamera3dResetRequest: () => {
+        const r = get().camera3dResetRequest;
+        if (r) set({ camera3dResetRequest: false });
         return r;
       },
     }),

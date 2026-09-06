@@ -57,6 +57,7 @@ export default function Minimap() {
   const viewMode = useViewMode((s) => s.viewMode);
   const camera3dLive = useViewMode((s) => s.camera3dLive);
   const requestCamera3dMove = useViewMode((s) => s.requestCamera3dMove);
+  const requestCamera3dReset = useViewMode((s) => s.requestCamera3dReset);
   const is3d = viewMode === "3d";
   const dragRef = useRef<ViewDrag | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -119,6 +120,10 @@ export default function Minimap() {
   );
 
   const fitScreen = () => {
+    if (is3d) {
+      requestCamera3dReset();
+      return;
+    }
     if (graph.nodes.length === 0) return;
     const xs = graph.nodes.map((n) => n.x);
     const ys = graph.nodes.map((n) => n.y);

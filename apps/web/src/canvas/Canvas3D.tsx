@@ -234,6 +234,27 @@ export default function Canvas3D() {
     renderer.domElement.addEventListener("contextmenu", preventContextMenu);
     window.addEventListener("keydown", onKeyDown);
 
+    // Fit/reset: center on the graph, restore the default yaw/pitch, and size the
+    // frustum so every node is visible (the fit button in 3D mode).
+    const resetCamera = () => {
+      const xs = graph.nodes.map((n) => n.x);
+      const ys = graph.nodes.map((n) => n.y);
+      if (xs.length === 0) return;
+      const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
+      const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+      const wc = boardToWorld(cx, cy);
+      const bw = Math.max(...xs) - Math.min(...xs) + PLANT_W + 48;
+      const bh = Math.max(...ys) - Math.min(...ys) + PLANT_H + 48;
+      controls.target.set(wc.x, 0, wc.z);
+      camera.position.set(wc.x, 900, wc.z + 900);
+      camera.left = -bw / 2;
+      camera.right = bw / 2;
+      camera.top = bh / 2;
+      camera.bottom = -bh / 2;
+      camera.updateProjectionMatrix();
+      controls.update();
+    };
+
     let lastRunId = runtimeRef.current.runId;
     let rafId = 0;
     const loop = (now: number) => {
@@ -302,6 +323,9 @@ export default function Canvas3D() {
       });
       const req = useViewMode.getState().consumeCamera3dRequest();
       if (req) controls.target.set(req.targetX, 0, req.targetZ);
+      if (useViewMode.getState().consumeCamera3dResetRequest()) {
+        resetCamera();
+      }
 
       controls.update();
       renderer.render(scene, camera);
