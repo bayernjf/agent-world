@@ -234,8 +234,9 @@ export default function Canvas3D() {
     renderer.domElement.addEventListener("contextmenu", preventContextMenu);
     window.addEventListener("keydown", onKeyDown);
 
-    // Fit/reset: center on the graph, restore the default yaw/pitch, and size the
-    // frustum so every node is visible (the fit button in 3D mode).
+    // Fit/reset: center on the graph and restore the default yaw, pitch and
+    // frustum. Restoring the canvas-aspect frustum (not the graph bounds) keeps
+    // plants from looking stretched when the graph is much wider than tall.
     const resetCamera = () => {
       const xs = graph.nodes.map((n) => n.x);
       const ys = graph.nodes.map((n) => n.y);
@@ -243,15 +244,15 @@ export default function Canvas3D() {
       const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
       const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
       const wc = boardToWorld(cx, cy);
-      const bw = Math.max(...xs) - Math.min(...xs) + PLANT_W + 48;
-      const bh = Math.max(...ys) - Math.min(...ys) + PLANT_H + 48;
       controls.target.set(wc.x, 0, wc.z);
-      camera.position.set(wc.x, 900, wc.z + 900);
-      camera.left = -bw / 2;
-      camera.right = bw / 2;
-      camera.top = bh / 2;
-      camera.bottom = -bh / 2;
+      const f = zoomToFrustum(viewport.zoom);
+      camera.left = f.left;
+      camera.right = f.right;
+      camera.top = f.top;
+      camera.bottom = f.bottom;
+      camera.zoom = 1;
       camera.updateProjectionMatrix();
+      camera.position.set(wc.x, 900, wc.z + 900);
       controls.update();
     };
 
