@@ -2041,7 +2041,7 @@ select {
 .minimap {
   position: absolute;
   left: var(--gap-md);
-  bottom: calc(var(--gap-md) + 40px);
+  bottom: calc(var(--gap-md) + 24px);
   z-index: 3;
   width: 176px;
   height: 176px;
