@@ -9,6 +9,8 @@
   "grid": "网格",
   "snapToGrid": "对齐网格",
   "minimap": "小地图",
+  "view3d": "3D 视图",
+  "view2d": "2D 视图",
   "nodes": "节点",
   "edges": "连线",
   "selectedNodes": "已选节点",

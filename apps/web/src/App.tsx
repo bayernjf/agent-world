@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { Diagnostic, FormConnector, Graph } from "@agent-world/core";
 
@@ -54,6 +54,9 @@ import { useToast } from "./store/toast";
 import { getTemplate } from "@agent-world/core";
 import { useGraph } from "./store/graph";
 import { useRun } from "./store/run";
+import { useViewMode } from "./store/view-mode";
+
+const Canvas3D = lazy(() => import("./canvas/Canvas3D"));
 
 /** How often the HUD badge re-counts runs waiting on a human. */
 const REVIEW_POLL_MS = 20_000;
@@ -74,6 +77,8 @@ export default function App() {
   } = useGraph();
   const { connect, reset, runId, loadRun } = useRun();
   const runStatus = useRun((s) => s.live.status);
+  const viewMode = useViewMode((s) => s.viewMode);
+  const toggleViewMode = useViewMode((s) => s.toggle);
 
   const [mode, setMode] = useState<Mode>("select");
   const [budget, setBudget] = useState(0.01);
@@ -895,10 +900,23 @@ export default function App() {
           <main className="stage">
             <div className="canvas-toolbar-row">
               <CanvasToolbar onError={showError} />
+              <button
+                className="btn btn--ghost"
+                onClick={toggleViewMode}
+                title={viewMode === "2d" ? t("canvas:view3d") : t("canvas:view2d")}
+              >
+                {viewMode === "2d" ? t("canvas:view3d") : t("canvas:view2d")}
+              </button>
             </div>
             <Timeline />
             <FailurePanel onRerun={onRun} />
-            <Canvas mode={mode} diagnostics={diagnostics} />
+            {viewMode === "2d" ? (
+              <Canvas mode={mode} diagnostics={diagnostics} />
+            ) : (
+              <Suspense fallback={null}>
+                <Canvas3D />
+              </Suspense>
+            )}
             <button
               className={`stage__control-toggle ${controlCollapsed ? "is-collapsed" : ""}`}
               onClick={() => setControlCollapsed((v) => !v)}

@@ -9,6 +9,8 @@
   "grid": "Grid",
   "snapToGrid": "Snap to Grid",
   "minimap": "Minimap",
+  "view3d": "3D View",
+  "view2d": "2D View",
   "nodes": "Nodes",
   "edges": "Edges",
   "selectedNodes": "Selected Nodes",
