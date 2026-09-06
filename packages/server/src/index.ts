@@ -735,6 +735,33 @@ app.post("/api/compile", async (c) => {
   });
 });
 
+/**
+ * User-level search config as the UI sees it: every per-provider apiKey is
+ * redacted, and legacy flat credentials (pre per-provider binding) are
+ * surfaced in the slot of the provider they were configured against so the
+ * form shows them where they now belong. Display-level only — the file on
+ * disk is rewritten with slots on the next save.
+ */
+function redactSearchConfigForUi(s: NonNullable<AppConfig["searchConfig"]>): NonNullable<AppConfig["searchConfig"]> {
+  const out: NonNullable<AppConfig["searchConfig"]> = { ...s };
+  // The legacy flat key must never leave the server in cleartext either.
+  if (out.apiKey) out.apiKey = redactKey(out.apiKey);
+  for (const p of ["tavily", "serpapi", "google"] as const) {
+    // Tavily/serpapi carry only apiKey, google also cx — treat all three as the
+    // common optional shape so migration and redaction stay type-safe.
+    const slot: { apiKey?: string; cx?: string } = { ...(s[p] ?? {}) };
+    // Read-time migration: seed the slot from the legacy flat credential,
+    // but only when the flat config targeted this same provider.
+    if (s.provider === p) {
+      if (s.apiKey && !slot.apiKey) slot.apiKey = s.apiKey;
+      if (p === "google" && s.cx && !slot.cx) slot.cx = s.cx;
+    }
+    if (slot.apiKey) slot.apiKey = redactKey(slot.apiKey);
+    out[p] = slot;
+  }
+  return out;
+}
+
 app.get("/api/settings", (c) => {
   const cfg = loadConfig(c.get("userId"));
   // Never return raw API keys — redact for the UI.
@@ -746,9 +773,7 @@ app.get("/api/settings", (c) => {
         { ...p, apiKey: p.apiKey ? redactKey(p.apiKey) : undefined },
       ]),
     ),
-    searchConfig: cfg.searchConfig
-      ? { ...cfg.searchConfig, apiKey: cfg.searchConfig.apiKey ? redactKey(cfg.searchConfig.apiKey) : undefined }
-      : undefined,
+    searchConfig: cfg.searchConfig ? redactSearchConfigForUi(cfg.searchConfig) : undefined,
   };
   return c.json(redacted);
 });
@@ -1221,13 +1246,20 @@ app.put("/api/settings", async (c) => {
     ...body,
     providers: mergedProviders,
   };
-  // Same redacted-key round-trip rule for the user-level search service: if the
-  // UI echoed the masked key back, keep the stored one.
-  if (body.searchConfig?.apiKey && isRedactedKey(body.searchConfig.apiKey)) {
-    merged.searchConfig = {
-      ...body.searchConfig,
-      apiKey: current.searchConfig?.apiKey ?? body.searchConfig.apiKey,
-    };
+  // Same redacted-key round-trip rule for the user-level search service, per
+  // provider: a masked key echoed back means "unchanged" — keep the stored one.
+  if (body.searchConfig) {
+    const mergedSearch: NonNullable<AppConfig["searchConfig"]> = { ...body.searchConfig };
+    for (const p of ["tavily", "serpapi", "google"] as const) {
+      const slot = mergedSearch[p];
+      if (slot?.apiKey && isRedactedKey(slot.apiKey)) {
+        mergedSearch[p] = { ...slot, apiKey: current.searchConfig?.[p]?.apiKey ?? slot.apiKey };
+      }
+    }
+    if (body.searchConfig.apiKey && isRedactedKey(body.searchConfig.apiKey)) {
+      mergedSearch.apiKey = current.searchConfig?.apiKey ?? body.searchConfig.apiKey;
+    }
+    merged.searchConfig = mergedSearch;
   }
   const path = saveConfig(merged, userId);
   // Audit field PATHS only — never values (red line in design-audit-log §3.2).

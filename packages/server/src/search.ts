@@ -27,13 +27,42 @@ export class SearchAuthError extends Error {
 }
 
 /**
- * User-level web search service from Settings. Same shape as the search
- * node's own credential fields; resolution order is node → user → env.
+ * User-level web search service from Settings. Credentials are bound per
+ * provider (`searchConfig.tavily.apiKey` …) so each source owns its key;
+ * `provider` selects the active backend. The legacy flat `apiKey`/`cx` is
+ * honoured only when it was configured for the same provider.
  */
 export interface UserSearchConfig {
   provider?: string;
+  tavily?: { apiKey?: string };
+  serpapi?: { apiKey?: string };
+  google?: { apiKey?: string; cx?: string };
   apiKey?: string;
   cx?: string;
+}
+
+/**
+ * The user-level credential slot for one keyed provider. The per-provider
+ * field is the source of truth; the legacy flat apiKey/cx (pre-binding data)
+ * applies when `provider` names the same source, or when it is unset — the
+ * old semantics applied the flat key to any keyed provider, and there is no
+ * way to recover binding info that was never recorded. A flat key is never
+ * re-used once `provider` names a different source: a tavily key must not
+ * leak into a serpapi request.
+ */
+function userSlot(
+  user: UserSearchConfig | undefined,
+  provider: "tavily" | "serpapi" | "google",
+): { apiKey?: string; cx?: string } {
+  if (!user) return {};
+  // Tavily/serpapi slots carry only apiKey, google also cx — read both through
+  // a common optional shape so the union type stays narrow.
+  const slot = user[provider] as { apiKey?: string; cx?: string } | undefined;
+  if (slot?.apiKey || slot?.cx) return slot;
+  if (user.provider === provider || !user.provider) {
+    return { apiKey: user.apiKey, cx: user.cx };
+  }
+  return {};
 }
 
 /** Node value wins; the user-level Settings value is next; the env var is the deployment-wide fallback. */
@@ -134,7 +163,7 @@ interface GoogleResponse {
 }
 
 async function searchTavily(query: string, cfg: SearchConfig, user?: UserSearchConfig): Promise<SearchHit[]> {
-  const key = resolveCredential(cfg.apiKey, user?.apiKey, "TAVILY_API_KEY", "apiKey");
+  const key = resolveCredential(cfg.apiKey, userSlot(user, "tavily").apiKey, "TAVILY_API_KEY", "apiKey");
   const res = await outboundFetch("https://api.tavily.com/search", {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
@@ -150,7 +179,7 @@ async function searchTavily(query: string, cfg: SearchConfig, user?: UserSearchC
 }
 
 async function searchSerpApi(query: string, cfg: SearchConfig, user?: UserSearchConfig): Promise<SearchHit[]> {
-  const key = resolveCredential(cfg.apiKey, user?.apiKey, "SERPAPI_API_KEY", "apiKey");
+  const key = resolveCredential(cfg.apiKey, userSlot(user, "serpapi").apiKey, "SERPAPI_API_KEY", "apiKey");
   // Audit L6: SerpAPI only authenticates via the api_key query parameter (no
   // header option). It stays in the query, but is protected by TLS in transit
   // and is never placed in logs or error messages (the throws below are static).
@@ -166,8 +195,9 @@ async function searchSerpApi(query: string, cfg: SearchConfig, user?: UserSearch
 }
 
 async function searchGoogle(query: string, cfg: SearchConfig, user?: UserSearchConfig): Promise<SearchHit[]> {
-  const key = resolveCredential(cfg.apiKey, user?.apiKey, "GOOGLE_API_KEY", "apiKey");
-  const cx = resolveCredential(cfg.cx, user?.cx, "GOOGLE_CX", "cx");
+  const slot = userSlot(user, "google");
+  const key = resolveCredential(cfg.apiKey, slot.apiKey, "GOOGLE_API_KEY", "apiKey");
+  const cx = resolveCredential(cfg.cx, slot.cx, "GOOGLE_CX", "cx");
   // Audit L6: the Google Custom Search JSON API accepts its key only as the
   // ?key= query parameter (no Authorization header). TLS protects it in
   // transit and the URL is never logged or surfaced in thrown errors.

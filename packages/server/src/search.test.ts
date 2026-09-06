@@ -143,4 +143,35 @@ describe("searchWeb user-level service", () => {
     expect(String(call[0])).toContain("https://serpapi.com/search");
     expect(String(call[0])).toContain("api_key=serp-node");
   });
+
+  it("binds a key to its own source, independent of the active provider", async () => {
+    vi.stubEnv("TAVILY_API_KEY", "tvly-env");
+    expect(
+      await sentAuthorization(
+        {},
+        {
+          provider: "serpapi",
+          serpapi: { apiKey: "serp-user" },
+          tavily: { apiKey: "tvly-user" },
+        },
+      ),
+    ).toBe("Bearer tvly-user");
+  });
+
+  it("never reuses another source's key for a keyed provider", async () => {
+    vi.stubEnv("SERPAPI_API_KEY", "serp-env");
+    globalThis.fetch = vi.fn(async () =>
+      new Response(JSON.stringify({ organic_results: [] }), { status: 200 }),
+    ) as unknown as typeof fetch;
+    // tavily has a key, but the request is serpapi — it must fall to the env,
+    // never borrow the tavily credential.
+    await searchWeb("q", { ...cfg, provider: "serpapi" }, {
+      provider: "tavily",
+      tavily: { apiKey: "tvly-user" },
+    });
+    const call = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    const url = String(call[0]);
+    expect(url).toContain("api_key=serp-env");
+    expect(url).not.toContain("tvly-user");
+  });
 });
