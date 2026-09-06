@@ -318,7 +318,16 @@ export default function Canvas3D() {
 
       // Apply minimap-originated move/zoom/reset requests, then publish live state.
       const mr = useViewMode.getState().consumeCamera3dMoveRequest();
-      if (mr) controls.target.set(mr.x, 0, mr.z);
+      if (mr) {
+        // Move target AND position together so the camera offset stays fixed:
+        // moving only the target re-aims the camera (rotation), not a pan.
+        const dx = mr.x - controls.target.x;
+        const dz = mr.z - controls.target.z;
+        controls.target.x = mr.x;
+        controls.target.z = mr.z;
+        camera.position.x += dx;
+        camera.position.z += dz;
+      }
       const zr = useViewMode.getState().consumeCamera3dZoomRequest();
       if (zr != null) {
         camera.zoom = zr;
