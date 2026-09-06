@@ -2,6 +2,19 @@
 
 Agent World 项目的 AI 编码规范。写任何代码前先读本节，尤其是「UI 文案」和「设计 token」两条——这是本项目最常被违反的约定。
 
+## 任务追踪与文档分层
+
+**任务追踪与待办的主入口是 `handoff.md`**（状态、进度、待办、文档索引都在这里）；**方案/设计/规格的全文放 `docs/`（或根目录）的独立文档**，handoff 只索引、不复制全文。
+
+- 活跃待办 → `handoff.md`「Active work」区
+- 缓做/低优项 → `docs/deferred-items.md`（每条带触发条件；handoff 只给索引）
+- 方案/设计/规格 → `docs/design-*.md`、`docs/PRD.md`、`docs/technical-design.md` 等，一个主题一份（单一事实源）
+- 触发条件满足 → 从 deferred-items 移回 handoff 待办区并标注重启日期
+
+**新增文档后**：在 `handoff.md`「Project documents」区补一行索引（`docs/README.md` 文档地图同步）。
+
+一句话：handoff = 索引 + 状态 + 待办，docs = 方案 + 设计 + 明细。接手先读 handoff，再按索引跳转。
+
 ## UI 文案 —— 必须走 i18n，禁止硬编码中文
 
 所有用户可见文案（按钮、标签、placeholder、提示、弹窗标题、错误信息、下拉选项）必须通过 `t()` 输出，**禁止在组件里直接写中文字符串**。

@@ -130,8 +130,9 @@ apps/web          the board: SVG canvas, inspector, timeline, reports
 
 ## Documentation
 
-The full index (every doc, tagged current/historical/archived) lives in
-[docs/README.md](docs/README.md). Quick pointers:
+The full doc list (every doc, with a one-line description) lives in
+[handoff.md](handoff.md) — read it first when resuming. [docs/README.md](docs/README.md)
+is the scenario-based navigation map (what to read for which task). Quick pointers:
 
 - [handoff.md](handoff.md) — current state and active work (read first when resuming)
 - [docs/examples.md](docs/examples.md) — 33 ready-to-use pipeline templates
