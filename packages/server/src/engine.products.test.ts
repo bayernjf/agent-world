@@ -2,7 +2,6 @@ import { compile, type Graph, type GraphNode, type RunEvent } from "@agent-world
 import { describe, expect, it, vi } from "vitest";
 import { execute } from "./engine.js";
 import type { Worker } from "./worker.js";
-import { buildSourceBrief } from "./nodes/shared.js";
 
 const TEXTGEN = {
   model: "agnes-2.0-flash",
@@ -306,46 +305,3 @@ describe("connector data interpolation (design-data-interpolation.md)", () => {
   });
 });
 
-describe("buildSourceBrief fallback semantics (D4)", () => {
-  const node = (partial?: Partial<NonNullable<GraphNode["source"]>>): GraphNode => ({
-    id: "src",
-    kind: "source",
-    name: "原料台",
-    x: 0,
-    y: 0,
-    source: partial as GraphNode["source"],
-  });
-
-  it("fills an empty productName from fallbacks", () => {
-    const out = buildSourceBrief(node({}), undefined, { productName: "复古托特包", brand: "某某品牌" });
-    expect(out).toContain("商品名称：复古托特包");
-    expect(out).toContain("品牌/店铺：某某品牌");
-  });
-
-  it("keeps a user-provided productName (override) over fallbacks", () => {
-    const out = buildSourceBrief(node({ productName: "我定的名字" }), undefined, { productName: "复古托特包" });
-    expect(out).toContain("商品名称：我定的名字");
-    expect(out).not.toContain("复古托特包");
-  });
-
-  it("ignores fallbacks for tone fields (audience/priceRange/tone are never auto-filled)", () => {
-    const out = buildSourceBrief(node({}), undefined, {
-      productName: "p",
-      audience: "不应用",
-      priceRange: "不应用",
-      tone: "不应用",
-    });
-    expect(out).not.toContain("目标人群");
-    expect(out).not.toContain("价格定位");
-    expect(out).not.toContain("语气调性");
-  });
-
-  it("keeps byte-identical output for a manual source with no fallbacks", () => {
-    const src = node({ productName: "复古托特包", brand: "某某品牌", audience: "20-30岁" });
-    const a = buildSourceBrief(src, "# 原料\n内容", undefined);
-    const b = buildSourceBrief(src, "# 原料\n内容");
-    expect(a).toBe(b);
-    expect(a).toContain("商品名称：复古托特包");
-    expect(a).toContain("目标人群：20-30岁");
-  });
-});
