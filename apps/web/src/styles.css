@@ -2041,7 +2041,7 @@ select {
 .minimap {
   position: absolute;
   left: var(--gap-md);
-  bottom: var(--gap-md);
+  bottom: calc(var(--gap-md) + 40px);
   z-index: 3;
   padding: var(--gap-xs);
   background: var(--bg-primary);
@@ -2078,7 +2078,7 @@ select {
 .minimap__zoom {
   position: absolute;
   left: var(--gap-md);
-  bottom: calc(var(--gap-md) + 186px + var(--gap-xs));
+  bottom: var(--gap-md);
   display: flex;
   align-items: center;
   gap: var(--space-1);
