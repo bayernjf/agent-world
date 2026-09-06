@@ -1,16 +1,19 @@
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { useGraph } from "../store/graph";
 import { PLANT_H, PLANT_W } from "../store/graph";
 import { boardToWorld } from "./iso3d";
 
 /** Height of the placeholder node block in 3D world units. */
 const NODE_HEIGHT = 60;
+/** Fixed camera pitch (angle from vertical): locks the isometric tilt. */
+const PITCH = Math.PI / 4;
 
 /**
  * Read-only 3D display view: renders the same graph the 2D editor shows, as
- * placeholder blocks and pipes on the XZ ground plane. Static for now — camera
- * interaction (Step 5) and view switching (Step 6) come next.
+ * placeholder blocks and pipes on the XZ ground plane. Camera is constrained to
+ * a fixed pitch with horizontal rotate and pan only (no zoom, no tilt).
  */
 export default function Canvas3D() {
   const graph = useGraph((s) => s.graph);
@@ -30,7 +33,15 @@ export default function Canvas3D() {
 
     const camera = new THREE.OrthographicCamera(-720, 720, 320, -320, 0.1, 4000);
     camera.position.set(0, 900, 900);
-    camera.lookAt(0, 0, 0);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.target.set(0, 0, 0);
+    controls.enableRotate = true;
+    controls.enablePan = true;
+    controls.enableZoom = false;
+    controls.minPolarAngle = PITCH;
+    controls.maxPolarAngle = PITCH;
+    controls.update();
 
     const ambient = new THREE.AmbientLight(0xffffff, 0.7);
     const dir = new THREE.DirectionalLight(0xffffff, 0.8);
@@ -66,9 +77,17 @@ export default function Canvas3D() {
     }
     scene.add(edgeGroup);
 
-    renderer.render(scene, camera);
+    let rafId = 0;
+    const loop = () => {
+      rafId = requestAnimationFrame(loop);
+      controls.update();
+      renderer.render(scene, camera);
+    };
+    loop();
 
     return () => {
+      cancelAnimationFrame(rafId);
+      controls.dispose();
       scene.traverse((obj) => {
         if (obj instanceof THREE.Mesh || obj instanceof THREE.Line) obj.geometry.dispose();
       });
