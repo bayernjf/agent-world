@@ -623,6 +623,7 @@
     "title": "快捷键",
     "groups": {
       "canvas": "画布",
+      "view3d": "3D 视图",
       "edit": "编辑",
       "tools": "工具",
       "other": "其他"
@@ -636,6 +637,18 @@
       "arrowsDesc": "方向键平移画布（Shift 加速）",
       "fitKeys": "F",
       "fitDesc": "缩放并居中到选中节点"
+    },
+    "view3d": {
+      "dragKeys": "左键拖动",
+      "dragDesc": "平移画布",
+      "wheelKeys": "滚轮",
+      "wheelDesc": "缩放视角",
+      "rotateKeys": "右键 + 滚轮",
+      "rotateDesc": "水平旋转视角",
+      "arrowsKeys": "↑ ↓ ← →",
+      "arrowsDesc": "方向键平移画布",
+      "clickKeys": "点击节点",
+      "clickDesc": "查看详情"
     },
     "edit": {
       "copyKeys": "⌘/Ctrl + C",
