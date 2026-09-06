@@ -262,6 +262,8 @@ State of Agent World as of 2026-09-06.
 
 36. ✅ **商业化详细实施方案（2026-09-06 设计，未实施）**：新增 [docs/design-monetization.md](docs/design-monetization.md)——把 PRODUCT_STRATEGY 的「方向」落成可实施规格：三层计费模型（内置模型订阅制 / 自定义模型 BYOK / 平台资源）+ 套餐档位（Free/Starter/Pro/Team，⚙️ 价格待成本校准）+ 配额与订阅 gate（`subscriptions`/`usage_ledger` 表 + `enforceSubscription()` 挂 `validate-models` 之后 + 硬配额）+ 账单支付（Stripe + 手动开通 MVP）+ 企业版能力 + P0-P3 分阶段路线（P0 计量回采 → P1 订阅 gate → P2 账单支付 → P3 企业版）。**实施未启动**——触发条件：P0 成本计量回采跑 2-4 周拿到真实成本，再定价开工。
 
+37. ★ **画布等距 3D 展示视图（受限 3D + 2D/3D 切换，2026-09-06 立项，第一期进行中）**：方案见 [docs/design-canvas-isometric.md](docs/design-canvas-isometric.md)。在现有 2D 编辑画布上增量加「受限 3D」展示视图（正交投影 + 俯角固定 + 水平旋转 + 平移；2D 编辑 / 3D 查看分离）。第一期 9 步原子提交：①引入 three.js + React.lazy ②view-mode store ③坐标映射纯函数 ④静态 3D 场景 ⑤锁俯角摄像机 ⑥2D/3D 切换（唯一改 App.tsx）⑦锚点对齐 + 状态记忆 ⑧3D 选中节点 ⑨收尾（淡切 + i18n + dispose）。进度：Step 1 引入依赖 ✅。
+
 > 全部缓做/低优事项（含上述两条）已统一登记在 [docs/deferred-items.md](docs/deferred-items.md)——每条带触发条件与决策详情链接，触发条件满足时移回本区并标注重启日期。
 
 ## Recently shipped (last 5)
