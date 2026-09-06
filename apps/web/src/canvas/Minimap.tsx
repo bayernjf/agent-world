@@ -68,6 +68,10 @@ export default function Minimap() {
   const offY = (MAP - bh * scale) / 2;
   const tx = (x: number) => offX + (x - minX) * scale;
   const ty = (y: number) => offY + (y - minY) * scale;
+  // Plants breathe with the canvas zoom so the minimap reflects how much
+  // detail the user is looking at — sqrt keeps it bounded, clamp avoids
+  // overflow at the extremes of MIN_ZOOM / MAX_ZOOM.
+  const nodeFactor = Math.min(1.8, Math.max(0.5, Math.sqrt(viewport.zoom)));
 
   // Viewport in board user-space (content coords). The SVG board uses a
   // fixed viewBox of VIEW_W × VIEW_H; letterbox fit only controls where
@@ -225,10 +229,10 @@ export default function Minimap() {
         {graph.nodes.map((n) => (
           <rect
             key={n.id}
-            x={tx(n.x) - (PLANT_W * scale) / 2}
-            y={ty(n.y) - (PLANT_H * scale) / 2}
-            width={PLANT_W * scale}
-            height={PLANT_H * scale}
+            x={tx(n.x) - (PLANT_W * scale * nodeFactor) / 2}
+            y={ty(n.y) - (PLANT_H * scale * nodeFactor) / 2}
+            width={PLANT_W * scale * nodeFactor}
+            height={PLANT_H * scale * nodeFactor}
             rx={2}
             className="minimap__plant"
             style={{ fill: KIND_FILL[n.kind] }}
