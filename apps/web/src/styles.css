@@ -2097,8 +2097,9 @@ select {
   box-sizing: border-box;
 }
 .minimap__zoom .muted {
-  min-width: 26px;
+  min-width: 34px;
   text-align: center;
+  font-size: 9px;
 }
 .minimap__zoom .minimap__zoom-step {
   background: transparent;
@@ -2111,7 +2112,7 @@ select {
   color: var(--text-primary);
 }
 .minimap__slider {
-  width: 36px;
+  width: 56px;
   margin: 0;
   accent-color: var(--text-secondary);
   cursor: pointer;
