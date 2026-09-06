@@ -63,7 +63,7 @@ import { MAX_INLINE_BYTES } from "./artifact-reader.js";
 import { getSkill, resolveTools, executeBuiltinTool } from "./skills/registry.js";
 import { guardToolCall, isDangerousTool, loadPermissionConfig, type PermissionConfig } from "./permissions.js";
 import { notifyFailed, notifyHalt } from "./notify.js";
-import { CONNECTOR_SHORTCUTS, resolveConnector, type ResolvedMaterial } from "./connectors.js";
+import { resolveConnector, type ResolvedMaterial } from "./connectors.js";
 import { createSqliteDriver } from "./db-drivers.js";
 import { dataUriToBuffer, parseDocument, extractPdfImages } from "./parse-file.js";
 import { ocrImage } from "./ocr.js";
@@ -595,22 +595,6 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       runLog.info(
         `connector shortcut "${s.name}" disabled: ${count} ${s.connector} sources, use "\${srcId.data[0]…}" instead`,
       );
-    }
-  }
-  // 悬空引用守护（design-data-interpolation.md §3.2）：图里写了 `${shortcut…}`
-  // 但对应 connector 没有任何 source（删 connector 后遗留），引用会静默解析为
-  // 空串——warn 一次。只匹配字段访问（`.` / `[`），避开纯 `${product}` 整节点
-  // 引用（可能是节点 id 就叫 product 的合法场景）。
-  const graphText = JSON.stringify(graph);
-  const warnedConnectors = new Set<string>();
-  for (const s of CONNECTOR_SHORTCUTS) {
-    if (warnedConnectors.has(s.connector)) continue;
-    if ((sourcesByConnector.get(s.connector)?.length ?? 0) > 0) continue;
-    if (new RegExp(`\\$\\{\\s*${s.name}(?:\\.|\\[)`).test(graphText)) {
-      runLog.warn(
-        `graph references "\${${s.name}…}" but has no ${s.connector} connector source — resolves to empty string`,
-      );
-      warnedConnectors.add(s.connector);
     }
   }
   /** nodeCtx enriched with sidecar metadata (http responses, connector data).
