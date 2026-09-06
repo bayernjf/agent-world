@@ -1,4 +1,6 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { assertOcrSource, DEFAULT_LANG_PATH, ocrImage } from "./ocr.js";
 
 // tesseract.js is only ever loaded lazily inside ocrImage; stub it so these
@@ -45,7 +47,15 @@ describe("ocr source allowlist (audit M7③)", () => {
 // because the code pinned v5 CDN scripts as defaults — worker_threads only takes
 // a local file, and the installed tesseract.js already resolves its own assets.
 describe("ocrImage — what tesseract.js is actually given", () => {
-  afterEach(() => createWorker.mockClear());
+  afterEach(() => {
+    createWorker.mockClear();
+    vi.unstubAllEnvs();
+  });
+  // Point DB_FILE at a temp dir so defaultTessdataDir() never touches the real
+  // cwd (a stray tessdata/ directory was a test-pollution side effect).
+  beforeEach(() => {
+    vi.stubEnv("DB_FILE", join(tmpdir(), "aw-ocr-test", "db.sqlite"));
+  });
 
   it("leaves worker/core to tesseract.js unless configured", async () => {
     const res = await ocrImage(Buffer.from("img"), { lang: "eng" });
@@ -57,6 +67,12 @@ describe("ocrImage — what tesseract.js is actually given", () => {
     expect(options.langPath).toBe(DEFAULT_LANG_PATH);
     expect("workerPath" in options).toBe(false);
     expect("corePath" in options).toBe(false);
+  });
+
+  it("caches language data under <DB dir>/tessdata, not the cwd", async () => {
+    await ocrImage(Buffer.from("img"), { lang: "eng" });
+    const [, , options] = createWorker.mock.calls[0] as [string, number, Record<string, unknown>];
+    expect(options.cachePath).toBe(join(tmpdir(), "aw-ocr-test", "tessdata"));
   });
 
   it("passes an explicit allowlisted override through", async () => {
