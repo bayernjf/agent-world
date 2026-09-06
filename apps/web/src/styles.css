@@ -2026,18 +2026,36 @@ select {
   color: var(--info);
 }
 
+.canvas3d {
+  animation: canvas3d-fade var(--duration-normal) var(--ease-default);
+}
+@keyframes canvas3d-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 .minimap {
   position: absolute;
   left: var(--gap-md);
-  bottom: var(--gap-md);
+  bottom: calc(var(--gap-md) + 24px);
   z-index: 3;
-  display: flex;
-  flex-direction: column;
-  gap: var(--gap-xs);
+  width: 176px;
+  height: 176px;
+  box-sizing: border-box;
   padding: var(--gap-xs);
   background: var(--bg-primary);
   border: var(--hair);
   border-radius: var(--radius-md);
+}
+.minimap svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1;
 }
 .minimap svg {
   display: block;
@@ -2049,31 +2067,35 @@ select {
   stroke-width: 1;
 }
 .minimap__edge {
-  stroke: var(--border-primary);
+  stroke: var(--text-secondary);
   stroke-width: 1;
+  vector-effect: non-scaling-stroke;
 }
 .minimap__edge--rework {
-  stroke: var(--accent-bg);
-  stroke-dasharray: 2 2;
+  stroke: var(--accent);
+  stroke-dasharray: 3 2;
+  vector-effect: non-scaling-stroke;
 }
 .minimap__plant {
   stroke: var(--border-primary);
   stroke-width: 0.5;
 }
 .minimap__view {
-  fill: var(--info-bg);
+  fill: rgba(53, 224, 240, 0.18);
   stroke: var(--info);
-  stroke-width: 1;
+  stroke-width: 1.5;
   vector-effect: non-scaling-stroke;
 }
 .minimap__zoom {
   position: absolute;
   left: var(--gap-md);
   bottom: var(--gap-md);
+  width: 176px;
+  box-sizing: border-box;
   display: flex;
   align-items: center;
-  gap: var(--space-1);
-  padding: var(--space-1);
+  gap: 2px;
+  padding: 2px var(--space-1);
   background: var(--bg-primary);
   border: var(--hair);
   border-radius: var(--radius-sm);
@@ -2081,25 +2103,41 @@ select {
   font-size: 10px;
 }
 .minimap__zoom .chip {
-  padding: 1px var(--space-2);
-  min-width: 26px;
-  height: 20px;
+  padding: 0 2px;
+  min-width: 24px;
+  height: 18px;
   line-height: 18px;
+  white-space: nowrap;
+  flex-shrink: 0;
   box-sizing: border-box;
 }
 .minimap__zoom .muted {
-  min-width: 34px;
   text-align: center;
+  font-size: 9px;
+  flex-shrink: 0;
 }
-.minimap__zoom--right {
-  position: absolute;
-  left: auto;
-  right: var(--gap-md);
-  bottom: var(--gap-md);
+.minimap__zoom .minimap__zoom-step {
+  background: transparent;
+  border: none;
+  min-width: 18px;
+  padding: 0;
 }
-.minimap__zoom--right .chip {
-  padding: 1px var(--space-2);
-  min-width: auto;
+.minimap__zoom .minimap__zoom-step:hover {
+  border: none;
+  color: var(--text-primary);
+}
+.minimap__slider {
+  flex: 1 1 auto;
+  min-width: 30px;
+  margin: 0;
+  accent-color: var(--text-secondary);
+  cursor: pointer;
+}
+.minimap__zoom-sep {
+  width: 1px;
+  height: 16px;
+  background: var(--border-primary);
+  margin: 0;
 }
 
 /* ---------- toast (center pop-up, one-click copy on the right) ---------- */

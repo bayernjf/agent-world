@@ -13,6 +13,16 @@ const GROUPS: { title: string; items: { keys: string; desc: string }[] }[] = [
     ],
   },
   {
+    title: "modals:shortcutsHelp.groups.view3d",
+    items: [
+      { keys: "modals:shortcutsHelp.view3d.dragKeys", desc: "modals:shortcutsHelp.view3d.dragDesc" },
+      { keys: "modals:shortcutsHelp.view3d.wheelKeys", desc: "modals:shortcutsHelp.view3d.wheelDesc" },
+      { keys: "modals:shortcutsHelp.view3d.rotateKeys", desc: "modals:shortcutsHelp.view3d.rotateDesc" },
+      { keys: "modals:shortcutsHelp.view3d.arrowsKeys", desc: "modals:shortcutsHelp.view3d.arrowsDesc" },
+      { keys: "modals:shortcutsHelp.view3d.clickKeys", desc: "modals:shortcutsHelp.view3d.clickDesc" },
+    ],
+  },
+  {
     title: "modals:shortcutsHelp.groups.edit",
     items: [
       { keys: "modals:shortcutsHelp.edit.copyKeys", desc: "modals:shortcutsHelp.edit.copyDesc" },

@@ -870,8 +870,8 @@ export default function App() {
                 {t("common:app.palette")} <kbd className="kbd-inline">⌘K</kbd>
               </button>
             </Tooltip>
-            <UserMenu />
             <AnnouncementBell />
+            <UserMenu />
           </div>
         </header>
 

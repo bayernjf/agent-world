@@ -146,7 +146,7 @@ describe("ShortcutsHelp", () => {
     });
 
     it("画布分组包含方向键平移", () => {
-      expect(screen.getByText(/方向键平移画布/)).toBeInTheDocument();
+      expect(screen.getByText("方向键平移画布（Shift 加速）")).toBeInTheDocument();
     });
 
     it("画布分组包含 F 键居中", () => {
@@ -224,12 +224,12 @@ describe("ShortcutsHelp", () => {
       expect(document.querySelector(".shortcuts__grid")).toBeInTheDocument();
     });
 
-    it("有 5 个 shortcuts__group（含审核队列）", () => {
-      expect(document.querySelectorAll(".shortcuts__group").length).toBe(5);
+    it("有 6 个 shortcuts__group（含审核队列与 3D 视图）", () => {
+      expect(document.querySelectorAll(".shortcuts__group").length).toBe(6);
     });
 
     it("有 shortcuts__group-title class", () => {
-      expect(document.querySelectorAll(".shortcuts__group-title").length).toBe(5);
+      expect(document.querySelectorAll(".shortcuts__group-title").length).toBe(6);
     });
 
     it("有 shortcuts__row class", () => {

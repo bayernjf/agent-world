@@ -2,6 +2,7 @@
   "title": "画布",
   "zoomIn": "放大",
   "zoomOut": "缩小",
+  "zoom": "缩放",
   "fitView": "适应屏幕",
   "resetView": "重置视图",
   "fullscreen": "全屏",
