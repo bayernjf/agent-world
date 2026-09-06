@@ -2097,7 +2097,7 @@ select {
   box-sizing: border-box;
 }
 .minimap__zoom .muted {
-  min-width: 34px;
+  min-width: 26px;
   text-align: center;
 }
 .minimap__zoom .minimap__zoom-step {
@@ -2111,7 +2111,7 @@ select {
   color: var(--text-primary);
 }
 .minimap__slider {
-  width: 56px;
+  width: 36px;
   margin: 0;
   accent-color: var(--text-secondary);
   cursor: pointer;
@@ -2120,7 +2120,7 @@ select {
   width: 1px;
   height: 16px;
   background: var(--border-primary);
-  margin: 0 var(--space-1);
+  margin: 0;
 }
 
 /* ---------- toast (center pop-up, one-click copy on the right) ---------- */
