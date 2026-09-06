@@ -3,7 +3,9 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { useGraph } from "../store/graph";
 import { PLANT_H, PLANT_W } from "../store/graph";
-import { boardToWorld } from "./iso3d";
+import { useCanvas } from "../store/canvas";
+import { useViewMode } from "../store/view-mode";
+import { boardToWorld, viewportCenterToWorld, zoomToFrustum } from "./iso3d";
 
 /** Height of the placeholder node block in 3D world units. */
 const NODE_HEIGHT = 60;
@@ -13,10 +15,15 @@ const PITCH = Math.PI / 4;
 /**
  * Read-only 3D display view: renders the same graph the 2D editor shows, as
  * placeholder blocks and pipes on the XZ ground plane. Camera is constrained to
- * a fixed pitch with horizontal rotate and pan only (no zoom, no tilt).
+ * a fixed pitch with horizontal rotate and pan only (no zoom, no tilt). On
+ * mount the camera anchors to the 2D viewport center and inherits its zoom;
+ * its pose is saved on unmount and restored the next time 3D is opened.
  */
 export default function Canvas3D() {
   const graph = useGraph((s) => s.graph);
+  const viewport = useCanvas((s) => s.viewport);
+  const camera3d = useViewMode((s) => s.camera3d);
+  const setCamera3d = useViewMode((s) => s.setCamera3d);
   const mountRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -31,11 +38,20 @@ export default function Canvas3D() {
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x14181d);
 
-    const camera = new THREE.OrthographicCamera(-720, 720, 320, -320, 0.1, 4000);
-    camera.position.set(0, 900, 900);
+    // Frustum mirrors the 2D zoom so the visible extent stays consistent.
+    const f = zoomToFrustum(viewport.zoom);
+    const camera = new THREE.OrthographicCamera(f.left, f.right, f.top, f.bottom, 0.1, 4000);
 
     const controls = new OrbitControls(camera, renderer.domElement);
-    controls.target.set(0, 0, 0);
+    // Anchor to the 2D viewport center on first open, or restore the last 3D pose.
+    if (camera3d) {
+      camera.position.set(camera3d.posX, camera3d.posY, camera3d.posZ);
+      controls.target.set(camera3d.targetX, 0, camera3d.targetZ);
+    } else {
+      camera.position.set(0, 900, 900);
+      const center = viewportCenterToWorld(viewport);
+      controls.target.set(center.x, 0, center.z);
+    }
     controls.enableRotate = true;
     controls.enablePan = true;
     controls.enableZoom = false;
@@ -87,6 +103,13 @@ export default function Canvas3D() {
 
     return () => {
       cancelAnimationFrame(rafId);
+      setCamera3d({
+        posX: camera.position.x,
+        posY: camera.position.y,
+        posZ: camera.position.z,
+        targetX: controls.target.x,
+        targetZ: controls.target.z,
+      });
       controls.dispose();
       scene.traverse((obj) => {
         if (obj instanceof THREE.Mesh || obj instanceof THREE.Line) obj.geometry.dispose();
@@ -96,6 +119,7 @@ export default function Canvas3D() {
       renderer.dispose();
       if (renderer.domElement.parentNode === mount) mount.removeChild(renderer.domElement);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph]);
 
   return <div ref={mountRef} style={{ width: "100%", height: "100%" }} />;
