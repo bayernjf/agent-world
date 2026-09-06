@@ -35,6 +35,7 @@
 | [design-ab-testing.md](design-ab-testing.md)                               | A/B 实验设计（同图多 prompt 变体并行对比；已落地，独立于版本管理）                                                | 开发者              |
 | [PRD.md](PRD.md)                                                           | 产品路线图（5 阶段）与架构护栏                                                                       | 产品 / 开发者         |
 | [PRODUCT\_STRATEGY.md](PRODUCT_STRATEGY.md)                                | 产品策略基线（成本 / 部署 / 定价 / 商业化）                                                             | 决策者              |
+| [design-monetization.md](design-monetization.md)                         | 商业化详细实施方案（三层计费 / 套餐档位 / 订阅 gate / 账单 / 企业版 / P0-P3 路线；**方案已设计，未实施**） | 决策者 / 开发者        |
 | [CHANGELOG.md](../CHANGELOG.md)                                            | 按版本的变更日志（Keep a Changelog）                                                             | 所有人              |
 | [CONTRIBUTING.md](../CONTRIBUTING.md)                                      | 环境搭建、测试、commit 规范、PR 流程                                                                | 贡献者              |
 | [technical-design.md](technical-design.md)                                 | 技术方案结论：架构、数据模型、API、安全                                                                  | 开发者              |
