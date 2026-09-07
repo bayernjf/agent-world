@@ -2,6 +2,9 @@
 import "./load-env.js";
 import { serve } from "@hono/node-server";
 import { randomUUID } from "node:crypto";
+import { execSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { applyCors, applySecurityHeaders } from "./security.js";
@@ -172,7 +175,58 @@ export const app = new Hono<{ Variables: { userId: string } }>();
 applyCors(app, process.env.CORS_ORIGINS);
 applySecurityHeaders(app);
 
-app.get("/api/health", (c) => c.json({ ok: true }));
+/** Deployment identity: preferred from CI-injected env (`AGENT_WORLD_GIT_BRANCH`
+ *  / `AGENT_WORLD_GIT_COMMIT`), else a live `git` checkout (Hasee is a
+ *  `git clone`), else null. Exposed by `/api/health` so a plain browser hit
+ *  reveals the exact running code version without SSHing in. */
+const GIT_META: { branch: string | null; commit: string | null } = (() => {
+  const branch = process.env.AGENT_WORLD_GIT_BRANCH ?? null;
+  const commit = process.env.AGENT_WORLD_GIT_COMMIT ?? null;
+  if (branch && commit) return { branch, commit };
+  try {
+    const read = (cmd: string) =>
+      execSync(cmd, { stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
+    return { branch: read("git branch --show-current") || null, commit: read("git rev-parse --short HEAD") || null };
+  } catch {
+    return { branch, commit };
+  }
+})();
+
+app.get("/api/health", (c) => {
+  // Readiness checks report STATE only ("ok"/"loaded"/"configured"), never the
+  // underlying secret values, keys, or connection strings.
+  let dbStatus: string;
+  try {
+    dbStatus = db.ping() ? "ok" : "error";
+  } catch {
+    dbStatus = "error";
+  }
+  let encryptionStatus: string;
+  try {
+    encryptionStatus = getEncryptionRing().length > 0 ? "loaded" : "missing";
+  } catch {
+    encryptionStatus = "error";
+  }
+  const dbFile = process.env.DB_FILE ?? "agent-world.sqlite";
+  const jwtStatus =
+    process.env.JWT_SECRET || existsSync(join(dirname(dbFile), ".jwt-secret"))
+      ? "loaded"
+      : "missing";
+  const agnes = loadConfig().providers.agnes;
+  const agnesStatus = agnes?.enabled === false ? "disabled" : agnes?.apiKey ? "configured" : "missing";
+  return c.json({
+    ok: true,
+    env: process.env.AGENT_WORLD_ENV ?? process.env.NODE_ENV ?? "development",
+    branch: GIT_META.branch,
+    commit: GIT_META.commit,
+    checks: {
+      db: dbStatus,
+      jwtSecret: jwtStatus,
+      encryption: encryptionStatus,
+      providers: { agnes: agnesStatus },
+    },
+  });
+});
 
 // --- Auth routes (no auth required) ---
 const AUTH_COOKIE = "auth_token";

@@ -47,7 +47,7 @@
 |---|---|---|
 | **成本硬熔断** | AI 按 token 计费，死循环/被刷/攻破可致账单失控 | 月度预算超限硬停新 run（现有 `monthlyBudgetUsd` 只有 warn） |
 | **备份恢复演练** | 备份已做但从没验证能恢复 | 定期在干净目录恢复 + 启动验证，明确 RTO/RPO |
-| **health 自述探针** | 三环境状态检测的最低门槛 | 升级 `/api/health` 报 env/branch/commit + DB/密钥就绪 |
+| **health 自述探针** | 三环境状态检测的最低门槛 | ✅ 已实施（2026-09-07）：`/api/health` 报 env/branch/commit + DB/密钥就绪 |
 | **artifacts 迁对象存储** | 图片/视频/音频二进制会持续占盘，这是**唯一确定的规模化需求** | 从本地盘迁 S3/OSS/COS，DB 存 key |
 
 > 详细方案见 [production-ops.md](production-ops.md)（探针/熔断）与 [engineering-blueprint.md](engineering-blueprint.md) 域 7（数据）。

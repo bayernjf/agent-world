@@ -1,6 +1,6 @@
 # 生产级运维与可观测性（Production Ops & Observability）
 
-> 状态：**决策记录（2026-09-07 讨论定稿，未实施）**。承接 [environments.md](environments.md) 的环境划分，回答三个问题：①怎么检测各环境状态 ②环境变量/密钥多了怎么管理（注入）③用什么平台管理多环境、健康状态与日志。并给出 agent-world 从 M0 单机走向 M3 生产的运维演进路线。
+> 状态：**决策记录（2026-09-07 讨论定稿；`/api/health` 自述式探针已于 2026-09-07 实施）**。承接 [environments.md](environments.md) 的环境划分，回答三个问题：①怎么检测各环境状态 ②环境变量/密钥多了怎么管理（注入）③用什么平台管理多环境、健康状态与日志。并给出 agent-world 从 M0 单机走向 M3 生产的运维演进路线。
 > 创建：2026-09-07
 
 ## 1. 结论速览
@@ -24,19 +24,19 @@
 | 层 | 问的是什么 | 现状 | 手段 |
 |---|---|---|---|
 | **Liveness 活着** | 进程在不在 | ✅ 有 | `systemctl is-active` + `/api/health` |
-| **Readiness 能用** | DB 通不通、密钥就绪没、Provider 配了没 | ❌ 缺 | 升级 `/api/health` |
-| **Identity 我是谁** | 跑的是哪个环境/分支/commit | ❌ 缺 | 升级 `/api/health` |
+| **Readiness 能用** | DB 通不通、密钥就绪没、Provider 配了没 | ✅ 已补 | 已升级 `/api/health`（§2.2） |
+| **Identity 我是谁** | 跑的是哪个环境/分支/commit | ✅ 已补 | 已升级 `/api/health`（§2.2） |
 
-### 2.2 自述式 `/api/health`（待实施）
+### 2.2 自述式 `/api/health`（已实施）
 
-现实现 `index.ts` 仅 `c.json({ ok: true })`。升级为自述式探针（**只报状态，绝不吐密钥值**）：
+`index.ts` 的 `/api/health` 已从 `c.json({ ok: true })` 升级为自述式探针（**只报状态，绝不吐密钥值**），实现于 2026-09-07：
 
 ```json
 {
   "ok": true,
-  "env": "staging",
-  "commit": "c693372",
-  "branch": "dev",
+  "env": "test",
+  "branch": "feature/20260824",
+  "commit": "da6823c",
   "checks": {
     "db": "ok",
     "jwtSecret": "loaded",
@@ -46,14 +46,39 @@
 }
 ```
 
-- `env` 来自 `NODE_ENV` / 新增 `AGENT_WORLD_ENV`；`commit`/`branch` 部署时写入。
-- `checks.*` 只报 `loaded` / `configured` / `empty`，**不吐值**——密钥、连接串永远是状态词。
-- 三个环境各 `curl` 一次 = 一次完整体检。
+字段来源（`packages/server/src/index.ts`）：
 
-### 2.3 环境体检清单（建议做成 runbook/脚本）
+- `env`：`AGENT_WORLD_ENV`（部署时可注入，如 `staging`）→ 否则 `NODE_ENV` → 否则 `"development"`。
+- `branch` / `commit`：优先 `AGENT_WORLD_GIT_BRANCH` / `AGENT_WORLD_GIT_COMMIT`（CI 部署时注入精确值）；否则运行时读 `git branch --show-current` + `git rev-parse --short HEAD`（Hasee 是 `git clone`，能读到）；再否则 `null`。
+- `checks.db`：新增 `db.ping()`（`SELECT 1`）验证 sqlite 连接仍可执行；`ok` / `error`。
+- `checks.jwtSecret`：`JWT_SECRET` env 或 DB 旁 `.jwt-secret` 文件存在 → `loaded`，否则 `missing`。
+- `checks.encryption`：`getEncryptionRing()` 非空 → `loaded`，否则 `error`。
+- `checks.providers.agnes`：内置网关 key 就绪 → `configured`；`enabled:false` → `disabled`；无 key → `missing`。
+
+**纪律**：`checks.*` 只报状态词（`ok`/`loaded`/`configured`/`disabled`/`missing`/`error`），**绝不吐值**——密钥、连接串永远是状态，不是真值。
+
+- 三个环境各 `curl` 一次（或浏览器打开） = 一次完整体检。
+
+### 2.3 部署状态的可视化验证途径（打开网页看，不跑 SSH 命令）
+
+验证「部署成功 + 版本正确」有三条不依赖 SSH 命令的可视化途径：
+
+| # | 途径 | 打开什么 | 能看到什么 | 现状 |
+|---|---|---|---|---|
+| 1 | GitHub Actions | `https://github.com/<owner>/agent-world/actions` | Deploy workflow 每次运行的绿/红状态 + 对应 commit | ✅ 现有（[deploy-cicd.md](runbooks/deploy-cicd.md)） |
+| 2 | health 探针网页 | `http://<server-ip>/api/health` | `env`/`branch`/`commit` + DB/密钥/Provider 就绪状态 | ✅ 已实施（§2.2） |
+| 3 | Uptime Kuma 看板 | Kuma 的 Web UI | 探针历史、掉线记录、告警 | ⏳ 规划（§5） |
+
+- **途径 1** 的局限：只证明「deploy 脚本跑完」，不 100% 等于「服务器代码版本对」；适合快速看部署有没有成功。
+- **途径 2** 是最可靠的「可视化 + 版本确认」：浏览器打开 health 直接读 `branch`/`commit`，与 dev 最新 commit 比对即知。**推荐作为日常主验证手段**——改完部署后，打开 health 看到 `commit` 等于刚 push 的 commit 就是成功。
+- **途径 3**：配好后自动盯健康 + 告警，无需人工。
+
+一句话：**日常验证 = 途径 2（浏览器打开 health 看 branch/commit）；快速看 CI = 途径 1；配好 Uptime Kuma = 途径 3 自动盯。**
+
+### 2.4 环境体检清单（建议做成 runbook/脚本）
 
 ```
-1. 服务层  systemctl is-active agent-world  +  curl /api/health
+1. 服务层  systemctl is-active agent-world  +  curl /api/health（或浏览器打开）
 2. 配置层  /api/health 返回的 env/branch/commit 对不对
 3. 数据层  DB 迁移版本、subscriptions/usage_ledger 表在不在（P1 探针）
 4. 依赖层  Provider key / 搜索 key 配了没（探针里报 loaded/empty）
@@ -61,7 +86,7 @@
 
 ---
 
-### 2.4 日常运维：实时监测与排障（拿日志）
+### 2.5 日常运维：实时监测与排障（拿日志）
 
 **实时监测（当前手动手段）**：
 

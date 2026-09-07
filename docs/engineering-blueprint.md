@@ -39,13 +39,13 @@
 
 ## 1. 可观测性（Observability）
 
-**现状**：日志落盘（`design-logging.md` 已实施）、请求日志、审计日志（`audit_log`）、软预算告警、`/api/health`（仅 `{ok:true}`）。
+**现状**：日志落盘（`design-logging.md` 已实施）、请求日志、审计日志（`audit_log`）、软预算告警、自述式 `/api/health`（✅ 已实施，报 env/branch/commit + DB/密钥/Provider 就绪）。
 
 **缺口与补齐**：
 
 | 能力 | 说明 | 补齐方案 | 优先级 |
 |---|---|---|---|
-| 自述式 health | 环境/分支/commit + DB/密钥/Provider 就绪状态 | 升级 `/api/health`，见 [production-ops.md §2](production-ops.md) | P0 |
+| 自述式 health | 环境/分支/commit + DB/密钥/Provider 就绪状态 | ✅ 已实施（2026-09-07），见 [production-ops.md §2](production-ops.md) | 完成 |
 | **Metrics（RED）** | Rate/Error/Duration + 业务指标（run 数、成本、产线吞吐） | 埋点 `run` 生命周期/API 层，Prometheus 格式 `/metrics` 端点 + 可选 Prometheus 抓取 | P1 |
 | **告警** | 服务挂、错误率飙升、成本逼近预算、磁盘满 | Uptime Kuma（探针）+ Grafana Alerting（指标阈值），推 Telegram/邮件 | P1 |
 | **分布式 Tracing** | 一个 run 从 webhook 触发的完整链路 | OpenTelemetry 贯穿 engine/API（runId 作 traceId），Jaeger/Tempo 后端 | P2 |
@@ -256,7 +256,7 @@
 ### M0（现在，堵 P0 洞）
 
 ```
-1. 自述式 /api/health（可观测性）
+1. ~~自述式 /api/health（可观测性）~~ ✅ 已实施（2026-09-07）
 2. 成本硬熔断 + 全局限流（可靠性 / 成本）
 3. 一键回滚 + deploy 幂等化（发布 / IaC）
 4. gitleaks 扫 git 历史（安全）
