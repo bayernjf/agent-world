@@ -64,7 +64,7 @@
 
 | 能力 | 说明 | 补齐方案 | 优先级 |
 |---|---|---|---|
-| **成本硬熔断** | 月度预算超限硬停 | 在 `monthlyWarned100` 旁加 hard stop（新 run 直接失败 + owner 临时放行开关） | P0 |
+| **成本硬熔断** | 月度预算超限硬停 | ✅ 已实施（2026-09-07）：`startRun` 入口硬停新 run（`monthlyBudgetExceeded` 纯函数 + `AGENT_WORLD_BUDGET_BYPASS=1` owner 放行）；顺带修复 `costForMonth` 带 userId 参数错位 bug | 完成 |
 | **全局限流** | 登录/注册/run 创建入口防滥用 | 按 IP + userId 的 rate limit 中间件，优先 `login`/`register`/`runs` | P0 |
 | **优雅关闭** | 收到 SIGTERM 时完成在途 run、关闭 DB/SSE | process 监听 SIGTERM/SIGINT → 停接新请求 → drain 在途 → 关 DB | P1 |
 | **优雅启动** | readiness 探针在 DB/密钥就绪前不接流量 | startup/readiness 探针 + 就绪前 `/api/health` 返回 503 | P1 |
@@ -74,7 +74,7 @@
 | **多副本高可用** | 单点故障切换 | 需先 SQLite→Postgres（见域 6 / k8s 判断） | P2 |
 | **混沌测试** | 主动注入故障验证韧性 | 杀进程/断网/磁盘满演练 | P2 |
 
-**关键点**：P0 的「成本硬熔断 + 全局限流」是对 AI 产品最致命的两个洞，直接堵住「账单爆炸」和「被刷」。可靠性其余部分依赖 SQLite→Postgres，P2 再展开。
+**关键点**：P0 的「成本硬熔断」已落地（2026-09-07）；「全局限流」是对 AI 产品第二致命的洞（堵「被刷」）。可靠性其余部分依赖 SQLite→Postgres，P2 再展开。
 
 ---
 

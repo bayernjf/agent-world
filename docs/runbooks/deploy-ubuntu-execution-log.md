@@ -86,6 +86,7 @@
 
 - 写入 `/opt/agent-world/.env`：`DB_FILE=/var/lib/agent-world/agent-world.sqlite`、`LOG_FILE=/var/lib/agent-world/logs/server.log`、`CODE_SANDBOX=bwrap`、`ALLOW_REGISTRATION=1`，`chmod 600` + `chown agentworld` ✅
 - Provider 凭证（AGNES_API_KEY 等）**留空**，由用户登录后在 Settings 配置。
+- 2026-09-07 补：注入 `AGENT_WORLD_ENV=staging`（幂等，`grep -q || tee -a`），作为 `/api/health` 自述式探针的 `env` 来源；重启后 health 返回 `{"ok":true,"env":"staging","branch":"dev","commit":"4409494",...}` ✅
 
 ## 阶段 4：systemd 托管 server（2026-09-07 完成）
 

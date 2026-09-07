@@ -1822,11 +1822,14 @@ export function openDb(file: string) {
       const end = new Date(year, month, 1).getTime();
       const where: string[] = ["r.status != 'running'", "r.started_at >= ?", "r.started_at < ?"];
       const params: (string | number)[] = [];
+      // Placeholders bind positionally in WHERE order (started_at >= ?, started_at < ?,
+      // then user_id = ?), so params must be [start, end, userId] — pushing userId
+      // first would shift start/end and return 0 whenever a user is scoped.
+      params.push(start, end);
       if (userId) {
         where.push("r.user_id = ?");
         params.push(userId);
       }
-      params.push(start, end);
       const row = db
         .prepare(
           `SELECT COALESCE(SUM(n.cost_usd), 0) AS cost
