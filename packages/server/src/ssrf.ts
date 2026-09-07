@@ -155,12 +155,28 @@ export function outboundProxyDispatcher(): ProxyAgent | undefined {
 
 const PROXY_DENIED_HOSTNAME = /^(localhost|.*\.localhost|.*\.local|metadata\.google\.internal)$/i;
 
+/** Header names that may carry credentials — stripped on cross-origin redirects. */
+const SENSITIVE_HEADER = /^(authorization|proxy-authorization|cookie|set-cookie|.*(?:api[-_]?key|token|secret|credential|password|signature|auth).*)$/i;
+
 /** Local (non-DNS) guard applied even when proxying. */
 function proxyGuardRejects(hostname: string): boolean {
   const family = isIP(hostname);
   if (family) {
     return family === 4 ? ipv4IsInternal(hostname) : ipv6IsInternal(hostname);
   }
+  // Decimal IPv4 (e.g. 2130706433) — isIP doesn't recognize it, but it resolves
+  // to a literal address.
+  if (/^\d+$/.test(hostname)) {
+    const n = Number(hostname);
+    if (Number.isFinite(n) && n >= 0 && n <= 0xffffffff) return ipv4UintIsInternal(n >>> 0);
+  }
+  // Hex/octal IPv4 (e.g. 0x7f000001).
+  if (/^0x[0-9a-f]+$/i.test(hostname)) {
+    const n = Number.parseInt(hostname, 16);
+    if (Number.isFinite(n) && n >= 0 && n <= 0xffffffff) return ipv4UintIsInternal(n >>> 0);
+  }
+  // nip.io / sslip.io encode the target IP in the hostname — refuse outright.
+  if (/\.(nip\.io|sslip\.io)$/i.test(hostname)) return true;
   return PROXY_DENIED_HOSTNAME.test(hostname);
 }
 
@@ -343,9 +359,14 @@ export async function guardedFetch(url: string | URL, init: GuardedFetchInit = {
         throw new GuardedFetchError("bad-redirect", `重定向协议不允许: ${next.protocol}`);
       }
       if (next.host !== current.host) {
-        // Never replay credentials at a different origin.
-        const { authorization, Authorization, cookie, Cookie, ...rest } = hopHeaders;
-        hopHeaders = rest;
+        // Never replay credentials at a different origin — including any custom
+        // credential header (x-api-key, x-auth-token, …), not just the two
+        // standard ones. Keep only benign headers (content-type, accept, UA…).
+        const kept: Record<string, string> = {};
+        for (const [name, value] of Object.entries(hopHeaders)) {
+          if (!SENSITIVE_HEADER.test(name)) kept[name] = value;
+        }
+        hopHeaders = kept;
       }
       if (r.status === 303 || ((r.status === 301 || r.status === 302) && method !== "GET")) {
         method = "GET";

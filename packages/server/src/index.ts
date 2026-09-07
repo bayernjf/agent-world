@@ -2885,7 +2885,12 @@ app.get("/api/runs/:id/artifacts", (c) => {
 /** Upload a raw product image/file. Returns a StoredArtifact with a /api/artifacts/:id URI. */
 app.post("/api/artifacts/upload", async (c) => {
   const userId = c.get("userId");
-  const contentType = c.req.header("content-type") ?? "application/octet-stream";
+  const rawContentType = c.req.header("content-type") ?? "application/octet-stream";
+  // Refuse to store/echo executable content types (a self-XSS vector when the
+  // artifact is later served with the same content-type).
+  const contentType = /text\/html|image\/svg|application\/xhtml/i.test(rawContentType)
+    ? "application/octet-stream"
+    : rawContentType;
   const label = c.req.query("label");
   const data = Buffer.from(await c.req.arrayBuffer());
   if (data.length === 0) return c.json({ error: "empty upload" }, 400);
@@ -2978,10 +2983,19 @@ app.get("/api/proxy", async (c) => {
       chunks.push(Buffer.from(ab));
     }
     const buf = Buffer.concat(chunks, total);
-    const ct = upstream.headers.get("content-type") ?? "application/octet-stream";
+    const rawCt = upstream.headers.get("content-type") ?? "application/octet-stream";
+    // H8: this is an image proxy — it must never echo executable content types
+    // (text/html, image/svg+xml, application/xhtml+xml, …) back same-origin,
+    // otherwise a crafted URL is a reflected XSS. Force anything outside the
+    // safe media set to octet-stream and mark nosniff so the browser never
+    // sniffs/executes it.
+    const safeCt = /^(image\/(?!svg)|video\/|audio\/)/i.test(rawCt)
+      ? rawCt
+      : "application/octet-stream";
     return new Response(buf, {
       headers: {
-        "content-type": ct,
+        "content-type": safeCt,
+        "x-content-type-options": "nosniff",
         "cache-control": "public, max-age=86400",
       },
     });
