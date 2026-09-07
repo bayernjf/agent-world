@@ -27,7 +27,7 @@
 | 版本管理补强 | 95% | 🟡 主体完成 | 自动快照 + run 关联 hash + 恢复预览；**A/B 实验已作为独立特性落地**（design-ab-testing.md）；仅剩 diff 视图缓做 — [design-versions.md](design-versions.md) |
 | 真实产线狗粮验证 | 100% | ✅ 已完成 | **33 个模板全覆盖**（历史 27/27 基线 + 2026-09-04 专业服务 6 个新模板逐一真实狗粮）；29 种节点类型均有运行记录（新增 4 种电商节点为引擎级测试覆盖）；四类自动触发（cron/webhook/event/batch）全部真实取证；**README 演示 GIF 已完成（2026-09-01，时间轴回放）**；9 波验证共修复 20+ 产品缺陷（静默成功/静默失败、测试与产品契约脱节、引擎级调度缺陷、凭证安全、稳定性）；`search` 成功路径 2026-09-06 已真实取证（Tavily 3 条结果）；剩余仅 `audioGen` 成功路径证据（缺 TTS 供应商，环境侧阻塞）。搜索凭证改在「设置 · 搜索服务」按源独立绑定（节点只可选已配 key 的源） — [template-checklist.md](template-checklist.md) |
 | 文档完善 | 75% | 🟢 基本完成 | 核心设计文档齐；2026-09-01 完成文档-代码覆盖盘点：补齐知识记忆/A-B 设计文档、修正 technical-design 时效；handoff 最近 5 条 hash 已核实回填；**2026-09-03 新增设计 token 与 i18n 方案文档**（design-design-tokens.md / design-i18n.md）；**2026-09-05 新增合规运营批次六份方案**（design-key-rotation / design-audit-log / design-logging / design-announcement / design-feedback / design-rbac，均已登记 docs/README.md 索引并同步实施状态）；**2026-09-06 新增 Skill 体系设计文档**（design-skill.md，收拢散落三处的 skill 决策为单一事实源）+ brand_terms 待办关闭（用途已由 product-content-roadmap §44 覆盖，无需独立文档）+ 连接器数据插值 / tesseract cachePath / generic image 狗粮的文档状态同步 + **商业化详细实施方案**（design-monetization.md：三层计费 / 套餐 / 订阅 gate / 账单 / 企业版 / 启动前置 / P0-P3，方案已设计未实施）+ technical-design 补 search 节点契约 |
-| 自动数据接入 Connector | 70% | 🟡 主体完成 | file/http/form/manual 已落地；**SQLite database connector 已落地（2026-09-01，见 design-connector-database.md）**；**连接器结构化数据进插值上下文已落地（2026-09-05，`${product.name}` / 简报留空回填库值，见 design-data-interpolation.md）**；剩 PG/MySQL 驱动接续（deferred） |
+| 自动数据接入 Connector | 70% | 🟡 主体完成 | file/http/form/manual 已落地；**SQLite database connector 已落地（2026-09-01，见 design-connector-database.md）**；**连接器结构化数据进插值上下文已落地（2026-09-05，`${product.name}` / 简报留空回填库值，见 design-data-interpolation.md）**；**PostgreSQL 驱动已落地（2026-09-08，pg 纯 JS + 只读双保险 + 密码加密，见 design-connector-database.md §5）**；剩 MySQL 预留（deferred） |
 | 定时 / 事件触发 | 95% | 🟢 基本完成 | webhook/cron/event/batch 全落地（TriggersPanel+scheduler+27 测试）；**2026-09-01 修复 event 成功状态契约 bug**（见 design-triggers.md）；**2026-09-02 触发层全型实跑零缺陷**（webhook 401 诚实拒绝/batch 3 行并发/event 自动级联/cron 无人值守闭环，均有真实 run 取证）；多实例分布式锁 deferred |
 | 商业化（定价/变现） | 10% | 🔵 进行中（M0） | **2026-09-06 详细实施方案已设计**（[design-monetization.md](design-monetization.md)：三层计费 / 套餐档位 / 订阅 gate / 账单 / 企业版 / P0-P3 路线 + §8.13 落地里程碑 M0-M3）；**2026-09-07 M0 启动**——本地 Ubuntu 单机部署运行环境（[deploy-ubuntu-execution-log.md](runbooks/deploy-ubuntu-execution-log.md)），作为 P0 成本计量回采的运行床；实施其余部分仍未启动 — [PRODUCT_STRATEGY.md](PRODUCT_STRATEGY.md) |
 
@@ -49,7 +49,7 @@
 
 > 优先级与决策依据以 [handoff.md 待办](../handoff.md) 与 [deferred-items.md](deferred-items.md) 为准，本文档只做总览。
 
-1. **自动数据接入 Connector（4.2）** —— ✅ 已落地（2026-09-01）。file/http/form/manual + SQLite database connector 全链路验证通过；PG/MySQL 待驱动接续（deferred）。
+1. **自动数据接入 Connector（4.2）** —— ✅ 已落地（2026-09-01）。file/http/form/manual + SQLite database connector 全链路验证通过；PostgreSQL 已落地（2026-09-08），MySQL 预留（deferred）。
 2. **定时 / 事件触发（4.6）** —— ✅ 已落地（2026-09-01）。webhook/cron/event/batch 全落地，修复 event 成功状态 `done` 契约 bug；与 Connector 组合即无人值守产线（已端到端验证，2026-09-02 触发层全型实跑零缺陷）。剩余仅多实例分布式锁（deferred）。
 3. **模板体系扩充** —— ✅ 已完成（2026-09-01）。从 18 个扩充到 27 个业务模板（客服工单、代码审查、数据报表、合同审查、课程大纲、旅游行程、菜谱、证据清单整理、费用报销初审）；blankGraph 独立为 BLANK_TEMPLATE，不计入模板数；分类收口为 core `TEMPLATE_CATEGORIES` 有序 11 类，选择器按分类分组展示、空白钉最前 — [design-templates.md](design-templates.md) §6。
 4. **README 演示 GIF** —— ✅ 已完成（2026-09-01）。时间轴回放映示 GIF 已放入 README，替换 TODO 注释位。
