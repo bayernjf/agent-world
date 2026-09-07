@@ -126,7 +126,7 @@ name: Deploy
 
 on:
   push:
-    branches: ["main"]   # 上线分支；早期可用 feature/20260824
+    branches: ["dev"]   # 部署分支 = dev（Hasee 是准生产，跑最新集成代码；main 留待 M3 正式生产）
 
 jobs:
   deploy:
@@ -150,7 +150,7 @@ on:
   workflow_run:
     workflows: ["CI"]          # ci.yml 的 name
     types: [completed]          # 只监听完成
-    branches: ["main"]
+    branches: ["dev"]
 
 jobs:
   deploy:

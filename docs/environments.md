@@ -75,11 +75,19 @@ DEV → SIT(集成测试) → UAT(用户验收) → STG 预发布 → PROD 生�
 
 ### 当前机器与环境对照
 
-| 机器 | 角色 | 环境 | 说明 |
-|---|---|---|---|
-| Mac（开发机） | 写代码 / 调试 / 跑测试 | **DEV** | 本地 `pnpm dev` / `pnpm test` |
-| Hasee server（Ubuntu 笔记本） | 7×24 跑真实产线、成本回采 | **准生产（TEST + PROD 合一，M0）** | systemd + nginx 常驻，见 [runbooks/deploy-ubuntu-execution-log.md](runbooks/deploy-ubuntu-execution-log.md) |
-| （暂无） | — | 正式 **PROD** | M3 上线才拆，届时上云或加隧道 |
+| 机器 | 角色 | 环境 | 部署分支 | 说明 |
+|---|---|---|---|---|
+| Mac（开发机） | 写代码 / 调试 / 跑测试 | **DEV** | `feature/*`（本地开发） | 本地 `pnpm dev` / `pnpm test` |
+| Hasee server（Ubuntu 笔记本） | 7×24 跑真实产线、成本回采 | **准生产（TEST + PROD 合一，M0）** | **`dev`** | systemd + nginx 常驻，见 [runbooks/deploy-ubuntu-execution-log.md](runbooks/deploy-ubuntu-execution-log.md) |
+| （暂无） | — | 正式 **PROD** | **`main`** | M3 上线才拆，届时上云或加隧道 |
+
+**环境 → 分支 映射**（分支跟环境走）：
+
+| 分支 | 给谁 | 说明 |
+|---|---|---|
+| `main` | 正式生产 PROD（M3 才建） | 生产稳定版，只在稳定发布时更新，**不废弃** |
+| `dev` | Hasee（准生产 M0） | 最新集成代码，feature 通过 PR 合并到这里 |
+| `feature/*` | Mac（DEV 本地开发） | 功能开发分支，合并进 dev 前 |
 
 **Hasee server 的定位**（为什么叫「准生产」而不是「测试环境」）：
 
