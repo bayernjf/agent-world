@@ -1,7 +1,8 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
-import { ConnectorConfig, type ProductConnector } from "@agent-world/core";
+import { Client } from "pg";
+import { ConnectorConfig, type DatabaseConnector, type ProductConnector } from "@agent-world/core";
 import { guardedFetch } from "./ssrf.js";
 import { assertSafeLocalPath } from "./fs-guard.js";
 
@@ -201,24 +202,12 @@ export async function resolveConnector(
       if (/;\s*\S/.test(trimmed)) {
         throw new Error("database connector 不支持多语句");
       }
-      let db: DatabaseSync;
-      try {
-        // H2: refuse to open the server's own database (or any dotfile path).
-        db = new DatabaseSync(assertSafeLocalPath(c.path), { readOnly: true });
-      } catch (err) {
-        throw new Error(
-          `无法打开数据库 ${c.path}: ${err instanceof Error ? err.message : String(err)}`,
-        );
+      // Driver dispatch: postgres (network, async) vs sqlite (local, sync).
+      // MySQL is a planned extension point — add a branch here + a "mysql" enum.
+      if (c.driver === "postgres") {
+        return await queryPostgres(c, trimmed);
       }
-      try {
-        const bindParams = toSqlBindParams(c.params ?? []);
-        const rows = db.prepare(trimmed).all(...bindParams);
-        const text =
-          c.format === "csv" ? rowsToCsv(rows) : JSON.stringify(rows, null, 2);
-        return { text, images: [] };
-      } finally {
-        db.close();
-      }
+      return querySqlite(c, trimmed);
     }
 
     case "product": {
@@ -227,6 +216,54 @@ export async function resolveConnector(
       if (!loadProducts) throw new Error("product connector 需要服务端商品库支持");
       return loadProducts(c);
     }
+  }
+}
+
+/** Executes a read-only SQLite query for the database connector (local, sync). */
+function querySqlite(c: DatabaseConnector, sql: string): ResolvedMaterial {
+  if (!c.path) throw new Error("database connector: sqlite 驱动需要 path 字段");
+  let db: DatabaseSync;
+  try {
+    // H2: refuse to open the server's own database (or any dotfile path).
+    db = new DatabaseSync(assertSafeLocalPath(c.path), { readOnly: true });
+  } catch (err) {
+    throw new Error(
+      `无法打开数据库 ${c.path}: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  try {
+    const bindParams = toSqlBindParams(c.params ?? []);
+    const rows = db.prepare(sql).all(...bindParams);
+    const text = c.format === "csv" ? rowsToCsv(rows) : JSON.stringify(rows, null, 2);
+    return { text, images: [] };
+  } finally {
+    db.close();
+  }
+}
+
+/** Executes a read-only PostgreSQL query for the database connector (network, async). */
+async function queryPostgres(c: DatabaseConnector, sql: string): Promise<ResolvedMaterial> {
+  if (!c.host || !c.database || !c.user) {
+    throw new Error("database connector: postgres 驱动需要 host/database/user 字段");
+  }
+  const client = new Client({
+    host: c.host,
+    port: c.port ?? 5432,
+    database: c.database,
+    user: c.user,
+    password: c.password,
+    ssl: c.ssl ?? true,
+    // Read-only backstop at the session level, mirroring sqlite's readOnly:true.
+    options: "-c default_transaction_read_only=on",
+  });
+  try {
+    await client.connect();
+    const result = await client.query(sql, c.params ?? []);
+    const rows = result.rows as Array<Record<string, unknown>>;
+    const text = c.format === "csv" ? rowsToCsv(rows) : JSON.stringify(rows, null, 2);
+    return { text, images: [] };
+  } finally {
+    await client.end();
   }
 }
 

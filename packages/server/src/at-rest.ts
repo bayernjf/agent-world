@@ -220,7 +220,7 @@ export function decryptString(stored: string): string {
  * is what makes a sealed doc debuggable.
  */
 const SECRET_KEYS =
-  /^(apikey|api_key|secret|webhooksecret|token|accesstoken|refreshtoken|webhookurl|authorization|proxy-authorization|cookie|set-cookie|x-api-key|x-auth-token|x-token|x-goog-api-key|ocp-apim-subscription-key)$/i;
+  /^(apikey|api_key|secret|webhooksecret|token|accesstoken|refreshtoken|webhookurl|authorization|proxy-authorization|cookie|set-cookie|x-api-key|x-auth-token|x-token|x-goog-api-key|ocp-apim-subscription-key|password|passwd|pwd)$/i;
 
 /** Header names that carry a credential even though no list could name them. */
 const AUTHISH_HEADER = /(auth|token|key|secret|credential|signature|password|passwd|session|cookie|bearer)/i;
