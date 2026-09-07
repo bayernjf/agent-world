@@ -399,6 +399,18 @@ function mapArtifacts(rows: ArtifactRow[]): StoredArtifact[] {
 
 export type Db = ReturnType<typeof openDb>;
 
+/**
+ * 异步版 driver 接口（PostgreSQL 是网络库，方法必须异步）。由 `Db` 自动
+ * 推导——每个方法的返回值包成 `Promise`（`Awaited` 拍平嵌套 Promise），
+ * 零手写成本。将来 `PgDriver` 实现此类型即可替换 SqliteDriver。
+ * （design-postgres-migration.md §5.2）
+ */
+export type DatabaseDriver = {
+  [K in keyof Db]: Db[K] extends (...args: infer A) => infer R
+    ? (...args: A) => Promise<Awaited<R>>
+    : Db[K];
+};
+
 /** A reusable product row from the F4 product library. */
 export interface Product {
   id: string;
