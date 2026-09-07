@@ -39,6 +39,12 @@ async function main(): Promise<void> {
   // clients speak, so the server never actually connected end-to-end.)
   let buffer = "";
 
+  // L16: the client may close its stdout while we still have frames to send —
+  // swallow EPIPE so it doesn't crash the process.
+  process.stdout.on("error", (e: NodeJS.ErrnoException) => {
+    if (e.code === "EPIPE") process.exit(0);
+  });
+
   function send(msg: unknown): void {
     process.stdout.write(`${JSON.stringify(msg)}\n`);
   }
@@ -64,8 +70,11 @@ async function main(): Promise<void> {
   }
 
   process.stdin.setEncoding("utf8");
+  // L15: serialize async message handling so concurrent chunks can't race on
+  // the shared `buffer`.
+  let pending = Promise.resolve();
   process.stdin.on("data", (chunk: string) => {
-    void onData(chunk);
+    pending = pending.then(() => onData(chunk));
   });
   process.stdin.on("error", () => process.exit(1));
   process.stdin.resume();

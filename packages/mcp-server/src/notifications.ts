@@ -79,10 +79,12 @@ class Bridge {
         const { value, done } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
-        let idx: number;
-        while ((idx = buffer.indexOf("\n\n")) !== -1) {
-          const frame = buffer.slice(0, idx);
-          buffer = buffer.slice(idx + 2);
+        // SSE frames end with a blank line; accept both LF and CRLF (M18).
+        const sep = /\r?\n\r?\n/;
+        let m: RegExpExecArray | null;
+        while ((m = sep.exec(buffer)) !== null) {
+          const frame = buffer.slice(0, m.index);
+          buffer = buffer.slice(m.index + m[0].length);
           this.handleFrame(frame);
         }
       }
@@ -115,7 +117,17 @@ export class NotificationsHub {
   addSink(res: http.ServerResponse): void {
     const sink: Sink = {
       write: (frame) => {
-        if (!res.writableEnded) res.write(frame);
+        if (!sink.isOpen) return;
+        if (!res.writableEnded) {
+          try {
+            res.write(frame);
+          } catch {
+            // L18: write can throw when the connection dropped but 'close'
+            // hasn't fired yet — mark closed so broadcast skips it.
+            sink.isOpen = false;
+            this.sinks.delete(sink);
+          }
+        }
       },
       isOpen: true,
     };
