@@ -150,6 +150,12 @@ export interface AppConfig {
     apiKey?: string;
     cx?: string;
   };
+  /**
+   * Per-user feature flags. Values default to the FEATURE_FLAGS registry in
+   * feature-flags.ts; an explicit entry here overrides the default. Used for
+   * gradual rollout and emergency kill switches.
+   */
+  featureFlags?: Record<string, boolean>;
 }
 
 /**
@@ -203,6 +209,7 @@ export const AppConfigSchema = z.object({
   monthlyBudgetUsd: z.number().nullable().optional(),
   autoSnapshot: z.object({ minIntervalMs: z.number().optional(), maxKeep: z.number().optional() }).optional(),
   searchConfig: SearchConfigSchema.optional(),
+  featureFlags: z.record(z.boolean()).optional(),
 });
 
 /**

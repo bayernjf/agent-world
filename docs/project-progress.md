@@ -5,7 +5,7 @@
 
 ---
 
-## 一、进度快照（2026-09-05）
+## 一、进度快照（2026-09-08）
 
 > 完成度为基于项目文档状态的**估算**，用于快速判断"哪块做完了、哪块没动"，不是精确度量。按完成度降序。
 
@@ -13,7 +13,8 @@
 |---|---|---|---|
 | 安全加固（审计 29 项） | 100% | ✅ 已完成 | 3 Critical/10 High/8 Medium/8 Low 全部修复，含 CORS 通配符拒绝、SSRF、静态加密 L3；推翻 2 条旧"已解决"结论。**2026-09-02 扩围**：L3 静态加密从仅 `triggers[].webhookSecret` 扩展到图文档内**所有节点级凭证**（imageGen/videoGen/audioGen/generic `apiKey`、notify `secret`+`webhookUrl`、连接器 `auth.token`+auth 类 `headers`），`sealGraphDoc`/`openGraphDoc` 改为按字段名递归遍历（`f7c333f`）；**再收口**：`headers` 里由自定义名字承载的凭证（`X-My-Auth`、`X-Signature`）按名字模式加密，固定名单枚举不到的漏网补上（`ff223bb`）；**L3 声明的最后一条残留同日闭环**：嵌在 URL query 里的凭证（`?token=…`、Azure `?api-key=`）按**精确参数名**就地加密（良性参数与 endpoint 保持明文可排查，密文 percent-encode 往返），并删掉与改写器漂移的双检测器（`043ce5c`）；**同波补上 `search`/`vcs` 此前完全没有的节点级凭证入口**（`apiKey`/`cx`/`token`/`baseUrl`，落盘前即被既有 sealer 覆盖，不再只能靠 server 环境变量 + 重启，`f914fa9`+`75f02b4`+`817bff8`）。**真正剩下的边界**：写在自由文本里的密钥（prompt / `variables` / code 脚本 / http body）——按字段名加密拦不到 — [security-audit-2026-08-31.md](security-audit-2026-08-31.md) |
 | 账号系统与用户隔离 | 100% | ✅ 已完成 | users 表 + JWT/HttpOnly cookie + 全量按 user_id 隔离 + 旧库回填迁移 |
-| 回归测试与质量门 | 100% | ✅ 已完成 | core 188 / server **843** / mcp 50 / **web 1547**（web 2026-09-03 从 176 提升到 1460，+1284 用例——组件测试全覆盖 39 个组件，P0/P1/P2/P3 四批全部完成；基础设施 @testing-library/react + jsdom + vitest.config.ts + setup.ts + utils.tsx；过程中修复 Inspector.tsx 可选链 bug；全量稳定通过无回归；**2026-09-05 合规运营批次（审计日志/服务端日志/RBAC/公告/用户反馈）后 server 747→838、web 1500→1542；同日反馈 P3 联动后 server 838→843、web 1542→1547**）；core-path 回归基线 17 用例，Node 24 下稳定复跑 — [handoff.md Quality gate](../handoff.md) |
+| 回归测试与质量门 | 100% | ✅ 已完成 | core 190 / server **911** / mcp 50 / **web 1547**（2026-09-08 工程化 P0/P1 批次后 server 843→911、core 188→190）（web 2026-09-03 从 176 提升到 1460，+1284 用例——组件测试全覆盖 39 个组件，P0/P1/P2/P3 四批全部完成；基础设施 @testing-library/react + jsdom + vitest.config.ts + setup.ts + utils.tsx；过程中修复 Inspector.tsx 可选链 bug；全量稳定通过无回归；**2026-09-05 合规运营批次（审计日志/服务端日志/RBAC/公告/用户反馈）后 server 747→838、web 1500→1542；同日反馈 P3 联动后 server 838→843、web 1542→1547**）；core-path 回归基线 17 用例，Node 24 下稳定复跑 — [handoff.md Quality gate](../handoff.md) |
+| 工程化 P0/P1（可靠性/可观测/发布/安全/数据/DevEx/运营） | 100% | ✅ 已完成 | **2026-09-08 P0 八项 + P1 十四项全部落地**：成本硬熔断 / 全局限流 / 优雅关闭启动 / 幂等审计 / Metrics（/metrics 端点）/ feature flag / migration 回滚 / 覆盖率门禁 / pre-commit hooks / 依赖漏洞扫描 / SAST（CodeQL）/ 数据归档 / 一致性校验 / postmortem 模板 / SLA/SLO / 变更管理 — [engineering-blueprint.md](engineering-blueprint.md) |
 | 自媒体电商方向（F1-F10） | 100% | ✅ 已完成 | **2026-09-04 十个特性全部落地，里程碑 M1-M6 闭环**：F1 run 内多变体择优（fanout/select 节点 + 变体对比视图）、F2 审核队列、F3 平台合规、F4 商品库素材库、F5 批量任务、F6 效果回流、F7-A 导出包 + F7-B 开放渠道 Webhook、F8 内容日历、F9 内容级成本、F10 画布泳道编排；只新增 4 个节点，F7-C 浏览器 RPA 默认不做 — [design-ecommerce-roadmap.md](design-ecommerce-roadmap.md) |
 | MCP Server | 100% | ✅ 已完成 | stdio + HTTP/SSE 双传输、15 工具 + resources + prompts + notifications + Bearer 认证（P0-P2 全落地）— [design-mcp-server.md](design-mcp-server.md) |
 | Phase 1 基础通用能力 | 100% | ✅ 已完成 | HTTP/代码执行/条件分支/parallel/数据模型升级 — [roadmap-generalization.md](roadmap-generalization.md#phase-1基础通用能力2-3周) |
@@ -27,7 +28,7 @@
 | 版本管理补强 | 95% | 🟡 主体完成 | 自动快照 + run 关联 hash + 恢复预览；**A/B 实验已作为独立特性落地**（design-ab-testing.md）；仅剩 diff 视图缓做 — [design-versions.md](design-versions.md) |
 | 真实产线狗粮验证 | 100% | ✅ 已完成 | **33 个模板全覆盖**（历史 27/27 基线 + 2026-09-04 专业服务 6 个新模板逐一真实狗粮）；29 种节点类型均有运行记录（新增 4 种电商节点为引擎级测试覆盖）；四类自动触发（cron/webhook/event/batch）全部真实取证；**README 演示 GIF 已完成（2026-09-01，时间轴回放）**；9 波验证共修复 20+ 产品缺陷（静默成功/静默失败、测试与产品契约脱节、引擎级调度缺陷、凭证安全、稳定性）；`search` 成功路径 2026-09-06 已真实取证（Tavily 3 条结果）；剩余仅 `audioGen` 成功路径证据（缺 TTS 供应商，环境侧阻塞）。搜索凭证改在「设置 · 搜索服务」按源独立绑定（节点只可选已配 key 的源） — [template-checklist.md](template-checklist.md) |
 | 文档完善 | 75% | 🟢 基本完成 | 核心设计文档齐；2026-09-01 完成文档-代码覆盖盘点：补齐知识记忆/A-B 设计文档、修正 technical-design 时效；handoff 最近 5 条 hash 已核实回填；**2026-09-03 新增设计 token 与 i18n 方案文档**（design-design-tokens.md / design-i18n.md）；**2026-09-05 新增合规运营批次六份方案**（design-key-rotation / design-audit-log / design-logging / design-announcement / design-feedback / design-rbac，均已登记 docs/README.md 索引并同步实施状态）；**2026-09-06 新增 Skill 体系设计文档**（design-skill.md，收拢散落三处的 skill 决策为单一事实源）+ brand_terms 待办关闭（用途已由 product-content-roadmap §44 覆盖，无需独立文档）+ 连接器数据插值 / tesseract cachePath / generic image 狗粮的文档状态同步 + **商业化详细实施方案**（design-monetization.md：三层计费 / 套餐 / 订阅 gate / 账单 / 企业版 / 启动前置 / P0-P3，方案已设计未实施）+ technical-design 补 search 节点契约 |
-| 自动数据接入 Connector | 70% | 🟡 主体完成 | file/http/form/manual 已落地；**SQLite database connector 已落地（2026-09-01，见 design-connector-database.md）**；**连接器结构化数据进插值上下文已落地（2026-09-05，`${product.name}` / 简报留空回填库值，见 design-data-interpolation.md）**；剩 PG/MySQL 驱动接续（deferred） |
+| 自动数据接入 Connector | 70% | 🟡 主体完成 | file/http/form/manual 已落地；**SQLite database connector 已落地（2026-09-01，见 design-connector-database.md）**；**连接器结构化数据进插值上下文已落地（2026-09-05，`${product.name}` / 简报留空回填库值，见 design-data-interpolation.md）**；**PostgreSQL 驱动已落地（2026-09-08，pg 纯 JS + 只读双保险 + 密码加密，见 design-connector-database.md §5）**；剩 MySQL 预留（deferred） |
 | 定时 / 事件触发 | 95% | 🟢 基本完成 | webhook/cron/event/batch 全落地（TriggersPanel+scheduler+27 测试）；**2026-09-01 修复 event 成功状态契约 bug**（见 design-triggers.md）；**2026-09-02 触发层全型实跑零缺陷**（webhook 401 诚实拒绝/batch 3 行并发/event 自动级联/cron 无人值守闭环，均有真实 run 取证）；多实例分布式锁 deferred |
 | 商业化（定价/变现） | 10% | 🔵 进行中（M0） | **2026-09-06 详细实施方案已设计**（[design-monetization.md](design-monetization.md)：三层计费 / 套餐档位 / 订阅 gate / 账单 / 企业版 / P0-P3 路线 + §8.13 落地里程碑 M0-M3）；**2026-09-07 M0 启动**——本地 Ubuntu 单机部署运行环境（[deploy-ubuntu-execution-log.md](runbooks/deploy-ubuntu-execution-log.md)），作为 P0 成本计量回采的运行床；实施其余部分仍未启动 — [PRODUCT_STRATEGY.md](PRODUCT_STRATEGY.md) |
 
@@ -49,7 +50,7 @@
 
 > 优先级与决策依据以 [handoff.md 待办](../handoff.md) 与 [deferred-items.md](deferred-items.md) 为准，本文档只做总览。
 
-1. **自动数据接入 Connector（4.2）** —— ✅ 已落地（2026-09-01）。file/http/form/manual + SQLite database connector 全链路验证通过；PG/MySQL 待驱动接续（deferred）。
+1. **自动数据接入 Connector（4.2）** —— ✅ 已落地（2026-09-01）。file/http/form/manual + SQLite database connector 全链路验证通过；PostgreSQL 已落地（2026-09-08），MySQL 预留（deferred）。
 2. **定时 / 事件触发（4.6）** —— ✅ 已落地（2026-09-01）。webhook/cron/event/batch 全落地，修复 event 成功状态 `done` 契约 bug；与 Connector 组合即无人值守产线（已端到端验证，2026-09-02 触发层全型实跑零缺陷）。剩余仅多实例分布式锁（deferred）。
 3. **模板体系扩充** —— ✅ 已完成（2026-09-01）。从 18 个扩充到 27 个业务模板（客服工单、代码审查、数据报表、合同审查、课程大纲、旅游行程、菜谱、证据清单整理、费用报销初审）；blankGraph 独立为 BLANK_TEMPLATE，不计入模板数；分类收口为 core `TEMPLATE_CATEGORIES` 有序 11 类，选择器按分类分组展示、空白钉最前 — [design-templates.md](design-templates.md) §6。
 4. **README 演示 GIF** —— ✅ 已完成（2026-09-01）。时间轴回放映示 GIF 已放入 README，替换 TODO 注释位。

@@ -79,11 +79,17 @@
 > 2. **SSE 粘性会话**（同一 run 的 SSE 固定路由到执行它的实例）。**方向（2026-09-07 评审拍板）：粘性会话起步**——run 执行本身是单实例长任务、状态在内存，粘性最贴合；事件总线只在「实例频繁扩缩容、粘性失效」时才升级。
 > 其余（AsyncLocalStorage 单请求内上下文）无需改造。
 
-### 2.3 高并发
+### 2.3 高并发（含 Redis / 消息队列决策，单一事实源）
 
 - **判断：agent-world 大概率到不了高并发**——它是「少量长任务」型负载，瓶颈是 AI 成本，不是 QPS。
 - 唯一可能需要的：入口限流（防滥用）+ 沙箱执行隔离（CPU 密集），两者 P0/P1 已覆盖。
 - 全套高并发（Redis 缓存 / 消息队列 / 水平扩展）：**除非变成 SaaS 且并发上来，否则不做**。
+
+> **Redis / 消息队列 决策汇总（2026-09-08 收拢，此处为单一事实源）**：
+> - **现阶段（单机自托管）都不需要**：Redis 的用途（跨进程缓存 / 限流 / 会话）由进程内方案覆盖（`rate-limit.ts` 内存滑动窗口、`memory.ts`）；消息队列的用途（削峰 / 任务持久化 / 多 worker）由进程内 `runScheduler` 覆盖，单实例闭环已跑通。
+> - **触发条件**：SaaS 多租户 + 多副本 + 并发上来（阶段 4/5）。
+> - **引入顺序**：先迁 PG + PG advisory lock（零额外依赖）；Redis 只在「真需要缓存 / 队列削峰」时才引入；消息队列在「多实例 worker + 任务持久化」时上 BullMQ / Temporal。
+> - 相关结论另见 [product-vision-discussion.md](product-vision-discussion.md)、[tech-stack-assessment.md §4](tech-stack-assessment.md)。
 
 ### 2.4 合规（SOC2 / ISO27001 / 个保法）
 

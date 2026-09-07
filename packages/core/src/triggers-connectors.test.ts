@@ -114,4 +114,44 @@ describe("source connector (4B.1)", () => {
     const graph = Graph.parse(baseGraph());
     expect(graph.nodes[0]!.source?.connector).toBeUndefined();
   });
+
+  it("parses sqlite and postgres database connectors", () => {
+    const sqlite = Graph.parse(
+      connectorGraph({ type: "database", database: { driver: "sqlite", path: "./data.sqlite", query: "SELECT * FROM t" } }),
+    );
+    expect(sqlite.nodes[0]!.source?.connector?.database?.driver).toBe("sqlite");
+
+    const pg = Graph.parse(
+      connectorGraph({
+        type: "database",
+        database: {
+          driver: "postgres",
+          host: "db.example.com",
+          port: 5432,
+          database: "appdb",
+          user: "app",
+          password: "secret",
+          ssl: true,
+          query: "SELECT * FROM users WHERE id > $1",
+          params: [0],
+        },
+      }),
+    );
+    const d = pg.nodes[0]!.source?.connector?.database;
+    expect(d?.driver).toBe("postgres");
+    expect(d?.host).toBe("db.example.com");
+    expect(d?.port).toBe(5432);
+    expect(d?.password).toBe("secret");
+  });
+
+  it("rejects an out-of-range postgres port", () => {
+    expect(() =>
+      Graph.parse(
+        connectorGraph({
+          type: "database",
+          database: { driver: "postgres", host: "db", database: "appdb", user: "app", port: 99999, query: "SELECT 1" },
+        }),
+      ),
+    ).toThrow();
+  });
 });

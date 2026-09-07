@@ -23,6 +23,12 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Dependency audit
+        # Block merges on known high/critical CVEs. `pnpm audit` exits non-zero
+        # when a vulnerable dependency is at/above the level, turning CI red
+        # until the dependency is upgraded.
+        run: pnpm audit --audit-level=high
+
       - name: Install Playwright browsers
         # The RPA read-back browser tests (rpa.browser.test.ts) launch a real
         # Chromium; `pnpm install` does not fetch the browser binary, so it must

@@ -239,3 +239,72 @@ describe("resolveConnector - database", () => {
     await expect(resolveConnector({ type: "database" })).rejects.toThrow(/missing 'database'/);
   });
 });
+
+describe("resolveConnector - database (postgres)", () => {
+  const pg = vi.hoisted(() => ({
+    connect: vi.fn(),
+    query: vi.fn(),
+    end: vi.fn(),
+  }));
+
+  vi.mock("pg", () => ({
+    Client: class {
+      connect() {
+        return pg.connect();
+      }
+      query(sql: string, params?: unknown[]) {
+        return pg.query(sql, params);
+      }
+      end() {
+        return pg.end();
+      }
+    },
+  }));
+
+  beforeEach(() => {
+    pg.connect.mockReset().mockResolvedValue(undefined);
+    pg.query.mockReset();
+    pg.end.mockReset().mockResolvedValue(undefined);
+  });
+
+  it("connects and returns rows as JSON", async () => {
+    pg.query.mockResolvedValue({ rows: [{ id: 1, name: "alpha" }] });
+    const r = await resolveConnector({
+      type: "database",
+      database: {
+        driver: "postgres",
+        host: "db.example.com",
+        port: 5432,
+        database: "appdb",
+        user: "app",
+        password: "secret",
+        query: "SELECT * FROM users WHERE id > $1",
+        params: [0],
+        format: "json",
+      },
+    });
+    expect(JSON.parse(r.text)).toEqual([{ id: 1, name: "alpha" }]);
+    expect(pg.connect).toHaveBeenCalled();
+    expect(pg.query).toHaveBeenCalledWith("SELECT * FROM users WHERE id > $1", [0]);
+    expect(pg.end).toHaveBeenCalled();
+  });
+
+  it("requires host/database/user", async () => {
+    await expect(
+      resolveConnector({
+        type: "database",
+        database: { driver: "postgres", query: "SELECT 1" },
+      }),
+    ).rejects.toThrow(/host\/database\/user/);
+  });
+
+  it("propagates connection errors", async () => {
+    pg.connect.mockRejectedValue(new Error("connection refused"));
+    await expect(
+      resolveConnector({
+        type: "database",
+        database: { driver: "postgres", host: "db", database: "appdb", user: "app", query: "SELECT 1" },
+      }),
+    ).rejects.toThrow(/connection refused/);
+  });
+});
