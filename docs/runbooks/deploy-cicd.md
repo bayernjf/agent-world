@@ -57,6 +57,22 @@ sudo cat /var/lib/agent-world/.ssh/github-deploy.pub   # 复制公钥
 
 将公钥添加到 GitHub 仓库 **Settings → Deploy keys → Add deploy key**，**不要**勾选「Allow write access」（pull 只需 read）。
 
+再给 `agentworld` 配 SSH config，让 `git pull` 时用这把 deploy key：
+
+```bash
+sudo -u agentworld tee /var/lib/agent-world/.ssh/config >/dev/null <<'EOF'
+Host github.com
+    HostName github.com
+    User git
+    IdentityFile /var/lib/agent-world/.ssh/github-deploy
+    StrictHostKeyChecking no
+EOF
+sudo chown agentworld:agentworld /var/lib/agent-world/.ssh/config
+sudo chmod 600 /var/lib/agent-world/.ssh/config
+# 验证能连（应返回 dev 分支的 commit hash）
+sudo -u agentworld git ls-remote git@github.com:bayernjf/agent-world.git refs/heads/dev
+```
+
 ### 4.2 给 agentworld 最小 sudo 权限（只允许重启服务）
 
 部署脚本需要重启 systemd 服务，但 `agentworld` 不能全量 sudo。给它**仅允许重启 agent-world 服务**的最小权限：
@@ -73,28 +89,74 @@ sudo chmod 440 /etc/sudoers.d/agentworld
 在 Hasee 上下载并配置 runner（以 `agentworld` 用户跑）：
 
 ```bash
-# ① 下载 runner（版本号以 GitHub 页面为准）
+# ① 下载 runner（版本号以 GitHub 页面为准，当前 v2.337.0）
 sudo -u agentworld mkdir -p /var/lib/agent-world/actions-runner
-cd /var/lib/agent-world/actions-runner
-sudo -u agentworld curl -o runner.tar.gz -L \
-  https://github.com/actions/runner/releases/download/v2.327.1/actions-runner-linux-x64-2.327.1.tar.gz
-sudo -u agentworld tar xzf runner.tar.gz
-sudo rm runner.tar.gz
+sudo -u agentworld curl -o /var/lib/agent-world/actions-runner/runner.tar.gz -L \
+  https://github.com/actions/runner/releases/download/v2.337.0/actions-runner-linux-x64-2.337.0.tar.gz
+sudo -u agentworld tar xzf /var/lib/agent-world/actions-runner/runner.tar.gz -C /var/lib/agent-world/actions-runner
+sudo rm /var/lib/agent-world/actions-runner/runner.tar.gz
 
-# ② 注册（token 从 GitHub 仓库 Settings → Actions → Runners → New self-hosted runner 获取）
-sudo -u agentworld ./config.sh \
+# ② 注册（token 用 gh api 生成，1 小时有效）：
+#    gh api repos/bayernjf/agent-world/actions/runners/registration-token --method POST --jq .token
+sudo -u agentworld /var/lib/agent-world/actions-runner/config.sh \
   --url https://github.com/bayernjf/agent-world \
   --token <REGISTRATION_TOKEN> \
   --name hasee-2016-server \
   --labels self-hosted,linux,production \
-  --unattended
+  --unattended \
+  --work /var/lib/agent-world/actions-runner/_work
 
-# ③ 用 systemd 托管 runner（常驻、开机自启）
-sudo ./svc.sh install agentworld
-sudo ./svc.sh start
+# ③ 手写 systemd unit 托管 runner（新版已无 svc.sh）
+sudo tee /etc/systemd/system/actions-runner.service >/dev/null <<'EOF'
+[Unit]
+Description=GitHub Actions Runner (hasee-2016-server)
+After=network.target
+
+[Service]
+User=agentworld
+Group=agentworld
+WorkingDirectory=/var/lib/agent-world/actions-runner
+ExecStart=/var/lib/agent-world/actions-runner/run.sh
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+sudo systemctl daemon-reload
+sudo systemctl enable --now actions-runner
 ```
 
-> 验证：`systemctl status actions.runner.*` 显示 active，GitHub 仓库 Settings → Actions → Runners 里出现 `hasee-2016-server`（Idle 状态）。
+> **注意**：新版 runner（v2.337.0）**已移除 `svc.sh`**，systemd 托管需手写 unit（如上）。注册后 GitHub 显示 label 为 `self-hosted / Linux / X64 / production`（小写 `linux` 会被自动标准化为 `Linux`）。
+> 验证：`systemctl is-active actions-runner` = active，`gh api repos/bayernjf/agent-world/actions/runners --jq '.runners[].status'` = `online`。
+
+### 4.3.5 服务器代码 git 化（从 rsync 切换到 git）
+
+首次 rsync 部署的 `/opt/agent-world` **没有 `.git`**，无法 `git pull`。需切换为 git clone：
+
+```bash
+# ① 备份 .env
+sudo cp /opt/agent-world/.env /tmp/aw-env-backup
+
+# ② clone dev 分支到新目录（/opt 下 agentworld 无创建权限，先建目录并授权）
+sudo mkdir -p /opt/agent-world-new && sudo chown agentworld:agentworld /opt/agent-world-new
+sudo -u agentworld git clone -b dev git@github.com:bayernjf/agent-world.git /opt/agent-world-new
+
+# ③ 恢复 .env 并在新目录 install + build
+sudo cp /tmp/aw-env-backup /opt/agent-world-new/.env
+sudo chown agentworld:agentworld /opt/agent-world-new/.env && sudo chmod 600 /opt/agent-world-new/.env
+cd /opt/agent-world-new && sudo -u agentworld corepack pnpm install --frozen-lockfile && sudo -u agentworld corepack pnpm -r build
+
+# ④ 切换（短暂停服几秒）
+sudo systemctl stop agent-world
+sudo mv /opt/agent-world /opt/agent-world-old
+sudo mv /opt/agent-world-new /opt/agent-world
+sudo systemctl start agent-world
+
+# ⑤ 验证后清理旧目录
+curl -s http://127.0.0.1:8791/api/health   # {"ok":true}
+sudo rm -rf /opt/agent-world-old
+```
 
 ### 4.4 写服务器部署脚本
 
@@ -106,10 +168,12 @@ set -euo pipefail
 cd /opt/agent-world
 
 git pull --ff-only                                   # 只快进，避免冲突静默
-sudo -u agentworld corepack pnpm install --frozen-lockfile   # 依赖可能变了
-sudo -u agentworld corepack pnpm -r build            # 全量构建
+corepack pnpm install --frozen-lockfile              # 依赖可能变了
+corepack pnpm -r build                               # 全量构建
 sudo systemctl restart agent-world                   # 重启服务（最小 sudo）
 ```
+
+> runner 以 `agentworld` 身份执行，故 deploy.sh 里**不需要** `sudo -u agentworld`（已是该用户），只需对 `systemctl restart` 用最小 sudo。
 
 ```bash
 sudo chmod +x /opt/agent-world/deploy.sh
@@ -119,46 +183,31 @@ sudo chmod +x /opt/agent-world/deploy.sh
 
 ### 4.5 写 CD workflow（`.github/workflows/deploy.yml`）
 
-CI 通过后才触发部署，且只在目标分支 push 时跑：
+CI 与 CD 是**两个独立 workflow**，故用 `workflow_run` 跨 workflow 触发：监听 CI（`ci.yml`，name=CI）在 `dev` 分支完成后，仅当 CI 成功才部署到 Hasee。
 
 ```yaml
 name: Deploy
 
 on:
-  push:
-    branches: ["dev"]   # 部署分支 = dev（Hasee 是准生产，跑最新集成代码；main 留待 M3 正式生产）
+  workflow_run:
+    workflows: ["CI"]          # ci.yml 的 name
+    types: [completed]          # 只监听完成
+    branches: ["dev"]           # 部署分支 = dev（Hasee 是准生产，跑最新集成代码；main 留待 M3 正式生产）
 
 jobs:
   deploy:
     name: Deploy to Hasee
-    runs-on: [self-hosted, linux]          # 指定跑在 Hasee 的 runner 上
-    needs: build                            # 依赖 CI job（须与 ci.yml 的 job id 对齐）
-    if: github.event_name == 'push'
+    if: github.event.workflow_run.conclusion == 'success'   # 仅 CI 成功才部署
+    runs-on: [self-hosted, production]                      # 匹配 Hasee runner 的 label
     steps:
       - name: Deploy
         run: /opt/agent-world/deploy.sh
 ```
 
 > **关键点**：
-> - `needs: build` 需要 `ci.yml` 里 CI job 的 `id` 是 `build`，否则用 `workflow_run` 跨 workflow 触发（见下）。
-> - 若 CI 与 CD 分开两个 workflow，改用 `workflow_run` 事件监听 CI workflow 成功后触发。
-
-**跨 workflow 触发写法（CI/CD 分离时用）**：
-
-```yaml
-on:
-  workflow_run:
-    workflows: ["CI"]          # ci.yml 的 name
-    types: [completed]          # 只监听完成
-    branches: ["dev"]
-
-jobs:
-  deploy:
-    if: github.event.workflow_run.conclusion == 'success'   # 仅 CI 成功才部署
-    runs-on: [self-hosted, linux]
-    steps:
-      - run: /opt/agent-world/deploy.sh
-```
+> - `runs-on: [self-hosted, production]`：`production` 是注册 runner 时的自定义 label，用于精确匹配这台机器（避免其它 self-hosted runner 抢任务）。
+> - `if: workflow_run.conclusion == 'success'`：CI 失败则不部署，坏代码上不了准生产。
+> - workflow 文件必须在 GitHub 上（即需 push 并合并到 `dev` 分支）才会生效。
 
 ### 4.6 验证
 
