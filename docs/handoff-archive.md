@@ -2,6 +2,8 @@
 
 > ⚠️ **This file is read-only history.** All content from `handoff.md` as of 2026-08-27 was moved here on the split commit. Do NOT append new entries here — add them to the current `handoff.md` "Recently shipped" section (max 5) or extend [handoff-archive.md](handoff-archive.md) by an explicit "Additions" section if historical context is needed.
 >
+> **2026-09-07 起**：Active work 待办归档按日期拆分到独立文件 `handoff-archive-YYYY-MM-DD.md`（如 [handoff-archive-2026-09-07.md](handoff-archive-2026-09-07.md)），不再追加进本文件，避免本文件无限膨胀。
+>
 > Active work / state / next-step tracking lives in the slim `handoff.md` at the repo root.
 
 ---
