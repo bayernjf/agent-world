@@ -218,7 +218,17 @@ export function compile(graph: Graph): CompileResult {
     if (!order) continue;
 
     const ancestors = ancestorsOf(graph, e.from);
-    if (e.from !== e.to && !ancestors.has(e.to)) {
+    // L24: a self-loop rework edge (from === to) must be rejected — the old
+    // `from !== to &&` guard silently let it through.
+    if (e.from === e.to) {
+      diagnostics.push({
+        severity: "error",
+        message: "A rework line cannot point back to itself",
+        edgeId: e.id,
+      });
+      continue;
+    }
+    if (!ancestors.has(e.to)) {
       diagnostics.push({
         severity: "error",
         message: "A rework line must run back to a plant upstream of the start node",

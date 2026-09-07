@@ -122,10 +122,13 @@ export function computeCost(usage: CostInput, pricing: ModelPricing | undefined)
   const tokensOut = usage.tokensOut ?? 0;
   const cachedTokens = usage.cachedTokens ?? 0;
   const billableIn = pricing.cacheRead != null ? Math.max(0, tokensIn - cachedTokens) : tokensIn;
+  // M31: without a cacheRead price, cached tokens are already inside tokensIn —
+  // do not bill them a second time via the cacheRead fallback to input.
+  const cacheTokens = pricing.cacheRead != null ? cachedTokens : 0;
 
   let cost =
     (billableIn * (pricing.input ?? 0) +
-      cachedTokens * (pricing.cacheRead ?? pricing.input ?? 0) +
+      cacheTokens * (pricing.cacheRead ?? 0) +
       tokensOut * (pricing.output ?? 0)) /
     1_000_000;
 
