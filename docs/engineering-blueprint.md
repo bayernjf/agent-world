@@ -88,7 +88,7 @@
 |---|---|---|---|
 | **一键回滚** | 版本化 release + 切软链回退 | `releases/<ts>-<commit>/` 目录 + `rollback.sh` 切 systemd `WorkingDirectory` 软链 | P0 |
 | **CD 自动化** | push dev → CI 绿 → 自动部署 Hasee | self-hosted runner + `deploy.sh`（已有雏形，补齐自动触发 + 失败通知） | P1 |
-| **migration 回滚** | DB migration 支持 down（出问题能退回） | migration 脚本加 `down` 逻辑 + 回滚时执行 | P1 |
+| **migration 回滚** | DB migration 支持 down（出问题能退回） | ✅ 已实施（2026-09-08）：`Migration.down` 可选字段 + `rollbackLatestMigration` + `scripts/migrate-down.ts`；纯 DDL 迁移写 down，无 down 的迁移回滚拒绝（不猜） | 完成 |
 | **feature flag** | 功能灰度开关（不发布代码也能开关功能） | ✅ 已实施（2026-09-08）：`feature-flags.ts`（`FEATURE_FLAGS` 注册表 + `isFeatureEnabled`，未知 flag fail-closed）+ `AppConfig.featureFlags`；首个 flag `rpa-metrics`（合规风险默认关，使用点待 RPA 接 API 端点） | 完成 |
 | **金丝雀/蓝绿/滚动** | 渐进放量、零停机 | 依赖多副本 + 负载均衡（需先 Docker 化 + 反代） | P2 |
 | **制品管理 / SBOM** | 容器镜像、依赖清单、软件物料清单 | Docker 镜像 + `npm audit --omit=dev` + SBOM 生成（syft） | P2 |

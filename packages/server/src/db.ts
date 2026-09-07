@@ -3143,6 +3143,12 @@ interface Migration {
    */
   detect?: (db: DatabaseSync) => boolean;
   up: (db: DatabaseSync) => void;
+  /**
+   * Reverses `up` for a one-step rollback (migration down). Optional: only
+   * pure-DDL migrations provide it; data migrations without a safe inverse
+   * omit it so rollback refuses rather than guessing.
+   */
+  down?: (db: DatabaseSync) => void;
 }
 
 function columnExists(db: DatabaseSync, table: string, column: string): boolean {
@@ -3747,6 +3753,9 @@ const MIGRATIONS: Migration[] = [
         PRIMARY KEY (user_id, key)
       )`);
     },
+    down: (db) => {
+      db.exec("DROP TABLE IF EXISTS idempotency_keys");
+    },
   },
 ];
 
@@ -3804,6 +3813,33 @@ function runMigrations(db: DatabaseSync) {
   if (migrated.length > 0) {
     log.info("migrations complete", { count: migrated.length, totalMs: Date.now() - now });
   }
+}
+
+/**
+ * Rolls back the most recently applied migration (one step). Refuses when that
+ * migration has no `down` (data migrations without a safe inverse). Deletes the
+ * schema_migrations row so a later boot re-applies it. Returns null when no
+ * migration has been applied.
+ */
+export function rollbackLatestMigration(db: DatabaseSync): { version: number; description: string } | null {
+  const row = db.prepare("SELECT MAX(version) AS v FROM schema_migrations").get() as { v: number | null };
+  const version = row.v;
+  if (!version) return null;
+  const migration = MIGRATIONS.find((m) => m.version === version);
+  if (!migration) return null;
+  if (!migration.down) {
+    throw new Error(`migration ${version} (${migration.description}) has no down step — cannot roll back`);
+  }
+  db.exec("BEGIN");
+  try {
+    migration.down(db);
+    db.prepare("DELETE FROM schema_migrations WHERE version = ?").run(version);
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
+  return { version, description: migration.description };
 }
 
 /** The schema version this build expects. Exposed for diagnostics/backups. */

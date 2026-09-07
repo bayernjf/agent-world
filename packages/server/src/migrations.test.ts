@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { BACKUP_RETENTION, openDb, SCHEMA_VERSION } from "./db.js";
+import { BACKUP_RETENTION, openDb, rollbackLatestMigration, SCHEMA_VERSION } from "./db.js";
 
 function cols(db: DatabaseSync, table: string): string[] {
   return (db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map(
@@ -228,5 +228,35 @@ describe("startup database backup", () => {
       n.startsWith("pre-migration-"),
     );
     expect(backups.length).toBeLessThanOrEqual(BACKUP_RETENTION);
+  });
+});
+
+describe("migration rollback (down)", () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "aw-mig-down-"));
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("rolls back the latest migration one step", () => {
+    const file = join(dir, "aw.sqlite");
+    openDb(file).close(); // applies all migrations, incl. 35 (idempotency_keys)
+
+    const raw = new DatabaseSync(file);
+    const before = raw
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='idempotency_keys'")
+      .get();
+    expect(before).toBeTruthy();
+
+    const result = rollbackLatestMigration(raw);
+    expect(result?.version).toBe(35);
+
+    const after = raw
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='idempotency_keys'")
+      .get();
+    expect(after).toBeUndefined();
+    raw.close();
   });
 });
