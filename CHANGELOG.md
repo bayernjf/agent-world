@@ -6,6 +6,13 @@ All notable changes are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **PostgreSQL database connector** — `DatabaseConnector.driver` 增 `postgres`（`pg` 纯 JS）+ `host/port/database/user/password/ssl`；`queryPostgres` 异步连接 + SELECT 白名单 + 会话级只读双保险；密码对齐静态加密（`SECRET_KEYS` 加 `password`）；MySQL 预留扩展点。详见 [docs/design-connector-database.md](docs/design-connector-database.md)。
+- **成本硬熔断 + 全局限流（P0）** — `startRun` 入口月度预算硬停（`monthlyBudgetExceeded` + `AGENT_WORLD_BUDGET_BYPASS`）；`rate-limit.ts` 内存滑动窗口挂 login/register/run 三入口。详见 [docs/engineering-blueprint.md](docs/engineering-blueprint.md)。
+- **自述式 health 探针 + Metrics（可观测性）** — `/api/health` 报 env/branch/commit + DB/密钥/Provider 就绪（未就绪 503）；`/metrics` Prometheus 端点（HTTP RED + run 业务指标，零依赖）。详见 [docs/production-ops.md](docs/production-ops.md)。
+- **优雅关闭/启动 + 幂等审计（可靠性）** — SIGTERM drain 在途 run + 关 DB；`Idempotency-Key` 防重复建 run（`idempotency_keys` 表）。详见 [docs/engineering-blueprint.md](docs/engineering-blueprint.md)。
+- **发布工程（P0/P1）** — 一键回滚（`.last-known-good` + rollback.sh）、migration 回滚（`down` + migrate-down.ts）、feature flag（灰度开关）、覆盖率门禁、pre-commit hooks。详见 [docs/engineering-blueprint.md](docs/engineering-blueprint.md)。
+- **安全（P0/P1）** — gitleaks 扫历史、依赖漏洞扫描（`pnpm audit` 进 CI + Dependabot）、SAST（CodeQL）。详见 [docs/engineering-blueprint.md](docs/engineering-blueprint.md)。
+- **数据与运营（P0/P1）** — 备份恢复演练（RTO<1min/RPO<24h）、事件归档（prune-events.ts）、一致性校验（verifyIntegrity）、postmortem 模板、SLA/SLO、变更管理。详见 [docs/engineering-blueprint.md](docs/engineering-blueprint.md)。
 - **搜索服务按源绑定凭证 + 节点 gating** — `searchConfig` 从单一扁平 `apiKey`/`cx` 升级为按搜索源独立绑定（`tavily.apiKey`/`serpapi.apiKey`/`google.apiKey`+`cx`），切换搜索源不再丢失或串用其他源的 key；凭证解析按源隔离（跨源绝不复用，`userSlot` 只取当前源槽）。Settings → 搜索服务按所选源展示对应 key 输入框（并提示其他源配置状态）；search 节点下拉只可选已配置 key 的源（未配源置灰 + 直达设置入口）；旧扁平凭证读时自动迁入对应源槽。本地开发不再依赖 `.env` 的 `TAVILY_API_KEY`。
 - **连接器数据插值** — `ResolvedMaterial.data?` 通用通道 + `sourceMeta` 旁路 Map + 快捷名注册表（`product`/`products`）+ `buildSourceBrief(fallbacks)` 留空回填/手填覆写 + 简报 8 字段 `${product.*}` 插值；机制行业无关，product 为首个消费者。详见 [docs/design-data-interpolation.md](docs/design-data-interpolation.md)。
 - **Skill 体系设计文档** — 收拢散落三处的 skill 决策（设计原则 / 4 种 kind / 权限模型 / source 三态 / 扩展点）为单一事实源。详见 [docs/design-skill.md](docs/design-skill.md)。

@@ -8,7 +8,7 @@
 | 问题 | 结论 |
 |---|---|
 | 检测各环境状态 | 升级 `/api/health` 为「自述式探针」，一次 `curl` 看 env/branch/commit + DB/密钥/Provider 就绪状态 |
-| 密钥/配置注入 | 现状三层已够；补 `.env.example` 模板 + 拆分 `secrets.env`，M3 再上 Secret Manager |
+| 密钥/配置注入 | 现状三层已够；`.env.example` 模板已补（P0）；剩拆分 `secrets.env`、M3 再上 Secret Manager |
 | 多环境/健康/日志平台 | **暂不上 k8s**（SQLite 单机架构是硬矛盾）；用 Docker Compose + 可观测栈（Uptime Kuma / Grafana 生态）或托管云 |
 
 一句话：**要的不是 k8s，是「可观测性」+「配置管理」+「可重复部署」三件事；k8s 是规模化阶段的答案，且其真正前置条件（SQLite→Postgres）尚未发生。**
@@ -196,8 +196,8 @@ k8s / 云容器        （规模化前提）
 | 需求 | 组件 | 重量 |
 |---|---|---|
 | 健康探针 + 掉线告警 | **Uptime Kuma**（自托管）/ UptimeRobot（云） | 极轻，优先上 |
+| 指标看板 | ✅ **`/metrics` 端点已落地（2026-09-08，零依赖自实现，见 §2/§7）**；可选 Prometheus 抓取 + Grafana 展示 | 已落地 |
 | 日志集中查询 | **Grafana Loki** + Promtail | 中 |
-| 指标看板 | **Prometheus** + Grafana + node-exporter | 中 |
 | 告警推送 | Uptime Kuma / Grafana Alerting | 中 |
 
 两条路线二选一：

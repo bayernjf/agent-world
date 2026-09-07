@@ -5,7 +5,7 @@
 
 ---
 
-## 一、进度快照（2026-09-05）
+## 一、进度快照（2026-09-08）
 
 > 完成度为基于项目文档状态的**估算**，用于快速判断"哪块做完了、哪块没动"，不是精确度量。按完成度降序。
 
@@ -13,7 +13,8 @@
 |---|---|---|---|
 | 安全加固（审计 29 项） | 100% | ✅ 已完成 | 3 Critical/10 High/8 Medium/8 Low 全部修复，含 CORS 通配符拒绝、SSRF、静态加密 L3；推翻 2 条旧"已解决"结论。**2026-09-02 扩围**：L3 静态加密从仅 `triggers[].webhookSecret` 扩展到图文档内**所有节点级凭证**（imageGen/videoGen/audioGen/generic `apiKey`、notify `secret`+`webhookUrl`、连接器 `auth.token`+auth 类 `headers`），`sealGraphDoc`/`openGraphDoc` 改为按字段名递归遍历（`f7c333f`）；**再收口**：`headers` 里由自定义名字承载的凭证（`X-My-Auth`、`X-Signature`）按名字模式加密，固定名单枚举不到的漏网补上（`ff223bb`）；**L3 声明的最后一条残留同日闭环**：嵌在 URL query 里的凭证（`?token=…`、Azure `?api-key=`）按**精确参数名**就地加密（良性参数与 endpoint 保持明文可排查，密文 percent-encode 往返），并删掉与改写器漂移的双检测器（`043ce5c`）；**同波补上 `search`/`vcs` 此前完全没有的节点级凭证入口**（`apiKey`/`cx`/`token`/`baseUrl`，落盘前即被既有 sealer 覆盖，不再只能靠 server 环境变量 + 重启，`f914fa9`+`75f02b4`+`817bff8`）。**真正剩下的边界**：写在自由文本里的密钥（prompt / `variables` / code 脚本 / http body）——按字段名加密拦不到 — [security-audit-2026-08-31.md](security-audit-2026-08-31.md) |
 | 账号系统与用户隔离 | 100% | ✅ 已完成 | users 表 + JWT/HttpOnly cookie + 全量按 user_id 隔离 + 旧库回填迁移 |
-| 回归测试与质量门 | 100% | ✅ 已完成 | core 188 / server **843** / mcp 50 / **web 1547**（web 2026-09-03 从 176 提升到 1460，+1284 用例——组件测试全覆盖 39 个组件，P0/P1/P2/P3 四批全部完成；基础设施 @testing-library/react + jsdom + vitest.config.ts + setup.ts + utils.tsx；过程中修复 Inspector.tsx 可选链 bug；全量稳定通过无回归；**2026-09-05 合规运营批次（审计日志/服务端日志/RBAC/公告/用户反馈）后 server 747→838、web 1500→1542；同日反馈 P3 联动后 server 838→843、web 1542→1547**）；core-path 回归基线 17 用例，Node 24 下稳定复跑 — [handoff.md Quality gate](../handoff.md) |
+| 回归测试与质量门 | 100% | ✅ 已完成 | core 190 / server **911** / mcp 50 / **web 1547**（2026-09-08 工程化 P0/P1 批次后 server 843→911、core 188→190）（web 2026-09-03 从 176 提升到 1460，+1284 用例——组件测试全覆盖 39 个组件，P0/P1/P2/P3 四批全部完成；基础设施 @testing-library/react + jsdom + vitest.config.ts + setup.ts + utils.tsx；过程中修复 Inspector.tsx 可选链 bug；全量稳定通过无回归；**2026-09-05 合规运营批次（审计日志/服务端日志/RBAC/公告/用户反馈）后 server 747→838、web 1500→1542；同日反馈 P3 联动后 server 838→843、web 1542→1547**）；core-path 回归基线 17 用例，Node 24 下稳定复跑 — [handoff.md Quality gate](../handoff.md) |
+| 工程化 P0/P1（可靠性/可观测/发布/安全/数据/DevEx/运营） | 100% | ✅ 已完成 | **2026-09-08 P0 八项 + P1 十四项全部落地**：成本硬熔断 / 全局限流 / 优雅关闭启动 / 幂等审计 / Metrics（/metrics 端点）/ feature flag / migration 回滚 / 覆盖率门禁 / pre-commit hooks / 依赖漏洞扫描 / SAST（CodeQL）/ 数据归档 / 一致性校验 / postmortem 模板 / SLA/SLO / 变更管理 — [engineering-blueprint.md](engineering-blueprint.md) |
 | 自媒体电商方向（F1-F10） | 100% | ✅ 已完成 | **2026-09-04 十个特性全部落地，里程碑 M1-M6 闭环**：F1 run 内多变体择优（fanout/select 节点 + 变体对比视图）、F2 审核队列、F3 平台合规、F4 商品库素材库、F5 批量任务、F6 效果回流、F7-A 导出包 + F7-B 开放渠道 Webhook、F8 内容日历、F9 内容级成本、F10 画布泳道编排；只新增 4 个节点，F7-C 浏览器 RPA 默认不做 — [design-ecommerce-roadmap.md](design-ecommerce-roadmap.md) |
 | MCP Server | 100% | ✅ 已完成 | stdio + HTTP/SSE 双传输、15 工具 + resources + prompts + notifications + Bearer 认证（P0-P2 全落地）— [design-mcp-server.md](design-mcp-server.md) |
 | Phase 1 基础通用能力 | 100% | ✅ 已完成 | HTTP/代码执行/条件分支/parallel/数据模型升级 — [roadmap-generalization.md](roadmap-generalization.md#phase-1基础通用能力2-3周) |
