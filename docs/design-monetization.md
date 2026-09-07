@@ -52,6 +52,8 @@
 
 ## 3. 计费模型（三层）
 
+> **商业化路线拍板（2026-09-07）**：**先 B（纯 BYOK）**——订阅主线卖「编排 + 存储 + 协作 + 专业模板」，平台零模型代付、零垫资。**内置模型（C）作为 SaaS 阶段的可选增强，不是前提**——触发条件：种子用户普遍反馈「卡在配 API key」。在此之前，内置模型订阅制不启动，`source:"builtin"` 的 agnes 维持 demo 定位。
+
 ```
 平台收入 = 订阅费（覆盖平台服务 + 内置模型 quota）
          + 内置模型超额费用（quota 用尽后，可选按量加购）
@@ -106,12 +108,16 @@
 
 ## 5. 配额与订阅 gate（核心实现）
 
+> **与「平台成本护栏」的区分（2026-09-07 评审）**：本节的订阅配额是**租户级**（防免费白嫖/超用额度）；另有一层独立的**平台成本护栏**（owner/平台级，防账单爆炸），见 [design-scaling.md §4.1](design-scaling.md)。自托管阶段两者合一（owner = 唯一用户），SaaS 阶段分离。
+
 ### 5.1 数据模型
 
+> **计费维度：按 tenant（2026-09-07 决策）**。订阅/配额/账单归属租户而非用户——Team 套餐「5 席位」= 1 租户 + 5 成员共享一份 quota。自托管阶段「个人 = 单成员租户」，`tenant_id` 退化为用户自己的 id，个人订阅语义不变。详见 [design-multitenancy.md](design-multitenancy.md)。
+
 ```sql
--- 订阅（一个用户一条）
+-- 订阅（一个租户一条；自托管下「个人 = 单成员租户」，tenant_id 退化为用户自己的 id）
 CREATE TABLE subscriptions (
-  user_id              TEXT PRIMARY KEY,
+  tenant_id            TEXT PRIMARY KEY,
   plan                 TEXT NOT NULL,          -- free | starter | pro | team
   status               TEXT NOT NULL,          -- active | trialing | canceled | past_due
   provider             TEXT,                   -- 支付网关：stripe | manual（手动开通）
@@ -122,14 +128,14 @@ CREATE TABLE subscriptions (
   updated_at           INTEGER NOT NULL
 );
 
--- 用量台账（每结算周期累计，写多读少）
+-- 用量台账（每结算周期累计，写多读少；按租户计——Team 共享同一份 quota）
 CREATE TABLE usage_ledger (
-  user_id        TEXT NOT NULL,
+  tenant_id      TEXT NOT NULL,
   period_start   INTEGER NOT NULL,             -- 对账周期起始
   metric         TEXT NOT NULL,                -- tokens_in | tokens_out | runs | storage_bytes | video_seconds
   amount         REAL NOT NULL,                -- 累计值
   updated_at     INTEGER NOT NULL,
-  PRIMARY KEY (user_id, period_start, metric)
+  PRIMARY KEY (tenant_id, period_start, metric)
 );
 ```
 
@@ -207,7 +213,7 @@ function enforceSubscription(userId: string, graph: Graph): void {
 ```sql
 CREATE TABLE invoices (
   id           TEXT PRIMARY KEY,
-  user_id      TEXT NOT NULL,
+  tenant_id    TEXT NOT NULL,
   period_start INTEGER NOT NULL,
   period_end   INTEGER NOT NULL,
   amount_usd   REAL NOT NULL,
