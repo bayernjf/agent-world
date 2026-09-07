@@ -60,6 +60,16 @@ Agent World 项目的 AI 编码规范。写任何代码前先读本节，尤其�
 - JSON 语法高亮色
 - rgba 透明度变体（功能色的不同透明度，无对应 token）
 
+## 数据访问 —— 必须走 db.ts 抽象层，禁止裸 SQL 方言
+
+agent-world 计划「自托管（SQLite）+ SaaS（PostgreSQL）」双轨（见 docs/design-scaling.md §2）。为控制双轨成本，所有 DB 访问必须：
+
+- **统一走 `packages/server/src/db.ts`** 的抽象方法（`getXxx`/`insertXxx`/`listXxx`/...），禁止在 `nodes/*.ts`、路由或其他模块直接写 `db.prepare(...)` / 裸 SQL；
+- SQL 方言差异（如 `strftime` vs `EXTRACT`、`LIMIT ? OFFSET ?`、upsert 语法）只允许出现在 `db.ts` 内部，由抽象层屏蔽；
+- 新增表/查询先扩展 `db.ts` 方法，再在调用方使用。
+
+理由：绕过抽象直接写方言，将来迁 PG 时逐处返工。
+
 ## Commit 规范
 
 - 英文 `<type>(<scope>): <subject>`，如 `feat(web): migrate X to i18n`
