@@ -54,17 +54,13 @@ export function renderMarkdown(md: string): ReactNode[] {
   const lines = md.split("\n");
   const blocks: ReactNode[] = [];
   let list: string[] = [];
+  let listOrdered = false;
   let key = 0;
 
   const flushList = () => {
     if (list.length) {
-      blocks.push(
-        <ul key={key++}>
-          {list.map((item, i) => (
-            <li key={i}>{renderInline(item)}</li>
-          ))}
-        </ul>,
-      );
+      const items = list.map((item, i) => <li key={i}>{renderInline(item)}</li>);
+      blocks.push(listOrdered ? <ol key={key++}>{items}</ol> : <ul key={key++}>{items}</ul>);
       list = [];
     }
   };
@@ -78,8 +74,12 @@ export function renderMarkdown(md: string): ReactNode[] {
       const Tag = `h${Math.min(level, 3)}` as ElementType;
       blocks.push(<Tag key={key++}>{renderInline(text)}</Tag>);
     } else if (/^[-*]\s/.test(line)) {
+      if (list.length && listOrdered) flushList();
+      listOrdered = false;
       list.push(line.replace(/^[-*]\s/, ""));
     } else if (/^\d+\.\s/.test(line)) {
+      if (list.length && !listOrdered) flushList();
+      listOrdered = true;
       list.push(line.replace(/^\d+\.\s/, ""));
     } else if (line === "") {
       flushList();
@@ -227,14 +227,14 @@ function ImageArtifact({ a }: { a: ArtifactLike }) {
       <div className="artifact-image-fallback">
         <span className="artifact-image-fallback__icon">IMG</span>
         <span>{i18n.t("run:artifacts.imageBroken")}</span>
-        <a href={a.uri} target="_blank" rel="noopener noreferrer">
+        <a href={sanitizeUrl(a.uri, "link") || undefined} target="_blank" rel="noopener noreferrer">
           {i18n.t("run:artifacts.openOriginal")}
         </a>
       </div>
     );
   }
   return (
-    <a className="artifact-media" href={a.uri} target="_blank" rel="noopener noreferrer">
+    <a className="artifact-media" href={sanitizeUrl(a.uri, "link") || undefined} target="_blank" rel="noopener noreferrer">
       <img
         src={proxyImageUrl(a.uri) ?? a.uri}
         alt={a.label ?? "image"}
@@ -270,7 +270,7 @@ function FileArtifact({ a }: { a: ArtifactLike }) {
   return (
     <a
       className="artifact-file"
-      href={a.uri}
+      href={sanitizeUrl(a.uri, "link") || undefined}
       target="_blank"
       rel="noopener noreferrer"
       download={a.label ?? undefined}
@@ -303,7 +303,7 @@ function JsonArtifact({ a }: { a: ArtifactLike }) {
 function UriArtifact({ a }: { a: ArtifactLike }) {
   if (!a.uri) return placeholder("run:artifacts.noLink");
   return (
-    <a className="artifact-uri" href={a.uri} target="_blank" rel="noopener noreferrer">
+    <a className="artifact-uri" href={sanitizeUrl(a.uri, "link") || undefined} target="_blank" rel="noopener noreferrer">
       {a.label ?? a.uri} ↗
     </a>
   );
@@ -387,7 +387,7 @@ export function ArtifactCard({
           <span className="artifact-card__actions">
             {uri && (
               <a
-                href={uri}
+                href={sanitizeUrl(uri, "link") || undefined}
                 target="_blank"
                 rel="noopener noreferrer"
                 download={a.label ?? undefined}

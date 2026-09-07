@@ -33,6 +33,7 @@ export default function KnowledgePanel({ open, onClose }: Props) {
   async function load() {
     try {
       const res = await fetch("/api/knowledge?limit=100");
+      if (!res.ok) throw new Error(`${res.status}`);
       const data = await res.json();
       setEntries(data.entries ?? []);
       setTotal(data.total ?? 0);
@@ -49,8 +50,11 @@ export default function KnowledgePanel({ open, onClose }: Props) {
     setSearching(true);
     try {
       const res = await fetch(`/api/knowledge/search?q=${encodeURIComponent(query)}&limit=50`);
+      if (!res.ok) throw new Error(`${res.status}`);
       const data = await res.json();
       setEntries(data.entries ?? []);
+    } catch (err) {
+      console.error("knowledge search failed", err);
     } finally {
       setSearching(false);
     }
@@ -59,7 +63,7 @@ export default function KnowledgePanel({ open, onClose }: Props) {
   async function addEntry() {
     if (!newTitle.trim() || !newContent.trim()) return;
     try {
-      await fetch("/api/knowledge", {
+      const res = await fetch("/api/knowledge", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -69,6 +73,7 @@ export default function KnowledgePanel({ open, onClose }: Props) {
           tags: newTags.split(",").map((tag) => tag.trim()).filter(Boolean),
         }),
       });
+      if (!res.ok) throw new Error(`${res.status}`);
       setNewTitle("");
       setNewContent("");
       setNewTags("");
@@ -82,7 +87,8 @@ export default function KnowledgePanel({ open, onClose }: Props) {
   async function deleteEntry(id: string) {
     if (!confirm(t("modals:knowledge.deleteConfirm"))) return;
     try {
-      await fetch(`/api/knowledge/${id}`, { method: "DELETE" });
+      const res = await fetch(`/api/knowledge/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error(`${res.status}`);
       load();
     } catch (e) {
       alert(t("modals:knowledge.deleteFailed", { message: (e as Error).message }));
