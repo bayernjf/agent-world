@@ -63,6 +63,7 @@ import { decryptString, encryptString, getEncryptionRing } from "./at-rest.js";
 import { publishToChannel } from "./publish.js";
 import { hashPassword, verifyPassword, signToken, verifyToken, REMEMBER_MAX_AGE_SEC } from "./auth.js";
 import { audit, changedFields } from "./audit.js";
+import { RateLimiter } from "./rate-limit.js";
 import { graphAccessRole, requireGraph, visibleGraphs, requireRun, runAccessRole, artifactAccessRole, hasAtLeast } from "./rbac.js";
 
 const PORT = Number(process.env.PORT ?? 8791);
@@ -285,7 +286,28 @@ function clientIp(c: any): string | undefined {
   return undefined;
 }
 
+// 全局限流（production-ops §6.2）：堵登录爆破 / 注册滥用 / API 滥用。参数为
+// 保守默认值（防爆破不误伤正常使用）。key 维度：登录/注册按 IP，run 按用户。
+const LOGIN_RATE_LIMIT = 10; // 每 IP 每 15 分钟
+const LOGIN_RATE_WINDOW_MS = 15 * 60_000;
+const REGISTER_RATE_LIMIT = 30; // 每 IP 每小时（宽松：防批量注册，不误伤正常注册/测试造用户）
+const REGISTER_RATE_WINDOW_MS = 60 * 60_000;
+const RUN_RATE_LIMIT = 30; // 每用户每分钟
+const RUN_RATE_WINDOW_MS = 60_000;
+
+const loginLimiter = new RateLimiter(LOGIN_RATE_LIMIT, LOGIN_RATE_WINDOW_MS);
+const registerLimiter = new RateLimiter(REGISTER_RATE_LIMIT, REGISTER_RATE_WINDOW_MS);
+const runLimiter = new RateLimiter(RUN_RATE_LIMIT, RUN_RATE_WINDOW_MS);
+
+/** 限流 key 的 IP 部分：nginx 反代会带 x-forwarded-for；缺失时归为 unknown。 */
+function rateLimitIp(c: any): string {
+  return clientIp(c) ?? "unknown";
+}
+
 app.post("/api/auth/register", async (c) => {
+  if (!registerLimiter.allow(`register:${rateLimitIp(c)}`)) {
+    return c.json({ error: "注册过于频繁，请稍后再试" }, 429);
+  }
   // M3: the very first account bootstraps the instance. Once a user exists,
   // self-registration is closed unless the operator opts in via
   // ALLOW_REGISTRATION=1 — otherwise anyone who reaches the port can create
@@ -318,6 +340,9 @@ app.post("/api/auth/register", async (c) => {
 });
 
 app.post("/api/auth/login", async (c) => {
+  if (!loginLimiter.allow(`login:${rateLimitIp(c)}`)) {
+    return c.json({ error: "尝试过于频繁，请稍后再试" }, 429);
+  }
   const body = (await c.req.json().catch(() => ({}))) as {
     email?: string;
     password?: string;
@@ -1918,6 +1943,9 @@ app.get("/api/eval.csv", (c) => {
 
 app.post("/api/runs", async (c) => {
   const userId = c.get("userId");
+  if (!runLimiter.allow(`run:${userId}`)) {
+    return c.json({ error: "派发过于频繁，请稍后再试" }, 429);
+  }
   const body = (await c.req.json().catch(() => ({}))) as {
     graphId?: string;
     budgetUsd?: number | null;
