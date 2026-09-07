@@ -229,9 +229,9 @@
 | 能力 | 补齐方案 | 优先级 |
 |---|---|---|
 | runbook 补全 | 覆盖常见故障（服务挂/DB 锁/磁盘满/成本超限） | P0 |
-| postmortem 模板 | 事故复盘模板（时间线/根因/行动项） | P1 |
-| SLA/SLO 定义 | 明确承诺（见域 1 SLO） | P1 |
-| 变更管理 | 变更记录 + 审批流程 | P1 |
+| postmortem 模板 | 事故复盘模板（时间线/根因/行动项） | ✅ 已实施（2026-09-08）：`runbooks/postmortem-template.md`（blameless 复盘模板） | 完成 |
+| SLA/SLO 定义 | 明确承诺（见域 1 SLO） | ✅ 已实施（2026-09-08）：`production-ops.md §7`（可用性/run 完成率/P99/错误率 四项 SLI + SLO） | 完成 |
+| 变更管理 | 变更记录 + 审批流程 | ✅ 已实施（2026-09-08）：`runbooks/change-management.md`（变更流程 + 回滚对照） | 完成 |
 | on-call 值班 | 多人协作才有意义，个人项目暂缓 | P2 |
 
 ---

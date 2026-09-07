@@ -239,7 +239,20 @@ k8s / 云容器        （规模化前提）
 
 ---
 
-## 7. 相关文档
+## 7. SLA/SLO（服务等级）
+
+> 单机自托管阶段，SLO 是「自我监控参考」，不是对客户承诺；SaaS 阶段（M3）才对外承诺 SLA。
+
+| 指标 | SLI（怎么测） | SLO 目标 | 数据来源 |
+|---|---|---|---|
+| 可用性 | `/api/health` 200 成功率 | ≥ 99.5% | Uptime Kuma 探针（待配） |
+| run 完成率 | done / (done + failed) | ≥ 95% | `runs_total` / `runs_failed_total`（/metrics） |
+| API P99 延迟 | `http_request_duration_ms` | < 2s | /metrics |
+| 错误率 | 5xx 占比 | < 1% | `http_errors_total` / `http_requests_total` |
+
+**说明**：四项 SLI 里三项已落地（`/metrics` 端点 2026-09-08），仅「Uptime Kuma 探针告警」待配（见 §5、deferred-items）。SLO 违反时触发告警 → 按 [postmortem-template.md](runbooks/postmortem-template.md) 复盘。
+
+## 8. 相关文档
 
 - [environments.md](environments.md) —— 环境划分（本路线的前提）
 - [design-logging.md](design-logging.md) —— 服务端日志（本路线日志层承接）
