@@ -8,7 +8,7 @@ import { sanitizeError } from "../sanitize.js";
  * arrives via the explicit NodeRunContext.
  */
 export async function videoGenNode(ctx: NodeRunContext, node: GraphNode, nodeId: string, attempt: number): Promise<void> {
-  const { artifacts, emit, inputFor, opts, sendPackets, states, worker } = ctx;
+  const { artifacts, budgetUsd, emit, inputFor, opts, sendPackets, states, worker } = ctx;
   emit({ type: "node.started", nodeId, attempt });
   const cfg = node.videoGen ?? { model: "video-gen", n: 1 };
   if (!worker.generateVideo) {
@@ -62,6 +62,8 @@ export async function videoGenNode(ctx: NodeRunContext, node: GraphNode, nodeId:
       };
     }
     artifacts.set(nodeId, videoArts);
+    ctx.totalCostUsd += usage.costUsd;
+    emit({ type: "power.metered", totalCostUsd: ctx.totalCostUsd, budgetUsd });
     emit({ type: "node.finished", nodeId, attempt, output: "", usage });
     states.set(nodeId, "done");
     sendPackets(nodeId, `生成视频 ${results.length} 段`, "video");

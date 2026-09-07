@@ -136,6 +136,7 @@ export const CONNECTOR_RETRY_DELAY_MS = 1000;
  * or the summarizer fails.
  */
 export function truncateText(body: string, maxChars: number): string {
+  if (body.length <= maxChars) return body;
   const head = `...[前 ${body.length - maxChars} 字符已截断]...\n`;
   return head + body.slice(body.length - maxChars + head.length);
 }

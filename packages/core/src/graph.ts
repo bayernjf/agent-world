@@ -385,20 +385,35 @@ export type ParallelConfig = z.infer<typeof ParallelConfig>;
  * differentiated prompt / sampling temperature / model. The lanes reconverge
  * at a `select` node.
  */
-export const FanoutConfig = z.object({
-  /** How many variant lanes to spawn (2-8). */
-  count: z.number().int().min(2).max(8).default(3),
-  /** What differs between lanes. */
-  strategy: z.enum(["prompt", "temperature", "model"]).default("prompt"),
-  /** strategy=prompt: N prompts (length must equal count); empty → engine auto-generates differentiated angles. */
-  prompts: z.array(z.string()).optional(),
-  /** strategy=temperature: one temperature per lane (0-2). */
-  temperatures: z.array(z.number().min(0).max(2)).optional(),
-  /** strategy=model: one model id per lane. */
-  models: z.array(z.string()).optional(),
-  /** Brief given to the LLM when auto-generating variant angles (strategy=prompt, prompts empty). */
-  angleBrief: z.string().default(""),
-});
+export const FanoutConfig = z
+  .object({
+    /** How many variant lanes to spawn (2-8). */
+    count: z.number().int().min(2).max(8).default(3),
+    /** What differs between lanes. */
+    strategy: z.enum(["prompt", "temperature", "model"]).default("prompt"),
+    /** strategy=prompt: N prompts (length must equal count); empty → engine auto-generates differentiated angles. */
+    prompts: z.array(z.string()).optional(),
+    /** strategy=temperature: one temperature per lane (0-2). */
+    temperatures: z.array(z.number().min(0).max(2)).optional(),
+    /** strategy=model: one model id per lane. */
+    models: z.array(z.string()).optional(),
+    /** Brief given to the LLM when auto-generating variant angles (strategy=prompt, prompts empty). */
+    angleBrief: z.string().default(""),
+  })
+  .superRefine((cfg, ctx) => {
+    const check = (arr: unknown[] | undefined, field: string) => {
+      if (arr !== undefined && arr.length !== cfg.count) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `${field} 长度必须等于 count（${cfg.count}），实际 ${arr.length}`,
+          path: [field],
+        });
+      }
+    };
+    check(cfg.prompts, "prompts");
+    check(cfg.temperatures, "temperatures");
+    check(cfg.models, "models");
+  });
 export type FanoutConfig = z.infer<typeof FanoutConfig>;
 
 /**

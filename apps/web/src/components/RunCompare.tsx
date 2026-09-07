@@ -61,10 +61,22 @@ export default function RunCompare({ open, graphId, onClose }: Props) {
     setLoading(true);
     try {
       const [sA, sB, eA, eB] = await Promise.all([
-        fetch(`/api/runs/${runA}/stats`).then((r) => r.json()),
-        fetch(`/api/runs/${runB}/stats`).then((r) => r.json()),
-        fetch(`/api/runs/${runA}/events`).then((r) => r.json()),
-        fetch(`/api/runs/${runB}/events`).then((r) => r.json()),
+        fetch(`/api/runs/${runA}/stats`).then((r) => {
+          if (!r.ok) throw new Error(`stats ${runA} ${r.status}`);
+          return r.json();
+        }),
+        fetch(`/api/runs/${runB}/stats`).then((r) => {
+          if (!r.ok) throw new Error(`stats ${runB} ${r.status}`);
+          return r.json();
+        }),
+        fetch(`/api/runs/${runA}/events`).then((r) => {
+          if (!r.ok) throw new Error(`events ${runA} ${r.status}`);
+          return r.json();
+        }),
+        fetch(`/api/runs/${runB}/events`).then((r) => {
+          if (!r.ok) throw new Error(`events ${runB} ${r.status}`);
+          return r.json();
+        }),
       ]);
       setStatsA(sA);
       setStatsB(sB);

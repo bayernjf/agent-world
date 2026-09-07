@@ -68,6 +68,8 @@ export async function genericNode(ctx: NodeRunContext, node: GraphNode, nodeId: 
       // generic step between them had none) — same gap 8418d2e closed for gates.
       const artifact = setTextArtifact(artifacts, nodeId, out);
       emit({ type: "artifact.produced", nodeId, attempt, artifact });
+      ctx.totalCostUsd += usage.costUsd;
+      emit({ type: "power.metered", totalCostUsd: ctx.totalCostUsd, budgetUsd });
       emit({ type: "node.finished", nodeId, attempt, output: out, usage });
       states.set(nodeId, "done");
       sendPackets(nodeId, out.slice(0, 120), "text");
@@ -137,6 +139,8 @@ export async function genericNode(ctx: NodeRunContext, node: GraphNode, nodeId: 
         };
       }
       artifacts.set(nodeId, arts);
+      ctx.totalCostUsd += usage.costUsd;
+      emit({ type: "power.metered", totalCostUsd: ctx.totalCostUsd, budgetUsd });
       emit({ type: "node.finished", nodeId, attempt, output: "", usage });
       states.set(nodeId, "done");
       sendPackets(nodeId, `通用节点生成图片 ${results.length} 张`, "image");
@@ -202,6 +206,8 @@ export async function genericNode(ctx: NodeRunContext, node: GraphNode, nodeId: 
         };
       }
       artifacts.set(nodeId, arts);
+      ctx.totalCostUsd += usage.costUsd;
+      emit({ type: "power.metered", totalCostUsd: ctx.totalCostUsd, budgetUsd });
       emit({ type: "node.finished", nodeId, attempt, output: "", usage });
       states.set(nodeId, "done");
       sendPackets(nodeId, `通用节点生成视频 ${results.length} 段`, "video");
@@ -267,6 +273,8 @@ export async function genericNode(ctx: NodeRunContext, node: GraphNode, nodeId: 
         };
       }
       artifacts.set(nodeId, arts);
+      ctx.totalCostUsd += usage.costUsd;
+      emit({ type: "power.metered", totalCostUsd: ctx.totalCostUsd, budgetUsd });
       emit({ type: "node.finished", nodeId, attempt, output: "", usage });
       states.set(nodeId, "done");
       sendPackets(nodeId, `通用节点生成音频 ${results.length} 段`, "audio");

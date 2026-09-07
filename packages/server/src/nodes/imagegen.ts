@@ -9,7 +9,7 @@ import { sanitizeError } from "../sanitize.js";
  * arrives via the explicit NodeRunContext.
  */
 export async function imageGenNode(ctx: NodeRunContext, node: GraphNode, nodeId: string, attempt: number): Promise<void> {
-  const { artifacts, emit, graph, opts, sendPackets, states, worker } = ctx;
+  const { artifacts, budgetUsd, emit, graph, opts, sendPackets, states, worker } = ctx;
   emit({ type: "node.started", nodeId, attempt });
   const cfg = node.imageGen ?? { model: "agnes-image", prompt: "", n: 1 };
   const prompt = cfg.prompt?.trim() || buildImagePrompt(node, graph);
@@ -50,6 +50,8 @@ export async function imageGenNode(ctx: NodeRunContext, node: GraphNode, nodeId:
       };
     }
     artifacts.set(nodeId, imageArts);
+    ctx.totalCostUsd += usage.costUsd;
+    emit({ type: "power.metered", totalCostUsd: ctx.totalCostUsd, budgetUsd });
     emit({ type: "node.finished", nodeId, attempt, output: "", usage });
     states.set(nodeId, "done");
     sendPackets(nodeId, `生成配图 ${results.length} 张`, "image");

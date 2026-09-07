@@ -84,7 +84,15 @@ export async function codeNode(ctx: NodeRunContext, node: GraphNode, nodeId: str
     cfg.fs === "allowlist" ? (loadPermissionConfig().fsAllow ?? []) : [];
   // P0 sandbox: isolate cwd (per-run temp dir) + env allowlist + absolute
   // interpreter path. The temp dir is removed even on failure/timeout.
-  const workdir = await createCodeWorkdir(runId, nodeId, attempt);
+  // Create it inside a guard so a failure still tears down any net token
+  // registered above (audit: token/workdir were previously outside try/finally).
+  let workdir: string;
+  try {
+    workdir = await createCodeWorkdir(runId, nodeId, attempt);
+  } catch (err) {
+    if (netToken) unregisterNetToken(netToken);
+    throw err;
+  }
   try {
     // Local stdin context (renamed from `ctx`, which now names the NodeRunContext).
     const stdinCtx = nodeCtx(nodeId);

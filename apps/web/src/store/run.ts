@@ -39,6 +39,8 @@ interface RunState {
 let source: EventSource | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectAttempts = 0;
+/** Monotonic token bumped on every (dis)connect so stale async loads can't clobber a newer stream. */
+let generation = 0;
 
 function openStream(runId: string, afterSeq: number) {
   // EventSource can't set custom headers, but the server emits `id:` on every
@@ -51,7 +53,12 @@ function openStream(runId: string, afterSeq: number) {
 
   es.onmessage = (msg) => {
     reconnectAttempts = 0;
-    const parsed = JSON.parse(msg.data) as { version: number; event: RunEvent };
+    let parsed: { version: number; event: RunEvent };
+    try {
+      parsed = JSON.parse(msg.data) as { version: number; event: RunEvent };
+    } catch {
+      return; // malformed frame — ignore and keep the stream alive
+    }
     if (parsed.version !== EVENT_SCHEMA_VERSION) {
       console.warn(`ignoring event with schema v${parsed.version}`);
       return;
@@ -123,7 +130,10 @@ export const useRun = create<RunState>()((set, get) => ({
 
   loadRun: async (runId) => {
     get().disconnect();
+    const gen = generation;
     const { events, state } = await api.getEvents(runId);
+    // A connect/disconnect happened while we awaited — don't clobber its live state.
+    if (gen !== generation) return;
     set({
       runId,
       events,
@@ -137,6 +147,7 @@ export const useRun = create<RunState>()((set, get) => ({
   },
 
   disconnect: () => {
+    generation++;
     source?.close();
     source = null;
     if (reconnectTimer) clearTimeout(reconnectTimer);

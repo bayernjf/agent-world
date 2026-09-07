@@ -10,6 +10,7 @@ import { firstFanoutUpstream, setTextArtifact, upstreamBrandTerms, zeroUsage } f
  */
 export async function selectNode(ctx: NodeRunContext, node: GraphNode, nodeId: string, attempt: number): Promise<void> {
   const { artifacts, emit, graph, opts, produceArtifacts, sendPackets, states, worker } = ctx;
+  emit({ type: "node.started", nodeId, attempt });
   const cfg: SelectConfig = node.select ?? SelectConfig.parse({});
   const fanoutId = firstFanoutUpstream(graph, nodeId);
   if (!fanoutId) {
@@ -103,7 +104,6 @@ export async function selectNode(ctx: NodeRunContext, node: GraphNode, nodeId: s
       : JSON.stringify(chosenEntries, null, 2);
   setTextArtifact(artifacts, nodeId, output);
   states.set(nodeId, "done");
-  emit({ type: "node.started", nodeId, attempt });
   emit({ type: "node.finished", nodeId, attempt, output, usage: zeroUsage() });
   produceArtifacts(nodeId, output, attempt);
   sendPackets(nodeId, output.slice(0, 120), "text");

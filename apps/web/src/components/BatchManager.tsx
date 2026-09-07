@@ -32,7 +32,10 @@ export default function BatchManager({ open, onClose }: Props) {
   useEffect(() => {
     if (!open) return;
     void load();
-    void api.listGraphs().then((g) => setGraphs(g.map((x) => ({ id: x.id, name: x.name }))));
+    void api
+      .listGraphs()
+      .then((g) => setGraphs(g.map((x) => ({ id: x.id, name: x.name }))))
+      .catch((err) => console.error("list graphs failed", err));
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
