@@ -3,6 +3,7 @@ import path from "node:path";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { ConnectorConfig, type ProductConnector } from "@agent-world/core";
 import { guardedFetch } from "./ssrf.js";
+import { assertSafeLocalPath } from "./fs-guard.js";
 
 /** Raw material pulled from a connector, ready to feed a source node. */
 export interface ResolvedMaterial {
@@ -122,6 +123,8 @@ export async function resolveConnector(
       const c = config.file;
       if (!c) throw new Error("file connector missing 'file' config");
       const files = await expandPaths(c.path);
+      // H1: never let a user-supplied path reach secrets / the server's DB.
+      for (const f of files) assertSafeLocalPath(f);
       const textParts: string[] = [];
       const images: string[] = [];
       for (const f of files) {
@@ -200,7 +203,8 @@ export async function resolveConnector(
       }
       let db: DatabaseSync;
       try {
-        db = new DatabaseSync(c.path, { readOnly: true });
+        // H2: refuse to open the server's own database (or any dotfile path).
+        db = new DatabaseSync(assertSafeLocalPath(c.path), { readOnly: true });
       } catch (err) {
         throw new Error(
           `无法打开数据库 ${c.path}: ${err instanceof Error ? err.message : String(err)}`,
