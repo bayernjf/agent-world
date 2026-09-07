@@ -219,7 +219,7 @@ k8s / 云容器        （规模化前提）
 |---|---|
 | DB 版本化迁移 | `migrations.test.ts` + `db.ts` |
 | 故障重试/降级 | `retry.ts`（TIMEOUT/RATE_LIMIT/PROVIDER_ERROR） |
-| 软成本预算告警 | `monthlyBudgetUsd` 80%/100% warn |
+| 软成本预算告警 + 硬熔断 | `monthlyBudgetUsd` 80%/100% warn（软）；`startRun` 入口硬停 + `monthlyBudgetExceeded` + `AGENT_WORLD_BUDGET_BYPASS=1` 放行（硬，2026-09-07 已实施） |
 | 反馈限流 | `FEEDBACK_RATE_LIMIT` 10 次/小时 |
 | 操作审计 | `graph_versions`（保存可回滚 + run 审计）+ `audit_log` |
 | 密钥三层 + 轮换 | `design-key-rotation.md`（已实施） |
@@ -230,7 +230,6 @@ k8s / 云容器        （规模化前提）
 
 | 优先级 | 缺口 | 为什么对 AI 产品致命 |
 |---|---|---|
-| **P0** | **成本硬熔断** | 现在只有 warn 不拦截，超预算照烧；死循环产线/被攻破账号/恶意刷量可致账单爆炸 |
 | **P0** | **错误追踪（Sentry 类）** | 生产 bug 只能 grep 日志，无未捕获异常聚合/告警 |
 | **P0** | **回滚机制** | 回退靠手速记忆，无版本化 release + 一键回退 |
 | **P1** | **全局限流 + 防滥用** | 现仅 feedback 有限流；登录爆破/注册滥用/API 滥用无防护 |

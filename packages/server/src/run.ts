@@ -87,10 +87,46 @@ export interface StartRunArgs {
  * immediately with the run id). Shared by the manual `/api/runs` route and the
  * trigger service so every path produces identical run records.
  */
+/**
+ * 成本硬熔断（production-ops §6.2）：月度已计费成本 ≥ 预算时拒绝新 run。
+ * 区别于软告警 `power.warning`（只提醒、从不拦截）——这里才是「超预算照烧」的
+ * 防线。`bypass` 是 owner 的手动放行（`AGENT_WORLD_BUDGET_BYPASS=1`），用于
+ * 紧急需要或预算校准期间。预算为 null/≤0 视为禁用（沿用软告警的启用条件）。
+ */
+export function monthlyBudgetExceeded(
+  monthlyBudgetUsd: number | null | undefined,
+  monthSpentUsd: number,
+  bypass: boolean,
+): boolean {
+  if (monthlyBudgetUsd == null || monthlyBudgetUsd <= 0) return false; // disabled
+  if (bypass) return false;
+  return monthSpentUsd >= monthlyBudgetUsd;
+}
+
 export async function startRun(args: StartRunArgs): Promise<{ runId: string; diagnostics: unknown }> {
   const { db, userId, worker, artifacts, live, graph, trigger, budgetUsd, input, connectorValues, publicUrl } = args;
   const { plan, diagnostics } = compile(graph);
   if (!plan) throw new RunStartError("graph does not compile", 422, diagnostics);
+
+  // 成本硬熔断：新 run 创建前检查月度预算。覆盖 manual / trigger / batch 全部
+  // 入口（都经 startRun），避免失控产线 / 被攻破账号 / 恶意刷量继续烧钱。
+  const budgetCfg = loadConfig(userId);
+  const monthlyBudgetUsd = budgetCfg.monthlyBudgetUsd ?? null;
+  const budgetBypass = process.env.AGENT_WORLD_BUDGET_BYPASS === "1";
+  if (monthlyBudgetUsd != null && monthlyBudgetUsd > 0 && !budgetBypass) {
+    const monthNow = new Date();
+    const monthSpentUsd = db.costForMonth(monthNow.getFullYear(), monthNow.getMonth() + 1, userId);
+    if (monthlyBudgetExceeded(monthlyBudgetUsd, monthSpentUsd, budgetBypass)) {
+      log.warn("run blocked by monthly budget hard stop", {
+        userId, graphId: graph.id, monthSpentUsd, monthlyBudgetUsd,
+      });
+      throw new RunStartError(
+        `monthly budget exceeded (${monthSpentUsd.toFixed(4)} USD spent of ${monthlyBudgetUsd} USD); set AGENT_WORLD_BUDGET_BYPASS=1 to override`,
+        402,
+        { monthlyBudgetUsd, monthSpentUsd },
+      );
+    }
+  }
 
   const runId = randomUUID();
   const startedAt = Date.now();
