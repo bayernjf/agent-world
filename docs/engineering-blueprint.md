@@ -46,7 +46,7 @@
 | 能力 | 说明 | 补齐方案 | 优先级 |
 |---|---|---|---|
 | 自述式 health | 环境/分支/commit + DB/密钥/Provider 就绪状态 | ✅ 已实施（2026-09-07），见 [production-ops.md §2](production-ops.md) | 完成 |
-| **Metrics（RED）** | Rate/Error/Duration + 业务指标（run 数、成本、产线吞吐） | 埋点 `run` 生命周期/API 层，Prometheus 格式 `/metrics` 端点 + 可选 Prometheus 抓取 | P1 |
+| **Metrics（RED）** | Rate/Error/Duration + 业务指标（run 数、成本、产线吞吐） | ✅ 已实施（2026-09-08）：`metrics.ts` 零依赖内存聚合 + `/metrics` Prometheus 端点；HTTP 埋点（requests/errors/duration）+ run 埋点（total/failed/cost/active）；顺带修复请求日志中间件注册顺序（health/auth 请求此前不经过） | 完成 |
 | **告警** | 服务挂、错误率飙升、成本逼近预算、磁盘满 | Uptime Kuma（探针）+ Grafana Alerting（指标阈值），推 Telegram/邮件 | P1 |
 | **分布式 Tracing** | 一个 run 从 webhook 触发的完整链路 | OpenTelemetry 贯穿 engine/API（runId 作 traceId），Jaeger/Tempo 后端 | P2 |
 | **SLO/SLI** | 可用性、错误率、P99 延迟的承诺与监控 | 定义 SLI（如 `/api/health` 成功率、run 完成率）+ 错误预算 | P2 |
