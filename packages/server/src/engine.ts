@@ -938,7 +938,13 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
 
   const mergeSubInit = (prefix: string, childInit: SchedulerInit) => {
     for (const [k, v] of childInit.states) states.set(prefix + k, v);
-    for (const [k, v] of childInit.artifacts) artifacts.set(prefix + k, v);
+    for (const [k, v] of childInit.artifacts) {
+      // M3: prefix each artifact's `id` too, not just the Map key. Artifact ids
+      // embed their node id, so a child artifact would otherwise collide with a
+      // same-named artifact from a sibling lane or the parent in the gallery /
+      // download route.
+      artifacts.set(prefix + k, v.map((a) => ({ ...a, id: prefix + a.id })));
+    }
     for (const [k, v] of childInit.attempts) attempts.set(prefix + k, v);
     for (const [k, v] of childInit.nodeCostUsd) nodeCostUsd.set(prefix + k, v);
   };
@@ -1090,10 +1096,18 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
   // reaches a terminal state (done/failed) so the scheduler can relaunch.
   const runNode = async (nodeId: string) => {
     const node = nodeById(graph, nodeId);
-    if (!node) return;
+    if (!node) {
+      // M1: never leave a launched node's running slot unaccounted — else
+      // `running` can never reach 0 and the run hangs (finish() is gated on it).
+      running--;
+      if (running === 0) finish();
+      return;
+    }
 
     if (opts.signal?.aborted) {
       aborted = true;
+      running--;
+      if (running === 0) finish();
       return;
     }
 

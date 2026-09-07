@@ -33,11 +33,12 @@ export async function publishNode(ctx: NodeRunContext, node: GraphNode, nodeId: 
       content: JSON.stringify(payload),
       mimeType: "application/json",
     };
-    const produced: Artifact[] = [jsonArtifact];
     // Downstream nodes consume the assembled body (falls back to the title).
     const downstreamText = pkg.body || pkg.title;
-    setTextArtifact(artifacts, nodeId, downstreamText);
-    artifacts.set(nodeId, [...produced, ...(artifacts.get(nodeId) ?? [])]);
+    const textArtifact = setTextArtifact(artifacts, nodeId, downstreamText);
+    // M5: emit the text note too, not just the json package.
+    const produced: Artifact[] = [jsonArtifact, textArtifact];
+    artifacts.set(nodeId, produced);
     for (const a of produced) emit({ type: "artifact.produced", nodeId, attempt, artifact: a });
 
     states.set(nodeId, "done");

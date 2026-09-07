@@ -166,11 +166,11 @@
 
 | # | 位置 | 状态 |
 |---|---|---|
-| M1 | `engine.ts:1091` runNode abort 挂起 | ⚠️ 未修复：调度器核心 `running` 计数，需专项回归 |
+| M1 | `engine.ts:1091` runNode abort 挂起 | ✅ 已修复（2026-09-08：abort/无节点早退路径递减 `running` 并触发 `finish`，+回归测试） |
 | M2 | media 节点成本不累加 | ✅ imagegen/audiogen/videogen 加 `totalCostUsd +=` + `power.metered` |
-| M3 | fanout/subprocess 产物 id 零前缀 | ⚠️ 未修复：需改 `prefixEvent`/`mergeSubInit` + DB 主键 |
+| M3 | fanout/subprocess 产物 id 零前缀 | ✅ 已修复（2026-09-08：`mergeSubInit` 给 artifact.id 加前缀） |
 | M4 | `compliance.ts:47` sanitized\|\|original | ➖ 复核后无需修复（sanitized 恒非空，回退不可达） |
-| M5 | compliance/publish/source 未 emit 文本产物 | ⚠️ 未修复：需补 `artifact.produced` 文本事件 |
+| M5 | compliance/publish/source 未 emit 文本产物 | ✅ 已修复（2026-09-08：三节点补 `artifact.produced` 文本事件） |
 | M6 | `generic.ts` text 成本 | ✅ 四模态统一累加 |
 | M7 | `translate.ts` 全局预算绕过 | ✅ 补全局/月度预算检查（对齐 textGen） |
 | M8 | `http.ts` outputMode file 无上限 | ✅ 流式读取 + 25MB 上限 |
@@ -243,10 +243,10 @@
 
 ### 汇总
 
-- **已修复：57 项**（high 8 / medium 29 / low 20；2026-09-08 增补 21 项：server L5/L6、mcp M15-M19+L15/L16/L18、core M31-M35+L23/L24、web M21/M22/M24/M27）
+- **已修复：60 项**（high 8 / medium 32 / low 20；2026-09-08 增补 24 项：server L5/L6+M1/M3/M5、mcp M15-M19+L15/L16/L18、core M31-M35+L23/L24、web M21/M22/M24/M27）
 - **无需修复：2 项**（M4、L7，复核后后果不成立）
 - **部分修复：1 项**（M38，FanoutConfig 已修，其余未改）
-- **未修复：17 项**（high 0 / medium 7 / low 10，均为暂缓：调度器重构 M1/M3/M5、Canvas3D 竞态 M23/M26/M30/L28-L31、性能 L19/L22/L25、历史数据风险 L26、设计意图 L27、模板 M36）
+- **未修复：14 项**（high 0 / medium 4 / low 10，均为暂缓：Canvas3D 竞态 M23/M26/M30/L28-L31、性能 L19/L22/L25、历史数据风险 L26、设计意图 L27、模板 M36）
 
 **未修复项归因**（供后续接力时按类推进）：
 1. **诚实边界 / 运维配置**：H4（Python 隔离，切 P2 后端）。
