@@ -269,8 +269,9 @@ function applyArith(op: string, a: unknown, b: unknown): unknown {
   const y = Number(b);
   switch (op) {
     case "+":
-      // Preserve string concatenation when either side is a non-numeric string.
+      // Preserve string concatenation when EITHER side is a non-numeric string.
       if (typeof a === "string" && !/^\s*[-+]?[\d.]+(\s*$)/.test(a)) return String(a) + String(b);
+      if (typeof b === "string" && !/^\s*[-+]?[\d.]+(\s*$)/.test(b)) return String(a) + String(b);
       return x + y;
     case "-":
       return x - y;

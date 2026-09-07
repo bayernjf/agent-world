@@ -125,6 +125,33 @@ describe("execute", () => {
     expect(replay(events).status).toBe("cancelled");
   });
 
+  it("does not hang when cancelled while a node is in flight (M1)", async () => {
+    const { plan } = compile(SEED_GRAPH);
+    const ac = new AbortController();
+    const events: RunEvent[] = [];
+    const done = (async () => {
+      for await (const e of execute({
+        runId: "r",
+        graph: SEED_GRAPH,
+        plan: plan!,
+        worker: worker(),
+        budgetUsd: null,
+        signal: ac.signal,
+        now: clock,
+      })) {
+        events.push(e);
+        if (e.type === "node.started") ac.abort();
+      }
+    })();
+    // A hung scheduler (`running` never reaching 0) would never resolve; the
+    // race turns that into a test failure instead of an infinite hang.
+    await Promise.race([
+      done,
+      new Promise((_, reject) => setTimeout(() => reject(new Error("run hung after cancel")), 5000)),
+    ]);
+    expect(replay(events).status).toBe("cancelled");
+  });
+
   it("numbers events consecutively from zero so SSE resume is unambiguous", async () => {
     const { events } = await run(SEED_GRAPH);
     expect(events.map((e) => e.seq)).toEqual(events.map((_, i) => i));

@@ -68,9 +68,9 @@ function parseCsvCells(text: string, delimiter: string): string[][] {
       i += 1;
       continue;
     }
-    if (ch === delimiter) {
+    if (text.startsWith(delimiter, i)) {
       pushField();
-      i += 1;
+      i += delimiter.length;
       continue;
     }
     if (ch === "\n") {

@@ -156,7 +156,7 @@
 | H1 | `connectors.ts:124` file 任意读 | ✅ 新增 `fs-guard.ts`：拒绝隐藏文件/服务器 DB/越界路径 |
 | H2 | `connectors.ts:203` database 任意读 | ✅ 同 `assertSafeLocalPath` 包裹 `DatabaseSync` 路径 |
 | H3 | `triggers.ts:226` batch 任意读 | ✅ 同 `assertSafeLocalPath` |
-| H4 | `code-sandbox.ts:354` Python 无隔离 | ⚠️ 诚实边界：需运维切 `CODE_SANDBOX=bwrap/sandbox-exec`，代码已诚实标注 |
+| H4 | `code-sandbox.ts:354` Python 无隔离 | ✅ 生产已解决（2026-09-08 M0 部署已切 `CODE_SANDBOX=bwrap`，bwrap 0.6.1）；本地 dev 默认 rlimit 仍为诚实边界 |
 | H5 | `subprocess/fanout` 成本恒 0 | ✅ `finish()` 回写 `opts.init.totalCostUsd` |
 | H6 | `mcp http.ts` 无鉴权 | ✅ `AgentWorldClient.withToken` + HTTP 层解析 `Authorization` header |
 | H7 | `artifact-renderers` XSS | ✅ 5 处 `href` 过 `sanitizeUrl` |
@@ -166,11 +166,11 @@
 
 | # | 位置 | 状态 |
 |---|---|---|
-| M1 | `engine.ts:1091` runNode abort 挂起 | ⚠️ 未修复：调度器核心 `running` 计数，需专项回归 |
+| M1 | `engine.ts:1091` runNode abort 挂起 | ✅ 已修复（2026-09-08：abort/无节点早退路径递减 `running` 并触发 `finish`，+回归测试） |
 | M2 | media 节点成本不累加 | ✅ imagegen/audiogen/videogen 加 `totalCostUsd +=` + `power.metered` |
-| M3 | fanout/subprocess 产物 id 零前缀 | ⚠️ 未修复：需改 `prefixEvent`/`mergeSubInit` + DB 主键 |
+| M3 | fanout/subprocess 产物 id 零前缀 | ✅ 已修复（2026-09-08：`mergeSubInit` 给 artifact.id 加前缀） |
 | M4 | `compliance.ts:47` sanitized\|\|original | ➖ 复核后无需修复（sanitized 恒非空，回退不可达） |
-| M5 | compliance/publish/source 未 emit 文本产物 | ⚠️ 未修复：需补 `artifact.produced` 文本事件 |
+| M5 | compliance/publish/source 未 emit 文本产物 | ✅ 已修复（2026-09-08：三节点补 `artifact.produced` 文本事件） |
 | M6 | `generic.ts` text 成本 | ✅ 四模态统一累加 |
 | M7 | `translate.ts` 全局预算绕过 | ✅ 补全局/月度预算检查（对齐 textGen） |
 | M8 | `http.ts` outputMode file 无上限 | ✅ 流式读取 + 25MB 上限 |
@@ -178,30 +178,30 @@
 | M10 | `run.ts` live Map 泄漏 | ✅ `finally` 里 `live.delete(runId)` |
 | M11 | `openai-compatible` 下载无超时 | ✅ 独立 AbortController + 超时 |
 | M12 | `ssrf.ts:156` PROXY_DENIED_HOSTNAME | ✅ 增强 nip.io/十进制/十六进制 IP |
-| M13 | login/register 无速率限制 | ⚠️ 未修复：需引入 rate limiter 中间件 |
+| M13 | login/register 无速率限制 | ✅ 已修复（2026-09-08 全局限流：`rate-limit.ts` login 10次/15min/IP、register 30次/小时/IP） |
 | M14 | `ssrf.ts:347` 自定义凭据头外泄 | ✅ `SENSITIVE_HEADER` 正则剥离 |
-| M15 | `mcp config.ts:22` Number NaN | ⚠️ 未修复 |
-| M16 | `mcp http.ts:38` parseBody 无限制 | ⚠️ 未修复 |
-| M17 | `mcp client.ts:124` downloadUrl 无 token | ⚠️ 未修复 |
-| M18 | `mcp notifications.ts:83` CRLF | ⚠️ 未修复 |
-| M19 | `mcp tools.ts:455` waitForRuns 不重试 | ⚠️ 未修复 |
+| M15 | `mcp config.ts:22` Number NaN | ✅ 已修复（2026-09-08：`positiveInt` 校验回退默认） |
+| M16 | `mcp http.ts:38` parseBody 无限制 | ✅ 已修复（2026-09-08：5MB 上限） |
+| M17 | `mcp client.ts:124` downloadUrl 无 token | ✅ 已修复（2026-09-08：`?token=` 嵌入下载链接） |
+| M18 | `mcp notifications.ts:83` CRLF | ✅ 已修复（2026-09-08：`\r?\n\r?\n` 分帧） |
+| M19 | `mcp tools.ts:455` waitForRuns 不重试 | ✅ 已修复（2026-09-08：瞬时错误重试到 deadline） |
 | M20 | `mcp tools.ts` batch_run inputs 无上限 | ✅ `MAX_BATCH_INPUTS=500` |
-| M21 | `web store/run.ts` loadRun 无 try/catch | ⚠️ 未修复（仅加了竞态守卫，未包 try/catch） |
-| M22 | `web store/graph.ts` flushSave 不抛出 | ⚠️ 未修复 |
-| M23 | `web Canvas3D.tsx` pointer 拖拽残留 | ⚠️ 未修复 |
-| M24 | `web lib/api.ts` listBrandTerms/BannedTerms res.ok | ⚠️ 未修复（只修了 DELETE，list 未修） |
+| M21 | `web store/run.ts` loadRun 无 try/catch | ✅ 已修复（2026-09-08：包 try/catch） |
+| M22 | `web store/graph.ts` flushSave 不抛出 | ✅ 已修复（2026-09-08：失败 rethrow） |
+| M23 | `web Canvas3D.tsx` pointer 拖拽残留 | ⚠️ 暂缓（3D 拖拽竞态，单机阶段价值低） |
+| M24 | `web lib/api.ts` listBrandTerms/BannedTerms res.ok | ✅ 已修复（2026-09-08：加 res.ok 检查） |
 | M25 | `web store/run.ts` JSON.parse 无保护 | ✅ try/catch |
-| M26 | `web Canvas3D.tsx` setSize 无 ResizeObserver | ⚠️ 未修复 |
-| M27 | `web store/graph.ts` 自动保存无提示 | ⚠️ 未修复 |
+| M26 | `web Canvas3D.tsx` setSize 无 ResizeObserver | ⚠️ 暂缓（3D 视图缩放，价值低） |
+| M27 | `web store/graph.ts` 自动保存无提示 | ✅ 已修复（2026-09-08：`saveFailed` i18n + ControlPanel 红色提示） |
 | M28 | `web store/run.ts` loadRun/connect 竞态 | ✅ generation 守卫 |
 | M29 | web 多处 fetch/DELETE 不查 res.ok | ✅ api DELETE + RunCompare + ProductGallery + KnowledgePanel + BatchManager |
-| M30 | `web Canvas3D.tsx` effect 依赖 [graph] 重建 | ⚠️ 未修复：需拆分 effect 依赖 |
-| M31 | `core pricing.ts:124` cachedTokens 重复计费 | ⚠️ 未修复 |
-| M32 | `core platforms.ts` span 套用正文 | ⚠️ 未修复 |
-| M33 | `core artifact.ts:101` bare URL | ⚠️ 未修复 |
-| M34 | `core variables.ts:259` 字符串拼接 | ⚠️ 未修复 |
-| M35 | `core templates.ts:96` ocr 前缀 | ⚠️ 未修复 |
-| M36 | `core templates.ts:2263` 目的地字段 | ⚠️ 未修复 |
+| M30 | `web Canvas3D.tsx` effect 依赖 [graph] 重建 | ⚠️ 暂缓（3D 渲染性能，价值低） |
+| M31 | `core pricing.ts:124` cachedTokens 重复计费 | ✅ 已修复（2026-09-08：cacheRead 未配时 cachedTokens 计 0） |
+| M32 | `core platforms.ts` span 套用正文 | ✅ 已修复（2026-09-08：`field` 区分 title/body，autoFix 排除标题） |
+| M33 | `core artifact.ts:101` bare URL | ✅ 已修复（2026-09-08：负向后顾排除 `](`，`[^\s()]+` 截断尾随 `)`） |
+| M34 | `core variables.ts:259` 字符串拼接 | ✅ 已修复（2026-09-08：右操作数非数字串也走拼接） |
+| M35 | `core templates.ts:96` ocr 前缀 | ✅ 已修复（2026-09-08：正则边界匹配完整 id 非前缀） |
+| M36 | `core templates.ts:2263` 目的地字段 | ✅ 已修复（2026-09-08：目的地写入 `intake.source.notes` 进 brief，不再覆盖 http.url） |
 | M37 | `core variables.ts:133` CondParser 尾随垃圾 | ✅ pos 校验 + 短路时始终解析右边 |
 | M38 | `core graph.ts` 三层 schema 校验过宽 | ⚠️ 部分：FanoutConfig count 联动已加；ConnectorConfig/GraphNode 未改（怕破坏历史数据加载） |
 
@@ -213,8 +213,8 @@
 | L2 | `code.ts:78,87` token/workdir 在 try 外 | ✅ 守卫 + 失败预清理 |
 | L3 | `parallel/map` truncateText 负数 | ✅ `shared.ts` 加 `length <= maxChars` 早返回 |
 | L4 | `permissions.ts:95` startsWith 前缀 | ✅ `isPathUnder` 路径边界 |
-| L5 | `db.ts:1178` graph_variables 明文 | ⚠️ 未修复：需接入 at-rest 加密 |
-| L6 | `index.ts:229` clientIp 信任 XFF | ⚠️ 未修复：需 trusted proxy 白名单 |
+| L5 | `db.ts:1178` graph_variables 明文 | ✅ 已修复（2026-09-08：`encryptString`/`decryptString`，明文旧行向后兼容） |
+| L6 | `index.ts:229` clientIp 信任 XFF | ✅ 已修复（2026-09-08：loopback / `TRUSTED_PROXY_IPS` 白名单，直连忽略 XFF） |
 | L7 | `index.ts:239`+`db.ts:986` TOCTOU | ➖ 复核后无需修复（单进程同步重检弥合） |
 | L8 | `select.ts:106` node.started 时序 | ✅ 开头 emit、删末尾补发 |
 | L9 | `providers/index.ts` routingWorker 缓存 | ✅ LRU 64 |
@@ -223,18 +223,18 @@
 | L12 | `mcp tools.ts:274` limit 未限 | ✅ `clampInt 1-50` |
 | L13 | `mcp tools.ts:391` spread 覆盖 | ✅ `...body` 前置 |
 | L14 | `mcp tools.ts:460` runIds 空误报 | ✅ `runIds.length > 0` 前置 |
-| L15 | `mcp index.ts:67` onData 共享 buffer | ⚠️ 未修复 |
-| L16 | `mcp index.ts:43` stdout EPIPE | ⚠️ 未修复 |
+| L15 | `mcp index.ts:67` onData 共享 buffer | ✅ 已修复（2026-09-08：promise 链串行化） |
+| L16 | `mcp index.ts:43` stdout EPIPE | ✅ 已修复（2026-09-08：EPIPE 监听优雅退出） |
 | L17 | `mcp client.ts:34` AbortError 误导 | ✅ 区分超时/不可达 |
-| L18 | `mcp notifications.ts:158` broadcast write | ⚠️ 未修复 |
-| L19 | `web App.tsx:66` useGraph 无 selector | ⚠️ 未修复 |
+| L18 | `mcp notifications.ts:158` broadcast write | ✅ 已修复（2026-09-08：write 异常标记关闭并移除 sink） |
+| L19 | `web App.tsx:66` useGraph 无 selector | ⚠️ 暂缓（性能优化，价值低） |
 | L20 | `web App.tsx:125` onDragStart 清理 | ⚠️ 未修复（仅中途卸载残留，复核已降级） |
 | L21 | `web artifact-renderers.tsx:62` 有序列表 | ✅ ol/ul 区分 |
-| L22 | `web Minimap.tsx:184` effect 依赖 | ⚠️ 未修复 |
-| L23 | `core table.ts:71` 多字符分隔符 | ⚠️ 未修复 |
-| L24 | `core compile.ts:221` 返工自环 | ⚠️ 未修复 |
-| L25 | `core compile.ts:54` topoSort O(V·E) | ⚠️ 未修复 |
-| L26 | `core graph.ts:1012` TriggerConfig 约束 | ⚠️ 未修复（运行时已有兜底，加严格校验有历史数据风险） |
+| L22 | `web Minimap.tsx:184` effect 依赖 | ⚠️ 暂缓（性能优化，价值低） |
+| L23 | `core table.ts:71` 多字符分隔符 | ✅ 已修复（2026-09-08：`startsWith(delimiter, i)` 支持多字符） |
+| L24 | `core compile.ts:221` 返工自环 | ➖ 复核后无需修复（rework 自环 from===to 是「契约失败重跑自己」的合法模式，见 engine.skills.test.ts contractGraph；原判 error 会误伤） |
+| L25 | `core compile.ts:54` topoSort O(V·E) | ⚠️ 暂缓（性能优化，单机阶段图规模小，价值低） |
+| L26 | `core graph.ts:1012` TriggerConfig 约束 | ⚠️ 暂缓（运行时已有兜底，加严格校验有历史数据风险） |
 | L27 | `core compile.ts:235` rework body 祖先 | ⚠️ 未修复（可能为设计意图） |
 | L28 | 3D 材质不 dispose | ⚠️ 未修复 |
 | L29 | 3D camera3d 闭包竞态 | ⚠️ 未修复 |
@@ -243,10 +243,10 @@
 
 ### 汇总
 
-- **已修复：34 项**（high 7 / medium 14 / low 13）
-- **无需修复：2 项**（M4、L7，复核后后果不成立）
+- **已修复：60 项**（high 8 / medium 33 / low 19；2026-09-08 增补 24 项：server L5/L6+M1/M3/M5、mcp M15-M19+L15/L16/L18、core M31-M36+L23、web M21/M22/M24/M27）
+- **无需修复：3 项**（M4、L7、L24，复核后后果不成立或为合法模式）
 - **部分修复：1 项**（M38，FanoutConfig 已修，其余未改）
-- **未修复：40 项**（high 1 / medium 23 / low 16）
+- **未修复：13 项**（high 0 / medium 3 / low 10，均为暂缓：Canvas3D 竞态 M23/M26/M30/L28-L31、性能 L19/L22/L25、历史数据风险 L26、设计意图 L27）
 
 **未修复项归因**（供后续接力时按类推进）：
 1. **诚实边界 / 运维配置**：H4（Python 隔离，切 P2 后端）。

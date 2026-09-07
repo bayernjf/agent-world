@@ -130,7 +130,12 @@ export class AgentWorldClient {
     if (/text|json|xml|javascript|svg/.test(mimeType)) {
       return { id: artifactId, mimeType, content: await res.text() };
     }
-    return { id: artifactId, mimeType, downloadUrl: u.toString() };
+    // M17: binary artifacts download without auth headers — embed the token so
+    // the download link stays valid once the main server is secured.
+    const downloadUrl = this.cfg.token
+      ? `${u.toString()}?token=${encodeURIComponent(this.cfg.token)}`
+      : u.toString();
+    return { id: artifactId, mimeType, downloadUrl };
   }
 
   /** POST /api/graphs — create from a template, copy another graph, or blank. */

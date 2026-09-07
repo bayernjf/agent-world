@@ -692,6 +692,7 @@ export const useGraph = create<GraphState>()(
           useGraph.setState({
             saveState: err instanceof GraphConflictError ? "conflict" : "error",
           });
+          throw err; // M22: rethrow so callers (switch-graph) can react to failure
         }
       },
     }),

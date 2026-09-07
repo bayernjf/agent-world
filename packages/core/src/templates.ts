@@ -93,9 +93,13 @@ function rewriteNodeIdRefs(node: Record<string, unknown>, idMap: Map<string, str
   const rewriteString = (s: string, field: string): string => {
     let out = s;
     for (const [oldId, newId] of idMap) {
-      out = out.split(`\${${oldId}`).join(`\${${newId}`);
-      out = out.split(`inputs.${oldId}`).join(`inputs.${newId}`);
-      out = out.split(`inputs["${oldId}"]`).join(`inputs["${newId}"]`);
+      const esc = oldId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      // M35: match the FULL id token, not a prefix — `${ocr}` must not clobber
+      // `${ocrFallback}`. Boundary is `}` / `.` / `[` / `"` / whitespace / end.
+      const boundary = `(?=[}\\.\\["\\s]|$)`;
+      out = out.replace(new RegExp(`\\\${${esc}${boundary}`, "g"), `\${${newId}`);
+      out = out.replace(new RegExp(`inputs\\.${esc}${boundary}`, "g"), `inputs.${newId}`);
+      out = out.replace(new RegExp(`inputs\\["${esc}"\\]`, "g"), `inputs["${newId}"]`);
     }
     if (NODE_ID_REF_FIELDS.has(field)) {
       // Rewrite a leading node-id token (bare or a dotted path root).
@@ -2260,7 +2264,10 @@ const travelPlanGraph = {
       key: "destination",
       label: "目的地",
       placeholder: "如：东京、成都、巴厘岛",
-      applyTo: [{ nodeId: "research", path: "http.url" }],
+      // M36: destination is free text, not a URL — write it into the source's
+      // notes so it flows into the brief (buildSourceBrief "补充说明") instead
+      // of clobbering the research node's http.url.
+      applyTo: [{ nodeId: "intake", path: "source.notes" }],
     },
   ],
   graph: {

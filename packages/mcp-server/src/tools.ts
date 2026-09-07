@@ -459,8 +459,12 @@ async function waitForRuns(
           results.push({ runId, status, artifactCount: total });
         }
       } catch {
-        done.add(runId);
-        results.push({ runId, status: "error", artifactCount: 0 });
+        // M19: a transient error (network blip) retries on the next poll; only
+        // the deadline gives up and marks the run as error.
+        if (Date.now() >= deadline) {
+          done.add(runId);
+          results.push({ runId, status: "error", artifactCount: 0 });
+        }
       }
     }
     if (runIds.length > 0 && done.size === runIds.length) return { completed: true, results };

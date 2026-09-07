@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { EVENT_SCHEMA_VERSION, type Graph, type RunEvent } from "@agent-world/core";
 import type { StoredArtifact } from "./artifact-store.js";
-import { openDocString, openGraphDoc, sealDocString, sealGraphDoc } from "./at-rest.js";
+import { decryptString, encryptString, openDocString, openGraphDoc, sealDocString, sealGraphDoc } from "./at-rest.js";
 import { log } from "./logger.js";
 
 /**
@@ -1274,7 +1274,9 @@ export function openDb(file: string) {
       const out: Record<string, unknown> = {};
       for (const r of rows) {
         try {
-          out[r.key] = JSON.parse(r.value);
+          // decryptString returns legacy plaintext rows unchanged (no enc:
+          // prefix), so pre-encryption data still loads.
+          out[r.key] = JSON.parse(decryptString(r.value));
         } catch {
           out[r.key] = r.value;
         }
@@ -1292,7 +1294,8 @@ export function openDb(file: string) {
       if (!owner || owner.user_id !== userId) return;
       const at = Date.now();
       for (const [key, value] of Object.entries(vars)) {
-        stmts.saveGraphVariable.run(graphId, key, JSON.stringify(value), at);
+        // Variables may hold credentials (L5): seal at rest, not plaintext.
+        stmts.saveGraphVariable.run(graphId, key, encryptString(JSON.stringify(value)), at);
       }
     },
 

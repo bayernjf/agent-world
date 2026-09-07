@@ -138,6 +138,8 @@ export interface ComplianceViolation {
   match?: string;
   /** 违规词在原文中的 [start, end) 区间（banned 类，供前端高亮）。 */
   span?: [number, number];
+  /** 命中的是标题还是正文（M32：区分标题 span，避免 autoFix 套用错位）。 */
+  field?: "title" | "body";
   /** 规则描述（如「广告法极限词」「标题超长」）。 */
   rule: string;
   /** 修复建议（如替换词或处理动作）。 */
@@ -251,6 +253,7 @@ export function checkCompliance(opts: ComplianceOptions): ComplianceResult {
         type: "banned",
         match: word,
         span: [idx, idx + word.length],
+        field: "body",
         rule: word in BANNED_SUGGEST ? "广告法极限词" : "平台违禁词",
         suggest: BANNED_SUGGEST[word] ?? `删除或替换「${word}」`,
       });
@@ -264,6 +267,7 @@ export function checkCompliance(opts: ComplianceOptions): ComplianceResult {
         type: "banned",
         match: word,
         span: [idx, idx + word.length],
+        field: "title",
         rule: word in BANNED_SUGGEST ? "广告法极限词" : "平台违禁词",
         suggest: BANNED_SUGGEST[word] ?? `删除或替换「${word}」`,
       });
@@ -311,7 +315,9 @@ export function checkCompliance(opts: ComplianceOptions): ComplianceResult {
   let sanitized = text;
   if (opts.autoFix !== false && !passed) {
     const bannedHits = violations
-      .filter((v) => v.type === "banned" && v.span && v.match)
+      // M32: only body hits have spans valid for `text`; title spans are a
+      // different coordinate space and would corrupt the body when applied.
+      .filter((v) => v.type === "banned" && v.span && v.match && v.field !== "title")
       .sort((a, b) => b.span![1] - b.span![0] - (a.span![1] - a.span![0]));
     for (const v of bannedHits) {
       const [s, e] = v.span!;
