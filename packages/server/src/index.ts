@@ -215,18 +215,24 @@ app.get("/api/health", (c) => {
       : "missing";
   const agnes = loadConfig().providers.agnes;
   const agnesStatus = agnes?.enabled === false ? "disabled" : agnes?.apiKey ? "configured" : "missing";
-  return c.json({
-    ok: true,
-    env: process.env.AGENT_WORLD_ENV ?? process.env.NODE_ENV ?? "development",
-    branch: GIT_META.branch,
-    commit: GIT_META.commit,
-    checks: {
-      db: dbStatus,
-      jwtSecret: jwtStatus,
-      encryption: encryptionStatus,
-      providers: { agnes: agnesStatus },
+  // Readiness gate（P1 优雅启动）：关键就绪检查全通过才 200，否则 503 让反代/
+  // 探针把流量挡在未就绪实例外。`ok` 只反映「能否接流量」，checks 仍报状态词、不吐值。
+  const ready = dbStatus === "ok" && encryptionStatus === "loaded" && jwtStatus === "loaded";
+  return c.json(
+    {
+      ok: ready,
+      env: process.env.AGENT_WORLD_ENV ?? process.env.NODE_ENV ?? "development",
+      branch: GIT_META.branch,
+      commit: GIT_META.commit,
+      checks: {
+        db: dbStatus,
+        jwtSecret: jwtStatus,
+        encryption: encryptionStatus,
+        providers: { agnes: agnesStatus },
+      },
     },
-  });
+    ready ? 200 : 503,
+  );
 });
 
 // --- Auth routes (no auth required) ---
@@ -3250,17 +3256,38 @@ if (process.env.NODE_ENV !== "test") {
     encryptionKeyringSize: getEncryptionRing().length,
     logFile: process.env.LOG_FILE ?? "<db-dir>/logs/server.log",
   });
-  serve({ fetch: app.fetch, port: PORT }, (info) => {
+  const server = serve({ fetch: app.fetch, port: PORT }, (info) => {
     log.info("engine listening", { port: info.port, url: `http://localhost:${info.port}` });
   });
-}
 
-// Tear down any forked, isolated worker subprocesses on shutdown.
-for (const sig of ["SIGINT", "SIGTERM"] as const) {
-  process.on(sig, () => {
-    disposeIsolatedWorkers();
-    process.exit(0);
-  });
+  // Graceful shutdown（P1 优雅关闭）：SIGTERM（systemd restart / deploy.sh 触发）
+  // 或 SIGINT 时——停接新请求 → 让在途 run 排空（超时 abort）→ 关 DB → 回收隔离
+  // 子进程。避免 `systemctl restart` 把 running 的 run 硬杀成卡死状态。
+  let shuttingDown = false;
+  const shutdown = (signal: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    log.info("shutdown started", { signal, inflightRuns: live.size });
+    server.close();
+    const graceMs = Number(process.env.AGENT_WORLD_SHUTDOWN_GRACE_MS ?? 10_000);
+    const deadline = Date.now() + graceMs;
+    const drain = setInterval(() => {
+      if (live.size > 0 && Date.now() < deadline) return;
+      clearInterval(drain);
+      for (const entry of live.values()) entry.controller.abort();
+      disposeIsolatedWorkers();
+      try {
+        db.close();
+      } catch {
+        /* already closed */
+      }
+      log.info("shutdown complete", { abortedRuns: live.size });
+      process.exit(0);
+    }, 100);
+  };
+  for (const sig of ["SIGINT", "SIGTERM"] as const) {
+    process.on(sig, () => shutdown(sig));
+  }
 }
 
 /**
