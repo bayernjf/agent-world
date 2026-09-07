@@ -7,3 +7,10 @@ updates:
     # Dependabot opens PRs for out-of-date deps; CI's `pnpm audit` gate then
     # blocks merges when a known CVE is present. Both together = supply-chain
     # scanning (engineering-blueprint §4).
+    # zod 3 → 4 is a breaking change (z.record() signature, z.infer /
+    # z.discriminatedUnion inference) causing ~1.2k downstream type errors in
+    # @agent-world/server. It needs a dedicated migration, not an automated
+    # major bump. Keep zod on 3.x until that migration is scheduled.
+    ignore:
+      - dependency-name: "zod"
+        update-types: ["version-update:semver-major"]
