@@ -1003,6 +1003,11 @@ export function openDb(file: string) {
   };
 
   return {
+    /** Lightweight liveness probe for the readiness check: answers whether the
+     *  sqlite connection still executes a statement. */
+    ping() {
+      return (db.prepare("SELECT 1 AS ok").get() as { ok: number }).ok === 1;
+    },
     createUser(id: string, email: string, passwordHash: string) {
       // RBAC P0 (design-rbac.md): the very first account bootstraps the
       // instance owner. The single-owner invariant is enforced by the partial
