@@ -46,7 +46,7 @@ export const DatabaseConnector = z.object({
 export type DatabaseConnector = z.infer<typeof DatabaseConnector>;
 ```
 
-- **只做 SQLite**（P0）：Node ≥ 22 内置 `node:sqlite`，零新依赖、无网络出口、无连接串密钥风险。PostgreSQL / MySQL 需第三方驱动（pg / mysql2）+ 连接串密钥管理，登记 deferred（见 §5）。
+- **只做 SQLite**（P0）：Node ≥ 22 内置 `node:sqlite`，零新依赖、无网络出口、无连接串密钥风险。PostgreSQL / MySQL 需第三方驱动（pg / mysql2）+ 连接串密钥管理，原登记 deferred（见 §5）——**PostgreSQL 已于 2026-09-08 落地**，MySQL 仍 deferred。
 - **只读强制**：解析前用白名单/语法检查只允许 `SELECT`（或 `WITH ... SELECT`），引擎层二次校验，杜绝 source 节点跑写库语句。
 
 ### 2.2 Resolver（server `packages/server/src/connectors.ts`）
