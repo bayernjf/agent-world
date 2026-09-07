@@ -16,6 +16,6 @@
     "@agent-world/core": "workspace:*"
   },
   "devDependencies": {
-    "@types/node": "^24.0.0"
+    "@types/node": "^26.4.1"
   }
 }
