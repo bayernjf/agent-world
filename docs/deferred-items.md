@@ -85,7 +85,7 @@
 
 | 事项 | 缓做/低优原因 | 触发条件 | 决策详情 |
 |---|---|---|---|
-| 可观测性栈（环境状态探针 / Uptime Kuma / Loki 日志聚合） | 与平台线「监控告警完整体系」同源；失败告警+rerun 闭环已有，自述式 `/api/health`、探针告警、日志聚合属「多环境/有用户后再说」 | 产线数量/运行频次大到人工看不过来，或拆多环境后需统一体检 | [production-ops.md §2/§5](production-ops.md) |
+| 可观测性栈（Uptime Kuma 探针告警 / Loki 日志聚合 / Metrics 指标） | 与平台线「监控告警完整体系」同源；失败告警+rerun 闭环已有，自述式 `/api/health` 已实施（2026-09-07），探针告警、日志聚合、指标采集属「多环境/有用户后再说」 | 产线数量/运行频次大到人工看不过来，或拆多环境后需统一体检 | [production-ops.md §2/§5](production-ops.md) |
 | 成本硬熔断（月度预算超限硬停） | 现有 `monthlyBudgetUsd` 仅 80%/100% 软告警（emit 不拦截），超预算照烧；AI 按 token 计费，死循环产线/被攻破账号/恶意刷量可致账单失控 | 对外生产 / 出现真实成本失控风险（与商业化 P1 订阅 gate 同批评估） | [production-ops.md §6.2](production-ops.md) |
 | 错误追踪（Sentry 类结构化上报） | 生产排障仅靠 journalctl grep，无未捕获异常聚合/告警；单机量级暂可接受 | 对外生产 / 生产 bug 靠 grep 排不动 | [production-ops.md §6.2](production-ops.md) |
 | 回滚机制（版本化 release + 一键回退） | 部署靠 git pull/rsync + restart，回退靠手速记忆；单机低频部署暂可接受 | 部署频率上升 / 出现需快速回退的事故 | [production-ops.md §6.2](production-ops.md) |
