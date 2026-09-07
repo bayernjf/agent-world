@@ -131,19 +131,24 @@ export const useRun = create<RunState>()((set, get) => ({
   loadRun: async (runId) => {
     get().disconnect();
     const gen = generation;
-    const { events, state } = await api.getEvents(runId);
-    // A connect/disconnect happened while we awaited — don't clobber its live state.
-    if (gen !== generation) return;
-    set({
-      runId,
-      events,
-      live: state,
-      scrubSeq: null,
-      connection: "idle",
-      connecting: false,
-      reconnecting: false,
-      view: "replay",
-    });
+    try {
+      const { events, state } = await api.getEvents(runId);
+      // A connect/disconnect happened while we awaited — don't clobber its live state.
+      if (gen !== generation) return;
+      set({
+        runId,
+        events,
+        live: state,
+        scrubSeq: null,
+        connection: "idle",
+        connecting: false,
+        reconnecting: false,
+        view: "replay",
+      });
+    } catch (err) {
+      // M21: surface the failure instead of an unhandled rejection.
+      console.error("loadRun failed", err);
+    }
   },
 
   disconnect: () => {

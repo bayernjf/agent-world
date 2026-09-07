@@ -774,7 +774,11 @@ export const api = {
       return res.json() as Promise<ABReport>;
     }),
 
-  listBrandTerms: () => authFetch("/api/brand-terms").then((res) => res.json() as Promise<BrandTerm[]>),
+  listBrandTerms: () =>
+    authFetch("/api/brand-terms").then(async (res) => {
+      if (!res.ok) throw new Error(await res.text()); // M24: don't treat 401/500 as success
+      return res.json() as Promise<BrandTerm[]>;
+    }),
 
   addBrandTerm: (term: string, note = "") =>
     authFetch("/api/brand-terms", {
@@ -797,7 +801,10 @@ export const api = {
     ),
 
   listBannedTerms: () =>
-    authFetch("/api/banned-terms").then((res) => res.json() as Promise<BannedTerm[]>),
+    authFetch("/api/banned-terms").then(async (res) => {
+      if (!res.ok) throw new Error(await res.text()); // M24
+      return res.json() as Promise<BannedTerm[]>;
+    }),
 
   addBannedTerm: (term: string, note = "") =>
     authFetch("/api/banned-terms", {

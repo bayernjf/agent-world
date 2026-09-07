@@ -254,6 +254,7 @@
     "status": "Status",
     "compileOk": "Graph compiles · {{n}} nodes",
     "saved": "saved",
+    "saveFailed": "save failed",
     "waitingApproval": "Waiting for approval",
     "reconnecting": "reconnecting…",
     "connecting": "connecting…",

@@ -253,6 +253,12 @@ export default function ControlPanel(props: Props) {
               {saveState === "saved" && (
                 <span className="muted"> · {t("run:control.saved")}</span>
               )}
+              {saveState === "error" && (
+                // M27: surface auto-save failure to the user, not just console.
+                <span className="muted" style={{ color: "var(--semantic-error, #d32f2f)" }}>
+                  {" "}· {t("run:control.saveFailed")}
+                </span>
+              )}
             </p>
           )}
           {errors.map((d, i) => (
