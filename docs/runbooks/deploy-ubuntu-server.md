@@ -235,6 +235,8 @@ sudo chmod +x /usr/local/bin/backup-agent-world.sh
 
 > 机器是笔记本：备份比云盘更重要——DB + artifacts + 密钥都在 `/var/lib/agent-world`，整目录备份即可恢复。sqlite 备份用 `VACUUM INTO` 或先 checkpoint 再拷文件，别直接拷热文件。
 
+> **异地备份推送（待做，暂无备份盘）**：当前备份落 `/var/backups/agent-world`，与原库**同一块硬盘**——机器级故障（硬盘坏 / 整机丢 / 误删整机）会连备份一起丢，这是当前备份策略唯一真实风险点。待有备份盘 / NAS / 云盘 / 第二台机器后，在 `backup-agent-world.sh` 末尾追加一条 `rsync` 推送到第二位置即可。登记见 deferred-items「异地备份推送」。
+
 ### 六之一、备份恢复演练（restore drill）
 
 备份做了不代表能恢复——必须定期在**干净目录**做恢复演练，验证「备份 + 密钥 + 数据」真的能还原并启动（不影响生产：临时目录 + 独立端口）。
