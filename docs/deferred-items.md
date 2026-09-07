@@ -88,7 +88,6 @@
 | 可观测性栈（Uptime Kuma 探针告警 / Loki 日志聚合 / Metrics 指标） | 与平台线「监控告警完整体系」同源；失败告警+rerun 闭环已有，自述式 `/api/health` 已实施（2026-09-07），探针告警、日志聚合、指标采集属「多环境/有用户后再说」 | 产线数量/运行频次大到人工看不过来，或拆多环境后需统一体检 | [production-ops.md §2/§5](production-ops.md) |
 | 错误追踪（Sentry 类结构化上报） | 生产排障仅靠 journalctl grep，无未捕获异常聚合/告警；单机量级暂可接受 | 对外生产 / 生产 bug 靠 grep 排不动 | [production-ops.md §6.2](production-ops.md) |
 | 回滚机制（版本化 release + 一键回退） | 部署靠 git pull/rsync + restart，回退靠手速记忆；单机低频部署暂可接受 | 部署频率上升 / 出现需快速回退的事故 | [production-ops.md §6.2](production-ops.md) |
-| 全局限流 + 防滥用（登录/注册/run 创建） | 现仅 feedback 端点有限流；对外后登录爆破/注册滥用/API 滥用无防护 | 对外暴露（M3 上云/公网） | [production-ops.md §6.2](production-ops.md) |
 | HTTPS/TLS | 内网 HTTP 够用；对外（域名+公网）必须有 | M3 正式对外 | [production-ops.md §6.2](production-ops.md) |
 | 供应链安全（npm audit + Dependabot + gitleaks 密钥泄露扫描） | 依赖漏洞/历史 commit 密钥泄露未扫；单机自用风险可控 | 对外生产前扫一次 + 定期 | [production-ops.md §6.2](production-ops.md) |
 | k8s / 容器编排 | SQLite 单文件数据库无法多副本水平扩展；上 k8s 需先 SQLite→Postgres，改动量级远大于编排本身；当前 1 机 1 用户 | SQLite→Postgres 完成后 + 规模化（≥5 台 / 多副本容灾 / 多人协作） | [production-ops.md §4](production-ops.md) |

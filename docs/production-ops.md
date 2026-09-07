@@ -220,7 +220,7 @@ k8s / 云容器        （规模化前提）
 | DB 版本化迁移 | `migrations.test.ts` + `db.ts` |
 | 故障重试/降级 | `retry.ts`（TIMEOUT/RATE_LIMIT/PROVIDER_ERROR） |
 | 软成本预算告警 + 硬熔断 | `monthlyBudgetUsd` 80%/100% warn（软）；`startRun` 入口硬停 + `monthlyBudgetExceeded` + `AGENT_WORLD_BUDGET_BYPASS=1` 放行（硬，2026-09-07 已实施） |
-| 反馈限流 | `FEEDBACK_RATE_LIMIT` 10 次/小时 |
+| 反馈限流 + 全局限流 | feedback `FEEDBACK_RATE_LIMIT` 10 次/小时；login/register/runs 入口 `RateLimiter` 内存滑动窗口（login 10次/15min/IP、register 30次/小时/IP、run 30次/min/user，2026-09-08 已实施） |
 | 操作审计 | `graph_versions`（保存可回滚 + run 审计）+ `audit_log` |
 | 密钥三层 + 轮换 | `design-key-rotation.md`（已实施） |
 | 日志落盘 + 请求日志 | `design-logging.md`（已实施） |
@@ -232,7 +232,6 @@ k8s / 云容器        （规模化前提）
 |---|---|---|
 | **P0** | **错误追踪（Sentry 类）** | 生产 bug 只能 grep 日志，无未捕获异常聚合/告警 |
 | **P0** | **回滚机制** | 回退靠手速记忆，无版本化 release + 一键回退 |
-| **P1** | **全局限流 + 防滥用** | 现仅 feedback 有限流；登录爆破/注册滥用/API 滥用无防护 |
 | **P1** | **HTTPS/TLS** | M3 对外（域名+公网）必须 |
 | **P1** | **供应链安全** | npm audit + Dependabot + gitleaks 密钥泄露扫描未做 |
 | **P2** | IaC / E2E 测试 / 链路追踪 / 压测 | 规模化才要 |
