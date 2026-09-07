@@ -2033,6 +2033,16 @@ app.post("/api/runs", async (c) => {
     }
   }
 
+  // 幂等（engineering-blueprint §2）：同一 Idempotency-Key 重复提交只建一次 run，
+  // 返回第一次的 runId——堵「双击运行 / 重试建重复 run 重复烧钱」。
+  const idempotencyKey = c.req.header("Idempotency-Key") || undefined;
+  if (idempotencyKey) {
+    const existing = db.getIdempotentRun(userId, idempotencyKey);
+    if (existing) {
+      return c.json({ runId: existing, diagnostics: [], modelWarnings: modelDiags, replay: true });
+    }
+  }
+
   try {
     const { runId, diagnostics } = await startRun({
       db,
@@ -2053,6 +2063,9 @@ app.post("/api/runs", async (c) => {
         void triggers.onArtifact(aid);
       },
     });
+    if (idempotencyKey) {
+      db.saveIdempotentRun(userId, idempotencyKey, runId);
+    }
     // Audit records the actual operator, not the owner the ran as.
     audit(db, userId, "run.start", {
       objectType: "run",

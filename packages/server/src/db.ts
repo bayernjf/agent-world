@@ -1008,6 +1008,18 @@ export function openDb(file: string) {
     ping() {
       return (db.prepare("SELECT 1 AS ok").get() as { ok: number }).ok === 1;
     },
+    /** Idempotent run creation: maps (userId, idempotencyKey) → runId. */
+    getIdempotentRun(userId: string, key: string) {
+      const row = db
+        .prepare("SELECT run_id FROM idempotency_keys WHERE user_id = ? AND key = ?")
+        .get(userId, key) as { run_id: string } | undefined;
+      return row?.run_id ?? null;
+    },
+    saveIdempotentRun(userId: string, key: string, runId: string) {
+      db.prepare(
+        "INSERT OR IGNORE INTO idempotency_keys (user_id, key, run_id, created_at) VALUES (?, ?, ?, ?)",
+      ).run(userId, key, runId, Date.now());
+    },
     createUser(id: string, email: string, passwordHash: string) {
       // RBAC P0 (design-rbac.md): the very first account bootstraps the
       // instance owner. The single-owner invariant is enforced by the partial
@@ -3720,6 +3732,20 @@ const MIGRATIONS: Migration[] = [
         PRIMARY KEY (user_id, period_start, metric)
       )`);
       db.exec(`CREATE INDEX IF NOT EXISTS idx_usage_ledger_user ON usage_ledger(user_id, period_start)`);
+    },
+  },
+  {
+    version: 35,
+    description: "idempotency_keys for idempotent run creation (engineering-blueprint §2)",
+    detect: (db) => tableExists(db, "idempotency_keys"),
+    up: (db) => {
+      db.exec(`CREATE TABLE IF NOT EXISTS idempotency_keys (
+        user_id    TEXT NOT NULL,
+        key        TEXT NOT NULL,
+        run_id     TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY (user_id, key)
+      )`);
     },
   },
 ];
