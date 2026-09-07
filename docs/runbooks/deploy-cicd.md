@@ -197,7 +197,10 @@ on:
 jobs:
   deploy:
     name: Deploy to Hasee
-    if: github.event.workflow_run.conclusion == 'success'   # 仅 CI 成功才部署
+    # 仅 CI 成功 + 由「push to dev」（即 PR 合并进 dev）触发时才部署。
+    # branches 对 PR 触发匹配 head 分支：若不加 event=='push'，任何从 dev 开出的
+    # PR（如 dev -> main）一打开/同步就会在 merge 前误部署一次。
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
     runs-on: [self-hosted, production]                      # 匹配 Hasee runner 的 label
     steps:
       - name: Deploy
@@ -206,7 +209,7 @@ jobs:
 
 > **关键点**：
 > - `runs-on: [self-hosted, production]`：`production` 是注册 runner 时的自定义 label，用于精确匹配这台机器（避免其它 self-hosted runner 抢任务）。
-> - `if: workflow_run.conclusion == 'success'`：CI 失败则不部署，坏代码上不了准生产。
+> - `if: workflow_run.conclusion == 'success' && workflow_run.event == 'push'`：CI 失败不部署（坏代码上不了准生产）；PR 打开/同步触发的 CI 也不部署（只在真正 merge 进 dev 的 push 上部署）。
 > - workflow 文件必须在 GitHub 上（即需 push 并合并到 `dev` 分支）才会生效。
 
 ### 4.6 验证部署是否成功（自己可测，不依赖问人）
