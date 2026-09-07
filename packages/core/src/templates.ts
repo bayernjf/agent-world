@@ -2264,7 +2264,10 @@ const travelPlanGraph = {
       key: "destination",
       label: "目的地",
       placeholder: "如：东京、成都、巴厘岛",
-      applyTo: [{ nodeId: "research", path: "http.url" }],
+      // M36: destination is free text, not a URL — write it into the source's
+      // notes so it flows into the brief (buildSourceBrief "补充说明") instead
+      // of clobbering the research node's http.url.
+      applyTo: [{ nodeId: "intake", path: "source.notes" }],
     },
   ],
   graph: {

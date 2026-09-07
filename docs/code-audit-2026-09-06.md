@@ -201,7 +201,7 @@
 | M33 | `core artifact.ts:101` bare URL | ✅ 已修复（2026-09-08：负向后顾排除 `](`，`[^\s()]+` 截断尾随 `)`） |
 | M34 | `core variables.ts:259` 字符串拼接 | ✅ 已修复（2026-09-08：右操作数非数字串也走拼接） |
 | M35 | `core templates.ts:96` ocr 前缀 | ✅ 已修复（2026-09-08：正则边界匹配完整 id 非前缀） |
-| M36 | `core templates.ts:2263` 目的地字段 | ⚠️ 暂缓（模板数据问题：目的地被填进 http.url，需理清 applyTo 插值机制后改模板） |
+| M36 | `core templates.ts:2263` 目的地字段 | ✅ 已修复（2026-09-08：目的地写入 `intake.source.notes` 进 brief，不再覆盖 http.url） |
 | M37 | `core variables.ts:133` CondParser 尾随垃圾 | ✅ pos 校验 + 短路时始终解析右边 |
 | M38 | `core graph.ts` 三层 schema 校验过宽 | ⚠️ 部分：FanoutConfig count 联动已加；ConnectorConfig/GraphNode 未改（怕破坏历史数据加载） |
 
@@ -243,10 +243,10 @@
 
 ### 汇总
 
-- **已修复：60 项**（high 8 / medium 32 / low 20；2026-09-08 增补 24 项：server L5/L6+M1/M3/M5、mcp M15-M19+L15/L16/L18、core M31-M35+L23/L24、web M21/M22/M24/M27）
+- **已修复：61 项**（high 8 / medium 33 / low 20；2026-09-08 增补 25 项：server L5/L6+M1/M3/M5、mcp M15-M19+L15/L16/L18、core M31-M36+L23/L24、web M21/M22/M24/M27）
 - **无需修复：2 项**（M4、L7，复核后后果不成立）
 - **部分修复：1 项**（M38，FanoutConfig 已修，其余未改）
-- **未修复：14 项**（high 0 / medium 4 / low 10，均为暂缓：Canvas3D 竞态 M23/M26/M30/L28-L31、性能 L19/L22/L25、历史数据风险 L26、设计意图 L27、模板 M36）
+- **未修复：13 项**（high 0 / medium 3 / low 10，均为暂缓：Canvas3D 竞态 M23/M26/M30/L28-L31、性能 L19/L22/L25、历史数据风险 L26、设计意图 L27）
 
 **未修复项归因**（供后续接力时按类推进）：
 1. **诚实边界 / 运维配置**：H4（Python 隔离，切 P2 后端）。
