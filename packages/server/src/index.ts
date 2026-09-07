@@ -26,6 +26,7 @@ import {
   type SkillPermissions,
 } from "@agent-world/core";
 import { openDb, backfillExistingData, contentHash, SCHEMA_VERSION, type Db } from "./db.js";
+import { counter, gauge, histogram, renderMetrics } from "./metrics.js";
 import { findGraphIdByName as findGraphIdByNameCore } from "./graphs-name.js";
 import { ArtifactStore } from "./artifact-store.js";
 import { log } from "./logger.js";
@@ -176,6 +177,40 @@ export const app = new Hono<{ Variables: { userId: string } }>();
 applyCors(app, process.env.CORS_ORIGINS);
 applySecurityHeaders(app);
 
+// --- Metrics (RED) ---
+// In-process counters/histograms, exposed at GET /metrics. Single-instance
+// aggregation (see metrics.ts); no external scraper required to be useful.
+const httpRequestsTotal = counter("http_requests_total", "HTTP requests received, by method and status");
+const httpErrorsTotal = counter("http_errors_total", "HTTP responses with status >= 500");
+const httpRequestDurationMs = histogram("http_request_duration_ms", "HTTP request latency in milliseconds", [10, 50, 100, 250, 500, 1000, 2500, 5000]);
+
+// --- Request log middleware ---
+// Records every /api call with latency. Runs before auth so 401s are visible,
+// but never logs query params (they can carry tokens, L1) or SSE bodies.
+// Registered BEFORE all routes so every /api handler (including /api/health)
+// is observed — Hono middleware only applies to routes registered after it.
+app.use("/api/*", async (c, next) => {
+  const start = Date.now();
+  const path = c.req.path;
+  await next();
+  const latencyMs = Date.now() - start;
+  const status = c.res.status;
+  httpRequestsTotal.inc({ method: c.req.method, status: String(status) });
+  httpRequestDurationMs.observe(latencyMs);
+  if (status >= 500) httpErrorsTotal.inc();
+  const record: Record<string, unknown> = {
+    method: c.req.method,
+    path,
+    status,
+    latencyMs,
+  };
+  const uid = c.get("userId") as string | undefined;
+  if (uid) record.userId = uid;
+  if (status >= 500) log.error("http request", record);
+  else if (status >= 400) log.warn("http request", record);
+  else log.info("http request", record);
+});
+
 /** Deployment identity: preferred from CI-injected env (`AGENT_WORLD_GIT_BRANCH`
  *  / `AGENT_WORLD_GIT_COMMIT`), else a live `git` checkout (Hasee is a
  *  `git clone`), else null. Exposed by `/api/health` so a plain browser hit
@@ -192,6 +227,11 @@ const GIT_META: { branch: string | null; commit: string | null } = (() => {
     return { branch, commit };
   }
 })();
+
+// --- Metrics endpoint (Prometheus text format) ---
+// Aggregated in-process (see metrics.ts); a plain GET reveals RED + run
+// business metrics. No auth so a local Prometheus scraper can pull it.
+app.get("/metrics", (c) => c.text(renderMetrics()));
 
 app.get("/api/health", (c) => {
   // Readiness checks report STATE only ("ok"/"loaded"/"configured"), never the
@@ -426,28 +466,6 @@ app.post("/api/auth/password", async (c) => {
   db.updateUserPasswordHash(user.id, await hashPassword(newPassword));
   audit(db, user.id, "account.password_change", { objectType: "account", ip: clientIp(c) });
   return c.json({ ok: true });
-});
-
-// --- Request log middleware ---
-// Records every /api call with latency. Runs before auth so 401s are visible,
-// but never logs query params (they can carry tokens, L1) or SSE bodies.
-app.use("/api/*", async (c, next) => {
-  const start = Date.now();
-  const path = c.req.path;
-  await next();
-  const latencyMs = Date.now() - start;
-  const status = c.res.status;
-  const record: Record<string, unknown> = {
-    method: c.req.method,
-    path,
-    status,
-    latencyMs,
-  };
-  const uid = c.get("userId") as string | undefined;
-  if (uid) record.userId = uid;
-  if (status >= 500) log.error("http request", record);
-  else if (status >= 400) log.warn("http request", record);
-  else log.info("http request", record);
 });
 
 // --- Auth middleware ---

@@ -8,6 +8,25 @@ import { execute, resume } from "./engine.js";
 import { loadConfig } from "./config.js";
 import { runAsUser } from "./user-context.js";
 import { createReadArtifact } from "./artifact-reader.js";
+import { counter, gauge } from "./metrics.js";
+
+/** Business metrics for run lifecycle, aggregated in-process (see metrics.ts). */
+const runsTotal = counter("runs_total", "Runs started, by terminal status");
+const runsFailedTotal = counter("runs_failed_total", "Runs that ended in a failed state");
+const runsCostUsdTotal = counter("runs_cost_usd_total", "Cumulative billed cost in USD across all runs");
+const runsActive = gauge("runs_active", "Runs currently executing");
+
+/** "halted" is a mid-run pause (awaiting human review), not a terminal outcome —
+ *  it may be resumed and settled later, so it's excluded from terminal counts. */
+const TERMINAL_STATUSES = new Set(["done", "failed", "tripped", "cancelled"]);
+
+/** Records a run's terminal outcome (counts + cost), shared by start and resume. */
+function recordRunFinished(status: string, costUsd: number): void {
+  if (!TERMINAL_STATUSES.has(status)) return;
+  runsTotal.inc({ status });
+  if (status === "failed") runsFailedTotal.inc();
+  runsCostUsdTotal.inc({}, costUsd);
+}
 
 /** Maps a `product` connector to raw source material by reading the user's product library. */
 function productConnectorLoader(db: Db, userId: string) {
@@ -134,6 +153,7 @@ export async function startRun(args: StartRunArgs): Promise<{ runId: string; dia
   const controller = new AbortController();
   const entry: LiveEntry = { events: [], done: false, controller };
   live.set(runId, entry);
+  runsActive.inc();
   const runLog = log.child({ runId, graphId: graph.id });
   runLog.info("run started", { trigger, nodes: graph.nodes.length });
 
@@ -192,11 +212,14 @@ export async function startRun(args: StartRunArgs): Promise<{ runId: string; dia
           db.finishRun(runId, userId, event.status, Date.now(), haltedOf(event));
           // Persist the run's (possibly mutated) variables for the next run.
           db.saveGraphVariables(graph.id, userId, Object.fromEntries(variables));
+          recordRunFinished(event.status, db.runStats(runId).costUsd);
           args.onFinish?.(graph.id, event.status);
         }
       }
     } catch (err) {
       db.finishRun(runId, userId, "failed", Date.now());
+      runsTotal.inc({ status: "failed" });
+      runsFailedTotal.inc();
       runLog.error("run crashed", { error: (err as Error)?.message ?? String(err) });
     } finally {
       entry.done = true;
@@ -205,6 +228,7 @@ export async function startRun(args: StartRunArgs): Promise<{ runId: string; dia
       // entry object, and new connections replay from the DB (events persist
       // before they're pushed here), so deletion is safe.
       live.delete(runId);
+      runsActive.dec();
     }
   });
 
@@ -298,6 +322,7 @@ export async function resumeRun(args: ResumeRunArgs): Promise<{ runId: string; a
   const controller = new AbortController();
   const entry: LiveEntry = { events: [], done: false, controller };
   live.set(runId, entry);
+  runsActive.inc();
   const runLog = log.child({ runId, graphId: graph.id });
   runLog.info("run resumed", { action, resetFrom: args.resetFrom ?? null, nodes: graph.nodes.length });
   // A retry from a failed/tripped run reopens the same run; flip its status
@@ -365,15 +390,19 @@ export async function resumeRun(args: ResumeRunArgs): Promise<{ runId: string; a
         if (event.type === "run.finished") {
           db.finishRun(runId, userId, event.status, Date.now(), haltedOf(event));
           db.saveGraphVariables(graph.id, userId, Object.fromEntries(variables));
+          recordRunFinished(event.status, db.runStats(runId).costUsd);
           args.onFinish?.(graph.id, event.status);
         }
       }
     } catch (err) {
       db.finishRun(runId, userId, "failed", Date.now());
+      runsTotal.inc({ status: "failed" });
+      runsFailedTotal.inc();
       runLog.error("resume crashed", { error: (err as Error)?.message ?? String(err) });
     } finally {
       entry.done = true;
       live.delete(runId);
+      runsActive.dec();
     }
   });
 
