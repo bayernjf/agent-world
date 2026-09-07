@@ -218,17 +218,10 @@ export function compile(graph: Graph): CompileResult {
     if (!order) continue;
 
     const ancestors = ancestorsOf(graph, e.from);
-    // L24: a self-loop rework edge (from === to) must be rejected — the old
-    // `from !== to &&` guard silently let it through.
-    if (e.from === e.to) {
-      diagnostics.push({
-        severity: "error",
-        message: "A rework line cannot point back to itself",
-        edgeId: e.id,
-      });
-      continue;
-    }
-    if (!ancestors.has(e.to)) {
+    // A self-loop rework edge (from === to) is a legal "re-run myself" pattern
+    // (used by output-contract skills); only guard the upstream-plant check
+    // when the target actually differs.
+    if (e.from !== e.to && !ancestors.has(e.to)) {
       diagnostics.push({
         severity: "error",
         message: "A rework line must run back to a plant upstream of the start node",

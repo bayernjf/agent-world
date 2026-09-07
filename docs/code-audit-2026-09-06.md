@@ -232,7 +232,7 @@
 | L21 | `web artifact-renderers.tsx:62` 有序列表 | ✅ ol/ul 区分 |
 | L22 | `web Minimap.tsx:184` effect 依赖 | ⚠️ 暂缓（性能优化，价值低） |
 | L23 | `core table.ts:71` 多字符分隔符 | ✅ 已修复（2026-09-08：`startsWith(delimiter, i)` 支持多字符） |
-| L24 | `core compile.ts:221` 返工自环 | ✅ 已修复（2026-09-08：from===to 显式报错） |
+| L24 | `core compile.ts:221` 返工自环 | ➖ 复核后无需修复（rework 自环 from===to 是「契约失败重跑自己」的合法模式，见 engine.skills.test.ts contractGraph；原判 error 会误伤） |
 | L25 | `core compile.ts:54` topoSort O(V·E) | ⚠️ 暂缓（性能优化，单机阶段图规模小，价值低） |
 | L26 | `core graph.ts:1012` TriggerConfig 约束 | ⚠️ 暂缓（运行时已有兜底，加严格校验有历史数据风险） |
 | L27 | `core compile.ts:235` rework body 祖先 | ⚠️ 未修复（可能为设计意图） |
@@ -243,8 +243,8 @@
 
 ### 汇总
 
-- **已修复：61 项**（high 8 / medium 33 / low 20；2026-09-08 增补 25 项：server L5/L6+M1/M3/M5、mcp M15-M19+L15/L16/L18、core M31-M36+L23/L24、web M21/M22/M24/M27）
-- **无需修复：2 项**（M4、L7，复核后后果不成立）
+- **已修复：60 项**（high 8 / medium 33 / low 19；2026-09-08 增补 24 项：server L5/L6+M1/M3/M5、mcp M15-M19+L15/L16/L18、core M31-M36+L23、web M21/M22/M24/M27）
+- **无需修复：3 项**（M4、L7、L24，复核后后果不成立或为合法模式）
 - **部分修复：1 项**（M38，FanoutConfig 已修，其余未改）
 - **未修复：13 项**（high 0 / medium 3 / low 10，均为暂缓：Canvas3D 竞态 M23/M26/M30/L28-L31、性能 L19/L22/L25、历史数据风险 L26、设计意图 L27）
 
