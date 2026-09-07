@@ -213,7 +213,7 @@
 | 能力 | 补齐方案 | 优先级 |
 |---|---|---|
 | 一键本地启动 | 单命令拉起 server+web+db（`pnpm dev` 已接近，补环境检查） | P0 |
-| pre-commit hooks | lint/format 自动执行（husky + lint-staged） | P1 |
+| pre-commit hooks | lint/format 自动执行（husky + lint-staged） | ✅ 已实施（2026-09-08）：husky + `.husky/pre-commit` 跑 `pnpm typecheck`（拦截类型错误；未引入 lint/format 工具，避免全量格式化大改动） | 完成 |
 | devcontainer | 新人/新机一键环境（Node 24 + pnpm + 工具） | P1 |
 | 依赖管理策略 | 定期升级 + 审计（衔接域 4 供应链） | P1 |
 | 代码生成器 | 新节点/模板脚手架 | P2 |

@@ -9,9 +9,11 @@
   "scripts": {
     "dev": "pnpm --parallel --filter \"./apps/*\" --filter \"./packages/server\" dev",
     "build": "pnpm -r build",
-    "typecheck": "pnpm -r typecheck"
+    "typecheck": "pnpm -r typecheck",
+    "prepare": "husky"
   },
   "devDependencies": {
+    "husky": "^9.1.7",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vitest": "^4.1.11"
