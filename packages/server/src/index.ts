@@ -1,6 +1,7 @@
 // Load `.env` first so every later module sees env vars (e.g. AGNES_API_KEY).
 import "./load-env.js";
 import { serve } from "@hono/node-server";
+import { getConnInfo } from "@hono/node-server/conninfo";
 import { randomUUID } from "node:crypto";
 import { execSync } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -325,11 +326,37 @@ function clearAuthCookie(c: any) {
   c.header("set-cookie", `${AUTH_COOKIE}=; HttpOnly; Path=/; Max-Age=0${secure}; SameSite=Lax`);
 }
 
-/** Client IP for the audit trail: first X-Forwarded-For hop behind a proxy. */
+/** Direct peer address, or undefined when no real socket (in-process tests). */
+function peerIp(c: any): string | undefined {
+  try {
+    return getConnInfo(c)?.remote?.address;
+  } catch {
+    return undefined;
+  }
+}
+
+function isLoopback(addr: string | undefined): boolean {
+  return addr === "127.0.0.1" || addr === "::1" || addr === "::ffff:127.0.0.1";
+}
+
+/**
+ * Client IP for the audit trail. Only trusts X-Forwarded-For when it arrives
+ * from a trusted proxy (L6): loopback (nginx co-hosted) or an explicit
+ * `TRUSTED_PROXY_IPS` entry. A direct client's XFF is ignored so it cannot
+ * spoof the audit IP.
+ */
 function clientIp(c: any): string | undefined {
+  const peer = peerIp(c);
   const fwd = c.req.header("x-forwarded-for");
-  if (fwd) return fwd.split(",")[0]!.trim();
-  return undefined;
+  if (!fwd) return peer;
+  const trusted = (process.env.TRUSTED_PROXY_IPS ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (isLoopback(peer) || trusted.includes(peer ?? "")) {
+    return fwd.split(",")[0]!.trim();
+  }
+  return peer;
 }
 
 // 全局限流（production-ops §6.2）：堵登录爆破 / 注册滥用 / API 滥用。参数为

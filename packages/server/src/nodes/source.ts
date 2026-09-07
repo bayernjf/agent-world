@@ -80,6 +80,10 @@ export async function sourceNode(ctx: NodeRunContext, node: GraphNode, nodeId: s
   }
   if (sourceImages.length) {
     const nodeArts = artifacts.get(nodeId)!;
+    // M5: this branch skips produceArtifacts (the else branch below), so the
+    // text brief must be emitted here or it stays invisible in the gallery.
+    const note = nodeArts.find((a) => a.kind === "text");
+    if (note) emit({ type: "artifact.produced", nodeId, attempt, artifact: note });
     for (const [i, url] of sourceImages.entries()) {
       const a: Artifact = { id: `${nodeId}-img${i}`, kind: "image", uri: url };
       nodeArts.push(a);

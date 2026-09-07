@@ -89,6 +89,7 @@
 | 错误追踪（Sentry 类结构化上报） | 生产排障仅靠 journalctl grep，无未捕获异常聚合/告警；单机量级暂可接受 | 对外生产 / 生产 bug 靠 grep 排不动 | [production-ops.md §6.2](production-ops.md) |
 | HTTPS/TLS | 内网 HTTP 够用；对外（域名+公网）必须有 | M3 正式对外 | [production-ops.md §6.2](production-ops.md) |
 | 供应链安全（Dependabot 自动提 PR 升级依赖） | gitleaks 扫历史 + npm audit 已实施（2026-09-08，无泄露/无漏洞）；Dependabot 自动升级依赖属「对外生产前」 | 对外生产前启用 + 定期 | [production-ops.md §6.2](production-ops.md) |
+| zod 4 迁移（major 升级） | zod 3→4 是 breaking change：`z.record(value)` 单参数移除、`z.infer`/`z.discriminatedUnion` 类型推断根本性变化，dependabot 自动升级致 core 15 处 + server 1259 处类型错误（2026-09-08 PR #182 已关闭）；已配置 `.github/dependabot.yml` ignore zod major，锁定 3.x | 专项迁移排期（约 1300 处类型改动 + 运行时行为验证 + 全量测试），或 zod 3 出现必须升级的 CVE | [code-audit-2026-09-06.md](code-audit-2026-09-06.md) + `.github/dependabot.yml` |
 | k8s / 容器编排 | SQLite 单文件数据库无法多副本水平扩展；上 k8s 需先 SQLite→Postgres，改动量级远大于编排本身；当前 1 机 1 用户 | SQLite→Postgres 完成后 + 规模化（≥5 台 / 多副本容灾 / 多人协作） | [production-ops.md §4](production-ops.md) |
 | Secret Manager / KMS | 单机自托管引入外部依赖无收益；keyring 抽象已就位，届时只换 keyring 来源 | 多租户云托管（M3） | [production-ops.md §3](production-ops.md) + [design-key-rotation.md §6](design-key-rotation.md) |
 | 异地备份推送 | 当前备份落 `/var/backups/agent-world` 与原库同盘，机器级故障（硬盘坏/整机丢）会连备份一起丢，是备份策略唯一真实风险点 | 有备份盘 / NAS / 云盘 / 第二台机器 | [deploy-ubuntu-server.md §六](runbooks/deploy-ubuntu-server.md) |

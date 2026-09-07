@@ -97,8 +97,11 @@ export function extractArtifacts(
     });
   }
 
-  // Bare image URLs not already inside markdown
-  const bareUrl = /(?<!!)\bhttps?:\/\/\S+\.(?:png|jpe?g|gif|webp|svg|bmp)(?:\?\S*)?/gi;
+  // Bare image URLs not already inside markdown. M33: the negative lookbehind
+  // `(?<!\]\()` skips markdown images `![alt](url)`, and `[^\s()]+` stops the
+  // URL before a trailing `)` so a query-string image isn't re-extracted with
+  // a stray `)` suffix.
+  const bareUrl = /(?<!\]\()\bhttps?:\/\/[^\s()]+\.(?:png|jpe?g|gif|webp|svg|bmp)(?:\?[^\s()]*)?/gi;
   const seen = new Set(out.map((a) => a.uri));
   while ((m = bareUrl.exec(textWithoutCode))) {
     const url = m[0];

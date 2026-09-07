@@ -254,6 +254,7 @@
     "status": "状态",
     "compileOk": "图可编译 · {{n}} 座节点",
     "saved": "已保存",
+    "saveFailed": "保存失败",
     "waitingApproval": "等待人工审批",
     "reconnecting": "重连中…",
     "connecting": "连接中…",

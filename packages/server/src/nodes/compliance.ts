@@ -41,12 +41,14 @@ export async function complianceNode(ctx: NodeRunContext, node: GraphNode, nodeI
       content: JSON.stringify(payload),
       mimeType: "application/json",
     };
-    const produced: Artifact[] = [jsonArtifact];
     // Downstream nodes consume the sanitized text (autoFix on) or the
     // original (autoFix off / no violations).
     const downstreamText = result.sanitized || result.original;
-    setTextArtifact(artifacts, nodeId, downstreamText);
-    artifacts.set(nodeId, [...produced, ...(artifacts.get(nodeId) ?? [])]);
+    const textArtifact = setTextArtifact(artifacts, nodeId, downstreamText);
+    // M5: emit the text note too, not just the json package — otherwise the
+    // sanitized text never shows in the timeline/gallery.
+    const produced: Artifact[] = [jsonArtifact, textArtifact];
+    artifacts.set(nodeId, produced);
     for (const a of produced) emit({ type: "artifact.produced", nodeId, attempt, artifact: a });
 
     if (cfg.failOnViolation && !result.passed) {

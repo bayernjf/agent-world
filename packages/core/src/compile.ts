@@ -218,6 +218,9 @@ export function compile(graph: Graph): CompileResult {
     if (!order) continue;
 
     const ancestors = ancestorsOf(graph, e.from);
+    // A self-loop rework edge (from === to) is a legal "re-run myself" pattern
+    // (used by output-contract skills); only guard the upstream-plant check
+    // when the target actually differs.
     if (e.from !== e.to && !ancestors.has(e.to)) {
       diagnostics.push({
         severity: "error",
