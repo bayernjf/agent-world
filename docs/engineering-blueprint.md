@@ -183,7 +183,7 @@
 | **E2E 冒烟** | 注册→配 provider→建产线→跑→出成品全链路 | Playwright 脚本，部署后自动跑一次 | P0 |
 | 集成测试 | 跨模块（DB/engine/API）真实联动 | 现有 db 集成用例扩展 | P1 |
 | 契约测试 | API schema 前后端一致 | OpenAPI 契约 + 契约测试 | P1 |
-| 覆盖率门禁 | 关键路径覆盖率下限 | vitest coverage + CI 阈值（先核心模块） | P1 |
+| 覆盖率门禁 | 关键路径覆盖率下限 | ✅ 已实施（2026-09-08）：`@vitest/coverage-v8` + `test:coverage` 脚本 + 阈值门禁（lines 75 / stmts 72 / funcs 74 / branches 62，基线 79.3/76.7/78.4/67.3） | 完成 |
 | 性能/负载测试 | 产线并发、API 吞吐 | k6/autocannon 压测脚本 | P2 |
 | 混沌测试 | 故障注入 | 见域 2 | P2 |
 

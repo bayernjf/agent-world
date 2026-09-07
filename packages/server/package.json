@@ -9,6 +9,7 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "test:regression": "vitest run src/regression/",
     "rotate:reencrypt": "tsx scripts/rotate-reencrypt.ts"
   },
@@ -35,6 +36,7 @@
     "@types/node": "^24.0.0",
     "@types/nodemailer": "^8.0.1",
     "@types/pngjs": "^6.0.5",
+    "@vitest/coverage-v8": "^4.1.11",
     "tsx": "^4.19.2"
   }
 }

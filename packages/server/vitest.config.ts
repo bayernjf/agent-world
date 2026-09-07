@@ -15,5 +15,18 @@ export default defineConfig({
     // of the engine's honest TIMEOUT node.failed (2026-09-01, PR #98).
     testTimeout: 60_000,
     hookTimeout: 60_000,
+    coverage: {
+      provider: "v8",
+      reporter: ["text-summary", "json-summary"],
+      // 覆盖率门禁（engineering-blueprint 域 8）：阈值略低于当前基线，防明显
+      // 退化而非强制提升。基线 2026-09-08：lines 79.3 / stmts 76.7 / funcs 78.4 /
+      // branches 67.3。
+      thresholds: {
+        lines: 75,
+        statements: 72,
+        functions: 74,
+        branches: 62,
+      },
+    },
   },
 });
