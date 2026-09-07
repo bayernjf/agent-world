@@ -29,7 +29,7 @@
     "pngjs": "^7.0.0",
     "tesseract.js": "^7.0.0",
     "undici": "^7.8.0",
-    "zod": "^3.25.76"
+    "zod": "^4.5.4"
   },
   "devDependencies": {
     "@types/jpeg-js": "^0.3.7",
