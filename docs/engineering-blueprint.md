@@ -109,7 +109,7 @@
 | **gitleaks 扫历史** | 排查 git 历史是否泄露过密钥 | `gitleaks detect` / `trufflehog` 扫全历史，发现即轮换 | P0 |
 | **TLS/HTTPS** | 传输加密 | 域名 + Let's Encrypt（certbot）或云 SSL，nginx 443 | P1 |
 | **依赖漏洞扫描** | 已知 CVE 拦截 | ✅ 已实施（2026-09-08）：CI 加 `pnpm audit --audit-level=high` 门禁 + `.github/dependabot.yml` 周度自动 PR；顺带修 glob 高危 CVE（overrides 强制 >=10.5.0） | 完成 |
-| **SAST** | 代码静态安全分析 | 可选 CodeQL / Semgrep 进 CI | P1 |
+| **SAST** | 代码静态安全分析 | ✅ 已实施（2026-09-08）：`.github/workflows/codeql.yml`（CodeQL 周度 + push/PR 触发，结果进 Security tab） | 完成 |
 | **DAST** | 运行态漏洞扫描 | OWASP ZAP 扫公网端点 | P2 |
 | **合规** | SOC 2 / ISO 27001 | 需审计日志防篡改（hash chain）+ 密钥管理流程齐备后评估 | P2 |
 | **渗透测试** | 外部攻击者视角 | 上线前请第三方或自助 | P2 |
