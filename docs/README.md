@@ -17,6 +17,7 @@
 | 接手某个模块的设计决策            | 对应 [design-\*.md](design-mcp-server.md)                                     |
 | 看按版本的变更记录              | [CHANGELOG.md](../CHANGELOG.md)（最近 5 条以内看 handoff）                          |
 | 看代码质量 / 安全审计 / 待修复项     | [code-audit-2026-09-06.md](code-audit-2026-09-06.md)（全项目 77 项 + 修复状态） + [security-audit-2026-08-31.md](security-audit-2026-08-31.md) |
+| 部署 / 运维 / 多环境 / 检测环境状态 | [engineering-blueprint.md](engineering-blueprint.md)（企业级工程蓝图·总纲）+ [production-ops.md](production-ops.md)（运维与可观测性）+ [environments.md](environments.md)（环境划分）+ [runbooks/](runbooks/deploy-ubuntu-server.md)（部署手册） |
 
 ## 路线图 / 进度系列怎么分工
 
