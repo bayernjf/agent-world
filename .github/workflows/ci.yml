@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: ["main", "master", "feature/**"]
+    branches: ["main", "master", "dev", "feature/**"]
   pull_request:
     branches: ["main", "master"]
 
