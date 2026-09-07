@@ -63,6 +63,7 @@ import { decryptString, encryptString, getEncryptionRing } from "./at-rest.js";
 import { publishToChannel } from "./publish.js";
 import { hashPassword, verifyPassword, signToken, verifyToken, REMEMBER_MAX_AGE_SEC } from "./auth.js";
 import { audit, changedFields } from "./audit.js";
+import { RateLimiter } from "./rate-limit.js";
 import { graphAccessRole, requireGraph, visibleGraphs, requireRun, runAccessRole, artifactAccessRole, hasAtLeast } from "./rbac.js";
 
 const PORT = Number(process.env.PORT ?? 8791);
@@ -214,18 +215,24 @@ app.get("/api/health", (c) => {
       : "missing";
   const agnes = loadConfig().providers.agnes;
   const agnesStatus = agnes?.enabled === false ? "disabled" : agnes?.apiKey ? "configured" : "missing";
-  return c.json({
-    ok: true,
-    env: process.env.AGENT_WORLD_ENV ?? process.env.NODE_ENV ?? "development",
-    branch: GIT_META.branch,
-    commit: GIT_META.commit,
-    checks: {
-      db: dbStatus,
-      jwtSecret: jwtStatus,
-      encryption: encryptionStatus,
-      providers: { agnes: agnesStatus },
+  // Readiness gate（P1 优雅启动）：关键就绪检查全通过才 200，否则 503 让反代/
+  // 探针把流量挡在未就绪实例外。`ok` 只反映「能否接流量」，checks 仍报状态词、不吐值。
+  const ready = dbStatus === "ok" && encryptionStatus === "loaded" && jwtStatus === "loaded";
+  return c.json(
+    {
+      ok: ready,
+      env: process.env.AGENT_WORLD_ENV ?? process.env.NODE_ENV ?? "development",
+      branch: GIT_META.branch,
+      commit: GIT_META.commit,
+      checks: {
+        db: dbStatus,
+        jwtSecret: jwtStatus,
+        encryption: encryptionStatus,
+        providers: { agnes: agnesStatus },
+      },
     },
-  });
+    ready ? 200 : 503,
+  );
 });
 
 // --- Auth routes (no auth required) ---
@@ -285,7 +292,28 @@ function clientIp(c: any): string | undefined {
   return undefined;
 }
 
+// 全局限流（production-ops §6.2）：堵登录爆破 / 注册滥用 / API 滥用。参数为
+// 保守默认值（防爆破不误伤正常使用）。key 维度：登录/注册按 IP，run 按用户。
+const LOGIN_RATE_LIMIT = 10; // 每 IP 每 15 分钟
+const LOGIN_RATE_WINDOW_MS = 15 * 60_000;
+const REGISTER_RATE_LIMIT = 30; // 每 IP 每小时（宽松：防批量注册，不误伤正常注册/测试造用户）
+const REGISTER_RATE_WINDOW_MS = 60 * 60_000;
+const RUN_RATE_LIMIT = 30; // 每用户每分钟
+const RUN_RATE_WINDOW_MS = 60_000;
+
+const loginLimiter = new RateLimiter(LOGIN_RATE_LIMIT, LOGIN_RATE_WINDOW_MS);
+const registerLimiter = new RateLimiter(REGISTER_RATE_LIMIT, REGISTER_RATE_WINDOW_MS);
+const runLimiter = new RateLimiter(RUN_RATE_LIMIT, RUN_RATE_WINDOW_MS);
+
+/** 限流 key 的 IP 部分：nginx 反代会带 x-forwarded-for；缺失时归为 unknown。 */
+function rateLimitIp(c: any): string {
+  return clientIp(c) ?? "unknown";
+}
+
 app.post("/api/auth/register", async (c) => {
+  if (!registerLimiter.allow(`register:${rateLimitIp(c)}`)) {
+    return c.json({ error: "注册过于频繁，请稍后再试" }, 429);
+  }
   // M3: the very first account bootstraps the instance. Once a user exists,
   // self-registration is closed unless the operator opts in via
   // ALLOW_REGISTRATION=1 — otherwise anyone who reaches the port can create
@@ -318,6 +346,9 @@ app.post("/api/auth/register", async (c) => {
 });
 
 app.post("/api/auth/login", async (c) => {
+  if (!loginLimiter.allow(`login:${rateLimitIp(c)}`)) {
+    return c.json({ error: "尝试过于频繁，请稍后再试" }, 429);
+  }
   const body = (await c.req.json().catch(() => ({}))) as {
     email?: string;
     password?: string;
@@ -1918,6 +1949,9 @@ app.get("/api/eval.csv", (c) => {
 
 app.post("/api/runs", async (c) => {
   const userId = c.get("userId");
+  if (!runLimiter.allow(`run:${userId}`)) {
+    return c.json({ error: "派发过于频繁，请稍后再试" }, 429);
+  }
   const body = (await c.req.json().catch(() => ({}))) as {
     graphId?: string;
     budgetUsd?: number | null;
@@ -3222,17 +3256,38 @@ if (process.env.NODE_ENV !== "test") {
     encryptionKeyringSize: getEncryptionRing().length,
     logFile: process.env.LOG_FILE ?? "<db-dir>/logs/server.log",
   });
-  serve({ fetch: app.fetch, port: PORT }, (info) => {
+  const server = serve({ fetch: app.fetch, port: PORT }, (info) => {
     log.info("engine listening", { port: info.port, url: `http://localhost:${info.port}` });
   });
-}
 
-// Tear down any forked, isolated worker subprocesses on shutdown.
-for (const sig of ["SIGINT", "SIGTERM"] as const) {
-  process.on(sig, () => {
-    disposeIsolatedWorkers();
-    process.exit(0);
-  });
+  // Graceful shutdown（P1 优雅关闭）：SIGTERM（systemd restart / deploy.sh 触发）
+  // 或 SIGINT 时——停接新请求 → 让在途 run 排空（超时 abort）→ 关 DB → 回收隔离
+  // 子进程。避免 `systemctl restart` 把 running 的 run 硬杀成卡死状态。
+  let shuttingDown = false;
+  const shutdown = (signal: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    log.info("shutdown started", { signal, inflightRuns: live.size });
+    server.close();
+    const graceMs = Number(process.env.AGENT_WORLD_SHUTDOWN_GRACE_MS ?? 10_000);
+    const deadline = Date.now() + graceMs;
+    const drain = setInterval(() => {
+      if (live.size > 0 && Date.now() < deadline) return;
+      clearInterval(drain);
+      for (const entry of live.values()) entry.controller.abort();
+      disposeIsolatedWorkers();
+      try {
+        db.close();
+      } catch {
+        /* already closed */
+      }
+      log.info("shutdown complete", { abortedRuns: live.size });
+      process.exit(0);
+    }, 100);
+  };
+  for (const sig of ["SIGINT", "SIGTERM"] as const) {
+    process.on(sig, () => shutdown(sig));
+  }
 }
 
 /**
