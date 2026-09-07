@@ -5,6 +5,7 @@ import { getSkill } from "./skills/registry.js";
 function isPathUnder(child: string, parent: string): boolean {
   if (child === parent) return true;
   if (!child.startsWith(parent)) return false;
+  if (parent.endsWith("/")) return true;
   return child[parent.length] === "/";
 }
 
