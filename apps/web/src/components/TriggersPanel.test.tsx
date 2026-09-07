@@ -88,6 +88,15 @@ async function renderAndWait(open = true, graphId = "g1") {
     await waitFor(() => {
       expect(mockListTriggers).toHaveBeenCalled();
     });
+    // 等触发器列表真正渲染到 DOM（而非只等 API 调用）：非空出现「启用」开关，
+    // 空列表出现「暂无触发器」。否则紧随其后的 getByLabelText("启用") 会在列表
+    // 尚未渲染（仍是空态）时执行，造成 CI 偶发 flaky。注意：多个触发器产生多个
+    // 「启用」label，必须用 queryAllByLabelText（单数版遇多元素会直接抛错）。
+    await waitFor(() => {
+      const hasTriggers = screen.queryAllByLabelText("启用").length > 0;
+      const hasEmpty = screen.queryByText(/暂无触发器/) !== null;
+      expect(hasTriggers || hasEmpty).toBe(true);
+    });
   }
   return result;
 }
