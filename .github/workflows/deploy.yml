@@ -9,7 +9,10 @@ on:
 jobs:
   deploy:
     name: Deploy to Hasee
-    if: github.event.workflow_run.conclusion == 'success'
+    # Only deploy when CI was triggered by a push to dev (i.e. a PR merged
+    # INTO dev). `workflow_run.branches` matches the PR head branch, so a PR
+    # opened FROM dev (e.g. dev -> main) would otherwise deploy before merge.
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
     runs-on: [self-hosted, production]
     steps:
       - name: Deploy
