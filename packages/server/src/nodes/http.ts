@@ -5,6 +5,9 @@ import { fileLabelFromUrl, zeroUsage } from "./shared.js";
 import { allowPrivateNetwork, guardedFetch, hostIsInternal } from "../ssrf.js";
 import { withRetry } from "../retry.js";
 
+/** Max bytes buffered for an http node's `outputMode:"file"` download. */
+const HTTP_DOWNLOAD_MAX_BYTES = 25 * 1024 * 1024;
+
 /**
  * Http node execution body (migrated from engine.ts runScheduler).
  * Behaviour is byte-identical to the former closure; shared scheduler state
@@ -50,8 +53,12 @@ export async function httpNode(ctx: NodeRunContext, node: GraphNode, nodeId: str
   for (const [key, raw] of Object.entries(cfg.query ?? {})) {
     try {
       targetUrl.searchParams.set(key, evaluateTemplate(raw, interp));
-    } catch {
-      // skip invalid params
+    } catch (err) {
+      ctx.log.warn("http node query param interpolation failed", {
+        nodeId,
+        key,
+        error: (err as Error).message,
+      });
     }
   }
 
@@ -137,9 +144,50 @@ export async function httpNode(ctx: NodeRunContext, node: GraphNode, nodeId: str
   });
 
   if (cfg.outputMode === "file") {
+    const declared = Number(response.headers.get("content-length") ?? 0);
+    if (declared > HTTP_DOWNLOAD_MAX_BYTES) {
+      states.set(nodeId, "failed");
+      ctx.status = "failed";
+      emit({
+        type: "node.failed",
+        nodeId,
+        attempt,
+        error: `HTTP 响应过大（${declared} 字节，上限 ${HTTP_DOWNLOAD_MAX_BYTES}）`,
+        errorCode: "VALIDATION",
+      });
+      return;
+    }
     let arrayBuf: ArrayBuffer;
     try {
-      arrayBuf = await response.arrayBuffer();
+      // Stream + count so a huge (chunked) response can't exhaust memory.
+      if (response.body) {
+        const reader = response.body.getReader();
+        const chunks: Uint8Array[] = [];
+        let total = 0;
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const part = value as Uint8Array;
+          total += part.byteLength;
+          if (total > HTTP_DOWNLOAD_MAX_BYTES) {
+            await reader.cancel().catch(() => {});
+            throw new Error(`HTTP 响应超过 ${HTTP_DOWNLOAD_MAX_BYTES} 字节上限`);
+          }
+          chunks.push(part);
+        }
+        const merged = new Uint8Array(total);
+        let off = 0;
+        for (const c of chunks) {
+          merged.set(c, off);
+          off += c.byteLength;
+        }
+        arrayBuf = merged.buffer as ArrayBuffer;
+      } else {
+        arrayBuf = await response.arrayBuffer();
+        if (arrayBuf.byteLength > HTTP_DOWNLOAD_MAX_BYTES) {
+          throw new Error(`HTTP 响应超过 ${HTTP_DOWNLOAD_MAX_BYTES} 字节上限`);
+        }
+      }
     } catch (err) {
       states.set(nodeId, "failed");
       ctx.status = "failed";

@@ -1,6 +1,13 @@
 import type { Skill } from "@agent-world/core";
 import { getSkill } from "./skills/registry.js";
 
+/** True when `child` is `parent` itself or directly under it (path boundary). */
+function isPathUnder(child: string, parent: string): boolean {
+  if (child === parent) return true;
+  if (!child.startsWith(parent)) return false;
+  return child[parent.length] === "/";
+}
+
 /**
  * Tool-call permission governance (4D.7).
  *
@@ -92,8 +99,8 @@ export function evaluateToolCall(
     if (!fsPerm) return "filesystem access is not granted";
     if (f.write && !fsPerm.write) return "filesystem write is not granted";
     if (!f.write && !fsPerm.read) return "filesystem read is not granted";
-    const underSkill = (fsPerm.paths ?? []).some((p) => f.path.startsWith(p));
-    const underServer = cfg.fsAllow ? cfg.fsAllow.some((p) => f.path.startsWith(p)) : true;
+    const underSkill = (fsPerm.paths ?? []).some((p) => isPathUnder(f.path, p));
+    const underServer = cfg.fsAllow ? cfg.fsAllow.some((p) => isPathUnder(f.path, p)) : true;
     if (!underSkill || !underServer) return `filesystem path ${f.path} is not permitted`;
   }
   return null;
