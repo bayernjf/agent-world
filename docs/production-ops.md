@@ -142,7 +142,7 @@ ssh hasee-2016-server 'sudo journalctl -u agent-world --since "1 hour ago" --no-
 
 | 层级 | 做法 | 适用阶段 |
 |---|---|---|
-| **1（现状+）** | 建 `.env.example`（占位符，进 git）文档化「有哪些变量」；真值 `.env` 继续 600 + 不进 git | M0 |
+| **1（现状+）** | ✅ 建 `.env.example` 已实施（2026-09-08，60+ 变量分类 + 占位符）；真值 `.env` 继续 600 + 不进 git | M0 |
 | **2（推荐）** | 「配置」与「密钥」分离：非敏感配置进 `.env.example` 模板；敏感密钥真值只放服务器 `/etc/agent-world/secrets.env`（600），systemd 用 `EnvironmentFile=` 注入 | M1-M2 |
 | **3** | Secret Manager（AWS/GCP/腾讯云）或 Vault 存真值；CI 部署时拉取 → 写 secrets.env → 600 → 重启 | M3 云托管 |
 
@@ -231,9 +231,8 @@ k8s / 云容器        （规模化前提）
 | 优先级 | 缺口 | 为什么对 AI 产品致命 |
 |---|---|---|
 | **P0** | **错误追踪（Sentry 类）** | 生产 bug 只能 grep 日志，无未捕获异常聚合/告警 |
-| **P0** | **回滚机制** | 回退靠手速记忆，无版本化 release + 一键回退 |
 | **P1** | **HTTPS/TLS** | M3 对外（域名+公网）必须 |
-| **P1** | **供应链安全** | npm audit + Dependabot + gitleaks 密钥泄露扫描未做 |
+| **P1** | **供应链安全** | gitleaks + npm audit 已做（2026-09-08，无泄露/无漏洞）；剩 Dependabot 自动升级 |
 | **P2** | IaC / E2E 测试 / 链路追踪 / 压测 | 规模化才要 |
 
 **P0 三块是「出事能否快速止损」的关键，比加监控看板更实在。**

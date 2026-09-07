@@ -235,6 +235,57 @@ sudo chmod +x /usr/local/bin/backup-agent-world.sh
 
 > 机器是笔记本：备份比云盘更重要——DB + artifacts + 密钥都在 `/var/lib/agent-world`，整目录备份即可恢复。sqlite 备份用 `VACUUM INTO` 或先 checkpoint 再拷文件，别直接拷热文件。
 
+### 六之一、备份恢复演练（restore drill）
+
+备份做了不代表能恢复——必须定期在**干净目录**做恢复演练，验证「备份 + 密钥 + 数据」真的能还原并启动（不影响生产：临时目录 + 独立端口）。
+
+```bash
+sudo tee /usr/local/bin/restore-agent-world-drill.sh >/dev/null <<'EOF'
+#!/usr/bin/env bash
+# 恢复演练：恢复到临时目录 → 校验 sqlite → 校验密钥 → 用恢复数据启动临时 server → 清理。
+# 不影响生产（生产 server 继续跑 8791，临时 server 用 8899）。
+set -euo pipefail
+SRC=/var/backups/agent-world/current
+DRILL=$(mktemp -d /tmp/aw-restore-drill-XXXXXX)
+PORT=8899
+
+echo "[1/4] 恢复到临时目录 $DRILL"
+rsync -a "$SRC/" "$DRILL/"
+chown -R agentworld:agentworld "$DRILL"
+
+echo "[2/4] 校验 sqlite 完整性 + 行数"
+DB_FILE="$DRILL/agent-world.sqlite" node -e '
+  const { DatabaseSync } = require("node:sqlite");
+  const db = new DatabaseSync(process.env.DB_FILE, { readOnly: true });
+  console.log("integrity:", JSON.stringify(db.prepare("PRAGMA integrity_check").all()));
+  console.log("users:", db.prepare("SELECT COUNT(*) n FROM users").get().n);
+  console.log("graphs:", db.prepare("SELECT COUNT(*) n FROM graphs").get().n);
+'
+
+echo "[3/4] 校验密钥文件"
+[ -f "$DRILL/.jwt-secret" ] && [ -f "$DRILL/.encryption-keys" ] && echo "密钥文件在"
+
+echo "[4/4] 用恢复数据启动临时 server（端口 $PORT）"
+sudo -u agentworld env DB_FILE="$DRILL/agent-world.sqlite" PORT=$PORT \
+  node /opt/agent-world/packages/server/dist/index.js > "$DRILL/server.log" 2>&1 &
+TMP_PID=$!
+sleep 4
+curl -s "http://127.0.0.1:$PORT/api/health" && echo
+kill "$TMP_PID" 2>/dev/null || true
+rm -rf "$DRILL"
+echo "restore drill OK"
+EOF
+sudo chmod +x /usr/local/bin/restore-agent-world-drill.sh
+```
+
+以 root 跑：`sudo /usr/local/bin/restore-agent-world-drill.sh`（内部 `sudo -u agentworld` 免密）。
+
+**RTO/RPO**：
+- **RPO**：每日 02:30 备份，最坏丢失 < 24 小时（当前数据量小，rsync 秒级完成）。
+- **RTO**：恢复 = rsync 秒级 + 启动数秒，实测 < 1 分钟（不含新机器环境准备）。
+
+**演练结果（2026-09-08 已执行，通过）**：从 `current/` 恢复到 `/tmp/aw-drill` → `integrity_check: ok` + 密钥文件在 → 临时 server（8899）health 返回 `{"ok":true,"db":"ok","jwtSecret":"loaded","encryption":"loaded"}` ✅。
+
 ## 七、Server 机器注意事项（笔记本形态）
 
 ```bash
