@@ -26,6 +26,7 @@
 | 5 | web + nginx + 防火墙 + 局域网验收 | ✅ 完成（nginx 反代 + 局域网 curl={"ok":true}；ufw 规则预设未 enable） |
 | 6 | 备份与运维加固 | ✅ 完成（备份脚本 + cron 每日 02:30 + 手跑验证） |
 | 7 | 商业化 P0/P1 验收清单 | ⏳ 待用户在浏览器验收 |
+| CI/CD | 自动部署（deploy key / runner / deploy.sh / deploy.yml） | ✅ 基础设施就绪；deploy.yml 待 push + 合并到 dev 后生效 |
 
 ## 执行前置：一次性免密配置
 
@@ -104,3 +105,14 @@
 
 - 6.1 备份脚本 `/usr/local/bin/backup-agent-world.sh`（checkpoint + rsync + 每日硬链接快照保留 7 份）+ cron `30 2 * * *` → 手跑验证产出 `current/` + `snap-2026-09-07` ✅
 - 备注：服务器缺 `sqlite3` CLI（apt 被 unattended-upgrades 锁），脚本内 `sqlite3 ... || true` 已容错，rsync 连 WAL 一起备份数据完整。
+
+## CI/CD 自动部署实施（2026-09-07 完成）
+
+把部署方式从「手动 rsync」升级为「Git + CI/CD 自动部署」，方案见 [deploy-cicd.md](deploy-cicd.md)。实际落地：
+
+- **Deploy Key**：Hasee 生成 ed25519（`/var/lib/agent-world/.ssh/github-deploy`），只读添加到 GitHub（`gh repo deploy-key add`），配 `agentworld` 的 `~/.ssh/config` 让 git pull 走这把 key → `git ls-remote` 验证能拉 dev ✅
+- **最小 sudo**：`/etc/sudoers.d/agentworld` 只允许 `systemctl restart agent-world`（NOPASSWD）✅
+- **self-hosted runner**：下载 v2.337.0 到 `/var/lib/agent-world/actions-runner`，`config.sh` 注册（name=`hasee-2016-server`，label=`production`）；**新版无 `svc.sh`** → 手写 `/etc/systemd/system/actions-runner.service`，`enable --now` 后 GitHub 状态 **online** ✅
+- **服务器 git 化**：原 `/opt/agent-world` 是 rsync 部署（无 `.git`），改为「备份 .env → `git clone -b dev` → 恢复 .env + install + build → 停服切换目录」；切换后为 dev 分支 git 仓库，`/api/health` 正常 ✅
+- **deploy.sh**：`/opt/agent-world/deploy.sh`（`git pull --ff-only` → install → build → restart），runner 以 agentworld 跑、无需 `sudo -u` ✅
+- **deploy.yml**：`.github/workflows/deploy.yml`（`workflow_run` 监听 CI 在 dev 成功 → self-hosted runner 执行 deploy.sh），已 commit，**待 push + 合并到 dev 后生效** ⏳
