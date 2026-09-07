@@ -68,7 +68,7 @@
 | **全局限流** | 登录/注册/run 创建入口防滥用 | ✅ 已实施（2026-09-08）：`rate-limit.ts` 内存滑动窗口 `RateLimiter`；login 10次/15min/IP、register 30次/小时/IP、run 30次/min/user | 完成 |
 | **优雅关闭** | 收到 SIGTERM 时完成在途 run、关闭 DB/SSE | ✅ 已实施（2026-09-08）：`index.ts` 监听 SIGTERM/SIGINT → `server.close()` 停新请求 → drain 在途 run（`AGENT_WORLD_SHUTDOWN_GRACE_MS` 超时 abort）→ 关 DB → `disposeIsolatedWorkers` → exit | 完成 |
 | **优雅启动** | readiness 探针在 DB/密钥就绪前不接流量 | ✅ 已实施（2026-09-08）：`/api/health` 的 `ok` = DB/encryption/JWT 关键检查全通过，未就绪返回 503 | 完成 |
-| **幂等审计** | 关键 API（建 run、发布、webhook）防重复提交 | 幂等键 + 去重表 | P1 |
+| **幂等审计** | 关键 API（建 run、发布、webhook）防重复提交 | ✅ 已实施（2026-09-08）：建 run 幂等——`Idempotency-Key` header + `idempotency_keys` 表（迁移 35），重复提交返回同一 runId（`replay:true`）；发布/webhook 待接入 | 完成 |
 | **恢复演练** | 验证备份真的能恢复（RTO/RPO） | ✅ 已实施（2026-09-08）：`restore-agent-world-drill.sh` 恢复到干净目录 + 启动验证，实测 RTO<1min / RPO<24h | 完成 |
 | **熔断器** | Provider 连续失败时暂停调用避免雪崩 | 按 Provider 维度的 circuit breaker（失败率/半开探测） | P2 |
 | **多副本高可用** | 单点故障切换 | 需先 SQLite→Postgres（见域 6 / k8s 判断） | P2 |
@@ -89,7 +89,7 @@
 | **一键回滚** | 版本化 release + 切软链回退 | `releases/<ts>-<commit>/` 目录 + `rollback.sh` 切 systemd `WorkingDirectory` 软链 | P0 |
 | **CD 自动化** | push dev → CI 绿 → 自动部署 Hasee | self-hosted runner + `deploy.sh`（已有雏形，补齐自动触发 + 失败通知） | P1 |
 | **migration 回滚** | DB migration 支持 down（出问题能退回） | migration 脚本加 `down` 逻辑 + 回滚时执行 | P1 |
-| **feature flag** | 功能灰度开关（不发布代码也能开关功能） | 简单 config 表 + `FeatureFlag` 判断，先覆盖高风险功能 | P1 |
+| **feature flag** | 功能灰度开关（不发布代码也能开关功能） | ✅ 已实施（2026-09-08）：`feature-flags.ts`（`FEATURE_FLAGS` 注册表 + `isFeatureEnabled`，未知 flag fail-closed）+ `AppConfig.featureFlags`；首个 flag `rpa-metrics`（合规风险默认关，使用点待 RPA 接 API 端点） | 完成 |
 | **金丝雀/蓝绿/滚动** | 渐进放量、零停机 | 依赖多副本 + 负载均衡（需先 Docker 化 + 反代） | P2 |
 | **制品管理 / SBOM** | 容器镜像、依赖清单、软件物料清单 | Docker 镜像 + `npm audit --omit=dev` + SBOM 生成（syft） | P2 |
 | **环境一致性** | 本地/CI/生产环境一致 | devcontainer + 锁文件 + 固定 Node/pnpm 版本（已修 packageManager 固定） | P2 |
