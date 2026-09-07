@@ -8,7 +8,7 @@ import { sanitizeError } from "../sanitize.js";
  * arrives via the explicit NodeRunContext.
  */
 export async function audioGenNode(ctx: NodeRunContext, node: GraphNode, nodeId: string, attempt: number): Promise<void> {
-  const { artifacts, emit, inputFor, opts, sendPackets, states, worker } = ctx;
+  const { artifacts, budgetUsd, emit, inputFor, opts, sendPackets, states, worker } = ctx;
   emit({ type: "node.started", nodeId, attempt });
   const cfg = node.audioGen ?? { model: "tts-1", format: "mp3", n: 1 };
   if (!worker.generateAudio) {
@@ -58,6 +58,8 @@ export async function audioGenNode(ctx: NodeRunContext, node: GraphNode, nodeId:
       };
     }
     artifacts.set(nodeId, audioArts);
+    ctx.totalCostUsd += usage.costUsd;
+    emit({ type: "power.metered", totalCostUsd: ctx.totalCostUsd, budgetUsd });
     emit({ type: "node.finished", nodeId, attempt, output: "", usage });
     states.set(nodeId, "done");
     sendPackets(nodeId, `生成音频 ${results.length} 段`, "audio");

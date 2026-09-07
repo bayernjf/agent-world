@@ -48,7 +48,7 @@ export async function handleMessage(
         id,
         result: {
           protocolVersion: PROTOCOL_VERSION,
-          capabilities: { tools: {}, resources: {}, prompts: {} },
+          capabilities: { tools: {}, resources: { subscribe: true }, prompts: {} },
           serverInfo: { name: "agent-world", version: SERVER_VERSION },
         },
       };

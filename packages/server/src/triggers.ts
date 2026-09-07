@@ -3,6 +3,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { TriggerConfig, type Graph } from "@agent-world/core";
 import { nextRunAfter } from "./cron.js";
 import { log } from "./logger.js";
+import { assertSafeLocalPath } from "./fs-guard.js";
 
 /** Allowed clock skew / replay window for a webhook timestamp (M1): 5 minutes. */
 export const WEBHOOK_TIMESTAMP_WINDOW_MS = 5 * 60 * 1000;
@@ -223,7 +224,8 @@ export class TriggerService {
     if (batch.rows) return batch.rows;
     if (batch.source === "csv" && batch.path) {
       try {
-        return parseCsv(fs.readFileSync(batch.path, "utf8"));
+        // H3: batch CSV path is user-authored — never read secrets/DB.
+        return parseCsv(fs.readFileSync(assertSafeLocalPath(batch.path), "utf8"));
       } catch {
         return [];
       }

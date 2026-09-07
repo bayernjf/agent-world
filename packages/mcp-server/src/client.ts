@@ -14,6 +14,11 @@ export class ApiError extends Error {
 export class AgentWorldClient {
   constructor(private readonly cfg: McpServerConfig) {}
 
+  /** A client bound to an explicit token (per-request auth from the HTTP transport). */
+  withToken(token: string): AgentWorldClient {
+    return new AgentWorldClient({ ...this.cfg, token });
+  }
+
   private url(path: string): URL {
     return new URL(path, this.cfg.url);
   }
@@ -32,6 +37,10 @@ export class AgentWorldClient {
         signal: AbortSignal.timeout(this.cfg.requestTimeoutMs),
       });
     } catch (e) {
+      const name = (e as Error).name;
+      if (name === "AbortError" || name === "TimeoutError") {
+        throw new Error(`agent-world 请求超时（${this.cfg.url}，${this.cfg.requestTimeoutMs}ms）`);
+      }
       throw new Error(
         `agent-world 主服务不可达（${this.cfg.url}）: ${(e as Error).message}。请确认主服务已启动。`,
       );

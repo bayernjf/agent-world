@@ -133,6 +133,12 @@ class CondParser {
   parse(): unknown {
     const v = this.parseOr();
     this.skipWs();
+    // A trailing token means the expression is malformed — fail closed (the
+    // caller treats a throw as `false`) instead of silently returning the
+    // prefix truthiness (e.g. `1 == 1 garbage` used to evaluate true).
+    if (this.pos !== this.src.length) {
+      throw new Error(`表达式存在无法解析的内容: "${this.src.slice(this.pos)}"`);
+    }
     return v;
   }
 
@@ -153,13 +159,21 @@ class CondParser {
 
   private parseOr(): unknown {
     let left = this.parseAnd();
-    while (this.match("||")) left = truthy(left) || truthy(this.parseAnd());
+    while (this.match("||")) {
+      // Always parse the right side (advance pos) even when the left is truthy,
+      // so a trailing token after a short-circuited branch is still caught.
+      const right = this.parseAnd();
+      left = truthy(left) || truthy(right);
+    }
     return left;
   }
 
   private parseAnd(): unknown {
     let left = this.parseCmp();
-    while (this.match("&&")) left = truthy(left) && truthy(this.parseCmp());
+    while (this.match("&&")) {
+      const right = this.parseCmp();
+      left = truthy(left) && truthy(right);
+    }
     return left;
   }
 

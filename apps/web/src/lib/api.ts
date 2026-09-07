@@ -787,7 +787,9 @@ export const api = {
     }),
 
   deleteBrandTerm: (id: string) =>
-    authFetch(`/api/brand-terms/${id}`, { method: "DELETE" }).then(() => undefined),
+    authFetch(`/api/brand-terms/${id}`, { method: "DELETE" }).then(async (res) => {
+      if (!res.ok) throw new Error(await res.text());
+    }),
 
   listPlatforms: () =>
     authFetch("/api/platforms").then(
@@ -808,7 +810,9 @@ export const api = {
     }),
 
   deleteBannedTerm: (id: string) =>
-    authFetch(`/api/banned-terms/${id}`, { method: "DELETE" }).then(() => undefined),
+    authFetch(`/api/banned-terms/${id}`, { method: "DELETE" }).then(async (res) => {
+      if (!res.ok) throw new Error(await res.text());
+    }),
 
   listProducts: (query = "") => authFetch(`/api/products${query}`).then(json<Product[]>),
 
@@ -853,7 +857,9 @@ export const api = {
     }),
 
   deleteProduct: (id: string) =>
-    authFetch(`/api/products/${id}`, { method: "DELETE" }).then(() => undefined),
+    authFetch(`/api/products/${id}`, { method: "DELETE" }).then(async (res) => {
+      if (!res.ok) throw new Error(await res.text());
+    }),
 
   importProducts: (csv: string) =>
     authFetch("/api/products/import", {
@@ -878,7 +884,9 @@ export const api = {
     }),
 
   deleteBrandAsset: (id: string) =>
-    authFetch(`/api/brand-assets/${id}`, { method: "DELETE" }).then(() => undefined),
+    authFetch(`/api/brand-assets/${id}`, { method: "DELETE" }).then(async (res) => {
+      if (!res.ok) throw new Error(await res.text());
+    }),
 
   listBatches: () => authFetch("/api/batches").then(json<BatchJob[]>),
 
@@ -936,7 +944,9 @@ export const api = {
     }),
 
   deletePlan: (id: string) =>
-    authFetch(`/api/plan/${id}`, { method: "DELETE" }).then(() => undefined),
+    authFetch(`/api/plan/${id}`, { method: "DELETE" }).then(async (res) => {
+      if (!res.ok) throw new Error(await res.text());
+    }),
 
   listMetrics: () => authFetch("/api/metrics").then(json<ContentMetric[]>),
 
@@ -1014,7 +1024,9 @@ export const api = {
     }),
 
   deleteTrigger: (graphId: string, triggerId: string) =>
-    authFetch(`/api/graphs/${graphId}/triggers/${triggerId}`, { method: "DELETE" }).then(() => undefined),
+    authFetch(`/api/graphs/${graphId}/triggers/${triggerId}`, { method: "DELETE" }).then(async (res) => {
+      if (!res.ok) throw new Error(await res.text());
+    }),
 
   fireTrigger: (graphId: string, triggerId: string) =>
     authFetch(`/api/graphs/${graphId}/triggers/${triggerId}/fire`, { method: "POST" }).then(

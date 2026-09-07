@@ -17,6 +17,9 @@ function requireString(args: Record<string, unknown>, key: string): string {
   return v;
 }
 
+/** Cap on batch_run inputs so a client can't trigger unbounded startRun calls. */
+const MAX_BATCH_INPUTS = 500;
+
 /** Pick a stable id/name/updatedAt shape out of whatever the API returned. */
 function summarizeGraph(g: Record<string, unknown>): Record<string, unknown> {
   return {
@@ -271,7 +274,7 @@ export const TOOLS: McpToolDef[] = [
     },
     handler: async (args, client) => {
       const query = requireString(args, "query");
-      const limit = typeof args.limit === "number" ? args.limit : 10;
+      const limit = clampInt(args.limit, 1, 50, 10);
       const body = await client.searchKnowledge(query, limit);
       return { count: body.entries.length, entries: body.entries };
     },
@@ -294,6 +297,9 @@ export const TOOLS: McpToolDef[] = [
       const graphId = requireString(args, "graphId");
       if (!Array.isArray(args.inputs) || args.inputs.length === 0) {
         throw new Error('缺少必填参数 "inputs"（非空数组）');
+      }
+      if (args.inputs.length > MAX_BATCH_INPUTS) {
+        throw new Error(`inputs 数量超过上限（${MAX_BATCH_INPUTS}）`);
       }
       const wait = args.wait === true;
       const maxConcurrency = clampInt(args.maxConcurrency, 1, 10, 3);
@@ -388,7 +394,7 @@ export const TOOLS: McpToolDef[] = [
       if (since != null && limit == null) limit = 100;
       const body = await client.runEvents(runId, since, limit);
       const events = Array.isArray(body.events) ? body.events : [];
-      return { runId, count: events.length, ...body };
+      return { ...body, runId, count: events.length };
     },
   },
 ];
@@ -457,7 +463,7 @@ async function waitForRuns(
         results.push({ runId, status: "error", artifactCount: 0 });
       }
     }
-    if (done.size === runIds.length) return { completed: true, results };
+    if (runIds.length > 0 && done.size === runIds.length) return { completed: true, results };
     if (Date.now() >= deadline) return { completed: false, results };
     await new Promise((resolve) => setTimeout(resolve, pollMs));
   }

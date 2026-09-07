@@ -21,6 +21,7 @@ export function routingWorker(config?: AppConfig): Worker {
   // Cache key incorporates connection details so editing a key/URL rebuilds
   // the provider worker instead of reusing a stale one.
   const cache = new Map<string, Worker>();
+  const MAX_WORKER_CACHE = 64;
 
   const workerFor = (model: string): Worker => {
     if (process.env.WORKER === "fake" || model === "fake" || model === "") {
@@ -49,6 +50,12 @@ export function routingWorker(config?: AppConfig): Worker {
         w = fakeWorker();
     }
     cache.set(cacheKey, w);
+    // Evict oldest so a user churning models/baseUrls can't grow this unbounded.
+    while (cache.size > MAX_WORKER_CACHE) {
+      const oldest = cache.keys().next().value as string | undefined;
+      if (oldest === undefined) break;
+      cache.delete(oldest);
+    }
     return w;
   };
 

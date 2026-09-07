@@ -759,6 +759,10 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
   const finish = () => {
     if (finished) return;
     finished = true;
+    // H5: write the accumulated spend back to the caller's init so subprocess/
+    // fanout can fold a child run's cost into the parent ledger. Without this
+    // the child's totalCostUsd stays 0 and sub-flow/lane cost is silently lost.
+    opts.init.totalCostUsd = totalCostUsd;
     let strandedNote: string | undefined;
     // A failed node is "handled" if it has an error edge to a catch node that
     // finished done — such failures don't sink the run (the catch produced a

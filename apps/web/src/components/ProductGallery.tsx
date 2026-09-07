@@ -98,6 +98,8 @@ export default function ProductGallery({ open, onClose }: Props) {
       const page = await api.listArtifacts(PAGE, offset);
       setItems((prev) => (offset === 0 ? page : [...prev, ...page]));
       setHasMore(page.length === PAGE);
+    } catch (err) {
+      console.error("load artifacts failed", err);
     } finally {
       setLoading(false);
     }
@@ -109,6 +111,8 @@ export default function ProductGallery({ open, onClose }: Props) {
       const d = await api.listRuns({ limit: RUN_PAGE, offset });
       setRuns((prev) => (offset === 0 ? d.runs : [...prev, ...d.runs]));
       setRunsTotal(d.total);
+    } catch (err) {
+      console.error("load runs failed", err);
     } finally {
       setRunsLoading(false);
     }

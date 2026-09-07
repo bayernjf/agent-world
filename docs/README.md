@@ -16,6 +16,7 @@
 | 知道产品往哪走                | [PRD.md](PRD.md) + [roadmap-generalization.md](roadmap-generalization.md) ★ |
 | 接手某个模块的设计决策            | 对应 [design-\*.md](design-mcp-server.md)                                     |
 | 看按版本的变更记录              | [CHANGELOG.md](../CHANGELOG.md)（最近 5 条以内看 handoff）                          |
+| 看代码质量 / 安全审计 / 待修复项     | [code-audit-2026-09-06.md](code-audit-2026-09-06.md)（全项目 77 项 + 修复状态） + [security-audit-2026-08-31.md](security-audit-2026-08-31.md) |
 
 ## 路线图 / 进度系列怎么分工
 

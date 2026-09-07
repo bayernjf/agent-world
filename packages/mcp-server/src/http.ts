@@ -101,6 +101,13 @@ export function createMcpHttpHandler(
     }
 
     const wantsSse = (req.headers.accept ?? "").includes("text/event-stream");
+    // H6: honor the caller's own credentials. The env token is the fallback;
+    // a client-supplied `Authorization: Bearer` (or `?token=`) is forwarded to
+    // the agent-world API instead, so a localhost caller can't ride the env
+    // token to perform write operations it wasn't given access to.
+    const bearer = /^Bearer\s+(.+)$/i.exec(req.headers.authorization ?? "")?.[1];
+    const reqToken = (bearer ?? url.searchParams.get("token") ?? "").trim();
+    const effectiveClient = reqToken ? client.withToken(reqToken) : client;
     // Notifications (no id) → 202 Accepted, no body.
     const rpc = msg as JsonRpcMessage;
     if (rpc.id === undefined || rpc.id === null) {
@@ -109,7 +116,7 @@ export function createMcpHttpHandler(
       return;
     }
 
-    const reply = await handleMessage(rpc, client, tools, hub);
+    const reply = await handleMessage(rpc, effectiveClient, tools, hub);
 
     if (wantsSse) {
       res.writeHead(200, {

@@ -1,7 +1,7 @@
 import { TranslateConfig, incoming, nodeById } from "@agent-world/core";
 import type { GraphNode, Usage } from "@agent-world/core";
 import type { NodeRunContext } from "./types.js";
-import { RETRYABLE, setTextArtifact, zeroUsage } from "./shared.js";
+import { BUDGET_WARN, RETRYABLE, setTextArtifact, zeroUsage } from "./shared.js";
 import { ProviderError } from "../providers/openai-compatible.js";
 import { sanitizeError } from "../sanitize.js";
 
@@ -11,7 +11,7 @@ import { sanitizeError } from "../sanitize.js";
  * arrives via the explicit NodeRunContext.
  */
 export async function translateNode(ctx: NodeRunContext, node: GraphNode, nodeId: string, attempt: number): Promise<void> {
-  const { artifacts, budgetUsd, emit, fallbackModel, graph, nodeCostUsd, opts, produceArtifacts, sendPackets, states, worker } = ctx;
+  const { artifacts, budgetUsd, emit, fallbackModel, graph, monthSpentUsd, monthlyBudgetUsd, nodeCostUsd, opts, produceArtifacts, sendPackets, states, worker } = ctx;
   emit({ type: "node.started", nodeId, attempt });
   const cfg = TranslateConfig.parse(node.translate ?? {});
   const sources = incoming(graph, nodeId, "flow").map((e) => e.from);
@@ -157,6 +157,54 @@ export async function translateNode(ctx: NodeRunContext, node: GraphNode, nodeId
     });
     ctx.status = "failed";
     return;
+  }
+
+  // Global budget guard (parity with textGen): the translate node used to skip
+  // this, so it could consume unlimited spend past the whole-run budget.
+  if (
+    budgetUsd !== null &&
+    budgetUsd > 0 &&
+    !ctx.budgetWarned &&
+    ctx.totalCostUsd >= budgetUsd * BUDGET_WARN
+  ) {
+    ctx.budgetWarned = true;
+    emit({
+      type: "power.warning",
+      totalCostUsd: ctx.totalCostUsd,
+      budgetUsd,
+      threshold: BUDGET_WARN,
+    });
+  }
+
+  if (budgetUsd !== null && ctx.totalCostUsd > budgetUsd) {
+    emit({ type: "power.tripped", totalCostUsd: ctx.totalCostUsd, budgetUsd });
+    ctx.status = "tripped";
+    ctx.aborted = true;
+    return;
+  }
+
+  if (monthlyBudgetUsd !== null && monthlyBudgetUsd > 0) {
+    const monthlyTotal = monthSpentUsd + ctx.totalCostUsd;
+    if (!ctx.monthlyWarned80 && monthlyTotal >= monthlyBudgetUsd * BUDGET_WARN) {
+      ctx.monthlyWarned80 = true;
+      emit({
+        type: "power.warning",
+        totalCostUsd: monthlyTotal,
+        budgetUsd: monthlyBudgetUsd,
+        threshold: BUDGET_WARN,
+        scope: "monthly",
+      });
+    }
+    if (!ctx.monthlyWarned100 && monthlyTotal >= monthlyBudgetUsd) {
+      ctx.monthlyWarned100 = true;
+      emit({
+        type: "power.warning",
+        totalCostUsd: monthlyTotal,
+        budgetUsd: monthlyBudgetUsd,
+        threshold: 1,
+        scope: "monthly",
+      });
+    }
   }
   sendPackets(nodeId, result.output.slice(0, 120), primaryKind);
 }

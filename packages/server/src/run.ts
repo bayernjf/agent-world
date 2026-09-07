@@ -129,7 +129,14 @@ export async function startRun(args: StartRunArgs): Promise<{ runId: string; dia
         defaultModel: cfg.defaultModel,
         signal: controller.signal,
         storeBinary: async (data, mimeType, label) => {
-          const saved = await artifacts.saveBinary({ userId, data, kind: "image", mimeType, label });
+          const kind = mimeType.startsWith("image/")
+            ? "image"
+            : mimeType.startsWith("video/")
+              ? "video"
+              : mimeType.startsWith("audio/")
+                ? "audio"
+                : "file";
+          const saved = await artifacts.saveBinary({ userId, data, kind, mimeType, label });
           db.insertArtifact(saved, userId);
           return saved.uri ?? `data:${mimeType};base64,${data.toString("base64")}`;
         },
@@ -157,6 +164,11 @@ export async function startRun(args: StartRunArgs): Promise<{ runId: string; dia
       runLog.error("run crashed", { error: (err as Error)?.message ?? String(err) });
     } finally {
       entry.done = true;
+      // Release the entry so a completed run's full event log doesn't stay in
+      // memory forever. Connected SSE streams already hold a reference to the
+      // entry object, and new connections replay from the DB (events persist
+      // before they're pushed here), so deletion is safe.
+      live.delete(runId);
     }
   });
 
@@ -289,7 +301,14 @@ export async function resumeRun(args: ResumeRunArgs): Promise<{ runId: string; a
         approveTools: args.approveTools,
         signal: controller.signal,
         storeBinary: async (data, mimeType, label) => {
-          const saved = await artifacts.saveBinary({ userId, data, kind: "image", mimeType, label });
+          const kind = mimeType.startsWith("image/")
+            ? "image"
+            : mimeType.startsWith("video/")
+              ? "video"
+              : mimeType.startsWith("audio/")
+                ? "audio"
+                : "file";
+          const saved = await artifacts.saveBinary({ userId, data, kind, mimeType, label });
           db.insertArtifact(saved, userId);
           return saved.uri ?? `data:${mimeType};base64,${data.toString("base64")}`;
         },
@@ -318,6 +337,7 @@ export async function resumeRun(args: ResumeRunArgs): Promise<{ runId: string; a
       runLog.error("resume crashed", { error: (err as Error)?.message ?? String(err) });
     } finally {
       entry.done = true;
+      live.delete(runId);
     }
   });
 

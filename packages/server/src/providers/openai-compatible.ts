@@ -542,9 +542,25 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
           // H6: the "provider" (whose baseUrl a graph author can override)
           // returns arbitrary URLs — fetch bytes through the guarded egress so
           // internal addresses are refused instead of becoming artifacts.
-          const imgRes = await guardedFetch(item.url, { signal: controller.signal }).catch((err) => {
-            throw mapGuardedError(err);
-          });
+          // Own timeout: the generation request's controller was already cleared
+          // (finally above), so reusing it would leave this download with no
+          // timeout and a hung URL would block the node forever.
+          const dlController = new AbortController();
+          const dlTimer = setTimeout(() => dlController.abort(), IMAGE_GEN_TIMEOUT_MS);
+          const onDlAbort = () => dlController.abort();
+          if (signal) {
+            if (signal.aborted) dlController.abort();
+            else signal.addEventListener("abort", onDlAbort, { once: true });
+          }
+          let imgRes: Response;
+          try {
+            imgRes = await guardedFetch(item.url, { signal: dlController.signal }).catch((err) => {
+              throw mapGuardedError(err);
+            });
+          } finally {
+            clearTimeout(dlTimer);
+            if (signal) signal.removeEventListener("abort", onDlAbort);
+          }
           if (!imgRes.ok) {
             throw new ProviderError("PROVIDER_ERROR", `failed to fetch generated image: HTTP ${imgRes.status}`);
           }
