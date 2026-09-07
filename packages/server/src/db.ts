@@ -1020,6 +1020,20 @@ export function openDb(file: string) {
         "INSERT OR IGNORE INTO idempotency_keys (user_id, key, run_id, created_at) VALUES (?, ?, ?, ?)",
       ).run(userId, key, runId, Date.now());
     },
+    /**
+     * Prunes events older than the given epoch-millisecond cutoff. Safe because
+     * `runs.snapshot` already holds each run's full state (design-scaling §2.1),
+     * so archived event history can be reconstructed from the snapshot. Returns
+     * the number of rows deleted.
+     */
+    pruneOldEvents(before: number) {
+      return Number(db.prepare("DELETE FROM events WHERE ts < ?").run(before).changes);
+    },
+    /** Runs sqlite's own integrity check; true when the database is consistent. */
+    verifyIntegrity() {
+      const rows = db.prepare("PRAGMA integrity_check").all() as Array<{ integrity_check: string }>;
+      return rows.length === 1 && rows[0]!.integrity_check === "ok";
+    },
     createUser(id: string, email: string, passwordHash: string) {
       // RBAC P0 (design-rbac.md): the very first account bootstraps the
       // instance owner. The single-owner invariant is enforced by the partial
