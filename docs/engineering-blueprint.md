@@ -65,16 +65,16 @@
 | 能力 | 说明 | 补齐方案 | 优先级 |
 |---|---|---|---|
 | **成本硬熔断** | 月度预算超限硬停 | ✅ 已实施（2026-09-07）：`startRun` 入口硬停新 run（`monthlyBudgetExceeded` 纯函数 + `AGENT_WORLD_BUDGET_BYPASS=1` owner 放行）；顺带修复 `costForMonth` 带 userId 参数错位 bug | 完成 |
-| **全局限流** | 登录/注册/run 创建入口防滥用 | 按 IP + userId 的 rate limit 中间件，优先 `login`/`register`/`runs` | P0 |
-| **优雅关闭** | 收到 SIGTERM 时完成在途 run、关闭 DB/SSE | process 监听 SIGTERM/SIGINT → 停接新请求 → drain 在途 → 关 DB | P1 |
-| **优雅启动** | readiness 探针在 DB/密钥就绪前不接流量 | startup/readiness 探针 + 就绪前 `/api/health` 返回 503 | P1 |
+| **全局限流** | 登录/注册/run 创建入口防滥用 | ✅ 已实施（2026-09-08）：`rate-limit.ts` 内存滑动窗口 `RateLimiter`；login 10次/15min/IP、register 30次/小时/IP、run 30次/min/user | 完成 |
+| **优雅关闭** | 收到 SIGTERM 时完成在途 run、关闭 DB/SSE | ✅ 已实施（2026-09-08）：`index.ts` 监听 SIGTERM/SIGINT → `server.close()` 停新请求 → drain 在途 run（`AGENT_WORLD_SHUTDOWN_GRACE_MS` 超时 abort）→ 关 DB → `disposeIsolatedWorkers` → exit | 完成 |
+| **优雅启动** | readiness 探针在 DB/密钥就绪前不接流量 | ✅ 已实施（2026-09-08）：`/api/health` 的 `ok` = DB/encryption/JWT 关键检查全通过，未就绪返回 503 | 完成 |
 | **幂等审计** | 关键 API（建 run、发布、webhook）防重复提交 | 幂等键 + 去重表 | P1 |
-| **恢复演练** | 验证备份真的能恢复（RTO/RPO） | 定期在干净目录恢复备份 + 启动验证，见域 7 | P1 |
+| **恢复演练** | 验证备份真的能恢复（RTO/RPO） | ✅ 已实施（2026-09-08）：`restore-agent-world-drill.sh` 恢复到干净目录 + 启动验证，实测 RTO<1min / RPO<24h | 完成 |
 | **熔断器** | Provider 连续失败时暂停调用避免雪崩 | 按 Provider 维度的 circuit breaker（失败率/半开探测） | P2 |
 | **多副本高可用** | 单点故障切换 | 需先 SQLite→Postgres（见域 6 / k8s 判断） | P2 |
 | **混沌测试** | 主动注入故障验证韧性 | 杀进程/断网/磁盘满演练 | P2 |
 
-**关键点**：P0 的「成本硬熔断」已落地（2026-09-07）；「全局限流」是对 AI 产品第二致命的洞（堵「被刷」）。可靠性其余部分依赖 SQLite→Postgres，P2 再展开。
+**关键点**：P0 的「成本硬熔断 + 全局限流」均已落地（2026-09-07/08），堵住「账单爆炸」和「被刷」两个洞。可靠性其余部分依赖 SQLite→Postgres，P2 再展开。
 
 ---
 
@@ -257,13 +257,13 @@
 
 ```
 1. ~~自述式 /api/health（可观测性）~~ ✅ 已实施（2026-09-07）
-2. 成本硬熔断 + 全局限流（可靠性 / 成本）
-3. 一键回滚 + deploy 幂等化（发布 / IaC）
-4. gitleaks 扫 git 历史（安全）
-5. .env.example 模板（配置）
-6. 备份恢复演练（数据）
-7. E2E 冒烟 + 一键本地启动（测试 / DevEx）
-8. runbook 补全（运营）
+2. ~~成本硬熔断 + 全局限流（可靠性 / 成本）~~ ✅ 已实施（2026-09-07/08）
+3. ~~一键回滚 + deploy 幂等化（发布 / IaC）~~ ✅ 已实施（2026-09-08，deploy.sh 记录 last-known-good + rollback.sh 一键回退 + 部署后健康检查）
+4. ~~gitleaks 扫 git 历史（安全）~~ ✅ 已实施（2026-09-08，1081 commits no leaks + `pnpm audit` 无漏洞）
+5. ~~.env.example 模板（配置）~~ ✅ 已实施（2026-09-08，覆盖核心/密钥/沙箱/存储/集成等 60+ 变量）
+6. ~~备份恢复演练（数据）~~ ✅ 已实施（2026-09-08，restore drill 验证通过）
+7. ~~E2E 冒烟 + 一键本地启动（测试 / DevEx）~~ ✅ 已实施（2026-09-08，`smoke.test.ts` HTTP 端到端冒烟 + `scripts/dev.sh` 一键启动）
+8. ~~runbook 补全（运营）~~ ✅ 已实施（2026-09-08，`scripts/healthcheck.sh` 环境体检脚本）
 ```
 
 ### M3 前（对外硬门槛）

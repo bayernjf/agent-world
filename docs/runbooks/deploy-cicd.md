@@ -167,10 +167,19 @@ sudo rm -rf /opt/agent-world-old
 set -euo pipefail
 cd /opt/agent-world
 
-git pull --ff-only                                   # 只快进，避免冲突静默
-corepack pnpm install --frozen-lockfile              # 依赖可能变了
-corepack pnpm -r build                               # 全量构建
-sudo systemctl restart agent-world                   # 重启服务（最小 sudo）
+git rev-parse HEAD > /var/lib/agent-world/.last-known-good   # 记录上一个好版本，供回滚
+git pull --ff-only                                            # 只快进，避免冲突静默
+corepack pnpm install --frozen-lockfile                       # 依赖可能变了
+corepack pnpm -r build                                        # 全量构建
+sudo systemctl restart agent-world                            # 重启服务（最小 sudo）
+
+sleep 3                                                       # 部署后健康检查
+if curl -sf http://127.0.0.1:8791/api/health > /dev/null; then
+  echo "deploy OK: $(git rev-parse --short HEAD)"
+else
+  echo "deploy FAILED — run: sudo /opt/agent-world/rollback.sh" >&2
+  exit 1
+fi
 ```
 
 > runner 以 `agentworld` 身份执行，故 deploy.sh 里**不需要** `sudo -u agentworld`（已是该用户），只需对 `systemctl restart` 用最小 sudo。
@@ -180,6 +189,37 @@ sudo chmod +x /opt/agent-world/deploy.sh
 ```
 
 > `git pull --ff-only`：只允许快进合并。若本地有分叉（不该发生，因为服务器代码只由 deploy 脚本改），会直接失败而不是悄悄合并，保证可追溯。
+
+### 4.4.1 一键回滚（`rollback.sh`）
+
+部署前 `deploy.sh` 会把「上一个好版本」commit 记到 `/var/lib/agent-world/.last-known-good`。出问题一键回退（30 秒止血，不靠手速记忆）：
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+cd /opt/agent-world
+
+PREV=$(cat /var/lib/agent-world/.last-known-good 2>/dev/null || true)
+if [ -z "$PREV" ]; then
+  echo "no previous known-good commit recorded" >&2
+  exit 1
+fi
+
+CURRENT=$(git rev-parse HEAD)
+if [ "$PREV" = "$CURRENT" ]; then
+  echo "already at last known-good commit ($PREV)" >&2
+  exit 1
+fi
+
+echo "rolling back to $PREV"
+git reset --hard "$PREV"
+corepack pnpm install --frozen-lockfile
+corepack pnpm -r build
+sudo systemctl restart agent-world
+echo "rolled back to $PREV"
+```
+
+用法：`sudo /opt/agent-world/rollback.sh`。回滚 = `git reset --hard` + 重建 + 重启（约 1-2 分钟）；脚本存于仓库 `scripts/deploy/rollback.sh`（已落地 Hasee）。
 
 ### 4.5 写 CD workflow（`.github/workflows/deploy.yml`）
 
