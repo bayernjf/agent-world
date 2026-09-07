@@ -717,6 +717,8 @@ app.put("/api/graphs/:id", async (c) => {
 
 /** Which node kinds require a worker model and which modality they need. */
 import { validateModels, type ModelDiagnostic } from "./validate-models.js";
+import { enforceSubscription, currentPeriodStart, QuotaError } from "./subscription.js";
+import { isPlanId } from "./plans.js";
 
 app.post("/api/compile", async (c) => {
   const parsed = Graph.safeParse(await c.req.json());
@@ -846,6 +848,28 @@ app.post("/api/admin/users/:id/role", async (c) => {
     ip: clientIp(c),
   });
   return c.json({ ok: true, role: body.role });
+});
+
+/** Monetization P1: owner manually sets a user's subscription plan (MVP,
+ *  bypassing a payment gateway). Plan/price are runtime-editable placeholders
+ *  pending real cost data (design-monetization §6.2, §10.2). */
+app.post("/api/admin/users/:id/plan", async (c) => {
+  const callerId = c.get("userId");
+  if (!isOwner(callerId)) return c.json({ error: "forbidden" }, 403);
+  const body = (await c.req.json().catch(() => ({}))) as { plan?: string; status?: string };
+  if (!isPlanId(body.plan)) {
+    return c.json({ error: "plan must be free | starter | pro | team" }, 400);
+  }
+  const target = db.findUserById(c.req.param("id"));
+  if (!target) return c.json({ error: "user not found" }, 404);
+  db.saveSubscription(target.id, body.plan, body.status ?? "active");
+  audit(db, callerId, "plan.update", {
+    objectType: "user",
+    objectId: target.id,
+    detail: { grantee: target.id, plan: body.plan },
+    ip: clientIp(c),
+  });
+  return c.json({ ok: true, plan: body.plan });
 });
 
 // --- User feedback (design-feedback P1+P2) --------------------------------
@@ -1882,6 +1906,27 @@ app.post("/api/runs", async (c) => {
       422,
     );
   }
+
+  // 订阅 gate（design-monetization §5.3）：免费层阻断内置模型，付费层查额度/并发。
+  // 通过 MONETIZATION_ENFORCE=1 显式启用——当前内置模型仅 agnes（demo，无代付成本），
+  // 默认不阻断；待采购真实内置模型（design §3.3）后再开启，避免过早破坏现有产线。
+  if (process.env.MONETIZATION_ENFORCE === "1") {
+    try {
+      const periodStart = currentPeriodStart();
+      enforceSubscription(graph, loadConfig(ownerId), {
+        subscription: db.loadSubscription(ownerId),
+        usedTokens:
+          db.usageFor(ownerId, "tokens_in", periodStart) + db.usageFor(ownerId, "tokens_out", periodStart),
+        activeRuns: db.activeRuns(ownerId),
+      });
+    } catch (err) {
+      if (err instanceof QuotaError) {
+        return c.json({ error: "subscription", code: err.code, message: err.message }, 402);
+      }
+      throw err;
+    }
+  }
+
   try {
     const { runId, diagnostics } = await startRun({
       db,

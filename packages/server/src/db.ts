@@ -976,6 +976,30 @@ export function openDb(file: string) {
        WHERE r.graph_id = ?
        ORDER BY r.started_at DESC LIMIT ?`,
     ),
+    // Monetization (design-monetization): subscriptions + usage ledger.
+    getSubscription: db.prepare(
+      `SELECT plan, status, provider, external_id, current_period_start, current_period_end
+       FROM subscriptions WHERE user_id = ?`,
+    ),
+    upsertSubscription: db.prepare(
+      `INSERT INTO subscriptions (user_id, plan, status, provider, external_id, current_period_start, current_period_end, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(user_id) DO UPDATE SET
+         plan = excluded.plan, status = excluded.status, provider = excluded.provider,
+         external_id = excluded.external_id, current_period_start = excluded.current_period_start,
+         current_period_end = excluded.current_period_end, updated_at = excluded.updated_at`,
+    ),
+    usageForMetric: db.prepare(
+      `SELECT COALESCE(SUM(amount), 0) AS total FROM usage_ledger WHERE user_id = ? AND period_start = ? AND metric = ?`,
+    ),
+    accumulateUsage: db.prepare(
+      `INSERT INTO usage_ledger (user_id, period_start, metric, amount, updated_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(user_id, period_start, metric) DO UPDATE SET amount = amount + excluded.amount, updated_at = excluded.updated_at`,
+    ),
+    countActiveRuns: db.prepare(
+      `SELECT COUNT(*) AS n FROM runs WHERE user_id = ? AND status IN ('running', 'halted')`,
+    ),
   };
 
   return {
@@ -1016,6 +1040,68 @@ export function openDb(file: string) {
     /** RBAC P3: grant or revoke the global admin role (owner-only route). */
     updateUserRole(id: string, role: string) {
       stmts.updateUserRole.run(role, id);
+    },
+
+    // ---- Monetization (design-monetization §5): subscription + usage ledger ----
+    loadSubscription(userId: string):
+      | {
+          plan: string;
+          status: string;
+          provider: string | null;
+          externalId: string | null;
+          currentPeriodStart: number;
+          currentPeriodEnd: number;
+        }
+      | undefined {
+      const row = stmts.getSubscription.get(userId) as
+        | {
+            plan: string;
+            status: string;
+            provider: string | null;
+            external_id: string | null;
+            current_period_start: number;
+            current_period_end: number;
+          }
+        | undefined;
+      if (!row) return undefined;
+      return {
+        plan: row.plan,
+        status: row.status,
+        provider: row.provider,
+        externalId: row.external_id,
+        currentPeriodStart: row.current_period_start,
+        currentPeriodEnd: row.current_period_end,
+      };
+    },
+    saveSubscription(
+      userId: string,
+      plan: string,
+      status: string,
+      opts: { provider?: string; externalId?: string; periodStart?: number; periodEnd?: number } = {},
+    ) {
+      const now = Date.now();
+      const periodStart = opts.periodStart ?? now;
+      const periodEnd = opts.periodEnd ?? now + 30 * 24 * 60 * 60 * 1000;
+      stmts.upsertSubscription.run(
+        userId,
+        plan,
+        status,
+        opts.provider ?? null,
+        opts.externalId ?? null,
+        periodStart,
+        periodEnd,
+        now,
+        now,
+      );
+    },
+    usageFor(userId: string, metric: string, periodStart: number): number {
+      return (stmts.usageForMetric.get(userId, periodStart, metric) as { total: number }).total;
+    },
+    accumulateUsage(userId: string, periodStart: number, metric: string, amount: number) {
+      stmts.accumulateUsage.run(userId, periodStart, metric, amount, Date.now());
+    },
+    activeRuns(userId: string): number {
+      return (stmts.countActiveRuns.get(userId) as { n: number }).n;
     },
 
     /** Grant or overwrite a shared role (editor/viewer) on a resource. */
@@ -3599,6 +3685,33 @@ const MIGRATIONS: Migration[] = [
       )`);
       db.exec(`CREATE INDEX IF NOT EXISTS idx_feedback_user_time ON feedback(user_id, created_at)`);
       db.exec(`CREATE INDEX IF NOT EXISTS idx_feedback_status ON feedback(status, created_at)`);
+    },
+  },
+  {
+    version: 34,
+    description: "subscriptions + usage_ledger for monetization P0/P1 (design-monetization)",
+    detect: (db) => tableExists(db, "subscriptions"),
+    up: (db) => {
+      db.exec(`CREATE TABLE IF NOT EXISTS subscriptions (
+        user_id              TEXT PRIMARY KEY,
+        plan                 TEXT NOT NULL,
+        status               TEXT NOT NULL,
+        provider             TEXT,
+        external_id          TEXT,
+        current_period_start INTEGER NOT NULL,
+        current_period_end   INTEGER NOT NULL,
+        created_at           INTEGER NOT NULL,
+        updated_at           INTEGER NOT NULL
+      )`);
+      db.exec(`CREATE TABLE IF NOT EXISTS usage_ledger (
+        user_id        TEXT NOT NULL,
+        period_start   INTEGER NOT NULL,
+        metric         TEXT NOT NULL,
+        amount         REAL NOT NULL,
+        updated_at     INTEGER NOT NULL,
+        PRIMARY KEY (user_id, period_start, metric)
+      )`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_usage_ledger_user ON usage_ledger(user_id, period_start)`);
     },
   },
 ];

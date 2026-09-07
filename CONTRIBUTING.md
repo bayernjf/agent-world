@@ -49,6 +49,10 @@ Before opening a PR, make all three pass for the packages you touched.
 - **Worker seam**: model calls go through `routingWorker` / the worker interface.
   Never call a provider directly from the engine.
 - Token cost is metered **after** a call returns, never charged up front.
+- **DB access goes through `packages/server/src/db.ts`** — never write raw SQL or
+  `db.prepare(...)` outside the persistence module. The dual-track plan
+  (self-hosted SQLite / SaaS PostgreSQL) depends on this abstraction; see
+  `docs/design-scaling.md`.
 
 ## Tests
 
