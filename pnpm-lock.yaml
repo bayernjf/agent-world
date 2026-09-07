@@ -111,7 +111,7 @@ importers:
         version: link:../core
       '@hono/node-server':
         specifier: ^1.13.7
-        version: 1.19.17(hono@4.13.4)
+        version: 1.19.17(hono@4.13.7)
       '@types/pg':
         specifier: ^8.23.1
         version: 8.23.1
@@ -122,8 +122,8 @@ importers:
         specifier: ^0.8.3
         version: 0.8.3
       hono:
-        specifier: ^4.6.14
-        version: 4.13.4
+        specifier: ^4.13.7
+        version: 4.13.7
       jose:
         specifier: ^6.2.11
         version: 6.2.11
@@ -1469,8 +1469,8 @@ packages:
   heimdalljs@0.2.6:
     resolution: {integrity: sha512-o9bd30+5vLBvBtzCPwwGqpry2+n0Hi6H1+qwt6y+0kwRHGGF8TFIhJPmnuM0xO97zaKrDZMwO/V56fAnn8m/tA==}
 
-  hono@4.13.4:
-    resolution: {integrity: sha512-AGEwKIyRMHRv1t8Wjwa3LHxQ61X5CqrdFT+4BRNTpqS5aJNnpl5WLjADb7vFlJzI/8uK7T5QLVApCMQKNa3LgQ==}
+  hono@4.13.7:
+    resolution: {integrity: sha512-c8/gF9ac8Y78/agExVocyLevgR+JlpNB444Py0FSX8pJoPdYUfUzRcXtYEYGwt6l19qIlVZPN5Mfsw9jFShmQQ==}
     engines: {node: '>=16.9.0'}
 
   html-encoding-sniffer@6.0.0:
@@ -2776,9 +2776,9 @@ snapshots:
     dependencies:
       is-negated-glob: 1.0.0
 
-  '@hono/node-server@1.19.17(hono@4.13.4)':
+  '@hono/node-server@1.19.17(hono@4.13.7)':
     dependencies:
-      hono: 4.13.4
+      hono: 4.13.7
 
   '@jridgewell/gen-mapping@0.3.13':
     dependencies:
@@ -3576,7 +3576,7 @@ snapshots:
     dependencies:
       rsvp: 3.2.1
 
-  hono@4.13.4: {}
+  hono@4.13.7: {}
 
   html-encoding-sniffer@6.0.0:
     dependencies:
