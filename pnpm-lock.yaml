@@ -110,8 +110,8 @@ importers:
         specifier: workspace:*
         version: link:../core
       '@hono/node-server':
-        specifier: ^1.13.7
-        version: 1.19.17(hono@4.13.7)
+        specifier: ^2.1.1
+        version: 2.1.1(hono@4.13.7)
       '@types/pg':
         specifier: ^8.23.1
         version: 8.23.1
@@ -646,9 +646,9 @@ packages:
     resolution: {integrity: sha512-kjotm7XJrJ6v+7knhPaRgaT6q8F8K2jiafwYdNHLzmV0uGLuZY43FK6smNSHUPrhq5kX2slCUy+RGG/xGqmIKA==}
     engines: {node: '>=10.13.0'}
 
-  '@hono/node-server@1.19.17':
-    resolution: {integrity: sha512-dSneS5qhiauZWGDCeK4o695Xd9nUNjviSZCMQrj10eetr8Uln1ucn6bbphOM6UynAMMtNIzZNSpL9vnASJwrPQ==}
-    engines: {node: '>=18.14.1'}
+  '@hono/node-server@2.1.1':
+    resolution: {integrity: sha512-ELuehkj5VCBdgEw9zs+ivkKwyzzUCSQuE96YmiPvn1ECBoZCczbFXJLeEGMTYjphP6gydh4pHMqEYPVMYUVgQg==}
+    engines: {node: '>=20'}
     peerDependencies:
       hono: ^4
 
@@ -2776,7 +2776,7 @@ snapshots:
     dependencies:
       is-negated-glob: 1.0.0
 
-  '@hono/node-server@1.19.17(hono@4.13.7)':
+  '@hono/node-server@2.1.1(hono@4.13.7)':
     dependencies:
       hono: 4.13.7
 
