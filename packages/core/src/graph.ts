@@ -865,13 +865,25 @@ export type FormConnector = z.infer<typeof FormConnector>;
 
 /** Pulls rows from a SQL database; the query result becomes the source text. */
 export const DatabaseConnector = z.object({
-  /** sqlite only for now (Node built-in driver, zero deps, no secret in config). */
-  driver: z.enum(["sqlite"]).default("sqlite"),
+  /** "sqlite" (local file, zero deps) | "postgres" (network, `pg`). MySQL is a planned extension point. */
+  driver: z.enum(["sqlite", "postgres"]).default("sqlite"),
   /** SQLite database file path (resolved like the file connector's paths). */
-  path: z.string(),
+  path: z.string().optional(),
+  /** PostgreSQL host. */
+  host: z.string().optional(),
+  /** PostgreSQL port (default 5432). */
+  port: z.number().int().min(1).max(65535).optional(),
+  /** PostgreSQL database name. */
+  database: z.string().optional(),
+  /** PostgreSQL user. */
+  user: z.string().optional(),
+  /** PostgreSQL password (sealed at rest via SECRET_KEYS). */
+  password: z.string().optional(),
+  /** PostgreSQL SSL (default true — cloud-hosted PG usually requires it). */
+  ssl: z.boolean().optional(),
   /** Read-only query; must be a single SELECT / WITH…SELECT — writes are rejected. */
   query: z.string(),
-  /** Optional bind parameters (positional `?` placeholders), for injection safety. */
+  /** Optional bind parameters (`$1` for postgres, `?` for sqlite), for injection safety. */
   params: z.array(z.unknown()).optional(),
   /** Result serialization: json (pretty) or csv (header row + value rows). */
   format: z.enum(["json", "csv"]).default("json"),

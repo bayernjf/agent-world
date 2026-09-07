@@ -1,6 +1,6 @@
 # Database Connector 设计（4.2 Connector 推进）
 
-> 状态：**已落地（2026-09-01，P0 SQLite）** | 关联：roadmap-tasks 4.2 Connector、deferred-items 集成线
+> 状态：**已落地（2026-09-01 P0 SQLite；2026-09-08 P1 PostgreSQL）** | 关联：roadmap-tasks 4.2 Connector、deferred-items 集成线
 > 目标：补齐 Connector 的**数据库**数据源，让产线能自动从数据库拉数据——与已落地的 file/http/form 一起构成"自动拉数据"（从"玩具"到"工具"）的完整数据入口。
 
 ## 1. 背景与现状
@@ -20,13 +20,25 @@ export const ConnectorType = z.enum(["manual", "file", "http", "form", "database
 
 /** Pulls rows from a SQL database; query result serialized as source text. */
 export const DatabaseConnector = z.object({
-  /** "sqlite"（本地文件，Node 24 内置驱动，零依赖） */
-  driver: z.enum(["sqlite"]).default("sqlite"),
+  /** "sqlite"（本地文件，Node 24 内置驱动，零依赖）| "postgres"（网络库，pg 驱动）。MySQL 为预留扩展点。 */
+  driver: z.enum(["sqlite", "postgres"]).default("sqlite"),
   /** SQLite 数据库文件路径（相对 packages/server 工作目录或绝对路径）。 */
-  path: z.string(),
+  path: z.string().optional(),
+  /** PostgreSQL 主机。 */
+  host: z.string().optional(),
+  /** PostgreSQL 端口（默认 5432）。 */
+  port: z.number().int().min(1).max(65535).optional(),
+  /** PostgreSQL 库名。 */
+  database: z.string().optional(),
+  /** PostgreSQL 用户。 */
+  user: z.string().optional(),
+  /** PostgreSQL 密码（落盘前经静态加密 SECRET_KEYS 密封）。 */
+  password: z.string().optional(),
+  /** PostgreSQL SSL（默认 true，云托管 PG 通常要求）。 */
+  ssl: z.boolean().optional(),
   /** 只读查询；必须为 SELECT，拒绝写语句（INSERT/UPDATE/DELETE/DDL）。 */
   query: z.string(),
-  /** 可选绑定参数，防注入（? 占位符）。 */
+  /** 可选绑定参数，防注入（postgres `$1` / sqlite `?`）。 */
   params: z.array(z.unknown()).optional(),
   /** 结果转文本格式：json（JSON.stringify）| csv（表格行）。默认 json。 */
   format: z.enum(["json", "csv"]).default("json"),
@@ -88,5 +100,32 @@ export type DatabaseConnector = z.infer<typeof DatabaseConnector>;
 
 ## 5. 分期与 deferred
 
-- **P0（本次）**：SQLite database connector（只读 + SELECT 白名单 + json/csv）。
-- **P1（deferred）**：PostgreSQL / MySQL——需第三方驱动（pg/mysql2）、连接串密钥管理（对齐 at-rest 加密 or provider 密钥）、出站访问控制（对齐 net allowlist/SSRF 代理）。触发条件：出现"产线要直连线上业务库"的真实场景。
+- **P0（2026-09-01）**：SQLite database connector（只读 + SELECT 白名单 + json/csv）。
+- **P1（2026-09-08 已实施 PostgreSQL）**：PostgreSQL 驱动（`pg` 纯 JS，零本地依赖）——
+  - schema 增 `driver:"postgres"` + `host/port/database/user/password/ssl`（见 §2.1）；
+  - `connectors.ts` 分派 `queryPostgres`（异步连接 + 只读双保险：SELECT 白名单 + 会话级 `default_transaction_read_only=on`）；
+  - 密码对齐静态加密：`at-rest.ts` 的 `SECRET_KEYS` 正则增 `password`，graph 文档落盘即密封，不吐明文；
+  - 连接失败/查询失败走既有 `CONNECTOR` 错误码 + 重试路径。
+- **MySQL（预留扩展点，未实施）**：driver enum 加 `"mysql"` + connectors 分派加一个分支即可。触发条件：出现"产线要直连 MySQL 存量库"的真实场景。
+
+## 6. 后续推进与迁移规范（2026-09-08 探讨定稿）
+
+### 6.1 数据接入三阶段
+
+| 阶段 | 内容 | 是否要迁移 |
+|---|---|---|
+| A（已做） | SQLite + PostgreSQL driver，配置内联 graph 文档 | 零迁移 |
+| B（可选） | 连接资源化：`db_connections` 表（连接配置抽成独立资源，一处配多处引用） | 迁移 35 |
+| C（按需） | MySQL driver、连接池 + 超时、只读强化对齐 PG | 按需 |
+
+> 阶段 B 是「能用 → 好用」的分水岭，但属体验优化，排在商业化 M0 验收之后。
+
+### 6.2 迁移 SQL 规范（沿用 `db.ts` 现有 MIGRATIONS 体系）
+
+- 迁移定义：`MIGRATIONS` 数组内联 `{ version, description, detect?, up }`，version 纯递增、永不复用不回改。
+- 留痕四层：① 代码层 `description`（关联设计文档）；② 运行层 `schema_migrations` 表（version + applied_at）；③ 安全层迁移前自动 `VACUUM INTO` 成 `pre-migration-*.db`；④ 日志层 `migration applied`。
+- 命名规则：
+  - 表名 `snake_case` 复数（`db_connections`、`usage_ledger`）；
+  - 索引名 `idx_<表>_<列>`（`idx_db_connections_user`）；
+  - description 格式 `<内容> for <目的> (<关联设计文档>)`。
+- 迁移清单文档（待建）：`docs/migrations.md` 一行一条（version | description | 关联文档 | 涉及表），统一索引，避免查表翻 `db.ts` 源码。

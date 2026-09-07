@@ -1008,6 +1008,32 @@ export function openDb(file: string) {
     ping() {
       return (db.prepare("SELECT 1 AS ok").get() as { ok: number }).ok === 1;
     },
+    /** Idempotent run creation: maps (userId, idempotencyKey) → runId. */
+    getIdempotentRun(userId: string, key: string) {
+      const row = db
+        .prepare("SELECT run_id FROM idempotency_keys WHERE user_id = ? AND key = ?")
+        .get(userId, key) as { run_id: string } | undefined;
+      return row?.run_id ?? null;
+    },
+    saveIdempotentRun(userId: string, key: string, runId: string) {
+      db.prepare(
+        "INSERT OR IGNORE INTO idempotency_keys (user_id, key, run_id, created_at) VALUES (?, ?, ?, ?)",
+      ).run(userId, key, runId, Date.now());
+    },
+    /**
+     * Prunes events older than the given epoch-millisecond cutoff. Safe because
+     * `runs.snapshot` already holds each run's full state (design-scaling §2.1),
+     * so archived event history can be reconstructed from the snapshot. Returns
+     * the number of rows deleted.
+     */
+    pruneOldEvents(before: number) {
+      return Number(db.prepare("DELETE FROM events WHERE ts < ?").run(before).changes);
+    },
+    /** Runs sqlite's own integrity check; true when the database is consistent. */
+    verifyIntegrity() {
+      const rows = db.prepare("PRAGMA integrity_check").all() as Array<{ integrity_check: string }>;
+      return rows.length === 1 && rows[0]!.integrity_check === "ok";
+    },
     createUser(id: string, email: string, passwordHash: string) {
       // RBAC P0 (design-rbac.md): the very first account bootstraps the
       // instance owner. The single-owner invariant is enforced by the partial
@@ -3131,6 +3157,12 @@ interface Migration {
    */
   detect?: (db: DatabaseSync) => boolean;
   up: (db: DatabaseSync) => void;
+  /**
+   * Reverses `up` for a one-step rollback (migration down). Optional: only
+   * pure-DDL migrations provide it; data migrations without a safe inverse
+   * omit it so rollback refuses rather than guessing.
+   */
+  down?: (db: DatabaseSync) => void;
 }
 
 function columnExists(db: DatabaseSync, table: string, column: string): boolean {
@@ -3722,6 +3754,23 @@ const MIGRATIONS: Migration[] = [
       db.exec(`CREATE INDEX IF NOT EXISTS idx_usage_ledger_user ON usage_ledger(user_id, period_start)`);
     },
   },
+  {
+    version: 35,
+    description: "idempotency_keys for idempotent run creation (engineering-blueprint §2)",
+    detect: (db) => tableExists(db, "idempotency_keys"),
+    up: (db) => {
+      db.exec(`CREATE TABLE IF NOT EXISTS idempotency_keys (
+        user_id    TEXT NOT NULL,
+        key        TEXT NOT NULL,
+        run_id     TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY (user_id, key)
+      )`);
+    },
+    down: (db) => {
+      db.exec("DROP TABLE IF EXISTS idempotency_keys");
+    },
+  },
 ];
 
 const LATEST_VERSION = MIGRATIONS.at(-1)!.version;
@@ -3778,6 +3827,33 @@ function runMigrations(db: DatabaseSync) {
   if (migrated.length > 0) {
     log.info("migrations complete", { count: migrated.length, totalMs: Date.now() - now });
   }
+}
+
+/**
+ * Rolls back the most recently applied migration (one step). Refuses when that
+ * migration has no `down` (data migrations without a safe inverse). Deletes the
+ * schema_migrations row so a later boot re-applies it. Returns null when no
+ * migration has been applied.
+ */
+export function rollbackLatestMigration(db: DatabaseSync): { version: number; description: string } | null {
+  const row = db.prepare("SELECT MAX(version) AS v FROM schema_migrations").get() as { v: number | null };
+  const version = row.v;
+  if (!version) return null;
+  const migration = MIGRATIONS.find((m) => m.version === version);
+  if (!migration) return null;
+  if (!migration.down) {
+    throw new Error(`migration ${version} (${migration.description}) has no down step — cannot roll back`);
+  }
+  db.exec("BEGIN");
+  try {
+    migration.down(db);
+    db.prepare("DELETE FROM schema_migrations WHERE version = ?").run(version);
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
+  return { version, description: migration.description };
 }
 
 /** The schema version this build expects. Exposed for diagnostics/backups. */

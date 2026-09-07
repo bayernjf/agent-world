@@ -1,0 +1,9 @@
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    # Dependabot opens PRs for out-of-date deps; CI's `pnpm audit` gate then
+    # blocks merges when a known CVE is present. Both together = supply-chain
+    # scanning (engineering-blueprint §4).

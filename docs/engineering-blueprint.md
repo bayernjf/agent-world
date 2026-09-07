@@ -46,7 +46,7 @@
 | 能力 | 说明 | 补齐方案 | 优先级 |
 |---|---|---|---|
 | 自述式 health | 环境/分支/commit + DB/密钥/Provider 就绪状态 | ✅ 已实施（2026-09-07），见 [production-ops.md §2](production-ops.md) | 完成 |
-| **Metrics（RED）** | Rate/Error/Duration + 业务指标（run 数、成本、产线吞吐） | 埋点 `run` 生命周期/API 层，Prometheus 格式 `/metrics` 端点 + 可选 Prometheus 抓取 | P1 |
+| **Metrics（RED）** | Rate/Error/Duration + 业务指标（run 数、成本、产线吞吐） | ✅ 已实施（2026-09-08）：`metrics.ts` 零依赖内存聚合 + `/metrics` Prometheus 端点；HTTP 埋点（requests/errors/duration）+ run 埋点（total/failed/cost/active）；顺带修复请求日志中间件注册顺序（health/auth 请求此前不经过） | 完成 |
 | **告警** | 服务挂、错误率飙升、成本逼近预算、磁盘满 | Uptime Kuma（探针）+ Grafana Alerting（指标阈值），推 Telegram/邮件 | P1 |
 | **分布式 Tracing** | 一个 run 从 webhook 触发的完整链路 | OpenTelemetry 贯穿 engine/API（runId 作 traceId），Jaeger/Tempo 后端 | P2 |
 | **SLO/SLI** | 可用性、错误率、P99 延迟的承诺与监控 | 定义 SLI（如 `/api/health` 成功率、run 完成率）+ 错误预算 | P2 |
@@ -68,7 +68,7 @@
 | **全局限流** | 登录/注册/run 创建入口防滥用 | ✅ 已实施（2026-09-08）：`rate-limit.ts` 内存滑动窗口 `RateLimiter`；login 10次/15min/IP、register 30次/小时/IP、run 30次/min/user | 完成 |
 | **优雅关闭** | 收到 SIGTERM 时完成在途 run、关闭 DB/SSE | ✅ 已实施（2026-09-08）：`index.ts` 监听 SIGTERM/SIGINT → `server.close()` 停新请求 → drain 在途 run（`AGENT_WORLD_SHUTDOWN_GRACE_MS` 超时 abort）→ 关 DB → `disposeIsolatedWorkers` → exit | 完成 |
 | **优雅启动** | readiness 探针在 DB/密钥就绪前不接流量 | ✅ 已实施（2026-09-08）：`/api/health` 的 `ok` = DB/encryption/JWT 关键检查全通过，未就绪返回 503 | 完成 |
-| **幂等审计** | 关键 API（建 run、发布、webhook）防重复提交 | 幂等键 + 去重表 | P1 |
+| **幂等审计** | 关键 API（建 run、发布、webhook）防重复提交 | ✅ 已实施（2026-09-08）：建 run 幂等——`Idempotency-Key` header + `idempotency_keys` 表（迁移 35），重复提交返回同一 runId（`replay:true`）；发布/webhook 待接入 | 完成 |
 | **恢复演练** | 验证备份真的能恢复（RTO/RPO） | ✅ 已实施（2026-09-08）：`restore-agent-world-drill.sh` 恢复到干净目录 + 启动验证，实测 RTO<1min / RPO<24h | 完成 |
 | **熔断器** | Provider 连续失败时暂停调用避免雪崩 | 按 Provider 维度的 circuit breaker（失败率/半开探测） | P2 |
 | **多副本高可用** | 单点故障切换 | 需先 SQLite→Postgres（见域 6 / k8s 判断） | P2 |
@@ -88,8 +88,8 @@
 |---|---|---|---|
 | **一键回滚** | 版本化 release + 切软链回退 | `releases/<ts>-<commit>/` 目录 + `rollback.sh` 切 systemd `WorkingDirectory` 软链 | P0 |
 | **CD 自动化** | push dev → CI 绿 → 自动部署 Hasee | self-hosted runner + `deploy.sh`（已有雏形，补齐自动触发 + 失败通知） | P1 |
-| **migration 回滚** | DB migration 支持 down（出问题能退回） | migration 脚本加 `down` 逻辑 + 回滚时执行 | P1 |
-| **feature flag** | 功能灰度开关（不发布代码也能开关功能） | 简单 config 表 + `FeatureFlag` 判断，先覆盖高风险功能 | P1 |
+| **migration 回滚** | DB migration 支持 down（出问题能退回） | ✅ 已实施（2026-09-08）：`Migration.down` 可选字段 + `rollbackLatestMigration` + `scripts/migrate-down.ts`；纯 DDL 迁移写 down，无 down 的迁移回滚拒绝（不猜） | 完成 |
+| **feature flag** | 功能灰度开关（不发布代码也能开关功能） | ✅ 已实施（2026-09-08）：`feature-flags.ts`（`FEATURE_FLAGS` 注册表 + `isFeatureEnabled`，未知 flag fail-closed）+ `AppConfig.featureFlags`；首个 flag `rpa-metrics`（合规风险默认关，使用点待 RPA 接 API 端点） | 完成 |
 | **金丝雀/蓝绿/滚动** | 渐进放量、零停机 | 依赖多副本 + 负载均衡（需先 Docker 化 + 反代） | P2 |
 | **制品管理 / SBOM** | 容器镜像、依赖清单、软件物料清单 | Docker 镜像 + `npm audit --omit=dev` + SBOM 生成（syft） | P2 |
 | **环境一致性** | 本地/CI/生产环境一致 | devcontainer + 锁文件 + 固定 Node/pnpm 版本（已修 packageManager 固定） | P2 |
@@ -108,8 +108,8 @@
 |---|---|---|---|
 | **gitleaks 扫历史** | 排查 git 历史是否泄露过密钥 | `gitleaks detect` / `trufflehog` 扫全历史，发现即轮换 | P0 |
 | **TLS/HTTPS** | 传输加密 | 域名 + Let's Encrypt（certbot）或云 SSL，nginx 443 | P1 |
-| **依赖漏洞扫描** | 已知 CVE 拦截 | `npm audit` 进 CI 门禁 + Dependabot/Renovate 自动 PR | P1 |
-| **SAST** | 代码静态安全分析 | 可选 CodeQL / Semgrep 进 CI | P1 |
+| **依赖漏洞扫描** | 已知 CVE 拦截 | ✅ 已实施（2026-09-08）：CI 加 `pnpm audit --audit-level=high` 门禁 + `.github/dependabot.yml` 周度自动 PR；顺带修 glob 高危 CVE（overrides 强制 >=10.5.0） | 完成 |
+| **SAST** | 代码静态安全分析 | ✅ 已实施（2026-09-08）：`.github/workflows/codeql.yml`（CodeQL 周度 + push/PR 触发，结果进 Security tab） | 完成 |
 | **DAST** | 运行态漏洞扫描 | OWASP ZAP 扫公网端点 | P2 |
 | **合规** | SOC 2 / ISO 27001 | 需审计日志防篡改（hash chain）+ 密钥管理流程齐备后评估 | P2 |
 | **渗透测试** | 外部攻击者视角 | 上线前请第三方或自助 | P2 |
@@ -163,8 +163,8 @@
 | 能力 | 说明 | 补齐方案 | 优先级 |
 |---|---|---|---|
 | **恢复演练** | 验证备份可恢复 + 明确 RTO/RPO | 定期在干净目录恢复备份 + 启动验证，runbook 化 | P0 |
-| 数据归档/清理 | 旧 run/audit_log 定期清理 | 按保留策略清理（audit_log P3 已登记 180 天） | P1 |
-| 一致性校验 | 备份完整性校验 | 备份后 checksum 校验 + 定期抽查 | P1 |
+| 数据归档/清理 | 旧 run/audit_log 定期清理 | ✅ 已实施（2026-09-08）：`pruneOldEvents` + `scripts/prune-events.ts`（默认清理 90 天前 events；snapshot 保留完整状态，归档不影响恢复） | 完成 |
+| 一致性校验 | 备份完整性校验 | ✅ 已实施（2026-09-08）：`db.verifyIntegrity()`（PRAGMA integrity_check） | 完成 |
 | 异地/多版本备份 | 防单机磁盘故障 | 备份同步到第二位置（M3 上云后） | P2 |
 | 数据质量监控 | 成本/用量数据异常检测 | 计量数据对账 + 异常告警 | P2 |
 
@@ -183,7 +183,7 @@
 | **E2E 冒烟** | 注册→配 provider→建产线→跑→出成品全链路 | Playwright 脚本，部署后自动跑一次 | P0 |
 | 集成测试 | 跨模块（DB/engine/API）真实联动 | 现有 db 集成用例扩展 | P1 |
 | 契约测试 | API schema 前后端一致 | OpenAPI 契约 + 契约测试 | P1 |
-| 覆盖率门禁 | 关键路径覆盖率下限 | vitest coverage + CI 阈值（先核心模块） | P1 |
+| 覆盖率门禁 | 关键路径覆盖率下限 | ✅ 已实施（2026-09-08）：`@vitest/coverage-v8` + `test:coverage` 脚本 + 阈值门禁（lines 75 / stmts 72 / funcs 74 / branches 62，基线 79.3/76.7/78.4/67.3） | 完成 |
 | 性能/负载测试 | 产线并发、API 吞吐 | k6/autocannon 压测脚本 | P2 |
 | 混沌测试 | 故障注入 | 见域 2 | P2 |
 
@@ -213,7 +213,7 @@
 | 能力 | 补齐方案 | 优先级 |
 |---|---|---|
 | 一键本地启动 | 单命令拉起 server+web+db（`pnpm dev` 已接近，补环境检查） | P0 |
-| pre-commit hooks | lint/format 自动执行（husky + lint-staged） | P1 |
+| pre-commit hooks | lint/format 自动执行（husky + lint-staged） | ✅ 已实施（2026-09-08）：husky + `.husky/pre-commit` 跑 `pnpm typecheck`（拦截类型错误；未引入 lint/format 工具，避免全量格式化大改动） | 完成 |
 | devcontainer | 新人/新机一键环境（Node 24 + pnpm + 工具） | P1 |
 | 依赖管理策略 | 定期升级 + 审计（衔接域 4 供应链） | P1 |
 | 代码生成器 | 新节点/模板脚手架 | P2 |
@@ -229,9 +229,9 @@
 | 能力 | 补齐方案 | 优先级 |
 |---|---|---|
 | runbook 补全 | 覆盖常见故障（服务挂/DB 锁/磁盘满/成本超限） | P0 |
-| postmortem 模板 | 事故复盘模板（时间线/根因/行动项） | P1 |
-| SLA/SLO 定义 | 明确承诺（见域 1 SLO） | P1 |
-| 变更管理 | 变更记录 + 审批流程 | P1 |
+| postmortem 模板 | 事故复盘模板（时间线/根因/行动项） | ✅ 已实施（2026-09-08）：`runbooks/postmortem-template.md`（blameless 复盘模板） | 完成 |
+| SLA/SLO 定义 | 明确承诺（见域 1 SLO） | ✅ 已实施（2026-09-08）：`production-ops.md §7`（可用性/run 完成率/P99/错误率 四项 SLI + SLO） | 完成 |
+| 变更管理 | 变更记录 + 审批流程 | ✅ 已实施（2026-09-08）：`runbooks/change-management.md`（变更流程 + 回滚对照） | 完成 |
 | on-call 值班 | 多人协作才有意义，个人项目暂缓 | P2 |
 
 ---
