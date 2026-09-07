@@ -152,7 +152,7 @@ State of Agent World as of 2026-09-06.
 
 > ⚠️ 待办 1-37 已全部完成（✅），详细过程已归档至 [handoff-archive-2026-09-07.md](docs/handoff-archive-2026-09-07.md)，本区仅留标题行作索引；待办 38 进行中。
 
-1. ✅ **自动数据接入 Connector + 触发方式（2026-08-31 立项，2026-09-01 推进）**：file/http/form/manual 本已落地，本次补齐 **SQLite database connector**（`9657538`+`9003120`，见 design-connector-database.md）；4.6 webhook/cron/event/batch 本已全链路落地，本次挖出并修复 **event 成功状态契约 bug**（`e9b55ae`，引擎发 `done` 而触发层等 `completed`，见 design-triggers.md）。**两者组合已是无人值守产线**；剩余仅 PG/MySQL 驱动、多实例分布式锁（均 deferred）。整体进度基线见 [docs/project-progress.md](docs/project-progress.md)
+1. ✅ **自动数据接入 Connector + 触发方式（2026-08-31 立项，2026-09-01 推进）**：file/http/form/manual 本已落地，本次补齐 **SQLite database connector**（`9657538`+`9003120`，见 design-connector-database.md）；4.6 webhook/cron/event/batch 本已全链路落地，本次挖出并修复 **event 成功状态契约 bug**（`e9b55ae`，引擎发 `done` 而触发层等 `completed`，见 design-triggers.md）。**两者组合已是无人值守产线**；剩余仅 MySQL 驱动、多实例分布式锁（均 deferred；PostgreSQL 驱动 2026-09-08 已落地）。整体进度基线见 [docs/project-progress.md](docs/project-progress.md)
 
 2. ✅ **跑通真实产线（狗粮验证，2026-08-31 立项，2026-09-02 完成）**：roadmap-tasks 1.7.1——用产品自己跑一条端到端真实产线（如模板"多源研究简报"或内容产线），验证"新用户路径 → 配置 provider → 建产线 → 运行 → 看产物 → 复盘"全链路真实可用。产出：一份真实运行记录 + 暴露的体验/功能缺口清单。紧接回归测试集。**逐模板验证状态跟踪见** **[docs/template-checklist.md](docs/template-checklist.md)**
 
