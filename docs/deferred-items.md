@@ -93,6 +93,7 @@
 | k8s / 容器编排 | SQLite 单文件数据库无法多副本水平扩展；上 k8s 需先 SQLite→Postgres，改动量级远大于编排本身；当前 1 机 1 用户 | SQLite→Postgres 完成后 + 规模化（≥5 台 / 多副本容灾 / 多人协作） | [production-ops.md §4](production-ops.md) |
 | Secret Manager / KMS | 单机自托管引入外部依赖无收益；keyring 抽象已就位，届时只换 keyring 来源 | 多租户云托管（M3） | [production-ops.md §3](production-ops.md) + [design-key-rotation.md §6](design-key-rotation.md) |
 | 异地备份推送 | 当前备份落 `/var/backups/agent-world` 与原库同盘，机器级故障（硬盘坏/整机丢）会连备份一起丢，是备份策略唯一真实风险点 | 有备份盘 / NAS / 云盘 / 第二台机器 | [deploy-ubuntu-server.md §六](runbooks/deploy-ubuntu-server.md) |
+| PostgreSQL 性能压测 + 生产切换等价性 | 开发侧已全部落地（2026-09-08：双驱动 + 搬迁脚本 + Docker postgres:16 本地演练，§8 验收 1-4/6 通过）；性能压测与生产切换等价性需要真实负载/流量，本地压测无代表意义 | 进入 SaaS 阶段（M3 之后），按 design-postgres-migration.md §6.2 流程执行 | [design-postgres-migration.md §8](design-postgres-migration.md) |
 
 ### 文档线
 

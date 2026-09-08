@@ -1,6 +1,6 @@
 # Handoff
 
-State of Agent World as of 2026-09-06.
+State of Agent World as of 2026-09-08.
 
 > **历史内容已归档**：2026-08-27 之前的全部变更记录、各阶段详细描述、质量门与已知 gap，已整体搬到 [docs/handoff-archive.md](docs/handoff-archive.md)。本文件只保留"项目当前状态 + 活跃任务 + 最近 5 个变更"。
 
