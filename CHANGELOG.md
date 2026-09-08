@@ -44,7 +44,8 @@ All notable changes are documented here. The format is based on
 - 模板总数从 27 增至 33（覆盖 29 种节点类型中的 23 种）
 
 ### Fixed
-- **@vitejs/plugin-react 升级卡在 Vite 6** — dependabot 提的 6.1.1 peer 是 `vite: ^8` 且 import `vite/internal`，Vite 6 下 `vite.config.ts` 加载即崩（PR #203）。改升到仍支持 Vite 6 的 5.x，并让 dependabot 忽略该包的 major，直到 Vite 升级。
+- **内置 agnes 模型单价保存后被抹掉（M1 开跑阻塞）** — 内置 `agnes` tier 无价格卡，且 `loadConfig` 每次读取都用内置 `AGNES_PROVIDER` 整体覆盖 builtin provider，导致在「设置 → 模型」里给 6 个 agnes 模型填的单价保存后随重载丢失、电费恒为 `$0.00000`。把价格卡写进源码 `AGNES_PROVIDER.pricing`（随产品发布，非正式占位单价 ≈ OpenAI 同级 list price，正式计费前换真实费率）；custom provider（ceshi）仍走设置持久化。配全后投料实测电费 `$0.00051`、token 830 入/643 出，与 `computeCost` 手算一致。
+- **ABReport A/B 对比「单跑成本」测试 flaky** — `renderAndWait` 只等 `api.abReport` 被调用、没等 promise resolve 后 `setReport` 重渲染，CI 高负载下断言撞上「加载中…」偶发失败；改为等加载指示消失（`!report` 门一旦有数据不再回到加载屏）。 — dependabot 提的 6.1.1 peer 是 `vite: ^8` 且 import `vite/internal`，Vite 6 下 `vite.config.ts` 加载即崩（PR #203）。改升到仍支持 Vite 6 的 5.x，并让 dependabot 忽略该包的 major，直到 Vite 升级。
 - **代码沙箱 Node 权限门控探测** — `probeNodePermissionGate` 剥离 `NODE_OPTIONS` 后探测（宿主 `--require` 语言 shim 需要 fs 读、被权限模型默认拒绝，导致误判「无权限模型」）；`--allow-fs-*` 只在检测到 `--permission`/`--experimental-permission` 门控后才发出，杜绝 Node ≥ 22.2 下「无门控的 allow 参数」触发 `ERR_MISSING_OPTION` 崩溃。详见 [docs/design-code-sandbox.md](docs/design-code-sandbox.md)。
 - **tesseract 语言包缓存目录** — 从 server 进程 CWD 改到 `<DB dir>/tessdata`（与 `artifacts/`、`logs/`、`.encryption-key` 同级），47MB chi_sim+eng 不再污染 CWD。
 
