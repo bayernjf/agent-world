@@ -25,7 +25,7 @@
 | 4 | systemd 托管 server + 冒烟 | ✅ 完成（active + /api/health={"ok":true} + 开机自启 + 密钥生成） |
 | 5 | web + nginx + 防火墙 + 局域网验收 | ✅ 完成（nginx 反代 + 局域网 curl={"ok":true}；ufw 规则预设未 enable） |
 | 6 | 备份与运维加固 | ✅ 完成（备份脚本 + cron 每日 02:30 + 手跑验证） |
-| 7 | 商业化 P0/P1 验收清单 | ✅ 完成（6/8 通过；code 沙箱 bwrap /tmp 只读待修复；备份恢复演练待做） |
+| 7 | 商业化 P0/P1 验收清单 | ✅ 完成（8/8 全部通过） |
 | CI/CD | 自动部署（deploy key / runner / deploy.sh / deploy.yml） | ✅ 基础设施就绪；deploy.yml 待 push + 合并到 dev 后生效 |
 
 ## 执行前置：一次性免密配置
@@ -131,7 +131,7 @@
 | 5 | 触发类（cron） | ✅ 通过 | `* * * * *` 每分钟自动触发，服务器日志确认 `run started`（trigger: trg_mtsc2f0a） |
 | 6 | code 节点沙箱 | ✅ 通过 | systemd `PrivateTmp=true` + bwrap `--tmpfs /tmp` 双层修复；运营周报"清洗汇总"code 节点正常执行，产出 JSON |
 | 7 | P1 前置探针 | ✅ 通过 | `subscriptions` / `usage_ledger` 表存在（`invoices` 表 P2 才建，属正常） |
-| 8 | 备份可恢复 | ⏳ 待演练 | 备份目录存在，有迁移前备份（pre-migration-*.db）和快照（snap-2026-09-07/08），cron 每日 02:30 已配置；restore 演练待做 |
+| 8 | 备份可恢复 | ✅ 通过 | 备份脚本 `/usr/local/bin/backup-agent-world.sh` + root crontab `30 2 * * *`；恢复演练：从快照 rsync 到临时目录，DB 35 表完整，current/ 备份数据与 live DB 一致（2 users / 4 graphs / 6 runs），secrets（.jwt-secret / .encryption-keys）完整 |
 
 ### 本次验收修复的 Bug
 
@@ -156,5 +156,22 @@
 
 **后续待办**：
 1. ~~修复 code 沙箱并重新部署到 Hasee~~ ✅ 已完成
-2. 做一次备份 restore 演练
-3. 把 nginx 正则匹配、systemd `PrivateTmp=true`、bwrap `--tmpfs /tmp` 写入 `deploy-ubuntu-server.md`
+2. ~~做一次备份 restore 演练~~ ✅ 已完成（见下方）
+3. ~~把 nginx 正则匹配、systemd `PrivateTmp=true`、bwrap `--tmpfs /tmp` 写入 `deploy-ubuntu-server.md`~~ ✅ 已完成
+
+### 备份恢复演练（2026-09-08 已完成）
+
+**备份机制**：
+- 脚本：`/usr/local/bin/backup-agent-world.sh`（sqlite3 wal_checkpoint + rsync + 每日硬链接快照，保留 7 份）
+- 定时：root crontab `30 2 * * *`（每天 02:30 UTC）
+- 目录：`/var/backups/agent-world/`（current/ + snap-YYYY-MM-DD/）
+
+**恢复演练步骤**（不中断服务，恢复到临时目录验证）：
+1. `rsync -a snap-2026-09-08/ /tmp/restore-test/`
+2. 验证文件完整性：DB（393KB）、artifacts/、logs/、secrets（.jwt-secret 64B / .encryption-keys 68B，600 权限）
+3. 验证 DB 完整性：`node:sqlite` 打开成功，35 个表全部存在（users/graphs/runs/subscriptions/usage_ledger 等）
+4. 验证数据一致性：current/ 备份与 live DB 完全一致（2 users / 4 graphs / 6 runs）
+
+**结论**：备份机制正常工作，数据可完整恢复。验收项 8 通过。
+
+**备注**：每日快照（snap-YYYY-MM-DD）是当天首次备份时创建的硬链接副本，数据为创建时的状态；current/ 目录始终是最新备份。恢复时应使用 current/ 或最新的快照。
