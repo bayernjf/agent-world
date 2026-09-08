@@ -150,6 +150,30 @@ describe("templates", () => {
     expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
   });
 
+  it("only the two strong-product templates preset a product connector (design-template-connector-presets §4.1)", () => {
+    const PRESET = new Set(["tpl-product", "tpl-xiaohongshu"]);
+    const presetIds: string[] = [];
+    for (const tpl of TEMPLATES) {
+      const productSources = tpl.graph.nodes.filter(
+        (n) => n.kind === "source" && n.source?.connector?.type === "product",
+      );
+      if (productSources.length > 0) {
+        presetIds.push(tpl.id);
+        // Exactly one product source, manual selection (§4.2).
+        expect(productSources).toHaveLength(1);
+        expect(productSources[0]!.source!.connector!.type).toBe("product");
+        // The selling-points node anchors the product name via the global shortcut.
+        const selling = tpl.graph.nodes.find((n) => n.id === "selling");
+        expect(selling?.textGen?.prompt).toContain("${product.name}");
+      }
+    }
+    expect(presetIds.sort()).toEqual([...PRESET].sort());
+    // And no other template accidentally carries a product connector.
+    expect(TEMPLATES.filter((t) => !PRESET.has(t.id)).every((t) =>
+      t.graph.nodes.every((n) => n.source?.connector?.type !== "product"),
+    )).toBe(true);
+  });
+
   it("blank template is empty but valid", () => {
     const graph = instantiateTemplate(getTemplate("tpl-blank")!);
     expect(graph.nodes).toHaveLength(0);
