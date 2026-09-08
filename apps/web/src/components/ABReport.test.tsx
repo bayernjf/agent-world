@@ -70,6 +70,13 @@ async function renderAndWait(open = true, groupId = "ab-group-001") {
     await waitFor(() => {
       expect(mockAbReport).toHaveBeenCalled();
     });
+    // The fetch promise resolving + setReport is a separate tick after the mock
+    // is called; once `report` is set the loading gate (`!report`) never shows
+    // again. Wait for the loading indicator to clear so assertions run against
+    // the rendered table rather than racing the microtask flush under CI load.
+    await waitFor(() => {
+      expect(screen.queryByText("加载中…")).toBeNull();
+    });
   }
   return result;
 }
