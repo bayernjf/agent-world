@@ -25,7 +25,7 @@
 | 4 | systemd 托管 server + 冒烟 | ✅ 完成（active + /api/health={"ok":true} + 开机自启 + 密钥生成） |
 | 5 | web + nginx + 防火墙 + 局域网验收 | ✅ 完成（nginx 反代 + 局域网 curl={"ok":true}；ufw 规则预设未 enable） |
 | 6 | 备份与运维加固 | ✅ 完成（备份脚本 + cron 每日 02:30 + 手跑验证） |
-| 7 | 商业化 P0/P1 验收清单 | ⏳ 待用户在浏览器验收 |
+| 7 | 商业化 P0/P1 验收清单 | ✅ 完成（6/8 通过；code 沙箱 bwrap /tmp 只读待修复；备份恢复演练待做） |
 | CI/CD | 自动部署（deploy key / runner / deploy.sh / deploy.yml） | ✅ 基础设施就绪；deploy.yml 待 push + 合并到 dev 后生效 |
 
 ## 执行前置：一次性免密配置
@@ -117,3 +117,38 @@
 - **服务器 git 化**：原 `/opt/agent-world` 是 rsync 部署（无 `.git`），改为「备份 .env → `git clone -b dev` → 恢复 .env + install + build → 停服切换目录」；切换后为 dev 分支 git 仓库，`/api/health` 正常 ✅
 - **deploy.sh**：`/opt/agent-world/deploy.sh`（`git pull --ff-only` → install → build → restart），runner 以 agentworld 跑、无需 `sudo -u` ✅
 - **deploy.yml**：`.github/workflows/deploy.yml`（`workflow_run` 监听 CI 在 dev 成功 → self-hosted runner 执行 deploy.sh），已 commit，**待 push + 合并到 dev 后生效** ⏳
+
+## 阶段 7：商业化 P0/P1 验收清单（2026-09-08 完成）
+
+### 验收结果总览
+
+| # | 验收项 | 结果 | 验证方式 |
+|---|---|---|---|
+| 1 | 注册/账号 | ✅ 通过 | 首次注册 `2467055074@qq.com` 为所有者；二次注册 `1911407837@qq.com` 为普通用户 |
+| 2 | 配置 Provider | ✅ 通过 | agnes key 已配置，7 个模型（文本/图片/视频）可下拉，tavily 搜索 key 已配置 |
+| 3 | 建产线 + 真实跑通 | ✅ 通过 | 多源研究简报产线跑通（seq 27/27 收工），成品库 2 TXT + 4 JSON |
+| 4 | 成本计量（P0 回采） | ✅ 通过 | `/api/costs` 有数据：tokens_in=973, tokens_out=822, runs=1（P0 第一条真实成本数据） |
+| 5 | 触发类（cron） | ✅ 通过 | `* * * * *` 每分钟自动触发，服务器日志确认 `run started`（trigger: trg_mtsc2f0a） |
+| 6 | code 节点沙箱 | ⚠️ 待修复 | bwrap 中 /tmp 只读，code 节点 `mkdtemp` 报 `EROFS: read-only file system`。运营周报"清洗汇总"节点失败 |
+| 7 | P1 前置探针 | ✅ 通过 | `subscriptions` / `usage_ledger` 表存在（`invoices` 表 P2 才建，属正常） |
+| 8 | 备份可恢复 | ⏳ 待演练 | 备份目录存在，有迁移前备份（pre-migration-*.db）和快照（snap-2026-09-07/08），cron 每日 02:30 已配置；restore 演练待做 |
+
+### 本次验收修复的 Bug
+
+**nginx 301 重定向导致派发任务 404**——`POST /api/runs`（不带斜杠）被 nginx 301 重定向到 `/api/runs/`，重定向后 POST 变 GET 导致 404。
+
+- 根因：nginx 配置中 `location /api/runs/`（带斜杠）导致不带斜杠的请求被 nginx 自动重定向
+- 修复：`location /api/runs/` → `location ~ ^/api/runs/?`（正则匹配，带或不带斜杠都匹配）
+- 验证：`POST /api/runs` 返回 401（不再 301），产线可正常派发
+- 影响：P0 级阻塞 bug，会导致所有产线无法派发任务
+
+### code 沙箱 Bug 根因与修复方案
+
+**问题**：bwrap 配置中只有 `--ro-bind / /`（根只读）和 `--bind workdir workdir`（工作目录可写），但 `/tmp` 没有挂载为可写的 tmpfs。code 节点或 Node.js 运行时尝试在 `/tmp` 创建临时目录时，因为 `/tmp` 是只读根文件系统的一部分而失败。
+
+**修复**：在 `packages/server/src/code-sandbox.ts` 的 `bwrapBackend.planSpawn` 中，在 `--bind workdir workdir` 之前添加 `--tmpfs /tmp`。
+
+**后续待办**：
+1. 修复 code 沙箱并重新部署到 Hasee
+2. 做一次备份 restore 演练
+3. 把 nginx 正则匹配和 bwrap `--tmpfs /tmp` 写入 `deploy-ubuntu-server.md`

@@ -304,6 +304,13 @@ describe("bwrap backend", () => {
     const bindIdx = a.indexOf("--bind");
     expect(a[bindIdx + 1]).toBe("/tmp/wd");
     expect(a[bindIdx + 2]).toBe("/tmp/wd");
+    // /tmp must be a writable tmpfs (otherwise mkdtemp in user code / Node
+    // runtime fails with EROFS under the read-only root bind). It must come
+    // BEFORE --bind workdir so the workdir bind (under /tmp/) takes precedence.
+    const tmpfsIdx = a.indexOf("--tmpfs");
+    expect(tmpfsIdx).toBeGreaterThan(-1);
+    expect(a[tmpfsIdx + 1]).toBe("/tmp");
+    expect(tmpfsIdx).toBeLessThan(bindIdx);
     expect(a).toContain("--unshare-net");
     expect(a).toContain("--unshare-pid");
     expect(a).toContain("--die-with-parent");
