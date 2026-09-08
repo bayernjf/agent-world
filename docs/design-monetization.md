@@ -423,8 +423,8 @@ cloudflared tunnel --url http://localhost:8791
 
 | 里程碑 | 内容 | 状态 |
 |---|---|---|
-| **M0 本地运行环境** | 把 agent-world 部署成可 7×24 跑真实产线的**单机服务**（Ubuntu 纯 Server / Node 24 / systemd / nginx 同源 / bwrap 沙箱），作为 P0 成本计量回采的运行床 | 🔵 进行中（见 [deploy-ubuntu-execution-log.md](runbooks/deploy-ubuntu-execution-log.md)） |
-| **M1 成本计量回采** | 用 M0 环境跑 2-4 周真实产线，攒真实成本数据（§8.4 单位经济） | ⬜ |
+| **M0 本地运行环境** | 把 agent-world 部署成可 7×24 跑真实产线的**单机服务**（Ubuntu 纯 Server / Node 24 / systemd / nginx 同源 / bwrap 沙箱），作为 P0 成本计量回采的运行床 | ✅ 完成（阶段 0-7 + CI/CD 全部通过，见 [deploy-ubuntu-execution-log.md](runbooks/deploy-ubuntu-execution-log.md)） |
+| **M1 成本计量回采** | 用 M0 环境跑 2-4 周真实产线，攒真实成本数据（§8.4 单位经济） | 🔵 进行中（2026-09-08 起；开跑前置「单价配全」已由成本报表警告守护，见下） |
 | **M2 订阅 gate 落地** | P1 的 `enforceSubscription` + 套餐 + 硬配额（§5） | ⬜ |
 | **M3 收款与上线** | P2 账单/支付 + 域名/TLS（§6，先手动收款再接网关） | ⬜ |
 
@@ -438,7 +438,8 @@ cloudflared tunnel --url http://localhost:8791
 - [ ] 落 `subscriptions` / `usage_ledger` / `invoices` 三张表（迁移）
 - [ ] `plans.ts` 配额定义 + `loadSubscription`/`usageFor` 读接口
 - [ ] 用量回采脚本：从现有 `node_runs`/`runs`/`artifacts` 回填 `usage_ledger`（幂等）
-- [ ] 成本报表增强：`/api/costs` 增加按用户/模型/月的真实成本拆分（为定价提供数据）
+- [x] 成本报表增强：`/api/costs` 增加按用户/模型/月的真实成本拆分（为定价提供数据）——2026-09-08 落地 `node_runs.model`（迁移 36）+ `byModel` 聚合 + 前端「按模型分摊电费」表 + CSV `model` 段；迁移前的行归入 `(未记录模型)` 桶，保证与总额对账
+- [x] 单价缺口审计：`unpricedModels()`（core）判定「完全没配单价 / 只配了一部分」，server 启动 warn + `/api/costs.unpricedModels`，前端成本报表顶部警告条。**这是 M1 的开跑前置**——缺单价的模型 `cost_usd` 当场按 0 落库，事后无法补算，回采数据会系统性偏低
 - **验收**：能按用户看到「本月真实成本 = 平台代付模型费 + 存储 + 编排」，是 §10 定价的数据前提。
 
 ### P1 —— 订阅 gate + 免费层（核心收费逻辑）

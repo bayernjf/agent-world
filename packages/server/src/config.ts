@@ -252,6 +252,19 @@ const AGNES_PROVIDER: ProviderConfig = {
     "agnes-video-v2.0": "video",
     "agnes-video-2.5-flash": "video",
   },
+  // Informal placeholder pricing, mapped to comparable OpenAI list prices so
+  // the cost meter is non-zero in non-production use: flash text ≈ gpt-4o-mini
+  // / gpt-4.1-mini (USD/1M tokens), image ≈ gpt-image-1 standard/HD (USD/image),
+  // video ≈ Sora-tier (USD/sec). Replace with real agnes gateway rates before
+  // relying on the cost report for anything billing-sensitive.
+  pricing: {
+    "agnes-2.0-flash": { input: 0.15, output: 0.6 },
+    "agnes-2.5-flash": { input: 0.4, output: 1.6 },
+    "agnes-image-2.0-flash": { perImage: 0.04 },
+    "agnes-image-2.1-flash": { perImage: 0.08 },
+    "agnes-video-v2.0": { perSecond: 0.1 },
+    "agnes-video-2.5-flash": { perSecond: 0.15 },
+  },
   // Agnes gateway serves video at POST /v1/videos (not /videos/generations),
   // so declare it explicitly — independent of the global MODALITY_ENDPOINT default.
   endpoints: { video: "/videos" },

@@ -6,6 +6,7 @@ All notable changes are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **成本计量开跑前置：单价缺口审计 + 按模型分摊（商业化 P0）** — `unpricedModels()`（core）按 modality 判定模型价格卡「完全没配 / 只配了一部分」，server 启动 warn + `/api/costs` 下发 `unpricedModels`，成本报表顶部警告条点名缺哪几项；缺单价的模型 `cost_usd` 当场按 0 落库、事后无法补算，所以这是 2-4 周真实成本回采的开跑前置。同时补齐**按模型分摊**：`node_runs.model`（迁移 36，带 `down`）记录产生费用的模型，`byModel` 聚合 + 前端「按模型分摊电费」表 + CSV `model` 段，迁移前的行归入 `(未记录模型)` 桶保证与总额对账。详见 [docs/design-monetization.md](docs/design-monetization.md) §9 P0。
 - **连接器插值机制恢复 + 全 33 模板盘点** — 恢复 D3/D4/D5（快捷名注册表、简报字段回填与插值、空库/悬空引用 warn），这些在 9/6 被回滚但 9/8 经 git 历史核实为无说明回滚后恢复。两个强商品模板（淘宝详情、小红书种草）预设 product connector（manual selection）。详见 [docs/design-data-interpolation.md](docs/design-data-interpolation.md) §14 回滚/恢复记录 + [docs/design-template-connector-presets.md](docs/design-template-connector-presets.md)。
 - **PostgreSQL database connector** — `DatabaseConnector.driver` 增 `postgres`（`pg` 纯 JS）+ `host/port/database/user/password/ssl`；`queryPostgres` 异步连接 + SELECT 白名单 + 会话级只读双保险；密码对齐静态加密（`SECRET_KEYS` 加 `password`）；MySQL 预留扩展点。详见 [docs/design-connector-database.md](docs/design-connector-database.md)。
 - **成本硬熔断 + 全局限流（P0）** — `startRun` 入口月度预算硬停（`monthlyBudgetExceeded` + `AGENT_WORLD_BUDGET_BYPASS`）；`rate-limit.ts` 内存滑动窗口挂 login/register/run 三入口。详见 [docs/engineering-blueprint.md](docs/engineering-blueprint.md)。
@@ -43,6 +44,7 @@ All notable changes are documented here. The format is based on
 - 模板总数从 27 增至 33（覆盖 29 种节点类型中的 23 种）
 
 ### Fixed
+- **@vitejs/plugin-react 升级卡在 Vite 6** — dependabot 提的 6.1.1 peer 是 `vite: ^8` 且 import `vite/internal`，Vite 6 下 `vite.config.ts` 加载即崩（PR #203）。改升到仍支持 Vite 6 的 5.x，并让 dependabot 忽略该包的 major，直到 Vite 升级。
 - **代码沙箱 Node 权限门控探测** — `probeNodePermissionGate` 剥离 `NODE_OPTIONS` 后探测（宿主 `--require` 语言 shim 需要 fs 读、被权限模型默认拒绝，导致误判「无权限模型」）；`--allow-fs-*` 只在检测到 `--permission`/`--experimental-permission` 门控后才发出，杜绝 Node ≥ 22.2 下「无门控的 allow 参数」触发 `ERR_MISSING_OPTION` 崩溃。详见 [docs/design-code-sandbox.md](docs/design-code-sandbox.md)。
 - **tesseract 语言包缓存目录** — 从 server 进程 CWD 改到 `<DB dir>/tessdata`（与 `artifacts/`、`logs/`、`.encryption-key` 同级），47MB chi_sim+eng 不再污染 CWD。
 
