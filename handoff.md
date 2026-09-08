@@ -250,6 +250,13 @@ State of Agent World as of 2026-09-08.
 
 > 全部缓做/低优事项（含上述两条）已统一登记在 [docs/deferred-items.md](docs/deferred-items.md)——每条带触发条件与决策详情链接，触发条件满足时移回本区并标注重启日期。
 
+> **M1 运行床验收（A 只读对账 / B 真实模型冒烟 / C 安全韧性，2026-09-08 真机 Hasee）**：A 对账通过；B 文本/图片计费端到端非零（图片 $0.04/张），**视频/音频曾被计为 $0**——根因是 provider worker 从不填 media units/cost，已在 `6554769`（feature/20260824）修复（视频 perSecond：适配器 durationPath → num_frames/frame_rate → 节点 duration → 5s 兜底；音频 perKiloChar 按输入字符数），17 用例绿；C 层四项全过——**C1 限流**连发 40 次 POST /api/runs，前 30 放行为 404（图不存在，限流在 startRun 前不建 run 不烧钱）、第 31-40 全部 429；**C2 预算硬熔断**置 monthlyBudgetUsd=0.0001 后派发现场 402「monthly budget exceeded」，模型调用前拦截零费用，测后已还原 null；**C3 静态加密**settings.data 为 enc:v2 密文，节点级 apiKey 注入实测 graphs.doc 落 enc:v2、明文 0 命中（已还原）；**C4 SIGTERM drain** 今日部署重启日志 `shutdown started(inflightRuns:0)→shutdown complete(abortedRuns:0)`→迁移重跑→健康恢复，历史 4 次 SIGTERM 全部干净退出。
+>
+> ⚠️ **三个真实缺口（按严重度，2026-09-08 真机核实）**：
+> 1. **媒体计量修复未上 Hasee（M1 数据正在被污染，不可逆）**：修复在 `6554769`（仅 feature/20260824），部署停在 `4eb87d2`（dev），已核实 `6554769` **不是** `4eb87d2` 的祖先 → 生产视频/音频仍按 $0 落库。M1 回采窗口里凡走视频/音频的 run，成本系统性偏低且 `cost_usd` 当场按 0 落库、**事后无法补算**。**合并/部署 feature/20260824 到 dev 前，视频/音频成本数据不可信。**
+> 2. **备份只在同盘同机 + WAL checkpoint 静默失败（灾备风险）**：`/var/lib/agent-world` 与 `/var/backups/agent-world` 同挂在 `/`（同一 LVM 卷），rsync `--delete` + hardlink 快照全在一块盘，单盘/整机损毁连备份一起丢；且备份脚本的 `sqlite3 wal_checkpoint` 因机器**未装 sqlite3** 报错、被 `|| true` 吞掉——rsync 拷的是未 checkpoint 的库 + WAL。已登记 [deferred-items 生产级运维线「异地备份推送」](docs/deferred-items.md)（本次补 wal_checkpoint 细节）。
+> 3. **/metrics 未经 nginx 暴露（可观测性盲点）**：80 端口 `/metrics` 返回 SPA `text/html`，仅直连 :8791 出 Prometheus `text/plain`；外部/容器化 Prometheus 抓不到。已登记 deferred-items（本次新增行）。
+
 ## Recently shipped (last 20)
 
 按 commit 时间倒序，每条一行影响面 + commit hash：
