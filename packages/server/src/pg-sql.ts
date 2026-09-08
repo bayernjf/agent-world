@@ -47,17 +47,20 @@ export function toPgPlaceholders(sql: string): string {
 
 /**
  * Derive the PostgreSQL schema from the SQLite `DDL` (design-postgres-migration
- * §4 rows 4 + 8): map `TEXT`/`INTEGER`/`REAL` to `text`/`bigint`/`double
- * precision`, and rewrite the ISO-8601 default timestamp (SQLite `strftime`)
- * into a UTC `to_char(now(), …)`. The PgDriver runs this at startup for a fresh
- * database; the authoritative data migration is still `migrate-to-postgres.ts`
- * (§6), not this runtime translation.
+ * §4 rows 4 + 8): map `TEXT`/`INTEGER`/`REAL`/`BLOB` to `text`/`bigint`/
+ * `double precision`/`bytea`, and rewrite the ISO-8601 default timestamp
+ * (SQLite `strftime`) into a UTC `to_char(now(), …)`. The PgDriver runs this
+ * at startup for a fresh database; the authoritative data migration is still
+ * `migrate-to-postgres.ts` (§6), not this runtime translation. (`bytea` values
+ * round-trip as Buffer through node-pg — the feedback attachment column is
+ * the only BLOB today.)
  */
 export function toPgDdl(sqliteDdl: string): string {
   return sqliteDdl
     .replace(/\bTEXT\b/g, "text")
     .replace(/\bINTEGER\b/g, "bigint")
     .replace(/\bREAL\b/g, "double precision")
+    .replace(/\bBLOB\b/g, "bytea")
     .replace(
       /DEFAULT \(strftime\('%Y-%m-%dT%H:%M:%SZ', 'now'\)\)/g,
       `DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`,

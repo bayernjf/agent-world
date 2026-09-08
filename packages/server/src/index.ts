@@ -3335,7 +3335,10 @@ if (process.env.NODE_ENV !== "test") {
       ? "env"
       : "file"; // absent env falls back to the keyring file next to the DB
   log.info("server starting", {
-    dbFile: process.env.DB_FILE ?? "agent-world.sqlite",
+    // DB_DRIVER=postgres connects via DATABASE_URL/PG_*; the sqlite path is
+    // only meaningful (jwt-secret/keyring/log file locations) on that driver.
+    dbDriver: db.kind,
+    dbFile: db.kind === "sqlite" ? (process.env.DB_FILE ?? "agent-world.sqlite") : undefined,
     schemaVersion: SCHEMA_VERSION,
     encryptionKeySource,
     encryptionKeyringSize: getEncryptionRing().length,

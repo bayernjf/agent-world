@@ -43,6 +43,16 @@ describe("toPgDdl", () => {
     expect(ddl).toContain("r double precision");
   });
 
+  it("maps BLOB to bytea (feedback attachment)", () => {
+    const ddl = toPgDdl(`CREATE TABLE feedback (
+      id TEXT PRIMARY KEY,
+      attachment BLOB,
+      attachment_mime TEXT
+    );`);
+    expect(ddl).toContain("attachment bytea");
+    expect(ddl).toContain("attachment_mime text");
+  });
+
   it("rewrites the strftime ISO-8601 default to a UTC to_char", () => {
     const ddl = toPgDdl(
       `created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))`,
