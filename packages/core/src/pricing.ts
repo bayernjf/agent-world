@@ -143,6 +143,69 @@ export function computeCost(usage: CostInput, pricing: ModelPricing | undefined)
   return cost;
 }
 
+/**
+ * Whether a modality's price fields are jointly required or alternatives.
+ * "all" — each field bills a separate dimension, so a missing one silently
+ * under-meters (text bills input *and* output).
+ * "any" — the model bills on one of them (TTS charges per second or per 1K
+ * characters, never both), so one filled field is complete.
+ */
+const PRICING_COMPLETENESS: Record<Modality, "all" | "any"> = {
+  text: "all",
+  embedding: "all",
+  image: "all",
+  video: "all",
+  audio: "any",
+};
+
+/** Minimal provider shape needed to audit price cards. Structural on purpose —
+ *  the server's ProviderConfig satisfies it without core depending on it. */
+export interface PriceCardSource {
+  models: string[];
+  pricing?: Record<string, ModelPricing>;
+  modalities?: Record<string, Modality>;
+  enabled?: boolean;
+}
+
+export interface PriceCardGap {
+  provider: string;
+  model: string;
+  modality: Modality;
+  /** "none" — no field set at all, so every call meters as 0 with no error.
+   *  "partial" — some but not all billing dimensions are priced. */
+  level: "none" | "partial";
+  /** Field names still unset, for a message the operator can act on. */
+  missing: Array<keyof ModelPricing>;
+}
+
+/**
+ * Find models that will under-meter because their price card is incomplete.
+ * Exists because `computeCost` returns 0 for an unpriced model rather than
+ * failing: without this audit a cost run-in can silently collect zeros, and
+ * the original price intent cannot be reconstructed after the fact.
+ *
+ * An explicit 0 counts as priced — that declares a free model, which is
+ * different from leaving the field blank. Disabled providers are skipped.
+ */
+export function unpricedModels(providers: Record<string, PriceCardSource>): PriceCardGap[] {
+  const gaps: PriceCardGap[] = [];
+  for (const [name, provider] of Object.entries(providers)) {
+    if (provider.enabled === false) continue;
+    for (const model of provider.models) {
+      const modality = provider.modalities?.[model] ?? DEFAULT_MODALITY;
+      const pricing = provider.pricing?.[model];
+      const fields = PRICING_FIELDS[modality].map((f) => f.key);
+      const missing = fields.filter((key) => pricing?.[key] == null);
+      if (missing.length === fields.length) {
+        gaps.push({ provider: name, model, modality, level: "none", missing });
+      } else if (missing.length > 0 && PRICING_COMPLETENESS[modality] === "all") {
+        gaps.push({ provider: name, model, modality, level: "partial", missing });
+      }
+    }
+  }
+  return gaps;
+}
+
 /** Sum two unit maps, returning a new map (never mutates inputs). */
 export function addUnits(a: UsageUnits | undefined, b: UsageUnits | undefined): UsageUnits {
   const out: UsageUnits = { ...(a ?? {}) };
