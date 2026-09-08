@@ -89,39 +89,136 @@
       "close": "关闭"
     },
     "commands": {
-      "addSource": { "label": "添加原料台", "hint": "产线投料入口（原料台）" },
-      "addTextGen": { "label": "添加文坊", "hint": "LLM 文本生成（文坊），可挂技能卡" },
-      "addGate": { "label": "添加质检站", "hint": "LLM-as-judge 质量检验门（质检站）" },
-      "addImage": { "label": "添加画坊", "hint": "文字生成图片" },
-      "addHttp": { "label": "添加 API 口岸", "hint": "调用外部 REST API（API 口岸）" },
-      "addSink": { "label": "添加成品库", "hint": "产线产物出口（成品库）" },
-      "addVideo": { "label": "添加影坊", "hint": "文字生成视频" },
-      "addAudio": { "label": "添加音坊", "hint": "文字生成语音/音乐" },
-      "newGraph": { "label": "新建产线", "hint": "从模板或空白创建" },
-      "history": { "label": "运行历史", "hint": "查看、加载、删除" },
-      "cost": { "label": "成本报表", "hint": "按产线 / 文坊 / 日期拆解" },
-      "eval": { "label": "质量评估", "hint": "通过率 / 返工 / 时长" },
-      "gallery": { "label": "成品库", "hint": "跨运行产出物画廊" },
-      "glossary": { "label": "术语对照表", "hint": "标准术语 ⇄ Agent World 用词" },
-      "compare": { "label": "运行对比", "hint": "两次运行的成本与节点输出" },
-      "triggers": { "label": "触发器", "hint": "Webhook / 定时 / 事件 / 批量" },
-      "ab": { "label": "A/B 实验", "hint": "同一节点多套 prompt 对比" },
-      "settings": { "label": "设置", "hint": "Provider / 模型 / 单价 / 月度预算" },
-      "modelAssign": { "label": "模型分配", "hint": "按模态批量切换当前产线节点的模型" },
-      "brand": { "label": "品牌词库", "hint": "可一键载入到文坊" },
-      "product": { "label": "商品库", "hint": "可复用的商品资料，供原料台一键投料" },
-      "brandAssets": { "label": "品牌素材库", "hint": "Logo / 图片 / 文案片段等可复用素材" },
-      "batch": { "label": "批量任务", "hint": "一份清单逐行跑产线，失败可重跑" },
-      "calendar": { "label": "内容日历", "hint": "按月规划哪天哪个平台发什么" },
-      "performance": { "label": "效果数据", "hint": "曝光/点击/转化/GMV 回流与 ROI" },
-      "publishTargets": { "label": "发布渠道", "hint": "配置可真正发布的开放渠道（Webhook）" },
-      "knowledge": { "label": "知识库", "hint": "历史产线产出与质检结论" },
-      "version": { "label": "产线版本", "hint": "快照 / 恢复" },
-      "variables": { "label": "产线变量", "hint": "跨运行持久化状态（${var.xxx} / set_variable）" },
-      "undo": { "label": "撤销" },
-      "redo": { "label": "重做" },
-      "togglePanels": { "expand": "展开侧栏", "collapse": "收起侧栏" },
-      "toggleTips": { "on": "开启文坊悬停信息", "off": "关闭文坊悬停信息" }
+      "addSource": {
+        "label": "添加原料台",
+        "hint": "产线投料入口（原料台）"
+      },
+      "addTextGen": {
+        "label": "添加文坊",
+        "hint": "LLM 文本生成（文坊），可挂技能卡"
+      },
+      "addGate": {
+        "label": "添加质检站",
+        "hint": "LLM-as-judge 质量检验门（质检站）"
+      },
+      "addImage": {
+        "label": "添加画坊",
+        "hint": "文字生成图片"
+      },
+      "addHttp": {
+        "label": "添加 API 口岸",
+        "hint": "调用外部 REST API（API 口岸）"
+      },
+      "addSink": {
+        "label": "添加成品库",
+        "hint": "产线产物出口（成品库）"
+      },
+      "addVideo": {
+        "label": "添加影坊",
+        "hint": "文字生成视频"
+      },
+      "addAudio": {
+        "label": "添加音坊",
+        "hint": "文字生成语音/音乐"
+      },
+      "newGraph": {
+        "label": "新建产线",
+        "hint": "从模板或空白创建"
+      },
+      "history": {
+        "label": "运行历史",
+        "hint": "查看、加载、删除"
+      },
+      "cost": {
+        "label": "成本报表",
+        "hint": "按产线 / 文坊 / 日期拆解"
+      },
+      "eval": {
+        "label": "质量评估",
+        "hint": "通过率 / 返工 / 时长"
+      },
+      "gallery": {
+        "label": "成品库",
+        "hint": "跨运行产出物画廊"
+      },
+      "glossary": {
+        "label": "术语对照表",
+        "hint": "标准术语 ⇄ Agent World 用词"
+      },
+      "compare": {
+        "label": "运行对比",
+        "hint": "两次运行的成本与节点输出"
+      },
+      "triggers": {
+        "label": "触发器",
+        "hint": "Webhook / 定时 / 事件 / 批量"
+      },
+      "ab": {
+        "label": "A/B 实验",
+        "hint": "同一节点多套 prompt 对比"
+      },
+      "settings": {
+        "label": "设置",
+        "hint": "Provider / 模型 / 单价 / 月度预算"
+      },
+      "modelAssign": {
+        "label": "模型分配",
+        "hint": "按模态批量切换当前产线节点的模型"
+      },
+      "brand": {
+        "label": "品牌词库",
+        "hint": "可一键载入到文坊"
+      },
+      "product": {
+        "label": "商品库",
+        "hint": "可复用的商品资料，供原料台一键投料"
+      },
+      "brandAssets": {
+        "label": "品牌素材库",
+        "hint": "Logo / 图片 / 文案片段等可复用素材"
+      },
+      "batch": {
+        "label": "批量任务",
+        "hint": "一份清单逐行跑产线，失败可重跑"
+      },
+      "calendar": {
+        "label": "内容日历",
+        "hint": "按月规划哪天哪个平台发什么"
+      },
+      "performance": {
+        "label": "效果数据",
+        "hint": "曝光/点击/转化/GMV 回流与 ROI"
+      },
+      "publishTargets": {
+        "label": "发布渠道",
+        "hint": "配置可真正发布的开放渠道（Webhook）"
+      },
+      "knowledge": {
+        "label": "知识库",
+        "hint": "历史产线产出与质检结论"
+      },
+      "version": {
+        "label": "产线版本",
+        "hint": "快照 / 恢复"
+      },
+      "variables": {
+        "label": "产线变量",
+        "hint": "跨运行持久化状态（${var.xxx} / set_variable）"
+      },
+      "undo": {
+        "label": "撤销"
+      },
+      "redo": {
+        "label": "重做"
+      },
+      "togglePanels": {
+        "expand": "展开侧栏",
+        "collapse": "收起侧栏"
+      },
+      "toggleTips": {
+        "on": "开启文坊悬停信息",
+        "off": "关闭文坊悬停信息"
+      }
     }
   },
   "glossary": {
@@ -173,9 +270,15 @@
     "thInput": "输入",
     "thOutput": "输出",
     "thCost": "电费",
+    "byModel": "按模型分摊电费",
+    "thModel": "模型",
     "thNode": "节点",
     "thAttempts": "尝试",
-    "thRework": "返工"
+    "thRework": "返工",
+    "unpricedTitle": "有模型没配全单价，下面的电费偏低",
+    "unpricedNone": "完全没配单价（计为 0）",
+    "unpricedPartial": "只配了一部分（缺 {{fields}}）",
+    "unpricedHint": "缺的单价无法事后补算——先去「设置 → 模型」配好，再开始正式回采。"
   },
   "evalReport": {
     "title": "质量评估",

@@ -70,7 +70,7 @@ export async function genericNode(ctx: NodeRunContext, node: GraphNode, nodeId: 
       emit({ type: "artifact.produced", nodeId, attempt, artifact });
       ctx.totalCostUsd += usage.costUsd;
       emit({ type: "power.metered", totalCostUsd: ctx.totalCostUsd, budgetUsd });
-      emit({ type: "node.finished", nodeId, attempt, output: out, usage });
+      emit({ type: "node.finished", nodeId, attempt, output: out, usage: { ...usage, model: gcfg.model } });
       states.set(nodeId, "done");
       sendPackets(nodeId, out.slice(0, 120), "text");
     } catch (err) {
@@ -141,7 +141,7 @@ export async function genericNode(ctx: NodeRunContext, node: GraphNode, nodeId: 
       artifacts.set(nodeId, arts);
       ctx.totalCostUsd += usage.costUsd;
       emit({ type: "power.metered", totalCostUsd: ctx.totalCostUsd, budgetUsd });
-      emit({ type: "node.finished", nodeId, attempt, output: "", usage });
+      emit({ type: "node.finished", nodeId, attempt, output: "", usage: { ...usage, model: gcfg.model } });
       states.set(nodeId, "done");
       sendPackets(nodeId, `通用节点生成图片 ${results.length} 张`, "image");
     } catch (err) {
@@ -208,7 +208,7 @@ export async function genericNode(ctx: NodeRunContext, node: GraphNode, nodeId: 
       artifacts.set(nodeId, arts);
       ctx.totalCostUsd += usage.costUsd;
       emit({ type: "power.metered", totalCostUsd: ctx.totalCostUsd, budgetUsd });
-      emit({ type: "node.finished", nodeId, attempt, output: "", usage });
+      emit({ type: "node.finished", nodeId, attempt, output: "", usage: { ...usage, model: gcfg.model } });
       states.set(nodeId, "done");
       sendPackets(nodeId, `通用节点生成视频 ${results.length} 段`, "video");
     } catch (err) {
@@ -275,7 +275,7 @@ export async function genericNode(ctx: NodeRunContext, node: GraphNode, nodeId: 
       artifacts.set(nodeId, arts);
       ctx.totalCostUsd += usage.costUsd;
       emit({ type: "power.metered", totalCostUsd: ctx.totalCostUsd, budgetUsd });
-      emit({ type: "node.finished", nodeId, attempt, output: "", usage });
+      emit({ type: "node.finished", nodeId, attempt, output: "", usage: { ...usage, model: gcfg.model } });
       states.set(nodeId, "done");
       sendPackets(nodeId, `通用节点生成音频 ${results.length} 段`, "audio");
     } catch (err) {

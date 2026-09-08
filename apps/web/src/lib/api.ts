@@ -90,6 +90,14 @@ export interface CostReport {
     attempts: number;
     reworks: number;
   }>;
+  byModel: Array<{
+    model: string;
+    calls: number;
+    runs: number;
+    cost_usd: number;
+    tokens_in: number;
+    tokens_out: number;
+  }>;
   byAttempt: Array<{
     attempt: number;
     calls: number;
@@ -117,6 +125,14 @@ export interface CostReport {
     cost_usd: number;
     tokens_in: number;
     tokens_out: number;
+  }>;
+  /** Models whose price card is blank or partial — their cost above is too low. */
+  unpricedModels: Array<{
+    provider: string;
+    model: string;
+    modality: string;
+    level: "none" | "partial";
+    missing: string[];
   }>;
 }
 

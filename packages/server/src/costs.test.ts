@@ -20,6 +20,7 @@ function finished(
   attempt: number,
   cost: number,
   seq: number,
+  model?: string,
 ): RunEvent {
   return {
     seq,
@@ -35,6 +36,7 @@ function finished(
       cachedTokens: 10,
       reasoningTokens: 0,
       costUsd: cost,
+      model,
     },
   } as RunEvent;
 }
@@ -93,8 +95,30 @@ describe("cost report", () => {
     expect(rep.byMonth[0].runs).toBe(2);
   });
 
-  it("filters by time range and excludes running runs", async () => {
-    await db.createRun({ id: "r1", userId: U, graph, budgetUsd: null, at: DAY_MS * 5 });
+  it("groups cost by model and buckets rows with no recorded model", async () => {
+    await db.createRun({ id: "r1", userId: U, graph, budgetUsd: null, at: DAY_MS * 10 });
+    await db.record("r1", finished("n1", 1, 0.01, 1, "gpt-4o"));
+    await db.record("r1", finished("n1", 2, 0.03, 2, "claude-sonnet-5"));
+    await db.record("r1", finished("n1", 3, 0.005, 3));
+    await db.finishRun("r1", U, "done", DAY_MS * 10 + 1000);
+
+    const rep = await db.costReport();
+    expect(rep.byModel.map((m) => m.model)).toEqual([
+      "claude-sonnet-5",
+      "gpt-4o",
+      "(未记录模型)",
+    ]);
+    const sonnet = rep.byModel[0]!;
+    expect(sonnet.cost_usd).toBeCloseTo(0.03, 5);
+    expect(sonnet.calls).toBe(1);
+    expect(sonnet.runs).toBe(1);
+    expect(sonnet.tokens_in).toBe(100);
+    // Unattributed rows are bucketed, never dropped: byModel must reconcile.
+    const modelTotal = rep.byModel.reduce((s, m) => s + m.cost_usd, 0);
+    expect(modelTotal).toBeCloseTo(rep.totals.cost_usd, 5);
+  });
+
+  it("filters by time range and excludes running runs", async () => {    await db.createRun({ id: "r1", userId: U, graph, budgetUsd: null, at: DAY_MS * 5 });
     await db.record("r1", finished("n1", 1, 0.01, 1));
     await db.finishRun("r1", U, "done", DAY_MS * 5 + 1000);
 

@@ -60,7 +60,7 @@ export async function audioGenNode(ctx: NodeRunContext, node: GraphNode, nodeId:
     artifacts.set(nodeId, audioArts);
     ctx.totalCostUsd += usage.costUsd;
     emit({ type: "power.metered", totalCostUsd: ctx.totalCostUsd, budgetUsd });
-    emit({ type: "node.finished", nodeId, attempt, output: "", usage });
+    emit({ type: "node.finished", nodeId, attempt, output: "", usage: { ...usage, model: cfg.model } });
     states.set(nodeId, "done");
     sendPackets(nodeId, `生成音频 ${results.length} 段`, "audio");
   } catch (err) {

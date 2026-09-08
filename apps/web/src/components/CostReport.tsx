@@ -180,6 +180,30 @@ export default function CostReport({ open, onClose }: Props) {
             </p>
           ) : (
             <>
+              {report.unpricedModels.length > 0 && (
+                <section className="cost-section cost-warn">
+                  <strong>{t("modals:costReport.unpricedTitle")}</strong>
+                  <ul className="cost-warn__list">
+                    {report.unpricedModels.map((m) => (
+                      <li key={`${m.provider}/${m.model}`}>
+                        <span className="mono">
+                          {m.provider}/{m.model}
+                        </span>{" "}
+                        —{" "}
+                        {m.level === "none"
+                          ? t("modals:costReport.unpricedNone")
+                          : t("modals:costReport.unpricedPartial", {
+                              fields: m.missing.join(", "),
+                            })}
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="muted cost-warn__hint">
+                    {t("modals:costReport.unpricedHint")}
+                  </p>
+                </section>
+              )}
+
               <div className="cost-stats">
                 <div className="cost-stat">
                   <div className="cost-stat__label">
@@ -289,6 +313,40 @@ export default function CostReport({ open, onClose }: Props) {
                           <td className="num mono">{fmtInt(g.tokens_in)}</td>
                           <td className="num mono">{fmtInt(g.tokens_out)}</td>
                           <td className="num mono">{fmtUsd(g.cost_usd)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </section>
+
+              <section className="cost-section">
+                <h3 className="cost-section__title">
+                  {t("modals:costReport.byModel")}
+                </h3>
+                {report.byModel.length === 0 ? (
+                  <p className="muted">{t("common.empty")}</p>
+                ) : (
+                  <table className="run-table cost-table">
+                    <thead>
+                      <tr>
+                        <th>{t("modals:costReport.thModel")}</th>
+                        <th className="num">{t("modals:reports.runs")}</th>
+                        <th className="num">{t("modals:costReport.thInput")}</th>
+                        <th className="num">
+                          {t("modals:costReport.thOutput")}
+                        </th>
+                        <th className="num">{t("modals:costReport.thCost")}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {report.byModel.map((m) => (
+                        <tr key={m.model}>
+                          <td className="mono">{m.model}</td>
+                          <td className="num mono">{m.runs}</td>
+                          <td className="num mono">{fmtInt(m.tokens_in)}</td>
+                          <td className="num mono">{fmtInt(m.tokens_out)}</td>
+                          <td className="num mono">{fmtUsd(m.cost_usd)}</td>
                         </tr>
                       ))}
                     </tbody>
