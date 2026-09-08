@@ -118,6 +118,14 @@ export interface CostReport {
     tokens_in: number;
     tokens_out: number;
   }>;
+  /** Models whose price card is blank or partial — their cost above is too low. */
+  unpricedModels: Array<{
+    provider: string;
+    model: string;
+    modality: string;
+    level: "none" | "partial";
+    missing: string[];
+  }>;
 }
 
 export interface RunSummary {

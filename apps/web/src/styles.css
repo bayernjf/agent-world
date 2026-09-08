@@ -4315,6 +4315,21 @@ select {
 .cost-section {
   margin-bottom: var(--space-6);
 }
+.cost-warn {
+  border: 1px solid var(--warning);
+  background: var(--warning-bg);
+  border-radius: var(--radius-md);
+  padding: var(--gap-md) var(--space-4);
+  font-size: var(--text-sm);
+}
+.cost-warn__list {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+.cost-warn__hint {
+  margin: 6px 0 0;
+  font-size: var(--text-xs);
+}
 .cost-section__title {
   font-family: var(--mono);
   font-size: var(--text-xs);

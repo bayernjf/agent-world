@@ -180,6 +180,30 @@ export default function CostReport({ open, onClose }: Props) {
             </p>
           ) : (
             <>
+              {report.unpricedModels.length > 0 && (
+                <section className="cost-section cost-warn">
+                  <strong>{t("modals:costReport.unpricedTitle")}</strong>
+                  <ul className="cost-warn__list">
+                    {report.unpricedModels.map((m) => (
+                      <li key={`${m.provider}/${m.model}`}>
+                        <span className="mono">
+                          {m.provider}/{m.model}
+                        </span>{" "}
+                        —{" "}
+                        {m.level === "none"
+                          ? t("modals:costReport.unpricedNone")
+                          : t("modals:costReport.unpricedPartial", {
+                              fields: m.missing.join(", "),
+                            })}
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="muted cost-warn__hint">
+                    {t("modals:costReport.unpricedHint")}
+                  </p>
+                </section>
+              )}
+
               <div className="cost-stats">
                 <div className="cost-stat">
                   <div className="cost-stat__label">

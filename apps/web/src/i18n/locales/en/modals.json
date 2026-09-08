@@ -89,39 +89,136 @@
       "close": "Close"
     },
     "commands": {
-      "addSource": { "label": "Add Intake", "hint": "Line intake (Intake Station)" },
-      "addTextGen": { "label": "Add Text Gen", "hint": "LLM text generation (Text Gen), can mount skill cards" },
-      "addGate": { "label": "Add Gate", "hint": "LLM-as-judge quality gate (Gate)" },
-      "addImage": { "label": "Add Image Gen", "hint": "Text to image" },
-      "addHttp": { "label": "Add API Port", "hint": "Call an external REST API (API Port)" },
-      "addSink": { "label": "Add Depot", "hint": "Line output (Depot)" },
-      "addVideo": { "label": "Add Video Gen", "hint": "Text to video" },
-      "addAudio": { "label": "Add Audio Gen", "hint": "Text to speech/music" },
-      "newGraph": { "label": "New line", "hint": "Create from a template or blank" },
-      "history": { "label": "Run history", "hint": "View, load, delete" },
-      "cost": { "label": "Cost report", "hint": "Break down by line / Text Gen / date" },
-      "eval": { "label": "Quality evaluation", "hint": "Pass rate / rework / duration" },
-      "gallery": { "label": "Gallery", "hint": "Cross-run output gallery" },
-      "glossary": { "label": "Glossary", "hint": "Standard terms ⇄ Agent World vocabulary" },
-      "compare": { "label": "Run compare", "hint": "Cost and node output across two runs" },
-      "triggers": { "label": "Triggers", "hint": "Webhook / cron / event / batch" },
-      "ab": { "label": "A/B test", "hint": "Compare multiple prompts on one node" },
-      "settings": { "label": "Settings", "hint": "Provider / model / pricing / monthly budget" },
-      "modelAssign": { "label": "Model assignment", "hint": "Batch-switch models by modality for the current line" },
-      "brand": { "label": "Brand terms", "hint": "Load into Text Gen in one click" },
-      "product": { "label": "Product library", "hint": "Reusable product rows for one-click intake" },
-      "brandAssets": { "label": "Brand assets", "hint": "Reusable logos, images and snippets" },
-      "batch": { "label": "Batch jobs", "hint": "Run a line per row, with per-row retry" },
-      "calendar": { "label": "Content calendar", "hint": "Plan what to publish on which platform, by month" },
-      "performance": { "label": "Performance", "hint": "Impressions/clicks/conversions/GMV feedback and ROI" },
-      "publishTargets": { "label": "Publish channels", "hint": "Configure open channels you can publish to (webhook)" },
-      "knowledge": { "label": "Knowledge base", "hint": "Historical line output and gate verdicts" },
-      "version": { "label": "Line versions", "hint": "Snapshot / restore" },
-      "variables": { "label": "Line variables", "hint": "Cross-run persisted state (${var.xxx} / set_variable)" },
-      "undo": { "label": "Undo" },
-      "redo": { "label": "Redo" },
-      "togglePanels": { "expand": "Expand panels", "collapse": "Collapse panels" },
-      "toggleTips": { "on": "Enable Text Gen hover tips", "off": "Disable Text Gen hover tips" }
+      "addSource": {
+        "label": "Add Intake",
+        "hint": "Line intake (Intake Station)"
+      },
+      "addTextGen": {
+        "label": "Add Text Gen",
+        "hint": "LLM text generation (Text Gen), can mount skill cards"
+      },
+      "addGate": {
+        "label": "Add Gate",
+        "hint": "LLM-as-judge quality gate (Gate)"
+      },
+      "addImage": {
+        "label": "Add Image Gen",
+        "hint": "Text to image"
+      },
+      "addHttp": {
+        "label": "Add API Port",
+        "hint": "Call an external REST API (API Port)"
+      },
+      "addSink": {
+        "label": "Add Depot",
+        "hint": "Line output (Depot)"
+      },
+      "addVideo": {
+        "label": "Add Video Gen",
+        "hint": "Text to video"
+      },
+      "addAudio": {
+        "label": "Add Audio Gen",
+        "hint": "Text to speech/music"
+      },
+      "newGraph": {
+        "label": "New line",
+        "hint": "Create from a template or blank"
+      },
+      "history": {
+        "label": "Run history",
+        "hint": "View, load, delete"
+      },
+      "cost": {
+        "label": "Cost report",
+        "hint": "Break down by line / Text Gen / date"
+      },
+      "eval": {
+        "label": "Quality evaluation",
+        "hint": "Pass rate / rework / duration"
+      },
+      "gallery": {
+        "label": "Gallery",
+        "hint": "Cross-run output gallery"
+      },
+      "glossary": {
+        "label": "Glossary",
+        "hint": "Standard terms ⇄ Agent World vocabulary"
+      },
+      "compare": {
+        "label": "Run compare",
+        "hint": "Cost and node output across two runs"
+      },
+      "triggers": {
+        "label": "Triggers",
+        "hint": "Webhook / cron / event / batch"
+      },
+      "ab": {
+        "label": "A/B test",
+        "hint": "Compare multiple prompts on one node"
+      },
+      "settings": {
+        "label": "Settings",
+        "hint": "Provider / model / pricing / monthly budget"
+      },
+      "modelAssign": {
+        "label": "Model assignment",
+        "hint": "Batch-switch models by modality for the current line"
+      },
+      "brand": {
+        "label": "Brand terms",
+        "hint": "Load into Text Gen in one click"
+      },
+      "product": {
+        "label": "Product library",
+        "hint": "Reusable product rows for one-click intake"
+      },
+      "brandAssets": {
+        "label": "Brand assets",
+        "hint": "Reusable logos, images and snippets"
+      },
+      "batch": {
+        "label": "Batch jobs",
+        "hint": "Run a line per row, with per-row retry"
+      },
+      "calendar": {
+        "label": "Content calendar",
+        "hint": "Plan what to publish on which platform, by month"
+      },
+      "performance": {
+        "label": "Performance",
+        "hint": "Impressions/clicks/conversions/GMV feedback and ROI"
+      },
+      "publishTargets": {
+        "label": "Publish channels",
+        "hint": "Configure open channels you can publish to (webhook)"
+      },
+      "knowledge": {
+        "label": "Knowledge base",
+        "hint": "Historical line output and gate verdicts"
+      },
+      "version": {
+        "label": "Line versions",
+        "hint": "Snapshot / restore"
+      },
+      "variables": {
+        "label": "Line variables",
+        "hint": "Cross-run persisted state (${var.xxx} / set_variable)"
+      },
+      "undo": {
+        "label": "Undo"
+      },
+      "redo": {
+        "label": "Redo"
+      },
+      "togglePanels": {
+        "expand": "Expand panels",
+        "collapse": "Collapse panels"
+      },
+      "toggleTips": {
+        "on": "Enable Text Gen hover tips",
+        "off": "Disable Text Gen hover tips"
+      }
     }
   },
   "glossary": {
@@ -175,7 +272,11 @@
     "thCost": "Power cost",
     "thNode": "Node",
     "thAttempts": "Attempts",
-    "thRework": "Rework"
+    "thRework": "Rework",
+    "unpricedTitle": "Some models have an incomplete price card, so the cost below is too low",
+    "unpricedNone": "no price at all (metered as 0)",
+    "unpricedPartial": "partially priced (missing {{fields}})",
+    "unpricedHint": "A missing price cannot be applied to data already collected — set it under Settings → Models before starting a real run-in."
   },
   "evalReport": {
     "title": "Quality evaluation",
