@@ -23,6 +23,7 @@ import {
   rowsToCsv,
   TEMPLATES,
   TriggerConfig,
+  unpricedModels,
   type RunEvent,
   type SkillPermissions,
 } from "@agent-world/core";
@@ -1685,13 +1686,16 @@ app.get("/api/costs", async (c) => {
   if (groupBy && ["artifact_id", "product_id", "platform", "variant"].includes(groupBy)) {
     return c.json(await db.aggregateContentCosts(userId, groupBy));
   }
-  return c.json(
-    await db.costReport({
+  return c.json({
+    ...(await db.costReport({
       userId,
       from: from ? Number(from) : undefined,
       to: to ? Number(to) : undefined,
-    }),
-  );
+    })),
+    // Surfaced next to the numbers on purpose: an incomplete price card makes
+    // those numbers quietly too low, and this page is where they get read.
+    unpricedModels: unpricedModels((await loadConfig(userId)).providers),
+  });
 });
 
 app.post("/api/content-costs", async (c) => {
@@ -3344,6 +3348,18 @@ if (process.env.NODE_ENV !== "test") {
     encryptionKeyringSize: getEncryptionRing().length,
     logFile: process.env.LOG_FILE ?? "<db-dir>/logs/server.log",
   });
+  const priceGaps = unpricedModels((await loadConfig()).providers);
+  if (priceGaps.length > 0) {
+    // Not fatal — a dev box routinely has half the price cards blank. But cost
+    // metering for an unpriced model returns 0 with no error, and the missing
+    // price cannot be applied retroactively, so say it loudly at boot.
+    log.warn("models with an incomplete price card will under-meter cost", {
+      none: priceGaps.filter((g) => g.level === "none").map((g) => `${g.provider}/${g.model}`),
+      partial: priceGaps
+        .filter((g) => g.level === "partial")
+        .map((g) => `${g.provider}/${g.model} (missing ${g.missing.join(",")})`),
+    });
+  }
   const server = serve({ fetch: app.fetch, port: PORT }, (info) => {
     log.info("engine listening", { port: info.port, url: `http://localhost:${info.port}` });
   });
