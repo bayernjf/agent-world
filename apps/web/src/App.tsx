@@ -491,7 +491,14 @@ export default function App() {
   const switchGraph = useCallback(
     async (id: string) => {
       if (id === graph.id) return;
-      await flushSave();
+      try {
+        await flushSave();
+      } catch (e) {
+        // Flush rethrows on failure (M22): abort the switch instead of silently
+        // dropping unsaved edits, but tell the user why nothing happened.
+        showError(String(e));
+        return;
+      }
       reset();
       try {
         const g = await api.getGraph(id);
@@ -682,7 +689,11 @@ export default function App() {
     async (connectorValues?: Record<string, string>) => {
       try {
         /* toast cleared by the producer */ reset();
-        await api.saveGraph(graph);
+        // Go through the serialized store save (not a raw api.saveGraph) so the
+        // server version is tracked and can't drift: an unconditional save here
+        // would bump the version without recording it, and a later conditional
+        // save (switch-graph flush) would 409 on the stale If-Match.
+        await flushSave();
         const { runId: id } = await api.startRun(
           graph.id,
           budget,
@@ -694,7 +705,7 @@ export default function App() {
         showError(String(e));
       }
     },
-    [graph, budget, rawMaterial, connect, reset],
+    [graph, budget, rawMaterial, connect, reset, flushSave],
   );
 
   const onRun = useCallback(() => {
