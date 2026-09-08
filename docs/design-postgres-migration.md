@@ -1,6 +1,6 @@
 # PostgreSQL 迁移设计（主库 SQLite → PostgreSQL）
 
-> 状态：**设计定稿（2026-09-08）；「抽接口 + 异步化」「PgDriver」「DB_DRIVER 开关」「搬迁脚本」均已落地 2026-09-08**——步骤 0（定义 `DatabaseDriver` 异步接口）✅，步骤 1（新建 `sqlite-driver.ts` 搬入实现 + 137 方法包 async + `openDb` 变工厂返回 `SqliteDriver`）✅，步骤 2/3（8 业务模块 + 传染到的 `config`/`triggers`/`providers`/`engine`/`memory`/`skills` + 30+ 测试文件逐点 `await`）✅，步骤 4（全量验证）✅；**阶段 2 占位符转换层 ✅ 2026-09-08**（`pg-sql.ts` 的 `?→$n` 转换 + `toPgDdl` 类型映射 + 方言参数化 strftime/LIKE/PRAGMA + `pg-driver.ts`）；**阶段 3（`DB_DRIVER` 开关）✅ 2026-09-08**（`openDatabase()` 分派 + `index.ts` 接线 + FTS 知识库诚实降级 + 5 例守护测试）；**搬迁脚本 ✅ 2026-09-08**（§6.1 方案 A：`migrate-to-postgres.ts`，dry-run/verify-only/快照+行数校验，并修复 DDL 缺 4 表的契约缺口）。**剩余：真实 PG 实例上的端到端搬迁演练 + §8 验收（触发条件：进入 SaaS 阶段，M3 之后）**。
+> 状态：**设计定稿（2026-09-08）；「抽接口 + 异步化」「PgDriver」「DB_DRIVER 开关」「搬迁脚本」均已落地 2026-09-08**——步骤 0（定义 `DatabaseDriver` 异步接口）✅，步骤 1（新建 `sqlite-driver.ts` 搬入实现 + 137 方法包 async + `openDb` 变工厂返回 `SqliteDriver`）✅，步骤 2/3（8 业务模块 + 传染到的 `config`/`triggers`/`providers`/`engine`/`memory`/`skills` + 30+ 测试文件逐点 `await`）✅，步骤 4（全量验证）✅；**阶段 2 占位符转换层 ✅ 2026-09-08**（`pg-sql.ts` 的 `?→$n` 转换 + `toPgDdl` 类型映射 + 方言参数化 strftime/LIKE/PRAGMA + `pg-driver.ts`）；**阶段 3（`DB_DRIVER` 开关）✅ 2026-09-08**（`openDatabase()` 分派 + `index.ts` 接线 + FTS 知识库诚实降级 + 5 例守护测试）；**搬迁脚本 ✅ 2026-09-08**（§6.1 方案 A：`migrate-to-postgres.ts`，dry-run/verify-only/快照+行数校验，并修复 DDL 缺 4 表的契约缺口）；**端到端演练 ✅ 2026-09-08**（Docker postgres:16 + dev 库真数据：§8 验收 1-4/6 通过，并抓出修复 9 类方言缺口——见 §8 表格）。**剩余：性能压测（§8 第 5 条）与生产切换等价性，随 SaaS 阶段（M3 之后）真实流量验证**。
 > 本文是「agent-world 主库从 SQLite 迁到 PostgreSQL」的单一事实源。
 > 注意区分：本文讲**主库存储后端**；「database connector 的 PG 驱动」（产线读外部 PG，2026-09-08 已落地）是另一回事，见 [design-connector-database.md](design-connector-database.md)。
 > 关联：design-scaling.md §2.1（迁移触发条件 + 托管选型）、tech-stack-assessment.md（薄层抽象）、production-ops.md §4（演进路线）。
@@ -192,12 +192,28 @@ scripts/migrate-to-postgres/
 
 ## 8. 验收标准（实施时执行）
 
-1. **行数对齐**：30+ 表每张表 `COUNT(*)` SQLite vs PG 一致。
-2. **抽样比对**：关键表（graphs/runs/events/artifacts/users/settings）抽样字段逐字节一致。
-3. **静态加密**：`settings`/`graph doc` 等加密字段在 PG 中仍可 `decryptString`/`openDocString` 解密。
-4. **全量测试**：`DB_DRIVER=postgres` 下 server 912+ 用例全绿（测试套件对 PG 可跑，或保留 SQLite 跑测试 + 单独 PG 冒烟）。
-5. **性能**：关键查询（`/api/runs` 列表、`/api/graphs/:id`、成本聚合）延迟不劣于 SQLite。
-6. **双驱动共存**：`DB_DRIVER=sqlite`（自托管）与 `postgres`（SaaS）切换后功能等价。
+**2026-09-08 本地演练已执行（Docker postgres:16，dev 库 25 表/12.2 万 events 真数据），结果：**
+
+1. **行数对齐** ✅ —— 25 张业务表全部一致（迁移脚本内建校验，不一致非零退出）。
+2. **抽样比对** ✅ —— 71 张 graph 的 `doc` 列 SHA-256 逐字节一致（含 version/origin_template_id）。
+3. **静态加密** ✅ —— `settings` 行（`enc:v2:` keyring 密文）迁移后 `decryptString` 正常解密。
+4. **全量测试** ✅（按本条允许的第二种形态）—— SQLite 929/929 全绿 + PG 冒烟：`DB_DRIVER=postgres` 起服后注册（首用户正确 bootstrap 为 owner）/登录/建图/更新（version 1→2）/版本列表/自动快照全通，行形状与 SQLite 等价。
+5. **性能** ⏳ 未测（SaaS 阶段用真实负载压测）。
+6. **双驱动共存** ✅（代码层）—— 同一共享 driver body、两套 executor；生产切换等价性待 SaaS 真实流量验证。
+
+**演练额外抓出并修复了 9 类静态评审漏掉的方言缺口**（这是本次演练最大的价值）：
+
+| # | 缺口 | 修复 |
+|---|---|---|
+| 1 | DDL 缺 `artifacts.graph_id/role`、`graphs.origin_template_id`（只在迁移里 ALTER，fresh PG 库缺列） | 补进 DDL；索引仍留迁移（DDL 先于迁移执行，老库没有列时建索引会炸——沿用 `idx_artifacts_variant` 惯例） |
+| 2 | `toPgDdl` 不识 `BLOB`（`feedback.attachment`） | `BLOB → bytea` |
+| 3 | `rowid` 排序 tie-break ×7 处（listUsers/listArtifacts ×2/listVersions/最新快照/保留清理） | 共享 body 里 `dialect` 参数化为 `tie`：SQLite `rowid` ↔ PG `ctid` |
+| 4 | `LIMIT -1 OFFSET ?`（SQLite 的"无上限"）PG 报错 | 参数化为 `LIMIT ALL` |
+| 5 | `date(x/1000,'unixepoch','localtime')` 日桶 | 参数化为 `to_char(to_timestamp(x/1000.0),'YYYY-MM-DD')` |
+| 6 | `INSERT OR IGNORE`（SQLite 专属） | 改两边通用的 `ON CONFLICT DO NOTHING` |
+| 7 | upsert `SET version = version + 1` / `amount = amount + excluded.amount` 列名歧义（PG 42702） | 限定表名 `graphs.version` / `usage_ledger.amount`（两边通用） |
+| 8 | node-pg 把 `bigint` 解析为字符串——DDL 的 `INTEGER→bigint` 导致全部整型列/COUNT 变 string，`countOwners === 0` 恒 false（首用户永远成不了 owner）、`Date.now() - created_at` 得 NaN | `pg-driver.ts` 注册 `setTypeParser(20, parseInt)`（epoch-ms 远小于 2^53，安全） |
+| 9 | PG 把不带引号的别名折叠为小写——`AS graphId` 返回 `graphid`，行形状与 SQLite 不一致 ×7 处 | 别名加双引号 `AS "graphId"`（两边都保留大小写） |
 
 ---
 
