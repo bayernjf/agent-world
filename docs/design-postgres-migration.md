@@ -1,6 +1,6 @@
 # PostgreSQL 迁移设计（主库 SQLite → PostgreSQL）
 
-> 状态：**设计定稿（2026-09-08）；步骤 0（定义 `DatabaseDriver` 异步接口）已完成 2026-09-08，步骤 1-4 实施 deferred**（触发条件：进入 SaaS 阶段，M3 之后）。
+> 状态：**设计定稿（2026-09-08）；「抽接口 + 异步化」落地完成 2026-09-08**——步骤 0（定义 `DatabaseDriver` 异步接口）✅，步骤 1（新建 `sqlite-driver.ts` 搬入实现 + 137 方法包 async + `openDb` 变工厂返回 `SqliteDriver`）✅，步骤 2/3（8 业务模块 + 传染到的 `config`/`triggers`/`providers`/`engine`/`memory`/`skills` + 30+ 测试文件逐点 `await`）✅，步骤 4（全量验证：server 912/912 绿 + `pnpm -r typecheck` 绿）✅。**阶段 2/3（PgDriver + 占位符转换 + `DB_DRIVER` 开关）与数据搬迁仍 deferred**（触发条件：进入 SaaS 阶段，M3 之后）。
 > 本文是「agent-world 主库从 SQLite 迁到 PostgreSQL」的单一事实源。
 > 注意区分：本文讲**主库存储后端**；「database connector 的 PG 驱动」（产线读外部 PG，2026-09-08 已落地）是另一回事，见 [design-connector-database.md](design-connector-database.md)。
 > 关联：design-scaling.md §2.1（迁移触发条件 + 托管选型）、tech-stack-assessment.md（薄层抽象）、production-ops.md §4（演进路线）。
@@ -21,7 +21,7 @@
 ### 1.2 迁移原则
 
 1. **双驱动保留**：迁 PG 后仍保留 SQLite 驱动，供自托管客户 + 本地 dev 使用。PG 只服务于 SaaS 形态。
-2. **薄层替换，不重写业务逻辑**：`db.ts` 的 prepared statements 已集中在一个 `stmts` 对象里，迁 PG = 换 driver 实现 + SQL 方言适配，业务逻辑零改动。注意：「不重写」指业务逻辑，**异步化改造（§5.3）仍是量大的机械活**——136 方法 + 全部调用点加 `await`，是当初 tech-stack-assessment「替换实现」判断未计入的额外成本。
+2. **薄层替换，不重写业务逻辑**：`stmts` 对象的 prepared statements 已集中一处，迁 PG = 换 driver 实现 + SQL 方言适配，业务逻辑零改动。注意：「不重写」指业务逻辑，**异步化改造（§5.3 阶段 1）是量大的机械活**——137 方法 + 全部调用点加 `await`，是当初 tech-stack-assessment「替换实现」判断未计入的额外成本（**已于 2026-09-08 完成**）。
 3. **事件流先治标**：`events` 表是数据量增长第一来源，策略是「热库 + 冷归档」（老的按 run 归档到对象存储），不靠迁 PG 解决单表膨胀。
 
 ---
@@ -41,7 +41,7 @@
 
 | 维度 | 现状 |
 |---|---|
-| 文件 | `packages/server/src/db.ts`，**3894 行** |
+| 文件 | ~~`packages/server/src/db.ts` 3894 行~~ → **已拆分（2026-09-08）：`db.ts` 204 行（类型 + 工厂 + re-export）+ `sqlite-driver.ts` 3753 行（SqliteDriver 实现）** |
 | 表数量 | **30+ 张**（DDL 常量 + 迁移增量） |
 | prepared statements | **136 个** `db.prepare(...)` |
 | 占位符 | `?`（node:sqlite 风格），**530 行 SQL 含 `?`** |
@@ -129,7 +129,7 @@
 
 | 阶段 | 内容 | 风险 |
 |---|---|---|
-| **阶段 1：抽接口（不换驱动）** | 把 `stmts` 对象的 136 个方法抽成 `DatabaseDriver` 接口，`SqliteDriver` 实现之（同步逻辑包成 async，行为不变） | 低（纯重构，SQLite 行为零变化） |
+| **阶段 1：抽接口（不换驱动）** ✅ 2026-09-08 | 把 `stmts` 对象的 137 个方法抽成 `DatabaseDriver` 接口，`SqliteDriver` 实现之（同步逻辑包成 async，行为不变）。**已落地**：`sqlite-driver.ts` + 137 方法 async + 业务/测试全量 `await`，912/912 绿 | 低（纯重构，SQLite 行为零变化） |
 | **阶段 2：占位符转换层** | `PgDriver` 内实现 `? → $n` 转换 + 方言改写（strftime→to_char 等） | 中（SQL 方言） |
 | **阶段 3：接入 + 切换开关** | `DB_DRIVER=sqlite\|postgres` 环境变量选择驱动，启动时初始化对应 driver | 低 |
 
@@ -237,11 +237,11 @@ scripts/migrate-to-postgres/
 
 | 步 | 内容 | 改动面 | 验收 | 风险 |
 |---|---|---|---|---|
-| **0. 定接口** ✅ | 已定义 `DatabaseDriver`（映射类型从 `Db` 推导，136 方法返回值包 `Promise`，零手写成本） | 仅 `db.ts` 类型层 | typecheck 干净 | 零 |
-| **1. SqliteDriver** | 新建 `sqlite-driver.ts`，搬 `openDb` 逻辑，方法包 async；`openDb` 变为工厂返回 `SqliteDriver` | `db.ts` + 新文件 | 现有测试仍绿（同步调用点暂用 `await` 前的过渡？不——见下） | 低 |
-| **2. 业务模块 await** | 8 个业务模块逐个：叶子模块（`reviews`/`artifact-reader`/`ab`/`batch`/`rbac`）→ 核心（`run`）→ 入口（`index`），每个 `db.xxx()` 加 `await` | 8 文件 | 每模块改完跑其相关测试绿 | 中 |
-| **3. 测试适配** | 30+ 测试文件 `openDb` 后调用改 `await`（`beforeEach` 或逐断言） | 30+ 测试文件 | 全量测试绿 | 中 |
-| **4. 全量验证** | `pnpm -r typecheck` + server 全量测试 | — | 912+ 用例全绿 | — |
+| **0. 定接口** ✅ | 已定义 `DatabaseDriver`（映射类型从 `Db` 推导，137 方法返回值包 `Promise`，零手写成本） | 仅 `db.ts` 类型层 | typecheck 干净 | 零 |
+| **1. SqliteDriver** ✅ | 新建 `sqlite-driver.ts` 并搬入实现（`DDL`/`MIGRATIONS`/`stmts`/`openDb`→`createSqliteDriver`/备份/回填/`mapXxx` 辅助）；`db.ts` 瘦身为「类型（`Db`/`DatabaseDriver`/`SqliteDriver`/行形状接口）+ 工厂 + re-export」；137 方法包 async | `db.ts` + `sqlite-driver.ts` | typecheck 干净 | 低 |
+| **2. 业务模块 await** ✅ | 8 业务模块 + 传染到的 `config`/`triggers`/`providers`/`feature-flags`/`engine`/`memory`/`skills` 逐个 `await`；`loadConfig`/`saveConfig`/`loadSubgraph`/`TriggerGraphStore`/`SettingsStore`/`MemoryBackend` 等薄接口同步→异步 | 15+ 文件 | 每模块改完 typecheck 绿 | 中 |
+| **3. 测试适配** ✅ | 30+ 测试文件 `openDb` 后调用改 `await`（含 `reviewsMod.*`/`idOf`/`reopened` 等非 `db` 变量名与自定义 async 辅助函数） | 30+ 测试文件 | 全量测试绿 | 中 |
+| **4. 全量验证** ✅ | `pnpm -r typecheck` + server 全量测试 | — | 912/912 用例全绿 | — |
 
 > **步骤 1 的过渡策略**（关键，避免「一改全崩」）：不要一步把 `Db` 方法全变 async 再改所有调用点。正确顺序是——先让 `DatabaseDriver` 接口方法全 async，`SqliteDriver` 内部同步实现包 async，然后**分模块**逐批把调用点 `await`。每改完一个模块跑一次测试，绿了再下一个。这样任何一步出问题都能立刻定位到「刚改的模块」。
 
@@ -255,7 +255,7 @@ scripts/migrate-to-postgres/
 | 3 测试适配 | 大（30+ 文件，最机械） | 可用 IDE/脚本辅助定位同步调用点 |
 | 4 全量验证 | 小 | 跑测试 |
 
-> 总体：**纯机械、无逻辑重写**，但有「量大 + 容易漏 await」两个坑。预估是「半天到一天的体力活」，不是「难活」。
+> 总体：**纯机械、无逻辑重写**，但有「量大 + 容易漏 await」两个坑。预估是「半天到一天的体力活」，不是「难活」。（**2026-09-08 已实际完成**，1-4 步 + 全量绿，未新建独立提交的拆分——见 §10.2）
 
 ### 10.4 风险与回滚
 
@@ -268,4 +268,4 @@ scripts/migrate-to-postgres/
 
 ### 10.5 与后续步骤的衔接
 
-本步（抽接口 + 异步化）完成后，阶段 2（PgDriver + 占位符转换 + 方言）和阶段 3（`DB_DRIVER` 开关）才有接入点。**本步不做任何 PG 相关的事**，验收标准就是「代码里有一个干净的异步 `DatabaseDriver` 接口，SqliteDriver 是唯一实现，全量测试绿」。
+本步（抽接口 + 异步化）**已完成 2026-09-08**，验收标准「代码里有一个干净的异步 `DatabaseDriver` 接口，SqliteDriver 是唯一实现，全量测试绿」**已达成**（`sqlite-driver.ts` + 912/912 绿）。阶段 2（PgDriver + 占位符转换 + 方言）和阶段 3（`DB_DRIVER` 开关）现在有了接入点，进入 SaaS 阶段（M3 之后）即可启动。
