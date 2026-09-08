@@ -1,4 +1,4 @@
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -544,340 +544,256 @@ export function createSqliteDriver(file: string) {
   db.exec(DDL);
   runMigrations(db);
 
+  return createDriver(createSqliteExecutor(db), {
+    close: async () => {
+      db.close();
+    },
+    prepare: (sql: string) => db.prepare(sql),
+  });
+}
+
+/**
+ * SQL execution abstraction shared by `createSqliteDriver` and the future
+ * `PgDriver`. Methods take a raw SQL string plus positional parameters so the
+ * driver body can stay identical across backends — only the executor (and its
+ * SQL translation) differs. (design-postgres-migration.md §5.2)
+ */
+export interface Executor {
+  get(sql: string, params: unknown[]): Promise<Record<string, unknown> | undefined>;
+  all(sql: string, params: unknown[]): Promise<Record<string, unknown>[]>;
+  run(sql: string, params: unknown[]): Promise<{ changes: number; lastInsertId: number | bigint }>;
+  exec(sql: string): Promise<void>;
+}
+
+/** Executor backed by the synchronous `node:sqlite` DatabaseSync (wrapped async). */
+function createSqliteExecutor(db: DatabaseSync): Executor {
+  return {
+    async get(sql, params) {
+      return db.prepare(sql).get(...(params as SQLInputValue[])) as Record<string, unknown> | undefined;
+    },
+    async all(sql, params) {
+      return db.prepare(sql).all(...(params as SQLInputValue[])) as Record<string, unknown>[];
+    },
+    async run(sql, params) {
+      const r = db.prepare(sql).run(...(params as SQLInputValue[])) as {
+        changes: number | bigint;
+        lastInsertRowid: number | bigint;
+      };
+      return { changes: Number(r.changes), lastInsertId: r.lastInsertRowid };
+    },
+    async exec(sql) {
+      db.exec(sql);
+    },
+  };
+}
+
+/**
+ * Builds the shared driver body (137 methods) on top of an `Executor`. Hooks
+ * cover the two backend-specific capabilities that aren't SQL execution:
+ * closing the connection and the raw `prepare` passthrough (SQLite-only FTS5).
+ */
+function createDriver(
+  exec: Executor,
+  hooks: { close: () => Promise<void>; prepare: (sql: string) => unknown },
+) {
   const stmts = {
-    createUser: db.prepare(
-      `INSERT INTO users (id, email, password_hash, role) VALUES (?, ?, ?, ?)`,
-    ),
-    countOwners: db.prepare(`SELECT COUNT(*) AS n FROM users WHERE role = 'owner'`),
-    getSettings: db.prepare(`SELECT data FROM settings WHERE user_id = ?`),
-    saveSettings: db.prepare(
-      `INSERT INTO settings (user_id, data, updated_at) VALUES (?, ?, ?)
+    createUser: `INSERT INTO users (id, email, password_hash, role) VALUES (?, ?, ?, ?)`,
+    countOwners: `SELECT COUNT(*) AS n FROM users WHERE role = 'owner'`,
+    getSettings: `SELECT data FROM settings WHERE user_id = ?`,
+    saveSettings: `INSERT INTO settings (user_id, data, updated_at) VALUES (?, ?, ?)
        ON CONFLICT(user_id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`,
-    ),
-    insertAudit: db.prepare(
-      `INSERT INTO audit_log (id, user_id, action, object_type, object_id, detail, ip, created_at)
+    insertAudit: `INSERT INTO audit_log (id, user_id, action, object_type, object_id, detail, ip, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    ),
-    listAudit: db.prepare(
-      `SELECT id, user_id, action, object_type, object_id, detail, ip, created_at
+    listAudit: `SELECT id, user_id, action, object_type, object_id, detail, ip, created_at
        FROM audit_log WHERE user_id = ? AND created_at < ? ORDER BY created_at DESC LIMIT ?`,
-    ),
     // Slightly different prepared statement: the first page has no "before"
     // cursor, so accept 0 (older than anything).
-    listAuditFirst: db.prepare(
-      `SELECT id, user_id, action, object_type, object_id, detail, ip, created_at
+    listAuditFirst: `SELECT id, user_id, action, object_type, object_id, detail, ip, created_at
        FROM audit_log WHERE user_id = ? ORDER BY created_at DESC LIMIT ?`,
-    ),
     // RBAC P3 (design-rbac.md): cross-user audit listing for owner/admin,
     // with the actor email resolved via LEFT JOIN (login_failed rows carry
     // user_id 'unknown' and surface with email = null).
-    listAuditAdminFirst: db.prepare(
-      `SELECT a.id, a.user_id, u.email, a.action, a.object_type, a.object_id, a.detail, a.ip, a.created_at
+    listAuditAdminFirst: `SELECT a.id, a.user_id, u.email, a.action, a.object_type, a.object_id, a.detail, a.ip, a.created_at
        FROM audit_log a LEFT JOIN users u ON u.id = a.user_id
        ORDER BY a.created_at DESC LIMIT ?`,
-    ),
-    listAuditAdmin: db.prepare(
-      `SELECT a.id, a.user_id, u.email, a.action, a.object_type, a.object_id, a.detail, a.ip, a.created_at
+    listAuditAdmin: `SELECT a.id, a.user_id, u.email, a.action, a.object_type, a.object_id, a.detail, a.ip, a.created_at
        FROM audit_log a LEFT JOIN users u ON u.id = a.user_id
        WHERE a.created_at < ? ORDER BY a.created_at DESC LIMIT ?`,
-    ),
-    listAuditUserFirst: db.prepare(
-      `SELECT a.id, a.user_id, u.email, a.action, a.object_type, a.object_id, a.detail, a.ip, a.created_at
+    listAuditUserFirst: `SELECT a.id, a.user_id, u.email, a.action, a.object_type, a.object_id, a.detail, a.ip, a.created_at
        FROM audit_log a LEFT JOIN users u ON u.id = a.user_id
        WHERE a.user_id = ? ORDER BY a.created_at DESC LIMIT ?`,
-    ),
-    listAuditUser: db.prepare(
-      `SELECT a.id, a.user_id, u.email, a.action, a.object_type, a.object_id, a.detail, a.ip, a.created_at
+    listAuditUser: `SELECT a.id, a.user_id, u.email, a.action, a.object_type, a.object_id, a.detail, a.ip, a.created_at
        FROM audit_log a LEFT JOIN users u ON u.id = a.user_id
        WHERE a.user_id = ? AND a.created_at < ? ORDER BY a.created_at DESC LIMIT ?`,
-    ),
-    listActiveAnnouncements: db.prepare(
-      `SELECT * FROM announcements
+    listActiveAnnouncements: `SELECT * FROM announcements
        WHERE starts_at <= ? AND (ends_at IS NULL OR ends_at >= ?)
        ORDER BY created_at DESC`,
-    ),
-    listAllAnnouncements: db.prepare(
-      `SELECT * FROM announcements ORDER BY created_at DESC`,
-    ),
-    getAnnouncement: db.prepare(`SELECT * FROM announcements WHERE id = ?`),
-    insertAnnouncement: db.prepare(
-      `INSERT INTO announcements (id, title_zh, title_en, body_zh, body_en, level, starts_at, ends_at, target, created_at)
+    listAllAnnouncements: `SELECT * FROM announcements ORDER BY created_at DESC`,
+    getAnnouncement: `SELECT * FROM announcements WHERE id = ?`,
+    insertAnnouncement: `INSERT INTO announcements (id, title_zh, title_en, body_zh, body_en, level, starts_at, ends_at, target, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ),
-    updateAnnouncement: db.prepare(
-      `UPDATE announcements SET title_zh = ?, title_en = ?, body_zh = ?, body_en = ?,
+    updateAnnouncement: `UPDATE announcements SET title_zh = ?, title_en = ?, body_zh = ?, body_en = ?,
         level = ?, starts_at = ?, ends_at = ?, target = ? WHERE id = ?`,
-    ),
-    deleteAnnouncement: db.prepare(`DELETE FROM announcements WHERE id = ?`),
-    insertAnnouncementRead: db.prepare(
-      `INSERT INTO announcement_reads (user_id, announcement_id, read_at) VALUES (?, ?, ?)
+    deleteAnnouncement: `DELETE FROM announcements WHERE id = ?`,
+    insertAnnouncementRead: `INSERT INTO announcement_reads (user_id, announcement_id, read_at) VALUES (?, ?, ?)
        ON CONFLICT(user_id, announcement_id) DO NOTHING`,
-    ),
-    listAnnouncementReads: db.prepare(
-      `SELECT announcement_id FROM announcement_reads WHERE user_id = ?`,
-    ),
+    listAnnouncementReads: `SELECT announcement_id FROM announcement_reads WHERE user_id = ?`,
     // P3 targeting: does this user "use" a template? Owned graphs…
-    templateGraphOwned: db.prepare(
-      `SELECT 1 AS hit FROM graphs WHERE user_id = ? AND origin_template_id = ? LIMIT 1`,
-    ),
+    templateGraphOwned: `SELECT 1 AS hit FROM graphs WHERE user_id = ? AND origin_template_id = ? LIMIT 1`,
     // …and graphs shared to them (stale ACL rows are harmless here — the join
     // requires the graph to still exist and carry that origin_template_id).
-    templateGraphShared: db.prepare(
-      `SELECT 1 AS hit
+    templateGraphShared: `SELECT 1 AS hit
        FROM resource_access ra JOIN graphs g ON g.id = ra.resource_id
        WHERE ra.resource_type = 'graph' AND ra.user_id = ? AND g.origin_template_id = ?
        LIMIT 1`,
-    ),
     // User feedback (design-feedback.md). Attachment bytes stay in sqlite
     // (≤1MB, single image); the list queries never select the BLOB itself —
     // `has_attachment` lets the admin UI lazy-load via the attachment route.
-    insertFeedback: db.prepare(
-      `INSERT INTO feedback (id, user_id, message, category, context, attachment, attachment_mime, status, created_at)
+    insertFeedback: `INSERT INTO feedback (id, user_id, message, category, context, attachment, attachment_mime, status, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ),
-    countFeedbackSince: db.prepare(
-      `SELECT COUNT(*) AS n FROM feedback WHERE user_id = ? AND created_at >= ?`,
-    ),
-    listFeedbackAll: db.prepare(
-      `SELECT f.id, f.user_id, u.email, f.message, f.category, f.context,
+    countFeedbackSince: `SELECT COUNT(*) AS n FROM feedback WHERE user_id = ? AND created_at >= ?`,
+    listFeedbackAll: `SELECT f.id, f.user_id, u.email, f.message, f.category, f.context,
               f.attachment IS NOT NULL AS has_attachment, f.status, f.created_at
        FROM feedback f LEFT JOIN users u ON u.id = f.user_id
        ORDER BY f.created_at DESC LIMIT ?`,
-    ),
-    listFeedbackByStatus: db.prepare(
-      `SELECT f.id, f.user_id, u.email, f.message, f.category, f.context,
+    listFeedbackByStatus: `SELECT f.id, f.user_id, u.email, f.message, f.category, f.context,
               f.attachment IS NOT NULL AS has_attachment, f.status, f.created_at
        FROM feedback f LEFT JOIN users u ON u.id = f.user_id
        WHERE f.status = ? ORDER BY f.created_at DESC LIMIT ?`,
-    ),
-    getFeedback: db.prepare(`SELECT * FROM feedback WHERE id = ?`),
-    updateFeedbackStatus: db.prepare(`UPDATE feedback SET status = ? WHERE id = ?`),
-    findUserByEmail: db.prepare(
-      `SELECT id, email, role, created_at FROM users WHERE email = ?`,
-    ),
-    findUserById: db.prepare(
-      `SELECT id, email, role, created_at FROM users WHERE id = ?`,
-    ),
-    findUserPasswordHash: db.prepare(
-      `SELECT password_hash FROM users WHERE id = ?`,
-    ),
+    getFeedback: `SELECT * FROM feedback WHERE id = ?`,
+    updateFeedbackStatus: `UPDATE feedback SET status = ? WHERE id = ?`,
+    findUserByEmail: `SELECT id, email, role, created_at FROM users WHERE email = ?`,
+    findUserById: `SELECT id, email, role, created_at FROM users WHERE id = ?`,
+    findUserPasswordHash: `SELECT password_hash FROM users WHERE id = ?`,
     // RBAC P3 (design-rbac.md): full account list for the owner's admin panel.
     // Same ordering as the v31 owner bootstrap — the owner always sorts first.
-    listUsers: db.prepare(
-      `SELECT id, email, role, created_at FROM users ORDER BY created_at ASC, rowid ASC`,
-    ),
-    updateUserRole: db.prepare(`UPDATE users SET role = ? WHERE id = ?`),
+    listUsers: `SELECT id, email, role, created_at FROM users ORDER BY created_at ASC, rowid ASC`,
+    updateUserRole: `UPDATE users SET role = ? WHERE id = ?`,
     // Resource sharing (design-rbac P1). Only editor/viewer rows live here —
     // the resource owner is resolved from the owning table's user_id.
-    saveResourceAccess: db.prepare(
-      `INSERT INTO resource_access (resource_type, resource_id, user_id, role, created_at)
+    saveResourceAccess: `INSERT INTO resource_access (resource_type, resource_id, user_id, role, created_at)
        VALUES (?, ?, ?, ?, ?)
        ON CONFLICT(resource_type, resource_id, user_id) DO UPDATE SET role = excluded.role`,
-    ),
-    deleteResourceAccess: db.prepare(
-      `DELETE FROM resource_access WHERE resource_type = ? AND resource_id = ? AND user_id = ?`,
-    ),
-    getResourceAccess: db.prepare(
-      `SELECT role, created_at FROM resource_access WHERE resource_type = ? AND resource_id = ? AND user_id = ?`,
-    ),
-    listResourceAccess: db.prepare(
-      `SELECT user_id, role, created_at FROM resource_access WHERE resource_type = ? AND resource_id = ? ORDER BY created_at`,
-    ),
-    listResourceAccessForUser: db.prepare(
-      `SELECT resource_id, role FROM resource_access WHERE resource_type = ? AND user_id = ?`,
-    ),
-    deleteResourceAccessForResource: db.prepare(
-      `DELETE FROM resource_access WHERE resource_type = ? AND resource_id = ?`,
-    ),
-    getRunGraphRef: db.prepare(
-      `SELECT user_id, graph_id FROM runs WHERE id = ?`,
-    ),
-    getArtifactGraphRef: db.prepare(
-      `SELECT user_id, graph_id, run_id FROM artifacts WHERE id = ?`,
-    ),
-    countUsers: db.prepare(`SELECT COUNT(*) AS n FROM users`),
-    updateUserPasswordHash: db.prepare(
-      `UPDATE users SET password_hash = ? WHERE id = ?`,
-    ),
-    insertGraph: db.prepare(
-      `INSERT INTO graphs (id, user_id, name, doc, origin_template_id, updated_at) VALUES (?, ?, ?, ?, ?, ?)
+    deleteResourceAccess: `DELETE FROM resource_access WHERE resource_type = ? AND resource_id = ? AND user_id = ?`,
+    getResourceAccess: `SELECT role, created_at FROM resource_access WHERE resource_type = ? AND resource_id = ? AND user_id = ?`,
+    listResourceAccess: `SELECT user_id, role, created_at FROM resource_access WHERE resource_type = ? AND resource_id = ? ORDER BY created_at`,
+    listResourceAccessForUser: `SELECT resource_id, role FROM resource_access WHERE resource_type = ? AND user_id = ?`,
+    deleteResourceAccessForResource: `DELETE FROM resource_access WHERE resource_type = ? AND resource_id = ?`,
+    getRunGraphRef: `SELECT user_id, graph_id FROM runs WHERE id = ?`,
+    getArtifactGraphRef: `SELECT user_id, graph_id, run_id FROM artifacts WHERE id = ?`,
+    countUsers: `SELECT COUNT(*) AS n FROM users`,
+    updateUserPasswordHash: `UPDATE users SET password_hash = ? WHERE id = ?`,
+    insertGraph: `INSERT INTO graphs (id, user_id, name, doc, origin_template_id, updated_at) VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET name = excluded.name, doc = excluded.doc, version = version + 1, updated_at = excluded.updated_at
        WHERE graphs.user_id = excluded.user_id`,
-    ),
     // Conditional update: only succeeds when the row's current version matches
     // the If-Match value, so a stale tab can't silently clobber a newer save.
-    updateGraphIfVersion: db.prepare(
-      `UPDATE graphs SET name = ?, doc = ?, version = version + 1, updated_at = ?
+    updateGraphIfVersion: `UPDATE graphs SET name = ?, doc = ?, version = version + 1, updated_at = ?
        WHERE id = ? AND version = ? AND user_id = ?`,
-    ),
-    getGraphVersion: db.prepare(`SELECT version FROM graphs WHERE id = ? AND user_id = ?`),
-    getGraph: db.prepare(`SELECT doc, version, origin_template_id FROM graphs WHERE id = ? AND user_id = ?`),
-    listGraphs: db.prepare(`SELECT id, name, version, updated_at, origin_template_id FROM graphs WHERE user_id = ? ORDER BY updated_at DESC`),
-    listGraphVariables: db.prepare(
-      `SELECT gv.key AS key, gv.value AS value
+    getGraphVersion: `SELECT version FROM graphs WHERE id = ? AND user_id = ?`,
+    getGraph: `SELECT doc, version, origin_template_id FROM graphs WHERE id = ? AND user_id = ?`,
+    listGraphs: `SELECT id, name, version, updated_at, origin_template_id FROM graphs WHERE user_id = ? ORDER BY updated_at DESC`,
+    listGraphVariables: `SELECT gv.key AS key, gv.value AS value
        FROM graph_variables gv JOIN graphs g ON g.id = gv.graph_id AND g.user_id = ?
        WHERE gv.graph_id = ?`,
-    ),
-    saveGraphVariable: db.prepare(
-      `INSERT INTO graph_variables (graph_id, key, value, updated_at) VALUES (?, ?, ?, ?)
+    saveGraphVariable: `INSERT INTO graph_variables (graph_id, key, value, updated_at) VALUES (?, ?, ?, ?)
        ON CONFLICT(graph_id, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
-    ),
-    deleteGraph: db.prepare(`DELETE FROM graphs WHERE id = ? AND user_id = ?`),
-    createRun: db.prepare(
-      `INSERT INTO runs (id, user_id, graph_id, snapshot, status, trigger, input, budget_usd, started_at, ab_group, ab_arm, ab_target) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ),
-    finishRun: db.prepare(
-      `UPDATE runs SET status = ?, ended_at = ?, halted_node_id = ?, halted_reason = ? WHERE id = ? AND user_id = ?`,
-    ),
-    markRunning: db.prepare(
-      `UPDATE runs SET status = 'running', ended_at = NULL, halted_node_id = NULL, halted_reason = NULL WHERE id = ? AND user_id = ?`,
-    ),
-    getRun: db.prepare(`SELECT * FROM runs WHERE id = ? AND user_id = ?`),
-    listRuns: db.prepare(
-      `SELECT r.id, r.graph_id, COALESCE(g.name, '(已删除产线)') AS graph_name, r.status, r.trigger, r.budget_usd, r.started_at, r.ended_at
+    deleteGraph: `DELETE FROM graphs WHERE id = ? AND user_id = ?`,
+    createRun: `INSERT INTO runs (id, user_id, graph_id, snapshot, status, trigger, input, budget_usd, started_at, ab_group, ab_arm, ab_target) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    finishRun: `UPDATE runs SET status = ?, ended_at = ?, halted_node_id = ?, halted_reason = ? WHERE id = ? AND user_id = ?`,
+    markRunning: `UPDATE runs SET status = 'running', ended_at = NULL, halted_node_id = NULL, halted_reason = NULL WHERE id = ? AND user_id = ?`,
+    getRun: `SELECT * FROM runs WHERE id = ? AND user_id = ?`,
+    listRuns: `SELECT r.id, r.graph_id, COALESCE(g.name, '(已删除产线)') AS graph_name, r.status, r.trigger, r.budget_usd, r.started_at, r.ended_at
        FROM runs r LEFT JOIN graphs g ON g.id = r.graph_id
        ORDER BY r.started_at DESC LIMIT ? OFFSET ?`,
-    ),
-    insertEvent: db.prepare(
-      `INSERT INTO events (run_id, seq, ts, version, type, payload) VALUES (?, ?, ?, ?, ?, ?)`,
-    ),
-    listEvents: db.prepare(`SELECT payload FROM events WHERE run_id = ? ORDER BY seq`),
-    listEventsRange: db.prepare(
-      `SELECT seq, payload FROM events WHERE run_id = ? AND seq > ? ORDER BY seq LIMIT ?`,
-    ),
-    maxSeq: db.prepare(`SELECT COALESCE(MAX(seq), -1) as seq FROM events WHERE run_id = ?`),
-    upsertNodeRun: db.prepare(
-      `INSERT INTO node_runs (run_id, node_id, attempt, variant, status) VALUES (?, ?, ?, ?, ?)
+    insertEvent: `INSERT INTO events (run_id, seq, ts, version, type, payload) VALUES (?, ?, ?, ?, ?, ?)`,
+    listEvents: `SELECT payload FROM events WHERE run_id = ? ORDER BY seq`,
+    listEventsRange: `SELECT seq, payload FROM events WHERE run_id = ? AND seq > ? ORDER BY seq LIMIT ?`,
+    maxSeq: `SELECT COALESCE(MAX(seq), -1) as seq FROM events WHERE run_id = ?`,
+    upsertNodeRun: `INSERT INTO node_runs (run_id, node_id, attempt, variant, status) VALUES (?, ?, ?, ?, ?)
        ON CONFLICT(run_id, node_id, attempt, variant) DO UPDATE SET status = excluded.status`,
-    ),
-    appendReasoning: db.prepare(
-      `UPDATE node_runs SET reasoning = COALESCE(reasoning, '') || ? WHERE run_id = ? AND node_id = ? AND attempt = ? AND variant = ?`,
-    ),
-    finishNodeRun: db.prepare(
-      `UPDATE node_runs SET status = ?, output = ?, tokens_in = ?, tokens_out = ?,
+    appendReasoning: `UPDATE node_runs SET reasoning = COALESCE(reasoning, '') || ? WHERE run_id = ? AND node_id = ? AND attempt = ? AND variant = ?`,
+    finishNodeRun: `UPDATE node_runs SET status = ?, output = ?, tokens_in = ?, tokens_out = ?,
         cached_tokens = ?, reasoning_tokens = ?, cost_usd = ?, units_json = ?
        WHERE run_id = ? AND node_id = ? AND attempt = ? AND variant = ?`,
-    ),
-    failNodeRun: db.prepare(
-      `UPDATE node_runs SET status = 'failed', error = ?, error_code = ? WHERE run_id = ? AND node_id = ? AND attempt = ? AND variant = ?`,
-    ),
-    setNodeScore: db.prepare(
-      `UPDATE node_runs SET score = ? WHERE run_id = ? AND node_id = ? AND attempt = ? AND variant = ?`,
-    ),
-    markInterrupted: db.prepare(
-      `UPDATE runs SET status = 'interrupted', ended_at = ? WHERE status = 'running'`,
-    ),
+    failNodeRun: `UPDATE node_runs SET status = 'failed', error = ?, error_code = ? WHERE run_id = ? AND node_id = ? AND attempt = ? AND variant = ?`,
+    setNodeScore: `UPDATE node_runs SET score = ? WHERE run_id = ? AND node_id = ? AND attempt = ? AND variant = ?`,
+    markInterrupted: `UPDATE runs SET status = 'interrupted', ended_at = ? WHERE status = 'running'`,
     /** Snapshots needed to group runs by prompt version (eval report). */
-    evalSnapshots: db.prepare(
-      `SELECT id, graph_id, snapshot FROM runs WHERE status != 'running' AND user_id = ? ORDER BY started_at DESC LIMIT 1000`,
-    ),
-        deleteRun: db.prepare(`DELETE FROM runs WHERE id = ? AND user_id = ?`),
-    deleteEvents: db.prepare(`DELETE FROM events WHERE run_id = ?`),
-    deleteNodeRuns: db.prepare(`DELETE FROM node_runs WHERE run_id = ?`),
-    insertArtifact: db.prepare(
-      `INSERT INTO artifacts (id, run_id, user_id, node_id, attempt, variant, graph_id, role, kind, mime_type, label, size_bytes, storage, uri, created_at)
+    evalSnapshots: `SELECT id, graph_id, snapshot FROM runs WHERE status != 'running' AND user_id = ? ORDER BY started_at DESC LIMIT 1000`,
+        deleteRun: `DELETE FROM runs WHERE id = ? AND user_id = ?`,
+    deleteEvents: `DELETE FROM events WHERE run_id = ?`,
+    deleteNodeRuns: `DELETE FROM node_runs WHERE run_id = ?`,
+    insertArtifact: `INSERT INTO artifacts (id, run_id, user_id, node_id, attempt, variant, graph_id, role, kind, mime_type, label, size_bytes, storage, uri, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO NOTHING`,
-    ),
-    listArtifactsByRun: db.prepare(
-      `SELECT a.id, a.run_id, a.node_id, a.attempt, a.graph_id, a.role, a.kind, a.mime_type, a.label, a.size_bytes, a.storage, a.uri, a.created_at,
+    listArtifactsByRun: `SELECT a.id, a.run_id, a.node_id, a.attempt, a.graph_id, a.role, a.kind, a.mime_type, a.label, a.size_bytes, a.storage, a.uri, a.created_at,
               COALESCE(g.name, '(未知流水线)') AS graph_name
        FROM artifacts a LEFT JOIN graphs g ON g.id = a.graph_id
        WHERE a.run_id = ? AND a.user_id = ?
        ORDER BY a.created_at`,
-    ),
-    listArtifactsByRunUnscoped: db.prepare(
-      `SELECT a.id, a.run_id, a.node_id, a.attempt, a.graph_id, a.role, a.kind, a.mime_type, a.label, a.size_bytes, a.storage, a.uri, a.created_at,
+    listArtifactsByRunUnscoped: `SELECT a.id, a.run_id, a.node_id, a.attempt, a.graph_id, a.role, a.kind, a.mime_type, a.label, a.size_bytes, a.storage, a.uri, a.created_at,
               COALESCE(g.name, '(未知流水线)') AS graph_name
        FROM artifacts a LEFT JOIN graphs g ON g.id = a.graph_id
        WHERE a.run_id = ?
        ORDER BY a.created_at`,
-    ),
-    getArtifact: db.prepare(
-      `SELECT a.id, a.run_id, a.node_id, a.attempt, a.graph_id, a.role, a.kind, a.mime_type, a.label, a.size_bytes, a.storage, a.uri, a.created_at,
+    getArtifact: `SELECT a.id, a.run_id, a.node_id, a.attempt, a.graph_id, a.role, a.kind, a.mime_type, a.label, a.size_bytes, a.storage, a.uri, a.created_at,
               COALESCE(g.name, '(未知流水线)') AS graph_name
        FROM artifacts a LEFT JOIN graphs g ON g.id = a.graph_id
        WHERE a.id = ? AND a.user_id = ?`,
-    ),
-    getArtifactUnscoped: db.prepare(
-      `SELECT a.id, a.run_id, a.node_id, a.attempt, a.graph_id, a.role, a.kind, a.mime_type, a.label, a.size_bytes, a.storage, a.uri, a.created_at,
+    getArtifactUnscoped: `SELECT a.id, a.run_id, a.node_id, a.attempt, a.graph_id, a.role, a.kind, a.mime_type, a.label, a.size_bytes, a.storage, a.uri, a.created_at,
               COALESCE(g.name, '(未知流水线)') AS graph_name
        FROM artifacts a LEFT JOIN graphs g ON g.id = a.graph_id
        WHERE a.id = ?`,
-    ),
-    listArtifacts: db.prepare(
-      `SELECT a.id, a.run_id, a.node_id, a.attempt, a.graph_id, a.role, a.kind, a.mime_type, a.label, a.size_bytes, a.storage, a.uri, a.created_at,
+    listArtifacts: `SELECT a.id, a.run_id, a.node_id, a.attempt, a.graph_id, a.role, a.kind, a.mime_type, a.label, a.size_bytes, a.storage, a.uri, a.created_at,
               COALESCE(g.name, '(未知流水线)') AS graph_name
        FROM artifacts a LEFT JOIN graphs g ON g.id = a.graph_id
        WHERE a.user_id = ?
        ORDER BY a.created_at DESC, a.rowid DESC LIMIT ? OFFSET ?`,
-    ),
-    deleteArtifactsForRun: db.prepare(`DELETE FROM artifacts WHERE run_id = ?`),
-    getGraphById: db.prepare(`SELECT doc, version FROM graphs WHERE id = ?`),
-    getGraphMeta: db.prepare(
-      `SELECT id, name, version, updated_at, origin_template_id FROM graphs WHERE id = ?`,
-    ),
-    listAllGraphs: db.prepare(`SELECT id, name, version, updated_at FROM graphs ORDER BY updated_at DESC`),
-    getGraphOwnerId: db.prepare(`SELECT user_id FROM graphs WHERE id = ?`),
-    finishRunById: db.prepare(`UPDATE runs SET status = ?, ended_at = ? WHERE id = ?`),
-    markRunningById: db.prepare(
-      `UPDATE runs SET status = 'running', ended_at = NULL, halted_node_id = NULL, halted_reason = NULL WHERE id = ?`,
-    ),
-    getRunById: db.prepare(`SELECT * FROM runs WHERE id = ?`),
-    listRunsUnscoped: db.prepare(
-      `SELECT r.id, r.graph_id, COALESCE(g.name, '(已删除产线)') AS graph_name, r.status, r.trigger, r.budget_usd, r.started_at, r.ended_at
+    deleteArtifactsForRun: `DELETE FROM artifacts WHERE run_id = ?`,
+    getGraphById: `SELECT doc, version FROM graphs WHERE id = ?`,
+    getGraphMeta: `SELECT id, name, version, updated_at, origin_template_id FROM graphs WHERE id = ?`,
+    listAllGraphs: `SELECT id, name, version, updated_at FROM graphs ORDER BY updated_at DESC`,
+    getGraphOwnerId: `SELECT user_id FROM graphs WHERE id = ?`,
+    finishRunById: `UPDATE runs SET status = ?, ended_at = ? WHERE id = ?`,
+    markRunningById: `UPDATE runs SET status = 'running', ended_at = NULL, halted_node_id = NULL, halted_reason = NULL WHERE id = ?`,
+    getRunById: `SELECT * FROM runs WHERE id = ?`,
+    listRunsUnscoped: `SELECT r.id, r.graph_id, COALESCE(g.name, '(已删除产线)') AS graph_name, r.status, r.trigger, r.budget_usd, r.started_at, r.ended_at
        FROM runs r LEFT JOIN graphs g ON g.id = r.graph_id
        ORDER BY r.started_at DESC LIMIT ? OFFSET ?`,
-    ),
-    listRunsByGraphUnscoped: db.prepare(
-      `SELECT r.id, r.graph_id, COALESCE(g.name, '(已删除产线)') AS graph_name, r.status, r.trigger, r.budget_usd, r.started_at, r.ended_at
+    listRunsByGraphUnscoped: `SELECT r.id, r.graph_id, COALESCE(g.name, '(已删除产线)') AS graph_name, r.status, r.trigger, r.budget_usd, r.started_at, r.ended_at
        FROM runs r LEFT JOIN graphs g ON g.id = r.graph_id
        WHERE r.graph_id = ?
        ORDER BY r.started_at DESC LIMIT ?`,
-    ),
     // Monetization (design-monetization): subscriptions + usage ledger.
-    getSubscription: db.prepare(
-      `SELECT plan, status, provider, external_id, current_period_start, current_period_end
+    getSubscription: `SELECT plan, status, provider, external_id, current_period_start, current_period_end
        FROM subscriptions WHERE user_id = ?`,
-    ),
-    upsertSubscription: db.prepare(
-      `INSERT INTO subscriptions (user_id, plan, status, provider, external_id, current_period_start, current_period_end, created_at, updated_at)
+    upsertSubscription: `INSERT INTO subscriptions (user_id, plan, status, provider, external_id, current_period_start, current_period_end, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(user_id) DO UPDATE SET
          plan = excluded.plan, status = excluded.status, provider = excluded.provider,
          external_id = excluded.external_id, current_period_start = excluded.current_period_start,
          current_period_end = excluded.current_period_end, updated_at = excluded.updated_at`,
-    ),
-    usageForMetric: db.prepare(
-      `SELECT COALESCE(SUM(amount), 0) AS total FROM usage_ledger WHERE user_id = ? AND period_start = ? AND metric = ?`,
-    ),
-    accumulateUsage: db.prepare(
-      `INSERT INTO usage_ledger (user_id, period_start, metric, amount, updated_at)
+    usageForMetric: `SELECT COALESCE(SUM(amount), 0) AS total FROM usage_ledger WHERE user_id = ? AND period_start = ? AND metric = ?`,
+    accumulateUsage: `INSERT INTO usage_ledger (user_id, period_start, metric, amount, updated_at)
        VALUES (?, ?, ?, ?, ?)
        ON CONFLICT(user_id, period_start, metric) DO UPDATE SET amount = amount + excluded.amount, updated_at = excluded.updated_at`,
-    ),
-    countActiveRuns: db.prepare(
-      `SELECT COUNT(*) AS n FROM runs WHERE user_id = ? AND status IN ('running', 'halted')`,
-    ),
+    countActiveRuns: `SELECT COUNT(*) AS n FROM runs WHERE user_id = ? AND status IN ('running', 'halted')`,
   };
 
   return {
     /** Lightweight liveness probe for the readiness check: answers whether the
      *  sqlite connection still executes a statement. */
     async ping() {
-      return (db.prepare("SELECT 1 AS ok").get() as { ok: number }).ok === 1;
+      return (await exec.get("SELECT 1 AS ok", []) as { ok: number }).ok === 1;
     },
     /** Idempotent run creation: maps (userId, idempotencyKey) → runId. */
     async getIdempotentRun(userId: string, key: string) {
-      const row = db
-        .prepare("SELECT run_id FROM idempotency_keys WHERE user_id = ? AND key = ?")
-        .get(userId, key) as { run_id: string } | undefined;
+      const row = await exec.get("SELECT run_id FROM idempotency_keys WHERE user_id = ? AND key = ?", [userId, key]) as { run_id: string } | undefined;
       return row?.run_id ?? null;
     },
     async saveIdempotentRun(userId: string, key: string, runId: string) {
-      db.prepare(
-        "INSERT OR IGNORE INTO idempotency_keys (user_id, key, run_id, created_at) VALUES (?, ?, ?, ?)",
-      ).run(userId, key, runId, Date.now());
+      await exec.run("INSERT OR IGNORE INTO idempotency_keys (user_id, key, run_id, created_at) VALUES (?, ?, ?, ?)", [userId, key, runId, Date.now()]);
     },
     /**
      * Prunes events older than the given epoch-millisecond cutoff. Safe because
@@ -886,11 +802,11 @@ export function createSqliteDriver(file: string) {
      * the number of rows deleted.
      */
     async pruneOldEvents(before: number) {
-      return Number(db.prepare("DELETE FROM events WHERE ts < ?").run(before).changes);
+      return Number((await exec.run("DELETE FROM events WHERE ts < ?", [before])).changes);
     },
     /** Runs sqlite's own integrity check; true when the database is consistent. */
     async verifyIntegrity() {
-      const rows = db.prepare("PRAGMA integrity_check").all() as Array<{ integrity_check: string }>;
+      const rows = await exec.all("PRAGMA integrity_check", []) as Array<{ integrity_check: string }>;
       return rows.length === 1 && rows[0]!.integrity_check === "ok";
     },
     async createUser(id: string, email: string, passwordHash: string) {
@@ -898,38 +814,38 @@ export function createSqliteDriver(file: string) {
       // instance owner. The single-owner invariant is enforced by the partial
       // unique index idx_users_owner.
       const role =
-        (stmts.countOwners.get() as { n: number }).n === 0 ? "owner" : "user";
-      stmts.createUser.run(id, email, passwordHash, role);
+        (await exec.get(stmts.countOwners, []) as { n: number }).n === 0 ? "owner" : "user";
+      await exec.run(stmts.createUser, [id, email, passwordHash, role]);
       return { id, email, role };
     },
     async findUserByEmail(email: string) {
-      return stmts.findUserByEmail.get(email) as
+      return await exec.get(stmts.findUserByEmail, [email]) as
         | { id: string; email: string; role: string; created_at: string }
         | undefined;
     },
     async findUserById(id: string) {
-      return stmts.findUserById.get(id) as
+      return await exec.get(stmts.findUserById, [id]) as
         | { id: string; email: string; role: string; created_at: string }
         | undefined;
     },
     async findUserPasswordHash(id: string) {
-      const row = stmts.findUserPasswordHash.get(id) as { password_hash: string } | undefined;
+      const row = await exec.get(stmts.findUserPasswordHash, [id]) as { password_hash: string } | undefined;
       return row?.password_hash;
     },
     /** Total account count — gates self-registration once the first user exists (M3). */
     async countUsers(): Promise<number> {
-      return (stmts.countUsers.get() as { n: number }).n;
+      return (await exec.get(stmts.countUsers, []) as { n: number }).n;
     },
     async updateUserPasswordHash(id: string, passwordHash: string) {
-      stmts.updateUserPasswordHash.run(passwordHash, id);
+      await exec.run(stmts.updateUserPasswordHash, [passwordHash, id]);
     },
     /** RBAC P3: full account list for the owner's admin panel. */
     async listUsers(): Promise<Array<{ id: string; email: string; role: string; created_at: string }>> {
-      return stmts.listUsers.all() as Array<{ id: string; email: string; role: string; created_at: string }>;
+      return await exec.all(stmts.listUsers, []) as Array<{ id: string; email: string; role: string; created_at: string }>;
     },
     /** RBAC P3: grant or revoke the global admin role (owner-only route). */
     async updateUserRole(id: string, role: string) {
-      stmts.updateUserRole.run(role, id);
+      await exec.run(stmts.updateUserRole, [role, id]);
     },
 
     // ---- Monetization (design-monetization §5): subscription + usage ledger ----
@@ -943,7 +859,7 @@ export function createSqliteDriver(file: string) {
           currentPeriodEnd: number;
         }
       | undefined> {
-      const row = stmts.getSubscription.get(userId) as
+      const row = await exec.get(stmts.getSubscription, [userId]) as
         | {
             plan: string;
             status: string;
@@ -972,44 +888,34 @@ export function createSqliteDriver(file: string) {
       const now = Date.now();
       const periodStart = opts.periodStart ?? now;
       const periodEnd = opts.periodEnd ?? now + 30 * 24 * 60 * 60 * 1000;
-      stmts.upsertSubscription.run(
-        userId,
-        plan,
-        status,
-        opts.provider ?? null,
-        opts.externalId ?? null,
-        periodStart,
-        periodEnd,
-        now,
-        now,
-      );
+      await exec.run(stmts.upsertSubscription, [userId, plan, status, opts.provider ?? null, opts.externalId ?? null, periodStart, periodEnd, now, now]);
     },
     async usageFor(userId: string, metric: string, periodStart: number): Promise<number> {
-      return (stmts.usageForMetric.get(userId, periodStart, metric) as { total: number }).total;
+      return (await exec.get(stmts.usageForMetric, [userId, periodStart, metric]) as { total: number }).total;
     },
     async accumulateUsage(userId: string, periodStart: number, metric: string, amount: number) {
-      stmts.accumulateUsage.run(userId, periodStart, metric, amount, Date.now());
+      await exec.run(stmts.accumulateUsage, [userId, periodStart, metric, amount, Date.now()]);
     },
     async activeRuns(userId: string): Promise<number> {
-      return (stmts.countActiveRuns.get(userId) as { n: number }).n;
+      return (await exec.get(stmts.countActiveRuns, [userId]) as { n: number }).n;
     },
 
     /** Grant or overwrite a shared role (editor/viewer) on a resource. */
     async saveResourceAccess(resourceType: string, resourceId: string, userId: string, role: string) {
-      stmts.saveResourceAccess.run(resourceType, resourceId, userId, role, Date.now());
+      await exec.run(stmts.saveResourceAccess, [resourceType, resourceId, userId, role, Date.now()]);
     },
     /** Revoke a user's shared access. Returns true when a row was removed. */
     async deleteResourceAccess(resourceType: string, resourceId: string, userId: string): Promise<boolean> {
-      return stmts.deleteResourceAccess.run(resourceType, resourceId, userId).changes > 0;
+      return (await exec.run(stmts.deleteResourceAccess, [resourceType, resourceId, userId])).changes > 0;
     },
     async getResourceAccess(resourceType: string, resourceId: string, userId: string): Promise<{ role: string } | undefined> {
-      return stmts.getResourceAccess.get(resourceType, resourceId, userId) as
+      return await exec.get(stmts.getResourceAccess, [resourceType, resourceId, userId]) as
         | { role: string }
         | undefined;
     },
     /** All shared collaborators on one resource (for the owner's ACL UI). */
     async listResourceAccess(resourceType: string, resourceId: string): Promise<Array<{ user_id: string; role: string; created_at: number }>> {
-      return stmts.listResourceAccess.all(resourceType, resourceId) as Array<{
+      return await exec.all(stmts.listResourceAccess, [resourceType, resourceId]) as Array<{
         user_id: string;
         role: string;
         created_at: number;
@@ -1017,21 +923,21 @@ export function createSqliteDriver(file: string) {
     },
     /** Everything shared TO one user (for list filtering). */
     async listResourceAccessForUser(resourceType: string, userId: string): Promise<Array<{ resource_id: string; role: string }>> {
-      return stmts.listResourceAccessForUser.all(resourceType, userId) as Array<{
+      return await exec.all(stmts.listResourceAccessForUser, [resourceType, userId]) as Array<{
         resource_id: string;
         role: string;
       }>;
     },
     /** The run row's owner + graph, for resolving a run back to its graph ACL. */
     async getRunGraphRef(runId: string): Promise<{ userId: string; graphId: string } | undefined> {
-      const row = stmts.getRunGraphRef.get(runId) as
+      const row = await exec.get(stmts.getRunGraphRef, [runId]) as
         | { user_id: string; graph_id: string }
         | undefined;
       return row ? { userId: row.user_id, graphId: row.graph_id } : undefined;
     },
     /** The artifact row's owner + graph, for resolving an artifact back to its graph ACL. */
     async getArtifactGraphRef(artifactId: string): Promise<{ userId: string; graphId: string; runId: string } | undefined> {
-      const row = stmts.getArtifactGraphRef.get(artifactId) as
+      const row = await exec.get(stmts.getArtifactGraphRef, [artifactId]) as
         | { user_id: string; graph_id: string | null; run_id: string }
         | undefined;
       return row
@@ -1040,7 +946,7 @@ export function createSqliteDriver(file: string) {
     },
     /** The owning user of a graph, or undefined when the graph does not exist. */
     async graphOwnerId(graphId: string): Promise<string | undefined> {
-      const row = stmts.getGraphOwnerId.get(graphId) as { user_id: string } | undefined;
+      const row = await exec.get(stmts.getGraphOwnerId, [graphId]) as { user_id: string } | undefined;
       return row?.user_id;
     },
 
@@ -1061,32 +967,25 @@ export function createSqliteDriver(file: string) {
       // Cross-tenant guard (H1): an upsert must never overwrite a graph that
       // shares this id but belongs to another user. Checked in the app layer
       // for a clear error; the UPSERT's WHERE clause is the SQL backstop.
-      const ownerRow = stmts.getGraphOwnerId.get(graph.id) as { user_id: string } | undefined;
+      const ownerRow = await exec.get(stmts.getGraphOwnerId, [graph.id]) as { user_id: string } | undefined;
       if (ownerRow && ownerRow.user_id !== userId) {
         return { ok: false, foreign: true };
       }
       if (expectedVersion != null) {
-        const result = stmts.updateGraphIfVersion.run(
-          graph.name,
-          doc,
-          at,
-          graph.id,
-          expectedVersion,
-          userId,
-        );
+        const result = await exec.run(stmts.updateGraphIfVersion, [graph.name, doc, at, graph.id, expectedVersion, userId]);
         if (result.changes === 0) {
-          const row = stmts.getGraphVersion.get(graph.id, userId) as { version: number } | undefined;
+          const row = await exec.get(stmts.getGraphVersion, [graph.id, userId]) as { version: number } | undefined;
           return { ok: false, conflict: true, serverVersion: row?.version ?? null };
         }
         return { ok: true, version: expectedVersion + 1 };
       }
-      stmts.insertGraph.run(graph.id, userId, graph.name, doc, originTemplateId ?? null, at);
-      const row = stmts.getGraphVersion.get(graph.id, userId) as { version: number };
+      await exec.run(stmts.insertGraph, [graph.id, userId, graph.name, doc, originTemplateId ?? null, at]);
+      const row = await exec.get(stmts.getGraphVersion, [graph.id, userId]) as { version: number };
       return { ok: true, version: row.version };
     },
 
     async getGraph(id: string, userId: string): Promise<(Graph & { version: number; originTemplateId: string | null }) | null> {
-      const row = stmts.getGraph.get(id, userId) as { doc: string; version: number; origin_template_id: string | null } | undefined;
+      const row = await exec.get(stmts.getGraph, [id, userId]) as { doc: string; version: number; origin_template_id: string | null } | undefined;
       return row ? { ...(openGraphDoc(JSON.parse(row.doc) as Graph)), version: row.version, originTemplateId: row.origin_template_id } : null;
     },
 
@@ -1099,7 +998,7 @@ export function createSqliteDriver(file: string) {
       updated_at: number;
       originTemplateId: string | null;
     } | undefined> {
-      const row = stmts.getGraphMeta.get(id) as
+      const row = await exec.get(stmts.getGraphMeta, [id]) as
         | { id: string; name: string; version: number; updated_at: number; origin_template_id: string | null }
         | undefined;
       return row && { id: row.id, name: row.name, version: row.version, updated_at: row.updated_at, originTemplateId: row.origin_template_id };
@@ -1112,7 +1011,7 @@ export function createSqliteDriver(file: string) {
       updated_at: number;
       originTemplateId: string | null;
     }>> {
-      const rows = stmts.listGraphs.all(userId) as Array<{
+      const rows = await exec.all(stmts.listGraphs, [userId]) as Array<{
         id: string; name: string; version: number; updated_at: number; origin_template_id: string | null;
       }>;
       return rows.map((r) => ({
@@ -1129,7 +1028,7 @@ export function createSqliteDriver(file: string) {
      * Tenant-scoped: joins `graphs` so foreign graphs return an empty map.
      */
     async loadGraphVariables(graphId: string, userId: string): Promise<Record<string, unknown>> {
-      const rows = stmts.listGraphVariables.all(userId, graphId) as Array<{ key: string; value: string }>;
+      const rows = await exec.all(stmts.listGraphVariables, [userId, graphId]) as Array<{ key: string; value: string }>;
       const out: Record<string, unknown> = {};
       for (const r of rows) {
         try {
@@ -1149,21 +1048,21 @@ export function createSqliteDriver(file: string) {
      * Tenant-scoped: silently no-ops when the graph isn't owned by the user.
      */
     async saveGraphVariables(graphId: string, userId: string, vars: Record<string, unknown>): Promise<void> {
-      const owner = stmts.getGraphOwnerId.get(graphId) as { user_id: string } | undefined;
+      const owner = await exec.get(stmts.getGraphOwnerId, [graphId]) as { user_id: string } | undefined;
       if (!owner || owner.user_id !== userId) return;
       const at = Date.now();
       for (const [key, value] of Object.entries(vars)) {
         // Variables may hold credentials (L5): seal at rest, not plaintext.
-        stmts.saveGraphVariable.run(graphId, key, encryptString(JSON.stringify(value)), at);
+        await exec.run(stmts.saveGraphVariable, [graphId, key, encryptString(JSON.stringify(value)), at]);
       }
     },
 
 
     async deleteGraph(id: string, userId: string) {
-      stmts.deleteGraph.run(id, userId);
+      await exec.run(stmts.deleteGraph, [id, userId]);
       // Drop stale ACL rows so a future graph with the same id can't inherit
       // old shares (and so the collaborator lists don't leak deleted graphs).
-      stmts.deleteResourceAccessForResource.run("graph", id);
+      await exec.run(stmts.deleteResourceAccessForResource, ["graph", id]);
     },
 
     async createRun(args: {
@@ -1178,20 +1077,7 @@ export function createSqliteDriver(file: string) {
       abArm?: string | null;
       abTarget?: string | null;
     }) {
-      stmts.createRun.run(
-        args.id,
-        args.userId,
-        args.graph.id,
-        JSON.stringify(sealGraphDoc(args.graph)),
-        "running",
-        args.trigger ?? "manual",
-        args.input ?? null,
-        args.budgetUsd,
-        args.at,
-        args.abGroup ?? null,
-        args.abArm ?? null,
-        args.abTarget ?? null,
-      );
+      await exec.run(stmts.createRun, [args.id, args.userId, args.graph.id, JSON.stringify(sealGraphDoc(args.graph)), "running", args.trigger ?? "manual", args.input ?? null, args.budgetUsd, args.at, args.abGroup ?? null, args.abArm ?? null, args.abTarget ?? null]);
     },
 
     async finishRun(
@@ -1201,19 +1087,19 @@ export function createSqliteDriver(file: string) {
       at: number,
       halted?: { nodeId: string | null; reason: string | null },
     ) {
-      stmts.finishRun.run(status, at, halted?.nodeId ?? null, halted?.reason ?? null, runId, userId);
+      await exec.run(stmts.finishRun, [status, at, halted?.nodeId ?? null, halted?.reason ?? null, runId, userId]);
     },
 
     async markRunning(runId: string, userId: string) {
-      stmts.markRunning.run(runId, userId);
+      await exec.run(stmts.markRunning, [runId, userId]);
     },
 
     async runExists(runId: string, userId: string): Promise<boolean> {
-      return stmts.getRun.get(runId, userId) !== undefined;
+      return await exec.get(stmts.getRun, [runId, userId]) !== undefined;
     },
 
     async getRun(runId: string, userId: string) {
-      const row = stmts.getRun.get(runId, userId) as
+      const row = await exec.get(stmts.getRun, [runId, userId]) as
         | {
             id: string;
             graph_id: string;
@@ -1250,17 +1136,13 @@ export function createSqliteDriver(file: string) {
         params.push(opts.status);
       }
       const clause = `WHERE ${where.join(" AND ")}`;
-      const rows = db
-        .prepare(
-          `SELECT r.id AS id, r.graph_id AS graph_id, g.name AS graph_name,
+      const rows = await exec.all(`SELECT r.id AS id, r.graph_id AS graph_id, g.name AS graph_name,
                   r.status AS status, r.trigger AS trigger, r.budget_usd AS budget_usd,
                   r.started_at AS started_at, r.ended_at AS ended_at
            FROM runs r LEFT JOIN graphs g ON g.id = r.graph_id
            ${clause}
            ORDER BY r.started_at DESC
-           LIMIT ? OFFSET ?`,
-        )
-        .all(...params, limit, offset) as Array<{
+           LIMIT ? OFFSET ?`, [...params, limit, offset]) as Array<{
         id: string;
         graph_id: string;
         graph_name: string;
@@ -1271,7 +1153,7 @@ export function createSqliteDriver(file: string) {
         ended_at: number | null;
       }>;
       const total = (
-        db.prepare(`SELECT COUNT(*) AS n FROM runs r ${clause}`).get(...params) as { n: number }
+        await exec.get(`SELECT COUNT(*) AS n FROM runs r ${clause}`, [...params]) as { n: number }
       ).n;
       return { rows, total };
     },
@@ -1295,18 +1177,14 @@ export function createSqliteDriver(file: string) {
         params.push(opts.graphId);
       }
       const clause = `WHERE ${where.join(" AND ")}`;
-      const rows = db
-        .prepare(
-          `SELECT r.id AS id, r.graph_id AS graph_id, COALESCE(g.name, '(已删除产线)') AS graph_name,
+      const rows = await exec.all(`SELECT r.id AS id, r.graph_id AS graph_id, COALESCE(g.name, '(已删除产线)') AS graph_name,
                   r.halted_node_id AS halted_node_id, r.halted_reason AS halted_reason,
                   r.trigger AS trigger, r.ab_group AS ab_group, r.ab_arm AS ab_arm,
                   r.started_at AS started_at, COALESCE(r.ended_at, r.started_at) AS halted_at
            FROM runs r LEFT JOIN graphs g ON g.id = r.graph_id
            ${clause}
            ORDER BY COALESCE(r.ended_at, r.started_at) ASC
-           LIMIT ? OFFSET ?`,
-        )
-        .all(...params, limit, offset) as Array<{
+           LIMIT ? OFFSET ?`, [...params, limit, offset]) as Array<{
         id: string;
         graph_id: string;
         graph_name: string;
@@ -1319,22 +1197,18 @@ export function createSqliteDriver(file: string) {
         halted_at: number;
       }>;
       const total = (
-        db.prepare(`SELECT COUNT(*) AS n FROM runs r ${clause}`).get(...params) as { n: number }
+        await exec.get(`SELECT COUNT(*) AS n FROM runs r ${clause}`, [...params]) as { n: number }
       ).n;
       return { rows, total };
     },
 
     /** Node-level cost/token aggregates for a single run, used by comparison views. */
     async runStats(runId: string) {
-      const row = db
-        .prepare(
-          `SELECT COUNT(*) AS nodes,
+      const row = await exec.get(`SELECT COUNT(*) AS nodes,
                   COALESCE(SUM(tokens_in), 0) AS tokens_in,
                   COALESCE(SUM(tokens_out), 0) AS tokens_out,
                   COALESCE(SUM(cost_usd), 0) AS cost_usd
-           FROM node_runs WHERE run_id = ?`,
-        )
-        .get(runId) as {
+           FROM node_runs WHERE run_id = ?`, [runId]) as {
         nodes: number;
         tokens_in: number;
         tokens_out: number;
@@ -1350,64 +1224,37 @@ export function createSqliteDriver(file: string) {
 
     /** Persists the event and folds it into the node_runs projection. */
     async record(runId: string, event: RunEvent) {
-      stmts.insertEvent.run(
-        runId,
-        event.seq,
-        event.ts,
-        EVENT_SCHEMA_VERSION,
-        event.type,
-        JSON.stringify(event),
-      );
+      await exec.run(stmts.insertEvent, [runId, event.seq, event.ts, EVENT_SCHEMA_VERSION, event.type, JSON.stringify(event)]);
 
       switch (event.type) {
         case "node.started":
-          stmts.upsertNodeRun.run(runId, event.nodeId, event.attempt, event.variant ?? "main", "running");
+          await exec.run(stmts.upsertNodeRun, [runId, event.nodeId, event.attempt, event.variant ?? "main", "running"]);
           break;
         case "node.reasoning":
           // Ensure the row exists then append.
-          stmts.upsertNodeRun.run(runId, event.nodeId, event.attempt, event.variant ?? "main", "running");
-          stmts.appendReasoning.run(event.text, runId, event.nodeId, event.attempt, event.variant ?? "main");
+          await exec.run(stmts.upsertNodeRun, [runId, event.nodeId, event.attempt, event.variant ?? "main", "running"]);
+          await exec.run(stmts.appendReasoning, [event.text, runId, event.nodeId, event.attempt, event.variant ?? "main"]);
           break;
         case "node.finished":
-          stmts.upsertNodeRun.run(runId, event.nodeId, event.attempt, event.variant ?? "main", "done");
-          stmts.finishNodeRun.run(
-            "done",
-            event.output,
-            event.usage.tokensIn,
-            event.usage.tokensOut,
-            event.usage.cachedTokens ?? 0,
-            event.usage.reasoningTokens ?? 0,
-            event.usage.costUsd,
-            event.usage.units ? JSON.stringify(event.usage.units) : null,
-            runId,
-            event.nodeId,
-            event.attempt,
-            event.variant ?? "main",
-          );
+          await exec.run(stmts.upsertNodeRun, [runId, event.nodeId, event.attempt, event.variant ?? "main", "done"]);
+          await exec.run(stmts.finishNodeRun, ["done", event.output, event.usage.tokensIn, event.usage.tokensOut, event.usage.cachedTokens ?? 0, event.usage.reasoningTokens ?? 0, event.usage.costUsd, event.usage.units ? JSON.stringify(event.usage.units) : null, runId, event.nodeId, event.attempt, event.variant ?? "main"]);
           break;
         case "node.failed":
-          stmts.upsertNodeRun.run(runId, event.nodeId, event.attempt, event.variant ?? "main", "failed");
-          stmts.failNodeRun.run(
-            event.error,
-            event.errorCode ?? null,
-            runId,
-            event.nodeId,
-            event.attempt,
-            event.variant ?? "main",
-          );
+          await exec.run(stmts.upsertNodeRun, [runId, event.nodeId, event.attempt, event.variant ?? "main", "failed"]);
+          await exec.run(stmts.failNodeRun, [event.error, event.errorCode ?? null, runId, event.nodeId, event.attempt, event.variant ?? "main"]);
           break;
         case "gate.verdict":
           // Persist the judge's quality score so the eval report can aggregate
           // it per prompt version (the "evaluation linkage").
           if (typeof event.score === "number") {
-            stmts.setNodeScore.run(event.score, runId, event.nodeId, event.attempt, event.variant ?? "main");
+            await exec.run(stmts.setNodeScore, [event.score, runId, event.nodeId, event.attempt, event.variant ?? "main"]);
           }
           break;
       }
     },
 
     async events(runId: string): Promise<RunEvent[]> {
-      const rows = stmts.listEvents.all(runId) as { payload: string }[];
+      const rows = await exec.all(stmts.listEvents, [runId]) as { payload: string }[];
       return rows.map((r) => JSON.parse(r.payload) as RunEvent);
     },
 
@@ -1420,7 +1267,7 @@ export function createSqliteDriver(file: string) {
       events: RunEvent[];
       nextCursor: number | null;
     }> {
-      const rows = stmts.listEventsRange.all(runId, after, limit + 1) as Array<{
+      const rows = await exec.all(stmts.listEventsRange, [runId, after, limit + 1]) as Array<{
         seq: number;
         payload: string;
       }>;
@@ -1431,40 +1278,37 @@ export function createSqliteDriver(file: string) {
     },
 
     async nextSeq(runId: string): Promise<number> {
-      const row = stmts.maxSeq.get(runId) as { seq: number };
+      const row = await exec.get(stmts.maxSeq, [runId]) as { seq: number };
       return row.seq + 1;
     },
 
     /** Mark any runs left in 'running' state (e.g. after a server restart) as interrupted. */
     async markZombiesInterrupted(at: number) {
-      stmts.markInterrupted.run(at);
+      await exec.run(stmts.markInterrupted, [at]);
     },
 
     async insertArtifact(a: StoredArtifact, userId: string) {
-      stmts.insertArtifact.run(
-        a.id, a.runId, userId, a.nodeId, a.attempt, a.variant ?? "main", a.graphId ?? null, a.role ?? null,
-        a.kind, a.mimeType, a.label, a.sizeBytes, a.storage, a.uri, a.createdAt,
-      );
+      await exec.run(stmts.insertArtifact, [a.id, a.runId, userId, a.nodeId, a.attempt, a.variant ?? "main", a.graphId ?? null, a.role ?? null, a.kind, a.mimeType, a.label, a.sizeBytes, a.storage, a.uri, a.createdAt]);
     },
 
     async listArtifactsForRun(runId: string, userId: string): Promise<StoredArtifact[]> {
-      return mapArtifacts(stmts.listArtifactsByRun.all(runId, userId) as ArtifactRow[]);
+      return mapArtifacts(await exec.all(stmts.listArtifactsByRun, [runId, userId]) as ArtifactRow[]);
     },
 
     /** Unscoped run-artifact list for shared-graph viewers (design-rbac P1).
      *  Callers must have already verified graph-level access via rbac. */
     async listArtifactsForRunUnscoped(runId: string): Promise<StoredArtifact[]> {
-      return mapArtifacts(stmts.listArtifactsByRunUnscoped.all(runId) as ArtifactRow[]);
+      return mapArtifacts(await exec.all(stmts.listArtifactsByRunUnscoped, [runId]) as ArtifactRow[]);
     },
 
     async getArtifact(id: string, userId: string): Promise<StoredArtifact | null> {
-      const row = stmts.getArtifact.get(id, userId) as ArtifactRow | undefined;
+      const row = await exec.get(stmts.getArtifact, [id, userId]) as ArtifactRow | undefined;
       return row ? mapArtifact(row) : null;
     },
 
     /** Engine-only: resolves an artifact the calling run already owns. Never wire to a route. */
     async getArtifactUnscoped(id: string): Promise<StoredArtifact | null> {
-      const row = stmts.getArtifactUnscoped.get(id) as ArtifactRow | undefined;
+      const row = await exec.get(stmts.getArtifactUnscoped, [id]) as ArtifactRow | undefined;
       return row ? mapArtifact(row) : null;
     },
 
@@ -1473,26 +1317,22 @@ export function createSqliteDriver(file: string) {
       // is visible to the caller OR that the caller owns (e.g. uploads not
       // yet attached to a run). Without it, keep the legacy user_id scoping.
       if (!graphIds) {
-        return mapArtifacts(stmts.listArtifacts.all(userId, limit, offset) as ArtifactRow[]);
+        return mapArtifacts(await exec.all(stmts.listArtifacts, [userId, limit, offset]) as ArtifactRow[]);
       }
       const placeholders = graphIds.map(() => "?").join(",");
-      const rows = db
-        .prepare(
-          `SELECT a.id, a.run_id, a.node_id, a.attempt, a.graph_id, a.role, a.kind, a.mime_type, a.label, a.size_bytes, a.storage, a.uri, a.created_at,
+      const rows = await exec.all(`SELECT a.id, a.run_id, a.node_id, a.attempt, a.graph_id, a.role, a.kind, a.mime_type, a.label, a.size_bytes, a.storage, a.uri, a.created_at,
                   COALESCE(g.name, '(未知流水线)') AS graph_name
            FROM artifacts a LEFT JOIN graphs g ON g.id = a.graph_id
            WHERE a.user_id = ? OR a.graph_id IN (${placeholders})
-           ORDER BY a.created_at DESC, a.rowid DESC LIMIT ? OFFSET ?`,
-        )
-        .all(userId, ...graphIds, limit, offset) as ArtifactRow[];
+           ORDER BY a.created_at DESC, a.rowid DESC LIMIT ? OFFSET ?`, [userId, ...graphIds, limit, offset]) as ArtifactRow[];
       return mapArtifacts(rows);
     },
 
     async deleteRun(runId: string, userId: string) {
-      stmts.deleteArtifactsForRun.run(runId);
-      stmts.deleteEvents.run(runId);
-      stmts.deleteNodeRuns.run(runId);
-      stmts.deleteRun.run(runId, userId);
+      await exec.run(stmts.deleteArtifactsForRun, [runId]);
+      await exec.run(stmts.deleteEvents, [runId]);
+      await exec.run(stmts.deleteNodeRuns, [runId]);
+      await exec.run(stmts.deleteRun, [runId, userId]);
     },
 
     /**
@@ -1516,9 +1356,7 @@ export function createSqliteDriver(file: string) {
       }
       const clause = `WHERE ${where.join(" AND ")}`;
 
-      const totals = db
-        .prepare(
-          `SELECT
+      const totals = await exec.get(`SELECT
              COALESCE(SUM(n.cost_usd), 0)      AS cost_usd,
              COALESCE(SUM(n.tokens_in), 0)     AS tokens_in,
              COALESCE(SUM(n.tokens_out), 0)    AS tokens_out,
@@ -1526,9 +1364,7 @@ export function createSqliteDriver(file: string) {
              COALESCE(SUM(n.reasoning_tokens), 0) AS reasoning_tokens,
              COUNT(DISTINCT n.run_id)          AS runs
            FROM node_runs n JOIN runs r ON r.id = n.run_id
-           ${clause}`,
-        )
-        .get(...params) as {
+           ${clause}`, [...params]) as {
         cost_usd: number;
         tokens_in: number;
         tokens_out: number;
@@ -1537,9 +1373,7 @@ export function createSqliteDriver(file: string) {
         runs: number;
       };
 
-      const byGraph = db
-        .prepare(
-          `SELECT
+      const byGraph = await exec.all(`SELECT
              r.graph_id AS graph_id,
              COALESCE(g.name, '(已删除产线)') AS graph_name,
              COALESCE(SUM(n.cost_usd), 0)   AS cost_usd,
@@ -1550,9 +1384,7 @@ export function createSqliteDriver(file: string) {
            LEFT JOIN graphs g ON g.id = r.graph_id
            ${clause}
            GROUP BY r.graph_id
-           ORDER BY cost_usd DESC`,
-        )
-        .all(...params) as Array<{
+           ORDER BY cost_usd DESC`, [...params]) as Array<{
         graph_id: string;
         graph_name: string;
         cost_usd: number;
@@ -1561,9 +1393,7 @@ export function createSqliteDriver(file: string) {
         runs: number;
       }>;
 
-      const byNode = db
-        .prepare(
-          `SELECT r.graph_id AS graph_id,
+      const byNode = await exec.all(`SELECT r.graph_id AS graph_id,
              COALESCE(g.name, '(已删除产线)') AS graph_name,
              n.node_id AS node_id,
              COALESCE(SUM(n.cost_usd), 0)   AS cost_usd,
@@ -1576,9 +1406,7 @@ export function createSqliteDriver(file: string) {
            ${clause}
            GROUP BY r.graph_id, n.node_id
            ORDER BY cost_usd DESC
-           LIMIT 50`,
-        )
-        .all(...params) as Array<{
+           LIMIT 50`, [...params]) as Array<{
         graph_id: string;
         graph_name: string;
         node_id: string;
@@ -1589,9 +1417,7 @@ export function createSqliteDriver(file: string) {
         reworks: number;
       }>;
 
-      const byAttempt = db
-        .prepare(
-          `SELECT n.attempt AS attempt,
+      const byAttempt = await exec.all(`SELECT n.attempt AS attempt,
              COUNT(*) AS calls,
              COALESCE(SUM(n.cost_usd), 0)   AS cost_usd,
              COALESCE(SUM(n.tokens_in), 0)  AS tokens_in,
@@ -1599,9 +1425,7 @@ export function createSqliteDriver(file: string) {
            FROM node_runs n JOIN runs r ON r.id = n.run_id
            ${clause}
            GROUP BY n.attempt
-           ORDER BY n.attempt`,
-        )
-        .all(...params) as Array<{
+           ORDER BY n.attempt`, [...params]) as Array<{
         attempt: number;
         calls: number;
         cost_usd: number;
@@ -1609,9 +1433,7 @@ export function createSqliteDriver(file: string) {
         tokens_out: number;
       }>;
 
-      const byDay = db
-        .prepare(
-          `SELECT date(r.started_at / 1000, 'unixepoch', 'localtime') AS day,
+      const byDay = await exec.all(`SELECT date(r.started_at / 1000, 'unixepoch', 'localtime') AS day,
              COUNT(DISTINCT n.run_id) AS runs,
              COALESCE(SUM(n.cost_usd), 0)   AS cost_usd,
              COALESCE(SUM(n.tokens_in), 0)  AS tokens_in,
@@ -1619,9 +1441,7 @@ export function createSqliteDriver(file: string) {
            FROM node_runs n JOIN runs r ON r.id = n.run_id
            ${clause}
            GROUP BY day
-           ORDER BY day`,
-        )
-        .all(...params) as Array<{
+           ORDER BY day`, [...params]) as Array<{
         day: string;
         runs: number;
         cost_usd: number;
@@ -1629,9 +1449,7 @@ export function createSqliteDriver(file: string) {
         tokens_out: number;
       }>;
 
-      const byWeek = db
-        .prepare(
-          `SELECT strftime('%Y-W%W', r.started_at / 1000, 'unixepoch', 'localtime') AS week,
+      const byWeek = await exec.all(`SELECT strftime('%Y-W%W', r.started_at / 1000, 'unixepoch', 'localtime') AS week,
              COUNT(DISTINCT n.run_id) AS runs,
              COALESCE(SUM(n.cost_usd), 0)   AS cost_usd,
              COALESCE(SUM(n.tokens_in), 0)  AS tokens_in,
@@ -1639,9 +1457,7 @@ export function createSqliteDriver(file: string) {
            FROM node_runs n JOIN runs r ON r.id = n.run_id
            ${clause}
            GROUP BY week
-           ORDER BY week`,
-        )
-        .all(...params) as Array<{
+           ORDER BY week`, [...params]) as Array<{
         week: string;
         runs: number;
         cost_usd: number;
@@ -1649,9 +1465,7 @@ export function createSqliteDriver(file: string) {
         tokens_out: number;
       }>;
 
-      const byMonth = db
-        .prepare(
-          `SELECT strftime('%Y-%m', r.started_at / 1000, 'unixepoch', 'localtime') AS month,
+      const byMonth = await exec.all(`SELECT strftime('%Y-%m', r.started_at / 1000, 'unixepoch', 'localtime') AS month,
              COUNT(DISTINCT n.run_id) AS runs,
              COALESCE(SUM(n.cost_usd), 0)   AS cost_usd,
              COALESCE(SUM(n.tokens_in), 0)  AS tokens_in,
@@ -1659,9 +1473,7 @@ export function createSqliteDriver(file: string) {
            FROM node_runs n JOIN runs r ON r.id = n.run_id
            ${clause}
            GROUP BY month
-           ORDER BY month`,
-        )
-        .all(...params) as Array<{
+           ORDER BY month`, [...params]) as Array<{
         month: string;
         runs: number;
         cost_usd: number;
@@ -1672,12 +1484,8 @@ export function createSqliteDriver(file: string) {
       // Resolve node display names from the most recent run snapshot per
       // graph. The live graph may have been renamed/deleted since, but the
       // snapshot frozen on the run always reflects what actually executed.
-      const snapshotRows = db
-        .prepare(
-          `SELECT graph_id, snapshot FROM runs r
-           WHERE id = (SELECT id FROM runs WHERE graph_id = r.graph_id ORDER BY started_at DESC LIMIT 1)`,
-        )
-        .all() as Array<{ graph_id: string; snapshot: string }>;
+      const snapshotRows = await exec.all(`SELECT graph_id, snapshot FROM runs r
+           WHERE id = (SELECT id FROM runs WHERE graph_id = r.graph_id ORDER BY started_at DESC LIMIT 1)`, []) as Array<{ graph_id: string; snapshot: string }>;
       const nodeNames = new Map<string, string>();
       for (const row of snapshotRows) {
         try {
@@ -1718,13 +1526,9 @@ export function createSqliteDriver(file: string) {
         where.push("r.user_id = ?");
         params.push(userId);
       }
-      const row = db
-        .prepare(
-          `SELECT COALESCE(SUM(n.cost_usd), 0) AS cost
+      const row = await exec.get(`SELECT COALESCE(SUM(n.cost_usd), 0) AS cost
            FROM node_runs n JOIN runs r ON r.id = n.run_id
-           WHERE ${where.join(" AND ")}`,
-        )
-        .get(...params) as { cost: number };
+           WHERE ${where.join(" AND ")}`, [...params]) as { cost: number };
       return row.cost;
     },
 
@@ -1749,9 +1553,7 @@ export function createSqliteDriver(file: string) {
       }
       const clause = `WHERE ${where.join(" AND ")}`;
 
-      const runRows = db
-        .prepare(
-          `SELECT
+      const runRows = await exec.all(`SELECT
              r.id AS id,
              r.graph_id AS graph_id,
              r.started_at AS started_at,
@@ -1762,9 +1564,7 @@ export function createSqliteDriver(file: string) {
              COALESCE((SELECT AVG(score) FROM node_runs WHERE run_id = r.id AND score IS NOT NULL), 0) AS avg_score
            FROM runs r LEFT JOIN node_runs n ON n.run_id = r.id
            ${clause}
-           GROUP BY r.id`,
-        )
-        .all(...params) as Array<{
+           GROUP BY r.id`, [...params]) as Array<{
         id: string;
         graph_id: string;
         started_at: number;
@@ -1829,7 +1629,7 @@ export function createSqliteDriver(file: string) {
       // that executed. Fingerprint the (model + prompt) of every agent node,
       // sorted, so changing a prompt yields a new version per graph. This lets
       // the user compare pass rate / rework before and after a prompt edit.
-      const snapshotRows = (opts.userId ? stmts.evalSnapshots.all(opts.userId) : []) as Array<{
+      const snapshotRows = (opts.userId ? await exec.all(stmts.evalSnapshots, [opts.userId]) : []) as Array<{
         id: string;
         graph_id: string;
         snapshot: string;
@@ -1896,16 +1696,12 @@ export function createSqliteDriver(file: string) {
 
     /** Graph id that an A/B experiment group belongs to (for access checks). */
     async abGroupGraphId(groupId: string): Promise<string | undefined> {
-      const row = db
-        .prepare(`SELECT graph_id FROM runs WHERE ab_group = ? LIMIT 1`)
-        .get(groupId) as { graph_id: string } | undefined;
+      const row = await exec.get(`SELECT graph_id FROM runs WHERE ab_group = ? LIMIT 1`, [groupId]) as { graph_id: string } | undefined;
       return row?.graph_id;
     },
 
     async abReport(groupId: string, userId: string): Promise<ABReport | null> {
-      const rows = db
-        .prepare(
-          `SELECT
+      const rows = await exec.all(`SELECT
              r.ab_arm AS arm,
              r.ab_target AS target,
              COUNT(*) AS runs,
@@ -1917,9 +1713,7 @@ export function createSqliteDriver(file: string) {
            FROM runs r
            WHERE r.ab_group = ? AND r.user_id = ?
            GROUP BY r.ab_arm, r.ab_target
-           ORDER BY r.ab_arm`,
-        )
-        .all(groupId, userId) as Array<{
+           ORDER BY r.ab_arm`, [groupId, userId]) as Array<{
         arm: string;
         target: string | null;
         runs: number;
@@ -1934,11 +1728,7 @@ export function createSqliteDriver(file: string) {
 
       const promptOf = new Map<string, string | null>();
       for (const r of rows) {
-        const snap = db
-          .prepare(
-            `SELECT snapshot FROM runs WHERE ab_group = ? AND ab_arm = ? AND user_id = ? AND snapshot IS NOT NULL LIMIT 1`,
-          )
-          .get(groupId, r.arm, userId) as { snapshot: string } | undefined;
+        const snap = await exec.get(`SELECT snapshot FROM runs WHERE ab_group = ? AND ab_arm = ? AND user_id = ? AND snapshot IS NOT NULL LIMIT 1`, [groupId, r.arm, userId]) as { snapshot: string } | undefined;
         let prompt: string | null = null;
         if (snap) {
           try {
@@ -1984,20 +1774,16 @@ export function createSqliteDriver(file: string) {
     },
 
     async listBrandTerms(userId: string) {
-      return db
-        .prepare(
-          `SELECT id, term, note, created_at AS createdAt FROM brand_terms WHERE user_id = ? ORDER BY created_at ASC`,
-        )
-        .all(userId) as Array<{ id: string; term: string; note: string; createdAt: number }>;
+      return await exec.all(`SELECT id, term, note, created_at AS createdAt FROM brand_terms WHERE user_id = ? ORDER BY created_at ASC`, [userId]) as Array<{ id: string; term: string; note: string; createdAt: number }>;
     },
 
     // --- Per-user settings (16) ---
     async getSettings(userId: string): Promise<string | null> {
-      const row = stmts.getSettings.get(userId) as { data: string } | undefined;
+      const row = await exec.get(stmts.getSettings, [userId]) as { data: string } | undefined;
       return row?.data ?? null;
     },
     async saveSettings(userId: string, data: string): Promise<void> {
-      stmts.saveSettings.run(userId, data, Date.now());
+      await exec.run(stmts.saveSettings, [userId, data, Date.now()]);
     },
     // --- Audit log (29) ---
     async insertAudit(entry: {
@@ -2009,16 +1795,7 @@ export function createSqliteDriver(file: string) {
       detail?: string;
       ip?: string;
     }): Promise<void> {
-      stmts.insertAudit.run(
-        entry.id,
-        entry.userId,
-        entry.action,
-        entry.objectType ?? null,
-        entry.objectId ?? null,
-        entry.detail ?? null,
-        entry.ip ?? null,
-        Date.now(),
-      );
+      await exec.run(stmts.insertAudit, [entry.id, entry.userId, entry.action, entry.objectType ?? null, entry.objectId ?? null, entry.detail ?? null, entry.ip ?? null, Date.now()]);
     },
     async listAudit(
       userId: string,
@@ -2027,8 +1804,8 @@ export function createSqliteDriver(file: string) {
       const limit = Math.min(Math.max(opts.limit ?? 100, 1), 500);
       const rows = (
         opts.before && opts.before > 0
-          ? stmts.listAudit.all(userId, opts.before, limit)
-          : stmts.listAuditFirst.all(userId, limit)
+          ? await exec.all(stmts.listAudit, [userId, opts.before, limit])
+          : await exec.all(stmts.listAuditFirst, [userId, limit])
       ) as Array<Record<string, unknown>>;
       return rows;
     },
@@ -2040,25 +1817,25 @@ export function createSqliteDriver(file: string) {
       if (opts.userId) {
         return (
           opts.before && opts.before > 0
-            ? stmts.listAuditUser.all(opts.userId, opts.before, limit)
-            : stmts.listAuditUserFirst.all(opts.userId, limit)
+            ? await exec.all(stmts.listAuditUser, [opts.userId, opts.before, limit])
+            : await exec.all(stmts.listAuditUserFirst, [opts.userId, limit])
         ) as Array<Record<string, unknown>>;
       }
       return (
         opts.before && opts.before > 0
-          ? stmts.listAuditAdmin.all(opts.before, limit)
-          : stmts.listAuditAdminFirst.all(limit)
+          ? await exec.all(stmts.listAuditAdmin, [opts.before, limit])
+          : await exec.all(stmts.listAuditAdminFirst, [limit])
       ) as Array<Record<string, unknown>>;
     },
     // --- Announcements (30) ---
     async listActiveAnnouncements(now = Date.now()): Promise<Array<Record<string, unknown>>> {
-      return stmts.listActiveAnnouncements.all(now, now) as Array<Record<string, unknown>>;
+      return await exec.all(stmts.listActiveAnnouncements, [now, now]) as Array<Record<string, unknown>>;
     },
     async listAnnouncements(): Promise<Array<Record<string, unknown>>> {
-      return stmts.listAllAnnouncements.all() as Array<Record<string, unknown>>;
+      return await exec.all(stmts.listAllAnnouncements, []) as Array<Record<string, unknown>>;
     },
     async getAnnouncement(id: string): Promise<Record<string, unknown> | undefined> {
-      return stmts.getAnnouncement.get(id) as Record<string, unknown> | undefined;
+      return await exec.get(stmts.getAnnouncement, [id]) as Record<string, unknown> | undefined;
     },
     async createAnnouncement(input: {
       id: string;
@@ -2071,18 +1848,7 @@ export function createSqliteDriver(file: string) {
       endsAt?: number | null;
       target?: string | null;
     }): Promise<void> {
-      stmts.insertAnnouncement.run(
-        input.id,
-        input.titleZh,
-        input.titleEn,
-        input.bodyZh ?? null,
-        input.bodyEn ?? null,
-        input.level,
-        input.startsAt,
-        input.endsAt ?? null,
-        input.target ?? null,
-        Date.now(),
-      );
+      await exec.run(stmts.insertAnnouncement, [input.id, input.titleZh, input.titleEn, input.bodyZh ?? null, input.bodyEn ?? null, input.level, input.startsAt, input.endsAt ?? null, input.target ?? null, Date.now()]);
     },
     async updateAnnouncement(
       id: string,
@@ -2097,28 +1863,18 @@ export function createSqliteDriver(file: string) {
         target?: string | null;
       },
     ): Promise<boolean> {
-      const res = stmts.updateAnnouncement.run(
-        patch.titleZh,
-        patch.titleEn,
-        patch.bodyZh ?? null,
-        patch.bodyEn ?? null,
-        patch.level,
-        patch.startsAt,
-        patch.endsAt ?? null,
-        patch.target ?? null,
-        id,
-      ) as { changes: number };
+      const res = await exec.run(stmts.updateAnnouncement, [patch.titleZh, patch.titleEn, patch.bodyZh ?? null, patch.bodyEn ?? null, patch.level, patch.startsAt, patch.endsAt ?? null, patch.target ?? null, id]) as { changes: number };
       return res.changes > 0;
     },
     async deleteAnnouncement(id: string): Promise<boolean> {
-      const res = stmts.deleteAnnouncement.run(id) as { changes: number };
+      const res = await exec.run(stmts.deleteAnnouncement, [id]) as { changes: number };
       return res.changes > 0;
     },
     async markAnnouncementRead(userId: string, announcementId: string): Promise<void> {
-      stmts.insertAnnouncementRead.run(userId, announcementId, Date.now());
+      await exec.run(stmts.insertAnnouncementRead, [userId, announcementId, Date.now()]);
     },
     async announcementReads(userId: string): Promise<Set<string>> {
-      const rows = stmts.listAnnouncementReads.all(userId) as Array<{ announcement_id: string }>;
+      const rows = await exec.all(stmts.listAnnouncementReads, [userId]) as Array<{ announcement_id: string }>;
       return new Set(rows.map((r) => r.announcement_id));
     },
     /**
@@ -2127,8 +1883,8 @@ export function createSqliteDriver(file: string) {
      */
     async userUsesTemplate(userId: string, templateId: string): Promise<boolean> {
       return (
-        !!stmts.templateGraphOwned.get(userId, templateId) ||
-        !!stmts.templateGraphShared.get(userId, templateId)
+        !!await exec.get(stmts.templateGraphOwned, [userId, templateId]) ||
+        !!await exec.get(stmts.templateGraphShared, [userId, templateId])
       );
     },
     // --- User feedback (33, design-feedback.md) ---
@@ -2141,20 +1897,10 @@ export function createSqliteDriver(file: string) {
       attachment?: Uint8Array | null;
       attachmentMime?: string | null;
     }): Promise<void> {
-      stmts.insertFeedback.run(
-        input.id,
-        input.userId,
-        input.message,
-        input.category,
-        input.context,
-        input.attachment ?? null,
-        input.attachmentMime ?? null,
-        "open",
-        Date.now(),
-      );
+      await exec.run(stmts.insertFeedback, [input.id, input.userId, input.message, input.category, input.context, input.attachment ?? null, input.attachmentMime ?? null, "open", Date.now()]);
     },
     async countFeedbackSince(userId: string, since: number): Promise<number> {
-      const row = stmts.countFeedbackSince.get(userId, since) as { n: number };
+      const row = await exec.get(stmts.countFeedbackSince, [userId, since]) as { n: number };
       return row?.n ?? 0;
     },
     async listFeedback(
@@ -2162,41 +1908,31 @@ export function createSqliteDriver(file: string) {
     ): Promise<Array<Record<string, unknown>>> {
       const limit = Math.min(Math.max(opts.limit ?? 200, 1), 500);
       if (opts.status) {
-        return stmts.listFeedbackByStatus.all(opts.status, limit) as Array<Record<string, unknown>>;
+        return await exec.all(stmts.listFeedbackByStatus, [opts.status, limit]) as Array<Record<string, unknown>>;
       }
-      return stmts.listFeedbackAll.all(limit) as Array<Record<string, unknown>>;
+      return await exec.all(stmts.listFeedbackAll, [limit]) as Array<Record<string, unknown>>;
     },
     async getFeedback(id: string): Promise<Record<string, unknown> | undefined> {
-      return stmts.getFeedback.get(id) as Record<string, unknown> | undefined;
+      return await exec.get(stmts.getFeedback, [id]) as Record<string, unknown> | undefined;
     },
     async updateFeedbackStatus(id: string, status: string): Promise<void> {
-      stmts.updateFeedbackStatus.run(status, id);
+      await exec.run(stmts.updateFeedbackStatus, [status, id]);
     },
     async addBrandTerm(userId: string, term: string, note = "") {
       const t = term.trim();
       if (!t) throw new Error("品牌词不能为空");
       const id = randomUUID();
       const now = Date.now();
-      db.prepare(`INSERT INTO brand_terms (id, user_id, term, note, created_at) VALUES (?, ?, ?, ?, ?)`).run(
-        id,
-        userId,
-        t,
-        note,
-        now,
-      );
+      await exec.run(`INSERT INTO brand_terms (id, user_id, term, note, created_at) VALUES (?, ?, ?, ?, ?)`, [id, userId, t, note, now]);
       return { id, term: t, note, createdAt: now };
     },
     async deleteBrandTerm(id: string, userId: string) {
-      db.prepare(`DELETE FROM brand_terms WHERE id = ? AND user_id = ?`).run(id, userId);
+      await exec.run(`DELETE FROM brand_terms WHERE id = ? AND user_id = ?`, [id, userId]);
     },
 
     // --- Banned terms (F3 compliance: per-user supplementary banned words) ---
     async listBannedTerms(userId: string) {
-      return db
-        .prepare(
-          `SELECT id, term, note, created_at AS createdAt FROM banned_terms WHERE user_id = ? ORDER BY created_at ASC`,
-        )
-        .all(userId) as Array<{ id: string; term: string; note: string; createdAt: number }>;
+      return await exec.all(`SELECT id, term, note, created_at AS createdAt FROM banned_terms WHERE user_id = ? ORDER BY created_at ASC`, [userId]) as Array<{ id: string; term: string; note: string; createdAt: number }>;
     },
 
     async addBannedTerm(userId: string, term: string, note = "") {
@@ -2204,25 +1940,17 @@ export function createSqliteDriver(file: string) {
       if (!t) throw new Error("违禁词不能为空");
       const id = randomUUID();
       const now = Date.now();
-      db.prepare(`INSERT INTO banned_terms (id, user_id, term, note, created_at) VALUES (?, ?, ?, ?, ?)`).run(
-        id,
-        userId,
-        t,
-        note,
-        now,
-      );
+      await exec.run(`INSERT INTO banned_terms (id, user_id, term, note, created_at) VALUES (?, ?, ?, ?, ?)`, [id, userId, t, note, now]);
       return { id, term: t, note, createdAt: now };
     },
 
     async deleteBannedTerm(id: string, userId: string) {
-      db.prepare(`DELETE FROM banned_terms WHERE id = ? AND user_id = ?`).run(id, userId);
+      await exec.run(`DELETE FROM banned_terms WHERE id = ? AND user_id = ?`, [id, userId]);
     },
 
     /** All banned terms of a user, comma-joined for the compliance check. */
     async bannedTermsText(userId: string): Promise<string> {
-      const rows = db
-        .prepare(`SELECT term FROM banned_terms WHERE user_id = ? ORDER BY created_at ASC`)
-        .all(userId) as Array<{ term: string }>;
+      const rows = await exec.all(`SELECT term FROM banned_terms WHERE user_id = ? ORDER BY created_at ASC`, [userId]) as Array<{ term: string }>;
       return rows.map((r) => r.term).join(",");
     },
 
@@ -2246,9 +1974,7 @@ export function createSqliteDriver(file: string) {
         where.push("(name LIKE ? OR brand LIKE ? OR sku LIKE ?)");
         params.push(like, like, like);
       }
-      const rows = db
-        .prepare(`SELECT * FROM products WHERE ${where.join(" AND ")} ORDER BY created_at DESC`)
-        .all(...params) as Array<Record<string, unknown>>;
+      const rows = await exec.all(`SELECT * FROM products WHERE ${where.join(" AND ")} ORDER BY created_at DESC`, [...params]) as Array<Record<string, unknown>>;
       return rows.map(productFromRow);
     },
 
@@ -2256,9 +1982,7 @@ export function createSqliteDriver(file: string) {
     async getProductsByIds(userId: string, ids: string[]): Promise<Product[]> {
       if (ids.length === 0) return [];
       const placeholders = ids.map(() => "?").join(",");
-      const rows = db
-        .prepare(`SELECT * FROM products WHERE user_id = ? AND id IN (${placeholders})`)
-        .all(userId, ...ids) as Array<Record<string, unknown>>;
+      const rows = await exec.all(`SELECT * FROM products WHERE user_id = ? AND id IN (${placeholders})`, [userId, ...ids]) as Array<Record<string, unknown>>;
       const byId = new Map(rows.map((r) => [r.id as string, productFromRow(r)]));
       return ids.map((id) => byId.get(id)).filter((p): p is Product => p != null);
     },
@@ -2279,22 +2003,8 @@ export function createSqliteDriver(file: string) {
       if (!name) throw new Error("商品名不能为空");
       const id = randomUUID();
       const now = Date.now();
-      db.prepare(
-        `INSERT INTO products (id, user_id, sku, name, brand, category, price, attributes_json, images_json, status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
-      ).run(
-        id,
-        userId,
-        input.sku ?? "",
-        name,
-        input.brand ?? "",
-        input.category ?? "",
-        input.price ?? null,
-        JSON.stringify(input.attributes ?? {}),
-        JSON.stringify(input.images ?? []),
-        now,
-        now,
-      );
+      await exec.run(`INSERT INTO products (id, user_id, sku, name, brand, category, price, attributes_json, images_json, status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`, [id, userId, input.sku ?? "", name, input.brand ?? "", input.category ?? "", input.price ?? null, JSON.stringify(input.attributes ?? {}), JSON.stringify(input.images ?? []), now, now]);
       return (await this.getProductsByIds(userId, [id]))[0]!;
     },
 
@@ -2324,33 +2034,17 @@ export function createSqliteDriver(file: string) {
         images: patch.images ?? cur.images,
         status: patch.status ?? cur.status,
       };
-      db.prepare(
-        `UPDATE products SET sku = ?, name = ?, brand = ?, category = ?, price = ?, attributes_json = ?, images_json = ?, status = ?, updated_at = ? WHERE id = ? AND user_id = ?`,
-      ).run(
-        next.sku,
-        next.name,
-        next.brand,
-        next.category,
-        next.price,
-        JSON.stringify(next.attributes),
-        JSON.stringify(next.images),
-        next.status,
-        Date.now(),
-        id,
-        userId,
-      );
+      await exec.run(`UPDATE products SET sku = ?, name = ?, brand = ?, category = ?, price = ?, attributes_json = ?, images_json = ?, status = ?, updated_at = ? WHERE id = ? AND user_id = ?`, [next.sku, next.name, next.brand, next.category, next.price, JSON.stringify(next.attributes), JSON.stringify(next.images), next.status, Date.now(), id, userId]);
       return (await this.getProductsByIds(userId, [id]))[0]!;
     },
 
     async deleteProduct(id: string, userId: string) {
-      db.prepare(`DELETE FROM products WHERE id = ? AND user_id = ?`).run(id, userId);
+      await exec.run(`DELETE FROM products WHERE id = ? AND user_id = ?`, [id, userId]);
     },
 
     // --- Brand assets (F4: reusable brand material) ---
     async listBrandAssets(userId: string): Promise<BrandAsset[]> {
-      const rows = db
-        .prepare(`SELECT * FROM brand_assets WHERE user_id = ? ORDER BY created_at DESC`)
-        .all(userId) as Array<Record<string, unknown>>;
+      const rows = await exec.all(`SELECT * FROM brand_assets WHERE user_id = ? ORDER BY created_at DESC`, [userId]) as Array<Record<string, unknown>>;
       return rows.map((r) => {
         let tags: string[] = [];
         try {
@@ -2377,14 +2071,12 @@ export function createSqliteDriver(file: string) {
       if (!label) throw new Error("素材名称不能为空");
       const id = randomUUID();
       const now = Date.now();
-      db.prepare(
-        `INSERT INTO brand_assets (id, user_id, type, label, uri, tags_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      ).run(id, userId, input.type, label, input.uri ?? "", JSON.stringify(input.tags ?? []), now);
+      await exec.run(`INSERT INTO brand_assets (id, user_id, type, label, uri, tags_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`, [id, userId, input.type, label, input.uri ?? "", JSON.stringify(input.tags ?? []), now]);
       return { id, type: input.type, label, uri: input.uri ?? "", tags: input.tags ?? [], createdAt: now };
     },
 
     async deleteBrandAsset(id: string, userId: string) {
-      db.prepare(`DELETE FROM brand_assets WHERE id = ? AND user_id = ?`).run(id, userId);
+      await exec.run(`DELETE FROM brand_assets WHERE id = ? AND user_id = ?`, [id, userId]);
     },
 
     // --- Batch jobs (F5: one run per input row, grouped for progress) ---
@@ -2396,15 +2088,11 @@ export function createSqliteDriver(file: string) {
       rows: Record<string, unknown>[];
     }): Promise<BatchJob> {
       const now = Date.now();
-      db.prepare(
-        `INSERT INTO batch_jobs (id, user_id, graph_id, status, total, succeeded, failed, source_name, created_at)
-         VALUES (?, ?, ?, 'pending', ?, 0, 0, ?, ?)`,
-      ).run(input.id, input.userId, input.graphId, input.rows.length, input.sourceName ?? null, now);
-      const insertItem = db.prepare(
-        `INSERT INTO batch_items (id, batch_id, row_index, input_json, status) VALUES (?, ?, ?, ?, 'pending')`,
-      );
+      await exec.run(`INSERT INTO batch_jobs (id, user_id, graph_id, status, total, succeeded, failed, source_name, created_at)
+         VALUES (?, ?, ?, 'pending', ?, 0, 0, ?, ?)`, [input.id, input.userId, input.graphId, input.rows.length, input.sourceName ?? null, now]);
+      const insertItemSql = `INSERT INTO batch_items (id, batch_id, row_index, input_json, status) VALUES (?, ?, ?, ?, 'pending')`;
       for (let i = 0; i < input.rows.length; i++) {
-        insertItem.run(randomUUID(), input.id, i, JSON.stringify(input.rows[i]));
+        await exec.run(insertItemSql, [randomUUID(), input.id, i, JSON.stringify(input.rows[i])]);
       }
       return {
         id: input.id,
@@ -2423,17 +2111,13 @@ export function createSqliteDriver(file: string) {
       // With graphIds (shared-graph visibility), scope by graph membership
       // instead of batch ownership.
       const rows = graphIds
-        ? (db
-            .prepare(`SELECT * FROM batch_jobs WHERE graph_id IN (${graphIds.map(() => "?").join(",")}) ORDER BY created_at DESC`)
-            .all(...graphIds) as Array<Record<string, unknown>>)
-        : (db
-            .prepare(`SELECT * FROM batch_jobs WHERE user_id = ? ORDER BY created_at DESC`)
-            .all(userId) as Array<Record<string, unknown>>);
+        ? (await exec.all(`SELECT * FROM batch_jobs WHERE graph_id IN (${graphIds.map(() => "?").join(",")}) ORDER BY created_at DESC`, [...graphIds]) as Array<Record<string, unknown>>)
+        : (await exec.all(`SELECT * FROM batch_jobs WHERE user_id = ? ORDER BY created_at DESC`, [userId]) as Array<Record<string, unknown>>);
       return rows.map(batchFromRow);
     },
 
     async getBatch(id: string, userId: string): Promise<BatchJob | null> {
-      const row = db.prepare(`SELECT * FROM batch_jobs WHERE id = ? AND user_id = ?`).get(id, userId) as
+      const row = await exec.get(`SELECT * FROM batch_jobs WHERE id = ? AND user_id = ?`, [id, userId]) as
         | Record<string, unknown>
         | undefined;
       return row ? batchFromRow(row) : null;
@@ -2441,16 +2125,14 @@ export function createSqliteDriver(file: string) {
 
     /** Unscoped batch lookup for shared-graph access (caller verified graph ACL). */
     async getBatchUnscoped(id: string): Promise<BatchJob | null> {
-      const row = db.prepare(`SELECT * FROM batch_jobs WHERE id = ?`).get(id) as
+      const row = await exec.get(`SELECT * FROM batch_jobs WHERE id = ?`, [id]) as
         | Record<string, unknown>
         | undefined;
       return row ? batchFromRow(row) : null;
     },
 
     async listBatchItems(batchId: string): Promise<BatchItem[]> {
-      const rows = db
-        .prepare(`SELECT * FROM batch_items WHERE batch_id = ? ORDER BY row_index ASC`)
-        .all(batchId) as Array<Record<string, unknown>>;
+      const rows = await exec.all(`SELECT * FROM batch_items WHERE batch_id = ? ORDER BY row_index ASC`, [batchId]) as Array<Record<string, unknown>>;
       return rows.map((r) => {
         let input: Record<string, unknown> = {};
         let artifactIds: string[] = [];
@@ -2479,25 +2161,23 @@ export function createSqliteDriver(file: string) {
     },
 
     async markBatchItemRunning(itemId: string, runId: string) {
-      db.prepare(`UPDATE batch_items SET status = 'running', run_id = ? WHERE id = ?`).run(runId, itemId);
+      await exec.run(`UPDATE batch_items SET status = 'running', run_id = ? WHERE id = ?`, [runId, itemId]);
     },
 
     async markBatchItemDone(itemId: string, outputSummary: string | null, artifactIds: string[]) {
-      db.prepare(
-        `UPDATE batch_items SET status = 'done', output_summary = ?, artifact_ids_json = ?, error = NULL WHERE id = ?`,
-      ).run(outputSummary ?? "", JSON.stringify(artifactIds), itemId);
+      await exec.run(`UPDATE batch_items SET status = 'done', output_summary = ?, artifact_ids_json = ?, error = NULL WHERE id = ?`, [outputSummary ?? "", JSON.stringify(artifactIds), itemId]);
     },
 
     async markBatchItemFailed(itemId: string, error: string) {
-      db.prepare(`UPDATE batch_items SET status = 'failed', error = ? WHERE id = ?`).run(error, itemId);
+      await exec.run(`UPDATE batch_items SET status = 'failed', error = ? WHERE id = ?`, [error, itemId]);
     },
 
     async setBatchStatus(id: string, status: BatchJob["status"], finishedAt: number | null) {
-      db.prepare(`UPDATE batch_jobs SET status = ?, finished_at = ? WHERE id = ?`).run(status, finishedAt, id);
+      await exec.run(`UPDATE batch_jobs SET status = ?, finished_at = ? WHERE id = ?`, [status, finishedAt, id]);
     },
 
     async updateBatchCounts(id: string, succeeded: number, failed: number) {
-      db.prepare(`UPDATE batch_jobs SET succeeded = ?, failed = ? WHERE id = ?`).run(succeeded, failed, id);
+      await exec.run(`UPDATE batch_jobs SET succeeded = ?, failed = ? WHERE id = ?`, [succeeded, failed, id]);
     },
 
     // --- Content calendar (F8: scheduled publishing plan) ---
@@ -2513,22 +2193,8 @@ export function createSqliteDriver(file: string) {
       note?: string | null;
     }): Promise<ContentPlan> {
       const now = Date.now();
-      db.prepare(
-        `INSERT INTO content_plan (id, user_id, graph_id, run_id, artifact_id, platform, title, scheduled_at, status, published_url, note, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft', NULL, ?, ?, ?)`,
-      ).run(
-        input.id,
-        input.userId,
-        input.graphId ?? null,
-        input.runId ?? null,
-        input.artifactId ?? null,
-        input.platform ?? null,
-        input.title,
-        input.scheduledAt,
-        input.note ?? null,
-        now,
-        now,
-      );
+      await exec.run(`INSERT INTO content_plan (id, user_id, graph_id, run_id, artifact_id, platform, title, scheduled_at, status, published_url, note, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft', NULL, ?, ?, ?)`, [input.id, input.userId, input.graphId ?? null, input.runId ?? null, input.artifactId ?? null, input.platform ?? null, input.title, input.scheduledAt, input.note ?? null, now, now]);
       return {
         id: input.id,
         graphId: input.graphId ?? null,
@@ -2548,18 +2214,14 @@ export function createSqliteDriver(file: string) {
     async listPlans(userId: string, from?: number, to?: number): Promise<ContentPlan[]> {
       const rows = (
         from != null && to != null
-          ? db
-              .prepare(`SELECT * FROM content_plan WHERE user_id = ? AND scheduled_at >= ? AND scheduled_at <= ? ORDER BY scheduled_at ASC`)
-              .all(userId, from, to)
-          : db
-              .prepare(`SELECT * FROM content_plan WHERE user_id = ? ORDER BY scheduled_at ASC`)
-              .all(userId)
+          ? await exec.all(`SELECT * FROM content_plan WHERE user_id = ? AND scheduled_at >= ? AND scheduled_at <= ? ORDER BY scheduled_at ASC`, [userId, from, to])
+          : await exec.all(`SELECT * FROM content_plan WHERE user_id = ? ORDER BY scheduled_at ASC`, [userId])
       ) as Array<Record<string, unknown>>;
       return rows.map(planFromRow);
     },
 
     async getPlan(id: string, userId: string): Promise<ContentPlan | null> {
-      const row = db.prepare(`SELECT * FROM content_plan WHERE id = ? AND user_id = ?`).get(id, userId) as
+      const row = await exec.get(`SELECT * FROM content_plan WHERE id = ? AND user_id = ?`, [id, userId]) as
         | Record<string, unknown>
         | undefined;
       return row ? planFromRow(row) : null;
@@ -2583,27 +2245,12 @@ export function createSqliteDriver(file: string) {
       const existing = await this.getPlan(id, userId);
       if (!existing) return null;
       const next = { ...existing, ...patch, updatedAt: Date.now() };
-      db.prepare(
-        `UPDATE content_plan SET graph_id = ?, run_id = ?, artifact_id = ?, platform = ?, title = ?, scheduled_at = ?, status = ?, published_url = ?, note = ?, updated_at = ? WHERE id = ? AND user_id = ?`,
-      ).run(
-        next.graphId,
-        next.runId,
-        next.artifactId,
-        next.platform,
-        next.title,
-        next.scheduledAt,
-        next.status,
-        next.publishedUrl,
-        next.note,
-        next.updatedAt,
-        id,
-        userId,
-      );
+      await exec.run(`UPDATE content_plan SET graph_id = ?, run_id = ?, artifact_id = ?, platform = ?, title = ?, scheduled_at = ?, status = ?, published_url = ?, note = ?, updated_at = ? WHERE id = ? AND user_id = ?`, [next.graphId, next.runId, next.artifactId, next.platform, next.title, next.scheduledAt, next.status, next.publishedUrl, next.note, next.updatedAt, id, userId]);
       return next;
     },
 
     async deletePlan(id: string, userId: string) {
-      db.prepare(`DELETE FROM content_plan WHERE id = ? AND user_id = ?`).run(id, userId);
+      await exec.run(`DELETE FROM content_plan WHERE id = ? AND user_id = ?`, [id, userId]);
     },
 
     // --- Performance metrics (F6: content effect feedback loop) ---
@@ -2625,27 +2272,8 @@ export function createSqliteDriver(file: string) {
       adSpend?: number;
       recordedAt: number;
     }): Promise<ContentMetric> {
-      db.prepare(
-        `INSERT INTO content_metrics (id, user_id, graph_id, run_id, node_id, variant, artifact_id, product_id, platform, external_content_id, impressions, clicks, conversions, gmv, ad_spend, recorded_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).run(
-        input.id,
-        input.userId,
-        input.graphId ?? null,
-        input.runId ?? null,
-        input.nodeId ?? null,
-        input.variant ?? null,
-        input.artifactId ?? null,
-        input.productId ?? null,
-        input.platform ?? null,
-        input.externalContentId ?? null,
-        input.impressions ?? 0,
-        input.clicks ?? 0,
-        input.conversions ?? 0,
-        input.gmv ?? 0,
-        input.adSpend ?? 0,
-        input.recordedAt,
-      );
+      await exec.run(`INSERT INTO content_metrics (id, user_id, graph_id, run_id, node_id, variant, artifact_id, product_id, platform, external_content_id, impressions, clicks, conversions, gmv, ad_spend, recorded_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [input.id, input.userId, input.graphId ?? null, input.runId ?? null, input.nodeId ?? null, input.variant ?? null, input.artifactId ?? null, input.productId ?? null, input.platform ?? null, input.externalContentId ?? null, input.impressions ?? 0, input.clicks ?? 0, input.conversions ?? 0, input.gmv ?? 0, input.adSpend ?? 0, input.recordedAt]);
       return metricFromRow({
         id: input.id,
         graph_id: input.graphId,
@@ -2666,9 +2294,7 @@ export function createSqliteDriver(file: string) {
     },
 
     async listMetrics(userId: string): Promise<ContentMetric[]> {
-      const rows = db
-        .prepare(`SELECT * FROM content_metrics WHERE user_id = ? ORDER BY recorded_at DESC`)
-        .all(userId) as Array<Record<string, unknown>>;
+      const rows = await exec.all(`SELECT * FROM content_metrics WHERE user_id = ? ORDER BY recorded_at DESC`, [userId]) as Array<Record<string, unknown>>;
       return rows.map(metricFromRow);
     },
 
@@ -2676,13 +2302,9 @@ export function createSqliteDriver(file: string) {
     async aggregatePerformance(userId: string, groupBy: string): Promise<PerformanceAggregate[]> {
       const allowed = new Set(["graph_id", "run_id", "node_id", "variant", "artifact_id", "product_id", "platform", "external_content_id"]);
       const col = allowed.has(groupBy) ? groupBy : "graph_id";
-      const rows = db
-        .prepare(
-          `SELECT COALESCE(${col}, '') AS grp, SUM(impressions) AS impressions, SUM(clicks) AS clicks,
+      const rows = await exec.all(`SELECT COALESCE(${col}, '') AS grp, SUM(impressions) AS impressions, SUM(clicks) AS clicks,
                   SUM(conversions) AS conversions, SUM(gmv) AS gmv, SUM(ad_spend) AS ad_spend
-           FROM content_metrics WHERE user_id = ? GROUP BY ${col} ORDER BY impressions DESC`,
-        )
-        .all(userId) as Array<Record<string, unknown>>;
+           FROM content_metrics WHERE user_id = ? GROUP BY ${col} ORDER BY impressions DESC`, [userId]) as Array<Record<string, unknown>>;
       return rows.map((r) => ({
         group: String(r.grp ?? ""),
         impressions: Number(r.impressions ?? 0),
@@ -2708,21 +2330,8 @@ export function createSqliteDriver(file: string) {
       const costUsd = input.costUsd ?? 0;
       const gmv = input.gmv ?? 0;
       const roi = costUsd > 0 ? gmv / costUsd : 0;
-      db.prepare(
-        `INSERT INTO content_costs (id, user_id, artifact_id, product_id, platform, variant, cost_usd, gmv, roi, captured_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).run(
-        input.id,
-        input.userId,
-        input.artifactId ?? null,
-        input.productId ?? null,
-        input.platform ?? null,
-        input.variant ?? null,
-        costUsd,
-        gmv,
-        roi,
-        input.capturedAt,
-      );
+      await exec.run(`INSERT INTO content_costs (id, user_id, artifact_id, product_id, platform, variant, cost_usd, gmv, roi, captured_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [input.id, input.userId, input.artifactId ?? null, input.productId ?? null, input.platform ?? null, input.variant ?? null, costUsd, gmv, roi, input.capturedAt]);
       return {
         id: input.id,
         artifactId: input.artifactId ?? null,
@@ -2737,9 +2346,7 @@ export function createSqliteDriver(file: string) {
     },
 
     async listContentCosts(userId: string): Promise<ContentCost[]> {
-      const rows = db
-        .prepare(`SELECT * FROM content_costs WHERE user_id = ? ORDER BY captured_at DESC`)
-        .all(userId) as Array<Record<string, unknown>>;
+      const rows = await exec.all(`SELECT * FROM content_costs WHERE user_id = ? ORDER BY captured_at DESC`, [userId]) as Array<Record<string, unknown>>;
       return rows.map(costFromRow);
     },
 
@@ -2747,12 +2354,8 @@ export function createSqliteDriver(file: string) {
     async aggregateContentCosts(userId: string, groupBy: string): Promise<ContentCostAggregate[]> {
       const allowed = new Set(["artifact_id", "product_id", "platform", "variant"]);
       const col = allowed.has(groupBy) ? groupBy : "artifact_id";
-      const rows = db
-        .prepare(
-          `SELECT COALESCE(${col}, '') AS grp, SUM(cost_usd) AS cost_usd, SUM(gmv) AS gmv
-           FROM content_costs WHERE user_id = ? GROUP BY ${col} ORDER BY cost_usd DESC`,
-        )
-        .all(userId) as Array<Record<string, unknown>>;
+      const rows = await exec.all(`SELECT COALESCE(${col}, '') AS grp, SUM(cost_usd) AS cost_usd, SUM(gmv) AS gmv
+           FROM content_costs WHERE user_id = ? GROUP BY ${col} ORDER BY cost_usd DESC`, [userId]) as Array<Record<string, unknown>>;
       return rows.map((r) => {
         const costUsd = Number(r.cost_usd ?? 0);
         const gmv = Number(r.gmv ?? 0);
@@ -2775,10 +2378,8 @@ export function createSqliteDriver(file: string) {
       configEncrypted: string;
       createdAt: number;
     }): Promise<PublishTarget> {
-      db.prepare(
-        `INSERT INTO publish_targets (id, user_id, platform, name, provider, config_encrypted, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      ).run(input.id, input.userId, input.platform, input.name ?? null, input.provider, input.configEncrypted, input.createdAt);
+      await exec.run(`INSERT INTO publish_targets (id, user_id, platform, name, provider, config_encrypted, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`, [input.id, input.userId, input.platform, input.name ?? null, input.provider, input.configEncrypted, input.createdAt]);
       return {
         id: input.id,
         platform: input.platform,
@@ -2790,9 +2391,7 @@ export function createSqliteDriver(file: string) {
     },
 
     async listPublishTargets(userId: string): Promise<PublishTarget[]> {
-      return db
-        .prepare(`SELECT * FROM publish_targets WHERE user_id = ? ORDER BY created_at DESC`)
-        .all(userId)
+      return (await exec.all(`SELECT * FROM publish_targets WHERE user_id = ? ORDER BY created_at DESC`, [userId]))
         .map((r) => ({
           id: String(r.id),
           platform: String(r.platform),
@@ -2804,13 +2403,13 @@ export function createSqliteDriver(file: string) {
     },
 
     async deletePublishTarget(id: string, userId: string): Promise<boolean> {
-      const r = db.prepare(`DELETE FROM publish_targets WHERE id = ? AND user_id = ?`).run(id, userId);
+      const r = await exec.run(`DELETE FROM publish_targets WHERE id = ? AND user_id = ?`, [id, userId]);
       return r.changes > 0;
     },
 
     /** Cross-user lookup for the metrics webhook (no session user in an inbound webhook). */
     async getPublishTarget(id: string): Promise<(PublishTarget & { userId: string }) | null> {
-      const r = db.prepare(`SELECT * FROM publish_targets WHERE id = ?`).get(id) as Record<string, unknown> | undefined;
+      const r = await exec.get(`SELECT * FROM publish_targets WHERE id = ?`, [id]) as Record<string, unknown> | undefined;
       if (!r) return null;
       return {
         id: String(r.id),
@@ -2836,14 +2435,8 @@ export function createSqliteDriver(file: string) {
       publishedAt?: number | null;
       detailJson?: string | null;
     }): Promise<PublishedContent> {
-      db.prepare(
-        `INSERT INTO published_contents (id, user_id, graph_id, run_id, artifact_id, platform, status, external_id, external_url, published_at, detail_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).run(
-        input.id, input.userId, input.graphId ?? null, input.runId ?? null, input.artifactId ?? null,
-        input.platform ?? null, input.status, input.externalId ?? null, input.externalUrl ?? null,
-        input.publishedAt ?? null, input.detailJson ?? null,
-      );
+      await exec.run(`INSERT INTO published_contents (id, user_id, graph_id, run_id, artifact_id, platform, status, external_id, external_url, published_at, detail_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [input.id, input.userId, input.graphId ?? null, input.runId ?? null, input.artifactId ?? null, input.platform ?? null, input.status, input.externalId ?? null, input.externalUrl ?? null, input.publishedAt ?? null, input.detailJson ?? null]);
       return {
         id: input.id,
         graphId: input.graphId ?? null,
@@ -2859,9 +2452,7 @@ export function createSqliteDriver(file: string) {
     },
 
     async listPublishedContents(userId: string): Promise<PublishedContent[]> {
-      return db
-        .prepare(`SELECT * FROM published_contents WHERE user_id = ? ORDER BY published_at DESC`)
-        .all(userId)
+      return (await exec.all(`SELECT * FROM published_contents WHERE user_id = ? ORDER BY published_at DESC`, [userId]))
         .map((r) => ({
           id: String(r.id),
           graphId: r.graph_id ? String(r.graph_id) : null,
@@ -2878,11 +2469,9 @@ export function createSqliteDriver(file: string) {
 
     // --- Graph versions (5.6) ---
     async listVersions(graphId: string, userId: string) {
-      return db
-        .prepare(`SELECT gv.id, gv.graph_id AS graphId, gv.name, gv.note, gv.content_hash AS contentHash, gv.created_at AS createdAt
+      return await exec.all(`SELECT gv.id, gv.graph_id AS graphId, gv.name, gv.note, gv.content_hash AS contentHash, gv.created_at AS createdAt
                   FROM graph_versions gv JOIN graphs g ON g.id = gv.graph_id
-                  WHERE gv.graph_id = ? AND g.user_id = ? ORDER BY gv.created_at DESC, gv.rowid DESC`)
-        .all(graphId, userId) as Array<{ id: string; graphId: string; name: string; note: string; contentHash: string; createdAt: number }>;
+                  WHERE gv.graph_id = ? AND g.user_id = ? ORDER BY gv.created_at DESC, gv.rowid DESC`, [graphId, userId]) as Array<{ id: string; graphId: string; name: string; note: string; contentHash: string; createdAt: number }>;
     },
     /**
      * Content hash of the graph as executed by the most recent run of this
@@ -2891,14 +2480,12 @@ export function createSqliteDriver(file: string) {
      * snapshot matches what actually ran.
      */
     async getLatestRunContentHash(graphId: string, userId: string): Promise<string | null> {
-      const row = db
-        .prepare(`SELECT snapshot FROM runs WHERE graph_id = ? AND user_id = ? ORDER BY started_at DESC, rowid DESC LIMIT 1`)
-        .get(graphId, userId) as { snapshot: string } | undefined;
+      const row = await exec.get(`SELECT snapshot FROM runs WHERE graph_id = ? AND user_id = ? ORDER BY started_at DESC, rowid DESC LIMIT 1`, [graphId, userId]) as { snapshot: string } | undefined;
       return row ? contentHash(openDocString(row.snapshot)) : null;
     },
     async getVersion(id: string, userId: string) {
-      const row = db.prepare(`SELECT gv.* FROM graph_versions gv JOIN graphs g ON g.id = gv.graph_id
-                          WHERE gv.id = ? AND g.user_id = ?`).get(id, userId) as
+      const row = await exec.get(`SELECT gv.* FROM graph_versions gv JOIN graphs g ON g.id = gv.graph_id
+                          WHERE gv.id = ? AND g.user_id = ?`, [id, userId]) as
         | { id: string; graph_id: string; name: string; snapshot: string; note: string; created_at: number }
         | undefined;
       return row ? { ...row, snapshot: openDocString(row.snapshot) } : undefined;
@@ -2906,9 +2493,7 @@ export function createSqliteDriver(file: string) {
     async saveVersion(graphId: string, name: string, snapshot: string, note = "", contentHash = "") {
       const id = randomUUID();
       const now = Date.now();
-      db.prepare(`INSERT INTO graph_versions (id, graph_id, name, snapshot, note, content_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`).run(
-        id, graphId, name, sealDocString(snapshot), note, contentHash, now,
-      );
+      await exec.run(`INSERT INTO graph_versions (id, graph_id, name, snapshot, note, content_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`, [id, graphId, name, sealDocString(snapshot), note, contentHash, now]);
       return { id, graphId, name, note, createdAt: now };
     },
     /**
@@ -2922,36 +2507,30 @@ export function createSqliteDriver(file: string) {
       const hash = contentHash(snapshot);
       // rowid DESC breaks created_at ties (same-millisecond snapshots) by
       // insertion order, keeping throttle/retention deterministic.
-      const last = db
-        .prepare(`SELECT content_hash, created_at FROM graph_versions WHERE graph_id = ? AND note = 'auto' ORDER BY created_at DESC, rowid DESC LIMIT 1`)
-        .get(graphId) as { content_hash: string; created_at: number } | undefined;
+      const last = await exec.get(`SELECT content_hash, created_at FROM graph_versions WHERE graph_id = ? AND note = 'auto' ORDER BY created_at DESC, rowid DESC LIMIT 1`, [graphId]) as { content_hash: string; created_at: number } | undefined;
       if (last && Date.now() - last.created_at < minIntervalMs && last.content_hash === hash) return null;
 
       const id = randomUUID();
       const now = Date.now();
-      db.prepare(`INSERT INTO graph_versions (id, graph_id, name, snapshot, note, content_hash, created_at) VALUES (?, ?, ?, ?, 'auto', ?, ?)`).run(
-        id, graphId, `auto-${new Date(now).toISOString().slice(0, 16).replace("T", " ")}`, sealDocString(snapshot), hash, now,
-      );
+      await exec.run(`INSERT INTO graph_versions (id, graph_id, name, snapshot, note, content_hash, created_at) VALUES (?, ?, ?, ?, 'auto', ?, ?)`, [id, graphId, `auto-${new Date(now).toISOString().slice(0, 16).replace("T", " ")}`, sealDocString(snapshot), hash, now]);
       // Rolling retention: prune oldest auto-snapshots beyond maxKeep.
-      const stale = db
-        .prepare(`SELECT id FROM graph_versions WHERE graph_id = ? AND note = 'auto' ORDER BY created_at DESC, rowid DESC LIMIT -1 OFFSET ?`)
-        .all(graphId, maxKeep) as Array<{ id: string }>;
+      const stale = await exec.all(`SELECT id FROM graph_versions WHERE graph_id = ? AND note = 'auto' ORDER BY created_at DESC, rowid DESC LIMIT -1 OFFSET ?`, [graphId, maxKeep]) as Array<{ id: string }>;
       for (const row of stale) {
-        db.prepare(`DELETE FROM graph_versions WHERE id = ?`).run(row.id);
+        await exec.run(`DELETE FROM graph_versions WHERE id = ?`, [row.id]);
       }
       return id;
     },
     async deleteVersion(id: string, userId: string) {
-      db.prepare(`DELETE FROM graph_versions WHERE id = ? AND graph_id IN (SELECT id FROM graphs WHERE user_id = ?)`).run(id, userId);
+      await exec.run(`DELETE FROM graph_versions WHERE id = ? AND graph_id IN (SELECT id FROM graphs WHERE user_id = ?)`, [id, userId]);
     },
 
     async getGraphById(id: string): Promise<(Graph & { version: number }) | null> {
-      const row = stmts.getGraphById.get(id) as { doc: string; version: number } | undefined;
+      const row = await exec.get(stmts.getGraphById, [id]) as { doc: string; version: number } | undefined;
       return row ? { ...(openGraphDoc(JSON.parse(row.doc) as Graph)), version: row.version } : null;
     },
 
     async listAllGraphs() {
-      return stmts.listAllGraphs.all() as Array<{
+      return await exec.all(stmts.listAllGraphs, []) as Array<{
         id: string;
         name: string;
         version: number;
@@ -2960,51 +2539,49 @@ export function createSqliteDriver(file: string) {
     },
 
     async getGraphOwnerId(id: string): Promise<string | undefined> {
-      const row = stmts.getGraphOwnerId.get(id) as { user_id: string } | undefined;
+      const row = await exec.get(stmts.getGraphOwnerId, [id]) as { user_id: string } | undefined;
       return row?.user_id;
     },
 
     async finishRunById(runId: string, status: string, at: number) {
-      stmts.finishRunById.run(status, at, runId);
+      await exec.run(stmts.finishRunById, [status, at, runId]);
     },
 
     async markRunningById(runId: string) {
-      stmts.markRunningById.run(runId);
+      await exec.run(stmts.markRunningById, [runId]);
     },
 
     async getRunById(runId: string) {
-      const row = stmts.getRunById.get(runId) as
+      const row = await exec.get(stmts.getRunById, [runId]) as
         | { id: string; graph_id: string; snapshot: string; status: string; trigger: string; input: string | null; budget_usd: number | null; started_at: number; ended_at: number | null }
         | undefined;
       return row ? { ...row, snapshot: openDocString(row.snapshot) } : undefined;
     },
 
     async listRunsUnscoped(limit = 50, offset = 0) {
-      return stmts.listRunsUnscoped.all(limit, offset) as Array<Record<string, unknown>>;
+      return await exec.all(stmts.listRunsUnscoped, [limit, offset]) as Array<Record<string, unknown>>;
     },
 
     async listRunsByGraphUnscoped(graphId: string, limit = 1) {
-      return stmts.listRunsByGraphUnscoped.all(graphId, limit) as Array<Record<string, unknown>>;
+      return await exec.all(stmts.listRunsByGraphUnscoped, [graphId, limit]) as Array<Record<string, unknown>>;
     },
 
     async saveGraphUnscoped(graph: Graph, at: number) {
       const doc = JSON.stringify(sealGraphDoc(graph));
       // Preserve template lineage: the upsert's update branch never touches
       // origin_template_id, but the insert branch needs the existing value.
-      const row = db
-        .prepare(`SELECT origin_template_id FROM graphs WHERE id = ?`)
-        .get(graph.id) as { origin_template_id: string | null } | undefined;
-      stmts.insertGraph.run(graph.id, null, graph.name, doc, row?.origin_template_id ?? null, at);
+      const row = await exec.get(`SELECT origin_template_id FROM graphs WHERE id = ?`, [graph.id]) as { origin_template_id: string | null } | undefined;
+      await exec.run(stmts.insertGraph, [graph.id, null, graph.name, doc, row?.origin_template_id ?? null, at]);
     },
 
     async close() {
-      db.close();
+      await hooks.close();
     },
 
     /** Passthrough to the underlying DatabaseSync.prepare — for modules that
      *  manage their own tables (e.g. knowledge base FTS). */
     async prepare(sql: string) {
-      return db.prepare(sql);
+      return hooks.prepare(sql);
     },
   };
 }
