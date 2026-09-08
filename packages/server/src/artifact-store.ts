@@ -173,7 +173,7 @@ export class ArtifactStore {
     // Salted with the owner: artifact ids are the row primary key and inserts
     // ignore conflicts, so a content-only hash would let two users' identical
     // uploads collide onto one ownerless-to-the-second-user row.
-    const id = `up-${createHash("sha1").update(`${opts.userId}\u0000`).update(opts.data).digest("hex").slice(0, 12)}`;
+    const id = `up-${createHash("sha256").update(`${opts.userId}\u0000`).update(opts.data).digest("hex").slice(0, 12)}`;
     await this.backend.put(this.keyFor("uploads", id), opts.data);
     return {
       id,

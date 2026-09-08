@@ -58,16 +58,16 @@ function preview(text: string): { content: string; truncated: boolean } {
  * Runs that halted before it carry NULL, so those are resolved from the event
  * log instead of silently dropping off the queue.
  */
-export function listPendingReviews(
+export async function listPendingReviews(
   db: Db,
   userId: string,
   opts: { limit?: number; offset?: number; graphId?: string; graphIds?: string[]; now?: number } = {},
-): { reviews: PendingReview[]; total: number } {
+): Promise<{ reviews: PendingReview[]; total: number }> {
   const now = opts.now ?? Date.now();
-  const { rows, total } = db.pendingReviews(userId, opts);
+  const { rows, total } = await db.pendingReviews(userId, opts);
 
-  const reviews = rows.map((row): PendingReview => {
-    const events: RunEvent[] = db.events(row.id);
+  const reviews = await Promise.all(rows.map(async (row): Promise<PendingReview> => {
+    const events: RunEvent[] = await db.events(row.id);
     let nodeId = row.halted_node_id;
     let reason = row.halted_reason;
     if (!nodeId || !reason) {
@@ -88,7 +88,7 @@ export function listPendingReviews(
       if (e.type === "gate.verdict") detail = e.reason;
     }
 
-    const run = db.getRunById(row.id);
+    const run = await db.getRunById(row.id);
     let nodeName: string | null = null;
     if (run && nodeId) {
       const graph = JSON.parse(run.snapshot) as Graph;
@@ -116,7 +116,7 @@ export function listPendingReviews(
       abGroup: row.ab_group,
       abArm: row.ab_arm,
     };
-  });
+  }));
 
   return { reviews, total };
 }

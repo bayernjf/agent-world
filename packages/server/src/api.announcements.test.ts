@@ -17,8 +17,8 @@ beforeAll(async () => {
   db = openDb(process.env.DB_FILE!);
 });
 
-afterAll(() => {
-  db.close();
+afterAll(async () => {
+  await db.close();
   delete process.env.DB_FILE;
   delete process.env.ALLOW_REGISTRATION;
   rmSync(dir, { recursive: true, force: true });
@@ -56,14 +56,14 @@ describe("announcements: window filtering & bilingual payload", () => {
   beforeAll(async () => {
     token = await register("reader@test.dev");
     const now = Date.now();
-    db.createAnnouncement({ id: "a-active", titleZh: "进行中", titleEn: "Active", level: "info", startsAt: now - 1000 });
-    db.createAnnouncement({
+    await db.createAnnouncement({ id: "a-active", titleZh: "进行中", titleEn: "Active", level: "info", startsAt: now - 1000 });
+    await db.createAnnouncement({
       id: "a-future", titleZh: "未开始", titleEn: "Future", level: "info", startsAt: now + 60_000,
     });
-    db.createAnnouncement({
+    await db.createAnnouncement({
       id: "a-expired", titleZh: "已结束", titleEn: "Expired", level: "info", startsAt: now - 120_000, endsAt: now - 60_000,
     });
-    db.createAnnouncement({
+    await db.createAnnouncement({
       id: "a-targeted", titleZh: "定向", titleEn: "Targeted", level: "info", startsAt: now - 1000, target: "role:admin",
     });
   });
@@ -125,7 +125,7 @@ describe("announcements: admin gate", () => {
     pleb = await register("pleb@test.dev");
     // RBAC P0: announcement admins are users with the global admin role —
     // grant it directly (owner-grant UI is P3, out of scope here).
-    db.prepare("UPDATE users SET role = 'admin' WHERE email = ?").run("boss@test.dev");
+    (await db.prepare("UPDATE users SET role = 'admin' WHERE email = ?")).run("boss@test.dev");
   });
 
   it("rejects create/update/delete for non-admins", async () => {
@@ -236,8 +236,8 @@ describe("announcements: targeted delivery (P3)", () => {
   let editorUid: string;
   let viewerUid: string;
 
-  const uidByEmail = (email: string): string =>
-    (db.prepare("SELECT id FROM users WHERE email = ?").get(email) as { id: string }).id;
+  const uidByEmail = async (email: string): string =>
+    ((await db.prepare("SELECT id FROM users WHERE email = ?")).get(email) as { id: string }).id;
 
   beforeAll(async () => {
     owner = await register("tgt-owner@test.dev");
@@ -245,10 +245,10 @@ describe("announcements: targeted delivery (P3)", () => {
     viewer = await register("tgt-viewer@test.dev");
     outsider = await register("tgt-outsider@test.dev");
     admin = await register("tgt-admin@test.dev");
-    db.prepare("UPDATE users SET role = 'admin' WHERE email = ?").run("tgt-admin@test.dev");
-    ownerUid = uidByEmail("tgt-owner@test.dev");
-    editorUid = uidByEmail("tgt-editor@test.dev");
-    viewerUid = uidByEmail("tgt-viewer@test.dev");
+    (await db.prepare("UPDATE users SET role = 'admin' WHERE email = ?")).run("tgt-admin@test.dev");
+    ownerUid = await uidByEmail("tgt-owner@test.dev");
+    editorUid = await uidByEmail("tgt-editor@test.dev");
+    viewerUid = await uidByEmail("tgt-viewer@test.dev");
 
     const g = (id: string): Parameters<typeof db.saveGraph>[0] => ({
       id,
@@ -257,21 +257,21 @@ describe("announcements: targeted delivery (P3)", () => {
       edges: [],
     });
     // Owned graph from a template + shared graph from another template.
-    db.saveGraph(g("tgt-g1"), Date.now(), ownerUid, undefined, "tpl-owned-x");
-    db.saveGraph(g("tgt-g2"), Date.now(), ownerUid, undefined, "tpl-shared-y");
-    db.saveResourceAccess("graph", "tgt-g2", editorUid, "editor");
-    db.saveResourceAccess("graph", "tgt-g2", viewerUid, "viewer");
+    await db.saveGraph(g("tgt-g1"), Date.now(), ownerUid, undefined, "tpl-owned-x");
+    await db.saveGraph(g("tgt-g2"), Date.now(), ownerUid, undefined, "tpl-shared-y");
+    await db.saveResourceAccess("graph", "tgt-g2", editorUid, "editor");
+    await db.saveResourceAccess("graph", "tgt-g2", viewerUid, "viewer");
 
     const now = Date.now();
-    db.createAnnouncement({
+    await db.createAnnouncement({
       id: "tgt-graph", titleZh: "产线公告", titleEn: "Graph notice", level: "info",
       startsAt: now - 1000, target: "graph:tgt-g2",
     });
-    db.createAnnouncement({
+    await db.createAnnouncement({
       id: "tgt-tpl-owned", titleZh: "模板公告", titleEn: "Template notice", level: "info",
       startsAt: now - 1000, target: "template:tpl-owned-x",
     });
-    db.createAnnouncement({
+    await db.createAnnouncement({
       id: "tgt-tpl-shared", titleZh: "共享模板公告", titleEn: "Shared-template notice", level: "info",
       startsAt: now - 1000, target: "template:tpl-shared-y",
     });

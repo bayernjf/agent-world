@@ -47,39 +47,39 @@ describe("per-user config storage", () => {
     map.clear();
   });
 
-  it("saves and loads a user's settings through the bound store", () => {
+  it("saves and loads a user's settings through the bound store", async () => {
     bindSettingsStore(store);
-    expect(saveConfig(ALICE_CFG, "u1")).toBe("db");
-    expect(loadConfig("u1").providers.alice?.apiKey).toBe("sk-alice");
+    expect(await saveConfig(ALICE_CFG, "u1")).toBe("db");
+    expect((await loadConfig("u1")).providers.alice?.apiKey).toBe("sk-alice");
   });
 
-  it("keeps one user's settings invisible to another", () => {
+  it("keeps one user's settings invisible to another", async () => {
     bindSettingsStore(store);
-    saveConfig(ALICE_CFG, "u1");
-    saveConfig(
+    await saveConfig(ALICE_CFG, "u1");
+    await saveConfig(
       { ...ALICE_CFG, providers: { bob: { ...ALICE_CFG.providers.alice!, apiKey: "sk-bob" } } },
       "u2",
     );
-    const u1 = loadConfig("u1");
-    const u2 = loadConfig("u2");
+    const u1 = await loadConfig("u1");
+    const u2 = await loadConfig("u2");
     expect(u1.providers.alice?.apiKey).toBe("sk-alice");
     expect(u1.providers.bob).toBeUndefined();
     expect(u2.providers.bob?.apiKey).toBe("sk-bob");
     expect(u2.providers.alice).toBeUndefined();
   });
 
-  it("falls back to built-in defaults for a user who never saved settings", () => {
+  it("falls back to built-in defaults for a user who never saved settings", async () => {
     bindSettingsStore(store);
-    const cfg = loadConfig("ghost");
+    const cfg = await loadConfig("ghost");
     // No DB row, no file → the built-in agnes baseline.
     expect(cfg.providers.agnes).toBeTruthy();
   });
 
-  it("builtin providers always win the merge — a stored copy can't shadow them", () => {
+  it("builtin providers always win the merge — a stored copy can't shadow them", async () => {
     bindSettingsStore(store);
     // Simulate stale/crafted data: an agnes entry persisted before `source`
     // existed (or hand-injected), with a rogue key and models.
-    saveConfig(
+    await saveConfig(
       {
         ...ALICE_CFG,
         providers: {
@@ -94,7 +94,7 @@ describe("per-user config storage", () => {
       },
       "u-shadow",
     );
-    const agnes = loadConfig("u-shadow").providers.agnes!;
+    const agnes = (await loadConfig("u-shadow")).providers.agnes!;
     expect(agnes.baseUrl).toBe("https://apihub.agnes-ai.com/v1");
     expect(agnes.models).toContain("agnes-2.0-flash");
     expect(agnes.models).not.toContain("sneaky-model");
@@ -111,20 +111,20 @@ describe("legacy file config remains the shared baseline", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("loadConfig() without a userId reads the file", () => {
+  it("loadConfig() without a userId reads the file", async () => {
     dir = mkdtempSync(join(tmpdir(), "aw-cfg-"));
     const file = join(dir, "agent-world.config.json");
     writeFileSync(file, JSON.stringify({ providers: { file: { type: "fake", models: ["x"] } } }));
     prev = process.env.AGENT_WORLD_CONFIG;
     process.env.AGENT_WORLD_CONFIG = file;
 
-    const cfg = loadConfig();
+    const cfg = await loadConfig();
     expect(cfg.providers.file).toBeTruthy();
     // Backfill keeps the built-in agnes provider available.
     expect(cfg.providers.agnes).toBeTruthy();
   });
 
-  it("saveConfig() without a userId writes the file", () => {
+  it("saveConfig() without a userId writes the file", async () => {
     dir = mkdtempSync(join(tmpdir(), "aw-cfg-save-"));
     const file = join(dir, "agent-world.config.json");
     prev = process.env.AGENT_WORLD_CONFIG;
@@ -133,9 +133,9 @@ describe("legacy file config remains the shared baseline", () => {
     // file (not the repo-root fallback) wins.
     writeFileSync(file, "{}");
 
-    const path = saveConfig(ALICE_CFG);
+    const path = await saveConfig(ALICE_CFG);
     expect(path).toBe(file);
-    const reloaded = loadConfig();
+    const reloaded = await loadConfig();
     expect(reloaded.providers.alice?.apiKey).toBe("sk-alice");
   });
 });
@@ -159,8 +159,8 @@ describe("endpointFor() — per-provider endpoint override", () => {
     expect(endpointFor(prov, "m", "image")).toBe(MODALITY_ENDPOINT.image);
   });
 
-  it("built-in agnes resolves video to /videos for both video models", () => {
-    const cfg = loadConfig("ghost");
+  it("built-in agnes resolves video to /videos for both video models", async () => {
+    const cfg = await loadConfig("ghost");
     const agnes = cfg.providers.agnes!;
     expect(endpointFor(agnes, "agnes-video-v2.0", "video")).toBe("/videos");
     expect(endpointFor(agnes, "agnes-video-2.5-flash", "video")).toBe("/videos");

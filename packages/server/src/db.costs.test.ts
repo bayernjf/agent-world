@@ -17,8 +17,8 @@ describe("content costs db (F9)", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("inserts a cost snapshot and computes roi = gmv / cost", () => {
-    const c = db.insertContentCost({
+  it("inserts a cost snapshot and computes roi = gmv / cost", async () => {
+    const c = await db.insertContentCost({
       id: "c1",
       userId: "u1",
       platform: "xiaohongshu",
@@ -30,17 +30,17 @@ describe("content costs db (F9)", () => {
     expect(c.gmv).toBe(100);
     expect(c.roi).toBe(200);
 
-    const rows = db.listContentCosts("u1");
+    const rows = await db.listContentCosts("u1");
     expect(rows.length).toBe(1);
     expect(rows[0]!.roi).toBe(200);
   });
 
-  it("aggregates costs by platform and recomputes roi", () => {
-    db.insertContentCost({ id: "c1", userId: "u1", platform: "xiaohongshu", costUsd: 0.5, gmv: 100, capturedAt: 1 });
-    db.insertContentCost({ id: "c2", userId: "u1", platform: "xiaohongshu", costUsd: 0.5, gmv: 50, capturedAt: 2 });
-    db.insertContentCost({ id: "c3", userId: "u1", platform: "douyin", costUsd: 1.0, gmv: 300, capturedAt: 3 });
+  it("aggregates costs by platform and recomputes roi", async () => {
+    await db.insertContentCost({ id: "c1", userId: "u1", platform: "xiaohongshu", costUsd: 0.5, gmv: 100, capturedAt: 1 });
+    await db.insertContentCost({ id: "c2", userId: "u1", platform: "xiaohongshu", costUsd: 0.5, gmv: 50, capturedAt: 2 });
+    await db.insertContentCost({ id: "c3", userId: "u1", platform: "douyin", costUsd: 1.0, gmv: 300, capturedAt: 3 });
 
-    const agg = db.aggregateContentCosts("u1", "platform");
+    const agg = await db.aggregateContentCosts("u1", "platform");
     expect(agg.length).toBe(2);
     const xhs = agg.find((a) => a.group === "xiaohongshu");
     expect(xhs?.costUsd).toBe(1);
@@ -48,10 +48,10 @@ describe("content costs db (F9)", () => {
     expect(xhs?.roi).toBe(150);
   });
 
-  it("scopes costs by user", () => {
-    db.insertContentCost({ id: "c1", userId: "u1", costUsd: 1, capturedAt: 1 });
-    db.insertContentCost({ id: "c2", userId: "u2", costUsd: 2, capturedAt: 2 });
-    expect(db.listContentCosts("u1").length).toBe(1);
-    expect(db.aggregateContentCosts("u2", "platform").length).toBe(1);
+  it("scopes costs by user", async () => {
+    await db.insertContentCost({ id: "c1", userId: "u1", costUsd: 1, capturedAt: 1 });
+    await db.insertContentCost({ id: "c2", userId: "u2", costUsd: 2, capturedAt: 2 });
+    expect((await db.listContentCosts("u1")).length).toBe(1);
+    expect((await db.aggregateContentCosts("u2", "platform")).length).toBe(1);
   });
 });

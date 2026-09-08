@@ -26,31 +26,31 @@ export async function runBatch(args: RunBatchArgs): Promise<void> {
   const { db, userId, worker, artifacts, live, graph, batchId, concurrency, publicUrl } = args;
   const { plan } = compile(graph);
   if (!plan) {
-    db.setBatchStatus(batchId, "failed", Date.now());
+    await db.setBatchStatus(batchId, "failed", Date.now());
     return;
   }
 
-  db.setBatchStatus(batchId, "running", null);
-  const items = db.listBatchItems(batchId);
+  await db.setBatchStatus(batchId, "running", null);
+  const items = await db.listBatchItems(batchId);
   let succeeded = 0;
   let failed = 0;
   let settled = 0;
 
   const runOne = (item: BatchItem): Promise<void> =>
     new Promise((resolve) => {
-      const settle = (ok: boolean, err?: string) => {
+      const settle = async (ok: boolean, err?: string) => {
         if (ok) {
           succeeded += 1;
-          db.markBatchItemDone(item.id, null, []);
+          await db.markBatchItemDone(item.id, null, []);
         } else {
           failed += 1;
-          db.markBatchItemFailed(item.id, err ?? "unknown error");
+          await db.markBatchItemFailed(item.id, err ?? "unknown error");
         }
-        db.updateBatchCounts(batchId, succeeded, failed);
+        await db.updateBatchCounts(batchId, succeeded, failed);
         settled += 1;
         if (settled === items.length) {
           const finalStatus = failed === 0 ? "done" : succeeded === 0 ? "failed" : "partial";
-          db.setBatchStatus(batchId, finalStatus, Date.now());
+          await db.setBatchStatus(batchId, finalStatus, Date.now());
         }
         resolve();
       };
@@ -67,7 +67,7 @@ export async function runBatch(args: RunBatchArgs): Promise<void> {
         publicUrl,
         onFinish: (_gid, status) => settle(status === "done", status === "done" ? undefined : `run ${status}`),
       })
-        .then(({ runId }) => db.markBatchItemRunning(item.id, runId))
+        .then(async ({ runId }) => await db.markBatchItemRunning(item.id, runId))
         .catch((e: unknown) => settle(false, (e as Error)?.message ?? String(e)));
     });
 

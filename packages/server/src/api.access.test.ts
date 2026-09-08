@@ -17,8 +17,8 @@ beforeAll(async () => {
   db = openDb(process.env.DB_FILE!);
 });
 
-afterAll(() => {
-  db.close();
+afterAll(async () => {
+  await db.close();
   delete process.env.DB_FILE;
   delete process.env.ALLOW_REGISTRATION;
   rmSync(dir, { recursive: true, force: true });
@@ -134,8 +134,8 @@ describe("graph sharing ACL API (design-rbac P1)", () => {
     const again = await putAccess(ownerToken, graphId, "acl-outsider@test.dev", null);
     expect(await again.json()).toEqual({ ok: true, revoked: false });
 
-    const actions = db
-      .prepare("SELECT action FROM audit_log WHERE object_type = 'graph' AND object_id = ? ORDER BY created_at")
+    const actions = (await db
+      .prepare("SELECT action FROM audit_log WHERE object_type = 'graph' AND object_id = ? ORDER BY created_at"))
       .all(graphId) as Array<{ action: string }>;
     expect(actions.map((a) => a.action)).toContain("access.grant");
     expect(actions.map((a) => a.action)).toContain("access.revoke");
@@ -148,8 +148,8 @@ describe("graph sharing ACL API (design-rbac P1)", () => {
     const res = await app.request(`/api/graphs/${doomed}`, { method: "DELETE", headers: auth(ownerToken) });
     expect(res.status).toBe(200);
 
-    const rows = db
-      .prepare("SELECT COUNT(*) AS n FROM resource_access WHERE resource_id = ?")
+    const rows = (await db
+      .prepare("SELECT COUNT(*) AS n FROM resource_access WHERE resource_id = ?"))
       .get(doomed) as { n: number };
     expect(rows.n).toBe(0);
   });
@@ -165,8 +165,8 @@ describe("run & artifact access inheritance (design-rbac P1)", () => {
   let runId: string;
   let artifactId: string;
 
-  function userIdByEmail(email: string): string {
-    const row = db.prepare("SELECT id FROM users WHERE email = ?").get(email) as { id: string } | undefined;
+  async function userIdByEmail(email: string): string {
+    const row = (await db.prepare("SELECT id FROM users WHERE email = ?")).get(email) as { id: string } | undefined;
     if (!row) throw new Error(`user not found: ${email}`);
     return row.id;
   }
@@ -176,7 +176,7 @@ describe("run & artifact access inheritance (design-rbac P1)", () => {
     editorToken = await register("ra-editor@test.dev");
     viewerToken = await register("ra-viewer@test.dev");
     outsiderToken = await register("ra-outsider@test.dev");
-    ownerId = userIdByEmail("ra-owner@test.dev");
+    ownerId = await userIdByEmail("ra-owner@test.dev");
     graphId = await createGraph(ownerToken, "run-access graph");
     await putAccess(ownerToken, graphId, "ra-editor@test.dev", "editor");
     await putAccess(ownerToken, graphId, "ra-viewer@test.dev", "viewer");
@@ -184,14 +184,14 @@ describe("run & artifact access inheritance (design-rbac P1)", () => {
     // Seed a run owned by the graph owner, plus an artifact on it.
     runId = `run-${graphId.slice(0, 8)}`;
     artifactId = `art-${runId}`;
-    db.prepare(
+    (await db.prepare(
       `INSERT INTO runs (id, user_id, graph_id, snapshot, status, trigger, started_at)
        VALUES (?, ?, ?, ?, 'done', 'manual', ?)`,
-    ).run(runId, ownerId, graphId, JSON.stringify({ nodes: [], edges: [] }), Date.now());
-    db.prepare(
+    )).run(runId, ownerId, graphId, JSON.stringify({ nodes: [], edges: [] }), Date.now());
+    (await db.prepare(
       `INSERT INTO artifacts (id, run_id, user_id, graph_id, node_id, kind, storage, size_bytes, created_at)
        VALUES (?, ?, ?, ?, 'n-1', 'text', 'local', ?, ?)`,
-    ).run(artifactId, runId, ownerId, graphId, 5, Date.now());
+    )).run(artifactId, runId, ownerId, graphId, 5, Date.now());
 
     // Write the artifact bytes so /api/artifacts/:id can serve them.
     const artifactDir = join(dirname(resolve(process.env.DB_FILE!)), "artifacts");

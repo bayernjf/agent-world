@@ -11,10 +11,10 @@ function makeStore(initial: Graph[] = []) {
     if (!graphs.has(id)) graphs.set(id, { id, name: id, nodes: [], edges: [], version: 1 });
   }
   const store: TriggerGraphStore = {
-    listAllGraphs: () =>
+    listAllGraphs: async () =>
       [...graphs.values()].map((g) => ({ id: g.id, name: g.name, version: g.version, updated_at: 0 })),
-    getGraphById: (id) => graphs.get(id) ?? null,
-    saveGraphUnscoped: (graph) => {
+    getGraphById: async (id) => graphs.get(id) ?? null,
+    saveGraphUnscoped: async (graph) => {
       graphs.set(graph.id, { ...graph, version: (graphs.get(graph.id)?.version ?? 0) + 1 });
       return { ok: true, version: 1 };
     },
@@ -22,7 +22,7 @@ function makeStore(initial: Graph[] = []) {
   return store;
 }
 
-function makeService(initial: Graph[] = []) {
+async function makeService(initial: Graph[] = []) {
   const store = makeStore(initial);
   const calls: Array<{ graphId: string; opts: Parameters<StartRunFn>[1] }> = [];
   let n = 0;
@@ -31,7 +31,7 @@ function makeService(initial: Graph[] = []) {
     return Promise.resolve({ runId: `run-${++n}` });
   };
   const service = new TriggerService({ db: store, startRun });
-  service.restore();
+  await service.restore();
   return { service, calls, store };
 }
 
@@ -43,32 +43,32 @@ function graphWith(triggers: Graph["triggers"]): Graph {
 }
 
 describe("TriggerService", () => {
-  it("registers, lists, and filters triggers by graph", () => {
-    const { service } = makeService();
-    service.upsert("g1", webhookTrigger);
-    service.upsert("g1", cronTrigger);
-    service.upsert("g2", TriggerConfig.parse({ id: "t3", type: "event", eventSource: { kind: "graph", id: "g1" } }));
+  it("registers, lists, and filters triggers by graph", async () => {
+    const { service } = await makeService();
+    await service.upsert("g1", webhookTrigger);
+    await service.upsert("g1", cronTrigger);
+    await service.upsert("g2", TriggerConfig.parse({ id: "t3", type: "event", eventSource: { kind: "graph", id: "g1" } }));
 
     expect(service.list().map((t) => t.id).sort()).toEqual(["t1", "t2", "t3"]);
     expect(service.listByGraph("g1").map((t) => t.id).sort()).toEqual(["t1", "t2"]);
     expect(service.listByGraph("g2").map((t) => t.id)).toEqual(["t3"]);
   });
 
-  it("persists triggers into the graph document", () => {
-    const { store } = makeService();
+  it("persists triggers into the graph document", async () => {
+    const { store } = await makeService();
     const service = new TriggerService({ db: store, startRun: () => Promise.resolve({ runId: "x" }) });
-    service.upsert("g1", webhookTrigger);
-    expect(store.getGraphById("g1")?.triggers?.map((t) => t.id)).toEqual(["t1"]);
+    await service.upsert("g1", webhookTrigger);
+    expect((await store.getGraphById("g1"))?.triggers?.map((t) => t.id)).toEqual(["t1"]);
   });
 
-  it("restores the index from persisted graphs on startup", () => {
-    const { service } = makeService([graphWith([webhookTrigger, cronTrigger])]);
+  it("restores the index from persisted graphs on startup", async () => {
+    const { service } = await makeService([graphWith([webhookTrigger, cronTrigger])]);
     expect(service.list().map((t) => t.id).sort()).toEqual(["t1", "t2"]);
     expect(service.listByGraph("g1")).toHaveLength(2);
   });
 
   it("fires a trigger and passes an object payload as source input", async () => {
-    const { service, calls } = makeService([graphWith([webhookTrigger])]);
+    const { service, calls } = await makeService([graphWith([webhookTrigger])]);
     const res = await service.fire("t1", { hello: "world" });
     expect(res.runId).toBe("run-1");
     expect(calls[0].graphId).toBe("g1");
@@ -77,71 +77,71 @@ describe("TriggerService", () => {
   });
 
   it("fires with a string payload verbatim", async () => {
-    const { service, calls } = makeService([graphWith([cronTrigger])]);
+    const { service, calls } = await makeService([graphWith([cronTrigger])]);
     await service.fire("t2", "raw text");
     expect(calls[0].opts.input).toBe("raw text");
   });
 
   it("validates the webhook secret and starts a run", async () => {
-    const { service, calls } = makeService([graphWith([webhookTrigger])]);
+    const { service, calls } = await makeService([graphWith([webhookTrigger])]);
     const res = await service.fireWebhook("g1", "s3cr3t", "payload");
     expect(res.runId).toBe("run-1");
     expect(calls[0].opts.input).toBe("payload");
   });
 
   it("rejects an invalid webhook secret with 401", async () => {
-    const { service } = makeService([graphWith([webhookTrigger])]);
+    const { service } = await makeService([graphWith([webhookTrigger])]);
     await expect(service.fireWebhook("g1", "wrong", "x")).rejects.toMatchObject({ status: 401 });
   });
 
   it("rejects a webhook for a graph with no matching trigger", async () => {
-    const { service } = makeService([graphWith([])]);
+    const { service } = await makeService([graphWith([])]);
     await expect(service.fireWebhook("g1", "s3cr3t", "x")).rejects.toBeInstanceOf(TriggerError);
   });
 
   it("rejects an empty webhook secret without starting a run (audit H2)", async () => {
-    const { service, calls } = makeService([graphWith([webhookTrigger])]);
+    const { service, calls } = await makeService([graphWith([webhookTrigger])]);
     await expect(service.fireWebhook("g1", "", "x")).rejects.toMatchObject({ status: 401 });
     await expect(service.fireWebhook("g1", "   ", "x")).rejects.toMatchObject({ status: 401 });
     expect(calls).toHaveLength(0);
   });
 
   it("accepts a webhook timestamp inside the replay window (audit M1)", async () => {
-    const { service } = makeService([graphWith([webhookTrigger])]);
+    const { service } = await makeService([graphWith([webhookTrigger])]);
     const res = await service.fireWebhook("g1", "s3cr3t", "x", Date.now());
     expect(res.runId).toBe("run-1");
   });
 
   it("rejects a stale webhook timestamp outside the 5-minute window (audit M1)", async () => {
-    const { service, calls } = makeService([graphWith([webhookTrigger])]);
+    const { service, calls } = await makeService([graphWith([webhookTrigger])]);
     const stale = Date.now() - 6 * 60 * 1000;
     await expect(service.fireWebhook("g1", "s3cr3t", "x", stale)).rejects.toMatchObject({ status: 401 });
     expect(calls).toHaveLength(0);
   });
 
-  it("restore() skips a webhook trigger persisted with an empty secret (audit H2)", () => {
+  it("restore() skips a webhook trigger persisted with an empty secret (audit H2)", async () => {
     const emptySecret = TriggerConfig.parse({ id: "te", type: "webhook", webhookSecret: "  " });
-    const { service } = makeService([graphWith([emptySecret, cronTrigger])]);
+    const { service } = await makeService([graphWith([emptySecret, cronTrigger])]);
     // The empty-secret webhook is never indexed; the valid cron trigger survives.
     expect(service.list().map((t) => t.id)).toEqual(["t2"]);
   });
 
   it("removes a trigger and persists the change", async () => {
-    const { service, store } = makeService([graphWith([webhookTrigger, cronTrigger])]);
+    const { service, store } = await makeService([graphWith([webhookTrigger, cronTrigger])]);
     await service.remove("g1", "t1");
     expect(service.listByGraph("g1").map((t) => t.id)).toEqual(["t2"]);
-    expect(store.getGraphById("g1")?.triggers?.map((t) => t.id)).toEqual(["t2"]);
+    expect((await store.getGraphById("g1"))?.triggers?.map((t) => t.id)).toEqual(["t2"]);
   });
 
   it("errors on an unknown trigger", async () => {
-    const { service } = makeService();
+    const { service } = await makeService();
     await expect(service.fire("nope")).rejects.toBeInstanceOf(TriggerError);
   });
 });
 
 describe("TriggerService events (4A.5)", () => {
   it("fires a graph-completion event trigger subscribed to that graph", async () => {
-    const { service, calls } = makeService([
+    const { service, calls } = await makeService([
       graphWith([TriggerConfig.parse({ id: "ev1", type: "event", eventSource: { kind: "graph", id: "g1" } })]),
     ]);
     // The engine emits "done" on success — the trigger must key off that real value.
@@ -151,7 +151,7 @@ describe("TriggerService events (4A.5)", () => {
   });
 
   it("does not fire on a non-success status", async () => {
-    const { service, calls } = makeService([
+    const { service, calls } = await makeService([
       graphWith([TriggerConfig.parse({ id: "ev1", type: "event", eventSource: { kind: "graph", id: "g1" } })]),
     ]);
     await service.onGraphFinished("g1", "failed");
@@ -162,7 +162,7 @@ describe("TriggerService events (4A.5)", () => {
 
   it("fires a subscriber graph's trigger when the source graph finishes", async () => {
     // g2 holds the event trigger; g1 (auto-seeded) is the source it listens to.
-    const { service, calls } = makeService([
+    const { service, calls } = await makeService([
       { id: "g2", name: "G2", nodes: [], edges: [], triggers: [TriggerConfig.parse({ id: "ev2", type: "event", eventSource: { kind: "graph", id: "g1" } })] },
     ]);
     await service.onGraphFinished("g1", "done");
@@ -171,7 +171,7 @@ describe("TriggerService events (4A.5)", () => {
   });
 
   it("fires artifact event triggers by artifact id", async () => {
-    const { service, calls } = makeService([
+    const { service, calls } = await makeService([
       graphWith([TriggerConfig.parse({ id: "ev3", type: "event", eventSource: { kind: "artifact", id: "art-9" } })]),
     ]);
     await service.onArtifact("art-9");
@@ -188,7 +188,7 @@ describe("TriggerService batch (4A.6)", () => {
       type: "batch",
       batch: { source: "rows", rows: [{ a: "1" }, { a: "2" }, { a: "3" }] },
     });
-    const { service, calls } = makeService([graphWith([trigger])]);
+    const { service, calls } = await makeService([graphWith([trigger])]);
     const runIds = await service.fireBatch("b1");
     expect(runIds).toHaveLength(3);
     expect(calls).toHaveLength(3);
@@ -201,29 +201,29 @@ describe("TriggerService batch (4A.6)", () => {
       type: "batch",
       batch: { source: "rows", rows: [{ a: "1" }] },
     });
-    const { service, calls } = makeService([graphWith([trigger])]);
+    const { service, calls } = await makeService([graphWith([trigger])]);
     const runIds = await service.fireBatch("b2", [{ x: "9" }, { x: "8" }]);
     expect(runIds).toHaveLength(2);
     expect(calls[0].opts.input).toBe(JSON.stringify({ x: "9" }));
   });
 
   it("rejects firing a non-batch trigger as a batch", async () => {
-    const { service } = makeService([graphWith([webhookTrigger])]);
+    const { service } = await makeService([graphWith([webhookTrigger])]);
     await expect(service.fireBatch("t1")).rejects.toMatchObject({ status: 400 });
   });
 });
 
 describe("TriggerService nextRunMap (4A.7 UI)", () => {
-  it("maps only cron trigger ids to their next fire time", () => {
-    const { service } = makeService([graphWith([cronTrigger, webhookTrigger])]);
+  it("maps only cron trigger ids to their next fire time", async () => {
+    const { service } = await makeService([graphWith([cronTrigger, webhookTrigger])]);
     const map = service.nextRunMap("g1");
     expect(Object.keys(map).sort()).toEqual(["t2"]);
     expect(typeof map["t2"]).toBe("number");
     expect(map["t1"]).toBeUndefined();
   });
 
-  it("returns an empty map when there are no cron triggers", () => {
-    const { service } = makeService([graphWith([webhookTrigger])]);
+  it("returns an empty map when there are no cron triggers", async () => {
+    const { service } = await makeService([graphWith([webhookTrigger])]);
     expect(service.nextRunMap("g1")).toEqual({});
   });
 });

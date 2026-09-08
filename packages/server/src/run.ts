@@ -33,11 +33,11 @@ function productConnectorLoader(db: Db, userId: string) {
   return async (connector: ProductConnector): Promise<ResolvedMaterial> => {
     let products: Product[];
     if (connector.selection === "all") {
-      products = db.listProducts(userId, { status: "active" });
+      products = await db.listProducts(userId, { status: "active" });
     } else if (connector.selection === "filter") {
-      products = db.listProducts(userId, connector.filter ?? {});
+      products = await db.listProducts(userId, connector.filter ?? {});
     } else {
-      products = db.getProductsByIds(userId, connector.productIds ?? []);
+      products = await db.getProductsByIds(userId, connector.productIds ?? []);
     }
     const text = products.map(formatProduct).join("\n\n---\n\n");
     const images = products.flatMap((p) => p.images);
@@ -129,12 +129,12 @@ export async function startRun(args: StartRunArgs): Promise<{ runId: string; dia
 
   // 成本硬熔断：新 run 创建前检查月度预算。覆盖 manual / trigger / batch 全部
   // 入口（都经 startRun），避免失控产线 / 被攻破账号 / 恶意刷量继续烧钱。
-  const budgetCfg = loadConfig(userId);
+  const budgetCfg = await loadConfig(userId);
   const monthlyBudgetUsd = budgetCfg.monthlyBudgetUsd ?? null;
   const budgetBypass = process.env.AGENT_WORLD_BUDGET_BYPASS === "1";
   if (monthlyBudgetUsd != null && monthlyBudgetUsd > 0 && !budgetBypass) {
     const monthNow = new Date();
-    const monthSpentUsd = db.costForMonth(monthNow.getFullYear(), monthNow.getMonth() + 1, userId);
+    const monthSpentUsd = await db.costForMonth(monthNow.getFullYear(), monthNow.getMonth() + 1, userId);
     if (monthlyBudgetExceeded(monthlyBudgetUsd, monthSpentUsd, budgetBypass)) {
       log.warn("run blocked by monthly budget hard stop", {
         userId, graphId: graph.id, monthSpentUsd, monthlyBudgetUsd,
@@ -149,7 +149,7 @@ export async function startRun(args: StartRunArgs): Promise<{ runId: string; dia
 
   const runId = randomUUID();
   const startedAt = Date.now();
-  db.createRun({ id: runId, userId, graph, budgetUsd: budgetUsd ?? null, at: startedAt, trigger, input });
+  await db.createRun({ id: runId, userId, graph, budgetUsd: budgetUsd ?? null, at: startedAt, trigger, input });
   const controller = new AbortController();
   const entry: LiveEntry = { events: [], done: false, controller };
   live.set(runId, entry);
@@ -159,13 +159,13 @@ export async function startRun(args: StartRunArgs): Promise<{ runId: string; dia
 
   void runAsUser(userId, async () => {
     try {
-      const cfg = loadConfig(userId);
+      const cfg = await loadConfig(userId);
       const now = new Date();
       // Graph variables: graph-level defaults overridden by persisted values
       // from prior runs (cross-run state). The engine mutates this map by
       // reference; we persist it back once the run finishes.
       const variables = new Map<string, unknown>(
-        Object.entries({ ...(graph.variables ?? {}), ...db.loadGraphVariables(graph.id, userId) }),
+        Object.entries({ ...(graph.variables ?? {}), ...await db.loadGraphVariables(graph.id, userId) }),
       );
       for await (const event of execute({
         runId,
@@ -175,13 +175,13 @@ export async function startRun(args: StartRunArgs): Promise<{ runId: string; dia
         input,
         connectorValues,
         initialVariables: variables,
-        bannedTerms: db.bannedTermsText(userId),
+        bannedTerms: await db.bannedTermsText(userId),
         searchConfig: cfg.searchConfig,
         loadProducts: productConnectorLoader(db, userId),
         log: runLog,
         budgetUsd: budgetUsd ?? null,
         monthlyBudgetUsd: cfg.monthlyBudgetUsd ?? null,
-        monthSpentUsd: db.costForMonth(now.getFullYear(), now.getMonth() + 1, userId),
+        monthSpentUsd: await db.costForMonth(now.getFullYear(), now.getMonth() + 1, userId),
         defaultModel: cfg.defaultModel,
         signal: controller.signal,
         storeBinary: async (data, mimeType, label) => {
@@ -193,31 +193,31 @@ export async function startRun(args: StartRunArgs): Promise<{ runId: string; dia
                 ? "audio"
                 : "file";
           const saved = await artifacts.saveBinary({ userId, data, kind, mimeType, label });
-          db.insertArtifact(saved, userId);
+          await db.insertArtifact(saved, userId);
           return saved.uri ?? `data:${mimeType};base64,${data.toString("base64")}`;
         },
         readArtifact: createReadArtifact(db, artifacts),
         publicUrl,
         // Subprocess nodes call other saved graphs — resolve them within the
         // same user's scope so users can't invoke graphs they can't see.
-        loadSubgraph: (graphId) => db.getGraph(graphId, userId) ?? null,
+        loadSubgraph: async (graphId) => await db.getGraph(graphId, userId) ?? null,
       })) {
-        db.record(runId, event);
+        await db.record(runId, event);
         if (event.type === "artifact.produced") {
           await persistArtifact({ db, artifacts, userId, graph, runId, event });
           args.onArtifact?.(event.artifact.id);
         }
         entry.events.push(event);
         if (event.type === "run.finished") {
-          db.finishRun(runId, userId, event.status, Date.now(), haltedOf(event));
+          await db.finishRun(runId, userId, event.status, Date.now(), haltedOf(event));
           // Persist the run's (possibly mutated) variables for the next run.
-          db.saveGraphVariables(graph.id, userId, Object.fromEntries(variables));
-          recordRunFinished(event.status, db.runStats(runId).costUsd);
+          await db.saveGraphVariables(graph.id, userId, Object.fromEntries(variables));
+          recordRunFinished(event.status, (await db.runStats(runId)).costUsd);
           args.onFinish?.(graph.id, event.status);
         }
       }
     } catch (err) {
-      db.finishRun(runId, userId, "failed", Date.now());
+      await db.finishRun(runId, userId, "failed", Date.now());
       runsTotal.inc({ status: "failed" });
       runsFailedTotal.inc();
       runLog.error("run crashed", { error: (err as Error)?.message ?? String(err) });
@@ -262,7 +262,7 @@ async function persistArtifact(args: {
   const nodeKind = graph.nodes?.find((n) => n.id === event.nodeId)?.kind;
   const role: "source" | "intermediate" | "final" =
     nodeKind === "sink" ? "final" : nodeKind === "source" ? "source" : "intermediate";
-  db.insertArtifact(
+  await db.insertArtifact(
     await artifacts.save(event.artifact, {
       runId,
       nodeId: event.nodeId,
@@ -305,7 +305,7 @@ export interface ResumeRunArgs {
 export async function resumeRun(args: ResumeRunArgs): Promise<{ runId: string; action: ResumeAction }> {
   const { db, userId, worker, artifacts, live, runId, publicUrl } = args;
   const action: ResumeAction = args.action ?? "continue";
-  const row = db.getRun(runId, userId);
+  const row = await db.getRun(runId, userId);
   if (!row) throw new RunStartError("not found", 404);
 
   // A live entry exists while the generator runs. Reject only if it is still
@@ -318,7 +318,7 @@ export async function resumeRun(args: ResumeRunArgs): Promise<{ runId: string; a
   const { plan, diagnostics } = compile(graph);
   if (!plan) throw new RunStartError("graph does not compile", 422, diagnostics);
 
-  const pastEvents = db.events(runId);
+  const pastEvents = await db.events(runId);
   const controller = new AbortController();
   const entry: LiveEntry = { events: [], done: false, controller };
   live.set(runId, entry);
@@ -328,18 +328,18 @@ export async function resumeRun(args: ResumeRunArgs): Promise<{ runId: string; a
   // A retry from a failed/tripped run reopens the same run; flip its status
   // back to running so listings/UIs reflect the active attempt.
   if (args.resetFrom || row.status === "failed" || row.status === "tripped") {
-    db.markRunning(runId, userId);
+    await db.markRunning(runId, userId);
   }
 
   void runAsUser(userId, async () => {
     try {
-      const cfg = loadConfig(userId);
+      const cfg = await loadConfig(userId);
       const now = new Date();
       // Graph variables: defaults overridden by persisted values. Re-loaded on
       // resume so another run's writes since the halt are not lost; written
       // back once the run finishes.
       const variables = new Map<string, unknown>(
-        Object.entries({ ...(graph.variables ?? {}), ...db.loadGraphVariables(graph.id, userId) }),
+        Object.entries({ ...(graph.variables ?? {}), ...await db.loadGraphVariables(graph.id, userId) }),
       );
       for await (const event of resume({
         runId,
@@ -349,11 +349,11 @@ export async function resumeRun(args: ResumeRunArgs): Promise<{ runId: string; a
         log: runLog,
         budgetUsd: row.budget_usd ?? null,
         initialVariables: variables,
-        bannedTerms: db.bannedTermsText(userId),
+        bannedTerms: await db.bannedTermsText(userId),
         searchConfig: cfg.searchConfig,
         loadProducts: productConnectorLoader(db, userId),
         monthlyBudgetUsd: cfg.monthlyBudgetUsd ?? null,
-        monthSpentUsd: db.costForMonth(now.getFullYear(), now.getMonth() + 1, userId),
+        monthSpentUsd: await db.costForMonth(now.getFullYear(), now.getMonth() + 1, userId),
         defaultModel: cfg.defaultModel,
         pastEvents,
         action,
@@ -370,7 +370,7 @@ export async function resumeRun(args: ResumeRunArgs): Promise<{ runId: string; a
                 ? "audio"
                 : "file";
           const saved = await artifacts.saveBinary({ userId, data, kind, mimeType, label });
-          db.insertArtifact(saved, userId);
+          await db.insertArtifact(saved, userId);
           return saved.uri ?? `data:${mimeType};base64,${data.toString("base64")}`;
         },
         // Inline local /api/artifacts/<id> URIs as data:<mime>;base64,... for
@@ -379,23 +379,23 @@ export async function resumeRun(args: ResumeRunArgs): Promise<{ runId: string; a
         publicUrl,
         // Subprocess nodes call other saved graphs — resolve them within the
         // same user's scope so users can't invoke graphs they can't see.
-        loadSubgraph: (graphId) => db.getGraph(graphId, userId) ?? null,
+        loadSubgraph: async (graphId) => await db.getGraph(graphId, userId) ?? null,
       })) {
-        db.record(runId, event);
+        await db.record(runId, event);
         if (event.type === "artifact.produced") {
           await persistArtifact({ db, artifacts, userId, graph, runId, event });
           args.onArtifact?.(event.artifact.id);
         }
         entry.events.push(event);
         if (event.type === "run.finished") {
-          db.finishRun(runId, userId, event.status, Date.now(), haltedOf(event));
-          db.saveGraphVariables(graph.id, userId, Object.fromEntries(variables));
-          recordRunFinished(event.status, db.runStats(runId).costUsd);
+          await db.finishRun(runId, userId, event.status, Date.now(), haltedOf(event));
+          await db.saveGraphVariables(graph.id, userId, Object.fromEntries(variables));
+          recordRunFinished(event.status, (await db.runStats(runId)).costUsd);
           args.onFinish?.(graph.id, event.status);
         }
       }
     } catch (err) {
-      db.finishRun(runId, userId, "failed", Date.now());
+      await db.finishRun(runId, userId, "failed", Date.now());
       runsTotal.inc({ status: "failed" });
       runsFailedTotal.inc();
       runLog.error("resume crashed", { error: (err as Error)?.message ?? String(err) });

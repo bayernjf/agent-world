@@ -29,32 +29,32 @@ describe("events pagination", () => {
   let dir: string;
   let db: ReturnType<typeof openDb>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     dir = mkdtempSync(join(tmpdir(), "aw-events-"));
     db = openDb(join(dir, "test.sqlite"));
-    db.saveGraph(graph, 1, U);
-    db.createRun({ id: "r1", userId: U, graph, budgetUsd: null, at: 1000 });
-    for (let i = 0; i < 10; i++) db.record("r1", started(i));
+    await db.saveGraph(graph, 1, U);
+    await db.createRun({ id: "r1", userId: U, graph, budgetUsd: null, at: 1000 });
+    for (let i = 0; i < 10; i++) await db.record("r1", started(i));
   });
 
   afterEach(() => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("returns all events without a window", () => {
-    expect(db.events("r1")).toHaveLength(10);
+  it("returns all events without a window", async () => {
+    expect(await db.events("r1")).toHaveLength(10);
   });
 
-  it("pages from an exclusive cursor and reports nextCursor", () => {
-    const first = db.eventsRange("r1", -1, 4);
+  it("pages from an exclusive cursor and reports nextCursor", async () => {
+    const first = await db.eventsRange("r1", -1, 4);
     expect(first.events.map((e) => e.seq)).toEqual([0, 1, 2, 3]);
     expect(first.nextCursor).toBe(3);
 
-    const second = db.eventsRange("r1", first.nextCursor!, 4);
+    const second = await db.eventsRange("r1", first.nextCursor!, 4);
     expect(second.events.map((e) => e.seq)).toEqual([4, 5, 6, 7]);
     expect(second.nextCursor).toBe(7);
 
-    const last = db.eventsRange("r1", second.nextCursor!, 4);
+    const last = await db.eventsRange("r1", second.nextCursor!, 4);
     expect(last.events.map((e) => e.seq)).toEqual([8, 9]);
     expect(last.nextCursor).toBeNull();
   });

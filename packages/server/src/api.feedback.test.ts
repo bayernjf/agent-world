@@ -17,8 +17,8 @@ beforeAll(async () => {
   db = openDb(process.env.DB_FILE!);
 });
 
-afterAll(() => {
-  db.close();
+afterAll(async () => {
+  await db.close();
   delete process.env.DB_FILE;
   delete process.env.ALLOW_REGISTRATION;
   rmSync(dir, { recursive: true, force: true });
@@ -61,8 +61,8 @@ function post(token: string, body: unknown): Promise<Response> {
   });
 }
 
-function idOf(email: string): string {
-  return (db.prepare("SELECT id FROM users WHERE email = ?").get(email) as { id: string }).id;
+async function idOf(email: string): string {
+  return ((await db.prepare("SELECT id FROM users WHERE email = ?")).get(email) as { id: string }).id;
 }
 
 // 1x1 PNG — the smallest valid image fixture.
@@ -94,8 +94,8 @@ describe("feedback: submission", () => {
       message: "with context",
       context: { route: "/canvas", userAgent: "vitest-ua", locale: "zh" },
     });
-    const row = db
-      .prepare("SELECT category, context FROM feedback WHERE message = ?")
+    const row = (await db
+      .prepare("SELECT category, context FROM feedback WHERE message = ?"))
       .get("with context") as { category: string; context: string };
     expect(row.category).toBe("other");
     expect(JSON.parse(row.context)).toEqual({ route: "/canvas", userAgent: "vitest-ua", locale: "zh" });
@@ -112,8 +112,8 @@ describe("feedback: submission", () => {
         nested: { deep: { secret: "x" } },
       },
     });
-    const row = db
-      .prepare("SELECT context FROM feedback WHERE message = ?")
+    const row = (await db
+      .prepare("SELECT context FROM feedback WHERE message = ?"))
       .get("sneaky context") as { context: string };
     const stored = JSON.parse(row.context) as Record<string, unknown>;
     expect(Object.keys(stored)).toEqual(["route"]);
@@ -127,8 +127,8 @@ describe("feedback: submission", () => {
         lastError: { message: "Cannot read properties of undefined", lineno: 42, stack: "at Evil (app.js:1)" },
       },
     });
-    const row = db
-      .prepare("SELECT context FROM feedback WHERE message = ?")
+    const row = (await db
+      .prepare("SELECT context FROM feedback WHERE message = ?"))
       .get("with error") as { context: string };
     const stored = JSON.parse(row.context) as { lastError: { message: string; lineno: number } };
     expect(stored.lastError).toEqual({ message: "Cannot read properties of undefined", lineno: 42 });
@@ -163,8 +163,8 @@ describe("feedback: submission", () => {
     });
     expect(res.status).toBe(201);
     const { id } = (await res.json()) as { id: string };
-    const row = db
-      .prepare("SELECT attachment, attachment_mime FROM feedback WHERE id = ?")
+    const row = (await db
+      .prepare("SELECT attachment, attachment_mime FROM feedback WHERE id = ?"))
       .get(id) as { attachment: Uint8Array; attachment_mime: string };
     expect(row.attachment.byteLength).toBeGreaterThan(0);
     expect(row.attachment_mime).toBe("image/png");
@@ -193,14 +193,14 @@ describe("feedback: admin listing and status flow", () => {
     // The first describe already registered users on this DB, so its first
     // account is the owner — log in as them (bcrypt compare is mocked true).
     const ownerEmail = (
-      db.prepare("SELECT email FROM users WHERE role = 'owner'").get() as { email: string }
+      (await db.prepare("SELECT email FROM users WHERE role = 'owner'")).get() as { email: string }
     ).email;
     owner = await login(ownerEmail);
     admin = await register(adminEmail);
     pleb = await register(plebEmail);
     // First registered account on a fresh DB is the owner (RBAC P0 bootstrap);
     // promote the second to admin via the owner-only route.
-    const res = await app.request(`/api/admin/users/${idOf(adminEmail)}/role`, {
+    const res = await app.request(`/api/admin/users/${await idOf(adminEmail)}/role`, {
       method: "POST",
       headers: { ...auth(owner), "content-type": "application/json" },
       body: JSON.stringify({ role: "admin" }),
@@ -285,10 +285,10 @@ describe("feedback: admin listing and status flow", () => {
       body: JSON.stringify({ status: "closed" }),
     });
     expect(closed.status).toBe(200);
-    const row = db.prepare("SELECT status FROM feedback WHERE id = ?").get(fbId) as { status: string };
+    const row = (await db.prepare("SELECT status FROM feedback WHERE id = ?")).get(fbId) as { status: string };
     expect(row.status).toBe("closed");
-    const audits = db
-      .prepare("SELECT detail FROM audit_log WHERE action = 'feedback.status_change' AND object_id = ? ORDER BY created_at")
+    const audits = (await db
+      .prepare("SELECT detail FROM audit_log WHERE action = 'feedback.status_change' AND object_id = ? ORDER BY created_at"))
       .all(fbId) as Array<{ detail: string }>;
     expect(audits).toHaveLength(2);
     expect(JSON.parse(audits[0]!.detail)).toEqual({ to: "acknowledged" });
@@ -297,7 +297,7 @@ describe("feedback: admin listing and status flow", () => {
 
   it("same-status PATCH is idempotent (no audit row)", async () => {
     const before = (
-      db.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'feedback.status_change'").get() as { n: number }
+      (await db.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'feedback.status_change'")).get() as { n: number }
     ).n;
     const res = await app.request(`/api/feedback/${fbId}`, {
       method: "PATCH",
@@ -308,7 +308,7 @@ describe("feedback: admin listing and status flow", () => {
     const body = (await res.json()) as { unchanged?: boolean };
     expect(body.unchanged).toBe(true);
     const after = (
-      db.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'feedback.status_change'").get() as { n: number }
+      (await db.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'feedback.status_change'")).get() as { n: number }
     ).n;
     expect(after).toBe(before);
   });
@@ -330,8 +330,8 @@ describe("feedback: admin listing and status flow", () => {
   });
 
   it("audits submissions with category only (never the message)", async () => {
-    const rows = db
-      .prepare("SELECT detail FROM audit_log WHERE action = 'feedback.submit' ORDER BY created_at")
+    const rows = (await db
+      .prepare("SELECT detail FROM audit_log WHERE action = 'feedback.submit' ORDER BY created_at"))
       .all() as Array<{ detail: string }>;
     expect(rows.length).toBeGreaterThan(0);
     for (const r of rows) {
@@ -368,7 +368,7 @@ describe("feedback: announce linkage (P3)", () => {
   beforeAll(async () => {
     const stamp = Date.now();
     const ownerEmail = (
-      db.prepare("SELECT email FROM users WHERE role = 'owner'").get() as { email: string }
+      (await db.prepare("SELECT email FROM users WHERE role = 'owner'")).get() as { email: string }
     ).email;
     owner = await login(ownerEmail);
     pleb = await register(`announce-${stamp}@t.example`);
@@ -398,15 +398,15 @@ describe("feedback: announce linkage (P3)", () => {
 
   it("aborts the whole merge on unknown ids (no announcement side effect)", async () => {
     const before = (
-      db.prepare("SELECT COUNT(*) AS n FROM announcements").get() as { n: number }
+      (await db.prepare("SELECT COUNT(*) AS n FROM announcements")).get() as { n: number }
     ).n;
     const res = await announce(owner, [fb1, "00000000-0000-4000-8000-000000000000"]);
     expect(res.status).toBe(404);
     const after = (
-      db.prepare("SELECT COUNT(*) AS n FROM announcements").get() as { n: number }
+      (await db.prepare("SELECT COUNT(*) AS n FROM announcements")).get() as { n: number }
     ).n;
     expect(after).toBe(before);
-    const row = db.prepare("SELECT status FROM feedback WHERE id = ?").get(fb1) as { status: string };
+    const row = (await db.prepare("SELECT status FROM feedback WHERE id = ?")).get(fb1) as { status: string };
     expect(row.status).toBe("open");
   });
 
@@ -417,19 +417,19 @@ describe("feedback: announce linkage (P3)", () => {
     expect(body.ok).toBe(true);
     expect(body.closed).toBe(2); // fbClosed was already closed → skipped
 
-    const ann = db
-      .prepare("SELECT title_zh, level FROM announcements WHERE id = ?")
+    const ann = (await db
+      .prepare("SELECT title_zh, level FROM announcements WHERE id = ?"))
       .get(body.announcementId) as { title_zh: string; level: string };
     expect(ann.title_zh).toBe("已知问题：导出失败");
     expect(ann.level).toBe("warning");
 
     for (const id of [fb1, fb2, fbClosed]) {
-      const row = db.prepare("SELECT status FROM feedback WHERE id = ?").get(id) as { status: string };
+      const row = (await db.prepare("SELECT status FROM feedback WHERE id = ?")).get(id) as { status: string };
       expect(row.status).toBe("closed");
     }
 
-    const audits = db
-      .prepare("SELECT detail FROM audit_log WHERE action = 'feedback.announce' AND object_id = ?")
+    const audits = (await db
+      .prepare("SELECT detail FROM audit_log WHERE action = 'feedback.announce' AND object_id = ?"))
       .all(body.announcementId) as Array<{ detail: string }>;
     expect(audits).toHaveLength(1);
     expect(JSON.parse(audits[0]!.detail)).toEqual({ count: 3, level: "warning" });
