@@ -77,7 +77,7 @@ State of Agent World as of 2026-09-06.
 
 * [docs/design-scaling.md](docs/design-scaling.md) — 规模化与企业级架构方案（**分布式 / 高可用 / 高并发 / 大数据量 / 托管 / 数据处理 / 合规**七主题，每项「现状/问题/方案/触发条件/落地步骤」；**决策：自托管 + SaaS 都做，先自托管后 SaaS**——自托管阶段只需成本熔断/备份演练/探针/对象存储，SaaS 阶段再补 PG/多副本/分布式锁/合规；2026-09-07 定稿待评审）
 
-* [docs/design-postgres-migration.md](docs/design-postgres-migration.md) — PostgreSQL 迁移设计（主库 SQLite→PG：现状盘点 / 差异清单 / 双驱动改造 / 数据搬迁 / 迁移 SQL 命名规则 / 回滚 / 验收；设计定稿 2026-09-08；**「抽接口 + 异步化」已落地 2026-09-08**——新建 `sqlite-driver.ts`（3753 行实现）+ `db.ts` 瘦身为类型/工厂/re-export（204 行）+ `DatabaseDriver` 异步接口 + 137 方法包 async + 业务/测试全量 `await`，server 912/912 绿；**PgDriver + 占位符转换 + `DB_DRIVER` 开关 + 数据搬迁仍 deferred**，触发条件=进入 SaaS 阶段）
+* [docs/design-postgres-migration.md](docs/design-postgres-migration.md) — PostgreSQL 迁移设计（主库 SQLite→PG：现状盘点 / 差异清单 / 双驱动改造 / 数据搬迁 / 迁移 SQL 命名规则 / 回滚 / 验收；设计定稿 2026-09-08；**「抽接口 + 异步化」+「PgDriver」均已落地 2026-09-08**——新建 `sqlite-driver.ts` + `db.ts` 瘦身为类型/工厂/re-export + `DatabaseDriver` 异步接口 + 137 方法包 async + 执行器抽象（`Executor`+`createDriver` 共享 137 方法）+ `pg-sql.ts`（`?→$n` 转换 + `toPgDdl` 类型映射 + 方言参数化 strftime/LIKE/PRAGMA）+ `pg-driver.ts`，server 919/919 绿；**阶段 3（`DB_DRIVER` 开关接入）+ 数据搬迁仍 deferred**，触发条件=进入 SaaS 阶段）
 
 * [docs/design-multitenancy.md](docs/design-multitenancy.md) — 多租户数据模型设计（**tenant / user / 资源 / 计费**四者关系；tenant=计费与隔离边界，自托管=隐式单租户、SaaS=显式多租户；`users.tenant_id` 推导避免全表加列，订阅计费按 tenant、角色三层分权；向后兼容两阶段演进；2026-09-07 起草待评审）
 

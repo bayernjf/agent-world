@@ -1,6 +1,6 @@
 # PostgreSQL 迁移设计（主库 SQLite → PostgreSQL）
 
-> 状态：**设计定稿（2026-09-08）；「抽接口 + 异步化」落地完成 2026-09-08**——步骤 0（定义 `DatabaseDriver` 异步接口）✅，步骤 1（新建 `sqlite-driver.ts` 搬入实现 + 137 方法包 async + `openDb` 变工厂返回 `SqliteDriver`）✅，步骤 2/3（8 业务模块 + 传染到的 `config`/`triggers`/`providers`/`engine`/`memory`/`skills` + 30+ 测试文件逐点 `await`）✅，步骤 4（全量验证：server 912/912 绿 + `pnpm -r typecheck` 绿）✅。**阶段 2/3（PgDriver + 占位符转换 + `DB_DRIVER` 开关）与数据搬迁仍 deferred**（触发条件：进入 SaaS 阶段，M3 之后）。
+> 状态：**设计定稿（2026-09-08）；「抽接口 + 异步化」与「PgDriver」均已落地 2026-09-08**——步骤 0（定义 `DatabaseDriver` 异步接口）✅，步骤 1（新建 `sqlite-driver.ts` 搬入实现 + 137 方法包 async + `openDb` 变工厂返回 `SqliteDriver`）✅，步骤 2/3（8 业务模块 + 传染到的 `config`/`triggers`/`providers`/`engine`/`memory`/`skills` + 30+ 测试文件逐点 `await`）✅，步骤 4（全量验证）✅；**阶段 2 占位符转换层 ✅ 2026-09-08**（`pg-sql.ts` 的 `?→$n` 转换 + `toPgDdl` 类型映射 + 方言参数化 strftime/LIKE/PRAGMA + `pg-driver.ts`）。**阶段 3（`DB_DRIVER` 开关接入）与数据搬迁仍 deferred**（触发条件：进入 SaaS 阶段，M3 之后）。
 > 本文是「agent-world 主库从 SQLite 迁到 PostgreSQL」的单一事实源。
 > 注意区分：本文讲**主库存储后端**；「database connector 的 PG 驱动」（产线读外部 PG，2026-09-08 已落地）是另一回事，见 [design-connector-database.md](design-connector-database.md)。
 > 关联：design-scaling.md §2.1（迁移触发条件 + 托管选型）、tech-stack-assessment.md（薄层抽象）、production-ops.md §4（演进路线）。
@@ -130,7 +130,7 @@
 | 阶段 | 内容 | 风险 |
 |---|---|---|
 | **阶段 1：抽接口（不换驱动）** ✅ 2026-09-08 | 把 `stmts` 对象的 137 个方法抽成 `DatabaseDriver` 接口，`SqliteDriver` 实现之（同步逻辑包成 async，行为不变）。**已落地**：`sqlite-driver.ts` + 137 方法 async + 业务/测试全量 `await`，912/912 绿 | 低（纯重构，SQLite 行为零变化） |
-| **阶段 2：占位符转换层** | `PgDriver` 内实现 `? → $n` 转换 + 方言改写（strftime→to_char 等） | 中（SQL 方言） |
+| **阶段 2：占位符转换层** ✅ 2026-09-08 | `PgDriver` 内实现 `? → $n` 转换 + 方言改写（strftime→to_char 等）。**已落地**：`pg-sql.ts`（`toPgPlaceholders` mini-tokenizer + `toPgDdl` 类型映射）、执行器抽象（`Executor` + `createDriver` 共享 137 方法）、方言参数化（strftime 周/月聚合→to_char、LIKE→ILIKE、PRAGMA integrity_check）、`pg-driver.ts`（`createPgDriver` + `createPgExecutor`）。server 919/919 绿 | 中（SQL 方言） |
 | **阶段 3：接入 + 切换开关** | `DB_DRIVER=sqlite\|postgres` 环境变量选择驱动，启动时初始化对应 driver | 低 |
 
 > 关键难点是**阶段 1 的异步化**：`db.ts` 的 136 个方法目前是同步的，所有调用点（index.ts / run.ts / 各 node 等）都假设同步返回。异步化要逐调用点 `await`，是**纯机械但量大**的活（不是重写逻辑）。这与 tech-stack-assessment.md 的判断一致——「替换实现，不是重写」。
