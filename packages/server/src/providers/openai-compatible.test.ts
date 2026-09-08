@@ -284,3 +284,108 @@ describe("videoAdapter (agnes-style video API)", () => {
     expect(body.mode).toBeUndefined();
   });
 });
+
+describe("media metering (video perSecond / audio perKiloChar)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  const videoProvider: ProviderConfig = {
+    type: "openai-compatible",
+    baseUrl: "https://gw.example/v1",
+    apiKey: "sk-test",
+    models: ["v1"],
+    endpoints: { video: "/videos" },
+    pricing: { v1: { perSecond: 0.1 } },
+    videoAdapter: { createBody: { mode: "ti2vid" }, omitDuration: true, resultUrlPath: "url", durationPath: "duration" },
+  };
+
+  function stubVideoFetch(poll: Record<string, unknown>) {
+    vi.stubEnv("ALLOW_PRIVATE_NETWORK", "1");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL) => {
+        const u = String(url);
+        if (u.endsWith("/videos")) {
+          return new Response(JSON.stringify({ id: "task_1", status: "queued" }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        if (u.endsWith("/videos/task_1")) {
+          return new Response(JSON.stringify({ id: "task_1", status: "completed", url: "https://cdn.example/v.mp4", ...poll }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        if (u === "https://cdn.example/v.mp4") {
+          return new Response(new Uint8Array([1, 2, 3]), { status: 200, headers: { "content-type": "video/mp4" } });
+        }
+        throw new Error("unexpected fetch: " + u);
+      }),
+    );
+  }
+
+  it("bills provider-reported seconds via the adapter durationPath", async () => {
+    const worker = openAICompatibleWorker(videoProvider);
+    stubVideoFetch({ duration: 8 });
+    const [r] = await worker.generateVideo!({
+      node: { id: "n" } as never,
+      config: { model: "v1", n: 1 } as never,
+      input: "a cat walking",
+    });
+    expect(r.durationSec).toBe(8);
+    expect(r.usage.units).toEqual({ seconds: 8 });
+    expect(r.usage.costUsd).toBeCloseTo(8 * 0.1, 6); // $0.80
+  });
+
+  it("derives seconds from num_frames/frame_rate when no duration field is present", async () => {
+    const worker = openAICompatibleWorker({ ...videoProvider, videoAdapter: { createBody: { mode: "ti2vid" }, resultUrlPath: "url" } });
+    stubVideoFetch({ num_frames: 120, frame_rate: 24 }); // 120/24 = 5s
+    const [r] = await worker.generateVideo!({
+      node: { id: "n" } as never,
+      config: { model: "v1", n: 1 } as never,
+      input: "a cat walking",
+    });
+    expect(r.durationSec).toBe(5);
+    expect(r.usage.costUsd).toBeCloseTo(5 * 0.1, 6); // $0.50
+  });
+
+  it("falls back to the 5s default when the gateway reports nothing and no duration was requested", async () => {
+    const worker = openAICompatibleWorker({ ...videoProvider, videoAdapter: { createBody: { mode: "ti2vid" }, omitDuration: true, resultUrlPath: "url" } });
+    stubVideoFetch({});
+    const [r] = await worker.generateVideo!({
+      node: { id: "n" } as never,
+      config: { model: "v1", n: 1 } as never,
+      input: "a cat walking",
+    });
+    expect(r.durationSec).toBe(5);
+    expect(r.usage.units).toEqual({ seconds: 5 });
+    expect(r.usage.costUsd).toBeCloseTo(5 * 0.1, 6); // $0.50 — never 0 with a perSecond card
+  });
+
+  it("bills TTS per 1K input characters", async () => {
+    vi.stubEnv("ALLOW_PRIVATE_NETWORK", "1");
+    const provider: ProviderConfig = {
+      type: "openai-compatible",
+      baseUrl: "https://api.example.com/v1",
+      apiKey: "sk-stored",
+      models: ["m-tts"],
+      pricing: { "m-tts": { perKiloChar: 0.015 } },
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(new Uint8Array([1, 2, 3]), { status: 200, headers: { "content-type": "audio/mpeg" } })),
+    );
+    const worker = openAICompatibleWorker(provider);
+    const text = "hello world"; // 11 chars
+    const [r] = await worker.generateAudio!({
+      node: { id: "n" } as never,
+      config: { model: "m-tts", n: 1, format: "mp3" } as never,
+      input: text,
+    });
+    expect(r.usage.units).toEqual({ characters: text.length });
+    expect(r.usage.costUsd).toBeCloseTo((text.length / 1000) * 0.015, 8);
+  });
+});

@@ -145,6 +145,42 @@ function computeUsage(
   return { tokensIn, tokensOut, costUsd, cachedTokens, reasoningTokens, ...(units ? { units } : {}) };
 }
 
+/** Fallback clip length when the gateway doesn't report duration and the node
+ *  didn't request one (agnes ti2vid omits duration; typical short clips ~5s). */
+const DEFAULT_VIDEO_SECONDS = 5;
+
+/**
+ * Resolve billable video seconds for perSecond pricing. Prefers the duration
+ * the gateway actually produced (adapter dot-path, else num_frames/frame_rate),
+ * then the node's requested `duration`, then a conservative default — video is
+ * the most expensive modality and must never meter 0 when a perSecond card is
+ * set (unbillable runs can't be backfilled later).
+ */
+function videoBillingSeconds(
+  adapter: { durationPath?: string } | undefined,
+  config: VideoGenArgs["config"],
+  completed: Record<string, unknown>,
+): number {
+  if (adapter?.durationPath) {
+    const v = dotPath(completed, adapter.durationPath);
+    if (typeof v === "number" && Number.isFinite(v) && v > 0) return v;
+  }
+  const numFrames = dotPath(completed, "num_frames");
+  const frameRate = dotPath(completed, "frame_rate") ?? dotPath(completed, "fps");
+  if (typeof numFrames === "number" && typeof frameRate === "number" && frameRate > 0) {
+    const secs = numFrames / frameRate;
+    if (Number.isFinite(secs) && secs > 0) return secs;
+  }
+  if (config.duration && config.duration > 0) return config.duration;
+  return DEFAULT_VIDEO_SECONDS;
+}
+
+/** Build a per-unit Usage record for a media (video/audio) call, pricing the
+ *  given units against the model's card (cost defaults to 0 when unpriced). */
+function mediaUsage(units: Usage["units"], model: string, pricingFor: (m: string) => ModelPricing | undefined): Usage {
+  return { tokensIn: 0, tokensOut: 0, costUsd: computeCost({ units }, pricingFor(model)), units };
+}
+
 /**
  * Worker for any OpenAI-compatible Chat Completions API: OpenAI, Volcengine Ark,
  * Agnes, DeepSeek, Moonshot, vLLM, Ollama, etc. one implementation covers them all.
@@ -636,6 +672,7 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
         if (json.id && (json.status === "processing" || json.status === "queued" || json.status === "in_progress")) {
           const taskId = json.id as string;
           let videoUrl: string | undefined;
+          let completed: Record<string, unknown> | undefined;
           while (!controller.signal.aborted) {
             await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
             const pollRes = await guardedFetch(`${endpoint}${endpointFor(provider, model, "video")}/${taskId}`, {
@@ -645,6 +682,7 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
             if (!pollRes || !pollRes.ok) continue;
             const pollJson = (await pollRes.json()) as Record<string, unknown>;
             if (pollJson.status === "succeeded" || pollJson.status === "completed") {
+              completed = pollJson;
               if (adapter?.resultUrlPath) {
                 videoUrl = dotPath(pollJson, adapter.resultUrlPath) as string | undefined;
                 // Fallbacks for gateways that move the URL around in the
@@ -672,12 +710,14 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
           if (!vidRes.ok) throw new ProviderError("PROVIDER_ERROR", `failed to fetch video: HTTP ${vidRes.status}`);
           const data = Buffer.from(await vidRes.arrayBuffer());
           const ct = vidRes.headers.get("content-type") || "video/mp4";
-          return [{ data, mimeType: ct, usage: { tokensIn: 0, tokensOut: 0, costUsd: 0, units: {} } }];
+          const durationSec = videoBillingSeconds(adapter, config, completed ?? {});
+          return [{ data, mimeType: ct, durationSec, usage: mediaUsage({ seconds: durationSec }, model, pricingFor) }];
         }
 
         // Sync: response contains data array with b64_json or url.
         const items = (json.data as Array<{ b64_json?: string; url?: string }> | undefined) ?? [];
         if (items.length === 0) throw new ProviderError("PROVIDER_ERROR", "video generation returned no data");
+        const durationSec = videoBillingSeconds(adapter, config, json);
         const results: VideoGenResult[] = [];
         for (const item of items.slice(0, n)) {
           let data: Buffer;
@@ -693,7 +733,7 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
           } else {
             throw new ProviderError("PROVIDER_ERROR", "video response missing data");
           }
-          results.push({ data, mimeType: "video/mp4", usage: { tokensIn: 0, tokensOut: 0, costUsd: 0, units: {} } });
+          results.push({ data, mimeType: "video/mp4", durationSec, usage: mediaUsage({ seconds: durationSec }, model, pricingFor) });
         }
         return results;
       } finally {
@@ -746,7 +786,10 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
           }
           const data = Buffer.from(await res.arrayBuffer());
           const ct = res.headers.get("content-type") || `audio/${config.format || "mpeg"}`;
-          results.push({ data, mimeType: ct, usage: { tokensIn: 0, tokensOut: 0, costUsd: 0, units: {} } });
+          // TTS bills per 1K input characters (audio duration would need
+          // decoding; perKiloChar is deterministic from the synthesized text).
+          const characters = (input || config.prompt || "").length;
+          results.push({ data, mimeType: ct, usage: mediaUsage({ characters }, model, pricingFor) });
         }
         return results;
       } finally {

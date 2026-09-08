@@ -73,6 +73,10 @@ export interface ProviderConfig {
     /** Dot path to the generated video URL inside the poll result
      *  (default `output.0.url` for OpenAI-style `output` arrays). */
     resultUrlPath?: string;
+    /** Dot path to the produced clip's duration in seconds inside the
+     *  completed result, for perSecond billing. Unset → fall back to
+     *  num_frames/frame_rate, then node `duration`, then a 5s default. */
+    durationPath?: string;
   };
   /** Disabled providers are kept in config but skipped by the router. */
   enabled?: boolean;
@@ -177,6 +181,7 @@ const VideoAdapterSchema = z.object({
   omitDuration: z.boolean().optional(),
   aspectToSize: z.record(z.object({ width: z.number(), height: z.number() })).optional(),
   resultUrlPath: z.string().optional(),
+  durationPath: z.string().optional(),
 });
 
 const SearchConfigSchema = z.object({
