@@ -126,6 +126,7 @@
 | 退款政策 | 早期手动收款阶段个案处理即可，无固定政策必要 | 接入支付网关（Stripe / 微信支付宝）、出现第一笔真实付费订单 | [design-monetization.md](design-monetization.md) §6 |
 | 付费层 SLA 承诺 | 免费/入门层不需要；企业版 SLA 已在 monetization §7 表里 | 付费客户提出可用性要求 / 企业版签约 | [design-monetization.md](design-monetization.md) §7 |
 | 转化漏斗埋点 | 有真实付费用户后才需要，现在埋点是过度设计 | 出现付费用户、需优化「注册→试用→付费」转化率 | [design-monetization.md](design-monetization.md) §8 |
+| agnes 视频计费精确按秒（配 `durationPath`） | 视频计费已上线（2026-09-08，perSecond $0.10/s 生效，真机 run 计量 $0.5/5s），但 agnes videoAdapter 未设 `durationPath`、完成响应无 num_frames/frame_rate、且 omitDuration 不送时长，故一律走 **5s 兜底**。实际成片若非 5s，会按 5s 计（占位单价期影响小，正式费率前需修正） | 换上真实 agnes 网关费率前；或抓到一次真实视频任务的完成响应、确认时长字段名后，在 `AGNES_PROVIDER.videoAdapter.durationPath` 配上该点路径即可精确按秒 | [config.ts AGNES_PROVIDER](../packages/server/src/config.ts) + openai-compatible.ts `videoBillingSeconds` |
 
 ## 已重启 / 已砍掉
 
