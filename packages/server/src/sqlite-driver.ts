@@ -2649,6 +2649,11 @@ export function createDriver(
       await hooks.close();
     },
 
+    /** Which backend this driver is bound to ("sqlite" | "postgres") — lets
+     *  startup code branch on SQLite-only capabilities (FTS5 knowledge base,
+     *  legacy backfill) without instanceof tricks. */
+    kind: dialect,
+
     /** Passthrough to the underlying DatabaseSync.prepare — for modules that
      *  manage their own tables (e.g. knowledge base FTS). */
     async prepare(sql: string) {

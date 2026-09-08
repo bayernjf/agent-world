@@ -26,7 +26,7 @@ import {
   type RunEvent,
   type SkillPermissions,
 } from "@agent-world/core";
-import { openDb, backfillExistingData, contentHash, SCHEMA_VERSION, type Db } from "./db.js";
+import { openDatabase, backfillExistingData, contentHash, SCHEMA_VERSION, type Db } from "./db.js";
 import { counter, gauge, histogram, renderMetrics } from "./metrics.js";
 import { findGraphIdByName as findGraphIdByNameCore } from "./graphs-name.js";
 import { ArtifactStore } from "./artifact-store.js";
@@ -58,7 +58,7 @@ import { WorkerRegistry } from "./worker-plugins.js";
 import { connectMcpServer, registerMcpTools, type McpClient, type McpServerSpec } from "./mcp.js";
 import { disposeIsolatedWorkers } from "./isolation.js";
 import { registerSkill, setMemoryBackend, listBuiltinSkills } from "./skills/registry.js";
-import { SQLiteMemoryBackend, extractKnowledgeFromRun } from "./memory.js";
+import { SQLiteMemoryBackend, NoopMemoryBackend, extractKnowledgeFromRun } from "./memory.js";
 import { fileURLToPath } from "node:url";
 import { sanitizeError } from "./sanitize.js";
 import { decryptString, encryptString, getEncryptionRing } from "./at-rest.js";
@@ -75,8 +75,15 @@ const MAX_PROXY_RESPONSE_BYTES = 25 * 1024 * 1024;
 const PUBLIC_URL = (process.env.AGENT_WORLD_PUBLIC_URL ?? `http://localhost:${PORT}`).replace(
   /\/+$/,
   "");
-const db = openDb(process.env.DB_FILE ?? "agent-world.sqlite");
-await backfillExistingData(db as any);
+// DB_DRIVER switch (design-postgres-migration.md §5.3 阶段 3): "sqlite"
+// (default) opens the local file; "postgres" connects via DATABASE_URL /
+// PG_* env. Unknown values fail closed inside openDatabase().
+const db = await openDatabase();
+// Legacy pre-auth SQLite databases need a default owner backfill; a fresh
+// PostgreSQL deployment starts authenticated, so skip it there.
+if (db.kind === "sqlite") {
+  await backfillExistingData(db as any);
+}
 // Settings are per-user rows in the DB; config.ts reads/writes through this
 // store while the legacy file config remains the shared baseline for users
 // who have never saved settings.
@@ -102,7 +109,13 @@ await db.markZombiesInterrupted(Date.now());
 
 // Knowledge base / archive (5.2). FTS5-backed full-text search over
 // extracted run outputs; powers the `archive_search` skill card.
-const memory = new SQLiteMemoryBackend(db as any);
+// FTS5 is SQLite-only — under DB_DRIVER=postgres the knowledge base degrades
+// to an honest no-op (empty results) until a PG backend exists.
+// (design-postgres-migration.md §5.3 阶段 3 边界)
+const memory = db.kind === "postgres" ? new NoopMemoryBackend() : new SQLiteMemoryBackend(db as any);
+if (db.kind === "postgres") {
+  log.warn("DB_DRIVER=postgres: knowledge base (FTS5) not available — archive_search and knowledge panel return empty until a PG backend lands");
+}
 await memory.init();
 setMemoryBackend(memory);
 
