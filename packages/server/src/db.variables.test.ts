@@ -26,44 +26,44 @@ describe("graph variables persistence", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("round-trips variables across runs and keeps JSON types", () => {
+  it("round-trips variables across runs and keeps JSON types", async () => {
     const db = openDb(join(dir, "v.sqlite"));
-    db.saveGraph(testGraph("g1"), 0, "u1");
-    db.saveGraphVariables("g1", "u1", { brand: "可口可乐", stats: { count: 3 }, flag: false });
-    expect(db.loadGraphVariables("g1", "u1")).toEqual({
+    await db.saveGraph(testGraph("g1"), 0, "u1");
+    await db.saveGraphVariables("g1", "u1", { brand: "可口可乐", stats: { count: 3 }, flag: false });
+    expect(await db.loadGraphVariables("g1", "u1")).toEqual({
       brand: "可口可乐",
       stats: { count: 3 },
       flag: false,
     });
     // A later run only touches one key — per-key upsert keeps the others.
-    db.saveGraphVariables("g1", "u1", { stats: { count: 4 } });
-    expect(db.loadGraphVariables("g1", "u1")).toEqual({
+    await db.saveGraphVariables("g1", "u1", { stats: { count: 4 } });
+    expect(await db.loadGraphVariables("g1", "u1")).toEqual({
       brand: "可口可乐",
       stats: { count: 4 },
       flag: false,
     });
-    db.close();
+    await db.close();
   });
 
-  it("is tenant-scoped: another user cannot read or write a graph's variables", () => {
+  it("is tenant-scoped: another user cannot read or write a graph's variables", async () => {
     const db = openDb(join(dir, "v.sqlite"));
-    db.saveGraph(testGraph("g1"), 0, "u1");
-    db.saveGraphVariables("g1", "u1", { secret: 1 });
-    expect(db.loadGraphVariables("g1", "u2")).toEqual({});
+    await db.saveGraph(testGraph("g1"), 0, "u1");
+    await db.saveGraphVariables("g1", "u1", { secret: 1 });
+    expect(await db.loadGraphVariables("g1", "u2")).toEqual({});
     // Silent no-op write from another tenant.
-    db.saveGraphVariables("g1", "u2", { hacked: true });
-    expect(db.loadGraphVariables("g1", "u1")).toEqual({ secret: 1 });
-    db.close();
+    await db.saveGraphVariables("g1", "u2", { hacked: true });
+    expect(await db.loadGraphVariables("g1", "u1")).toEqual({ secret: 1 });
+    await db.close();
   });
 
-  it("isolates variables per graph", () => {
+  it("isolates variables per graph", async () => {
     const db = openDb(join(dir, "v.sqlite"));
-    db.saveGraph(testGraph("g1"), 0, "u1");
-    db.saveGraph(testGraph("g2"), 0, "u1");
-    db.saveGraphVariables("g1", "u1", { a: 1 });
-    db.saveGraphVariables("g2", "u1", { b: 2 });
-    expect(db.loadGraphVariables("g1", "u1")).toEqual({ a: 1 });
-    expect(db.loadGraphVariables("g2", "u1")).toEqual({ b: 2 });
-    db.close();
+    await db.saveGraph(testGraph("g1"), 0, "u1");
+    await db.saveGraph(testGraph("g2"), 0, "u1");
+    await db.saveGraphVariables("g1", "u1", { a: 1 });
+    await db.saveGraphVariables("g2", "u1", { b: 2 });
+    expect(await db.loadGraphVariables("g1", "u1")).toEqual({ a: 1 });
+    expect(await db.loadGraphVariables("g2", "u1")).toEqual({ b: 2 });
+    await db.close();
   });
 });

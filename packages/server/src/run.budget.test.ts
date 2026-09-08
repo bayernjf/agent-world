@@ -84,16 +84,16 @@ describe("startRun hard stop", () => {
   }
 
   /** Record a finished run this month so costForMonth() returns `cost`. */
-  function spendThisMonth(cost: number) {
+  async function spendThisMonth(cost: number) {
     const now = new Date();
     const at = new Date(now.getFullYear(), now.getMonth(), 1, 1).getTime();
-    db.createRun({ id: `hist-${cost}`, userId: U, graph, budgetUsd: null, at });
-    db.record(`hist-${cost}`, finished("a", 1, cost, 1));
-    db.finishRun(`hist-${cost}`, U, "done", at + 1000);
+    await db.createRun({ id: `hist-${cost}`, userId: U, graph, budgetUsd: null, at });
+    await db.record(`hist-${cost}`, finished("a", 1, cost, 1));
+    await db.finishRun(`hist-${cost}`, U, "done", at + 1000);
   }
 
   it("rejects a new run (RunStartError 402) when the monthly budget is exceeded", async () => {
-    spendThisMonth(0.002); // > 0.001 budget
+    await spendThisMonth(0.002); // > 0.001 budget
 
     await expect(
       startRun({ db, userId: U, worker: {} as never, artifacts: {} as never, live: new Map(), graph, trigger: "test" }),

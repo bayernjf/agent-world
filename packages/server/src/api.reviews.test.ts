@@ -338,7 +338,7 @@ describe("review queue batch validation", () => {
 describe("pending review aggregation (store level)", () => {
   const U = "u1";
 
-  function seedHalted(
+  async function seedHalted(
     db: Db,
     opts: {
       runId: string;
@@ -356,7 +356,7 @@ describe("pending review aggregation (store level)", () => {
     },
   ) {
     const nodeId = opts.nodeId ?? "rev";
-    db.createRun({
+    await db.createRun({
       id: opts.runId,
       userId: U,
       graph: opts.graph,
@@ -395,8 +395,8 @@ describe("pending review aggregation (store level)", () => {
       status: "halted",
       ...(opts.noHaltInfo ? {} : { haltedNodeId: nodeId, reason: opts.reason }),
     });
-    for (const event of events) db.record(opts.runId, event);
-    db.finishRun(
+    for (const event of events) await db.record(opts.runId, event);
+    await db.finishRun(
       opts.runId,
       U,
       "halted",
@@ -405,16 +405,16 @@ describe("pending review aggregation (store level)", () => {
     );
   }
 
-  it("orders longest-waiting first and reports wait time against the caller's clock", () => {
+  it("orders longest-waiting first and reports wait time against the caller's clock", async () => {
     const db = dbMod.openDb(":memory:");
     const graph = reviewGraph("g1", "评审产线");
-    db.saveGraph(graph, 1_000, U);
+    await db.saveGraph(graph, 1_000, U);
     const t = 1_700_000_000_000;
-    seedHalted(db, { runId: "r-new", graph, startedAt: t, haltedAt: t + 3_000, reason: "human:确认可否发布" });
-    seedHalted(db, { runId: "r-old", graph, startedAt: t, haltedAt: t + 1_000, reason: "human:确认可否发布" });
-    seedHalted(db, { runId: "r-mid", graph, startedAt: t, haltedAt: t + 2_000, reason: "human:确认可否发布" });
+    await seedHalted(db, { runId: "r-new", graph, startedAt: t, haltedAt: t + 3_000, reason: "human:确认可否发布" });
+    await seedHalted(db, { runId: "r-old", graph, startedAt: t, haltedAt: t + 1_000, reason: "human:确认可否发布" });
+    await seedHalted(db, { runId: "r-mid", graph, startedAt: t, haltedAt: t + 2_000, reason: "human:确认可否发布" });
 
-    const { reviews, total } = reviewsMod.listPendingReviews(db, U, { now: t + 10_000 });
+    const { reviews, total } = await reviewsMod.listPendingReviews(db, U, { now: t + 10_000 });
     expect(total).toBe(3);
     expect(reviews.map((r) => r.runId)).toEqual(["r-old", "r-mid", "r-new"]);
     expect(reviews[0]!.waitingMs).toBe(9_000);
@@ -422,30 +422,30 @@ describe("pending review aggregation (store level)", () => {
     expect(reviews[0]!.nodeName).toBe("人工审核");
 
     // Pagination keeps the FIFO order and still reports the full total.
-    const page = reviewsMod.listPendingReviews(db, U, { limit: 1, offset: 1, now: t + 10_000 });
+    const page = await reviewsMod.listPendingReviews(db, U, { limit: 1, offset: 1, now: t + 10_000 });
     expect(page.total).toBe(3);
     expect(page.reviews.map((r) => r.runId)).toEqual(["r-mid"]);
   });
 
-  it("keeps non-halted runs out of the queue", () => {
+  it("keeps non-halted runs out of the queue", async () => {
     const db = dbMod.openDb(":memory:");
     const graph = reviewGraph("g1", "评审产线");
-    db.saveGraph(graph, 1_000, U);
+    await db.saveGraph(graph, 1_000, U);
     const t = 1_700_000_000_000;
-    seedHalted(db, { runId: "r-halted", graph, startedAt: t, haltedAt: t, reason: "human:x" });
-    db.createRun({ id: "r-done", userId: U, graph, budgetUsd: null, at: t });
-    db.finishRun("r-done", U, "done", t + 10);
+    await seedHalted(db, { runId: "r-halted", graph, startedAt: t, haltedAt: t, reason: "human:x" });
+    await db.createRun({ id: "r-done", userId: U, graph, budgetUsd: null, at: t });
+    await db.finishRun("r-done", U, "done", t + 10);
 
-    const { reviews, total } = reviewsMod.listPendingReviews(db, U);
+    const { reviews, total } = await reviewsMod.listPendingReviews(db, U);
     expect(total).toBe(1);
     expect(reviews.map((r) => r.runId)).toEqual(["r-halted"]);
   });
 
-  it("resolves halt context from the event log for rows written before migration 20", () => {
+  it("resolves halt context from the event log for rows written before migration 20", async () => {
     const db = dbMod.openDb(":memory:");
     const graph = reviewGraph("g1", "评审产线");
-    db.saveGraph(graph, 1_000, U);
-    seedHalted(db, {
+    await db.saveGraph(graph, 1_000, U);
+    await seedHalted(db, {
       runId: "r-legacy",
       graph,
       startedAt: 2_000,
@@ -455,7 +455,7 @@ describe("pending review aggregation (store level)", () => {
       legacy: true,
     });
 
-    const { reviews } = reviewsMod.listPendingReviews(db, U, { now: 10_000 });
+    const { reviews } = await reviewsMod.listPendingReviews(db, U, { now: 10_000 });
     expect(reviews).toHaveLength(1);
     // A pre-migration run must not drop off the queue with an empty reason.
     expect(reviews[0]!.nodeId).toBe("rev");
@@ -464,13 +464,13 @@ describe("pending review aggregation (store level)", () => {
     expect(reviews[0]!.content).toBe("旧版本暂停的产出");
   });
 
-  it("still queues a run whose log predates halt recording", () => {
+  it("still queues a run whose log predates halt recording", async () => {
     const db = dbMod.openDb(":memory:");
     const graph = reviewGraph("g1", "评审产线");
-    db.saveGraph(graph, 1_000, U);
+    await db.saveGraph(graph, 1_000, U);
     // Neither the columns nor the log say where it parked. Listing it with no
     // node beats dropping it: the operator can still open the run and decide.
-    seedHalted(db, {
+    await seedHalted(db, {
       runId: "r-ancient",
       graph,
       startedAt: 2_000,
@@ -480,7 +480,7 @@ describe("pending review aggregation (store level)", () => {
       noHaltInfo: true,
     });
 
-    const { reviews, total } = reviewsMod.listPendingReviews(db, U);
+    const { reviews, total } = await reviewsMod.listPendingReviews(db, U);
     expect(total).toBe(1);
     expect(reviews[0]!.runId).toBe("r-ancient");
     expect(reviews[0]!.nodeId).toBeNull();
@@ -488,12 +488,12 @@ describe("pending review aggregation (store level)", () => {
     expect(reviews[0]!.content).toBeNull();
   });
 
-  it("previews long review content and flags the truncation", () => {
+  it("previews long review content and flags the truncation", async () => {
     const db = dbMod.openDb(":memory:");
     const graph = reviewGraph("g1", "评审产线");
-    db.saveGraph(graph, 1_000, U);
+    await db.saveGraph(graph, 1_000, U);
     const long = "很长的文案".repeat(reviewsMod.PREVIEW_CHARS);
-    seedHalted(db, {
+    await seedHalted(db, {
       runId: "r-long",
       graph,
       startedAt: 2_000,
@@ -502,40 +502,40 @@ describe("pending review aggregation (store level)", () => {
       reviewContent: long,
     });
 
-    const { reviews } = reviewsMod.listPendingReviews(db, U);
+    const { reviews } = await reviewsMod.listPendingReviews(db, U);
     expect(long.length).toBeGreaterThan(reviewsMod.PREVIEW_CHARS);
     expect(reviews[0]!.content).toHaveLength(reviewsMod.PREVIEW_CHARS);
     expect(reviews[0]!.contentTruncated).toBe(true);
   });
 
-  it("names a deleted pipeline instead of returning an empty row", () => {
+  it("names a deleted pipeline instead of returning an empty row", async () => {
     const db = dbMod.openDb(":memory:");
     // No saveGraph: the graph row is gone but the halted run still needs a label.
-    seedHalted(db, {
+    await seedHalted(db, {
       runId: "r-orphan",
       graph: reviewGraph("g-gone", "评审产线"),
       startedAt: 2_000,
       haltedAt: 2_000,
       reason: "human:确认可否发布",
     });
-    const { reviews } = reviewsMod.listPendingReviews(db, U);
+    const { reviews } = await reviewsMod.listPendingReviews(db, U);
     expect(reviews[0]!.graphName).toBe("(已删除产线)");
     // The snapshot still resolves the node name.
     expect(reviews[0]!.nodeName).toBe("人工审核");
   });
 
-  it("splits dangerous-tool and gate halts into their own review kinds", () => {
+  it("splits dangerous-tool and gate halts into their own review kinds", async () => {
     const db = dbMod.openDb(":memory:");
     const graph = reviewGraph("g1", "评审产线");
-    db.saveGraph(graph, 1_000, U);
-    seedHalted(db, {
+    await db.saveGraph(graph, 1_000, U);
+    await seedHalted(db, {
       runId: "r-tool",
       graph,
       startedAt: 2_000,
       haltedAt: 2_000,
       reason: "dangerous-tool:shell",
     });
-    seedHalted(db, {
+    await seedHalted(db, {
       runId: "r-gate",
       graph,
       startedAt: 2_000,
@@ -544,7 +544,7 @@ describe("pending review aggregation (store level)", () => {
       verdictReason: "评审连续三次不达标",
     });
 
-    const byId = new Map(reviewsMod.listPendingReviews(db, U).reviews.map((r) => [r.runId, r]));
+    const byId = new Map((await reviewsMod.listPendingReviews(db, U)).reviews.map((r) => [r.runId, r]));
     expect(byId.get("r-tool")).toMatchObject({ kind: "tool", tool: "shell", content: null });
     expect(byId.get("r-gate")).toMatchObject({
       kind: "gate",
@@ -562,12 +562,12 @@ describe("pending review aggregation (store level)", () => {
     expect(reviewsMod.classifyHalt(null)).toBe("gate");
   });
 
-  it("scopes the queue to one tenant", () => {
+  it("scopes the queue to one tenant", async () => {
     const db = dbMod.openDb(":memory:");
     const graph = reviewGraph("g1", "评审产线");
-    db.saveGraph(graph, 1_000, U);
-    seedHalted(db, { runId: "r1", graph, startedAt: 2_000, haltedAt: 2_000, reason: "human:x" });
-    expect(reviewsMod.listPendingReviews(db, "someone-else").total).toBe(0);
+    await db.saveGraph(graph, 1_000, U);
+    await seedHalted(db, { runId: "r1", graph, startedAt: 2_000, haltedAt: 2_000, reason: "human:x" });
+    expect((await reviewsMod.listPendingReviews(db, "someone-else")).total).toBe(0);
   });
 });
 

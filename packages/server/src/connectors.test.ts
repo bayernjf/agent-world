@@ -178,14 +178,14 @@ describe("resolveConnector - edge cases", () => {
 
 describe("resolveConnector - database", () => {
   let dbPath: string;
-  beforeAll(() => {
+  beforeAll(async () => {
     dbPath = path.join(dir, "seed.sqlite");
     const db = new DatabaseSync(dbPath);
     db.exec(
       "CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT, price REAL);" +
         "INSERT INTO products (name, price) VALUES ('alpha', 1.5), ('beta', 2.5);",
     );
-    db.close();
+    await db.close();
   });
 
   it("reads rows as pretty JSON", async () => {

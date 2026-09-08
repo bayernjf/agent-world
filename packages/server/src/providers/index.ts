@@ -17,17 +17,17 @@ export function routingWorker(config?: AppConfig): Worker {
   // enabled state) take effect without a server restart. An optional injected
   // config keeps tests deterministic. Without an injected config the current
   // async-context user (set by runAsUser around each run) owns the settings.
-  const getConfig = (): AppConfig => config ?? loadConfig(currentUserId());
+  const getConfig = async (): Promise<AppConfig> => config ?? (await loadConfig(currentUserId()));
   // Cache key incorporates connection details so editing a key/URL rebuilds
   // the provider worker instead of reusing a stale one.
   const cache = new Map<string, Worker>();
   const MAX_WORKER_CACHE = 64;
 
-  const workerFor = (model: string): Worker => {
+  const workerFor = async (model: string): Promise<Worker> => {
     if (process.env.WORKER === "fake" || model === "fake" || model === "") {
       return fakeWorker();
     }
-    const cfg = getConfig();
+    const cfg = await getConfig();
     const { name: provName, provider } = providerForModel(cfg, model);
     if (provider.enabled === false && provider.type !== "fake") {
       log.warn("provider disabled; falling back to fake worker", { provider: provName });
@@ -61,16 +61,16 @@ export function routingWorker(config?: AppConfig): Worker {
 
   return {
     async *runTextGen(args): AsyncGenerator<AgentChunk, { output: string; usage: Usage }> {
-      return yield* workerFor(args.config.model).runTextGen(args);
+      return yield* (await workerFor(args.config.model)).runTextGen(args);
     },
     async judge(args) {
       // Gates carry no agent config of their own, so judge with the live
       // default model (not a hard-coded provider-specific name).
-      const model = args.node.textGen?.model || getConfig().defaultModel;
-      return workerFor(model).judge(args);
+      const model = args.node.textGen?.model || (await getConfig()).defaultModel;
+      return (await workerFor(model)).judge(args);
     },
     async generateImage(args) {
-      return workerFor(args.config.model).generateImage(args);
+      return (await workerFor(args.config.model)).generateImage(args);
     },
     // Video and audio generation must route the same way as text/image —
     // without these delegations the engine sees a worker without those
@@ -78,11 +78,11 @@ export function routingWorker(config?: AppConfig): Worker {
     // Both are optional on Worker: a provider without the modality yields no
     // results, which the engine treats as an empty (not failed) output.
     async generateVideo(args) {
-      const w = workerFor(args.config.model);
+      const w = await workerFor(args.config.model);
       return w.generateVideo ? w.generateVideo(args) : [];
     },
     async generateAudio(args) {
-      const w = workerFor(args.config.model);
+      const w = await workerFor(args.config.model);
       return w.generateAudio ? w.generateAudio(args) : [];
     },
   };

@@ -41,11 +41,11 @@ describe("at-rest encryption: db integration (audit L3)", () => {
     }
   };
 
-  it("stores the graph doc encrypted on disk but returns the plaintext secret", () => {
+  it("stores the graph doc encrypted on disk but returns the plaintext secret", async () => {
     const path = join(dir, "g.sqlite");
     const db = openDb(path);
     const secret = "wh-verify-secret";
-    db.saveGraph(testGraph("g1", secret), 0, "u1");
+    await db.saveGraph(testGraph("g1", secret), 0, "u1");
 
     // What is actually on disk must not contain the plaintext secret.
     const onDisk = rawDoc(path, "g1");
@@ -53,48 +53,48 @@ describe("at-rest encryption: db integration (audit L3)", () => {
     expect(onDisk).toContain("enc:v2:");
 
     // The app-facing read decrypts transparently.
-    const loaded = db.getGraph("g1", "u1");
+    const loaded = await db.getGraph("g1", "u1");
     expect(loaded?.triggers?.[0]?.webhookSecret).toBe(secret);
-    db.close();
+    await db.close();
   });
 
-  it("version snapshots round-trip and restore keeps the secret", () => {
+  it("version snapshots round-trip and restore keeps the secret", async () => {
     const db = openDb(join(dir, "v.sqlite"));
     const secret = "snapshot-secret";
-    db.saveGraph(testGraph("g1", secret), 0, "u1");
-    db.saveVersion("g1", "v1", JSON.stringify(testGraph("g1", secret)));
+    await db.saveGraph(testGraph("g1", secret), 0, "u1");
+    await db.saveVersion("g1", "v1", JSON.stringify(testGraph("g1", secret)));
 
-    const vers = db.listVersions("g1", "u1") as unknown as Array<{ id: string }>;
-    const v = db.getVersion(vers[0].id, "u1") as unknown as { snapshot: string };
+    const vers = await db.listVersions("g1", "u1") as unknown as Array<{ id: string }>;
+    const v = await db.getVersion(vers[0].id, "u1") as unknown as { snapshot: string };
     expect(JSON.parse(v.snapshot)).toMatchObject({ id: "g1" });
     expect((JSON.parse(v.snapshot) as Graph).triggers?.[0]?.webhookSecret).toBe(secret);
-    db.close();
+    await db.close();
   });
 
-  it("run snapshots round-trip and the content hash still matches the version hash", () => {
+  it("run snapshots round-trip and the content hash still matches the version hash", async () => {
     const db = openDb(join(dir, "r.sqlite"));
     const secret = "run-secret";
     const graph = testGraph("g1", secret);
-    db.saveGraph(graph, 0, "u1");
-    db.createRun({ id: "run1", userId: "u1", graph, budgetUsd: null, at: 1, trigger: "manual" });
+    await db.saveGraph(graph, 0, "u1");
+    await db.createRun({ id: "run1", userId: "u1", graph, budgetUsd: null, at: 1, trigger: "manual" });
 
-    const run = db.getRun("run1", "u1") as unknown as { snapshot: string };
+    const run = await db.getRun("run1", "u1") as unknown as { snapshot: string };
     expect((JSON.parse(run.snapshot) as Graph).triggers?.[0]?.webhookSecret).toBe(secret);
 
     // Auto-snapshot of the same graph: its stored content_hash (computed on
     // plaintext) must equal the hash derived from the (encrypted) run snapshot,
     // so the version panel's "matches what ran" marker stays correct.
-    db.saveAutoSnapshot("g1", JSON.stringify(graph), 0, 10);
-    const versionHash = (db.listVersions("g1", "u1") as unknown as Array<{ contentHash: string }>)[0]?.contentHash;
+    await db.saveAutoSnapshot("g1", JSON.stringify(graph), 0, 10);
+    const versionHash = (await db.listVersions("g1", "u1") as unknown as Array<{ contentHash: string }>)[0]?.contentHash;
     expect(versionHash).toBeDefined();
-    expect(db.getLatestRunContentHash("g1", "u1")).toBe(versionHash);
-    db.close();
+    expect(await db.getLatestRunContentHash("g1", "u1")).toBe(versionHash);
+    await db.close();
   });
 
   // The L3 integration tests above only exercised `triggers[].webhookSecret`.
   // Node-level credentials live in the same three places — graphs.doc, version
   // snapshots and run snapshots — and were plaintext in all of them.
-  it("keeps node-level credentials off disk in the doc, version and run snapshots", () => {
+  it("keeps node-level credentials off disk in the doc, version and run snapshots", async () => {
     const path = join(dir, "nodes.sqlite");
     const db = openDb(path);
     const nodeKey = "sk-node-on-disk";
@@ -163,10 +163,10 @@ describe("at-rest encryption: db integration (audit L3)", () => {
       ],
     };
 
-    db.saveGraph(graph, 0, "u1");
-    db.saveVersion("g1", "v1", JSON.stringify(graph));
-    db.createRun({ id: "run1", userId: "u1", graph, budgetUsd: null, at: 1, trigger: "manual" });
-    db.saveAutoSnapshot("g1", JSON.stringify(graph), 0, 10);
+    await db.saveGraph(graph, 0, "u1");
+    await db.saveVersion("g1", "v1", JSON.stringify(graph));
+    await db.createRun({ id: "run1", userId: "u1", graph, budgetUsd: null, at: 1, trigger: "manual" });
+    await db.saveAutoSnapshot("g1", JSON.stringify(graph), 0, 10);
 
     // Every stored copy must be free of all eight plaintext credentials.
     const raw = new DatabaseSync(path, { readOnly: true });
@@ -197,7 +197,7 @@ describe("at-rest encryption: db integration (audit L3)", () => {
     }
 
     // App-facing reads decrypt transparently, so nothing downstream changes.
-    const loaded = db.getGraph("g1", "u1")!;
+    const loaded = await await await db.getGraph("g1", "u1")!;
     const nodes = loaded.nodes as unknown as Array<Record<string, any>>;
     expect(nodes.find((n) => n.id === "aud")!.audioGen.apiKey).toBe(nodeKey);
     expect(nodes.find((n) => n.id === "nt")!.notify.webhookUrl).toContain(botToken);
@@ -212,18 +212,18 @@ describe("at-rest encryption: db integration (audit L3)", () => {
     );
 
     // Hashes stay plaintext-based, so "matches what ran" still lines up.
-    const versionHash = (db.listVersions("g1", "u1") as unknown as Array<{ contentHash: string }>)
+    const versionHash = (await db.listVersions("g1", "u1") as unknown as Array<{ contentHash: string }>)
       .find((v) => v.contentHash)?.contentHash;
-    expect(db.getLatestRunContentHash("g1", "u1")).toBe(versionHash);
-    db.close();
+    expect(await db.getLatestRunContentHash("g1", "u1")).toBe(versionHash);
+    await db.close();
   });
 
-  it("keeps working with legacy plaintext rows (no prefix)", () => {
+  it("keeps working with legacy plaintext rows (no prefix)", async () => {
     const path = join(dir, "legacy.sqlite");
     // Create the schema through openDb, then write a legacy plaintext row
     // directly, bypassing the new sealer.
     const seed = openDb(path);
-    seed.close();
+    await seed.close();
     const graph = testGraph("g1", "legacy-plain-secret");
     const raw = new DatabaseSync(path);
     raw
@@ -232,8 +232,8 @@ describe("at-rest encryption: db integration (audit L3)", () => {
     raw.close();
 
     const db = openDb(path);
-    const loaded = db.getGraph("g1", "u1");
+    const loaded = await db.getGraph("g1", "u1");
     expect(loaded?.triggers?.[0]?.webhookSecret).toBe("legacy-plain-secret");
-    db.close();
+    await db.close();
   });
 });

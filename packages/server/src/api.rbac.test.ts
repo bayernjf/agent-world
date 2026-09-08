@@ -18,8 +18,8 @@ beforeAll(async () => {
   db = openDb(process.env.DB_FILE!);
 });
 
-afterAll(() => {
-  db.close();
+afterAll(async () => {
+  await db.close();
   delete process.env.DB_FILE;
   delete process.env.ALLOW_REGISTRATION;
   rmSync(dir, { recursive: true, force: true });
@@ -61,8 +61,8 @@ async function login(email: string): Promise<string> {
   return m[1]!;
 }
 
-function idOf(email: string): string {
-  return (db.prepare("SELECT id FROM users WHERE email = ?").get(email) as { id: string }).id;
+async function idOf(email: string): string {
+  return ((await db.prepare("SELECT id FROM users WHERE email = ?")).get(email) as { id: string }).id;
 }
 
 function setRole(token: string, id: string, role: string): Promise<Response> {
@@ -92,7 +92,7 @@ describe("rbac P0: global roles on a fresh database", () => {
     expect(pleb.canManageAnnouncements).toBe(false);
 
     // Single-owner invariant at the storage layer.
-    const owners = db.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'owner'").get() as { n: number };
+    const owners = (await db.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'owner'")).get() as { n: number };
     expect(owners.n).toBe(1);
   });
 
@@ -115,11 +115,11 @@ describe("rbac P0: global roles on a fresh database", () => {
 });
 
 describe("rbac P0: migration v31 bootstraps owner on a legacy database", () => {
-  it("promotes the earliest registered user when the role column is absent", () => {
+  it("promotes the earliest registered user when the role column is absent", async () => {
     const file = join(dir, "legacy.sqlite");
     // Start from a fully migrated fresh database...
     const legacy = openDb(file);
-    legacy.close();
+    await legacy.close();
     // ...then rewind it to pre-v31 state: no index, no role column, version
     // row removed, and two users seeded with deterministic created_at order.
     const raw = new DatabaseSync(file);
@@ -136,13 +136,13 @@ describe("rbac P0: migration v31 bootstraps owner on a legacy database", () => {
 
     // Re-open: migration 31 re-runs (column + index + owner bootstrap).
     const reopened = openDb(file);
-    const early = reopened.findUserById("u-early");
-    const late = reopened.findUserById("u-late");
+    const early = await reopened.findUserById("u-early");
+    const late = await reopened.findUserById("u-late");
     expect(early?.role).toBe("owner");
     expect(late?.role).toBe("user");
-    const owners = reopened.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'owner'").get() as { n: number };
+    const owners = (await reopened.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'owner'")).get() as { n: number };
     expect(owners.n).toBe(1);
-    reopened.close();
+    await reopened.close();
   });
 });
 
@@ -159,16 +159,16 @@ describe("rbac P3: admin user management (owner-exclusive)", () => {
     ownerToken = await login("first@test.dev");
     adminToken = await register("p3-admin@test.dev");
     plebToken = await register("p3-pleb@test.dev");
-    ownerId = idOf("first@test.dev");
-    adminId = idOf("p3-admin@test.dev");
-    plebId = idOf("p3-pleb@test.dev");
+    ownerId = await idOf("first@test.dev");
+    adminId = await idOf("p3-admin@test.dev");
+    plebId = await idOf("p3-pleb@test.dev");
   });
 
-  const roleUpdateRows = (id: string): Array<Record<string, unknown>> =>
-    db
+  const roleUpdateRows = async (id: string): Array<Record<string, unknown>> =>
+    (await db
       .prepare(
         "SELECT * FROM audit_log WHERE action = 'role.update' AND object_id = ? ORDER BY created_at, rowid",
-      )
+      ))
       .all(id) as Array<Record<string, unknown>>;
 
   it("owner lists all accounts, earliest registered first", async () => {
@@ -201,7 +201,7 @@ describe("rbac P3: admin user management (owner-exclusive)", () => {
     const res = await setRole(ownerToken, adminId, "admin");
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true, role: "admin", unchanged: true });
-    expect(roleUpdateRows(adminId)).toHaveLength(1);
+    expect(await roleUpdateRows(adminId)).toHaveLength(1);
   });
 
   it("admins cannot list accounts — user management stays owner-exclusive", async () => {
@@ -213,7 +213,7 @@ describe("rbac P3: admin user management (owner-exclusive)", () => {
     const res = await setRole(adminToken, plebId, "admin");
     expect(res.status).toBe(403);
     // Nothing leaked to the DB behind the 403.
-    expect(db.findUserById(plebId)?.role).toBe("user");
+    expect((await db.findUserById(plebId))?.role).toBe("user");
   });
 
   it("owner revokes admin back to plain user", async () => {
@@ -250,7 +250,7 @@ describe("rbac P3: admin user management (owner-exclusive)", () => {
   });
 
   it("role changes land in the audit log with grantee and role in detail", async () => {
-    const rows = roleUpdateRows(adminId);
+    const rows = await roleUpdateRows(adminId);
     expect(rows).toHaveLength(2);
     expect(rows[0]).toMatchObject({ user_id: ownerId, object_type: "user" });
     expect(JSON.parse(rows[0].detail as string)).toEqual({ grantee: adminId, role: "admin" });
@@ -273,13 +273,13 @@ describe("rbac P3: cross-user audit viewing", () => {
     ownerToken = await login("first@test.dev");
     adminToken = await login("p3-admin@test.dev");
     plebToken = await login("p3-pleb@test.dev");
-    adminId = idOf("p3-admin@test.dev");
-    plebId = idOf("p3-pleb@test.dev");
+    adminId = await idOf("p3-admin@test.dev");
+    plebId = await idOf("p3-pleb@test.dev");
     // Re-grant admin (revoked at the end of the user-management suite).
     const res = await setRole(ownerToken, adminId, "admin");
     expect(res.status).toBe(200);
     // Five pleb rows with distinct, strictly ordered created_at values.
-    const seed = db.prepare(
+    const seed = await db.prepare(
       `INSERT INTO audit_log (id, user_id, action, object_type, object_id, detail, ip, created_at)
        VALUES (?, ?, 'settings.update', 'settings', NULL, NULL, NULL, ?)`,
     );

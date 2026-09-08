@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type { RunEvent } from "@agent-world/core";
 
-/** Minimal db interface we need — matches openDb() return shape. */
+/** Minimal db interface we need — matches openDb() return shape (async prepare). */
 interface MinimalDb {
-  prepare(sql: string): { run(...args: unknown[]): unknown; get(...args: unknown[]): unknown; all(...args: unknown[]): unknown[] };
+  prepare(sql: string): Promise<{ run(...args: unknown[]): unknown; get(...args: unknown[]): unknown; all(...args: unknown[]): unknown[] }>;
 }
 
 /**
@@ -25,12 +25,13 @@ export interface KnowledgeEntry {
 }
 
 export interface MemoryBackend {
-  add(userId: string, entry: Omit<KnowledgeEntry, "id" | "created_at"> & { id?: string }): KnowledgeEntry;
-  get(id: string, userId: string): KnowledgeEntry | null;
-  search(userId: string, query: string, limit?: number): KnowledgeEntry[];
-  list(userId: string, limit?: number, offset?: number): KnowledgeEntry[];
-  delete(id: string, userId: string): boolean;
-  count(userId: string): number;
+  init(): Promise<void>;
+  add(userId: string, entry: Omit<KnowledgeEntry, "id" | "created_at"> & { id?: string }): Promise<KnowledgeEntry>;
+  get(id: string, userId: string): Promise<KnowledgeEntry | null>;
+  search(userId: string, query: string, limit?: number): Promise<KnowledgeEntry[]>;
+  list(userId: string, limit?: number, offset?: number): Promise<KnowledgeEntry[]>;
+  delete(id: string, userId: string): Promise<boolean>;
+  count(userId: string): Promise<number>;
 }
 
 /**
@@ -38,12 +39,10 @@ export interface MemoryBackend {
  * `knowledge_fts` virtual table provides full-text search over title+content+tags.
  */
 export class SQLiteMemoryBackend implements MemoryBackend {
-  constructor(private readonly db: MinimalDb) {
-    this.init();
-  }
+  constructor(private readonly db: MinimalDb) {}
 
-  private init(): void {
-    this.db.prepare(`
+  async init(): Promise<void> {
+    (await this.db.prepare(`
       CREATE TABLE IF NOT EXISTS knowledge (
         id         TEXT PRIMARY KEY,
         title      TEXT NOT NULL,
@@ -53,41 +52,41 @@ export class SQLiteMemoryBackend implements MemoryBackend {
         created_at INTEGER NOT NULL,
         user_id    TEXT
       )
-    `).run();
+    `)).run();
     try {
-      this.db.prepare("ALTER TABLE knowledge ADD COLUMN user_id TEXT").run();
+      (await this.db.prepare("ALTER TABLE knowledge ADD COLUMN user_id TEXT")).run();
     } catch {
       // column already exists
     }
     // FTS5 virtual table for full-text search.
     try {
-      this.db.prepare(`
+      (await this.db.prepare(`
         CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_fts USING fts5(
           title, content, tags,
           content='knowledge', content_rowid='rowid'
         )
-      `).run();
+      `)).run();
     } catch {
       this.ftsAvailable = false;
     }
     if (this.ftsAvailable) {
       try {
-        this.db.prepare(`
+        (await this.db.prepare(`
           CREATE TRIGGER IF NOT EXISTS knowledge_ai AFTER INSERT ON knowledge BEGIN
             INSERT INTO knowledge_fts(rowid, title, content, tags) VALUES (new.rowid, new.title, new.content, new.tags);
           END
-        `).run();
-        this.db.prepare(`
+        `)).run();
+        (await this.db.prepare(`
           CREATE TRIGGER IF NOT EXISTS knowledge_ad AFTER DELETE ON knowledge BEGIN
             INSERT INTO knowledge_fts(knowledge_fts, rowid, title, content, tags) VALUES('delete', old.rowid, old.title, old.content, old.tags);
           END
-        `).run();
-        this.db.prepare(`
+        `)).run();
+        (await this.db.prepare(`
           CREATE TRIGGER IF NOT EXISTS knowledge_au AFTER UPDATE ON knowledge BEGIN
             INSERT INTO knowledge_fts(knowledge_fts, rowid, title, content, tags) VALUES('delete', old.rowid, old.title, old.content, old.tags);
             INSERT INTO knowledge_fts(rowid, title, content, tags) VALUES (new.rowid, new.title, new.content, new.tags);
           END
-        `).run();
+        `)).run();
       } catch {
         // degrade gracefully
       }
@@ -96,32 +95,32 @@ export class SQLiteMemoryBackend implements MemoryBackend {
 
   private ftsAvailable = true;
 
-  add(userId: string, entry: Omit<KnowledgeEntry, "id" | "created_at"> & { id?: string }): KnowledgeEntry {
+  async add(userId: string, entry: Omit<KnowledgeEntry, "id" | "created_at"> & { id?: string }): Promise<KnowledgeEntry> {
     const id = entry.id ?? randomUUID();
     const created_at = Date.now();
     const tags = JSON.stringify(entry.tags ?? []);
-    this.db
-      .prepare("INSERT INTO knowledge (id, title, content, source, tags, created_at, user_id) VALUES (?, ?, ?, ?, ?, ?, ?)")
+    (await this.db
+      .prepare("INSERT INTO knowledge (id, title, content, source, tags, created_at, user_id) VALUES (?, ?, ?, ?, ?, ?, ?)"))
       .run(id, entry.title, entry.content, entry.source ?? "manual", tags, created_at, userId);
     return { id, title: entry.title, content: entry.content, source: entry.source ?? "manual", tags: entry.tags ?? [], created_at };
   }
 
-  get(id: string, userId: string): KnowledgeEntry | null {
-    const row = this.db.prepare("SELECT * FROM knowledge WHERE id = ? AND user_id = ?").get(id, userId) as any;
+  async get(id: string, userId: string): Promise<KnowledgeEntry | null> {
+    const row = (await this.db.prepare("SELECT * FROM knowledge WHERE id = ? AND user_id = ?")).get(id, userId) as any;
     return row ? this.rowToEntry(row) : null;
   }
 
-  search(userId: string, query: string, limit = 20): KnowledgeEntry[] {
+  async search(userId: string, query: string, limit = 20): Promise<KnowledgeEntry[]> {
     if (!query.trim()) return this.list(userId, limit);
     if (this.ftsAvailable) {
       try {
-        const rows = this.db
+        const rows = (await this.db
           .prepare(
             `SELECT k.* FROM knowledge k
              JOIN knowledge_fts f ON k.rowid = f.rowid
              WHERE knowledge_fts MATCH ? AND k.user_id = ?
              ORDER BY rank LIMIT ?`,
-          )
+          ))
           .all(query, userId, limit) as any[];
         return rows.map((r) => this.rowToEntry(r));
       } catch {
@@ -129,26 +128,26 @@ export class SQLiteMemoryBackend implements MemoryBackend {
       }
     }
     const like = `%${query}%`;
-    const rows = this.db
-      .prepare("SELECT * FROM knowledge WHERE user_id = ? AND (title LIKE ? OR content LIKE ? OR tags LIKE ?) ORDER BY created_at DESC LIMIT ?")
+    const rows = (await this.db
+      .prepare("SELECT * FROM knowledge WHERE user_id = ? AND (title LIKE ? OR content LIKE ? OR tags LIKE ?) ORDER BY created_at DESC LIMIT ?"))
       .all(userId, like, like, like, limit) as any[];
     return rows.map((r) => this.rowToEntry(r));
   }
 
-  list(userId: string, limit = 50, offset = 0): KnowledgeEntry[] {
-    const rows = this.db
-      .prepare("SELECT * FROM knowledge WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?")
+  async list(userId: string, limit = 50, offset = 0): Promise<KnowledgeEntry[]> {
+    const rows = (await this.db
+      .prepare("SELECT * FROM knowledge WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?"))
       .all(userId, limit, offset) as any[];
     return rows.map((r) => this.rowToEntry(r));
   }
 
-  delete(id: string, userId: string): boolean {
-    const result = this.db.prepare("DELETE FROM knowledge WHERE id = ? AND user_id = ?").run(id, userId) as { changes?: number };
+  async delete(id: string, userId: string): Promise<boolean> {
+    const result = (await this.db.prepare("DELETE FROM knowledge WHERE id = ? AND user_id = ?")).run(id, userId) as { changes?: number };
     return (result.changes ?? 0) > 0;
   }
 
-  count(userId: string): number {
-    const row = this.db.prepare("SELECT COUNT(*) as c FROM knowledge WHERE user_id = ?").get(userId) as { c: number };
+  async count(userId: string): Promise<number> {
+    const row = (await this.db.prepare("SELECT COUNT(*) as c FROM knowledge WHERE user_id = ?")).get(userId) as { c: number };
     return row.c;
   }
 

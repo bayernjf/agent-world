@@ -62,12 +62,12 @@ describe("ordered schema migrations", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("baselines a fresh database at the latest version without running ALTERs", () => {
+  it("baselines a fresh database at the latest version without running ALTERs", async () => {
     const file = join(dir, "fresh.sqlite");
     openDb(file);
     const raw = new DatabaseSync(file);
-    expect(cols(raw, "runs")).toContain("trigger");
-    expect(cols(raw, "node_runs")).toContain("units_json");
+    expect(await cols(raw, "runs")).toContain("trigger");
+    expect(await cols(raw, "node_runs")).toContain("units_json");
     const max = raw.prepare("SELECT MAX(version) AS v FROM schema_migrations").get() as {
       v: number;
     };
@@ -75,7 +75,7 @@ describe("ordered schema migrations", () => {
     raw.close();
   });
 
-  it("upgrades a pre-variant database whose artifacts table lacks the variant column", () => {
+  it("upgrades a pre-variant database whose artifacts table lacks the variant column", async () => {
     // Regression for a F1-era upgrade crash: an old DB whose `artifacts` table
     // EXISTED but predated the `variant` column (and whose node_runs predated
     // it too) used to die inside startup DDL — `CREATE TABLE IF NOT EXISTS`
@@ -107,8 +107,8 @@ describe("ordered schema migrations", () => {
 
     expect(() => openDb(file)).not.toThrow();
     const raw = new DatabaseSync(file);
-    expect(cols(raw, "artifacts")).toContain("variant");
-    expect(cols(raw, "node_runs")).toContain("variant");
+    expect(await cols(raw, "artifacts")).toContain("variant");
+    expect(await cols(raw, "node_runs")).toContain("variant");
     const idx = raw
       .prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_artifacts_variant'")
       .get();
@@ -154,7 +154,7 @@ describe("ordered schema migrations", () => {
     expect(row.variant).toBe("main");
   });
 
-  it("upgrades an old (pre-migration) database by adding missing columns", () => {
+  it("upgrades an old (pre-migration) database by adding missing columns", async () => {
     const file = join(dir, "old.sqlite");
     // Simulate a Phase 0 database: runs/node_runs without columns added later.
     const old = new DatabaseSync(file);
@@ -173,8 +173,8 @@ describe("ordered schema migrations", () => {
 
     openDb(file);
     const raw = new DatabaseSync(file);
-    const runsCols = cols(raw, "runs");
-    const nodeCols = cols(raw, "node_runs");
+    const runsCols = await cols(raw, "runs");
+    const nodeCols = await cols(raw, "node_runs");
     raw.close();
     expect(runsCols).toContain("trigger");
     expect(runsCols).toContain("input");
@@ -216,14 +216,14 @@ describe("startup database backup", () => {
     snapshot.close();
   });
 
-  it("prunes old snapshots beyond the retention window", () => {
+  it("prunes old snapshots beyond the retention window", async () => {
     const file = join(dir, "aw.sqlite");
     let db = openDb(file);
     for (let i = 0; i < BACKUP_RETENTION + 2; i++) {
-      db.close();
+      await db.close();
       db = openDb(file);
     }
-    db.close();
+    await db.close();
     const backups = readdirSync(join(dir, "backups")).filter((n) =>
       n.startsWith("pre-migration-"),
     );

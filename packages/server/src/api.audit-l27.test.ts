@@ -31,11 +31,11 @@ beforeAll(async () => {
   app = mod.app;
   db = openDb(process.env.DB_FILE!);
   store = new ArtifactStore(join(dir, "blobs"));
-  db.saveGraph(GRAPH, 1, "u-l27");
+  await db.saveGraph(GRAPH, 1, "u-l27");
 });
 
-afterAll(() => {
-  db.close();
+afterAll(async () => {
+  await db.close();
   delete process.env.DB_FILE;
   delete process.env.ALLOW_REGISTRATION;
   rmSync(dir, { recursive: true, force: true });
@@ -55,11 +55,11 @@ async function register(email: string): Promise<string> {
 }
 
 async function seedRemoteArtifact(userEmail: string, id: string, uri: string): Promise<void> {
-  const user = db.findUserByEmail(userEmail)!;
-  db.createRun({ id: `run-${id}`, userId: user.id, graph: GRAPH, budgetUsd: null, at: Date.now() });
+  const user = await await await db.findUserByEmail(userEmail)!;
+  await db.createRun({ id: `run-${id}`, userId: user.id, graph: GRAPH, budgetUsd: null, at: Date.now() });
   const artifact: Artifact = { id, kind: "image", uri };
   const saved = await store.save(artifact, { runId: `run-${id}`, nodeId: "n1" });
-  db.insertArtifact(saved, user.id);
+  await db.insertArtifact(saved, user.id);
 }
 
 describe("isSafeRedirectUri (audit L2)", () => {
