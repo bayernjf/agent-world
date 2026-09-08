@@ -26,8 +26,10 @@ import type {
  * Events are the source of truth and append-only, so they get a plain prepared
  * insert rather than an ORM round trip. `(run_id, seq)` is the primary key, and
  * node runs are keyed by `(run_id, node_id, attempt)` — attempt is identity.
+ * Exported so the PgDriver can derive its own schema via `toPgDdl` (see
+ * pg-sql.ts).
  */
-const DDL = `
+export const DDL = `
 CREATE TABLE IF NOT EXISTS users (
   id            TEXT PRIMARY KEY,
   email         TEXT UNIQUE NOT NULL,
@@ -549,7 +551,7 @@ export function createSqliteDriver(file: string) {
       db.close();
     },
     prepare: (sql: string) => db.prepare(sql),
-  });
+  }, "sqlite");
 }
 
 /**
@@ -592,10 +594,22 @@ function createSqliteExecutor(db: DatabaseSync): Executor {
  * cover the two backend-specific capabilities that aren't SQL execution:
  * closing the connection and the raw `prepare` passthrough (SQLite-only FTS5).
  */
-function createDriver(
+export function createDriver(
   exec: Executor,
   hooks: { close: () => Promise<void>; prepare: (sql: string) => unknown },
+  dialect: "sqlite" | "postgres",
 ) {
+  // SQL-dialect expressions for the handful of statements that bucket epoch-ms
+  // timestamps (design-postgres-migration.md §4 row 3). The SQLite dialect uses
+  // strftime; PostgreSQL uses to_char(to_timestamp(...)).
+  const weekExpr =
+    dialect === "postgres"
+      ? `to_char(to_timestamp(r.started_at / 1000.0), 'IYYY-"W"IW')`
+      : `strftime('%Y-W%W', r.started_at / 1000, 'unixepoch', 'localtime')`;
+  const monthExpr =
+    dialect === "postgres"
+      ? `to_char(to_timestamp(r.started_at / 1000.0), 'YYYY-MM')`
+      : `strftime('%Y-%m', r.started_at / 1000, 'unixepoch', 'localtime')`;
   const stmts = {
     createUser: `INSERT INTO users (id, email, password_hash, role) VALUES (?, ?, ?, ?)`,
     countOwners: `SELECT COUNT(*) AS n FROM users WHERE role = 'owner'`,
@@ -806,6 +820,12 @@ function createDriver(
     },
     /** Runs sqlite's own integrity check; true when the database is consistent. */
     async verifyIntegrity() {
+      if (dialect === "postgres") {
+        // PostgreSQL has no single integrity_check equivalent; a live SELECT
+        // confirms the connection and catalog are still readable.
+        await exec.get("SELECT 1 AS ok", []);
+        return true;
+      }
       const rows = await exec.all("PRAGMA integrity_check", []) as Array<{ integrity_check: string }>;
       return rows.length === 1 && rows[0]!.integrity_check === "ok";
     },
@@ -1449,7 +1469,7 @@ function createDriver(
         tokens_out: number;
       }>;
 
-      const byWeek = await exec.all(`SELECT strftime('%Y-W%W', r.started_at / 1000, 'unixepoch', 'localtime') AS week,
+      const byWeek = await exec.all(`SELECT ${weekExpr} AS week,
              COUNT(DISTINCT n.run_id) AS runs,
              COALESCE(SUM(n.cost_usd), 0)   AS cost_usd,
              COALESCE(SUM(n.tokens_in), 0)  AS tokens_in,
@@ -1465,7 +1485,7 @@ function createDriver(
         tokens_out: number;
       }>;
 
-      const byMonth = await exec.all(`SELECT strftime('%Y-%m', r.started_at / 1000, 'unixepoch', 'localtime') AS month,
+      const byMonth = await exec.all(`SELECT ${monthExpr} AS month,
              COUNT(DISTINCT n.run_id) AS runs,
              COALESCE(SUM(n.cost_usd), 0)   AS cost_usd,
              COALESCE(SUM(n.tokens_in), 0)  AS tokens_in,
@@ -1971,7 +1991,11 @@ function createDriver(
       }
       if (opts.search) {
         const like = `%${opts.search}%`;
-        where.push("(name LIKE ? OR brand LIKE ? OR sku LIKE ?)");
+        where.push(
+          dialect === "postgres"
+            ? "(name ILIKE ? OR brand ILIKE ? OR sku ILIKE ?)"
+            : "(name LIKE ? OR brand LIKE ? OR sku LIKE ?)",
+        );
         params.push(like, like, like);
       }
       const rows = await exec.all(`SELECT * FROM products WHERE ${where.join(" AND ")} ORDER BY created_at DESC`, [...params]) as Array<Record<string, unknown>>;
