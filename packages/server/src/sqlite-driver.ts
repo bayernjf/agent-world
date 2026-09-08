@@ -344,6 +344,53 @@ CREATE TABLE IF NOT EXISTS graph_variables (
   PRIMARY KEY (graph_id, key)
 );
 CREATE INDEX IF NOT EXISTS idx_graph_variables_graph ON graph_variables(graph_id);
+
+-- Tables below were originally added by migrations (32-35) without updating
+-- this DDL constant. They are part of the LATEST schema and must live here
+-- too — the PostgreSQL schema is derived from this constant via toPgDdl, and a
+-- fresh PG database created from a DDL missing them would silently lack
+-- RBAC resource sharing and the commercialization tables. The corresponding
+-- migrations stay (older files still need them); their detect baselines
+-- skip fresh databases that already have the tables.
+CREATE TABLE IF NOT EXISTS resource_access (
+  resource_type TEXT NOT NULL,
+  resource_id   TEXT NOT NULL,
+  user_id       TEXT NOT NULL,
+  role          TEXT NOT NULL,
+  created_at    INTEGER NOT NULL,
+  PRIMARY KEY (resource_type, resource_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_resource_access_user ON resource_access(user_id, resource_type);
+
+CREATE TABLE IF NOT EXISTS subscriptions (
+  user_id              TEXT PRIMARY KEY,
+  plan                 TEXT NOT NULL,
+  status               TEXT NOT NULL,
+  provider             TEXT,
+  external_id          TEXT,
+  current_period_start INTEGER NOT NULL,
+  current_period_end   INTEGER NOT NULL,
+  created_at           INTEGER NOT NULL,
+  updated_at           INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS usage_ledger (
+  user_id        TEXT NOT NULL,
+  period_start   INTEGER NOT NULL,
+  metric         TEXT NOT NULL,
+  amount         REAL NOT NULL,
+  updated_at     INTEGER NOT NULL,
+  PRIMARY KEY (user_id, period_start, metric)
+);
+CREATE INDEX IF NOT EXISTS idx_usage_ledger_user ON usage_ledger(user_id, period_start);
+
+CREATE TABLE IF NOT EXISTS idempotency_keys (
+  user_id    TEXT NOT NULL,
+  key        TEXT NOT NULL,
+  run_id     TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, key)
+);
 `;
 
 /**
