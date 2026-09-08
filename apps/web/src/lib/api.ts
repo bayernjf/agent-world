@@ -90,6 +90,14 @@ export interface CostReport {
     attempts: number;
     reworks: number;
   }>;
+  byModel: Array<{
+    model: string;
+    calls: number;
+    runs: number;
+    cost_usd: number;
+    tokens_in: number;
+    tokens_out: number;
+  }>;
   byAttempt: Array<{
     attempt: number;
     calls: number;

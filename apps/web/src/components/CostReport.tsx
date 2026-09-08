@@ -322,6 +322,40 @@ export default function CostReport({ open, onClose }: Props) {
 
               <section className="cost-section">
                 <h3 className="cost-section__title">
+                  {t("modals:costReport.byModel")}
+                </h3>
+                {report.byModel.length === 0 ? (
+                  <p className="muted">{t("common.empty")}</p>
+                ) : (
+                  <table className="run-table cost-table">
+                    <thead>
+                      <tr>
+                        <th>{t("modals:costReport.thModel")}</th>
+                        <th className="num">{t("modals:reports.runs")}</th>
+                        <th className="num">{t("modals:costReport.thInput")}</th>
+                        <th className="num">
+                          {t("modals:costReport.thOutput")}
+                        </th>
+                        <th className="num">{t("modals:costReport.thCost")}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {report.byModel.map((m) => (
+                        <tr key={m.model}>
+                          <td className="mono">{m.model}</td>
+                          <td className="num mono">{m.runs}</td>
+                          <td className="num mono">{fmtInt(m.tokens_in)}</td>
+                          <td className="num mono">{fmtInt(m.tokens_out)}</td>
+                          <td className="num mono">{fmtUsd(m.cost_usd)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </section>
+
+              <section className="cost-section">
+                <h3 className="cost-section__title">
                   {t("modals:costReport.topNodes", { n: report.byNode.length })}
                 </h3>
                 {report.byNode.length === 0 ? (

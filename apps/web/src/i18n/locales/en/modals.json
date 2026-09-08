@@ -270,6 +270,8 @@
     "thInput": "In",
     "thOutput": "Out",
     "thCost": "Power cost",
+    "byModel": "Cost by model",
+    "thModel": "Model",
     "thNode": "Node",
     "thAttempts": "Attempts",
     "thRework": "Rework",

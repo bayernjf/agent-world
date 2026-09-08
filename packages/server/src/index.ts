@@ -1923,7 +1923,7 @@ app.get("/api/costs.csv", async (c) => {
   const userId = c.get("userId");
   const from = c.req.query("from");
   const to = c.req.query("to");
-  const { byGraph, byNode, byDay } = await db.costRows({
+  const { byGraph, byNode, byModel, byDay } = await db.costRows({
     userId,
     from: from ? Number(from) : undefined,
     to: to ? Number(to) : undefined,
@@ -1940,6 +1940,9 @@ app.get("/api/costs.csv", async (c) => {
   }
   for (const n of byNode) {
     lines.push(["node", n.graph_name, n.node_name, n.attempts, n.tokens_in, n.tokens_out, n.cost_usd.toFixed(6)].map(esc).join(","));
+  }
+  for (const m of byModel) {
+    lines.push(["model", m.model, "", m.calls, m.tokens_in, m.tokens_out, m.cost_usd.toFixed(6)].map(esc).join(","));
   }
   for (const d of byDay) {
     lines.push(["day", d.day, "", d.runs, d.tokens_in, d.tokens_out, d.cost_usd.toFixed(6)].map(esc).join(","));

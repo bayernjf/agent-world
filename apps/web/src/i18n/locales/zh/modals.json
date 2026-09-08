@@ -270,6 +270,8 @@
     "thInput": "输入",
     "thOutput": "输出",
     "thCost": "电费",
+    "byModel": "按模型分摊电费",
+    "thModel": "模型",
     "thNode": "节点",
     "thAttempts": "尝试",
     "thRework": "返工",
