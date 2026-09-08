@@ -27,10 +27,10 @@ export const FEATURE_FLAGS: FlagDef[] = [
   },
 ];
 
-export function isFeatureEnabled(flagName: string, userId?: string): boolean {
+export async function isFeatureEnabled(flagName: string, userId?: string): Promise<boolean> {
   const def = FEATURE_FLAGS.find((f) => f.name === flagName);
   if (!def) return false;
-  const cfg = loadConfig(userId);
+  const cfg = await loadConfig(userId);
   const override = cfg.featureFlags?.[flagName];
   return override ?? def.default;
 }

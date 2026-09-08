@@ -300,8 +300,8 @@ const DEFAULT_CONFIG: AppConfig = {
  * file-only deployments keep working.
  */
 export interface SettingsStore {
-  get(userId: string): string | null;
-  set(userId: string, data: string): void;
+  get(userId: string): Promise<string | null>;
+  set(userId: string, data: string): Promise<void>;
 }
 
 let settingsStore: SettingsStore | undefined;
@@ -406,9 +406,9 @@ function parseRaw(raw: string | undefined): AppConfig | null {
  * saved settings win; otherwise the legacy file config is the shared baseline.
  * Priority: per-user DB row > legacy file > built-in defaults.
  */
-export function loadConfig(userId?: string): AppConfig {
+export async function loadConfig(userId?: string): Promise<AppConfig> {
   if (userId && settingsStore) {
-    const stored = settingsStore.get(userId);
+    const stored = await settingsStore.get(userId);
     const fromDb = parseRaw(stored ?? undefined);
     if (fromDb) return fromDb;
   }
@@ -420,9 +420,9 @@ export function loadConfig(userId?: string): AppConfig {
  * row (mutually invisible across users); otherwise it lands in the legacy
  * config file. Returns a location label for the caller.
  */
-export function saveConfig(config: AppConfig, userId?: string): string {
+export async function saveConfig(config: AppConfig, userId?: string): Promise<string> {
   if (userId && settingsStore) {
-    settingsStore.set(userId, JSON.stringify(config));
+    await settingsStore.set(userId, JSON.stringify(config));
     return "db";
   }
   const path = configPath();

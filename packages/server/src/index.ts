@@ -76,7 +76,7 @@ const PUBLIC_URL = (process.env.AGENT_WORLD_PUBLIC_URL ?? `http://localhost:${PO
   /\/+$/,
   "");
 const db = openDb(process.env.DB_FILE ?? "agent-world.sqlite");
-backfillExistingData(db as any);
+await backfillExistingData(db as any);
 // Settings are per-user rows in the DB; config.ts reads/writes through this
 // store while the legacy file config remains the shared baseline for users
 // who have never saved settings.
@@ -84,11 +84,11 @@ bindSettingsStore({
   // Settings rows store the whole AppConfig JSON, including provider API keys.
   // Encrypt at rest (audit L3); legacy plaintext rows decrypt as-is and are
   // re-encrypted on the next save.
-  get: (userId: string) => {
-    const raw = db.getSettings(userId);
+  get: async (userId: string) => {
+    const raw = await db.getSettings(userId);
     return raw ? decryptString(raw) : null;
   },
-  set: (userId: string, data: string) => db.saveSettings(userId, encryptString(data)),
+  set: async (userId: string, data: string) => await db.saveSettings(userId, encryptString(data)),
 });
 const artifacts = ArtifactStore.fromEnv();
 
@@ -98,11 +98,12 @@ const artifacts = ArtifactStore.fromEnv();
 
 // A server restart cannot resume in-memory generators; mark orphaned runs so the
 // UI doesn't show them as forever-running.
-db.markZombiesInterrupted(Date.now());
+await db.markZombiesInterrupted(Date.now());
 
 // Knowledge base / archive (5.2). FTS5-backed full-text search over
 // extracted run outputs; powers the `archive_search` skill card.
 const memory = new SQLiteMemoryBackend(db as any);
+await memory.init();
 setMemoryBackend(memory);
 
 const worker = routingWorker();
@@ -118,12 +119,12 @@ const live = new Map<
 /** Automatic triggers (webhook/cron/event/batch). Restored from persisted graphs. */
 const triggers = new TriggerService({
   db: {
-    listAllGraphs: () => db.listAllGraphs(),
-    getGraphById: (id: string) => db.getGraphById(id),
-    saveGraphUnscoped: (graph: any, at: number) => db.saveGraphUnscoped(graph, at),
+    listAllGraphs: async () => await db.listAllGraphs(),
+    getGraphById: async (id: string) => await db.getGraphById(id),
+    saveGraphUnscoped: async (graph: any, at: number) => await db.saveGraphUnscoped(graph, at),
   },
-  startRun: (graph, opts) => {
-    const ownerId = db.getGraphOwnerId(graph.id) ?? "";
+  startRun: async (graph, opts) => {
+    const ownerId = await db.getGraphOwnerId(graph.id) ?? "";
     return startRun({
       db,
       userId: ownerId,
@@ -133,17 +134,17 @@ const triggers = new TriggerService({
       graph,
       publicUrl: PUBLIC_URL,
       ...opts,
-      onFinish: (gid, status) => {
+      onFinish: async (gid, status) => {
         void triggers.onGraphFinished(gid, status);
         // Engine success status is "done" (not "completed") — extract knowledge
         // once a run settles as success or failure.
         if (status === "done" || status === "failed") {
           try {
-            const recent = db.listRunsByGraphUnscoped(gid, 1);
+            const recent = await db.listRunsByGraphUnscoped(gid, 1);
             if (recent.length > 0) {
               const run = recent[0]!;
-              const events = db.events(run.id as string);
-              const graphName = db.getGraphById(gid)?.name ?? gid;
+              const events = await db.events(run.id as string);
+              const graphName = (await db.getGraphById(gid))?.name ?? gid;
               const entries = extractKnowledgeFromRun(events, run.id as string, graphName);
               for (const entry of entries) memory.add(ownerId, entry);
             }
@@ -234,12 +235,12 @@ const GIT_META: { branch: string | null; commit: string | null } = (() => {
 // business metrics. No auth so a local Prometheus scraper can pull it.
 app.get("/metrics", (c) => c.text(renderMetrics()));
 
-app.get("/api/health", (c) => {
+app.get("/api/health", async (c) => {
   // Readiness checks report STATE only ("ok"/"loaded"/"configured"), never the
   // underlying secret values, keys, or connection strings.
   let dbStatus: string;
   try {
-    dbStatus = db.ping() ? "ok" : "error";
+    dbStatus = await db.ping() ? "ok" : "error";
   } catch {
     dbStatus = "error";
   }
@@ -254,7 +255,7 @@ app.get("/api/health", (c) => {
     process.env.JWT_SECRET || existsSync(join(dirname(dbFile), ".jwt-secret"))
       ? "loaded"
       : "missing";
-  const agnes = loadConfig().providers.agnes;
+  const agnes = (await loadConfig()).providers.agnes;
   const agnesStatus = agnes?.enabled === false ? "disabled" : agnes?.apiKey ? "configured" : "missing";
   // Readiness gate（P1 优雅启动）：关键就绪检查全通过才 200，否则 503 让反代/
   // 探针把流量挡在未就绪实例外。`ok` 只反映「能否接流量」，checks 仍报状态词、不吐值。
@@ -385,7 +386,7 @@ app.post("/api/auth/register", async (c) => {
   // self-registration is closed unless the operator opts in via
   // ALLOW_REGISTRATION=1 — otherwise anyone who reaches the port can create
   // an account and start running paid models.
-  if (db.countUsers() > 0) {
+  if (await db.countUsers() > 0) {
     const flag = (process.env.ALLOW_REGISTRATION ?? "").trim().toLowerCase();
     if (flag !== "1" && flag !== "true") {
       return c.json({ error: "注册已关闭，请联系管理员开通账号" }, 403);
@@ -400,12 +401,12 @@ app.post("/api/auth/register", async (c) => {
   if (password.length < 6) {
     return c.json({ error: "密码至少需要6个字符" }, 400);
   }
-  if (db.findUserByEmail(email)) {
+  if (await db.findUserByEmail(email)) {
     return c.json({ error: "该邮箱已注册" }, 409);
   }
   const id = randomUUID();
   const passwordHash = await hashPassword(password);
-  db.createUser(id, email, passwordHash);
+  await db.createUser(id, email, passwordHash);
   audit(db, id, "account.register", { ip: clientIp(c) });
   const token = await signToken(id, email, true);
   setAuthCookie(c, token, true);
@@ -424,12 +425,12 @@ app.post("/api/auth/login", async (c) => {
   const email = (body.email ?? "").trim().toLowerCase();
   const password = body.password ?? "";
   const remember = body.remember === true;
-  const user = db.findUserByEmail(email);
+  const user = await db.findUserByEmail(email);
   if (!user) {
     audit(db, "unknown", "account.login_failed", { ip: clientIp(c) });
     return c.json({ error: "邮箱或密码错误" }, 401);
   }
-  const hash = db.findUserPasswordHash(user.id);
+  const hash = await db.findUserPasswordHash(user.id);
   if (!hash || !(await verifyPassword(password, hash))) {
     audit(db, user.id, "account.login_failed", { ip: clientIp(c) });
     return c.json({ error: "邮箱或密码错误" }, 401);
@@ -458,7 +459,7 @@ app.get("/api/auth/me", async (c) => {
   if (!token) return c.json({ error: "not authenticated" }, 401);
   const payload = await verifyToken(token);
   if (!payload) return c.json({ error: "not authenticated" }, 401);
-  const user = db.findUserById(payload.userId);
+  const user = await db.findUserById(payload.userId);
   if (!user) return c.json({ error: "not authenticated" }, 401);
   return c.json({
     user: {
@@ -466,7 +467,7 @@ app.get("/api/auth/me", async (c) => {
       email: user.email,
       createdAt: user.created_at,
       role: user.role,
-      canManageAnnouncements: isAnnouncementAdmin(user.id),
+      canManageAnnouncements: await isAnnouncementAdmin(user.id),
     },
   });
 });
@@ -475,7 +476,7 @@ app.post("/api/auth/password", async (c) => {
   const cookie = c.req.header("cookie") ?? "";
   const token = cookie.match(new RegExp(`${AUTH_COOKIE}=([^;]+)`))?.[1];
   const payload = token ? await verifyToken(token) : null;
-  const user = payload ? db.findUserById(payload.userId) : undefined;
+  const user = payload ? await db.findUserById(payload.userId) : undefined;
   if (!user) return c.json({ error: "not authenticated" }, 401);
   const body = (await c.req.json().catch(() => ({}))) as {
     currentPassword?: string;
@@ -486,11 +487,11 @@ app.post("/api/auth/password", async (c) => {
   if (newPassword.length < 6) {
     return c.json({ error: "新密码至少需要6个字符" }, 400);
   }
-  const hash = db.findUserPasswordHash(user.id);
+  const hash = await db.findUserPasswordHash(user.id);
   if (!hash || !(await verifyPassword(currentPassword, hash))) {
     return c.json({ error: "当前密码不正确" }, 401);
   }
-  db.updateUserPasswordHash(user.id, await hashPassword(newPassword));
+  await db.updateUserPasswordHash(user.id, await hashPassword(newPassword));
   audit(db, user.id, "account.password_change", { objectType: "account", ip: clientIp(c) });
   return c.json({ ok: true });
 });
@@ -532,13 +533,13 @@ app.use("/api/*", async (c, next) => {
 
 app.get("/api/skills", (c) => c.json(listBuiltinSkills()));
 
-app.get("/api/graphs", (c) => {
+app.get("/api/graphs", async (c) => {
   const userId = c.get("userId");
   // Owned graphs + graphs shared to this user (design-rbac P1). Owned rows
   // carry sharedRole: null; shared rows carry the granted role so the UI can
   // badge them and hide owner-only actions.
-  const visible = visibleGraphs(db, userId);
-  const owned = new Map(db.listGraphs(userId).map((g) => [g.id, g]));
+  const visible = await visibleGraphs(db, userId);
+  const owned = new Map((await db.listGraphs(userId)).map((g) => [g.id, g]));
   const out: Array<{
     id: string;
     name: string;
@@ -548,7 +549,7 @@ app.get("/api/graphs", (c) => {
     sharedRole: string | null;
   }> = [];
   for (const [gid, role] of visible) {
-    const meta = role === null ? owned.get(gid) : db.getGraphMeta(gid);
+    const meta = role === null ? owned.get(gid) : await db.getGraphMeta(gid);
     if (!meta) continue;
     out.push({ ...meta, sharedRole: role });
   }
@@ -558,8 +559,8 @@ app.get("/api/graphs", (c) => {
 
 // Reject names that collide (case-insensitive, trimmed) with any other graph.
 // `excludeId` lets PUT /api/graphs/:id skip the row it's updating.
-const findGraphIdByName = (name: string, userId: string, excludeId?: string): string | null =>
-  findGraphIdByNameCore(db.listGraphs(userId), name, excludeId);
+const findGraphIdByName = async (name: string, userId: string, excludeId?: string): Promise<string | null> =>
+  findGraphIdByNameCore(await db.listGraphs(userId), name, excludeId);
 
 
 app.get("/api/templates", (c) =>
@@ -634,8 +635,8 @@ app.post("/api/graphs", async (c) => {
     originTemplateId = body.template;
   } else if (body.from) {
     // Cloning requires read access to the source (a shared viewer may clone).
-    const access = requireGraph(db, userId, body.from, "viewer");
-    const src = access ? db.getGraph(body.from, access.graphOwnerId) : null;
+    const access = await requireGraph(db, userId, body.from, "viewer");
+    const src = access ? await db.getGraph(body.from, access.graphOwnerId) : null;
     if (!src) return c.json({ error: "source graph not found" }, 404);
     const { version: _srcVersion, ...srcDoc } = src;
     void _srcVersion;
@@ -657,41 +658,41 @@ app.post("/api/graphs", async (c) => {
     };
     originTemplateId = null;
   }
-  const dup = findGraphIdByName(graph.name, userId);
+  const dup = await findGraphIdByName(graph.name, userId);
   if (dup) {
     return c.json(
       { error: "duplicate_name", message: `已存在同名产线「${graph.name}」，请换一个名字。`, existingId: dup },
       409,
     );
   }
-  db.saveGraph(graph, Date.now(), userId, undefined, originTemplateId);
+  await db.saveGraph(graph, Date.now(), userId, undefined, originTemplateId);
   audit(db, userId, "graph.create", {
     objectType: "graph",
     objectId: id,
     detail: { nodes: graph.nodes.length, originTemplateId },
     ip: clientIp(c),
   });
-  return c.json(db.getGraph(id, userId), 201);
+  return c.json(await db.getGraph(id, userId), 201);
 });
 
-app.get("/api/graphs/:id", (c) => {
+app.get("/api/graphs/:id", async (c) => {
   const userId = c.get("userId");
   const graphId = c.req.param("id");
-  const access = requireGraph(db, userId, graphId, "viewer");
+  const access = await requireGraph(db, userId, graphId, "viewer");
   if (!access) return c.json({ error: "not found" }, 404);
-  const graph = db.getGraph(graphId, access.graphOwnerId);
+  const graph = await db.getGraph(graphId, access.graphOwnerId);
   return graph ? c.json(graph) : c.json({ error: "not found" }, 404);
 });
 
-app.delete("/api/graphs/:id", (c) => {
+app.delete("/api/graphs/:id", async (c) => {
   const userId = c.get("userId");
   const id = c.req.param("id");
-  if (graphAccessRole(db, userId, id) == null) return c.json({ error: "not found" }, 404);
-  if (graphAccessRole(db, userId, id) !== "owner") {
+  if (await graphAccessRole(db, userId, id) == null) return c.json({ error: "not found" }, 404);
+  if (await graphAccessRole(db, userId, id) !== "owner") {
     return c.json({ error: "forbidden", message: "仅产线所有者可删除" }, 403);
   }
-  const ownerId = db.graphOwnerId(id)!;
-  db.deleteGraph(id, ownerId);
+  const ownerId = (await db.graphOwnerId(id))!;
+  await db.deleteGraph(id, ownerId);
   audit(db, userId, "graph.delete", { objectType: "graph", objectId: id, ip: clientIp(c) });
   return c.json({ ok: true });
 });
@@ -700,25 +701,27 @@ app.delete("/api/graphs/:id", (c) => {
 // Only the graph owner may read or change the collaborator list. Editors and
 // viewers get 403 (they can see the graph, not its ACL); unknown graphs 404.
 
-app.get("/api/graphs/:id/access", (c) => {
+app.get("/api/graphs/:id/access", async (c) => {
   const userId = c.get("userId");
   const graphId = c.req.param("id");
-  if (graphAccessRole(db, userId, graphId) == null) return c.json({ error: "not found" }, 404);
-  if (graphAccessRole(db, userId, graphId) !== "owner") {
+  if (await graphAccessRole(db, userId, graphId) == null) return c.json({ error: "not found" }, 404);
+  if (await graphAccessRole(db, userId, graphId) !== "owner") {
     return c.json({ error: "forbidden", message: "仅产线所有者可管理共享" }, 403);
   }
-  const collaborators = db.listResourceAccess("graph", graphId).map((row) => {
-    const user = db.findUserById(row.user_id);
-    return { userId: row.user_id, email: user?.email ?? null, role: row.role, createdAt: row.created_at };
-  });
+  const collaborators = await Promise.all(
+    (await db.listResourceAccess("graph", graphId)).map(async (row) => {
+      const user = await db.findUserById(row.user_id);
+      return { userId: row.user_id, email: user?.email ?? null, role: row.role, createdAt: row.created_at };
+    }),
+  );
   return c.json({ collaborators });
 });
 
 app.put("/api/graphs/:id/access", async (c) => {
   const userId = c.get("userId");
   const graphId = c.req.param("id");
-  if (graphAccessRole(db, userId, graphId) == null) return c.json({ error: "not found" }, 404);
-  if (graphAccessRole(db, userId, graphId) !== "owner") {
+  if (await graphAccessRole(db, userId, graphId) == null) return c.json({ error: "not found" }, 404);
+  if (await graphAccessRole(db, userId, graphId) !== "owner") {
     return c.json({ error: "forbidden", message: "仅产线所有者可管理共享" }, 403);
   }
 
@@ -731,15 +734,15 @@ app.put("/api/graphs/:id/access", async (c) => {
     return c.json({ error: "role must be editor, viewer, or null" }, 400);
   }
 
-  const target = db.findUserByEmail(email);
+  const target = await db.findUserByEmail(email);
   if (!target) return c.json({ error: "user not found", message: "该邮箱尚未注册" }, 404);
-  const graphOwnerId = db.graphOwnerId(graphId)!;
+  const graphOwnerId = await db.graphOwnerId(graphId)!;
   if (target.id === graphOwnerId) {
     return c.json({ error: "cannot share with owner", message: "所有者无需共享" }, 400);
   }
 
   if (role === null) {
-    const removed = db.deleteResourceAccess("graph", graphId, target.id);
+    const removed = await db.deleteResourceAccess("graph", graphId, target.id);
     if (removed) {
       audit(db, userId, "access.revoke", {
         objectType: "graph",
@@ -751,7 +754,7 @@ app.put("/api/graphs/:id/access", async (c) => {
     return c.json({ ok: true, revoked: removed });
   }
 
-  db.saveResourceAccess("graph", graphId, target.id, role);
+  await db.saveResourceAccess("graph", graphId, target.id, role);
   audit(db, userId, "access.grant", {
     objectType: "graph",
     objectId: graphId,
@@ -763,8 +766,8 @@ app.put("/api/graphs/:id/access", async (c) => {
 
 /** Auto-snapshot parameters from user settings, falling back to the design
  *  defaults (10 min throttle window, 30 auto-snapshots kept per graph). */
-function autoSnapshotSettings(userId: string): { minIntervalMs: number; maxKeep: number } {
-  const s = loadConfig(userId).autoSnapshot;
+async function autoSnapshotSettings(userId: string): Promise<{ minIntervalMs: number; maxKeep: number }> {
+  const s = (await loadConfig(userId)).autoSnapshot;
   return {
     minIntervalMs: s?.minIntervalMs ?? 10 * 60 * 1000,
     maxKeep: s?.maxKeep ?? 30,
@@ -785,9 +788,9 @@ app.put("/api/graphs/:id", async (c) => {
 
   // ACL (design-rbac P1): owner or shared editor may save; the graph stays
   // owned by its owner, so every scoped write below runs as that owner.
-  const access = requireGraph(db, userId, paramId, "editor");
+  const access = await requireGraph(db, userId, paramId, "editor");
   if (!access) {
-    return graphAccessRole(db, userId, paramId) == null
+    return await graphAccessRole(db, userId, paramId) == null
       ? c.json({ error: "not found" }, 404)
       : c.json({ error: "forbidden", message: "只读协作者不能修改产线" }, 403);
   }
@@ -803,7 +806,7 @@ app.put("/api/graphs/:id", async (c) => {
     return c.json({ error: "webhook 触发器必须设置 secret" }, 400);
   }
 
-  const dupId = findGraphIdByName(parsed.data.name, ownerId, paramId);
+  const dupId = await findGraphIdByName(parsed.data.name, ownerId, paramId);
   if (dupId) {
     return c.json(
       { error: "duplicate_name", message: `已存在同名产线「${parsed.data.name}」，请换一个名字。`, existingId: dupId },
@@ -814,10 +817,10 @@ app.put("/api/graphs/:id", async (c) => {
   // Pre-save auto-snapshot: capture what's about to be overwritten so a bad
   // edit that gets saved can always be rolled back. Throttled and pruned by
   // db.saveAutoSnapshot; parameters come from user settings when configured.
-  const existing = db.getGraph(parsed.data.id, ownerId);
+  const existing = await db.getGraph(parsed.data.id, ownerId);
   if (existing) {
-    const s = autoSnapshotSettings(ownerId);
-    db.saveAutoSnapshot(parsed.data.id, JSON.stringify(existing), s.minIntervalMs, s.maxKeep);
+    const s = await autoSnapshotSettings(ownerId);
+    await db.saveAutoSnapshot(parsed.data.id, JSON.stringify(existing), s.minIntervalMs, s.maxKeep);
   }
 
   // Optimistic concurrency: a tab sends the version it last loaded via
@@ -825,7 +828,7 @@ app.put("/api/graphs/:id", async (c) => {
   // refuse instead of silently overwriting their edits.
   const ifMatch = c.req.header("if-match");
   const expectedVersion = ifMatch != null ? Number(ifMatch) : undefined;
-  const result = db.saveGraph(parsed.data, Date.now(), ownerId, expectedVersion);
+  const result = await db.saveGraph(parsed.data, Date.now(), ownerId, expectedVersion);
   if (!result.ok) {
     if ("conflict" in result) {
       return c.json(
@@ -854,7 +857,7 @@ app.post("/api/compile", async (c) => {
   const parsed = Graph.safeParse(await c.req.json());
   if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
   const result = compile(parsed.data);
-  const modelDiags = validateModels(parsed.data, loadConfig(c.get("userId")));
+  const modelDiags = validateModels(parsed.data, await loadConfig(c.get("userId")));
   log.info("compile", {
     graphId: parsed.data.id,
     nodes: parsed.data.nodes.length,
@@ -894,8 +897,8 @@ function redactSearchConfigForUi(s: NonNullable<AppConfig["searchConfig"]>): Non
   return out;
 }
 
-app.get("/api/settings", (c) => {
-  const cfg = loadConfig(c.get("userId"));
+app.get("/api/settings", async (c) => {
+  const cfg = await loadConfig(c.get("userId"));
   // Never return raw API keys — redact for the UI.
   const redacted: AppConfig = {
     ...cfg,
@@ -914,7 +917,7 @@ app.get("/api/settings", (c) => {
 // records only (the userId query param is ignored — no cross-user leak);
 // owner/admin (design-rbac P3) see every user's rows, with an optional
 // userId filter. Newest first, cursor-paginated.
-app.get("/api/audit", (c) => {
+app.get("/api/audit", async (c) => {
   const userId = c.get("userId");
   const limit = Number(c.req.query("limit") ?? 100);
   const before = Number(c.req.query("before") ?? 0);
@@ -922,11 +925,11 @@ app.get("/api/audit", (c) => {
     limit: Number.isFinite(limit) ? limit : undefined,
     before: Number.isFinite(before) && before > 0 ? before : undefined,
   };
-  const role = db.findUserById(userId)?.role;
+  const role = (await db.findUserById(userId))?.role;
   if (role === "owner" || role === "admin") {
-    return c.json({ items: db.listAuditAdmin({ ...opts, userId: c.req.query("userId") || undefined }) });
+    return c.json({ items: await db.listAuditAdmin({ ...opts, userId: c.req.query("userId") || undefined }) });
   }
-  return c.json({ items: db.listAudit(userId, opts) });
+  return c.json({ items: await db.listAudit(userId, opts) });
 });
 
 // --- Admin operations (design-rbac P3) ------------------------------------
@@ -936,13 +939,13 @@ app.get("/api/audit", (c) => {
 // admins (who only gain cross-user audit viewing) get 403 here.
 
 /** RBAC P3: global role changes are the instance owner's exclusive power. */
-function isOwner(userId: string): boolean {
-  return db.findUserById(userId)?.role === "owner";
+async function isOwner(userId: string): Promise<boolean> {
+  return (await db.findUserById(userId))?.role === "owner";
 }
 
-app.get("/api/admin/users", (c) => {
-  if (!isOwner(c.get("userId"))) return c.json({ error: "forbidden" }, 403);
-  const users = db.listUsers().map((u) => ({
+app.get("/api/admin/users", async (c) => {
+  if (!(await isOwner(c.get("userId")))) return c.json({ error: "forbidden" }, 403);
+  const users = (await db.listUsers()).map((u) => ({
     id: u.id,
     email: u.email,
     role: u.role,
@@ -953,14 +956,14 @@ app.get("/api/admin/users", (c) => {
 
 app.post("/api/admin/users/:id/role", async (c) => {
   const callerId = c.get("userId");
-  if (!isOwner(callerId)) return c.json({ error: "forbidden" }, 403);
+  if (!(await isOwner(callerId))) return c.json({ error: "forbidden" }, 403);
   const body = (await c.req.json().catch(() => ({}))) as { role?: string };
   // Only "admin" | "user" are grantable — "owner" is bootstrapped, never
   // granted (idx_users_owner guards the single-owner invariant).
   if (body.role !== "admin" && body.role !== "user") {
     return c.json({ error: "role must be admin or user" }, 400);
   }
-  const target = db.findUserById(c.req.param("id"));
+  const target = await db.findUserById(c.req.param("id"));
   if (!target) return c.json({ error: "user not found" }, 404);
   // §9: the owner cannot be demoted; self-target is always the owner here.
   if (target.id === callerId || target.role === "owner") {
@@ -970,7 +973,7 @@ app.post("/api/admin/users/:id/role", async (c) => {
   if (target.role === body.role) {
     return c.json({ ok: true, role: target.role, unchanged: true });
   }
-  db.updateUserRole(target.id, body.role);
+  await db.updateUserRole(target.id, body.role);
   audit(db, callerId, "role.update", {
     objectType: "user",
     objectId: target.id,
@@ -985,14 +988,14 @@ app.post("/api/admin/users/:id/role", async (c) => {
  *  pending real cost data (design-monetization §6.2, §10.2). */
 app.post("/api/admin/users/:id/plan", async (c) => {
   const callerId = c.get("userId");
-  if (!isOwner(callerId)) return c.json({ error: "forbidden" }, 403);
+  if (!(await isOwner(callerId))) return c.json({ error: "forbidden" }, 403);
   const body = (await c.req.json().catch(() => ({}))) as { plan?: string; status?: string };
   if (!isPlanId(body.plan)) {
     return c.json({ error: "plan must be free | starter | pro | team" }, 400);
   }
-  const target = db.findUserById(c.req.param("id"));
+  const target = await db.findUserById(c.req.param("id"));
   if (!target) return c.json({ error: "user not found" }, 404);
-  db.saveSubscription(target.id, body.plan, body.status ?? "active");
+  await db.saveSubscription(target.id, body.plan, body.status ?? "active");
   audit(db, callerId, "plan.update", {
     objectType: "user",
     objectId: target.id,
@@ -1068,7 +1071,7 @@ app.post("/api/feedback", async (c) => {
     : "other";
   // Rate limit: submissions in the last rolling hour (DB-backed so a server
   // restart does not reset the quota).
-  if (db.countFeedbackSince(userId, Date.now() - 3_600_000) >= FEEDBACK_RATE_LIMIT) {
+  if (await db.countFeedbackSince(userId, Date.now() - 3_600_000) >= FEEDBACK_RATE_LIMIT) {
     return c.json({ error: "too many submissions, try again later" }, 429);
   }
   let attachment: Uint8Array | null = null;
@@ -1090,7 +1093,7 @@ app.post("/api/feedback", async (c) => {
     attachmentMime = mimeType;
   }
   const id = randomUUID();
-  db.insertFeedback({
+  await db.insertFeedback({
     id,
     userId,
     message,
@@ -1108,11 +1111,11 @@ app.post("/api/feedback", async (c) => {
   return c.json({ ok: true, id }, 201);
 });
 
-app.get("/api/feedback", (c) => {
-  if (!isAnnouncementAdmin(c.get("userId"))) return c.json({ error: "forbidden" }, 403);
+app.get("/api/feedback", async (c) => {
+  if (!(await isAnnouncementAdmin(c.get("userId")))) return c.json({ error: "forbidden" }, 403);
   const status = c.req.query("status");
   const limit = Number(c.req.query("limit") ?? 200);
-  const items = db.listFeedback({
+  const items = await db.listFeedback({
     status: status || undefined,
     limit: Number.isFinite(limit) ? limit : undefined,
   });
@@ -1122,9 +1125,9 @@ app.get("/api/feedback", (c) => {
 const FEEDBACK_STATUSES = new Set(["open", "acknowledged", "closed"]);
 
 app.patch("/api/feedback/:id", async (c) => {
-  if (!isAnnouncementAdmin(c.get("userId"))) return c.json({ error: "forbidden" }, 403);
+  if (!(await isAnnouncementAdmin(c.get("userId")))) return c.json({ error: "forbidden" }, 403);
   const id = c.req.param("id");
-  const item = db.getFeedback(id);
+  const item = await db.getFeedback(id);
   if (!item) return c.json({ error: "feedback not found" }, 404);
   const body = (await c.req.json().catch(() => ({}))) as { status?: unknown };
   if (typeof body.status !== "string" || !FEEDBACK_STATUSES.has(body.status)) {
@@ -1132,7 +1135,7 @@ app.patch("/api/feedback/:id", async (c) => {
   }
   // Idempotent no-op (role.update precedent): skip the UPDATE and the audit row.
   if (item.status === body.status) return c.json({ ok: true, unchanged: true });
-  db.updateFeedbackStatus(id, body.status);
+  await db.updateFeedbackStatus(id, body.status);
   audit(db, c.get("userId"), "feedback.status_change", {
     objectType: "feedback",
     objectId: id,
@@ -1143,9 +1146,9 @@ app.patch("/api/feedback/:id", async (c) => {
 });
 
 /** Raw attachment bytes for the admin UI (cookie auth flows with <img src>). */
-app.get("/api/feedback/:id/attachment", (c) => {
-  if (!isAnnouncementAdmin(c.get("userId"))) return c.json({ error: "forbidden" }, 403);
-  const item = db.getFeedback(c.req.param("id"));
+app.get("/api/feedback/:id/attachment", async (c) => {
+  if (!(await isAnnouncementAdmin(c.get("userId")))) return c.json({ error: "forbidden" }, 403);
+  const item = await db.getFeedback(c.req.param("id"));
   if (!item) return c.json({ error: "feedback not found" }, 404);
   const bytes = item.attachment as Uint8Array | null;
   if (!bytes || !bytes.byteLength) return c.json({ error: "no attachment" }, 404);
@@ -1180,17 +1183,20 @@ app.post("/api/feedback/announce", async (c) => {
     return c.json({ error: `feedbackIds must be at most ${FEEDBACK_ANNOUNCE_MAX} items` }, 400);
   }
   // Fail closed: unknown ids abort the whole merge (no partial apply).
-  const missing = ids.filter((id) => !db.getFeedback(id));
+  const missing: string[] = [];
+  for (const id of ids) {
+    if (!(await db.getFeedback(id))) missing.push(id);
+  }
   if (missing.length) return c.json({ error: "feedback not found" }, 404);
   const parsed = parseAnnouncementBody(body.announcement);
   if (!parsed.ok) return c.json({ error: parsed.error }, 400);
   const announcementId = randomUUID();
-  db.createAnnouncement({ id: announcementId, ...parsed.value });
+  await db.createAnnouncement({ id: announcementId, ...parsed.value });
   let closed = 0;
   for (const id of ids) {
-    const item = db.getFeedback(id);
+    const item = await db.getFeedback(id);
     if (item?.status === "closed") continue; // idempotent, not re-counted
-    db.updateFeedbackStatus(id, "closed");
+    await db.updateFeedbackStatus(id, "closed");
     closed++;
   }
   audit(db, c.get("userId"), "feedback.announce", {
@@ -1207,8 +1213,8 @@ app.post("/api/feedback/announce", async (c) => {
 // Admin gate (RBAC P0, design-rbac.md): global owner/admin roles decide who
 // manages announcements. The ANNOUNCEMENT_ADMIN_EMAILS env allowlist is
 // retired — owner is assigned at bootstrap, admins by owner via role grant.
-function isAnnouncementAdmin(userId: string): boolean {
-  const user = db.findUserById(userId);
+async function isAnnouncementAdmin(userId: string): Promise<boolean> {
+  const user = await db.findUserById(userId);
   return user?.role === "owner" || user?.role === "admin";
 }
 
@@ -1220,29 +1226,37 @@ function isAnnouncementAdmin(userId: string): boolean {
  * template. Unknown prefixes never match (fail closed), so a malformed row
  * is invisible rather than leaked to everyone.
  */
-function announcementTargetsUser(
+async function announcementTargetsUser(
   db: Db,
   userId: string,
   target: string | null | undefined,
-): boolean {
+): Promise<boolean> {
   if (target == null) return true;
   if (target.startsWith("graph:")) {
-    return graphAccessRole(db, userId, target.slice("graph:".length)) != null;
+    return await graphAccessRole(db, userId, target.slice("graph:".length)) != null;
   }
   if (target.startsWith("template:")) {
-    return db.userUsesTemplate(userId, target.slice("template:".length));
+    return await db.userUsesTemplate(userId, target.slice("template:".length));
   }
   return false;
 }
 
 /** Active announcements plus the caller's read state (idempotent display). */
-app.get("/api/announcements", (c) => {
+app.get("/api/announcements", async (c) => {
   const userId = c.get("userId");
   const now = Date.now();
-  const reads = db.announcementReads(userId);
-  const items = db
-    .listActiveAnnouncements(now)
-    .filter((a) => announcementTargetsUser(db, userId, a.target as string | null))
+  const reads = await db.announcementReads(userId);
+  const active = await db.listActiveAnnouncements(now);
+  const items = (
+    await Promise.all(
+      active.map(async (a) => ({
+        a,
+        include: await announcementTargetsUser(db, userId, a.target as string | null),
+      })),
+    )
+  )
+    .filter((r) => r.include)
+    .map((r) => r.a)
     .map((a) => ({
       id: a.id,
       level: a.level,
@@ -1262,7 +1276,7 @@ app.get("/api/announcements", (c) => {
 /** Full list (including not-yet-started / expired) for the admin manager UI. */
 app.get("/api/announcements/manage", async (c) => {
   if (!(await isAnnouncementAdmin(c.get("userId")))) return c.json({ error: "forbidden" }, 403);
-  const items = db.listAnnouncements().map((a) => ({
+  const items = (await db.listAnnouncements()).map((a) => ({
     id: a.id,
     level: a.level,
     startsAt: a.starts_at,
@@ -1277,11 +1291,11 @@ app.get("/api/announcements/manage", async (c) => {
   return c.json({ items });
 });
 
-app.post("/api/announcements/:id/read", (c) => {
+app.post("/api/announcements/:id/read", async (c) => {
   const userId = c.get("userId");
   const id = c.req.param("id");
-  if (!db.getAnnouncement(id)) return c.json({ error: "announcement not found" }, 404);
-  db.markAnnouncementRead(userId, id); // upsert → idempotent
+  if (!await db.getAnnouncement(id)) return c.json({ error: "announcement not found" }, 404);
+  await db.markAnnouncementRead(userId, id); // upsert → idempotent
   return c.json({ ok: true });
 });
 
@@ -1336,23 +1350,23 @@ app.post("/api/announcements", async (c) => {
   const parsed = parseAnnouncementBody(await c.req.json().catch(() => ({})));
   if (!parsed.ok) return c.json({ error: parsed.error }, 400);
   const id = randomUUID();
-  db.createAnnouncement({ id, ...parsed.value });
+  await db.createAnnouncement({ id, ...parsed.value });
   audit(db, c.get("userId"), "announcement.create", {
     objectType: "announcement",
     objectId: id,
     detail: { level: parsed.value.level },
     ip: clientIp(c),
   });
-  return c.json(db.getAnnouncement(id), 201);
+  return c.json(await db.getAnnouncement(id), 201);
 });
 
 app.patch("/api/announcements/:id", async (c) => {
   if (!(await isAnnouncementAdmin(c.get("userId")))) return c.json({ error: "forbidden" }, 403);
   const id = c.req.param("id");
-  if (!db.getAnnouncement(id)) return c.json({ error: "announcement not found" }, 404);
+  if (!await db.getAnnouncement(id)) return c.json({ error: "announcement not found" }, 404);
   const parsed = parseAnnouncementBody(await c.req.json().catch(() => ({})));
   if (!parsed.ok) return c.json({ error: parsed.error }, 400);
-  const ok = db.updateAnnouncement(id, parsed.value);
+  const ok = await db.updateAnnouncement(id, parsed.value);
   audit(db, c.get("userId"), "announcement.update", {
     objectType: "announcement",
     objectId: id,
@@ -1363,9 +1377,9 @@ app.patch("/api/announcements/:id", async (c) => {
 });
 
 app.delete("/api/announcements/:id", async (c) => {
-  if (!isAnnouncementAdmin(c.get("userId"))) return c.json({ error: "forbidden" }, 403);
+  if (!(await isAnnouncementAdmin(c.get("userId")))) return c.json({ error: "forbidden" }, 403);
   const id = c.req.param("id");
-  const ok = db.deleteAnnouncement(id);
+  const ok = await db.deleteAnnouncement(id);
   if (!ok) return c.json({ error: "announcement not found" }, 404);
   audit(db, c.get("userId"), "announcement.delete", {
     objectType: "announcement",
@@ -1383,7 +1397,7 @@ app.put("/api/settings", async (c) => {
     return c.json({ error: "Invalid settings payload", details: parsed.error.flatten() }, 400);
   }
   const body = parsed.data as Partial<AppConfig>;
-  const current = loadConfig(userId);
+  const current = await loadConfig(userId);
   const bodyProviders = body.providers ?? {};
   const mergedProviders: AppConfig["providers"] = {};
   // Always keep the internal fake provider.
@@ -1415,7 +1429,7 @@ app.put("/api/settings", async (c) => {
     }
     merged.searchConfig = mergedSearch;
   }
-  const path = saveConfig(merged, userId);
+  const path = await saveConfig(merged, userId);
   // Audit field PATHS only — never values (red line in design-audit-log §3.2).
   audit(db, userId, "settings.update", {
     objectType: "settings",
@@ -1456,7 +1470,7 @@ app.post("/api/providers/test", async (c) => {
   }
   let modality: Modality = body.modality ?? DEFAULT_MODALITY;
   const saved = body.providerName
-    ? loadConfig(c.get("userId")).providers[body.providerName]
+    ? (await loadConfig(c.get("userId"))).providers[body.providerName]
     : undefined;
   if (saved) modality = body.modality ?? modalityOf(saved, model);
 
@@ -1566,7 +1580,7 @@ app.post("/api/providers/test", async (c) => {
 });
 
 
-app.get("/api/runs", (c) => {
+app.get("/api/runs", async (c) => {
   const userId = c.get("userId");
   const limit = Number(c.req.query("limit") ?? 50);
   const offset = Number(c.req.query("offset") ?? 0);
@@ -1574,8 +1588,8 @@ app.get("/api/runs", (c) => {
   const status = c.req.query("status");
   // Runs of owned + shared graphs (design-rbac P1). Collaborators' runs are
   // saved under the graph owner, so we scope by visible graph ids, not user_id.
-  const graphIds = [...visibleGraphs(db, userId).keys()];
-  const { rows, total } = db.listRuns(userId, {
+  const graphIds = [...(await visibleGraphs(db, userId)).keys()];
+  const { rows, total } = await db.listRuns(userId, {
     limit,
     offset,
     graphId: graphId || undefined,
@@ -1585,20 +1599,20 @@ app.get("/api/runs", (c) => {
   return c.json({ runs: rows, total });
 });
 
-app.get("/api/runs/:id/stats", (c) => {
+app.get("/api/runs/:id/stats", async (c) => {
   const userId = c.get("userId");
   const runId = c.req.param("id");
-  if (!requireRun(db, userId, runId, "viewer")) return c.json({ error: "not found" }, 404);
-  return c.json(db.runStats(runId));
+  if (!await requireRun(db, userId, runId, "viewer")) return c.json({ error: "not found" }, 404);
+  return c.json(await db.runStats(runId));
 });
 
 /** The graph as it was when this run started (snapshot), used to render a
  *  historical run's finished product in the gallery. */
-app.get("/api/runs/:id/graph", (c) => {
+app.get("/api/runs/:id/graph", async (c) => {
   const userId = c.get("userId");
   const runId = c.req.param("id");
-  if (!requireRun(db, userId, runId, "viewer")) return c.json({ error: "not found" }, 404);
-  const run = db.getRunById(runId);
+  if (!await requireRun(db, userId, runId, "viewer")) return c.json({ error: "not found" }, 404);
+  const run = await db.getRunById(runId);
   if (!run) return c.json({ error: "not found" }, 404);
   try {
     return c.json(JSON.parse(run.snapshot));
@@ -1648,7 +1662,7 @@ app.get("/api/workers", (c) => c.json(workerRegistry.list()));
 /** Connected MCP servers and the tools they contributed as skill cards. */
 app.get("/api/mcp", (c) => c.json(mcpStatus));
 
-app.get("/api/costs", (c) => {
+app.get("/api/costs", async (c) => {
   const userId = c.get("userId");
   const from = c.req.query("from");
   const to = c.req.query("to");
@@ -1656,10 +1670,10 @@ app.get("/api/costs", (c) => {
   // Content-level attribution (F9): aggregate cost/GMV/ROI by artifact/product/
   // platform/variant from the content_costs snapshots.
   if (groupBy && ["artifact_id", "product_id", "platform", "variant"].includes(groupBy)) {
-    return c.json(db.aggregateContentCosts(userId, groupBy));
+    return c.json(await db.aggregateContentCosts(userId, groupBy));
   }
   return c.json(
-    db.costReport({
+    await db.costReport({
       userId,
       from: from ? Number(from) : undefined,
       to: to ? Number(to) : undefined,
@@ -1678,7 +1692,7 @@ app.post("/api/content-costs", async (c) => {
     gmv?: number;
     capturedAt?: number;
   };
-  const cost = db.insertContentCost({
+  const cost = await db.insertContentCost({
     id: randomUUID(),
     userId,
     artifactId: body.artifactId,
@@ -1692,9 +1706,9 @@ app.post("/api/content-costs", async (c) => {
   return c.json(cost, 201);
 });
 
-app.get("/api/content-costs", (c) => {
+app.get("/api/content-costs", async (c) => {
   const userId = c.get("userId");
-  return c.json(db.listContentCosts(userId));
+  return c.json(await db.listContentCosts(userId));
 });
 
 // --- Publish targets & open-channel publishing (F7-B) ---
@@ -1715,7 +1729,7 @@ app.post("/api/publish-targets", async (c) => {
   // metricsSecret is the inbound webhook secret for effect-feedback collection;
   // it rides inside the encrypted config like `token`.
   const configEncrypted = encryptString(JSON.stringify({ url: body.url, token: body.token ?? "", metricsSecret: body.metricsSecret ?? "" }));
-  const target = db.createPublishTarget({
+  const target = await db.createPublishTarget({
     id: randomUUID(),
     userId,
     platform: body.platform,
@@ -1734,9 +1748,9 @@ app.post("/api/publish-targets", async (c) => {
   return c.json(target, 201);
 });
 
-app.get("/api/publish-targets", (c) => {
+app.get("/api/publish-targets", async (c) => {
   const userId = c.get("userId");
-  const targets = db.listPublishTargets(userId).map((t) => {
+  const targets = (await db.listPublishTargets(userId)).map((t) => {
     let config: { url?: string; token?: string; metricsSecret?: string } = {};
     try {
       config = JSON.parse(decryptString(t.configEncrypted));
@@ -1748,10 +1762,10 @@ app.get("/api/publish-targets", (c) => {
   return c.json(targets);
 });
 
-app.delete("/api/publish-targets/:id", (c) => {
+app.delete("/api/publish-targets/:id", async (c) => {
   const userId = c.get("userId");
   const id = c.req.param("id");
-  const ok = db.deletePublishTarget(id, userId);
+  const ok = await db.deletePublishTarget(id, userId);
   if (ok) audit(db, userId, "publish_target.delete", { objectType: "publish_target", objectId: id, ip: clientIp(c) });
   return c.json({ ok });
 });
@@ -1767,7 +1781,7 @@ app.post("/api/publish", async (c) => {
     runId?: string;
     artifactId?: string;
   };
-  const target = db.listPublishTargets(userId).find((t) => t.id === body.targetId);
+  const target = (await db.listPublishTargets(userId)).find((t) => t.id === body.targetId);
   if (!target) return c.json({ error: "publish target not found" }, 404);
   let config: { url?: string; token?: string } = {};
   try {
@@ -1780,7 +1794,7 @@ app.post("/api/publish", async (c) => {
       { provider: target.provider, url: config.url ?? "", token: config.token },
       { title: body.title ?? "", body: body.body ?? "", tags: body.tags ?? [] },
     );
-    const record = db.insertPublishedContent({
+    const record = await db.insertPublishedContent({
       id: randomUUID(),
       userId,
       graphId: body.graphId,
@@ -1799,9 +1813,9 @@ app.post("/api/publish", async (c) => {
   }
 });
 
-app.get("/api/published", (c) => {
+app.get("/api/published", async (c) => {
   const userId = c.get("userId");
-  return c.json(db.listPublishedContents(userId));
+  return c.json(await db.listPublishedContents(userId));
 });
 
 // --- Metrics webhook (F6: effect-feedback auto-collection, read-only inbound) ---
@@ -1825,7 +1839,7 @@ app.post("/api/metrics/webhook/:targetId", async (c) => {
     }>;
   };
 
-  const target = db.getPublishTarget(targetId);
+  const target = await db.getPublishTarget(targetId);
   if (!target) return c.json({ error: "publish target not found" }, 404);
 
   let config: { metricsSecret?: string } = {};
@@ -1869,7 +1883,7 @@ app.post("/api/metrics/webhook/:targetId", async (c) => {
     const artifactId = m.artifact_id ? String(m.artifact_id) : null;
     // A metric that links to nothing is noise — skip it instead of inventing a row.
     if (!externalId && !artifactId) continue;
-    db.insertMetric({
+    await db.insertMetric({
       id: randomUUID(),
       userId: target.userId,
       artifactId,
@@ -1888,11 +1902,11 @@ app.post("/api/metrics/webhook/:targetId", async (c) => {
   return c.json({ inserted }, 201);
 });
 
-app.get("/api/costs.csv", (c) => {
+app.get("/api/costs.csv", async (c) => {
   const userId = c.get("userId");
   const from = c.req.query("from");
   const to = c.req.query("to");
-  const { byGraph, byNode, byDay } = db.costRows({
+  const { byGraph, byNode, byDay } = await db.costRows({
     userId,
     from: from ? Number(from) : undefined,
     to: to ? Number(to) : undefined,
@@ -1922,13 +1936,13 @@ app.get("/api/costs.csv", (c) => {
   });
 });
 
-app.get("/api/eval", (c) => {
+app.get("/api/eval", async (c) => {
   const userId = c.get("userId");
   const from = c.req.query("from");
   const to = c.req.query("to");
   const graphId = c.req.query("graphId");
   return c.json(
-    db.evalReport({
+    await db.evalReport({
       userId,
       graphId: graphId || undefined,
       from: from ? Number(from) : undefined,
@@ -1937,12 +1951,12 @@ app.get("/api/eval", (c) => {
   );
 });
 
-app.get("/api/eval.csv", (c) => {
+app.get("/api/eval.csv", async (c) => {
   const userId = c.get("userId");
   const from = c.req.query("from");
   const to = c.req.query("to");
   const graphId = c.req.query("graphId");
-  const rep = db.evalReport({
+  const rep = await db.evalReport({
     userId,
     graphId: graphId || undefined,
     from: from ? Number(from) : undefined,
@@ -2007,23 +2021,23 @@ app.post("/api/runs", async (c) => {
   };
   // Default to the most recently updated graph the caller can see (owned or
   // shared), so a collaborator with no owned graphs can still hit Run.
-  const visible = visibleGraphs(db, userId);
+  const visible = await visibleGraphs(db, userId);
   const graphId = body.graphId ?? [...visible.keys()][0];
   if (!graphId) return c.json({ error: "no graphs found — create one first" }, 400);
   // Running requires editor access. The run executes under the graph OWNER's
   // identity so config (models/keys), variables, banned terms, cost accounting,
   // and subgraph resolution stay consistent with the owner's context.
-  const access = requireGraph(db, userId, graphId, "editor");
+  const access = await requireGraph(db, userId, graphId, "editor");
   if (!access) {
-    return graphAccessRole(db, userId, graphId) == null
+    return await graphAccessRole(db, userId, graphId) == null
       ? c.json({ error: "not found" }, 404)
       : c.json({ error: "forbidden", message: "只读协作者不能运行产线" }, 403);
   }
   const ownerId = access.graphOwnerId;
-  const graph = db.getGraph(graphId, ownerId);
+  const graph = await db.getGraph(graphId, ownerId);
   if (!graph) return c.json({ error: "graph not found" }, 404);
 
-  const modelDiags = validateModels(graph, loadConfig(ownerId));
+  const modelDiags = validateModels(graph, await loadConfig(ownerId));
   const modelErrors = modelDiags.filter((d) => d.severity === "error");
   if (modelErrors.length > 0) {
     const summary =
@@ -2046,11 +2060,11 @@ app.post("/api/runs", async (c) => {
   if (process.env.MONETIZATION_ENFORCE === "1") {
     try {
       const periodStart = currentPeriodStart();
-      enforceSubscription(graph, loadConfig(ownerId), {
-        subscription: db.loadSubscription(ownerId),
+      enforceSubscription(graph, await loadConfig(ownerId), {
+        subscription: await db.loadSubscription(ownerId),
         usedTokens:
-          db.usageFor(ownerId, "tokens_in", periodStart) + db.usageFor(ownerId, "tokens_out", periodStart),
-        activeRuns: db.activeRuns(ownerId),
+          await db.usageFor(ownerId, "tokens_in", periodStart) + await db.usageFor(ownerId, "tokens_out", periodStart),
+        activeRuns: await db.activeRuns(ownerId),
       });
     } catch (err) {
       if (err instanceof QuotaError) {
@@ -2064,7 +2078,7 @@ app.post("/api/runs", async (c) => {
   // 返回第一次的 runId——堵「双击运行 / 重试建重复 run 重复烧钱」。
   const idempotencyKey = c.req.header("Idempotency-Key") || undefined;
   if (idempotencyKey) {
-    const existing = db.getIdempotentRun(userId, idempotencyKey);
+    const existing = await db.getIdempotentRun(userId, idempotencyKey);
     if (existing) {
       return c.json({ runId: existing, diagnostics: [], modelWarnings: modelDiags, replay: true });
     }
@@ -2091,7 +2105,7 @@ app.post("/api/runs", async (c) => {
       },
     });
     if (idempotencyKey) {
-      db.saveIdempotentRun(userId, idempotencyKey, runId);
+      await db.saveIdempotentRun(userId, idempotencyKey, runId);
     }
     // Audit records the actual operator, not the owner the ran as.
     audit(db, userId, "run.start", {
@@ -2121,14 +2135,14 @@ app.post("/api/batches", async (c) => {
   };
   const graphId = body.graphId;
   if (!graphId) return c.json({ error: "graphId required" }, 400);
-  const access = requireGraph(db, userId, graphId, "editor");
+  const access = await requireGraph(db, userId, graphId, "editor");
   if (!access) {
-    return graphAccessRole(db, userId, graphId) == null
+    return await graphAccessRole(db, userId, graphId) == null
       ? c.json({ error: "not found" }, 404)
       : c.json({ error: "forbidden", message: "只读协作者不能运行产线" }, 403);
   }
   const ownerId = access.graphOwnerId;
-  const graph = db.getGraph(graphId, ownerId);
+  const graph = await db.getGraph(graphId, ownerId);
   if (!graph) return c.json({ error: "graph not found" }, 404);
 
   let rows: Record<string, unknown>[] = body.rows ?? [];
@@ -2136,7 +2150,7 @@ app.post("/api/batches", async (c) => {
   if (rows.length === 0) return c.json({ error: "no rows to run" }, 400);
 
   const batchId = randomUUID();
-  db.createBatch({ id: batchId, userId: ownerId, graphId, sourceName: body.sourceName, rows });
+  await db.createBatch({ id: batchId, userId: ownerId, graphId, sourceName: body.sourceName, rows });
 
   const concurrency = Math.min(Math.max(body.concurrency ?? 2, 1), 8);
   void runBatch({
@@ -2154,31 +2168,31 @@ app.post("/api/batches", async (c) => {
   return c.json({ batchId }, 201);
 });
 
-app.get("/api/batches", (c) => {
+app.get("/api/batches", async (c) => {
   const userId = c.get("userId");
-  const graphIds = [...visibleGraphs(db, userId).keys()];
-  return c.json(db.listBatches(userId, graphIds));
+  const graphIds = [...(await visibleGraphs(db, userId)).keys()];
+  return c.json(await db.listBatches(userId, graphIds));
 });
 
-app.get("/api/batches/:id", (c) => {
+app.get("/api/batches/:id", async (c) => {
   const userId = c.get("userId");
-  const batch = db.getBatchUnscoped(c.req.param("id"));
+  const batch = await db.getBatchUnscoped(c.req.param("id"));
   if (!batch) return c.json({ error: "not found" }, 404);
-  if (!requireGraph(db, userId, batch.graphId, "viewer")) return c.json({ error: "not found" }, 404);
-  const items = db.listBatchItems(batch.id);
+  if (!await requireGraph(db, userId, batch.graphId, "viewer")) return c.json({ error: "not found" }, 404);
+  const items = await db.listBatchItems(batch.id);
   return c.json({ ...batch, items });
 });
 
 app.post("/api/batches/:id/items/:itemId/retry", async (c) => {
   const userId = c.get("userId");
-  const batch = db.getBatchUnscoped(c.req.param("id"));
+  const batch = await db.getBatchUnscoped(c.req.param("id"));
   if (!batch) return c.json({ error: "not found" }, 404);
-  const access = requireGraph(db, userId, batch.graphId, "editor");
+  const access = await requireGraph(db, userId, batch.graphId, "editor");
   if (!access) return c.json({ error: "not found" }, 404);
   const ownerId = access.graphOwnerId;
-  const graph = db.getGraph(batch.graphId, ownerId);
+  const graph = await db.getGraph(batch.graphId, ownerId);
   if (!graph) return c.json({ error: "graph not found" }, 404);
-  const item = db.listBatchItems(batch.id).find((i) => i.id === c.req.param("itemId"));
+  const item = (await db.listBatchItems(batch.id)).find((i) => i.id === c.req.param("itemId"));
   if (!item) return c.json({ error: "item not found" }, 404);
 
   const { runId } = await startRun({
@@ -2191,24 +2205,24 @@ app.post("/api/batches/:id/items/:itemId/retry", async (c) => {
     trigger: "batch-retry",
     input: JSON.stringify(item.input),
     publicUrl: PUBLIC_URL,
-    onFinish: (_gid, status) => {
-      if (status === "done") db.markBatchItemDone(item.id, null, []);
-      else db.markBatchItemFailed(item.id, `run ${status}`);
+    onFinish: async (_gid, status) => {
+      if (status === "done") await db.markBatchItemDone(item.id, null, []);
+      else await db.markBatchItemFailed(item.id, `run ${status}`);
     },
   });
-  db.markBatchItemRunning(item.id, runId);
+  await db.markBatchItemRunning(item.id, runId);
   return c.json({ runId });
 });
 
 // --- Content calendar (F8: scheduled publishing plan) ---
-app.get("/api/plan", (c) => {
+app.get("/api/plan", async (c) => {
   const userId = c.get("userId");
   const from = c.req.query("from");
   const to = c.req.query("to");
   const plans =
     from && to
-      ? db.listPlans(userId, Number(from), Number(to))
-      : db.listPlans(userId);
+      ? await db.listPlans(userId, Number(from), Number(to))
+      : await db.listPlans(userId);
   return c.json(plans);
 });
 
@@ -2225,7 +2239,7 @@ app.post("/api/plan", async (c) => {
   };
   if (!body.title?.trim()) return c.json({ error: "title required" }, 400);
   if (!body.scheduledAt) return c.json({ error: "scheduledAt required" }, 400);
-  const plan = db.createPlan({
+  const plan = await db.createPlan({
     id: randomUUID(),
     userId,
     graphId: body.graphId,
@@ -2252,16 +2266,16 @@ app.patch("/api/plan/:id", async (c) => {
     publishedUrl: string | null;
     note: string | null;
   }>;
-  const plan = db.updatePlan(c.req.param("id"), userId, body);
+  const plan = await db.updatePlan(c.req.param("id"), userId, body);
   if (!plan) return c.json({ error: "not found" }, 404);
   return c.json(plan);
 });
 
-app.delete("/api/plan/:id", (c) => {
+app.delete("/api/plan/:id", async (c) => {
   const userId = c.get("userId");
-  const plan = db.getPlan(c.req.param("id"), userId);
+  const plan = await db.getPlan(c.req.param("id"), userId);
   if (!plan) return c.json({ error: "not found" }, 404);
-  db.deletePlan(plan.id, userId);
+  await db.deletePlan(plan.id, userId);
   return c.body(null, 204);
 });
 
@@ -2284,7 +2298,7 @@ app.post("/api/metrics", async (c) => {
     adSpend?: number;
     recordedAt?: number;
   };
-  const metric = db.insertMetric({
+  const metric = await db.insertMetric({
     id: randomUUID(),
     userId,
     graphId: body.graphId,
@@ -2313,7 +2327,7 @@ app.post("/api/metrics/import", async (c) => {
   let imported = 0;
   for (const row of rows) {
     const num = (v: unknown) => (v === null || v === "" ? 0 : Number(v));
-    db.insertMetric({
+    await db.insertMetric({
       id: randomUUID(),
       userId,
       graphId: row.graph_id ? String(row.graph_id) : null,
@@ -2334,29 +2348,29 @@ app.post("/api/metrics/import", async (c) => {
   return c.json({ imported });
 });
 
-app.get("/api/metrics", (c) => {
+app.get("/api/metrics", async (c) => {
   const userId = c.get("userId");
-  return c.json(db.listMetrics(userId));
+  return c.json(await db.listMetrics(userId));
 });
 
-app.get("/api/performance", (c) => {
+app.get("/api/performance", async (c) => {
   const userId = c.get("userId");
   const groupBy = c.req.query("groupBy") ?? "graph_id";
-  return c.json(db.aggregatePerformance(userId, groupBy));
+  return c.json(await db.aggregatePerformance(userId, groupBy));
 });
 
 // --- Trigger management + webhook ---
-app.get("/api/graphs/:id/triggers", (c) => {
+app.get("/api/graphs/:id/triggers", async (c) => {
   const userId = c.get("userId");
   const graphId = c.req.param("id");
-  if (!requireGraph(db, userId, graphId, "viewer")) return c.json({ error: "graph not found" }, 404);
+  if (!await requireGraph(db, userId, graphId, "viewer")) return c.json({ error: "graph not found" }, 404);
   return c.json(triggers.listByGraph(graphId));
 });
 
 app.post("/api/graphs/:id/triggers", async (c) => {
   const userId = c.get("userId");
   const graphId = c.req.param("id");
-  if (!db.getGraph(graphId, userId)) return c.json({ error: "graph not found" }, 404);
+  if (!await db.getGraph(graphId, userId)) return c.json({ error: "graph not found" }, 404);
   const raw = (await c.req.json().catch(() => ({}))) as Partial<TriggerConfig>;
   const withId = raw.id ? raw : { ...raw, id: crypto.randomUUID() };
   const parsed = TriggerConfig.safeParse(withId);
@@ -2381,7 +2395,7 @@ app.post("/api/graphs/:id/triggers", async (c) => {
 app.delete("/api/graphs/:id/triggers/:tid", async (c) => {
   const userId = c.get("userId");
   const graphId = c.req.param("id");
-  if (!db.getGraph(graphId, userId)) return c.json({ error: "graph not found" }, 404);
+  if (!await db.getGraph(graphId, userId)) return c.json({ error: "graph not found" }, 404);
   const tid = c.req.param("tid");
   scheduler.unsync(tid);
   await triggers.remove(graphId, tid);
@@ -2389,10 +2403,10 @@ app.delete("/api/graphs/:id/triggers/:tid", async (c) => {
 });
 
 // Next cron fire times for the UI (4A.7).
-app.get("/api/graphs/:id/triggers/next-runs", (c) => {
+app.get("/api/graphs/:id/triggers/next-runs", async (c) => {
   const userId = c.get("userId");
   const graphId = c.req.param("id");
-  if (!requireGraph(db, userId, graphId, "viewer")) return c.json({ error: "graph not found" }, 404);
+  if (!await requireGraph(db, userId, graphId, "viewer")) return c.json({ error: "graph not found" }, 404);
   return c.json(triggers.nextRunMap(graphId));
 });
 
@@ -2401,7 +2415,7 @@ app.post("/api/graphs/:id/triggers/:tid/fire", async (c) => {
   const userId = c.get("userId");
   const graphId = c.req.param("id");
   const tid = c.req.param("tid");
-  if (!db.getGraph(graphId, userId)) return c.json({ error: "graph not found" }, 404);
+  if (!await db.getGraph(graphId, userId)) return c.json({ error: "graph not found" }, 404);
   const body = (await c.req.json().catch(() => ({}))) as { payload?: unknown };
   const trigger = triggers.get(tid);
   if (!trigger) return jsonResponse(404, { error: "trigger not found" });
@@ -2472,14 +2486,14 @@ app.post("/api/runs/ab", async (c) => {
   ) {
     return c.json({ error: "需要 graphId、targetNodeId 与至少 2 个 variants" }, 400);
   }
-  const access = requireGraph(db, userId, body.graphId, "editor");
+  const access = await requireGraph(db, userId, body.graphId, "editor");
   if (!access) {
-    return graphAccessRole(db, userId, body.graphId) == null
+    return await graphAccessRole(db, userId, body.graphId) == null
       ? c.json({ error: "not found" }, 404)
       : c.json({ error: "forbidden", message: "只读协作者不能运行产线" }, 403);
   }
   const ownerId = access.graphOwnerId;
-  const graph = db.getGraph(body.graphId, ownerId);
+  const graph = await db.getGraph(body.graphId, ownerId);
   if (!graph) return c.json({ error: "graph not found" }, 404);
   const target = graph.nodes.find((n) => n.id === body.targetNodeId);
   if (!target) return c.json({ error: "target node not found" }, 404);
@@ -2501,42 +2515,42 @@ app.post("/api/runs/ab", async (c) => {
   }
 });
 
-app.get("/api/ab/:groupId", (c) => {
+app.get("/api/ab/:groupId", async (c) => {
   const userId = c.get("userId");
   const groupId = c.req.param("groupId");
-  const graphId = db.abGroupGraphId(groupId);
-  if (!graphId || !requireGraph(db, userId, graphId, "viewer")) return c.json({ error: "not found" }, 404);
-  const ownerId = db.graphOwnerId(graphId)!;
-  const report = db.abReport(groupId, ownerId);
+  const graphId = await db.abGroupGraphId(groupId);
+  if (!graphId || !await requireGraph(db, userId, graphId, "viewer")) return c.json({ error: "not found" }, 404);
+  const ownerId = (await db.graphOwnerId(graphId))!;
+  const report = await db.abReport(groupId, ownerId);
   if (!report) return c.json({ error: "not found" }, 404);
   return c.json(report);
 });
 
-app.get("/api/brand-terms", (c) => {
+app.get("/api/brand-terms", async (c) => {
   const userId = c.get("userId");
-  return c.json(db.listBrandTerms(userId));
+  return c.json(await db.listBrandTerms(userId));
 });
 
 app.post("/api/brand-terms", async (c) => {
   const userId = c.get("userId");
   const body = (await c.req.json().catch(() => ({}))) as { term?: string; note?: string };
   if (!body.term?.trim()) return c.json({ error: "term required" }, 400);
-  return c.json(db.addBrandTerm(userId, body.term, body.note ?? ""), 201);
+  return c.json(await db.addBrandTerm(userId, body.term, body.note ?? ""), 201);
 });
 
-app.delete("/api/brand-terms/:id", (c) => {
+app.delete("/api/brand-terms/:id", async (c) => {
   const userId = c.get("userId");
-  db.deleteBrandTerm(c.req.param("id"), userId);
+  await db.deleteBrandTerm(c.req.param("id"), userId);
   return c.body(null, 204);
 });
 
 // --- Products (F4: reusable product library) ---
-app.get("/api/products", (c) => {
+app.get("/api/products", async (c) => {
   const userId = c.get("userId");
   const search = c.req.query("search");
   const category = c.req.query("category");
   const status = c.req.query("status");
-  return c.json(db.listProducts(userId, { search, category, status }));
+  return c.json(await db.listProducts(userId, { search, category, status }));
 });
 
 app.post("/api/products", async (c) => {
@@ -2552,7 +2566,7 @@ app.post("/api/products", async (c) => {
   };
   if (!body.name?.trim()) return c.json({ error: "name required" }, 400);
   try {
-    return c.json(db.addProduct(userId, { ...body, name: body.name }), 201);
+    return c.json(await db.addProduct(userId, { ...body, name: body.name }), 201);
   } catch (err) {
     return c.json({ error: err instanceof Error ? err.message : "invalid" }, 400);
   }
@@ -2578,7 +2592,7 @@ app.post("/api/products/import", async (c) => {
       if (!["name", "sku", "brand", "category", "price"].includes(k)) attributes[k] = v;
     }
     try {
-      const p = db.addProduct(userId, {
+      const p = await db.addProduct(userId, {
         name,
         sku: String(row.sku ?? ""),
         brand: String(row.brand ?? ""),
@@ -2596,9 +2610,9 @@ app.post("/api/products/import", async (c) => {
   return c.json({ ...report, products: created });
 });
 
-app.get("/api/products/export", (c) => {
+app.get("/api/products/export", async (c) => {
   const userId = c.get("userId");
-  const products = db.listProducts(userId);
+  const products = await db.listProducts(userId);
   const rows = products.map((p) => ({
     name: p.name,
     sku: p.sku,
@@ -2622,21 +2636,21 @@ app.patch("/api/products/:id", async (c) => {
     images?: string[];
     status?: "active" | "archived";
   };
-  const updated = db.updateProduct(c.req.param("id"), userId, body);
+  const updated = await db.updateProduct(c.req.param("id"), userId, body);
   if (!updated) return c.json({ error: "not found" }, 404);
   return c.json(updated);
 });
 
-app.delete("/api/products/:id", (c) => {
+app.delete("/api/products/:id", async (c) => {
   const userId = c.get("userId");
-  db.deleteProduct(c.req.param("id"), userId);
+  await db.deleteProduct(c.req.param("id"), userId);
   return c.body(null, 204);
 });
 
 // --- Brand assets (F4: reusable brand material) ---
-app.get("/api/brand-assets", (c) => {
+app.get("/api/brand-assets", async (c) => {
   const userId = c.get("userId");
-  return c.json(db.listBrandAssets(userId));
+  return c.json(await db.listBrandAssets(userId));
 });
 
 app.post("/api/brand-assets", async (c) => {
@@ -2649,7 +2663,7 @@ app.post("/api/brand-assets", async (c) => {
   };
   if (!body.label?.trim()) return c.json({ error: "label required" }, 400);
   return c.json(
-    db.addBrandAsset(userId, {
+    await db.addBrandAsset(userId, {
       type: body.type ?? "image",
       label: body.label,
       uri: body.uri ?? "",
@@ -2659,9 +2673,9 @@ app.post("/api/brand-assets", async (c) => {
   );
 });
 
-app.delete("/api/brand-assets/:id", (c) => {
+app.delete("/api/brand-assets/:id", async (c) => {
   const userId = c.get("userId");
-  db.deleteBrandAsset(c.req.param("id"), userId);
+  await db.deleteBrandAsset(c.req.param("id"), userId);
   return c.body(null, 204);
 });
 
@@ -2676,37 +2690,37 @@ app.get("/api/platforms", (c) => {
   });
 });
 
-app.get("/api/banned-terms", (c) => {
+app.get("/api/banned-terms", async (c) => {
   const userId = c.get("userId");
-  return c.json(db.listBannedTerms(userId));
+  return c.json(await db.listBannedTerms(userId));
 });
 
 app.post("/api/banned-terms", async (c) => {
   const userId = c.get("userId");
   const body = (await c.req.json().catch(() => ({}))) as { term?: string; note?: string };
   if (!body.term?.trim()) return c.json({ error: "term required" }, 400);
-  return c.json(db.addBannedTerm(userId, body.term, body.note ?? ""), 201);
+  return c.json(await db.addBannedTerm(userId, body.term, body.note ?? ""), 201);
 });
 
-app.delete("/api/banned-terms/:id", (c) => {
+app.delete("/api/banned-terms/:id", async (c) => {
   const userId = c.get("userId");
-  db.deleteBannedTerm(c.req.param("id"), userId);
+  await db.deleteBannedTerm(c.req.param("id"), userId);
   return c.body(null, 204);
 });
 
 // --- Graph versions (5.6) ---
-app.get("/api/graphs/:id/versions", (c) => {
+app.get("/api/graphs/:id/versions", async (c) => {
   const userId = c.get("userId");
   const graphId = c.req.param("id");
-  const access = requireGraph(db, userId, graphId, "viewer");
+  const access = await requireGraph(db, userId, graphId, "viewer");
   if (!access) return c.json({ error: "graph not found" }, 404);
-  const graph = db.getGraph(graphId, access.graphOwnerId);
+  const graph = await db.getGraph(graphId, access.graphOwnerId);
   if (!graph) return c.json({ error: "graph not found" }, 404);
   // Run-correlation hashes (design-versions §3): which snapshot matches what
   // actually ran last, and whether the live graph still matches it.
-  const latestRunHash = db.getLatestRunContentHash(graphId, access.graphOwnerId);
+  const latestRunHash = await db.getLatestRunContentHash(graphId, access.graphOwnerId);
   return c.json({
-    versions: db.listVersions(graphId, access.graphOwnerId),
+    versions: await db.listVersions(graphId, access.graphOwnerId),
     latestRunHash,
     currentHash: contentHash(JSON.stringify(graph)),
   });
@@ -2715,37 +2729,37 @@ app.get("/api/graphs/:id/versions", (c) => {
 app.post("/api/graphs/:id/versions", async (c) => {
   const userId = c.get("userId");
   const graphId = c.req.param("id");
-  const access = requireGraph(db, userId, graphId, "editor");
+  const access = await requireGraph(db, userId, graphId, "editor");
   if (!access) return c.json({ error: "graph not found" }, 404);
-  const graph = db.getGraph(graphId, access.graphOwnerId);
+  const graph = await db.getGraph(graphId, access.graphOwnerId);
   if (!graph) return c.json({ error: "graph not found" }, 404);
   const body = (await c.req.json().catch(() => ({}))) as { name?: string; note?: string };
   const name = body.name?.trim() || new Date().toLocaleString();
   const snapshot = JSON.stringify(graph);
-  const version = db.saveVersion(graphId, name, snapshot, body.note ?? "", contentHash(snapshot));
+  const version = await db.saveVersion(graphId, name, snapshot, body.note ?? "", contentHash(snapshot));
   return c.json(version, 201);
 });
 
-app.get("/api/graphs/:id/versions/:vid", (c) => {
+app.get("/api/graphs/:id/versions/:vid", async (c) => {
   const userId = c.get("userId");
   const graphId = c.req.param("id");
-  const access = requireGraph(db, userId, graphId, "viewer");
+  const access = await requireGraph(db, userId, graphId, "viewer");
   if (!access) return c.json({ error: "graph not found" }, 404);
-  const v = db.getVersion(c.req.param("vid"), access.graphOwnerId);
+  const v = await db.getVersion(c.req.param("vid"), access.graphOwnerId);
   if (!v) return c.json({ error: "version not found" }, 404);
   return c.json({ id: v.id, graphId: v.graph_id, name: v.name, note: v.note, createdAt: v.created_at, snapshot: JSON.parse(v.snapshot) });
 });
 
-app.post("/api/graphs/:id/versions/:vid/restore", (c) => {
+app.post("/api/graphs/:id/versions/:vid/restore", async (c) => {
   const userId = c.get("userId");
   const graphId = c.req.param("id");
-  const access = requireGraph(db, userId, graphId, "editor");
+  const access = await requireGraph(db, userId, graphId, "editor");
   if (!access) return c.json({ error: "graph not found" }, 404);
-  const v = db.getVersion(c.req.param("vid"), access.graphOwnerId);
+  const v = await db.getVersion(c.req.param("vid"), access.graphOwnerId);
   if (!v) return c.json({ error: "version not found" }, 404);
   if (v.graph_id !== graphId) return c.json({ error: "version does not belong to this graph" }, 400);
   const snapshot = JSON.parse(v.snapshot);
-  db.saveGraph(snapshot, Date.now(), access.graphOwnerId);
+  await db.saveGraph(snapshot, Date.now(), access.graphOwnerId);
   audit(db, userId, "graph.restore_version", {
     objectType: "graph",
     objectId: graphId,
@@ -2755,21 +2769,21 @@ app.post("/api/graphs/:id/versions/:vid/restore", (c) => {
   return c.json({ ok: true, graph: snapshot });
 });
 
-app.delete("/api/graphs/:id/versions/:vid", (c) => {
+app.delete("/api/graphs/:id/versions/:vid", async (c) => {
   const userId = c.get("userId");
   const graphId = c.req.param("id");
-  const access = requireGraph(db, userId, graphId, "editor");
+  const access = await requireGraph(db, userId, graphId, "editor");
   if (!access) return c.json({ error: "graph not found" }, 404);
-  db.deleteVersion(c.req.param("vid"), access.graphOwnerId);
+  await db.deleteVersion(c.req.param("vid"), access.graphOwnerId);
   return c.body(null, 204);
 });
 
-app.post("/api/runs/:id/cancel", (c) => {
+app.post("/api/runs/:id/cancel", async (c) => {
   const userId = c.get("userId");
   const runId = c.req.param("id");
   // Cancel is a write action: editor or owner. Viewers with read access get
   // 403; outsiders get 404 (no existence leak).
-  const role = runAccessRole(db, userId, runId);
+  const role = await runAccessRole(db, userId, runId);
   if (role == null) return c.json({ error: "not found" }, 404);
   if (!hasAtLeast(role, "editor")) return c.json({ error: "forbidden", message: "只读协作者不能取消运行" }, 403);
   const entry = live.get(runId);
@@ -2779,20 +2793,20 @@ app.post("/api/runs/:id/cancel", (c) => {
   return c.json({ ok: true });
 });
 
-app.delete("/api/runs/:id", (c) => {
+app.delete("/api/runs/:id", async (c) => {
   const userId = c.get("userId");
   const runId = c.req.param("id");
   // Only the graph owner may delete runs (design-rbac: editors can't delete).
-  const role = runAccessRole(db, userId, runId);
+  const role = await runAccessRole(db, userId, runId);
   if (role == null) return c.json({ error: "not found" }, 404);
   if (role !== "owner") return c.json({ error: "forbidden", message: "仅产线所有者可删除运行" }, 403);
-  const runOwnerId = db.getRunGraphRef(runId)!.userId;
+  const runOwnerId = (await db.getRunGraphRef(runId))!.userId;
   const entry = live.get(runId);
   if (entry && !entry.done) {
     return c.json({ error: "run is still in progress; cancel it first" }, 409);
   }
   live.delete(runId);
-  db.deleteRun(runId, runOwnerId);
+  await db.deleteRun(runId, runOwnerId);
   return c.json({ ok: true });
 });
 
@@ -2802,10 +2816,10 @@ app.post("/api/runs/:id/resume", async (c) => {
   const runId = c.req.param("id");
   // Resume is a write action: editor or owner. Runs execute under the run
   // owner's identity (same as startRun) so state stays consistent.
-  const role = runAccessRole(db, userId, runId);
+  const role = await runAccessRole(db, userId, runId);
   if (role == null) return c.json({ error: "not found" }, 404);
   if (!hasAtLeast(role, "editor")) return c.json({ error: "forbidden", message: "只读协作者不能恢复运行" }, 403);
-  const runOwnerId = db.getRunGraphRef(runId)!.userId;
+  const runOwnerId = (await db.getRunGraphRef(runId))!.userId;
 
   const body = (await c.req.json().catch(() => ({}))) as {
     action?: ResumeAction;
@@ -2860,13 +2874,13 @@ app.post("/api/runs/:id/resume", async (c) => {
  * longest-waiting first. The engine already halts and resumes; this only makes
  * the pending work discoverable outside a single run view.
  */
-app.get("/api/reviews/pending", (c) => {
+app.get("/api/reviews/pending", async (c) => {
   const userId = c.get("userId");
   const limit = Number(c.req.query("limit"));
   const offset = Number(c.req.query("offset"));
   const graphId = c.req.query("graphId") || undefined;
-  const graphIds = [...visibleGraphs(db, userId).keys()];
-  const { reviews, total } = listPendingReviews(db, userId, {
+  const graphIds = [...(await visibleGraphs(db, userId)).keys()];
+  const { reviews, total } = await listPendingReviews(db, userId, {
     ...(Number.isFinite(limit) && limit > 0 ? { limit } : {}),
     ...(Number.isFinite(offset) && offset > 0 ? { offset } : {}),
     ...(graphId ? { graphId } : {}),
@@ -2894,7 +2908,7 @@ app.post("/api/reviews/decide", async (c) => {
     try {
       // Each decision requires editor access to that run's graph; runs resume
       // under the run owner's identity.
-      const access = requireRun(db, userId, decision.runId, "editor");
+      const access = await requireRun(db, userId, decision.runId, "editor");
       if (!access) {
         results.push({ runId: decision.runId, ok: false, status: 404, error: "not found" });
         continue;
@@ -2937,11 +2951,11 @@ app.post("/api/reviews/decide", async (c) => {
 app.post("/api/runs/:id/rerun", async (c) => {
   const userId = c.get("userId");
   const runId = c.req.param("id");
-  const role = runAccessRole(db, userId, runId);
+  const role = await runAccessRole(db, userId, runId);
   if (role == null) return c.json({ error: "not found" }, 404);
   if (!hasAtLeast(role, "editor")) return c.json({ error: "forbidden", message: "只读协作者不能重跑运行" }, 403);
-  const runOwnerId = db.getRunGraphRef(runId)!.userId;
-  const run = db.getRunById(runId);
+  const runOwnerId = (await db.getRunGraphRef(runId))!.userId;
+  const run = await db.getRunById(runId);
   if (!run) return c.json({ error: "not found" }, 404);
   if (run.status === "running") return c.json({ error: "run is still live" }, 409);
   let graph: Graph;
@@ -2952,7 +2966,7 @@ app.post("/api/runs/:id/rerun", async (c) => {
   }
   if (!graph?.nodes?.length) return c.json({ error: "run snapshot is empty" }, 422);
 
-  const modelDiags = validateModels(graph, loadConfig(runOwnerId));
+  const modelDiags = validateModels(graph, await loadConfig(runOwnerId));
   const modelErrors = modelDiags.filter((d) => d.severity === "error");
   if (modelErrors.length > 0) {
     return c.json(
@@ -2993,10 +3007,10 @@ app.post("/api/runs/:id/rerun", async (c) => {
 });
 
 /** Full event log — the replay scrubber reads this. */
-app.get("/api/runs/:id/events", (c) => {
+app.get("/api/runs/:id/events", async (c) => {
   const userId = c.get("userId");
   const runId = c.req.param("id");
-  if (!requireRun(db, userId, runId, "viewer")) return c.json({ error: "not found" }, 404);
+  if (!await requireRun(db, userId, runId, "viewer")) return c.json({ error: "not found" }, 404);
 
   // Pagination: ?after=<seq> (exclusive) and ?limit=<n>. With no params the
   // full history is returned together with the reconstructed runtime state,
@@ -3005,7 +3019,7 @@ app.get("/api/runs/:id/events", (c) => {
   const afterRaw = c.req.query("after");
   const limitRaw = c.req.query("limit");
   if (afterRaw == null && limitRaw == null) {
-    const events = db.events(runId);
+    const events = await db.events(runId);
     return c.json({ events, state: replay(events) });
   }
 
@@ -3014,15 +3028,15 @@ app.get("/api/runs/:id/events", (c) => {
   if (!Number.isFinite(limit) || limit <= 0 || limit > 10000) {
     return c.json({ error: "limit must be between 1 and 10000" }, 400);
   }
-  const { events, nextCursor } = db.eventsRange(runId, after, limit);
+  const { events, nextCursor } = await db.eventsRange(runId, after, limit);
   return c.json({ events, after, nextCursor, hasMore: nextCursor != null });
 });
 
 /** Live stream. Resumes from `?after=<seq>` so a dropped connection loses nothing. */
-app.get("/api/runs/:id/stream", (c) => {
+app.get("/api/runs/:id/stream", async (c) => {
   const userId = c.get("userId");
   const runId = c.req.param("id");
-  if (!requireRun(db, userId, runId, "viewer")) return c.json({ error: "not found" }, 404);
+  if (!await requireRun(db, userId, runId, "viewer")) return c.json({ error: "not found" }, 404);
   // Resume point: explicit ?after= wins; otherwise honor the native
   // Last-Event-ID header the browser sends automatically when reconnecting to
   // a stream that carried `id:` frames.
@@ -3037,7 +3051,7 @@ app.get("/api/runs/:id/stream", (c) => {
   return streamSSE(c, async (stream) => {
     let cursor = after;
 
-    for (const event of db.events(runId)) {
+    for (const event of await db.events(runId)) {
       if (event.seq <= cursor) continue;
       await stream.writeSSE({ data: JSON.stringify(envelope(event)), id: String(event.seq) });
       cursor = event.seq;
@@ -3066,11 +3080,11 @@ app.get("/api/runs/:id/stream", (c) => {
 });
 
 /** Artifacts produced by a single run. */
-app.get("/api/runs/:id/artifacts", (c) => {
+app.get("/api/runs/:id/artifacts", async (c) => {
   const userId = c.get("userId");
   const runId = c.req.param("id");
-  if (!requireRun(db, userId, runId, "viewer")) return c.json({ error: "not found" }, 404);
-  return c.json(db.listArtifactsForRunUnscoped(runId));
+  if (!await requireRun(db, userId, runId, "viewer")) return c.json({ error: "not found" }, 404);
+  return c.json(await db.listArtifactsForRunUnscoped(runId));
 });
 
 /** Upload a raw product image/file. Returns a StoredArtifact with a /api/artifacts/:id URI. */
@@ -3100,18 +3114,18 @@ app.post("/api/artifacts/upload", async (c) => {
     mimeType: contentType,
     label: label || undefined,
   });
-  db.insertArtifact(saved, userId);
+  await db.insertArtifact(saved, userId);
   return c.json(saved, 201);
 });
 
 /** Cross-run artifact listing (latest first), for the product gallery. */
-app.get("/api/artifacts", (c) => {
+app.get("/api/artifacts", async (c) => {
   const userId = c.get("userId");
   const limit = Math.min(Number(c.req.query("limit") ?? 100), 500);
   const offset = Number(c.req.query("offset") ?? 0);
   // Include artifacts of shared graphs alongside the caller's own.
-  const graphIds = [...visibleGraphs(db, userId).keys()];
-  return c.json(db.listArtifacts(userId, limit, offset, graphIds));
+  const graphIds = [...(await visibleGraphs(db, userId)).keys()];
+  return c.json(await db.listArtifacts(userId, limit, offset, graphIds));
 });
 
 /**
@@ -3204,8 +3218,8 @@ app.get("/api/artifacts/:id", async (c) => {
   const id = c.req.param("id");
   // Access inherits from the artifact's graph (design-rbac P1). Uploads not
   // yet attached to a run fall back to ownership (artifact's own user_id).
-  if (artifactAccessRole(db, userId, id) == null) return c.json({ error: "not found" }, 404);
-  const meta = db.getArtifactUnscoped(id);
+  if (await artifactAccessRole(db, userId, id) == null) return c.json({ error: "not found" }, 404);
+  const meta = await db.getArtifactUnscoped(id);
   if (!meta) return c.json({ error: "not found" }, 404);
 
   if (meta.storage === "uri" && meta.uri) {
@@ -3229,7 +3243,7 @@ app.get("/api/artifacts/:id", async (c) => {
     // of its own. Follow that reference once (dogfood 2026-09-01: generated
     // images 404'd as "blob missing on disk" despite valid bytes on disk).
     const refId = decodeURIComponent(meta.uri.slice("/api/artifacts/".length));
-    const ref = refId && refId !== meta.id ? db.getArtifactUnscoped(refId) : null;
+    const ref = refId && refId !== meta.id ? await db.getArtifactUnscoped(refId) : null;
     if (ref && ref.storage === "local") {
       file = await artifacts.open(ref.runId, ref.id);
     }
@@ -3329,13 +3343,13 @@ if (process.env.NODE_ENV !== "test") {
     server.close();
     const graceMs = Number(process.env.AGENT_WORLD_SHUTDOWN_GRACE_MS ?? 10_000);
     const deadline = Date.now() + graceMs;
-    const drain = setInterval(() => {
+    const drain = setInterval(async () => {
       if (live.size > 0 && Date.now() < deadline) return;
       clearInterval(drain);
       for (const entry of live.values()) entry.controller.abort();
       disposeIsolatedWorkers();
       try {
-        db.close();
+        await db.close();
       } catch {
         /* already closed */
       }

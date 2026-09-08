@@ -18,8 +18,8 @@ beforeAll(async () => {
   db = openDb(process.env.DB_FILE!);
 });
 
-afterAll(() => {
-  db.close();
+afterAll(async () => {
+  await db.close();
   delete process.env.DB_FILE;
   delete process.env.ALLOW_REGISTRATION;
   rmSync(dir, { recursive: true, force: true });
@@ -60,7 +60,7 @@ describe("idempotent run creation (Idempotency-Key)", () => {
         { id: "e2", from: "a", to: "out", kind: "flow" },
       ],
     };
-    db.saveGraph(graph, Date.now(), userId);
+    await db.saveGraph(graph, Date.now(), userId);
 
     const run = (key: string) =>
       app.request("/api/runs", {

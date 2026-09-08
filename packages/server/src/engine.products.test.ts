@@ -130,7 +130,7 @@ async function runGraph(
   const loadProducts =
     opts.loadProducts ??
     (async () => ({ text: "# 复古托特包\n品牌：某某品牌", images: [], data: DATA }));
-  return collect(
+  return await collect(
     execute({
       runId: "r",
       graph,

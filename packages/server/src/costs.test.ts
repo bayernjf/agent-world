@@ -43,27 +43,27 @@ describe("cost report", () => {
   let dir: string;
   let db: ReturnType<typeof openDb>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     dir = mkdtempSync(join(tmpdir(), "aw-costs-"));
     db = openDb(join(dir, "test.sqlite"));
-    db.saveGraph(graph, 1, U);
+    await db.saveGraph(graph, 1, U);
   });
 
   afterEach(() => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("aggregates totals, per graph, per node, attempt, and day", () => {
-    db.createRun({ id: "r1", userId: U, graph, budgetUsd: null, at: DAY_MS * 10 });
-    db.record("r1", finished("n1", 1, 0.01, 1));
-    db.record("r1", finished("n1", 2, 0.005, 2));
-    db.finishRun("r1", U, "done", DAY_MS * 10 + 1000);
+  it("aggregates totals, per graph, per node, attempt, and day", async () => {
+    await db.createRun({ id: "r1", userId: U, graph, budgetUsd: null, at: DAY_MS * 10 });
+    await db.record("r1", finished("n1", 1, 0.01, 1));
+    await db.record("r1", finished("n1", 2, 0.005, 2));
+    await db.finishRun("r1", U, "done", DAY_MS * 10 + 1000);
 
-    db.createRun({ id: "r2", userId: U, graph, budgetUsd: null, at: DAY_MS * 20 });
-    db.record("r2", finished("n1", 1, 0.02, 1));
-    db.finishRun("r2", U, "done", DAY_MS * 20 + 1000);
+    await db.createRun({ id: "r2", userId: U, graph, budgetUsd: null, at: DAY_MS * 20 });
+    await db.record("r2", finished("n1", 1, 0.02, 1));
+    await db.finishRun("r2", U, "done", DAY_MS * 20 + 1000);
 
-    const rep = db.costReport();
+    const rep = await db.costReport();
     expect(rep.totals.runs).toBe(2);
     expect(rep.totals.cost_usd).toBeCloseTo(0.035, 5);
     expect(rep.totals.tokens_in).toBe(300);
@@ -93,41 +93,41 @@ describe("cost report", () => {
     expect(rep.byMonth[0].runs).toBe(2);
   });
 
-  it("filters by time range and excludes running runs", () => {
-    db.createRun({ id: "r1", userId: U, graph, budgetUsd: null, at: DAY_MS * 5 });
-    db.record("r1", finished("n1", 1, 0.01, 1));
-    db.finishRun("r1", U, "done", DAY_MS * 5 + 1000);
+  it("filters by time range and excludes running runs", async () => {
+    await db.createRun({ id: "r1", userId: U, graph, budgetUsd: null, at: DAY_MS * 5 });
+    await db.record("r1", finished("n1", 1, 0.01, 1));
+    await db.finishRun("r1", U, "done", DAY_MS * 5 + 1000);
 
-    db.createRun({ id: "r2", userId: U, graph, budgetUsd: null, at: DAY_MS * 100 });
-    db.record("r2", finished("n1", 1, 0.05, 1));
+    await db.createRun({ id: "r2", userId: U, graph, budgetUsd: null, at: DAY_MS * 100 });
+    await db.record("r2", finished("n1", 1, 0.05, 1));
 
-    const recent = db.costReport({ from: Date.now() });
+    const recent = await db.costReport({ from: Date.now() });
     expect(recent.totals.runs).toBe(0);
     expect(recent.totals.cost_usd).toBe(0);
 
-    const all = db.costReport();
+    const all = await db.costReport();
     expect(all.totals.runs).toBe(1);
     expect(all.totals.cost_usd).toBeCloseTo(0.01, 5);
   });
 
-  it("sums cost for a specific calendar month via costForMonth", () => {
+  it("sums cost for a specific calendar month via costForMonth", async () => {
     const now = new Date();
     const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
     const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1).getTime();
 
-    db.createRun({ id: "r1", userId: U, graph, budgetUsd: null, at: thisMonthStart + 1000 });
-    db.record("r1", finished("n1", 1, 0.01, 1));
-    db.finishRun("r1", U, "done", thisMonthStart + 2000);
+    await db.createRun({ id: "r1", userId: U, graph, budgetUsd: null, at: thisMonthStart + 1000 });
+    await db.record("r1", finished("n1", 1, 0.01, 1));
+    await db.finishRun("r1", U, "done", thisMonthStart + 2000);
 
-    db.createRun({ id: "r2", userId: U, graph, budgetUsd: null, at: lastMonthStart + 1000 });
-    db.record("r2", finished("n1", 1, 0.05, 1));
-    db.finishRun("r2", U, "done", lastMonthStart + 2000);
+    await db.createRun({ id: "r2", userId: U, graph, budgetUsd: null, at: lastMonthStart + 1000 });
+    await db.record("r2", finished("n1", 1, 0.05, 1));
+    await db.finishRun("r2", U, "done", lastMonthStart + 2000);
 
-    const spent = db.costForMonth(now.getFullYear(), now.getMonth() + 1);
+    const spent = await db.costForMonth(now.getFullYear(), now.getMonth() + 1);
     expect(spent).toBeCloseTo(0.01, 5);
 
     const last = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    const spentLast = db.costForMonth(last.getFullYear(), last.getMonth() + 1);
+    const spentLast = await db.costForMonth(last.getFullYear(), last.getMonth() + 1);
     expect(spentLast).toBeCloseTo(0.05, 5);
   });
 });
@@ -136,18 +136,18 @@ describe("eval report", () => {
   let dir: string;
   let db: ReturnType<typeof openDb>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     dir = mkdtempSync(join(tmpdir(), "aw-eval-"));
     db = openDb(join(dir, "test.sqlite"));
-    db.saveGraph(graph, 1, U);
+    await db.saveGraph(graph, 1, U);
   });
-  afterEach(() => {
-    db.close();
+  afterEach(async () => {
+    await db.close();
     rmSync(dir, { recursive: true, force: true });
   });
 
-  function nodeFinished(runId: string, nodeId: string, attempt: number, at: number) {
-    db.record(runId, {
+  async function nodeFinished(runId: string, nodeId: string, attempt: number, at: number) {
+    await db.record(runId, {
       seq: attempt,
       ts: at,
       version: 1,
@@ -159,19 +159,19 @@ describe("eval report", () => {
     } as RunEvent);
   }
 
-  it("aggregates pass rate, rework and duration", () => {
+  it("aggregates pass rate, rework and duration", async () => {
     // Passed run with one rework (n1 attempt 2).
-    db.createRun({ id: "r1", userId: U, graph, budgetUsd: null, at: 1000 });
-    nodeFinished("r1", "n1", 1, 1000);
-    nodeFinished("r1", "n1", 2, 1500);
-    db.finishRun("r1", U, "done", 2000);
+    await db.createRun({ id: "r1", userId: U, graph, budgetUsd: null, at: 1000 });
+    await nodeFinished("r1", "n1", 1, 1000);
+    await nodeFinished("r1", "n1", 2, 1500);
+    await db.finishRun("r1", U, "done", 2000);
 
     // Failed run.
-    db.createRun({ id: "r2", userId: U, graph, budgetUsd: null, at: 3000 });
-    nodeFinished("r2", "n1", 1, 3000);
-    db.finishRun("r2", U, "failed", 3500);
+    await db.createRun({ id: "r2", userId: U, graph, budgetUsd: null, at: 3000 });
+    await nodeFinished("r2", "n1", 1, 3000);
+    await db.finishRun("r2", U, "failed", 3500);
 
-    const rep = db.evalReport({ userId: U });
+    const rep = await db.evalReport({ userId: U });
     expect(rep.totals.runs).toBe(2);
     expect(rep.totals.passed).toBe(1);
     expect(rep.totals.passRate).toBeCloseTo(0.5, 5);
@@ -184,20 +184,20 @@ describe("eval report", () => {
     expect(rep.byDay).toHaveLength(1);
   });
 
-  it("filters by graph id", () => {
+  it("filters by graph id", async () => {
     const other: Graph = { id: "g2", name: "G2", nodes: [], edges: [] };
-    db.saveGraph(other, 2, U);
-    db.createRun({ id: "r1", userId: U, graph, budgetUsd: null, at: 1000 });
-    db.finishRun("r1", U, "done", 1500);
-    db.createRun({ id: "r2", userId: U, graph: other, budgetUsd: null, at: 2000 });
-    db.finishRun("r2", U, "failed", 2500);
+    await db.saveGraph(other, 2, U);
+    await db.createRun({ id: "r1", userId: U, graph, budgetUsd: null, at: 1000 });
+    await db.finishRun("r1", U, "done", 1500);
+    await db.createRun({ id: "r2", userId: U, graph: other, budgetUsd: null, at: 2000 });
+    await db.finishRun("r2", U, "failed", 2500);
 
-    const rep = db.evalReport({ userId: U, graphId: "g1" });
+    const rep = await db.evalReport({ userId: U, graphId: "g1" });
     expect(rep.totals.runs).toBe(1);
     expect(rep.totals.passRate).toBe(1);
   });
 
-  it("groups runs by prompt version for before/after comparison", () => {
+  it("groups runs by prompt version for before/after comparison", async () => {
     const makeGraph = (prompt: string): Graph => ({
       id: "g1",
       name: "G1",
@@ -208,16 +208,16 @@ describe("eval report", () => {
     });
 
     // v1 prompt -> run passes
-    db.createRun({ id: "r1", userId: U, graph: makeGraph("prompt v1"), budgetUsd: null, at: 1000 });
-    db.record("r1", { seq: 1, ts: 1000, version: 1, type: "node.finished", nodeId: "n1", attempt: 1, output: "ok", usage: { tokensIn: 1, tokensOut: 1, costUsd: 0 } } as RunEvent);
-    db.finishRun("r1", U, "done", 1500);
+    await db.createRun({ id: "r1", userId: U, graph: makeGraph("prompt v1"), budgetUsd: null, at: 1000 });
+    await db.record("r1", { seq: 1, ts: 1000, version: 1, type: "node.finished", nodeId: "n1", attempt: 1, output: "ok", usage: { tokensIn: 1, tokensOut: 1, costUsd: 0 } } as RunEvent);
+    await db.finishRun("r1", U, "done", 1500);
 
     // v2 prompt -> run fails
-    db.createRun({ id: "r2", userId: U, graph: makeGraph("prompt v2 — improved"), budgetUsd: null, at: 2000 });
-    db.record("r2", { seq: 1, ts: 2000, version: 1, type: "node.finished", nodeId: "n1", attempt: 1, output: "bad", usage: { tokensIn: 1, tokensOut: 1, costUsd: 0 } } as RunEvent);
-    db.finishRun("r2", U, "failed", 2500);
+    await db.createRun({ id: "r2", userId: U, graph: makeGraph("prompt v2 — improved"), budgetUsd: null, at: 2000 });
+    await db.record("r2", { seq: 1, ts: 2000, version: 1, type: "node.finished", nodeId: "n1", attempt: 1, output: "bad", usage: { tokensIn: 1, tokensOut: 1, costUsd: 0 } } as RunEvent);
+    await db.finishRun("r2", U, "failed", 2500);
 
-    const rep = db.evalReport({ userId: U });
+    const rep = await db.evalReport({ userId: U });
     expect(rep.byPrompt).toHaveLength(2);
     const versions = rep.byPrompt.map((p) => p.version).sort();
     expect(versions).toEqual(["v1", "v2"]);
@@ -234,40 +234,40 @@ describe("eval report quality score", () => {
   let dir: string;
   let db: ReturnType<typeof openDb>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     dir = mkdtempSync(join(tmpdir(), "aw-eval-"));
     db = openDb(join(dir, "test.sqlite"));
-    db.saveGraph(graph, 1, U);
+    await db.saveGraph(graph, 1, U);
   });
 
   afterEach(() => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("averages gate scores into the eval report", () => {
-    db.createRun({ id: "r1", userId: U, graph, budgetUsd: null, at: 1000 });
-    db.record("r1", { seq: 1, ts: 1000, version: 1, type: "node.started", nodeId: "critic", attempt: 1 } as RunEvent);
-    db.record("r1", { seq: 2, ts: 1000, version: 1, type: "gate.verdict", nodeId: "critic", attempt: 1, passed: true, reason: "ok", score: 7 } as RunEvent);
-    db.record("r1", { seq: 3, ts: 1000, version: 1, type: "node.started", nodeId: "critic", attempt: 2 } as RunEvent);
-    db.record("r1", { seq: 4, ts: 1000, version: 1, type: "gate.verdict", nodeId: "critic", attempt: 2, passed: true, reason: "ok", score: 9 } as RunEvent);
-    db.finishRun("r1", U, "done", 2000);
+  it("averages gate scores into the eval report", async () => {
+    await db.createRun({ id: "r1", userId: U, graph, budgetUsd: null, at: 1000 });
+    await db.record("r1", { seq: 1, ts: 1000, version: 1, type: "node.started", nodeId: "critic", attempt: 1 } as RunEvent);
+    await db.record("r1", { seq: 2, ts: 1000, version: 1, type: "gate.verdict", nodeId: "critic", attempt: 1, passed: true, reason: "ok", score: 7 } as RunEvent);
+    await db.record("r1", { seq: 3, ts: 1000, version: 1, type: "node.started", nodeId: "critic", attempt: 2 } as RunEvent);
+    await db.record("r1", { seq: 4, ts: 1000, version: 1, type: "gate.verdict", nodeId: "critic", attempt: 2, passed: true, reason: "ok", score: 9 } as RunEvent);
+    await db.finishRun("r1", U, "done", 2000);
 
-    db.createRun({ id: "r2", userId: U, graph, budgetUsd: null, at: 3000 });
-    db.record("r2", { seq: 1, ts: 3000, version: 1, type: "node.started", nodeId: "critic", attempt: 1 } as RunEvent);
-    db.record("r2", { seq: 2, ts: 3000, version: 1, type: "gate.verdict", nodeId: "critic", attempt: 1, passed: true, reason: "ok", score: 4 } as RunEvent);
-    db.finishRun("r2", U, "done", 4000);
+    await db.createRun({ id: "r2", userId: U, graph, budgetUsd: null, at: 3000 });
+    await db.record("r2", { seq: 1, ts: 3000, version: 1, type: "node.started", nodeId: "critic", attempt: 1 } as RunEvent);
+    await db.record("r2", { seq: 2, ts: 3000, version: 1, type: "gate.verdict", nodeId: "critic", attempt: 1, passed: true, reason: "ok", score: 4 } as RunEvent);
+    await db.finishRun("r2", U, "done", 4000);
 
-    const rep = db.evalReport({ userId: U });
+    const rep = await db.evalReport({ userId: U });
     expect(rep.totals.avgScore).toBeCloseTo(6, 5); // ((7+9)/2 + 4) / 2
     expect(rep.byGraph[0].avgScore).toBeCloseTo(6, 5);
   });
 
-  it("reports zero when no gate was scored", () => {
-    db.createRun({ id: "r1", userId: U, graph, budgetUsd: null, at: 1000 });
-    db.record("r1", finished("n1", 1, 0.01, 1));
-    db.finishRun("r1", U, "done", 2000);
+  it("reports zero when no gate was scored", async () => {
+    await db.createRun({ id: "r1", userId: U, graph, budgetUsd: null, at: 1000 });
+    await db.record("r1", finished("n1", 1, 0.01, 1));
+    await db.finishRun("r1", U, "done", 2000);
 
-    const rep = db.evalReport({ userId: U });
+    const rep = await db.evalReport({ userId: U });
     expect(rep.totals.avgScore).toBe(0);
   });
 });

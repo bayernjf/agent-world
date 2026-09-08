@@ -54,11 +54,11 @@ async function seedDb(path: string): Promise<void> {
   const { openDb } = await fresh<typeof import("./db.js")>("./db.js");
   const db = openDb(path);
   const graph = secretGraph();
-  db.saveGraph(graph, 0, "u1");
-  db.saveVersion("g1", "v1", JSON.stringify(graph));
-  db.saveAutoSnapshot("g1", JSON.stringify(graph), 0, 10);
-  db.createRun({ id: "run1", userId: "u1", graph, budgetUsd: null, at: 1, trigger: "manual" });
-  db.close();
+  await db.saveGraph(graph, 0, "u1");
+  await db.saveVersion("g1", "v1", JSON.stringify(graph));
+  await db.saveAutoSnapshot("g1", JSON.stringify(graph), 0, 10);
+  await db.createRun({ id: "run1", userId: "u1", graph, budgetUsd: null, at: 1, trigger: "manual" });
+  await db.close();
 
   const { encryptString } = await fresh<typeof import("./at-rest.js")>("./at-rest.js");
   const raw = new DatabaseSync(path);
@@ -147,7 +147,7 @@ describe("key rotation re-encryption (design-key-rotation P2)", () => {
     const atRest = await fresh<typeof import("./at-rest.js")>("./at-rest.js");
     const db = dbMod.openDb(path);
 
-    const loaded = db.getGraph("g1", "u1")!;
+    const loaded = await await await db.getGraph("g1", "u1")!;
     const nodes = loaded.nodes as unknown as Array<Record<string, any>>;
     expect(loaded.triggers?.[0]?.webhookSecret).toBe(WEBHOOK_SECRET);
     expect(nodes.find((n) => n.id === "aud")!.audioGen.apiKey).toBe(NODE_KEY);
@@ -156,14 +156,14 @@ describe("key rotation re-encryption (design-key-rotation P2)", () => {
 
     // Hashes are computed on plaintext, so the version panel's "matches what
     // ran" marker survives the re-keying untouched.
-    const versionHash = (db.listVersions("g1", "u1") as unknown as Array<{ contentHash: string }>)
+    const versionHash = (await db.listVersions("g1", "u1") as unknown as Array<{ contentHash: string }>)
       .find((v) => v.contentHash)?.contentHash;
-    expect(db.getLatestRunContentHash("g1", "u1")).toBe(versionHash);
+    expect(await db.getLatestRunContentHash("g1", "u1")).toBe(versionHash);
 
     // And the whole-column surfaces still decrypt to the original JSON.
     expect(atRest.decryptString(rawCell(path, `SELECT data AS v FROM settings WHERE user_id = 'u1'`))).toBe(SETTINGS_PLAINTEXT);
     expect(atRest.decryptString(rawCell(path, `SELECT config_encrypted AS v FROM publish_targets WHERE id = 't1'`))).toBe(PUBLISH_PLAINTEXT);
-    db.close();
+    await db.close();
   });
 
   it("is idempotent — a second run rewrites nothing", async () => {

@@ -65,9 +65,9 @@ describe("startABExperiment + abReport", () => {
       expect(arms.every((x) => typeof x.runId === "string" && x.runId.length > 0)).toBe(true);
 
       const deadline = Date.now() + 12000;
-      let report = db.abReport(abGroup, "u1");
+      let report = await db.abReport(abGroup, "u1");
       while (Date.now() < deadline) {
-        report = db.abReport(abGroup, "u1");
+        report = await db.abReport(abGroup, "u1");
         if (report && report.arms.length === 2 && report.arms.every((a) => a.done === a.runs && a.runs > 0)) {
           break;
         }
@@ -87,8 +87,8 @@ describe("startABExperiment + abReport", () => {
     expect(report.recommendedArm).not.toBeNull();
   });
 
-  it("abReport returns null for an unknown group", () => {
+  it("abReport returns null for an unknown group", async () => {
     const db = openDb(":memory:");
-    expect(db.abReport("does-not-exist", "u1")).toBeNull();
+    expect(await db.abReport("does-not-exist", "u1")).toBeNull();
   });
 });

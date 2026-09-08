@@ -26,8 +26,8 @@ beforeAll(async () => {
   db = openDb(process.env.DB_FILE!);
 });
 
-afterAll(() => {
-  db.close();
+afterAll(async () => {
+  await db.close();
   delete process.env.DB_FILE;
   delete process.env.ALLOW_REGISTRATION;
   rmSync(dir, { recursive: true, force: true });
@@ -73,7 +73,7 @@ describe("E2E smoke (HTTP core path)", () => {
         { id: "e2", from: "a", to: "out", kind: "flow" },
       ],
     };
-    db.saveGraph(graph, Date.now(), user.id);
+    await db.saveGraph(graph, Date.now(), user.id);
 
     // 4. 经 HTTP 跑产线
     const runRes = await app.request("/api/runs", {

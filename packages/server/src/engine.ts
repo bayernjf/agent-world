@@ -239,7 +239,7 @@ export interface ExecuteOptions {
    * a Graph. Injected by the HTTP layer (db lookup); absent in unit tests that
    * don't exercise subprocess nodes.
    */
-  loadSubgraph?: (graphId: string) => Graph | null;
+  loadSubgraph?: (graphId: string) => Promise<Graph | null>;
   /**
    * Graph variables for this run (cross-run persisted state). Passed by
    * reference: the engine mutates the same map the caller holds, so the caller
@@ -446,7 +446,7 @@ export interface SchedulerOptions {
   /** Tools the operator has approved for execution this run (4D.7 dangerous-action halt). */
   approveTools?: string[];
   /** Resolves a subprocess node's referenced graph (db lookup, injected by the HTTP layer). */
-  loadSubgraph?: (graphId: string) => Graph | null;
+  loadSubgraph?: (graphId: string) => Promise<Graph | null>;
   /** Subprocess call depth (0 at the top-level run); guards against recursion. */
   subprocessDepth?: number;
   /**
@@ -1662,7 +1662,7 @@ export interface ResumeOptions {
   /** Tool-call permission governance. Defaults to the env-derived config. */
   permissionConfig?: PermissionConfig;
   /** Resolves a subprocess node's referenced graph (db lookup, injected by the HTTP layer). */
-  loadSubgraph?: (graphId: string) => Graph | null;
+  loadSubgraph?: (graphId: string) => Promise<Graph | null>;
   /** User's banned-word library (comma-joined), merged into compliance nodes. */
   bannedTerms?: string;
   /** User's web search service (Settings), default beneath node-level search credentials. */

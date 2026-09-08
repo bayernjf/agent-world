@@ -26,7 +26,7 @@ export async function subprocessNode(ctx: NodeRunContext, node: GraphNode, nodeI
       });
       return;
     }
-    const childGraph = opts.loadSubgraph?.(cfg.graphId);
+    const childGraph = await opts.loadSubgraph?.(cfg.graphId);
     if (!childGraph) {
       states.set(nodeId, "failed");
       emit({

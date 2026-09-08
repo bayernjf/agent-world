@@ -521,7 +521,7 @@ describe("regression · engine core path", () => {
       db.exec(
         "CREATE TABLE feed (id INTEGER, msg TEXT); INSERT INTO feed VALUES (1,'hello'),(2,'world');",
       );
-      db.close();
+      await db.close();
 
       const graph: Graph = {
         id: "g-db",

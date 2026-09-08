@@ -61,7 +61,7 @@ export async function startABExperiment(
     const targetNode = graph.nodes.find((n) => n.id === opts.targetNodeId)!;
     const prompt = targetNode.textGen!.prompt;
 
-    db.createRun({
+    await db.createRun({
       id: runId,
       userId: opts.userId,
       graph,
@@ -85,13 +85,13 @@ export async function startABExperiment(
           budgetUsd: opts.budgetUsd ?? null,
           signal: opts.signal,
         })) {
-          db.record(runId, event);
+          await db.record(runId, event);
           if (event.type === "run.finished") {
-            db.finishRun(runId, opts.userId, event.status, Date.now(), haltedOf(event));
+            await db.finishRun(runId, opts.userId, event.status, Date.now(), haltedOf(event));
           }
         }
       } catch {
-        db.finishRun(runId, opts.userId, "failed", Date.now());
+        await db.finishRun(runId, opts.userId, "failed", Date.now());
       }
     })();
 

@@ -17,8 +17,8 @@ describe("publish targets db (F7-B)", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("creates, lists and deletes publish targets", () => {
-    const t = db.createPublishTarget({
+  it("creates, lists and deletes publish targets", async () => {
+    const t = await db.createPublishTarget({
       id: "t1",
       userId: "u1",
       platform: "wechat",
@@ -29,17 +29,17 @@ describe("publish targets db (F7-B)", () => {
     });
     expect(t.platform).toBe("wechat");
 
-    let rows = db.listPublishTargets("u1");
+    let rows = await db.listPublishTargets("u1");
     expect(rows).toHaveLength(1);
     expect(rows[0]!.provider).toBe("webhook");
 
-    expect(db.deletePublishTarget("t1", "u1")).toBe(true);
-    rows = db.listPublishTargets("u1");
+    expect(await db.deletePublishTarget("t1", "u1")).toBe(true);
+    rows = await db.listPublishTargets("u1");
     expect(rows).toHaveLength(0);
   });
 
-  it("records and lists published contents", () => {
-    db.insertPublishedContent({
+  it("records and lists published contents", async () => {
+    await db.insertPublishedContent({
       id: "p1",
       userId: "u1",
       graphId: "g1",
@@ -48,18 +48,18 @@ describe("publish targets db (F7-B)", () => {
       externalId: "ext-1",
       publishedAt: 1700000000000,
     });
-    const rows = db.listPublishedContents("u1");
+    const rows = await db.listPublishedContents("u1");
     expect(rows).toHaveLength(1);
     expect(rows[0]!.status).toBe("published");
     expect(rows[0]!.externalId).toBe("ext-1");
   });
 
-  it("scopes targets and contents by user", () => {
-    db.createPublishTarget({ id: "t1", userId: "u1", platform: "x", provider: "webhook", configEncrypted: "e", createdAt: 1 });
-    db.createPublishTarget({ id: "t2", userId: "u2", platform: "x", provider: "webhook", configEncrypted: "e", createdAt: 2 });
-    db.insertPublishedContent({ id: "p1", userId: "u1", status: "published" });
-    expect(db.listPublishTargets("u1")).toHaveLength(1);
-    expect(db.listPublishedContents("u2")).toHaveLength(0);
-    expect(db.deletePublishTarget("t2", "u1")).toBe(false); // wrong user
+  it("scopes targets and contents by user", async () => {
+    await db.createPublishTarget({ id: "t1", userId: "u1", platform: "x", provider: "webhook", configEncrypted: "e", createdAt: 1 });
+    await db.createPublishTarget({ id: "t2", userId: "u2", platform: "x", provider: "webhook", configEncrypted: "e", createdAt: 2 });
+    await db.insertPublishedContent({ id: "p1", userId: "u1", status: "published" });
+    expect(await db.listPublishTargets("u1")).toHaveLength(1);
+    expect(await db.listPublishedContents("u2")).toHaveLength(0);
+    expect(await db.deletePublishTarget("t2", "u1")).toBe(false); // wrong user
   });
 });

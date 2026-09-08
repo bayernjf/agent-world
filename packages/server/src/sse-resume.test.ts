@@ -26,7 +26,7 @@ beforeAll(async () => {
   process.env.NODE_ENV = "test";
   process.env.DB_FILE = tmp;
   const db = openDb(tmp);
-  db.createRun({
+  await db.createRun({
     id: RUN,
     userId: "u1",
     graph: { id: "g", nodes: [], edges: [] } as never,
@@ -42,10 +42,10 @@ beforeAll(async () => {
       nodeId: "n1",
       output: { text: `e${seq}` },
     } as unknown as RunEvent;
-    db.record(RUN, ev);
+    await db.record(RUN, ev);
   }
   authToken = await signToken("u1", "u1@local.dev");
-  db.close();
+  await db.close();
 });
 
 async function collect(

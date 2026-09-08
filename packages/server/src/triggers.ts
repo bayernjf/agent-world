@@ -31,9 +31,9 @@ export class TriggerError extends Error {
 
 /** Minimal graph store surface the service needs (keeps it testable without a real DB). */
 export interface TriggerGraphStore {
-  listAllGraphs(): Array<{ id: string; name: string; version: number; updated_at: number }>;
-  getGraphById(id: string): (Graph & { version: number }) | null;
-  saveGraphUnscoped(graph: Graph, at: number): unknown;
+  listAllGraphs(): Promise<Array<{ id: string; name: string; version: number; updated_at: number }>>;
+  getGraphById(id: string): Promise<(Graph & { version: number }) | null>;
+  saveGraphUnscoped(graph: Graph, at: number): Promise<unknown>;
 }
 
 export type StartRunFn = (
@@ -57,10 +57,10 @@ export class TriggerService {
   constructor(private deps: TriggerServiceDeps) {}
 
   /** Rebuild the in-memory index from persisted graphs. Call once at boot. */
-  restore(): void {
+  async restore(): Promise<void> {
     let disabledEmptySecret = 0;
-    for (const summary of this.deps.db.listAllGraphs()) {
-      const graph = this.deps.db.getGraphById(summary.id);
+    for (const summary of await this.deps.db.listAllGraphs()) {
+      const graph = await this.deps.db.getGraphById(summary.id);
       if (!graph) continue;
       for (const trigger of graph.triggers ?? []) {
         // H2: a webhook persisted with an empty secret is anonymously
@@ -107,20 +107,20 @@ export class TriggerService {
 
   /** Create or update a trigger on a graph, persisting the graph document. */
   async upsert(graphId: string, trigger: TriggerConfig): Promise<TriggerConfig> {
-    const graph = this.deps.db.getGraphById(graphId);
+    const graph = await this.deps.db.getGraphById(graphId);
     if (!graph) throw new TriggerError("graph not found", 404);
     const triggers = (graph.triggers ?? []).filter((t) => t.id !== trigger.id);
     triggers.push(trigger);
-    this.deps.db.saveGraphUnscoped({ ...graph, triggers }, Date.now());
+    await this.deps.db.saveGraphUnscoped({ ...graph, triggers }, Date.now());
     this.index.set(trigger.id, { graphId, trigger });
     return trigger;
   }
 
   async remove(graphId: string, triggerId: string): Promise<void> {
-    const graph = this.deps.db.getGraphById(graphId);
+    const graph = await this.deps.db.getGraphById(graphId);
     if (!graph) return;
     const triggers = (graph.triggers ?? []).filter((t) => t.id !== triggerId);
-    this.deps.db.saveGraphUnscoped({ ...graph, triggers }, Date.now());
+    await this.deps.db.saveGraphUnscoped({ ...graph, triggers }, Date.now());
     this.index.delete(triggerId);
   }
 
@@ -130,7 +130,7 @@ export class TriggerService {
     if (!entry || (graphId != null && entry.graphId !== graphId)) {
       throw new TriggerError("trigger not found", 404);
     }
-    const graph = this.deps.db.getGraphById(entry.graphId);
+    const graph = await this.deps.db.getGraphById(entry.graphId);
     if (!graph) throw new TriggerError("graph not found", 404);
     return this.deps.startRun(graph, { trigger: triggerId, input: payloadToInput(payload) });
   }
@@ -195,7 +195,7 @@ export class TriggerService {
     if (!entry) throw new TriggerError("trigger not found", 404);
     const trigger = entry.trigger;
     if (trigger.type !== "batch") throw new TriggerError("trigger is not a batch trigger", 400);
-    const graph = this.deps.db.getGraphById(entry.graphId);
+    const graph = await this.deps.db.getGraphById(entry.graphId);
     if (!graph) throw new TriggerError("graph not found", 404);
 
     const rows = this.resolveRows(trigger, payload);

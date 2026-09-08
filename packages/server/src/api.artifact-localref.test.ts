@@ -30,11 +30,11 @@ beforeAll(async () => {
   app = mod.app;
   db = openDb(process.env.DB_FILE!);
   store = new ArtifactStore(process.env.ARTIFACT_DIR!);
-  db.saveGraph(GRAPH, 1, "u-lref");
+  await db.saveGraph(GRAPH, 1, "u-lref");
 });
 
-afterAll(() => {
-  db.close();
+afterAll(async () => {
+  await db.close();
   delete process.env.DB_FILE;
   delete process.env.ARTIFACT_DIR;
   delete process.env.ALLOW_REGISTRATION;
@@ -56,8 +56,8 @@ async function register(email: string): Promise<string> {
 /** Seed the same two-row shape a generated image produces: an `up-…` row that
  *  owns the bytes, and a run row that only references it. */
 async function seedLocalRefPair(userEmail: string, runId: string): Promise<string> {
-  const user = db.findUserByEmail(userEmail)!;
-  db.createRun({ id: runId, userId: user.id, graph: GRAPH, budgetUsd: null, at: Date.now() });
+  const user = await await await db.findUserByEmail(userEmail)!;
+  await db.createRun({ id: runId, userId: user.id, graph: GRAPH, budgetUsd: null, at: Date.now() });
   const uploaded = await store.saveBinary({
     userId: user.id,
     data: PNG,
@@ -65,12 +65,12 @@ async function seedLocalRefPair(userEmail: string, runId: string): Promise<strin
     mimeType: "image/png",
     label: "AI 配图",
   });
-  db.insertArtifact(uploaded, user.id);
+  await db.insertArtifact(uploaded, user.id);
   const refRow = await store.save(
     { id: `${runId.slice(0, 8)}-banner-img-0`, kind: "image", uri: uploaded.uri ?? undefined, mimeType: "image/png", sizeBytes: PNG.length },
     { runId, nodeId: "banner" },
   );
-  db.insertArtifact(refRow, user.id);
+  await db.insertArtifact(refRow, user.id);
   return refRow.id;
 }
 

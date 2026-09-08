@@ -7,11 +7,11 @@ describe("feature flags", () => {
     expect(new Set(names).size).toBe(names.length);
   });
 
-  it("unknown flag fails closed", () => {
-    expect(isFeatureEnabled("nonexistent-flag", "u1")).toBe(false);
+  it("unknown flag fails closed", async () => {
+    expect(await isFeatureEnabled("nonexistent-flag", "u1")).toBe(false);
   });
 
-  it("rpa-metrics defaults to false (compliance risk, no override)", () => {
-    expect(isFeatureEnabled("rpa-metrics", "u1")).toBe(false);
+  it("rpa-metrics defaults to false (compliance risk, no override)", async () => {
+    expect(await isFeatureEnabled("rpa-metrics", "u1")).toBe(false);
   });
 });
