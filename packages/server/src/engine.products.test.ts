@@ -82,7 +82,7 @@ const DATA = [product("p1", "复古托特包", "某某品牌", 99.9), product("p
 
 function sourceNode(
   id: string,
-  opts: { connector?: "product"; productName?: string; brand?: string; audience?: string } = {},
+  opts: { connector?: "product"; productName?: string; brand?: string; audience?: string; notes?: string } = {},
 ): GraphNode {
   return {
     id,
@@ -95,6 +95,7 @@ function sourceNode(
       ...(opts.productName !== undefined ? { productName: opts.productName } : {}),
       ...(opts.brand !== undefined ? { brand: opts.brand } : {}),
       ...(opts.audience !== undefined ? { audience: opts.audience } : {}),
+      ...(opts.notes !== undefined ? { notes: opts.notes } : {}),
     },
   };
 }
@@ -117,7 +118,7 @@ function sinkNode(id: string): GraphNode {
 async function runGraph(
   nodes: GraphNode[],
   edges: { from: string; to: string }[],
-  opts: { loadProducts?: (c: unknown) => Promise<{ text: string; images: string[]; data?: unknown }>; worker?: Worker; sourceInput?: string } = {},
+  opts: { loadProducts?: (c: unknown) => Promise<{ text: string; images: string[]; data?: unknown }>; worker?: Worker; sourceInput?: string; log?: import("./logger.js").Logger } = {},
 ): Promise<RunEvent[]> {
   const graph: Graph = {
     id: "g",
@@ -140,8 +141,23 @@ async function runGraph(
       now: () => 0,
       loadProducts: loadProducts as never,
       input: opts.sourceInput,
+      ...(opts.log ? { log: opts.log } : {}),
     }),
   );
+}
+
+/** A logger that captures warn/info messages so guards can be asserted. */
+function captureLogger() {
+  const warns: string[] = [];
+  const infos: string[] = [];
+  const child = {
+    warn: (msg: string) => warns.push(msg),
+    info: (msg: string) => infos.push(msg),
+    debug: () => {},
+    error: () => {},
+  };
+  const logger = { child: () => child, ...child } as unknown as import("./logger.js").Logger;
+  return { logger, warns, infos };
 }
 
 describe("product connector (F4)", () => {
@@ -215,6 +231,17 @@ describe("product connector (F4)", () => {
 });
 
 describe("connector data interpolation (design-data-interpolation.md)", () => {
+  it("① resolves the global shortcut ${product.name} into a downstream prompt", async () => {
+    const w = echoPromptWorker();
+    const events = await runGraph(
+      [sourceNode("intake", { connector: "product" }), textGenNode("writer", "商品名：${product.name}，品牌：${product.brand}"), sinkNode("depot")],
+      [{ from: "intake", to: "writer" }, { from: "writer", to: "depot" }],
+      { worker: w },
+    );
+    expect(w.prompts()).toContain("商品名：复古托特包，品牌：某某品牌");
+    expect(textArtifact(events, "writer")).toContain("商品名：复古托特包，品牌：某某品牌");
+  });
+
   it("② resolves the namespace form ${intake.data[0].name}", async () => {
     const w = echoPromptWorker();
     const events = await runGraph(
@@ -236,6 +263,17 @@ describe("connector data interpolation (design-data-interpolation.md)", () => {
     const prompt = w.prompts()[0]!;
     expect(prompt).toContain("整包：");
     expect(prompt).toContain("复古托特包");
+  });
+
+  it("④ auto-fills empty fact fields (productName/brand) from data[0]", async () => {
+    // No productName/brand on the source → brief should pull them from data[0].
+    const events = await runGraph(
+      [sourceNode("intake", { connector: "product" }), textGenNode("writer", "brief：${intake}"), sinkNode("depot")],
+      [{ from: "intake", to: "writer" }, { from: "writer", to: "depot" }],
+    );
+    const content = textArtifact(events, "writer");
+    expect(content).toContain("商品名称：复古托特包");
+    expect(content).toContain("品牌/店铺：某某品牌");
   });
 
   it("⑤ user-provided fact field overrides the data fallback", async () => {
@@ -285,6 +323,55 @@ describe("connector data interpolation (design-data-interpolation.md)", () => {
     expect(w.prompts()).toContain("[]");
   });
 
+  it("⑨ a literal ${var.x} inside data is not expanded twice (re-entry guard)", async () => {
+    const w = echoPromptWorker();
+    const events = await runGraph(
+      [sourceNode("intake", { connector: "product" }), textGenNode("writer", "名=${product.name}"), sinkNode("depot")],
+      [{ from: "intake", to: "writer" }, { from: "writer", to: "depot" }],
+      {
+        worker: w,
+        loadProducts: async () => ({
+          text: "# 商品",
+          images: [],
+          data: [{ ...DATA[0], name: "商品${var.x}" }],
+        }),
+      },
+    );
+    expect(w.prompts()).toContain("名=商品${var.x}");
+    expect(textArtifact(events, "writer")).toContain("商品${var.x}");
+  });
+
+  it("⑩ branch numeric condition ${product.price} > 100 routes correctly", async () => {
+    const branch: GraphNode = {
+      id: "fork",
+      kind: "branch",
+      name: "分档",
+      x: 1,
+      y: 0,
+      branch: {
+        rules: [{ id: "r1", when: "${product.price} > 100", target: "high" }],
+        defaultTarget: "low",
+      },
+    };
+    const events = await runGraph(
+      [
+        sourceNode("intake", { connector: "product" }),
+        branch,
+        sinkNode("high"),
+        sinkNode("low"),
+      ],
+      [
+        { from: "intake", to: "fork" },
+        { from: "fork", to: "high" },
+        { from: "fork", to: "low" },
+      ],
+      { loadProducts: async () => ({ text: "# 商品", images: [], data: [{ ...DATA[0], price: 200 }] }) },
+    );
+    // price=200 > 100 → high lane routed, low lane skipped.
+    expect(events.some((e) => e.type === "packet.sent" && e.from === "fork" && e.to === "high")).toBe(true);
+    expect(events.some((e) => e.type === "node.skipped" && e.nodeId === "low")).toBe(true);
+  });
+
   it("⑪ a node literally named `product` wins over the global shortcut (ctx priority)", async () => {
     const w = echoPromptWorker();
     await runGraph(
@@ -302,6 +389,74 @@ describe("connector data interpolation (design-data-interpolation.md)", () => {
     // Node ctx entry (the brief text of the "product" node) wins over the
     // shortcut name — so `${product.name}` is empty and `${product}` is the brief.
     expect(w.prompts()[0]).toContain("name= whole=手填原料文本");
+  });
+});
+
+/**
+ * End-to-end integration tests (design-template-connector-presets.md §6).
+ *
+ * These deliberately drive the REAL chain `nodes/source.ts → buildSourceBrief →
+ * nodes/textGen.ts` through execute(), rather than calling buildSourceBrief as a
+ * pure function. A past regression deleted the third-argument call site while
+ * the pure-function unit tests stayed green — that class of "unit green,
+ * integration broken" drift is what this block guards against.
+ */
+describe("connector interpolation end-to-end (source → textGen chain)", () => {
+  it("E2E-1 empty product library falls back to manual input, finishes, and warns once", async () => {
+    const cap = captureLogger();
+    const events = await runGraph(
+      [sourceNode("intake", { connector: "product" }), textGenNode("writer", "写：${intake}"), sinkNode("depot")],
+      [{ from: "intake", to: "writer" }, { from: "writer", to: "depot" }],
+      {
+        log: cap.logger,
+        sourceInput: "我手动填的原料",
+        loadProducts: async () => ({ text: "", images: [], data: [] }),
+      },
+    );
+    // Run completes (no failed node) and the manual input survives into the brief.
+    expect(events.some((e) => e.type === "node.failed")).toBe(false);
+    expect(events.some((e) => e.type === "run.finished")).toBe(true);
+    expect(textArtifact(events, "writer")).toContain("我手动填的原料");
+    // Exactly one empty-data warn, visible instead of a silent empty string.
+    expect(cap.warns.filter((m) => m.includes("empty data")).length).toBe(1);
+  });
+
+  it("E2E-2 interpolates ${product.name} inside a brief field (D5) before fallback merge", async () => {
+    const events = await runGraph(
+      [
+        sourceNode("intake", { connector: "product", notes: "主推卖点围绕 ${product.name}（${product.brand}）" }),
+        textGenNode("writer", "brief：${intake}"),
+        sinkNode("depot"),
+      ],
+      [{ from: "intake", to: "writer" }, { from: "writer", to: "depot" }],
+    );
+    const brief = textArtifact(events, "writer");
+    expect(brief).toContain("主推卖点围绕 复古托特包（某某品牌）");
+  });
+
+  it("E2E-3 source brief carries fact fallback rows AND downstream prompt gets the shortcut", async () => {
+    const w = echoPromptWorker();
+    const events = await runGraph(
+      [sourceNode("intake", { connector: "product" }), textGenNode("writer", "商品=${product.name}"), sinkNode("depot")],
+      [{ from: "intake", to: "writer" }, { from: "writer", to: "depot" }],
+      { worker: w },
+    );
+    // Source artifact: D4 fallback rows.
+    const sourceBrief = textArtifact(events, "intake");
+    expect(sourceBrief).toContain("商品名称：复古托特包");
+    expect(sourceBrief).toContain("品牌/店铺：某某品牌");
+    // Downstream prompt: D3 shortcut substitution on the real chain.
+    expect(w.prompts()).toContain("商品=复古托特包");
+  });
+
+  it("E2E-4 dangling ${product.name} with no product source logs a guard warning", async () => {
+    const cap = captureLogger();
+    await runGraph(
+      [sourceNode("intake"), textGenNode("writer", "[${product.name}]"), sinkNode("depot")],
+      [{ from: "intake", to: "writer" }, { from: "writer", to: "depot" }],
+      { log: cap.logger, sourceInput: "纯手动", loadProducts: async () => ({ text: "纯手动", images: [] }) },
+    );
+    expect(cap.warns.some((m) => m.includes("has no product connector source"))).toBe(true);
   });
 });
 
