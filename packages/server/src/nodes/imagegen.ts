@@ -52,7 +52,7 @@ export async function imageGenNode(ctx: NodeRunContext, node: GraphNode, nodeId:
     artifacts.set(nodeId, imageArts);
     ctx.totalCostUsd += usage.costUsd;
     emit({ type: "power.metered", totalCostUsd: ctx.totalCostUsd, budgetUsd });
-    emit({ type: "node.finished", nodeId, attempt, output: "", usage });
+    emit({ type: "node.finished", nodeId, attempt, output: "", usage: { ...usage, model: cfg.model } });
     states.set(nodeId, "done");
     sendPackets(nodeId, `生成配图 ${results.length} 张`, "image");
   } catch (err) {

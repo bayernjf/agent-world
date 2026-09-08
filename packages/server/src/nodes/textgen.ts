@@ -258,7 +258,7 @@
 
   setTextArtifact(artifacts, nodeId, result.output);
   states.set(nodeId, "done");
-  emit({ type: "node.finished", nodeId, attempt, output: result.output, usage: result.usage });
+  emit({ type: "node.finished", nodeId, attempt, output: result.output, usage: { ...result.usage, model: config.model } });
   const primaryKind = produceArtifacts(nodeId, result.output, attempt);
 
   // Cost accounting runs in a single synchronous block so concurrent

@@ -129,6 +129,7 @@ CREATE TABLE IF NOT EXISTS node_runs (
   reasoning_tokens INTEGER NOT NULL DEFAULT 0,
   cost_usd       REAL NOT NULL DEFAULT 0,
   units_json     TEXT,
+  model          TEXT,
   score          REAL,
   PRIMARY KEY (run_id, node_id, attempt, variant)
 );
@@ -788,7 +789,7 @@ export function createDriver(
        ON CONFLICT(run_id, node_id, attempt, variant) DO UPDATE SET status = excluded.status`,
     appendReasoning: `UPDATE node_runs SET reasoning = COALESCE(reasoning, '') || ? WHERE run_id = ? AND node_id = ? AND attempt = ? AND variant = ?`,
     finishNodeRun: `UPDATE node_runs SET status = ?, output = ?, tokens_in = ?, tokens_out = ?,
-        cached_tokens = ?, reasoning_tokens = ?, cost_usd = ?, units_json = ?
+        cached_tokens = ?, reasoning_tokens = ?, cost_usd = ?, units_json = ?, model = ?
        WHERE run_id = ? AND node_id = ? AND attempt = ? AND variant = ?`,
     failNodeRun: `UPDATE node_runs SET status = 'failed', error = ?, error_code = ? WHERE run_id = ? AND node_id = ? AND attempt = ? AND variant = ?`,
     setNodeScore: `UPDATE node_runs SET score = ? WHERE run_id = ? AND node_id = ? AND attempt = ? AND variant = ?`,
@@ -1319,7 +1320,7 @@ export function createDriver(
           break;
         case "node.finished":
           await exec.run(stmts.upsertNodeRun, [runId, event.nodeId, event.attempt, event.variant ?? "main", "done"]);
-          await exec.run(stmts.finishNodeRun, ["done", event.output, event.usage.tokensIn, event.usage.tokensOut, event.usage.cachedTokens ?? 0, event.usage.reasoningTokens ?? 0, event.usage.costUsd, event.usage.units ? JSON.stringify(event.usage.units) : null, runId, event.nodeId, event.attempt, event.variant ?? "main"]);
+          await exec.run(stmts.finishNodeRun, ["done", event.output, event.usage.tokensIn, event.usage.tokensOut, event.usage.cachedTokens ?? 0, event.usage.reasoningTokens ?? 0, event.usage.costUsd, event.usage.units ? JSON.stringify(event.usage.units) : null, event.usage.model ?? null, runId, event.nodeId, event.attempt, event.variant ?? "main"]);
           break;
         case "node.failed":
           await exec.run(stmts.upsertNodeRun, [runId, event.nodeId, event.attempt, event.variant ?? "main", "failed"]);
@@ -1499,6 +1500,28 @@ export function createDriver(
         reworks: number;
       }>;
 
+      // Per-model spend, the axis a built-in-model subscription has to be
+      // priced against. Rows predating node_runs.model have NULL and are
+      // grouped under '(未记录模型)' rather than silently dropped, so the
+      // per-model figures always reconcile with the totals above.
+      const byModel = await exec.all(`SELECT COALESCE(n.model, '(未记录模型)') AS model,
+             COUNT(*) AS calls,
+             COUNT(DISTINCT n.run_id)       AS runs,
+             COALESCE(SUM(n.cost_usd), 0)   AS cost_usd,
+             COALESCE(SUM(n.tokens_in), 0)  AS tokens_in,
+             COALESCE(SUM(n.tokens_out), 0) AS tokens_out
+           FROM node_runs n JOIN runs r ON r.id = n.run_id
+           ${clause}
+           GROUP BY COALESCE(n.model, '(未记录模型)')
+           ORDER BY cost_usd DESC`, [...params]) as Array<{
+        model: string;
+        calls: number;
+        runs: number;
+        cost_usd: number;
+        tokens_in: number;
+        tokens_out: number;
+      }>;
+
       const byAttempt = await exec.all(`SELECT n.attempt AS attempt,
              COUNT(*) AS calls,
              COALESCE(SUM(n.cost_usd), 0)   AS cost_usd,
@@ -1588,13 +1611,13 @@ export function createDriver(
         node_name: nodeNames.get(`${n.graph_id}:${n.node_id}`) ?? n.node_id,
       }));
 
-      return { totals, byGraph, byNode: byNodeNamed, byAttempt, byDay, byWeek, byMonth };
+      return { totals, byGraph, byNode: byNodeNamed, byModel, byAttempt, byDay, byWeek, byMonth };
     },
 
     /** Raw rows for CSV export — same aggregation as costReport, flat shape. */
     async costRows(opts: { from?: number; to?: number; userId?: string } = {}) {
-      const { byGraph, byNode, byAttempt, byDay } = await this.costReport(opts);
-      return { byGraph, byNode, byAttempt, byDay };
+      const { byGraph, byNode, byModel, byAttempt, byDay } = await this.costReport(opts);
+      return { byGraph, byNode, byModel, byAttempt, byDay };
     },
 
     /**
@@ -3307,6 +3330,15 @@ const MIGRATIONS: Migration[] = [
     down: (db) => {
       db.exec("DROP TABLE IF EXISTS idempotency_keys");
     },
+  },
+  {
+    version: 36,
+    // Cost per model is the axis pricing decisions need, and it cannot be
+    // recovered from events recorded before this column existed.
+    description: "node_runs.model for per-model cost attribution",
+    detect: (db) => columnExists(db, "node_runs", "model"),
+    up: (db) => db.exec("ALTER TABLE node_runs ADD COLUMN model TEXT"),
+    down: (db) => db.exec("ALTER TABLE node_runs DROP COLUMN model"),
   },
 ];
 
