@@ -291,18 +291,33 @@ const DEFAULTS: Record<NodeKind, Partial<GraphNode>> = {
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 const historyBatch = { depth: 0, start: null as Graph | null };
 
+// Saves are serialized: a debounced auto-save and a flushSave issued while the
+// auto-save's PUT is still in flight would race on the server (the unconditional
+// upsert bumps the version, the conditional PUT then 409s on the stale If-Match).
+let saveChain: Promise<unknown> = Promise.resolve();
+function enqueueSave(task: () => Promise<void>): Promise<void> {
+  const run = saveChain.then(task, task);
+  saveChain = run.catch(() => undefined);
+  return run;
+}
+
 function scheduleSave(graph: Graph) {
   if (useGraph.getState().readOnly) return;
   if (saveTimer) clearTimeout(saveTimer);
   useGraph.setState({ saveState: "saving" });
-  saveTimer = setTimeout(async () => {
-    try {
-      await api.saveGraph(graph);
-      useGraph.setState({ saveState: "saved" });
-    } catch (err) {
-      console.error("auto-save failed", err);
-      useGraph.setState({ saveState: "error" });
-    }
+  saveTimer = setTimeout(() => {
+    saveTimer = null;
+    void enqueueSave(async () => {
+      try {
+        const res = await api.saveGraph(graph);
+        // Track the server version: the upsert bumped it, and the next
+        // conditional save (flushSave) would 409 on a stale If-Match.
+        useGraph.setState({ saveState: "saved", serverVersion: res.version });
+      } catch (err) {
+        console.error("auto-save failed", err);
+        useGraph.setState({ saveState: "error" });
+      }
+    });
   }, 500);
 }
 
@@ -685,19 +700,23 @@ export const useGraph = create<GraphState>()(
           clearTimeout(saveTimer);
           saveTimer = null;
         }
-        const graph = get().graph;
-        const version = get().serverVersion;
-        useGraph.setState({ saveState: "saving" });
-        try {
-          const res = await api.saveGraph(graph, version);
-          useGraph.setState({ saveState: "saved", serverVersion: res.version });
-        } catch (err) {
-          console.error("flush save failed", err);
-          useGraph.setState({
-            saveState: err instanceof GraphConflictError ? "conflict" : "error",
-          });
-          throw err; // M22: rethrow so callers (switch-graph) can react to failure
-        }
+        // Serialized with pending auto-saves so this conditional PUT carries an
+        // If-Match that reflects every save the server has already accepted.
+        await enqueueSave(async () => {
+          const graph = get().graph;
+          const version = get().serverVersion;
+          useGraph.setState({ saveState: "saving" });
+          try {
+            const res = await api.saveGraph(graph, version);
+            useGraph.setState({ saveState: "saved", serverVersion: res.version });
+          } catch (err) {
+            console.error("flush save failed", err);
+            useGraph.setState({
+              saveState: err instanceof GraphConflictError ? "conflict" : "error",
+            });
+            throw err; // M22: rethrow so callers (switch-graph) can react to failure
+          }
+        });
       },
     }),
     // Only the document is undoable; selection and save state are view state.
