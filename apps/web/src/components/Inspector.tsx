@@ -207,10 +207,15 @@ export default function Inspector({
   };
 
   useEffect(() => {
-    api
-      .getSettings()
-      .then(setSettings)
-      .catch(() => {});
+    const load = () => {
+      api.getSettings().then(setSettings).catch(() => {});
+    };
+    load();
+    // The Settings overlay saves trigger `refreshDefaultModel()`, which
+    // broadcasts "aw:settings-changed" — refetch so model dropdowns pick up
+    // newly configured providers without a full page reload.
+    window.addEventListener("aw:settings-changed", load);
+    return () => window.removeEventListener("aw:settings-changed", load);
   }, []);
   // Moving between nodes keeps the tab the user last used; only fall back when
   // that tab does not exist on the newly selected node kind.

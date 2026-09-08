@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, within } from "@testing-library/react";
+import { render, screen, fireEvent, within, waitFor } from "@testing-library/react";
 import { useGraph } from "../store/graph";
 import { useVisibleRuntime } from "../store/run";
 import { api } from "../lib/api";
@@ -288,6 +288,69 @@ describe("Inspector", () => {
       render(<Inspector onOpenSettings={() => {}} />);
       const chip = screen.getByText(/质量 2\/10/).closest(".chip")!;
       expect(chip).toHaveClass("chip--score-bad");
+    });
+  });
+
+  describe("模型列表刷新", () => {
+    const textGenGraph = {
+      ...sampleGraph,
+      nodes: [
+        {
+          ...sampleGraph.nodes[0],
+          textGen: { model: "", temperature: 0.7, prompt: "" },
+        },
+      ],
+    };
+
+    it("aw:settings-changed 事件后重新拉取模型列表（新增自定义模型可见）", async () => {
+      mockUseGraph.mockImplementation((selector?: (s: unknown) => unknown) => {
+        const store = {
+          graph: textGenGraph,
+          selectedId: "node-1",
+          updateNode: mockUpdateNode,
+          saveState: "saved",
+          reloadGraph: vi.fn(),
+        };
+        if (selector) return selector(store);
+        return store;
+      });
+      (useGraph as unknown as { temporal: { getState: () => { pause: () => void; resume: () => void }; setState: (fn: () => void) => void } }).temporal = {
+        getState: () => ({ pause: vi.fn(), resume: vi.fn() }),
+        setState: vi.fn(),
+      };
+      mockUseVisibleRuntime.mockReturnValue({ nodes: {} });
+
+      const getSettings = api.getSettings as unknown as ReturnType<typeof vi.fn>;
+      const builtinOnly = {
+        providers: {
+          agnes: { type: "openai-compatible", models: ["agnes-2.0-flash"], modalities: { "agnes-2.0-flash": "text" } },
+        },
+        defaultModel: "agnes-2.0-flash",
+        defaultProvider: "agnes",
+      };
+      const withCustom = {
+        ...builtinOnly,
+        providers: {
+          ...builtinOnly.providers,
+          "my-provider": { type: "openai-compatible", models: ["my-model"], modalities: { "my-model": "text" } },
+        },
+      };
+      getSettings.mockResolvedValueOnce(builtinOnly).mockResolvedValue(withCustom);
+
+      render(<Inspector onOpenSettings={() => {}} />);
+      fireEvent.click(screen.getByRole("button", { name: "配置" }));
+      // 保存前：只有内置模型
+      await waitFor(() => {
+        expect(screen.getByText("agnes-2.0-flash · agnes")).toBeInTheDocument();
+      });
+      expect(screen.queryByText("my-model · my-provider")).not.toBeInTheDocument();
+
+      // Settings 保存后广播的事件 → 重新拉取
+      fireEvent(window, new Event("aw:settings-changed"));
+      await waitFor(() => {
+        expect(screen.getByText("my-model · my-provider")).toBeInTheDocument();
+      });
+      expect(getSettings).toHaveBeenCalledTimes(2);
     });
   });
 });
