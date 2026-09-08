@@ -129,7 +129,7 @@
 | 3 | 建产线 + 真实跑通 | ✅ 通过 | 多源研究简报产线跑通（seq 27/27 收工），成品库 2 TXT + 4 JSON |
 | 4 | 成本计量（P0 回采） | ✅ 通过 | `/api/costs` 有数据：tokens_in=973, tokens_out=822, runs=1（P0 第一条真实成本数据） |
 | 5 | 触发类（cron） | ✅ 通过 | `* * * * *` 每分钟自动触发，服务器日志确认 `run started`（trigger: trg_mtsc2f0a） |
-| 6 | code 节点沙箱 | ⚠️ 待修复 | bwrap 中 /tmp 只读，code 节点 `mkdtemp` 报 `EROFS: read-only file system`。运营周报"清洗汇总"节点失败 |
+| 6 | code 节点沙箱 | ✅ 通过 | systemd `PrivateTmp=true` + bwrap `--tmpfs /tmp` 双层修复；运营周报"清洗汇总"code 节点正常执行，产出 JSON |
 | 7 | P1 前置探针 | ✅ 通过 | `subscriptions` / `usage_ledger` 表存在（`invoices` 表 P2 才建，属正常） |
 | 8 | 备份可恢复 | ⏳ 待演练 | 备份目录存在，有迁移前备份（pre-migration-*.db）和快照（snap-2026-09-07/08），cron 每日 02:30 已配置；restore 演练待做 |
 
@@ -142,13 +142,19 @@
 - 验证：`POST /api/runs` 返回 401（不再 301），产线可正常派发
 - 影响：P0 级阻塞 bug，会导致所有产线无法派发任务
 
-### code 沙箱 Bug 根因与修复方案
+### code 沙箱 Bug 根因与修复（2026-09-08 已修复并验证通过）
 
-**问题**：bwrap 配置中只有 `--ro-bind / /`（根只读）和 `--bind workdir workdir`（工作目录可写），但 `/tmp` 没有挂载为可写的 tmpfs。code 节点或 Node.js 运行时尝试在 `/tmp` 创建临时目录时，因为 `/tmp` 是只读根文件系统的一部分而失败。
+**症状**：所有 code 节点报 `EROFS: read-only file system, mkdtemp '<internal-path>'`，运营周报"清洗汇总"节点失败。
 
-**修复**：在 `packages/server/src/code-sandbox.ts` 的 `bwrapBackend.planSpawn` 中，在 `--bind workdir workdir` 之前添加 `--tmpfs /tmp`。
+**真正根因**：systemd unit 配置了 `ProtectSystem=strict` + `ReadWritePaths=/var/lib/agent-world`，使服务器进程的 **/tmp 是只读的**。`createCodeWorkdir()` 在服务器进程中调用 `mkdtemp()` 时就失败了——根本没到 bwrap 沙箱那一步。
+
+**修复（两层）**：
+1. **systemd 层（关键修复）**：在 `/etc/systemd/system/agent-world.service` 添加 `PrivateTmp=true`，为服务创建可写的私有 /tmp 挂载点。`daemon-reload` + `restart` 后生效。
+2. **bwrap 层（额外加固）**：在 `packages/server/src/code-sandbox.ts` 的 `bwrapBackend.planSpawn` 中，在 `--bind workdir` 之前添加 `--tmpfs /tmp`，确保 bwrap 沙箱内部的 /tmp 也可写（防止用户代码在沙箱内调用 mkdtemp 失败）。
+
+**验证**：部署后重新派发运营周报产线，code 节点（清洗汇总）正常执行，产线 seq 29/29 收工，成品库有 code 节点产出的 JSON（105 B）。验收项 6 通过。
 
 **后续待办**：
-1. 修复 code 沙箱并重新部署到 Hasee
+1. ~~修复 code 沙箱并重新部署到 Hasee~~ ✅ 已完成
 2. 做一次备份 restore 演练
-3. 把 nginx 正则匹配和 bwrap `--tmpfs /tmp` 写入 `deploy-ubuntu-server.md`
+3. 把 nginx 正则匹配、systemd `PrivateTmp=true`、bwrap `--tmpfs /tmp` 写入 `deploy-ubuntu-server.md`
