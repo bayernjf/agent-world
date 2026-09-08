@@ -387,6 +387,14 @@ export const bwrapBackend: CodeSandboxBackend = {
     });
     const args = [
       "--ro-bind", "/", "/",
+      // /tmp must be a writable tmpfs inside the sandbox: the read-only root
+      // bind above makes the host /tmp read-only, but Node.js and user code
+      // routinely call os.tmpdir()/mkdtemp() (e.g. npm, tesseract, fetch
+      // cache). Without this, every code node fails with
+      // EROFS: read-only file system, mkdtemp '<path>'.
+      // Must come BEFORE --bind workdir so the workdir bind (which lives
+      // under /tmp/aw-code-*) takes precedence over the tmpfs.
+      "--tmpfs", "/tmp",
       "--bind", opts.workdir, opts.workdir,
       "--chdir", opts.workdir,
       // extraFsReadPaths need no explicit grant here: the read-only root bind
