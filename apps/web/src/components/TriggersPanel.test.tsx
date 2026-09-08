@@ -238,6 +238,30 @@ describe("TriggersPanel", () => {
         expect(screen.getByText("新建触发器")).toBeInTheDocument();
       });
     });
+
+    it("crypto.randomUUID 不可用（非 secure context，如局域网 http）时仍能新建", async () => {
+      const saved = (globalThis.crypto as { randomUUID?: unknown }).randomUUID;
+      Object.defineProperty(globalThis.crypto, "randomUUID", {
+        value: undefined,
+        configurable: true,
+      });
+      try {
+        await renderAndWait();
+        fireEvent.click(screen.getByRole("button", { name: /添加触发器/ }));
+        await waitFor(() => {
+          expect(screen.getByText("新建触发器")).toBeInTheDocument();
+        });
+        // 生成的 id 带 trg_ 前缀且长度匹配
+        await waitFor(() => {
+          expect(screen.getByDisplayValue(/^trg_/)).toBeInTheDocument();
+        });
+      } finally {
+        Object.defineProperty(globalThis.crypto, "randomUUID", {
+          value: saved,
+          configurable: true,
+        });
+      }
+    });
   });
 
   describe("最近运行", () => {

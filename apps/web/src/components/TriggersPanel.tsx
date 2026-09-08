@@ -18,9 +18,21 @@ const TYPE_LABELS: Record<TriggerConfig["type"], string> = {
   batch: "modals:triggers.typeShort.batch",
 };
 
+/** 生成短 id。crypto.randomUUID 仅在 secure context 可用（localhost/https）；
+ *  局域网 http 部署（如 Hasee）不可用，需降级到时间戳+随机串。 */
+function genId(): string {
+  let raw: string;
+  try {
+    raw = crypto.randomUUID();
+  } catch {
+    raw = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  }
+  return raw.replace(/-/g, "").slice(0, 8);
+}
+
 function blankTrigger(): TriggerConfig {
   return {
-    id: `trg_${crypto.randomUUID().slice(0, 8)}`,
+    id: `trg_${genId()}`,
     type: "cron",
     enabled: true,
     cron: "0 9 * * *",
