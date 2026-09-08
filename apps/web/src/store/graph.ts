@@ -42,6 +42,10 @@ export async function refreshDefaultModel() {
   } catch {
     // keep last known / fallback
   }
+  // Tell one-shot consumers (e.g. the Inspector's model dropdowns) that the
+  // settings snapshot changed so they refetch — otherwise models added in the
+  // Settings overlay stay invisible until a full page reload.
+  window.dispatchEvent(new Event("aw:settings-changed"));
 }
 void refreshDefaultModel();
 

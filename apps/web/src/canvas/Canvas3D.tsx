@@ -376,6 +376,9 @@ export default function Canvas3D() {
         }
         draggingNodeId = null;
         controls.enabled = true;
+        // A click (no movement) opens the Inspector panel; a drag must not —
+        // same contract as the 2D canvas (Canvas.tsx onPointerUp).
+        if (!moved) useGraph.getState().setInspectorOpen(true);
       } else if (downHitId && !moved) {
         useGraph.getState().setInspectorOpen(true);
       }
