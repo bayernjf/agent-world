@@ -11,6 +11,12 @@ updates:
     # z.discriminatedUnion inference) causing ~1.2k downstream type errors in
     # @agent-world/server. It needs a dedicated migration, not an automated
     # major bump. Keep zod on 3.x until that migration is scheduled.
+    # @types/node should track the CI/production runtime (Node 24, see
+    # engines and ci.yml). The 26.x types changed Buffer's underlying
+    # ArrayBufferLike definition, breaking BlobPart assignment in
+    # artifact-store.ts (PR #186).
     ignore:
       - dependency-name: "zod"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
