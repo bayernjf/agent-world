@@ -47,7 +47,10 @@ CREATE TABLE IF NOT EXISTS graphs (
   name       TEXT NOT NULL,
   doc        TEXT NOT NULL,
   version    INTEGER NOT NULL DEFAULT 1,
-  updated_at INTEGER NOT NULL
+  updated_at INTEGER NOT NULL,
+  -- template-instance reset anchor (migration 18 historically; part of the
+  -- latest schema so PG derivation sees it)
+  origin_template_id TEXT
 );
 
 CREATE TABLE IF NOT EXISTS runs (
@@ -93,7 +96,14 @@ CREATE TABLE IF NOT EXISTS artifacts (
   size_bytes  INTEGER NOT NULL DEFAULT 0,
   storage     TEXT NOT NULL,
   uri         TEXT,
-  created_at  INTEGER NOT NULL
+  created_at  INTEGER NOT NULL,
+  -- pipeline attribution (migration 13 historically; part of the latest
+  -- schema so PG derivation sees it). idx_artifacts_graph stays OUT of this
+  -- DDL on purpose: DDL runs before migrations and an older file without
+  -- graph_id would die in db.exec(DDL) on the index (same reason as
+  -- idx_artifacts_variant below).
+  graph_id    TEXT,
+  role        TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_artifacts_run ON artifacts(run_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_artifacts_node ON artifacts(run_id, node_id);
@@ -344,6 +354,53 @@ CREATE TABLE IF NOT EXISTS graph_variables (
   PRIMARY KEY (graph_id, key)
 );
 CREATE INDEX IF NOT EXISTS idx_graph_variables_graph ON graph_variables(graph_id);
+
+-- Tables below were originally added by migrations (32-35) without updating
+-- this DDL constant. They are part of the LATEST schema and must live here
+-- too — the PostgreSQL schema is derived from this constant via toPgDdl, and a
+-- fresh PG database created from a DDL missing them would silently lack
+-- RBAC resource sharing and the commercialization tables. The corresponding
+-- migrations stay (older files still need them); their detect baselines
+-- skip fresh databases that already have the tables.
+CREATE TABLE IF NOT EXISTS resource_access (
+  resource_type TEXT NOT NULL,
+  resource_id   TEXT NOT NULL,
+  user_id       TEXT NOT NULL,
+  role          TEXT NOT NULL,
+  created_at    INTEGER NOT NULL,
+  PRIMARY KEY (resource_type, resource_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_resource_access_user ON resource_access(user_id, resource_type);
+
+CREATE TABLE IF NOT EXISTS subscriptions (
+  user_id              TEXT PRIMARY KEY,
+  plan                 TEXT NOT NULL,
+  status               TEXT NOT NULL,
+  provider             TEXT,
+  external_id          TEXT,
+  current_period_start INTEGER NOT NULL,
+  current_period_end   INTEGER NOT NULL,
+  created_at           INTEGER NOT NULL,
+  updated_at           INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS usage_ledger (
+  user_id        TEXT NOT NULL,
+  period_start   INTEGER NOT NULL,
+  metric         TEXT NOT NULL,
+  amount         REAL NOT NULL,
+  updated_at     INTEGER NOT NULL,
+  PRIMARY KEY (user_id, period_start, metric)
+);
+CREATE INDEX IF NOT EXISTS idx_usage_ledger_user ON usage_ledger(user_id, period_start);
+
+CREATE TABLE IF NOT EXISTS idempotency_keys (
+  user_id    TEXT NOT NULL,
+  key        TEXT NOT NULL,
+  run_id     TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, key)
+);
 `;
 
 /**
@@ -610,6 +667,9 @@ export function createDriver(
     dialect === "postgres"
       ? `to_char(to_timestamp(r.started_at / 1000.0), 'YYYY-MM')`
       : `strftime('%Y-%m', r.started_at / 1000, 'unixepoch', 'localtime')`;
+  // Deterministic tie-break for same-millisecond writes: SQLite's implicit
+  // rowid becomes PostgreSQL's ctid (physical tuple id) under PG.
+  const tie = dialect === "postgres" ? "ctid" : "rowid";
   const stmts = {
     createUser: `INSERT INTO users (id, email, password_hash, role) VALUES (?, ?, ?, ?)`,
     countOwners: `SELECT COUNT(*) AS n FROM users WHERE role = 'owner'`,
@@ -681,7 +741,7 @@ export function createDriver(
     findUserPasswordHash: `SELECT password_hash FROM users WHERE id = ?`,
     // RBAC P3 (design-rbac.md): full account list for the owner's admin panel.
     // Same ordering as the v31 owner bootstrap — the owner always sorts first.
-    listUsers: `SELECT id, email, role, created_at FROM users ORDER BY created_at ASC, rowid ASC`,
+    listUsers: `SELECT id, email, role, created_at FROM users ORDER BY created_at ASC, ${tie} ASC`,
     updateUserRole: `UPDATE users SET role = ? WHERE id = ?`,
     // Resource sharing (design-rbac P1). Only editor/viewer rows live here —
     // the resource owner is resolved from the owning table's user_id.
@@ -698,7 +758,7 @@ export function createDriver(
     countUsers: `SELECT COUNT(*) AS n FROM users`,
     updateUserPasswordHash: `UPDATE users SET password_hash = ? WHERE id = ?`,
     insertGraph: `INSERT INTO graphs (id, user_id, name, doc, origin_template_id, updated_at) VALUES (?, ?, ?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET name = excluded.name, doc = excluded.doc, version = version + 1, updated_at = excluded.updated_at
+       ON CONFLICT(id) DO UPDATE SET name = excluded.name, doc = excluded.doc, version = graphs.version + 1, updated_at = excluded.updated_at
        WHERE graphs.user_id = excluded.user_id`,
     // Conditional update: only succeeds when the row's current version matches
     // the If-Match value, so a stale tab can't silently clobber a newer save.
@@ -763,7 +823,7 @@ export function createDriver(
               COALESCE(g.name, '(未知流水线)') AS graph_name
        FROM artifacts a LEFT JOIN graphs g ON g.id = a.graph_id
        WHERE a.user_id = ?
-       ORDER BY a.created_at DESC, a.rowid DESC LIMIT ? OFFSET ?`,
+       ORDER BY a.created_at DESC, a.${tie} DESC LIMIT ? OFFSET ?`,
     deleteArtifactsForRun: `DELETE FROM artifacts WHERE run_id = ?`,
     getGraphById: `SELECT doc, version FROM graphs WHERE id = ?`,
     getGraphMeta: `SELECT id, name, version, updated_at, origin_template_id FROM graphs WHERE id = ?`,
@@ -791,7 +851,7 @@ export function createDriver(
     usageForMetric: `SELECT COALESCE(SUM(amount), 0) AS total FROM usage_ledger WHERE user_id = ? AND period_start = ? AND metric = ?`,
     accumulateUsage: `INSERT INTO usage_ledger (user_id, period_start, metric, amount, updated_at)
        VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT(user_id, period_start, metric) DO UPDATE SET amount = amount + excluded.amount, updated_at = excluded.updated_at`,
+       ON CONFLICT(user_id, period_start, metric) DO UPDATE SET amount = usage_ledger.amount + excluded.amount, updated_at = excluded.updated_at`,
     countActiveRuns: `SELECT COUNT(*) AS n FROM runs WHERE user_id = ? AND status IN ('running', 'halted')`,
   };
 
@@ -807,7 +867,9 @@ export function createDriver(
       return row?.run_id ?? null;
     },
     async saveIdempotentRun(userId: string, key: string, runId: string) {
-      await exec.run("INSERT OR IGNORE INTO idempotency_keys (user_id, key, run_id, created_at) VALUES (?, ?, ?, ?)", [userId, key, runId, Date.now()]);
+      // ON CONFLICT DO NOTHING is portable across SQLite (3.24+) and PG —
+      // SQLite's INSERT OR IGNORE spelling is dialect-only.
+      await exec.run("INSERT INTO idempotency_keys (user_id, key, run_id, created_at) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING", [userId, key, runId, Date.now()]);
     },
     /**
      * Prunes events older than the given epoch-millisecond cutoff. Safe because
@@ -1344,7 +1406,7 @@ export function createDriver(
                   COALESCE(g.name, '(未知流水线)') AS graph_name
            FROM artifacts a LEFT JOIN graphs g ON g.id = a.graph_id
            WHERE a.user_id = ? OR a.graph_id IN (${placeholders})
-           ORDER BY a.created_at DESC, a.rowid DESC LIMIT ? OFFSET ?`, [userId, ...graphIds, limit, offset]) as ArtifactRow[];
+           ORDER BY a.created_at DESC, a.${tie} DESC LIMIT ? OFFSET ?`, [userId, ...graphIds, limit, offset]) as ArtifactRow[];
       return mapArtifacts(rows);
     },
 
@@ -1453,7 +1515,13 @@ export function createDriver(
         tokens_out: number;
       }>;
 
-      const byDay = await exec.all(`SELECT date(r.started_at / 1000, 'unixepoch', 'localtime') AS day,
+      // Daily bucket (same family as weekExpr/monthExpr above): SQLite's
+      // date(..., 'unixepoch', 'localtime') vs PostgreSQL's to_char(to_timestamp).
+      const dayExpr =
+        dialect === "postgres"
+          ? `to_char(to_timestamp(r.started_at / 1000.0), 'YYYY-MM-DD')`
+          : `date(r.started_at / 1000, 'unixepoch', 'localtime')`;
+      const byDay = await exec.all(`SELECT ${dayExpr} AS day,
              COUNT(DISTINCT n.run_id) AS runs,
              COALESCE(SUM(n.cost_usd), 0)   AS cost_usd,
              COALESCE(SUM(n.tokens_in), 0)  AS tokens_in,
@@ -1726,10 +1794,10 @@ export function createDriver(
              r.ab_target AS target,
              COUNT(*) AS runs,
              SUM(CASE WHEN r.status = 'done' THEN 1 ELSE 0 END) AS done,
-             AVG(CASE WHEN r.ended_at IS NOT NULL THEN (r.ended_at - r.started_at) END) AS avgDurationMs,
-             AVG((SELECT COALESCE(AVG(score), 0) FROM node_runs nr WHERE nr.run_id = r.id)) AS avgScore,
-             AVG((SELECT COUNT(*) FROM node_runs nr WHERE nr.run_id = r.id AND nr.attempt > 1)) AS avgRework,
-             SUM((SELECT COALESCE(SUM(cost_usd), 0) FROM node_runs nr WHERE nr.run_id = r.id)) AS totalCost
+             AVG(CASE WHEN r.ended_at IS NOT NULL THEN (r.ended_at - r.started_at) END) AS "avgDurationMs",
+             AVG((SELECT COALESCE(AVG(score), 0) FROM node_runs nr WHERE nr.run_id = r.id)) AS "avgScore",
+             AVG((SELECT COUNT(*) FROM node_runs nr WHERE nr.run_id = r.id AND nr.attempt > 1)) AS "avgRework",
+             SUM((SELECT COALESCE(SUM(cost_usd), 0) FROM node_runs nr WHERE nr.run_id = r.id)) AS "totalCost"
            FROM runs r
            WHERE r.ab_group = ? AND r.user_id = ?
            GROUP BY r.ab_arm, r.ab_target
@@ -1794,7 +1862,7 @@ export function createDriver(
     },
 
     async listBrandTerms(userId: string) {
-      return await exec.all(`SELECT id, term, note, created_at AS createdAt FROM brand_terms WHERE user_id = ? ORDER BY created_at ASC`, [userId]) as Array<{ id: string; term: string; note: string; createdAt: number }>;
+      return await exec.all(`SELECT id, term, note, created_at AS "createdAt" FROM brand_terms WHERE user_id = ? ORDER BY created_at ASC`, [userId]) as Array<{ id: string; term: string; note: string; createdAt: number }>;
     },
 
     // --- Per-user settings (16) ---
@@ -1952,7 +2020,7 @@ export function createDriver(
 
     // --- Banned terms (F3 compliance: per-user supplementary banned words) ---
     async listBannedTerms(userId: string) {
-      return await exec.all(`SELECT id, term, note, created_at AS createdAt FROM banned_terms WHERE user_id = ? ORDER BY created_at ASC`, [userId]) as Array<{ id: string; term: string; note: string; createdAt: number }>;
+      return await exec.all(`SELECT id, term, note, created_at AS "createdAt" FROM banned_terms WHERE user_id = ? ORDER BY created_at ASC`, [userId]) as Array<{ id: string; term: string; note: string; createdAt: number }>;
     },
 
     async addBannedTerm(userId: string, term: string, note = "") {
@@ -2493,9 +2561,9 @@ export function createDriver(
 
     // --- Graph versions (5.6) ---
     async listVersions(graphId: string, userId: string) {
-      return await exec.all(`SELECT gv.id, gv.graph_id AS graphId, gv.name, gv.note, gv.content_hash AS contentHash, gv.created_at AS createdAt
+      return await exec.all(`SELECT gv.id, gv.graph_id AS "graphId", gv.name, gv.note, gv.content_hash AS "contentHash", gv.created_at AS "createdAt"
                   FROM graph_versions gv JOIN graphs g ON g.id = gv.graph_id
-                  WHERE gv.graph_id = ? AND g.user_id = ? ORDER BY gv.created_at DESC, gv.rowid DESC`, [graphId, userId]) as Array<{ id: string; graphId: string; name: string; note: string; contentHash: string; createdAt: number }>;
+                  WHERE gv.graph_id = ? AND g.user_id = ? ORDER BY gv.created_at DESC, gv.${tie} DESC`, [graphId, userId]) as Array<{ id: string; graphId: string; name: string; note: string; contentHash: string; createdAt: number }>;
     },
     /**
      * Content hash of the graph as executed by the most recent run of this
@@ -2504,7 +2572,7 @@ export function createDriver(
      * snapshot matches what actually ran.
      */
     async getLatestRunContentHash(graphId: string, userId: string): Promise<string | null> {
-      const row = await exec.get(`SELECT snapshot FROM runs WHERE graph_id = ? AND user_id = ? ORDER BY started_at DESC, rowid DESC LIMIT 1`, [graphId, userId]) as { snapshot: string } | undefined;
+      const row = await exec.get(`SELECT snapshot FROM runs WHERE graph_id = ? AND user_id = ? ORDER BY started_at DESC, ${tie} DESC LIMIT 1`, [graphId, userId]) as { snapshot: string } | undefined;
       return row ? contentHash(openDocString(row.snapshot)) : null;
     },
     async getVersion(id: string, userId: string) {
@@ -2529,16 +2597,17 @@ export function createDriver(
      */
     async saveAutoSnapshot(graphId: string, snapshot: string, minIntervalMs: number, maxKeep: number): Promise<string | null> {
       const hash = contentHash(snapshot);
-      // rowid DESC breaks created_at ties (same-millisecond snapshots) by
+      // ${tie} DESC breaks created_at ties (same-millisecond snapshots) by
       // insertion order, keeping throttle/retention deterministic.
-      const last = await exec.get(`SELECT content_hash, created_at FROM graph_versions WHERE graph_id = ? AND note = 'auto' ORDER BY created_at DESC, rowid DESC LIMIT 1`, [graphId]) as { content_hash: string; created_at: number } | undefined;
+      const last = await exec.get(`SELECT content_hash, created_at FROM graph_versions WHERE graph_id = ? AND note = 'auto' ORDER BY created_at DESC, ${tie} DESC LIMIT 1`, [graphId]) as { content_hash: string; created_at: number } | undefined;
       if (last && Date.now() - last.created_at < minIntervalMs && last.content_hash === hash) return null;
 
       const id = randomUUID();
       const now = Date.now();
       await exec.run(`INSERT INTO graph_versions (id, graph_id, name, snapshot, note, content_hash, created_at) VALUES (?, ?, ?, ?, 'auto', ?, ?)`, [id, graphId, `auto-${new Date(now).toISOString().slice(0, 16).replace("T", " ")}`, sealDocString(snapshot), hash, now]);
       // Rolling retention: prune oldest auto-snapshots beyond maxKeep.
-      const stale = await exec.all(`SELECT id FROM graph_versions WHERE graph_id = ? AND note = 'auto' ORDER BY created_at DESC, rowid DESC LIMIT -1 OFFSET ?`, [graphId, maxKeep]) as Array<{ id: string }>;
+      // SQLite spells "no limit" as LIMIT -1; PostgreSQL uses LIMIT ALL.
+      const stale = await exec.all(`SELECT id FROM graph_versions WHERE graph_id = ? AND note = 'auto' ORDER BY created_at DESC, ${tie} DESC LIMIT ${dialect === "postgres" ? "ALL" : "-1"} OFFSET ?`, [graphId, maxKeep]) as Array<{ id: string }>;
       for (const row of stale) {
         await exec.run(`DELETE FROM graph_versions WHERE id = ?`, [row.id]);
       }
@@ -2601,6 +2670,11 @@ export function createDriver(
     async close() {
       await hooks.close();
     },
+
+    /** Which backend this driver is bound to ("sqlite" | "postgres") — lets
+     *  startup code branch on SQLite-only capabilities (FTS5 knowledge base,
+     *  legacy backfill) without instanceof tricks. */
+    kind: dialect,
 
     /** Passthrough to the underlying DatabaseSync.prepare — for modules that
      *  manage their own tables (e.g. knowledge base FTS). */

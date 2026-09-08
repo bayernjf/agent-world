@@ -170,6 +170,35 @@ export class SQLiteMemoryBackend implements MemoryBackend {
 }
 
 /**
+ * Honest no-op backend for drivers without FTS5 (DB_DRIVER=postgres today).
+ * The knowledge base's full-text index is SQLite-only; rather than
+ * half-working, this backend returns empty results everywhere so the routes
+ * and the `archive_search` skill stay functional while the capability is
+ * explicitly absent. (design-postgres-migration.md §5.3 阶段 3 边界)
+ */
+export class NoopMemoryBackend implements MemoryBackend {
+  async init(): Promise<void> {}
+  async add(_userId: string, entry: Omit<KnowledgeEntry, "id" | "created_at"> & { id?: string }): Promise<KnowledgeEntry> {
+    return { ...entry, id: entry.id ?? randomUUID(), created_at: Date.now() };
+  }
+  async get(_id: string, _userId: string): Promise<KnowledgeEntry | null> {
+    return null;
+  }
+  async search(_userId: string, _query: string, _limit?: number): Promise<KnowledgeEntry[]> {
+    return [];
+  }
+  async list(_userId: string, _limit?: number, _offset?: number): Promise<KnowledgeEntry[]> {
+    return [];
+  }
+  async delete(_id: string, _userId: string): Promise<boolean> {
+    return false;
+  }
+  async count(_userId: string): Promise<number> {
+    return 0;
+  }
+}
+
+/**
  * Extract knowledge from a completed run's events. Picks the most valuable
  * outputs (agent final outputs, judge verdicts, depot artifacts) and stores
  * them as searchable knowledge entries.

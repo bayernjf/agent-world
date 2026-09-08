@@ -4,10 +4,12 @@
  * This module owns the *shape* of the database layer: the `Db` type (derived
  * from the SQLite driver), the async `DatabaseDriver` interface, the
  * `SqliteDriver` alias, and the row shapes (`Product`, `BatchJob`, …).
- * The SQLite implementation lives in `sqlite-driver.ts`; a future `PgDriver`
- * will be a second implementation of `DatabaseDriver`.
+ * The SQLite implementation lives in `sqlite-driver.ts`; the PostgreSQL
+ * implementation in `pg-driver.ts` — both behind `openDatabase()`.
  */
+import type { ClientConfig } from "pg";
 import { createSqliteDriver } from "./sqlite-driver.js";
+import { createPgDriver } from "./pg-driver.js";
 
 export type Db = ReturnType<typeof createSqliteDriver>;
 
@@ -30,6 +32,54 @@ export type DatabaseDriver = {
  * （design-postgres-migration.md §5.2 / §10.2 步骤 1）
  */
 export type SqliteDriver = DatabaseDriver;
+
+/**
+ * Resolve PostgreSQL connection config from the environment. `DATABASE_URL`
+ * wins; otherwise `PG_HOST` + `PG_DATABASE` (+ optional `PG_PORT` / `PG_USER`
+ * / `PG_PASSWORD` / `PG_SSL=true`). Fail-closed with an actionable message
+ * when neither form is present. Shared by the DB_DRIVER switch and the
+ * migrate-to-postgres script. （design-postgres-migration.md §5.3 阶段 3 / §6.1）
+ */
+export function pgConfigFromEnv(): ClientConfig {
+  if (process.env.DATABASE_URL) {
+    return { connectionString: process.env.DATABASE_URL };
+  }
+  const { PG_HOST, PG_DATABASE, PG_PORT, PG_USER, PG_PASSWORD, PG_SSL } = process.env;
+  if (!PG_HOST || !PG_DATABASE) {
+    throw new Error(
+      'DB_DRIVER=postgres requires DATABASE_URL, or PG_HOST + PG_DATABASE (+ optional PG_PORT/PG_USER/PG_PASSWORD/PG_SSL)',
+    );
+  }
+  return {
+    host: PG_HOST,
+    database: PG_DATABASE,
+    port: PG_PORT ? Number(PG_PORT) : 5432,
+    user: PG_USER,
+    password: PG_PASSWORD,
+    // Managed PG (Neon/RDS) requires TLS; PG_SSL=true opts in without
+    // pinning a CA (SaaS deployments front this with private networking).
+    ssl: PG_SSL === "true" ? { rejectUnauthorized: false } : undefined,
+  };
+}
+
+/**
+ * The DB_DRIVER switch (design-postgres-migration.md §5.3 阶段 3).
+ * `sqlite` (default) opens the local SQLite file; `postgres` connects to PG
+ * and derives its schema from the shared DDL. Unknown values fail closed at
+ * startup rather than silently falling back to SQLite.
+ */
+export async function openDatabase(): Promise<Db> {
+  // Empty/whitespace DB_DRIVER counts as unset (a commented-out .env line
+  // that leaves DB_DRIVER="" behind must not brick the default path).
+  const driver = process.env.DB_DRIVER?.trim() || "sqlite";
+  if (driver === "sqlite") {
+    return createSqliteDriver(process.env.DB_FILE ?? "agent-world.sqlite");
+  }
+  if (driver === "postgres") {
+    return await createPgDriver(pgConfigFromEnv());
+  }
+  throw new Error(`Unknown DB_DRIVER "${driver}" — expected "sqlite" or "postgres"`);
+}
 
 export interface ABArmReport {
   arm: string;
