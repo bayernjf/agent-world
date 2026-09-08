@@ -46,13 +46,14 @@ const sampleReport: Report = {
     { graph_id: "g1", graph_name: "测试产线", node_id: "n2", node_name: "质检站", cost_usd: 0.03, tokens_in: 4000, tokens_out: 800, attempts: 6, reworks: 0 },
   ],
   byModel: [
-    { model: "gpt-4o", cost_usd: 0.1, runs: 8 },
-    { model: "dall-e-3", cost_usd: 0.02345, runs: 2 },
+    { model: "gpt-4o", cost_usd: 0.1, calls: 12, runs: 8, tokens_in: 11111, tokens_out: 2222 },
+    { model: "dall-e-3", cost_usd: 0.02111, calls: 2, runs: 2, tokens_in: 1234, tokens_out: 321 },
   ],
   byAttempt: [
     { attempt: 1, calls: 10, cost_usd: 0.1, tokens_in: 12000, tokens_out: 2500 },
     { attempt: 2, calls: 3, cost_usd: 0.02345, tokens_in: 3000, tokens_out: 500 },
   ],
+  unpricedModels: [],
 };
 
 function setupMocks(report: Report | null = sampleReport) {
@@ -66,7 +67,9 @@ function setupMocks(report: Report | null = sampleReport) {
       byMonth: [],
       byGraph: [],
       byNode: [],
+      byModel: [],
       byAttempt: [],
+      unpricedModels: [],
     });
   }
 }
@@ -275,6 +278,58 @@ describe("CostReport", () => {
       const { onClose } = await renderAndWait();
       fireEvent.keyDown(window, { key: "Escape" });
       expect(onClose).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("按模型分摊", () => {
+    it("按模型列出电费和 token", async () => {
+      setupMocks();
+      await renderAndWait();
+      await waitFor(() => expect(screen.getByText("gpt-4o")).toBeInTheDocument());
+      expect(screen.getByText("dall-e-3")).toBeInTheDocument();
+      expect(screen.getByText("$0.10000")).toBeInTheDocument();
+      expect(screen.getByText("$0.02111")).toBeInTheDocument();
+      expect(screen.getByText("11,111")).toBeInTheDocument();
+    });
+
+    it("没有模型数据时显示空态", async () => {
+      setupMocks(null);
+      await renderAndWait();
+      await waitFor(() => expect(screen.queryByText("gpt-4o")).toBeNull());
+    });
+  });
+
+  describe("单价缺口警告", () => {
+    it("价格卡完整时不显示警告", async () => {
+      setupMocks();
+      await renderAndWait();
+      await waitFor(() => expect(document.querySelector(".cost-stats")).not.toBeNull());
+      expect(document.querySelector(".cost-warn")).toBeNull();
+    });
+
+    it("完全没配单价的模型标为计为 0", async () => {
+      setupMocks({
+        ...sampleReport,
+        unpricedModels: [
+          { provider: "blank", model: "silent-zero", modality: "text", level: "none", missing: ["input", "output"] },
+        ],
+      });
+      await renderAndWait();
+      await waitFor(() => expect(document.querySelector(".cost-warn")).not.toBeNull());
+      expect(screen.getByText("blank/silent-zero")).toBeInTheDocument();
+      expect(screen.getByText(/计为 0/)).toBeInTheDocument();
+    });
+
+    it("部分配置的模型列出缺失字段", async () => {
+      setupMocks({
+        ...sampleReport,
+        unpricedModels: [
+          { provider: "half", model: "m1", modality: "text", level: "partial", missing: ["output"] },
+        ],
+      });
+      await renderAndWait();
+      await waitFor(() => expect(document.querySelector(".cost-warn")).not.toBeNull());
+      expect(screen.getByText(/缺 output/)).toBeInTheDocument();
     });
   });
 });

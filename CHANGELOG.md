@@ -6,6 +6,7 @@ All notable changes are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **连接器插值机制恢复 + 全 33 模板盘点** — 恢复 D3/D4/D5（快捷名注册表、简报字段回填与插值、空库/悬空引用 warn），这些在 9/6 被回滚但 9/8 经 git 历史核实为无说明回滚后恢复。两个强商品模板（淘宝详情、小红书种草）预设 product connector（manual selection）。详见 [docs/design-data-interpolation.md](docs/design-data-interpolation.md) §14 回滚/恢复记录 + [docs/design-template-connector-presets.md](docs/design-template-connector-presets.md)。
 - **PostgreSQL database connector** — `DatabaseConnector.driver` 增 `postgres`（`pg` 纯 JS）+ `host/port/database/user/password/ssl`；`queryPostgres` 异步连接 + SELECT 白名单 + 会话级只读双保险；密码对齐静态加密（`SECRET_KEYS` 加 `password`）；MySQL 预留扩展点。详见 [docs/design-connector-database.md](docs/design-connector-database.md)。
 - **成本硬熔断 + 全局限流（P0）** — `startRun` 入口月度预算硬停（`monthlyBudgetExceeded` + `AGENT_WORLD_BUDGET_BYPASS`）；`rate-limit.ts` 内存滑动窗口挂 login/register/run 三入口。详见 [docs/engineering-blueprint.md](docs/engineering-blueprint.md)。
 - **自述式 health 探针 + Metrics（可观测性）** — `/api/health` 报 env/branch/commit + DB/密钥/Provider 就绪（未就绪 503）；`/metrics` Prometheus 端点（HTTP RED + run 业务指标，零依赖）。详见 [docs/production-ops.md](docs/production-ops.md)。

@@ -30,7 +30,7 @@
 | 文档完善 | 75% | 🟢 基本完成 | 核心设计文档齐；2026-09-01 完成文档-代码覆盖盘点：补齐知识记忆/A-B 设计文档、修正 technical-design 时效；handoff 最近 5 条 hash 已核实回填；**2026-09-03 新增设计 token 与 i18n 方案文档**（design-design-tokens.md / design-i18n.md）；**2026-09-05 新增合规运营批次六份方案**（design-key-rotation / design-audit-log / design-logging / design-announcement / design-feedback / design-rbac，均已登记 docs/README.md 索引并同步实施状态）；**2026-09-06 新增 Skill 体系设计文档**（design-skill.md，收拢散落三处的 skill 决策为单一事实源）+ brand_terms 待办关闭（用途已由 product-content-roadmap §44 覆盖，无需独立文档）+ 连接器数据插值 / tesseract cachePath / generic image 狗粮的文档状态同步 + **商业化详细实施方案**（design-monetization.md：三层计费 / 套餐 / 订阅 gate / 账单 / 企业版 / 启动前置 / P0-P3，方案已设计未实施）+ technical-design 补 search 节点契约 |
 | 自动数据接入 Connector | 95% | 🟡 主体完成 | 6 种类型全落地：manual/file/http/form/database/product；**database connector 支持 SQLite + PostgreSQL**（2026-09-01 SQLite、2026-09-08 PostgreSQL pg 纯 JS + 只读双保险 + 密码加密，见 design-connector-database.md §5）；**连接器结构化数据进插值上下文已落地（2026-09-05，`${product.name}` / 简报留空回填库值，见 design-data-interpolation.md）**；剩 MySQL 预留（deferred，触发条件：出现连接外部 MySQL 存量库的真实需求） |
 | 定时 / 事件触发 | 95% | 🟢 基本完成 | webhook/cron/event/batch 全落地（TriggersPanel+scheduler+27 测试）；**2026-09-01 修复 event 成功状态契约 bug**（见 design-triggers.md）；**2026-09-02 触发层全型实跑零缺陷**（webhook 401 诚实拒绝/batch 3 行并发/event 自动级联/cron 无人值守闭环，均有真实 run 取证）；多实例分布式锁 deferred |
-| 商业化（定价/变现） | 10% | 🔵 进行中（M0） | **2026-09-06 详细实施方案已设计**（[design-monetization.md](design-monetization.md)：三层计费 / 套餐档位 / 订阅 gate / 账单 / 企业版 / P0-P3 路线 + §8.13 落地里程碑 M0-M3）；**2026-09-07 M0 启动**——本地 Ubuntu 单机部署运行环境（[deploy-ubuntu-execution-log.md](runbooks/deploy-ubuntu-execution-log.md)），作为 P0 成本计量回采的运行床；实施其余部分仍未启动 — [PRODUCT_STRATEGY.md](PRODUCT_STRATEGY.md) |
+| 商业化（定价/变现） | 10% | 🔵 进行中（M0） | **2026-09-06 详细实施方案已设计**（[design-monetization.md](design-monetization.md)：三层计费 / 套餐档位 / 订阅 gate / 账单 / 企业版 / P0-P3 路线 + §8.13 落地里程碑 M0-M3）；**2026-09-08 M0 已完成**——本地 Ubuntu 单机部署运行环境全部就绪（[deploy-ubuntu-execution-log.md](runbooks/deploy-ubuntu-execution-log.md)：阶段 0-7 完成，商业验收 8/8 全通），作为 P0 成本计量回采的运行床已可 7×24 运行；**下一步是跑 2-4 周真实成本再定价**，P1 及其后未启动 — [PRODUCT_STRATEGY.md](PRODUCT_STRATEGY.md) |
 
 图例：✅ 已完成 · 🟡 主体完成（有缓做子项）· 🔵 进行中 · ⚪ 待启动
 
@@ -63,7 +63,7 @@
 11. **合规/运营能力批次** —— ✅ 已完成（2026-09-05 立项并实施）。围绕「用户存的 key 能否合规安全保存」评估后补齐六份方案并实施五项：RBAC P0-P3（design-rbac.md，详见进度快照行）、审计日志 P1+P2（design-audit-log.md）、服务端日志 P1+P2+P3（design-logging.md）、公告 P1+P2（design-announcement.md）、用户反馈 P1+P2（design-feedback.md）。仅密钥轮换（design-key-rotation.md）定稿未实施（触发：合规准备启动）；各 P3 项（审计 180 天清理 + hash chain、公告 target 定向、反馈→公告联动）按 deferred-items 触发条件推进。
 12. **文档穿插（4.8）** —— 基本完成（2026-09-01 盘点后核心设计文档覆盖全部已落地模块；低优余项见 deferred-items 文档线）。
 13. **低优 / 缓做** —— 沙箱 docker 容器后端、模板/节点市场、版本 diff 视图、状态机、监控告警大盘、多租户、Notion/Linear/内容平台集成、Excel 读写、HTML→PDF。触发条件见 [deferred-items.md](deferred-items.md)。
-14. **商业化** —— **方案已设计（2026-09-06）**，见 [design-monetization.md](design-monetization.md)（三层计费 / 套餐 / 订阅 gate / 企业版 / P0-P3 + §8.13 落地里程碑 M0-M3）；**M0 本地运行环境部署进行中（2026-09-07）**，实施其余部分未启动；决策基线见 [PRODUCT_STRATEGY.md](PRODUCT_STRATEGY.md)。
+14. **商业化** —— **方案已设计（2026-09-06）**，见 [design-monetization.md](design-monetization.md)（三层计费 / 套餐 / 订阅 gate / 企业版 / P0-P3 + §8.13 落地里程碑 M0-M3）；**M0 本地运行环境部署已完成（2026-09-08，阶段 0-7 + 验收 8/8）**，下一步按 §8.13 跑 2-4 周真实成本回采再定价；P1 及其后未启动；决策基线见 [PRODUCT_STRATEGY.md](PRODUCT_STRATEGY.md)。
 
 ---
 

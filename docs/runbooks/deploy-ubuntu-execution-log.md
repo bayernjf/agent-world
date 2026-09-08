@@ -26,7 +26,7 @@
 | 5 | web + nginx + 防火墙 + 局域网验收 | ✅ 完成（nginx 反代 + 局域网 curl={"ok":true}；ufw 规则预设未 enable） |
 | 6 | 备份与运维加固 | ✅ 完成（备份脚本 + cron 每日 02:30 + 手跑验证） |
 | 7 | 商业化 P0/P1 验收清单 | ✅ 完成（8/8 全部通过） |
-| CI/CD | 自动部署（deploy key / runner / deploy.sh / deploy.yml） | ✅ 基础设施就绪；deploy.yml 待 push + 合并到 dev 后生效 |
+| CI/CD | 自动部署（deploy key / runner / deploy.sh / deploy.yml） | ✅ 完成并已生效（合并到 dev 后自动部署，多次 run success） |
 
 ## 执行前置：一次性免密配置
 
@@ -116,7 +116,7 @@
 - **self-hosted runner**：下载 v2.337.0 到 `/var/lib/agent-world/actions-runner`，`config.sh` 注册（name=`hasee-2016-server`，label=`production`）；**新版无 `svc.sh`** → 手写 `/etc/systemd/system/actions-runner.service`，`enable --now` 后 GitHub 状态 **online** ✅
 - **服务器 git 化**：原 `/opt/agent-world` 是 rsync 部署（无 `.git`），改为「备份 .env → `git clone -b dev` → 恢复 .env + install + build → 停服切换目录」；切换后为 dev 分支 git 仓库，`/api/health` 正常 ✅
 - **deploy.sh**：`/opt/agent-world/deploy.sh`（`git pull --ff-only` → install → build → restart），runner 以 agentworld 跑、无需 `sudo -u` ✅
-- **deploy.yml**：`.github/workflows/deploy.yml`（`workflow_run` 监听 CI 在 dev 成功 → self-hosted runner 执行 deploy.sh），已 commit，**待 push + 合并到 dev 后生效** ⏳
+- **deploy.yml**：`.github/workflows/deploy.yml`（`workflow_run` 监听 CI 在 dev 成功 → self-hosted runner 执行 deploy.sh），`d7e3c22` 建立、`85094b0` 收紧为「仅 push 事件触发」（避免 dev→main 的 PR 在合并前就部署）。**已合并到 dev/main 并生效** ✅——`gh run list --workflow=deploy.yml` 自 2026-09-08 起可见多次 success（约 1m5s/次）；非 push 触发的 run 按 `if` 条件正常 skipped。
 
 ## 阶段 7：商业化 P0/P1 验收清单（2026-09-08 完成）
 

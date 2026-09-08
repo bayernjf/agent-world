@@ -44,6 +44,9 @@ export const Usage = z.object({
   tokensOut: z.number().int().min(0),
   /** Metered after the call returns — never charged up front. */
   costUsd: z.number().min(0),
+  /** Model that incurred this cost. Optional: absent on non-AI nodes, and on
+   *  events recorded before per-model attribution existed. */
+  model: z.string().optional(),
   /** Prompt-cache hit tokens, when the provider reports them. */
   cachedTokens: z.number().int().min(0).optional(),
   /** Reasoning/thinking tokens, when the model emits them separately. */

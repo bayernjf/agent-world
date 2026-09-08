@@ -1,7 +1,7 @@
 # 连接器数据插值（Connector Data Interpolation）设计方案
 
-> 状态：**已实施（2026-09-05 落地，D1-D7 全量 + 4 个原子 commit + 真实 dogfood 跑通）**。目标：让连接器的**结构化数据**成为一等公民——节点的任何配置字段（prompt、简报、notify 文案、branch 条件）都能用 `${...}` 引用数据源的值，而不是像现在这样被压成一段纯文本拼进原料。这是**引擎级通用能力，行业无关**；product（商品库）只是第一个带结构化数据的 connector 消费者。
-> 创建：2026-09-05
+> 状态：**恢复中（2026-09-08）**。2026-09-05 D1-D7 首次落地；**2026-09-06 晚 D3/D4/D5 + 两处 warn 守护 + D7 被三个 commit 回滚（仅 D1/D2/D6 存活，回滚原因无记录）**；2026-09-08 起按本方案恢复，并补全链路集成测试与模板落地，详见文末「§14 实施-回滚-恢复记录」与 [design-template-connector-presets.md](design-template-connector-presets.md)。目标：让连接器的**结构化数据**成为一等公民——节点的任何配置字段（prompt、简报、notify 文案、branch 条件）都能用 `${...}` 引用数据源的值，而不是像现在这样被压成一段纯文本拼进原料。这是**引擎级通用能力，行业无关**；product（商品库）只是第一个带结构化数据的 connector 消费者。
+> 创建：2026-09-05；最近修订：2026-09-08
 >
 > 源起：用户质疑「原料台节点面板为什么还有商品店铺字段，属性要适配各行各业」。复查发现两个裂缝：① source 简报字段与 connector 数据是「双来源文本拼接」，双填无提示、优先级靠猜；② `graph.ts` ProductConnector 注释宣称「字段级映射到 source 字段」，实现实为整块文本渲染进原料段——注释是理想态，实现是拼接态。市场对照：n8n 字段级表达式（`{{ $json.x }}`）、Dify 输入变量 + context 槽、ComfyUI widget→input，走的都是「内容是数据，节点表单只放行为参数」的同一条路。
 
@@ -150,3 +150,26 @@
 - **行业字段长期演进**：source 简报 8 字段是内容线时期电商特化的历史产物，挂在通用 source 上。本方案给它们数据源通道但不做 schema 变更；未来多行业真实需求出现时，再评估行业包（industry pack）或模板自定义字段（TemplateField 已有先例），届时简报字段迁移与 data 通道正交。
 - **其他 connector 接入**：http/database/file 的 data 接入不在本方案范围（各自触发时按 §1 四件套适配），但通道与注册表为它们预留。
 - **电商视角消费方式**：见 [design-ecommerce-roadmap.md §F4.1](design-ecommerce-roadmap.md)（指针）。
+
+## 14. 实施-回滚-恢复记录（2026-09-08 核对）
+
+### 14.1 时间线（事实）
+
+| 时间 | commit | 动作 |
+|---|---|---|
+| 2026-09-05 | `e3fc957` 等 4 commit | D1-D7 首次落地 + 真实 dogfood |
+| 2026-09-06 22:19 | `acbc273` revert | 删 D4/D5（deriveConnectorFallbacks、buildBriefCtx、interpolateSourceNode）+ 空 data / 悬空引用两处 warn，source.ts -112 行 |
+| 2026-09-06 22:26 | `addf74d` | 删 D3 快捷名注册表 `CONNECTOR_SHORTCUTS` + engine 扫描/注入 + ①④⑨⑩ 测试 |
+| 2026-09-06 22:29 | `d095d59` | 删 `buildSourceBrief` 第三参 fallbacks + 4 个纯函数单测；⑦⑪ 被改写为锚定"快捷名不注入" |
+| 2026-09-08 | 本次 | 按原设计恢复 D3/D4/D5 + 两处 warn + D7，补全链路集成测试，并在 2 个强商品模板落地 |
+
+回滚三个 commit 的 message 均**未记录原因**，无法从仓库判定动机，不臆断。
+
+### 14.2 回滚后仍存活 / 被移除清单（代码核对）
+
+- **存活**：D1（`ResolvedMaterial.data`）、D2（sourceMeta + interpCtx，命名空间 `${srcId.data[0].x}` 与整节点 `${srcId}` 引用）、D6（注释）。
+- **被移除、本次恢复**：D3（全局快捷名 `${product.x}`）、D4（简报事实字段回填）、D5（简报字段插值）、空 data warn、悬空引用 warn、D7（前端 hint）。
+
+### 14.3 历史教训：为什么单测全绿却回滚了能力
+
+旧 D4 单测直接调用纯函数 `buildSourceBrief(node, input, fallbacks)`；节点重构把真实调用链 `source.ts → buildSourceBrief` 改成只传两参后，纯函数单测仍绿，但集成链路已断，随后死参与测试被一并清理。**本次恢复必须以 source→textGen 全链路集成测试为回归锚**，不再只测纯函数（测试设计见 [design-template-connector-presets.md](design-template-connector-presets.md) §6）。

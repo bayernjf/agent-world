@@ -211,7 +211,14 @@ const productDetailGraph = {
     id: "tpl-product",
     name: "商品详情页",
     nodes: [
-      { id: "intake", kind: "source", name: "原料台", x: 80, y: 300 },
+      {
+        id: "intake",
+        kind: "source",
+        name: "原料台",
+        x: 80,
+        y: 300,
+        source: { connector: { type: "product", product: { selection: "manual" } } },
+      },
       {
         id: "selling",
         kind: "textGen",
@@ -221,7 +228,9 @@ const productDetailGraph = {
         textGen: {
           model: "agnes-2.0-flash",
           prompt:
-            "你是电商卖点分析师。根据商品的文字描述和参考图片，提炼 5-8 个核心卖点。" +
+            "你是电商卖点分析师。本次面向的商品是「${product.brand} ${product.name}」" +
+            "（若商品名为空，则以上游原料台中的商品描述为准）。" +
+            "根据商品的文字描述和参考图片，提炼 5-8 个核心卖点。" +
             "每个卖点一行，先给一个短标题，再用一句话说明对用户的价值。" +
             "如果提供了图片，结合图片里看到的细节（材质、外观、使用场景）。",
           skills: [],
@@ -295,7 +304,14 @@ const xiaohongshuGraph = {
     id: "tpl-xiaohongshu",
     name: "小红书种草笔记",
     nodes: [
-      { id: "intake", kind: "source", name: "原料台", x: 80, y: 300 },
+      {
+        id: "intake",
+        kind: "source",
+        name: "原料台",
+        x: 80,
+        y: 300,
+        source: { connector: { type: "product", product: { selection: "manual" } } },
+      },
       {
         id: "selling",
         kind: "textGen",
@@ -305,7 +321,9 @@ const xiaohongshuGraph = {
         textGen: {
           model: "agnes-2.0-flash",
           prompt:
-            "你是小红书选品编辑。根据商品文字描述和参考图片，提炼 4-6 个最适合种草的卖点，" +
+            "你是小红书选品编辑。本次种草的商品是「${product.brand} ${product.name}」" +
+            "（若商品名为空，则以上游原料台中的商品描述为准）。" +
+            "根据商品文字描述和参考图片，提炼 4-6 个最适合种草的卖点，" +
             "每个卖点一行，突出使用场景、真实感受和情绪价值，结合图片细节。",
           skills: [],
         },

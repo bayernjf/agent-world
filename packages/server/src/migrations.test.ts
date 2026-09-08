@@ -242,21 +242,15 @@ describe("migration rollback (down)", () => {
 
   it("rolls back the latest migration one step", () => {
     const file = join(dir, "aw.sqlite");
-    openDb(file).close(); // applies all migrations, incl. 35 (idempotency_keys)
+    openDb(file).close(); // applies every migration, up to SCHEMA_VERSION
 
     const raw = new DatabaseSync(file);
-    const before = raw
-      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='idempotency_keys'")
-      .get();
-    expect(before).toBeTruthy();
+    expect(cols(raw, "node_runs")).toContain("model");
 
     const result = rollbackLatestMigration(raw);
-    expect(result?.version).toBe(35);
+    expect(result?.version).toBe(SCHEMA_VERSION);
 
-    const after = raw
-      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='idempotency_keys'")
-      .get();
-    expect(after).toBeUndefined();
+    expect(cols(raw, "node_runs")).not.toContain("model");
     raw.close();
   });
 });

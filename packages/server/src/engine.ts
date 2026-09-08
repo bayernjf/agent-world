@@ -63,7 +63,7 @@ import { MAX_INLINE_BYTES } from "./artifact-reader.js";
 import { getSkill, resolveTools, executeBuiltinTool } from "./skills/registry.js";
 import { guardToolCall, isDangerousTool, loadPermissionConfig, type PermissionConfig } from "./permissions.js";
 import { notifyFailed, notifyHalt } from "./notify.js";
-import { resolveConnector, type ResolvedMaterial } from "./connectors.js";
+import { CONNECTOR_SHORTCUTS, resolveConnector, type ResolvedMaterial } from "./connectors.js";
 import { createSqliteDriver } from "./db-drivers.js";
 import { dataUriToBuffer, parseDocument, extractPdfImages } from "./parse-file.js";
 import { ocrImage } from "./ocr.js";
@@ -571,6 +571,50 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
    * exposed under their own ids so cross-branch references work. Code-node
    * stdin deliberately stays on plain nodeCtx (same as httpMeta). */
   const sourceMeta = new Map<string, Record<string, unknown>>();
+  /**
+   * Shortcut-name registry (design-data-interpolation.md §3.2): per-connector
+   * global names derived from the source node's structured data. A shortcut
+   * is injected into interpCtx only when the graph has exactly ONE source of
+   * that connector type (deterministic, independent of execution order);
+   * with ≥2 the shortcut degrades to the `${srcId.data[0]…}` namespace form.
+   * Node ctx entries always win over shortcut names, so a node id that
+   * literally spells `product` keeps resolving to the node.
+   */
+  const sourcesByConnector = new Map<string, string[]>();
+  for (const n of graph.nodes) {
+    if (n.kind !== "source") continue;
+    const t = n.source?.connector?.type;
+    if (!t) continue;
+    const list = sourcesByConnector.get(t) ?? [];
+    list.push(n.id);
+    sourcesByConnector.set(t, list);
+  }
+  for (const s of CONNECTOR_SHORTCUTS) {
+    const count = sourcesByConnector.get(s.connector)?.length ?? 0;
+    if (count > 1) {
+      runLog.info(
+        `connector shortcut "${s.name}" disabled: ${count} ${s.connector} sources, use "\${srcId.data[0]…}" instead`,
+      );
+    }
+  }
+  // Dangling-reference guard (design-data-interpolation.md §3.2): the graph
+  // references `${shortcut…}` but no source carries that connector (e.g. the
+  // connector was deleted later). It would otherwise resolve to an empty
+  // string silently — warn once. Only match field access (`.` / `[`) so a
+  // bare `${product}` whole-node reference (a node whose id is literally
+  // `product`) does not trip the guard.
+  const graphText = JSON.stringify(graph);
+  const warnedConnectors = new Set<string>();
+  for (const s of CONNECTOR_SHORTCUTS) {
+    if (warnedConnectors.has(s.connector)) continue;
+    if ((sourcesByConnector.get(s.connector)?.length ?? 0) > 0) continue;
+    if (new RegExp(`\\$\\{\\s*${s.name}(?:\\.|\\[)`).test(graphText)) {
+      runLog.warn(
+        `graph references "\${${s.name}…}" but has no ${s.connector} connector source — resolves to empty string`,
+      );
+      warnedConnectors.add(s.connector);
+    }
+  }
   /** nodeCtx enriched with sidecar metadata (http responses, connector data).
    * A direct flow upstream from a sidecar node becomes its metadata merged
    * with the payload (payload fields win on collision; a text payload sits
@@ -597,6 +641,14 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     };
     mergeSidecar(httpMeta);
     mergeSidecar(sourceMeta);
+    for (const s of CONNECTOR_SHORTCUTS) {
+      if (s.name in ctx) continue; // node ctx entries win over shortcuts
+      const sources = sourcesByConnector.get(s.connector);
+      if (!sources || sources.length !== 1) continue;
+      const meta = sourceMeta.get(sources[0]!);
+      if (!meta) continue;
+      ctx[s.name] = s.pick(meta.data);
+    }
     return ctx;
   };
   /** Flow edges that actually carried a packet this run (branch nodes only emit

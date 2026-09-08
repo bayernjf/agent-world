@@ -64,7 +64,7 @@ export async function videoGenNode(ctx: NodeRunContext, node: GraphNode, nodeId:
     artifacts.set(nodeId, videoArts);
     ctx.totalCostUsd += usage.costUsd;
     emit({ type: "power.metered", totalCostUsd: ctx.totalCostUsd, budgetUsd });
-    emit({ type: "node.finished", nodeId, attempt, output: "", usage });
+    emit({ type: "node.finished", nodeId, attempt, output: "", usage: { ...usage, model: cfg.model } });
     states.set(nodeId, "done");
     sendPackets(nodeId, `生成视频 ${results.length} 段`, "video");
   } catch (err) {
