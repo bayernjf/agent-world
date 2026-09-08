@@ -142,6 +142,10 @@ RestartSec=3
 NoNewPrivileges=true
 ProtectSystem=strict
 ReadWritePaths=/var/lib/agent-world
+# PrivateTmp 必须：ProtectSystem=strict 使服务器进程的 /tmp 只读，
+# code 节点的 createCodeWorkdir() 在服务器进程内 mkdtemp 会报
+# EROFS。PrivateTmp=true 为服务创建可写的私有 /tmp 挂载点。
+PrivateTmp=true
 # 日志走 journald（也落 LOG_FILE 一份）
 StandardOutput=journal
 StandardError=journal
@@ -158,7 +162,7 @@ sudo systemctl status agent-world --no-pager
 curl -s http://127.0.0.1:8791/api/health || echo "看下日志: journalctl -u agent-world -n 50"
 ```
 
-> `ProtectSystem=strict` + `ReadWritePaths=/var/lib/agent-world` 会把文件系统限制在数据目录——正好和 fs-guard / bwrap 的策略一致，别把其它路径写进 unit。
+> `ProtectSystem=strict` + `ReadWritePaths=/var/lib/agent-world` 会把文件系统限制在数据目录——正好和 fs-guard / bwrap 的策略一致，别把其它路径写进 unit。**必须同时配 `PrivateTmp=true`**：否则服务器进程的 /tmp 只读，code 节点的 `createCodeWorkdir()` 会报 EROFS 导致所有 code 节点失败。
 
 ## 五、构建并托管 web（nginx 同源）
 
@@ -186,7 +190,10 @@ server {
         proxy_buffering off;       # SSE 必须关缓冲
     }
     # SSE 也经反代，同样关缓冲
-    location /api/runs/ {
+    # 必须用正则匹配（带或不带斜杠都匹配）：用 location /api/runs/ 会导致
+    # POST /api/runs（不带斜杠）被 nginx 301 重定向到 /api/runs/，
+    # 重定向后 POST 变 GET 导致 404。
+    location ~ ^/api/runs/? {
         proxy_pass http://127.0.0.1:8791;
         proxy_set_header Host $host;
         proxy_buffering off;
@@ -312,6 +319,7 @@ echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
 | 浏览器打不开 UI | `systemctl status nginx`、`nginx -t`、防火墙 80 |
 | 能开 UI 但运行/列表报错 | `journalctl -u agent-world -n 50`；确认 nginx `/api` 反代到 8791 |
 | SSE/运行过程不实时 | nginx 对 `/api/runs/` 必须 `proxy_buffering off`（见第五节） |
+| code 节点报 `EROFS: read-only file system` | 确认 systemd unit 有 `PrivateTmp=true`（`ProtectSystem=strict` 使 /tmp 只读）；`systemctl cat agent-world \| grep PrivateTmp` |
 | code 节点报错 | 确认 `bwrap` 装好且 `CODE_SANDBOX=bwrap`；`bwrap --version` |
 | 报 `No such built-in module: node:sqlite` | 用了 <22 的 node，确认 `node -v` 是 24 |
 | 登录后空白/接口 401 | 首次注册的用户才是 owner；`ALLOW_REGISTRATION=1` 是否生效 |
