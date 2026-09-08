@@ -385,6 +385,9 @@ CREATE TABLE IF NOT EXISTS subscriptions (
   updated_at           INTEGER NOT NULL
 );
 
+-- P1 subscription-quota scaffolding, deliberately not written to yet. Metering
+-- truth lives in node_runs; enabling quotas goes through the idempotent
+-- backfill described in docs/design-monetization.md §P1. Do not delete.
 CREATE TABLE IF NOT EXISTS usage_ledger (
   user_id        TEXT NOT NULL,
   period_start   INTEGER NOT NULL,
@@ -849,6 +852,8 @@ export function createDriver(
          plan = excluded.plan, status = excluded.status, provider = excluded.provider,
          external_id = excluded.external_id, current_period_start = excluded.current_period_start,
          current_period_end = excluded.current_period_end, updated_at = excluded.updated_at`,
+    // usage_ledger statements exist for the P1 quota path and have no caller
+    // yet. node_runs remains the metering source of truth; see the table DDL.
     usageForMetric: `SELECT COALESCE(SUM(amount), 0) AS total FROM usage_ledger WHERE user_id = ? AND period_start = ? AND metric = ?`,
     accumulateUsage: `INSERT INTO usage_ledger (user_id, period_start, metric, amount, updated_at)
        VALUES (?, ?, ?, ?, ?)
@@ -3289,6 +3294,8 @@ const MIGRATIONS: Migration[] = [
   },
   {
     version: 34,
+    // usage_ledger is created empty on purpose: it is P1 quota scaffolding, not
+    // a second metering store. Backfill from node_runs when quotas ship.
     description: "subscriptions + usage_ledger for monetization P0/P1 (design-monetization)",
     detect: (db) => tableExists(db, "subscriptions"),
     up: (db) => {
