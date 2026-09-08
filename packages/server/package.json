@@ -11,7 +11,8 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:regression": "vitest run src/regression/",
-    "rotate:reencrypt": "tsx scripts/rotate-reencrypt.ts"
+    "rotate:reencrypt": "tsx scripts/rotate-reencrypt.ts",
+    "migrate:postgres": "tsx scripts/migrate-to-postgres.ts"
   },
   "dependencies": {
     "@agent-world/core": "workspace:*",
