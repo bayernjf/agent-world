@@ -15,7 +15,12 @@ updates:
     # engines and ci.yml). The 26.x types changed Buffer's underlying
     # ArrayBufferLike definition, breaking BlobPart assignment in
     # artifact-store.ts (PR #186).
+    # @vitejs/plugin-react 6.x has peer `vite: ^8` and imports `vite/internal`,
+    # so it crashes vite.config.ts loading on Vite 6 (PR #203). 5.x is the
+    # newest line that still supports Vite 6. Lift this when Vite is upgraded.
     ignore:
+      - dependency-name: "@vitejs/plugin-react"
+        update-types: ["version-update:semver-major"]
       - dependency-name: "zod"
         update-types: ["version-update:semver-major"]
       - dependency-name: "@types/node"
