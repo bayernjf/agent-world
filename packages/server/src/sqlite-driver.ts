@@ -1667,7 +1667,7 @@ export function createDriver(
             .map((n) => `${n.textGen?.model ?? ""}\0${n.textGen?.prompt ?? ""}`)
             .sort()
             .join("\n");
-          promptOf.set(row.id, createHash("sha1").update(sig).digest("hex").slice(0, 8));
+          promptOf.set(row.id, createHash("sha256").update(sig).digest("hex").slice(0, 8));
         } catch {
           promptOf.set(row.id, "unknown");
         }
