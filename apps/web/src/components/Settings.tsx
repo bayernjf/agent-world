@@ -22,6 +22,8 @@ import { refreshDefaultModel, useGraph } from "../store/graph";
 import type { GraphNode, NodeKind } from "@agent-world/core";
 import Tooltip from "./Tooltip";
 import KeyInput from "./KeyInput";
+import { McpSettings } from "./McpSettings";
+import type { McpServerStatus } from "../lib/api";
 import { useTranslation } from "react-i18next";
 
 interface Props {
@@ -109,6 +111,7 @@ export default function Settings({ open, onClose }: Props) {
   const [status, setStatus] = useState<string>("");
   const [confirmClose, setConfirmClose] = useState(false);
   const [workersOpen, setWorkersOpen] = useState(false);
+  const [mcpStatuses, setMcpStatuses] = useState<Record<string, McpServerStatus>>({});
   const [deleteTarget, setDeleteTarget] = useState<ModelCard | null>(null);
   /** Replacement model chosen in the delete-with-impact dialog. */
   const [deleteReplacement, setDeleteReplacement] = useState<string>("");
@@ -676,8 +679,19 @@ export default function Settings({ open, onClose }: Props) {
       ),
     });
 
-  const isDirty = (): boolean => {
-    if (!config || !savedConfig) return false;
+  /** The server can only try an endpoint it already has, so the save has to land
+   *  before the handshake. A failed handshake still leaves the config saved —
+   *  the user can fix the URL and hit 重新连接 without retyping anything. */
+  const saveAndConnectMcp = async (id: string): Promise<McpServerStatus> => {
+    const toSave = buildPersistConfig();
+    await api.saveSettings(toSave);
+    setSavedConfig(toSave);
+    const status = await api.connectMcp(id);
+    setMcpStatuses((prev) => ({ ...prev, [id]: status }));
+    return status;
+  };
+
+  const isDirty = (): boolean => {    if (!config || !savedConfig) return false;
     return (
       JSON.stringify(buildPersistConfig()) !==
       JSON.stringify(stripBuiltin(savedConfig))
@@ -1424,6 +1438,13 @@ export default function Settings({ open, onClose }: Props) {
           <p className="muted" style={{ margin: 0 }}>
             {t("settings:search.note")}
           </p>
+
+          <McpSettings
+            servers={config.mcpServers ?? []}
+            statuses={mcpStatuses}
+            onChange={(mcpServers) => setConfig({ ...config, mcpServers })}
+            onSaveAndConnect={saveAndConnectMcp}
+          />
 
           <button
             type="button"

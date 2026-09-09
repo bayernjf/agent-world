@@ -272,5 +272,26 @@
     "configured": "已配置",
     "unconfigured": "未配置",
     "otherSourcesStatus": "其他源（已各自独立保存）：{{status}}。"
+  },
+  "mcp": {
+    "title": "MCP 服务",
+    "description": "接入第三方 MCP 服务，把它暴露的工具挂到产线节点上。只支持远程传输（http / sse）：stdio 需要指定一条本地启动命令，等同于任意代码执行，只保留给运维用环境变量配置。",
+    "empty": "还没有 MCP 服务。填下面的地址即可添加。",
+    "name": "名称",
+    "transport": "传输方式",
+    "transportHttp": "HTTP（Streamable）",
+    "transportSse": "SSE",
+    "url": "服务地址",
+    "authHeader": "Authorization 头",
+    "authHeaderHint": "有的服务要求 Bearer Token；留空表示不带鉴权头。已保存的值回显为掩码，不改动即保持原值。",
+    "enabled": "启用",
+    "saveAndConnect": "保存并试连",
+    "connecting": "连接中…",
+    "remove": "删除",
+    "connected": "已连接，发现 {{count}} 个工具：{{tools}}",
+    "failed": "连接失败：{{error}}",
+    "add": "添加",
+    "newPlaceholder": "新服务名称",
+    "note": "凭据落盘前静态加密；不会自动重连，改完地址或密钥请手动点「保存并试连」。工具 ID 形如 mcp:<服务>:<工具>，与内置技能同名时内置优先。"
   }
 }

@@ -7050,3 +7050,33 @@ select {
   gap: var(--gap-xs);
   padding-top: var(--space-2);
 }
+
+/* Settings → MCP 服务 */
+.mcp-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-sm);
+  margin-top: var(--gap-sm);
+}
+.mcp-actions input {
+  flex: 1;
+}
+.mcp-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--gap-sm);
+}
+.mcp-toggle input[type="checkbox"] {
+  width: auto;
+}
+.mcp-ok {
+  display: block;
+  margin-top: var(--gap-sm);
+  color: var(--ok);
+}
+.mcp-bad {
+  display: block;
+  margin-top: var(--gap-sm);
+  color: var(--error);
+}

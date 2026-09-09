@@ -272,5 +272,26 @@
     "configured": "configured",
     "unconfigured": "not set",
     "otherSourcesStatus": "Other sources (saved independently): {{status}}."
+  },
+  "mcp": {
+    "title": "MCP servers",
+    "description": "Connect third-party MCP servers and mount the tools they expose onto pipeline nodes. Remote transports only (http / sse): stdio takes a local spawn command, which is arbitrary code execution, so it stays operator-only via env vars.",
+    "empty": "No MCP servers yet. Add one below.",
+    "name": "Name",
+    "transport": "Transport",
+    "transportHttp": "HTTP (Streamable)",
+    "transportSse": "SSE",
+    "url": "Endpoint",
+    "authHeader": "Authorization header",
+    "authHeaderHint": "Some servers want a bearer token; leave empty to send no auth header. A saved value comes back masked — leave it alone to keep it.",
+    "enabled": "Enabled",
+    "saveAndConnect": "Save and connect",
+    "connecting": "Connecting…",
+    "remove": "Remove",
+    "connected": "Connected, {{count}} tool(s): {{tools}}",
+    "failed": "Connection failed: {{error}}",
+    "add": "Add",
+    "newPlaceholder": "New server name",
+    "note": "Credentials are encrypted at rest. Nothing reconnects on its own — after editing an endpoint or key, hit Save and connect. Tool ids look like mcp:<server>:<tool>; a built-in skill of the same id always wins."
   }
 }

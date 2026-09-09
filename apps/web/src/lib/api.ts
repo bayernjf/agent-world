@@ -52,6 +52,30 @@ export interface AppConfig {
     apiKey?: string;
     cx?: string;
   };
+  /** Remote MCP servers the user connected. Header values arrive redacted; the
+   *  server treats a masked value echoed back as "unchanged". */
+  mcpServers?: UserMcpServer[];
+}
+
+export interface UserMcpServer {
+  id: string;
+  name?: string;
+  transport: "http" | "sse";
+  url: string;
+  headers?: Record<string, string>;
+  enabled?: boolean;
+}
+
+export interface McpServerStatus {
+  id: string;
+  name?: string;
+  transport: "http" | "sse";
+  url: string;
+  connected: boolean;
+  toolCount: number;
+  toolNames: string[];
+  error?: string;
+  connectedAt?: number;
 }
 
 export interface ProviderTestResult {
@@ -1080,6 +1104,16 @@ export const api = {
   },
 
   getSettings: () => authFetch("/api/settings").then(json<AppConfig>),
+
+  listMcp: () => authFetch("/api/mcp").then(json<{ operator: unknown[]; user: McpServerStatus[] }>),
+
+  /** Connect or reconnect one of the user's own MCP servers. A failed handshake
+   *  answers 502 with the reason in `error`, which is a result to show, not an
+   *  exception — hence the manual response read instead of `json()`. */
+  connectMcp: async (id: string): Promise<McpServerStatus> => {
+    const res = await authFetch(`/api/mcp/${encodeURIComponent(id)}/connect`, { method: "POST" });
+    return (await res.json()) as McpServerStatus;
+  },
 
   saveSettings: (config: AppConfig) =>
     authFetch("/api/settings", {
