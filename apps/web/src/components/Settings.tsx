@@ -1304,28 +1304,6 @@ export default function Settings({ open, onClose }: Props) {
           })}
 
           <div className="settings-section-head">
-            <h3 className="label">{t("settings:modelKeys.monthlyBudget")}</h3>
-          </div>
-          <label className="field">
-            <span>{t("settings:modelKeys.monthlySoftCap")}</span>
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              placeholder={t("settings:modelKeys.monthlyCapPlaceholder")}
-              value={config.monthlyBudgetUsd ?? ""}
-              onChange={(e) =>
-                setConfig({
-                  ...config,
-                  monthlyBudgetUsd:
-                    e.target.value === "" ? null : Number(e.target.value),
-                })
-              }
-            />
-            <small className="muted">{t("settings:modelKeys.monthlyCapHint")}</small>
-          </label>
-
-          <div className="settings-section-head">
             <h3 className="label">{t("settings:search.title")}</h3>
           </div>
           <p className="muted" style={{ marginTop: 0 }}>
@@ -1451,6 +1429,28 @@ export default function Settings({ open, onClose }: Props) {
             cards={config.skillCards ?? []}
             onChange={(skillCards) => setConfig({ ...config, skillCards })}
           />
+
+          <div className="settings-section-head">
+            <h3 className="label">{t("settings:modelKeys.monthlyBudget")}</h3>
+          </div>
+          <label className="field">
+            <span>{t("settings:modelKeys.monthlySoftCap")}</span>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              placeholder={t("settings:modelKeys.monthlyCapPlaceholder")}
+              value={config.monthlyBudgetUsd ?? ""}
+              onChange={(e) =>
+                setConfig({
+                  ...config,
+                  monthlyBudgetUsd:
+                    e.target.value === "" ? null : Number(e.target.value),
+                })
+              }
+            />
+            <small className="muted">{t("settings:modelKeys.monthlyCapHint")}</small>
+          </label>
 
           <button
             type="button"

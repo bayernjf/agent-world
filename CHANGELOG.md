@@ -53,6 +53,7 @@ All notable changes are documented here. The format is based on
 - **自媒体电商方向 F1-F10**（里程碑 M1-M6 闭环）— run 内多变体择优（fanout/select 节点 + 变体对比视图）、审核队列、平台合规校验、商品库/素材库、批量任务、效果回流、平台化导出包 + 开放渠道 Webhook 发布、内容日历、内容级成本、画布泳道编排；仅新增 4 个节点（fanout/select/compliance/publish），浏览器 RPA 按决策不做。详见 [docs/design-ecommerce-roadmap.md](docs/design-ecommerce-roadmap.md)。
 
 ### Changed
+- **设置弹窗分区顺序调整** — 原来顺序为模型 → 月度预算 → 搜索 → MCP → 技能卡 → Workers，预算这个计费项把三个能力配置隔断，MCP 与技能卡被压在长表单底部。改为 模型 → 搜索 → MCP → 技能卡（三个「agent 能用什么、怎么表现」的能力/行为分区连成一段）→ 月度预算（账号计费下沉）→ Workers（高级折叠收尾）。
 - **MCP / 自建技能卡设置分区改用既有 model-card 视觉语言** — 首版两个分区自造了 `.mcp-*` 私有类名、扁平堆叠表单，与同弹窗里的模型供应商列表不一致（删除链接被渲染成整行红色块）。评审发现后重写为折叠式 `.model-card` 列表（chevron / 启用开关 / 等宽名称 / badge / 连接状态圆点的 head，展开后 `.field` 表单 + `.model-card__footer-actions` + `.diag` 状态行），删除按钮收进 head-actions；CSS 里自造类全部删掉，只留 4 个基于现有 token 的小 helper（`.ext-add-row` / `.ext-status-dot` / `.ext-badge` / `.card-fields`）。行为零变化，1593 个 web 测试全绿。
 - **核心文件重构（行为零变化）** — `engine.ts` 4954→1828 行：29 种节点执行体迁至 `packages/server/src/nodes/`（28 个 handler + `NodeRunContext` + `NODE_HANDLERS` 注册表分发）；`Inspector.tsx` 3848→611 行：节点配置面板拆至 `InspectorFields/` 27 文件 + 注册表分发。详见 [docs/design-refactor-engine-inspector.md](docs/design-refactor-engine-inspector.md)。
 - 模板总数从 27 增至 33（覆盖 29 种节点类型中的 23 种）
