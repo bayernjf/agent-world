@@ -23,7 +23,7 @@
     "hono": "^4.6.14",
     "jose": "^6.2.10",
     "jpeg-js": "^0.4.4",
-    "nodemailer": "^9.0.6",
+    "nodemailer": "^9.1.1",
     "pdfjs-dist": "^6.2.108",
     "pg": "^8.23.0",
     "playwright": "^1.62.1",
