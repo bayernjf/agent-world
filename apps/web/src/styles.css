@@ -974,7 +974,7 @@ select {
   align-items: center;
   justify-content: space-between;
 }
-.skill-picker__search {
+.settings-search {
   margin: var(--gap-xs) 0;
 }
 .skill-picker__empty {

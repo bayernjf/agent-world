@@ -296,7 +296,9 @@
     "failed": "Connection failed: {{error}}",
     "add": "Add",
     "newPlaceholder": "New server name",
-    "note": "Credentials are encrypted at rest. Nothing reconnects on its own — after editing an endpoint or key, hit Save and connect. Tool ids look like mcp:<server>:<tool>; a built-in skill of the same id always wins."
+    "note": "Credentials are encrypted at rest. Nothing reconnects on its own — after editing an endpoint or key, hit Save and connect. Tool ids look like mcp:<server>:<tool>; a built-in skill of the same id always wins.",
+    "searchPlaceholder": "Search by name, ID, or URL…",
+    "noMatch": "No MCP server matches."
   },
   "cards": {
     "title": "Your own skill cards",

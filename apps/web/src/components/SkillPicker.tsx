@@ -78,7 +78,7 @@ export default function SkillPicker({ mounted, onChange, kinds, onOpenSettings }
         )}
       </span>
       <input
-        className="skill-picker__search"
+        className="settings-search"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         placeholder={t("modals:skillPicker.searchPlaceholder")}

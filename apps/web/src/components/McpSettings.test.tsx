@@ -105,4 +105,42 @@ describe("McpSettings", () => {
     fireEvent.click(within(document.querySelector('[data-testid="mcp-server-s1"]')!).getByText("删除"));
     expect(onChange).toHaveBeenCalledWith([]);
   });
+
+  describe("搜索", () => {
+    const s2: UserMcpServer = {
+      id: "github",
+      name: "GitHub",
+      transport: "sse",
+      url: "https://github.test/sse",
+      enabled: true,
+    };
+    const two = [s1, s2];
+
+    it("没有服务时不显示搜索框", () => {
+      renderPanel({ servers: [] });
+      expect(screen.queryByPlaceholderText(/按名称、ID 或地址搜索/)).not.toBeInTheDocument();
+    });
+
+    it("按名称过滤", () => {
+      renderPanel({ servers: two });
+      fireEvent.change(screen.getByPlaceholderText(/按名称、ID 或地址搜索/), { target: { value: "github" } });
+      expect(screen.queryByTestId("mcp-server-github")).toBeInTheDocument();
+      expect(screen.queryByTestId("mcp-server-s1")).not.toBeInTheDocument();
+      expect(screen.queryByText(/没有匹配的 MCP 服务/)).not.toBeInTheDocument();
+    });
+
+    it("按 URL 或 ID 也能命中", () => {
+      renderPanel({ servers: two });
+      fireEvent.change(screen.getByPlaceholderText(/按名称、ID 或地址搜索/), { target: { value: "example.com" } });
+      expect(screen.queryByTestId("mcp-server-s1")).toBeInTheDocument();
+      expect(screen.queryByTestId("mcp-server-github")).not.toBeInTheDocument();
+    });
+
+    it("无匹配时给出提示并隐藏列表", () => {
+      renderPanel({ servers: two });
+      fireEvent.change(screen.getByPlaceholderText(/按名称、ID 或地址搜索/), { target: { value: "不存在" } });
+      expect(screen.getByText(/没有匹配的 MCP 服务/)).toBeInTheDocument();
+      expect(screen.queryByTestId("mcp-server-s1")).not.toBeInTheDocument();
+    });
+  });
 });

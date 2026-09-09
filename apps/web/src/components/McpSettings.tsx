@@ -34,6 +34,14 @@ export function McpSettings({ servers, onChange, onSaveAndConnect, statuses }: P
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState<string | null>(null);
   const [draftName, setDraftName] = useState("");
+  const [query, setQuery] = useState("");
+
+  const q = query.trim().toLowerCase();
+  const visible = q
+    ? servers.filter((s) =>
+        `${s.name ?? ""} ${s.id} ${s.url} ${s.transport}`.toLowerCase().includes(q),
+      )
+    : servers;
 
   const toggleOpen = (id: string) =>
     setOpen((prev) => {
@@ -76,7 +84,20 @@ export function McpSettings({ servers, onChange, onSaveAndConnect, statuses }: P
 
       {servers.length === 0 && <p className="muted">{t("settings:mcp.empty")}</p>}
 
-      {servers.map((server) => {
+      {servers.length > 0 && (
+        <input
+          className="settings-search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder={t("settings:mcp.searchPlaceholder")}
+          aria-label={t("settings:mcp.searchPlaceholder")}
+        />
+      )}
+      {q && visible.length === 0 && (
+        <p className="muted">{t("settings:mcp.noMatch")}</p>
+      )}
+
+      {visible.map((server) => {
         const status = statuses[server.id];
         const isOpen = open.has(server.id);
         const dot = status
