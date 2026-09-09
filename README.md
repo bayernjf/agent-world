@@ -99,7 +99,7 @@ pnpm dev
 ### Run the checks
 
 ```bash
-pnpm -r test       # 2809 tests: core 198 / server 960 / mcp-server 71 / web 1580
+pnpm -r test       # 2823 tests: core 198 / server 974 / mcp-server 71 / web 1580
 pnpm -r typecheck
 pnpm -r build
 ```
