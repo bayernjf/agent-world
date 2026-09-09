@@ -368,6 +368,25 @@ export function collectPromptModules(mounts: SkillMount[]): string[] {
 }
 
 /**
+ * Collect the criterion clauses contributed by mounted `judge`-kind cards.
+ * Gate nodes append these to `gate.criterion` before calling the model judge,
+ * so a reusable judging rule can be equipped instead of retyped.
+ */
+export function collectJudgeCriteria(mounts: SkillMount[]): string[] {
+  const out: string[] = [];
+  for (const m of mounts) {
+    if (m.enabled === false) continue;
+    const skill = getSkill(m.id);
+    if (!skill || skill.kind !== "judge") continue;
+    const config = { ...(skill.config ?? {}), ...(m.config ?? {}) };
+    if (typeof config.criterion === "string" && config.criterion.trim()) {
+      out.push(config.criterion.trim());
+    }
+  }
+  return out;
+}
+
+/**
  * E.3 — find the output contract (JSON-schema) declared by a mounted
  * `output-contract` skill, if any. Returns the schema object or null.
  */

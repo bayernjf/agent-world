@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { Skill, SkillMount } from "@agent-world/core";
+import type { Skill, SkillKind, SkillMount } from "@agent-world/core";
 import { api } from "../lib/api";
 
 interface Props {
   mounted: SkillMount[];
   onChange: (mounts: SkillMount[]) => void;
+  /** Restrict the catalog to these kinds. Omit to offer every kind (agent nodes). */
+  kinds?: SkillKind[];
 }
 
 type PermId = "network" | "fs" | "subprocess" | "env";
@@ -26,13 +28,15 @@ function permIds(skill: Skill): PermId[] {
   return out;
 }
 
-export default function SkillPicker({ mounted, onChange }: Props) {
+export default function SkillPicker({ mounted, onChange, kinds }: Props) {
   const { t } = useTranslation();
-  const [skills, setSkills] = useState<Skill[]>([]);
+  const [all, setAll] = useState<Skill[]>([]);
 
   useEffect(() => {
-    api.listSkills().then(setSkills).catch(() => {});
+    api.listSkills().then(setAll).catch(() => {});
   }, []);
+
+  const skills = kinds ? all.filter((s) => kinds.includes(s.kind)) : all;
 
   const isOn = (id: string) => mounted.some((m) => m.id === id && m.enabled);
 

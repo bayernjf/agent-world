@@ -203,3 +203,93 @@ describe("E.3 output-contract skills", () => {
     expect(failed).toBeDefined();
   });
 });
+
+// --- judge skills (gate criterion) ---
+registerSkill({
+  id: "judge-j",
+  name: "Judge J",
+  kind: "judge",
+  source: "local",
+  permissions: {},
+  config: { criterion: "JUDGE_J_CRITERION" },
+});
+
+describe("judge skills on a gate node", () => {
+  function gateGraph(skills: Array<string | { id: string; enabled: boolean; config: Record<string, unknown> }>): Graph {
+    return {
+      nodes: [
+        { id: "s1", kind: "source", name: "Src", x: 0, y: 0, source: {} },
+        { id: "w1", kind: "textGen", name: "Writer", x: 1, y: 0, textGen: { ...TEXTGEN } },
+        {
+          id: "g1",
+          kind: "gate",
+          name: "QC",
+          x: 2,
+          y: 0,
+          gate: { maxAttempts: 2, criterion: "BASE_CRITERION", onExhausted: "halt", skills },
+        },
+        { id: "k1", kind: "sink", name: "End", x: 3, y: 0, sink: {} },
+      ],
+      edges: [
+        { id: "e1", kind: "flow", from: "s1", to: "w1" },
+        { id: "e2", kind: "flow", from: "w1", to: "g1" },
+        { id: "e3", kind: "flow", from: "g1", to: "k1" },
+      ],
+    };
+  }
+
+  /** Worker that records the criterion each judge call receives. */
+  function judgeRecorder(): { worker: Worker; criteria: string[] } {
+    const criteria: string[] = [];
+    const worker: Worker = {
+      async *runTextGen() {
+        yield { type: "text-delta", text: "OUT" };
+        return { output: "OUT", usage: { tokensIn: 0, tokensOut: 0, costUsd: 0 } };
+      },
+      async judge(args) {
+        criteria.push(args.criterion);
+        return { passed: true, reason: "ok" };
+      },
+      async generateImage() {
+        return [];
+      },
+    };
+    return { worker, criteria };
+  }
+
+  async function runGate(
+    skills: Array<string | { id: string; enabled: boolean; config: Record<string, unknown> }>,
+    runId: string,
+  ): Promise<string> {
+    const { worker, criteria } = judgeRecorder();
+    const graph = gateGraph(skills);
+    const { plan } = compile(graph);
+    if (!plan) throw new Error("no plan");
+    await collect(execute({ runId, graph, plan, worker, now: () => 0 }));
+    return criteria[0]!;
+  }
+
+  it("appends a mounted judge card's criterion to the gate criterion", async () => {
+    const criterion = await runGate(["judge-j"], "j1");
+    expect(criterion).toContain("BASE_CRITERION");
+    expect(criterion).toContain("JUDGE_J_CRITERION");
+  });
+
+  it("leaves the criterion untouched when no judge card is mounted", async () => {
+    const criterion = await runGate([], "j2");
+    expect(criterion).toContain("BASE_CRITERION");
+    expect(criterion).not.toContain("JUDGE_J_CRITERION");
+  });
+
+  it("honours a per-mount criterion override and skips disabled mounts", async () => {
+    const override = await runGate(
+      [{ id: "judge-j", enabled: true, config: { criterion: "OVERRIDDEN" } }],
+      "j3",
+    );
+    expect(override).toContain("OVERRIDDEN");
+    expect(override).not.toContain("JUDGE_J_CRITERION");
+
+    const off = await runGate([{ id: "judge-j", enabled: false, config: {} }], "j4");
+    expect(off).not.toContain("JUDGE_J_CRITERION");
+  });
+});
