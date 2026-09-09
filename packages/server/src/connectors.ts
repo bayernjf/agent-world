@@ -12,11 +12,13 @@ export interface ResolvedMaterial {
   images: string[];
   /**
    * Structured payload of the connector (design-data-interpolation.md D1).
-   * product connectors expose `Product[]` so downstream fields can reference
-   * `${product.name}` / `${srcId.data[0].name}`; other connector types leave
-   * it undefined for now — http/database/file adopt the same channel when
-   * they need field-level references. The plain-text `text` stays the source
-   * node's material block regardless.
+   * Every type that has a structured form fills it, so brief fields, custom
+   * fields and downstream nodes can reference `${srcId.data…}` or the type's
+   * shortcut name: product → `Product[]`, http → parsed JSON body, database →
+   * row objects, form → answers keyed by field name, file → one entry per file
+   * with its text. `manual` (and a non-JSON http response) leave it undefined
+   * so those sources keep a bare-string ctx entry. The plain-text `text` stays
+   * the source node's material block regardless.
    */
   data?: unknown;
 }
@@ -39,6 +41,12 @@ export const CONNECTOR_SHORTCUTS: ReadonlyArray<{
 }> = [
   { name: "product", connector: "product", pick: (d) => (Array.isArray(d) ? d[0] : undefined) },
   { name: "products", connector: "product", pick: (d) => d },
+  { name: "response", connector: "http", pick: (d) => d },
+  { name: "row", connector: "database", pick: (d) => (Array.isArray(d) ? d[0] : undefined) },
+  { name: "rows", connector: "database", pick: (d) => d },
+  { name: "form", connector: "form", pick: (d) => d },
+  { name: "file", connector: "file", pick: (d) => (Array.isArray(d) ? d[0] : undefined) },
+  { name: "files", connector: "file", pick: (d) => d },
 ];
 
 const TEXT_SEP = "\n\n---\n\n";
@@ -148,15 +156,20 @@ export async function resolveConnector(
       for (const f of files) assertSafeLocalPath(f);
       const textParts: string[] = [];
       const images: string[] = [];
+      const entries: Array<{ name: string; path: string; content?: string }> = [];
       for (const f of files) {
         if (c.asImages) {
           images.push(f);
+          entries.push({ name: path.basename(f), path: f });
           continue;
         }
         const content = await fs.readFile(f, c.encoding === "base64" ? "base64" : "utf8");
         textParts.push(`# ${path.basename(f)}\n${content}`);
+        entries.push({ name: path.basename(f), path: f, content });
       }
-      return { text: textParts.join(TEXT_SEP), images };
+      // Per-file entries let a batch pipeline address one document at a time
+      // (`${files[1].content}`) instead of re-splitting the joined text block.
+      return { text: textParts.join(TEXT_SEP), images, data: entries };
     }
 
     case "http": {
@@ -185,8 +198,9 @@ export async function resolveConnector(
       if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
       const ct = res.headers.get("content-type") ?? "";
       let bodyText: string;
+      let json: unknown = undefined;
       if (ct.includes("application/json")) {
-        const json: unknown = await res.json();
+        json = await res.json();
         if (c.extract && c.extract.length) {
           bodyText = c.extract
             .map((p) => getPath(json, p))
@@ -199,7 +213,7 @@ export async function resolveConnector(
       } else {
         bodyText = await res.text();
       }
-      return { text: bodyText, images: [] };
+      return { text: bodyText, images: [], data: json };
     }
 
     case "form": {
@@ -207,7 +221,10 @@ export async function resolveConnector(
       if (!c) return { text: "", images: [] };
       if (!formValues) return { text: "", images: [] };
       const lines = c.fields.map((f) => `${f.label ?? f.name}: ${formValues[f.name] ?? ""}`);
-      return { text: lines.join("\n"), images: [] };
+      // Keyed by field name (not label) so `${form.orderId}` stays stable when
+      // the display label is renamed or translated.
+      const answers = Object.fromEntries(c.fields.map((f) => [f.name, formValues[f.name] ?? ""]));
+      return { text: lines.join("\n"), images: [], data: answers };
     }
 
     case "database": {
@@ -255,7 +272,7 @@ function querySqlite(c: DatabaseConnector, sql: string): ResolvedMaterial {
     const bindParams = toSqlBindParams(c.params ?? []);
     const rows = db.prepare(sql).all(...bindParams);
     const text = c.format === "csv" ? rowsToCsv(rows) : JSON.stringify(rows, null, 2);
-    return { text, images: [] };
+    return { text, images: [], data: rows };
   } finally {
     db.close();
   }
@@ -281,7 +298,7 @@ async function queryPostgres(c: DatabaseConnector, sql: string): Promise<Resolve
     const result = await client.query(sql, c.params ?? []);
     const rows = result.rows as Array<Record<string, unknown>>;
     const text = c.format === "csv" ? rowsToCsv(rows) : JSON.stringify(rows, null, 2);
-    return { text, images: [] };
+    return { text, images: [], data: rows };
   } finally {
     await client.end();
   }

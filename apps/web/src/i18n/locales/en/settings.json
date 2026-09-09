@@ -1,5 +1,10 @@
 {
   "title": "Settings",
+  "tabs": {
+    "models": "Models",
+    "integrations": "Integrations",
+    "skills": "Skills"
+  },
   "general": {
     "title": "General",
     "language": "Language",
@@ -165,7 +170,6 @@
     "timezone": "Timezone"
   },
   "modelKeys": {
-    "title": "Settings · models & keys",
     "close": "Close",
     "models": "Models",
     "modality": {
@@ -272,5 +276,54 @@
     "configured": "configured",
     "unconfigured": "not set",
     "otherSourcesStatus": "Other sources (saved independently): {{status}}."
+  },
+  "mcp": {
+    "title": "MCP servers",
+    "description": "Connect third-party MCP servers and mount the tools they expose onto pipeline nodes. Remote transports only (http / sse): stdio takes a local spawn command, which is arbitrary code execution, so it stays operator-only via env vars.",
+    "empty": "No MCP servers yet. Add one below.",
+    "name": "Name",
+    "transport": "Transport",
+    "transportHttp": "HTTP (Streamable)",
+    "transportSse": "SSE",
+    "url": "Endpoint",
+    "authHeader": "Authorization header",
+    "authHeaderHint": "Some servers want a bearer token; leave empty to send no auth header. A saved value comes back masked — leave it alone to keep it.",
+    "enabled": "Enabled",
+    "saveAndConnect": "Save and connect",
+    "connecting": "Connecting…",
+    "remove": "Remove",
+    "connected": "Connected, {{count}} tool(s): {{tools}}",
+    "failed": "Connection failed: {{error}}",
+    "add": "Add",
+    "newPlaceholder": "New server name",
+    "note": "Credentials are encrypted at rest. Nothing reconnects on its own — after editing an endpoint or key, hit Save and connect. Tool ids look like mcp:<server>:<tool>; a built-in skill of the same id always wins.",
+    "searchPlaceholder": "Search by name, ID, or URL…",
+    "noMatch": "No MCP server matches."
+  },
+  "cards": {
+    "title": "Your own skill cards",
+    "description": "Cards you author yourself, visible only on your own pipelines. All three kinds are plain data — a prompt fragment, a judging clause, a field table — so no sandbox is needed.",
+    "empty": "No cards yet.",
+    "name": "Name",
+    "kind": {
+      "prompt-module": "Prompt module",
+      "output-contract": "Output contract",
+      "judge": "Judge"
+    },
+    "newKind": "Kind",
+    "prompt": "Prompt",
+    "promptPlaceholder": "Appended to the node's system prompt",
+    "criterion": "Criterion",
+    "criterionPlaceholder": "What a gate node judges against",
+    "fields": "Output fields",
+    "fieldName": "Field name",
+    "fieldType": "Type",
+    "fieldRequired": "Required",
+    "addField": "Add field",
+    "removeField": "Remove",
+    "remove": "Remove card",
+    "add": "Add",
+    "newPlaceholder": "New card name",
+    "note": "Ids get a local: prefix automatically; a built-in skill with the same id always wins, so a card can never shadow one. Takes effect on the next run."
   }
 }

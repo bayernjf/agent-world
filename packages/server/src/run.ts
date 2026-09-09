@@ -6,6 +6,7 @@ import { ArtifactStore } from "./artifact-store.js";
 import { log } from "./logger.js";
 import { execute, resume } from "./engine.js";
 import { loadConfig } from "./config.js";
+import { loadUserSkills } from "./skills/user-skills.js";
 import { runAsUser } from "./user-context.js";
 import { createReadArtifact } from "./artifact-reader.js";
 import { counter, gauge } from "./metrics.js";
@@ -177,6 +178,7 @@ export async function startRun(args: StartRunArgs): Promise<{ runId: string; dia
         initialVariables: variables,
         bannedTerms: await db.bannedTermsText(userId),
         searchConfig: cfg.searchConfig,
+        userSkills: await loadUserSkills(userId, cfg),
         loadProducts: productConnectorLoader(db, userId),
         log: runLog,
         budgetUsd: budgetUsd ?? null,
@@ -351,6 +353,7 @@ export async function resumeRun(args: ResumeRunArgs): Promise<{ runId: string; a
         initialVariables: variables,
         bannedTerms: await db.bannedTermsText(userId),
         searchConfig: cfg.searchConfig,
+        userSkills: await loadUserSkills(userId, cfg),
         loadProducts: productConnectorLoader(db, userId),
         monthlyBudgetUsd: cfg.monthlyBudgetUsd ?? null,
         monthSpentUsd: await db.costForMonth(now.getFullYear(), now.getMonth() + 1, userId),

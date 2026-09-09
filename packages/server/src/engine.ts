@@ -60,7 +60,7 @@ import { HaltRequested, type ToolDefinition, type Worker } from "./worker.js";
 import { ProviderError } from "./providers/openai-compatible.js";
 import { sanitizeError } from "./sanitize.js";
 import { MAX_INLINE_BYTES } from "./artifact-reader.js";
-import { getSkill, resolveTools, executeBuiltinTool } from "./skills/registry.js";
+import { getSkill, resolveTools, executeBuiltinTool, type BuiltinSkill } from "./skills/registry.js";
 import { guardToolCall, isDangerousTool, loadPermissionConfig, type PermissionConfig } from "./permissions.js";
 import { notifyFailed, notifyHalt } from "./notify.js";
 import { CONNECTOR_SHORTCUTS, resolveConnector, type ResolvedMaterial } from "./connectors.js";
@@ -260,6 +260,15 @@ export interface ExecuteOptions {
   searchConfig?: { provider?: string; apiKey?: string; cx?: string };
   /** Resolves a `product` connector against the user's product library (injected by the HTTP layer). */
   loadProducts?: (connector: ProductConnector) => Promise<ResolvedMaterial>;
+  /**
+   * The run owner's own skill cards, keyed by skill id: the data cards they
+   * authored plus the tools of the MCP servers they connected. Injected by the
+   * HTTP layer per run, deliberately NOT registered into the process-global
+   * registry — that is what keeps one user's cards and remote endpoints out of
+   * another user's runs. Lookups consult the global registry first, so a card
+   * here cannot shadow a built-in or operator-configured id.
+   */
+  userSkills?: Map<string, BuiltinSkill>;
   /** Run-scoped structured logger, bound to runId/graphId by the caller. */
   log?: Logger;
 }
@@ -461,6 +470,15 @@ export interface SchedulerOptions {
   searchConfig?: { provider?: string; apiKey?: string; cx?: string };
   /** Resolves a `product` connector against the user's product library (injected by the HTTP layer). */
   loadProducts?: (connector: ProductConnector) => Promise<ResolvedMaterial>;
+  /**
+   * The run owner's own skill cards, keyed by skill id: the data cards they
+   * authored plus the tools of the MCP servers they connected. Injected by the
+   * HTTP layer per run, deliberately NOT registered into the process-global
+   * registry — that is what keeps one user's cards and remote endpoints out of
+   * another user's runs. Lookups consult the global registry first, so a card
+   * here cannot shadow a built-in or operator-configured id.
+   */
+  userSkills?: Map<string, BuiltinSkill>;
   /** Run-scoped structured logger, bound to runId/graphId by the caller. */
   log?: Logger;
 }
@@ -1545,6 +1563,7 @@ export async function* execute(opts: ExecuteOptions): AsyncGenerator<RunEvent, v
     initialVariables: opts.initialVariables,
     bannedTerms: opts.bannedTerms,
     searchConfig: opts.searchConfig,
+    userSkills: opts.userSkills,
     loadProducts: opts.loadProducts,
     init: {
       artifacts: new Map(),
@@ -1721,6 +1740,15 @@ export interface ResumeOptions {
   searchConfig?: { provider?: string; apiKey?: string; cx?: string };
   /** Resolves a `product` connector against the user's product library (injected by the HTTP layer). */
   loadProducts?: (connector: ProductConnector) => Promise<ResolvedMaterial>;
+  /**
+   * The run owner's own skill cards, keyed by skill id: the data cards they
+   * authored plus the tools of the MCP servers they connected. Injected by the
+   * HTTP layer per run, deliberately NOT registered into the process-global
+   * registry — that is what keeps one user's cards and remote endpoints out of
+   * another user's runs. Lookups consult the global registry first, so a card
+   * here cannot shadow a built-in or operator-configured id.
+   */
+  userSkills?: Map<string, BuiltinSkill>;
   /** Run-scoped structured logger, bound to runId/graphId by the caller. */
   log?: Logger;
 }
@@ -1906,6 +1934,7 @@ export async function* resume(opts: ResumeOptions): AsyncGenerator<RunEvent, voi
     initialVariables: opts.initialVariables,
     bannedTerms: opts.bannedTerms,
     searchConfig: opts.searchConfig,
+    userSkills: opts.userSkills,
     loadProducts: opts.loadProducts,
     init: {
       artifacts: state.artifacts,

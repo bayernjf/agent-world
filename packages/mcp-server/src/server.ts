@@ -1,5 +1,22 @@
+import { randomUUID } from "node:crypto";
 import type { AgentWorldClient } from "./client.js";
 import type { NotificationsHub } from "./notifications.js";
+import {
+  cacheable,
+  complete,
+  declaredVersion,
+  LATEST_PROTOCOL_VERSION,
+  negotiateVersion,
+  PRIVATE_CACHE,
+  PUBLIC_CACHE,
+  removedMethodError,
+  SUBSCRIPTION_TYPES,
+  SUPPORTED_PROTOCOL_VERSIONS,
+  unknownDeclaredVersion,
+  unsupportedProtocolVersionError,
+  type ServerIdentity,
+  type SubscriptionType,
+} from "./protocol.js";
 import { listResources, readResource, RESOURCE_TEMPLATES } from "./resources.js";
 import { getPrompt, PROMPTS } from "./prompts.js";
 import { TOOLS, type McpToolDef } from "./tools.js";
@@ -13,8 +30,18 @@ export interface JsonRpcMessage {
   error?: { code: number; message: string; data?: unknown };
 }
 
-export const PROTOCOL_VERSION = "2024-11-05";
-export const SERVER_VERSION = "0.2.0";
+/** The newest revision this server speaks; see protocol.ts for the full set. */
+export const PROTOCOL_VERSION = LATEST_PROTOCOL_VERSION;
+export const SERVER_VERSION = "0.3.0";
+
+const SERVER_INFO: ServerIdentity = { name: "agent-world", version: SERVER_VERSION };
+
+const CAPABILITIES = {
+  tools: { listChanged: false },
+  resources: { subscribe: true, listChanged: false },
+  prompts: { listChanged: false },
+  extensions: {},
+} as const;
 
 function rpcError(id: JsonRpcMessage["id"], code: number, message: string, data?: unknown): JsonRpcMessage {
   return { jsonrpc: "2.0", id, error: { code, message, data } };
@@ -27,6 +54,20 @@ function asRecord(v: unknown): Record<string, unknown> {
 function textContent(text: string): unknown[] {
   return [{ type: "text", text }];
 }
+
+function newSubscriptionId(): string {
+  return `sub_${randomUUID()}`;
+}
+
+/** Methods 2026-07-28 removed, mapped to what replaced them. */
+const REMOVED_IN_LATEST: Record<string, string> = {
+  initialize: "server/discover（版本改由每个请求的 _meta 携带）",
+  "notifications/initialized": "server/discover（协议已无握手）",
+  ping: "server/discover",
+  "logging/setLevel": "_meta 里的 io.modelcontextprotocol/logLevel",
+  "resources/subscribe": "subscriptions/listen",
+  "resources/unsubscribe": "关闭 subscriptions/listen 的响应流",
+};
 
 /**
  * Handle one inbound JSON-RPC message. Returns the reply to send back, or
@@ -41,36 +82,60 @@ export async function handleMessage(
   const id = msg.id ?? null;
   if (id === null || id === undefined) return null; // notification
 
+  const unknownVersion = unknownDeclaredVersion(msg);
+  if (unknownVersion) return unsupportedProtocolVersionError(id, unknownVersion);
+
+  const method = String(msg.method);
+  if (declaredVersion(msg) === LATEST_PROTOCOL_VERSION && REMOVED_IN_LATEST[method]) {
+    return removedMethodError(id, method, REMOVED_IN_LATEST[method]!);
+  }
+
+  const ok = (result: object): JsonRpcMessage => ({
+    jsonrpc: "2.0",
+    id,
+    result: complete(result, SERVER_INFO),
+  });
+
   switch (msg.method) {
+    // 2026-07-28 (SEP-2575): the stateless replacement for `initialize`.
+    // Servers MUST implement it; clients MAY call it first to pick a version,
+    // or use it on stdio as a backward-compatibility probe.
+    case "server/discover":
+      return ok({
+        protocolVersions: [...SUPPORTED_PROTOCOL_VERSIONS],
+        capabilities: CAPABILITIES,
+        serverInfo: SERVER_INFO,
+      });
+
     case "initialize":
-      return {
-        jsonrpc: "2.0",
-        id,
-        result: {
-          protocolVersion: PROTOCOL_VERSION,
-          capabilities: { tools: {}, resources: { subscribe: true }, prompts: {} },
-          serverInfo: { name: "agent-world", version: SERVER_VERSION },
-        },
-      };
+      return ok({
+        protocolVersion: negotiateVersion(asRecord(msg.params).protocolVersion),
+        capabilities: CAPABILITIES,
+        serverInfo: SERVER_INFO,
+      });
 
     case "notifications/initialized":
       return null;
 
     case "ping":
-      return { jsonrpc: "2.0", id, result: {} };
+      return ok({});
 
     case "tools/list":
-      return {
-        jsonrpc: "2.0",
-        id,
-        result: {
-          tools: tools.map((t) => ({
-            name: t.name,
-            description: t.description,
-            inputSchema: t.inputSchema,
-          })),
-        },
-      };
+      return ok(
+        cacheable(
+          {
+            // 2026-07-28 SHOULD: deterministic order so client prompt caches hit.
+            // Declaration order in tools.ts already is one, and it groups read
+            // tools before writes — so it is kept rather than sorted.
+            tools: tools.map((t) => ({
+              name: t.name,
+              description: t.description,
+              inputSchema: t.inputSchema,
+            })),
+          },
+          PUBLIC_CACHE,
+        ),
+      );
 
     case "tools/call": {
       const params = asRecord(msg.params);
@@ -81,34 +146,26 @@ export async function handleMessage(
       }
       try {
         const result = await tool.handler(asRecord(params.arguments), client);
-        return {
-          jsonrpc: "2.0",
-          id,
-          result: { content: textContent(JSON.stringify(result, null, 2)), isError: false },
-        };
+        return ok({ content: textContent(JSON.stringify(result, null, 2)), isError: false });
       } catch (e) {
-        return {
-          jsonrpc: "2.0",
-          id,
-          result: {
-            content: textContent((e as Error).message),
-            isError: true,
-          },
-        };
+        return ok({ content: textContent((e as Error).message), isError: true });
       }
     }
 
     case "resources/list": {
       try {
         const resources = await listResources(client);
-        return { jsonrpc: "2.0", id, result: { resources } };
+        return ok(cacheable({ resources }, PRIVATE_CACHE));
       } catch (e) {
         return rpcError(id, -32603, (e as Error).message);
       }
     }
 
+    // `resources/templates` was the 2024-11-05 spelling; newer revisions name it
+    // `resources/templates/list`. Both stay wired so either client works.
     case "resources/templates":
-      return { jsonrpc: "2.0", id, result: { resourceTemplates: RESOURCE_TEMPLATES } };
+    case "resources/templates/list":
+      return ok(cacheable({ resourceTemplates: RESOURCE_TEMPLATES }, PUBLIC_CACHE));
 
     case "resources/read": {
       const params = asRecord(msg.params);
@@ -116,7 +173,7 @@ export async function handleMessage(
       if (!uri) return rpcError(id, -32602, "缺少必填参数 \"uri\"");
       try {
         const result = await readResource(uri, client);
-        return { jsonrpc: "2.0", id, result };
+        return ok(cacheable(result, PRIVATE_CACHE));
       } catch (e) {
         return rpcError(id, -32602, (e as Error).message);
       }
@@ -129,14 +186,41 @@ export async function handleMessage(
       if (!hub) return rpcError(id, -32601, "当前传输不支持资源订阅（仅 HTTP/SSE 传输支持）");
       try {
         await hub.subscribe(uri, client);
-        return { jsonrpc: "2.0", id, result: {} };
+        return ok({});
       } catch (e) {
         return rpcError(id, -32602, (e as Error).message);
       }
     }
 
+    // 2026-07-28 (SEP-2575): one long-lived POST-response stream replaces both
+    // the GET endpoint and resources/subscribe. The HTTP transport recognises
+    // this method and keeps the response open; here we only validate the opt-in
+    // and mint the id that tags outbound frames.
+    case "subscriptions/listen": {
+      const params = asRecord(msg.params);
+      if (!hub) return rpcError(id, -32601, "当前传输不支持订阅流（仅 HTTP 传输支持）");
+      const requested = Array.isArray(params.types) ? params.types : [];
+      const unknown = requested.filter(
+        (t): t is string => typeof t !== "string" || !(SUBSCRIPTION_TYPES as readonly string[]).includes(t),
+      );
+      if (unknown.length > 0) {
+        return rpcError(id, -32602, `不支持的订阅类型: ${unknown.join(", ")}`, {
+          supportedTypes: [...SUBSCRIPTION_TYPES],
+        });
+      }
+      const types = (requested.length > 0 ? requested : [...SUBSCRIPTION_TYPES]) as SubscriptionType[];
+      const uri = asStringParam(params.uri);
+      // Validate only. The upstream bridge must not start until the transport
+      // has registered this response as a sink, or a run that finishes
+      // immediately broadcasts to nobody.
+      if (uri && !hub.canSubscribe(uri)) {
+        return rpcError(id, -32602, `不支持的订阅 URI "${uri}"。仅支持 run://{runId}`);
+      }
+      return ok({ subscriptionId: newSubscriptionId(), types, ...(uri ? { uri } : {}) });
+    }
+
     case "prompts/list":
-      return { jsonrpc: "2.0", id, result: { prompts: PROMPTS } };
+      return ok(cacheable({ prompts: PROMPTS }, PUBLIC_CACHE));
 
     case "prompts/get": {
       const params = asRecord(msg.params);
@@ -144,7 +228,7 @@ export async function handleMessage(
       if (!name) return rpcError(id, -32602, "缺少必填参数 \"name\"");
       try {
         const messages = getPrompt(name, asRecord(params.arguments));
-        return { jsonrpc: "2.0", id, result: { messages } };
+        return ok({ messages });
       } catch (e) {
         return rpcError(id, -32602, (e as Error).message);
       }

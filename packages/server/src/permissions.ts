@@ -1,5 +1,6 @@
 import type { Skill } from "@agent-world/core";
-import { getSkill } from "./skills/registry.js";
+import path from "node:path";
+import { resolveSkill, type UserSkillMap } from "./skills/registry.js";
 
 /** True when `child` is `parent` itself or directly under it (path boundary). */
 function isPathUnder(child: string, parent: string): boolean {
@@ -100,38 +101,97 @@ export function evaluateToolCall(
     if (!fsPerm) return "filesystem access is not granted";
     if (f.write && !fsPerm.write) return "filesystem write is not granted";
     if (!f.write && !fsPerm.read) return "filesystem read is not granted";
-    const underSkill = (fsPerm.paths ?? []).some((p) => isPathUnder(f.path, p));
+    // An empty `paths` on a declared fs grant means "wherever the operator
+    // allows" — the card claims filesystem access but names no root of its own,
+    // so TOOL_FS_ALLOW is the only path authority.
+    const declaredPaths = fsPerm.paths ?? [];
+    const underSkill = declaredPaths.length === 0 || declaredPaths.some((p) => isPathUnder(f.path, p));
     const underServer = cfg.fsAllow ? cfg.fsAllow.some((p) => isPathUnder(f.path, p)) : true;
     if (!underSkill || !underServer) return `filesystem path ${f.path} is not permitted`;
   }
   return null;
 }
 
-/** Derive the operation a known built-in tool intends to perform. */
-function opForTool(name: string, args: unknown): ToolOp {
-  if (name === "web_fetch" || name === "web_search") {
-    const host = hostOf((args as { url?: unknown } | undefined)?.url);
-    return { network: host ? [host] : [] };
+/** Argument keys whose string value is treated as a filesystem path. */
+const FS_ARG_KEYS = new Set(["path", "file", "filename", "filepath", "dir", "directory", "dest", "destination", "target"]);
+
+/** Walk an arguments object, yielding [key, string-value] pairs up to a bounded depth. */
+function* stringArgs(value: unknown, depth = 0): Generator<[string, string]> {
+  if (depth > 4 || value == null) return;
+  if (Array.isArray(value)) {
+    for (const v of value) yield* stringArgs(v, depth + 1);
+    return;
   }
-  return {};
+  if (typeof value !== "object") return;
+  for (const [key, v] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof v === "string") yield [key, v];
+    else yield* stringArgs(v, depth + 1);
+  }
+}
+
+/**
+ * Derive the operation a tool call intends to perform, driven by what the skill
+ * *declares* rather than by a hard-coded list of tool names. A card that
+ * declares `network` has every URL-shaped argument checked against its own
+ * `network.domains`; one that declares `fs` has every path-shaped argument
+ * checked against `fs.paths`; one that declares `subprocess` is subject to the
+ * operator kill switch.
+ *
+ * What this does NOT catch: a card whose implementation reaches out on its own
+ * (a hard-coded `fetch`, a path built inside `execute`) leaves no trace in the
+ * arguments, so the declaration cannot constrain it. Closing that hole needs
+ * process/container isolation (design-skill.md §4), not a smarter derivation.
+ */
+function opForTool(skill: Skill | undefined, args: unknown, cfg: PermissionConfig): ToolOp {
+  const perms = skill?.permissions;
+  if (!perms) return {};
+  const op: ToolOp = {};
+  const wantsNetwork = (perms.network?.domains?.length ?? 0) > 0;
+  const wantsFs = !!perms.fs;
+  if (wantsNetwork || wantsFs) {
+    const network: string[] = [];
+    const fs: { path: string; write: boolean }[] = [];
+    // A relative path argument means "inside the allowed root", which is how the
+    // tools themselves resolve it — resolving against cwd instead would reject
+    // every legitimate call whenever TOOL_FS_ALLOW points elsewhere.
+    const fsRoot = cfg.fsAllow?.[0] ?? process.cwd();
+    for (const [key, value] of stringArgs(args)) {
+      if (wantsNetwork) {
+        const host = hostOf(value);
+        if (host) network.push(host);
+      }
+      if (wantsFs && FS_ARG_KEYS.has(key.toLowerCase())) {
+        fs.push({ path: path.resolve(fsRoot, value), write: perms.fs?.write === true });
+      }
+    }
+    if (network.length) op.network = network;
+    if (fs.length) op.fs = fs;
+  }
+  if (perms.subprocess) op.subprocess = true;
+  return op;
 }
 
 /**
  * Resolve the skill backing a tool, evaluate the operation, and throw
- * `PermissionDenied` when the call is not allowed. Network tools (web_fetch /
- * web_search) are checked against the target host.
+ * `PermissionDenied` when the call is not allowed. The operation is derived
+ * from the skill's declared permissions — see `opForTool`.
  */
-export function guardToolCall(name: string, args: unknown, cfg: PermissionConfig): void {
-  const skill = getSkill(name);
-  const op = opForTool(name, args);
+export function guardToolCall(
+  name: string,
+  args: unknown,
+  cfg: PermissionConfig,
+  extra?: UserSkillMap,
+): void {
+  const skill = resolveSkill(name, extra);
+  const op = opForTool(skill, args, cfg);
   const reason = evaluateToolCall(skill, op, cfg);
   if (reason) throw new PermissionDenied(name, reason);
 }
 
 /** True when the named tool is flagged dangerous (irreversible / externally
  *  mutating) and therefore requires human approval before execution (4D.7). */
-export function isDangerousTool(name: string): boolean {
-  return getSkill(name)?.danger === true;
+export function isDangerousTool(name: string, extra?: UserSkillMap): boolean {
+  return resolveSkill(name, extra)?.danger === true;
 }
 
 /** Build the effective config from environment variables. */

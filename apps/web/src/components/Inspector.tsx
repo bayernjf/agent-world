@@ -121,13 +121,18 @@ function readStoredMainTab(): MainTab {
   }
 }
 
-/** The 技能 tab only exists on agent nodes, so a remembered tab can be invalid. */
-function clampMainTab(tab: MainTab, isTextGen: boolean): MainTab {
-  return tab === "skills" && !isTextGen ? "output" : tab;
+/** Node kinds that mount capability cards: agents equip all kinds, gates equip judges. */
+function kindHasSkills(kind?: string): boolean {
+  return kind === "textGen" || kind === "gate";
 }
 
-function nextMainTab(current: MainTab, isTextGen: boolean): MainTab {
-  const order = MAIN_TAB_ORDER.filter((t) => t !== "skills" || isTextGen);
+/** The 技能 tab only exists on those kinds, so a remembered tab can be invalid. */
+function clampMainTab(tab: MainTab, hasSkills: boolean): MainTab {
+  return tab === "skills" && !hasSkills ? "output" : tab;
+}
+
+function nextMainTab(current: MainTab, hasSkills: boolean): MainTab {
+  const order = MAIN_TAB_ORDER.filter((t) => t !== "skills" || hasSkills);
   const i = order.indexOf(current);
   return order[(i + 1) % order.length]!;
 }
@@ -135,7 +140,7 @@ function nextMainTab(current: MainTab, isTextGen: boolean): MainTab {
 export default function Inspector({
   onOpenSettings,
 }: {
-  onOpenSettings: () => void;
+  onOpenSettings: (tab?: "models" | "integrations" | "skills") => void;
 }) {
   const { t } = useTranslation();
   const { graph, selectedId, updateNode, saveState, reloadGraph, arrangeLanes, duplicateLanes } = useGraph();
@@ -220,9 +225,10 @@ export default function Inspector({
   // Moving between nodes keeps the tab the user last used; only fall back when
   // that tab does not exist on the newly selected node kind.
   useEffect(() => {
-    const isTextGen =
-      graph.nodes.find((n) => n.id === selectedId)?.kind === "textGen";
-    setMainTabState((cur) => clampMainTab(cur, !!isTextGen));
+    const hasSkills = kindHasSkills(
+      graph.nodes.find((n) => n.id === selectedId)?.kind,
+    );
+    setMainTabState((cur) => clampMainTab(cur, hasSkills));
   }, [selectedId, graph]);
 
   // E cycles 产出 → 配置 → 技能, alongside the existing single-key canvas bindings.
@@ -238,9 +244,10 @@ export default function Inspector({
       )
         return;
       e.preventDefault();
-      const isTextGen =
-        graph.nodes.find((n) => n.id === selectedId)?.kind === "textGen";
-      setMainTab(nextMainTab(mainTab, !!isTextGen));
+      const hasSkills = kindHasSkills(
+        graph.nodes.find((n) => n.id === selectedId)?.kind,
+      );
+      setMainTab(nextMainTab(mainTab, hasSkills));
       triggerTabFlash();
     };
     window.addEventListener("keydown", onKey);
@@ -360,7 +367,7 @@ export default function Inspector({
         >
           {t("nodes:inspector.tabConfig")}
         </button>
-        {node.kind === "textGen" && (
+        {kindHasSkills(node.kind) && (
           <button
             type="button"
             className={`tab ${mainTab === "skills" ? "is-on" : ""}`}
@@ -609,6 +616,17 @@ export default function Inspector({
             onChange={(skills) =>
               updateNode(node.id, { textGen: { ...node.textGen!, skills } })
             }
+            onOpenSettings={() => onOpenSettings("skills")}
+          />
+        )}
+        {mainTab === "skills" && node.kind === "gate" && (
+          <SkillPicker
+            kinds={["judge"]}
+            mounted={node.gate?.skills ?? []}
+            onChange={(skills) =>
+              updateNode(node.id, { gate: { ...node.gate!, skills } })
+            }
+            onOpenSettings={() => onOpenSettings("skills")}
           />
         )}
       </div>

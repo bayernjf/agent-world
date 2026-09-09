@@ -156,3 +156,42 @@ Web 端直接 import 这个常量分组，不维护第二份清单，分类漂�
 `templates.test.ts` 新增断言：每个模板的 category ∈ `TEMPLATE_CATEGORIES`、每个分类至少 1 个模板
 （防空区块）、两处收并落位正确、空白仍为「基础」且不在分组列表内。server 无改动（`GET /api/templates`
 本就投影 category）。
+
+---
+
+## 7. 澄清（2026-09-09）：模板与实例的关系，以及 origin_template_id 到底做什么
+
+§1.2 的「模板与实例彻底解耦」一直只有一句话，容易被读成"图和模板之间有活的关联"。按代码核实后写清楚：
+
+### 7.1 模板是类，画布上的图是一次性深拷贝的实例
+
+`instantiateTemplate`（core/templates.ts）做三件事：节点/边 id 全量重生成（`idMap` 先整表预种，
+因为 branch 的 `rules[].target` 可能指向数组里更靠后的节点）、**每个节点 config 深克隆**（否则引用重写会
+污染共享的模板定义）、`fieldValues` 按「显式值 > defaultValue」写入。落图之后模板与实例再无任何连接：
+改实例不影响模板，升级模板也不会回流到已建的图。**没有"从模板同步/重置"这条路**——server 没有对应路由，
+web 也没有入口。想要模板的新版本，只能再建一条新产线。
+
+### 7.2 origin_template_id 是公告定向用的标签，不是回溯锚点
+
+`graphs.origin_template_id`（sqlite-driver.ts:53）在建图时写一次（index.ts:640-682：来自模板则记模板 id，
+空白建图或导入则显式记 `null`），之后只被一个地方读：`userUsesTemplate`（sqlite-driver.ts:2000）——
+公告 P3 定向判断「这个用户是否在用某模板」，命中条件是他自己拥有一张由该模板建的图，或有人把这样的图分享给他。
+除此之外没有消费者。所以它的语义是**出身标签**，不要当成"可以据此把图重置回模板初始态"的锚点：
+图落地后已经被自由改过，模板本身也可能在后续版本里变了形，两边都不保证还对得上。
+
+## 8. 落地补记（2026-09-09）：部分模板预挂技能卡
+
+模板从这一版起可以带着装好的技能卡开箱即用。此前 49 个 `textGen.skills` 槽位全空，
+Skill 功能对新建产线的用户实际是隐形的——机制有回归测试，用户看不到一个例子。
+
+现在 6 张卡落在 4 个模板的 5 个挂载点：`tpl-research-brief` 的分析节点装引用规范与时间工具，
+`tpl-data-report` 用「输出契约 + 中文文案规范」把分析节点约束成结构化 JSON、再让报告节点转成人话，
+`tpl-contract-review` 与 `tpl-xiaohongshu` 的 gate 各装一张 judge 卡。
+
+两条注意：
+- **留空仍是默认状态，不是缺陷。** 剩下 46 个空槽位不需要逐个填满；示范够用即可，再铺开属于内容工作。
+- **模板挂的是字符串 id，类型系统管不到。** 卡改名会静默失效，所以
+  `packages/server/src/skills/templates.skills.test.ts` 把「每个挂载 id 必须能在 registry 解析」
+  「gate 只挂 judge、agent 绝不挂 judge」钉成回归测试。加新的预挂卡时它会替你把关。
+
+技能卡本身的 kind、payload 约定与权限语义见 [design-skill.md](design-skill.md) §11、§12。

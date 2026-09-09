@@ -425,6 +425,8 @@ Gate 调 `worker.judge()`。质检也是可以装备技能卡的：
 
 阶段 1 先让 judge 真正读 `gate.criterion`，用模型判。规则校验和人工审核是阶段 2。
 
+> **实现现状（2026-09-09）**：「质检也能装备技能卡」已落地——`GateConfig.skills` 挂 `judge` kind 的卡，`collectJudgeCriteria()` 把它们的 `criterion` 拼在 `gate.criterion` 之后再交给模型。见 [design-skill.md](design-skill.md) §5.5。
+
 ---
 
 ## 6. 前端架构
@@ -625,6 +627,10 @@ interface Skill {
 ```
 
 用户装备技能卡时看到授权提示（像手机 app 权限）："这张卡要求访问 ~/projects、访问 api.example.com"。运行时工具拿到的 `ToolContext` 是被权限约束过的代理——网络走带域名白名单的 fetch 包装，文件走路径校验的 fs 代理，不直接暴露裸能力。
+
+> **实现现状（2026-09-09 核对）**：上面这段是**设计意图**，落地形态与它有一处差异：没有 `ToolContext` 代理对象——技能卡的可执行体是 `tool.execute(args)`。约束点在调用前的 `guardToolCall`，而不是一个被代理的上下文对象。
+>
+> 权限强制**已经是声明驱动**的：`opForTool(skill, args, cfg)` 从卡自己声明的 `permissions` 推导本次调用意图（参数里任意深度的 URL 撞 `network.domains`，路径参数撞 `fs.paths` 与 `TOOL_FS_ALLOW`，`subprocess` 受服务端开关约束）。天花板是**只能管到参数里的东西**：卡在 `execute()` 内部硬编码 `fetch()` 无迹可寻，那部分只能靠进程隔离。完整 account 见 [design-skill.md](design-skill.md) §11.3。
 
 **第二层：进程隔离（阶段 4，第三方插件）**
 

@@ -22,11 +22,18 @@ import { refreshDefaultModel, useGraph } from "../store/graph";
 import type { GraphNode, NodeKind } from "@agent-world/core";
 import Tooltip from "./Tooltip";
 import KeyInput from "./KeyInput";
+import { McpSettings } from "./McpSettings";
+import { SkillCardSettings } from "./SkillCardSettings";
+import type { McpServerStatus } from "../lib/api";
 import { useTranslation } from "react-i18next";
+
+export type SettingsTab = "models" | "integrations" | "skills";
 
 interface Props {
   open: boolean;
   onClose: () => void;
+  /** Tab to land on each time the modal opens (deep links from other panels). */
+  initialTab?: SettingsTab;
 }
 
 interface TestState {
@@ -56,7 +63,7 @@ function buildPricingFromForm(
   return Object.keys(entry).length > 0 ? entry : undefined;
 }
 
-export default function Settings({ open, onClose }: Props) {
+export default function Settings({ open, onClose, initialTab }: Props) {
   const { t } = useTranslation();
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [savedConfig, setSavedConfig] = useState<AppConfig | null>(null);
@@ -109,6 +116,13 @@ export default function Settings({ open, onClose }: Props) {
   const [status, setStatus] = useState<string>("");
   const [confirmClose, setConfirmClose] = useState(false);
   const [workersOpen, setWorkersOpen] = useState(false);
+  const [tab, setTab] = useState<SettingsTab>("models");
+  // The component stays mounted while closed, so the deep-link target has to
+  // be applied on each open rather than only via the useState initializer.
+  useEffect(() => {
+    if (open) setTab(initialTab ?? "models");
+  }, [open, initialTab]);
+  const [mcpStatuses, setMcpStatuses] = useState<Record<string, McpServerStatus>>({});
   const [deleteTarget, setDeleteTarget] = useState<ModelCard | null>(null);
   /** Replacement model chosen in the delete-with-impact dialog. */
   const [deleteReplacement, setDeleteReplacement] = useState<string>("");
@@ -676,8 +690,19 @@ export default function Settings({ open, onClose }: Props) {
       ),
     });
 
-  const isDirty = (): boolean => {
-    if (!config || !savedConfig) return false;
+  /** The server can only try an endpoint it already has, so the save has to land
+   *  before the handshake. A failed handshake still leaves the config saved —
+   *  the user can fix the URL and hit 重新连接 without retyping anything. */
+  const saveAndConnectMcp = async (id: string): Promise<McpServerStatus> => {
+    const toSave = buildPersistConfig();
+    await api.saveSettings(toSave);
+    setSavedConfig(toSave);
+    const status = await api.connectMcp(id);
+    setMcpStatuses((prev) => ({ ...prev, [id]: status }));
+    return status;
+  };
+
+  const isDirty = (): boolean => {    if (!config || !savedConfig) return false;
     return (
       JSON.stringify(buildPersistConfig()) !==
       JSON.stringify(stripBuiltin(savedConfig))
@@ -796,15 +821,38 @@ export default function Settings({ open, onClose }: Props) {
     <div className="modal-backdrop" onClick={requestClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal__header">
-          <h2>{t("settings:modelKeys.title")}</h2>
+          <h2>{t("settings:title")}</h2>
           <button className="link" onClick={requestClose}>
             {t("settings:modelKeys.close")}
           </button>
         </div>
 
         <div className="modal__body">
-          <div className="settings-section-head">
-            <h3 className="label">{t("settings:modelKeys.models")}</h3>
+          <div className="settings-tabs" role="tablist">
+            {(
+              [
+                ["models", "settings:tabs.models"],
+                ["integrations", "settings:tabs.integrations"],
+                ["skills", "settings:tabs.skills"],
+              ] as const
+            ).map(([id, key]) => (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                aria-selected={tab === id}
+                className={`settings-tab${tab === id ? " is-on" : ""}`}
+                onClick={() => setTab(id)}
+              >
+                {t(key)}
+              </button>
+            ))}
+          </div>
+
+          {tab === "models" && (
+            <>
+              <div className="settings-section-head">
+                <h3 className="label">{t("settings:modelKeys.models")}</h3>
             <button
               className="btn btn--ghost btn--icon"
               onClick={() => (adding ? setAdding(false) : startAdd())}
@@ -1287,29 +1335,11 @@ export default function Settings({ open, onClose }: Props) {
               </div>
             );
           })}
+            </>
+          )}
 
-          <div className="settings-section-head">
-            <h3 className="label">{t("settings:modelKeys.monthlyBudget")}</h3>
-          </div>
-          <label className="field">
-            <span>{t("settings:modelKeys.monthlySoftCap")}</span>
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              placeholder={t("settings:modelKeys.monthlyCapPlaceholder")}
-              value={config.monthlyBudgetUsd ?? ""}
-              onChange={(e) =>
-                setConfig({
-                  ...config,
-                  monthlyBudgetUsd:
-                    e.target.value === "" ? null : Number(e.target.value),
-                })
-              }
-            />
-            <small className="muted">{t("settings:modelKeys.monthlyCapHint")}</small>
-          </label>
-
+          {tab === "integrations" && (
+            <>
           <div className="settings-section-head">
             <h3 className="label">{t("settings:search.title")}</h3>
           </div>
@@ -1425,6 +1455,46 @@ export default function Settings({ open, onClose }: Props) {
             {t("settings:search.note")}
           </p>
 
+          <McpSettings
+            servers={config.mcpServers ?? []}
+            statuses={mcpStatuses}
+            onChange={(mcpServers) => setConfig({ ...config, mcpServers })}
+            onSaveAndConnect={saveAndConnectMcp}
+          />
+            </>
+          )}
+
+          {tab === "skills" && (
+            <SkillCardSettings
+              cards={config.skillCards ?? []}
+              onChange={(skillCards) => setConfig({ ...config, skillCards })}
+            />
+          )}
+
+          {tab === "models" && (
+            <>
+          <div className="settings-section-head">
+            <h3 className="label">{t("settings:modelKeys.monthlyBudget")}</h3>
+          </div>
+          <label className="field">
+            <span>{t("settings:modelKeys.monthlySoftCap")}</span>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              placeholder={t("settings:modelKeys.monthlyCapPlaceholder")}
+              value={config.monthlyBudgetUsd ?? ""}
+              onChange={(e) =>
+                setConfig({
+                  ...config,
+                  monthlyBudgetUsd:
+                    e.target.value === "" ? null : Number(e.target.value),
+                })
+              }
+            />
+            <small className="muted">{t("settings:modelKeys.monthlyCapHint")}</small>
+          </label>
+
           <button
             type="button"
             className="settings-section-head settings-section-head--clickable"
@@ -1485,6 +1555,8 @@ export default function Settings({ open, onClose }: Props) {
               >
                 {t("settings:modelKeys.workersHint")}
               </p>
+            </>
+          )}
             </>
           )}
 

@@ -57,8 +57,10 @@ import { GuardedFetchError, guardedFetch, hostIsInternal } from "./ssrf.js";
 import { routingWorker } from "./providers/index.js";
 import { WorkerRegistry } from "./worker-plugins.js";
 import { connectMcpServer, registerMcpTools, type McpClient, type McpServerSpec } from "./mcp.js";
+import { closeAllUserMcpServers, connectUserMcpServer, ensureUserMcpServers, userMcpStatus } from "./mcp-pool.js";
 import { disposeIsolatedWorkers } from "./isolation.js";
 import { registerSkill, setMemoryBackend, listBuiltinSkills } from "./skills/registry.js";
+import { loadUserSkills } from "./skills/user-skills.js";
 import { SQLiteMemoryBackend, NoopMemoryBackend, extractKnowledgeFromRun } from "./memory.js";
 import { fileURLToPath } from "node:url";
 import { sanitizeError } from "./sanitize.js";
@@ -545,7 +547,16 @@ app.use("/api/*", async (c, next) => {
   await next();
 });
 
-app.get("/api/skills", (c) => c.json(listBuiltinSkills()));
+// The catalog is what SkillPicker offers for mounting, so it has to include the
+// caller's own cards and the tools their MCP servers reported — builtins first,
+// same global-first order resolveSkill uses at run time.
+app.get("/api/skills", async (c) => {
+  const userId = c.get("userId");
+  const cfg = await loadConfig(userId);
+  const own = await loadUserSkills(userId, cfg);
+  const ownCatalog = [...own.values()].map(({ tool: _tool, ...rest }) => rest);
+  return c.json([...listBuiltinSkills(), ...ownCatalog]);
+});
 
 app.get("/api/graphs", async (c) => {
   const userId = c.get("userId");
@@ -911,6 +922,20 @@ function redactSearchConfigForUi(s: NonNullable<AppConfig["searchConfig"]>): Non
   return out;
 }
 
+/**
+ * A user's MCP servers as the UI sees them: every header value is redacted.
+ * Header names stay visible (the form needs to show which headers are set),
+ * the values never leave the server in cleartext — an MCP auth header is a
+ * bearer token in all but name.
+ */
+function redactMcpServersForUi(servers: NonNullable<AppConfig["mcpServers"]>): NonNullable<AppConfig["mcpServers"]> {
+  return servers.map((s) =>
+    s.headers
+      ? { ...s, headers: Object.fromEntries(Object.entries(s.headers).map(([k, v]) => [k, redactKey(v)])) }
+      : s,
+  );
+}
+
 app.get("/api/settings", async (c) => {
   const cfg = await loadConfig(c.get("userId"));
   // Never return raw API keys — redact for the UI.
@@ -923,6 +948,7 @@ app.get("/api/settings", async (c) => {
       ]),
     ),
     searchConfig: cfg.searchConfig ? redactSearchConfigForUi(cfg.searchConfig) : undefined,
+    mcpServers: cfg.mcpServers ? redactMcpServersForUi(cfg.mcpServers) : undefined,
   };
   return c.json(redacted);
 });
@@ -1443,6 +1469,22 @@ app.put("/api/settings", async (c) => {
     }
     merged.searchConfig = mergedSearch;
   }
+  // Same rule for MCP auth headers, matched per server id + header name: a
+  // masked value echoed back from the form means "unchanged". Without this,
+  // saving any unrelated setting would overwrite the real token with asterisks.
+  if (body.mcpServers) {
+    merged.mcpServers = body.mcpServers.map((server) => {
+      if (!server.headers) return server;
+      const previous = current.mcpServers?.find((s) => s.id === server.id)?.headers ?? {};
+      const headers = Object.fromEntries(
+        Object.entries(server.headers).map(([name, value]) => [
+          name,
+          isRedactedKey(value) && previous[name] ? previous[name] : value,
+        ]),
+      );
+      return { ...server, headers };
+    });
+  }
   const path = await saveConfig(merged, userId);
   // Audit field PATHS only — never values (red line in design-audit-log §3.2).
   audit(db, userId, "settings.update", {
@@ -1674,7 +1716,40 @@ app.delete("/api/knowledge/:id", (c) => {
 app.get("/api/workers", (c) => c.json(workerRegistry.list()));
 
 /** Connected MCP servers and the tools they contributed as skill cards. */
-app.get("/api/mcp", (c) => c.json(mcpStatus));
+/**
+ * MCP connection state, split by who configured it: `operator` servers come
+ * from the MCP_SERVERS env var and are process-global; `user` servers are the
+ * caller's own, pooled per user. Only the latter are editable through the API.
+ */
+app.get("/api/mcp", async (c) => {
+  const userId = c.get("userId");
+  const cfg = await loadConfig(userId);
+  await ensureUserMcpServers(userId, cfg.mcpServers);
+  return c.json({ operator: mcpStatus, user: userMcpStatus(userId) });
+});
+
+/**
+ * Connect (or reconnect) one of the caller's own MCP servers and report what
+ * came back — tool count on success, the reason on failure. The UI calls this
+ * right after saving, which is the "试连" half of save-then-test, and again
+ * behind the manual reconnect button. There is no automatic retry.
+ */
+app.post("/api/mcp/:id/connect", async (c) => {
+  const userId = c.get("userId");
+  const id = c.req.param("id");
+  const cfg = await loadConfig(userId);
+  const server = cfg.mcpServers?.find((s) => s.id === id);
+  if (!server) return c.json({ error: `unknown MCP server: ${id}` }, 404);
+  const status = await connectUserMcpServer(userId, server);
+  // Audit the attempt, not the credentials: the URL is the user's own config,
+  // the headers never appear here.
+  audit(db, userId, "mcp.connect", {
+    objectType: "mcp_server",
+    objectId: id,
+    detail: { transport: server.transport, connected: status.connected, toolCount: status.toolCount },
+  });
+  return c.json(status, status.connected ? 200 : 502);
+});
 
 app.get("/api/costs", async (c) => {
   const userId = c.get("userId");
@@ -3383,6 +3458,16 @@ if (process.env.NODE_ENV !== "test") {
       clearInterval(drain);
       for (const entry of live.values()) entry.controller.abort();
       disposeIsolatedWorkers();
+      // Release MCP transports too: the stdio ones own a child process, so
+      // skipping this leaks a subprocess past our own exit.
+      for (const client of mcpClients) {
+        try {
+          client.close();
+        } catch {
+          /* already dead */
+        }
+      }
+      closeAllUserMcpServers();
       try {
         await db.close();
       } catch {

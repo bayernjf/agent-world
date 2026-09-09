@@ -125,10 +125,10 @@ describe("ModelAssignModal", () => {
       expect(screen.getByText("尚未配置任何可用模型。")).toBeInTheDocument();
     });
 
-    it("没有模型时显示'去设置 · 模型与密钥'按钮", () => {
+    it("没有模型时显示'去设置'按钮", () => {
       setupMocks([]);
       renderModal();
-      expect(screen.getByRole("button", { name: "去设置 · 模型与密钥" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "去设置" })).toBeInTheDocument();
     });
 
     it("没有模型时不显示模型列表", () => {

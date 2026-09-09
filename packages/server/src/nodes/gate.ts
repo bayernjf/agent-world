@@ -1,6 +1,6 @@
 import type { GraphNode } from "@agent-world/core";
 import type { NodeRunContext } from "./types.js";
-import { ARTIFACT_URL_NOTE, detectProhibited, prohibitedSnippets, setTextArtifact, upstreamBrandTerms, upstreamProhibitedTerms, zeroUsage } from "./shared.js";
+import { ARTIFACT_URL_NOTE, collectJudgeCriteria, detectProhibited, prohibitedSnippets, setTextArtifact, toMount, upstreamBrandTerms, upstreamProhibitedTerms, zeroUsage } from "./shared.js";
 import { notifyHalt } from "../notify.js";
 
 /**
@@ -12,12 +12,17 @@ export async function gateNode(ctx: NodeRunContext, node: GraphNode, nodeId: str
   const { artifacts, attempts, emit, graph, inputFor, loopByGate, opts, reworkNotes, runId, sendPackets, states, worker } = ctx;
   emit({ type: "node.started", nodeId, attempt });
   const output = await inputFor(node);
+  const equipped = collectJudgeCriteria((node.gate?.skills ?? []).map(toMount), ctx.opts.userSkills);
+  const criterion =
+    (node.gate?.criterion ?? "") +
+    (equipped.length ? "\n\n附加判据：\n" + equipped.map((c) => "- " + c).join("\n") : "") +
+    ARTIFACT_URL_NOTE;
   const modelVerdict = await worker.judge({
     node,
     attempt,
     input: output,
     output,
-    criterion: (node.gate?.criterion ?? "") + ARTIFACT_URL_NOTE,
+    criterion,
     signal: opts.signal,
   });
 
