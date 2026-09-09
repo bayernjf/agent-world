@@ -704,7 +704,10 @@
       "fs": "文件",
       "subprocess": "子进程",
       "env": "环境变量"
-    }
+    },
+    "searchPlaceholder": "搜索技能卡名称、ID 或描述…",
+    "addCard": "添加技能卡",
+    "noMatch": "没有匹配的技能卡；没有想要的？点右上角「添加技能卡」自己写一张。"
   },
   "templateField": {
     "title": "模板参数 — {{name}}",

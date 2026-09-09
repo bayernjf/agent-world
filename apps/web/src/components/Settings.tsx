@@ -27,9 +27,13 @@ import { SkillCardSettings } from "./SkillCardSettings";
 import type { McpServerStatus } from "../lib/api";
 import { useTranslation } from "react-i18next";
 
+export type SettingsTab = "models" | "integrations" | "skills";
+
 interface Props {
   open: boolean;
   onClose: () => void;
+  /** Tab to land on each time the modal opens (deep links from other panels). */
+  initialTab?: SettingsTab;
 }
 
 interface TestState {
@@ -59,7 +63,7 @@ function buildPricingFromForm(
   return Object.keys(entry).length > 0 ? entry : undefined;
 }
 
-export default function Settings({ open, onClose }: Props) {
+export default function Settings({ open, onClose, initialTab }: Props) {
   const { t } = useTranslation();
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [savedConfig, setSavedConfig] = useState<AppConfig | null>(null);
@@ -112,7 +116,12 @@ export default function Settings({ open, onClose }: Props) {
   const [status, setStatus] = useState<string>("");
   const [confirmClose, setConfirmClose] = useState(false);
   const [workersOpen, setWorkersOpen] = useState(false);
-  const [tab, setTab] = useState<"models" | "integrations" | "skills">("models");
+  const [tab, setTab] = useState<SettingsTab>("models");
+  // The component stays mounted while closed, so the deep-link target has to
+  // be applied on each open rather than only via the useState initializer.
+  useEffect(() => {
+    if (open) setTab(initialTab ?? "models");
+  }, [open, initialTab]);
   const [mcpStatuses, setMcpStatuses] = useState<Record<string, McpServerStatus>>({});
   const [deleteTarget, setDeleteTarget] = useState<ModelCard | null>(null);
   /** Replacement model chosen in the delete-with-impact dialog. */

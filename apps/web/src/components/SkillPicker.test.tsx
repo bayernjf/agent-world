@@ -51,8 +51,18 @@ const sampleSkills: Skill[] = [
   },
 ];
 
-function renderComponent(mounted: SkillMount[] = [], onChange: (m: SkillMount[]) => void = vi.fn()) {
-  return render(<SkillPicker mounted={mounted} onChange={onChange} />);
+function renderComponent(
+  mounted: SkillMount[] = [],
+  onChange: (m: SkillMount[]) => void = vi.fn(),
+  onOpenSettings?: () => void,
+) {
+  return render(
+    <SkillPicker
+      mounted={mounted}
+      onChange={onChange}
+      onOpenSettings={onOpenSettings}
+    />,
+  );
 }
 
 describe("SkillPicker", () => {
@@ -250,6 +260,65 @@ describe("SkillPicker", () => {
       await waitFor(() => {
         expect(screen.getAllByText("装备").length).toBeGreaterThan(0);
       });
+    });
+  });
+
+  describe("搜索", () => {
+    it("按名称过滤技能卡", async () => {
+      renderComponent();
+      await waitFor(() => {
+        expect(screen.getByText("网页浏览")).toBeInTheDocument();
+      });
+      fireEvent.change(screen.getByPlaceholderText(/搜索技能卡/), {
+        target: { value: "网页" },
+      });
+      expect(screen.getByText("网页浏览")).toBeInTheDocument();
+      expect(screen.queryByText("文件操作")).not.toBeInTheDocument();
+      expect(screen.queryByText("命令执行")).not.toBeInTheDocument();
+    });
+
+    it("也能按 ID 和描述匹配", async () => {
+      renderComponent();
+      await waitFor(() => {
+        expect(screen.getByText("简单技能")).toBeInTheDocument();
+      });
+      const input = screen.getByPlaceholderText(/搜索技能卡/);
+      fireEvent.change(input, { target: { value: "skill-shell" } });
+      expect(screen.getByText("命令执行")).toBeInTheDocument();
+      fireEvent.change(input, { target: { value: "解析网页" } });
+      expect(screen.getByText("网页浏览")).toBeInTheDocument();
+    });
+
+    it("无匹配时显示提示并隐藏列表", async () => {
+      renderComponent();
+      await waitFor(() => {
+        expect(screen.getByText("网页浏览")).toBeInTheDocument();
+      });
+      fireEvent.change(screen.getByPlaceholderText(/搜索技能卡/), {
+        target: { value: "不存在的技能xyz" },
+      });
+      expect(screen.getByText(/没有匹配的技能卡/)).toBeInTheDocument();
+      expect(document.querySelector(".skill-list")).toBeNull();
+    });
+  });
+
+  describe("添加入口", () => {
+    it("传入 onOpenSettings 时显示添加按钮，点击回调", async () => {
+      const onOpenSettings = vi.fn();
+      renderComponent([], vi.fn(), onOpenSettings);
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: "+ 添加技能卡" })).toBeInTheDocument();
+      });
+      fireEvent.click(screen.getByRole("button", { name: "+ 添加技能卡" }));
+      expect(onOpenSettings).toHaveBeenCalledTimes(1);
+    });
+
+    it("不传时不显示添加入口", async () => {
+      renderComponent();
+      await waitFor(() => {
+        expect(screen.getByText("网页浏览")).toBeInTheDocument();
+      });
+      expect(screen.queryByRole("button", { name: "+ 添加技能卡" })).not.toBeInTheDocument();
     });
   });
 

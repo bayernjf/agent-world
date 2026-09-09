@@ -140,7 +140,7 @@ function nextMainTab(current: MainTab, hasSkills: boolean): MainTab {
 export default function Inspector({
   onOpenSettings,
 }: {
-  onOpenSettings: () => void;
+  onOpenSettings: (tab?: "models" | "integrations" | "skills") => void;
 }) {
   const { t } = useTranslation();
   const { graph, selectedId, updateNode, saveState, reloadGraph, arrangeLanes, duplicateLanes } = useGraph();
@@ -616,6 +616,7 @@ export default function Inspector({
             onChange={(skills) =>
               updateNode(node.id, { textGen: { ...node.textGen!, skills } })
             }
+            onOpenSettings={() => onOpenSettings("skills")}
           />
         )}
         {mainTab === "skills" && node.kind === "gate" && (
@@ -625,6 +626,7 @@ export default function Inspector({
             onChange={(skills) =>
               updateNode(node.id, { gate: { ...node.gate!, skills } })
             }
+            onOpenSettings={() => onOpenSettings("skills")}
           />
         )}
       </div>

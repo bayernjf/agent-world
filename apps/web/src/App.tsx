@@ -10,7 +10,7 @@ import CanvasToolbar from "./components/CanvasToolbar";
 import ControlPanel from "./components/ControlPanel";
 import Inspector from "./components/Inspector";
 import Logo from "./components/Logo";
-import Settings from "./components/Settings";
+import Settings, { type SettingsTab } from "./components/Settings";
 import ShortcutsHelp from "./components/ShortcutsHelp";
 import GraphSwitcher, { type GraphSummary } from "./components/GraphSwitcher";
 import ConfirmDialog from "./components/ConfirmDialog";
@@ -90,6 +90,7 @@ export default function App() {
     useToast.getState().show(msg, { ttlMs: 6000 });
   };
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<SettingsTab | undefined>(undefined);
   const [newGraphOpen, setNewGraphOpen] = useState(false);
   const [graphs, setGraphs] = useState<GraphSummary[]>([]);
   const [deleteTarget, setDeleteTarget] = useState<GraphSummary | null>(null);
@@ -344,7 +345,10 @@ export default function App() {
       label: t("modals:commandPalette.commands.settings.label"),
       hint: t("modals:commandPalette.commands.settings.hint"),
       group: "manage",
-      onSelect: () => setSettingsOpen(true),
+      onSelect: () => {
+        setSettingsTab(undefined);
+        setSettingsOpen(true);
+      },
     },
     {
       id: "model-assign",
@@ -902,7 +906,10 @@ export default function App() {
             canRun={canRun}
             onRun={onRun}
             onCancel={onCancel}
-            onOpenSettings={() => setSettingsOpen(true)}
+            onOpenSettings={() => {
+              setSettingsTab(undefined);
+              setSettingsOpen(true);
+            }}
             onOpenHistory={() => setHistoryOpen(true)}
             onOpenModelAssign={() => setModelAssignOpen(true)}
             readOnly={isViewer}
@@ -961,7 +968,12 @@ export default function App() {
                 className="inspector-drag-handle"
                 onMouseDown={onDragStart}
               />
-              <Inspector onOpenSettings={() => setSettingsOpen(true)} />
+              <Inspector
+                onOpenSettings={(tab) => {
+                  setSettingsTab(tab);
+                  setSettingsOpen(true);
+                }}
+              />
             </div>
           </main>
         </div>
@@ -987,6 +999,7 @@ export default function App() {
           open={modelAssignOpen}
           onClose={() => setModelAssignOpen(false)}
           onOpenSettings={() => {
+            setSettingsTab(undefined);
             setModelAssignOpen(false);
             setSettingsOpen(true);
           }}
@@ -1069,7 +1082,11 @@ export default function App() {
           />
         )}
         <Toast />
-        <Settings open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+        <Settings
+          open={settingsOpen}
+          initialTab={settingsTab}
+          onClose={() => setSettingsOpen(false)}
+        />
         <NewGraphDialog
           open={newGraphOpen}
           onClose={() => setNewGraphOpen(false)}

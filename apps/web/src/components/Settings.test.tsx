@@ -138,6 +138,14 @@ describe("Settings", () => {
       fireEvent.click(screen.getByRole("tab", { name: "技能" }));
       expect(screen.getByText("自建技能卡")).toBeInTheDocument();
     });
+
+    it("initialTab=skills 时打开即落在技能标签页", async () => {
+      render(<Settings open initialTab="skills" onClose={() => {}} />);
+      await waitFor(() => {
+        expect(screen.getByText("自建技能卡")).toBeInTheDocument();
+      });
+      expect(screen.queryByRole("button", { name: "+" })).not.toBeInTheDocument();
+    });
   });
 
   describe("模型卡片", () => {

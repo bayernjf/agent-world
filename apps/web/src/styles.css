@@ -969,6 +969,17 @@ select {
   flex-direction: column;
   gap: var(--gap-xs);
 }
+.skill-picker__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.skill-picker__search {
+  margin: var(--gap-xs) 0;
+}
+.skill-picker__empty {
+  margin: var(--gap-xs) 0;
+}
 .skill-card {
   display: flex;
   flex-direction: column;
