@@ -283,3 +283,73 @@ textGen: { ...,
 - 加回归用例，四种 kind 各有可抄的 idiom：`engine.tools.test.ts`（tool 调用）、`engine.skills.test.ts`（prompt-module / contract / judge）、`engine.danger.test.ts`（danger 审批）、`permissions.test.ts`（声明驱动的权限推导）；
 - 如果这张卡要预挂到模板上，`skills/templates.skills.test.ts` 会校验 id 能解析、gate 只挂 judge 卡——改名忘了同步会在这里炸。
 
+
+---
+
+## 13. 用户自带能力：两条路径的现状（2026-09-09 核对代码）
+
+§12 讲的是**开发者**怎么加卡——改 `registry.ts`、发版。这一节讲**用户**能不能自带能力，
+因为这两个问题经常被混为一谈，而答案差别很大。
+
+结论一句话：**接第三方服务这条路通了，自制技能卡这条路没通。** 但通的那条也只有运维能用。
+
+### 13.1 接第三方 MCP 服务 —— 机制齐备，配置入口是 env
+
+[`mcp.ts`](../packages/server/src/mcp.ts) 是一个完整的 MCP **客户端**，三种传输都实现：
+
+| transport | 形态 | 用途 |
+|---|---|---|
+| `stdio` | spawn 本地进程，按行框 JSON-RPC | Playwright MCP、filesystem MCP 这类本地工具 |
+| `http` | Streamable HTTP（2025-03-26） | 远端服务，`headers` 可带 `Authorization` |
+| `sse` | 长活 GET 流 + POST 回传 | 还没升级到 Streamable HTTP 的老 server |
+
+连上后 `registerMcpTools` 把远端每个 tool 注册成技能卡（id `mcp:<server>:<tool>`，
+`source: "mcp"`），之后与内置卡走**完全相同**的消费链（§9）。远端默认**零权限授予**
+（`{ subprocess: false, env: [] }`），要放开得在 spec 里显式写 `permissions`；
+配 `danger: true` 则每次调用走人工审批。连不上不致命，只 warn。
+
+**但配置入口只有环境变量 `MCP_SERVERS`，且只在启动时读一次**
+（[`index.ts`](../packages/server/src/index.ts) `connectMcpServers`）。由此而来的缺口：
+
+- **前端零 UI。** `apps/web/src` 里除了术语表一行「MCP 工具卡」的解释文字，没有任何配置界面。
+  `GET /api/mcp` 是只读状态查询，没有对应的写接口。
+- **进程级全局，不分用户。** 一份 env 配置对所有用户生效——多租户下这是错的形态。
+- **改配置要重启**，且远端 token 明文躺在 env 里，没进已有的静态加密体系（`SECRET_KEYS`）。
+- **不重连。** 启动时连不上就永久缺那些卡，直到下次重启。
+
+所以准确的说法是：**技术上第三方服务能接，产品上用户接不了**——这是配置面缺口，不是能力缺口。
+别把「MCP Client ✅ 已实现」读成「用户可以自助接入」。
+
+### 13.2 自制技能卡（`source: "local"`）—— 未实现
+
+`source` 三态（§3）里的 `local` **只有字段没有加载器**：没有目录扫描、没有 `POST /api/skills`、
+`/api/skills` 是只读 GET。用户唯一能引入的自定义能力是 §13.1 的 MCP 路径，
+而那条路上 `kind` 被写死成 `"tool"`（`registerMcpTools`）。
+
+推论——**刚补齐的另外三种 kind，用户完全无法自制**，只能用内置的那 6 张
+（`zh_style_guide` / `cite_sources` / `report_json` / `verdict_json` /
+`judge_fact_check` / `judge_readability`）。
+
+这里有个不对称值得写下来，因为它影响优先级判断：
+
+> **三种非 `tool` kind 不需要沙箱。** 它们的 payload 就是数据——`config.prompt` 是字符串、
+> `config.schema` 是 JSON schema、`config.criterion` 是一句判据。没有 `execute`、
+> 不发网络请求、不碰文件系统。`tool` kind 之所以卡在「等隔离」是因为它要跑用户代码；
+> 这三种不跑任何代码。
+
+也就是说「用户自建 prompt-module / output-contract / judge 卡」的技术前提早已满足，
+它此前被归进 deferred 是因为和 `tool` kind 的沙箱问题绑在一起看了——那是判断错误。
+它需要的是一张表 + CRUD 接口 + 编辑器，和原料台自定义字段（design-data-interpolation §13）
+同一个量级，零安全风险。
+
+### 13.3 两条路共用同一套地基
+
+13.1 的配置面和 13.2 的自建卡需要的是同一批东西：per-user 配置表、凭证加密字段、
+CRUD 接口、设置页。差别只在先解锁哪种能力：
+
+| 先做 | 解锁 | 代价 |
+|---|---|---|
+| MCP 配置界面 | 借现成的第三方生态，用户不写代码，同样工作量接进的能力最多 | 要先定两件事：远端凭证是否走 `SECRET_KEYS`（建议走，与搜索服务按源绑定同一 idiom）；stdio 形态在多租户下是否禁用（让用户配 spawn 命令等于给任意代码执行权） |
+| 自建数据卡 | 「本行业的写作规范/质检标准存一次、到处挂」，对非技术用户更直接 | 零安全风险，但只解锁内容复用，不接入外部能力 |
+
+两条都登记在 [deferred-items.md](deferred-items.md) 模板/生态线，触发条件见该表。

@@ -21,7 +21,7 @@
 
 | 功能 | 方向 | 状态 |
 |------|------|------|
-| MCP Client | agent-world 接入外部 MCP Server，调用外部工具 | ✅ 已实现 |
+| MCP Client | agent-world 接入外部 MCP Server，调用外部工具 | ✅ 机制已实现（三种传输），但**配置入口只有 `MCP_SERVERS` 环境变量、启动时读一次、进程级全局、无前端 UI**——用户无法自助接入。缺口见 [design-skill.md](design-skill.md) §13.1 |
 | MCP Server | 外部客户端接入 agent-world，调用产线能力 | 📋 本方案 |
 
 两者完全独立，互不影响。MCP Server 复用现有 REST API，不需要改主服务核心逻辑。

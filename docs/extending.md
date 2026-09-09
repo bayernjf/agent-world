@@ -132,14 +132,20 @@ guide.
 
 ### Built-in skills
 
-Five cards ship today, all of kind `tool`: `web_fetch`, `json_extract`,
-`current_time`, `fs_write` (danger), `archive_search`.
+Eleven cards ship today, covering all four kinds — see [design-skill.md](design-skill.md)
+§7 for the table.
 
-- **MCP tools** — any MCP server's tools become available automatically
-  (`source: "mcp"`, id `mcp:<server>:<tool>`). Configure them in the settings
-  panel or the `MCP_SERVERS` env var.
 - **Built-in cards** — declared in the registry's `ALL` array, or registered at
   runtime via `registerSkill()`.
+- **MCP tools** — any MCP server's tools become available automatically
+  (`source: "mcp"`, id `mcp:<server>:<tool>`), always as kind `tool`. They are
+  configured **only** through the `MCP_SERVERS` env var, read once at startup.
+  There is no settings panel for this, and the config is process-global rather
+  than per-user — see [design-skill.md](design-skill.md) §13.1.
+- **User-authored cards** (`source: "local"`) — **not implemented.** The schema
+  declares the third state but no loader exists and `/api/skills` is read-only.
+  §13.2 there covers what this blocks and why the three non-`tool` kinds are the
+  cheap half of it.
 
 ### Creating a skill
 
