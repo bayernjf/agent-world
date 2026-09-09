@@ -161,6 +161,23 @@ export interface AppConfig {
    * gradual rollout and emergency kill switches.
    */
   featureFlags?: Record<string, boolean>;
+  /**
+   * Remote MCP servers this user connected themselves. Credentials live in
+   * `headers` and ride along inside the settings blob, which is encrypted as a
+   * whole before it reaches the DB — no separate secret store is involved.
+   *
+   * Only `http` and `sse` appear here. `stdio` spawns a process from a command
+   * line, so exposing it to end users would be arbitrary code execution; that
+   * transport stays operator-only through the MCP_SERVERS env var.
+   */
+  mcpServers?: UserMcpServer[];
+  /**
+   * Data-only skill cards this user authored: prompt modules, output contracts
+   * and judge criteria. They never enter the process-global skill registry —
+   * a run receives its owner's cards through run context, which is what keeps
+   * them from leaking across users.
+   */
+  skillCards?: UserSkillCard[];
 }
 
 /**
