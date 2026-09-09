@@ -138,14 +138,17 @@ Eleven cards ship today, covering all four kinds — see [design-skill.md](desig
 - **Built-in cards** — declared in the registry's `ALL` array, or registered at
   runtime via `registerSkill()`.
 - **MCP tools** — any MCP server's tools become available automatically
-  (`source: "mcp"`, id `mcp:<server>:<tool>`), always as kind `tool`. They are
-  configured **only** through the `MCP_SERVERS` env var, read once at startup.
-  There is no settings panel for this, and the config is process-global rather
-  than per-user — see [design-skill.md](design-skill.md) §13.1.
-- **User-authored cards** (`source: "local"`) — **not implemented.** The schema
-  declares the third state but no loader exists and `/api/skills` is read-only.
-  §13.2 there covers what this blocks and why the three non-`tool` kinds are the
-  cheap half of it.
+  (`source: "mcp"`, id `mcp:<server>:<tool>`), always as kind `tool`. Operators
+  configure servers through the `MCP_SERVERS` env var (all three transports,
+  including `stdio`); end users add remote `http`/`sse` servers in Settings →
+  MCP servers, where the connection is per-user, the Authorization header is
+  stored encrypted, and a handshake runs on save. `stdio` is intentionally
+  operator-only. See [design-skill.md](design-skill.md) §13.1.
+- **User-authored cards** (`source: "local"`) — supported for the three data
+  kinds (`prompt-module`, `output-contract`, `judge`): users create them in
+  Settings → skill cards, ids get a `local:` prefix, and they resolve only for
+  that user's own runs. User-authored `tool` cards remain blocked (they would
+  run user code). §13.2 there has the details.
 
 ### Creating a skill
 

@@ -154,7 +154,7 @@ MCP 工具是 Skill 的**一个来源**（`source: "mcp"`），不是独立体�
 
 > §11 是逐条核对代码后的现状盘点（2026-09-09），本节只列判断；具体缺口与「为什么现在不做」见 §11。
 
-- **本地 skill（`source: "local"`）未落地**：schema 已声明三态，但「用户 `skills/` 目录自定义」目前只有字段没有加载器——触发条件见 deferred-items「节点市场/自定义节点」（用户主动提出扩展诉求）。
+- **本地 skill（`source: "local"`）已部分落地**：用户可在设置页自建三种数据卡（prompt-module / output-contract / judge），每次运行随 owner 注入；但「扫用户 `skills/` 目录」和用户自建 `tool` 卡仍未做——后者要跑用户代码，触发条件见 deferred-items 沙箱线。
 - **硬权限强制依赖隔离**：§4 第二/三层未落地前，权限强制只能覆盖**出现在工具参数里**的意图（见 §11.3）。一张卡在 `execute()` 内部硬编码 `fetch()`，参数里留不下痕迹，声明就拦不住——这条只能靠进程/容器隔离补，deferred 沙箱线追踪。
 
 ## 11. 现状盘点（2026-09-09 核对代码）
@@ -168,7 +168,7 @@ MCP 工具是 Skill 的**一个来源**（`source: "mcp"`），不是独立体�
 | 内置技能卡 | **11** 张：5 tool + 2 prompt-module + 2 output-contract + 2 judge | `packages/server/src/skills/registry.ts` |
 | 模板里预挂的技能卡 | **6 张卡，5 个挂载点**，覆盖 4 个模板（`tpl-research-brief` / `tpl-data-report` / `tpl-contract-review` / `tpl-xiaohongshu`） | `packages/core/src/templates.ts`（34 个模板 = 33 业务 + 1 空白） |
 | 槽位总数 / 仍为空 | 51 个（49 `textGen.skills` + 2 `gate.skills`）；空 46 个，全是 textGen | 同上——留空是默认状态，不是缺陷；示范够用即可 |
-| MCP 来源技能卡 | 运行时动态注册，数量取决于用户接了几个 MCP server | `registerMcpTools` → `registerSkill` |
+| MCP 来源技能卡 | 运维的 server 走 `registerMcpTools` → `registerSkill`（进程全局）；用户在设置页接的 server 工具进 per-user 连接池，按运行注入（§13.1 / §13.3） | `mcp.ts` / `mcp-pool.ts` |
 
 之前这一节记录的是「机制通了但没人在用：49 个槽位全空、三种 kind 零内置卡」。那笔债在 2026-09-09 还清了：四种 kind 各有可抄的内置卡，4 个模板带着装好的卡开箱即用，`templates.skills.test.ts` 把「模板挂的 id 必须能在 registry 里解析」钉成回归测试。
 
@@ -201,7 +201,7 @@ MCP 工具是 Skill 的**一个来源**（`source: "mcp"`），不是独立体�
 
 | 优先级 | 缺口 | 为什么还不做 |
 |---|---|---|
-| 低 | `source: "local"` 加载器 | 等外部贡献者出现再说（deferred 已登记） |
+| 低 | 自建 `tool` 卡 / 用户目录扫描 | 数据卡（§13.2）已落地；剩下的是跑用户代码的形态，等沙箱线（deferred 已登记） |
 | 低 | 硬隔离（进程/容器） | §11.3 最后一段那个洞的唯一真解，但要等真实用量证明必要性——deferred 沙箱线 |
 | 低 | 更多模板预挂卡 | 4 个模板的示范已足够让用户发现这个功能；再铺开属于内容工作，不是机制工作 |
 
@@ -286,70 +286,56 @@ textGen: { ...,
 
 ---
 
-## 13. 用户自带能力：两条路径的现状（2026-09-09 核对代码）
+## 13. 用户自带能力：两条路径的现状（2026-09-09 落地）
 
-§12 讲的是**开发者**怎么加卡——改 `registry.ts`、发版。这一节讲**用户**能不能自带能力，
-因为这两个问题经常被混为一谈，而答案差别很大。
+§12 讲的是**开发者**怎么加卡——改 `registry.ts`、发版。这一节讲**用户**能不能自带能力。
+两条路现在都通了，且共用同一套 per-user 地基。
 
-结论一句话：**接第三方服务这条路通了，自制技能卡这条路没通。** 但通的那条也只有运维能用。
+### 13.1 接第三方 MCP 服务 —— 用户可自助接入
 
-### 13.1 接第三方 MCP 服务 —— 机制齐备，配置入口是 env
+[`mcp.ts`](../packages/server/src/mcp.ts) 是完整的 MCP **客户端**，三种传输都实现：
 
-[`mcp.ts`](../packages/server/src/mcp.ts) 是一个完整的 MCP **客户端**，三种传输都实现：
-
-| transport | 形态 | 用途 |
+| transport | 形态 | 配置入口 |
 |---|---|---|
-| `stdio` | spawn 本地进程，按行框 JSON-RPC | Playwright MCP、filesystem MCP 这类本地工具 |
-| `http` | Streamable HTTP（2025-03-26） | 远端服务，`headers` 可带 `Authorization` |
-| `sse` | 长活 GET 流 + POST 回传 | 还没升级到 Streamable HTTP 的老 server |
+| `stdio` | spawn 本地进程，按行框 JSON-RPC | **仅运维**：`MCP_SERVERS` 环境变量 |
+| `http` | Streamable HTTP（2025-03-26），`headers` 可带 `Authorization` | 用户设置页 + env |
+| `sse` | 长活 GET 流 + POST 回传 | 用户设置页 + env |
 
 连上后 `registerMcpTools` 把远端每个 tool 注册成技能卡（id `mcp:<server>:<tool>`，
 `source: "mcp"`），之后与内置卡走**完全相同**的消费链（§9）。远端默认**零权限授予**
-（`{ subprocess: false, env: [] }`），要放开得在 spec 里显式写 `permissions`；
-配 `danger: true` 则每次调用走人工审批。连不上不致命，只 warn。
+（`{ subprocess: false, env: [] }`）；连不上不致命，那次运行少几张卡而已。
 
-**但配置入口只有环境变量 `MCP_SERVERS`，且只在启动时读一次**
-（[`index.ts`](../packages/server/src/index.ts) `connectMcpServers`）。由此而来的缺口：
+用户路径（[`mcp-pool.ts`](../packages/server/src/mcp-pool.ts)）与运维路径并存：
 
-- **前端零 UI。** `apps/web/src` 里除了术语表一行「MCP 工具卡」的解释文字，没有任何配置界面。
-  `GET /api/mcp` 是只读状态查询，没有对应的写接口。
-- **进程级全局，不分用户。** 一份 env 配置对所有用户生效——多租户下这是错的形态。
-- **改配置要重启**，且远端 token 明文躺在 env 里，没进已有的静态加密体系（`SECRET_KEYS`）。
-- **不重连。** 启动时连不上就永久缺那些卡，直到下次重启。
+- **per-user 连接池。** 服务器定义存在用户的 `AppConfig.mcpServers`，连接按 userId 隔离；
+  同一 userId 用相同 endpoint + headers 时复用连接，改了任一参数指纹变化则重连。
+- **凭证随设置 blob 静态加密。** `AppConfig` 整体加密落盘，`headers` 天然受保护，没有单独建表。
+  GET 时 header 名可见、值打码；表单把打码值回传即视为「不改动」，与搜索服务 Key 同一 idiom。
+- **保存即试连 + 手动重连。** `POST /api/mcp/:id/connect` 同步做一次握手，
+  把发现的工具数 / 工具名或失败原因返回给设置页；后台不做自动重试。
+- **stdio 刻意不开放给用户。** spawn 命令等于任意代码执行框，只保留给 env 路径的运维。
+- 每次试连写一条审计记录，只含 transport / 成败 / 工具数，**不含 header 值**。
 
-所以准确的说法是：**技术上第三方服务能接，产品上用户接不了**——这是配置面缺口，不是能力缺口。
-别把「MCP Client ✅ 已实现」读成「用户可以自助接入」。
+### 13.2 自制技能卡（`source: "local"`）—— 三种数据卡已落地
 
-### 13.2 自制技能卡（`source: "local"`）—— 未实现
+schema 在 [`skill.ts`](../packages/core/src/skill.ts) 的 `UserSkillCard`：
+用户只能写三种 **kind**，因为它们的 payload 就是数据——
 
-`source` 三态（§3）里的 `local` **只有字段没有加载器**：没有目录扫描、没有 `POST /api/skills`、
-`/api/skills` 是只读 GET。用户唯一能引入的自定义能力是 §13.1 的 MCP 路径，
-而那条路上 `kind` 被写死成 `"tool"`（`registerMcpTools`）。
-
-推论——**刚补齐的另外三种 kind，用户完全无法自制**，只能用内置的那 6 张
-（`zh_style_guide` / `cite_sources` / `report_json` / `verdict_json` /
-`judge_fact_check` / `judge_readability`）。
-
-这里有个不对称值得写下来，因为它影响优先级判断：
-
-> **三种非 `tool` kind 不需要沙箱。** 它们的 payload 就是数据——`config.prompt` 是字符串、
-> `config.schema` 是 JSON schema、`config.criterion` 是一句判据。没有 `execute`、
-> 不发网络请求、不碰文件系统。`tool` kind 之所以卡在「等隔离」是因为它要跑用户代码；
-> 这三种不跑任何代码。
-
-也就是说「用户自建 prompt-module / output-contract / judge 卡」的技术前提早已满足，
-它此前被归进 deferred 是因为和 `tool` kind 的沙箱问题绑在一起看了——那是判断错误。
-它需要的是一张表 + CRUD 接口 + 编辑器，和原料台自定义字段（design-data-interpolation §13）
-同一个量级，零安全风险。
-
-### 13.3 两条路共用同一套地基
-
-13.1 的配置面和 13.2 的自建卡需要的是同一批东西：per-user 配置表、凭证加密字段、
-CRUD 接口、设置页。差别只在先解锁哪种能力：
-
-| 先做 | 解锁 | 代价 |
+| kind | payload | 消费点 |
 |---|---|---|
-| MCP 配置界面 | 借现成的第三方生态，用户不写代码，同样工作量接进的能力最多 | 要先定两件事：远端凭证是否走 `SECRET_KEYS`（建议走，与搜索服务按源绑定同一 idiom）；stdio 形态在多租户下是否禁用（让用户配 spawn 命令等于给任意代码执行权） |
-| 自建数据卡 | 「本行业的写作规范/质检标准存一次、到处挂」，对非技术用户更直接 | 零安全风险，但只解锁内容复用，不接入外部能力 |
+| `prompt-module` | `prompt` 文本 | `collectPromptModules` → 系统提示 |
+| `output-contract` | `fields[]`（字段名/类型/必填） | `getOutputContract` + `validateContract` |
+| `judge` | `criterion` 一句判据 | gate 节点 `collectJudgeCriteria` |
 
-两条都登记在 [deferred-items.md](deferred-items.md) 模板/生态线，触发条件见该表。
+卡片存在 `AppConfig.skillCards`，id 必须带 `local:` 前缀（zod 强制），
+设置页的契约编辑器是字段表而不是 JSON schema 框——校验器只读字段名、类型和必填。
+
+**`tool` kind 不开放**：那要跑用户代码，卡沙箱那条线（deferred 仍登记）。
+
+### 13.3 隔离与优先级：全局优先，per-run 注入
+
+用户的卡和 MCP 工具**不进进程级全局 registry**（那会串用户）。每次运行由
+[`user-skills.ts`](../packages/server/src/skills/user-skills.ts) 组装一张该运行 owner
+专属的 `Map`，经 engine options 注入；`resolveSkill(id, extra)` **先查全局 registry 再查
+用户 map**——用户卡只能补充，永远盖不住内置或运维配置的同名 id（有专门测试钉住这条）。
+`/api/skills` 给技能选择器的目录也是「内置 + 调用者自己的卡」，别人的卡不可见。
