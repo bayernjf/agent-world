@@ -2,6 +2,7 @@ import type { FieldsProps } from "./types";
 import SourceImages from "../SourceImages";
 import SourceFiles from "../SourceFiles";
 import ConnectorEditor from "../ConnectorEditor";
+import { formatPairs, parsePairs } from "./shared";
 import { api } from "../../lib/api";
 
 export default function SourceFields({
@@ -199,6 +200,32 @@ export default function SourceFields({
           </label>
         </div>
       )}
+
+      <div className="source-brief">
+        <div className="source-brief__head label">
+          {t("nodes:inspector.source.customTitle")}
+        </div>
+        <label className="field">
+          <textarea
+            rows={4}
+            value={formatPairs(node.source?.custom ?? {})}
+            placeholder={t("nodes:inspector.source.customPh")}
+            onFocus={beginEdit}
+            onBlur={commitEdit}
+            onChange={(e) =>
+              updateNode(node.id, {
+                source: {
+                  ...(node.source ?? {}),
+                  custom: parsePairs(e.target.value),
+                },
+              })
+            }
+          />
+          <span className="field__hint">
+            {t("nodes:inspector.source.customHint")}
+          </span>
+        </label>
+      </div>
 
       <ConnectorEditor
         connector={node.source?.connector}

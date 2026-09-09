@@ -275,7 +275,10 @@
       "loadBrandTerms": "Load from brand library",
       "notes": "Extra notes",
       "notesPh": "Other background, selling points, reference style, etc.",
-      "dataHint": "Leave empty to auto-fill from the product library; reference with ${product.name}"
+      "dataHint": "Leave empty to auto-fill from the product library; reference with ${product.name}",
+      "customTitle": "Custom fields",
+      "customPh": "Deadline: 2026-10-01\nAccount: C-7781\nAmount: ${data[0].amount}",
+      "customHint": "One \"key: value\" per line. Values accept ${data[0].xxx} from the connector payload; downstream nodes read them as ${thisNodeId.custom.key}."
     },
     "textGen": {
       "temperature": "Temperature ({{temp}})",

@@ -275,7 +275,10 @@
       "loadBrandTerms": "从品牌词库载入",
       "notes": "补充说明",
       "notesPh": "其他想让写手知道的背景、卖点、参考风格等",
-      "dataHint": "留空自动取商品库值；可用 ${product.name} 引用"
+      "dataHint": "留空自动取商品库值；可用 ${product.name} 引用",
+      "customTitle": "自定义字段",
+      "customPh": "交付日期: 2026-10-01\n客户编号: C-7781\n合同金额: ${data[0].amount}",
+      "customHint": "每行一条「键: 值」。值可写 ${data[0].xxx} 取连接器数据；下游节点用 ${本节点id.custom.键} 引用。"
     },
     "textGen": {
       "temperature": "温度 ({{temp}})",
