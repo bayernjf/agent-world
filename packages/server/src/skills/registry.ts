@@ -7,8 +7,11 @@ import { guardedFetch } from "../ssrf.js";
 
 /**
  * Built-in skill catalog. Skills are capability cards mounted on agent nodes.
- * Tool-kind skills contribute a callable tool to the model; prompt-module and
- * output-contract skills will be wired in later iterations.
+ * All four kinds have a consumption point in the runtime:
+ *   tool            → resolveTools / executeBuiltinTool (textgen tool loop)
+ *   prompt-module    → collectPromptModules (system prompt)
+ *   output-contract  → getOutputContract + validateContract (rework on failure)
+ *   judge            → collectJudgeCriteria (gate node criterion)
  *
  * Permissions are declared honestly and shown to the user at mount time.
  * Phase 2 displays and records them; hard enforcement (fs/network isolation)
@@ -211,7 +214,134 @@ const archiveSearch: BuiltinSkill = {
   },
 };
 
-const ALL: BuiltinSkill[] = [webFetch, jsonExtract, nowTime, fsWrite, archiveSearch];
+/**
+ * Prompt-module cards contribute text to the agent's system prompt
+ * (`collectPromptModules`). They carry no callable tool — `config.prompt` is the
+ * whole payload, and `config.equips` may pull in further modules.
+ */
+const zhStyle: BuiltinSkill = {
+  id: "zh_style_guide",
+  name: "中文文案规范",
+  description: "给 agent 加一段中文写作规范：短句、去营销腔、数字用阿拉伯数字。",
+  kind: "prompt-module",
+  source: "builtin",
+  permissions: { subprocess: false, env: [] },
+  config: {
+    prompt:
+      "写作规范：\n" +
+      "- 用短句，一句话只讲一件事，避免从句套从句。\n" +
+      "- 不用「赋能」「抓手」「闭环」这类营销黑话；能用日常词就用日常词。\n" +
+      "- 数字统一用阿拉伯数字（3 个，不是三个）；单位紧跟数字（3 天、5 元）。\n" +
+      "- 不堆叠感叹号，不用「震惊」「必看」类夸张标题。",
+  },
+};
+
+const citeSources: BuiltinSkill = {
+  id: "cite_sources",
+  name: "引用来源",
+  description: "要求 agent 对每条事实标注来源，并显式声明无来源的推测。",
+  kind: "prompt-module",
+  source: "builtin",
+  permissions: { subprocess: false, env: [] },
+  config: {
+    prompt:
+      "来源要求：\n" +
+      "- 每条事实性陈述后用方括号标注来源，如 [来源：上游资料 2]。\n" +
+      "- 上游资料里没有依据的内容，必须以「推测：」开头，不得混在事实中。\n" +
+      "- 不要编造 URL、日期或数字；缺失就写「资料未提供」。",
+  },
+};
+
+/**
+ * Output-contract cards declare a JSON schema the agent's output must satisfy
+ * (`getOutputContract` + `validateContract`). `config.schema` is the payload;
+ * the validator enforces `required` keys and per-property `type`.
+ */
+const reportContract: BuiltinSkill = {
+  id: "report_json",
+  name: "报告 JSON 契约",
+  description: "把 agent 输出约束成 {title, summary, points} 的 JSON 对象，校验不过会退回重写。",
+  kind: "output-contract",
+  source: "builtin",
+  permissions: { subprocess: false, env: [] },
+  config: {
+    schema: {
+      type: "object",
+      properties: {
+        title: { type: "string" },
+        summary: { type: "string" },
+        points: { type: "array" },
+      },
+      required: ["title", "summary", "points"],
+    },
+  },
+};
+
+const verdictContract: BuiltinSkill = {
+  id: "verdict_json",
+  name: "结论 JSON 契约",
+  description: "把审查类 agent 输出约束成 {verdict, score, issues} 的 JSON 对象。",
+  kind: "output-contract",
+  source: "builtin",
+  permissions: { subprocess: false, env: [] },
+  config: {
+    schema: {
+      type: "object",
+      properties: {
+        verdict: { type: "string" },
+        score: { type: "number" },
+        issues: { type: "array" },
+      },
+      required: ["verdict", "issues"],
+    },
+  },
+};
+
+/**
+ * Judge cards append criteria to a gate node's `criterion` before the model
+ * judge runs (`collectJudgeCriteria`). `config.criterion` is the payload.
+ */
+const factCheckJudge: BuiltinSkill = {
+  id: "judge_fact_check",
+  name: "事实一致性质检",
+  description: "给质检站补一条判据：产出不得出现上游资料里没有的事实、数字或日期。",
+  kind: "judge",
+  source: "builtin",
+  permissions: { subprocess: false, env: [] },
+  config: {
+    criterion:
+      "事实一致性：产出中的每个数字、日期、人名、机构名都必须能在上游资料中找到依据。" +
+      "出现无依据的事实即判不通过，并在理由中指出具体是哪一处。",
+  },
+};
+
+const readabilityJudge: BuiltinSkill = {
+  id: "judge_readability",
+  name: "可读性质检",
+  description: "给质检站补一条判据：句子过长、术语未解释、结构混乱都判不通过。",
+  kind: "judge",
+  source: "builtin",
+  permissions: { subprocess: false, env: [] },
+  config: {
+    criterion:
+      "可读性：单句超过 60 字、连续三段以上没有小标题或列表、出现未解释的专业缩写，" +
+      "任一条成立即判不通过，并指出具体位置。",
+  },
+};
+
+const ALL: BuiltinSkill[] = [
+  webFetch,
+  jsonExtract,
+  nowTime,
+  fsWrite,
+  archiveSearch,
+  zhStyle,
+  citeSources,
+  reportContract,
+  verdictContract,
+  factCheckJudge,
+  readabilityJudge,
+];
 const byId = new Map(ALL.map((s) => [s.id, s]));
 
 export function listBuiltinSkills(): Skill[] {
