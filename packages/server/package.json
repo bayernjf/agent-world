@@ -24,7 +24,7 @@
     "jose": "^6.2.11",
     "jpeg-js": "^0.4.4",
     "nodemailer": "^10.0.0",
-    "pdfjs-dist": "^6.2.108",
+    "pdfjs-dist": "^6.3.289",
     "pg": "^8.23.0",
     "playwright": "^1.62.1",
     "pngjs": "^7.0.0",
