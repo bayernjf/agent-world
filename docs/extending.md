@@ -171,11 +171,16 @@ card in the inspector. On the node, `skills` is a `SkillMount[]` —
 different per-mount `config`. The legacy `skills: ["my_tool"]` string form is
 normalised by `toMount()`.
 
-For `prompt-module` (inject text into the system prompt, with multi-level
-`equips` dependencies) and `output-contract` (validate output against a JSON
-Schema, rework on failure), the mechanisms are wired but **no built-in cards
-exist yet** — see design-skill.md §11.2. The `judge` kind is in the enum but
-has no consumption point at all.
+All four kinds are wired and each ships built-in cards to copy (11 total — see
+design-skill.md §7 for the table):
+
+- `prompt-module` — text appended to the system prompt, with multi-level
+  `equips` dependencies (`zh_style_guide`, `cite_sources`).
+- `output-contract` — output validated against a JSON Schema, rework on failure
+  (`report_json`, `verdict_json`).
+- `judge` — criterion clauses appended to a **gate** node's criterion. These
+  mount on `gate.skills`, not `textGen.skills` (`judge_fact_check`,
+  `judge_readability`).
 
 ### Skill permissions
 
@@ -196,11 +201,18 @@ account — read it before relying on any of this):
 - Skills run **in the main server process**. There is no subprocess sandbox for
   them. `isolation.ts` / `IsolatedWorker` isolates **Workers (model provider
   plugins)** via `worker-plugins.ts`, which is a different thing entirely.
-- Enforcement in `permissions.ts` is **hardcoded per tool**, not derived from
-  the declaration: `opForTool()` only understands `web_fetch` / `web_search`
-  (network host) and fs operations. A new card that calls `fetch()` directly is
-  **not** stopped by its own `permissions` declaration — its `execute` must
-  call `guardedFetch` / the fs guard itself.
+- Enforcement in `permissions.ts` **is derived from the declaration**.
+  `opForTool(skill, args, cfg)` reads what the card declares: a card declaring
+  `network` has every URL-shaped argument (at any nesting depth) checked against
+  its own `domains`; one declaring `fs` has path-shaped arguments checked for
+  write intent and against `TOOL_FS_ALLOW`; one declaring `subprocess` is
+  subject to the operator kill switch. Declaring narrowly will block your own
+  calls — that is the point.
+- The declaration can only constrain **what appears in the arguments**. A card
+  that hard-codes `fetch("https://…")` inside `execute` leaves no trace there,
+  so nothing derived from arguments can stop it. Closing that needs process
+  isolation, not a smarter derivation; `permissions.test.ts` pins this hole so
+  it is not mistaken for a bug.
 - Server-level env vars intersect with the declaration:
   `TOOL_NETWORK_ALLOW`, `TOOL_FS_ALLOW`, `TOOL_SUBPROCESS_ALLOW`.
 - `danger: true` triggers a deterministic human approval on every call (the run
