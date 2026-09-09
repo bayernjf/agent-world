@@ -969,6 +969,17 @@ select {
   flex-direction: column;
   gap: var(--gap-xs);
 }
+.skill-picker__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.settings-search {
+  margin: var(--gap-xs) 0;
+}
+.skill-picker__empty {
+  margin: var(--gap-xs) 0;
+}
 .skill-card {
   display: flex;
   flex-direction: column;
@@ -2524,6 +2535,13 @@ select {
   font-size: 9px;
 }
 
+.plant__source-type {
+  fill: var(--text-tertiary);
+  font-family: var(--mono);
+  font-size: 9px;
+  text-anchor: end;
+}
+
 .plant--gate .plant__bar {
   fill: #1d2b22;
 }
@@ -3714,6 +3732,34 @@ select {
   align-items: center;
   justify-content: space-between;
   margin: var(--gap-lg) 0 var(--gap-xs);
+}
+/* Underline tabs splitting the settings stack into models / integrations /
+   skills — same idiom as the admin panel, so panes read as one product. */
+.settings-tabs {
+  display: flex;
+  gap: var(--gap-sm);
+  margin-bottom: var(--gap-md);
+  border-bottom: var(--hair);
+}
+.settings-tab {
+  padding: var(--space-1) var(--space-3);
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+.settings-tab:hover {
+  color: var(--text-primary);
+}
+.settings-tab.is-on {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  background: var(--accent-bg);
+}
+.settings-tabs + .settings-section-head {
+  margin-top: 0;
 }
 .settings-section-head--clickable {
   width: 100%;
@@ -7043,3 +7089,49 @@ select {
   gap: var(--gap-xs);
   padding-top: var(--space-2);
 }
+
+/* Settings → MCP 服务 / 自建技能卡 */
+/* Add row under a list of model-style cards: input (+ select) + add button. */
+.ext-add-row {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-sm);
+  margin: var(--gap-sm) 0;
+}
+.ext-add-row input {
+  flex: 1;
+}
+.ext-add-row .btn {
+  width: auto;
+  margin: 0;
+  white-space: nowrap;
+}
+
+/* Status dot in a model-card head: green = connected, red = failed,
+   grey = never handshaken. Detail text lives in the body's .diag line. */
+.ext-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-full);
+  flex: none;
+}
+
+/* Kind badge on a user card — quieter than the default green badge. */
+.ext-badge {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  border: var(--hair);
+  text-transform: none;
+  font-family: var(--sans);
+  letter-spacing: 0;
+}
+
+/* One row of the output-contract field table. */
+.card-fields {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  align-items: center;
+  gap: var(--gap-sm);
+  margin-top: var(--gap-sm);
+}
+

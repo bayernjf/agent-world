@@ -274,7 +274,7 @@
     "fixErrorsFirst": "Fix the errors under \"Compile\" before dispatching.",
     "compileNotPassed": "Compile check did not pass — refresh and retry; if it persists, check the errors in the Compile section.",
     "stopNote": "Stopping only halts later work; tokens already produced are still billed.",
-    "settingsKey": "Settings · models & keys",
+    "settingsKey": "Settings",
     "modelAssign": "Model assignment · current line",
     "runHistory": "📋 Run history",
     "modes": {

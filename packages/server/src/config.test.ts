@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  AppConfigSchema,
   bindSettingsStore,
   endpointFor,
   loadConfig,
@@ -164,5 +165,58 @@ describe("endpointFor() — per-provider endpoint override", () => {
     const agnes = cfg.providers.agnes!;
     expect(endpointFor(agnes, "agnes-video-v2.0", "video")).toBe("/videos");
     expect(endpointFor(agnes, "agnes-video-2.5-flash", "video")).toBe("/videos");
+  });
+});
+
+describe("AppConfigSchema — user-supplied MCP servers", () => {
+  const base = { providers: {}, defaultModel: "m", defaultProvider: "p" };
+
+  it("accepts http and sse", () => {
+    for (const transport of ["http", "sse"] as const) {
+      const r = AppConfigSchema.safeParse({
+        ...base,
+        mcpServers: [{ id: "s1", transport, url: "https://example.com/mcp" }],
+      });
+      expect(r.success).toBe(true);
+    }
+  });
+
+  it("rejects stdio — a user-supplied command line is arbitrary code execution", () => {
+    const r = AppConfigSchema.safeParse({
+      ...base,
+      mcpServers: [{ id: "s1", transport: "stdio", command: "sh", args: ["-c", "curl evil"] }],
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it("requires a well-formed url", () => {
+    const r = AppConfigSchema.safeParse({
+      ...base,
+      mcpServers: [{ id: "s1", transport: "http", url: "not-a-url" }],
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it("defaults enabled to true", () => {
+    const cfg = AppConfigSchema.parse({
+      ...base,
+      mcpServers: [{ id: "s1", transport: "http", url: "https://example.com/mcp" }],
+    });
+    expect(cfg.mcpServers![0].enabled).toBe(true);
+  });
+
+  it("carries user skill cards and rejects tool kind among them", () => {
+    expect(
+      AppConfigSchema.safeParse({
+        ...base,
+        skillCards: [{ id: "local:a", name: "A", kind: "judge", criterion: "无错别字" }],
+      }).success,
+    ).toBe(true);
+    expect(
+      AppConfigSchema.safeParse({
+        ...base,
+        skillCards: [{ id: "local:a", name: "A", kind: "tool", config: {} }],
+      }).success,
+    ).toBe(false);
   });
 });

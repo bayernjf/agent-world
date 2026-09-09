@@ -3,7 +3,7 @@
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![node](https://img.shields.io/badge/node-%3E%3D24-339933)](https://nodejs.org)
 [![pnpm](https://img.shields.io/badge/package%20manager-pnpm-ffc611)](https://pnpm.io)
-[![tests](https://img.shields.io/badge/tests-2698%2B%20passing-2ea44f)](#run-the-checks)
+[![tests](https://img.shields.io/badge/tests-2890%2B%20passing-2ea44f)](#run-the-checks)
 
 **A visual pipeline platform for AI agents — orchestrate LLMs, tools, and quality
 control into production lines that actually finish.**
@@ -60,7 +60,7 @@ change actually helped).
 | **Triggers** | Manual, webhook, cron (self-hosted parser), event, batch |
 | **Quality** | LLM-judge gates, score-rework loops, brand/banned terms, output-contract schema validation |
 | **Observability** | Live SSE streaming, replay scrubber, per-node cost, eval report (by day / by graph / by prompt fingerprint), CSV export |
-| **MCP** | Both directions: consume external MCP servers as tools; expose the platform itself as an MCP server (15 tools, stdio + HTTP/SSE) |
+| **MCP** | Both directions: consume external MCP servers as tools (operator env config plus per-user self-service for remote http/sse servers in Settings); expose the platform itself as an MCP server (15 tools, stdio + Streamable HTTP, protocol 2026-07-28 with 2025-11-25 / 2024-11-05 fallback, OAuth 2.1 resource metadata) |
 | **Sandboxing** | 3-tier code exec: env/cwd isolation → rlimit + Node permission model → bwrap (Linux) / seatbelt (macOS); SSRF guard immune to DNS rebinding |
 | **Accounts** | JWT + bcrypt, all resources isolated per user |
 | **Templates** | 33 built-in pipelines across 11 categories (grouped in the picker, blank canvas pinned first), with parameterizable fields (URLs, targets, brand terms) |
@@ -99,7 +99,7 @@ pnpm dev
 ### Run the checks
 
 ```bash
-pnpm -r test       # 2698+ tests: core 190 / server 911 / mcp-server 50 / web 1547
+pnpm -r test       # 2890 tests: core 205 / server 1008 / mcp-server 71 / web 1606
 pnpm -r typecheck
 pnpm -r build
 ```
@@ -124,7 +124,7 @@ and the replay scrubber run the same reducer.
 ```
 packages/core     graph schema (zod), compiler, event schema, runtime reducer — zero deps, shared by both sides
 packages/server   execution engine, sandbox, HTTP + SSE API, SQLite persistence
-packages/mcp-server  the platform as an MCP server (15 tools, 2 transports)
+packages/mcp-server  the platform as an MCP server (15 tools, 2 transports, 3 protocol revisions)
 apps/web          the board: SVG canvas, inspector, timeline, reports
 ```
 
@@ -146,6 +146,9 @@ is the scenario-based navigation map (what to read for which task). Quick pointe
 Multi-stage `Dockerfile` (Node 24) builds core + server and runs
 `node dist/index.js`; `docker-compose.yml` exposes port 8791 with a persistent
 SQLite volume. Set `CORS_ORIGINS` in any hosted deployment (unset allows all
-origins — local dev only). `MCP_SERVERS` registers external MCP tools.
+origins — local dev only). `MCP_SERVERS` registers operator-level external MCP
+tools; end users can also connect their own remote http/sse MCP servers in
+Settings (per-user, credentials encrypted at rest), alongside authoring their
+own data skill cards (prompt modules, output contracts, judges).
 
 MIT license — see [LICENSE](LICENSE).

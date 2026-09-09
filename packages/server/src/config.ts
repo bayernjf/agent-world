@@ -9,6 +9,7 @@ import {
   type Modality,
   type ModelPricing,
   type ProviderType,
+  UserSkillCard,
 } from "@agent-world/core";
 
 // Re-export shared billing/modality definitions so server code can import them
@@ -160,6 +161,23 @@ export interface AppConfig {
    * gradual rollout and emergency kill switches.
    */
   featureFlags?: Record<string, boolean>;
+  /**
+   * Remote MCP servers this user connected themselves. Credentials live in
+   * `headers` and ride along inside the settings blob, which is encrypted as a
+   * whole before it reaches the DB — no separate secret store is involved.
+   *
+   * Only `http` and `sse` appear here. `stdio` spawns a process from a command
+   * line, so exposing it to end users would be arbitrary code execution; that
+   * transport stays operator-only through the MCP_SERVERS env var.
+   */
+  mcpServers?: UserMcpServer[];
+  /**
+   * Data-only skill cards this user authored: prompt modules, output contracts
+   * and judge criteria. They never enter the process-global skill registry —
+   * a run receives its owner's cards through run context, which is what keeps
+   * them from leaking across users.
+   */
+  skillCards?: UserSkillCard[];
 }
 
 /**
@@ -206,6 +224,25 @@ const ProviderConfigSchema = z.object({
   source: z.enum(["builtin", "custom"]).optional(),
 });
 
+/**
+ * A remote MCP server the user connected themselves.
+ *
+ * `stdio` is absent on purpose: it spawns a process from a user-supplied
+ * command line, which is arbitrary code execution. That transport stays
+ * operator-only through the MCP_SERVERS env var.
+ */
+const UserMcpServerSchema = z.object({
+  id: z.string().min(1).max(64),
+  name: z.string().min(1).max(80).optional(),
+  transport: z.enum(["http", "sse"]),
+  url: z.string().url(),
+  /** Auth headers. Values are redacted on read and round-tripped on write,
+   *  same rule as searchConfig keys. */
+  headers: z.record(z.string()).optional(),
+  enabled: z.boolean().default(true),
+});
+export type UserMcpServer = z.infer<typeof UserMcpServerSchema>;
+
 export const AppConfigSchema = z.object({
   providers: z.record(ProviderConfigSchema),
   defaultModel: z.string(),
@@ -215,6 +252,11 @@ export const AppConfigSchema = z.object({
   autoSnapshot: z.object({ minIntervalMs: z.number().optional(), maxKeep: z.number().optional() }).optional(),
   searchConfig: SearchConfigSchema.optional(),
   featureFlags: z.record(z.boolean()).optional(),
+  /** Remote MCP servers this user connected. Credentials ride along inside the
+   *  settings blob, which is encrypted as a whole before it reaches the DB. */
+  mcpServers: z.array(UserMcpServerSchema).optional(),
+  /** Data-only skill cards this user authored. */
+  skillCards: z.array(UserSkillCard).optional(),
 });
 
 /**

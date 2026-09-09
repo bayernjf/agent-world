@@ -274,7 +274,7 @@
     "fixErrorsFirst": "修复上方「编译」里的错误后才能派发。",
     "compileNotPassed": "编译检查未通过，请刷新页面重试；若仍不行，检查「编译」区块的报错。",
     "stopNote": "停机只停止后续工作，已产生的 token 仍会计费。",
-    "settingsKey": "设置 · 模型与密钥",
+    "settingsKey": "设置",
     "modelAssign": "模型分配 · 当前产线",
     "runHistory": "📋 运行历史",
     "modes": {

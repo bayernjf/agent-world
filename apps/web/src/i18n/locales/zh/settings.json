@@ -1,5 +1,10 @@
 {
   "title": "设置",
+  "tabs": {
+    "models": "模型",
+    "integrations": "集成",
+    "skills": "技能"
+  },
   "general": {
     "title": "通用设置",
     "language": "语言",
@@ -165,7 +170,6 @@
     "timezone": "时区"
   },
   "modelKeys": {
-    "title": "设置 · 模型与密钥",
     "close": "关闭",
     "models": "模型",
     "modality": {
@@ -272,5 +276,54 @@
     "configured": "已配置",
     "unconfigured": "未配置",
     "otherSourcesStatus": "其他源（已各自独立保存）：{{status}}。"
+  },
+  "mcp": {
+    "title": "MCP 服务",
+    "description": "接入第三方 MCP 服务，把它暴露的工具挂到产线节点上。只支持远程传输（http / sse）：stdio 需要指定一条本地启动命令，等同于任意代码执行，只保留给运维用环境变量配置。",
+    "empty": "还没有 MCP 服务。填下面的地址即可添加。",
+    "name": "名称",
+    "transport": "传输方式",
+    "transportHttp": "HTTP（Streamable）",
+    "transportSse": "SSE",
+    "url": "服务地址",
+    "authHeader": "Authorization 头",
+    "authHeaderHint": "有的服务要求 Bearer Token；留空表示不带鉴权头。已保存的值回显为掩码，不改动即保持原值。",
+    "enabled": "启用",
+    "saveAndConnect": "保存并试连",
+    "connecting": "连接中…",
+    "remove": "删除",
+    "connected": "已连接，发现 {{count}} 个工具：{{tools}}",
+    "failed": "连接失败：{{error}}",
+    "add": "添加",
+    "newPlaceholder": "新服务名称",
+    "note": "凭据落盘前静态加密；不会自动重连，改完地址或密钥请手动点「保存并试连」。工具 ID 形如 mcp:<服务>:<工具>，与内置技能同名时内置优先。",
+    "searchPlaceholder": "按名称、ID 或地址搜索…",
+    "noMatch": "没有匹配的 MCP 服务。"
+  },
+  "cards": {
+    "title": "自建技能卡",
+    "description": "自己写的技能卡，只能挂在自己的产线上。三种都是纯数据：提示片段、判定标准、输出字段表——不执行任何代码，所以不需要沙箱。",
+    "empty": "还没有自建技能卡。",
+    "name": "名称",
+    "kind": {
+      "prompt-module": "提示模块",
+      "output-contract": "输出契约",
+      "judge": "判定标准"
+    },
+    "newKind": "类型",
+    "prompt": "提示内容",
+    "promptPlaceholder": "会拼接进节点的系统提示",
+    "criterion": "判定标准",
+    "criterionPlaceholder": "闸门节点据此判断通过与否",
+    "fields": "输出字段",
+    "fieldName": "字段名",
+    "fieldType": "类型",
+    "fieldRequired": "必填",
+    "addField": "添加字段",
+    "removeField": "删除",
+    "remove": "删除技能卡",
+    "add": "添加",
+    "newPlaceholder": "新技能卡名称",
+    "note": "ID 自动加 local: 前缀；与内置技能同名时内置优先，无法覆盖。下一次运行即生效。"
   }
 }

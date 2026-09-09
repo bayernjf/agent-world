@@ -274,6 +274,7 @@ const productDetailGraph = {
           criterion:
             "必须输出合法的 product-json，包含 hero、至少 4 个卖点、规格参数、行动号召；图片用上游真实 URL，不得有空话套话和极限词。",
           onExhausted: "halt",
+          skills: ["judge_readability"],
         },
       },
       { id: "banner", kind: "imageGen", name: "AI 配图", x: 340, y: 560, imageGen: { model: "agnes-image-2.0-flash", prompt: "结合上游主商品图，生成一张电商主图：保留商品主体与核心卖点，背景简洁统一，专业产品摄影质感" } },
@@ -890,7 +891,7 @@ const researchBriefGraph = {
             "你是研究分析师。上游汇聚了两个数据源的 JSON，请交叉比对后输出一份简报：" +
             "核心结论（1 句）→ 两源一致的信息 → 仅有单源提及、需要二次确认的信息 → 数据缺口。" +
             "把「换成自己的两个信息源」作为第一步建议写在开头。",
-          skills: [],
+          skills: ["cite_sources", "current_time"],
         },
       },
       { id: "depot", kind: "sink", name: "简报归档", x: 1140, y: 300 },
@@ -2083,8 +2084,12 @@ const dataReportGraph = {
         textGen: {
           model: "agnes-2.0-flash",
           prompt:
-            "你是数据分析师。阅读清洗后的JSON数据，分析：①数据规模与完整性 ②关键指标趋势 ③异常值与离群点 ④核心发现（3-5条）。用数据说话，每个发现都要有具体数字支撑。",
-          skills: [],
+            "你是数据分析师。阅读清洗后的JSON数据，分析：①数据规模与完整性 ②关键指标趋势 ③异常值与离群点 ④核心发现（3-5条）。用数据说话，每个发现都要有具体数字支撑。" +
+            "只输出 JSON 对象：title（分析主题）、summary（一句话结论）、points（每条发现一个字符串，含具体数字）。",
+          // report_json is an output-contract card: the analysis is validated
+          // against {title, summary, points} and sent back for a rewrite when it
+          // is not valid JSON, so the downstream writer always gets structure.
+          skills: ["report_json"],
         },
       },
       {
@@ -2096,8 +2101,11 @@ const dataReportGraph = {
         textGen: {
           model: "agnes-2.0-flash",
           prompt:
-            "把数据分析结果整理成一份结构化报表。格式：①执行摘要（3句话）②关键指标表格 ③趋势分析 ④风险与建议。用Markdown格式，语言简洁专业。",
-          skills: [],
+            "上游给的是一份 JSON 分析结果（title / summary / points）。把它整理成一份结构化报表。格式：①执行摘要（3句话）②关键指标表格 ③趋势分析 ④风险与建议。用Markdown格式，语言简洁专业。",
+          // zh_style_guide is a prompt-module card: its text is appended to this
+          // node's system prompt, so the writing rules live in one editable card
+          // instead of being retyped into every prompt.
+          skills: ["zh_style_guide"],
         },
       },
       { id: "depot", kind: "sink", name: "报表成品", x: 1640, y: 300 },
@@ -2172,6 +2180,11 @@ const contractReviewGraph = {
           maxAttempts: 2,
           criterion: "风险检查必须覆盖全部8个维度，高严重度风险必须有明确修改建议和法律依据。",
           onExhausted: "halt",
+          // judge_fact_check is a judge card: its criterion is appended to the
+          // one above before the model judge runs, so the reusable rule
+          // (no facts absent from the upstream contract) lives in a card
+          // rather than being retyped into every gate.
+          skills: ["judge_fact_check"],
         },
       },
       {

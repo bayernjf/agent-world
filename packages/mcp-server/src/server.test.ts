@@ -1,7 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AgentWorldClient } from "./client.js";
 import { NotificationsHub } from "./notifications.js";
-import { handleMessage, PROTOCOL_VERSION } from "./server.js";
+import { handleMessage, PROTOCOL_VERSION, SERVER_VERSION } from "./server.js";
+import {
+  LATEST_PROTOCOL_VERSION,
+  META,
+  SUPPORTED_PROTOCOL_VERSIONS,
+} from "./protocol.js";
 import { BATCH_WAIT_TIMEOUT_MS, filterTools } from "./tools.js";
 
 function mockClient(): AgentWorldClient {
@@ -39,13 +44,13 @@ function call(id: number, method: string, params?: unknown) {
 
 describe("MCP server JSON-RPC", () => {
   it("answers initialize with capabilities and server info", async () => {
-    const reply = await handleMessage(call(1, "initialize", { protocolVersion: "2024-11-05" }), mockClient());
+    const reply = await handleMessage(call(1, "initialize", { protocolVersion: LATEST_PROTOCOL_VERSION }), mockClient());
     expect(reply).toMatchObject({
       id: 1,
       result: {
         protocolVersion: PROTOCOL_VERSION,
         capabilities: { tools: {}, resources: {}, prompts: {} },
-        serverInfo: { name: "agent-world", version: "0.2.0" },
+        serverInfo: { name: "agent-world", version: SERVER_VERSION },
       },
     });
   });
@@ -514,8 +519,102 @@ describe("MCP realtime tools (P2-③)", () => {
       undefined,
       hub,
     );
-    expect(reply?.result).toEqual({});
+    expect(reply?.result).toMatchObject({ resultType: "complete" });
     expect(spy).toHaveBeenCalledWith("run://r1", expect.anything());
     spy.mockRestore();
+  });
+});
+
+describe("protocol version negotiation", () => {
+  function withMeta(id: number, method: string, version: string, params: Record<string, unknown> = {}) {
+    return { jsonrpc: "2.0" as const, id, method, params: { ...params, _meta: { [META.protocolVersion]: version } } };
+  }
+
+  it("server/discover advertises every supported version and our identity", async () => {
+    const reply = await handleMessage(call(60, "server/discover"), mockClient());
+    expect(reply?.result).toMatchObject({
+      protocolVersions: [...SUPPORTED_PROTOCOL_VERSIONS],
+      serverInfo: { name: "agent-world", version: SERVER_VERSION },
+      resultType: "complete",
+    });
+    expect((reply?.result as { capabilities: Record<string, unknown> }).capabilities).toHaveProperty("extensions");
+  });
+
+  it("initialize echoes a version we speak", async () => {
+    const reply = await handleMessage(call(61, "initialize", { protocolVersion: "2024-11-05" }), mockClient());
+    expect((reply?.result as { protocolVersion: string }).protocolVersion).toBe("2024-11-05");
+  });
+
+  it("initialize falls back to our newest for a version we do not speak", async () => {
+    const reply = await handleMessage(call(62, "initialize", { protocolVersion: "1999-01-01" }), mockClient());
+    expect((reply?.result as { protocolVersion: string }).protocolVersion).toBe(LATEST_PROTOCOL_VERSION);
+  });
+
+  it("rejects a request declaring an unknown version in _meta", async () => {
+    const reply = await handleMessage(withMeta(63, "tools/list", "1999-01-01"), mockClient());
+    expect(reply?.error?.code).toBe(-32602);
+    expect(String(reply?.error?.message)).toContain("UnsupportedProtocolVersionError");
+    expect(reply?.error?.data).toEqual({ supportedVersions: [...SUPPORTED_PROTOCOL_VERSIONS] });
+  });
+
+  it("rejects methods 2026-07-28 removed, pointing at the replacement", async () => {
+    for (const [method, hint] of [
+      ["ping", "server/discover"],
+      ["initialize", "server/discover"],
+      ["resources/subscribe", "subscriptions/listen"],
+    ] as const) {
+      const reply = await handleMessage(withMeta(64, method, LATEST_PROTOCOL_VERSION), mockClient());
+      expect(reply?.error?.code).toBe(-32601);
+      expect(String(reply?.error?.message)).toContain(hint);
+    }
+  });
+
+  it("keeps the removed methods working for clients on the old path", async () => {
+    expect((await handleMessage(call(65, "ping"), mockClient()))?.error).toBeUndefined();
+    const older = await handleMessage(withMeta(66, "ping", "2025-11-25"), mockClient());
+    expect(older?.error).toBeUndefined();
+  });
+
+  it("stamps every result with resultType and serverInfo", async () => {
+    for (const method of ["tools/list", "prompts/list", "server/discover"]) {
+      const result = (await handleMessage(call(67, method), mockClient()))?.result as Record<string, unknown>;
+      expect(result.resultType).toBe("complete");
+      expect((result._meta as Record<string, unknown>)[META.serverInfo]).toEqual({
+        name: "agent-world",
+        version: SERVER_VERSION,
+      });
+    }
+  });
+
+  it("carries cache hints on list and read results", async () => {
+    const publicResults = ["tools/list", "prompts/list", "resources/templates/list"];
+    for (const method of publicResults) {
+      const result = (await handleMessage(call(68, method), mockClient()))?.result as Record<string, unknown>;
+      expect(result.cacheScope).toBe("public");
+      expect(result.ttlMs).toBeGreaterThan(0);
+    }
+    const listed = (await handleMessage(call(69, "resources/list"), mockClient()))?.result as Record<string, unknown>;
+    expect(listed.cacheScope).toBe("private");
+    const read = (await handleMessage(call(70, "resources/read", { uri: "graph://g1" }), mockClient()))
+      ?.result as Record<string, unknown>;
+    expect(read.cacheScope).toBe("private");
+  });
+
+  it("accepts both spellings of the resource-template listing", async () => {
+    const old = (await handleMessage(call(71, "resources/templates"), mockClient()))?.result as {
+      resourceTemplates: unknown[];
+    };
+    const now = (await handleMessage(call(72, "resources/templates/list"), mockClient()))?.result as {
+      resourceTemplates: unknown[];
+    };
+    expect(now.resourceTemplates).toEqual(old.resourceTemplates);
+  });
+
+  it("returns tools in a stable order across calls", async () => {
+    const names = async () =>
+      ((await handleMessage(call(73, "tools/list"), mockClient()))?.result as { tools: Array<{ name: string }> }).tools.map(
+        (t) => t.name,
+      );
+    expect(await names()).toEqual(await names());
   });
 });

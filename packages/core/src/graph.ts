@@ -811,6 +811,17 @@ export const GateConfig = z.object({
   criterion: z.string().default(""),
   onExhausted: ExhaustedPolicy.default("halt"),
   /**
+   * Mounted `judge`-kind capability cards. Each contributes a criterion clause
+   * appended to `criterion` before the model judge runs, so reusable judging
+   * rules (fact consistency, readability) do not have to be retyped per gate.
+   */
+  skills: z
+    .array(z.union([z.string(), SkillMount]))
+    .default([])
+    .transform((arr) =>
+      arr.map((s) => (typeof s === "string" ? { id: s, config: {}, enabled: true } : s)),
+    ),
+  /**
    * Optional quality bar (0-10). When set and the judge returns a score below
    * it, the gate fails regardless of the boolean verdict — this is how a quality
    * score "links back" into the gate decision and feeds the eval report.
@@ -959,6 +970,10 @@ export const SourceConfig = z.object({
   brandTerms: z.string().optional(),
   /** Free-form extra notes for the writers. */
   notes: z.string().optional(),
+  /** User-defined fields, key → value. Values join the brief and are reachable
+   *  downstream as `${srcId.custom.key}`; each value supports `${...}`
+   *  interpolation against the connector payload. */
+  custom: z.record(z.string()).optional(),
   /** Declarative data source (file/http/form). When set, the engine pulls raw
    *  material from it instead of relying on the manual text fields above. */
   connector: ConnectorConfig.optional(),

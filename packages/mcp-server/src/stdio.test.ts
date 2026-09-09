@@ -102,7 +102,7 @@ describe("stdio transport (end-to-end CLI smoke)", () => {
     const tools = (list?.result?.tools ?? []) as Array<{ name: string }>;
     expect(tools.length).toBeGreaterThan(10);
     expect(tools.map((t) => t.name)).toContain("run_graph");
-    expect(byId.get(3)?.result).toEqual({});
+    expect(byId.get(3)?.result).toMatchObject({ resultType: "complete" });
   });
 
   it("survives a parse error and keeps serving the next line", async () => {
@@ -114,7 +114,7 @@ describe("stdio transport (end-to-end CLI smoke)", () => {
     );
     expect(replies[0].error?.code).toBe(-32700);
     expect(replies[1].id).toBe("after-error");
-    expect(replies[1].result).toEqual({});
+    expect(replies[1].result).toMatchObject({ resultType: "complete" });
   });
 
   it("round-trips multibyte string ids without framing corruption", async () => {
@@ -125,6 +125,6 @@ describe("stdio transport (end-to-end CLI smoke)", () => {
       1,
     );
     expect(replies[0].id).toBe("\u4e2d\u6587\u6807\u8bc6-\ud83d\ude80");
-    expect(replies[0].result).toEqual({});
+    expect(replies[0].result).toMatchObject({ resultType: "complete" });
   });
 });

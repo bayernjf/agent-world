@@ -124,31 +124,109 @@ New connector types work automatically — the endpoint just calls
 
 ## 3. Adding a Skill (Agent Tool)
 
-Skills are tools an agent can call mid-generation. They're registered in
-`packages/server/src/skills/registry.ts`.
+Skills are capability cards mounted on agent nodes. They're registered in
+`packages/server/src/skills/registry.ts`. For the full design — the four kinds,
+the permission model, and what is actually enforced — see
+[design-skill.md](design-skill.md); §12 there is the authoritative authoring
+guide.
 
 ### Built-in skills
 
-- **MCP tools** — any MCP server's tools become available automatically.
-  Configure them in the settings panel or `MCP_SERVERS` env var.
-- **Built-in skills** — registered via `registerSkill()`.
+Eleven cards ship today, covering all four kinds — see [design-skill.md](design-skill.md)
+§7 for the table.
+
+- **Built-in cards** — declared in the registry's `ALL` array, or registered at
+  runtime via `registerSkill()`.
+- **MCP tools** — any MCP server's tools become available automatically
+  (`source: "mcp"`, id `mcp:<server>:<tool>`), always as kind `tool`. Operators
+  configure servers through the `MCP_SERVERS` env var (all three transports,
+  including `stdio`); end users add remote `http`/`sse` servers in Settings →
+  MCP servers, where the connection is per-user, the Authorization header is
+  stored encrypted, and a handshake runs on save. `stdio` is intentionally
+  operator-only. See [design-skill.md](design-skill.md) §13.1.
+- **User-authored cards** (`source: "local"`) — supported for the three data
+  kinds (`prompt-module`, `output-contract`, `judge`): users create them in
+  Settings → skill cards, ids get a `local:` prefix, and they resolve only for
+  that user's own runs. User-authored `tool` cards remain blocked (they would
+  run user code). §13.2 there has the details.
 
 ### Creating a skill
 
-1. **Define the tool** — a `ToolDefinition` with `name`, `description`, and
-   `parameters` (JSON Schema).
-2. **Implement the executor** — a function that takes the tool's arguments and
-   returns a string result. It receives `{ args, node, runId, signal }`.
-3. **Register it** — call `registerSkill({ id, tool, execute })` at startup
-   (in `index.ts` or a skill module).
-4. **Mount it on a node** — in the board, select an agent node and add the
-   skill in the inspector. The agent's `tools` array then includes it.
+A card is a `BuiltinSkill`. Note the callable lives in the nested `tool`
+object, not at the top level:
+
+```ts
+const myTool: BuiltinSkill = {
+  id: "my_tool",
+  name: "My tool",                  // shown to humans in the card picker
+  description: "What this card is for.",
+  kind: "tool",                     // "tool" | "prompt-module" | "output-contract" | "judge"
+  source: "builtin",                // "builtin" | "local" | "mcp"
+  permissions: { network: { domains: ["api.example.com"] }, subprocess: false, env: [] },
+  config: {},
+  tool: {
+    name: "my_tool",                // what the model sees; keep it equal to id
+    description: "One line the model reads to decide whether to call this.",
+    parameters: { type: "object", properties: { query: { type: "string" } }, required: ["query"] },
+    async execute(args) { /* return a value for the model */ },
+  },
+};
+```
+
+Then add it to the registry's `ALL` array (or call `registerSkill(card)` at
+startup), and mount it on a node: select an agent node in the board and add the
+card in the inspector. On the node, `skills` is a `SkillMount[]` —
+`{ id, config, enabled }` — so the same card mounted on two nodes can carry
+different per-mount `config`. The legacy `skills: ["my_tool"]` string form is
+normalised by `toMount()`.
+
+All four kinds are wired and each ships built-in cards to copy (11 total — see
+design-skill.md §7 for the table):
+
+- `prompt-module` — text appended to the system prompt, with multi-level
+  `equips` dependencies (`zh_style_guide`, `cite_sources`).
+- `output-contract` — output validated against a JSON Schema, rework on failure
+  (`report_json`, `verdict_json`).
+- `judge` — criterion clauses appended to a **gate** node's criterion. These
+  mount on `gate.skills`, not `textGen.skills` (`judge_fact_check`,
+  `judge_readability`).
 
 ### Skill permissions
 
-Skills can declare `permissions` (e.g. `["fs:read", "network"]`). The
-isolated worker loader enforces these when a skill runs in a subprocess. See
-`packages/server/src/isolation.ts` for the permission model.
+Declared permissions are a **structured object**, not a string array:
+
+```ts
+permissions: {
+  network?: { domains: string[] }   // omitted = no network
+  fs?: { paths: string[]; read: boolean; write: boolean }
+  subprocess?: boolean
+  env?: string[]
+}
+```
+
+**What is actually enforced, precisely** (design-skill.md §11.3 has the full
+account — read it before relying on any of this):
+
+- Skills run **in the main server process**. There is no subprocess sandbox for
+  them. `isolation.ts` / `IsolatedWorker` isolates **Workers (model provider
+  plugins)** via `worker-plugins.ts`, which is a different thing entirely.
+- Enforcement in `permissions.ts` **is derived from the declaration**.
+  `opForTool(skill, args, cfg)` reads what the card declares: a card declaring
+  `network` has every URL-shaped argument (at any nesting depth) checked against
+  its own `domains`; one declaring `fs` has path-shaped arguments checked for
+  write intent and against `TOOL_FS_ALLOW`; one declaring `subprocess` is
+  subject to the operator kill switch. Declaring narrowly will block your own
+  calls — that is the point.
+- The declaration can only constrain **what appears in the arguments**. A card
+  that hard-codes `fetch("https://…")` inside `execute` leaves no trace there,
+  so nothing derived from arguments can stop it. Closing that needs process
+  isolation, not a smarter derivation; `permissions.test.ts` pins this hole so
+  it is not mistaken for a bug.
+- Server-level env vars intersect with the declaration:
+  `TOOL_NETWORK_ALLOW`, `TOOL_FS_ALLOW`, `TOOL_SUBPROCESS_ALLOW`.
+- `danger: true` triggers a deterministic human approval on every call (the run
+  halts, resumes after approve). This is the one guarantee that does not depend
+  on sandboxing — use it for anything irreversible or externally visible.
 
 ---
 

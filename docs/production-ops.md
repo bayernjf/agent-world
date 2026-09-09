@@ -252,11 +252,46 @@ k8s / 云容器        （规模化前提）
 
 **说明**：四项 SLI 里三项已落地（`/metrics` 端点 2026-09-08），仅「Uptime Kuma 探针告警」待配（见 §5、deferred-items）。SLO 违反时触发告警 → 按 [postmortem-template.md](runbooks/postmortem-template.md) 复盘。
 
-## 8. 相关文档
+## 8. MCP Server 的部署形态（2026-09-09 补）
+
+MCP Server 是**独立 Node 进程**（`packages/mcp-server`），不在主服务的 systemd unit 里。它有两种形态，运维负担完全不同：
+
+| 形态 | 谁启动 | 需要运维吗 | 说明 |
+|---|---|---|---|
+| **stdio**（默认） | 客户端（Claude Desktop / Cursor）按需 spawn | ❌ 不需要 | 进程生命周期由客户端管，随客户端退出而死。**这是当前唯一在用的形态** |
+| **HTTP** | `AGENT_WORLD_MCP_TRANSPORT=http`，需要自己守护 | ✅ 需要 | 长驻监听 `127.0.0.1:3100`。**当前未部署**，没有 systemd unit、没有探针、没有进 `/api/health` |
+
+### 8.1 若要上 HTTP 形态，最少要补这些
+
+1. **systemd unit**（参照主服务的 `agent-world.service`），`Restart=always`
+2. **探活**：MCP Server 没有 `/health`。可用免鉴权的 `GET /.well-known/oauth-protected-resource` 当探针（返回 200 即进程活着），或补一个 `/health`
+3. **鉴权必开**：`AGENT_WORLD_MCP_REQUIRE_AUTH=1`。不开的话，任何能打到 `:3100` 的本地调用者会静默继承本进程环境里的 `AGENT_WORLD_TOKEN` 及其写权限（见 [design-mcp-server.md](design-mcp-server.md) §13.2）
+4. **只读收紧**：挂给第三方客户端时叠加 `AGENT_WORLD_MCP_READONLY=1`
+5. **不要暴露到公网**：进程只 bind `127.0.0.1`；**且它不验 JWT 签名**（校验委托给主服务，见 §13.3），所以不能把它当独立的信任边界。要远程访问就走 Nginx 反代 + 主服务同一套鉴权
+6. **Origin 白名单**：浏览器端客户端需要 `AGENT_WORLD_MCP_ALLOWED_ORIGINS`；默认只放行 localhost 与无 Origin 的调用
+
+### 8.2 环境变量清单
+
+| 变量 | 默认 | 用途 |
+|---|---|---|
+| `AGENT_WORLD_URL` | `http://localhost:8791` | 主服务地址 |
+| `AGENT_WORLD_TOKEN` | 无 | 回落用的 JWT；客户端自带 Bearer 时不使用 |
+| `AGENT_WORLD_MCP_TRANSPORT` | `stdio` | `http` 切换长驻形态 |
+| `AGENT_WORLD_MCP_PORT` | `3100` | HTTP 端口 |
+| `AGENT_WORLD_MCP_READONLY` | 关 | `1` 时只暴露读工具 |
+| `AGENT_WORLD_MCP_ALLOWED_ORIGINS` | 空 | 逗号分隔的 Origin 白名单 |
+| `AGENT_WORLD_MCP_REQUIRE_AUTH` | 关 | `1` 时无 token 一律 401 |
+| `AGENT_WORLD_MCP_RESOURCE` | `http://127.0.0.1:{port}/mcp` | OAuth 资源标识 |
+| `AGENT_WORLD_MCP_AUTH_SERVERS` | 空 | 逗号分隔的授权服务器 issuer |
+
+---
+
+## 9. 相关文档
 
 - [environments.md](environments.md) —— 环境划分（本路线的前提）
 - [design-logging.md](design-logging.md) —— 服务端日志（本路线日志层承接）
 - [design-key-rotation.md](design-key-rotation.md) + [runbooks/key-rotation.md](runbooks/key-rotation.md) —— 密钥轮换（本路线密钥层承接）
 - [design-monetization.md](design-monetization.md) —— 商业化（成本硬熔断与订阅 gate 同批评估）
+- [design-mcp-server.md](design-mcp-server.md) —— MCP Server 设计（§8 部署形态的上游）
 - [deferred-items.md](deferred-items.md) —— 本节缺口均登记于此（带触发条件）
 - [runbooks/deploy-ubuntu-server.md](runbooks/deploy-ubuntu-server.md) —— 当前 M0 部署形态

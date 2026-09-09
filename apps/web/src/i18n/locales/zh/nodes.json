@@ -1,5 +1,13 @@
 {
   "source": "原料台",
+  "sourceType": {
+    "manual": "手填",
+    "product": "商品库",
+    "file": "文件",
+    "http": "HTTP",
+    "form": "表单",
+    "database": "DB"
+  },
   "textGen": "文坊",
   "imageGen": "画坊",
   "videoGen": "影坊",
@@ -174,7 +182,7 @@
     "reload": "重新载入",
     "name": "名称",
     "missingModel": "尚未配置该类型模型，运行前需先",
-    "goSettings": "前往「设置 · 模型与密钥」",
+    "goSettings": "前往「设置」",
     "structuredParseFailed": "结构化成品解析失败（JSON 不合法），暂无法富渲染。",
     "stepOp": {
       "parse": "解析（CSV/JSON → 表格）",
@@ -253,6 +261,8 @@
     },
     "source": {
       "briefTitle": "创作简报（可选）",
+      "manualTitle": "原料描述",
+      "manualInput": "在此输入原料信息（文本、URL、商品描述等），下游节点将基于此内容处理",
       "productName": "商品名称",
       "brand": "品牌 / 店铺",
       "audience": "目标人群（如 20-30岁通勤女生）",
@@ -265,7 +275,17 @@
       "loadBrandTerms": "从品牌词库载入",
       "notes": "补充说明",
       "notesPh": "其他想让写手知道的背景、卖点、参考风格等",
-      "dataHint": "留空自动取商品库值；可用 ${product.name} 引用"
+      "dataHint": "留空自动取商品库值；可用 ${product.name} 引用",
+      "customTitle": "自定义字段",
+      "customPh": "交付日期: 2026-10-01\n客户编号: C-7781\n合同金额: ${data[0].amount}",
+      "customHint": "每行一条「键: 值」。值可写 ${data[0].xxx} 取连接器数据；下游节点用 ${本节点id.custom.键} 引用。",
+      "shortcutHint": {
+        "product": "本产线可用 ${product.名称} 取首件商品、${products} 取全部",
+        "http": "本产线可用 ${response.字段} 取接口返回的 JSON（仅 JSON 响应）",
+        "database": "本产线可用 ${row.列名} 取首行、${rows[1].列名} 取第 2 行",
+        "form": "本产线可用 ${form.字段名} 取表单填写值（用字段名，不是标签）",
+        "file": "本产线可用 ${file.content} 取首个文件正文、${files[1].content} 取第 2 个"
+      }
     },
     "textGen": {
       "temperature": "温度 ({{temp}})",

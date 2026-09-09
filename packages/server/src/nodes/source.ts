@@ -17,6 +17,8 @@ export async function sourceNode(ctx: NodeRunContext, node: GraphNode, nodeId: s
   const sourceFiles = node.source?.files ?? [];
   const conn = node.source?.connector;
   let sourceData: unknown;
+  /** Post-interpolation custom fields, lifted out of the brief IIFE below. */
+  let customFields: Record<string, string> | undefined;
   if (conn) {
     let ok = false;
     let lastErr: unknown;
@@ -43,15 +45,20 @@ export async function sourceNode(ctx: NodeRunContext, node: GraphNode, nodeId: s
     }
   }
 
-  // Empty-data guard (design-data-interpolation.md §6.2): a product connector
-  // whose library is empty / filtered to nothing would make every `${product.x}`
-  // resolve to an empty string. Do not fail the run, but warn once so the
-  // silent-empty is visible in the run log.
-  if (conn && conn.type === "product" && (!Array.isArray(sourceData) || sourceData.length === 0)) {
-    ctx.log.warn("product connector returned empty data; ${product.name} resolves to empty string", { nodeId });
+  // Empty-data guard (design-data-interpolation.md §6.2): a connector that came
+  // back with nothing (empty product library, query with no rows, glob matching
+  // no file) would make every `${shortcut.x}` resolve to an empty string. Do not
+  // fail the run, but warn once so the silent-empty is visible in the run log.
+  if (conn && isEmptyData(sourceData)) {
+    const names = CONNECTOR_SHORTCUTS.filter((s) => s.connector === conn.type)
+      .map((s) => `\${${s.name}…}`)
+      .join(" / ");
+    if (names) {
+      ctx.log.warn(`${conn.type} connector returned empty data; ${names} resolves to empty string`, { nodeId });
+    }
   }
   const output = (() => {
-    // D5 (design-data-interpolation.md): brief fields interpolate `${product.x}`
+    // D5 (design-data-interpolation.md): brief fields interpolate `${shortcut.x}`
     // against the connector's structured data and the registered global
     // shortcuts. Same "only one source of this type" gate as engine interpCtx,
     // so a brief that sees `${product.name}` is guaranteed to also be visible
@@ -64,16 +71,26 @@ export async function sourceNode(ctx: NodeRunContext, node: GraphNode, nodeId: s
     const fallbacks = sourceData !== undefined && conn
       ? deriveConnectorFallbacks(conn.type, sourceData)
       : undefined;
+    customFields = interpolatedNode.source?.custom;
     return buildSourceBrief(interpolatedNode, sourceText, fallbacks);
   })();
   // D2 (design-data-interpolation.md): expose {data, content} for interpCtx —
   // `${srcId}` keeps resolving to the brief text, `${srcId.data[0].name}`
-  // reaches the connector's structured payload. Only written when the
-  // connector supplied structured data (product): plain sources keep their
-  // ctx entry a bare string, so branch conditions like `${src} > 100` on
-  // manual input stay byte-identical.
-  if (sourceData !== undefined) {
-    ctx.sourceMeta.set(nodeId, { data: sourceData, content: output });
+  // reaches the connector's structured payload, `${srcId.custom.键}` reaches a
+  // user-defined field. Only written when the connector supplied structured
+  // data or the user declared custom fields: plain sources keep their ctx entry
+  // a bare string, so branch conditions like `${src} > 100` on manual input
+  // stay byte-identical. (Once meta is written the entry becomes an object;
+  // `${src}` still resolves via primaryValue's `content`, but a branch
+  // condition on that source compares JSON — declaring custom fields is the
+  // user opting into the structured shape.)
+  const hasCustom = customFields !== undefined && Object.keys(customFields).length > 0;
+  if (sourceData !== undefined || hasCustom) {
+    ctx.sourceMeta.set(nodeId, {
+      ...(sourceData !== undefined ? { data: sourceData } : {}),
+      ...(hasCustom ? { custom: customFields } : {}),
+      content: output,
+    });
   }
   setTextArtifact(artifacts, nodeId, output);
   states.set(nodeId, "done");
@@ -184,7 +201,38 @@ function interpolateSourceNode(node: GraphNode, ctx: Record<string, unknown>): G
       changed = true;
     }
   }
+  // User-defined fields follow the same rule as the fixed brief fields: only
+  // values are interpolated (keys are labels, taken literally).
+  if (src.custom) {
+    const custom: Record<string, string> = {};
+    let customChanged = false;
+    for (const [k, v] of Object.entries(src.custom)) {
+      if (v.includes("${")) {
+        custom[k] = evaluateTemplate(v, ctx);
+        customChanged = true;
+      } else {
+        custom[k] = v;
+      }
+    }
+    if (customChanged) {
+      out.custom = custom;
+      changed = true;
+    }
+  }
   return changed ? { ...node, source: out } : node;
+}
+
+/**
+ * Whether a connector's structured payload carries nothing referenceable: it
+ * was never supplied (manual, or an http response that was not JSON), or it is
+ * an empty collection (empty product library, query with no rows, glob that
+ * matched no file). `null` counts as empty; a scalar body does not.
+ */
+function isEmptyData(data: unknown): boolean {
+  if (data === undefined || data === null) return true;
+  if (Array.isArray(data)) return data.length === 0;
+  if (typeof data === "object") return Object.keys(data).length === 0;
+  return false;
 }
 
 /**

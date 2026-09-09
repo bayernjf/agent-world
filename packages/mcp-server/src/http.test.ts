@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentWorldClient } from "./client.js";
 import { startHttpServer, MCP_HTTP_PATH } from "./http.js";
+import { OAUTH_METADATA_PATH } from "./oauth.js";
+import { handleMessage, type JsonRpcMessage } from "./server.js";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 
@@ -92,6 +94,58 @@ describe("MCP Streamable HTTP transport", () => {
     expect(text).toContain(MCP_HTTP_PATH);
     await reader.cancel();
     ac.abort();
+  });
+
+  it("refuses a cross-site Origin with 403", async () => {
+    const res = await fetch(`${base}${MCP_HTTP_PATH}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "https://evil.example" },
+      body: JSON.stringify(rpc(1, "tools/list")),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("allows a localhost Origin and a request with none at all", async () => {
+    for (const headers of [
+      { "content-type": "application/json", origin: `${base}` },
+      { "content-type": "application/json" },
+    ]) {
+      const res = await fetch(`${base}${MCP_HTTP_PATH}`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(rpc(1, "tools/list")),
+      });
+      expect(res.status).toBe(200);
+    }
+  });
+
+  it("refuses an Mcp-Method header that contradicts the body", async () => {
+    const res = await fetch(`${base}${MCP_HTTP_PATH}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "mcp-method": "tools/call" },
+      body: JSON.stringify(rpc(1, "tools/list")),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as JsonRpcMessage;
+    expect(body.error?.code).toBe(-32600);
+  });
+
+  it("accepts a matching Mcp-Method header", async () => {
+    const res = await fetch(`${base}${MCP_HTTP_PATH}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "mcp-method": "tools/list" },
+      body: JSON.stringify(rpc(1, "tools/list")),
+    });
+    expect(res.status).toBe(200);
+  });
+
+  it("echoes the protocol version the caller declared", async () => {
+    const res = await fetch(`${base}${MCP_HTTP_PATH}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "mcp-protocol-version": "2025-11-25" },
+      body: JSON.stringify(rpc(1, "tools/list")),
+    });
+    expect(res.headers.get("mcp-protocol-version")).toBe("2025-11-25");
   });
 
   it("returns 404 for unknown paths and 405 for non-POST methods", async () => {
@@ -212,6 +266,139 @@ describe("realtime notifications over the real wire (P2-③)", () => {
       expect(acc).toContain('"status":"done"');
     } finally {
       ac.abort();
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+
+  it("streams notifications on the subscriptions/listen response itself", async () => {
+    const client = mockClient();
+    client.openRunStream = vi.fn().mockResolvedValue(
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            const frame = `data: ${JSON.stringify({
+              version: 1,
+              event: { type: "run.finished", status: "done", runId: "r1" },
+            })}\n\n`;
+            controller.enqueue(new TextEncoder().encode(frame));
+            controller.close();
+          },
+        }),
+        { status: 200, headers: { "content-type": "text/event-stream" } },
+      ),
+    );
+
+    const server = await startHttpServer(client, 0);
+    const addr = server.address() as AddressInfo;
+    const ac = new AbortController();
+
+    try {
+      const res = await fetch(`http://127.0.0.1:${addr.port}${MCP_HTTP_PATH}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(
+          rpc(1, "subscriptions/listen", { types: ["resourceSubscriptions"], uri: "run://r1" }),
+        ),
+        signal: ac.signal,
+      });
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-type")).toContain("text/event-stream");
+
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let acc = "";
+      const deadline = Date.now() + 2000;
+      while (!acc.includes("notifications/resources/updated") && Date.now() < deadline) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        acc += decoder.decode(value, { stream: true });
+      }
+      // Ack first (carrying the minted id), then the tagged notification.
+      const subscriptionId = /"subscriptionId":"(sub_[^"]+)"/.exec(acc)?.[1];
+      expect(subscriptionId).toBeTruthy();
+      expect(acc).toContain("notifications/resources/updated");
+      expect(acc).toContain(`"io.modelcontextprotocol/subscriptionId":"${subscriptionId}"`);
+    } finally {
+      ac.abort();
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+
+  it("rejects an unknown subscription type", async () => {
+    const server = await startHttpServer(mockClient(), 0);
+    const addr = server.address() as AddressInfo;
+    try {
+      const res = await fetch(`http://127.0.0.1:${addr.port}${MCP_HTTP_PATH}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(rpc(1, "subscriptions/listen", { types: ["nope"] })),
+      });
+      const body = (await res.json()) as JsonRpcMessage;
+      expect(body.error?.code).toBe(-32602);
+      expect(body.error?.data).toMatchObject({ supportedTypes: expect.any(Array) });
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+
+  it("refuses the subscription stream on stdio (no hub)", async () => {
+    const reply = await handleMessage(rpc(1, "subscriptions/listen", {}), mockClient());
+    expect(reply?.error?.code).toBe(-32601);
+  });
+});
+
+describe("OAuth 2.1 protected resource (2025-06-18+)", () => {
+  it("serves protected-resource metadata without a token", async () => {
+    const server = await startHttpServer(mockClient(), 0, undefined, undefined, [], {
+      resource: "http://127.0.0.1:3100/mcp",
+      authServers: ["https://auth.example.com"],
+      requireAuth: true,
+    });
+    const addr = server.address() as AddressInfo;
+    try {
+      const res = await fetch(`http://127.0.0.1:${addr.port}${OAUTH_METADATA_PATH}`);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({
+        resource: "http://127.0.0.1:3100/mcp",
+        authorization_servers: ["https://auth.example.com"],
+        bearer_methods_supported: ["header"],
+      });
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+
+  it("challenges a token-less POST when requireAuth is on", async () => {
+    const server = await startHttpServer(mockClient(), 0, undefined, undefined, [], {
+      resource: "http://127.0.0.1:3100/mcp",
+      authServers: ["https://auth.example.com"],
+      requireAuth: true,
+    });
+    const addr = server.address() as AddressInfo;
+    try {
+      const res = await fetch(`http://127.0.0.1:${addr.port}${MCP_HTTP_PATH}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(rpc(1, "tools/list")),
+      });
+      expect(res.status).toBe(401);
+      expect(res.headers.get("www-authenticate")).toContain(OAUTH_METADATA_PATH);
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+
+  it("lets a token-less POST through when requireAuth is off", async () => {
+    const server = await startHttpServer(mockClient(), 0);
+    const addr = server.address() as AddressInfo;
+    try {
+      const res = await fetch(`http://127.0.0.1:${addr.port}${MCP_HTTP_PATH}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(rpc(1, "tools/list")),
+      });
+      expect(res.status).toBe(200);
+    } finally {
       await new Promise((resolve) => server.close(resolve));
     }
   });

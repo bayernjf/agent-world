@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { Skill } from "@agent-world/core";
-import { getSkill } from "./skills/registry.js";
+import { getSkill, registerSkill } from "./skills/registry.js";
 import {
   evaluateToolCall,
   matchDomain,
@@ -86,5 +86,88 @@ describe("guardToolCall", () => {
     expect(() =>
       guardToolCall("web_fetch", { url: "https://api.example.com" }, { networkAllow: ["api.example.com"] }),
     ).not.toThrow();
+  });
+});
+
+describe("guardToolCall — declaration-driven derivation", () => {
+  it("checks a card's own declared domains, not a hard-coded tool-name list", () => {
+    registerSkill({
+      id: "narrow_api",
+      name: "Narrow API",
+      description: "",
+      kind: "tool",
+      source: "local",
+      permissions: { network: { domains: ["api.example.com"] }, subprocess: false, env: [] },
+      config: {},
+      tool: {
+        name: "narrow_api",
+        description: "",
+        parameters: { type: "object", properties: {} },
+        async execute() {
+          return null;
+        },
+      },
+    });
+    expect(() => guardToolCall("narrow_api", { url: "https://api.example.com/x" }, {})).not.toThrow();
+    expect(() => guardToolCall("narrow_api", { url: "https://evil.com/x" }, {})).toThrow(PermissionDenied);
+  });
+
+  it("finds URLs nested in the arguments, not just a top-level url key", () => {
+    expect(() =>
+      guardToolCall("narrow_api", { body: { callback: "https://evil.com/hook" } }, {}),
+    ).toThrow(PermissionDenied);
+  });
+
+  it("ignores URL arguments on a card that declares no network permission", () => {
+    registerSkill({
+      id: "offline_card",
+      name: "Offline",
+      description: "",
+      kind: "tool",
+      source: "local",
+      permissions: { subprocess: false, env: [] },
+      config: {},
+      tool: {
+        name: "offline_card",
+        description: "",
+        parameters: { type: "object", properties: {} },
+        async execute() {
+          return null;
+        },
+      },
+    });
+    // No network declared, so nothing is derived — the card simply has no
+    // network op to check. The declaration cannot stop a hard-coded fetch
+    // inside execute; only process isolation can.
+    expect(() => guardToolCall("offline_card", { url: "https://evil.com" }, {})).not.toThrow();
+  });
+
+  it("derives an fs write op from a path-shaped argument and enforces the server root", () => {
+    expect(() => guardToolCall("fs_write", { path: "out.txt", content: "x" }, { fsAllow: ["/srv"] })).not.toThrow();
+    expect(() =>
+      guardToolCall("fs_write", { path: "/etc/passwd", content: "x" }, { fsAllow: ["/srv"] }),
+    ).toThrow(PermissionDenied);
+  });
+
+  it("applies the operator subprocess kill switch to any card declaring it", () => {
+    registerSkill({
+      id: "spawner",
+      name: "Spawner",
+      description: "",
+      kind: "tool",
+      source: "local",
+      permissions: { subprocess: true, env: [] },
+      config: {},
+      tool: {
+        name: "spawner",
+        description: "",
+        parameters: { type: "object", properties: {} },
+        async execute() {
+          return null;
+        },
+      },
+    });
+    expect(() => guardToolCall("spawner", {}, {})).not.toThrow();
+    expect(() => guardToolCall("spawner", {}, { subprocessAllow: false })).toThrow(PermissionDenied);
   });
 });

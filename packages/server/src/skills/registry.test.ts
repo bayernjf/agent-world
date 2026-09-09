@@ -13,9 +13,35 @@ describe("skill registry", () => {
     expect(ids).toContain("json_extract");
     expect(ids).toContain("current_time");
     for (const s of skills) {
-      expect(s.kind).toBe("tool");
       expect(s.permissions).toBeDefined();
     }
+  });
+
+  it("ships at least one built-in card for every skill kind", () => {
+    const byKind = new Map<string, string[]>();
+    for (const s of listBuiltinSkills()) {
+      byKind.set(s.kind, [...(byKind.get(s.kind) ?? []), s.id]);
+    }
+    for (const kind of ["tool", "prompt-module", "output-contract", "judge"]) {
+      expect(byKind.get(kind), `no built-in card of kind ${kind}`).toBeTruthy();
+    }
+  });
+
+  it("gives non-tool cards a usable payload and no callable tool", () => {
+    const skills = listBuiltinSkills();
+    const find = (id: string) => skills.find((s) => s.id === id)!;
+    expect(find("zh_style_guide").config.prompt).toBeTypeOf("string");
+    expect(find("cite_sources").config.prompt).toBeTypeOf("string");
+    expect(find("report_json").config.schema).toMatchObject({ type: "object" });
+    expect(find("judge_fact_check").config.criterion).toBeTypeOf("string");
+    // Non-tool cards must not leak into the model's tool list.
+    expect(
+      resolveTools([
+        { id: "zh_style_guide", enabled: true },
+        { id: "report_json", enabled: true },
+        { id: "judge_fact_check", enabled: true },
+      ]),
+    ).toEqual([]);
   });
 
   it("resolves only enabled mounted skills to tool definitions", () => {

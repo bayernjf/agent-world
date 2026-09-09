@@ -671,7 +671,7 @@
     "title": "Model Assignment",
     "sub": "Line: {{name}} · only the selected nodes change model",
     "empty": "No usable models configured yet.",
-    "goSettings": "Open Settings · Models & keys",
+    "goSettings": "Open Settings",
     "groupLabel": "{{modality}} models",
     "usedNodes": "{{used}} nodes",
     "unused": "Unused",
@@ -704,7 +704,10 @@
       "fs": "Files",
       "subprocess": "Subprocess",
       "env": "Env vars"
-    }
+    },
+    "searchPlaceholder": "Search by name, ID, or description…",
+    "addCard": "Add skill card",
+    "noMatch": "No skill card matches. Need a different one? Use “Add skill card” to author your own."
   },
   "templateField": {
     "title": "Template parameters — {{name}}",

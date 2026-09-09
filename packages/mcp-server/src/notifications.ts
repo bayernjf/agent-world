@@ -1,14 +1,20 @@
 import type http from "node:http";
 import type { AgentWorldClient } from "./client.js";
+import { META, SUBSCRIPTION_TYPES, type SubscriptionType } from "./protocol.js";
 
 /**
  * Server-initiated push for the Streamable HTTP transport.
  *
- * MCP has no arbitrary event push; the compliant channel is an SSE stream plus
- * standard `notifications/resources/updated` messages. Clients open `GET /mcp`
- * (the SSE sink), then `POST` a `resources/subscribe` for `run://{id}`. This
- * hub mirrors the main server's `GET /api/runs/:id/stream` into that sink,
- * turning `run.finished` events into `notifications/resources/updated` frames.
+ * Two channels, one hub:
+ *   - 2024-11-05: the client opens `GET /mcp` as an SSE sink, then POSTs a
+ *     `resources/subscribe` for `run://{id}`.
+ *   - 2026-07-28 (SEP-2575): the GET endpoint and resources/subscribe are gone.
+ *     The client POSTs `subscriptions/listen`, opts into specific change types,
+ *     and the response itself stays open as the notification stream. Frames are
+ *     tagged with the subscription id the server minted.
+ *
+ * Either way the payload is a standard `notifications/resources/updated`
+ * mirrored from the main server's `GET /api/runs/:id/stream`.
  *
  * stdio has no push channel, so clients there poll `get_run_events` instead.
  */
@@ -22,7 +28,12 @@ export interface RunUpdateNotification {
 interface Sink {
   write(frame: string): void;
   isOpen: boolean;
+  /** Change types this sink opted into; the legacy GET sink takes everything. */
+  types: ReadonlySet<SubscriptionType>;
+  subscriptionId?: string;
 }
+
+const ALL_TYPES: ReadonlySet<SubscriptionType> = new Set(SUBSCRIPTION_TYPES);
 
 function sseFrame(event: string, data: unknown): string {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
@@ -113,8 +124,25 @@ export class NotificationsHub {
   private sinks = new Set<Sink>();
   private bridges = new Map<string, Bridge>();
 
-  /** Register a `GET /mcp` SSE response as a push target. */
+  /** Register a `GET /mcp` SSE response as a push target (legacy 2024-11-05 path). */
   addSink(res: http.ServerResponse): void {
+    this.addSinkInternal(res, ALL_TYPES, undefined);
+  }
+
+  /**
+   * Register a `POST subscriptions/listen` response as a scoped push target
+   * (2026-07-28 path): the client opted into specific change types, and the
+   * server minted a subscription id used to tag every outbound frame.
+   */
+  addSubscriptionSink(res: http.ServerResponse, types: SubscriptionType[], subscriptionId: string): void {
+    this.addSinkInternal(res, new Set(types), subscriptionId);
+  }
+
+  private addSinkInternal(
+    res: http.ServerResponse,
+    types: ReadonlySet<SubscriptionType>,
+    subscriptionId: string | undefined,
+  ): void {
     const sink: Sink = {
       write: (frame) => {
         if (!sink.isOpen) return;
@@ -130,6 +158,8 @@ export class NotificationsHub {
         }
       },
       isOpen: true,
+      types,
+      subscriptionId,
     };
     this.sinks.add(sink);
     res.on("close", () => {
@@ -138,6 +168,11 @@ export class NotificationsHub {
       // Last client gone → tear down upstream connections to avoid leaks.
       if (this.sinks.size === 0) this.closeBridges();
     });
+  }
+
+  /** Whether this URI is a shape the hub can bridge, without starting anything. */
+  canSubscribe(uri: string): boolean {
+    return parseRunUri(uri) !== null;
   }
 
   /** Subscribe to `run://{id}`; no-op if already subscribed for that run. */
@@ -158,16 +193,23 @@ export class NotificationsHub {
   }
 
   private broadcast(notification: RunUpdateNotification): void {
-    const frame = sseFrame("message", {
-      jsonrpc: "2.0",
-      method: "notifications/resources/updated",
-      params: {
-        uri: notification.uri,
-        runId: notification.runId,
-        status: notification.status,
-      },
-    });
-    for (const sink of this.sinks) sink.write(frame);
+    for (const sink of this.sinks) {
+      // Run updates ride the resourceSubscriptions channel; a client that only
+      // asked for list-changed notifications must not receive them.
+      if (!sink.types.has("resourceSubscriptions")) continue;
+      sink.write(
+        sseFrame("message", {
+          jsonrpc: "2.0",
+          method: "notifications/resources/updated",
+          params: {
+            uri: notification.uri,
+            runId: notification.runId,
+            status: notification.status,
+            ...(sink.subscriptionId ? { _meta: { [META.subscriptionId]: sink.subscriptionId } } : {}),
+          },
+        }),
+      );
+    }
   }
 
   /** Abort every upstream bridge and clear subscriptions. */

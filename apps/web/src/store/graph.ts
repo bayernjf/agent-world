@@ -260,7 +260,7 @@ const DEFAULTS: Record<NodeKind, Partial<GraphNode>> = {
       retry: { maxRetries: 2, baseDelayMs: 1000, maxDelayMs: 30000 },
     },
   },
-  gate: { gate: { maxAttempts: 3, criterion: "", onExhausted: "halt" } },
+  gate: { gate: { maxAttempts: 3, criterion: "", onExhausted: "halt", skills: [] } },
   imageGen: { imageGen: { model: "agnes-image", prompt: "", n: 1 } },
   videoGen: { videoGen: { model: "video-gen", prompt: "", n: 1 } },
   audioGen: { audioGen: { model: "tts-1", prompt: "", format: "mp3", n: 1 } },
