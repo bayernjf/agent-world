@@ -143,7 +143,7 @@
 
 **数据演进的免费午餐**：商品库将来加列（如 sku）→ `data` 原样传 `Product[]` → `${product.sku}` 自动可用，零改动。
 
-**V1 接受的两个维护点**：① 模板引用悬空——图里写了 `${product.name}` 后又删 connector，静默解析为空串（不炸产线也不提示；run 日志加 warn 是顺手活）；② 前端 hint 注册表 / 后端 fallback 注册表两处维护，均极小，V1 不合并。
+**V1 接受的两个维护点**：① 模板引用悬空——图里写了 `${product.name}` 后又删 connector，静默解析为空串，不炸产线（run 日志的 warn 已落地，见 `engine.ts` 悬空引用 guard，所以只剩"不拦"这一点）；② 前端 hint 注册表 / 后端 fallback 注册表两处维护，均极小，V1 不合并。
 
 ## 13. 边界与后续
 

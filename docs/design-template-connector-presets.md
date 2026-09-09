@@ -67,7 +67,7 @@ d095d59  22:29  refactor(server): drop buildSourceBrief fallback param（删 D4 
 
 ### C 类·文件/图片输入型（6 个）——本次不动，登记后续
 
-source 主路径喂给下游 fileParse / ocr，语义上对应 **file connector 或 source.images**，但 file connector 目前没有结构化 data 通道（D1 仅 product 落地），**不涉及本次插值问题**，预设 file connector 属于独立的输入体验优化，不在本次范围。
+source 主路径喂给下游 fileParse / ocr，语义上对应 **file connector 或 source.images**。写本文时 file connector 还没有结构化 data 通道（D1 仅 product 落地），所以判定为"不涉及插值问题、属独立的输入体验优化"。**2026-09-09 补记**：五类 connector 已全部接上 `data` 通道，file 给 `[{name, path, content}]`，能力阻塞不再成立；预设仍未做，原因换成了"写死的本地路径对别人的机器没意义"，见 §8。
 
 | 模板 | source 名 | 下游 |
 |---|---|---|
@@ -180,7 +180,7 @@ source 主路径喂给下游 fileParse / ocr，语义上对应 **file connector 
 
 ## 8. 边界与后续（不在本次范围）
 
-- **C 类文件型模板预设 file connector / source.images**：等 file connector 接入结构化 data 通道（design-data-interpolation §13 预留）后单独立项，本次只登记不改。
-- **其他 connector 的结构化 data**：http/database 的 `${src.data...}` 通道按同一套四件套（data 结构/快捷名/映射/hint）适配，触发时再做，引擎机制本次恢复后即通用。
+- **C 类文件型模板预设 file connector / source.images**：~~等 file connector 接入结构化 data 通道~~ 通道已于 2026-09-09 接通，卡点变成"预设什么路径"——写死绝对路径对别人的机器无意义，等可移植的约定或真实反馈再立项。
+- ~~**其他 connector 的结构化 data**~~ **已落地 2026-09-09**：五类 connector 全部填 `data` + 各自快捷名（`${response.x}` / `${row.列名}` / `${form.字段名}` / `${file.content}`），见 [design-data-interpolation.md §13](design-data-interpolation.md)。
 - **media-pipeline 是否预设 product**：其输入"主题"可商品可纯主题，保持 manual；若后续数据表明绝大多数用于商品，再单独评估。
 - 当初回滚原因无记录：恢复后在真实狗粮（tpl-product/tpl-xiaohongshu 端到端）中重点观察多 source 退化与防重入，发现问题以新事实为准再调整，不沿用猜测。
