@@ -57,6 +57,7 @@ import { GuardedFetchError, guardedFetch, hostIsInternal } from "./ssrf.js";
 import { routingWorker } from "./providers/index.js";
 import { WorkerRegistry } from "./worker-plugins.js";
 import { connectMcpServer, registerMcpTools, type McpClient, type McpServerSpec } from "./mcp.js";
+import { closeAllUserMcpServers } from "./mcp-pool.js";
 import { disposeIsolatedWorkers } from "./isolation.js";
 import { registerSkill, setMemoryBackend, listBuiltinSkills } from "./skills/registry.js";
 import { SQLiteMemoryBackend, NoopMemoryBackend, extractKnowledgeFromRun } from "./memory.js";
@@ -3383,6 +3384,16 @@ if (process.env.NODE_ENV !== "test") {
       clearInterval(drain);
       for (const entry of live.values()) entry.controller.abort();
       disposeIsolatedWorkers();
+      // Release MCP transports too: the stdio ones own a child process, so
+      // skipping this leaks a subprocess past our own exit.
+      for (const client of mcpClients) {
+        try {
+          client.close();
+        } catch {
+          /* already dead */
+        }
+      }
+      closeAllUserMcpServers();
       try {
         await db.close();
       } catch {
