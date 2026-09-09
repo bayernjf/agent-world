@@ -1,5 +1,10 @@
 {
   "title": "设置",
+  "tabs": {
+    "models": "模型",
+    "integrations": "集成",
+    "skills": "技能"
+  },
   "general": {
     "title": "通用设置",
     "language": "语言",
@@ -165,7 +170,6 @@
     "timezone": "时区"
   },
   "modelKeys": {
-    "title": "设置 · 模型与密钥",
     "close": "关闭",
     "models": "模型",
     "modality": {

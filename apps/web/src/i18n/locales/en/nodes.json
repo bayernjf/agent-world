@@ -182,7 +182,7 @@
     "reload": "Reload",
     "name": "Name",
     "missingModel": "No model of this type configured — configure one before running",
-    "goSettings": "Go to Settings · models & keys",
+    "goSettings": "Go to Settings",
     "structuredParseFailed": "Structured product parse failed (invalid JSON) — cannot rich-render yet.",
     "stepOp": {
       "parse": "Parse (CSV/JSON → table)",

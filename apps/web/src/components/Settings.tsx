@@ -112,6 +112,7 @@ export default function Settings({ open, onClose }: Props) {
   const [status, setStatus] = useState<string>("");
   const [confirmClose, setConfirmClose] = useState(false);
   const [workersOpen, setWorkersOpen] = useState(false);
+  const [tab, setTab] = useState<"models" | "integrations" | "skills">("models");
   const [mcpStatuses, setMcpStatuses] = useState<Record<string, McpServerStatus>>({});
   const [deleteTarget, setDeleteTarget] = useState<ModelCard | null>(null);
   /** Replacement model chosen in the delete-with-impact dialog. */
@@ -811,15 +812,38 @@ export default function Settings({ open, onClose }: Props) {
     <div className="modal-backdrop" onClick={requestClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal__header">
-          <h2>{t("settings:modelKeys.title")}</h2>
+          <h2>{t("settings:title")}</h2>
           <button className="link" onClick={requestClose}>
             {t("settings:modelKeys.close")}
           </button>
         </div>
 
         <div className="modal__body">
-          <div className="settings-section-head">
-            <h3 className="label">{t("settings:modelKeys.models")}</h3>
+          <div className="settings-tabs" role="tablist">
+            {(
+              [
+                ["models", "settings:tabs.models"],
+                ["integrations", "settings:tabs.integrations"],
+                ["skills", "settings:tabs.skills"],
+              ] as const
+            ).map(([id, key]) => (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                aria-selected={tab === id}
+                className={`settings-tab${tab === id ? " is-on" : ""}`}
+                onClick={() => setTab(id)}
+              >
+                {t(key)}
+              </button>
+            ))}
+          </div>
+
+          {tab === "models" && (
+            <>
+              <div className="settings-section-head">
+                <h3 className="label">{t("settings:modelKeys.models")}</h3>
             <button
               className="btn btn--ghost btn--icon"
               onClick={() => (adding ? setAdding(false) : startAdd())}
@@ -1302,7 +1326,11 @@ export default function Settings({ open, onClose }: Props) {
               </div>
             );
           })}
+            </>
+          )}
 
+          {tab === "integrations" && (
+            <>
           <div className="settings-section-head">
             <h3 className="label">{t("settings:search.title")}</h3>
           </div>
@@ -1424,12 +1452,18 @@ export default function Settings({ open, onClose }: Props) {
             onChange={(mcpServers) => setConfig({ ...config, mcpServers })}
             onSaveAndConnect={saveAndConnectMcp}
           />
+            </>
+          )}
 
-          <SkillCardSettings
-            cards={config.skillCards ?? []}
-            onChange={(skillCards) => setConfig({ ...config, skillCards })}
-          />
+          {tab === "skills" && (
+            <SkillCardSettings
+              cards={config.skillCards ?? []}
+              onChange={(skillCards) => setConfig({ ...config, skillCards })}
+            />
+          )}
 
+          {tab === "models" && (
+            <>
           <div className="settings-section-head">
             <h3 className="label">{t("settings:modelKeys.monthlyBudget")}</h3>
           </div>
@@ -1512,6 +1546,8 @@ export default function Settings({ open, onClose }: Props) {
               >
                 {t("settings:modelKeys.workersHint")}
               </p>
+            </>
+          )}
             </>
           )}
 

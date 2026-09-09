@@ -1,5 +1,10 @@
 {
   "title": "Settings",
+  "tabs": {
+    "models": "Models",
+    "integrations": "Integrations",
+    "skills": "Skills"
+  },
   "general": {
     "title": "General",
     "language": "Language",
@@ -165,7 +170,6 @@
     "timezone": "Timezone"
   },
   "modelKeys": {
-    "title": "Settings · models & keys",
     "close": "Close",
     "models": "Models",
     "modality": {

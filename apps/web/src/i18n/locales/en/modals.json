@@ -671,7 +671,7 @@
     "title": "Model Assignment",
     "sub": "Line: {{name}} · only the selected nodes change model",
     "empty": "No usable models configured yet.",
-    "goSettings": "Open Settings · Models & keys",
+    "goSettings": "Open Settings",
     "groupLabel": "{{modality}} models",
     "usedNodes": "{{used}} nodes",
     "unused": "Unused",

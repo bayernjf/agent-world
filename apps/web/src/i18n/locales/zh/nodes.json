@@ -182,7 +182,7 @@
     "reload": "重新载入",
     "name": "名称",
     "missingModel": "尚未配置该类型模型，运行前需先",
-    "goSettings": "前往「设置 · 模型与密钥」",
+    "goSettings": "前往「设置」",
     "structuredParseFailed": "结构化成品解析失败（JSON 不合法），暂无法富渲染。",
     "stepOp": {
       "parse": "解析（CSV/JSON → 表格）",

@@ -76,10 +76,10 @@ describe("Settings", () => {
       expect(container).toBeEmptyDOMElement();
     });
 
-    it("open=true 时渲染模态框，标题为'设置 · 模型与密钥'", async () => {
+    it("open=true 时渲染模态框，标题为'设置'", async () => {
       render(<Settings open onClose={() => {}} />);
       await waitFor(() => {
-        expect(screen.getByText("设置 · 模型与密钥")).toBeInTheDocument();
+        expect(screen.getByText("设置")).toBeInTheDocument();
       });
     });
 
@@ -94,7 +94,7 @@ describe("Settings", () => {
       const onClose = vi.fn();
       render(<Settings open onClose={onClose} />);
       await waitFor(() => {
-        expect(screen.getByText("设置 · 模型与密钥")).toBeInTheDocument();
+        expect(screen.getByText("设置")).toBeInTheDocument();
       });
       fireEvent.click(screen.getByRole("button", { name: "关闭" }));
       expect(onClose).toHaveBeenCalledTimes(1);
@@ -103,10 +103,40 @@ describe("Settings", () => {
     it("有'模型'标题和添加按钮", async () => {
       render(<Settings open onClose={() => {}} />);
       await waitFor(() => {
-        expect(screen.getByText("模型")).toBeInTheDocument();
+        expect(screen.getByRole("heading", { name: "模型" })).toBeInTheDocument();
       });
       // 添加按钮显示 +
       expect(screen.getByRole("button", { name: "+" })).toBeInTheDocument();
+    });
+
+    it("默认停在模型标签页，不挂载集成与技能分区", async () => {
+      render(<Settings open onClose={() => {}} />);
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: "+" })).toBeInTheDocument();
+      });
+      expect(screen.queryByText("搜索服务")).not.toBeInTheDocument();
+      expect(screen.queryByText(/还没有 MCP/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/还没有自建技能卡/)).not.toBeInTheDocument();
+    });
+
+    it("切到集成标签页显示搜索与 MCP", async () => {
+      render(<Settings open onClose={() => {}} />);
+      await waitFor(() => {
+        expect(screen.getByRole("tab", { name: "集成" })).toBeInTheDocument();
+      });
+      fireEvent.click(screen.getByRole("tab", { name: "集成" }));
+      expect(screen.getByText("搜索服务")).toBeInTheDocument();
+      expect(screen.getByText(/还没有 MCP/)).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "+" })).not.toBeInTheDocument();
+    });
+
+    it("切到技能标签页显示技能卡编辑器", async () => {
+      render(<Settings open onClose={() => {}} />);
+      await waitFor(() => {
+        expect(screen.getByRole("tab", { name: "技能" })).toBeInTheDocument();
+      });
+      fireEvent.click(screen.getByRole("tab", { name: "技能" }));
+      expect(screen.getByText("自建技能卡")).toBeInTheDocument();
     });
   });
 
@@ -270,7 +300,7 @@ describe("Settings", () => {
     it("有保存按钮", async () => {
       render(<Settings open onClose={() => {}} />);
       await waitFor(() => {
-        expect(screen.getByText("设置 · 模型与密钥")).toBeInTheDocument();
+        expect(screen.getByText("设置")).toBeInTheDocument();
       });
       expect(screen.getByRole("button", { name: /保存/ })).toBeInTheDocument();
     });
@@ -278,7 +308,7 @@ describe("Settings", () => {
     it("点击保存调用 api.saveSettings", async () => {
       render(<Settings open onClose={() => {}} />);
       await waitFor(() => {
-        expect(screen.getByText("设置 · 模型与密钥")).toBeInTheDocument();
+        expect(screen.getByText("设置")).toBeInTheDocument();
       });
       fireEvent.click(screen.getByRole("button", { name: /保存/ }));
       await waitFor(() => {
@@ -292,10 +322,10 @@ describe("Settings", () => {
       const onClose = vi.fn();
       render(<Settings open onClose={onClose} />);
       await waitFor(() => {
-        expect(screen.getByText("设置 · 模型与密钥")).toBeInTheDocument();
+        expect(screen.getByText("设置")).toBeInTheDocument();
       });
       // 点击模态框内容不关闭
-      const modal = screen.getByText("设置 · 模型与密钥").closest(".modal")!;
+      const modal = screen.getByText("设置").closest(".modal")!;
       fireEvent.click(modal);
       expect(onClose).not.toHaveBeenCalled();
     });
