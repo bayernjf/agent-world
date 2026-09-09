@@ -13,9 +13,10 @@ import { guardedFetch } from "../ssrf.js";
  *   output-contract  → getOutputContract + validateContract (rework on failure)
  *   judge            → collectJudgeCriteria (gate node criterion)
  *
- * Permissions are declared honestly and shown to the user at mount time.
- * Phase 2 displays and records them; hard enforcement (fs/network isolation)
- * lands with process/container sandboxing in Phase 4/5.
+ * Permissions are declared honestly and shown to the user at mount time, and
+ * `guardToolCall` enforces the declaration at call time — an undeclared domain
+ * or path fails closed. Process/container sandboxing is still pending, so
+ * enforcement bounds the declared surface rather than isolating the process.
  */
 
 export interface BuiltinSkill extends Skill {
