@@ -148,6 +148,7 @@
 ## 13. 边界与后续
 
 - **行业字段长期演进**：source 简报 8 字段是内容线时期电商特化的历史产物，挂在通用 source 上。本方案给它们数据源通道但不做 schema 变更；未来多行业真实需求出现时，再评估行业包（industry pack）或模板自定义字段（TemplateField 已有先例），届时简报字段迁移与 data 通道正交。
+  - **已落地（2026-09-09）**：`SourceConfig.custom?: Record<string, string>` —— 用户自定义字段，键即标签、值支持 `${...}` 插值（与固定 8 字段同规则），行进简报（notes 之后、原料之前），下游用 `${srcId.custom.键}` 引用（走 `sourceMeta` 旁路，与 `data` 同一 namespace）。这是"非电商行业字段"的最小逃生舱：不动 schema 也不建行业包，先看真实使用数据再决定是否升级为 industry pack。
 - **其他 connector 接入**：http/database/file 的 data 接入不在本方案范围（各自触发时按 §1 四件套适配），但通道与注册表为它们预留。
 - **电商视角消费方式**：见 [design-ecommerce-roadmap.md §F4.1](design-ecommerce-roadmap.md)（指针）。
 
