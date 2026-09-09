@@ -340,6 +340,22 @@ describe("media metering (video perSecond / audio perKiloChar)", () => {
     expect(r.usage.costUsd).toBeCloseTo(8 * 0.1, 6); // $0.80
   });
 
+  it("coerces a numeric-string durationPath value (agnes reports seconds: \"5.0\")", async () => {
+    const worker = openAICompatibleWorker({
+      ...videoProvider,
+      videoAdapter: { createBody: { mode: "ti2vid" }, omitDuration: true, resultUrlPath: "url", durationPath: "seconds" },
+    });
+    stubVideoFetch({ seconds: "8.0" });
+    const [r] = await worker.generateVideo!({
+      node: { id: "n" } as never,
+      config: { model: "v1", n: 1 } as never,
+      input: "a cat walking",
+    });
+    expect(r.durationSec).toBe(8);
+    expect(r.usage.units).toEqual({ seconds: 8 });
+    expect(r.usage.costUsd).toBeCloseTo(8 * 0.1, 6); // $0.80
+  });
+
   it("derives seconds from num_frames/frame_rate when no duration field is present", async () => {
     const worker = openAICompatibleWorker({ ...videoProvider, videoAdapter: { createBody: { mode: "ti2vid" }, resultUrlPath: "url" } });
     stubVideoFetch({ num_frames: 120, frame_rate: 24 }); // 120/24 = 5s

@@ -149,6 +149,14 @@ function computeUsage(
  *  didn't request one (agnes ti2vid omits duration; typical short clips ~5s). */
 const DEFAULT_VIDEO_SECONDS = 5;
 
+/** Coerce a gateway-reported number that may arrive as a JSON number or a
+ *  numeric string (agnes returns `"seconds":"5.0"`) to a positive finite
+ *  number; undefined otherwise. */
+function positiveNumber(v: unknown): number | undefined {
+  const n = typeof v === "string" && v.trim() !== "" ? Number(v) : v;
+  return typeof n === "number" && Number.isFinite(n) && n > 0 ? n : undefined;
+}
+
 /**
  * Resolve billable video seconds for perSecond pricing. Prefers the duration
  * the gateway actually produced (adapter dot-path, else num_frames/frame_rate),
@@ -162,12 +170,12 @@ function videoBillingSeconds(
   completed: Record<string, unknown>,
 ): number {
   if (adapter?.durationPath) {
-    const v = dotPath(completed, adapter.durationPath);
-    if (typeof v === "number" && Number.isFinite(v) && v > 0) return v;
+    const reported = positiveNumber(dotPath(completed, adapter.durationPath));
+    if (reported !== undefined) return reported;
   }
-  const numFrames = dotPath(completed, "num_frames");
-  const frameRate = dotPath(completed, "frame_rate") ?? dotPath(completed, "fps");
-  if (typeof numFrames === "number" && typeof frameRate === "number" && frameRate > 0) {
+  const numFrames = positiveNumber(dotPath(completed, "num_frames"));
+  const frameRate = positiveNumber(dotPath(completed, "frame_rate") ?? dotPath(completed, "fps"));
+  if (numFrames !== undefined && frameRate !== undefined) {
     const secs = numFrames / frameRate;
     if (Number.isFinite(secs) && secs > 0) return secs;
   }
