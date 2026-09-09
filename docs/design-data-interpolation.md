@@ -149,7 +149,20 @@
 
 - **行业字段长期演进**：source 简报 8 字段是内容线时期电商特化的历史产物，挂在通用 source 上。本方案给它们数据源通道但不做 schema 变更；未来多行业真实需求出现时，再评估行业包（industry pack）或模板自定义字段（TemplateField 已有先例），届时简报字段迁移与 data 通道正交。
   - **已落地（2026-09-09）**：`SourceConfig.custom?: Record<string, string>` —— 用户自定义字段，键即标签、值支持 `${...}` 插值（与固定 8 字段同规则），行进简报（notes 之后、原料之前），下游用 `${srcId.custom.键}` 引用（走 `sourceMeta` 旁路，与 `data` 同一 namespace）。这是"非电商行业字段"的最小逃生舱：不动 schema 也不建行业包，先看真实使用数据再决定是否升级为 industry pack。
-- **其他 connector 接入**：http/database/file 的 data 接入不在本方案范围（各自触发时按 §1 四件套适配），但通道与注册表为它们预留。
+- **其他 connector 接入**：**已落地（2026-09-09）**——五类 connector 全部接上 `data` 通道，任何产线（模板起手或空白自建）都能引用连接器数据。形状与快捷名：
+
+  | 类型 | `data` 形状 | 快捷名 |
+  |---|---|---|
+  | `product` | `Product[]` | `${product.x}` = data[0] / `${products}` |
+  | `http` | 解析后的 JSON body（仅 `application/json`；配了 `extract` 也给完整 JSON，text 才是抽取结果） | `${response.x}` |
+  | `database` | 行对象数组（sqlite / postgres 同形，`format: csv` 也照给） | `${row.列名}` = rows[0] / `${rows}` |
+  | `form` | `Record<字段名, 值>`（按 `name` 不按 `label`，重命名标签不断引用） | `${form.字段名}` |
+  | `file` | `[{name, path, content}]`（`asImages` 的条目无 `content`） | `${file.x}` = data[0] / `${files}` |
+  | `manual` | 不给 | —— |
+
+  快捷名规则不变：全图该类型 source 恰好 1 个才注入，≥2 个退化为 `${节点id.data...}`（engine info log），节点 id 撞名时节点优先。空数据 warn 同步泛化到全类型（含非 JSON 的 http 响应）。
+  简报 8 字段的自动回填（`deriveConnectorFallbacks`）**仍只有 product**，因为 productName/brand 是电商语义；其他行业走自定义字段（上一条）。
+  已知限制：字段名含 `.` 或空格时 `${form.字段名}` 取不到（`resolveExpression` 按点切分）。
 - **电商视角消费方式**：见 [design-ecommerce-roadmap.md §F4.1](design-ecommerce-roadmap.md)（指针）。
 
 ## 14. 实施-回滚-恢复记录（2026-09-08 核对）
