@@ -30,7 +30,8 @@
   export async function textGenNode(ctx: NodeRunContext, node: GraphNode, nodeId: string, attempt: number): Promise<void> {
     const { approved, artifacts, budgetUsd, emit, fallbackModel, graph, handleVariableTool, imagesFor, inputFor, interpCtx, loopByGate, monthSpentUsd, monthlyBudgetUsd, nodeCostUsd, opts, permCfg, produceArtifacts, reworkNotes, runId, sendPackets, states, worker } = ctx;
   const mounts = (node.textGen?.skills ?? []).map(toMount);
-  const promptModules = collectPromptModules(mounts);
+  const userSkills = opts.userSkills;
+  const promptModules = collectPromptModules(mounts, userSkills);
   // Prompts interpolate `${nodeId}` / `${item}` like every other template
   // string (loop bodies reference the loop item via ${item}; dogfood
   // tpl-research-loop sent the placeholder to the model verbatim).
@@ -86,7 +87,7 @@
       const agentInput = await inputFor(node);
       reworkNotes.delete(nodeId);
       // Variable tools ride along on every agent (safe, no approval needed).
-      const tools = [...resolveTools(mounts), ...VARIABLE_TOOLS];
+      const tools = [...resolveTools(mounts, userSkills), ...VARIABLE_TOOLS];
       const rawImageUris = imagesFor(nodeId);
       const referenceImages = opts.readArtifact
         ? await Promise.all(rawImageUris.map((u) => inlineImageUrl(u, opts.readArtifact!)))
@@ -104,11 +105,11 @@
         tools,
         executeTool: async (name, args) => {
           if (name === "set_variable" || name === "get_variable") return handleVariableTool(name, args);
-          guardToolCall(name, args, permCfg);
-          if (isDangerousTool(name) && !approved.has(name)) {
+          guardToolCall(name, args, permCfg, userSkills);
+          if (isDangerousTool(name, userSkills) && !approved.has(name)) {
             throw new HaltRequested(name, nodeId);
           }
-          return executeBuiltinTool(name, args);
+          return executeBuiltinTool(name, args, userSkills);
         },
         signal: opts.signal,
       });
@@ -179,7 +180,7 @@
   // output-contract skill, reworking (reusing the existing rework line) or
   // failing when the contract isn't satisfied.
   if (result) {
-    const contract = getOutputContract(mounts);
+    const contract = getOutputContract(mounts, userSkills);
     if (contract) {
       const contractErr = validateContract(result.output, contract);
       if (contractErr) {

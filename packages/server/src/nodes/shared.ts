@@ -10,7 +10,7 @@ import {
   type SkillMount,
   type Usage,
 } from "@agent-world/core";
-import { getSkill } from "../skills/registry.js";
+import { resolveSkill, type UserSkillMap } from "../skills/registry.js";
 import type { ToolDefinition } from "../worker.js";
 
 // Shared pure helpers extracted from engine.ts so node execution bodies in
@@ -345,7 +345,7 @@ export function toMount(s: string | SkillMount): SkillMount {
   return typeof s === "string" ? { id: s, config: {}, enabled: true } : { ...s, config: s.config ?? {} };
 }
 
-export function collectPromptModules(mounts: SkillMount[]): string[] {
+export function collectPromptModules(mounts: SkillMount[], extra?: UserSkillMap): string[] {
   const out: string[] = [];
   const seen = new Set<string>();
   const queue: SkillMount[] = [...mounts];
@@ -353,7 +353,7 @@ export function collectPromptModules(mounts: SkillMount[]): string[] {
     const m = queue.shift()!;
     if (seen.has(m.id)) continue;
     seen.add(m.id);
-    const skill = getSkill(m.id);
+    const skill = resolveSkill(m.id, extra);
     if (!skill) continue;
     const config = { ...(skill.config ?? {}), ...(m.config ?? {}) };
     if (skill.kind === "prompt-module" && typeof config.prompt === "string" && config.prompt.trim()) {
@@ -372,11 +372,11 @@ export function collectPromptModules(mounts: SkillMount[]): string[] {
  * Gate nodes append these to `gate.criterion` before calling the model judge,
  * so a reusable judging rule can be equipped instead of retyped.
  */
-export function collectJudgeCriteria(mounts: SkillMount[]): string[] {
+export function collectJudgeCriteria(mounts: SkillMount[], extra?: UserSkillMap): string[] {
   const out: string[] = [];
   for (const m of mounts) {
     if (m.enabled === false) continue;
-    const skill = getSkill(m.id);
+    const skill = resolveSkill(m.id, extra);
     if (!skill || skill.kind !== "judge") continue;
     const config = { ...(skill.config ?? {}), ...(m.config ?? {}) };
     if (typeof config.criterion === "string" && config.criterion.trim()) {
@@ -390,9 +390,9 @@ export function collectJudgeCriteria(mounts: SkillMount[]): string[] {
  * E.3 — find the output contract (JSON-schema) declared by a mounted
  * `output-contract` skill, if any. Returns the schema object or null.
  */
-export function getOutputContract(mounts: SkillMount[]): Record<string, unknown> | null {
+export function getOutputContract(mounts: SkillMount[], extra?: UserSkillMap): Record<string, unknown> | null {
   for (const m of mounts) {
-    const skill = getSkill(m.id);
+    const skill = resolveSkill(m.id, extra);
     if (!skill || skill.kind !== "output-contract") continue;
     const config = { ...(skill.config ?? {}), ...(m.config ?? {}) };
     if (config.schema && typeof config.schema === "object") {

@@ -1,6 +1,6 @@
 import type { Skill } from "@agent-world/core";
 import path from "node:path";
-import { getSkill } from "./skills/registry.js";
+import { resolveSkill, type UserSkillMap } from "./skills/registry.js";
 
 /** True when `child` is `parent` itself or directly under it (path boundary). */
 function isPathUnder(child: string, parent: string): boolean {
@@ -176,8 +176,13 @@ function opForTool(skill: Skill | undefined, args: unknown, cfg: PermissionConfi
  * `PermissionDenied` when the call is not allowed. The operation is derived
  * from the skill's declared permissions — see `opForTool`.
  */
-export function guardToolCall(name: string, args: unknown, cfg: PermissionConfig): void {
-  const skill = getSkill(name);
+export function guardToolCall(
+  name: string,
+  args: unknown,
+  cfg: PermissionConfig,
+  extra?: UserSkillMap,
+): void {
+  const skill = resolveSkill(name, extra);
   const op = opForTool(skill, args, cfg);
   const reason = evaluateToolCall(skill, op, cfg);
   if (reason) throw new PermissionDenied(name, reason);
@@ -185,8 +190,8 @@ export function guardToolCall(name: string, args: unknown, cfg: PermissionConfig
 
 /** True when the named tool is flagged dangerous (irreversible / externally
  *  mutating) and therefore requires human approval before execution (4D.7). */
-export function isDangerousTool(name: string): boolean {
-  return getSkill(name)?.danger === true;
+export function isDangerousTool(name: string, extra?: UserSkillMap): boolean {
+  return resolveSkill(name, extra)?.danger === true;
 }
 
 /** Build the effective config from environment variables. */

@@ -361,6 +361,20 @@ export function getSkill(id: string): BuiltinSkill | undefined {
   return byId.get(id);
 }
 
+/** A run's own extra skills, keyed by skill id — the owner's authored data
+ *  cards plus the tools of the MCP servers they connected. */
+export type UserSkillMap = Map<string, BuiltinSkill>;
+
+/**
+ * Resolve a skill id for one run, consulting the process-global registry FIRST
+ * and the run owner's own cards second. The order matters: it means a user
+ * cannot shadow a built-in or operator-configured id with their own card or
+ * remote endpoint.
+ */
+export function resolveSkill(id: string, extra?: UserSkillMap): BuiltinSkill | undefined {
+  return byId.get(id) ?? extra?.get(id);
+}
+
 /** Register a skill at runtime (e.g. tools discovered from an MCP server). */
 export function registerSkill(skill: BuiltinSkill): void {
   byId.set(skill.id, skill);
@@ -369,11 +383,12 @@ export function registerSkill(skill: BuiltinSkill): void {
 /** Resolve mounted skill ids to tool definitions the model can call. */
 export function resolveTools(
   mounted: { id: string; enabled: boolean }[],
+  extra?: UserSkillMap,
 ): ToolDefinition[] {
   const tools: ToolDefinition[] = [];
   for (const m of mounted) {
     if (!m.enabled) continue;
-    const skill = byId.get(m.id);
+    const skill = resolveSkill(m.id, extra);
     if (skill?.tool) {
       const { execute: _exec, ...def } = skill.tool;
       tools.push(def);
@@ -383,8 +398,10 @@ export function resolveTools(
 }
 
 /** Execute a built-in tool by name. Throws if the tool is not mounted/known. */
-export async function executeBuiltinTool(name: string, args: unknown): Promise<unknown> {
-  const skill = [...byId.values()].find((s) => s.tool?.name === name);
+export async function executeBuiltinTool(name: string, args: unknown, extra?: UserSkillMap): Promise<unknown> {
+  const skill =
+    [...byId.values()].find((s) => s.tool?.name === name) ??
+    [...(extra?.values() ?? [])].find((s) => s.tool?.name === name);
   if (!skill?.tool) throw new Error(`unknown tool: ${name}`);
   return skill.tool.execute(args);
 }

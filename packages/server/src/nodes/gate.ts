@@ -12,7 +12,7 @@ export async function gateNode(ctx: NodeRunContext, node: GraphNode, nodeId: str
   const { artifacts, attempts, emit, graph, inputFor, loopByGate, opts, reworkNotes, runId, sendPackets, states, worker } = ctx;
   emit({ type: "node.started", nodeId, attempt });
   const output = await inputFor(node);
-  const equipped = collectJudgeCriteria((node.gate?.skills ?? []).map(toMount));
+  const equipped = collectJudgeCriteria((node.gate?.skills ?? []).map(toMount), ctx.opts.userSkills);
   const criterion =
     (node.gate?.criterion ?? "") +
     (equipped.length ? "\n\n附加判据：\n" + equipped.map((c) => "- " + c).join("\n") : "") +
