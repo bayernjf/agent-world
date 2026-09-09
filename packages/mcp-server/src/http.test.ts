@@ -95,6 +95,58 @@ describe("MCP Streamable HTTP transport", () => {
     ac.abort();
   });
 
+  it("refuses a cross-site Origin with 403", async () => {
+    const res = await fetch(`${base}${MCP_HTTP_PATH}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "https://evil.example" },
+      body: JSON.stringify(rpc(1, "tools/list")),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("allows a localhost Origin and a request with none at all", async () => {
+    for (const headers of [
+      { "content-type": "application/json", origin: `${base}` },
+      { "content-type": "application/json" },
+    ]) {
+      const res = await fetch(`${base}${MCP_HTTP_PATH}`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(rpc(1, "tools/list")),
+      });
+      expect(res.status).toBe(200);
+    }
+  });
+
+  it("refuses an Mcp-Method header that contradicts the body", async () => {
+    const res = await fetch(`${base}${MCP_HTTP_PATH}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "mcp-method": "tools/call" },
+      body: JSON.stringify(rpc(1, "tools/list")),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as JsonRpcMessage;
+    expect(body.error?.code).toBe(-32600);
+  });
+
+  it("accepts a matching Mcp-Method header", async () => {
+    const res = await fetch(`${base}${MCP_HTTP_PATH}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "mcp-method": "tools/list" },
+      body: JSON.stringify(rpc(1, "tools/list")),
+    });
+    expect(res.status).toBe(200);
+  });
+
+  it("echoes the protocol version the caller declared", async () => {
+    const res = await fetch(`${base}${MCP_HTTP_PATH}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "mcp-protocol-version": "2025-11-25" },
+      body: JSON.stringify(rpc(1, "tools/list")),
+    });
+    expect(res.headers.get("mcp-protocol-version")).toBe("2025-11-25");
+  });
+
   it("returns 404 for unknown paths and 405 for non-POST methods", async () => {
     const notFound = await fetch(`${base}/nope`);
     expect(notFound.status).toBe(404);

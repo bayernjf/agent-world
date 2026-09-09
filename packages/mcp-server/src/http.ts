@@ -77,13 +77,37 @@ function parseBody(req: http.IncomingMessage): Promise<unknown> {
   });
 }
 
+/**
+ * Origin allow-list for the Streamable HTTP transport.
+ *
+ * 2025-11-25 made this a MUST with a 403: the server binds to localhost, so
+ * without it any page the user visits can drive their pipelines through the
+ * browser's implicit credentials. A missing Origin (a non-browser caller) is
+ * allowed through; a present-but-unlisted one is refused.
+ */
+function isAllowedOrigin(origin: string | undefined, allowed: string[]): boolean {
+  if (!origin || origin === "null") return true;
+  if (allowed.includes(origin)) return true;
+  try {
+    const host = new URL(origin).hostname;
+    return host === "localhost" || host === "127.0.0.1" || host === "[::1]" || host === "::1";
+  } catch {
+    return false;
+  }
+}
+
 export function createMcpHttpHandler(
   client: AgentWorldClient,
   tools: McpToolDef[] = TOOLS,
   hub: NotificationsHub = new NotificationsHub(),
+  allowedOrigins: string[] = [],
 ) {
   return async function mcpHttpHandler(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
     const url = new URL(req.url ?? "/", "http://localhost");
+    if (!isAllowedOrigin(req.headers.origin, allowedOrigins)) {
+      sendJson(res, 403, { error: `origin not allowed: ${req.headers.origin}` });
+      return;
+    }
     if (url.pathname !== MCP_HTTP_PATH) {
       sendJson(res, 404, { error: `not found: ${url.pathname}` });
       return;
@@ -136,6 +160,28 @@ export function createMcpHttpHandler(
     // Notifications (no id) → 202 Accepted, no body.
     const rpc = msg as JsonRpcMessage;
     const version = replyVersion(req, rpc);
+    // 2026-07-28 (SEP-2243) requires POSTs to advertise the method (and, for
+    // tool/prompt/resource calls, the name) in headers so intermediaries can
+    // route without parsing the body. A missing header is tolerated — older
+    // clients don't send it — but one that contradicts the body is refused,
+    // since letting it lie defeats the only reason the header exists.
+    const declaredMethod = req.headers["mcp-method"];
+    if (typeof declaredMethod === "string" && rpc.method && declaredMethod !== rpc.method) {
+      sendJson(
+        res,
+        400,
+        {
+          jsonrpc: "2.0",
+          id: rpc.id ?? null,
+          error: {
+            code: -32600,
+            message: `Mcp-Method 头 "${declaredMethod}" 与请求体的 "${rpc.method}" 不一致`,
+          },
+        },
+        version,
+      );
+      return;
+    }
     if (rpc.id === undefined || rpc.id === null) {
       res.writeHead(202, { "mcp-protocol-version": version });
       res.end();
@@ -184,9 +230,11 @@ export function startHttpServer(
   port = Number(process.env.AGENT_WORLD_MCP_PORT ?? 3100),
   tools: McpToolDef[] = TOOLS,
   hub: NotificationsHub = new NotificationsHub(),
+  allowedOrigins: string[] = [],
 ): Promise<http.Server> {
+  const handler = createMcpHttpHandler(client, tools, hub, allowedOrigins);
   const server = http.createServer((req, res) => {
-    void createMcpHttpHandler(client, tools, hub)(req, res);
+    void handler(req, res);
   });
   return new Promise((resolve, reject) => {
     server.once("error", reject);

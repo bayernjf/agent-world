@@ -25,7 +25,7 @@ async function main(): Promise<void> {
   const forceHttp = process.argv.includes("--http");
 
   if (transport === "http" || forceHttp) {
-    const server = await startHttpServer(client, config.mcpHttpPort, tools);
+    const server = await startHttpServer(client, config.mcpHttpPort, tools, undefined, config.allowedOrigins);
     const address = server.address();
     const port = typeof address === "object" && address ? address.port : config.mcpHttpPort;
     console.error(`agent-world MCP server (HTTP) listening on http://127.0.0.1:${port}/mcp`);
