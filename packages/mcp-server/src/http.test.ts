@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentWorldClient } from "./client.js";
 import { startHttpServer, MCP_HTTP_PATH } from "./http.js";
+import { OAUTH_METADATA_PATH } from "./oauth.js";
 import { handleMessage, type JsonRpcMessage } from "./server.js";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -343,5 +344,62 @@ describe("realtime notifications over the real wire (P2-③)", () => {
   it("refuses the subscription stream on stdio (no hub)", async () => {
     const reply = await handleMessage(rpc(1, "subscriptions/listen", {}), mockClient());
     expect(reply?.error?.code).toBe(-32601);
+  });
+});
+
+describe("OAuth 2.1 protected resource (2025-06-18+)", () => {
+  it("serves protected-resource metadata without a token", async () => {
+    const server = await startHttpServer(mockClient(), 0, undefined, undefined, [], {
+      resource: "http://127.0.0.1:3100/mcp",
+      authServers: ["https://auth.example.com"],
+      requireAuth: true,
+    });
+    const addr = server.address() as AddressInfo;
+    try {
+      const res = await fetch(`http://127.0.0.1:${addr.port}${OAUTH_METADATA_PATH}`);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({
+        resource: "http://127.0.0.1:3100/mcp",
+        authorization_servers: ["https://auth.example.com"],
+        bearer_methods_supported: ["header"],
+      });
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+
+  it("challenges a token-less POST when requireAuth is on", async () => {
+    const server = await startHttpServer(mockClient(), 0, undefined, undefined, [], {
+      resource: "http://127.0.0.1:3100/mcp",
+      authServers: ["https://auth.example.com"],
+      requireAuth: true,
+    });
+    const addr = server.address() as AddressInfo;
+    try {
+      const res = await fetch(`http://127.0.0.1:${addr.port}${MCP_HTTP_PATH}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(rpc(1, "tools/list")),
+      });
+      expect(res.status).toBe(401);
+      expect(res.headers.get("www-authenticate")).toContain(OAUTH_METADATA_PATH);
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+
+  it("lets a token-less POST through when requireAuth is off", async () => {
+    const server = await startHttpServer(mockClient(), 0);
+    const addr = server.address() as AddressInfo;
+    try {
+      const res = await fetch(`http://127.0.0.1:${addr.port}${MCP_HTTP_PATH}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(rpc(1, "tools/list")),
+      });
+      expect(res.status).toBe(200);
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
   });
 });

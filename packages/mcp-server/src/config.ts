@@ -8,7 +8,14 @@
  * - `AGENT_WORLD_MCP_ALLOWED_ORIGINS`  comma-separated browser origins the HTTP
  *                        transport accepts on top of localhost (2025-11-25
  *                        requires refusing everything else with a 403)
+ * - `AGENT_WORLD_MCP_RESOURCE`     canonical resource URI advertised to OAuth
+ *                        clients (RFC 8707 resource indicator)
+ * - `AGENT_WORLD_MCP_AUTH_SERVERS` comma-separated authorization server issuers
+ * - `AGENT_WORLD_MCP_REQUIRE_AUTH` refuse token-less requests rather than
+ *                        falling back to this process's own AGENT_WORLD_TOKEN
  */
+import type { OAuthConfig } from "./oauth.js";
+
 export interface McpServerConfig {
   url: string;
   token: string;
@@ -18,6 +25,7 @@ export interface McpServerConfig {
   readonly: boolean;
   /** Extra browser origins accepted by the HTTP transport beyond localhost. */
   allowedOrigins: string[];
+  oauth: OAuthConfig;
 }
 
 /** Parse a comma-separated list, dropping blanks. */
@@ -36,12 +44,18 @@ function positiveInt(raw: string | undefined, fallback: number): number {
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): McpServerConfig {
+  const mcpHttpPort = positiveInt(env.AGENT_WORLD_MCP_PORT, 3100);
   return {
     url: (env.AGENT_WORLD_URL ?? "http://localhost:8791").replace(/\/+$/, ""),
     token: env.AGENT_WORLD_TOKEN ?? "",
     requestTimeoutMs: positiveInt(env.AGENT_WORLD_REQUEST_TIMEOUT_MS, 120_000),
-    mcpHttpPort: positiveInt(env.AGENT_WORLD_MCP_PORT, 3100),
+    mcpHttpPort,
     readonly: env.AGENT_WORLD_MCP_READONLY === "1" || env.AGENT_WORLD_MCP_READONLY === "true",
     allowedOrigins: csv(env.AGENT_WORLD_MCP_ALLOWED_ORIGINS),
+    oauth: {
+      resource: env.AGENT_WORLD_MCP_RESOURCE ?? `http://127.0.0.1:${mcpHttpPort}/mcp`,
+      authServers: csv(env.AGENT_WORLD_MCP_AUTH_SERVERS),
+      requireAuth: env.AGENT_WORLD_MCP_REQUIRE_AUTH === "1" || env.AGENT_WORLD_MCP_REQUIRE_AUTH === "true",
+    },
   };
 }

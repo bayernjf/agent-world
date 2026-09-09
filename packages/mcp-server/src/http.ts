@@ -4,6 +4,12 @@ import { NotificationsHub } from "./notifications.js";
 import { LATEST_PROTOCOL_VERSION, declaredVersion, type SubscriptionType } from "./protocol.js";
 import { handleMessage, type JsonRpcMessage } from "./server.js";
 import { TOOLS, type McpToolDef } from "./tools.js";
+import {
+  OAUTH_METADATA_PATH,
+  bearerChallenge,
+  buildProtectedResourceMetadata,
+  type OAuthConfig,
+} from "./oauth.js";
 
 /**
  * Streamable HTTP transport for the MCP server (zero dependencies, Node http).
@@ -101,6 +107,7 @@ export function createMcpHttpHandler(
   tools: McpToolDef[] = TOOLS,
   hub: NotificationsHub = new NotificationsHub(),
   allowedOrigins: string[] = [],
+  oauth: OAuthConfig = { resource: "", authServers: [], requireAuth: false },
 ) {
   return async function mcpHttpHandler(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
     const url = new URL(req.url ?? "/", "http://localhost");
@@ -108,6 +115,14 @@ export function createMcpHttpHandler(
       sendJson(res, 403, { error: `origin not allowed: ${req.headers.origin}` });
       return;
     }
+
+    // Discovery is deliberately unauthenticated: a client with no token has to
+    // be able to learn where to get one.
+    if (url.pathname === OAUTH_METADATA_PATH) {
+      sendJson(res, 200, buildProtectedResourceMetadata(oauth));
+      return;
+    }
+
     if (url.pathname !== MCP_HTTP_PATH) {
       sendJson(res, 404, { error: `not found: ${url.pathname}` });
       return;
@@ -156,6 +171,17 @@ export function createMcpHttpHandler(
     // token to perform write operations it wasn't given access to.
     const bearer = /^Bearer\s+(.+)$/i.exec(req.headers.authorization ?? "")?.[1];
     const reqToken = (bearer ?? url.searchParams.get("token") ?? "").trim();
+    // REQUIRE_AUTH closes the hole where a token-less local caller silently
+    // inherits this process's env token — and therefore its write access.
+    if (oauth.requireAuth && !reqToken) {
+      res.writeHead(401, {
+        "content-type": "application/json",
+        "www-authenticate": bearerChallenge(`http://${req.headers.host ?? "localhost"}${OAUTH_METADATA_PATH}`),
+        "cache-control": "no-store",
+      });
+      res.end(JSON.stringify({ error: "invalid_token", error_description: "缺少 Authorization: Bearer" }));
+      return;
+    }
     const effectiveClient = reqToken ? client.withToken(reqToken) : client;
     // Notifications (no id) → 202 Accepted, no body.
     const rpc = msg as JsonRpcMessage;
@@ -231,8 +257,9 @@ export function startHttpServer(
   tools: McpToolDef[] = TOOLS,
   hub: NotificationsHub = new NotificationsHub(),
   allowedOrigins: string[] = [],
+  oauth: OAuthConfig = { resource: "", authServers: [], requireAuth: false },
 ): Promise<http.Server> {
-  const handler = createMcpHttpHandler(client, tools, hub, allowedOrigins);
+  const handler = createMcpHttpHandler(client, tools, hub, allowedOrigins, oauth);
   const server = http.createServer((req, res) => {
     void handler(req, res);
   });
