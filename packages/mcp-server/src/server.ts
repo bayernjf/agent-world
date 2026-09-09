@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { AgentWorldClient } from "./client.js";
 import type { NotificationsHub } from "./notifications.js";
 import {
@@ -9,10 +10,12 @@ import {
   PRIVATE_CACHE,
   PUBLIC_CACHE,
   removedMethodError,
+  SUBSCRIPTION_TYPES,
   SUPPORTED_PROTOCOL_VERSIONS,
   unknownDeclaredVersion,
   unsupportedProtocolVersionError,
   type ServerIdentity,
+  type SubscriptionType,
 } from "./protocol.js";
 import { listResources, readResource, RESOURCE_TEMPLATES } from "./resources.js";
 import { getPrompt, PROMPTS } from "./prompts.js";
@@ -50,6 +53,10 @@ function asRecord(v: unknown): Record<string, unknown> {
 
 function textContent(text: string): unknown[] {
   return [{ type: "text", text }];
+}
+
+function newSubscriptionId(): string {
+  return `sub_${randomUUID()}`;
 }
 
 /** Methods 2026-07-28 removed, mapped to what replaced them. */
@@ -183,6 +190,33 @@ export async function handleMessage(
       } catch (e) {
         return rpcError(id, -32602, (e as Error).message);
       }
+    }
+
+    // 2026-07-28 (SEP-2575): one long-lived POST-response stream replaces both
+    // the GET endpoint and resources/subscribe. The HTTP transport recognises
+    // this method and keeps the response open; here we only validate the opt-in
+    // and mint the id that tags outbound frames.
+    case "subscriptions/listen": {
+      const params = asRecord(msg.params);
+      if (!hub) return rpcError(id, -32601, "当前传输不支持订阅流（仅 HTTP 传输支持）");
+      const requested = Array.isArray(params.types) ? params.types : [];
+      const unknown = requested.filter(
+        (t): t is string => typeof t !== "string" || !(SUBSCRIPTION_TYPES as readonly string[]).includes(t),
+      );
+      if (unknown.length > 0) {
+        return rpcError(id, -32602, `不支持的订阅类型: ${unknown.join(", ")}`, {
+          supportedTypes: [...SUBSCRIPTION_TYPES],
+        });
+      }
+      const types = (requested.length > 0 ? requested : [...SUBSCRIPTION_TYPES]) as SubscriptionType[];
+      const uri = asStringParam(params.uri);
+      // Validate only. The upstream bridge must not start until the transport
+      // has registered this response as a sink, or a run that finishes
+      // immediately broadcasts to nobody.
+      if (uri && !hub.canSubscribe(uri)) {
+        return rpcError(id, -32602, `不支持的订阅 URI "${uri}"。仅支持 run://{runId}`);
+      }
+      return ok({ subscriptionId: newSubscriptionId(), types, ...(uri ? { uri } : {}) });
     }
 
     case "prompts/list":

@@ -1,6 +1,7 @@
 import http from "node:http";
 import type { AgentWorldClient } from "./client.js";
 import { NotificationsHub } from "./notifications.js";
+import { LATEST_PROTOCOL_VERSION, declaredVersion, type SubscriptionType } from "./protocol.js";
 import { handleMessage, type JsonRpcMessage } from "./server.js";
 import { TOOLS, type McpToolDef } from "./tools.js";
 
@@ -11,8 +12,11 @@ import { TOOLS, type McpToolDef } from "./tools.js";
  *   - `POST /mcp`   single JSON-RPC message. If the client sends
  *                   `Accept: text/event-stream`, the reply is streamed back as
  *                   SSE (`event: message`); otherwise it is plain JSON.
+ *                   `subscriptions/listen` (2026-07-28) keeps its own response
+ *                   open as the server→client notification stream.
  *   - `GET /mcp`    SSE stream for server-initiated events. The first event
  *                   (`event: endpoint`) tells the client where to POST.
+ *                   Removed in 2026-07-28; kept for older clients.
  *
  * Authentication: optional `Authorization: Bearer <token>` (or `?token=` query)
  * is passed through to the agent-world REST API by AgentWorldClient; this layer
@@ -21,12 +25,23 @@ import { TOOLS, type McpToolDef } from "./tools.js";
 
 export const MCP_HTTP_PATH = "/mcp";
 
-function sendJson(res: http.ServerResponse, status: number, body: unknown): void {
+/**
+ * Echo the revision the caller declared. `MCP-Protocol-Version` became a
+ * required response header in 2025-06-18, and pinning it to one revision (as
+ * this transport used to) tells a newer client the wrong thing.
+ */
+function replyVersion(req: http.IncomingMessage, msg?: JsonRpcMessage): string {
+  const declared = msg ? declaredVersion(msg) : null;
+  const header = req.headers["mcp-protocol-version"];
+  return declared ?? (typeof header === "string" ? header : LATEST_PROTOCOL_VERSION);
+}
+
+function sendJson(res: http.ServerResponse, status: number, body: unknown, version: string = LATEST_PROTOCOL_VERSION): void {
   const json = JSON.stringify(body);
   res.writeHead(status, {
     "content-type": "application/json",
     "cache-control": "no-store",
-    "mcp-protocol-version": "2024-11-05",
+    "mcp-protocol-version": version,
   });
   res.end(json);
 }
@@ -80,7 +95,7 @@ export function createMcpHttpHandler(
         "content-type": "text/event-stream",
         "cache-control": "no-store",
         connection: "keep-alive",
-        "mcp-protocol-version": "2024-11-05",
+        "mcp-protocol-version": replyVersion(req),
       });
       res.write(sseFrame("endpoint", { url: MCP_HTTP_PATH }));
       // Register this stream as a push sink, then keep it alive until the
@@ -120,23 +135,45 @@ export function createMcpHttpHandler(
     const effectiveClient = reqToken ? client.withToken(reqToken) : client;
     // Notifications (no id) → 202 Accepted, no body.
     const rpc = msg as JsonRpcMessage;
+    const version = replyVersion(req, rpc);
     if (rpc.id === undefined || rpc.id === null) {
-      res.writeHead(202, { "mcp-protocol-version": "2024-11-05" });
+      res.writeHead(202, { "mcp-protocol-version": version });
       res.end();
       return;
     }
 
     const reply = await handleMessage(rpc, effectiveClient, tools, hub);
 
+    // 2026-07-28: subscriptions/listen turns its own response into the
+    // long-lived notification stream — ack first, then hold the socket open.
+    if (rpc.method === "subscriptions/listen" && reply?.result) {
+      const result = reply.result as { subscriptionId: string; types: SubscriptionType[]; uri?: string };
+      res.writeHead(200, {
+        "content-type": "text/event-stream",
+        "cache-control": "no-store",
+        connection: "keep-alive",
+        "mcp-protocol-version": version,
+      });
+      res.write(sseFrame("message", reply));
+      hub.addSubscriptionSink(res, result.types, result.subscriptionId);
+      const keepAlive = setInterval(() => {
+        if (!res.writableEnded) res.write(": keep-alive\n\n");
+      }, 15_000);
+      req.on("close", () => clearInterval(keepAlive));
+      // Only now start the upstream bridge — the sink above must exist first.
+      if (result.uri) await hub.subscribe(result.uri, effectiveClient);
+      return;
+    }
+
     if (wantsSse) {
       res.writeHead(200, {
         "content-type": "text/event-stream",
         "cache-control": "no-store",
-        "mcp-protocol-version": "2024-11-05",
+        "mcp-protocol-version": version,
       });
       res.end(sseFrame("message", reply));
     } else {
-      sendJson(res, 200, reply);
+      sendJson(res, 200, reply, version);
     }
   };
 }

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentWorldClient } from "./client.js";
 import { startHttpServer, MCP_HTTP_PATH } from "./http.js";
+import { handleMessage, type JsonRpcMessage } from "./server.js";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 
@@ -214,5 +215,81 @@ describe("realtime notifications over the real wire (P2-③)", () => {
       ac.abort();
       await new Promise((resolve) => server.close(resolve));
     }
+  });
+
+  it("streams notifications on the subscriptions/listen response itself", async () => {
+    const client = mockClient();
+    client.openRunStream = vi.fn().mockResolvedValue(
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            const frame = `data: ${JSON.stringify({
+              version: 1,
+              event: { type: "run.finished", status: "done", runId: "r1" },
+            })}\n\n`;
+            controller.enqueue(new TextEncoder().encode(frame));
+            controller.close();
+          },
+        }),
+        { status: 200, headers: { "content-type": "text/event-stream" } },
+      ),
+    );
+
+    const server = await startHttpServer(client, 0);
+    const addr = server.address() as AddressInfo;
+    const ac = new AbortController();
+
+    try {
+      const res = await fetch(`http://127.0.0.1:${addr.port}${MCP_HTTP_PATH}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(
+          rpc(1, "subscriptions/listen", { types: ["resourceSubscriptions"], uri: "run://r1" }),
+        ),
+        signal: ac.signal,
+      });
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-type")).toContain("text/event-stream");
+
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let acc = "";
+      const deadline = Date.now() + 2000;
+      while (!acc.includes("notifications/resources/updated") && Date.now() < deadline) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        acc += decoder.decode(value, { stream: true });
+      }
+      // Ack first (carrying the minted id), then the tagged notification.
+      const subscriptionId = /"subscriptionId":"(sub_[^"]+)"/.exec(acc)?.[1];
+      expect(subscriptionId).toBeTruthy();
+      expect(acc).toContain("notifications/resources/updated");
+      expect(acc).toContain(`"io.modelcontextprotocol/subscriptionId":"${subscriptionId}"`);
+    } finally {
+      ac.abort();
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+
+  it("rejects an unknown subscription type", async () => {
+    const server = await startHttpServer(mockClient(), 0);
+    const addr = server.address() as AddressInfo;
+    try {
+      const res = await fetch(`http://127.0.0.1:${addr.port}${MCP_HTTP_PATH}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(rpc(1, "subscriptions/listen", { types: ["nope"] })),
+      });
+      const body = (await res.json()) as JsonRpcMessage;
+      expect(body.error?.code).toBe(-32602);
+      expect(body.error?.data).toMatchObject({ supportedTypes: expect.any(Array) });
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+
+  it("refuses the subscription stream on stdio (no hub)", async () => {
+    const reply = await handleMessage(rpc(1, "subscriptions/listen", {}), mockClient());
+    expect(reply?.error?.code).toBe(-32601);
   });
 });
