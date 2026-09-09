@@ -289,6 +289,9 @@ const AGNES_PROVIDER: ProviderConfig = {
     // The completed task carries the video URL at the top-level `url` field
     // (metadata is empty); the parser falls back to metadata.url/output[0].
     resultUrlPath: "url",
+    // Real produced duration is reported as a numeric STRING, e.g. "5.0"
+    // (verified live 2026-09-09); videoBillingSeconds coerces it.
+    durationPath: "seconds",
   },
 };
 
