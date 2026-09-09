@@ -3,6 +3,8 @@
 > 状态：**已落地（2026-09-06 文档化）**。本文档把散落在三处的设计决策收拢为单一事实源：`packages/core/src/skill.ts` 头注释（设计声明）、[technical-design.md](technical-design.md) §11（权限模型演进）、[extending.md](extending.md) §3（面向使用者的操作指南）。此前 deferred-items「文档线」登记为「独立设计文档属锦上添花」，触发条件为「外部贡献者/多人协作需要设计论证文档」——现提前还清这笔文档债，让 Skill 体系有权威引用。
 >
 > 本文档只陈述**设计与实现现状**，不改动任何代码。面向两类读者：接 Skill 能力的新开发者（怎么接入）、以及未来做 Skill 生态（本地 skill / 节点市场）时核对契约的人。
+>
+> **2026-09-09 补**：§11 现状盘点（逐条核对代码的数量事实与缺口排序）、§12 作者指南（怎么加一张技能卡）。先读 §11.1——**机制是通的，但 33 个业务模板一张卡都没装**，这是当前最该补的事。
 
 ## 1. 设计原则
 
@@ -134,6 +136,119 @@ MCP 工具是 Skill 的**一个来源**（`source: "mcp"`），不是独立体�
 
 ## 10. 边界与后续
 
+> §11 是逐条核对代码后的现状盘点（2026-09-09），本节只列判断；具体缺口与「为什么现在不做」见 §11。
+
 - **本地 skill（`source: "local"`）未落地**：schema 已声明三态，但「用户 `skills/` 目录自定义」目前只有字段没有加载器——触发条件见 deferred-items「节点市场/自定义节点」（用户主动提出扩展诉求）。
 - **`judge` kind 消费待完善**：gate 节点「质检也能装备技能卡」是 technical-design 声明的方向，当前 gate judge 走 `worker.judge()`，judge 类 skill 的完整挂载链是后续增量。
 - **硬权限强制依赖隔离**：§4 第二/三层未落地前，权限声明是「诚实展示 + 受约束代理」，不是内核级隔离——deferred 沙箱线追踪。
+
+## 11. 现状盘点（2026-09-09 核对代码）
+
+写这一节的原因：§1–§9 描述的是**设计**，容易被读成已全部生效。以下每条都对着源码数过。
+
+### 11.1 数量事实
+
+| 项 | 数字 | 出处 |
+|---|---|---|
+| 内置技能卡 | **5** 张，全是 `kind: "tool"` | `packages/server/src/skills/registry.ts` |
+| `prompt-module` / `output-contract` / `judge` 的内置实现 | **0** 张 | 同上（三种 kind 只有 runtime 消费点，没有内置卡；测试里有 fixture） |
+| 模板里预挂的技能卡 | **0 处**：49 个 `skills: []` 槽位全为空 | `packages/core/src/templates.ts`（34 个模板 = 33 业务 + 1 空白） |
+| MCP 来源技能卡 | 运行时动态注册，数量取决于用户接了几个 MCP server | `registerMcpTools` → `registerSkill` |
+
+**结论：Skill 机制是通的，但没人在用。** 引擎侧的四条消费链（`resolveTools` / `collectPromptModules` / `getOutputContract` / danger 审批）都有回归测试，可是 33 个业务模板一张卡都没装。所以这不是「功能缺失」，是**默认值缺失**——用户新建产线时看不到任何示例，只能自己从技能卡选择器里摸索。
+
+### 11.2 四种 kind 的实际消费状态
+
+| kind | 消费点是否存在 | 状态 |
+|---|---|---|
+| `tool` | ✅ `resolveTools()` + `executeBuiltinTool()` + `guardToolCall` + danger halt | 完整可用，5 张内置卡 |
+| `prompt-module` | ✅ `collectPromptModules()`，含 `equips` BFS 与环安全 | 机制可用，**无内置卡**——用户得自己造 |
+| `output-contract` | ✅ `getOutputContract()` + `validateContract()` + rework 回边 | 机制可用，**无内置卡** |
+| `judge` | ❌ **没有消费点** | `SkillKind` 枚举里有它，但 `nodes/gate.ts` 从不读节点的 `skills` 字段，judge 完全走 `worker.judge()` 的模型判定。这是个**声明了但没接线**的 kind |
+
+### 11.3 权限强制的真实粒度
+
+§4 说「第一层权限声明已落地」，准确的说法是：**强制是按工具硬编码的，不是从声明里推导的。**
+
+`permissions.ts` 的 `opForTool(name, args)` 只认识两个网络工具（`web_fetch` / `web_search`，从 `url` 参数取 host 去撞白名单）和 fs 操作。对任何其他 skill，它返回空 op，于是 `evaluateToolCall` 无事可查——**一张声明了 `network: { domains: [...] }` 的新技能卡，如果它自己直接 `fetch()`，声明不会拦住它**。
+
+所以当前的保障实际来自三处，都不是「读声明」：
+
+1. 内置工具的实现自己调 `guardedFetch`（SSRF + 域名白名单）与 fs-guard 路径校验；
+2. `TOOL_NETWORK_ALLOW` / `TOOL_FS_ALLOW` / `TOOL_SUBPROCESS_ALLOW` 三个**服务端级**环境变量（与技能卡声明取交集）；
+3. `danger: true` 的确定性人工审批（这条是真的、可靠的）。
+
+这不是 bug——§1 的原则就是「权限声明先于强制」，Phase 4/5 才硬强制。但文档必须写清楚，别让人以为写了 `permissions` 就等于沙箱。
+
+### 11.4 需要补强的排序
+
+| 优先级 | 缺口 | 为什么 |
+|---|---|---|
+| **高** | 模板里预挂技能卡（至少给 2–3 个模板做示范） | 唯一真正影响用户能否发现这个功能的事。49 个空槽位意味着 Skill 对用户是隐形的 |
+| **高** | 补 1–2 张内置 `prompt-module` 与 `output-contract` 卡 | 机制有、样例无，用户没有可抄的东西 |
+| 中 | `judge` kind 接线或从枚举里删掉 | 声明了不接线是最糟的状态：读者以为能用 |
+| 中 | 把权限强制从「按工具硬编码」改为「按声明驱动」 | 不需要等沙箱，`opForTool` 改成读 skill 声明就能覆盖新卡 |
+| 低 | `source: "local"` 加载器 | 等外部贡献者出现再说（deferred 已登记） |
+
+## 12. 作者指南：怎么加一张技能卡
+
+### 12.1 内置 `tool` 卡
+
+在 `packages/server/src/skills/registry.ts` 里加一个对象并塞进 `ALL` 数组：
+
+```ts
+const myTool: BuiltinSkill = {
+  id: "my_tool",                    // 同时是模型看到的工具名，必须全局唯一
+  name: "我的工具",
+  description: "一句话说清它干什么——这句会进模型的工具列表，写不清模型就不会调",
+  kind: "tool",
+  permissions: { network: { domains: ["api.example.com"] }, subprocess: false, env: [] },
+  source: "builtin",
+  config: {
+    parameters: {                   // JSON Schema，模型据此填参
+      type: "object",
+      properties: { query: { type: "string" } },
+      required: ["query"],
+    },
+  },
+  async execute(args) { /* 返回字符串给模型 */ },
+};
+```
+
+三条要点：
+
+- **`permissions` 缺省即不授予**，但**目前不会自动强制**（§11.3）——你的 `execute` 要自己调 `guardedFetch` / fs-guard，别指望声明拦住你。
+- **不可逆或对外产生变更的操作必须 `danger: true`**（写文件、发帖、调支付）。加了它，每次调用都会挂起 run 等人工 approve，这是唯一真正可靠的把关。
+- `description` 是给模型看的，不是给人看的。
+
+### 12.2 `prompt-module` 卡
+
+`config.prompt` 放要注入 system prompt 的文本；`config.equips` 放它依赖的其他模块 id（BFS 递归收集，环安全）：
+
+```ts
+{ id: "brand-voice", kind: "prompt-module", source: "builtin",
+  permissions: {}, config: { prompt: "写作时保持…", equips: ["tone-base"] } }
+```
+
+### 12.3 `output-contract` 卡
+
+`config.schema` 放 JSON Schema。节点产出后校验 required 键与 property 类型，不满足走 rework 边打回重写（超重试上限才 failed）。**一个节点只生效第一张** output-contract 卡。
+
+### 12.4 挂到节点上
+
+节点的 `skills` 字段是 `SkillMount[]`：
+
+```ts
+textGen: { ...,
+  skills: [{ id: "json_extract", config: {}, enabled: true }] }
+```
+
+- `config` 是**本次挂载**的覆盖值，不动共享的 Skill 定义——同一张卡挂两个节点可以带不同参数。
+- `enabled: false` 保留挂载但不生效（便于 A/B 与临时关闭）。
+- 旧格式 `skills: ["json_extract"]`（纯 id 字符串）由 `toMount()` 自动规范化，向后兼容。
+
+### 12.5 验证
+
+- `GET /api/skills` 应能列出新卡（前端技能卡选择器消费同一份数据）；
+- 加回归用例：`engine.tools.test.ts`（tool 调用）、`engine.skills.test.ts`（prompt-module / contract）、`engine.danger.test.ts`（danger 审批）三个文件里已有对应 idiom 可抄。
+
