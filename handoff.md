@@ -10,6 +10,7 @@ State of Agent World as of 2026-09-09.
 
 * [docs/PRD.md](docs/PRD.md) — phased roadmap and architectural guardrails
 * [README.md](README.md) — two core design decisions, layout, running instructions
+* [BENCHMARK.md](BENCHMARK.md) — 性能基准测试：运行方式、范围、结果记录表
 
 * [docs/technical-design.md](docs/technical-design.md) — architecture, data models, API
 
