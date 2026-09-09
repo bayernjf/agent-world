@@ -60,6 +60,7 @@ import { connectMcpServer, registerMcpTools, type McpClient, type McpServerSpec 
 import { closeAllUserMcpServers, connectUserMcpServer, ensureUserMcpServers, userMcpStatus } from "./mcp-pool.js";
 import { disposeIsolatedWorkers } from "./isolation.js";
 import { registerSkill, setMemoryBackend, listBuiltinSkills } from "./skills/registry.js";
+import { loadUserSkills } from "./skills/user-skills.js";
 import { SQLiteMemoryBackend, NoopMemoryBackend, extractKnowledgeFromRun } from "./memory.js";
 import { fileURLToPath } from "node:url";
 import { sanitizeError } from "./sanitize.js";
@@ -546,7 +547,16 @@ app.use("/api/*", async (c, next) => {
   await next();
 });
 
-app.get("/api/skills", (c) => c.json(listBuiltinSkills()));
+// The catalog is what SkillPicker offers for mounting, so it has to include the
+// caller's own cards and the tools their MCP servers reported — builtins first,
+// same global-first order resolveSkill uses at run time.
+app.get("/api/skills", async (c) => {
+  const userId = c.get("userId");
+  const cfg = await loadConfig(userId);
+  const own = await loadUserSkills(userId, cfg);
+  const ownCatalog = [...own.values()].map(({ tool: _tool, ...rest }) => rest);
+  return c.json([...listBuiltinSkills(), ...ownCatalog]);
+});
 
 app.get("/api/graphs", async (c) => {
   const userId = c.get("userId");

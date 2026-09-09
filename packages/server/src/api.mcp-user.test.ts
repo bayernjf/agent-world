@@ -189,6 +189,35 @@ describe("GET /api/mcp", () => {
   });
 });
 
+describe("GET /api/skills", () => {
+  it("lists the caller's own cards alongside builtins, and never another user's", async () => {
+    const alice = await register("skills-alice@example.com");
+    const bob = await register("skills-bob@example.com");
+    await putSettings(alice, {
+      ...BASE,
+      skillCards: [{ id: "local:tone", name: "语气", kind: "prompt-module", prompt: "写得简洁" }],
+    });
+    const aliceView = (await (await app.request("/api/skills", { headers: alice })).json()) as { id: string }[];
+    expect(aliceView.some((s) => s.id === "local:tone")).toBe(true);
+    expect(aliceView.some((s) => s.id === "web_fetch")).toBe(true);
+    const bobView = (await (await app.request("/api/skills", { headers: bob })).json()) as { id: string }[];
+    expect(bobView.some((s) => s.id === "local:tone")).toBe(false);
+  });
+
+  it("includes tools discovered from the caller's connected MCP servers", async () => {
+    const cookie = await register("skills-mcp@example.com");
+    const srv = await startServer();
+    try {
+      await putSettings(cookie, { ...BASE, mcpServers: [{ id: "s1", transport: "http", url: srv.url }] });
+      const view = (await (await app.request("/api/skills", { headers: cookie })).json()) as { id: string }[];
+      expect(view.some((s) => s.id === "mcp:s1:echo")).toBe(true);
+      expect(view.some((s) => s.id === "mcp:s1:search")).toBe(true);
+    } finally {
+      srv.close();
+    }
+  });
+});
+
 describe("user skill cards over the settings API", () => {
   it("stores the three data kinds", async () => {
     const cookie = await register("cards-ok@example.com");
