@@ -132,7 +132,15 @@ const fsWrite: BuiltinSkill = {
   kind: "tool",
   source: "builtin",
   danger: true,
-  permissions: { subprocess: false, env: [] },
+  // Declared honestly so the call-time guard can constrain it: the path
+  // argument is checked for write intent and against TOOL_FS_ALLOW before
+  // execute runs its own containment check. `paths` is left empty because the
+  // root is operator-configured, not baked into the card.
+  permissions: {
+    fs: { paths: [], read: false, write: true },
+    subprocess: false,
+    env: ["TOOL_FS_ALLOW"],
+  },
   config: {},
   tool: {
     name: "fs_write",
