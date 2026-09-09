@@ -278,7 +278,14 @@
       "dataHint": "Leave empty to auto-fill from the product library; reference with ${product.name}",
       "customTitle": "Custom fields",
       "customPh": "Deadline: 2026-10-01\nAccount: C-7781\nAmount: ${data[0].amount}",
-      "customHint": "One \"key: value\" per line. Values accept ${data[0].xxx} from the connector payload; downstream nodes read them as ${thisNodeId.custom.key}."
+      "customHint": "One \"key: value\" per line. Values accept ${data[0].xxx} from the connector payload; downstream nodes read them as ${thisNodeId.custom.key}.",
+      "shortcutHint": {
+        "product": "This pipeline can use ${product.name} for the first item, ${products} for all",
+        "http": "This pipeline can use ${response.field} for the JSON body (JSON responses only)",
+        "database": "This pipeline can use ${row.column} for the first row, ${rows[1].column} for the second",
+        "form": "This pipeline can use ${form.fieldName} for submitted values (field name, not label)",
+        "file": "This pipeline can use ${file.content} for the first file, ${files[1].content} for the second"
+      }
     },
     "textGen": {
       "temperature": "Temperature ({{temp}})",

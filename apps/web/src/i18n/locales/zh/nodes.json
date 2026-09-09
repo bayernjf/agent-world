@@ -278,7 +278,14 @@
       "dataHint": "留空自动取商品库值；可用 ${product.name} 引用",
       "customTitle": "自定义字段",
       "customPh": "交付日期: 2026-10-01\n客户编号: C-7781\n合同金额: ${data[0].amount}",
-      "customHint": "每行一条「键: 值」。值可写 ${data[0].xxx} 取连接器数据；下游节点用 ${本节点id.custom.键} 引用。"
+      "customHint": "每行一条「键: 值」。值可写 ${data[0].xxx} 取连接器数据；下游节点用 ${本节点id.custom.键} 引用。",
+      "shortcutHint": {
+        "product": "本产线可用 ${product.名称} 取首件商品、${products} 取全部",
+        "http": "本产线可用 ${response.字段} 取接口返回的 JSON（仅 JSON 响应）",
+        "database": "本产线可用 ${row.列名} 取首行、${rows[1].列名} 取第 2 行",
+        "form": "本产线可用 ${form.字段名} 取表单填写值（用字段名，不是标签）",
+        "file": "本产线可用 ${file.content} 取首个文件正文、${files[1].content} 取第 2 个"
+      }
     },
     "textGen": {
       "temperature": "温度 ({{temp}})",

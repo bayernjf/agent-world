@@ -224,6 +224,11 @@ export default function SourceFields({
           <span className="field__hint">
             {t("nodes:inspector.source.customHint")}
           </span>
+          {connType && connType !== "manual" ? (
+            <span className="field__hint">
+              {t(`nodes:inspector.source.shortcutHint.${connType}`)}
+            </span>
+          ) : null}
         </label>
       </div>
 
