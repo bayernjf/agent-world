@@ -2524,6 +2524,13 @@ select {
   font-size: 9px;
 }
 
+.plant__source-type {
+  fill: var(--text-tertiary);
+  font-family: var(--mono);
+  font-size: 9px;
+  text-anchor: end;
+}
+
 .plant--gate .plant__bar {
   fill: #1d2b22;
 }

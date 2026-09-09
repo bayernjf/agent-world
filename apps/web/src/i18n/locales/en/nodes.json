@@ -1,5 +1,13 @@
 {
   "source": "Feed Station",
+  "sourceType": {
+    "manual": "Manual",
+    "product": "Product",
+    "file": "File",
+    "http": "HTTP",
+    "form": "Form",
+    "database": "DB"
+  },
   "textGen": "Text Shop",
   "imageGen": "Art Shop",
   "videoGen": "Film Shop",
@@ -253,6 +261,8 @@
     },
     "source": {
       "briefTitle": "Creative brief (optional)",
+      "manualTitle": "Raw material",
+      "manualInput": "Enter raw material here (text, URLs, product descriptions, etc.). Downstream nodes will process based on this content.",
       "productName": "Product name",
       "brand": "Brand / store",
       "audience": "Target audience (e.g. commuter women 20–30)",

@@ -58,6 +58,18 @@ export const KIND_KEY: Record<GraphNode["kind"], string> = {
   select: "nodes:select",
 };
 
+/** Map connector type → i18n key for the source node badge. */
+function sourceConnectorLabel(type: string | undefined): string {
+  switch (type) {
+    case "product":  return "nodes:sourceType.product";
+    case "file":     return "nodes:sourceType.file";
+    case "http":     return "nodes:sourceType.http";
+    case "form":     return "nodes:sourceType.form";
+    case "database": return "nodes:sourceType.database";
+    default:         return "nodes:sourceType.manual";
+  }
+}
+
 const STATUS_KEY: Record<NodeRuntime["status"], string> = {
   idle: "nodes:status.idle",
   running: "nodes:status.running",
@@ -301,6 +313,12 @@ export default function Plants({
               <text className="plant__kind" x={26} y={15}>
                 {t(KIND_KEY[node.kind])}
               </text>
+
+              {node.kind === "source" && (
+                <text className="plant__source-type" x={PLANT_W - 8} y={15}>
+                  {t(sourceConnectorLabel(node.source?.connector?.type))}
+                </text>
+              )}
 
               <text className="plant__name" x={12} y={48}>
                 {node.name}

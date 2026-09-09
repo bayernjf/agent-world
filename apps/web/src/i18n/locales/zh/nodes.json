@@ -1,5 +1,13 @@
 {
   "source": "原料台",
+  "sourceType": {
+    "manual": "手填",
+    "product": "商品库",
+    "file": "文件",
+    "http": "HTTP",
+    "form": "表单",
+    "database": "DB"
+  },
   "textGen": "文坊",
   "imageGen": "画坊",
   "videoGen": "影坊",
@@ -253,6 +261,8 @@
     },
     "source": {
       "briefTitle": "创作简报（可选）",
+      "manualTitle": "原料描述",
+      "manualInput": "在此输入原料信息（文本、URL、商品描述等），下游节点将基于此内容处理",
       "productName": "商品名称",
       "brand": "品牌 / 店铺",
       "audience": "目标人群（如 20-30岁通勤女生）",
