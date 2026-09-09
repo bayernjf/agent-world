@@ -23,6 +23,7 @@ import type { GraphNode, NodeKind } from "@agent-world/core";
 import Tooltip from "./Tooltip";
 import KeyInput from "./KeyInput";
 import { McpSettings } from "./McpSettings";
+import { SkillCardSettings } from "./SkillCardSettings";
 import type { McpServerStatus } from "../lib/api";
 import { useTranslation } from "react-i18next";
 
@@ -1444,6 +1445,11 @@ export default function Settings({ open, onClose }: Props) {
             statuses={mcpStatuses}
             onChange={(mcpServers) => setConfig({ ...config, mcpServers })}
             onSaveAndConnect={saveAndConnectMcp}
+          />
+
+          <SkillCardSettings
+            cards={config.skillCards ?? []}
+            onChange={(skillCards) => setConfig({ ...config, skillCards })}
           />
 
           <button

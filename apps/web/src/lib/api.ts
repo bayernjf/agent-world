@@ -55,6 +55,8 @@ export interface AppConfig {
   /** Remote MCP servers the user connected. Header values arrive redacted; the
    *  server treats a masked value echoed back as "unchanged". */
   mcpServers?: UserMcpServer[];
+  /** Data-only skill cards the user authored. */
+  skillCards?: UserSkillCard[];
 }
 
 export interface UserMcpServer {
@@ -77,6 +79,21 @@ export interface McpServerStatus {
   error?: string;
   connectedAt?: number;
 }
+
+/** A user-authored card. Only the three data kinds exist: their payload IS the
+ *  data, so nothing executes. `tool` kind would run code and is server-refused. */
+export type UserSkillCard =
+  | { id: string; name: string; description?: string; kind: "prompt-module"; prompt: string }
+  | { id: string; name: string; description?: string; kind: "judge"; criterion: string }
+  | {
+      id: string;
+      name: string;
+      description?: string;
+      kind: "output-contract";
+      fields: { name: string; type: "string" | "number" | "boolean" | "object" | "array"; required: boolean }[];
+    };
+
+export type UserSkillCardKind = UserSkillCard["kind"];
 
 export interface ProviderTestResult {
   ok: boolean;

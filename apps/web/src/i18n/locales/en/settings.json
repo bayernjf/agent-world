@@ -293,5 +293,31 @@
     "add": "Add",
     "newPlaceholder": "New server name",
     "note": "Credentials are encrypted at rest. Nothing reconnects on its own — after editing an endpoint or key, hit Save and connect. Tool ids look like mcp:<server>:<tool>; a built-in skill of the same id always wins."
+  },
+  "cards": {
+    "title": "Your own skill cards",
+    "description": "Cards you author yourself, visible only on your own pipelines. All three kinds are plain data — a prompt fragment, a judging clause, a field table — so no sandbox is needed.",
+    "empty": "No cards yet.",
+    "name": "Name",
+    "kind": {
+      "prompt-module": "Prompt module",
+      "output-contract": "Output contract",
+      "judge": "Judge"
+    },
+    "newKind": "Kind",
+    "prompt": "Prompt",
+    "promptPlaceholder": "Appended to the node's system prompt",
+    "criterion": "Criterion",
+    "criterionPlaceholder": "What a gate node judges against",
+    "fields": "Output fields",
+    "fieldName": "Field name",
+    "fieldType": "Type",
+    "fieldRequired": "Required",
+    "addField": "Add field",
+    "removeField": "Remove",
+    "remove": "Remove card",
+    "add": "Add",
+    "newPlaceholder": "New card name",
+    "note": "Ids get a local: prefix automatically; a built-in skill with the same id always wins, so a card can never shadow one. Takes effect on the next run."
   }
 }

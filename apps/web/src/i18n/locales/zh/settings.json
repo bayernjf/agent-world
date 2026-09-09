@@ -293,5 +293,31 @@
     "add": "添加",
     "newPlaceholder": "新服务名称",
     "note": "凭据落盘前静态加密；不会自动重连，改完地址或密钥请手动点「保存并试连」。工具 ID 形如 mcp:<服务>:<工具>，与内置技能同名时内置优先。"
+  },
+  "cards": {
+    "title": "自建技能卡",
+    "description": "自己写的技能卡，只能挂在自己的产线上。三种都是纯数据：提示片段、判定标准、输出字段表——不执行任何代码，所以不需要沙箱。",
+    "empty": "还没有自建技能卡。",
+    "name": "名称",
+    "kind": {
+      "prompt-module": "提示模块",
+      "output-contract": "输出契约",
+      "judge": "判定标准"
+    },
+    "newKind": "类型",
+    "prompt": "提示内容",
+    "promptPlaceholder": "会拼接进节点的系统提示",
+    "criterion": "判定标准",
+    "criterionPlaceholder": "闸门节点据此判断通过与否",
+    "fields": "输出字段",
+    "fieldName": "字段名",
+    "fieldType": "类型",
+    "fieldRequired": "必填",
+    "addField": "添加字段",
+    "removeField": "删除",
+    "remove": "删除技能卡",
+    "add": "添加",
+    "newPlaceholder": "新技能卡名称",
+    "note": "ID 自动加 local: 前缀；与内置技能同名时内置优先，无法覆盖。下一次运行即生效。"
   }
 }
