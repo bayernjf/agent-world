@@ -204,6 +204,9 @@ export function buildSourceBrief(
   if (src?.prohibited?.trim()) lines.push(`禁用词/禁用说法：${src.prohibited.trim()}`);
   if (src?.brandTerms?.trim()) lines.push(`品牌词（建议融入）：${src.brandTerms.trim()}`);
   if (src?.notes?.trim()) lines.push(`补充说明：${src.notes.trim()}`);
+  for (const [k, v] of Object.entries(src?.custom ?? {})) {
+    if (k.trim() && v.trim()) lines.push(`${k.trim()}：${v.trim()}`);
+  }
   const raw = sourceInput?.trim();
   const hasBrief = lines.length > 0;
   if (raw) lines.push(hasBrief ? `商品描述/原料:\n${raw}` : raw);

@@ -959,6 +959,10 @@ export const SourceConfig = z.object({
   brandTerms: z.string().optional(),
   /** Free-form extra notes for the writers. */
   notes: z.string().optional(),
+  /** User-defined fields, key → value. Values join the brief and are reachable
+   *  downstream as `${srcId.custom.key}`; each value supports `${...}`
+   *  interpolation against the connector payload. */
+  custom: z.record(z.string()).optional(),
   /** Declarative data source (file/http/form). When set, the engine pulls raw
    *  material from it instead of relying on the manual text fields above. */
   connector: ConnectorConfig.optional(),

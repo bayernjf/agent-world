@@ -76,6 +76,11 @@ export function resolveExpression(
 ): unknown {
   const [head, ...rest] = expr.split(/\.(?![^\[]*\])/);
   if (!head) return undefined;
+  // A bracketed head (`data[0].price`) indexes straight into a context entry.
+  // Splitting alone leaves head as the literal "data[0]", which no context key
+  // matches — hand the whole expression to getByPath, which understands
+  // `key[i]` segments.
+  if (/^[^\[]+\[/.test(head)) return getByPath(context, expr);
   let value = context[head];
   if (value === undefined) return undefined;
   if (rest.length > 0) {
@@ -104,6 +109,13 @@ function literal(value: unknown): string {
   if (value === null || value === undefined) return "null";
   if (typeof value === "string") return JSON.stringify(value);
   if (typeof value === "number" || typeof value === "boolean") return String(value);
+  // Sidecar-metadata objects (http response, connector payload, source custom
+  // fields) carry the node's own payload under `content`. Compare against that
+  // — the same value `${nodeId}` interpolates to — so attaching metadata to a
+  // node never silently changes a condition that reads the bare `${nodeId}`.
+  if (typeof value === "object" && !Array.isArray(value) && "content" in value) {
+    return literal(primaryValue((value as Record<string, unknown>).content));
+  }
   // Objects / arrays become JSON strings so they compare deterministically
   // without object identity; member access is not supported in conditions.
   return JSON.stringify(JSON.stringify(value));

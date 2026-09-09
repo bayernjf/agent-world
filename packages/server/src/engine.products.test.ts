@@ -82,7 +82,14 @@ const DATA = [product("p1", "复古托特包", "某某品牌", 99.9), product("p
 
 function sourceNode(
   id: string,
-  opts: { connector?: "product"; productName?: string; brand?: string; audience?: string; notes?: string } = {},
+  opts: {
+    connector?: "product";
+    productName?: string;
+    brand?: string;
+    audience?: string;
+    notes?: string;
+    custom?: Record<string, string>;
+  } = {},
 ): GraphNode {
   return {
     id,
@@ -96,6 +103,7 @@ function sourceNode(
       ...(opts.brand !== undefined ? { brand: opts.brand } : {}),
       ...(opts.audience !== undefined ? { audience: opts.audience } : {}),
       ...(opts.notes !== undefined ? { notes: opts.notes } : {}),
+      ...(opts.custom !== undefined ? { custom: opts.custom } : {}),
     },
   };
 }
@@ -460,3 +468,70 @@ describe("connector interpolation end-to-end (source → textGen chain)", () => 
   });
 });
 
+
+describe("source custom fields", () => {
+  it("writes each key: value row into the brief and skips blank keys/values", async () => {
+    const events = await runGraph(
+      [
+        sourceNode("intake", {
+          notes: "先看合同",
+          custom: { 交付日期: "2026-10-01", 客户编号: "C-7781", "": "无键", 空值: "  " },
+        }),
+        sinkNode("depot"),
+      ],
+      [{ from: "intake", to: "depot" }],
+      { sourceInput: "合同正文", loadProducts: async () => ({ text: "", images: [] }) },
+    );
+    const brief = textArtifact(events, "intake");
+    expect(brief).toContain("交付日期：2026-10-01");
+    expect(brief).toContain("客户编号：C-7781");
+    expect(brief).not.toContain("无键");
+    expect(brief).not.toContain("空值");
+    // Custom rows sit after the fixed brief fields, before the raw material.
+    expect(brief.indexOf("补充说明：先看合同")).toBeLessThan(brief.indexOf("交付日期"));
+    expect(brief.indexOf("交付日期")).toBeLessThan(brief.indexOf("合同正文"));
+  });
+
+  it("interpolates ${...} inside custom values against the connector payload", async () => {
+    const events = await runGraph(
+      [
+        sourceNode("intake", {
+          connector: "product",
+          custom: { 主推商品: "${product.name}", 首个单价: "${data[0].price}", 固定值: "不含插值" },
+        }),
+        sinkNode("depot"),
+      ],
+      [{ from: "intake", to: "depot" }],
+    );
+    const brief = textArtifact(events, "intake");
+    expect(brief).toContain("主推商品：复古托特包");
+    expect(brief).toContain("首个单价：99.9");
+    expect(brief).toContain("固定值：不含插值");
+  });
+
+  it("exposes custom fields downstream as ${srcId.custom.键}", async () => {
+    const w = echoPromptWorker();
+    await runGraph(
+      [
+        sourceNode("intake", { custom: { 交付日期: "2026-10-01" } }),
+        textGenNode("writer", "截止 ${intake.custom.交付日期} 前交付"),
+        sinkNode("depot"),
+      ],
+      [{ from: "intake", to: "writer" }, { from: "writer", to: "depot" }],
+      { worker: w, sourceInput: "原料", loadProducts: async () => ({ text: "", images: [] }) },
+    );
+    expect(w.prompts()).toContain("截止 2026-10-01 前交付");
+  });
+
+  it("a source without custom fields or connector data keeps ${srcId} a bare string", async () => {
+    const w = echoPromptWorker();
+    await runGraph(
+      [sourceNode("intake"), textGenNode("writer", "[${intake}][${intake.custom.x}]"), sinkNode("depot")],
+      [{ from: "intake", to: "writer" }, { from: "writer", to: "depot" }],
+      { worker: w, sourceInput: "纯手动", loadProducts: async () => ({ text: "", images: [] }) },
+    );
+    // No metadata written: the ctx entry is the brief string itself, so a
+    // `custom` lookup resolves to empty rather than reaching an envelope.
+    expect(w.prompts()).toContain("[纯手动][]");
+  });
+});
