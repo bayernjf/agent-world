@@ -7052,38 +7052,47 @@ select {
 }
 
 /* Settings → MCP 服务 / 自建技能卡 */
-.mcp-actions {
+/* Add row under a list of model-style cards: input (+ select) + add button. */
+.ext-add-row {
   display: flex;
   align-items: center;
   gap: var(--gap-sm);
-  margin-top: var(--gap-sm);
+  margin: var(--gap-sm) 0;
 }
-.mcp-actions input {
+.ext-add-row input {
   flex: 1;
 }
-.mcp-toggle {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  margin-top: var(--gap-sm);
-}
-.mcp-toggle input[type="checkbox"] {
+.ext-add-row .btn {
   width: auto;
+  margin: 0;
+  white-space: nowrap;
 }
-.mcp-ok {
-  display: block;
-  margin-top: var(--gap-sm);
-  color: var(--ok);
+
+/* Status dot in a model-card head: green = connected, red = failed,
+   grey = never handshaken. Detail text lives in the body's .diag line. */
+.ext-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-full);
+  flex: none;
 }
-.mcp-bad {
-  display: block;
-  margin-top: var(--gap-sm);
-  color: var(--error);
+
+/* Kind badge on a user card — quieter than the default green badge. */
+.ext-badge {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  border: var(--hair);
+  text-transform: none;
+  font-family: var(--sans);
+  letter-spacing: 0;
 }
+
+/* One row of the output-contract field table. */
 .card-fields {
   display: grid;
   grid-template-columns: 1fr auto auto auto;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--gap-sm);
   margin-top: var(--gap-sm);
 }
+

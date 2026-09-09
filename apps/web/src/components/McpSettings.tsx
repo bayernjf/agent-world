@@ -12,6 +12,9 @@ import type { McpServerStatus, UserMcpServer } from "../lib/api";
  * Saving runs the handshake immediately and reports what came back, because a
  * silently-saved-but-unreachable server is the failure mode this panel exists
  * to prevent. Reconnect is manual: nothing retries in the background.
+ *
+ * Visual language mirrors the model cards directly above (collapsible head /
+ * body), so the section reads as part of Settings rather than a foreign panel.
  */
 
 interface Props {
@@ -28,8 +31,17 @@ function slug(raw: string): string {
 
 export function McpSettings({ servers, onChange, onSaveAndConnect, statuses }: Props) {
   const { t } = useTranslation();
+  const [open, setOpen] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState<string | null>(null);
   const [draftName, setDraftName] = useState("");
+
+  const toggleOpen = (id: string) =>
+    setOpen((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   const update = (id: string, patch: Partial<UserMcpServer>) =>
     onChange(servers.map((s) => (s.id === id ? { ...s, ...patch } : s)));
@@ -40,6 +52,7 @@ export function McpSettings({ servers, onChange, onSaveAndConnect, statuses }: P
     const id = /[a-z0-9]/.test(slugged) ? slugged.replace(/^-+|-+$/g, "") : `mcp-${servers.length + 1}`;
     if (servers.some((s) => s.id === id)) return;
     onChange([...servers, { id, name: draftName.trim() || id, transport: "http", url: "", enabled: true }]);
+    setOpen(new Set([id]));
     setDraftName("");
   };
 
@@ -61,93 +74,114 @@ export function McpSettings({ servers, onChange, onSaveAndConnect, statuses }: P
         {t("settings:mcp.description")}
       </p>
 
-      {servers.length === 0 && <small className="muted">{t("settings:mcp.empty")}</small>}
+      {servers.length === 0 && <p className="muted">{t("settings:mcp.empty")}</p>}
 
       {servers.map((server) => {
         const status = statuses[server.id];
+        const isOpen = open.has(server.id);
+        const dot = status
+          ? status.connected
+            ? "var(--ok)"
+            : "var(--error)"
+          : "var(--text-tertiary)";
         return (
-          <div key={server.id} className="model-form" data-testid={`mcp-server-${server.id}`}>
-            <label className="field">
-              <span>{t("settings:mcp.name")}</span>
-              <input
-                value={server.name ?? ""}
-                onChange={(e) => update(server.id, { name: e.target.value })}
-                placeholder={server.id}
+          <div key={server.id} className={`model-card${isOpen ? " model-card--open" : ""}`} data-testid={`mcp-server-${server.id}`}>
+            <div className="model-card__head" onClick={() => toggleOpen(server.id)}>
+              <span className="model-card__chevron">{isOpen ? "▼" : "▶"}</span>
+              <label className="toggle" onClick={(e) => e.stopPropagation()}>
+                <input
+                  type="checkbox"
+                  checked={server.enabled !== false}
+                  onChange={(e) => update(server.id, { enabled: e.target.checked })}
+                />
+              </label>
+              <code className="model-card__name">{server.name || server.id}</code>
+              <span className="muted model-card__provider">{server.url || server.transport}</span>
+              <span className="badge">{server.transport}</span>
+              <span
+                className="ext-status-dot"
+                style={{ background: dot }}
+                title={status ? (status.connected ? "connected" : status.error ?? "failed") : ""}
               />
-            </label>
-            <label className="field">
-              <span>{t("settings:mcp.transport")}</span>
-              <select
-                value={server.transport}
-                onChange={(e) => update(server.id, { transport: e.target.value as "http" | "sse" })}
-              >
-                <option value="http">{t("settings:mcp.transportHttp")}</option>
-                <option value="sse">{t("settings:mcp.transportSse")}</option>
-              </select>
-            </label>
-            <label className="field">
-              <span>{t("settings:mcp.url")}</span>
-              <input
-                value={server.url}
-                onChange={(e) => update(server.id, { url: e.target.value })}
-                placeholder="https://example.com/mcp"
-              />
-            </label>
-            <label className="field">
-              <span>{t("settings:mcp.authHeader")}</span>
-              <input
-                type="password"
-                value={server.headers?.Authorization ?? ""}
-                onChange={(e) =>
-                  update(server.id, {
-                    headers: e.target.value ? { ...server.headers, Authorization: e.target.value } : undefined,
-                  })
-                }
-                placeholder="Bearer ..."
-              />
-            </label>
-            <small className="muted">{t("settings:mcp.authHeaderHint")}</small>
-            <label className="toggle mcp-toggle">
-              <input
-                type="checkbox"
-                checked={server.enabled !== false}
-                onChange={(e) => update(server.id, { enabled: e.target.checked })}
-              />
-              <span>{t("settings:mcp.enabled")}</span>
-            </label>
-
-            <div className="mcp-actions">
-              <button className="btn" disabled={busy === server.id || !server.url} onClick={() => void connect(server.id)}>
-                {busy === server.id ? t("settings:mcp.connecting") : t("settings:mcp.saveAndConnect")}
-              </button>
-              <button className="link mcp-bad" onClick={() => onChange(servers.filter((s) => s.id !== server.id))}>
-                {t("settings:mcp.remove")}
-              </button>
+              <div className="model-card__head-actions" onClick={(e) => e.stopPropagation()}>
+                <button className="link link--sm link--danger" onClick={() => onChange(servers.filter((s) => s.id !== server.id))}>
+                  {t("settings:mcp.remove")}
+                </button>
+              </div>
             </div>
 
-            {status && (
-              <small className={status.connected ? "mcp-ok" : "mcp-bad"} data-testid={`mcp-status-${server.id}`}>
-                {status.connected
-                  ? t("settings:mcp.connected", { count: status.toolCount, tools: status.toolNames.join(", ") })
-                  : t("settings:mcp.failed", { error: status.error ?? "" })}
-              </small>
+            {isOpen && (
+              <div className="model-card__body">
+                <label className="field">
+                  <span>{t("settings:mcp.name")}</span>
+                  <input value={server.name ?? ""} onChange={(e) => update(server.id, { name: e.target.value })} placeholder={server.id} />
+                </label>
+                <label className="field">
+                  <span>{t("settings:mcp.transport")}</span>
+                  <select
+                    className="select"
+                    value={server.transport}
+                    onChange={(e) => update(server.id, { transport: e.target.value as "http" | "sse" })}
+                  >
+                    <option value="http">{t("settings:mcp.transportHttp")}</option>
+                    <option value="sse">{t("settings:mcp.transportSse")}</option>
+                  </select>
+                </label>
+                <label className="field">
+                  <span>{t("settings:mcp.url")}</span>
+                  <input
+                    value={server.url}
+                    onChange={(e) => update(server.id, { url: e.target.value })}
+                    placeholder="https://example.com/mcp"
+                  />
+                </label>
+                <label className="field">
+                  <span>{t("settings:mcp.authHeader")}</span>
+                  <input
+                    type="password"
+                    value={server.headers?.Authorization ?? ""}
+                    onChange={(e) =>
+                      update(server.id, {
+                        headers: e.target.value ? { ...server.headers, Authorization: e.target.value } : undefined,
+                      })
+                    }
+                    placeholder="Bearer ..."
+                  />
+                </label>
+                <p className="field__hint">{t("settings:mcp.authHeaderHint")}</p>
+
+                <div className="model-card__footer-actions">
+                  <button className="btn" disabled={busy === server.id || !server.url} onClick={() => void connect(server.id)}>
+                    {busy === server.id ? t("settings:mcp.connecting") : t("settings:mcp.saveAndConnect")}
+                  </button>
+                </div>
+
+                {status && (
+                  <p className={`diag ${status.connected ? "diag--ok" : "diag--error"}`} data-testid={`mcp-status-${server.id}`}>
+                    {status.connected
+                      ? t("settings:mcp.connected", { count: status.toolCount, tools: status.toolNames.join(", ") })
+                      : t("settings:mcp.failed", { error: status.error ?? "" })}
+                  </p>
+                )}
+              </div>
             )}
           </div>
         );
       })}
 
-      <div className="mcp-actions">
+      <div className="ext-add-row">
         <input
           value={draftName}
           onChange={(e) => setDraftName(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && draftName.trim() && add()}
           placeholder={t("settings:mcp.newPlaceholder")}
           aria-label={t("settings:mcp.add")}
         />
-        <button className="btn" onClick={add}>
+        <button className="btn" onClick={add} disabled={!draftName.trim()}>
           {t("settings:mcp.add")}
         </button>
       </div>
-      <small className="muted">{t("settings:mcp.note")}</small>
+      <p className="muted">{t("settings:mcp.note")}</p>
     </>
   );
 }
