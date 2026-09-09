@@ -194,24 +194,27 @@ MCP 工具是 Skill 的**一个来源**（`source: "mcp"`），不是独立体�
 
 ### 12.1 内置 `tool` 卡
 
-在 `packages/server/src/skills/registry.ts` 里加一个对象并塞进 `ALL` 数组：
+在 `packages/server/src/skills/registry.ts` 里加一个 `BuiltinSkill` 并塞进 `ALL` 数组。注意**可执行体在 `tool` 子对象里**，不是顶层：
 
 ```ts
 const myTool: BuiltinSkill = {
-  id: "my_tool",                    // 同时是模型看到的工具名，必须全局唯一
+  id: "my_tool",                    // 卡 id，也是权限查表的键
   name: "我的工具",
-  description: "一句话说清它干什么——这句会进模型的工具列表，写不清模型就不会调",
+  description: "给人看的说明（技能卡选择器里显示）",
   kind: "tool",
-  permissions: { network: { domains: ["api.example.com"] }, subprocess: false, env: [] },
   source: "builtin",
-  config: {
+  permissions: { network: { domains: ["api.example.com"] }, subprocess: false, env: [] },
+  config: {},
+  tool: {
+    name: "my_tool",                // 模型看到的工具名，与 id 保持一致
+    description: "一句话说清它干什么——这句进模型的工具列表，写不清模型就不会调",
     parameters: {                   // JSON Schema，模型据此填参
       type: "object",
-      properties: { query: { type: "string" } },
+      properties: { query: { type: "string", description: "…" } },
       required: ["query"],
     },
+    async execute(args) { /* 返回值给模型 */ },
   },
-  async execute(args) { /* 返回字符串给模型 */ },
 };
 ```
 
@@ -219,7 +222,8 @@ const myTool: BuiltinSkill = {
 
 - **`permissions` 缺省即不授予**，但**目前不会自动强制**（§11.3）——你的 `execute` 要自己调 `guardedFetch` / fs-guard，别指望声明拦住你。
 - **不可逆或对外产生变更的操作必须 `danger: true`**（写文件、发帖、调支付）。加了它，每次调用都会挂起 run 等人工 approve，这是唯一真正可靠的把关。
-- `description` 是给模型看的，不是给人看的。
+- `tool.description` 是给模型看的，`description` 是给人看的（技能卡选择器）——两者用途不同，别复制粘贴。
+- **技能卡在主进程内执行**（`nodes/textgen.ts` → `executeBuiltinTool`），没有子进程沙箱。`isolation.ts` 的 `IsolatedWorker` 隔离的是 **Worker（模型 provider 插件）**，与技能卡无关，别混淆。
 
 ### 12.2 `prompt-module` 卡
 
