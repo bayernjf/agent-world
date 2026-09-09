@@ -464,6 +464,8 @@ Cache-Control: no-store
 
 后果：一个伪造的 Bearer token 能通过 mcp-server 的 `requireAuth` 检查，但会在主服务被拒。攻击面没扩大（原本也是主服务把关），但如果以后要让 mcp-server 独立部署在信任边界之外，就得在这里补 JWKS 验签。
 
+**当前靠什么兜住：** `startHttpServer` 把绑定地址**硬编码成 `127.0.0.1`**（[http.ts](../packages/mcp-server/src/http.ts) `server.listen`），既没有 host 参数也没有 env 覆盖。所以「配错就暴露」这种事发生不了——不改代码就跨不出本机。这条约束是有意不可配的，`listen` 上和函数注释里都写了理由：想让 host 可配，先在这里补验签。反过来说，**这不是文档级的注意事项，是代码级的强制**，别为了联调顺手把它改成 `0.0.0.0`。
+
 ### 13.4 客户端侧责任（RFC 8707）
 
 规范要求 MCP **客户端**在换 token 时带 `resource` 参数（Resource Indicators），把 token 绑定到具体的 MCP Server，防止 token 被拿去打别的资源。这是客户端的活儿；服务端这边只保证 `resource` 值与元数据里宣告的一致。

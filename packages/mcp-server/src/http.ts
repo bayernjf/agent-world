@@ -250,7 +250,17 @@ export function createMcpHttpHandler(
   };
 }
 
-/** Start the HTTP transport on the given port (0 → ephemeral). */
+/**
+ * Start the HTTP transport on the given port (0 → ephemeral).
+ *
+ * The loopback bind below is deliberately hard-coded, not configurable: this
+ * process does NOT verify JWT signatures or the `aud` claim (see oauth.ts —
+ * the signing secret lives in the main service, so cryptographic validation is
+ * delegated downstream). Binding a non-loopback interface would therefore
+ * accept any well-formed bearer token from anywhere. Before making the host
+ * configurable, implement JWKS verification here
+ * (design-mcp-server.md §13.3, §14).
+ */
 export function startHttpServer(
   client: AgentWorldClient,
   port = Number(process.env.AGENT_WORLD_MCP_PORT ?? 3100),
@@ -265,6 +275,7 @@ export function startHttpServer(
   });
   return new Promise((resolve, reject) => {
     server.once("error", reject);
+    // Loopback only — see the JWKS caveat on this function's doc comment.
     server.listen(port, "127.0.0.1", () => resolve(server));
   });
 }
