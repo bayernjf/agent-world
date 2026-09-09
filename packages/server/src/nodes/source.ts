@@ -45,15 +45,20 @@ export async function sourceNode(ctx: NodeRunContext, node: GraphNode, nodeId: s
     }
   }
 
-  // Empty-data guard (design-data-interpolation.md §6.2): a product connector
-  // whose library is empty / filtered to nothing would make every `${product.x}`
-  // resolve to an empty string. Do not fail the run, but warn once so the
-  // silent-empty is visible in the run log.
-  if (conn && conn.type === "product" && (!Array.isArray(sourceData) || sourceData.length === 0)) {
-    ctx.log.warn("product connector returned empty data; ${product.name} resolves to empty string", { nodeId });
+  // Empty-data guard (design-data-interpolation.md §6.2): a connector that came
+  // back with nothing (empty product library, query with no rows, glob matching
+  // no file) would make every `${shortcut.x}` resolve to an empty string. Do not
+  // fail the run, but warn once so the silent-empty is visible in the run log.
+  if (conn && isEmptyData(sourceData)) {
+    const names = CONNECTOR_SHORTCUTS.filter((s) => s.connector === conn.type)
+      .map((s) => `\${${s.name}…}`)
+      .join(" / ");
+    if (names) {
+      ctx.log.warn(`${conn.type} connector returned empty data; ${names} resolves to empty string`, { nodeId });
+    }
   }
   const output = (() => {
-    // D5 (design-data-interpolation.md): brief fields interpolate `${product.x}`
+    // D5 (design-data-interpolation.md): brief fields interpolate `${shortcut.x}`
     // against the connector's structured data and the registered global
     // shortcuts. Same "only one source of this type" gate as engine interpCtx,
     // so a brief that sees `${product.name}` is guaranteed to also be visible
@@ -215,6 +220,19 @@ function interpolateSourceNode(node: GraphNode, ctx: Record<string, unknown>): G
     }
   }
   return changed ? { ...node, source: out } : node;
+}
+
+/**
+ * Whether a connector's structured payload carries nothing referenceable: it
+ * was never supplied (manual, or an http response that was not JSON), or it is
+ * an empty collection (empty product library, query with no rows, glob that
+ * matched no file). `null` counts as empty; a scalar body does not.
+ */
+function isEmptyData(data: unknown): boolean {
+  if (data === undefined || data === null) return true;
+  if (Array.isArray(data)) return data.length === 0;
+  if (typeof data === "object") return Object.keys(data).length === 0;
+  return false;
 }
 
 /**

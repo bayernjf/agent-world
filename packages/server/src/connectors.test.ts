@@ -196,6 +196,15 @@ describe("resolveConnector - database", () => {
     const rows = JSON.parse(r.text) as Array<Record<string, unknown>>;
     expect(rows).toHaveLength(2);
     expect(rows[0]).toMatchObject({ name: "alpha" });
+    expect(r.data).toEqual(rows);
+  });
+
+  it("exposes rows on data even in csv format", async () => {
+    const r = await resolveConnector({
+      type: "database",
+      database: { driver: "sqlite", path: dbPath, query: "SELECT name FROM products ORDER BY id", format: "csv" },
+    });
+    expect(r.data).toEqual([{ name: "alpha" }, { name: "beta" }]);
   });
 
   it("supports bind parameters and csv format", async () => {
@@ -237,6 +246,56 @@ describe("resolveConnector - database", () => {
 
   it("throws when database config is missing", async () => {
     await expect(resolveConnector({ type: "database" })).rejects.toThrow(/missing 'database'/);
+  });
+});
+
+/** design-data-interpolation.md D1: every connector type with a structured
+ *  form exposes it on `data` so `${shortcut.path}` can reach it. */
+describe("resolveConnector - structured data channel", () => {
+  it("file exposes one entry per file with its text", async () => {
+    const f1 = path.join(dir, "data-a.txt");
+    const f2 = path.join(dir, "data-b.txt");
+    writeFileSync(f1, "第一份");
+    writeFileSync(f2, "第二份");
+    const r = await resolveConnector({ type: "file", file: { path: path.join(dir, "data-*.txt") } });
+    const entries = r.data as Array<{ name: string; path: string; content: string }>;
+    expect(entries).toHaveLength(2);
+    expect(entries.map((e) => e.name).sort()).toEqual(["data-a.txt", "data-b.txt"]);
+    expect(entries.find((e) => e.name === "data-b.txt")?.content).toBe("第二份");
+  });
+
+  it("file in asImages mode exposes metadata without content", async () => {
+    const png = path.join(dir, "shot.png");
+    writeFileSync(png, "binary");
+    const r = await resolveConnector({ type: "file", file: { path: png, asImages: true } });
+    expect(r.data).toEqual([{ name: "shot.png", path: png }]);
+  });
+
+  it("http exposes the parsed JSON body even when extract narrowed the text", async () => {
+    const r = await resolveConnector({
+      type: "http",
+      http: { url: `${base}/json`, method: "GET", extract: ["note"] },
+    });
+    expect(r.text).toBe("hi");
+    expect(r.data).toEqual({ items: [{ name: "widget" }], note: "hi" });
+  });
+
+  it("http leaves data undefined for a non-JSON response", async () => {
+    const r = await resolveConnector({ type: "http", http: { url: `${base}/text`, method: "GET" } });
+    expect(r.data).toBeUndefined();
+  });
+
+  it("form exposes answers keyed by field name, not label", async () => {
+    const r = await resolveConnector(
+      { type: "form", form: { fields: [{ name: "orderId", label: "订单号" }, { name: "note" }] } },
+      { orderId: "A-1" },
+    );
+    expect(r.data).toEqual({ orderId: "A-1", note: "" });
+  });
+
+  it("manual leaves data undefined so its ctx entry stays a bare string", async () => {
+    const r = await resolveConnector({ type: "manual" });
+    expect(r.data).toBeUndefined();
   });
 });
 
@@ -284,6 +343,7 @@ describe("resolveConnector - database (postgres)", () => {
       },
     });
     expect(JSON.parse(r.text)).toEqual([{ id: 1, name: "alpha" }]);
+    expect(r.data).toEqual([{ id: 1, name: "alpha" }]);
     expect(pg.connect).toHaveBeenCalled();
     expect(pg.query).toHaveBeenCalledWith("SELECT * FROM users WHERE id > $1", [0]);
     expect(pg.end).toHaveBeenCalled();
