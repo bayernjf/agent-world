@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, cleanup } from "@testing-library/react";
+import { WebGLRenderer } from "three";
 import { useViewMode } from "../store/view-mode";
 import { useGraph } from "../store/graph";
 
@@ -8,6 +9,7 @@ import { useGraph } from "../store/graph";
 vi.mock("three", async (importOriginal) => {
   const actual = await importOriginal<typeof import("three")>();
   class MockWebGLRenderer {
+    static instances: MockWebGLRenderer[] = [];
     setPixelRatio = vi.fn();
     setSize = vi.fn();
     shadowMap: { enabled: boolean; type: number } = { enabled: false, type: 0 };
@@ -15,6 +17,9 @@ vi.mock("three", async (importOriginal) => {
     dispose = vi.fn();
     forceContextLoss = vi.fn();
     render = vi.fn();
+    constructor() {
+      MockWebGLRenderer.instances.push(this);
+    }
   }
   return {
     ...actual,
@@ -60,6 +65,9 @@ function setGraphWithOneNode() {
 }
 
 beforeEach(() => {
+  // Clear instance bookkeeping between tests so counts stay deterministic.
+  const mock = WebGLRenderer as unknown as { instances: unknown[] };
+  mock.instances = [];
   useViewMode.setState({
     viewMode: "3d",
     camera3d: null,
@@ -88,5 +96,31 @@ describe("Canvas3D", () => {
     const { container, unmount } = render(<Canvas3D />);
     expect(container.querySelector(".canvas3d")).toBeInTheDocument();
     expect(() => unmount()).not.toThrow();
+  });
+
+  it("does not recreate the WebGL renderer when the graph changes (audit M30)", async () => {
+    const { default: Canvas3D } = await import("./Canvas3D");
+    const { unmount } = render(<Canvas3D />);
+    const instances = (WebGLRenderer as unknown as { instances: { dispose: ReturnType<typeof vi.fn> }[] })
+      .instances;
+    expect(instances).toHaveLength(1);
+
+    // Simulate an edit: add a second node. The graph-sync effect should rebuild
+    // node/edge geometry only — the renderer instance must survive.
+    useGraph.setState((s) => ({
+      graph: {
+        ...s.graph,
+        nodes: [
+          ...s.graph.nodes,
+          { id: "n2", kind: "imageGen" as const, x: 200, y: 0, label: "节点2" },
+        ],
+      },
+    }));
+
+    expect(instances).toHaveLength(1);
+    expect(instances[0]!.dispose).not.toHaveBeenCalled();
+
+    unmount();
+    expect(instances[0]!.dispose).toHaveBeenCalledTimes(1);
   });
 });
