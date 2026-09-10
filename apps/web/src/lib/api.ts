@@ -540,6 +540,45 @@ export interface PublishTarget {
   config?: { url?: string; token?: string; metricsSecret?: string };
 }
 
+/** Per-graph run rollup for the operations dashboard (RTS phase A). */
+export interface OperationsGraphSummary {
+  graphId: string;
+  graphName: string | null;
+  totalRuns: number;
+  running: number;
+  halted: number;
+  done: number;
+  failed: number;
+  tripped: number;
+  cancelled: number;
+  lastRunId: string | null;
+  lastStatus: string | null;
+  lastStartedAt: number | null;
+  lastEndedAt: number | null;
+  costUsd: number;
+}
+
+/** Cross-graph totals of the operations overview. */
+export interface OperationsTotals {
+  totalRuns: number;
+  running: number;
+  halted: number;
+  done: number;
+  failed: number;
+  tripped: number;
+  cancelled: number;
+  costUsd: number;
+}
+
+/** GET /api/operations/overview response (RTS phase A2). */
+export interface OperationsOverview {
+  generatedAt: number;
+  since: number | null;
+  totals: OperationsTotals;
+  graphs: OperationsGraphSummary[];
+  nextRuns: Record<string, Record<string, number | null>>;
+}
+
 export const api = {
   listSkills: () => authFetch("/api/skills").then(json<Skill[]>),
 
@@ -1036,6 +1075,12 @@ export const api = {
 
   aggregatePerformance: (groupBy = "graph_id") =>
     authFetch(`/api/performance?groupBy=${groupBy}`).then(json<PerformanceAggregate[]>),
+
+  /** Operations dashboard overview; `sinceMs` windows counters/cost (optional). */
+  operationsOverview: (sinceMs?: number) =>
+    authFetch(`/api/operations/overview${sinceMs != null ? `?since=${sinceMs}` : ""}`).then(
+      json<OperationsOverview>,
+    ),
 
   listContentCosts: () => authFetch("/api/content-costs").then(json<ContentCost[]>),
 

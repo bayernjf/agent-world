@@ -189,6 +189,10 @@
         "label": "Performance",
         "hint": "Impressions/clicks/conversions/GMV feedback and ROI"
       },
+      "operations": {
+        "label": "Operations",
+        "hint": "Cross-pipeline run status, reviews, failures and cost"
+      },
       "publishTargets": {
         "label": "Publish channels",
         "hint": "Configure open channels you can publish to (webhook)"
@@ -451,6 +455,59 @@
     "costUsdPh": "Cost USD (e.g. 0.123)",
     "costEmpty": "No content cost yet — record one below.",
     "addCostFailed": "Could not record the cost"
+  },
+  "operations": {
+    "title": "Operations",
+    "subtitle": "Cross-pipeline run overview",
+    "windowToday": "Today",
+    "windowAll": "All time",
+    "refresh": "Refresh",
+    "generatedAt": "Updated {{time}}",
+    "summary": {
+      "total": "Total runs",
+      "running": "Running",
+      "halted": "Needs review",
+      "done": "Succeeded",
+      "failed": "Failed",
+      "tripped": "Tripped",
+      "cancelled": "Cancelled",
+      "cost": "Cost",
+      "successRate": "Success rate"
+    },
+    "links": {
+      "reviews": "Review queue",
+      "calendar": "Publish calendar",
+      "performance": "Effect & cost"
+    },
+    "graph": {
+      "lastRun": "Last run",
+      "nextRun": "Next run",
+      "cost": "Cost",
+      "never": "Never run",
+      "runs": "{{n}} runs",
+      "openRun": "Open latest run"
+    },
+    "status": {
+      "running": "Running",
+      "halted": "Needs review",
+      "done": "Healthy",
+      "failed": "Failed",
+      "tripped": "Tripped",
+      "cancelled": "Cancelled",
+      "idle": "Idle"
+    },
+    "ago": {
+      "justNow": "just now",
+      "minutes": "{{n}}m ago",
+      "hours": "{{n}}h ago",
+      "days": "{{n}}d ago",
+      "futureMinutes": "in {{n}}m",
+      "futureHours": "in {{n}}h",
+      "futureDays": "in {{n}}d"
+    },
+    "attentionTitle": "Needs attention",
+    "noFailures": "No failed or tripped pipelines",
+    "empty": "No pipelines yet. Create one on the canvas; once it runs, its status and cost will be summarized here."
   },
   "publishTargets": {
     "title": "Publish channels",
