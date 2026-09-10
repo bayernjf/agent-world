@@ -2,7 +2,7 @@
 
 > 定位：把「单张产线的等距 3D 视图」升级为「名下所有产线同屏运转的工业园区」的产品形态与落地路径设计。
 >
-> 状态：**方向立项 / P3，未实施**（PRODUCT_STRATEGY §七定性为后差异化留存手段）；阶段 A 的平面工作台能力大部分已落地。创建：2026-09-10。
+> 状态：**方向立项 / P3；阶段 A（平面运营工作台）已于 2026-09-10 全部完成上线（PR #239 `514d18a`），阶段 B/C 仍为未实施草案**（PRODUCT_STRATEGY §七定性为后差异化留存手段）。创建：2026-09-10。
 >
 > 约定：延续「工业沙盘」本体论（见 [design-glossary.md](design-glossary.md)）——本体是工厂，不是游戏皮肤；服务器算真实业务，浏览器本地 GPU 渲染，不烧服务器算力（PRODUCT_STRATEGY §七）。
 
@@ -109,17 +109,17 @@ Inspector（模型 / prompt / 重试 / 成本），钻取终点。
 - **验收**：一屏看到所有产线的运行状态、待审数量、当日成本与失败项，无需逐个切产线。
 - **意义**：用最低成本验证「全局运营」需求是否真实高频；它同时是 L0 的信息架构原型（六类信息先以平面形式跑通）。
 
-**原子步骤（7 步）**：
+**原子步骤（7 步）—— ✅ 全部完成（2026-09-10，PR #239 merge `514d18a` 已部署 Hasee，真机对账见 handoff 待办 43；server 1015 / web 1650 全绿）**：
 
-| 步 | 改动 | 验收 |
+| 步 | 改动 | 验收 / 落地 |
 |---|---|---|
-| A1 | `db.ts` 加跨产线只读聚合方法：各 graph 最近 run 状态 / done·failed 计数 / 时间窗成本汇总（先核实成本落库列，复用逐节点成本计量，不新算口径） | db 单测：聚合正确 + 跨用户隔离 + 空产线不炸 |
-| A2 | server `GET /api/operations/overview`：全局状态分布 + 每产线卡数据 + halted 待审数 + next-runs 汇总（复用触发器 next-runs 逻辑） | api 测试：返回形状 / 跨用户隔离 / 未认证 401 |
-| A3 | web api client + operations store（轮询或复用现有 run SSE，不新开连接通道） | typecheck 绿 |
-| A4 | `OperationsDashboard.tsx`：全局汇总条（运行/空闲/待审/失败/当日成本）+ 产线状态卡列表（点击进该产线）+ 失败清单（带「重试该节点」入口） | 组件测试：各状态渲染、空态、点击跳转 |
-| A5 | 导航整合：一级「运营工作台」入口，下挂 监控 / 审核队列(F2) / 日历(F8) / 效果成本(F6·F9)；复用「待审核 (n)」角标 | 浏览器走查四个子页可达、角标一致 |
-| A6 | zh/en i18n 全量 `t()` + 设计 token `var()` | `keys.test` 守护绿、无硬编码中文/色值 |
-| A7 | 全量测试 + Hasee 真机对账（4 条 M1 产线的状态 / 成本与库逐产线核对） | `pnpm -r typecheck`、web+server 全量绿；对账记录写入 handoff |
+| ✅ A1 | `db.ts` 加跨产线只读聚合方法：各 graph 最近 run 状态 / done·failed 计数 / 时间窗成本汇总（先核实成本落库列，复用逐节点成本计量，不新算口径） | `225f7b3`，`db.operations.test.ts` 5 例：聚合正确 + 跨用户隔离 + 空产线不炸 |
+| ✅ A2 | server `GET /api/operations/overview`：全局状态分布 + 每产线卡数据 + halted 待审数 + next-runs 汇总（复用触发器 next-runs 逻辑） | `b85a768`，`api.operations.test.ts` 5 例：返回形状 / 跨用户隔离 / 未认证 401 |
+| ✅ A3 | web api client（`operationsOverview(sinceMs?)` + OperationsOverview 类型）；按现有同级页面惯例组件内自取数、15s 轮询，不新开连接通道、不造冗余 store | typecheck 绿 |
+| ✅ A4 | `OperationsDashboard.tsx`：全局汇总条（运行/待审/成功/失败/熔断/成本/成功率）+ 产线状态卡列表（下钻最近 run）+ 失败/熔断「需要关注」清单 | `5c94fca`，7 组件测试：各状态渲染、空态、时窗切换、点击跳转 |
+| ✅ A5 | 命令面板一级「运营工作台」入口，hub 下挂审核队列(F2，带 halted 角标) / 日历(F8) / 效果成本(F6·F9) | 浏览器走查子页可达、跳转关闭本层 |
+| ✅ A6 | zh/en i18n 全量 `t()`（modals.operations，zh/en 同构）+ 设计 token `var()` | `keys.test` 4/4、无硬编码中文/色值 |
+| ✅ A7 | 全量测试 + Hasee 真机对账（4 条 M1 产线的状态 / 成本与 node:sqlite 直查库逐产线核对） | `pnpm -r typecheck`、server 1015 / web 1650 全绿；全部时窗 total13/done9/failed4/$0.5446/成功率69% 与库逐项一致，结论写入 handoff 待办 43 |
 
 ### 阶段 B · 宏观沙盘 MVP（步骤为草案，重启时复核）
 
