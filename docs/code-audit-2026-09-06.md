@@ -227,15 +227,15 @@
 | L16 | `mcp index.ts:43` stdout EPIPE | ✅ 已修复（2026-09-08：EPIPE 监听优雅退出） |
 | L17 | `mcp client.ts:34` AbortError 误导 | ✅ 区分超时/不可达 |
 | L18 | `mcp notifications.ts:158` broadcast write | ✅ 已修复（2026-09-08：write 异常标记关闭并移除 sink） |
-| L19 | `web App.tsx:66` useGraph 无 selector | ⚠️ 暂缓（性能优化，价值低） |
-| L20 | `web App.tsx:125` onDragStart 清理 | ⚠️ 未修复（仅中途卸载残留，复核已降级） |
+| L19 | `web App.tsx:66` useGraph 无 selector | ✅ 已修复（2026-09-11：解构改为逐字段 selector，App 只订阅实际使用的切片） |
+| L20 | `web App.tsx:125` onDragStart 清理 | ✅ 已修复（2026-09-11：detachDrag ref + unmount cleanup，拖拽中途卸载不再残留 document 监听） |
 | L21 | `web artifact-renderers.tsx:62` 有序列表 | ✅ ol/ul 区分 |
-| L22 | `web Minimap.tsx:184` effect 依赖 | ⚠️ 暂缓（性能优化，价值低） |
+| L22 | `web Minimap.tsx:184` effect 依赖 | ✅ 已修复（2026-09-11：viewport/scale 走 liveRef，全局 pointer 监听只在 dragging 开始时挂载一次，不再每帧重挂） |
 | L23 | `core table.ts:71` 多字符分隔符 | ✅ 已修复（2026-09-08：`startsWith(delimiter, i)` 支持多字符） |
 | L24 | `core compile.ts:221` 返工自环 | ➖ 复核后无需修复（rework 自环 from===to 是「契约失败重跑自己」的合法模式，见 engine.skills.test.ts contractGraph；原判 error 会误伤） |
-| L25 | `core compile.ts:54` topoSort O(V·E) | ⚠️ 暂缓（性能优化，单机阶段图规模小，价值低） |
-| L26 | `core graph.ts:1012` TriggerConfig 约束 | ⚠️ 暂缓（运行时已有兜底，加严格校验有历史数据风险） |
-| L27 | `core compile.ts:235` rework body 祖先 | ⚠️ 未修复（可能为设计意图） |
+| L25 | `core compile.ts:54` topoSort O(V·E) | ✅ 已修复（2026-09-11：预构建出边邻接表，复杂度降到 O(V+E)） |
+| L26 | `core graph.ts:1012` TriggerConfig 约束 | ✅ 已修复（2026-09-11：schema 保持宽松不破坏历史图，compile 阶段对 cron/webhook/event/batch 缺字段发非破坏性 warning） |
+| L27 | `core compile.ts:235` rework body 祖先 | ✅ 已闭环（2026-09-11：确认为设计意图，补注释说明 body 是整条正向祖先链，非 bug） |
 | L28 | 3D 材质不 dispose | ✅ 已修复（2026-09-10：cleanup 统一 dispose Mesh+Line 的材质数组，含多面 base 材质） |
 | L29 | 3D camera3d 闭包竞态 | ✅ 已修复（2026-09-10：effect 拆分后 camera3d 仅在 mount-once 读取，graph 更新不再恢复陈旧相机） |
 | L30 | 3D 每帧 setGroupEmissive | ✅ 已修复（2026-09-10：prevSel 增量高亮，仅选中变化时遍历 emissive；graph 重建后重置并重应用） |
@@ -243,12 +243,20 @@
 
 ### 汇总
 
-- **已修复：67 项**（high 8 / medium 36 / low 23；2026-09-10 增补 7 项：Canvas3D M23/M26/M30 + L28-L31）
+- **已修复：73 项**（high 8 / medium 36 / low 29；2026-09-10 增补 7 项：Canvas3D M23/M26/M30 + L28-L31；2026-09-11 清账最后 6 项 L19/L20/L22/L25/L26/L27）
 - **无需修复：3 项**（M4、L7、L24，复核后后果不成立或为合法模式）
 - **部分修复：1 项**（M38，FanoutConfig 已修，其余未改）
-- **未修复：6 项**（high 0 / medium 0 / low 6，均为暂缓：性能 L19/L22/L25、L20 复核降级、历史数据风险 L26、设计意图 L27）
+- **未修复：0 项**（2026-09-11 起，原剩余 6 项 low 全部清账）
 
-**2026-09-10 复核结论**：剩余 6 项逐项复核，确认均应继续暂缓：
+**2026-09-11 清账结论**：原剩余 6 项 low 全部处理完毕：
+- **L19**（useGraph 无 selector）：已改为逐字段 selector，App 只订阅实际使用的切片
+- **L20**（onDragStart 清理）：用 detachDrag ref 持有 detach 函数 + unmount cleanup，拖拽中途组件卸载不再残留 document 监听
+- **L22**（Minimap effect 依赖）：viewport/scale 走 liveRef，全局 pointer 监听只在 dragging 开始时挂载一次，拖拽每帧不再卸载/重挂
+- **L25**（topoSort O(V·E)）：预构建出边邻接表，复杂度降到 O(V+E)
+- **L26**（TriggerConfig 约束）：zod schema 保持宽松（旧图仍可 parse），改在 compile 阶段对 cron/webhook/event/batch 缺字段发**非破坏性 warning**，新增 5 个测试
+- **L27**（rework body 祖先）：确认为设计意图，补注释说明 body 是「入口到 gate 的整条正向祖先链」（返工需重跑整条链路），非 bug
+
+**2026-09-10 复核结论**（历史记录）：剩余 6 项逐项复核，当时确认均应继续暂缓（2026-09-11 已全部清账，见上）：
 - **L19**（useGraph 无 selector）：纯性能优化，单机单用户阶段图状态变更频率低，无感知卡顿，价值低 → 暂缓
 - **L20**（onDragStart 清理）：已降级为低优，仅在 Inspector 宽度拖拽中途组件卸载时残留事件监听，正常使用路径（拖拽→松手）已正确 cleanup，边缘场景影响极小 → 暂缓
 - **L22**（Minimap effect 依赖）：纯性能优化，Minimap 重绘成本低（SVG 轻量），无感知卡顿 → 暂缓
@@ -259,6 +267,6 @@
 **未修复项归因**（供后续接力时按类推进）：
 1. **诚实边界 / 运维配置**：H4（Python 隔离，切 P2 后端）。
 2. **需专项重构 / 回归**：M1（runNode abort）、M3（产物 id 前缀）、M5（文本产物事件）、M13（速率限制中间件）。~~M30（Canvas3D effect 拆分）~~ 已于 2026-09-10 修复。
-3. **需配套迁移（怕破坏历史数据）**：M38 的 ConnectorConfig/GraphNode、L5（at-rest 加密）、L6（proxy 白名单）、L26（TriggerConfig）。
-4. **低优健壮性 / 性能**：M15-M19、M21-M24、M26-M27、M31-M36、L15-L16、L18-L20、L22-L25、L27-L31。
-5. **复核后判定为设计意图 / 风险低**：L20（已降级）、L27。
+3. **需配套迁移（怕破坏历史数据）**：M38 的 ConnectorConfig/GraphNode、L5（at-rest 加密）、L6（proxy 白名单）。~~L26（TriggerConfig）~~ 已于 2026-09-11 用 compile 阶段非破坏性 warning 清账。
+4. **低优健壮性 / 性能**：M15-M19、M21-M24、M26-M27、M31-M36、L15-L16、L18。~~L19-L20、L22-L25、L27-L31~~ 已分别于 2026-09-08/10/11 修复。
+5. **复核后判定为设计意图 / 风险低**：~~L20（已降级）、L27~~ 均已于 2026-09-11 闭环（L20 补 cleanup、L27 补设计注释）。

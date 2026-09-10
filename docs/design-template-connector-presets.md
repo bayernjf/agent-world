@@ -65,17 +65,18 @@ d095d59  22:29  refactor(server): drop buildSourceBrief fallback param（删 D4 
 | tpl-competitor-watch 竞品监控摘要 | 监控开关 | http 抓竞品页 |
 | tpl-data-report 数据报表生成 | 数据源 | http 拉取数据 → code 清洗 |
 
-### C 类·文件/图片输入型（6 个）——本次不动，登记后续
+### C 类·文件/图片输入型（7 个）——✅ 2026-09-11 已预设 file connector
 
-source 主路径喂给下游 fileParse / ocr，语义上对应 **file connector 或 source.images**。写本文时 file connector 还没有结构化 data 通道（D1 仅 product 落地），所以判定为"不涉及插值问题、属独立的输入体验优化"。**2026-09-09 补记**：五类 connector 已全部接上 `data` 通道，file 给 `[{name, path, content}]`，能力阻塞不再成立；预设仍未做，原因换成了"写死的本地路径对别人的机器没意义"，见 §8。
+source 主路径喂给下游 fileParse / ocr，语义上对应 **file connector 或 source.images**。写本文时 file connector 还没有结构化 data 通道（D1 仅 product 落地），所以判定为"不涉及插值问题、属独立的输入体验优化"。**2026-09-09 补记**：五类 connector 已全部接上 `data` 通道，file 给 `[{name, path, content}]`，能力阻塞不再成立。**2026-09-11 落地**：不写死绝对路径（对别人机器无意义），改为预选类型 + 空路径占位——source 预设 `{ type: "file", file: { path: "" } }`，图片型（scan-ocr / invoice-ocr）加 `asImages: true`；engine 对空白 path 抛中文友好错误。用户从模板创建后只需在投料台填路径。
 
 | 模板 | source 名 | 下游 |
 |---|---|---|
 | tpl-doc-ingest 文档智能解析入库 | 文档入口 | fileParse + ocr（另有 http 辅路） |
-| tpl-scan-ocr 扫描件数字化 | 文件入口 | ocr（另有 http 辅路） |
+| tpl-scan-ocr 扫描件数字化 | 文件入口 | ocr（另有 http 辅路，`asImages: true`） |
 | tpl-contract-review 合同审查助手 | 合同文件 | fileParse |
 | tpl-privacy-review 隐私政策合规审查 | 隐私政策文件 | fileParse |
-| tpl-invoice-ocr 发票批量 OCR 台账 | 发票图片 | ocr |
+| tpl-invoice-ocr 发票批量 OCR 台账 | 发票图片 | ocr（`asImages: true`） |
+| tpl-batch-contract-review 批量合同审查 | 合同投料台 | code 拆条 |
 | tpl-due-diligence 尽调清单 | 尽调材料台 | fileParse（多文档） |
 
 ### D 类·手动文本/主题/清单/CSV 型（20 个）——保持 manual
@@ -180,7 +181,7 @@ source 主路径喂给下游 fileParse / ocr，语义上对应 **file connector 
 
 ## 8. 边界与后续（不在本次范围）
 
-- **C 类文件型模板预设 file connector / source.images**：~~等 file connector 接入结构化 data 通道~~ 通道已于 2026-09-09 接通，卡点变成"预设什么路径"——写死绝对路径对别人的机器无意义，等可移植的约定或真实反馈再立项。
+- ~~**C 类文件型模板预设 file connector / source.images**~~ **已落地 2026-09-11**：最终形态是「预选 connector 类型 + 空路径占位 + engine 空路径友好报错」，不写死任何绝对路径。7 个模板（contract-review / doc-ingest / scan-ocr / privacy-review / batch-contract-review / due-diligence / invoice-ocr）source 预设 `{ type: "file", file: { path: "" } }`，其中 scan-ocr / invoice-ocr 图片型加 `asImages: true`；`connectors.ts` 对空白 path 抛中文友好错误（避免空路径 resolve 到进程 CWD 遍历服务器目录）。用户从模板创建后投料台已选中「文件」连接器，只需填路径，无需先从「手动」切换类型。
 - ~~**其他 connector 的结构化 data**~~ **已落地 2026-09-09**：五类 connector 全部填 `data` + 各自快捷名（`${response.x}` / `${row.列名}` / `${form.字段名}` / `${file.content}`），见 [design-data-interpolation.md §13](design-data-interpolation.md)。
 - **media-pipeline 是否预设 product**：其输入"主题"可商品可纯主题，保持 manual；若后续数据表明绝大多数用于商品，再单独评估。
 - 当初回滚原因无记录：恢复后在真实狗粮（tpl-product/tpl-xiaohongshu 端到端）中重点观察多 source 退化与防重入，发现问题以新事实为准再调整，不沿用猜测。
