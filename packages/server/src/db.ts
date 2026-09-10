@@ -218,6 +218,30 @@ export interface ContentCostAggregate {
   roi: number;
 }
 
+/**
+ * Per-graph run rollup for the operations dashboard (RTS phase A1).
+ * Counters cover the requested time window (all time when `since` is unset);
+ * `last*` always reflects the most recent run regardless of the window;
+ * `costUsd` reuses the node-level accounting (SUM(node_runs.cost_usd), runs
+ * still running excluded — same口径 as `costForMonth`).
+ */
+export interface GraphRunSummary {
+  graphId: string;
+  graphName: string | null;
+  totalRuns: number;
+  running: number;
+  halted: number;
+  done: number;
+  failed: number;
+  tripped: number;
+  cancelled: number;
+  lastRunId: string | null;
+  lastStatus: string | null;
+  lastStartedAt: number | null;
+  lastEndedAt: number | null;
+  costUsd: number;
+}
+
 /** An open-channel publish target (F7-B). */
 export interface PublishTarget {
   id: string;
