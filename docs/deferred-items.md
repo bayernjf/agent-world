@@ -126,6 +126,7 @@
 | 退款政策 | 早期手动收款阶段个案处理即可，无固定政策必要 | 接入支付网关（Stripe / 微信支付宝）、出现第一笔真实付费订单 | [design-monetization.md](design-monetization.md) §6 |
 | 付费层 SLA 承诺 | 免费/入门层不需要；企业版 SLA 已在 monetization §7 表里 | 付费客户提出可用性要求 / 企业版签约 | [design-monetization.md](design-monetization.md) §7 |
 | 转化漏斗埋点 | 有真实付费用户后才需要，现在埋点是过度设计 | 出现付费用户、需优化「注册→试用→付费」转化率 | [design-monetization.md](design-monetization.md) §8 |
+| RTS 宏观上帝视角（L0 工业园区） | 价值前提是多产线用户——单产线打开是空地图；L1 单厂 3D 已建成，L0 定 P3 差异化留存，不抢商业化主线。阶段 A（平面全局 run 监控页串 F2/F8/F6/F9）成本最低、可在 M1 等待期先行验证需求 | 商业化闭环（订阅 gate/支付）跑通 **且** 出现真实多产线运营场景（参考：活跃用户人均 ≥3 条产线，或用户反馈「产线多看不过来」）；阶段 A 触发条件更宽，M1 等待期即可启动 | [design-rts-overview.md](design-rts-overview.md) §九/§十 |
 | ~~agnes 视频计费精确按秒（配 `durationPath`）~~ ✅ 已修复并真机验证 | 2026-09-09 真机抓取 agnes 完成任务 JSON：成片时长在**顶层 `seconds` 字段、且是数字字符串**（实测 `"5.0"`，另有 `perf_params.num_frames=121/frame_rate=24` 嵌套字段、顶层无）。修复 commit `5ffeb65`（PR #218，merge `2e23a06` 已部署 Hasee）：`AGNES_PROVIDER.videoAdapter` 配 `durationPath: "seconds"`；`videoBillingSeconds` 经 `positiveNumber` 同时接受 JSON number 与数字字符串。**真机验证（部署后 dist）**：用真实 agnes 完成形态经部署的 worker+adapter+单价回放——`seconds:"5.0"`→5s/$0.50 不回归；`seconds:"8.0"`（旧逻辑会落 5s 兜底）→8s/$0.80，证明字符串强转+durationPath 真生效。注：agnes omitDuration 默认出片即 5s，常规 run 金额仍是 $0.5，本修价值在非 5s 成片不被截成 5s | —（已闭环） | [config.ts AGNES_PROVIDER](../packages/server/src/config.ts) + openai-compatible.ts `videoBillingSeconds` |
 
 ## 已重启 / 已砍掉
