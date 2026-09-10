@@ -189,6 +189,10 @@
         "label": "效果数据",
         "hint": "曝光/点击/转化/GMV 回流与 ROI"
       },
+      "operations": {
+        "label": "运营工作台",
+        "hint": "跨产线运行状态、待审、失败与成本总览"
+      },
       "publishTargets": {
         "label": "发布渠道",
         "hint": "配置可真正发布的开放渠道（Webhook）"
@@ -451,6 +455,59 @@
     "costUsdPh": "成本 USD（如 0.123）",
     "costEmpty": "暂无内容成本，先在下方录入。",
     "addCostFailed": "录入成本失败"
+  },
+  "operations": {
+    "title": "运营工作台",
+    "subtitle": "跨产线运行总览",
+    "windowToday": "今日",
+    "windowAll": "全部",
+    "refresh": "刷新",
+    "generatedAt": "更新于 {{time}}",
+    "summary": {
+      "total": "总运行",
+      "running": "运行中",
+      "halted": "待审",
+      "done": "成功",
+      "failed": "失败",
+      "tripped": "熔断",
+      "cancelled": "取消",
+      "cost": "成本",
+      "successRate": "成功率"
+    },
+    "links": {
+      "reviews": "审核队列",
+      "calendar": "发布日历",
+      "performance": "效果与成本"
+    },
+    "graph": {
+      "lastRun": "最近运行",
+      "nextRun": "下次触发",
+      "cost": "成本",
+      "never": "从未运行",
+      "runs": "运行 {{n}} 次",
+      "openRun": "查看最近运行"
+    },
+    "status": {
+      "running": "运行中",
+      "halted": "待审",
+      "done": "正常",
+      "failed": "失败",
+      "tripped": "熔断",
+      "cancelled": "取消",
+      "idle": "空闲"
+    },
+    "ago": {
+      "justNow": "刚刚",
+      "minutes": "{{n}} 分钟前",
+      "hours": "{{n}} 小时前",
+      "days": "{{n}} 天前",
+      "futureMinutes": "{{n}} 分钟后",
+      "futureHours": "{{n}} 小时后",
+      "futureDays": "{{n}} 天后"
+    },
+    "attentionTitle": "需要关注",
+    "noFailures": "没有失败或熔断的产线",
+    "empty": "还没有产线。先在画布创建一条产线，运行后这里会汇总它的状态与成本。"
   },
   "publishTargets": {
     "title": "发布渠道",
