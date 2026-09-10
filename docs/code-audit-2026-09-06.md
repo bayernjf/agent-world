@@ -188,14 +188,14 @@
 | M20 | `mcp tools.ts` batch_run inputs 无上限 | ✅ `MAX_BATCH_INPUTS=500` |
 | M21 | `web store/run.ts` loadRun 无 try/catch | ✅ 已修复（2026-09-08：包 try/catch） |
 | M22 | `web store/graph.ts` flushSave 不抛出 | ✅ 已修复（2026-09-08：失败 rethrow） |
-| M23 | `web Canvas3D.tsx` pointer 拖拽残留 | ⚠️ 暂缓（3D 拖拽竞态，单机阶段价值低） |
+| M23 | `web Canvas3D.tsx` pointer 拖拽残留 | ✅ 已修复（2026-09-10：setPointerCapture + releasePointerCapture + pointercancel 兜底，画布外松手不再冻结相机） |
 | M24 | `web lib/api.ts` listBrandTerms/BannedTerms res.ok | ✅ 已修复（2026-09-08：加 res.ok 检查） |
 | M25 | `web store/run.ts` JSON.parse 无保护 | ✅ try/catch |
-| M26 | `web Canvas3D.tsx` setSize 无 ResizeObserver | ⚠️ 暂缓（3D 视图缩放，价值低） |
+| M26 | `web Canvas3D.tsx` setSize 无 ResizeObserver | ✅ 已修复（2026-09-10：复核确认现有代码已含 ResizeObserver，画布随容器缩放，M26 满足） |
 | M27 | `web store/graph.ts` 自动保存无提示 | ✅ 已修复（2026-09-08：`saveFailed` i18n + ControlPanel 红色提示） |
 | M28 | `web store/run.ts` loadRun/connect 竞态 | ✅ generation 守卫 |
 | M29 | web 多处 fetch/DELETE 不查 res.ok | ✅ api DELETE + RunCompare + ProductGallery + KnowledgePanel + BatchManager |
-| M30 | `web Canvas3D.tsx` effect 依赖 [graph] 重建 | ⚠️ 暂缓（3D 渲染性能，价值低） |
+| M30 | `web Canvas3D.tsx` effect 依赖 [graph] 重建 | ✅ 已修复（2026-09-10：拆 mount-once + graph-sync 双 effect，graph 编辑只重建节点/边几何，WebGLRenderer/灯光/循环不再销毁重建） |
 | M31 | `core pricing.ts:124` cachedTokens 重复计费 | ✅ 已修复（2026-09-08：cacheRead 未配时 cachedTokens 计 0） |
 | M32 | `core platforms.ts` span 套用正文 | ✅ 已修复（2026-09-08：`field` 区分 title/body，autoFix 排除标题） |
 | M33 | `core artifact.ts:101` bare URL | ✅ 已修复（2026-09-08：负向后顾排除 `](`，`[^\s()]+` 截断尾随 `)`） |
@@ -236,21 +236,21 @@
 | L25 | `core compile.ts:54` topoSort O(V·E) | ⚠️ 暂缓（性能优化，单机阶段图规模小，价值低） |
 | L26 | `core graph.ts:1012` TriggerConfig 约束 | ⚠️ 暂缓（运行时已有兜底，加严格校验有历史数据风险） |
 | L27 | `core compile.ts:235` rework body 祖先 | ⚠️ 未修复（可能为设计意图） |
-| L28 | 3D 材质不 dispose | ⚠️ 未修复 |
-| L29 | 3D camera3d 闭包竞态 | ⚠️ 未修复 |
-| L30 | 3D 每帧 setGroupEmissive | ⚠️ 未修复 |
-| L31 | 3D GridHelper 未 dispose | ⚠️ 未修复 |
+| L28 | 3D 材质不 dispose | ✅ 已修复（2026-09-10：cleanup 统一 dispose Mesh+Line 的材质数组，含多面 base 材质） |
+| L29 | 3D camera3d 闭包竞态 | ✅ 已修复（2026-09-10：effect 拆分后 camera3d 仅在 mount-once 读取，graph 更新不再恢复陈旧相机） |
+| L30 | 3D 每帧 setGroupEmissive | ✅ 已修复（2026-09-10：prevSel 增量高亮，仅选中变化时遍历 emissive；graph 重建后重置并重应用） |
+| L31 | 3D GridHelper 未 dispose | ✅ 已修复（2026-09-10：Line 分支材质 dispose，GridHelper 材质数组随场景释放） |
 
 ### 汇总
 
-- **已修复：60 项**（high 8 / medium 33 / low 19；2026-09-08 增补 24 项：server L5/L6+M1/M3/M5、mcp M15-M19+L15/L16/L18、core M31-M36+L23、web M21/M22/M24/M27）
+- **已修复：67 项**（high 8 / medium 36 / low 23；2026-09-10 增补 7 项：Canvas3D M23/M26/M30 + L28-L31）
 - **无需修复：3 项**（M4、L7、L24，复核后后果不成立或为合法模式）
 - **部分修复：1 项**（M38，FanoutConfig 已修，其余未改）
-- **未修复：13 项**（high 0 / medium 3 / low 10，均为暂缓：Canvas3D 竞态 M23/M26/M30/L28-L31、性能 L19/L22/L25、历史数据风险 L26、设计意图 L27）
+- **未修复：6 项**（high 0 / medium 0 / low 6，均为暂缓：性能 L19/L22/L25、L20 复核降级、历史数据风险 L26、设计意图 L27）
 
 **未修复项归因**（供后续接力时按类推进）：
 1. **诚实边界 / 运维配置**：H4（Python 隔离，切 P2 后端）。
-2. **需专项重构 / 回归**：M1（runNode abort）、M3（产物 id 前缀）、M5（文本产物事件）、M13（速率限制中间件）、M30（Canvas3D effect 拆分）。
+2. **需专项重构 / 回归**：M1（runNode abort）、M3（产物 id 前缀）、M5（文本产物事件）、M13（速率限制中间件）。~~M30（Canvas3D effect 拆分）~~ 已于 2026-09-10 修复。
 3. **需配套迁移（怕破坏历史数据）**：M38 的 ConnectorConfig/GraphNode、L5（at-rest 加密）、L6（proxy 白名单）、L26（TriggerConfig）。
 4. **低优健壮性 / 性能**：M15-M19、M21-M24、M26-M27、M31-M36、L15-L16、L18-L20、L22-L25、L27-L31。
 5. **复核后判定为设计意图 / 风险低**：L20（已降级）、L27。
