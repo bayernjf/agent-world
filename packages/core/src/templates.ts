@@ -1557,6 +1557,15 @@ const researchLoopGraph = {
           retry: { maxRetries: 4, baseDelayMs: 30000, maxDelayMs: 120000 },
         },
       },
+      {
+        // 成品库：loop 自身聚合 {results:[卡片...]} 后，由主调度器一次性流入，
+        // 作为整条调研产线的最终合集（sink 不参与逐课题循环体）。
+        id: "depot",
+        kind: "sink",
+        name: "调研合集",
+        x: 600,
+        y: 560,
+      },
     ],
     edges: [
       { id: "e1", from: "intake", to: "split", kind: "flow" },
@@ -1564,6 +1573,7 @@ const researchLoopGraph = {
       { id: "e3", from: "loop", to: "kicker", kind: "flow" },
       { id: "e4", from: "kicker", to: "search", kind: "flow" },
       { id: "e5", from: "search", to: "writer", kind: "flow" },
+      { id: "e6", from: "loop", to: "depot", kind: "flow" },
     ],
   },
 } satisfies GraphTemplate;
