@@ -43,19 +43,27 @@ export interface CompileResult {
 function topoSort(graph: Graph): string[] | null {
   const indeg = new Map<string, number>();
   for (const n of graph.nodes) indeg.set(n.id, 0);
-  const flow = graph.edges.filter((e) => e.kind === "flow");
-  for (const e of flow) indeg.set(e.to, (indeg.get(e.to) ?? 0) + 1);
+  // Build the outgoing-adjacency list once so each node only visits its own
+  // out-edges (O(V+E) total) instead of scanning every flow edge per dequeued
+  // node (the previous O(V·E) scan — L25).
+  const adj = new Map<string, string[]>();
+  for (const e of graph.edges) {
+    if (e.kind !== "flow") continue;
+    indeg.set(e.to, (indeg.get(e.to) ?? 0) + 1);
+    const list = adj.get(e.from);
+    if (list) list.push(e.to);
+    else adj.set(e.from, [e.to]);
+  }
 
   const queue = graph.nodes.filter((n) => indeg.get(n.id) === 0).map((n) => n.id);
   const order: string[] = [];
   while (queue.length) {
     const id = queue.shift()!;
     order.push(id);
-    for (const e of flow) {
-      if (e.from !== id) continue;
-      const left = (indeg.get(e.to) ?? 0) - 1;
-      indeg.set(e.to, left);
-      if (left === 0) queue.push(e.to);
+    for (const to of adj.get(id) ?? []) {
+      const left = (indeg.get(to) ?? 0) - 1;
+      indeg.set(to, left);
+      if (left === 0) queue.push(to);
     }
   }
   return order.length === graph.nodes.length ? order : null;
@@ -233,6 +241,12 @@ export function compile(graph: Graph): CompileResult {
     const rank = new Map(order.map((id, i) => [id, i]));
     const lo = rank.get(e.to)!;
     const hi = rank.get(e.from)!;
+    // L27 (design intent, not a bug): the rework body includes EVERY ancestor
+    // on the forward path from the rework entry up to the gate/agent, not just
+    // the two endpoints. Rework must re-execute the whole chain that produced
+    // the rejected output (e.g. draft → polish → gate failure re-runs draft AND
+    // polish), so the body is intentionally the full ancestor closure within
+    // the [lo, hi] rank window.
     const body = order.filter((id) => {
       const r = rank.get(id)!;
       return r >= lo && r <= hi && (id === e.to || ancestors.has(id) || id === e.from);
@@ -295,6 +309,37 @@ export function compile(graph: Graph): CompileResult {
         severity: "error",
         message: `择优节点 "${s.name}" 缺少上游的扇出节点`,
         nodeId: s.id,
+      });
+    }
+  }
+
+  // L26: non-destructive trigger config validation. The zod schema stays
+  // permissive so legacy graphs with loose configs still parse; compile emits
+  // a warning (never an error) so the canvas surfaces the misconfiguration
+  // without blocking load or run.
+  for (const trig of graph.triggers ?? []) {
+    if (trig.type === "cron" && !trig.cron?.trim()) {
+      diagnostics.push({
+        severity: "warning",
+        message: `定时触发器 "${trig.id}" 缺少 cron 表达式，不会被调度`,
+      });
+    }
+    if (trig.type === "webhook" && !trig.webhookSecret?.trim()) {
+      diagnostics.push({
+        severity: "warning",
+        message: `Webhook 触发器 "${trig.id}" 缺少共享密钥，任何人都可触发`,
+      });
+    }
+    if (trig.type === "event" && !trig.eventSource) {
+      diagnostics.push({
+        severity: "warning",
+        message: `事件触发器 "${trig.id}" 缺少事件来源，不会被触发`,
+      });
+    }
+    if (trig.type === "batch" && !trig.batch) {
+      diagnostics.push({
+        severity: "warning",
+        message: `批量触发器 "${trig.id}" 缺少批量数据源，不会被调度`,
       });
     }
   }

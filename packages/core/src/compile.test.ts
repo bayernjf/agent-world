@@ -134,4 +134,42 @@ describe("compile", () => {
     g.edges = [...g.edges, edge("e1", "intake", "forge")];
     expect(errors(g)).toContain("择优节点 \"PICK\" 缺少上游的扇出节点");
   });
+
+  // L26: non-destructive trigger config warnings (never block load/run).
+  const warnings = (g: Graph) =>
+    compile(g).diagnostics.filter((d) => d.severity === "warning").map((d) => d.message);
+
+  it("warns on a cron trigger missing its expression but still compiles", () => {
+    const g = baseline();
+    g.triggers = [{ id: "t1", type: "cron", enabled: true }];
+    const { plan, diagnostics } = compile(g);
+    expect(plan).not.toBeNull();
+    expect(diagnostics.some((d) => d.severity === "error")).toBe(false);
+    expect(warnings(g).join("\n")).toContain("cron");
+  });
+
+  it("warns on a webhook trigger missing its shared secret", () => {
+    const g = baseline();
+    g.triggers = [{ id: "t2", type: "webhook", enabled: true }];
+    expect(warnings(g).join("\n")).toContain("密钥");
+  });
+
+  it("warns on an event trigger missing its event source", () => {
+    const g = baseline();
+    g.triggers = [{ id: "t3", type: "event", enabled: true }];
+    expect(warnings(g).join("\n")).toContain("事件来源");
+  });
+
+  it("warns on a batch trigger missing its batch source", () => {
+    const g = baseline();
+    g.triggers = [{ id: "t4", type: "batch", enabled: true }];
+    expect(warnings(g).join("\n")).toContain("批量数据源");
+  });
+
+  it("accepts a fully configured cron trigger without warnings", () => {
+    const g = baseline();
+    g.triggers = [{ id: "t5", type: "cron", cron: "0 9 * * *", enabled: true }];
+    const { diagnostics } = compile(g);
+    expect(diagnostics).toEqual([]);
+  });
 });
