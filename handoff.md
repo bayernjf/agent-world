@@ -1,6 +1,6 @@
 # Handoff
 
-State of Agent World as of 2026-09-09.
+State of Agent World as of 2026-09-10.
 
 > **历史内容已归档**：2026-08-27 之前的全部变更记录、各阶段详细描述、质量门与已知 gap，已整体搬到 [docs/handoff-archive.md](docs/handoff-archive.md)。本文件只保留"项目当前状态 + 活跃任务 + 最近 5 个变更"。
 
@@ -275,7 +275,9 @@ State of Agent World as of 2026-09-09.
 
 按 commit 时间倒序，每条一行影响面 + commit hash：
 
-1. **feat(web) 设置 → MCP 服务列表支持搜索（2026-09-09）**——MCP 服务多起来后「集成」页是一条不可搜索的折叠卡长列表。列表上方加搜索框，按名称 / ID / URL / 传输方式实时过滤，无匹配给提示，服务为 0 时不显示搜索框；与节点技能面板共用一个 `.settings-search` 输入样式（不另起类名）。+4 用例（McpSettings.test 7→11），web 1602→**1606**。`ca96abf`+`63f0846`。
+1. **fix(core,server,ops) M1 等待期主动清 4 项 deferred：/metrics nginx 暴露 + template 类型校验 + table 前导 0 保留 + research-loop search 链路验证（2026-09-10）**——M1 回采攒数据期间（2-4 周），从 deferred-items 挑 4 项不依赖 M1 数据的事项主动推进。① **/metrics 经 nginx 暴露**：Hasee nginx 配置加 `location /metrics { proxy_pass http://127.0.0.1:8791; }`（此前被 SPA 兜底返回 text/html），nginx -t 通过 + reload，验证 HTTP 200 text/plain 1242 bytes。② **POST /api/graphs template 字段运行时校验**：非字符串 template（如数字 12345）此前漏过 getTemplate 静默创建空产线，现返回 400 `{error:"template must be a string"}`；+2 测试，commit `095113f`。③ **table coerce 前导 0 保留**：`/^0\d+$/` 匹配的字符串（发票号/订单号/身份证号）保留原始字符串不再转 number，普通数值/小数/负数/科学计数法正常转换；+2 测试，core 207/207 绿，commit `2d94353`。④ **tpl-research-loop search 链路验证**：Hasee 真机复跑，search 节点 tavily provider 成功返回 4 条真实结果（此前默认 duckduckgo 反爬不可用）；模板默认 provider 改 tavily + writer 节点加长退避 retry（4x/30s-120s 应对 Agnes free tier 429），commit `689e509`。writer 节点本次因 Agnes 429 限流失败（retry 已加，部署后生效）。deferred-items.md 4 行同步更新。
+
+2. **feat(web) 设置 → MCP 服务列表支持搜索（2026-09-09）**——MCP 服务多起来后「集成」页是一条不可搜索的折叠卡长列表。列表上方加搜索框，按名称 / ID / URL / 传输方式实时过滤，无匹配给提示，服务为 0 时不显示搜索框；与节点技能面板共用一个 `.settings-search` 输入样式（不另起类名）。+4 用例（McpSettings.test 7→11），web 1602→**1606**。`ca96abf`+`63f0846`。
 
 2. **feat(web) 节点技能面板搜索 + 直达「设置 → 技能」（2026-09-09）**——节点详情「技能」页原是不可搜索长列表，想自建卡也没有入口。SkillPicker 顶部加搜索框（名称 / ID / 描述实时过滤 + 无匹配提示），标题右侧加「+ 添加技能卡」链接，点击打开设置弹窗并定位到**技能**标签页（Settings 新增 `initialTab` 深链参数；侧栏/命令面板等普通入口仍落模型页）。+6 用例，web 1596→**1602**。`15dc81e`+`7ee6056`。
 
