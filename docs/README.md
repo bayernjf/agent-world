@@ -36,6 +36,8 @@
 
 产品 / 商业化系列：[PRODUCT_STRATEGY.md](PRODUCT_STRATEGY.md) = 成本/部署/定价基线 → [design-monetization.md](design-monetization.md) = 商业化实施方案（详细，未实施）→ [product-industry-roi.md](product-industry-roi.md) = 行业切入方向评估 → [product-vision-discussion.md](product-vision-discussion.md) = 历史讨论。
 
+画布 / 体验系列：[design-canvas-isometric.md](design-canvas-isometric.md) = L1 单厂等距 3D（四期已建成）→ [design-rts-overview.md](design-rts-overview.md) = L0 宏观工业园区 RTS 视角（P3 未实施，三阶段路径）。
+
 ## 文档状态约定
 
 - **现行**：当前事实，AI 与开发者以此为准；改动直接更新。

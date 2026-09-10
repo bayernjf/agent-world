@@ -2454,6 +2454,39 @@ app.get("/api/performance", async (c) => {
   return c.json(await db.aggregatePerformance(userId, groupBy));
 });
 
+// --- Operations dashboard overview (RTS phase A2) ---
+app.get("/api/operations/overview", async (c) => {
+  const userId = c.get("userId");
+  // Optional window start (epoch ms). Counters/cost honor it; per-graph last*
+  // always spans all time (handled in operationsByGraph).
+  const rawSince = Number(c.req.query("since"));
+  const since = Number.isFinite(rawSince) && rawSince > 0 ? rawSince : undefined;
+  // Owned + shared graphs (design-rbac P1); collaborator runs live under owner.
+  const graphIds = [...(await visibleGraphs(db, userId)).keys()];
+  const graphs = await db.operationsByGraph(userId, { since, graphIds });
+  const totals = graphs.reduce(
+    (acc, g) => {
+      acc.totalRuns += g.totalRuns;
+      acc.running += g.running;
+      acc.halted += g.halted;
+      acc.done += g.done;
+      acc.failed += g.failed;
+      acc.tripped += g.tripped;
+      acc.cancelled += g.cancelled;
+      acc.costUsd += g.costUsd;
+      return acc;
+    },
+    { totalRuns: 0, running: 0, halted: 0, done: 0, failed: 0, tripped: 0, cancelled: 0, costUsd: 0 },
+  );
+  // Next cron fire per graph (cron triggers only); graphs without one omitted.
+  const nextRuns: Record<string, Record<string, number | null>> = {};
+  for (const gid of graphIds) {
+    const m = triggers.nextRunMap(gid);
+    if (Object.keys(m).length > 0) nextRuns[gid] = m;
+  }
+  return c.json({ generatedAt: Date.now(), since: since ?? null, totals, graphs, nextRuns });
+});
+
 // --- Trigger management + webhook ---
 app.get("/api/graphs/:id/triggers", async (c) => {
   const userId = c.get("userId");

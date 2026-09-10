@@ -36,6 +36,7 @@ import BrandAssets from "./components/BrandAssets";
 import BatchManager from "./components/BatchManager";
 import CalendarView from "./components/CalendarView";
 import PerformanceDashboard from "./components/PerformanceDashboard";
+import OperationsDashboard from "./components/OperationsDashboard";
 import PublishTargets from "./components/PublishTargets";
 import TriggersPanel from "./components/TriggersPanel";
 import ProductGallery from "./components/ProductGallery";
@@ -144,6 +145,7 @@ export default function App() {
   const [batchOpen, setBatchOpen] = useState(false);
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [performanceOpen, setPerformanceOpen] = useState(false);
+  const [operationsOpen, setOperationsOpen] = useState(false);
   const [publishTargetsOpen, setPublishTargetsOpen] = useState(false);
   const [triggersOpen, setTriggersOpen] = useState(false);
   const [knowledgeOpen, setKnowledgeOpen] = useState(false);
@@ -398,6 +400,13 @@ export default function App() {
       hint: t("modals:commandPalette.commands.performance.hint"),
       group: "manage",
       onSelect: () => setPerformanceOpen(true),
+    },
+    {
+      id: "operations",
+      label: t("modals:commandPalette.commands.operations.label"),
+      hint: t("modals:commandPalette.commands.operations.hint"),
+      group: "manage",
+      onSelect: () => setOperationsOpen(true),
     },
     {
       id: "publishTargets",
@@ -1038,6 +1047,17 @@ export default function App() {
         <BatchManager open={batchOpen} onClose={() => setBatchOpen(false)} />
         <CalendarView open={calendarOpen} onClose={() => setCalendarOpen(false)} />
         <PerformanceDashboard open={performanceOpen} onClose={() => setPerformanceOpen(false)} />
+        <OperationsDashboard
+          open={operationsOpen}
+          onClose={() => setOperationsOpen(false)}
+          onOpenReviews={() => setReviewOpen(true)}
+          onOpenCalendar={() => setCalendarOpen(true)}
+          onOpenPerformance={() => setPerformanceOpen(true)}
+          onOpenRun={(id) => {
+            setOperationsOpen(false);
+            void loadRun(id);
+          }}
+        />
         <PublishTargets open={publishTargetsOpen} onClose={() => setPublishTargetsOpen(false)} />
         <TriggersPanel
           open={triggersOpen}

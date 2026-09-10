@@ -16,6 +16,7 @@ import type {
   ContentCostAggregate,
   ContentMetric,
   ContentPlan,
+  GraphRunSummary,
   PerformanceAggregate,
   Product,
   PublishTarget,
@@ -1646,6 +1647,101 @@ export function createDriver(
            FROM node_runs n JOIN runs r ON r.id = n.run_id
            WHERE ${where.join(" AND ")}`, [...params]) as { cost: number };
       return row.cost;
+    },
+
+    /**
+     * Cross-graph run rollup for the operations dashboard (RTS phase A1).
+     * Every owned graph is returned (LEFT JOIN — graphs with zero runs show
+     * zero counters, never dropped). Counters + cost honor the optional
+     * `since` window; `last*` reflects the most recent run across all time.
+     * `graphIds` scopes by graph membership (shared graphs, design-rbac)
+     * instead of run/graph ownership, mirroring `listRuns`.
+     */
+    async operationsByGraph(
+      userId: string,
+      opts: { since?: number; graphIds?: string[] } = {},
+    ): Promise<GraphRunSummary[]> {
+      const byMembership = !!opts.graphIds && opts.graphIds.length > 0;
+      const scopeIds = byMembership ? opts.graphIds! : [userId];
+      const placeholders = scopeIds.map(() => "?").join(",");
+      // Graph ownership / membership clause.
+      const gClause = byMembership ? `g.id IN (${placeholders})` : "g.user_id = ?";
+      // Runs joined per graph (LEFT JOIN ON — window/scope live in ON, never
+      // in WHERE, or zero-run graphs get filtered out).
+      const rOn = byMembership
+        ? ["r.graph_id = g.id"]
+        : ["r.graph_id = g.id", "r.user_id = ?"];
+      const rParams: (string | number)[] = byMembership ? [] : [userId];
+      // Cost subquery: same accounting as costForMonth (running excluded).
+      const cWhere = byMembership
+        ? ["r2.graph_id = g.id", "r2.status != 'running'"]
+        : ["r2.graph_id = g.id", "r2.user_id = ?", "r2.status != 'running'"];
+      const cParams: (string | number)[] = byMembership ? [] : [userId];
+      if (opts.since !== undefined) {
+        rOn.push("r.started_at >= ?");
+        rParams.push(opts.since);
+        cWhere.splice(cWhere.length - 1, 0, "r2.started_at >= ?");
+        cParams.push(opts.since);
+      }
+      const rows = await exec.all(`SELECT g.id AS graph_id, g.name AS graph_name,
+                  COUNT(r.id) AS total_runs,
+                  SUM(CASE WHEN r.status = 'running'   THEN 1 ELSE 0 END) AS running,
+                  SUM(CASE WHEN r.status = 'halted'    THEN 1 ELSE 0 END) AS halted,
+                  SUM(CASE WHEN r.status = 'done'      THEN 1 ELSE 0 END) AS done,
+                  SUM(CASE WHEN r.status = 'failed'    THEN 1 ELSE 0 END) AS failed,
+                  SUM(CASE WHEN r.status = 'tripped'   THEN 1 ELSE 0 END) AS tripped,
+                  SUM(CASE WHEN r.status = 'cancelled' THEN 1 ELSE 0 END) AS cancelled,
+                  COALESCE((SELECT SUM(n.cost_usd) FROM node_runs n
+                            JOIN runs r2 ON r2.id = n.run_id
+                            WHERE ${cWhere.join(" AND ")}), 0) AS cost_usd
+           FROM graphs g
+           LEFT JOIN runs r ON ${rOn.join(" AND ")}
+           WHERE ${gClause}
+           GROUP BY g.id, g.name
+           ORDER BY MAX(r.started_at) DESC, g.name ASC`,
+        [...rParams, ...cParams, ...scopeIds]) as Array<{
+          graph_id: string;
+          graph_name: string | null;
+          total_runs: number;
+          running: number; halted: number; done: number;
+          failed: number; tripped: number; cancelled: number;
+          cost_usd: number;
+        }>;
+      // Most-recent run per graph across ALL time (window does not apply).
+      const latest = await exec.all(
+        byMembership
+          ? `SELECT graph_id, id, status, started_at, ended_at FROM runs
+             WHERE graph_id IN (${placeholders}) ORDER BY started_at DESC, id DESC LIMIT 1000`
+          : `SELECT graph_id, id, status, started_at, ended_at FROM runs
+             WHERE user_id = ? ORDER BY started_at DESC, id DESC LIMIT 1000`,
+        [...scopeIds],
+      ) as Array<{
+        graph_id: string; id: string; status: string;
+        started_at: number; ended_at: number | null;
+      }>;
+      const lastByGraph = new Map<string, { id: string; status: string; started_at: number; ended_at: number | null }>();
+      for (const r of latest) {
+        if (!lastByGraph.has(r.graph_id)) lastByGraph.set(r.graph_id, r);
+      }
+      return rows.map((r) => {
+        const last = lastByGraph.get(r.graph_id) ?? null;
+        return {
+          graphId: r.graph_id,
+          graphName: r.graph_name,
+          totalRuns: Number(r.total_runs ?? 0),
+          running: Number(r.running ?? 0),
+          halted: Number(r.halted ?? 0),
+          done: Number(r.done ?? 0),
+          failed: Number(r.failed ?? 0),
+          tripped: Number(r.tripped ?? 0),
+          cancelled: Number(r.cancelled ?? 0),
+          lastRunId: last?.id ?? null,
+          lastStatus: last?.status ?? null,
+          lastStartedAt: last ? Number(last.started_at) : null,
+          lastEndedAt: last ? Number(last.ended_at) : null,
+          costUsd: Number(r.cost_usd ?? 0),
+        };
+      });
     },
 
     async evalReport(opts: { graphId?: string; from?: number; to?: number; userId?: string } = {}) {
