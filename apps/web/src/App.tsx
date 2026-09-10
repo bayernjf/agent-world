@@ -752,10 +752,14 @@ export default function App() {
         if (e.shiftKey) redo();
         else undo();
       }
+      if (e.key === "v" && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault();
+        toggleViewMode();
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [undo, redo]);
+  }, [undo, redo, toggleViewMode]);
 
   // The Inspector panel is opened by an explicit canvas click
   // (store.inspectorOpen, see Canvas.onPointerUp), not by selection alone —
