@@ -2689,10 +2689,16 @@ export function createDriver(
 
     async saveGraphUnscoped(graph: Graph, at: number) {
       const doc = JSON.stringify(sealGraphDoc(graph));
-      // Preserve template lineage: the upsert's update branch never touches
-      // origin_template_id, but the insert branch needs the existing value.
-      const row = await exec.get(`SELECT origin_template_id FROM graphs WHERE id = ?`, [graph.id]) as { origin_template_id: string | null } | undefined;
-      await exec.run(stmts.insertGraph, [graph.id, null, graph.name, doc, row?.origin_template_id ?? null, at]);
+      // Preserve template lineage AND the owner row. The upsert's ON CONFLICT
+      // branch only fires when `graphs.user_id = excluded.user_id`; passing
+      // NULL as the owner makes that comparison NULL (never true), so the
+      // update is silently skipped and triggers persisted through
+      // saveGraphUnscoped (create/update trigger routes) never hit disk —
+      // every cron/webhook trigger vanished on the next restart.
+      const row = await exec.get(`SELECT origin_template_id, user_id FROM graphs WHERE id = ?`, [graph.id]) as
+        | { origin_template_id: string | null; user_id: string | null }
+        | undefined;
+      await exec.run(stmts.insertGraph, [graph.id, row?.user_id ?? null, graph.name, doc, row?.origin_template_id ?? null, at]);
     },
 
     async close() {
