@@ -21,6 +21,10 @@ source ──▶ agent(draft) ──▶ gate(LLM judge) ──✗──▶ rewor
                           agent(polish) ──▶ sink(final output)
 ```
 
+![Agent World demo](docs/assets/demo.gif)
+
+*A "write draft" pipeline running end-to-end: topic intake → draft generation → polish → quality gate → finished artifact. The canvas shows live data flow, per-node cost metering, and rework loops.*
+
 ## Why it's different
 
 Most agent frameworks treat a run as a black box that either works or doesn't.

@@ -1537,7 +1537,8 @@ const researchLoopGraph = {
         x: 1080,
         y: 300,
         // query 留空：自动用上游「出题」节点的课题文本作为搜索词。
-        search: { query: "", provider: "duckduckgo", maxResults: 4 },
+        // provider=tavily：duckduckgo 反爬不可用，tavily 需用户在设置·搜索服务配 key。
+        search: { query: "", provider: "tavily", maxResults: 4 },
       },
       {
         id: "writer",
@@ -1552,6 +1553,8 @@ const researchLoopGraph = {
             "请写一张调研卡片：**结论**（1-2 句）→ **关键事实**（3-5 条，注明来自搜索结果）→ " +
             "**待确认**（搜索结果没覆盖、需要二次核实的问题）。只输出卡片内容。",
           skills: [],
+          // Agnes free tier 429 限流：长退避 retry 自动躲限流窗口
+          retry: { maxRetries: 4, baseDelayMs: 30000, maxDelayMs: 120000 },
         },
       },
     ],

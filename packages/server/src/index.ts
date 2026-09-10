@@ -647,6 +647,10 @@ app.post("/api/graphs", async (c) => {
       }
     }
   }
+  // template must be a string when provided (non-string silently bypassed getTemplate lookup).
+  if (body.template !== undefined && typeof body.template !== "string") {
+    return c.json({ error: "template must be a string" }, 400);
+  }
   let graph: Graph;
   let originTemplateId: string | null = null;
   if (body.template) {
