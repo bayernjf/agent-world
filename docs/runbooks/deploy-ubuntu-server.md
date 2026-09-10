@@ -224,8 +224,12 @@ set -euo pipefail
 SRC=/var/lib/agent-world
 DST=/var/backups/agent-world
 mkdir -p "$DST"
-# 先让 sqlite 一致（触发 checkpoint 后拷文件）
-sqlite3 "$SRC/agent-world.sqlite" 'PRAGMA wal_checkpoint(TRUNCATE);' 2>/dev/null || true
+# 先让 sqlite 一致（触发 checkpoint 后拷文件；机器未装 sqlite3 时用 node:sqlite；checkpoint 失败不中断，rsync 会连 -wal 一起拷）
+if command -v sqlite3 >/dev/null 2>&1; then
+  sqlite3 "$SRC/agent-world.sqlite" 'PRAGMA wal_checkpoint(TRUNCATE);' || echo '[backup] wal_checkpoint failed, continuing'
+else
+  node -e 'const {DatabaseSync}=require("node:sqlite"); const db=new DatabaseSync(process.argv[1]); db.exec("PRAGMA wal_checkpoint(TRUNCATE)"); db.close()' "$SRC/agent-world.sqlite" || echo '[backup] wal_checkpoint failed, continuing'
+fi
 rsync -a --delete "$SRC/" "$DST/current/"
 # 每日轮转快照（保留 7 份）
 ts=$(date +%F)
@@ -242,7 +246,28 @@ sudo chmod +x /usr/local/bin/backup-agent-world.sh
 
 > 机器是笔记本：备份比云盘更重要——DB + artifacts + 密钥都在 `/var/lib/agent-world`，整目录备份即可恢复。sqlite 备份用 `VACUUM INTO` 或先 checkpoint 再拷文件，别直接拷热文件。
 
-> **异地备份推送（待做，暂无备份盘）**：当前备份落 `/var/backups/agent-world`，与原库**同一块硬盘**——机器级故障（硬盘坏 / 整机丢 / 误删整机）会连备份一起丢，这是当前备份策略唯一真实风险点。待有备份盘 / NAS / 云盘 / 第二台机器后，在 `backup-agent-world.sh` 末尾追加一条 `rsync` 推送到第二位置即可。登记见 deferred-items「异地备份推送」。
+> **异地备份（已落地 2026-09-10，Mac 端拉取）**：服务器同盘备份仍是机器级故障的唯一兜底；**异地备份由 Mac 每日拉取**（补上 deferred-items「异地备份推送」缺口）：
+>
+> * 脚本：`scripts/backup-agent-world-to-mac.sh`（远端 node:sqlite 只读 `VACUUM INTO` 一致快照 → rsync 拉 db/artifacts/logs → 本地 `sqlite3 PRAGMA integrity_check` → 滚动保留 14 份 → 幂等标记）+ `scripts/remote-snapshot.js`（快照生成，VACUUM INTO 前自动清理旧文件）
+> * 定时：launchd `~/Library/LaunchAgents/com.agent-world.backup.plist`（每日 11:00 本地时间 + RunAtLoad 登录补跑；脚本幂等，当天已备份则跳过）；SSH 免密走 `~/.ssh/id_ed25519` 无口令 key，不依赖 ssh-agent，重启可用
+> * 备份目标：`/Users/jiangfeng/000-工作项目/agent-world数据备份/`（`db/agent-world-<date>.sqlite` + `artifacts/` + `logs/` + `backup.log`）
+> * **边界**：`.encryption-keys`/`.jwt-secret` 为 600 权限（agentworld 所有），异地备份**不含密钥**——恢复加密字段需单独保管密钥；如需包含，先以 agentworld 身份配好读取权限再开 `INCLUDE_KEYS=1`
+>
+> **✅ 服务器端 checkpoint 修复（已执行 2026-09-10）**：`backup-agent-world.sh` 里 `sqlite3 wal_checkpoint` 因未装 sqlite3 静默失败。补丁 `scripts/patch-hasee-backup.sh`（改 node:sqlite checkpoint，先备份原脚本再替换并验证）已执行——原脚本备份为 `/usr/local/bin/backup-agent-world.sh.bak-20260909-182215`（确认 cron 运行正常后可删），替换后手动验证通过（`-wal` 清空、主库落盘）。补丁逻辑：checkpoint 失败时 echo 告警继续，不中断 rsync（rsync 会连 `-wal` 一起拷）。
+>
+> **🔐 密钥单独保管（已落地 2026-09-10）**：三个密钥文件（`.encryption-keys` 68B / `.jwt-secret` 64B / `/opt/agent-world/.env` 224B，均 600）已逐字节 hash 验证后存入 **macOS 钥匙串**（service=`agent-world`）。取回：
+>
+> ```bash
+> security find-generic-password -a agent-world -s encryption-keys -w    # 明文密钥
+> security find-generic-password -a agent-world -s jwt-secret -w         # 明文密钥
+> security find-generic-password -a agent-world -s env -w | base64 -D    # .env（多行内容以 base64 存储）
+> ```
+>
+> 服务器原文件保留不动。
+>
+> 重新执行（如需）：`scp scripts/patch-hasee-backup.sh hasee-2016-server:/tmp/` 后 `ssh hasee-2016-server 'sudo bash /tmp/patch-hasee-backup.sh'`；回滚：`sudo cp /usr/local/bin/backup-agent-world.sh.bak-20260909-182215 /usr/local/bin/backup-agent-world.sh`。
+>
+> 另核实（2026-09-10）：服务器 cron 每日 02:30 正常运行，`current` 与 `snap-*` 硬链接快照轮转正常——曾疑「current 停旧」，实为数据无变化时 rsync 全部跳过所致，非故障。
 
 ### 六之一、备份恢复演练（restore drill）
 
