@@ -150,4 +150,20 @@ describe("template instantiation API", () => {
     const body = (await res.json()) as { error?: string };
     expect(body.error).toContain("fieldValues");
   });
+
+  it("POST /api/graphs rejects non-string template", async () => {
+    const token = await register(`tpl-badtpl-${Date.now()}@t.test`);
+    const res = await createFromTemplate(token, { template: 12345 });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toContain("template");
+  });
+
+  it("POST /api/graphs returns 404 for non-existent template", async () => {
+    const token = await register(`tpl-notfound-${Date.now()}@t.test`);
+    const res = await createFromTemplate(token, { template: "tpl-does-not-exist" });
+    expect(res.status).toBe(404);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toContain("template not found");
+  });
 });
