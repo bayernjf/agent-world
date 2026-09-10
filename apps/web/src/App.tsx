@@ -64,18 +64,18 @@ const REVIEW_POLL_MS = 20_000;
 
 export default function App() {
   const { t } = useTranslation();
-  const {
-    graph,
-    setGraph,
-    addNode,
-    flushSave,
-    undo,
-    redo,
-    selectedId,
-    updateGraphVariables,
-    inspectorOpen,
-    setReadOnly,
-  } = useGraph();
+  // L19: subscribe to individual slices instead of the whole store so App
+  // only re-renders when a field it actually reads changes.
+  const graph = useGraph((s) => s.graph);
+  const setGraph = useGraph((s) => s.setGraph);
+  const addNode = useGraph((s) => s.addNode);
+  const flushSave = useGraph((s) => s.flushSave);
+  const undo = useGraph((s) => s.undo);
+  const redo = useGraph((s) => s.redo);
+  const selectedId = useGraph((s) => s.selectedId);
+  const updateGraphVariables = useGraph((s) => s.updateGraphVariables);
+  const inspectorOpen = useGraph((s) => s.inspectorOpen);
+  const setReadOnly = useGraph((s) => s.setReadOnly);
   const { connect, reset, runId, loadRun } = useRun();
   const runStatus = useRun((s) => s.live.status);
   const viewMode = useViewMode((s) => s.viewMode);
@@ -107,6 +107,10 @@ export default function App() {
   });
   const dragging = useRef(false);
   const dragWidth = useRef(420);
+  // L20: hold the detach function for the active drag listeners so that an
+  // unmount mid-drag (when mouseup never fires) does not leak them onto
+  // document.
+  const detachDrag = useRef<(() => void) | null>(null);
   const onDragStart = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault();
@@ -118,17 +122,25 @@ export default function App() {
         dragWidth.current = w;
         setInspectorWidth(w);
       };
-      const onUp = () => {
-        dragging.current = false;
+      const detach = () => {
         document.removeEventListener("mousemove", onMove);
         document.removeEventListener("mouseup", onUp);
+        detachDrag.current = null;
+      };
+      const onUp = () => {
+        dragging.current = false;
+        detach();
         localStorage.setItem("inspector-width", String(dragWidth.current));
       };
+      detachDrag.current?.();
+      detachDrag.current = detach;
       document.addEventListener("mousemove", onMove);
       document.addEventListener("mouseup", onUp);
     },
     [inspectorWidth],
   );
+  // Remove any lingering document listeners on unmount.
+  useEffect(() => () => detachDrag.current?.(), []);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
   /** Runs parked on a human decision across every line — the HUD badge. */
