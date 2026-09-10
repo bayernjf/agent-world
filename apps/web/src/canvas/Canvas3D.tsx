@@ -81,6 +81,15 @@ export default function Canvas3D() {
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     mount.appendChild(renderer.domElement);
+    // Keep the renderer size in sync with the container div.
+    const resizeObserver = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      const { width, height } = entry.contentRect;
+      renderer.setSize(width, height);
+      camera.updateProjectionMatrix();
+    });
+    resizeObserver.observe(mount);
     // Grab cursor over the canvas: left-drag pans (empty space) or moves a node.
     renderer.domElement.style.cursor = "grab";
 
@@ -416,6 +425,9 @@ export default function Canvas3D() {
       } else if (e.key === "ArrowRight") {
         e.preventDefault();
         controls.pan(-step, 0);
+      } else if (e.key === "v" && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault();
+        useViewMode.getState().toggle();
       }
     };
     renderer.domElement.addEventListener("wheel", onWheel, { passive: false, capture: true });
@@ -553,6 +565,7 @@ export default function Canvas3D() {
 
     return () => {
       cancelAnimationFrame(rafId);
+      resizeObserver.disconnect();
       renderer.domElement.removeEventListener("pointerdown", onPointerDown);
       renderer.domElement.removeEventListener("pointermove", onPointerMove);
       renderer.domElement.removeEventListener("pointerup", onPointerUp);
@@ -569,9 +582,20 @@ export default function Canvas3D() {
       controls.dispose();
       scene.traverse((obj) => {
         if (obj instanceof THREE.Mesh || obj instanceof THREE.Line) obj.geometry.dispose();
-        if (obj instanceof THREE.Mesh && obj.material instanceof THREE.Material) obj.material.dispose();
+        if (obj instanceof THREE.Mesh) {
+          const m = obj.material;
+          if (Array.isArray(m)) {
+            for (const mat of m) mat.dispose();
+          } else if (m instanceof THREE.Material) {
+            m.dispose();
+          }
+        }
       });
+      // Dispose shared resources created outside the scene graph.
+      truckGeo.dispose();
+      for (const mat of truckMats.values()) mat.dispose();
       renderer.dispose();
+      renderer.forceContextLoss();
       if (renderer.domElement.parentNode === mount) mount.removeChild(renderer.domElement);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
