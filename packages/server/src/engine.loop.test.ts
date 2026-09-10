@@ -162,4 +162,62 @@ describe("loop node", () => {
       ),
     ).toBe(true);
   });
+
+  it("keeps a sink after the loop out of the body and feeds it the aggregate once", async () => {
+    // Uses table (pure-JSON parse) + a fakeWorker textGen body instead of a
+    // code node, so the scheduling behaviour is verifiable without the JS
+    // sandbox subprocess (which CI runs under bwrap).
+    const g: Graph = {
+      id: "g",
+      name: "g",
+      nodes: [
+        { id: "src", kind: "source", name: "SRC", x: 0, y: 0 },
+        {
+          id: "items",
+          kind: "table",
+          name: "ITEMS",
+          x: 1,
+          y: 0,
+          table: { steps: [{ op: "parse", format: "json" }] },
+        },
+        { id: "loop", kind: "loop", name: "LOOP", x: 2, y: 0, loop: { items: "${items.rows}" } },
+        {
+          id: "body",
+          kind: "textGen",
+          name: "BODY",
+          x: 3,
+          y: 0,
+          textGen: {
+            model: "test",
+            prompt: "处理循环项",
+            skills: [],
+            temperature: 0.7,
+            timeoutMs: 1000,
+            retry: { maxRetries: 0, baseDelayMs: 1, maxDelayMs: 1 },
+          },
+        },
+        { id: "depot", kind: "sink", name: "DEPOT", x: 2, y: 2 },
+      ],
+      edges: [
+        { id: "e1", from: "src", to: "items", kind: "flow" },
+        { id: "e2", from: "items", to: "loop", kind: "flow" },
+        { id: "e3", from: "loop", to: "body", kind: "flow" },
+        { id: "e4", from: "loop", to: "depot", kind: "flow" },
+      ],
+    };
+    const events = await collect(g, JSON.stringify([{ v: 1 }, { v: 2 }, { v: 3 }]));
+    expect(replay(events).status).toBe("done");
+    // The body still ran exactly once per item.
+    expect(events.filter((e) => e.type === "node.finished" && e.nodeId === "body")).toHaveLength(3);
+    // Aggregation stays a flat single-endNode string array (not {body,depot}).
+    const aggregate = JSON.parse(jsonOf(events, "loop")!);
+    expect(aggregate.results).toHaveLength(3);
+    expect(aggregate.results.every((r: unknown) => typeof r === "string")).toBe(true);
+    // The sink ran exactly once (not once per item) and received the aggregate.
+    const depotFinishes = events.filter(
+      (e) => e.type === "node.finished" && e.nodeId === "depot",
+    );
+    expect(depotFinishes).toHaveLength(1);
+    expect(JSON.parse(String(depotFinishes[0]!.output)).results).toHaveLength(3);
+  });
 });
