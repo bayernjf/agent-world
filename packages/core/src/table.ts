@@ -19,6 +19,9 @@ function coerce(v: unknown): Cell {
     if (t === "") return null;
     if (t === "true") return true;
     if (t === "false") return false;
+    // Preserve leading-zero numeric strings as identifiers (invoice/order/ID numbers).
+    // Real numeric values (0.5, -01, 123) do not match this pattern.
+    if (/^0\d+$/.test(t)) return v;
     const n = Number(t);
     if (t !== "" && Number.isFinite(n)) return n;
     return v;

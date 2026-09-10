@@ -57,6 +57,22 @@ describe("parseCsv", () => {
       { flag: false, note: "ok" },
     ]);
   });
+
+  it("preserves leading-zero numeric strings as identifiers", () => {
+    const rows = parseCsv("invoice,amount,count\n044001900111,99.50,3\n007,0.5,0");
+    expect(rows).toEqual([
+      { invoice: "044001900111", amount: 99.5, count: 3 },
+      { invoice: "007", amount: 0.5, count: 0 },
+    ]);
+  });
+
+  it("still coerces plain numerics, decimals and negatives to numbers", () => {
+    const rows = parseCsv("a,b,c\n123,0.5,-01\n  456  ,1.5e2,-10");
+    expect(rows).toEqual([
+      { a: 123, b: 0.5, c: -1 },
+      { a: 456, b: 150, c: -10 },
+    ]);
+  });
 });
 
 describe("rowsToCsv", () => {
