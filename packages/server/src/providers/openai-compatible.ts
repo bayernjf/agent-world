@@ -2,6 +2,7 @@ import { HaltRequested, type AgentChunk, type AgentResult, type AudioGenArgs, ty
 import type { TextGenConfig, ContentPart as MultimodalContent, GraphNode, Usage } from "@agent-world/core";
 import { computeCost, endpointFor, modalityOf, normalizeBaseUrl, type ModelPricing, type ProviderConfig } from "../config.js";
 import { GuardedFetchError, guardedFetch } from "../ssrf.js";
+import { withRetry } from "../retry.js";
 
 export class ProviderError extends Error {
   constructor(
@@ -86,6 +87,16 @@ function mapHttpStatus(status: number): ProviderError["code"] {
   if (status >= 500) return "PROVIDER_ERROR";
   return "UNKNOWN";
 }
+
+/**
+ * Long-backoff retry for transient 429 rate limits. Free-tier gateways (agnes
+ * staging key) enforce per-minute windows that a 1s backoff cannot survive, so
+ * judge / image / video calls retry at 30s/60s/90s/120s — matching the
+ * node-level textGen retry policy (see nodes/textgen.ts) instead of failing
+ * the whole run on the first 429.
+ */
+const LONG_RETRY = { maxRetries: 4, baseDelayMs: 30000, maxDelayMs: 120000 } as const;
+const isRateLimit = (err: unknown): boolean => err instanceof ProviderError && err.code === "RATE_LIMIT";
 
 /** Reads a value from a JSON object by dot path (e.g. "metadata.url"). */
 function dotPath(obj: unknown, path: string): unknown {
@@ -507,19 +518,28 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
         temperature: 0,
         timeoutMs: 60000,
         inputPolicy: { mode: "all" },
-        retry: { maxRetries: 1, baseDelayMs: 1000, maxDelayMs: 10000 },
+        retry: LONG_RETRY,
       };
-      const gen = streamChat(model, buildJudgeMessages(criterion, output), config, signal);
-      let result: AgentResult | null = null;
-      while (true) {
-        const step = await gen.next();
-        if (step.done) {
-          result = step.value;
-          break;
-        }
-        // discard deltas; judge verdict comes from final JSON
-      }
-      return extractJson(result?.output ?? "");
+      // Gate nodes carry no retry field of their own, so the judge call must
+      // retry here: a 429 on the (deterministic, 0-temperature) verdict would
+      // otherwise fail the whole run even though textGen upstream survived.
+      return withRetry(
+        async () => {
+          const gen = streamChat(model, buildJudgeMessages(criterion, output), config, signal);
+          let result: AgentResult | null = null;
+          while (true) {
+            const step = await gen.next();
+            if (step.done) {
+              result = step.value;
+              break;
+            }
+            // discard deltas; judge verdict comes from final JSON
+          }
+          return extractJson(result?.output ?? "");
+        },
+        LONG_RETRY,
+        isRateLimit,
+      );
     },
 
     async generateImage({ config, input, signal }) {
@@ -554,21 +574,29 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
       }
       let res: Response;
       try {
-        res = await guardedFetch(`${endpoint}${endpointFor(provider, model, "image")}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-          body: JSON.stringify({ model, prompt: input, n, size }),
-          signal: controller.signal,
-        });
+        res = await withRetry(
+          async () => {
+            const r = await guardedFetch(`${endpoint}${endpointFor(provider, model, "image")}`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+              body: JSON.stringify({ model, prompt: input, n, size }),
+              signal: controller.signal,
+            });
+            if (!r.ok) {
+              const text = await r.text().catch(() => "");
+              throw new ProviderError(mapHttpStatus(r.status), `HTTP ${r.status}: ${text.slice(0, 300)}`, r.status);
+            }
+            return r;
+          },
+          LONG_RETRY,
+          isRateLimit,
+        );
       } catch (err) {
-        throw mapGuardedError(err);
+        if (err instanceof GuardedFetchError) throw mapGuardedError(err);
+        throw err;
       } finally {
         clearTimeout(timer);
         if (signal) signal.removeEventListener("abort", onAbort);
-      }
-      if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        throw new ProviderError(mapHttpStatus(res.status), `HTTP ${res.status}: ${text.slice(0, 300)}`, res.status);
       }
       const json = (await res.json()) as {
         data?: Array<{ b64_json?: string; url?: string }>;
@@ -662,18 +690,25 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
         }
         if (config.size) body.size = config.size;
 
-        const res = await guardedFetch(`${endpoint}${endpointFor(provider, model, "video")}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-          body: JSON.stringify(body),
-          signal: controller.signal,
-        }).catch((err) => {
-          throw mapGuardedError(err);
-        });
-        if (!res.ok) {
-          const text = await res.text().catch(() => "");
-          throw new ProviderError(mapHttpStatus(res.status), `HTTP ${res.status}: ${text.slice(0, 300)}`, res.status);
-        }
+        const res = await withRetry(
+          async () => {
+            const r = await guardedFetch(`${endpoint}${endpointFor(provider, model, "video")}`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+              body: JSON.stringify(body),
+              signal: controller.signal,
+            }).catch((err) => {
+              throw mapGuardedError(err);
+            });
+            if (!r.ok) {
+              const text = await r.text().catch(() => "");
+              throw new ProviderError(mapHttpStatus(r.status), `HTTP ${r.status}: ${text.slice(0, 300)}`, r.status);
+            }
+            return r;
+          },
+          LONG_RETRY,
+          isRateLimit,
+        );
         const json = (await res.json()) as Record<string, unknown>;
 
         // Async: task was accepted, poll for completion.
@@ -822,7 +857,7 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
         temperature: 0,
         timeoutMs: 60000,
         inputPolicy: { mode: "all" },
-        retry: { maxRetries: 1, baseDelayMs: 1000, maxDelayMs: 10000 },
+        retry: LONG_RETRY,
       };
       const messages = [
         {
