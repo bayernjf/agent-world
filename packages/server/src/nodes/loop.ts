@@ -52,6 +52,12 @@ export async function loopNode(ctx: NodeRunContext, node: GraphNode, nodeId: str
     while (queue.length > 0) {
       const id = queue.shift()!;
       if (bodyIds.has(id)) continue;
+      // A sink is the run's terminal collector, never one iteration of the
+      // loop body: keep it outside so the main scheduler runs it exactly once
+      // after the loop finishes and feeds it the aggregated result, rather
+      // than re-running it once per item and breaking the single-endNode
+      // aggregation shape.
+      if (nodeById(graph, id)?.kind === "sink") continue;
       const ins = incoming(graph, id, "flow");
       const allInside = ins.every((e) => e.from === nodeId || bodyIds.has(e.from));
       if (!allInside) continue;
