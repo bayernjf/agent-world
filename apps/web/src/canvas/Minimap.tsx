@@ -73,6 +73,11 @@ export default function Minimap() {
   const bw = Math.max(maxX - minX, 1);
   const bh = Math.max(maxY - minY, 1);
   const scale = Math.min(MAP / bw, MAP / bh);
+  // L22: mirror viewport/scale into a ref so the global pointer listeners are
+  // attached once when dragging starts instead of being removed and
+  // re-added on every setViewport (which fires each pointermove during a drag).
+  const liveRef = useRef({ viewport, scale });
+  liveRef.current = { viewport, scale };
   const offX = (MAP - bw * scale) / 2;
   const offY = (MAP - bh * scale) / 2;
   const tx = (x: number) => offX + (x - minX) * scale;
@@ -109,16 +114,6 @@ export default function Minimap() {
     ? worldToBoard(camera3dTarget.x, camera3dTarget.z)
     : { x: vx + vw / 2, y: vy + vh / 2 };
 
-  // Pan delta to content-space delta: dpix (SVG user) = dcontent * zoom.
-  // Minimap content delta minimap-pixels / scale → graph units → * zoom → pan delta.
-  const contentDeltaFromMinimapDelta = (
-    dMinimapX: number,
-    dMinimapY: number,
-  ) => ({
-    dx: -(dMinimapX / scale) * viewport.zoom,
-    dy: -(dMinimapY / scale) * viewport.zoom,
-  });
-
   const centerOnContent = useCallback(
     (mx: number, my: number) => {
       setViewport({
@@ -153,17 +148,19 @@ export default function Minimap() {
     const onMove = (e: PointerEvent) => {
       const d = dragRef.current;
       if (!d) return;
+      const { viewport: vp, scale: sc } = liveRef.current;
       const dx = e.clientX - d.startClientX;
       const dy = e.clientY - d.startClientY;
       if (is3d) {
         // Dragging the minimap rect moves the viewport (the rect follows the
         // cursor), matching 2D. The camera target moves WITH the pointer delta.
-        requestCamera3dMove(d.originPanX + dx / scale, d.originPanY + dy / scale);
+        requestCamera3dMove(d.originPanX + dx / sc, d.originPanY + dy / sc);
       } else {
         // Minimap pixel delta → canvas pan delta (negated: viewport right = canvas content shift left).
-        const { dx: panDX, dy: panDY } = contentDeltaFromMinimapDelta(dx, dy);
+        const panDX = -(dx / sc) * vp.zoom;
+        const panDY = -(dy / sc) * vp.zoom;
         setViewport({
-          ...viewport,
+          ...vp,
           panX: d.originPanX + panDX,
           panY: d.originPanY + panDY,
         });
@@ -181,7 +178,9 @@ export default function Minimap() {
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onUp);
     };
-  }, [dragging, viewport, setViewport, scale, is3d, requestCamera3dMove]);
+    // viewport/scale intentionally excluded — read through liveRef so the
+    // listeners are not torn down and re-bound on every drag frame (L22).
+  }, [dragging, is3d, requestCamera3dMove, setViewport]);
 
   const onViewPointerDown = (e: React.PointerEvent<SVGRectElement>) => {
     e.stopPropagation(); // don't bubble to svg's "jump to" handler

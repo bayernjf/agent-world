@@ -151,6 +151,13 @@ export async function resolveConnector(
     case "file": {
       const c = config.file;
       if (!c) throw new Error("file connector missing 'file' config");
+      // Templates pre-select the file connector type with an empty path so the
+      // user only fills in the location; guard the empty case instead of
+      // resolving "" to the process working directory (which would walk the
+      // whole server folder).
+      if (!c.path.trim()) {
+        throw new Error("文件连接器未配置路径：请在投料台填写文件、目录或 glob 路径后再运行");
+      }
       const files = await expandPaths(c.path);
       // H1: never let a user-supplied path reach secrets / the server's DB.
       for (const f of files) assertSafeLocalPath(f);

@@ -83,6 +83,15 @@ describe("resolveConnector - file", () => {
     expect(r.images).toEqual([png]);
     expect(r.text).toBe("");
   });
+
+  it("rejects an empty path with a friendly message instead of walking cwd", async () => {
+    await expect(resolveConnector({ type: "file", file: { path: "" } })).rejects.toThrow(
+      /未配置路径/,
+    );
+    await expect(resolveConnector({ type: "file", file: { path: "   " } })).rejects.toThrow(
+      /未配置路径/,
+    );
+  });
 });
 
 describe("resolveConnector - http", () => {
