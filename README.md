@@ -3,7 +3,7 @@
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![node](https://img.shields.io/badge/node-%3E%3D24-339933)](https://nodejs.org)
 [![pnpm](https://img.shields.io/badge/package%20manager-pnpm-ffc611)](https://pnpm.io)
-[![tests](https://img.shields.io/badge/tests-2890%2B%20passing-2ea44f)](#run-the-checks)
+[![tests](https://img.shields.io/badge/tests-3068%20passing-2ea44f)](#run-the-checks)
 
 **A visual pipeline platform for AI agents — orchestrate LLMs, tools, and quality
 control into production lines that actually finish.**
@@ -62,12 +62,14 @@ change actually helped).
 |---|---|
 | **Nodes** | 29 types: agent, gate, HTTP (SSRF-guarded), code exec (JS/Python, sandboxed), branch, map, loop, parallel, table, database, file parse, translate, OCR, convert, search, notify, vcs, human approval, subprocess, image/video/audio gen, generic (modality auto-dispatch), compliance, publish, fanout, select, source, sink |
 | **Triggers** | Manual, webhook, cron (self-hosted parser), event, batch |
+| **Connectors** | Six declarative source connectors — manual, local file (path/glob, text or images), HTTP(S), run-time form, SQL database (sqlite/postgres, read-only), product library — each feeding a structured `data` channel for `${...}` interpolation downstream |
+| **Board / UX** | SVG flow canvas **plus an isometric 3D view**, undo/redo time travel (zundo), minimap, multi-select + marquee, first-load fit-to-screen; bilingual UI (中文/English) over a design-token system (color/spacing/radius/shadow/typography/z-index scales) |
 | **Quality** | LLM-judge gates, score-rework loops, brand/banned terms, output-contract schema validation |
 | **Observability** | Live SSE streaming, replay scrubber, per-node cost, eval report (by day / by graph / by prompt fingerprint), CSV export |
 | **MCP** | Both directions: consume external MCP servers as tools (operator env config plus per-user self-service for remote http/sse servers in Settings); expose the platform itself as an MCP server (15 tools, stdio + Streamable HTTP, protocol 2026-07-28 with 2025-11-25 / 2024-11-05 fallback, OAuth 2.1 resource metadata) |
 | **Sandboxing** | 3-tier code exec: env/cwd isolation → rlimit + Node permission model → bwrap (Linux) / seatbelt (macOS); SSRF guard immune to DNS rebinding |
 | **Accounts** | JWT + bcrypt, all resources isolated per user |
-| **Templates** | 33 built-in pipelines across 11 categories (grouped in the picker, blank canvas pinned first), with parameterizable fields (URLs, targets, brand terms) |
+| **Templates** | 33 built-in pipelines across 11 categories (grouped in the picker, blank canvas pinned first and not counted as a template), with parameterizable fields (URLs, targets, brand terms); product templates pre-select the product-library connector and document/OCR templates pre-select the file connector — users only fill in the concrete target |
 
 ## Quick start
 
@@ -96,14 +98,10 @@ pnpm dev
 6. **Inspect** — click any node for attempts, scores, cost, and artifacts;
    the 成品仓 (sink) renders the final output with images and video inline.
 
-![Agent World run](docs/images/demo-run.gif)
-
-*A pipeline run with timeline scrubbing — source intake → text generation → quality gate (with rework loop) → sink depot.*
-
 ### Run the checks
 
 ```bash
-pnpm -r test       # 2890 tests: core 205 / server 1008 / mcp-server 71 / web 1606
+pnpm -r test       # 3068 tests: core 212 / server 1024 / mcp-server 71 / web 1761
 pnpm -r typecheck
 pnpm -r build
 ```

@@ -1108,7 +1108,14 @@ const docIngestGraph = {
     id: "tpl-doc-ingest",
     name: "文档智能解析入库",
     nodes: [
-      { id: "intake", kind: "source", name: "文档入口", x: 80, y: 140 },
+      {
+        id: "intake",
+        kind: "source",
+        name: "文档入口",
+        x: 80,
+        y: 140,
+        source: { connector: { type: "file", file: { path: "" } } },
+      },
       {
         id: "fetch",
         kind: "http",
@@ -1692,7 +1699,14 @@ const scanOcrGraph = {
     id: "tpl-scan-ocr",
     name: "扫描件数字化",
     nodes: [
-      { id: "intake", kind: "source", name: "文件入口", x: 80, y: 300 },
+      {
+        id: "intake",
+        kind: "source",
+        name: "文件入口",
+        x: 80,
+        y: 300,
+        source: { connector: { type: "file", file: { path: "", asImages: true } } },
+      },
       {
         id: "fetch",
         kind: "http",
@@ -2148,7 +2162,14 @@ const contractReviewGraph = {
     id: "tpl-contract-review",
     name: "合同审查助手",
     nodes: [
-      { id: "intake", kind: "source", name: "合同文件", x: 80, y: 300 },
+      {
+        id: "intake",
+        kind: "source",
+        name: "合同文件",
+        x: 80,
+        y: 300,
+        source: { connector: { type: "file", file: { path: "" } } },
+      },
       {
         id: "parse",
         kind: "fileParse",
@@ -2903,7 +2924,14 @@ const privacyReviewGraph = {
     id: "tpl-privacy-review",
     name: "隐私政策合规审查",
     nodes: [
-      { id: "intake", kind: "source", name: "隐私政策文件", x: 80, y: 300 },
+      {
+        id: "intake",
+        kind: "source",
+        name: "隐私政策文件",
+        x: 80,
+        y: 300,
+        source: { connector: { type: "file", file: { path: "" } } },
+      },
       {
         id: "parse",
         kind: "fileParse",
@@ -2983,7 +3011,14 @@ const invoiceOcrGraph = {
     id: "tpl-invoice-ocr",
     name: "发票批量 OCR 台账",
     nodes: [
-      { id: "intake", kind: "source", name: "发票图片", x: 80, y: 300 },
+      {
+        id: "intake",
+        kind: "source",
+        name: "发票图片",
+        x: 80,
+        y: 300,
+        source: { connector: { type: "file", file: { path: "", asImages: true } } },
+      },
       {
         id: "ocr",
         kind: "ocr",
@@ -3072,7 +3107,14 @@ const batchContractReviewGraph = {
     id: "tpl-batch-contract-review",
     name: "批量合同审查",
     nodes: [
-      { id: "intake", kind: "source", name: "合同投料台", x: 80, y: 300 },
+      {
+        id: "intake",
+        kind: "source",
+        name: "合同投料台",
+        x: 80,
+        y: 300,
+        source: { connector: { type: "file", file: { path: "" } } },
+      },
       {
         id: "split",
         kind: "code",
@@ -3323,7 +3365,14 @@ const dueDiligenceGraph = {
     id: "tpl-due-diligence",
     name: "尽调清单",
     nodes: [
-      { id: "intake", kind: "source", name: "尽调材料台", x: 80, y: 300 },
+      {
+        id: "intake",
+        kind: "source",
+        name: "尽调材料台",
+        x: 80,
+        y: 300,
+        source: { connector: { type: "file", file: { path: "" } } },
+      },
       {
         id: "parse",
         kind: "fileParse",
