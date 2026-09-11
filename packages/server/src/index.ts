@@ -175,13 +175,16 @@ const triggers = new TriggerService({
     });
   },
 });
-triggers.restore();
-
 /** Schedules cron triggers; arms timers after triggers are restored. */
 const scheduler = new TriggerScheduler(triggers, (err) =>
   log.error("trigger scheduler", { error: (err as Error)?.message ?? String(err) }),
 );
-scheduler.start();
+// restore() is async (loads triggers from DB); start() must run after it
+// completes, otherwise list() is empty and no cron timers are armed.
+void triggers
+  .restore()
+  .then(() => scheduler.start())
+  .catch((err) => log.error("trigger restore failed", { error: (err as Error)?.message ?? String(err) }));
 
 /** JSON error response that accepts a dynamic (non-literal) status code. */
 function jsonResponse(status: number, body: unknown): Response {
