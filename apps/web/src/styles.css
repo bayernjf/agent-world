@@ -6882,7 +6882,7 @@ select {
 
 /* F10: fanout lane collapse toggle chip */
 .plant__collapse-chip rect {
-  fill: var(--steel-800);
+  fill: var(--bg-elevated);
   stroke: var(--border-primary);
 }
 .plant__collapse-chip text {
@@ -6891,7 +6891,7 @@ select {
   font-weight: var(--font-semibold);
 }
 .plant__collapse-chip:hover rect {
-  fill: var(--steel-700);
+  fill: var(--bg-hover);
 }
 
 /* --- announcements (design-announcement) --- */
