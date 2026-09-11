@@ -30,6 +30,6 @@ export interface FieldsProps {
   graphs: { id: string; name: string }[];
   duplicateLanes: (fanoutId: string) => void;
   arrangeLanes: (fanoutId: string) => void;
-  /** User-level search service (Settings → 搜索服务), used to gate the search node's provider choices. */
+  /** User-level search service (Settings → Search Service), used to gate the search node's provider choices. */
   searchConfig?: AppConfig["searchConfig"];
 }

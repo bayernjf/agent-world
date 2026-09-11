@@ -34,7 +34,7 @@ export function replaceAt<T>(arr: T[], i: number, v: T): T[] {
 /* Missing-model hint (model selects).                                  */
 /* ------------------------------------------------------------------ */
 
-/** 该模态没有任何可用模型时，提示并给出直达「设置」的入口。 */
+/** When this modal has no available model, show a hint with a shortcut to Settings. */
 export function MissingModelHint({
   hasModels,
   onOpenSettings,
@@ -74,7 +74,7 @@ function stepField(label: string, children: ReactNode) {
   );
 }
 
-/** 单步编辑：根据 op 渲染对应的参数字段。 */
+/** Per-step editor: render the parameter field matching the op. */
 export function TableStepEditor({
   step,
   index,

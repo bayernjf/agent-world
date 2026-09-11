@@ -246,7 +246,7 @@ export default function ControlPanel(props: Props) {
 
         <section>
           <h3 className="label">{t("run:control.status")}</h3>
-          {/* 编译/保存状态：常态 → muted 文字；出错 → diag 高亮 */}
+          {/* Compile/save status: default → muted text; error → diag highlight */}
           {errors.length === 0 && warnings.length === 0 && (
             <p className="note note--compact">
               {t("run:control.compileOk", { n: graph.nodes.length })}

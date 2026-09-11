@@ -98,8 +98,9 @@ export default function App() {
   const currentSharedRole = graphs.find((g) => g.id === graph.id)?.sharedRole ?? null;
   const isViewer = currentSharedRole === "viewer";
   const [controlCollapsed, setControlCollapsed] = useState(false);
-  // 默认收起，与"无选中节点"状态一致——初始展开会在刷新首帧闪一下又被
-  // selectedId effect 收起（下方 421-424 行），造成"出现又收起"的视觉闪烁。
+  // Collapsed by default, matching the "no selected node" state — starting
+  // expanded would flash open on first paint before the selectedId effect
+  // collapses it again (see below), causing an open-then-close flicker.
   const [inspectorCollapsed, setInspectorCollapsed] = useState(true);
   const [inspectorWidth, setInspectorWidth] = useState(() => {
     const saved = localStorage.getItem("inspector-width");
@@ -224,7 +225,7 @@ export default function App() {
   };
 
   const commandItems: CommandItem[] = [
-    // 节点
+    // Nodes
     {
       id: "add-source",
       label: t("modals:commandPalette.commands.addSource.label"),
@@ -288,7 +289,7 @@ export default function App() {
       group: "node",
       onSelect: () => setNewGraphOpen(true),
     },
-    // 查看
+    // View
     {
       id: "history",
       label: t("modals:commandPalette.commands.history.label"),
@@ -338,7 +339,7 @@ export default function App() {
       group: "view",
       onSelect: () => setCompareOpen(true),
     },
-    // 自动化
+    // Automation
     {
       id: "triggers",
       label: t("modals:commandPalette.commands.triggers.label"),
@@ -353,7 +354,7 @@ export default function App() {
       group: "automation",
       onSelect: () => setABOpen(true),
     },
-    // 管理
+    // Manage
     {
       id: "settings",
       label: t("modals:commandPalette.commands.settings.label"),
@@ -448,7 +449,7 @@ export default function App() {
       group: "manage",
       onSelect: () => setVariablesOpen(true),
     },
-    // 画布
+    // Canvas
     {
       id: "undo",
       label: t("modals:commandPalette.commands.undo.label"),

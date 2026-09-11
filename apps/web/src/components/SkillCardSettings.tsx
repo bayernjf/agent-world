@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import type { UserSkillCard, UserSkillCardKind } from "../lib/api";
 
 /**
- * Settings → 自建技能卡: cards the user writes themselves.
+ * Settings → Custom Skill Cards: cards the user writes themselves.
  *
  * Three kinds, all of them data — a prompt fragment, a judging clause, a field
  * table. Nothing here executes, which is why it needs no sandbox. `tool` kind

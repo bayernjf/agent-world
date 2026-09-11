@@ -1,7 +1,7 @@
 import { create } from "zustand";
 
 export interface ToastAction {
-  /** Button label, e.g. "撤销" or "复制". */
+  /** Button label, e.g. "Undo" or "Copy". */
   label: string;
   /** Click handler; the toast is cleared after it runs. */
   onClick: () => void;

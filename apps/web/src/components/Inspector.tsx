@@ -81,12 +81,13 @@ const ERROR_LABEL: Record<string, string> = {
   SUBPROCESS: "nodes:inspector.errorLabel.SUBPROCESS",
 };
 
-/** 富渲染节点文本产出：含 product-json 走结构化成品，否则走 Markdown。 */
+/** Rich-render a node's text output: product-json becomes structured blocks, otherwise Markdown. */
 function renderNodeOutput(text: string): React.ReactNode {
   const doc = parseProductDocument(text);
   if (doc) return <ProductBlocks doc={doc} />;
-  // parse 失败：常因模型在 product-json 的字段里写了未转义引号，导致 JSON 非法。
-  // 兜底策略——把整段围栏剥掉再渲染 Markdown，避免把半成品源码裸露给用户。
+  // Parse failed: usually the model wrote unescaped quotes inside a product-json
+  // field, producing invalid JSON. Fallback — strip the whole fence and render
+  // Markdown so the user never sees half-finished raw source.
   if (/```product-json/i.test(text)) {
     const cleaned = text.replace(/```product-json[\s\S]*?```/gi, "").trim();
     if (cleaned)
@@ -100,7 +101,7 @@ function renderNodeOutput(text: string): React.ReactNode {
   return <div className="artifact-md">{renderMarkdown(text)}</div>;
 }
 
-/** 过滤掉"内容本身就是 product-json 围栏"的中间产物，避免与富成品重复展示。 */
+/** Filter out intermediate artifacts whose content is itself a product-json fence, to avoid showing it twice alongside the rich product. */
 function isProductJsonSource(a: Artifact): boolean {
   return (
     (a.kind === "text" || a.kind === "json") &&
@@ -126,7 +127,7 @@ function kindHasSkills(kind?: string): boolean {
   return kind === "textGen" || kind === "gate";
 }
 
-/** The 技能 tab only exists on those kinds, so a remembered tab can be invalid. */
+/** The Skill tab only exists on those kinds, so a remembered tab can be invalid. */
 function clampMainTab(tab: MainTab, hasSkills: boolean): MainTab {
   return tab === "skills" && !hasSkills ? "output" : tab;
 }
@@ -231,7 +232,7 @@ export default function Inspector({
     setMainTabState((cur) => clampMainTab(cur, hasSkills));
   }, [selectedId, graph]);
 
-  // E cycles 产出 → 配置 → 技能, alongside the existing single-key canvas bindings.
+  // E cycles Output → Config → Skill, alongside the existing single-key canvas bindings.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey || !selectedId) return;
@@ -255,7 +256,7 @@ export default function Inspector({
   }, [mainTab, selectedId, graph, triggerTabFlash]);
   // Each node kind only drives one modality, so its model select must
   // only show models matching that modality. Empty list -> the select
-  // renders an "未配置" placeholder nudging the user to Settings, and
+  // renders an "unconfigured" placeholder nudging the user to Settings, and
   // dispatch remains the hard gatekeeper (it errors before sending).
   const allModelOptions: ModelOption[] = settings
     ? Object.entries(settings.providers)

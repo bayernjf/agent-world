@@ -18,8 +18,8 @@ const TYPE_LABELS: Record<TriggerConfig["type"], string> = {
   batch: "modals:triggers.typeShort.batch",
 };
 
-/** 生成短 id。crypto.randomUUID 仅在 secure context 可用（localhost/https）；
- *  局域网 http 部署（如 Hasee）不可用，需降级到时间戳+随机串。 */
+/** Generate a short id. crypto.randomUUID is only available in a secure context (localhost/https);
+ *  on a LAN http deployment (e.g. Hasee) it is unavailable, so fall back to timestamp+random. */
 function genId(): string {
   let raw: string;
   try {
