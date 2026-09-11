@@ -1312,12 +1312,16 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       const message = sanitizeError(err instanceof Error ? err.message : String(err));
       runLog.warn("node threw unexpectedly", { nodeId, kind: node.kind, error: message });
       states.set(nodeId, "failed");
+      // Preserve ProviderError codes (RATE_LIMIT / AUTH / TIMEOUT / etc.) so
+      // error analytics and retry decisions can distinguish infra faults from
+      // genuine node failures; everything else stays UNKNOWN.
+      const preservedCode = err instanceof ProviderError ? err.code : "UNKNOWN";
       emit({
         type: "node.failed",
         nodeId,
         attempt,
         error: `节点执行异常: ${message}`,
-        errorCode: "UNKNOWN",
+        errorCode: preservedCode,
       });
     } finally {
       running--;
