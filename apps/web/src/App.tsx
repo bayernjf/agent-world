@@ -42,6 +42,8 @@ import TriggersPanel from "./components/TriggersPanel";
 import ProductGallery from "./components/ProductGallery";
 import Onboarding from "./components/Onboarding";
 import UserMenu from "./components/UserMenu";
+import GuidedTour from "./components/GuidedTour";
+import { registerTourAction } from "./components/guided-tour-engine";
 import AnnouncementBell from "./components/AnnouncementBell";
 import { GraphAnnouncementBar } from "./components/AnnouncementAlerts";
 import KnowledgePanel from "./components/KnowledgePanel";
@@ -56,6 +58,14 @@ import { getTemplate } from "@agent-world/core";
 import { useGraph } from "./store/graph";
 import { useRun } from "./store/run";
 import { useViewMode } from "./store/view-mode";
+import { TOURS } from "./tours";
+import {
+  buildTourContext,
+  migrateLegacySeen,
+  pickAutoTour,
+  setLastAutoAt,
+  useGuidedTour,
+} from "./store/guided-tour";
 
 const Canvas3D = lazy(() => import("./canvas/Canvas3D"));
 // RTS stage-B L0 macro park: separate chunk so 2D/3D users never load three.js twice for it.
@@ -206,6 +216,21 @@ export default function App() {
     setControlCollapsed(next);
     setInspectorCollapsed(next);
   };
+
+  // Guided tour: register before-step side effects and migrate the legacy
+  // single-tour seen key once (see docs/design-guided-tour.md §12.5).
+  useEffect(() => {
+    migrateLegacySeen();
+    registerTourAction("panel:expandControl", () => setControlCollapsed(false));
+    registerTourAction("inspector:expandAndSelect", () => {
+      setInspectorCollapsed(false);
+      const gs = useGraph.getState();
+      if (!gs.selectedId && gs.graph.nodes.length > 0) {
+        gs.select(gs.graph.nodes[0]!.id);
+      }
+      gs.setInspectorOpen(true);
+    });
+  }, [setControlCollapsed, setInspectorCollapsed]);
 
   const MODALITY_PROMPT_LABEL: Record<string, string> = {
     text: "nodes:modality.text",
@@ -462,6 +487,14 @@ export default function App() {
       group: "manage",
       onSelect: () => setVariablesOpen(true),
     },
+    // Guided tours: one replay command per registered tour (auto-generated).
+    ...TOURS.map((tour) => ({
+      id: `replay-tour:${tour.id}`,
+      label: t(tour.titleKey),
+      hint: t("tour:commands.replayHint"),
+      group: "manage" as const,
+      onSelect: () => useGuidedTour.getState().start(tour.id),
+    })),
     // Canvas
     {
       id: "undo",
@@ -643,6 +676,9 @@ export default function App() {
 
   const createGraph = useCallback(
     async (template?: string, fieldValues?: Record<string, string>) => {
+      // Capture the in-session 0→1 moment before the await so we can auto-start
+      // the first-run tour only for a brand-new user's first production line.
+      const wasEmpty = graphs.length === 0;
       if (template) {
         const tpl = getTemplate(template);
         if (tpl && nameTaken(tpl.name))
@@ -662,6 +698,19 @@ export default function App() {
         reset();
         setGraph(g);
         useGraph.temporal.getState().clear();
+        if (wasEmpty) {
+          // Let panels/canvas settle before spotlighting (§五). Existing users
+          // never pass through 0→1, so they are never auto-interrupted.
+          const ctx = buildTourContext(1);
+          const tour = pickAutoTour(TOURS, ctx);
+          if (tour) {
+            setLastAutoAt(ctx.now);
+            window.setTimeout(
+              () => useGuidedTour.getState().start(tour.id),
+              400,
+            );
+          }
+        }
       } catch (e) {
         if (e instanceof DuplicateGraphNameError) {
           showError(e.message);
@@ -945,7 +994,7 @@ export default function App() {
               {t("common:app.pipeCount", { n: graph.edges.length })}
             </span>
           </div>
-          <div className="hud__actions">
+          <div className="hud__actions" data-tour="hud:actions">
             <div className="hud__undo-redo">
               <UndoRedo />
             </div>
@@ -1042,8 +1091,8 @@ export default function App() {
             readOnly={isViewer}
           />
 
-          <main className="stage">
-            <div className="canvas-toolbar-row">
+          <main className="stage" data-tour="workspace:stage">
+            <div className="canvas-toolbar-row" data-tour="workspace:toolbar">
               <CanvasToolbar onError={showError} />
             </div>
             <Timeline />
@@ -1099,6 +1148,7 @@ export default function App() {
             <Minimap />
             <div
               className={`inspector-slot ${inspectorCollapsed ? "inspector-slot--hidden" : ""}`}
+              data-tour="inspector:panel"
               style={
                 {
                   "--inspector-width": `${inspectorWidth}px`,
@@ -1227,6 +1277,7 @@ export default function App() {
           onClose={() => setPaletteOpen(false)}
           items={commandItems}
         />
+        <GuidedTour />
         {formFields && (
           <FormConnectorModal
             fields={formFields}
