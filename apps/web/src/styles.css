@@ -160,6 +160,9 @@
   --shadow-card: var(--shadow-sm);
   --shadow-modal: var(--shadow-lg);
   --shadow-popover: var(--shadow-xl);
+
+  /* Modal / spotlight scrim (also used by guided tour) */
+  --color-scrim: rgba(0, 0, 0, 0.55);
 }
 
 /* ============================================================
@@ -209,6 +212,9 @@
 
   /* Scrollbar */
   scrollbar-color: #a8b3bc #e8ecf0;
+
+  /* Modal / spotlight scrim (also used by guided tour) */
+  --color-scrim: rgba(15, 23, 42, 0.45);
 }
 
 [data-theme="light"] ::-webkit-scrollbar-track {
@@ -7407,4 +7413,120 @@ select {
 .ops-status--tripped { background: var(--error-bg); color: var(--error); }
 .ops-status--cancelled,
 .ops-status--idle { background: var(--bg-tertiary); color: var(--text-tertiary); }
+
+/* ============================================================
+   Guided Tour — spotlight step-by-step onboarding
+   z-index 1100 sits above modals/popovers (max 1000).
+   ============================================================ */
+.guided-tour {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+}
+.guided-tour__scrim {
+  position: absolute;
+  inset: 0;
+  background: var(--color-scrim);
+}
+.guided-tour__hole {
+  position: absolute;
+  border-radius: var(--radius-lg);
+  border: 2px solid var(--accent);
+  box-shadow: 0 0 0 9999px var(--color-scrim);
+  pointer-events: none;
+  transition:
+    top var(--duration-normal) var(--ease-default),
+    left var(--duration-normal) var(--ease-default),
+    width var(--duration-normal) var(--ease-default),
+    height var(--duration-normal) var(--ease-default);
+}
+.guided-tour__card {
+  position: absolute;
+  width: 340px;
+  max-width: calc(100vw - var(--space-6));
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-modal);
+  padding: var(--space-4);
+  color: var(--text-primary);
+}
+.guided-tour__progress {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  margin-bottom: var(--space-2);
+}
+.guided-tour__title {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-lg);
+  font-weight: var(--font-semibold);
+}
+.guided-tour__body {
+  margin: 0 0 var(--space-4);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+  color: var(--text-secondary);
+}
+.guided-tour__actions {
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-2);
+}
+.guided-tour__nav {
+  display: flex;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+/* Override global .btn (width:100% / margin-top / no-wrap) which breaks
+   the compact action row inside the 340px tour card. */
+.guided-tour__actions .btn {
+  width: auto;
+  flex: 0 0 auto;
+  margin-top: 0;
+  white-space: nowrap;
+  min-height: 38px;
+  padding: 0 var(--space-4);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--text-sm);
+  letter-spacing: 0.04em;
+}
+.guided-tour__actions .btn--ghost {
+  padding: 0 var(--space-3);
+}
+.guided-tour__skip {
+  flex: 1 1 auto !important;
+  min-width: 0;
+}
+
+/* Tours & what's-new block inside the user menu */
+.user-menu__tours {
+  display: flex;
+  flex-direction: column;
+  border-top: var(--hair);
+  margin-top: var(--space-1);
+  padding-top: var(--space-1);
+}
+.user-menu__tours-title {
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+}
+.user-menu__tour-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.user-menu__tour-seen {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .guided-tour__hole {
+    transition: none;
+  }
+}
 

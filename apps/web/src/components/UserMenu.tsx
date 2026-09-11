@@ -7,6 +7,7 @@ import FeedbackModal from "./FeedbackModal";
 import { logout } from "./AuthPages";
 import LanguageSwitcher from "./LanguageSwitcher";
 import ThemeSwitcher from "./ThemeSwitcher";
+import GuidedToursMenu from "./GuidedToursMenu";
 
 export interface Me {
   id: string;
@@ -108,6 +109,7 @@ export default function UserMenu() {
               {t("feedback:entry.button")}
             </button>
           )}
+          <GuidedToursMenu onReplay={() => setOpen(false)} />
           <LanguageSwitcher />
           <ThemeSwitcher />
           <button type="button" className="user-menu__logout" onClick={handleLogout}>

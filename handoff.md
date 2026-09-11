@@ -87,6 +87,8 @@ State of Agent World as of 2026-09-11.
 
 * [docs/design-canvas-isometric.md](docs/design-canvas-isometric.md) — 画布等距 3D 展示视图设计（受限 3D：俯角固定 + 水平旋转 + 平移；2D/3D 一键切换；**第一、二、三期已实施**）
 
+* [docs/design-guided-tour.md](docs/design-guided-tour.md) — 新用户分步引导 Guided Tour 设计（聚光灯分步教学 + 上一步/下一步/跳过；§十二 多引导注册中心：引擎与定义解耦、引导即数据、版本化 seen、What's-new/⌘K 动态注册，**已落地**）
+
 * [docs/design-rts-overview.md](docs/design-rts-overview.md) — RTS 宏观上帝视角设计总览（L0 工业园区 / L1 单厂 3D / L2 节点三层缩放；六类宏观信息；A 平面工作台→B 宏观沙盘 MVP→C 完整 RTS；**P3 未实施，阶段 A 可在 M1 等待期先行**）
 
 * [docs/examples.md](docs/examples.md) / [docs/extending.md](docs/extending.md) / [docs/integrations-future.md](docs/integrations-future.md) — 模板示例 / 扩展指南 / 未来集成（Notion/Linear/邮件/内容平台）
@@ -227,13 +229,13 @@ State of Agent World as of 2026-09-11.
 
 按 commit 时间倒序，每条一行影响面 + commit hash：
 
-1. **feat(web) RTS 阶段 B B4/B6/B7/B8 L0 园区总览（2026-09-11，`2b5f62e`，未 push）**——CanvasPark 生产级重写（mount-once InstancedMesh 低模工厂 + core parkLayout 聚簇 + React.lazy 独立 chunk + 真实 overview 15s 轮询），单 rAF per-instance 状态色/待审角标，raycast 点厂 HTML 浮层（进入/重试/暂停 cron 按态显隐），view-mode 扩 2d/3d/park + 相机记忆 + 钻取 L1 淡切往返；park i18n zh/en、运营台+⌘K 双入口、token 样式、CanvasPark 4 测，web 1765→1769。内置浏览器 live 走查全过。
-2. **feat(server) RTS 阶段 B B3 overview 补 category/pendingReview（2026-09-11，`a4bdc08`，未 push）**——operationsByGraph 补选 origin_template_id，overview 反查模板类别（兜底「自定义」）、pendingReview=halted，只追加不动 A 阶段字段，+2 API 测试，server 1037→1039。
-3. **test(web) ThemeSwitcher 组件测试（2026-09-11，`48de996`，未 push）**——补全新增主题切换器的测试（镜像 LanguageSwitcher 4 例：暗色时 label 显示将切到的亮色 + title、点击翻 data-theme 并写 localStorage 再切回、挂载尊重已持久化的 light、英文环境显示 Light/Switch to light theme），web 1761→**1765/1765（82 文件）**。
-4. **docs README/docs 索引同步（2026-09-11，`d2e31ed`，未 push）**——实跑各包测试校准计数（core 224 / server 1024 / mcp 71 / web 1765，总 **3084**，原 badge 3068、core 212 过时）；Feature map 补 dark/light theme toggle + 三层 token、新增 Operations 行（OperationsDashboard / `/api/operations/overview`）；5-minute first run 段夹杂中文统一英文。docs/README 场景表补运营工作台、RTS 阶段 A 上线/B-C 未实施状态。
-5. **refactor(web) 代码注释英文化收尾（2026-09-11，`bfe8333`，未 push）**——18 文件剩余中文注释/示例字符串英文化（InspectorFields/RunHistory/Toast/AnnouncementManager/i18n utils 等）。**有意保留的中文**（已 grep 验证勿再清）：GlossaryModal 的工厂隐喻源数据（文坊/质检站，英文隐喻名待产品拍板）、LanguageSwitcher 的"中文"、i18n/utils 的 zh 日期输出示例、store/graph translate 节点 target「简体中文」（翻译目标语言）。
+1. **fix(web) Guided Tour 按钮样式修复（2026-09-12，`dec70eb`，未 push）**——全局 `.btn` 的 `width:100%`/`margin-top`/无 `white-space:nowrap` 在 340px 引导卡片里把「上一步/下一步」挤成竖排单字、三按钮高度不齐；`.guided-tour__actions .btn` 作用域覆盖为 `width:auto`+`nowrap`+`min-height:38px`+`inline-flex` 居中，skip 按钮 `flex:1` 撑满左侧、导航组靠右；浏览器实测三按钮统一 38px 高、文字横排（跳过引导 155px / 上一步 63px / 下一步 71px）。
+2. **feat(web) 新用户分步引导 Guided Tour + 多引导注册中心（2026-09-11，`b1bd81b`/`f0f9bd9`/`f854c43`/`a30efac`，未 push）**——可扩展「引导即数据」架构：`tours/`（TourDef/targeting/primitives + first-run 8 步脚本 + 注册表）、`store/guided-tour.ts`（版本化 seen、24h 自动弹冷却、priority 调度、0→1 建首条产线才自动触发、老用户零打扰）、`guided-tour-engine.ts`（placeCard 溢出翻面/clamp、holeRect、before-action 注册）、`GuidedTour.tsx`（聚光灯洞 + box-shadow 压暗、Esc/焦点 trap、a11y dialog、引导期强制 2D 关闭恢复、锚点缺失降级居中、`a30efac` 修页面横向残留滚动把锚点推出视口→启动复位 + scrollIntoView 自愈）、`GuidedToursMenu.tsx`（UserMenu「引导与新功能」What's-new 入口 + 已看标记）、⌘K 动态注册重看；tour i18n zh/en 双语、新增 `--color-scrim` token（暗/亮）。+42 测试（store 22/engine 10/GuidedTour 7/Menu 3），web 1769→**1811（87 文件）**；内置浏览器 live 走查全过（8 步聚光/自动展开控制栏与巡检员并选中首节点/双主题/完成写 seen/Esc）。设计文档 `docs/design-guided-tour.md`（§十二 多引导注册中心扩展法）。
+3. **feat(web) RTS 阶段 B B4/B6/B7/B8 L0 园区总览（2026-09-11，`2b5f62e`，未 push）**——CanvasPark 生产级重写（mount-once InstancedMesh 低模工厂 + core parkLayout 聚簇 + React.lazy 独立 chunk + 真实 overview 15s 轮询），单 rAF per-instance 状态色/待审角标，raycast 点厂 HTML 浮层（进入/重试/暂停 cron 按态显隐），view-mode 扩 2d/3d/park + 相机记忆 + 钻取 L1 淡切往返；park i18n zh/en、运营台+⌘K 双入口、token 样式、CanvasPark 4 测，web 1765→1769。内置浏览器 live 走查全过。
+4. **feat(server) RTS 阶段 B B3 overview 补 category/pendingReview（2026-09-11，`a4bdc08`，未 push）**——operationsByGraph 补选 origin_template_id，overview 反查模板类别（兜底「自定义」）、pendingReview=halted，只追加不动 A 阶段字段，+2 API 测试，server 1037→1039。
+5. **test(web) ThemeSwitcher 组件测试（2026-09-11，`48de996`，未 push）**——补全新增主题切换器的测试（镜像 LanguageSwitcher 4 例：暗色时 label 显示将切到的亮色 + title、点击翻 data-theme 并写 localStorage 再切回、挂载尊重已持久化的 light、英文环境显示 Light/Switch to light theme），web 1761→**1765/1765（82 文件）**。
 
-> 第 6 条及更早（2026-09-10 及以前：web 组件测试 100% 覆盖、research-loop 补 sink、连接器清账、RTS-A、清账三件套等）已归档至 [handoff-archive-2026-09-11.md](docs/handoff-archive-2026-09-11.md)、[handoff-archive-2026-09-10.md](docs/handoff-archive-2026-09-10.md) 与更早 archive。
+> 第 6 条及更早（2026-09-10 及以前：web 组件测试 100% 覆盖、research-loop 补 sink、连接器清账、RTS-A、清账三件套、`bfe8333` 代码注释英文化收尾、`d2e31ed` docs README/Docs 索引同步等）已归档至 [handoff-archive-2026-09-11.md](docs/handoff-archive-2026-09-11.md)、[handoff-archive-2026-09-10.md](docs/handoff-archive-2026-09-10.md) 与更早 archive。
 
 ## Quality gate (current snapshot)
 
@@ -241,12 +243,12 @@ State of Agent World as of 2026-09-11.
 
 * `pnpm -r typecheck`：全绿（core/server/mcp-server/web `tsc --noEmit` 全部干净，2026-09-11 复核）
 
-* 测试总数 **3103**（2026-09-11 实跑，RTS-B B3-B8 落地后）：
+* 测试总数 **3145**（2026-09-11 实跑，Guided Tour 落地后；core/server/mcp 未动，仅 web +42）：
 
   * `pnpm --filter @agent-world/core test`：**224/224 通过**（15 文件；含 parkLayout 11 例、file/product connector 形状断言、compile trigger warning 5 例、模板 33 形状守护、单价缺口 7 例等）
   * `pnpm --filter @agent-world/server test`：**1039 总数**（129 文件；Node 24 下应全绿；RTS-B B1 新增 park-coord 6 + api.park-coord 6 + pg-sql 1 = 13 例，B3 overview category/pendingReview 再 +2）。⚠️ **本机 Node v22 + macOS seatbelt 下依赖 spawn JS sandbox 子进程的用例失败（status 71，本次同口径对照：干净基线与带改动均为相同 36 个用例失败、失败名集合 diff 为空，非回归），CI Linux bwrap 正常**；另有 2 个 RPA 用例需先 `pnpm exec playwright install` 装 chromium，本机未装属环境阻塞。
   * `pnpm --filter @agent-world/mcp-server test`：**71/71 通过**（3 文件；含 stdio 端到端冒烟 3 个。负载性 flaky：`pnpm -r test` 并行时 stdio 冒烟可能超 5s，单独跑稳定）
-  * `pnpm --filter @agent-world/web exec vitest run`：**1769 总数**（83 文件；组件目录零「有 .tsx 无 .test.tsx」，CanvasPark 4 例为最新增量。已知既有 flaky：PublishTargets.test.tsx 表单 reset 时序在全量并发下偶发失败，隔离跑全绿、本批未触碰该文件，零回归）
+  * `pnpm --filter @agent-world/web exec vitest run`：**1811 总数**（87 文件；组件目录零「有 .tsx 无 .test.tsx」，Guided Tour +42（store 22/engine 10/GuidedTour 7/Menu 3）为最新增量。已知既有 flaky：PublishTargets.test.tsx 表单 reset 时序在全量并发下偶发失败，隔离跑全绿、本批未触碰该文件，零回归）
 
 * 各用例逐波来源（单价审计/连接器插值/PG/加密/RBAC/公告/重构/狗粮九波等）已随对应待办归档到三份 handoff-archive，本 snapshot 只记当前数，不堆历史。
 

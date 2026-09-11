@@ -1,0 +1,54 @@
+{
+  "firstRun": {
+    "title": "Getting Started Tour",
+    "steps": {
+      "welcome": {
+        "title": "Welcome to Agent World",
+        "body": "Agent World orchestrates models, tools and quality gates into AI production lines that actually finish: the raw-material desk feeds in, workshops produce, the gate inspects, and the product library ships the output. Take a minute to learn the workspace."
+      },
+      "raw": {
+        "title": "Raw-material desk · the input",
+        "body": "Write your material or task here; it becomes the input for the whole line."
+      },
+      "toolbar": {
+        "title": "Workstation toolbar",
+        "body": "The text workshop generates, the quality gate checks, the image workshop draws, the API port connects external tools, and the product library collects output. Click once to add a workstation to the canvas."
+      },
+      "canvas": {
+        "title": "Canvas and pipes",
+        "body": "Wires between workstations show the direction material flows. Hover a workstation to see its type and model; toggle the nameplate from the Tips chip in the top bar."
+      },
+      "dispatch": {
+        "title": "Dispatch task",
+        "body": "After assigning a model to the text workshop in Settings / Model assignment, click here to run the whole line."
+      },
+      "inspector": {
+        "title": "Node configuration",
+        "body": "Select any workstation to edit its prompt, model and parameters here; the quality gate's banned words and rules live here too."
+      },
+      "hud": {
+        "title": "Results and global actions",
+        "body": "Run history shows every run and its cost; the review queue handles held output. Press ⌘K to open the command palette — and to replay this tour anytime."
+      },
+      "finish": {
+        "title": "You're all set",
+        "body": "You've seen the whole line. Drop some material on the desk and dispatch your first run."
+      }
+    }
+  },
+  "nav": {
+    "back": "Back",
+    "next": "Next",
+    "finish": "Finish",
+    "skip": "Skip tour",
+    "progress": "Step {{index}} / {{total}}"
+  },
+  "menu": {
+    "title": "Tours & what's new",
+    "seen": "Seen",
+    "replay": "Replay"
+  },
+  "commands": {
+    "replayHint": "Replay the step-by-step tour"
+  }
+}
