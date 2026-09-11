@@ -58,7 +58,7 @@ export default function SourceFiles({
 
   const uploadFiles = async (list: File[]) => {
     // Nothing may be dropped silently: the image-only picker swallowed every
-    // document a user dragged in, which is how the 「合同文件」 intake ended up
+    // document a user dragged in, which is how the "contract files" intake ended up
     // unable to produce a file at all (dogfood 2026-09-01).
     const rejected: string[] = [];
     const accepted: File[] = [];

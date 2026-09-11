@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import type { McpServerStatus, UserMcpServer } from "../lib/api";
 
 /**
- * Settings → MCP 服务: the user's own remote MCP servers.
+ * Settings → MCP Servers: the user's own remote MCP servers.
  *
  * Only http and sse appear here. stdio is missing on purpose — it spawns a
  * process from a command line, so offering it in a form would be an arbitrary

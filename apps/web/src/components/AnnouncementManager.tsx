@@ -193,7 +193,7 @@ export default function AnnouncementManager({ open, onClose, onChanged }: Props)
 
   const title = (a: ManageAnnouncement) => a.titleZh || a.titleEn;
 
-  /** Short audience label for the list rows, e.g. "模板定向 · tpl-x" or "产线定向 · g-abc…". */
+  /** Short audience label for the list rows, e.g. "template-targeted · tpl-x" or "line-targeted · g-abc…". */
   const targetLabel = (a: ManageAnnouncement): string | null => {
     const m = /^(graph|template):(.+)$/.exec(a.target ?? "");
     if (!m) return null;

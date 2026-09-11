@@ -5,7 +5,7 @@ import { copyToClipboard, useToast, type ToastAction } from "../store/toast";
 /**
  * Center-screen toast. Replaces the old full-width top banner for transient
  * feedback. Auto-hides after `toast.ttlMs` (default 4s); actions rendered on
- * the right (e.g. 撤销 / 复制) clear the toast when clicked. The copy action
+ * the right (e.g. Undo / Copy) clear the toast when clicked. The copy action
  * is the default for error / info toasts so the user can grab the message
  * with one click when they need to report it.
  */
@@ -23,7 +23,7 @@ export default function Toast() {
   if (!toast) return null;
 
   // Errors / info messages get a copy action by default; producers that want
-  // an undo button can pass `actions: [{ label: "撤销", onClick }]`.
+  // an undo button can pass `actions: [{ label: "Undo", onClick }]`.
   const actions: ToastAction[] =
     toast.actions ?? [
       {
