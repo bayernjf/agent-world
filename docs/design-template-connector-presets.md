@@ -1,6 +1,6 @@
 # 产线模板连接器适配与数据插值修复方案
 
-> 状态：**方案定稿（2026-09-08），待落代码**。
+> 状态：**已全部落地（2026-09-11 复核）**。引擎 D1-D7 恢复、A 类 2 模板 product 预设（`0527823`）、C 类 7 模板 file 预设（`a153661`）、服务端 21 例集成测试（`engine.products.test.ts`）、core 模板形状断言（product 2 个 + file 7 个边界锁死）均已就位。本文保留为决策与盘点存档。
 > 关联：[design-data-interpolation.md](design-data-interpolation.md)（插值引擎机制 D1-D7）、[design-ecommerce-roadmap.md](design-ecommerce-roadmap.md) §F4（商品库）、[template-checklist.md](template-checklist.md)（逐模板狗粮状态）。
 >
 > 本文回答两个问题：① 连接器数据插值能力为什么在现有产线模板里"没生效"，引擎层丢了什么、怎么修；② 全部 33 个业务模板逐一盘点后，哪些该预设连接器、哪些保持手动，以及落地与验证方式。
@@ -79,7 +79,7 @@ source 主路径喂给下游 fileParse / ocr，语义上对应 **file connector 
 | tpl-batch-contract-review 批量合同审查 | 合同投料台 | code 拆条 |
 | tpl-due-diligence 尽调清单 | 尽调材料台 | fileParse（多文档） |
 
-### D 类·手动文本/主题/清单/CSV 型（20 个）——保持 manual
+### D 类·手动文本/主题/清单/CSV 型（19 个）——保持 manual
 
 输入是自由文本、主题、多行清单或粘贴的 CSV，由用户每次运行时填写，或下游另有 search/vcs/http 辅助节点；与商品库无语义对应。
 
@@ -103,10 +103,9 @@ source 主路径喂给下游 fileParse / ocr，语义上对应 **file connector 
 | tpl-evidence-brief 证据清单整理 | 证据材料台 | 多段文本 → code |
 | tpl-expense-review 费用报销初审 | 报销明细台 | 粘贴 CSV → code |
 | tpl-reconciliation 银行流水对账 | 流水投料台 | 两段流水 → code |
-| tpl-batch-contract-review 批量合同审查 | 合同投料台 | 多份文本 → code |
 | tpl-audit-sampling 审计抽样底稿 | 账目明细台 | 粘贴 CSV → code |
 
-**合计：2 + 5 + 6 + 20 = 33，全覆盖、不重不漏。**
+**合计：2（A）+ 5（B）+ 7（C）+ 19（D）= 33，全覆盖、不重不漏。**（tpl-batch-contract-review 归 C 类文件型，不在 D 类重复计数。）
 
 ## 4. 设计决策
 
@@ -185,3 +184,20 @@ source 主路径喂给下游 fileParse / ocr，语义上对应 **file connector 
 - ~~**其他 connector 的结构化 data**~~ **已落地 2026-09-09**：五类 connector 全部填 `data` + 各自快捷名（`${response.x}` / `${row.列名}` / `${form.字段名}` / `${file.content}`），见 [design-data-interpolation.md §13](design-data-interpolation.md)。
 - **media-pipeline 是否预设 product**：其输入"主题"可商品可纯主题，保持 manual；若后续数据表明绝大多数用于商品，再单独评估。
 - 当初回滚原因无记录：恢复后在真实狗粮（tpl-product/tpl-xiaohongshu 端到端）中重点观察多 source 退化与防重入，发现问题以新事实为准再调整，不沿用猜测。
+
+## 9. 落地核对记录（2026-09-11 逐项销账）
+
+| 计划项（§5/§6） | 实际状态 | 证据 |
+|---|---|---|
+| 引擎恢复 D3 快捷名注册表 | ✅ 已落地 | `connectors.ts` `CONNECTOR_SHORTCUTS`、`engine.ts:610` 扫描注入、`source.ts:53/177` |
+| 引擎恢复 D4 简报 fallback | ✅ 已落地 | `source.ts:72 deriveConnectorFallbacks`、`source.ts:245` |
+| 引擎恢复 D5 简报字段插值 | ✅ 已落地 | `source.ts:68 buildBriefCtx`、`source.ts:70 interpolateSourceNode`、`source.ts:163/192` |
+| 引擎恢复两处 warn 守护 | ✅ 已落地 | 空 data warn + 悬空引用 warn（`engine.products.test.ts` E2E-1/E2E-4 守护） |
+| D7 前端 hint | ✅ 已落地 | `SourceFields.tsx:229` `shortcutHint.${connType}` + i18n |
+| A 类 2 模板 product 预设 + prompt 锚点 | ✅ 已落地 | commit `0527823`；`templates.ts:220/314` connector、`:231/325` `${product.brand} ${product.name}`（含空值鲁棒措辞） |
+| C 类 7 模板 file 预设 | ✅ 已落地 | commit `a153661`；5 文本型空 path + scan-ocr/invoice-ocr `asImages:true` |
+| 服务端集成测试（①-⑪ + E2E） | ✅ 已落地 | `engine.products.test.ts` 21 例（①-⑪ + E2E-1~4 + custom 3 例） |
+| core product 形状断言（锁 2 个） | ✅ 已落地 | `templates.test.ts` "only the two strong-product templates…" |
+| core file 形状断言（锁 7 个 + asImages） | ✅ 2026-09-11 补 | `templates.test.ts` "presets a file connector on exactly the seven document/OCR templates…"（5 纯文本 + 2 asImages，断言空 path 占位、其余模板零 file connector） |
+
+**复核结论**：引擎机制、A/C 两类模板预设、服务端集成测试此前已全部落地，本次仅补最后一块形状测试（file connector 边界锁死，与 product 形状断言对称）并把本文状态从"待落代码"改为"已落地"、修正 D 类重复计数（原 2+5+6+20=33 中 batch-contract-review 在 C/D 重复，正确为 2+5+7+19=33）。core 213/213 全绿。B 类 5 个（cron 开关）与 D 类 19 个（手动文本）按设计保持 manual，不预设连接器。

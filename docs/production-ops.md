@@ -126,6 +126,93 @@ ssh hasee-2016-server 'sudo journalctl -u agent-world --since "1 hour ago" --no-
 
 ---
 
+### 2.6 M1 成本回采运维（Hasee staging）
+
+> 目的：M1 商业化前置——用 4 条真实产线持续跑，攒真实成本数据回答三问（典型 run 成本 / 返工占比 / 模型大头），2-4 周（高频后 3-5 天）后切定价套餐。运维要点：cron 调度稳定、429 不打爆 run、成本归集非零。
+
+#### 4 条回采产线与 cron 配置（2026-09-11 高频版）
+
+| # | 产线 | graph_id | trigger_id | cron（UTC） | 频次 | 典型 run 时长 |
+|---|---|---|---|---|---|---|
+| ① | 写草稿·高频文本 | `bdb25758-dd2d-4fe1-9ee3-ab2109b32f16` | `trg_mtv0zp69` | `10,40 * * * *` | 48 次/天 | 1-3 分钟 |
+| ② | 翻译流水线·带返工 | `71536df1-da29-44fb-ae7a-4250dafe1a8d` | `trg_m1_trans_daily` | `0 */4 * * *` | 6 次/天 | 2-5 分钟 |
+| ③ | 短视频广告工坊 | `b25c9b38-b823-49c4-89ef-4cb432bd341c` | `trg_m1_video_daily` | `0 3,15 * * *` | 2 次/天 | 5-15 分钟 |
+| ④ | 批量内容工坊 | `edc5183c-f8c3-4c11-9eab-a6e8fe232361` | `trg_m1_batch_weekly` | `0 6 * * *` | 1 次/天 | 10-30 分钟 |
+
+合计约 **57 次 run/天**。触发时间刻意错开（①偏移 10 分、③在 3/15 点、④在 6 点），避免多条产线同时调模型打爆 free tier 429。
+
+#### 变更历史
+
+| 日期 | 变更 | 原因 | 操作人 |
+|---|---|---|---|
+| 2026-09-08 | 4 条产线挂载，初始 cron：①每 6h / ②每天 10:00 / ③每天 11:00 / ④每周一 09:00 | M1 回采启动 | bayernjf |
+| 2026-09-11 03:57 UTC | cron 调度器 P0 修复部署（`triggers.restore()` 未 await 导致零 tick） | 服务器自 09-10 启动后零 cron 触发 | bayernjf |
+| 2026-09-11 13:35 UTC | **频率提升**：①每 6h→每 30min / ②每天→每 4h / ③每天→每 12h / ④每周→每天 | 全模型 free tier 不考虑成本，缩短回采周期从 2-4 周到 3-5 天 | bayernjf |
+
+#### 监控要点（每日体检清单）
+
+1. **cron tick 是否正常**：`journalctl -u agent-world | grep "cron tick fired"`，确认每小时至少有 ① 的 2 次 tick（10 分、40 分）
+2. **run 完成率**：4 条产线当日 run 状态分布（done/failed/running/halted），失败原因归类（重点盯 429 限流残留、gate 失败、imageGen 失败）
+3. **成本归集**：每条产线每次 run 的 `costUsd`（`/api/runs/:id/stats`），确认非 0、非碎片（如 0.0000001），与成本报表总额对账
+4. **429 监控**：agnes free tier 429 是已知风险，retry 兜底（30s/60s/120s/120s），若 5 次 retry 全失败则 run failed。若 429 频繁，考虑降频或换付费 key
+
+#### 常用运维命令
+
+```bash
+# 查 4 条产线当日 run 列表（SSH Hasee，node:sqlite）
+ssh hasee-2016-server 'node -e "
+const { DatabaseSync } = require(\"node:sqlite\");
+const db = new DatabaseSync(\"/var/lib/agent-world/agent-world.sqlite\");
+const ids = [\"bdb25758-dd2d-4fe1-9ee3-ab2109b32f16\",\"71536df1-da29-44fb-ae7a-4250dafe1a8d\",\"b25c9b38-b823-49c4-89ef-4cb432bd341c\",\"edc5183c-f8c3-4c11-9eab-a6e8fe232361\"];
+for (const id of ids) {
+  const rows = db.prepare(\"SELECT id,status,started_at,finished_at FROM runs WHERE graph_id = ? AND started_at >= date(\\\"now\\\") ORDER BY started_at DESC\").all(id);
+  console.log(id, rows.length, \"runs today\");
+}
+"'
+
+# 查 cron tick 日志
+ssh hasee-2016-server 'sudo journalctl -u agent-world --since "1 hour ago" --no-pager | grep -i "cron\|trigger\|scheduler"'
+
+# 查某条产线的触发器配置（确认 cron 已落盘）
+ssh hasee-2016-server 'node -e "
+const { DatabaseSync } = require(\"node:sqlite\");
+const db = new DatabaseSync(\"/var/lib/agent-world/agent-world.sqlite\");
+const row = db.prepare(\"SELECT doc FROM graphs WHERE id = ?\").get(\"bdb25758-dd2d-4fe1-9ee3-ab2109b32f16\");
+console.log(JSON.parse(row.doc).triggers);
+"'
+```
+
+#### 修改 cron 频率的步骤
+
+1. **直接改 DB**（触发器存在 `graphs.doc.triggers`，非独立表）：
+   ```bash
+   ssh hasee-2016-server 'echo "feng" | sudo -S node -e "
+   const { DatabaseSync } = require(\"node:sqlite\");
+   const db = new DatabaseSync(\"/var/lib/agent-world/agent-world.sqlite\");
+   const row = db.prepare(\"SELECT doc FROM graphs WHERE id = ?\").get(\"<graph_id>\");
+   const doc = JSON.parse(row.doc);
+   const t = doc.triggers.find(x => x.id === \"<trigger_id>\");
+   t.cron = \"<new_cron_expression>\";
+   db.prepare(\"UPDATE graphs SET doc = ?, updated_at = ? WHERE id = ?\").run(JSON.stringify(doc), Date.now(), \"<graph_id>\");
+   "'
+   ```
+2. **重启服务重载触发器**：`ssh hasee-2016-server 'echo "feng" | sudo -S systemctl restart agent-world'`
+3. **验证**：`curl -s http://192.168.31.14/api/health` 确认服务起来，等下一个 cron 触发点确认 run 创建
+
+> 注意：DB 文件权限为只读（非 root），修改必须用 `sudo`。触发器在内存中的 index 由 `triggers.restore()` 在服务启动时重建，改 DB 后必须重启服务才生效（暂无热更新 API）。
+
+#### 回滚（频率提升出问题时）
+
+若高频导致 429 严重 / 成本异常 / 服务不稳定，回滚到低频版：
+- ① `0 */6 * * *`（每 6h）
+- ② `0 10 * * *`（每天 10:00）
+- ③ `0 11 * * *`（每天 11:00）
+- ④ `0 9 * * 1`（每周一 09:00）
+
+按上面「修改 cron 频率的步骤」逐条改回 + 重启即可。
+
+---
+
 ## 3. 环境变量与密钥管理（注入）
 
 ### 3.1 现状：已是「三层密钥存储」
