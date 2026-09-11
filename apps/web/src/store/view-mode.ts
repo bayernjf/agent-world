@@ -1,8 +1,8 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-/** Which rendering view is active: the 2D editor or the 3D display view. */
-export type ViewMode = "2d" | "3d";
+/** Which rendering view is active: the 2D editor, the 3D single-factory view, or the L0 macro park. */
+export type ViewMode = "2d" | "3d" | "park";
 
 /** Persisted 3D camera pose, restored when switching back to 3D. */
 export interface Camera3D {
@@ -11,6 +11,17 @@ export interface Camera3D {
   posZ: number;
   targetX: number;
   targetZ: number;
+}
+
+/** Persisted L0 park camera pose (orthographic), restored when returning from a drill-down. */
+export interface ParkCamera {
+  posX: number;
+  posY: number;
+  posZ: number;
+  targetX: number;
+  targetY: number;
+  targetZ: number;
+  zoom: number;
 }
 
 interface ViewModeState {
@@ -37,6 +48,12 @@ interface ViewModeState {
   camera3dResetRequest: boolean;
   requestCamera3dReset: () => void;
   consumeCamera3dResetRequest: () => boolean;
+  /** L0 macro-park camera pose, saved on drill-down and restored on return (RTS stage-B B8). */
+  parkCamera: ParkCamera | null;
+  setParkCamera: (c: ParkCamera) => void;
+  /** Transient (not persisted): true while 3D was reached by drilling from the park. */
+  drilledFromPark: boolean;
+  setDrilledFromPark: (v: boolean) => void;
 }
 
 export const useViewMode = create<ViewModeState>()(
@@ -79,10 +96,18 @@ export const useViewMode = create<ViewModeState>()(
         if (r) set({ camera3dResetRequest: false });
         return r;
       },
+      parkCamera: null,
+      setParkCamera: (c) => set({ parkCamera: c }),
+      drilledFromPark: false,
+      setDrilledFromPark: (v) => set({ drilledFromPark: v }),
     }),
     {
       name: "agent-world-view-mode",
-      partialize: (state) => ({ viewMode: state.viewMode, camera3d: state.camera3d }),
+      partialize: (state) => ({
+        viewMode: state.viewMode,
+        camera3d: state.camera3d,
+        parkCamera: state.parkCamera,
+      }),
     }
   )
 );

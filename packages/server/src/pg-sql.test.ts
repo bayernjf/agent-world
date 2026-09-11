@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { toPgDdl, toPgPlaceholders } from "./pg-sql.js";
+import { DDL } from "./sqlite-driver.js";
 
 describe("toPgPlaceholders", () => {
   it("rewrites ? to $1, $2 in order", () => {
@@ -60,5 +61,13 @@ describe("toPgDdl", () => {
     expect(ddl).toContain(
       `DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`,
     );
+  });
+
+  it("derives graphs.park_x/park_z as double precision from the base DDL (migration 37)", () => {
+    // PostgreSQL never runs MIGRATIONS — it derives the whole schema from the
+    // SQLite base DDL, so the new columns must be present there (design B1.2).
+    const ddl = toPgDdl(DDL);
+    expect(ddl).toMatch(/park_x\s+double precision/);
+    expect(ddl).toMatch(/park_z\s+double precision/);
   });
 });

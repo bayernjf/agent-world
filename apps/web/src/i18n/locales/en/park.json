@@ -1,0 +1,10 @@
+{
+  "title": "Park overview",
+  "enter": "Enter",
+  "retry": "Retry",
+  "pauseCron": "Pause cron",
+  "resumeCron": "Resume cron",
+  "empty": "No pipelines yet — create one from a template",
+  "backToPark": "Back to park",
+  "factoryCount": "Factories"
+}

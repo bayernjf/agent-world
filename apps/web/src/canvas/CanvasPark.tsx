@@ -1,22 +1,21 @@
 /**
- * CanvasPark — RTS Stage B technical research prototype (L0 macro sandbox)
+ * CanvasPark — RTS Stage B L0 macro-park scene (production).
  *
- * Status: technical research spike, validates key technical risks with mock data, no business logic.
- * See docs/design-rts-stage-b.md for production implementation (B1-B9 step-by-step).
+ * Renders N low-poly "factories" (one per pipeline) in a single InstancedMesh
+ * draw call, with sprite billboards, per-frame status colors and a raycast
+ * selection + HTML action popover (enter / retry / pause cron).
  *
- * Validated:
- * 1. InstancedMesh low-poly factories (N factories one draw call)
- * 2. InstancedMesh raycast + instanceId mapping
- * 3. per-instance color update every frame (status breathing animation)
- * 4. Sprite billboard (category label + pending review badge, always faces camera)
- * 5. mount-once + data-sync dual effect (parks change does not rebuild renderer)
- * 6. parkLayout pure function auto-layout (category clustering + no overlap)
+ * Design: docs/design-rts-stage-b.md B4 (scene), B6 (live state), B7 (select +
+ * popover), B8 (camera memory for drill-down). Mount-once: renderer/camera/loop
+ * are created once; factories prop changes only update matrices/billboards.
  */
 
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { parkLayout } from "@agent-world/core";
+import { useViewMode } from "../store/view-mode";
 
 // --- Constants (aligned with L1 Canvas3D, larger park scale) ---
 const PITCH = Math.PI / 3; // lock pitch 60deg from vertical
@@ -26,6 +25,7 @@ const FACTORY_SIZE = 200; // three geometry size (layout constants live in core/
 const FACTORY_H = 140;
 const MAX_FACTORIES = 100;
 const GROUND_SIZE = 6000;
+const BREATH_SPEED = 0.006; // B6: running factory breathing frequency
 
 // --- Types ---
 export type FactoryStatus = "running" | "done" | "failed" | "halted" | "idle";
@@ -36,6 +36,10 @@ export interface ParkFactory {
   category: string;
   status: FactoryStatus;
   pendingReview: number;
+  /** True when the pipeline has at least one cron trigger (shows the pause-cron action). */
+  hasCron?: boolean;
+  /** Last run id, used by the retry action. */
+  lastRunId?: string | null;
   manual?: { x: number; z: number }; // manual coordinates take priority
 }
 
@@ -44,10 +48,10 @@ interface ParkSceneState {
   instancedMesh: THREE.InstancedMesh;
   billboardGroup: THREE.Group;
   selectionRing: THREE.Mesh;
+  camera: THREE.OrthographicCamera;
+  controls: OrbitControls;
   layout: Map<string, { x: number; z: number }>;
   idByIndex: string[]; // instanceId to graphId mapping
-  selectedId: string | null;
-  prevSel: string | null;
   dummy: THREE.Object3D; // reused object, avoids per-frame allocation
 }
 
@@ -60,25 +64,19 @@ const STATUS_COLORS: Record<FactoryStatus, number> = {
   idle: 0x6b7280, // gray
 };
 
-// Category colors (6 factory categories, low-poly palette)
-const CATEGORY_COLORS: Record<string, number> = {
-  text: 0x818cf8,
-  image: 0xf472b6,
-  video: 0xfb923c,
-  document: 0x34d399,
-  ecommerce: 0x22d3ee,
-  research: 0xa78bfa,
-  uncategorized: 0x94a3b8,
-};
+// Deterministic category palette: any category string (including the Chinese
+// template categories) hashes to a stable low-poly color.
+const CATEGORY_PALETTE = [
+  0x818cf8, 0xf472b6, 0xfb923c, 0x34d399, 0x22d3ee, 0xa78bfa, 0x94a3b8, 0xfacc15,
+];
 
 function categoryColor(cat: string): number {
-  return CATEGORY_COLORS[cat] ?? 0x94a3b8;
+  let h = 0;
+  for (let i = 0; i < cat.length; i++) h = (h * 31 + cat.charCodeAt(i)) >>> 0;
+  return CATEGORY_PALETTE[h % CATEGORY_PALETTE.length]!;
 }
 
-// --- parkLayout pure function moved to packages/core/src/parkLayout.ts (B2 formalization) ---
-// CanvasPark imports from @agent-world/core to avoid duplicate logic drift.
-
-// --- Sprite text texture generation (cached per category) ---
+// --- Sprite text texture generation (cached by text/color) ---
 const textureCache = new Map<string, THREE.CanvasTexture>();
 
 function makeTextTexture(text: string, color: string, fontSize = 48): THREE.CanvasTexture {
@@ -87,7 +85,8 @@ function makeTextTexture(text: string, color: string, fontSize = 48): THREE.Canv
   if (cached) return cached;
 
   const canvas = document.createElement("canvas");
-  const ctx = canvas.getContext("2d")!;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return new THREE.CanvasTexture(canvas); // headless / no-2d-context fallback
   const font = `bold ${fontSize}px sans-serif`;
   ctx.font = font;
   const metrics = ctx.measureText(text);
@@ -109,7 +108,8 @@ function makeTextTexture(text: string, color: string, fontSize = 48): THREE.Canv
 function makeBadgeTexture(count: number): THREE.CanvasTexture {
   const text = count > 99 ? "99+" : String(count);
   const canvas = document.createElement("canvas");
-  const ctx = canvas.getContext("2d")!;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return new THREE.CanvasTexture(canvas); // headless fallback
   const size = 80;
   canvas.width = size;
   canvas.height = size;
@@ -129,20 +129,34 @@ function makeBadgeTexture(count: number): THREE.CanvasTexture {
 
 export default function CanvasPark({
   factories,
-  onSelect,
-  selectedId,
+  onEnter,
+  onRetry,
+  onToggleCron,
 }: {
   factories: ParkFactory[];
-  onSelect?: (id: string | null) => void;
-  selectedId?: string | null;
+  onEnter?: (id: string) => void;
+  onRetry?: (id: string, lastRunId: string | null | undefined) => void;
+  onToggleCron?: (id: string) => void;
 }) {
+  const { t } = useTranslation();
   const mountRef = useRef<HTMLDivElement>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
   const parkRef = useRef<ParkSceneState | null>(null);
   // live data ref: rAF reads every frame, does not trigger React re-render
   const dataRef = useRef(factories);
   dataRef.current = factories;
-  const selectedRef = useRef(selectedId ?? null);
-  selectedRef.current = selectedId ?? null;
+  // Selection lives in React (drives the popover) and is mirrored into a ref for rAF.
+  const [selId, setSelId] = useState<string | null>(null);
+  const selRef = useRef<string | null>(selId);
+  selRef.current = selId;
+  // Action callbacks mirrored into refs so the mount-once effect never re-binds.
+  const actionsRef = useRef({ onEnter, onRetry, onToggleCron });
+  actionsRef.current = { onEnter, onRetry, onToggleCron };
+
+  const selected = useMemo(
+    () => (selId ? factories.find((f) => f.id === selId) ?? null : null),
+    [selId, factories],
+  );
 
   // === Mount-once effect: renderer / camera / lights / ground / loop / events ===
   useEffect(() => {
@@ -161,7 +175,7 @@ export default function CanvasPark({
       if (!entry) return;
       const { width, height } = entry.contentRect;
       renderer.setSize(width, height);
-      camera.updateProjectionMatrix();
+      parkRef.current?.camera.updateProjectionMatrix();
     });
     resizeObserver.observe(mount);
 
@@ -193,6 +207,13 @@ export default function CanvasPark({
     controls.mouseButtons.RIGHT = undefined;
     controls.minPolarAngle = PITCH;
     controls.maxPolarAngle = PITCH;
+    // B8: restore the L0 camera pose saved on the previous drill-down.
+    const saved = useViewMode.getState().parkCamera;
+    if (saved) {
+      camera.position.set(saved.posX, saved.posY, saved.posZ);
+      controls.target.set(saved.targetX, saved.targetY, saved.targetZ);
+      camera.zoom = saved.zoom;
+    }
     controls.update();
 
     const ambient = new THREE.AmbientLight(0xffffff, 0.5);
@@ -247,10 +268,10 @@ export default function CanvasPark({
       instancedMesh,
       billboardGroup,
       selectionRing,
+      camera,
+      controls,
       layout: new Map(),
       idByIndex: [],
-      selectedId: null,
-      prevSel: null,
       dummy: new THREE.Object3D(),
     };
     parkRef.current = state;
@@ -258,6 +279,7 @@ export default function CanvasPark({
     // === Raycast selection (InstancedMesh + instanceId) ===
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
+    const projVec = new THREE.Vector3();
     let downX = 0;
     let downY = 0;
 
@@ -291,9 +313,9 @@ export default function CanvasPark({
       if (hits.length > 0 && hits[0]!.instanceId != null) {
         const idx = hits[0]!.instanceId;
         const id = state.idByIndex[idx];
-        if (id) onSelect?.(id);
+        if (id) setSelId(id);
       } else {
-        onSelect?.(null);
+        setSelId(null);
       }
     };
 
@@ -302,8 +324,9 @@ export default function CanvasPark({
     renderer.domElement.addEventListener("pointerup", onPointerUp);
     renderer.domElement.addEventListener("pointercancel", onPointerCancel);
 
-    // === rAF loop: read dataRef every frame to update colors + badges + selection ring ===
+    // === rAF loop: read dataRef every frame for colors, ring and popover anchor ===
     let rafId = 0;
+    const tmpColor = new THREE.Color();
     const loop = (now: number) => {
       rafId = requestAnimationFrame(loop);
       const st = parkRef.current;
@@ -315,10 +338,9 @@ export default function CanvasPark({
         const f = facts[i]!;
         let color = STATUS_COLORS[f.status];
         if (f.status === "running") {
-          const t = 0.5 + 0.4 * Math.sin(now * 0.004);
-          const c = new THREE.Color(color);
-          c.multiplyScalar(0.6 + t * 0.6);
-          color = c.getHex();
+          const t = 0.5 + 0.4 * Math.sin(now * BREATH_SPEED);
+          tmpColor.setHex(color).multiplyScalar(0.6 + t * 0.6);
+          color = tmpColor.getHex();
         }
         st.instancedMesh.setColorAt(i, new THREE.Color(color));
       }
@@ -326,16 +348,32 @@ export default function CanvasPark({
         st.instancedMesh.instanceColor.needsUpdate = true;
       }
 
-      const sel = selectedRef.current;
+      // selection ring + HTML popover screen anchor (B7)
+      const sel = selRef.current;
+      const overlay = overlayRef.current;
       if (sel && st.layout.has(sel)) {
         const pos = st.layout.get(sel)!;
         st.selectionRing.position.set(pos.x, 1, pos.z);
         st.selectionRing.visible = true;
+        if (overlay) {
+          projVec.set(pos.x, FACTORY_H + 140, pos.z).project(st.camera);
+          const w = renderer.domElement.clientWidth;
+          const hgt = renderer.domElement.clientHeight;
+          const sx = (projVec.x * 0.5 + 0.5) * w;
+          const sy = (-projVec.y * 0.5 + 0.5) * hgt;
+          if (projVec.z < 1) {
+            overlay.style.display = "block";
+            overlay.style.transform = `translate(-50%, -100%) translate(${sx.toFixed(1)}px, ${sy.toFixed(1)}px)`;
+          } else {
+            overlay.style.display = "none";
+          }
+        }
       } else {
         st.selectionRing.visible = false;
+        if (overlay) overlay.style.display = "none";
       }
 
-      controls.update();
+      st.controls.update();
       renderer.render(scene, camera);
     };
     rafId = requestAnimationFrame(loop);
@@ -347,6 +385,16 @@ export default function CanvasPark({
       renderer.domElement.removeEventListener("pointerdown", onPointerDown);
       renderer.domElement.removeEventListener("pointerup", onPointerUp);
       renderer.domElement.removeEventListener("pointercancel", onPointerCancel);
+      // B8: remember the L0 camera pose so returning from a drill restores it.
+      useViewMode.getState().setParkCamera({
+        posX: camera.position.x,
+        posY: camera.position.y,
+        posZ: camera.position.z,
+        targetX: controls.target.x,
+        targetY: controls.target.y,
+        targetZ: controls.target.z,
+        zoom: camera.zoom,
+      });
       controls.dispose();
       scene.traverse((obj) => {
         if (obj instanceof THREE.Mesh || obj instanceof THREE.Line) obj.geometry.dispose();
@@ -399,7 +447,6 @@ export default function CanvasPark({
     st.instancedMesh.count = Math.max(factories.length, 1);
 
     // 3. rebuild billboards (category label + pending review badge)
-    // clear old billboards
     for (const child of [...st.billboardGroup.children]) {
       const sprite = child as THREE.Sprite;
       if (sprite.isSprite) {
@@ -429,11 +476,48 @@ export default function CanvasPark({
         st.billboardGroup.add(badgeSprite);
       }
     }
-
-    // 4. reset selection highlight
-    st.prevSel = null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [factories]);
 
-  return <div ref={mountRef} className="canvas-park" style={{ width: "100%", height: "100%" }} />;
+  // Drop the selection if its factory disappeared.
+  useEffect(() => {
+    if (selId && !factories.some((f) => f.id === selId)) setSelId(null);
+  }, [factories, selId]);
+
+  return (
+    <div className="canvas-park" style={{ width: "100%", height: "100%", position: "relative" }}>
+      <div ref={mountRef} className="canvas-park__mount" style={{ width: "100%", height: "100%" }} />
+      {factories.length === 0 && <div className="canvas-park__empty">{t("park:empty")}</div>}
+      <div ref={overlayRef} className="park-popover" style={{ display: "none", position: "absolute", top: 0, left: 0 }}>
+        {selected && (
+          <>
+            <div className="park-popover__name">{selected.name}</div>
+            <div className="park-popover__actions">
+              <button type="button" className="park-popover__btn" onClick={() => onEnter?.(selected.id)}>
+                {t("park:enter")}
+              </button>
+              {selected.status === "failed" && (
+                <button
+                  type="button"
+                  className="park-popover__btn"
+                  onClick={() => onRetry?.(selected.id, selected.lastRunId)}
+                >
+                  {t("park:retry")}
+                </button>
+              )}
+              {selected.hasCron && (
+                <button
+                  type="button"
+                  className="park-popover__btn"
+                  onClick={() => onToggleCron?.(selected.id)}
+                >
+                  {t("park:pauseCron")}
+                </button>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
 }

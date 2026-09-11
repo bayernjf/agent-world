@@ -1,0 +1,10 @@
+{
+  "title": "园区总览",
+  "enter": "进入",
+  "retry": "重试",
+  "pauseCron": "暂停 cron",
+  "resumeCron": "恢复 cron",
+  "empty": "暂无产线，先从模板创建一条产线吧",
+  "backToPark": "返回园区",
+  "factoryCount": "厂区数量"
+}
