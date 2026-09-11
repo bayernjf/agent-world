@@ -2511,6 +2511,11 @@ app.get("/api/operations/overview", async (c) => {
     const p = parkCoords[g.graphId];
     g.parkX = p ? p.x : null;
     g.parkZ = p ? p.z : null;
+    // RTS stage-B B3: display category from the origin template (graphs carry
+    // no category of their own); non-template/blank graphs fall back to 自定义.
+    g.category = (g.originTemplateId && getTemplate(g.originTemplateId)?.category) || "自定义";
+    // F2 review queue = halted runs awaiting a human decision.
+    g.pendingReview = g.halted;
   }
   const totals = graphs.reduce(
     (acc, g) => {

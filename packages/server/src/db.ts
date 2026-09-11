@@ -228,6 +228,12 @@ export interface ContentCostAggregate {
 export interface GraphRunSummary {
   graphId: string;
   graphName: string | null;
+  /** Origin template id, used by the overview to resolve the display category. */
+  originTemplateId?: string | null;
+  /** Resolved template category (RTS stage-B B3); "自定义" for non-template graphs. */
+  category?: string;
+  /** Awaiting-human-review count (RTS stage-B B3); equals halted runs. */
+  pendingReview?: number;
   totalRuns: number;
   running: number;
   halted: number;

@@ -1734,6 +1734,7 @@ export function createDriver(
         cParams.push(opts.since);
       }
       const rows = await exec.all(`SELECT g.id AS graph_id, g.name AS graph_name,
+                  g.origin_template_id AS origin_template_id,
                   COUNT(r.id) AS total_runs,
                   SUM(CASE WHEN r.status = 'running'   THEN 1 ELSE 0 END) AS running,
                   SUM(CASE WHEN r.status = 'halted'    THEN 1 ELSE 0 END) AS halted,
@@ -1747,11 +1748,12 @@ export function createDriver(
            FROM graphs g
            LEFT JOIN runs r ON ${rOn.join(" AND ")}
            WHERE ${gClause}
-           GROUP BY g.id, g.name
+           GROUP BY g.id, g.name, g.origin_template_id
            ORDER BY MAX(r.started_at) DESC, g.name ASC`,
         [...rParams, ...cParams, ...scopeIds]) as Array<{
           graph_id: string;
           graph_name: string | null;
+          origin_template_id: string | null;
           total_runs: number;
           running: number; halted: number; done: number;
           failed: number; tripped: number; cancelled: number;
@@ -1778,6 +1780,7 @@ export function createDriver(
         return {
           graphId: r.graph_id,
           graphName: r.graph_name,
+          originTemplateId: r.origin_template_id,
           totalRuns: Number(r.total_runs ?? 0),
           running: Number(r.running ?? 0),
           halted: Number(r.halted ?? 0),
