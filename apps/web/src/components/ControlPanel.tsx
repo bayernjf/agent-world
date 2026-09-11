@@ -291,7 +291,7 @@ export default function ControlPanel(props: Props) {
             </div>
           )}
           {!running && !halted && (
-            <label className="field">
+            <label className="field" data-tour="raw:input">
               <span>{t("run:control.material")}</span>
               <textarea
                 rows={3}
@@ -376,6 +376,7 @@ export default function ControlPanel(props: Props) {
           ) : (
             <button
               className="btn"
+              data-tour="raw:dispatch"
               onClick={() => onRun()}
               disabled={!canRun || materialEmpty || readOnly}
             >
