@@ -12,7 +12,8 @@ interface Props {
 }
 
 const PAGE_SIZES = [10, 20, 50, 100];
-// Engine 真实 run status；这些是列表用的短标签，ControlPanel 状态行是另一套更长的说法
+// Real engine run statuses; these are the short labels for the list, while the
+// ControlPanel status line uses a separate, longer set of descriptions
 const STATUSES = [
   "running",
   "done",
@@ -23,7 +24,7 @@ const STATUSES = [
   "interrupted",
 ];
 
-// 状态 → 语义色（工厂系）
+// Status → semantic color (factory palette)
 const STATUS_COLOR: Record<string, string> = {
   running: "run-status--running",
   done: "run-status--done",

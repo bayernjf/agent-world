@@ -692,7 +692,7 @@ export default function Settings({ open, onClose, initialTab }: Props) {
 
   /** The server can only try an endpoint it already has, so the save has to land
    *  before the handshake. A failed handshake still leaves the config saved —
-   *  the user can fix the URL and hit 重新连接 without retyping anything. */
+   *  the user can fix the URL and hit Reconnect without retyping anything. */
   const saveAndConnectMcp = async (id: string): Promise<McpServerStatus> => {
     const toSave = buildPersistConfig();
     await api.saveSettings(toSave);

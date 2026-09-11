@@ -26,7 +26,11 @@
     "expandInspector": "Expand inspector",
     "collapseInspector": "Collapse inspector",
     "deleteGraphTitle": "Delete line",
-    "deleteGraphDesc": "Delete \"{{name}}\"? Its run history is kept, but this cannot be undone."
+    "deleteGraphDesc": "Delete \"{{name}}\"? Its run history is kept, but this cannot be undone.",
+    "themeToLight": "Switch to light theme",
+    "themeToDark": "Switch to dark theme",
+    "themeLight": "Light",
+    "themeDark": "Dark"
   },
   "common": {
     "save": "Save",

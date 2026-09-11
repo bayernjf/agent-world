@@ -6,7 +6,7 @@ function locale(lang?: string): string {
   return l.startsWith("zh") ? "zh-CN" : "en-US";
 }
 
-/** Date only, e.g. "2026年9月3日" / "Sep 3, 2026". */
+/** Date only, e.g. zh "2026年9月3日" / en "Sep 3, 2026". */
 export function formatDate(
   date: Date | number | string,
   lang?: string,
@@ -18,7 +18,7 @@ export function formatDate(
   }).format(new Date(date));
 }
 
-/** Date + time, e.g. "2026年9月3日 14:30" / "Sep 3, 2026, 2:30 PM". */
+/** Date + time, e.g. zh "2026年9月3日 14:30" / en "Sep 3, 2026, 2:30 PM". */
 export function formatDateTime(
   date: Date | number | string,
   lang?: string,
@@ -32,7 +32,7 @@ export function formatDateTime(
   }).format(new Date(date));
 }
 
-/** Compact month/day + time (24h), e.g. "9月3日 14:30" / "9/3, 14:30". */
+/** Compact month/day + time (24h), e.g. zh "9月3日 14:30" / en "9/3, 14:30". */
 export function formatShortDateTime(
   date: Date | number | string | null | undefined,
   lang?: string,
@@ -64,7 +64,7 @@ export function formatCurrency(
   }).format(amount);
 }
 
-/** Relative time, e.g. "1小时前" / "1 hour ago". */
+/** Relative time, e.g. zh "1小时前" / en "1 hour ago". */
 export function formatRelativeTime(
   date: Date | number | string,
   lang?: string,

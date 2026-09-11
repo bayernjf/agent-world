@@ -19,7 +19,15 @@ interface GlossaryGroup {
   rows: GlossaryRow[];
 }
 
-/** 术语对照数据，与 docs/design-glossary.md 保持一致。 */
+/**
+ * Glossary rows, kept in sync with docs/design-glossary.md.
+ *
+ * i18n note: the `game`/`note` columns are the product's own Chinese factory
+ * vocabulary (产线, 文坊, 质检站 …), so this table is intentionally zh source
+ * data rather than t() calls. English localization needs a product decision on
+ * the canonical English metaphor names; until then an English user sees the
+ * Chinese term alongside the standard English term in `std`.
+ */
 const GROUPS: GlossaryGroup[] = [
   {
     id: "core",

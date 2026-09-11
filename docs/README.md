@@ -10,6 +10,7 @@
 | 知道现在做到哪、接下来做什么         | [handoff.md](../handoff.md) ★ 交接必读                                          |
 | 看整体进度基线、迭代对照           | [project-progress.md](project-progress.md)                                  |
 | 用画布（快捷键 / 交互）          | README.md 的 Canvas interaction 一节                                           |
+| 看名下所有产线的运营总览（健康度/最近运行/成本） | 命令面板 → 运营工作台（OperationsDashboard，RTS 阶段 A）；设计见 [design-rts-overview.md](design-rts-overview.md) |
 | 套用现成产线模板               | [examples.md](examples.md)                                                  |
 | 给项目加节点 / Provider / 工具 | [extending.md](extending.md) + [CONTRIBUTING.md](../CONTRIBUTING.md)        |
 | 理解架构 / 数据模型 / API      | [technical-design.md](technical-design.md)                                  |
@@ -38,7 +39,7 @@
 
 产品 / 商业化系列：[PRODUCT_STRATEGY.md](PRODUCT_STRATEGY.md) = 成本/部署/定价基线 → [design-monetization.md](design-monetization.md) = 商业化实施方案（详细，未实施）→ [product-industry-roi.md](product-industry-roi.md) = 行业切入方向评估 → [product-vision-discussion.md](product-vision-discussion.md) = 历史讨论。
 
-画布 / 体验系列：[design-canvas-isometric.md](design-canvas-isometric.md) = L1 单厂等距 3D（四期已建成）→ [design-rts-overview.md](design-rts-overview.md) = L0 宏观工业园区 RTS 视角（P3 未实施，三阶段路径）。
+画布 / 体验系列：[design-canvas-isometric.md](design-canvas-isometric.md) = L1 单厂等距 3D（四期已建成）→ [design-rts-overview.md](design-rts-overview.md) = L0 宏观工业园区 RTS 视角（阶段 A 平面运营工作台已上线，B/C 未实施）→ [design-rts-stage-b.md](design-rts-stage-b.md) = 阶段 B 宏观沙盘 MVP 落地级细化（B2 parkLayout 纯函数已落地，正式落地待商业化闭环）。
 
 ## 文档状态约定
 

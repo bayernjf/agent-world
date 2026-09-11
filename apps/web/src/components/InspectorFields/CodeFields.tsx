@@ -32,7 +32,7 @@ export default function CodeFields({ node, updateNode, t }: FieldsProps) {
           className="mono"
           rows={9}
           placeholder={
-            'const fs = require("fs");\nconst input = JSON.parse(fs.readFileSync(0, "utf8"));\n// 上游数据在 input.inputs.<上游节点id>\nconsole.log(JSON.stringify({ doubled: Number(input.inputs.source) * 2 }));'
+            'const fs = require("fs");\nconst input = JSON.parse(fs.readFileSync(0, "utf8"));\n// Upstream data is in input.inputs.<upstream-node-id>\nconsole.log(JSON.stringify({ doubled: Number(input.inputs.source) * 2 }));'
           }
           value={node.code.code}
           onChange={(e) =>

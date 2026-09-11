@@ -44,7 +44,7 @@ export default function MapFields({ node, graph, updateNode, t }: FieldsProps) {
         <textarea
           className="textarea mono"
           rows={5}
-          placeholder='{"标题": "${item.name}", "价格": "${item.price}"}'
+          placeholder='{"title": "${item.name}", "price": "${item.price}"}'
           value={node.map.template ?? "{}"}
           onChange={(e) =>
             updateNode(node.id, {

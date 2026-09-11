@@ -6,6 +6,7 @@ import AdminPanel from "./AdminPanel";
 import FeedbackModal from "./FeedbackModal";
 import { logout } from "./AuthPages";
 import LanguageSwitcher from "./LanguageSwitcher";
+import ThemeSwitcher from "./ThemeSwitcher";
 
 export interface Me {
   id: string;
@@ -108,6 +109,7 @@ export default function UserMenu() {
             </button>
           )}
           <LanguageSwitcher />
+          <ThemeSwitcher />
           <button type="button" className="user-menu__logout" onClick={handleLogout}>
             {t("modals:userMenu.logout")}
           </button>

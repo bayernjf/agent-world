@@ -26,7 +26,11 @@
     "expandInspector": "展开详情",
     "collapseInspector": "收起详情",
     "deleteGraphTitle": "删除产线",
-    "deleteGraphDesc": "确定删除「{{name}}」吗？该产线的所有运行记录不会被删除，但此操作不可撤销。"
+    "deleteGraphDesc": "确定删除「{{name}}」吗？该产线的所有运行记录不会被删除，但此操作不可撤销。",
+    "themeToLight": "切换到亮色主题",
+    "themeToDark": "切换到暗色主题",
+    "themeLight": "亮色",
+    "themeDark": "暗色"
   },
   "common": {
     "save": "保存",
