@@ -3,7 +3,7 @@
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![node](https://img.shields.io/badge/node-%3E%3D24-339933)](https://nodejs.org)
 [![pnpm](https://img.shields.io/badge/package%20manager-pnpm-ffc611)](https://pnpm.io)
-[![tests](https://img.shields.io/badge/tests-3068%20passing-2ea44f)](#run-the-checks)
+[![tests](https://img.shields.io/badge/tests-3080%20passing-2ea44f)](#run-the-checks)
 
 **A visual pipeline platform for AI agents — orchestrate LLMs, tools, and quality
 control into production lines that actually finish.**
@@ -63,7 +63,8 @@ change actually helped).
 | **Nodes** | 29 types: agent, gate, HTTP (SSRF-guarded), code exec (JS/Python, sandboxed), branch, map, loop, parallel, table, database, file parse, translate, OCR, convert, search, notify, vcs, human approval, subprocess, image/video/audio gen, generic (modality auto-dispatch), compliance, publish, fanout, select, source, sink |
 | **Triggers** | Manual, webhook, cron (self-hosted parser), event, batch |
 | **Connectors** | Six declarative source connectors — manual, local file (path/glob, text or images), HTTP(S), run-time form, SQL database (sqlite/postgres, read-only), product library — each feeding a structured `data` channel for `${...}` interpolation downstream |
-| **Board / UX** | SVG flow canvas **plus an isometric 3D view**, undo/redo time travel (zundo), minimap, multi-select + marquee, first-load fit-to-screen; bilingual UI (中文/English) over a design-token system (color/spacing/radius/shadow/typography/z-index scales) |
+| **Board / UX** | SVG flow canvas **plus an isometric 3D view**, undo/redo time travel (zundo), minimap, multi-select + marquee, first-load fit-to-screen; bilingual UI (中文/English) with a dark/light theme toggle, all over a three-layer design-token system (primitive → semantic → component; color/spacing/radius/shadow/typography/z-index scales) |
+| **Operations** | A cross-pipeline operations workbench (RTS flat view, pre-3D): fleet health overview across every line, per-line status, last-run and cost rollups from `/api/operations/overview` |
 | **Quality** | LLM-judge gates, score-rework loops, brand/banned terms, output-contract schema validation |
 | **Observability** | Live SSE streaming, replay scrubber, per-node cost, eval report (by day / by graph / by prompt fingerprint), CSV export |
 | **MCP** | Both directions: consume external MCP servers as tools (operator env config plus per-user self-service for remote http/sse servers in Settings); expose the platform itself as an MCP server (15 tools, stdio + Streamable HTTP, protocol 2026-07-28 with 2025-11-25 / 2024-11-05 fallback, OAuth 2.1 resource metadata) |
@@ -86,22 +87,22 @@ pnpm dev
 ### 5-minute first run
 
 1. **Open the board** at <http://localhost:5173> and register an account.
-2. **Click 新建产线** — pick a template (e.g. 内容改写循环) or start blank.
+2. **Create a pipeline** — pick a template (e.g. the content rewrite loop) or start blank.
 3. **Configure a provider** — settings (⚙️) → paste an API key + base URL for
    any OpenAI-compatible endpoint (OpenAI, Volcengine Ark, vLLM, Ollama, …).
    No key? A deterministic **fake worker** takes over — enough to learn the UI
    and run tests.
 4. **Edit the graph** — double-click a node to open the inspector; drag from a
    node's right edge to another's left edge to connect.
-5. **Click 运行** — watch tokens stream through the pipes; if the gate fails
+5. **Dispatch a run** — watch tokens stream through the pipes; if the gate fails
    the work, it flows back for rework.
 6. **Inspect** — click any node for attempts, scores, cost, and artifacts;
-   the 成品仓 (sink) renders the final output with images and video inline.
+   the sink (finished-goods warehouse) renders the final output with images and video inline.
 
 ### Run the checks
 
 ```bash
-pnpm -r test       # 3068 tests: core 212 / server 1024 / mcp-server 71 / web 1761
+pnpm -r test       # 3080 tests: core 224 / server 1024 / mcp-server 71 / web 1761
 pnpm -r typecheck
 pnpm -r build
 ```
