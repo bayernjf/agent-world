@@ -128,4 +128,35 @@ describe("GET /api/operations/overview (RTS phase A2)", () => {
     expect(theirs.graphs).toEqual([]);
     expect(theirs.totals.totalRuns).toBe(0);
   });
+
+  it("(B3) resolves category from the origin template and falls back to 自定义", async () => {
+    const t = await register("b3cat@example.com");
+    const uid = await idOf("b3cat@example.com");
+    // Graph instantiated from a real template carries its origin template id.
+    await db.saveGraph(emptyGraph("gt", "Templated"), 1, uid, undefined, "tpl-xiaohongshu");
+    // A hand-built / blank graph has no template.
+    await db.saveGraph(emptyGraph("gn", "Blank"), 1, uid, undefined, null);
+
+    const body = await getOverview(t);
+    const gt = body.graphs.find((g: { graphId: string }) => g.graphId === "gt");
+    const gn = body.graphs.find((g: { graphId: string }) => g.graphId === "gn");
+    expect(gt.category).toBe("营销内容");
+    expect(gn.category).toBe("自定义");
+    // B1 park fields are always present (null until a manual layout is saved).
+    expect(gt.parkX).toBeNull();
+    expect(gt.parkZ).toBeNull();
+  });
+
+  it("(B3) pendingReview equals the halted-run count per graph", async () => {
+    const t = await register("b3rev@example.com");
+    const uid = await idOf("b3rev@example.com");
+    await seedRun(uid, "r1", "gh", "Halted", "halted", 1000);
+    await seedRun(uid, "r2", "gh", "Halted", "halted", 2000);
+    await seedRun(uid, "r3", "gh", "Halted", "done", 3000);
+
+    const body = await getOverview(t);
+    const gh = body.graphs.find((g: { graphId: string }) => g.graphId === "gh");
+    expect(gh.halted).toBe(2);
+    expect(gh.pendingReview).toBe(2); // review queue = halted runs
+  });
 });

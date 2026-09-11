@@ -2050,6 +2050,74 @@ select {
   }
 }
 
+/* --- RTS stage-B L0 macro park --- */
+.canvas-park {
+  animation: canvas3d-fade var(--duration-normal) var(--ease-default);
+}
+.canvas-park__empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary, var(--text-muted));
+  font-size: 14px;
+  pointer-events: none;
+}
+.park-popover {
+  z-index: 4;
+  min-width: 120px;
+  padding: var(--gap-xs) var(--gap-sm);
+  background: var(--bg-elevated, var(--bg-primary));
+  border: var(--hair);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg, 0 8px 24px rgba(0, 0, 0, 0.35));
+  pointer-events: auto;
+}
+.park-popover__name {
+  max-width: 220px;
+  margin-bottom: 6px;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.park-popover__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.park-popover__btn {
+  padding: 4px 10px;
+  font-size: 12px;
+  color: var(--text-primary);
+  background: var(--bg-secondary, rgba(255, 255, 255, 0.08));
+  border: var(--hair);
+  border-radius: var(--radius-sm, 6px);
+  cursor: pointer;
+}
+.park-popover__btn:hover {
+  background: var(--bg-hover, rgba(255, 255, 255, 0.16));
+}
+.park-back-btn {
+  position: absolute;
+  top: var(--gap-md);
+  left: var(--gap-md);
+  z-index: 5;
+  padding: 6px 14px;
+  font-size: 13px;
+  color: var(--text-primary);
+  background: var(--bg-elevated, var(--bg-primary));
+  border: var(--hair);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+.park-back-btn:hover {
+  background: var(--bg-hover, rgba(255, 255, 255, 0.16));
+}
+
 .minimap {
   position: absolute;
   left: var(--gap-md);

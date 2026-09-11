@@ -13,6 +13,8 @@ interface Props {
   onOpenPerformance?: () => void;
   /** Drill into the latest run of a pipeline. */
   onOpenRun?: (runId: string) => void;
+  /** RTS stage-B: leave the modal and open the L0 3D macro park. */
+  onEnterPark?: () => void;
 }
 
 type Window = "today" | "all";
@@ -62,6 +64,7 @@ export default function OperationsDashboard({
   onOpenCalendar,
   onOpenPerformance,
   onOpenRun,
+  onEnterPark,
 }: Props) {
   const { t } = useTranslation();
   const [data, setData] = useState<OperationsOverview | null>(null);
@@ -148,6 +151,15 @@ export default function OperationsDashboard({
                 {t("modals:operations.windowAll")}
               </button>
             </div>
+            <button
+              className="btn btn--sm"
+              onClick={() => {
+                onEnterPark?.();
+                onClose();
+              }}
+            >
+              {t("park:title")}
+            </button>
             <button className="btn btn--sm" onClick={() => void load()}>
               {t("modals:operations.refresh")}
             </button>

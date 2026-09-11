@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { Diagnostic, FormConnector, Graph } from "@agent-world/core";
 
@@ -50,7 +50,7 @@ import VersionPanel from "./components/VersionPanel";
 import RunCompare from "./components/RunCompare";
 import CollaboratorsModal from "./components/CollaboratorsModal";
 import CommandPalette, { type CommandItem } from "./components/CommandPalette";
-import { api, DuplicateGraphNameError } from "./lib/api";
+import { api, DuplicateGraphNameError, type OperationsOverview } from "./lib/api";
 import { useToast } from "./store/toast";
 import { getTemplate } from "@agent-world/core";
 import { useGraph } from "./store/graph";
@@ -58,6 +58,10 @@ import { useRun } from "./store/run";
 import { useViewMode } from "./store/view-mode";
 
 const Canvas3D = lazy(() => import("./canvas/Canvas3D"));
+// RTS stage-B L0 macro park: separate chunk so 2D/3D users never load three.js twice for it.
+const CanvasPark = lazy(() => import("./canvas/CanvasPark"));
+type ParkFactory = import("./canvas/CanvasPark").ParkFactory;
+type FactoryStatus = import("./canvas/CanvasPark").FactoryStatus;
 
 /** How often the HUD badge re-counts runs waiting on a human. */
 const REVIEW_POLL_MS = 20_000;
@@ -80,6 +84,9 @@ export default function App() {
   const runStatus = useRun((s) => s.live.status);
   const viewMode = useViewMode((s) => s.viewMode);
   const toggleViewMode = useViewMode((s) => s.toggle);
+  const setViewMode = useViewMode((s) => s.setViewMode);
+  const setDrilledFromPark = useViewMode((s) => s.setDrilledFromPark);
+  const drilledFromPark = useViewMode((s) => s.drilledFromPark);
 
   const [mode, setMode] = useState<Mode>("select");
   const [budget, setBudget] = useState(0.01);
@@ -422,6 +429,12 @@ export default function App() {
       onSelect: () => setOperationsOpen(true),
     },
     {
+      id: "macroPark",
+      label: t("park:title"),
+      group: "manage",
+      onSelect: () => enterPark(),
+    },
+    {
       id: "publishTargets",
       label: t("modals:commandPalette.commands.publishTargets.label"),
       hint: t("modals:commandPalette.commands.publishTargets.hint"),
@@ -538,6 +551,94 @@ export default function App() {
       }
     },
     [graph.id, flushSave, reset, setGraph, graphs, setReadOnly],
+  );
+
+  // --- RTS stage-B L0 macro park: poll overview only while the park is open ---
+  const [parkOverview, setParkOverview] = useState<OperationsOverview | null>(null);
+  useEffect(() => {
+    if (viewMode !== "park") return;
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const data = await api.operationsOverview();
+        if (!cancelled) setParkOverview(data);
+      } catch (e) {
+        // Park stays usable with the previous snapshot; surface nothing noisy.
+        console.warn("park overview poll failed", e);
+      }
+    };
+    void load();
+    const timer = setInterval(() => void load(), 15_000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [viewMode]);
+
+  const parkFactories: ParkFactory[] = useMemo(() => {
+    if (!parkOverview) return [];
+    return parkOverview.graphs.map((g): ParkFactory => {
+      // Worst-state-wins: failed/tripped > halted (review) > running > done > idle.
+      let status: FactoryStatus = "idle";
+      if (g.failed > 0 || g.tripped > 0) status = "failed";
+      else if (g.halted > 0) status = "halted";
+      else if (g.running > 0) status = "running";
+      else if (g.done > 0) status = "done";
+      const hasCron = Object.keys(parkOverview.nextRuns[g.graphId] ?? {}).length > 0;
+      return {
+        id: g.graphId,
+        name: g.graphName ?? g.graphId.slice(0, 8),
+        category: g.category ?? "自定义",
+        status,
+        pendingReview: g.pendingReview ?? g.halted ?? 0,
+        hasCron,
+        lastRunId: g.lastRunId,
+        manual: g.parkX != null && g.parkZ != null ? { x: g.parkX, z: g.parkZ } : undefined,
+      };
+    });
+  }, [parkOverview]);
+
+  // B8: drill from a park factory into its L1 single-factory 3D view.
+  const enterFactory = useCallback(
+    async (id: string) => {
+      setDrilledFromPark(true);
+      if (id !== graph.id) await switchGraph(id);
+      setViewMode("3d");
+    },
+    [graph.id, switchGraph, setDrilledFromPark, setViewMode],
+  );
+
+  const backToPark = useCallback(() => {
+    setDrilledFromPark(false);
+    setViewMode("park");
+  }, [setDrilledFromPark, setViewMode]);
+
+  const enterPark = useCallback(() => {
+    setDrilledFromPark(false);
+    setViewMode("park");
+  }, [setDrilledFromPark, setViewMode]);
+
+  const retryFactory = useCallback(async (_id: string, lastRunId: string | null | undefined) => {
+    if (!lastRunId) return; // nothing to retry before the pipeline ever ran
+    try {
+      await api.rerunRun(lastRunId);
+    } catch (e) {
+      showError(String(e));
+    }
+  }, []);
+
+  const toggleFactoryCron = useCallback(
+    async (id: string) => {
+      try {
+        const triggers = await api.listTriggers(id);
+        const cron = triggers.find((tr) => tr.type === "cron");
+        if (!cron) return;
+        await api.createTrigger(id, { ...cron, enabled: !cron.enabled });
+      } catch (e) {
+        showError(String(e));
+      }
+    },
+    [],
   );
 
   const createGraph = useCallback(
@@ -949,10 +1050,24 @@ export default function App() {
             <FailurePanel onRerun={onRun} />
             {viewMode === "2d" ? (
               <Canvas mode={mode} diagnostics={diagnostics} />
+            ) : viewMode === "park" ? (
+              <Suspense fallback={null}>
+                <CanvasPark
+                  factories={parkFactories}
+                  onEnter={(id) => void enterFactory(id)}
+                  onRetry={(id, runId) => void retryFactory(id, runId)}
+                  onToggleCron={(id) => void toggleFactoryCron(id)}
+                />
+              </Suspense>
             ) : (
               <Suspense fallback={null}>
                 <Canvas3D />
               </Suspense>
+            )}
+            {viewMode === "3d" && drilledFromPark && (
+              <button type="button" className="park-back-btn" onClick={backToPark}>
+                {t("park:backToPark")}
+              </button>
             )}
             <button
               className={`stage__control-toggle ${controlCollapsed ? "is-collapsed" : ""}`}
@@ -1063,6 +1178,7 @@ export default function App() {
         <OperationsDashboard
           open={operationsOpen}
           onClose={() => setOperationsOpen(false)}
+          onEnterPark={enterPark}
           onOpenReviews={() => setReviewOpen(true)}
           onOpenCalendar={() => setCalendarOpen(true)}
           onOpenPerformance={() => setPerformanceOpen(true)}

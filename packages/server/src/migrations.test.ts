@@ -245,12 +245,18 @@ describe("migration rollback (down)", () => {
     openDb(file).close(); // applies every migration, up to SCHEMA_VERSION
 
     const raw = new DatabaseSync(file);
+    // Latest migration is 37 (graphs.park_x/park_z); migration 36 (node_runs.model)
+    // must survive a single-step rollback.
+    expect(cols(raw, "graphs")).toContain("park_x");
+    expect(cols(raw, "graphs")).toContain("park_z");
     expect(cols(raw, "node_runs")).toContain("model");
 
     const result = rollbackLatestMigration(raw);
     expect(result?.version).toBe(SCHEMA_VERSION);
 
-    expect(cols(raw, "node_runs")).not.toContain("model");
+    expect(cols(raw, "graphs")).not.toContain("park_x");
+    expect(cols(raw, "graphs")).not.toContain("park_z");
+    expect(cols(raw, "node_runs")).toContain("model");
     raw.close();
   });
 });

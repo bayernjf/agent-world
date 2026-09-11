@@ -2,7 +2,7 @@
 
 > 定位：对 [design-rts-overview.md](design-rts-overview.md) §九「阶段 B · 宏观沙盘 MVP」9 步草案（B1-B9）的落地级细化，结合当前代码库（2026-09-11）实际状态复核每步的复用点、接口形状、风险与验收标准。
 >
-> 状态：**设计细化 + 技术预研中**（2026-09-11 启动，M1 等待期先行，不碰业务逻辑）。阶段 B 正式落地仍需商业化闭环 + 真实多产线场景触发（见 overview §十）。
+> 状态：**B1/B2/B3/B4/B6/B7/B8 已落地（2026-09-11，feature/20260824，本地未 push），B5 帧率优化、B9 i18n/token/全量测试/真机验收按用户决策延后**。L0 园区总览已可端到端走查（overview→parkLayout 聚簇→低模工厂→状态色→点厂浮层→钻取 L1→返回）。剩余：B5 中端机帧率实测、B9 真机/全量回归与设计 token 收尾，以及商业化闭环 + 真实多产线场景触发（见 overview §十）。
 >
 > 约定：延续 overview 的工业沙盘本体论、算力分工（服务器算业务 / 浏览器 GPU 渲染）、LOD 低模优先、db.ts 抽象、i18n + 设计 token、原子提交英文 message。
 
@@ -49,14 +49,16 @@
 
 ## 三、B1-B9 逐步细化（结合当前代码库）
 
-### B1 · 园区布局持久化（正式化，2026-09-11 代码级核对）
+### B1 · 园区布局持久化（✅ 后端已落地 2026-09-11；前端接线留正式落地）
+
+> **落地状态（2026-09-11）**：Schema（base DDL + 迁移 37）、driver 三方法、REST 两端点 + overview 扩展、全部测试均已在 `feature/20260824` 落地（server tsc/build 通过，新增 13 测试全绿）。**B1.5 已拍板：setParkCoord 不刷新 updated_at**（视图偏好不应让产线在列表跳顶）。落地中发现一个 node:sqlite 硬坑，见 B1.2 末尾。**仍未做（前端，正式落地时机）**：CanvasPark 接真实 overview 坐标、拖拽 onPointerUp 防抖 PUT、i18n、路由入口、钻取 L1、真机帧率、Hasee 副本库升级演练。
 
 **目标**：每条产线（graph）在园区地图上有一个 (parkX, parkZ) 坐标，自动布局结果可手动覆盖，持久化到 DB，刷新/重开不丢。
 
 #### B1.1 现状（已核对，不猜）
 
 - `graphs` 表 base DDL 在 `sqlite-driver.ts:45-55`，列为 `id/user_id/name/doc/version/updated_at/origin_template_id`，无园区坐标。
-- 迁移机制：`MIGRATIONS` 数组（`sqlite-driver.ts`），**最新版本 = 36**（node_runs.model），下一个 = **37**；每项形如 `{version, description, detect, up, down?}`，`detect` 用 `columnExists(db, table, col)` 做幂等，`LATEST_VERSION = MIGRATIONS.at(-1).version`。
+- 迁移机制：`MIGRATIONS` 数组（`sqlite-driver.ts`），**本次落地后最新版本 = 37**（graphs.park_x/park_z），下一个 = 38；每项形如 `{version, description, detect, up, down?}`，`detect` 用 `columnExists(db, table, col)` 做幂等，`LATEST_VERSION = MIGRATIONS.at(-1).version`。
 - **双轨关键事实**：`pg-driver.ts:50` 是 `await client.query(toPgDdl(DDL))`——**PostgreSQL 不跑 MIGRATIONS，只从 SQLite base DDL 整体派生**（`pg-sql.ts:62` 把 `REAL → double precision`）。因此加列必须**同时改两处**：① base DDL（管新建 SQLite 库 + 全部 PG 库）；② 迁移 37（管已存在的 SQLite 旧库升级）。先例就是 migration 19 `origin_template_id`——base DDL 第 52-54 行注释明写 "part of the latest schema so PG derivation sees it"。
 - 读侧方法范式：`operationsByGraph(userId, {since, graphIds})`（`sqlite-driver.ts:1660`）已有**双 scope**——不传 graphIds 时按 `g.user_id = ?` 只看自己；传 graphIds（来自协作成员关系 visibleGraphs）时按 `g.id IN (...)` 看被授权的集合。园区坐标读方法沿用同一 scope 范式。
 
@@ -91,13 +93,15 @@
 
 NULL 语义 = 未布局（前端落回 B2 自动布局）；两列要么一起写要么一起 NULL，不允许半态。PG 侧零额外工作（toPgDdl 自动把 REAL 译成 double precision）。
 
+> ⚠️ **落地实测坑（node:sqlite，务必遵守）**：`CREATE TABLE graphs (...)` 的**语句体内不要写 `--` 行注释**，列注释一律放到 CREATE TABLE 上方。原因：`ALTER TABLE DROP COLUMN` 会从 `sqlite_master.sql` 里存的建表 SQL 重建表，当被删列旁边挨着 `--` 注释时，node:sqlite 重解析报 `error in table graphs after drop column: incomplete input`（已用真实存储 SQL 做 A/B：带注释必现、去注释通过，确定性复现）。本次已把 graphs 建表语句内的历史注释（含 origin_template_id）全部上移。后续给任何表加可回滚列都照此办理。
+
 #### B1.3 数据访问方法（挂 sqlite-driver，沿用 operationsByGraph 双 scope）
 
 | 方法 | 签名 | SQL 要点 |
 |---|---|---|
 | `getParkCoords` | `(userId, graphIds?: string[]) => Promise<Record<graphId, {x,z}>>` | `SELECT id, park_x, park_z FROM graphs WHERE <scope> AND park_x IS NOT NULL`；只回已布局的，NULL 的不回（前端自动补） |
-| `setParkCoord` | `(userId, graphId, x, z) => Promise<void>` | `UPDATE graphs SET park_x=?, park_z=?, updated_at=? WHERE id=? AND user_id=?`；**带 user_id 防越权**，影响行数 0 时抛 not-found/forbidden |
-| `clearParkCoord` | `(userId, graphId) => Promise<void>` | `UPDATE graphs SET park_x=NULL, park_z=NULL WHERE id=? AND user_id=?`（恢复自动布局） |
+| `setParkCoord` | `(userId, graphId, x, z) => Promise<boolean>`（返回是否命中 owner 行，false→404/403） | `UPDATE graphs SET park_x=?, park_z=? WHERE id=? AND user_id=?`；**带 user_id 防越权；刻意不写 updated_at（B1.5 已拍板）** |
+| `clearParkCoord` | `(userId, graphId) => Promise<boolean>` | `UPDATE graphs SET park_x=NULL, park_z=NULL WHERE id=? AND user_id=?`（恢复自动布局；同样不碰 updated_at） |
 
 - 坐标写不进 `doc`（doc 是产线图结构、有版本快照/undo/内容哈希链路，园区坐标是**视图层偏好**，混进去会污染 content_hash 与版本 diff）——独立成列是刻意分层。
 - 协作场景：只有 owner 能 set/clear（`user_id` 约束）；协作者 get 走 graphIds scope、只读。这与 operationsByGraph 的授权模型一致，不另造权限。
@@ -113,16 +117,16 @@ NULL 语义 = 未布局（前端落回 B2 自动布局）；两列要么一起�
 
 - 单 owner 拖拽，**last-write-wins 足够**，不需要乐观锁版本号（坐标是个人视图偏好，无多人同时拖同一厂的业务场景；协作只读）。
 - 前端拖拽中只改本地 state、不发请求；pointerUp 一次性 PUT，失败回滚到服务端值 + toast。
-- updated_at 随坐标写刷新——**注意副作用**：listGraphs 按 updated_at DESC 排序，拖园区会让该产线跳到列表顶部。评估后决定坐标写用独立时间戳还是接受此行为（倾向：接受，"刚操作过排前面"本身合理；若产品不认可则 setParkCoord 不碰 updated_at，单独维持）。**此为待正式启动时拍板的一个小点。**
+- updated_at 副作用——**已拍板（2026-09-11 落地）：setParkCoord/clearParkCoord 不刷新 updated_at**。理由：park 坐标是视图层偏好（已刻意排除在 doc/version/content_hash 之外），同理不应让"拖了一下园区"把产线顶到 listGraphs（updated_at DESC）最前；写方法 SQL 里根本不带 updated_at，并有单测守护写入前后 updated_at 不变。
 
 #### B1.6 验收
 
-- sqlite-driver 单测：① 旧库（模拟 version=36）跑迁移 37 后两列存在且全 NULL；② 迁移幂等（连跑两次不报错，靠 detect）；③ CRUD + 跨用户隔离（A 读不到/改不了 B 的坐标）；④ NULL 回落（clear 后 getParkCoords 不回该 id）；⑤ down 回滚列消失。
-- pg 侧：`pg-sql.test.ts` 断言 toPgDdl 后的 graphs 建表含 `park_x double precision`、`park_z double precision`（不跑迁移、只验证 DDL 派生）。
-- API 测试：PUT 越权 403、非有限数 400、GET overview 带坐标、DELETE 后回 NULL。
-- 旧库升级演练：在 Hasee 副本库上跑迁移，已有 graph 坐标 NULL、前端自动布局不空白。
+- ✅ **已落地（2026-09-11，`park-coord.test.ts` 6 例）**：① 旧库（version=36）跑迁移 37 后两列存在且全 NULL；② 迁移幂等（连跑两次/二次打开不报错，靠 detect）；③ CRUD + 跨用户隔离（A 读不到/改不了 B 的坐标）；④ NULL 回落（clear 后 getParkCoords 不回该 id）；⑤ down 回滚列消失且迁移 36 的 model 列仍在；⑥ setParkCoord 不刷新 updated_at。
+- ✅ **pg 侧（`pg-sql.test.ts`）**：断言 toPgDdl 后的 graphs 建表含 `park_x double precision`、`park_z double precision`。
+- ✅ **API（`api.park-coord.test.ts` 6 例，纯 HTTP）**：未登录 401、owner PUT 200 且 overview 带坐标、非有限数/缺字段 400、外部无权限人 404（隐藏存在性）、被授权 viewer 非 owner 403、未知 graph 404、DELETE 后 overview 回落 null。
+- ⏳ **旧库升级演练（留部署窗口，M1 期不做）**：在 Hasee 副本库上跑迁移，已有 graph 坐标 NULL、前端自动布局不空白。
 
-**风险**：低。纯加列 + 三个只读/单点写方法，不碰 run/engine 业务逻辑；唯一需拍板的是 updated_at 副作用（B1.5）。
+**风险**：低（已验证）。纯加列 + 三个只读/单点写方法，不碰 run/engine 业务逻辑；唯一的 updated_at 副作用点已按 B1.5 拍板为"不刷新"。
 
 ---
 
@@ -227,6 +231,8 @@ free(p, placed) = placed.every(q => dist(p,q) >= MIN_GAP)
 
 ### B3 · 扩展 A2 overview 接口（加 L0 字段）
 
+> **落地状态（2026-09-11，未 push）**：✅ 已落地。`operationsByGraph` 补选 `origin_template_id`；overview handler 组装 `category`（`getTemplate(originTemplateId)?.category ?? "自定义"` 反查）、`pendingReview = halted`（待审数恰好等于每产线 halted run 数，无需新查询），连同 B1 的 `parkX/parkZ` 一并下发；web `OperationsGraphSummary` 类型同步。`api.operations.test.ts` 新增 2 例（类别反查 + 待审映射），7 例全绿；server 测试 1037→1039。内置浏览器 live 验证：10 厂 overview 正确返回 5 个真实类别（写作/数据分析/IT 运维/营销内容/办公协同）+ 无模板产线兜底「自定义」。
+
 **目标**：阶段 A 已建 `GET /api/operations/overview`（返回全局状态 + 每产线卡数据），阶段 B 在其基础上加 L0 所需字段，不新建接口。
 
 **当前状态**：A2 接口返回 `{ totals, graphs: [{ id, name, status, lastRunAt, costToday, haltedCount, nextRuns }] }`（具体形状以 `api.operations.test.ts` 为准）。
@@ -249,6 +255,8 @@ free(p, placed) = placed.every(q => dist(p,q) >= MIN_GAP)
 ---
 
 ### B4 · CanvasPark.tsx L0 场景（低模工厂 + 地面 + 相机）
+
+> **落地状态（2026-09-11，未 push）**：✅ 已落地（生产级重写原型）。`CanvasPark.tsx` 采用 mount-once 双 effect（挂载 effect [] 建 renderer/正交相机/光/地面/grid/InstancedMesh/选中环/rAF/raycast；数据 effect [factories] 只重算矩阵+billboard），几何/相机常量按方案落地（FACTORY_SIZE=200、CAMERA_DIST=3000、GROUND_SIZE=6000、maxCount=100），布局复用 core `parkLayout`（手动坐标优先）。`App.tsx` 以 `React.lazy(() => import("./canvas/CanvasPark"))` + `Suspense` 独立分包（与 Canvas3D 同模式），接真实 overview（15s 轮询）。新增 `CanvasPark.test.tsx` 4 例（空态/挂载卸载/mount-once 不重建 renderer/待审不崩）全绿。内置浏览器 live：N=10 厂立起来、按类别聚簇、done=蓝/idle=灰状态色与类别色 billboard 正确、可缩放平移。纹理函数对无 2d context（jsdom）做了空纹理兜底。
 
 **目标**：新建 `apps/web/src/canvas/CanvasPark.tsx`，渲染 N 座低模工厂的 3D 园区场景，`React.lazy` 独立 chunk。
 
@@ -339,6 +347,8 @@ CanvasPark.tsx 结构：
 
 ### B6 · 实时状态驱动
 
+> **落地状态（2026-09-11，未 push）**：✅ 已落地。factories prop 每轮询（15s）更新 → `dataRef`，单一 rAF 每帧遍历 InstancedMesh `setColorAt`：running 绿色正弦呼吸（BREATH_SPEED=0.006）、failed 红、halted 黄、done 蓝、idle 灰，批量 `instanceColor.needsUpdate`；待审角标 sprite 按 pendingReview 显隐。状态色更新只改 three 对象、不走 setState；浮层屏幕坐标同样在 rAF 内 `Vector3.project` 写 transform。live 验证 done/idle 两态颜色正确（running 呼吸由同代码路径 + 单测覆盖，未 live 触发真实 run）。
+
 **目标**：工厂状态色与待审角标实时更新，经 ref 每帧读取，不重建场景。
 
 **当前状态**：L1 用 `runtimeRef` 模式（`useVisibleRuntime()` + `runtimeRef.current = runtime`），rAF 每帧读 ref 更新 LED。阶段 A 的 OperationsDashboard 用 15s 轮询 `GET /api/operations/overview`。
@@ -363,6 +373,8 @@ CanvasPark.tsx 结构：
 ---
 
 ### B7 · Raycast 点厂 + 轻操作浮层
+
+> **落地状态（2026-09-11，未 push）**：✅ 已落地。InstancedMesh raycast 取 `instanceId`，经数据 effect 维护的 `idByIndex` 映射到 graphId；选中后底部 RingGeometry 选中环跟随，HTML `.park-popover` 在 rAF 内投影定位。浮层按钮按态条件渲染：「进入」常显；「重试」仅 failed（调 `api.rerunRun(lastRunId)`）；「暂停/恢复 cron」仅 hasCron（`listTriggers`→找 cron→翻转 enabled→`createTrigger` upsert）。App.tsx 实现 retryFactory / toggleFactoryCron。live 验证：点 done 厂弹「厂名 + 进入」（无重试/无 cron 按钮，条件渲染正确），点空白取消选中。
 
 **目标**：点击工厂选中高亮 + 浮层（钻取 L1 / 重试 / 暂停 cron）。
 
@@ -392,6 +404,8 @@ CanvasPark.tsx 结构：
 ---
 
 ### B8 · 钻取 L1（淡切）
+
+> **落地状态（2026-09-11，未 push）**：✅ 已落地。`view-mode` store 扩为 `"2d" | "3d" | "park"`，新增持久化 `parkCamera`（钻取返回恢复机位）与非持久化 `drilledFromPark` 标记。流程：L0 点厂「进入」→ `enterFactory`（置 drilledFromPark、必要时 switchGraph、setViewMode("3d")）→ CSS 淡切到 L1 Canvas3D 单厂；L1 显示 `.park-back-btn`（t("park:backToPark")）→ `backToPark` 回 L0 并恢复相机。live 验证：演示产线钻取后正确显示其单厂 3D（1 文坊·1 质检站·4 管道，无串厂），返回后 L0 工厂布局/机位一致、无白屏。连续 zoom 仍留 C。
 
 **目标**：点厂「进入」→ 250ms 交叉淡切 → 切换到该 graph 的 L1 视图；返回时回到 L0，视角记忆不丢。
 

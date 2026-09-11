@@ -42,6 +42,16 @@ CREATE TABLE IF NOT EXISTS users (
 -- migration 31 for pre-RBAC databases, and an index in this DDL runs before
 -- migrations -- an older file dies in db.exec(DDL) with "no such column: role".
 
+-- NOTE: keep this CREATE TABLE free of inline "--" comments. node:sqlite's
+-- ALTER TABLE DROP COLUMN rebuilds the table from the stored sqlite_master SQL
+-- and mis-parses a line comment sitting next to the dropped column ("incomplete
+-- input"). Put any column notes above the statement, not inside its body.
+-- origin_template_id: template-instance reset anchor (migration 18 historically;
+-- present in the latest schema so PG DDL derivation sees it).
+-- park_x/park_z: RTS stage-B macro-park position (migration 37 historically).
+-- NULL = not laid out (frontend auto-layouts); a stored pair is the manual
+-- parkLayout() override. View-layer preference only: kept out of
+-- doc/version/content_hash and never bumps updated_at (design B1.2/B1.5).
 CREATE TABLE IF NOT EXISTS graphs (
   id         TEXT PRIMARY KEY,
   user_id    TEXT,
@@ -49,9 +59,9 @@ CREATE TABLE IF NOT EXISTS graphs (
   doc        TEXT NOT NULL,
   version    INTEGER NOT NULL DEFAULT 1,
   updated_at INTEGER NOT NULL,
-  -- template-instance reset anchor (migration 18 historically; part of the
-  -- latest schema so PG derivation sees it)
-  origin_template_id TEXT
+  origin_template_id TEXT,
+  park_x REAL,
+  park_z REAL
 );
 
 CREATE TABLE IF NOT EXISTS runs (
@@ -778,6 +788,13 @@ export function createDriver(
     saveGraphVariable: `INSERT INTO graph_variables (graph_id, key, value, updated_at) VALUES (?, ?, ?, ?)
        ON CONFLICT(graph_id, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
     deleteGraph: `DELETE FROM graphs WHERE id = ? AND user_id = ?`,
+    // RTS stage-B macro-park coordinates (migration 37). Only laid-out rows are
+    // returned (NULL rows are auto-layouted on the client). The write never
+    // touches updated_at — a view preference must not reorder the graph list.
+    // The shared/membership variant builds its IN(...) placeholders inline.
+    parkCoordsOwned: `SELECT id, park_x, park_z FROM graphs WHERE user_id = ? AND park_x IS NOT NULL`,
+    setParkCoord: `UPDATE graphs SET park_x = ?, park_z = ? WHERE id = ? AND user_id = ?`,
+    clearParkCoord: `UPDATE graphs SET park_x = NULL, park_z = NULL WHERE id = ? AND user_id = ?`,
     createRun: `INSERT INTO runs (id, user_id, graph_id, snapshot, status, trigger, input, budget_usd, started_at, ab_group, ab_arm, ab_target) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     finishRun: `UPDATE runs SET status = ?, ended_at = ?, halted_node_id = ?, halted_reason = ? WHERE id = ? AND user_id = ?`,
     markRunning: `UPDATE runs SET status = 'running', ended_at = NULL, halted_node_id = NULL, halted_reason = NULL WHERE id = ? AND user_id = ?`,
@@ -1152,6 +1169,39 @@ export function createDriver(
       // Drop stale ACL rows so a future graph with the same id can't inherit
       // old shares (and so the collaborator lists don't leak deleted graphs).
       await exec.run(stmts.deleteResourceAccessForResource, ["graph", id]);
+    },
+
+    // --- RTS stage-B macro-park coordinates (migration 37) ----------------
+    // Dual scope mirrors operationsByGraph: no graphIds → owned graphs only;
+    // graphIds → the authorized (owned + shared) set. Only laid-out graphs are
+    // returned; the client fills the rest with parkLayout() auto-layout.
+    async getParkCoords(
+      userId: string,
+      graphIds?: string[],
+    ): Promise<Record<string, { x: number; z: number }>> {
+      const shared = !!graphIds && graphIds.length > 0;
+      const rows = shared
+        ? await exec.all(
+            `SELECT id, park_x, park_z FROM graphs WHERE park_x IS NOT NULL AND id IN (${graphIds!.map(() => "?").join(",")})`,
+            graphIds!,
+          ) as Array<{ id: string; park_x: number; park_z: number }>
+        : await exec.all(stmts.parkCoordsOwned, [userId]) as Array<{ id: string; park_x: number; park_z: number }>;
+      const out: Record<string, { x: number; z: number }> = {};
+      for (const r of rows) out[r.id] = { x: r.park_x, z: r.park_z };
+      return out;
+    },
+
+    // Owner-only write (the user_id clause is the SQL backstop; routes check
+    // the owner role first). Returns false when no owned row matched, so the
+    // caller can map it to 404/403. Does NOT bump updated_at (B1.5).
+    async setParkCoord(userId: string, graphId: string, x: number, z: number): Promise<boolean> {
+      const result = await exec.run(stmts.setParkCoord, [x, z, graphId, userId]);
+      return result.changes > 0;
+    },
+
+    async clearParkCoord(userId: string, graphId: string): Promise<boolean> {
+      const result = await exec.run(stmts.clearParkCoord, [graphId, userId]);
+      return result.changes > 0;
     },
 
     async createRun(args: {
@@ -1684,6 +1734,7 @@ export function createDriver(
         cParams.push(opts.since);
       }
       const rows = await exec.all(`SELECT g.id AS graph_id, g.name AS graph_name,
+                  g.origin_template_id AS origin_template_id,
                   COUNT(r.id) AS total_runs,
                   SUM(CASE WHEN r.status = 'running'   THEN 1 ELSE 0 END) AS running,
                   SUM(CASE WHEN r.status = 'halted'    THEN 1 ELSE 0 END) AS halted,
@@ -1697,11 +1748,12 @@ export function createDriver(
            FROM graphs g
            LEFT JOIN runs r ON ${rOn.join(" AND ")}
            WHERE ${gClause}
-           GROUP BY g.id, g.name
+           GROUP BY g.id, g.name, g.origin_template_id
            ORDER BY MAX(r.started_at) DESC, g.name ASC`,
         [...rParams, ...cParams, ...scopeIds]) as Array<{
           graph_id: string;
           graph_name: string | null;
+          origin_template_id: string | null;
           total_runs: number;
           running: number; halted: number; done: number;
           failed: number; tripped: number; cancelled: number;
@@ -1728,6 +1780,7 @@ export function createDriver(
         return {
           graphId: r.graph_id,
           graphName: r.graph_name,
+          originTemplateId: r.origin_template_id,
           totalRuns: Number(r.total_runs ?? 0),
           running: Number(r.running ?? 0),
           halted: Number(r.halted ?? 0),
@@ -3448,6 +3501,23 @@ const MIGRATIONS: Migration[] = [
     detect: (db) => columnExists(db, "node_runs", "model"),
     up: (db) => db.exec("ALTER TABLE node_runs ADD COLUMN model TEXT"),
     down: (db) => db.exec("ALTER TABLE node_runs DROP COLUMN model"),
+  },
+  {
+    version: 37,
+    // RTS stage-B macro-park position. A stored (park_x, park_z) is the manual
+    // override of the pure parkLayout() result; NULL means "not laid out" and
+    // the frontend auto-layouts. View-layer preference, so it lives beside the
+    // graph row rather than inside `doc` (keeps version/content_hash clean).
+    description: "graphs.park_x/park_z for RTS stage-B macro park layout",
+    detect: (db) => columnExists(db, "graphs", "park_x"),
+    up: (db) => {
+      if (!columnExists(db, "graphs", "park_x")) db.exec("ALTER TABLE graphs ADD COLUMN park_x REAL");
+      if (!columnExists(db, "graphs", "park_z")) db.exec("ALTER TABLE graphs ADD COLUMN park_z REAL");
+    },
+    down: (db) => {
+      db.exec("ALTER TABLE graphs DROP COLUMN park_x");
+      db.exec("ALTER TABLE graphs DROP COLUMN park_z");
+    },
   },
 ];
 

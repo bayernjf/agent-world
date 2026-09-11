@@ -2,7 +2,7 @@
 
 > 定位：把「单张产线的等距 3D 视图」升级为「名下所有产线同屏运转的工业园区」的产品形态与落地路径设计。
 >
-> 状态：**方向立项 / P3；阶段 A（平面运营工作台）已于 2026-09-10 全部完成上线（PR #239 `514d18a`），阶段 B/C 仍为未实施草案**（PRODUCT_STRATEGY §七定性为后差异化留存手段）。创建：2026-09-10。
+> 状态：**方向立项 / P3；阶段 A（平面运营工作台）已于 2026-09-10 全部完成上线（PR #239 `514d18a`），阶段 B 宏观沙盘 B1/B2/B3/B4/B6/B7/B8 已于 2026-09-11 本地落地（B5 帧率优化/B9 真机验收延后，落地细节见 [design-rts-stage-b.md](design-rts-stage-b.md)），阶段 C 仍为未实施草案**（PRODUCT_STRATEGY §七定性为后差异化留存手段）。创建：2026-09-10。
 >
 > 约定：延续「工业沙盘」本体论（见 [design-glossary.md](design-glossary.md)）——本体是工厂，不是游戏皮肤；服务器算真实业务，浏览器本地 GPU 渲染，不烧服务器算力（PRODUCT_STRATEGY §七）。
 
@@ -100,7 +100,7 @@ Inspector（模型 / prompt / 重试 / 成本），钻取终点。
 ## 九、落地三阶段（先平面验证需求，再上 3D）
 
 > 步骤粒度约定（对齐 [design-canvas-isometric.md](design-canvas-isometric.md) §十）：每步一个原子 commit（英文 `<type>(<scope>): <subject>`），步间跑相关测试、绿了才进下一步；UI 文案走 i18n、颜色间距走设计 token、DB 走 db.ts 抽象（AGENTS.md）。
-> **阶段 A 步骤可立即执行；阶段 B/C 步骤为规划草案——立项重启时必须对着当时代码复核（L1 在持续重构、聚合接口会演进），不据此直接开工。**
+> **阶段 A 步骤已全部完成；阶段 B 已部分落地（B1-B4/B6-B8，见 [design-rts-stage-b.md](design-rts-stage-b.md)，B5/B9 延后）；阶段 C 步骤为规划草案——立项重启时必须对着当时代码复核（L1 在持续重构、聚合接口会演进），不据此直接开工。**
 
 ### 阶段 A · 平面运营工作台（最便宜的需求验证，大部分已具备）
 
@@ -121,7 +121,7 @@ Inspector（模型 / prompt / 重试 / 成本），钻取终点。
 | ✅ A6 | zh/en i18n 全量 `t()`（modals.operations，zh/en 同构）+ 设计 token `var()` | `keys.test` 4/4、无硬编码中文/色值 |
 | ✅ A7 | 全量测试 + Hasee 真机对账（4 条 M1 产线的状态 / 成本与 node:sqlite 直查库逐产线核对） | `pnpm -r typecheck`、server 1015 / web 1650 全绿；全部时窗 total13/done9/failed4/$0.5446/成功率69% 与库逐项一致，结论写入 handoff 待办 43 |
 
-### 阶段 B · 宏观沙盘 MVP（步骤为草案，重启时复核）
+### 阶段 B · 宏观沙盘 MVP（B1-B4/B6-B8 已落地，B5/B9 延后；落地细节见 [design-rts-stage-b.md](design-rts-stage-b.md)）
 
 - **范围**：N 座**低模**工厂同屏 + 状态色（信息 1）+ 待办角标（信息 2）+ 点击工厂钻取 L1（先用淡切，不做连续 zoom）；不做跨厂物流、不做时间轴、不做宏观轻操作以外的复杂交互。
 - **前置**：阶段 A 验证需求真实存在；商业化主线（订阅 gate / 支付）已跑通。
