@@ -7469,13 +7469,35 @@ select {
 }
 .guided-tour__actions {
   display: flex;
-  align-items: center;
+  align-items: stretch;
   gap: var(--space-2);
 }
 .guided-tour__nav {
   display: flex;
   gap: var(--space-2);
   margin-left: auto;
+}
+/* Override global .btn (width:100% / margin-top / no-wrap) which breaks
+   the compact action row inside the 340px tour card. */
+.guided-tour__actions .btn {
+  width: auto;
+  flex: 0 0 auto;
+  margin-top: 0;
+  white-space: nowrap;
+  min-height: 38px;
+  padding: 0 var(--space-4);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--text-sm);
+  letter-spacing: 0.04em;
+}
+.guided-tour__actions .btn--ghost {
+  padding: 0 var(--space-3);
+}
+.guided-tour__skip {
+  flex: 1 1 auto !important;
+  min-width: 0;
 }
 
 /* Tours & what's-new block inside the user menu */
