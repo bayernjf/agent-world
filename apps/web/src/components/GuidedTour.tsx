@@ -56,6 +56,8 @@ export default function GuidedTour() {
     if (activeTourId) {
       if (prevViewRef.current === null) prevViewRef.current = viewMode;
       setViewMode("2d");
+      // Clear any stray page scroll so fixed-layout anchors start on-screen.
+      window.scrollTo(0, 0);
       runTourAction(def?.onStart);
     } else if (prevViewRef.current !== null) {
       setViewMode(prevViewRef.current);
@@ -85,6 +87,26 @@ export default function GuidedTour() {
       const rect = anchor?.getBoundingClientRect();
       const anchorReady =
         Boolean(anchor) && Boolean(rect) && (rect!.width > 0 || rect!.height > 0);
+      // A stray page scroll (e.g. an oversized zoomed canvas) can push a
+      // fixed-layout anchor out of the viewport; nudge it back before settling.
+      const onScreen = rect
+        ? rect.left >= 0 &&
+          rect.right <= window.innerWidth &&
+          rect.top >= 0 &&
+          rect.bottom <= window.innerHeight
+        : true;
+
+      if (
+        anchorReady &&
+        !onScreen &&
+        anchor &&
+        tries < MAX_ANCHOR_TRIES
+      ) {
+        anchor.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+        tries += 1;
+        raf = requestAnimationFrame(compute);
+        return;
+      }
 
       if (!anchorReady && step.target && tries < MAX_ANCHOR_TRIES) {
         tries += 1;
