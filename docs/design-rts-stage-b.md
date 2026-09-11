@@ -49,14 +49,16 @@
 
 ## 三、B1-B9 逐步细化（结合当前代码库）
 
-### B1 · 园区布局持久化（正式化，2026-09-11 代码级核对）
+### B1 · 园区布局持久化（✅ 后端已落地 2026-09-11；前端接线留正式落地）
+
+> **落地状态（2026-09-11）**：Schema（base DDL + 迁移 37）、driver 三方法、REST 两端点 + overview 扩展、全部测试均已在 `feature/20260824` 落地（server tsc/build 通过，新增 13 测试全绿）。**B1.5 已拍板：setParkCoord 不刷新 updated_at**（视图偏好不应让产线在列表跳顶）。落地中发现一个 node:sqlite 硬坑，见 B1.2 末尾。**仍未做（前端，正式落地时机）**：CanvasPark 接真实 overview 坐标、拖拽 onPointerUp 防抖 PUT、i18n、路由入口、钻取 L1、真机帧率、Hasee 副本库升级演练。
 
 **目标**：每条产线（graph）在园区地图上有一个 (parkX, parkZ) 坐标，自动布局结果可手动覆盖，持久化到 DB，刷新/重开不丢。
 
 #### B1.1 现状（已核对，不猜）
 
 - `graphs` 表 base DDL 在 `sqlite-driver.ts:45-55`，列为 `id/user_id/name/doc/version/updated_at/origin_template_id`，无园区坐标。
-- 迁移机制：`MIGRATIONS` 数组（`sqlite-driver.ts`），**最新版本 = 36**（node_runs.model），下一个 = **37**；每项形如 `{version, description, detect, up, down?}`，`detect` 用 `columnExists(db, table, col)` 做幂等，`LATEST_VERSION = MIGRATIONS.at(-1).version`。
+- 迁移机制：`MIGRATIONS` 数组（`sqlite-driver.ts`），**本次落地后最新版本 = 37**（graphs.park_x/park_z），下一个 = 38；每项形如 `{version, description, detect, up, down?}`，`detect` 用 `columnExists(db, table, col)` 做幂等，`LATEST_VERSION = MIGRATIONS.at(-1).version`。
 - **双轨关键事实**：`pg-driver.ts:50` 是 `await client.query(toPgDdl(DDL))`——**PostgreSQL 不跑 MIGRATIONS，只从 SQLite base DDL 整体派生**（`pg-sql.ts:62` 把 `REAL → double precision`）。因此加列必须**同时改两处**：① base DDL（管新建 SQLite 库 + 全部 PG 库）；② 迁移 37（管已存在的 SQLite 旧库升级）。先例就是 migration 19 `origin_template_id`——base DDL 第 52-54 行注释明写 "part of the latest schema so PG derivation sees it"。
 - 读侧方法范式：`operationsByGraph(userId, {since, graphIds})`（`sqlite-driver.ts:1660`）已有**双 scope**——不传 graphIds 时按 `g.user_id = ?` 只看自己；传 graphIds（来自协作成员关系 visibleGraphs）时按 `g.id IN (...)` 看被授权的集合。园区坐标读方法沿用同一 scope 范式。
 
@@ -91,13 +93,15 @@
 
 NULL 语义 = 未布局（前端落回 B2 自动布局）；两列要么一起写要么一起 NULL，不允许半态。PG 侧零额外工作（toPgDdl 自动把 REAL 译成 double precision）。
 
+> ⚠️ **落地实测坑（node:sqlite，务必遵守）**：`CREATE TABLE graphs (...)` 的**语句体内不要写 `--` 行注释**，列注释一律放到 CREATE TABLE 上方。原因：`ALTER TABLE DROP COLUMN` 会从 `sqlite_master.sql` 里存的建表 SQL 重建表，当被删列旁边挨着 `--` 注释时，node:sqlite 重解析报 `error in table graphs after drop column: incomplete input`（已用真实存储 SQL 做 A/B：带注释必现、去注释通过，确定性复现）。本次已把 graphs 建表语句内的历史注释（含 origin_template_id）全部上移。后续给任何表加可回滚列都照此办理。
+
 #### B1.3 数据访问方法（挂 sqlite-driver，沿用 operationsByGraph 双 scope）
 
 | 方法 | 签名 | SQL 要点 |
 |---|---|---|
 | `getParkCoords` | `(userId, graphIds?: string[]) => Promise<Record<graphId, {x,z}>>` | `SELECT id, park_x, park_z FROM graphs WHERE <scope> AND park_x IS NOT NULL`；只回已布局的，NULL 的不回（前端自动补） |
-| `setParkCoord` | `(userId, graphId, x, z) => Promise<void>` | `UPDATE graphs SET park_x=?, park_z=?, updated_at=? WHERE id=? AND user_id=?`；**带 user_id 防越权**，影响行数 0 时抛 not-found/forbidden |
-| `clearParkCoord` | `(userId, graphId) => Promise<void>` | `UPDATE graphs SET park_x=NULL, park_z=NULL WHERE id=? AND user_id=?`（恢复自动布局） |
+| `setParkCoord` | `(userId, graphId, x, z) => Promise<boolean>`（返回是否命中 owner 行，false→404/403） | `UPDATE graphs SET park_x=?, park_z=? WHERE id=? AND user_id=?`；**带 user_id 防越权；刻意不写 updated_at（B1.5 已拍板）** |
+| `clearParkCoord` | `(userId, graphId) => Promise<boolean>` | `UPDATE graphs SET park_x=NULL, park_z=NULL WHERE id=? AND user_id=?`（恢复自动布局；同样不碰 updated_at） |
 
 - 坐标写不进 `doc`（doc 是产线图结构、有版本快照/undo/内容哈希链路，园区坐标是**视图层偏好**，混进去会污染 content_hash 与版本 diff）——独立成列是刻意分层。
 - 协作场景：只有 owner 能 set/clear（`user_id` 约束）；协作者 get 走 graphIds scope、只读。这与 operationsByGraph 的授权模型一致，不另造权限。
@@ -113,16 +117,16 @@ NULL 语义 = 未布局（前端落回 B2 自动布局）；两列要么一起�
 
 - 单 owner 拖拽，**last-write-wins 足够**，不需要乐观锁版本号（坐标是个人视图偏好，无多人同时拖同一厂的业务场景；协作只读）。
 - 前端拖拽中只改本地 state、不发请求；pointerUp 一次性 PUT，失败回滚到服务端值 + toast。
-- updated_at 随坐标写刷新——**注意副作用**：listGraphs 按 updated_at DESC 排序，拖园区会让该产线跳到列表顶部。评估后决定坐标写用独立时间戳还是接受此行为（倾向：接受，"刚操作过排前面"本身合理；若产品不认可则 setParkCoord 不碰 updated_at，单独维持）。**此为待正式启动时拍板的一个小点。**
+- updated_at 副作用——**已拍板（2026-09-11 落地）：setParkCoord/clearParkCoord 不刷新 updated_at**。理由：park 坐标是视图层偏好（已刻意排除在 doc/version/content_hash 之外），同理不应让"拖了一下园区"把产线顶到 listGraphs（updated_at DESC）最前；写方法 SQL 里根本不带 updated_at，并有单测守护写入前后 updated_at 不变。
 
 #### B1.6 验收
 
-- sqlite-driver 单测：① 旧库（模拟 version=36）跑迁移 37 后两列存在且全 NULL；② 迁移幂等（连跑两次不报错，靠 detect）；③ CRUD + 跨用户隔离（A 读不到/改不了 B 的坐标）；④ NULL 回落（clear 后 getParkCoords 不回该 id）；⑤ down 回滚列消失。
-- pg 侧：`pg-sql.test.ts` 断言 toPgDdl 后的 graphs 建表含 `park_x double precision`、`park_z double precision`（不跑迁移、只验证 DDL 派生）。
-- API 测试：PUT 越权 403、非有限数 400、GET overview 带坐标、DELETE 后回 NULL。
-- 旧库升级演练：在 Hasee 副本库上跑迁移，已有 graph 坐标 NULL、前端自动布局不空白。
+- ✅ **已落地（2026-09-11，`park-coord.test.ts` 6 例）**：① 旧库（version=36）跑迁移 37 后两列存在且全 NULL；② 迁移幂等（连跑两次/二次打开不报错，靠 detect）；③ CRUD + 跨用户隔离（A 读不到/改不了 B 的坐标）；④ NULL 回落（clear 后 getParkCoords 不回该 id）；⑤ down 回滚列消失且迁移 36 的 model 列仍在；⑥ setParkCoord 不刷新 updated_at。
+- ✅ **pg 侧（`pg-sql.test.ts`）**：断言 toPgDdl 后的 graphs 建表含 `park_x double precision`、`park_z double precision`。
+- ✅ **API（`api.park-coord.test.ts` 6 例，纯 HTTP）**：未登录 401、owner PUT 200 且 overview 带坐标、非有限数/缺字段 400、外部无权限人 404（隐藏存在性）、被授权 viewer 非 owner 403、未知 graph 404、DELETE 后 overview 回落 null。
+- ⏳ **旧库升级演练（留部署窗口，M1 期不做）**：在 Hasee 副本库上跑迁移，已有 graph 坐标 NULL、前端自动布局不空白。
 
-**风险**：低。纯加列 + 三个只读/单点写方法，不碰 run/engine 业务逻辑；唯一需拍板的是 updated_at 副作用（B1.5）。
+**风险**：低（已验证）。纯加列 + 三个只读/单点写方法，不碰 run/engine 业务逻辑；唯一的 updated_at 副作用点已按 B1.5 拍板为"不刷新"。
 
 ---
 
