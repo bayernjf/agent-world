@@ -127,6 +127,7 @@ describe("ProductLibrary", () => {
         price: 49.5,
       }),
     );
+    await flush();
     // form cleared
     expect((screen.getByPlaceholderText("商品名（必填）") as HTMLInputElement).value).toBe("");
   });
@@ -188,6 +189,7 @@ describe("ProductLibrary", () => {
     });
     fireEvent.click(screen.getByText("导入 CSV"));
     await waitFor(() => expect(mockImport).toHaveBeenCalledWith("name\nA\nB"));
+    await flush();
     expect(screen.getByText("导入 2 条，失败 0 条")).toBeInTheDocument();
   });
 
