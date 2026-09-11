@@ -174,6 +174,48 @@ describe("templates", () => {
     )).toBe(true);
   });
 
+  it("presets a file connector on exactly the seven document/OCR templates (design-template-connector-presets §3-C/§8)", () => {
+    // Plain file presets: connector type pre-selected, empty path placeholder
+    // (no machine-specific absolute path baked into a template).
+    const PLAIN_FILE = new Set([
+      "tpl-doc-ingest",
+      "tpl-contract-review",
+      "tpl-privacy-review",
+      "tpl-batch-contract-review",
+      "tpl-due-diligence",
+    ]);
+    // Image-fed OCR templates additionally set asImages so the connector reads
+    // binary images instead of trying to decode them as text.
+    const AS_IMAGES = new Set(["tpl-scan-ocr", "tpl-invoice-ocr"]);
+    const PRESET = new Set([...PLAIN_FILE, ...AS_IMAGES]);
+
+    const presetIds: string[] = [];
+    for (const tpl of TEMPLATES) {
+      const fileSources = tpl.graph.nodes.filter(
+        (n) => n.kind === "source" && n.source?.connector?.type === "file",
+      );
+      if (fileSources.length === 0) continue;
+      presetIds.push(tpl.id);
+      // Exactly one source node carries the preset.
+      expect(fileSources, `${tpl.id} should have exactly one file source`).toHaveLength(1);
+      const conn = fileSources[0]!.source!.connector!;
+      expect(conn.type).toBe("file");
+      // Empty path placeholder: never bake an absolute path into a template.
+      expect(conn.file?.path, `${tpl.id} must ship an empty path placeholder`).toBe("");
+      // asImages only on the two image-OCR templates, never elsewhere.
+      if (AS_IMAGES.has(tpl.id)) {
+        expect(conn.file?.asImages, `${tpl.id} is an image OCR template and needs asImages`).toBe(true);
+      } else {
+        expect(conn.file?.asImages, `${tpl.id} is a text document template and must not set asImages`).toBeFalsy();
+      }
+    }
+    expect(presetIds.sort()).toEqual([...PRESET].sort());
+    // No other template accidentally carries a file connector.
+    expect(TEMPLATES.filter((t) => !PRESET.has(t.id)).every((t) =>
+      t.graph.nodes.every((n) => n.source?.connector?.type !== "file"),
+    )).toBe(true);
+  });
+
   it("blank template is empty but valid", () => {
     const graph = instantiateTemplate(getTemplate("tpl-blank")!);
     expect(graph.nodes).toHaveLength(0);
