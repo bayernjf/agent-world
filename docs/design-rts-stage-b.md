@@ -49,54 +49,174 @@
 
 ## 三、B1-B9 逐步细化（结合当前代码库）
 
-### B1 · 园区布局持久化
+### B1 · 园区布局持久化（正式化，2026-09-11 代码级核对）
 
-**目标**：每条产线（graph）在园区地图上有一个 (parkX, parkZ) 坐标，自动布局结果可手动覆盖，持久化到 DB。
+**目标**：每条产线（graph）在园区地图上有一个 (parkX, parkZ) 坐标，自动布局结果可手动覆盖，持久化到 DB，刷新/重开不丢。
 
-**当前状态**：graphs 表已有 `id/user_id/name/doc/version/updated_at/origin_template_id`，无园区坐标列。
+#### B1.1 现状（已核对，不猜）
 
-**方案**：
-- 在 graphs 表加两列：`park_x REAL DEFAULT NULL`、`park_z REAL DEFAULT NULL`（NULL = 未布局，前端用自动布局）
-- 迁移走 `schema_migrations`（当前 schemaVersion=36，新迁移号 37）
-- `db.ts` 加方法：
-  - `getParkCoords(userId): Map<graphId, {x,z}>` — 批量读所有已布局坐标
-  - `setParkCoord(userId, graphId, x, z)` — 写单条（手动覆盖时）
-  - `clearParkCoord(userId, graphId)` — 恢复自动布局
-- **不新建表**：坐标是 graph 的属性，挂 graphs 表最自然，避免 JOIN
-- 兼容 SQLite / PostgreSQL 双轨（REAL 类型两边通用）
+- `graphs` 表 base DDL 在 `sqlite-driver.ts:45-55`，列为 `id/user_id/name/doc/version/updated_at/origin_template_id`，无园区坐标。
+- 迁移机制：`MIGRATIONS` 数组（`sqlite-driver.ts`），**最新版本 = 36**（node_runs.model），下一个 = **37**；每项形如 `{version, description, detect, up, down?}`，`detect` 用 `columnExists(db, table, col)` 做幂等，`LATEST_VERSION = MIGRATIONS.at(-1).version`。
+- **双轨关键事实**：`pg-driver.ts:50` 是 `await client.query(toPgDdl(DDL))`——**PostgreSQL 不跑 MIGRATIONS，只从 SQLite base DDL 整体派生**（`pg-sql.ts:62` 把 `REAL → double precision`）。因此加列必须**同时改两处**：① base DDL（管新建 SQLite 库 + 全部 PG 库）；② 迁移 37（管已存在的 SQLite 旧库升级）。先例就是 migration 19 `origin_template_id`——base DDL 第 52-54 行注释明写 "part of the latest schema so PG derivation sees it"。
+- 读侧方法范式：`operationsByGraph(userId, {since, graphIds})`（`sqlite-driver.ts:1660`）已有**双 scope**——不传 graphIds 时按 `g.user_id = ?` 只看自己；传 graphIds（来自协作成员关系 visibleGraphs）时按 `g.id IN (...)` 看被授权的集合。园区坐标读方法沿用同一 scope 范式。
 
-**验收**：
-- db 单测：CRUD + 跨用户隔离 + NULL 回落自动布局 + 迁移幂等
-- 旧库升级：已有 graph 的 park_x/park_z 为 NULL，前端自动布局
+#### B1.2 Schema 变更（两处，缺一不可）
 
-**风险**：无。纯加列 + db.ts 方法，不碰业务逻辑。
+**① base DDL**（`sqlite-driver.ts:45` graphs 建表，origin_template_id 之后加）：
+
+```sql
+  origin_template_id TEXT,
+  -- RTS stage-B macro-park position; NULL = not laid out, frontend auto-layouts
+  park_x REAL,
+  park_z REAL
+```
+
+**② 迁移 37**（追加到 MIGRATIONS 数组末尾，36 之后）：
+
+```ts
+{
+  version: 37,
+  description: "graphs.park_x/park_z for RTS stage-B macro park layout (manual override of auto layout)",
+  detect: (db) => columnExists(db, "graphs", "park_x"),
+  up: (db) => {
+    if (!columnExists(db, "graphs", "park_x")) db.exec("ALTER TABLE graphs ADD COLUMN park_x REAL");
+    if (!columnExists(db, "graphs", "park_z")) db.exec("ALTER TABLE graphs ADD COLUMN park_z REAL");
+  },
+  down: (db) => {
+    db.exec("ALTER TABLE graphs DROP COLUMN park_x");
+    db.exec("ALTER TABLE graphs DROP COLUMN park_z");
+  },
+},
+```
+
+NULL 语义 = 未布局（前端落回 B2 自动布局）；两列要么一起写要么一起 NULL，不允许半态。PG 侧零额外工作（toPgDdl 自动把 REAL 译成 double precision）。
+
+#### B1.3 数据访问方法（挂 sqlite-driver，沿用 operationsByGraph 双 scope）
+
+| 方法 | 签名 | SQL 要点 |
+|---|---|---|
+| `getParkCoords` | `(userId, graphIds?: string[]) => Promise<Record<graphId, {x,z}>>` | `SELECT id, park_x, park_z FROM graphs WHERE <scope> AND park_x IS NOT NULL`；只回已布局的，NULL 的不回（前端自动补） |
+| `setParkCoord` | `(userId, graphId, x, z) => Promise<void>` | `UPDATE graphs SET park_x=?, park_z=?, updated_at=? WHERE id=? AND user_id=?`；**带 user_id 防越权**，影响行数 0 时抛 not-found/forbidden |
+| `clearParkCoord` | `(userId, graphId) => Promise<void>` | `UPDATE graphs SET park_x=NULL, park_z=NULL WHERE id=? AND user_id=?`（恢复自动布局） |
+
+- 坐标写不进 `doc`（doc 是产线图结构、有版本快照/undo/内容哈希链路，园区坐标是**视图层偏好**，混进去会污染 content_hash 与版本 diff）——独立成列是刻意分层。
+- 协作场景：只有 owner 能 set/clear（`user_id` 约束）；协作者 get 走 graphIds scope、只读。这与 operationsByGraph 的授权模型一致，不另造权限。
+
+#### B1.4 API（挂现有 graphs 路由，REST）
+
+- `GET  /api/operations/overview` 扩展（见 B3）：每条 graph 带 `parkX/parkZ`（可空）——一次请求拿状态+坐标，前端不另发请求。
+- `PUT  /api/graphs/:id/park-coord`  body `{x:number,z:number}` → setParkCoord（拖拽结束 onPointerUp 时防抖保存，非每帧）。
+- `DELETE /api/graphs/:id/park-coord` → clearParkCoord（"恢复自动布局"菜单）。
+- 三端点都走现有 auth 中间件 + owner 校验；写端点加现有 idempotency/校验（x/z 必须有限数 `Number.isFinite`，拒绝 NaN/Infinity/非数）。
+
+#### B1.5 并发与一致性
+
+- 单 owner 拖拽，**last-write-wins 足够**，不需要乐观锁版本号（坐标是个人视图偏好，无多人同时拖同一厂的业务场景；协作只读）。
+- 前端拖拽中只改本地 state、不发请求；pointerUp 一次性 PUT，失败回滚到服务端值 + toast。
+- updated_at 随坐标写刷新——**注意副作用**：listGraphs 按 updated_at DESC 排序，拖园区会让该产线跳到列表顶部。评估后决定坐标写用独立时间戳还是接受此行为（倾向：接受，"刚操作过排前面"本身合理；若产品不认可则 setParkCoord 不碰 updated_at，单独维持）。**此为待正式启动时拍板的一个小点。**
+
+#### B1.6 验收
+
+- sqlite-driver 单测：① 旧库（模拟 version=36）跑迁移 37 后两列存在且全 NULL；② 迁移幂等（连跑两次不报错，靠 detect）；③ CRUD + 跨用户隔离（A 读不到/改不了 B 的坐标）；④ NULL 回落（clear 后 getParkCoords 不回该 id）；⑤ down 回滚列消失。
+- pg 侧：`pg-sql.test.ts` 断言 toPgDdl 后的 graphs 建表含 `park_x double precision`、`park_z double precision`（不跑迁移、只验证 DDL 派生）。
+- API 测试：PUT 越权 403、非有限数 400、GET overview 带坐标、DELETE 后回 NULL。
+- 旧库升级演练：在 Hasee 副本库上跑迁移，已有 graph 坐标 NULL、前端自动布局不空白。
+
+**风险**：低。纯加列 + 三个只读/单点写方法，不碰 run/engine 业务逻辑；唯一需拍板的是 updated_at 副作用（B1.5）。
 
 ---
 
-### B2 · 纯函数 parkLayout.ts（宏观自动布局 v1）
+### B2 · 纯函数 parkLayout（宏观自动布局 v1，正式化 + 原型缺陷修正）
 
-**目标**：输入产线列表（含 id + 类别 + 可选手动坐标），输出每条产线的 (parkX, parkZ)，无重叠、同输入稳定、手动坐标优先。
+**目标**：输入产线列表（id + 类别 + 可选手动坐标），输出每厂 (x,z)，无重叠、同输入稳定、手动坐标优先。纯函数、零 React/three 依赖。
 
-**当前状态**：无。L1 的布局是用户手动拖节点（`moveNode`），无自动布局。
+#### B2.1 类别从哪来（顺带解决 B3 的前置确认项）
 
-**方案**：
-- 纯函数，不依赖 React/three.js，可单测
-- 输入：`{ id: string; category: string; manual?: {x:number; z:number} }[]`
-- 输出：`Map<id, {x:number; z:number}>`
-- 算法 v1（类 BFS 分层 + 类别聚簇）：
-  1. 手动坐标的产线先占位（fixed set）
-  2. 剩余产线按 category 分组，每组排成一行（row），行间距 = FACTORY_SIZE * 2
-  3. 组内行内间距 = FACTORY_SIZE * 1.5
-  4. 组间按 category 名字典序排列，从中心向外展开
-  5. 碰撞检测：新位置与已有位置（含手动）距离 < FACTORY_SIZE * 1.2 则顺延到下一个空位
-- 常量：`FACTORY_SIZE = 200`（园区坐标单位，比 L1 board 坐标大一个量级）
-- 稳定性：同输入同输出（排序用 category + id 字典序，不依赖遍历顺序）
+**已核对：graph 实例不携带 category**——`category` 只定义在 `GraphTemplate`（`templates.ts:58`），实例化后的 `GraphDoc`（`graph.ts`）没有 category 字段；实例只保留 `graphs.origin_template_id`。因此类别在**服务端 overview 组装时反查**，不新增列：
 
-**验收**：
-- 纯函数单测：N=0（空 Map）/ N=1（原点）/ N=10（无重叠）/ 含手动坐标（手动优先、自动不重叠）/ 同输入两次调用结果一致
-- 性能：N=100 布局 < 1ms（纯计算，无 DOM）
+```
+category(graph) = TEMPLATE_BY_ID[graph.origin_template_id]?.category ?? "自定义"
+```
 
-**风险**：布局美观度是主观的，v1 只求"无重叠 + 类别聚簇"，后续可迭代更优算法（力导向、网格填充）。纯函数可替换，不影响其他模块。
+- 内置模板建的产线 → 模板分类（营销内容/效率工具/…）；空白产线与自建产线（origin_template_id 为空）→ 兜底桶 "自定义"。
+- 反查在服务端做（模板表本就在 core，server 已依赖）；parkLayout 只接收已经算好的 category 字符串，**不感知模板系统**，保持纯函数。
+
+#### B2.2 模块归属：从原型搬到 packages/core
+
+原型把 `parkLayout` 写在 `apps/web/src/canvas/CanvasPark.tsx`（three 组件文件）里。正式版**搬到 `packages/core/src/parkLayout.ts`**，理由：
+1. 纯计算无 DOM/three，core 是 compile/topoSort 等纯图逻辑的既有归属，零依赖可在 node 环境单测（web jsdom 不必背 three）；
+2. 服务端 overview 未来若要直接下发"建议坐标"也能复用（B3 只下发 category、坐标前端算，但留服务端复用的可能）；
+3. CanvasPark.tsx 改为 `import { parkLayout } from "@agent-world/core"`，原型里的实现删除，避免双份逻辑漂移。
+
+#### B2.3 正式算法（修正原型三个缺陷）
+
+原型（CanvasPark.tsx:78-132）可跑但有三处正式化必须修：
+
+| 原型现状 | 问题 | 正式版修法 |
+|---|---|---|
+| 组内保持输入顺序（`auto` 不过滤后不排序） | API 返回顺序变 → 布局变，**违反确定性** | 组内按 `id` 字典序排序，类别也按字典序，全链路不依赖入参顺序 |
+| 占位用 `key=round(x/SIZE)` 网格单元，碰撞只查同一格 | 手动坐标落在相邻格但视觉距离 < 一厂宽时**仍会重叠**；且只判点不判半径 | 改**距离判定**：候选点与所有已占位厂圆心距 `< MIN_GAP` 即碰撞（MIN_GAP = FACTORY_SIZE × 1.2） |
+| `while(occupied && attempts<20)` 20 次后**静默放下去**（必然重叠） | 找不到空位时产出重叠布局，无兜底 | 改**阿基米德螺旋外扩搜索**，从候选点起逐圈找第一个无碰撞位；设硬上限（如 200 次）保底，理论 N≤100 远到不了 |
+
+正式伪代码：
+
+```
+parkLayout(factories):
+  result = {}; placed = []                      // placed: [{x,z}] 用于距离判定
+  // 1. 手动坐标先占位（按 id 排序后占，保证确定性）
+  for f in factories.filter(manual).sort(byId):
+      result[f.id] = f.manual; placed.push(f.manual)
+  // 2. 自动厂按 category 分组，类别名字典序
+  groups = groupBy(factories.filter(!manual), category)  // 组内按 id 排序
+  cats = sortedKeys(groups)
+  rowZ(i) = (i - (cats.length-1)/2) * ROW_GAP           // 类别行，纵向居中
+  // 3. 每组一行，行内横向居中排列
+  for i,cat in cats:
+      list = groups[cat]                                // 已按 id 排序
+      startX = -((list.length-1)/2) * COL_GAP
+      for j,f in list:
+          candidate = (startX + j*COL_GAP, rowZ(i))
+          candidate = spiralUntilFree(candidate, placed) // 距离碰撞 + 螺旋兜底
+          result[f.id] = candidate; placed.push(candidate)
+  return result
+
+spiralUntilFree(p, placed):
+  if free(p, placed) return p
+  for k in 1..HARD_CAP:                                 // 阿基米德螺旋
+      ang = k * GOLDEN_ANGLE; rad = STEP * sqrt(k)
+      q = p + (rad*cos(ang), rad*sin(ang))
+      if free(q, placed) return q
+  return p   // HARD_CAP 到顶（N≤100 不可达），兜底返回原位并由测试守护 N=100 不重叠
+free(p, placed) = placed.every(q => dist(p,q) >= MIN_GAP)
+```
+
+#### B2.4 常量（集中导出，便于调参与测试）
+
+| 常量 | 值 | 含义 |
+|---|---|---|
+| `FACTORY_SIZE` | 200 | 厂区占地边长（园区单位，比 L1 board 大一个量级） |
+| `ROW_GAP` | 440（SIZE×2.2） | 类别行间距（纵向） |
+| `COL_GAP` | 320（SIZE×1.6） | 同类厂间距（横向） |
+| `MIN_GAP` | 240（SIZE×1.2） | 最小圆心距（碰撞半径，略大于占地留缝） |
+| `HARD_CAP` | 200 | 螺旋搜索硬上限 |
+
+#### B2.5 复杂度与边界
+
+- 时间复杂度：每个自动厂螺旋搜索最坏扫 placed（O(n)）距离，整体 O(n²)；n≤100 时 ≤1 万次距离运算，实测 <1ms，无性能问题。
+- 输入边界：① 空数组 → 空 Map；② 全手动 → 原样返回不重排；③ 单厂无手动 → 居中 (0,0)；④ 两手动厂坐标恰好重合 → 手动不互相避让（**尊重用户显式摆放**，只让自动厂绕开，文档注明手动重叠是用户意图）；⑤ category 缺失/空串 → 归入 "自定义" 桶，不抛异常；⑥ id 重复 → 后者覆盖（由上游 overview 保证 id 唯一，纯函数内 last-wins 并可加 dev warn）。
+- 稳定性：仅依赖 (id, category, manual)，同输入逐字节同输出；无随机数（螺旋用确定性黄金角，不用 Math.random）。
+
+#### B2.6 测试矩阵（core，纯函数不依赖 DOM）
+
+1. N=0 → 空 Map；2. N=1 自动 → (0,0)；3. N=5 同类 → 一行、等距、两两距离 ≥ MIN_GAP；4. 多类 → 分行、行 z 不同、各类内部一行；5. 手动优先（手动厂坐标原样保留，自动厂绕开不碰撞）；6. 确定性（同输入两次结果深相等 + 打乱入参顺序结果仍一致——专门锁原型"靠输入顺序"的缺陷）；7. 手动厂堵在自动位正前方 → 螺旋让位不重叠（锁网格→距离的修复）；8. N=100 全自动无重叠且 <1ms（性能 + HARD_CAP 不可达）；9. category 空 → 归桶不抛；10. 全手动 → 零自动重排。
+
+#### B2.7 与原型的迁移
+
+- 新建 `packages/core/src/parkLayout.ts` + `parkLayout.test.ts`（上述 10 例）；从 CanvasPark.tsx 删除原型实现与 FACTORY_SIZE 等常量（改从 core import，three 几何尺寸可在组件内另留渲染常量）。
+- 原型现有 7 例测试（CanvasPark.test.ts）中针对 parkLayout 的部分迁移到 core 并按 §2.6 扩充到 10 例；CanvasPark 只留渲染相关（若原型测试无纯渲染断言则该测试文件随迁移收敛）。
+- core 导出加入 `packages/core/src/index.ts`。
+
+**风险**：低。算法可替换（纯函数、输入输出契约固定），美观度 v1 只承诺"无重叠 + 类别聚簇 + 确定稳定"，力导向/网格填充等更优算法留后续，替换不动 DB/API。
 
 ---
 
@@ -108,10 +228,10 @@
 
 **方案**：
 - 在每 graph 对象加字段：
-  - `category: string` — 产线类别（从 graph.doc 或模板元数据提取，用于布局聚簇 + 低模配色）
+  - `category: string` — 产线类别（用于布局聚簇 + 低模配色）
   - `parkX: number | null`、`parkZ: number | null` — 已持久化的园区坐标（NULL = 前端自动布局）
   - `pendingReview: number` — 待审数（F2，用于角标）
-- `category` 来源：优先 `graph.doc.category`（如果模板/产线有类别字段），兜底从 `origin_template_id` 映射模板类别，再兜底 `"uncategorized"`
+- `category` 来源（**2026-09-11 已核对，见 B2.1**）：graph 实例**不带** category 字段（`GraphDoc` 无此列，category 只在 `GraphTemplate` 上），因此服务端组装 overview 时用 `TEMPLATE_BY_ID[origin_template_id]?.category ?? "自定义"` 反查，不新增列、不写进 doc。
 - **不改动 A2 的 totals 和已有字段**，只追加，保证阶段 A 的 OperationsDashboard 不受影响
 - api 测试：新字段齐全 + 旧字段不变 + 跨用户隔离
 
@@ -119,7 +239,7 @@
 - api 测试：返回形状含新字段 + 旧字段兼容 + 未认证 401
 - OperationsDashboard（阶段 A）回归：不受新字段影响
 
-**风险**：`category` 字段的来源需要确认 graph.doc 是否有类别概念。如果没有，B3 需要先定义产线类别（可从模板名推断，或加一个 doc.category 字段）。**这是 B3 的前置确认项**。
+**风险**：~~category 字段来源待确认~~ **已闭环（B2.1）**：确认 graph.doc 无类别概念，统一走 `origin_template_id → 模板 category → "自定义" 兜底`，无需给 doc 加字段。
 
 ---
 
@@ -333,7 +453,7 @@ CanvasPark.tsx 结构：
 | 2 | **InstancedMesh per-instance color 更新** | 原型中 rAF 每帧 setColorAt + instanceColor.needsUpdate，验证颜色正确 + 性能 | 🟡 中（API 用法需确认） |
 | 3 | **Sprite billboard 文字 CanvasTexture** | 原型中 N=10 厂顶部显示类别名，验证文字清晰 + 面向相机 + 内存占用 | 🟡 中 |
 | 4 | **双 WebGL context 共存/切换** | 原型中 L0 + L1 交替挂载，验证无 context 丢失 / 内存泄漏 | 🟡 中 |
-| 5 | **parkLayout 算法 N=100 性能** | 纯函数 benchmark，验证 < 1ms | 🟢 低（纯计算） |
+| 5 | **parkLayout 算法 N=100 性能** | 纯函数 benchmark，验证 < 1ms（正式版迁到 `packages/core/src/parkLayout.ts`，见 B2.2，原型在 web 仅作验证） | 🟢 低（纯计算） |
 
 **预研产出**：`apps/web/src/canvas/CanvasPark.tsx` 原型（用 mock 数据，不接业务），验证以上 5 项后再正式进入 B1-B9 落地。
 
@@ -347,7 +467,7 @@ CanvasPark.tsx 结构：
 ## 六、落地顺序建议（正式启动时）
 
 1. **技术预研**（当前）：CanvasPark 原型 + 5 项验证
-2. **B1 + B2**（纯后端 + 纯函数，无 UI 依赖）：园区坐标持久化 + 布局算法
+2. **B1 + B2**（纯后端 + 纯函数，无 UI 依赖）：园区坐标持久化（迁移 37 + base DDL + 三方法/三端点）+ 布局算法（`packages/core/src/parkLayout.ts`，10 例单测）。**B1/B2 设计已于 2026-09-11 正式化到代码级（本文 §三），正式落地时照此实现即可**
 3. **B3**（接口扩展）：overview 加 L0 字段
 4. **B4 + B5**（核心渲染）：CanvasPark 低模场景 + LOD 优化
 5. **B6**（实时驱动）：状态色 + 角标
