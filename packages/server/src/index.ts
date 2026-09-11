@@ -729,6 +729,39 @@ app.delete("/api/graphs/:id", async (c) => {
   return c.json({ ok: true });
 });
 
+// --- RTS stage-B macro-park position (migration 37, design-rts-stage-b B1) -
+// The park coordinate is a view-layer override of the pure parkLayout(). Owner
+// only: collaborators get the position through GET overview but may not move a
+// factory they don't own. Coordinates must be finite (reject NaN/Infinity).
+app.put("/api/graphs/:id/park-coord", async (c) => {
+  const userId = c.get("userId");
+  const id = c.req.param("id");
+  const role = await graphAccessRole(db, userId, id);
+  if (role == null) return c.json({ error: "not found" }, 404);
+  if (role !== "owner") return c.json({ error: "forbidden", message: "仅产线所有者可调整园区位置" }, 403);
+  const body = await c.req.json().catch(() => null) as { x?: unknown; z?: unknown } | null;
+  const x = typeof body?.x === "number" ? body.x : Number.NaN;
+  const z = typeof body?.z === "number" ? body.z : Number.NaN;
+  if (!Number.isFinite(x) || !Number.isFinite(z)) {
+    return c.json({ error: "bad_request", message: "x/z 必须为有限数值" }, 400);
+  }
+  const ownerId = (await db.graphOwnerId(id))!;
+  const ok = await db.setParkCoord(ownerId, id, x, z);
+  if (!ok) return c.json({ error: "not found" }, 404);
+  return c.json({ ok: true, parkX: x, parkZ: z });
+});
+
+app.delete("/api/graphs/:id/park-coord", async (c) => {
+  const userId = c.get("userId");
+  const id = c.req.param("id");
+  const role = await graphAccessRole(db, userId, id);
+  if (role == null) return c.json({ error: "not found" }, 404);
+  if (role !== "owner") return c.json({ error: "forbidden", message: "仅产线所有者可重置园区位置" }, 403);
+  const ownerId = (await db.graphOwnerId(id))!;
+  await db.clearParkCoord(ownerId, id);
+  return c.json({ ok: true });
+});
+
 // --- Graph sharing ACL (design-rbac P1) -----------------------------------
 // Only the graph owner may read or change the collaborator list. Editors and
 // viewers get 403 (they can see the graph, not its ACL); unknown graphs 404.
@@ -2471,6 +2504,14 @@ app.get("/api/operations/overview", async (c) => {
   // Owned + shared graphs (design-rbac P1); collaborator runs live under owner.
   const graphIds = [...(await visibleGraphs(db, userId)).keys()];
   const graphs = await db.operationsByGraph(userId, { since, graphIds });
+  // RTS stage-B: attach the manual macro-park override per graph (only laid-out
+  // graphs are returned; the client auto-layouts the missing ones).
+  const parkCoords = await db.getParkCoords(userId, graphIds);
+  for (const g of graphs) {
+    const p = parkCoords[g.graphId];
+    g.parkX = p ? p.x : null;
+    g.parkZ = p ? p.z : null;
+  }
   const totals = graphs.reduce(
     (acc, g) => {
       acc.totalRuns += g.totalRuns;

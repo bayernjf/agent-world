@@ -240,6 +240,9 @@ export interface GraphRunSummary {
   lastStartedAt: number | null;
   lastEndedAt: number | null;
   costUsd: number;
+  /** RTS stage-B manual macro-park override (migration 37); null = auto-layout. */
+  parkX?: number | null;
+  parkZ?: number | null;
 }
 
 /** An open-channel publish target (F7-B). */
