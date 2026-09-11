@@ -544,6 +544,13 @@ export interface PublishTarget {
 export interface OperationsGraphSummary {
   graphId: string;
   graphName: string | null;
+  /** RTS stage-B B3: resolved template category ("自定义" when not from a template). */
+  category?: string;
+  /** RTS stage-B B3: halted runs awaiting human review (badge count). */
+  pendingReview?: number;
+  /** RTS stage-B B1: manual macro-park override (null = frontend auto-layout). */
+  parkX?: number | null;
+  parkZ?: number | null;
   totalRuns: number;
   running: number;
   halted: number;
