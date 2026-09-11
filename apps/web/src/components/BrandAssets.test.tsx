@@ -120,7 +120,9 @@ describe("BrandAssets", () => {
       }),
     );
     // form cleared
-    expect((screen.getByPlaceholderText("素材名称（必填）") as HTMLInputElement).value).toBe("");
+    await waitFor(() =>
+      expect((screen.getByPlaceholderText("素材名称（必填）") as HTMLInputElement).value).toBe(""),
+    );
   });
 
   it("deletes an asset", async () => {
