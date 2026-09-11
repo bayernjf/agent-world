@@ -1,32 +1,33 @@
 /**
- * CanvasPark — RTS 阶段 B 技术预研原型（L0 宏观沙盘）
+ * CanvasPark — RTS Stage B technical research prototype (L0 macro sandbox)
  *
- * 状态：技术预研 spike，用 mock 数据验证关键技术风险，不接业务逻辑。
- * 正式落地见 docs/design-rts-stage-b.md（B1-B9 逐步细化）。
+ * Status: technical research spike, validates key technical risks with mock data, no business logic.
+ * See docs/design-rts-stage-b.md for production implementation (B1-B9 step-by-step).
  *
- * 验证项：
- * 1. InstancedMesh 低模工厂（N 厂一个 draw call）
- * 2. InstancedMesh raycast + instanceId 映射
- * 3. per-instance color 每帧更新（状态呼吸动画）
- * 4. Sprite billboard（类别标签 + 待审角标，始终面向相机）
- * 5. mount-once + data-sync 双 effect（parks 变更不重建 renderer）
- * 6. parkLayout 纯函数自动布局（类别聚簇 + 无重叠）
+ * Validated:
+ * 1. InstancedMesh low-poly factories (N factories one draw call)
+ * 2. InstancedMesh raycast + instanceId mapping
+ * 3. per-instance color update every frame (status breathing animation)
+ * 4. Sprite billboard (category label + pending review badge, always faces camera)
+ * 5. mount-once + data-sync dual effect (parks change does not rebuild renderer)
+ * 6. parkLayout pure function auto-layout (category clustering + no overlap)
  */
 
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { parkLayout } from "@agent-world/core";
 
-// --- 常量（与 L1 Canvas3D 对齐，园区尺度更大） ---
-const PITCH = Math.PI / 3; // 锁俯角 60° from vertical
-const YAW = (5 * Math.PI) / 4; // 经典 RTS 左后视角
-const CAMERA_DIST = 3000; // 园区尺度，L1 是 1200
-const FACTORY_SIZE = 200; // 园区坐标单位
+// --- Constants (aligned with L1 Canvas3D, larger park scale) ---
+const PITCH = Math.PI / 3; // lock pitch 60deg from vertical
+const YAW = (5 * Math.PI) / 4; // classic RTS left-rear view
+const CAMERA_DIST = 3000; // park scale, L1 is 1200
+const FACTORY_SIZE = 200; // three geometry size (layout constants live in core/parkLayout.ts)
 const FACTORY_H = 140;
 const MAX_FACTORIES = 100;
 const GROUND_SIZE = 6000;
 
-// --- 类型 ---
+// --- Types ---
 export type FactoryStatus = "running" | "done" | "failed" | "halted" | "idle";
 
 export interface ParkFactory {
@@ -35,7 +36,7 @@ export interface ParkFactory {
   category: string;
   status: FactoryStatus;
   pendingReview: number;
-  manual?: { x: number; z: number }; // 手动坐标优先
+  manual?: { x: number; z: number }; // manual coordinates take priority
 }
 
 interface ParkSceneState {
@@ -44,22 +45,22 @@ interface ParkSceneState {
   billboardGroup: THREE.Group;
   selectionRing: THREE.Mesh;
   layout: Map<string, { x: number; z: number }>;
-  idByIndex: string[]; // instanceId → graphId 映射
+  idByIndex: string[]; // instanceId to graphId mapping
   selectedId: string | null;
   prevSel: string | null;
-  dummy: THREE.Object3D; // 复用对象，避免每帧 new
+  dummy: THREE.Object3D; // reused object, avoids per-frame allocation
 }
 
-// --- 状态色（复用 L1 语义） ---
+// --- Status colors (reuse L1 semantics) ---
 const STATUS_COLORS: Record<FactoryStatus, number> = {
-  running: 0x4ade80, // 绿
-  done: 0x60a5fa, // 蓝
-  failed: 0xf87171, // 红
-  halted: 0xfbbf24, // 黄
-  idle: 0x6b7280, // 灰
+  running: 0x4ade80, // green
+  done: 0x60a5fa, // blue
+  failed: 0xf87171, // red
+  halted: 0xfbbf24, // yellow
+  idle: 0x6b7280, // gray
 };
 
-// 类别色（6 类工厂，低模配色）
+// Category colors (6 factory categories, low-poly palette)
 const CATEGORY_COLORS: Record<string, number> = {
   text: 0x818cf8,
   image: 0xf472b6,
@@ -74,64 +75,10 @@ function categoryColor(cat: string): number {
   return CATEGORY_COLORS[cat] ?? 0x94a3b8;
 }
 
-// --- 纯函数：园区自动布局 v1（类别聚簇 + 无重叠） ---
-export function parkLayout(
-  factories: ParkFactory[],
-): Map<string, { x: number; z: number }> {
-  const result = new Map<string, { x: number; z: number }>();
-  const occupied = new Set<string>(); // "x,z" 网格占位
+// --- parkLayout pure function moved to packages/core/src/parkLayout.ts (B2 formalization) ---
+// CanvasPark imports from @agent-world/core to avoid duplicate logic drift.
 
-  const key = (x: number, z: number) => `${Math.round(x / FACTORY_SIZE)},${Math.round(z / FACTORY_SIZE)}`;
-  const isOccupied = (x: number, z: number) => occupied.has(key(x, z));
-  const occupy = (x: number, z: number) => occupied.add(key(x, z));
-
-  // 1. 手动坐标先占位
-  for (const f of factories) {
-    if (f.manual) {
-      result.set(f.id, { x: f.manual.x, z: f.manual.z });
-      occupy(f.manual.x, f.manual.z);
-    }
-  }
-
-  // 2. 剩余按 category 分组
-  const auto = factories.filter((f) => !f.manual);
-  const byCategory = new Map<string, ParkFactory[]>();
-  for (const f of auto) {
-    const list = byCategory.get(f.category) ?? [];
-    list.push(f);
-    byCategory.set(f.category, list);
-  }
-
-  // 3. 每组排成一行，从中心向外展开
-  const categories = [...byCategory.keys()].sort();
-  const rowSpacing = FACTORY_SIZE * 2.2;
-  const colSpacing = FACTORY_SIZE * 1.6;
-  let rowIndex = 0;
-
-  for (const cat of categories) {
-    const list = byCategory.get(cat)!;
-    const rowZ = (rowIndex - (categories.length - 1) / 2) * rowSpacing;
-    const startX = -((list.length - 1) / 2) * colSpacing;
-
-    for (let i = 0; i < list.length; i++) {
-      let x = startX + i * colSpacing;
-      const z = rowZ;
-      // 碰撞检测：如果被手动坐标占了，顺延
-      let attempts = 0;
-      while (isOccupied(x, z) && attempts < 20) {
-        x += colSpacing;
-        attempts++;
-      }
-      result.set(list[i]!.id, { x, z });
-      occupy(x, z);
-    }
-    rowIndex++;
-  }
-
-  return result;
-}
-
-// --- Sprite 文字纹理生成（缓存同类别的纹理） ---
+// --- Sprite text texture generation (cached per category) ---
 const textureCache = new Map<string, THREE.CanvasTexture>();
 
 function makeTextTexture(text: string, color: string, fontSize = 48): THREE.CanvasTexture {
@@ -180,7 +127,6 @@ function makeBadgeTexture(count: number): THREE.CanvasTexture {
   return tex;
 }
 
-// --- 组件 ---
 export default function CanvasPark({
   factories,
   onSelect,
@@ -192,7 +138,7 @@ export default function CanvasPark({
 }) {
   const mountRef = useRef<HTMLDivElement>(null);
   const parkRef = useRef<ParkSceneState | null>(null);
-  // 实时数据 ref：rAF 每帧读，不触发 React 重渲染
+  // live data ref: rAF reads every frame, does not trigger React re-render
   const dataRef = useRef(factories);
   dataRef.current = factories;
   const selectedRef = useRef(selectedId ?? null);
@@ -222,7 +168,6 @@ export default function CanvasPark({
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x14181d);
 
-    // 正交相机（同 L1，距离更大）
     const aspect = mount.clientWidth / mount.clientHeight;
     const frustum = 1600;
     const camera = new THREE.OrthographicCamera(
@@ -233,6 +178,7 @@ export default function CanvasPark({
       0.1,
       10000,
     );
+
     const h = CAMERA_DIST * Math.sin(PITCH);
     const y = CAMERA_DIST * Math.cos(PITCH);
     camera.position.set(h * Math.cos(YAW), y, h * Math.sin(YAW));
@@ -249,7 +195,6 @@ export default function CanvasPark({
     controls.maxPolarAngle = PITCH;
     controls.update();
 
-    // 灯光（同 L1，阴影范围更大）
     const ambient = new THREE.AmbientLight(0xffffff, 0.5);
     const dir = new THREE.DirectionalLight(0xffffff, 0.9);
     dir.position.set(-600, 1200, -600);
@@ -263,7 +208,6 @@ export default function CanvasPark({
     dir.shadow.camera.far = 5000;
     scene.add(ambient, dir);
 
-    // 地面 + 网格
     const ground = new THREE.Mesh(
       new THREE.PlaneGeometry(GROUND_SIZE, GROUND_SIZE),
       new THREE.MeshLambertMaterial({ color: 0x1c2229 }),
@@ -271,16 +215,17 @@ export default function CanvasPark({
     ground.rotation.x = -Math.PI / 2;
     ground.receiveShadow = true;
     scene.add(ground);
+
     const grid = new THREE.GridHelper(GROUND_SIZE, 60, 0x2a323b, 0x20262d);
     grid.position.y = 0.5;
     scene.add(grid);
 
-    // 空组：data-sync effect 填充
+    // empty groups: filled by data-sync effect
     const factoryGroup = new THREE.Group();
     const billboardGroup = new THREE.Group();
     scene.add(factoryGroup, billboardGroup);
 
-    // InstancedMesh：N 厂一个 draw call
+    // InstancedMesh: N factories one draw call
     const factoryGeo = new THREE.BoxGeometry(FACTORY_SIZE, FACTORY_H, FACTORY_SIZE);
     const factoryMat = new THREE.MeshLambertMaterial();
     const instancedMesh = new THREE.InstancedMesh(factoryGeo, factoryMat, MAX_FACTORIES);
@@ -289,7 +234,6 @@ export default function CanvasPark({
     instancedMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     factoryGroup.add(instancedMesh);
 
-    // 选中环
     const ringGeo = new THREE.RingGeometry(FACTORY_SIZE * 0.7, FACTORY_SIZE * 0.85, 32);
     const ringMat = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide, transparent: true, opacity: 0.8 });
     const selectionRing = new THREE.Mesh(ringGeo, ringMat);
@@ -311,7 +255,7 @@ export default function CanvasPark({
     };
     parkRef.current = state;
 
-    // === Raycast 点选（InstancedMesh + instanceId） ===
+    // === Raycast selection (InstancedMesh + instanceId) ===
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
     let downX = 0;
@@ -322,7 +266,7 @@ export default function CanvasPark({
       try {
         renderer.domElement.setPointerCapture(e.pointerId);
       } catch {
-        /* jsdom */
+        // pointer capture may fail on some browsers; non-fatal
       }
       downX = e.clientX;
       downY = e.clientY;
@@ -335,11 +279,10 @@ export default function CanvasPark({
           renderer.domElement.releasePointerCapture(e.pointerId);
         }
       } catch {
-        /* jsdom */
+        // release may fail if capture was never set; non-fatal
       }
       const moved = Math.hypot(e.clientX - downX, e.clientY - downY) > 4;
-      if (moved) return; // 拖拽平移，不选中
-
+      if (moved) return; // drag pan, do not select
       const rect = renderer.domElement.getBoundingClientRect();
       pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
       pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
@@ -359,7 +302,7 @@ export default function CanvasPark({
     renderer.domElement.addEventListener("pointerup", onPointerUp);
     renderer.domElement.addEventListener("pointercancel", onPointerCancel);
 
-    // === rAF 循环：每帧读 dataRef 更新颜色 + 角标 + 选中环 ===
+    // === rAF loop: read dataRef every frame to update colors + badges + selection ring ===
     let rafId = 0;
     const loop = (now: number) => {
       rafId = requestAnimationFrame(loop);
@@ -367,12 +310,11 @@ export default function CanvasPark({
       if (!st) return;
 
       const facts = dataRef.current;
-      // per-instance 颜色更新（状态 + running 呼吸）
+      // per-instance color update (status + running breathing)
       for (let i = 0; i < facts.length; i++) {
         const f = facts[i]!;
         let color = STATUS_COLORS[f.status];
         if (f.status === "running") {
-          // 呼吸：在基础色和亮色间插值
           const t = 0.5 + 0.4 * Math.sin(now * 0.004);
           const c = new THREE.Color(color);
           c.multiplyScalar(0.6 + t * 0.6);
@@ -384,7 +326,6 @@ export default function CanvasPark({
         st.instancedMesh.instanceColor.needsUpdate = true;
       }
 
-      // 选中环跟随
       const sel = selectedRef.current;
       if (sel && st.layout.has(sel)) {
         const pos = st.layout.get(sel)!;
@@ -426,17 +367,17 @@ export default function CanvasPark({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // === Data-sync effect: factories 变更 → 更新布局 + instanceMatrix + billboards ===
+  // === Data-sync effect: factories change -> update layout + instanceMatrix + billboards ===
   useEffect(() => {
     const st = parkRef.current;
     if (!st) return;
 
-    // 1. 计算布局
+    // 1. compute layout
     const layout = parkLayout(factories);
     st.layout = layout;
     st.idByIndex = factories.map((f) => f.id);
 
-    // 2. 更新 InstancedMesh 矩阵
+    // 2. update InstancedMesh matrices
     const dummy = st.dummy;
     for (let i = 0; i < factories.length; i++) {
       const f = factories[i]!;
@@ -447,7 +388,7 @@ export default function CanvasPark({
       dummy.updateMatrix();
       st.instancedMesh.setMatrixAt(i, dummy.matrix);
     }
-    // 隐藏未使用的 instance（缩放到 0）
+    // hide unused instances (scale to 0)
     for (let i = factories.length; i < MAX_FACTORIES; i++) {
       dummy.position.set(0, -10000, 0);
       dummy.scale.set(0, 0, 0);
@@ -457,8 +398,8 @@ export default function CanvasPark({
     st.instancedMesh.instanceMatrix.needsUpdate = true;
     st.instancedMesh.count = Math.max(factories.length, 1);
 
-    // 3. 重建 billboards（类别标签 + 待审角标）
-    // 清空旧 billboard
+    // 3. rebuild billboards (category label + pending review badge)
+    // clear old billboards
     for (const child of [...st.billboardGroup.children]) {
       const sprite = child as THREE.Sprite;
       if (sprite.isSprite) {
@@ -470,7 +411,7 @@ export default function CanvasPark({
 
     for (const f of factories) {
       const pos = layout.get(f.id) ?? { x: 0, z: 0 };
-      // 类别标签
+
       const catColor = categoryColor(f.category);
       const labelTex = makeTextTexture(f.name, `#${catColor.toString(16).padStart(6, "0")}`, 42);
       const labelMat = new THREE.SpriteMaterial({ map: labelTex, transparent: true, depthTest: false });
@@ -479,7 +420,6 @@ export default function CanvasPark({
       labelSprite.scale.set(300, 80, 1);
       st.billboardGroup.add(labelSprite);
 
-      // 待审角标
       if (f.pendingReview > 0) {
         const badgeTex = makeBadgeTexture(f.pendingReview);
         const badgeMat = new THREE.SpriteMaterial({ map: badgeTex, transparent: true, depthTest: false });
@@ -490,7 +430,7 @@ export default function CanvasPark({
       }
     }
 
-    // 4. 重置选中高亮
+    // 4. reset selection highlight
     st.prevSel = null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [factories]);
