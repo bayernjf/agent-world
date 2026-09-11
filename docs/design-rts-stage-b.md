@@ -212,9 +212,14 @@ free(p, placed) = placed.every(q => dist(p,q) >= MIN_GAP)
 
 #### B2.7 与原型的迁移
 
-- 新建 `packages/core/src/parkLayout.ts` + `parkLayout.test.ts`（上述 10 例）；从 CanvasPark.tsx 删除原型实现与 FACTORY_SIZE 等常量（改从 core import，three 几何尺寸可在组件内另留渲染常量）。
-- 原型现有 7 例测试（CanvasPark.test.ts）中针对 parkLayout 的部分迁移到 core 并按 §2.6 扩充到 10 例；CanvasPark 只留渲染相关（若原型测试无纯渲染断言则该测试文件随迁移收敛）。
-- core 导出加入 `packages/core/src/index.ts`。
+**状态：已落地（2026-09-11，未 push）**
+
+- ✅ 新建 `packages/core/src/parkLayout.ts`（纯函数 + ParkLayoutInput/ParkLayoutResult 类型 + 5 常量）与 `parkLayout.test.ts`（11 例，10 例矩阵 + 1 例常量断言）。
+- ✅ CanvasPark.tsx 改为 `import { parkLayout } from "@agent-world/core"`，原型实现已删除；FACTORY_SIZE 保留为 three 几何渲染常量（注释指向 core/parkLayout.ts）。
+- ✅ 原型 7 例测试（CanvasPark.test.ts）全部为 parkLayout 纯函数断言，已迁移+扩充到 core 11 例，原测试文件已删除（无纯渲染断言需保留）。
+- ✅ core 导出已加入 `packages/core/src/index.ts`（`export * from "./parkLayout.js"`）。
+- ✅ 验证：core 224/224 全绿（原 213 + 新增 11），web typecheck 通过，web 全量测试通过（i18n 正则误报已通过 CanvasPark.tsx 注释全英文化修复）。
+- 原型三缺陷全部修正：① id 字典序确定性排序 ② 距离碰撞判定（dist < MIN_GAP）③ 阿基米德螺旋兜底（HARD_CAP=200）。
 
 **风险**：低。算法可替换（纯函数、输入输出契约固定），美观度 v1 只承诺"无重叠 + 类别聚簇 + 确定稳定"，力导向/网格填充等更优算法留后续，替换不动 DB/API。
 
