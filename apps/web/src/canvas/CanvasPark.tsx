@@ -163,6 +163,13 @@ export default function CanvasPark({
   // Debounce timer for the PUT park-coord call.
   const putTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // B5 debug overlay: FPS counter + render stats, toggle via ?debug=1 or ⌘⇧D.
+  const [debugEnabled, setDebugEnabled] = useState(() =>
+    typeof window !== "undefined" && new URLSearchParams(window.location.search).get("debug") === "1",
+  );
+  const debugRef = useRef({ fps: 0, frames: 0, lastTime: 0, drawCalls: 0 });
+  const [debugStats, setDebugStats] = useState({ fps: 0, drawCalls: 0, factories: 0, zoom: 1 });
+
   const selected = useMemo(
     () => (selId ? factories.find((f) => f.id === selId) ?? null : null),
     [selId, factories],
@@ -436,10 +443,30 @@ export default function CanvasPark({
     // === rAF loop: read dataRef every frame for colors, ring and popover anchor ===
     let rafId = 0;
     const tmpColor = new THREE.Color();
+    let fpsFrames = 0;
+    let fpsLastTime = performance.now();
     const loop = (now: number) => {
       rafId = requestAnimationFrame(loop);
       const st = parkRef.current;
       if (!st) return;
+
+      // B5: FPS tracking (sliding 1s window)
+      fpsFrames++;
+      if (now - fpsLastTime >= 1000) {
+        const fps = Math.round((fpsFrames * 1000) / (now - fpsLastTime));
+        fpsFrames = 0;
+        fpsLastTime = now;
+        if (debugRef.current.fps !== fps || debugRef.current.drawCalls !== renderer.info.render.calls) {
+          debugRef.current.fps = fps;
+          debugRef.current.drawCalls = renderer.info.render.calls;
+          setDebugStats({
+            fps,
+            drawCalls: renderer.info.render.calls,
+            factories: dataRef.current.length,
+            zoom: st.camera.zoom,
+          });
+        }
+      }
 
       const facts = dataRef.current;
       // per-instance color update (status + running breathing)
@@ -598,10 +625,47 @@ export default function CanvasPark({
     if (selId && !factories.some((f) => f.id === selId)) setSelId(null);
   }, [factories, selId]);
 
+  // B5: toggle debug overlay with ⌘⇧D (Ctrl+Shift+D on non-Mac).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "d") {
+        e.preventDefault();
+        setDebugEnabled((v) => !v);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   return (
     <div className="canvas-park" style={{ width: "100%", height: "100%", position: "relative" }}>
       <div ref={mountRef} className="canvas-park__mount" style={{ width: "100%", height: "100%" }} />
       {factories.length === 0 && <div className="canvas-park__empty">{t("park:empty")}</div>}
+      {debugEnabled && (
+        <div
+          style={{
+            position: "absolute",
+            top: 8,
+            left: 8,
+            zIndex: 1000,
+            background: "rgba(0,0,0,0.75)",
+            color: "#4ade80",
+            fontFamily: "monospace",
+            fontSize: 12,
+            padding: "8px 12px",
+            borderRadius: 6,
+            lineHeight: 1.6,
+            pointerEvents: "none",
+            userSelect: "none",
+          }}
+        >
+          <div>FPS: {debugStats.fps}</div>
+          <div>Factories: {debugStats.factories}</div>
+          <div>Draw calls: {debugStats.drawCalls}</div>
+          <div>Zoom: {debugStats.zoom.toFixed(2)}</div>
+          <div style={{ color: "#6b7280", marginTop: 4 }}>⌘⇧D to toggle</div>
+        </div>
+      )}
       <div ref={overlayRef} className="park-popover" style={{ display: "none", position: "absolute", top: 0, left: 0 }}>
         {selected && (
           <>
