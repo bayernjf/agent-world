@@ -6,5 +6,12 @@
   "resumeCron": "恢复 cron",
   "empty": "暂无产线，先从模板创建一条产线吧",
   "backToPark": "返回园区",
-  "factoryCount": "厂区数量"
+  "factoryCount": "厂区数量",
+  "debug": {
+    "fps": "帧率",
+    "factories": "厂区",
+    "drawCalls": "绘制调用",
+    "zoom": "缩放",
+    "toggleHint": "⌘⇧D 开关"
+  }
 }
