@@ -222,13 +222,9 @@ describe("ProductGallery", () => {
         expect(screen.getByRole("button", { name: "加载更多" })).toBeInTheDocument();
       });
       fireEvent.click(screen.getByRole("button", { name: "加载更多" }));
-      // generous timeout: the full suite is slow under --maxWorkers=1 and 1000ms default flakes
-      await waitFor(
-        () => {
-          expect(mockListArtifacts).toHaveBeenCalledWith(60, 60);
-        },
-        { timeout: 5000 },
-      );
+      await waitFor(() => {
+        expect(mockListArtifacts).toHaveBeenCalledWith(60, 60);
+      });
     });
   });
 
