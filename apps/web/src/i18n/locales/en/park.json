@@ -6,5 +6,12 @@
   "resumeCron": "Resume cron",
   "empty": "No pipelines yet — create one from a template",
   "backToPark": "Back to park",
-  "factoryCount": "Factories"
+  "factoryCount": "Factories",
+  "debug": {
+    "fps": "FPS",
+    "factories": "Factories",
+    "drawCalls": "Draw calls",
+    "zoom": "Zoom",
+    "toggleHint": "⌘⇧D to toggle"
+  }
 }
