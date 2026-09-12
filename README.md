@@ -3,7 +3,7 @@
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![node](https://img.shields.io/badge/node-%3E%3D24-339933)](https://nodejs.org)
 [![pnpm](https://img.shields.io/badge/package%20manager-pnpm-ffc611)](https://pnpm.io)
-[![tests](https://img.shields.io/badge/tests-3103%20passing-2ea44f)](#run-the-checks)
+[![tests](https://img.shields.io/badge/tests-3145%20passing-2ea44f)](#run-the-checks)
 
 **A visual pipeline platform for AI agents — orchestrate LLMs, tools, and quality
 control into production lines that actually finish.**
@@ -63,7 +63,7 @@ change actually helped).
 | **Nodes** | 29 types: agent, gate, HTTP (SSRF-guarded), code exec (JS/Python, sandboxed), branch, map, loop, parallel, table, database, file parse, translate, OCR, convert, search, notify, vcs, human approval, subprocess, image/video/audio gen, generic (modality auto-dispatch), compliance, publish, fanout, select, source, sink |
 | **Triggers** | Manual, webhook, cron (self-hosted parser), event, batch |
 | **Connectors** | Six declarative source connectors — manual, local file (path/glob, text or images), HTTP(S), run-time form, SQL database (sqlite/postgres, read-only), product library — each feeding a structured `data` channel for `${...}` interpolation downstream |
-| **Board / UX** | SVG flow canvas **plus an isometric 3D view**, undo/redo time travel (zundo), minimap, multi-select + marquee, first-load fit-to-screen; bilingual UI (中文/English) with a dark/light theme toggle, all over a three-layer design-token system (primitive → semantic → component; color/spacing/radius/shadow/typography/z-index scales) |
+| **Board / UX** | SVG flow canvas **plus an isometric 3D view** and a fleet-level RTS park overview (100+ factories at 60 FPS with InstancedMesh), undo/redo time travel (zundo), minimap, multi-select + marquee, first-load fit-to-screen, **guided onboarding tour** (spotlight step-by-step with extensible tour registry); bilingual UI (中文/English) with a dark/light theme toggle, all over a three-layer design-token system (primitive → semantic → component; color/spacing/radius/shadow/typography/z-index scales) |
 | **Operations** | A cross-pipeline operations workbench (RTS flat view, pre-3D): fleet health overview across every line, per-line status, last-run and cost rollups from `/api/operations/overview` |
 | **Quality** | LLM-judge gates, score-rework loops, brand/banned terms, output-contract schema validation |
 | **Observability** | Live SSE streaming, replay scrubber, per-node cost, eval report (by day / by graph / by prompt fingerprint), CSV export |
@@ -102,7 +102,7 @@ pnpm dev
 ### Run the checks
 
 ```bash
-pnpm -r test       # 3103 tests: core 224 / server 1039 / mcp-server 71 / web 1769
+pnpm -r test       # 3145 tests: core 224 / server 1039 / mcp-server 71 / web 1811
 pnpm -r typecheck
 pnpm -r build
 ```
