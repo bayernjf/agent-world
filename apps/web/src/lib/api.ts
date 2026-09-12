@@ -658,6 +658,16 @@ export const api = {
   deleteGraph: (id: string) =>
     authFetch(`/api/graphs/${id}`, { method: "DELETE" }).then(json<{ ok: true }>),
 
+  putParkCoord: (graphId: string, x: number, z: number) =>
+    authFetch(`/api/graphs/${graphId}/park-coord`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ x, z }),
+    }).then(json<{ ok: true }>),
+
+  deleteParkCoord: (graphId: string) =>
+    authFetch(`/api/graphs/${graphId}/park-coord`, { method: "DELETE" }).then(json<{ ok: true }>),
+
   getGraphAccess: (graphId: string) =>
     authFetch(`/api/graphs/${graphId}/access`).then(
       json<{ collaborators: Collaborator[] }>,
