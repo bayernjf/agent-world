@@ -28,6 +28,10 @@ const MAX_FACTORIES = 100;
 const GROUND_SIZE = 6000;
 const BREATH_SPEED = 0.006; // B6: running factory breathing frequency
 
+// --- Color constants (mirror CSS tokens for Canvas 2D use) ---
+const COLOR_ALERT = "#ff4a3d"; // pending-review badge bg (CSS: --alert)
+const COLOR_INK = "#e8f0f4"; // badge text (CSS: --ink)
+
 // --- Types ---
 export type FactoryStatus = "running" | "done" | "failed" | "halted" | "idle";
 
@@ -116,9 +120,9 @@ function makeBadgeTexture(count: number): THREE.CanvasTexture {
   canvas.height = size;
   ctx.beginPath();
   ctx.arc(size / 2, size / 2, size / 2 - 2, 0, Math.PI * 2);
-  ctx.fillStyle = "#ef4444";
+  ctx.fillStyle = COLOR_ALERT;
   ctx.fill();
-  ctx.fillStyle = "#fff";
+  ctx.fillStyle = COLOR_INK;
   ctx.font = "bold 36px sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
@@ -649,8 +653,8 @@ export default function CanvasPark({
             left: 8,
             zIndex: 1000,
             background: "rgba(0,0,0,0.75)",
-            color: "#4ade80",
-            fontFamily: "monospace",
+            color: "var(--ok)",
+            fontFamily: "var(--mono)",
             fontSize: 12,
             padding: "8px 12px",
             borderRadius: 6,
@@ -659,11 +663,11 @@ export default function CanvasPark({
             userSelect: "none",
           }}
         >
-          <div>FPS: {debugStats.fps}</div>
-          <div>Factories: {debugStats.factories}</div>
-          <div>Draw calls: {debugStats.drawCalls}</div>
-          <div>Zoom: {debugStats.zoom.toFixed(2)}</div>
-          <div style={{ color: "#6b7280", marginTop: 4 }}>⌘⇧D to toggle</div>
+          <div>{t("park:debug.fps")}: {debugStats.fps}</div>
+          <div>{t("park:debug.factories")}: {debugStats.factories}</div>
+          <div>{t("park:debug.drawCalls")}: {debugStats.drawCalls}</div>
+          <div>{t("park:debug.zoom")}: {debugStats.zoom.toFixed(2)}</div>
+          <div style={{ color: "var(--ink-faint)", marginTop: 4 }}>{t("park:debug.toggleHint")}</div>
         </div>
       )}
       <div ref={overlayRef} className="park-popover" style={{ display: "none", position: "absolute", top: 0, left: 0 }}>
