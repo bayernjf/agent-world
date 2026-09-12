@@ -97,6 +97,16 @@ function mapHttpStatus(status: number): ProviderError["code"] {
  */
 const LONG_RETRY = { maxRetries: 4, baseDelayMs: 30000, maxDelayMs: 120000 } as const;
 const isRateLimit = (err: unknown): boolean => err instanceof ProviderError && err.code === "RATE_LIMIT";
+/**
+ * Transient infra faults worth retrying: rate limits (429) and timeouts.
+ * judge/generateImage/generateVideo wrap their calls in withRetry — previously
+ * only 429 was retried, so a 60s stream TIMEOUT on the QC (judge) node failed
+ * the run immediately even though the model may just have been slow on a long
+ * input. TIMEOUT is safe to retry: judge is deterministic (temperature=0) and
+ * image/video generation is idempotent per request.
+ */
+const isTransientError = (err: unknown): boolean =>
+  err instanceof ProviderError && (err.code === "RATE_LIMIT" || err.code === "TIMEOUT");
 
 /** Reads a value from a JSON object by dot path (e.g. "metadata.url"). */
 function dotPath(obj: unknown, path: string): unknown {
@@ -516,7 +526,7 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
         prompt: "",
         skills: [],
         temperature: 0,
-        timeoutMs: 60000,
+        timeoutMs: 120000,
         inputPolicy: { mode: "all" },
         retry: LONG_RETRY,
       };
@@ -538,7 +548,7 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
           return extractJson(result?.output ?? "");
         },
         LONG_RETRY,
-        isRateLimit,
+        isTransientError,
       );
     },
 
@@ -589,7 +599,7 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
             return r;
           },
           LONG_RETRY,
-          isRateLimit,
+          isTransientError,
         );
       } catch (err) {
         if (err instanceof GuardedFetchError) throw mapGuardedError(err);
@@ -707,7 +717,7 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
             return r;
           },
           LONG_RETRY,
-          isRateLimit,
+          isTransientError,
         );
         const json = (await res.json()) as Record<string, unknown>;
 
