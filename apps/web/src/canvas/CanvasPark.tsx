@@ -16,6 +16,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { parkLayout } from "@agent-world/core";
 import { useViewMode } from "../store/view-mode";
+import { api } from "../lib/api";
 
 // --- Constants (aligned with L1 Canvas3D, larger park scale) ---
 const PITCH = Math.PI / 3; // lock pitch 60deg from vertical
@@ -153,6 +154,22 @@ export default function CanvasPark({
   const actionsRef = useRef({ onEnter, onRetry, onToggleCron });
   actionsRef.current = { onEnter, onRetry, onToggleCron };
 
+  // B1 drag-to-reposition: manual position overrides (id → {x,z}), persists across re-renders.
+  const overridesRef = useRef(new Map<string, { x: number; z: number }>());
+  // Bump to re-run the data-sync effect after a drag ends (overridesRef is a ref, not reactive).
+  const [overrideVersion, setOverrideVersion] = useState(0);
+  // Drag state: which factory is being dragged (null = not dragging).
+  const dragRef = useRef<{ id: string | null }>({ id: null });
+  // Debounce timer for the PUT park-coord call.
+  const putTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // B5 debug overlay: FPS counter + render stats, toggle via ?debug=1 or ⌘⇧D.
+  const [debugEnabled, setDebugEnabled] = useState(() =>
+    typeof window !== "undefined" && new URLSearchParams(window.location.search).get("debug") === "1",
+  );
+  const debugRef = useRef({ fps: 0, frames: 0, lastTime: 0, drawCalls: 0 });
+  const [debugStats, setDebugStats] = useState({ fps: 0, drawCalls: 0, factories: 0, zoom: 1 });
+
   const selected = useMemo(
     () => (selId ? factories.find((f) => f.id === selId) ?? null : null),
     [selId, factories],
@@ -280,8 +297,65 @@ export default function CanvasPark({
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
     const projVec = new THREE.Vector3();
+    const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+    const groundHit = new THREE.Vector3();
     let downX = 0;
     let downY = 0;
+
+    // Helper: raycast from pointer event to the instanced mesh, return factory id or null.
+    const pickFactory = (e: PointerEvent): string | null => {
+      const rect = renderer.domElement.getBoundingClientRect();
+      pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(pointer, camera);
+      const hits = raycaster.intersectObject(instancedMesh);
+      if (hits.length > 0 && hits[0]!.instanceId != null) {
+        return state.idByIndex[hits[0]!.instanceId] ?? null;
+      }
+      return null;
+    };
+
+    // Helper: raycast from pointer to the y=0 ground plane, return {x, z} or null.
+    const pickGround = (e: PointerEvent): { x: number; z: number } | null => {
+      const rect = renderer.domElement.getBoundingClientRect();
+      pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(pointer, camera);
+      if (raycaster.ray.intersectPlane(groundPlane, groundHit)) {
+        return { x: groundHit.x, z: groundHit.z };
+      }
+      return null;
+    };
+
+    // Helper: move a single factory instance + its layout entry to (x, z).
+    const moveFactory = (id: string, x: number, z: number) => {
+      const idx = state.idByIndex.indexOf(id);
+      if (idx < 0) return;
+      state.layout.set(id, { x, z });
+      state.dummy.position.set(x, FACTORY_H / 2, z);
+      state.dummy.rotation.set(0, 0, 0);
+      state.dummy.scale.set(1, 1, 1);
+      state.dummy.updateMatrix();
+      state.instancedMesh.setMatrixAt(idx, state.dummy.matrix);
+      state.instancedMesh.instanceMatrix.needsUpdate = true;
+      // Move billboard sprites for this factory (label + optional badge).
+      const facts = dataRef.current;
+      const fIdx = facts.findIndex((f) => f.id === id);
+      if (fIdx >= 0) {
+        let spriteOffset = 0;
+        for (let i = 0; i < fIdx; i++) {
+          spriteOffset += 1; // label
+          if (facts[i]!.pendingReview > 0) spriteOffset += 1; // badge
+        }
+        const children = state.billboardGroup.children;
+        if (children[spriteOffset]) {
+          children[spriteOffset]!.position.set(x, FACTORY_H + 60, z);
+        }
+        if (facts[fIdx]!.pendingReview > 0 && children[spriteOffset + 1]) {
+          children[spriteOffset + 1]!.position.set(x + FACTORY_SIZE * 0.6, FACTORY_H + 50, z);
+        }
+      }
+    };
 
     const onPointerDown = (e: PointerEvent) => {
       if (e.button !== 0) return;
@@ -292,6 +366,25 @@ export default function CanvasPark({
       }
       downX = e.clientX;
       downY = e.clientY;
+      // Check if we hit a factory — if so, prepare for drag (actual drag starts on move).
+      const hit = pickFactory(e);
+      if (hit) {
+        dragRef.current.id = hit;
+        setSelId(hit);
+      } else {
+        dragRef.current.id = null;
+      }
+    };
+
+    const onPointerMove = (e: PointerEvent) => {
+      const id = dragRef.current.id;
+      if (!id) return; // not dragging a factory
+      const moved = Math.hypot(e.clientX - downX, e.clientY - downY) > 4;
+      if (!moved) return; // still a click, not a drag
+      // Disable orbit controls so camera doesn't pan while dragging.
+      controls.enabled = false;
+      const pos = pickGround(e);
+      if (pos) moveFactory(id, pos.x, pos.z);
     };
 
     const onPointerUp = (e: PointerEvent) => {
@@ -303,34 +396,77 @@ export default function CanvasPark({
       } catch {
         // release may fail if capture was never set; non-fatal
       }
+      const id = dragRef.current.id;
       const moved = Math.hypot(e.clientX - downX, e.clientY - downY) > 4;
-      if (moved) return; // drag pan, do not select
-      const rect = renderer.domElement.getBoundingClientRect();
-      pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-      pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-      raycaster.setFromCamera(pointer, camera);
-      const hits = raycaster.intersectObject(instancedMesh);
-      if (hits.length > 0 && hits[0]!.instanceId != null) {
-        const idx = hits[0]!.instanceId;
-        const id = state.idByIndex[idx];
-        if (id) setSelId(id);
+
+      if (id && moved) {
+        // Drag ended: save override, re-enable controls, debounce PUT.
+        const pos = pickGround(e);
+        if (pos) {
+          moveFactory(id, pos.x, pos.z);
+          overridesRef.current.set(id, pos);
+          setOverrideVersion((v) => v + 1);
+          // Debounced persist to backend.
+          if (putTimerRef.current) clearTimeout(putTimerRef.current);
+          putTimerRef.current = setTimeout(() => {
+            api.putParkCoord(id, pos.x, pos.z).catch(() => {
+              /* non-fatal: override stays local, next layout recompute restores it */
+            });
+          }, 400);
+        }
+        controls.enabled = true;
+        dragRef.current.id = null;
+        return;
+      }
+
+      // Not a drag — treat as click selection (existing behavior).
+      controls.enabled = true;
+      dragRef.current.id = null;
+      if (moved) return; // camera pan, do not select
+      const hit = pickFactory(e);
+      if (hit) {
+        setSelId(hit);
       } else {
         setSelId(null);
       }
     };
 
-    const onPointerCancel = () => {};
+    const onPointerCancel = () => {
+      controls.enabled = true;
+      dragRef.current.id = null;
+    };
     renderer.domElement.addEventListener("pointerdown", onPointerDown);
+    renderer.domElement.addEventListener("pointermove", onPointerMove);
     renderer.domElement.addEventListener("pointerup", onPointerUp);
     renderer.domElement.addEventListener("pointercancel", onPointerCancel);
 
     // === rAF loop: read dataRef every frame for colors, ring and popover anchor ===
     let rafId = 0;
     const tmpColor = new THREE.Color();
+    let fpsFrames = 0;
+    let fpsLastTime = performance.now();
     const loop = (now: number) => {
       rafId = requestAnimationFrame(loop);
       const st = parkRef.current;
       if (!st) return;
+
+      // B5: FPS tracking (sliding 1s window)
+      fpsFrames++;
+      if (now - fpsLastTime >= 1000) {
+        const fps = Math.round((fpsFrames * 1000) / (now - fpsLastTime));
+        fpsFrames = 0;
+        fpsLastTime = now;
+        if (debugRef.current.fps !== fps || debugRef.current.drawCalls !== renderer.info.render.calls) {
+          debugRef.current.fps = fps;
+          debugRef.current.drawCalls = renderer.info.render.calls;
+          setDebugStats({
+            fps,
+            drawCalls: renderer.info.render.calls,
+            factories: dataRef.current.length,
+            zoom: st.camera.zoom,
+          });
+        }
+      }
 
       const facts = dataRef.current;
       // per-instance color update (status + running breathing)
@@ -383,8 +519,10 @@ export default function CanvasPark({
       cancelAnimationFrame(rafId);
       resizeObserver.disconnect();
       renderer.domElement.removeEventListener("pointerdown", onPointerDown);
+      renderer.domElement.removeEventListener("pointermove", onPointerMove);
       renderer.domElement.removeEventListener("pointerup", onPointerUp);
       renderer.domElement.removeEventListener("pointercancel", onPointerCancel);
+      if (putTimerRef.current) clearTimeout(putTimerRef.current);
       // B8: remember the L0 camera pose so returning from a drill restores it.
       useViewMode.getState().setParkCamera({
         posX: camera.position.x,
@@ -420,8 +558,11 @@ export default function CanvasPark({
     const st = parkRef.current;
     if (!st) return;
 
-    // 1. compute layout
+    // 1. compute layout, then apply manual drag overrides (B1 persistence)
     const layout = parkLayout(factories);
+    for (const [id, pos] of overridesRef.current) {
+      if (factories.some((f) => f.id === id)) layout.set(id, pos);
+    }
     st.layout = layout;
     st.idByIndex = factories.map((f) => f.id);
 
@@ -477,17 +618,54 @@ export default function CanvasPark({
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [factories]);
+  }, [factories, overrideVersion]);
 
   // Drop the selection if its factory disappeared.
   useEffect(() => {
     if (selId && !factories.some((f) => f.id === selId)) setSelId(null);
   }, [factories, selId]);
 
+  // B5: toggle debug overlay with ⌘⇧D (Ctrl+Shift+D on non-Mac).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "d") {
+        e.preventDefault();
+        setDebugEnabled((v) => !v);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   return (
     <div className="canvas-park" style={{ width: "100%", height: "100%", position: "relative" }}>
       <div ref={mountRef} className="canvas-park__mount" style={{ width: "100%", height: "100%" }} />
       {factories.length === 0 && <div className="canvas-park__empty">{t("park:empty")}</div>}
+      {debugEnabled && (
+        <div
+          style={{
+            position: "absolute",
+            top: 8,
+            left: 8,
+            zIndex: 1000,
+            background: "rgba(0,0,0,0.75)",
+            color: "#4ade80",
+            fontFamily: "monospace",
+            fontSize: 12,
+            padding: "8px 12px",
+            borderRadius: 6,
+            lineHeight: 1.6,
+            pointerEvents: "none",
+            userSelect: "none",
+          }}
+        >
+          <div>FPS: {debugStats.fps}</div>
+          <div>Factories: {debugStats.factories}</div>
+          <div>Draw calls: {debugStats.drawCalls}</div>
+          <div>Zoom: {debugStats.zoom.toFixed(2)}</div>
+          <div style={{ color: "#6b7280", marginTop: 4 }}>⌘⇧D to toggle</div>
+        </div>
+      )}
       <div ref={overlayRef} className="park-popover" style={{ display: "none", position: "absolute", top: 0, left: 0 }}>
         {selected && (
           <>

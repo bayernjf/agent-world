@@ -101,10 +101,12 @@ describe("CollaboratorsModal", () => {
     await waitFor(() =>
       expect(mockPut).toHaveBeenCalledWith("g-1", "new@example.com", "editor"),
     );
-    // input cleared after add
-    expect(
-      (screen.getByPlaceholderText("collaborator@example.com") as HTMLInputElement).value,
-    ).toBe("");
+    // input cleared after the add promise resolves — wait, don't assert synchronously
+    await waitFor(() =>
+      expect(
+        (screen.getByPlaceholderText("collaborator@example.com") as HTMLInputElement).value,
+      ).toBe(""),
+    );
   });
 
   it("also adds on Enter when an email is present", async () => {
