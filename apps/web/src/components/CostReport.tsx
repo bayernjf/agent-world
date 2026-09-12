@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { formatNumber } from "../i18n/utils";
 import { api, type CostReport as Report } from "../lib/api";
 import Tooltip from "./Tooltip";
 
@@ -42,8 +43,8 @@ function rangeToBounds(range: Range): { from?: number; to?: number } {
 const fmtUsd = (n: number) => `$${n.toFixed(5)}`;
 
 export default function CostReport({ open, onClose }: Props) {
-  const { t, i18n } = useTranslation();
-  const fmtInt = (n: number) => n.toLocaleString(i18n.language);
+  const { t } = useTranslation();
+  const fmtInt = (n: number) => formatNumber(n);
   const [range, setRange] = useState<Range>("30d");
   const [granularity, setGranularity] = useState<Granularity>("week");
   const [report, setReport] = useState<Report | null>(null);

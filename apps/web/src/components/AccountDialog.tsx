@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
+import { formatDate } from "../i18n/utils";
 import type { Me } from "./UserMenu";
 
 interface Props {
@@ -70,7 +71,7 @@ export default function AccountDialog({ open, me, onClose }: Props) {
   };
 
   const joined = me?.createdAt
-    ? new Date(me.createdAt).toLocaleDateString(i18n.language)
+    ? formatDate(me.createdAt)
     : "";
 
   return (

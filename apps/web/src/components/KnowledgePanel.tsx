@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { formatDateTime } from "../i18n/utils";
 
 interface KnowledgeEntry {
   id: string;
@@ -16,7 +17,7 @@ interface Props {
 }
 
 export default function KnowledgePanel({ open, onClose }: Props) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const [entries, setEntries] = useState<KnowledgeEntry[]>([]);
   const [total, setTotal] = useState(0);
   const [query, setQuery] = useState("");
@@ -172,7 +173,7 @@ export default function KnowledgePanel({ open, onClose }: Props) {
               <p className="knowledge-item__content">{entry.content.slice(0, 300)}{entry.content.length > 300 ? "..." : ""}</p>
               <div className="knowledge-item__meta muted">
                 <span>{t("modals:knowledge.source", { source: entry.source })}</span>
-                <span>{new Date(entry.created_at).toLocaleString(i18n.language)}</span>
+                <span>{formatDateTime(entry.created_at)}</span>
                 {entry.tags.length > 0 && (
                   <span>{t("modals:knowledge.tags", { tags: entry.tags.join(", ") })}</span>
                 )}

@@ -47,6 +47,18 @@ export function formatShortDateTime(
   }).format(new Date(date));
 }
 
+/** Time only, e.g. zh "14:30" / en "2:30 PM". */
+export function formatTime(
+  date: Date | number | string | null | undefined,
+  lang?: string,
+): string {
+  if (date == null || date === "") return "";
+  return new Intl.DateTimeFormat(locale(lang), {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(date));
+}
+
 /** Grouped number, e.g. "1,234,567". */
 export function formatNumber(num: number, lang?: string): string {
   return new Intl.NumberFormat(locale(lang)).format(num);
