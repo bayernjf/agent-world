@@ -1,26 +1,30 @@
 # i18n 国际化方案
 
-> 状态：实施中（基础设施 + 组件迁移基本完成） | 优先级：P0 | 创建日期：2026-09-03
+> 状态：基础设施 + 组件迁移 + 本地化格式 utils + 工具链已完成 | 优先级：P0 | 创建日期：2026-09-03 | 最近更新：2026-09-12
 
-## 0. 实施进度（2026-09-03 更新）
+## 0. 实施进度（2026-09-12 更新）
 
 **已完成**：
 
 - 技术栈落地：i18next + react-i18next（运行时）+ i18next-parser（开发工具）
-- **9 个命名空间**（比方案多 `auth`、`reviews`）：common / canvas / nodes / modals / settings / run / errors / auth / reviews
+- **13 个命名空间**：common / canvas / nodes / modals / settings / run / errors / auth / reviews / announcements / feedback / park / tour
 - 完整 zh / en 双语翻译包（1800+ keys）
 - 语言自动检测（localStorage > 浏览器语言）+ 持久化 + 同步 `document.lang`
-- **全部 41 个业务组件**迁移到 `useTranslation()`（Toast / UndoRedo / ConfirmDialog / ConnectorEditor / TriggersPanel / ControlPanel / ProductGallery / GlossaryModal / Settings / Inspector / ABReport / CanvasToolbar / CostReport / EvalReport / ProductBlocks 等）
-- **顶层 `App.tsx`** 迁移：commandItems 27 个命令 → `modals.commandPalette.commands`、hud 工具提示/按钮 → `common.app`、删除确认弹窗、showError 消息
-- **语言切换器 `LanguageSwitcher.tsx`** 落地，集成到 `UserMenu`（中文 ⇄ English 一键切换）
-- 测试适配：`test/setup.ts` 强制中文语言，现有组件测试断言无需改动
-- keys 一致性守护 `keys.test.ts`（zh/en 结构对齐 + key 字面量可达）
+- **全部 41 个业务组件**迁移到 `useTranslation()`
+- **顶层 `App.tsx`** 迁移
+- **语言切换器 `LanguageSwitcher.tsx`** 落地，集成到 `UserMenu`
+- 测试适配：`test/setup.ts` 强制中文语言
+- keys 一致性守护 `keys.test.ts`（zh/en 结构对齐 + key 字面量可达 + 无硬编码中文）
+- **本地化格式 utils**（2026-09-12）：`i18n/utils.ts` 提供 `formatDate` / `formatDateTime` / `formatShortDateTime` / `formatNumber` / `formatCurrency` / `formatRelativeTime`，基于 `Intl.DateTimeFormat` / `NumberFormat` / `RelativeTimeFormat`，自动跟随当前语言
+- **工具链**（2026-09-12）：
+  - `i18next-parser.config.js` — 翻译 key 提取配置（`pnpm i18n:extract`）
+  - `scripts/check-i18n.cjs` — 补充校验脚本（`pnpm i18n:check`）：插值变量一致性（zh/en 的 `{{var}}` 必须对齐）+ 未使用 key 扫描（warning，动态引用 key 会出现）
+  - `i18n/type.d.ts` — TypeScript 类型增强，13 个命名空间全部类型化，`t()` 调用编译期校验 key 拼写
 
 **剩余**：
 
-- `Inspector.tsx` 内 29 种节点的配置字段（source 电商字段 / textGen / imageGen / videoGen / audioGen / gate / compliance / http / translate / code / branch / map / loop / parallel / table / database / fileParse / ocr / convert / search / notify / vcs / human / subprocess / fanout / select / publish / generic 的 label/placeholder/hint，约 250 处）
-- 本地化格式 `i18n/utils.ts`（第 9 章 `Intl.DateTimeFormat` / `NumberFormat` / `RelativeTimeFormat`，尚未落地，组件仍用各自本地 formatDate）
-- 第 10 章工具链（i18next-parser 提取脚本、check-i18n 校验脚本、TS 类型提示）尚未接入，目前以 `keys.test.ts` 作为轻量守护
+- `Inspector.tsx` 内 29 种节点的配置字段（约 250 处 label/placeholder/hint）— 工作量大，机械，可分批做
+- 组件中硬编码 `toLocaleDateString()` / `toLocaleString()` 逐步替换为 `i18n/utils.ts`（基础设施已就绪，替换是渐进式工作）
 
 ## 1. 背景与现状
 
