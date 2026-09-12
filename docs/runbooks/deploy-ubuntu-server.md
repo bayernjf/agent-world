@@ -180,6 +180,11 @@ server {
     root /opt/agent-world/apps/web/dist;
     index index.html;
 
+    # Prometheus metrics（必须在 /api/ 和 / 之前，否则被 SPA 兜底返回 text/html）
+    location /metrics {
+        proxy_pass http://127.0.0.1:8791;
+        proxy_set_header Host $host;
+    }
     # API 反代到 server（同源，浏览器无需 CORS）
     location /api/ {
         proxy_pass http://127.0.0.1:8791;

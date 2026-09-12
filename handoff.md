@@ -223,7 +223,7 @@ State of Agent World as of 2026-09-11.
 > ⚠️ **三个真实缺口（按严重度，2026-09-08 真机核实）**：
 > 1. ✅ **~~媒体计量修复未上 Hasee~~（已部署并真机验证，2026-09-08）**：修复随 PR #216 合入 origin/dev（merge `a12f404`）并部署到 Hasee——健康探针 `commit=a12f404`、服务重启（PID 59450）、dist 内确有 `videoBillingSeconds`/`mediaUsage` 编译产物。端到端复验：视频 run `546aa2fa` 状态 done，视频节点 `units:{seconds:5}`、`costUsd:0.5`（5 × perSecond $0.10），视频产物正常产出——修复前一律 $0，现按秒计费。**遗留精度项（非阻塞）**：agnes 未设 `durationPath` 且响应无 num_frames/frame_rate、又 omitDuration，故走 5s 兜底；若实际成片时长非 5s 会按 5s 计。**2026-09-09 已修复并真机验证（PR #218，merge `2e23a06` 已部署 Hasee，健康探针 commit 一致）**：真机抓取确认时长在顶层 `seconds` 字段且为数字字符串 `"5.0"`，遂配 `durationPath:"seconds"` 并让 `videoBillingSeconds` 经 `positiveNumber` 接受数字字符串。在**部署后 dist** 上用真实 agnes 完成形态回放：`seconds:"5.0"`→5s/$0.50（不回归），`seconds:"8.0"`→8s/$0.80（旧逻辑会落 5s 兜底），两段全 PASS。
 > 2. ✅ **~~备份只在同盘同机 + WAL checkpoint 静默失败~~（已闭环，2026-09-10）**：checkpoint 静默失败已由补丁修复（见待办 40，node:sqlite 替换 + 手动验证通过）；「同盘同机」单点已由 Mac 每日异地备份兜底（见待办 40，含密钥边界）。
-> 3. **/metrics 未经 nginx 暴露（可观测性盲点）**：80 端口 `/metrics` 返回 SPA `text/html`，仅直连 :8791 出 Prometheus `text/plain`；外部/容器化 Prometheus 抓不到。已登记 deferred-items（本次新增行）。
+> 3. ✅ **~~/metrics 未经 nginx 暴露（可观测性盲点）~~（已修复，2026-09-10 Hasee）**：Hasee nginx 配置 `/etc/nginx/sites-enabled/agent-world` 增加 `location /metrics { proxy_pass http://127.0.0.1:8791; }`（在 `/api/` 之前），`nginx -t` 通过 + reload 成功；验证 `curl http://127.0.0.1/metrics` 返回 HTTP 200、Content-Type `text/plain`、含 runs_total/runs_failed_total/runs_cost_usd_total 等指标。其他部署环境需按同样方式加 nginx location（见 [production-ops.md §5](docs/production-ops.md)）。
 
 ## Recently shipped (last 5)
 
