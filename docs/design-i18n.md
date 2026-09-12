@@ -1,6 +1,6 @@
 # i18n 国际化方案
 
-> 状态：基础设施 + 组件迁移 + 本地化格式 utils + 工具链已完成 | 优先级：P0 | 创建日期：2026-09-03 | 最近更新：2026-09-12
+> 状态：基础设施 + 组件迁移 + 本地化格式 utils + 工具链 + 硬编码 toLocale* 替换已完成 | 优先级：P0 | 创建日期：2026-09-03 | 最近更新：2026-09-12
 
 ## 0. 实施进度（2026-09-12 更新）
 
@@ -15,7 +15,8 @@
 - **语言切换器 `LanguageSwitcher.tsx`** 落地，集成到 `UserMenu`
 - 测试适配：`test/setup.ts` 强制中文语言
 - keys 一致性守护 `keys.test.ts`（zh/en 结构对齐 + key 字面量可达 + 无硬编码中文）
-- **本地化格式 utils**（2026-09-12）：`i18n/utils.ts` 提供 `formatDate` / `formatDateTime` / `formatShortDateTime` / `formatNumber` / `formatCurrency` / `formatRelativeTime`，基于 `Intl.DateTimeFormat` / `NumberFormat` / `RelativeTimeFormat`，自动跟随当前语言
+- **本地化格式 utils**（2026-09-12）：`i18n/utils.ts` 提供 `formatDate` / `formatDateTime` / `formatShortDateTime` / `formatTime` / `formatNumber` / `formatCurrency` / `formatRelativeTime`，基于 `Intl.DateTimeFormat` / `NumberFormat` / `RelativeTimeFormat`，自动跟随当前语言
+- **硬编码 toLocale* 替换**（2026-09-12）：15 个组件共 42 处 `toLocaleDateString()` / `toLocaleString()` / `toLocaleTimeString()` 全部替换为 `i18n/utils.ts` 函数，移除未使用的 `i18n` 解构
 - **工具链**（2026-09-12）：
   - `i18next-parser.config.js` — 翻译 key 提取配置（`pnpm i18n:extract`）
   - `scripts/check-i18n.cjs` — 补充校验脚本（`pnpm i18n:check`）：插值变量一致性（zh/en 的 `{{var}}` 必须对齐）+ 未使用 key 扫描（warning，动态引用 key 会出现）
@@ -24,7 +25,6 @@
 **剩余**：
 
 - `Inspector.tsx` 内 29 种节点的配置字段（约 250 处 label/placeholder/hint）— 工作量大，机械，可分批做
-- 组件中硬编码 `toLocaleDateString()` / `toLocaleString()` 逐步替换为 `i18n/utils.ts`（基础设施已就绪，替换是渐进式工作）
 
 ## 1. 背景与现状
 
