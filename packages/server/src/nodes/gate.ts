@@ -1,6 +1,6 @@
 import type { GraphNode } from "@agent-world/core";
 import type { NodeRunContext } from "./types.js";
-import { ARTIFACT_URL_NOTE, collectJudgeCriteria, detectProhibited, prohibitedSnippets, setTextArtifact, toMount, upstreamBrandTerms, upstreamProhibitedTerms, zeroUsage } from "./shared.js";
+import { ARTIFACT_URL_NOTE, collectJudgeCriteria, detectProhibited, prohibitedSnippets, setTextArtifact, toMount, upstreamBrandTerms, upstreamProhibitedTerms } from "./shared.js";
 import { notifyHalt } from "../notify.js";
 
 /**
@@ -56,18 +56,21 @@ export async function gateNode(ctx: NodeRunContext, node: GraphNode, nodeId: str
       passed: false,
       reason: `命中禁用词：${prohibitedHits.join("、")}（第 ${attempt} 次质检${where}）。重写时必须完全避开这些词及任何包含它们的短语，已退回上游重写`,
       score: modelVerdict.score,
+      usage: modelVerdict.usage,
     };
   } else if (belowBrand) {
     verdict = {
       passed: false,
       reason: `品牌词覆盖率 ${Math.round(brandCoverage * 100)}% 低于门槛 ${Math.round(minBrand! * 100)}%（已退回上游重写）`,
       score: modelVerdict.score,
+      usage: modelVerdict.usage,
     };
   } else if (belowScore) {
     verdict = {
       passed: false,
       reason: `质量分 ${modelVerdict.score} 低于门槛 ${minScore}（已退回上游重写）`,
       score: modelVerdict.score,
+      usage: modelVerdict.usage,
     };
   }
 
@@ -88,7 +91,7 @@ export async function gateNode(ctx: NodeRunContext, node: GraphNode, nodeId: str
     // artifact.produced in the timeline, unlike every other node kind
     // (dogfood tpl-recipe). Announce both for observability parity.
     emit({ type: "artifact.produced", nodeId, attempt, artifact });
-    emit({ type: "node.finished", nodeId, attempt, output: verdict.reason, usage: zeroUsage() });
+    emit({ type: "node.finished", nodeId, attempt, output: verdict.reason, usage: modelVerdict.usage });
     sendPackets(nodeId, verdict.reason, "text");
     return;
   }
@@ -114,7 +117,7 @@ export async function gateNode(ctx: NodeRunContext, node: GraphNode, nodeId: str
       const artifact = setTextArtifact(artifacts, nodeId, output);
       states.set(nodeId, "done");
       emit({ type: "artifact.produced", nodeId, attempt, artifact });
-      emit({ type: "node.finished", nodeId, attempt, output: verdict.reason, usage: zeroUsage() });
+      emit({ type: "node.finished", nodeId, attempt, output: verdict.reason, usage: modelVerdict.usage });
       sendPackets(nodeId, verdict.reason, "text");
       return;
     }
