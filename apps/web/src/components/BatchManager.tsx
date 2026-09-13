@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { formatDateTime } from "../i18n/utils";
 import { api, type BatchJob } from "../lib/api";
 import Tooltip from "./Tooltip";
 
@@ -130,7 +131,7 @@ export default function BatchManager({ open, onClose }: Props) {
                   <span>
                     {t("modals:batchManager.progress", { succeeded: b.succeeded, failed: b.failed, total: b.total })}
                   </span>
-                  <span className="muted">{new Date(b.createdAt).toLocaleString()}</span>
+                  <span className="muted">{formatDateTime(b.createdAt)}</span>
                 </button>
                 {expanded === b.id && (
                   <div className="batch-items">

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import i18n from "../i18n";
+import { formatNumber } from "../i18n/utils";
 import { api, type RunSummary } from "../lib/api";
 import { runStatusLabel } from "../lib/run-status";
 import Tooltip from "./Tooltip";
@@ -74,7 +75,7 @@ function CompareView({
   stats: Record<string, RunStats>;
   onBack: () => void;
 }) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const byId = new Map(runs.map((r) => [r.id, r]));
   const cols = selected.map((id) => ({
     id,
@@ -110,12 +111,12 @@ function CompareView({
     },
     {
       label: t("run:history.tokensIn"),
-      get: (c) => (c.stat ? c.stat.tokensIn.toLocaleString(i18n.language) : "—"),
+      get: (c) => (c.stat ? formatNumber(c.stat.tokensIn) : "—"),
     },
     {
       label: t("run:history.tokensOut"),
       get: (c) =>
-        c.stat ? c.stat.tokensOut.toLocaleString(i18n.language) : "—",
+        c.stat ? formatNumber(c.stat.tokensOut) : "—",
     },
     {
       label: t("run:history.cost"),

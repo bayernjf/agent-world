@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { formatDate } from "../i18n/utils";
 import AnnouncementManager from "./AnnouncementManager";
 
 export interface AnnouncementItem {
@@ -99,7 +100,7 @@ export default function AnnouncementBell() {
     (a) => a.level === "warning" && !a.read && !dismissedBanner.has(a.id),
   );
 
-  const fmt = (ts: number) => new Date(ts).toLocaleDateString();
+  const fmt = (ts: number) => formatDate(ts);
 
   return (
     <div className="announcements" ref={rootRef}>

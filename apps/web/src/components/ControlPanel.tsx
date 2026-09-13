@@ -5,6 +5,7 @@ import { useGraph } from "../store/graph";
 import { useRun, useVisibleRuntime, resumeRun } from "../store/run";
 import { api, type AppConfig } from "../lib/api";
 import { useTranslation } from "react-i18next";
+import { formatNumber } from "../i18n/utils";
 import Tooltip from "./Tooltip";
 
 interface Props {
@@ -186,8 +187,8 @@ export default function ControlPanel(props: Props) {
               <>
                 <div className="meter__row">
                   <span className="readout">
-                    {runtime.totalTokensIn.toLocaleString()} /{" "}
-                    {runtime.totalTokensOut.toLocaleString()}
+                    {formatNumber(runtime.totalTokensIn)} /{" "}
+                    {formatNumber(runtime.totalTokensOut)}
                   </span>
                   <span className="muted">{t("run:control.inOut")}</span>
                 </div>
@@ -195,7 +196,7 @@ export default function ControlPanel(props: Props) {
                   <div className="meter__row">
                     <span className="muted">
                       {t("run:control.cacheHit", {
-                        n: runtime.totalCachedTokens.toLocaleString(),
+                        n: formatNumber(runtime.totalCachedTokens),
                       })}
                     </span>
                   </div>
