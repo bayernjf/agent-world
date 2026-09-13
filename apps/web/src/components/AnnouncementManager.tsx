@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { formatDate } from "../i18n/utils";
 import { TEMPLATE_LIST } from "./TemplatePicker";
 
 export interface ManageAnnouncement {
@@ -239,7 +240,7 @@ export default function AnnouncementManager({ open, onClose, onChanged }: Props)
                         </span>
                       )}
                       <span className="announcements__date">
-                        {new Date(a.startsAt).toLocaleDateString()}
+                        {formatDate(a.startsAt)}
                       </span>
                       <button className="link link--sm" onClick={() => openForm(a)}>
                         {t("announcements:manager.edit")}

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { formatDateTime } from "../i18n/utils";
 import type { Graph } from "@agent-world/core";
 import { TemplatePreview } from "./TemplatePicker";
 
@@ -29,7 +30,7 @@ interface Props {
 }
 
 export default function VersionPanel({ open, graphId, graphName, onClose, onRestored }: Props) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const [versions, setVersions] = useState<VersionSummary[]>([]);
   const [latestRunHash, setLatestRunHash] = useState<string | null>(null);
   const [currentHash, setCurrentHash] = useState<string | null>(null);
@@ -63,7 +64,7 @@ export default function VersionPanel({ open, graphId, graphName, onClose, onRest
 
   async function saveVersion() {
     if (!newName.trim()) {
-      setNewName(new Date().toLocaleString(i18n.language));
+      setNewName(formatDateTime(new Date()));
     }
     setSaving(true);
     try {
@@ -71,7 +72,7 @@ export default function VersionPanel({ open, graphId, graphName, onClose, onRest
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: newName || new Date().toLocaleString(i18n.language),
+          name: newName || formatDateTime(new Date()),
           note: newNote,
         }),
       });
@@ -190,7 +191,7 @@ export default function VersionPanel({ open, graphId, graphName, onClose, onRest
                     <span className="version-item__flag version-item__flag--current">{t("modals:versionPanel.flagCurrent")}</span>
                   )}
                 </span>
-                <span className="muted">{new Date(v.createdAt).toLocaleString(i18n.language)}</span>
+                <span className="muted">{formatDateTime(v.createdAt)}</span>
               </div>
               {v.note && v.note !== "auto" && <p className="version-item__note muted">{v.note}</p>}
               <div className="version-item__actions">

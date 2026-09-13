@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { formatDate, formatDateTime } from "../i18n/utils";
 import {
   api,
   type AdminUser,
@@ -353,7 +354,7 @@ export default function AdminPanel({ open, me, onClose }: Props) {
                           {ROLE_LABEL[u.role] ? t(ROLE_LABEL[u.role]!) : u.role}
                         </span>
                         <span className="admin-user-list__created">
-                          {new Date(u.createdAt).toLocaleDateString(i18n.language)}
+                          {formatDate(u.createdAt)}
                         </span>
                         {u.role === "owner" ? (
                           <span className="admin-user-list__spacer" />
@@ -398,7 +399,7 @@ export default function AdminPanel({ open, me, onClose }: Props) {
                     {audit.map((a) => (
                       <li key={a.id} className="admin-audit__row">
                         <span className="admin-audit__time">
-                          {new Date(a.created_at).toLocaleString(i18n.language)}
+                          {formatDateTime(a.created_at)}
                         </span>
                         <span
                           className="admin-audit__email"
@@ -565,7 +566,7 @@ export default function AdminPanel({ open, me, onClose }: Props) {
                             {t(`feedback:form.categories.${f.category}`)}
                           </span>
                           <span className="admin-feedback__time">
-                            {new Date(f.created_at).toLocaleString(i18n.language)}
+                            {formatDateTime(f.created_at)}
                           </span>
                           <select
                             className="admin-feedback__status"

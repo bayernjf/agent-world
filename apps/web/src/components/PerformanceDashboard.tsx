@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { formatNumber } from "../i18n/utils";
 import { api, type ContentCostAggregate, type ContentMetric, type PerformanceAggregate } from "../lib/api";
 import Tooltip from "./Tooltip";
 
@@ -142,15 +143,15 @@ export default function PerformanceDashboard({ open, onClose }: Props) {
           <div className="perf-cards">
             <div className="perf-card">
               <span className="perf-card__label">{t("modals:performance.impressions")}</span>
-              <span className="perf-card__value">{totals.impressions.toLocaleString()}</span>
+              <span className="perf-card__value">{formatNumber(totals.impressions)}</span>
             </div>
             <div className="perf-card">
               <span className="perf-card__label">{t("modals:performance.clicks")}</span>
-              <span className="perf-card__value">{totals.clicks.toLocaleString()}</span>
+              <span className="perf-card__value">{formatNumber(totals.clicks)}</span>
             </div>
             <div className="perf-card">
               <span className="perf-card__label">{t("modals:performance.conversions")}</span>
-              <span className="perf-card__value">{totals.conversions.toLocaleString()}</span>
+              <span className="perf-card__value">{formatNumber(totals.conversions)}</span>
             </div>
             <div className="perf-card">
               <span className="perf-card__label">{t("modals:performance.ctr")}</span>
@@ -162,11 +163,11 @@ export default function PerformanceDashboard({ open, onClose }: Props) {
             </div>
             <div className="perf-card">
               <span className="perf-card__label">{t("modals:performance.gmv")}</span>
-              <span className="perf-card__value">¥{totals.gmv.toLocaleString()}</span>
+              <span className="perf-card__value">¥{formatNumber(totals.gmv)}</span>
             </div>
             <div className="perf-card">
               <span className="perf-card__label">{t("modals:performance.adSpend")}</span>
-              <span className="perf-card__value">¥{totals.adSpend.toLocaleString()}</span>
+              <span className="perf-card__value">¥{formatNumber(totals.adSpend)}</span>
             </div>
             <div className="perf-card">
               <span className="perf-card__label">{t("modals:performance.roi")}</span>
@@ -210,11 +211,11 @@ export default function PerformanceDashboard({ open, onClose }: Props) {
               {aggregates.map((a) => (
                 <tr key={a.group || "(none)"}>
                   <td>{a.group || t("modals:performance.ungrouped")}</td>
-                  <td>{a.impressions.toLocaleString()}</td>
-                  <td>{a.clicks.toLocaleString()}</td>
-                  <td>{a.conversions.toLocaleString()}</td>
-                  <td>¥{a.gmv.toLocaleString()}</td>
-                  <td>¥{a.adSpend.toLocaleString()}</td>
+                  <td>{formatNumber(a.impressions)}</td>
+                  <td>{formatNumber(a.clicks)}</td>
+                  <td>{formatNumber(a.conversions)}</td>
+                  <td>¥{formatNumber(a.gmv)}</td>
+                  <td>¥{formatNumber(a.adSpend)}</td>
                   <td>{ratio(a.gmv, a.adSpend)}</td>
                 </tr>
               ))}
@@ -255,7 +256,7 @@ export default function PerformanceDashboard({ open, onClose }: Props) {
                   <tr key={c.group || "(none)"}>
                     <td>{c.group || t("modals:performance.ungrouped")}</td>
                     <td>${c.costUsd.toFixed(4)}</td>
-                    <td>¥{c.gmv.toLocaleString()}</td>
+                    <td>¥{formatNumber(c.gmv)}</td>
                     <td>{c.roi.toFixed(2)}</td>
                   </tr>
                 ))}

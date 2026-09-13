@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { formatNumber, formatDateTime, formatTime } from "../i18n/utils";
 import { api, type OperationsOverview } from "../lib/api";
 import { runStatusLabel } from "../lib/run-status";
 import Tooltip from "./Tooltip";
@@ -110,7 +111,7 @@ export default function OperationsDashboard({
 
   const summaryCells: Array<{ key: string; value: string; tone?: string }> = totals
     ? [
-        { key: "total", value: totals.totalRuns.toLocaleString() },
+        { key: "total", value: formatNumber(totals.totalRuns) },
         { key: "running", value: String(totals.running), tone: totals.running > 0 ? "ops-tone--info" : undefined },
         { key: "halted", value: String(totals.halted), tone: totals.halted > 0 ? "ops-tone--warn" : undefined },
         { key: "done", value: String(totals.done), tone: totals.done > 0 ? "ops-tone--success" : undefined },
@@ -188,7 +189,7 @@ export default function OperationsDashboard({
             </button>
             {data && (
               <span className="ops-generated">
-                {t("modals:operations.generatedAt", { time: new Date(data.generatedAt).toLocaleTimeString() })}
+                {t("modals:operations.generatedAt", { time: formatTime(data.generatedAt) })}
               </span>
             )}
           </div>
@@ -269,14 +270,14 @@ export default function OperationsDashboard({
                     </span>
                     <span className="ops-card__time">
                       {g.lastStartedAt != null ? (
-                        <span title={new Date(g.lastStartedAt).toLocaleString()}>
+                        <span title={formatDateTime(g.lastStartedAt)}>
                           {t("modals:operations.graph.lastRun")} {relTime(g.lastStartedAt, now, t)}
                         </span>
                       ) : (
                         <span className="muted">{t("modals:operations.graph.never")}</span>
                       )}
                       {nextTs != null && (
-                        <span className="ops-card__next" title={new Date(nextTs).toLocaleString()}>
+                        <span className="ops-card__next" title={formatDateTime(nextTs)}>
                           {t("modals:operations.graph.nextRun")} {relTime(nextTs, now, t)}
                         </span>
                       )}

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { formatDateTime, formatNumber } from "../i18n/utils";
 import { runStatusLabel } from "../lib/run-status";
 
 interface RunSummary {
@@ -32,7 +33,7 @@ interface Props {
 }
 
 export default function RunCompare({ open, graphId, onClose }: Props) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const [runs, setRuns] = useState<RunSummary[]>([]);
   const [runA, setRunA] = useState<string>("");
   const [runB, setRunB] = useState<string>("");
@@ -129,7 +130,7 @@ export default function RunCompare({ open, graphId, onClose }: Props) {
               <option value="">{t("modals:runCompare.selectRun")}</option>
               {runs.map((r) => (
                 <option key={r.id} value={r.id}>
-                  {new Date(r.started_at).toLocaleString(i18n.language)} — {runStatusLabel(r.status)}
+                  {formatDateTime(r.started_at)} — {runStatusLabel(r.status)}
                 </option>
               ))}
             </select>
@@ -140,7 +141,7 @@ export default function RunCompare({ open, graphId, onClose }: Props) {
               <option value="">{t("modals:runCompare.selectRun")}</option>
               {runs.map((r) => (
                 <option key={r.id} value={r.id}>
-                  {new Date(r.started_at).toLocaleString(i18n.language)} — {runStatusLabel(r.status)}
+                  {formatDateTime(r.started_at)} — {runStatusLabel(r.status)}
                 </option>
               ))}
             </select>
@@ -173,18 +174,18 @@ export default function RunCompare({ open, graphId, onClose }: Props) {
                 </tr>
                 <tr>
                   <td>{t("modals:runCompare.inputTokens")}</td>
-                  <td>{statsA.tokens_in.toLocaleString(i18n.language)}</td>
-                  <td>{statsB.tokens_in.toLocaleString(i18n.language)}</td>
+                  <td>{formatNumber(statsA.tokens_in)}</td>
+                  <td>{formatNumber(statsB.tokens_in)}</td>
                   <td>
-                    {(statsB.tokens_in - statsA.tokens_in).toLocaleString(i18n.language)}
+                    {formatNumber(statsB.tokens_in - statsA.tokens_in)}
                   </td>
                 </tr>
                 <tr>
                   <td>{t("modals:runCompare.outputTokens")}</td>
-                  <td>{statsA.tokens_out.toLocaleString(i18n.language)}</td>
-                  <td>{statsB.tokens_out.toLocaleString(i18n.language)}</td>
+                  <td>{formatNumber(statsA.tokens_out)}</td>
+                  <td>{formatNumber(statsB.tokens_out)}</td>
                   <td>
-                    {(statsB.tokens_out - statsA.tokens_out).toLocaleString(i18n.language)}
+                    {formatNumber(statsB.tokens_out - statsA.tokens_out)}
                   </td>
                 </tr>
                 <tr>

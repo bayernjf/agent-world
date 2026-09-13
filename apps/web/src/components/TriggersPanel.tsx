@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api, type RunSummary, type TriggerConfig } from "../lib/api";
 import i18n from "../i18n";
+import { formatDateTime } from "../i18n/utils";
 import Tooltip from "./Tooltip";
 
 interface Props {
@@ -61,7 +62,7 @@ function summarize(t: TriggerConfig): string {
 }
 
 function fmtTime(ms: number | null | undefined): string {
-  return ms ? new Date(ms).toLocaleString() : "—";
+  return ms ? formatDateTime(ms) : "—";
 }
 
 export default function TriggersPanel({ open, onClose, graphId }: Props) {
@@ -240,7 +241,7 @@ export default function TriggersPanel({ open, onClose, graphId }: Props) {
                   })}
                 </span>
                 <span className="muted">
-                  {new Date(r.started_at).toLocaleString()}
+                  {formatDateTime(r.started_at)}
                 </span>
               </li>
             ))}

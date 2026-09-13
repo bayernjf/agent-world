@@ -156,6 +156,7 @@ const IMAGE_GEN_TIMEOUT_MS = 120_000;
 function computeUsage(
   raw: NonNullable<StreamChunk["usage"]>,
   pricing: ModelPricing | undefined,
+  model: string,
   units?: Usage["units"],
 ): Usage {
   const tokensIn = raw.prompt_tokens ?? 0;
@@ -163,7 +164,7 @@ function computeUsage(
   const cachedTokens = raw.prompt_tokens_details?.cached_tokens ?? 0;
   const reasoningTokens = raw.completion_tokens_details?.reasoning_tokens ?? 0;
   const costUsd = computeCost({ tokensIn, tokensOut, cachedTokens, units }, pricing);
-  return { tokensIn, tokensOut, costUsd, cachedTokens, reasoningTokens, ...(units ? { units } : {}) };
+  return { tokensIn, tokensOut, costUsd, model, cachedTokens, reasoningTokens, ...(units ? { units } : {}) };
 }
 
 /** Fallback clip length when the gateway doesn't report duration and the node
@@ -301,7 +302,7 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
             yield { type: "reasoning-delta", text: delta.reasoning_content };
           }
           if (parsed.usage) {
-            finalUsage = computeUsage(parsed.usage, pricingFor(model));
+            finalUsage = computeUsage(parsed.usage, pricingFor(model), model);
           }
         }
       }
@@ -457,6 +458,7 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
     const usage = computeUsage(
       { prompt_tokens: totalIn, completion_tokens: totalOut },
       pricingFor(model),
+      model,
     );
     return { output: finalText, usage };
   }
@@ -545,7 +547,8 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
             }
             // discard deltas; judge verdict comes from final JSON
           }
-          return extractJson(result?.output ?? "");
+          const verdict = extractJson(result?.output ?? "");
+          return { ...verdict, usage: result?.usage ?? { tokensIn: 0, tokensOut: 0, costUsd: 0, model } };
         },
         LONG_RETRY,
         isTransientError,
