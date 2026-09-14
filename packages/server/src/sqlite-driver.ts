@@ -1004,6 +1004,20 @@ export function createDriver(
       await exec.run("INSERT INTO idempotency_keys (user_id, key, run_id, created_at) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING", [userId, key, runId, Date.now()]);
     },
     /**
+     * Generic first-writer-wins claim over idempotency_keys, used to de-duplicate
+     * inbound Stripe webhook events (M3 S6). `namespace` is a reserved value
+     * (never a real userId) so webhook rows never collide with run creation.
+     * Returns true exactly once — the first insert of (namespace,key); a
+     * redelivered event gets false. Read with getIdempotentRun(namespace,key).
+     */
+    async claimIdempotencyKey(namespace: string, key: string, refId: string): Promise<boolean> {
+      const res = await exec.run(
+        "INSERT INTO idempotency_keys (user_id, key, run_id, created_at) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING",
+        [namespace, key, refId, Date.now()],
+      );
+      return res.changes === 1;
+    },
+    /**
      * Prunes events older than the given epoch-millisecond cutoff. Safe because
      * `runs.snapshot` already holds each run's full state (design-scaling §2.1),
      * so archived event history can be reconstructed from the snapshot. Returns
