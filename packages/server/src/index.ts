@@ -524,6 +524,8 @@ app.use("/api/*", async (c, next) => {
   // Webhook endpoints use their own secret-based auth
   if (/\/api\/graphs\/[^/]+\/webhook$/.test(path)) return next();
   if (/\/api\/metrics\/webhook\/[^/]+$/.test(path)) return next();
+  // Stripe webhook authenticates via its Stripe-Signature header, not a cookie.
+  if (path === "/api/billing/webhook") return next();
 
   // Extract token from cookie, Authorization Bearer header, or query param
   // (SSE fallback). Precedence: cookie → Bearer header → ?token= query.
@@ -938,6 +940,7 @@ import { enforceSubscription, QuotaError } from "./subscription.js";
 import { isPlanId, normalizeTokens, PLANS } from "./plans.js";
 import { getOrCreateSubscription, setPlan, currentPeriodEnd, currentUsage } from "./subscriptionService.js";
 import { listInvoices, getInvoice, markInvoicePaid, voidInvoice } from "./invoiceService.js";
+import { billingRouter } from "./api.billing.js";
 import { renderInvoiceHtml } from "./invoiceTemplate.js";
 
 app.post("/api/compile", async (c) => {
@@ -1216,6 +1219,9 @@ app.get("/api/invoices/:id/download", async (c) => {
   c.header("Content-Disposition", `attachment; filename="invoice_${invoice.id}.html"`);
   return c.body(html);
 });
+
+// --- M3 S6: Stripe billing routes (checkout / portal / signature webhook) -
+app.route("/api/billing", billingRouter(db, { publicUrl: PUBLIC_URL }));
 
 // --- User feedback (design-feedback P1+P2) --------------------------------
 // Admin gate follows the RBAC-era rule (design doc §3.3 sketched a
