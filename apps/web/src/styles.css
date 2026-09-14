@@ -7636,6 +7636,102 @@ select {
   font-weight: var(--font-bold);
 }
 
+/* --- M3 S2: invoice list & detail --- */
+.invoice-list {
+  margin-top: var(--space-4);
+}
+.invoice-list__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+  margin-top: var(--space-2);
+}
+.invoice-list__table th,
+.invoice-list__table td {
+  text-align: left;
+  padding: var(--space-2);
+  border-bottom: var(--hair);
+  vertical-align: middle;
+}
+.invoice-list__table th {
+  color: var(--ink-dim);
+  font-weight: var(--font-medium);
+}
+.invoice-list__table .num {
+  text-align: right;
+  font-family: var(--mono);
+}
+.invoice-status {
+  display: inline-block;
+  font-size: var(--text-xs);
+  font-family: var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+}
+.invoice-status--draft {
+  color: var(--ink-dim);
+  border-color: var(--steel-500);
+}
+.invoice-status--open {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+.invoice-status--paid {
+  color: var(--ok);
+  border-color: var(--ok);
+}
+.invoice-status--void {
+  color: var(--ink-faint);
+  border-color: var(--steel-500);
+  text-decoration: line-through;
+}
+
+.invoice-detail__grid {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--space-2) var(--space-4);
+  margin: 0 0 var(--space-4);
+  font-size: var(--text-sm);
+}
+.invoice-detail__grid dt {
+  color: var(--ink-dim);
+  font-weight: var(--font-medium);
+}
+.invoice-detail__grid dd {
+  margin: 0;
+  color: var(--ink);
+  word-break: break-all;
+}
+.invoice-detail__section-title {
+  font-size: var(--text-sm);
+  font-weight: var(--font-bold);
+  color: var(--ink);
+  margin: 0 0 var(--space-2);
+}
+.invoice-detail__items {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+.invoice-detail__items th,
+.invoice-detail__items td {
+  text-align: left;
+  padding: var(--space-2);
+  border-bottom: var(--hair);
+}
+.invoice-detail__items .num {
+  text-align: right;
+  font-family: var(--mono);
+}
+.invoice-detail__items tfoot th {
+  border-top: 2px solid var(--steel-500);
+  border-bottom: none;
+  padding-top: var(--space-2);
+}
+
 .upgrade-gate__card {
   width: 460px;
 }

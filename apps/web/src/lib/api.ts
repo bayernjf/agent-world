@@ -609,6 +609,30 @@ export interface SubscriptionStatus {
   usage: SubscriptionUsage;
 }
 
+export interface InvoiceLineItem {
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  amount: number;
+}
+
+export interface Invoice {
+  id: string;
+  userId: string;
+  subscriptionId: string;
+  periodStart: number;
+  periodEnd: number;
+  plan: "free" | "starter" | "pro" | "team";
+  amountUsd: number;
+  status: "draft" | "open" | "paid" | "void";
+  lineItems: InvoiceLineItem[];
+  paidAt: number | null;
+  paidMethod: string | null;
+  notes: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export const api = {
   listSkills: () => authFetch("/api/skills").then(json<Skill[]>),
 
@@ -1238,4 +1262,7 @@ export const api = {
     }).then(json<ProviderTestResult>),
 
   getSubscription: () => authFetch("/api/subscription").then(json<SubscriptionStatus>),
+
+  getInvoices: () => authFetch("/api/invoices").then(json<{ invoices: Invoice[] }>),
+  getInvoice: (id: string) => authFetch(`/api/invoices/${id}`).then(json<Invoice>),
 };

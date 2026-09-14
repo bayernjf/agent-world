@@ -60,5 +60,29 @@
     "tokenExhaustedTitle": "Built-in tokens exhausted",
     "tokenExhaustedBody": "This period's built-in model tokens are exhausted (used {{used}}, limit {{limit}}). Built-in model runs are paused until you upgrade or the period rolls over.",
     "viewUsage": "View usage"
+  },
+  "invoices": {
+    "title": "Billing history",
+    "empty": "No invoices yet",
+    "loading": "Loading invoices…",
+    "error": "Failed to load invoices",
+    "period": "Period",
+    "amount": "Amount",
+    "status": "Status",
+    "statusOpen": "Open",
+    "statusPaid": "Paid",
+    "statusVoid": "Void",
+    "statusDraft": "Draft",
+    "viewDetail": "View details",
+    "detail": {
+      "title": "Invoice details",
+      "invoiceId": "Invoice ID",
+      "plan": "Plan",
+      "lineItems": "Line items",
+      "paidAt": "Paid at",
+      "paidMethod": "Payment method",
+      "notes": "Notes",
+      "close": "Close"
+    }
   }
 }

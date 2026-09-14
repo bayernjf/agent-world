@@ -918,6 +918,7 @@ import { validateModels, type ModelDiagnostic } from "./validate-models.js";
 import { enforceSubscription, QuotaError } from "./subscription.js";
 import { isPlanId, normalizeTokens, PLANS } from "./plans.js";
 import { getOrCreateSubscription, setPlan, currentPeriodEnd, currentUsage } from "./subscriptionService.js";
+import { listInvoices, getInvoice } from "./invoiceService.js";
 
 app.post("/api/compile", async (c) => {
   const parsed = Graph.safeParse(await c.req.json());
@@ -1111,6 +1112,23 @@ app.get("/api/subscription", async (c) => {
       concurrentLimit: quota.concurrentRuns,
     },
   });
+});
+
+// --- M3 S2: invoices API (billing history) --------------------------------
+app.get("/api/invoices", async (c) => {
+  const userId = c.get("userId");
+  const invoices = await listInvoices(db, userId);
+  return c.json({ invoices });
+});
+
+app.get("/api/invoices/:id", async (c) => {
+  const userId = c.get("userId");
+  const id = c.req.param("id");
+  const invoice = await getInvoice(db, id);
+  if (!invoice) return c.json({ error: "not_found" }, 404);
+  // Users can only see their own invoices
+  if (invoice.userId !== userId) return c.json({ error: "forbidden" }, 403);
+  return c.json(invoice);
 });
 
 // --- User feedback (design-feedback P1+P2) --------------------------------
