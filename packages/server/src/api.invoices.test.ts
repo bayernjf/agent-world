@@ -107,3 +107,44 @@ describe("GET /api/invoices/:id (M3 S2)", () => {
     expect(res.status).toBe(401);
   });
 });
+
+describe("GET /api/invoices/:id/download (M3 S3)", () => {
+  it("returns an HTML invoice with attachment headers", async () => {
+    const { token, userId } = await register("dl-inv@test.dev");
+    const inv = await generateInvoice(db, userId);
+    const res = await app.request(`/api/invoices/${inv.id}/download`, {
+      headers: { cookie: `auth_token=${token}` },
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/html");
+    expect(res.headers.get("content-disposition")).toContain("attachment");
+    expect(res.headers.get("content-disposition")).toContain(`invoice_${inv.id}.html`);
+    const body = await res.text();
+    expect(body).toContain("<!DOCTYPE html>");
+    expect(body).toContain(inv.id);
+    expect(body).toContain("Invoice");
+  });
+
+  it("404s for a nonexistent invoice", async () => {
+    const { token } = await register("dl-404@test.dev");
+    const res = await app.request("/api/invoices/inv_nope/download", {
+      headers: { cookie: `auth_token=${token}` },
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it("403s when a user tries to download another user's invoice", async () => {
+    const alice = await register("alice-dl@test.dev");
+    const bob = await register("bob-dl@test.dev");
+    const aliceInv = await generateInvoice(db, alice.userId);
+    const res = await app.request(`/api/invoices/${aliceInv.id}/download`, {
+      headers: { cookie: `auth_token=${bob.token}` },
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("401s without a session", async () => {
+    const res = await app.request("/api/invoices/inv_anything/download");
+    expect(res.status).toBe(401);
+  });
+});

@@ -74,6 +74,7 @@
     "statusVoid": "Void",
     "statusDraft": "Draft",
     "viewDetail": "View details",
+    "download": "Download invoice",
     "detail": {
       "title": "Invoice details",
       "invoiceId": "Invoice ID",

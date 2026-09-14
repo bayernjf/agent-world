@@ -1265,4 +1265,16 @@ export const api = {
 
   getInvoices: () => authFetch("/api/invoices").then(json<{ invoices: Invoice[] }>),
   getInvoice: (id: string) => authFetch(`/api/invoices/${id}`).then(json<Invoice>),
+  downloadInvoice: async (id: string) => {
+    const res = await authFetch(`/api/invoices/${id}/download`);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `invoice_${id}.html`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  },
 };

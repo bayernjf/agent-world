@@ -74,6 +74,7 @@
     "statusVoid": "已作废",
     "statusDraft": "草稿",
     "viewDetail": "查看详情",
+    "download": "下载发票",
     "detail": {
       "title": "账单详情",
       "invoiceId": "账单编号",

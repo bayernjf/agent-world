@@ -27,9 +27,14 @@ function InvoiceDetailModal({ invoice, onClose }: { invoice: Invoice | null; onC
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal__header">
           <h2>{t("billing:invoices.detail.title")}</h2>
-          <button className="icon-btn" onClick={onClose} aria-label={t("billing:invoices.detail.close")}>
-            ✕
-          </button>
+          <div style={{ display: "flex", gap: "var(--space-2)", alignItems: "center" }}>
+            <button className="btn btn--ghost" onClick={() => api.downloadInvoice(invoice.id)}>
+              {t("billing:invoices.download")}
+            </button>
+            <button className="icon-btn" onClick={onClose} aria-label={t("billing:invoices.detail.close")}>
+              ✕
+            </button>
+          </div>
         </div>
         <div className="modal__body">
           <dl className="invoice-detail__grid">
@@ -164,9 +169,14 @@ export default function InvoiceList() {
                   </span>
                 </td>
                 <td>
-                  <button className="btn btn--ghost" onClick={() => setSelected(inv)}>
-                    {t("billing:invoices.viewDetail")}
-                  </button>
+                  <div style={{ display: "flex", gap: "var(--space-1)" }}>
+                    <button className="btn btn--ghost" onClick={() => setSelected(inv)}>
+                      {t("billing:invoices.viewDetail")}
+                    </button>
+                    <button className="btn btn--ghost" onClick={() => api.downloadInvoice(inv.id)}>
+                      {t("billing:invoices.download")}
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}

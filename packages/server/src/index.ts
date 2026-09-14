@@ -919,6 +919,7 @@ import { enforceSubscription, QuotaError } from "./subscription.js";
 import { isPlanId, normalizeTokens, PLANS } from "./plans.js";
 import { getOrCreateSubscription, setPlan, currentPeriodEnd, currentUsage } from "./subscriptionService.js";
 import { listInvoices, getInvoice } from "./invoiceService.js";
+import { renderInvoiceHtml } from "./invoiceTemplate.js";
 
 app.post("/api/compile", async (c) => {
   const parsed = Graph.safeParse(await c.req.json());
@@ -1129,6 +1130,19 @@ app.get("/api/invoices/:id", async (c) => {
   // Users can only see their own invoices
   if (invoice.userId !== userId) return c.json({ error: "forbidden" }, 403);
   return c.json(invoice);
+});
+
+app.get("/api/invoices/:id/download", async (c) => {
+  const userId = c.get("userId");
+  const id = c.req.param("id");
+  const invoice = await getInvoice(db, id);
+  if (!invoice) return c.json({ error: "not_found" }, 404);
+  if (invoice.userId !== userId) return c.json({ error: "forbidden" }, 403);
+  const user = await db.findUserById(userId);
+  const html = renderInvoiceHtml(invoice, user?.email);
+  c.header("Content-Type", "text/html; charset=utf-8");
+  c.header("Content-Disposition", `attachment; filename="invoice_${invoice.id}.html"`);
+  return c.body(html);
 });
 
 // --- User feedback (design-feedback P1+P2) --------------------------------
