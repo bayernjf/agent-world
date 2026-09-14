@@ -60,13 +60,13 @@ interface ParkSceneState {
   dummy: THREE.Object3D; // reused object, avoids per-frame allocation
 }
 
-// --- Status colors (reuse L1 semantics) ---
+// --- Status colors (brighter for dark park background) ---
 const STATUS_COLORS: Record<FactoryStatus, number> = {
-  running: 0x4ade80, // green
+  running: 0x4ade80, // green (breathing animation)
   done: 0x60a5fa, // blue
-  failed: 0xf87171, // red
-  halted: 0xfbbf24, // yellow
-  idle: 0x6b7280, // gray
+  failed: 0xef4444, // bright red
+  halted: 0xf59e0b, // amber
+  idle: 0x94a3b8, // brighter slate gray
 };
 
 // Deterministic category palette: any category string (including the Chinese
@@ -95,13 +95,25 @@ function makeTextTexture(text: string, color: string, fontSize = 48): THREE.Canv
   const font = `bold ${fontSize}px sans-serif`;
   ctx.font = font;
   const metrics = ctx.measureText(text);
-  const pad = 16;
-  canvas.width = Math.ceil(metrics.width) + pad * 2;
-  canvas.height = fontSize + pad * 2;
+  const padX = 24;
+  const padY = 12;
+  canvas.width = Math.ceil(metrics.width) + padX * 2;
+  canvas.height = fontSize + padY * 2;
+
+  // Semi-transparent dark background pill
+  ctx.fillStyle = "rgba(20, 24, 29, 0.85)";
+  ctx.beginPath();
+  const radius = canvas.height / 2;
+  ctx.roundRect(0, 0, canvas.width, canvas.height, radius);
+  ctx.fill();
+
+  // Text with subtle shadow for readability
   ctx.font = font;
   ctx.fillStyle = color;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
+  ctx.shadowColor = "rgba(0, 0, 0, 0.5)";
+  ctx.shadowBlur = 4;
   ctx.fillText(text, canvas.width / 2, canvas.height / 2);
 
   const tex = new THREE.CanvasTexture(canvas);
@@ -605,11 +617,11 @@ export default function CanvasPark({
       const pos = layout.get(f.id) ?? { x: 0, z: 0 };
 
       const catColor = categoryColor(f.category);
-      const labelTex = makeTextTexture(f.name, `#${catColor.toString(16).padStart(6, "0")}`, 42);
+      const labelTex = makeTextTexture(f.name, `#${catColor.toString(16).padStart(6, "0")}`, 52);
       const labelMat = new THREE.SpriteMaterial({ map: labelTex, transparent: true, depthTest: false });
       const labelSprite = new THREE.Sprite(labelMat);
-      labelSprite.position.set(pos.x, FACTORY_H + 60, pos.z);
-      labelSprite.scale.set(300, 80, 1);
+      labelSprite.position.set(pos.x, FACTORY_H + 70, pos.z);
+      labelSprite.scale.set(380, 100, 1);
       st.billboardGroup.add(labelSprite);
 
       if (f.pendingReview > 0) {
