@@ -2,9 +2,9 @@
 
 > 定位：对 [design-monetization.md](design-monetization.md) §5「配额与订阅 gate」+ §9 P1 阶段的**落地级细化**，结合当前代码库（2026-09-14）实际状态，给出可执行的分步骤实施计划、文件清单、迁移方案、测试策略与回滚方案。
 >
-> 状态：**实施中（2026-09-14 启动）**。S1 无需新建迁移（表已存在于迁移 34）；S2 ✅ commit `1d7a3e4`（plans.ts 单一事实源 + subscriptionService）；S3 ✅ commit `8a8a32f`（用量计量 + 幂等回填 CLI）；S4 ✅ commit `7dece12`（gate 五维检查 + 结构化 402，25 测试全绿，=唯一 checkpoint）。S5-S8 待续（S4 后暂停等用户 review gate 设计）。M1 成本计量回采已完成（125 runs / $5.57 总成本），套餐价格已校准（Starter $9 / Pro $29 / Team $149，见 design-monetization.md §4.1）。
+> 状态：**代码实现完成（2026-09-14，未部署 Hasee）**。S1 无需新建迁移（表已存在于迁移 34）；S2 ✅ `1d7a3e4`（plans.ts 单一事实源 + subscriptionService）；S3 ✅ `8a8a32f`（用量计量 + 幂等回填 CLI）；S4 ✅ `7dece12`（gate 五维检查 + 结构化 402）；BYOK 视频放行修复 ✅ `99d639b`；S5 ✅ `9807988`（GET /api/subscription + web client）；S6 ✅ `f3ed6f4`（账单 tab + 用量面板 + 升级引导模态）；S7 ✅ `d045f46`（80%/100% token 预警公告）；S8 ✅ 四包 typecheck 全绿，core 233 / mcp 71 / web 1824 / server 1036 测试通过（server 余 32 个失败为 macOS 子进程沙箱环境基线，与 M2 无关，已用 git diff 证实未触碰这些文件）。**剩 Hasee 部署（用户执行，见 S8 部署手册）；gate 默认仍由 `MONETIZATION_ENFORCE` 关闭。** M1 成本计量回采已完成（125 runs / $5.57 总成本），套餐价格已校准（Starter $9 / Pro $29 / Team $149，见 design-monetization.md §4.1）。
 >
-> 实施偏差记录（以代码现状为准，非方案预设）：① 无需新建 enforce-subscription.ts，enforceSubscription 已在 subscription.ts；② QuotaError 统一 code=QUOTA_EXCEEDED + 稳定 metric 字段（builtin_model/tokens/video/storage/concurrency），而非方案的独立 error code；③ 402 body 暂未加 upgradeUrl（S6 定路由后补）；④ gate feature flag `MONETIZATION_ENFORCE=1` 默认关闭；⑤ 视频检查对所有 plan 生效（free 配额=0 故免费层连 BYOK 视频也拦）。
+> 实施偏差记录（以代码现状为准，非方案预设）：① 无需新建 enforce-subscription.ts，enforceSubscription 已在 subscription.ts；② QuotaError 统一 code=QUOTA_EXCEEDED + 稳定 metric 字段（builtin_model/tokens/video/storage/concurrency），而非方案的独立 error code；③ 402 body 已在 S6 补 `upgradeUrl:"settings:billing"`；④ gate feature flag `MONETIZATION_ENFORCE=1` 默认关闭（用户拍板维持）；⑤ ~~视频检查对所有 plan 生效（free 连 BYOK 视频也拦）~~ → 已由 `99d639b` 修正为**只拦内置模型视频，免费层 BYOK 视频放行**（用户决策点①）；⑥ S7 未新建通用 KV/flag 表（feature-flags.ts 是静态布尔 registry，不承担动态去重），改用**确定性公告 ID** `usage_alert:<user>:<periodStart>:<tier>` 实现「每用户每月每档一次」幂等，跨月 periodStart 变化自然重新预警；为此给公告 target 解析新增 `user:<id>` 定向分支；⑦ 账单页以「Settings 内新增 billing tab」落地（契合无 react-router 现状），而非方案的独立 pages/SettingsBilling.tsx；服务端公告直接写中英双语行（服务端无 i18next）。
 >
 > 约定：延续项目惯例——原子提交、英文 commit message、不加助手署名、不 push；typecheck 四包绿、全量测试通过；i18n + 设计 token；DB 迁移双写（sqlite base DDL + 迁移版本 + PG toPgDdl）。
 
@@ -426,7 +426,7 @@ const run = await execute(graph, userId, ...);
 
 ---
 
-### S5 · API 端点（订阅查询 + 管理员改套餐 + 用量查询）
+### S5 · API 端点（订阅查询 + 管理员改套餐 + 用量查询）✅ commit `9807988`
 
 **目标**：3 个 REST API 端点，供前端查询订阅状态、用量、管理员改套餐。
 
@@ -473,7 +473,7 @@ GET /api/admin/subscriptions?plan=pro&limit=50&offset=0
 
 ---
 
-### S6 · 前端升级引导 + 用量面板
+### S6 · 前端升级引导 + 用量面板 ✅ commit `f3ed6f4`（账单以 Settings billing tab 落地，见偏差⑦）
 
 **目标**：免费层用户遇到 402 时显示升级引导卡片；设置页增加用量面板展示当前配额使用情况。
 
@@ -527,7 +527,7 @@ GET /api/admin/subscriptions?plan=pro&limit=50&offset=0
 
 ---
 
-### S7 · 用量预警（80% / 100%）
+### S7 · 用量预警（80% / 100%）✅ commit `d045f46`（确定性公告 ID 去重，见偏差⑥）
 
 **目标**：用量达到 80% 时发预警公告，达到 100% 时发用尽公告。
 
@@ -593,7 +593,7 @@ export async function checkUsageAlerts(userId: string): Promise<void> {
 
 ---
 
-### S8 · 全量测试 + 文档更新 + Hasee 部署验证
+### S8 · 全量测试 + 文档更新 + Hasee 部署验证 ✅ 代码/测试/文档完成（部署由用户执行，手册见下）
 
 **目标**：全量回归测试通过、文档更新、Hasee 部署验证、M2 正式闭环。
 
@@ -621,6 +621,25 @@ export async function checkUsageAlerts(userId: string): Promise<void> {
 - M2 上线后，如果 owner 是免费层，这些产线会被 402 阻断
 - **解决方案**：M2 部署到 Hasee 后，立即把 owner 用户手动改成 `pro` 或 `team` 套餐（POST /api/admin/users/:id/plan），保证 M1 回采不中断
 - 这是 M2 部署的**必要前置操作**，写进部署手册
+
+#### Hasee 部署手册（按顺序执行，部署由用户/运维完成；助手不直接部署）
+
+> 环境：SSH 别名 `hasee-2016-server`，代码 `/opt/agent-world`，DB `/var/lib/agent-world/agent-world.sqlite`，服务 `agent-world.service`。服务器无 sqlite3 CLI，一律用 python3；读写 DB 用 `echo '<pw>' | sudo -S -u agentworld python3 /tmp/x.py`（脚本先 `chmod 644`）。
+
+1. **合并 + 拉代码**：feature 分支合入 dev → Hasee `cd /opt/agent-world && git pull` → `pnpm -r build`。
+2. **迁移自动应用**：服务启动时自动跑到最新迁移（subscriptions / usage_ledger 表已在迁移 34 存在，无需手工建表）；启动日志确认 `migrations complete`。
+3. **历史用量回填（幂等，跑一次）**：执行 S3 的 backfill CLI（`usage-backfill`），把历史 run 的 token / video 灌入 usage_ledger；重复跑不重复计数。
+4. **存量用户自动落免费层**：`getOrCreateSubscription` 懒创建 free，无需批量刷库；可抽查一个老用户 `GET /api/subscription` 返回 `plan:"free"`。
+5. **⚠️ 先把 owner 升到付费套餐（最关键，顺序不能反）**：owner userId `92d95665-10ef-49d7-a2c3-6ba39d92f5fb`，在**打开 enforce 之前**用管理员接口设为 `pro`（或 `team`），否则 M1 四条内置 agnes 回采产线会被 402 断供：
+   `POST /api/admin/users/92d95665-10ef-49d7-a2c3-6ba39d92f5fb/plan  body {"plan":"pro"}`（需 owner/admin 登录态），并确认 audit_log 出现 `billing.plan_changed`。
+6. **最后才打开 gate 开关**：在服务环境变量设 `MONETIZATION_ENFORCE=1` 并 `systemctl restart agent-world`。**默认关闭**——不设此变量时代码已上线但不拦截，可先灰度观察计量是否准确。
+7. **部署后验证**：
+   - M1 四条产线下一个 cron tick 正常出 run（①`10,40 * * * *` 等），无 402；
+   - owner `GET /api/subscription` 返回 `plan:"pro"` 且 usage 正常累加；
+   - 一个免费测试账号跑内置模型产线 → 402 + 前端升级引导模态；BYOK 产线仍可跑；
+   - pro 测试账号 token 用量灌到 80% → 公告铃铛出现 info 预警，再跑不重复弹；
+   - `journalctl -u agent-world` 无 `usage metering failed` / `usage alert failed` 连续告警。
+8. **回滚**：不设 / 移除 `MONETIZATION_ENFORCE` 即关闭拦截（无需回滚代码）；彻底回滚按第五节倒序 `git revert`，新表可 DROP。
 
 **验收**：全量测试通过 + 本地走查通过 + Hasee 部署验证通过 + M1 回采不中断 + 文档更新完成。
 

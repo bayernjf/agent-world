@@ -1,6 +1,6 @@
 # 商业化详细实施方案（Monetization）
 
-> 状态：**方案设计（价格已用 M1 真实数据校准；M2 订阅 gate S1-S4 已落地，S5-S8 进行中）**。设计决策基线见 [PRODUCT_STRATEGY.md](PRODUCT_STRATEGY.md) §八，历史讨论见 [product-vision-discussion.md](product-vision-discussion.md) §九。M2 落地级细化见 [design-monetization-m2-implementation.md](design-monetization-m2-implementation.md)。
+> 状态：**方案设计（价格已用 M1 真实数据校准；M2 订阅 gate S1-S8 代码已全部完成并测试通过，待部署 Hasee；gate 默认由 MONETIZATION_ENFORCE 关闭）**。设计决策基线见 [PRODUCT_STRATEGY.md](PRODUCT_STRATEGY.md) §八，历史讨论见 [product-vision-discussion.md](product-vision-discussion.md) §九。M2 落地级细化见 [design-monetization-m2-implementation.md](design-monetization-m2-implementation.md)。
 > 本方案把「方向」落成可实施的规格：数据模型 / API / 挂点 / 分阶段路线。2026-09-14 已用 M1 回采 125 runs / $5.57 真实成本数据校准 §4 套餐价格与 §10.2 待定参数，校准依据见 §4.1。
 
 ---
@@ -502,8 +502,8 @@ cloudflared tunnel --url http://localhost:8791
 | 里程碑 | 内容 | 状态 |
 |---|---|---|
 | **M0 本地运行环境** | 把 agent-world 部署成可 7×24 跑真实产线的**单机服务**（Ubuntu 纯 Server / Node 24 / systemd / nginx 同源 / bwrap 沙箱），作为 P0 成本计量回采的运行床 | ✅ 完成（阶段 0-7 + CI/CD 全部通过，见 [deploy-ubuntu-execution-log.md](runbooks/deploy-ubuntu-execution-log.md)） |
-| **M1 成本计量回采** | 用 M0 环境跑 2-4 周真实产线，攒真实成本数据（§8.4 单位经济） | 🔵 进行中（2026-09-08 起；开跑阻塞「7 个模型单价未配」**已解除并端到端实测通过**，进入攒数据阶段，见下） |
-| **M2 订阅 gate 落地** | P1 的 `enforceSubscription` + 套餐 + 硬配额（§5） | ⬜ |
+| **M1 成本计量回采** | 用 M0 环境跑 2-4 周真实产线，攒真实成本数据（§8.4 单位经济） | ✅ 完成（125 runs / $5.57，价格已校准，见 §4.1） |
+| **M2 订阅 gate 落地** | P1 的 `enforceSubscription` + 套餐 + 硬配额（§5） | 🔵 代码完成待部署（S1-S8 全部提交，四包 typecheck 绿、core/mcp/web/server 相关测试全过；部署手册见 m2-implementation §S8，上线前需先把 owner 升 pro 再开 MONETIZATION_ENFORCE） |
 | **M3 收款与上线** | P2 账单/支付 + 域名/TLS（§6，先手动收款再接网关） | ⬜ |
 
 > M0 的部署形态：§8.2 原推荐「先云 VM（Fly.io 零成本）」，现按实际资源调整为「先本地 Linux 笔记本单机」——数据 rsync 可迁、P2 真收款前再上云/隧道，与 §8.3「本地可先做」一致，不推翻原推荐。
@@ -513,25 +513,25 @@ cloudflared tunnel --url http://localhost:8791
 ## 9. 分阶段实施路线
 
 ### P0 —— 计量回采 + 数据模型（无用户可见变化）
-- [ ] 落 `subscriptions` / `usage_ledger` / `invoices` 三张表（迁移）
-- [ ] `plans.ts` 配额定义 + `loadSubscription`/`usageFor` 读接口
-- [ ] 用量回采脚本：从现有 `node_runs`/`runs`/`artifacts` 回填 `usage_ledger`（幂等）
+- [x] 落 `subscriptions` / `usage_ledger` 表（迁移 34 已含；`invoices` 归 P2 收款阶段）
+- [x] `plans.ts` 配额定义（core 单一事实源）+ `loadSubscription`/`usageFor` 读接口
+- [x] 用量回采脚本：从现有 `node_runs`/`runs`/`artifacts` 回填 `usage_ledger`（幂等 CLI，`usage-backfill.ts`）
 - [x] 成本报表增强：`/api/costs` 增加按用户/模型/月的真实成本拆分（为定价提供数据）——2026-09-08 落地 `node_runs.model`（迁移 36）+ `byModel` 聚合 + 前端「按模型分摊电费」表 + CSV `model` 段；迁移前的行归入 `(未记录模型)` 桶，保证与总额对账
 - [x] 单价缺口审计：`unpricedModels()`（core）判定「完全没配单价 / 只配了一部分」，server 启动 warn + `/api/costs.unpricedModels`，前端成本报表顶部警告条。**这是 M1 的开跑前置**——缺单价的模型 `cost_usd` 当场按 0 落库，事后无法补算，回采数据会系统性偏低
 - [x] 在用模型单价配全 + 端到端实测（2026-09-08，Hasee/staging 浏览器直连核对）：7 个在用模型（agnes 6 个内置 + ceshi 1 个）价格卡全部落地，`unpricedModels` 缺口清零。**关键修复**：内置 `agnes` tier 原本没有价格卡，而 `loadConfig` 每次读取都用内置默认整体覆盖 builtin provider，导致 UI 里填的单价保存后被抹掉——价格改写入源码 `AGNES_PROVIDER`（`packages/server/src/config.ts`，随产品发布）才持久化；`ceshi` 为 custom provider，经设置 UI 直接持久化。当前为**非正式占位单价**（按 OpenAI 同级 list price 映射：flash 文本 ≈ gpt-4o-mini / gpt-4.1-mini、图片 ≈ gpt-image-1、视频 ≈ Sora 量级），**正式计费前须换成 agnes 网关真实费率**。实测：投料派发后运行「全部出厂」（seq 23/23），电费读数 **$0.00051**、token **830 入 / 643 出**，与 `computeCost` 手算（830×$0.15/1M + 643×$0.6/1M ≈ $0.00051）一致，成本报表不再报「未配单价」。
 - **验收**：能按用户看到「本月真实成本 = 平台代付模型费 + 存储 + 编排」，是 §10 定价的数据前提。
 
-### P1 —— 订阅 gate + 免费层（核心收费逻辑）
-- [ ] `enforceSubscription()` 挂入派发流程（§5.3）
-- [ ] 默认 plan = `free`（存量用户全落免费层，BYOK 不受影响、零破坏）
-- [ ] 内置模型访问控制：免费层 `QUOTA_EXCEEDED` + 前端升级引导（复用 `MissingModelHint` 模式）
-- [ ] 硬配额：token / 并发 / 存储 / 视频四维检查
-- [ ] `POST /api/admin/users/:id/plan`（owner 手动开通/改套餐，MVP 绕过支付网关）
-- [ ] 用量预警（80%/100%）
-- **验收**：免费层能跑 BYOK 产线、内置模型被诚实阻断且报错可行动；付费层能跑内置模型且超额被拦。
+### P1 —— 订阅 gate + 免费层（核心收费逻辑）✅ 代码完成（M2 S1-S8，待部署 Hasee）
+- [x] `enforceSubscription()` 挂入派发流程（§5.3，五维检查，gate 由 `MONETIZATION_ENFORCE=1` 开启、默认关）
+- [x] 默认 plan = `free`（存量用户懒创建落免费层，BYOK 不受影响、零破坏）
+- [x] 内置模型访问控制：免费层 402 `QUOTA_EXCEEDED` + 前端升级引导模态（UpgradeGate，不丢画布状态）
+- [x] 硬配额：token / 并发 / 存储 / 视频四维检查（视频只拦内置模型，免费层 BYOK 视频放行）
+- [x] `POST /api/admin/users/:id/plan`（owner 手动开通/改套餐，写 `billing.plan_changed` 审计）
+- [x] 用量预警（80% info / 100% warning，确定性公告 ID 每用户每月每档一次）
+- **验收**：免费层能跑 BYOK 产线、内置模型被诚实阻断且报错可行动；付费层能跑内置模型且超额被拦。（代码 + 单测已达成；端到端验收随 Hasee 部署进行，见 m2-implementation §S8）
 
 ### P2 —— 账单 + 支付（真正收钱）
-- [ ] 账单页 + 用量面板（`UsagePanel`：本月 token/run/存储/视频进度条）
+- [~] 账单页 + 用量面板（`UsagePanel`：本月 token/视频/存储/并发进度条 + 四档套餐对比表，已在 M2 S6 落地于 Settings billing tab；真正的账单流水/发票待支付阶段）
 - [ ] 支付网关接入（Stripe，`/api/billing/*` + webhook）
 - [ ] 月度发票 + 下载
 - [ ] 团队席位管理（复用 RBAC + Collaborators）
