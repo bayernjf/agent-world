@@ -586,6 +586,28 @@ export interface OperationsOverview {
   nextRuns: Record<string, Record<string, number | null>>;
 }
 
+export interface SubscriptionUsage {
+  tokensIn: number;
+  tokensOut: number;
+  tokensNormalized: number;
+  tokensLimit: number;
+  runs: number;
+  videoSegments: number;
+  videoLimit: number;
+  storageBytes: number;
+  storageLimit: number;
+  concurrentLimit: number;
+}
+
+export interface SubscriptionStatus {
+  plan: "free" | "starter" | "pro" | "team";
+  status: string;
+  provider: string | null;
+  currentPeriodStart: number;
+  currentPeriodEnd: number;
+  usage: SubscriptionUsage;
+}
+
 export const api = {
   listSkills: () => authFetch("/api/skills").then(json<Skill[]>),
 
@@ -1213,4 +1235,6 @@ export const api = {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ baseUrl, apiKey, model, providerName, modality }),
     }).then(json<ProviderTestResult>),
+
+  getSubscription: () => authFetch("/api/subscription").then(json<SubscriptionStatus>),
 };
