@@ -915,8 +915,9 @@ app.put("/api/graphs/:id", async (c) => {
 
 /** Which node kinds require a worker model and which modality they need. */
 import { validateModels, type ModelDiagnostic } from "./validate-models.js";
-import { enforceSubscription, currentPeriodStart, QuotaError } from "./subscription.js";
-import { isPlanId } from "./plans.js";
+import { enforceSubscription, QuotaError } from "./subscription.js";
+import { isPlanId, normalizeTokens, PLANS } from "./plans.js";
+import { getOrCreateSubscription, setPlan, currentPeriodEnd, currentUsage } from "./subscriptionService.js";
 
 app.post("/api/compile", async (c) => {
   const parsed = Graph.safeParse(await c.req.json());
@@ -1063,9 +1064,9 @@ app.post("/api/admin/users/:id/role", async (c) => {
   return c.json({ ok: true, role: body.role });
 });
 
-/** Monetization P1: owner manually sets a user's subscription plan (MVP,
- *  bypassing a payment gateway). Plan/price are runtime-editable placeholders
- *  pending real cost data (design-monetization §6.2, §10.2). */
+/** Monetization M2: owner manually sets a user's subscription plan (MVP,
+ *  bypassing a payment gateway until P2 Stripe). Instant, no proration;
+ *  setPlan writes the billing.plan_changed audit entry (design-monetization §6.2). */
 app.post("/api/admin/users/:id/plan", async (c) => {
   const callerId = c.get("userId");
   if (!(await isOwner(callerId))) return c.json({ error: "forbidden" }, 403);
@@ -1075,14 +1076,8 @@ app.post("/api/admin/users/:id/plan", async (c) => {
   }
   const target = await db.findUserById(c.req.param("id"));
   if (!target) return c.json({ error: "user not found" }, 404);
-  await db.saveSubscription(target.id, body.plan, body.status ?? "active");
-  audit(db, callerId, "plan.update", {
-    objectType: "user",
-    objectId: target.id,
-    detail: { grantee: target.id, plan: body.plan },
-    ip: clientIp(c),
-  });
-  return c.json({ ok: true, plan: body.plan });
+  const record = await setPlan(db, target.id, body.plan, callerId, clientIp(c));
+  return c.json({ ok: true, plan: record.plan });
 });
 
 // --- User feedback (design-feedback P1+P2) --------------------------------
@@ -2189,21 +2184,25 @@ app.post("/api/runs", async (c) => {
     );
   }
 
-  // 订阅 gate（design-monetization §5.3）：免费层阻断内置模型，付费层查额度/并发。
-  // 通过 MONETIZATION_ENFORCE=1 显式启用——当前内置模型仅 agnes（demo，无代付成本），
-  // 默认不阻断；待采购真实内置模型（design §3.3）后再开启，避免过早破坏现有产线。
+  // 订阅 gate（design-monetization §5.3 / M2 §S4）：免费层阻断内置模型，各层查
+  // token / 视频段 / 存储 / 并发额度。通过 MONETIZATION_ENFORCE=1 显式启用——
+  // 默认关闭，部署后先把 owner 升到 pro/team 再开，避免内置模型产线被 402 断供。
   if (process.env.MONETIZATION_ENFORCE === "1") {
     try {
-      const periodStart = currentPeriodStart();
+      const usage = await currentUsage(db, ownerId);
       enforceSubscription(graph, await loadConfig(ownerId), {
         subscription: await db.loadSubscription(ownerId),
-        usedTokens:
-          await db.usageFor(ownerId, "tokens_in", periodStart) + await db.usageFor(ownerId, "tokens_out", periodStart),
+        usedTokens: usage.normalizedTokens,
         activeRuns: await db.activeRuns(ownerId),
+        usedVideoSegments: usage.videoSegments,
+        usedStorageBytes: usage.storageBytes,
       });
     } catch (err) {
       if (err instanceof QuotaError) {
-        return c.json({ error: "subscription", code: err.code, message: err.message }, 402);
+        return c.json(
+          { error: "subscription", code: err.code, metric: err.metric ?? null, detail: err.detail ?? null, message: err.message },
+          402,
+        );
       }
       throw err;
     }

@@ -876,7 +876,16 @@ export function createDriver(
     accumulateUsage: `INSERT INTO usage_ledger (user_id, period_start, metric, amount, updated_at)
        VALUES (?, ?, ?, ?, ?)
        ON CONFLICT(user_id, period_start, metric) DO UPDATE SET amount = usage_ledger.amount + excluded.amount, updated_at = excluded.updated_at`,
+    // Idempotent overwrite used by the backfill (recompute → replace, never double-count).
+    setUsage: `INSERT INTO usage_ledger (user_id, period_start, metric, amount, updated_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(user_id, period_start, metric) DO UPDATE SET amount = excluded.amount, updated_at = excluded.updated_at`,
+    listUsageLedger: `SELECT user_id, period_start, metric, amount FROM usage_ledger WHERE period_start = ? ORDER BY user_id`,
     countActiveRuns: `SELECT COUNT(*) AS n FROM runs WHERE user_id = ? AND status IN ('running', 'halted')`,
+    // M2 metering: live storage snapshot + idempotent usage backfill.
+    sumArtifactBytes: `SELECT COALESCE(SUM(size_bytes), 0) AS total FROM artifacts WHERE user_id = ?`,
+    listFinishedRunsSince: `SELECT id, user_id, started_at, snapshot FROM runs WHERE status = 'done' AND user_id IS NOT NULL AND started_at >= ? ORDER BY started_at`,
+    countDistinctUsers: `SELECT COUNT(DISTINCT user_id) AS n FROM runs WHERE user_id IS NOT NULL`,
   };
 
   return {
@@ -1004,6 +1013,37 @@ export function createDriver(
     },
     async activeRuns(userId: string): Promise<number> {
       return (await exec.get(stmts.countActiveRuns, [userId]) as { n: number }).n;
+    },
+    /** Idempotent usage overwrite (backfill path); accumulateUsage is the online path. */
+    async setUsage(userId: string, periodStart: number, metric: string, amount: number) {
+      await exec.run(stmts.setUsage, [userId, periodStart, metric, amount, Date.now()]);
+    },
+    async listUsageLedger(periodStart: number): Promise<Array<{ userId: string; periodStart: number; metric: string; amount: number }>> {
+      const rows = await exec.all(stmts.listUsageLedger, [periodStart]) as Array<{ user_id: string; period_start: number; metric: string; amount: number }>;
+      return rows.map((r) => ({ userId: r.user_id, periodStart: r.period_start, metric: r.metric, amount: r.amount }));
+    },
+    /**
+     * Count distinct given nodes that finished successfully within a run.
+     * Used for video-segment metering: one successful videoGen node = one segment
+     * (retries share the node id, so DISTINCT avoids counting attempts).
+     */
+    async countDoneNodes(runId: string, nodeIds: string[]): Promise<number> {
+      if (nodeIds.length === 0) return 0;
+      const placeholders = nodeIds.map(() => "?").join(",");
+      const row = await exec.get(
+        `SELECT COUNT(DISTINCT node_id) AS n FROM node_runs WHERE run_id = ? AND status = 'done' AND node_id IN (${placeholders})`,
+        [runId, ...nodeIds],
+      ) as { n: number };
+      return row.n;
+    },
+    /** Live storage usage snapshot: total artifact bytes owned by a user. */
+    async sumArtifactBytes(userId: string): Promise<number> {
+      return (await exec.get(stmts.sumArtifactBytes, [userId]) as { total: number }).total;
+    },
+    /** Finished runs since an epoch (snapshot included for video-node detection), for backfill. */
+    async listFinishedRunsSince(since: number): Promise<Array<{ id: string; userId: string; startedAt: number; snapshot: string }>> {
+      const rows = await exec.all(stmts.listFinishedRunsSince, [since]) as Array<{ id: string; user_id: string; started_at: number; snapshot: string }>;
+      return rows.map((r) => ({ id: r.id, userId: r.user_id, startedAt: r.started_at, snapshot: openDocString(r.snapshot) }));
     },
 
     /** Grant or overwrite a shared role (editor/viewer) on a resource. */
