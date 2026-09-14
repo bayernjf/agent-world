@@ -1109,6 +1109,7 @@ export default function App() {
               <Suspense fallback={null}>
                 <CanvasPark
                   factories={parkFactories}
+                  crossEdges={parkOverview?.crossEdges ?? []}
                   onEnter={(id) => void enterFactory(id)}
                   onRetry={(id, runId) => void retryFactory(id, runId)}
                   onToggleCron={(id) => void toggleFactoryCron(id)}

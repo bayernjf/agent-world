@@ -15,8 +15,10 @@ import { useTranslation } from "react-i18next";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { parkLayout } from "@agent-world/core";
+import { xzPolyline, xzPolylinePointAt, type XZPolyline } from "./iso3d";
 import { useViewMode } from "../store/view-mode";
 import { api } from "../lib/api";
+import type { CrossGraphEdge } from "../lib/api";
 
 // --- Constants (aligned with L1 Canvas3D, larger park scale) ---
 const PITCH = Math.PI / 3; // lock pitch 60deg from vertical
@@ -27,6 +29,25 @@ const FACTORY_H = 140;
 const MAX_FACTORIES = 100;
 const GROUND_SIZE = 6000;
 const BREATH_SPEED = 0.006; // B6: running factory breathing frequency
+
+// --- C2: cross-factory freight (park-scale pipes + evenly-phased trucks) ---
+const CROSS_PIPE_Y = 6; // raise pipes just above the ground grid to avoid z-fighting
+const CROSS_TRUCK_SPEED = 260; // world units travelled per second along a pipe
+const CROSS_TRUCKS_PER_EDGE = 3; // trucks per edge, evenly phased → regular pulse
+const CROSS_TRUCK_W = 42;
+const CROSS_TRUCK_H = 28;
+const CROSS_TRUCK_D = 30;
+// subprocess edges are warm amber (matches L1 packet trucks); event edges cyan.
+const CROSS_VIA_COLOR = { subprocess: 0xffb020, event: 0x22d3ee } as const;
+const CROSS_PIPE_OPACITY = 0.32;
+
+/** A truck looping along one cross-factory pipe. */
+interface CrossTruck {
+  line: XZPolyline;
+  mesh: THREE.Mesh;
+  /** 0..1 head-start along the pipe, evenly spacing the trucks of one edge. */
+  phase: number;
+}
 
 // --- Color constants (mirror CSS tokens for Canvas 2D use) ---
 const COLOR_ALERT = "#ff4a3d"; // pending-review badge bg (CSS: --alert)
@@ -58,6 +79,11 @@ interface ParkSceneState {
   layout: Map<string, { x: number; z: number }>;
   idByIndex: string[]; // instanceId to graphId mapping
   dummy: THREE.Object3D; // reused object, avoids per-frame allocation
+  // C2: cross-factory pipes + looping freight trucks
+  crossGroup: THREE.Group;
+  crossTrucks: CrossTruck[];
+  crossTruckGeo: THREE.BoxGeometry;
+  crossMats: Record<CrossGraphEdge["via"], THREE.MeshLambertMaterial>;
 }
 
 // --- Status colors (brighter for dark park background) ---
@@ -146,11 +172,14 @@ function makeBadgeTexture(count: number): THREE.CanvasTexture {
 
 export default function CanvasPark({
   factories,
+  crossEdges,
   onEnter,
   onRetry,
   onToggleCron,
 }: {
   factories: ParkFactory[];
+  /** C2: material-flow edges between factories (subprocess / event). */
+  crossEdges?: CrossGraphEdge[];
   onEnter?: (id: string) => void;
   onRetry?: (id: string, lastRunId: string | null | undefined) => void;
   onToggleCron?: (id: string) => void;
@@ -277,7 +306,16 @@ export default function CanvasPark({
     // empty groups: filled by data-sync effect
     const factoryGroup = new THREE.Group();
     const billboardGroup = new THREE.Group();
-    scene.add(factoryGroup, billboardGroup);
+    // C2: cross-factory pipes + trucks, rebuilt by the data-sync effect
+    const crossGroup = new THREE.Group();
+    scene.add(factoryGroup, billboardGroup, crossGroup);
+
+    // Shared truck geometry / materials (reused across all cross edges).
+    const crossTruckGeo = new THREE.BoxGeometry(CROSS_TRUCK_W, CROSS_TRUCK_H, CROSS_TRUCK_D);
+    const crossMats: Record<CrossGraphEdge["via"], THREE.MeshLambertMaterial> = {
+      subprocess: new THREE.MeshLambertMaterial({ color: CROSS_VIA_COLOR.subprocess }),
+      event: new THREE.MeshLambertMaterial({ color: CROSS_VIA_COLOR.event }),
+    };
 
     // InstancedMesh: N factories one draw call
     const factoryGeo = new THREE.BoxGeometry(FACTORY_SIZE, FACTORY_H, FACTORY_SIZE);
@@ -306,6 +344,10 @@ export default function CanvasPark({
       layout: new Map(),
       idByIndex: [],
       dummy: new THREE.Object3D(),
+      crossGroup,
+      crossTrucks: [],
+      crossTruckGeo,
+      crossMats,
     };
     parkRef.current = state;
 
@@ -525,6 +567,15 @@ export default function CanvasPark({
         if (overlay) overlay.style.display = "none";
       }
 
+      // C2: advance cross-factory trucks along their pipes (evenly phased pulse loop)
+      for (const ct of st.crossTrucks) {
+        const travelled =
+          ((now / 1000) * CROSS_TRUCK_SPEED + ct.phase * ct.line.total) % ct.line.total;
+        const at = xzPolylinePointAt(ct.line, travelled);
+        ct.mesh.position.set(at.x, CROSS_PIPE_Y + CROSS_TRUCK_H / 2, at.z);
+        ct.mesh.rotation.y = at.angle;
+      }
+
       st.controls.update();
       renderer.render(scene, camera);
     };
@@ -561,6 +612,9 @@ export default function CanvasPark({
       });
       factoryGeo.dispose();
       factoryMat.dispose();
+      crossTruckGeo.dispose();
+      crossMats.subprocess.dispose();
+      crossMats.event.dispose();
       renderer.dispose();
       renderer.forceContextLoss();
       if (renderer.domElement.parentNode === mount) mount.removeChild(renderer.domElement);
@@ -633,8 +687,39 @@ export default function CanvasPark({
         st.billboardGroup.add(badgeSprite);
       }
     }
+
+    // 4. C2: rebuild cross-factory pipes + evenly-phased freight trucks.
+    //    An edge is drawn only when both endpoint factories are laid out.
+    for (const child of [...st.crossGroup.children]) st.crossGroup.remove(child);
+    st.crossTrucks = [];
+    for (const edge of crossEdges ?? []) {
+      const from = layout.get(edge.fromGraphId);
+      const to = layout.get(edge.toGraphId);
+      if (!from || !to) continue;
+      const line = xzPolyline([
+        { x: from.x, z: from.z },
+        { x: to.x, z: to.z },
+      ]);
+      const color = CROSS_VIA_COLOR[edge.via];
+      const pipeGeo = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(from.x, CROSS_PIPE_Y, from.z),
+        new THREE.Vector3(to.x, CROSS_PIPE_Y, to.z),
+      ]);
+      const pipeMat = new THREE.LineBasicMaterial({
+        color,
+        transparent: true,
+        opacity: CROSS_PIPE_OPACITY,
+      });
+      st.crossGroup.add(new THREE.Line(pipeGeo, pipeMat));
+      for (let k = 0; k < CROSS_TRUCKS_PER_EDGE; k++) {
+        const mesh = new THREE.Mesh(st.crossTruckGeo, st.crossMats[edge.via]);
+        const phase = CROSS_TRUCKS_PER_EDGE > 1 ? k / CROSS_TRUCKS_PER_EDGE : 0;
+        st.crossGroup.add(mesh);
+        st.crossTrucks.push({ line, mesh, phase });
+      }
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [factories, overrideVersion]);
+  }, [factories, overrideVersion, crossEdges]);
 
   // Drop the selection if its factory disappeared.
   useEffect(() => {
