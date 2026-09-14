@@ -912,7 +912,21 @@
     "emptyAudit": "No audit records yet",
     "loadMore": "Load more",
     "noMore": "No more records",
-    "unknownUser": "Unknown user"
+    "unknownUser": "Unknown user",
+    "tabInvoices": "Invoices",
+    "invoicesHint": "Manual payment flow — mark invoices as paid after receiving payment from users.",
+    "loadInvoicesFailed": "Failed to load invoices",
+    "emptyInvoices": "No invoices yet",
+    "invoiceUser": "User",
+    "invoicePeriod": "Period",
+    "invoicePlan": "Plan",
+    "invoiceAmount": "Amount",
+    "invoiceStatus": "Status",
+    "invoiceActions": "Actions",
+    "invoiceMarkPaid": "Mark paid",
+    "invoiceVoid": "Void",
+    "invoiceMarkedPaid": "Invoice marked as paid",
+    "invoiceVoided": "Invoice voided"
   },
   "abDialog": {
     "title": "A/B Test",

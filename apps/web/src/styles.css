@@ -7732,6 +7732,34 @@ select {
   padding-top: var(--space-2);
 }
 
+/* --- M3 S4: admin invoice management table --- */
+.admin-invoice-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+  margin-top: var(--space-2);
+}
+.admin-invoice-table th,
+.admin-invoice-table td {
+  text-align: left;
+  padding: var(--space-2);
+  border-bottom: var(--hair);
+  vertical-align: middle;
+}
+.admin-invoice-table th {
+  color: var(--ink-dim);
+  font-weight: var(--font-medium);
+}
+.admin-invoice-table .num {
+  text-align: right;
+  font-family: var(--mono);
+}
+.admin-invoice-table__user {
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  color: var(--ink-dim);
+}
+
 .upgrade-gate__card {
   width: 460px;
 }

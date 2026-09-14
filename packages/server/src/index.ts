@@ -918,7 +918,7 @@ import { validateModels, type ModelDiagnostic } from "./validate-models.js";
 import { enforceSubscription, QuotaError } from "./subscription.js";
 import { isPlanId, normalizeTokens, PLANS } from "./plans.js";
 import { getOrCreateSubscription, setPlan, currentPeriodEnd, currentUsage } from "./subscriptionService.js";
-import { listInvoices, getInvoice } from "./invoiceService.js";
+import { listInvoices, getInvoice, markInvoicePaid, voidInvoice } from "./invoiceService.js";
 import { renderInvoiceHtml } from "./invoiceTemplate.js";
 
 app.post("/api/compile", async (c) => {
@@ -1080,6 +1080,59 @@ app.post("/api/admin/users/:id/plan", async (c) => {
   if (!target) return c.json({ error: "user not found" }, 404);
   const record = await setPlan(db, target.id, body.plan, callerId, clientIp(c));
   return c.json({ ok: true, plan: record.plan });
+});
+
+/** M3 S4: owner manually marks an invoice as paid (manual payment path).
+ *  Writes billing.invoice_paid audit entry via invoiceService. */
+app.post("/api/admin/invoices/:id/mark-paid", async (c) => {
+  const callerId = c.get("userId");
+  if (!(await isOwner(callerId))) return c.json({ error: "forbidden" }, 403);
+  const body = (await c.req.json().catch(() => ({}))) as { method?: string; notes?: string };
+  const method = body.method ?? "manual";
+  try {
+    const invoice = await markInvoicePaid(db, c.req.param("id"), method, callerId, body.notes, clientIp(c));
+    return c.json({ ok: true, invoice });
+  } catch (err) {
+    const msg = (err as Error).message;
+    if (msg.includes("not found")) return c.json({ error: "invoice not found" }, 404);
+    if (msg.includes("already paid")) return c.json({ error: "invoice already paid" }, 409);
+    if (msg.includes("void")) return c.json({ error: "cannot pay a void invoice" }, 409);
+    return c.json({ error: msg }, 400);
+  }
+});
+
+/** M3 S4: owner voids an invoice (cancel before payment).
+ *  Writes billing.invoice_voided audit entry via invoiceService. */
+app.post("/api/admin/invoices/:id/void", async (c) => {
+  const callerId = c.get("userId");
+  if (!(await isOwner(callerId))) return c.json({ error: "forbidden" }, 403);
+  const body = (await c.req.json().catch(() => ({}))) as { reason?: string };
+  try {
+    const invoice = await voidInvoice(db, c.req.param("id"), callerId, body.reason, clientIp(c));
+    return c.json({ ok: true, invoice });
+  } catch (err) {
+    const msg = (err as Error).message;
+    if (msg.includes("not found")) return c.json({ error: "invoice not found" }, 404);
+    if (msg.includes("paid invoice")) return c.json({ error: "cannot void a paid invoice" }, 409);
+    return c.json({ error: msg }, 400);
+  }
+});
+
+/** M3 S4: admin lists all invoices across all users (for payment management). */
+app.get("/api/admin/invoices", async (c) => {
+  const callerId = c.get("userId");
+  if (!(await isOwner(callerId))) return c.json({ error: "forbidden" }, 403);
+  // Reuse listInvoices but for all users — need a driver method. For now,
+  // iterate all users and collect. (TODO: add listAllInvoices driver method if perf matters.)
+  const allUsers = await db.listUsers();
+  const allInvoices: Awaited<ReturnType<typeof listInvoices>> = [];
+  for (const user of allUsers) {
+    const userInvoices = await listInvoices(db, user.id);
+    allInvoices.push(...userInvoices);
+  }
+  // Sort by createdAt descending
+  allInvoices.sort((a, b) => b.createdAt - a.createdAt);
+  return c.json({ invoices: allInvoices });
 });
 
 // Current user's subscription + current-period usage in one round-trip

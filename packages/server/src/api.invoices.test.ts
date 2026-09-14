@@ -148,3 +148,118 @@ describe("GET /api/invoices/:id/download (M3 S3)", () => {
     expect(res.status).toBe(401);
   });
 });
+
+describe("GET /api/admin/invoices (M3 S4)", () => {
+  it("lets the owner list all invoices across users", async () => {
+    const alice = await register("alice-admin@test.dev");
+    const bob = await register("bob-admin@test.dev");
+    await generateInvoice(db, alice.userId);
+    await generateInvoice(db, bob.userId);
+    const res = await app.request("/api/admin/invoices", {
+      headers: { cookie: `auth_token=${owner.token}` },
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { invoices: Array<{ id: string; userId: string }> };
+    expect(body.invoices.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("403s for non-owner users", async () => {
+    const { token } = await register("not-owner@test.dev");
+    const res = await app.request("/api/admin/invoices", {
+      headers: { cookie: `auth_token=${token}` },
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("401s without a session", async () => {
+    const res = await app.request("/api/admin/invoices");
+    expect(res.status).toBe(401);
+  });
+});
+
+describe("POST /api/admin/invoices/:id/mark-paid (M3 S4)", () => {
+  it("lets the owner mark an open invoice as paid", async () => {
+    const { userId } = await register("pay-me@test.dev");
+    const inv = await generateInvoice(db, userId);
+    const res = await app.request(`/api/admin/invoices/${inv.id}/mark-paid`, {
+      method: "POST",
+      headers: { cookie: `auth_token=${owner.token}`, "content-type": "application/json" },
+      body: JSON.stringify({ method: "bank_transfer", notes: "test payment" }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { ok: boolean; invoice: { status: string; paidMethod: string } };
+    expect(body.ok).toBe(true);
+    expect(body.invoice.status).toBe("paid");
+    expect(body.invoice.paidMethod).toBe("bank_transfer");
+  });
+
+  it("409s when marking an already-paid invoice", async () => {
+    const { userId } = await register("already-paid@test.dev");
+    const inv = await generateInvoice(db, userId);
+    await app.request(`/api/admin/invoices/${inv.id}/mark-paid`, {
+      method: "POST",
+      headers: { cookie: `auth_token=${owner.token}`, "content-type": "application/json" },
+      body: JSON.stringify({ method: "manual" }),
+    });
+    const res = await app.request(`/api/admin/invoices/${inv.id}/mark-paid`, {
+      method: "POST",
+      headers: { cookie: `auth_token=${owner.token}`, "content-type": "application/json" },
+      body: JSON.stringify({ method: "manual" }),
+    });
+    expect(res.status).toBe(409);
+  });
+
+  it("403s for non-owner users", async () => {
+    const { token, userId } = await register("not-owner-pay@test.dev");
+    const inv = await generateInvoice(db, userId);
+    const res = await app.request(`/api/admin/invoices/${inv.id}/mark-paid`, {
+      method: "POST",
+      headers: { cookie: `auth_token=${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ method: "manual" }),
+    });
+    expect(res.status).toBe(403);
+  });
+});
+
+describe("POST /api/admin/invoices/:id/void (M3 S4)", () => {
+  it("lets the owner void an open invoice", async () => {
+    const { userId } = await register("void-me@test.dev");
+    const inv = await generateInvoice(db, userId);
+    const res = await app.request(`/api/admin/invoices/${inv.id}/void`, {
+      method: "POST",
+      headers: { cookie: `auth_token=${owner.token}`, "content-type": "application/json" },
+      body: JSON.stringify({ reason: "duplicate" }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { ok: boolean; invoice: { status: string } };
+    expect(body.ok).toBe(true);
+    expect(body.invoice.status).toBe("void");
+  });
+
+  it("409s when voiding a paid invoice", async () => {
+    const { userId } = await register("paid-cant-void@test.dev");
+    const inv = await generateInvoice(db, userId);
+    await app.request(`/api/admin/invoices/${inv.id}/mark-paid`, {
+      method: "POST",
+      headers: { cookie: `auth_token=${owner.token}`, "content-type": "application/json" },
+      body: JSON.stringify({ method: "manual" }),
+    });
+    const res = await app.request(`/api/admin/invoices/${inv.id}/void`, {
+      method: "POST",
+      headers: { cookie: `auth_token=${owner.token}`, "content-type": "application/json" },
+      body: JSON.stringify({ reason: "test" }),
+    });
+    expect(res.status).toBe(409);
+  });
+
+  it("403s for non-owner users", async () => {
+    const { token, userId } = await register("not-owner-void@test.dev");
+    const inv = await generateInvoice(db, userId);
+    const res = await app.request(`/api/admin/invoices/${inv.id}/void`, {
+      method: "POST",
+      headers: { cookie: `auth_token=${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ reason: "test" }),
+    });
+    expect(res.status).toBe(403);
+  });
+});

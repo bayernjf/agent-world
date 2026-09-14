@@ -751,6 +751,36 @@ export const api = {
       return res.json() as Promise<{ ok: true; role: "admin" | "user"; unchanged?: boolean }>;
     }),
 
+  // --- M3 S4: admin invoice management (manual payment) ---
+  adminListInvoices: () =>
+    authFetch("/api/admin/invoices").then(json<{ invoices: Invoice[] }>),
+
+  adminMarkInvoicePaid: (invoiceId: string, method = "manual", notes?: string) =>
+    authFetch(`/api/admin/invoices/${invoiceId}/mark-paid`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ method, notes: notes ?? undefined }),
+    }).then(async (res) => {
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? `mark-paid failed: ${res.status}`);
+      }
+      return res.json() as Promise<{ ok: true; invoice: Invoice }>;
+    }),
+
+  adminVoidInvoice: (invoiceId: string, reason?: string) =>
+    authFetch(`/api/admin/invoices/${invoiceId}/void`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ reason: reason ?? undefined }),
+    }).then(async (res) => {
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? `void failed: ${res.status}`);
+      }
+      return res.json() as Promise<{ ok: true; invoice: Invoice }>;
+    }),
+
   listAudit: (opts: { limit?: number; before?: number; userId?: string } = {}) => {
     const params = new URLSearchParams();
     if (opts.limit != null) params.set("limit", String(opts.limit));
