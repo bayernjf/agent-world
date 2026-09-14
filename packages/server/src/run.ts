@@ -11,6 +11,7 @@ import { runAsUser } from "./user-context.js";
 import { createReadArtifact } from "./artifact-reader.js";
 import { counter, gauge } from "./metrics.js";
 import { recordRunUsage } from "./subscriptionService.js";
+import { checkUsageAlerts } from "./usage-alert.js";
 
 /** Business metrics for run lifecycle, aggregated in-process (see metrics.ts). */
 const runsTotal = counter("runs_total", "Runs started, by terminal status");
@@ -223,6 +224,13 @@ export async function startRun(args: StartRunArgs): Promise<{ runId: string; dia
           } catch (meterErr) {
             runLog.warn("usage metering failed", { error: (meterErr as Error)?.message ?? String(meterErr) });
           }
+          // M2 §S7: fire 80%/100% token alerts for paid users (self-guarded,
+          // never blocks run completion).
+          try {
+            await checkUsageAlerts(db, userId);
+          } catch (alertErr) {
+            runLog.warn("usage alert failed", { error: (alertErr as Error)?.message ?? String(alertErr) });
+          }
           args.onFinish?.(graph.id, event.status);
         }
       }
@@ -410,6 +418,11 @@ export async function resumeRun(args: ResumeRunArgs): Promise<{ runId: string; a
             await recordRunUsage(db, userId, graph, runId, row.started_at, cfg);
           } catch (meterErr) {
             runLog.warn("usage metering failed", { error: (meterErr as Error)?.message ?? String(meterErr) });
+          }
+          try {
+            await checkUsageAlerts(db, userId);
+          } catch (alertErr) {
+            runLog.warn("usage alert failed", { error: (alertErr as Error)?.message ?? String(alertErr) });
           }
           args.onFinish?.(graph.id, event.status);
         }

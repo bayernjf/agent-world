@@ -1340,6 +1340,10 @@ async function announcementTargetsUser(
   target: string | null | undefined,
 ): Promise<boolean> {
   if (target == null) return true;
+  if (target.startsWith("user:")) {
+    // Per-user notice (M2 usage alerts); visible only to that user.
+    return userId === target.slice("user:".length);
+  }
   if (target.startsWith("graph:")) {
     return await graphAccessRole(db, userId, target.slice("graph:".length)) != null;
   }
