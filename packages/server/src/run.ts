@@ -242,9 +242,13 @@ type ArtifactEvent = Extract<RunEvent, { type: "artifact.produced" }>;
 
 /** What a halted run is waiting on; every other final status clears it. */
 export function haltedOf(event: RunFinishedEvent): { nodeId: string | null; reason: string | null } {
-  return event.status === "halted"
-    ? { nodeId: event.haltedNodeId ?? null, reason: event.reason ?? null }
-    : { nodeId: null, reason: null };
+  if (event.status === "halted") {
+    return { nodeId: event.haltedNodeId ?? null, reason: event.reason ?? null };
+  }
+  if (event.status === "failed") {
+    return { nodeId: null, reason: event.reason ?? null };
+  }
+  return { nodeId: null, reason: null };
 }
 
 /**

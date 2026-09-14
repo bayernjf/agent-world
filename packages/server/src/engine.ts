@@ -834,6 +834,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     // the child's totalCostUsd stays 0 and sub-flow/lane cost is silently lost.
     opts.init.totalCostUsd = totalCostUsd;
     let strandedNote: string | undefined;
+    let failureNote: string | undefined;
     // A failed node is "handled" if it has an error edge to a catch node that
     // finished done — such failures don't sink the run (the catch produced a
     // fallback). Unhandled failures downgrade done → failed.
@@ -863,6 +864,24 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       }
       status = unhandled || stranded.length > 0 ? "failed" : "done";
       if (status === "failed") {
+        // Build a concise failure reason from failed nodes and stranded nodes
+        const failureParts: string[] = [];
+        for (const [id, s] of states.entries()) {
+          if (s === "failed" && !isHandled(id) && !isNamespaced(id)) {
+            const le = lastError.get(id);
+            const code = le?.errorCode ?? "UNKNOWN";
+            const msg = (le?.error ?? "node failed").slice(0, 120);
+            const nodeName = nodeById(graph, id)?.name ?? id;
+            failureParts.push(`[${code}] ${nodeName}: ${msg}`);
+          }
+        }
+        for (const id of stranded) {
+          const nodeName = nodeById(graph, id)?.name ?? id;
+          failureParts.push(`[STRANDED] ${nodeName}: 节点从未被调度，产物缺失`);
+        }
+        if (failureParts.length > 0) {
+          failureNote = failureParts.join("; ");
+        }
         // Alert the operator: which nodes failed (unhandled by a catch), which
         // were stranded, and how many downstream nodes got skipped.
         // Fire-and-forget, never blocks.
@@ -891,6 +910,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       runId,
       status,
       ...(strandedNote ? { reason: strandedNote } : {}),
+      ...(failureNote ? { reason: failureNote } : {}),
       ...(haltNodeId ? { haltedNodeId: haltNodeId, reason: haltReason } : {}),
     });
     queue.close();
