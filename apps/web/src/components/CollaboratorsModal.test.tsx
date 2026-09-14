@@ -7,6 +7,7 @@ vi.mock("../lib/api", () => ({
   api: {
     getGraphAccess: vi.fn(),
     putGraphAccess: vi.fn(),
+    getSubscription: vi.fn(),
   },
 }));
 
@@ -18,6 +19,7 @@ vi.mock("./Tooltip", () => ({
 
 const mockGet = api.getGraphAccess as unknown as ReturnType<typeof vi.fn>;
 const mockPut = api.putGraphAccess as unknown as ReturnType<typeof vi.fn>;
+const mockGetSub = api.getSubscription as unknown as ReturnType<typeof vi.fn>;
 
 function mkCollab(over: Partial<Collaborator> = {}): Collaborator {
   return { userId: "u-1", email: "a@example.com", role: "viewer", createdAt: 1, ...over };
@@ -42,6 +44,7 @@ describe("CollaboratorsModal", () => {
     vi.clearAllMocks();
     mockGet.mockResolvedValue({ collaborators: [] });
     mockPut.mockResolvedValue(undefined);
+    mockGetSub.mockResolvedValue({ plan: "team" });
   });
 
   it("renders nothing when closed and does not fetch", () => {

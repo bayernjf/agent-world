@@ -865,7 +865,9 @@
     "addFailed": "添加失败：{{message}}",
     "removeFailed": "移除失败：{{message}}",
     "loading": "加载中…",
-    "loadFailed": "加载协作者列表失败"
+    "loadFailed": "加载协作者列表失败",
+    "seatsUsed": "席位：{{used}} / {{limit}}",
+    "seatsFull": "已达上限，请升级套餐"
   },
   "sharedRole": {
     "editor": "编辑者",
@@ -912,7 +914,21 @@
     "emptyAudit": "暂无审计记录",
     "loadMore": "加载更多",
     "noMore": "没有更多了",
-    "unknownUser": "未知用户"
+    "unknownUser": "未知用户",
+    "tabInvoices": "账单管理",
+    "invoicesHint": "手动收款闭环——收到用户付款后，标记对应账单为已支付。",
+    "loadInvoicesFailed": "账单列表加载失败",
+    "emptyInvoices": "暂无账单",
+    "invoiceUser": "用户",
+    "invoicePeriod": "计费周期",
+    "invoicePlan": "套餐",
+    "invoiceAmount": "金额",
+    "invoiceStatus": "状态",
+    "invoiceActions": "操作",
+    "invoiceMarkPaid": "标记已支付",
+    "invoiceVoid": "作废",
+    "invoiceMarkedPaid": "账单已标记为已支付",
+    "invoiceVoided": "账单已作废"
   },
   "abDialog": {
     "title": "A/B 实验",

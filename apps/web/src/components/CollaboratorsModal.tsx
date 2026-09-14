@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { api, type Collaborator } from "../lib/api";
+import { api, type Collaborator, type SubscriptionStatus } from "../lib/api";
+import { PLANS, type PlanId } from "@agent-world/core";
 import Tooltip from "./Tooltip";
 
 const SHARED_ROLE_LABEL: Record<string, string> = {
@@ -18,6 +19,7 @@ interface Props {
 export default function CollaboratorsModal({ open, graphId, graphName, onClose }: Props) {
   const { t } = useTranslation();
   const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
+  const [subscription, setSubscription] = useState<SubscriptionStatus | null>(null);
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<"editor" | "viewer">("viewer");
   const [loading, setLoading] = useState(false);
@@ -28,8 +30,12 @@ export default function CollaboratorsModal({ open, graphId, graphName, onClose }
     setLoading(true);
     setError(null);
     try {
-      const data = await api.getGraphAccess(graphId);
+      const [data, sub] = await Promise.all([
+        api.getGraphAccess(graphId),
+        api.getSubscription(),
+      ]);
       setCollaborators(data.collaborators);
+      setSubscription(sub);
     } catch {
       setError(t("modals:collaborators.loadFailed"));
     } finally {
@@ -88,6 +94,21 @@ export default function CollaboratorsModal({ open, graphId, graphName, onClose }
         </div>
         <div className="modal__body">
           <p className="muted">{t("modals:collaborators.hint")}</p>
+          {subscription && (
+            <div className="collab-seats">
+              <span className="collab-seats__label">
+                {t("modals:collaborators.seatsUsed", {
+                  used: collaborators.length + 1,
+                  limit: PLANS[subscription.plan as PlanId].seats,
+                })}
+              </span>
+              {collaborators.length + 1 >= PLANS[subscription.plan as PlanId].seats && (
+                <span className="collab-seats__full">
+                  {t("modals:collaborators.seatsFull")}
+                </span>
+              )}
+            </div>
+          )}
           {loading ? (
             <p className="muted">{t("modals:collaborators.loading")}</p>
           ) : (
@@ -135,7 +156,12 @@ export default function CollaboratorsModal({ open, graphId, graphName, onClose }
             <button
               className="btn btn--primary btn--sm"
               onClick={() => void add()}
-              disabled={!email.trim() || busy}
+              disabled={
+                !email.trim() ||
+                busy ||
+                (subscription != null &&
+                  collaborators.length + 1 >= PLANS[subscription.plan as PlanId].seats)
+              }
             >
               {busy ? t("modals:collaborators.adding") : t("modals:collaborators.add")}
             </button>

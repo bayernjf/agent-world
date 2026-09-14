@@ -609,6 +609,30 @@ export interface SubscriptionStatus {
   usage: SubscriptionUsage;
 }
 
+export interface InvoiceLineItem {
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  amount: number;
+}
+
+export interface Invoice {
+  id: string;
+  userId: string;
+  subscriptionId: string;
+  periodStart: number;
+  periodEnd: number;
+  plan: "free" | "starter" | "pro" | "team";
+  amountUsd: number;
+  status: "draft" | "open" | "paid" | "void";
+  lineItems: InvoiceLineItem[];
+  paidAt: number | null;
+  paidMethod: string | null;
+  notes: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export const api = {
   listSkills: () => authFetch("/api/skills").then(json<Skill[]>),
 
@@ -725,6 +749,36 @@ export const api = {
         throw new Error(body.message ?? body.error ?? `role update failed: ${res.status}`);
       }
       return res.json() as Promise<{ ok: true; role: "admin" | "user"; unchanged?: boolean }>;
+    }),
+
+  // --- M3 S4: admin invoice management (manual payment) ---
+  adminListInvoices: () =>
+    authFetch("/api/admin/invoices").then(json<{ invoices: Invoice[] }>),
+
+  adminMarkInvoicePaid: (invoiceId: string, method = "manual", notes?: string) =>
+    authFetch(`/api/admin/invoices/${invoiceId}/mark-paid`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ method, notes: notes ?? undefined }),
+    }).then(async (res) => {
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? `mark-paid failed: ${res.status}`);
+      }
+      return res.json() as Promise<{ ok: true; invoice: Invoice }>;
+    }),
+
+  adminVoidInvoice: (invoiceId: string, reason?: string) =>
+    authFetch(`/api/admin/invoices/${invoiceId}/void`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ reason: reason ?? undefined }),
+    }).then(async (res) => {
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? `void failed: ${res.status}`);
+      }
+      return res.json() as Promise<{ ok: true; invoice: Invoice }>;
     }),
 
   listAudit: (opts: { limit?: number; before?: number; userId?: string } = {}) => {
@@ -1238,4 +1292,19 @@ export const api = {
     }).then(json<ProviderTestResult>),
 
   getSubscription: () => authFetch("/api/subscription").then(json<SubscriptionStatus>),
+
+  getInvoices: () => authFetch("/api/invoices").then(json<{ invoices: Invoice[] }>),
+  getInvoice: (id: string) => authFetch(`/api/invoices/${id}`).then(json<Invoice>),
+  downloadInvoice: async (id: string) => {
+    const res = await authFetch(`/api/invoices/${id}/download`);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `invoice_${id}.html`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  },
 };

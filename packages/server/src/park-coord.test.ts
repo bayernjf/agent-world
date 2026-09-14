@@ -25,7 +25,7 @@ describe("RTS stage-B park coordinates (migration 37)", () => {
 
   it("fresh schema carries park_x/park_z and an empty coord map", () => {
     const db = openDb(join(dir, "fresh.sqlite"));
-    expect(SCHEMA_VERSION).toBe(37);
+    expect(SCHEMA_VERSION).toBe(38);
     const raw = new DatabaseSync(join(dir, "fresh.sqlite"));
     expect(cols(raw, "graphs")).toEqual(expect.arrayContaining(["park_x", "park_z"]));
     raw.close();

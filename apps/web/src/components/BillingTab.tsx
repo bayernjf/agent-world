@@ -4,6 +4,7 @@ import { PLAN_IDS, PLANS, PLAN_PRICES, type PlanId } from "@agent-world/core";
 import { api, type SubscriptionStatus } from "../lib/api";
 import { formatBytes, formatCompactNumber, formatDate } from "../i18n/utils";
 import UsagePanel from "./UsagePanel";
+import InvoiceList from "./InvoiceList";
 
 /** Pure plan comparison table (single source of truth = core PLANS). */
 export function PlanComparison({ currentPlan }: { currentPlan: PlanId }) {
@@ -113,6 +114,8 @@ export default function BillingTab() {
       </div>
 
       <UsagePanel status={status} />
+
+      <InvoiceList />
 
       <p className="billing-hint">{t("billing:contactOwner")}</p>
 
