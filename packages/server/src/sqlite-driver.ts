@@ -24,6 +24,27 @@ import type {
 } from "./db.js";
 
 /**
+ * M3 billing invoice row (design-monetization-m3 S1). Snake_case matches the
+ * SQLite column names; the service layer maps to camelCase for API consumers.
+ */
+export interface InvoiceRow {
+  id: string;
+  user_id: string;
+  subscription_id: string;
+  period_start: number;
+  period_end: number;
+  plan: string;
+  amount_usd: number;
+  status: string;
+  line_items: string;
+  paid_at: number | null;
+  paid_method: string | null;
+  notes: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
+/**
  * Events are the source of truth and append-only, so they get a plain prepared
  * insert rather than an ORM round trip. `(run_id, seq)` is the primary key, and
  * node runs are keyed by `(run_id, node_id, attempt)` — attempt is identity.
@@ -408,6 +429,29 @@ CREATE TABLE IF NOT EXISTS usage_ledger (
   PRIMARY KEY (user_id, period_start, metric)
 );
 CREATE INDEX IF NOT EXISTS idx_usage_ledger_user ON usage_ledger(user_id, period_start);
+
+-- P2 billing invoices. One row per (user, billing-period). line_items is JSON
+-- (MVP simplicity; split to invoice_items if line-item complexity grows).
+-- status state machine: draft -> open -> paid | void.
+CREATE TABLE IF NOT EXISTS invoices (
+  id              TEXT PRIMARY KEY,
+  user_id         TEXT NOT NULL,
+  subscription_id TEXT NOT NULL,
+  period_start    INTEGER NOT NULL,
+  period_end      INTEGER NOT NULL,
+  plan            TEXT NOT NULL,
+  amount_usd      REAL NOT NULL,
+  status          TEXT NOT NULL,
+  line_items      TEXT NOT NULL DEFAULT '[]',
+  paid_at         INTEGER,
+  paid_method     TEXT,
+  notes           TEXT,
+  created_at      INTEGER NOT NULL,
+  updated_at      INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_invoices_user_id ON invoices(user_id);
+CREATE INDEX IF NOT EXISTS idx_invoices_status ON invoices(status);
+CREATE INDEX IF NOT EXISTS idx_invoices_period ON invoices(user_id, period_start);
 
 CREATE TABLE IF NOT EXISTS idempotency_keys (
   user_id    TEXT NOT NULL,
@@ -864,6 +908,8 @@ export function createDriver(
     // Monetization (design-monetization): subscriptions + usage ledger.
     getSubscription: `SELECT plan, status, provider, external_id, current_period_start, current_period_end
        FROM subscriptions WHERE user_id = ?`,
+    listAllSubscriptions: `SELECT user_id, plan, status, provider, external_id, current_period_start, current_period_end
+       FROM subscriptions ORDER BY user_id`,
     upsertSubscription: `INSERT INTO subscriptions (user_id, plan, status, provider, external_id, current_period_start, current_period_end, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(user_id) DO UPDATE SET
@@ -881,6 +927,16 @@ export function createDriver(
        VALUES (?, ?, ?, ?, ?)
        ON CONFLICT(user_id, period_start, metric) DO UPDATE SET amount = excluded.amount, updated_at = excluded.updated_at`,
     listUsageLedger: `SELECT user_id, period_start, metric, amount FROM usage_ledger WHERE period_start = ? ORDER BY user_id`,
+    // M3 billing invoices (design-monetization-m3 S1): one row per (user, period).
+    getInvoice: `SELECT id, user_id, subscription_id, period_start, period_end, plan, amount_usd, status, line_items, paid_at, paid_method, notes, created_at, updated_at
+       FROM invoices WHERE id = ?`,
+    listInvoicesByUser: `SELECT id, user_id, subscription_id, period_start, period_end, plan, amount_usd, status, line_items, paid_at, paid_method, notes, created_at, updated_at
+       FROM invoices WHERE user_id = ? ORDER BY period_start DESC`,
+    findInvoiceByUserAndPeriod: `SELECT id, user_id, subscription_id, period_start, period_end, plan, amount_usd, status, line_items, paid_at, paid_method, notes, created_at, updated_at
+       FROM invoices WHERE user_id = ? AND period_start = ?`,
+    insertInvoice: `INSERT INTO invoices (id, user_id, subscription_id, period_start, period_end, plan, amount_usd, status, line_items, paid_at, paid_method, notes, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    updateInvoiceStatus: `UPDATE invoices SET status = ?, paid_at = ?, paid_method = ?, notes = ?, updated_at = ? WHERE id = ?`,
     countActiveRuns: `SELECT COUNT(*) AS n FROM runs WHERE user_id = ? AND status IN ('running', 'halted')`,
     // M2 metering: live storage snapshot + idempotent usage backfill.
     sumArtifactBytes: `SELECT COALESCE(SUM(size_bytes), 0) AS total FROM artifacts WHERE user_id = ?`,
@@ -994,6 +1050,36 @@ export function createDriver(
         currentPeriodEnd: row.current_period_end,
       };
     },
+    async listAllSubscriptions(): Promise<
+      Array<{
+        userId: string;
+        plan: string;
+        status: string;
+        provider: string | null;
+        externalId: string | null;
+        currentPeriodStart: number;
+        currentPeriodEnd: number;
+      }>
+    > {
+      const rows = await exec.all(stmts.listAllSubscriptions, []) as Array<{
+        user_id: string;
+        plan: string;
+        status: string;
+        provider: string | null;
+        external_id: string | null;
+        current_period_start: number;
+        current_period_end: number;
+      }>;
+      return rows.map((r) => ({
+        userId: r.user_id,
+        plan: r.plan,
+        status: r.status,
+        provider: r.provider,
+        externalId: r.external_id,
+        currentPeriodStart: r.current_period_start,
+        currentPeriodEnd: r.current_period_end,
+      }));
+    },
     async saveSubscription(
       userId: string,
       plan: string,
@@ -1021,6 +1107,29 @@ export function createDriver(
     async listUsageLedger(periodStart: number): Promise<Array<{ userId: string; periodStart: number; metric: string; amount: number }>> {
       const rows = await exec.all(stmts.listUsageLedger, [periodStart]) as Array<{ user_id: string; period_start: number; metric: string; amount: number }>;
       return rows.map((r) => ({ userId: r.user_id, periodStart: r.period_start, metric: r.metric, amount: r.amount }));
+    },
+    // M3 billing invoices (design-monetization-m3 S1).
+    async getInvoice(invoiceId: string): Promise<InvoiceRow | undefined> {
+      const row = await exec.get(stmts.getInvoice, [invoiceId]) as InvoiceRow | undefined;
+      return row;
+    },
+    async listInvoicesByUser(userId: string): Promise<InvoiceRow[]> {
+      const rows = await exec.all(stmts.listInvoicesByUser, [userId]) as unknown as InvoiceRow[];
+      return rows;
+    },
+    async findInvoiceByUserAndPeriod(userId: string, periodStart: number): Promise<InvoiceRow | undefined> {
+      const row = await exec.get(stmts.findInvoiceByUserAndPeriod, [userId, periodStart]) as InvoiceRow | undefined;
+      return row;
+    },
+    async insertInvoice(inv: InvoiceRow): Promise<void> {
+      await exec.run(stmts.insertInvoice, [
+        inv.id, inv.user_id, inv.subscription_id, inv.period_start, inv.period_end,
+        inv.plan, inv.amount_usd, inv.status, inv.line_items, inv.paid_at ?? null,
+        inv.paid_method ?? null, inv.notes ?? null, inv.created_at, inv.updated_at,
+      ]);
+    },
+    async updateInvoiceStatus(invoiceId: string, status: string, paidAt: number | null, paidMethod: string | null, notes: string | null): Promise<void> {
+      await exec.run(stmts.updateInvoiceStatus, [status, paidAt, paidMethod, notes, Date.now(), invoiceId]);
     },
     /**
      * Count distinct given nodes that finished successfully within a run.
@@ -3557,6 +3666,39 @@ const MIGRATIONS: Migration[] = [
     down: (db) => {
       db.exec("ALTER TABLE graphs DROP COLUMN park_x");
       db.exec("ALTER TABLE graphs DROP COLUMN park_z");
+    },
+  },
+  {
+    version: 38,
+    // P2 billing invoices. One row per (user, billing-period). line_items is
+    // JSON array of {description, quantity, unit_price, amount}. status state
+    // machine: draft -> open -> paid | void. MVP manual payment; S6 Stripe
+    // will populate paid_method='stripe' and external_id references.
+    description: "invoices table for P2 billing (design-monetization-m3 S1)",
+    detect: (db) => tableExists(db, "invoices"),
+    up: (db) => {
+      db.exec(`CREATE TABLE IF NOT EXISTS invoices (
+        id              TEXT PRIMARY KEY,
+        user_id         TEXT NOT NULL,
+        subscription_id TEXT NOT NULL,
+        period_start    INTEGER NOT NULL,
+        period_end      INTEGER NOT NULL,
+        plan            TEXT NOT NULL,
+        amount_usd      REAL NOT NULL,
+        status          TEXT NOT NULL,
+        line_items      TEXT NOT NULL DEFAULT '[]',
+        paid_at         INTEGER,
+        paid_method     TEXT,
+        notes           TEXT,
+        created_at      INTEGER NOT NULL,
+        updated_at      INTEGER NOT NULL
+      )`);
+      db.exec("CREATE INDEX IF NOT EXISTS idx_invoices_user_id ON invoices(user_id)");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_invoices_status ON invoices(status)");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_invoices_period ON invoices(user_id, period_start)");
+    },
+    down: (db) => {
+      db.exec("DROP TABLE IF EXISTS invoices");
     },
   },
 ];

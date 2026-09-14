@@ -13,7 +13,8 @@
     "test:regression": "vitest run src/regression/",
     "rotate:reencrypt": "tsx scripts/rotate-reencrypt.ts",
     "migrate:postgres": "tsx scripts/migrate-to-postgres.ts",
-    "backfill:usage": "tsx scripts/backfill-usage.ts"
+    "backfill:usage": "tsx scripts/backfill-usage.ts",
+    "generate:invoices": "tsx scripts/generate-invoices.ts"
   },
   "dependencies": {
     "@agent-world/core": "workspace:*",
