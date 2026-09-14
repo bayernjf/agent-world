@@ -35,6 +35,11 @@ export function isBuiltinModel(model: string, config: AppConfig): boolean {
   return providerForModel(config, model).provider.source === "builtin";
 }
 
+/** 图中所有 videoGen 节点 id（一个成功节点 = 一个视频段，用于视频配额计量）。 */
+export function videoNodeIds(graph: Graph): string[] {
+  return graph.nodes.filter((n) => n.kind === "videoGen").map((n) => n.id);
+}
+
 /** 当前计费周期起始（UTC 对齐到月初，ms epoch）。 */
 export function currentPeriodStart(now = Date.now()): number {
   const d = new Date(now);

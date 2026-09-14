@@ -10,10 +10,10 @@
  * All functions take `db` explicitly (dependency injection) so they are
  * trivially unit-testable with an in-memory driver.
  */
-import type { PlanId } from "@agent-world/core";
-import { DEFAULT_PLAN, isPlanId } from "@agent-world/core";
+import type { Graph, PlanId } from "@agent-world/core";
+import { DEFAULT_PLAN, PLANS, isPlanId, normalizeTokens } from "@agent-world/core";
 import { audit } from "./audit.js";
-import { currentPeriodStart } from "./subscription.js";
+import { currentPeriodStart, videoNodeIds } from "./subscription.js";
 import type { Db } from "./db.js";
 
 export interface SubscriptionRecord {
@@ -91,4 +91,78 @@ export async function setPlan(
     ip,
   });
   return { ...before, plan, status: "active" };
+}
+
+/**
+ * Fold one finished run's metering into the usage ledger (online path, called
+ * from the run.finished hook). Attribution uses the run's START time so a run
+ * crossing a month boundary counts in the month it began. Idempotent only at
+ * the run level via the caller (the finished hook fires once per run).
+ */
+export async function recordRunUsage(
+  db: Db,
+  userId: string,
+  graph: Graph,
+  runId: string,
+  startedAt: number,
+): Promise<{ normalizedTokens: number; videoSegments: number }> {
+  const periodStart = currentPeriodStart(startedAt);
+  const stats = await db.runStats(runId);
+  const videoSegments = await db.countDoneNodes(runId, videoNodeIds(graph));
+  await db.accumulateUsage(userId, periodStart, "tokens_in", stats.tokensIn);
+  await db.accumulateUsage(userId, periodStart, "tokens_out", stats.tokensOut);
+  await db.accumulateUsage(userId, periodStart, "runs", 1);
+  if (videoSegments > 0) {
+    await db.accumulateUsage(userId, periodStart, "video_segments", videoSegments);
+  }
+  return {
+    normalizedTokens: normalizeTokens(stats.tokensIn, stats.tokensOut),
+    videoSegments,
+  };
+}
+
+export interface CurrentUsage {
+  periodStart: number;
+  periodEnd: number;
+  tokensIn: number;
+  tokensOut: number;
+  /** Billable normalized tokens (in + 4×out). */
+  normalizedTokens: number;
+  runs: number;
+  videoSegments: number;
+  /** Live storage snapshot in bytes (not ledgered). */
+  storageBytes: number;
+}
+
+/** Aggregate every usage dimension for the current billing period. */
+export async function currentUsage(db: Db, userId: string, now = Date.now()): Promise<CurrentUsage> {
+  const periodStart = currentPeriodStart(now);
+  const [tokensIn, tokensOut, runs, videoSegments, storageBytes] = await Promise.all([
+    db.usageFor(userId, "tokens_in", periodStart),
+    db.usageFor(userId, "tokens_out", periodStart),
+    db.usageFor(userId, "runs", periodStart),
+    db.usageFor(userId, "video_segments", periodStart),
+    db.sumArtifactBytes(userId),
+  ]);
+  return {
+    periodStart,
+    periodEnd: currentPeriodEnd(now),
+    tokensIn,
+    tokensOut,
+    normalizedTokens: normalizeTokens(tokensIn, tokensOut),
+    runs,
+    videoSegments,
+    storageBytes,
+  };
+}
+
+/** Remaining quota view for a plan (negative fields mean over-quota). */
+export function quotaRemaining(plan: PlanId, usage: CurrentUsage) {
+  const q = PLANS[plan];
+  return {
+    tokens: q.tokens - usage.normalizedTokens,
+    concurrentRuns: q.concurrentRuns, // checked live, not from usage
+    storageBytes: q.storageBytes - usage.storageBytes,
+    videoSegments: q.videoSegments - usage.videoSegments,
+  };
 }

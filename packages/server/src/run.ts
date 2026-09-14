@@ -10,6 +10,7 @@ import { loadUserSkills } from "./skills/user-skills.js";
 import { runAsUser } from "./user-context.js";
 import { createReadArtifact } from "./artifact-reader.js";
 import { counter, gauge } from "./metrics.js";
+import { recordRunUsage } from "./subscriptionService.js";
 
 /** Business metrics for run lifecycle, aggregated in-process (see metrics.ts). */
 const runsTotal = counter("runs_total", "Runs started, by terminal status");
@@ -215,6 +216,13 @@ export async function startRun(args: StartRunArgs): Promise<{ runId: string; dia
           // Persist the run's (possibly mutated) variables for the next run.
           await db.saveGraphVariables(graph.id, userId, Object.fromEntries(variables));
           recordRunFinished(event.status, (await db.runStats(runId)).costUsd);
+          // M2 metering: fold this run's usage into the monthly ledger. Never
+          // let a metering failure change the run's terminal outcome.
+          try {
+            await recordRunUsage(db, userId, graph, runId, startedAt);
+          } catch (meterErr) {
+            runLog.warn("usage metering failed", { error: (meterErr as Error)?.message ?? String(meterErr) });
+          }
           args.onFinish?.(graph.id, event.status);
         }
       }
@@ -398,6 +406,11 @@ export async function resumeRun(args: ResumeRunArgs): Promise<{ runId: string; a
           await db.finishRun(runId, userId, event.status, Date.now(), haltedOf(event));
           await db.saveGraphVariables(graph.id, userId, Object.fromEntries(variables));
           recordRunFinished(event.status, (await db.runStats(runId)).costUsd);
+          try {
+            await recordRunUsage(db, userId, graph, runId, row.started_at);
+          } catch (meterErr) {
+            runLog.warn("usage metering failed", { error: (meterErr as Error)?.message ?? String(meterErr) });
+          }
           args.onFinish?.(graph.id, event.status);
         }
       }
