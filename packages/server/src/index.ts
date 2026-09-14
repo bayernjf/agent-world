@@ -916,7 +916,8 @@ app.put("/api/graphs/:id", async (c) => {
 /** Which node kinds require a worker model and which modality they need. */
 import { validateModels, type ModelDiagnostic } from "./validate-models.js";
 import { enforceSubscription, currentPeriodStart, QuotaError } from "./subscription.js";
-import { isPlanId } from "./plans.js";
+import { isPlanId, normalizeTokens, PLANS } from "./plans.js";
+import { getOrCreateSubscription, setPlan, currentPeriodEnd } from "./subscriptionService.js";
 
 app.post("/api/compile", async (c) => {
   const parsed = Graph.safeParse(await c.req.json());
@@ -1063,9 +1064,9 @@ app.post("/api/admin/users/:id/role", async (c) => {
   return c.json({ ok: true, role: body.role });
 });
 
-/** Monetization P1: owner manually sets a user's subscription plan (MVP,
- *  bypassing a payment gateway). Plan/price are runtime-editable placeholders
- *  pending real cost data (design-monetization §6.2, §10.2). */
+/** Monetization M2: owner manually sets a user's subscription plan (MVP,
+ *  bypassing a payment gateway until P2 Stripe). Instant, no proration;
+ *  setPlan writes the billing.plan_changed audit entry (design-monetization §6.2). */
 app.post("/api/admin/users/:id/plan", async (c) => {
   const callerId = c.get("userId");
   if (!(await isOwner(callerId))) return c.json({ error: "forbidden" }, 403);
@@ -1075,14 +1076,8 @@ app.post("/api/admin/users/:id/plan", async (c) => {
   }
   const target = await db.findUserById(c.req.param("id"));
   if (!target) return c.json({ error: "user not found" }, 404);
-  await db.saveSubscription(target.id, body.plan, body.status ?? "active");
-  audit(db, callerId, "plan.update", {
-    objectType: "user",
-    objectId: target.id,
-    detail: { grantee: target.id, plan: body.plan },
-    ip: clientIp(c),
-  });
-  return c.json({ ok: true, plan: body.plan });
+  const record = await setPlan(db, target.id, body.plan, callerId, clientIp(c));
+  return c.json({ ok: true, plan: record.plan });
 });
 
 // --- User feedback (design-feedback P1+P2) --------------------------------
