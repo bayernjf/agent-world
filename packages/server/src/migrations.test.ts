@@ -109,6 +109,68 @@ describe("ordered schema migrations", () => {
     raw.close();
   });
 
+  it("upgrades a v38 database whose subscriptions/invoices predate the Stripe mirror columns (migration 39)", () => {
+    // Regression for an S6 upgrade crash: a DB already at v38 HAS subscriptions
+    // (built at v34 without stripe columns) and invoices (built at v38 without
+    // stripe_invoice_id). The base DDL runs before migrations and uses
+    // CREATE TABLE IF NOT EXISTS, so it skipped those tables — then the inline
+    // `CREATE INDEX ... ON subscriptions(stripe_customer_id)` died with
+    // "no such column" before migration 39 could ALTER the column in. Those
+    // indexes must therefore be (re)built only after migrations settle.
+    const file = join(dir, "old-v38-stripe.sqlite");
+    const old = new DatabaseSync(file);
+    old.exec(`
+      CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL);
+      CREATE TABLE subscriptions (
+        user_id TEXT PRIMARY KEY, plan TEXT NOT NULL, status TEXT NOT NULL,
+        provider TEXT, external_id TEXT,
+        current_period_start INTEGER NOT NULL, current_period_end INTEGER NOT NULL,
+        created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+      CREATE TABLE invoices (
+        id TEXT PRIMARY KEY, user_id TEXT NOT NULL, subscription_id TEXT NOT NULL,
+        period_start INTEGER NOT NULL, period_end INTEGER NOT NULL, plan TEXT NOT NULL,
+        amount_usd REAL NOT NULL, status TEXT NOT NULL, line_items TEXT NOT NULL DEFAULT '[]',
+        paid_at INTEGER, paid_method TEXT, notes TEXT,
+        created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+      INSERT INTO subscriptions (user_id, plan, status, current_period_start, current_period_end, created_at, updated_at)
+        VALUES ('u-1', 'pro', 'active', 0, 1, 10, 11);
+    `);
+    for (let v = 1; v <= 38; v++) {
+      old.prepare("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)").run(v, 1);
+    }
+    old.close();
+
+    expect(() => openDb(file)).not.toThrow();
+    const raw = new DatabaseSync(file);
+    expect(cols(raw, "subscriptions")).toEqual(
+      expect.arrayContaining([
+        "stripe_customer_id",
+        "stripe_subscription_id",
+        "stripe_price_id",
+      ]),
+    );
+    expect(cols(raw, "invoices")).toContain("stripe_invoice_id");
+    for (const idx of [
+      "idx_subscriptions_stripe_customer",
+      "idx_subscriptions_stripe_sub",
+      "idx_invoices_stripe_invoice",
+    ]) {
+      expect(
+        raw.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name=?").get(idx),
+      ).toBeTruthy();
+    }
+    // The pre-existing subscription row survives the upgrade.
+    const row = raw.prepare("SELECT plan, stripe_customer_id FROM subscriptions WHERE user_id='u-1'").get() as {
+      plan: string;
+      stripe_customer_id: null;
+    };
+    expect(row.plan).toBe("pro");
+    expect(row.stripe_customer_id).toBeNull();
+    const max = raw.prepare("SELECT MAX(version) AS v FROM schema_migrations").get() as { v: number };
+    expect(max.v).toBe(SCHEMA_VERSION);
+    raw.close();
+  });
+
   it("upgrades a pre-variant database whose artifacts table lacks the variant column", async () => {
     // Regression for a F1-era upgrade crash: an old DB whose `artifacts` table
     // EXISTED but predated the `variant` column (and whose node_runs predated

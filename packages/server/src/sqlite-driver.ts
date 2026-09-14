@@ -420,8 +420,11 @@ CREATE TABLE IF NOT EXISTS subscriptions (
   created_at              INTEGER NOT NULL,
   updated_at              INTEGER NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_subscriptions_stripe_customer ON subscriptions(stripe_customer_id);
-CREATE INDEX IF NOT EXISTS idx_subscriptions_stripe_sub ON subscriptions(stripe_subscription_id);
+-- NOTE: idx_subscriptions_stripe_customer / _sub are created in
+-- runMigrations() (POST_MIGRATION_INDEXES), not here. subscriptions predates
+-- those columns, and the base DDL runs before the v39 ALTER on an upgraded DB,
+-- so an inline index over stripe_customer_id would crash boot ("no such
+-- column"). A brand-new DB gets them from the same post-migration step.
 
 -- P1 subscription-quota scaffolding, deliberately not written to yet. Metering
 -- truth lives in node_runs; enabling quotas goes through the idempotent
@@ -459,7 +462,9 @@ CREATE TABLE IF NOT EXISTS invoices (
 CREATE INDEX IF NOT EXISTS idx_invoices_user_id ON invoices(user_id);
 CREATE INDEX IF NOT EXISTS idx_invoices_status ON invoices(status);
 CREATE INDEX IF NOT EXISTS idx_invoices_period ON invoices(user_id, period_start);
-CREATE INDEX IF NOT EXISTS idx_invoices_stripe_invoice ON invoices(stripe_invoice_id);
+-- idx_invoices_stripe_invoice is created post-migration too: a DB that
+-- applied v38 before S6 has an invoices table without stripe_invoice_id when
+-- the base DDL runs, so an inline index would crash the same way.
 
 CREATE TABLE IF NOT EXISTS idempotency_keys (
   user_id    TEXT NOT NULL,
@@ -3771,6 +3776,22 @@ const MIGRATIONS: Migration[] = [
 const LATEST_VERSION = MIGRATIONS.at(-1)!.version;
 
 /**
+ * Indexes over columns added to PRE-EXISTING tables by later migrations. They
+ * cannot live in the base `DDL` string: that runs before migrations, and an
+ * upgraded DB still has the old table (without the column) at that point, so
+ * creating the index there crashes boot with "no such column". They also can't
+ * live only inside their migration's `up`, because a brand-new DB baselines
+ * (detect() matches and up() is skipped). Creating each once after every
+ * migration has settled — when the column exists on both the fresh and upgrade
+ * paths — covers both. All statements are idempotent (IF NOT EXISTS).
+ */
+const POST_MIGRATION_INDEXES: readonly string[] = [
+  "CREATE INDEX IF NOT EXISTS idx_subscriptions_stripe_customer ON subscriptions(stripe_customer_id)",
+  "CREATE INDEX IF NOT EXISTS idx_subscriptions_stripe_sub ON subscriptions(stripe_subscription_id)",
+  "CREATE INDEX IF NOT EXISTS idx_invoices_stripe_invoice ON invoices(stripe_invoice_id)",
+];
+
+/**
  * Run pending migrations inside a transaction. On first encounter of an older
  * database (no `schema_migrations` rows), existing columns are baselined: a
  * migration whose effect is already present is recorded as applied without
@@ -3809,6 +3830,9 @@ function runMigrations(db: DatabaseSync) {
       record.run(m.version, now);
       migrated.push(m.version);
     }
+    // Columns added to pre-existing tables are guaranteed present only now
+    // (base DDL on a fresh DB, v39 ALTER on upgrades); build their indexes here.
+    for (const sql of POST_MIGRATION_INDEXES) db.exec(sql);
     db.exec("COMMIT");
   } catch (err) {
     db.exec("ROLLBACK");
