@@ -18,6 +18,7 @@ export async function withRetry<T>(
   policy: Pick<RetryPolicy, "maxRetries" | "baseDelayMs" | "maxDelayMs">,
   isRetryable: (err: unknown) => boolean,
   sleep: (ms: number) => Promise<void> = defaultSleep,
+  getDelay?: (err: unknown, attempt: number, defaultDelay: number) => number,
 ): Promise<T> {
   const maxAttempts = 1 + (policy.maxRetries ?? 0);
   let lastErr: unknown;
@@ -29,7 +30,9 @@ export async function withRetry<T>(
       if (!isRetryable(err) || i >= maxAttempts - 1) break;
       const base = policy.baseDelayMs ?? 1000;
       const max = policy.maxDelayMs ?? 30000;
-      await sleep(Math.min(max, base * 2 ** i));
+      const defaultDelay = Math.min(max, base * 2 ** i);
+      const delay = getDelay ? getDelay(err, i, defaultDelay) : defaultDelay;
+      await sleep(delay);
     }
   }
   throw lastErr;
