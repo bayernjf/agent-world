@@ -26,8 +26,9 @@ import { McpSettings } from "./McpSettings";
 import { SkillCardSettings } from "./SkillCardSettings";
 import type { McpServerStatus } from "../lib/api";
 import { useTranslation } from "react-i18next";
+import BillingTab from "./BillingTab";
 
-export type SettingsTab = "models" | "integrations" | "skills";
+export type SettingsTab = "models" | "integrations" | "skills" | "billing";
 
 interface Props {
   open: boolean;
@@ -834,6 +835,7 @@ export default function Settings({ open, onClose, initialTab }: Props) {
                 ["models", "settings:tabs.models"],
                 ["integrations", "settings:tabs.integrations"],
                 ["skills", "settings:tabs.skills"],
+                ["billing", "billing:tab"],
               ] as const
             ).map(([id, key]) => (
               <button
@@ -1470,6 +1472,8 @@ export default function Settings({ open, onClose, initialTab }: Props) {
               onChange={(skillCards) => setConfig({ ...config, skillCards })}
             />
           )}
+
+          {tab === "billing" && <BillingTab />}
 
           {tab === "models" && (
             <>

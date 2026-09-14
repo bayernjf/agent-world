@@ -1084,9 +1084,10 @@ app.post("/api/admin/users/:id/plan", async (c) => {
 // (M2 §S5). The web UsagePanel / billing page reads this; it never mutates.
 app.get("/api/subscription", async (c) => {
   const userId = c.get("userId");
-  const [sub, usage] = await Promise.all([
+  const [sub, usage, activeRuns] = await Promise.all([
     getOrCreateSubscription(db, userId),
     currentUsage(db, userId),
+    db.activeRuns(userId),
   ]);
   const planId = isPlanId(sub.plan) ? sub.plan : "free";
   const quota = PLANS[planId];
@@ -1106,6 +1107,7 @@ app.get("/api/subscription", async (c) => {
       videoLimit: quota.videoSegments,
       storageBytes: usage.storageBytes,
       storageLimit: quota.storageBytes,
+      activeRuns,
       concurrentLimit: quota.concurrentRuns,
     },
   });
@@ -2231,7 +2233,15 @@ app.post("/api/runs", async (c) => {
     } catch (err) {
       if (err instanceof QuotaError) {
         return c.json(
-          { error: "subscription", code: err.code, metric: err.metric ?? null, detail: err.detail ?? null, message: err.message },
+          {
+            error: "subscription",
+            code: err.code,
+            metric: err.metric ?? null,
+            detail: err.detail ?? null,
+            // Internal anchor: the web app opens Settings → billing tab (no router).
+            upgradeUrl: "settings:billing",
+            message: err.message,
+          },
           402,
         );
       }

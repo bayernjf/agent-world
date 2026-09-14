@@ -596,6 +596,7 @@ export interface SubscriptionUsage {
   videoLimit: number;
   storageBytes: number;
   storageLimit: number;
+  activeRuns: number;
   concurrentLimit: number;
 }
 

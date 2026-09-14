@@ -7530,3 +7530,124 @@ select {
   }
 }
 
+/* ============ M2 billing: usage panel / billing tab / upgrade gate ============ */
+.usage-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin: var(--space-4) 0;
+}
+.usage-meter {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.usage-meter__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-3);
+}
+.usage-meter__label {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+.usage-meter__value {
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+}
+.usage-meter__track {
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--steel-700);
+  overflow: hidden;
+}
+.usage-meter__fill {
+  height: 100%;
+  border-radius: var(--radius-full);
+  transition: width 0.3s ease;
+}
+
+.billing-tab {
+  display: flex;
+  flex-direction: column;
+}
+.billing-current {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-4);
+  border: var(--hair);
+  border-radius: var(--radius-lg);
+  background: var(--steel-800);
+}
+.billing-current__plan {
+  font-size: var(--text-lg);
+  font-weight: var(--font-bold);
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.billing-current__badge {
+  font-size: var(--text-xs);
+  font-family: var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--data);
+  border: 1px solid var(--steel-500);
+  border-radius: var(--radius-sm);
+  padding: 1px var(--space-1);
+}
+.billing-current__meta {
+  margin-top: var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--ink-dim);
+}
+.billing-hint {
+  font-size: var(--text-sm);
+  color: var(--ink-dim);
+  margin: var(--space-2) 0;
+}
+
+.plan-comparison {
+  margin-top: var(--space-4);
+}
+.plan-comparison__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+  margin-top: var(--space-2);
+}
+.plan-comparison__table th,
+.plan-comparison__table td {
+  text-align: center;
+  padding: var(--space-2);
+  border-bottom: var(--hair);
+}
+.plan-comparison__table th:first-child,
+.plan-comparison__table td:first-child {
+  text-align: left;
+  color: var(--ink-dim);
+}
+.plan-comparison__table .is-current {
+  color: var(--data);
+  font-weight: var(--font-bold);
+}
+
+.upgrade-gate__card {
+  width: 460px;
+}
+.upgrade-gate__reason {
+  margin: 0;
+  font-size: var(--text-base);
+  line-height: 1.6;
+  color: var(--ink);
+}
+.upgrade-gate__footer .btn {
+  width: auto;
+  margin-top: 0;
+  padding: var(--space-2) var(--space-4);
+}
+

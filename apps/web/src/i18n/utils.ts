@@ -64,6 +64,27 @@ export function formatNumber(num: number, lang?: string): string {
   return new Intl.NumberFormat(locale(lang)).format(num);
 }
 
+/** Compact number, e.g. 1_234_567 → "1.23M" (en) / "123.5万" (zh). */
+export function formatCompactNumber(num: number, lang?: string): string {
+  return new Intl.NumberFormat(locale(lang), {
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(num);
+}
+
+/** Human-readable bytes, e.g. 5_368_709_120 → "5 GB". */
+export function formatBytes(bytes: number, lang?: string): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  const i = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
+  const value = bytes / Math.pow(1024, i);
+  const digits = i === 0 ? 0 : value >= 100 ? 0 : value >= 10 ? 1 : 2;
+  return `${new Intl.NumberFormat(locale(lang), {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  }).format(value)} ${units[i]}`;
+}
+
 /** Currency, e.g. "¥99.90" / "$99.90". */
 export function formatCurrency(
   amount: number,
