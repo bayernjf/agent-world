@@ -219,7 +219,7 @@ export async function startRun(args: StartRunArgs): Promise<{ runId: string; dia
           // M2 metering: fold this run's usage into the monthly ledger. Never
           // let a metering failure change the run's terminal outcome.
           try {
-            await recordRunUsage(db, userId, graph, runId, startedAt);
+            await recordRunUsage(db, userId, graph, runId, startedAt, cfg);
           } catch (meterErr) {
             runLog.warn("usage metering failed", { error: (meterErr as Error)?.message ?? String(meterErr) });
           }
@@ -407,7 +407,7 @@ export async function resumeRun(args: ResumeRunArgs): Promise<{ runId: string; a
           await db.saveGraphVariables(graph.id, userId, Object.fromEntries(variables));
           recordRunFinished(event.status, (await db.runStats(runId)).costUsd);
           try {
-            await recordRunUsage(db, userId, graph, runId, row.started_at);
+            await recordRunUsage(db, userId, graph, runId, row.started_at, cfg);
           } catch (meterErr) {
             runLog.warn("usage metering failed", { error: (meterErr as Error)?.message ?? String(meterErr) });
           }

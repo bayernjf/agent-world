@@ -15,6 +15,7 @@ import { DEFAULT_PLAN, PLANS, isPlanId, normalizeTokens } from "@agent-world/cor
 import { audit } from "./audit.js";
 import { currentPeriodStart, videoNodeIds } from "./subscription.js";
 import type { Db } from "./db.js";
+import type { AppConfig } from "./config.js";
 
 export interface SubscriptionRecord {
   plan: string;
@@ -105,10 +106,11 @@ export async function recordRunUsage(
   graph: Graph,
   runId: string,
   startedAt: number,
+  config: AppConfig,
 ): Promise<{ normalizedTokens: number; videoSegments: number }> {
   const periodStart = currentPeriodStart(startedAt);
   const stats = await db.runStats(runId);
-  const videoSegments = await db.countDoneNodes(runId, videoNodeIds(graph));
+  const videoSegments = await db.countDoneNodes(runId, videoNodeIds(graph, config));
   await db.accumulateUsage(userId, periodStart, "tokens_in", stats.tokensIn);
   await db.accumulateUsage(userId, periodStart, "tokens_out", stats.tokensOut);
   await db.accumulateUsage(userId, periodStart, "runs", 1);
