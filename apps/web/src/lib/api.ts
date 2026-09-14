@@ -577,13 +577,27 @@ export interface OperationsTotals {
   costUsd: number;
 }
 
-/** GET /api/operations/overview response (RTS phase A2). */
+/**
+ * A material-flow edge between two factories at L0 park scale (RTS stage C1).
+ * Direction = goods flow: fromGraphId produces, toGraphId consumes.
+ */
+export interface CrossGraphEdge {
+  fromGraphId: string;
+  toGraphId: string;
+  via: "subprocess" | "event";
+  /** Subprocess node id (via subprocess) or trigger id (via event). */
+  refId: string;
+}
+
+/** GET /api/operations/overview response (RTS phase A2, crossEdges in stage C1). */
 export interface OperationsOverview {
   generatedAt: number;
   since: number | null;
   totals: OperationsTotals;
   graphs: OperationsGraphSummary[];
   nextRuns: Record<string, Record<string, number | null>>;
+  /** RTS stage-C C1: edges between the caller's visible factories. */
+  crossEdges?: CrossGraphEdge[];
 }
 
 export interface SubscriptionUsage {

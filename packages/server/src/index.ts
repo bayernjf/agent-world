@@ -40,6 +40,7 @@ import { TriggerService, TriggerError, secretEqual, WEBHOOK_TIMESTAMP_WINDOW_MS 
 import { TriggerScheduler } from "./scheduler.js";
 import { resolveConnector } from "./connectors.js";
 import { startABExperiment } from "./ab.js";
+import { loadCrossGraphEdges } from "./crossGraphService.js";
 import {
   loadConfig,
   saveConfig,
@@ -2691,7 +2692,11 @@ app.get("/api/operations/overview", async (c) => {
     const m = triggers.nextRunMap(gid);
     if (Object.keys(m).length > 0) nextRuns[gid] = m;
   }
-  return c.json({ generatedAt: Date.now(), since: since ?? null, totals, graphs, nextRuns });
+  // RTS stage-C C1: material-flow edges between the visible factories
+  // (subprocess nodes + graph-event triggers). internalOnly keeps edges inside
+  // the caller's visible scope.
+  const crossEdges = await loadCrossGraphEdges(graphIds, (gid) => db.getGraphById(gid));
+  return c.json({ generatedAt: Date.now(), since: since ?? null, totals, graphs, nextRuns, crossEdges });
 });
 
 // --- Trigger management + webhook ---
