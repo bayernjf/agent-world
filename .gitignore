@@ -11,6 +11,7 @@ coverage/
 *.sqlite-shm
 .jwt-secret
 .encryption-key
+.encryption-keys
 logs/
 .claude/
 .trae/
