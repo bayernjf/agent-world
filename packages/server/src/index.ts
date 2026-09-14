@@ -11,6 +11,7 @@ import { streamSSE } from "hono/streaming";
 import { applyCors, applySecurityHeaders } from "./security.js";
 import {
   AD_LAW_BANNED_WORDS,
+  DEFAULT_PLAN,
   PLATFORM_PROFILES,
   compile,
   ConnectorConfig,
@@ -801,7 +802,7 @@ app.put("/api/graphs/:id/access", async (c) => {
 
   const target = await db.findUserByEmail(email);
   if (!target) return c.json({ error: "user not found", message: "该邮箱尚未注册" }, 404);
-  const graphOwnerId = await db.graphOwnerId(graphId)!;
+  const graphOwnerId = (await db.graphOwnerId(graphId))!;
   if (target.id === graphOwnerId) {
     return c.json({ error: "cannot share with owner", message: "所有者无需共享" }, 400);
   }
@@ -817,6 +818,24 @@ app.put("/api/graphs/:id/access", async (c) => {
       });
     }
     return c.json({ ok: true, revoked: removed });
+  }
+
+  // M3 S5: enforce plan seats limit. Count current collaborators + owner.
+  const ownerSub = await getOrCreateSubscription(db, graphOwnerId);
+  const ownerPlan = isPlanId(ownerSub.plan) ? ownerSub.plan : DEFAULT_PLAN;
+  const seatsLimit = PLANS[ownerPlan].seats;
+  const currentCollaborators = await db.listResourceAccess("graph", graphId);
+  const seatsUsed = currentCollaborators.length + 1; // +1 for owner
+  // If target is already a collaborator, this is an update (not adding a new seat).
+  const alreadyShared = currentCollaborators.some((r) => r.user_id === target.id);
+  if (!alreadyShared && seatsUsed >= seatsLimit) {
+    return c.json(
+      {
+        error: "seats_exceeded",
+        message: `当前套餐 ${ownerPlan} 仅支持 ${seatsLimit} 个席位（已用 ${seatsUsed}），请升级套餐或移除现有协作人。`,
+      },
+      403,
+    );
   }
 
   await db.saveResourceAccess("graph", graphId, target.id, role);
@@ -918,6 +937,8 @@ import { validateModels, type ModelDiagnostic } from "./validate-models.js";
 import { enforceSubscription, QuotaError } from "./subscription.js";
 import { isPlanId, normalizeTokens, PLANS } from "./plans.js";
 import { getOrCreateSubscription, setPlan, currentPeriodEnd, currentUsage } from "./subscriptionService.js";
+import { listInvoices, getInvoice, markInvoicePaid, voidInvoice } from "./invoiceService.js";
+import { renderInvoiceHtml } from "./invoiceTemplate.js";
 
 app.post("/api/compile", async (c) => {
   const parsed = Graph.safeParse(await c.req.json());
@@ -1080,6 +1101,59 @@ app.post("/api/admin/users/:id/plan", async (c) => {
   return c.json({ ok: true, plan: record.plan });
 });
 
+/** M3 S4: owner manually marks an invoice as paid (manual payment path).
+ *  Writes billing.invoice_paid audit entry via invoiceService. */
+app.post("/api/admin/invoices/:id/mark-paid", async (c) => {
+  const callerId = c.get("userId");
+  if (!(await isOwner(callerId))) return c.json({ error: "forbidden" }, 403);
+  const body = (await c.req.json().catch(() => ({}))) as { method?: string; notes?: string };
+  const method = body.method ?? "manual";
+  try {
+    const invoice = await markInvoicePaid(db, c.req.param("id"), method, callerId, body.notes, clientIp(c));
+    return c.json({ ok: true, invoice });
+  } catch (err) {
+    const msg = (err as Error).message;
+    if (msg.includes("not found")) return c.json({ error: "invoice not found" }, 404);
+    if (msg.includes("already paid")) return c.json({ error: "invoice already paid" }, 409);
+    if (msg.includes("void")) return c.json({ error: "cannot pay a void invoice" }, 409);
+    return c.json({ error: msg }, 400);
+  }
+});
+
+/** M3 S4: owner voids an invoice (cancel before payment).
+ *  Writes billing.invoice_voided audit entry via invoiceService. */
+app.post("/api/admin/invoices/:id/void", async (c) => {
+  const callerId = c.get("userId");
+  if (!(await isOwner(callerId))) return c.json({ error: "forbidden" }, 403);
+  const body = (await c.req.json().catch(() => ({}))) as { reason?: string };
+  try {
+    const invoice = await voidInvoice(db, c.req.param("id"), callerId, body.reason, clientIp(c));
+    return c.json({ ok: true, invoice });
+  } catch (err) {
+    const msg = (err as Error).message;
+    if (msg.includes("not found")) return c.json({ error: "invoice not found" }, 404);
+    if (msg.includes("paid invoice")) return c.json({ error: "cannot void a paid invoice" }, 409);
+    return c.json({ error: msg }, 400);
+  }
+});
+
+/** M3 S4: admin lists all invoices across all users (for payment management). */
+app.get("/api/admin/invoices", async (c) => {
+  const callerId = c.get("userId");
+  if (!(await isOwner(callerId))) return c.json({ error: "forbidden" }, 403);
+  // Reuse listInvoices but for all users — need a driver method. For now,
+  // iterate all users and collect. (TODO: add listAllInvoices driver method if perf matters.)
+  const allUsers = await db.listUsers();
+  const allInvoices: Awaited<ReturnType<typeof listInvoices>> = [];
+  for (const user of allUsers) {
+    const userInvoices = await listInvoices(db, user.id);
+    allInvoices.push(...userInvoices);
+  }
+  // Sort by createdAt descending
+  allInvoices.sort((a, b) => b.createdAt - a.createdAt);
+  return c.json({ invoices: allInvoices });
+});
+
 // Current user's subscription + current-period usage in one round-trip
 // (M2 §S5). The web UsagePanel / billing page reads this; it never mutates.
 app.get("/api/subscription", async (c) => {
@@ -1111,6 +1185,36 @@ app.get("/api/subscription", async (c) => {
       concurrentLimit: quota.concurrentRuns,
     },
   });
+});
+
+// --- M3 S2: invoices API (billing history) --------------------------------
+app.get("/api/invoices", async (c) => {
+  const userId = c.get("userId");
+  const invoices = await listInvoices(db, userId);
+  return c.json({ invoices });
+});
+
+app.get("/api/invoices/:id", async (c) => {
+  const userId = c.get("userId");
+  const id = c.req.param("id");
+  const invoice = await getInvoice(db, id);
+  if (!invoice) return c.json({ error: "not_found" }, 404);
+  // Users can only see their own invoices
+  if (invoice.userId !== userId) return c.json({ error: "forbidden" }, 403);
+  return c.json(invoice);
+});
+
+app.get("/api/invoices/:id/download", async (c) => {
+  const userId = c.get("userId");
+  const id = c.req.param("id");
+  const invoice = await getInvoice(db, id);
+  if (!invoice) return c.json({ error: "not_found" }, 404);
+  if (invoice.userId !== userId) return c.json({ error: "forbidden" }, 403);
+  const user = await db.findUserById(userId);
+  const html = renderInvoiceHtml(invoice, user?.email);
+  c.header("Content-Type", "text/html; charset=utf-8");
+  c.header("Content-Disposition", `attachment; filename="invoice_${invoice.id}.html"`);
+  return c.body(html);
 });
 
 // --- User feedback (design-feedback P1+P2) --------------------------------

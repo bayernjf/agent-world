@@ -8,6 +8,7 @@ import {
   type FeedbackCategory,
   type FeedbackItem,
   type FeedbackStatus,
+  type Invoice,
 } from "../lib/api";
 import { useToast } from "../store/toast";
 import Tooltip from "./Tooltip";
@@ -77,10 +78,14 @@ export default function AdminPanel({ open, me, onClose }: Props) {
   const showToast = useToast((s) => s.show);
   const isOwner = me?.role === "owner";
   const isAdmin = me?.role === "owner" || me?.role === "admin";
-  const [tab, setTab] = useState<"users" | "audit" | "feedback">("audit");
+  const [tab, setTab] = useState<"users" | "audit" | "feedback" | "invoices">("audit");
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [usersLoading, setUsersLoading] = useState(false);
   const [usersError, setUsersError] = useState<string | null>(null);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [invoicesLoading, setInvoicesLoading] = useState(false);
+  const [invoicesError, setInvoicesError] = useState<string | null>(null);
+  const [invoiceBusy, setInvoiceBusy] = useState<string | null>(null);
   const [audit, setAudit] = useState<AuditItem[]>([]);
   const [auditLoading, setAuditLoading] = useState(false);
   const [auditError, setAuditError] = useState<string | null>(null);
@@ -120,6 +125,51 @@ export default function AdminPanel({ open, me, onClose }: Props) {
       setUsersLoading(false);
     }
   }, [t]);
+
+  const loadInvoices = useCallback(async () => {
+    setInvoicesLoading(true);
+    setInvoicesError(null);
+    try {
+      const data = await api.adminListInvoices();
+      setInvoices(data.invoices);
+    } catch {
+      setInvoicesError(t("modals:adminPanel.loadInvoicesFailed"));
+    } finally {
+      setInvoicesLoading(false);
+    }
+  }, [t]);
+
+  const handleMarkPaid = useCallback(
+    async (invoiceId: string) => {
+      setInvoiceBusy(invoiceId);
+      try {
+        await api.adminMarkInvoicePaid(invoiceId, "manual");
+        showToast(t("modals:adminPanel.invoiceMarkedPaid"));
+        await loadInvoices();
+      } catch (err) {
+        showToast((err as Error).message);
+      } finally {
+        setInvoiceBusy(null);
+      }
+    },
+    [loadInvoices, showToast, t],
+  );
+
+  const handleVoidInvoice = useCallback(
+    async (invoiceId: string) => {
+      setInvoiceBusy(invoiceId);
+      try {
+        await api.adminVoidInvoice(invoiceId);
+        showToast(t("modals:adminPanel.invoiceVoided"));
+        await loadInvoices();
+      } catch (err) {
+        showToast((err as Error).message);
+      } finally {
+        setInvoiceBusy(null);
+      }
+    },
+    [loadInvoices, showToast, t],
+  );
 
   const loadAudit = useCallback(async (before?: number) => {
     setAuditLoading(true);
@@ -171,6 +221,11 @@ export default function AdminPanel({ open, me, onClose }: Props) {
   useEffect(() => {
     if (open && isAdmin) void loadFeedback();
   }, [open, isAdmin, loadFeedback]);
+
+  // Load invoices when the owner opens that tab.
+  useEffect(() => {
+    if (open && isOwner && tab === "invoices") void loadInvoices();
+  }, [open, isOwner, tab, loadInvoices]);
 
   // Escape closes the announce form first, then the panel — unless the confirm
   // dialog is open, in which case ConfirmDialog owns the Escape key.
@@ -332,6 +387,15 @@ export default function AdminPanel({ open, me, onClose }: Props) {
               >
                 {t("feedback:admin.title")}
               </button>
+              {isOwner && (
+                <button
+                  type="button"
+                  className={`admin-panel__tab ${tab === "invoices" ? "is-on" : ""}`}
+                  onClick={() => setTab("invoices")}
+                >
+                  {t("modals:adminPanel.tabInvoices")}
+                </button>
+              )}
             </div>
 
             {tab === "users" ? (
@@ -513,7 +577,7 @@ export default function AdminPanel({ open, me, onClose }: Props) {
                   </button>
                 </div>
               </div>
-            ) : (
+            ) : tab === "feedback" ? (
               <div>
                 <div className="admin-feedback__filters">
                   {(["all", ...FEEDBACK_STATUSES] as const).map((s) => (
@@ -598,7 +662,83 @@ export default function AdminPanel({ open, me, onClose }: Props) {
                   </ul>
                 )}
               </div>
-            )}
+            ) : tab === "invoices" ? (
+              <div>
+                <p className="muted">{t("modals:adminPanel.invoicesHint")}</p>
+                {invoicesLoading ? (
+                  <p className="muted">{t("modals:adminPanel.loading")}</p>
+                ) : invoicesError ? (
+                  <div className="form-error">{invoicesError}</div>
+                ) : invoices.length === 0 ? (
+                  <p className="muted">{t("modals:adminPanel.emptyInvoices")}</p>
+                ) : (
+                  <table className="admin-invoice-table">
+                    <thead>
+                      <tr>
+                        <th>{t("modals:adminPanel.invoiceUser")}</th>
+                        <th>{t("modals:adminPanel.invoicePeriod")}</th>
+                        <th>{t("modals:adminPanel.invoicePlan")}</th>
+                        <th className="num">{t("modals:adminPanel.invoiceAmount")}</th>
+                        <th>{t("modals:adminPanel.invoiceStatus")}</th>
+                        <th>{t("modals:adminPanel.invoiceActions")}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {invoices.map((inv) => (
+                        <tr key={inv.id}>
+                          <td className="admin-invoice-table__user" title={inv.userId}>
+                            {inv.userId.slice(0, 8)}
+                          </td>
+                          <td>
+                            {formatDate(inv.periodStart)} — {formatDate(inv.periodEnd)}
+                          </td>
+                          <td>{t(`billing:plans.${inv.plan}`)}</td>
+                          <td className="num">
+                            {inv.amountUsd === 0 ? t("billing:plans.priceFree") : `$${inv.amountUsd.toFixed(2)}`}
+                          </td>
+                          <td>
+                            <span className={`invoice-status invoice-status--${inv.status}`}>
+                              {t(`billing:invoices.status${inv.status.charAt(0).toUpperCase() + inv.status.slice(1)}`)}
+                            </span>
+                          </td>
+                          <td>
+                            <div style={{ display: "flex", gap: "var(--space-1)", flexWrap: "wrap" }}>
+                              {inv.status === "open" && (
+                                <button
+                                  type="button"
+                                  className="ghost-btn"
+                                  disabled={invoiceBusy === inv.id}
+                                  onClick={() => void handleMarkPaid(inv.id)}
+                                >
+                                  {t("modals:adminPanel.invoiceMarkPaid")}
+                                </button>
+                              )}
+                              {(inv.status === "open" || inv.status === "draft") && (
+                                <button
+                                  type="button"
+                                  className="ghost-btn"
+                                  disabled={invoiceBusy === inv.id}
+                                  onClick={() => void handleVoidInvoice(inv.id)}
+                                >
+                                  {t("modals:adminPanel.invoiceVoid")}
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                className="ghost-btn"
+                                onClick={() => api.downloadInvoice(inv.id)}
+                              >
+                                {t("billing:invoices.download")}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            ) : null}
           </div>
         </div>
       </div>

@@ -75,6 +75,12 @@ describe("graph sharing ACL API (design-rbac P1)", () => {
     editorToken = await register("acl-editor@test.dev");
     outsiderToken = await register("acl-outsider@test.dev");
     graphId = await createGraph(ownerToken, "shared graph");
+    // M3 S5: free/starter/pro plans have seats=1; upgrade owner to team (seats=5)
+    // so existing ACL tests can add collaborators.
+    const me = await app.request("/api/auth/me", { headers: auth(ownerToken) });
+    const meBody = (await me.json()) as { user: { id: string } };
+    const { setPlan } = await import("./subscriptionService.js");
+    await setPlan(db, meBody.user.id, "team", "manual");
   });
 
   it("grants editor and lists the collaborator", async () => {
@@ -178,6 +184,9 @@ describe("run & artifact access inheritance (design-rbac P1)", () => {
     outsiderToken = await register("ra-outsider@test.dev");
     ownerId = await userIdByEmail("ra-owner@test.dev");
     graphId = await createGraph(ownerToken, "run-access graph");
+    // M3 S5: upgrade owner to team plan (seats=5) before adding collaborators
+    const { setPlan } = await import("./subscriptionService.js");
+    await setPlan(db, ownerId, "team", "manual");
     await putAccess(ownerToken, graphId, "ra-editor@test.dev", "editor");
     await putAccess(ownerToken, graphId, "ra-viewer@test.dev", "viewer");
 
@@ -300,5 +309,43 @@ describe("run & artifact access inheritance (design-rbac P1)", () => {
 
     const outsider = await app.request(`/api/artifacts/${artifactId}`, { headers: auth(outsiderToken) });
     expect(outsider.status).toBe(404);
+  });
+});
+
+describe("Seats limit (M3 S5)", () => {
+  it("blocks adding collaborators on free plan (seats=1)", async () => {
+    const ownerToken = await register("seats-owner@test.dev");
+    const collabToken = await register("seats-collab@test.dev");
+    const graphId = await createGraph(ownerToken, "seats-test");
+
+    // Free plan has seats=1 (owner only). Try to add a collaborator → 403.
+    const res = await app.request(`/api/graphs/${graphId}/access`, {
+      method: "PUT",
+      headers: { ...auth(ownerToken), "content-type": "application/json" },
+      body: JSON.stringify({ email: "seats-collab@test.dev", role: "viewer" }),
+    });
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe("seats_exceeded");
+  });
+
+  it("allows adding collaborators on team plan (seats=5)", async () => {
+    const { setPlan } = await import("./subscriptionService.js");
+    const ownerToken = await register("seats-team-owner@test.dev");
+    const collabToken = await register("seats-team-collab@test.dev");
+    const graphId = await createGraph(ownerToken, "seats-team-test");
+
+    // Get owner userId, upgrade to team plan (seats=5)
+    const me = await app.request("/api/auth/me", { headers: auth(ownerToken) });
+    const meBody = (await me.json()) as { user: { id: string } };
+    await setPlan(db, meBody.user.id, "team", "manual");
+
+    // Now adding a collaborator should succeed
+    const res = await app.request(`/api/graphs/${graphId}/access`, {
+      method: "PUT",
+      headers: { ...auth(ownerToken), "content-type": "application/json" },
+      body: JSON.stringify({ email: "seats-team-collab@test.dev", role: "viewer" }),
+    });
+    expect(res.status).toBe(200);
   });
 });

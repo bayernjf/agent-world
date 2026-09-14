@@ -60,5 +60,30 @@
     "tokenExhaustedTitle": "内置模型 Token 已用尽",
     "tokenExhaustedBody": "本周期内置模型 Token 已用尽（已用 {{used}}，上限 {{limit}}），内置模型产线将被暂停，请升级套餐或等待下个周期。",
     "viewUsage": "查看用量"
+  },
+  "invoices": {
+    "title": "账单流水",
+    "empty": "暂无账单记录",
+    "loading": "加载账单中…",
+    "error": "账单加载失败",
+    "period": "计费周期",
+    "amount": "金额",
+    "status": "状态",
+    "statusOpen": "待支付",
+    "statusPaid": "已支付",
+    "statusVoid": "已作废",
+    "statusDraft": "草稿",
+    "viewDetail": "查看详情",
+    "download": "下载发票",
+    "detail": {
+      "title": "账单详情",
+      "invoiceId": "账单编号",
+      "plan": "套餐",
+      "lineItems": "明细",
+      "paidAt": "支付时间",
+      "paidMethod": "支付方式",
+      "notes": "备注",
+      "close": "关闭"
+    }
   }
 }

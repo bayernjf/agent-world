@@ -23,16 +23,18 @@ export interface PlanQuota {
   storageBytes: number;
   /** Monthly generated video-segment ceiling (one successful videoGen = one segment). */
   videoSegments: number;
+  /** Maximum number of collaborators (seats) the plan allows. Owner counts as 1. */
+  seats: number;
 }
 
 const MB = 1024 * 1024;
 const GB = 1024 * 1024 * 1024;
 
 export const PLANS: Record<PlanId, PlanQuota> = {
-  free: { tokens: 0, concurrentRuns: 1, storageBytes: 100 * MB, videoSegments: 0 },
-  starter: { tokens: 500_000, concurrentRuns: 2, storageBytes: 5 * GB, videoSegments: 2 },
-  pro: { tokens: 2_000_000, concurrentRuns: 5, storageBytes: 50 * GB, videoSegments: 10 },
-  team: { tokens: 10_000_000, concurrentRuns: 20, storageBytes: 500 * GB, videoSegments: 50 },
+  free: { tokens: 0, concurrentRuns: 1, storageBytes: 100 * MB, videoSegments: 0, seats: 1 },
+  starter: { tokens: 500_000, concurrentRuns: 2, storageBytes: 5 * GB, videoSegments: 2, seats: 1 },
+  pro: { tokens: 2_000_000, concurrentRuns: 5, storageBytes: 50 * GB, videoSegments: 10, seats: 1 },
+  team: { tokens: 10_000_000, concurrentRuns: 20, storageBytes: 500 * GB, videoSegments: 50, seats: 5 },
 };
 
 /** Monthly subscription price in USD (M1-calibrated, design-monetization §4.1). */
