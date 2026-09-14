@@ -113,10 +113,10 @@ describe("enforceSubscription", () => {
     ).toThrowError(/并发上限/);
   });
 
-  it("blocks video generation once the plan's segment quota is reached", () => {
-    // pro allows 10 segments; the 11th is blocked even with a BYOK video model.
+  it("blocks builtin video generation once the plan's segment quota is reached", () => {
+    // pro allows 10 segments; the 11th builtin video is blocked. BYOK video is user-paid and never counted.
     expect(() =>
-      enforceSubscription(withNodes(videoNode("v")), cfg, {
+      enforceSubscription(withNodes(videoNode("v", "agnes-2.0-flash")), cfg, {
         subscription: { plan: "pro", status: "active" },
         usedTokens: 0,
         activeRuns: 0,
@@ -124,7 +124,7 @@ describe("enforceSubscription", () => {
       }),
     ).toThrowError(/视频生成额度/);
     expect(() =>
-      enforceSubscription(withNodes(videoNode("v")), cfg, {
+      enforceSubscription(withNodes(videoNode("v", "agnes-2.0-flash")), cfg, {
         subscription: { plan: "pro", status: "active" },
         usedTokens: 0,
         activeRuns: 0,
@@ -133,14 +133,24 @@ describe("enforceSubscription", () => {
     ).not.toThrow();
   });
 
-  it("blocks any video on the free plan (segment quota is 0)", () => {
+  it("allows BYOK video on the free plan (user-paid, not counted against platform quota)", () => {
     expect(() =>
       enforceSubscription(withNodes(videoNode("v", "my-model")), cfg, {
         usedTokens: 0,
         activeRuns: 0,
         usedVideoSegments: 0,
       }),
-    ).toThrowError(QuotaError);
+    ).not.toThrow();
+  });
+
+  it("blocks builtin video on the free plan via the builtin-model guard", () => {
+    expect(() =>
+      enforceSubscription(withNodes(videoNode("v", "agnes-2.0-flash")), cfg, {
+        usedTokens: 0,
+        activeRuns: 0,
+        usedVideoSegments: 0,
+      }),
+    ).toThrowError(/免费层不可用内置模型/);
   });
 
   it("blocks once storage quota is reached", () => {

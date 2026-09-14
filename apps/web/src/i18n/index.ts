@@ -15,6 +15,7 @@ import zhAnnouncements from "./locales/zh/announcements.json";
 import zhFeedback from "./locales/zh/feedback.json";
 import zhPark from "./locales/zh/park.json";
 import zhTour from "./locales/zh/tour.json";
+import zhBilling from "./locales/zh/billing.json";
 
 import enCommon from "./locales/en/common.json";
 import enCanvas from "./locales/en/canvas.json";
@@ -29,6 +30,7 @@ import enAnnouncements from "./locales/en/announcements.json";
 import enFeedback from "./locales/en/feedback.json";
 import enPark from "./locales/en/park.json";
 import enTour from "./locales/en/tour.json";
+import enBilling from "./locales/en/billing.json";
 
 const STORAGE_KEY = "agent-world.language";
 
@@ -61,6 +63,7 @@ i18n.use(initReactI18next).init({
       feedback: zhFeedback,
       park: zhPark,
       tour: zhTour,
+      billing: zhBilling,
     },
     en: {
       common: enCommon,
@@ -76,11 +79,12 @@ i18n.use(initReactI18next).init({
       feedback: enFeedback,
       park: enPark,
       tour: enTour,
+      billing: enBilling,
     },
   },
   lng: detectLanguage(),
   fallbackLng: "zh",
-  ns: ["common", "canvas", "nodes", "modals", "settings", "run", "errors", "auth", "reviews", "announcements", "feedback", "park", "tour"],
+  ns: ["common", "canvas", "nodes", "modals", "settings", "run", "errors", "auth", "reviews", "announcements", "feedback", "park", "tour", "billing"],
   defaultNS: "common",
   interpolation: {
     escapeValue: false, // React already escapes

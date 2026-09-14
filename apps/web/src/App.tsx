@@ -54,6 +54,8 @@ import CollaboratorsModal from "./components/CollaboratorsModal";
 import CommandPalette, { type CommandItem } from "./components/CommandPalette";
 import { api, DuplicateGraphNameError, type OperationsOverview } from "./lib/api";
 import { useToast } from "./store/toast";
+import { parseQuotaError, useUpgradeGate } from "./store/upgrade-gate";
+import UpgradeGate from "./components/UpgradeGate";
 import { getTemplate } from "@agent-world/core";
 import { useGraph } from "./store/graph";
 import { useRun } from "./store/run";
@@ -878,7 +880,11 @@ export default function App() {
         );
         connect(id);
       } catch (e) {
-        showError(String(e));
+        // A structured subscription 402 opens the upgrade modal instead of a
+        // raw error toast; every other failure keeps the normal toast path.
+        const block = parseQuotaError(e);
+        if (block) useUpgradeGate.getState().open(block);
+        else showError(String(e));
       }
     },
     [graph, budget, rawMaterial, connect, reset, flushSave],
@@ -1290,6 +1296,16 @@ export default function App() {
           open={settingsOpen}
           initialTab={settingsTab}
           onClose={() => setSettingsOpen(false)}
+        />
+        <UpgradeGate
+          onUpgrade={() => {
+            setSettingsTab("billing");
+            setSettingsOpen(true);
+          }}
+          onUseCustomModel={() => {
+            setSettingsTab("models");
+            setSettingsOpen(true);
+          }}
         />
         <NewGraphDialog
           open={newGraphOpen}
