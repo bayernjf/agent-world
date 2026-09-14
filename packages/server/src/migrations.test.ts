@@ -83,6 +83,32 @@ describe("ordered schema migrations", () => {
     raw.close();
   });
 
+  it("baselines Stripe mirror columns + indexes on a fresh database (migration 39)", () => {
+    const file = join(dir, "fresh-stripe.sqlite");
+    openDb(file);
+    const raw = new DatabaseSync(file);
+    expect(cols(raw, "subscriptions")).toEqual(
+      expect.arrayContaining([
+        "stripe_customer_id",
+        "stripe_subscription_id",
+        "stripe_price_id",
+      ]),
+    );
+    expect(cols(raw, "invoices")).toContain("stripe_invoice_id");
+    for (const idx of [
+      "idx_subscriptions_stripe_customer",
+      "idx_subscriptions_stripe_sub",
+      "idx_invoices_stripe_invoice",
+    ]) {
+      expect(
+        raw
+          .prepare("SELECT name FROM sqlite_master WHERE type='index' AND name=?")
+          .get(idx),
+      ).toBeTruthy();
+    }
+    raw.close();
+  });
+
   it("upgrades a pre-variant database whose artifacts table lacks the variant column", async () => {
     // Regression for a F1-era upgrade crash: an old DB whose `artifacts` table
     // EXISTED but predated the `variant` column (and whose node_runs predated
@@ -248,21 +274,29 @@ describe("migration rollback (down)", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("rolls back the latest migration one step", () => {
+  it("rolls back the latest migration one step (39: Stripe mirror columns)", () => {
     const file = join(dir, "aw.sqlite");
     openDb(file).close(); // applies every migration, up to SCHEMA_VERSION
 
     const raw = new DatabaseSync(file);
-    // Latest migration is 38 (invoices table); migration 37 (park_x/park_z)
-    // must survive a single-step rollback.
+    // Before rollback, v39 Stripe mirror columns and the v38 invoices table exist.
+    expect(cols(raw, "subscriptions")).toContain("stripe_customer_id");
+    expect(cols(raw, "subscriptions")).toContain("stripe_subscription_id");
+    expect(cols(raw, "subscriptions")).toContain("stripe_price_id");
+    expect(cols(raw, "invoices")).toContain("stripe_invoice_id");
     expect(tables(raw)).toContain("invoices");
     expect(cols(raw, "graphs")).toContain("park_x");
-    expect(cols(raw, "graphs")).toContain("park_z");
 
     const result = rollbackLatestMigration(raw);
     expect(result?.version).toBe(SCHEMA_VERSION);
 
-    expect(tables(raw)).not.toContain("invoices");
+    // v39 down drops only the Stripe mirror columns; the invoices table (v38)
+    // and park columns (v37) survive a single-step rollback.
+    expect(cols(raw, "subscriptions")).not.toContain("stripe_customer_id");
+    expect(cols(raw, "subscriptions")).not.toContain("stripe_subscription_id");
+    expect(cols(raw, "subscriptions")).not.toContain("stripe_price_id");
+    expect(cols(raw, "invoices")).not.toContain("stripe_invoice_id");
+    expect(tables(raw)).toContain("invoices");
     expect(cols(raw, "graphs")).toContain("park_x");
     expect(cols(raw, "graphs")).toContain("park_z");
     raw.close();
