@@ -108,6 +108,17 @@ const isRateLimit = (err: unknown): boolean => err instanceof ProviderError && e
 const isTransientError = (err: unknown): boolean =>
   err instanceof ProviderError && (err.code === "RATE_LIMIT" || err.code === "TIMEOUT");
 
+/**
+ * Per-error delay override: agnes free-tier RATE_LIMIT is quota exhaustion
+ * that does not clear in seconds — wait 5 minutes on the first retry and then
+ * stop retrying (maxRetries=1 in the LONG_RETRY budget still applies). TIMEOUT
+ * uses the standard exponential backoff.
+ */
+function retryDelay(err: unknown, _attempt: number, defaultDelay: number): number {
+  if (isRateLimit(err)) return 300000; // 5 min for quota exhaustion
+  return defaultDelay;
+}
+
 /** Reads a value from a JSON object by dot path (e.g. "metadata.url"). */
 function dotPath(obj: unknown, path: string): unknown {
   let cur: unknown = obj;
@@ -552,6 +563,8 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
         },
         LONG_RETRY,
         isTransientError,
+        undefined,
+        retryDelay,
       );
     },
 
@@ -603,6 +616,8 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
           },
           LONG_RETRY,
           isTransientError,
+          undefined,
+          retryDelay,
         );
       } catch (err) {
         if (err instanceof GuardedFetchError) throw mapGuardedError(err);
@@ -721,6 +736,8 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
           },
           LONG_RETRY,
           isTransientError,
+          undefined,
+          retryDelay,
         );
         const json = (await res.json()) as Record<string, unknown>;
 
