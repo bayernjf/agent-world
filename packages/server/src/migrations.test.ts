@@ -11,6 +11,14 @@ function cols(db: DatabaseSync, table: string): string[] {
   );
 }
 
+function tables(db: DatabaseSync): string[] {
+  return (
+    db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{
+      name: string;
+    }>
+  ).map((r) => r.name);
+}
+
 describe("migration logging", () => {
   let dir: string;
   beforeEach(() => {
@@ -245,18 +253,18 @@ describe("migration rollback (down)", () => {
     openDb(file).close(); // applies every migration, up to SCHEMA_VERSION
 
     const raw = new DatabaseSync(file);
-    // Latest migration is 37 (graphs.park_x/park_z); migration 36 (node_runs.model)
+    // Latest migration is 38 (invoices table); migration 37 (park_x/park_z)
     // must survive a single-step rollback.
+    expect(tables(raw)).toContain("invoices");
     expect(cols(raw, "graphs")).toContain("park_x");
     expect(cols(raw, "graphs")).toContain("park_z");
-    expect(cols(raw, "node_runs")).toContain("model");
 
     const result = rollbackLatestMigration(raw);
     expect(result?.version).toBe(SCHEMA_VERSION);
 
-    expect(cols(raw, "graphs")).not.toContain("park_x");
-    expect(cols(raw, "graphs")).not.toContain("park_z");
-    expect(cols(raw, "node_runs")).toContain("model");
+    expect(tables(raw)).not.toContain("invoices");
+    expect(cols(raw, "graphs")).toContain("park_x");
+    expect(cols(raw, "graphs")).toContain("park_z");
     raw.close();
   });
 });
