@@ -865,7 +865,9 @@
     "addFailed": "添加失败：{{message}}",
     "removeFailed": "移除失败：{{message}}",
     "loading": "加载中…",
-    "loadFailed": "加载协作者列表失败"
+    "loadFailed": "加载协作者列表失败",
+    "seatsUsed": "席位：{{used}} / {{limit}}",
+    "seatsFull": "已达上限，请升级套餐"
   },
   "sharedRole": {
     "editor": "编辑者",

@@ -11,6 +11,7 @@ import { streamSSE } from "hono/streaming";
 import { applyCors, applySecurityHeaders } from "./security.js";
 import {
   AD_LAW_BANNED_WORDS,
+  DEFAULT_PLAN,
   PLATFORM_PROFILES,
   compile,
   ConnectorConfig,
@@ -801,7 +802,7 @@ app.put("/api/graphs/:id/access", async (c) => {
 
   const target = await db.findUserByEmail(email);
   if (!target) return c.json({ error: "user not found", message: "该邮箱尚未注册" }, 404);
-  const graphOwnerId = await db.graphOwnerId(graphId)!;
+  const graphOwnerId = (await db.graphOwnerId(graphId))!;
   if (target.id === graphOwnerId) {
     return c.json({ error: "cannot share with owner", message: "所有者无需共享" }, 400);
   }
@@ -817,6 +818,24 @@ app.put("/api/graphs/:id/access", async (c) => {
       });
     }
     return c.json({ ok: true, revoked: removed });
+  }
+
+  // M3 S5: enforce plan seats limit. Count current collaborators + owner.
+  const ownerSub = await getOrCreateSubscription(db, graphOwnerId);
+  const ownerPlan = isPlanId(ownerSub.plan) ? ownerSub.plan : DEFAULT_PLAN;
+  const seatsLimit = PLANS[ownerPlan].seats;
+  const currentCollaborators = await db.listResourceAccess("graph", graphId);
+  const seatsUsed = currentCollaborators.length + 1; // +1 for owner
+  // If target is already a collaborator, this is an update (not adding a new seat).
+  const alreadyShared = currentCollaborators.some((r) => r.user_id === target.id);
+  if (!alreadyShared && seatsUsed >= seatsLimit) {
+    return c.json(
+      {
+        error: "seats_exceeded",
+        message: `当前套餐 ${ownerPlan} 仅支持 ${seatsLimit} 个席位（已用 ${seatsUsed}），请升级套餐或移除现有协作人。`,
+      },
+      403,
+    );
   }
 
   await db.saveResourceAccess("graph", graphId, target.id, role);

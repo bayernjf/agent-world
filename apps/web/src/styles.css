@@ -534,6 +534,18 @@ select {
 }
 
 /* ---------- collaborators modal ---------- */
+.collab-seats {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-sm);
+  margin: var(--space-2) 0;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+.collab-seats__full {
+  color: var(--warning);
+  font-weight: var(--font-medium);
+}
 .collab-list {
   list-style: none;
   margin: var(--gap-md) 0;

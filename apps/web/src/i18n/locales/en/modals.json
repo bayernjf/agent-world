@@ -865,7 +865,9 @@
     "addFailed": "Add failed: {{message}}",
     "removeFailed": "Remove failed: {{message}}",
     "loading": "Loading…",
-    "loadFailed": "Failed to load collaborators"
+    "loadFailed": "Failed to load collaborators",
+    "seatsUsed": "Seats: {{used}} / {{limit}}",
+    "seatsFull": "Limit reached — upgrade your plan"
   },
   "sharedRole": {
     "editor": "Editor",
