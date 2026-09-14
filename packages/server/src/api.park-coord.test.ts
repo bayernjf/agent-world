@@ -2,9 +2,11 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { openDb } from "./db.js";
 
 let dir: string;
 let app: Awaited<ReturnType<typeof import("./index.js")>>["app"];
+let db: ReturnType<typeof openDb>;
 
 beforeAll(async () => {
   dir = mkdtempSync(join(tmpdir(), "aw-park-api-"));
@@ -12,6 +14,7 @@ beforeAll(async () => {
   process.env.ALLOW_REGISTRATION = "1";
   const mod = await import("./index.js");
   app = mod.app;
+  db = openDb(process.env.DB_FILE!);
 });
 
 afterAll(async () => {
@@ -90,6 +93,12 @@ describe("RTS stage-B park-coord API (migration 37)", () => {
     const outsider = await register("park-outsider@example.com");
     const viewer = await register("park-viewer@example.com");
     const id = await createGraph(owner, "ACL");
+
+    // M3 S5: upgrade owner to team plan (seats=5) before adding collaborators
+    const { setPlan } = await import("./subscriptionService.js");
+    const me = await app.request("/api/auth/me", { headers: authed(owner) });
+    const meBody = (await me.json()) as { user: { id: string } };
+    await setPlan(db, meBody.user.id, "team", "manual");
 
     // An unrelated user has no access — existence is hidden as 404.
     expect((await putCoord(outsider, id, { x: 1, z: 1 })).status).toBe(404);
