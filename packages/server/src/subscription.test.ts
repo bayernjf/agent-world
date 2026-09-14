@@ -38,6 +38,15 @@ const textNode = (id: string, model: string) => ({
   y: 0,
   textGen: { model, prompt: "" },
 });
+const videoNode = (id: string, model = "my-model") => ({
+  id,
+  kind: "videoGen" as const,
+  name: id,
+  x: 0,
+  y: 0,
+  videoGen: { model, prompt: "" },
+});
+const MB = 1024 * 1024, GB = 1024 * MB;
 const withNodes = (...nodes: Graph["nodes"]): Graph => ({ ...graph, nodes });
 
 describe("modelRefs", () => {
@@ -102,6 +111,62 @@ describe("enforceSubscription", () => {
         activeRuns: 1,
       }),
     ).toThrowError(/并发上限/);
+  });
+
+  it("blocks video generation once the plan's segment quota is reached", () => {
+    // pro allows 10 segments; the 11th is blocked even with a BYOK video model.
+    expect(() =>
+      enforceSubscription(withNodes(videoNode("v")), cfg, {
+        subscription: { plan: "pro", status: "active" },
+        usedTokens: 0,
+        activeRuns: 0,
+        usedVideoSegments: 10,
+      }),
+    ).toThrowError(/视频生成额度/);
+    expect(() =>
+      enforceSubscription(withNodes(videoNode("v")), cfg, {
+        subscription: { plan: "pro", status: "active" },
+        usedTokens: 0,
+        activeRuns: 0,
+        usedVideoSegments: 9,
+      }),
+    ).not.toThrow();
+  });
+
+  it("blocks any video on the free plan (segment quota is 0)", () => {
+    expect(() =>
+      enforceSubscription(withNodes(videoNode("v", "my-model")), cfg, {
+        usedTokens: 0,
+        activeRuns: 0,
+        usedVideoSegments: 0,
+      }),
+    ).toThrowError(QuotaError);
+  });
+
+  it("blocks once storage quota is reached", () => {
+    expect(() =>
+      enforceSubscription(withNodes(textNode("a", "my-model")), cfg, {
+        subscription: { plan: "starter", status: "active" },
+        usedTokens: 0,
+        activeRuns: 0,
+        usedStorageBytes: 5 * GB + 1,
+      }),
+    ).toThrowError(/存储空间/);
+  });
+
+  it("attaches a stable metric and structured detail to QuotaError", () => {
+    try {
+      enforceSubscription(withNodes(textNode("a", "agnes-2.0-flash")), cfg, {
+        usedTokens: 0,
+        activeRuns: 0,
+      });
+      throw new Error("expected throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(QuotaError);
+      const q = err as QuotaError;
+      expect(q.metric).toBe("builtin_model");
+      expect(q.detail?.plan).toBe("free");
+    }
   });
 });
 
