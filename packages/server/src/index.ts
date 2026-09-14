@@ -1080,6 +1080,39 @@ app.post("/api/admin/users/:id/plan", async (c) => {
   return c.json({ ok: true, plan: record.plan });
 });
 
+// Current user's subscription + current-period usage in one round-trip
+// (M2 §S5). The web UsagePanel / billing page reads this; it never mutates.
+app.get("/api/subscription", async (c) => {
+  const userId = c.get("userId");
+  const [sub, usage, activeRuns] = await Promise.all([
+    getOrCreateSubscription(db, userId),
+    currentUsage(db, userId),
+    db.activeRuns(userId),
+  ]);
+  const planId = isPlanId(sub.plan) ? sub.plan : "free";
+  const quota = PLANS[planId];
+  return c.json({
+    plan: planId,
+    status: sub.status,
+    provider: sub.provider,
+    currentPeriodStart: sub.currentPeriodStart,
+    currentPeriodEnd: sub.currentPeriodEnd,
+    usage: {
+      tokensIn: usage.tokensIn,
+      tokensOut: usage.tokensOut,
+      tokensNormalized: usage.normalizedTokens,
+      tokensLimit: quota.tokens,
+      runs: usage.runs,
+      videoSegments: usage.videoSegments,
+      videoLimit: quota.videoSegments,
+      storageBytes: usage.storageBytes,
+      storageLimit: quota.storageBytes,
+      activeRuns,
+      concurrentLimit: quota.concurrentRuns,
+    },
+  });
+});
+
 // --- User feedback (design-feedback P1+P2) --------------------------------
 // Admin gate follows the RBAC-era rule (design doc §3.3 sketched a
 // FEEDBACK_ADMIN_EMAILS env allowlist, written before RBAC P0 retired that
@@ -1307,6 +1340,10 @@ async function announcementTargetsUser(
   target: string | null | undefined,
 ): Promise<boolean> {
   if (target == null) return true;
+  if (target.startsWith("user:")) {
+    // Per-user notice (M2 usage alerts); visible only to that user.
+    return userId === target.slice("user:".length);
+  }
   if (target.startsWith("graph:")) {
     return await graphAccessRole(db, userId, target.slice("graph:".length)) != null;
   }
@@ -2200,7 +2237,15 @@ app.post("/api/runs", async (c) => {
     } catch (err) {
       if (err instanceof QuotaError) {
         return c.json(
-          { error: "subscription", code: err.code, metric: err.metric ?? null, detail: err.detail ?? null, message: err.message },
+          {
+            error: "subscription",
+            code: err.code,
+            metric: err.metric ?? null,
+            detail: err.detail ?? null,
+            // Internal anchor: the web app opens Settings → billing tab (no router).
+            upgradeUrl: "settings:billing",
+            message: err.message,
+          },
           402,
         );
       }

@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Graph, RunEvent } from "@agent-world/core";
+import type { AppConfig } from "./config.js";
 import { openDb } from "./db.js";
 import { currentPeriodStart } from "./subscription.js";
 import {
@@ -13,13 +14,27 @@ import { backfillUsage } from "./usage-backfill.js";
 
 const U = "u1";
 
-// One text node + one video node so segment counting has something to see.
+const cfg: AppConfig = {
+  providers: {
+    agnes: {
+      type: "openai-compatible",
+      source: "builtin",
+      enabled: true,
+      models: ["agnes-2.0-flash"],
+      modalities: { "agnes-2.0-flash": "text" },
+    },
+  },
+  defaultModel: "agnes-2.0-flash",
+  defaultProvider: "agnes",
+};
+
+// One text node + one builtin video node so segment counting has something to see.
 const graph: Graph = {
   id: "g1",
   name: "G1",
   nodes: [
-    { id: "text", kind: "textGen", name: "Text", x: 0, y: 0 },
-    { id: "vid", kind: "videoGen", name: "Video", x: 100, y: 0 },
+    { id: "text", kind: "textGen", name: "Text", x: 0, y: 0, textGen: { model: "agnes-2.0-flash", prompt: "" } },
+    { id: "vid", kind: "videoGen", name: "Video", x: 100, y: 0, videoGen: { model: "agnes-2.0-flash", prompt: "" } },
   ],
   edges: [],
 };
@@ -57,7 +72,7 @@ describe("usage metering (M2 S3)", () => {
     await db.record("r1", nodeFinished("vid", 1, 2, 0, 0));
     await db.finishRun("r1", U, "done", at + 1000);
 
-    const res = await recordRunUsage(db, U, graph, "r1", at);
+    const res = await recordRunUsage(db, U, graph, "r1", at, cfg);
     expect(res.normalizedTokens).toBe(100 + 50 * 4);
     expect(res.videoSegments).toBe(1);
 
@@ -75,7 +90,7 @@ describe("usage metering (M2 S3)", () => {
     await db.record("r2", nodeFinished("vid", 2, 2, 0, 0));
     await db.finishRun("r2", U, "done", at + 1000);
 
-    const res = await recordRunUsage(db, U, graph, "r2", at);
+    const res = await recordRunUsage(db, U, graph, "r2", at, cfg);
     expect(res.videoSegments).toBe(1);
   });
 
@@ -84,7 +99,7 @@ describe("usage metering (M2 S3)", () => {
     await db.createRun({ id: "r3", userId: U, graph, budgetUsd: null, at: now });
     await db.record("r3", nodeFinished("text", 1, 1, 200, 25));
     await db.finishRun("r3", U, "done", now + 1000);
-    await recordRunUsage(db, U, graph, "r3", now);
+    await recordRunUsage(db, U, graph, "r3", now, cfg);
 
     const usage = await currentUsage(db, U, now);
     expect(usage.tokensIn).toBe(200);

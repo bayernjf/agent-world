@@ -12,6 +12,7 @@
  */
 import type { Graph } from "@agent-world/core";
 import type { Db } from "./db.js";
+import { loadConfig } from "./config.js";
 import { currentPeriodStart, videoNodeIds } from "./subscription.js";
 
 type Metric = "tokens_in" | "tokens_out" | "runs" | "video_segments";
@@ -39,6 +40,7 @@ export async function backfillUsage(
   const runs = await db.listFinishedRunsSince(since);
   const buckets = new Map<string, PeriodBucket>();
   const userSet = new Set<string>();
+  const configCache = new Map<string, Awaited<ReturnType<typeof loadConfig>>>();
 
   let processed = 0;
   for (const run of runs) {
@@ -60,7 +62,12 @@ export async function backfillUsage(
     bucket.tokens_out += stats.tokensOut;
     bucket.runs += 1;
     if (graph) {
-      bucket.video_segments += await db.countDoneNodes(run.id, videoNodeIds(graph));
+      let cfg = configCache.get(run.userId);
+      if (!cfg) {
+        cfg = await loadConfig(run.userId);
+        configCache.set(run.userId, cfg);
+      }
+      bucket.video_segments += await db.countDoneNodes(run.id, videoNodeIds(graph, cfg));
     }
     userSet.add(run.userId);
     processed += 1;

@@ -37,9 +37,12 @@ export function isBuiltinModel(model: string, config: AppConfig): boolean {
   return providerForModel(config, model).provider.source === "builtin";
 }
 
-/** 图中所有 videoGen 节点 id（一个成功节点 = 一个视频段，用于视频配额计量）。 */
-export function videoNodeIds(graph: Graph): string[] {
-  return graph.nodes.filter((n) => n.kind === "videoGen").map((n) => n.id);
+/** 图中内置视频模型节点 id（一个成功节点 = 一个视频段，用于视频配额计量）。
+ *  BYOK 视频（用户自带 API key）不占用平台配额，故不计入。 */
+export function videoNodeIds(graph: Graph, config: AppConfig): string[] {
+  return graph.nodes
+    .filter((n) => n.kind === "videoGen" && isBuiltinModel(n.videoGen?.model ?? "", config))
+    .map((n) => n.id);
 }
 
 /** 当前计费周期起始（UTC 对齐到月初，ms epoch）。 */
@@ -68,8 +71,11 @@ export interface EnforceOptions {
   usedStorageBytes?: number;
 }
 
-function graphHasVideo(graph: Graph): boolean {
-  return graph.nodes.some((n) => n.kind === "videoGen");
+/** 图中是否含内置视频模型节点（BYOK 视频不计入平台配额）。 */
+function hasBuiltinVideo(graph: Graph, config: AppConfig): boolean {
+  return graph.nodes.some(
+    (n) => n.kind === "videoGen" && isBuiltinModel(n.videoGen?.model ?? "", config),
+  );
 }
 
 /**
@@ -106,8 +112,8 @@ export function enforceSubscription(graph: Graph, config: AppConfig, opts: Enfor
     }
   }
 
-  // Video segments are metered for every plan (free quota is 0 → upgrade required).
-  if (graphHasVideo(graph) && quota.videoSegments >= 0 && usedVideo >= quota.videoSegments) {
+  // Video segments are metered only for built-in video models (BYOK video is user-paid).
+  if (hasBuiltinVideo(graph, config) && quota.videoSegments >= 0 && usedVideo >= quota.videoSegments) {
     throw new QuotaError(
       "QUOTA_EXCEEDED",
       `本月视频生成额度已用尽（${quota.videoSegments} 段），请加购或升级套餐。`,
