@@ -37,7 +37,7 @@
 | [project-progress.md](project-progress.md) | 进度基线（各模块完成度快照） |
 | [roadmap-tasks.md](roadmap-tasks.md) | 历史任务清单（已合并进上面，勿据此实现） |
 
-产品 / 商业化系列：[PRODUCT_STRATEGY.md](PRODUCT_STRATEGY.md) = 成本/部署/定价基线 → [design-monetization.md](design-monetization.md) = 商业化实施方案（详细，价格已用 M1 真实数据校准，未实施）→ [design-monetization-m2-implementation.md](design-monetization-m2-implementation.md) = M2 订阅 gate 落地实施方案（S1-S8 分步骤，未实施）→ [product-industry-roi.md](product-industry-roi.md) = 行业切入方向评估 → [product-vision-discussion.md](product-vision-discussion.md) = 历史讨论。
+产品 / 商业化系列：[PRODUCT_STRATEGY.md](PRODUCT_STRATEGY.md) = 成本/部署/定价基线 → [design-monetization.md](design-monetization.md) = 商业化实施方案（详细，价格已用 M1 真实数据校准，M2 S1-S4 已落地）→ [design-monetization-m2-implementation.md](design-monetization-m2-implementation.md) = M2 订阅 gate 落地实施方案（S1-S4 已完成 commits 1d7a3e4/8a8a32f/7dece12，S5-S8 进行中）→ [product-industry-roi.md](product-industry-roi.md) = 行业切入方向评估 → [product-vision-discussion.md](product-vision-discussion.md) = 历史讨论。
 
 画布 / 体验系列：[design-canvas-isometric.md](design-canvas-isometric.md) = L1 单厂等距 3D（四期已建成）→ [design-rts-overview.md](design-rts-overview.md) = L0 宏观工业园区 RTS 视角（阶段 A 平面运营工作台已上线，阶段 B 宏观沙盘 B1-B9 全部完成，阶段 C 未实施）→ [design-rts-stage-b.md](design-rts-stage-b.md) = 阶段 B 宏观沙盘 MVP 落地级细化（B1-B9 全部完成，B5 帧率实测 100 厂=60FPS/15 draw calls 达标无需视口剔除，B9 i18n/token+全量回归+真机验收通过）→ [design-guided-tour.md](design-guided-tour.md) = 新用户分步引导（聚光灯 + 上一步/下一步，多引导注册中心，已落地）。
 

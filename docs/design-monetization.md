@@ -1,6 +1,6 @@
 # 商业化详细实施方案（Monetization）
 
-> 状态：**方案设计（价格已用 M1 真实数据校准，未实施）**。设计决策基线见 [PRODUCT_STRATEGY.md](PRODUCT_STRATEGY.md) §八，历史讨论见 [product-vision-discussion.md](product-vision-discussion.md) §九。
+> 状态：**方案设计（价格已用 M1 真实数据校准；M2 订阅 gate S1-S4 已落地，S5-S8 进行中）**。设计决策基线见 [PRODUCT_STRATEGY.md](PRODUCT_STRATEGY.md) §八，历史讨论见 [product-vision-discussion.md](product-vision-discussion.md) §九。M2 落地级细化见 [design-monetization-m2-implementation.md](design-monetization-m2-implementation.md)。
 > 本方案把「方向」落成可实施的规格：数据模型 / API / 挂点 / 分阶段路线。2026-09-14 已用 M1 回采 125 runs / $5.57 真实成本数据校准 §4 套餐价格与 §10.2 待定参数，校准依据见 §4.1。
 
 ---

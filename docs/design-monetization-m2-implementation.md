@@ -2,7 +2,9 @@
 
 > 定位：对 [design-monetization.md](design-monetization.md) §5「配额与订阅 gate」+ §9 P1 阶段的**落地级细化**，结合当前代码库（2026-09-14）实际状态，给出可执行的分步骤实施计划、文件清单、迁移方案、测试策略与回滚方案。
 >
-> 状态：**方案设计，未实施**。M1 成本计量回采已完成（125 runs / $5.57 总成本），套餐价格已校准（Starter $9 / Pro $29 / Team $149，见 design-monetization.md §4.1），M2 可以启动。
+> 状态：**实施中（2026-09-14 启动）**。S1 无需新建迁移（表已存在于迁移 34）；S2 ✅ commit `1d7a3e4`（plans.ts 单一事实源 + subscriptionService）；S3 ✅ commit `8a8a32f`（用量计量 + 幂等回填 CLI）；S4 ✅ commit `7dece12`（gate 五维检查 + 结构化 402，25 测试全绿，=唯一 checkpoint）。S5-S8 待续（S4 后暂停等用户 review gate 设计）。M1 成本计量回采已完成（125 runs / $5.57 总成本），套餐价格已校准（Starter $9 / Pro $29 / Team $149，见 design-monetization.md §4.1）。
+>
+> 实施偏差记录（以代码现状为准，非方案预设）：① 无需新建 enforce-subscription.ts，enforceSubscription 已在 subscription.ts；② QuotaError 统一 code=QUOTA_EXCEEDED + 稳定 metric 字段（builtin_model/tokens/video/storage/concurrency），而非方案的独立 error code；③ 402 body 暂未加 upgradeUrl（S6 定路由后补）；④ gate feature flag `MONETIZATION_ENFORCE=1` 默认关闭；⑤ 视频检查对所有 plan 生效（free 配额=0 故免费层连 BYOK 视频也拦）。
 >
 > 约定：延续项目惯例——原子提交、英文 commit message、不加助手署名、不 push；typecheck 四包绿、全量测试通过；i18n + 设计 token；DB 迁移双写（sqlite base DDL + 迁移版本 + PG toPgDdl）。
 
@@ -60,7 +62,7 @@
 
 > 每步独立可提交、可回滚。按依赖顺序执行，前一步是后一步的前置。
 
-### S1 · 数据模型迁移（subscriptions + usage_ledger 表）
+### S1 · 数据模型迁移（subscriptions + usage_ledger 表）✅ 已确认无需新建（表已存在于 base DDL + 迁移 34，最新迁移 37；PG 走 toPgDdl 自动派生）
 
 **目标**：新增两张表，sqlite base DDL + 迁移 38/39 + PG toPgDdl 三写一致。
 
@@ -115,7 +117,7 @@ CREATE INDEX idx_usage_ledger_user_period ON usage_ledger(user_id, period_start)
 
 ---
 
-### S2 · plans.ts 配额定义 + subscriptionService 基础
+### S2 · plans.ts 配额定义 + subscriptionService 基础 ✅ commit `1d7a3e4`
 
 **目标**：PLANS 单一事实源 + subscriptionService 的 CRUD 基础方法。
 
@@ -212,7 +214,7 @@ export async function setPlan(userId: string, plan: PlanId, actorId: string): Pr
 
 ---
 
-### S3 · 用量计量 + 回填脚本
+### S3 · 用量计量 + 回填脚本 ✅ commit `8a8a32f`
 
 **目标**：从现有 node_runs/runs/artifacts 表聚合用量，写入 usage_ledger；提供 recordUsage 方法供 run 完成时调用。
 
@@ -283,7 +285,7 @@ export async function backfillUsage(): Promise<{ users: number; runs: number }> 
 
 ---
 
-### S4 · enforceSubscription gate 挂入派发流程
+### S4 · enforceSubscription gate 挂入派发流程 ✅ commit `7dece12`（=唯一 checkpoint，暂停等用户 review）
 
 **目标**：在派发流程中插入订阅配额检查，免费层拦内置模型、超额拦请求。
 
