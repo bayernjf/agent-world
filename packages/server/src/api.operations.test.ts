@@ -160,3 +160,55 @@ describe("GET /api/operations/overview (RTS phase A2)", () => {
     expect(gh.pendingReview).toBe(2); // review queue = halted runs
   });
 });
+
+describe("GET /api/operations/overview (RTS stage C: economy / metrics / plans)", () => {
+  it("exposes month economy, per-graph metrics and upcoming plans", async () => {
+    const t = await register("stage-c@example.com");
+    const uid = await idOf("stage-c@example.com");
+    const now = Date.now();
+    // A finished run this month carries cost + token usage (seedRun uses in=10/out=5).
+    await seedRun(uid, "c1", "gsc", "Alpha", "done", now - 1000, 0.01);
+    await db.insertMetric({
+      id: "mm1", userId: uid, graphId: "gsc",
+      impressions: 100, clicks: 20, gmv: 80, adSpend: 4, recordedAt: now,
+    });
+    await db.createPlan({ id: "pl1", userId: uid, graphId: "gsc", title: "publish", scheduledAt: now + 3600_000 });
+
+    const body = await getOverview(t);
+    // C4: month economy + budget (no cap configured → null)
+    expect(body.totals.monthCostUsd).toBeCloseTo(0.01, 6);
+    expect(body.totals.tokensIn).toBe(10);
+    expect(body.totals.tokensOut).toBe(5);
+    expect(body.totals.monthlyBudgetUsd).toBeNull();
+    // C6: per-graph F6 metrics
+    const ga = body.graphs.find((g: { graphId: string }) => g.graphId === "gsc");
+    expect(ga.metrics).toMatchObject({ impressions: 100, clicks: 20, gmv: 80, adSpend: 4 });
+    // C5: upcoming plan within the 48h window
+    expect(Array.isArray(body.plans)).toBe(true);
+    expect(body.plans.map((p: { id: string }) => p.id)).toContain("pl1");
+  });
+
+  it("zero-fills economy and returns empty plans for a fresh account", async () => {
+    const t = await register("stage-c-fresh@example.com");
+    const body = await getOverview(t);
+    expect(body.totals.monthCostUsd).toBe(0);
+    expect(body.totals.tokensIn).toBe(0);
+    expect(body.totals.tokensOut).toBe(0);
+    expect(body.totals.monthlyBudgetUsd).toBeNull();
+    expect(body.plans).toEqual([]);
+  });
+
+  it("omits plans scheduled beyond the 48-hour window", async () => {
+    const t = await register("stage-c-far@example.com");
+    const uid = await idOf("stage-c-far@example.com");
+    const now = Date.now();
+    await db.saveGraph(emptyGraph("gf", "Far"), 1, uid);
+    await db.createPlan({ id: "pl-near", userId: uid, graphId: "gf", title: "near", scheduledAt: now + 60 * 60 * 1000 });
+    await db.createPlan({ id: "pl-far", userId: uid, graphId: "gf", title: "far", scheduledAt: now + 72 * 60 * 60 * 1000 });
+
+    const body = await getOverview(t);
+    const ids = body.plans.map((p: { id: string }) => p.id);
+    expect(ids).toContain("pl-near");
+    expect(ids).not.toContain("pl-far");
+  });
+});

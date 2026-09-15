@@ -249,6 +249,32 @@ export interface GraphRunSummary {
   /** RTS stage-B manual macro-park override (migration 37); null = auto-layout. */
   parkX?: number | null;
   parkZ?: number | null;
+  /** RTS stage-C C6: F6 effect metrics for the graph (all zero when none recorded). */
+  metrics?: GraphMetrics;
+}
+
+/**
+ * F6 effect metrics aggregated over one graph (RTS stage-C C6). Same SUM
+ * accounting as `aggregatePerformance` grouped by graph_id; a graph with no
+ * recorded metrics gets an all-zero object (the UI honestly leaves it blank).
+ */
+export interface GraphMetrics {
+  impressions: number;
+  clicks: number;
+  conversions: number;
+  gmv: number;
+  adSpend: number;
+}
+
+/**
+ * Account-wide economy rollup for the current calendar month (RTS stage-C C4).
+ * Cost reuses the node-level accounting (running excluded, same month boundary
+ * as `costForMonth`); tokens sum node_runs token counters over the same scope.
+ */
+export interface OperationsEconomy {
+  monthCostUsd: number;
+  tokensIn: number;
+  tokensOut: number;
 }
 
 /** An open-channel publish target (F7-B). */
