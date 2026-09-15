@@ -93,7 +93,7 @@ State of Agent World as of 2026-09-11.
 
 * [docs/design-guided-tour.md](docs/design-guided-tour.md) — 新用户分步引导 Guided Tour 设计（聚光灯分步教学 + 上一步/下一步/跳过；§十二 多引导注册中心：引擎与定义解耦、引导即数据、版本化 seen、What's-new/⌘K 动态注册，**已落地**）
 
-* [docs/design-rts-overview.md](docs/design-rts-overview.md) — RTS 宏观上帝视角设计总览（L0 工业园区 / L1 单厂 3D / L2 节点三层缩放；六类宏观信息；A 平面工作台→B 宏观沙盘 MVP→C 完整 RTS；**P3 未实施，阶段 A 可在 M1 等待期先行**）
+* [docs/design-rts-overview.md](docs/design-rts-overview.md) — RTS 宏观上帝视角设计总览（L0 工业园区 / L1 单厂 3D / L2 节点三层缩放；六类宏观信息；A 平面工作台→B 宏观沙盘 MVP→C 完整 RTS；**阶段 A/B 已完成，阶段 C 全部完成（C1-C3 随 PR #290、C4-C8 随 PR #292 合 dev 并部署 Hasee、真机走查通过；C5/C6 两处裁剪与方案 A 留档见待办 #50）**）
 
 * [docs/examples.md](docs/examples.md) / [docs/extending.md](docs/extending.md) / [docs/integrations-future.md](docs/integrations-future.md) — 模板示例 / 扩展指南 / 未来集成（Notion/Linear/邮件/内容平台）
 
@@ -161,7 +161,7 @@ State of Agent World as of 2026-09-11.
 
 按优先级降序，标 `★` 的是当下要推的：
 
-> ✅ 待办 #1–#45（除活跃的 #39/#41 外）已全部完成。详细过程已分批归档：#1–#37 见 [handoff-archive-2026-09-07.md](docs/handoff-archive-2026-09-07.md)，#24–#43 见 [handoff-archive-2026-09-10.md](docs/handoff-archive-2026-09-10.md)，#44–#45 见 [handoff-archive-2026-09-11.md](docs/handoff-archive-2026-09-11.md)。本区只留一行结论索引，活跃项（#39/#41/#46）保留详情。
+> ✅ 待办 #1–#45（除活跃的 #39/#41 外）已全部完成。详细过程已分批归档：#1–#37 见 [handoff-archive-2026-09-07.md](docs/handoff-archive-2026-09-07.md)，#24–#43 见 [handoff-archive-2026-09-10.md](docs/handoff-archive-2026-09-10.md)，#44–#45 见 [handoff-archive-2026-09-11.md](docs/handoff-archive-2026-09-11.md)。本区只留一行结论索引，活跃项（#39/#41）保留详情；#46–#50（RTS-B、商业化 M2/M3、RTS-C C1-C3 与 C4-C8）均已完成、详情见下。
 
 **已完成待办索引（#1–#38、#40、#42–#45）**：
 
@@ -267,7 +267,14 @@ State of Agent World as of 2026-09-11.
    - **C3 ✅ 方案 B 已落地（决策见 docs/design-rts-overview.md「C3 实现路线决策（2026-09-15）」，commits `c1618a0` docs / `4a526ff` feat，本地未 push，浏览器走查通过）**：用户拍板**方案 B（同构锚点交叉淡化 + 相机缓动）**，方案 A（单场景 LOD 融合）仅文档留档、待 C4-C8 真实多产线规模时一次性重构。实现保持两组件独立、不融合场景、不碰 LOD，只做 zoom-only ease + 复用已有挂载淡入：store(view-mode.ts) 新增**不持久化 one-shot** `drillAnimRequest:{dir:"in"|"out"}` + `requestDrillAnim`/`consumeDrillAnimRequest`（+3 测，view-mode 16→19）；App.enterFactory 在 setViewMode("3d") 前 requestDrillAnim("in")、backToPark requestDrillAnim("out")；Canvas3D mount 时若 consume 到 "in"，先 resetCamera() 算出 fit 的 targetZoom，把 camera.zoom seed 成 targetZoom×DRILL_START_ZOOM_MUL(2.6)，rAF 用 easeOutCubic 在 DRILL_EASE_MS(420ms) 内 ease 回 targetZoom（手动 fit/reset 取消进行中动画）；CanvasPark 恢复 saved parkCamera 时若 consume 到 "out"，seed zoom=saved.zoom×2.6 再 ease 回 saved.zoom（position/target 立即对准，只动 zoom）；`.canvas3d`/`.canvas-park` 既有 `canvas3d-fade` 挂载淡入（var(--duration-normal)）即交叉淡化，无需新增 CSS。**本地浏览器走查（localhost:5173 + 本地 server 8791/schema v39）**：命令面板进园区→选中工厂→「进入」，120/300ms 中间帧确认 zoom 由近及远平滑 ease + opacity 淡入、无白屏/闪黑/掉帧，最终 fit 正确（zoom 收敛 100%）；「返回园区」反向 ease 回园区全景同样平滑。验证：web typecheck 干净、canvas+store 197 测全过、i18n 守护 4 过（无新 UI 文案/无硬编码中文）。
    - （背景，已被上条取代）方案 A/B 原始对比与现状核实：B8 实测**并无** 250ms 交叉淡切、原为硬切；L0 CanvasPark 与 L1 Canvas3D 同为 THREE.OrthographicCamera 固定 YAW/PITCH 等距、共用 `canvas/iso3d.ts`，相机可平滑插值，真正差异只在场景坐标系尺度（parkLayout 全局 vs boardToWorld 局部板坐标），两组件在 App.tsx 三元互斥挂载。
 
-> **下一步主线**：商业化 M1→M2→M3 S1-S5 全部完成并部署 Hasee。**M3 S6 Stripe 后端 A0-A4 + v39 迁移启动崩溃修复（7118990）+ 前端 A5 全部完成（本地未 push，mock 闭环 + 本地降级/回跳走查通过），只剩真机 Step6（待收款主体 + Stripe key）；⚠️ 7118990 必须随下次 Stripe 代码一起部署，否则 Hasee（已在 v38）升级会启动即崩**。RTS 阶段 A+B 全部完成，**阶段 C 本轮 C1/C2/C3 已完成（本地未 push；C2、C3 均浏览器走查通过，C3 采用方案 B，方案 A 文档留档），C4-C8 留下一轮**。M1 回采产线继续 cron 自动攒数据。**下一步可选方向**：①把本地未 push 的 Stripe 全栈（A0-A5）+ v39 修复 + RTS C1/C2/C3 走 PR 合 dev 并部署 Hasee（部署必带 7118990）②RTS-C C4-C8（待真实多产线规模，届时评估是否转方案 A 重构）③升级 agnes 付费 key（彻底解决 free tier 429）④真机 Stripe Step6（待收款主体 + Stripe 测试 key，用测试卡走端到端）⑤翻译产线效果观察（3-5 天后看完成率变化）。
+50. ✅ **RTS 阶段 C 剩余 C4-C8 全部完成（2026-09-15，PR #292 merge `1f5da5e` 已部署 Hasee，健康探针 commit 一致、db:ok）**：用户拍板"都开搞"，C1-C3 之后一口气做完 C4-C8。三个原子 commit：`dffcf55` server（月度经济/分厂指标/未来 48h plan）、`e540422` server（cronState）、`9a7c900` web（C4-C7 全部 UI）。
+   - **C4 资源经济栏 ✅（ParkEconomyBar，HTML HUD，testid `park-economy`）**：后端 overview 一次性扩展承载，不新开连接通道——sqlite-driver 新增 `operationsEconomy`（node_runs JOIN runs、排除 running、月界与 costForMonth 同口径、支持 graphIds 协作 scope、标准 SQL 供 PG 共享）+ `metricsByGraph`（content_metrics 按 graph_id SUM、null-graph 桶丢弃），GET /api/operations/overview 用 Promise.all 并行取 economy/metrics/plans，totals 增 monthCostUsd/tokensIn/tokensOut/monthlyBudgetUsd（cfg 缺省 null）。前端 HUD 显示本月成本 + 入/出 token + 预算剩余条（`park-economy-budget`，budget=null 时不显示条；ratio≥0.8 warn/≥1 over 并钳 100%）。
+   - **C5 排期空间化 ✅（ParkScheduleAxis 24h 轴 + CanvasPark 底座倒计时环）**：cron next-fire 与 content_plan 画到同一 24h 轴；每厂底座加青色倒计时圆盘 sprite（makeClockTexture，<60m 显示「Nm」、<24h「Nh」）。后端补 `cronState[graphId]={hasCron,enabled,nextAt}`（nextRunMap 不过滤 enabled，暂停的 cron 仍列出以便浮层提供"恢复"，但 enabled=false 时 nextAt=null，24h 轴与底座环据此隐藏）。**⚠️ 两处对设计草案的主动裁剪（对着代码与数据现状）**：①**plan 改期用「点击 +1h/+24h」而非自由拖拽**（PATCH updatePlan 落库、refresh 后保持；避免 24h 轴上精确拖拽误触，覆盖运营主要延后诉求）；②**cron 是周期表达式、无单次改期语义，故 cron 在轴上只读、不可改期，只在工厂浮层做暂停/恢复**。
+   - **C6 效果热度 ✅（sprite canvas 纹理，makeHeatTexture 暖金 pill）**：分厂 CTR/GMV 聚合（与 PerformanceDashboard 同 SQL SUM 口径）以工厂上方热度条呈现，**全 0 / 无 content_metrics 数据的厂诚实不渲染、不造假数**（staging 当前即空态主态）。**裁剪：先做 CTR/GMV；ROI=GMV/adSpend 待真实广告花费数据再补**（adSpend=0 时 ROI 无意义）。
+   - **C7 宏观轻操作全集 ✅（全程不进图）**：工厂浮层「进入 / 重试（仅 failed）/ 暂停↔恢复 cron（按 cronEnabled 切文案）」；新增 FactoryReviewCard（testid `park-review`，懒加载 listPendingReviews，纯函数 approveDecision：tool halt→approve+approveTools、human/gate→continue、驳回 reject，决策走 /api/reviews/decide 后本地移除并刷新 overview）。把每厂 billboard 收进 per-factory THREE.Group 存 state.billboardById Map，拖拽移厂只移该 group（替代原按 fIdx 手算 sprite offset 的脆弱逻辑）。
+   - **C8 收尾 ✅**：i18n zh/en park.json 增 economy/schedule/review 三段同构（keys.test 绿、无硬编码中文 JSX）；新增 CSS 全走设计 token（逐个 grep 确认存在、无 fallback、无硬编码间距/字号/圆角）；测试 server 141 文件 1162 全过、web 见 Quality gate；CI Linux 4 项（Typecheck/build/test、CodeQL、Analyze、Secret scan）全 pass；**Hasee 真机走查（http://192.168.31.14，命令面板 ⌘K→园区总览）亲眼验证**：经济栏显示真实「本月成本 $7.8100 / 入 431.2k / 出 313.0k」（全局 monthlyBudgetUsd=null 故无预算条，符合设计）；底座倒计时环 58m/2.8h/9.8h 正确；24h 轴列 4 条 M1 cron tick；点①写草稿浮层「进入/重试/暂停 cron」（failed 厂显重试、cron 启用态显暂停）；**点暂停→按钮变「恢复 cron」、①底座环与轴 tick 即时消失，再点恢复→按钮回「暂停 cron」、环重现（56m）、轴恢复 4 厂，端到端落库闭环无残留**；无 metrics 故无热度 pill（空态正确）。**真机未点到的两项均因 staging 无对应数据、且各有组件测试覆盖**：审批卡（当前无 halted 厂）、plan 点击改期（无 content_plan）。本机全量高并发下有既有 flaky（waitFor 超时，失败文件每次不同、隔离跑全绿、均不在改动范围，CI Linux 正常），非回归。
+
+> **下一步主线**：商业化 M1→M2→M3 S1-S5 全部完成并部署 Hasee；**M3 S6 Stripe 全栈（后端 A0-A4 + v39 修复 7118990 + 前端 A5）已随 PR #287/#290 合 dev（曾为 `27f28ee`）部署 Hasee，schema v39 迁移成功、subscriptions Stripe 三列三索引就位、缺 key 优雅降级不阻断启动，只剩真机 Step6（待收款主体 + STRIPE_SECRET_KEY/WEBHOOK_SECRET/PRICE_IDS）**。RTS 阶段 A+B 完成，**阶段 C 全部完成：C1/C2/C3 随 #290、C4-C8 随 #292（merge `1f5da5e`）合 dev 并部署 Hasee、真机走查通过**（C5 改期为点击延后/cron 只读、C6 暂只 CTR/GMV 两处裁剪见待办 50；方案 A 单场景 LOD 融合仍留档待真实多产线规模再评估）。M1 回采 4 条产线继续 cron 自动攒数据 + 每日 10:30 体检。**下一步可选方向**：①真机 Stripe Step6（待收款主体 + Stripe 测试 key，用测试卡走端到端，商业化临门一脚）②升级 agnes 付费 key（彻底解决 free tier 429，方案 A）③翻译产线效果观察（3-5 天后看完成率变化）④RTS 遗留 polish（跨厂管线 opacity .32 偏暗可提亮、ROI 待 ad-spend 数据、3D 审计 6 项 low）。
 
 > 全部缓做/低优事项（含上述两条）已统一登记在 [docs/deferred-items.md](docs/deferred-items.md)——每条带触发条件与决策详情链接，触发条件满足时移回本区并标注重启日期。
 
@@ -282,11 +289,11 @@ State of Agent World as of 2026-09-11.
 
 按 commit 时间倒序，每条一行影响面 + commit hash：
 
-1. **feat(core,server,web) RTS-C C1 跨厂产物边 + C2 跨厂物流渲染（2026-09-15，`2ea918a`/`c47e50b`/`42468ac`，本地未 push）**——core `crossGraph.ts` 纯派生 subprocess/event 跨厂边（internalOnly 剔越权、13 测，单厂图字节级兼容），operations overview 返回 crossEdges（best-effort、5 测），CanvasPark 渲染跨厂管道 + 每边 3 辆错相位方向卡车（浏览器走查通过，临时改 owner 造边验证后已还原）；另含 `7118990` 修复 v39 迁移把 stripe 索引误放 base DDL 导致老库升级启动即崩（POST_MIGRATION_INDEXES 迁移后幂等补建，迁移测 9→10）。C3 连续 zoom 待 A/B 路线拍板。
-2. **feat(server) M3 S6 Stripe 后端 A0-A4（2026-09-15，`c0f708e`/`f5113be`/`8f32b37`/`b133c91`/`add61a4`，本地未 push）**——迁移 39 Stripe 镜像列 + driver CRUD、stripe.ts 网关封装（可注入 client）、五事件 webhook 幂等镜像同步（复用 idempotency_keys 命名空间隔离）、checkout/portal/webhook 三端点（Stripe-Signature 验真、raw body、同源回跳、缺配置优雅 503）；适配 stripe 22.6.2 dahlia 字段重构；35 个新 mock 测试全绿、四包 typecheck 绿。真机 Step6 待 Stripe key，前端 A5 待做。
-3. **feat(park) 园区状态色 + 标签可读性优化（2026-09-15，`9342d90`，PR #285 `a000de1` 已部署 Hasee）**——CanvasPark 状态色变亮（idle `#6b7280`→`#94a3b8`、failed `#f87171`→`#ef4444`、halted `#fbbf24`→`#f59e0b`），工厂标签加半透明深色 pill 背景 + 圆角 + 文字阴影，字号 42→52、尺寸 300x80→380x100，提升深色背景下可读性。
-4. **docs M3 S6 Stripe 设计文档（2026-09-14，`b1784f9`，PR #285 已合 dev）**——架构概览 + 数据模型变更（迁移 39）+ API 设计（checkout/portal/webhook）+ 核心流程（升级/续费/失败/取消）+ 安全考虑 + 测试策略 + 6 步实施步骤 + 回滚方案。
-5. **feat(billing, park) RATE_LIMIT retry 优化 + 文档同步（2026-09-14，`d721fd1`/`3b83134`/`f5861c5`，PR #285 已合 dev）**——withRetry 加 getDelay 回调，RATE_LIMIT 时只 retry 1 次等待 5 分钟（之前 retry 4 次等 5.5 分钟全部白费）；RTS 阶段 C 预研模拟方案写入 deferred-items + design-rts-overview；翻译产线优化记录（RATE_LIMIT retry + 降频 + 放宽 qc）。
+1. **feat(server,web) RTS-C C4-C8 园区经济栏/排期空间化/效果热度/宏观轻操作全集（2026-09-15，`dffcf55`/`e540422`/`9a7c900`，PR #292 merge `1f5da5e` 已部署 Hasee、真机走查通过）**——overview 扩展月度经济（node_runs JOIN runs、与 costForMonth 同口径）+ 分厂 metrics + 未来 48h plans + cronState；ParkEconomyBar（本月成本/token/预算条，budget null 不显示）、ParkScheduleAxis（24h 轴，plan 点击 +1h/+24h 改期、cron 只读 tick）、底座倒计时环、CTR/GMV 热度 sprite（无数据诚实不渲染，ROI 待 ad-spend）、FactoryReviewCard（浮层审批 approve/reject 走 reviews/decide）、cron 暂停↔恢复端到端；per-factory billboard 收 group 修拖拽；i18n/token 全合规，+24 单测。裁剪见待办 50。
+2. **feat(core,server,web) RTS-C C1 跨厂产物边 + C2 跨厂物流 + C3 连续 zoom 方案 B + Stripe 全栈（2026-09-15，`2ea918a`/`c47e50b`/`42468ac`/`4a526ff` 等，PR #287/#290 merge `27f28ee` 已部署 Hasee）**——core crossGraph 纯派生跨厂边（13 测、单厂字节级兼容）、overview crossEdges、CanvasPark 跨厂管道+错相位卡车、zoom-only ease 钻取动画（方案 B，方案 A 留档）；同批含 Stripe A0-A5 全栈与 `7118990` v39 迁移启动崩修复（POST_MIGRATION_INDEXES 幂等补建）。
+3. **feat(server) M3 S6 Stripe 后端 A0-A4（2026-09-15，`c0f708e`/`f5113be`/`8f32b37`/`b133c91`/`add61a4`，已随 #287/#290 合 dev）**——迁移 39 Stripe 镜像列 + driver CRUD、stripe.ts 网关封装（可注入 client）、五事件 webhook 幂等镜像同步（复用 idempotency_keys 命名空间隔离）、checkout/portal/webhook 三端点（Stripe-Signature 验真、raw body、同源回跳、缺配置优雅 503）；适配 stripe 22.6.2 dahlia 字段重构；35 个新 mock 测试全绿。真机 Step6 待 Stripe key。
+4. **feat(park) 园区状态色 + 标签可读性优化（2026-09-15，`9342d90`，PR #285 `a000de1` 已部署 Hasee）**——CanvasPark 状态色变亮（idle `#6b7280`→`#94a3b8`、failed `#f87171`→`#ef4444`、halted `#fbbf24`→`#f59e0b`），工厂标签加半透明深色 pill 背景 + 圆角 + 文字阴影，字号 42→52、尺寸 300x80→380x100，提升深色背景下可读性。
+5. **feat(web) M3 S6 Stripe 前端 A5（2026-09-15，`2c670c4`/`b458d95`/`6f78cb6`/`4f09220`，已随 #290 合 dev）**——api createCheckout/PortalSession + BillingApiError + billingReturn 白名单解析（7 测）、billing.stripe zh/en i18n、BillingTab 按钮矩阵（自助升级/管理订阅/重新订阅、past_due 警示、503 静默回退联系管理员，11 组件测）、App 挂载 ?billing=success/cancel/manage-done 回跳处理（success 开账单页+toast、replace 清 URL）。
 
 > 第 6 条及更早（2026-09-14 及以前：M3 S1-S5 收款与账单、run.finished 失败原因记录、Guided Tour、RTS 阶段 B 全部、M1 回采三问分析 + 价格校准等）已归档至 handoff-archive。
 
@@ -294,14 +301,14 @@ State of Agent World as of 2026-09-11.
 
 > 这里的 snapshot 是"今天跑过的"状态；archive 章节里的"质量门"是各 commit 当时的状态，不要混用。
 
-* `pnpm -r typecheck`：全绿（core/server/mcp-server/web `tsc --noEmit` 全部干净，2026-09-11 复核）
+* `pnpm -r typecheck`：全绿（core/server/mcp-server/web `tsc --noEmit` 全部干净，2026-09-15 RTS-C C4-C8 后复核，pre-commit hook 亦过）
 
-* 测试总数 **3145**（2026-09-11 实跑，Guided Tour 落地后；core/server/mcp 未动，仅 web +42）：
+* 测试总数 **3326**（2026-09-15 RTS-C C4-C8 后实跑：server 1039→1162 +123、web 1811→1869 +58，core/mcp 未动；顺序跑 web 95 文件 1869 全过）：
 
   * `pnpm --filter @agent-world/core test`：**224/224 通过**（15 文件；含 parkLayout 11 例、file/product connector 形状断言、compile trigger warning 5 例、模板 33 形状守护、单价缺口 7 例等）
-  * `pnpm --filter @agent-world/server test`：**1039 总数**（129 文件；Node 24 下应全绿；RTS-B B1 新增 park-coord 6 + api.park-coord 6 + pg-sql 1 = 13 例，B3 overview category/pendingReview 再 +2）。⚠️ **本机 Node v22 + macOS seatbelt 下依赖 spawn JS sandbox 子进程的用例失败（status 71，本次同口径对照：干净基线与带改动均为相同 36 个用例失败、失败名集合 diff 为空，非回归），CI Linux bwrap 正常**；另有 2 个 RPA 用例需先 `pnpm exec playwright install` 装 chromium，本机未装属环境阻塞。
+  * `pnpm --filter @agent-world/server test`：**1162 总数**（141 文件；2026-09-15 RTS-C C4-C8 后实跑：首跑 1161 过 +1 负载 flaky，重跑 **141 文件 1162 全过**；本轮新增 db.operations 8 测、api.operations 10 测）。历史备注：Node v22 + macOS seatbelt 下依赖 spawn JS sandbox 子进程的用例曾 status 71 失败（干净基线与带改动失败集合 diff 为空、非回归，CI Linux bwrap 正常），本轮 Node 环境下未复现；另有 2 个 RPA 用例需先 `pnpm exec playwright install` 装 chromium，本机未装属环境阻塞。
   * `pnpm --filter @agent-world/mcp-server test`：**71/71 通过**（3 文件；含 stdio 端到端冒烟 3 个。负载性 flaky：`pnpm -r test` 并行时 stdio 冒烟可能超 5s，单独跑稳定）
-  * `pnpm --filter @agent-world/web exec vitest run`：**1811 总数**（87 文件；组件目录零「有 .tsx 无 .test.tsx」，Guided Tour +42（store 22/engine 10/GuidedTour 7/Menu 3）为最新增量。已知既有 flaky：PublishTargets.test.tsx 表单 reset 时序在全量并发下偶发失败，隔离跑全绿、本批未触碰该文件，零回归）
+  * `pnpm --filter @agent-world/web exec vitest run`：**1869 总数**（95 文件；组件目录零「有 .tsx 无 .test.tsx」。RTS-C C4-C8 最新增量 +24：ParkEconomyBar 5 / ParkScheduleAxis 6 / FactoryReviewCard 5 / park-label 8 等）。⚠️ **本机全量高并发下有既有负载 flaky**：个别文件（VersionPanel/ProductGallery/PublishTargets 等，每次不固定、均不在改动范围）因 waitFor 超时失败或 worker 提前退出，**隔离单跑全绿、`--no-file-parallelism` 顺序跑 95 文件 1869 全过、CI Linux 全 pass**，证实非回归；判断回归只看改动文件 + 顺序全量 + CI。
 
 * 各用例逐波来源（单价审计/连接器插值/PG/加密/RBAC/公告/重构/狗粮九波等）已随对应待办归档到三份 handoff-archive，本 snapshot 只记当前数，不堆历史。
 
