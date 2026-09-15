@@ -7,6 +7,32 @@
   "empty": "暂无产线，先从模板创建一条产线吧",
   "backToPark": "返回园区",
   "factoryCount": "厂区数量",
+  "economy": {
+    "monthCost": "本月成本",
+    "tokens": "Token",
+    "tokensInOut": "入 {{in}} / 出 {{out}}",
+    "budget": "月度预算",
+    "budgetLeft": "剩余 {{left}}"
+  },
+  "schedule": {
+    "title": "24h 排期",
+    "now": "现在",
+    "empty": "未来 24 小时暂无排期",
+    "nextRun": "运行",
+    "plan": "计划",
+    "inHours": "{{n}} 小时后",
+    "inMinutes": "{{n}} 分钟后",
+    "delay1h": "延后 1 小时",
+    "delay24h": "延后到明天此时"
+  },
+  "review": {
+    "title": "待审批",
+    "approve": "通过",
+    "reject": "驳回",
+    "empty": "无待审批项",
+    "loading": "加载中…",
+    "node": "节点"
+  },
   "debug": {
     "fps": "帧率",
     "factories": "厂区",

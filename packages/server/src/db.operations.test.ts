@@ -124,3 +124,70 @@ describe("operations cross-graph rollup (RTS phase A1)", () => {
     expect(theirs[0]!.done).toBe(1);
   });
 });
+
+describe("operations economy + per-graph metrics (RTS stage C)", () => {
+  let dir: string;
+  let db: ReturnType<typeof openDb>;
+
+  beforeEach(async () => {
+    dir = mkdtempSync(join(tmpdir(), "aw-ops-c-"));
+    db = openDb(join(dir, "test.sqlite"));
+    await db.saveGraph(emptyGraph("a", "Alpha"), 1, U);
+    await db.saveGraph(emptyGraph("b", "Beta"), 1, U);
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  async function finishedRun(
+    id: string,
+    graphId: string,
+    at: number,
+    usage: { cost: number; tin: number; tout: number; status?: "done" | "running" },
+  ) {
+    await db.createRun({ id, userId: U, graph: emptyGraph(graphId, graphId), budgetUsd: null, at, trigger: "cron" });
+    await db.record(id, {
+      seq: 1, ts: at + 1, type: "node.finished", nodeId: "n", attempt: 1, output: "o",
+      usage: { tokensIn: usage.tin, tokensOut: usage.tout, costUsd: usage.cost },
+    } as never);
+    if (usage.status !== "running") await db.finishRun(id, U, "done", at + 10);
+  }
+
+  it("operationsEconomy sums in-window cost/tokens, excludes running and out-of-window runs", async () => {
+    await finishedRun("r1", "a", 2000, { cost: 0.01, tin: 100, tout: 40 });
+    await finishedRun("r2", "a", 3000, { cost: 0.02, tin: 50, tout: 10 });
+    await finishedRun("r-old", "b", 500, { cost: 0.9, tin: 999, tout: 999 }); // before window
+    await finishedRun("r-run", "b", 2500, { cost: 0.9, tin: 999, tout: 999, status: "running" });
+
+    const eco = await db.operationsEconomy(U, { monthStart: 1000, monthEnd: 5000 });
+    expect(eco.monthCostUsd).toBeCloseTo(0.03, 6);
+    expect(eco.tokensIn).toBe(150);
+    expect(eco.tokensOut).toBe(50);
+  });
+
+  it("operationsEconomy honors the graphIds membership scope", async () => {
+    await finishedRun("r1", "a", 2000, { cost: 0.01, tin: 10, tout: 5 });
+    const eco = await db.operationsEconomy(U, { monthStart: 0, monthEnd: 99999, graphIds: ["b"] });
+    expect(eco.monthCostUsd).toBe(0); // a is outside the requested scope
+    expect(eco.tokensIn).toBe(0);
+  });
+
+  it("metricsByGraph aggregates F6 metrics per graph and isolates the tenant", async () => {
+    await db.insertMetric({ id: "m1", userId: U, graphId: "a", impressions: 100, clicks: 10, gmv: 50, adSpend: 5, recordedAt: 2000 });
+    await db.insertMetric({ id: "m2", userId: U, graphId: "a", impressions: 200, clicks: 30, gmv: 70, adSpend: 9, recordedAt: 2100 });
+    await db.insertMetric({ id: "m3", userId: U, graphId: "b", impressions: 10, clicks: 1, gmv: 0, adSpend: 0, recordedAt: 2200 });
+    await db.insertMetric({ id: "m4", userId: "u2", graphId: "a", impressions: 999, clicks: 999, recordedAt: 2300 });
+
+    const map = await db.metricsByGraph(U, ["a", "b"]);
+    expect(map.a!.impressions).toBe(300);
+    expect(map.a!.clicks).toBe(40);
+    expect(map.a!.gmv).toBe(120);
+    expect(map.a!.adSpend).toBe(14);
+    expect(map.b!.impressions).toBe(10);
+    // The other tenant's row on the same graph id is filtered by user_id.
+    expect(map.a!.impressions).toBe(300);
+    // A graph with no metrics is simply absent (caller fills zeros).
+    expect(map["c"]).toBeUndefined();
+  });
+});

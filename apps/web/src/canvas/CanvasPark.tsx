@@ -18,7 +18,8 @@ import { parkLayout } from "@agent-world/core";
 import { xzPolyline, xzPolylinePointAt, type XZPolyline } from "./iso3d";
 import { useViewMode } from "../store/view-mode";
 import { api } from "../lib/api";
-import type { CrossGraphEdge } from "../lib/api";
+import type { CrossGraphEdge, ParkGraphMetrics } from "../lib/api";
+import FactoryReviewCard from "./FactoryReviewCard";
 
 // --- Constants (aligned with L1 Canvas3D, larger park scale) ---
 const PITCH = Math.PI / 3; // lock pitch 60deg from vertical
@@ -72,9 +73,43 @@ export interface ParkFactory {
   pendingReview: number;
   /** True when the pipeline has at least one cron trigger (shows the pause-cron action). */
   hasCron?: boolean;
+  /** RTS stage-C C7: current cron enabled flag (drives pause vs resume label). */
+  cronEnabled?: boolean;
+  /** RTS stage-C C5: nearest cron fire within 24h (ms epoch), null/undefined when none. */
+  nextRunAt?: number | null;
+  /** RTS stage-C C6: F6 effect metrics (heat sprite hidden when all zero). */
+  metrics?: ParkGraphMetrics;
   /** Last run id, used by the retry action. */
   lastRunId?: string | null;
   manual?: { x: number; z: number }; // manual coordinates take priority
+}
+
+/**
+ * RTS stage-C C6: one-line heat label for a factory, or null when there is no
+ * effect data (staging mostly has none — the honest empty state renders nothing).
+ * Exported for unit testing (no three.js dependency).
+ */
+export function formatHeat(m: ParkGraphMetrics | undefined): string | null {
+  if (!m) return null;
+  const hasSignal = m.impressions + m.clicks + m.conversions + m.gmv + m.adSpend > 0;
+  if (!hasSignal) return null;
+  const parts: string[] = [];
+  if (m.impressions > 0 && m.clicks > 0) {
+    const ctr = (m.clicks / m.impressions) * 100;
+    parts.push(`CTR ${ctr >= 10 ? ctr.toFixed(0) : ctr.toFixed(1)}%`);
+  }
+  if (m.gmv > 0) parts.push(`$${m.gmv >= 1000 ? `${(m.gmv / 1000).toFixed(1)}k` : m.gmv.toFixed(0)}`);
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
+/** RTS stage-C C5: compact countdown label for the next cron fire (exported for tests). */
+export function formatCountdown(target: number, now: number): string | null {
+  const mins = Math.round((target - now) / 60000);
+  if (mins <= 0) return null;
+  if (mins < 60) return `${mins}m`;
+  const hrs = mins / 60;
+  if (hrs < 24) return `${hrs >= 10 ? hrs.toFixed(0) : hrs.toFixed(1)}h`;
+  return null;
 }
 
 interface ParkSceneState {
@@ -86,6 +121,9 @@ interface ParkSceneState {
   controls: OrbitControls;
   layout: Map<string, { x: number; z: number }>;
   idByIndex: string[]; // instanceId to graphId mapping
+  // RTS stage-C: one billboard group per factory (label + badge + clock + heat),
+  // so drag-to-move only repositions a single group instead of hand-counting sprites.
+  billboardById: Map<string, THREE.Group>;
   dummy: THREE.Object3D; // reused object, avoids per-frame allocation
   // C2: cross-factory pipes + looping freight trucks
   crossGroup: THREE.Group;
@@ -178,12 +216,71 @@ function makeBadgeTexture(count: number): THREE.CanvasTexture {
   return tex;
 }
 
+// RTS stage-C C5: small cyan countdown disc for the next cron fire (e.g. "3h").
+function makeClockTexture(label: string): THREE.CanvasTexture {
+  const cacheKey = `clock|${label}`;
+  const cached = textureCache.get(cacheKey);
+  if (cached) return cached;
+  const size = 96;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return new THREE.CanvasTexture(canvas);
+  ctx.beginPath();
+  ctx.arc(size / 2, size / 2, size / 2 - 4, 0, Math.PI * 2);
+  ctx.fillStyle = "rgba(20, 24, 29, 0.85)";
+  ctx.fill();
+  ctx.lineWidth = 5;
+  ctx.strokeStyle = "#22d3ee";
+  ctx.stroke();
+  ctx.fillStyle = "#a5f3fc";
+  ctx.font = "bold 34px sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(label, size / 2, size / 2 + 2);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.minFilter = THREE.LinearFilter;
+  textureCache.set(cacheKey, tex);
+  return tex;
+}
+
+// RTS stage-C C6: warm pill carrying the one-line effect heat (CTR / GMV).
+function makeHeatTexture(text: string): THREE.CanvasTexture {
+  const cacheKey = `heat|${text}`;
+  const cached = textureCache.get(cacheKey);
+  if (cached) return cached;
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return new THREE.CanvasTexture(canvas);
+  const font = "bold 34px sans-serif";
+  ctx.font = font;
+  const w = Math.ceil(ctx.measureText(text).width) + 40;
+  const h = 56;
+  canvas.width = w;
+  canvas.height = h;
+  ctx.font = font;
+  ctx.beginPath();
+  ctx.roundRect(0, 0, w, h, h / 2);
+  ctx.fillStyle = "rgba(60, 42, 12, 0.88)";
+  ctx.fill();
+  ctx.fillStyle = "#fbbf24";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, w / 2, h / 2 + 1);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.minFilter = THREE.LinearFilter;
+  textureCache.set(cacheKey, tex);
+  return tex;
+}
+
 export default function CanvasPark({
   factories,
   crossEdges,
   onEnter,
   onRetry,
   onToggleCron,
+  onReviewDecided,
 }: {
   factories: ParkFactory[];
   /** C2: material-flow edges between factories (subprocess / event). */
@@ -191,6 +288,8 @@ export default function CanvasPark({
   onEnter?: (id: string) => void;
   onRetry?: (id: string, lastRunId: string | null | undefined) => void;
   onToggleCron?: (id: string) => void;
+  /** C7: after an approve/reject, parent refreshes the overview (badge + status). */
+  onReviewDecided?: () => void;
 }) {
   const { t } = useTranslation();
   const mountRef = useRef<HTMLDivElement>(null);
@@ -362,6 +461,7 @@ export default function CanvasPark({
       controls,
       layout: new Map(),
       idByIndex: [],
+      billboardById: new Map(),
       dummy: new THREE.Object3D(),
       crossGroup,
       crossTrucks: [],
@@ -415,23 +515,8 @@ export default function CanvasPark({
       state.dummy.updateMatrix();
       state.instancedMesh.setMatrixAt(idx, state.dummy.matrix);
       state.instancedMesh.instanceMatrix.needsUpdate = true;
-      // Move billboard sprites for this factory (label + optional badge).
-      const facts = dataRef.current;
-      const fIdx = facts.findIndex((f) => f.id === id);
-      if (fIdx >= 0) {
-        let spriteOffset = 0;
-        for (let i = 0; i < fIdx; i++) {
-          spriteOffset += 1; // label
-          if (facts[i]!.pendingReview > 0) spriteOffset += 1; // badge
-        }
-        const children = state.billboardGroup.children;
-        if (children[spriteOffset]) {
-          children[spriteOffset]!.position.set(x, FACTORY_H + 60, z);
-        }
-        if (facts[fIdx]!.pendingReview > 0 && children[spriteOffset + 1]) {
-          children[spriteOffset + 1]!.position.set(x + FACTORY_SIZE * 0.6, FACTORY_H + 50, z);
-        }
-      }
+      // Move the factory's whole billboard group (label + badge + clock + heat).
+      state.billboardById.get(id)?.position.set(x, 0, z);
     };
 
     const onPointerDown = (e: PointerEvent) => {
@@ -685,35 +770,70 @@ export default function CanvasPark({
     st.instancedMesh.instanceMatrix.needsUpdate = true;
     st.instancedMesh.count = Math.max(factories.length, 1);
 
-    // 3. rebuild billboards (category label + pending review badge)
+    // 3. rebuild billboards: one group per factory holding its label, review
+    //    badge, C5 cron countdown clock and C6 effect-heat pill.
     for (const child of [...st.billboardGroup.children]) {
-      const sprite = child as THREE.Sprite;
-      if (sprite.isSprite) {
-        (sprite.material as THREE.SpriteMaterial).map?.dispose();
-        (sprite.material as THREE.Material).dispose();
-      }
+      child.traverse((obj) => {
+        const sprite = obj as THREE.Sprite;
+        if (sprite.isSprite) {
+          (sprite.material as THREE.SpriteMaterial).map?.dispose();
+          (sprite.material as THREE.Material).dispose();
+        }
+      });
       st.billboardGroup.remove(child);
     }
+    st.billboardById.clear();
+    const syncNow = Date.now();
 
     for (const f of factories) {
       const pos = layout.get(f.id) ?? { x: 0, z: 0 };
+      const group = new THREE.Group();
+      group.position.set(pos.x, 0, pos.z);
 
       const catColor = categoryColor(f.category);
       const labelTex = makeTextTexture(f.name, `#${catColor.toString(16).padStart(6, "0")}`, 52);
       const labelMat = new THREE.SpriteMaterial({ map: labelTex, transparent: true, depthTest: false });
       const labelSprite = new THREE.Sprite(labelMat);
-      labelSprite.position.set(pos.x, FACTORY_H + 70, pos.z);
+      labelSprite.position.set(0, FACTORY_H + 70, 0);
       labelSprite.scale.set(380, 100, 1);
-      st.billboardGroup.add(labelSprite);
+      group.add(labelSprite);
 
       if (f.pendingReview > 0) {
         const badgeTex = makeBadgeTexture(f.pendingReview);
         const badgeMat = new THREE.SpriteMaterial({ map: badgeTex, transparent: true, depthTest: false });
         const badgeSprite = new THREE.Sprite(badgeMat);
-        badgeSprite.position.set(pos.x + FACTORY_SIZE * 0.6, FACTORY_H + 50, pos.z);
+        badgeSprite.position.set(FACTORY_SIZE * 0.6, FACTORY_H + 50, 0);
         badgeSprite.scale.set(70, 70, 1);
-        st.billboardGroup.add(badgeSprite);
+        group.add(badgeSprite);
       }
+
+      // C5: cron countdown disc at the factory base (only within the next 24h).
+      if (typeof f.nextRunAt === "number") {
+        const countdown = formatCountdown(f.nextRunAt, syncNow);
+        if (countdown) {
+          const clockTex = makeClockTexture(countdown);
+          const clockMat = new THREE.SpriteMaterial({ map: clockTex, transparent: true, depthTest: false });
+          const clockSprite = new THREE.Sprite(clockMat);
+          clockSprite.position.set(0, 26, FACTORY_SIZE * 0.62);
+          clockSprite.scale.set(84, 84, 1);
+          group.add(clockSprite);
+        }
+      }
+
+      // C6: effect heat pill — rendered only when real effect data exists.
+      const heat = formatHeat(f.metrics);
+      if (heat) {
+        const heatTex = makeHeatTexture(heat);
+        const heatMat = new THREE.SpriteMaterial({ map: heatTex, transparent: true, depthTest: false });
+        const heatSprite = new THREE.Sprite(heatMat);
+        const hw = heatTex.image?.width ?? 120;
+        heatSprite.position.set(0, FACTORY_H + 6, 0);
+        heatSprite.scale.set(Math.max(120, hw * 1.4), 56, 1);
+        group.add(heatSprite);
+      }
+
+      st.billboardGroup.add(group);
+      st.billboardById.set(f.id, group);
     }
 
     // 4. C2: rebuild cross-factory pipes + evenly-phased freight trucks.
@@ -818,10 +938,13 @@ export default function CanvasPark({
                   className="park-popover__btn"
                   onClick={() => onToggleCron?.(selected.id)}
                 >
-                  {t("park:pauseCron")}
+                  {selected.cronEnabled === false ? t("park:resumeCron") : t("park:pauseCron")}
                 </button>
               )}
             </div>
+            {selected.pendingReview > 0 && (
+              <FactoryReviewCard key={selected.id} graphId={selected.id} onDecided={onReviewDecided} />
+            )}
           </>
         )}
       </div>

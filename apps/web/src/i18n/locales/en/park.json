@@ -7,6 +7,32 @@
   "empty": "No pipelines yet — create one from a template",
   "backToPark": "Back to park",
   "factoryCount": "Factories",
+  "economy": {
+    "monthCost": "Month cost",
+    "tokens": "Tokens",
+    "tokensInOut": "in {{in}} / out {{out}}",
+    "budget": "Monthly budget",
+    "budgetLeft": "{{left}} left"
+  },
+  "schedule": {
+    "title": "24h schedule",
+    "now": "Now",
+    "empty": "Nothing scheduled in the next 24h",
+    "nextRun": "Run",
+    "plan": "Plan",
+    "inHours": "in {{n}} h",
+    "inMinutes": "in {{n}} min",
+    "delay1h": "Push +1h",
+    "delay24h": "Push to tomorrow"
+  },
+  "review": {
+    "title": "Awaiting review",
+    "approve": "Approve",
+    "reject": "Reject",
+    "empty": "Nothing to review",
+    "loading": "Loading…",
+    "node": "Node"
+  },
   "debug": {
     "fps": "FPS",
     "factories": "Factories",
