@@ -29,6 +29,14 @@ const FACTORY_H = 140;
 const MAX_FACTORIES = 100;
 const GROUND_SIZE = 6000;
 const BREATH_SPEED = 0.006; // B6: running factory breathing frequency
+// C3 plan-B drill return (L1 → L0): ease duration and the zoomed-in seed mul.
+const DRILL_EASE_MS = 420;
+const DRILL_START_ZOOM_MUL = 2.6;
+
+/** easeOutCubic: fast out of the zoomed-in seed, gentle settle at the park pose. */
+function easeOutCubic(t: number): number {
+  return 1 - Math.pow(1 - t, 3);
+}
 
 // --- C2: cross-factory freight (park-scale pipes + evenly-phased trucks) ---
 const CROSS_PIPE_Y = 6; // raise pipes just above the ground grid to avoid z-fighting
@@ -270,12 +278,23 @@ export default function CanvasPark({
     controls.minPolarAngle = PITCH;
     controls.maxPolarAngle = PITCH;
     // B8: restore the L0 camera pose saved on the previous drill-down.
+    // C3 plan-B: on a drill "out" return, seed the camera closer and ease the
+    // zoom back to the saved park pose (position/target restore immediately so
+    // the park stays centered; only zoom animates — reads as "pull back out").
     const saved = useViewMode.getState().parkCamera;
+    let drillAnim: { startZoom: number; targetZoom: number; start: number } | null = null;
+    const drillReq = useViewMode.getState().consumeDrillAnimRequest();
     if (saved) {
       camera.position.set(saved.posX, saved.posY, saved.posZ);
       controls.target.set(saved.targetX, saved.targetY, saved.targetZ);
       camera.zoom = saved.zoom;
+      if (drillReq?.dir === "out") {
+        const targetZoom = saved.zoom;
+        camera.zoom = targetZoom * DRILL_START_ZOOM_MUL;
+        drillAnim = { startZoom: camera.zoom, targetZoom, start: performance.now() };
+      }
     }
+    camera.updateProjectionMatrix();
     controls.update();
 
     const ambient = new THREE.AmbientLight(0xffffff, 0.5);
@@ -574,6 +593,15 @@ export default function CanvasPark({
         const at = xzPolylinePointAt(ct.line, travelled);
         ct.mesh.position.set(at.x, CROSS_PIPE_Y + CROSS_TRUCK_H / 2, at.z);
         ct.mesh.rotation.y = at.angle;
+      }
+
+      // C3 plan-B: ease the drill-return zoom from its zoomed-in seed to park pose.
+      if (drillAnim) {
+        const p = Math.min(1, (now - drillAnim.start) / DRILL_EASE_MS);
+        const k = easeOutCubic(p);
+        camera.zoom = drillAnim.startZoom + (drillAnim.targetZoom - drillAnim.startZoom) * k;
+        camera.updateProjectionMatrix();
+        if (p >= 1) drillAnim = null;
       }
 
       st.controls.update();

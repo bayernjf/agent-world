@@ -99,6 +99,7 @@ export default function App() {
   const setViewMode = useViewMode((s) => s.setViewMode);
   const setDrilledFromPark = useViewMode((s) => s.setDrilledFromPark);
   const drilledFromPark = useViewMode((s) => s.drilledFromPark);
+  const requestDrillAnim = useViewMode((s) => s.requestDrillAnim);
 
   const [mode, setMode] = useState<Mode>("select");
   const [budget, setBudget] = useState(0.01);
@@ -633,20 +634,23 @@ export default function App() {
     });
   }, [parkOverview]);
 
-  // B8: drill from a park factory into its L1 single-factory 3D view.
+  // B8 + C3 plan-B: drill from a park factory into its L1 single-factory 3D view
+  // with a zoom ease (Canvas3D consumes the one-shot "in" request on mount).
   const enterFactory = useCallback(
     async (id: string) => {
       setDrilledFromPark(true);
       if (id !== graph.id) await switchGraph(id);
+      requestDrillAnim("in");
       setViewMode("3d");
     },
-    [graph.id, switchGraph, setDrilledFromPark, setViewMode],
+    [graph.id, switchGraph, setDrilledFromPark, setViewMode, requestDrillAnim],
   );
 
   const backToPark = useCallback(() => {
     setDrilledFromPark(false);
+    requestDrillAnim("out");
     setViewMode("park");
-  }, [setDrilledFromPark, setViewMode]);
+  }, [setDrilledFromPark, setViewMode, requestDrillAnim]);
 
   const enterPark = useCallback(() => {
     setDrilledFromPark(false);
