@@ -1,6 +1,6 @@
 # 演示用户（Demo User）落地方案（design-demo-user）
 
-> 状态：**D1–D5 已落地（2026-09-15），D6 端到端走查进行中**。D1 数据层 / D2 额度守卫 / D3 服务路由 / D4 前端 / D5 清理脚本+部署手册均已实现并随原子 commit 入库，单测与集成测全绿；D6 本地全链路走查 + 合 dev 后 Hasee `ALLOW_DEMO=1` 真机验证为剩余项。
+> 状态：**D1–D6 本地端到端走查全部通过（2026-09-15）**。D1 数据层 / D2 额度守卫 / D3 服务路由 / D4 前端 / D5 清理脚本+部署手册均已实现并随 6 个原子 commit 入库（分支 feature/20260824，未合 dev），单测/集成测/组件测全绿、四包 typecheck 绿、web 顺序全量 1865 与 server 全量 1185 通过；D6 本地以 ALLOW_DEMO=1 + MONETIZATION_ENFORCE=1 走完 API + 浏览器全链路。**唯一剩余**：走 PR→CI→merge dev→Hasee 部署后加 systemd override `ALLOW_DEMO=1` 做真机复验、挂每小时 prune cron。
 > 目标读者：接手实现的 agent / 工程师。本文是演示用户特性的单一事实源，实现按 §9 的 D1–D6 原子推进。
 > 关联：商业化配额见 [design-monetization.md](design-monetization.md) 与 [design-monetization-m2-implementation.md](design-monetization-m2-implementation.md)；认证/RBAC 见 [design-rbac.md](design-rbac.md)；DB 抽象层与 PG 双轨见 [design-postgres-migration.md](design-postgres-migration.md)；新用户引导见 [design-guided-tour.md](design-guided-tour.md)。
 
@@ -282,7 +282,7 @@ export function assertNotDemo(user: {is_demo?: number|boolean}, feature: string)
 - **D3 · 服务与路由** ✅（commit `ae84d45`，10 集成测绿）：demo 服务（create/reuse/claim）+ `/api/auth/demo`、`/me` 扩 isDemo+demo{expiresAt,quota}、`/claim`、login 对 demo 返回 401 DEMO_CLAIM_REQUIRED、改密/billing/publish/admin/webhook 外联等 9 处 blockDemo、run gate 独立分支（自带 30k token 池，不受 MONETIZATION_ENFORCE/free token=0 影响）；预置模板克隆 **tpl-draft**（见 §13 D3 登记）。限流上限 env `DEMO_RATE_LIMIT` 可覆盖。HTTP 集成测：开关关闭、限流、复用、创建、claim 保留数据、login 拒绝、guard 403、额度 402、ENFORCE=1 下 demo 文本 run 200。
 - **D4 · 前端** 🔄（代码与组件测完成：useSession store、登录/注册页演示入口、DemoBanner、ClaimDialog、api 层 DEMO_LOCKED/DEMO_QUOTA 自动开 claim、UserMenu 适配、zh/en auth.json 同构 i18n、CSS var 样式；AuthPages/UserMenu/DemoBanner/ClaimDialog 合计 86 测绿、i18n 守护绿、web typecheck 绿；web 全量回归与原子 commit 收尾中）。
 - **D5 · 清理脚本 + 文档 + 部署手册** ✅：`scripts/prune-demo-users.ts`（默认 dry-run、`--apply` 真删，已用「过期 demo/未过期 demo/正式账号」三夹具验证只删过期项；npm script `prune:demo`）+ 部署手册补 ALLOW_DEMO / DEMO_QUOTA_* / DEMO_TTL_HOURS / DEMO_RATE_LIMIT 与每小时清理 cron + 本文档勾选落地状态。
-- **D6 · 端到端走查** ⬜（待办）：本地起 server（cwd=packages/server）+ web，走「进演示 → 看到预置产线 → 跑文本产线成功 → 视频节点被拦 → 外联操作 403 → claim 转正且数据还在 → prune --dry-run 命中过期账号」全链路；类型四包干净、全量测试绿；合 dev 部署后 Hasee systemd override 加 `ALLOW_DEMO=1` 真机复验 ENFORCE=1/free token=0 下 demo 文本可跑。
+- **D6 · 端到端走查** ✅ 本地通过（2026-09-15，ALLOW_DEMO=1 + MONETIZATION_ENFORCE=1）：API 层——demo 201 并克隆 tpl-draft「写草稿」、/me 带 isDemo+quota、demo 邮箱密码登录 401 DEMO_CLAIM_REQUIRED、publish/billing/admin 均 403 DEMO_LOCKED、**demo 文本 run 在 ENFORCE=1/free token=0 下返回 200 且真实调 agnes-2.0-flash 产出中文文本与 artifact（关键坑验证）**、claim 200 同 userId 原地转正且产线/产物全保留、新邮箱密码登录 200；浏览器层——登录/注册页「免注册先体验」→一键进主界面见预置产线 + DemoBanner→点转正弹 ClaimDialog→填写提交后弹窗与 Banner 消失、数据保留；prune 三夹具（过期 demo/未过期 demo/正式号）验证只删过期项。四包 typecheck 绿、server 1185 / web 1865 全绿。**余 Hasee 真机**：合 dev 部署后 systemd override 加 `ALLOW_DEMO=1` 复验同一关键坑，并按部署手册挂每小时 prune cron。
 
 ---
 
