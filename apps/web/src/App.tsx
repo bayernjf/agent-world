@@ -1,5 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router-dom";
 import type { Diagnostic, FormConnector, Graph } from "@agent-world/core";
 
 type FormField = FormConnector["fields"][number];
@@ -53,6 +54,7 @@ import RunCompare from "./components/RunCompare";
 import CollaboratorsModal from "./components/CollaboratorsModal";
 import CommandPalette, { type CommandItem } from "./components/CommandPalette";
 import { api, DuplicateGraphNameError, type OperationsOverview } from "./lib/api";
+import { parseBillingReturn } from "./lib/billingReturn";
 import { useToast } from "./store/toast";
 import { parseQuotaError, useUpgradeGate } from "./store/upgrade-gate";
 import UpgradeGate from "./components/UpgradeGate";
@@ -112,6 +114,23 @@ export default function App() {
   };
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<SettingsTab | undefined>(undefined);
+  const navigate = useNavigate();
+  // M3 S6 A5: on a full-page return from Stripe Checkout/Portal (?billing=…),
+  // open the billing settings tab + toast once, then strip the marker so a
+  // refresh does not re-fire it. Runs once on mount.
+  useEffect(() => {
+    const marker = parseBillingReturn(window.location.search);
+    if (!marker) return;
+    if (marker === "success") {
+      setSettingsTab("billing");
+      setSettingsOpen(true);
+      useToast.getState().show(t("billing:stripe.returnSuccess"), { ttlMs: 8000 });
+    } else if (marker === "cancel") {
+      useToast.getState().show(t("billing:stripe.returnCancel"), { ttlMs: 6000 });
+    }
+    navigate("/", { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [newGraphOpen, setNewGraphOpen] = useState(false);
   const [graphs, setGraphs] = useState<GraphSummary[]>([]);
   const [deleteTarget, setDeleteTarget] = useState<GraphSummary | null>(null);
