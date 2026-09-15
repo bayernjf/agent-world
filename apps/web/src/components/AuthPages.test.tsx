@@ -8,6 +8,8 @@ vi.mock("react-router-dom", () => ({
     <a href={to}>{children}</a>
   ),
   useNavigate: () => mockNavigate,
+  useSearchParams: () => [new URLSearchParams(), vi.fn()],
+  useLocation: () => ({ pathname: "/login" }),
 }));
 
 // Mock Logo
@@ -302,6 +304,38 @@ describe("LoginPage", () => {
         expect(screen.getByRole("button", { name: "登录" })).not.toBeDisabled();
       });
     });
+  });
+});
+
+describe("演示入口", () => {
+  beforeEach(() => {
+    cleanup();
+    document.body.innerHTML = "";
+    vi.clearAllMocks();
+    mockNavigate.mockClear();
+  });
+
+  it("登录页显示免注册体验按钮", () => {
+    render(<LoginPage />);
+    expect(screen.getByRole("button", { name: "免注册，先体验演示" })).toBeInTheDocument();
+  });
+
+  it("点击体验按钮调用 /api/auth/demo 并进入首页", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ user: { id: "d1", isDemo: true } }),
+    } as any);
+    render(<LoginPage />);
+    fireEvent.click(screen.getByRole("button", { name: "免注册，先体验演示" }));
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalledWith("/api/auth/demo", expect.any(Object));
+      expect(mockNavigate).toHaveBeenCalledWith("/", { replace: true });
+    });
+  });
+
+  it("注册页也显示弱化的体验入口", () => {
+    render(<RegisterPage />);
+    expect(screen.getByRole("button", { name: "先免注册体验演示" })).toBeInTheDocument();
   });
 });
 
