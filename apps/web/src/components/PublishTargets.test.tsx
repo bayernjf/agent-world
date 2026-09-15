@@ -119,8 +119,11 @@ describe("PublishTargets", () => {
         metricsSecret: undefined,
       }),
     );
-    // form reset
-    expect((screen.getByPlaceholderText("平台") as HTMLInputElement).value).toBe("");
+    // form reset happens in the await callback after createPublishTarget resolves,
+    // so poll for it instead of asserting synchronously (race on slow CI runners)
+    await waitFor(() =>
+      expect((screen.getByPlaceholderText("平台") as HTMLInputElement).value).toBe(""),
+    );
   });
 
   it("passes name, token and metrics secret when provided", async () => {
