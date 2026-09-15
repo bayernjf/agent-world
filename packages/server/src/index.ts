@@ -2,7 +2,7 @@
 import "./load-env.js";
 import { serve } from "@hono/node-server";
 import { getConnInfo } from "@hono/node-server/conninfo";
-import { randomUUID } from "node:crypto";
+import { randomUUID, randomBytes } from "node:crypto";
 import { execSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -71,6 +71,13 @@ import { publishToChannel } from "./publish.js";
 import { hashPassword, verifyPassword, signToken, verifyToken, REMEMBER_MAX_AGE_SEC } from "./auth.js";
 import { audit, changedFields } from "./audit.js";
 import { RateLimiter } from "./rate-limit.js";
+import {
+  DEMO_QUOTA,
+  DEMO_TTL_MS,
+  DemoQuotaError,
+  enforceDemoQuota,
+  type DemoFeature,
+} from "./demo.js";
 import { graphAccessRole, requireGraph, visibleGraphs, requireRun, runAccessRole, artifactAccessRole, hasAtLeast } from "./rbac.js";
 
 const PORT = Number(process.env.PORT ?? 8791);
@@ -393,6 +400,51 @@ const RUN_RATE_WINDOW_MS = 60_000;
 const loginLimiter = new RateLimiter(LOGIN_RATE_LIMIT, LOGIN_RATE_WINDOW_MS);
 const registerLimiter = new RateLimiter(REGISTER_RATE_LIMIT, REGISTER_RATE_WINDOW_MS);
 const runLimiter = new RateLimiter(RUN_RATE_LIMIT, RUN_RATE_WINDOW_MS);
+// Demo (try-before-signup) provisioning is tighter than register: each call
+// creates a real account, so cap per IP per hour (design-demo-user §6.1).
+// Overridable via DEMO_RATE_LIMIT for ops/tests; default 10/hour.
+const DEMO_RATE_LIMIT = (() => {
+  const n = Number(process.env.DEMO_RATE_LIMIT);
+  return Number.isFinite(n) && n > 0 ? n : 10;
+})();
+const DEMO_RATE_WINDOW_MS = 60 * 60_000;
+const demoLimiter = new RateLimiter(DEMO_RATE_LIMIT, DEMO_RATE_WINDOW_MS);
+// Seed every fresh demo with the simplest text-only pipeline so the canvas is
+// not empty on first load. Chosen from TEMPLATES: source→textGen→…→sink, no
+// image/video/audio nodes (those are blocked for demos).
+const DEMO_SEED_TEMPLATE_IDS = ["tpl-draft"] as const;
+
+/** Demo mode is OFF by default; operators opt in with ALLOW_DEMO=1. */
+function demoEnabled(): boolean {
+  const flag = (process.env.ALLOW_DEMO ?? "").trim().toLowerCase();
+  return flag === "1" || flag === "true";
+}
+
+/** Public demo-quota shape returned to the web client (numbers, no internals). */
+function demoPublicQuota() {
+  return {
+    tokens: DEMO_QUOTA.tokens,
+    maxRunsTotal: DEMO_QUOTA.maxRunsTotal,
+    concurrentRuns: DEMO_QUOTA.concurrentRuns,
+    storageBytes: DEMO_QUOTA.storageBytes,
+    videoSegments: DEMO_QUOTA.videoSegments,
+  };
+}
+
+/** 403 for a capability a demo account may not use. The web opens the claim dialog. */
+function demoLocked(c: any, feature: DemoFeature) {
+  return c.json(
+    { error: "demo_forbidden", code: "DEMO_LOCKED", feature, claimUrl: "/login?claim=1" },
+    403,
+  );
+}
+
+/** Resolve the authenticated user and return a 403 response when it is a demo.
+ *  Usage at the top of a locked route: `const b = await blockDemo(c,"x"); if (b) return b;` */
+async function blockDemo(c: any, feature: DemoFeature) {
+  const u = await db.findUserById(c.get("userId") as string);
+  return u?.is_demo === 1 ? demoLocked(c, feature) : null;
+}
 
 /** 限流 key 的 IP 部分：nginx 反代会带 x-forwarded-for；缺失时归为 unknown。 */
 function rateLimitIp(c: any): string {
@@ -451,6 +503,15 @@ app.post("/api/auth/login", async (c) => {
     audit(db, "unknown", "account.login_failed", { ip: clientIp(c) });
     return c.json({ error: "邮箱或密码错误" }, 401);
   }
+  // A demo account has an unknowable random password and must convert via
+  // /api/auth/claim (or start a fresh demo) rather than logging in by password.
+  if (user.is_demo === 1) {
+    audit(db, user.id, "account.login_blocked_demo", { ip: clientIp(c) });
+    return c.json(
+      { error: "演示账号请通过注册转正后登录，或重新开启演示", code: "DEMO_CLAIM_REQUIRED" },
+      401,
+    );
+  }
   const hash = await db.findUserPasswordHash(user.id);
   if (!hash || !(await verifyPassword(password, hash))) {
     audit(db, user.id, "account.login_failed", { ip: clientIp(c) });
@@ -482,12 +543,17 @@ app.get("/api/auth/me", async (c) => {
   if (!payload) return c.json({ error: "not authenticated" }, 401);
   const user = await db.findUserById(payload.userId);
   if (!user) return c.json({ error: "not authenticated" }, 401);
+  const isDemo = user.is_demo === 1;
   return c.json({
     user: {
       id: user.id,
       email: user.email,
       createdAt: user.created_at,
       role: user.role,
+      isDemo,
+      ...(isDemo
+        ? { demo: { expiresAt: user.demo_expires_at, quota: demoPublicQuota() } }
+        : {}),
       canManageAnnouncements: await isAnnouncementAdmin(user.id),
     },
   });
@@ -499,6 +565,9 @@ app.post("/api/auth/password", async (c) => {
   const payload = token ? await verifyToken(token) : null;
   const user = payload ? await db.findUserById(payload.userId) : undefined;
   if (!user) return c.json({ error: "not authenticated" }, 401);
+  // Demo accounts have an unknowable random password and no password to change;
+  // they convert into a real account via /api/auth/claim instead.
+  if (user.is_demo === 1) return demoLocked(c, "password");
   const body = (await c.req.json().catch(() => ({}))) as {
     currentPassword?: string;
     newPassword?: string;
@@ -515,6 +584,104 @@ app.post("/api/auth/password", async (c) => {
   await db.updateUserPasswordHash(user.id, await hashPassword(newPassword));
   audit(db, user.id, "account.password_change", { objectType: "account", ip: clientIp(c) });
   return c.json({ ok: true });
+});
+
+// --- Demo (try-before-signup) accounts: design-demo-user.md ---
+// Provision a real, flagged account with a short TTL and a seeded text pipeline,
+// no signup form. Public (sits under /api/auth/* whitelist) but gated by
+// ALLOW_DEMO and a tight per-IP limiter. Reuses an unexpired demo cookie rather
+// than minting a fresh account on every click.
+app.post("/api/auth/demo", async (c) => {
+  if (!demoEnabled()) {
+    return c.json({ error: "demo_disabled", code: "DEMO_DISABLED" }, 403);
+  }
+  if (!demoLimiter.allow(`demo:${rateLimitIp(c)}`)) {
+    return c.json({ error: "演示创建过于频繁，请稍后再试" }, 429);
+  }
+
+  // Reuse an existing, still-valid demo session from the caller's cookie.
+  const cookie = c.req.header("cookie") ?? "";
+  const existingToken = cookie.match(new RegExp(`${AUTH_COOKIE}=([^;]+)`))?.[1];
+  const existingPayload = existingToken ? await verifyToken(existingToken) : null;
+  if (existingPayload) {
+    const existing = await db.findUserById(existingPayload.userId);
+    if (
+      existing?.is_demo === 1 &&
+      existing.demo_expires_at &&
+      new Date(existing.demo_expires_at).getTime() > Date.now()
+    ) {
+      return c.json({
+        user: { id: existing.id, email: existing.email, isDemo: true },
+        demo: { expiresAt: existing.demo_expires_at, quota: demoPublicQuota() },
+        reused: true,
+      });
+    }
+  }
+
+  const id = randomUUID();
+  const email = `demo+${id.replace(/-/g, "").slice(0, 8)}@demo.local`;
+  // Nobody knows this password — the only way out of a demo is claim (or prune).
+  const passwordHash = await hashPassword(randomBytes(32).toString("hex"));
+  const expiresAt = new Date(Date.now() + DEMO_TTL_MS).toISOString();
+  await db.createDemoUser(id, email, passwordHash, expiresAt);
+
+  // Seed simple text-only pipelines so the first screen isn't an empty canvas.
+  const seeded: string[] = [];
+  for (const tplId of DEMO_SEED_TEMPLATE_IDS) {
+    const tpl = getTemplate(tplId);
+    if (!tpl) continue;
+    const seededGraph = instantiateTemplate(tpl, { id: randomUUID(), name: tpl.name });
+    await db.saveGraph(seededGraph, Date.now(), id, undefined, tplId);
+    seeded.push(tplId);
+  }
+
+  audit(db, id, "account.demo_start", { objectType: "account", detail: { seeded }, ip: clientIp(c) });
+  // Short session (remember=false → 24h, aligned with the account TTL).
+  const token = await signToken(id, email, false);
+  setAuthCookie(c, token, false);
+  return c.json(
+    {
+      user: { id, email, isDemo: true },
+      demo: { expiresAt, quota: demoPublicQuota(), seededTemplates: seeded },
+    },
+    201,
+  );
+});
+
+// Convert the caller's demo account into a real one IN PLACE (same userId, so
+// every graph/run/artifact is retained). Requires an authenticated demo.
+app.post("/api/auth/claim", async (c) => {
+  const cookie = c.req.header("cookie") ?? "";
+  const token = cookie.match(new RegExp(`${AUTH_COOKIE}=([^;]+)`))?.[1];
+  const payload = token ? await verifyToken(token) : null;
+  const user = payload ? await db.findUserById(payload.userId) : undefined;
+  if (!user) return c.json({ error: "not authenticated" }, 401);
+  if (user.is_demo !== 1) {
+    return c.json({ error: "not_a_demo", code: "NOT_A_DEMO" }, 400);
+  }
+  const body = (await c.req.json().catch(() => ({}))) as { email?: string; password?: string };
+  const email = (body.email ?? "").trim().toLowerCase();
+  const password = body.password ?? "";
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return c.json({ error: "请输入有效的邮箱地址" }, 400);
+  }
+  if (password.length < 6) {
+    return c.json({ error: "密码至少需要6个字符" }, 400);
+  }
+  // Target email already taken by a DIFFERENT account → can't merge, refuse.
+  const occupied = await db.findUserByEmail(email);
+  if (occupied && occupied.id !== user.id) {
+    return c.json({ error: "该邮箱已被其他账号占用" }, 409);
+  }
+  const changed = await db.claimDemoUser(user.id, email, await hashPassword(password));
+  if (changed !== 1) {
+    // Race: row was no longer is_demo=1 by the time we wrote.
+    return c.json({ error: "演示账号已失效或已转正，请刷新后重试" }, 409);
+  }
+  audit(db, user.id, "account.claim", { objectType: "account", ip: clientIp(c) });
+  const newToken = await signToken(user.id, email, true);
+  setAuthCookie(c, newToken, true);
+  return c.json({ user: { id: user.id, email, isDemo: false } });
 });
 
 // --- Auth middleware ---
@@ -1063,6 +1230,7 @@ app.get("/api/admin/users", async (c) => {
 app.post("/api/admin/users/:id/role", async (c) => {
   const callerId = c.get("userId");
   if (!(await isOwner(callerId))) return c.json({ error: "forbidden" }, 403);
+  const d = await blockDemo(c, "admin"); if (d) return d;
   const body = (await c.req.json().catch(() => ({}))) as { role?: string };
   // Only "admin" | "user" are grantable — "owner" is bootstrapped, never
   // granted (idx_users_owner guards the single-owner invariant).
@@ -1095,6 +1263,7 @@ app.post("/api/admin/users/:id/role", async (c) => {
 app.post("/api/admin/users/:id/plan", async (c) => {
   const callerId = c.get("userId");
   if (!(await isOwner(callerId))) return c.json({ error: "forbidden" }, 403);
+  const d = await blockDemo(c, "admin"); if (d) return d;
   const body = (await c.req.json().catch(() => ({}))) as { plan?: string; status?: string };
   if (!isPlanId(body.plan)) {
     return c.json({ error: "plan must be free | starter | pro | team" }, 400);
@@ -1570,6 +1739,7 @@ function parseAnnouncementBody(raw: unknown):
 
 app.post("/api/announcements", async (c) => {
   if (!(await isAnnouncementAdmin(c.get("userId")))) return c.json({ error: "forbidden" }, 403);
+  const d = await blockDemo(c, "admin"); if (d) return d;
   const parsed = parseAnnouncementBody(await c.req.json().catch(() => ({})));
   if (!parsed.ok) return c.json({ error: parsed.error }, 400);
   const id = randomUUID();
@@ -1585,6 +1755,7 @@ app.post("/api/announcements", async (c) => {
 
 app.patch("/api/announcements/:id", async (c) => {
   if (!(await isAnnouncementAdmin(c.get("userId")))) return c.json({ error: "forbidden" }, 403);
+  const d = await blockDemo(c, "admin"); if (d) return d;
   const id = c.req.param("id");
   if (!await db.getAnnouncement(id)) return c.json({ error: "announcement not found" }, 404);
   const parsed = parseAnnouncementBody(await c.req.json().catch(() => ({})));
@@ -1601,6 +1772,7 @@ app.patch("/api/announcements/:id", async (c) => {
 
 app.delete("/api/announcements/:id", async (c) => {
   if (!(await isAnnouncementAdmin(c.get("userId")))) return c.json({ error: "forbidden" }, 403);
+  const d = await blockDemo(c, "admin"); if (d) return d;
   const id = c.req.param("id");
   const ok = await db.deleteAnnouncement(id);
   if (!ok) return c.json({ error: "announcement not found" }, 404);
@@ -1919,6 +2091,7 @@ app.get("/api/mcp", async (c) => {
  */
 app.post("/api/mcp/:id/connect", async (c) => {
   const userId = c.get("userId");
+  const d = await blockDemo(c, "remote_mcp"); if (d) return d;
   const id = c.req.param("id");
   const cfg = await loadConfig(userId);
   const server = cfg.mcpServers?.find((s) => s.id === id);
@@ -1990,6 +2163,7 @@ app.get("/api/content-costs", async (c) => {
 
 app.post("/api/publish-targets", async (c) => {
   const userId = c.get("userId");
+  const d = await blockDemo(c, "publish"); if (d) return d;
   const body = (await c.req.json().catch(() => ({}))) as {
     platform?: string;
     name?: string;
@@ -2039,6 +2213,7 @@ app.get("/api/publish-targets", async (c) => {
 
 app.delete("/api/publish-targets/:id", async (c) => {
   const userId = c.get("userId");
+  const d = await blockDemo(c, "publish"); if (d) return d;
   const id = c.req.param("id");
   const ok = await db.deletePublishTarget(id, userId);
   if (ok) audit(db, userId, "publish_target.delete", { objectType: "publish_target", objectId: id, ip: clientIp(c) });
@@ -2047,6 +2222,7 @@ app.delete("/api/publish-targets/:id", async (c) => {
 
 app.post("/api/publish", async (c) => {
   const userId = c.get("userId");
+  const d = await blockDemo(c, "publish"); if (d) return d;
   const body = (await c.req.json().catch(() => ({}))) as {
     targetId?: string;
     title?: string;
@@ -2335,7 +2511,37 @@ app.post("/api/runs", async (c) => {
   // 订阅 gate（design-monetization §5.3 / M2 §S4）：免费层阻断内置模型，各层查
   // token / 视频段 / 存储 / 并发额度。通过 MONETIZATION_ENFORCE=1 显式启用——
   // 默认关闭，部署后先把 owner 升到 pro/team 再开，避免内置模型产线被 402 断供。
-  if (process.env.MONETIZATION_ENFORCE === "1") {
+  const gateOwner = await db.findUserById(ownerId);
+  if (gateOwner?.is_demo === 1) {
+    // Demo limits ALWAYS apply (independent of MONETIZATION_ENFORCE) and draw on
+    // the demo token pool, so text pipelines run even where the free plan is
+    // blocked (Hasee runs ENFORCE=1 with free tokens=0). Media is refused.
+    try {
+      const demoUsage = await currentUsage(db, ownerId);
+      enforceDemoQuota(graph, await loadConfig(ownerId), {
+        usedTokens: demoUsage.normalizedTokens,
+        totalRuns: demoUsage.runs,
+        activeRuns: await db.activeRuns(ownerId),
+        usedStorageBytes: demoUsage.storageBytes,
+      });
+    } catch (err) {
+      if (err instanceof DemoQuotaError) {
+        return c.json(
+          {
+            error: "demo_quota",
+            code: err.code,
+            metric: err.metric,
+            detail: err.detail ?? null,
+            // Internal anchor: the web app opens the claim dialog (keep work).
+            claimUrl: "/login?claim=1",
+            message: err.message,
+          },
+          402,
+        );
+      }
+      throw err;
+    }
+  } else if (process.env.MONETIZATION_ENFORCE === "1") {
     try {
       const usage = await currentUsage(db, ownerId);
       enforceSubscription(graph, await loadConfig(ownerId), {
@@ -2748,6 +2954,7 @@ app.get("/api/graphs/:id/triggers", async (c) => {
 
 app.post("/api/graphs/:id/triggers", async (c) => {
   const userId = c.get("userId");
+  const d = await blockDemo(c, "webhook"); if (d) return d;
   const graphId = c.req.param("id");
   if (!await db.getGraph(graphId, userId)) return c.json({ error: "graph not found" }, 404);
   const raw = (await c.req.json().catch(() => ({}))) as Partial<TriggerConfig>;
@@ -2835,6 +3042,7 @@ app.post("/api/graphs/:id/webhook", async (c) => {
 
 // Test a connector config without starting a run (preview the pulled material).
 app.post("/api/connectors/test", async (c) => {
+  const d = await blockDemo(c, "custom_connector"); if (d) return d;
   const body = (await c.req.json().catch(() => ({}))) as { connector?: unknown; formValues?: Record<string, string> };
   if (!body.connector) return c.json({ error: "connector is required" }, 400);
   const parsed = ConnectorConfig.safeParse(body.connector);
