@@ -7622,6 +7622,23 @@ select {
   color: var(--ink-dim);
   margin: var(--space-2) 0;
 }
+.billing-actions {
+  display: flex;
+  gap: var(--gap-sm);
+  flex-shrink: 0;
+}
+.billing-warning {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-xs);
+  margin-top: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--warning);
+  border-radius: var(--radius-lg);
+  background: rgba(255, 157, 46, 0.12);
+  color: var(--warning);
+  font-size: var(--text-sm);
+}
 
 .plan-comparison {
   margin-top: var(--space-4);
@@ -7646,6 +7663,14 @@ select {
 .plan-comparison__table .is-current {
   color: var(--data);
   font-weight: var(--font-bold);
+}
+.plan-comparison__current {
+  font-size: var(--text-xs);
+  color: var(--ink-dim);
+}
+.plan-comparison__hint {
+  font-size: var(--text-xs);
+  color: var(--ink-faint);
 }
 
 /* --- M3 S2: invoice list & detail --- */
