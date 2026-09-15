@@ -39,6 +39,7 @@ export interface InvoiceRow {
   line_items: string;
   paid_at: number | null;
   paid_method: string | null;
+  stripe_invoice_id: string | null;
   notes: string | null;
   created_at: number;
   updated_at: number;
@@ -406,16 +407,24 @@ CREATE TABLE IF NOT EXISTS resource_access (
 CREATE INDEX IF NOT EXISTS idx_resource_access_user ON resource_access(user_id, resource_type);
 
 CREATE TABLE IF NOT EXISTS subscriptions (
-  user_id              TEXT PRIMARY KEY,
-  plan                 TEXT NOT NULL,
-  status               TEXT NOT NULL,
-  provider             TEXT,
-  external_id          TEXT,
-  current_period_start INTEGER NOT NULL,
-  current_period_end   INTEGER NOT NULL,
-  created_at           INTEGER NOT NULL,
-  updated_at           INTEGER NOT NULL
+  user_id                 TEXT PRIMARY KEY,
+  plan                    TEXT NOT NULL,
+  status                  TEXT NOT NULL,
+  provider                TEXT,
+  external_id             TEXT,
+  stripe_customer_id      TEXT,
+  stripe_subscription_id  TEXT,
+  stripe_price_id         TEXT,
+  current_period_start    INTEGER NOT NULL,
+  current_period_end      INTEGER NOT NULL,
+  created_at              INTEGER NOT NULL,
+  updated_at              INTEGER NOT NULL
 );
+-- NOTE: idx_subscriptions_stripe_customer / _sub are created in
+-- runMigrations() (POST_MIGRATION_INDEXES), not here. subscriptions predates
+-- those columns, and the base DDL runs before the v39 ALTER on an upgraded DB,
+-- so an inline index over stripe_customer_id would crash boot ("no such
+-- column"). A brand-new DB gets them from the same post-migration step.
 
 -- P1 subscription-quota scaffolding, deliberately not written to yet. Metering
 -- truth lives in node_runs; enabling quotas goes through the idempotent
@@ -445,6 +454,7 @@ CREATE TABLE IF NOT EXISTS invoices (
   line_items      TEXT NOT NULL DEFAULT '[]',
   paid_at         INTEGER,
   paid_method     TEXT,
+  stripe_invoice_id TEXT,
   notes           TEXT,
   created_at      INTEGER NOT NULL,
   updated_at      INTEGER NOT NULL
@@ -452,6 +462,9 @@ CREATE TABLE IF NOT EXISTS invoices (
 CREATE INDEX IF NOT EXISTS idx_invoices_user_id ON invoices(user_id);
 CREATE INDEX IF NOT EXISTS idx_invoices_status ON invoices(status);
 CREATE INDEX IF NOT EXISTS idx_invoices_period ON invoices(user_id, period_start);
+-- idx_invoices_stripe_invoice is created post-migration too: a DB that
+-- applied v38 before S6 has an invoices table without stripe_invoice_id when
+-- the base DDL runs, so an inline index would crash the same way.
 
 CREATE TABLE IF NOT EXISTS idempotency_keys (
   user_id    TEXT NOT NULL,
@@ -906,15 +919,21 @@ export function createDriver(
        WHERE r.graph_id = ?
        ORDER BY r.started_at DESC LIMIT ?`,
     // Monetization (design-monetization): subscriptions + usage ledger.
-    getSubscription: `SELECT plan, status, provider, external_id, current_period_start, current_period_end
+    getSubscription: `SELECT plan, status, provider, external_id, stripe_customer_id, stripe_subscription_id, stripe_price_id, current_period_start, current_period_end
        FROM subscriptions WHERE user_id = ?`,
-    listAllSubscriptions: `SELECT user_id, plan, status, provider, external_id, current_period_start, current_period_end
+    listAllSubscriptions: `SELECT user_id, plan, status, provider, external_id, stripe_customer_id, stripe_subscription_id, stripe_price_id, current_period_start, current_period_end
        FROM subscriptions ORDER BY user_id`,
-    upsertSubscription: `INSERT INTO subscriptions (user_id, plan, status, provider, external_id, current_period_start, current_period_end, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    findSubscriptionByStripeCustomer: `SELECT user_id, plan, status, provider, external_id, stripe_customer_id, stripe_subscription_id, stripe_price_id, current_period_start, current_period_end
+       FROM subscriptions WHERE stripe_customer_id = ?`,
+    findSubscriptionByStripeSubscription: `SELECT user_id, plan, status, provider, external_id, stripe_customer_id, stripe_subscription_id, stripe_price_id, current_period_start, current_period_end
+       FROM subscriptions WHERE stripe_subscription_id = ?`,
+    upsertSubscription: `INSERT INTO subscriptions (user_id, plan, status, provider, external_id, stripe_customer_id, stripe_subscription_id, stripe_price_id, current_period_start, current_period_end, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(user_id) DO UPDATE SET
          plan = excluded.plan, status = excluded.status, provider = excluded.provider,
-         external_id = excluded.external_id, current_period_start = excluded.current_period_start,
+         external_id = excluded.external_id, stripe_customer_id = excluded.stripe_customer_id,
+         stripe_subscription_id = excluded.stripe_subscription_id, stripe_price_id = excluded.stripe_price_id,
+         current_period_start = excluded.current_period_start,
          current_period_end = excluded.current_period_end, updated_at = excluded.updated_at`,
     // usage_ledger statements exist for the P1 quota path and have no caller
     // yet. node_runs remains the metering source of truth; see the table DDL.
@@ -928,14 +947,16 @@ export function createDriver(
        ON CONFLICT(user_id, period_start, metric) DO UPDATE SET amount = excluded.amount, updated_at = excluded.updated_at`,
     listUsageLedger: `SELECT user_id, period_start, metric, amount FROM usage_ledger WHERE period_start = ? ORDER BY user_id`,
     // M3 billing invoices (design-monetization-m3 S1): one row per (user, period).
-    getInvoice: `SELECT id, user_id, subscription_id, period_start, period_end, plan, amount_usd, status, line_items, paid_at, paid_method, notes, created_at, updated_at
+    getInvoice: `SELECT id, user_id, subscription_id, period_start, period_end, plan, amount_usd, status, line_items, paid_at, paid_method, stripe_invoice_id, notes, created_at, updated_at
        FROM invoices WHERE id = ?`,
-    listInvoicesByUser: `SELECT id, user_id, subscription_id, period_start, period_end, plan, amount_usd, status, line_items, paid_at, paid_method, notes, created_at, updated_at
+    listInvoicesByUser: `SELECT id, user_id, subscription_id, period_start, period_end, plan, amount_usd, status, line_items, paid_at, paid_method, stripe_invoice_id, notes, created_at, updated_at
        FROM invoices WHERE user_id = ? ORDER BY period_start DESC`,
-    findInvoiceByUserAndPeriod: `SELECT id, user_id, subscription_id, period_start, period_end, plan, amount_usd, status, line_items, paid_at, paid_method, notes, created_at, updated_at
+    findInvoiceByUserAndPeriod: `SELECT id, user_id, subscription_id, period_start, period_end, plan, amount_usd, status, line_items, paid_at, paid_method, stripe_invoice_id, notes, created_at, updated_at
        FROM invoices WHERE user_id = ? AND period_start = ?`,
-    insertInvoice: `INSERT INTO invoices (id, user_id, subscription_id, period_start, period_end, plan, amount_usd, status, line_items, paid_at, paid_method, notes, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    findInvoiceByStripeInvoice: `SELECT id, user_id, subscription_id, period_start, period_end, plan, amount_usd, status, line_items, paid_at, paid_method, stripe_invoice_id, notes, created_at, updated_at
+       FROM invoices WHERE stripe_invoice_id = ?`,
+    insertInvoice: `INSERT INTO invoices (id, user_id, subscription_id, period_start, period_end, plan, amount_usd, status, line_items, paid_at, paid_method, stripe_invoice_id, notes, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     updateInvoiceStatus: `UPDATE invoices SET status = ?, paid_at = ?, paid_method = ?, notes = ?, updated_at = ? WHERE id = ?`,
     countActiveRuns: `SELECT COUNT(*) AS n FROM runs WHERE user_id = ? AND status IN ('running', 'halted')`,
     // M2 metering: live storage snapshot + idempotent usage backfill.
@@ -943,6 +964,33 @@ export function createDriver(
     listFinishedRunsSince: `SELECT id, user_id, started_at, snapshot FROM runs WHERE status = 'done' AND user_id IS NOT NULL AND started_at >= ? ORDER BY started_at`,
     countDistinctUsers: `SELECT COUNT(DISTINCT user_id) AS n FROM runs WHERE user_id IS NOT NULL`,
   };
+
+  // M3 S6: subscription rows carry Stripe mirror columns (local DB is a mirror
+  // of Stripe, the billing system of record). One mapper keeps the camelCase
+  // API shape identical across load/list/find callers.
+  type SubscriptionRow = {
+    user_id?: string;
+    plan: string;
+    status: string;
+    provider: string | null;
+    external_id: string | null;
+    stripe_customer_id: string | null;
+    stripe_subscription_id: string | null;
+    stripe_price_id: string | null;
+    current_period_start: number;
+    current_period_end: number;
+  };
+  const mapSubscriptionRow = (r: SubscriptionRow) => ({
+    plan: r.plan,
+    status: r.status,
+    provider: r.provider,
+    externalId: r.external_id,
+    stripeCustomerId: r.stripe_customer_id,
+    stripeSubscriptionId: r.stripe_subscription_id,
+    stripePriceId: r.stripe_price_id,
+    currentPeriodStart: r.current_period_start,
+    currentPeriodEnd: r.current_period_end,
+  });
 
   return {
     /** Lightweight liveness probe for the readiness check: answers whether the
@@ -959,6 +1007,20 @@ export function createDriver(
       // ON CONFLICT DO NOTHING is portable across SQLite (3.24+) and PG —
       // SQLite's INSERT OR IGNORE spelling is dialect-only.
       await exec.run("INSERT INTO idempotency_keys (user_id, key, run_id, created_at) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING", [userId, key, runId, Date.now()]);
+    },
+    /**
+     * Generic first-writer-wins claim over idempotency_keys, used to de-duplicate
+     * inbound Stripe webhook events (M3 S6). `namespace` is a reserved value
+     * (never a real userId) so webhook rows never collide with run creation.
+     * Returns true exactly once — the first insert of (namespace,key); a
+     * redelivered event gets false. Read with getIdempotentRun(namespace,key).
+     */
+    async claimIdempotencyKey(namespace: string, key: string, refId: string): Promise<boolean> {
+      const res = await exec.run(
+        "INSERT INTO idempotency_keys (user_id, key, run_id, created_at) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING",
+        [namespace, key, refId, Date.now()],
+      );
+      return res.changes === 1;
     },
     /**
      * Prunes events older than the given epoch-millisecond cutoff. Safe because
@@ -1021,75 +1083,51 @@ export function createDriver(
 
     // ---- Monetization (design-monetization §5): subscription + usage ledger ----
     async loadSubscription(userId: string):
-      Promise<{
-          plan: string;
-          status: string;
-          provider: string | null;
-          externalId: string | null;
-          currentPeriodStart: number;
-          currentPeriodEnd: number;
-        }
-      | undefined> {
-      const row = await exec.get(stmts.getSubscription, [userId]) as
-        | {
-            plan: string;
-            status: string;
-            provider: string | null;
-            external_id: string | null;
-            current_period_start: number;
-            current_period_end: number;
-          }
-        | undefined;
-      if (!row) return undefined;
-      return {
-        plan: row.plan,
-        status: row.status,
-        provider: row.provider,
-        externalId: row.external_id,
-        currentPeriodStart: row.current_period_start,
-        currentPeriodEnd: row.current_period_end,
-      };
+      Promise<ReturnType<typeof mapSubscriptionRow> | undefined> {
+      const row = await exec.get(stmts.getSubscription, [userId]) as SubscriptionRow | undefined;
+      return row ? mapSubscriptionRow(row) : undefined;
     },
     async listAllSubscriptions(): Promise<
-      Array<{
-        userId: string;
-        plan: string;
-        status: string;
-        provider: string | null;
-        externalId: string | null;
-        currentPeriodStart: number;
-        currentPeriodEnd: number;
-      }>
+      Array<{ userId: string } & ReturnType<typeof mapSubscriptionRow>>
     > {
-      const rows = await exec.all(stmts.listAllSubscriptions, []) as Array<{
-        user_id: string;
-        plan: string;
-        status: string;
-        provider: string | null;
-        external_id: string | null;
-        current_period_start: number;
-        current_period_end: number;
-      }>;
-      return rows.map((r) => ({
-        userId: r.user_id,
-        plan: r.plan,
-        status: r.status,
-        provider: r.provider,
-        externalId: r.external_id,
-        currentPeriodStart: r.current_period_start,
-        currentPeriodEnd: r.current_period_end,
-      }));
+      const rows = await exec.all(stmts.listAllSubscriptions, []) as SubscriptionRow[];
+      return rows.map((r) => ({ userId: r.user_id!, ...mapSubscriptionRow(r) }));
+    },
+    /** M3 S6: resolve a local subscription from its Stripe customer id (webhook path). */
+    async findSubscriptionByStripeCustomer(customerId: string):
+      Promise<({ userId: string } & ReturnType<typeof mapSubscriptionRow>) | undefined> {
+      const row = await exec.get(stmts.findSubscriptionByStripeCustomer, [customerId]) as SubscriptionRow | undefined;
+      return row ? { userId: row.user_id!, ...mapSubscriptionRow(row) } : undefined;
+    },
+    /** M3 S6: resolve a local subscription from its Stripe subscription id (webhook path). */
+    async findSubscriptionByStripeSubscription(stripeSubscriptionId: string):
+      Promise<({ userId: string } & ReturnType<typeof mapSubscriptionRow>) | undefined> {
+      const row = await exec.get(stmts.findSubscriptionByStripeSubscription, [stripeSubscriptionId]) as SubscriptionRow | undefined;
+      return row ? { userId: row.user_id!, ...mapSubscriptionRow(row) } : undefined;
     },
     async saveSubscription(
       userId: string,
       plan: string,
       status: string,
-      opts: { provider?: string; externalId?: string; periodStart?: number; periodEnd?: number } = {},
+      opts: {
+        provider?: string;
+        externalId?: string;
+        stripeCustomerId?: string;
+        stripeSubscriptionId?: string;
+        stripePriceId?: string;
+        periodStart?: number;
+        periodEnd?: number;
+      } = {},
     ) {
       const now = Date.now();
       const periodStart = opts.periodStart ?? now;
       const periodEnd = opts.periodEnd ?? now + 30 * 24 * 60 * 60 * 1000;
-      await exec.run(stmts.upsertSubscription, [userId, plan, status, opts.provider ?? null, opts.externalId ?? null, periodStart, periodEnd, now, now]);
+      await exec.run(stmts.upsertSubscription, [
+        userId, plan, status,
+        opts.provider ?? null, opts.externalId ?? null,
+        opts.stripeCustomerId ?? null, opts.stripeSubscriptionId ?? null, opts.stripePriceId ?? null,
+        periodStart, periodEnd, now, now,
+      ]);
     },
     async usageFor(userId: string, metric: string, periodStart: number): Promise<number> {
       return (await exec.get(stmts.usageForMetric, [userId, periodStart, metric]) as { total: number }).total;
@@ -1121,11 +1159,17 @@ export function createDriver(
       const row = await exec.get(stmts.findInvoiceByUserAndPeriod, [userId, periodStart]) as InvoiceRow | undefined;
       return row;
     },
+    /** M3 S6: resolve a local invoice from its Stripe invoice id (invoice.paid webhook). */
+    async findInvoiceByStripeInvoice(stripeInvoiceId: string): Promise<InvoiceRow | undefined> {
+      const row = await exec.get(stmts.findInvoiceByStripeInvoice, [stripeInvoiceId]) as InvoiceRow | undefined;
+      return row;
+    },
     async insertInvoice(inv: InvoiceRow): Promise<void> {
       await exec.run(stmts.insertInvoice, [
         inv.id, inv.user_id, inv.subscription_id, inv.period_start, inv.period_end,
         inv.plan, inv.amount_usd, inv.status, inv.line_items, inv.paid_at ?? null,
-        inv.paid_method ?? null, inv.notes ?? null, inv.created_at, inv.updated_at,
+        inv.paid_method ?? null, inv.stripe_invoice_id ?? null, inv.notes ?? null,
+        inv.created_at, inv.updated_at,
       ]);
     },
     async updateInvoiceStatus(invoiceId: string, status: string, paidAt: number | null, paidMethod: string | null, notes: string | null): Promise<void> {
@@ -3701,9 +3745,51 @@ const MIGRATIONS: Migration[] = [
       db.exec("DROP TABLE IF EXISTS invoices");
     },
   },
+  {
+    version: 39,
+    // M3 S6 Stripe mirror columns (design-monetization-m3-s6-stripe §2). Stripe
+    // is the billing system of record; these reconcile local rows to Stripe
+    // objects inside webhooks. Nullable so pre-Stripe manual rows stay valid.
+    description: "stripe mirror columns on subscriptions/invoices (M3 S6)",
+    detect: (db) => columnExists(db, "subscriptions", "stripe_customer_id"),
+    up: (db) => {
+      if (!columnExists(db, "subscriptions", "stripe_customer_id")) db.exec("ALTER TABLE subscriptions ADD COLUMN stripe_customer_id TEXT");
+      if (!columnExists(db, "subscriptions", "stripe_subscription_id")) db.exec("ALTER TABLE subscriptions ADD COLUMN stripe_subscription_id TEXT");
+      if (!columnExists(db, "subscriptions", "stripe_price_id")) db.exec("ALTER TABLE subscriptions ADD COLUMN stripe_price_id TEXT");
+      if (!columnExists(db, "invoices", "stripe_invoice_id")) db.exec("ALTER TABLE invoices ADD COLUMN stripe_invoice_id TEXT");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_subscriptions_stripe_customer ON subscriptions(stripe_customer_id)");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_subscriptions_stripe_sub ON subscriptions(stripe_subscription_id)");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_invoices_stripe_invoice ON invoices(stripe_invoice_id)");
+    },
+    down: (db) => {
+      db.exec("DROP INDEX IF EXISTS idx_subscriptions_stripe_customer");
+      db.exec("DROP INDEX IF EXISTS idx_subscriptions_stripe_sub");
+      db.exec("DROP INDEX IF EXISTS idx_invoices_stripe_invoice");
+      db.exec("ALTER TABLE subscriptions DROP COLUMN stripe_customer_id");
+      db.exec("ALTER TABLE subscriptions DROP COLUMN stripe_subscription_id");
+      db.exec("ALTER TABLE subscriptions DROP COLUMN stripe_price_id");
+      db.exec("ALTER TABLE invoices DROP COLUMN stripe_invoice_id");
+    },
+  },
 ];
 
 const LATEST_VERSION = MIGRATIONS.at(-1)!.version;
+
+/**
+ * Indexes over columns added to PRE-EXISTING tables by later migrations. They
+ * cannot live in the base `DDL` string: that runs before migrations, and an
+ * upgraded DB still has the old table (without the column) at that point, so
+ * creating the index there crashes boot with "no such column". They also can't
+ * live only inside their migration's `up`, because a brand-new DB baselines
+ * (detect() matches and up() is skipped). Creating each once after every
+ * migration has settled — when the column exists on both the fresh and upgrade
+ * paths — covers both. All statements are idempotent (IF NOT EXISTS).
+ */
+const POST_MIGRATION_INDEXES: readonly string[] = [
+  "CREATE INDEX IF NOT EXISTS idx_subscriptions_stripe_customer ON subscriptions(stripe_customer_id)",
+  "CREATE INDEX IF NOT EXISTS idx_subscriptions_stripe_sub ON subscriptions(stripe_subscription_id)",
+  "CREATE INDEX IF NOT EXISTS idx_invoices_stripe_invoice ON invoices(stripe_invoice_id)",
+];
 
 /**
  * Run pending migrations inside a transaction. On first encounter of an older
@@ -3744,6 +3830,9 @@ function runMigrations(db: DatabaseSync) {
       record.run(m.version, now);
       migrated.push(m.version);
     }
+    // Columns added to pre-existing tables are guaranteed present only now
+    // (base DDL on a fresh DB, v39 ALTER on upgrades); build their indexes here.
+    for (const sql of POST_MIGRATION_INDEXES) db.exec(sql);
     db.exec("COMMIT");
   } catch (err) {
     db.exec("ROLLBACK");

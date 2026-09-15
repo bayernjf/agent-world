@@ -114,6 +114,7 @@ export async function generateInvoice(
     line_items: JSON.stringify(lineItems),
     paid_at: null,
     paid_method: null,
+    stripe_invoice_id: null,
     notes: null,
     created_at: now,
     updated_at: now,

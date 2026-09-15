@@ -36,6 +36,15 @@ const CAMERA_DIST = 1200;
 const SPEED = 340;
 /** Height a pipe lifts to arc over another pipe at a crossing. */
 const BRIDGE_HEIGHT = 18;
+/** C3 plan-B drill entry: ease duration (ms) from the zoomed-in seed to fit. */
+const DRILL_EASE_MS = 420;
+/** C3 plan-B: the L1 mounts this many times closer than fit, then eases out. */
+const DRILL_START_ZOOM_MUL = 2.6;
+
+/** easeOutCubic: fast out of the zoomed-in seed, gentle settle at fit. */
+function easeOutCubic(t: number): number {
+  return 1 - Math.pow(1 - t, 3);
+}
 
 interface EdgePath {
   polyline: XZPolyline;
@@ -531,6 +540,21 @@ export default function Canvas3D() {
       controls.update();
     };
 
+    // C3 plan-B drill entry (L0 park → L1 factory): fit first to derive the
+    // resting pose/target, then seed the camera closer and ease the zoom out to
+    // fit over DRILL_EASE_MS. Position/target already center the factory, so the
+    // zoom-only ease reads as "push in then unfold" without fusing the scenes.
+    let drillAnim: { startZoom: number; targetZoom: number; start: number } | null = null;
+    const drillReq = useViewMode.getState().consumeDrillAnimRequest();
+    if (drillReq?.dir === "in") {
+      resetCamera();
+      const targetZoom = camera.zoom;
+      const startZoom = Math.min(MAX_ZOOM, targetZoom * DRILL_START_ZOOM_MUL);
+      camera.zoom = startZoom;
+      camera.updateProjectionMatrix();
+      drillAnim = { startZoom, targetZoom, start: performance.now() };
+    }
+
     let rafId = 0;
     const loop = (now: number) => {
       rafId = requestAnimationFrame(loop);
@@ -626,6 +650,15 @@ export default function Canvas3D() {
       }
       if (useViewMode.getState().consumeCamera3dResetRequest()) {
         resetCamera();
+        drillAnim = null; // a manual fit cancels the drill ease
+      }
+      // C3 plan-B: ease the drill-entry zoom from its zoomed-in seed to fit.
+      if (drillAnim) {
+        const p = Math.min(1, (now - drillAnim.start) / DRILL_EASE_MS);
+        const k = easeOutCubic(p);
+        camera.zoom = drillAnim.startZoom + (drillAnim.targetZoom - drillAnim.startZoom) * k;
+        camera.updateProjectionMatrix();
+        if (p >= 1) drillAnim = null;
       }
       useViewMode.getState().setCamera3dZoom(camera.zoom);
       useViewMode.getState().setCamera3dTarget({ x: controls.target.x, z: controls.target.z });

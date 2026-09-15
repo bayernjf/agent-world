@@ -54,6 +54,15 @@ interface ViewModeState {
   /** Transient (not persisted): true while 3D was reached by drilling from the park. */
   drilledFromPark: boolean;
   setDrilledFromPark: (v: boolean) => void;
+  /**
+   * One-shot C3 plan-B drill camera ease: "in" = L0 park → L1 factory (consumed
+   * by Canvas3D, eases from a zoomed-in pose to the single-factory fit); "out" =
+   * L1 → L0 (consumed by CanvasPark, eases from zoomed-in to the saved park pose).
+   * Not persisted — it is a mount-time animation seed only.
+   */
+  drillAnimRequest: { dir: "in" | "out" } | null;
+  requestDrillAnim: (dir: "in" | "out") => void;
+  consumeDrillAnimRequest: () => { dir: "in" | "out" } | null;
 }
 
 export const useViewMode = create<ViewModeState>()(
@@ -100,6 +109,13 @@ export const useViewMode = create<ViewModeState>()(
       setParkCamera: (c) => set({ parkCamera: c }),
       drilledFromPark: false,
       setDrilledFromPark: (v) => set({ drilledFromPark: v }),
+      drillAnimRequest: null,
+      requestDrillAnim: (dir) => set({ drillAnimRequest: { dir } }),
+      consumeDrillAnimRequest: () => {
+        const r = get().drillAnimRequest;
+        if (r) set({ drillAnimRequest: null });
+        return r;
+      },
     }),
     {
       name: "agent-world-view-mode",

@@ -40,6 +40,7 @@ import { TriggerService, TriggerError, secretEqual, WEBHOOK_TIMESTAMP_WINDOW_MS 
 import { TriggerScheduler } from "./scheduler.js";
 import { resolveConnector } from "./connectors.js";
 import { startABExperiment } from "./ab.js";
+import { loadCrossGraphEdges } from "./crossGraphService.js";
 import {
   loadConfig,
   saveConfig,
@@ -524,6 +525,8 @@ app.use("/api/*", async (c, next) => {
   // Webhook endpoints use their own secret-based auth
   if (/\/api\/graphs\/[^/]+\/webhook$/.test(path)) return next();
   if (/\/api\/metrics\/webhook\/[^/]+$/.test(path)) return next();
+  // Stripe webhook authenticates via its Stripe-Signature header, not a cookie.
+  if (path === "/api/billing/webhook") return next();
 
   // Extract token from cookie, Authorization Bearer header, or query param
   // (SSE fallback). Precedence: cookie → Bearer header → ?token= query.
@@ -938,6 +941,7 @@ import { enforceSubscription, QuotaError } from "./subscription.js";
 import { isPlanId, normalizeTokens, PLANS } from "./plans.js";
 import { getOrCreateSubscription, setPlan, currentPeriodEnd, currentUsage } from "./subscriptionService.js";
 import { listInvoices, getInvoice, markInvoicePaid, voidInvoice } from "./invoiceService.js";
+import { billingRouter } from "./api.billing.js";
 import { renderInvoiceHtml } from "./invoiceTemplate.js";
 
 app.post("/api/compile", async (c) => {
@@ -1216,6 +1220,9 @@ app.get("/api/invoices/:id/download", async (c) => {
   c.header("Content-Disposition", `attachment; filename="invoice_${invoice.id}.html"`);
   return c.body(html);
 });
+
+// --- M3 S6: Stripe billing routes (checkout / portal / signature webhook) -
+app.route("/api/billing", billingRouter(db, { publicUrl: PUBLIC_URL }));
 
 // --- User feedback (design-feedback P1+P2) --------------------------------
 // Admin gate follows the RBAC-era rule (design doc §3.3 sketched a
@@ -2685,7 +2692,11 @@ app.get("/api/operations/overview", async (c) => {
     const m = triggers.nextRunMap(gid);
     if (Object.keys(m).length > 0) nextRuns[gid] = m;
   }
-  return c.json({ generatedAt: Date.now(), since: since ?? null, totals, graphs, nextRuns });
+  // RTS stage-C C1: material-flow edges between the visible factories
+  // (subprocess nodes + graph-event triggers). internalOnly keeps edges inside
+  // the caller's visible scope.
+  const crossEdges = await loadCrossGraphEdges(graphIds, (gid) => db.getGraphById(gid));
+  return c.json({ generatedAt: Date.now(), since: since ?? null, totals, graphs, nextRuns, crossEdges });
 });
 
 // --- Trigger management + webhook ---
