@@ -2711,15 +2711,31 @@ app.get("/api/operations/overview", async (c) => {
   );
   // Next cron fire per graph (cron triggers only); graphs without one omitted.
   const nextRuns: Record<string, Record<string, number | null>> = {};
+  // RTS stage-C C5/C7: per-graph cron summary — hasCron (any cron exists),
+  // enabled (at least one active), nextAt (nearest active fire). Paused crons
+  // stay listed (hasCron) so the popover can offer "resume", but contribute no nextAt.
+  const cronState: Record<string, { hasCron: boolean; enabled: boolean; nextAt: number | null }> = {};
   for (const gid of graphIds) {
     const m = triggers.nextRunMap(gid);
     if (Object.keys(m).length > 0) nextRuns[gid] = m;
+    const crons = triggers.listByGraph(gid).filter((tr) => tr.type === "cron" && tr.cron);
+    if (crons.length > 0) {
+      const active = crons.filter((tr) => tr.enabled !== false);
+      const activeNext = active
+        .map((tr) => m[tr.id])
+        .filter((v): v is number => typeof v === "number");
+      cronState[gid] = {
+        hasCron: true,
+        enabled: active.length > 0,
+        nextAt: activeNext.length > 0 ? Math.min(...activeNext) : null,
+      };
+    }
   }
   // RTS stage-C C1: material-flow edges between the visible factories
   // (subprocess nodes + graph-event triggers). internalOnly keeps edges inside
   // the caller's visible scope.
   const crossEdges = await loadCrossGraphEdges(graphIds, (gid) => db.getGraphById(gid));
-  return c.json({ generatedAt: Date.now(), since: since ?? null, totals, graphs, nextRuns, crossEdges, plans });
+  return c.json({ generatedAt: Date.now(), since: since ?? null, totals, graphs, nextRuns, crossEdges, plans, cronState });
 });
 
 // --- Trigger management + webhook ---

@@ -196,6 +196,7 @@ describe("GET /api/operations/overview (RTS stage C: economy / metrics / plans)"
     expect(body.totals.tokensOut).toBe(0);
     expect(body.totals.monthlyBudgetUsd).toBeNull();
     expect(body.plans).toEqual([]);
+    expect(body.cronState).toEqual({});
   });
 
   it("omits plans scheduled beyond the 48-hour window", async () => {
