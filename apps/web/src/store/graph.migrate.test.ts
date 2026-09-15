@@ -146,4 +146,71 @@ describe("migrateGraphModels on setGraph", () => {
     expect(gate?.gate?.maxAttempts).toBe(3);
     expect(sink?.kind).toBe("sink");
   });
+
+  it("keeps a valid built-in model when model options have not loaded yet (demo zero-config race)", async () => {
+    // Settings request stays pending: the module-level refresh is in flight, so
+    // modelOptionsReady is false and the option list is empty. setGraph must not
+    // wipe a non-empty model it cannot yet prove unknown. Regression for the
+    // demo's first-run 422 "graph has unconfigured model(s)".
+    let resolveSettings: ((cfg: unknown) => void) | null = null;
+    const settingsPromise = new Promise((res) => {
+      resolveSettings = res as (cfg: unknown) => void;
+    });
+    vi.resetModules();
+    vi.doMock("../lib/api", () => ({
+      api: {
+        getSettings: () => settingsPromise,
+        saveGraph: () => Promise.resolve({ ok: true, version: 1 }),
+      },
+    }));
+    const { useGraph } = await import("./graph");
+    try {
+      const g = mkGraph({
+        id: "d1",
+        kind: "textGen",
+        name: "draft",
+        x: 0,
+        y: 0,
+        textGen: { model: "agnes-2.0-flash", prompt: "p", skills: [], temperature: 0.7, timeoutMs: 60000 },
+      });
+      useGraph.getState().setGraph(g);
+      const node = useGraph.getState().graph.nodes[0]!;
+      expect(node.textGen?.model).toBe("agnes-2.0-flash");
+    } finally {
+      resolveSettings?.(agnesConfig);
+      await new Promise((r) => setTimeout(r, 0));
+    }
+  });
+
+  it("defers placeholder migration until options load, then corrects it", async () => {
+    // Same cold start: a legacy placeholder is left untouched while options are
+    // unavailable; once settings resolve, the deferred migration replaces it.
+    let resolveSettings: ((cfg: unknown) => void) | null = null;
+    const settingsPromise = new Promise((res) => {
+      resolveSettings = res as (cfg: unknown) => void;
+    });
+    vi.resetModules();
+    vi.doMock("../lib/api", () => ({
+      api: {
+        getSettings: () => settingsPromise,
+        saveGraph: () => Promise.resolve({ ok: true, version: 1 }),
+      },
+    }));
+    const { useGraph } = await import("./graph");
+    const g = mkGraph({
+      id: "i1",
+      kind: "imageGen",
+      name: "image-i1",
+      x: 0,
+      y: 0,
+      imageGen: { model: "agnes-image", n: 1 },
+    });
+    useGraph.getState().setGraph(g);
+    // Not ready yet → placeholder preserved (not wiped to "").
+    expect(useGraph.getState().graph.nodes[0]!.imageGen?.model).toBe("agnes-image");
+    resolveSettings?.(agnesConfig);
+    await new Promise((r) => setTimeout(r, 0));
+    // Options arrived → the deferred migration in refreshDefaultModel runs.
+    expect(useGraph.getState().graph.nodes[0]!.imageGen?.model).toBe("agnes-image-2.0-flash");
+  });
 });

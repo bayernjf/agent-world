@@ -72,6 +72,27 @@ describe("POST /api/auth/demo", () => {
     expect(graphs).toHaveLength(1);
   });
 
+  it("seeds tpl-draft with AI nodes that pass model validation out of the box (zero-config first run)", async () => {
+    const { body } = await startDemo();
+    const graphs = await db.listGraphs(body.user.id);
+    const seeded = await db.getGraph(graphs[0]!.id, body.user.id);
+    expect(seeded).toBeTruthy();
+    // Every textGen node carries an explicit, non-empty model...
+    const textNodes = seeded!.nodes.filter((n) => n.kind === "textGen");
+    expect(textNodes.length).toBeGreaterThan(0);
+    for (const n of textNodes) {
+      expect(n.textGen?.model?.trim()).toBeTruthy();
+    }
+    // ...and the whole graph clears dispatch-time model validation for a
+    // brand-new demo user (built-in agnes tier), so the first run is not 422.
+    const { loadConfig } = await import("./config.js");
+    const { validateModels } = await import("./validate-models.js");
+    const errors = validateModels(seeded!, await loadConfig(body.user.id)).filter(
+      (d) => d.severity === "error",
+    );
+    expect(errors).toEqual([]);
+  });
+
   it("reuses the same demo account when the cookie is still valid", async () => {
     const { token, body: first } = await startDemo();
     const r2 = await app.request("/api/auth/demo", {
