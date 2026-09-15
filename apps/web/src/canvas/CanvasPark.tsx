@@ -41,6 +41,10 @@ function easeOutCubic(t: number): number {
 
 // --- C2: cross-factory freight (park-scale pipes + evenly-phased trucks) ---
 const CROSS_PIPE_Y = 6; // raise pipes just above the ground grid to avoid z-fighting
+// Pipes arch OVER the factories (FACTORY_H = 140) so a top-down isometric view is
+// never occluded by a box sitting between the two endpoints.
+const CROSS_PIPE_ARCH = 230; // midpoint lift above CROSS_PIPE_Y (apex ≈ 236 > factory roof)
+const CROSS_PIPE_SEGMENTS = 24; // polyline samples approximating the parabolic arch
 const CROSS_TRUCK_SPEED = 260; // world units travelled per second along a pipe
 const CROSS_TRUCKS_PER_EDGE = 3; // trucks per edge, evenly phased → regular pulse
 const CROSS_TRUCK_W = 42;
@@ -48,7 +52,9 @@ const CROSS_TRUCK_H = 28;
 const CROSS_TRUCK_D = 30;
 // subprocess edges are warm amber (matches L1 packet trucks); event edges cyan.
 const CROSS_VIA_COLOR = { subprocess: 0xffb020, event: 0x22d3ee } as const;
-const CROSS_PIPE_OPACITY = 0.32;
+// Was 0.32 — too faint against the dark park and hidden behind factory boxes;
+// combined with the overhead arch, 0.55 reads clearly without overpowering.
+const CROSS_PIPE_OPACITY = 0.55;
 
 /** A truck looping along one cross-factory pipe. */
 interface CrossTruck {
@@ -99,6 +105,12 @@ export function formatHeat(m: ParkGraphMetrics | undefined): string | null {
     parts.push(`CTR ${ctr >= 10 ? ctr.toFixed(0) : ctr.toFixed(1)}%`);
   }
   if (m.gmv > 0) parts.push(`$${m.gmv >= 1000 ? `${(m.gmv / 1000).toFixed(1)}k` : m.gmv.toFixed(0)}`);
+  // ROI only when both numerator and denominator are real: with no ad spend
+  // (staging default) the ratio is meaningless and must stay hidden, not show ∞.
+  if (m.gmv > 0 && m.adSpend > 0) {
+    const roi = m.gmv / m.adSpend;
+    parts.push(`ROI ${roi >= 100 ? roi.toFixed(0) : roi.toFixed(1)}×`);
+  }
   return parts.length > 0 ? parts.join(" · ") : null;
 }
 
@@ -110,6 +122,37 @@ export function formatCountdown(target: number, now: number): string | null {
   const hrs = mins / 60;
   if (hrs < 24) return `${hrs >= 10 ? hrs.toFixed(0) : hrs.toFixed(1)}h`;
   return null;
+}
+
+/**
+ * RTS stage-C polish: height of the cross-factory pipe arch at parameter t.
+ * A parabola 4t(1−t) is 0 at both endpoints and peaks (1×archH) at t = 0.5,
+ * so a pipe clears every factory between its endpoints (exported for tests).
+ */
+export function crossArchY(t: number, baseY: number, archH: number): number {
+  const k = Math.max(0, Math.min(1, t));
+  return baseY + archH * 4 * k * (1 - k);
+}
+
+/** Sample the overhead parabolic arch from one factory footprint to another. */
+export function crossArchPoints(
+  from: { x: number; z: number },
+  to: { x: number; z: number },
+  segments: number,
+  baseY: number,
+  archH: number,
+): Array<{ x: number; y: number; z: number }> {
+  const n = Math.max(2, Math.floor(segments));
+  const out: Array<{ x: number; y: number; z: number }> = [];
+  for (let i = 0; i <= n; i++) {
+    const t = i / n;
+    out.push({
+      x: from.x + (to.x - from.x) * t,
+      y: crossArchY(t, baseY, archH),
+      z: from.z + (to.z - from.z) * t,
+    });
+  }
+  return out;
 }
 
 interface ParkSceneState {
@@ -676,7 +719,14 @@ export default function CanvasPark({
         const travelled =
           ((now / 1000) * CROSS_TRUCK_SPEED + ct.phase * ct.line.total) % ct.line.total;
         const at = xzPolylinePointAt(ct.line, travelled);
-        ct.mesh.position.set(at.x, CROSS_PIPE_Y + CROSS_TRUCK_H / 2, at.z);
+        // Follow the overhead parabola: a single-segment edge means travelled/total
+        // is exactly the arch parameter t (xz stays a straight line below).
+        const t = ct.line.total > 0 ? travelled / ct.line.total : 0;
+        ct.mesh.position.set(
+          at.x,
+          crossArchY(t, CROSS_PIPE_Y, CROSS_PIPE_ARCH) + CROSS_TRUCK_H / 2,
+          at.z,
+        );
         ct.mesh.rotation.y = at.angle;
       }
 
@@ -838,7 +888,15 @@ export default function CanvasPark({
 
     // 4. C2: rebuild cross-factory pipes + evenly-phased freight trucks.
     //    An edge is drawn only when both endpoint factories are laid out.
-    for (const child of [...st.crossGroup.children]) st.crossGroup.remove(child);
+    for (const child of [...st.crossGroup.children]) {
+      // Trucks share crossTruckGeo/crossMats (disposed once on unmount); only the
+      // per-edge pipe Line owns geometry/material that must be released on rebuild.
+      if (child instanceof THREE.Line) {
+        child.geometry.dispose();
+        (child.material as THREE.Material).dispose();
+      }
+      st.crossGroup.remove(child);
+    }
     st.crossTrucks = [];
     for (const edge of crossEdges ?? []) {
       const from = layout.get(edge.fromGraphId);
@@ -849,10 +907,16 @@ export default function CanvasPark({
         { x: to.x, z: to.z },
       ]);
       const color = CROSS_VIA_COLOR[edge.via];
-      const pipeGeo = new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(from.x, CROSS_PIPE_Y, from.z),
-        new THREE.Vector3(to.x, CROSS_PIPE_Y, to.z),
-      ]);
+      const arch = crossArchPoints(
+        { x: from.x, z: from.z },
+        { x: to.x, z: to.z },
+        CROSS_PIPE_SEGMENTS,
+        CROSS_PIPE_Y,
+        CROSS_PIPE_ARCH,
+      );
+      const pipeGeo = new THREE.BufferGeometry().setFromPoints(
+        arch.map((p) => new THREE.Vector3(p.x, p.y, p.z)),
+      );
       const pipeMat = new THREE.LineBasicMaterial({
         color,
         transparent: true,
