@@ -1,6 +1,6 @@
 # 演示用户（Demo User）落地方案（design-demo-user）
 
-> 状态：**设计完成，待评审 / 待开工**（2026-09-15）
+> 状态：**D1–D5 已落地（2026-09-15），D6 端到端走查进行中**。D1 数据层 / D2 额度守卫 / D3 服务路由 / D4 前端 / D5 清理脚本+部署手册均已实现并随原子 commit 入库，单测与集成测全绿；D6 本地全链路走查 + 合 dev 后 Hasee `ALLOW_DEMO=1` 真机验证为剩余项。
 > 目标读者：接手实现的 agent / 工程师。本文是演示用户特性的单一事实源，实现按 §9 的 D1–D6 原子推进。
 > 关联：商业化配额见 [design-monetization.md](design-monetization.md) 与 [design-monetization-m2-implementation.md](design-monetization-m2-implementation.md)；认证/RBAC 见 [design-rbac.md](design-rbac.md)；DB 抽象层与 PG 双轨见 [design-postgres-migration.md](design-postgres-migration.md)；新用户引导见 [design-guided-tour.md](design-guided-tour.md)。
 
@@ -277,12 +277,12 @@ export function assertNotDemo(user: {is_demo?: number|boolean}, feature: string)
 
 > 测试运行环境为 Node 24：`fnm exec --using=24 -- pnpm --filter @agent-world/<pkg> exec vitest run [path]`；类型 `pnpm -r typecheck`。
 
-- **D1 · 数据模型**：迁移 v40（base DDL + 迁移双写、pg 同步）；driver/db.ts 新增 createDemoUser、find* 扩列、claimDemoUser、listExpiredDemoUsers、deleteUserCascade。单测：v39→v40 升级、fresh 库、claim、过期查询、级联删除覆盖护栏。commit 例：`feat(server): add demo-user schema and db methods (migration 40)`
-- **D2 · 额度与守卫（纯逻辑）**：DEMO_QUOTA 常量、`enforceDemoQuota`、`demo-guard.ts`。纯函数单测覆盖各超限分支与黑名单。`feat(server): add demo quota enforcement and demo guard`
-- **D3 · 服务与路由**：demo 服务（create/reuse/claim/prune 逻辑）+ `/api/auth/demo`、`/me` 扩 isDemo、`/claim`、login 拒绝 demo；预置模板克隆。HTTP 集成测：开关关闭、限流、复用、创建、claim 保留数据、login 拒绝、guard 403、额度 402。`feat(server): add demo start/claim endpoints and template seeding`
-- **D4 · 前端**：useSession store、登录/注册页演示入口、DemoBanner、ClaimDialog、api 层 DEMO_LOCKED 引导、UserMenu 适配、zh/en i18n。组件测 + i18n 守护 + web 全量回归。`feat(web): add demo-mode entry, banner and claim dialog`
-- **D5 · 清理脚本 + 文档 + 部署手册**：prune-demo-users（--dry-run/--apply）+ timer 示例；本文档勾选落地状态；Hasee 手册补 ALLOW_DEMO / DEMO_QUOTA 环境变量与清理 timer。`chore(ops): add expired-demo-user prune script and deploy notes`
-- **D6 · 端到端走查**：本地起 server（cwd=packages/server）+ web，走「进演示 → 看到预置产线 → 跑文本产线成功 → 视频节点被拦 → 外联操作 403 → claim 转正且数据还在 → 再跑受 free 规则 → prune --dry-run 命中过期账号」全链路；类型四包干净、全量测试绿。
+- **D1 · 数据模型** ✅（commit `e305dc8`，6 单测绿；迁移 v40，down 只清标记不 DROP 列）：迁移 v40（base DDL + 迁移双写、pg 复用同一 driver body）；driver 新增 createDemoUser、find* 扩列、claimDemoUser、listExpiredDemoUsers、deleteUserCascade（前置 is_demo 短路 + 末级 AND is_demo=1 纵深防御）。单测：v39→v40 升级、fresh 库、claim、过期查询、级联删除覆盖护栏。
+- **D2 · 额度与守卫（纯逻辑）** ✅（commit `0390ba6`，7 单测绿；落在 `src/demo.ts`）：DEMO_QUOTA 常量、`enforceDemoQuota`、DemoForbiddenError/assertNotDemo + DemoFeature 黑名单联合类型（路由侧统一 `blockDemo` helper）。纯函数单测覆盖各超限分支与黑名单。
+- **D3 · 服务与路由** ✅（commit `ae84d45`，10 集成测绿）：demo 服务（create/reuse/claim）+ `/api/auth/demo`、`/me` 扩 isDemo+demo{expiresAt,quota}、`/claim`、login 对 demo 返回 401 DEMO_CLAIM_REQUIRED、改密/billing/publish/admin/webhook 外联等 9 处 blockDemo、run gate 独立分支（自带 30k token 池，不受 MONETIZATION_ENFORCE/free token=0 影响）；预置模板克隆 **tpl-draft**（见 §13 D3 登记）。限流上限 env `DEMO_RATE_LIMIT` 可覆盖。HTTP 集成测：开关关闭、限流、复用、创建、claim 保留数据、login 拒绝、guard 403、额度 402、ENFORCE=1 下 demo 文本 run 200。
+- **D4 · 前端** 🔄（代码与组件测完成：useSession store、登录/注册页演示入口、DemoBanner、ClaimDialog、api 层 DEMO_LOCKED/DEMO_QUOTA 自动开 claim、UserMenu 适配、zh/en auth.json 同构 i18n、CSS var 样式；AuthPages/UserMenu/DemoBanner/ClaimDialog 合计 86 测绿、i18n 守护绿、web typecheck 绿；web 全量回归与原子 commit 收尾中）。
+- **D5 · 清理脚本 + 文档 + 部署手册** ✅：`scripts/prune-demo-users.ts`（默认 dry-run、`--apply` 真删，已用「过期 demo/未过期 demo/正式账号」三夹具验证只删过期项；npm script `prune:demo`）+ 部署手册补 ALLOW_DEMO / DEMO_QUOTA_* / DEMO_TTL_HOURS / DEMO_RATE_LIMIT 与每小时清理 cron + 本文档勾选落地状态。
+- **D6 · 端到端走查** ⬜（待办）：本地起 server（cwd=packages/server）+ web，走「进演示 → 看到预置产线 → 跑文本产线成功 → 视频节点被拦 → 外联操作 403 → claim 转正且数据还在 → prune --dry-run 命中过期账号」全链路；类型四包干净、全量测试绿；合 dev 部署后 Hasee systemd override 加 `ALLOW_DEMO=1` 真机复验 ENFORCE=1/free token=0 下 demo 文本可跑。
 
 ---
 
@@ -317,8 +317,8 @@ export function assertNotDemo(user: {is_demo?: number|boolean}, feature: string)
 |---|---|---|---|
 | D1 | 账号策略 | 每次新建 / 同浏览器复用+TTL | **复用 + 24h TTL** |
 | D2 | 体验额度 | 数值大小 | **30k token、禁视频音频、并发 1、≤15 run、20MB** |
-| D3 | 预置内容 | 空画布 / 克隆哪些模板 | **克隆 1–2 条精选纯文本模板（templateId 白名单，开工时从 TEMPLATES 选定并在此登记）** |
-| D4 | 有效期 | cookie / 账号 TTL | **cookie 2h（signToken false=24h 上限，可再压到 2h，见下注）、账号 24h** |
+| D3 | 预置内容 | 空画布 / 克隆哪些模板 | **已选定：仅克隆 `tpl-draft` 一条**（纯 agnes-2.0-flash 文本产线 source→初稿 textGen→润色 textGen→gate→sink，无媒体节点，demo 禁视频音频下保证可跑；其余 tpl-product/tpl-xiaohongshu/tpl-media-pipeline/tpl-news-podcast 含媒体节点故不选）。由 `DEMO_SEED_TEMPLATE_IDS` 常量承载 |
+| D4 | 有效期 | cookie / 账号 TTL | **已确认：沿用 signToken(false)=24h，不改 auth.ts 不加 maxAge**（账号 24h TTL 到期由 prune 清理使其失效，cookie 与账号同寿命，接受此简化） |
 | D5 | 全局开关默认 | 开 / 关 | **ALLOW_DEMO 默认关，Hasee 显式开** |
 | D6 | 转正数据 | 保留 / 清空 | **原地保留** |
 

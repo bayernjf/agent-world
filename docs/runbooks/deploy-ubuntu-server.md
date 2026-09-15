@@ -103,6 +103,15 @@ CODE_SANDBOX=bwrap
 
 # ---- 账号：本地商业化测试要允许注册 ----
 ALLOW_REGISTRATION=1
+# 演示用户（免注册一键体验）默认关闭；要开放登录页「先体验演示」入口就置 1。
+# 与 MONETIZATION_ENFORCE=1 可共存：demo 走独立 30k token 池，不被 free 层 token=0 拦截。
+# ALLOW_DEMO=1
+# 可选覆盖（不设即用默认：30000 token / 15 次运行 / 并发 1 / 20MB / TTL 24h / 每 IP 每小时 10 次）
+# DEMO_QUOTA_TOKENS=30000
+# DEMO_QUOTA_MAX_RUNS=15
+# DEMO_QUOTA_STORAGE_MB=20
+# DEMO_TTL_HOURS=24
+# DEMO_RATE_LIMIT=10
 # 若用独立域名/IP 直连（非 nginx 同源），放开并按需加来源：
 # CORS_ORIGINS=http://<你的局域网IP>:80
 
@@ -163,6 +172,42 @@ curl -s http://127.0.0.1:8791/api/health || echo "看下日志: journalctl -u ag
 ```
 
 > `ProtectSystem=strict` + `ReadWritePaths=/var/lib/agent-world` 会把文件系统限制在数据目录——正好和 fs-guard / bwrap 的策略一致，别把其它路径写进 unit。**必须同时配 `PrivateTmp=true`**：否则服务器进程的 /tmp 只读，code 节点的 `createCodeWorkdir()` 会报 EROFS 导致所有 code 节点失败。
+
+### 四之一、演示用户（可选，design-demo-user）
+
+演示用户默认**关闭**。迁移 v40 随服务首次启动自动给 `users` 表加 `is_demo / demo_expires_at`（只加带默认值/可空列，回滚只清标记不删列，安全；升级前按第六节做一次 sqlite 备份即可）。
+
+**开启（用 systemd override，不改主 unit）**：
+
+```bash
+sudo systemctl edit agent-world
+# 在打开的 override.conf 里加：
+#   [Service]
+#   Environment=ALLOW_DEMO=1
+sudo systemctl daemon-reload && sudo systemctl restart agent-world
+# 验证：未带 cookie 调 demo 端点应返回 201（关闭时是 403 DEMO_DISABLED）
+curl -s -X POST http://127.0.0.1:8791/api/auth/demo
+```
+
+> 与 `MONETIZATION_ENFORCE=1` 共存无冲突：正式用户走订阅 gate，demo 始终走独立的 `enforceDemoQuota`（自带 30k token 池，因此 free 层 `tokens=0` 不会把 demo 的第一次文本运行拦掉——这是最容易踩的坑）。
+
+**定时清理过期 demo（脚本默认 dry-run 只列不删，`--apply` 才真删；只删 `is_demo=1 且 demo_expires_at < now`，已转正账号 is_demo=0 天然不入选）**。脚本与其它运维脚本一样用 tsx 跑（不进 `dist/`，对应 `pnpm --filter @agent-world/server prune:demo`）。用 cron（agentworld 身份）：
+
+```bash
+sudo -u agentworld crontab -e
+# 每小时第 17 分清理一次过期演示账号及其级联数据
+17 * * * * DB_FILE=/var/lib/agent-world/agent-world.sqlite /opt/agent-world/node_modules/.bin/tsx /opt/agent-world/packages/server/scripts/prune-demo-users.ts --apply >> /var/lib/agent-world/logs/prune-demo.log 2>&1
+```
+
+先手动跑一次 dry-run 确认范围（不加 `--apply` 只列不删）：
+
+```bash
+cd /opt/agent-world
+sudo -u agentworld DB_FILE=/var/lib/agent-world/agent-world.sqlite \
+  pnpm --filter @agent-world/server prune:demo
+```
+
+> 若生产用 `pnpm install --prod` 没装 tsx（devDependency），cron 行可改为先 `cd /opt/agent-world/packages/server` 再用仓库根 `.bin/tsx`；该 bin 随 workspace 依赖安装存在。
 
 ## 五、构建并托管 web（nginx 同源）
 
