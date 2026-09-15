@@ -11,6 +11,7 @@ describe("view-mode store", () => {
       camera3dZoomRequest: null,
       camera3dMoveRequest: null,
       camera3dResetRequest: false,
+      drillAnimRequest: null,
     });
   });
 
@@ -93,6 +94,25 @@ describe("view-mode store", () => {
 
     it("returns false when no reset is pending", () => {
       expect(useViewMode.getState().consumeCamera3dResetRequest()).toBe(false);
+    });
+  });
+
+  describe("one-shot C3 drill anim request", () => {
+    it("queues and consumes an in-direction drill request", () => {
+      useViewMode.getState().requestDrillAnim("in");
+      expect(useViewMode.getState().drillAnimRequest).toEqual({ dir: "in" });
+      expect(useViewMode.getState().consumeDrillAnimRequest()).toEqual({ dir: "in" });
+      // Consumed: second read returns null.
+      expect(useViewMode.getState().consumeDrillAnimRequest()).toBeNull();
+    });
+
+    it("queues an out-direction drill request", () => {
+      useViewMode.getState().requestDrillAnim("out");
+      expect(useViewMode.getState().consumeDrillAnimRequest()).toEqual({ dir: "out" });
+    });
+
+    it("returns null when no drill request is pending", () => {
+      expect(useViewMode.getState().consumeDrillAnimRequest()).toBeNull();
     });
   });
 
