@@ -1,6 +1,6 @@
 # Handoff
 
-State of Agent World as of 2026-09-15.
+State of Agent World as of 2026-09-16.
 
 > **历史内容已归档**：2026-08-27 之前的全部变更记录、各阶段详细描述、质量门与已知 gap，已整体搬到 [docs/handoff-archive.md](docs/handoff-archive.md)。本文件只保留"项目当前状态 + 活跃任务 + 最近 5 个变更"。
 
@@ -56,7 +56,7 @@ State of Agent World as of 2026-09-15.
 * [docs/design-monetization-m3-implementation.md](docs/design-monetization-m3-implementation.md) — M3 收款与账单落地方案（S1 invoices 表 + 账单生成 / S2 账单页 UI / S3 HTML 发票 / S4 手动收款闭环 / S5 团队席位 / S6 Stripe 待收款主体，2026-09-14 启动）
 * [docs/design-monetization-m3-s6-stripe.md](docs/design-monetization-m3-s6-stripe.md) — M3 S6 Stripe 支付网关集成总方案（数据模型/API/webhook/安全/测试/分步；后端 A0-A4 已完成）
 * [docs/design-monetization-m3-s6-a5-frontend.md](docs/design-monetization-m3-s6-a5-frontend.md) — M3 S6 Step A5 前端 BillingTab 实施方案（按钮状态矩阵 / 回跳 query / 错误降级 / i18n / 测试 / 分步，2026-09-15）
-* [docs/design-demo-user.md](docs/design-demo-user.md) — 演示用户（免注册一键进真实产品，is_demo 标记真实账号 + 体验额度 + demoGuard 能力黑名单 + claim 原地转正 + TTL 级联清理；迁移 v40、D1-D6 分步，**2026-09-15 D1–D5 已落地、D6 本地端到端走查通过，待合 dev 后 Hasee 开 ALLOW_DEMO 真机复验**）
+* [docs/design-demo-user.md](docs/design-demo-user.md) — 演示用户（免注册一键进真实产品，is_demo 标记真实账号 + 体验额度 + demoGuard 能力黑名单 + claim 原地转正 + TTL 级联清理；迁移 v40、D1-D6 分步。**D1–D6 已随 PR #302 合 dev 部署 Hasee 并真机走查；2026-09-16 修复零配置首跑 422（前端模型选项加载竞态，分支 `fix/demo-model-race` 本地已提交待 PR→部署真机复验）、Hasee 已挂每小时 prune-demo cron，详见 handoff #52/#53 与该文档 §十六**）
 * [docs/product-content-roadmap.md](docs/product-content-roadmap.md) / [docs/product-industry-roi.md](docs/product-industry-roi.md) — 内容线规划 / 行业 ROI 评估
 * [docs/rpa-readback-onboarding.md](docs/rpa-readback-onboarding.md) — RPA 回读真实环境接入清单
 
@@ -161,6 +161,8 @@ State of Agent World as of 2026-09-15.
 ## Active work / 待办
 
 按优先级降序，标 `★` 的是当下要推的：
+
+> 🔵 **在途（2026-09-16，等授权 push）**：真机走查 #53 发现的 demo「零配置首跑 422」已修复并提交在本地分支 **`fix/demo-model-race`**（基于 origin/dev；`7a9ad4c`=前端模型选项加载竞态修复 + 竞态回归测 / `5212801`+`802bada`=设计文档与 handoff），web 顺序 97 文件 1867、server 144 文件 1187、四包 typecheck 全绿。**授权后 push 开 PR→CI→merge dev→Hasee 自动部署，再真机复验「一键进演示→不碰模型分配→直接派发 tpl-draft 应 200 跑通」**（修复部署前新 demo 仍可能偶发踩 422，手动配模型可绕过）。同轮 Hasee 已挂 agentworld 用户每小时第 17 分 `prune-demo` cron（dry-run/APPLY 均验证）。根因/改法/测试见 #53 末「🔧 2026-09-16 修复闭环」与 docs/design-demo-user.md §十六。
 
 > ✅ 待办 #1–#45（除活跃的 #39/#41 外）已全部完成。详细过程已分批归档：#1–#37 见 [handoff-archive-2026-09-07.md](docs/handoff-archive-2026-09-07.md)，#24–#43 见 [handoff-archive-2026-09-10.md](docs/handoff-archive-2026-09-10.md)，#44–#45 见 [handoff-archive-2026-09-11.md](docs/handoff-archive-2026-09-11.md)。本区只留一行结论索引，活跃项（#39/#41）保留详情；#46–#50（RTS-B、商业化 M2/M3、RTS-C C1-C3 与 C4-C8）均已完成、详情见下。
 
