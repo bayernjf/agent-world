@@ -8,29 +8,21 @@ import { logout } from "./AuthPages";
 import LanguageSwitcher from "./LanguageSwitcher";
 import ThemeSwitcher from "./ThemeSwitcher";
 import GuidedToursMenu from "./GuidedToursMenu";
+import { useSession, type SessionUser } from "../store/session";
 
-export interface Me {
-  id: string;
-  email: string;
-  createdAt?: string;
-  role?: string;
-}
+export type Me = SessionUser;
 
 export default function UserMenu() {
   const { t } = useTranslation();
-  const [me, setMe] = useState<Me | null>(null);
+  const me = useSession((s) => s.user);
+  const openClaim = useSession((s) => s.openClaim);
   const [open, setOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    fetch("/api/auth/me", { credentials: "include" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => d && setMe(d.user))
-      .catch(() => undefined);
-  }, []);
+  const isDemo = me?.isDemo === true;
 
   useEffect(() => {
     if (!open) return;
@@ -78,16 +70,29 @@ export default function UserMenu() {
           <div className="user-menu__email" title={me?.email}>
             {me?.email ?? "…"}
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              setOpen(false);
-              setAccountOpen(true);
-            }}
-          >
-            {t("modals:userMenu.profile")}
-          </button>
-          {(me?.role === "owner" || me?.role === "admin") && (
+          {isDemo && (
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                openClaim("manual");
+              }}
+            >
+              {t("auth:demo.menu.claim")}
+            </button>
+          )}
+          {!isDemo && (
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                setAccountOpen(true);
+              }}
+            >
+              {t("modals:userMenu.profile")}
+            </button>
+          )}
+          {(me?.role === "owner" || me?.role === "admin") && !isDemo && (
             <button
               type="button"
               onClick={() => {
@@ -112,9 +117,15 @@ export default function UserMenu() {
           <GuidedToursMenu onReplay={() => setOpen(false)} />
           <LanguageSwitcher />
           <ThemeSwitcher />
-          <button type="button" className="user-menu__logout" onClick={handleLogout}>
-            {t("modals:userMenu.logout")}
-          </button>
+          {isDemo ? (
+            <button type="button" className="user-menu__logout" onClick={handleLogout}>
+              {t("auth:demo.menu.exitDemo")}
+            </button>
+          ) : (
+            <button type="button" className="user-menu__logout" onClick={handleLogout}>
+              {t("modals:userMenu.logout")}
+            </button>
+          )}
         </div>
       )}
       <AccountDialog open={accountOpen} me={me} onClose={() => setAccountOpen(false)} />

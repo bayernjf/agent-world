@@ -1,7 +1,9 @@
-import { useState, type FormEvent } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useEffect, useState, type FormEvent } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Trans, useTranslation } from "react-i18next";
 import i18n from "../i18n";
+import { useSession } from "../store/session";
+import ClaimDialog from "./ClaimDialog";
 import Logo from "./Logo";
 
 async function postAuth(url: string, body: Record<string, string | boolean>) {
@@ -23,6 +25,14 @@ async function postAuth(url: string, body: Record<string, string | boolean>) {
 
 const LAST_EMAIL_KEY = "agent-world.lastEmail";
 
+/** Provision (or reuse) a demo account; server sets the short-lived auth cookie. */
+async function startDemo() {
+  const res = await fetch("/api/auth/demo", { method: "POST", credentials: "include" });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((data as any).code ?? (data as any).error ?? "demo_failed");
+  return data;
+}
+
 function readLastEmail(): string {
   try {
     return localStorage.getItem(LAST_EMAIL_KEY) ?? "";
@@ -38,7 +48,27 @@ export function LoginPage() {
   const [remember, setRemember] = useState(true);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [demoLoading, setDemoLoading] = useState(false);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const openClaim = useSession((s) => s.openClaim);
+
+  // A blocked demo action sends the user to /login?claim=1 with a demo cookie.
+  useEffect(() => {
+    if (searchParams.get("claim") === "1") openClaim("locked");
+  }, [searchParams, openClaim]);
+
+  const handleDemo = async () => {
+    setError("");
+    setDemoLoading(true);
+    try {
+      await startDemo();
+      navigate("/", { replace: true });
+    } catch (err) {
+      setError((err as Error).message);
+      setDemoLoading(false);
+    }
+  };
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -94,7 +124,14 @@ export function LoginPage() {
             {loading ? t("auth:login.submitting") : t("auth:login.submit")}
           </button>
         </form>
+        <div className="auth-divider">
+          <span>{t("auth:login.demoDivider")}</span>
+        </div>
+        <button type="button" className="btn btn--ghost" onClick={handleDemo} disabled={demoLoading}>
+          {demoLoading ? t("auth:login.tryDemoSubmitting") : t("auth:login.tryDemo")}
+        </button>
       </div>
+      <ClaimDialog />
     </div>
   );
 }
@@ -106,7 +143,20 @@ export function RegisterPage() {
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [demoLoading, setDemoLoading] = useState(false);
   const navigate = useNavigate();
+
+  const handleDemo = async () => {
+    setError("");
+    setDemoLoading(true);
+    try {
+      await startDemo();
+      navigate("/", { replace: true });
+    } catch (err) {
+      setError((err as Error).message);
+      setDemoLoading(false);
+    }
+  };
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -154,6 +204,12 @@ export function RegisterPage() {
             {loading ? t("auth:register.submitting") : t("auth:register.submit")}
           </button>
         </form>
+        <div className="auth-divider">
+          <span>{t("auth:login.demoDivider")}</span>
+        </div>
+        <button type="button" className="btn btn--ghost" onClick={handleDemo} disabled={demoLoading}>
+          {demoLoading ? t("auth:login.tryDemoSubmitting") : t("auth:register.tryDemo")}
+        </button>
       </div>
     </div>
   );

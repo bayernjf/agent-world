@@ -43,6 +43,8 @@ import TriggersPanel from "./components/TriggersPanel";
 import ProductGallery from "./components/ProductGallery";
 import Onboarding from "./components/Onboarding";
 import UserMenu from "./components/UserMenu";
+import DemoBanner from "./components/DemoBanner";
+import ClaimDialog from "./components/ClaimDialog";
 import GuidedTour from "./components/GuidedTour";
 import { registerTourAction } from "./components/guided-tour-engine";
 import AnnouncementBell from "./components/AnnouncementBell";
@@ -1123,6 +1125,7 @@ export default function App() {
           </div>
         </header>
 
+        <DemoBanner />
         <GraphAnnouncementBar graphId={graph.id} />
 
         <div
@@ -1396,6 +1399,7 @@ export default function App() {
           graphName={graphs.find((g) => g.id === shareTargetId)?.name ?? ""}
           onClose={() => setShareTargetId(null)}
         />
+        <ClaimDialog />
       </div>
     </>
   );

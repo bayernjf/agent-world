@@ -60,6 +60,8 @@ CREATE TABLE IF NOT EXISTS users (
   email         TEXT UNIQUE NOT NULL,
   password_hash TEXT NOT NULL,
   role          TEXT NOT NULL DEFAULT 'user',
+  is_demo       INTEGER NOT NULL DEFAULT 0,
+  demo_expires_at TEXT,
   created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
 );
 -- idx_users_owner is NOT here on purpose: the role column is only added by
@@ -746,6 +748,15 @@ export function createDriver(
   const tie = dialect === "postgres" ? "ctid" : "rowid";
   const stmts = {
     createUser: `INSERT INTO users (id, email, password_hash, role) VALUES (?, ?, ?, ?)`,
+    // Demo users are always role='user', is_demo=1 — never reuse createUser's
+    // first-account owner inference (design-demo-user §5.2).
+    createDemoUser: `INSERT INTO users (id, email, password_hash, role, is_demo, demo_expires_at)
+       VALUES (?, ?, ?, 'user', 1, ?)`,
+    claimDemoUser: `UPDATE users SET email = ?, password_hash = ?, is_demo = 0, demo_expires_at = NULL
+       WHERE id = ? AND is_demo = 1`,
+    listExpiredDemoUsers: `SELECT id, email, role, is_demo, demo_expires_at, created_at FROM users
+       WHERE is_demo = 1 AND demo_expires_at IS NOT NULL AND demo_expires_at < ?
+       ORDER BY demo_expires_at ASC, ${tie} ASC`,
     countOwners: `SELECT COUNT(*) AS n FROM users WHERE role = 'owner'`,
     getSettings: `SELECT data FROM settings WHERE user_id = ?`,
     saveSettings: `INSERT INTO settings (user_id, data, updated_at) VALUES (?, ?, ?)
@@ -810,12 +821,12 @@ export function createDriver(
        WHERE f.status = ? ORDER BY f.created_at DESC LIMIT ?`,
     getFeedback: `SELECT * FROM feedback WHERE id = ?`,
     updateFeedbackStatus: `UPDATE feedback SET status = ? WHERE id = ?`,
-    findUserByEmail: `SELECT id, email, role, created_at FROM users WHERE email = ?`,
-    findUserById: `SELECT id, email, role, created_at FROM users WHERE id = ?`,
+    findUserByEmail: `SELECT id, email, role, is_demo, demo_expires_at, created_at FROM users WHERE email = ?`,
+    findUserById: `SELECT id, email, role, is_demo, demo_expires_at, created_at FROM users WHERE id = ?`,
     findUserPasswordHash: `SELECT password_hash FROM users WHERE id = ?`,
     // RBAC P3 (design-rbac.md): full account list for the owner's admin panel.
     // Same ordering as the v31 owner bootstrap — the owner always sorts first.
-    listUsers: `SELECT id, email, role, created_at FROM users ORDER BY created_at ASC, ${tie} ASC`,
+    listUsers: `SELECT id, email, role, is_demo, demo_expires_at, created_at FROM users ORDER BY created_at ASC, ${tie} ASC`,
     updateUserRole: `UPDATE users SET role = ? WHERE id = ?`,
     // Resource sharing (design-rbac P1). Only editor/viewer rows live here —
     // the resource owner is resolved from the owning table's user_id.
@@ -982,6 +993,17 @@ export function createDriver(
     current_period_start: number;
     current_period_end: number;
   };
+  // Shared user-row shape (design-demo-user §5): is_demo is 0/1,
+  // demo_expires_at is an ISO UTC string for demo accounts and NULL for real
+  // accounts. findUser* / listUsers all return this.
+  type UserRow = {
+    id: string;
+    email: string;
+    role: string;
+    is_demo: number;
+    demo_expires_at: string | null;
+    created_at: string;
+  };
   const mapSubscriptionRow = (r: SubscriptionRow) => ({
     plan: r.plan,
     status: r.status,
@@ -1053,15 +1075,31 @@ export function createDriver(
       await exec.run(stmts.createUser, [id, email, passwordHash, role]);
       return { id, email, role };
     },
-    async findUserByEmail(email: string) {
-      return await exec.get(stmts.findUserByEmail, [email]) as
-        | { id: string; email: string; role: string; created_at: string }
-        | undefined;
+    // Demo account (design-demo-user §5.2): always a plain role='user' row with
+    // is_demo=1 and an explicit expiry. Never goes through owner bootstrap.
+    async createDemoUser(id: string, email: string, passwordHash: string, expiresAt: string) {
+      await exec.run(stmts.createDemoUser, [id, email, passwordHash, expiresAt]);
+      return { id, email, role: "user", isDemo: true, demoExpiresAt: expiresAt };
     },
-    async findUserById(id: string) {
-      return await exec.get(stmts.findUserById, [id]) as
-        | { id: string; email: string; role: string; created_at: string }
-        | undefined;
+    /**
+     * Convert a demo account into a real one in place (design-demo-user §5.4):
+     * same userId, so all its graphs/runs/artifacts are retained. Returns the
+     * affected-row count — 0 means the row was not a demo account (or already
+     * claimed), which the route maps to 409.
+     */
+    async claimDemoUser(id: string, email: string, passwordHash: string): Promise<number> {
+      const res = await exec.run(stmts.claimDemoUser, [email, passwordHash, id]);
+      return res.changes;
+    },
+    /** Demo accounts whose TTL elapsed before `nowIso` (ISO UTC), oldest first. */
+    async listExpiredDemoUsers(nowIso: string): Promise<Array<UserRow>> {
+      return await exec.all(stmts.listExpiredDemoUsers, [nowIso]) as Array<UserRow>;
+    },
+    async findUserByEmail(email: string): Promise<UserRow | undefined> {
+      return await exec.get(stmts.findUserByEmail, [email]) as UserRow | undefined;
+    },
+    async findUserById(id: string): Promise<UserRow | undefined> {
+      return await exec.get(stmts.findUserById, [id]) as UserRow | undefined;
     },
     async findUserPasswordHash(id: string) {
       const row = await exec.get(stmts.findUserPasswordHash, [id]) as { password_hash: string } | undefined;
@@ -1075,12 +1113,52 @@ export function createDriver(
       await exec.run(stmts.updateUserPasswordHash, [passwordHash, id]);
     },
     /** RBAC P3: full account list for the owner's admin panel. */
-    async listUsers(): Promise<Array<{ id: string; email: string; role: string; created_at: string }>> {
-      return await exec.all(stmts.listUsers, []) as Array<{ id: string; email: string; role: string; created_at: string }>;
+    async listUsers(): Promise<Array<UserRow>> {
+      return await exec.all(stmts.listUsers, []) as Array<UserRow>;
     },
     /** RBAC P3: grant or revoke the global admin role (owner-only route). */
     async updateUserRole(id: string, role: string) {
       await exec.run(stmts.updateUserRole, [role, id]);
+    },
+    /**
+     * Cascade-delete one EXPIRED DEMO user and every row it owns
+     * (design-demo-user §5.5 / prune-demo-users). Runs as one transaction.
+     * Order matters: tables reachable only via runs/graphs are deleted first
+     * (their subquery needs those parent rows), then direct user_id tables,
+     * then the users row itself — guarded by AND is_demo=1 so a real account
+     * can never be removed by this path. Returns the deleted users count.
+     */
+    async deleteUserCascade(id: string): Promise<number> {
+      // Short-circuit BEFORE touching any child table: only a still-demo row
+      // may be cascaded. Without this, the child DELETEs would run for a real
+      // account while only the final users DELETE was guarded by is_demo=1.
+      const owner = await exec.get(stmts.findUserById, [id]) as UserRow | undefined;
+      if (!owner || owner.is_demo !== 1) return 0;
+      // Coverage lists live in module-level DEMO_CASCADE_* constants (a guard
+      // test diffs them against the DDL). Indirect children resolve via
+      // runs/graphs; direct ones carry a user_id column.
+      const run = async (sql: string) => { await exec.run(sql, [id]); };
+      await exec.run("BEGIN", []);
+      try {
+        for (const [table, col] of DEMO_CASCADE_INDIRECT_TABLES) {
+          const parent = col === "run_id" ? "runs" : "graphs";
+          await run(
+            `DELETE FROM ${table} WHERE ${col} IN (SELECT id FROM ${parent} WHERE user_id = ?)`,
+          );
+        }
+        for (const table of DEMO_CASCADE_DIRECT_TABLES) {
+          await run(`DELETE FROM ${table} WHERE user_id = ?`);
+        }
+        const res = await exec.run(
+          "DELETE FROM users WHERE id = ? AND is_demo = 1",
+          [id],
+        );
+        await exec.run("COMMIT", []);
+        return res.changes;
+      } catch (err) {
+        await exec.run("ROLLBACK", []);
+        throw err;
+      }
     },
 
     // ---- Monetization (design-monetization §5): subscription + usage ledger ----
@@ -3123,6 +3201,33 @@ export function createDriver(
   };
 }
 
+/**
+ * Cascade-delete coverage for an expired demo user (design-demo-user §5.5).
+ * Exported so a guard test can diff these lists against every table in DDL:
+ * a future table that carries user ownership MUST land here or the test goes
+ * red. `announcements` (global) and the bookkeeping tables are intentionally
+ * absent and are allow-listed in that test.
+ */
+export const DEMO_CASCADE_INDIRECT_TABLES: ReadonlyArray<readonly [string, "run_id" | "graph_id"]> = [
+  ["node_runs", "run_id"],
+  ["events", "run_id"],
+  ["batch_items", "run_id"],
+  ["graph_variables", "graph_id"],
+  ["graph_versions", "graph_id"],
+];
+export const DEMO_CASCADE_DIRECT_TABLES: readonly string[] = [
+  "artifacts", "audit_log", "announcement_reads", "banned_terms", "batch_jobs",
+  "brand_assets", "brand_terms", "content_costs", "content_metrics", "content_plan",
+  "feedback", "idempotency_keys", "invoices", "products", "publish_targets",
+  "published_contents", "resource_access", "runs", "settings", "subscriptions",
+  "usage_ledger", "graphs",
+];
+/** Tables with no per-user ownership — never touched by a demo cascade.
+ *  (schema_migrations is runtime bookkeeping and is not part of the DDL constant.) */
+export const DEMO_CASCADE_GLOBAL_TABLES: readonly string[] = [
+  "users", "announcements",
+];
+
 interface Migration {
   version: number;
   description: string;
@@ -3832,6 +3937,23 @@ const MIGRATIONS: Migration[] = [
       db.exec("ALTER TABLE subscriptions DROP COLUMN stripe_subscription_id");
       db.exec("ALTER TABLE subscriptions DROP COLUMN stripe_price_id");
       db.exec("ALTER TABLE invoices DROP COLUMN stripe_invoice_id");
+    },
+  },
+  {
+    version: 40,
+    // Demo users (design-demo-user §5.1). A demo account is a real users row
+    // carrying is_demo=1 plus an ISO-UTC demo_expires_at; real accounts stay
+    // 0/NULL. is_demo is orthogonal to role (demo rows are always role='user').
+    description: "users.is_demo/demo_expires_at for try-before-signup demo accounts",
+    detect: (db) => columnExists(db, "users", "is_demo"),
+    up: (db) => {
+      if (!columnExists(db, "users", "is_demo")) db.exec("ALTER TABLE users ADD COLUMN is_demo INTEGER NOT NULL DEFAULT 0");
+      if (!columnExists(db, "users", "demo_expires_at")) db.exec("ALTER TABLE users ADD COLUMN demo_expires_at TEXT");
+    },
+    down: (db) => {
+      // Intentionally no DROP COLUMN: clear the demo flags so a one-step
+      // rollback never destroys account rows (design-demo-user §5.1).
+      db.exec("UPDATE users SET is_demo = 0, demo_expires_at = NULL WHERE is_demo = 1");
     },
   },
 ];
