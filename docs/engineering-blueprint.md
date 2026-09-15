@@ -35,6 +35,30 @@
 | 11 运营 | runbook 补全 | postmortem 模板、SLA | on-call |
 | 12 成本 | 硬熔断 | 预算分层、归因完善 | 成本优化自动化 |
 
+### 现状对账（2026-09-15，单机 staging / Hasee 自托管阶段）
+
+逐域核对 P0/P1 落地情况，作为「哪些已具备、哪些卡外部、何时重启」的单一事实源，避免重复审计。
+
+**P0（堵止血洞）——全部具备**：
+
+| 域 | P0 项 | 状态 / 证据 |
+|---|---|---|
+| 1 可观测 | health 探针 | ✅ `/api/health` 报 env/branch/commit + db/密钥/provider 就绪；`/metrics` 经 nginx 暴露 |
+| 2 可靠 | 成本硬熔断 + 全局限流 | ✅ 月度预算 402 拦截、全局限流真机验证（M1 运行床 C1/C2）；SIGTERM 优雅排空 |
+| 3 发布 | 一键回滚 | ✅ `scripts/deploy/rollback.sh` + `.last-known-good`，回滚后健康检查 |
+| 4 安全 | gitleaks 扫历史 | ✅ CI `gitleaks-action` + `pnpm audit --audit-level=high` 阻断 + CodeQL(SAST) |
+| 5 配置 | `.env.example` | ✅ 根目录已备；敏感值走加密 settings / 密钥文件，systemd 只内联非敏感项 |
+| 6 IaC | 部署脚本幂等 | ✅ **本轮加固（2026-09-15）**：见下「部署脚本单一事实源」 |
+| 7 数据 | 恢复演练 | ✅ 09-08 D3 只读恢复演练（RPO≈6h、RTO 秒级）+ Mac 每日异地备份 |
+| 8 测试 | E2E 冒烟 | ⚠️ **唯一未独立落地的 P0**：无 Playwright 全链路脚本，当前由海量集成/组件测试 + 健康探针 + 每次合并后人工真机走查替代；重启条件＝对外开放注册前（需先在 CI runner 装 chromium） |
+| 10 DevEx | 一键本地启动 | ✅ `scripts/dev.sh`（Node≥24 自检 + corepack + install + typecheck + `pnpm dev`） |
+| 11 运营 | runbook | ✅ `docs/runbooks/` 7 份（部署/换密钥/变更/复盘模板等）+ `production-ops.md` |
+| 12 成本 | 硬熔断 | ✅ 同域 2 |
+
+**部署脚本单一事实源（2026-09-15 加固）**：此前服务器 `/opt/agent-world/deploy.sh`、`rollback.sh` 是**未被 git 跟踪的手工副本**，与仓库 `scripts/deploy/` 内容当前虽一致、但 `git pull` 永不更新它们，存在后续漂移风险。加固：①仓库脚本为唯一逻辑源，`deploy.sh` 改为「仅当当前服务健康才更新回滚点」（避免失败部署把坏 commit 写成回滚点）、部署/回滚都做最多 15s 轮询健康检查；②服务器根两份改为 `exec bash scripts/deploy/*.sh` 的固定入口（runner workflow 写死绝对路径），此后逻辑只随 git 更新。
+
+**P1/P2 未做项——均卡外部资源或属规模化触发，当前不做（避免过度设计）**：告警（Uptime Kuma/Grafana，需额外服务）、TLS/HTTPS（待域名）、云 Secret Manager / Ansible / Terraform（待上云）、OpenAPI 契约测试（前后端同仓 TS 类型共享，漂移风险低）、APM/负载测试、分布式 Tracing/SLO、多副本高可用（依赖 SQLite→PG）、devcontainer、预算分层与内容级成本归因（功能项，随商业化推进）。重启条件见各行原表与 `docs/deferred-items.md`。
+
 ---
 
 ## 1. 可观测性（Observability）
