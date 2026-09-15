@@ -61,9 +61,24 @@ export function billingRouter(db: Db, options: BillingRouterOptions): Hono<Billi
   const r = new Hono<BillingVars>();
   const billingSettingsUrl = `${options.publicUrl.replace(/\/$/, "")}/settings/billing`;
 
+  // Demo accounts never reach Stripe (design-demo-user §6.3): they claim the
+  // account first. The signature-authenticated webhook is NOT gated.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const forbidDemoBilling = async (c: any) => {
+    const u = await db.findUserById(c.get("userId"));
+    return u?.is_demo === 1
+      ? c.json(
+          { error: "demo_forbidden", code: "DEMO_LOCKED", feature: "billing", claimUrl: "/login?claim=1" },
+          403,
+        )
+      : null;
+  };
+
   // --- POST /api/billing/checkout -----------------------------------------
   r.post("/checkout", async (c) => {
     const userId = c.get("userId");
+    const demoBlocked = await forbidDemoBilling(c);
+    if (demoBlocked) return demoBlocked;
     let body: Record<string, unknown>;
     try {
       body = (await c.req.json()) as Record<string, unknown>;
@@ -122,6 +137,8 @@ export function billingRouter(db: Db, options: BillingRouterOptions): Hono<Billi
   // --- POST /api/billing/portal -------------------------------------------
   r.post("/portal", async (c) => {
     const userId = c.get("userId");
+    const demoBlocked = await forbidDemoBilling(c);
+    if (demoBlocked) return demoBlocked;
     let body: Record<string, unknown> = {};
     try {
       body = (await c.req.json()) as Record<string, unknown>;

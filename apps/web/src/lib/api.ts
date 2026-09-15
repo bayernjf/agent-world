@@ -12,9 +12,33 @@ export type { TriggerConfig } from "@agent-world/core";
 import type { Skill } from "@agent-world/core";
 import i18n from "../i18n";
 import { billingReturnPath } from "./billingReturn";
+import { useSession } from "../store/session";
+
+/**
+ * When a demo account hits a locked capability (403 DEMO_LOCKED) or exhausts
+ * its quota (402 DEMO_QUOTA_*), surface the global claim dialog once instead
+ * of leaving the user with a raw error toast. Best-effort: never throws.
+ */
+function maybeOpenDemoClaim(status: number, text: string): void {
+  if (status !== 402 && status !== 403) return;
+  try {
+    const body = JSON.parse(text) as { code?: string; error?: string };
+    if (body.code === "DEMO_LOCKED" || body.error === "demo_forbidden") {
+      useSession.getState().openClaim("locked");
+    } else if (typeof body.code === "string" && body.code.startsWith("DEMO_QUOTA")) {
+      useSession.getState().openClaim("quota");
+    }
+  } catch {
+    /* non-JSON body → nothing to do */
+  }
+}
 
 async function json<T>(res: Response): Promise<T> {
-  if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+  if (!res.ok) {
+    const text = await res.text();
+    maybeOpenDemoClaim(res.status, text);
+    throw new Error(`${res.status} ${text}`);
+  }
   return res.json() as Promise<T>;
 }
 
@@ -37,9 +61,12 @@ async function billingPost<T>(path: string, body: unknown): Promise<T> {
     let code = "billing_error";
     let message = `billing request failed: ${res.status}`;
     try {
-      const errBody = (await res.json()) as { error?: string; message?: string };
+      const errBody = (await res.json()) as { error?: string; message?: string; code?: string };
       if (errBody?.error) code = errBody.error;
       if (errBody?.message) message = errBody.message;
+      if (errBody?.code === "DEMO_LOCKED" || errBody?.error === "demo_forbidden") {
+        useSession.getState().openClaim("locked");
+      }
     } catch {
       /* non-JSON error body keeps the generic code/message */
     }

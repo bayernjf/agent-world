@@ -266,7 +266,12 @@ export class StreamableHttpMcpTransport implements McpTransport {
   }
 
   notify(method: string, params?: unknown): void {
-    void this.post({ jsonrpc: "2.0", method, params } satisfies JsonRpcMessage);
+    // JSON-RPC notifications are one-way with no response. Swallow delivery
+    // errors so a torn-down or unreachable endpoint can't surface as an
+    // unhandled rejection (the fire-and-forget POST has no other handler).
+    // Mirrors SseMcpTransport.notify. A closed test server or a remote that
+    // drops between handshake and notify otherwise rejects at process level.
+    this.post({ jsonrpc: "2.0", method, params } satisfies JsonRpcMessage).catch(() => {});
   }
 
   close(): void {}

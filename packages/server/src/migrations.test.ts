@@ -336,24 +336,37 @@ describe("migration rollback (down)", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("rolls back the latest migration one step (39: Stripe mirror columns)", () => {
+  it("rolls back the latest migration one step (40: demo-user flags)", () => {
     const file = join(dir, "aw.sqlite");
     openDb(file).close(); // applies every migration, up to SCHEMA_VERSION
 
     const raw = new DatabaseSync(file);
-    // Before rollback, v39 Stripe mirror columns and the v38 invoices table exist.
+    // v40 keeps its columns on down (clears flags only, design-demo-user §11);
+    // v39 Stripe mirror columns and v38 invoices table are present pre-rollback.
+    expect(cols(raw, "users")).toContain("is_demo");
+    expect(cols(raw, "users")).toContain("demo_expires_at");
     expect(cols(raw, "subscriptions")).toContain("stripe_customer_id");
-    expect(cols(raw, "subscriptions")).toContain("stripe_subscription_id");
-    expect(cols(raw, "subscriptions")).toContain("stripe_price_id");
-    expect(cols(raw, "invoices")).toContain("stripe_invoice_id");
     expect(tables(raw)).toContain("invoices");
     expect(cols(raw, "graphs")).toContain("park_x");
+    // Seed a flagged demo row; v40 down must clear the flag without dropping it.
+    raw.exec(
+      `INSERT INTO users (id,email,password_hash,role,is_demo,demo_expires_at,created_at)
+       VALUES ('u1','d@demo.local','x','user',1,'2026-01-01T00:00:00.000Z',0)`,
+    );
 
     const result = rollbackLatestMigration(raw);
     expect(result?.version).toBe(SCHEMA_VERSION);
 
-    // v39 down drops only the Stripe mirror columns; the invoices table (v38)
-    // and park columns (v37) survive a single-step rollback.
+    // v40 down clears flags but leaves the columns (no table rebuild); the v39
+    // Stripe columns survive because only the latest step was rolled back.
+    expect(cols(raw, "users")).toContain("is_demo");
+    const flag = raw.prepare(`SELECT is_demo FROM users WHERE id='u1'`).get() as { is_demo: number };
+    expect(flag.is_demo).toBe(0);
+    expect(cols(raw, "subscriptions")).toContain("stripe_customer_id");
+
+    // Rolling back one more step reaches v39 and drops the Stripe mirror columns.
+    const step2 = rollbackLatestMigration(raw);
+    expect(step2?.version).toBe(SCHEMA_VERSION - 1);
     expect(cols(raw, "subscriptions")).not.toContain("stripe_customer_id");
     expect(cols(raw, "subscriptions")).not.toContain("stripe_subscription_id");
     expect(cols(raw, "subscriptions")).not.toContain("stripe_price_id");
