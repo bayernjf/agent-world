@@ -10,6 +10,23 @@
   "renewsAt": "下个计费周期 {{date}}",
   "freeForever": "免费版",
   "contactOwner": "M2 阶段暂未接入在线支付，升级套餐请联系实例管理员手动开通。",
+  "stripe": {
+    "actionRow": "操作",
+    "upgradeTo": "升级到{{plan}}",
+    "manageSubscription": "管理订阅",
+    "updatePayment": "更新支付方式",
+    "resubscribe": "重新订阅",
+    "currentColumn": "当前套餐",
+    "downgradeHint": "更低套餐请在「管理订阅」中更改",
+    "redirecting": "正在跳转支付页面…",
+    "pastDueTitle": "订阅待支付",
+    "pastDueBody": "上一次扣款未成功，请尽快更新支付方式，以免套餐额度与服务中断。",
+    "returnSuccess": "支付已完成，套餐将在 Stripe 确认后自动更新。",
+    "returnCancel": "已取消支付，套餐未发生变化。",
+    "errPriceMissing": "该套餐暂未开放在线购买，请联系实例管理员。",
+    "errNoCustomer": "请先完成一次升级购买后再管理订阅。",
+    "errGeneric": "操作失败，请稍后重试。"
+  },
   "usage": {
     "title": "本周期用量",
     "tokens": "内置模型 Token",

@@ -2,6 +2,7 @@ import type {
   CompileResult,
   Graph,
   ModelPricing,
+  PlanId,
   RunEvent,
   RuntimeState,
   TriggerConfig,
@@ -10,6 +11,7 @@ import type {
 export type { TriggerConfig } from "@agent-world/core";
 import type { Skill } from "@agent-world/core";
 import i18n from "../i18n";
+import { billingReturnPath } from "./billingReturn";
 
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
@@ -18,6 +20,32 @@ async function json<T>(res: Response): Promise<T> {
 
 function authFetch(url: string, init?: RequestInit): Promise<Response> {
   return fetch(url, { ...init, credentials: "include" });
+}
+
+/**
+ * POST a billing endpoint and surface the server's `{error,message}` as a
+ * BillingApiError (status + code) so callers can branch on not-configured /
+ * no-customer / price-missing instead of parsing status-text strings.
+ */
+async function billingPost<T>(path: string, body: unknown): Promise<T> {
+  const res = await authFetch(path, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    let code = "billing_error";
+    let message = `billing request failed: ${res.status}`;
+    try {
+      const errBody = (await res.json()) as { error?: string; message?: string };
+      if (errBody?.error) code = errBody.error;
+      if (errBody?.message) message = errBody.message;
+    } catch {
+      /* non-JSON error body keeps the generic code/message */
+    }
+    throw new BillingApiError(res.status, code, message);
+  }
+  return res.json() as Promise<T>;
 }
 
 export type Modality = "text" | "image" | "video" | "audio" | "embedding";
@@ -621,6 +649,27 @@ export interface SubscriptionStatus {
   currentPeriodStart: number;
   currentPeriodEnd: number;
   usage: SubscriptionUsage;
+}
+
+/** A Stripe-hosted Checkout/Billing Portal session (M3 S6 A5). */
+export interface BillingSession {
+  id: string;
+  url: string;
+}
+
+/**
+ * Billing endpoint failure carrying the server's machine-readable code so the
+ * UI can branch (e.g. 503 stripe_not_configured → fall back to manual contact).
+ */
+export class BillingApiError extends Error {
+  constructor(
+    public readonly status: number,
+    public readonly code: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = "BillingApiError";
+  }
 }
 
 export interface InvoiceLineItem {
@@ -1306,6 +1355,21 @@ export const api = {
     }).then(json<ProviderTestResult>),
 
   getSubscription: () => authFetch("/api/subscription").then(json<SubscriptionStatus>),
+
+  // M3 S6 A5 — Stripe Checkout / Billing Portal. Both return a hosted URL the
+  // caller navigates to (full-page redirect). Same-origin return URLs are sent
+  // so the SPA can read ?billing=… on the way back.
+  createCheckoutSession: (plan: PlanId) =>
+    billingPost<BillingSession>("/api/billing/checkout", {
+      plan,
+      seats: 1,
+      success_url: `${window.location.origin}${billingReturnPath("success")}`,
+      cancel_url: `${window.location.origin}${billingReturnPath("cancel")}`,
+    }),
+  createPortalSession: () =>
+    billingPost<BillingSession>("/api/billing/portal", {
+      return_url: `${window.location.origin}${billingReturnPath("manage-done")}`,
+    }),
 
   getInvoices: () => authFetch("/api/invoices").then(json<{ invoices: Invoice[] }>),
   getInvoice: (id: string) => authFetch(`/api/invoices/${id}`).then(json<Invoice>),
