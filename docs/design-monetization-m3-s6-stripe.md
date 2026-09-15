@@ -303,12 +303,14 @@ stripe trigger invoice.payment_failed
 - POST /api/billing/portal
 - 集成测试
 
-### Step 5：前端 UI
+### Step 5：前端 UI（A5，详细实施方案见 [design-monetization-m3-s6-a5-frontend.md](design-monetization-m3-s6-a5-frontend.md)）
 - BillingTab 加"升级到专业版"按钮
 - BillingTab 加"管理订阅"按钮
 - 支付成功/取消提示
 - i18n
 - 手动验证（Stripe 测试模式）
+
+> A5 的按钮/状态矩阵、回跳 query 处理（前端为单页模态，无 `/settings/billing` 路由，需显式传同源回跳 URL）、错误降级、i18n key 清单、组件测试与分步，统一在 **[design-monetization-m3-s6-a5-frontend.md](design-monetization-m3-s6-a5-frontend.md)** 落地，本节只作摘要。
 
 ### Step 6：部署上线
 - 环境变量配置（STRIPE_SECRET_KEY / WEBHOOK_SECRET / PRICE_IDS）

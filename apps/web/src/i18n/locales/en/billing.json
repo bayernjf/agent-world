@@ -10,6 +10,23 @@
   "renewsAt": "Next billing period {{date}}",
   "freeForever": "Free forever",
   "contactOwner": "Online payment is not wired up in M2 yet. Contact the instance owner to upgrade your plan manually.",
+  "stripe": {
+    "actionRow": "Action",
+    "upgradeTo": "Upgrade to {{plan}}",
+    "manageSubscription": "Manage subscription",
+    "updatePayment": "Update payment method",
+    "resubscribe": "Resubscribe",
+    "currentColumn": "Current plan",
+    "downgradeHint": "Switch to a lower plan in Manage subscription",
+    "redirecting": "Redirecting to checkout…",
+    "pastDueTitle": "Your payment is past due",
+    "pastDueBody": "Your last payment did not go through. Update your payment method soon to keep your plan quota and service.",
+    "returnSuccess": "Payment completed. Your plan updates automatically once Stripe confirms it.",
+    "returnCancel": "Payment cancelled. Your plan was not changed.",
+    "errPriceMissing": "This plan is not available for online purchase yet. Contact the instance owner.",
+    "errNoCustomer": "Complete an upgrade purchase before managing your subscription.",
+    "errGeneric": "Something went wrong. Please try again later."
+  },
   "usage": {
     "title": "Usage this period",
     "tokens": "Built-in model tokens",
