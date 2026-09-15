@@ -2,6 +2,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   McpClient,
+  StreamableHttpMcpTransport,
   connectMcpServer,
   registerMcpTools,
   resolveSsePostUrl,
@@ -165,6 +166,33 @@ describe("StreamableHttpMcpTransport (4D.7)", () => {
       srv.close();
     }
   }, 15000);
+
+  it("a fire-and-forget notify to a dead endpoint never becomes an unhandled rejection", async () => {
+    // Reserve a port then immediately close it → connecting refuses at once.
+    const http = require("node:http") as typeof import("node:http");
+    const deadUrl = await new Promise<string>((resolve) => {
+      const s = http.createServer();
+      s.listen(0, "127.0.0.1", () => {
+        const { port } = s.address() as { port: number };
+        s.close(() => resolve(`http://127.0.0.1:${port}/mcp`));
+      });
+    });
+
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      const transport = new StreamableHttpMcpTransport(deadUrl);
+      // notifications/initialized is sent during handshake and is not awaited.
+      transport.notify("notifications/initialized", {});
+      // A dead local port rejects within a few ms; wait long enough for the
+      // rejection to be reported as unhandled if it lacks a handler.
+      await new Promise((r) => setTimeout(r, 750));
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+    expect(unhandled).toHaveLength(0);
+  }, 10000);
 });
 
 describe("resolveSsePostUrl (audit L7)", () => {
