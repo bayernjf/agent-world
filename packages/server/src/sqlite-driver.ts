@@ -17,7 +17,9 @@ import type {
   ContentMetric,
   ContentPlan,
   GraphRunSummary,
+  GraphMetrics,
   PerformanceAggregate,
+  OperationsEconomy,
   Product,
   PublishTarget,
   PublishedContent,
@@ -1988,6 +1990,67 @@ export function createDriver(
           costUsd: Number(r.cost_usd ?? 0),
         };
       });
+    },
+
+    // RTS stage-C C4: account-wide monthly economy (cost + token usage), scoped
+    // to owned or visible graphs. Cost accounting matches costForMonth (running
+    // excluded); the caller computes monthStart/monthEnd so the boundary rule is
+    // identical to costForMonth. Standard SQL — shared by the PG driver body.
+    async operationsEconomy(
+      userId: string,
+      opts: { monthStart: number; monthEnd: number; graphIds?: string[] },
+    ): Promise<OperationsEconomy> {
+      const byMembership = !!opts.graphIds && opts.graphIds.length > 0;
+      const scope = byMembership ? opts.graphIds! : [userId];
+      const placeholders = scope.map(() => "?").join(",");
+      const where = byMembership
+        ? ["r.status != 'running'", "r.started_at >= ?", "r.started_at < ?", `r.graph_id IN (${placeholders})`]
+        : ["r.status != 'running'", "r.started_at >= ?", "r.started_at < ?", "r.user_id = ?"];
+      const row = await exec.get(`SELECT COALESCE(SUM(n.cost_usd),0) AS cost,
+                  COALESCE(SUM(n.tokens_in),0) AS tokens_in,
+                  COALESCE(SUM(n.tokens_out),0) AS tokens_out
+           FROM node_runs n JOIN runs r ON r.id = n.run_id
+           WHERE ${where.join(" AND ")}`,
+        [opts.monthStart, opts.monthEnd, ...scope]) as
+        { cost: number; tokens_in: number; tokens_out: number };
+      return {
+        monthCostUsd: Number(row.cost ?? 0),
+        tokensIn: Number(row.tokens_in ?? 0),
+        tokensOut: Number(row.tokens_out ?? 0),
+      };
+    },
+
+    // RTS stage-C C6: F6 effect metrics per graph (same SUM accounting as
+    // aggregatePerformance grouped by graph_id). A graph with no metrics row is
+    // absent from the map; the overview caller fills an all-zero GraphMetrics.
+    async metricsByGraph(
+      userId: string,
+      graphIds?: string[],
+    ): Promise<Record<string, GraphMetrics>> {
+      const byMembership = !!graphIds && graphIds.length > 0;
+      const scope = byMembership ? graphIds! : [userId];
+      const placeholders = scope.map(() => "?").join(",");
+      const where = byMembership
+        ? `user_id = ? AND graph_id IN (${placeholders})`
+        : "user_id = ?";
+      const params = byMembership ? [userId, ...scope] : [userId];
+      const rows = await exec.all(`SELECT graph_id AS graph_id,
+                  SUM(impressions) AS impressions, SUM(clicks) AS clicks,
+                  SUM(conversions) AS conversions, SUM(gmv) AS gmv, SUM(ad_spend) AS ad_spend
+           FROM content_metrics WHERE ${where} GROUP BY graph_id`, params) as Array<Record<string, unknown>>;
+      const out: Record<string, GraphMetrics> = {};
+      for (const r of rows) {
+        const gid = r.graph_id == null ? "" : String(r.graph_id);
+        if (!gid) continue; // null-graph bucket is not tied to a factory
+        out[gid] = {
+          impressions: Number(r.impressions ?? 0),
+          clicks: Number(r.clicks ?? 0),
+          conversions: Number(r.conversions ?? 0),
+          gmv: Number(r.gmv ?? 0),
+          adSpend: Number(r.ad_spend ?? 0),
+        };
+      }
+      return out;
     },
 
     async evalReport(opts: { graphId?: string; from?: number; to?: number; userId?: string } = {}) {

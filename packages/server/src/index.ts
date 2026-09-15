@@ -2659,9 +2659,23 @@ app.get("/api/operations/overview", async (c) => {
   // Owned + shared graphs (design-rbac P1); collaborator runs live under owner.
   const graphIds = [...(await visibleGraphs(db, userId)).keys()];
   const graphs = await db.operationsByGraph(userId, { since, graphIds });
+  // RTS stage-C C4/C6: month-boundary economy (same boundary rule as
+  // costForMonth), per-graph F6 metrics, and the global monthly budget.
+  const nowMs = Date.now();
+  const nowDate = new Date(nowMs);
+  const monthStart = new Date(nowDate.getFullYear(), nowDate.getMonth(), 1).getTime();
+  const monthEnd = new Date(nowDate.getFullYear(), nowDate.getMonth() + 1, 1).getTime();
+  const [economy, metricsByG, cfg, plans] = await Promise.all([
+    db.operationsEconomy(userId, { monthStart, monthEnd, graphIds }),
+    db.metricsByGraph(userId, graphIds),
+    loadConfig(userId),
+    // RTS stage-C C5: scheduled content over the next 48h feeds the schedule axis.
+    db.listPlans(userId, nowMs, nowMs + 48 * 3600 * 1000),
+  ]);
   // RTS stage-B: attach the manual macro-park override per graph (only laid-out
   // graphs are returned; the client auto-layouts the missing ones).
   const parkCoords = await db.getParkCoords(userId, graphIds);
+  const zeroMetrics = { impressions: 0, clicks: 0, conversions: 0, gmv: 0, adSpend: 0 };
   for (const g of graphs) {
     const p = parkCoords[g.graphId];
     g.parkX = p ? p.x : null;
@@ -2671,6 +2685,8 @@ app.get("/api/operations/overview", async (c) => {
     g.category = (g.originTemplateId && getTemplate(g.originTemplateId)?.category) || "自定义";
     // F2 review queue = halted runs awaiting a human decision.
     g.pendingReview = g.halted;
+    // RTS stage-C C6: effect metrics (all-zero → the factory honestly shows no heat).
+    g.metrics = metricsByG[g.graphId] ?? zeroMetrics;
   }
   const totals = graphs.reduce(
     (acc, g) => {
@@ -2684,19 +2700,42 @@ app.get("/api/operations/overview", async (c) => {
       acc.costUsd += g.costUsd;
       return acc;
     },
-    { totalRuns: 0, running: 0, halted: 0, done: 0, failed: 0, tripped: 0, cancelled: 0, costUsd: 0 },
+    {
+      totalRuns: 0, running: 0, halted: 0, done: 0, failed: 0, tripped: 0, cancelled: 0, costUsd: 0,
+      // RTS stage-C C4: month economy + global monthly budget (null = no cap set).
+      monthCostUsd: economy.monthCostUsd,
+      tokensIn: economy.tokensIn,
+      tokensOut: economy.tokensOut,
+      monthlyBudgetUsd: cfg.monthlyBudgetUsd ?? null,
+    },
   );
   // Next cron fire per graph (cron triggers only); graphs without one omitted.
   const nextRuns: Record<string, Record<string, number | null>> = {};
+  // RTS stage-C C5/C7: per-graph cron summary — hasCron (any cron exists),
+  // enabled (at least one active), nextAt (nearest active fire). Paused crons
+  // stay listed (hasCron) so the popover can offer "resume", but contribute no nextAt.
+  const cronState: Record<string, { hasCron: boolean; enabled: boolean; nextAt: number | null }> = {};
   for (const gid of graphIds) {
     const m = triggers.nextRunMap(gid);
     if (Object.keys(m).length > 0) nextRuns[gid] = m;
+    const crons = triggers.listByGraph(gid).filter((tr) => tr.type === "cron" && tr.cron);
+    if (crons.length > 0) {
+      const active = crons.filter((tr) => tr.enabled !== false);
+      const activeNext = active
+        .map((tr) => m[tr.id])
+        .filter((v): v is number => typeof v === "number");
+      cronState[gid] = {
+        hasCron: true,
+        enabled: active.length > 0,
+        nextAt: activeNext.length > 0 ? Math.min(...activeNext) : null,
+      };
+    }
   }
   // RTS stage-C C1: material-flow edges between the visible factories
   // (subprocess nodes + graph-event triggers). internalOnly keeps edges inside
   // the caller's visible scope.
   const crossEdges = await loadCrossGraphEdges(graphIds, (gid) => db.getGraphById(gid));
-  return c.json({ generatedAt: Date.now(), since: since ?? null, totals, graphs, nextRuns, crossEdges });
+  return c.json({ generatedAt: Date.now(), since: since ?? null, totals, graphs, nextRuns, crossEdges, plans, cronState });
 });
 
 // --- Trigger management + webhook ---

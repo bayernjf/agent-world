@@ -76,6 +76,8 @@ const Canvas3D = lazy(() => import("./canvas/Canvas3D"));
 const CanvasPark = lazy(() => import("./canvas/CanvasPark"));
 type ParkFactory = import("./canvas/CanvasPark").ParkFactory;
 type FactoryStatus = import("./canvas/CanvasPark").FactoryStatus;
+import ParkEconomyBar from "./canvas/ParkEconomyBar";
+import ParkScheduleAxis from "./canvas/ParkScheduleAxis";
 
 /** How often the HUD badge re-counts runs waiting on a human. */
 const REVIEW_POLL_MS = 20_000;
@@ -639,14 +641,17 @@ export default function App() {
       else if (g.halted > 0) status = "halted";
       else if (g.running > 0) status = "running";
       else if (g.done > 0) status = "done";
-      const hasCron = Object.keys(parkOverview.nextRuns[g.graphId] ?? {}).length > 0;
+      const cs = parkOverview.cronState?.[g.graphId];
       return {
         id: g.graphId,
         name: g.graphName ?? g.graphId.slice(0, 8),
         category: g.category ?? "自定义",
         status,
         pendingReview: g.pendingReview ?? g.halted ?? 0,
-        hasCron,
+        hasCron: cs?.hasCron ?? false,
+        cronEnabled: cs?.enabled ?? false,
+        nextRunAt: cs?.nextAt ?? null,
+        metrics: g.metrics,
         lastRunId: g.lastRunId,
         manual: g.parkX != null && g.parkZ != null ? { x: g.parkX, z: g.parkZ } : undefined,
       };
@@ -685,6 +690,16 @@ export default function App() {
     }
   }, []);
 
+  // RTS stage-C: imperatively refresh the park snapshot after a local mutation
+  // (cron toggle, plan reschedule, review decision) instead of waiting for the poll.
+  const refreshParkOverview = useCallback(async () => {
+    try {
+      setParkOverview(await api.operationsOverview());
+    } catch (e) {
+      console.warn("park overview refresh failed", e);
+    }
+  }, []);
+
   const toggleFactoryCron = useCallback(
     async (id: string) => {
       try {
@@ -692,12 +707,25 @@ export default function App() {
         const cron = triggers.find((tr) => tr.type === "cron");
         if (!cron) return;
         await api.createTrigger(id, { ...cron, enabled: !cron.enabled });
+        // Reflect the new pause/resume state immediately rather than waiting for the poll.
+        await refreshParkOverview();
       } catch (e) {
         showError(String(e));
       }
     },
-    [],
+    [refreshParkOverview],
   );
+
+  // RTS stage-C C5: push a content plan's scheduled time, then refresh the park snapshot.
+  // Cron schedules are periodic and intentionally not reschedulable here (read-only ticks).
+  const reschedulePlan = useCallback(async (planId: string, scheduledAt: number) => {
+    try {
+      await api.updatePlan(planId, { scheduledAt });
+      await refreshParkOverview();
+    } catch (e) {
+      showError(String(e));
+    }
+  }, [refreshParkOverview]);
 
   const createGraph = useCallback(
     async (template?: string, fieldValues?: Record<string, string>) => {
@@ -1136,12 +1164,22 @@ export default function App() {
                   onEnter={(id) => void enterFactory(id)}
                   onRetry={(id, runId) => void retryFactory(id, runId)}
                   onToggleCron={(id) => void toggleFactoryCron(id)}
+                  onReviewDecided={() => void refreshParkOverview()}
                 />
               </Suspense>
             ) : (
               <Suspense fallback={null}>
                 <Canvas3D />
               </Suspense>
+            )}
+            {viewMode === "park" && <ParkEconomyBar totals={parkOverview?.totals} />}
+            {viewMode === "park" && (
+              <ParkScheduleAxis
+                plans={parkOverview?.plans ?? []}
+                factories={parkFactories}
+                cronState={parkOverview?.cronState ?? {}}
+                onReschedule={(planId, at) => void reschedulePlan(planId, at)}
+              />
             )}
             {viewMode === "3d" && drilledFromPark && (
               <button type="button" className="park-back-btn" onClick={backToPark}>
