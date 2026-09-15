@@ -591,6 +591,17 @@ export interface OperationsGraphSummary {
   lastStartedAt: number | null;
   lastEndedAt: number | null;
   costUsd: number;
+  /** RTS stage-C C6: F6 effect metrics (all zero when nothing recorded). */
+  metrics?: ParkGraphMetrics;
+}
+
+/** F6 effect metrics for one park factory (RTS stage-C C6). */
+export interface ParkGraphMetrics {
+  impressions: number;
+  clicks: number;
+  conversions: number;
+  gmv: number;
+  adSpend: number;
 }
 
 /** Cross-graph totals of the operations overview. */
@@ -603,6 +614,11 @@ export interface OperationsTotals {
   tripped: number;
   cancelled: number;
   costUsd: number;
+  /** RTS stage-C C4: current calendar-month spend/tokens and the global cap. */
+  monthCostUsd: number;
+  tokensIn: number;
+  tokensOut: number;
+  monthlyBudgetUsd: number | null;
 }
 
 /**
@@ -626,6 +642,10 @@ export interface OperationsOverview {
   nextRuns: Record<string, Record<string, number | null>>;
   /** RTS stage-C C1: edges between the caller's visible factories. */
   crossEdges?: CrossGraphEdge[];
+  /** RTS stage-C C5: scheduled content within the next 48h for the schedule axis. */
+  plans?: ContentPlan[];
+  /** RTS stage-C C5/C7: per-graph cron summary (existence / enabled / next active fire). */
+  cronState?: Record<string, { hasCron: boolean; enabled: boolean; nextAt: number | null }>;
 }
 
 export interface SubscriptionUsage {

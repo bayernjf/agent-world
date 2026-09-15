@@ -2133,7 +2133,260 @@ select {
   cursor: pointer;
 }
 .park-back-btn:hover {
-  background: var(--bg-hover, rgba(255, 255, 255, 0.16));
+  background: var(--bg-hover);
+}
+
+/* RTS stage-C C4: L0 park account-economy HUD (month cost / tokens / budget) */
+.park-economy {
+  position: absolute;
+  top: var(--gap-md);
+  right: var(--gap-md);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: var(--gap-lg);
+  padding: var(--gap-sm) var(--gap-md);
+  background: var(--bg-elevated);
+  border: var(--hair);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-modal);
+  pointer-events: none;
+}
+.park-economy__item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-xs);
+}
+.park-economy__label {
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}
+.park-economy__value {
+  color: var(--text-primary);
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.park-economy__value--cost {
+  color: var(--accent);
+}
+.park-economy__budget {
+  display: flex;
+  min-width: 160px;
+  flex-direction: column;
+  gap: var(--gap-xs);
+}
+.park-economy__budget-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap-md);
+}
+.park-economy__pct {
+  color: var(--text-secondary);
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+}
+.park-economy__bar {
+  height: var(--space-1);
+  overflow: hidden;
+  background: var(--bg-active);
+  border-radius: var(--radius-pill);
+}
+.park-economy__fill {
+  height: 100%;
+  border-radius: var(--radius-pill);
+  transition: width var(--duration-normal) var(--ease-default);
+}
+.park-economy__budget.is-ok .park-economy__fill {
+  background: var(--success);
+}
+.park-economy__budget.is-warn .park-economy__fill {
+  background: var(--warning);
+}
+.park-economy__budget.is-over .park-economy__fill {
+  background: var(--error);
+}
+.park-economy__budget.is-over .park-economy__pct {
+  color: var(--error);
+}
+.park-economy__budget-foot {
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+/* RTS stage-C C5: 24h schedule axis (plans actionable, cron read-only) */
+.park-schedule {
+  position: absolute;
+  bottom: var(--gap-md);
+  left: 50%;
+  z-index: 5;
+  box-sizing: border-box;
+  width: min(560px, 46vw);
+  padding: var(--gap-sm) var(--gap-md);
+  background: var(--bg-elevated);
+  border: var(--hair);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-modal);
+  font-size: var(--text-xs);
+  pointer-events: auto;
+  transform: translateX(-50%);
+}
+.park-schedule--empty {
+  width: auto;
+  color: var(--text-tertiary);
+  pointer-events: none;
+}
+.park-schedule__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--gap-xs);
+}
+.park-schedule__title {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+.park-schedule__ends {
+  color: var(--text-tertiary);
+}
+.park-schedule__track {
+  position: relative;
+  height: 30px;
+  background: linear-gradient(var(--bg-active), var(--bg-active)) left 50% / 100% var(--space-1) no-repeat;
+}
+.park-schedule__tick {
+  position: absolute;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--gap-xs);
+  padding: 0;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  transform: translateX(-50%);
+}
+.park-schedule__tick:disabled {
+  cursor: default;
+}
+.park-schedule__tick-dot {
+  width: var(--space-2);
+  height: var(--space-2);
+  border-radius: var(--radius-pill);
+}
+.park-schedule__tick--plan .park-schedule__tick-dot {
+  background: var(--accent);
+}
+.park-schedule__tick--cron .park-schedule__tick-dot {
+  background: var(--info);
+}
+.park-schedule__tick.is-selected .park-schedule__tick-dot {
+  box-shadow: 0 0 0 var(--space-1) var(--accent-bg);
+}
+.park-schedule__tick-label {
+  max-width: 96px;
+  overflow: hidden;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.park-schedule__tick.is-selected .park-schedule__tick-label {
+  color: var(--text-primary);
+}
+.park-schedule__actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--gap-sm);
+  margin-top: var(--gap-xs);
+  padding-top: var(--gap-sm);
+  border-top: var(--hair);
+}
+.park-schedule__actions-label {
+  color: var(--text-secondary);
+}
+.park-schedule__btn {
+  padding: var(--gap-xs) var(--gap-sm);
+  color: var(--text-primary);
+  font-size: var(--text-xs);
+  background: var(--bg-secondary);
+  border: var(--hair);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.park-schedule__btn:hover {
+  background: var(--bg-hover);
+}
+
+/* RTS stage-C C7: human-review card inside the park factory popover */
+.park-review {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-xs);
+  max-width: 240px;
+  margin-top: var(--gap-sm);
+  padding-top: var(--gap-sm);
+  border-top: var(--hair);
+}
+.park-review__title {
+  color: var(--warning);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+.park-review__item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-xs);
+}
+.park-review__meta {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-xs);
+}
+.park-review__node {
+  color: var(--text-primary);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+.park-review__reason {
+  overflow: hidden;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.park-review__actions {
+  display: flex;
+  gap: var(--gap-xs);
+}
+.park-review__btn {
+  padding: var(--gap-xs) var(--gap-sm);
+  color: var(--text-primary);
+  font-size: var(--text-xs);
+  background: var(--bg-secondary);
+  border: var(--hair);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.park-review__btn--ok {
+  color: var(--success);
+}
+.park-review__btn--no {
+  color: var(--error);
+}
+.park-review__btn:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+.park-review--loading,
+.park-review--empty {
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
 }
 
 .minimap {
