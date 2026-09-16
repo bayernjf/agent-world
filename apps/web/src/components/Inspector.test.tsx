@@ -353,4 +353,70 @@ describe("Inspector", () => {
       expect(getSettings).toHaveBeenCalledTimes(2);
     });
   });
+
+  describe("输出契约（G2.3）", () => {
+    function setupGraphWithNode(node: Record<string, unknown>) {
+      const g = {
+        ...sampleGraph,
+        nodes: [{ id: "node-1", kind: "textGen", name: "文坊节点", x: 0, y: 0, ...node }],
+      };
+      mockUseGraph.mockImplementation((selector?: (s: unknown) => unknown) => {
+        const store = {
+          graph: g,
+          selectedId: "node-1",
+          updateNode: mockUpdateNode,
+          saveState: "saved",
+          reloadGraph: vi.fn(),
+        };
+        return selector ? selector(store) : store;
+      });
+      (useGraph as unknown as { temporal: { getState: () => { pause: () => void; resume: () => void }; setState: (fn: () => void) => void } }).temporal = {
+        getState: () => ({ pause: vi.fn(), resume: vi.fn() }),
+        setState: vi.fn(),
+      };
+      mockUseVisibleRuntime.mockReturnValue({ nodes: {} });
+    }
+
+    it("添加必填字段后写入 contract.requiredFields", () => {
+      setupGraphWithNode({});
+      render(<Inspector onOpenSettings={() => {}} />);
+      fireEvent.click(screen.getByRole("button", { name: "配置" }));
+      fireEvent.click(screen.getByText("输出契约（高级）"));
+
+      fireEvent.change(screen.getByPlaceholderText(/字段路径/), { target: { value: "title" } });
+      fireEvent.click(screen.getByRole("button", { name: "添加字段" }));
+
+      expect(mockUpdateNode).toHaveBeenCalledWith("node-1", {
+        contract: { requiredFields: ["title"], types: {} },
+      });
+    });
+
+    it("已有契约时展示字段行，可设置字段类型", () => {
+      setupGraphWithNode({
+        contract: { requiredFields: ["title", "meta.count"], types: { title: "string" } },
+      });
+      render(<Inspector onOpenSettings={() => {}} />);
+      fireEvent.click(screen.getByRole("button", { name: "配置" }));
+
+      expect(screen.getByText("title")).toBeInTheDocument();
+      expect(screen.getByText("meta.count")).toBeInTheDocument();
+
+      const typeSelects = screen.getAllByLabelText("字段类型");
+      fireEvent.change(typeSelects[0]!, { target: { value: "number" } });
+      expect(mockUpdateNode).toHaveBeenCalledWith("node-1", {
+        contract: { requiredFields: ["title", "meta.count"], types: { title: "number" } },
+      });
+    });
+
+    it("移除最后一个字段后契约重置为空 requiredFields", () => {
+      setupGraphWithNode({ contract: { requiredFields: ["title"], types: {} } });
+      render(<Inspector onOpenSettings={() => {}} />);
+      fireEvent.click(screen.getByRole("button", { name: "配置" }));
+
+      fireEvent.click(screen.getByRole("button", { name: "移除" }));
+      expect(mockUpdateNode).toHaveBeenCalledWith("node-1", {
+        contract: { requiredFields: [] },
+      });
+    });
+  });
 });

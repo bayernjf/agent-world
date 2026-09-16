@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  CONTRACT_FIELD_TYPES,
   UNIT_LABELS,
   parseProductDocument,
   type Artifact,
+  type ContractFieldType,
   type Graph,
 } from "@agent-world/core";
 import { ArtifactCard, renderMarkdown } from "../lib/artifact-renderers";
@@ -136,6 +138,113 @@ function nextMainTab(current: MainTab, hasSkills: boolean): MainTab {
   const order = MAIN_TAB_ORDER.filter((t) => t !== "skills" || hasSkills);
   const i = order.indexOf(current);
   return order[(i + 1) % order.length]!;
+}
+
+/**
+ * G2.3 — optional upstream output-contract editor, shown on every node's
+ * Config tab. It is only meaningful for nodes whose output is a JSON object
+ * (HTTP / database / table / file connectors); pure-text or Markdown nodes
+ * need not declare one. This is a configuration surface only: the engine does
+ * not enforce the contract until the G2.2 wiring lands, so a spec saved here
+ * is persisted but does not yet block a run.
+ */
+function ContractFields({
+  node,
+  updateNode,
+  t,
+}: Pick<FieldsProps, "node" | "updateNode" | "t">) {
+  const required = node.contract?.requiredFields ?? [];
+  const types = node.contract?.types ?? {};
+  const [newField, setNewField] = useState("");
+
+  const write = (
+    nextRequired: string[],
+    nextTypes: Record<string, ContractFieldType>,
+  ) => {
+    const cleanTypes: Record<string, ContractFieldType> = {};
+    for (const [k, v] of Object.entries(nextTypes)) if (v) cleanTypes[k] = v;
+    const hasAny = nextRequired.length > 0;
+    updateNode(node.id, {
+      contract: hasAny
+        ? { requiredFields: nextRequired, types: cleanTypes }
+        : { requiredFields: [] },
+    });
+  };
+
+  const addField = () => {
+    const f = newField.trim();
+    if (f && !required.includes(f)) write([...required, f], types);
+    setNewField("");
+  };
+
+  const removeField = (field: string) => {
+    const nextTypes = { ...types };
+    delete nextTypes[field];
+    write(
+      required.filter((x) => x !== field),
+      nextTypes,
+    );
+  };
+
+  const setType = (field: string, type: string) => {
+    const nextTypes = { ...types };
+    if (type) nextTypes[field] = type as ContractFieldType;
+    else delete nextTypes[field];
+    write(required, nextTypes);
+  };
+
+  return (
+    <details
+      className="contract-fields"
+      {...(required.length > 0 ? { open: true } : {})}
+    >
+      <summary className="contract-fields__summary">
+        {t("nodes:inspector.contract.title")}
+      </summary>
+      <p className="hint">{t("nodes:inspector.contract.hint")}</p>
+      <p className="hint">{t("nodes:inspector.contract.notYetEnforced")}</p>
+      {required.map((field) => (
+        <div className="contract-field-row" key={field}>
+          <code className="contract-field-name">{field}</code>
+          <select
+            aria-label={t("nodes:inspector.contract.typeLabel")}
+            value={types[field] ?? ""}
+            onChange={(e) => setType(field, e.target.value)}
+          >
+            <option value="">{t("nodes:inspector.contract.typeAny")}</option>
+            {CONTRACT_FIELD_TYPES.map((ty) => (
+              <option key={ty} value={ty}>
+                {ty}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            className="btn btn--small"
+            onClick={() => removeField(field)}
+          >
+            {t("nodes:inspector.contract.remove")}
+          </button>
+        </div>
+      ))}
+      <div className="contract-field-add">
+        <input
+          value={newField}
+          placeholder={t("nodes:inspector.contract.fieldPlaceholder")}
+          onChange={(e) => setNewField(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              addField();
+            }
+          }}
+        />
+        <button type="button" className="btn btn--small" onClick={addField}>
+          {t("nodes:inspector.contract.add")}
+        </button>
+      </div>
+    </details>
+  );
 }
 
 export default function Inspector({
@@ -417,6 +526,8 @@ export default function Inspector({
             </label>
 
             {Fields && <Fields {...fieldsProps} />}
+
+            <ContractFields node={node} updateNode={updateNode} t={t} />
           </>
         )}
         {mainTab === "output" && (
