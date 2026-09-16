@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import Popover, { type Rect } from "./Popover";
 import Tooltip from "./Tooltip";
@@ -8,6 +8,27 @@ export interface GraphSummary {
   name: string;
   updated_at: number;
   sharedRole?: string | null;
+}
+
+/** Pinned-graph ids are stored per browser, keeping the switcher client-only. */
+const PINNED_KEY = "aw-pinned-graphs";
+
+function loadPinned(): string[] {
+  try {
+    const raw = localStorage.getItem(PINNED_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.filter((x) => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function savePinned(ids: string[]) {
+  try {
+    localStorage.setItem(PINNED_KEY, JSON.stringify(ids));
+  } catch {
+    /* private mode */
+  }
 }
 
 interface Props {
@@ -41,6 +62,8 @@ export default function GraphSwitcher({
   const [anchor, setAnchor] = useState<Rect | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
+  const [query, setQuery] = useState("");
+  const [pinned, setPinned] = useState<string[]>(loadPinned);
   const btnRef = useRef<HTMLButtonElement>(null);
 
   const toggle = () => {
@@ -54,6 +77,33 @@ export default function GraphSwitcher({
     if (name) onRename(id, name);
     setEditingId(null);
   };
+
+  const togglePin = (id: string) => {
+    setPinned((prev) => {
+      const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
+      savePinned(next);
+      return next;
+    });
+  };
+
+  // Filter by name (case-insensitive), then stable-sort pinned graphs to the
+  // top in pin order while preserving the incoming order for the rest.
+  const visibleGraphs = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const filtered = q ? graphs.filter((g) => g.name.toLowerCase().includes(q)) : graphs;
+    const pinRank = new Map(pinned.map((id, i) => [id, i]));
+    return filtered
+      .map((g, i) => ({ g, i }))
+      .sort((a, b) => {
+        const ra = pinRank.get(a.g.id);
+        const rb = pinRank.get(b.g.id);
+        if (ra === undefined && rb === undefined) return a.i - b.i;
+        if (ra === undefined) return 1;
+        if (rb === undefined) return -1;
+        return ra - rb;
+      })
+      .map((x) => x.g);
+  }, [graphs, query, pinned]);
 
   return (
     <>
@@ -72,8 +122,21 @@ export default function GraphSwitcher({
       </button>
 
       <Popover open={open} anchor={anchor} placement="bottom" className="graph-popover">
+        <div className="graph-popover__search">
+          <input
+            type="text"
+            className="graph-popover__search-input"
+            placeholder={t("modals:graphSwitcher.searchPlaceholder")}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
         <div className="graph-popover__list">
-          {graphs.map((g) => (
+          {visibleGraphs.length === 0 && (
+            <p className="graph-popover__empty muted">{t("modals:graphSwitcher.noResults")}</p>
+          )}
+          {visibleGraphs.map((g) => (
             <div
               key={g.id}
               className={`graph-row ${g.id === currentId ? "is-current" : ""}`}
@@ -120,6 +183,15 @@ export default function GraphSwitcher({
                 </span>
               )}
               <span className="graph-row__actions" onClick={(e) => e.stopPropagation()}>
+                <Tooltip content={pinned.includes(g.id) ? t("modals:graphSwitcher.unpin") : t("modals:graphSwitcher.pin")}>
+                  <button
+                    className={`icon-btn graph-row__pin ${pinned.includes(g.id) ? "is-pinned" : ""}`}
+                    aria-pressed={pinned.includes(g.id)}
+                    onClick={() => togglePin(g.id)}
+                  >
+                    {pinned.includes(g.id) ? "★" : "☆"}
+                  </button>
+                </Tooltip>
                 {!g.sharedRole && (
                   <Tooltip content={t("modals:shareButton.label")}>
                     <button

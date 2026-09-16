@@ -865,7 +865,11 @@
   },
   "graphSwitcher": {
     "fallbackName": "Line",
-    "create": "+ New line"
+    "create": "+ New line",
+    "searchPlaceholder": "Search pipelines…",
+    "pin": "Pin to top",
+    "unpin": "Unpin",
+    "noResults": "No matching pipelines"
   },
   "collaborators": {
     "title": "Collaborators — {{name}}",

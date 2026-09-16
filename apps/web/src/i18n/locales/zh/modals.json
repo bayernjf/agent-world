@@ -865,7 +865,11 @@
   },
   "graphSwitcher": {
     "fallbackName": "产线",
-    "create": "+ 新建产线"
+    "create": "+ 新建产线",
+    "searchPlaceholder": "搜索产线…",
+    "pin": "收藏置顶",
+    "unpin": "取消收藏",
+    "noResults": "没有匹配的产线"
   },
   "collaborators": {
     "title": "协作者 — {{name}}",

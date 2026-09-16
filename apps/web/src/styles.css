@@ -415,6 +415,21 @@ select {
   max-height: 320px;
   overflow-y: auto;
 }
+.graph-popover__search { padding: var(--space-1) var(--space-1) var(--space-2); }
+.graph-popover__search-input {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--bg-input);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-sm);
+  outline: none;
+}
+.graph-popover__search-input:focus { border-color: var(--accent); }
+.graph-popover__empty { padding: var(--gap-md); text-align: center; font-size: var(--text-sm); }
+.graph-row__pin.is-pinned { color: var(--warning); }
 .graph-row {
   display: flex;
   align-items: center;
