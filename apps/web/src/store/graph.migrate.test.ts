@@ -182,6 +182,33 @@ describe("migrateGraphModels on setGraph", () => {
     }
   });
 
+  it("keeps a built-in model when settings fetch rejects unauthenticated (login-screen 401 race)", async () => {
+    // The module-level refresh fires on the login screen while unauthenticated:
+    // getSettings() rejects (401). Old code still set modelOptionsReady=true with
+    // an empty list, so the first post-login graph load judged a valid built-in
+    // model unknown and wiped it (demo zero-config 422). Now a rejected fetch
+    // leaves ready=false and the list empty, so a non-empty model is preserved.
+    vi.resetModules();
+    vi.doMock("../lib/api", () => ({
+      api: {
+        getSettings: () => Promise.reject(new Error("401 Unauthorized")),
+        saveGraph: () => Promise.resolve({ ok: true, version: 1 }),
+      },
+    }));
+    const { useGraph } = await import("./graph");
+    const g = mkGraph({
+      id: "d1",
+      kind: "textGen",
+      name: "draft",
+      x: 0,
+      y: 0,
+      textGen: { model: "agnes-2.0-flash", prompt: "p", skills: [], temperature: 0.7, timeoutMs: 60000 },
+    });
+    useGraph.getState().setGraph(g);
+    const node = useGraph.getState().graph.nodes[0]!;
+    expect(node.textGen?.model).toBe("agnes-2.0-flash");
+  });
+
   it("defers placeholder migration until options load, then corrects it", async () => {
     // Same cold start: a legacy placeholder is left untouched while options are
     // unavailable; once settings resolve, the deferred migration replaces it.
