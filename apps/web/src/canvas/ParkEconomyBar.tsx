@@ -11,24 +11,31 @@ import { formatNumber } from "../i18n/utils";
 import type { OperationsTotals } from "../lib/api";
 
 /** Same cost formatting as OperationsDashboard (sub-cent precision when tiny). */
-export function fmtCost(n: number): string {
-  if (n > 0 && n < 0.01) return `$${n.toFixed(6)}`;
-  return `$${n.toFixed(4)}`;
+function num(n: number | null | undefined): number {
+  return typeof n === "number" && isFinite(n) ? n : 0;
+}
+
+export function fmtCost(n: number | null | undefined): string {
+  const v = num(n);
+  if (v > 0 && v < 0.01) return `$${v.toFixed(6)}`;
+  return `$${v.toFixed(4)}`;
 }
 
 /** Compact token counts (1.2k / 3.4M), full number below 1000. */
-export function fmtTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
-  return formatNumber(n);
+export function fmtTokens(n: number | null | undefined): string {
+  const v = num(n);
+  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`;
+  if (v >= 1000) return `${(v / 1000).toFixed(1)}k`;
+  return formatNumber(v);
 }
 
 export default function ParkEconomyBar({ totals }: { totals: OperationsTotals | null | undefined }) {
   const { t } = useTranslation();
   if (!totals) return null;
 
-  const budget = totals.monthlyBudgetUsd;
-  const ratio = budget && budget > 0 ? totals.monthCostUsd / budget : null;
+  const budget = num(totals.monthlyBudgetUsd);
+  const cost = num(totals.monthCostUsd);
+  const ratio = budget > 0 ? cost / budget : null;
   const pct = ratio === null ? 0 : Math.min(100, ratio * 100);
   const tone = ratio === null ? "" : ratio >= 1 ? "is-over" : ratio >= 0.8 ? "is-warn" : "is-ok";
 
@@ -56,7 +63,7 @@ export default function ParkEconomyBar({ totals }: { totals: OperationsTotals | 
             <div className="park-economy__fill" style={{ width: `${pct}%` }} />
           </div>
           <div className="park-economy__budget-foot">
-            {t("park:economy.budgetLeft", { left: fmtCost(Math.max(0, budget! - totals.monthCostUsd)) })}
+            {t("park:economy.budgetLeft", { left: fmtCost(Math.max(0, budget - cost)) })}
           </div>
         </div>
       )}
