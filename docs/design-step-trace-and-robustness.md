@@ -1,7 +1,31 @@
 # 步级可观测、上游数据契约与长任务健壮性设计
 
-> 创建：2026-09-16 ｜ 性质：**方案设计（待实施）**，落实 [competitor-painpoints.md](competitor-painpoints.md) 里的 **G1 / G2 / G4**，并补 **G3 / G5** 的设计决策。
+> 创建：2026-09-16 ｜ 性质：**方案设计（安全子集已落地，执行核心改造留待，见下文「实施进度」）**，落实 [competitor-painpoints.md](competitor-painpoints.md) 里的 **G1 / G2 / G4**，并补 **G3 / G5** 的设计决策。
 > 原则：先落方案、再落代码；全部基于现有数据模型增量改造，不推倒重来。
+
+---
+
+## 实施进度（2026-09-16）
+
+第一批 / 第二批落地的都是**只读、纯函数或配置形态**的安全子集，不改 run 执行核心，不影响 Hasee M1 高频回采：
+
+| 项 | 状态 | 说明 |
+| --- | --- | --- |
+| G1.1 `GET /api/runs/:id/timeline` | ✅ 已落地 | 从 events 投影步级时间线，只读、无 DB 迁移，含 viewer 鉴权 |
+| G1.3 前端 `RunTimelineView` | ✅ 已落地 | 运行历史每行「步骤」按钮内联展开；状态 / 耗时 / token / 成本 / 输出预览 |
+| G1 完整输出懒加载 | ✅ 已落地 | `GET /api/runs/:id/nodes/:nodeId/attempt/:attempt/output`；时间线截断输出按需展开，`main` 变体优先 |
+| G2.1 `validateContract` 纯函数 | ✅ 已落地 | core，含 `ContractSpec` zod schema；无契约 / 空契约恒通过（向后兼容） |
+| G2.3 `GraphNode.contract` + Inspector 表单 | ✅ 配置形态就绪 | core schema 新增可选顶层字段 `contract`，Inspector「配置」tab 可编辑必填字段与类型。**因 G2.2 未接线，当前仅保存配置、不会真正拦截 run**，UI 已显式标注 |
+| G4.1 deadline 纯函数 | ✅ 已落地 | core 纯判断，尚未接 engine |
+
+**仍留待**（改 run 执行核心，为不打断 Hasee M1 回采，本轮有意不做）：
+
+- ⏳ **G1.2 `POST /api/runs/:id/fork`** 断点重跑（复用 halt/resume，reused 节点不计费、继承 `budget_usd`）。
+- ⏳ **G2.2 engine 契约接线**：节点完成 output 后、下游派发前调 `validateContract`，违例 failed + `SCHEMA_VIOLATION`（待定是否扩 `ErrorCode` enum）。**在它落地前，Inspector 里配的 contract 不生效。**
+- ⏳ **G2.4 模板预置 contract**：等 G2.2 接线后，对照各数据源节点的**真实输出**逐个核对字段名再预置，避免字段名写错在未来误拦。
+- ⏳ **G4.2–G4.4** degraded 状态机、前端「继续此节点」、视频远端任务进度轮询。
+- ⏳ **G3** 节点 `maxRetries` 下放、run `budget_usd` UI 与超 budget 阻断。
+- ⏳ **G5** 在 design-ab-testing.md 补节（纯文档）。
 
 ---
 
@@ -115,6 +139,8 @@
 
 **顺序（每步原子提交、英文 message、不 push）：**
 G1.1 → G1.2 → G1.3 → G1.4（P0，最大价值）→ G2.1 → G2.2 → G2.3 → G2.4 → G4.1-G4.3 → G3（maxRetries 下放 + budget UI）。
+
+> 实际落地进度（截至 2026-09-16）见文首「实施进度」表：G1.1 / G1.3 / G1 完整输出懒加载、G2.1 / G2.3（仅配置形态）、G4.1 已落地；G1.2 fork、G2.2 engine 接线、G2.4 模板预置、G4.2-G4.4、G3 留待。下一步若继续，优先 **G2.2 engine 接线**（让 G2.3 配的契约真正生效），但它改 run 执行核心，需避开 M1 回采关键期并单独充分测试。
 
 **明确不做：**
 - ❌ 不引入 OpenTelemetry / Sentry（deferred-items 已挂触发条件，单机阶段 server 结构化日志够用）。
