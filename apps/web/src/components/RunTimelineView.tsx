@@ -21,8 +21,34 @@ function fmtMs(ms: number | null): string {
   return `${m}m ${s % 60}s`;
 }
 
-function AttemptRow({ a }: { a: TimelineAttempt }) {
+function AttemptRow({ runId, nodeId, a }: { runId: string; nodeId: string; a: TimelineAttempt }) {
   const { t } = useTranslation();
+  const [expanded, setExpanded] = useState(false);
+  const [full, setFull] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+
+  const toggleFull = () => {
+    if (expanded) {
+      setExpanded(false);
+      return;
+    }
+    if (full != null) {
+      setExpanded(true);
+      return;
+    }
+    setLoading(true);
+    setLoadError(false);
+    api
+      .getRunNodeOutput(runId, nodeId, a.attempt)
+      .then((r) => {
+        setFull(r.output);
+        setExpanded(true);
+      })
+      .catch(() => setLoadError(true))
+      .finally(() => setLoading(false));
+  };
+
   return (
     <div className={`run-timeline-attempt run-timeline-attempt--${a.status}`}>
       <div className="run-timeline-attempt-head">
@@ -68,11 +94,33 @@ function AttemptRow({ a }: { a: TimelineAttempt }) {
           {a.error}
         </div>
       )}
-      {a.outputPreview && (
+      {a.outputPreview && !expanded && (
         <pre className="run-timeline-output">
           {a.outputPreview}
           {a.outputTruncated ? "…" : ""}
         </pre>
+      )}
+      {expanded && full != null && (
+        <pre className="run-timeline-output run-timeline-output--full">{full}</pre>
+      )}
+      {a.outputTruncated && (
+        <button
+          type="button"
+          className="run-timeline-output-toggle"
+          onClick={toggleFull}
+          disabled={loading}
+        >
+          {loading
+            ? t("run:timeline.loadingFull")
+            : expanded
+              ? t("run:timeline.hideFull")
+              : t("run:timeline.showFull")}
+        </button>
+      )}
+      {loadError && (
+        <div className="run-timeline-error run-timeline-output-error">
+          {t("run:timeline.fullError")}
+        </div>
       )}
       {(a.toolCalls > 0 || a.artifacts > 0) && (
         <div className="run-timeline-foot">
@@ -162,7 +210,12 @@ export default function RunTimelineView({ runId }: { runId: string }) {
             </div>
             <div className="run-timeline-attempts">
               {node.attempts.map((a) => (
-                <AttemptRow key={`${a.variant}-${a.attempt}`} a={a} />
+                <AttemptRow
+                  key={`${a.variant}-${a.attempt}`}
+                  runId={runId}
+                  nodeId={node.nodeId}
+                  a={a}
+                />
               ))}
             </div>
             {last?.status === "running" && data.run.haltedReason && (

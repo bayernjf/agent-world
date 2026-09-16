@@ -74,6 +74,10 @@
     "gate": "Gate: ",
     "tools": "{{n}} tool calls",
     "artifacts": "{{n}} artifacts",
+    "showFull": "Show full output",
+    "hideFull": "Hide full output",
+    "loadingFull": "Loading…",
+    "fullError": "Failed to load full output. Please retry.",
     "tripped": "Budget tripped",
     "totals": "{{done}}/{{total}} nodes ok · {{failed}} failed",
     "status": {

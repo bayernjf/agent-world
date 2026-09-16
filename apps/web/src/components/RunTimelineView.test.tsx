@@ -1,14 +1,16 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { api, type RunTimelineResponse } from "../lib/api";
 import RunTimelineView from "./RunTimelineView";
 
 vi.mock("../lib/api", () => ({
   api: {
     getRunTimeline: vi.fn(),
+    getRunNodeOutput: vi.fn(),
   },
 }));
 
 const mockGet = api.getRunTimeline as unknown as ReturnType<typeof vi.fn>;
+const mockGetNodeOutput = api.getRunNodeOutput as unknown as ReturnType<typeof vi.fn>;
 
 function attempt(over: Record<string, unknown> = {}) {
   return {
@@ -58,6 +60,7 @@ const sample: RunTimelineResponse = {
         attempts: [
           attempt({
             outputPreview: "hello world",
+            outputTruncated: true,
             tokensIn: 10,
             tokensOut: 5,
             costUsd: 0.01,
@@ -114,7 +117,7 @@ describe("RunTimelineView", () => {
 
     await waitFor(() => expect(screen.getByText("写草稿")).toBeTruthy());
     expect(screen.getByText("质检站")).toBeTruthy();
-    expect(screen.getByText("hello world")).toBeTruthy();
+    expect(screen.getByText(/hello world/)).toBeTruthy();
     expect(screen.getAllByText("RATE_LIMIT").length).toBe(2);
     expect(screen.getByText("agnes-1")).toBeTruthy();
     // $0.0100 appears once in the attempt metric and once in the totals summary.
@@ -126,6 +129,42 @@ describe("RunTimelineView", () => {
     render(<RunTimelineView runId="run-x" />);
     await waitFor(() =>
       expect(document.querySelector(".run-timeline-error")).toBeTruthy(),
+    );
+  });
+
+  it("lazy-loads and reveals the full output when the toggle is clicked", async () => {
+    mockGet.mockResolvedValue(sample);
+    mockGetNodeOutput.mockResolvedValue({
+      nodeId: "A",
+      attempt: 1,
+      variant: "main",
+      output: `FULL LONG OUTPUT${"!".repeat(40)}`,
+    });
+    const { container } = render(<RunTimelineView runId="run-1" />);
+
+    await screen.findByText(/hello world/);
+    const toggle = container.querySelector(".run-timeline-output-toggle");
+    expect(toggle).toBeTruthy();
+    fireEvent.click(toggle as HTMLElement);
+
+    await waitFor(() =>
+      expect(container.querySelector(".run-timeline-output--full")).toBeTruthy(),
+    );
+    expect(screen.getByText(/FULL LONG OUTPUT/)).toBeTruthy();
+    expect(mockGetNodeOutput).toHaveBeenCalledWith("run-1", "A", 1);
+  });
+
+  it("shows an inline error if loading the full output fails", async () => {
+    mockGet.mockResolvedValue(sample);
+    mockGetNodeOutput.mockRejectedValue(new Error("boom"));
+    const { container } = render(<RunTimelineView runId="run-1" />);
+
+    await screen.findByText(/hello world/);
+    fireEvent.click(
+      container.querySelector(".run-timeline-output-toggle") as HTMLElement,
+    );
+    await waitFor(() =>
+      expect(container.querySelector(".run-timeline-output-error")).toBeTruthy(),
     );
   });
 });

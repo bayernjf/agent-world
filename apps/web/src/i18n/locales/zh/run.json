@@ -74,6 +74,10 @@
     "gate": "质检：",
     "tools": "工具调用 {{n}}",
     "artifacts": "产物 {{n}}",
+    "showFull": "展开完整输出",
+    "hideFull": "收起完整输出",
+    "loadingFull": "加载中…",
+    "fullError": "完整输出加载失败，请稍后重试。",
     "tripped": "预算熔断",
     "totals": "{{done}}/{{total}} 节点成功 · 失败 {{failed}}",
     "status": {

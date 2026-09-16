@@ -6850,6 +6850,27 @@ select {
   border-radius: var(--radius-sm);
   padding: 6px 8px;
 }
+.run-timeline-output--full {
+  max-height: 480px;
+}
+.run-timeline-output-toggle {
+  margin-top: 4px;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: var(--text-xs);
+  color: var(--accent);
+  cursor: pointer;
+}
+.run-timeline-output-toggle:hover {
+  color: var(--accent-hover);
+  text-decoration: underline;
+}
+.run-timeline-output-toggle:disabled {
+  color: var(--text-secondary);
+  cursor: default;
+}
 .run-timeline-foot {
   display: flex;
   gap: var(--gap-md);
@@ -8360,5 +8381,51 @@ select {
 .claim-dialog__form .modal-confirm__actions .btn {
   width: auto;
   margin-top: 0;
+}
+
+/* G2.3 output-contract editor (Inspector config tab) */
+.contract-fields {
+  margin-top: var(--gap-md);
+  padding-top: var(--gap-sm);
+  border-top: 1px solid rgba(128, 128, 128, 0.25);
+}
+.contract-fields__summary {
+  cursor: pointer;
+  user-select: none;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+.contract-fields .hint {
+  margin: 6px 0;
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.contract-field-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0;
+}
+.contract-field-name {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.contract-field-row select {
+  width: auto;
+}
+.contract-field-add {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+.contract-field-add input {
+  flex: 1;
+  min-width: 0;
 }
 

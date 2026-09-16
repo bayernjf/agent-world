@@ -262,6 +262,14 @@ export interface RunTimelineResponse {
   timeline: RunTimeline;
 }
 
+/** GET /api/runs/:id/nodes/:nodeId/attempt/:attempt/output — full node output (G1). */
+export interface RunNodeOutputResponse {
+  nodeId: string;
+  attempt: number;
+  variant: string;
+  output: string;
+}
+
 /** A run parked on a human decision, across every pipeline (F2 review queue). */
 export interface PendingReview {
   runId: string;
@@ -1056,6 +1064,10 @@ export const api = {
 
   getRunTimeline: (runId: string) =>
     authFetch(`/api/runs/${runId}/timeline`).then(json<RunTimelineResponse>),
+  getRunNodeOutput: (runId: string, nodeId: string, attempt: number) =>
+    authFetch(
+      `/api/runs/${runId}/nodes/${encodeURIComponent(nodeId)}/attempt/${attempt}/output`,
+    ).then(json<RunNodeOutputResponse>),
 
   deleteRun: (runId: string) =>
     authFetch(`/api/runs/${runId}`, { method: "DELETE" }).then(json<{ ok: true }>),
