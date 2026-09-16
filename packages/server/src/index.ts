@@ -2069,6 +2069,37 @@ app.get("/api/runs/:id/timeline", async (c) => {
 });
 
 /**
+ * Full node output for one attempt (G1): the timeline projection only returns a
+ * truncated preview, so the complete `node.finished` output is lazy-loaded on
+ * demand. Read-only and projected straight from the event stream — no schema
+ * migration and no driver change. When several variants share (node, attempt),
+ * the `main` lane is preferred.
+ */
+app.get("/api/runs/:id/nodes/:nodeId/attempt/:attempt/output", async (c) => {
+  const userId = c.get("userId");
+  const runId = c.req.param("id");
+  const nodeId = c.req.param("nodeId");
+  const attemptNum = Number.parseInt(c.req.param("attempt"), 10);
+  if (!Number.isInteger(attemptNum) || attemptNum < 1) {
+    return c.json({ error: "bad attempt" }, 400);
+  }
+  if (!await requireRun(db, userId, runId, "viewer")) return c.json({ error: "not found" }, 404);
+  const events = await db.events(runId);
+  const finished = events.filter(
+    (e): e is Extract<RunEvent, { type: "node.finished" }> =>
+      e.type === "node.finished" && e.nodeId === nodeId && e.attempt === attemptNum,
+  );
+  const pick = finished.find((e) => (e.variant ?? "main") === "main") ?? finished[finished.length - 1];
+  if (!pick) return c.json({ error: "not found" }, 404);
+  return c.json({
+    nodeId: pick.nodeId,
+    attempt: pick.attempt,
+    variant: pick.variant ?? "main",
+    output: pick.output,
+  });
+});
+
+/**
  * LLM-assisted diagnosis for a failed run: distils the event log + snapshot
  * into a prompt and asks the user's default model for a root cause and fix.
  * Best-effort: provider/quota failures surface as 503, never a 500.

@@ -85,3 +85,64 @@ describe("GET /api/runs/:id/timeline (G1 step trace)", () => {
     void owner;
   });
 });
+
+describe("GET /api/runs/:id/nodes/:nodeId/attempt/:attempt/output (G1 lazy full output)", () => {
+  it("rejects unauthenticated requests with 401", async () => {
+    const res = await app.request("/api/runs/run-o1/nodes/A/attempt/1/output");
+    expect(res.status).toBe(401);
+  });
+
+  it("returns the complete untruncated output and prefers the main variant", async () => {
+    const token = await register("output@example.com");
+    const uid = ((await db.prepare("SELECT id FROM users WHERE email = ?")).get("output@example.com") as { id: string }).id;
+    await db.saveGraph(emptyGraph("go", "GO"), 1, uid);
+    await db.createRun({ id: "run-o1", userId: uid, graph: emptyGraph("go", "GO"), budgetUsd: null, at: 2000, trigger: "manual" });
+    const long = "x".repeat(500);
+    await db.record("run-o1", { seq: 1, ts: 2000, type: "run.started", runId: "run-o1", graphId: "go" } as never);
+    await db.record("run-o1", { seq: 2, ts: 2001, type: "node.started", nodeId: "A", attempt: 1 } as never);
+    await db.record("run-o1", { seq: 3, ts: 2100, type: "node.finished", nodeId: "A", attempt: 1, output: long, usage: { tokensIn: 1, tokensOut: 1, costUsd: 0 } } as never);
+    await db.record("run-o1", { seq: 4, ts: 2101, type: "node.started", nodeId: "A", attempt: 1, variant: "v1" } as never);
+    await db.record("run-o1", { seq: 5, ts: 2200, type: "node.finished", nodeId: "A", attempt: 1, variant: "v1", output: "V1-OUTPUT", usage: { tokensIn: 1, tokensOut: 1, costUsd: 0 } } as never);
+
+    const res = await app.request("/api/runs/run-o1/nodes/A/attempt/1/output", { headers: authed(token) });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.nodeId).toBe("A");
+    expect(body.attempt).toBe(1);
+    expect(body.variant).toBe("main");
+    expect(body.output).toBe(long);
+    expect(body.output.length).toBe(500);
+  });
+
+  it("returns 404 when the node/attempt has no finished output", async () => {
+    const token = await register("missing@example.com");
+    const uid = ((await db.prepare("SELECT id FROM users WHERE email = ?")).get("missing@example.com") as { id: string }).id;
+    await db.saveGraph(emptyGraph("gm", "GM"), 1, uid);
+    await db.createRun({ id: "run-o2", userId: uid, graph: emptyGraph("gm", "GM"), budgetUsd: null, at: 3000, trigger: "manual" });
+
+    const res = await app.request("/api/runs/run-o2/nodes/Z/attempt/1/output", { headers: authed(token) });
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 400 for a non-numeric attempt", async () => {
+    const token = await register("badattempt@example.com");
+    const uid = ((await db.prepare("SELECT id FROM users WHERE email = ?")).get("badattempt@example.com") as { id: string }).id;
+    await db.saveGraph(emptyGraph("gb", "GB"), 1, uid);
+    await db.createRun({ id: "run-o3", userId: uid, graph: emptyGraph("gb", "GB"), budgetUsd: null, at: 4000, trigger: "manual" });
+
+    const res = await app.request("/api/runs/run-o3/nodes/A/attempt/abc/output", { headers: authed(token) });
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 404 for another user's run", async () => {
+    const owner = await register("owner-out@example.com");
+    const other = await register("other-out@example.com");
+    const ownerId = ((await db.prepare("SELECT id FROM users WHERE email = ?")).get("owner-out@example.com") as { id: string }).id;
+    await db.saveGraph(emptyGraph("gx", "GX"), 1, ownerId);
+    await db.createRun({ id: "run-o4", userId: ownerId, graph: emptyGraph("gx", "GX"), budgetUsd: null, at: 5000, trigger: "manual" });
+
+    const res = await app.request("/api/runs/run-o4/nodes/A/attempt/1/output", { headers: authed(other) });
+    expect(res.status).toBe(404);
+    void owner;
+  });
+});
