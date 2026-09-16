@@ -63,31 +63,6 @@
     "showTrace": "步骤",
     "hideTrace": "收起步骤"
   },
-  "timeline": {
-    "loading": "加载步骤时间线…",
-    "error": "步骤时间线加载失败，请稍后重试。",
-    "empty": "该运行还没有节点事件。",
-    "attempt": "第 {{n}} 次",
-    "variant": "变体 {{v}}",
-    "retries": "重试 {{n}} 次",
-    "score": "评分 {{n}}",
-    "gate": "质检：",
-    "tools": "工具调用 {{n}}",
-    "artifacts": "产物 {{n}}",
-    "showFull": "展开完整输出",
-    "hideFull": "收起完整输出",
-    "loadingFull": "加载中…",
-    "fullError": "完整输出加载失败，请稍后重试。",
-    "tripped": "预算熔断",
-    "totals": "{{done}}/{{total}} 节点成功 · 失败 {{failed}}",
-    "status": {
-      "running": "运行中",
-      "reviewing": "待审核",
-      "done": "成功",
-      "failed": "失败",
-      "skipped": "跳过"
-    }
-  },
   "trigger": {
     "manual": "手动触发",
     "cron": "定时触发",
@@ -224,6 +199,31 @@
     "copied": "已复制"
   },
   "timeline": {
+    "loading": "加载步骤时间线…",
+    "error": "步骤时间线加载失败，请稍后重试。",
+    "empty": "该运行还没有节点事件。",
+    "attempt": "第 {{n}} 次",
+    "variant": "变体 {{v}}",
+    "retries": "重试 {{n}} 次",
+    "score": "评分 {{n}}",
+    "gate": "质检：",
+    "tools": "工具调用 {{n}}",
+    "artifacts": "产物 {{n}}",
+    "showTrace": "步骤",
+    "hideTrace": "收起步骤",
+    "showFull": "展开完整输出",
+    "hideFull": "收起完整输出",
+    "loadingFull": "加载中…",
+    "fullError": "完整输出加载失败，请稍后重试。",
+    "tripped": "预算熔断",
+    "totals": "{{done}}/{{total}} 节点成功 · 失败 {{failed}}",
+    "status": {
+      "running": "运行中",
+      "reviewing": "待审核",
+      "done": "成功",
+      "failed": "失败",
+      "skipped": "跳过"
+    },
     "replay": "回放",
     "backToLive": "回到实时",
     "exitReplay": "退出回放",
