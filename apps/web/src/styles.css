@@ -6690,6 +6690,47 @@ select {
   opacity: 1;
   transform: translateX(0);
 }
+.runhistory-diagnose {
+  flex: 0 0 auto;
+  align-self: center;
+  font-size: var(--text-sm);
+  padding: 5px var(--gap-md);
+  opacity: 0;
+  transform: translateX(6px);
+  transition: opacity var(--duration-normal) ease, transform var(--duration-normal) ease;
+}
+.runhistory-status-failed .runhistory-diagnose {
+  opacity: 1;
+  transform: translateX(0);
+}
+.runhistory-row .runhistory-diagnose:disabled { opacity: 0.55; }
+.runhistory-diagnosis {
+  margin: 0 var(--gap-md) var(--gap-sm);
+  padding: var(--gap-md);
+  background: var(--bg-tertiary);
+  border: var(--hair);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-md);
+}
+.runhistory-diagnosis-title {
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  margin-bottom: var(--gap-xs);
+}
+.runhistory-diagnosis-body {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+.runhistory-diagnosis-error {
+  font-size: var(--text-sm);
+  color: var(--error);
+}
 
 /* 分页 */
 .runhistory-pager-size {

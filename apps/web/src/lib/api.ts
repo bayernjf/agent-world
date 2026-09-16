@@ -979,6 +979,11 @@ export const api = {
   rerunRun: (runId: string) =>
     authFetch(`/api/runs/${runId}/rerun`, { method: "POST" }).then(json<{ runId: string }>),
 
+  diagnoseRun: (runId: string) =>
+    authFetch(`/api/runs/${runId}/diagnose`, { method: "POST" }).then(
+      json<{ diagnosis: string; model: string }>,
+    ),
+
   resumeRun: (
     runId: string,
     action: "continue" | "approve" | "reject" | "edit" | "scrap",

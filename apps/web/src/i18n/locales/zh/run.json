@@ -55,7 +55,11 @@
     "tokensIn": "输入 tokens",
     "tokensOut": "输出 tokens",
     "cost": "成本",
-    "searchPlaceholder": "搜索产线名或错误信息…"
+    "searchPlaceholder": "搜索产线名或错误信息…",
+    "diagnose": "智能诊断",
+    "diagnosing": "诊断中…",
+    "diagnosisTitle": "失败诊断",
+    "diagnosisError": "诊断暂时不可用（模型限流或未配置），请稍后重试或直接查看错误信息。"
   },
   "trigger": {
     "manual": "手动触发",

@@ -55,7 +55,11 @@
     "tokensIn": "Tokens in",
     "tokensOut": "Tokens out",
     "cost": "Cost",
-    "searchPlaceholder": "Search graph name or error text…"
+    "searchPlaceholder": "Search graph name or error text…",
+    "diagnose": "Diagnose",
+    "diagnosing": "Diagnosing…",
+    "diagnosisTitle": "Failure diagnosis",
+    "diagnosisError": "Diagnosis unavailable (model rate-limited or not configured). Try again later or inspect the error directly."
   },
   "trigger": {
     "manual": "Manual",

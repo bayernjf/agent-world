@@ -34,6 +34,7 @@ import { findGraphIdByName as findGraphIdByNameCore } from "./graphs-name.js";
 import { ArtifactStore } from "./artifact-store.js";
 import { log } from "./logger.js";
 import { startRun, resumeRun, RunStartError, type ResumeAction } from "./run.js";
+import { buildFailureInfo, diagnoseRun } from "./diagnose.js";
 import { runBatch } from "./batch.js";
 import { listPendingReviews, parseDecisions } from "./reviews.js";
 import { TriggerService, TriggerError, secretEqual, WEBHOOK_TIMESTAMP_WINDOW_MS } from "./triggers.js";
@@ -2017,6 +2018,40 @@ app.get("/api/runs/:id/stats", async (c) => {
   const runId = c.req.param("id");
   if (!await requireRun(db, userId, runId, "viewer")) return c.json({ error: "not found" }, 404);
   return c.json(await db.runStats(runId));
+});
+
+/**
+ * LLM-assisted diagnosis for a failed run: distils the event log + snapshot
+ * into a prompt and asks the user's default model for a root cause and fix.
+ * Best-effort: provider/quota failures surface as 503, never a 500.
+ */
+app.post("/api/runs/:id/diagnose", async (c) => {
+  const userId = c.get("userId");
+  const runId = c.req.param("id");
+  if (!await requireRun(db, userId, runId, "viewer")) return c.json({ error: "not found" }, 404);
+  const run = await db.getRunById(runId);
+  if (!run) return c.json({ error: "not found" }, 404);
+  let snapshot: unknown = null;
+  try {
+    snapshot = run.snapshot ? JSON.parse(run.snapshot as string) : null;
+  } catch {
+    snapshot = null;
+  }
+  const events = await db.events(runId);
+  const info = buildFailureInfo({
+    graphName: (snapshot as { name?: string } | null)?.name ?? run.graph_id,
+    status: run.status,
+    trigger: run.trigger ?? "manual",
+    events,
+    snapshot,
+  });
+  try {
+    const result = await diagnoseRun(worker, userId, info);
+    return c.json(result);
+  } catch (err) {
+    log.warn("run diagnosis failed", { runId, error: (err as Error).message });
+    return c.json({ error: "diagnosis_unavailable", message: (err as Error).message }, 503);
+  }
 });
 
 /** The graph as it was when this run started (snapshot), used to render a
