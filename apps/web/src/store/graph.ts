@@ -15,6 +15,14 @@ export interface ModelOption {
 let cachedModelOptions: ModelOption[] = [];
 /** Last known default model id; used as a last-ditch fallback for `agent` nodes. */
 let cachedDefaultModel = "agnes-2.0-flash";
+/**
+ * Whether the model-option list has finished its first load. Until it does we
+ * must NOT treat a non-empty node model as unknown and clear it: setGraph can
+ * run on the demo's zero-config first screen before getSettings() resolves, and
+ * wiping a valid built-in model there auto-saved an empty model and 422'd the
+ * first run. Legacy placeholder migration is deferred until options arrive.
+ */
+let modelOptionsReady = false;
 
 function flattenModelOptions(cfg: {
   providers: Record<string, { models?: string[]; modalities?: Record<string, Modality>; enabled?: boolean }>;
@@ -41,11 +49,27 @@ export async function refreshDefaultModel() {
     if (cfg.defaultModel) cachedDefaultModel = cfg.defaultModel;
   } catch {
     // keep last known / fallback
+  } finally {
+    modelOptionsReady = true;
   }
   // Tell one-shot consumers (e.g. the Inspector's model dropdowns) that the
   // settings snapshot changed so they refetch — otherwise models added in the
   // Settings overlay stay invisible until a full page reload.
   window.dispatchEvent(new Event("aw:settings-changed"));
+  // Options are now known, so finish the one-time model migration that setGraph
+  // deliberately skipped while the list was unavailable. This still corrects
+  // legacy placeholder models without ever wiping a valid model on first load.
+  try {
+    const st = useGraph.getState();
+    if (st.graph && st.graph.nodes.length > 0 && !st.readOnly) {
+      const clone = structuredClone(st.graph);
+      if (migrateGraphModels(clone, cachedModelOptions, cachedDefaultModel)) {
+        st.setGraph(clone);
+      }
+    }
+  } catch {
+    // Store not mounted yet (module init / tests / SSR) — nothing to migrate.
+  }
 }
 void refreshDefaultModel();
 
@@ -105,6 +129,11 @@ function remapNodeModel(
     node.kind === "audioGen" ? node.audioGen : null;
   if (!cfg) return false;
   const current = (cfg as { model?: string }).model ?? "";
+  // Options haven't loaded yet: we cannot prove a non-empty model is unknown,
+  // so keep it verbatim. Clearing here is the demo zero-config race (a valid
+  // built-in model was wiped and auto-saved as "", 422'ing the first run).
+  // refreshDefaultModel reruns the migration once options arrive.
+  if (current && !modelOptionsReady) return false;
   // Keep the current model if it resolves to an enabled provider entry.
   const resolves = current && cached.some((o) => o.model === current && o.enabled);
   if (resolves) return false;

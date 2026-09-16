@@ -340,10 +340,24 @@ export function assertNotDemo(user: {is_demo?: number|boolean}, feature: string)
 
 - 环境变量：`ALLOW_DEMO=1` 开启；可选覆盖 `DEMO_QUOTA_*` / `DEMO_TTL_MS`（若实现为可覆盖）。
 - 与 `MONETIZATION_ENFORCE=1` 共存：确认 demo 分支在 gate 中正确放行文本产线。
-- 清理 timer：每小时 `node packages/server/dist/scripts/prune-demo-users.js --db /var/lib/agent-world/agent-world.sqlite --apply`（路径以构建产物为准）。
+- 清理 timer：脚本与其它运维脚本一样用 **tsx 跑 TS 源**（不依赖 dist），命令 `pnpm --filter @agent-world/server prune:demo`（默认 dry-run，`--apply` 真删，`DB_FILE` 指定库）。**Hasee 已于 2026-09-16 落地为 agentworld 用户 crontab**（每小时第 17 分；落地前先 dry-run 核对范围）：
+  ```cron
+  17 * * * * DB_FILE=/var/lib/agent-world/agent-world.sqlite /opt/agent-world/node_modules/.bin/tsx /opt/agent-world/packages/server/scripts/prune-demo-users.ts --apply >> /var/lib/agent-world/logs/prune-demo.log 2>&1
+  ```
+  详见 [runbooks/deploy-ubuntu-server.md](runbooks/deploy-ubuntu-server.md)「四之一、演示用户」。
 - 迁移 v40 随服务启动自动执行（沿用现有迁移机制），部署前备份 sqlite。
 
-## 十六、相关文档
+## 十六、真机走查缺陷修复记录
+
+### 2026-09-16：demo 零配置首跑 422（前端模型选项加载竞态，非后端缺模型）
+
+- **现象**：demo 一键进入后，预置 tpl-draft 的两个 textGen 节点首跑被 `422 graph has unconfigured model(s)` 打回，必须手动到「模型分配」勾模型才能跑，违背"零配置先体验"。
+- **取证（排除后端）**：tpl-draft 模板节点本就带 `textGen.model="agnes-2.0-flash"`（`packages/core/src/templates.ts`，且 core schema `TextGenConfig.model` 有同值 default 兜底）；纯后端 seed→存库→读回→`validateModels` 0 error。真机只读库佐证为**偶发时序**：走查账号的图被清空（手动配回 2.5），稍后新建的第二个 demo 图仍保留默认 2.0。
+- **根因（前端 `apps/web/src/store/graph.ts`）**：`setGraph()` 每次加载图都同步执行 `migrateGraphModels()`，而模型选项 `cachedModelOptions` 初值为 `[]`、由模块加载时 `void refreshDefaultModel()`（异步 `GET /api/settings`）填充。demo 落地即加载预置图，若选项尚未返回，`remapNodeModel()` 把有效内置模型误判为"未知"，`defaultModelFor()` 在空选项下返回 null，遂把节点 `model` 改写为 `""` 并经 `scheduleSave()` 自动写回；派发时 `validateModels()` 见空 model 即报错（它不认 `config.defaultModel` 运行时兜底）。手动分配时选项已就绪，故配完能跑。普通用户从模板新建同样潜伏该竞态，demo 零配置首屏最必现。
+- **修复原则：选项未就绪绝不清空非空 model；就绪后补跑一次迁移。** ① 新增模块级 `modelOptionsReady`，`refreshDefaultModel()` 在 `finally` 置位，并在选项就绪后对当前已加载图补跑一次迁移（有变更才 `setGraph`）；② `remapNodeModel()` 对非空 `current` 且 `!modelOptionsReady` 直接保留（`return false`），就绪后维持原逻辑（有效保留 / 占位符替换 / 确无候选才清空）。
+- **回归测试**：`graph.migrate.test.ts` 增 2 例（未就绪不清空有效模型；未就绪先保留占位符、就绪后补迁移为真实模型；禁用守卫则 2 例必红）；`api.demo-user.test.ts` 增 1 例后端契约护栏（demo seed 图 textGen 节点 model 非空且开箱即过 `validateModels`）。
+
+## 十七、相关文档
 
 - [design-monetization.md](design-monetization.md) / [design-monetization-m2-implementation.md](design-monetization-m2-implementation.md)：套餐配额与订阅 gate
 - [design-rbac.md](design-rbac.md)：role 权限层级（与 is_demo 正交）
