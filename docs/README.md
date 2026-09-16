@@ -16,6 +16,7 @@
 | 理解架构 / 数据模型 / API      | [technical-design.md](technical-design.md)                                  |
 | 知道产品往哪走                | [PRD.md](PRD.md) + [roadmap-generalization.md](roadmap-generalization.md) ★ |
 | 看竞品（Dify/Coze/n8n 等）都被什么坑、我们还缺什么 | [competitor-painpoints.md](competitor-painpoints.md)（6 类共性痛点 + 现状对账 + G1-G7 增强建议，标注哪些已挂触发条件） |
+| 把竞品 P0 痛点变成方案：步级 trace / 上游数据契约 / 长任务降级 | [design-step-trace-and-robustness.md](design-step-trace-and-robustness.md)（G1 步级时间线+fork重跑 / G2 上游 schema 护栏 / G4 超时降级，含 G3/G5 补充决策） |
 | 接手某个模块的设计决策            | 对应 [design-\*.md](design-mcp-server.md)                                     |
 | 给 agent 加技能卡（工具/提示模块/输出契约） | [design-skill.md](design-skill.md)（§11 现状盘点 + §12 作者指南）+ [extending.md](extending.md) §3 |
 | 把平台暴露给别的 AI 客户端（MCP Server） | [design-mcp-server.md](design-mcp-server.md)（§12 协议版本协商 / §13 授权 / §14 未实现清单）+ [production-ops.md](production-ops.md) §8（部署形态） |
