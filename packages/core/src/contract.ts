@@ -12,6 +12,8 @@
  * engine (G2.2) and the Inspector form (G2.3) are separate steps.
  */
 
+import { z } from "zod";
+
 export const CONTRACT_FIELD_TYPES = ["string", "number", "boolean", "array", "object"] as const;
 export type ContractFieldType = (typeof CONTRACT_FIELD_TYPES)[number];
 
@@ -21,6 +23,16 @@ export interface ContractSpec {
   /** Optional per-field type assertions. */
   types?: Partial<Record<string, ContractFieldType>>;
 }
+
+/**
+ * Persistence/validation schema for a contract spec carried on a graph node
+ * (G2.3 Inspector form). Kept in lockstep with the {@link ContractSpec}
+ * interface used by the pure validator.
+ */
+export const ContractSpecSchema = z.object({
+  requiredFields: z.array(z.string()).default([]),
+  types: z.record(z.enum(CONTRACT_FIELD_TYPES)).optional(),
+});
 
 export const SCHEMA_VIOLATION = "SCHEMA_VIOLATION" as const;
 

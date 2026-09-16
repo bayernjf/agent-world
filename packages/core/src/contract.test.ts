@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { GraphNode } from "./graph.js";
 import {
   coerceOutputObject,
+  ContractSpecSchema,
   describeContractFailure,
   getPath,
   SCHEMA_VIOLATION,
@@ -92,5 +94,49 @@ describe("coerceOutputObject / getPath / describe", () => {
       expect(msg).toContain("missing/empty fields: x");
       expect(msg).toContain("y expected number got string");
     }
+  });
+});
+
+describe("ContractSpecSchema (G2.3 persistence)", () => {
+  it("parses a full spec and its output satisfies the ContractSpec type", () => {
+    const parsed = ContractSpecSchema.parse({
+      requiredFields: ["title", "meta.count"],
+      types: { title: "string", "meta.count": "number", tags: "array" },
+    });
+    expect(parsed.requiredFields).toEqual(["title", "meta.count"]);
+    expect(parsed.types?.tags).toBe("array");
+    // The parsed value must be directly usable by the pure validator.
+    const spec: ContractSpec = parsed;
+    expect(validateContract(spec, { title: "hi", meta: { count: 2 }, tags: [] }).ok).toBe(true);
+  });
+
+  it("defaults requiredFields to an empty array when omitted", () => {
+    const parsed = ContractSpecSchema.parse({});
+    expect(parsed.requiredFields).toEqual([]);
+    expect(parsed.types).toBeUndefined();
+  });
+
+  it("rejects an unknown field type", () => {
+    expect(() =>
+      ContractSpecSchema.parse({ requiredFields: ["a"], types: { a: "datetime" } }),
+    ).toThrow();
+  });
+});
+
+describe("GraphNode.contract (top-level optional field)", () => {
+  const baseNode = { id: "A", kind: "textGen", name: "A", x: 0, y: 0 };
+
+  it("accepts a legacy node without a contract (backward compatible)", () => {
+    expect(GraphNode.safeParse(baseNode).success).toBe(true);
+  });
+
+  it("accepts a node carrying a contract spec", () => {
+    const parsed = GraphNode.parse({
+      ...baseNode,
+      kind: "http",
+      contract: { requiredFields: ["url"], types: { count: "number" } },
+    });
+    expect(parsed.contract?.requiredFields).toEqual(["url"]);
+    expect(parsed.contract?.types?.count).toBe("number");
   });
 });
