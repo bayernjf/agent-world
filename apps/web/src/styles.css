@@ -5822,6 +5822,26 @@ select {
 }
 .version-preview__summary { font-size: var(--text-sm); text-align: center; }
 
+/* Version diff (compare two snapshots) */
+.version-panel__header-actions { display: flex; gap: var(--gap-sm); align-items: center; }
+.version-panel__compare-hint { font-size: var(--text-sm); padding: var(--gap-sm) var(--gap-md); margin-bottom: var(--gap-sm); border: 1px dashed var(--border-primary); border-radius: var(--radius-lg); text-align: center; }
+.version-diff-modal { width: 640px; }
+.version-diff__body { gap: var(--gap-md); }
+.version-diff__group { border: 1px solid var(--border-primary); border-radius: var(--radius-lg); padding: var(--gap-md); border-left-width: 3px; }
+.version-diff__group--added { border-left-color: var(--success); }
+.version-diff__group--removed { border-left-color: var(--error); }
+.version-diff__group--changed { border-left-color: var(--warning); }
+.version-diff__heading { margin: 0 0 var(--gap-sm); font-size: var(--text-base); }
+.version-diff__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+.version-diff__item { display: flex; gap: var(--gap-sm); align-items: baseline; font-size: var(--text-sm); flex-wrap: wrap; }
+.version-diff__item--block { flex-direction: column; align-items: stretch; gap: var(--space-1); }
+.version-diff__node-name { font-weight: var(--font-semibold); }
+.version-diff__field { font-size: var(--text-sm); display: flex; gap: var(--space-1); flex-wrap: wrap; align-items: baseline; }
+.version-diff__field code { font-family: var(--mono); font-size: var(--text-xs); background: var(--bg-elevated); padding: 0 var(--space-1); border-radius: var(--radius-sm); }
+.version-diff__val--old { color: var(--error); }
+.version-diff__val--new { color: var(--success); }
+.version-diff__flag { font-size: var(--text-sm); color: var(--warning); margin: 0; }
+
 /* Run Compare (3.1) */
 .run-compare { width: 900px; max-height: 85vh; display: flex; flex-direction: column; }
 .run-compare__selectors { display: flex; gap: var(--gap-lg); align-items: flex-end; padding: var(--gap-md) var(--gap-lg); border-bottom: 1px solid var(--border-primary); }

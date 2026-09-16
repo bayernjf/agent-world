@@ -378,6 +378,71 @@ describe("VersionPanel", () => {
     });
   });
 
+  describe("版本对比", () => {
+    const v2Snapshot = {
+      name: "版本2",
+      snapshot: {
+        id: "g1",
+        name: "测试产线",
+        nodes: [
+          { id: "n1", kind: "source", name: "来源", x: 0, y: 0 },
+          { id: "n2", kind: "textGen", name: "初稿", x: 100, y: 0 },
+          { id: "n3", kind: "sink", name: "产出", x: 200, y: 0 },
+          { id: "n4", kind: "gate", name: "审核", x: 300, y: 0 },
+        ],
+        edges: [
+          { id: "e1", from: "n1", to: "n2", kind: "forward" },
+          { id: "e2", from: "n2", to: "n3", kind: "forward" },
+        ],
+      },
+    };
+
+    it("点击版本对比进入选择模式，每个版本显示 A/B 按钮", async () => {
+      await renderAndWait();
+      fireEvent.click(screen.getByRole("button", { name: "版本对比" }));
+      expect(screen.getAllByRole("button", { name: "基准 A" })).toHaveLength(2);
+      expect(screen.getAllByRole("button", { name: "对比 B" })).toHaveLength(2);
+      // 普通操作按钮在对比模式下隐藏
+      expect(screen.queryAllByRole("button", { name: "预览" })).toHaveLength(0);
+    });
+
+    it("退出对比恢复普通操作按钮", async () => {
+      await renderAndWait();
+      fireEvent.click(screen.getByRole("button", { name: "版本对比" }));
+      fireEvent.click(screen.getByRole("button", { name: "退出对比" }));
+      expect(screen.getAllByRole("button", { name: "预览" })).toHaveLength(2);
+    });
+
+    it("选满两个版本后拉取快照并展示新增节点", async () => {
+      global.fetch = mockFetch({
+        "GET /api/graphs/g1/versions/v2": v2Snapshot,
+      }) as unknown as typeof global.fetch;
+      await renderAndWait();
+      fireEvent.click(screen.getByRole("button", { name: "版本对比" }));
+      fireEvent.click(screen.getAllByRole("button", { name: "基准 A" })[0]!);
+      fireEvent.click(screen.getAllByRole("button", { name: "对比 B" })[1]!);
+      await waitFor(() => {
+        expect(screen.getByText(/版本对比：版本1/)).toBeInTheDocument();
+      });
+      // v2 比 v1 多一个 n4 节点
+      expect(screen.getByText(/新增节点（1）/)).toBeInTheDocument();
+      expect(screen.getByText("审核")).toBeInTheDocument();
+    });
+
+    it("两个快照相同时显示完全相同提示", async () => {
+      global.fetch = mockFetch({
+        "GET /api/graphs/g1/versions/v2": sampleSnapshot,
+      }) as unknown as typeof global.fetch;
+      await renderAndWait();
+      fireEvent.click(screen.getByRole("button", { name: "版本对比" }));
+      fireEvent.click(screen.getAllByRole("button", { name: "基准 A" })[0]!);
+      fireEvent.click(screen.getAllByRole("button", { name: "对比 B" })[1]!);
+      await waitFor(() => {
+        expect(screen.getByText(/结构完全相同/)).toBeInTheDocument();
+      });
+    });
+  });
+
   describe("关闭", () => {
     it("点击关闭按钮调用 onClose", async () => {
       const { onClose } = await renderAndWait();
