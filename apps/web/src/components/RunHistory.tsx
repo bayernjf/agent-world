@@ -163,6 +163,8 @@ export default function RunHistory({ open, onClose, onOpen }: Props) {
   const [pageSize, setPageSize] = useState(20);
   const [graphId, setGraphId] = useState("");
   const [status, setStatus] = useState("");
+  const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [compareMode, setCompareMode] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
@@ -179,6 +181,7 @@ export default function RunHistory({ open, onClose, onOpen }: Props) {
         offset: page * pageSize,
         graphId: graphId || undefined,
         status: status || undefined,
+        q: debouncedQuery || undefined,
       })
       .then((d) => {
         setRuns(d.runs);
@@ -187,10 +190,21 @@ export default function RunHistory({ open, onClose, onOpen }: Props) {
       .finally(() => setLoading(false));
   };
 
+  // Debounce the free-text search so each keystroke does not hit the API.
+  useEffect(() => {
+    const handle = setTimeout(() => {
+      setPage(0);
+      setDebouncedQuery(query.trim());
+    }, 300);
+    return () => clearTimeout(handle);
+  }, [query]);
+
   // Load graph list once when the dialog opens; reset transient selection state.
   useEffect(() => {
     if (!open) return;
     setPage(0);
+    setQuery("");
+    setDebouncedQuery("");
     setSelected([]);
     setComparing(false);
     api
@@ -204,7 +218,7 @@ export default function RunHistory({ open, onClose, onOpen }: Props) {
     if (!open) return;
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, graphId, status, open]);
+  }, [page, graphId, status, debouncedQuery, open]);
 
   if (!open) return null;
 
@@ -269,6 +283,13 @@ export default function RunHistory({ open, onClose, onOpen }: Props) {
         </div>
 
         <div className="runhistory-filters">
+          <input
+            type="text"
+            className="runhistory-search"
+            placeholder={t("run:history.searchPlaceholder")}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
           <label>
             {t("run:history.graph")}
             <select

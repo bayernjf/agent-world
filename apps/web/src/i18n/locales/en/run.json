@@ -54,7 +54,8 @@
     "nodeCount": "Nodes",
     "tokensIn": "Tokens in",
     "tokensOut": "Tokens out",
-    "cost": "Cost"
+    "cost": "Cost",
+    "searchPlaceholder": "Search graph name or error text…"
   },
   "trigger": {
     "manual": "Manual",

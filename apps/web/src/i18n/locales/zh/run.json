@@ -54,7 +54,8 @@
     "nodeCount": "节点数",
     "tokensIn": "输入 tokens",
     "tokensOut": "输出 tokens",
-    "cost": "成本"
+    "cost": "成本",
+    "searchPlaceholder": "搜索产线名或错误信息…"
   },
   "trigger": {
     "manual": "手动触发",

@@ -1997,6 +1997,7 @@ app.get("/api/runs", async (c) => {
   const offset = Number(c.req.query("offset") ?? 0);
   const graphId = c.req.query("graphId");
   const status = c.req.query("status");
+  const q = c.req.query("q");
   // Runs of owned + shared graphs (design-rbac P1). Collaborators' runs are
   // saved under the graph owner, so we scope by visible graph ids, not user_id.
   const graphIds = [...(await visibleGraphs(db, userId)).keys()];
@@ -2005,6 +2006,7 @@ app.get("/api/runs", async (c) => {
     offset,
     graphId: graphId || undefined,
     status: status || undefined,
+    q: q || undefined,
     graphIds,
   });
   return c.json({ runs: rows, total });

@@ -6537,6 +6537,18 @@ select {
   font-size: var(--text-sm);
   min-width: 120px;
 }
+.runhistory-search {
+  padding: var(--space-1) var(--gap-md);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  border: var(--hair);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  min-width: 200px;
+  flex: 1;
+  max-width: 280px;
+}
+.runhistory-search:focus { outline: none; border-color: var(--accent); }
 .runhistory-count {
   margin-left: auto;
   font-size: var(--text-sm);

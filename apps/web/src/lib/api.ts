@@ -1014,12 +1014,13 @@ export const api = {
   getEvents: (runId: string) =>
     authFetch(`/api/runs/${runId}/events`).then(json<{ events: RunEvent[]; state: RuntimeState }>),
 
-  listRuns: (opts: { limit?: number; offset?: number; graphId?: string; status?: string } = {}) => {
+  listRuns: (opts: { limit?: number; offset?: number; graphId?: string; status?: string; q?: string } = {}) => {
     const qs = new URLSearchParams();
     if (opts.limit !== undefined) qs.set("limit", String(opts.limit));
     if (opts.offset !== undefined) qs.set("offset", String(opts.offset));
     if (opts.graphId) qs.set("graphId", opts.graphId);
     if (opts.status) qs.set("status", opts.status);
+    if (opts.q) qs.set("q", opts.q);
     const suffix = qs.toString() ? `?${qs.toString()}` : "";
     return authFetch(`/api/runs${suffix}`).then(json<{ runs: RunSummary[]; total: number }>);
   },

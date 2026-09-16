@@ -200,6 +200,38 @@ describe("RunHistory", () => {
         expect.objectContaining({ status: "done" }),
       );
     });
+
+    it("显示全文搜索框", async () => {
+      await renderAndWait();
+      expect(screen.getByPlaceholderText("搜索产线名或错误信息…")).toBeInTheDocument();
+    });
+
+    it("输入搜索词后（防抖）以 q 参数重新加载", async () => {
+      await renderAndWait();
+      const input = screen.getByPlaceholderText("搜索产线名或错误信息…");
+      fireEvent.change(input, { target: { value: "429" } });
+      await waitFor(() => {
+        expect(mockListRuns).toHaveBeenLastCalledWith(
+          expect.objectContaining({ q: "429" }),
+        );
+      });
+    });
+
+    it("清空搜索词后以无 q 重新加载", async () => {
+      await renderAndWait();
+      const input = screen.getByPlaceholderText("搜索产线名或错误信息…");
+      fireEvent.change(input, { target: { value: "429" } });
+      await waitFor(() => {
+        expect(mockListRuns).toHaveBeenLastCalledWith(
+          expect.objectContaining({ q: "429" }),
+        );
+      });
+      fireEvent.change(input, { target: { value: "" } });
+      await waitFor(() => {
+        const lastCall = mockListRuns.mock.calls[mockListRuns.mock.calls.length - 1]![0];
+        expect(lastCall.q).toBeUndefined();
+      });
+    });
   });
 
   describe("分页", () => {
