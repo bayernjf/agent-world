@@ -203,12 +203,13 @@ describe("SourceFiles", () => {
       expect(clickSpy).toHaveBeenCalled();
     });
 
-    it("文件输入框 accept 包含 PDF/DOCX/PPTX", () => {
+    it("文件输入框 accept 包含 PDF/DOCX/PPTX/XLSX", () => {
       renderComponent();
       const input = document.querySelector("input[type='file']") as HTMLInputElement;
       expect(input.accept).toContain(".pdf");
       expect(input.accept).toContain(".docx");
       expect(input.accept).toContain(".pptx");
+      expect(input.accept).toContain(".xlsx");
     });
 
     it("文件输入框支持 multiple", () => {
@@ -262,13 +263,27 @@ describe("SourceFiles", () => {
       });
     });
 
-    it("不支持的文件类型提示仅支持 PDF/DOCX/PPTX", async () => {
+    it("不支持的文件类型提示仅支持 PDF/DOCX/PPTX/XLSX", async () => {
       renderComponent({ files: [] });
       const dropzone = document.querySelector(".image-dropzone")!;
       const file = createFile("test.txt", 100000, "text/plain");
       fireEvent.drop(dropzone, { dataTransfer: { files: [file] } });
       await waitFor(() => {
-        expect(screen.getByText(/仅支持 PDF \/ DOCX \/ PPTX/)).toBeInTheDocument();
+        expect(screen.getByText(/仅支持 PDF \/ DOCX \/ PPTX \/ XLSX/)).toBeInTheDocument();
+      });
+    });
+
+    it("接受 .xlsx 文件并上传", async () => {
+      renderComponent({ files: [] });
+      const dropzone = document.querySelector(".image-dropzone")!;
+      const file = createFile(
+        "数据.xlsx",
+        100000,
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      );
+      fireEvent.drop(dropzone, { dataTransfer: { files: [file] } });
+      await waitFor(() => {
+        expect(mockUploadArtifact).toHaveBeenCalledTimes(1);
       });
     });
 
