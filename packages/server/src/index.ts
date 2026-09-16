@@ -13,6 +13,7 @@ import {
   AD_LAW_BANNED_WORDS,
   DEFAULT_PLAN,
   PLATFORM_PROFILES,
+  buildTimeline,
   compile,
   ConnectorConfig,
   envelope,
@@ -2018,6 +2019,84 @@ app.get("/api/runs/:id/stats", async (c) => {
   const runId = c.req.param("id");
   if (!await requireRun(db, userId, runId, "viewer")) return c.json({ error: "not found" }, 404);
   return c.json(await db.runStats(runId));
+});
+
+/**
+ * Step-level trace (G1): run metadata plus a per-node / per-attempt timeline
+ * projected from the event stream. Read-only — output is returned as a preview;
+ * full output stays behind the existing event / artifact surfaces.
+ */
+app.get("/api/runs/:id/timeline", async (c) => {
+  const userId = c.get("userId");
+  const runId = c.req.param("id");
+  if (!await requireRun(db, userId, runId, "viewer")) return c.json({ error: "not found" }, 404);
+  const run = await db.getRunById(runId);
+  if (!run) return c.json({ error: "not found" }, 404);
+  const events = await db.events(runId);
+  // The event stream only carries node ids; resolve human-readable name/kind
+  // from the snapshot captured when the run started (best-effort).
+  type SnapshotLike = { nodes?: Array<{ id: string; name?: string; kind?: string }> } | null;
+  let snapshot: SnapshotLike = null;
+  try {
+    if (run.snapshot) {
+      snapshot =
+        typeof run.snapshot === "string"
+          ? (JSON.parse(run.snapshot) as NonNullable<SnapshotLike>)
+          : (run.snapshot as NonNullable<SnapshotLike>);
+    }
+  } catch {
+    snapshot = null;
+  }
+  const nodeMeta: Record<string, { name: string | null; kind: string | null }> = {};
+  for (const n of snapshot?.nodes ?? []) {
+    nodeMeta[n.id] = { name: n.name ?? null, kind: n.kind ?? null };
+  }
+  return c.json({
+    run: {
+      id: run.id,
+      graphId: run.graph_id,
+      status: run.status,
+      trigger: run.trigger ?? "manual",
+      startedAt: run.started_at,
+      endedAt: run.ended_at ?? null,
+      budgetUsd: run.budget_usd ?? null,
+      haltedNodeId: run.halted_node_id ?? null,
+      haltedReason: run.halted_reason ?? null,
+    },
+    nodeMeta,
+    timeline: buildTimeline(events),
+  });
+});
+
+/**
+ * Full node output for one attempt (G1): the timeline projection only returns a
+ * truncated preview, so the complete `node.finished` output is lazy-loaded on
+ * demand. Read-only and projected straight from the event stream — no schema
+ * migration and no driver change. When several variants share (node, attempt),
+ * the `main` lane is preferred.
+ */
+app.get("/api/runs/:id/nodes/:nodeId/attempt/:attempt/output", async (c) => {
+  const userId = c.get("userId");
+  const runId = c.req.param("id");
+  const nodeId = c.req.param("nodeId");
+  const attemptNum = Number.parseInt(c.req.param("attempt"), 10);
+  if (!Number.isInteger(attemptNum) || attemptNum < 1) {
+    return c.json({ error: "bad attempt" }, 400);
+  }
+  if (!await requireRun(db, userId, runId, "viewer")) return c.json({ error: "not found" }, 404);
+  const events = await db.events(runId);
+  const finished = events.filter(
+    (e): e is Extract<RunEvent, { type: "node.finished" }> =>
+      e.type === "node.finished" && e.nodeId === nodeId && e.attempt === attemptNum,
+  );
+  const pick = finished.find((e) => (e.variant ?? "main") === "main") ?? finished[finished.length - 1];
+  if (!pick) return c.json({ error: "not found" }, 404);
+  return c.json({
+    nodeId: pick.nodeId,
+    attempt: pick.attempt,
+    variant: pick.variant ?? "main",
+    output: pick.output,
+  });
 });
 
 /**

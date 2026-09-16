@@ -3169,7 +3169,7 @@ export function createDriver(
 
     async getRunById(runId: string) {
       const row = await exec.get(stmts.getRunById, [runId]) as
-        | { id: string; graph_id: string; snapshot: string; status: string; trigger: string; input: string | null; budget_usd: number | null; started_at: number; ended_at: number | null }
+        | { id: string; graph_id: string; snapshot: string; status: string; trigger: string; input: string | null; budget_usd: number | null; started_at: number; ended_at: number | null; halted_node_id: string | null; halted_reason: string | null }
         | undefined;
       return row ? { ...row, snapshot: openDocString(row.snapshot) } : undefined;
     },

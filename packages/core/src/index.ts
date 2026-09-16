@@ -15,3 +15,6 @@ export * from "./publish.js";
 export * from "./parkLayout.js";
 export * from "./crossGraph.js";
 export * from "./plans.js";
+export * from "./trace.js";
+export * from "./contract.js";
+export * from "./deadline.js";

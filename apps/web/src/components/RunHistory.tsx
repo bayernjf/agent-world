@@ -4,6 +4,7 @@ import i18n from "../i18n";
 import { formatNumber } from "../i18n/utils";
 import { api, type RunSummary } from "../lib/api";
 import { runStatusLabel } from "../lib/run-status";
+import RunTimelineView from "./RunTimelineView";
 import Tooltip from "./Tooltip";
 
 interface Props {
@@ -174,6 +175,7 @@ export default function RunHistory({ open, onClose, onOpen }: Props) {
   const [diagnosisById, setDiagnosisById] = useState<Record<string, string>>({});
   const [diagnosisErrorById, setDiagnosisErrorById] = useState<Record<string, boolean>>({});
   const [diagnosisOpenById, setDiagnosisOpenById] = useState<Record<string, boolean>>({});
+  const [traceOpenById, setTraceOpenById] = useState<Record<string, boolean>>({});
   const [stats, setStats] = useState<Record<string, RunStats>>({});
   const [rerunning, setRerunning] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
@@ -216,6 +218,7 @@ export default function RunHistory({ open, onClose, onOpen }: Props) {
     setDiagnosisById({});
     setDiagnosisErrorById({});
     setDiagnosisOpenById({});
+    setTraceOpenById({});
     api
       .listGraphs()
       .then((g) => setGraphs(g.map((x) => ({ id: x.id, name: x.name }))));
@@ -427,6 +430,17 @@ export default function RunHistory({ open, onClose, onOpen }: Props) {
                         )}
                       </div>
                     </div>
+                    <button
+                      className="btn runhistory-trace"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setTraceOpenById((s) => ({ ...s, [r.id]: !s[r.id] }));
+                      }}
+                    >
+                      {traceOpenById[r.id]
+                        ? t("run:timeline.hideTrace")
+                        : t("run:timeline.showTrace")}
+                    </button>
                     {r.status !== "running" && (
                       <button
                         className="btn runhistory-rerun"
@@ -471,6 +485,14 @@ export default function RunHistory({ open, onClose, onOpen }: Props) {
                           {diagnosisById[r.id] ?? t("run:history.diagnosing")}
                         </pre>
                       )}
+                    </div>
+                  )}
+                  {traceOpenById[r.id] && (
+                    <div
+                      className="runhistory-trace"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <RunTimelineView runId={r.id} />
                     </div>
                   )}
                   </Fragment>

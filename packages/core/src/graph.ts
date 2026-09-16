@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { SkillMount } from "./skill.js";
 import { PublishConfig } from "./publish.js";
+import { ContractSpecSchema } from "./contract.js";
 
 /**
  * A gate's `fail` edge points backwards, so the graph is not a DAG. The invariant
@@ -1029,6 +1030,13 @@ export const GraphNode = z.object({
   publish: PublishConfig.optional(),
   fanout: FanoutConfig.optional(),
   select: SelectConfig.optional(),
+  /**
+   * Optional upstream output-contract guard (G2). Only meaningful for nodes
+   * whose output is a JSON object (HTTP / database / table / file connectors).
+   * Pure-text nodes need not declare one. Configuration surface only until the
+   * engine wiring (G2.2) lands.
+   */
+  contract: ContractSpecSchema.optional(),
 });
 export type GraphNode = z.infer<typeof GraphNode>;
 
