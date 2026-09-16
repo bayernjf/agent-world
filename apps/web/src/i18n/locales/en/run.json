@@ -59,7 +59,9 @@
     "diagnose": "Diagnose",
     "diagnosing": "Diagnosing…",
     "diagnosisTitle": "Failure diagnosis",
-    "diagnosisError": "Diagnosis unavailable (model rate-limited or not configured). Try again later or inspect the error directly."
+    "diagnosisError": "Diagnosis unavailable (model rate-limited or not configured). Try again later or inspect the error directly.",
+    "showTrace": "Steps",
+    "hideTrace": "Hide steps"
   },
   "trigger": {
     "manual": "Manual",
@@ -197,6 +199,31 @@
     "copied": "Copied"
   },
   "timeline": {
+    "loading": "Loading step trace…",
+    "error": "Failed to load the step trace. Try again later.",
+    "empty": "This run has no node events yet.",
+    "attempt": "Attempt {{n}}",
+    "variant": "Variant {{v}}",
+    "retries": "{{n}} retries",
+    "score": "Score {{n}}",
+    "gate": "Gate: ",
+    "tools": "{{n}} tool calls",
+    "artifacts": "{{n}} artifacts",
+    "showTrace": "Steps",
+    "hideTrace": "Hide steps",
+    "showFull": "Show full output",
+    "hideFull": "Hide full output",
+    "loadingFull": "Loading…",
+    "fullError": "Failed to load full output. Please retry.",
+    "tripped": "Budget tripped",
+    "totals": "{{done}}/{{total}} nodes ok · {{failed}} failed",
+    "status": {
+      "running": "Running",
+      "reviewing": "In review",
+      "done": "Done",
+      "failed": "Failed",
+      "skipped": "Skipped"
+    },
     "replay": "Replay",
     "backToLive": "Back to live",
     "exitReplay": "Exit replay",

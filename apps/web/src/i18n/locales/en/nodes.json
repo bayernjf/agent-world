@@ -178,6 +178,16 @@
     "tabConfig": "Config",
     "tabSkills": "Skills",
     "tabSkillsAria": "Cycle tabs with E",
+    "contract": {
+      "title": "Output contract (advanced)",
+      "hint": "Declare fields that must be present and non-empty in this node's output; missing fields or wrong types are caught before data flows downstream. Only applies to nodes whose output is a JSON object (HTTP / database / table / file connectors); pure-text or Markdown nodes need no contract.",
+      "notYetEnforced": "Note: contract enforcement is not wired into the engine yet, so this is saved as configuration and does not block runs for now.",
+      "fieldPlaceholder": "Field path, e.g. title or meta.count",
+      "add": "Add field",
+      "remove": "Remove",
+      "typeLabel": "Field type",
+      "typeAny": "Any type"
+    },
     "conflict": "This line was modified in another tab; your changes are unsaved.",
     "reload": "Reload",
     "name": "Name",

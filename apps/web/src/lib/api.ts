@@ -4,6 +4,7 @@ import type {
   ModelPricing,
   PlanId,
   RunEvent,
+  RunTimeline,
   RuntimeState,
   TriggerConfig,
 } from "@agent-world/core";
@@ -241,6 +242,32 @@ export interface RunSummary {
   budget_usd: number | null;
   started_at: number;
   ended_at: number | null;
+}
+
+/** GET /api/runs/:id/timeline — run metadata plus the step-level trace (G1). */
+export interface RunTimelineResponse {
+  run: {
+    id: string;
+    graphId: string;
+    status: string;
+    trigger: string;
+    startedAt: number;
+    endedAt: number | null;
+    budgetUsd: number | null;
+    haltedNodeId: string | null;
+    haltedReason: string | null;
+  };
+  /** nodeId → name/kind resolved from the run snapshot (best-effort). */
+  nodeMeta: Record<string, { name: string | null; kind: string | null }>;
+  timeline: RunTimeline;
+}
+
+/** GET /api/runs/:id/nodes/:nodeId/attempt/:attempt/output — full node output (G1). */
+export interface RunNodeOutputResponse {
+  nodeId: string;
+  attempt: number;
+  variant: string;
+  output: string;
 }
 
 /** A run parked on a human decision, across every pipeline (F2 review queue). */
@@ -1034,6 +1061,13 @@ export const api = {
     authFetch(`/api/runs/${runId}/stats`).then(
       json<{ nodes: number; tokensIn: number; tokensOut: number; costUsd: number }>,
     ),
+
+  getRunTimeline: (runId: string) =>
+    authFetch(`/api/runs/${runId}/timeline`).then(json<RunTimelineResponse>),
+  getRunNodeOutput: (runId: string, nodeId: string, attempt: number) =>
+    authFetch(
+      `/api/runs/${runId}/nodes/${encodeURIComponent(nodeId)}/attempt/${attempt}/output`,
+    ).then(json<RunNodeOutputResponse>),
 
   deleteRun: (runId: string) =>
     authFetch(`/api/runs/${runId}`, { method: "DELETE" }).then(json<{ ok: true }>),
