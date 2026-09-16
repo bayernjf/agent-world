@@ -674,14 +674,19 @@ export default function App() {
 
   const backToPark = useCallback(() => {
     setDrilledFromPark(false);
+    // The park is the multi-factory overview where the per-node Inspector has
+    // no target; collapse it so the canvas keeps its full width (it reopens in
+    // 2d/3d on explicit node selection).
+    setInspectorCollapsed(true);
     requestDrillAnim("out");
     setViewMode("park");
-  }, [setDrilledFromPark, setViewMode, requestDrillAnim]);
+  }, [setDrilledFromPark, setViewMode, requestDrillAnim, setInspectorCollapsed]);
 
   const enterPark = useCallback(() => {
     setDrilledFromPark(false);
+    setInspectorCollapsed(true);
     setViewMode("park");
-  }, [setDrilledFromPark, setViewMode]);
+  }, [setDrilledFromPark, setViewMode, setInspectorCollapsed]);
 
   const retryFactory = useCallback(async (_id: string, lastRunId: string | null | undefined) => {
     if (!lastRunId) return; // nothing to retry before the pipeline ever ran
