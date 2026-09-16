@@ -156,12 +156,12 @@
     "uploadFailed": "Upload failed"
   },
   "sourceFiles": {
-    "label": "Documents (PDF / DOCX / PPTX, read by {{node}})",
+    "label": "Documents (PDF / DOCX / PPTX / XLSX, read by {{node}})",
     "dropzone": "Click to upload documents, or drag files here",
     "uploading": "Uploading…",
     "thumbFallback": "DOC",
     "uploadFailed": "Upload failed",
-    "rejectedUnsupported": "{{name}} (only PDF / DOCX / PPTX supported)",
+    "rejectedUnsupported": "{{name}} (only PDF / DOCX / PPTX / XLSX supported)",
     "rejectedTooLarge": "{{name}} ({{size}}, parse limit 5 MB)",
     "skipped": "Skipped: {{files}}",
     "skippedSeparator": "; "
@@ -466,7 +466,7 @@
     },
     "fileParse": {
       "maxImages": "Max images to extract (0 = none)",
-      "note": "Extracts text and embedded images (PDF / DOCX / PPTX) from the upstream file artifact. Text becomes a text artifact (directly consumable by agent nodes); images become image artifacts. Upstream can download documents via an HTTP node with output mode = file, or other nodes that produce files."
+      "note": "Extracts text and embedded images (PDF / DOCX / PPTX / XLSX, spreadsheets become CSV) from the upstream file artifact. Text becomes a text artifact (directly consumable by agent nodes); images become image artifacts. Upstream can download documents via an HTTP node with output mode = file, or other nodes that produce files."
     },
     "translate": {
       "target": "Target language",

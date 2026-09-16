@@ -262,6 +262,110 @@ function parsePptx(files: Record<string, Uint8Array>): ParsedDocument {
   return { text: texts.join("\n\n"), images: mediaImages(files, "ppt/media/") };
 }
 
+/** Convert an Excel column letter run ("A", "AA") to a 0-based column index. */
+function xlsxColIndex(ref: string): number {
+  let n = 0;
+  for (const ch of ref) n = n * 26 + (ch.charCodeAt(0) - 64);
+  return n - 1;
+}
+
+/** Quote a CSV field when it contains a comma, quote or newline. */
+function csvCell(v: string): string {
+  return /[",\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
+}
+
+/** Read the shared-string table (`xl/sharedStrings.xml`), rich text joined. */
+function xlsxSharedStrings(files: Record<string, Uint8Array>): string[] {
+  const entry = files["xl/sharedStrings.xml"];
+  if (!entry) return [];
+  const xml = DECODER.decode(entry);
+  return blocks(xml, "si").map((si) =>
+    tagTexts(si, "t").map(decodeEntities).join(""),
+  );
+}
+
+/** Resolve worksheet file paths in workbook order, with names when available. */
+function xlsxSheets(
+  files: Record<string, Uint8Array>,
+): { name: string; path: string }[] {
+  // Map r:id -> worksheet target via xl/_rels/workbook.xml.rels.
+  const relsEntry = files["xl/_rels/workbook.xml.rels"];
+  const relTargets = new Map<string, string>();
+  if (relsEntry) {
+    for (const m of DECODER.decode(relsEntry).matchAll(
+      /<Relationship\b[^>]*\bId="([^"]+)"[^>]*\bTarget="([^"]+)"/g,
+    )) {
+      const target = m[2]!.replace(/^\//, ""); // leading "/" = relative to xl/
+      relTargets.set(m[1]!, target.startsWith("xl/") ? target : `xl/${target}`);
+    }
+  }
+  const wb = files["xl/workbook.xml"];
+  if (wb) {
+    const out: { name: string; path: string }[] = [];
+    for (const m of DECODER.decode(wb).matchAll(/<sheet\b[^>]*>/g)) {
+      const tag = m[0]!;
+      const name = decodeEntities(tag.match(/\bname="([^"]*)"/)?.[1] ?? "");
+      const rid = tag.match(/r:id="([^"]+)"/)?.[1];
+      const target = rid ? relTargets.get(rid) : undefined;
+      if (target && files[target]) out.push({ name: name || target, path: target });
+    }
+    if (out.length > 0) return out;
+  }
+  // Fallback: enumerate worksheets by their numeric suffix.
+  return Object.keys(files)
+    .filter((n) => /^xl\/worksheets\/sheet\d+\.xml$/.test(n))
+    .sort((a, b2) => {
+      const na = Number(a.match(/sheet(\d+)\.xml/)?.[1] ?? 0);
+      const nb = Number(b2.match(/sheet(\d+)\.xml/)?.[1] ?? 0);
+      return na - nb;
+    })
+    .map((path, i) => ({ name: `Sheet${i + 1}`, path }));
+}
+
+/** Convert one worksheet XML document into CSV text. */
+function xlsxSheetToCsv(xml: string, shared: string[]): string {
+  const rows: string[][] = [];
+  for (const rowXml of blocks(xml, "row")) {
+    const cells: { col: number; val: string }[] = [];
+    for (const cXml of blocks(rowXml, "c")) {
+      const ref = cXml.match(/\br="([A-Z]+)\d+"/)?.[1];
+      const col = ref ? xlsxColIndex(ref) : cells.length;
+      const type = cXml.match(/\bt="([^"]+)"/)?.[1];
+      let val = "";
+      if (type === "inlineStr") {
+        val = tagTexts(cXml, "t").map(decodeEntities).join("");
+      } else {
+        const raw = cXml.match(/<v\b[^>]*>([\s\S]*?)<\/v>/)?.[1] ?? "";
+        if (type === "s") {
+          val = shared[Number(raw)] ?? "";
+        } else if (type === "b") {
+          val = raw.trim() === "1" ? "TRUE" : "FALSE";
+        } else {
+          val = decodeEntities(raw.trim());
+        }
+      }
+      cells.push({ col, val });
+    }
+    const maxCol = cells.reduce((mx, c) => Math.max(mx, c.col), -1);
+    const arr: string[] = new Array(maxCol + 1).fill("");
+    for (const c of cells) arr[c.col] = c.val;
+    rows.push(arr);
+  }
+  return rows.map((r) => r.map(csvCell).join(",")).join("\n");
+}
+
+function parseXlsx(files: Record<string, Uint8Array>): ParsedDocument {
+  const sheets = xlsxSheets(files);
+  if (sheets.length === 0) throw new Error("xlsx 缺少工作表文件（xl/worksheets/sheetN.xml）");
+  const shared = xlsxSharedStrings(files);
+  const multi = sheets.length > 1;
+  const parts = sheets.map((s) => {
+    const csv = xlsxSheetToCsv(DECODER.decode(files[s.path]!), shared);
+    return multi ? `===== Sheet: ${s.name} =====\n${csv}` : csv;
+  });
+  return { text: parts.join("\n\n"), images: [] };
+}
+
 /**
  * Parse a document buffer into text + images. Format is detected by magic
  * bytes (`%PDF`, ZIP `PK`) with the MIME type as a hint.
@@ -276,11 +380,13 @@ export async function parseDocument(
   const isZipMagic = b[0] === 0x50 && b[1] === 0x4b; // PK
   if (isZipMagic || mimeType?.includes("vnd.openxmlformats")) {
     const files = safeUnzip(b);
-    if (Object.keys(files).some((n) => n.startsWith("word/"))) return parseDocx(files);
-    if (Object.keys(files).some((n) => n.startsWith("ppt/"))) return parsePptx(files);
-    throw new Error("ZIP 文件不是 docx/pptx 文档");
+    const names = Object.keys(files);
+    if (names.some((n) => n.startsWith("word/"))) return parseDocx(files);
+    if (names.some((n) => n.startsWith("ppt/"))) return parsePptx(files);
+    if (names.some((n) => n.startsWith("xl/"))) return parseXlsx(files);
+    throw new Error("ZIP 文件不是 docx/pptx/xlsx 文档");
   }
-  throw new Error("不支持的文件格式（仅支持 PDF / DOCX / PPTX）");
+  throw new Error("不支持的文件格式（仅支持 PDF / DOCX / PPTX / XLSX）");
 }
 
 /** Decode a `data:<mime>;base64,...` (or plain-data) URI back to bytes. */

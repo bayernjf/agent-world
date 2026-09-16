@@ -1529,7 +1529,7 @@ export function createDriver(
 
     async listRuns(
       userId: string,
-      opts: { limit?: number; offset?: number; graphId?: string; status?: string; graphIds?: string[] } = {},
+      opts: { limit?: number; offset?: number; graphId?: string; status?: string; graphIds?: string[]; q?: string } = {},
     ) {
       const limit = Math.min(Math.max(opts.limit ?? 50, 1), 200);
       const offset = Math.max(opts.offset ?? 0, 0);
@@ -1546,6 +1546,18 @@ export function createDriver(
       if (opts.status) {
         where.push("r.status = ?");
         params.push(opts.status);
+      }
+      // Full-text-ish filter across the run history: graph name plus the
+      // per-node error/output text. ILIKE on Postgres, case-folded LIKE on
+      // SQLite so the two drivers behave identically for ASCII search.
+      const q = opts.q?.trim();
+      if (q) {
+        const like = dialect === "postgres" ? "ILIKE" : "LIKE";
+        const pat = `%${q}%`;
+        where.push(
+          `(g.name ${like} ? OR EXISTS (SELECT 1 FROM node_runs nr WHERE nr.run_id = r.id AND (nr.error ${like} ? OR nr.output ${like} ?)))`,
+        );
+        params.push(pat, pat, pat);
       }
       const clause = `WHERE ${where.join(" AND ")}`;
       const rows = await exec.all(`SELECT r.id AS id, r.graph_id AS graph_id, g.name AS graph_name,
@@ -1565,7 +1577,7 @@ export function createDriver(
         ended_at: number | null;
       }>;
       const total = (
-        await exec.get(`SELECT COUNT(*) AS n FROM runs r ${clause}`, [...params]) as { n: number }
+        await exec.get(`SELECT COUNT(*) AS n FROM runs r LEFT JOIN graphs g ON g.id = r.graph_id ${clause}`, [...params]) as { n: number }
       ).n;
       return { rows, total };
     },

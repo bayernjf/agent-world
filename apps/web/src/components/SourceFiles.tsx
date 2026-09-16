@@ -11,12 +11,13 @@ interface Props {
   onCommitEdit: () => void;
 }
 
-/** parseDocument only speaks these three (PDF / DOCX / PPTX). */
-const SUPPORTED_EXT = ["pdf", "docx", "pptx"] as const;
+/** parseDocument only speaks these four (PDF / DOCX / PPTX / XLSX). */
+const SUPPORTED_EXT = ["pdf", "docx", "pptx", "xlsx"] as const;
 const ACCEPT =
-  ".pdf,.docx,.pptx,application/pdf," +
+  ".pdf,.docx,.pptx,.xlsx,application/pdf," +
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document," +
-  "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation," +
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
 /**
  * Documents are read into memory whole before parsing, so the practical ceiling

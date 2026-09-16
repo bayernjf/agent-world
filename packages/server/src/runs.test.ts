@@ -61,6 +61,31 @@ describe("runs db: listRuns filtering + runStats", () => {
     expect(page.rows[0].id).toBe("r2");
   });
 
+  it("free-text query matches graph name case-insensitively", async () => {
+    const { rows, total } = await db.listRuns(U, { q: "alpha" });
+    expect(total).toBe(2);
+    expect(rows.map((r) => r.id).sort()).toEqual(["r1", "r2"]);
+  });
+
+  it("free-text query matches node output text", async () => {
+    const { rows, total } = await db.listRuns(U, { q: "x" });
+    expect(total).toBe(1);
+    expect(rows[0].id).toBe("r1");
+  });
+
+  it("free-text query matches node error text", async () => {
+    await db.record("r2", { seq: 9, ts: 3500, type: "node.failed", nodeId: "n9", attempt: 1, error: "[RATE_LIMIT] polish node: HTTP 429", errorCode: "RATE_LIMIT" } as never);
+    const { rows, total } = await db.listRuns(U, { q: "429" });
+    expect(total).toBe(1);
+    expect(rows[0].id).toBe("r2");
+  });
+
+  it("free-text query with no hits returns empty", async () => {
+    const { rows, total } = await db.listRuns(U, { q: "不存在的关键词zzz" });
+    expect(total).toBe(0);
+    expect(rows).toHaveLength(0);
+  });
+
   it("aggregates runStats from node_runs", async () => {
     const s = await db.runStats("r1");
     expect(s.nodes).toBe(2);

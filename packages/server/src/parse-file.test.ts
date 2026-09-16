@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { zipSync, strToU8 } from "fflate";
 import { PNG } from "pngjs";
-import { extractPdfImages, safeUnzip } from "./parse-file.js";
+import { extractPdfImages, parseDocument, safeUnzip } from "./parse-file.js";
 
 function makeZip(files: Record<string, string>): Uint8Array {
   const obj: Record<string, Uint8Array> = {};
@@ -76,5 +76,104 @@ describe("extractPdfImages — pixel fidelity", () => {
     expect(Array.from(png.data)).toEqual([
       0, 0, 0, 255, 85, 85, 85, 255, 170, 170, 170, 255, 255, 255, 255, 255,
     ]);
+  });
+});
+
+function makeXlsx(files: Record<string, string>): Buffer {
+  return Buffer.from(
+    makeZip({ "[Content_Types].xml": '<Types xmlns="http://schemas.openxmlformats.org/"></Types>', ...files }),
+  );
+}
+
+const WB = (sheets: string) =>
+  `<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${sheets}</sheets></workbook>`;
+const RELS = (pairs: [string, string][]) =>
+  `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${pairs
+    .map(([id, t]) => `<Relationship Id="${id}" Type="x" Target="${t}"/>`)
+    .join("")}</Relationships>`;
+
+describe("parseDocument xlsx", () => {
+  it("reads shared strings, numbers, gaps and quotes commas", async () => {
+    const xlsx = makeXlsx({
+      "xl/workbook.xml": WB('<sheet name="数据" sheetId="1" r:id="rId1"/>'),
+      "xl/_rels/workbook.xml.rels": RELS([["rId1", "worksheets/sheet1.xml"]]),
+      "xl/sharedStrings.xml":
+        '<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+        "<si><t>姓名</t></si><si><t>苹果,香蕉</t></si><si><t>备注</t></si></sst>",
+      "xl/worksheets/sheet1.xml":
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>' +
+        '<row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1"><v>30</v></c><c r="C1" t="s"><v>1</v></c></row>' +
+        '<row r="2"><c r="A2" t="s"><v>2</v></c><c r="C2"><v>9</v></c></row>' +
+        "</sheetData></worksheet>",
+    });
+    const doc = await parseDocument(xlsx);
+    // B2 is absent -> empty middle field; trailing empty cells are omitted.
+    expect(doc.text).toBe('姓名,30,"苹果,香蕉"\n备注,,9');
+    expect(doc.images).toEqual([]);
+  });
+
+  it("joins rich-text runs inside one shared string", async () => {
+    const xlsx = makeXlsx({
+      "xl/workbook.xml": WB('<sheet name="S1" sheetId="1" r:id="rId1"/>'),
+      "xl/_rels/workbook.xml.rels": RELS([["rId1", "worksheets/sheet1.xml"]]),
+      "xl/sharedStrings.xml":
+        '<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+        "<si><r><t>姓</t></r><r><t>名</t></r></si></sst>",
+      "xl/worksheets/sheet1.xml":
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>' +
+        '<row r="1"><c r="A1" t="s"><v>0</v></c></row>' +
+        "</sheetData></worksheet>",
+    });
+    const doc = await parseDocument(xlsx);
+    expect(doc.text).toBe("姓名");
+  });
+
+  it("emits per-sheet headers in workbook order, with inlineStr and booleans", async () => {
+    const xlsx = makeXlsx({
+      "xl/workbook.xml": WB(
+        '<sheet name="数据" sheetId="1" r:id="rId1"/><sheet name="明细" sheetId="2" r:id="rId2"/>',
+      ),
+      "xl/_rels/workbook.xml.rels": RELS([
+        ["rId1", "worksheets/sheet1.xml"],
+        ["rId2", "worksheets/sheet2.xml"],
+      ]),
+      "xl/worksheets/sheet1.xml":
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>' +
+        '<row r="1"><c r="A1" t="inlineStr"><is><t>标题</t></is></c></row>' +
+        "</sheetData></worksheet>",
+      "xl/worksheets/sheet2.xml":
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>' +
+        '<row r="1"><c r="A1" t="inlineStr"><is><t>城市</t></is></c><c r="B1" t="b"><v>1</v></c></row>' +
+        "</sheetData></worksheet>",
+    });
+    const doc = await parseDocument(xlsx);
+    expect(doc.text).toBe("===== Sheet: 数据 =====\n标题\n\n===== Sheet: 明细 =====\n城市,TRUE");
+  });
+
+  it("falls back to numeric-suffixed worksheets when rels are missing", async () => {
+    const xlsx = makeXlsx({
+      "xl/worksheets/sheet1.xml":
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>' +
+        '<row r="1"><c r="A1"><v>1</v></c><c r="B1"><v>2</v></c></row>' +
+        "</sheetData></worksheet>",
+    });
+    const doc = await parseDocument(xlsx);
+    expect(doc.text).toBe("1,2");
+  });
+
+  it("is detected via the spreadsheetml MIME type", async () => {
+    const xlsx = makeXlsx({
+      "xl/workbook.xml": WB('<sheet name="S1" sheetId="1" r:id="rId1"/>'),
+      "xl/_rels/workbook.xml.rels": RELS([["rId1", "worksheets/sheet1.xml"]]),
+      "xl/worksheets/sheet1.xml":
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>' +
+        '<row r="1"><c r="A1" t="inlineStr"><is><t>x</t></is></c></row>' +
+        "</sheetData></worksheet>",
+    });
+    const doc = await parseDocument(
+      xlsx,
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    );
+    expect(doc.text).toBe("x");
   });
 });

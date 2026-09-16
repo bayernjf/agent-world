@@ -10,6 +10,7 @@ vi.mock("../lib/api", () => ({
     listGraphs: vi.fn(),
     rerunRun: vi.fn(),
     runStats: vi.fn(),
+    diagnoseRun: vi.fn(),
   },
 }));
 
@@ -23,6 +24,7 @@ const mockListRuns = api.listRuns as unknown as ReturnType<typeof vi.fn>;
 const mockListGraphs = api.listGraphs as unknown as ReturnType<typeof vi.fn>;
 const mockRerunRun = api.rerunRun as unknown as ReturnType<typeof vi.fn>;
 const mockRunStats = api.runStats as unknown as ReturnType<typeof vi.fn>;
+const mockDiagnoseRun = api.diagnoseRun as unknown as ReturnType<typeof vi.fn>;
 
 // Sample runs
 const sampleRuns: RunSummary[] = [
@@ -69,6 +71,10 @@ function setupMocks(runs = sampleRuns, total = sampleRuns.length) {
     tokensIn: 1000,
     tokensOut: 500,
     costUsd: 0.0123,
+  });
+  mockDiagnoseRun.mockResolvedValue({
+    diagnosis: "根因：翻译节点触发外部限流（HTTP 429）。建议降低调用频率。",
+    model: "agnes-2.0-flash",
   });
 }
 
@@ -199,6 +205,38 @@ describe("RunHistory", () => {
       expect(mockListRuns).toHaveBeenLastCalledWith(
         expect.objectContaining({ status: "done" }),
       );
+    });
+
+    it("显示全文搜索框", async () => {
+      await renderAndWait();
+      expect(screen.getByPlaceholderText("搜索产线名或错误信息…")).toBeInTheDocument();
+    });
+
+    it("输入搜索词后（防抖）以 q 参数重新加载", async () => {
+      await renderAndWait();
+      const input = screen.getByPlaceholderText("搜索产线名或错误信息…");
+      fireEvent.change(input, { target: { value: "429" } });
+      await waitFor(() => {
+        expect(mockListRuns).toHaveBeenLastCalledWith(
+          expect.objectContaining({ q: "429" }),
+        );
+      });
+    });
+
+    it("清空搜索词后以无 q 重新加载", async () => {
+      await renderAndWait();
+      const input = screen.getByPlaceholderText("搜索产线名或错误信息…");
+      fireEvent.change(input, { target: { value: "429" } });
+      await waitFor(() => {
+        expect(mockListRuns).toHaveBeenLastCalledWith(
+          expect.objectContaining({ q: "429" }),
+        );
+      });
+      fireEvent.change(input, { target: { value: "" } });
+      await waitFor(() => {
+        const lastCall = mockListRuns.mock.calls[mockListRuns.mock.calls.length - 1]![0];
+        expect(lastCall.q).toBeUndefined();
+      });
     });
   });
 
@@ -338,6 +376,45 @@ describe("RunHistory", () => {
       fireEvent.click(rerunBtns[0]);
       await waitFor(() => {
         expect(screen.getByText(/重新运行失败：产线不存在/)).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe("失败诊断", () => {
+    it("仅失败行显示智能诊断按钮", async () => {
+      await renderAndWait();
+      const buttons = screen.getAllByRole("button", { name: "智能诊断" });
+      expect(buttons).toHaveLength(1);
+    });
+
+    it("点击诊断调用 api.diagnoseRun 并展示结果", async () => {
+      await renderAndWait();
+      fireEvent.click(screen.getByRole("button", { name: "智能诊断" }));
+      await waitFor(() => {
+        expect(mockDiagnoseRun).toHaveBeenCalledWith("run-2");
+      });
+      await waitFor(() => {
+        expect(screen.getByText(/HTTP 429/)).toBeInTheDocument();
+      });
+    });
+
+    it("再次点击诊断按钮收起诊断面板", async () => {
+      await renderAndWait();
+      const btn = screen.getByRole("button", { name: "智能诊断" });
+      fireEvent.click(btn);
+      await waitFor(() => expect(screen.getByText(/HTTP 429/)).toBeInTheDocument());
+      fireEvent.click(btn);
+      await waitFor(() => {
+        expect(screen.queryByText(/HTTP 429/)).not.toBeInTheDocument();
+      });
+    });
+
+    it("诊断请求失败时显示错误提示", async () => {
+      mockDiagnoseRun.mockRejectedValueOnce(new Error("429 rate limit"));
+      await renderAndWait();
+      fireEvent.click(screen.getByRole("button", { name: "智能诊断" }));
+      await waitFor(() => {
+        expect(screen.getByText(/诊断暂时不可用/)).toBeInTheDocument();
       });
     });
   });
