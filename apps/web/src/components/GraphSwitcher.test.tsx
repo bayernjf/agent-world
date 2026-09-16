@@ -58,7 +58,7 @@ function renderComponent(overrides: Partial<{
   const onDuplicate = vi.fn();
   const onDelete = vi.fn();
   const onRename = vi.fn();
-  render(
+  const utils = render(
     <GraphSwitcher
       graphs={overrides.graphs ?? sampleGraphs}
       currentId={overrides.currentId ?? "graph-1"}
@@ -75,12 +75,14 @@ function renderComponent(overrides: Partial<{
     onDuplicate: overrides.onDuplicate ?? onDuplicate,
     onDelete: overrides.onDelete ?? onDelete,
     onRename: overrides.onRename ?? onRename,
+    unmount: utils.unmount,
   };
 }
 
 describe("GraphSwitcher", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
   });
 
   describe("渲染", () => {
@@ -418,6 +420,99 @@ describe("GraphSwitcher", () => {
       renderComponent();
       fireEvent.click(screen.getByRole("button"));
       expect(document.querySelector(".graph-popover__divider")).toBeInTheDocument();
+    });
+  });
+
+  describe("搜索", () => {
+    it("展开后显示搜索框", () => {
+      renderComponent();
+      fireEvent.click(screen.getByRole("button"));
+      expect(screen.getByPlaceholderText("搜索产线…")).toBeInTheDocument();
+    });
+
+    it("按名称过滤产线（不区分大小写）", () => {
+      renderComponent();
+      fireEvent.click(screen.getByRole("button"));
+      fireEvent.change(screen.getByPlaceholderText("搜索产线…"), { target: { value: "淘宝" } });
+      const popover = screen.getByTestId("popover");
+      expect(popover.textContent).toContain("淘宝详情页");
+      expect(popover.textContent).not.toContain("小红书种草");
+      expect(popover.textContent).not.toContain("狗粮视频");
+    });
+
+    it("无匹配显示空态提示", () => {
+      renderComponent();
+      fireEvent.click(screen.getByRole("button"));
+      fireEvent.change(screen.getByPlaceholderText("搜索产线…"), { target: { value: "不存在的产线" } });
+      expect(screen.getByText("没有匹配的产线")).toBeInTheDocument();
+      expect(document.querySelectorAll(".graph-row").length).toBe(0);
+    });
+
+    it("搜索框点击不触发产线切换", () => {
+      const { onSwitch } = renderComponent();
+      fireEvent.click(screen.getByRole("button"));
+      fireEvent.click(screen.getByPlaceholderText("搜索产线…"));
+      expect(onSwitch).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("收藏置顶", () => {
+    it("每个产线有收藏按钮（☆）", () => {
+      renderComponent();
+      fireEvent.click(screen.getByRole("button"));
+      expect(screen.getAllByText("☆")).toHaveLength(3);
+    });
+
+    it("点击收藏后变为 ★ 并写入 localStorage", () => {
+      renderComponent();
+      fireEvent.click(screen.getByRole("button"));
+      const pinButtons = screen.getAllByText("☆");
+      fireEvent.click(pinButtons[2]!); // 收藏 graph-3（狗粮视频）
+      expect(screen.getAllByText("★")).toHaveLength(1);
+      expect(JSON.parse(localStorage.getItem("aw-pinned-graphs")!)).toEqual(["graph-3"]);
+    });
+
+    it("收藏的产线排到列表最前", () => {
+      renderComponent();
+      fireEvent.click(screen.getByRole("button"));
+      // 默认顺序 graph-1 / graph-2 / graph-3
+      let rows = document.querySelectorAll(".graph-row .graph-row__name");
+      expect(rows[0]!.textContent).toContain("小红书种草");
+      // 收藏最后一个
+      fireEvent.click(screen.getAllByText("☆")[2]!);
+      rows = document.querySelectorAll(".graph-row .graph-row__name");
+      expect(rows[0]!.textContent).toContain("狗粮视频");
+    });
+
+    it("再次点击取消收藏并恢复顺序", () => {
+      renderComponent();
+      fireEvent.click(screen.getByRole("button"));
+      const pinButtons = screen.getAllByText("☆");
+      fireEvent.click(pinButtons[2]!);
+      fireEvent.click(screen.getByText("★"));
+      expect(screen.queryByText("★")).not.toBeInTheDocument();
+      const rows = document.querySelectorAll(".graph-row .graph-row__name");
+      expect(rows[0]!.textContent).toContain("小红书种草");
+      expect(JSON.parse(localStorage.getItem("aw-pinned-graphs")!)).toEqual([]);
+    });
+
+    it("收藏状态在重新打开后保持", () => {
+      const { unmount } = renderComponent();
+      fireEvent.click(screen.getByRole("button"));
+      fireEvent.click(screen.getAllByText("☆")[1]!); // 收藏 graph-2
+      unmount();
+      // 重新渲染（模拟再次打开组件）
+      renderComponent();
+      fireEvent.click(screen.getByRole("button"));
+      const rows = document.querySelectorAll(".graph-row .graph-row__name");
+      expect(rows[0]!.textContent).toContain("淘宝详情页");
+    });
+
+    it("收藏按钮点击不触发产线切换", () => {
+      const { onSwitch } = renderComponent();
+      fireEvent.click(screen.getByRole("button"));
+      fireEvent.click(screen.getAllByText("☆")[0]!);
+      expect(onSwitch).not.toHaveBeenCalled();
     });
   });
 

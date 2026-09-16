@@ -69,7 +69,24 @@
     "deleteConfirm": "确定删除此版本吗？",
     "deleteFailed": "删除失败: {{message}}",
     "previewFailed": "预览加载失败",
-    "previewSummary": "{{nodes}} 个节点 · {{edges}} 条连线 · {{kinds}}"
+    "previewSummary": "{{nodes}} 个节点 · {{edges}} 条连线 · {{kinds}}",
+    "compareToggle": "版本对比",
+    "exitCompare": "退出对比",
+    "compareBase": "基准 A",
+    "compareTarget": "对比 B",
+    "compareHint": "先选「基准 A」，再选「对比 B」，将自动生成对比",
+    "diffTitle": "版本对比：{{base}} → {{target}}",
+    "diffLoading": "正在对比…",
+    "diffFailed": "版本对比失败",
+    "diffIdentical": "两个版本结构完全相同，没有差异。",
+    "diffNodesAdded": "新增节点（{{n}}）",
+    "diffNodesRemoved": "删除节点（{{n}}）",
+    "diffNodesChanged": "修改节点（{{n}}）",
+    "diffEdgesAdded": "新增连线（{{n}}）",
+    "diffEdgesRemoved": "删除连线（{{n}}）",
+    "diffTriggersChanged": "触发器配置已变更",
+    "diffVariablesChanged": "全局变量已变更",
+    "diffPosition": "画布位置"
   },
   "commandPalette": {
     "ariaLabel": "命令面板",
@@ -848,7 +865,11 @@
   },
   "graphSwitcher": {
     "fallbackName": "产线",
-    "create": "+ 新建产线"
+    "create": "+ 新建产线",
+    "searchPlaceholder": "搜索产线…",
+    "pin": "收藏置顶",
+    "unpin": "取消收藏",
+    "noResults": "没有匹配的产线"
   },
   "collaborators": {
     "title": "协作者 — {{name}}",

@@ -156,12 +156,12 @@
     "uploadFailed": "上传失败"
   },
   "sourceFiles": {
-    "label": "文档（PDF / DOCX / PPTX，供「{{node}}」读取）",
+    "label": "文档（PDF / DOCX / PPTX / XLSX，供「{{node}}」读取）",
     "dropzone": "点击上传文档，或把文件拖到这里",
     "uploading": "上传中…",
     "thumbFallback": "文",
     "uploadFailed": "上传失败",
-    "rejectedUnsupported": "{{name}}（仅支持 PDF / DOCX / PPTX）",
+    "rejectedUnsupported": "{{name}}（仅支持 PDF / DOCX / PPTX / XLSX）",
     "rejectedTooLarge": "{{name}}（{{size}}，解析上限 5 MB）",
     "skipped": "已跳过：{{files}}",
     "skippedSeparator": "；"
@@ -466,7 +466,7 @@
     },
     "fileParse": {
       "maxImages": "最大提取图片数（0 = 不提取）",
-      "note": "从上游的 file artifact 提取文本与内嵌图片（PDF / DOCX / PPTX）。文本输出为 text artifact（可直接供 agent 节点消费）；图片输出为 image artifact。上游可用「HTTP 节点 + 输出模式 = 文件」下载文档，或接入其他产出 file 的节点。"
+      "note": "从上游的 file artifact 提取文本与内嵌图片（PDF / DOCX / PPTX / XLSX，表格转 CSV）。文本输出为 text artifact（可直接供 agent 节点消费）；图片输出为 image artifact。上游可用「HTTP 节点 + 输出模式 = 文件」下载文档，或接入其他产出 file 的节点。"
     },
     "translate": {
       "target": "目标语言",

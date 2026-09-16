@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import i18n from "../i18n";
 import { formatNumber } from "../i18n/utils";
@@ -163,10 +163,17 @@ export default function RunHistory({ open, onClose, onOpen }: Props) {
   const [pageSize, setPageSize] = useState(20);
   const [graphId, setGraphId] = useState("");
   const [status, setStatus] = useState("");
+  const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [compareMode, setCompareMode] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
   const [comparing, setComparing] = useState(false);
+  // LLM failure diagnosis, keyed by run id.
+  const [diagnosingId, setDiagnosingId] = useState<string | null>(null);
+  const [diagnosisById, setDiagnosisById] = useState<Record<string, string>>({});
+  const [diagnosisErrorById, setDiagnosisErrorById] = useState<Record<string, boolean>>({});
+  const [diagnosisOpenById, setDiagnosisOpenById] = useState<Record<string, boolean>>({});
   const [stats, setStats] = useState<Record<string, RunStats>>({});
   const [rerunning, setRerunning] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
@@ -179,6 +186,7 @@ export default function RunHistory({ open, onClose, onOpen }: Props) {
         offset: page * pageSize,
         graphId: graphId || undefined,
         status: status || undefined,
+        q: debouncedQuery || undefined,
       })
       .then((d) => {
         setRuns(d.runs);
@@ -187,12 +195,27 @@ export default function RunHistory({ open, onClose, onOpen }: Props) {
       .finally(() => setLoading(false));
   };
 
+  // Debounce the free-text search so each keystroke does not hit the API.
+  useEffect(() => {
+    const handle = setTimeout(() => {
+      setPage(0);
+      setDebouncedQuery(query.trim());
+    }, 300);
+    return () => clearTimeout(handle);
+  }, [query]);
+
   // Load graph list once when the dialog opens; reset transient selection state.
   useEffect(() => {
     if (!open) return;
     setPage(0);
+    setQuery("");
+    setDebouncedQuery("");
     setSelected([]);
     setComparing(false);
+    setDiagnosingId(null);
+    setDiagnosisById({});
+    setDiagnosisErrorById({});
+    setDiagnosisOpenById({});
     api
       .listGraphs()
       .then((g) => setGraphs(g.map((x) => ({ id: x.id, name: x.name }))));
@@ -204,7 +227,7 @@ export default function RunHistory({ open, onClose, onOpen }: Props) {
     if (!open) return;
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, graphId, status, open]);
+  }, [page, graphId, status, debouncedQuery, open]);
 
   if (!open) return null;
 
@@ -234,6 +257,26 @@ export default function RunHistory({ open, onClose, onOpen }: Props) {
     } finally {
       setRerunning(null);
     }
+  };
+
+  const handleDiagnose = (runId: string) => {
+    // Already fetched: just toggle the panel.
+    if (diagnosisById[runId] || diagnosisErrorById[runId]) {
+      setDiagnosisOpenById((s) => ({ ...s, [runId]: !s[runId] }));
+      return;
+    }
+    setDiagnosingId(runId);
+    api
+      .diagnoseRun(runId)
+      .then((d) => {
+        setDiagnosisById((s) => ({ ...s, [runId]: d.diagnosis }));
+        setDiagnosisOpenById((s) => ({ ...s, [runId]: true }));
+      })
+      .catch(() => {
+        setDiagnosisErrorById((s) => ({ ...s, [runId]: true }));
+        setDiagnosisOpenById((s) => ({ ...s, [runId]: true }));
+      })
+      .finally(() => setDiagnosingId(null));
   };
 
   const runCompare = async () => {
@@ -269,6 +312,13 @@ export default function RunHistory({ open, onClose, onOpen }: Props) {
         </div>
 
         <div className="runhistory-filters">
+          <input
+            type="text"
+            className="runhistory-search"
+            placeholder={t("run:history.searchPlaceholder")}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
           <label>
             {t("run:history.graph")}
             <select
@@ -325,8 +375,8 @@ export default function RunHistory({ open, onClose, onOpen }: Props) {
                   <div className="note">{t("run:history.empty")}</div>
                 )}
                 {runs.map((r) => (
+                  <Fragment key={r.id}>
                   <div
-                    key={r.id}
                     className={`runhistory-row${compareMode ? " runhistory-row--selectable" : ""}${
                       r.status === "failed" ? " runhistory-status-failed" : ""
                     }`}
@@ -392,7 +442,38 @@ export default function RunHistory({ open, onClose, onOpen }: Props) {
                           : t("run:history.rerun")}
                       </button>
                     )}
+                    {r.status === "failed" && (
+                      <button
+                        className="btn runhistory-diagnose"
+                        disabled={diagnosingId === r.id}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDiagnose(r.id);
+                        }}
+                      >
+                        {diagnosingId === r.id
+                          ? t("run:history.diagnosing")
+                          : t("run:history.diagnose")}
+                      </button>
+                    )}
                   </div>
+                  {r.status === "failed" && diagnosisOpenById[r.id] && (
+                    <div className="runhistory-diagnosis" onClick={(e) => e.stopPropagation()}>
+                      <div className="runhistory-diagnosis-title">
+                        {t("run:history.diagnosisTitle")}
+                      </div>
+                      {diagnosisErrorById[r.id] ? (
+                        <div className="runhistory-diagnosis-error">
+                          {t("run:history.diagnosisError")}
+                        </div>
+                      ) : (
+                        <pre className="runhistory-diagnosis-body">
+                          {diagnosisById[r.id] ?? t("run:history.diagnosing")}
+                        </pre>
+                      )}
+                    </div>
+                  )}
+                  </Fragment>
                 ))}
               </div>
 

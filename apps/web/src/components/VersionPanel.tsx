@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { formatDateTime } from "../i18n/utils";
 import type { Graph } from "@agent-world/core";
 import { TemplatePreview } from "./TemplatePicker";
+import { diffGraphs, formatDiffValue, type GraphDiff } from "../lib/graph-diff";
 
 interface VersionSummary {
   id: string;
@@ -40,6 +41,16 @@ export default function VersionPanel({ open, graphId, graphName, onClose, onRest
   const [saving, setSaving] = useState(false);
   const [preview, setPreview] = useState<{ name: string; graph: Graph } | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [compareMode, setCompareMode] = useState(false);
+  const [baseId, setBaseId] = useState<string | null>(null);
+  const [targetId, setTargetId] = useState<string | null>(null);
+  const [diffView, setDiffView] = useState<{
+    baseName: string;
+    targetName: string;
+    diff: GraphDiff;
+    nameById: Map<string, string>;
+  } | null>(null);
+  const [diffLoading, setDiffLoading] = useState(false);
 
   useEffect(() => {
     if (open && graphId) load();
@@ -122,6 +133,65 @@ export default function VersionPanel({ open, graphId, graphName, onClose, onRest
     }
   }
 
+  /** Pick a version for slot A/B; once both are picked the diff loads. */
+  function pickCompare(slot: "base" | "target", id: string) {
+    let nextBase = baseId;
+    let nextTarget = targetId;
+    if (slot === "base") {
+      // Clicking the already-picked base clears it; picking the target as
+      // base swaps the two slots.
+      if (id === baseId) nextBase = null;
+      else if (id === targetId) {
+        nextBase = id;
+        nextTarget = baseId;
+      } else nextBase = id;
+    } else {
+      if (id === targetId) nextTarget = null;
+      else if (id === baseId) {
+        nextTarget = id;
+        nextBase = targetId;
+      } else nextTarget = id;
+    }
+    setBaseId(nextBase);
+    setTargetId(nextTarget);
+    if (nextBase && nextTarget && nextBase !== nextTarget) {
+      void openDiff(nextBase, nextTarget);
+    }
+  }
+
+  async function openDiff(aId: string, bId: string) {
+    setDiffLoading(true);
+    try {
+      const [aRes, bRes] = await Promise.all([
+        fetch(`/api/graphs/${graphId}/versions/${aId}`),
+        fetch(`/api/graphs/${graphId}/versions/${bId}`),
+      ]);
+      if (!aRes.ok || !bRes.ok) throw new Error("fetch failed");
+      const a = (await aRes.json()) as { name: string; snapshot: Graph };
+      const b = (await bRes.json()) as { name: string; snapshot: Graph };
+      const nameById = new Map<string, string>();
+      for (const n of [...a.snapshot.nodes, ...b.snapshot.nodes]) {
+        if (!nameById.has(n.id)) nameById.set(n.id, n.name);
+      }
+      setDiffView({
+        baseName: a.name,
+        targetName: b.name,
+        diff: diffGraphs(a.snapshot, b.snapshot),
+        nameById,
+      });
+    } catch {
+      alert(t("modals:versionPanel.diffFailed"));
+    } finally {
+      setDiffLoading(false);
+    }
+  }
+
+  function exitCompareMode() {
+    setCompareMode(false);
+    setBaseId(null);
+    setTargetId(null);
+  }
+
   if (!open) return null;
 
   // Hoisted out of the JSX so the summary line stays a single translated string.
@@ -141,7 +211,17 @@ export default function VersionPanel({ open, graphId, graphName, onClose, onRest
       <div className="modal version-panel" onClick={(e) => e.stopPropagation()}>
         <div className="modal__header">
           <h2>{t("modals:versionPanel.title", { name: graphName })}</h2>
-          <button className="btn btn--ghost btn--sm" onClick={onClose}>{t("common.close")}</button>
+          <div className="version-panel__header-actions">
+            <button
+              className="btn btn--ghost btn--sm"
+              onClick={() => (compareMode ? exitCompareMode() : setCompareMode(true))}
+            >
+              {compareMode
+                ? t("modals:versionPanel.exitCompare")
+                : t("modals:versionPanel.compareToggle")}
+            </button>
+            <button className="btn btn--ghost btn--sm" onClick={onClose}>{t("common.close")}</button>
+          </div>
         </div>
 
         <div className="version-panel__save">
@@ -167,6 +247,13 @@ export default function VersionPanel({ open, graphId, graphName, onClose, onRest
         </div>
 
         <div className="version-panel__list">
+          {compareMode && (
+            <p className="version-panel__compare-hint muted">
+              {diffLoading
+                ? t("modals:versionPanel.diffLoading")
+                : t("modals:versionPanel.compareHint")}
+            </p>
+          )}
           {loading && (
             <p className="muted" style={{ textAlign: "center", padding: "20px" }}>
               {t("common.loading")}
@@ -195,11 +282,32 @@ export default function VersionPanel({ open, graphId, graphName, onClose, onRest
               </div>
               {v.note && v.note !== "auto" && <p className="version-item__note muted">{v.note}</p>}
               <div className="version-item__actions">
-                <button className="btn btn--ghost btn--sm" onClick={() => openPreview(v.id)} disabled={previewLoading}>
-                  {t("modals:versionPanel.preview")}
-                </button>
-                <button className="btn btn--ghost btn--sm" onClick={() => restoreVersion(v.id)}>{t("modals:versionPanel.restore")}</button>
-                <button className="btn btn--ghost btn--sm btn--danger" onClick={() => deleteVersion(v.id)}>{t("common.delete")}</button>
+                {compareMode ? (
+                  <>
+                    <button
+                      className={`btn btn--sm ${baseId === v.id ? "btn--primary" : "btn--ghost"}`}
+                      aria-pressed={baseId === v.id}
+                      onClick={() => pickCompare("base", v.id)}
+                    >
+                      {t("modals:versionPanel.compareBase")}
+                    </button>
+                    <button
+                      className={`btn btn--sm ${targetId === v.id ? "btn--primary" : "btn--ghost"}`}
+                      aria-pressed={targetId === v.id}
+                      onClick={() => pickCompare("target", v.id)}
+                    >
+                      {t("modals:versionPanel.compareTarget")}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button className="btn btn--ghost btn--sm" onClick={() => openPreview(v.id)} disabled={previewLoading}>
+                      {t("modals:versionPanel.preview")}
+                    </button>
+                    <button className="btn btn--ghost btn--sm" onClick={() => restoreVersion(v.id)}>{t("modals:versionPanel.restore")}</button>
+                    <button className="btn btn--ghost btn--sm btn--danger" onClick={() => deleteVersion(v.id)}>{t("common.delete")}</button>
+                  </>
+                )}
               </div>
             </div>
           ))}
@@ -229,6 +337,140 @@ export default function VersionPanel({ open, graphId, graphName, onClose, onRest
           </div>
         </div>
       )}
+
+      {diffView && (
+        <div className="modal-overlay" onClick={() => setDiffView(null)}>
+          <div className="modal version-preview version-diff-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal__header">
+              <h2>
+                {t("modals:versionPanel.diffTitle", {
+                  base: diffView.baseName,
+                  target: diffView.targetName,
+                })}
+              </h2>
+              <button className="btn btn--ghost btn--sm" onClick={() => setDiffView(null)}>{t("common.close")}</button>
+            </div>
+            <div className="version-preview__body version-diff__body">
+              {diffView.diff.identical && (
+                <p className="muted">{t("modals:versionPanel.diffIdentical")}</p>
+              )}
+              {!diffView.diff.identical && (
+                <>
+                  <DiffGroup
+                    title={t("modals:versionPanel.diffNodesAdded", { n: diffView.diff.nodesAdded.length })}
+                    tone="added"
+                    hidden={diffView.diff.nodesAdded.length === 0}
+                  >
+                    {diffView.diff.nodesAdded.map((n) => (
+                      <li key={n.id} className="version-diff__item">
+                        <span className="version-diff__node-name">{n.name}</span>
+                        <span className="muted">{t(`nodes:${n.kind}`)}</span>
+                      </li>
+                    ))}
+                  </DiffGroup>
+                  <DiffGroup
+                    title={t("modals:versionPanel.diffNodesRemoved", { n: diffView.diff.nodesRemoved.length })}
+                    tone="removed"
+                    hidden={diffView.diff.nodesRemoved.length === 0}
+                  >
+                    {diffView.diff.nodesRemoved.map((n) => (
+                      <li key={n.id} className="version-diff__item">
+                        <span className="version-diff__node-name">{n.name}</span>
+                        <span className="muted">{t(`nodes:${n.kind}`)}</span>
+                      </li>
+                    ))}
+                  </DiffGroup>
+                  <DiffGroup
+                    title={t("modals:versionPanel.diffNodesChanged", { n: diffView.diff.nodesChanged.length })}
+                    tone="changed"
+                    hidden={diffView.diff.nodesChanged.length === 0}
+                  >
+                    {diffView.diff.nodesChanged.map((nc) => {
+                      const pos = nc.changes.filter((c) => c.path === "x" || c.path === "y");
+                      const fields = nc.changes.filter((c) => c.path !== "x" && c.path !== "y");
+                      return (
+                        <li key={nc.id} className="version-diff__item version-diff__item--block">
+                          <div>
+                            <span className="version-diff__node-name">{nc.name}</span>
+                            <span className="muted">{t(`nodes:${nc.kind}`)}</span>
+                          </div>
+                          {pos.length === 2 && (
+                            <div className="version-diff__field">
+                              <span className="muted">{t("modals:versionPanel.diffPosition")}: </span>
+                              <code>({formatDiffValue(pos.find((p) => p.path === "x")?.before)}, {formatDiffValue(pos.find((p) => p.path === "y")?.before)})</code>
+                              {" → "}
+                              <code>({formatDiffValue(pos.find((p) => p.path === "x")?.after)}, {formatDiffValue(pos.find((p) => p.path === "y")?.after)})</code>
+                            </div>
+                          )}
+                          {fields.map((c) => (
+                            <div key={c.path} className="version-diff__field">
+                              <code>{c.path}</code>:{" "}
+                              <code className="version-diff__val--old">{formatDiffValue(c.before)}</code>
+                              {" → "}
+                              <code className="version-diff__val--new">{formatDiffValue(c.after)}</code>
+                            </div>
+                          ))}
+                        </li>
+                      );
+                    })}
+                  </DiffGroup>
+                  <DiffGroup
+                    title={t("modals:versionPanel.diffEdgesAdded", { n: diffView.diff.edgesAdded.length })}
+                    tone="added"
+                    hidden={diffView.diff.edgesAdded.length === 0}
+                  >
+                    {diffView.diff.edgesAdded.map((e, i) => (
+                      <li key={`${e.from}-${e.to}-${i}`} className="version-diff__item">
+                        {diffView.nameById.get(e.from) ?? e.from.slice(0, 8)} →{" "}
+                        {diffView.nameById.get(e.to) ?? e.to.slice(0, 8)}
+                      </li>
+                    ))}
+                  </DiffGroup>
+                  <DiffGroup
+                    title={t("modals:versionPanel.diffEdgesRemoved", { n: diffView.diff.edgesRemoved.length })}
+                    tone="removed"
+                    hidden={diffView.diff.edgesRemoved.length === 0}
+                  >
+                    {diffView.diff.edgesRemoved.map((e, i) => (
+                      <li key={`${e.from}-${e.to}-${i}`} className="version-diff__item">
+                        {diffView.nameById.get(e.from) ?? e.from.slice(0, 8)} →{" "}
+                        {diffView.nameById.get(e.to) ?? e.to.slice(0, 8)}
+                      </li>
+                    ))}
+                  </DiffGroup>
+                  {diffView.diff.triggersChanged && (
+                    <p className="version-diff__flag">{t("modals:versionPanel.diffTriggersChanged")}</p>
+                  )}
+                  {diffView.diff.variablesChanged && (
+                    <p className="version-diff__flag">{t("modals:versionPanel.diffVariablesChanged")}</p>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
+  );
+}
+
+/** Collapsible-looking section in the diff overlay; hidden when empty. */
+function DiffGroup({
+  title,
+  tone,
+  hidden,
+  children,
+}: {
+  title: string;
+  tone: "added" | "removed" | "changed";
+  hidden: boolean;
+  children: ReactNode;
+}) {
+  if (hidden) return null;
+  return (
+    <section className={`version-diff__group version-diff__group--${tone}`}>
+      <h3 className="version-diff__heading">{title}</h3>
+      <ul className="version-diff__list">{children}</ul>
+    </section>
   );
 }
