@@ -322,6 +322,7 @@ select {
 
 .hud {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--gap-xl);
   padding: var(--space-3) var(--space-5);
@@ -349,18 +350,24 @@ select {
 }
 
 .hud__meta {
+  flex: 0 0 auto;
   display: flex;
   gap: var(--gap-lg);
   font-family: var(--mono);
   font-size: var(--text-xs);
   letter-spacing: 0.1em;
+  white-space: nowrap;
 }
 
 .hud__actions {
   margin-left: auto;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--gap-sm);
+}
+.hud__actions .chip {
+  white-space: nowrap;
 }
 
 /* ---------- popover base (portal container) ---------- */
@@ -1493,6 +1500,7 @@ select {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  overflow: hidden;
   background: var(--bg-primary);
   background-image: radial-gradient(circle at 50% 0%, var(--info-bg), transparent 60%);
 }
@@ -6013,6 +6021,7 @@ select {
   position: relative;
   z-index: calc(var(--z-canvas-chrome, 5) + 1);
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--gap-xs);
   padding: var(--gap-xs) var(--gap-sm) var(--gap-xs) var(--gap-md);
@@ -6041,6 +6050,7 @@ select {
   font-family: var(--mono);
   font-size: var(--text-xs);
   letter-spacing: 0.08em;
+  white-space: nowrap;
   cursor: pointer;
   transition: var(--duration-fast);
 }
