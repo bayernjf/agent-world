@@ -141,10 +141,31 @@ function AttemptRow({ runId, nodeId, a }: { runId: string; nodeId: string; a: Ti
  * timeline projection and renders every node + attempt (retries included), with
  * status, duration, tokens/cost, gate verdict, error and an output preview.
  */
-export default function RunTimelineView({ runId }: { runId: string }) {
+export default function RunTimelineView({
+  runId,
+  onForked,
+}: {
+  runId: string;
+  /** G1.2: called with the new run id after a "rerun from here" fork starts. */
+  onForked?: (newRunId: string) => void;
+}) {
   const { t } = useTranslation();
   const [data, setData] = useState<RunTimelineResponse | null>(null);
   const [failed, setFailed] = useState(false);
+  const [forkingNode, setForkingNode] = useState<string | null>(null);
+  const [forkError, setForkError] = useState<string | null>(null);
+
+  const handleFork = async (nodeId: string) => {
+    setForkError(null);
+    setForkingNode(nodeId);
+    try {
+      const { runId: newRunId } = await api.forkRun(runId, nodeId);
+      onForked?.(newRunId);
+    } catch (e) {
+      setForkError(t("run:timeline.forkFailed", { message: (e as Error).message }));
+      setForkingNode(null);
+    }
+  };
 
   useEffect(() => {
     let alive = true;
@@ -189,6 +210,7 @@ export default function RunTimelineView({ runId }: { runId: string }) {
           <span className="run-timeline-tripped">{t("run:timeline.tripped")}</span>
         )}
       </div>
+      {forkError && <div className="run-timeline-forkerror">{forkError}</div>}
       {timeline.nodes.map((node) => {
         const meta = nodeMeta[node.nodeId];
         const last = node.attempts[node.attempts.length - 1];
@@ -202,10 +224,28 @@ export default function RunTimelineView({ runId }: { runId: string }) {
                 {meta?.name || node.nodeId.slice(0, 8)}
               </span>
               {meta?.kind && <span className="run-timeline-node-kind">{meta.kind}</span>}
+              {node.reused && (
+                <span className="run-timeline-reused" title={t("run:timeline.reused")}>
+                  {t("run:timeline.reused")}
+                </span>
+              )}
               {node.attempts.length > 1 && (
                 <span className="run-timeline-retry">
                   {t("run:timeline.retries", { n: node.attempts.length - 1 })}
                 </span>
+              )}
+              {node.status === "done" && (
+                <button
+                  type="button"
+                  className="btn btn--sm run-timeline-fork"
+                  disabled={forkingNode !== null}
+                  onClick={() => void handleFork(node.nodeId)}
+                  title={t("run:timeline.forkHere")}
+                >
+                  {forkingNode === node.nodeId
+                    ? t("run:timeline.forking")
+                    : t("run:timeline.forkHere")}
+                </button>
               )}
             </div>
             <div className="run-timeline-attempts">

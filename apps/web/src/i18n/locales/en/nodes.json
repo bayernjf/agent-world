@@ -181,7 +181,7 @@
     "contract": {
       "title": "Output contract (advanced)",
       "hint": "Declare fields that must be present and non-empty in this node's output; missing fields or wrong types are caught before data flows downstream. Only applies to nodes whose output is a JSON object (HTTP / database / table / file connectors); pure-text or Markdown nodes need no contract.",
-      "notYetEnforced": "Note: contract enforcement is not wired into the engine yet, so this is saved as configuration and does not block runs for now.",
+      "enforced": "Enforced at run time: if the output misses a required field or has a wrong type, the node fails immediately (SCHEMA_VIOLATION) and can be handled by an error edge; nodes without a contract are not checked.",
       "fieldPlaceholder": "Field path, e.g. title or meta.count",
       "add": "Add field",
       "remove": "Remove",
@@ -238,6 +238,7 @@
       "SCRIPT_ERROR": "Script error",
       "AUTH": "Key error",
       "VALIDATION": "Gate rejected",
+      "SCHEMA_VIOLATION": "Output contract violation",
       "BUDGET": "Node budget exceeded",
       "UNKNOWN": "Unknown error",
       "UNSUPPORTED": "Unsupported",
@@ -265,6 +266,8 @@
       "source": "Source (upstream node)",
       "sourceAuto": "Auto (single upstream)",
       "timeoutMs": "Timeout (ms)",
+      "maxRetries": "Failure retries",
+      "maxRetriesTitle": "Extra attempts for transient faults (timeout, rate limit, 5xx); 0 = no retry. Excludes quality rework from gate rejection.",
       "customEndpoint": "Custom endpoint (optional)",
       "apiKeyOptional": "API key (optional; blank = provider key)",
       "apiKey": "API key (optional)"

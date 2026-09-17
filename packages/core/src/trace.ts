@@ -52,6 +52,8 @@ export interface TimelineNode {
   firstStartedAt: number | null;
   /** Terminal status of the latest attempt, or the live status while running. */
   status: TimelineAttemptStatus;
+  /** G1.2 fork: true when this node's output was reused from the parent run (not re-run, zero cost). */
+  reused?: boolean;
 }
 
 export interface TimelineBudget {
@@ -191,6 +193,7 @@ export function buildTimeline(events: RunEvent[]): RunTimeline {
         at.costUsd = e.usage.costUsd;
         at.model = e.usage.model ?? null;
         node.status = "done";
+        if (e.reused) node.reused = true;
         break;
       }
       case "node.failed": {

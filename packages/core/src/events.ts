@@ -30,6 +30,7 @@ export const ErrorCode = z.enum([
   "PROVIDER_ERROR",
   "AUTH",
   "VALIDATION",
+  "SCHEMA_VIOLATION",
   "BUDGET",
   "CONNECTOR",
   "UNKNOWN",
@@ -110,6 +111,12 @@ export const RunEvent = z.discriminatedUnion("type", [
     ...NodeRunKey.shape,
     output: z.string(),
     usage: Usage,
+    /**
+     * G1.2 fork: true when this finished event is synthesized for an upstream
+     * node whose output was reused from the parent run (not re-executed, not
+     * billed). Lets the timeline mark reused steps distinctly.
+     */
+    reused: z.boolean().optional(),
   }),
   z.object({
     ...base,

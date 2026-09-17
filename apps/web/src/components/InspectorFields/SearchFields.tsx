@@ -1,4 +1,5 @@
 import type { FieldsProps } from "./types";
+import { RetryField } from "./shared";
 
 /** A keyed provider is selectable only once the user has saved its key in Settings. */
 function hasProviderKey(
@@ -96,6 +97,25 @@ export default function SearchFields({
         />
       </label>
       <p className="note">{t("nodes:inspector.search.note")}</p>
+      <RetryField
+        value={node.search!.retry?.maxRetries ?? 2}
+        onChange={(maxRetries) =>
+          updateNode(node.id, {
+            search: {
+              ...node.search!,
+              retry: {
+                ...(node.search!.retry ?? {
+                  maxRetries: 2,
+                  baseDelayMs: 1000,
+                  maxDelayMs: 30000,
+                }),
+                maxRetries,
+              },
+            },
+          })
+        }
+        t={t}
+      />
     </>
   );
 }

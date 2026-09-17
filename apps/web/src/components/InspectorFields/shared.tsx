@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import type { TFunction } from "i18next";
 import type { TableStep } from "@agent-world/core";
 import Tooltip from "../Tooltip";
 import i18n from "../../i18n";
@@ -28,6 +29,48 @@ export function replaceAt<T>(arr: T[], i: number, v: T): T[] {
   const next = [...arr];
   next[i] = v;
   return next;
+}
+
+/* ------------------------------------------------------------------ */
+/* Per-node technical-failure retry cap (G3).                          */
+/* ------------------------------------------------------------------ */
+
+/** Clamp the retry cap to the schema's [0,10] integer range. */
+export function clampRetries(v: number): number {
+  if (!Number.isFinite(v)) return 0;
+  return Math.max(0, Math.min(10, Math.floor(v)));
+}
+
+/**
+ * Per-node cap on *technical-failure* retries (timeout / rate limit / 5xx),
+ * which do not bump the attempt counter. This is distinct from quality rework
+ * (a gate rejecting output re-runs the entry node and bumps the attempt).
+ * Reads/writes `<kind>.retry.maxRetries`; base/max backoff stay at defaults.
+ */
+export function RetryField({
+  value,
+  onChange,
+  t,
+}: {
+  value: number;
+  onChange: (maxRetries: number) => void;
+  t: TFunction;
+}) {
+  return (
+    <label className="field">
+      <span title={t("nodes:inspector.common.maxRetriesTitle")}>
+        {t("nodes:inspector.common.maxRetries")}
+      </span>
+      <input
+        type="number"
+        min={0}
+        max={10}
+        step={1}
+        value={value}
+        onChange={(e) => onChange(clampRetries(Number(e.target.value)))}
+      />
+    </label>
+  );
 }
 
 /* ------------------------------------------------------------------ */

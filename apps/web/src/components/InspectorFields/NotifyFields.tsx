@@ -1,4 +1,5 @@
 import type { FieldsProps } from "./types";
+import { RetryField } from "./shared";
 
 export default function NotifyFields({ node, updateNode, t }: FieldsProps) {
   if (!node.notify) return null;
@@ -155,6 +156,25 @@ export default function NotifyFields({ node, updateNode, t }: FieldsProps) {
         </>
       )}
       <p className="note">{t("nodes:inspector.notify.note")}</p>
+      <RetryField
+        value={node.notify!.retry?.maxRetries ?? 2}
+        onChange={(maxRetries) =>
+          updateNode(node.id, {
+            notify: {
+              ...node.notify!,
+              retry: {
+                ...(node.notify!.retry ?? {
+                  maxRetries: 2,
+                  baseDelayMs: 1000,
+                  maxDelayMs: 30000,
+                }),
+                maxRetries,
+              },
+            },
+          })
+        }
+        t={t}
+      />
     </>
   );
 }

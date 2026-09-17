@@ -1,4 +1,5 @@
 import type { FieldsProps } from "./types";
+import { RetryField } from "./shared";
 
 export default function VcsFields({
   node,
@@ -273,6 +274,25 @@ export default function VcsFields({
         </label>
       )}
       <p className="note">{t("nodes:inspector.vcs.note")}</p>
+      <RetryField
+        value={node.vcs!.retry?.maxRetries ?? 2}
+        onChange={(maxRetries) =>
+          updateNode(node.id, {
+            vcs: {
+              ...node.vcs!,
+              retry: {
+                ...(node.vcs!.retry ?? {
+                  maxRetries: 2,
+                  baseDelayMs: 1000,
+                  maxDelayMs: 30000,
+                }),
+                maxRetries,
+              },
+            },
+          })
+        }
+        t={t}
+      />
     </>
   );
 }

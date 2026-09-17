@@ -6,11 +6,13 @@ vi.mock("../lib/api", () => ({
   api: {
     getRunTimeline: vi.fn(),
     getRunNodeOutput: vi.fn(),
+    forkRun: vi.fn(),
   },
 }));
 
 const mockGet = api.getRunTimeline as unknown as ReturnType<typeof vi.fn>;
 const mockGetNodeOutput = api.getRunNodeOutput as unknown as ReturnType<typeof vi.fn>;
+const mockFork = api.forkRun as unknown as ReturnType<typeof vi.fn>;
 
 function attempt(over: Record<string, unknown> = {}) {
   return {
@@ -166,5 +168,50 @@ describe("RunTimelineView", () => {
     await waitFor(() =>
       expect(container.querySelector(".run-timeline-output-error")).toBeTruthy(),
     );
+  });
+
+  it("offers 'rerun from here' only on succeeded nodes and calls forkRun", async () => {
+    mockGet.mockResolvedValue(sample);
+    mockFork.mockResolvedValue({ runId: "new-run" });
+    const onForked = vi.fn();
+    render(<RunTimelineView runId="run-1" onForked={onForked} />);
+
+    await screen.findByText(/hello world/);
+    // A is done → one fork button; B failed → no fork button.
+    const forkButtons = screen.getAllByRole("button", { name: "从此处重跑" });
+    expect(forkButtons).toHaveLength(1);
+
+    fireEvent.click(forkButtons[0]!);
+    await waitFor(() => expect(mockFork).toHaveBeenCalledWith("run-1", "A"));
+    await waitFor(() => expect(onForked).toHaveBeenCalledWith("new-run"));
+  });
+
+  it("shows an inline error when forking fails", async () => {
+    mockGet.mockResolvedValue(sample);
+    mockFork.mockRejectedValue(new Error("422 boom"));
+    const { container } = render(<RunTimelineView runId="run-1" />);
+
+    await screen.findByText(/hello world/);
+    fireEvent.click(screen.getByRole("button", { name: "从此处重跑" }));
+    await waitFor(() =>
+      expect(container.querySelector(".run-timeline-forkerror")).toBeTruthy(),
+    );
+    expect(container.querySelector(".run-timeline-forkerror")?.textContent).toContain("422 boom");
+  });
+
+  it("marks reused upstream nodes with a reused badge", async () => {
+    const reusedSample: RunTimelineResponse = {
+      ...sample,
+      timeline: {
+        ...sample.timeline,
+        nodes: [
+          { ...sample.timeline.nodes[0]!, reused: true },
+          sample.timeline.nodes[1]!,
+        ],
+      },
+    };
+    mockGet.mockResolvedValue(reusedSample);
+    render(<RunTimelineView runId="run-1" />);
+    await screen.findByText("复用");
   });
 });

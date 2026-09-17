@@ -4,7 +4,7 @@ import type { Db, Product } from "./db.js";
 import type { ResolvedMaterial } from "./connectors.js";
 import { ArtifactStore } from "./artifact-store.js";
 import { log } from "./logger.js";
-import { execute, resume } from "./engine.js";
+import { execute, fork, reconstructState, resume } from "./engine.js";
 import { loadConfig } from "./config.js";
 import { loadUserSkills } from "./skills/user-skills.js";
 import { runAsUser } from "./user-context.js";
@@ -440,4 +440,153 @@ export async function resumeRun(args: ResumeRunArgs): Promise<{ runId: string; a
   });
 
   return { runId, action };
+}
+
+export interface ForkRunArgs {
+  db: Db;
+  userId: string;
+  worker: Worker;
+  artifacts: ArtifactStore;
+  live: LiveMap;
+  /** The completed run to fork from (never mutated). */
+  parentRunId: string;
+  /** Reuse this node and every upstream step; re-run its flow descendants. */
+  fromNodeId: string;
+  publicUrl?: string;
+  onFinish?: (graphId: string, status: string) => void;
+  onArtifact?: (artifactId: string) => void;
+}
+
+/**
+ * G1.2 — fork a completed (or halted/failed, as long as the fork point itself
+ * succeeded) run into a brand-new run. The fork point and its upstream steps
+ * reuse the parent run's outputs and are billed zero; only the flow descendants
+ * re-execute. Mirrors startRun's persistence/metering pipeline, but drives the
+ * engine's `fork()` generator seeded from the parent run's event log. The new
+ * run inherits the parent's budget_usd.
+ */
+export async function forkRun(args: ForkRunArgs): Promise<{ runId: string }> {
+  const { db, userId, worker, artifacts, live, parentRunId, fromNodeId, publicUrl } = args;
+  const parent = await db.getRunById(parentRunId);
+  if (!parent) throw new RunStartError("not found", 404);
+  if (parent.status === "running") throw new RunStartError("parent run is still live", 409);
+
+  let graph: Graph;
+  try {
+    graph = JSON.parse(parent.snapshot) as Graph;
+  } catch {
+    throw new RunStartError("run snapshot is corrupt", 422);
+  }
+  if (!graph?.nodes?.length) throw new RunStartError("run snapshot is empty", 422);
+  if (!graph.nodes.some((n) => n.id === fromNodeId)) {
+    throw new RunStartError(`node ${fromNodeId} not found in the run snapshot`, 422);
+  }
+
+  const { plan, diagnostics } = compile(graph);
+  if (!plan) throw new RunStartError("graph does not compile", 422, diagnostics);
+
+  const parentEvents = await db.events(parentRunId);
+  // Validate the fork point BEFORE creating the new run, so a bad fork returns
+  // 422 rather than leaving an immediately-failed run behind.
+  const seed = reconstructState(parentEvents);
+  if (!seed.artifacts.has(fromNodeId)) {
+    throw new RunStartError(`node ${fromNodeId} has no completed output to fork from`, 422);
+  }
+
+  const runId = randomUUID();
+  const startedAt = Date.now();
+  await db.createRun({
+    id: runId,
+    userId,
+    graph,
+    budgetUsd: parent.budget_usd ?? null,
+    at: startedAt,
+    trigger: "fork",
+    input: parent.input ?? undefined,
+  });
+  const controller = new AbortController();
+  const entry: LiveEntry = { events: [], done: false, controller };
+  live.set(runId, entry);
+  runsActive.inc();
+  const runLog = log.child({ runId, graphId: graph.id, forkedFrom: parentRunId });
+  runLog.info("run forked", { fromNodeId, nodes: graph.nodes.length });
+
+  void runAsUser(userId, async () => {
+    try {
+      const cfg = await loadConfig(userId);
+      const now = new Date();
+      const variables = new Map<string, unknown>(
+        Object.entries({ ...(graph.variables ?? {}), ...await db.loadGraphVariables(graph.id, userId) }),
+      );
+      for await (const event of fork({
+        runId,
+        graph,
+        plan,
+        worker,
+        budgetUsd: parent.budget_usd ?? null,
+        monthlyBudgetUsd: cfg.monthlyBudgetUsd ?? null,
+        monthSpentUsd: await db.costForMonth(now.getFullYear(), now.getMonth() + 1, userId),
+        defaultModel: cfg.defaultModel,
+        pastEvents: parentEvents,
+        fromNodeId,
+        sourceInput: parent.input ?? undefined,
+        initialVariables: variables,
+        bannedTerms: await db.bannedTermsText(userId),
+        searchConfig: cfg.searchConfig,
+        userSkills: await loadUserSkills(userId, cfg),
+        loadProducts: productConnectorLoader(db, userId),
+        log: runLog,
+        signal: controller.signal,
+        storeBinary: async (data, mimeType, label) => {
+          const kind = mimeType.startsWith("image/")
+            ? "image"
+            : mimeType.startsWith("video/")
+              ? "video"
+              : mimeType.startsWith("audio/")
+                ? "audio"
+                : "file";
+          const saved = await artifacts.saveBinary({ userId, data, kind, mimeType, label });
+          await db.insertArtifact(saved, userId);
+          return saved.uri ?? `data:${mimeType};base64,${data.toString("base64")}`;
+        },
+        readArtifact: createReadArtifact(db, artifacts),
+        publicUrl,
+        loadSubgraph: async (graphId) => await db.getGraph(graphId, userId) ?? null,
+      })) {
+        await db.record(runId, event);
+        if (event.type === "artifact.produced") {
+          await persistArtifact({ db, artifacts, userId, graph, runId, event });
+          args.onArtifact?.(event.artifact.id);
+        }
+        entry.events.push(event);
+        if (event.type === "run.finished") {
+          await db.finishRun(runId, userId, event.status, Date.now(), haltedOf(event));
+          await db.saveGraphVariables(graph.id, userId, Object.fromEntries(variables));
+          recordRunFinished(event.status, (await db.runStats(runId)).costUsd);
+          try {
+            await recordRunUsage(db, userId, graph, runId, startedAt, cfg);
+          } catch (meterErr) {
+            runLog.warn("usage metering failed", { error: (meterErr as Error)?.message ?? String(meterErr) });
+          }
+          try {
+            await checkUsageAlerts(db, userId);
+          } catch (alertErr) {
+            runLog.warn("usage alert failed", { error: (alertErr as Error)?.message ?? String(alertErr) });
+          }
+          args.onFinish?.(graph.id, event.status);
+        }
+      }
+    } catch (err) {
+      await db.finishRun(runId, userId, "failed", Date.now());
+      runsTotal.inc({ status: "failed" });
+      runsFailedTotal.inc();
+      runLog.error("fork crashed", { error: (err as Error)?.message ?? String(err) });
+    } finally {
+      entry.done = true;
+      live.delete(runId);
+      runsActive.dec();
+    }
+  });
+
+  return { runId };
 }
