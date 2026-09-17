@@ -34,7 +34,7 @@ import { counter, gauge, histogram, renderMetrics } from "./metrics.js";
 import { findGraphIdByName as findGraphIdByNameCore } from "./graphs-name.js";
 import { ArtifactStore } from "./artifact-store.js";
 import { log } from "./logger.js";
-import { startRun, resumeRun, RunStartError, type ResumeAction } from "./run.js";
+import { startRun, resumeRun, forkRun, RunStartError, type ResumeAction } from "./run.js";
 import { buildFailureInfo, diagnoseRun } from "./diagnose.js";
 import { runBatch } from "./batch.js";
 import { listPendingReviews, parseDecisions } from "./reviews.js";
@@ -3701,6 +3701,78 @@ app.post("/api/runs/:id/rerun", async (c) => {
       },
     });
     return c.json({ runId, diagnostics, modelWarnings: modelDiags });
+  } catch (e) {
+    if (e instanceof RunStartError) {
+      return jsonResponse(e.status, { error: e.message, diagnostics: e.extra });
+    }
+    throw e;
+  }
+});
+
+/**
+ * G1.2 fork: create a new run that reuses `fromNodeId` and every upstream step
+ * (zero cost) and re-runs only its flow descendants. Returns the new run id.
+ */
+app.post("/api/runs/:id/fork", async (c) => {
+  const userId = c.get("userId");
+  const parentRunId = c.req.param("id");
+  const role = await runAccessRole(db, userId, parentRunId);
+  if (role == null) return c.json({ error: "not found" }, 404);
+  if (!hasAtLeast(role, "editor")) {
+    return c.json({ error: "forbidden", message: "只读协作者不能从此处重跑运行" }, 403);
+  }
+  const body = (await c.req.json().catch(() => ({}))) as { fromNodeId?: unknown };
+  const fromNodeId = typeof body?.fromNodeId === "string" ? body.fromNodeId : "";
+  if (!fromNodeId) return c.json({ error: "fromNodeId is required" }, 400);
+
+  const graphRef = await db.getRunGraphRef(parentRunId);
+  if (!graphRef) return c.json({ error: "not found" }, 404);
+  const runOwnerId = graphRef.userId;
+  const parent = await db.getRunById(parentRunId);
+  if (!parent) return c.json({ error: "not found" }, 404);
+  if (parent.status === "running") return c.json({ error: "run is still live" }, 409);
+
+  let graph: Graph;
+  try {
+    graph = JSON.parse(parent.snapshot) as Graph;
+  } catch {
+    return c.json({ error: "run snapshot is corrupt" }, 422);
+  }
+  if (!graph?.nodes?.length) return c.json({ error: "run snapshot is empty" }, 422);
+  if (!graph.nodes.some((n) => n.id === fromNodeId)) {
+    return c.json({ error: "fromNodeId not found in run snapshot" }, 422);
+  }
+  // Mirror rerun: descendants re-execute, so unconfigured models would 422 mid-run.
+  const modelDiags = validateModels(graph, await loadConfig(runOwnerId));
+  if (modelDiags.some((d) => d.severity === "error")) {
+    return c.json(
+      {
+        error: "graph has unconfigured model(s)",
+        message: `${modelDiags.filter((d) => d.severity === "error").length} 个节点未配置模型，请先在「模型设置」补全后再从此处重跑。`,
+        diagnostics: modelDiags,
+      },
+      422,
+    );
+  }
+
+  try {
+    const { runId } = await forkRun({
+      db,
+      userId: runOwnerId,
+      worker: workerRegistry.get(undefined),
+      artifacts,
+      live,
+      parentRunId,
+      fromNodeId,
+      publicUrl: PUBLIC_URL,
+      onFinish: (gid, status) => {
+        void triggers.onGraphFinished(gid, status);
+      },
+      onArtifact: (aid) => {
+        void triggers.onArtifact(aid);
+      },
+    });
+    return c.json({ runId });
   } catch (e) {
     if (e instanceof RunStartError) {
       return jsonResponse(e.status, { error: e.message, diagnostics: e.extra });

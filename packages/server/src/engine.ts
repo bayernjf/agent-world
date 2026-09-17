@@ -2036,3 +2036,200 @@ export async function* resume(opts: ResumeOptions): AsyncGenerator<RunEvent, voi
   });
   yield* gen;
 }
+
+export interface ForkOptions {
+  /** The NEW (forked) run's id. The parent run is never mutated. */
+  runId: string;
+  graph: Graph;
+  plan: Plan;
+  worker: Worker;
+  budgetUsd: number | null;
+  monthlyBudgetUsd?: number | null;
+  monthSpentUsd?: number;
+  defaultModel?: string;
+  /** The parent run's full event log, used to seed reused upstream state. */
+  pastEvents: RunEvent[];
+  /**
+   * Fork point: this node AND its ancestors keep their parent-run outputs
+   * (synthesized as zero-cost `reused` steps), while every flow descendant is
+   * reset and re-executed. Must have completed successfully in the parent run.
+   */
+  fromNodeId: string;
+  /** Parent run's raw input, used when the fork point is (or feeds) a source node. */
+  sourceInput?: string;
+  connectorValues?: Record<string, string>;
+  signal?: AbortSignal;
+  now?: () => number;
+  sleep?: (ms: number) => Promise<void>;
+  log?: Logger;
+  storeBinary?: (data: Buffer, mimeType: string, label?: string) => string | Promise<string>;
+  readArtifact?: (uri: string) => Promise<string | null>;
+  publicUrl?: string;
+  permissionConfig?: PermissionConfig;
+  loadSubgraph?: (graphId: string) => Promise<Graph | null>;
+  initialVariables?: Map<string, unknown>;
+  bannedTerms?: string;
+  searchConfig?: { provider?: string; apiKey?: string; cx?: string };
+  loadProducts?: (connector: ProductConnector) => Promise<ResolvedMaterial>;
+  userSkills?: Map<string, BuiltinSkill>;
+}
+
+/**
+ * G1.2 — fork a completed run at a given node. The fork point and every node
+ * upstream of it reuse the parent run's outputs (re-seeded into the scheduler,
+ * synthesized as zero-cost `reused` timeline events, and never billed); only
+ * the fork point's flow descendants are reset and actually re-executed. This is
+ * the halt/resume "continue from a chosen node" mechanism generalized to any
+ * already-succeeded node, written into a brand-new run so the parent's audit
+ * trail stays intact. Yields a full event stream starting at run.started (seq 0).
+ */
+export async function* fork(opts: ForkOptions): AsyncGenerator<RunEvent, void, void> {
+  if (!opts.plan) {
+    throw new Error(
+      "graph does not compile: the pipeline has no executable plan (missing intake or invalid edges)",
+    );
+  }
+  const { runId, graph, plan, worker, budgetUsd } = opts;
+  const now = opts.now ?? Date.now;
+  const sleep = opts.sleep ?? delay;
+  const state = reconstructState(opts.pastEvents);
+
+  // The fork point must have produced output in the parent run, otherwise there
+  // is nothing to inject as the downstream starting input.
+  if (!state.artifacts.has(opts.fromNodeId)) {
+    throw new Error(
+      `cannot fork from node ${opts.fromNodeId}: it has no completed output in the parent run`,
+    );
+  }
+
+  // Reset set = flow descendants of the fork point, NOT the fork point itself
+  // (its output is the reused starting input). BFS over flow edges.
+  const reset = new Set<string>();
+  const queue: string[] = [];
+  for (const e of outgoing(graph, opts.fromNodeId, "flow")) {
+    if (!reset.has(e.to)) {
+      reset.add(e.to);
+      queue.push(e.to);
+    }
+  }
+  while (queue.length) {
+    const id = queue.shift()!;
+    for (const e of outgoing(graph, id, "flow")) {
+      if (!reset.has(e.to)) {
+        reset.add(e.to);
+        queue.push(e.to);
+      }
+    }
+  }
+  for (const id of reset) {
+    state.artifacts.delete(id);
+    state.attempts.delete(id);
+    state.nodeCostUsd.delete(id);
+    state.skipped.delete(id);
+  }
+
+  // Reused upstream is never billed on the forked run: discard every carried
+  // cost. Re-run nodes accumulate fresh cost as they finish.
+  state.totalCostUsd = 0;
+  state.nodeCostUsd.clear();
+
+  // Seed node states from the surviving artifacts.
+  const states = new Map<string, NodeState>();
+  for (const n of graph.nodes) {
+    states.set(
+      n.id,
+      state.artifacts.has(n.id) ? "done" : state.skipped.has(n.id) ? "skipped" : "pending",
+    );
+  }
+
+  // Packets whose sender is outside the reset set stay marked — this includes
+  // ancestor→ancestor edges and the fork-point→descendant entry edges, so the
+  // rerun subtree's entry nodes see their predecessors ready. Stale packets
+  // inside the rerun subtree are dropped (those nodes are pending and re-send).
+  const edgeById = new Map(graph.edges.map((e) => [e.id, e]));
+  const packetEdges = new Set(
+    opts.pastEvents
+      .filter((e) => e.type === "packet.sent")
+      .map((e) => (e as { edgeId: string }).edgeId)
+      .filter((edgeId) => {
+        const ed = edgeById.get(edgeId);
+        return !!ed && !reset.has(ed.from);
+      }),
+  );
+
+  let seq = 0;
+  yield { type: "run.started", runId, graphId: graph.id, budgetUsd, seq: seq++, ts: now() };
+
+  // Last successful output per node, for the synthesized reused timeline rows.
+  const lastFinished = new Map<string, { output: string; attempt: number }>();
+  for (const e of opts.pastEvents) {
+    if (e.type === "node.finished") {
+      lastFinished.set(e.nodeId, { output: e.output, attempt: e.attempt });
+    }
+  }
+
+  // Synthesize zero-cost, reused=true finished events for every surviving done
+  // node (fork point + ancestors) in topological order, so the timeline renders
+  // the reused upstream as completed steps rather than greyed-pending nodes.
+  // Their real artifacts already live in init.artifacts and feed downstream
+  // input assembly; these events are display-only (zero usage).
+  for (const id of plan.order) {
+    if (states.get(id) !== "done" || reset.has(id)) continue;
+    const prev = lastFinished.get(id);
+    const attempt = state.attempts.get(id) ?? prev?.attempt ?? 1;
+    const textArtifact = state.artifacts.get(id)?.find((a) => a.kind === "text");
+    const output = prev?.output ?? textArtifact?.content ?? "";
+    yield { type: "node.started", nodeId: id, attempt, seq: seq++, ts: now() };
+    yield {
+      type: "node.finished",
+      nodeId: id,
+      attempt,
+      output,
+      usage: zeroUsage(),
+      reused: true,
+      seq: seq++,
+      ts: now(),
+    };
+  }
+
+  const gen = await runScheduler({
+    runId,
+    graph,
+    plan,
+    worker,
+    budgetUsd,
+    monthlyBudgetUsd: opts.monthlyBudgetUsd ?? null,
+    monthSpentUsd: opts.monthSpentUsd ?? 0,
+    fallbackModel: opts.defaultModel ?? "agnes-2.0-flash",
+    log: opts.log,
+    startSeq: seq,
+    sourceInput: opts.sourceInput,
+    connectorValues: opts.connectorValues,
+    signal: opts.signal,
+    now,
+    sleep,
+    storeBinary: opts.storeBinary ?? defaultStoreBinary,
+    readArtifact: opts.readArtifact,
+    publicUrl: opts.publicUrl,
+    permissionConfig: opts.permissionConfig,
+    loadSubgraph: opts.loadSubgraph,
+    initialVariables: opts.initialVariables,
+    bannedTerms: opts.bannedTerms,
+    searchConfig: opts.searchConfig,
+    userSkills: opts.userSkills,
+    loadProducts: opts.loadProducts,
+    init: {
+      artifacts: state.artifacts,
+      attempts: state.attempts,
+      nodeCostUsd: state.nodeCostUsd,
+      totalCostUsd: 0,
+      states,
+      approvedTools: [],
+      packetEdges,
+      variables: opts.initialVariables ?? new Map<string, unknown>(),
+    },
+    // We emitted run.started ourselves above; don't let the scheduler emit a second.
+    resuming: true,
+  });
+  yield* gen;
+}
