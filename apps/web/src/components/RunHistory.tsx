@@ -11,6 +11,8 @@ interface Props {
   open: boolean;
   onClose: () => void;
   onOpen?: (runId: string) => void;
+  /** G5.1: hand off a finished run to the A/B prompt-compare dialog. */
+  onComparePrompt?: (o: import("./ABDialog").ABCompareSample) => void;
 }
 
 const PAGE_SIZES = [10, 20, 50, 100];
@@ -155,7 +157,7 @@ function CompareView({
   );
 }
 
-export default function RunHistory({ open, onClose, onOpen }: Props) {
+export default function RunHistory({ open, onClose, onOpen, onComparePrompt }: Props) {
   const { t } = useTranslation();
   const [runs, setRuns] = useState<RunSummary[]>([]);
   const [graphs, setGraphs] = useState<{ id: string; name: string }[]>([]);
@@ -498,6 +500,7 @@ export default function RunHistory({ open, onClose, onOpen }: Props) {
                           load();
                           onOpen?.(newRunId);
                         }}
+                        onComparePrompt={onComparePrompt}
                       />
                     </div>
                   )}

@@ -963,7 +963,10 @@
     "inputLabel": "原材料（可选）",
     "inputPlaceholder": "留空则使用产线默认原材料",
     "launch": "发起 A/B（{{count}} 臂）",
-    "launching": "发起中…"
+    "launching": "发起中…",
+    "sampleHint": "以这条运行的真实输入作为起始素材：Arm A 自动使用产线当前的线上 prompt，Arm B 起使用你在下方填写的新 prompt。",
+    "variantsHintSample": "每行一个新 prompt（Arm A 自动用线上 prompt，无需填写）；当前 {{count}} 个，至少 1 个",
+    "inputFromRun": "起始输入取自所选运行，不可修改。"
   },
   "abReport": {
     "title": "A/B 实验对比",
@@ -978,7 +981,15 @@
     "running": "运行中 {{done}}/{{runs}}",
     "done": "完成",
     "noRuns": "无运行",
-    "winnerNote": "建议采用 <strong>{{arm}}</strong> 臂：已完成运行中质量分最高（合格率 {{rate}}）。"
+    "winnerNote": "建议采用 <strong>{{arm}}</strong> 臂：已完成运行中质量分最高（合格率 {{rate}}）。",
+    "gateVerdict": "质检站判定",
+    "gateNone": "无质检站",
+    "gateNoVerdict": "暂无判定",
+    "gatePassed": "通过 {{score}}/10",
+    "gateFailed": "未过 {{score}}/10",
+    "gateBelowBar": "低于质量线 {{bar}}",
+    "gateMutatesHint": "目标厂房与质检站之间存在改写内容的节点，各分支判定的可比性受限。",
+    "gateFootnote": "「质检站判定」为各分支目标厂房下游最近质检站的最终结果，仅供参考，不参与自动推荐。"
   },
   "runCompare": {
     "title": "运行对比",

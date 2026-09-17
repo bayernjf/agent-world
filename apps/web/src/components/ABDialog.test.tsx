@@ -11,8 +11,14 @@ beforeEach(() => {
 const mockStartAB = vi.fn();
 vi.mock("../lib/api", () => ({
   api: {
-    startAB: (graphId: string, targetNodeId: string, variants: string[], budgetUsd: number | null, input: string) =>
-      mockStartAB(graphId, targetNodeId, variants, budgetUsd, input),
+    startAB: (
+      graphId: string,
+      targetNodeId: string,
+      variants: string[],
+      budgetUsd: number | null,
+      input: string,
+      fromRunId?: string,
+    ) => mockStartAB(graphId, targetNodeId, variants, budgetUsd, input, fromRunId),
   },
 }));
 
@@ -287,6 +293,7 @@ describe("ABDialog", () => {
           ["变体一", "变体二"],
           50,
           "测试原材料",
+          undefined,
         );
       });
     });
@@ -300,6 +307,7 @@ describe("ABDialog", () => {
           ["变体一", "变体二"],
           null,
           "",
+          undefined,
         );
       });
     });
@@ -394,6 +402,79 @@ describe("ABDialog", () => {
       const modal = document.querySelector(".modal")!;
       fireEvent.click(modal);
       expect(onClose).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("以此样本做 prompt 对比 (G5.1 sample 模式)", () => {
+    const sample = {
+      runId: "run-9",
+      graphId: "graph-1",
+      targetNodeId: "node-2",
+      targetName: "文坊一",
+      input: "真实输入素材",
+    };
+
+    function renderSample() {
+      return render(
+        <ABDialog
+          open={true}
+          graph={sampleGraph}
+          sample={sample}
+          onClose={vi.fn()}
+          onLaunched={vi.fn()}
+        />,
+      );
+    }
+
+    it("显示样本模式说明", () => {
+      renderSample();
+      expect(screen.getByText(/以这条运行的真实输入/)).toBeInTheDocument();
+    });
+
+    it("目标文坊被锁定为样本节点且不可改", () => {
+      renderSample();
+      const select = screen.getByRole("combobox") as HTMLSelectElement;
+      expect(select).toBeDisabled();
+      expect(select.value).toBe("node-2");
+      expect(select.querySelector("option")?.textContent).toBe("文坊一");
+    });
+
+    it("起始输入只读并预填样本输入", () => {
+      const { container } = renderSample();
+      const input = container.querySelector(
+        "textarea[rows='2']",
+      ) as HTMLTextAreaElement;
+      expect(input).toHaveValue("真实输入素材");
+      expect(input).toHaveAttribute("readonly");
+      expect(screen.getByText("起始输入取自所选运行，不可修改。")).toBeInTheDocument();
+    });
+
+    it("只需 1 个新 prompt 即可启动，且臂数含自动的 Arm A", () => {
+      renderSample();
+      const variants = screen.getByPlaceholderText(/版本一/);
+      fireEvent.change(variants, { target: { value: "新 prompt B" } });
+      // 样本模式下限为 1 个新 prompt
+      expect(screen.getByText(/每行一个新 prompt/)).toBeInTheDocument();
+      const button = screen.getByText("发起 A/B（2 臂）");
+      expect(button).not.toBeDisabled();
+    });
+
+    it("启动时 Arm A 走现网 prompt，并把 fromRunId 与真实输入传给 API", async () => {
+      renderSample();
+      fireEvent.change(screen.getByPlaceholderText(/版本一/), {
+        target: { value: "新 prompt B" },
+      });
+      fireEvent.click(screen.getByText("发起 A/B（2 臂）"));
+      await waitFor(() => {
+        expect(mockStartAB).toHaveBeenCalledWith(
+          "graph-1",
+          "node-2",
+          ["新 prompt B"],
+          null,
+          "真实输入素材",
+          "run-9",
+        );
+      });
     });
   });
 

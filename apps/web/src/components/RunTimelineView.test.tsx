@@ -49,6 +49,7 @@ const sample: RunTimelineResponse = {
     budgetUsd: 0.5,
     haltedNodeId: null,
     haltedReason: null,
+    input: "",
   },
   nodeMeta: {
     A: { name: "写草稿", kind: "textGen" },

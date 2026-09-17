@@ -963,7 +963,10 @@
     "inputLabel": "Raw material (optional)",
     "inputPlaceholder": "Leave blank to use the pipeline default",
     "launch": "Launch A/B ({{count}} arms)",
-    "launching": "Launching…"
+    "launching": "Launching…",
+    "sampleHint": "Uses this run's real input as the starting material: arm A automatically uses the pipeline's current live prompt, and arm B onward use the new prompts you enter below.",
+    "variantsHintSample": "One new prompt per line (arm A uses the live prompt automatically — no need to type it); {{count}} now, at least 1",
+    "inputFromRun": "Starting input is taken from the selected run and cannot be edited."
   },
   "abReport": {
     "title": "A/B Comparison",
@@ -978,7 +981,15 @@
     "running": "Running {{done}}/{{runs}}",
     "done": "Done",
     "noRuns": "No runs",
-    "winnerNote": "Adopt arm <strong>{{arm}}</strong>: among completed runs it scores highest on quality (pass rate {{rate}})."
+    "winnerNote": "Adopt arm <strong>{{arm}}</strong>: among completed runs it scores highest on quality (pass rate {{rate}}).",
+    "gateVerdict": "Quality gate",
+    "gateNone": "No gate",
+    "gateNoVerdict": "No verdict",
+    "gatePassed": "Passed {{score}}/10",
+    "gateFailed": "Failed {{score}}/10",
+    "gateBelowBar": "Below bar {{bar}}",
+    "gateMutatesHint": "A content-mutating node sits between the target and the gate, so verdicts across arms are less directly comparable.",
+    "gateFootnote": "“Quality gate” shows the final verdict of the nearest downstream gate for each arm's target node. It is informational only and does not affect the automatic recommendation."
   },
   "runCompare": {
     "title": "Run Compare",

@@ -109,6 +109,7 @@ export default function ABReport({ open, groupId, onClose }: Props) {
                     <th className="num">{t("modals:reports.runs")}</th>
                     <th className="num">{t("modals:reports.passRate")}</th>
                     <th className="num">{t("modals:abReport.qualityScore")}</th>
+                    <th>{t("modals:abReport.gateVerdict")}</th>
                     <th className="num">{t("modals:reports.avgRework")}</th>
                     <th className="num">{t("modals:reports.avgDuration")}</th>
                     <th className="num">{t("modals:abReport.avgCost")}</th>
@@ -148,6 +149,40 @@ export default function ABReport({ open, groupId, onClose }: Props) {
                           {pct(a.passRate)}
                         </td>
                         <td className="num mono">{a.avgScore.toFixed(2)}</td>
+                        <td className="ab-gate">
+                          {a.gate == null ? (
+                            <span className="muted">{t("modals:abReport.gateNone")}</span>
+                          ) : a.gate.passed == null ? (
+                            <span className="muted">{t("modals:abReport.gateNoVerdict")}</span>
+                          ) : (
+                            <span className="ab-gate__cell">
+                              <span className="ab-gate__row">
+                                <span className={`ab-badge ${a.gate.passed ? "is-done" : "is-failed"}`}>
+                                  {a.gate.passed
+                                    ? t("modals:abReport.gatePassed", { score: a.gate.score ?? "—" })
+                                    : t("modals:abReport.gateFailed", { score: a.gate.score ?? "—" })}
+                                </span>
+                                {a.gate.meetsBar === false && a.gate.minScore != null && (
+                                  <span className="ab-gate__below">
+                                    {t("modals:abReport.gateBelowBar", { bar: a.gate.minScore })}
+                                  </span>
+                                )}
+                                {a.gate.mutatesInBetween && (
+                                  <Tooltip content={t("modals:abReport.gateMutatesHint")}>
+                                    <span className="ab-gate__warn" aria-label="mutates">
+                                      ⚠
+                                    </span>
+                                  </Tooltip>
+                                )}
+                              </span>
+                              {a.gate.reason && (
+                                <span className="ab-gate__reason" title={a.gate.reason}>
+                                  {a.gate.reason}
+                                </span>
+                              )}
+                            </span>
+                          )}
+                        </td>
                         <td className="num mono">{a.avgRework.toFixed(2)}</td>
                         <td className="num mono">
                           {fmtDuration(a.avgDurationMs)}
@@ -167,6 +202,9 @@ export default function ABReport({ open, groupId, onClose }: Props) {
                   />
                 </div>
               )}
+              <p className="form-hint" style={{ marginTop: 8 }}>
+                {t("modals:abReport.gateFootnote")}
+              </p>
             </>
           )}
         </div>

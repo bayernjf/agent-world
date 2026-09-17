@@ -30,6 +30,7 @@ import FormConnectorModal from "./components/FormConnectorModal";
 import CostReport from "./components/CostReport";
 import EvalReport from "./components/EvalReport";
 import ABDialog from "./components/ABDialog";
+import type { ABCompareSample } from "./components/ABDialog";
 import ABReport from "./components/ABReport";
 import BrandTermsModal from "./components/BrandTermsModal";
 import ProductLibrary from "./components/ProductLibrary";
@@ -194,6 +195,7 @@ export default function App() {
   const [evalOpen, setEvalOpen] = useState(false);
   const [abOpen, setABOpen] = useState(false);
   const [abGroup, setABGroup] = useState<string | null>(null);
+  const [abSample, setABSample] = useState<ABCompareSample | null>(null);
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [brandOpen, setBrandOpen] = useState(false);
   const [productOpen, setProductOpen] = useState(false);
@@ -410,7 +412,10 @@ export default function App() {
       label: t("modals:commandPalette.commands.ab.label"),
       hint: t("modals:commandPalette.commands.ab.hint"),
       group: "automation",
-      onSelect: () => setABOpen(true),
+      onSelect: () => {
+        setABSample(null);
+        setABOpen(true);
+      },
     },
     // Manage
     {
@@ -1252,6 +1257,11 @@ export default function App() {
             setHistoryOpen(false);
             void loadRun(id);
           }}
+          onComparePrompt={(o) => {
+            setHistoryOpen(false);
+            setABSample(o);
+            setABOpen(true);
+          }}
         />
         <ReviewQueue
           open={reviewOpen}
@@ -1280,9 +1290,14 @@ export default function App() {
         <ABDialog
           open={abOpen}
           graph={graph}
-          onClose={() => setABOpen(false)}
+          sample={abSample}
+          onClose={() => {
+            setABOpen(false);
+            setABSample(null);
+          }}
           onLaunched={(gid) => {
             setABOpen(false);
+            setABSample(null);
             setABGroup(gid);
           }}
         />
