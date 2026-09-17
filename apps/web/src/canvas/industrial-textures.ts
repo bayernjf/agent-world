@@ -22,7 +22,12 @@ export function concreteTexture(): THREE.CanvasTexture {
   const size = 256;
   const canvas = document.createElement("canvas");
   canvas.width = canvas.height = size;
-  const ctx = canvas.getContext("2d")!;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    // Headless (jsdom) has no 2D context; hand back a blank texture.
+    concreteTex = finalize(canvas);
+    return concreteTex;
+  }
   ctx.fillStyle = "#7e848c";
   ctx.fillRect(0, 0, size, size);
   // Speckle.
@@ -57,7 +62,12 @@ export function corrugatedMetalTexture(): THREE.CanvasTexture {
   const size = 256;
   const canvas = document.createElement("canvas");
   canvas.width = canvas.height = size;
-  const ctx = canvas.getContext("2d")!;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    // Headless (jsdom) has no 2D context; hand back a blank texture.
+    corrugatedTex = finalize(canvas);
+    return corrugatedTex;
+  }
   ctx.fillStyle = "#565d66";
   ctx.fillRect(0, 0, size, size);
   const period = 16;
@@ -86,7 +96,12 @@ export function hazardStripesTexture(): THREE.CanvasTexture {
   const size = 256;
   const canvas = document.createElement("canvas");
   canvas.width = canvas.height = size;
-  const ctx = canvas.getContext("2d")!;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    // Headless (jsdom) has no 2D context; hand back a blank texture.
+    hazardTex = finalize(canvas);
+    return hazardTex;
+  }
   ctx.fillStyle = "#e0b400";
   ctx.fillRect(0, 0, size, size);
   ctx.fillStyle = "#141518";
