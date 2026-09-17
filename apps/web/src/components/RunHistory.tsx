@@ -492,7 +492,13 @@ export default function RunHistory({ open, onClose, onOpen }: Props) {
                       className="runhistory-trace"
                       onClick={(e) => e.stopPropagation()}
                     >
-                      <RunTimelineView runId={r.id} />
+                      <RunTimelineView
+                        runId={r.id}
+                        onForked={(newRunId) => {
+                          load();
+                          onOpen?.(newRunId);
+                        }}
+                      />
                     </div>
                   )}
                   </Fragment>

@@ -6788,6 +6788,22 @@ select {
   font-size: var(--text-xs);
   color: #ffc78a;
 }
+.run-timeline-reused {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-2);
+}
+.run-timeline-fork {
+  margin-left: auto;
+}
+.run-timeline-forkerror {
+  font-size: var(--text-sm);
+  color: var(--error);
+  margin-bottom: var(--gap-sm);
+}
 .run-timeline-attempts {
   display: flex;
   flex-direction: column;

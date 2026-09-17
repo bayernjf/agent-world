@@ -1006,6 +1006,14 @@ export const api = {
   rerunRun: (runId: string) =>
     authFetch(`/api/runs/${runId}/rerun`, { method: "POST" }).then(json<{ runId: string }>),
 
+  /** G1.2: fork a run at a node — reuse that node + upstream (zero cost), rerun descendants. */
+  forkRun: (runId: string, fromNodeId: string) =>
+    authFetch(`/api/runs/${runId}/fork`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ fromNodeId }),
+    }).then(json<{ runId: string }>),
+
   diagnoseRun: (runId: string) =>
     authFetch(`/api/runs/${runId}/diagnose`, { method: "POST" }).then(
       json<{ diagnosis: string; model: string }>,
