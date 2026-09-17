@@ -77,6 +77,7 @@ const ERROR_LABEL: Record<string, string> = {
   SCRIPT_ERROR: "nodes:inspector.errorLabel.SCRIPT_ERROR",
   AUTH: "nodes:inspector.errorLabel.AUTH",
   VALIDATION: "nodes:inspector.errorLabel.VALIDATION",
+  SCHEMA_VIOLATION: "nodes:inspector.errorLabel.SCHEMA_VIOLATION",
   BUDGET: "nodes:inspector.errorLabel.BUDGET",
   UNKNOWN: "nodes:inspector.errorLabel.UNKNOWN",
   UNSUPPORTED: "nodes:inspector.errorLabel.UNSUPPORTED",
@@ -144,9 +145,8 @@ function nextMainTab(current: MainTab, hasSkills: boolean): MainTab {
  * G2.3 — optional upstream output-contract editor, shown on every node's
  * Config tab. It is only meaningful for nodes whose output is a JSON object
  * (HTTP / database / table / file connectors); pure-text or Markdown nodes
- * need not declare one. This is a configuration surface only: the engine does
- * not enforce the contract until the G2.2 wiring lands, so a spec saved here
- * is persisted but does not yet block a run.
+ * need not declare one. The engine enforces it at run time (G2.2): a violation
+ * fails the node with SCHEMA_VIOLATION before dirty output flows downstream.
  */
 function ContractFields({
   node,
@@ -202,7 +202,7 @@ function ContractFields({
         {t("nodes:inspector.contract.title")}
       </summary>
       <p className="hint">{t("nodes:inspector.contract.hint")}</p>
-      <p className="hint">{t("nodes:inspector.contract.notYetEnforced")}</p>
+      <p className="hint">{t("nodes:inspector.contract.enforced")}</p>
       {required.map((field) => (
         <div className="contract-field-row" key={field}>
           <code className="contract-field-name">{field}</code>

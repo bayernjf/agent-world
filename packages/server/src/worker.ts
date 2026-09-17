@@ -60,6 +60,25 @@ export interface VideoGenResult {
   usage: Usage;
 }
 
+/**
+ * Handle to a remote asynchronous video job (G4.4). Providers that render video
+ * as "submit task → poll status → fetch result" return an opaque job id from
+ * `submitVideoJob`; the node then polls `queryVideoJob` instead of blocking on
+ * a single long HTTP request that gateways tend to time out.
+ */
+export interface VideoJobHandle {
+  /** Provider-opaque task/job id used for status polling. */
+  jobId: string;
+  /** Provider name, for a routing worker to dispatch the poll call. */
+  provider?: string;
+}
+
+/** Status of a remote video job while polling. */
+export type VideoJobPoll =
+  | { state: "pending" | "running" }
+  | { state: "succeeded"; results: VideoGenResult[] }
+  | { state: "failed"; error: string; errorCode?: string };
+
 /** Arguments for a text-to-audio / TTS generation request. */
 export interface AudioGenArgs {
   node: GraphNode;
@@ -120,6 +139,22 @@ export interface Worker {
    * so providers without video support still work.
    */
   generateVideo?(args: VideoGenArgs): Promise<VideoGenResult[]>;
+
+  /**
+   * Optional asynchronous video seam (G4.4). When BOTH this and `queryVideoJob`
+   * are present, the videoGen node submits a remote render job and polls it
+   * (short requests with backoff) instead of one long blocking `generateVideo`
+   * call. When either is absent the node falls back to `generateVideo`, so
+   * synchronous providers and the fake worker behave byte-identically.
+   *
+   * Cross-run resumption (re-attaching to a job after a server restart instead
+   * of re-submitting) depends on the G4.2 degraded/halt state machine and is
+   * intentionally not wired here; this covers in-run polling only.
+   */
+  submitVideoJob?(args: VideoGenArgs): Promise<VideoJobHandle>;
+  queryVideoJob?(
+    args: VideoGenArgs & { job: VideoJobHandle },
+  ): Promise<VideoJobPoll>;
 
   /**
    * Generates audio (TTS / music) from text. Used by `audioGen` nodes.

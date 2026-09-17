@@ -1,5 +1,5 @@
 import type { FieldsProps } from "./types";
-import { MissingModelHint } from "./shared";
+import { MissingModelHint, RetryField } from "./shared";
 
 export default function TranslateFields({
   node,
@@ -109,6 +109,25 @@ export default function TranslateFields({
         />
       </label>
       <p className="note">{t("nodes:inspector.translate.note")}</p>
+      <RetryField
+        value={node.translate!.retry?.maxRetries ?? 2}
+        onChange={(maxRetries) =>
+          updateNode(node.id, {
+            translate: {
+              ...node.translate!,
+              retry: {
+                ...(node.translate!.retry ?? {
+                  maxRetries: 2,
+                  baseDelayMs: 1000,
+                  maxDelayMs: 30000,
+                }),
+                maxRetries,
+              },
+            },
+          })
+        }
+        t={t}
+      />
     </>
   );
 }

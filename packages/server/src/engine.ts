@@ -29,6 +29,9 @@ import {
   VcsConfig,
   SubprocessConfig,
   compile,
+  describeContractFailure,
+  validateContract as validateNodeContract,
+  SCHEMA_VIOLATION,
   applyTableSteps,
   buildNodeContext,
   collectColumns,
@@ -672,6 +675,12 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
   /** Flow edges that actually carried a packet this run (branch nodes only emit
    *  on the edges they routed to). Drives branch-aware scheduling. */
   const packetEdges = opts.init.packetEdges;
+  /**
+   * Nodes whose output contract (G2.2) has already been evaluated this run, so
+   * the sendPackets gate and the runNode finally fallback never double-emit.
+   * Local to the run; a resumed/forked run re-runs the node and re-checks.
+   */
+  const contractChecked = new Set<string>();
 
   let status: Status = "done";
   let running = 0;
@@ -917,6 +926,10 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
   };
 
   const sendPackets = (nodeId: string, summary: string, artifactKind?: Artifact["kind"]) => {
+    // G2.2: enforce the node's output contract before any flow packet leaves.
+    // A violation marks the node failed and withholds the packets, so successors
+    // never become ready from dirty output; the finally routes error edges.
+    if (!enforceContract(nodeId)) return;
     // Loop-body nodes DO send their packets: downstream merge points need the
     // packet for branch-aware readiness, and their artifacts are overwritten
     // each round so no data actually duplicates. The loop node's running state
@@ -951,6 +964,33 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       }
     }
     return null;
+  };
+
+  /**
+   * G2.2 upstream output-contract gate. Runs the first time a successful node
+   * is about to send flow packets downstream — i.e. while still inside the
+   * node handler's synchronous call stack, BEFORE the scheduler's launch loop
+   * scans for newly-ready successors. A violation drops the dirty artifacts,
+   * flips the node to failed with SCHEMA_VIOLATION and blocks the flow packets;
+   * the runNode finally then routes the cause along error edges as usual.
+   * Returns true when the node may send, false when it violated its contract.
+   * No/empty contract always passes (existing pipelines declare nothing).
+   */
+  const enforceContract = (nodeId: string): boolean => {
+    if (contractChecked.has(nodeId)) return true;
+    contractChecked.add(nodeId);
+    const n = nodeById(graph, nodeId);
+    if (!n || !n.contract || states.get(nodeId) !== "done") return true;
+    const verdict = validateNodeContract(n.contract, artifactValue(nodeId));
+    if (verdict.ok) return true;
+    const reason = `输出契约校验失败：${describeContractFailure(verdict)}`;
+    artifacts.delete(nodeId);
+    states.set(nodeId, "failed");
+    const attempt = attempts.get(nodeId) ?? 1;
+    // emit() also records lastError, which the finally uses to build the
+    // error-edge catch payload.
+    emit({ type: "node.failed", nodeId, attempt, error: reason, errorCode: SCHEMA_VIOLATION });
+    return false;
   };
 
   /** Produce typed artifacts from a node's output and emit events. Returns the primary kind. */
@@ -1345,6 +1385,15 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       });
     } finally {
       running--;
+      // G2.2 upstream output-contract guard. The primary gate is inside
+      // sendPackets (it runs synchronously before successors launch); this is
+      // the fallback for terminal nodes that finish done without sending flow
+      // packets. enforceContract de-dupes per node, so a node already gated at
+      // send time is not evaluated twice. No/empty contract always passes, so
+      // pipelines declaring nothing (incl. Hasee M1) behave byte-identically.
+      if (!aborted && states.get(nodeId) === "done" && node.contract) {
+        enforceContract(nodeId);
+      }
       // 节点失败时立即把错误交给 error 边的下游 catch 节点，不等待全局静止
       // （否则 human 等人工审批挂起时 running 永不归零，兜底会被永久阻塞）。
       if (!aborted && states.get(nodeId) === "failed") {
@@ -1984,6 +2033,203 @@ export async function* resume(opts: ResumeOptions): AsyncGenerator<RunEvent, voi
           attempt: state.attempts.get(state.haltedNodeId) ?? 1,
         }
       : undefined,
+  });
+  yield* gen;
+}
+
+export interface ForkOptions {
+  /** The NEW (forked) run's id. The parent run is never mutated. */
+  runId: string;
+  graph: Graph;
+  plan: Plan;
+  worker: Worker;
+  budgetUsd: number | null;
+  monthlyBudgetUsd?: number | null;
+  monthSpentUsd?: number;
+  defaultModel?: string;
+  /** The parent run's full event log, used to seed reused upstream state. */
+  pastEvents: RunEvent[];
+  /**
+   * Fork point: this node AND its ancestors keep their parent-run outputs
+   * (synthesized as zero-cost `reused` steps), while every flow descendant is
+   * reset and re-executed. Must have completed successfully in the parent run.
+   */
+  fromNodeId: string;
+  /** Parent run's raw input, used when the fork point is (or feeds) a source node. */
+  sourceInput?: string;
+  connectorValues?: Record<string, string>;
+  signal?: AbortSignal;
+  now?: () => number;
+  sleep?: (ms: number) => Promise<void>;
+  log?: Logger;
+  storeBinary?: (data: Buffer, mimeType: string, label?: string) => string | Promise<string>;
+  readArtifact?: (uri: string) => Promise<string | null>;
+  publicUrl?: string;
+  permissionConfig?: PermissionConfig;
+  loadSubgraph?: (graphId: string) => Promise<Graph | null>;
+  initialVariables?: Map<string, unknown>;
+  bannedTerms?: string;
+  searchConfig?: { provider?: string; apiKey?: string; cx?: string };
+  loadProducts?: (connector: ProductConnector) => Promise<ResolvedMaterial>;
+  userSkills?: Map<string, BuiltinSkill>;
+}
+
+/**
+ * G1.2 — fork a completed run at a given node. The fork point and every node
+ * upstream of it reuse the parent run's outputs (re-seeded into the scheduler,
+ * synthesized as zero-cost `reused` timeline events, and never billed); only
+ * the fork point's flow descendants are reset and actually re-executed. This is
+ * the halt/resume "continue from a chosen node" mechanism generalized to any
+ * already-succeeded node, written into a brand-new run so the parent's audit
+ * trail stays intact. Yields a full event stream starting at run.started (seq 0).
+ */
+export async function* fork(opts: ForkOptions): AsyncGenerator<RunEvent, void, void> {
+  if (!opts.plan) {
+    throw new Error(
+      "graph does not compile: the pipeline has no executable plan (missing intake or invalid edges)",
+    );
+  }
+  const { runId, graph, plan, worker, budgetUsd } = opts;
+  const now = opts.now ?? Date.now;
+  const sleep = opts.sleep ?? delay;
+  const state = reconstructState(opts.pastEvents);
+
+  // The fork point must have produced output in the parent run, otherwise there
+  // is nothing to inject as the downstream starting input.
+  if (!state.artifacts.has(opts.fromNodeId)) {
+    throw new Error(
+      `cannot fork from node ${opts.fromNodeId}: it has no completed output in the parent run`,
+    );
+  }
+
+  // Reset set = flow descendants of the fork point, NOT the fork point itself
+  // (its output is the reused starting input). BFS over flow edges.
+  const reset = new Set<string>();
+  const queue: string[] = [];
+  for (const e of outgoing(graph, opts.fromNodeId, "flow")) {
+    if (!reset.has(e.to)) {
+      reset.add(e.to);
+      queue.push(e.to);
+    }
+  }
+  while (queue.length) {
+    const id = queue.shift()!;
+    for (const e of outgoing(graph, id, "flow")) {
+      if (!reset.has(e.to)) {
+        reset.add(e.to);
+        queue.push(e.to);
+      }
+    }
+  }
+  for (const id of reset) {
+    state.artifacts.delete(id);
+    state.attempts.delete(id);
+    state.nodeCostUsd.delete(id);
+    state.skipped.delete(id);
+  }
+
+  // Reused upstream is never billed on the forked run: discard every carried
+  // cost. Re-run nodes accumulate fresh cost as they finish.
+  state.totalCostUsd = 0;
+  state.nodeCostUsd.clear();
+
+  // Seed node states from the surviving artifacts.
+  const states = new Map<string, NodeState>();
+  for (const n of graph.nodes) {
+    states.set(
+      n.id,
+      state.artifacts.has(n.id) ? "done" : state.skipped.has(n.id) ? "skipped" : "pending",
+    );
+  }
+
+  // Packets whose sender is outside the reset set stay marked — this includes
+  // ancestor→ancestor edges and the fork-point→descendant entry edges, so the
+  // rerun subtree's entry nodes see their predecessors ready. Stale packets
+  // inside the rerun subtree are dropped (those nodes are pending and re-send).
+  const edgeById = new Map(graph.edges.map((e) => [e.id, e]));
+  const packetEdges = new Set(
+    opts.pastEvents
+      .filter((e) => e.type === "packet.sent")
+      .map((e) => (e as { edgeId: string }).edgeId)
+      .filter((edgeId) => {
+        const ed = edgeById.get(edgeId);
+        return !!ed && !reset.has(ed.from);
+      }),
+  );
+
+  let seq = 0;
+  yield { type: "run.started", runId, graphId: graph.id, budgetUsd, seq: seq++, ts: now() };
+
+  // Last successful output per node, for the synthesized reused timeline rows.
+  const lastFinished = new Map<string, { output: string; attempt: number }>();
+  for (const e of opts.pastEvents) {
+    if (e.type === "node.finished") {
+      lastFinished.set(e.nodeId, { output: e.output, attempt: e.attempt });
+    }
+  }
+
+  // Synthesize zero-cost, reused=true finished events for every surviving done
+  // node (fork point + ancestors) in topological order, so the timeline renders
+  // the reused upstream as completed steps rather than greyed-pending nodes.
+  // Their real artifacts already live in init.artifacts and feed downstream
+  // input assembly; these events are display-only (zero usage).
+  for (const id of plan.order) {
+    if (states.get(id) !== "done" || reset.has(id)) continue;
+    const prev = lastFinished.get(id);
+    const attempt = state.attempts.get(id) ?? prev?.attempt ?? 1;
+    const textArtifact = state.artifacts.get(id)?.find((a) => a.kind === "text");
+    const output = prev?.output ?? textArtifact?.content ?? "";
+    yield { type: "node.started", nodeId: id, attempt, seq: seq++, ts: now() };
+    yield {
+      type: "node.finished",
+      nodeId: id,
+      attempt,
+      output,
+      usage: zeroUsage(),
+      reused: true,
+      seq: seq++,
+      ts: now(),
+    };
+  }
+
+  const gen = await runScheduler({
+    runId,
+    graph,
+    plan,
+    worker,
+    budgetUsd,
+    monthlyBudgetUsd: opts.monthlyBudgetUsd ?? null,
+    monthSpentUsd: opts.monthSpentUsd ?? 0,
+    fallbackModel: opts.defaultModel ?? "agnes-2.0-flash",
+    log: opts.log,
+    startSeq: seq,
+    sourceInput: opts.sourceInput,
+    connectorValues: opts.connectorValues,
+    signal: opts.signal,
+    now,
+    sleep,
+    storeBinary: opts.storeBinary ?? defaultStoreBinary,
+    readArtifact: opts.readArtifact,
+    publicUrl: opts.publicUrl,
+    permissionConfig: opts.permissionConfig,
+    loadSubgraph: opts.loadSubgraph,
+    initialVariables: opts.initialVariables,
+    bannedTerms: opts.bannedTerms,
+    searchConfig: opts.searchConfig,
+    userSkills: opts.userSkills,
+    loadProducts: opts.loadProducts,
+    init: {
+      artifacts: state.artifacts,
+      attempts: state.attempts,
+      nodeCostUsd: state.nodeCostUsd,
+      totalCostUsd: 0,
+      states,
+      approvedTools: [],
+      packetEdges,
+      variables: opts.initialVariables ?? new Map<string, unknown>(),
+    },
+    // We emitted run.started ourselves above; don't let the scheduler emit a second.
+    resuming: true,
   });
   yield* gen;
 }

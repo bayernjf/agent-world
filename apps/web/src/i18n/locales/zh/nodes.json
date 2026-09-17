@@ -181,7 +181,7 @@
     "contract": {
       "title": "输出契约（高级）",
       "hint": "声明该节点输出中必须存在且非空的字段，缺失或类型不符时在数据下传前拦截。仅适用于输出为 JSON 对象的节点（HTTP / 数据库 / 表格 / 文件连接器）；纯文本或 Markdown 节点无需配置。",
-      "notYetEnforced": "说明：契约校验引擎尚未接线，当前仅保存配置，暂不会真正拦截运行。",
+      "enforced": "已生效：运行时若输出缺少必填字段或类型不符，该节点直接判定失败（错误码 SCHEMA_VIOLATION），可在画布里接错误分支兜底；未配置契约的节点不校验。",
       "fieldPlaceholder": "字段路径，如 title 或 meta.count",
       "add": "添加字段",
       "remove": "移除",
@@ -238,6 +238,7 @@
       "SCRIPT_ERROR": "脚本执行错误",
       "AUTH": "密钥错误",
       "VALIDATION": "质检未通过",
+      "SCHEMA_VIOLATION": "输出契约不符",
       "BUDGET": "节点预算超限",
       "UNKNOWN": "未知错误",
       "UNSUPPORTED": "暂不支持",
@@ -265,6 +266,8 @@
       "source": "数据来源（上游节点）",
       "sourceAuto": "自动（唯一上游）",
       "timeoutMs": "超时（毫秒）",
+      "maxRetries": "失败重试次数",
+      "maxRetriesTitle": "瞬时故障（超时、限流、5xx）时的额外重试次数，0 表示不重试；不含质检打回的质量返工",
       "customEndpoint": "自定义端点（可选）",
       "apiKeyOptional": "密钥（可选，留空用 provider 的 key）",
       "apiKey": "密钥（可选）"
