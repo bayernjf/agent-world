@@ -5,7 +5,7 @@
 
 ---
 
-## 实施进度（2026-09-16）
+## 实施进度（2026-09-16；G5 设计节 2026-09-17 补）
 
 第一批 / 第二批落地的都是**只读、纯函数或配置形态**的安全子集，不改 run 执行核心，不影响 Hasee M1 高频回采：
 
@@ -17,6 +17,7 @@
 | G2.1 `validateContract` 纯函数 | ✅ 已落地 | core，含 `ContractSpec` zod schema；无契约 / 空契约恒通过（向后兼容） |
 | G2.3 `GraphNode.contract` + Inspector 表单 | ✅ 配置形态就绪 | core schema 新增可选顶层字段 `contract`，Inspector「配置」tab 可编辑必填字段与类型。**因 G2.2 未接线，当前仅保存配置、不会真正拦截 run**，UI 已显式标注 |
 | G4.1 deadline 纯函数 | ✅ 已落地 | core 纯判断，尚未接 engine |
+| G5 prompt 热迭代（成功样本一键对比 + gate 评分回灌） | 📝 设计已补（2026-09-17），代码未实施 | 见 design-ab-testing.md §5；纯只读 + 编译独立 run，落地不改执行核心 |
 
 **仍留待**（改 run 执行核心，为不打断 Hasee M1 回采，本轮有意不做）：
 
@@ -25,7 +26,7 @@
 - ⏳ **G2.4 模板预置 contract**：等 G2.2 接线后，对照各数据源节点的**真实输出**逐个核对字段名再预置，避免字段名写错在未来误拦。
 - ⏳ **G4.2–G4.4** degraded 状态机、前端「继续此节点」、视频远端任务进度轮询。
 - ⏳ **G3** 节点 `maxRetries` 下放、run `budget_usd` UI 与超 budget 阻断。
-- ⏳ **G5** 在 design-ab-testing.md 补节（纯文档）。
+- ⏳ **G5 代码实施**：设计已在 design-ab-testing.md §5 补齐（2026-09-17），`fromRunId` 取样与 abReport gate 评分投影的代码尚未实施；其本身只读 + 独立 run，不属改执行核心项，可在 M2 之后落地。
 
 ---
 
