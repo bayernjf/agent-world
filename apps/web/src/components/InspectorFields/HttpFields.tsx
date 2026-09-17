@@ -1,6 +1,6 @@
 import type { HttpNodeConfig } from "@agent-world/core";
 import type { FieldsProps } from "./types";
-import { formatPairs, parsePairs } from "./shared";
+import { formatPairs, parsePairs, RetryField } from "./shared";
 
 export default function HttpFields({ node, updateNode, t }: FieldsProps) {
   if (!node.http) return null;
@@ -93,6 +93,21 @@ export default function HttpFields({ node, updateNode, t }: FieldsProps) {
           }
         />
       </label>
+      <RetryField
+        value={node.http.retry?.maxRetries ?? 2}
+        onChange={(maxRetries) =>
+          updateNode(node.id, {
+            http: {
+              ...node.http!,
+              retry: {
+                ...(node.http!.retry ?? { maxRetries: 2, baseDelayMs: 1000, maxDelayMs: 30000 }),
+                maxRetries,
+              },
+            },
+          })
+        }
+        t={t}
+      />
       <label className="field">
         <span>{t("nodes:inspector.http.outputMode")}</span>
         <select

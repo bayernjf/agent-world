@@ -266,6 +266,8 @@
       "source": "Source (upstream node)",
       "sourceAuto": "Auto (single upstream)",
       "timeoutMs": "Timeout (ms)",
+      "maxRetries": "Failure retries",
+      "maxRetriesTitle": "Extra attempts for transient faults (timeout, rate limit, 5xx); 0 = no retry. Excludes quality rework from gate rejection.",
       "customEndpoint": "Custom endpoint (optional)",
       "apiKeyOptional": "API key (optional; blank = provider key)",
       "apiKey": "API key (optional)"

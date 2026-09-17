@@ -1,5 +1,5 @@
 import type { FieldsProps } from "./types";
-import { MissingModelHint } from "./shared";
+import { MissingModelHint, RetryField } from "./shared";
 
 export default function TextGenFields({
   node,
@@ -195,6 +195,25 @@ export default function TextGenFields({
           }
         />
       </label>
+      <RetryField
+        value={node.textGen.retry?.maxRetries ?? 2}
+        onChange={(maxRetries) =>
+          updateNode(node.id, {
+            textGen: {
+              ...node.textGen!,
+              retry: {
+                ...(node.textGen!.retry ?? {
+                  maxRetries: 2,
+                  baseDelayMs: 1000,
+                  maxDelayMs: 30000,
+                }),
+                maxRetries,
+              },
+            },
+          })
+        }
+        t={t}
+      />
     </>
   );
 }

@@ -1,4 +1,5 @@
 import type { FieldsProps } from "./types";
+import { RetryField } from "./shared";
 
 export default function CodeFields({ node, updateNode, t }: FieldsProps) {
   if (!node.code) return null;
@@ -57,6 +58,25 @@ export default function CodeFields({ node, updateNode, t }: FieldsProps) {
         />
       </label>
       <p className="note">{t("nodes:inspector.code.note")}</p>
+      <RetryField
+        value={node.code.retry?.maxRetries ?? 2}
+        onChange={(maxRetries) =>
+          updateNode(node.id, {
+            code: {
+              ...node.code!,
+              retry: {
+                ...(node.code!.retry ?? {
+                  maxRetries: 2,
+                  baseDelayMs: 1000,
+                  maxDelayMs: 30000,
+                }),
+                maxRetries,
+              },
+            },
+          })
+        }
+        t={t}
+      />
     </>
   );
 }

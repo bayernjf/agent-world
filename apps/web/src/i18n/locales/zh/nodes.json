@@ -266,6 +266,8 @@
       "source": "数据来源（上游节点）",
       "sourceAuto": "自动（唯一上游）",
       "timeoutMs": "超时（毫秒）",
+      "maxRetries": "失败重试次数",
+      "maxRetriesTitle": "瞬时故障（超时、限流、5xx）时的额外重试次数，0 表示不重试；不含质检打回的质量返工",
       "customEndpoint": "自定义端点（可选）",
       "apiKeyOptional": "密钥（可选，留空用 provider 的 key）",
       "apiKey": "密钥（可选）"
