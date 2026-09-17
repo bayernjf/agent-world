@@ -30,6 +30,7 @@ export const ErrorCode = z.enum([
   "PROVIDER_ERROR",
   "AUTH",
   "VALIDATION",
+  "SCHEMA_VIOLATION",
   "BUDGET",
   "CONNECTOR",
   "UNKNOWN",

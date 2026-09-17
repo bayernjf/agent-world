@@ -29,6 +29,9 @@ import {
   VcsConfig,
   SubprocessConfig,
   compile,
+  describeContractFailure,
+  validateContract as validateNodeContract,
+  SCHEMA_VIOLATION,
   applyTableSteps,
   buildNodeContext,
   collectColumns,
@@ -672,6 +675,12 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
   /** Flow edges that actually carried a packet this run (branch nodes only emit
    *  on the edges they routed to). Drives branch-aware scheduling. */
   const packetEdges = opts.init.packetEdges;
+  /**
+   * Nodes whose output contract (G2.2) has already been evaluated this run, so
+   * the sendPackets gate and the runNode finally fallback never double-emit.
+   * Local to the run; a resumed/forked run re-runs the node and re-checks.
+   */
+  const contractChecked = new Set<string>();
 
   let status: Status = "done";
   let running = 0;
@@ -917,6 +926,10 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
   };
 
   const sendPackets = (nodeId: string, summary: string, artifactKind?: Artifact["kind"]) => {
+    // G2.2: enforce the node's output contract before any flow packet leaves.
+    // A violation marks the node failed and withholds the packets, so successors
+    // never become ready from dirty output; the finally routes error edges.
+    if (!enforceContract(nodeId)) return;
     // Loop-body nodes DO send their packets: downstream merge points need the
     // packet for branch-aware readiness, and their artifacts are overwritten
     // each round so no data actually duplicates. The loop node's running state
@@ -951,6 +964,33 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       }
     }
     return null;
+  };
+
+  /**
+   * G2.2 upstream output-contract gate. Runs the first time a successful node
+   * is about to send flow packets downstream — i.e. while still inside the
+   * node handler's synchronous call stack, BEFORE the scheduler's launch loop
+   * scans for newly-ready successors. A violation drops the dirty artifacts,
+   * flips the node to failed with SCHEMA_VIOLATION and blocks the flow packets;
+   * the runNode finally then routes the cause along error edges as usual.
+   * Returns true when the node may send, false when it violated its contract.
+   * No/empty contract always passes (existing pipelines declare nothing).
+   */
+  const enforceContract = (nodeId: string): boolean => {
+    if (contractChecked.has(nodeId)) return true;
+    contractChecked.add(nodeId);
+    const n = nodeById(graph, nodeId);
+    if (!n || !n.contract || states.get(nodeId) !== "done") return true;
+    const verdict = validateNodeContract(n.contract, artifactValue(nodeId));
+    if (verdict.ok) return true;
+    const reason = `输出契约校验失败：${describeContractFailure(verdict)}`;
+    artifacts.delete(nodeId);
+    states.set(nodeId, "failed");
+    const attempt = attempts.get(nodeId) ?? 1;
+    // emit() also records lastError, which the finally uses to build the
+    // error-edge catch payload.
+    emit({ type: "node.failed", nodeId, attempt, error: reason, errorCode: SCHEMA_VIOLATION });
+    return false;
   };
 
   /** Produce typed artifacts from a node's output and emit events. Returns the primary kind. */
@@ -1345,6 +1385,15 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
       });
     } finally {
       running--;
+      // G2.2 upstream output-contract guard. The primary gate is inside
+      // sendPackets (it runs synchronously before successors launch); this is
+      // the fallback for terminal nodes that finish done without sending flow
+      // packets. enforceContract de-dupes per node, so a node already gated at
+      // send time is not evaluated twice. No/empty contract always passes, so
+      // pipelines declaring nothing (incl. Hasee M1) behave byte-identically.
+      if (!aborted && states.get(nodeId) === "done" && node.contract) {
+        enforceContract(nodeId);
+      }
       // 节点失败时立即把错误交给 error 边的下游 catch 节点，不等待全局静止
       // （否则 human 等人工审批挂起时 running 永不归零，兜底会被永久阻塞）。
       if (!aborted && states.get(nodeId) === "failed") {
