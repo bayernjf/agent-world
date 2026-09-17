@@ -21,9 +21,17 @@ vi.mock("three", async (importOriginal) => {
       MockWebGLRenderer.instances.push(this);
     }
   }
+  // PMREMGenerator.fromScene() drives real render targets on the renderer, which
+  // the stub above doesn't implement. Stub it out: the env map is a pure visual
+  // concern and none of the assertions cover it.
+  class MockPMREMGenerator {
+    fromScene = vi.fn(() => ({ texture: new actual.Texture() }));
+    dispose = vi.fn();
+  }
   return {
     ...actual,
     WebGLRenderer: MockWebGLRenderer as unknown as (typeof actual)["WebGLRenderer"],
+    PMREMGenerator: MockPMREMGenerator as unknown as (typeof actual)["PMREMGenerator"],
   };
 });
 
@@ -44,6 +52,34 @@ vi.mock("three/examples/jsm/controls/OrbitControls.js", () => {
     pan = vi.fn();
   }
   return { OrbitControls: MockOrbitControls as unknown as typeof import("three/examples/jsm/controls/OrbitControls.js").OrbitControls };
+});
+
+// Post-processing passes render through real GL state, which jsdom can't provide.
+// Stub the chain so the mount/unmount lifecycle under test stays exercised.
+vi.mock("three/examples/jsm/postprocessing/EffectComposer.js", () => {
+  class MockEffectComposer {
+    addPass = vi.fn();
+    setSize = vi.fn();
+    render = vi.fn();
+    dispose = vi.fn();
+  }
+  return {
+    EffectComposer: MockEffectComposer as unknown as typeof import("three/examples/jsm/postprocessing/EffectComposer.js").EffectComposer,
+  };
+});
+
+vi.mock("three/examples/jsm/postprocessing/RenderPass.js", () => {
+  class MockRenderPass {}
+  return {
+    RenderPass: MockRenderPass as unknown as typeof import("three/examples/jsm/postprocessing/RenderPass.js").RenderPass,
+  };
+});
+
+vi.mock("three/examples/jsm/postprocessing/UnrealBloomPass.js", () => {
+  class MockUnrealBloomPass {}
+  return {
+    UnrealBloomPass: MockUnrealBloomPass as unknown as typeof import("three/examples/jsm/postprocessing/UnrealBloomPass.js").UnrealBloomPass,
+  };
 });
 
 // Minimal graph fixture so Canvas3D has nodes/edges to build.

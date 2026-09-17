@@ -29,6 +29,7 @@
 | ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- | ----------------------------------------------- |
 | 状态机节点 | variables + branch 组合可兜底绝大多数场景；引入新执行语义，引擎/前端/测试复杂度齐涨，过度设计风险。**2026-09-04 双方案定案**：方案 A（零代码，用现有 `graph variables` 跨 run 持久 + `branch` 按 `${var.xxx}` 路由 + `set_variable`/`get_variable` 内置工具推进状态）已落地验证；方案 B（正式 `statemachine` 节点：core `StateMachineConfig` + 编译期迁移校验 + engine 执行块 + web 表单 + 测试）留待触发 | 兜底组合在真实产线中反复出现表达不了的流程语义（典型：非法迁移在画布上拦不住、状态流转图上不可见、branch 规则随状态增多而膨胀） | [phase4-design.md §5](phase4-design.md#5-状态机缓做) |
 | 长任务 degraded 降级状态机 + 前端「继续/降级此节点」+ 视频跨 run 续跑（设计文档 G4.2 / G4.3 / G4.4 跨 run 子集） | 改 run 执行状态机核心（timeout→degraded→halt、审批/降级后 resume），风险高，须避开 Hasee M1 高频回采关键期并单独充分测试。**G4.4「本次运行内 submit+poll」子集已落地（2026-09-17 `dfebcca`）**：Worker 可选 `submitVideoJob`/`queryVideoJob` 接缝 + 指数退避轮询 + 5min 超时，当前无 provider 实现、生产仍走同步。**仍缺**：①G4.2 把长媒体/超时显式落 degraded/halt 状态；②G4.3 时间线/节点上「继续此节点 / 接受降级结果」按钮；③G4.4 跨 run——重启后凭持久化的远端 jobId 重新附着（先查远端再决定收结果还是重投），保证在途渲染不重复计费，依赖 ①的状态机 | 出现真实长媒体任务在网关超时或服务重启后需要「不重投、不重复计费」续跑的场景；**或** M1 回采关键期结束、可安排执行核心改造窗口（三者绑定，G4.2 先行）。provider 实现 submit/query 接缝只点亮本次运行内轮询，不触发本项 | [design-step-trace-and-robustness.md §3](design-step-trace-and-robustness.md) + handoff.md「#55 续」 |
+| gate「禁用词」重试耗尽停机过严 + 重写反馈不精准 | gate 命中禁用词（广告法极限词如「最」）退回上游重写，但重写反馈只给泛泛的「命中禁用词 X」，不点出命中位置/上下文，模型难精准改写，`maxAttempts` 次循环仍命中 → `onExhausted=halt` 整条产线停机零产出（2026-08-28 小红书流水线 `qc-k7qhs` 实测命中「最」3 次耗尽停机）。治本方向：①重写反馈回传具体命中词 + 原文上下文；②或该 gate 的 `onExhausted` 改 `pass` 放行（牺牲合规保产出） | 有真实产线频繁因极限词/品牌词 halt 停机，或需真正合规产出时 | `packages/server/src/engine.ts` detectProhibited / upstreamProhibitedTerms 重写循环 + gate 节点 `onExhausted` 配置 |
 
 ### 模板/生态线
 
@@ -119,6 +120,7 @@
 | HTML→PDF                                                                     | 纯 JS 无中文排版方案；引入浏览器引擎（playwright）代价过大                                                                                                                                                          | 中文排版需求出现且无法用「截图拼接/截图转 PDF」兜底                            | 同上                                                                                                                          | <br />                                | <br />                           |
 | tpl-scan-ocr 模板只支持 URL 投料 | source 节点投图片走 URL，本地文件需手改图为 URL 才能进模板；非缺陷、属模板便利性 | OCR 扫描模板高频用于本地文件时 | [template-checklist.md](template-checklist.md) tpl-scan-ocr 行 |
 | ~~table `coerce` 纯数字字符串转 number 致前导 0 丢失~~ **已修复 2026-09-10** | `coerce` 把纯数字字符串转 number，发票号「044001900111」前导 0 在台账展示时丢失（extract/rows 阶段仍保留字符串）；标识符列（发票号/订单号/身份证号）前导 0 敏感。**已修复**：`packages/core/src/table.ts` coerce 函数在 `Number(t)` 之前增加 `/^0\d+$/` 检测——匹配"0 开头 + 至少一个后续数字"的字符串保留为原始字符串（如 "007"/"044001900111"），普通数值/小数/负数/科学计数法仍正常转 number。新增 2 例测试（前导 0 标识符保留、普通数值正常转换），core 全量 207/207 绿，commit `2d94353`。 | ——（已关闭，未等触发条件，登记当轮就修了） | [template-checklist.md](template-checklist.md) tpl-invoice-ocr 行 |
+| 产物图片外链（imgur 等临时图床）过期失效 | 部分写作/排版节点直接在文案里引用外部临时图床 URL（如 imgur），链接过期/防盗链后成品显示「图片链接已失效」（2026-08-28 小红书成品实测）。根因是图片未走 imageGen 节点落库本地 artifact、仅存外链 URL。方向：优先用 imageGen 产图（自动落库 artifact）；抓取/外部图需在落库时转存本地 | 高频复现「图片失效」，或需产物长期可回看/交付时 | imageGen 节点 artifact 落库 + 排版节点图片引用方式 |
 
 ### 商业化线
 
@@ -130,6 +132,12 @@
 | 转化漏斗埋点 | 有真实付费用户后才需要，现在埋点是过度设计 | 出现付费用户、需优化「注册→试用→付费」转化率 | [design-monetization.md](design-monetization.md) §8 |
 | RTS 宏观上帝视角（L0 工业园区） | 价值前提是多产线用户——单产线打开是空地图；L1 单厂 3D 已建成，L0 定 P3 差异化留存，不抢商业化主线。**阶段 A（平面运营工作台 OperationsDashboard）2026-09-10 已上线；阶段 B 宏观沙盘 B1-B9 全部完成（2026-09-12）**；阶段 C 完整 RTS 仍为草案。**预研模拟方案（2026-09-14 新增）**：不等真实用户规模，可造 5-10 条不同类别产线（覆盖 5 种状态 idle/running/done/failed/halted + 5 个模板类别），半天工作量，验证 L0 视觉效果 + 钻取交互；如效果好再决定投入做 C1-C3（跨厂物流 + 连续 zoom）。**模拟产线清单**：①写草稿·高频文本 ②翻译流水线 ③短视频广告工坊 ④批量内容工坊 ⑤发票批量 OCR ⑥批量合同审查（halted） ⑦审计抽样底稿 ⑧尽调清单 ⑨银行流水对账（running） ⑩隐私政策合规审查（failed） | 阶段 C（完整 3D RTS / 连续相机过渡 / 多厂实时联动）触发条件：商业化闭环（订阅 gate/支付）跑通 **且** 出现真实多产线运营场景（参考：活跃用户人均 ≥3 条产线，或用户反馈「产线多看不过来」）。预研模拟可随时启动，不等触发条件 | [design-rts-overview.md](design-rts-overview.md) §九/§十 · [design-rts-stage-b.md](design-rts-stage-b.md) |
 | ~~agnes 视频计费精确按秒（配 `durationPath`）~~ ✅ 已修复并真机验证 | 2026-09-09 真机抓取 agnes 完成任务 JSON：成片时长在**顶层 `seconds` 字段、且是数字字符串**（实测 `"5.0"`，另有 `perf_params.num_frames=121/frame_rate=24` 嵌套字段、顶层无）。修复 commit `5ffeb65`（PR #218，merge `2e23a06` 已部署 Hasee）：`AGNES_PROVIDER.videoAdapter` 配 `durationPath: "seconds"`；`videoBillingSeconds` 经 `positiveNumber` 同时接受 JSON number 与数字字符串。**真机验证（部署后 dist）**：用真实 agnes 完成形态经部署的 worker+adapter+单价回放——`seconds:"5.0"`→5s/$0.50 不回归；`seconds:"8.0"`（旧逻辑会落 5s 兜底）→8s/$0.80，证明字符串强转+durationPath 真生效。注：agnes omitDuration 默认出片即 5s，常规 run 金额仍是 $0.5，本修价值在非 5s 成片不被截成 5s | —（已闭环） | [config.ts AGNES_PROVIDER](../packages/server/src/config.ts) + openai-compatible.ts `videoBillingSeconds` |
+
+### 画布/可视化线
+
+| 事项 | 缓做/低优原因 | 触发条件 | 决策详情 |
+|---|---|---|---|
+| 3D 视角美化（后续档） | ①色调映射 ACESFilmic + 线性雾、②底座边缘描边 + 地台、③暗角 vignette、④选中光环 + 呼吸脉冲、⑤Bloom 泛光（`EffectComposer` + `UnrealBloomPass`，threshold 0.7 只让发光像素 bloom）、⑥running 节点呼吸脉冲，**六项均已落地（2026-09-17）**。**剩余缓做**：⑦节点 3D 常显标签（当前仅 hover/选中浮层） | 用户需要节点常显名称标签时 | `apps/web/src/canvas/Canvas3D.tsx` + `apps/web/src/canvas/iso3d-shapes.ts` |
 
 ## 已重启 / 已砍掉
 
