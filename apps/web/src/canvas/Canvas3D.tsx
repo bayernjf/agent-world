@@ -1,6 +1,10 @@
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
+import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { ARTIFACT_COLORS } from "@agent-world/core";
 import { useGraph } from "../store/graph";
 import { PLANT_H, PLANT_W } from "../store/graph";
@@ -79,6 +83,7 @@ interface SceneState {
   seen: Set<string>;
   lastRunId: string | null;
   prevSel: string | null;
+  selectionRing: THREE.Mesh | null;
 }
 
 /** Remove every child mesh of a group, disposing its geometry and materials.
@@ -216,6 +221,10 @@ export default function Canvas3D() {
     renderer.setSize(mount.clientWidth, mount.clientHeight);
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // Filmic tone mapping + slight exposure lift: linear output looks flat and
+    // grey; ACES rolls off highlights and enriches mid-tones.
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.0;
     mount.appendChild(renderer.domElement);
     // Keep the renderer size in sync with the container div.
     const resizeObserver = new ResizeObserver((entries) => {
@@ -223,6 +232,7 @@ export default function Canvas3D() {
       if (!entry) return;
       const { width, height } = entry.contentRect;
       renderer.setSize(width, height);
+      composer.setSize(width, height);
       camera.updateProjectionMatrix();
     });
     resizeObserver.observe(mount);
@@ -231,9 +241,30 @@ export default function Canvas3D() {
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x14181d);
+    // Linear fog toward the background color fades the far grid/ground/edges,
+    // giving the orthographic view a sense of depth.
+    scene.fog = new THREE.Fog(0x14181d, 1000, 2400);
+    // Environment map so PBR metal/glass surfaces reflect (写实 industrial).
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    const envTex = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    scene.environment = envTex;
+    pmrem.dispose();
 
     const f = zoomToFrustum(viewport.zoom);
     const camera = new THREE.OrthographicCamera(f.left, f.right, f.top, f.bottom, 0.1, 4000);
+
+    // Post-processing: bloom pass so LEDs / selection glow instead of reading
+    // as flat color (3D 美化⑤). High threshold keeps bloom on bright pixels.
+    const composer = new EffectComposer(renderer);
+    composer.addPass(new RenderPass(scene, camera));
+    composer.addPass(
+      new UnrealBloomPass(
+        new THREE.Vector2(mount.clientWidth, mount.clientHeight),
+        0.18, // strength — gentle halo, not a glow-fest
+        0.4, // radius
+        0.92, // threshold — only true emitters (LED peaks, selection, factory windows) bloom
+      ),
+    );
 
     const controls = new OrbitControls(camera, renderer.domElement);
     if (camera3d) {
@@ -290,6 +321,23 @@ export default function Canvas3D() {
     grid.position.y = 0.5;
     scene.add(grid);
 
+    // Selection ring: a flat ring under the selected node, pulsed in the loop
+    // (3D 美化④). Created once here so graph edits never tear it down.
+    const selectionRing = new THREE.Mesh(
+      new THREE.RingGeometry(84, 100, 48),
+      new THREE.MeshBasicMaterial({
+        color: SELECT_COLOR,
+        transparent: true,
+        opacity: 0.5,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      }),
+    );
+    selectionRing.rotation.x = -Math.PI / 2;
+    selectionRing.position.y = 0.8;
+    selectionRing.visible = false;
+    scene.add(selectionRing);
+
     // Empty groups the graph-sync effect fills in; they exist for the scene's
     // lifetime so graph edits never tear down the renderer (audit M30).
     const nodeGroup = new THREE.Group();
@@ -316,6 +364,7 @@ export default function Canvas3D() {
       seen,
       lastRunId: null,
       prevSel: null,
+      selectionRing,
     };
     sceneRef.current = state;
 
@@ -613,9 +662,27 @@ export default function Canvas3D() {
         }
         if (sel) {
           const next = st.nodeShapes.get(sel);
-          if (next) setGroupEmissive(next.group, SELECT_COLOR);
+          if (next) {
+            setGroupEmissive(next.group, SELECT_COLOR);
+            // Park the selection ring under the selected node and show it.
+            if (st.selectionRing) {
+              st.selectionRing.position.set(next.group.position.x, 0.8, next.group.position.z);
+              st.selectionRing.visible = true;
+            }
+          }
+        } else if (st.selectionRing) {
+          st.selectionRing.visible = false;
         }
         st.prevSel = sel;
+      }
+
+      // Selection ring breathing pulse (3D 美化④).
+      if (st.selectionRing?.visible) {
+        const p = now * 0.004;
+        const s = 1 + 0.12 * Math.sin(p);
+        st.selectionRing.scale.set(s, s, s);
+        (st.selectionRing.material as THREE.MeshBasicMaterial).opacity =
+          0.4 + 0.3 * (0.5 + 0.5 * Math.sin(p));
       }
 
       // Drive status LEDs (cheap per-node color set, needs to run every frame
@@ -629,6 +696,10 @@ export default function Canvas3D() {
         ledMat.color.setHex(ledColor);
         ledMat.emissive.setHex(ledColor);
         ledMat.emissiveIntensity = running ? 0.5 + 0.4 * Math.sin(now * 0.006) : 0.25;
+        // Running pulse: a slow whole-node breath so active factories read as
+        // "alive" (3D 美化⑥). Scale is centered at the group origin (y=0) so
+        // the plinth never dips below the floor.
+        shape.group.scale.setScalar(running ? 1 + 0.03 * Math.sin(now * 0.008) : 1);
       }
 
       // Apply minimap-originated move/zoom/reset requests, then publish live state.
@@ -664,7 +735,7 @@ export default function Canvas3D() {
       useViewMode.getState().setCamera3dTarget({ x: controls.target.x, z: controls.target.z });
 
       controls.update();
-      renderer.render(scene, camera);
+      composer.render();
     };
     rafId = requestAnimationFrame(loop);
 
@@ -686,6 +757,8 @@ export default function Canvas3D() {
         targetZ: controls.target.z,
       });
       controls.dispose();
+      composer.dispose();
+      envTex.dispose();
       scene.traverse((obj) => {
         if (obj instanceof THREE.Mesh || obj instanceof THREE.Line) obj.geometry.dispose();
         // Materials on both meshes (incl. multi-material arrays) and lines

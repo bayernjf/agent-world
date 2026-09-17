@@ -6,6 +6,7 @@ import {
   type NodeRuntime,
 } from "@agent-world/core";
 import { PLANT_H, PLANT_W } from "../store/graph";
+import { buildIndustrialTextGenShape } from "./industrial-shapes";
 
 /** Height of the base node block in 3D world units.
  *  Kept low like an RTS building so blocks read as squat, solid volumes. */
@@ -18,6 +19,15 @@ export const PIPE_RADIUS = 3;
 export const NODE_ROTATION = Math.PI / 8;
 /** Emissive color applied to the selected node. */
 export const SELECT_COLOR = 0xffd54a;
+
+/** Flat plinth under every node (RTS "foundation" so blocks don't float). */
+const PLINTH_H = 5;
+const PLINTH_COLOR = 0x171c22;
+
+/** Blueprint edge color: the node's own hue darkened for a crisp outline. */
+function edgeColor(color: number): number {
+  return new THREE.Color(color).offsetHSL(0, 0, -0.3).getHex();
+}
 
 /** Base block color per node category (five factory-zone tints). */
 export const CATEGORY_COLORS: Record<NodeCategory, number> = {
@@ -93,8 +103,23 @@ export interface NodeShape {
 
 /** Build a node's block + kind-specific topper + LED, colored by category. */
 export function buildNodeShape(kind: NodeKind): NodeShape {
+  // textGen uses the realistic industrial factory (prototype); the rest keep
+  // the stylized blocks. Flip this gate to roll the factory out to more kinds.
+  if (kind === "textGen") return buildIndustrialTextGenShape();
+
   const group = new THREE.Group();
   const color = categoryColor(kind);
+
+  // Flat plinth: a slightly wider, darker slab so the block sits on the floor
+  // instead of floating (RTS foundation). The block's bottom overlaps it; only
+  // the wider rim stays visible around the base.
+  const plinth = new THREE.Mesh(
+    new THREE.BoxGeometry(PLANT_W + 18, PLINTH_H, PLANT_H + 18),
+    new THREE.MeshLambertMaterial({ color: PLINTH_COLOR }),
+  );
+  plinth.position.y = PLINTH_H / 2;
+  plinth.userData.role = "body";
+  group.add(plinth);
 
   const base = new THREE.Mesh(
     new THREE.BoxGeometry(PLANT_W, NODE_HEIGHT, PLANT_H),
@@ -103,6 +128,16 @@ export function buildNodeShape(kind: NodeKind): NodeShape {
   base.position.y = NODE_HEIGHT / 2;
   base.userData.role = "body";
   group.add(base);
+
+  // Crisp blueprint edge on the block's hard corners (12 edges). The outline
+  // is visual only — disable its raycast so it never steals node picking.
+  const edges = new THREE.LineSegments(
+    new THREE.EdgesGeometry(base.geometry, 1),
+    new THREE.LineBasicMaterial({ color: edgeColor(color) }),
+  );
+  edges.position.copy(base.position);
+  edges.raycast = () => {};
+  group.add(edges);
 
   // Rotate the whole node on the ground plane to reveal a side face
   // without turning the footprint into a sharp diamond.
