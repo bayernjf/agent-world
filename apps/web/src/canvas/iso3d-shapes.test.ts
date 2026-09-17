@@ -68,10 +68,19 @@ describe("buildNodeShape", () => {
   });
 
   it("positions the LED on the front face top edge", () => {
-    const shape = buildNodeShape("textGen");
+    // textGen is the industrial prototype and mounts its LED differently; this
+    // guards the convention for the stylized blocks.
+    const shape = buildNodeShape("code");
     const frontZ = 92 / 2 + 2; // PLANT_H/2 + led offset
     expect(shape.led.position.z).toBeCloseTo(frontZ, 5);
     expect(shape.led.position.y).toBeCloseTo(50 - 8, 5); // NODE_HEIGHT - led inset
+  });
+
+  it("mounts the industrial textGen LED on the front wall above the door", () => {
+    const shape = buildNodeShape("textGen");
+    expect(shape.led.userData.role).toBe("led");
+    expect(shape.led.position.z).toBeGreaterThan(0); // front face, not the back
+    expect(shape.led.position.y).toBeGreaterThan(17 + 24 / 2); // above the door
   });
 
   it("applies ground-plane rotation", () => {

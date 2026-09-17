@@ -2080,7 +2080,16 @@ select {
 }
 
 .canvas3d {
+  position: relative;
   animation: canvas3d-fade var(--duration-normal) var(--ease-default);
+}
+/* Vignette: darken the frame edges so the eye centers on the pipeline (3D 美化③). */
+.canvas3d::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, transparent 55%, rgba(8, 10, 13, 0.55) 100%);
 }
 @keyframes canvas3d-fade {
   from {
