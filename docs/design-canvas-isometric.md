@@ -133,6 +133,7 @@ worldY = 0                        // 地面
 
 - **纯函数单测**：坐标映射、锚点对齐、frustum 换算抽成纯函数，`vitest` 可测
 - **组件测试**：`Canvas3D` 用 `vi.mock("three")` mock 掉，断言「切换模式渲染正确组件 + 状态正确传递」
+- **第五期新增约束**：后处理（`EffectComposer`/`UnrealBloomPass`）与 `PMREMGenerator` 需要真实 renderer API，仅 mock `WebGLRenderer` 会在这些调用点抛错——须一并按 `OrbitControls` 同款方式 stub（详见第五期「测试约束」）；程序化贴图在 jsdom 下 `getContext("2d")` 返回 null，必须判空兜底
 - **WebGL 真渲染**：jsdom 无 WebGL，3D 的视觉正确性靠浏览器手工验证，不写自动化像素断言
 
 ## 十、落地步骤（第一期，9 步原子提交）
@@ -178,6 +179,30 @@ worldY = 0                        // 地面
 5. 管道实心圆管（TubeGeometry）+ 地面阴影 + 参考网格
 6. 俯角从 45° 调低到 30°（更侧视）
 7. 左键拖节点移动布局 + 管道实时重路由 + grab/grabbing 手形光标
+
+**第五期（写实工业风视觉打磨，2026-09-17 完成）**：
+
+1. 色调映射与空间感：ACES Filmic 色调映射 + 曝光 1.0（线性输出偏灰、高光无滚降）；线性雾指向背景色（1000→2400）让远处网格/地面收束出纵深
+2. 环境反射：`PMREMGenerator` + `RoomEnvironment` 预计算环境贴图挂 `scene.environment`——PBR 金属/玻璃有反射才立得住，用完即 `dispose`
+3. Bloom 泛光：`EffectComposer` + `UnrealBloomPass`（strength 0.18 / radius 0.4 / **threshold 0.92**）。阈值刻意开高，只让真正的发光体（LED 峰值、选中光环、厂房窗口）泛光，避免整屏发糊
+4. 选中光环：场景级 `RingGeometry` 一次性创建（不随 graph 编辑重建），呼吸脉冲；选中节点时移到该节点地面位置
+5. 暗角：`.canvas3d::after` 径向渐变（`pointer-events: none`），视线收束到产线；纯 CSS，不占渲染管线
+6. 地台 + 描边（风格化方块）：每节点加略宽深色地台（RTS「地基」，块不再悬浮）；`EdgesGeometry` 蓝图描边画 12 条硬边，`raycast` 置空以免抢节点拾取
+
+**textGen 写实工业原型（原型期，仅 `textGen` 一种）**：
+
+- **目的**：验证「写实工业风」相对风格化方块是否值得推广，因此只改一个 kind，在 `buildNodeShape` 一处 gate（`kind === "textGen"`）
+- **构成**：混凝土基座 + 锯齿屋顶主厂房 + 锈蚀烟囱（静态蒸汽）+ 危险条纹基座钢储罐 + 拱形管线 + 发光高窗 + 正门 + 门上状态 LED
+- **贴图**：`industrial-textures.ts` 用 canvas 程序化绘制（混凝土 / 波纹钢板 / 危险条纹），模块级单例共享、材质按节点持有并随既有 graph-sync 释放——不引入外部素材
+- **契约不变（关键）**：足迹 ~150×92、地面旋转 `π/8`、LED 仍由既有循环驱动 → 管道锚点、路径路由与布局零改动
+- **推广成本**：基建已通，逐个 kind 的增量只在「造型 + topper」，翻 gate 即可试点下一个
+- **回滚**：删掉 `industrial-shapes.ts` / `industrial-textures.ts` + 还原 gate 即回到风格化方块，与其余 28 种 kind 零耦合
+
+**测试约束（jsdom，踩过）**：
+
+- `getContext("2d")` 在 jsdom 里返回 `null`（未装 canvas 包）——程序化贴图必须判空兜底返回空白纹理，否则整条 `buildNodeShape` 直接抛错（沿用 `CanvasPark` 标签贴图既有写法）
+- 只 `vi.mock("three")` 换掉 `WebGLRenderer` 已不够：`PMREMGenerator.fromScene()` 与 `EffectComposer` 都要真实 renderer API，需按 `OrbitControls` 同款方式再 stub `PMREMGenerator` 与三个后处理模块
+- 视觉正确性仍靠浏览器手工验证（§九既有约定不变）
 
 ## 十一、已拍板决策
 

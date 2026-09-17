@@ -137,7 +137,7 @@
 
 | 事项 | 缓做/低优原因 | 触发条件 | 决策详情 |
 |---|---|---|---|
-| 3D 视角美化（后续档） | ①色调映射 ACESFilmic + 线性雾、②底座边缘描边 + 地台、③暗角 vignette、④选中光环 + 呼吸脉冲、⑤Bloom 泛光（`EffectComposer` + `UnrealBloomPass`，threshold 0.7 只让发光像素 bloom）、⑥running 节点呼吸脉冲，**六项均已落地（2026-09-17）**。**剩余缓做**：⑦节点 3D 常显标签（当前仅 hover/选中浮层） | 用户需要节点常显名称标签时 | `apps/web/src/canvas/Canvas3D.tsx` + `apps/web/src/canvas/iso3d-shapes.ts` |
+| 3D 视角美化（后续档） | ①色调映射 ACESFilmic + 线性雾、②底座边缘描边 + 地台、③暗角 vignette、④选中光环 + 呼吸脉冲、⑤Bloom 泛光（`EffectComposer` + `UnrealBloomPass`，threshold 0.92 只让发光像素 bloom）、⑥running 节点呼吸脉冲，**六项均已落地（2026-09-17）**。**剩余缓做**：⑦节点 3D 常显标签（当前仅 hover/选中浮层） | 用户需要节点常显名称标签时 | `apps/web/src/canvas/Canvas3D.tsx` + `apps/web/src/canvas/iso3d-shapes.ts` |
 
 ## 已重启 / 已砍掉
 
