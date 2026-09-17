@@ -5,27 +5,29 @@
 
 ---
 
-## 实施进度（2026-09-16；G5 设计节 2026-09-17 补）
+## 实施进度（2026-09-16 首批；2026-09-17 执行核心四项落地）
 
-第一批 / 第二批落地的都是**只读、纯函数或配置形态**的安全子集，不改 run 执行核心，不影响 Hasee M1 高频回采：
+第一批 / 第二批落地的都是**只读、纯函数或配置形态**的安全子集，不改 run 执行核心，不影响 Hasee M1 高频回采；**2026-09-17 第三批把 G1.2 / G2.2 / G3 与 G4.4 的可独立子集接线点亮**（工作分支 feature/20260824，原子 commit，未 push）：
 
 | 项 | 状态 | 说明 |
 | --- | --- | --- |
 | G1.1 `GET /api/runs/:id/timeline` | ✅ 已落地 | 从 events 投影步级时间线，只读、无 DB 迁移，含 viewer 鉴权 |
 | G1.3 前端 `RunTimelineView` | ✅ 已落地 | 运行历史每行「步骤」按钮内联展开；状态 / 耗时 / token / 成本 / 输出预览 |
 | G1 完整输出懒加载 | ✅ 已落地 | `GET /api/runs/:id/nodes/:nodeId/attempt/:attempt/output`；时间线截断输出按需展开，`main` 变体优先 |
+| **G1.2 `POST /api/runs/:id/fork` + 「从此处重跑」** | ✅ 已落地（2026-09-17） | engine `fork()`：fork 点及其全部上游复用父 run 产物（合成零成本 `reused:true` 的 node.finished，不重跑、不计费），只重跑 fork 点的 flow 下游（不含其自身）；新 run 全新 runId、继承父 run `budget_usd`、`trigger="fork"`，父 run 审计轨迹不动。时间线对 reused 节点显示「复用」角标，每个成功节点有「从此处重跑」按钮。后端 8 测（engine 3 + HTTP 5）、前端 3 测 |
 | G2.1 `validateContract` 纯函数 | ✅ 已落地 | core，含 `ContractSpec` zod schema；无契约 / 空契约恒通过（向后兼容） |
-| G2.3 `GraphNode.contract` + Inspector 表单 | ✅ 配置形态就绪 | core schema 新增可选顶层字段 `contract`，Inspector「配置」tab 可编辑必填字段与类型。**因 G2.2 未接线，当前仅保存配置、不会真正拦截 run**，UI 已显式标注 |
-| G4.1 deadline 纯函数 | ✅ 已落地 | core 纯判断，尚未接 engine |
+| G2.3 `GraphNode.contract` + Inspector 表单 | ✅ 已落地 | core schema 可选顶层字段 `contract`，Inspector「配置」tab 编辑必填字段与类型；**G2.2 已接线，配置现已真正拦截 run**，hint 已改为「已生效」 |
+| **G2.2 engine 契约接线** | ✅ 已落地（2026-09-17） | 唯一发包出口 `sendPackets` 开头加 `enforceContract` 闸门（同步完成节点在 schedule 继续扫描前生效；runNode finally 兜底末端节点）：违例删产物 + 置 failed + `SCHEMA_VIOLATION`（已扩 core `ErrorCode` enum，确定性失败、不重试）+ 拦截 flow 包，error 边可 catch。无契约/空契约字节级向后兼容，9 测 |
+| G4.1 deadline 纯函数 | ✅ 已落地 | core `isTimedOut/remainingMs/deadlineAt`；G4.4 本次运行内轮询已复用 `isTimedOut` |
+| **G4.4 视频远端任务轮询（本次运行内子集）** | ✅ 部分落地（2026-09-17） | Worker 新增**可选** `submitVideoJob`/`queryVideoJob` 接缝与 `VideoJobHandle/VideoJobPoll`；videoGen 节点在两方法齐备时「提交一次 → 指数退避（2s..20s）轮询 → 5min 上限」，远端 TIMEOUT/RATE_LIMIT 码透传；缺一方法则字节级回退同步 `generateVideo`。**当前无 provider 实现该接缝，生产仍走同步路径，provider 就绪即自动启用。跨 run 断点续跑（重启后凭 jobId 重新附着、不重投、不重复计费）依赖 G4.2 degraded/halt 状态机，随 G4.2 一起做**，5 测 |
+| **G3 节点 maxRetries 下放 + 预算 UI** | ✅ 已落地（2026-09-17） | 后端各节点 handler 早已读取 `<kind>.retry.maxRetries`（engine.reliability 覆盖 0/2/3/4、退避、attempt 一致性），run 级 `budget_usd` UI 与超 budget 阻断也早已端到端；本轮补齐**缺口**——Inspector 对 7 类带 retry 策略的节点（textGen/http/code/translate/search/notify/vcs）加「失败重试次数」控件（共享 `RetryField`，clamp 到 schema [0,10]，文案区分 infra 重试与质检返工），2 测 |
 | G5 prompt 热迭代（成功样本一键对比 + gate 评分回灌） | 📝 设计已补（2026-09-17），代码未实施 | 见 design-ab-testing.md §5；纯只读 + 编译独立 run，落地不改执行核心 |
 
-**仍留待**（改 run 执行核心，为不打断 Hasee M1 回采，本轮有意不做）：
+**仍留待**：
 
-- ⏳ **G1.2 `POST /api/runs/:id/fork`** 断点重跑（复用 halt/resume，reused 节点不计费、继承 `budget_usd`）。
-- ⏳ **G2.2 engine 契约接线**：节点完成 output 后、下游派发前调 `validateContract`，违例 failed + `SCHEMA_VIOLATION`（待定是否扩 `ErrorCode` enum）。**在它落地前，Inspector 里配的 contract 不生效。**
-- ⏳ **G2.4 模板预置 contract**：等 G2.2 接线后，对照各数据源节点的**真实输出**逐个核对字段名再预置，避免字段名写错在未来误拦。
-- ⏳ **G4.2–G4.4** degraded 状态机、前端「继续此节点」、视频远端任务进度轮询。
-- ⏳ **G3** 节点 `maxRetries` 下放、run `budget_usd` UI 与超 budget 阻断。
+- ⏳ **G2.4 模板预置 contract**：G2.2 既已接线，可对照各数据源节点的**真实输出**逐个核对字段名再预置，避免字段名写错在未来误拦（原料台/文本节点输出纯文本/Markdown，coerceOutputObject 判 notObject，本就不该配）。
+- ⏳ **G4.2 timeout + degraded 降级状态机**、**G4.3 前端「继续/降级」按钮**：改 run 执行状态机核心，须避开 M1 回采关键期并单独充分测试。
+- ⏳ **G4.4 跨 run 断点续跑子集**：见上行，随 G4.2 落地（持久化远端 jobId、resume 时先查远端再决定重投/收结果）。
 - ⏳ **G5 代码实施**：设计已在 design-ab-testing.md §5 补齐（2026-09-17），`fromRunId` 取样与 abReport gate 评分投影的代码尚未实施；其本身只读 + 独立 run，不属改执行核心项，可在 M2 之后落地。
 
 ---
