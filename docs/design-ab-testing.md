@@ -36,7 +36,7 @@ GET  /api/ab/:groupId   汇总报告（db.abReport：各 arm 的 run 状态 / �
 
 ## 5. G5 — prompt 热迭代闭环（线上成功样本一键对比 + 质检评分回灌）
 
-> 状态：**已落地（2026-09-18，工作分支 feature/20260824，未 push）**。方案补于 2026-09-17，次日完成 core / server / web 全链路与测试，原子提交：core `8ee7fe3`、server `cb396f1`、web `ff2e017`。落实 [competitor-painpoints.md](competitor-painpoints.md) 的 P-5（迭代慢、不敢改 prompt），详细任务编号见 [design-step-trace-and-robustness.md](design-step-trace-and-robustness.md) §4 G5。
+> 状态：**已落地并随 PR #331 合 dev（2026-09-18，merge `26ec4a5`，已部署 Hasee）**。方案补于 2026-09-17，次日完成 core / server / web 全链路与测试，原子提交：core `8ee7fe3`、server `cb396f1`、web `ff2e017`、docs `71c2d1f`。落实 [competitor-painpoints.md](competitor-painpoints.md) 的 P-5（迭代慢、不敢改 prompt），详细任务编号见 [design-step-trace-and-robustness.md](design-step-trace-and-robustness.md) §4 G5。
 
 ### 5.1 动机
 
