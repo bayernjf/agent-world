@@ -244,7 +244,9 @@
       "powerMetered": "Power metered",
       "powerTripped": "Breaker tripped",
       "runFinished": "Run finished"
-    }
+    },
+    "comparePrompt": "Compare prompts on this sample",
+    "comparePromptHint": "Compare the live prompt against a new one using this run's real input"
   },
   "failure": {
     "trippedTitle": "Out of power — the whole plant stopped",

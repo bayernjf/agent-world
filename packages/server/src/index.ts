@@ -2062,6 +2062,8 @@ app.get("/api/runs/:id/timeline", async (c) => {
       budgetUsd: run.budget_usd ?? null,
       haltedNodeId: run.halted_node_id ?? null,
       haltedReason: run.halted_reason ?? null,
+      // G5.1: starting feed, so the A/B entry can preview and reuse it.
+      input: run.input ?? "",
     },
     nodeMeta,
     timeline: buildTimeline(events),
@@ -3180,14 +3182,25 @@ app.post("/api/runs/ab", async (c) => {
     variants?: string[];
     budgetUsd?: number | null;
     input?: string;
+    fromRunId?: string;
   };
+  // G5.1: with `fromRunId` the caller only supplies the *new* prompt(s) (≥1);
+  // arm A is auto-filled with the current production prompt. Without it the
+  // legacy all-manual path still requires ≥2 fully-specified variants.
+  const sampling = typeof body.fromRunId === "string" && body.fromRunId.length > 0;
+  const minVariants = sampling ? 1 : 2;
   if (
     !body.graphId ||
     !body.targetNodeId ||
     !Array.isArray(body.variants) ||
-    body.variants.length < 2
+    body.variants.length < minVariants
   ) {
-    return c.json({ error: "需要 graphId、targetNodeId 与至少 2 个 variants" }, 400);
+    return c.json(
+      { error: sampling
+        ? "需要 graphId、targetNodeId、fromRunId 与至少 1 个新 prompt variant"
+        : "需要 graphId、targetNodeId 与至少 2 个 variants" },
+      400,
+    );
   }
   const access = await requireGraph(db, userId, body.graphId, "editor");
   if (!access) {
@@ -3203,14 +3216,55 @@ app.post("/api/runs/ab", async (c) => {
   if (target.kind !== "textGen") {
     return c.json({ error: "A/B 目标必须是厂房(agent)节点" }, 400);
   }
+
+  // Resolve the variant list and starting input. In sampling mode every check
+  // is fail-closed: any problem returns before a single arm run is created.
+  let variants = body.variants;
+  let input = body.input;
+  if (sampling) {
+    // Visibility follows the same rule as the run timeline; an invisible run
+    // returns 404 so its existence is never leaked.
+    if (!await requireRun(db, userId, body.fromRunId!, "viewer")) {
+      return c.json({ error: "not found" }, 404);
+    }
+    const sample = await db.getRunById(body.fromRunId!);
+    if (!sample) return c.json({ error: "not found" }, 404);
+    if (sample.graph_id !== body.graphId) {
+      return c.json({ error: "取样运行不属于当前产线，不能作为 A/B 样本" }, 422);
+    }
+    if (sample.status !== "done") {
+      return c.json({ error: "只能对已完成(done)的运行取样做 A/B 对比" }, 422);
+    }
+    let sampleGraph: Graph | null = null;
+    try {
+      sampleGraph = JSON.parse(sample.snapshot) as Graph;
+    } catch {
+      sampleGraph = null;
+    }
+    const sampleTarget = sampleGraph?.nodes.find((n) => n.id === body.targetNodeId);
+    if (!sampleTarget || sampleTarget.kind !== "textGen") {
+      return c.json({ error: "取样运行的产线快照中不存在该目标厂房节点" }, 422);
+    }
+    const projectedInput = (sample.input ?? "").trim();
+    if (!projectedInput) {
+      return c.json({ error: "该取样运行没有可用的起始输入，请改用手动填写" }, 422);
+    }
+    // Arm A = current production prompt (read from the live graph, not the
+    // snapshot, so it reflects what production actually uses right now); the
+    // caller's prompts become arm B/C/… . Input is always the sampled run's.
+    const currentPrompt = target.textGen?.prompt ?? "";
+    variants = [currentPrompt, ...body.variants];
+    input = sample.input ?? "";
+  }
+
   try {
     const { abGroup, arms } = await startABExperiment(db, worker, {
       userId: ownerId,
       graph,
       targetNodeId: body.targetNodeId,
-      variants: body.variants,
+      variants,
       budgetUsd: body.budgetUsd ?? null,
-      input: body.input,
+      input,
     });
     return c.json({ abGroup, arms });
   } catch (err) {

@@ -5329,6 +5329,39 @@ select {
   font-size: var(--text-base);
   color: var(--text-primary);
 }
+.ab-badge.is-failed {
+  color: var(--error);
+  border-color: rgba(255, 99, 99, 0.4);
+  background: rgba(255, 99, 99, 0.08);
+}
+.ab-gate__cell {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+  max-width: 220px;
+}
+.ab-gate__row {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--gap-sm);
+}
+.ab-gate__below {
+  font-size: 10px;
+  color: var(--error);
+}
+.ab-gate__warn {
+  cursor: help;
+  font-size: 12px;
+}
+.ab-gate__reason {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .ghost-btn {
   align-self: flex-start;

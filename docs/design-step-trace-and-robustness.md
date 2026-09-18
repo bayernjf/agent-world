@@ -21,14 +21,13 @@
 | G4.1 deadline 纯函数 | ✅ 已落地 | core `isTimedOut/remainingMs/deadlineAt`；G4.4 本次运行内轮询已复用 `isTimedOut` |
 | **G4.4 视频远端任务轮询（本次运行内子集）** | ✅ 部分落地（2026-09-17） | Worker 新增**可选** `submitVideoJob`/`queryVideoJob` 接缝与 `VideoJobHandle/VideoJobPoll`；videoGen 节点在两方法齐备时「提交一次 → 指数退避（2s..20s）轮询 → 5min 上限」，远端 TIMEOUT/RATE_LIMIT 码透传；缺一方法则字节级回退同步 `generateVideo`。**当前无 provider 实现该接缝，生产仍走同步路径，provider 就绪即自动启用。跨 run 断点续跑（重启后凭 jobId 重新附着、不重投、不重复计费）依赖 G4.2 degraded/halt 状态机，随 G4.2 一起做**，5 测 |
 | **G3 节点 maxRetries 下放 + 预算 UI** | ✅ 已落地（2026-09-17） | 后端各节点 handler 早已读取 `<kind>.retry.maxRetries`（engine.reliability 覆盖 0/2/3/4、退避、attempt 一致性），run 级 `budget_usd` UI 与超 budget 阻断也早已端到端；本轮补齐**缺口**——Inspector 对 7 类带 retry 策略的节点（textGen/http/code/translate/search/notify/vcs）加「失败重试次数」控件（共享 `RetryField`，clamp 到 schema [0,10]，文案区分 infra 重试与质检返工），2 测 |
-| G5 prompt 热迭代（成功样本一键对比 + gate 评分回灌） | 📝 设计已补（2026-09-17），代码未实施 | 见 design-ab-testing.md §5；纯只读 + 编译独立 run，落地不改执行核心 |
+| G5 prompt 热迭代（成功样本一键对比 + gate 评分回灌） | ✅ 已落地（2026-09-18） | 见 design-ab-testing.md §5；G5.1 `POST /api/runs/ab` 增 `fromRunId`（Arm A 自动用现网 prompt、投影真实输入、fail-closed 404/422），G5.2 core `ab-gate.ts` 沿 flow 边投影下游最近 gate 最终 verdict 并在 ABReport 增「质检站判定」列；纯只读 + 编译独立 run，不改执行核心 |
 
 **仍留待**：
 
 - ⏳ **G2.4 模板预置 contract**：G2.2 既已接线，可对照各数据源节点的**真实输出**逐个核对字段名再预置，避免字段名写错在未来误拦（原料台/文本节点输出纯文本/Markdown，coerceOutputObject 判 notObject，本就不该配）。
 - ⏳ **G4.2 timeout + degraded 降级状态机**、**G4.3 前端「继续/降级」按钮**：改 run 执行状态机核心，须避开 M1 回采关键期并单独充分测试。
 - ⏳ **G4.4 跨 run 断点续跑子集**：见上行，随 G4.2 落地（持久化远端 jobId、resume 时先查远端再决定重投/收结果）。
-- ⏳ **G5 代码实施**：设计已在 design-ab-testing.md §5 补齐（2026-09-17），`fromRunId` 取样与 abReport gate 评分投影的代码尚未实施；其本身只读 + 独立 run，不属改执行核心项，可在 M2 之后落地。
 
 ---
 
@@ -135,6 +134,7 @@
 
 ### G5 — prompt 热迭代闭环（P2，指向已有文档）
 - 已有 [design-ab-testing.md](design-ab-testing.md)。本项只补：线上 run 的成功样本可一键"作为对比集"跑新 prompt，质检站评分自动回灌。**不单独立新方案**，在 ab-testing 文档上加一节即可。
+- ✅ 已于 2026-09-18 落地（见 design-ab-testing.md §5 与文首进度表）：G5.1 `fromRunId` 取样 + G5.2 下游 gate verdict 投影，core/server/web 全链路 + 测试齐备，未改执行核心。
 
 ---
 
