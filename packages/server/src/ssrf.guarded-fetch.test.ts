@@ -195,3 +195,74 @@ describe("guardedFetch", () => {
     expect(init?.dispatcher).toBe(outboundProxyDispatcher());
   });
 });
+
+describe("DNS resolver retry for transient resolver failures", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+  const transientDns = () =>
+    Object.assign(new Error("getaddrinfo EAI_AGAIN apihub.agnes-ai.com"), {
+      code: "EAI_AGAIN",
+    });
+
+  beforeEach(() => {
+    fetchMock = vi.fn(async () => new Response("ok", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    lookupMock.mockReset();
+  });
+
+  it("retries transient EAI_AGAIN lookups and then fetches", async () => {
+    lookupMock
+      .mockRejectedValueOnce(transientDns())
+      .mockRejectedValueOnce(transientDns())
+      .mockResolvedValueOnce([{ address: "1.2.3.4", family: 4 }]);
+    const res = await guardedFetch("http://public.example.com/x");
+    expect(res.status).toBe(200);
+    expect(lookupMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries an empty DNS answer and then fetches", async () => {
+    lookupMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ address: "1.2.3.4", family: 4 }]);
+    const res = await guardedFetch("http://public.example.com/x");
+    expect(res.status).toBe(200);
+    expect(lookupMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails closed with an accurate message when DNS stays down", async () => {
+    lookupMock.mockRejectedValue(transientDns());
+    const err = await guardedFetch("http://public.example.com/x").then(
+      () => null,
+      (e) => e,
+    );
+    expect(err).toMatchObject({ name: "GuardedFetchError", reason: "internal-target" });
+    expect(String((err as Error).message)).toContain("域名解析失败");
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(lookupMock).toHaveBeenCalledTimes(3); // bounded retries, then give up
+  });
+
+  it("does NOT retry a successful answer that points at an internal IP", async () => {
+    lookupMock.mockResolvedValue([{ address: "10.0.0.5", family: 4 }]);
+    await expect(guardedFetch("http://rebind.example.com/x")).rejects.toMatchObject({
+      reason: "internal-target",
+    });
+    expect(lookupMock).toHaveBeenCalledTimes(1); // deterministic refusal, never retried
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("hostIsInternal retries a transient failure and fails closed when persistent", async () => {
+    lookupMock
+      .mockRejectedValueOnce(transientDns())
+      .mockResolvedValueOnce([{ address: "8.8.8.8", family: 4 }]);
+    expect(await hostIsInternal("flaky.example.com")).toBe(false);
+    expect(lookupMock).toHaveBeenCalledTimes(2);
+
+    lookupMock.mockReset();
+    lookupMock.mockRejectedValue(transientDns());
+    expect(await hostIsInternal("dead.example.com")).toBe(true); // fail closed
+  });
+});

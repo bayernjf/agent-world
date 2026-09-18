@@ -98,19 +98,58 @@ function ipv6IsInternal(ip: string): boolean {
   return false;
 }
 
+/**
+ * Bounded retries for *transient* resolver failures. A successful DNS answer —
+ * public OR internal — is returned on the first attempt; internal IPs are
+ * never "retried into acceptance" (callers decide from the answer). Only the
+ * lookup itself failing (EAI_AGAIN / SERVFAIL / timeout / empty answer) is
+ * retried. systemd-resolved and home routers intermittently return a
+ * temporary failure that, without retry, was misreported as an internal
+ * target and killed otherwise-healthy model calls (M1 run a07c75eb,
+ * 2026-09-18: gate judge to apihub.agnes-ai.com).
+ */
+const DNS_MAX_ATTEMPTS = 3;
+const DNS_RETRY_BASE_MS = 120;
+
+function dnsSettle(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Resolve a hostname to A/AAAA records with bounded retries for transient
+ * resolver failures. Throws the last resolver error when every attempt fails.
+ */
+export async function resolveDnsRecords(
+  hostname: string,
+): Promise<{ address: string; family: number }[]> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < DNS_MAX_ATTEMPTS; attempt++) {
+    try {
+      const records = await dnsLookup(hostname, { all: true });
+      if (records.length > 0) return records;
+      lastErr = new Error(`empty DNS answer for ${hostname}`);
+    } catch (err) {
+      lastErr = err;
+    }
+    if (attempt < DNS_MAX_ATTEMPTS - 1) {
+      await dnsSettle(DNS_RETRY_BASE_MS * 2 ** attempt);
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
+}
+
 /** True when the hostname is a private/internal address (or unresolvable). */
 export async function hostIsInternal(hostname: string): Promise<boolean> {
   if (isIP(hostname)) {
     return isIP(hostname) === 4 ? ipv4IsInternal(hostname) : ipv6IsInternal(hostname);
   }
   try {
-    const records = await dnsLookup(hostname, { all: true });
-    if (records.length === 0) return true;
+    const records = await resolveDnsRecords(hostname);
     return records.some((r) =>
       r.family === 4 ? ipv4IsInternal(r.address) : ipv6IsInternal(r.address),
     );
   } catch {
-    // Fail closed: if we cannot resolve it, we do not fetch it.
+    // Fail closed: if we cannot resolve it even after retries, we do not fetch.
     return true;
   }
 }
@@ -259,6 +298,21 @@ function pinnedAgent(ip: string, family: number): Agent {
 }
 
 /**
+ * Raised when DNS resolution itself fails after retries — distinct from a
+ * successful answer that points at an internal IP, so operators can tell a
+ * transient resolver outage apart from a genuine SSRF block.
+ */
+export class DnsResolutionError extends Error {
+  constructor(
+    public readonly hostname: string,
+    public readonly attempts: number,
+  ) {
+    super(`域名解析失败（DNS 临时不可用，已重试 ${attempts} 次）: ${hostname}`);
+    this.name = "DnsResolutionError";
+  }
+}
+
+/**
  * Validate `hostname` and return the IP the connection must be pinned to,
  * or null when the target must be refused. IP literals validate in place
  * (no pinning needed — they cannot be rebindinged).
@@ -266,18 +320,20 @@ function pinnedAgent(ip: string, family: number): Agent {
 async function resolveGuarded(hostname: string): Promise<{ pin: string; family: number } | null> {
   const family = isIP(hostname);
   if (family) {
-    const internal = family === 4 ? await Promise.resolve(ipv4IsInternal(hostname)) : await Promise.resolve(ipv6IsInternal(hostname));
+    const internal = family === 4 ? ipv4IsInternal(hostname) : ipv6IsInternal(hostname);
     return internal ? null : { pin: hostname, family };
   }
   let records: { address: string; family: number }[];
   try {
-    records = await dnsLookup(hostname, { all: true });
+    records = await resolveDnsRecords(hostname);
   } catch {
-    return null; // unresolvable → fail closed
+    // Resolver failed after bounded retries — fail closed, but with an
+    // accurate message rather than the misleading "internal/private address".
+    throw new DnsResolutionError(hostname, DNS_MAX_ATTEMPTS);
   }
-  if (records.length === 0) return null;
   // Refuse when ANY record is internal: partial-internal answers are the
-  // classic half-open rebinding setup.
+  // classic half-open rebinding setup. A successful internal answer is a
+  // deterministic refusal and is never retried.
   for (const r of records) {
     if (r.family === 4 ? ipv4IsInternal(r.address) : ipv6IsInternal(r.address)) return null;
   }
@@ -315,7 +371,18 @@ export async function guardedFetch(url: string | URL, init: GuardedFetchInit = {
       }
       dispatcher = proxy;
     } else if (!allowPrivateNetwork()) {
-      const resolved = await resolveGuarded(current.hostname);
+      let resolved: { pin: string; family: number } | null;
+      try {
+        resolved = await resolveGuarded(current.hostname);
+      } catch (err) {
+        if (err instanceof DnsResolutionError) {
+          // Resolver failed after bounded retries — still a deterministic,
+          // non-retryable refusal (same reason class), but with an accurate,
+          // actionable message instead of the misleading "internal address".
+          throw new GuardedFetchError("internal-target", err.message);
+        }
+        throw err;
+      }
       if (!resolved) {
         throw new GuardedFetchError(
           "internal-target",
