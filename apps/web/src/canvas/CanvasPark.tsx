@@ -16,6 +16,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { parkLayout } from "@agent-world/core";
 import { xzPolyline, xzPolylinePointAt, type XZPolyline } from "./iso3d";
+import { createParkCoordScheduler } from "./parkCoordScheduler";
 import { useViewMode } from "../store/view-mode";
 import { api } from "../lib/api";
 import type { CrossGraphEdge, ParkGraphMetrics } from "../lib/api";
@@ -355,8 +356,6 @@ export default function CanvasPark({
   const [overrideVersion, setOverrideVersion] = useState(0);
   // Drag state: which factory is being dragged (null = not dragging).
   const dragRef = useRef<{ id: string | null }>({ id: null });
-  // Debounce timer for the PUT park-coord call.
-  const putTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // B5 debug overlay: FPS counter + render stats, toggle via ?debug=1 or ⌘⇧D.
   const [debugEnabled, setDebugEnabled] = useState(() =>
@@ -562,6 +561,12 @@ export default function CanvasPark({
       state.billboardById.get(id)?.position.set(x, 0, z);
     };
 
+    // Per-factory debounced persistence: moving one factory must not cancel
+    // another factory's pending save. flush() on unmount keeps the last drag.
+    const parkCoordScheduler = createParkCoordScheduler((id, x, z) =>
+      api.putParkCoord(id, x, z),
+    );
+
     const onPointerDown = (e: PointerEvent) => {
       if (e.button !== 0) return;
       try {
@@ -611,13 +616,8 @@ export default function CanvasPark({
           moveFactory(id, pos.x, pos.z);
           overridesRef.current.set(id, pos);
           setOverrideVersion((v) => v + 1);
-          // Debounced persist to backend.
-          if (putTimerRef.current) clearTimeout(putTimerRef.current);
-          putTimerRef.current = setTimeout(() => {
-            api.putParkCoord(id, pos.x, pos.z).catch(() => {
-              /* non-fatal: override stays local, next layout recompute restores it */
-            });
-          }, 400);
+          // Debounced per-factory persist to backend.
+          parkCoordScheduler.schedule(id, pos.x, pos.z);
         }
         controls.enabled = true;
         dragRef.current.id = null;
@@ -752,7 +752,8 @@ export default function CanvasPark({
       renderer.domElement.removeEventListener("pointermove", onPointerMove);
       renderer.domElement.removeEventListener("pointerup", onPointerUp);
       renderer.domElement.removeEventListener("pointercancel", onPointerCancel);
-      if (putTimerRef.current) clearTimeout(putTimerRef.current);
+      // Send any debounced park-coord saves instead of dropping them on unmount.
+      parkCoordScheduler.flush();
       // B8: remember the L0 camera pose so returning from a drill restores it.
       useViewMode.getState().setParkCamera({
         posX: camera.position.x,
