@@ -144,10 +144,19 @@ function AttemptRow({ runId, nodeId, a }: { runId: string; nodeId: string; a: Ti
 export default function RunTimelineView({
   runId,
   onForked,
+  onComparePrompt,
 }: {
   runId: string;
   /** G1.2: called with the new run id after a "rerun from here" fork starts. */
   onForked?: (newRunId: string) => void;
+  /** G5.1: seed an A/B prompt comparison from this finished run's input. */
+  onComparePrompt?: (o: {
+    runId: string;
+    graphId: string;
+    targetNodeId: string;
+    targetName?: string;
+    input: string;
+  }) => void;
 }) {
   const { t } = useTranslation();
   const [data, setData] = useState<RunTimelineResponse | null>(null);
@@ -247,6 +256,27 @@ export default function RunTimelineView({
                     : t("run:timeline.forkHere")}
                 </button>
               )}
+              {node.status === "done" &&
+                data.run.status === "done" &&
+                meta?.kind === "textGen" &&
+                onComparePrompt && (
+                  <button
+                    type="button"
+                    className="btn btn--ghost btn--sm run-timeline-fork"
+                    onClick={() =>
+                      onComparePrompt({
+                        runId: data.run.id,
+                        graphId: data.run.graphId,
+                        targetNodeId: node.nodeId,
+                        targetName: meta?.name ?? undefined,
+                        input: data.run.input,
+                      })
+                    }
+                    title={t("run:timeline.comparePromptHint")}
+                  >
+                    {t("run:timeline.comparePrompt")}
+                  </button>
+                )}
             </div>
             <div className="run-timeline-attempts">
               {node.attempts.map((a) => (

@@ -2,7 +2,7 @@ import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { EVENT_SCHEMA_VERSION, type Graph, type RunEvent } from "@agent-world/core";
+import { EVENT_SCHEMA_VERSION, buildTimeline, projectGateVerdict, type Graph, type RunEvent } from "@agent-world/core";
 import type { StoredArtifact } from "./artifact-store.js";
 import { decryptString, encryptString, openDocString, openGraphDoc, sealDocString, sealGraphDoc } from "./at-rest.js";
 import { log } from "./logger.js";
@@ -2337,32 +2337,76 @@ export function createDriver(
 
       if (rows.length === 0) return null;
 
-      const promptOf = new Map<string, string | null>();
+      // Pick one representative run per arm (latest, prefer done) to read the
+      // arm prompt and project the downstream quality-gate verdict (G5.2).
+      const repOf = new Map<string, { runId: string; graph: Graph | null; prompt: string | null }>();
+      const repRunIds: string[] = [];
       for (const r of rows) {
-        const snap = await exec.get(`SELECT snapshot FROM runs WHERE ab_group = ? AND ab_arm = ? AND user_id = ? AND snapshot IS NOT NULL LIMIT 1`, [groupId, r.arm, userId]) as { snapshot: string } | undefined;
+        const rep = await exec.get(
+          `SELECT id, snapshot FROM runs
+           WHERE ab_group = ? AND ab_arm = ? AND user_id = ? AND snapshot IS NOT NULL
+           ORDER BY (status = 'done') DESC, started_at DESC LIMIT 1`,
+          [groupId, r.arm, userId],
+        ) as { id: string; snapshot: string } | undefined;
+        let repGraph: Graph | null = null;
         let prompt: string | null = null;
-        if (snap) {
+        if (rep) {
+          repRunIds.push(rep.id);
           try {
-            const g = JSON.parse(openDocString(snap.snapshot)) as {
-              nodes?: Array<{ id: string; textGen?: { prompt?: string } }>;
-            };
-            const node = (g.nodes ?? []).find((n) => n.id === r.target);
+            const g = JSON.parse(openDocString(rep.snapshot)) as Graph;
+            repGraph = g;
+            const node = g.nodes?.find((n) => n.id === r.target);
             prompt = node?.textGen?.prompt ?? null;
           } catch {
             /* ignore malformed snapshot */
           }
         }
-        promptOf.set(r.arm, prompt);
+        repOf.set(r.arm, { runId: rep?.id ?? "", graph: repGraph, prompt });
+      }
+
+      // Batch-load events for every representative run in one query, then fold
+      // them with buildTimeline so the gate verdict comes from the same
+      // projection as the step timeline (no hand-rolled event scanning).
+      const eventsByRun = new Map<string, RunEvent[]>();
+      if (repRunIds.length > 0) {
+        const placeholders = repRunIds.map(() => "?").join(",");
+        const evRows = await exec.all(
+          `SELECT run_id AS "runId", payload FROM events WHERE run_id IN (${placeholders}) ORDER BY seq`,
+          repRunIds,
+        ) as Array<{ runId: string; payload: string }>;
+        for (const ev of evRows) {
+          try {
+            const parsed = JSON.parse(ev.payload) as RunEvent;
+            const list = eventsByRun.get(ev.runId);
+            if (list) list.push(parsed);
+            else eventsByRun.set(ev.runId, [parsed]);
+          } catch {
+            /* skip malformed event payload */
+          }
+        }
       }
 
       const arms: ABArmReport[] = rows.map((r) => {
         const runs = Number(r.runs);
         const done = Number(r.done);
         const totalCost = Number(r.totalCost ?? 0);
+        const rep = repOf.get(r.arm);
+        let gate: ABArmReport["gate"] = null;
+        if (rep?.graph && r.target && rep.runId) {
+          try {
+            gate = projectGateVerdict(
+              rep.graph,
+              buildTimeline(eventsByRun.get(rep.runId) ?? []),
+              r.target,
+            );
+          } catch {
+            gate = null;
+          }
+        }
         return {
           arm: r.arm,
           target: r.target,
-          prompt: promptOf.get(r.arm) ?? null,
+          prompt: rep?.prompt ?? null,
           runs,
           done,
           passed: done,
@@ -2371,6 +2415,7 @@ export function createDriver(
           avgDurationMs: Math.round(Number(r.avgDurationMs ?? 0)),
           avgScore: Number(r.avgScore ?? 0),
           avgCost: runs ? totalCost / runs : 0,
+          gate,
         };
       });
 

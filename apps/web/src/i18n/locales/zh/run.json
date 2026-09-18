@@ -244,7 +244,9 @@
       "powerMetered": "电表读数",
       "powerTripped": "跳闸",
       "runFinished": "收工"
-    }
+    },
+    "comparePrompt": "以此样本做 prompt 对比",
+    "comparePromptHint": "用这条运行的真实输入，对比线上 prompt 与新 prompt"
   },
   "failure": {
     "trippedTitle": "电力不足，全厂停机",

@@ -33,6 +33,7 @@ const sampleReport: Report = {
       avgDurationMs: 45000,
       avgScore: 8.5,
       avgCost: 0.0123,
+      gate: null,
     },
     {
       arm: "B",
@@ -46,6 +47,7 @@ const sampleReport: Report = {
       avgDurationMs: 52000,
       avgScore: 7.8,
       avgCost: 0.0156,
+      gate: null,
     },
   ],
 };
@@ -141,6 +143,7 @@ describe("ABReport", () => {
       expect(screen.getByText("运行")).toBeInTheDocument();
       expect(screen.getByText("合格率")).toBeInTheDocument();
       expect(screen.getByText("质量分")).toBeInTheDocument();
+      expect(screen.getByText("质检站判定")).toBeInTheDocument();
       expect(screen.getByText("平均返工")).toBeInTheDocument();
       expect(screen.getByText("平均耗时")).toBeInTheDocument();
       expect(screen.getByText("单跑成本")).toBeInTheDocument();
@@ -250,6 +253,70 @@ describe("ABReport", () => {
       await renderAndWait();
       const rate = screen.getByText("75%");
       expect(rate.closest("td")).toHaveClass("eval-rate--warn");
+    });
+  });
+
+  describe("质检站判定列 (G5.2)", () => {
+    const gate = (over: Partial<NonNullable<Report["arms"][number]["gate"]>>) => ({
+      gateNodeId: "q",
+      passed: true,
+      score: 9,
+      reason: "Accepted on attempt 1",
+      minScore: 6,
+      meetsBar: true,
+      mutatesInBetween: false,
+      history: [{ attempt: 1, passed: true, score: 9, reason: "Accepted on attempt 1" }],
+      ...over,
+    });
+    const reportWith = (g: Report["arms"][number]["gate"]) =>
+      ({
+        ...sampleReport,
+        arms: [{ ...sampleReport.arms[0], gate: g }, { ...sampleReport.arms[1], gate: null }],
+      }) as Report;
+
+    it("下游无质检站时显示'无质检站'", async () => {
+      await renderAndWait();
+      expect(screen.getAllByText("无质检站")).toHaveLength(2);
+    });
+
+    it("通过的判定显示分数", async () => {
+      setupMocks(reportWith(gate({})));
+      await renderAndWait();
+      expect(screen.getByText("通过 9/10")).toBeInTheDocument();
+    });
+
+    it("未过且低于质量线时显示提示", async () => {
+      setupMocks(
+        reportWith(
+          gate({ passed: false, score: 4, meetsBar: false, reason: "Too thin" }),
+        ),
+      );
+      await renderAndWait();
+      expect(screen.getByText("未过 4/10")).toBeInTheDocument();
+      expect(screen.getByText("低于质量线 6")).toBeInTheDocument();
+    });
+
+    it("gate 存在但本次无判定时显示'暂无判定'", async () => {
+      setupMocks(
+        reportWith(gate({ passed: null, score: null, reason: null, meetsBar: null })),
+      );
+      await renderAndWait();
+      expect(screen.getByText("暂无判定")).toBeInTheDocument();
+    });
+
+    it("中间存在改写节点时显示可比性警示", async () => {
+      setupMocks(reportWith(gate({ mutatesInBetween: true })));
+      await renderAndWait();
+      expect(
+        document.querySelector(
+          '[title="目标厂房与质检站之间存在改写内容的节点，各分支判定的可比性受限。"]',
+        ),
+      ).toBeInTheDocument();
+    });
+
+    it("显示注脚说明判定不参与自动推荐", async () => {
+      await renderAndWait();
+      expect(screen.getByText(/不参与自动推荐/)).toBeInTheDocument();
     });
   });
 

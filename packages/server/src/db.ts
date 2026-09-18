@@ -8,8 +8,16 @@
  * implementation in `pg-driver.ts` — both behind `openDatabase()`.
  */
 import type { ClientConfig } from "pg";
+import type { GateVerdictProjection } from "@agent-world/core";
 import { createSqliteDriver } from "./sqlite-driver.js";
 import { createPgDriver } from "./pg-driver.js";
+
+/**
+ * Downstream quality-gate verdict projected for one A/B arm (G5.2). Re-exported
+ * from core so callers can consume the report shape without a second import.
+ * Null means the target has no downstream gate.
+ */
+export type { GateVerdictProjection };
 
 export type Db = ReturnType<typeof createSqliteDriver>;
 
@@ -93,6 +101,12 @@ export interface ABArmReport {
   avgDurationMs: number;
   avgScore: number;
   avgCost: number;
+  /**
+   * G5.2: verdict of the nearest quality gate downstream of the target node,
+   * projected from the arm's representative (latest, prefer done) run. Null
+   * when the target has no downstream gate.
+   */
+  gate: GateVerdictProjection | null;
 }
 
 export interface ABReport {

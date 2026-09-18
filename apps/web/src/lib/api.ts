@@ -256,6 +256,8 @@ export interface RunTimelineResponse {
     budgetUsd: number | null;
     haltedNodeId: string | null;
     haltedReason: string | null;
+    /** Starting input the run was seeded with (G5.1 prompt-compare sampling). */
+    input: string;
   };
   /** nodeId → name/kind resolved from the run snapshot (best-effort). */
   nodeMeta: Record<string, { name: string | null; kind: string | null }>;
@@ -380,6 +382,23 @@ export function proxyImageUrl(url: string | null | undefined): string | null {
   return url;
 }
 
+/**
+ * G5.2: projection of the nearest downstream quality gate's final verdict for
+ * an A/B arm. `null` gate on the arm means no gate exists downstream; a gate
+ * with `passed === null` means the gate ran but produced no verdict yet.
+ */
+export interface GateVerdictProjection {
+  gateNodeId: string;
+  passed: boolean | null;
+  score: number | null;
+  reason: string | null;
+  minScore: number | null;
+  meetsBar: boolean | null;
+  /** A content-mutating node sits between the target and the gate. */
+  mutatesInBetween: boolean;
+  history: Array<{ attempt: number; passed: boolean; score: number | null; reason: string }>;
+}
+
 export interface ABArmReport {
   arm: string;
   target: string | null;
@@ -392,6 +411,7 @@ export interface ABArmReport {
   avgDurationMs: number;
   avgScore: number;
   avgCost: number;
+  gate: GateVerdictProjection | null;
 }
 
 export interface ABReport {
@@ -1103,11 +1123,17 @@ export const api = {
     variants: string[],
     budgetUsd: number | null,
     input: string,
+    /** G5.1: when set, arm A uses the live prompt and this done run's input. */
+    fromRunId?: string,
   ) =>
     authFetch("/api/runs/ab", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ graphId, targetNodeId, variants, budgetUsd, input }),
+      body: JSON.stringify(
+        fromRunId
+          ? { graphId, targetNodeId, variants, budgetUsd, input, fromRunId }
+          : { graphId, targetNodeId, variants, budgetUsd, input },
+      ),
     }).then(async (res) => {
       if (!res.ok) throw new Error(await res.text());
       return res.json() as Promise<ABStartResult>;
