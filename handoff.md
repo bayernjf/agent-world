@@ -48,7 +48,7 @@ State of Agent World as of 2026-09-18.
 
 * [docs/template-checklist.md](docs/template-checklist.md) — 产线模板验证与评估待办表（逐模板真实狗粮验证状态，当前 33 个；**新增模板必登记**，与 core TEMPLATES 数对账）★
 
-* [docs/handoff-archive.md](docs/handoff-archive.md) — historical changes (pre-2026-08-27)
+* [docs/handoff-archive.md](docs/handoff-archive.md) — historical changes (pre-2026-08-27)；后续滚动归档 [handoff-archive-2026-09-07.md](docs/handoff-archive-2026-09-07.md)（#1–#37）、[handoff-archive-2026-09-10.md](docs/handoff-archive-2026-09-10.md)（#24–#43）、[handoff-archive-2026-09-11.md](docs/handoff-archive-2026-09-11.md)（#44–#45）、[handoff-archive-2026-09-18.md](docs/handoff-archive-2026-09-18.md)（#39、#46–#56、M1 验收、#41 历史体检）
 
 * [docs/PRODUCT\_STRATEGY.md](docs/PRODUCT_STRATEGY.md) — 产品策略汇总（成本/部署/定价/商业化决策基线）
 
