@@ -142,3 +142,89 @@ export function formatDiffValue(v: unknown): string {
   const s = JSON.stringify(v);
   return s.length > 80 ? `${s.slice(0, 77)}...` : s;
 }
+
+/**
+ * Minimum length (either side, in characters) of a string field before the
+ * version diff switches from whole-value old → new to inline highlighting.
+ */
+export const INLINE_DIFF_MIN_CHARS = 40;
+
+/** One token-level segment of an inline free-text diff. */
+export interface TextDiffSegment {
+  type: "equal" | "added" | "removed";
+  text: string;
+}
+
+/**
+ * Split free text into diff tokens: latin words / numbers stay whole (so an
+ * English prompt diffs by word), whitespace runs stay intact, and every other
+ * character (CJK has no inter-word spaces) is its own token.
+ */
+function tokenizeText(s: string): string[] {
+  return s.match(/[A-Za-z0-9_]+|\s+|./g) ?? [];
+}
+
+/**
+ * Inline (word/character-level) diff for long free-text fields such as prompts.
+ * English changes are highlighted by word, Chinese changes by character, and
+ * adjacent same-kind segments are merged. Very large inputs (rare; prompts are
+ * short) fall back to whole-delete + whole-insert to keep the O(n*m) LCS bounded.
+ */
+export function diffText(before: string, after: string): TextDiffSegment[] {
+  const MAX_TOKENS = 4000;
+  const a = tokenizeText(before);
+  const b = tokenizeText(after);
+  if (a.length === 0 && b.length === 0) return [];
+  if (a.length > MAX_TOKENS || b.length > MAX_TOKENS) {
+    const out: TextDiffSegment[] = [];
+    if (before) out.push({ type: "removed", text: before });
+    if (after) out.push({ type: "added", text: after });
+    return out;
+  }
+
+  // LCS length table over tokens, built bottom-up.
+  const n = a.length;
+  const m = b.length;
+  const dp: number[][] = Array.from({ length: n + 1 }, () => new Array<number>(m + 1).fill(0));
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      dp[i]![j] =
+        a[i] === b[j] ? dp[i + 1]![j + 1]! + 1 : Math.max(dp[i + 1]![j]!, dp[i]![j + 1]!);
+    }
+  }
+
+  // Backtrack into raw segments. Ties report the removal first (deterministic).
+  const raw: TextDiffSegment[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < n && j < m) {
+    if (a[i] === b[j]) {
+      raw.push({ type: "equal", text: a[i]! });
+      i++;
+      j++;
+    } else if (dp[i + 1]![j]! >= dp[i]![j + 1]!) {
+      raw.push({ type: "removed", text: a[i]! });
+      i++;
+    } else {
+      raw.push({ type: "added", text: b[j]! });
+      j++;
+    }
+  }
+  while (i < n) {
+    raw.push({ type: "removed", text: a[i]! });
+    i++;
+  }
+  while (j < m) {
+    raw.push({ type: "added", text: b[j]! });
+    j++;
+  }
+
+  // Merge adjacent same-type segments.
+  const merged: TextDiffSegment[] = [];
+  for (const seg of raw) {
+    const last = merged[merged.length - 1];
+    if (last && last.type === seg.type) last.text += seg.text;
+    else merged.push({ ...seg });
+  }
+  return merged;
+}
