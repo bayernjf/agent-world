@@ -132,7 +132,6 @@ import {
   VARIABLE_TOOLS,
   prefixEvent,
   RETRYABLE,
-  prohibitedSnippets,
   setTextArtifact,
   truncateText,
   upstreamBrandTerms,

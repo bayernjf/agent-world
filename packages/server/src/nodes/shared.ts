@@ -273,20 +273,6 @@ export function detectProhibited(text: string, terms: string[]): string[] {
   return terms.filter((t) => text.includes(t));
 }
 
-/** Short context snippets around each hit so rework feedback names the exact offending phrases. */
-export function prohibitedSnippets(text: string, hits: string[], maxSnippets = 3): string[] {
-  const out: string[] = [];
-  for (const h of hits.slice(0, maxSnippets)) {
-    const i = text.indexOf(h);
-    if (i < 0) continue;
-    const start = Math.max(0, i - 12);
-    const end = Math.min(text.length, i + h.length + 12);
-    const core = text.slice(start, end).replace(/\s+/g, "");
-    out.push(`“${start > 0 ? "…" : ""}${core}${end < text.length ? "…" : ""}”`);
-  }
-  return out;
-}
-
 /** Build a banner-generation prompt from the upstream source's product brief. */
 export function buildImagePrompt(node: GraphNode, graph: Graph): string {
   const seen = new Set<string>();
