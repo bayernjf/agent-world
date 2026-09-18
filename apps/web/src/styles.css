@@ -5906,6 +5906,9 @@ select {
 .version-diff__val--old { color: var(--error); }
 .version-diff__val--new { color: var(--success); }
 .version-diff__flag { font-size: var(--text-sm); color: var(--warning); margin: 0; }
+.version-diff__textdiff { font-family: var(--mono); font-size: var(--text-xs); line-height: 1.5; display: block; background: var(--bg-elevated); padding: var(--space-1) var(--space-2); border-radius: var(--radius-sm); white-space: pre-wrap; word-break: break-word; max-height: 12em; overflow-y: auto; }
+.version-diff__seg--del { background: var(--error-bg); color: var(--error); text-decoration: line-through; border-radius: var(--radius-sm); padding: 0 var(--space-1); }
+.version-diff__seg--ins { background: var(--success-bg); color: var(--success); border-radius: var(--radius-sm); padding: 0 var(--space-1); }
 
 /* Run Compare (3.1) */
 .run-compare { width: 900px; max-height: 85vh; display: flex; flex-direction: column; }

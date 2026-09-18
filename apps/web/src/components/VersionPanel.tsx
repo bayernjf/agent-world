@@ -1,9 +1,15 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { formatDateTime } from "../i18n/utils";
 import type { Graph } from "@agent-world/core";
 import { TemplatePreview } from "./TemplatePicker";
-import { diffGraphs, formatDiffValue, type GraphDiff } from "../lib/graph-diff";
+import {
+  diffGraphs,
+  diffText,
+  formatDiffValue,
+  INLINE_DIFF_MIN_CHARS,
+  type GraphDiff,
+} from "../lib/graph-diff";
 
 interface VersionSummary {
   id: string;
@@ -402,14 +408,27 @@ export default function VersionPanel({ open, graphId, graphName, onClose, onRest
                               <code>({formatDiffValue(pos.find((p) => p.path === "x")?.after)}, {formatDiffValue(pos.find((p) => p.path === "y")?.after)})</code>
                             </div>
                           )}
-                          {fields.map((c) => (
-                            <div key={c.path} className="version-diff__field">
-                              <code>{c.path}</code>:{" "}
-                              <code className="version-diff__val--old">{formatDiffValue(c.before)}</code>
-                              {" → "}
-                              <code className="version-diff__val--new">{formatDiffValue(c.after)}</code>
-                            </div>
-                          ))}
+                          {fields.map((c) => {
+                            const longText =
+                              typeof c.before === "string" &&
+                              typeof c.after === "string" &&
+                              (c.before.length >= INLINE_DIFF_MIN_CHARS ||
+                                c.after.length >= INLINE_DIFF_MIN_CHARS);
+                            return (
+                              <div key={c.path} className="version-diff__field">
+                                <code>{c.path}</code>:{" "}
+                                {longText ? (
+                                  <InlineTextDiff before={c.before as string} after={c.after as string} />
+                                ) : (
+                                  <>
+                                    <code className="version-diff__val--old">{formatDiffValue(c.before)}</code>
+                                    {" → "}
+                                    <code className="version-diff__val--new">{formatDiffValue(c.after)}</code>
+                                  </>
+                                )}
+                              </div>
+                            );
+                          })}
                         </li>
                       );
                     })}
@@ -472,5 +491,30 @@ function DiffGroup({
       <h3 className="version-diff__heading">{title}</h3>
       <ul className="version-diff__list">{children}</ul>
     </section>
+  );
+}
+
+/**
+ * Inline word/character-level highlighting for long free-text field changes
+ * (e.g. prompts): removed tokens are struck through in the error tone, added
+ * tokens highlighted in the success tone, shared text rendered plainly.
+ */
+function InlineTextDiff({ before, after }: { before: string; after: string }) {
+  const segments = useMemo(() => diffText(before, after), [before, after]);
+  return (
+    <code className="version-diff__textdiff">
+      {segments.map((seg, idx) =>
+        seg.type === "equal" ? (
+          <span key={idx}>{seg.text}</span>
+        ) : (
+          <span
+            key={idx}
+            className={seg.type === "added" ? "version-diff__seg--ins" : "version-diff__seg--del"}
+          >
+            {seg.text}
+          </span>
+        ),
+      )}
+    </code>
   );
 }

@@ -441,6 +441,52 @@ describe("VersionPanel", () => {
         expect(screen.getByText(/结构完全相同/)).toBeInTheDocument();
       });
     });
+
+    it("长文本字段改动显示逐字增删高亮", async () => {
+      const prompt1 =
+        "请写一篇关于人工智能的产品介绍草稿，要求结构清晰、语气专业，包含开头、正文与结尾三个部分。";
+      const prompt2 =
+        "请写一篇关于机器学习的产品介绍草稿，要求结构清晰、语气轻松，包含开头、正文与结尾三个部分。";
+      const snapWithPrompt = (name: string, prompt: string) => ({
+        name,
+        snapshot: {
+          id: "g1",
+          name: "测试产线",
+          nodes: [
+            {
+              id: "n1",
+              kind: "textGen",
+              name: "初稿",
+              x: 0,
+              y: 0,
+              textGen: { model: "agnes-2.0-flash", prompt },
+            },
+          ],
+          edges: [],
+        },
+      });
+      global.fetch = mockFetch({
+        "GET /api/graphs/g1/versions/v1": snapWithPrompt("版本1", prompt1),
+        "GET /api/graphs/g1/versions/v2": snapWithPrompt("版本2", prompt2),
+      }) as unknown as typeof global.fetch;
+      await renderAndWait();
+      fireEvent.click(screen.getByRole("button", { name: "版本对比" }));
+      fireEvent.click(screen.getAllByRole("button", { name: "基准 A" })[0]!);
+      fireEvent.click(screen.getAllByRole("button", { name: "对比 B" })[1]!);
+      await waitFor(() => {
+        expect(screen.getByText(/版本对比：版本1/)).toBeInTheDocument();
+      });
+      const del = document.querySelectorAll(".version-diff__seg--del");
+      const ins = document.querySelectorAll(".version-diff__seg--ins");
+      expect(del.length).toBeGreaterThan(0);
+      expect(ins.length).toBeGreaterThan(0);
+      const delText = [...del].map((e) => e.textContent).join("");
+      const insText = [...ins].map((e) => e.textContent).join("");
+      expect(delText).toContain("人工智能");
+      expect(delText).toContain("专业");
+      expect(insText).toContain("机器学习");
+      expect(insText).toContain("轻松");
+    });
   });
 
   describe("关闭", () => {
