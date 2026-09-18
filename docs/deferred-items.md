@@ -137,7 +137,7 @@
 
 | 事项 | 缓做/低优原因 | 触发条件 | 决策详情 |
 |---|---|---|---|
-| 3D 视角美化（后续档） | ①色调映射 ACESFilmic + 线性雾、②底座边缘描边 + 地台、③暗角 vignette、④选中光环 + 呼吸脉冲、⑤Bloom 泛光（`EffectComposer` + `UnrealBloomPass`，threshold 0.92 只让发光像素 bloom）、⑥running 节点呼吸脉冲，**六项均已落地（2026-09-17）**。**剩余缓做**：⑦节点 3D 常显标签（当前仅 hover/选中浮层） | 用户需要节点常显名称标签时 | `apps/web/src/canvas/Canvas3D.tsx` + `apps/web/src/canvas/iso3d-shapes.ts` |
+| 3D 视角美化（后续档） | ①色调映射 ACESFilmic + 线性雾、②底座边缘描边 + 地台、③暗角 vignette、④选中光环 + 呼吸脉冲、⑤Bloom 泛光（`EffectComposer` + `UnrealBloomPass`，threshold 0.92 只让发光像素 bloom）、⑥running 节点呼吸脉冲，**六项均已落地（2026-09-17）**。**⑦节点 3D 常显名称标签已落地（2026-09-18 `be72c8b`，本项①–⑦全部关闭）**：新增 `canvas/nodeLabel.ts`，Sprite billboard 名称 pill 默认常开（无需 hover/选中即可辨认），CanvasTexture 按 `node-label|text|color` 模块级缓存，长名 code-point 安全截断 12 字（emoji 代理对不拆），`depthTest:false`+renderOrder 10 不被建筑遮挡，`raycast` 置空 + userData.role=label 不抢节点拾取，name 缺失兜底 kind；标签挂在 shape.group 下随 running 呼吸约 3% 同步缩放（已接受） | ——（⑦已落地；未来单厂节点极密、标签拥挤时可再加按缩放/密度显隐开关） | `apps/web/src/canvas/Canvas3D.tsx` + `apps/web/src/canvas/nodeLabel.ts` + `apps/web/src/canvas/iso3d-shapes.ts` |
 
 ## 已重启 / 已砍掉
 
