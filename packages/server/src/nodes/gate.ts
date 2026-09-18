@@ -1,6 +1,7 @@
 import type { GraphNode } from "@agent-world/core";
 import type { NodeRunContext } from "./types.js";
-import { ARTIFACT_URL_NOTE, collectJudgeCriteria, detectProhibited, prohibitedSnippets, setTextArtifact, toMount, upstreamBrandTerms, upstreamProhibitedTerms } from "./shared.js";
+import { ARTIFACT_URL_NOTE, collectJudgeCriteria, detectProhibited, setTextArtifact, toMount, upstreamBrandTerms, upstreamProhibitedTerms } from "./shared.js";
+import { prohibitedHitsWithContext } from "./prohibited.js";
 import { notifyHalt } from "../notify.js";
 
 /** Fallback for workers that don't return usage from judge() (e.g. older mocks). */
@@ -49,15 +50,24 @@ export async function gateNode(ctx: NodeRunContext, node: GraphNode, nodeId: str
 
   let verdict = modelVerdict;
   if (prohibitedHits.length > 0) {
-    // Actionable rework feedback: name the exact offending phrases and
-    // the attempt number. Varying the note per attempt matters — with a
-    // deterministic endpoint, an identical rework note produces identical
-    // input and the model regenerates the same violating copy forever.
-    const snippets = prohibitedSnippets(output, prohibitedHits);
-    const where = snippets.length ? `，出现位置：${snippets.join("、")}` : "";
+    // Actionable rework feedback: name every offending term, how many times
+    // each occurs, and the exact enclosing clause for each located hit.
+    // Varying the note per attempt matters — with a deterministic endpoint, an
+    // identical rework note produces identical input and the model regenerates
+    // the same violating copy forever. Naming ALL occurrences (not just the
+    // first) keeps the model from fixing one spot only to fail the next gate on
+    // the rest and burning the rework budget until the line halts with no output.
+    const located = prohibitedHitsWithContext(output, prohibitedHits);
+    const termCounts = located.hits
+      .map((h) => (h.count > 1 ? `${h.term}×${h.count}` : h.term))
+      .join("、");
+    const snippets = located.hits.flatMap((h) => h.snippets.map((s) => `「${h.term}」${s}`));
+    const where = snippets.length ? ` 出现位置：${snippets.join("；")}。` : "";
     verdict = {
       passed: false,
-      reason: `命中禁用词：${prohibitedHits.join("、")}（第 ${attempt} 次质检${where}）。重写时必须完全避开这些词及任何包含它们的短语，已退回上游重写`,
+      reason:
+        `命中禁用词共 ${located.total} 处（${termCounts}），第 ${attempt} 次质检。${where}` +
+        "请逐句改写上述句子，彻底移除这些词及任何包含它们的短语（质检按“包含”匹配，含该字的词组同样违规），并通读全文确认没有其它遗漏处，已退回上游重写",
       score: modelVerdict.score,
       usage: modelVerdict.usage ?? zeroUsage(),
     };
