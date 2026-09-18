@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Graph } from "@agent-world/core";
-import { diffGraphs, formatDiffValue } from "./graph-diff";
+import { diffGraphs, diffText, formatDiffValue } from "./graph-diff";
 
 function makeGraph(overrides: Partial<Graph> = {}): Graph {
   return {
@@ -112,5 +112,49 @@ describe("formatDiffValue", () => {
 
   it("truncates long strings", () => {
     expect(formatDiffValue("x".repeat(100))).toHaveLength(80);
+  });
+});
+
+describe("diffText", () => {
+  it("returns only equal segments for identical text", () => {
+    const segs = diffText("保持不变的提示词", "保持不变的提示词");
+    expect(segs.every((s) => s.type === "equal")).toBe(true);
+    expect(segs.map((s) => s.text).join("")).toBe("保持不变的提示词");
+  });
+
+  it("diffs Chinese by character on insertion", () => {
+    expect(diffText("写一篇草稿", "写一篇好草稿")).toEqual([
+      { type: "equal", text: "写一篇" },
+      { type: "added", text: "好" },
+      { type: "equal", text: "草稿" },
+    ]);
+  });
+
+  it("diffs Chinese by character on deletion", () => {
+    const segs = diffText("写一篇好草稿", "写一篇草稿");
+    expect(segs).toContainEqual({ type: "removed", text: "好" });
+    expect(segs.some((s) => s.type === "added")).toBe(false);
+  });
+
+  it("diffs English by whole word instead of chopping letters", () => {
+    const segs = diffText("hello world", "hello word");
+    expect(segs).toContainEqual({ type: "removed", text: "world" });
+    expect(segs).toContainEqual({ type: "added", text: "word" });
+    expect(segs.some((s) => s.type === "removed" && s.text === "rl")).toBe(false);
+  });
+
+  it("handles empty sides", () => {
+    expect(diffText("", "")).toEqual([]);
+    expect(diffText("", "新增")).toEqual([{ type: "added", text: "新增" }]);
+    expect(diffText("删除", "")).toEqual([{ type: "removed", text: "删除" }]);
+  });
+
+  it("falls back to whole replace for oversized inputs", () => {
+    const before = "字".repeat(5000);
+    const after = `${before}尾`;
+    const segs = diffText(before, after);
+    expect(segs).toHaveLength(2);
+    expect(segs[0]).toEqual({ type: "removed", text: before });
+    expect(segs[1]).toEqual({ type: "added", text: after });
   });
 });
