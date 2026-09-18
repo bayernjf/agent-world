@@ -6,6 +6,28 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { resolveConnector } from "./connectors.js";
 
+// pg is mocked at module top level: vi.mock/vi.hoisted are always hoisted, and
+// Vitest 5 rejects mocks declared nested inside a describe block (failed suite).
+const pg = vi.hoisted(() => ({
+  connect: vi.fn(),
+  query: vi.fn(),
+  end: vi.fn(),
+}));
+
+vi.mock("pg", () => ({
+  Client: class {
+    connect() {
+      return pg.connect();
+    }
+    query(sql: string, params?: unknown[]) {
+      return pg.query(sql, params);
+    }
+    end() {
+      return pg.end();
+    }
+  },
+}));
+
 const dir = mkdtempSync(path.join(tmpdir(), "conn-"));
 let server: Server;
 let base = "";
@@ -309,26 +331,6 @@ describe("resolveConnector - structured data channel", () => {
 });
 
 describe("resolveConnector - database (postgres)", () => {
-  const pg = vi.hoisted(() => ({
-    connect: vi.fn(),
-    query: vi.fn(),
-    end: vi.fn(),
-  }));
-
-  vi.mock("pg", () => ({
-    Client: class {
-      connect() {
-        return pg.connect();
-      }
-      query(sql: string, params?: unknown[]) {
-        return pg.query(sql, params);
-      }
-      end() {
-        return pg.end();
-      }
-    },
-  }));
-
   beforeEach(() => {
     pg.connect.mockReset().mockResolvedValue(undefined);
     pg.query.mockReset();
