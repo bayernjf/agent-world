@@ -256,7 +256,7 @@ export default function ControlPanel(props: Props) {
               )}
               {saveState === "error" && (
                 // M27: surface auto-save failure to the user, not just console.
-                <span className="muted" style={{ color: "var(--semantic-error, #d32f2f)" }}>
+                <span className="muted" style={{ color: "var(--error)" }}>
                   {" "}· {t("run:control.saveFailed")}
                 </span>
               )}
