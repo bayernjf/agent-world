@@ -25,6 +25,7 @@ import {
   type NodeShape,
 } from "./iso3d-shapes";
 import { edgeAnchors, orthoCrossings, orthogonalRoute, ROUTE_PAD, type Point } from "./geometry";
+import { makeNodeLabel } from "./nodeLabel";
 import type { GraphNode } from "@agent-world/core";
 
 /** Fixed camera pitch (angle from vertical): locks the isometric tilt.
@@ -86,19 +87,30 @@ interface SceneState {
   selectionRing: THREE.Mesh | null;
 }
 
-/** Remove every child mesh of a group, disposing its geometry and materials.
- *  Used when the graph-sync effect rebuilds nodes/edges. */
+/** Remove every child of a group, disposing its geometry/materials.
+ *  Used when the graph-sync effect rebuilds nodes/edges.
+ *
+ *  Direct children can be nested Groups (a node's block+topper, which itself
+ *  contains LineSegments and a name-tag Sprite) rather than meshes, so this
+ *  traverses instead of assuming direct meshes. Sprites share three's built-in
+ *  geometry and must not dispose it. Shared module textures (the industrial
+ *  concrete/metal maps and the cached name-tag canvases) outlive a single graph
+ *  rebuild, so material.map is intentionally NOT disposed here. */
 function disposeGroupChildren(group: THREE.Group) {
   for (const child of [...group.children]) {
-    const mesh = child as THREE.Mesh;
-    if (!mesh.isMesh) continue;
-    mesh.geometry.dispose();
-    const m = mesh.material;
-    if (Array.isArray(m)) {
-      for (const mat of m) mat.dispose();
-    } else if (m instanceof THREE.Material) {
-      m.dispose();
-    }
+    child.traverse((obj) => {
+      const mesh = obj as THREE.Mesh;
+      const line = obj as THREE.Line;
+      if (mesh.isMesh || line.isLine) mesh.geometry?.dispose();
+      // Sprites (isSprite) share a built-in geometry — never dispose it.
+      const m = (obj as THREE.Mesh | THREE.Sprite).material as
+        | THREE.Material
+        | THREE.Material[]
+        | undefined;
+      if (!m) return;
+      const mats = Array.isArray(m) ? m : [m];
+      for (const mat of mats) if (mat instanceof THREE.Material) mat.dispose();
+    });
     group.remove(child);
   }
 }
@@ -808,6 +820,11 @@ export default function Canvas3D() {
           mesh.receiveShadow = true;
         }
       });
+      // Always-on name pill floating above the building (3D 美化⑦). The
+      // sprite's raycast is disabled in makeNodeLabel, and the traverse above
+      // only tags meshes, so the label never intercepts node picking.
+      const labelName = n.name && n.name.trim() ? n.name : n.kind;
+      shape.group.add(makeNodeLabel(labelName, n.kind));
       st.nodeGroup.add(shape.group);
       st.nodeShapes.set(n.id, shape);
     }

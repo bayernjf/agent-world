@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { lookup as dnsLookup } from "node:dns/promises";
 import type { AddressInfo } from "node:net";
 import { connect as netConnect, isIP } from "node:net";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -7,7 +6,7 @@ import { createServer, request as httpRequest } from "node:http";
 import type { Socket } from "node:net";
 import { log } from "./logger.js";
 import { matchDomain } from "./permissions.js";
-import { allowPrivateNetwork, hostIsInternal } from "./ssrf.js";
+import { allowPrivateNetwork, hostIsInternal, resolveDnsRecords } from "./ssrf.js";
 
 /**
  * net: "allowlist" 的 SSRF 校验代理（design-code-sandbox.md §10）。
@@ -150,13 +149,15 @@ export async function resolveConnectAddress(hostname: string): Promise<string | 
   if (allowPrivateNetwork()) return hostname;
   if (isIP(hostname)) return (await hostIsInternal(hostname)) ? null : hostname;
   try {
-    const records = await dnsLookup(hostname, { all: true });
+    // Bounded retries for transient resolver failures (same helper as the
+    // direct fetch path); a successful internal answer still refuses below.
+    const records = await resolveDnsRecords(hostname);
     for (const r of records) {
       if (!(await hostIsInternal(r.address))) return r.address;
     }
     return null; // 全部解析结果都是内网 → 拒绝（fail closed）
   } catch {
-    return null;
+    return null; // 解析在重试后仍失败 → 拒绝（fail closed）
   }
 }
 
