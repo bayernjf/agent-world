@@ -7,6 +7,7 @@ import {
   TEMPLATES,
   TEMPLATE_CATEGORIES,
 } from "./templates.js";
+import { incoming } from "./graph.js";
 
 describe("templates", () => {
   it("ships business templates separately from the blank entry", () => {
@@ -533,6 +534,25 @@ describe("templates", () => {
     const translate = g.nodes.find((n) => n.kind === "translate");
     expect(translate, "translation should use a translate node").toBeTruthy();
     expect((translate!.translate as { target: string }).target).toBeTruthy();
+  });
+
+  it("translation review node receives source then draft as ordered flow inputs", () => {
+    const g = instantiateTemplate(getTemplate("tpl-translation")!);
+    const source = g.nodes.find((n) => n.kind === "source")!;
+    const translate = g.nodes.find((n) => n.kind === "translate")!;
+    const review = g.nodes.find((n) => n.kind === "textGen")!;
+    expect(source && translate && review).toBeTruthy();
+    // review must see BOTH the original source and the first translation;
+    // inputFor joins upstream parts in edge order, so the order must be
+    // [source, draft]. This also survives a gate rework: on re-translation
+    // only translate and its descendants reset, intake keeps its artifact.
+    const preds = incoming(g, review.id, "flow").map((e) => e.from);
+    expect(preds).toEqual([source.id, translate.id]);
+    // prompt names both sections and must not invite a rebuttal asking
+    // where the source / draft is (the halted-run bug).
+    expect(review.textGen?.prompt).toContain("原文");
+    expect(review.textGen?.prompt).toContain("初译");
+    expect(review.textGen?.prompt).toMatch(/严禁/);
   });
 
   it("rewrites node-id references so configs point at the fresh ids", () => {

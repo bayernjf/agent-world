@@ -556,7 +556,10 @@ const translationGraph = {
         textGen: {
           model: "agnes-2.0-flash",
           prompt:
-            "你是译审。对照原意检查初译：错译、漏译、生硬表达，输出修订后的流畅译文。",
+            "你是资深译审。用户输入依次包含两段：第一段是【原文】，第二段是译者提交的【初译】。" +
+            "请逐句对照原文检查初译的错译、漏译与生硬表达，在初译基础上修订润色，直接输出定稿译文本身" +
+            "（不要解释、不要复述原文、不要加任何前后缀）。原文与初译均已提供，" +
+            "严禁以缺少原文或初译为由反问、索要材料或拒做。",
           skills: [],
         },
       },
@@ -576,9 +579,14 @@ const translationGraph = {
     ],
     edges: [
       { id: "e1", from: "intake", to: "translate", kind: "flow" },
-      { id: "e2", from: "translate", to: "review", kind: "flow" },
-      { id: "e3", from: "review", to: "qc", kind: "flow" },
-      { id: "e4", from: "qc", to: "depot", kind: "flow" },
+      // 校对必须同时拿到原文与初译才能对照。gate 退回重译时只重置 translate 及其
+      // 下游，intake 不重跑、产物保留；这条边保证重跑后的 review 仍看得到原文，
+      // 否则它只收到中文译文，会误把译文当原文反问“初译在哪”，被 QC 判 VALIDATION halt。
+      // 必须排在 translate->review 之前，inputFor 按边顺序拼成 [原文, 初译]。
+      { id: "e2", from: "intake", to: "review", kind: "flow" },
+      { id: "e3", from: "translate", to: "review", kind: "flow" },
+      { id: "e4", from: "review", to: "qc", kind: "flow" },
+      { id: "e5", from: "qc", to: "depot", kind: "flow" },
       { id: "r1", from: "qc", to: "translate", kind: "rework" },
     ],
   },
