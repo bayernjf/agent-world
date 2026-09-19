@@ -1555,7 +1555,7 @@ export default function Settings({ open, onClose, initialTab }: Props) {
               </div>
               <p
                 className="muted"
-                style={{ fontSize: "12px", marginTop: "8px" }}
+                style={{ fontSize: "var(--text-sm)", marginTop: "var(--space-2)" }}
               >
                 {t("settings:modelKeys.workersHint")}
               </p>
