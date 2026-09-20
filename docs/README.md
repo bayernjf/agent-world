@@ -23,6 +23,12 @@
 | 看按版本的变更记录              | [CHANGELOG.md](../CHANGELOG.md)（最近 5 条以内看 handoff）                          |
 | 看代码质量 / 安全审计 / 待修复项     | [code-audit-2026-09-06.md](code-audit-2026-09-06.md)（全项目 77 项，已修复 73 / 无需修复 3 / 部分修复 1，low 项 2026-09-11 全部清账） + [security-audit-2026-08-31.md](security-audit-2026-08-31.md) |
 | 理解投料台连接器 / `${...}` 数据插值 | [design-data-interpolation.md](design-data-interpolation.md)（五类 connector 的 data 通道与插值）+ [design-template-connector-presets.md](design-template-connector-presets.md)（模板按 A/B/C/D 类预设 connector）+ [design-connector-database.md](design-connector-database.md)（SQL 连接器） |
+| 让产线定时跑 / 事件 / webhook 自动触发 | [design-triggers.md](design-triggers.md)（cron / webhook / event / batch 四类触发器、调度器单实例与恢复） |
+| 写 / 套用产线模板、模板上线校验 | [design-templates.md](design-templates.md)（模板体系与 TemplateField）+ [template-checklist.md](template-checklist.md)（每个内置模板的狗粮验证清单）+ [examples.md](examples.md)（现成模板一览） |
+| 看产线版本历史 / 结构化 diff / 回滚 | [design-versions.md](design-versions.md)（节点级 A/B 对比 + 长文本逐字高亮，已落地） |
+| 对两条产线做 A/B 对比实验 | [design-ab-testing.md](design-ab-testing.md)（`/api/ab` + RunCompare，单人隔离已覆盖；流量分流缓做） |
+| 平台安全 / 合规（静态加密、密钥轮换、审计、公告、反馈） | [design-at-rest-encryption.md](design-at-rest-encryption.md) + [design-key-rotation.md](design-key-rotation.md) + [design-audit-log.md](design-audit-log.md) + [design-announcement.md](design-announcement.md) + [design-feedback.md](design-feedback.md)（均已落地，含 runbook） |
+| 代码节点沙箱 / SSRF 防护 | [design-code-sandbox.md](design-code-sandbox.md)（bwrap/sandbox-exec 隔离 + 协作式 HTTP 代理） |
 | 做中英双语 / 调整视觉设计规范       | [design-i18n.md](design-i18n.md)（中文/English 双语方案与 key 约定）+ [design-design-tokens.md](design-design-tokens.md)（颜色/间距/圆角/阴影/字号 token 体系） |
 | 让新用户免注册先体验真实产品（演示账号/游客转正） | [design-demo-user.md](design-demo-user.md)（is_demo 真实账号 + 体验额度 + 能力黑名单 + claim 原地转正 + TTL 清理，D1-D6 分步） |
 | 部署 / 运维 / 多环境 / 检测环境状态 | [engineering-blueprint.md](engineering-blueprint.md)（企业级工程蓝图·总纲）+ [production-ops.md](production-ops.md)（运维与可观测性）+ [environments.md](environments.md)（环境划分）+ [runbooks/](runbooks/deploy-ubuntu-server.md)（部署手册） |
@@ -36,7 +42,7 @@
 | --- | --- |
 | [PRD.md](PRD.md) | 阶段定义 + 架构护栏（5 阶段的「是什么」） |
 | [roadmap-generalization.md](roadmap-generalization.md) | 通用化主线（当前推进方向） |
-| [product-content-roadmap.md](product-content-roadmap.md) | 内容线专项（淘宝 / 小红书图文） |
+| [product-content-roadmap.md](product-content-roadmap.md) | 内容线专项（淘宝 / 小红书图文 / research-loop 研究闭环 / 新闻播客） |
 | [project-progress.md](project-progress.md) | 进度基线（各模块完成度快照） |
 | [roadmap-tasks.md](roadmap-tasks.md) | 历史任务清单（已合并进上面，勿据此实现） |
 
