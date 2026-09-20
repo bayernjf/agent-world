@@ -93,12 +93,47 @@ export function resolveExpression(
  * Replace `${expr}` placeholders in a template string.
  * Missing values become empty strings.
  */
+/**
+ * Single-pass, non-backtracking scan that replaces every `${...}` template
+ * placeholder with the result of `replacer(inner)`, where `inner` is the
+ * trimmed text between the braces. The legacy /\$\{\s*([^}]+)\s*\}/g
+ * pattern backtracks quadratically on pathological inputs (CodeQL
+ * js/polynomial-redos: "${{" plus long space runs or "${{|" repetitions),
+ * while two indexOf scans are strictly O(n). An empty placeholder (`${}`)
+ * and an unterminated `${...` are left intact, matching the regex
+ * semantics (`[^}]+` requires at least one character and a closing brace).
+ */
+function scanPlaceholders(expr: string, replacer: (inner: string) => string): string {
+  let out = "";
+  let i = 0;
+  while (i < expr.length) {
+    const start = expr.indexOf("${", i);
+    if (start === -1) {
+      out += expr.slice(i);
+      break;
+    }
+    const close = expr.indexOf("}", start + 2);
+    if (close === -1) {
+      out += expr.slice(i);
+      break;
+    }
+    const inner = expr.slice(start + 2, close);
+    if (inner === "") {
+      out += expr.slice(i, close + 1);
+      i = close + 1;
+      continue;
+    }
+    out += expr.slice(i, start) + replacer(inner.trim());
+    i = close + 1;
+  }
+  return out;
+}
+
 export function evaluateTemplate(
   template: string,
   context: Record<string, unknown>,
 ): string {
-  return template.replace(/\$\{\s*([^}]+)\s*\}/g, (_, raw: string) => {
-    const expr = raw.trim();
+  return scanPlaceholders(template, (expr) => {
     const value = resolveExpression(expr, context);
     return value === undefined ? "" : String(primaryValue(value));
   });
@@ -329,14 +364,52 @@ function applyCmp(op: string, a: unknown, b: unknown): unknown {
  * for the branch to match. Malformed expressions evaluate to false.
  */
 export function evaluateCondition(expr: string, context: Record<string, unknown>): boolean {
-  const interpolated = expr.replace(/\$\{\s*([^}]+)\s*\}/g, (_, raw: string) =>
-    literal(resolveExpression(raw.trim(), context)),
+  const interpolated = scanPlaceholders(expr, (raw) =>
+    literal(resolveExpression(raw, context)),
   );
   try {
     return truthy(new CondParser(interpolated).parse());
   } catch {
     return false;
   }
+}
+
+/**
+ * Statically validate a branch condition's *shape* without a runtime context.
+ * Every `${...}` placeholder is swapped for the literal `null` before
+ * parsing, so this checks operators, literals, parentheses and trailing tokens
+ * — not whether the referenced nodes/variables exist. Returns a parser error
+ * message when malformed, or null when the expression parses cleanly.
+ *
+ * At runtime `evaluateCondition` fails closed (a malformed condition is simply
+ * false), so a typo such as `${scraper.ok} == true garbage` would silently
+ * make the branch never match; compile-time validation surfaces it on the canvas.
+ */
+export function validateConditionSyntax(expr: string): string | null {
+  const interpolated = scanPlaceholders(expr, () => "null");
+  try {
+    new CondParser(interpolated).parse();
+    return null;
+  } catch (err) {
+    return err instanceof Error ? err.message : String(err);
+  }
+}
+
+/**
+ * Collect state-variable names referenced as `${var.xxx}` in an expression.
+ * State lives in a flat graph-variable map, so only the top-level key is
+ * returned; a `${var.a.b}` reference reports `a` (dotted sub-paths are not
+ * independent state keys). Order follows first occurrence, de-duplicated.
+ */
+export function extractVarReferences(expr: string): string[] {
+  const out: string[] = [];
+  const re = /\$\{\s*var\.([A-Za-z_$][\w$]*)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(expr))) {
+    const name = m[1]!;
+    if (!out.includes(name)) out.push(name);
+  }
+  return out;
 }
 
 /**

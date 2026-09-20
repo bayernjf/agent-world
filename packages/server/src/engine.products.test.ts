@@ -535,3 +535,64 @@ describe("source custom fields", () => {
     expect(w.prompts()).toContain("[纯手动][]");
   });
 });
+
+describe("G2.4-A array contracts over connector sourceMeta.data", () => {
+  const edges = [
+    { from: "intake", to: "writer" },
+    { from: "writer", to: "depot" },
+  ];
+
+  it("passes when every Product row satisfies the items contract", async () => {
+    const intake: GraphNode = {
+      ...sourceNode("intake", { connector: "product" }),
+      contract: { root: "array", items: { requiredFields: ["name", "price"] } },
+    };
+    const events = await runGraph(
+      [intake, textGenNode("writer", "write a line"), sinkNode("depot")],
+      edges,
+    );
+    expect(events.some((e) => e.type === "node.failed" && e.nodeId === "intake")).toBe(false);
+    expect(events.some((e) => e.type === "node.finished" && e.nodeId === "depot")).toBe(true);
+  });
+
+  it("reads sourceMeta.data (not the markdown brief) when validating an array contract", async () => {
+    // The connector brief is plain markdown, but the structured rows lack price.
+    // A [0].price failure proves the gate validated sourceMeta.data rather than
+    // the text artifact (which would instead report "not a JSON array").
+    const intake: GraphNode = {
+      ...sourceNode("intake", { connector: "product" }),
+      contract: { root: "array", items: { requiredFields: ["name", "price"] } },
+    };
+    const events = await runGraph(
+      [intake, textGenNode("writer", "write a line"), sinkNode("depot")],
+      edges,
+      {
+        loadProducts: async () => ({
+          text: "# product brief (plain markdown, not JSON)",
+          images: [],
+          data: [{ id: "p1", name: "bag without price", brand: "acme" }],
+        }),
+      },
+    );
+    const failed = events.find((e) => e.type === "node.failed" && e.nodeId === "intake");
+    expect(failed).toBeTruthy();
+    expect((failed as { errorCode?: string }).errorCode).toBe("SCHEMA_VIOLATION");
+    expect((failed as { error: string }).error).toContain("[0].price");
+    expect(events.some((e) => e.type === "node.finished" && e.nodeId === "writer")).toBe(false);
+  });
+
+  it("fails when the connector returns an empty product list", async () => {
+    const intake: GraphNode = {
+      ...sourceNode("intake", { connector: "product" }),
+      contract: { root: "array", items: { requiredFields: ["name"] } },
+    };
+    const events = await runGraph(
+      [intake, textGenNode("writer", "write a line"), sinkNode("depot")],
+      edges,
+      { loadProducts: async () => ({ text: "# empty", images: [], data: [] }) },
+    );
+    const failed = events.find((e) => e.type === "node.failed" && e.nodeId === "intake");
+    expect((failed as { errorCode?: string }).errorCode).toBe("SCHEMA_VIOLATION");
+    expect((failed as { error: string }).error).toContain("fewer than");
+  });
+});

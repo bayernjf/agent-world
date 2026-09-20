@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type {
   Diagnostic,
@@ -7,6 +7,7 @@ import type {
   NodeRuntime,
   RuntimeState,
 } from "@agent-world/core";
+import { deriveStateMachine } from "@agent-world/core";
 import { PLANT_H, PLANT_W } from "../store/graph";
 import Popover from "../components/Popover";
 import type { Rect } from "../components/Popover";
@@ -82,6 +83,13 @@ const STATUS_KEY: Record<NodeRuntime["status"], string> = {
 /** Maximum model-name characters before ellipsis. */
 const META_MAX = 20;
 
+/** Render a derived state literal compactly for the branch card badge. */
+function fmtStateVal(v: unknown): string {
+  if (typeof v === "string") return v;
+  if (v === null) return "null";
+  return String(v);
+}
+
 function truncate(text: string, max = META_MAX): string {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
@@ -117,6 +125,20 @@ export default function Plants({
   const errorNodeIds = new Set(
     diagnostics.filter((d) => d.severity === "error" && d.nodeId).map((d) => d.nodeId!),
   );
+
+  // State-machine-as-variables: group derived state views by branch node so a
+  // state-driven sorter shows its variable + state values directly on the card.
+  const stateByBranch = useMemo(() => {
+    const m = new Map<string, { variable: string; values: unknown[] }[]>();
+    for (const view of deriveStateMachine(graph)) {
+      for (const id of new Set(view.transitions.map((tr) => tr.branchNodeId))) {
+        const list = m.get(id) ?? [];
+        list.push({ variable: view.variable, values: view.values });
+        m.set(id, list);
+      }
+    }
+    return m;
+  }, [graph]);
 
   // T toggles hover nameplates on/off.
   useEffect(() => {
@@ -332,6 +354,16 @@ export default function Plants({
               {node.kind === "gate" && (
                 <text className="plant__meta" x={12} y={68}>
                   {t("nodes:gateLimitMeta", { n: node.gate?.maxAttempts ?? 3 })}
+                </text>
+              )}
+              {node.kind === "branch" && (stateByBranch.get(node.id)?.length ?? 0) > 0 && (
+                <text className="plant__state" x={12} y={68}>
+                  {truncate(
+                    stateByBranch
+                      .get(node.id)!
+                      .map((v) => `var.${v.variable}: ${v.values.map(fmtStateVal).join("/")}`)
+                      .join("  "),
+                  )}
                 </text>
               )}
               {(node.kind === "imageGen" || node.kind === "videoGen") &&

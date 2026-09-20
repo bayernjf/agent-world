@@ -131,3 +131,63 @@ describe("G2.2 engine output-contract guard", () => {
     expect(starts).toHaveLength(1);
   });
 });
+
+describe("G2.4-A array-root output contracts", () => {
+  const GOOD_ARR = JSON.stringify([
+    { name: "alice", price: 10 },
+    { name: "bob", price: 20 },
+  ]);
+
+  it("passes a JSON-array intake whose elements satisfy items", async () => {
+    const events = await collect(
+      graphWith({ root: "array", items: { requiredFields: ["name", "price"] } }),
+      GOOD_ARR,
+    );
+    expect(events.some((e) => e.type === "node.failed" && e.nodeId === "src")).toBe(false);
+    expect(events.some((e) => e.type === "node.finished" && e.nodeId === "depot")).toBe(true);
+    expect(replay(events).status).toBe("done");
+  });
+
+  it("fails with an indexed missing field when one element lacks it, blocking downstream", async () => {
+    const bad = JSON.stringify([{ name: "alice", price: 10 }, { name: "bob" }]);
+    const events = await collect(
+      graphWith({ root: "array", items: { requiredFields: ["name", "price"] } }),
+      bad,
+    );
+    const failed = events.find((e) => e.type === "node.failed" && e.nodeId === "src");
+    expect(failed).toBeTruthy();
+    expect(failed.errorCode).toBe("SCHEMA_VIOLATION");
+    expect(failed.error).toContain("[1].price");
+    expect(events.some((e) => e.type === "node.finished" && e.nodeId === "depot")).toBe(false);
+    expect(events.some((e) => e.type === "node.skipped" && e.nodeId === "depot")).toBe(true);
+    expect(replay(events).status).toBe("failed");
+  });
+
+  it("fails an empty array intake (default minItems 1)", async () => {
+    const events = await collect(
+      graphWith({ root: "array", items: { requiredFields: ["name"] } }),
+      "[]",
+    );
+    const failed = events.find((e) => e.type === "node.failed" && e.nodeId === "src");
+    expect(failed?.errorCode).toBe("SCHEMA_VIOLATION");
+    expect(failed?.error).toContain("fewer than");
+    expect(replay(events).status).toBe("failed");
+  });
+
+  it("fails when an array contract receives a non-array JSON object", async () => {
+    const events = await collect(
+      graphWith({ root: "array", items: { requiredFields: ["name"] } }),
+      JSON.stringify({ name: "solo" }),
+    );
+    const failed = events.find((e) => e.type === "node.failed" && e.nodeId === "src");
+    expect(failed?.errorCode).toBe("SCHEMA_VIOLATION");
+    expect(failed?.error).toContain("not a JSON array");
+    expect(replay(events).status).toBe("failed");
+  });
+
+  it("passes an array contract that only asserts a non-empty root", async () => {
+    const events = await collect(graphWith({ root: "array" }), GOOD_ARR);
+    expect(events.some((e) => e.type === "node.failed" && e.nodeId === "src")).toBe(false);
+    expect(replay(events).status).toBe("done");
+  });
+});

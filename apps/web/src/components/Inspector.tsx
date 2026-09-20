@@ -143,37 +143,64 @@ function nextMainTab(current: MainTab, hasSkills: boolean): MainTab {
 
 /**
  * G2.3 — optional upstream output-contract editor, shown on every node's
- * Config tab. It is only meaningful for nodes whose output is a JSON object
- * (HTTP / database / table / file connectors); pure-text or Markdown nodes
- * need not declare one. The engine enforces it at run time (G2.2): a violation
- * fails the node with SCHEMA_VIOLATION before dirty output flows downstream.
+ * Config tab. Two root shapes (G2.4 prerequisite A):
+ * - object (default): requiredFields/types are checked on the output object
+ *   (HTTP / database / table / file connectors that emit JSON).
+ * - array: the output is a list of rows (a connector's Product[] / SQL rows);
+ *   the list must be non-empty and every element is checked against the same
+ *   field list, persisted under `items`.
+ * The engine enforces it at run time (G2.2): a violation fails the node with
+ * SCHEMA_VIOLATION before dirty output flows downstream.
  */
 function ContractFields({
   node,
   updateNode,
   t,
 }: Pick<FieldsProps, "node" | "updateNode" | "t">) {
-  const required = node.contract?.requiredFields ?? [];
-  const types = node.contract?.types ?? {};
+  const root: "object" | "array" = node.contract?.root === "array" ? "array" : "object";
+  const required =
+    root === "array"
+      ? (node.contract?.items?.requiredFields ?? [])
+      : (node.contract?.requiredFields ?? []);
+  const types =
+    root === "array"
+      ? (node.contract?.items?.types ?? {})
+      : (node.contract?.types ?? {});
   const [newField, setNewField] = useState("");
 
   const write = (
+    nextRoot: "object" | "array",
     nextRequired: string[],
     nextTypes: Record<string, ContractFieldType>,
   ) => {
     const cleanTypes: Record<string, ContractFieldType> = {};
     for (const [k, v] of Object.entries(nextTypes)) if (v) cleanTypes[k] = v;
     const hasAny = nextRequired.length > 0;
-    updateNode(node.id, {
-      contract: hasAny
-        ? { requiredFields: nextRequired, types: cleanTypes }
-        : { requiredFields: [] },
-    });
+    if (nextRoot === "array") {
+      updateNode(node.id, {
+        contract: hasAny
+          ? { root: "array", requiredFields: [], items: { requiredFields: nextRequired, types: cleanTypes } }
+          : { root: "array", requiredFields: [] },
+      });
+    } else {
+      // Omit `root` for a plain object contract so legacy graphs stay identical.
+      updateNode(node.id, {
+        contract: hasAny
+          ? { requiredFields: nextRequired, types: cleanTypes }
+          : { requiredFields: [] },
+      });
+    }
+  };
+
+  const setRoot = (nextRoot: "object" | "array") => {
+    if (nextRoot === root) return;
+    // Carry fields already entered across the shape switch.
+    write(nextRoot, required, types);
   };
 
   const addField = () => {
     const f = newField.trim();
-    if (f && !required.includes(f)) write([...required, f], types);
+    if (f && !required.includes(f)) write(root, [...required, f], types);
     setNewField("");
   };
 
@@ -181,6 +208,7 @@ function ContractFields({
     const nextTypes = { ...types };
     delete nextTypes[field];
     write(
+      root,
       required.filter((x) => x !== field),
       nextTypes,
     );
@@ -190,19 +218,32 @@ function ContractFields({
     const nextTypes = { ...types };
     if (type) nextTypes[field] = type as ContractFieldType;
     else delete nextTypes[field];
-    write(required, nextTypes);
+    write(root, required, nextTypes);
   };
 
+  const isOpen = root === "array" || required.length > 0;
+
   return (
-    <details
-      className="contract-fields"
-      {...(required.length > 0 ? { open: true } : {})}
-    >
+    <details className="contract-fields" {...(isOpen ? { open: true } : {})}>
       <summary className="contract-fields__summary">
         {t("nodes:inspector.contract.title")}
       </summary>
       <p className="hint">{t("nodes:inspector.contract.hint")}</p>
       <p className="hint">{t("nodes:inspector.contract.enforced")}</p>
+      <label className="contract-root">
+        <span className="contract-root__label">
+          {t("nodes:inspector.contract.rootLabel")}
+        </span>
+        <select
+          aria-label={t("nodes:inspector.contract.rootLabel")}
+          value={root}
+          onChange={(ev) => setRoot(ev.target.value as "object" | "array")}
+        >
+          <option value="object">{t("nodes:inspector.contract.rootObject")}</option>
+          <option value="array">{t("nodes:inspector.contract.rootArray")}</option>
+        </select>
+      </label>
+      {root === "array" && <p className="hint">{t("nodes:inspector.contract.itemsHint")}</p>}
       {required.map((field) => (
         <div className="contract-field-row" key={field}>
           <code className="contract-field-name">{field}</code>
@@ -230,7 +271,11 @@ function ContractFields({
       <div className="contract-field-add">
         <input
           value={newField}
-          placeholder={t("nodes:inspector.contract.fieldPlaceholder")}
+          placeholder={
+            root === "array"
+              ? t("nodes:inspector.contract.itemsFieldPlaceholder")
+              : t("nodes:inspector.contract.fieldPlaceholder")
+          }
           onChange={(e) => setNewField(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
@@ -246,7 +291,6 @@ function ContractFields({
     </details>
   );
 }
-
 export default function Inspector({
   onOpenSettings,
 }: {

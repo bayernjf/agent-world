@@ -2,7 +2,7 @@
 
 > 定位：新用户**创建第一条产线、进入工作区之后**的分步教学引导（聚光灯高亮 + 「上一步 / 下一步 / 跳过」卡片），解决"进了画布不知道先点哪"的问题。创建：2026-09-11。
 >
-> 状态：**方案设计（未实施）**。架构已升级为**多引导可扩展注册中心**（见 §十二）：引擎通用、引导即数据，首次引导只是 Registry 第一条，未来新版本/新功能引导零引擎改动。延续项目约定：i18n zh/en 全 `t()`、设计 token、组件必有测试、原子提交英文 message、不 push。
+> 状态：**已落地（2026-09-14 批次随 PR 合 dev 部署 Hasee）**。架构已升级为**多引导可扩展注册中心**（见 §十二）：引擎通用、引导即数据，首次引导只是 Registry 第一条，未来新版本/新功能引导零引擎改动。延续项目约定：i18n zh/en 全 `t()`、设计 token、组件必有测试、原子提交英文 message、不 push。
 >
 > 关联：现有空态选模板见 `components/Onboarding.tsx`；常驻上下文提示见 `store/tips.ts` + `canvas/Plants.tsx`；命令面板见 `App.tsx`；i18n 约定见 [design-i18n.md](design-i18n.md)；设计 token 见 [design-design-tokens.md](design-design-tokens.md)。
 

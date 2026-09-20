@@ -182,6 +182,11 @@
       "title": "Output contract (advanced)",
       "hint": "Declare fields that must be present and non-empty in this node's output; missing fields or wrong types are caught before data flows downstream. Only applies to nodes whose output is a JSON object (HTTP / database / table / file connectors); pure-text or Markdown nodes need no contract.",
       "enforced": "Enforced at run time: if the output misses a required field or has a wrong type, the node fails immediately (SCHEMA_VIOLATION) and can be handled by an error edge; nodes without a contract are not checked.",
+      "rootLabel": "Data shape to validate",
+      "rootObject": "Object (a single JSON object)",
+      "rootArray": "Array (a list of rows, e.g. product library / SQL results)",
+      "itemsHint": "The array must be non-empty and every row element must satisfy the fields below",
+      "itemsFieldPlaceholder": "Element field path, e.g. name or meta.sku",
       "fieldPlaceholder": "Field path, e.g. title or meta.count",
       "add": "Add field",
       "remove": "Remove",
@@ -445,7 +450,11 @@
       "addRule": "+ Add rule",
       "defaultTarget": "Default branch (when no rule matches)",
       "dropMessage": "Drop the message",
-      "note": "Example conditions: ${api.price} > 100 && ${api.stock} > 0. Supports == != > < >= <= && || ! and parentheses; with no match and no default branch, the message is dropped and downstream of that branch does not run."
+      "note": "Example conditions: ${api.price} > 100 && ${api.stock} > 0. Supports == != > < >= <= && || ! and parentheses; with no match and no default branch, the message is dropped and downstream of that branch does not run.",
+      "stateFlowTitle": "State flow (auto-derived from ${var.state} conditions, read-only)",
+      "stateInitial": "initial: {{value}}",
+      "stateUndeclared": "no initial value declared",
+      "stateDefault": "default"
     },
     "map": {
       "iterate": "Iteration array path (optional)",

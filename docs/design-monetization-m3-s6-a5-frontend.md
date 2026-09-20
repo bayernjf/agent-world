@@ -1,7 +1,7 @@
 # M3 S6 Step A5：Stripe 前端（BillingTab）实施方案
 
 > 上游总方案：[design-monetization-m3-s6-stripe.md](design-monetization-m3-s6-stripe.md)（§3 API、§4 流程、§9 Step 5 前端 UI）。
-> 后端 A0–A4（SDK 封装、迁移 39、webhook、checkout/portal 路由、35 个 mock 测）已完成并在本地（未 push）。**本文只覆盖 Step 5 前端 A5**，把「M2 手动收款（联系管理员）」升级为「Stripe 可用时在线升级 / 管理订阅，未配置时优雅降级」。
+> 后端 A0–A4（SDK 封装、迁移 39、webhook、checkout/portal 路由、35 个 mock 测）已完成并随 Stripe 全栈 PR #287/#290（merge `27f28ee`）合 dev 部署 Hasee。**本文只覆盖 Step 5 前端 A5**，把「M2 手动收款（联系管理员）」升级为「Stripe 可用时在线升级 / 管理订阅，未配置时优雅降级」。
 >
 > 状态：方案已定（2026-09-15），待按 §7 分步实施。所有「现状」描述均来自当前代码，不是推测。
 
