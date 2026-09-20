@@ -445,7 +445,11 @@
       "addRule": "+ 添加规则",
       "defaultTarget": "默认分支（未命中任何规则）",
       "dropMessage": "丢弃报文",
-      "note": "条件表达式示例：${api.price} > 100 && ${api.stock} > 0。支持 == != > < >= <= && || ! 与括号；未命中且无默认分支时报文被丢弃，该分支下游不执行。"
+      "note": "条件表达式示例：${api.price} > 100 && ${api.stock} > 0。支持 == != > < >= <= && || ! 与括号；未命中且无默认分支时报文被丢弃，该分支下游不执行。",
+      "stateFlowTitle": "状态流转（按 ${var.状态变量} 条件自动推导，只读）",
+      "stateInitial": "初始：{{value}}",
+      "stateUndeclared": "未声明初始值",
+      "stateDefault": "默认"
     },
     "map": {
       "iterate": "迭代数组路径（可选）",

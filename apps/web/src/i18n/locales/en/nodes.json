@@ -445,7 +445,11 @@
       "addRule": "+ Add rule",
       "defaultTarget": "Default branch (when no rule matches)",
       "dropMessage": "Drop the message",
-      "note": "Example conditions: ${api.price} > 100 && ${api.stock} > 0. Supports == != > < >= <= && || ! and parentheses; with no match and no default branch, the message is dropped and downstream of that branch does not run."
+      "note": "Example conditions: ${api.price} > 100 && ${api.stock} > 0. Supports == != > < >= <= && || ! and parentheses; with no match and no default branch, the message is dropped and downstream of that branch does not run.",
+      "stateFlowTitle": "State flow (auto-derived from ${var.state} conditions, read-only)",
+      "stateInitial": "initial: {{value}}",
+      "stateUndeclared": "no initial value declared",
+      "stateDefault": "default"
     },
     "map": {
       "iterate": "Iteration array path (optional)",
