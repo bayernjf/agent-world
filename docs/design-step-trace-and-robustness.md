@@ -25,7 +25,7 @@
 
 **仍留待**：
 
-- ⏳ **G2.4 模板预置 contract**：G2.2 既已接线，可对照各数据源节点的**真实输出**逐个核对字段名再预置，避免字段名写错在未来误拦（原料台/文本节点输出纯文本/Markdown，coerceOutputObject 判 notObject，本就不该配）。
+- 🟡 **G2.4 模板预置 contract —— 前置数组契约能力 (A) 已落地（2026-09-20，feature/20260824，未合 dev），预置动作仍缓做**：core `ContractSpec` 扩 `root:"array"`+`items:{requiredFields,types}`+`minItems`（违例按 `[i].字段` 报告）、engine 数组闸门改读 connector 的 `sourceMeta.data`（Product[]/SQL rows，回退 artifactValue 覆盖未来数组型 http/function/code）、Inspector 契约编辑器加对象/数组根形状切换（core `978ab56`/`36135e8`、server `2fbcbe1`、web `33dcc91`）；默认 root=对象且无内置模板声明数组契约，零行为变更。**预置**仍须抓到真实 Product[]/SQL rows 样本、对照真实字段名逐个核对后再给 tpl-product/tpl-xiaohongshu 配置，避免字段名写错误拦真实 run；原料台/纯文本节点输出 Markdown brief，即使数组闸门改读 sourceMeta，无 connector 结构化数据的节点仍不该配契约。
 - ⏳ **G4.2 timeout + degraded 降级状态机**、**G4.3 前端「继续/降级」按钮**：改 run 执行状态机核心，须避开 M1 回采关键期并单独充分测试。
 - ✅ **G4.4 跨 run 断点续跑子集**：已落地（2026-09-17，engine.videogen.async 远端进度轮询 +5 测，随 PR #325/#331 合 dev）；剩余 G4.2/G4.3 改执行状态机核心仍留待。
 
@@ -143,7 +143,7 @@
 **顺序（每步原子提交、英文 message、不 push）：**
 G1.1 → G1.2 → G1.3 → G1.4（P0，最大价值）→ G2.1 → G2.2 → G2.3 → G2.4 → G4.1-G4.3 → G3（maxRetries 下放 + budget UI）。
 
-> 实际落地进度（更新至 2026-09-18）见文首「实施进度」表：G1.1 / G1.3 / G1 完整输出懒加载、G2.1 / G2.3、G4.1，以及 **G1.2 fork、G2.2 engine 接线、G4.4（09-17 收口，随 PR #319/#325/#331 合 dev）与 G3（09-18 `703c47d`，PR #341）** 均已落地；剩 **G2.4 模板预置、G4.2 降级状态机、G4.3 前端「继续/降级」按钮** 留待（改 run 执行核心，避开 M1 回采关键期并单独充分测试）。
+> 实际落地进度（更新至 2026-09-18）见文首「实施进度」表：G1.1 / G1.3 / G1 完整输出懒加载、G2.1 / G2.3、G4.1，以及 **G1.2 fork、G2.2 engine 接线、G4.4（09-17 收口，随 PR #319/#325/#331 合 dev）与 G3（09-18 `703c47d`，PR #341）** 均已落地；**G2.4 前置 (A) 数组契约能力已于 2026-09-20 落地**（core/server/web，工作分支未合 dev；批量预置仍待真实 Product[]/SQL rows 样本）；剩 **G2.4 批量预置、G4.2 降级状态机、G4.3 前端「继续/降级」按钮** 留待（改 run 执行核心，避开 M1 回采关键期并单独充分测试）。
 
 **明确不做：**
 - ❌ 不引入 OpenTelemetry / Sentry（deferred-items 已挂触发条件，单机阶段 server 结构化日志够用）。
