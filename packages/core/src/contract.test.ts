@@ -260,10 +260,12 @@ describe("ContractSpecSchema array persistence", () => {
     expect(validateContract(spec, [{ name: "W", price: 1 }]).ok).toBe(true);
   });
 
-  it("defaults root to object and items to undefined (backward compatible)", () => {
+  it("leaves root optional and items undefined for legacy specs (backward compatible)", () => {
     const parsed = ContractSpecSchema.parse({ requiredFields: ["a"] });
-    expect(parsed.root).toBe("object");
+    expect(parsed.root).toBeUndefined();
     expect(parsed.items).toBeUndefined();
+    // An undefined root is still validated as an object contract.
+    expect(validateContract(parsed, { a: 1 }).ok).toBe(true);
   });
 
   it("rejects an unknown root shape", () => {

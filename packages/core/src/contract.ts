@@ -61,7 +61,7 @@ const ItemSpecSchema = z.object({
  * interface used by the pure validator.
  */
 export const ContractSpecSchema = z.object({
-  root: z.enum(["object", "array"]).default("object"),
+  root: z.enum(["object", "array"]).optional(),
   requiredFields: z.array(z.string()).default([]),
   types: z.record(z.enum(CONTRACT_FIELD_TYPES)).optional(),
   items: ItemSpecSchema.optional(),
