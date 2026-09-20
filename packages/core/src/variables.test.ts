@@ -3,9 +3,11 @@ import {
   buildNodeContext,
   evaluateCondition,
   evaluateTemplate,
+  extractVarReferences,
   getByPath,
   resolveExpression,
   transformJson,
+  validateConditionSyntax,
 } from "./variables.js";
 import type { Graph } from "./graph.js";
 import type { Artifact } from "./artifact.js";
@@ -153,5 +155,37 @@ describe("evaluateCondition", () => {
   it("supports arithmetic", () => {
     expect(evaluateCondition("${score} * 2 == 14", ctx)).toBe(true);
     expect(evaluateCondition("${score} + 1 > 7", ctx)).toBe(true);
+  });
+});
+
+describe("validateConditionSyntax", () => {
+  it("accepts well-formed conditions with placeholders", () => {
+    expect(validateConditionSyntax("${var.orderState} == 'paid'")).toBeNull();
+    expect(validateConditionSyntax("${count} > 3 && ${ok} == true")).toBeNull();
+    expect(validateConditionSyntax("!${flag} || ${score} >= 80")).toBeNull();
+  });
+
+  it("rejects trailing tokens and bare identifiers", () => {
+    expect(validateConditionSyntax("${ok} == true garbage")).not.toBeNull();
+    expect(validateConditionSyntax("foo == 1")).not.toBeNull();
+  });
+
+  it("rejects an unmatched closing parenthesis", () => {
+    expect(validateConditionSyntax("${a} == 1)")).not.toBeNull();
+  });
+});
+
+describe("extractVarReferences", () => {
+  it("collects top-level state variable names, de-duplicated", () => {
+    expect(
+      extractVarReferences("${var.orderState} == 'paid' || ${var.orderState} == 'shipped'"),
+    ).toEqual(["orderState"]);
+    // dotted sub-paths report only the top-level state key
+    expect(extractVarReferences("${var.flow.stage} == 'x'")).toEqual(["flow"]);
+  });
+
+  it("ignores plain node references", () => {
+    expect(extractVarReferences("${scraper.ok} == true && ${var.count} > 0")).toEqual(["count"]);
+    expect(extractVarReferences("${a} == 1")).toEqual([]);
   });
 });

@@ -172,4 +172,74 @@ describe("compile", () => {
     const { diagnostics } = compile(g);
     expect(diagnostics).toEqual([]);
   });
+
+  // State-machine-as-variables: branch routing compile-time guardrails.
+  const stateGraph = (): Graph => ({
+    id: "sm",
+    name: "orders",
+    variables: { orderState: "pending" },
+    nodes: [
+      node("intake", "source"),
+      node("decide", "branch", {
+        branch: {
+          rules: [{ id: "paid", when: "${var.orderState} == 'paid'", target: "ship" }],
+          defaultTarget: "hold",
+        },
+      }),
+      node("ship", "sink"),
+      node("hold", "sink"),
+    ],
+    edges: [
+      edge("e1", "intake", "decide"),
+      edge("e2", "decide", "ship"),
+      edge("e3", "decide", "hold"),
+    ],
+  });
+
+  it("accepts a branch state machine with declared state and wired targets", () => {
+    const { plan, diagnostics } = compile(stateGraph());
+    expect(plan).not.toBeNull();
+    expect(diagnostics).toEqual([]);
+  });
+
+  it("flags a branch rule targeting a missing plant", () => {
+    const g = stateGraph();
+    const decide = g.nodes[1] as GraphNode & { branch: { rules: { target: string }[] } };
+    decide.branch.rules[0]!.target = "ghost";
+    expect(errors(g).join("\n")).toContain("不存在的节点");
+  });
+
+  it("flags an illegal transition: target exists but has no flow edge", () => {
+    const g = stateGraph();
+    g.nodes.push(node("orphan", "sink"));
+    const decide = g.nodes[1] as GraphNode & { branch: { rules: { target: string }[] } };
+    decide.branch.rules[0]!.target = "orphan";
+    expect(errors(g).join("\n")).toContain("非法迁移");
+  });
+
+  it("flags a default target with no connecting flow edge", () => {
+    const g = stateGraph();
+    g.nodes.push(node("orphan", "sink"));
+    const decide = g.nodes[1] as GraphNode & { branch: { defaultTarget: string } };
+    decide.branch.defaultTarget = "orphan";
+    expect(errors(g).join("\n")).toContain("非法迁移");
+  });
+
+  it("warns on a malformed branch condition that would never match", () => {
+    const g = stateGraph();
+    const decide = g.nodes[1] as GraphNode & { branch: { rules: { when: string }[] } };
+    decide.branch.rules[0]!.when = "${var.orderState} == 'paid' garbage";
+    expect(warnings(g).join("\n")).toContain("永不命中");
+  });
+
+  it("warns when a branch condition reads an undeclared state variable", () => {
+    const g = stateGraph();
+    delete g.variables;
+    expect(warnings(g).join("\n")).toContain("未在图变量中声明");
+  });
+
+  it("stays silent on the state variable when it is declared", () => {
+    const g = stateGraph();
+    expect(warnings(g).some((m) => m.includes("未在图变量中声明"))).toBe(false);
+  });
 });

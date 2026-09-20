@@ -340,6 +340,44 @@ export function evaluateCondition(expr: string, context: Record<string, unknown>
 }
 
 /**
+ * Statically validate a branch condition's *shape* without a runtime context.
+ * Every `${...}` placeholder is swapped for the literal `null` before
+ * parsing, so this checks operators, literals, parentheses and trailing tokens
+ * — not whether the referenced nodes/variables exist. Returns a parser error
+ * message when malformed, or null when the expression parses cleanly.
+ *
+ * At runtime `evaluateCondition` fails closed (a malformed condition is simply
+ * false), so a typo such as `${scraper.ok} == true garbage` would silently
+ * make the branch never match; compile-time validation surfaces it on the canvas.
+ */
+export function validateConditionSyntax(expr: string): string | null {
+  const interpolated = expr.replace(/\$\{\s*[^}]+\s*\}/g, "null");
+  try {
+    new CondParser(interpolated).parse();
+    return null;
+  } catch (err) {
+    return err instanceof Error ? err.message : String(err);
+  }
+}
+
+/**
+ * Collect state-variable names referenced as `${var.xxx}` in an expression.
+ * State lives in a flat graph-variable map, so only the top-level key is
+ * returned; a `${var.a.b}` reference reports `a` (dotted sub-paths are not
+ * independent state keys). Order follows first occurrence, de-duplicated.
+ */
+export function extractVarReferences(expr: string): string[] {
+  const out: string[] = [];
+  const re = /\$\{\s*var\.([A-Za-z_$][\w$]*)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(expr))) {
+    const name = m[1]!;
+    if (!out.includes(name)) out.push(name);
+  }
+  return out;
+}
+
+/**
  * Build a variable context for a node from the upstream artifact map.
  * - Each upstream node's id maps to its primary value.
  * - For JSON artifacts, the parsed object is exposed (so `${nodeId.field}` works).
