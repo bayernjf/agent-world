@@ -980,7 +980,16 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     contractChecked.add(nodeId);
     const n = nodeById(graph, nodeId);
     if (!n || !n.contract || states.get(nodeId) !== "done") return true;
-    const verdict = validateNodeContract(n.contract, artifactValue(nodeId));
+    // Array-root contracts (G2.4 prerequisite A) validate the connector's
+    // structured payload stashed in sourceMeta (Product[] / SQL rows), which
+    // never becomes the node artifact; fall back to the artifact value so a
+    // future http/function/code node emitting a JSON array is covered too.
+    // Object-root contracts validate the artifact exactly as before.
+    const contractOutput =
+      n.contract.root === "array"
+        ? (sourceMeta.get(nodeId)?.data ?? artifactValue(nodeId))
+        : artifactValue(nodeId);
+    const verdict = validateNodeContract(n.contract, contractOutput);
     if (verdict.ok) return true;
     const reason = `输出契约校验失败：${describeContractFailure(verdict)}`;
     artifacts.delete(nodeId);

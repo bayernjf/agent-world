@@ -9,6 +9,7 @@ export * from "./pricing.js";
 export * from "./templates.js";
 export * from "./multimodal.js";
 export * from "./variables.js";
+export * from "./state-machine.js";
 export * from "./table.js";
 export * from "./platforms.js";
 export * from "./publish.js";

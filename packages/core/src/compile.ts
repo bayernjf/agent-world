@@ -6,6 +6,7 @@ import {
   type GraphEdge,
   type GraphNode,
 } from "./graph.js";
+import { extractVarReferences, validateConditionSyntax } from "./variables.js";
 
 export interface Diagnostic {
   severity: "error" | "warning";
@@ -342,6 +343,59 @@ export function compile(graph: Graph): CompileResult {
         message: `批量触发器 "${trig.id}" 缺少批量数据源，不会被调度`,
       });
     }
+  }
+
+  // Branch routing validation — the "state machine as variables + branch"
+  // guardrails. At runtime a configured target that does not exist or has no
+  // connecting flow edge makes the packet vanish silently, and a malformed
+  // condition fails closed (the branch never matches). Compile-time checks turn
+  // those invisible illegal transitions into explicit diagnostics. A state
+  // variable referenced in a condition but never declared on the graph gets a
+  // softer warning (it may be created at runtime via set_variable).
+  for (const b of graph.nodes) {
+    if (b.kind !== "branch") continue;
+    const cfg = b.branch;
+    if (!cfg) continue;
+    const flowTargets = new Set(outgoing(graph, b.id, "flow").map((e) => e.to));
+    const checkTarget = (target: string, label: string): void => {
+      const dest = nodeById(graph, target);
+      if (!dest) {
+        diagnostics.push({
+          severity: "error",
+          nodeId: b.id,
+          message: `判断节点 "${b.name}" 的${label}指向不存在的节点（${target}）`,
+        });
+        return;
+      }
+      if (!flowTargets.has(target)) {
+        diagnostics.push({
+          severity: "error",
+          nodeId: b.id,
+          message: `判断节点 "${b.name}" 的${label}目标 "${dest.name}" 缺少一条从本节点出发的正向连线，命中时报文无法送达（非法迁移）`,
+        });
+      }
+    };
+    for (const rule of cfg.rules ?? []) {
+      checkTarget(rule.target, `分支规则 "${rule.id}" `);
+      const syntaxErr = validateConditionSyntax(rule.when ?? "true");
+      if (syntaxErr) {
+        diagnostics.push({
+          severity: "warning",
+          nodeId: b.id,
+          message: `判断节点 "${b.name}" 的分支规则 "${rule.id}" 条件表达式无法解析（${syntaxErr}），该分支将永不命中`,
+        });
+      }
+      for (const stateVar of extractVarReferences(rule.when ?? "")) {
+        if (!graph.variables || !(stateVar in graph.variables)) {
+          diagnostics.push({
+            severity: "warning",
+            nodeId: b.id,
+            message: `判断节点 "${b.name}" 引用了状态变量 var.${stateVar}，但未在图变量中声明初始值；运行期若未先经 set_variable 赋值，将按空值路由`,
+          });
+        }
+      }
+    }
+    if (cfg.defaultTarget) checkTarget(cfg.defaultTarget, "默认分支 ");
   }
 
   const fatal = diagnostics.some((d) => d.severity === "error");

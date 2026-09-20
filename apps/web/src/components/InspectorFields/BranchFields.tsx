@@ -1,7 +1,13 @@
+import { deriveStateMachine } from "@agent-world/core";
 import type { FieldsProps } from "./types";
 
 export default function BranchFields({ node, graph, updateNode, t }: FieldsProps) {
   if (!node.branch) return null;
+  // State-machine-as-variables: derive read-only state transitions from the
+  // `${var.xxx} == 'state'` rules so the flow is visible while editing.
+  const stateViews = deriveStateMachine(graph).filter((v) =>
+    v.transitions.some((tr) => tr.branchNodeId === node.id),
+  );
   return (
     <>
       <div className="field">
@@ -105,7 +111,63 @@ export default function BranchFields({ node, graph, updateNode, t }: FieldsProps
             ))}
         </select>
       </label>
+      {stateViews.map((view) => (
+        <div
+          className="field state-flow"
+          data-testid={`state-flow-${view.variable}`}
+          key={view.variable}
+        >
+          <span>{t("nodes:inspector.branch.stateFlowTitle")}</span>
+          <div className="state-flow__head">
+            <code className="mono state-flow__var">{`var.${view.variable}`}</code>
+            <span
+              className={
+                view.hasDeclaration
+                  ? "state-flow__initial"
+                  : "state-flow__initial state-flow__initial--warn"
+              }
+            >
+              {view.hasDeclaration
+                ? t("nodes:inspector.branch.stateInitial", {
+                    value: formatStateValue(view.initial),
+                  })
+                : t("nodes:inspector.branch.stateUndeclared")}
+            </span>
+          </div>
+          {view.transitions
+            .filter((tr) => tr.branchNodeId === node.id)
+            .map((tr) => (
+              <div className="state-flow__transition" key={tr.ruleId}>
+                <span className="state-flow__chip">{formatStateValue(tr.value)}</span>
+                <span className="state-flow__arrow" aria-hidden="true">
+                  →
+                </span>
+                <span className="state-flow__target">{tr.targetName}</span>
+              </div>
+            ))}
+          {node.branch!.defaultTarget && (
+            <div className="state-flow__transition">
+              <span className="state-flow__chip state-flow__chip--default">
+                {t("nodes:inspector.branch.stateDefault")}
+              </span>
+              <span className="state-flow__arrow" aria-hidden="true">
+                →
+              </span>
+              <span className="state-flow__target">
+                {graph.nodes.find((n) => n.id === node.branch!.defaultTarget)?.name ??
+                  node.branch!.defaultTarget}
+              </span>
+            </div>
+          )}
+        </div>
+      ))}
       <p className="note">{t("nodes:inspector.branch.note")}</p>
     </>
   );
+}
+
+function formatStateValue(v: unknown): string {
+  if (typeof v === "string") return v;
+  if (v === null) return "null";
+  return String(v);
 }

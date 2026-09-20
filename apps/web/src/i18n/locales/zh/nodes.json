@@ -182,6 +182,11 @@
       "title": "输出契约（高级）",
       "hint": "声明该节点输出中必须存在且非空的字段，缺失或类型不符时在数据下传前拦截。仅适用于输出为 JSON 对象的节点（HTTP / 数据库 / 表格 / 文件连接器）；纯文本或 Markdown 节点无需配置。",
       "enforced": "已生效：运行时若输出缺少必填字段或类型不符，该节点直接判定失败（错误码 SCHEMA_VIOLATION），可在画布里接错误分支兜底；未配置契约的节点不校验。",
+      "rootLabel": "校验的数据形状",
+      "rootObject": "对象（单个 JSON 对象）",
+      "rootArray": "数组（数据行列表，如商品库 / SQL 查询结果）",
+      "itemsHint": "数组必须非空，且每一行元素都满足下面的字段要求",
+      "itemsFieldPlaceholder": "元素字段路径，如 name 或 meta.sku",
       "fieldPlaceholder": "字段路径，如 title 或 meta.count",
       "add": "添加字段",
       "remove": "移除",
@@ -445,7 +450,11 @@
       "addRule": "+ 添加规则",
       "defaultTarget": "默认分支（未命中任何规则）",
       "dropMessage": "丢弃报文",
-      "note": "条件表达式示例：${api.price} > 100 && ${api.stock} > 0。支持 == != > < >= <= && || ! 与括号；未命中且无默认分支时报文被丢弃，该分支下游不执行。"
+      "note": "条件表达式示例：${api.price} > 100 && ${api.stock} > 0。支持 == != > < >= <= && || ! 与括号；未命中且无默认分支时报文被丢弃，该分支下游不执行。",
+      "stateFlowTitle": "状态流转（按 ${var.状态变量} 条件自动推导，只读）",
+      "stateInitial": "初始：{{value}}",
+      "stateUndeclared": "未声明初始值",
+      "stateDefault": "默认"
     },
     "map": {
       "iterate": "迭代数组路径（可选）",

@@ -1,6 +1,6 @@
 # 商业化详细实施方案（Monetization）
 
-> 状态：**方案设计（价格已用 M1 真实数据校准；M2 订阅 gate S1-S8 代码已全部完成并测试通过，待部署 Hasee；gate 默认由 MONETIZATION_ENFORCE 关闭）**。设计决策基线见 [PRODUCT_STRATEGY.md](PRODUCT_STRATEGY.md) §八，历史讨论见 [product-vision-discussion.md](product-vision-discussion.md) §九。M2 落地级细化见 [design-monetization-m2-implementation.md](design-monetization-m2-implementation.md)。
+> 状态：**方案设计（价格已用 M1 真实数据校准；M2 订阅 gate S1-S8 已全部完成并测试通过，随 PR #277 合 dev（merge `124bdca`）部署 Hasee、owner 已升 pro、MONETIZATION_ENFORCE=1）**。设计决策基线见 [PRODUCT_STRATEGY.md](PRODUCT_STRATEGY.md) §八，历史讨论见 [product-vision-discussion.md](product-vision-discussion.md) §九。M2 落地级细化见 [design-monetization-m2-implementation.md](design-monetization-m2-implementation.md)。
 > 本方案把「方向」落成可实施的规格：数据模型 / API / 挂点 / 分阶段路线。2026-09-14 已用 M1 回采 125 runs / $5.57 真实成本数据校准 §4 套餐价格与 §10.2 待定参数，校准依据见 §4.1。
 
 ---
@@ -503,7 +503,7 @@ cloudflared tunnel --url http://localhost:8791
 |---|---|---|
 | **M0 本地运行环境** | 把 agent-world 部署成可 7×24 跑真实产线的**单机服务**（Ubuntu 纯 Server / Node 24 / systemd / nginx 同源 / bwrap 沙箱），作为 P0 成本计量回采的运行床 | ✅ 完成（阶段 0-7 + CI/CD 全部通过，见 [deploy-ubuntu-execution-log.md](runbooks/deploy-ubuntu-execution-log.md)） |
 | **M1 成本计量回采** | 用 M0 环境跑 2-4 周真实产线，攒真实成本数据（§8.4 单位经济） | ✅ 完成（125 runs / $5.57，价格已校准，见 §4.1） |
-| **M2 订阅 gate 落地** | P1 的 `enforceSubscription` + 套餐 + 硬配额（§5） | 🔵 代码完成待部署（S1-S8 全部提交，四包 typecheck 绿、core/mcp/web/server 相关测试全过；部署手册见 m2-implementation §S8，上线前需先把 owner 升 pro 再开 MONETIZATION_ENFORCE） |
+| **M2 订阅 gate 落地** | P1 的 `enforceSubscription` + 套餐 + 硬配额（§5） | ✅ 已部署 Hasee（S1-S8 随 PR #277 合 dev merge `124bdca`；owner 已升 pro、MONETIZATION_ENFORCE=1，部署手册见 m2-implementation §S8） |
 | **M3 收款与上线** | P2 账单/支付 + 域名/TLS（§6，先手动收款再接网关） | ⬜ |
 
 > M0 的部署形态：§8.2 原推荐「先云 VM（Fly.io 零成本）」，现按实际资源调整为「先本地 Linux 笔记本单机」——数据 rsync 可迁、P2 真收款前再上云/隧道，与 §8.3「本地可先做」一致，不推翻原推荐。
@@ -521,7 +521,7 @@ cloudflared tunnel --url http://localhost:8791
 - [x] 在用模型单价配全 + 端到端实测（2026-09-08，Hasee/staging 浏览器直连核对）：7 个在用模型（agnes 6 个内置 + ceshi 1 个）价格卡全部落地，`unpricedModels` 缺口清零。**关键修复**：内置 `agnes` tier 原本没有价格卡，而 `loadConfig` 每次读取都用内置默认整体覆盖 builtin provider，导致 UI 里填的单价保存后被抹掉——价格改写入源码 `AGNES_PROVIDER`（`packages/server/src/config.ts`，随产品发布）才持久化；`ceshi` 为 custom provider，经设置 UI 直接持久化。当前为**非正式占位单价**（按 OpenAI 同级 list price 映射：flash 文本 ≈ gpt-4o-mini / gpt-4.1-mini、图片 ≈ gpt-image-1、视频 ≈ Sora 量级），**正式计费前须换成 agnes 网关真实费率**。实测：投料派发后运行「全部出厂」（seq 23/23），电费读数 **$0.00051**、token **830 入 / 643 出**，与 `computeCost` 手算（830×$0.15/1M + 643×$0.6/1M ≈ $0.00051）一致，成本报表不再报「未配单价」。
 - **验收**：能按用户看到「本月真实成本 = 平台代付模型费 + 存储 + 编排」，是 §10 定价的数据前提。
 
-### P1 —— 订阅 gate + 免费层（核心收费逻辑）✅ 代码完成（M2 S1-S8，待部署 Hasee）
+### P1 —— 订阅 gate + 免费层（核心收费逻辑）✅ 已部署 Hasee（M2 S1-S8，PR #277）
 - [x] `enforceSubscription()` 挂入派发流程（§5.3，五维检查，gate 由 `MONETIZATION_ENFORCE=1` 开启、默认关）
 - [x] 默认 plan = `free`（存量用户懒创建落免费层，BYOK 不受影响、零破坏）
 - [x] 内置模型访问控制：免费层 402 `QUOTA_EXCEEDED` + 前端升级引导模态（UpgradeGate，不丢画布状态）

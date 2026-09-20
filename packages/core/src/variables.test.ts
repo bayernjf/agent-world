@@ -3,9 +3,11 @@ import {
   buildNodeContext,
   evaluateCondition,
   evaluateTemplate,
+  extractVarReferences,
   getByPath,
   resolveExpression,
   transformJson,
+  validateConditionSyntax,
 } from "./variables.js";
 import type { Graph } from "./graph.js";
 import type { Artifact } from "./artifact.js";
@@ -153,5 +155,57 @@ describe("evaluateCondition", () => {
   it("supports arithmetic", () => {
     expect(evaluateCondition("${score} * 2 == 14", ctx)).toBe(true);
     expect(evaluateCondition("${score} + 1 > 7", ctx)).toBe(true);
+  });
+});
+
+describe("validateConditionSyntax", () => {
+  it("accepts well-formed conditions with placeholders", () => {
+    expect(validateConditionSyntax("${var.orderState} == 'paid'")).toBeNull();
+    expect(validateConditionSyntax("${count} > 3 && ${ok} == true")).toBeNull();
+    expect(validateConditionSyntax("!${flag} || ${score} >= 80")).toBeNull();
+  });
+
+  it("rejects trailing tokens and bare identifiers", () => {
+    expect(validateConditionSyntax("${ok} == true garbage")).not.toBeNull();
+    expect(validateConditionSyntax("foo == 1")).not.toBeNull();
+  });
+
+  it("rejects an unmatched closing parenthesis", () => {
+    expect(validateConditionSyntax("${a} == 1)")).not.toBeNull();
+  });
+
+  it("handles ReDoS-shaped placeholder input in linear time (no backtracking blow-up)", () => {
+    // CodeQL js/polynomial-redos regression: the legacy /\$\{\s*[^}]+\s*\}/
+    // and even /\$\{[^}]+\}/ regexes backtrack polynomially on "${{" plus
+    // long space runs (no closing brace) and on "${{|" repetitions. The
+    // linear scanPlaceholders() must return in O(n) on both shapes; a slow
+    // (quadratic or worse) re-introduction would blow the test timeout.
+    const spacePoison = "${{" + " ".repeat(20000);
+    const runPoison = "${{|".repeat(8000);
+    for (const poison of [spacePoison, runPoison]) {
+      const started = Date.now();
+      const res = validateConditionSyntax(poison);
+      expect(Date.now() - started).toBeLessThan(2000);
+      expect(res).not.toBeNull(); // unparseable -> parser error string, no throw
+    }
+    // evaluateCondition and evaluateTemplate share the same scanner.
+    const started = Date.now();
+    expect(evaluateCondition(runPoison, {})).toBe(false);
+    expect(Date.now() - started).toBeLessThan(2000);
+  });
+});
+
+describe("extractVarReferences", () => {
+  it("collects top-level state variable names, de-duplicated", () => {
+    expect(
+      extractVarReferences("${var.orderState} == 'paid' || ${var.orderState} == 'shipped'"),
+    ).toEqual(["orderState"]);
+    // dotted sub-paths report only the top-level state key
+    expect(extractVarReferences("${var.flow.stage} == 'x'")).toEqual(["flow"]);
+  });
+
+  it("ignores plain node references", () => {
+    expect(extractVarReferences("${scraper.ok} == true && ${var.count} > 0")).toEqual(["count"]);
+    expect(extractVarReferences("${a} == 1")).toEqual([]);
   });
 });

@@ -418,5 +418,44 @@ describe("Inspector", () => {
         contract: { requiredFields: [] },
       });
     });
+
+    it("切换为数组形状时写入 root:array", () => {
+      setupGraphWithNode({});
+      render(<Inspector onOpenSettings={() => {}} />);
+      fireEvent.click(screen.getByRole("button", { name: "配置" }));
+      fireEvent.click(screen.getByText("输出契约（高级）"));
+
+      fireEvent.change(screen.getByLabelText("校验的数据形状"), { target: { value: "array" } });
+      expect(mockUpdateNode).toHaveBeenCalledWith("node-1", {
+        contract: { root: "array", requiredFields: [] },
+      });
+    });
+
+    it("数组契约按元素展示字段，新增字段写入 contract.items", () => {
+      setupGraphWithNode({
+        contract: {
+          root: "array",
+          items: { requiredFields: ["name", "price"], types: { price: "number" } },
+        },
+      });
+      render(<Inspector onOpenSettings={() => {}} />);
+      fireEvent.click(screen.getByRole("button", { name: "配置" }));
+
+      expect(screen.getByText("name")).toBeInTheDocument();
+      expect(screen.getByText("price")).toBeInTheDocument();
+      expect(screen.getByText(/数组必须非空/)).toBeInTheDocument();
+      const rootSelect = screen.getByLabelText("校验的数据形状") as HTMLSelectElement;
+      expect(rootSelect.value).toBe("array");
+
+      fireEvent.change(screen.getByPlaceholderText(/元素字段/), { target: { value: "sku" } });
+      fireEvent.click(screen.getByRole("button", { name: "添加字段" }));
+      expect(mockUpdateNode).toHaveBeenCalledWith("node-1", {
+        contract: {
+          root: "array",
+          requiredFields: [],
+          items: { requiredFields: ["name", "price", "sku"], types: { price: "number" } },
+        },
+      });
+    });
   });
 });

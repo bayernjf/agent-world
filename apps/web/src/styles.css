@@ -1930,6 +1930,75 @@ select {
   border-color: var(--error);
 }
 
+/* Read-only state-machine flow preview on branch nodes (plan A). */
+.state-flow {
+  margin-top: var(--gap-sm);
+  padding: var(--space-2);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+}
+
+.state-flow__head {
+  display: flex;
+  gap: var(--gap-xs);
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--gap-xs);
+}
+
+.state-flow__var {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  color: var(--text-primary);
+}
+
+.state-flow__initial {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+}
+
+.state-flow__initial--warn {
+  color: var(--warning);
+}
+
+.state-flow__transition {
+  display: flex;
+  gap: var(--gap-xs);
+  align-items: center;
+  margin: var(--gap-xs) 0;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+.state-flow__chip {
+  flex: none;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  background: var(--info-bg);
+  color: var(--info);
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+}
+
+.state-flow__chip--default {
+  background: var(--bg-secondary);
+  color: var(--text-tertiary);
+}
+
+.state-flow__arrow {
+  color: var(--text-disabled);
+}
+
+.state-flow__target {
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .status {
   margin: 0;
   font-family: var(--mono);
@@ -2854,6 +2923,11 @@ select {
   fill: var(--text-tertiary);
   font-family: var(--mono);
   font-size: 10px;
+}
+.plant__state {
+  fill: var(--info);
+  font-family: var(--mono);
+  font-size: var(--text-xs);
 }
 .plant__thumb-frame {
   fill: var(--bg-secondary);
@@ -8461,6 +8535,22 @@ select {
   font-size: var(--text-xs);
   line-height: 1.5;
   color: var(--text-secondary);
+}
+.contract-root {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-sm);
+  margin: var(--space-2) 0;
+}
+.contract-root__label {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.contract-root select {
+  flex: 1;
+  min-width: 0;
+  width: auto;
 }
 .contract-field-row {
   display: flex;
