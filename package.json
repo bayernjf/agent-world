@@ -10,9 +10,14 @@
     "dev": "pnpm --parallel --filter \"./apps/*\" --filter \"./packages/server\" dev",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
-    "prepare": "husky"
+    "prepare": "husky",
+    "e2e": "playwright test",
+    "e2e:install": "playwright install chromium",
+    "e2e:ui": "playwright test --ui",
+    "e2e:report": "playwright show-report"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "husky": "^9.1.7",
     "tsx": "^4.23.13",
     "typescript": "^5.7.2",
