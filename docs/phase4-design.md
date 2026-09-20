@@ -253,6 +253,10 @@ variables 值是 JSON，但 `${var.count}` 插值时期望 string。
 
 **缓做**。等有明确的复杂状态流转需求（如电商订单全流程）再评估，优先用 variables + branch 组合。
 
+### 5.4 方案 A 增强已落地（2026-09-20）
+
+仍不做独立状态机节点，但给 variables + branch 组合补齐两项工程护栏（commit `208683b` core + `2c56e48` web，零新执行语义）：①**编译期校验**——`compile()` 对 branch 规则诊断非法迁移（目标节点不存在 / 目标存在但无正向连线，运行时本会静默丢包，判 error）、条件表达式语法错误（运行时 fail-closed 永不命中，判 warning）、`${var.xxx}` 状态变量未在图变量声明初始值（warning）；新增纯函数 `deriveStateMachine` 从等值条件静态推导状态空间与迁移。②**画布可视化**——branch Inspector 只读状态流转预览（变量 / 初始值 / 各状态值→目标 / 默认分支），2D 节点卡片显示 `var.x: 状态` 徽标。正式 statemachine 节点（方案 B）仍按 5.3 缓做，触发条件见 docs/deferred-items.md 执行引擎线。
+
 ---
 
 ## 6. ReAct 多轮（已做，只需清理）
