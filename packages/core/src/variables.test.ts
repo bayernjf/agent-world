@@ -176,14 +176,22 @@ describe("validateConditionSyntax", () => {
 
   it("handles ReDoS-shaped placeholder input in linear time (no backtracking blow-up)", () => {
     // CodeQL js/polynomial-redos regression: the legacy /\$\{\s*[^}]+\s*\}/
-    // pattern backtracks quadratically on "${{" followed by many spaces and
-    // no closing brace. The single-pass /\$\{[^}]+\}/ form stays O(n);
-    // a slow (cubic) re-introduction would blow the test timeout.
-    const poison = "${{" + " ".repeat(20000);
+    // and even /\$\{[^}]+\}/ regexes backtrack polynomially on "${{" plus
+    // long space runs (no closing brace) and on "${{|" repetitions. The
+    // linear scanPlaceholders() must return in O(n) on both shapes; a slow
+    // (quadratic or worse) re-introduction would blow the test timeout.
+    const spacePoison = "${{" + " ".repeat(20000);
+    const runPoison = "${{|".repeat(8000);
+    for (const poison of [spacePoison, runPoison]) {
+      const started = Date.now();
+      const res = validateConditionSyntax(poison);
+      expect(Date.now() - started).toBeLessThan(2000);
+      expect(res).not.toBeNull(); // unparseable -> parser error string, no throw
+    }
+    // evaluateCondition and evaluateTemplate share the same scanner.
     const started = Date.now();
-    const res = validateConditionSyntax(poison);
+    expect(evaluateCondition(runPoison, {})).toBe(false);
     expect(Date.now() - started).toBeLessThan(2000);
-    expect(res).not.toBeNull(); // unparseable -> parser error string, no throw
   });
 });
 
