@@ -219,14 +219,14 @@ export default function ProductGallery({ open, onClose }: Props) {
             runsLoading && runs.length === 0 ? (
               <p
                 className="muted"
-                style={{ textAlign: "center", padding: "40px 0" }}
+                style={{ textAlign: "center", padding: "var(--space-10) 0" }}
               >
                 {t("modals:productGallery.loading")}
               </p>
             ) : runs.length === 0 ? (
               <p
                 className="muted"
-                style={{ textAlign: "center", padding: "40px 0" }}
+                style={{ textAlign: "center", padding: "var(--space-10) 0" }}
               >
                 {t("modals:productGallery.noRuns")}
               </p>
@@ -286,7 +286,7 @@ export default function ProductGallery({ open, onClose }: Props) {
           ) : filtered.length === 0 && !loading ? (
             <p
               className="muted"
-              style={{ textAlign: "center", padding: "40px 0" }}
+              style={{ textAlign: "center", padding: "var(--space-10) 0" }}
             >
               {t("modals:productGallery.noProducts")}
             </p>
