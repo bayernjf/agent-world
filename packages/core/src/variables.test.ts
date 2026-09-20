@@ -173,6 +173,18 @@ describe("validateConditionSyntax", () => {
   it("rejects an unmatched closing parenthesis", () => {
     expect(validateConditionSyntax("${a} == 1)")).not.toBeNull();
   });
+
+  it("handles ReDoS-shaped placeholder input in linear time (no backtracking blow-up)", () => {
+    // CodeQL js/polynomial-redos regression: the legacy /\$\{\s*[^}]+\s*\}/
+    // pattern backtracks quadratically on "${{" followed by many spaces and
+    // no closing brace. The single-pass /\$\{[^}]+\}/ form stays O(n);
+    // a slow (cubic) re-introduction would blow the test timeout.
+    const poison = "${{" + " ".repeat(20000);
+    const started = Date.now();
+    const res = validateConditionSyntax(poison);
+    expect(Date.now() - started).toBeLessThan(2000);
+    expect(res).not.toBeNull(); // unparseable -> parser error string, no throw
+  });
 });
 
 describe("extractVarReferences", () => {

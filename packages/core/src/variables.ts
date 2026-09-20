@@ -329,7 +329,7 @@ function applyCmp(op: string, a: unknown, b: unknown): unknown {
  * for the branch to match. Malformed expressions evaluate to false.
  */
 export function evaluateCondition(expr: string, context: Record<string, unknown>): boolean {
-  const interpolated = expr.replace(/\$\{\s*([^}]+)\s*\}/g, (_, raw: string) =>
+  const interpolated = expr.replace(/\$\{([^}]+)\}/g, (_, raw: string) =>
     literal(resolveExpression(raw.trim(), context)),
   );
   try {
@@ -351,7 +351,7 @@ export function evaluateCondition(expr: string, context: Record<string, unknown>
  * make the branch never match; compile-time validation surfaces it on the canvas.
  */
 export function validateConditionSyntax(expr: string): string | null {
-  const interpolated = expr.replace(/\$\{\s*[^}]+\s*\}/g, "null");
+  const interpolated = expr.replace(/\$\{[^}]+\}/g, "null");
   try {
     new CondParser(interpolated).parse();
     return null;
