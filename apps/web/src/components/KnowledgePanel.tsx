@@ -160,7 +160,7 @@ export default function KnowledgePanel({ open, onClose }: Props) {
 
         <div className="knowledge-panel__list">
           {entries.length === 0 && (
-            <p className="muted" style={{ textAlign: "center", padding: "40px" }}>
+            <p className="muted" style={{ textAlign: "center", padding: "var(--space-10)" }}>
               {query ? t("modals:knowledge.emptySearch") : t("modals:knowledge.empty")}
             </p>
           )}

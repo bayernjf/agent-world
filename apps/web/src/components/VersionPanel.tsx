@@ -261,12 +261,12 @@ export default function VersionPanel({ open, graphId, graphName, onClose, onRest
             </p>
           )}
           {loading && (
-            <p className="muted" style={{ textAlign: "center", padding: "20px" }}>
+            <p className="muted" style={{ textAlign: "center", padding: "var(--space-5)" }}>
               {t("common.loading")}
             </p>
           )}
           {!loading && versions.length === 0 && (
-            <p className="muted" style={{ textAlign: "center", padding: "40px" }}>
+            <p className="muted" style={{ textAlign: "center", padding: "var(--space-10)" }}>
               {t("modals:versionPanel.empty", {
                 button: t("modals:versionPanel.saveCurrent"),
               })}

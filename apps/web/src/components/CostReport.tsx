@@ -175,7 +175,7 @@ export default function CostReport({ open, onClose }: Props) {
           {loading || !report || !totals ? (
             <p
               className="muted"
-              style={{ textAlign: "center", padding: "40px 0" }}
+              style={{ textAlign: "center", padding: "var(--space-10) 0" }}
             >
               {loading ? t("modals:reports.loading") : t("common.empty")}
             </p>
