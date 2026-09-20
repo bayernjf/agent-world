@@ -3,7 +3,7 @@
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![node](https://img.shields.io/badge/node-%3E%3D24-339933)](https://nodejs.org)
 [![pnpm](https://img.shields.io/badge/package%20manager-pnpm-ffc611)](https://pnpm.io)
-[![tests](https://img.shields.io/badge/tests-3145%20passing-2ea44f)](#run-the-checks)
+[![tests](https://img.shields.io/badge/tests-3599%20passing-2ea44f)](#run-the-checks)
 
 **A visual pipeline platform for AI agents — orchestrate LLMs, tools, and quality
 control into production lines that actually finish.**
@@ -69,7 +69,7 @@ change actually helped).
 | **Observability** | Live SSE streaming, replay scrubber, per-node cost, eval report (by day / by graph / by prompt fingerprint), CSV export |
 | **MCP** | Both directions: consume external MCP servers as tools (operator env config plus per-user self-service for remote http/sse servers in Settings); expose the platform itself as an MCP server (15 tools, stdio + Streamable HTTP, protocol 2026-07-28 with 2025-11-25 / 2024-11-05 fallback, OAuth 2.1 resource metadata) |
 | **Sandboxing** | 3-tier code exec: env/cwd isolation → rlimit + Node permission model → bwrap (Linux) / seatbelt (macOS); SSRF guard immune to DNS rebinding |
-| **Accounts** | JWT + bcrypt, all resources isolated per user |
+| **Accounts** | JWT + bcrypt, all resources isolated per user; one-click demo account (no signup, drives the real product under a trial quota, claimable in place to a registered account) |
 | **Templates** | 33 built-in pipelines across 11 categories (grouped in the picker, blank canvas pinned first and not counted as a template), with parameterizable fields (URLs, targets, brand terms); product templates pre-select the product-library connector and document/OCR templates pre-select the file connector — users only fill in the concrete target |
 
 ## Quick start
@@ -102,7 +102,7 @@ pnpm dev
 ### Run the checks
 
 ```bash
-pnpm -r test       # 3145 tests: core 224 / server 1039 / mcp-server 71 / web 1811
+pnpm -r test       # 3599 tests: core 320 / server 1261 / mcp-server 71 / web 1947
 pnpm -r typecheck
 pnpm -r build
 ```
