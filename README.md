@@ -3,7 +3,7 @@
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![node](https://img.shields.io/badge/node-%3E%3D24-339933)](https://nodejs.org)
 [![pnpm](https://img.shields.io/badge/package%20manager-pnpm-ffc611)](https://pnpm.io)
-[![tests](https://img.shields.io/badge/tests-3145%20passing-2ea44f)](#run-the-checks)
+[![tests](https://img.shields.io/badge/tests-3599%20passing-2ea44f)](#run-the-checks)
 
 **A visual pipeline platform for AI agents — orchestrate LLMs, tools, and quality
 control into production lines that actually finish.**
@@ -102,7 +102,7 @@ pnpm dev
 ### Run the checks
 
 ```bash
-pnpm -r test       # 3145 tests: core 224 / server 1039 / mcp-server 71 / web 1811
+pnpm -r test       # 3599 tests: core 320 / server 1261 / mcp-server 71 / web 1947
 pnpm -r typecheck
 pnpm -r build
 ```
