@@ -1,5 +1,15 @@
 import "@testing-library/jest-dom";
+import { configure } from "@testing-library/react";
 import i18n from "../i18n";
+
+// waitFor / findBy* default to a 1000ms async-util timeout. Under vitest's
+// multi-worker parallelism (or a loaded CI runner) mocked promises and React
+// effects occasionally take longer than 1s to flush, causing load-only flakes
+// where a panel stayed on "加载中…" while isolated and sequential runs were
+// always green. Raise the global async-assertion budget to 5s (matches the
+// per-file wrapper some suites already use); kept well below the 10s
+// testTimeout so a genuinely stuck test still fails the test first.
+configure({ asyncUtilTimeout: 5000 });
 
 // Force Chinese language in tests to match existing test assertions
 i18n.changeLanguage("zh");

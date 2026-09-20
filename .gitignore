@@ -20,6 +20,11 @@ agent-world.config.json
 
 .playwright-cli/
 
+# Playwright E2E outputs
+/playwright-report/
+/test-results/
+/blob-report/
+
 # Startup database snapshots (VACUUM INTO)
 backups/
 
