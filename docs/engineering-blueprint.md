@@ -50,7 +50,7 @@
 | 5 配置 | `.env.example` | ✅ 根目录已备；敏感值走加密 settings / 密钥文件，systemd 只内联非敏感项 |
 | 6 IaC | 部署脚本幂等 | ✅ **本轮加固（2026-09-15）**：见下「部署脚本单一事实源」 |
 | 7 数据 | 恢复演练 | ✅ 09-08 D3 只读恢复演练（RPO≈6h、RTO 秒级）+ Mac 每日异地备份 |
-| 8 测试 | E2E 冒烟 | ⚠️ **唯一未独立落地的 P0**：无 Playwright 全链路脚本，当前由海量集成/组件测试 + 健康探针 + 每次合并后人工真机走查替代；重启条件＝对外开放注册前（需先在 CI runner 装 chromium） |
+| 8 测试 | E2E 冒烟 | 🟡 **最小骨架已落地（2026-09-20，手动跑）**：根 `playwright.config.ts` + `e2e/`（@playwright/test，自动起临时库 server＋vite web），覆盖 guest→/login 重定向、一键 demo→进入真实产品＋demo 横幅＋无未捕获异常，`pnpm e2e`（说明见 `e2e/README.md`）。仍缺**完整全链路**（注册→配 provider→建产线→跑→出成品，见 §8 表）与 **CI 接入**（CI 现仅构建＋单测、未装 chromium），二者重启条件＝对外开放注册前。其余保障不变：海量集成/组件测试 + 健康探针 + 每次合并后人工真机走查 |
 | 10 DevEx | 一键本地启动 | ✅ `scripts/dev.sh`（Node≥24 自检 + corepack + install + typecheck + `pnpm dev`） |
 | 11 运营 | runbook | ✅ `docs/runbooks/` 7 份（部署/换密钥/变更/复盘模板等）+ `production-ops.md` |
 | 12 成本 | 硬熔断 | ✅ 同域 2 |
