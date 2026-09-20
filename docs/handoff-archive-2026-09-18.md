@@ -80,7 +80,7 @@
 
 ### 2026-09-16 续：claim 转正真机全链路 + RTS 园区 polish 走查
 
-- **任务 3（demo claim 原地转正）真机完整走通**：demo 会话点「注册并保留我的工作」→ ClaimDialog 填邮箱+两次密码→转正，转正后前端+DB 双验：同 userId 不变、is_demo=0、demo_expires_at=NULL、/me demo=null、email 更新、DemoBanner/转正按钮消失、graph 与 failed run 历史原样保留；退出后用新邮箱+密码可重新登录为正式账号。副作用：生产 Hasee 库多了一个正式测试账号 `claim-test-20260916@example.com`（userId `a29aed33-7b14-4282-8e22-9ae999457c6d`，prune cron 不会清理）；无现成"删正式账号"脚本，是否删除需用户决定。
+- **任务 3（demo claim 原地转正）真机完整走通**：demo 会话点「注册并保留我的工作」→ ClaimDialog 填邮箱+两次密码→转正，转正后前端+DB 双验：同 userId 不变、is_demo=0、demo_expires_at=NULL、/me demo=null、email 更新、DemoBanner/转正按钮消失、graph 与 failed run 历史原样保留；退出后用新邮箱+密码可重新登录为正式账号。副作用：生产 Hasee 库多了一个正式测试账号 `claim-test-20260916@example.com`（userId `a29aed33-7b14-4282-8e22-9ae999457c6d`，prune cron 不会清理）；无现成"删正式账号"脚本。**（2026-09-16 用户决定：测试账号先留着观察，不删。）**
 - **任务 2（RTS L0 园区 polish）真机走查：旧 polish 项均已完成且真机正常**——状态色、标签深色 pill+青字、跨厂厂顶抛物线拱+ROI、raycast 点选浮层+白色选中环。注意：之前"点不中工厂"是浏览器自动化 `bu.click_xy` 坐标映射偏差（park canvas `rect.left=-131`），非产品缺陷；真实鼠标命中正常。
 - **唯一新修（PR #310 merge `b957832`）**：从"选中过节点的 3D 视图"进入/返回 L0 园区时，右侧 L1「节点详情」Inspector 仍残留展开挤占画布。修复 commit `d2cf6d3`（`App.tsx` 的 `enterPark`/`backToPark` 加 `setInspectorCollapsed(true)`）。
 
