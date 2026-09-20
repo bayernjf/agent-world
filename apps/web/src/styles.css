@@ -8536,6 +8536,22 @@ select {
   line-height: 1.5;
   color: var(--text-secondary);
 }
+.contract-root {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-sm);
+  margin: var(--space-2) 0;
+}
+.contract-root__label {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.contract-root select {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
 .contract-field-row {
   display: flex;
   align-items: center;
