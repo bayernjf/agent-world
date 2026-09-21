@@ -337,8 +337,21 @@ async function resolveGuarded(hostname: string): Promise<{ pin: string; family: 
   for (const r of records) {
     if (r.family === 4 ? ipv4IsInternal(r.address) : ipv6IsInternal(r.address)) return null;
   }
-  const first = records[0]!;
-  return { pin: first.address, family: first.family };
+  return selectPinRecord(records);
+}
+
+/**
+ * Choose the single IP the pinned connection must use. Prefer IPv4: a pinned
+ * Agent never falls back to another address, so on a host without IPv6
+ * connectivity (common for self-hosted boxes) pinning an AAAA record fails
+ * every request with ENETUNREACH/ETIMEDOUT even though IPv4 works fine.
+ * Pure-AAAA hosts still pin to IPv6.
+ */
+export function selectPinRecord(
+  records: { address: string; family: number }[],
+): { pin: string; family: number } {
+  const chosen = records.find((r) => r.family === 4) ?? records[0]!;
+  return { pin: chosen.address, family: chosen.family };
 }
 
 /**
@@ -392,11 +405,15 @@ export async function guardedFetch(url: string | URL, init: GuardedFetchInit = {
       dispatcher = pinnedAgent(resolved.pin, resolved.family);
     }
 
-    // The pinned Agent must come from the same undici build as the global
-    // fetch (Node's bundled undici). The pnpm dependency is pinned to that
-    // same major (^7.8) so passing `dispatcher` here stays protocol-compatible
-    // — an 8.x Agent handed to the 7.x global fetch throws "invalid
-    // onRequestStart method" and every pinned request would fail. The pinned
+    // The pinned Agent must come from the same undici MAJOR as Node's bundled
+    // undici used by global fetch (Node 24 bundles undici 7.x, so the pnpm
+    // dependency stays on ^7.x). An Agent from a mismatched major handed to
+    // global fetch throws "invalid onRequestStart method" and EVERY pinned
+    // request fails — this took production down on 2026-09-20 after an
+    // automated undici 7→8 bump (CI stayed green because fetch was mocked).
+    // Guarded by the "pinned Agent compatibility" test in
+    // ssrf.guarded-fetch.test.ts; bump undici major only together with Node.
+    // The pinned
     // agent routes the TCP/TLS connection to the validated IP; Host header and
     // SNI still use the original hostname.
     const r = await fetch(current.toString(), {
