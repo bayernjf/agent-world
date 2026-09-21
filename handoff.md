@@ -60,7 +60,7 @@ State of Agent World as of 2026-09-21.
 * [docs/design-monetization-m3-implementation.md](docs/design-monetization-m3-implementation.md) — M3 收款与账单落地方案（S1 invoices 表 + 账单生成 / S2 账单页 UI / S3 HTML 发票 / S4 手动收款闭环 / S5 团队席位 / S6 Stripe 待收款主体，2026-09-14 启动）
 * [docs/design-monetization-m3-s6-stripe.md](docs/design-monetization-m3-s6-stripe.md) — M3 S6 Stripe 支付网关集成总方案（数据模型/API/webhook/安全/测试/分步；后端 A0-A4 已完成）
 * [docs/design-monetization-m3-s6-a5-frontend.md](docs/design-monetization-m3-s6-a5-frontend.md) — M3 S6 Step A5 前端 BillingTab 实施方案（按钮状态矩阵 / 回跳 query / 错误降级 / i18n / 测试 / 分步，2026-09-15）
-* [docs/design-demo-user.md](docs/design-demo-user.md) — 演示用户（免注册一键进真实产品，is_demo 标记真实账号 + 体验额度 + demoGuard 能力黑名单 + claim 原地转正 + TTL 级联清理；迁移 v40、D1-D6 分步。**D1–D6 已随 PR #302 合 dev 部署 Hasee 并真机走查；零配置首跑 422 经两轮修复（PR #305 `5812aca` + PR #307 `76dbd42`）已真机闭环、Hasee 已挂每小时 prune-demo cron，详见 handoff #52/#53 与该文档 §十六**）
+* [docs/design-demo-user.md](docs/design-demo-user.md) — 演示用户（免注册一键进真实产品，is_demo 标记真实账号 + 体验额度 + demoGuard 能力黑名单 + claim 原地转正 + TTL 级联清理；迁移 v40、D1-D6 分步。**D1–D6 已随 PR #302 合 dev 部署 Hasee 并真机走查；零配置首跑 422 经两轮修复（PR #305 `5812aca` + PR #307 `76dbd42`）已真机闭环、Hasee 已挂每小时 prune-demo cron（**2026-09-21 只读取证闭环**：`/var/lib/agent-world/logs/prune-demo.log` 严格每小时 :17 一条、mode=APPLY，与 cron `17 * * * *` 精确吻合；活库 5 用户 / 0 demo，故每轮 `expired 0 / deleted 0` 属正常空跑；cron 挂 agentworld 个人 crontab，静态行需 root 未直读，但连续运行日志即"在执行"的证据），详见 handoff #52/#53 与该文档 §十六**）
 * [docs/product-content-roadmap.md](docs/product-content-roadmap.md) / [docs/product-industry-roi.md](docs/product-industry-roi.md) — 内容线规划 / 行业 ROI 评估
 * [docs/rpa-readback-onboarding.md](docs/rpa-readback-onboarding.md) — RPA 回读真实环境接入清单
 
@@ -341,9 +341,9 @@ cd apps/web && pnpm dev
 
 **根因（沙箱内已用对照实验闭环）**：`code-sandbox.ts` 的 rlimit wrapper 无条件 `ulimit -f ${maxFileKb}`（DEFAULT maxFileKb=32MB）。当前沙箱 shell 内 bash `exec` 一个体积超过该软限的解释器二进制时直接 EFBIG / SIGXFSZ——fnm 的 Node v24.20.0 二进制实测 **116MB（121,911,744 B，`~/.local/share/fnm/node-versions/v24.20.0/installation/bin/node`）**，远超 32MB。对照实验：`env -i` 最小环境 + `ulimit -f 32768` 跑 node 报 `File too large`；去掉 `ulimit -f` 成功；调到 1GB 成功；`/bin/echo` 在 `ulimit -f 1`（1KB）下同样 File too large；带不带 `DYLD_LIBRARY_PATH` 都失败（DYLD 非决定因素）。**Linux 的 execve 不拿 RLIMIT_FSIZE 与二进制体积比较（FSIZE 只约束 write/truncate），故 CI（self-hosted Linux）、Hasee、bwrap 后端全部全绿，不受影响。**
 
-**影响面（诚实边界，勿夸大为通用 bug）**：该结论只在 **DoubaoWork 内置沙箱 shell 内**被确定性证实；`env -i` 只清环境变量、清不掉外层 seatbelt/rlimit，因此**「是否影响豆包沙箱之外、普通 macOS Terminal 自托管的用户」本轮未在沙箱外复现验证**。本文件旧基线（2026-09-18）记录「macOS 默认 rlimit 后端 Node 24 下 server 全绿」，与沙箱内现象存在环境口径差异，不能据沙箱内结果断言为通用 macOS 产品 bug。
+**影响面（诚实边界，勿夸大为通用 bug）**：该结论只在 **DoubaoWork 内置沙箱 shell 内**被确定性证实；`env -i` 只清环境变量、清不掉外层 seatbelt/rlimit。**2026-09-21 已在沙箱外完成对照验证（见下），结论为普通 macOS 不复现**，与本文件旧基线（2026-09-18「macOS 默认 rlimit 后端 Node 24 下 server 全绿」）一致——不能据沙箱内结果断言为通用 macOS 产品 bug。
 
-**待办与建议修法（涉及安全语义，未擅自动 code-sandbox，需确认后单独一个原子修复）**：①先在**普通 Terminal.app（沙箱外）** Node 24 跑一次 server 全量作对照，确认普通 macOS 是否复现；②若复现，修法与现有 `ulimit -v`（RLIMIT_AS）仅 linux 加的平台差异化同构——**darwin 上 wrapper 跳过 `ulimit -f` 并写清注释**（FSIZE 本意是限制产物写盘大小，不是限制可 exec 的解释器体积；macOS 上这层硬保证交给 sandbox-exec/seatbelt 后端，Linux 保留 `ulimit -f`）；③已登记 docs/deferred-items.md 沙箱线。**在沙箱内判定回归时，这 36 测失败属预期平台噪声，一律以 CI Linux 结果为准。**
+**对照结论（2026-09-21，沙箱外真实 macOS 证伪 → 不改代码）**：deferred 触发条件①「普通 Terminal.app（沙箱外）Node 24 全量对照」已执行——当前按需确认（无沙箱）模式下命令直接跑在真实 macOS，Node 24 跑 server 全量 **156 文件 / 1293 测全部通过（含 code-sandbox 28、engine.code 18，零 SIGXFSZ、连旧记的 2 个 python Xcode-shim ENOENT 也未出现）**。证明 SIGXFSZ 仅在 **DoubaoWork 内置沙箱外层 seatbelt 与 rlimit wrapper 叠加**时复现，普通 macOS 自托管环境（同 CI Linux / Hasee）不受影响。按 deferred「**复现后**才改」的触发条件，**不动 `code-sandbox.ts`、darwin 保留 `ulimit -f`**——不为内部沙箱现象削弱真实 macOS 的 RLIMIT_FSIZE 写盘限制（macOS 硬保证仍交 sandbox-exec/seatbelt 后端，Linux 本就不受影响）。重启条件收敛为仅②：出现真实 macOS 自托管用户报 code 节点「退出码 null / 无 stderr」；若届时重启，修法与 `ulimit -v`（RLIMIT_AS）仅 linux 加的平台差异化同构——darwin wrapper 跳过 `ulimit -f` 并写清注释，单独一个原子修复。**在 DoubaoWork 内置沙箱内判定回归时，那 36 测仍属预期平台噪声，一律以 CI Linux / 沙箱外真实 macOS 结果为准。**
 
 ## Conventions (carry over from archive)
 
