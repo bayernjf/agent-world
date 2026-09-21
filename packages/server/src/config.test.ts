@@ -1,7 +1,7 @@
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   AppConfigSchema,
   bindSettingsStore,
@@ -251,6 +251,42 @@ describe("provider failover config", () => {
     const candidates = failoverCandidates(cfg, "m");
     expect(candidates).toHaveLength(1);
     expect(candidates[0]!.name).toBe("p");
+  });
+
+  it("enables the built-in backup slot when BACKUP_* env is fully wired", async () => {
+    // BACKUP_PROVIDER is a module-level constant read at import time, so the
+    // env path needs a fresh module graph. Regression: the slot was hardcoded
+    // enabled:false and stayed dead even with all BACKUP_* vars set.
+    vi.stubEnv("BACKUP_BASE_URL", "https://backup.example/v1");
+    vi.stubEnv("BACKUP_API_KEY", "bk-key");
+    vi.stubEnv("BACKUP_MODELS", "bk-flash");
+    vi.resetModules();
+    try {
+      const fresh = await import("./config.js");
+      const cfg = await fresh.loadConfig("ghost-backup-env");
+      expect(cfg.providers.backup?.enabled).toBe(true);
+      const candidates = fresh
+        .failoverCandidates(cfg, "agnes-2.0-flash")
+        .map((c: { name: string }) => c.name);
+      expect(candidates).toEqual(["agnes", "backup"]);
+    } finally {
+      vi.unstubAllEnvs();
+      vi.resetModules();
+    }
+  });
+
+  it("keeps the backup slot disabled when BACKUP_API_KEY is missing", async () => {
+    vi.stubEnv("BACKUP_BASE_URL", "https://backup.example/v1");
+    vi.stubEnv("BACKUP_MODELS", "bk-flash");
+    vi.resetModules();
+    try {
+      const fresh = await import("./config.js");
+      const cfg = await fresh.loadConfig("ghost-backup-half");
+      expect(cfg.providers.backup?.enabled).toBe(false);
+    } finally {
+      vi.unstubAllEnvs();
+      vi.resetModules();
+    }
   });
 
   it("appends an enabled backup provider and disables via flag", () => {

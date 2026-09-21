@@ -360,10 +360,16 @@ const AGNES_PROVIDER: ProviderConfig = {
  * active without code changes. Models come from BACKUP_MODELS (comma list);
  * pricing is intentionally absent (failover runs are metered as 0 placeholder).
  */
+// The slot flips on only when an operator wires both a URL and a key;
+// usableBackup() also requires the key, but enabled must track env wiring so
+// a configured backup actually enters the failover candidate list.
+const backupEnvConfigured = Boolean(
+  (process.env.BACKUP_BASE_URL ?? "").trim() && (process.env.BACKUP_API_KEY ?? "").trim(),
+);
 const BACKUP_PROVIDER: ProviderConfig = {
   type: "openai-compatible",
   source: "builtin",
-  enabled: false,
+  enabled: backupEnvConfigured,
   baseUrl: process.env.BACKUP_BASE_URL,
   apiKey: process.env.BACKUP_API_KEY,
   models: (process.env.BACKUP_MODELS ?? "")
