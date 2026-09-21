@@ -1,6 +1,7 @@
 import "@testing-library/jest-dom";
 import { configure } from "@testing-library/react";
 import i18n from "../i18n";
+import { vi } from "vitest";
 
 // waitFor / findBy* default to a 1000ms async-util timeout. Under vitest's
 // multi-worker parallelism (or a loaded CI runner) mocked promises and React
@@ -50,6 +51,12 @@ global.matchMedia = (query: string) => ({
 
 // scrollTo mock (jsdom doesn't implement)
 window.scrollTo = () => {};
+
+// createObjectURL mock: jsdom has no real object-URL store; vitest 5's
+// compat shim reads Blob._buffer and throws under jsdom 30.1 (FeedbackModal
+// paste-preview crashed). Tests only need a stable opaque URL.
+URL.createObjectURL = vi.fn(() => "blob:test-url");
+URL.revokeObjectURL = vi.fn();
 
 // Suppress zustand persist warnings in test environment
 const originalError = console.error;
