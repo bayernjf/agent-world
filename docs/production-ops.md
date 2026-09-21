@@ -373,7 +373,42 @@ MCP Server 是**独立 Node 进程**（`packages/mcp-server`），不在主服�
 
 ---
 
-## 9. 相关文档
+## 9. 模型源灾备（Provider Failover，2026-09-21 补）
+
+主模型源（内置 agnes）长时间出站中断时，路由层自动把**同一请求改投到备份源的等价模型重发一次**，避免单次上游故障连续打挂一批 run（背景见 [mvp-readiness-review-2026-09-21.md](mvp-readiness-review-2026-09-21.md) 与 2026-09-20 约 12h 的出站中断）。
+
+### 9.1 覆盖范围与触发口径
+
+- **v1 仅文本**：`runTextGen`（初稿/润色/质检等）与 gate 的 `judge`；图片/视频/音频暂未接灾备。
+- **仅在主源「死掉」时切换**：上游连接失败（`PROVIDER_ERROR`，如 `fetch failed`）或 `TIMEOUT`。
+- **不切换**的情形：`429 RATE_LIMIT`（节点内 `LONG_RETRY` 已处理）、`401/403 AUTH`（密钥配置错，不应被备份流量默默掩盖）、以及**首块已流出之后**的中途错误（流式已有部分输出，不可重启，原样向上抛）。
+
+### 9.2 配置（填 env 即生效）
+
+备份源是一个**默认关闭的通用 OpenAI 兼容内置槽**，三项填齐才启用：
+
+| 变量 | 用途 |
+|---|---|
+| `BACKUP_BASE_URL` | 备份源 OpenAI 兼容根地址（如 `https://<host>/v1`） |
+| `BACKUP_API_KEY` | 备份源 key |
+| `BACKUP_MODELS` | 逗号分隔的模型名；默认取第一个 text 模型做灾备目标 |
+
+跨源模型名可能不同：默认把逻辑模型映射到 `backup` 槽的第一个 text 模型。需要精确定向时，在配置 `failover.chains[model]` 写有序目标 `[{provider, model}]`；`failover.enabled=false` 可整体关闭。
+
+### 9.3 日志信号
+
+每次切换打一条 warn（不含密钥），可作为告警来源：
+
+```
+level=warn msg="failing over text model to backup provider" model=<logical> to=<backup-model> provider=backup
+level=warn msg="failing over judge to backup provider" ...
+```
+
+备份源也不可用时抛出最后一个错误。验证机制由双源 fetch 桩单测覆盖（`routing.test.ts` / `config.test.ts`）；真机端到端需在 staging 填好 backup env 后，把主源 baseUrl 临时指向不可达地址观察一次自动切换。
+
+---
+
+## 10. 相关文档
 
 - [environments.md](environments.md) —— 环境划分（本路线的前提）
 - [design-logging.md](design-logging.md) —— 服务端日志（本路线日志层承接）

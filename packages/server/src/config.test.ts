@@ -6,6 +6,7 @@ import {
   AppConfigSchema,
   bindSettingsStore,
   endpointFor,
+  failoverCandidates,
   loadConfig,
   MODALITY_ENDPOINT,
   saveConfig,
@@ -218,5 +219,51 @@ describe("AppConfigSchema — user-supplied MCP servers", () => {
         skillCards: [{ id: "local:a", name: "A", kind: "tool", config: {} }],
       }).success,
     ).toBe(false);
+  });
+});
+
+describe("provider failover config", () => {
+  it("ships a disabled built-in backup slot", async () => {
+    const cfg = await loadConfig("ghost");
+    expect(cfg.providers.backup).toBeTruthy();
+    expect(cfg.providers.backup!.enabled).toBe(false);
+  });
+
+  it("accepts a failover section via the schema", async () => {
+    const base = {
+      providers: { p: { type: "openai-compatible", models: ["m"] } },
+      defaultModel: "m",
+      defaultProvider: "p",
+    };
+    const r = AppConfigSchema.safeParse({
+      ...base,
+      failover: { enabled: true, chains: { m: [{ provider: "backup", model: "b" }] } },
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it("failoverCandidates returns primary only when no usable backup exists", () => {
+    const cfg: AppConfig = {
+      providers: { p: { type: "openai-compatible", apiKey: "k", models: ["m"] } },
+      defaultModel: "m",
+      defaultProvider: "p",
+    };
+    const candidates = failoverCandidates(cfg, "m");
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]!.name).toBe("p");
+  });
+
+  it("appends an enabled backup provider and disables via flag", () => {
+    const cfg: AppConfig = {
+      providers: {
+        p: { type: "openai-compatible", apiKey: "k", models: ["m"] },
+        backup: { type: "openai-compatible", apiKey: "k2", enabled: true, models: ["b"] },
+      },
+      defaultModel: "m",
+      defaultProvider: "p",
+      failover: { enabled: true },
+    };
+    expect(failoverCandidates(cfg, "m").map((c) => c.name)).toEqual(["p", "backup"]);
+    expect(failoverCandidates({ ...cfg, failover: { enabled: false } }, "m")).toHaveLength(1);
   });
 });
