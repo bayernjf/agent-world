@@ -22,8 +22,17 @@ updates:
     # engines and ci.yml). The 26.x types changed Buffer's underlying
     # ArrayBufferLike definition, breaking BlobPart assignment in
     # artifact-store.ts (PR #186).
+    # undici's MAJOR must match Node's bundled undici (Node 24 bundles 7.x):
+    # ssrf.ts hands an npm-undici pinned Agent to the built-in global fetch,
+    # and a mismatched major throws "invalid onRequestStart method", failing
+    # every SSRF-guarded request (the 7→8 bump took production down on
+    # 2026-09-20). Bump undici major only together with the Node runtime;
+    # guarded by the pinned-Agent compatibility test in
+    # ssrf.guarded-fetch.test.ts.
     ignore:
       - dependency-name: "zod"
         update-types: ["version-update:semver-major"]
       - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "undici"
         update-types: ["version-update:semver-major"]

@@ -1,6 +1,14 @@
 import { lookup as dnsLookup } from "node:dns/promises";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { GuardedFetchError, guardedFetch, hostIsInternal, outboundProxyDispatcher } from "./ssrf.js";
+import http from "node:http";
+import { Agent } from "undici";
+import {
+  GuardedFetchError,
+  guardedFetch,
+  hostIsInternal,
+  outboundProxyDispatcher,
+  selectPinRecord,
+} from "./ssrf.js";
 
 vi.mock("node:dns/promises", () => ({
   lookup: vi.fn(),
@@ -265,4 +273,78 @@ describe("DNS resolver retry for transient resolver failures", () => {
     lookupMock.mockRejectedValue(transientDns());
     expect(await hostIsInternal("dead.example.com")).toBe(true); // fail closed
   });
+});
+
+
+describe("selectPinRecord (IPv4-first pinning)", () => {
+  it("prefers an IPv4 record when both families are returned", () => {
+    expect(
+      selectPinRecord([
+        { address: "2606:4700::6812:123e", family: 6 },
+        { address: "104.18.19.62", family: 4 },
+      ]),
+    ).toEqual({ pin: "104.18.19.62", family: 4 });
+  });
+
+  it("keeps the first IPv4 record for an IPv4-only answer", () => {
+    expect(selectPinRecord([{ address: "104.18.19.62", family: 4 }])).toEqual({
+      pin: "104.18.19.62",
+      family: 4,
+    });
+  });
+
+  it("pins IPv6 for pure-AAAA hosts", () => {
+    expect(selectPinRecord([{ address: "2606:4700::6812:123e", family: 6 }])).toEqual({
+      pin: "2606:4700::6812:123e",
+      family: 6,
+    });
+  });
+});
+
+// Regression (2026-09-20 production outage): an automated undici 7→8 bump made
+// the npm-undici pinned Agent incompatible with Node's bundled undici 7 global
+// fetch ("invalid onRequestStart method"), failing every SSRF-guarded provider
+// request. CI stayed green because fetch was mocked. This test uses the real
+// built-in fetch against a loopback server, so a major mismatch fails here.
+describe("pinned Agent / built-in fetch protocol compatibility", () => {
+  beforeEach(() => {
+    // The file-level beforeEach stubs global fetch; this describe needs the
+    // real built-in fetch to exercise the dispatcher handoff.
+    vi.unstubAllGlobals();
+  });
+
+  it("an npm-undici pinned Agent works with the built-in global fetch", async () => {
+    const server = http.createServer((req, res) => {
+      res.writeHead(200, { "content-type": "text/plain" });
+      res.end("pinned-ok");
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const port = (server.address() as http.AddressInfo).port;
+    // Mirror pinnedAgent() in ssrf.ts: custom lookup pins to one IP/family.
+    const agent = new Agent({
+      connect: {
+        lookup(
+          _hostname: string,
+          opts: { all?: boolean },
+          cb: (
+            err: NodeJS.ErrnoException | null,
+            address: string | { address: string; family: number }[],
+            family?: number,
+          ) => void,
+        ) {
+          if (opts?.all) cb(null, [{ address: "127.0.0.1", family: 4 }]);
+          else cb(null, "127.0.0.1", 4);
+        },
+      },
+    });
+    try {
+      const init = { dispatcher: agent } as unknown as RequestInit;
+      const r = await fetch("http://pin-compat.invalid:" + port + "/", init);
+      expect(r.status).toBe(200);
+      expect(await r.text()).toBe("pinned-ok");
+    } finally {
+      await agent.close();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  }, 15000);
 });
