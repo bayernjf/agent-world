@@ -93,7 +93,7 @@
 | **优雅关闭** | 收到 SIGTERM 时完成在途 run、关闭 DB/SSE | ✅ 已实施（2026-09-08）：`index.ts` 监听 SIGTERM/SIGINT → `server.close()` 停新请求 → drain 在途 run（`AGENT_WORLD_SHUTDOWN_GRACE_MS` 超时 abort）→ 关 DB → `disposeIsolatedWorkers` → exit | 完成 |
 | **优雅启动** | readiness 探针在 DB/密钥就绪前不接流量 | ✅ 已实施（2026-09-08）：`/api/health` 的 `ok` = DB/encryption/JWT 关键检查全通过，未就绪返回 503 | 完成 |
 | **幂等审计** | 关键 API（建 run、发布、webhook）防重复提交 | ✅ 已实施（2026-09-08）：建 run 幂等——`Idempotency-Key` header + `idempotency_keys` 表（迁移 35），重复提交返回同一 runId（`replay:true`）；发布/webhook 待接入 | 完成 |
-| **恢复演练** | 验证备份真的能恢复（RTO/RPO） | ✅ 已实施（2026-09-08）：`restore-agent-world-drill.sh` 恢复到干净目录 + 启动验证，实测 RTO<1min / RPO<24h | 完成 |
+| **恢复演练** | 验证备份真的能恢复（RTO/RPO） | ✅ 已演练两次（均为按手册手工执行，无独立脚本——备份侧脚本仅 `scripts/backup-agent-world-to-mac.sh` + `remote-snapshot.js`）：①2026-09-08 服务器端本地备份：快照 rsync 到临时目录、35 表完整、与 live 一致（见 deploy-ubuntu-execution-log 验收 8）；②2026-09-22 Mac 异地备份：双快照 integrity_check ok + 时点行数对账（8ms 运行中边界已坐实）+ artifacts 0 缺失，RTO<1min / RPO≤24h（详见 deferred-items 异地备份行） | 完成 |
 | **熔断器** | Provider 连续失败时暂停调用避免雪崩 | 按 Provider 维度的 circuit breaker（失败率/半开探测） | P2 |
 | **多副本高可用** | 单点故障切换 | 需先 SQLite→Postgres（见域 6 / k8s 判断） | P2 |
 | **混沌测试** | 主动注入故障验证韧性 | 杀进程/断网/磁盘满演练 | P2 |
