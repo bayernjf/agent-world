@@ -22,6 +22,7 @@
 | 把平台暴露给别的 AI 客户端（MCP Server） | [design-mcp-server.md](design-mcp-server.md)（§12 协议版本协商 / §13 授权 / §14 未实现清单）+ [production-ops.md](production-ops.md) §8（部署形态） |
 | 看按版本的变更记录              | [CHANGELOG.md](../CHANGELOG.md)（最近 5 条以内看 handoff）                          |
 | 看代码质量 / 安全审计 / 待修复项     | [code-audit-2026-09-06.md](code-audit-2026-09-06.md)（全项目 77 项，已修复 73 / 无需修复 3 / 部分修复 1，low 项 2026-09-11 全部清账） + [security-audit-2026-08-31.md](security-audit-2026-08-31.md) |
+| 判断产品是否达到可上线 MVP      | [mvp-readiness-review-2026-09-21.md](mvp-readiness-review-2026-09-21.md)（结论：自托管 MVP ✅ 达到；对外商业 SaaS ❌ 功能 Ready、收款/运维 Not Ready，含上线阻断项与 go-live 清单） |
 | 理解投料台连接器 / `${...}` 数据插值 | [design-data-interpolation.md](design-data-interpolation.md)（五类 connector 的 data 通道与插值）+ [design-template-connector-presets.md](design-template-connector-presets.md)（模板按 A/B/C/D 类预设 connector）+ [design-connector-database.md](design-connector-database.md)（SQL 连接器） |
 | 让产线定时跑 / 事件 / webhook 自动触发 | [design-triggers.md](design-triggers.md)（cron / webhook / event / batch 四类触发器、调度器单实例与恢复） |
 | 写 / 套用产线模板、模板上线校验 | [design-templates.md](design-templates.md)（模板体系与 TemplateField）+ [template-checklist.md](template-checklist.md)（每个内置模板的狗粮验证清单）+ [examples.md](examples.md)（现成模板一览） |

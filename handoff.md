@@ -102,6 +102,8 @@ State of Agent World as of 2026-09-20.
 
 * [docs/examples.md](docs/examples.md) / [docs/extending.md](docs/extending.md) / [docs/integrations-future.md](docs/integrations-future.md) — 模板示例 / 扩展指南 / 未来集成（Notion/Linear/邮件/内容平台）
 
+* [docs/mvp-readiness-review-2026-09-21.md](docs/mvp-readiness-review-2026-09-21.md) — MVP 上线就绪评审（判定：个人/小团队自托管 MVP ✅ 达到；对外商业 SaaS ❌ 功能 Ready、收款/生产运维 Not Ready，含分口径硬阻断项与 go-live 清单）
+
 * 历史（决策记录，勿据此实现）：[docs/product-vision-discussion.md](docs/product-vision-discussion.md) / [docs/tech-stack-assessment.md](docs/tech-stack-assessment.md) / [docs/roadmap-tasks.md](docs/roadmap-tasks.md)
 
 * 根目录元文档：[CHANGELOG.md](CHANGELOG.md)（变更日志） / [CONTRIBUTING.md](CONTRIBUTING.md)（贡献指南） / [AGENTS.md](AGENTS.md)（AI 行为规范：commit / i18n / UI 文案约定，**新会话必读**） / [git-commit-message.md](git-commit-message.md)（commit message 详细规范）
@@ -191,6 +193,10 @@ State of Agent World as of 2026-09-20.
 
 ### 活跃任务
 
+**#44 Provider Failover（模型源灾备，实现完成 2026-09-21，待 staging 真机验证）**
+
+针对 2026-09-20 约 12h agnes 出站中断连续打挂 run（见下 #41 最新体检），路由层在主源死掉时自动把同一请求改投备份源等价模型。**v1 仅文本**（`runTextGen` + gate `judge`）。机制：`config.ts` 新增默认关闭的通用 OpenAI 兼容内置槽（`BACKUP_BASE_URL`/`BACKUP_API_KEY`/`BACKUP_MODELS`，填齐启用）+ `failoverCandidates()` 纯函数与可选 `failover.chains`；`providers/index.ts` 在首字节前探第一块，仅对 `PROVIDER_ERROR`/`TIMEOUT` 切换（`RATE_LIMIT`/`AUTH`/首块后错误不切），切换打 warn。测试：`routing.test.ts` 8 例 + `config.test.ts` 4 例全绿，四包 typecheck 绿。文档见 [production-ops.md](docs/production-ops.md) §9、env 占位见 `.env.example`。**待办**：staging 填 backup env 后真机验证一次（主源 baseUrl 临时指向不可达）；图片/视频灾备缓做。
+
 **#41 ★ M1 回采产线挂载 + 每日体检（4 条成本画像产线，cron 自动攒数据中）**
 
 在 Hasee staging 挂 4 条代表产线：①写草稿·高频文本 ②翻译流水线·带返工（gate 上限 3 次）③短视频广告工坊·媒体中价（imageGen+videoGen）④批量内容工坊·批量放大（Map 5 条）。产线 ID：
@@ -199,7 +205,9 @@ Agnes free tier 429 已按方案 C（降频+长退避 retry）闭环（PR #229 `
 
 - 🚀 **2026-09-20 13:28 UTC 大版本部署（PR #349 合集，Hasee `13626a6`）**：本批四项工作合入 dev/main——状态机方案 A 增强（`208683b`/`2c56e48`，编译期 branch 非法迁移/未声明变量校验 + Inspector/2D 卡片状态流转可视化）、构建工具链五项 major（`96b3b1e`/`6990ac4`/`a299eeb`/`6c47b00`：vitest5、vite8 rolldown、TS7、undici8）、G2.4-A 数组输出契约（`978ab56`/`2fbcbe1`/`36135e8`/`33dcc91`）、ReDoS 线性扫描根治（`01f8868`/`8c95dfd`，CodeQL HIGH 清零）。合并链路：PR #349→dev（merge `894eca3`，pr-helper app 在检查全绿后自动合并）→ #350→main；docs 续随 #352→dev（`13626a6`）/#353→main（`fcb677b`）。Hasee Deploy workflow 13:28 success：health `{ok:true,env:staging,branch:dev,commit:13626a6,schemaVersion:40}`、优雅重启（SIGTERM inflightRuns:0）、启动日志零 error；13:10 UTC 一条写草稿 run 被首次部署重启打断（interrupted，部署重启不计质量），13:28 二次重启时无在途 run。四 cron 触发器配置 enabled 核对无误（①`10 * * * *` ②`0 */8 * * *` ③`0 3,15 * * *` ④`0 6 * * *`）。**部署后首跑验证**：22:10 CST 写草稿自然 cron 由一次性体检任务（当日 22:22 CST 触发，cron id 12379410688514）只读核对 run=done 且无新引擎报错；数组契约默认 root=对象、无模板声明数组契约=零行为变更，M1 四产线预期不受影响。**后续推进（2026-09-20 复核）**：PR #354（`e6107f5`）/ #356（`833d867`）纯文档归档（handoff + handoff-archive，无代码改动），#357（`ed02ceb`）main←dev；Hasee Deploy workflow 已推进到 `833d867`（health 探针实测 `{ok:true,branch:dev,commit:833d867,schemaVersion:40}`），与 `13626a6` 代码零差异。
 
-**最新体检（2026-09-18 11:19 UTC）**：四产线全绿。累计完成率 ①93% / ②53% / ③86% / ④83%；成本合计约 $10.68（③短视频占 96%，agnes-video-v2.0 为绝对大头）。cron 触发器全部在、今日均正常触发。
+**最新体检（2026-09-21 02:39 UTC）**：⚠️ 前约 12 小时 provider 出站中断导致一波 failed，现已恢复、无需人工干预。累计 run：①246（done220/failed18/interrupted8=89.4%）②44（done23/failed15/halted5/interrupted1=52.3%）③27（done23/failed4=85.2%）④20（done17/failed3=85%）。**异常**：①最近连续 12 个、②最近 2 个、③最近 1 个 run 报 `[PROVIDER_ERROR] 初稿/初译/脚本撰写: fetch failed`（约 13:40 UTC 9-20 至 00:50 UTC 9-21），**非 429**；02:39 UTC 实测 `curl https://apihub.agnes-ai.com/v1/models` 返回 401（未带 key=正常），DNS 0.012s/connect 0.37s/total 1.34s，出站已恢复，下个 cron tick 应自愈。**成本对账**：总额 $12.94（①$0.43 / ②$0.06 / ③$12.43 / ④$0.03），③视频占 96%（agnes-video-v2.0 23 次 $11.50 + image 23 次 $0.92），文本三厂全 agnes-2.0-flash 极便宜；成功节点 cost_usd 无 0/碎片（model=NULL 的非 LLM 节点 cost=0 属正常）。**429**：仅②历史 1 条 RATE_LIMIT（9cd1c819），降频后无新增。服务器 up 8 天 13h 未重启，中断更像上游 agnes/网络抖动而非本机问题；下次体检盯恢复后首跑是否转 done。
+
+**历史体检（2026-09-18 11:19 UTC）**：四产线全绿。累计完成率 ①93% / ②53% / ③86% / ④83%；成本合计约 $10.68（③短视频占 96%，agnes-video-v2.0 为绝对大头）。cron 触发器全部在、今日均正常触发。
 - ✅ **SSRF 误拦模型域名（已定位 + 修复 + 已部署，`9f8a67e` 随 PR #341 merge `9a12d64` 部署 Hasee；09-19 取数确认窗口内仅 09-18 run `a07c75eb` 那 1 次）**：09-18 ①写草稿 10:10 UTC run `a07c75eb` 的 gate/质检节点报 `拒绝访问内网或私网地址（SSRF 防护）: apihub.agnes-ai.com`。根因并非真内网——Hasee 实测该域名 30 次 DNS 全部解析为干净的 Cloudflare 公网 IP，而是 `ssrf.ts` 对域名做 `dns.lookup({all:true})` 时，DNS 查询本身瞬时 throw / 返回空答案，catch 分支也按 null 处理（fail-closed），对外文案与命中真内网完全相同，造成偶发误拦；textGen 同域名调用未受影响是时序侥幸。修复：新增 `resolveDnsRecords`/`dnsSettle`/`DnsResolutionError`，**仅当 DNS 查询本身临时失败**时做有限退避重试（3 次、120/240ms 抖动）；一旦解析出内网/保留 IP 一次即拒、绝不重试，耗尽仍 fail-closed，DNS-rebinding 防护（check-then-fetch 双解析）不削弱；`guardedFetch` direct 分支失败统一转 `GuardedFetchError("internal-target")`，`code-proxy.ts` 复用同一守卫。ssrf + code-proxy 共 37 测过。
 - 🔎 **②翻译“未翻译反问”根因更正（2026-09-19 SSH 取 node_runs 实证，推翻此前“intake 空输入”推测）**：以 09-18 halted run `2a265a2c` 为例——intake 节点正常注入英文原文（“Weekly digital marketing report…”），transl 翻译节点也产出合格中文译文；**问题在 review 审校节点**：gate 退回重跑的多 attempt 中 review 丢失英文原文上下文，把中文初译误当成“中文原文”，两个 attempt 都反问“初译/英文原文在哪”，QC（qc-8s98z）据此判 VALIDATION halt。即不是投料为空，而是**重跑循环里 review 节点输入映射未同时保住「英文原文 + 中文初译」两版**。窗口后翻译 3 次 halted 全因此（修复后翻译完成率可从 75%→约 94%=15/16）；09-16/17 连续 done 只是降频节奏下的间歇幸免、非根因消失。**已修复并落地（2026-09-19，`16db0a5` 已 push、PR #343 合 dev / PR #344 合 main，Hasee 已部署到 `da07741`）**：翻译模板补一条 intake→review 的 flow 边（排在 translate→review 之前），review 直接前驱变为 intake+translate，inputFor 按 [原文, 初译] 顺序聚合；gate 退回重译只重置 translate 及其下游，intake 不重跑、产物保留，重跑后的 review 仍拿得到英文原文。同时强化 review prompt：显式区分【原文】/【初译】两段、要求直接输出定稿译文、严禁以缺原文/初译为由反问索材。新增 core 模板拓扑测试 + server 端到端 rework 回归测试（跑真实 tpl-translation 经一次 gate 退回，断言 review 每个 attempt 的输入都含原文+初译；删边变异验证即红）。core 286 / server 1253 测全过、四包 typecheck 绿。✅**实例补边已完成（2026-09-19 11:29 UTC）**：Hasee M1 翻译产线 graphId `71536df1` 的 `graphs.doc` 已直接补写——新增 flow 边 `intake-uqo4s→review-02dfy`（插在 `transl-oct5g→review-02dfy` 之前），并把 review 节点 prompt 换成新版（旧 36 字→新 141 字）；写库前已备份原 doc 到 `/tmp/m1-translation-before-fix.json`，写后读回验证边顺序与 prompt 均正确。✅**2026-09-20 04:35 UTC 只读复测已证实修复生效（Mac 经 hasee-2016-server SSH 活库 mode=ro）**：补边后翻译 cron 已跑 2 次——09-19 16:00 run `3853f18c`、09-20 00:00 run `0c580e64`，**两次全部 done、零 halted、review 节点无「缺原文/初译」反问**（修复前该节奏每轮必因缺英文原文对照 halt）；09-14 降频窗口完成率由 13/18=72% 升到 **15/20=75%**（窗口终态 done15/failed1/halted4/interrupted1，interrupted 不计；新增补边前 08:00 halted×1 + 补边后 done×2，分母仍被历史 halted 拉低，**补边后样本 2/2=100%**，随后续 run 继续 done 窗口完成率将向预估 ~94% 收敛）。根因（gate 退回重译循环里 review 输入映射丢英文原文）确认消除；「75%→94%」方向已被补边后 2/2 实证，绝对完成率待更多 run 在分母上体现。
 - 📊 **2026-09-19 降频窗口专项小结（Mac 经 `hasee-2016-server` 免密 SSH 只读生产库 python3 sqlite3；窗口=09-14 降频起；完成率口径=done/(done+failed+halted)，interrupted 属部署重启不计入）**：
@@ -299,6 +307,10 @@ cd apps/web && pnpm dev
 * **沙箱不让写** **`.git/index.lock`**：`git commit` 需要 escalated 权限；escalation 通道的 token 上限是整个调用包级别，即使 `-m x` 也会被 review 拒
 
 * **"沙箱 EPERM"在 archive 章节里出现 12+ 次**：历史上每节都重复写"未在 8791 端到端复现"，现在归档后本文件只留一次
+
+### ⚠️ macOS 上 python code 节点测试失败？先查 Xcode 协议（2026-09-21 定位）
+
+`engine.code.test.ts` 里仅有的两个 **python** 用例（`…routes python egress…` / `…blocks hosts outside TOOL_NETWORK_ALLOW…`）在本机报 `ENOENT … lstat`、`node.finished` 不出现。根因不是代码：沙箱 `resolveInterpreter("python")` 跑 `which python3`（[code-sandbox.ts:36](packages/server/src/code-sandbox.ts:36)），本机落到 `/usr/bin/python3`——Xcode CLT 的占位 shim，未接受协议时拒绝执行（`You have not agreed to the Xcode license agreements`），子进程起不来。**Linux CI / Hasee 是真 python3，不受影响。**修复二选一：`sudo xcodebuild -license accept`，或 `brew install python` 让 `/opt/homebrew/bin/python3` 在 PATH 中先于 `/usr/bin`。排查手段：先 `python3 --version`，若打印 Xcode license 提示即此问题。
 
 ### ⚠️ RLIMIT\_NPROC 陷阱（2026-08-29 CI 排查半天才定位，务必记住）
 
