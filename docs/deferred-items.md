@@ -22,6 +22,7 @@
 | --------------------- | --------------------------------------------------------------------------- | ----------------------- | --------------------------------------------------------------------------------- |
 | docker/podman 容器后端    | 部署形态未定（单机 bwrap/sandbox-exec 已够用）；成本在外围不在接口（镜像生命周期/冷启动/安全审查）；容器网络与协作式代理衔接复杂 | 部署形态明确（多租户/云托管需要内核级隔离时） | [design-code-sandbox.md §11](design-code-sandbox.md#11-dockerpodman-容器后端待办低优决策记录) |
 | net allowlist 在外部沙箱后端 | 协作式 HTTP 代理仅 rlimit 后端可用；bwrap/sandbox-exec 下诚实报 VALIDATION                 | 容器后端落地后由容器网络策略统一解决      | [design-code-sandbox.md §10](design-code-sandbox.md#10-net-allowlistssrf-校验代理已落地) |
+| macOS（darwin）rlimit 后端 `ulimit -f` 误伤大体积解释器（SIGXFSZ/EFBIG） | rlimit wrapper 无条件 `ulimit -f 32MB`，在 **DoubaoWork 内置沙箱 shell 内** bash exec 116MB 的 fnm Node24 二进制时直接 EFBIG、code 子进程从未启动（9 文件/36 测平台基线失败）；Linux execve 不拿 RLIMIT_FSIZE 比二进制体积，CI/Hasee/bwrap 全绿。**豆包沙箱外普通 macOS Terminal 是否复现尚未验证**（`env -i` 逃不出外层 seatbelt；旧基线 2026-09-18 记录普通 macOS rlimit Node24 全绿），故未擅改安全语义 | ①在普通 Terminal.app（沙箱外）Node24 跑 server 全量确认复现；或②有 macOS 自托管用户报 code 节点「退出码 null / 无 stderr」。复现后按 `ulimit -v` 仅 linux 的同构方式让 darwin 跳过 `ulimit -f`（硬保证交 seatbelt 后端，Linux 保留），单独一个原子修复 | handoff.md Known issues「DoubaoWork 沙箱内 macOS rlimit SIGXFSZ」+ `packages/server/src/code-sandbox.ts` buildRlimitWrapper |
 
 ### 编排线
 
@@ -90,7 +91,7 @@
 | 事项 | 缓做/低优原因 | 触发条件 | 决策详情 |
 |---|---|---|---|
 | 可观测性栈（Uptime Kuma 探针告警 / Loki 日志聚合 / Metrics 指标） | 与平台线「监控告警完整体系」同源；失败告警+rerun 闭环已有，自述式 `/api/health` 已实施（2026-09-07），探针告警、日志聚合、指标采集属「多环境/有用户后再说」 | 产线数量/运行频次大到人工看不过来，或拆多环境后需统一体检 | [production-ops.md §2/§5](production-ops.md) |
-| 错误追踪（Sentry 类结构化上报） | 生产排障仅靠 journalctl grep，无未捕获异常聚合/告警；单机量级暂可接受 | 对外生产 / 生产 bug 靠 grep 排不动 | [production-ops.md §6.2](production-ops.md) |
+| 错误追踪（Sentry 类结构化上报） | **适配层已就绪（2026-09-21 #57，commit `0b76fb7`）**：零依赖 `errors.ts` 环形缓冲 + 进程兜底（uncaughtException/unhandledRejection）+ Hono onError 记录 5xx + owner/admin 只读 `GET /api/admin/errors` + 可插拔 `ErrorSink`/`createWebhookErrorSink`（`ERROR_REPORT_WEBHOOK_URL` 启用、fire-and-forget、零 SDK）。但生产排障仍靠 journalctl grep + 内存最近错误，**尚未接真正的聚合/告警平台（无 DSN）** | 对外生产 / 生产 bug 靠 grep 排不动：届时加一个 ErrorSink adapter 或 webhook relay 对接 Sentry/Grafana/Loki（无需引 SDK），配 DSN 与告警通道即可 | [production-ops.md §6.2](production-ops.md) + `packages/server/src/errors.ts`（#57） |
 | HTTPS/TLS | 内网 HTTP 够用；对外（域名+公网）必须有 | M3 正式对外 | [production-ops.md §6.2](production-ops.md) |
 | 供应链安全（Dependabot 自动提 PR 升级依赖） | gitleaks 扫历史 + npm audit 已实施（2026-09-08，无泄露/无漏洞）；Dependabot 自动升级依赖属「对外生产前」 | 对外生产前启用 + 定期 | [production-ops.md §6.2](production-ops.md) |
 | zod 4 迁移（major 升级） | zod 3→4 是 breaking change：`z.record(value)` 单参数移除、`z.infer`/`z.discriminatedUnion` 类型推断根本性变化，dependabot 自动升级致 core 15 处 + server 1259 处类型错误（2026-09-08 PR #182 已关闭）；已配置 `.github/dependabot.yml` ignore zod major，锁定 3.x | 专项迁移排期（约 1300 处类型改动 + 运行时行为验证 + 全量测试），或 zod 3 出现必须升级的 CVE | [code-audit-2026-09-06.md](code-audit-2026-09-06.md) + `.github/dependabot.yml` |
