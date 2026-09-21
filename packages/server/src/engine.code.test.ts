@@ -247,9 +247,16 @@ describe("code node sandbox P1", () => {
 
   it("applies CODE_LIMIT_CPU_SEC and fails infinite JS loops before timeoutMs", async () => {
     // RLIMIT_CPU kills the process via SIGXCPU after the limit in seconds of
-    // CPU time. 1s of CPU is enough to be deterministic and still way
-    // faster than the script's 12s wall-time timeout → reports PROVIDER_ERROR,
-    // not TIMEOUT.
+    // *consumed CPU time*. Keep that at 1s (deterministic, near-instant on an
+    // unloaded machine) but give the wall-time timeout generous headroom:
+    // under full parallel test load many code-runner subprocesses contend for a
+    // small core count, so a busy-loop can be scheduled thinly and 1s of CPU can
+    // take far more than 1s of wall time. The previous 12s wall budget (~12x
+    // headroom) still flaked when the suite oversubscribed cores and the wall
+    // timeout landed first, reporting TIMEOUT instead of SCRIPT_ERROR. 30s
+    // tolerates ~30x oversubscription while keeping a fast, meaningful failure
+    // if RLIMIT_CPU were silently disabled. The discriminator is errorCode,
+    // never elapsed wall time (asserting that is what flakes under load).
     const prev = process.env.CODE_LIMIT_CPU_SEC;
     process.env.CODE_LIMIT_CPU_SEC = "1";
     try {
@@ -258,24 +265,19 @@ describe("code node sandbox P1", () => {
         graph({
           language: "javascript",
           code: "require('fs').readFileSync(0,'utf8'); while(true) {}",
-          timeoutMs: 12000,
+          timeoutMs: 30000,
         }),
         "x",
       );
       const elapsed = Date.now() - t0;
       const failed = events.find((e) => e.type === "node.failed" && e.nodeId === "calc");
       expect(failed).withContext("expected SIGXCPU → non-zero exit → node.failed").toBeTruthy();
-      // errorCode is the discriminator, not wall time: a script the CPU limit
-      // never touched would end at timeoutMs with TIMEOUT, while 84 test files
-      // contending for cores can stretch 1s of CPU past any fixed second
-      // budget. Asserting elapsed there flakes under load and proves nothing
-      // this assertion does not.
       expect(failed?.errorCode, `elapsed=${elapsed}ms`).toBe("SCRIPT_ERROR");
     } finally {
       if (prev === undefined) delete process.env.CODE_LIMIT_CPU_SEC;
       else process.env.CODE_LIMIT_CPU_SEC = prev;
     }
-  }, 30000);
+  }, 45000);
 });
 
 describe("code node fs/net policy", () => {
