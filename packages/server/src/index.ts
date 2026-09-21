@@ -31,6 +31,13 @@ import {
 } from "@agent-world/core";
 import { openDatabase, backfillExistingData, contentHash, SCHEMA_VERSION, type Db } from "./db.js";
 import { counter, gauge, histogram, renderMetrics } from "./metrics.js";
+import {
+  addErrorSink,
+  createWebhookErrorSink,
+  installProcessGuards,
+  recentErrors,
+  recordError,
+} from "./errors.js";
 import { findGraphIdByName as findGraphIdByNameCore } from "./graphs-name.js";
 import { ArtifactStore } from "./artifact-store.js";
 import { log } from "./logger.js";
@@ -241,6 +248,22 @@ app.use("/api/*", async (c, next) => {
   if (status >= 500) log.error("http request", record);
   else if (status >= 400) log.warn("http request", record);
   else log.info("http request", record);
+});
+
+// --- Global error capture (errors.ts) ---
+// Handlers return explicit statuses, so a thrown error is a genuine 5xx bug,
+// not an expected 4xx. Capture message/stack (method/path only — never
+// headers/body/query, which can carry tokens) before rendering a JSON 500. A
+// future Hono HTTPException carrying a 4xx status passes through without
+// polluting the error feed.
+app.onError((err, c) => {
+  const maybeStatus = (err as { status?: unknown }).status;
+  const status = typeof maybeStatus === "number" ? maybeStatus : 500;
+  if (status >= 500) {
+    recordError("request", err, { method: c.req.method, path: c.req.path });
+    return c.json({ error: "internal server error" }, 500);
+  }
+  return c.json({ error: (err as Error)?.message || "error" }, status as 400 | 401 | 403 | 404 | 409);
 });
 
 /** Deployment identity: preferred from CI-injected env (`AGENT_WORLD_GIT_BRANCH`
@@ -1205,6 +1228,16 @@ app.get("/api/audit", async (c) => {
     return c.json({ items: await db.listAuditAdmin({ ...opts, userId: c.req.query("userId") || undefined }) });
   }
   return c.json({ items: await db.listAudit(userId, opts) });
+});
+
+// Process-level captured errors (errors.ts). Mirrors /api/audit visibility:
+// owner and admin inspect the instance-wide error feed; regular users have no
+// access. Payload is method/path/stack only — secrets are never captured.
+app.get("/api/admin/errors", async (c) => {
+  const role = (await db.findUserById(c.get("userId")))?.role;
+  if (role !== "owner" && role !== "admin") return c.json({ error: "forbidden" }, 403);
+  const limit = Number(c.req.query("limit") ?? 100);
+  return c.json({ items: recentErrors(Number.isFinite(limit) ? limit : 100) });
 });
 
 // --- Admin operations (design-rbac P3) ------------------------------------
@@ -4214,6 +4247,18 @@ if (process.env.NODE_ENV !== "test") {
   for (const sig of ["SIGINT", "SIGTERM"] as const) {
     process.on(sig, () => shutdown(sig));
   }
+
+  // Process-level error guards (errors.ts): retain uncaughtException /
+  // unhandledRejection in the error feed. After an uncaught exception the V8
+  // state is undefined, so drain in-flight runs and exit for the supervisor
+  // (systemd) to restart a clean process; rejections are recorded but
+  // non-fatal. Optionally fan errors out to a webhook relay (Sentry/Grafana/
+  // self-hosted intake) without adding a tracker SDK to the self-hosted build.
+  if (process.env.ERROR_REPORT_WEBHOOK_URL) {
+    addErrorSink(createWebhookErrorSink({ url: process.env.ERROR_REPORT_WEBHOOK_URL }));
+    log.info("error webhook sink enabled", { url: process.env.ERROR_REPORT_WEBHOOK_URL });
+  }
+  installProcessGuards({ onFatal: () => shutdown("uncaughtException") });
 }
 
 /**
