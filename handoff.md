@@ -308,6 +308,10 @@ cd apps/web && pnpm dev
 
 * **"沙箱 EPERM"在 archive 章节里出现 12+ 次**：历史上每节都重复写"未在 8791 端到端复现"，现在归档后本文件只留一次
 
+### ⚠️ macOS 上 python code 节点测试失败？先查 Xcode 协议（2026-09-21 定位）
+
+`engine.code.test.ts` 里仅有的两个 **python** 用例（`…routes python egress…` / `…blocks hosts outside TOOL_NETWORK_ALLOW…`）在本机报 `ENOENT … lstat`、`node.finished` 不出现。根因不是代码：沙箱 `resolveInterpreter("python")` 跑 `which python3`（[code-sandbox.ts:36](packages/server/src/code-sandbox.ts:36)），本机落到 `/usr/bin/python3`——Xcode CLT 的占位 shim，未接受协议时拒绝执行（`You have not agreed to the Xcode license agreements`），子进程起不来。**Linux CI / Hasee 是真 python3，不受影响。**修复二选一：`sudo xcodebuild -license accept`，或 `brew install python` 让 `/opt/homebrew/bin/python3` 在 PATH 中先于 `/usr/bin`。排查手段：先 `python3 --version`，若打印 Xcode license 提示即此问题。
+
 ### ⚠️ RLIMIT\_NPROC 陷阱（2026-08-29 CI 排查半天才定位，务必记住）
 
 `ulimit -u`（RLIMIT\_NPROC）在 Linux 上限制的是**整个用户（UID）的进程+线程总数**，不是单个子进程。CI runner 上 vitest 多 worker 已让 runner 用户任务数逼近默认 128，代码节点子进程的 node 启动时创建平台线程 EAGAIN → 断言崩溃 → **SIGABRT（`r.status === null`、\~200ms 秒挂）**。症状随并发负载波动，时好时坏，极易误判为 env/stdin/挂死问题。教训：验证 shell 行为（引号等）的测试不要叠加宿主敏感的 NPROC 小值限额，用 `maxProcs: 4096` 覆盖；NPROC 生产语义由 engine 集成测试覆盖。另一个相关坑：开发机 shell 里若有本地代理（如 `HTTP_PROXY=127.0.0.1:7897`），会污染"客户端是否走代理"类的手工验证，排查前先 `env | grep -i proxy`。
