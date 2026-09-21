@@ -20,11 +20,15 @@
 | 接手某个模块的设计决策            | 对应 [design-\*.md](design-mcp-server.md)                                     |
 | 给 agent 加技能卡（工具/提示模块/输出契约） | [design-skill.md](design-skill.md)（§11 现状盘点 + §12 作者指南）+ [extending.md](extending.md) §3 |
 | 把平台暴露给别的 AI 客户端（MCP Server） | [design-mcp-server.md](design-mcp-server.md)（§12 协议版本协商 / §13 授权 / §14 未实现清单）+ [production-ops.md](production-ops.md) §8（部署形态） |
+| 接 Notion / Linear / 邮件 / 内容平台等第三方 | [integrations-future.md](integrations-future.md)（未来集成清单与触发条件；当前外接能力走 MCP / HTTP 节点 / Connector） |
 | 看按版本的变更记录              | [CHANGELOG.md](../CHANGELOG.md)（最近 5 条以内看 handoff）                          |
 | 看代码质量 / 安全审计 / 待修复项     | [code-audit-2026-09-06.md](code-audit-2026-09-06.md)（全项目 77 项，已修复 73 / 无需修复 3 / 部分修复 1，low 项 2026-09-11 全部清账） + [security-audit-2026-08-31.md](security-audit-2026-08-31.md) |
+| 写 / 跑 web 组件测试           | [web-component-testing-plan.md](web-component-testing-plan.md)（组件测试范围、流程与断言约定；E2E 冒烟见根 `e2e/`，跑法见 CONTRIBUTING） |
 | 判断产品是否达到可上线 MVP      | [mvp-readiness-review-2026-09-21.md](mvp-readiness-review-2026-09-21.md)（结论：自托管 MVP ✅ 达到；对外商业 SaaS ❌ 功能 Ready、收款/运维 Not Ready，含上线阻断项与 go-live 清单） |
+| 查某个功能为什么缓做、什么条件下重启 | [deferred-items.md](deferred-items.md)（缓做/低优事项登记表，每条挂触发条件与决策链接，单一事实源） |
 | 理解投料台连接器 / `${...}` 数据插值 | [design-data-interpolation.md](design-data-interpolation.md)（五类 connector 的 data 通道与插值）+ [design-template-connector-presets.md](design-template-connector-presets.md)（模板按 A/B/C/D 类预设 connector）+ [design-connector-database.md](design-connector-database.md)（SQL 连接器） |
 | 让产线定时跑 / 事件 / webhook 自动触发 | [design-triggers.md](design-triggers.md)（cron / webhook / event / batch 四类触发器、调度器单实例与恢复） |
+| 用高级编排（人工审批 / 子流程 / 状态变量分支 / 错误边重试） | [phase4-design.md](phase4-design.md)（六项高级编排落地；跨 run 状态机方案 B 缓做，见 deferred-items） |
 | 写 / 套用产线模板、模板上线校验 | [design-templates.md](design-templates.md)（模板体系与 TemplateField）+ [template-checklist.md](template-checklist.md)（每个内置模板的狗粮验证清单）+ [examples.md](examples.md)（现成模板一览） |
 | 看产线版本历史 / 结构化 diff / 回滚 | [design-versions.md](design-versions.md)（节点级 A/B 对比 + 长文本逐字高亮，已落地） |
 | 对两条产线做 A/B 对比实验 | [design-ab-testing.md](design-ab-testing.md)（`/api/ab` + RunCompare，单人隔离已覆盖；流量分流缓做） |
@@ -32,7 +36,7 @@
 | 代码节点沙箱 / SSRF 防护 | [design-code-sandbox.md](design-code-sandbox.md)（bwrap/sandbox-exec 隔离 + 协作式 HTTP 代理） |
 | 做中英双语 / 调整视觉设计规范       | [design-i18n.md](design-i18n.md)（中文/English 双语方案与 key 约定）+ [design-design-tokens.md](design-design-tokens.md)（颜色/间距/圆角/阴影/字号 token 体系） |
 | 让新用户免注册先体验真实产品（演示账号/游客转正） | [design-demo-user.md](design-demo-user.md)（is_demo 真实账号 + 体验额度 + 能力黑名单 + claim 原地转正 + TTL 清理，D1-D6 分步） |
-| 部署 / 运维 / 多环境 / 检测环境状态 | [engineering-blueprint.md](engineering-blueprint.md)（企业级工程蓝图·总纲）+ [production-ops.md](production-ops.md)（运维与可观测性）+ [environments.md](environments.md)（环境划分）+ [runbooks/](runbooks/deploy-ubuntu-server.md)（部署手册）+ [runbooks/error-reporting.md](runbooks/error-reporting.md)（错误追踪与告警：webhook sink / relay / 自检 CLI） |
+| 部署 / 运维 / 多环境 / 检测环境状态 | [engineering-blueprint.md](engineering-blueprint.md)（企业级工程蓝图·总纲）+ [production-ops.md](production-ops.md)（运维与可观测性）+ [environments.md](environments.md)（环境划分）+ [runbooks/](runbooks/deploy-ubuntu-server.md)（部署手册）+ [runbooks/deploy-cicd.md](runbooks/deploy-cicd.md)（push→CI→自部署 Hasee 流水线）+ [runbooks/error-reporting.md](runbooks/error-reporting.md)（错误追踪与告警：webhook sink / relay / 自检 CLI） |
 | 让 Claude 自动开浏览器验收部署 | [browser-verification.md](browser-verification.md)（Chrome DevTools MCP 配置与用法） |
 
 ## 路线图 / 进度系列怎么分工
