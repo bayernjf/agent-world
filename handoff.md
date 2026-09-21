@@ -24,7 +24,7 @@ State of Agent World as of 2026-09-21.
 
 * [docs/security-audit-2026-08-31.md](docs/security-audit-2026-08-31.md) — 安全审计报告 + 修复方案（3 Critical / 10 High / 8 Medium / 8 Low，**29 项全部修复**；含两条旧"已解决"结论的更正）★
 
-* [docs/code-audit-2026-09-06.md](docs/code-audit-2026-09-06.md) — 全项目代码审计报告（77 项：high 8 / medium 38 / low 31；含「六、修复状态」章节——已修复 34 / 部分 1 / 无需修复 2 / 未修复 40，未修复项按类归因，供接力）★
+* [docs/code-audit-2026-09-06.md](docs/code-audit-2026-09-06.md) — 全项目代码审计报告（77 项：high 8 / medium 38 / low 31；「六、修复状态」截至 2026-09-11 **已全部清账：已修复 73 / 无需修复 3（M4、L7、L24 复核后果不成立）/ 部分修复 1（M38 FanoutConfig 已修，ConnectorConfig/GraphNode 因怕破坏历史数据加载有意暂缓，归配套迁移类）/ 未修复 0**）★
 
 * [docs/design-at-rest-encryption.md](docs/design-at-rest-encryption.md) — 静态加密设计（settings / webhook secret 落盘 AES-256-GCM；审计 L3，已落地）
 

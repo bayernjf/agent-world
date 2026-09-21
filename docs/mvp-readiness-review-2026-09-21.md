@@ -84,7 +84,7 @@
 |---|---|---|---|
 | **P0** | **Stripe 真实收款未闭环（Step6）** | free 层内置模型 `tokens=0 / video=0`，新用户用平台代付模型直接 402；想升级却**无法真实付款** → "注册→付费→用内置模型"商业主闭环断裂。仅 demo 体验 + BYOK 自助两段是通的 | 代码 A0–A4 全完成且优雅降级（缺 key 报 not configured 不崩）；**卡外部输入：收款主体 + `STRIPE_SECRET_KEY`/`WEBHOOK_SECRET`/`PRICE_IDS`** |
 | **P0** | **模型 provider 单点，无 fallback** | 上游一次抖动 = 全员停摆（本轮已实证 12h）；对外 SLA 无法承诺 | 仅 agnes 一个内置源，retry 只解决瞬时错误 |
-| **P0** | **错误追踪（Sentry 类）缺失** | 生产 bug 只能 `journalctl grep`，无未捕获异常聚合/告警，出事无法快速止损 | production-ops §6.2 已登记 |
+| **P0** | **错误追踪（Sentry 类）缺失** | 生产 bug 只能 `journalctl grep`，无未捕获异常聚合/告警，出事无法快速止损 | production-ops §6.2 已登记；**2026-09-21 起适配层（`errors.ts` 环形缓冲 + webhook sink + `GET /api/admin/errors`）+ runbook + 自检 CLI 已就绪（#57），仅差真实 DSN/relay 部署，零 SDK** |
 | **P1** | **HTTPS/TLS + 域名** | 现内网明文 HTTP（health/登录/cookie/key 传输），公网不可用 | 内网自托管够用，对外必须 |
 | **P1** | **长任务跨 run 续跑（G4）缺失** | 长视频在网关超时/进程重启后可能**重复生成、重复计费**（涉钱） | G4.4 仅本次运行内 submit+poll 接缝，无 provider 续跑实现 |
 | **P1** | **生产数据层 SQLite 单机** | 无高可用/水平扩展，磁盘满或文件损坏即全站 | 双驱动+迁移+Docker 演练已完成，未切 Postgres；自托管/小团队当前够用 |
@@ -98,7 +98,7 @@
 1. provider 配第二个源或 fallback（同样的单点问题，自托管也会遇到长时间停摆）。
 2. 对外/跨网访问时补 HTTPS（纯本地 localhost 可不要）。
 3. ②翻译完成率收敛验证（已补 flow 边，观察新 run）。
-4. 高负载 flaky 用例稳定化（engine.code CPU 时限、ProductGallery asyncUtilTimeout）——不影响正确性，影响 CI 信号。
+4. ~~高负载 flaky 用例稳定化（engine.code CPU 时限、ProductGallery asyncUtilTimeout）~~ ✅ **代码侧已修（2026-09-20/21）**：web 全局 asyncUtilTimeout 1s→5s（A2 `ee1d635`，已随 PR #347 合 dev 部署）、engine.code CODE_LIMIT_CPU_SEC 用例 wall 余量 12s→30s / vitest 槽 30s→45s（#57 `f35da0f`，本地待 push 合 dev）。CI Linux 权威口径本就全绿，此两项治的是本机高负载 / 沙箱时序 flaky，不影响正确性、不改变 CPU 时限语义。
 5. 长任务续跑 G4（若重度使用视频生成）。
 
 ---
@@ -127,7 +127,7 @@
 **若目标 = 个人/小团队自托管正式日用（最短路径）：**
 - [ ] 配第二个模型 provider / fallback（消除单点，优先级最高，本轮 12h 中断的根因）
 - [ ] 跨网访问则上 HTTPS（Caddy 自动证书即可）
-- [ ] 接一个最轻量错误告警（哪怕 healthcheck 推送到 webhook）
+- [ ] 接一个最轻量错误告警（哪怕 healthcheck 推送到 webhook）　**〔2026-09-21 补注：错误 sink + owner/admin 只读 `GET /api/admin/errors` + 配置 runbook + `pnpm selftest:errorsink` 自检 CLI 均已就绪（#57 `0b76fb7`/`f16f6c3`，见 [runbooks/error-reporting.md](runbooks/error-reporting.md)），本条只差配一个真实 `ERROR_REPORT_WEBHOOK_URL` / relay，无需再写代码〕**
 - [ ] 观察 ②翻译新 run 完成率收敛
 
 **若目标 = 对外商业 SaaS（在上面之外还要）：**
