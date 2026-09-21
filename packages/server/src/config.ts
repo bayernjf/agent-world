@@ -178,6 +178,17 @@ export interface AppConfig {
    * them from leaking across users.
    */
   skillCards?: UserSkillCard[];
+  /**
+   * Automatic provider failover. When the primary provider fails with a dead
+   * upstream / timeout, the router replays the same request against the target
+   * providers' equivalent models, in order. Text only for now.
+   */
+  failover?: {
+    enabled?: boolean;
+    /** primary model -> ordered backup targets; absent entries fall back to the
+     *  built-in `backup` provider's first text model. */
+    chains?: Record<string, Array<{ provider: string; model: string }>>;
+  };
 }
 
 /**
@@ -257,6 +268,12 @@ export const AppConfigSchema = z.object({
   mcpServers: z.array(UserMcpServerSchema).optional(),
   /** Data-only skill cards this user authored. */
   skillCards: z.array(UserSkillCard).optional(),
+  failover: z
+    .object({
+      enabled: z.boolean().optional(),
+      chains: z.record(z.array(z.object({ provider: z.string(), model: z.string() }))).optional(),
+    })
+    .optional(),
 });
 
 /**
@@ -337,15 +354,35 @@ const AGNES_PROVIDER: ProviderConfig = {
   },
 };
 
+/**
+ * Built-in failover slot for an OpenAI-compatible gateway. Disabled by default:
+ * the operator points it at a second gateway via env, and failover becomes
+ * active without code changes. Models come from BACKUP_MODELS (comma list);
+ * pricing is intentionally absent (failover runs are metered as 0 placeholder).
+ */
+const BACKUP_PROVIDER: ProviderConfig = {
+  type: "openai-compatible",
+  source: "builtin",
+  enabled: false,
+  baseUrl: process.env.BACKUP_BASE_URL,
+  apiKey: process.env.BACKUP_API_KEY,
+  models: (process.env.BACKUP_MODELS ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean),
+};
+
 const DEFAULT_CONFIG: AppConfig = {
   providers: {
     // Kept for backward compatibility — anything that still references
     // type:"fake" or model:"fake" routes to the same fakeWorker.
     fake: FAKE_PROVIDER,
     agnes: AGNES_PROVIDER,
+    backup: BACKUP_PROVIDER,
   },
   defaultModel: "agnes-2.0-flash",
   defaultProvider: "agnes",
+  failover: { enabled: true },
   modelOrder: [
     "agnes::agnes-2.0-flash",
     "agnes::agnes-2.5-flash",
@@ -516,4 +553,48 @@ export function providerForModel(
   const def = config.providers[config.defaultProvider];
   if (def) return { name: config.defaultProvider, provider: def };
   return { name: "fake", provider: FAKE_PROVIDER };
+}
+
+export interface FailoverCandidate {
+  name: string;
+  provider: ProviderConfig;
+  model: string;
+}
+
+/** A usable backup target must exist, be enabled, and carry a key. */
+function usableBackup(provider: ProviderConfig | undefined): provider is ProviderConfig {
+  return Boolean(provider && provider.enabled !== false && provider.type !== "fake" && provider.apiKey);
+}
+
+/**
+ * Ordered providers/models to try for a logical model: the owning provider
+ * first, then its failover chain. With no explicit chain the built-in `backup`
+ * slot's first text model is used, so filling the BACKUP_* env is enough.
+ * Disabled / keyless targets are dropped; a dead primary with no usable backup
+ * yields a single-element (primary-only) list.
+ */
+export function failoverCandidates(config: AppConfig, model: string): FailoverCandidate[] {
+  const primary = providerForModel(config, model);
+  const candidates: FailoverCandidate[] = [{ name: primary.name, provider: primary.provider, model }];
+  if (config.failover?.enabled === false) return candidates;
+
+  const chain = config.failover?.chains?.[model];
+  const targets =
+    chain && chain.length > 0
+      ? chain
+      : (() => {
+          const backup = config.providers.backup;
+          if (!usableBackup(backup)) return [];
+          const firstText = backup.models.find((m) => modalityOf(backup, m) === "text");
+          return firstText ? [{ provider: "backup", model: firstText }] : [];
+        })();
+
+  for (const t of targets) {
+    const provider = config.providers[t.provider];
+    if (!usableBackup(provider)) continue;
+    if (t.provider === primary.name) continue;
+    if (candidates.some((c) => c.name === t.provider && c.model === t.model)) continue;
+    candidates.push({ name: t.provider, provider, model: t.model });
+  }
+  return candidates;
 }
