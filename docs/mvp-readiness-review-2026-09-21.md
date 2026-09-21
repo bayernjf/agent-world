@@ -56,7 +56,7 @@
 | ④批量内容工坊 | 20 | 17 | 3 | — | **85.0%** | $0.03 |
 | **合计** | **337** | 283 | 50 | — | **整体 83.4%**（去中断口径 ~88%） | **$12.94** |
 
-- **provider 单点实证风险**：2026-09-20 13:40 → 09-21 00:50 UTC（约 12h）连续 15 个 run `[PROVIDER_ERROR] fetch failed`（非 429），原因为上游 agnes/网络抖动，**系统无 provider fallback，retry 兜不住长时间中断**；02:39 后出站恢复。
+- **provider 单点实证风险**：2026-09-20 13:40 → 09-21 00:50 UTC（约 12h）连续 15 个 run `[PROVIDER_ERROR] fetch failed`（非 429），评审当时判为上游 agnes/网络抖动。**〔2026-09-22 根因订正〕** 09-21 深查证实该波 failed 真因是 PR #349 所含 undici 7→8 与 Node 24 内置 undici 7 fetch 跨大版本不兼容的**部署代码事故**（非 agnes 中断，curl 带 key 全程 200），已由 PR #362（09-21 07:35 UTC 部署）止血、止血后 0 failed，详见 handoff #52。provider 单点风险本身仍成立：failover 切换链路已真机打通（#44/PR #364），卡第二个 provider key。
 - **②翻译完成率偏低（52%）**：返工环 + QC 严格 + free-tier 限流叠加；09-19 已补 intake→review flow 边，需新 run 验证收敛（目标 ~94%）。属已知观察项，非阻断。
 
 ---
@@ -72,7 +72,7 @@
 | web 测试 | ✅ 顺序跑 103 文件 **1947/1947**（并行高负载时 ProductGallery 偶发 asyncUtilTimeout flaky，顺序全绿） |
 | **合计** | **3599**（320+71+1261+1947），与 README/handoff 声称一致 |
 | 安全 | security-audit 29 项全修；gitleaks + npm audit 无泄露/无漏洞；SSRF 防护、最小权限、静态加密、登录/注册/run 限流、JWT 按 user_id 隔离 |
-| 备份 | launchd `com.agent-world.backup` 每日运行、完整性校验通过、密钥不入备份 |
+| 备份 | launchd `com.agent-world.backup` 每日运行、完整性校验通过、密钥不入备份；**2026-09-22 Mac 异地备份首次恢复演练通过**（双快照 integrity_check ok、时点行数对账吻合、artifacts 0 缺失、RTO<1min，详见 deferred-items 备份行） |
 
 ---
 
@@ -89,7 +89,7 @@
 | **P1** | **长任务跨 run 续跑（G4）缺失** | 长视频在网关超时/进程重启后可能**重复生成、重复计费**（涉钱） | G4.4 仅本次运行内 submit+poll 接缝，无 provider 续跑实现 |
 | **P1** | **生产数据层 SQLite 单机** | 无高可用/水平扩展，磁盘满或文件损坏即全站 | 双驱动+迁移+Docker 演练已完成，未切 Postgres；自托管/小团队当前够用 |
 | **P1** | 监控告警栈未配（Uptime Kuma/Loki） | 无可用性探活告警 | `/api/health`、`/metrics`、失败告警+rerun 已有，差探针与告警通道 |
-| **P2** | Dependabot 自动升级、全链路 E2E 入 CI、链路追踪、压测、IaC | 规模化/合规需要 | gitleaks+audit 已做；CI 仅 2 条 Playwright 冒烟 |
+| **P2** | ~~Dependabot 自动升级~~、全链路 E2E 入 CI、链路追踪、压测、IaC | 规模化/合规需要 | gitleaks+audit 已做；**Dependabot 已于 2026-09 启用并持续提 PR（patch/minor 批次经 #57 合入，major 走专项）**；CI 仅 2 条 Playwright 冒烟 |
 | **P2** | 团队协作/RBAC/SSO、审计 hash chain+180 天清理、Knowledge、对象存储 | 阶段 5 范畴 | 基础 owner/admin/user + resource_access 已就位 |
 | **P2** | `tpl-news-podcast` 缺 TTS provider | 单模板音频链路不可用 | agnes 无音频模型，需接音频 provider |
 
@@ -98,7 +98,7 @@
 1. provider 配第二个源或 fallback（同样的单点问题，自托管也会遇到长时间停摆）。
 2. 对外/跨网访问时补 HTTPS（纯本地 localhost 可不要）。
 3. ②翻译完成率收敛验证（已补 flow 边，观察新 run）。
-4. ~~高负载 flaky 用例稳定化（engine.code CPU 时限、ProductGallery asyncUtilTimeout）~~ ✅ **代码侧已修（2026-09-20/21）**：web 全局 asyncUtilTimeout 1s→5s（A2 `ee1d635`，已随 PR #347 合 dev 部署）、engine.code CODE_LIMIT_CPU_SEC 用例 wall 余量 12s→30s / vitest 槽 30s→45s（#57 `f35da0f`，本地待 push 合 dev）。CI Linux 权威口径本就全绿，此两项治的是本机高负载 / 沙箱时序 flaky，不影响正确性、不改变 CPU 时限语义。
+4. ~~高负载 flaky 用例稳定化（engine.code CPU 时限、ProductGallery asyncUtilTimeout）~~ ✅ **代码侧已修（2026-09-20/21）**：web 全局 asyncUtilTimeout 1s→5s（A2 `ee1d635`，已随 PR #347 合 dev 部署）、engine.code CODE_LIMIT_CPU_SEC 用例 wall 余量 12s→30s / vitest 槽 30s→45s（#57 `f35da0f`，已随 PR #373 合 dev（merge `5c9b7a4`）/#374 合 main 并部署 Hasee）。CI Linux 权威口径本就全绿，此两项治的是本机高负载 / 沙箱时序 flaky，不影响正确性、不改变 CPU 时限语义。
 5. 长任务续跑 G4（若重度使用视频生成）。
 
 ---
