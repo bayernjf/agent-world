@@ -193,6 +193,10 @@ State of Agent World as of 2026-09-20.
 
 ### 活跃任务
 
+**#44 Provider Failover（模型源灾备，实现完成 2026-09-21，待 staging 真机验证）**
+
+针对 2026-09-20 约 12h agnes 出站中断连续打挂 run（见下 #41 最新体检），路由层在主源死掉时自动把同一请求改投备份源等价模型。**v1 仅文本**（`runTextGen` + gate `judge`）。机制：`config.ts` 新增默认关闭的通用 OpenAI 兼容内置槽（`BACKUP_BASE_URL`/`BACKUP_API_KEY`/`BACKUP_MODELS`，填齐启用）+ `failoverCandidates()` 纯函数与可选 `failover.chains`；`providers/index.ts` 在首字节前探第一块，仅对 `PROVIDER_ERROR`/`TIMEOUT` 切换（`RATE_LIMIT`/`AUTH`/首块后错误不切），切换打 warn。测试：`routing.test.ts` 8 例 + `config.test.ts` 4 例全绿，四包 typecheck 绿。文档见 [production-ops.md](docs/production-ops.md) §9、env 占位见 `.env.example`。**待办**：staging 填 backup env 后真机验证一次（主源 baseUrl 临时指向不可达）；图片/视频灾备缓做。
+
 **#41 ★ M1 回采产线挂载 + 每日体检（4 条成本画像产线，cron 自动攒数据中）**
 
 在 Hasee staging 挂 4 条代表产线：①写草稿·高频文本 ②翻译流水线·带返工（gate 上限 3 次）③短视频广告工坊·媒体中价（imageGen+videoGen）④批量内容工坊·批量放大（Map 5 条）。产线 ID：
