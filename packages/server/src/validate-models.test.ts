@@ -18,6 +18,14 @@ const cfg: AppConfig = {
       models: ["disabled-1"],
       modalities: { "disabled-1": "text" },
     },
+    sf: {
+      type: "openai-compatible",
+      enabled: true,
+      baseUrl: "https://api.siliconflow.cn/v1",
+      apiKey: "k",
+      models: ["sf-tts"],
+      modalities: { "sf-tts": "audio" },
+    },
   },
   defaultModel: "agnes-2.0-flash",
   defaultProvider: "agnes",
@@ -49,6 +57,14 @@ const imageNode = (id: string, model: string) => ({
   x: 0,
   y: 0,
   imageGen: { model, n: 1 },
+});
+const audioNode = (id: string, model: string) => ({
+  id,
+  kind: "audioGen" as const,
+  name: `audio-${id}`,
+  x: 0,
+  y: 0,
+  audioGen: { model, prompt: "" },
 });
 const sourceNode = (id: string) => ({
   id,
@@ -111,5 +127,23 @@ describe("validateModels", () => {
   it("rejects empty imageGen model the same way", () => {
     const r = validateModels(withNodes(imageNode("i1", "")), cfg);
     expect(r[0]!.message).toMatch(/图片.*模型/);
+  });
+
+  it("passes when audioGen uses a registered audio-modality model", () => {
+    expect(validateModels(withNodes(audioNode("v1", "sf-tts")), cfg)).toEqual([]);
+  });
+
+  it("errors when an audioGen node is given a text model (TTS would 404/soft-skip)", () => {
+    const r = validateModels(withNodes(audioNode("v1", "agnes-2.0-flash")), cfg);
+    expect(r).toHaveLength(1);
+    expect(r[0]!.severity).toBe("error");
+    expect(r[0]!.message).toMatch(/文本.*无法产出音频/);
+    expect(r[0]!.nodeId).toBe("v1");
+  });
+
+  it("rejects empty audioGen model the same way", () => {
+    const r = validateModels(withNodes(audioNode("v1", "")), cfg);
+    expect(r[0]!.severity).toBe("error");
+    expect(r[0]!.message).toMatch(/音频.*模型/);
   });
 });
