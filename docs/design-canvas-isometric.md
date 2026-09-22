@@ -189,14 +189,14 @@ worldY = 0                        // 地面
 5. 暗角：`.canvas3d::after` 径向渐变（`pointer-events: none`），视线收束到产线；纯 CSS，不占渲染管线
 6. 地台 + 描边（风格化方块）：每节点加略宽深色地台（RTS「地基」，块不再悬浮）；`EdgesGeometry` 蓝图描边画 12 条硬边，`raycast` 置空以免抢节点拾取
 
-**textGen 写实工业原型（原型期，仅 `textGen` 一种）**：
+**写实工业风（2026-09-22 起推广全部 29 种节点）**：
 
-- **目的**：验证「写实工业风」相对风格化方块是否值得推广，因此只改一个 kind，在 `buildNodeShape` 一处 gate（`kind === "textGen"`）
-- **构成**：混凝土基座 + 锯齿屋顶主厂房 + 锈蚀烟囱（静态蒸汽）+ 危险条纹基座钢储罐 + 拱形管线 + 发光高窗 + 正门 + 门上状态 LED
-- **贴图**：`industrial-textures.ts` 用 canvas 程序化绘制（混凝土 / 波纹钢板 / 危险条纹），模块级单例共享、材质按节点持有并随既有 graph-sync 释放——不引入外部素材
+- **演进**：2026-09-17 先以 textGen 单节点原型验证可行性；2026-09-22 改为可复用 PBR 部件库组合，铺开全部 29 kind
+- **部件库**：`industrial-kit.ts` 提供钢架/控制柜/压力容器/料仓/管段/阀门/汇流排/电机/传送带/漏斗/镜头/天线/号筒/门架/文件架等部件；材质/纹理为模块级单例共享，graph-sync teardown 只销毁每节点 geometry。`industrial-recipes.ts` 按 kind 组合出独特剪影；textGen 保留 `industrial-shapes.ts` 原造型
+- **分区色**：主体为钢/混凝土写实，每节点带一处按 `categoryColor(kind)` 着色的小饰件（`accent`），五类厂区仍一眼可分
+- **贴图**：`industrial-textures.ts` 用 canvas 程序化绘制（混凝土/波纹钢板/危险条纹/拉丝钢/暗色金属），不引入外部素材；分区色定义收口到 `category-colors.ts`
 - **契约不变（关键）**：足迹 ~150×92、地面旋转 `π/8`、LED 仍由既有循环驱动 → 管道锚点、路径路由与布局零改动
-- **推广成本**：基建已通，逐个 kind 的增量只在「造型 + topper」，翻 gate 即可试点下一个
-- **回滚**：删掉 `industrial-shapes.ts` / `industrial-textures.ts` + 还原 gate 即回到风格化方块，与其余 28 种 kind 零耦合
+- **接线**：`iso3d-shapes.ts` 已删除硬编码 gate 与全部风格化方块代码（`addTopper`/`shadedMaterials`/`edgeColor`），统一委托 `buildIndustrialShape(kind)`
 
 **测试约束（jsdom，踩过）**：
 
