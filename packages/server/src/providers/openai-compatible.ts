@@ -161,8 +161,8 @@ const IMAGE_GEN_TIMEOUT_MS = 120_000;
 /**
  * Build a Usage record from raw provider token usage and a model's price card.
  * Non-token modalities (image/video/audio) report their own `units` counters
- * (images, seconds, characters) — the shared computeCost helper prices whichever
- * dimensions both the usage and the price card provide.
+ * (images, seconds, characters, utf8Bytes) — the shared computeCost helper
+ * prices whichever dimensions both the usage and the price card provide.
  */
 function computeUsage(
   raw: NonNullable<StreamChunk["usage"]>,
@@ -859,10 +859,16 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
           }
           const data = Buffer.from(await res.arrayBuffer());
           const ct = res.headers.get("content-type") || `audio/${config.format || "mpeg"}`;
-          // TTS bills per 1K input characters (audio duration would need
-          // decoding; perKiloChar is deterministic from the synthesized text).
-          const characters = (input || config.prompt || "").length;
-          results.push({ data, mimeType: ct, usage: mediaUsage({ characters }, model, pricingFor) });
+          // Meter both TTS input dimensions so either kind of price card works:
+          //  - characters → perKiloChar (OpenAI-style per-1K-character pricing)
+          //  - utf8Bytes  → perMegaUtf8Byte (SiliconFlow CosyVoice2 bills per
+          //    UTF-8 byte; one CJK char ≈ 3 bytes, so characters under-meter ~3x)
+          // Audio duration would need decoding; both counters are deterministic
+          // from the synthesized text. computeCost prices whichever the card sets.
+          const ttsText = input || config.prompt || "";
+          const characters = ttsText.length;
+          const utf8Bytes = Buffer.byteLength(ttsText, "utf8");
+          results.push({ data, mimeType: ct, usage: mediaUsage({ characters, utf8Bytes }, model, pricingFor) });
         }
         return results;
       } finally {
