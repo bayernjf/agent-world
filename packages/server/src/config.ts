@@ -203,6 +203,7 @@ const ModelPricingSchema = z.object({
   perImage: z.number().optional(),
   perSecond: z.number().optional(),
   perKiloChar: z.number().optional(),
+  perMegaUtf8Byte: z.number().optional(),
 });
 
 const VideoAdapterSchema = z.object({

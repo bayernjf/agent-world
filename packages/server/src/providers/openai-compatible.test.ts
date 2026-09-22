@@ -285,7 +285,7 @@ describe("videoAdapter (agnes-style video API)", () => {
   });
 });
 
-describe("media metering (video perSecond / audio perKiloChar)", () => {
+describe("media metering (video perSecond / audio perKiloChar + perMegaUtf8Byte)", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
@@ -381,7 +381,7 @@ describe("media metering (video perSecond / audio perKiloChar)", () => {
     expect(r.usage.costUsd).toBeCloseTo(5 * 0.1, 6); // $0.50 — never 0 with a perSecond card
   });
 
-  it("bills TTS per 1K input characters", async () => {
+  it("bills TTS per 1K input characters and also reports UTF-8 bytes", async () => {
     vi.stubEnv("ALLOW_PRIVATE_NETWORK", "1");
     const provider: ProviderConfig = {
       type: "openai-compatible",
@@ -395,13 +395,44 @@ describe("media metering (video perSecond / audio perKiloChar)", () => {
       vi.fn(async () => new Response(new Uint8Array([1, 2, 3]), { status: 200, headers: { "content-type": "audio/mpeg" } })),
     );
     const worker = openAICompatibleWorker(provider);
-    const text = "hello world"; // 11 chars
+    const text = "hello world"; // 11 ASCII chars = 11 UTF-8 bytes
     const [r] = await worker.generateAudio!({
       node: { id: "n" } as never,
       config: { model: "m-tts", n: 1, format: "mp3" } as never,
       input: text,
     });
-    expect(r.usage.units).toEqual({ characters: text.length });
+    // Both counters are always emitted; the perKiloChar card prices characters.
+    expect(r.usage.units).toEqual({ characters: text.length, utf8Bytes: Buffer.byteLength(text, "utf8") });
     expect(r.usage.costUsd).toBeCloseTo((text.length / 1000) * 0.015, 8);
+  });
+
+  it("bills CJK TTS input per 1M UTF-8 bytes (SiliconFlow CosyVoice2 card)", async () => {
+    vi.stubEnv("ALLOW_PRIVATE_NETWORK", "1");
+    const provider: ProviderConfig = {
+      type: "openai-compatible",
+      baseUrl: "https://api.siliconflow.example/v1",
+      apiKey: "sk-stored",
+      models: ["cosy"],
+      pricing: { cosy: { perMegaUtf8Byte: 0.00715 } },
+    };
+    let sentBody: Record<string, unknown> | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string | URL, init?: RequestInit) => {
+        sentBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return new Response(new Uint8Array([1, 2, 3]), { status: 200, headers: { "content-type": "audio/mpeg" } });
+      }),
+    );
+    const worker = openAICompatibleWorker(provider);
+    const text = "你好世界"; // 4 chars, 12 UTF-8 bytes
+    const [r] = await worker.generateAudio!({
+      node: { id: "n" } as never,
+      config: { model: "cosy", n: 1, format: "mp3" } as never,
+      input: text,
+    });
+    expect(sentBody?.input).toBe(text);
+    expect(r.usage.units).toEqual({ characters: 4, utf8Bytes: 12 });
+    // Only the byte card is set, so cost derives from 12 bytes at $7.15 / 1M.
+    expect(r.usage.costUsd).toBeCloseTo((12 / 1_000_000) * 0.00715, 10);
   });
 });
