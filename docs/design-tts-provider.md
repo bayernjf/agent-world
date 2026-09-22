@@ -1,6 +1,6 @@
 # TTS Provider 接入设计（audioGen 配音链路打通）
 
-> 状态：**方案设计（2026-09-22），未写码**。
+> 状态（2026-09-22 更新）：**P1 产品化 G-A / G-B / G-D（P1 检测）已写码落地**，四原子 commit `1ea3c62`（G-A core）/ `0a1ec39`（G-A server 计量）/ `93b3082`（G-B）/ `0cbf11e`（G-D），在 feature/20260824、**尚未 push**；core 323 / server 1295 测试全过、四包 typecheck 干净。**仍未做**：P0 真机端到端（待 SiliconFlow/OpenAI key，B4）、**G-C 软降级二选一（待产品决策）**、G-E/G-F 的 UI 路由与内置供应商骨架、G-H 配置 runbook、P2 分片拼接与 edge-tts。
 > 目标：让 `tpl-news-podcast`（资讯播客工坊）等音频产线真正产出配音音频。
 > 结论先行：**节点、Worker 接缝、OpenAI 兼容 provider 实现都已就绪（约 90%），缺口是「一个真正支持 `/audio/speech` 的供应商配置」+ 三处小口径（计费单位、音色命名、软降级一致性）**。推荐用硅基流动（SiliconFlow，原生 OpenAI 兼容、中文优、极低价）零代码先验证，再做少量产品化改动。
 
@@ -73,7 +73,7 @@
 
 ## 4. 工程缺口与改动清单
 
-### G-A　计费口径：字符 vs UTF-8 字节（需改 core，小）
+### G-A　计费口径：字符 vs UTF-8 字节（需改 core，小）　✅ 已落地（2026-09-22，`1ea3c62` core + `0a1ec39` server）
 
 - 现状：`generateAudio` 用 `mediaUsage({ characters: input.length }, …)`，`ModelPricing` 音频只支持 `perSecond` / `perKiloChar`（USD/1K **字符**）。
 - 问题：SiliconFlow 按 **UTF-8 字节**计费，中文 1 个汉字 ≈ 3 字节，直接用字符数会**低估约 3 倍**。
@@ -83,13 +83,13 @@
   3. SF custom provider 的 pricing 配 `{ "FunAudioLLM/CosyVoice2-0.5B": { perMegaUtf8Byte: 0.00715 } }`（$7.15/M，落地前以官方现价复核）。
   4. 补 core pricing 单测 + provider 计量单测。
 
-### G-B　音色命名不兼容（模板/配置）
+### G-B　音色命名不兼容（模板/配置）　✅ 已落地（2026-09-22，`93b3082`：新增 `ttsVoice` field，默认保留 OpenAI 通用 `alloy`，placeholder 写明 SF 须改 `模型名:音色名`）
 
 - OpenAI 用具名音色 `alloy`；SiliconFlow 要求 `模型名:音色名`（如 `FunAudioLLM/CosyVoice2-0.5B:alex`），克隆音色是 `speech:名称:id`。模板写死的 `voice:"alloy"` 在 SF 上会报错。
 - 改法（推荐，轻量）：给 `tpl-news-podcast` 增加 `ttsVoice` field（`applyTo: [{nodeId:"voice", path:"audioGen.voice"}]`），placeholder 说明两套命名；默认值按目标供应商给（若 P0 验证以 SF 为主，默认改 SF 预置音色；若要保持 OpenAI 通用则保留 alloy 并在描述里写明 SF 需改）。
 - 不做 provider 层「音色别名映射」（alloy→某 SF 音色）——音色是供应商特定资产，硬映射会误导，参数化 + 文档更诚实。
 
-### G-C　「软跳过」注释与实际失败行为不一致（需产品决策）
+### G-C　「软跳过」注释与实际失败行为不一致（需产品决策）　⏸ 未做（2026-09-22：本轮不改变失败语义，维持 `failed` + VALIDATION，模板「软跳过」注释暂保留；须产品在两选项间拍板后再动）
 
 - `tpl-news-podcast` 模板注释声称「默认供应商不支持 TTS 时该节点会**软跳过**，稿件文本仍完整产出」；但 `audiogen.ts:14-20` 在 `worker.generateAudio` 缺失时实际是 `states=failed + node.failed(VALIDATION)`——**会让节点失败**（无 error 边时整条 run 失败），与注释矛盾。
 - 两个选项：
@@ -97,7 +97,7 @@
   - 或维持 failed（音频是该模板的明确卖点，缺能力就该显眼报错），**改注释**去掉「软跳过」表述。
 - 倾向推荐前者，但这改变失败语义，需与产品意图确认后二选一；无论选哪个都要消除「注释说一套、代码做一套」。
 
-### G-D　长文本分片（P1 检测，拼接列 P2）
+### G-D　长文本分片（P1 检测，拼接列 P2）　✅ P1 检测已落地（2026-09-22，`0cbf11e`：导出 `TTS_MAX_INPUT_CHARS=4096`，合成前超长 fail-fast `failed`+VALIDATION、不发请求、不静默截断；P2 分片拼接仍缓做）
 
 - 现状：`generateAudio` 把整段 input 一次性 POST，无分片。OpenAI 单次输入有长度上限（历史为 4096 字符，**以官方文档为准**）；SF CosyVoice2 单次长度也有上限（官方用户指南未给明确数字，P0 验证时实测）。
 - 2 分钟中文口播稿约 400-500 字，通常不超限；但更长的播客/有声书会。
@@ -121,6 +121,8 @@
 ---
 
 ## 5. 原子提交计划（英文 message、不 push）
+
+> **落地状态（2026-09-22）**：步骤 2 ✅ `1ea3c62`；步骤 3 被拆分——G-A server 计量 ✅ `0a1ec39`，**G-C 软降级未做（待产品决策，故该 commit 不含 soft-degrade）**；步骤 4 ✅ `93b3082`（仅 G-B field，未改注释，因 G-C 未定）；步骤 5 ✅ `0cbf11e`；步骤 1（P0 真机）、步骤 6（runbook）、步骤 7（edge-tts）未做。四个 commit 均在 feature/20260824，未 push。
 
 1. **P0 验证不产生代码**；验证结论（兼容/差异）回写本文。
 2. `feat(core): price audio by UTF-8 bytes for TTS providers`（G-A：units/pricing/computeCost/字段/i18n + 单测）。
