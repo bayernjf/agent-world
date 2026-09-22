@@ -50,7 +50,7 @@ State of Agent World as of 2026-09-21.
 
 * [docs/template-checklist.md](docs/template-checklist.md) — 产线模板验证与评估待办表（逐模板真实狗粮验证状态，当前 33 个；**新增模板必登记**，与 core TEMPLATES 数对账）★
 
-* [docs/handoff-archive.md](docs/handoff-archive.md) — historical changes (pre-2026-08-27)；后续滚动归档 [handoff-archive-2026-09-07.md](docs/handoff-archive-2026-09-07.md)（#1–#37）、[handoff-archive-2026-09-10.md](docs/handoff-archive-2026-09-10.md)（#24–#43）、[handoff-archive-2026-09-11.md](docs/handoff-archive-2026-09-11.md)（#44–#45）、[handoff-archive-2026-09-18.md](docs/handoff-archive-2026-09-18.md)（#39、#46–#56、M1 验收、#41 历史体检）
+* [docs/handoff-archive.md](docs/handoff-archive.md) — historical changes (pre-2026-08-27)；后续滚动归档 [handoff-archive-2026-09-07.md](docs/handoff-archive-2026-09-07.md)（#1–#37）、[handoff-archive-2026-09-10.md](docs/handoff-archive-2026-09-10.md)（#24–#43）、[handoff-archive-2026-09-11.md](docs/handoff-archive-2026-09-11.md)（#44–#45）、[handoff-archive-2026-09-18.md](docs/handoff-archive-2026-09-18.md)（#39、#46–#56、M1 验收、#41 历史体检）、[handoff-archive-2026-09-22.md](docs/handoff-archive-2026-09-22.md)（2026-09-19~20 shipped 条目）
 
 * [docs/PRODUCT\_STRATEGY.md](docs/PRODUCT_STRATEGY.md) — 产品策略汇总（成本/部署/定价/商业化决策基线）
 
@@ -81,7 +81,10 @@ State of Agent World as of 2026-09-21.
 
 * [docs/runbooks/deploy-cicd.md](docs/runbooks/deploy-cicd.md) — CI/CD 自动部署方案（Git + CI 质量门禁 + self-hosted runner；Mac push → CI 测试 → 自动部署到 Hasee；含 Deploy Key / 最小 sudo / runner 安装 / deploy.sh / workflow 五步 + 回滚排障）★
 
-* [docs/runbooks/error-reporting.md](docs/runbooks/error-reporting.md) — 错误追踪与告警运维手册（ErrorRecord 数据形状/隐私边界；默认零配置查 `GET /api/admin/errors`；`ERROR_REPORT_WEBHOOK_URL` webhook sink 启用；Discord/Slack/飞书/Sentry/Loki 直连 vs 必须 relay 对照表 + 零依赖 relay 示例；`pnpm selftest:errorsink` 自检 CLI 退出码语义）
+* [docs/runbooks/error-reporting.md](docs/runbooks/error-reporting.md) — 错误追踪与告警运维手册
+* [docs/runbooks/change-management.md](docs/runbooks/change-management.md) — 变更管理流程（变更分级/审批/窗口/回滚/记录模板）
+* [docs/runbooks/postmortem-template.md](docs/runbooks/postmortem-template.md) — 事故复盘模板（时间线/根因/影响/改进项/无指责复盘）
+* [docs/browser-verification.md](docs/browser-verification.md) — Claude Chrome DevTools MCP 自动开浏览器验收部署的配置与用法（ErrorRecord 数据形状/隐私边界；默认零配置查 `GET /api/admin/errors`；`ERROR_REPORT_WEBHOOK_URL` webhook sink 启用；Discord/Slack/飞书/Sentry/Loki 直连 vs 必须 relay 对照表 + 零依赖 relay 示例；`pnpm selftest:errorsink` 自检 CLI 退出码语义）
 
 * [docs/environments.md](docs/environments.md) — 环境划分（M0 单机合一 → M3 三套 DEV/TEST/PROD → 未来规模化；环境→分支映射：`feature/*`=DEV / `dev`=Hasee 准生产 / `main`=PROD）
 
@@ -102,6 +105,7 @@ State of Agent World as of 2026-09-21.
 
 * [docs/design-guided-tour.md](docs/design-guided-tour.md) — 新用户分步引导 Guided Tour 设计（聚光灯分步教学 + 上一步/下一步/跳过；§十二 多引导注册中心：引擎与定义解耦、引导即数据、版本化 seen、What's-new/⌘K 动态注册，**已落地**）
 
+* [docs/design-rts-stage-b.md](docs/design-rts-stage-b.md) — RTS 阶段 B 宏观沙盘 MVP 落地级细化（B1-B9 全部完成，B5 帧率实测 100 厂=60FPS 达标）
 * [docs/design-rts-overview.md](docs/design-rts-overview.md) — RTS 宏观上帝视角设计总览（L0 工业园区 / L1 单厂 3D / L2 节点三层缩放；六类宏观信息；A 平面工作台→B 宏观沙盘 MVP→C 完整 RTS；**阶段 A/B 已完成，阶段 C 全部完成（C1-C3 随 PR #290、C4-C8 随 PR #292 合 dev 并部署 Hasee、真机走查通过；C5/C6 两处裁剪与方案 A 留档见待办 #50）**）
 
 * [docs/examples.md](docs/examples.md) / [docs/extending.md](docs/extending.md) / [docs/integrations-future.md](docs/integrations-future.md) — 模板示例 / 扩展指南 / 未来集成（Notion/Linear/邮件/内容平台）
@@ -176,7 +180,9 @@ State of Agent World as of 2026-09-21.
 > [handoff-archive-2026-09-18.md](docs/handoff-archive-2026-09-18.md)，本区只留当前状态 + 活跃任务 + 一行结论。
 > 更早归档：#1–#37 见 [handoff-archive-2026-09-07.md](docs/handoff-archive-2026-09-07.md)，
 > #24–#43 见 [handoff-archive-2026-09-10.md](docs/handoff-archive-2026-09-10.md)，
-> #44–#45 见 [handoff-archive-2026-09-11.md](docs/handoff-archive-2026-09-11.md)。
+> #44–#45 见 [handoff-archive-2026-09-11.md](docs/handoff-archive-2026-09-11.md)，
+> #39/#46–#56 见 [handoff-archive-2026-09-18.md](docs/handoff-archive-2026-09-18.md)，
+> 2026-09-19~20 shipped 条目见 [handoff-archive-2026-09-22.md](docs/handoff-archive-2026-09-22.md)。
 
 ### 已完成待办一行结论（详情见 archive）
 
@@ -263,23 +269,6 @@ Agnes free tier 429 已按方案 C（降频+长退避 retry）闭环（PR #229 `
 
 4. **fix(core) 模板插值正则 ReDoS 根治：手写线性扫描替换正则（2026-09-20，feature/20260824，`01f8868`/`8c95dfd`，PR #349 CodeQL 阻断项，已合 dev/main 部署）**——PR #349 的 CodeQL PR 检查报 2 个 HIGH（`js/polynomial-redos`），均在 `packages/core/src/variables.ts`：状态机方案 A 新增/沿用的 `${...}` 占位符正则 `/\$\{\s*[^}]+\s*\}/` 里 `\s*` 与 `[^}]+` 在空白字符上重叠，对 `${{` + 长空格（无闭合 `}`）O(n²) 回溯（5 万空格实测卡死 >15s）；第一次改写 `/\$\{[^}]+\}/` 仍被 CodeQL 报——`${{|` 重复串在每个 `$` 位置重启一次 O(n) 扫描（实测 8000 组 100ms，仍二次方）。根治：`evaluateTemplate`（用户 prompt 模板，攻击面最大）/`evaluateCondition`/`validateConditionSyntax` 三处替换统一改用 `indexOf` 手写的 `scanPlaceholders()` 单遍扫描，严格 O(n)、零回溯，空 `${}` 与未闭合语义保持；12 组边界样本（空格包裹/空占位/未闭合/链式插值）与旧正则逐字等价，25.6 万字符毒化输入 0.03ms；回归测覆盖两种攻击形态 + evaluateCondition。core 320 / server 1261 全绿、三包 typecheck Done，CodeQL 与 CI 全 pass；**已随 PR #349 合 dev（merge `894eca3`）、#350 合 main，docs 续随 #352（dev `13626a6`）/#353（main `fcb677b`）合入；Hasee 13:28 UTC 自动部署到 `13626a6`、health ok、重启零 error；**但该部署所含 undici 8 升级随即造成全部 run failed（事故与订正见第 2 条 / Active work #52），当日 22:22 一次性体检任务因额度门控未执行，所谓「首跑闭环」记录作废**。
 
-5. **feat(core/server/web) G2.4 前置 (A) 数组输出契约能力落地（2026-09-20，工作分支 feature/20260824，`978ab56` core / `2fbcbe1` engine / `36135e8` schema / `33dcc91` Inspector，已随 PR #349 合 dev/main、Hasee 部署 `13626a6`）**——deferred G2.4（模板数据源批量预置输出契约）的推荐重启前置 (A)：core `ContractSpec` 扩 `root:"array"` + `items:{requiredFields,types}` + `minItems`（默认要求非空），`validateContract` 校验数组根非空并逐元素断言、违例按 `[i].字段` 报告，新增 `coerceOutputArray`（接受数组或 JSON 数组串）；engine 契约闸门对 `root:"array"` 改读 connector 写入的 `sourceMeta.data`（Product[]/SQL rows，本不进 artifact），回退 `artifactValue` 覆盖未来数组型 http/function/code；Inspector 契约编辑器加「对象/数组」根形状切换，数组模式编辑每元素必填字段/类型（zh/en i18n、全 token 样式）。**默认 root=对象、且无任何内置模板声明数组契约 = 零行为变更，M1 在跑四产线不受影响**。测试：core 契约 32 测（新增 14）、engine 数组集成测 8（`engine.contract` +5 走 JSON 数组 artifact、`engine.products` +3 走 sourceMeta.data，覆盖合规/索引缺字段/空数组/错根形状）、Inspector 数组表单 +2；四包 typecheck Done、全量 3598 全绿、web 构建通过。**G2.4「批量预置到内置模板」仍缓做**——待抓到真实 Product[]/SQL rows 样本逐个核对字段名后再给 tpl-product/tpl-xiaohongshu 预置（见 deferred 模板/生态线）。
-
-6. **chore(deps) 构建工具链五项 major 升级（Dependabot group PR #289 收尾，2026-09-20，工作分支 feature/20260824，`96b3b1e` vitest5 / `6990ac4` vite8 / `a299eeb` TS7 / `6c47b00` undici8，已随 PR #349 合 dev/main、Hasee 部署 `13626a6`）**——#289 此前唯一硬失败是 server `connectors.test.ts` 在 describe 嵌套作用域调 `vi.hoisted`/`vi.mock`（vitest 5 判 Failed Suite），已由 `4e8ac88`（PR #341）把 pg mock 提到模块顶层铺路；本次按耦合度拆四个原子批次逐个升级 + 每步全量回归：①**vitest 4.1.11→5.0.1**（根）+ **@vitest/coverage-v8 4→5**（server），vitest5 peer 仍为 `vite ^6.4||^7||^8` 故先独立升；②**vite 6.4.3→8.3.0 + @vitejs/plugin-react 5.2.0→6.1.1**（plugin-react6 peer `vite^8` 捆绑，vite8 转 rolldown 引擎），并移除 dependabot.yml 里 plugin-react major 的过时 ignore（zod / @types/node major ignore 保留）；③**TypeScript 5.9.3→7.0.2**（根），四包 typecheck 零新增错误；④**undici 7.29→8.10.2**（server，仅 ssrf.ts 用 Agent/ProxyAgent/Dispatcher 稳定核心 API）——⚠️ 此项次日即被 PR #362 回滚（见第 2 条）：undici 8 Agent 与 Node 24 内置 undici 7 fetch 不兼容，属本次升级遗漏的运行时耦合，dependabot 现已锁 undici major。验证：四包 typecheck 全 Done，core 303 / mcp 71 / server 1253 / web 1945（`--no-file-parallelism`）全绿，web 生产构建（tsc + vite/rolldown，276 模块）通过，Playwright E2E 冒烟 2/2（vite8 dev server + plugin-react6 真实 dev 模式）。**zod 3→4（约 1.2k 类型错误，需专项迁移）与 @types/node 24→26（Buffer ArrayBufferLike 致 artifact-store BlobPart 失败，PR #186）仍按 dependabot ignore 缓做**，Node 运行时保持 24。
-
-7. **feat(core/web) 状态机方案 A 增强：branch 非法迁移编译期校验 + 画布状态流转可视化（2026-09-20，工作分支 feature/20260824，`208683b` core + `2c56e48` web，已随 PR #349 合 dev/main、Hasee 部署 `13626a6`）**——deferred「状态机节点」方案 A（graph variables + branch，零新执行语义）的两项增强，正面回应原触发条件里的「非法迁移在画布上拦不住、状态流转图上不可见」：①**编译期校验**（core `compile()`）：branch 规则目标节点不存在、或目标存在但没有从该判断节点出发的正向连线（运行时会静默丢包的非法迁移）判 **error**；条件表达式语法错误（运行时 fail-closed 致该分支永不命中）、`${var.xxx}` 状态变量未在图变量声明初始值判 **warning**；新增纯函数 `validateConditionSyntax` / `extractVarReferences` / `deriveStateMachine`（从 `${var.x} == '状态'` 等值条件静态推导状态空间与迁移，支持正反序、字符串/数字/布尔，忽略不等与大小比较）。②**画布可视化**：branch Inspector 只读「状态流转」预览（状态变量、声明初始值/未声明警示、各状态值→目标节点、默认分支），2D 节点卡片显示 `var.x: 状态` 徽标；Inspector 三视图共用，3D/park 观感视图不深化。i18n zh/en 同步、全设计 token、无硬编码中文 JSX。测试：core +17（compile +7、variables +5、state-machine +5，含变异验证——跳过校验块使 5 测变红、语法校验恒 null 使 2 测变红，恢复后全绿）、web +3（BranchFields 状态预览）；core 303 / server 1253 / web 1945 全绿、四包 typecheck Done。方案 B（正式 `statemachine` 节点）仍留待触发，见 deferred-items 执行引擎线。
-
-8. **test(web/e2e) 高并发 flaky 稳定化 + Playwright E2E 冒烟骨架（2026-09-20，工作分支 feature/20260824，`ee1d635`/`e2e022c`，已随 PR #347 合 dev（merge `310db63`）部署 Hasee、PR #348 合 main）**——两笔测试基建：①**A2 flaky 根治（`ee1d635`）**：testing-library 的 waitFor/findBy 默认 asyncUtilTimeout 仅 1s（vitest testTimeout 本已 10s），多 worker/高负载下 mock promise 与 React effect 偶尔超 1s 才 flush，VersionPanel/ProductGallery/PublishTargets 等偶发误报“停在加载中”/worker 提前退出（隔离、顺序、CI 原本全绿，判负载 flaky）；全局 `apps/web/src/test/setup.ts` 设 `configure({ asyncUtilTimeout: 5000 })`（与 ProductGallery 局部包装一致、仍低于 10s testTimeout，真死锁仍被 testTimeout 兜住），默认多 worker 全量 102 文件/1942 测实跑全绿（EXIT=0，81s）。②**B1 E2E 冒烟骨架（`e2e022c`）**：根 devDep 加 @playwright/test 1.63（复用 RPA 已装的 chromium），根 `playwright.config.ts` 用 webServer 自动起临时库 server（`ALLOW_DEMO=1`，DB/JWT/加密密钥/产物/日志全在 os.tmp 唯一目录、跑完即删，不碰真实数据）+ vite dev web；`e2e/smoke.spec.ts` 两条——guest 打开 /→重定向 /login、一键 demo（POST /api/auth/demo）→进真实产品 + demo 横幅可见 + 无未捕获异常/意外 console error；`pnpm e2e`（首次 `pnpm e2e:install`），本机两次连跑 2/2、RPA 浏览器用例回归 4/4；不跑 AI、无需 provider key。**CI 接入**（runner 装 chromium）与**完整全链路**（注册→配 provider→建产线→跑→出成品）缓至对外开放注册，见 `e2e/README.md`、engineering-blueprint §8。
-
-
-
-> **style(web) 设计 token 历史债清理 + deferred RTS 阶段 C 对账（2026-09-19，工作分支 feature/20260824，`5db584f`/`0013c1b`/`6b3a4d2`，已随 PR #345 合 dev（merge `ee118ae`）/ PR #346 合 main，dev 已随 #347 部署 Hasee）**——清账三笔：①`styles.css` 去 21 处 var() fallback：8 处硬编码色 fallback（Tailwind 残留 `#4ade80/#3b82f6/#22c55e/#e5484d/#35e0f0/#0f1623/#1f2937`，对应 token 明暗两套均有定义，删除后 dark 用标准语义色，并修掉 light 主题这些元素不随主题切换的潜在 bug）+ 嵌套 var/值 fallback（含 0 定义假名 `--text-muted`、`--radius-sm,6px`、`--mono,monospace`、`--z-canvas-chrome,5`、`--shadow-lg` 等，外层 token 均有定义、去掉等价）；顺带修真 bug `.compare-table` 把 shorthand `--hair`（值本身是 `1px solid …`）当颜色再套进 `1px solid` 致整条 border 声明被丢弃，改 `--border-primary`；运行时变量 `--inspector-width`（App.tsx 拖拽 setProperty 注入、420px 为首帧默认，width 不在禁列）明确保留。②7 个组件 10 处内联裸 px（CostReport/EvalReport/ABReport/ProductGallery×3/VersionPanel×2/KnowledgePanel 空态 padding 40/20、Settings fontSize12/marginTop8）改 `--space-10/--space-5/--space-2/--text-sm`（已核对 token 实值：--text-sm=12px、--space-2=8、--space-5=20、--space-10=40）。③deferred 表 RTS L0 行从「阶段 C 草案 / 预研模拟造 5–10 条产线」对账为已完成（C1–C3 PR #290、C4–C8 PR #292、polish PR #296 均合 dev 部署真机走查通过；C5/C6 按方案 B 裁剪、方案 A 留档待办 #50）。验证：web 顺序全量 102 文件/1942 测全绿（高并发一次 VersionPanel 停在「加载中」waitFor 超时为已记录负载 flaky，隔离单跑该文件 37/37 绿）、pre-commit 四包 typecheck 全 Done；无新增可见文案。
->
-> **fix(core) 翻译校对节点 gate 重跑丢英文原文（2026-09-19，`16db0a5`，PR #343 合 dev / #344 合 main，Hasee 部署 `da07741`）**——tpl-translation 的 review 仅 translate 一个 flow 前驱，gate 退回重译后 review 只见中文初译、误当「原文」反问致 VALIDATION halt；补 intake→review flow 边（inputFor 按 [原文, 初译] 聚合，rework 保留 intake 产物）+ review prompt 显式【原文】/【初译】两段并禁反问；core 拓扑测 + server 端到端 rework 回归测（删边变异即红）；Hasee 实例 `71536df1` 已直接补边换 prompt，补边后 cron run 2/2 done、零反问，窗口完成率向 ~94% 收敛。
->
-> 第 7 条及更早（**feat(web) 单厂 3D 节点常显名称标签 + graph-sync 资源释放加固（2026-09-18，`be72c8b`，PR #341 合 dev（merge `9a12d64`）部署 Hasee）**——deferred 3D 美化⑦：新增 `canvas/nodeLabel.ts`，每个节点建筑上方浮常显、面向相机的 billboard 名称 pill（分类色 + 深底圆角、MAX_LABEL_CHARS=12 不拆 emoji、depthTest/depthWrite=false、renderOrder 10、`sprite.raycast=()=>{}` 不抢拾取、同名同 kind 复用 CanvasTexture、jsdom 无 2d context 也写缓存守契约）；顺带修真实泄漏——`disposeGroupChildren` 原浅层遍历只处理直接 isMesh 子节点、漏过 `shape.group` 嵌套，致 graph-sync 重建（重命名/拖动/增删）时旧厂房 geometry/material 不 dispose 不移除，改为 traverse 嵌套 Group/Line/Sprite 后统一 dispose+remove、共享 geometry/材质不 dispose；nodeLabel 7 + canvas 目录 11 文件 151 测过、四包 typecheck 绿。**feat(server) gate 禁用词重写反馈逐处定位 + 命中计数（2026-09-18，`703c47d`，已随 PR #341 合 dev 部署 Hasee）**——新增 `nodes/prohibited.ts` `prohibitedHitsWithContext`，同词多处全报、列命中分句与真实计数，治旧逻辑每词只报首处致模型改不全反复退回 halt；7 纯函数测 + 1 集成测。**画布 3D 视角美化六项 + textGen 写实工业厂房原型（2026-09-17，`9f9cad3` 等，PR #327 merge `d651323b` 合 dev；ACES 色调/线性雾/地台描边/暗角/选中环呼吸/Bloom + 程序化混凝土厂房，详见 deferred 画布/可视化线与 project-progress 快照）**；**demo 零配置首跑 422 两轮修复并闭环（2026-09-16，PR #305 `5812aca` + PR #307 `76dbd42`，均合 dev 部署 Hasee；根因为未登录时 `getSettings()` 401 竞态把 model 清空，改为仅 settings 成功才置 modelOptionsReady，真机首跑不再 422）**；**跨厂物流拱线 + ROI 热度、部署脚本单一事实源 + 蓝图 P0/P1 对账（2026-09-15，`45f65bf`/`16d8503`，PR #296 merge `4b1cd90` 已部署 Hasee、引导链路真机验证通过）**——①RTS C2 polish：跨厂物流管线由贴地直线改为越过厂顶的抛物线拱（弧顶 y≈236 > 厂高 140，等距俯视不再被中间厂方块遮挡），opacity .32→.55，卡车沿拱爬升、crossGroup 重建时释放旧管线 geometry/material（卡车共享材质不释放）；新增并导出无 three 依赖纯函数 crossArchY/crossArchPoints。②C6：工厂热度 sprite 在 CTR·GMV 后补 `ROI=gmv/adSpend`（gmv、adSpend 皆正才显示，adSpend=0 绝不显示 ∞，顺序固定 CTR·GMV·ROI）；后端 ad_spend 链路（content_metrics 列→metricsByGraph→ParkGraphMetrics.adSpend）早已就绪、纯前端补；+5 单测（park-label 8→13）。③运维：修复服务器根 `/opt/agent-world/deploy.sh|rollback.sh` 为 **untracked 手工副本、git pull 永不更新**的漂移隐患——仓库 `scripts/deploy/*` 成为唯一逻辑源（deploy 改为「仅当部署前当前服务健康才写 last-known-good」，避免失败部署把坏 commit 写成回滚点；deploy/rollback 均最多 15s 轮询健康），服务器根两份改为 `exec bash scripts/deploy/*.sh` 引导（备份在 /tmp/*.root-bak），手动跑一次引导部署 `deploy OK: 4b1cd90` 验证链路；`docs/engineering-blueprint.md` 加「现状对账（2026-09-15）」（12 域自包含 P0 全具备，仅独立 Playwright E2E 冒烟缓至对外开放注册前，其余 P1/P2 卡域名/上云/规模化触发，当前不做以避免过度设计）。真机走查：3D 园区工厂方块/24h 排期轴/经济栏/倒计时环/节点详情正常、单产线 3D 链路正常、零 console error；staging crossEdges=0 且无 content_metrics，拱线/ROI 真机为空态（诚实不渲染），几何与格式化逻辑由 13 个 park-label 单测保证。；**feat(web) 版本对比长文本字段逐字高亮（2026-09-18，`0387f97`，PR #341 合 dev）**——graph-diff 新增 diffText/tokenizeText（token 级 LCS 逐字高亮，超长回退整段）+ VersionPanel InlineTextDiff，6 纯函数测 + 1 组件测
-> **RTS-C C4-C8 园区经济栏/排期空间化/效果热度/宏观轻操作全集** `dffcf55`/`e540422`/`9a7c900`，PR #292 merge `1f5da5e` 已部署 Hasee；RTS-C C1 跨厂产物边 + Stripe 全栈 `2ea918a`/`c47e50b`/`42468ac`/`4a526ff`，PR #287/#290 merge `27f28ee`；M3 S6 Stripe 后端 A0-A4 `c0f708e`/`f5113be`/`b133c91`/`add61a4` 已并入该条 Stripe 全栈；2026-09-15 的园区状态色+标签优化 `9342d90`/PR #285、M3 S6 Stripe 前端 A5 `2c670c4`，以及 2026-09-14 及以前：M3 S1-S5 收款与账单、run.finished 失败原因记录、Guided Tour、RTS 阶段 B 全部、M1 回采三问分析 + 价格校准等）已滚出本列表 / 归档至 handoff-archive。
-
 ## Quality gate (current snapshot)
 
 > 这里的 snapshot 是"今天跑过的"状态；archive 章节里的"质量门"是各 commit 当时的状态，不要混用。
@@ -333,29 +322,13 @@ cd apps/web && pnpm dev
 
 ## Known issues
 
-* **沙箱不让 listen socket**：node `dist/index.js` / `pnpm dev` / `python3 start_new_session` 起服务全部 EPERM（IPv4/IPv6 loopback 都试过）
+> 以下均为**开发/测试环境基线**，不是产品 bug；CI Linux（self-hosted runner）与 Hasee 部署不受影响。
 
-* **沙箱不让写** **`.git/index.lock`**：`git commit` 需要 escalated 权限；escalation 通道的 token 上限是整个调用包级别，即使 `-m x` 也会被 review 拒
+* **DoubaoWork 内置沙箱限制**：① 不让 listen socket（起 server/vite 全部 EPERM）；② 不让写 `.git/index.lock`（git commit 需在沙箱外执行）；③ macOS rlimit 后端 code 节点稳定失败 9 文件/36 测（SIGXFSZ：沙箱外层 seatbelt 与 `ulimit -f 32MB` 叠加，fnm Node 24 二进制 116MB 超限；**2026-09-21 已在沙箱外真实 macOS 对照证伪——156 文件/1293 测全绿，普通 macOS 不复现，不改代码**；重启条件：真实 macOS 自托管用户报 code 节点「退出码 null/无 stderr」，届时 darwin wrapper 跳过 `ulimit -f`）。沙箱内判定回归一律以 CI Linux / 沙箱外真实 macOS 为准。
 
-* **"沙箱 EPERM"在 archive 章节里出现 12+ 次**：历史上每节都重复写"未在 8791 端到端复现"，现在归档后本文件只留一次
+* **macOS python code 节点测试失败 → 查 Xcode 协议**：`/usr/bin/python3` 是 Xcode CLT 占位 shim，未接受协议时拒绝执行，子进程起不来报 `ENOENT lstat`。修复：`sudo xcodebuild -license accept` 或 `brew install python`。排查：`python3 --version` 若打印 license 提示即此问题。Linux CI / Hasee 不受影响。
 
-### ⚠️ macOS 上 python code 节点测试失败？先查 Xcode 协议（2026-09-21 定位）
-
-`engine.code.test.ts` 里仅有的两个 **python** 用例（`…routes python egress…` / `…blocks hosts outside TOOL_NETWORK_ALLOW…`）在本机报 `ENOENT … lstat`、`node.finished` 不出现。根因不是代码：沙箱 `resolveInterpreter("python")` 跑 `which python3`（[code-sandbox.ts:36](packages/server/src/code-sandbox.ts:36)），本机落到 `/usr/bin/python3`——Xcode CLT 的占位 shim，未接受协议时拒绝执行（`You have not agreed to the Xcode license agreements`），子进程起不来。**Linux CI / Hasee 是真 python3，不受影响。**修复二选一：`sudo xcodebuild -license accept`，或 `brew install python` 让 `/opt/homebrew/bin/python3` 在 PATH 中先于 `/usr/bin`。排查手段：先 `python3 --version`，若打印 Xcode license 提示即此问题。
-
-### ⚠️ RLIMIT\_NPROC 陷阱（2026-08-29 CI 排查半天才定位，务必记住）
-
-`ulimit -u`（RLIMIT\_NPROC）在 Linux 上限制的是**整个用户（UID）的进程+线程总数**，不是单个子进程。CI runner 上 vitest 多 worker 已让 runner 用户任务数逼近默认 128，代码节点子进程的 node 启动时创建平台线程 EAGAIN → 断言崩溃 → **SIGABRT（`r.status === null`、\~200ms 秒挂）**。症状随并发负载波动，时好时坏，极易误判为 env/stdin/挂死问题。教训：验证 shell 行为（引号等）的测试不要叠加宿主敏感的 NPROC 小值限额，用 `maxProcs: 4096` 覆盖；NPROC 生产语义由 engine 集成测试覆盖。另一个相关坑：开发机 shell 里若有本地代理（如 `HTTP_PROXY=127.0.0.1:7897`），会污染"客户端是否走代理"类的手工验证，排查前先 `env | grep -i proxy`。
-
-### ⚠️ DoubaoWork 沙箱内 macOS rlimit 后端 code 节点 SIGXFSZ（RLIMIT_FSIZE）平台基线（2026-09-21 定位）
-
-**现象**：在豆包/DoubaoWork 内置沙箱 shell 内用 Node 24 跑 server 全量，默认 `CODE_SANDBOX=rlimit` 后端下所有 spawn node 子进程的 code 节点用例**稳定失败**：9 文件 / 36 测（code-sandbox、engine.code/loop/map/table/parallel-join/generic、isolation、regression/core-path），错误统一为 `代码执行失败（退出码 null）：无 stderr 输出`（SCRIPT_ERROR），子进程从未启动；两次全量并行结果完全一致（156 文件 1293 测、1257 过）。
-
-**根因（沙箱内已用对照实验闭环）**：`code-sandbox.ts` 的 rlimit wrapper 无条件 `ulimit -f ${maxFileKb}`（DEFAULT maxFileKb=32MB）。当前沙箱 shell 内 bash `exec` 一个体积超过该软限的解释器二进制时直接 EFBIG / SIGXFSZ——fnm 的 Node v24.20.0 二进制实测 **116MB（121,911,744 B，`~/.local/share/fnm/node-versions/v24.20.0/installation/bin/node`）**，远超 32MB。对照实验：`env -i` 最小环境 + `ulimit -f 32768` 跑 node 报 `File too large`；去掉 `ulimit -f` 成功；调到 1GB 成功；`/bin/echo` 在 `ulimit -f 1`（1KB）下同样 File too large；带不带 `DYLD_LIBRARY_PATH` 都失败（DYLD 非决定因素）。**Linux 的 execve 不拿 RLIMIT_FSIZE 与二进制体积比较（FSIZE 只约束 write/truncate），故 CI（self-hosted Linux）、Hasee、bwrap 后端全部全绿，不受影响。**
-
-**影响面（诚实边界，勿夸大为通用 bug）**：该结论只在 **DoubaoWork 内置沙箱 shell 内**被确定性证实；`env -i` 只清环境变量、清不掉外层 seatbelt/rlimit。**2026-09-21 已在沙箱外完成对照验证（见下），结论为普通 macOS 不复现**，与本文件旧基线（2026-09-18「macOS 默认 rlimit 后端 Node 24 下 server 全绿」）一致——不能据沙箱内结果断言为通用 macOS 产品 bug。
-
-**对照结论（2026-09-21，沙箱外真实 macOS 证伪 → 不改代码）**：deferred 触发条件①「普通 Terminal.app（沙箱外）Node 24 全量对照」已执行——当前按需确认（无沙箱）模式下命令直接跑在真实 macOS，Node 24 跑 server 全量 **156 文件 / 1293 测全部通过（含 code-sandbox 28、engine.code 18，零 SIGXFSZ、连旧记的 2 个 python Xcode-shim ENOENT 也未出现）**。证明 SIGXFSZ 仅在 **DoubaoWork 内置沙箱外层 seatbelt 与 rlimit wrapper 叠加**时复现，普通 macOS 自托管环境（同 CI Linux / Hasee）不受影响。按 deferred「**复现后**才改」的触发条件，**不动 `code-sandbox.ts`、darwin 保留 `ulimit -f`**——不为内部沙箱现象削弱真实 macOS 的 RLIMIT_FSIZE 写盘限制（macOS 硬保证仍交 sandbox-exec/seatbelt 后端，Linux 本就不受影响）。重启条件收敛为仅②：出现真实 macOS 自托管用户报 code 节点「退出码 null / 无 stderr」；若届时重启，修法与 `ulimit -v`（RLIMIT_AS）仅 linux 加的平台差异化同构——darwin wrapper 跳过 `ulimit -f` 并写清注释，单独一个原子修复。**在 DoubaoWork 内置沙箱内判定回归时，那 36 测仍属预期平台噪声，一律以 CI Linux / 沙箱外真实 macOS 结果为准。**
+* **Linux RLIMIT_NPROC 陷阱（CI）**：`ulimit -u` 限制整个 UID 的进程+线程总数（非单子进程），CI runner 多 worker 逼近默认 128 时代码节点 node 启动 EAGAIN → SIGABRT（`r.status === null`、~200ms 秒挂），症状随负载波动。教训：shell 行为测试不叠加 NPROC 小值，用 `maxProcs: 4096` 覆盖。另：开发机本地代理（`HTTP_PROXY`）会污染代理类手工验证，排查前 `env | grep -i proxy`。
 
 ## Conventions (carry over from archive)
 
