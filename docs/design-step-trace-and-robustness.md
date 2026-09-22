@@ -26,8 +26,7 @@
 **仍留待**：
 
 - 🟡 **G2.4 模板预置 contract —— 前置数组契约能力 (A) 已落地（2026-09-20，feature/20260824，未合 dev），预置动作仍缓做**：core `ContractSpec` 扩 `root:"array"`+`items:{requiredFields,types}`+`minItems`（违例按 `[i].字段` 报告）、engine 数组闸门改读 connector 的 `sourceMeta.data`（Product[]/SQL rows，回退 artifactValue 覆盖未来数组型 http/function/code）、Inspector 契约编辑器加对象/数组根形状切换（core `978ab56`/`36135e8`、server `2fbcbe1`、web `33dcc91`）；默认 root=对象且无内置模板声明数组契约，零行为变更。**预置**仍须抓到真实 Product[]/SQL rows 样本、对照真实字段名逐个核对后再给 tpl-product/tpl-xiaohongshu 配置，避免字段名写错误拦真实 run；原料台/纯文本节点输出 Markdown brief，即使数组闸门改读 sourceMeta，无 connector 结构化数据的节点仍不该配契约。
-- ⏳ **G4.2 timeout + degraded 降级状态机**、**G4.3 前端「继续/降级」按钮**：改 run 执行状态机核心，须避开 M1 回采关键期并单独充分测试。
-- ✅ **G4.4 跨 run 断点续跑子集**：已落地（2026-09-17，engine.videogen.async 远端进度轮询 +5 测，随 PR #325/#331 合 dev）；剩余 G4.2/G4.3 改执行状态机核心仍留待。
+- 📐 **G4.2/G4.3/G4.4 跨 run —— 落地级设计已完成（2026-09-22，§3.4–3.10），代码仍待实施**：方案细化到代码接缝——NodeState 加 `degraded`、新事件 `node.degraded`、新错误码 `REMOTE_JOB_LOST`、新表 `remote_jobs`（migration 41）、videogen 超时走 human 同构 halt（`degraded:video:` 前缀）、submit 幂等（先查 open job 跳过 submit，防重复计费）、ResumeAction 加 `reattach`/`accept-degraded`（query 四分支：succeeded 收结果 / running 恢复 poll / failed 走 error 边 / lost 提示重投计费）、重启默认只读刷新不自动重投、前端橙色 degraded 标识 + 三按钮 + i18n；§3.9 给了 8 步原子提交计划（步骤 1/2 纯增量可先行，4/5 触执行核心须避开回采期）。触发条件与缓做记录见 deferred-items。
 
 ---
 
@@ -115,11 +114,170 @@
   3. run 不终止，进入 halt/resume 续跑（用户可点"继续"重投这一节点，不重复计费已产出部分）。
 - 长任务节点本身应是幂等/可续传的（视频生成任务 ID 可查进度），engine 续跑时先查远端任务状态再决定重投还是直接收结果。
 
-### 3.3 分步
-1. 纯函数 deadline 判断 + 单测
+### 3.3 分步（高层）
+1. 纯函数 deadline 判断 + 单测（✅ G4.1 已落地）
 2. engine 接线（degraded 状态机分支）
 3. 前端 RunTimeline 显示 degraded + "继续此节点"按钮
-4. 视频节点接入远端任务进度查询（按 provider 适配，可后置）
+4. 视频节点接入远端任务进度查询（本次运行内 ✅ 已落地；跨 run 重新附着见 §3.7）
+
+---
+
+### 3.4 落地状态（2026-09-22 细化设计，未实施）
+
+| 子项 | 状态 | 说明 |
+| --- | --- | --- |
+| G4.1 deadline 纯函数 | ✅ 已落地 | core `isTimedOut/remainingMs/deadlineAt` |
+| G4.4 本次运行内 submit+poll | ✅ 已落地（2026-09-17） | `Worker.submitVideoJob/queryVideoJob` 可选接缝 + `VideoJobHandle/VideoJobPoll` + 指数退避（2s..20s）+ 5min 上限；当前无 provider 实现，生产仍走同步 `generateVideo`；5 测 |
+| **G4.2 timeout→degraded→halt 状态机** | ⏳ 待实施 | 本文件 §3.5–3.6，改 run 执行核心 |
+| **G4.3 前端 degraded 标识 + 决策按钮** | ⏳ 待实施 | 本文件 §3.8，依赖 G4.2 |
+| **G4.4 跨 run 重新附着** | ⏳ 待实施 | 本文件 §3.7，依赖 G4.2 的 halted 落点 |
+
+> 触发条件（与 deferred-items 一致）：出现真实长媒体任务在网关超时或服务重启后需要「不重投、不重复计费」续跑的场景；或可安排执行核心改造窗口。G4.2 必须先行，G4.3/G4.4 依赖它。
+
+### 3.5 数据模型与状态扩展
+
+**① 节点状态加 `degraded`**（`packages/server/src/engine.ts:283`）
+
+```ts
+// 现有
+export type NodeState = "pending" | "running" | "done" | "failed" | "skipped";
+// 改为
+export type NodeState = "pending" | "running" | "done" | "failed" | "skipped" | "degraded";
+```
+
+语义区别（关键）：`failed` = 这一节点确定没产出、按 error 边/run 失败处理；`degraded` = **结果未定**——远端任务可能还在跑，节点暂停等待人工决策，run 进入 halted 而非 failed。
+
+**② 新事件 `node.degraded`**（`packages/core/src/events.ts` 的 `RunEvent` discriminatedUnion，与 `node.failed` 平行）
+
+```ts
+{
+  type: "node.degraded";
+  nodeId: string;
+  attempt: number;
+  reason: string;                 // 人类可读，如「视频任务轮询超时（300s），远端可能仍在渲染」
+  errorCode?: ErrorCode;          // TIMEOUT
+  remoteJob?: { provider?: string; jobId: string; kind: "video" | "image" | "audio" };
+}
+```
+
+事件溯源必须记录该事件，`reconstructState` 才能在 resume 时把节点投影回 `degraded`（现有投影只认 artifact→done / skipped / failed，需要加一条：见到 `node.degraded` 且其后无 `node.finished` → degraded，并恢复 `haltedNodeId/haltedReason`）。
+
+**③ 新错误码**（core `ErrorCode` enum，`events.ts:27`）
+
+- 复用现有 `TIMEOUT` 表达「本次轮询窗口超时」；
+- 新增 `REMOTE_JOB_LOST`：重新附着时远端查无此 job（provider TTL 过期/已清理），语义不同于本次超时，前端据此提示「需重新提交、会重新计费」。
+
+**④ 新表 `remote_jobs`（SQLite migration 41；当前最新为 40）**——跨 run 重新附着的唯一持久依据
+
+```sql
+CREATE TABLE IF NOT EXISTS remote_jobs (
+  id            TEXT PRIMARY KEY,           -- 本地 uuid
+  user_id       TEXT NOT NULL,
+  run_id        TEXT NOT NULL,
+  graph_id      TEXT NOT NULL,
+  node_id       TEXT NOT NULL,
+  attempt       INTEGER NOT NULL,
+  kind          TEXT NOT NULL,              -- 'video' | 'image' | 'audio'（本期只 video 写入）
+  provider      TEXT,
+  remote_job_id TEXT NOT NULL,              -- provider 侧不透明 job id（VideoJobHandle.jobId）
+  state         TEXT NOT NULL,              -- 'submitted' | 'running' | 'succeeded' | 'failed' | 'lost'
+  submitted_at  INTEGER NOT NULL,
+  last_polled_at INTEGER,
+  finished_at   INTEGER,
+  error_code    TEXT,
+  meta_json     TEXT,                       -- provider 特定附加信息
+  UNIQUE (provider, remote_job_id)           -- 幂等：同一远端任务不重复登记
+);
+CREATE INDEX IF NOT EXISTS idx_remote_jobs_open ON remote_jobs (run_id, node_id)
+  WHERE state IN ('submitted','running');
+```
+
+driver 加四个操作：`insertRemoteJob` / `getOpenRemoteJob(runId,nodeId,attempt)` / `touchRemoteJob(id,state)` / `finishRemoteJob(id,state,errorCode?)`。Postgres 版本在正式迁移时按 design-postgres-migration.md 的方言对照补同等 DDL（部分索引语法 PG 原生支持）。
+
+### 3.6 G4.2 — timeout→degraded→halt 状态机（节点侧）
+
+改造 `packages/server/src/nodes/videogen.ts` 的 `pollVideoJob` / `videoGenNode`（当前超时是 `throw new ProviderError("TIMEOUT", …)`，被 catch 成 `node.failed`）：
+
+1. **submit 后立即落库**：拿到 `VideoJobHandle` 就 `insertRemoteJob({state:'submitted', …})`；每次 poll 到 running/pending 时 `touchRemoteJob('running')` 刷新 `last_polled_at`（节流，如每 3 次 poll 或 ≥10s 刷一次，避免写放大）。
+2. **succeeded**：收结果（现有逻辑）→ `finishRemoteJob('succeeded')` → 节点 `done`。
+3. **failed（远端明确失败）**：`finishRemoteJob('failed',errorCode)` → `node.failed`（现状不变，error 边可 catch）。
+4. **轮询窗口超时（核心改动）**：不再 throw failed，而是
+   - `emit({type:'node.degraded', reason, errorCode:'TIMEOUT', remoteJob:{jobId,provider,kind:'video'}})`；
+   - `states.set(nodeId,'degraded')`；
+   - 仿 `humanNode`（`nodes/human.ts:18-21`）置 `ctx.haltNodeId=nodeId`、`ctx.haltReason='degraded:video:'+nodeId`、`ctx.status='halted'`、`ctx.aborted=true`；
+   - **remote_jobs 行保留 `state='running'`**（远端大概率仍在渲染，这是重启后能收回结果、不重复计费的前提）；
+   - 发 `notifyHalt`（复用现有通知）。
+5. **同步 worker（无 submit/query 接缝）维持现状**：超时仍 failed——没有 jobId 就没有可续跑的远端句柄，degraded 无意义。
+6. **可选 `timeoutMs`**：节点 `videoGen.timeoutMs` 缺省沿用 `VIDEO_JOB_DEFAULT_TIMEOUT_MS`（5min）；degraded 只表示「本次等待窗口结束」，不代表远端失败。
+
+> 注意：degraded halt 与 human/gate halt 共用 runs 表的 `halted_node_id/halted_reason`，用 `halted_reason` 前缀 `degraded:` 区分，reviews/审核队列查询（`reviews.ts:71`）据此分流，不新增 run 状态。
+
+### 3.7 G4.4 跨 run — submit 幂等 + 重新附着（不重投、不重复计费）
+
+**① submit 幂等（防重复计费的第一道闸）**
+`pollVideoJob` 开头先 `getOpenRemoteJob(runId,nodeId,attempt)`：
+- 存在 open job → **跳过 submit**，直接用持久化的 `{jobId,provider}` 进入 poll 循环；
+- 不存在 → 才 `submitVideoJob` 并落库。
+这样无论是「同一 run 内 resume」还是「服务重启后 resume」，都不会对一段仍在途的渲染重复下单。
+
+**② `ResumeAction` 扩展**（`packages/server/src/run.ts:300`）
+
+```ts
+export type ResumeAction = "continue" | "approve" | "reject" | "edit" | "scrap"
+  | "reattach"          // 继续远端任务：先 query，按远端状态决定收结果/继续等/重投确认
+  | "accept-degraded";  // 接受降级：无产物放行该节点，flow 继续（下游靠 G2 契约/error 边兜底）
+```
+
+**③ `reattach` 流程**（在 `engine.resume`，§3.6 的 halted 落点上）
+读 open remote job → 调一次 `queryVideoJob({…args, job})`，按远端状态分流：
+
+| query 结果 | 处理 | 是否计费 |
+| --- | --- | --- |
+| `succeeded` | 复用现有「收结果→存 artifact→node.finished→done」，`finishRemoteJob('succeeded')`，flow 继续 | 否（只收不投） |
+| `running`/`pending` | 恢复 poll 循环（**不 submit**），再次到窗口超时则重新 degraded/halt | 否 |
+| `failed` | `finishRemoteJob('failed')`，node.failed，走 error 边/重试 | 否（除非用户显式重跑） |
+| 查无此 job（404/UNKNOWN） | `finishRemoteJob('lost')` + errorCode `REMOTE_JOB_LOST`，**保持 halted** 并提示「远端任务已过期/被清理」，提供「重新提交」= 对该节点 `resetFrom` 重跑（明确告知会重新计费） | 重投才计费 |
+
+**④ `accept-degraded` 流程**
+emit 一个决策事件（`node.degradedAccepted`，或复用 human.decision 形态），把该节点按「放行但无产物」处理（投影为一个显式终态，UI 仍显示降级角标而非 done 绿勾），随后正常 weld 下游；下游若强依赖该节点产物，由 **G2 契约闸门**（SCHEMA_VIOLATION）或 error 边自然拦截——不静默制造假成功。
+
+**⑤ 服务重启后的恢复策略（保守，默认只读）**
+- **默认不自动重投、不自动 resume run**（避免无人值守下重复计费或意外放行）；
+- 启动时可选对 `state IN ('submitted','running')` 的 remote_jobs 做**一次只读 query 刷新**（只更新表状态 + 打日志，不改变 run 状态）；已 succeeded 的在用户下次 reattach 时可一键收结果；
+- 开关 `REMOTE_JOB_RECOVER_ON_BOOT`（默认 `'poll'` 只读刷新；`'off'` 完全不碰；永不提供自动重投档）；
+- 运营台/运行历史对「有在途任务、正等你决策」的 halted run 给计数和入口（G4.3）。
+
+### 3.8 G4.3 — 前端 degraded 标识与决策按钮（`RunTimelineView`）
+
+- degraded 节点用**橙色**标记（failed 红 / done 绿 / degraded 橙 / skipped 灰，颜色+文字双编码，不只靠颜色）；
+- 展示：halt 原因、远端 jobId（截断显示，可复制）、提交时间与已在途时长；
+- 两个主动作：
+  - **「继续此节点」** → `POST /api/runs/:id/resume` body `{action:'reattach'}`；
+  - **「接受降级结果」** → `{action:'accept-degraded'}`，点击后二次确认（「该节点没有产出，下游可能因缺素材失败，确定放行？」）；
+- job 状态为 `lost` 时，主动作换成 **「重新提交（将重新计费）」** → 走现有 `resetFrom` 重跑该节点；
+- 文案走 i18n（zh/en）与设计 token，按钮规格遵循全局按钮规范（避免尺寸不一致）；
+- 审核队列/运行历史列表识别 `halted_reason` 前缀 `degraded:`，归到「待决策（在途任务）」分组，与人工审批、危险工具审批区分。
+
+### 3.9 分步实施（原子提交，每步独立可回滚，英文 message、不 push）
+
+1. **core**：ErrorCode 加 `REMOTE_JOB_LOST` + `node.degraded` 事件 zod schema + 类型导出（+core 单测）。
+2. **server**：migration 41 `remote_jobs` 表（DDL 进最新 CREATE 块 + 旧库 CREATE TABLE IF NOT EXISTS 兜底）+ driver CRUD（+driver 单测）。
+3. **server**：`reconstructState` 识别 `node.degraded`（投影 degraded + halted 落点）（+engine 单测）。
+4. **server**：videogen degraded/halt + submit 幂等 + remote_jobs 落库/状态流转（+扩展 `engine.videogen.async.test.ts`：超时→degraded/halt、重启后 open job 跳过 submit、succeeded 收结果不重投）。
+5. **server**：resume `reattach` / `accept-degraded` 两个 action + HTTP 接线 + reviews 分流（+run/api 单测覆盖 query 四分支）。
+6. **web**：RunTimelineView degraded 标识 + 三按钮 + i18n + 审核队列分组（+web 测试）。
+7. **（可选后置）** 启动只读恢复开关 + 运营台在途任务计数。
+8. docs：更新本文件进度表、handoff、deferred-items（G4 行从缓做转已落地/部分落地）。
+
+> 改造窗口纪律：步骤 4/5 触及 run 执行核心，需避开关键回采期，单独充分测试；步骤 1/2 是纯增量（新枚举、新表、新事件，旧 run 无 `node.degraded` 事件时行为字节级不变），可先行合入。
+
+### 3.10 明确不做
+
+- ❌ 不做远端任务的**自动重投**——重投必然重新计费，必须用户在看到 `lost`/失败后显式确认；自动档最多只读刷新状态。
+- ❌ 本期不给 imageGen/audioGen 接 degraded（现有异步接缝是 video 专属）；`remote_jobs.kind` 与 `VideoJobHandle` 形态预留，等对应 provider 出现再泛化。
+- ❌ 不做跨实例分布式锁 / 多副本抢任务恢复——当前单租户单实例，SQLite 写在本地。
+- ❌ 不改同步 worker（`generateVideo`）路径的失败语义。
+- ❌ 不把 degraded 当成功——「接受降级」是显式、带角标、下游仍受 G2 契约约束的放行，不制造假绿勾。
 
 ---
 
