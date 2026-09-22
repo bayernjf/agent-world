@@ -1,6 +1,6 @@
 # 代码节点运行沙箱设计方案
 
-> 状态：P0（`6b2f92b`）+ P1（`ddb2e03`）+ **P2 外部沙箱后端已落地（bwrap / sandbox-exec / noop 可插拔）** + fs/net 策略字段已落地 + **net allowlist 的 SSRF 校验代理已落地（§10）**；docker/podman 容器后端待办（低优，决策记录见 §11）。
+> 状态：P0（`6b2f92b`）+ P1（`ddb2e03`）+ **P2 外部沙箱后端已落地（bwrap / sandbox-exec / noop 可插拔）** + fs/net 策略字段已落地 + **net allowlist 的 SSRF 校验代理已落地（§10）**；docker/podman 容器后端待办（低优；§11.1–11.3 为决策依据，§11.4–11.14 为 2026-09-22 补的落地方案设计，仍未写码）。
 > 关联：handoff 待办「运行沙箱细化」；代码节点当前实现在 `packages/server/src/engine.ts` 的 `node.kind === "code"` 分支 + `packages/server/src/code-sandbox.ts`。
 
 ## 实施进度（2026-08-29，P1 落地后）
@@ -291,9 +291,9 @@ export function resolveSandbox(env: NodeJS.ProcessEnv): CodeSandbox { /* 按 COD
 
 ---
 
-## 11. docker/podman 容器后端（待办，低优——决策记录）
+## 11. docker/podman 容器后端（待办，低优——决策记录 + 落地方案设计）
 
-> 为什么排在最后、以及什么条件下才值得动手。这段是判断依据的沉淀，不是实现方案。
+> §11.1–11.3 是「为什么低优 / 何时动手」的决策依据沉淀；§11.4–11.14 是 2026-09-22 补的落地方案设计（接口适配、镜像、冷启动、cgroups 限额、fs/网络隔离、安全审查、后端选择矩阵、配置、分期验收），触发条件满足时可直接据此实施。
 
 ### 11.1 定位
 
@@ -317,6 +317,115 @@ export function resolveSandbox(env: NodeJS.ProcessEnv): CodeSandbox { /* 按 COD
 - **产品部署形态明确**（自托管单机 / K8s / 托管平台）之后再决策
 - 若最终跑在 Linux 且装了 bwrap：P2 已提供硬 fs/net 隔离，容器的**增量收益只剩 net allowlist 硬化 + Python 约束全覆盖**——是否值得为这两点引入镜像维护成本，届时再评估
 - 若部署在无 bwrap 的环境（如 macOS 自托管）且威胁模型要求硬隔离：优先级应上调
+
+### 11.4 后端接口适配（薄，但有两个容器特有硬点）
+
+容器后端是 `CodeSandboxBackend` 的第 5/6 个实现：`SandboxBackendName` 扩 `"docker" | "podman"`，`resolveSandbox` 加两个 case，`planSpawn` 返回 `{ command: "docker"|"podman", args: ["run", ...flags, image, interpreterInImage, ...], limits, wrapped: false }`。`resolveSandbox` 的可用性探测不能只查二进制在不在 PATH（bwrap 档只查二进制），还要确认 daemon 可达——`docker info` / `podman info` 退出码 0；二进制缺失或 daemon 不可达都降级 `rlimit` + `warnOnce`（沿用现有「绝不静默降级」纪律）。
+
+**硬点 A：容器内解释器路径与宿主解耦。** 现有四档都调 `resolveInterpreter()`（`which node/python3`）拿**宿主**绝对路径，因为 bwrap `--ro-bind /` / seatbelt 共享宿主文件系统，同一路径在沙箱内有效。容器**不共享宿主 fs**，宿主路径（典型如 fnm/nvm 下的 `/Users/.../.fnm/.../node`、fnm Python）在镜像里根本不存在。因此容器后端**不能复用** `interpreterArgsFor()`（它内部调 `resolveInterpreter`），必须用**镜像内固定路径**：
+- node 官方镜像 `/usr/local/bin/node`；python 官方镜像 `/usr/local/bin/python3`（debian slim）或 `/usr/bin/python3`（alpine/系统包），路径由所选镜像在配置里固定（`CODE_CONTAINER_NODE_BIN` / `CODE_CONTAINER_PYTHON_BIN`，给镜像选型留口子）。
+- JS 的 `--permission/--allow-fs-*` 在容器档**省略**：容器 read-only root + 唯一可写卷已是更强的 fs 边界，且 grant 路径必须是容器内路径，与宿主 workdir 不同名徒增复杂度；`--max-old-space-size` 保留（堆上限 cgroups 不管 V8 堆）。
+- 内层 rlimit wrapper（`buildRlimitWrapper` 的 `ulimit -t/-u/-f/-n/-v`）**保留**，作为 cgroups 之外的第二道（cgroups 管不住单进程 `RLIMIT_CPU` 秒级、`RLIMIT_FSIZE`、`RLIMIT_NOFILE`）；但 wrapper 里的解释器路径同样要换成镜像内路径，故容器后端需自带一份「镜像内 ulimit wrapper」构造，不能直接传宿主路径版。
+
+**硬点 B：workdir 与 stdin/stdout。** 代码经 argv `-e <code>` / `-c <code>` 传入、inputs 经 stdin 传入（见 §1），无需挂载代码文件；只需把宿主 per-run workdir 挂进容器固定路径：`-v <hostWorkdir>:/work:rw`，`--workdir /work`。engine `spawn(dockerCli, args)` 的 stdio 天然流式透传进容器（stdin 喂 JSON、stdout 取结果），现有 1MB cap / 超时 SIGKILL 作用在 docker CLI 进程上，`docker run --rm` 被 kill 时容器随之停止（配合 `--init` 回收僵尸）。
+
+### 11.5 镜像生命周期
+
+- **选型**：单语言官方 slim 镜像（`node:24-bookworm-slim`、`python:3.12-slim-bookworm`）各一个，或一个自构多语言镜像（node+python3+常用 CA 证书/时区）。推荐起步**两个官方 slim 镜像**、按 `language` 选，避免自构维护面；产线确有混合依赖（code 节点里调对方运行时）再上自构镜像。
+- **版本固定**：镜像引用用 **digest pin**（`node@sha256:…`）而非浮动 tag，避免「今天能跑明天镜像被换」；digest 与解释器大版本在配置/文档里成对登记，升级走显式 PR。
+- **CVE 更新**：基础镜像每周/每两周 rebuild 拉补丁、跑一遍 code 节点回归后更新 digest（Dependabot 可盯 docker 基础镜像，但 digest 升级仍需人工回归）。这是 §11.2 列的持续性维护负担，也是低优主因之一。
+- **自托管/离线**：提供 `scripts/` 下的 `docker pull`/`docker save|load` 说明（内网机器无外网时离线导入镜像）；首次启动与镜像缺失时给明确错误（`docker run` 自带的 image not found 已够，runbook 补排查）。
+- **预热**：服务启动（或首次切到容器后端）时 `docker image inspect` 探测镜像是否存在，缺失则日志提示拉取命令；不隐式自动 `pull`（离线/不可信网络下应显式）。
+
+### 11.6 冷启动与 warm pool
+
+- 全新 `docker run --rm` 冷启数百 ms 到数秒（拉镜像/建 namespace/overlayfs），比 fork+exec 慢一个量级；code 节点默认墙钟 30s，冷启吃预算但通常可接受。
+- 两种执行模式：
+  - **模式 A（C0 采用）每 run 全新容器**：`docker run --rm`，结束即销毁，fs/进程天然干净，隔离最强、实现最简，代价是冷启延迟。
+  - **模式 B（C2 再评估）warm pool**：预起 `sleep infinity` 容器，每 run `docker exec` 进去跑。快，但 `docker exec` 在**同一容器文件系统与 PID 视图**内执行，必须解决跨 run 残留——上一 run 的后台进程、workdir 外临时文件、环境变量会泄漏到下一 run；要做到每 run 干净需为每次 exec 挂独立卷/独立 tmpfs、exec 后清理进程，复杂度反超模式 A。
+- **建议**：C0/C1 一律模式 A；仅当真实多租户高频 code 节点（每分钟若干次）且冷启被证明是瓶颈时才做模式 B，且优先用「每 run 容器 + 镜像常驻本地（不删镜像只删容器）」拿到大部分收益（容器创建远慢于镜像拉取，镜像预热后模式 A 冷启通常降到亚秒级）。
+
+### 11.7 资源限额（docker flags ↔ `CodeSandboxLimits`）
+
+| 现有限额 | docker/podman flag | 说明 |
+|---|---|---|
+| 内存（`virtualMemoryKb` / node old-space） | `--memory=<m>m --memory-swap=<m>m`（swap 设成与 memory 相等=禁 swap，防换盘逃逸限额） | cgroups v2 memory.max；V8 堆仍靠 `--max-old-space-size` |
+| CPU 墙钟 30s（engine `timeoutMs`） | 无直接对应；`--cpus=<n>` 是配额不是墙钟 | 墙钟仍由 engine 超时 SIGKILL 保证；`RLIMIT_CPU` 秒级靠内层 ulimit |
+| fork 炸弹（`maxProcs`） | `--pids-limit=<n>` | cgroups pids.max，容器内独立计数，比宿主全局 `ulimit -u` 更准（不与宿主会话进程抢配额） |
+| 单文件大小（`maxFileKb`） | 内层 `ulimit -f`；可选 `--storage-opt size=<…>`（需特定存储驱动） | storage-opt 并非所有驱动支持，默认靠 ulimit + 可写卷配额 |
+| fd（`maxFd`） | 内层 `ulimit -n` | docker 无直接 flag |
+| 磁盘写满 | `--read-only` + 仅 workdir/tmp 可写 + tmpfs 限容 `--tmpfs /tmp:size=32m` | 见 §11.8 |
+
+`resolveLimits()` 的 `CODE_LIMIT_*` env 与每节点覆盖语义不变，容器后端把它们翻译成 flags + 内层 ulimit 两层；新增 `CODE_CONTAINER_CPUS`（默认如 1.0）控制 CPU 配额。
+
+### 11.8 文件系统隔离
+
+- `--read-only`（根文件系统只读）+ `--tmpfs /tmp:rw,size=32m,mode=1777`（Node/Python 与库的临时写）+ `-v <hostWorkdir>:/work:rw`（唯一持久可写，随 run 结束由宿主 `cleanupCodeWorkdir` 清理）+ `--workdir /work`。
+- `fs: "allowlist"` 的额外**只读**前缀（`TOOL_FS_ALLOW`）：容器档用只读 bind 挂到固定路径（`-v <hostPrefix>:<containerPath>:ro`），容器内不授予任何写；宿主路径与容器内路径映射表通过 env 告知脚本（只读视图），比 Node permission grant 更直观。无前缀时不挂任何宿主目录。
+- **禁令**：绝不挂 `/var/run/docker.sock`（等同宿主 root）、不挂宿主 home/`.ssh`/DB 目录/源码目录；只挂 workdir 与显式只读 allowlist。
+- 容器以**非 root** 运行（`--user` 固定普通 uid，镜像内建非 root user 最好；bind 卷权限用 `--user` 对齐宿主 workdir owner，rootless 模式天然映射）。
+
+### 11.9 网络策略与 §10 SSRF 代理的衔接（容器档最硬的一块）
+
+- **`net: "none"`**：`--network none`，硬断网，等价 bwrap `--unshare-net`；容器内 loopback 之外无任何出口。实现简单，C0 即具备。
+- **`net: "allowlist"`**：§10 的宿主 code-proxy 监听 **`127.0.0.1` 随机端口**（`code-proxy.ts` `server.listen(0,"127.0.0.1",…)`），而容器有独立 loopback——容器内 `127.0.0.1:<port>` 指向容器自身，**到不了宿主代理**。三条路线：
+
+  | 路线 | 做法 | 优点 | 缺点/适用 |
+  |---|---|---|---|
+  | **A. 复用宿主 code-proxy（C1 推荐，自托管单机）** | docker 加 `--add-host=host.docker.internal:host-gateway`；code-proxy 额外在 docker 网桥网关（Linux 默认 `172.17.0.1`，或 host-gateway 地址）监听；容器内注入 `HTTP(S)_PROXY=http://aw:<token>@host.docker.internal:<port>`。SSRF 校验、allowlist、token、审计**全部仍在宿主代理集中执行**，容器只负责把流量送过去，不重复实现安全逻辑 | 改造最小（代理加一个监听地址 + 后端拼网关 host），安全校验零分叉 | 代理需从仅 bind loopback 扩到 bind 网关 IP；靠「一次性 token + 每 token allowlist + 内网段拒绝」兜底（未持 token 的容器/进程用不了）。podman rootless 无 docker0，用 `host.containers.internal` + pasta/slirp4netns 网关，地址不同需配置化 |
+  | B. 每 run 独立网络 + 出站防火墙 | `docker network create` 每 run 一个网络，配 nftables/iptables 只放行 allowlist 目的 | 物理强制、不依赖应用守代理规矩 | 需 NET_ADMIN/root、规则生命周期管理复杂、DNS 白名单与 IP 固定要自己做（重复造 §10 的轮子） |
+  | C. egress proxy sidecar（多租户/K8s 形态） | code 容器与一个出站代理容器共享 network namespace（`--network container:<proxy>`，K8s 即同 Pod sidecar），代理做 CONNECT 白名单 | 最干净、天然多租户、与编排集成 | 编排重，接近 K8s Pod/NetworkPolicy 模型，自托管单机过重 |
+
+  - **安全校验不搬家**：无论哪条路线，§10 已实现的「resolve once + pin IP + 内网段拒绝 + DNS-rebinding 免疫」都应留在宿主/sidecar 代理，code 容器只配 `HTTP_PROXY`；路线 A 下容器到宿主代理走 docker 网桥，代理看到的源 IP 是网关 NAT 后的容器 IP，内网判定仍以**目标地址**为准（现有逻辑），不受影响。
+  - **协作式本质不变**：路线 A 仍只约束走 HTTP(S)_PROXY 的标准客户端；但容器档可叠加 `--network` 自定义网络让「非白名单目的不可路由」（即使裸 socket 也出不去），这正是容器相对 rlimit 的增量价值。C1 可先只做「代理网关 + 默认 bridge 拒路由到外网」的最小硬化，完整 per-run 网络留 C2/K8s。
+  - bwrap/sandbox-exec 档 `net: allowlist` 直接 VALIDATION 的语义（§10.1）在容器档**反转**：容器档是 allowlist 的**推荐承载后端**，应支持而非报错。
+
+### 11.10 安全审查清单（实施前逐项过）
+
+- 优先 **rootless docker / rootless podman**（用户命名空间映射，容器 root≠宿主 root）；rootful 部署也必须 `--user` 非 root + `--userns=host` 外的隔离评估。
+- `--cap-drop ALL`（不授任何 Linux capability）、`--security-opt no-new-privileges`（禁提权）、保留默认 seccomp profile（不 `--privileged`、不 `--security-opt seccomp=unconfined`）、`--security-opt label=...`（SELinux/AppArmor 可用时启用）。
+- 不挂 docker.sock、不挂宿主敏感目录、`--read-only` root、proc/sys 只读（docker 默认）、`--init`（回收容器内僵尸进程）。
+- 镜像 digest pin；进入对抗性多租户阶段再上镜像签名/验证（cosign）与本地镜像预检（禁止运行时自动拉取未审计镜像）。
+- 容器逃逸面（runc/内核漏洞、bind 挂载、user namespace 配置）需在多租户上线前做一次专项评审；单人自托管威胁模型下官方默认 profile + 上述 flags 已足够。
+- 更强隔离后端（**gVisor / Kata / Firecracker**）本期不做，作为对抗性多租户负载下的后续选项另立后端（触发条件见 §11.14）。
+
+### 11.11 后端选择矩阵
+
+| 后端 | 平台 | JS fs 硬隔离 | Python fs 硬隔离 | net none | net allowlist | 冷启动 | 外部依赖 | 适用形态 |
+|---|---|---|---|---|---|---|---|---|
+| `rlimit`（默认） | 通用 | 仅 Node permission（fs） | ❌ 尽力而为 | ❌ 无保证 | 协作式代理（可绕） | 毫秒 | 无 | 单人自托管/开发默认 |
+| `bwrap` | Linux | ✅ namespace | ✅ | ✅ 硬断网 | ❌ VALIDATION | 毫秒 | bubblewrap + userns | Linux 自托管强隔离 |
+| `sandbox-exec` | macOS | ✅ seatbelt | ✅ | ✅ 硬断网 | ❌ VALIDATION | 毫秒 | 系统自带（deprecated） | macOS 开发机 |
+| `docker`/`podman` | Linux（podman 可 mac） | ✅ 容器 | ✅ | ✅ `--network none` | ✅ 网关代理/网络策略（§11.9） | 亚秒~秒（镜像常驻后） | 容器运行时 + 镜像维护 | **多租户云托管 / 要求 Py 硬隔离 + allowlist 物理强制** |
+| `noop` | 通用 | ❌ | ❌ | ❌ | ❌ | 毫秒 | 无 | 测试/可信逃生口（大声告警） |
+
+### 11.12 配置项（新增，`loadConfig` / env）
+
+| 变量 | 说明 | 默认 |
+|---|---|---|
+| `CODE_SANDBOX` | 取值新增 `docker` / `podman` | `rlimit` |
+| `CODE_CONTAINER_IMAGE_NODE` / `CODE_CONTAINER_IMAGE_PY` | digest pin 的镜像引用 | 官方 slim 镜像 digest（文档登记） |
+| `CODE_CONTAINER_NODE_BIN` / `CODE_CONTAINER_PYTHON_BIN` | 镜像内解释器绝对路径 | `/usr/local/bin/node`、`/usr/local/bin/python3` |
+| `CODE_CONTAINER_NETWORK` | `none` / `host-proxy`（路线 A） | `none` |
+| `CODE_CONTAINER_CPUS` | 每容器 CPU 配额 | `1.0` |
+| `CODE_CONTAINER_WARM` | 仅探测/预热镜像（不删镜像），不启用模式 B warm pool | `0`（模式 B 留 C2） |
+
+资源大小（内存/pids/fsize/fd）继续复用 `CODE_LIMIT_*`，由容器后端翻译成 §11.7 的 flags。
+
+### 11.13 分期与验收
+
+- **C0 最小硬隔离（`net: none`）**：`docker|podman run --rm --network none --read-only --tmpfs /tmp -v workdir:/work --workdir /work --user <uid> --cap-drop ALL --security-opt no-new-privileges --memory/--memory-swap/--pids-limit/--cpus --init <image> <镜像内解释器> [-e/-c code]`；JS 与 Python 各跑通 stdin→stdout  happy path；恶意用例：读 `/etc/shadow` 或写 workdir 外被拒、`fetch`/`socket` 网络不可达、fork 炸弹被 pids-limit 拦、内存炸弹被 OOM 杀、超时被 engine SIGKILL。测试仿 bwrap：argv 形状纯函数单测（无 daemon 可跑）+ 有 daemon 环境 live 测（`docker info` 探测，无 daemon `describe.skip`）；daemon 缺失/`CODE_SANDBOX=docker` 降级 rlimit + warnOnce 的断言。
+- **C1 allowlist（路线 A）**：code-proxy 增网关监听、容器 `--add-host host-gateway`、注入带 token 的代理 env；容器内 Python urllib 访问 allowlist 内 host 成功、外 host 403/不可路由、内网 IP 拒绝；token 跨 run 不可用、run 结束失效（沿用 §10.5 验收口径）。
+- **C2（仅被触发时）**：冷启动实测若成瓶颈，做镜像常驻预热 +（谨慎）模式 B；per-run 自定义网络让非白名单不可路由。
+- **C3（运维）**：基础镜像 CVE rebuild/签名流水线、离线 load runbook、digest 升级回归清单。
+- 全程不改变其他四档行为；切到容器后端是显式 opt-in（`CODE_SANDBOX`），默认仍 rlimit，零回归。
+
+### 11.14 明确不做（本期边界）
+
+- 不做 Kubernetes Pod 后端 / 不内置 K8s manifest——留给部署形态明确（托管平台）后随编排层做，路线 C 的 sidecar 是其雏形。
+- 不做 gVisor / Kata Containers / Firecracker microVM 后端——更强内核隔离，触发条件 = 出现不可信/对抗性多租户 code 负载且容器逃逸评审不达标。
+- 不做模式 B warm pool 的跨 run 复用（C0/C1 每 run 全新容器）。
+- 不做 Windows 容器、不做 Docker-in-Docker、不做运行时自动拉取未审计镜像、不让容器后端去挂宿主 docker.sock。
 
 ---
 

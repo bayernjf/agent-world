@@ -3,6 +3,15 @@ import type { NodeRunContext } from "./types.js";
 import { sanitizeError } from "../sanitize.js";
 
 /**
+ * Maximum characters sent to a TTS provider in one request. OpenAI's
+ * /audio/speech historically rejects single inputs beyond this length; other
+ * providers (e.g. SiliconFlow) may document a lower ceiling. P1 (G-D in
+ * docs/design-tts-provider.md) fails fast with an actionable error instead of
+ * silently truncating; P2 may add server-side chunking + stitching.
+ */
+export const TTS_MAX_INPUT_CHARS = 4096;
+
+/**
  * AudioGen node execution body (migrated from engine.ts runScheduler).
  * Behaviour is byte-identical to the former closure; shared scheduler state
  * arrives via the explicit NodeRunContext.
@@ -19,6 +28,20 @@ export async function audioGenNode(ctx: NodeRunContext, node: GraphNode, nodeId:
     return;
   }
   const prompt = cfg.prompt?.trim() || (await inputFor(node));
+  // G-D: reject over-length input before paying for a request the provider would
+  // reject anyway. `n` produces N variants of the SAME text, not chunks, so the
+  // length is checked once. Fail fast with guidance rather than truncating.
+  if (prompt.length > TTS_MAX_INPUT_CHARS) {
+    states.set(nodeId, "failed");
+    emit({
+      type: "node.failed",
+      nodeId,
+      attempt,
+      error: `配音文本过长（${prompt.length} 字符，上限 ${TTS_MAX_INPUT_CHARS} 字符）。请在配音节点前拆分稿件，或缩短上游口播稿长度后重试。`,
+      errorCode: "VALIDATION",
+    });
+    return;
+  }
   try {
     const results = await worker.generateAudio({ node, config: cfg, input: prompt, signal: opts.signal });
     // See the videoGen branch: an empty result set means no audio was made,

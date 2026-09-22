@@ -21,6 +21,7 @@
 | 给 agent 加技能卡（工具/提示模块/输出契约） | [design-skill.md](design-skill.md)（§11 现状盘点 + §12 作者指南）+ [extending.md](extending.md) §3 |
 | 把平台暴露给别的 AI 客户端（MCP Server） | [design-mcp-server.md](design-mcp-server.md)（§12 协议版本协商 / §13 授权 / §14 未实现清单）+ [production-ops.md](production-ops.md) §8（部署形态） |
 | 接 Notion / Linear / 邮件 / 内容平台等第三方 | [integrations-future.md](integrations-future.md)（未来集成清单与触发条件；当前外接能力走 MCP / HTTP 节点 / Connector） |
+| 给播客产线接 AI 配音（TTS Provider） | [design-tts-provider.md](design-tts-provider.md)（audioGen 链路已就绪，推荐 SiliconFlow 原生 OpenAI 兼容 `/audio/speech`；含字节计费口径、音色命名、软降级与 edge-tts 免费备选） |
 | 看按版本的变更记录              | [CHANGELOG.md](../CHANGELOG.md)（最近 5 条以内看 handoff）                          |
 | 看代码质量 / 安全审计 / 待修复项     | [code-audit-2026-09-06.md](code-audit-2026-09-06.md)（全项目 77 项，已修复 73 / 无需修复 3 / 部分修复 1，low 项 2026-09-11 全部清账） + [security-audit-2026-08-31.md](security-audit-2026-08-31.md) |
 | 写 / 跑 web 组件测试           | [web-component-testing-plan.md](web-component-testing-plan.md)（组件测试范围、流程与断言约定；E2E 冒烟见根 `e2e/`，跑法见 CONTRIBUTING） |
@@ -32,12 +33,15 @@
 | 写 / 套用产线模板、模板上线校验 | [design-templates.md](design-templates.md)（模板体系与 TemplateField）+ [template-checklist.md](template-checklist.md)（每个内置模板的狗粮验证清单）+ [examples.md](examples.md)（现成模板一览） |
 | 看产线版本历史 / 结构化 diff / 回滚 | [design-versions.md](design-versions.md)（节点级 A/B 对比 + 长文本逐字高亮，已落地） |
 | 对两条产线做 A/B 对比实验 | [design-ab-testing.md](design-ab-testing.md)（`/api/ab` + RunCompare，单人隔离已覆盖；流量分流缓做） |
-| 平台安全 / 合规（静态加密、密钥轮换、审计、公告、反馈） | [design-at-rest-encryption.md](design-at-rest-encryption.md) + [design-key-rotation.md](design-key-rotation.md) + [design-audit-log.md](design-audit-log.md) + [design-announcement.md](design-announcement.md) + [design-feedback.md](design-feedback.md)（均已落地，含 runbook） |
-| 代码节点沙箱 / SSRF 防护 | [design-code-sandbox.md](design-code-sandbox.md)（bwrap/sandbox-exec 隔离 + 协作式 HTTP 代理） |
+| 平台安全 / 合规（角色权限、静态加密、密钥轮换、审计、公告、反馈） | [design-at-rest-encryption.md](design-at-rest-encryption.md) + [design-key-rotation.md](design-key-rotation.md) + [design-audit-log.md](design-audit-log.md) + [design-announcement.md](design-announcement.md) + [design-feedback.md](design-feedback.md) + [design-rbac.md](design-rbac.md)（角色三层分权，均已落地，含 runbook） |
+| 代码节点沙箱 / SSRF 防护 | [design-code-sandbox.md](design-code-sandbox.md)（rlimit/bwrap/sandbox-exec 隔离 + 协作式 HTTP 代理 + docker/podman 容器后端方案 §11） |
 | 做中英双语 / 调整视觉设计规范       | [design-i18n.md](design-i18n.md)（中文/English 双语方案与 key 约定）+ [design-design-tokens.md](design-design-tokens.md)（颜色/间距/圆角/阴影/字号 token 体系） |
 | 让新用户免注册先体验真实产品（演示账号/游客转正） | [design-demo-user.md](design-demo-user.md)（is_demo 真实账号 + 体验额度 + 能力黑名单 + claim 原地转正 + TTL 清理，D1-D6 分步） |
-| 部署 / 运维 / 多环境 / 检测环境状态 | [engineering-blueprint.md](engineering-blueprint.md)（企业级工程蓝图·总纲）+ [production-ops.md](production-ops.md)（运维与可观测性）+ [environments.md](environments.md)（环境划分）+ [runbooks/](runbooks/deploy-ubuntu-server.md)（部署手册）+ [runbooks/deploy-cicd.md](runbooks/deploy-cicd.md)（push→CI→自部署 Hasee 流水线）+ [runbooks/error-reporting.md](runbooks/error-reporting.md)（错误追踪与告警：webhook sink / relay / 自检 CLI） |
+| 部署 / 运维 / 多环境 / 检测环境状态 | [engineering-blueprint.md](engineering-blueprint.md)（企业级工程蓝图·总纲）+ [production-ops.md](production-ops.md)（运维与可观测性）+ [environments.md](environments.md)（环境划分）+ [runbooks/](runbooks/deploy-ubuntu-server.md)（部署手册）+ [runbooks/deploy-cicd.md](runbooks/deploy-cicd.md)（push→CI→自部署 Hasee 流水线）+ [runbooks/error-reporting.md](runbooks/error-reporting.md)（错误追踪与告警：webhook sink / relay / 自检 CLI）+ [runbooks/change-management.md](runbooks/change-management.md)（变更管理流程）+ [runbooks/postmortem-template.md](runbooks/postmortem-template.md)（事故复盘模板） |
 | 让 Claude 自动开浏览器验收部署 | [browser-verification.md](browser-verification.md)（Chrome DevTools MCP 配置与用法） |
+| 查术语 / 名词定义 | [design-glossary.md](design-glossary.md)（领域术语表） |
+| SQLite → PostgreSQL 迁移 / 切驱动 | [design-postgres-migration.md](design-postgres-migration.md)（双驱动 + 搬迁脚本 + 端到端演练已完成，生产切换随 SaaS 阶段） |
+| 规模化 / 高可用 / 多租户架构 | [design-scaling.md](design-scaling.md) + [design-multitenancy.md](design-multitenancy.md)（自托管先、SaaS 后的分级路线） |
 
 ## 路线图 / 进度系列怎么分工
 

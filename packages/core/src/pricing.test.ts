@@ -43,6 +43,27 @@ describe("computeCost", () => {
     expect(cost).toBeCloseTo(0.0375);
   });
 
+  it("prices TTS per 1M input UTF-8 bytes (e.g. SiliconFlow CosyVoice2)", () => {
+    // 3,000,000 UTF-8 bytes at $7.15 / 1M bytes = $21.45... use a smaller case:
+    // 1,000,000 bytes at $0.00715/M (CosyVoice2's real card) = $0.00715.
+    const cost = computeCost(
+      { units: { utf8Bytes: 1_000_000 } },
+      { perMegaUtf8Byte: 0.00715 },
+    );
+    expect(cost).toBeCloseTo(0.00715, 8);
+  });
+
+  it("bills CJK TTS input by bytes, not characters (one CJK char is 3 UTF-8 bytes)", () => {
+    // "你好世界" is 4 characters but 12 UTF-8 bytes. At $7.15 / 1M bytes the
+    // byte-metered cost is 12/1e6 * 7.15; a character-based meter would
+    // under-count by ~3x. Assert the byte dimension prices independently.
+    // TextEncoder is the Web-standard, isomorphic way to count UTF-8 bytes.
+    const bytes = new TextEncoder().encode("你好世界").length;
+    expect(bytes).toBe(12);
+    const cost = computeCost({ units: { utf8Bytes: bytes } }, { perMegaUtf8Byte: 7.15 });
+    expect(cost).toBeCloseTo((12 / 1_000_000) * 7.15, 10);
+  });
+
   it("returns 0 when no pricing is configured", () => {
     expect(computeCost({ tokensIn: 1000, tokensOut: 1000 }, undefined)).toBe(0);
   });
@@ -94,12 +115,16 @@ describe("unpricedModels", () => {
     expect(unpricedModels({ acme: { models: ["free"], pricing: { free: { input: 0, output: 0 } } } })).toEqual([]);
   });
 
-  it("accepts an audio model priced on either dimension alone", () => {
+  it("accepts an audio model priced on any one dimension alone", () => {
     const providers = {
       acme: {
-        models: ["tts-a", "tts-b"],
-        modalities: { "tts-a": "audio" as const, "tts-b": "audio" as const },
-        pricing: { "tts-a": { perSecond: 0.001 }, "tts-b": { perKiloChar: 0.015 } },
+        models: ["tts-a", "tts-b", "tts-c"],
+        modalities: { "tts-a": "audio" as const, "tts-b": "audio" as const, "tts-c": "audio" as const },
+        pricing: {
+          "tts-a": { perSecond: 0.001 },
+          "tts-b": { perKiloChar: 0.015 },
+          "tts-c": { perMegaUtf8Byte: 0.00715 },
+        },
       },
     };
     expect(unpricedModels(providers)).toEqual([]);

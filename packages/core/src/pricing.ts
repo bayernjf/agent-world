@@ -1,8 +1,9 @@
 /**
  * Billing model. Text/embedding models charge by token; image models charge per
- * generated image; video per second of footage; TTS per second and/or per 1K
- * input characters. One model never mixes these, but a run can contain several
- * modalities, so usage carries both token totals and a free-form units map.
+ * generated image; video per second of footage; TTS per second, per 1K input
+ * characters, or per 1M input UTF-8 bytes. One model never mixes these, but a
+ * run can contain several modalities, so usage carries both token totals and a
+ * free-form units map.
  */
 
 export type ProviderType = "openai-compatible" | "anthropic" | "fake";
@@ -29,6 +30,8 @@ export const MODALITY_ENDPOINT: Record<Modality, string> = {
  *  - images:     generated image count
  *  - seconds:    generated audio/video duration (seconds)
  *  - characters: TTS input characters (billed per 1K)
+ *  - utf8Bytes:  TTS input UTF-8 byte length (billed per 1M; e.g. SiliconFlow
+ *                CosyVoice2 prices by UTF-8 bytes, where one CJK char ≈ 3 bytes)
  */
 export type UsageUnits = Record<string, number>;
 
@@ -36,6 +39,7 @@ export const UNIT_LABELS: Record<string, string> = {
   images: "张",
   seconds: "秒",
   characters: "字符",
+  utf8Bytes: "字节",
 };
 
 /**
@@ -43,7 +47,7 @@ export const UNIT_LABELS: Record<string, string> = {
  *  - text / embedding: input, output, cacheRead (USD per 1M tokens)
  *  - image:             perImage (USD per generated image)
  *  - video:             perSecond (USD per second of generated video)
- *  - audio (TTS/STT):   perSecond and/or perKiloChar
+ *  - audio (TTS/STT):   perSecond, perKiloChar, and/or perMegaUtf8Byte
  * Fields not relevant to the modality are ignored. A model with no entry is
  * metered as 0 cost (unknown pricing).
  */
@@ -58,6 +62,8 @@ export interface ModelPricing {
   perSecond?: number;
   // Text-to-speech, USD per 1K input characters.
   perKiloChar?: number;
+  // Text-to-speech, USD per 1M input UTF-8 bytes (e.g. SiliconFlow CosyVoice2).
+  perMegaUtf8Byte?: number;
 }
 
 /** Human-readable unit label shown next to a price field, per modality. */
@@ -85,6 +91,7 @@ export const PRICING_FIELDS: Record<Modality, PricingField[]> = {
   audio: [
     { key: "perSecond", label: "每秒", unit: "USD / 秒", step: "0.0001" },
     { key: "perKiloChar", label: "每千字符", unit: "USD / 1K 字符", step: "0.0001" },
+    { key: "perMegaUtf8Byte", label: "每百万字节", unit: "USD / 1M UTF-8 字节", step: "0.00001" },
   ],
 };
 
@@ -94,7 +101,7 @@ export const PRICING_HEADING: Record<Modality, string> = {
   embedding: "单价（USD / 100万 token，留空不计费）",
   image: "单价（USD / 张，留空不计费）",
   video: "单价（USD / 秒，留空不计费）",
-  audio: "单价（USD / 秒 或 / 1K 字符，留空不计费）",
+  audio: "单价（USD / 秒、/ 1K 字符 或 / 1M UTF-8 字节，留空不计费）",
 };
 
 /** Which unit counter each per-unit price field consumes. */
@@ -102,6 +109,17 @@ const PRICE_UNIT: Partial<Record<keyof ModelPricing, string>> = {
   perImage: "images",
   perSecond: "seconds",
   perKiloChar: "characters",
+  perMegaUtf8Byte: "utf8Bytes",
+};
+
+/**
+ * Divisor converting a raw usage amount into the price field's billing unit.
+ * perImage/perSecond bill 1:1; perKiloChar is priced per 1,000 characters and
+ * perMegaUtf8Byte per 1,000,000 UTF-8 bytes.
+ */
+const PRICE_DIVISOR: Partial<Record<keyof ModelPricing, number>> = {
+  perKiloChar: 1000,
+  perMegaUtf8Byte: 1_000_000,
 };
 
 export interface CostInput {
@@ -113,8 +131,9 @@ export interface CostInput {
 
 /**
  * Compute the USD cost of one call from raw usage and a model's pricing.
- * Token fields are billed per 1M; per-image/second/kilochar fields use their
- * natural unit. Any dimension without a configured price contributes 0.
+ * Token fields are billed per 1M; per-image/second fields use their natural
+ * unit, perKiloChar per 1K characters and perMegaUtf8Byte per 1M UTF-8 bytes.
+ * Any dimension without a configured price contributes 0.
  */
 export function computeCost(usage: CostInput, pricing: ModelPricing | undefined): number {
   if (!pricing) return 0;
@@ -137,7 +156,8 @@ export function computeCost(usage: CostInput, pricing: ModelPricing | undefined)
     const price = pricing[field];
     const amount = units[unitKey] ?? 0;
     if (price != null && amount > 0) {
-      cost += field === "perKiloChar" ? (amount / 1000) * price : amount * price;
+      const divisor = PRICE_DIVISOR[field] ?? 1;
+      cost += (amount / divisor) * price;
     }
   }
   return cost;

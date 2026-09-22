@@ -2,6 +2,7 @@ import { compile, type Graph, type RunEvent } from "@agent-world/core";
 import { describe, expect, it } from "vitest";
 import { execute } from "./engine.js";
 import { type Worker } from "./worker.js";
+import { TTS_MAX_INPUT_CHARS } from "./nodes/audiogen.js";
 
 const TEXTGEN = {
   model: "agnes-2.0-flash",
@@ -169,5 +170,26 @@ describe("audioGen node (P1-6)", () => {
 
     const agentCall = calls.find((c) => "input" in c && typeof c.input === "string" && c.input.includes("音频"));
     expect(agentCall).toBeDefined();
+  });
+
+  it("rejects over-length TTS input with VALIDATION and never calls the provider", async () => {
+    const { worker, calls } = spyWorker({ audioCount: 1 });
+    const graph = graphAudioGenToSink();
+    graph.nodes.find((n) => n.id === "aud")!.audioGen!.prompt = "x".repeat(TTS_MAX_INPUT_CHARS + 4);
+    const events = await run(graph, worker);
+
+    // No audio is produced and the provider is never billed a request (the graph
+    // has only one generative node, aud, so calls must stay empty).
+    expect(events.filter((e) => e.type === "artifact.produced" && e.artifact.kind === "audio").length).toBe(0);
+    expect(calls).toHaveLength(0);
+
+    const failed = events.find((e) => e.type === "node.failed" && e.nodeId === "aud");
+    expect(failed).toBeDefined();
+    expect(failed && failed.type === "node.failed" && failed.errorCode).toBe("VALIDATION");
+    expect(failed && failed.type === "node.failed" && failed.error).toContain("过长");
+    expect(failed && failed.type === "node.failed" && failed.error).toContain("拆分");
+
+    // Downstream sink does not finish.
+    expect(events.find((e) => e.type === "node.finished" && e.nodeId === "sink")).toBeUndefined();
   });
 });
