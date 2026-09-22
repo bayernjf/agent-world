@@ -118,3 +118,57 @@ export function hazardStripesTexture(): THREE.CanvasTexture {
   hazardTex = finalize(canvas);
   return hazardTex;
 }
+
+let brushedSteelTex: THREE.CanvasTexture | null = null;
+/** Brushed steel with fine horizontal grain and soft smudges. */
+export function brushedSteelTexture(): THREE.CanvasTexture {
+  if (brushedSteelTex) return brushedSteelTex;
+  const size = 256;
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    brushedSteelTex = finalize(canvas);
+    return brushedSteelTex;
+  }
+  ctx.fillStyle = "#9aa1a9";
+  ctx.fillRect(0, 0, size, size);
+  for (let y = 0; y < size; y++) {
+    const g = 140 + Math.random() * 40;
+    ctx.fillStyle = `rgba(${g | 0},${g | 0},${(g + 6) | 0},0.5)`;
+    ctx.fillRect(0, y, size, 1);
+  }
+  for (let i = 0; i < 12; i++) {
+    ctx.fillStyle = `rgba(255,255,255,${(Math.random() * 0.06).toFixed(2)})`;
+    ctx.fillRect(Math.random() * size, Math.random() * size, 40 + Math.random() * 80, 8 + Math.random() * 20);
+  }
+  brushedSteelTex = finalize(canvas);
+  return brushedSteelTex;
+}
+
+let darkMetalTex: THREE.CanvasTexture | null = null;
+/** Dark painted metal with subtle wear chips. */
+export function darkMetalTexture(): THREE.CanvasTexture {
+  if (darkMetalTex) return darkMetalTex;
+  const size = 256;
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    darkMetalTex = finalize(canvas);
+    return darkMetalTex;
+  }
+  ctx.fillStyle = "#3a4148";
+  ctx.fillRect(0, 0, size, size);
+  for (let i = 0; i < 900; i++) {
+    const g = 52 + Math.random() * 30;
+    ctx.fillStyle = `rgba(${g | 0},${(g + 3) | 0},${(g + 7) | 0},${(Math.random() * 0.3).toFixed(2)})`;
+    ctx.fillRect(Math.random() * size, Math.random() * size, 2, 2);
+  }
+  for (let i = 0; i < 40; i++) {
+    ctx.fillStyle = `rgba(180,186,192,${(Math.random() * 0.18).toFixed(2)})`;
+    ctx.fillRect(Math.random() * size, Math.random() * size, 3 + Math.random() * 8, 1);
+  }
+  darkMetalTex = finalize(canvas);
+  return darkMetalTex;
+}
