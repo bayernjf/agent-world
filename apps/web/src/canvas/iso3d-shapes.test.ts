@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { NODE_CATEGORY, type NodeKind } from "@agent-world/core";
+import { PLANT_H } from "../store/graph";
 import { CATEGORY_COLORS, categoryColor, statusLedColor, buildNodeShape } from "./iso3d-shapes";
+
+const ALL_KINDS = Object.keys(NODE_CATEGORY) as NodeKind[];
 
 describe("categoryColor", () => {
   const kindsByCategory: Record<string, NodeKind[]> = {};
-  for (const kind of Object.keys(NODE_CATEGORY) as NodeKind[]) {
+  for (const kind of ALL_KINDS) {
     const cat = NODE_CATEGORY[kind];
     (kindsByCategory[cat] ??= []).push(kind);
   }
@@ -20,8 +23,7 @@ describe("categoryColor", () => {
   }
 
   it("covers all 29 kinds", () => {
-    const covered = new Set(Object.keys(NODE_CATEGORY));
-    expect(covered.size).toBe(29);
+    expect(new Set(ALL_KINDS).size).toBe(29);
   });
 });
 
@@ -57,48 +59,47 @@ describe("statusLedColor", () => {
   });
 });
 
-describe("buildNodeShape", () => {
-  it("returns a group with a base block, LED and topper", () => {
-    const shape = buildNodeShape("textGen");
-    expect(shape.group).toBeDefined();
-    expect(shape.led).toBeDefined();
-    expect(shape.led.userData.role).toBe("led");
-    // base + LED → at least 2 children; most kinds also have a topper (≥3).
-    expect(shape.group.children.length).toBeGreaterThanOrEqual(2);
+describe("buildNodeShape — realistic rollout", () => {
+  it("covers every one of the 29 kinds", () => {
+    for (const kind of ALL_KINDS) {
+      const shape = buildNodeShape(kind);
+      expect(shape.group).toBeTruthy();
+      expect(shape.led).toBeTruthy();
+      expect(shape.led.userData.role).toBe("led");
+      expect(shape.group.children.length, kind).toBeGreaterThanOrEqual(3);
+    }
   });
 
-  it("positions the LED on the front face top edge", () => {
-    // textGen is the industrial prototype and mounts its LED differently; this
-    // guards the convention for the stylized blocks.
-    const shape = buildNodeShape("code");
-    const frontZ = 92 / 2 + 2; // PLANT_H/2 + led offset
-    expect(shape.led.position.z).toBeCloseTo(frontZ, 5);
-    expect(shape.led.position.y).toBeCloseTo(50 - 8, 5); // NODE_HEIGHT - led inset
+  it("mounts the standard LED on a front stem for all non-textGen kinds", () => {
+    for (const kind of ALL_KINDS) {
+      if (kind === "textGen") continue;
+      const { led } = buildNodeShape(kind);
+      expect(led.position.z, kind).toBeCloseTo(PLANT_H / 2 + 3, 5);
+      expect(led.position.y, kind).toBeCloseTo(13, 5);
+    }
   });
 
-  it("mounts the industrial textGen LED on the front wall above the door", () => {
-    const shape = buildNodeShape("textGen");
-    expect(shape.led.userData.role).toBe("led");
-    expect(shape.led.position.z).toBeGreaterThan(0); // front face, not the back
-    expect(shape.led.position.y).toBeGreaterThan(17 + 24 / 2); // above the door
+  it("mounts the textGen LED on the front wall above the door", () => {
+    const { led } = buildNodeShape("textGen");
+    expect(led.position.z).toBeGreaterThan(0);
+    expect(led.position.y).toBeGreaterThan(29);
   });
 
-  it("applies ground-plane rotation", () => {
-    const shape = buildNodeShape("gate");
-    expect(shape.group.rotation.y).toBeCloseTo(Math.PI / 8, 5);
+  it("applies the shared ground-plane rotation to every kind", () => {
+    for (const kind of ALL_KINDS) {
+      expect(buildNodeShape(kind).group.rotation.y, kind).toBeCloseTo(Math.PI / 8, 5);
+    }
   });
 
-  it("gives a sampling of kinds their own topper (≥3 children)", () => {
-    const samples: NodeKind[] = ["textGen", "gate", "fanout", "loop", "http", "compliance", "code", "imageGen"];
-    for (const k of samples) {
-      const shape = buildNodeShape(k);
-      expect(shape.group.children.length).toBeGreaterThanOrEqual(3);
+  it("gives each non-textGen node exactly one category-colored accent", () => {
+    for (const kind of ALL_KINDS) {
+      if (kind === "textGen") continue;
+      const accents = buildNodeShape(kind).group.children.filter((c) => c.userData.accent === true);
+      expect(accents.length, kind).toBe(1);
     }
   });
 
   it("returns a fresh group per call", () => {
-    const a = buildNodeShape("textGen");
-    const b = buildNodeShape("textGen");
-    expect(a.group).not.toBe(b.group);
+    expect(buildNodeShape("code").group).not.toBe(buildNodeShape("code").group);
   });
 });
