@@ -30,3 +30,9 @@
 
 4. **fix(core) 模板插值正则 ReDoS 根治：手写线性扫描替换正则（2026-09-20，feature/20260824，`01f8868`/`8c95dfd`，PR #349 CodeQL 阻断项，已合 dev/main 部署）**——PR #349 的 CodeQL PR 检查报 2 个 HIGH（`js/polynomial-redos`），均在 `packages/core/src/variables.ts`：状态机方案 A 新增/沿用的 `${...}` 占位符正则 `/\$\{\s*[^}]+\s*\}/` 里 `\s*` 与 `[^}]+` 在空白字符上重叠，对 `${{` + 长空格（无闭合 `}`）O(n²) 回溯（5 万空格实测卡死 >15s）；第一次改写 `/\$\{[^}]+\}/` 仍被 CodeQL 报——`${{|` 重复串在每个 `$` 位置重启一次 O(n) 扫描（实测 8000 组 100ms，仍二次方）。根治：`evaluateTemplate`（用户 prompt 模板，攻击面最大）/`evaluateCondition`/`validateConditionSyntax` 三处替换统一改用 `indexOf` 手写的 `scanPlaceholders()` 单遍扫描，严格 O(n)、零回溯，空 `${}` 与未闭合语义保持；12 组边界样本（空格包裹/空占位/未闭合/链式插值）与旧正则逐字等价，25.6 万字符毒化输入 0.03ms；回归测覆盖两种攻击形态 + evaluateCondition。core 320 / server 1261 全绿、三包 typecheck Done，CodeQL 与 CI 全 pass；**已随 PR #349 合 dev（merge `894eca3`）、#350 合 main，docs 续随 #352（dev `13626a6`）/#353（main `fcb677b`）合入；Hasee 13:28 UTC 自动部署到 `13626a6`、health ok、重启零 error；**但该部署所含 undici 8 升级随即造成全部 run failed（事故与订正见第 2 条 / Active work #52），当日 22:22 一次性体检任务因额度门控未执行，所谓「首跑闭环」记录作废**。
 
+---
+
+## Recently shipped 归档续二（2026-09-22 滚动，保持 last-6）
+
+3. **fix(server) P0 止血：undici 锁回 7.x 对齐 Node 24 内置 fetch + SSRF pin IPv4 优先（2026-09-21，工作分支 feature/20260824，`5036e3c`，PR #362 merge `758a30d`，07:35 UTC 部署 Hasee）**——PR #349 的 undici 7→8 升级导致部署后四产线 22 条 run 全 failed（09-20 14:10 UTC 起，`[PROVIDER_ERROR] fetch failed`，每条 ~5.5min）：ssrf.ts 把 npm-undici **8** 的 pinned Agent（dispatcher）传给 Node 24 内置 undici **7.29** 的 global fetch，跨大版本协议不兼容，每个 pinned 请求抛 `InvalidArgumentError: invalid onRequestStart method`，所有走 SSRF guard 的出站必挂；curl/裸 TCP 全程正常（带 key GET/POST 均 200），一度误诊为"agnes 出站中断"；CI 因 ssrf 测试 stub 掉 global fetch 从未构造真实请求而全绿。修复：undici 锁 `^7.29.0`（大版本只能随 Node 运行时升，dependabot 加 major ignore）、新增导出纯函数 `selectPinRecord()` 双栈 IPv4 优先（Hasee 无 IPv6 路由，pin AAAA 硬失败不回退）、新增真实 loopback http server + pinned Agent × 内置 fetch 兼容性回归测（undici 8 下实测精确失败、7 下通过）补 CI 盲区、ssrf.ts 版本契约注释记录事故。部署后真机独立进程探测健康主源 1.6~2.1s 真实返回文本。事故时间线/根因/教训详见 Active work #52。
+

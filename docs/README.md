@@ -34,7 +34,7 @@
 | 看产线版本历史 / 结构化 diff / 回滚 | [design-versions.md](design-versions.md)（节点级 A/B 对比 + 长文本逐字高亮，已落地） |
 | 对两条产线做 A/B 对比实验 | [design-ab-testing.md](design-ab-testing.md)（`/api/ab` + RunCompare，单人隔离已覆盖；流量分流缓做） |
 | 平台安全 / 合规（角色权限、静态加密、密钥轮换、审计、公告、反馈） | [design-at-rest-encryption.md](design-at-rest-encryption.md) + [design-key-rotation.md](design-key-rotation.md) + [design-audit-log.md](design-audit-log.md) + [design-announcement.md](design-announcement.md) + [design-feedback.md](design-feedback.md) + [design-rbac.md](design-rbac.md)（角色三层分权，均已落地，含 runbook） |
-| 代码节点沙箱 / SSRF 防护 | [design-code-sandbox.md](design-code-sandbox.md)（bwrap/sandbox-exec 隔离 + 协作式 HTTP 代理） |
+| 代码节点沙箱 / SSRF 防护 | [design-code-sandbox.md](design-code-sandbox.md)（rlimit/bwrap/sandbox-exec 隔离 + 协作式 HTTP 代理 + docker/podman 容器后端方案 §11） |
 | 做中英双语 / 调整视觉设计规范       | [design-i18n.md](design-i18n.md)（中文/English 双语方案与 key 约定）+ [design-design-tokens.md](design-design-tokens.md)（颜色/间距/圆角/阴影/字号 token 体系） |
 | 让新用户免注册先体验真实产品（演示账号/游客转正） | [design-demo-user.md](design-demo-user.md)（is_demo 真实账号 + 体验额度 + 能力黑名单 + claim 原地转正 + TTL 清理，D1-D6 分步） |
 | 部署 / 运维 / 多环境 / 检测环境状态 | [engineering-blueprint.md](engineering-blueprint.md)（企业级工程蓝图·总纲）+ [production-ops.md](production-ops.md)（运维与可观测性）+ [environments.md](environments.md)（环境划分）+ [runbooks/](runbooks/deploy-ubuntu-server.md)（部署手册）+ [runbooks/deploy-cicd.md](runbooks/deploy-cicd.md)（push→CI→自部署 Hasee 流水线）+ [runbooks/error-reporting.md](runbooks/error-reporting.md)（错误追踪与告警：webhook sink / relay / 自检 CLI）+ [runbooks/change-management.md](runbooks/change-management.md)（变更管理流程）+ [runbooks/postmortem-template.md](runbooks/postmortem-template.md)（事故复盘模板） |
