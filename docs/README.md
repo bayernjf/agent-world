@@ -21,6 +21,7 @@
 | 给 agent 加技能卡（工具/提示模块/输出契约） | [design-skill.md](design-skill.md)（§11 现状盘点 + §12 作者指南）+ [extending.md](extending.md) §3 |
 | 把平台暴露给别的 AI 客户端（MCP Server） | [design-mcp-server.md](design-mcp-server.md)（§12 协议版本协商 / §13 授权 / §14 未实现清单）+ [production-ops.md](production-ops.md) §8（部署形态） |
 | 接 Notion / Linear / 邮件 / 内容平台等第三方 | [integrations-future.md](integrations-future.md)（未来集成清单与触发条件；当前外接能力走 MCP / HTTP 节点 / Connector） |
+| 给播客产线接 AI 配音（TTS Provider） | [design-tts-provider.md](design-tts-provider.md)（audioGen 链路已就绪，推荐 SiliconFlow 原生 OpenAI 兼容 `/audio/speech`；含字节计费口径、音色命名、软降级与 edge-tts 免费备选） |
 | 看按版本的变更记录              | [CHANGELOG.md](../CHANGELOG.md)（最近 5 条以内看 handoff）                          |
 | 看代码质量 / 安全审计 / 待修复项     | [code-audit-2026-09-06.md](code-audit-2026-09-06.md)（全项目 77 项，已修复 73 / 无需修复 3 / 部分修复 1，low 项 2026-09-11 全部清账） + [security-audit-2026-08-31.md](security-audit-2026-08-31.md) |
 | 写 / 跑 web 组件测试           | [web-component-testing-plan.md](web-component-testing-plan.md)（组件测试范围、流程与断言约定；E2E 冒烟见根 `e2e/`，跑法见 CONTRIBUTING） |
