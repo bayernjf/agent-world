@@ -24,7 +24,7 @@
 | 看按版本的变更记录              | [CHANGELOG.md](../CHANGELOG.md)（最近 5 条以内看 handoff）                          |
 | 看代码质量 / 安全审计 / 待修复项     | [code-audit-2026-09-06.md](code-audit-2026-09-06.md)（全项目 77 项，已修复 73 / 无需修复 3 / 部分修复 1，low 项 2026-09-11 全部清账） + [security-audit-2026-08-31.md](security-audit-2026-08-31.md) |
 | 写 / 跑 web 组件测试           | [web-component-testing-plan.md](web-component-testing-plan.md)（组件测试范围、流程与断言约定；E2E 冒烟见根 `e2e/`，跑法见 CONTRIBUTING） |
-| 判断产品是否达到可上线 MVP      | [mvp-readiness-review-2026-09-21.md](mvp-readiness-review-2026-09-21.md)（结论：自托管 MVP ✅ 达到；对外商业 SaaS ❌ 功能 Ready、收款/运维 Not Ready，含上线阻断项与 go-live 清单） |
+| 判断产品是否达到可上线 MVP      | [mvp-readiness-review-2026-09-22.md](mvp-readiness-review-2026-09-22.md)（最新：自托管 MVP ✅ 达到且超出；对外商业 SaaS ❌ 功能 Ready、收款/运维 Not Ready；367 runs/3631 测试/备份恢复演练通过）+ [09-21 版](mvp-readiness-review-2026-09-21.md)（历史基线） |
 | 查某个功能为什么缓做、什么条件下重启 | [deferred-items.md](deferred-items.md)（缓做/低优事项登记表，每条挂触发条件与决策链接，单一事实源） |
 | 理解投料台连接器 / `${...}` 数据插值 | [design-data-interpolation.md](design-data-interpolation.md)（五类 connector 的 data 通道与插值）+ [design-template-connector-presets.md](design-template-connector-presets.md)（模板按 A/B/C/D 类预设 connector）+ [design-connector-database.md](design-connector-database.md)（SQL 连接器） |
 | 让产线定时跑 / 事件 / webhook 自动触发 | [design-triggers.md](design-triggers.md)（cron / webhook / event / batch 四类触发器、调度器单实例与恢复） |
