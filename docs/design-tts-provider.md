@@ -1,6 +1,6 @@
 # TTS Provider 接入设计（audioGen 配音链路打通）
 
-> 状态（2026-09-22 更新）：**P1 产品化 G-A / G-B / G-D（P1 检测）已写码落地**，四原子 commit `1ea3c62`（G-A core）/ `0a1ec39`（G-A server 计量）/ `93b3082`（G-B）/ `0cbf11e`（G-D），在 feature/20260824、**尚未 push**；core 323 / server 1295 测试全过、四包 typecheck 干净。**仍未做**：P0 真机端到端（待 SiliconFlow/OpenAI key，B4）、**G-C 软降级二选一（待产品决策）**、G-E/G-F 的 UI 路由与内置供应商骨架、G-H 配置 runbook、P2 分片拼接与 edge-tts。
+> 状态（2026-09-22 更新）：**P1 产品化 G-A / G-B / G-D（P1 检测）已写码落地**，四原子 commit `1ea3c62`（G-A core）/ `0a1ec39`（G-A server 计量）/ `93b3082`（G-B）/ `0cbf11e`（G-D），在 feature/20260824、**尚未 push**；core 323 / server 1295 测试全过、四包 typecheck 干净。**仍未做**：P0 真机端到端（待 SiliconFlow/OpenAI key，B4）、**G-C 软降级二选一（待产品决策）**、G-F 内置供应商骨架（待是否点名供应商的决策）、P2 分片拼接与 edge-tts。**2026-09-22 傍晚追加落地**：G-E 经复核前端（Inspector `audioModelOptions` 模态过滤 + ModelAssignModal audio 分组）与服务端派发闸门（`validate-models.ts` audioGen 错误模态=error）**早已就绪**，本次补齐 audioGen 三例服务端测试（`validate-models.test.ts` 12/12）；**G-H 配置 runbook 已落地** [runbooks/tts-provider-setup.md](runbooks/tts-provider-setup.md)（SF/OpenAI step-by-step + 验证清单 + 故障排查）。
 > 目标：让 `tpl-news-podcast`（资讯播客工坊）等音频产线真正产出配音音频。
 > 结论先行：**节点、Worker 接缝、OpenAI 兼容 provider 实现都已就绪（约 90%），缺口是「一个真正支持 `/audio/speech` 的供应商配置」+ 三处小口径（计费单位、音色命名、软降级一致性）**。推荐用硅基流动（SiliconFlow，原生 OpenAI 兼容、中文优、极低价）零代码先验证，再做少量产品化改动。
 
@@ -122,7 +122,7 @@
 
 ## 5. 原子提交计划（英文 message、不 push）
 
-> **落地状态（2026-09-22）**：步骤 2 ✅ `1ea3c62`；步骤 3 被拆分——G-A server 计量 ✅ `0a1ec39`，**G-C 软降级未做（待产品决策，故该 commit 不含 soft-degrade）**；步骤 4 ✅ `93b3082`（仅 G-B field，未改注释，因 G-C 未定）；步骤 5 ✅ `0cbf11e`；步骤 1（P0 真机）、步骤 6（runbook）、步骤 7（edge-tts）未做。四个 commit 均在 feature/20260824，未 push。
+> **落地状态（2026-09-22）**：步骤 2 ✅ `1ea3c62`；步骤 3 被拆分——G-A server 计量 ✅ `0a1ec39`，**G-C 软降级未做（待产品决策，故该 commit 不含 soft-degrade）**；步骤 4 ✅ `93b3082`（仅 G-B field，未改注释，因 G-C 未定）；步骤 5 ✅ `0cbf11e`；步骤 1（P0 真机，卡 key）、步骤 7（edge-tts，P2）未做；**步骤 6（runbook）已落地** [runbooks/tts-provider-setup.md](runbooks/tts-provider-setup.md)（2026-09-22）。四个 commit 均在 feature/20260824，未 push。
 
 1. **P0 验证不产生代码**；验证结论（兼容/差异）回写本文。
 2. `feat(core): price audio by UTF-8 bytes for TTS providers`（G-A：units/pricing/computeCost/字段/i18n + 单测）。
