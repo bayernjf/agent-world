@@ -1424,6 +1424,14 @@ const newsPodcastGraph = {
       defaultValue: "tts-1",
       applyTo: [{ nodeId: "voice", path: "audioGen.model" }],
     },
+    {
+      key: "ttsVoice",
+      label: "配音音色",
+      placeholder:
+        "OpenAI 用具名音色（alloy/echo/fable/onyx/nova/shimmer）；硅基流动用「模型名:音色名」（如 FunAudioLLM/CosyVoice2-0.5B:alex）",
+      defaultValue: "alloy",
+      applyTo: [{ nodeId: "voice", path: "audioGen.voice" }],
+    },
   ],
   graph: {
     id: "tpl-news-podcast",

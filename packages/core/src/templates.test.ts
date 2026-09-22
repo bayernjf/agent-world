@@ -300,6 +300,26 @@ describe("templates", () => {
     );
   });
 
+  it("news-podcast ttsModel/ttsVoice fields land on the voice node, defaulting to alloy", () => {
+    const tpl = getTemplate("tpl-news-podcast")!;
+    // Out of the box: model tts-1 and the default alloy voice.
+    const d = instantiateTemplate(tpl, { id: "gd" });
+    const voiceD = d.nodes.find((n) => n.name === "AI 配音")!;
+    expect((voiceD.audioGen as { model: string; voice: string }).model).toBe("tts-1");
+    expect((voiceD.audioGen as { voice: string }).voice).toBe("alloy");
+    // Explicit selections (SiliconFlow uses the "model:voice" form) replace both.
+    const g = instantiateTemplate(tpl, {
+      id: "gg",
+      fieldValues: {
+        ttsModel: "FunAudioLLM/CosyVoice2-0.5B",
+        ttsVoice: "FunAudioLLM/CosyVoice2-0.5B:alex",
+      },
+    });
+    const voice = g.nodes.find((n) => n.name === "AI 配音")!;
+    expect((voice.audioGen as { model: string }).model).toBe("FunAudioLLM/CosyVoice2-0.5B");
+    expect((voice.audioGen as { voice: string }).voice).toBe("FunAudioLLM/CosyVoice2-0.5B:alex");
+  });
+
   it("ships the four capability templates exercising search+audio, loop+search, vcs and convert+ocr", () => {
     const expectKinds = (id: string, kinds: string[]) => {
       const tpl = getTemplate(id)!;
