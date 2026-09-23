@@ -109,6 +109,42 @@ describe("ordered schema migrations", () => {
     raw.close();
   });
 
+  it("baselines the remote_jobs table + open-job partial index on a fresh database (migration 41)", () => {
+    const file = join(dir, "fresh-remote-jobs.sqlite");
+    openDb(file);
+    const raw = new DatabaseSync(file);
+    expect(tables(raw)).toContain("remote_jobs");
+    expect(cols(raw, "remote_jobs")).toEqual(
+      expect.arrayContaining([
+        "id",
+        "user_id",
+        "run_id",
+        "graph_id",
+        "node_id",
+        "attempt",
+        "kind",
+        "provider",
+        "remote_job_id",
+        "state",
+        "submitted_at",
+        "last_polled_at",
+        "finished_at",
+        "error_code",
+        "meta_json",
+      ]),
+    );
+    // Partial index backing the reattach hot path; the WHERE predicate must survive.
+    const idx = raw
+      .prepare("SELECT name, sql FROM sqlite_master WHERE type='index' AND name='idx_remote_jobs_open'")
+      .get() as { name: string; sql: string } | undefined;
+    expect(idx).toBeTruthy();
+    expect(idx?.sql).toContain("state IN");
+    // A fresh database baselines at the latest schema version.
+    const max = raw.prepare("SELECT MAX(version) AS v FROM schema_migrations").get() as { v: number };
+    expect(max.v).toBe(SCHEMA_VERSION);
+    raw.close();
+  });
+
   it("upgrades a v38 database whose subscriptions/invoices predate the Stripe mirror columns (migration 39)", () => {
     // Regression for an S6 upgrade crash: a DB already at v38 HAS subscriptions
     // (built at v34 without stripe columns) and invoices (built at v38 without
@@ -336,37 +372,44 @@ describe("migration rollback (down)", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("rolls back the latest migration one step (40: demo-user flags)", () => {
+  it("rolls back the latest migrations in order (41 remote_jobs -> 40 demo flags -> 39 stripe)", () => {
     const file = join(dir, "aw.sqlite");
     openDb(file).close(); // applies every migration, up to SCHEMA_VERSION
 
     const raw = new DatabaseSync(file);
-    // v40 keeps its columns on down (clears flags only, design-demo-user §11);
-    // v39 Stripe mirror columns and v38 invoices table are present pre-rollback.
+    // Pre-rollback: v41 remote_jobs, v40 demo flags, v39 Stripe columns, v38 invoices all present.
+    expect(tables(raw)).toContain("remote_jobs");
     expect(cols(raw, "users")).toContain("is_demo");
     expect(cols(raw, "users")).toContain("demo_expires_at");
     expect(cols(raw, "subscriptions")).toContain("stripe_customer_id");
     expect(tables(raw)).toContain("invoices");
     expect(cols(raw, "graphs")).toContain("park_x");
-    // Seed a flagged demo row; v40 down must clear the flag without dropping it.
+    // Seed a flagged demo row; v40 down must clear the flag without dropping the column.
     raw.exec(
       `INSERT INTO users (id,email,password_hash,role,is_demo,demo_expires_at,created_at)
        VALUES ('u1','d@demo.local','x','user',1,'2026-01-01T00:00:00.000Z',0)`,
     );
 
-    const result = rollbackLatestMigration(raw);
-    expect(result?.version).toBe(SCHEMA_VERSION);
-
-    // v40 down clears flags but leaves the columns (no table rebuild); the v39
-    // Stripe columns survive because only the latest step was rolled back.
+    // Step 1 -> v41: drops remote_jobs only; demo flags and Stripe columns survive.
+    const step1 = rollbackLatestMigration(raw);
+    expect(step1?.version).toBe(SCHEMA_VERSION);
+    expect(tables(raw)).not.toContain("remote_jobs");
     expect(cols(raw, "users")).toContain("is_demo");
-    const flag = raw.prepare(`SELECT is_demo FROM users WHERE id='u1'`).get() as { is_demo: number };
-    expect(flag.is_demo).toBe(0);
+    const stillFlagged = raw.prepare(`SELECT is_demo FROM users WHERE id='u1'`).get() as { is_demo: number };
+    expect(stillFlagged.is_demo).toBe(1);
     expect(cols(raw, "subscriptions")).toContain("stripe_customer_id");
 
-    // Rolling back one more step reaches v39 and drops the Stripe mirror columns.
+    // Step 2 -> v40: clears demo flags but keeps the columns; Stripe columns survive.
     const step2 = rollbackLatestMigration(raw);
     expect(step2?.version).toBe(SCHEMA_VERSION - 1);
+    expect(cols(raw, "users")).toContain("is_demo");
+    const cleared = raw.prepare(`SELECT is_demo FROM users WHERE id='u1'`).get() as { is_demo: number };
+    expect(cleared.is_demo).toBe(0);
+    expect(cols(raw, "subscriptions")).toContain("stripe_customer_id");
+
+    // Step 3 -> v39: drops the Stripe mirror columns; the invoices table and park columns survive.
+    const step3 = rollbackLatestMigration(raw);
+    expect(step3?.version).toBe(SCHEMA_VERSION - 2);
     expect(cols(raw, "subscriptions")).not.toContain("stripe_customer_id");
     expect(cols(raw, "subscriptions")).not.toContain("stripe_subscription_id");
     expect(cols(raw, "subscriptions")).not.toContain("stripe_price_id");

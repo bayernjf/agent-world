@@ -23,6 +23,8 @@ import type {
   Product,
   PublishTarget,
   PublishedContent,
+  RemoteJob,
+  NewRemoteJob,
 } from "./db.js";
 
 /**
@@ -477,6 +479,32 @@ CREATE TABLE IF NOT EXISTS idempotency_keys (
   created_at INTEGER NOT NULL,
   PRIMARY KEY (user_id, key)
 );
+
+-- G4 long-running async jobs (design-step-trace-and-robustness §3.5): a
+-- durable handle to a provider-side job so a timed-out/restarted run can
+-- reattach instead of re-submitting (and double-billing). Only video writes
+-- today; kind/shape are reserved for image/audio.
+CREATE TABLE IF NOT EXISTS remote_jobs (
+  id             TEXT PRIMARY KEY,
+  user_id        TEXT NOT NULL,
+  run_id         TEXT NOT NULL,
+  graph_id       TEXT NOT NULL,
+  node_id        TEXT NOT NULL,
+  attempt        INTEGER NOT NULL,
+  kind           TEXT NOT NULL,              -- 'video'|'image'|'audio'
+  provider       TEXT,
+  remote_job_id  TEXT NOT NULL,
+  state          TEXT NOT NULL,              -- 'submitted'|'running'|'succeeded'|'failed'|'lost'
+  submitted_at   INTEGER NOT NULL,
+  last_polled_at INTEGER,
+  finished_at    INTEGER,
+  error_code     TEXT,
+  meta_json      TEXT,
+  UNIQUE (provider, remote_job_id)           -- idempotent: never register the same remote job twice
+);
+-- Open-job lookup for reattach (partial index; SQLite and PG both support it).
+CREATE INDEX IF NOT EXISTS idx_remote_jobs_open ON remote_jobs (run_id, node_id)
+  WHERE state IN ('submitted', 'running');
 `;
 
 /**
@@ -976,6 +1004,17 @@ export function createDriver(
     sumArtifactBytes: `SELECT COALESCE(SUM(size_bytes), 0) AS total FROM artifacts WHERE user_id = ?`,
     listFinishedRunsSince: `SELECT id, user_id, started_at, snapshot FROM runs WHERE status = 'done' AND user_id IS NOT NULL AND started_at >= ? ORDER BY started_at`,
     countDistinctUsers: `SELECT COUNT(DISTINCT user_id) AS n FROM runs WHERE user_id IS NOT NULL`,
+    // G4 durable remote-job handles (design-step-trace-and-robustness §3.5).
+    insertRemoteJob: `INSERT INTO remote_jobs
+       (id, user_id, run_id, graph_id, node_id, attempt, kind, provider, remote_job_id, state, submitted_at, last_polled_at, finished_at, error_code, meta_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?)
+       ON CONFLICT DO NOTHING`,
+    getOpenRemoteJob: `SELECT id, user_id, run_id, graph_id, node_id, attempt, kind, provider, remote_job_id, state, submitted_at, last_polled_at, finished_at, error_code, meta_json
+       FROM remote_jobs
+       WHERE run_id = ? AND node_id = ? AND attempt = ? AND state IN ('submitted', 'running')
+       ORDER BY submitted_at DESC, ${tie} DESC LIMIT 1`,
+    touchRemoteJob: `UPDATE remote_jobs SET state = ?, last_polled_at = ? WHERE id = ?`,
+    finishRemoteJob: `UPDATE remote_jobs SET state = ?, finished_at = ?, error_code = ? WHERE id = ?`,
   };
 
   // M3 S6: subscription rows carry Stripe mirror columns (local DB is a mirror
@@ -1014,6 +1053,41 @@ export function createDriver(
     stripePriceId: r.stripe_price_id,
     currentPeriodStart: r.current_period_start,
     currentPeriodEnd: r.current_period_end,
+  });
+  // G4 remote_jobs snake_case row -> camelCase RemoteJob (meta_json is plain JSON).
+  type RemoteJobRow = {
+    id: string;
+    user_id: string;
+    run_id: string;
+    graph_id: string;
+    node_id: string;
+    attempt: number;
+    kind: string;
+    provider: string | null;
+    remote_job_id: string;
+    state: string;
+    submitted_at: number;
+    last_polled_at: number | null;
+    finished_at: number | null;
+    error_code: string | null;
+    meta_json: string | null;
+  };
+  const mapRemoteJob = (r: RemoteJobRow): RemoteJob => ({
+    id: r.id,
+    userId: r.user_id,
+    runId: r.run_id,
+    graphId: r.graph_id,
+    nodeId: r.node_id,
+    attempt: r.attempt,
+    kind: r.kind as RemoteJob["kind"],
+    provider: r.provider,
+    remoteJobId: r.remote_job_id,
+    state: r.state as RemoteJob["state"],
+    submittedAt: r.submitted_at,
+    lastPolledAt: r.last_polled_at,
+    finishedAt: r.finished_at,
+    errorCode: r.error_code,
+    meta: r.meta_json ? (JSON.parse(r.meta_json) as Record<string, unknown>) : null,
   });
 
   return {
@@ -1254,6 +1328,32 @@ export function createDriver(
     },
     async updateInvoiceStatus(invoiceId: string, status: string, paidAt: number | null, paidMethod: string | null, notes: string | null): Promise<void> {
       await exec.run(stmts.updateInvoiceStatus, [status, paidAt, paidMethod, notes, Date.now(), invoiceId]);
+    },
+    // --- G4 long-running remote jobs (design-step-trace-and-robustness §3.5) ---
+    /** Record a newly submitted provider job. Idempotent on (provider, remote_job_id):
+     *  a redelivered submit is ignored. Rows with a NULL provider do not dedupe
+     *  (SQLite/PG treat NULLs as distinct), which is intended. */
+    async insertRemoteJob(job: NewRemoteJob): Promise<void> {
+      await exec.run(stmts.insertRemoteJob, [
+        job.id, job.userId, job.runId, job.graphId, job.nodeId, job.attempt,
+        job.kind, job.provider, job.remoteJobId,
+        job.state ?? "submitted", job.submittedAt ?? Date.now(),
+        job.meta ? JSON.stringify(job.meta) : null,
+      ]);
+    },
+    /** The still-open (submitted/running) job for a node attempt, newest first, so
+     *  a resume/reattach never re-submits. Null when no open job exists. */
+    async getOpenRemoteJob(runId: string, nodeId: string, attempt: number): Promise<RemoteJob | null> {
+      const row = await exec.get(stmts.getOpenRemoteJob, [runId, nodeId, attempt]) as RemoteJobRow | undefined;
+      return row ? mapRemoteJob(row) : null;
+    },
+    /** Advance state and stamp last_polled_at while polling (e.g. submitted->running). */
+    async touchRemoteJob(id: string, state: RemoteJob["state"], lastPolledAt?: number): Promise<void> {
+      await exec.run(stmts.touchRemoteJob, [state, lastPolledAt ?? Date.now(), id]);
+    },
+    /** Move a job to a terminal state (succeeded/failed/lost), stamping finished_at. */
+    async finishRemoteJob(id: string, state: "succeeded" | "failed" | "lost", errorCode?: string | null): Promise<void> {
+      await exec.run(stmts.finishRemoteJob, [state, Date.now(), errorCode ?? null, id]);
     },
     /**
      * Count distinct given nodes that finished successfully within a run.
@@ -3276,7 +3376,7 @@ export const DEMO_CASCADE_DIRECT_TABLES: readonly string[] = [
   "artifacts", "audit_log", "announcement_reads", "banned_terms", "batch_jobs",
   "brand_assets", "brand_terms", "content_costs", "content_metrics", "content_plan",
   "feedback", "idempotency_keys", "invoices", "products", "publish_targets",
-  "published_contents", "resource_access", "runs", "settings", "subscriptions",
+  "published_contents", "remote_jobs", "resource_access", "runs", "settings", "subscriptions",
   "usage_ledger", "graphs",
 ];
 /** Tables with no per-user ownership — never touched by a demo cascade.
@@ -4011,6 +4111,40 @@ const MIGRATIONS: Migration[] = [
       // Intentionally no DROP COLUMN: clear the demo flags so a one-step
       // rollback never destroys account rows (design-demo-user §5.1).
       db.exec("UPDATE users SET is_demo = 0, demo_expires_at = NULL WHERE is_demo = 1");
+    },
+  },
+  {
+    version: 41,
+    // G4 durable remote-job handles for long async tasks (design-step-trace
+    // -and-robustness §3.5). Purely additive: a fresh table; no existing row or
+    // code path changes until a node writes to it (steps 4/5, not yet built).
+    description: "remote_jobs table for G4 long-task reattach",
+    detect: (db) => tableExists(db, "remote_jobs"),
+    up: (db) => {
+      db.exec(`CREATE TABLE IF NOT EXISTS remote_jobs (
+        id             TEXT PRIMARY KEY,
+        user_id        TEXT NOT NULL,
+        run_id         TEXT NOT NULL,
+        graph_id       TEXT NOT NULL,
+        node_id        TEXT NOT NULL,
+        attempt        INTEGER NOT NULL,
+        kind           TEXT NOT NULL,
+        provider       TEXT,
+        remote_job_id  TEXT NOT NULL,
+        state          TEXT NOT NULL,
+        submitted_at   INTEGER NOT NULL,
+        last_polled_at INTEGER,
+        finished_at    INTEGER,
+        error_code     TEXT,
+        meta_json      TEXT,
+        UNIQUE (provider, remote_job_id)
+      );`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_remote_jobs_open ON remote_jobs (run_id, node_id)
+        WHERE state IN ('submitted', 'running');`);
+    },
+    down: (db) => {
+      db.exec("DROP INDEX IF EXISTS idx_remote_jobs_open");
+      db.exec("DROP TABLE IF EXISTS remote_jobs");
     },
   },
 ];
