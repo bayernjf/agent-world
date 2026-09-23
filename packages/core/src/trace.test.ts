@@ -106,4 +106,32 @@ describe("buildTimeline", () => {
     expect(at.toolCalls).toBe(1);
     expect(at.artifacts).toBe(1);
   });
+
+  it("projects the skip reason for skipped nodes", () => {
+    const events: RunEvent[] = [
+      evt({
+        type: "node.skipped",
+        seq: 1,
+        ts: 100,
+        nodeId: "A",
+        attempt: 1,
+        reason: "audio unsupported: worker has no generateAudio capability",
+      }),
+    ];
+    const tl = buildTimeline(events);
+    const at = tl.nodes[0].attempts[0];
+    expect(at.status).toBe("skipped");
+    expect(at.skipReason).toBe("audio unsupported: worker has no generateAudio capability");
+    expect(tl.nodes[0].status).toBe("skipped");
+    expect(tl.totals.skipped).toBe(1);
+  });
+
+  it("defaults skipReason to null when skipped without a reason", () => {
+    const events: RunEvent[] = [
+      evt({ type: "node.skipped", seq: 1, ts: 100, nodeId: "A", attempt: 1 }),
+    ];
+    const at = buildTimeline(events).nodes[0].attempts[0];
+    expect(at.status).toBe("skipped");
+    expect(at.skipReason).toBeNull();
+  });
 });
