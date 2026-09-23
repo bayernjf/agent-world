@@ -220,6 +220,7 @@
     "loadingFull": "加载中…",
     "fullError": "完整输出加载失败，请稍后重试。",
     "tripped": "预算熔断",
+    "skipReason": "跳过原因：",
     "totals": "{{done}}/{{total}} 节点成功 · 失败 {{failed}}",
     "status": {
       "running": "运行中",

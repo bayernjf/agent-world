@@ -32,6 +32,7 @@ function attempt(over: Record<string, unknown> = {}) {
     gate: null,
     error: null,
     errorCode: null,
+    skipReason: null,
     toolCalls: 0,
     artifacts: 0,
     ...over,
@@ -214,5 +215,37 @@ describe("RunTimelineView", () => {
     mockGet.mockResolvedValue(reusedSample);
     render(<RunTimelineView runId="run-1" />);
     await screen.findByText("复用");
+  });
+
+  it("shows the skip reason for skipped nodes", async () => {
+    const skippedSample: RunTimelineResponse = {
+      ...sample,
+      nodeMeta: { ...sample.nodeMeta, C: { name: "配音", kind: "audioGen" } },
+      timeline: {
+        ...sample.timeline,
+        nodes: [
+          ...sample.timeline.nodes,
+          {
+            nodeId: "C",
+            status: "skipped",
+            attempts: [
+              attempt({
+                status: "skipped",
+                durationMs: null,
+                skipReason: "audio unsupported: worker has no generateAudio capability",
+              }),
+            ],
+          },
+        ],
+        totals: { ...sample.timeline.totals, nodes: 3, skipped: 1 },
+      },
+    };
+    mockGet.mockResolvedValue(skippedSample);
+    render(<RunTimelineView runId="run-1" />);
+    await screen.findByText("配音");
+    expect(screen.getByText("跳过原因：")).toBeTruthy();
+    expect(
+      screen.getByText("audio unsupported: worker has no generateAudio capability"),
+    ).toBeTruthy();
   });
 });
