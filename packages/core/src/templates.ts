@@ -3487,7 +3487,7 @@ export const TEMPLATES: GraphTemplate[] = [
 /**
  * Blank canvas entry — NOT a business template.
  * Exported separately so `TEMPLATES.length` always equals the real
- * template count (27), and callers that need the blank entry opt in.
+ * template count (33), and callers that need the blank entry opt in.
  */
 export const BLANK_TEMPLATE: GraphTemplate = blankGraph;
 
