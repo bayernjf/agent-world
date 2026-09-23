@@ -37,6 +37,10 @@ export const ErrorCode = z.enum([
   "UNSUPPORTED",
   "SCRIPT_ERROR",
   "SUBPROCESS",
+  // G4: on reattach the provider no longer knows the remote job (TTL expired /
+  // cleaned up). Distinct from TIMEOUT, which means the local poll window was
+  // exhausted while the remote job may still be rendering.
+  "REMOTE_JOB_LOST",
 ]);
 export type ErrorCode = z.infer<typeof ErrorCode>;
 
@@ -124,6 +128,31 @@ export const RunEvent = z.discriminatedUnion("type", [
     ...NodeRunKey.shape,
     error: z.string(),
     errorCode: ErrorCode.optional(),
+  }),
+  /**
+   * A long async job (video/image/audio) reached the end of its local polling
+   * window without a terminal result, but the remote job may still be running.
+   * Unlike `node.failed`, the outcome is undecided: the node projects to
+   * `degraded` and the run halts for an explicit operator decision (reattach or
+   * accept-degraded), so a resume never blindly re-submits and double-bills
+   * (G4, design-step-trace-and-robustness §3.5).
+   */
+  z.object({
+    ...base,
+    type: z.literal("node.degraded"),
+    ...NodeRunKey.shape,
+    /** Human-readable cause, e.g. "video poll timed out after 300s; the remote render may still be in progress". */
+    reason: z.string(),
+    /** TIMEOUT when the local poll window was exhausted; REMOTE_JOB_LOST when the provider no longer knows the job. */
+    errorCode: ErrorCode.optional(),
+    /** Opaque provider-side job handle, present when the node submitted one (enables reattach). */
+    remoteJob: z
+      .object({
+        provider: z.string().optional(),
+        jobId: z.string(),
+        kind: z.enum(["video", "image", "audio"]),
+      })
+      .optional(),
   }),
   /** A node skipped because an upstream predecessor failed (cascade). Distinct from pending — the UI can show "skipped" instead of "waiting". */
   z.object({
