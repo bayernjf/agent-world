@@ -41,6 +41,8 @@ export interface TimelineAttempt {
   gate: TimelineGate | null;
   error: string | null;
   errorCode: string | null;
+  /** Why a skipped attempt was skipped (e.g. worker lacks the capability). Null otherwise. */
+  skipReason: string | null;
   toolCalls: number;
   artifacts: number;
 }
@@ -152,6 +154,7 @@ export function buildTimeline(events: RunEvent[]): RunTimeline {
         gate: null,
         error: null,
         errorCode: null,
+        skipReason: null,
         toolCalls: 0,
         artifacts: 0,
       };
@@ -210,6 +213,7 @@ export function buildTimeline(events: RunEvent[]): RunTimeline {
       case "node.skipped": {
         const { node, at } = ensureAttempt(e.nodeId, e.attempt, e.variant);
         at.status = "skipped";
+        at.skipReason = e.reason ?? null;
         node.status = "skipped";
         break;
       }

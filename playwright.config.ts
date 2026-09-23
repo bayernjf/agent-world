@@ -1,72 +1,68 @@
 import { defineConfig, devices } from "@playwright/test";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import os from "node:os";
+import path from "node:path";
+import fs from "node:fs";
 
-const root = fileURLToPath(new URL(".", import.meta.url));
+// E2E runs on isolated ports (not the 8791/5173 used by local dev) so it never
+// reuses a developer's already-running server or its real database.
+const SERVER_PORT = process.env.E2E_SERVER_PORT ?? "8792";
+const WEB_PORT = process.env.E2E_WEB_PORT ?? "5174";
 
-// Every run gets a fresh throwaway data dir. The server derives the SQLite DB,
-// JWT secret, at-rest encryption keys, artifact store and logs from DB_FILE's
-// directory, so pointing DB_FILE at a unique temp dir keeps the E2E run fully
-// isolated from any real local/production data. The dir is removed on exit.
-const dataDir = mkdtempSync(join(tmpdir(), "agent-world-e2e-"));
-const dbFile = join(dataDir, "agent-world.sqlite");
-const cleanup = () => rmSync(dataDir, { recursive: true, force: true });
-process.on("exit", cleanup);
-for (const sig of ["SIGINT", "SIGTERM"] as const) {
-  process.on(sig, () => {
-    cleanup();
-    process.exit(sig === "SIGINT" ? 130 : 143);
-  });
-}
+// Give every test run its own SQLite file; never touch a real agent-world.db.
+const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "aw-e2e-"));
+const dbFile = path.join(tmpDir, "agent-world-e2e.db");
 
-// The smoke suite never runs a pipeline (it only opens the app and starts a
-// demo), so no provider keys or paid-plan flags are required. ALLOW_DEMO=1
-// turns on the one-click demo entry; demo seeding is text-only and cheap.
+// The suites never run a pipeline (they only open the app, start a demo, and
+// exercise auth/onboarding/settings), so no provider keys or paid-plan flags
+// are required. ALLOW_DEMO=1 turns on the one-click demo entry; demo seeding
+// is text-only and cheap. ALLOW_REGISTRATION=1 keeps self-registration open
+// after the first account bootstraps the throwaway DB, so the authenticated
+// specs can each provision a unique account.
 const SERVER_ENV = {
   ...process.env,
   ALLOW_DEMO: "1",
+  ALLOW_REGISTRATION: "1",
   DB_FILE: dbFile,
-  PORT: "8791",
-};
+  PORT: SERVER_PORT,
+} as const;
+
+const apiTarget = `http://localhost:${SERVER_PORT}`;
 
 export default defineConfig({
   testDir: "./e2e",
-  // Smoke tests share one seeded server; keep them serial to avoid demo
-  // per-IP rate limiting and cross-test state races.
   fullyParallel: false,
   workers: 1,
   retries: 0,
+  reporter: [["list"]],
   timeout: 30_000,
   expect: { timeout: 10_000 },
-  reporter: [["list"], ["html", { open: "never" }]],
+
   use: {
-    baseURL: "http://localhost:5173",
+    baseURL: `http://localhost:${WEB_PORT}`,
     trace: "on-first-retry",
-    screenshot: "only-on-failure",
-    video: "off",
   },
+
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+
   webServer: [
     {
-      // tsx runs the server straight from TS (no build step). @agent-world/core
-      // must already be built (run `pnpm -r build` once after a fresh install).
+      // Backend on the isolated E2E port with a throwaway DB. Config loads as
+      // ESM (package.json "type": "module"), so use process.cwd() (the repo
+      // root, from which Playwright runs) instead of __dirname.
+      cwd: path.join(process.cwd(), "packages/server"),
       command: "pnpm exec tsx src/index.ts",
-      cwd: join(root, "packages/server"),
       env: SERVER_ENV,
-      url: "http://localhost:8791/api/health",
+      url: `http://localhost:${SERVER_PORT}/api/health`,
+      reuseExistingServer: false,
       timeout: 60_000,
-      // Reuse a server the developer already has running instead of failing on
-      // the port; CI always starts its own isolated instance.
-      reuseExistingServer: !process.env.CI,
     },
     {
-      command: "pnpm --filter @agent-world/web dev",
-      cwd: root,
-      url: "http://localhost:5173",
-      timeout: 120_000,
-      reuseExistingServer: !process.env.CI,
+      // Frontend dev server, proxying /api to the isolated backend.
+      command: `pnpm --filter @agent-world/web exec vite --port ${WEB_PORT} --strictPort`,
+      env: { ...process.env, VITE_API_PROXY_TARGET: apiTarget },
+      url: `http://localhost:${WEB_PORT}`,
+      reuseExistingServer: false,
+      timeout: 60_000,
     },
   ],
 });

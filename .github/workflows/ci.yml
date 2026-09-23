@@ -51,6 +51,19 @@ jobs:
         # Run test files one at a time so code nodes get enough CPU.
         run: pnpm -r --if-present test -- --maxWorkers=1
 
+      - name: Install Playwright browser for E2E
+        # The root @playwright/test can pin a different Chromium build than
+        # the server's RPA playwright installed above; fetch the root-pinned
+        # build into the shared browser cache (OS deps are already installed).
+        run: pnpm e2e:install
+
+      - name: E2E tests
+        # Playwright auto-starts an isolated server (:8792) + web (:5174) on
+        # a throwaway DB with ALLOW_DEMO/ALLOW_REGISTRATION enabled (see
+        # playwright.config.ts). The suite never runs a pipeline, so it needs
+        # no secrets; core is already built above for the tsx-run server.
+        run: pnpm e2e
+
   secrets:
     name: Secret leak scan
     runs-on: ubuntu-latest

@@ -220,6 +220,7 @@
     "loadingFull": "Loading…",
     "fullError": "Failed to load full output. Please retry.",
     "tripped": "Budget tripped",
+    "skipReason": "Skip reason: ",
     "totals": "{{done}}/{{total}} nodes ok · {{failed}} failed",
     "status": {
       "running": "Running",
