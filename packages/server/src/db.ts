@@ -315,6 +315,47 @@ export interface PublishedContent {
   detailJson: string | null;
 }
 
+/**
+ * G4 durable handle to a provider-side long-running job (video/image/audio).
+ * Persisted at submit so a run can reattach after a poll timeout or process
+ * restart instead of re-submitting (and double-billing). Only video writes
+ * today; `kind`/shape are reserved for image/audio.
+ * (design-step-trace-and-robustness §3.5)
+ */
+export interface RemoteJob {
+  id: string;
+  userId: string;
+  runId: string;
+  graphId: string;
+  nodeId: string;
+  attempt: number;
+  kind: "video" | "image" | "audio";
+  provider: string | null;
+  remoteJobId: string;
+  state: "submitted" | "running" | "succeeded" | "failed" | "lost";
+  submittedAt: number;
+  lastPolledAt: number | null;
+  finishedAt: number | null;
+  errorCode: string | null;
+  meta: Record<string, unknown> | null;
+}
+
+/** Fields the caller supplies when recording a newly submitted remote job. */
+export interface NewRemoteJob {
+  id: string;
+  userId: string;
+  runId: string;
+  graphId: string;
+  nodeId: string;
+  attempt: number;
+  kind: RemoteJob["kind"];
+  provider: string | null;
+  remoteJobId: string;
+  state?: RemoteJob["state"];
+  submittedAt?: number;
+  meta?: Record<string, unknown> | null;
+}
+
 // Re-export the SQLite driver factory under its historical name, plus the
 // small set of public implementation symbols callers still import from `db.ts`.
 export { createSqliteDriver as openDb };
