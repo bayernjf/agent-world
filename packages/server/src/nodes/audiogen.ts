@@ -18,15 +18,27 @@ export const TTS_MAX_INPUT_CHARS = 4096;
  */
 export async function audioGenNode(ctx: NodeRunContext, node: GraphNode, nodeId: string, attempt: number): Promise<void> {
   const { artifacts, budgetUsd, emit, inputFor, opts, sendPackets, states, worker } = ctx;
-  emit({ type: "node.started", nodeId, attempt });
   const cfg = node.audioGen ?? { model: "tts-1", format: "mp3", n: 1 };
   if (!worker.generateAudio) {
-    // Honest failure: audio is often the run's product (dogfood 2026-09-01,
-    // tpl-news-podcast). Templates wanting a fallback add an error edge.
-    states.set(nodeId, "failed");
-    emit({ type: "node.failed", nodeId, attempt, error: "worker 无音频生成能力", errorCode: "VALIDATION" });
+    // G-C soft degrade (docs/design-tts-provider.md, decided 2026-09-24): in the
+    // podcast flow the written script is the primary deliverable and the
+    // voice-over is an add-on. When no audio capability is configured (zero-setup
+    // / text-only provider), skip the node — visible in the timeline — instead of
+    // failing the whole run. tpl-news-podcast wires a script→sink bypass edge so
+    // the script still reaches the depot as a text deliverable. Graphs that treat
+    // audio as mandatory should attach an error edge or alert on the skip. Note
+    // a configured-but-empty/over-length response still fails below (real error).
+    states.set(nodeId, "skipped");
+    ctx.log.warn("audioGen skipped: worker has no generateAudio capability", { nodeId, model: cfg.model });
+    emit({
+      type: "node.skipped",
+      nodeId,
+      attempt,
+      reason: "audio unsupported: worker has no generateAudio capability",
+    });
     return;
   }
+  emit({ type: "node.started", nodeId, attempt });
   const prompt = cfg.prompt?.trim() || (await inputFor(node));
   // G-D: reject over-length input before paying for a request the provider would
   // reject anyway. `n` produces N variants of the SAME text, not chunks, so the

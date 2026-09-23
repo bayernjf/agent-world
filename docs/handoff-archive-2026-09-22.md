@@ -83,3 +83,9 @@
   累计 all-time 翻译 19/36=53%，与 09-18 体检 53% 口径吻合。**结论：方案 C（翻译 cron 4h→8h + QC criterion 放宽 + RATE_LIMIT 长退避 retry）对 free tier 429 完全有效**——节点级 RATE_LIMIT 由窗口前 16 次（集中 09-13：翻译 8/短视频 3/批量 3）降到窗口后 2 次且都在 09-14，**09-15 起连续 5 天零 429**；四产线完成率全抬升，短视频/批量窗口后满分。成本结构稳定：窗口后合计 $5.66，③短视频占 95.4%（agnes-video-v2.0 10×$0.5=$5.00 + agnes-image 10×$0.04=$0.40），文本三厂合计仅 $0.26（全 agnes-2.0-flash）。done run 时长中位数：写草稿 7.0min / 翻译 15.1min（降频+retry+gate 重跑，单次更久但完成率翻倍，旧基线 8.6min）/ 短视频 3.4min / 批量 5.4min。cron 节奏正常（写草稿约 24/天、翻译 3/天、短视频 2/天、批量 1/天）。窗口后残留非 done 终态：②翻译 halted×3（09-14/15/18，全是 QC 判“未翻译反问”，根因见上条）+ failed×1（09-14 RATE_LIMIT）；①写草稿 failed×2（09-14 RATE_LIMIT×1、09-18 SSRF 误拦×1，后者已修已部署）、interrupted×4（部署重启，非质量）。
 
 - 历史体检记录（2026-09-11 ~ 2026-09-18 07:52）→ [handoff-archive-2026-09-18.md](docs/handoff-archive-2026-09-18.md)。
+
+---
+
+## Recently shipped 归档续四（2026-09-24 滚动，保持 last-6）
+
+**2026-09-22（docs：两个落地方案设计，feature/20260824，仅文档未写码）**：① **G4 长任务跨 run 续跑落地级设计（#55，commit `eae4c3b`）**——[design-step-trace-and-robustness.md](docs/design-step-trace-and-robustness.md) §3.4–3.10：NodeState 加 `degraded`、`node.degraded` 事件、`REMOTE_JOB_LOST` 错误码、新表 `remote_jobs`（migration 41）、videogen 超时走 human 同构 halt、submit 前查 open job 幂等防重复计费、ResumeAction 加 `reattach`/`accept-degraded`（query 四分支）、重启默认只读刷新不自动重投、前端橙色 degraded 标识 + 三按钮 + i18n、8 步原子提交计划（1/2 纯增量可先行，4/5 触执行核心须避开 M1 回采期）。② **TTS Provider 接入方案（#56，新建 [design-tts-provider.md](docs/design-tts-provider.md)）**——经读码 + 联网核实确认 audioGen 节点 / Worker 接缝 / OpenAI 兼容 `generateAudio` 链路约 90% 就绪、`MODALITY_ENDPOINT.audio=/audio/speech` 与 SiliconFlow 完全一致，硬缺口仅「配一个真音频供应商 + key」，另有三处口径要补：SF 按 **UTF-8 字节**计费（中文 1 字≈3 字节，现有 perKiloChar 低估约 3×，需加 `perMegaUtf8Byte` 单位）、SF 音色须写 `模型名:音色名`（模板写死的 `alloy` 无效，需 `ttsVoice` field）、模板「无 TTS 软跳过」注释与代码实际 `failed VALIDATION` 不一致（需二选一消除）；给 P0 零代码验证（custom provider 配 SF）/ P1 产品化小改 / P2 edge-tts 免费但商用灰色备选三档，长文本分片拼接列 P2；docs/README 场景导航挂索引、deferred tpl-news-podcast 行更新。**P0 验证 / P1 写码均待用户提供 SF 或 OpenAI key（卡外部输入）。**

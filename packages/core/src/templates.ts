@@ -1474,8 +1474,10 @@ const newsPodcastGraph = {
         name: "AI 配音",
         x: 900,
         y: 300,
-        // prompt 留空：直接朗读上游口播稿。默认供应商不支持 TTS 时该节点会
-        // 软跳过（稿件文本仍完整产出），配置支持 /audio/speech 的模型即可出音频。
+        // prompt 留空：直接朗读上游口播稿。当前 worker 无音频生成能力（零配置 /
+        // 纯文本供应商）时该节点软跳过（node.skipped + 日志告警，不致 run 失败）；
+        // e5 旁路把稿件直送 depot，故无 TTS 也能交付完整文稿，配置支持
+        // /audio/speech 的模型后则文稿与配音一并交付。
         audioGen: { model: "tts-1", voice: "alloy", format: "mp3" },
       },
       { id: "depot", kind: "sink", name: "播客成品", x: 1180, y: 300 },
@@ -1485,6 +1487,8 @@ const newsPodcastGraph = {
       { id: "e2", from: "search", to: "script", kind: "flow" },
       { id: "e3", from: "script", to: "voice", kind: "flow" },
       { id: "e4", from: "voice", to: "depot", kind: "flow" },
+      // G-C 旁路：voice 软跳过时稿件仍直达成品节点，避免 sink 被级联跳过而无产出。
+      { id: "e5", from: "script", to: "depot", kind: "flow" },
     ],
   },
 } satisfies GraphTemplate;
@@ -3487,7 +3491,7 @@ export const TEMPLATES: GraphTemplate[] = [
 /**
  * Blank canvas entry — NOT a business template.
  * Exported separately so `TEMPLATES.length` always equals the real
- * template count (27), and callers that need the blank entry opt in.
+ * template count (33), and callers that need the blank entry opt in.
  */
 export const BLANK_TEMPLATE: GraphTemplate = blankGraph;
 

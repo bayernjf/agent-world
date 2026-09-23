@@ -54,12 +54,34 @@ All notable changes are documented here. The format is based on
 - **i18n 国际化** — i18next + react-i18next，11 个命名空间（common/canvas/nodes/modals/settings/run/errors/auth/reviews/announcements/feedback）zh/en 双语全量 keys；41 个组件 + App.tsx 全部 `t()` 迁移（含 Inspector 29 种节点配置约 250 处）；语言自动检测 + localStorage 持久化 + LanguageSwitcher；`i18n/utils.ts` 本地化格式（date/number/currency/relativeTime）；`keys.test.ts` 守护（key 双语齐全 + zh/en 结构一致 + 无硬编码中文 JSX）。详见 [docs/design-i18n.md](docs/design-i18n.md)。
 - **设计 Token 体系与明暗主题** — Primitive 层（8pt 间距/圆角/阴影/字号/行高/字重/动画）+ Semantic 层（背景/文字/边框/功能色/accent）+ `[data-theme="light"]` 明暗主题切换；styles.css 全局样式分 30 批全部迁移 semantic token，保留原有 26 个原始 token 向后兼容。详见 [docs/design-design-tokens.md](docs/design-design-tokens.md)。
 - **自媒体电商方向 F1-F10**（里程碑 M1-M6 闭环）— run 内多变体择优（fanout/select 节点 + 变体对比视图）、审核队列、平台合规校验、商品库/素材库、批量任务、效果回流、平台化导出包 + 开放渠道 Webhook 发布、内容日历、内容级成本、画布泳道编排；仅新增 4 个节点（fanout/select/compliance/publish），浏览器 RPA 按决策不做。详见 [docs/design-ecommerce-roadmap.md](docs/design-ecommerce-roadmap.md)。
+- **RTS 游戏化运营视图三阶段（A 运营工作台 → B L0 宏观园区 → C 跨厂工业园区）** — 阶段 A：跨产线运营 rollup、operations overview endpoint 与运营工作台；阶段 B：`parkLayout` 纯函数（螺旋碰撞兜底）、迁移 37 园区坐标持久化、L0 宏观园区总览（实时工厂、点击下钻单产线）、拖拽摆位（按厂防抖保存、unmount flush）、B5 FPS 实测达标（无需视口剔除）；阶段 C：跨厂物料边推导、跨厂管道与脉冲卡车、plan-B 同构锚点 zoom 过渡、经济栏（月度成本/token）、排期轴（每厂 cron 状态）、ROI 热度精灵与复盘卡。详见 [docs/design-rts-overview.md](docs/design-rts-overview.md)、[docs/design-rts-stage-b.md](docs/design-rts-stage-b.md)。
+- **新用户分步引导 Guided Tour** — 可扩展注册表式 tour 引擎（步骤声明 target/placement/内容，与版本解耦，天然支持后续「新版本/新功能」what's-new 引导）、聚光灯遮罩、首启自动调度、菜单重放；锚点随页面滚动保持在屏、操作按钮尺寸规范化。详见 [docs/design-guided-tour.md](docs/design-guided-tour.md)。
+- **M2 订阅配额 gate（S1-S8）** — 套餐档位 Starter/Pro/Team（价格经 M1 回采真实成本校准，视频占成本约九成）、`usage_ledger` 月度计量（幂等回填）、视频段/存储/归一化 token 三类配额在 run 入口强制（超额 402 并引导升级）、`GET /api/subscription`、前端账单 Tab + 用量面板 + 配额升级 gate、80%/100% token 用量预警、Team 席位限制；BYOK 视频不计入平台视频配额。详见 [docs/design-monetization.md](docs/design-monetization.md)、[docs/design-monetization-m2-implementation.md](docs/design-monetization-m2-implementation.md)。
+- **M3 Stripe 支付网关（A0-A5，真机待资质）** — stripe-sdk、迁移 39 订阅镜像列、网关 wrapper（env 配置 + 可注入 client）、checkout / billing-portal / webhook 路由、webhook 事件幂等镜像同步、Stripe 返回 query 处理并重开账单页、BillingTab 升级/管理接线（中英 i18n）。真机扣款 Step6 待收款主体与 key。详见 [docs/design-monetization-m3-s6-stripe.md](docs/design-monetization-m3-s6-stripe.md)。
+- **演示账号 demo user** — 迁移 40 demo 用户 schema、demo 配额与能力锁、run gate、前端 demo 模式入口 + banner + 认领对话框（claim 后转正式账号）、过期 demo 用户清理脚本（cron）。详见 [docs/design-demo-user.md](docs/design-demo-user.md)。
+- **运行可观测与排障增强** — 运行历史全文搜索；失败 run 的 LLM 诊断；运行步骤时间线（core timeline 投影 + 只读 endpoint + 前端步骤视图，完整节点产物懒加载）；产线切换器搜索与置顶。
+- **节点输出契约（G2.2）与数组根契约（G2.4 前置）** — `ContractSpec` zod schema + 可选 `GraphNode.contract`，引擎对节点输出与连接器数据强制契约；Inspector 配置 Tab 契约编辑器（支持对象/数组根切换，数组根持久化可选）。
+- **从指定节点 fork 重跑（G1.2）与节点级失败重试（G3）** — 从某节点 fork 新 run，上游产物零成本复用（带 reused 徽章）；Inspector 提供每节点失败重试开关。
+- **Provider 故障转移 v1** — 备份 provider 槽与 failover 配置，文本与 judge（gate）调用在主源失败时自动切换；修复备份槽 enabled 开关不生效。
+- **错误追踪适配层** — 内存环形缓冲 + 进程级兜底捕获进程/请求错误，`/api/admin/errors` 管理端 feed，可插拔 ErrorSink（webhook）+ 自检 CLI。详见 [docs/runbooks/error-reporting.md](docs/runbooks/error-reporting.md)。
+- **TTS 语音合成产品化 P1（G-A/G-B/G-D + G-E/G-H）** — 音频按输入 UTF-8 字节计费（适配按字节计费供应商口径）、播客模板 TTS 音色参数化、超长输入 fail-fast 可操作报错、audioGen 模态分发 gate 测试、供应商配置 runbook；真机待供应商 key。详见 [docs/design-tts-provider.md](docs/design-tts-provider.md)、[docs/runbooks/tts-provider-setup.md](docs/runbooks/tts-provider-setup.md)。
+- **写实工业风 3D 全面铺开** — textGen 写实工业厂房原型（程序化 PBR 材质/贴图，零外部素材）验证后，可复用工业部件套件推广到全部 29 种节点；3D 第五期美化（ACES 色调映射、UnrealBloom、PMREM 环境反射、硬边蓝图描边、running 呼吸脉冲）。详见 [docs/design-canvas-isometric.md](docs/design-canvas-isometric.md)。
+- **长任务跨 run 续跑地基（G4 步骤 1/2，纯增量）** — core 新增 `node.degraded` 事件与 `REMOTE_JOB_LOST` 错误码；server 迁移 41 `remote_jobs` 表 + driver CRUD，为视频等长任务的 degraded/halt 状态机与跨 run 重新附着打底（后续 ③-⑥ 缓做）。详见 [docs/design-step-trace-and-robustness.md](docs/design-step-trace-and-robustness.md)。
+- **异地备份与 checkpoint 补丁脚本** — offsite backup + checkpoint patch 脚本，并完成首次异地备份恢复演练（RTO/RPO 验证）。
+- **状态机方案 A：分支状态变量守卫** — branch 节点状态迁移编译期校验，画布上分支节点状态变量流转可视化。
+- **Playwright E2E 冒烟骨架** — guest 与 demo 流程的端到端冒烟用例。
+- **fileParse 支持 Excel（.xlsx）** — 电子表格解析接入文件解析节点（Excel 写出仍缓做）。
+- **版本对比升级** — 两个产线版本结构化 diff；长文本产物在对比视图逐字/逐词内联高亮。
 
 ### Changed
 - **设置弹窗改为标签页并正名为「设置」** — 弹窗历史标题「设置 · 模型与密钥」早已名不副实（搜索、预算、Worker、MCP、技能卡都塞在里面）。现标题改为「设置」，内容收进三个下划线式标签页：**模型**（供应商卡片 + 月度预算 + Worker 插件隔离）、**集成**（搜索服务 + MCP 服务，两个外部连接/凭证分区）、**技能**（自建技能卡）；非活动标签页不挂载。侧栏入口与三处引导文案（「去设置 · 模型与密钥」等）同步去掉旧副标题，无引用的 `modelKeys.title` 键删除。新增 3 个标签页切换测试。
 - **MCP / 自建技能卡设置分区改用既有 model-card 视觉语言** — 首版两个分区自造了 `.mcp-*` 私有类名、扁平堆叠表单，与同弹窗里的模型供应商列表不一致（删除链接被渲染成整行红色块）。评审发现后重写为折叠式 `.model-card` 列表（chevron / 启用开关 / 等宽名称 / badge / 连接状态圆点的 head，展开后 `.field` 表单 + `.model-card__footer-actions` + `.diag` 状态行），删除按钮收进 head-actions；CSS 里自造类全部删掉，只留 4 个基于现有 token 的小 helper（`.ext-add-row` / `.ext-status-dot` / `.ext-badge` / `.card-fields`）。行为零变化，1593 个 web 测试全绿。
 - **核心文件重构（行为零变化）** — `engine.ts` 4954→1828 行：29 种节点执行体迁至 `packages/server/src/nodes/`（28 个 handler + `NodeRunContext` + `NODE_HANDLERS` 注册表分发）；`Inspector.tsx` 3848→611 行：节点配置面板拆至 `InspectorFields/` 27 文件 + 注册表分发。详见 [docs/design-refactor-engine-inspector.md](docs/design-refactor-engine-inspector.md)。
 - 模板总数从 27 增至 33（覆盖 29 种节点类型中的 23 种）
+- **构建工具链 major 升级** — Vitest 5、Vite 8 + @vitejs/plugin-react 6、TypeScript 7、undici 8（后因与 Node 内置 fetch 不兼容 pin 回 7.x，见 Fixed）；React 19.3 / three 0.186 / hono 4.13.8 跟进；补 jsdom `URL.createObjectURL` stub 与 testing-library 全局异步超时降 flake。
+- **限流重试改长退避** — judge/media 节点与翻译产线的 429 从 4 次快速重试改为长等待退避，显著降低 free tier 限流下的 run 失败率。
+- **视频生成 run 内轮询远程异步任务（G4.4）** — videoGen 节点在 run 内轮询远程异步视频作业，替代一次性提交即返回。
+- **3D 节点常显名称标签** — 园区/3D 视角节点上方常驻名称，降低多节点辨识成本。
 
 ### Fixed
 - **agnes 视频一律按 5s 兜底计费（未按真实成片秒数）** — 真机抓取 agnes 完成任务 JSON 确认成片时长在顶层 `seconds` 字段、且为**数字字符串**（实测 `"5.0"`；`num_frames/frame_rate` 只嵌在 `perf_params` 下、顶层没有）。两处导致 perSecond 表读不到真实时长：agnes videoAdapter 未配 `durationPath`，且 `videoBillingSeconds` 只接受 JSON number。修复（`5ffeb65`，PR #218 已部署 Hasee）：adapter 配 `durationPath: "seconds"`；新增 `positiveNumber()` 同时接受 number 与数字字符串（durationPath、num_frames/frame_rate 两路统一走它）；+1 字符串秒数用例（`"8.0"` → 8s/$0.80，18 provider 测试过）。部署后在 dist 真机回放验证：`"5.0"`→5s/$0.50 不回归、`"8.0"`→8s/$0.80。agnes `omitDuration` 默认出片即 5s，故常规 run 金额仍是 $0.5，本修的价值是非 5s 成片不再被截成 5s。
@@ -69,6 +91,22 @@ All notable changes are documented here. The format is based on
 - **ABReport A/B 对比「单跑成本」测试 flaky** — `renderAndWait` 只等 `api.abReport` 被调用、没等 promise resolve 后 `setReport` 重渲染，CI 高负载下断言撞上「加载中…」偶发失败；改为等加载指示消失（`!report` 门一旦有数据不再回到加载屏）。 — dependabot 提的 6.1.1 peer 是 `vite: ^8` 且 import `vite/internal`，Vite 6 下 `vite.config.ts` 加载即崩（PR #203）。改升到仍支持 Vite 6 的 5.x，并让 dependabot 忽略该包的 major，直到 Vite 升级。
 - **代码沙箱 Node 权限门控探测** — `probeNodePermissionGate` 剥离 `NODE_OPTIONS` 后探测（宿主 `--require` 语言 shim 需要 fs 读、被权限模型默认拒绝，导致误判「无权限模型」）；`--allow-fs-*` 只在检测到 `--permission`/`--experimental-permission` 门控后才发出，杜绝 Node ≥ 22.2 下「无门控的 allow 参数」触发 `ERR_MISSING_OPTION` 崩溃。详见 [docs/design-code-sandbox.md](docs/design-code-sandbox.md)。
 - **tesseract 语言包缓存目录** — 从 server 进程 CWD 改到 `<DB dir>/tessdata`（与 `artifacts/`、`logs/`、`.encryption-key` 同级），47MB chi_sim+eng 不再污染 CWD。
+- **undici 8 与 Node 内置 fetch 不兼容（P0 热修）** — undici v8 破坏内置 fetch、打挂出站请求；pin 回 7.x，并让 SSRF DNS pin 优先 IPv4（PR #362，事故复盘已归档）。
+- **gate 质检节点 0 计费 / 翻译节点 model=None** — `judge()` 不返回 usage 导致 gate AI 调用成本落 0、`computeUsage` 未带 model 致按模型分摊丢桶，两处均修复。
+- **占位符插值正则 ReDoS** — `${...}` 占位符解析改为线性扫描器（占位符与嵌套引用两处），杜绝构造性长串二次方回溯。
+- **翻译评审返工看不到原文** — gate 返工时评审同时拿到 source 与 draft（此前只喂 draft，评审只能看到译文）。
+- **gate 禁用词命中无可读反馈** — 返工提示给出每个命中词的位置与所在子句上下文，而非仅报「命中禁用词」。
+- **three.js 3D 视图资源泄漏 + Canvas3D 审计欠账** — 修复 renderer/geometry 泄漏，补齐 iso3d-shapes 与 Canvas3D 组件测试。
+- **已有产线后加触发器不持久化** — 修复向已存在产线新增 trigger 后未落库、重启丢失。
+- **SSRF 守卫 DNS 瞬时失败即拒绝** — DNS 查询瞬时失败时重试，避免偶发解析抖动误杀正常请求。
+- **园区坐标保存抖动** — park 坐标按厂防抖保存，unmount 时 flush，避免拖拽高频写库。
+- **demo 首跑 422 / 模型竞态** — 模型选项加载前保留种子模型；settings 在登录前 reject 不清空已 seeded 模型。
+- **窄视口布局系列** — HUD/工具栏窄屏不换行、折叠 Inspector 裁剪、进入园区总览自动折叠 Inspector、ParkEconomyBar 缺 cost/token 指标时守卫。
+- **Stripe 镜像索引在迁移后创建导致升级崩溃** — 迁移建表后补建 stripe mirror 索引，修复升级即崩。
+- **工业程序化贴图在 headless（无 2D context）抛错** — canvas 2D context 获取加守卫，修复 jsdom/headless 测试环境崩溃。
+- **Guided Tour 锚点滚出屏、操作按钮尺寸异常竖排** — 锚点在杂散页面滚动下保持在屏；统一操作按钮尺寸、禁止竖排换行。
+- **MCP streamable-http 通知错误冒泡** — 尽力而为的 notify 失败被吞掉，不再打断主流程。
+- **保存失败色值未走设计 token** — save-failed 颜色改用既有 `--error` token。
 
 ## [0.3.0] - 2026-08-29
 

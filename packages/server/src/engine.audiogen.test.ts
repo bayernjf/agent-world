@@ -117,21 +117,61 @@ describe("audioGen node (P1-6)", () => {
     expect(produced.length).toBe(2);
   });
 
-  it("fails the node when worker has no generateAudio method (no silent skip)", async () => {
+  it("soft-skips (not fails) when worker has no generateAudio method", async () => {
     const { worker } = spyWorker({ noAudio: true });
     const events = await run(graphAudioGenToSink(), worker);
 
-    const produced = events.filter((e) => e.type === "artifact.produced" && e.artifact.kind === "audio");
-    expect(produced.length).toBe(0);
+    // No audio is produced; the node is skipped rather than failed (G-C, 2026-09-24).
+    expect(events.filter((e) => e.type === "artifact.produced" && e.artifact.kind === "audio").length).toBe(0);
+    const skipped = events.find((e) => e.type === "node.skipped" && e.nodeId === "aud");
+    expect(skipped).toBeDefined();
+    expect(skipped && skipped.type === "node.skipped" && skipped.reason).toContain("audio unsupported");
+    expect(events.find((e) => e.type === "node.failed" && e.nodeId === "aud")).toBeUndefined();
 
-    // Honest failure instead of soft-skip (dogfood 2026-09-01)
-    const failed = events.find((e) => e.type === "node.failed" && e.nodeId === "aud");
-    expect(failed).toBeDefined();
-    expect(failed && failed.type === "node.failed" && failed.errorCode).toBe("VALIDATION");
+    // In a strictly linear graph with no bypass edge the sink cascades to skipped —
+    // it must never run as if audio had been produced.
+    expect(events.find((e) => e.type === "node.finished" && e.nodeId === "sink")).toBeUndefined();
+    expect(events.find((e) => e.type === "node.skipped" && e.nodeId === "sink")).toBeDefined();
 
-    // Downstream does NOT run as if nothing happened
-    const sinkFinished = events.find((e) => e.type === "node.finished" && e.nodeId === "sink");
-    expect(sinkFinished).toBeUndefined();
+    // A skip is not a failure: with no pending nodes stranded the run closes as done.
+    const finished = events.find((e) => e.type === "run.finished");
+    expect(finished && finished.type === "run.finished" && finished.status).toBe("done");
+  });
+
+  it("still delivers the script when audio is unsupported and a script→sink bypass edge exists (podcast G-C)", async () => {
+    const { worker } = spyWorker({ noAudio: true });
+    const graph: Graph = {
+      id: "g",
+      name: "g",
+      nodes: [
+        { id: "src", kind: "source", name: "Src", x: 0, y: 0, source: {} },
+        { id: "script", kind: "textGen", name: "Script", x: 1, y: 0, textGen: TEXTGEN },
+        { id: "voice", kind: "audioGen", name: "Voice", x: 2, y: 0, audioGen: { model: "tts-1", voice: "alloy", format: "mp3" } },
+        { id: "depot", kind: "sink", name: "Depot", x: 3, y: 0 },
+      ],
+      edges: [
+        { id: "e1", kind: "flow", from: "src", to: "script" },
+        { id: "e2", kind: "flow", from: "script", to: "voice" },
+        { id: "e3", kind: "flow", from: "voice", to: "depot" },
+        // bypass: the written script reaches the depot even when voice is skipped
+        { id: "e4", kind: "flow", from: "script", to: "depot" },
+      ],
+    };
+    const events = await run(graph, worker);
+
+    // Voice is soft-skipped and nothing fails.
+    const voiceSkipped = events.find((e) => e.type === "node.skipped" && e.nodeId === "voice");
+    expect(voiceSkipped).toBeDefined();
+    expect(events.some((e) => e.type === "node.failed")).toBe(false);
+    expect(events.filter((e) => e.type === "artifact.produced" && e.artifact.kind === "audio").length).toBe(0);
+
+    // The depot still finishes, carrying the upstream script text as its deliverable.
+    const depot = events.find((e) => e.type === "node.finished" && e.nodeId === "depot");
+    expect(depot).toBeDefined();
+    expect(depot && depot.type === "node.finished" && depot.output).toContain("out");
+
+    const finished = events.find((e) => e.type === "run.finished");
+    expect(finished && finished.type === "run.finished" && finished.status).toBe("done");
   });
 
   it("fails the node when the provider returns zero clips (an empty result is not a success)", async () => {

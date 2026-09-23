@@ -89,13 +89,16 @@
 - 改法（推荐，轻量）：给 `tpl-news-podcast` 增加 `ttsVoice` field（`applyTo: [{nodeId:"voice", path:"audioGen.voice"}]`），placeholder 说明两套命名；默认值按目标供应商给（若 P0 验证以 SF 为主，默认改 SF 预置音色；若要保持 OpenAI 通用则保留 alloy 并在描述里写明 SF 需改）。
 - 不做 provider 层「音色别名映射」（alloy→某 SF 音色）——音色是供应商特定资产，硬映射会误导，参数化 + 文档更诚实。
 
-### G-C　「软跳过」注释与实际失败行为不一致（需产品决策）　⏸ 未做（2026-09-22：本轮不改变失败语义，维持 `failed` + VALIDATION，模板「软跳过」注释暂保留；须产品在两选项间拍板后再动）
+### G-C　「软跳过」注释与实际失败行为不一致　✅ 已落地（2026-09-24，采用推荐项：真软降级）
 
-- `tpl-news-podcast` 模板注释声称「默认供应商不支持 TTS 时该节点会**软跳过**，稿件文本仍完整产出」；但 `audiogen.ts:14-20` 在 `worker.generateAudio` 缺失时实际是 `states=failed + node.failed(VALIDATION)`——**会让节点失败**（无 error 边时整条 run 失败），与注释矛盾。
-- 两个选项：
-  - **（推荐）改成真软降级**：无 `generateAudio` 能力时，节点置 `skipped` + 发一条 warning 事件/日志，上游稿件文本仍流到 sink 交付。理由：播客场景里「稿件」是主产物、「配音」是增值，没配音频 key 不应让整条产线废掉；这也让模板在零配置下可跑出文本结果。
-  - 或维持 failed（音频是该模板的明确卖点，缺能力就该显眼报错），**改注释**去掉「软跳过」表述。
-- 倾向推荐前者，但这改变失败语义，需与产品意图确认后二选一；无论选哪个都要消除「注释说一套、代码做一套」。
+- 背景：`tpl-news-podcast` 注释声称默认供应商不支持 TTS 时「软跳过、稿件仍产出」，但 `audiogen.ts` 在 `worker.generateAudio` 缺失时实际置 `failed`+VALIDATION——会让节点（无 error 边时整条 run）失败，与注释矛盾。
+- 最终决策（产品拍板推荐项）：**无音频生成能力属增值能力缺失，软降级、不罚跑**。
+  - `nodes/audiogen.ts`：能力检查前移到 `node.started` 之前；无能力时置 `skipped`、发 `node.skipped`（reason `audio unsupported: worker has no generateAudio capability`）并 `ctx.log.warn`，不产 artifact、不发 packet、不发 `node.failed`。
+  - `tpl-news-podcast` 新增一条 `script→depot` 旁路 flow 边（e5）：voice 软跳过时稿件仍直达 sink 交付。否则线性链里 sink 的唯一前驱 voice 被 skip，会被级联跳过、run 无成品（`predecessorsReady` 对 skipped 前驱不计 packet，`inputFor` 只取直接前驱产物）。有 TTS 时成品同时含文稿与音频链接，属良性增强。
+  - **仍保持 `failed` 的真错误**：配了音频能力但返回 0 段（UNSUPPORTED）、输入超 `TTS_MAX_INPUT_CHARS=4096`（VALIDATION）、provider 异常（PROVIDER_ERROR）——这些是配置/模型错误，应显眼失败，不在软降级范围。
+  - 不碰 run 调度核心：靠模板旁路而非改 `predecessorsReady`/`inputFor` 的 skip 透传语义实现，影响面仅限使用 audioGen 的模板（当前仅 podcast）。
+- 用户可见：voice 节点显示通用「已跳过 / Skipped」（zh/en i18n 已具备）；具体原因在事件流 `node.skipped.reason` 与服务端 warn 日志。前端在节点详情本地化展示 skipReason 列为后续小增强（需 core reducer 存 reason + web 渲染，本批不做）。
+- 测试：`engine.audiogen.test.ts` 旧「无能力即 failed」用例反转为「软跳过 + 线性下游级联 skipped + run done」，并新增 podcast 旁路用例断言 voice skipped 时 depot 仍交付脚本文本；空结果 UNSUPPORTED、超长 VALIDATION 用例保留。
 
 ### G-D　长文本分片（P1 检测，拼接列 P2）　✅ P1 检测已落地（2026-09-22，`0cbf11e`：导出 `TTS_MAX_INPUT_CHARS=4096`，合成前超长 fail-fast `failed`+VALIDATION、不发请求、不静默截断；P2 分片拼接仍缓做）
 
@@ -122,7 +125,7 @@
 
 ## 5. 原子提交计划（英文 message、不 push）
 
-> **落地状态（2026-09-22）**：步骤 2 ✅ `1ea3c62`；步骤 3 被拆分——G-A server 计量 ✅ `0a1ec39`，**G-C 软降级未做（待产品决策，故该 commit 不含 soft-degrade）**；步骤 4 ✅ `93b3082`（仅 G-B field，未改注释，因 G-C 未定）；步骤 5 ✅ `0cbf11e`；步骤 1（P0 真机，卡 key）、步骤 7（edge-tts，P2）未做；**步骤 6（runbook）已落地** [runbooks/tts-provider-setup.md](runbooks/tts-provider-setup.md)（2026-09-22）。四个 commit 均在 feature/20260824，未 push。
+> **落地状态（2026-09-22）**：步骤 2 ✅ `1ea3c62`；步骤 3 被拆分——G-A server 计量 ✅ `0a1ec39`，**G-C 软降级 ✅ 2026-09-24 落地（无能力 skipped+warn、podcast 加 script→depot 旁路，见上）**；步骤 4 ✅ `93b3082`（仅 G-B field，未改注释，因 G-C 未定）；步骤 5 ✅ `0cbf11e`；步骤 1（P0 真机，卡 key）、步骤 7（edge-tts，P2）未做；**步骤 6（runbook）已落地** [runbooks/tts-provider-setup.md](runbooks/tts-provider-setup.md)（2026-09-22）。四个 commit 均在 feature/20260824，未 push。
 
 1. **P0 验证不产生代码**；验证结论（兼容/差异）回写本文。
 2. `feat(core): price audio by UTF-8 bytes for TTS providers`（G-A：units/pricing/computeCost/字段/i18n + 单测）。
