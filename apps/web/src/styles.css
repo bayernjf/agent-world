@@ -6971,6 +6971,15 @@ select {
   font-family: var(--mono);
   font-weight: var(--font-semibold);
 }
+.run-timeline-skip {
+  margin-top: var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  word-break: break-word;
+}
+.run-timeline-skip-label {
+  color: var(--text-tertiary);
+}
 .run-timeline-output {
   margin: 4px 0 0;
   max-height: 160px;

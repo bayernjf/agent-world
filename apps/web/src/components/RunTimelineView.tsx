@@ -94,6 +94,12 @@ function AttemptRow({ runId, nodeId, a }: { runId: string; nodeId: string; a: Ti
           {a.error}
         </div>
       )}
+      {a.status === "skipped" && a.skipReason && (
+        <div className="run-timeline-skip">
+          <span className="run-timeline-skip-label">{t("run:timeline.skipReason")}</span>
+          {a.skipReason}
+        </div>
+      )}
       {a.outputPreview && !expanded && (
         <pre className="run-timeline-output">
           {a.outputPreview}
