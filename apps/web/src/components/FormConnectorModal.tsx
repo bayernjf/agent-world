@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { FormConnector } from "@agent-world/core";
+import { formatList } from "../i18n/utils";
 import Tooltip from "./Tooltip";
 
 type FormField = FormConnector["fields"][number];
@@ -16,7 +17,7 @@ export default function FormConnectorModal({
   onSubmit,
   onCancel,
 }: Props) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const [values, setValues] = useState<Record<string, string>>(
     Object.fromEntries(fields.map((f) => [f.name, ""])),
   );
@@ -27,10 +28,9 @@ export default function FormConnectorModal({
       (f) => f.required && !(values[f.name] ?? "").trim(),
     );
     if (missing.length) {
-      const list = new Intl.ListFormat(i18n.language, { type: "conjunction" });
       setErr(
         t("modals:formConnector.missingRequired", {
-          fields: list.format(missing.map((m) => m.label ?? m.name)),
+          fields: formatList(missing.map((m) => m.label ?? m.name)),
         }),
       );
       return;
