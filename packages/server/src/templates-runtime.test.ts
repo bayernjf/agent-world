@@ -1,4 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { strToU8, zipSync } from "fflate";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   compile,
   instantiateTemplate,
@@ -22,19 +26,24 @@ import { fakeWorker } from "./worker.js";
  *  1. Invariants the engine enforces at run time and `compile()` does not, over
  *     every template.
  *  2. Real execution against the deterministic fake worker, over every template
- *     that stays in-process. `REQUIRES_EXTERNAL_IO` must equal the derived
- *     exclusion set, so an entry whose reason has expired fails the same way a
- *     missing one does — the list cannot rot in either direction.
+ *     that stays in-process. Upload lines are fed genuine docx fixtures (a human
+ *     picks those files at dispatch, and `parseDocument` only accepts
+ *     PDF/Office formats); approval lines are held to their halt contract — gate
+ *     reached and still open, everything upstream finished, nothing downstream
+ *     started. `REQUIRES_EXTERNAL_IO` must equal the derived exclusion set, so a
+ *     reason that has expired fails the same way a missing registration does.
  *
  * In-process kinds: textGen / imageGen / videoGen / audioGen / gate (fake
  * worker), code (JavaScript only), table / map / loop / branch / parallel /
- * fanout / select (engine), source / sink (wiring).
+ * fanout / select (engine), source / sink / fileParse (wiring + fixtures).
+ * `ocr` stays out: it shells out to tesseract, which this environment lacks.
  */
 
-/** Node kinds whose handler reaches the network, a file, or a paid API. */
+/** Node kinds whose handler reaches the network, a paid API, or a binary this
+ *  test environment does not have. `fileParse` is deliberately absent: the
+ *  document it needs is fixture-suppliable (see DOC_FIXTURE below). */
 const OFF_LIMITS_KINDS = new Set([
   "http",
-  "fileParse",
   "ocr",
   "convert",
   "search",
@@ -46,50 +55,114 @@ const OFF_LIMITS_KINDS = new Set([
   "email",
 ]);
 
-/** Why a template cannot run in-process, or null when it can. A preset
- *  connector counts as external: there is no product store behind it in tests. */
+/** Why a template cannot run in-process, or null when it can. A non-file
+ *  connector counts as external (a product connector needs the store backend);
+ *  a file connector does not, because the fixture satisfies it. */
 function needsOutsideWorld(tpl: GraphTemplate): string | null {
   for (const n of tpl.graph.nodes) {
     if (OFF_LIMITS_KINDS.has(n.kind)) return `节点 kind ${n.kind}`;
-    const connector = (n as { source?: { connector?: { type?: string } } }).source?.connector?.type;
-    if (connector) return `source 预设 ${connector} 连接器`;
+    const type = (n as { source?: { connector?: { type?: string } } }).source?.connector?.type;
+    if (type && type !== "file") return `source 预设 ${type} 连接器`;
   }
   return null;
 }
 
 /** Registry of non-executed templates, kept honest by the reconciliation test. */
 const REQUIRES_EXTERNAL_IO: Record<string, string> = {
-  "tpl-product": "source 预设 product 连接器",
-  "tpl-xiaohongshu": "source 预设 product 连接器",
+  "tpl-product": "source 预设 product 连接器（需服务端商品库）",
+  "tpl-xiaohongshu": "source 预设 product 连接器（需服务端商品库）",
   "tpl-translation": "节点 kind translate",
   "tpl-ops-weekly": "节点 kind http",
   "tpl-patrol-alert": "节点 kind http",
   "tpl-research-brief": "节点 kind http",
   "tpl-competitor-watch": "节点 kind http",
-  "tpl-doc-ingest": "节点 kind fileParse",
+  "tpl-doc-ingest": "节点 kind http + ocr",
   "tpl-review-publish": "节点 kind notify",
   "tpl-news-podcast": "节点 kind search",
   "tpl-research-loop": "节点 kind search",
   "tpl-release-pr": "节点 kind vcs",
-  "tpl-scan-ocr": "节点 kind ocr",
+  "tpl-scan-ocr": "节点 kind http + ocr + convert",
   "tpl-customer-service": "节点 kind notify",
   "tpl-code-review": "节点 kind http",
   "tpl-data-report": "节点 kind http",
-  "tpl-contract-review": "节点 kind fileParse",
   "tpl-travel-plan": "节点 kind http",
-  "tpl-privacy-review": "节点 kind fileParse",
-  "tpl-invoice-ocr": "节点 kind ocr",
-  "tpl-batch-contract-review": "source 预设 file 连接器",
-  "tpl-due-diligence": "节点 kind fileParse",
+  "tpl-invoice-ocr": "节点 kind ocr（本机无 tesseract 二进制）",
 };
 
 const EXECUTABLE = TEMPLATES.filter((t) => !needsOutsideWorld(t));
 
-/** A human gate parks the run mid-flight; approving it here would test the
- *  resume path rather than the template, so those stay out of tier 2. */
-const HUMAN_IN_PATH = new Set(
-  EXECUTABLE.filter((t) => t.graph.nodes.some((n) => n.kind === "human")).map((t) => t.id),
-);
+const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+/** `parseDocument` accepts only PDF/DOCX/PPTX/XLSX (magic bytes + mime hint),
+ *  so the stand-in has to be a real docx, not a text file. */
+function docx(paragraphs: string[]): Uint8Array {
+  const body = paragraphs.map((p) => `<w:p><w:r><w:t>${p}</w:t></w:r></w:p>`).join("");
+  const xml =
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+    `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">` +
+    `<w:body>${body}</w:body></w:document>`;
+  return zipSync({ "word/document.xml": strToU8(xml) });
+}
+
+let fixtureDir = "";
+/** Two documents: the batch-review and due-diligence lines parse every uploaded
+ *  file, so handing them one would leave the multi-doc path untested. */
+let fixtures: string[] = [];
+
+beforeAll(() => {
+  fixtureDir = mkdtempSync(join(tmpdir(), "aw-tpl-smoke-"));
+  const contract = join(fixtureDir, "service-contract.docx");
+  const declaration = join(fixtureDir, "asset-declaration.docx");
+  writeFileSync(
+    contract,
+    docx([
+      "服务合同  甲方：示例科技有限公司  乙方：远洋网络服务有限公司",
+      "第一条 服务范围：乙方为甲方提供产线编排平台的部署与运维服务。",
+      "第二条 服务期 12 个月，年度服务费 12 万元人民币，逾期按日 0.05% 计违约金。",
+      "第三条 数据安全：乙方不得将甲方数据用于训练或对外披露，合同终止后 30 日内删除。",
+      "第四条 争议解决：提交甲方所在地仲裁委员会仲裁，本合同自双方盖章之日起生效。",
+    ]),
+  );
+  writeFileSync(
+    declaration,
+    docx([
+      "资产申报表  申报主体：示例科技有限公司  申报基准日：2026-06-30",
+      "货币资金 320 万元；应收账款 150 万元（账龄一年内）；固定资产 88 万元。",
+      "对外担保：无为关联方提供担保。重大诉讼：无。",
+      "声明：以上信息真实完整，如有隐瞒愿承担相应责任。",
+    ]),
+  );
+  fixtures = [contract, declaration];
+});
+
+afterAll(() => {
+  if (fixtureDir) rmSync(fixtureDir, { recursive: true, force: true });
+});
+
+/** Templates that consume uploaded documents: either an explicit fileParse node
+ *  or a source wired to the file connector. */
+function needsDocFixture(tpl: GraphTemplate): boolean {
+  return tpl.graph.nodes.some(
+    (n) =>
+      n.kind === "fileParse" ||
+      (n as { source?: { connector?: { type?: string } } }).source?.connector?.type === "file",
+  );
+}
+
+/** Ids reachable downstream of `fromIds`, used to scope the human-halt check. */
+function descendantsOf(graph: Graph, fromIds: string[]): Set<string> {
+  const out = new Set<string>();
+  const stack = [...fromIds];
+  while (stack.length) {
+    const cur = stack.pop()!;
+    for (const e of graph.edges.filter((x) => x.from === cur)) {
+      if (out.has(e.to)) continue;
+      out.add(e.to);
+      stack.push(e.to);
+    }
+  }
+  return out;
+}
 
 // ─── tier 1: invariants the engine enforces and compile() does not ───────────
 
@@ -187,6 +260,24 @@ interface ObservedEvent {
 
 async function runTemplate(tpl: GraphTemplate): Promise<{ graph: Graph; events: ObservedEvent[] }> {
   const graph = instantiateTemplate(tpl) as Graph;
+
+  // Upload lines ship with an empty file source on purpose — a human picks the
+  // documents at dispatch. Substituting the upload is what lets their whole
+  // parse → write → gate chain run here without a browser.
+  if (needsDocFixture(tpl)) {
+    for (const n of graph.nodes) {
+      const src = (n as { source?: { connector?: unknown; files?: unknown[] } }).source;
+      if (!src) continue;
+      delete src.connector;
+      src.files = fixtures.map((p, i) => ({
+        uri: `file://${p}`,
+        label: `文档${i + 1}`,
+        mimeType: DOCX_MIME,
+        sizeBytes: readFileSync(p).byteLength,
+      }));
+    }
+  }
+
   const { plan, diagnostics } = compile(graph);
   const errors = diagnostics.filter((d) => d.severity === "error");
   expect(
@@ -205,6 +296,12 @@ async function runTemplate(tpl: GraphTemplate): Promise<{ graph: Graph; events: 
     input: "冒烟输入：一段足够长的原料文本，供下游节点取用。",
     now: () => 0,
     sleep: async () => {},
+    // Stands in for the artifact store: fileParse asks readArtifact to turn a
+    // file uri into the `data:<mime>;base64,…` form it then parses.
+    readArtifact: async (uri: string) =>
+      uri.startsWith("file://")
+        ? `data:${DOCX_MIME};base64,${readFileSync(uri.slice(7)).toString("base64")}`
+        : null,
   }) as unknown as AsyncIterable<ObservedEvent>;
 
   for await (const e of stream) events.push(e);
@@ -212,45 +309,86 @@ async function runTemplate(tpl: GraphTemplate): Promise<{ graph: Graph; events: 
 }
 
 describe("templates · executed against the fake worker", () => {
-  const toRun = EXECUTABLE.filter((t) => !HUMAN_IN_PATH.has(t.id));
-
   it("keeps a real share of the registry under execution", () => {
-    // Anti-collapse guard: tier 2 must not quietly shrink to a token few.
-    expect(toRun.length).toBeGreaterThanOrEqual(Math.floor(TEMPLATES.length / 3));
+    // Anti-collapse guard: this must not quietly shrink back to a token few.
+    expect(EXECUTABLE.length).toBeGreaterThanOrEqual(15);
   });
 
-  for (const tpl of toRun) {
-    it(`${tpl.id} runs to done with artifacts and no failed node`, async () => {
-      const { graph, events } = await runTemplate(tpl);
+  for (const tpl of EXECUTABLE) {
+    const humanTemplateIds = tpl.graph.nodes.filter((n) => n.kind === "human").map((n) => n.id);
+    const halts = humanTemplateIds.length > 0;
 
-      const failures = events.filter((e) => e.type === "node.failed");
-      expect(
-        failures,
-        `${tpl.id} 节点失败: ${failures.map((f) => `[${f.errorCode}] ${f.error}`).join(" | ")}`,
-      ).toHaveLength(0);
+    it(
+      `${tpl.id} ${halts ? "halts at its human gate with everything upstream finished" : "runs to done with artifacts and no failed node"}`,
+      async () => {
+        const { graph, events } = await runTemplate(tpl);
 
-      const runDone = events.find((e) => e.type === "run.finished");
-      expect(
-        runDone,
-        `${tpl.id} 没有 run.finished；末尾事件: ${events
-          .slice(-6)
-          .map((e) => e.type)
-          .join(" → ")}`,
-      ).toBeTruthy();
-      expect(runDone!.status).toBe("done");
+        const failures = events.filter((e) => e.type === "node.failed");
+        expect(
+          failures,
+          `${tpl.id} 节点失败: ${failures.map((f) => `[${f.errorCode}] ${f.error}`).join(" | ")}`,
+        ).toHaveLength(0);
 
-      // Asserted against the instantiated ids: instantiateTemplate suffixes
-      // every node id, so the template's own ids never appear in the stream.
-      const finishedIds = new Set(
-        events.filter((e) => e.type === "node.finished").map((e) => e.nodeId),
-      );
-      for (const n of graph.nodes) {
-        expect(finishedIds.has(n.id), `${tpl.id} 节点 ${n.id}(${n.kind}) 从未完成`).toBe(true);
-      }
+        const runDone = events.find((e) => e.type === "run.finished");
+        expect(
+          runDone,
+          `${tpl.id} 没有 run.finished；末尾事件: ${events
+            .slice(-6)
+            .map((e) => e.type)
+            .join(" → ")}`,
+        ).toBeTruthy();
+        expect(runDone!.status).toBe(halts ? "halted" : "done");
 
-      expect(events.some((e) => e.type === "artifact.produced"), `${tpl.id} 没有任何产物`).toBe(
-        true,
-      );
-    }, 60_000);
+        // Asserted against instantiated ids: instantiateTemplate suffixes every
+        // node id, so the template's own ids never appear in the event stream.
+        const startedIds = new Set(
+          events.filter((e) => e.type === "node.started").map((e) => e.nodeId),
+        );
+        const finishedIds = new Set(
+          events.filter((e) => e.type === "node.finished").map((e) => e.nodeId),
+        );
+
+        if (halts) {
+          // The approval gate is where the run stops on purpose: it must be
+          // reached and stay open, nothing past it may have run, and everything
+          // before it must have completed. Matched by kind because
+          // instantiateTemplate rewrites ids but never the kind.
+          const parked = graph.nodes.filter((n) => n.kind === "human");
+          expect(parked.length, `${tpl.id} 实例化后 human 节点数变了`).toBe(humanTemplateIds.length);
+          for (const h of parked) {
+            expect(startedIds.has(h.id), `${tpl.id} human 节点 ${h.id} 未被到达`).toBe(true);
+            expect(finishedIds.has(h.id), `${tpl.id} human 节点 ${h.id} 不该自行通过`).toBe(false);
+          }
+          const pastGate = descendantsOf(
+            graph,
+            parked.map((h) => h.id),
+          );
+          const gateIds = new Set(parked.map((h) => h.id));
+          for (const n of graph.nodes) {
+            if (gateIds.has(n.id)) continue;
+            if (pastGate.has(n.id)) {
+              expect(
+                startedIds.has(n.id),
+                `${tpl.id} 审批之后的 ${n.id}(${n.kind}) 不该已经启动`,
+              ).toBe(false);
+            } else {
+              expect(
+                finishedIds.has(n.id),
+                `${tpl.id} 审批之前的 ${n.id}(${n.kind}) 未完成`,
+              ).toBe(true);
+            }
+          }
+        } else {
+          for (const n of graph.nodes) {
+            expect(finishedIds.has(n.id), `${tpl.id} 节点 ${n.id}(${n.kind}) 从未完成`).toBe(true);
+          }
+        }
+
+        expect(events.some((e) => e.type === "artifact.produced"), `${tpl.id} 没有任何产物`).toBe(
+          true,
+        );
+      },
+      60_000,
+    );
   }
 });
