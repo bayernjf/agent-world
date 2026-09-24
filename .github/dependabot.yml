@@ -4,6 +4,13 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    # Collapse routine weekly version bumps into ONE PR so dozens of separate
+    # lockfile-twiddling PRs don't pile up (and don't fight over pnpm-lock.yaml).
+    # Security updates are exempt from groups: advisories still open their own
+    # individual PRs immediately, so a CVE fix can be reviewed and merged alone.
+    groups:
+      npm-dependencies:
+        patterns: ["*"]
     # Dependabot opens PRs for out-of-date deps; CI's `pnpm audit` gate then
     # blocks merges when a known CVE is present. Both together = supply-chain
     # scanning (engineering-blueprint §4).
