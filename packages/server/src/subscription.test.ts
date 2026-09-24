@@ -103,6 +103,20 @@ describe("enforceSubscription", () => {
     ).toThrowError(/额度已用尽/);
   });
 
+  // Characterization test, not blessed behavior: EnforceOptions carries
+  // `status`, and design-monetization §6.4 says past_due → grace → 内置模型阻断,
+  // but the plan id is the only thing read here. Invert this (and update
+  // docs/deferred-items.md「商业化」) when the status rule is implemented.
+  it("never reads subscription.status, so past_due keeps the paid plan", () => {
+    expect(() =>
+      enforceSubscription(withNodes(textNode("a", "agnes-2.0-flash")), cfg, {
+        subscription: { plan: "pro", status: "past_due" },
+        usedTokens: 100,
+        activeRuns: 0,
+      }),
+    ).not.toThrow();
+  });
+
   it("blocks when concurrent runs exceed the plan", () => {
     expect(() =>
       enforceSubscription(withNodes(textNode("a", "my-model")), cfg, {

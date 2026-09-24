@@ -60,6 +60,12 @@ const graph: Graph = {
   ],
 };
 
+// A per-case copy: saveGraph keeps the original owner on id collision, so two
+// cases sharing an id means the second user cannot see the graph (404).
+function graphOwned(id: string): Graph {
+  return { ...graph, id, name: `Sub ${id}` };
+}
+
 describe("subscription gate on POST /api/runs (M2 S4)", () => {
   it("returns 402 with structured metric/detail when enforced and quota is exceeded", async () => {
     process.env.MONETIZATION_ENFORCE = "1";
@@ -94,5 +100,52 @@ describe("subscription gate on POST /api/runs (M2 S4)", () => {
     });
     // Gate is bypassed → not a 402 subscription block (200 created, or a downstream error).
     expect(res.status).not.toBe(402);
+  });
+});
+
+/**
+ * Characterization tests for the two ways the gate's shape matters to the
+ * rollout decision. They assert what the code does TODAY, not what it should
+ * do: invert them (and update docs/deferred-items.md「商业化」) when the gap is
+ * closed. Both were measured against the dev DB on 2026-09-25.
+ */
+describe("measured gaps in the gate, not blessed behavior", () => {
+  it("rerun dispatches a run that POST /api/runs refuses for the same user", async () => {
+    process.env.MONETIZATION_ENFORCE = "1";
+    const { token, userId } = await register("rerun@test.dev");
+    const mine = graphOwned("sub-rerun");
+    await db.saveGraph(mine, Date.now(), userId);
+    await db.createRun({ id: "rerun-source", userId, graph: mine, budgetUsd: null, at: Date.now() });
+    await db.finishRun("rerun-source", userId, "done", Date.now());
+    // Saturate the free plan's single concurrent slot.
+    await db.createRun({ id: "rerun-live", userId, graph: mine, budgetUsd: null, at: Date.now() });
+    const headers = { cookie: `auth_token=${token}`, "content-type": "application/json" };
+
+    const fresh = await app.request("/api/runs", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ graphId: "sub-rerun" }),
+    });
+    expect(fresh.status).toBe(402);
+
+    // Same user, same quota state, second dispatch route: the gate lives in the
+    // POST /api/runs handler, not in startRun, so rerun never reaches it.
+    const rerun = await app.request("/api/runs/rerun-source/rerun", { method: "POST", headers });
+    expect(rerun.status).not.toBe(402);
+  });
+
+  it("counts a halted run against concurrency for as long as it is left halted", async () => {
+    const { userId } = await register("halted@test.dev");
+    const mine = graphOwned("sub-halted");
+    await db.saveGraph(mine, Date.now(), userId);
+    await db.createRun({ id: "halted-forever", userId, graph: mine, budgetUsd: null, at: Date.now() });
+    await db.finishRun("halted-forever", userId, "halted", Date.now(), {
+      nodeId: "a",
+      reason: "awaiting approval",
+    });
+
+    // activeRuns is `status IN ('running','halted')` with no age bound, and boot
+    // only reaps 'running' — so this stays 1 however long the approval is left.
+    expect(await db.activeRuns(userId)).toBe(1);
   });
 });
