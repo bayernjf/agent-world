@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { compile } from "./compile.js";
+import { checkCompliance } from "./platforms.js";
 import {
   BLANK_TEMPLATE,
   getTemplate,
@@ -734,5 +735,27 @@ describe("templates", () => {
     const out = g.edges.filter((e) => e.from === judge.id).map((e) => e.to);
     expect(out).toContain(alarmId);
     expect(out).toContain(recordId);
+  });
+
+  it("compliance-precheck 的补充违禁词每条都真的咬得住，也不是裸字", () => {
+    const tpl = getTemplate("tpl-compliance-precheck")!;
+    const cfg = tpl.graph.nodes.find((n) => n.kind === "compliance")!.compliance!;
+    const entries = (cfg.extraBanned ?? "").split(/[,，\s]+/).filter(Boolean);
+    expect(entries.length).toBeGreaterThan(0);
+
+    for (const word of entries) {
+      // 裸字（以前这里是「最」）会命中「最近」「最多」这类正常用法，把不该动的文字
+      // 洗成（已删除），卖家拿到一篇没法发的稿子。
+      expect(word.length, `「${word}」太短，会误伤正常用法`).toBeGreaterThanOrEqual(2);
+      const text = `这款喷雾${word}有效，值得一看。 #家居`;
+      const hits = (extra: string) =>
+        checkCompliance({ platform: cfg.platform, text, extraBanned: extra, autoFix: false })
+          .violations
+          .some((v) => v.type === "banned" && v.match === word);
+
+      expect(hits(cfg.extraBanned ?? ""), `「${word}」配了却查不到，词表写法可能已失效`).toBe(true);
+      // 平台/广告法词表本来就管的词，写进 extraBanned 是给人错觉的死配置。
+      expect(hits(""), `「${word}」本来就在词表里，不该再写进 extraBanned`).toBe(false);
+    }
   });
 });
