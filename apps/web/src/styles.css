@@ -7033,8 +7033,8 @@ select {
 }
 
 /* G4 degraded (long async job awaiting a decision) — orange */
-.run-status--degraded { background: rgba(255, 157, 46, 0.16); color: #ffae4a; border: 1px solid rgba(255, 157, 46, 0.42); }
-.run-timeline-attempt--degraded { border-left-color: rgba(255, 157, 46, 0.65); }
+.run-status--degraded { background: var(--warning-bg); color: var(--warning); border: 1px solid var(--warning); }
+.run-timeline-attempt--degraded { border-left-color: var(--warning); }
 .run-timeline-degraded {
   margin-top: var(--space-1);
   font-size: var(--text-xs);
