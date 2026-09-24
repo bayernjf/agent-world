@@ -25,7 +25,8 @@
   "kind": {
     "human": "Human approval",
     "tool": "Dangerous action",
-    "gate": "Gate exhausted"
+    "gate": "Gate exhausted",
+    "degraded": "Decision needed (in-flight job)"
   },
   "row": {
     "waiting": "waiting {{time}}",
@@ -52,7 +53,9 @@
     "editSave": "Save & approve",
     "editCancel": "Cancel",
     "editHint": "The edited text replaces the model output and flows downstream",
-    "editUnavailable": "This run recorded no halted node, so the edit cannot be addressed"
+    "editUnavailable": "This run recorded no halted node, so the edit cannot be addressed",
+    "reattach": "Continue node",
+    "acceptDegraded": "Accept degraded"
   },
   "batch": {
     "enter": "Select",

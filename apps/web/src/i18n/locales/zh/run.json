@@ -227,7 +227,8 @@
       "reviewing": "待审核",
       "done": "成功",
       "failed": "失败",
-      "skipped": "跳过"
+      "skipped": "跳过",
+      "degraded": "已降级"
     },
     "replay": "回放",
     "backToLive": "回到实时",
@@ -247,7 +248,19 @@
       "runFinished": "收工"
     },
     "comparePrompt": "以此样本做 prompt 对比",
-    "comparePromptHint": "用这条运行的真实输入，对比线上 prompt 与新 prompt"
+    "comparePromptHint": "用这条运行的真实输入，对比线上 prompt 与新 prompt",
+    "degradedLabel": "降级原因：",
+    "jobId": "任务 ID：",
+    "inFlight": "已在途 {{n}}",
+    "degradedAccepted": "已接受降级结果，run 继续，该节点保留降级标记",
+    "reattach": "继续此节点",
+    "acceptDegraded": "接受降级结果",
+    "confirmAccept": "该节点没有产出，下游可能因缺素材失败，确定放行？",
+    "confirmYes": "确定放行",
+    "confirmNo": "取消",
+    "working": "处理中…",
+    "resubmit": "重新提交（将重新计费）",
+    "submitting": "提交中…"
   },
   "failure": {
     "trippedTitle": "电力不足，全厂停机",

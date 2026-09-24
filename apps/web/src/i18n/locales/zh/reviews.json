@@ -25,7 +25,8 @@
   "kind": {
     "human": "人工确认",
     "tool": "危险操作",
-    "gate": "质检未过"
+    "gate": "质检未过",
+    "degraded": "待决策（在途任务）"
   },
   "row": {
     "waiting": "已等待 {{time}}",
@@ -52,7 +53,9 @@
     "editSave": "保存并通过",
     "editCancel": "取消",
     "editHint": "改后的文本会替代模型产出，直接送往下游节点",
-    "editUnavailable": "这条运行没有记录暂停节点，无法定向修改"
+    "editUnavailable": "这条运行没有记录暂停节点，无法定向修改",
+    "reattach": "继续此节点",
+    "acceptDegraded": "接受降级"
   },
   "batch": {
     "enter": "批量选择",
