@@ -14,6 +14,8 @@
     "redirecting": "Redirecting to checkout…",
     "pastDueTitle": "Your payment is past due",
     "pastDueBody": "Your last payment did not go through. Update your payment method soon to keep your plan quota and service.",
+    "endedTitle": "Your subscription ended",
+    "endedBody": "Your subscription was cancelled at the end of its billing period, so built-in models are paused. Resubscribe to restore them, or use a model with your own API key.",
     "returnSuccess": "Payment completed. Your plan updates automatically once Stripe confirms it.",
     "returnCancel": "Payment cancelled. Your plan was not changed.",
     "errPriceMissing": "This plan is not available for online purchase yet. Contact the instance owner.",
