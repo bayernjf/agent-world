@@ -103,18 +103,41 @@ describe("enforceSubscription", () => {
     ).toThrowError(/额度已用尽/);
   });
 
-  // Characterization test, not blessed behavior: EnforceOptions carries
-  // `status`, and design-monetization §6.4 says past_due → grace → 内置模型阻断,
-  // but the plan id is the only thing read here. Invert this (and update
-  // docs/deferred-items.md「商业化」) when the status rule is implemented.
-  it("never reads subscription.status, so past_due keeps the paid plan", () => {
+  // design-monetization §6.4：欠费即停内置模型、BYOK 保留。宽限期（3-7 天）暂不
+  // 实现——subscriptions 没有「状态何时变更」的列，见 deferred-items。
+  it("blocks builtin models for a past_due subscription but not BYOK", () => {
     expect(() =>
       enforceSubscription(withNodes(textNode("a", "agnes-2.0-flash")), cfg, {
         subscription: { plan: "pro", status: "past_due" },
         usedTokens: 100,
         activeRuns: 0,
       }),
+    ).toThrowError(/欠费/);
+
+    expect(() =>
+      enforceSubscription(withNodes(textNode("a", "my-model")), cfg, {
+        subscription: { plan: "pro", status: "past_due" },
+        usedTokens: 100,
+        activeRuns: 0,
+      }),
     ).not.toThrow();
+  });
+
+  it("keeps a canceled subscription working until its paid period ends", () => {
+    const periodEnd = Date.parse("2026-10-01T00:00:00Z");
+    const paid = (status: string, at: number) => () =>
+      enforceSubscription(withNodes(textNode("a", "agnes-2.0-flash")), cfg, {
+        subscription: { plan: "pro", status, currentPeriodEnd: periodEnd },
+        usedTokens: 100,
+        activeRuns: 0,
+        now: at,
+      });
+
+    // Stripe writes `canceled` at cancel-at-period-end, while access is still paid for.
+    expect(paid("canceled", periodEnd - 86_400_000)).not.toThrow();
+    expect(paid("canceled", periodEnd + 1)).toThrowError(/取消/);
+    // An unknown/added status must not silently cut off someone who paid.
+    expect(paid("trialing", periodEnd - 86_400_000)).not.toThrow();
   });
 
   it("blocks when concurrent runs exceed the plan", () => {

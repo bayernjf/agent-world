@@ -13,7 +13,7 @@
 import type { Graph, PlanId } from "@agent-world/core";
 import { DEFAULT_PLAN, PLANS, isPlanId, normalizeTokens } from "@agent-world/core";
 import { audit } from "./audit.js";
-import { currentPeriodStart, videoNodeIds } from "./subscription.js";
+import { currentPeriodStart, videoNodeIds, type SubscriptionStatus } from "./subscription.js";
 import type { Db } from "./db.js";
 import type { AppConfig } from "./config.js";
 
@@ -76,10 +76,14 @@ export async function setPlan(
   plan: PlanId,
   actorId: string,
   ip?: string,
+  status?: SubscriptionStatus,
 ): Promise<SubscriptionRecord> {
   const before = await getOrCreateSubscription(db, targetUserId);
-  const now = Date.now();
-  await db.saveSubscription(targetUserId, plan, "active", {
+  // 状态默认保留。原先这里无条件写 "active"：owner 改一次套餐就把 past_due/canceled
+  // 抹掉了，而内置模型阻断正读的是 status——等于「改套餐」变成一条绕过欠费阻断的路。
+  // 欠费的清除只应由 Stripe 的 invoice.paid（或显式传入 status）来做。
+  const nextStatus = status ?? before.status;
+  await db.saveSubscription(targetUserId, plan, nextStatus, {
     provider: before.provider ?? "manual",
     externalId: before.externalId ?? undefined,
     periodStart: before.currentPeriodStart,
@@ -88,10 +92,10 @@ export async function setPlan(
   audit(db, actorId, "billing.plan_changed", {
     objectType: "user",
     objectId: targetUserId,
-    detail: { from: before.plan, to: plan },
+    detail: { from: before.plan, to: plan, status: nextStatus },
     ip,
   });
-  return { ...before, plan, status: "active" };
+  return { ...before, plan, status: nextStatus };
 }
 
 /**

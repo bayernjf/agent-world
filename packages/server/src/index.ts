@@ -1131,6 +1131,7 @@ app.put("/api/graphs/:id", async (c) => {
 import { validateModels, type ModelDiagnostic } from "./validate-models.js";
 import { isPlanId, normalizeTokens, PLANS } from "./plans.js";
 import { getOrCreateSubscription, setPlan, currentPeriodEnd, currentUsage } from "./subscriptionService.js";
+import { isSubscriptionStatus, SUBSCRIPTION_STATUSES } from "./subscription.js";
 import { listInvoices, getInvoice, markInvoicePaid, voidInvoice } from "./invoiceService.js";
 import { billingRouter } from "./api.billing.js";
 import { renderInvoiceHtml } from "./invoiceTemplate.js";
@@ -1316,10 +1317,16 @@ app.post("/api/admin/users/:id/plan", async (c) => {
   if (!isPlanId(body.plan)) {
     return c.json({ error: "plan must be free | starter | pro | team" }, 400);
   }
+  // 原先 body.status 被解析出来却没人用——操作者传了它、拿到 200，就会以为状态已改。
+  // 现在要么真的生效，要么明确拒掉；不传则**保留原状态**（欠费的清除只该由
+  // invoice.paid 或这里的显式 status 触发，改套餐本身不该顺手抹掉）。
+  if (body.status !== undefined && !isSubscriptionStatus(body.status)) {
+    return c.json({ error: `status must be one of ${SUBSCRIPTION_STATUSES.join(" | ")}` }, 400);
+  }
   const target = await db.findUserById(c.req.param("id"));
   if (!target) return c.json({ error: "user not found" }, 404);
-  const record = await setPlan(db, target.id, body.plan, callerId, clientIp(c));
-  return c.json({ ok: true, plan: record.plan });
+  const record = await setPlan(db, target.id, body.plan, callerId, clientIp(c), body.status);
+  return c.json({ ok: true, plan: record.plan, status: record.status });
 });
 
 /** M3 S4: owner manually marks an invoice as paid (manual payment path).
