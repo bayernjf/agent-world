@@ -652,6 +652,8 @@ export default function App() {
       return {
         id: g.graphId,
         name: g.graphName ?? g.graphId.slice(0, 8),
+        // Palette seed, not copy: CanvasPark hashes it into a factory tint and
+        // never renders it, so it must not follow the UI language.
         category: g.category ?? "自定义",
         status,
         pendingReview: g.pendingReview ?? g.halted ?? 0,

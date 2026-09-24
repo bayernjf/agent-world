@@ -45,8 +45,7 @@
   },
   "menu": {
     "title": "引导与新功能",
-    "seen": "已看过",
-    "replay": "重新观看"
+    "seen": "已看过"
   },
   "commands": {
     "replayHint": "重新观看分步引导"

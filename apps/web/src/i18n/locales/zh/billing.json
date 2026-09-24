@@ -1,12 +1,5 @@
 {
   "tab": "套餐与用量",
-  "currentPlan": "当前套餐",
-  "planStatus": {
-    "active": "生效中",
-    "trialing": "试用中",
-    "past_due": "待支付",
-    "canceled": "已取消"
-  },
   "renewsAt": "下个计费周期 {{date}}",
   "freeForever": "免费版",
   "contactOwner": "M2 阶段暂未接入在线支付，升级套餐请联系实例管理员手动开通。",
@@ -33,12 +26,8 @@
     "video": "视频生成",
     "storage": "存储空间",
     "concurrency": "并发产线",
-    "runs": "运行次数",
     "usedOfLimit": "{{used}} / {{limit}}",
-    "usedOfUnlimited": "{{used}} / 无上限",
-    "percent": "{{percent}}%",
     "segments": "{{count}} 段",
-    "unlimited": "无上限",
     "loading": "加载用量中…",
     "error": "用量加载失败"
   },
@@ -66,17 +55,9 @@
       "storage": "存储空间已满，请清理产物或升级套餐。",
       "concurrency": "同时运行的产线数已达套餐上限，请等待运行结束或升级套餐。"
     },
-    "usedOfLimit": "已用 {{used}}，上限 {{limit}}",
     "upgrade": "查看套餐 / 升级",
     "useCustomModel": "改用自定义模型",
     "close": "知道了"
-  },
-  "alert": {
-    "token80Title": "内置模型 Token 用量已达 80%",
-    "token80Body": "当前套餐本周期已使用约 {{percent}}% 的内置模型 Token，临近上限，请注意用量或升级套餐。",
-    "tokenExhaustedTitle": "内置模型 Token 已用尽",
-    "tokenExhaustedBody": "本周期内置模型 Token 已用尽（已用 {{used}}，上限 {{limit}}），内置模型产线将被暂停，请升级套餐或等待下个周期。",
-    "viewUsage": "查看用量"
   },
   "invoices": {
     "title": "账单流水",

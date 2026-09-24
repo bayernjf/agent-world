@@ -6,7 +6,6 @@
   "resumeCron": "Resume cron",
   "empty": "No pipelines yet — create one from a template",
   "backToPark": "Back to park",
-  "factoryCount": "Factories",
   "economy": {
     "monthCost": "Month cost",
     "tokens": "Tokens",

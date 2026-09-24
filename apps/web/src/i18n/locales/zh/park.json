@@ -6,7 +6,6 @@
   "resumeCron": "恢复 cron",
   "empty": "暂无产线，先从模板创建一条产线吧",
   "backToPark": "返回园区",
-  "factoryCount": "厂区数量",
   "economy": {
     "monthCost": "本月成本",
     "tokens": "Token",
