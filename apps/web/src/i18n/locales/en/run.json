@@ -1,11 +1,5 @@
 {
   "title": "Run",
-  "start": "Start Run",
-  "stop": "Stop Run",
-  "pause": "Pause",
-  "resume": "Resume",
-  "restart": "Restart",
-  "rerun": "Rerun",
   "status": {
     "idle": "Ready to dispatch",
     "running": "Running",
@@ -59,87 +53,9 @@
     "diagnose": "Diagnose",
     "diagnosing": "Diagnosing…",
     "diagnosisTitle": "Failure diagnosis",
-    "diagnosisError": "Diagnosis unavailable (model rate-limited or not configured). Try again later or inspect the error directly.",
-    "showTrace": "Steps",
-    "hideTrace": "Hide steps"
-  },
-  "trigger": {
-    "manual": "Manual",
-    "cron": "Cron",
-    "webhook": "Webhook",
-    "event": "Event",
-    "batch": "Batch",
-    "unknown": "Unknown"
-  },
-  "info": {
-    "runId": "Run ID",
-    "graphId": "Graph ID",
-    "graphName": "Graph Name",
-    "status": "Status",
-    "trigger": "Trigger",
-    "startedAt": "Started At",
-    "endedAt": "Ended At",
-    "duration": "Duration",
-    "cost": "Cost",
-    "tokens": "Tokens",
-    "inputTokens": "Input Tokens",
-    "outputTokens": "Output Tokens",
-    "nodes": "Nodes",
-    "completedNodes": "Completed Nodes",
-    "failedNodes": "Failed Nodes",
-    "skippedNodes": "Skipped Nodes",
-    "currentNode": "Current Node",
-    "progress": "Progress",
-    "percent": "{{percent}}%"
-  },
-  "actions": {
-    "view": "View",
-    "replay": "Replay",
-    "rerun": "Rerun",
-    "stop": "Stop",
-    "pause": "Pause",
-    "resume": "Resume",
-    "delete": "Delete",
-    "export": "Export",
-    "share": "Share",
-    "copyId": "Copy Run ID",
-    "copied": "Copied"
-  },
-  "confirm": {
-    "stop": "Are you sure you want to stop the current run?",
-    "pause": "Are you sure you want to pause the current run?",
-    "delete": "Are you sure you want to delete this run?",
-    "rerun": "Are you sure you want to rerun this graph?"
-  },
-  "progress": {
-    "title": "Run Progress",
-    "currentNode": "Current Node: {{node}}",
-    "completed": "Completed {{completed}} / {{total}} nodes",
-    "estimatedTime": "Estimated remaining: {{time}}",
-    "elapsedTime": "Elapsed: {{time}}"
-  },
-  "logs": {
-    "title": "Run Logs",
-    "empty": "No logs",
-    "level": {
-      "info": "Info",
-      "warn": "Warn",
-      "error": "Error",
-      "debug": "Debug"
-    },
-    "time": "Time",
-    "node": "Node",
-    "message": "Message",
-    "filter": "Filter logs",
-    "clear": "Clear",
-    "autoScroll": "Auto Scroll",
-    "copy": "Copy Logs",
-    "copied": "Copied",
-    "export": "Export Logs"
+    "diagnosisError": "Diagnosis unavailable (model rate-limited or not configured). Try again later or inspect the error directly."
   },
   "artifacts": {
-    "title": "Artifacts",
-    "empty": "No artifacts",
     "type": {
       "text": "Text",
       "image": "Image",
@@ -147,9 +63,7 @@
       "audio": "Audio",
       "file": "File",
       "json": "JSON",
-      "table": "Table",
-      "uri": "Link",
-      "unknown": "Unknown"
+      "uri": "Link"
     },
     "noContent": "No content",
     "noImage": "No image",
@@ -164,15 +78,8 @@
     "fileLabel": "File",
     "sourceGraph": "Source pipeline",
     "generateFailed": "Generation failed",
-    "node": "Source Node",
-    "size": "Size",
-    "createdAt": "Created At",
-    "preview": "Preview",
     "download": "Download",
-    "copy": "Copy",
-    "copied": "Copied",
-    "delete": "Delete",
-    "viewDetails": "View Details"
+    "copy": "Copy"
   },
   "product": {
     "empty": "Products will show up here once the line has run.",
@@ -184,19 +91,6 @@
     "rawText": "Raw text",
     "imageLoadFailed": "Image temporarily unavailable",
     "noImage": "No image"
-  },
-  "errors": {
-    "title": "Errors",
-    "empty": "No errors",
-    "node": "Node",
-    "error": "Error",
-    "time": "Time",
-    "retry": "Retry",
-    "ignore": "Ignore",
-    "details": "Details",
-    "stackTrace": "Stack Trace",
-    "copy": "Copy Error",
-    "copied": "Copied"
   },
   "timeline": {
     "loading": "Loading step trace…",

@@ -42,7 +42,6 @@
     "select": "选中",
     "announce": {
       "button": "合并发公告（{{count}}）",
-      "title": "合并为公告",
       "hint": "选中同类反馈合并成一条产品公告，发布后这些反馈将自动关闭。",
       "selected": "已选 {{count}} 条反馈",
       "titleZh": "标题（中文）",

@@ -9,48 +9,6 @@
     "blankGraph": "Blank line",
     "blankGraphDesc": "Start from an empty canvas with no preset nodes, then edit freely"
   },
-  "settings": {
-    "title": "Settings",
-    "general": "General",
-    "models": "Models",
-    "providers": "Providers",
-    "pricing": "Pricing",
-    "appearance": "Appearance",
-    "language": "Language",
-    "theme": "Theme",
-    "dark": "Dark",
-    "light": "Light",
-    "system": "System",
-    "notifications": "Notifications",
-    "shortcuts": "Shortcuts",
-    "about": "About",
-    "version": "Version",
-    "save": "Save",
-    "cancel": "Cancel",
-    "saved": "Saved",
-    "saveFailed": "Save failed"
-  },
-  "runHistory": {
-    "title": "Run History",
-    "empty": "No run history",
-    "runId": "Run ID",
-    "status": "Status",
-    "trigger": "Trigger",
-    "startedAt": "Started At",
-    "endedAt": "Ended At",
-    "duration": "Duration",
-    "cost": "Cost",
-    "tokens": "Tokens",
-    "nodes": "Nodes",
-    "view": "View",
-    "replay": "Replay",
-    "rerun": "Rerun",
-    "delete": "Delete",
-    "deleteConfirm": "Are you sure you want to delete this run?",
-    "loadMore": "Load More",
-    "loading": "Loading...",
-    "loadFailed": "Load failed"
-  },
   "versionPanel": {
     "title": "Pipeline Versions — {{name}}",
     "namePlaceholder": "Version name (blank uses a timestamp)",
@@ -243,23 +201,12 @@
     }
   },
   "glossary": {
-    "title": "Glossary",
     "comparisonTitle": "Terminology Cheat Sheet",
     "intro": "Left column is the standard term (industry / code field); right column is Agent World's factory vocabulary. The UI uses the right; code, API and docs use the left.",
     "thStd": "Standard term",
     "thGame": "Agent World",
     "thNote": "Note",
-    "foot": "Full version: docs/design-glossary.md. Rule: land new concepts in this table first; concepts with no factory position are deferred.",
-    "empty": "No terms",
-    "term": "Term",
-    "definition": "Definition",
-    "category": "Category",
-    "addTerm": "Add Term",
-    "editTerm": "Edit Term",
-    "deleteTerm": "Delete Term",
-    "deleteConfirm": "Are you sure you want to delete this term?",
-    "search": "Search terms",
-    "categories": "Categories"
+    "foot": "Full version: docs/design-glossary.md. Rule: land new concepts in this table first; concepts with no factory position are deferred."
   },
   "reports": {
     "range7d": "Last 7 days",
@@ -505,12 +452,6 @@
       "openRun": "Open latest run"
     },
     "status": {
-      "running": "Running",
-      "halted": "Needs review",
-      "done": "Healthy",
-      "failed": "Failed",
-      "tripped": "Tripped",
-      "cancelled": "Cancelled",
       "idle": "Idle"
     },
     "ago": {
@@ -523,7 +464,6 @@
       "futureDays": "in {{n}}d"
     },
     "attentionTitle": "Needs attention",
-    "noFailures": "No failed or tripped pipelines",
     "empty": "No pipelines yet. Create one on the canvas; once it runs, its status and cost will be summarized here."
   },
   "publishTargets": {
@@ -561,24 +501,10 @@
     "deleteFailed": "Delete failed: {{message}}"
   },
   "connector": {
-    "title": "Connector Config",
-    "type": "Connector Type",
-    "config": "Config",
     "test": "Test Connection",
     "testing": "Testing...",
-    "testSuccess": "Connection successful",
-    "testFailed": "Connection failed",
-    "save": "Save",
-    "cancel": "Cancel",
     "sectionLabel": "Data source (Connector)",
     "sourceType": "Source type",
-    "types": {
-      "file": "File",
-      "http": "HTTP",
-      "form": "Form",
-      "database": "Database",
-      "manual": "Manual"
-    },
     "typesFull": {
       "none": "None (use the creative brief / raw material below)",
       "manual": "Manual (same as None)",
@@ -638,17 +564,7 @@
     }
   },
   "triggers": {
-    "title": "Triggers",
-    "empty": "No triggers",
-    "addTrigger": "Add Trigger",
-    "type": "Trigger Type",
-    "config": "Config",
     "enabled": "Enabled",
-    "disabled": "Disabled",
-    "deleteTrigger": "Delete Trigger",
-    "deleteConfirm": "Are you sure you want to delete this trigger?",
-    "save": "Save",
-    "cancel": "Cancel",
     "panelTitle": "Triggers",
     "intro": "Configure automatic runs: webhook, cron, event, batch. Manual triggers can be fired once here.",
     "emptyList": "No triggers yet — click \"Add trigger\" to create one.",
@@ -710,35 +626,6 @@
       "errRowsArray": "rows must be an array",
       "errRowsJson": "rows must be a valid JSON array",
       "saveFailed": "Save failed"
-    },
-    "types": {
-      "cron": "Cron",
-      "webhook": "Webhook",
-      "event": "Event",
-      "batch": "Batch",
-      "manual": "Manual"
-    },
-    "cron": {
-      "schedule": "Schedule",
-      "timezone": "Timezone",
-      "nextRun": "Next Run"
-    },
-    "webhook": {
-      "url": "Webhook URL",
-      "secret": "Secret",
-      "method": "Method",
-      "headers": "Headers"
-    },
-    "event": {
-      "eventType": "Event Type",
-      "sourceGraph": "Source Graph",
-      "sourceNode": "Source Node",
-      "condition": "Condition"
-    },
-    "batch": {
-      "dataSource": "Data Source",
-      "batchSize": "Batch Size",
-      "concurrent": "Concurrent"
     }
   },
   "modelAssign": {
@@ -875,9 +762,7 @@
     "title": "Collaborators — {{name}}",
     "hint": "Invite others to collaborate on this line. Editors can edit and run; viewers are read-only.",
     "empty": "No collaborators yet",
-    "emailLabel": "Email",
     "emailPlaceholder": "collaborator@example.com",
-    "roleLabel": "Role",
     "add": "Add",
     "adding": "Adding…",
     "remove": "Remove",
@@ -917,10 +802,6 @@
     "loadAuditFailed": "Failed to load audit log",
     "usersHint": "Admins are granted by the instance owner; the owner role cannot be changed.",
     "auditHint": "Newest first; security-relevant events only.",
-    "colEmail": "Email",
-    "colRole": "Role",
-    "colCreatedAt": "Registered",
-    "colActions": "Actions",
     "roleOwner": "Owner",
     "roleAdmin": "Admin",
     "roleUser": "User",
@@ -1062,7 +943,6 @@
     "openLink": "Open link ↗",
     "copy": "Copy",
     "download": "Download",
-    "openImage": "Open image",
-    "close": "Close"
+    "openImage": "Open image"
   }
 }
