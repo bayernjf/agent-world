@@ -190,6 +190,38 @@ describe("runtime", () => {
     expect(state.variants.pick!.ranking![0]).toMatchObject({ variant: "v2", score: 9 });
   });
 
+  it("stores the skip reason on a skipped node so the canvas can show why", () => {
+    seq = 0;
+    const state = replay([
+      ev({ type: "run.started", runId: "r1", graphId: "g1", budgetUsd: null }),
+      ev({
+        type: "node.skipped",
+        nodeId: "voice",
+        attempt: 1,
+        reason: "worker has no generateAudio capability",
+      }),
+    ]);
+    expect(state.nodes.voice!.status).toBe("skipped");
+    expect(state.nodes.voice!.skipReason).toBe("worker has no generateAudio capability");
+  });
+
+  it("defaults skipReason to null and clears it when the node starts again", () => {
+    seq = 0;
+    const withSkip = replay([
+      ev({ type: "run.started", runId: "r1", graphId: "g1", budgetUsd: null }),
+      ev({ type: "node.skipped", nodeId: "voice", attempt: 1, reason: "upstream failed" }),
+    ]);
+    expect(withSkip.nodes.voice!.skipReason).toBe("upstream failed");
+    const restarted = reduce(withSkip, ev({ type: "node.started", nodeId: "voice", attempt: 2 }));
+    expect(restarted.nodes.voice!.skipReason).toBeNull();
+    // A node that never emitted node.skipped also has a null skipReason.
+    const fresh = replay([
+      ev({ type: "run.started", runId: "r2", graphId: "g1", budgetUsd: null }),
+      ev({ type: "node.started", nodeId: "forge", attempt: 1 }),
+    ]);
+    expect(fresh.nodes.forge!.skipReason).toBeNull();
+  });
+
   it("is pure — reducing does not mutate the input state", () => {
     const before = structuredClone(initialRuntime);
     reduce(initialRuntime, reworkRun()[1]!);

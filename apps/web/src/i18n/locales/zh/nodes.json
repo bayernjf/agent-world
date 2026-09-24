@@ -95,6 +95,7 @@
     "gateLimit": "上限",
     "images": "图片原料",
     "status": "状态",
+    "skipReason": "跳过原因",
     "rework": "返工",
     "tokens": "Token",
     "power": "电费",

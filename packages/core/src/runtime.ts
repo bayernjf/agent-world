@@ -8,6 +8,8 @@ import { addUnits, type UsageUnits } from "./pricing.js";
  */
 export interface NodeRuntime {
   status: "idle" | "running" | "done" | "failed" | "skipped" | "scrapped";
+  /** Why the node was skipped (upstream cascade, missing worker capability). Null otherwise. */
+  skipReason: string | null;
   attempt: number;
   /** Output text per attempt, keyed by attempt number, for attempt-diffing. */
   outputs: Record<number, string>;
@@ -139,6 +141,7 @@ export const initialRuntime: RuntimeState = {
 function nodeOf(state: RuntimeState, id: string): NodeRuntime {
   return state.nodes[id] ?? {
     status: "idle",
+    skipReason: null,
     attempt: 0,
     outputs: {},
     reasoning: {},
@@ -169,7 +172,7 @@ export function reduce(state: RuntimeState, event: RunEvent): RuntimeState {
         };
 
       case "node.started":
-        return withNode(state, event.nodeId, { status: "running", attempt: event.attempt, startedAt: event.ts, finishedAt: undefined });
+        return withNode(state, event.nodeId, { status: "running", attempt: event.attempt, startedAt: event.ts, finishedAt: undefined, skipReason: null });
 
       case "node.delta": {
         const node = nodeOf(state, event.nodeId);
@@ -263,7 +266,7 @@ export function reduce(state: RuntimeState, event: RunEvent): RuntimeState {
         };
 
       case "node.skipped":
-        return withNode(state, event.nodeId, { status: "skipped", finishedAt: event.ts });
+        return withNode(state, event.nodeId, { status: "skipped", finishedAt: event.ts, skipReason: event.reason ?? null });
 
       case "human.review":
         return withNode(state, event.nodeId, { pendingReview: event.content });
