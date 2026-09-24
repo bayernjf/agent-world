@@ -221,6 +221,12 @@ sudo systemctl daemon-reload && sudo systemctl restart agent-world
 # 验证真的关了（而不是以为关了）：拿一个 free 层账号跑内置模型产线
 #   开着 → 402 {"error":"subscription","metric":"builtin_model"}
 #   关掉 → 不再是 402
+#
+# 402 体的 code 就是「为什么被拦」，排障时按它分流：
+#   QUOTA_EXCEEDED        额度/套餐本身不含该项（含 free 层用内置模型）
+#   PAYMENT_REQUIRED      订阅欠费（past_due）→ 前端引导「更新支付方式」
+#   SUBSCRIPTION_ENDED    订阅已到期取消 → 前端引导「重新订阅」
+#   CONCURRENCY_EXCEEDED  并发槽满（注意 halted run 也算，见下）
 ```
 
 > ⚠️ 变量名只有一个：`MONETIZATION_ENFORCE`。取值 `1`/`true`/`yes` = 硬拦，`observe`/`log` = 只记日志不拦，空/不设置 = 关。**其它非空值等于关**，但会在日志里打出 `unrecognized value` 并把你写的那个值带上（2026-09-25 之前是 `=== "1"` 严格相等，写 `true` 会静默不生效）。design-monetization-m2-implementation.md 第五节曾把回滚手段写成另一个名字（`ENABLE_SUBSCRIPTION_GATE`），**代码里从来没有这个变量**，已更正；事故时照那个名字去找会以为 gate 已关而它其实还在拦。
