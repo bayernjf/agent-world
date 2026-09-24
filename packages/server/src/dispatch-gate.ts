@@ -60,31 +60,32 @@ export interface GateContext {
  */
 export async function dispatchGate(ctx: GateContext): Promise<void> {
   const { db, graph, userId, trigger } = ctx;
-  const usage = await currentUsage(db, userId);
-  const activeRuns = await db.activeRuns(userId);
-  const config = await loadConfig(userId);
+  const mode = ctx.mode ?? readEnforceMode();
 
+  // 先分人再取数：`currentUsage` 要扫 4 张用量表，放在前面会让「gate 关着 + 正式
+  // 用户」这一条最常见的路径每次派发都白查三遍。
   const user = await db.findUserById(userId);
   if (user?.is_demo === 1) {
-    enforceDemoQuota(graph, config, {
+    const usage = await currentUsage(db, userId);
+    enforceDemoQuota(graph, await loadConfig(userId), {
       usedTokens: usage.normalizedTokens,
       totalRuns: usage.runs,
-      activeRuns,
+      activeRuns: await db.activeRuns(userId),
       usedStorageBytes: usage.storageBytes,
     });
     return;
   }
 
-  const mode = ctx.mode ?? readEnforceMode();
   if (mode === "off") return;
+  const usage = await currentUsage(db, userId);
   try {
-    enforceSubscription(graph, config, {
+    enforceSubscription(graph, await loadConfig(userId), {
       // getOrCreate 而非 load：与其它 monetization 入口（席位闸、账单）同一套惰性
       // 落免费层的读法，也让配额判定永远有个真实行可读，而不是把「没有行」和
       // 「free 且 active」两种状态压成同一个 undefined。
       subscription: await getOrCreateSubscription(db, userId),
       usedTokens: usage.normalizedTokens,
-      activeRuns,
+      activeRuns: await db.activeRuns(userId),
       usedVideoSegments: usage.videoSegments,
       usedStorageBytes: usage.storageBytes,
     });

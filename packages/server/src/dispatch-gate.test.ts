@@ -64,32 +64,39 @@ describe("readEnforceMode", () => {
 
 interface GateStub {
   db: Db;
-  isDemo: () => number;
+  usageFor: ReturnType<typeof vi.fn>;
+  sumArtifactBytes: ReturnType<typeof vi.fn>;
 }
 
 function stubDb(overrides: { isDemo?: number; plan?: string; status?: string } = {}): GateStub {
   const isDemo = overrides.isDemo ?? 0;
+  const usageFor = vi.fn(async () => 0);
+  const sumArtifactBytes = vi.fn(async () => 0);
   const db = {
     findUserById: async () => ({ id: "u1", is_demo: isDemo }),
     activeRuns: async () => 0,
     loadSubscription: async () =>
       isDemo ? undefined : { plan: overrides.plan ?? "free", status: overrides.status ?? "active" },
     saveSubscription: async () => undefined,
-    usageFor: async () => 0,
-    sumArtifactBytes: async () => 0,
+    usageFor,
+    sumArtifactBytes,
   };
-  return { db: db as unknown as Db, isDemo: () => isDemo };
+  return { db: db as unknown as Db, usageFor, sumArtifactBytes };
 }
 
 describe("dispatchGate", () => {
-  it("does not consult the subscription at all when the mode is off", async () => {
-    const { db } = stubDb({ plan: "free" });
+  it("reads neither the subscription nor the usage ledger when the mode is off", async () => {
+    // 闸门现在挂在每一次派发上，所以「关着」这条最常见路径必须和搬过来之前一样便宜：
+    // currentUsage 要扫 4 张用量表 + 一次存储求和。
+    const { db, usageFor, sumArtifactBytes } = stubDb({ plan: "free" });
     const load = vi.spyOn(db, "loadSubscription");
     // A builtin model on free would throw if the gate ran at all.
     await expect(
       dispatchGate({ db, graph: textGraph("agnes-2.0-flash"), userId: "u1", trigger: "manual", mode: "off" }),
     ).resolves.toBeUndefined();
     expect(load).not.toHaveBeenCalled();
+    expect(usageFor).not.toHaveBeenCalled();
+    expect(sumArtifactBytes).not.toHaveBeenCalled();
   });
 
   it("throws on a free plan using builtin models when enforcing", async () => {
