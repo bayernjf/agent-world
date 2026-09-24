@@ -1,4 +1,4 @@
-import { compile, replay, type Graph, type Usage } from "@agent-world/core";
+import { compile, replay, type Graph, type RunEvent, type Usage } from "@agent-world/core";
 import { describe, expect, it } from "vitest";
 import { execute, reconstructState, resume } from "./engine.js";
 import { ProviderError } from "./providers/openai-compatible.js";
@@ -481,5 +481,66 @@ describe("resume with resetFrom", () => {
     expect(cont.some((e) => e.type === "node.finished" && e.nodeId === "depot")).toBe(true);
     // The failure is preserved in history.
     expect(state.failures.some((f) => f.kind === "node" && f.nodeId === "forge")).toBe(true);
+  });
+});
+
+// ─── G4 step 3: reconstructState projects node.degraded ─────────────────────
+
+describe("reconstructState projects node.degraded (G4 step 3)", () => {
+  let s = 0;
+  function evt(e: Omit<RunEvent, "seq" | "ts">): RunEvent {
+    s += 1;
+    return { ...e, seq: s, ts: 1_000 + s } as RunEvent;
+  }
+
+  it("parks a degraded node and restores the halt point from it", () => {
+    s = 0;
+    const events: RunEvent[] = [
+      evt({ type: "run.started", runId: "r", graphId: "g", budgetUsd: null }),
+      evt({ type: "node.started", nodeId: "video", attempt: 1 }),
+      evt({
+        type: "node.degraded",
+        nodeId: "video",
+        attempt: 1,
+        reason: "video poll timed out after 300s; the remote render may still be in progress",
+        errorCode: "TIMEOUT",
+        remoteJob: { provider: "stub", jobId: "job-1", kind: "video" },
+      }),
+    ];
+    const state = reconstructState(events);
+    const degraded = state.degraded.get("video");
+    expect(degraded).toBeDefined();
+    expect(degraded!.reason).toContain("video poll timed out");
+    expect(degraded!.errorCode).toBe("TIMEOUT");
+    expect(degraded!.remoteJob).toEqual({ provider: "stub", jobId: "job-1", kind: "video" });
+    expect(state.haltedNodeId).toBe("video");
+    expect(state.haltedReason).toContain("video poll timed out");
+  });
+
+  it("drops the degraded projection when a later attempt finishes", () => {
+    s = 0;
+    const events: RunEvent[] = [
+      evt({ type: "run.started", runId: "r", graphId: "g", budgetUsd: null }),
+      evt({ type: "node.started", nodeId: "video", attempt: 1 }),
+      evt({ type: "node.degraded", nodeId: "video", attempt: 1, reason: "poll timeout" }),
+      evt({ type: "node.started", nodeId: "video", attempt: 2 }),
+      evt({ type: "node.finished", nodeId: "video", attempt: 2, output: "video done", usage: USAGE }),
+    ];
+    const state = reconstructState(events);
+    expect(state.degraded.has("video")).toBe(false);
+    expect(state.haltedNodeId).toBeNull();
+  });
+
+  it("does not override a halt point already recorded by run.finished", () => {
+    s = 0;
+    const events: RunEvent[] = [
+      evt({ type: "run.started", runId: "r", graphId: "g", budgetUsd: null }),
+      evt({ type: "node.degraded", nodeId: "video", attempt: 1, reason: "poll timeout" }),
+      evt({ type: "run.finished", runId: "r", status: "halted", haltedNodeId: "critic", reason: "gate halt" }),
+    ];
+    const state = reconstructState(events);
+    expect(state.degraded.has("video")).toBe(true);
+    expect(state.haltedNodeId).toBe("critic");
+    expect(state.haltedReason).toBe("gate halt");
   });
 });
