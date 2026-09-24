@@ -42,7 +42,9 @@ jobs:
         run: pnpm -r build
 
       - name: Typecheck
-        run: pnpm -r typecheck
+        # Root typecheck = every workspace package plus tsconfig.scripts.json, which is
+        # the only coverage the maintenance scripts in scripts/ ever get.
+        run: pnpm typecheck
 
       - name: i18n guard
         # Two things gate here: every {{interpolation}} present in both
