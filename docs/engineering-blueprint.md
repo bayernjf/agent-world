@@ -187,7 +187,7 @@
 | 能力 | 说明 | 补齐方案 | 优先级 |
 |---|---|---|---|
 | **恢复演练** | 验证备份可恢复 + 明确 RTO/RPO | 定期在干净目录恢复备份 + 启动验证，runbook 化 | P0 |
-| 数据归档/清理 | 旧 run/audit_log 定期清理 | ✅ 已实施（2026-09-08）：`pruneOldEvents` + `scripts/prune-events.ts`（默认清理 90 天前 events；snapshot 保留完整状态，归档不影响恢复） | 完成 |
+| 数据归档/清理 | 旧 run/audit_log 定期清理 | ✅ 已实施（2026-09-08 脚本 / 2026-09-25 进进程）：`pruneOldEvents` + `pruneAuditOlder` 由 `MaintenanceLoop` 成对清理（启动一次 + 每 6h；events 90d、audit_log 180d），`scripts/prune-events.ts` 保留作停机/手工回填；snapshot 保留完整状态，归档不影响恢复 | 完成 |
 | 一致性校验 | 备份完整性校验 | ✅ 已实施（2026-09-08）：`db.verifyIntegrity()`（PRAGMA integrity_check） | 完成 |
 | 异地/多版本备份 | 防单机磁盘故障 | 备份同步到第二位置（M3 上云后） | P2 |
 | 数据质量监控 | 成本/用量数据异常检测 | 计量数据对账 + 异常告警 | P2 |

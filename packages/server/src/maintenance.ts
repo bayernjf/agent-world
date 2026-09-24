@@ -15,6 +15,10 @@ export const AUDIT_RETENTION_DAYS = 180;
 /**
  * 6h：远小于最短保留窗口，所以漏跑一轮不会显著延长数据存活；
  * 又足够长，让每天几百次重启的 dev 环境不会每次启动都扫全表。
+ *
+ * driver 的语句是同步的（`DatabaseSync.prepare().run()` 包成 Promise），所以一
+ * 次 DELETE 会占住事件循环而不是与写请求争锁。持续清让每轮只删约 6h 的增量，
+ * 因此单轮成本很小——把清理攒到停机再做，才是会让事件循环卡住的那一侧。
  */
 export const MAINTENANCE_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
