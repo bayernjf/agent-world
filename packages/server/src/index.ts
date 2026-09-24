@@ -1240,6 +1240,20 @@ app.get("/api/admin/errors", async (c) => {
   return c.json({ items: recentErrors(Number.isFinite(limit) ? limit : 100) });
 });
 
+// G4 durable remote render jobs (remote_jobs). Mirrors /api/admin/errors
+// visibility: owner and admin inspect in-flight jobs across users. Defaults to
+// open (submitted/running) jobs oldest-first so stuck renders surface first;
+// pass ?all=1 for the most recent jobs in any state. Read-only.
+app.get("/api/admin/remote-jobs", async (c) => {
+  const role = (await db.findUserById(c.get("userId")))?.role;
+  if (role !== "owner" && role !== "admin") return c.json({ error: "forbidden" }, 403);
+  const limitRaw = Number(c.req.query("limit") ?? 100);
+  const limit = Number.isFinite(limitRaw) ? limitRaw : 100;
+  const openOnly = c.req.query("all") !== "1";
+  const items = await db.listRemoteJobs(limit, { openOnly });
+  return c.json({ items });
+});
+
 // --- Admin operations (design-rbac P3) ------------------------------------
 // Route naming note: design-rbac §9 sketched /api/admin/members/:id/role;
 // shipped as /api/admin/users/:id/role to match the /api/admin/users
