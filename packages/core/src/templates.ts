@@ -3517,6 +3517,70 @@ const variantCopyGraph = {
   },
 } satisfies GraphTemplate;
 
+const compliancePrecheckGraph = {
+  id: "tpl-compliance-precheck",
+  name: "上架合规预检",
+  description: "文案 → 平台违禁词校验与净化 → 合规改写 → 质检 → 可上架成稿",
+  category: "营销内容",
+  graph: {
+    id: "tpl-compliance-precheck",
+    name: "上架合规预检",
+    nodes: [
+      { id: "intake", kind: "source", name: "待检文案", x: 80, y: 300 },
+      {
+        id: "precheck",
+        kind: "compliance",
+        name: "平台预检",
+        x: 360,
+        y: 300,
+        compliance: {
+          platform: "xiaohongshu",
+          autoFix: true,
+          // Absolute superlatives are the classic advertising-law landmine; the
+          // platform profile carries its own list, these are the additions a
+          // seller keeps hitting.
+          extraBanned: "最,第一,顶级,绝对,国家级,100%,根治,永不过期",
+          failOnViolation: false,
+        },
+      },
+      {
+        id: "rewrite",
+        kind: "textGen",
+        name: "合规改写",
+        x: 640,
+        y: 300,
+        textGen: {
+          model: "agnes-2.0-flash",
+          prompt:
+            "你是电商文案合规编辑。上游已给出净化后的文案与命中词清单：把它改写成一条可直接上架的小红书风格文案，保留原意与卖点，绝不使用命中词表里的绝对化用语，命中项改用可验证表述，不超过 200 字，只输出文案正文。",
+          skills: [],
+        },
+      },
+      {
+        id: "qc",
+        kind: "gate",
+        name: "上架质检",
+        x: 920,
+        y: 300,
+        gate: {
+          maxAttempts: 2,
+          criterion:
+            "全文不得出现绝对化用语（最、第一、顶级、绝对、国家级、100%、根治、永不过期），且保留了原文卖点，不超过 200 字。",
+          onExhausted: "halt",
+        },
+      },
+      { id: "depot", kind: "sink", name: "可上架成稿", x: 1200, y: 300 },
+    ],
+    edges: [
+      { id: "e1", from: "intake", to: "precheck", kind: "flow" },
+      { id: "e2", from: "precheck", to: "rewrite", kind: "flow" },
+      { id: "e3", from: "rewrite", to: "qc", kind: "flow" },
+      { id: "e4", from: "qc", to: "depot", kind: "flow" },
+      { id: "r1", from: "qc", to: "rewrite", kind: "rework" },
+    ],
+  },
+} satisfies GraphTemplate;
+
 export const TEMPLATES: GraphTemplate[] = [
   productDetailGraph,
   xiaohongshuGraph,
@@ -3552,12 +3616,13 @@ export const TEMPLATES: GraphTemplate[] = [
   auditSamplingGraph,
   dueDiligenceGraph,
   variantCopyGraph,
+  compliancePrecheckGraph,
 ];
 
 /**
  * Blank canvas entry — NOT a business template.
  * Exported separately so `TEMPLATES.length` always equals the real
- * template count (34), and callers that need the blank entry opt in.
+ * template count (35), and callers that need the blank entry opt in.
  */
 export const BLANK_TEMPLATE: GraphTemplate = blankGraph;
 
