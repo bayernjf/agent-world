@@ -115,3 +115,12 @@ export function formatRelativeTime(
   if (minutes > 0) return rtf.format(-minutes, "minute");
   return rtf.format(-seconds, "second");
 }
+
+/** Conjunction list, e.g. zh "苹果、香蕉和梨" / en "Apple, Banana, and Pear". */
+export function formatList(
+  items: string[],
+  lang?: string,
+  type: "conjunction" | "disjunction" | "unit" = "conjunction",
+): string {
+  return new Intl.ListFormat(locale(lang), { type }).format(items);
+}

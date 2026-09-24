@@ -1015,6 +1015,19 @@ export function createDriver(
        ORDER BY submitted_at DESC, ${tie} DESC LIMIT 1`,
     touchRemoteJob: `UPDATE remote_jobs SET state = ?, last_polled_at = ? WHERE id = ?`,
     finishRemoteJob: `UPDATE remote_jobs SET state = ?, finished_at = ?, error_code = ? WHERE id = ?`,
+    // G4 admin/ops feed: open (submitted/running) jobs oldest-first so stuck
+    // in-flight renders surface first; the all-state view is newest-first. The
+    // PG driver inherits these (its executor only translates ? -> $n); LIMIT ?
+    // is legal in both dialects.
+    listOpenRemoteJobs: `SELECT id, user_id, run_id, graph_id, node_id, attempt, kind, provider, remote_job_id, state, submitted_at, last_polled_at, finished_at, error_code, meta_json
+       FROM remote_jobs
+       WHERE state IN ('submitted', 'running')
+       ORDER BY submitted_at ASC, ${tie} ASC
+       LIMIT ?`,
+    listAllRemoteJobs: `SELECT id, user_id, run_id, graph_id, node_id, attempt, kind, provider, remote_job_id, state, submitted_at, last_polled_at, finished_at, error_code, meta_json
+       FROM remote_jobs
+       ORDER BY submitted_at DESC, ${tie} DESC
+       LIMIT ?`,
   };
 
   // M3 S6: subscription rows carry Stripe mirror columns (local DB is a mirror
@@ -1354,6 +1367,22 @@ export function createDriver(
     /** Move a job to a terminal state (succeeded/failed/lost), stamping finished_at. */
     async finishRemoteJob(id: string, state: "succeeded" | "failed" | "lost", errorCode?: string | null): Promise<void> {
       await exec.run(stmts.finishRemoteJob, [state, Date.now(), errorCode ?? null, id]);
+    },
+    /** G4 admin/ops listing across users. Open jobs (submitted/running) are
+     *  returned oldest-first by default so stuck in-flight renders surface
+     *  first; pass openOnly:false for the most recent jobs in any state. Limit
+     *  is clamped to [1,500]. Inherited unchanged by the PG driver. */
+    async listRemoteJobs(
+      limit: number,
+      opts: { openOnly?: boolean } = {},
+    ): Promise<RemoteJob[]> {
+      const truncated = Number.isFinite(limit) ? Math.trunc(limit) : 100;
+      const bounded = Math.min(Math.max(truncated, 1), 500);
+      const rows = (await exec.all(
+        opts.openOnly === false ? stmts.listAllRemoteJobs : stmts.listOpenRemoteJobs,
+        [bounded],
+      )) as RemoteJobRow[];
+      return rows.map(mapRemoteJob);
     },
     /**
      * Count distinct given nodes that finished successfully within a run.

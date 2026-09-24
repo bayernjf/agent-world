@@ -116,9 +116,9 @@
 
 ### 3.3 分步（高层）
 1. 纯函数 deadline 判断 + 单测（✅ G4.1 已落地）
-2. engine 接线（degraded 状态机分支）
-3. 前端 RunTimeline 显示 degraded + "继续此节点"按钮
-4. 视频节点接入远端任务进度查询（本次运行内 ✅ 已落地；跨 run 重新附着见 §3.7）
+2. engine 接线（degraded 状态机分支）（✅ G4.2 已落地 2026-09-24）
+3. 前端 RunTimeline 显示 degraded + "继续此节点"按钮（✅ G4.3 已落地 2026-09-24）
+4. 视频节点接入远端任务进度查询（本次运行内 ✅ 已落地；跨 run 重新附着 ✅ G4.4 已落地 2026-09-24，见 §3.7）
 
 ---
 
@@ -133,8 +133,9 @@
 | **G4.4 跨 run 重新附着** | ✅ 已落地（2026-09-24，`2b58092`/`7d7a08f`） | 本文件 §3.7，reattach 复用 open job 不重复计费、lost 重投 |
 | G4 步骤 1/2 纯增量地基（事件 + `remote_jobs` 表 + CRUD） | ✅ 已落地（2026-09-23，`299b38d`/`de3eba6`） | core `node.degraded` 事件 + `REMOTE_JOB_LOST`（events.test.ts +7）；server migration 41 `remote_jobs` 表 + driver 四操作（db.remote-jobs +8、migrations +1）；旧 run 无 `node.degraded` 事件时行为字节级不变。步骤 ④ videogen halt/落库、⑤ resume、⑥ web 均已落地（2026-09-24，PR #408/#409、部署 `a557d8b`） |
 | G4 步骤 ③ reconstructState 投影 degraded | ✅ 已落地（2026-09-24，`4eef8d8`） | `ResumeState.degraded` + `DegradedNode`（reason/errorCode/remoteJob）；`reconstructState` 仅保留 degraded 后无终态事件的节点、恢复 halted 落点（engine.reliability +3）；步骤 ④⑤⑥ 均已落地（2026-09-24） |
+| G4 运营台在途任务只读端点（§3.9 步骤 7 子集） | ✅ 已落地（2026-09-24） | `GET /api/admin/remote-jobs`（owner/admin 可见，默认 open 作业最久在前，`?all=1` 含终态、`?limit=` 封顶 500）+ driver `listRemoteJobs`（PG driver 经共享 `createDriver` 自动继承）；driver +3 测、HTTP +5 测。步骤 7 的「启动只读恢复开关」仍后置 |
 
-> 触发条件（与 deferred-items 一致）：出现真实长媒体任务在网关超时或服务重启后需要「不重投、不重复计费」续跑的场景；或可安排执行核心改造窗口。G4.2 必须先行，G4.3/G4.4 依赖它。
+> **已全部落地（2026-09-24）**——未等真实长媒体超时场景，于 M1 等待窗口主动完成执行核心改造（G4.2/G4.3/G4.4 与步骤 ①–⑥，见上方状态表与 §3.9）。原触发条件留档：出现真实长媒体任务在网关超时或服务重启后需要「不重投、不重复计费」续跑的场景。
 
 ### 3.5 数据模型与状态扩展
 
@@ -268,10 +269,10 @@ emit 一个决策事件（`node.degradedAccepted`，或复用 human.decision 形
 4. ✅ **已落地（2026-09-24，`7d7a08f`/`34a6a5e`）** **server**：videogen degraded/halt + submit 幂等 + remote_jobs 落库/状态流转（`engine.videogen.async.test.ts` 完整重写 8 测：超时→degraded/halt、reattach open job 跳过 submit、succeeded 收结果不重投、lost 重投计费）。
 5. ✅ **已落地（2026-09-24，`2b58092`/`fce8324`）** **server**：resume `reattach` / `accept-degraded` 两个 action + execute/resume/fork 三路径 HTTP 接线 + reviews degraded 分流（engine.videogen.async 覆盖 reattach/accept-degraded）。
 6. ✅ **已落地（2026-09-24，`fe80ed4`）** **web**：RunTimelineView degraded 橙色标识 + reattach/accept-degraded/resubmit 三按钮（二次确认）+ zh/en i18n + ReviewQueue degraded 分组。
-7. **（可选后置）** 启动只读恢复开关 + 运营台在途任务计数。
+7. **（部分后置）** 运营台在途任务只读查看 ✅ 已落地（2026-09-24，`GET /api/admin/remote-jobs`，见 §3.4 末行）；**启动只读恢复开关**（进程启动时对 open remote_jobs 做一次 query 刷新）仍后置——当前重启后默认只读、由用户手动 reattach，暂无后台自动刷新需要。
 8. ✅ **已完成（2026-09-24）** docs：本文件进度表、handoff、deferred-items、CHANGELOG 的 G4 行全部从缓做转已落地（PR #408/#409、部署 `a557d8b`）。
 
-> 改造窗口纪律：步骤 4/5 触及 run 执行核心，需避开关键回采期，单独充分测试；步骤 1/2 是纯增量（新枚举、新表、新事件，旧 run 无 `node.degraded` 事件时行为字节级不变），可先行合入。
+> 改造窗口纪律：步骤 4/5 触及 run 执行核心，需避开关键回采期，单独充分测试；步骤 1/2 是纯增量（新枚举、新表、新事件，旧 run 无 `node.degraded` 事件时行为字节级不变），可先行合入。（步骤 ④⑤ 已于 2026-09-24 在 M1 等待窗口合入，Hasee 部署 `a557d8b` 零打断、日志零 error。）
 
 ### 3.10 明确不做
 

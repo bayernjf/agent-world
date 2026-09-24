@@ -1,12 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { useSession } from "../store/session";
+import { formatTime } from "../i18n/utils";
 import { logout } from "./AuthPages";
-
-/** Format an ISO instant as a short local clock time (HH:MM). */
-function shortTime(iso: string): string {
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? "" : d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-}
 
 /**
  * Slim global bar shown only while a demo session is active: states the demo
@@ -20,7 +15,8 @@ export default function DemoBanner() {
 
   if (!user?.isDemo || !user.demo) return null;
   const { quota, expiresAt } = user.demo;
-  const end = shortTime(expiresAt);
+  const endDate = new Date(expiresAt);
+  const end = Number.isNaN(endDate.getTime()) ? "" : formatTime(endDate);
 
   const handleExit = async () => {
     await logout();

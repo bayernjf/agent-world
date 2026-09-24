@@ -138,4 +138,36 @@ describe("remote_jobs CRUD (G4, design-step-trace-and-robustness §3.5)", () => 
     expect(open?.id).toBe("j2");
     expect(open?.submittedAt).toBe(2000);
   });
+
+  it("lists open jobs oldest-first and hides terminal ones by default", async () => {
+    await db.insertRemoteJob(job({ id: "j1", remoteJobId: "rem-1", submittedAt: 3000 }));
+    await db.insertRemoteJob(job({ id: "j2", remoteJobId: "rem-2", submittedAt: 1000 }));
+    await db.insertRemoteJob(job({ id: "j3", remoteJobId: "rem-3", submittedAt: 2000 }));
+    await db.finishRemoteJob("j3", "succeeded");
+
+    const open = await db.listRemoteJobs(10);
+    expect(open.map((j) => j.id)).toEqual(["j2", "j1"]);
+    expect(open.every((j) => j.state === "submitted" || j.state === "running")).toBe(true);
+  });
+
+  it("lists every job newest-first when openOnly is false, including terminal jobs", async () => {
+    await db.insertRemoteJob(job({ id: "j1", remoteJobId: "rem-1", submittedAt: 3000 }));
+    await db.insertRemoteJob(job({ id: "j2", remoteJobId: "rem-2", submittedAt: 1000 }));
+    await db.insertRemoteJob(job({ id: "j3", remoteJobId: "rem-3", submittedAt: 2000 }));
+    await db.finishRemoteJob("j3", "lost", "REMOTE_JOB_LOST");
+
+    const all = await db.listRemoteJobs(10, { openOnly: false });
+    expect(all.map((j) => j.id)).toEqual(["j1", "j3", "j2"]);
+    expect(all.find((j) => j.id === "j3")?.state).toBe("lost");
+    expect(all.find((j) => j.id === "j3")?.errorCode).toBe("REMOTE_JOB_LOST");
+  });
+
+  it("honors limit and clamps non-positive limits to at least one row", async () => {
+    await db.insertRemoteJob(job({ id: "j1", remoteJobId: "rem-1", submittedAt: 3000 }));
+    await db.insertRemoteJob(job({ id: "j2", remoteJobId: "rem-2", submittedAt: 1000 }));
+
+    expect((await db.listRemoteJobs(1)).map((j) => j.id)).toEqual(["j2"]);
+    // A bogus limit (0 / NaN) still returns the oldest open job rather than erroring.
+    expect((await db.listRemoteJobs(0)).map((j) => j.id)).toEqual(["j2"]);
+  });
 });
