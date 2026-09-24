@@ -232,6 +232,14 @@ export default function Plants({
                 label: t("nodes:tip.status"),
                 value: t(STATUS_KEY[hoveredRt.status] ?? hoveredRt.status),
               },
+              ...(hoveredRt.status === "skipped" && hoveredRt.skipReason
+                ? [
+                    {
+                      label: t("nodes:tip.skipReason"),
+                      value: hoveredRt.skipReason,
+                    },
+                  ]
+                : []),
               ...(hoveredRt.attempt > 1
                 ? [
                     {

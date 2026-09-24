@@ -1660,12 +1660,24 @@ export async function* execute(opts: ExecuteOptions): AsyncGenerator<RunEvent, v
   yield* gen;
 }
 
+/** A node parked in `degraded`: a long async job's local poll window expired
+ *  without a terminal result, but the remote job may still be running (G4). */
+export interface DegradedNode {
+  reason: string;
+  errorCode?: string;
+  /** Provider-side job handle, present when the node submitted one (reattach). */
+  remoteJob?: { provider?: string; jobId: string; kind: "video" | "image" | "audio" };
+}
+
 export interface ResumeState {
   artifacts: Map<string, Artifact[]>;
   attempts: Map<string, number>;
   /** Nodes the log records as skipped (branch tail not taken / cascade-skipped).
    *  Resume must re-seed them as skipped, not pending. */
   skipped: Set<string>;
+  /** Nodes parked in `degraded`, keyed by node id. A node whose later attempt
+   *  finished/failed is not included. The handle enables reattach on resume. */
+  degraded: Map<string, DegradedNode>;
   totalCostUsd: number;
   nodeCostUsd: Map<string, number>;
   haltedNodeId: string | null;
@@ -1682,6 +1694,8 @@ export function reconstructState(events: RunEvent[]): ResumeState {
   const artifacts = new Map<string, Artifact[]>();
   const attempts = new Map<string, number>();
   const skipped = new Set<string>();
+  const degradedAll = new Map<string, { seq: number; detail: DegradedNode }>();
+  const terminalSeq = new Map<string, number>();
   const nodeCostUsd = new Map<string, number>();
   const approvedTools: string[] = [];
   let totalCostUsd = 0;
@@ -1701,6 +1715,7 @@ export function reconstructState(events: RunEvent[]): ResumeState {
     lastSeq = Math.max(lastSeq, e.seq);
     switch (e.type) {
       case "node.finished":
+        terminalSeq.set(e.nodeId, e.seq);
         // If no typed artifacts were produced for this node (old runs / text-only),
         // synthesize a text artifact from the output so downstream input assembly works.
         if (!producedBy.has(e.nodeId) && (!artifacts.has(e.nodeId) || artifacts.get(e.nodeId)!.length === 0)) {
@@ -1739,6 +1754,27 @@ export function reconstructState(events: RunEvent[]): ResumeState {
       case "human.decision":
         attempts.set(e.nodeId, e.attempt);
         break;
+      case "node.failed":
+        terminalSeq.set(e.nodeId, e.seq);
+        break;
+      case "node.degraded":
+        degradedAll.set(e.nodeId, {
+          seq: e.seq,
+          detail: {
+            reason: e.reason,
+            ...(e.errorCode ? { errorCode: e.errorCode } : {}),
+            ...(e.remoteJob
+              ? {
+                  remoteJob: {
+                    jobId: e.remoteJob.jobId,
+                    kind: e.remoteJob.kind,
+                    ...(e.remoteJob.provider ? { provider: e.remoteJob.provider } : {}),
+                  },
+                }
+              : {}),
+          },
+        });
+        break;
       case "node.skipped":
         skipped.add(e.nodeId);
         break;
@@ -1756,7 +1792,30 @@ export function reconstructState(events: RunEvent[]): ResumeState {
         break;
     }
   }
-  return { artifacts, attempts, skipped, totalCostUsd, nodeCostUsd, haltedNodeId, haltedReason, lastSeq, approvedTools };
+
+  // Keep only degraded nodes with no later terminal event (a rework that then
+  // finished or failed supersedes the degraded projection).
+  const degraded = new Map<string, DegradedNode>();
+  for (const [nodeId, entry] of degradedAll) {
+    if ((terminalSeq.get(nodeId) ?? -1) < entry.seq) degraded.set(nodeId, entry.detail);
+  }
+  // A degraded node is the halt point when the log recorded no other halt
+  // (run.finished halted / gate.exhausted halt take precedence).
+  if (degraded.size > 0 && haltedNodeId === null) {
+    let latestNodeId: string | null = null;
+    let latestSeq = -1;
+    for (const [nodeId, entry] of degradedAll) {
+      if (degraded.has(nodeId) && entry.seq > latestSeq) {
+        latestSeq = entry.seq;
+        latestNodeId = nodeId;
+      }
+    }
+    if (latestNodeId) {
+      haltedNodeId = latestNodeId;
+      haltedReason = degraded.get(latestNodeId)!.reason;
+    }
+  }
+  return { artifacts, attempts, skipped, degraded, totalCostUsd, nodeCostUsd, haltedNodeId, haltedReason, lastSeq, approvedTools };
 }
 
 export interface ResumeOptions {
