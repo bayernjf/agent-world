@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { compile, type Graph } from "@agent-world/core";
 import { openDb } from "./db.js";
 import { execute } from "./engine.js";
+import { dispatchGate } from "./dispatch-gate.js";
 import { haltedOf } from "./run.js";
 import type { Worker } from "./worker.js";
 
@@ -52,6 +53,10 @@ export async function startABExperiment(
 ): Promise<{ abGroup: string; arms: Array<{ arm: string; runId: string; prompt: string }> }> {
   const abGroup = randomUUID();
   const built = buildABVariants(opts.graph, opts.targetNodeId, opts.variants);
+  // 一次实验会建 N 条 run，闸门按「这一次用户动作」评估一次就够：放在循环里会让
+  // 第一条 arm 的活跃 run 把后面的 arm 按并发超额拦掉。ab.ts 不经 startRun，
+  // 所以要显式补，否则实验是绕过配额的一条路。
+  await dispatchGate({ db, graph: opts.graph, userId: opts.userId, trigger: "ab" });
   const arms: Array<{ arm: string; runId: string; prompt: string }> = [];
 
   for (const { arm, graph } of built) {

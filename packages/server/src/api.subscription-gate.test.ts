@@ -104,22 +104,26 @@ describe("subscription gate on POST /api/runs (M2 S4)", () => {
 });
 
 /**
- * Characterization tests for the two ways the gate's shape matters to the
- * rollout decision. They assert what the code does TODAY, not what it should
- * do: invert them (and update docs/deferred-items.md「商业化」) when the gap is
- * closed. Both were measured against the dev DB on 2026-09-25.
+ * Route coverage. These are the routes that used to dispatch a run without ever
+ * reaching the gate, because the check sat in the POST /api/runs handler rather
+ * than in startRun. As of 2026-09-25 the gate lives in startRun, so each of them
+ * answers 402 — and a refused dispatch must not leave a run row behind.
  */
-describe("measured gaps in the gate, not blessed behavior", () => {
-  it("rerun dispatches a run that POST /api/runs refuses for the same user", async () => {
+describe("every dispatch route reaches the gate", () => {
+  /** A free-plan user whose single concurrent slot is already occupied. */
+  async function overQuota(email: string, graphId: string) {
     process.env.MONETIZATION_ENFORCE = "1";
-    const { token, userId } = await register("rerun@test.dev");
-    const mine = graphOwned("sub-rerun");
+    const { token, userId } = await register(email);
+    const mine = graphOwned(graphId);
     await db.saveGraph(mine, Date.now(), userId);
-    await db.createRun({ id: "rerun-source", userId, graph: mine, budgetUsd: null, at: Date.now() });
+    await db.createRun({ id: `live-${graphId}`, userId, graph: mine, budgetUsd: null, at: Date.now() });
+    return { token, userId, graph: mine, headers: { cookie: `auth_token=${token}`, "content-type": "application/json" } };
+  }
+
+  it("rerun is refused, with the same 402 body POST /api/runs returns", async () => {
+    const { userId, headers, graph } = await overQuota("rerun@test.dev", "sub-rerun");
+    await db.createRun({ id: "rerun-source", userId, graph, budgetUsd: null, at: Date.now() });
     await db.finishRun("rerun-source", userId, "done", Date.now());
-    // Saturate the free plan's single concurrent slot.
-    await db.createRun({ id: "rerun-live", userId, graph: mine, budgetUsd: null, at: Date.now() });
-    const headers = { cookie: `auth_token=${token}`, "content-type": "application/json" };
 
     const fresh = await app.request("/api/runs", {
       method: "POST",
@@ -127,13 +131,67 @@ describe("measured gaps in the gate, not blessed behavior", () => {
       body: JSON.stringify({ graphId: "sub-rerun" }),
     });
     expect(fresh.status).toBe(402);
+    const shape = await fresh.json() as Record<string, unknown>;
 
-    // Same user, same quota state, second dispatch route: the gate lives in the
-    // POST /api/runs handler, not in startRun, so rerun never reaches it.
     const rerun = await app.request("/api/runs/rerun-source/rerun", { method: "POST", headers });
-    expect(rerun.status).not.toBe(402);
+    expect(rerun.status).toBe(402);
+    // Same contract, or the web upgrade card silently never appears on rerun.
+    expect(await rerun.json()).toMatchObject({
+      error: shape.error,
+      metric: shape.metric,
+      upgradeUrl: shape.upgradeUrl,
+    });
   });
 
+  it("batch item retry is refused instead of erroring", async () => {
+    const { headers, graph, userId } = await overQuota("batchretry@test.dev", "sub-batchretry");
+    await db.createBatch({ id: "b-gate", userId, graphId: graph.id, rows: [{ text: "one" }] });
+    const [item] = await db.listBatchItems("b-gate");
+
+    const res = await app.request(`/api/batches/b-gate/items/${item!.id}/retry`, { method: "POST", headers });
+    expect(res.status).toBe(402);
+  });
+
+  it("firing a cron trigger is refused, and the refused tick creates no run row", async () => {
+    const { userId, headers, graph } = await overQuota("fire@test.dev", "sub-fire");
+    const created = await app.request(`/api/graphs/${graph.id}/triggers`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ id: "trg-gate", type: "cron", cron: "0 * * * *", enabled: true }),
+    });
+    expect(created.status).toBe(201);
+    const before = (await db.listRuns(userId)).length;
+
+    const res = await app.request(`/api/graphs/${graph.id}/triggers/trg-gate/fire`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({}),
+    });
+    expect(res.status).toBe(402);
+    // The gate runs before createRun precisely so a blocked dispatch cannot
+    // leave a 'running' row behind to occupy the concurrency slot forever.
+    expect((await db.listRuns(userId)).length).toBe(before);
+  });
+
+  it("MONETIZATION_ENFORCE=observe dispatches the run that enforce refuses", async () => {
+    const { headers } = await overQuota("observe@test.dev", "sub-observe");
+    process.env.MONETIZATION_ENFORCE = "observe";
+
+    const res = await app.request("/api/runs", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ graphId: "sub-observe" }),
+    });
+    // The grey-observation setting: same evaluation, logged, never blocking.
+    expect(res.status).not.toBe(402);
+  });
+});
+
+/**
+ * Still-true characterization, kept as a labelled warning rather than blessed
+ * behavior: an approval nobody answers holds a concurrency slot indefinitely.
+ */
+describe("measured gaps in the gate, not blessed behavior", () => {
   it("counts a halted run against concurrency for as long as it is left halted", async () => {
     const { userId } = await register("halted@test.dev");
     const mine = graphOwned("sub-halted");
