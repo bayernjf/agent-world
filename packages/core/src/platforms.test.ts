@@ -62,6 +62,32 @@ describe("platforms", () => {
     expect(r.sanitized).toContain("优秀");
   });
 
+  it("autoFix 把嵌套命中当成一次改写，不割掉已替换的文字", () => {
+    // AD_LAW_BANNED_WORDS 里「第一」和「第一品牌」是天然嵌套对：两个命中区间都按
+    // 原串算，若逐个往正在变长的串上套，后一个就会切进前一个的替换结果里。这里
+    // 两个词恰好等长，所以输出还能读——真正露馅的是下面那条不等长的用例。
+    const r = checkCompliance({
+      platform: "xiaohongshu",
+      text: "我们是行业第一品牌的托特包。 #穿搭",
+      title: "托特包",
+      autoFix: true,
+    });
+    expect(r.sanitized).toBe("我们是行业知名品牌的托特包。 #穿搭");
+  });
+
+  it("autoFix 不在嵌套命中上留下断裂的残字", () => {
+    // 2026-09-25 tpl-compliance-precheck 真机狗粮实测到的形状：卖家很自然会加的
+    // 「最」和词表里的「最好」嵌套，产出过「（已删除）秀的」这种没法上架的文本。
+    const r = checkCompliance({
+      platform: "xiaohongshu",
+      text: "这是全网最好的托特包。 #穿搭",
+      title: "托特包",
+      extraBanned: "最",
+      autoFix: true,
+    });
+    expect(r.sanitized).toBe("这是全网优秀的托特包。 #穿搭");
+  });
+
   it("标题超长产生 length 违规", () => {
     const longTitle = "好".repeat(30);
     const r = checkCompliance({
