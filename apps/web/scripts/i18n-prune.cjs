@@ -17,6 +17,7 @@
  * Usage:
  *   pnpm --filter @agent-world/web i18n:prune
  *   pnpm --filter @agent-world/web i18n:prune -- --apply
+ *   pnpm --filter @agent-world/web i18n:prune -- --check   # CI: report + exit 1
  */
 
 const { writeFileSync } = require("node:fs");
@@ -31,6 +32,7 @@ const {
 } = require("./i18n-scan.cjs");
 
 const APPLY = process.argv.includes("--apply");
+const CHECK = process.argv.includes("--check");
 const refs = references();
 
 function removeLeaf(obj, parts) {
@@ -75,6 +77,18 @@ for (const ns of namespaces()) {
 }
 
 const protectedPrefixes = [...refs.dynamic].sort();
-console.log(`\nruntime-addressed prefixes kept (${protectedPrefixes.length}):`);
-for (const p of protectedPrefixes) console.log(`  ${p}`);
+if (!CHECK) {
+  console.log(`runtime-addressed prefixes kept (${protectedPrefixes.length}):`);
+  for (const p of protectedPrefixes) console.log(`  ${p}`);
+}
 console.log(`\ntotal unreferenced: ${total}  ${APPLY ? "APPLIED" : "dry run — pass --apply"}`);
+
+if (CHECK && total > 0) {
+  console.error(
+    `\n${total} language-pack key(s) can no longer be reached from source. ` +
+      `Run "pnpm --filter @agent-world/web i18n:prune" to list them and ` +
+      `"-- --apply" to delete them. Keys that only a runtime prefix can reach ` +
+      `are protected automatically by i18n-scan.cjs.`,
+  );
+  process.exit(1);
+}

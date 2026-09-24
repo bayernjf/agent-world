@@ -7,7 +7,7 @@ import {
   TEMPLATES,
   TEMPLATE_CATEGORIES,
 } from "./templates.js";
-import { incoming } from "./graph.js";
+import { incoming, NodeKind } from "./graph.js";
 
 describe("templates", () => {
   it("ships business templates separately from the blank entry", () => {
@@ -16,7 +16,18 @@ describe("templates", () => {
     // Blank canvas is a creation entry, NOT a business template.
     expect(ids).not.toContain("tpl-blank");
     expect(BLANK_TEMPLATE.id).toBe("tpl-blank");
-    expect(TEMPLATES).toHaveLength(34);
+    expect(TEMPLATES).toHaveLength(35);
+  });
+
+  it("leaves exactly the three node kinds no template can carry", () => {
+    // This claim lived in docs only and was wrong for weeks (two named where
+    // six were uncovered), so it is asserted against NodeKind from here on.
+    const used = new Set(TEMPLATES.flatMap((t) => t.graph.nodes.map((n) => n.kind)));
+    expect(NodeKind.options.filter((k) => !used.has(k)).sort()).toEqual([
+      "database", // needs a live connection with credentials
+      "publish", // needs a configured publish target
+      "subprocess", // config is a concrete graphId, which a template cannot own
+    ]);
   });
 
   it("variant-copy template chains fanout → lane → select and keeps the pair intact", () => {
