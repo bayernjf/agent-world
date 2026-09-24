@@ -122,7 +122,7 @@
 
 ---
 
-### 3.4 落地状态（2026-09-23：步骤 1/2 纯增量地基已落地，步骤 3 起待执行核心改造窗口）
+### 3.4 落地状态（2026-09-24：步骤 1/2 地基 + 步骤 ③ 状态投影已落地，步骤 ④ 起待执行核心改造窗口）
 
 | 子项 | 状态 | 说明 |
 | --- | --- | --- |
@@ -131,7 +131,8 @@
 | **G4.2 timeout→degraded→halt 状态机** | ⏳ 待实施 | 本文件 §3.5–3.6，改 run 执行核心 |
 | **G4.3 前端 degraded 标识 + 决策按钮** | ⏳ 待实施 | 本文件 §3.8，依赖 G4.2 |
 | **G4.4 跨 run 重新附着** | ⏳ 待实施 | 本文件 §3.7，依赖 G4.2 的 halted 落点 |
-| G4 步骤 1/2 纯增量地基（事件 + `remote_jobs` 表 + CRUD） | ✅ 已落地（2026-09-23，`299b38d`/`de3eba6`） | core `node.degraded` 事件 + `REMOTE_JOB_LOST`（events.test.ts +7）；server migration 41 `remote_jobs` 表 + driver 四操作（db.remote-jobs +8、migrations +1）；旧 run 无 `node.degraded` 事件时行为字节级不变。步骤 ③ 状态投影、④ videogen halt/落库、⑤ resume、⑥ web 仍待（触执行核心，须避开 M1 回采窗口） |
+| G4 步骤 1/2 纯增量地基（事件 + `remote_jobs` 表 + CRUD） | ✅ 已落地（2026-09-23，`299b38d`/`de3eba6`） | core `node.degraded` 事件 + `REMOTE_JOB_LOST`（events.test.ts +7）；server migration 41 `remote_jobs` 表 + driver 四操作（db.remote-jobs +8、migrations +1）；旧 run 无 `node.degraded` 事件时行为字节级不变。步骤 ④ videogen halt/落库、⑤ resume、⑥ web 仍待（触执行核心，须避开 M1 回采窗口） |
+| G4 步骤 ③ reconstructState 投影 degraded | ✅ 已落地（2026-09-24，`4eef8d8`） | `ResumeState.degraded` + `DegradedNode`（reason/errorCode/remoteJob）；`reconstructState` 仅保留 degraded 后无终态事件的节点、恢复 halted 落点（engine.reliability +3）；步骤 ④⑤⑥ 仍待 |
 
 > 触发条件（与 deferred-items 一致）：出现真实长媒体任务在网关超时或服务重启后需要「不重投、不重复计费」续跑的场景；或可安排执行核心改造窗口。G4.2 必须先行，G4.3/G4.4 依赖它。
 
@@ -263,7 +264,7 @@ emit 一个决策事件（`node.degradedAccepted`，或复用 human.decision 形
 
 1. ✅ **已落地（2026-09-23，`299b38d`）** **core**：ErrorCode 加 `REMOTE_JOB_LOST` + `node.degraded` 事件 zod schema + 类型导出（新 `events.test.ts` +7 测：全/最小字段、非法 kind、缺 reason、错误码回归）。
 2. ✅ **已落地（2026-09-23，`de3eba6`）** **server**：migration 41 `remote_jobs` 表（DDL 进最新 CREATE 块 + 旧库迁移 `CREATE TABLE IF NOT EXISTS` 兜底 + `idx_remote_jobs_open` 部分索引）+ driver CRUD `insertRemoteJob`/`getOpenRemoteJob`/`touchRemoteJob`/`finishRemoteJob`（新 `db.remote-jobs.test.ts` +8 测，`migrations.test.ts` 加 v41 fresh、rollback 顺延为 41→40→39，server 共 +9 测）。
-3. **server**：`reconstructState` 识别 `node.degraded`（投影 degraded + halted 落点）（+engine 单测）。
+3. ✅ **已落地（2026-09-24，`4eef8d8`）** **server**：`reconstructState` 识别 `node.degraded`——`ResumeState` 加 `degraded: Map<string,DegradedNode>`（reason/errorCode/remoteJob 句柄），仅保留 degraded 之后无 `node.finished`/`node.failed` 的节点，并恢复 haltedNodeId/haltedReason（run.finished/gate.exhausted halt 优先）；engine.reliability +3 测。
 4. **server**：videogen degraded/halt + submit 幂等 + remote_jobs 落库/状态流转（+扩展 `engine.videogen.async.test.ts`：超时→degraded/halt、重启后 open job 跳过 submit、succeeded 收结果不重投）。
 5. **server**：resume `reattach` / `accept-degraded` 两个 action + HTTP 接线 + reviews 分流（+run/api 单测覆盖 query 四分支）。
 6. **web**：RunTimelineView degraded 标识 + 三按钮 + i18n + 审核队列分组（+web 测试）。
