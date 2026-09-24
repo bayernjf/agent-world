@@ -10,7 +10,8 @@
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "i18n:extract": "i18next-parser",
-    "i18n:check": "node scripts/check-i18n.cjs"
+    "i18n:check": "node scripts/check-i18n.cjs",
+    "i18n:prune": "node scripts/i18n-prune.cjs"
   },
   "dependencies": {
     "@agent-world/core": "workspace:*",
