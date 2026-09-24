@@ -9,7 +9,7 @@ import type { ResumeAction } from "./run.js";
  */
 
 /** Why a run is waiting, derived from the engine's halt reason prefix. */
-export type ReviewKind = "human" | "tool" | "gate";
+export type ReviewKind = "human" | "tool" | "gate" | "degraded";
 
 /** Preview cap: a pending review can be a whole document, and the queue lists many. */
 export const PREVIEW_CHARS = 1200;
@@ -42,6 +42,8 @@ export function classifyHalt(reason: string | null): ReviewKind {
   if (!reason) return "gate";
   if (reason.startsWith("human:")) return "human";
   if (reason.startsWith("dangerous-tool:")) return "tool";
+  // G4: a long async job (video render) awaiting a continue/accept decision.
+  if (reason.startsWith("degraded:")) return "degraded";
   return "gate";
 }
 
