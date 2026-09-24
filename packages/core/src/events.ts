@@ -154,6 +154,17 @@ export const RunEvent = z.discriminatedUnion("type", [
       })
       .optional(),
   }),
+  /**
+   * The operator explicitly accepted a `degraded` node: the run welds onward
+   * with no artifact for that node, but the node keeps its degraded badge
+   * (never a green done). Downstream nodes that hard-require the missing output
+   * are then stopped by the G2 contract gate or an error edge (G4 §3.7).
+   */
+  z.object({
+    ...base,
+    type: z.literal("node.degradedAccepted"),
+    ...NodeRunKey.shape,
+  }),
   /** A node skipped because an upstream predecessor failed (cascade). Distinct from pending — the UI can show "skipped" instead of "waiting". */
   z.object({
     ...base,

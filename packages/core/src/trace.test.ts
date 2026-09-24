@@ -134,4 +134,51 @@ describe("buildTimeline", () => {
     expect(at.status).toBe("skipped");
     expect(at.skipReason).toBeNull();
   });
+
+  it("projects a degraded node with its remote job and counts totals.degraded", () => {
+    const events: RunEvent[] = [
+      evt({ type: "node.started", seq: 1, ts: 0, nodeId: "V", attempt: 1 }),
+      evt({
+        type: "node.degraded",
+        seq: 2,
+        ts: 100,
+        nodeId: "V",
+        attempt: 1,
+        reason: "poll window closed",
+        errorCode: "TIMEOUT",
+        remoteJob: { provider: "fake", jobId: "job-1", kind: "video" },
+      }),
+    ];
+    const tl = buildTimeline(events);
+    const at = tl.nodes[0].attempts[0];
+    expect(at.status).toBe("degraded");
+    expect(at.degradedReason).toBe("poll window closed");
+    expect(at.remoteJob).toEqual({ provider: "fake", jobId: "job-1", kind: "video" });
+    expect(at.degradedAccepted).toBe(false);
+    expect(tl.nodes[0].status).toBe("degraded");
+    expect(tl.totals.degraded).toBe(1);
+  });
+
+  it("keeps the degraded badge after node.degradedAccepted but marks it accepted", () => {
+    const events: RunEvent[] = [
+      evt({ type: "node.started", seq: 1, ts: 0, nodeId: "V", attempt: 1 }),
+      evt({
+        type: "node.degraded",
+        seq: 2,
+        ts: 100,
+        nodeId: "V",
+        attempt: 1,
+        reason: "x",
+        errorCode: "TIMEOUT",
+        remoteJob: { jobId: "job-1", kind: "video" },
+      }),
+      evt({ type: "node.degradedAccepted", seq: 3, ts: 200, nodeId: "V", attempt: 1 }),
+    ];
+    const tl = buildTimeline(events);
+    const at = tl.nodes[0].attempts[0];
+    // The badge deliberately stays degraded; only the accepted flag flips.
+    expect(at.status).toBe("degraded");
+    expect(at.degradedAccepted).toBe(true);
+    expect(tl.totals.degraded).toBe(1);
+  });
 });
