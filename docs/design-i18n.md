@@ -8,7 +8,7 @@
 
 - 技术栈落地：i18next + react-i18next（运行时）+ i18next-parser（开发工具）
 - **14 个命名空间**：common / canvas / nodes / modals / settings / run / errors / auth / reviews / announcements / feedback / park / tour / billing
-- 完整 zh / en 双语翻译包（**2001 keys**，2026-09-24 死 key 清理后；清理前 2818）
+- 完整 zh / en 双语翻译包（**1982 keys**，两轮死 key 清理后：2026-09-24 删 817、2026-09-25 删 19；清理前 2818）
 - 语言自动检测（localStorage > 浏览器语言）+ 持久化 + 同步 `document.lang`
 - **全部 41 个业务组件**迁移到 `useTranslation()`
 - **顶层 `App.tsx`** 迁移
@@ -19,15 +19,15 @@
 - **硬编码 toLocale* 替换**（2026-09-12）：15 个组件共 42 处 `toLocaleDateString()` / `toLocaleString()` / `toLocaleTimeString()` 全部替换为 `i18n/utils.ts` 函数，移除未使用的 `i18n` 解构
 - **工具链**（2026-09-12）：
   - `i18next-parser.config.js` — 翻译 key 提取配置（`pnpm i18n:extract`）
-  - `scripts/check-i18n.cjs` — 补充校验脚本（`pnpm i18n:check`）：插值变量一致性（zh/en 的 `{{var}}` 必须对齐）+ 未使用 key 扫描（warning）。**该扫描已知会误报**：它把源码里 `t("common.x")` 记成 `common.x`，再与 `common:common.x` 比对，从不解析 `defaultNS`，所以所有「靠默认命名空间省略前缀」的 key 都会被列成未使用——只当线索，别照它的清单删 key（登记于 2026-09-24，未修）
-  - `scripts/i18n-unused-keys.ts` — 死 key 审计与清理（默认 dry-run，`--apply` 同时改 zh/en 并删空组）。比上面那个扫描可靠两点：`DYNAMIC` 白名单显式盖住 `t(\`billing:plans.${id}\`)` 这类模板字面量寻址，且 key 的裸点号路径在 src（含测试）任意处出现即保留。2026-09-24 用它删了 817 个 key（errors 从 298 缩到实际被寻址的 9 个）
+  - `scripts/i18n-scan.cjs` — 「这个 key 源码能不能碰到」的**唯一判定处**，check 与 prune 共用，避免两个工具各执一词。四条规则：`t("ns:path")` 与任意 `"ns:path"` 字面量算引用；无前缀的 key 只解析进 `defaultNS`（全仓没有 `useTranslation("ns")` 调用）；存在查表里的 key（`const RANGE_KEY = { all: "common.all" }`）按裸字符串算引用；源码里以模板字面量拼出来的前缀（`` t(`billing:plans.${id}`) ``）**自动**从源码推出并整段保护，不再需要手写白名单。命名空间清单直接读 `locales/zh/` 目录，不再是硬编码数组（旧数组漏了 `billing`，那个包此前根本没被检查过）
+  - `scripts/check-i18n.cjs` — 校验脚本（`pnpm i18n:check`）：插值变量一致性（zh/en 的 `{{var}}` 必须对齐）+ 未使用 key 扫描（warning）。此前它从不解析 `defaultNS`，把 `t("common.search")` 记成 `common.search` 去比 `common:common.search`，报出来的 98 个候选大半是误报，不能当删除清单——2026-09-25 改用 i18n-scan 后归零
+  - `scripts/i18n-prune.cjs` — 死 key 清理（`pnpm --filter @agent-world/web i18n:prune`，默认 dry-run，`-- --apply` 同时改 zh/en 并删空组）。两轮战绩：2026-09-24 删 817（`errors` 从 298 缩到被寻址的 9 个）、2026-09-25 修好扫描后又删 19（`canvas` 那批早期设计留下的 title/grid/minimap/… 全无引用）
   - `i18n/type.d.ts` — TypeScript 类型增强，14 个命名空间全部类型化，`t()` 调用编译期校验 key 拼写
 
 **剩余**（2026-09-24 复核）：
 
 - ~~`Inspector.tsx` 内 29 种节点的配置字段~~ **已完成**：`apps/web/src` 非测试代码扫描后只剩 4 个文件含中文，且都是 AGENTS.md 允许的四类（术语对照表 `GlossaryModal`、语言切换器目标语言名、`store/graph.ts` 的翻译节点模型配置、`App.tsx` 里只做颜色哈希种子的园区 category）。
-- **~98 个 key 仍是「疑似未使用」但没删**：`canvas:title` / `canvas:grid` 这类裸词路径，脚本无法区分 `t("canvas:title")` 与同名的 `title` / `grid` prop，宁可留下。要清完得逐个读调用点。
-- **`check-i18n.cjs` 的 defaultNS 误报未修**（见上条工具链注）：修好后它的未使用扫描才能当权威。
+- **语言包已无「够不着」的 key**：`pnpm i18n:check` 现在报 `no unused keys`，zh 侧 1982 个 key。仍存的判定局限：只被运行时前缀保护的 key，如果那个前缀以后不再拼出来，扫描不会自动发现它变成死 key（保护是按前缀放行，不是按实际取值域）。
 - **en 节点名口径待拍板**：工厂隐喻（`Reactor` / `Conveyor`）还是功能名（`Text generation`），只改语言包值、不改代码。
 
 ## 1. 背景与现状

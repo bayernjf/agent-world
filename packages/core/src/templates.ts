@@ -3452,6 +3452,71 @@ const dueDiligenceGraph = {
   },
 } satisfies GraphTemplate;
 
+const variantCopyGraph = {
+  id: "tpl-variant-copy",
+  name: "文案多变体择优",
+  description: "需求 → 一次扇出 3 种写法 → 各自成稿 → 按评分标准择优 1 条 → 入库",
+  category: "营销内容",
+  graph: {
+    id: "tpl-variant-copy",
+    name: "文案多变体择优",
+    nodes: [
+      { id: "intake", kind: "source", name: "需求", x: 80, y: 300 },
+      {
+        id: "fan",
+        kind: "fanout",
+        name: "扇出写法",
+        x: 360,
+        y: 300,
+        fanout: {
+          count: 3,
+          strategy: "prompt",
+          // strategy=prompt replaces the lane node's prompt outright, so each
+          // entry must carry the whole task, not just its angle.
+          prompts: [
+            "你是电商投放文案助手。根据给定需求写一条投放文案：用「痛点 → 方案 → 行动号召」结构，语气直接、少形容词，不超过 120 字，只输出文案正文。",
+            "你是电商投放文案助手。根据给定需求写一条投放文案：用「场景代入 → 细节描写 → 金句收尾」结构，口语化、有画面感，不超过 120 字，只输出文案正文。",
+            "你是电商投放文案助手。根据给定需求写一条投放文案：用「数字对比 → 反差结论 → 限时行动」结构，短句为主，不超过 120 字，只输出文案正文。",
+          ],
+        },
+      },
+      {
+        id: "lane",
+        kind: "textGen",
+        name: "变体成稿",
+        x: 640,
+        y: 300,
+        textGen: {
+          model: "agnes-2.0-flash",
+          prompt:
+            "你是电商投放文案助手。根据给定需求和该泳道的写法要求写一条投放文案，不超过 120 字，只输出文案正文。",
+          skills: [],
+        },
+      },
+      {
+        id: "sel",
+        kind: "select",
+        name: "择优",
+        x: 920,
+        y: 300,
+        select: {
+          mode: "llm_score",
+          topK: 1,
+          rubric:
+            "按点击意愿给 0-10 分：钩子是否具体、利益点是否清楚、读起来是否口语顺、有无夸大违规风险。逐条打分并说明理由。",
+        },
+      },
+      { id: "depot", kind: "sink", name: "成稿", x: 1200, y: 300 },
+    ],
+    edges: [
+      { id: "e1", from: "intake", to: "fan", kind: "flow" },
+      { id: "e2", from: "fan", to: "lane", kind: "flow" },
+      { id: "e3", from: "lane", to: "sel", kind: "flow" },
+      { id: "e4", from: "sel", to: "depot", kind: "flow" },
+    ],
+  },
+} satisfies GraphTemplate;
+
 export const TEMPLATES: GraphTemplate[] = [
   productDetailGraph,
   xiaohongshuGraph,
@@ -3486,12 +3551,13 @@ export const TEMPLATES: GraphTemplate[] = [
   batchContractReviewGraph,
   auditSamplingGraph,
   dueDiligenceGraph,
+  variantCopyGraph,
 ];
 
 /**
  * Blank canvas entry — NOT a business template.
  * Exported separately so `TEMPLATES.length` always equals the real
- * template count (33), and callers that need the blank entry opt in.
+ * template count (34), and callers that need the blank entry opt in.
  */
 export const BLANK_TEMPLATE: GraphTemplate = blankGraph;
 

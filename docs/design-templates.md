@@ -15,7 +15,7 @@
 | 能力 | 现状 | 结论 |
 |---|---|---|
 | 模板数据模型 | `GraphTemplate`（id/name/description/category/graph）+ `instantiateTemplate`（节点/边 id 全量重生成，`Graph.parse` 兜底校验）于 core/templates.ts | ✅ 已有 |
-| 内置模板 | 33 个业务模板 + 空白入口（`BLANK_TEMPLATE` 单独导出，不计入 `TEMPLATES.length`） | ✅ 已覆盖营销/数据/写作/办公/开发/法律/财务/运维/客服/教育/生活 |
+| 内置模板 | 34 个业务模板 + 空白入口（`BLANK_TEMPLATE` 单独导出，不计入 `TEMPLATES.length`；2026-09-25 加入 `tpl-variant-copy`——首个承载 `fanout` + `select` 的模板） | ✅ 已覆盖营销/数据/写作/办公/开发/法律/财务/运维/客服/教育/生活 |
 | 模板 API | `GET /api/templates`（含 slim geometry 缩略图）+ 建图 `template` 参数实例化 | ✅ 已有 |
 | 首启模板选择 | Onboarding.tsx 模板选择器（按分类分组区块 + 卡片 + SVG 预览，直读 core TEMPLATES 免网络往返；空白卡片钉在所有区块之前） | ✅ 已有 |
 | **老用户模板入口** | GraphSwitcher「+ 新建产线」→ NewGraphDialog 模板选择弹窗（共享 TemplatePicker，按分类分组 + 空白钉顶），首启/老用户双入口同一组件 | ✅ 已落地（`ffc34d9`，分组见 §6） |
@@ -195,3 +195,11 @@ Skill 功能对新建产线的用户实际是隐形的——机制有回归测�
   「gate 只挂 judge、agent 绝不挂 judge」钉成回归测试。加新的预挂卡时它会替你把关。
 
 技能卡本身的 kind、payload 约定与权限语义见 [design-skill.md](design-skill.md) §11、§12。
+
+## 9. 落地补记（2026-09-25）：fanout + select 首次进模板，两处「只在运行时暴露」的坑
+
+`tpl-variant-copy` 是第一个承载 `fanout` 与 `select` 的模板（节点类型覆盖 23/29 → 25/29）。写它时踩到两条 `compile()` 不报、引擎跑起来才炸的约束，记下来给以后加多变体模板的人：
+
+- **两半必须互相存在。** `fanout` 找不到下游 `select` 就 `node.failed / VALIDATION「扇出节点缺少下游择优节点」`，`select` 对称地要求上游有 `fanout`（`nodes/fanout.ts` 的 `firstSelectDownstream`、`nodes/select.ts` 的 `firstFanoutUpstream`）。图形状合法、compile 干净、计划照出，运行期才失败——所以 `packages/core/src/templates.test.ts` 的链式测试把「lane 严格夹在 fanout 与 select 之间」钉成回归。
+- **`strategy: "prompt"` 是替换不是追加。** `applyVariantConfig()`（`packages/server/src/nodes/shared.ts`）用变体 prompt **覆盖** lane 节点的 `textGen.prompt`，所以每条变体 prompt 必须是完整任务指令（角色 + 任务 + 结构 + 字数 + 输出约束）。只写「用 X 结构」会让泳道彻底拿不到任务——首版就犯了这个错，测试里那两条 `toContain` 是防它回潮。
+- lane 自己的 `textGen.prompt` 仍要写全：它只在某条变体 prompt 缺失或空白时兜底生效，不是「和变体拼起来」。
