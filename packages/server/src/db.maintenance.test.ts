@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { RunEvent } from "@agent-world/core";
 import { openDb } from "./db.js";
 
@@ -39,5 +39,25 @@ describe("db maintenance (prune + integrity)", () => {
     const remaining = await db.events("r1");
     expect(remaining).toHaveLength(1);
     expect(remaining[0]!.seq).toBe(2);
+  });
+
+  it("pruneAuditOlder keeps audit rows inside the 180-day window", async () => {
+    const now = Date.now();
+    vi.useFakeTimers();
+    try {
+      // insertAudit stamps created_at from the clock, so age the rows by moving it.
+      vi.setSystemTime(now - 200 * 86_400_000);
+      await db.insertAudit({ id: "audit-old", userId: "u9", action: "graph.save" });
+      vi.setSystemTime(now - 10 * 86_400_000);
+      await db.insertAudit({ id: "audit-new", userId: "u9", action: "graph.save" });
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(await db.pruneAuditOlder(now - 180 * 86_400_000)).toBe(1);
+
+    const rows = await db.listAudit("u9", { limit: 10 });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.id).toBe("audit-new");
   });
 });

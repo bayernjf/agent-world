@@ -2612,6 +2612,14 @@ export function createDriver(
           : await exec.all(stmts.listAuditAdminFirst, [limit])
       ) as Array<Record<string, unknown>>;
     },
+    /**
+     * Retention prune (design-audit-log §5): drops audit rows created before the
+     * epoch-millisecond cutoff and returns how many went. Serves
+     * `idx_audit_log_time`, so the scan stays bounded as the table grows.
+     */
+    async pruneAuditOlder(before: number): Promise<number> {
+      return Number((await exec.run("DELETE FROM audit_log WHERE created_at < ?", [before])).changes);
+    },
     // --- Announcements (30) ---
     async listActiveAnnouncements(now = Date.now()): Promise<Array<Record<string, unknown>>> {
       return await exec.all(stmts.listActiveAnnouncements, [now, now]) as Array<Record<string, unknown>>;

@@ -11,8 +11,9 @@
  *
  * Writes are best-effort: an audit failure must never break the business
  * request, so errors are logged loudly (via the structured logger) and
- * swallowed. The table itself is append-only — there is no UPDATE/DELETE
- * path in this codebase.
+ * swallowed. No code path UPDATEs a row; the only DELETEs are the 180-day
+ * retention prune at boot and the demo-account cascade. Neither is
+ * tamper-evidence — same DB, same permissions (design-audit-log §4).
  */
 import { randomUUID } from "node:crypto";
 import { log } from "./logger.js";
