@@ -313,7 +313,7 @@ cd apps/web && pnpm dev
 
 * **DoubaoWork 内置沙箱限制**：① 不让 listen socket（起 server/vite 全部 EPERM）；② 不让写 `.git/index.lock`（git commit 需在沙箱外执行）；③ macOS rlimit 后端 code 节点稳定失败 9 文件/36 测（SIGXFSZ：沙箱外层 seatbelt 与 `ulimit -f 32MB` 叠加，fnm Node 24 二进制 116MB 超限；**2026-09-21 已在沙箱外真实 macOS 对照证伪——156 文件/1293 测全绿，普通 macOS 不复现，不改代码**；重启条件：真实 macOS 自托管用户报 code 节点「退出码 null/无 stderr」，届时 darwin wrapper 跳过 `ulimit -f`）。沙箱内判定回归一律以 CI Linux / 沙箱外真实 macOS 为准。
 
-* **macOS python code 节点测试失败 → 查 Xcode 协议**：`/usr/bin/python3` 是 Xcode CLT 占位 shim，未接受协议时拒绝执行，子进程起不来报 `ENOENT lstat`。修复：`sudo xcodebuild -license accept` 或 `brew install python`。排查：`python3 --version` 若打印 license 提示即此问题。Linux CI / Hasee 不受影响。
+* **macOS python code 节点测试失败 → 查 Xcode 协议**：`/usr/bin/python3` 是 Xcode CLT 占位 shim，未接受协议时拒绝执行，子进程起不来报 `ENOENT lstat`。修复：`sudo xcodebuild -license accept` 或 `brew install python`。排查：`python3 --version` 若打印 license 提示即此问题。**症状不一定是 ENOENT**：2026-09-25 本机它表现为 `engine.code.test.ts` 两条 `net: allowlist` 用例红（断言拿不到 `node.finished`，`expected undefined to be truthy`），只有 `language: "python"` 的用例失败、同文件 16 条 JS 用例全过——这形状容易被误诊成「沙箱不让回环 listen」，先跑一个 `net.createServer().listen(0, "127.0.0.1")` 探针即可排除（本机返回 LISTEN_OK，随后 `python3 --version` 打出 license 提示才是真因）。Linux CI / Hasee 不受影响。
 
 * **Linux RLIMIT_NPROC 陷阱（CI）**：`ulimit -u` 限制整个 UID 的进程+线程总数（非单子进程），CI runner 多 worker 逼近默认 128 时代码节点 node 启动 EAGAIN → SIGABRT（`r.status === null`、~200ms 秒挂），症状随负载波动。教训：shell 行为测试不叠加 NPROC 小值，用 `maxProcs: 4096` 覆盖。另：开发机本地代理（`HTTP_PROXY`）会污染代理类手工验证，排查前 `env | grep -i proxy`。
 
