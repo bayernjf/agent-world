@@ -77,7 +77,11 @@ export interface VideoJobHandle {
 export type VideoJobPoll =
   | { state: "pending" | "running" }
   | { state: "succeeded"; results: VideoGenResult[] }
-  | { state: "failed"; error: string; errorCode?: string };
+  | { state: "failed"; error: string; errorCode?: string }
+  // G4: the provider no longer recognizes the job id (TTL expired / cleaned
+  // up). The local row is finished as `lost` and the run stays halted so the
+  // operator can explicitly resubmit (which bills again), never auto-resubmit.
+  | { state: "unknown" };
 
 /** Arguments for a text-to-audio / TTS generation request. */
 export interface AudioGenArgs {
