@@ -1,9 +1,4 @@
 {
-  "common": {
-    "duplicate": "Duplicate",
-    "cancel": "Cancel",
-    "copied": "Copied"
-  },
   "graph": {
     "duplicateNameShort": "Duplicate line name",
     "saveConflict": "Save conflict",

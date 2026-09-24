@@ -1,5 +1,4 @@
 {
-  "title": "Run",
   "status": {
     "idle": "Ready to dispatch",
     "running": "Running",
