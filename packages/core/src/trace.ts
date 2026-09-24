@@ -16,7 +16,8 @@ export type TimelineAttemptStatus =
   | "reviewing"
   | "done"
   | "failed"
-  | "skipped";
+  | "skipped"
+  | "degraded";
 
 export interface TimelineGate {
   passed: boolean;
@@ -43,6 +44,12 @@ export interface TimelineAttempt {
   errorCode: string | null;
   /** Why a skipped attempt was skipped (e.g. worker lacks the capability). Null otherwise. */
   skipReason: string | null;
+  /** G4: why the attempt degraded (e.g. poll window closed while the remote render continues). Null otherwise. */
+  degradedReason: string | null;
+  /** G4: remote job handle for a degraded attempt (enables reattach). Null otherwise. */
+  remoteJob: { provider?: string; jobId: string; kind: "video" | "image" | "audio" } | null;
+  /** G4: true once an operator accepted the degraded result; the run proceeds but the badge stays degraded. */
+  degradedAccepted: boolean;
   toolCalls: number;
   artifacts: number;
 }
@@ -76,6 +83,7 @@ export interface RunTimeline {
     skipped: number;
     running: number;
     reviewing: number;
+    degraded: number;
     tokensIn: number;
     tokensOut: number;
     costUsd: number;
@@ -155,6 +163,9 @@ export function buildTimeline(events: RunEvent[]): RunTimeline {
         error: null,
         errorCode: null,
         skipReason: null,
+        degradedReason: null,
+        remoteJob: null,
+        degradedAccepted: false,
         toolCalls: 0,
         artifacts: 0,
       };
@@ -217,6 +228,24 @@ export function buildTimeline(events: RunEvent[]): RunTimeline {
         node.status = "skipped";
         break;
       }
+      case "node.degraded": {
+        const { node, at } = ensureAttempt(e.nodeId, e.attempt, e.variant);
+        at.status = "degraded";
+        at.degradedReason = e.reason;
+        at.errorCode = e.errorCode ?? null;
+        at.remoteJob = e.remoteJob
+          ? { provider: e.remoteJob.provider, jobId: e.remoteJob.jobId, kind: e.remoteJob.kind }
+          : null;
+        node.status = "degraded";
+        break;
+      }
+      case "node.degradedAccepted": {
+        const { at } = ensureAttempt(e.nodeId, e.attempt, e.variant);
+        at.degradedAccepted = true;
+        // The badge deliberately stays "degraded" (the node produced nothing,
+        // so it never turns green done).
+        break;
+      }
       case "human.review": {
         const { node, at } = ensureAttempt(e.nodeId, e.attempt, e.variant);
         at.status = "reviewing";
@@ -261,13 +290,14 @@ export function buildTimeline(events: RunEvent[]): RunTimeline {
   }
 
   const timelineNodes = order.map((id) => nodes.get(id)!);
-  const totals = { nodes: 0, done: 0, failed: 0, skipped: 0, running: 0, reviewing: 0, tokensIn: 0, tokensOut: 0, costUsd: 0 };
+  const totals = { nodes: 0, done: 0, failed: 0, skipped: 0, running: 0, reviewing: 0, degraded: 0, tokensIn: 0, tokensOut: 0, costUsd: 0 };
   for (const n of timelineNodes) {
     totals.nodes += 1;
     if (n.status === "done") totals.done += 1;
     else if (n.status === "failed") totals.failed += 1;
     else if (n.status === "skipped") totals.skipped += 1;
     else if (n.status === "reviewing") totals.reviewing += 1;
+    else if (n.status === "degraded") totals.degraded += 1;
     else totals.running += 1;
     // Count each node once for tokens/cost using its terminal (last) attempt,
     // so retries of the same node are not double-counted.

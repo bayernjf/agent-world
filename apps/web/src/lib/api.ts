@@ -280,7 +280,7 @@ export interface PendingReview {
   /** Null only for runs whose log predates halt recording. */
   nodeId: string | null;
   nodeName: string | null;
-  kind: "human" | "tool" | "gate";
+  kind: "human" | "tool" | "gate" | "degraded";
   reason: string | null;
   /** Text awaiting the decision, already trimmed to a server-side preview. */
   content: string | null;
@@ -1041,7 +1041,7 @@ export const api = {
 
   resumeRun: (
     runId: string,
-    action: "continue" | "approve" | "reject" | "edit" | "scrap",
+    action: "continue" | "approve" | "reject" | "edit" | "scrap" | "reattach" | "accept-degraded",
     resetFrom?: string,
     editOutput?: Record<string, string>,
     approveTools?: string[],

@@ -68,6 +68,7 @@ import { guardToolCall, isDangerousTool, loadPermissionConfig, type PermissionCo
 import { notifyFailed, notifyHalt } from "./notify.js";
 import { CONNECTOR_SHORTCUTS, resolveConnector, type ResolvedMaterial } from "./connectors.js";
 import { createSqliteDriver } from "./db-drivers.js";
+import type { RemoteJobStore } from "./db.js";
 import { dataUriToBuffer, parseDocument, extractPdfImages } from "./parse-file.js";
 import { ocrImage } from "./ocr.js";
 import { decodeImage, encodeJpeg, encodePng } from "./convert.js";
@@ -273,6 +274,8 @@ export interface ExecuteOptions {
   userSkills?: Map<string, BuiltinSkill>;
   /** Run-scoped structured logger, bound to runId/graphId by the caller. */
   log?: Logger;
+  /** G4: persistence seam for long async (video) jobs; injected by the HTTP layer. */
+  remoteJobStore?: RemoteJobStore;
 }
 
 export type Status = "done" | "failed" | "halted" | "tripped" | "cancelled";
@@ -280,7 +283,7 @@ export type Status = "done" | "failed" | "halted" | "tripped" | "cancelled";
  * - skipped: a branch node did not route here; the node is never launched and
  *   its own un-routed subtree is skipped the same way.
  */
-export type NodeState = "pending" | "running" | "done" | "failed" | "skipped";
+export type NodeState = "pending" | "running" | "done" | "failed" | "skipped" | "degraded";
 
 
 /** Connector pull resilience: how many extra attempts and the gap between them. */
@@ -483,6 +486,10 @@ export interface SchedulerOptions {
   userSkills?: Map<string, BuiltinSkill>;
   /** Run-scoped structured logger, bound to runId/graphId by the caller. */
   log?: Logger;
+  /** G4 persistence seam for long async jobs (video); injected by the HTTP layer. */
+  remoteJobStore?: RemoteJobStore;
+  /** G4 accept-degraded: weld onward past a degraded node with no artifact. */
+  acceptDegraded?: { nodeId: string; attempt: number };
 }
 
 /**
@@ -788,7 +795,9 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
         if (!handled) return false;
         continue;
       }
-      if (st !== "done") return false;
+      // G4: an accepted-degraded predecessor welds onward (it carries a
+      // packet) but keeps its degraded badge, never a green done.
+      if (st !== "done" && st !== "degraded") return false;
       if (packetEdges.has(e.id)) {
         anyPacket = true;
       } else if (nodeById(graph, e.from)?.kind !== "branch") {
@@ -1095,6 +1104,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
   // declaration below — handlers only ever run after that point.
   const ctx: NodeRunContext = {
     opts,
+    remoteJobStore: opts.remoteJobStore,
     runId,
     log: runLog,
     graph,
@@ -1520,7 +1530,7 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
             const allTerminal = ins.every(
               (e) => {
                 const s = states.get(e.from);
-                return s === "done" || s === "failed" || s === "skipped";
+                return s === "done" || s === "failed" || s === "skipped" || s === "degraded";
               },
             );
             if (!allTerminal) continue;
@@ -1586,6 +1596,18 @@ async function runScheduler(opts: SchedulerOptions): Promise<AsyncGenerator<RunE
     void gate;
   }
 
+  // G4 accept-degraded: the operator explicitly lets a degraded (no-artifact)
+  // node weld onward. It is seeded to `degraded`, a decision event is recorded,
+  // and packets flow downstream; predecessorsReady treats degraded as a weld
+  // terminal but the UI keeps the orange degraded badge, not a green done.
+  if (opts.acceptDegraded) {
+    const { nodeId, attempt } = opts.acceptDegraded;
+    states.set(nodeId, "degraded");
+    attempts.set(nodeId, attempt);
+    emit({ type: "node.degradedAccepted", nodeId, attempt });
+    sendPackets(nodeId, "Degraded result accepted by operator");
+  }
+
   if (!opts.resuming) {
     emit({ type: "run.started", runId, graphId: graph.id, budgetUsd });
   }
@@ -1646,6 +1668,7 @@ export async function* execute(opts: ExecuteOptions): AsyncGenerator<RunEvent, v
     searchConfig: opts.searchConfig,
     userSkills: opts.userSkills,
     loadProducts: opts.loadProducts,
+    remoteJobStore: opts.remoteJobStore,
     init: {
       artifacts: new Map(),
       attempts: new Map(),
@@ -1678,6 +1701,8 @@ export interface ResumeState {
   /** Nodes parked in `degraded`, keyed by node id. A node whose later attempt
    *  finished/failed is not included. The handle enables reattach on resume. */
   degraded: Map<string, DegradedNode>;
+  /** Degraded nodes the operator already accepted (weld onward, badge kept). */
+  acceptedDegraded: Set<string>;
   totalCostUsd: number;
   nodeCostUsd: Map<string, number>;
   haltedNodeId: string | null;
@@ -1695,6 +1720,7 @@ export function reconstructState(events: RunEvent[]): ResumeState {
   const attempts = new Map<string, number>();
   const skipped = new Set<string>();
   const degradedAll = new Map<string, { seq: number; detail: DegradedNode }>();
+  const acceptedDegraded = new Set<string>();
   const terminalSeq = new Map<string, number>();
   const nodeCostUsd = new Map<string, number>();
   const approvedTools: string[] = [];
@@ -1757,6 +1783,9 @@ export function reconstructState(events: RunEvent[]): ResumeState {
       case "node.failed":
         terminalSeq.set(e.nodeId, e.seq);
         break;
+      case "node.degradedAccepted":
+        acceptedDegraded.add(e.nodeId);
+        break;
       case "node.degraded":
         degradedAll.set(e.nodeId, {
           seq: e.seq,
@@ -1797,7 +1826,9 @@ export function reconstructState(events: RunEvent[]): ResumeState {
   // finished or failed supersedes the degraded projection).
   const degraded = new Map<string, DegradedNode>();
   for (const [nodeId, entry] of degradedAll) {
-    if ((terminalSeq.get(nodeId) ?? -1) < entry.seq) degraded.set(nodeId, entry.detail);
+    if (!acceptedDegraded.has(nodeId) && (terminalSeq.get(nodeId) ?? -1) < entry.seq) {
+      degraded.set(nodeId, entry.detail);
+    }
   }
   // A degraded node is the halt point when the log recorded no other halt
   // (run.finished halted / gate.exhausted halt take precedence).
@@ -1815,7 +1846,7 @@ export function reconstructState(events: RunEvent[]): ResumeState {
       haltedReason = degraded.get(latestNodeId)!.reason;
     }
   }
-  return { artifacts, attempts, skipped, degraded, totalCostUsd, nodeCostUsd, haltedNodeId, haltedReason, lastSeq, approvedTools };
+  return { artifacts, attempts, skipped, degraded, acceptedDegraded, totalCostUsd, nodeCostUsd, haltedNodeId, haltedReason, lastSeq, approvedTools };
 }
 
 export interface ResumeOptions {
@@ -1836,7 +1867,14 @@ export interface ResumeOptions {
    * - `scrap`: discard the run entirely (failed).
    * `continue` is retained as an alias of `approve` for backward compatibility.
    */
-  action: "continue" | "approve" | "reject" | "edit" | "scrap";
+  action:
+    | "continue"
+    | "approve"
+    | "reject"
+    | "edit"
+    | "scrap"
+    | "reattach"
+    | "accept-degraded";
   /**
    * Human-edited product text, keyed by node id (4.7). When set, the run resumes
    * with these strings as the node outputs instead of re-running the agent — the
@@ -1891,6 +1929,8 @@ export interface ResumeOptions {
   userSkills?: Map<string, BuiltinSkill>;
   /** Run-scoped structured logger, bound to runId/graphId by the caller. */
   log?: Logger;
+  /** G4: persistence seam for long async (video) jobs; injected by the HTTP layer. */
+  remoteJobStore?: RemoteJobStore;
 }
 
 /**
@@ -1929,6 +1969,10 @@ export async function* resume(opts: ResumeOptions): AsyncGenerator<RunEvent, voi
       state.attempts.delete(id);
       state.nodeCostUsd.delete(id);
       state.skipped.delete(id);
+      // G4: a resubmit must also clear the degraded/accepted badges so the
+      // node re-executes instead of staying parked as degraded.
+      state.degraded.delete(id);
+      state.acceptedDegraded.delete(id);
     }
   }
 
@@ -2046,11 +2090,24 @@ export async function* resume(opts: ResumeOptions): AsyncGenerator<RunEvent, voi
   for (const n of graph.nodes) {
     states.set(
       n.id,
-      state.artifacts.has(n.id) ? "done" : state.skipped.has(n.id) ? "skipped" : "pending",
+      state.acceptedDegraded.has(n.id)
+        ? "degraded"
+        : state.artifacts.has(n.id)
+          ? "done"
+          : state.skipped.has(n.id)
+            ? "skipped"
+            : "pending",
     );
   }
 
   const isToolHalt = (state.haltedReason ?? "").startsWith("dangerous-tool:");
+  if (action === "reattach" && state.haltedNodeId) {
+    // Reattach continues the SAME attempt (the outcome was undecided, not a
+    // new try): roll the node's attempt counter back so runNode reuses the
+    // attempt that owns the open remote job. getOpenRemoteJob then hits the
+    // persisted row instead of re-submitting (which would double-bill).
+    state.attempts.delete(state.haltedNodeId);
+  }
   const gen = await runScheduler({
     runId,
     graph,
@@ -2076,6 +2133,7 @@ export async function* resume(opts: ResumeOptions): AsyncGenerator<RunEvent, voi
     searchConfig: opts.searchConfig,
     userSkills: opts.userSkills,
     loadProducts: opts.loadProducts,
+    remoteJobStore: opts.remoteJobStore,
     init: {
       artifacts: state.artifacts,
       attempts: state.attempts,
@@ -2094,12 +2152,22 @@ export async function* resume(opts: ResumeOptions): AsyncGenerator<RunEvent, voi
     approveTools: [...new Set([...state.approvedTools, ...approveTools])],
     haltReason: state.haltedReason ?? undefined,
     rejectHuman,
-    approveGate: !isToolHalt && !rejectHuman && state.haltedNodeId
-      ? {
-          nodeId: state.haltedNodeId,
-          attempt: state.attempts.get(state.haltedNodeId) ?? 1,
-        }
-      : undefined,
+    acceptDegraded:
+      action === "accept-degraded" && state.haltedNodeId
+        ? { nodeId: state.haltedNodeId, attempt: state.attempts.get(state.haltedNodeId) ?? 1 }
+        : undefined,
+    approveGate:
+      !isToolHalt &&
+      !rejectHuman &&
+      opts.resetFrom === undefined &&
+      action !== "reattach" &&
+      action !== "accept-degraded" &&
+      state.haltedNodeId
+        ? {
+            nodeId: state.haltedNodeId,
+            attempt: state.attempts.get(state.haltedNodeId) ?? 1,
+          }
+        : undefined,
   });
   yield* gen;
 }
@@ -2139,6 +2207,8 @@ export interface ForkOptions {
   searchConfig?: { provider?: string; apiKey?: string; cx?: string };
   loadProducts?: (connector: ProductConnector) => Promise<ResolvedMaterial>;
   userSkills?: Map<string, BuiltinSkill>;
+  /** G4: persistence seam for long async (video) jobs; injected by the HTTP layer. */
+  remoteJobStore?: RemoteJobStore;
 }
 
 /**
@@ -2205,7 +2275,13 @@ export async function* fork(opts: ForkOptions): AsyncGenerator<RunEvent, void, v
   for (const n of graph.nodes) {
     states.set(
       n.id,
-      state.artifacts.has(n.id) ? "done" : state.skipped.has(n.id) ? "skipped" : "pending",
+      state.acceptedDegraded.has(n.id)
+        ? "degraded"
+        : state.artifacts.has(n.id)
+          ? "done"
+          : state.skipped.has(n.id)
+            ? "skipped"
+            : "pending",
     );
   }
 
@@ -2285,6 +2361,7 @@ export async function* fork(opts: ForkOptions): AsyncGenerator<RunEvent, void, v
     searchConfig: opts.searchConfig,
     userSkills: opts.userSkills,
     loadProducts: opts.loadProducts,
+    remoteJobStore: opts.remoteJobStore,
     init: {
       artifacts: state.artifacts,
       attempts: state.attempts,
