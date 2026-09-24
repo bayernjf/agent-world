@@ -1,6 +1,6 @@
 # 审计日志（Audit Log）设计方案
 
-> 状态：**P1+P2 已实施（2026-09-05）**——audit_log 表（迁移 29）+ `audit()` helper + 全部词表埋点（account/register/login/login_failed/logout/password_change、settings.update/test_provider、graph.create/update/delete/restore_version、run.start/cancel、publish_target.create/delete）+ `GET /api/audit` 查询接口 + 专项测试（动作覆盖/detail 红线/写失败不阻塞/隔离分页）。**P3 未实施**：180 天清理与 hash chain 防篡改（触发条件不变）。
+> 状态：**P1+P2 已实施（2026-09-05）**——audit_log 表（迁移 29）+ `audit()` helper + 全部词表埋点（account/register/login/login_failed/logout/password_change、settings.update/test_provider、graph.create/update/delete/restore_version、run.start/cancel、publish_target.create/delete）+ `GET /api/audit` 查询接口 + 专项测试（动作覆盖/detail 红线/写失败不阻塞/隔离分页）。**P3 部分实施（2026-09-24）**：180 天清理已落地（driver `pruneAuditOlder(before)` + server 启动时惰性 prune，prune 失败只 warn 不阻断启动）；**hash chain 防篡改仍未实施**（触发条件不变）。
 > 创建：2026-09-05；实施与方案的两处偏差见 §3.2/§3.3 备注。
 
 ## 1. 背景
@@ -85,13 +85,14 @@ export function audit(
 
 sqlite 单文件下审计日志的**防篡改上限**：
 
-- 应用层 append-only（无 UPDATE/DELETE 代码路径）≠ 攻击者拿到 DB 文件后改不动；
+- 应用层从不 UPDATE 审计行，但**存在两条 DELETE 路径**（启动时的 180 天保留清理、demo 账号级联删除）；无论多少代码路径约束，都 ≠ 攻击者拿到 DB 文件后改不动；
 - 与业务数据同库同密钥，**有库写权限即可删审计**；
 - 真正的 tamper-evident 需要 hash chain（每行带前行 hash）或外部 syslog 转发——**首期不做**，登记 deferred，触发条件是对外合规审计明确要求 tamper-evidence。届时 hash chain 是纯增量（加一列 + 校验脚本），不破坏本方案结构。
 
 ## 5. 保留策略
 
 - 默认保留 **180 天**，每日启动时惰性清理（`DELETE WHERE created_at < now-180d`，与现有调度器复用）；
+- **已实施（2026-09-24）与原方案的两处偏差**：① 所谓「现有调度器」`TriggerScheduler` 只跑用户的 cron 触发器，挂内部维护任务会混淆两类语义。② 仓内确有一个保留先例——`scripts/prune-events.ts`（`pruneOldEvents` + 运维 crontab），但它要求人去服务器上加一行 crontab（本仓无法自装），而部署本身就随每次合并重启进程，故审计保留改为**仅在 server 启动时 prune 一次**（`index.ts` 启动摘要之后、`serve()` 之前，`NODE_ENV=test` 不执行）。代价是长期不重启的进程不会二次清理——量级评估见下条，当前无需内部定时器；若将来出现「进程长期不重启 + 表成为可感知负担」，正确做法是给 events / audit\_log 合一个统一维护循环，而不是各挂各的 `setInterval`；
 - 落库体积评估：单用户低频操作 < 每日百行，180 天约几万行、几 MB——无需分区。
 
 ## 6. 测试计划
@@ -107,7 +108,7 @@ sqlite 单文件下审计日志的**防篡改上限**：
 |---|---|
 | P1 | 表迁移 + `audit()` helper + auth/settings/graphs 三组核心埋点 |
 | P2 | run/publish 埋点 + `GET /api/audit` 查询接口 |
-| P3 | 180 天清理 + （触发后）hash chain 防篡改 |
+| P3 | 180 天清理 ✅（2026-09-24）+ （触发后）hash chain 防篡改 |
 
 ## 8. 相关文档
 

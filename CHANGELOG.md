@@ -77,6 +77,7 @@ All notable changes are documented here. The format is based on
 - **Playwright E2E 冒烟骨架** — guest 与 demo 流程的端到端冒烟用例。
 - **fileParse 支持 Excel（.xlsx）** — 电子表格解析接入文件解析节点（Excel 写出仍缓做）。
 - **版本对比升级** — 两个产线版本结构化 diff；长文本产物在对比视图逐字/逐词内联高亮。
+- **审计日志 180 天保留清理（design-audit-log P3 前半）** — driver 新增 `pruneAuditOlder(before)`（inline SQL 走共享 executor，`?`→`$n` 由 pg executor 翻译，方言不出 driver；返回删除行数），server 启动时惰性 prune 一次、只在真删到行时 info，prune 失败仅 warn 不阻断启动。有意不沿用 `scripts/prune-events.ts` 的「脚本 + 运维 crontab」形态：crontab 本仓无法自装，而每次部署本身就会重启进程——偏差理由与「将来该合一个统一维护循环」的条件记在 §5。顺带修正 `audit.ts` 头注与 §4 里「应用层无 UPDATE/DELETE 代码路径」的过期断言：现实是两条 DELETE 路径（保留清理 + demo 账号级联），且两者都不构成防篡改。`db.maintenance` +1 测（伪时钟造 200 天 / 10 天两行，钉死 180 天边界）。详见 [docs/design-audit-log.md](docs/design-audit-log.md) §5。
 
 ### Changed
 - **设置弹窗改为标签页并正名为「设置」** — 弹窗历史标题「设置 · 模型与密钥」早已名不副实（搜索、预算、Worker、MCP、技能卡都塞在里面）。现标题改为「设置」，内容收进三个下划线式标签页：**模型**（供应商卡片 + 月度预算 + Worker 插件隔离）、**集成**（搜索服务 + MCP 服务，两个外部连接/凭证分区）、**技能**（自建技能卡）；非活动标签页不挂载。侧栏入口与三处引导文案（「去设置 · 模型与密钥」等）同步去掉旧副标题，无引用的 `modelKeys.title` 键删除。新增 3 个标签页切换测试。
