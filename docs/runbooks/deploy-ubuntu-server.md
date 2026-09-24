@@ -223,22 +223,40 @@ sudo systemctl daemon-reload && sudo systemctl restart agent-world
 #   关掉 → 不再是 402
 ```
 
-> ⚠️ 变量名只有一个：`MONETIZATION_ENFORCE`，判定是 `=== "1"` 严格相等——写 `true` / 留空格 / 只加不改都等于没开。design-monetization-m2-implementation.md 第五节曾把回滚手段写成另一个名字（`ENABLE_SUBSCRIPTION_GATE`），**代码里从来没有这个变量**，2026-09-25 已更正；事故时照那个名字去找会以为 gate 已关而它其实还在拦。
+> ⚠️ 变量名只有一个：`MONETIZATION_ENFORCE`。取值 `1`/`true`/`yes` = 硬拦，`observe`/`log` = 只记日志不拦，空/不设置 = 关。**其它非空值等于关**，但会在日志里打出 `unrecognized value` 并把你写的那个值带上（2026-09-25 之前是 `=== "1"` 严格相等，写 `true` 会静默不生效）。design-monetization-m2-implementation.md 第五节曾把回滚手段写成另一个名字（`ENABLE_SUBSCRIPTION_GATE`），**代码里从来没有这个变量**，已更正；事故时照那个名字去找会以为 gate 已关而它其实还在拦。
 
-**覆盖面（2026-09-25 逐调用点核实，别按「五维检查已全量」理解）**：gate 挂在 `POST /api/runs` 的 handler 里，不在 `startRun()` 里，所以仓内 5 个 run 派发点只有 1 个被拦。以下四条**不经过 gate**，都有测试钉住现状（`api.subscription-gate.test.ts`、`subscription.test.ts`「measured gaps / 不 bless 的行为」）：
+**覆盖面（2026-09-25 更新：gate 已从路由移进 `startRun()`，全部派发口一并生效）**
 
-| 派发口 | 位置 | 开 gate 后是否计量/拦截 |
+此前闸门挂在 `POST /api/runs` 的 handler 里，5 个 `startRun` 调用点只有 1 个被拦，另有两条**直连 `db.createRun`** 的路由连那个计数都不在里面。现在判定收在 `packages/server/src/dispatch-gate.ts`，由 `startRun()` 在建 run 行**之前**调用（同址先例是 `run.ts` 的月度预算硬熔断）。
+
+| 派发口 | 位置 | 现状 |
 |---|---|---|
-| 手动派发 `POST /api/runs` | `index.ts:2712` | ✅ 唯一被拦的 |
-| 重跑 `POST /api/runs/:id/rerun` | `index.ts:3787` | ❌ 直接 `startRun` |
-| 批量重试 / 批量派发 | `index.ts:2860`、`batch.ts:58` | ❌ |
-| cron / webhook / 事件触发器（**M1 四条回采产线走的就是这条**） | `index.ts:163` → `triggers.ts:135,208` | ❌ |
-| AB 实验、MCP 客户端派发 | `ab.ts`、`packages/mcp-server` | ❌ |
+| 手动派发 `POST /api/runs` | `run.ts` 的 `startRun()` | ✅ |
+| 重跑 `POST /api/runs/:id/rerun` | 经 `startRun` | ✅（此前绕过） |
+| 批量 / 批量重试 | `batch.ts` 的 `runBatch()`、`/api/batches/:id/items/:itemId/retry` | ✅ 超额条目记 failed；重试路由此前连 try 都没有，配额拦截会被当成 500 |
+| cron / webhook / 事件触发器（**M1 四条回采产线**） | `index.ts` 注入给 `TriggerService` 的 `startRun` 适配函数 → `triggers.ts` 的 `fire()` / `fireWebhook()` | ✅（此前绕过）。HTTP 触发回 402；cron tick 被拦则走 `TriggerScheduler.onError` 记 error 日志，**不建 run 行** |
+| AB 实验 | `ab.ts` 的 `startABExperiment()` | ✅ 按「一次实验」判一次（放进循环会让 A 组自己的活跃 run 把 B 组按并发超额拦掉） |
+| 从 run 分叉 fork | `run.ts` 的 `forkRun()` | ✅ |
+| MCP 客户端派发 | `packages/mcp-server` → HTTP `POST /api/runs` | ✅ 走的就是被拦那条路 |
+| **继续一个 halted/failed 的 run** | `/api/runs/:id/resume`、`/api/reviews/decide` → `resumeRun()` | ❌ **有意不拦**：一个已经被放行的 run 不该在人工审批之后因配额变化被掐死。它仍会照常计费并计入 token 用量 |
 
-两条运维含义：
+守护：`dispatch-gate.test.ts` 会扫源码，任何**新建**「自己调 `db.createRun(` 却不引用 `dispatchGate`」的文件直接判红（已用植入的 rogue 文件验证过它能失败）。
 
-1. **免费层的并发是被「无人审批的 halted run」长期占住的**：`activeRuns` 的口径是 `status IN ('running','halted')` 且**无时间上限**，而启动时的 `markZombiesInterrupted()` 只回收 `running`（`index.ts:130`）。开发库实测有 7 个 23–28 天前的 halted run，其中一个账号占 6 个——free 层 `concurrentRuns=1`，这类账号每次派发都会 402「并发上限已满」，唯一自救是去把旧 run 取消掉。给 gate 加白名单/告警之前，先确认这不是你在排查的「用户说点不动」。
-2. **想补齐上面四个口子时要连带评估 M1**：给触发器路径加 gate 的那一刻，四条内置 agnes 回采产线才开始受 token 配额约束（pro 2,000,000 折算 token/月）。现状它们完全不受限——这也是 m2 手册第 5 步「先升 owner 否则 M1 会 402 断供」的因果**目前并不发生**的原因（顺序建议本身仍应对，只是失效面比文档写的小）。
+**打开硬拦之前先跑 observe**（这就是 m2 手册第 6 步「先灰度观察计量是否准确」该有的样子）：
+
+```bash
+sudo systemctl edit agent-world        # Environment=MONETIZATION_ENFORCE=observe
+sudo systemctl daemon-reload && sudo systemctl restart agent-world
+# 观察窗口内只看这一条，它会点名是哪条派发路、哪个 metric、used/limit 多少：
+journalctl -u agent-world --since "24 hours ago" | grep "would block dispatch"
+```
+
+看什么：**M1 四条回采产线有没有出现 `would block`**。它们过去十几天完全不受配额约束，硬拦一开就第一次受 pro 的 2,000,000 折算 token/月管——出现 `metric:"tokens"` 就说明会在业务时段断供，得先加配额或降频，再改回 `1`。
+
+两条仍然成立的运维含义：
+
+1. **免费层的并发仍会被「无人审批的 halted run」长期占住**：`activeRuns` 口径是 `status IN ('running','halted')` 且**无时间上限**，启动回收只清 `running`（启动时调 `markZombiesInterrupted`）。开发库实测 7 个 23–28 天前的 halted run，一个账号占 6 个——free 层 `concurrentRuns=1`，这类账号每次派发都 402「并发上限已满」，唯一自救是去取消旧 run。**覆盖面补齐后这条更容易撞上**（触发器路径也开始数并发）。
+2. **欠费判定已生效**（`past_due` 即断内置模型、BYOK 不受影响；`canceled` 到 `current_period_end` 才断）。§6.4 的「宽限期 3-7 天」未实现——表里没有「状态何时变更」的列，`updated_at` 会被无关写入顶掉，拿它算宽限会得到会说谎的窗口（见 deferred-items）。
 
 `past_due` / `canceled` 目前**不影响配额**：`enforceSubscription()` 只读 `plan`，`SubscriptionLike.status` 传进来没人读（design-monetization §6.4 的「欠费 → 宽限 → 内置模型阻断」尚未实现）。
 

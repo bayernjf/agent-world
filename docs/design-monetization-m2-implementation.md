@@ -634,8 +634,10 @@ export async function checkUsageAlerts(userId: string): Promise<void> {
 4. **存量用户自动落免费层**：`getOrCreateSubscription` 懒创建 free，无需批量刷库；可抽查一个老用户 `GET /api/subscription` 返回 `plan:"free"`。
 5. **⚠️ 先把 owner 升到付费套餐（最关键，顺序不能反）**：owner userId `92d95665-10ef-49d7-a2c3-6ba39d92f5fb`，在**打开 enforce 之前**用管理员接口设为 `pro`（或 `team`），否则 M1 四条内置 agnes 回采产线会被 402 断供：
    `POST /api/admin/users/92d95665-10ef-49d7-a2c3-6ba39d92f5fb/plan  body {"plan":"pro"}`（需 owner/admin 登录态），并确认 audit_log 出现 `billing.plan_changed`。
-   > **2026-09-25 核实补注**：这一步的顺序建议仍然对（升 pro 是无害的前置），但它写的因果**按现状代码不会发生**——M1 产线是 cron 触发器，走 `index.ts:163` → `triggers.ts:135` → `startRun()`，绕开只在 `POST /api/runs` 里的 gate，所以 owner 留在 free 也不会 402。也就是说：这条保护 M1 的理由，正是 gate 覆盖面不足的表现（见 deferred-items「订阅 gate 的覆盖面补齐」）。触发器侧一旦补上 gate，本条因果才会变成真的。
-6. **最后才打开 gate 开关**：在服务环境变量设 `MONETIZATION_ENFORCE=1` 并 `systemctl restart agent-world`。**默认关闭**——不设此变量时代码已上线但不拦截，可先灰度观察计量是否准确。
+   > **2026-09-25 核实补注（同日已被下一条改动超越，保留作记录）**：这一步写的因果当时**并不会发生**——M1 产线是 cron 触发器，走 `index.ts` 注入给 `TriggerService` 的 `startRun` 适配函数 → `triggers.ts` 的 `fire()`，而 gate 当时只挂在 `POST /api/runs` 的 handler 里，所以 owner 留在 free 也不会 402。换句话说：这条「保护 M1」的理由，本身是 gate 覆盖面不足的症状（当时 5 个 `startRun` 调用点只有 1 个被拦）。
+   > **同日稍后（commit `242b04f`）**：gate 已收进 `startRun()`，触发器路径一并生效，**从这次改动起本条顺序建议才真正成立**——owner 不先升 pro 就打开硬拦，M1 四条产线会开始被 402。这也是把它拆成两步灰度的原因，见下一步。
+6. **打开 gate 开关（现在有两步，先观察再硬拦）**：在服务环境变量设值并 `systemctl restart agent-world`。取值语义见 runbook 四之二：空/不设置＝关；`observe`＝**照样评估并打 `would block dispatch` 日志但不拦截**；`1`/`true`/`yes`＝硬拦。
+   推荐顺序：先 `observe` 跑满一个业务周期（≥24h），`journalctl -u agent-world | grep "would block dispatch"` 看 M1 四条产线是否出现 `metric:"tokens"`——它们此前完全不受配额约束，硬拦一开就第一次受 pro 2,000,000 折算 token/月管；没有再改 `1`。这一条是原计划「可先灰度观察计量是否准确」的落地手段（此前根本没有只观察不拦的档）。
 7. **部署后验证**：
    - M1 四条产线下一个 cron tick 正常出 run（①`10,40 * * * *` 等），无 402；
    - owner `GET /api/subscription` 返回 `plan:"pro"` 且 usage 正常累加；
