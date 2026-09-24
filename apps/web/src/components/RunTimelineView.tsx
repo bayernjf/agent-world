@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api, type RunTimelineResponse } from "../lib/api";
 import { formatNumber } from "../i18n/utils";
-import type { TimelineAttempt, TimelineAttemptStatus } from "@agent-world/core";
+import type { TimelineAttempt, TimelineAttemptStatus, TimelineNode } from "@agent-world/core";
 
 /** Map a timeline attempt status onto the existing run-status badge styles. */
 const STATUS_CLASS: Record<TimelineAttemptStatus, string> = {
@@ -11,6 +11,8 @@ const STATUS_CLASS: Record<TimelineAttemptStatus, string> = {
   running: "run-status--running",
   reviewing: "run-status--halted",
   skipped: "run-status--interrupted",
+  // G4: degraded (a long async job awaiting a decision) is orange.
+  degraded: "run-status--degraded",
 };
 
 function fmtMs(ms: number | null): string {
@@ -19,6 +21,11 @@ function fmtMs(ms: number | null): string {
   if (s < 60) return `${s}s`;
   const m = Math.floor(s / 60);
   return `${m}m ${s % 60}s`;
+}
+
+/** Truncate a long remote job id for inline display (full id is in the title). */
+function truncateJob(id: string): string {
+  return id.length > 18 ? `${id.slice(0, 10)}…${id.slice(-6)}` : id;
 }
 
 function AttemptRow({ runId, nodeId, a }: { runId: string; nodeId: string; a: TimelineAttempt }) {
@@ -100,6 +107,28 @@ function AttemptRow({ runId, nodeId, a }: { runId: string; nodeId: string; a: Ti
           {a.skipReason}
         </div>
       )}
+      {a.status === "degraded" && a.degradedReason && (
+        <div className="run-timeline-degraded">
+          <span className="run-timeline-degraded-label">{t("run:timeline.degradedLabel")}</span>
+          {a.degradedReason}
+          {a.remoteJob && (
+            <span className="run-timeline-job" title={a.remoteJob.jobId}>
+              {t("run:timeline.jobId")} {truncateJob(a.remoteJob.jobId)}
+              {a.startedAt != null && (
+                <span className="run-timeline-job-age">
+                  {" · "}
+                  {t("run:timeline.inFlight", { n: fmtMs(Date.now() - a.startedAt) })}
+                </span>
+              )}
+            </span>
+          )}
+        </div>
+      )}
+      {a.status === "degraded" && a.degradedAccepted && (
+        <div className="run-timeline-degraded-accepted">
+          {t("run:timeline.degradedAccepted")}
+        </div>
+      )}
       {a.outputPreview && !expanded && (
         <pre className="run-timeline-output">
           {a.outputPreview}
@@ -142,6 +171,112 @@ function AttemptRow({ runId, nodeId, a }: { runId: string; nodeId: string; a: Ti
   );
 }
 
+type BusyState = "reattach" | "accept" | "resubmit" | null;
+
+/**
+ * G4 decision bar for a degraded node. While the remote job is open it offers
+ * "continue this node" (reattach) and "accept degraded" (with a confirm); once
+ * the provider has lost the job it offers a single "resubmit (bills again)".
+ */
+function DegradedActions({
+  runId,
+  nodeId,
+  lost,
+  onDecided,
+}: {
+  runId: string;
+  nodeId: string;
+  lost: boolean;
+  onDecided: () => void;
+}) {
+  const { t } = useTranslation();
+  const [busy, setBusy] = useState<BusyState>(null);
+  const [confirmAccept, setConfirmAccept] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const act = async (which: Exclude<BusyState, null>, fn: () => Promise<unknown>): Promise<void> => {
+    setBusy(which);
+    setError(null);
+    try {
+      await fn();
+      onDecided();
+    } catch (e) {
+      setError((e as Error).message);
+      setBusy(null);
+    }
+  };
+
+  if (lost) {
+    return (
+      <div className="run-timeline-degrade-actions">
+        <button
+          type="button"
+          className="btn btn--sm"
+          disabled={busy !== null}
+          onClick={() =>
+            void act("resubmit", () => api.resumeRun(runId, "continue", nodeId))
+          }
+        >
+          {busy === "resubmit" ? t("run:timeline.submitting") : t("run:timeline.resubmit")}
+        </button>
+        {error && <span className="run-timeline-degrade-error">{error}</span>}
+      </div>
+    );
+  }
+
+  return (
+    <div className="run-timeline-degrade-actions">
+      <button
+        type="button"
+        className="btn btn--sm"
+        disabled={busy !== null}
+        onClick={() => void act("reattach", () => api.resumeRun(runId, "reattach"))}
+      >
+        {busy === "reattach" ? t("run:timeline.working") : t("run:timeline.reattach")}
+      </button>
+      {!confirmAccept ? (
+        <button
+          type="button"
+          className="btn btn--ghost btn--sm"
+          disabled={busy !== null}
+          onClick={() => setConfirmAccept(true)}
+        >
+          {t("run:timeline.acceptDegraded")}
+        </button>
+      ) : (
+        <span className="run-timeline-confirm">
+          {t("run:timeline.confirmAccept")}
+          <button
+            type="button"
+            className="btn btn--sm"
+            disabled={busy !== null}
+            onClick={() =>
+              void act("accept", () => api.resumeRun(runId, "accept-degraded"))
+            }
+          >
+            {busy === "accept" ? t("run:timeline.working") : t("run:timeline.confirmYes")}
+          </button>
+          <button
+            type="button"
+            className="btn btn--ghost btn--sm"
+            disabled={busy !== null}
+            onClick={() => setConfirmAccept(false)}
+          >
+            {t("run:timeline.confirmNo")}
+          </button>
+        </span>
+      )}
+      {error && <span className="run-timeline-degrade-error">{error}</span>}
+    </div>
+  );
+}
+
+/** True when the latest attempt's remote job was lost by the provider. */
+function isNodeLost(node: TimelineNode): boolean {
+  const last = node.attempts[node.attempts.length - 1];
+  return last?.errorCode === "REMOTE_JOB_LOST";
+}
+
 /**
  * Read-only step trace for a single run (competitor painpoint G1). Fetches the
  * timeline projection and renders every node + attempt (retries included), with
@@ -169,6 +304,14 @@ export default function RunTimelineView({
   const [failed, setFailed] = useState(false);
   const [forkingNode, setForkingNode] = useState<string | null>(null);
   const [forkError, setForkError] = useState<string | null>(null);
+
+  const loadTimeline = useCallback(() => {
+    setFailed(false);
+    api
+      .getRunTimeline(runId)
+      .then((d) => setData(d))
+      .catch(() => setFailed(true));
+  }, [runId]);
 
   const handleFork = async (nodeId: string) => {
     setForkError(null);
@@ -296,6 +439,14 @@ export default function RunTimelineView({
             </div>
             {last?.status === "running" && data.run.haltedReason && (
               <div className="run-timeline-halt">{data.run.haltedReason}</div>
+            )}
+            {node.status === "degraded" && data.run.status === "halted" && (
+              <DegradedActions
+                runId={runId}
+                nodeId={node.nodeId}
+                lost={isNodeLost(node)}
+                onDecided={() => setTimeout(loadTimeline, 2000)}
+              />
             )}
           </div>
         );

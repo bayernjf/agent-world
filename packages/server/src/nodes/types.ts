@@ -3,6 +3,7 @@ import type { Worker } from "../worker.js";
 import type { PermissionConfig } from "../permissions.js";
 import type { Logger } from "../logger.js";
 import type { NodeState, SchedulerInit, SchedulerOptions, Status } from "../engine.js";
+import type { RemoteJobStore } from "../db.js";
 
 /**
  * Explicit execution context handed to node execution bodies in nodes/*.ts.
@@ -33,6 +34,8 @@ export interface NodeRunContext {
   monthSpentUsd: number;
   /** Tools approved for execution this run (dangerous-action halt). */
   approved: Set<string>;
+  /** G4 persistence seam for long async jobs (video); absent in fake/sync paths. */
+  remoteJobStore?: RemoteJobStore;
 
   // --- shared mutable maps (by reference) ---
   artifacts: Map<string, Artifact[]>;

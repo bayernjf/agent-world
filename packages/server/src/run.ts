@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { compile, type Graph, type ProductConnector, type RunEvent } from "@agent-world/core";
-import type { Db, Product } from "./db.js";
+import type { Db, Product, RemoteJobStore } from "./db.js";
 import type { ResolvedMaterial } from "./connectors.js";
 import { ArtifactStore } from "./artifact-store.js";
 import { log } from "./logger.js";
@@ -65,6 +65,17 @@ function formatProduct(p: Product): string {
 
 /** Worker type derived from the engine so we don't reach into provider internals. */
 type Worker = Parameters<typeof execute>[0]["worker"];
+
+/** G4: build the persistence seam for long async jobs from the open Db. */
+function createRemoteJobStore(db: Db, userId: string): RemoteJobStore {
+  return {
+    userId,
+    insert: (job) => db.insertRemoteJob(job),
+    getOpen: (runId, nodeId, attempt) => db.getOpenRemoteJob(runId, nodeId, attempt),
+    touch: (id, state, lastPolledAt) => db.touchRemoteJob(id, state, lastPolledAt),
+    finish: (id, state, errorCode) => db.finishRemoteJob(id, state, errorCode ?? null),
+  };
+}
 
 export interface LiveEntry {
   events: RunEvent[];
@@ -183,6 +194,7 @@ export async function startRun(args: StartRunArgs): Promise<{ runId: string; dia
         userSkills: await loadUserSkills(userId, cfg),
         loadProducts: productConnectorLoader(db, userId),
         log: runLog,
+        remoteJobStore: createRemoteJobStore(db, userId),
         budgetUsd: budgetUsd ?? null,
         monthlyBudgetUsd: cfg.monthlyBudgetUsd ?? null,
         monthSpentUsd: await db.costForMonth(now.getFullYear(), now.getMonth() + 1, userId),
@@ -297,7 +309,14 @@ async function persistArtifact(args: {
   );
 }
 
-export type ResumeAction = "continue" | "approve" | "reject" | "edit" | "scrap";
+export type ResumeAction =
+  | "continue"
+  | "approve"
+  | "reject"
+  | "edit"
+  | "scrap"
+  | "reattach"
+  | "accept-degraded";
 
 export interface ResumeRunArgs {
   db: Db;
@@ -375,6 +394,7 @@ export async function resumeRun(args: ResumeRunArgs): Promise<{ runId: string; a
         searchConfig: cfg.searchConfig,
         userSkills: await loadUserSkills(userId, cfg),
         loadProducts: productConnectorLoader(db, userId),
+        remoteJobStore: createRemoteJobStore(db, userId),
         monthlyBudgetUsd: cfg.monthlyBudgetUsd ?? null,
         monthSpentUsd: await db.costForMonth(now.getFullYear(), now.getMonth() + 1, userId),
         defaultModel: cfg.defaultModel,
@@ -536,6 +556,7 @@ export async function forkRun(args: ForkRunArgs): Promise<{ runId: string }> {
         userSkills: await loadUserSkills(userId, cfg),
         loadProducts: productConnectorLoader(db, userId),
         log: runLog,
+        remoteJobStore: createRemoteJobStore(db, userId),
         signal: controller.signal,
         storeBinary: async (data, mimeType, label) => {
           const kind = mimeType.startsWith("image/")

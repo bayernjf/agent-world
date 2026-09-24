@@ -227,7 +227,8 @@
       "reviewing": "In review",
       "done": "Done",
       "failed": "Failed",
-      "skipped": "Skipped"
+      "skipped": "Skipped",
+      "degraded": "Degraded"
     },
     "replay": "Replay",
     "backToLive": "Back to live",
@@ -247,7 +248,19 @@
       "runFinished": "Run finished"
     },
     "comparePrompt": "Compare prompts on this sample",
-    "comparePromptHint": "Compare the live prompt against a new one using this run's real input"
+    "comparePromptHint": "Compare the live prompt against a new one using this run's real input",
+    "degradedLabel": "Reason: ",
+    "jobId": "Job ID: ",
+    "inFlight": "in flight {{n}}",
+    "degradedAccepted": "Degraded result accepted; the run continues and the node keeps the degraded badge",
+    "reattach": "Continue this node",
+    "acceptDegraded": "Accept degraded result",
+    "confirmAccept": "This node produced nothing; downstream steps may fail for lack of input. Proceed anyway?",
+    "confirmYes": "Proceed",
+    "confirmNo": "Cancel",
+    "working": "Working…",
+    "resubmit": "Resubmit (will bill again)",
+    "submitting": "Submitting…"
   },
   "failure": {
     "trippedTitle": "Out of power — the whole plant stopped",

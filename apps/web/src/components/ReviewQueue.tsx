@@ -27,6 +27,7 @@ const KIND_KEY: Record<PendingReview["kind"], string> = {
   human: "reviews:kind.human",
   tool: "reviews:kind.tool",
   gate: "reviews:kind.gate",
+  degraded: "reviews:kind.degraded",
 };
 
 /**
@@ -178,6 +179,27 @@ export default function ReviewQueue({ open, onClose, onOpenRun, onChanged }: Pro
     ]);
   };
 
+  /** G4: settle a degraded (long async job) run directly. The batch decide
+   *  path's DECISION_ACTIONS do not include reattach / accept-degraded, so a
+   *  degraded row uses the single-run resume endpoint. */
+  const degrade = (review: PendingReview, action: "reattach" | "accept-degraded") => {
+    if (!review.nodeId) return;
+    setBusy((b) => [...new Set([...b, review.runId])]);
+    api
+      .resumeRun(review.runId, action)
+      .then(() => {
+        reattachRun(review.runId);
+        useToast.getState().show(t("reviews:result.submitted", { n: 1 }));
+        setSelected((x) => x.filter((id) => id !== review.runId));
+        setTimeout(() => {
+          void load();
+          onChanged?.();
+        }, 2000);
+      })
+      .catch((e) => setError(t("reviews:decideFailed", { message: (e as Error).message })))
+      .finally(() => setBusy((b) => b.filter((id) => id !== review.runId)));
+  };
+
   const toggleSelect = (id: string) =>
     setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
 
@@ -279,7 +301,7 @@ export default function ReviewQueue({ open, onClose, onOpenRun, onChanged }: Pro
                   onClick={() => setActiveId(r.runId)}
                 >
                   <div className="reviewqueue__row-head">
-                    {batchMode && (
+                    {batchMode && r.kind !== "degraded" && (
                       <input
                         type="checkbox"
                         checked={selected.includes(r.runId)}
@@ -309,7 +331,7 @@ export default function ReviewQueue({ open, onClose, onOpenRun, onChanged }: Pro
                     <span className="reviewqueue__id">{r.runId.slice(0, 8)}</span>
                   </div>
 
-                  {(r.reason || r.detail || r.tool) && (
+                  {r.kind !== "degraded" && (r.reason || r.detail || r.tool) && (
                     <div className="reviewqueue__why">
                       {r.reason && (
                         <span>
@@ -332,14 +354,18 @@ export default function ReviewQueue({ open, onClose, onOpenRun, onChanged }: Pro
                     </div>
                   )}
 
-                  <div className="reviewqueue__content-label">{t("reviews:content.label")}</div>
-                  {r.content ? (
-                    <pre className="reviewqueue__content">{r.content}</pre>
-                  ) : (
-                    <div className="note">{t("reviews:content.empty")}</div>
-                  )}
-                  {r.contentTruncated && (
-                    <div className="note">{t("reviews:content.truncated", { n: r.content?.length ?? 0 })}</div>
+                  {r.kind !== "degraded" && (
+                    <>
+                      <div className="reviewqueue__content-label">{t("reviews:content.label")}</div>
+                      {r.content ? (
+                        <pre className="reviewqueue__content">{r.content}</pre>
+                      ) : (
+                        <div className="note">{t("reviews:content.empty")}</div>
+                      )}
+                      {r.contentTruncated && (
+                        <div className="note">{t("reviews:content.truncated", { n: r.content?.length ?? 0 })}</div>
+                      )}
+                    </>
                   )}
 
                   {editingId === r.runId ? (
@@ -359,6 +385,30 @@ export default function ReviewQueue({ open, onClose, onOpenRun, onChanged }: Pro
                           {t("reviews:action.editCancel")}
                         </button>
                       </div>
+                    </div>
+                  ) : r.kind === "degraded" ? (
+                    <div className="reviewqueue__actions">
+                      <button
+                        className="btn btn--primary"
+                        disabled={isBusy || !r.nodeId}
+                        onClick={() => degrade(r, "reattach")}
+                      >
+                        {t("reviews:action.reattach")}
+                      </button>
+                      <button
+                        className="btn btn--warn"
+                        disabled={isBusy || !r.nodeId}
+                        onClick={() => degrade(r, "accept-degraded")}
+                      >
+                        {t("reviews:action.acceptDegraded")}
+                      </button>
+                      {isBusy && <span className="note">{t("reviews:action.deciding")}</span>}
+                      <button
+                        className="btn btn--ghost reviewqueue__open"
+                        onClick={() => onOpenRun?.(r.runId)}
+                      >
+                        {t("reviews:row.openRun")}
+                      </button>
                     </div>
                   ) : (
                     <div className="reviewqueue__actions">

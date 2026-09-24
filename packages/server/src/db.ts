@@ -356,6 +356,30 @@ export interface NewRemoteJob {
   meta?: Record<string, unknown> | null;
 }
 
+/**
+ * Persistence seam for long async jobs (G4). The HTTP layer builds one from
+ * the open Db and the run owner, and the engine hands it to node handlers so
+ * they can record a submitted job, touch it while polling, finish it, or
+ * reattach to an open one — without importing the whole Db or knowing the
+ * SQL dialect. Only the video worker uses it today.
+ */
+export interface RemoteJobStore {
+  /** Owner of the run (every remote_jobs row is user-scoped). */
+  userId: string;
+  /** Record a newly submitted job (idempotent on provider + remoteJobId). */
+  insert: (job: NewRemoteJob) => Promise<void>;
+  /** The still-open job for a node attempt, so a resume never re-submits. */
+  getOpen: (runId: string, nodeId: string, attempt: number) => Promise<RemoteJob | null>;
+  /** Advance state and stamp last_polled_at while polling. */
+  touch: (id: string, state: RemoteJob["state"], lastPolledAt?: number) => Promise<void>;
+  /** Move a job to a terminal state, stamping finished_at. */
+  finish: (
+    id: string,
+    state: "succeeded" | "failed" | "lost",
+    errorCode?: string | null,
+  ) => Promise<void>;
+}
+
 // Re-export the SQLite driver factory under its historical name, plus the
 // small set of public implementation symbols callers still import from `db.ts`.
 export { createSqliteDriver as openDb };

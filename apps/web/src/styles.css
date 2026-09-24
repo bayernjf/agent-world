@@ -7032,6 +7032,48 @@ select {
   color: #ffc78a;
 }
 
+/* G4 degraded (long async job awaiting a decision) — orange */
+.run-status--degraded { background: rgba(255, 157, 46, 0.16); color: #ffae4a; border: 1px solid rgba(255, 157, 46, 0.42); }
+.run-timeline-attempt--degraded { border-left-color: rgba(255, 157, 46, 0.65); }
+.run-timeline-degraded {
+  margin-top: var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--warning);
+  word-break: break-word;
+}
+.run-timeline-degraded-label {
+  display: block;
+  color: var(--text-tertiary);
+}
+.run-timeline-job {
+  display: block;
+  margin-top: 4px;
+  font-family: var(--mono);
+  color: var(--text-secondary);
+}
+.run-timeline-job-age { font-family: var(--mono); color: var(--text-tertiary); }
+.run-timeline-degraded-accepted {
+  margin-top: var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+.run-timeline-degrade-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--gap-sm);
+  margin-top: var(--space-2);
+}
+.run-timeline-degrade-error { font-size: var(--text-xs); color: var(--error); }
+.run-timeline-confirm {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--gap-sm);
+  font-size: var(--text-xs);
+  color: var(--warning);
+}
+
 /* 分页 */
 .runhistory-pager-size {
   display: inline-flex;
@@ -7172,6 +7214,8 @@ select {
 .reviewqueue__kind--human { background: var(--warning-bg); color: var(--warning); border: 1px solid var(--warning); }
 .reviewqueue__kind--tool  { background: var(--error-bg); color: var(--error); border: 1px solid var(--error); }
 .reviewqueue__kind--gate  { background: var(--info-bg); color: var(--info); border: 1px solid var(--info); }
+.reviewqueue__kind--degraded { background: var(--warning-bg); color: var(--warning); border: 1px solid var(--warning); }
+.reviewqueue__row--degraded { border-left-color: var(--warning); }
 .reviewqueue__graph {
   font-size: var(--text-sm);
   font-weight: var(--font-semibold);
