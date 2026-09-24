@@ -5,7 +5,7 @@
 > **维护规则**：
 > 1. **新增模板必须在此登记一行**（与 core 模板数对不上即视为欠账），登记时验证状态标 ⬜。
 > 2. 真实跑通后更新状态为 ✅，并记 run id / 日期 / 评估发现；发现的问题按性质流转：可修的进 [handoff.md](../handoff.md) 待办，暂不修的进 [deferred-items.md](deferred-items.md)。
-> 3. **两级验证口径**：① 引擎级冒烟（33/33 全绿，见 handoff 待办 #4；2026-08-31 首验为当时的 27/27，新增模板后已补齐至 33/33）——只证明形状与执行不崩；② **真实狗粮运行**（本表跟踪的）——配好 provider 真实调用模型、产物可用的端到端验证。
+> 3. **两级验证口径**：① **引擎级冒烟 = 常驻测试**（2026-09-25 起，`packages/server/src/templates-runtime.test.ts`）：tier 1 对全部 34 个模板扫「引擎运行期强制、`compile()` 不报」的不变量（fanout↔select 必须成对、每泳道一条非空变体 prompt）；tier 2 用 fake worker **真执行**其中不碰外部世界的 **13 个**（断言 `run.finished=done`、零 `node.failed`、实例化后每个节点都 `node.finished`、至少一个产物）；剩余 21 个必须在 `REQUIRES_EXTERNAL_IO` 逐条登记原因，且该表要与推导出的排除集**完全相等**——漏登记或理由过期都会红。**注意：此前此处写的「引擎级冒烟 33/33 全绿」是 2026-08-31 的一次性脚本、不是门禁**，新增模板根本不会被它拦住。② **真实狗粮运行**（本表跟踪的）——配好 provider 真实调用模型、端到端产物可用；冒烟测试**不替代**这一级。
 
 ## 状态图例
 
@@ -24,7 +24,7 @@
 | 营销内容 | tpl-batch-content | 批量内容工坊 | ✅ | run `03924415`（真实投 4 行清单，2026-09-01） | code 拆条→map→textGen 成稿→gate 全链路跑通：`split` 正确拆出 4 项、`map` 展开“映射 4 项”并逐项生成简报、`writer` **一次调用产出 4 篇成稿**（4 个标题均命中、尾段完整无截断；设计意图：成批成稿而非逐条跳 run，token 经济）。gate 一次通过无 rework。无新发现 |
 | 营销内容 | tpl-review-publish | 人工审核发布 | ✅ | run `b3df818b`（真实投料“产线模板市场上新”，2026-09-01） | writer 出稿 1535B → notify 未配 webhook **走 code 兜底节点**「(未配置送审通知 webhook，已跳过外部通知)」→ human approve → publish 归档 1731B。**error 边 + human 审批双路径首次真实跑通**，无新缺陷。（该兜底 code 节点后来在 CI 上因 RLIMIT_NPROC 超时，见 handoff `8c6f5bc`） |
 | 营销内容 | tpl-news-podcast | 资讯播客工坊 | 🟡 | 复验 run `b6ac0fee`（摘除 voice，代理已通）+ `d57a1b43`（同图），2026-09-01 | 首验发现的 4 条问题已全部修复并复验：① audioGen 静默吞 → 改 node.failed（`b6de7d9`）；② search 不可达 → 可行动报错 + `AGENT_WORLD_PROXY` 代理（`b82f89a`）；③ tts-1 modality 错配 → 派发期阻断（`7b7faf0`）；④ `template` 参数名已纠正文档。**search 已解锁 2026-09-06**（Tavily 真实结果，凭证走「设置 · 搜索服务」按源绑定）。**G-C 无能力软降级已落地 2026-09-24（`a867425`）**：零配置 / 纯文本供应商下 voice 节点置 **skipped + warn**（不再 failed），稿件经新增 `script→depot` 旁路（flow 边 e5）完整交付、run 不失败；**唯一仍缺的是「配好 TTS 供应商后真实出音频成品」的成功路径证据**（P0 真机 key，见 deferred / [runbooks/tts-provider-setup.md](runbooks/tts-provider-setup.md)），故状态保持 🟡 不转 ✅（✅ 口径=端到端含音频产物可用） |
-| 营销内容 | tpl-variant-copy | 文案多变体择优 | ⬜ | 2026-09-25 新增，引擎级已过（core「every template compiles without errors」+ 新链式守护测试），**真实狗粮未跑** | **首个承载 `fanout` + `select` 的模板**（补齐 29 类节点中此前无承载模板的两类）：需求 → fanout 扇出 3 种写法（`strategy: "prompt"`，prompts 条数必须等于 count，否则运行时 VALIDATION）→ lane textGen 各自成稿 → select `llm_score` topK=1 按 rubric 择优 → 成稿入库。两半互缺即失败（fanout 报「缺少下游择优节点」、select 报「缺少上游扇出节点」），且该拓扑错误 compile 阶段不报错，故链式测试专门钉住 lane 严格夹在 fanout 与 select 之间。零凭证：只用到已配 provider 的模型 |
+| 营销内容 | tpl-variant-copy | 文案多变体择优 | ⬜ | 2026-09-25 新增；**已过常驻引擎冒烟**（`packages/server/src/templates-runtime.test.ts` tier 2 用 fake worker 真执行：run done、零 node.failed、全节点 finished、有产物），**真实狗粮未跑** | **首个承载 `fanout` + `select` 的模板**（补齐 29 类节点中此前无承载模板的两类）：需求 → fanout 扇出 3 种写法（`strategy: "prompt"`）→ lane textGen 各自成稿 → select `llm_score` topK=1 按 rubric 择优 → 成稿入库。两半互缺即失败（fanout 报「缺少下游择优节点」、select 报「缺少上游扇出节点」），且该拓扑错误 compile 阶段不报错，故冒烟测试专门钉住 lane 严格夹在 fanout 与 select 之间。另一条静默坑：变体 prompt 是**替换** lane 的 prompt（`applyVariantConfig`），且 prompts 条数不足时 `buildVariantParams` 静默丢掉缺的那条、不报 VALIDATION——所以 prompts 必须等于 count 且每条都是完整任务指令。零凭证：只用到已配 provider 的模型 |
 | 数据分析 | tpl-ops-weekly | 运营周报 | ✅ | 首验 run `20aee494`（走兜底）；复验 run `f725ee21`（happy path，2026-09-02） | 🔴 **默认数据接口是死链**（`rest-api-description/main/examples/README.md` → 404），开箱即跑必然只走 error 边兜底、happy path 无从演示 → 改为与其他数据模板一致的 live 示例端点（`a28bde6`）。复验：fetch 420B JSON → clean `{原始行数:1,汇总:{总量:1,示例字段:[slideshow]}}` → writer 1351B 周报（诚实标注“样本量极低、无环比数据”，未编造数字）→ depot。兜底路径本身也在首验中验证：404 → textGen 给出“请替换成自己的 API 地址”可行动说明 |
 | 数据分析 | tpl-research-brief | 多源研究简报 | ✅ | 首验 run `d063f5db`；复验 run `03fe859e`（2026-09-02） | 🟡 **两个数据源默认指向同一 URL** → parallel 汇聚退化成“两源完全一致、可视为重复副本”，汇聚路径与单路拉取无从区分 → srcB 改为不同形状的 live 示例（`a28bde6`）。复验：srcA（slideshow 元数据）+ srcB（HTTP 请求元数据）→ merge 559B 双源合并 → 研判诚实报「两源结构迥异、字段无交集」并逐条列出仅单源出现的信息 → depot。**parallel 节点首次真实跑通** |
 | 数据分析 | tpl-competitor-watch | 竞品监控摘要 | ✅ | 首验 run `6b605cd9`；复验 run `bbda9188`（2026-09-01） | http 拉取 3741B → code 提取 `{长度,摘要,抓取时间}` → 对比摘要 743B → depot。🟡 默认源是 httpbin 的文学示例页（《白鲸记》片段），模型**诚实判定“数据异常—非竞品页面，无法有效对比”**并给出核实抓取源/重跑/加内容校验三条建议，没有硬编故事（默认源仅为骨架演示，属模板内容限制）。另修：intake 的“我方产品”上下文此前到不了分析节点（`9b2d91b` 扇入） |
@@ -60,7 +60,7 @@
 > **当前进度（2026-09-25 更新；与 core `TEMPLATES` 对账 = 34）**：
 > - ✅ **32 个模板已真实跑通**（端到端产物可用）
 > - 🟡 **1 个模板部分验证**：tpl-news-podcast（文本链路通；2026-09-24 G-C 软降级后，零配置/纯文本供应商下配音节点置 skipped 并告警，稿件经 script→depot 旁路仍完整交付，run 不失败；唯一缺的是「配好 TTS 供应商真实出音频」的成功路径证据）
-> - ⬜ **1 个模板待真实狗粮**：tpl-variant-copy（2026-09-25 新增，引擎级 compile + 链式守护已过，尚未配 provider 真实跑过一次多变体择优）
+> - ⬜ **1 个模板待真实狗粮**：tpl-variant-copy（2026-09-25 新增，已被常驻引擎冒烟**真执行**过——fake worker、run done、零 node.failed、有产物；但尚未配 provider 真实跑过一次多变体择优，产物质量无人看过）
 > - ❌ **0 个模板真实路径不可用**
 >
 > **需回归验证（因后续代码变更，原验证结果可能已过时）**：

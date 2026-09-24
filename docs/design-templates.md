@@ -203,3 +203,4 @@ Skill 功能对新建产线的用户实际是隐形的——机制有回归测�
 - **两半必须互相存在。** `fanout` 找不到下游 `select` 就 `node.failed / VALIDATION「扇出节点缺少下游择优节点」`，`select` 对称地要求上游有 `fanout`（`nodes/fanout.ts` 的 `firstSelectDownstream`、`nodes/select.ts` 的 `firstFanoutUpstream`）。图形状合法、compile 干净、计划照出，运行期才失败——所以 `packages/core/src/templates.test.ts` 的链式测试把「lane 严格夹在 fanout 与 select 之间」钉成回归。
 - **`strategy: "prompt"` 是替换不是追加。** `applyVariantConfig()`（`packages/server/src/nodes/shared.ts`）用变体 prompt **覆盖** lane 节点的 `textGen.prompt`，所以每条变体 prompt 必须是完整任务指令（角色 + 任务 + 结构 + 字数 + 输出约束）。只写「用 X 结构」会让泳道彻底拿不到任务——首版就犯了这个错，测试里那两条 `toContain` 是防它回潮。
 - lane 自己的 `textGen.prompt` 仍要写全：它只在某条变体 prompt 缺失或空白时兜底生效，不是「和变体拼起来」。
+- **两条都已经是常驻门禁，不再靠人记。** `packages/server/src/templates-runtime.test.ts`：tier 1 扫全部模板的运行期不变量（含上面两条），tier 2 用 fake worker 真执行 13 个不碰外部世界的模板（本模板的 fanout→lane→select→sink 全链在内）。新加的模板若需要网络/文件/凭证，必须在同文件的 `REQUIRES_EXTERNAL_IO` 登记原因——该表与从节点类型推导出的排除集必须完全相等，漏登记或理由过期都直接红。
