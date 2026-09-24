@@ -7,12 +7,14 @@ vi.mock("../lib/api", () => ({
     getRunTimeline: vi.fn(),
     getRunNodeOutput: vi.fn(),
     forkRun: vi.fn(),
+    resumeRun: vi.fn(),
   },
 }));
 
 const mockGet = api.getRunTimeline as unknown as ReturnType<typeof vi.fn>;
 const mockGetNodeOutput = api.getRunNodeOutput as unknown as ReturnType<typeof vi.fn>;
 const mockFork = api.forkRun as unknown as ReturnType<typeof vi.fn>;
+const mockResume = api.resumeRun as unknown as ReturnType<typeof vi.fn>;
 
 function attempt(over: Record<string, unknown> = {}) {
   return {
@@ -113,6 +115,57 @@ const sample: RunTimelineResponse = {
     },
   },
 };
+
+/**
+ * G4: build a halted run with one degraded video node. By default the remote
+ * job is still open (reattach / accept-degraded); `lost` flips it to
+ * REMOTE_JOB_LOST (resubmit only), `accepted` marks an already-accepted node.
+ */
+function degradedSample(
+  over: {
+    lost?: boolean;
+    accepted?: boolean;
+    runStatus?: RunTimelineResponse["run"]["status"];
+  } = {},
+): RunTimelineResponse {
+  const degradedAttempt = attempt({
+    status: "degraded",
+    durationMs: null,
+    startedAt: null,
+    finishedAt: null,
+    degradedReason: over.lost
+      ? "remote job no longer found by the provider"
+      : "video poll window closed while the render continues remotely",
+    errorCode: over.lost ? "REMOTE_JOB_LOST" : null,
+    error: over.lost ? "remote job no longer found by the provider" : null,
+    remoteJob: over.lost ? null : { kind: "video", jobId: "job-123" },
+    degradedAccepted: over.accepted ?? false,
+  });
+  return {
+    ...sample,
+    run: {
+      ...sample.run,
+      status: over.runStatus ?? "halted",
+      haltedNodeId: "V",
+      haltedReason: null,
+    },
+    nodeMeta: { V: { name: "视频生成", kind: "videoGen" } },
+    timeline: {
+      ...sample.timeline,
+      nodes: [{ nodeId: "V", status: "degraded", attempts: [degradedAttempt] }],
+      totals: {
+        nodes: 1,
+        done: 0,
+        failed: 0,
+        skipped: 0,
+        attempts: 1,
+        tokensIn: 0,
+        tokensOut: 0,
+        costUsd: 0,
+      },
+    },
+  };
+}
 
 describe("RunTimelineView", () => {
   it("renders node names, attempts, output and error codes", async () => {
@@ -247,5 +300,106 @@ describe("RunTimelineView", () => {
     expect(
       screen.getByText("audio unsupported: worker has no generateAudio capability"),
     ).toBeTruthy();
+  });
+
+  describe("degraded long-task recovery (G4)", () => {
+    beforeEach(() => {
+      mockResume.mockReset();
+      mockResume.mockResolvedValue({ ok: true });
+    });
+
+    it("renders an open degraded node with reason, job handle and both actions", async () => {
+      mockGet.mockResolvedValue(degradedSample());
+      render(<RunTimelineView runId="run-1" />);
+
+      await screen.findByText("视频生成");
+      // Orange degraded badge on both the node header and the attempt row.
+      expect(document.querySelectorAll(".run-status--degraded").length).toBeGreaterThan(0);
+      expect(screen.getByText("降级原因：")).toBeTruthy();
+      expect(screen.getByText(/video poll window closed/)).toBeTruthy();
+      // Label and job id share one inline span.
+      const jobHandle = screen.getByText(/任务 ID/);
+      expect(jobHandle.textContent).toContain("job-123");
+      expect(jobHandle.getAttribute("title")).toBe("job-123");
+      // Open job → reattach + accept-degraded, no resubmit.
+      expect(screen.getByRole("button", { name: "继续此节点" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "接受降级结果" })).toBeTruthy();
+      expect(screen.queryByRole("button", { name: /重新提交/ })).toBeNull();
+    });
+
+    it("reattaches immediately and calls resumeRun with the reattach action", async () => {
+      mockGet.mockResolvedValue(degradedSample());
+      render(<RunTimelineView runId="run-1" />);
+
+      await screen.findByText("视频生成");
+      fireEvent.click(screen.getByRole("button", { name: "继续此节点" }));
+      await waitFor(() =>
+        expect(mockResume).toHaveBeenCalledWith("run-1", "reattach"),
+      );
+    });
+
+    it("requires a second confirmation before accepting the degraded result", async () => {
+      mockGet.mockResolvedValue(degradedSample());
+      render(<RunTimelineView runId="run-1" />);
+
+      await screen.findByText("视频生成");
+      // Confirmation is not shown initially.
+      expect(
+        screen.queryByText("该节点没有产出，下游可能因缺素材失败，确定放行？"),
+      ).toBeNull();
+
+      // First click arms the confirm row; no API call yet.
+      fireEvent.click(screen.getByRole("button", { name: "接受降级结果" }));
+      expect(
+        screen.getByText("该节点没有产出，下游可能因缺素材失败，确定放行？"),
+      ).toBeTruthy();
+      expect(mockResume).not.toHaveBeenCalled();
+
+      // Cancel disarms the confirm row.
+      fireEvent.click(screen.getByRole("button", { name: "取消" }));
+      expect(screen.queryByRole("button", { name: "确定放行" })).toBeNull();
+
+      // Re-arm and confirm → accept-degraded action fires.
+      fireEvent.click(screen.getByRole("button", { name: "接受降级结果" }));
+      fireEvent.click(screen.getByRole("button", { name: "确定放行" }));
+      await waitFor(() =>
+        expect(mockResume).toHaveBeenCalledWith("run-1", "accept-degraded"),
+      );
+    });
+
+    it("offers only resubmit (which bills again) when the remote job was lost", async () => {
+      mockGet.mockResolvedValue(degradedSample({ lost: true }));
+      render(<RunTimelineView runId="run-1" />);
+
+      await screen.findByText("视频生成");
+      expect(screen.queryByRole("button", { name: "继续此节点" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "接受降级结果" })).toBeNull();
+
+      const resubmit = screen.getByRole("button", { name: /重新提交/ });
+      fireEvent.click(resubmit);
+      // Resubmit maps to a plain "continue" resume reset from the lost node.
+      await waitFor(() =>
+        expect(mockResume).toHaveBeenCalledWith("run-1", "continue", "V"),
+      );
+    });
+
+    it("hides the decision actions once the run is no longer halted", async () => {
+      mockGet.mockResolvedValue(degradedSample({ runStatus: "done" }));
+      render(<RunTimelineView runId="run-1" />);
+
+      await screen.findByText("视频生成");
+      expect(screen.queryByRole("button", { name: "继续此节点" })).toBeNull();
+      expect(screen.queryByRole("button", { name: /重新提交/ })).toBeNull();
+    });
+
+    it("shows the accepted-degraded marker after an operator accepts the result", async () => {
+      mockGet.mockResolvedValue(degradedSample({ accepted: true }));
+      render(<RunTimelineView runId="run-1" />);
+
+      await screen.findByText("视频生成");
+      expect(
+        screen.getByText("已接受降级结果，run 继续，该节点保留降级标记"),
+      ).toBeTruthy();
+    });
   });
 });
