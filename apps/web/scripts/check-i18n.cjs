@@ -29,6 +29,7 @@ const {
   readPack,
   readPackValue,
   unusedKeys,
+  valueDrift,
 } = require("./i18n-scan.cjs");
 
 const NS_LIST = namespaces();
@@ -63,6 +64,12 @@ function checkUnusedKeys() {
   return unusedKeys().sort();
 }
 
+// --- 3. Value-level drift ---
+
+function checkValues() {
+  return valueDrift();
+}
+
 // --- main ---
 
 function main() {
@@ -71,7 +78,7 @@ function main() {
   console.log("🔍 i18n check\n");
 
   // 1. Interpolation parity
-  console.log("1/2  Interpolation variable parity…");
+  console.log("1/3  Interpolation variable parity…");
   const interpFailures = checkInterpolations();
   if (interpFailures.length === 0) {
     console.log("  ✅ all {{variables}} match between zh and en\n");
@@ -83,17 +90,29 @@ function main() {
   }
 
   // 2. Unused keys
-  console.log("2/2  Unused keys (in locale files but not referenced in source)…");
+  console.log("2/3  Unused keys (in locale files but not referenced in source)…");
   const unused = checkUnusedKeys();
   if (unused.length === 0) {
     console.log("  ✅ no unused keys\n");
   } else {
-    // Unused keys are a warning, not a hard failure — some keys may be
-    // referenced dynamically (e.g. through computed lookup tables).
-    console.log(`  ⚠️  ${unused.length} potentially unused key(s):`);
+    // Warning only: unreachable keys are dead weight, not broken UI. Deletion
+    // is a separate, deliberate step (scripts/i18n-prune.cjs --apply).
+    console.log(`  ⚠️  ${unused.length} unused key(s) — run "pnpm i18n:prune" to list them:`);
     for (const k of unused.slice(0, 30)) console.log(`    - ${k}`);
     if (unused.length > 30) console.log(`    … and ${unused.length - 30} more`);
-    console.log("  (warnings only — dynamically-referenced keys may appear here)\n");
+    console.log();
+  }
+
+  // 3. Value-level drift
+  console.log("3/3  Value drift (untranslated, empty, one-sided)…");
+  const drift = checkValues();
+  if (drift.length === 0) {
+    console.log("  ✅ no value-level drift\n");
+  } else {
+    failed = true;
+    console.log(`  ❌ ${drift.length} finding(s):`);
+    for (const f of drift) console.log(`    - ${f}`);
+    console.log();
   }
 
   if (failed) {

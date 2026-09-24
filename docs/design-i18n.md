@@ -20,8 +20,8 @@
 - **工具链**（2026-09-12）：
   - `i18next-parser.config.js` — 翻译 key 提取配置（`pnpm i18n:extract`）
   - `scripts/i18n-scan.cjs` — 「这个 key 源码能不能碰到」的**唯一判定处**，check 与 prune 共用，避免两个工具各执一词。四条规则：`t("ns:path")` 与任意 `"ns:path"` 字面量算引用；无前缀的 key 只解析进 `defaultNS`（全仓没有 `useTranslation("ns")` 调用）；存在查表里的 key（`const RANGE_KEY = { all: "common.all" }`）按裸字符串算引用；源码里以模板字面量拼出来的前缀（`` t(`billing:plans.${id}`) ``）**自动**从源码推出并整段保护，不再需要手写白名单。命名空间清单直接读 `locales/zh/` 目录，不再是硬编码数组（旧数组漏了 `billing`，那个包此前根本没被检查过）
-  - `scripts/check-i18n.cjs` — 校验脚本（`pnpm i18n:check`）：插值变量一致性（zh/en 的 `{{var}}` 必须对齐）+ 未使用 key 扫描（warning）。此前它从不解析 `defaultNS`，把 `t("common.search")` 记成 `common.search` 去比 `common:common.search`，报出来的 98 个候选大半是误报，不能当删除清单——2026-09-25 改用 i18n-scan 后归零
-  - `scripts/i18n-prune.cjs` — 死 key 清理（`pnpm --filter @agent-world/web i18n:prune`，默认 dry-run，`-- --apply` 同时改 zh/en 并删空组）。两轮战绩：2026-09-24 删 817（`errors` 从 298 缩到被寻址的 9 个）、2026-09-25 修好扫描后又删 19（`canvas` 那批早期设计留下的 title/grid/minimap/… 全无引用）
+  - `scripts/check-i18n.cjs` — 校验脚本（`pnpm i18n:check`），三项：**插值变量一致性**（zh/en 的 `{{var}}` 必须对齐，失败阻断）+ **未使用 key 扫描**（warning）+ **值层面漂移**（en 值仍是中文 / 任一侧空值 / key 只存在一侧，失败阻断）。值检查两条防误报规则：key 以 `Zh`/`En` 结尾的是「按语言存放的正文」（公告双语模板、translate 目标语言示例）不是待译标签；其余按**占比**判定（CJK ≥2 且占值 30% 以上才算未翻译），否则 `en` 里正常出现的「日本語」这类专名会把门禁变成噪音源此前它从不解析 `defaultNS`，把 `t("common.search")` 记成 `common.search` 去比 `common:common.search`，报出来的 98 个候选大半是误报，不能当删除清单——2026-09-25 改用 i18n-scan 后归零
+  - `scripts/i18n-prune.cjs` — 死 key 清理（`pnpm --filter @agent-world/web i18n:prune`，默认 dry-run，`-- --apply` 同时改 zh/en 并删空组，`-- --check` 供 CI：只报告、有死 key 即非零退出）。两轮战绩：2026-09-24 删 817（`errors` 从 298 缩到被寻址的 9 个）、2026-09-25 修好扫描后又删 19（`canvas` 那批早期设计留下的 title/grid/minimap/… 全无引用）
   - `i18n/type.d.ts` — TypeScript 类型增强，14 个命名空间全部类型化，`t()` 调用编译期校验 key 拼写
 
 **剩余**（2026-09-24 复核）：
