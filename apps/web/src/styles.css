@@ -2020,7 +2020,7 @@ select {
 }
 .diag--error {
   border-color: var(--error);
-  color: #ffb4ad;
+  color: var(--error);
 }
 .diag--warn {
   border-color: var(--warning);
@@ -3127,12 +3127,12 @@ select {
   word-break: break-word;
 }
 .output--diff .d-add {
-  background: rgba(102, 224, 122, 0.18);
-  color: #b6f2c2;
+  background: var(--success-bg);
+  color: var(--success);
 }
 .output--diff .d-del {
-  background: rgba(255, 74, 61, 0.16);
-  color: #ffb4ad;
+  background: var(--error-bg);
+  color: var(--error);
   text-decoration: line-through;
 }
 
@@ -6341,10 +6341,10 @@ select {
   margin-bottom: var(--gap-lg);
   padding: var(--gap-sm) var(--gap-md);
   border-left: 2px solid var(--error);
-  background: rgba(255, 74, 61, 0.08);
+  background: var(--error-bg);
   font-family: var(--mono);
   font-size: var(--text-xs);
-  color: #ffb4ad;
+  color: var(--error);
 }
 
 .auth-card__body .field {
@@ -6688,9 +6688,9 @@ select {
 .runhistory-error {
   margin: var(--gap-md) var(--space-5);
   padding: var(--gap-sm) var(--gap-lg);
-  background: rgba(255, 120, 100, 0.1);
-  border: 1px solid rgba(255, 120, 100, 0.35);
-  color: #ffb4ad;
+  background: var(--error-bg);
+  border: 1px solid var(--error);
+  color: var(--error);
   border-radius: var(--radius-md);
   font-size: var(--text-sm);
 }
@@ -6732,7 +6732,7 @@ select {
   flex-shrink: 0;
 }
 .runhistory-status-failed {
-  border-color: rgba(255, 120, 100, 0.22);
+  border-color: color-mix(in srgb, var(--error) 22%, transparent);
 }
 
 /* main 区（两行布局，不换行） */
