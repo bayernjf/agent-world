@@ -1,5 +1,7 @@
 # M3 收款与账单落地实施方案（design-monetization-m3-implementation）
 
+> **文件名勘误（2026-09-25 机器核证）**：本文列的 `api.invoices.ts` / `api.rbac.ts` **未按此名落地**，实际是 `packages/server/src/invoiceService.ts` + `api.billing.ts` 与 `packages/server/src/rbac.ts`；发票生成脚本真实路径 `packages/server/scripts/generate-invoices.ts`。
+
 > 定位：对 [design-monetization.md](design-monetization.md) §6「账单与支付」+ §9 P2 阶段的**落地级细化**，结合当前代码库（2026-09-14）实际状态，给出可执行的分步骤实施计划、文件清单、迁移方案、测试策略与回滚方案。
 >
 > 状态：**设计阶段（2026-09-14 启动）**。M2 订阅 gate 已部署 Hasee（PR #277，commit `124bdca`），owner 已升 pro，`MONETIZATION_ENFORCE=1` 已开。M3 在 M2 基础上加装「账单流水 + 发票 + 手动收款闭环 + 团队席位」，MVP 阶段先做手动收款，支付网关（Stripe）待有收款主体后再接。
@@ -118,7 +120,7 @@ interface PlanQuota {
 - `packages/server/src/pg-sql.ts`：无需改动（toPgDdl 自动派生）
 - `packages/server/src/invoiceService.ts`（新建）：账单生成/查询/状态管理
 - `packages/server/src/invoiceService.test.ts`（新建）：服务层测试
-- `packages/server/src/scripts/generate-invoices.ts`（新建）：手动触发账单生成 CLI
+- `packages/server/scripts/generate-invoices.ts`（新建）：手动触发账单生成 CLI
 
 **核心接口**：
 ```typescript

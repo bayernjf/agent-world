@@ -147,7 +147,7 @@ source 主路径喂给下游 fileParse / ocr，语义上对应 **file connector 
 4. `nodes/shared.ts`：`buildSourceBrief` 恢复第三参 `fallbacks?`，事实字段留空回填、手填覆写、调性字段永不回填。
 5. `apps/web` InspectorFields/SourceFields：恢复 D7 product connector hint（走 i18n，不硬编码中文，遵守 AGENTS.md）。
 
-### 5.2 模板（packages/core/templates.ts，仅 2 个）
+### 5.2 模板（packages/core/src/templates.ts，仅 2 个）
 
 - tpl-product、tpl-xiaohongshu 的 intake 节点：裸节点 → 带 `source.connector = {type:"product",product:{selection:"manual"}}`。
 - 两个模板的"卖点提炼/文案撰写"prompt：按 §4.3 原则加最小必要的 `${product.brand} ${product.name}` 锚点（措辞对空值鲁棒），其余节点不动。

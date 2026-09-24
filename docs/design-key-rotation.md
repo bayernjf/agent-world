@@ -67,7 +67,7 @@ AGENT_WORLD_ENCRYPTION_KEYS=<new-hex64>,<old-hex64>
 2. env 改为 AGENT_WORLD_ENCRYPTION_KEYS=<新>,<旧>（新在前）
 3. 重启服务 → 新写入全部用新密钥，存量旧密文照常解密（读路径不受影响）
 4. （可选，建议 90 天内完成）跑重加密脚本收敛：
-   pnpm --filter @agent-world/server exec tsx scripts/rotate-reencrypt.ts [--dry-run] [--table=...]
+   pnpm --filter @agent-world/server exec tsx packages/server/scripts/rotate-reencrypt.ts [--dry-run] [--table=...]
    覆盖 settings.data / publish_targets.config_encrypted / graphs.doc /
    graph_versions.snapshot / runs.snapshot 五个密文面
 5. 确认 residue 归零（脚本退出码 0）后，从 keyring 移除旧密钥，再重启
@@ -96,7 +96,7 @@ AGENT_WORLD_ENCRYPTION_KEYS=<new-hex64>,<old-hex64>
 | 阶段 | 内容                                               | 依赖 | 状态 |
 | -- | ------------------------------------------------ | -- | -- |
 | P1 | keyring 加载 + `v2` 密文格式（加密新密钥 / 解密按 keyId），旧格式全兼容 | 无  | ✅ `at-rest.ts` + `at-rest.test.ts`（keyring 多密钥 / v2 格式 / v1 兼容 / 单值 env 等价） |
-| P2 | `scripts/rotate-reencrypt.ts` 重加密工具 + 扫描报告       | P1 | ✅ `src/key-rotation.ts`（库）+ `scripts/rotate-reencrypt.ts`（CLI）+ `key-rotation.test.ts`（收敛/幂等/fail-closed/dry-run/--table/明文补封） |
+| P2 | `packages/server/scripts/rotate-reencrypt.ts` 重加密工具 + 扫描报告       | P1 | ✅ `src/key-rotation.ts`（库）+ `packages/server/scripts/rotate-reencrypt.ts`（CLI）+ `key-rotation.test.ts`（收敛/幂等/fail-closed/dry-run/--table/明文补封） |
 | P3 | 运维文档（runbook）+ 定期轮换建议（默认 90 天）         | P2 | ✅ [runbooks/key-rotation.md](runbooks/key-rotation.md) |
 
 ## 5. 测试计划（已全绿）

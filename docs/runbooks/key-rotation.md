@@ -42,7 +42,7 @@ export AGENT_WORLD_ENCRYPTION_KEYS=<new-hex64>,<old-hex64>
 cd packages/server
 DB_FILE=/path/to/agent-world.sqlite \
 AGENT_WORLD_ENCRYPTION_KEYS=<new-hex64>,<old-hex64> \
-pnpm exec tsx scripts/rotate-reencrypt.ts --dry-run   # 先看会改多少行
+pnpm exec tsx packages/server/scripts/rotate-reencrypt.ts --dry-run   # 先看会改多少行
 #    确认数字合理后去掉 --dry-run 真跑；大库可分表：
 #    ... rotate-reencrypt.ts --table=runs,graph_versions
 

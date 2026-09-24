@@ -1,5 +1,7 @@
 # M2 订阅 gate 落地实施方案（design-monetization-m2-implementation）
 
+> **文件名勘误（2026-09-25 机器核证）**：本文列的 `enforce-subscription.ts` / `api.subscription.ts` / `apps/web/src/api/subscription.ts` / `usage-backfill.test.ts` / `packages/core/src/errors.ts` **均未按此名落地**：订阅 gate 在 `packages/server/src/index.ts` 与 `sqlite-driver.ts`（测试 `subscription.test.ts`），计费端点在 `packages/server/src/api.billing.ts`。
+
 > 定位：对 [design-monetization.md](design-monetization.md) §5「配额与订阅 gate」+ §9 P1 阶段的**落地级细化**，结合当前代码库（2026-09-14）实际状态，给出可执行的分步骤实施计划、文件清单、迁移方案、测试策略与回滚方案。
 >
 > 状态：**已部署 Hasee（2026-09-14 完成代码，随 PR #277 合 dev merge `124bdca` 上线；owner 已升 pro、MONETIZATION_ENFORCE=1）**。S1 无需新建迁移（表已存在于迁移 34）；S2 ✅ `1d7a3e4`（plans.ts 单一事实源 + subscriptionService）；S3 ✅ `8a8a32f`（用量计量 + 幂等回填 CLI）；S4 ✅ `7dece12`（gate 五维检查 + 结构化 402）；BYOK 视频放行修复 ✅ `99d639b`；S5 ✅ `9807988`（GET /api/subscription + web client）；S6 ✅ `f3ed6f4`（账单 tab + 用量面板 + 升级引导模态）；S7 ✅ `d045f46`（80%/100% token 预警公告）；S8 ✅ 四包 typecheck 全绿，core 233 / mcp 71 / web 1824 / server 1036 测试通过（server 余 32 个失败为 macOS 子进程沙箱环境基线，与 M2 无关，已用 git diff 证实未触碰这些文件）。**已部署（PR #277 合 dev merge `124bdca` 上线 Hasee，owner 已升 pro、MONETIZATION_ENFORCE=1）。** M1 成本计量回采已完成（125 runs / $5.57 总成本），套餐价格已校准（Starter $9 / Pro $29 / Team $149，见 design-monetization.md §4.1）。
