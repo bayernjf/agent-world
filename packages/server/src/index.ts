@@ -41,6 +41,7 @@ import {
 import { findGraphIdByName as findGraphIdByNameCore } from "./graphs-name.js";
 import { ArtifactStore } from "./artifact-store.js";
 import { log } from "./logger.js";
+import { MaintenanceLoop } from "./maintenance.js";
 import { startRun, resumeRun, forkRun, RunStartError, type ResumeAction } from "./run.js";
 import { buildFailureInfo, diagnoseRun } from "./diagnose.js";
 import { runBatch } from "./batch.js";
@@ -4219,20 +4220,10 @@ if (process.env.NODE_ENV !== "test") {
         .map((g) => `${g.provider}/${g.model} (missing ${g.missing.join(",")})`),
     });
   }
-  // Audit retention (design-audit-log §5): 180 days, pruned lazily at boot.
-  // Failing here must not stop the server — the table just keeps growing, which
-  // is exactly the pre-prune behaviour.
-  const AUDIT_RETENTION_DAYS = 180;
-  try {
-    const pruned = await db.pruneAuditOlder(
-      Date.now() - AUDIT_RETENTION_DAYS * 86_400_000,
-    );
-    if (pruned > 0) {
-      log.info("audit log pruned", { rows: pruned, retentionDays: AUDIT_RETENTION_DAYS });
-    }
-  } catch (err) {
-    log.warn("audit log prune failed", { error: (err as Error)?.message ?? String(err) });
-  }
+  // events + audit_log 保留清理：启动即清一次，之后每 6h 续清
+  // （design-audit-log §5 / design-scaling §2.1）。单轮失败只 warn。
+  const maintenance = new MaintenanceLoop(db);
+  maintenance.start();
   const server = serve({ fetch: app.fetch, port: PORT }, (info) => {
     log.info("engine listening", { port: info.port, url: `http://localhost:${info.port}` });
   });
@@ -4251,6 +4242,7 @@ if (process.env.NODE_ENV !== "test") {
     const drain = setInterval(async () => {
       if (live.size > 0 && Date.now() < deadline) return;
       clearInterval(drain);
+      maintenance.stop();
       for (const entry of live.values()) entry.controller.abort();
       disposeIsolatedWorkers();
       // Release MCP transports too: the stdio ones own a child process, so
