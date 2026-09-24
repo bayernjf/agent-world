@@ -6763,14 +6763,14 @@ select {
   flex-shrink: 0;
   white-space: nowrap;
 }
-.run-status--running    { background: rgba(255, 180, 80, 0.18); color: #ffc78a; border: 1px solid rgba(255, 180, 80, 0.35); }
-.run-status--done      { background: rgba(120, 220, 160, 0.14); color: #7fd09a; border: 1px solid rgba(120, 220, 160, 0.35); }
-.run-status--halted    { background: rgba(255, 180, 80, 0.18); color: #ffc78a; border: 1px solid rgba(255, 180, 80, 0.35); }
-.run-status--failed    { background: rgba(255, 120, 100, 0.14); color: #ffb4ad; border: 1px solid rgba(255, 120, 100, 0.35); }
-.run-status--tripped   { background: rgba(255, 120, 100, 0.14); color: #ffb4ad; border: 1px solid rgba(255, 120, 100, 0.35); }
-.run-status--cancelled { background: rgba(140, 150, 160, 0.12); color: var(--text-secondary); border: 1px solid rgba(140, 150, 160, 0.25); }
-.run-status--interrupted { background: rgba(140, 150, 160, 0.12); color: var(--text-secondary); border: 1px solid rgba(140, 150, 160, 0.25); }
-.run-status--default   { background: rgba(140, 150, 160, 0.12); color: var(--text-secondary); border: 1px solid rgba(140, 150, 160, 0.25); }
+.run-status--running    { background: var(--warning-bg); color: var(--warning); border: 1px solid var(--warning); }
+.run-status--done      { background: var(--success-bg); color: var(--success); border: 1px solid var(--success); }
+.run-status--halted    { background: var(--warning-bg); color: var(--warning); border: 1px solid var(--warning); }
+.run-status--failed    { background: var(--error-bg); color: var(--error); border: 1px solid var(--error); }
+.run-status--tripped   { background: var(--error-bg); color: var(--error); border: 1px solid var(--error); }
+.run-status--cancelled { background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border-secondary); }
+.run-status--interrupted { background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border-secondary); }
+.run-status--default   { background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border-secondary); }
 
 .runhistory-name {
   font-size: var(--text-base);
@@ -7029,7 +7029,7 @@ select {
 .run-timeline-halt {
   margin-top: 4px;
   font-size: var(--text-xs);
-  color: #ffc78a;
+  color: var(--warning);
 }
 
 /* G4 degraded (long async job awaiting a decision) — orange */
