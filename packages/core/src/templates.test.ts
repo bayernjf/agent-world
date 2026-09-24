@@ -16,7 +16,44 @@ describe("templates", () => {
     // Blank canvas is a creation entry, NOT a business template.
     expect(ids).not.toContain("tpl-blank");
     expect(BLANK_TEMPLATE.id).toBe("tpl-blank");
-    expect(TEMPLATES).toHaveLength(33);
+    expect(TEMPLATES).toHaveLength(34);
+  });
+
+  it("variant-copy template chains fanout → lane → select and keeps the pair intact", () => {
+    const tpl = getTemplate("tpl-variant-copy")!;
+    expect(tpl, "template tpl-variant-copy should exist").toBeTruthy();
+    const byName = new Map(tpl.graph.nodes.map((n) => [n.name, n]));
+    expect(byName.get("需求")?.kind).toBe("source");
+    expect(byName.get("扇出写法")?.kind).toBe("fanout");
+    expect(byName.get("变体成稿")?.kind).toBe("textGen");
+    expect(byName.get("择优")?.kind).toBe("select");
+    expect(byName.get("成稿")?.kind).toBe("sink");
+
+    // strategy=prompt needs exactly `count` prompts or the node fails VALIDATION.
+    const fan = byName.get("扇出写法")!.fanout as { count: number; strategy: string; prompts: string[] };
+    expect(fan.strategy).toBe("prompt");
+    expect(fan.prompts).toHaveLength(fan.count);
+    // applyVariantConfig replaces the lane prompt rather than appending to it,
+    // so a variant prompt that only names its angle would leave the lane with
+    // no task at all. Each entry must restate the job and its limits.
+    for (const p of fan.prompts) {
+      expect(p, "variant prompt must carry the task, not just the angle").toContain("投放文案");
+      expect(p).toContain("120");
+    }
+
+    const sel = byName.get("择优")!.select as { mode: string; topK: number; rubric: string };
+    expect(sel.mode).toBe("llm_score");
+    expect(sel.topK).toBe(1);
+    expect(sel.rubric.length).toBeGreaterThan(0);
+
+    // fanout fails without a downstream select and select fails without an
+    // upstream fanout, so the single lane must sit strictly between them.
+    const flows = (from: string, to: string) =>
+      tpl.graph.edges.some((e) => e.kind === "flow" && e.from === from && e.to === to);
+    expect(flows("intake", "fan")).toBe(true);
+    expect(flows("fan", "lane")).toBe(true);
+    expect(flows("lane", "sel")).toBe(true);
+    expect(flows("sel", "depot")).toBe(true);
   });
 
   it("categories cover every template and every category renders", () => {
