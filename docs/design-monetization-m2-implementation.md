@@ -634,6 +634,7 @@ export async function checkUsageAlerts(userId: string): Promise<void> {
 4. **存量用户自动落免费层**：`getOrCreateSubscription` 懒创建 free，无需批量刷库；可抽查一个老用户 `GET /api/subscription` 返回 `plan:"free"`。
 5. **⚠️ 先把 owner 升到付费套餐（最关键，顺序不能反）**：owner userId `92d95665-10ef-49d7-a2c3-6ba39d92f5fb`，在**打开 enforce 之前**用管理员接口设为 `pro`（或 `team`），否则 M1 四条内置 agnes 回采产线会被 402 断供：
    `POST /api/admin/users/92d95665-10ef-49d7-a2c3-6ba39d92f5fb/plan  body {"plan":"pro"}`（需 owner/admin 登录态），并确认 audit_log 出现 `billing.plan_changed`。
+   > **2026-09-25 核实补注**：这一步的顺序建议仍然对（升 pro 是无害的前置），但它写的因果**按现状代码不会发生**——M1 产线是 cron 触发器，走 `index.ts:163` → `triggers.ts:135` → `startRun()`，绕开只在 `POST /api/runs` 里的 gate，所以 owner 留在 free 也不会 402。也就是说：这条保护 M1 的理由，正是 gate 覆盖面不足的表现（见 deferred-items「订阅 gate 的覆盖面补齐」）。触发器侧一旦补上 gate，本条因果才会变成真的。
 6. **最后才打开 gate 开关**：在服务环境变量设 `MONETIZATION_ENFORCE=1` 并 `systemctl restart agent-world`。**默认关闭**——不设此变量时代码已上线但不拦截，可先灰度观察计量是否准确。
 7. **部署后验证**：
    - M1 四条产线下一个 cron tick 正常出 run（①`10,40 * * * *` 等），无 402；
@@ -678,7 +679,7 @@ export async function checkUsageAlerts(userId: string): Promise<void> {
 
 **回滚保障**：
 - 每步原子提交，可单独回滚
-- gate 逻辑有 feature flag（`ENABLE_SUBSCRIPTION_GATE` 环境变量），紧急时可关闭 gate 而不回滚代码
+- gate 逻辑有 feature flag（环境变量 `MONETIZATION_ENFORCE`，代码里只认字符串 `"1"`），紧急时把它从 systemd override 移除并 `systemctl restart agent-world` 即可关闭 gate 而不回滚代码。**注意 `ENABLE_SUBSCRIPTION_GATE` 这个名字从未存在过**（本文原稿写错，2026-09-25 核证更正），照它去 unset 会以为已经关掉、实际仍在拦截
 - M2 部署到 Hasee 前先在本地 dev 充分验证
 - M2 部署后先观察 24 小时（M1 回采产线正常 + 无异常 402）再确认稳定
 

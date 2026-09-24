@@ -209,6 +209,39 @@ sudo -u agentworld DB_FILE=/var/lib/agent-world/agent-world.sqlite \
 
 > 若生产用 `pnpm install --prod` 没装 tsx（devDependency），cron 行可改为先 `cd /opt/agent-world/packages/server` 再用仓库根 `.bin/tsx`；该 bin 随 workspace 依赖安装存在。
 
+### 四之二、订阅 gate 开关（`MONETIZATION_ENFORCE`）与它真实的覆盖面
+
+**当前状态**：Hasee 自 2026-09-14/15 起为 **开**（systemd override 里 `Environment=MONETIZATION_ENFORCE=1`，owner 已升 pro；PR #302 部署后同一 override 另加 `ALLOW_DEMO=1`）。
+
+**关闭（紧急回滚，不需回滚代码）**：
+
+```bash
+sudo systemctl edit agent-world        # 删掉 Environment=MONETIZATION_ENFORCE=1 那一行
+sudo systemctl daemon-reload && sudo systemctl restart agent-world
+# 验证真的关了（而不是以为关了）：拿一个 free 层账号跑内置模型产线
+#   开着 → 402 {"error":"subscription","metric":"builtin_model"}
+#   关掉 → 不再是 402
+```
+
+> ⚠️ 变量名只有一个：`MONETIZATION_ENFORCE`，判定是 `=== "1"` 严格相等——写 `true` / 留空格 / 只加不改都等于没开。design-monetization-m2-implementation.md 第五节曾把回滚手段写成另一个名字（`ENABLE_SUBSCRIPTION_GATE`），**代码里从来没有这个变量**，2026-09-25 已更正；事故时照那个名字去找会以为 gate 已关而它其实还在拦。
+
+**覆盖面（2026-09-25 逐调用点核实，别按「五维检查已全量」理解）**：gate 挂在 `POST /api/runs` 的 handler 里，不在 `startRun()` 里，所以仓内 5 个 run 派发点只有 1 个被拦。以下四条**不经过 gate**，都有测试钉住现状（`api.subscription-gate.test.ts`、`subscription.test.ts`「measured gaps / 不 bless 的行为」）：
+
+| 派发口 | 位置 | 开 gate 后是否计量/拦截 |
+|---|---|---|
+| 手动派发 `POST /api/runs` | `index.ts:2712` | ✅ 唯一被拦的 |
+| 重跑 `POST /api/runs/:id/rerun` | `index.ts:3787` | ❌ 直接 `startRun` |
+| 批量重试 / 批量派发 | `index.ts:2860`、`batch.ts:58` | ❌ |
+| cron / webhook / 事件触发器（**M1 四条回采产线走的就是这条**） | `index.ts:163` → `triggers.ts:135,208` | ❌ |
+| AB 实验、MCP 客户端派发 | `ab.ts`、`packages/mcp-server` | ❌ |
+
+两条运维含义：
+
+1. **免费层的并发是被「无人审批的 halted run」长期占住的**：`activeRuns` 的口径是 `status IN ('running','halted')` 且**无时间上限**，而启动时的 `markZombiesInterrupted()` 只回收 `running`（`index.ts:130`）。开发库实测有 7 个 23–28 天前的 halted run，其中一个账号占 6 个——free 层 `concurrentRuns=1`，这类账号每次派发都会 402「并发上限已满」，唯一自救是去把旧 run 取消掉。给 gate 加白名单/告警之前，先确认这不是你在排查的「用户说点不动」。
+2. **想补齐上面四个口子时要连带评估 M1**：给触发器路径加 gate 的那一刻，四条内置 agnes 回采产线才开始受 token 配额约束（pro 2,000,000 折算 token/月）。现状它们完全不受限——这也是 m2 手册第 5 步「先升 owner 否则 M1 会 402 断供」的因果**目前并不发生**的原因（顺序建议本身仍应对，只是失效面比文档写的小）。
+
+`past_due` / `canceled` 目前**不影响配额**：`enforceSubscription()` 只读 `plan`，`SubscriptionLike.status` 传进来没人读（design-monetization §6.4 的「欠费 → 宽限 → 内置模型阻断」尚未实现）。
+
 ## 五、构建并托管 web（nginx 同源）
 
 ```bash
