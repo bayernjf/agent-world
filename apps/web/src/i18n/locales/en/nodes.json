@@ -95,6 +95,7 @@
     "gateLimit": "Attempt cap",
     "images": "Image feed",
     "status": "Status",
+    "skipReason": "Skip reason",
     "rework": "Rework",
     "tokens": "Tokens",
     "power": "Power cost",
