@@ -135,10 +135,13 @@ export function enforceSubscription(graph: Graph, config: AppConfig, opts: Enfor
       );
     }
     // 套餐对但钱没到位：内置模型这一维按免费层对待（BYOK 不受影响）。
+    // 两种状态分开报错码——前端的引导不同（补款 vs 重新订阅），合成一个码就只能
+    // 给一句含糊的话。
+    const arrears = opts.subscription!.status === "past_due";
     if (!builtinAccessIntact(opts.subscription!, opts.now ?? Date.now())) {
       throw new QuotaError(
-        "SUBSCRIPTION_INACTIVE",
-        opts.subscription!.status === "past_due"
+        arrears ? "PAYMENT_REQUIRED" : "SUBSCRIPTION_ENDED",
+        arrears
           ? "订阅欠费中，内置模型已暂停。请更新付款方式，扣款成功后自动恢复；自带 API Key 的模型不受影响。"
           : "订阅已于本周期结束后取消，内置模型已暂停。请重新订阅，或改用自带 API Key 的模型。",
         "builtin_model",

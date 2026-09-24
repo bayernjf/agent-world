@@ -112,7 +112,15 @@ describe("enforceSubscription", () => {
         usedTokens: 100,
         activeRuns: 0,
       }),
-    ).toThrowError(/欠费/);
+    ).toThrow(/欠费/);
+    // The code is what the web modal branches on, so it is part of the contract.
+    expect(() =>
+      enforceSubscription(withNodes(textNode("a", "agnes-2.0-flash")), cfg, {
+        subscription: { plan: "pro", status: "past_due" },
+        usedTokens: 100,
+        activeRuns: 0,
+      }),
+    ).toThrowError(expect.objectContaining({ code: "PAYMENT_REQUIRED" }));
 
     expect(() =>
       enforceSubscription(withNodes(textNode("a", "my-model")), cfg, {
@@ -135,7 +143,10 @@ describe("enforceSubscription", () => {
 
     // Stripe writes `canceled` at cancel-at-period-end, while access is still paid for.
     expect(paid("canceled", periodEnd - 86_400_000)).not.toThrow();
-    expect(paid("canceled", periodEnd + 1)).toThrowError(/取消/);
+    expect(paid("canceled", periodEnd + 1)).toThrow(/取消/);
+    expect(paid("canceled", periodEnd + 1)).toThrowError(
+      expect.objectContaining({ code: "SUBSCRIPTION_ENDED" }),
+    );
     // An unknown/added status must not silently cut off someone who paid.
     expect(paid("trialing", periodEnd - 86_400_000)).not.toThrow();
   });
