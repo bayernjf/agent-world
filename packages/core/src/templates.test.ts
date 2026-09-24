@@ -33,6 +33,13 @@ describe("templates", () => {
     const fan = byName.get("扇出写法")!.fanout as { count: number; strategy: string; prompts: string[] };
     expect(fan.strategy).toBe("prompt");
     expect(fan.prompts).toHaveLength(fan.count);
+    // applyVariantConfig replaces the lane prompt rather than appending to it,
+    // so a variant prompt that only names its angle would leave the lane with
+    // no task at all. Each entry must restate the job and its limits.
+    for (const p of fan.prompts) {
+      expect(p, "variant prompt must carry the task, not just the angle").toContain("投放文案");
+      expect(p).toContain("120");
+    }
 
     const sel = byName.get("择优")!.select as { mode: string; topK: number; rubric: string };
     expect(sel.mode).toBe("llm_score");
