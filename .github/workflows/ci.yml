@@ -44,6 +44,16 @@ jobs:
       - name: Typecheck
         run: pnpm -r typecheck
 
+      - name: i18n guard
+        # Two things gate here: every {{interpolation}} present in both
+        # languages, and no pack key that source can no longer reach. The second
+        # one used to rot silently - 817 dead keys had piled up before the first
+        # prune (2026-09-24), and the old scanner could not tell them apart from
+        # keys addressed through defaultNS or a runtime prefix.
+        run: |
+          pnpm --filter @agent-world/web i18n:check
+          pnpm --filter @agent-world/web i18n:prune -- --check
+
       - name: Test
         # 2-vCPU GitHub runners starve code-node subprocesses under full
         # parallel load, turning healthy runs into spurious timeouts (even
