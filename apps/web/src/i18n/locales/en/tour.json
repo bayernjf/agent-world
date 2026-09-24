@@ -45,8 +45,7 @@
   },
   "menu": {
     "title": "Tours & what's new",
-    "seen": "Seen",
-    "replay": "Replay"
+    "seen": "Seen"
   },
   "commands": {
     "replayHint": "Replay the step-by-step tour"

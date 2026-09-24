@@ -1,12 +1,5 @@
 {
   "tab": "Plan & Usage",
-  "currentPlan": "Current plan",
-  "planStatus": {
-    "active": "Active",
-    "trialing": "Trialing",
-    "past_due": "Past due",
-    "canceled": "Canceled"
-  },
   "renewsAt": "Next billing period {{date}}",
   "freeForever": "Free forever",
   "contactOwner": "Online payment is not wired up in M2 yet. Contact the instance owner to upgrade your plan manually.",
@@ -33,12 +26,8 @@
     "video": "Video generation",
     "storage": "Storage",
     "concurrency": "Concurrent pipelines",
-    "runs": "Runs",
     "usedOfLimit": "{{used}} / {{limit}}",
-    "usedOfUnlimited": "{{used}} / unlimited",
-    "percent": "{{percent}}%",
     "segments": "{{count}} segments",
-    "unlimited": "Unlimited",
     "loading": "Loading usage…",
     "error": "Failed to load usage"
   },
@@ -66,17 +55,9 @@
       "storage": "Storage is full. Remove artifacts or upgrade your plan.",
       "concurrency": "You have reached the concurrent-pipeline limit of your plan. Wait for a run to finish or upgrade."
     },
-    "usedOfLimit": "Used {{used}}, limit {{limit}}",
     "upgrade": "View plans / upgrade",
     "useCustomModel": "Use a custom model",
     "close": "Got it"
-  },
-  "alert": {
-    "token80Title": "Built-in token usage at 80%",
-    "token80Body": "You have used about {{percent}}% of this period's built-in model tokens. Keep an eye on usage or upgrade.",
-    "tokenExhaustedTitle": "Built-in tokens exhausted",
-    "tokenExhaustedBody": "This period's built-in model tokens are exhausted (used {{used}}, limit {{limit}}). Built-in model runs are paused until you upgrade or the period rolls over.",
-    "viewUsage": "View usage"
   },
   "invoices": {
     "title": "Billing history",

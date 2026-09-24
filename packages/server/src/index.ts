@@ -4219,6 +4219,20 @@ if (process.env.NODE_ENV !== "test") {
         .map((g) => `${g.provider}/${g.model} (missing ${g.missing.join(",")})`),
     });
   }
+  // Audit retention (design-audit-log §5): 180 days, pruned lazily at boot.
+  // Failing here must not stop the server — the table just keeps growing, which
+  // is exactly the pre-prune behaviour.
+  const AUDIT_RETENTION_DAYS = 180;
+  try {
+    const pruned = await db.pruneAuditOlder(
+      Date.now() - AUDIT_RETENTION_DAYS * 86_400_000,
+    );
+    if (pruned > 0) {
+      log.info("audit log pruned", { rows: pruned, retentionDays: AUDIT_RETENTION_DAYS });
+    }
+  } catch (err) {
+    log.warn("audit log prune failed", { error: (err as Error)?.message ?? String(err) });
+  }
   const server = serve({ fetch: app.fetch, port: PORT }, (info) => {
     log.info("engine listening", { port: info.port, url: `http://localhost:${info.port}` });
   });

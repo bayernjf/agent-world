@@ -9,48 +9,6 @@
     "blankGraph": "空白产线",
     "blankGraphDesc": "从空白画布开始，不预置任何节点，搭建后自由编辑"
   },
-  "settings": {
-    "title": "设置",
-    "general": "通用",
-    "models": "模型",
-    "providers": "供应商",
-    "pricing": "单价",
-    "appearance": "外观",
-    "language": "语言",
-    "theme": "主题",
-    "dark": "深色",
-    "light": "浅色",
-    "system": "跟随系统",
-    "notifications": "通知",
-    "shortcuts": "快捷键",
-    "about": "关于",
-    "version": "版本",
-    "save": "保存",
-    "cancel": "取消",
-    "saved": "已保存",
-    "saveFailed": "保存失败"
-  },
-  "runHistory": {
-    "title": "运行历史",
-    "empty": "暂无运行记录",
-    "runId": "运行 ID",
-    "status": "状态",
-    "trigger": "触发方式",
-    "startedAt": "开始时间",
-    "endedAt": "结束时间",
-    "duration": "耗时",
-    "cost": "成本",
-    "tokens": "Tokens",
-    "nodes": "节点数",
-    "view": "查看",
-    "replay": "回放",
-    "rerun": "重新运行",
-    "delete": "删除",
-    "deleteConfirm": "确定要删除这条运行记录吗？",
-    "loadMore": "加载更多",
-    "loading": "加载中...",
-    "loadFailed": "加载失败"
-  },
   "versionPanel": {
     "title": "产线版本 — {{name}}",
     "namePlaceholder": "版本名称（留空用时间戳）",
@@ -243,23 +201,12 @@
     }
   },
   "glossary": {
-    "title": "术语表",
     "comparisonTitle": "术语对照表",
     "intro": "左侧为标准术语（行业通用 / 代码字段），右侧为 Agent World 的工厂系用词。UI 产品文案使用右侧；代码、API、文档使用左侧。",
     "thStd": "标准术语",
     "thGame": "Agent World",
     "thNote": "说明",
-    "foot": "完整版见 docs/design-glossary.md。路径规则：新增概念先在此表落位，找不到工厂位置的暂不做。",
-    "empty": "暂无术语",
-    "term": "术语",
-    "definition": "定义",
-    "category": "分类",
-    "addTerm": "添加术语",
-    "editTerm": "编辑术语",
-    "deleteTerm": "删除术语",
-    "deleteConfirm": "确定要删除这个术语吗？",
-    "search": "搜索术语",
-    "categories": "分类"
+    "foot": "完整版见 docs/design-glossary.md。路径规则：新增概念先在此表落位，找不到工厂位置的暂不做。"
   },
   "reports": {
     "range7d": "近 7 天",
@@ -505,12 +452,6 @@
       "openRun": "查看最近运行"
     },
     "status": {
-      "running": "运行中",
-      "halted": "待审",
-      "done": "正常",
-      "failed": "失败",
-      "tripped": "熔断",
-      "cancelled": "取消",
       "idle": "空闲"
     },
     "ago": {
@@ -523,7 +464,6 @@
       "futureDays": "{{n}} 天后"
     },
     "attentionTitle": "需要关注",
-    "noFailures": "没有失败或熔断的产线",
     "empty": "还没有产线。先在画布创建一条产线，运行后这里会汇总它的状态与成本。"
   },
   "publishTargets": {
@@ -561,24 +501,10 @@
     "deleteFailed": "删除失败: {{message}}"
   },
   "connector": {
-    "title": "连接器配置",
-    "type": "连接器类型",
-    "config": "配置",
     "test": "测试连接",
     "testing": "测试中…",
-    "testSuccess": "连接成功",
-    "testFailed": "连接失败",
-    "save": "保存",
-    "cancel": "取消",
     "sectionLabel": "数据源接入（Connector）",
     "sourceType": "接入方式",
-    "types": {
-      "file": "文件",
-      "http": "HTTP",
-      "form": "表单",
-      "database": "数据库",
-      "manual": "手动"
-    },
     "typesFull": {
       "none": "无（用下方「创作简报 / 原始物料」）",
       "manual": "手动（同「无」）",
@@ -638,17 +564,7 @@
     }
   },
   "triggers": {
-    "title": "触发方式",
-    "empty": "暂无触发器",
-    "addTrigger": "添加触发器",
-    "type": "触发类型",
-    "config": "配置",
     "enabled": "启用",
-    "disabled": "禁用",
-    "deleteTrigger": "删除触发器",
-    "deleteConfirm": "确定要删除这个触发器吗？",
-    "save": "保存",
-    "cancel": "取消",
     "panelTitle": "触发器",
     "intro": "配置自动运行：Webhook、定时（cron）、事件、批量。手动触发器可在此点「运行一次」。",
     "emptyList": "暂无触发器，点「添加触发器」创建。",
@@ -710,35 +626,6 @@
       "errRowsArray": "rows 必须是数组",
       "errRowsJson": "rows 必须是合法的 JSON 数组",
       "saveFailed": "保存失败"
-    },
-    "types": {
-      "cron": "定时触发",
-      "webhook": "Webhook",
-      "event": "事件触发",
-      "batch": "批量触发",
-      "manual": "手动触发"
-    },
-    "cron": {
-      "schedule": "调度表达式",
-      "timezone": "时区",
-      "nextRun": "下次运行时间"
-    },
-    "webhook": {
-      "url": "Webhook URL",
-      "secret": "密钥",
-      "method": "请求方法",
-      "headers": "请求头"
-    },
-    "event": {
-      "eventType": "事件类型",
-      "sourceGraph": "来源产线",
-      "sourceNode": "来源节点",
-      "condition": "触发条件"
-    },
-    "batch": {
-      "dataSource": "数据源",
-      "batchSize": "批量大小",
-      "concurrent": "并发数"
     }
   },
   "modelAssign": {
@@ -875,9 +762,7 @@
     "title": "协作者 — {{name}}",
     "hint": "邀请他人协作此产线。编辑者可修改和运行；查看者只读。",
     "empty": "暂无协作者",
-    "emailLabel": "邮箱",
     "emailPlaceholder": "collaborator@example.com",
-    "roleLabel": "角色",
     "add": "添加",
     "adding": "添加中…",
     "remove": "移除",
@@ -917,10 +802,6 @@
     "loadAuditFailed": "审计日志加载失败",
     "usersHint": "管理员由实例所有者授予；所有者角色不可变更。",
     "auditHint": "按时间倒序，仅记录安全相关事件。",
-    "colEmail": "邮箱",
-    "colRole": "角色",
-    "colCreatedAt": "注册时间",
-    "colActions": "操作",
     "roleOwner": "所有者",
     "roleAdmin": "管理员",
     "roleUser": "用户",
@@ -1062,7 +943,6 @@
     "openLink": "打开链接 ↗",
     "copy": "复制",
     "download": "下载",
-    "openImage": "打开原图",
-    "close": "关闭"
+    "openImage": "打开原图"
   }
 }

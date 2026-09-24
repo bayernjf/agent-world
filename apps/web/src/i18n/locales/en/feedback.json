@@ -42,7 +42,6 @@
     "select": "Select",
     "announce": {
       "button": "Merge to announcement ({{count}})",
-      "title": "Merge into announcement",
       "hint": "Merge the selected similar reports into one product announcement; they are closed automatically after publishing.",
       "selected": "{{count}} feedback items selected",
       "titleZh": "Title (Chinese)",
