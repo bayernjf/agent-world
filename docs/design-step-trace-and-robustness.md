@@ -26,7 +26,7 @@
 **仍留待**：
 
 - 🟡 **G2.4 模板预置 contract —— 前置数组契约能力 (A) 已落地（2026-09-20，feature/20260824，未合 dev），预置动作仍缓做**：core `ContractSpec` 扩 `root:"array"`+`items:{requiredFields,types}`+`minItems`（违例按 `[i].字段` 报告）、engine 数组闸门改读 connector 的 `sourceMeta.data`（Product[]/SQL rows，回退 artifactValue 覆盖未来数组型 http/function/code）、Inspector 契约编辑器加对象/数组根形状切换（core `978ab56`/`36135e8`、server `2fbcbe1`、web `33dcc91`）；默认 root=对象且无内置模板声明数组契约，零行为变更。**预置**仍须抓到真实 Product[]/SQL rows 样本、对照真实字段名逐个核对后再给 tpl-product/tpl-xiaohongshu 配置，避免字段名写错误拦真实 run；原料台/纯文本节点输出 Markdown brief，即使数组闸门改读 sourceMeta，无 connector 结构化数据的节点仍不该配契约。
-- 📐 **G4.2/G4.3/G4.4 跨 run —— 落地级设计已完成（2026-09-22，§3.4–3.10），代码仍待实施**：方案细化到代码接缝——NodeState 加 `degraded`、新事件 `node.degraded`、新错误码 `REMOTE_JOB_LOST`、新表 `remote_jobs`（migration 41）、videogen 超时走 human 同构 halt（`degraded:video:` 前缀）、submit 幂等（先查 open job 跳过 submit，防重复计费）、ResumeAction 加 `reattach`/`accept-degraded`（query 四分支：succeeded 收结果 / running 恢复 poll / failed 走 error 边 / lost 提示重投计费）、重启默认只读刷新不自动重投、前端橙色 degraded 标识 + 三按钮 + i18n；§3.9 给了 8 步原子提交计划（步骤 1/2 纯增量可先行，4/5 触执行核心须避开回采期）。触发条件与缓做记录见 deferred-items。
+- ✅ **G4.2/G4.3/G4.4 跨 run —— 全部落地（2026-09-24，§3.4–3.10）**：步骤 ④ videogen degraded/halt + remote_jobs 落库幂等（`7d7a08f`/`34a6a5e`）、⑤ resume reattach/accept-degraded（`2b58092`/`fce8324`）、⑥ 前端橙色 degraded 标识 + 三按钮 + i18n（`fe80ed4`），随 PR #408 合 dev（merge `a557d8b`）、PR #409 合 main，Hasee 已部署、零打断、日志零 error。core 新增 `node.degradedAccepted` 事件与 timeline degraded 投影（+2），engine.videogen.async 重写 8 测（+3）。
 
 ---
 
@@ -122,17 +122,17 @@
 
 ---
 
-### 3.4 落地状态（2026-09-24：步骤 1/2 地基 + 步骤 ③ 状态投影已落地，步骤 ④ 起待执行核心改造窗口）
+### 3.4 落地状态（2026-09-24：G4 步骤 ①–⑥ 全部落地，PR #408/#409、Hasee 部署 `a557d8b`）
 
 | 子项 | 状态 | 说明 |
 | --- | --- | --- |
 | G4.1 deadline 纯函数 | ✅ 已落地 | core `isTimedOut/remainingMs/deadlineAt` |
 | G4.4 本次运行内 submit+poll | ✅ 已落地（2026-09-17） | `Worker.submitVideoJob/queryVideoJob` 可选接缝 + `VideoJobHandle/VideoJobPoll` + 指数退避（2s..20s）+ 5min 上限；当前无 provider 实现，生产仍走同步 `generateVideo`；5 测 |
-| **G4.2 timeout→degraded→halt 状态机** | ⏳ 待实施 | 本文件 §3.5–3.6，改 run 执行核心 |
-| **G4.3 前端 degraded 标识 + 决策按钮** | ⏳ 待实施 | 本文件 §3.8，依赖 G4.2 |
-| **G4.4 跨 run 重新附着** | ⏳ 待实施 | 本文件 §3.7，依赖 G4.2 的 halted 落点 |
-| G4 步骤 1/2 纯增量地基（事件 + `remote_jobs` 表 + CRUD） | ✅ 已落地（2026-09-23，`299b38d`/`de3eba6`） | core `node.degraded` 事件 + `REMOTE_JOB_LOST`（events.test.ts +7）；server migration 41 `remote_jobs` 表 + driver 四操作（db.remote-jobs +8、migrations +1）；旧 run 无 `node.degraded` 事件时行为字节级不变。步骤 ④ videogen halt/落库、⑤ resume、⑥ web 仍待（触执行核心，须避开 M1 回采窗口） |
-| G4 步骤 ③ reconstructState 投影 degraded | ✅ 已落地（2026-09-24，`4eef8d8`） | `ResumeState.degraded` + `DegradedNode`（reason/errorCode/remoteJob）；`reconstructState` 仅保留 degraded 后无终态事件的节点、恢复 halted 落点（engine.reliability +3）；步骤 ④⑤⑥ 仍待 |
+| **G4.2 timeout→degraded→halt 状态机** | ✅ 已落地（2026-09-24，`7d7a08f`） | 本文件 §3.5–3.6，videogen 超时 degraded/halt、remote_jobs 落库 |
+| **G4.3 前端 degraded 标识 + 决策按钮** | ✅ 已落地（2026-09-24，`fe80ed4`） | 本文件 §3.8，橙色标识 + 三按钮 + i18n |
+| **G4.4 跨 run 重新附着** | ✅ 已落地（2026-09-24，`2b58092`/`7d7a08f`） | 本文件 §3.7，reattach 复用 open job 不重复计费、lost 重投 |
+| G4 步骤 1/2 纯增量地基（事件 + `remote_jobs` 表 + CRUD） | ✅ 已落地（2026-09-23，`299b38d`/`de3eba6`） | core `node.degraded` 事件 + `REMOTE_JOB_LOST`（events.test.ts +7）；server migration 41 `remote_jobs` 表 + driver 四操作（db.remote-jobs +8、migrations +1）；旧 run 无 `node.degraded` 事件时行为字节级不变。步骤 ④ videogen halt/落库、⑤ resume、⑥ web 均已落地（2026-09-24，PR #408/#409、部署 `a557d8b`） |
+| G4 步骤 ③ reconstructState 投影 degraded | ✅ 已落地（2026-09-24，`4eef8d8`） | `ResumeState.degraded` + `DegradedNode`（reason/errorCode/remoteJob）；`reconstructState` 仅保留 degraded 后无终态事件的节点、恢复 halted 落点（engine.reliability +3）；步骤 ④⑤⑥ 均已落地（2026-09-24） |
 
 > 触发条件（与 deferred-items 一致）：出现真实长媒体任务在网关超时或服务重启后需要「不重投、不重复计费」续跑的场景；或可安排执行核心改造窗口。G4.2 必须先行，G4.3/G4.4 依赖它。
 
@@ -265,11 +265,11 @@ emit 一个决策事件（`node.degradedAccepted`，或复用 human.decision 形
 1. ✅ **已落地（2026-09-23，`299b38d`）** **core**：ErrorCode 加 `REMOTE_JOB_LOST` + `node.degraded` 事件 zod schema + 类型导出（新 `events.test.ts` +7 测：全/最小字段、非法 kind、缺 reason、错误码回归）。
 2. ✅ **已落地（2026-09-23，`de3eba6`）** **server**：migration 41 `remote_jobs` 表（DDL 进最新 CREATE 块 + 旧库迁移 `CREATE TABLE IF NOT EXISTS` 兜底 + `idx_remote_jobs_open` 部分索引）+ driver CRUD `insertRemoteJob`/`getOpenRemoteJob`/`touchRemoteJob`/`finishRemoteJob`（新 `db.remote-jobs.test.ts` +8 测，`migrations.test.ts` 加 v41 fresh、rollback 顺延为 41→40→39，server 共 +9 测）。
 3. ✅ **已落地（2026-09-24，`4eef8d8`）** **server**：`reconstructState` 识别 `node.degraded`——`ResumeState` 加 `degraded: Map<string,DegradedNode>`（reason/errorCode/remoteJob 句柄），仅保留 degraded 之后无 `node.finished`/`node.failed` 的节点，并恢复 haltedNodeId/haltedReason（run.finished/gate.exhausted halt 优先）；engine.reliability +3 测。
-4. **server**：videogen degraded/halt + submit 幂等 + remote_jobs 落库/状态流转（+扩展 `engine.videogen.async.test.ts`：超时→degraded/halt、重启后 open job 跳过 submit、succeeded 收结果不重投）。
-5. **server**：resume `reattach` / `accept-degraded` 两个 action + HTTP 接线 + reviews 分流（+run/api 单测覆盖 query 四分支）。
-6. **web**：RunTimelineView degraded 标识 + 三按钮 + i18n + 审核队列分组（+web 测试）。
+4. ✅ **已落地（2026-09-24，`7d7a08f`/`34a6a5e`）** **server**：videogen degraded/halt + submit 幂等 + remote_jobs 落库/状态流转（`engine.videogen.async.test.ts` 完整重写 8 测：超时→degraded/halt、reattach open job 跳过 submit、succeeded 收结果不重投、lost 重投计费）。
+5. ✅ **已落地（2026-09-24，`2b58092`/`fce8324`）** **server**：resume `reattach` / `accept-degraded` 两个 action + execute/resume/fork 三路径 HTTP 接线 + reviews degraded 分流（engine.videogen.async 覆盖 reattach/accept-degraded）。
+6. ✅ **已落地（2026-09-24，`fe80ed4`）** **web**：RunTimelineView degraded 橙色标识 + reattach/accept-degraded/resubmit 三按钮（二次确认）+ zh/en i18n + ReviewQueue degraded 分组。
 7. **（可选后置）** 启动只读恢复开关 + 运营台在途任务计数。
-8. docs：更新本文件进度表、handoff、deferred-items（G4 行从缓做转已落地/部分落地）。
+8. ✅ **已完成（2026-09-24）** docs：本文件进度表、handoff、deferred-items、CHANGELOG 的 G4 行全部从缓做转已落地（PR #408/#409、部署 `a557d8b`）。
 
 > 改造窗口纪律：步骤 4/5 触及 run 执行核心，需避开关键回采期，单独充分测试；步骤 1/2 是纯增量（新枚举、新表、新事件，旧 run 无 `node.degraded` 事件时行为字节级不变），可先行合入。
 
