@@ -13,16 +13,9 @@ export interface ModelOption {
   enabled: boolean;
 }
 let cachedModelOptions: ModelOption[] = [];
-/** Last known default model id; used as a last-ditch fallback for `agent` nodes. */
-let cachedDefaultModel = "agnes-2.0-flash";
-/**
- * Whether the model-option list has finished its first load. Until it does we
- * must NOT treat a non-empty node model as unknown and clear it: setGraph can
- * run on the demo's zero-config first screen before getSettings() resolves, and
- * wiping a valid built-in model there auto-saved an empty model and 422'd the
- * first run. Legacy placeholder migration is deferred until options arrive.
- */
-let modelOptionsReady = false;
+/** The user's configured default model, as last read from settings. Only used
+ *  to label an empty model slot ("跟随默认 · <name>") — never to rewrite one. */
+let cachedDefaultModel = "";
 
 function flattenModelOptions(cfg: {
   providers: Record<string, { models?: string[]; modalities?: Record<string, Modality>; enabled?: boolean }>;
@@ -54,25 +47,10 @@ export async function refreshDefaultModel() {
     // valid built-in model as unknown and wipe it (demo zero-config 422).
     return;
   }
-  modelOptionsReady = true;
   // Tell one-shot consumers (e.g. the Inspector's model dropdowns) that the
   // settings snapshot changed so they refetch — otherwise models added in the
   // Settings overlay stay invisible until a full page reload.
   window.dispatchEvent(new Event("aw:settings-changed"));
-  // Options are now known, so finish the one-time model migration that setGraph
-  // deliberately skipped while the list was unavailable. This still corrects
-  // legacy placeholder models without ever wiping a valid model on first load.
-  try {
-    const st = useGraph.getState();
-    if (st.graph && st.graph.nodes.length > 0 && !st.readOnly) {
-      const clone = structuredClone(st.graph);
-      if (migrateGraphModels(clone, cachedModelOptions, cachedDefaultModel)) {
-        st.setGraph(clone);
-      }
-    }
-  } catch {
-    // Store not mounted yet (module init / tests / SSR) — nothing to migrate.
-  }
 }
 void refreshDefaultModel();
 
@@ -87,8 +65,9 @@ export function getModelOptions(): ModelOption[] {
  * wins when it actually matches the modality this node needs — otherwise we
  * fall back to the first enabled provider/model that does. Returns null if no
  * candidate exists; callers should surface a friendly error and skip creation.
+ * Exported for the Inspector: an empty slot is labelled "跟随默认 · <this>".
  */
-function defaultModelFor(
+export function defaultModelFor(
   kind: NodeKind,
   cached: ReadonlyArray<ModelOption> = cachedModelOptions,
   defaultModel: string = cachedDefaultModel,
@@ -113,62 +92,14 @@ function defaultModelFor(
   return null;
 }
 
+// 这里曾经有一个"打开产线时自动改模型"的迁移（remapNodeModel /
+// migrateGraphModels）：它把"不认识或为空"的模型重写成当时可用的具体模型并自动
+// 存盘。两个理由使它必须消失：① 它是 #53 零配置首跑 422 的根因（选项还没加载就
+// 把有效的内置模型抹成空串）；② 规则 B 之后"空"是有意义的槽位、「已下架的钉名」
+// 应该报错让用户自己重选（规则 A），静默改绑下一个可用模型正是我们不要的行为。
+// 现在打开一张图永远不会改它的模型字段。
+
 /** Map a node kind to the modality its worker executes against. */
-/** Re-pick the model field for one node: keeps the current value if it
- *  resolves to a real, enabled provider; otherwise falls back to the
- *  default-for-modality picker (which itself prefers the user's default
- *  model when it fits). Returns true when the model field was changed. */
-function remapNodeModel(
-  node: GraphNode,
-  cached: ReadonlyArray<ModelOption>,
-  defaultModel: string,
-): boolean {
-  const wanted = modalityForKind(node.kind);
-  if (!wanted) return false;
-  const cfg =
-    node.kind === "textGen" ? node.textGen :
-    node.kind === "imageGen" ? node.imageGen :
-    node.kind === "videoGen" ? node.videoGen :
-    node.kind === "audioGen" ? node.audioGen : null;
-  if (!cfg) return false;
-  const current = (cfg as { model?: string }).model ?? "";
-  // Options haven't loaded yet (still pending, or the unauthenticated
-  // login-screen fetch rejected and left ready=false): we cannot prove a
-  // non-empty model is unknown, so keep it verbatim. Clearing here is the
-  // demo zero-config race (a valid built-in model was wiped and auto-saved
-  // as "", 422'ing the first run). refreshDefaultModel reruns the migration
-  // once options arrive.
-  if (current && !modelOptionsReady) return false;
-  // Keep the current model if it resolves to an enabled provider entry.
-  const resolves = current && cached.some((o) => o.model === current && o.enabled);
-  if (resolves) return false;
-  // Otherwise pick a real one for the modality. When none exists, clear
-  // the placeholder so the field matches the addNode "empty" contract
-  // and the dispatch validator has a single rule to check.
-  const seed = defaultModelFor(node.kind, cached, defaultModel);
-  const next = { ...cfg, model: seed ? seed.model : "" } as typeof cfg;
-  if (node.kind === "textGen") node.textGen = next as typeof node.textGen;
-  else if (node.kind === "imageGen") node.imageGen = next as typeof node.imageGen;
-  else if (node.kind === "videoGen") node.videoGen = next as typeof node.videoGen;
-  else if (node.kind === "audioGen") node.audioGen = next as typeof node.audioGen;
-  return true;
-}
-
-/** Mutate `graph.nodes` in place to re-pick models for nodes whose current
- *  model is empty / placeholder / unknown. Returns true when at least one
- *  node was changed. Caller is expected to schedule a save. */
-function migrateGraphModels(
-  graph: Graph,
-  cached: ReadonlyArray<ModelOption>,
-  defaultModel: string,
-): boolean {
-  let changed = false;
-  for (const n of graph.nodes) {
-    if (remapNodeModel(n, cached, defaultModel)) changed = true;
-  }
-  return changed;
-}
-
 function modalityForKind(kind: NodeKind): Modality | null {
   switch (kind) {
     case "textGen":
@@ -285,7 +216,9 @@ const DEFAULTS: Record<NodeKind, Partial<GraphNode>> = {
   sink: {},
   textGen: {
     textGen: {
-      model: "agnes-2.0-flash",
+      // 空槽 = 跟随当前默认模型（design-model-catalog 规则 B）。写死内置模型名
+      // 会让"换默认"对新建节点无效，并且每个型号都是另一个供应商的方言。
+      model: "",
       prompt: "",
       skills: [],
       temperature: 0.7,
@@ -295,9 +228,9 @@ const DEFAULTS: Record<NodeKind, Partial<GraphNode>> = {
     },
   },
   gate: { gate: { maxAttempts: 3, criterion: "", onExhausted: "halt", skills: [] } },
-  imageGen: { imageGen: { model: "agnes-image", prompt: "", n: 1 } },
-  videoGen: { videoGen: { model: "video-gen", prompt: "", n: 1 } },
-  audioGen: { audioGen: { model: "tts-1", prompt: "", format: "mp3", n: 1 } },
+  imageGen: { imageGen: { model: "", prompt: "", n: 1 } },
+  videoGen: { videoGen: { model: "", prompt: "", n: 1 } },
+  audioGen: { audioGen: { model: "", prompt: "", format: "mp3", n: 1 } },
   http: { http: { method: "GET", url: "", headers: {}, query: {}, timeoutMs: 30000, outputMode: "auto", failOnError: true, retry: { maxRetries: 2, baseDelayMs: 1000, maxDelayMs: 30000 } } },
   code: { code: { language: "javascript", code: "", timeoutMs: 30000, retry: { maxRetries: 2, baseDelayMs: 1000, maxDelayMs: 30000 }, env: [], fs: "sandbox", net: "none" } },
   branch: { branch: { rules: [], defaultTarget: undefined } },
@@ -315,7 +248,7 @@ const DEFAULTS: Record<NodeKind, Partial<GraphNode>> = {
   vcs: { vcs: { provider: "github", action: "list_issues", body: "", retry: { maxRetries: 2, baseDelayMs: 1000, maxDelayMs: 30000 } } },
   human: { human: { prompt: "" } },
   subprocess: { subprocess: { graphId: "", maxDepth: 3 } },
-  generic: { generic: { model: "agnes-2.0-flash", prompt: "", skills: [], modality: "text", retry: { maxRetries: 2, baseDelayMs: 1000, maxDelayMs: 30000 } } },
+  generic: { generic: { model: "", prompt: "", skills: [], modality: "text", retry: { maxRetries: 2, baseDelayMs: 1000, maxDelayMs: 30000 } } },
   compliance: { compliance: { platform: "xiaohongshu", extraBanned: "", autoFix: true, failOnViolation: false } },
   publish: { publish: { platform: "xiaohongshu" } },
   fanout: { fanout: { count: 3, strategy: "prompt", angleBrief: "" } },
@@ -373,27 +306,18 @@ export const useGraph = create<GraphState>()(
       setGraph: (graph) => {
         const withVersion = graph as Graph & { version?: number };
         const version = typeof withVersion.version === "number" ? withVersion.version : undefined;
-        // Re-pick models for nodes whose current value is empty / a
-        // placeholder / unknown to the user's config. This is a one-time
-        // UX migration: old graphs that were created with hardcoded
-        // "agnes-image" / "video-gen" / "tts-1" placeholders now point
-        // at real configured models when possible.
+        // 打开一张图不再改它的模型字段（理由见 remapNodeModel 原位留下的注释）：
+        // 版本快照与 contentHash 认的是文档字节，读取时重写会同时毁掉它们和
+        // "跟随默认"的空槽。
         const doc = (version != null ? (() => {
           const { version: _v, ...rest } = withVersion;
           void _v;
           return rest;
         })() : graph) as Graph;
-        const migrated = structuredClone(doc);
-        const changed = migrateGraphModels(migrated, cachedModelOptions, cachedDefaultModel);
         if (version != null) {
-          set({ graph: migrated, serverVersion: version, saveState: "saved" });
+          set({ graph: doc, serverVersion: version, saveState: "saved" });
         } else {
-          set({ graph: migrated });
-        }
-        if (changed) {
-          // Persist the migration so the user only sees the soft warning
-          // once; the next reload reads back the corrected graph.
-          scheduleSave(migrated);
+          set({ graph: doc });
         }
       },
       syncServerVersion: (serverVersion) => set({ serverVersion }),
@@ -467,26 +391,10 @@ export const useGraph = create<GraphState>()(
         }),
 
       addNode: (kind, x, y) => {
-        // Kick off a refresh in case the cache is still empty (first add
-        // after page load can race the background fetch). The current
-        // call still sees the empty cache and surfaces the soft warning;
-        // the next add (or the graph-load migration in setGraph) will
-        // use the populated cache.
-        if (cachedModelOptions.length === 0) {
-          refreshDefaultModel().then(() => {
-            // After the cache populates, re-run a migration pass on the
-            // current graph so any just-added node also gets its model
-            // re-picked from the now-known providers.
-            const cur = get().graph;
-            const clone = structuredClone(cur);
-            if (migrateGraphModels(clone, cachedModelOptions, cachedDefaultModel)) {
-              set({ graph: clone });
-              scheduleSave(clone);
-            }
-          });
-        }
+        // Warm the cache if the first add raced the background fetch; the model
+        // options arrive via the settings-changed event, nothing is rewritten.
+        if (cachedModelOptions.length === 0) void refreshDefaultModel();
         const wanted = modalityForKind(kind);
-        const seed = wanted ? defaultModelFor(kind) : null;
         const id = nextId(kind[0]!);
         const node: GraphNode = {
           id,
@@ -496,32 +404,11 @@ export const useGraph = create<GraphState>()(
           y: snap(y),
           ...DEFAULTS[kind],
         };
-        // Stamp the resolved model onto the kind's sub-config when we have
-        // one. When no model matches the modality, clear the placeholder
-        // model that DEFAULTS seeded so the dispatch endpoint can detect
-        // the empty config and surface a clear "configure the model first"
-        // error.
-        if (seed) {
-          if (kind === "textGen" && node.textGen) {
-            node.textGen = { ...node.textGen, model: seed.model };
-          } else if (kind === "imageGen" && node.imageGen) {
-            node.imageGen = { ...node.imageGen, model: seed.model };
-          } else if (kind === "videoGen" && node.videoGen) {
-            node.videoGen = { ...node.videoGen, model: seed.model };
-          } else if (kind === "audioGen" && node.audioGen) {
-            node.audioGen = { ...node.audioGen, model: seed.model };
-          }
-        } else if (wanted) {
-          if (kind === "textGen" && node.textGen) {
-            node.textGen = { ...node.textGen, model: "" };
-          } else if (kind === "imageGen" && node.imageGen) {
-            node.imageGen = { ...node.imageGen, model: "" };
-          } else if (kind === "videoGen" && node.videoGen) {
-            node.videoGen = { ...node.videoGen, model: "" };
-          } else if (kind === "audioGen" && node.audioGen) {
-            node.audioGen = { ...node.audioGen, model: "" };
-          }
-        }
+        // 新建节点带的是空模型槽（DEFAULTS 里 `model: ""`）：派发时由服务端的
+        // resolveModelSlots 换成「该模态的当前默认」（design-model-catalog 规则
+        // B），所以换内置模型不需要用户回来点一遍。defaultModelFor 在这里只是
+        // 探针——该模态一个可用模型都没有时，返回 missingModality 让调用方给出
+        // "先去模型设置里添加"的提示，而不是往节点里写名字。
         set((s) => {
           useGraph.temporal.getState().resume();
           const graph = { ...s.graph, nodes: [...s.graph.nodes, node] };
@@ -530,7 +417,7 @@ export const useGraph = create<GraphState>()(
         });
         return {
           id,
-          missingModality: wanted && !seed ? wanted : null,
+          missingModality: wanted && !defaultModelFor(kind) ? wanted : null,
         };
       },
 

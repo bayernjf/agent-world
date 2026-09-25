@@ -1,13 +1,6 @@
-import type { Graph, NodeKind } from "@agent-world/core";
+import type { Graph } from "@agent-world/core";
 import { providerForModel, DEFAULT_MODALITY, type AppConfig } from "./config.js";
-
-/** Which node kinds require a worker model and which modality they need. */
-const NODE_KIND_MODALITY: Partial<Record<NodeKind, "text" | "image" | "video" | "audio">> = {
-  textGen: "text",
-  imageGen: "image",
-  videoGen: "video",
-  audioGen: "audio",
-};
+import { nodeModelConfig, NODE_KIND_MODALITY } from "./model-slots.js";
 
 const MODALITY_LABEL: Record<string, string> = {
   text: "文本",
@@ -37,11 +30,7 @@ export function validateModels(graph: Graph, config: AppConfig): ModelDiagnostic
   for (const n of graph.nodes) {
     const wanted = NODE_KIND_MODALITY[n.kind];
     if (!wanted) continue;
-    const cfg =
-      n.kind === "textGen" ? n.textGen :
-      n.kind === "imageGen" ? n.imageGen :
-      n.kind === "videoGen" ? n.videoGen :
-      n.kind === "audioGen" ? n.audioGen : null;
+    const cfg = nodeModelConfig(n);
     if (!cfg) {
       out.push({
         severity: "error",
@@ -50,7 +39,7 @@ export function validateModels(graph: Graph, config: AppConfig): ModelDiagnostic
       });
       continue;
     }
-    const model = (cfg as { model?: string }).model?.trim() ?? "";
+    const model = cfg.model?.trim() ?? "";
     if (!model) {
       out.push({
         severity: "error",
@@ -59,16 +48,16 @@ export function validateModels(graph: Graph, config: AppConfig): ModelDiagnostic
       });
       continue;
     }
-    const { name: provName, provider } = providerForModel(config, model);
-    // Built-in providers (demo fake worker or product-hosted tier) are
-    // allowed because they ship pre-registered from DEFAULT_CONFIG and route
-    // through the local fake worker.
-    const isBuiltin = provider.source === "builtin";
-    const isRegistered = provider.models.includes(model) || provName === model;
-    if (!isBuiltin && !isRegistered) {
+    const { name: provName, provider, matched } = providerForModel(config, model);
+    // 模型清单就是权威：没有任何 provider 认领这个模型名就不能派发，内置层也
+    // 不例外。这里曾经按 `provider.source === "builtin"` 整体豁免，于是「从内置
+    // 目录下架一个模型」在派发时毫无反应——钉着旧名字的产线照样被放行，最后
+    // 只剩上游一句看不懂的报错。被豁免的初衷（demo/测试的 fake worker）其实没有
+    // source 字段，它走的是「模型名 == provider 名」那条正常认领路径。
+    if (!matched) {
       out.push({
         severity: "error",
-        message: `节点「${n.name}」的模型「${model}」未在「模型设置」中注册。`,
+        message: `节点「${n.name}」的模型「${model}」已不可用：不在内置模型目录中，也未在「模型设置」中注册。请在 Inspector 中为该节点重新选择模型。`,
         nodeId: n.id,
       });
       continue;

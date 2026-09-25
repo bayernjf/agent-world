@@ -7,6 +7,9 @@ import Inspector from "./Inspector";
 // Mock stores
 vi.mock("../store/graph", () => ({
   useGraph: vi.fn(),
+  // ModelSelect asks the store what an empty slot would follow, purely to label
+  // it. Null keeps that label out of these assertions.
+  defaultModelFor: vi.fn(() => null),
 }));
 
 vi.mock("../store/run", () => ({

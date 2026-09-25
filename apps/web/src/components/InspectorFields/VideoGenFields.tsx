@@ -1,6 +1,7 @@
 import type { VideoGenConfig } from "@agent-world/core";
 import type { FieldsProps } from "./types";
-import { MissingModelHint } from "./shared";
+import { MissingModelHint, ModelSelect } from "./shared";
+import { defaultModelFor } from "../../store/graph";
 
 export default function VideoGenFields({
   node,
@@ -16,36 +17,14 @@ export default function VideoGenFields({
     <>
       <label className="field">
         <span>{t("nodes:inspector.videoGen.model")}</span>
-        <select
-          className="select"
-          value={node.videoGen.model || "__unset__"}
-          onChange={(e) => {
-            if (e.target.value === "__unset__") return;
-            updateNode(node.id, {
-              videoGen: { ...node.videoGen!, model: e.target.value },
-            });
-          }}
-        >
-          <option value="__unset__" disabled hidden>
-            {!node.videoGen.model
-              ? t("nodes:inspector.common.modelUnset", {
-                  modality: t("nodes:modality.video"),
-                })
-              : t("nodes:inspector.common.modelSelect")}
-          </option>
-          {videoModelOptions.map((o) => (
-            <option key={`${o.provider}::${o.model}`} value={o.model}>
-              {o.model} · {o.provider}
-            </option>
-          ))}
-          {!videoModelOptions.some((o) => o.model === node.videoGen!.model) &&
-            node.videoGen.model && (
-              <option value={node.videoGen.model}>
-                {node.videoGen.model}
-                {t("nodes:inspector.common.modelCurrent")}
-              </option>
-            )}
-        </select>
+        <ModelSelect
+          value={node.videoGen.model}
+          options={videoModelOptions}
+          modalityLabel={t("nodes:modality.video")}
+          followTarget={defaultModelFor("videoGen")?.model ?? null}
+          t={t}
+          onChange={(model) => updateNode(node.id, { videoGen: { ...node.videoGen!, model } })}
+        />
         <MissingModelHint
           hasModels={videoModelOptions.length > 0}
           onOpenSettings={onOpenSettings}

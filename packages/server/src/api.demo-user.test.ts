@@ -77,19 +77,29 @@ describe("POST /api/auth/demo", () => {
     const graphs = await db.listGraphs(body.user.id);
     const seeded = await db.getGraph(graphs[0]!.id, body.user.id);
     expect(seeded).toBeTruthy();
-    // Every textGen node carries an explicit, non-empty model...
+    // Every textGen node carries a model *slot* (a string — pinned name or the
+    // "" follow-default convention of design-model-catalog 规则 B)...
     const textNodes = seeded!.nodes.filter((n) => n.kind === "textGen");
     expect(textNodes.length).toBeGreaterThan(0);
     for (const n of textNodes) {
-      expect(n.textGen?.model?.trim()).toBeTruthy();
+      expect(typeof n.textGen?.model).toBe("string");
     }
     // ...and the whole graph clears dispatch-time model validation for a
     // brand-new demo user (built-in agnes tier), so the first run is not 422.
+    // Validation is checked the way dispatch runs it: resolve the slots against
+    // this user's live config first, then validate. That ordering is the point —
+    // a seeded template no longer bakes in a provider-specific model name, so
+    // "zero-config first run" now means "the blank slot resolved to the built-in
+    // default", which is exactly what #53 was about.
     const { loadConfig } = await import("./config.js");
     const { validateModels } = await import("./validate-models.js");
-    const errors = validateModels(seeded!, await loadConfig(body.user.id)).filter(
-      (d) => d.severity === "error",
-    );
+    const { resolveModelSlots } = await import("./model-slots.js");
+    const cfg = await loadConfig(body.user.id);
+    const resolved = resolveModelSlots(seeded!, cfg);
+    for (const n of resolved.nodes.filter((x) => x.kind === "textGen")) {
+      expect(n.textGen?.model?.trim()).toBeTruthy();
+    }
+    const errors = validateModels(resolved, cfg).filter((d) => d.severity === "error");
     expect(errors).toEqual([]);
   });
 

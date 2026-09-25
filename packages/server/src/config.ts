@@ -542,24 +542,30 @@ export async function saveConfig(config: AppConfig, userId?: string): Promise<st
 export function providerForModel(
   config: AppConfig,
   model: string,
-): { name: string; provider: ProviderConfig } {
+): { name: string; provider: ProviderConfig; matched: boolean } {
   // When the requested model is the configured default and the default
   // provider owns it, prefer that provider — model names can repeat across
   // providers, so "set as default" must be able to disambiguate.
   if (model === config.defaultModel) {
     const dp = config.providers[config.defaultProvider];
     if (dp && (dp.models.includes(model) || config.defaultProvider === model)) {
-      return { name: config.defaultProvider, provider: dp };
+      return { name: config.defaultProvider, provider: dp, matched: true };
     }
   }
   for (const [name, provider] of Object.entries(config.providers)) {
     if (provider.models.includes(model) || name === model) {
-      return { name, provider };
+      return { name, provider, matched: true };
     }
   }
+  // Nothing owns this model. `matched:false` is the honest signal: the routing
+  // still lands on the default provider (so the request carries a name the
+  // upstream will reject), but any check that must tell "this provider owns it"
+  // apart from "nothing claimed it" has to read this flag. Before it existed,
+  // validateModels could not, and exempted every builtin provider by `source` —
+  // which is exactly how retiring a built-in model stayed silent.
   const def = config.providers[config.defaultProvider];
-  if (def) return { name: config.defaultProvider, provider: def };
-  return { name: "fake", provider: FAKE_PROVIDER };
+  if (def) return { name: config.defaultProvider, provider: def, matched: false };
+  return { name: "fake", provider: FAKE_PROVIDER, matched: false };
 }
 
 export interface FailoverCandidate {
