@@ -15,6 +15,24 @@ function isFailoverError(err: unknown): boolean {
 }
 
 /**
+ * Cache key for a provider worker. The whole provider object is the key — not a
+ * hand-picked field list — because `openAICompatibleWorker` closes over the
+ * entire provider: pricing (`pricingFor`), `modalityOf`, `endpointFor` and
+ * `videoAdapter` are all read off the captured object, and a worker is cached
+ * for the process lifetime (index.ts builds one routingWorker). A key of
+ * `baseUrl + apiKey` therefore meant "edit a unit price without touching the
+ * connection and the running server keeps metering the old one" — a silent
+ * accounting error, invisible in every report. Field lists are also how this
+ * class of bug keeps recurring: whoever adds a field doesn't think to add a line
+ * here. Two semantically identical providers that differ only in key insertion
+ * order now build an extra worker; a stale one is never reused, which is the
+ * only asymmetry worth paying for.
+ */
+export function providerCacheKey(name: string, provider: AppConfig["providers"][string]): string {
+  return `${name}::${JSON.stringify(provider)}`;
+}
+
+/**
  * A worker that routes each node to the provider owning its model, and fails
  * over to backup providers when the primary upstream is dead. This is the
  * worker the engine talks to in production; provider workers are cached.
@@ -25,8 +43,6 @@ export function routingWorker(config?: AppConfig): Worker {
   // config keeps tests deterministic. Without an injected config the current
   // async-context user (set by runAsUser around each run) owns the settings.
   const getConfig = async (): Promise<AppConfig> => config ?? (await loadConfig(currentUserId()));
-  // Cache key incorporates connection details so editing a key/URL rebuilds
-  // the provider worker instead of reusing a stale one.
   const cache = new Map<string, Worker>();
   const MAX_WORKER_CACHE = 64;
 
@@ -41,7 +57,8 @@ export function routingWorker(config?: AppConfig): Worker {
         `Provider「${name}」已停用，模型请求未发出。请在「模型设置」中启用它，或为节点改选模型。`,
       );
     }
-    const cacheKey = `${name}::${provider.baseUrl ?? ""}::${provider.apiKey ?? ""}`;
+    // 整个 provider 对象就是缓存 key，见 providerCacheKey。
+    const cacheKey = providerCacheKey(name, provider);
     const cached = cache.get(cacheKey);
     if (cached) return cached;
     let w: Worker;

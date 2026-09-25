@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppConfig } from "../config.js";
-import { routingWorker } from "./index.js";
+import { providerCacheKey, routingWorker } from "./index.js";
 import { ProviderError } from "./openai-compatible.js";
 
 const config: AppConfig = {
@@ -262,5 +262,72 @@ describe("routingWorker fails loud on an unroutable provider", () => {
     const { result } = await collect(worker.runTextGen({ ...textArgs(), config: { model: "fake" } } as never));
     expect(calledHosts()).toHaveLength(0);
     expect((result as { output: string }).output.length).toBeGreaterThan(0);
+  });
+});
+
+// 成本在 worker 内部按「建 worker 那一刻」的 provider 闭包算
+// （openai-compatible.ts 的 pricingFor），而 index.ts:143 的 routingWorker 是
+// 进程级单例——所以缓存 key 漏掉 pricing 就等于：改了单价、不重启就不生效，
+// 落库的 cost_usd 继续按旧价，报表上看不出任何异常。缓存 key 只拼
+// baseUrl+apiKey 时这条用例是红的。
+describe("routingWorker provider cache invalidation", () => {
+  const cfg: AppConfig = {
+    providers: {
+      gw: {
+        type: "openai-compatible",
+        baseUrl: "https://gw.example.com/v1",
+        apiKey: "sk-test",
+        models: ["m-p"],
+        pricing: { "m-p": { input: 1, output: 1 } },
+      },
+    },
+    defaultModel: "m-p",
+    defaultProvider: "gw",
+  };
+
+  it("re-meters a price edit without a restart (baseUrl and key untouched)", async () => {
+    const worker = routingWorker(cfg);
+    const meter = async () => {
+      // sse() 带 usage: prompt 2 / completion 3 → 5 tokens。
+      fetchMock.mockResolvedValueOnce(sse("ok"));
+      const { result } = await collect(worker.runTextGen({ ...textArgs(), config: { model: "m-p" } } as never));
+      return (result as { usage: { costUsd: number } }).usage.costUsd;
+    };
+
+    expect(await meter()).toBeCloseTo(5 / 1_000_000, 12);
+
+    // 一次"运维改目录"：只动 pricing，连接信息一字未改。
+    cfg.providers.gw!.pricing = { "m-p": { input: 1000, output: 1000 } };
+    expect(await meter()).toBeCloseTo(5 / 1000, 12);
+  });
+});
+
+// 这两条正是旧 key（baseUrl + apiKey）挡不住的编辑：目录可维护之后，它们在界面
+// 上都会"保存成功但不落效"。
+describe("providerCacheKey", () => {
+  const base = {
+    type: "openai-compatible" as const,
+    baseUrl: "https://a.example/v1",
+    apiKey: "k",
+    models: ["m"],
+    modalities: { m: "text" as const },
+    pricing: { m: { input: 1, output: 1 } },
+  };
+
+  it("is stable for an untouched provider", () => {
+    expect(providerCacheKey("p", base)).toBe(providerCacheKey("p", { ...base }));
+  });
+
+  it("turns over on a pricing-only edit", () => {
+    expect(providerCacheKey("p", { ...base, pricing: { m: { input: 9, output: 9 } } })).not.toBe(
+      providerCacheKey("p", base),
+    );
+  });
+
+  it("turns over on a modality-only and models-only edit", () => {
+    expect(providerCacheKey("p", { ...base, modalities: { m: "image" as never } })).not.toBe(
+      providerCacheKey("p", base),
+    );
+    expect(providerCacheKey("p", { ...base, models: ["m", "m2"] })).not.toBe(providerCacheKey("p", base));
   });
 });
