@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "pnpm --parallel --filter \"./apps/*\" --filter \"./packages/server\" dev",
     "build": "pnpm -r build",
-    "typecheck": "pnpm -r typecheck",
+    "typecheck": "pnpm -r typecheck && tsc -p tsconfig.scripts.json",
     "prepare": "husky",
     "e2e": "playwright test",
     "e2e:install": "playwright install chromium",

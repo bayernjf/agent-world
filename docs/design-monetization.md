@@ -320,6 +320,7 @@ CREATE TABLE invoices (
 - **降级**：下周期生效（本周期已付额度保留），避免「月底降级蹭额度」。
 - **取消**：到期停服，**数据保留 30 天**（宽限期），期内续费恢复；过期不删、可导出（见 §1 数据主权）。
 - **欠费（past_due）**：支付失败 → 宽限期 3-7 天 → 停服（内置模型阻断，BYOK 保留只读）→ 数据保留 30 天。
+  > **实现状态（2026-09-25，commit `bb50612`）**：**内置模型阻断 + BYOK 保留**已落地（`builtinAccessIntact()`），`canceled` 也按「到 `current_period_end` 才断」实现（Stripe 在期末取消时会先写 `canceled`，那时访问权还在已付费期内）。**「宽限期 3-7 天」没做**：`subscriptions` 没有记录状态何时变更的列，`updated_at` 会被 checkout 镜像 / `setPlan` 等无关写入顶掉，用它算宽限＝一个会说谎的窗口；需先加 `status_changed_at`（迁移），已登记 deferred-items。当前口径是「欠费即断、`invoice.paid` 一到自动恢复」，比设计的更严一点。
 
 ---
 
@@ -523,6 +524,7 @@ cloudflared tunnel --url http://localhost:8791
 
 ### P1 —— 订阅 gate + 免费层（核心收费逻辑）✅ 已部署 Hasee（M2 S1-S8，PR #277）
 - [x] `enforceSubscription()` 挂入派发流程（§5.3，五维检查，gate 由 `MONETIZATION_ENFORCE=1` 开启、默认关）
+  > **实现更正（2026-09-25，commit `242b04f`）**：这一项当初写作时「挂入派发流程」只挂了 `POST /api/runs` 一条路，5 个 `startRun` 调用点里 1 个生效（AB / fork 直连 `db.createRun`，连这个数都不算），prod 虽从 09-14/15 就开着 `=1`，计量却一直系统性偏低——而留开它的文档理由正是「先灰度观察计量是否准确」。现已收进 `startRun()` 之前的 `dispatch-gate.ts`，全部派发口生效，并新增 `observe` 档做「评估+记日志、不拦」。仍**有意不拦** `resumeRun()`（续跑不该在人工审批后被配额掐死）。覆盖面表与灰度步骤见 runbook 四之二。
 - [x] 默认 plan = `free`（存量用户懒创建落免费层，BYOK 不受影响、零破坏）
 - [x] 内置模型访问控制：免费层 402 `QUOTA_EXCEEDED` + 前端升级引导模态（UpgradeGate，不丢画布状态）
 - [x] 硬配额：token / 并发 / 存储 / 视频四维检查（视频只拦内置模型，免费层 BYOK 视频放行）

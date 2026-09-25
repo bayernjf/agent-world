@@ -1,0 +1,16 @@
+// Root maintenance scripts (scripts/*.ts) belong to no workspace package, so
+// they had zero typecheck coverage - that is how scripts/migrate-down.ts shipped
+// an import of "../src/db.js", a path that does not exist in this repo.
+// @types/node is declared only in packages/server, so typeRoots points there
+// instead of adding a root dependency just for this.
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "declaration": false,
+    "sourceMap": false,
+    "typeRoots": ["./packages/server/node_modules/@types"],
+    "types": ["node"]
+  },
+  "include": ["scripts/**/*.ts"]
+}

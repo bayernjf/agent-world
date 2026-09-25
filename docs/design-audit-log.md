@@ -91,8 +91,9 @@ sqlite 单文件下审计日志的**防篡改上限**：
 
 ## 5. 保留策略
 
-- 默认保留 **180 天**，每日启动时惰性清理（`DELETE WHERE created_at < now-180d`，与现有调度器复用）；
-- **已实施（2026-09-24）与原方案的两处偏差**：① 所谓「现有调度器」`TriggerScheduler` 只跑用户的 cron 触发器，挂内部维护任务会混淆两类语义。② 仓内确有一个保留先例——`scripts/prune-events.ts`（`pruneOldEvents` + 运维 crontab），但它要求人去服务器上加一行 crontab（本仓无法自装），而部署本身就随每次合并重启进程，故审计保留改为**仅在 server 启动时 prune 一次**（`index.ts` 启动摘要之后、`serve()` 之前，`NODE_ENV=test` 不执行）。代价是长期不重启的进程不会二次清理——量级评估见下条，当前无需内部定时器；若将来出现「进程长期不重启 + 表成为可感知负担」，正确做法是给 events / audit\_log 合一个统一维护循环，而不是各挂各的 `setInterval`；
+- 默认保留 **180 天**（`events` 为 90 天，依据 `runs.snapshot` 保完整状态、事件可从快照重建）；
+- **已实施（2026-09-24）与原方案的两处偏差**：① 所谓「现有调度器」`TriggerScheduler` 只跑用户的 cron 触发器，挂内部维护任务会混淆两类语义。② 仓内确有一个保留先例——`scripts/prune-events.ts`（`pruneOldEvents` + 运维 crontab），但它要求人去服务器上加一行 crontab（本仓无法自装），而部署本身就随每次合并重启进程，故审计保留改为**仅在 server 启动时 prune 一次**（`index.ts` 启动摘要之后、`serve()` 之前，`NODE_ENV=test` 不执行）。代价是长期不重启的进程不会二次清理；
+- **统一维护循环已实施（2026-09-25）**：上面「仅启动时一次」的代价由 `packages/server/src/maintenance.ts` 收口——`pruneRetention()` 一轮内成对处理 `events`(90d) + `audit_log`(180d)，`MaintenanceLoop` 启动即清一次、之后每 6h 续清（间隔远小于最短窗口，漏一轮不显著延长数据存活；又足够长，让频繁重启的 dev 不必每次开库都扫表）。① 的结论不变：仍不复用 `TriggerScheduler`（语义混淆的理由成立），而是独立小类；② 的 crontab 从「必须」降为「可选」——`scripts/prune-events.ts` 保留给停机维护/手工回填，日常回收已随进程进行。单轮失败只 warn（表继续长是可恢复的运维问题，中断 run 服务不是）。间隔 6h 而非「每日」是因为 prune 是幂等 DELETE，无需对齐日界；
 - 落库体积评估：单用户低频操作 < 每日百行，180 天约几万行、几 MB——无需分区。
 
 ## 6. 测试计划

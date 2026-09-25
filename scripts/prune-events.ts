@@ -5,17 +5,17 @@
  * §2.1), so the archived event history can be reconstructed from the snapshot.
  *
  * Usage:  DB_FILE=/path/to/db.sqlite PRUNE_EVENTS_DAYS=90 npx tsx scripts/prune-events.ts
+ * DB_FILE defaults to packages/server/agent-world.sqlite and must already exist.
  */
-import { DatabaseSync } from "node:sqlite";
+import { openSqliteOpsDb } from "./sqlite-ops-db.js";
 
-const dbFile = process.env.DB_FILE ?? "agent-world.sqlite";
+const { db, file } = openSqliteOpsDb("prune-events");
 const days = Number(process.env.PRUNE_EVENTS_DAYS ?? 90);
 const before = Date.now() - days * 24 * 60 * 60 * 1000;
 
-const db = new DatabaseSync(dbFile);
 try {
   const pruned = Number(db.prepare("DELETE FROM events WHERE ts < ?").run(before).changes);
-  console.log(`pruned ${pruned} events older than ${days} days`);
+  console.log(`pruned ${pruned} events older than ${days} days (${file})`);
 } finally {
   db.close();
 }

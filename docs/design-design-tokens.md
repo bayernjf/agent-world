@@ -1,5 +1,7 @@
 # 设计 Token 体系完善方案
 
+> **文件名勘误（2026-09-25 机器核证）**：本文规划的 `scripts/generate-tokens.cjs` **从未创建**；token 目前直接维护在 `apps/web/src/styles.css` 的 `:root` / `[data-theme="light"]` 两处，新增/改名靠人工同步（这也正是硬编码色清扫要靠人逐族做的原因）。
+
 > 状态：已落地（三层 CSS + 明暗切换器）| 优先级：P0 | 创建日期：2026-09-03 | 最近更新：2026-09-11
 >
 > 落地说明：primitive / semantic / `[data-theme="light"]` 三层 CSS 变量已在 `apps/web/src/styles.css` 建成并完成全组件渐进迁移（待办 #9）；明暗主题切换器 2026-09-11 落地（`theme.ts` + `ThemeSwitcher.tsx`，commit `69a778c`，localStorage key `agent-world-theme`）。**本文档为早期提案，下文数值（如 radius sm=4/md=8、font base=14）与 styles.css 实际值（sm=2/md=4、base=13）有出入，一律以 styles.css 现状为准。** 提案中的「JSON token 源文件 + 代码生成脚本」判定为可选、暂缓——CSS 变量已是事实 single source，暂无第二消费方需要 JSON。

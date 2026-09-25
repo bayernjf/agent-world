@@ -23,7 +23,7 @@
  *     deleted without rewriting that test.
  */
 
-const { readFileSync, readdirSync } = require("node:fs");
+const { readFileSync, readdirSync, existsSync } = require("node:fs");
 const { join } = require("node:path");
 
 const WEB_ROOT = join(__dirname, "..");
@@ -72,6 +72,73 @@ function readPack(ns, lang) {
 function extractInterpolations(value) {
   if (typeof value !== "string") return new Set();
   return new Set([...value.matchAll(/\{\{\s*([^}\s]+)\s*\}\}/g)].map((m) => m[1]));
+}
+
+const HAS_CJK = /[㐀-鿿぀-ヿ]/;
+
+/** Key names ending in Zh/En carry the text of one specific language (the
+ *  announcement templates, the translate node's target examples), not a label
+ *  to translate. Without this the check reports them as untranslated. */
+const LANGUAGE_CONTENT = /(Zh|En)$/;
+
+/**
+ * CJK in an English value is only a problem when the value *is* Chinese. A
+ * translate-target placeholder legitimately lists 日本語, so the bar is two or
+ * more CJK characters making up at least 30% of the value; below that the
+ * check would cry wolf and the gate gets ignored.
+ */
+function untranslated(value) {
+  const cjk = [...value].filter((c) => HAS_CJK.test(c)).length;
+  if (cjk < 2) return null;
+  const total = Math.max(1, value.trim().length);
+  return cjk / total >= 0.3 ? `${cjk}/${total} chars CJK` : null;
+}
+
+/**
+ * Value-level drift the key checks cannot see: an English pack entry still in
+ * Chinese, or a side left empty / missing. Returns human-readable findings.
+ */
+function valueDrift() {
+  const findings = [];
+  for (const ns of namespaces()) {
+    const zh = readPack(ns, "zh");
+    const enPath = join(LOCALES_ROOT, "en", `${ns}.json`);
+    if (!existsSync(enPath)) {
+      findings.push(`${ns}: en pack is missing entirely`);
+      continue;
+    }
+    const en = JSON.parse(readFileSync(enPath, "utf8"));
+    const zhLeaves = new Set(flatten(zh));
+    const enLeaves = new Set(flatten(en));
+    // Union, not zh's keys alone: an en-side orphan is exactly the one-sided
+    // drift this check advertises, and iterating zh never looked at it.
+    for (const key of [...new Set([...zhLeaves, ...enLeaves])].sort()) {
+      const zhVal = readPackValue(zh, key);
+      const enVal = readPackValue(en, key);
+      const qualified = `${ns}:${key}`;
+      if (!zhLeaves.has(key)) {
+        findings.push(`${qualified} — key exists only in the en pack`);
+      } else if (typeof zhVal !== "string" || !zhVal.trim()) {
+        findings.push(`${qualified} — zh value is empty`);
+      }
+      if (!enLeaves.has(key)) {
+        findings.push(`${qualified} — key absent from the en pack`);
+        continue;
+      }
+      if (typeof enVal !== "string" || !enVal.trim()) {
+        findings.push(`${qualified} — en value is empty`);
+        continue;
+      }
+      if (LANGUAGE_CONTENT.test(key)) continue;
+      const drift = untranslated(enVal);
+      if (drift) {
+        findings.push(
+          `${qualified} — en value is still Chinese (${drift}): ${enVal.replace(/\n/g, " ").slice(0, 60)}`,
+        );
+      }
+    }
+  }
+  return findings;
 }
 
 function readPackValue(pack, dottedKey) {
@@ -141,5 +208,6 @@ module.exports = {
   readPackValue,
   references,
   unusedKeys,
+  valueDrift,
   walk,
 };

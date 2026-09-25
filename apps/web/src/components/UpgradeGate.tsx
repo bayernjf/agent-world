@@ -17,6 +17,28 @@ const METRIC_KEYS: Record<QuotaMetric, string> = {
 };
 
 /**
+ * The 402 `code` decides the guidance, not just the metric.
+ *
+ * All three blocks surface as `metric: "builtin_model"`, so keying copy on the
+ * metric alone tells someone whose payment failed to "upgrade your plan" — and
+ * lands them on a billing tab whose actual button says 更新支付方式 / 重新订阅.
+ * These reuse `BillingTab`'s own labels so the modal and the page it opens
+ * cannot drift apart.
+ */
+const INACTIVE_COPY: Record<string, { title: string; body: string; cta: string } | undefined> = {
+  PAYMENT_REQUIRED: {
+    title: "billing:stripe.pastDueTitle",
+    body: "billing:stripe.pastDueBody",
+    cta: "billing:stripe.updatePayment",
+  },
+  SUBSCRIPTION_ENDED: {
+    title: "billing:stripe.endedTitle",
+    body: "billing:stripe.endedBody",
+    cta: "billing:stripe.resubscribe",
+  },
+};
+
+/**
  * Global 402 modal. The run flow parses a structured subscription 402 via
  * parseQuotaError and pushes it into the upgrade-gate store; this component
  * renders the modal without unmounting the canvas (design M2 §S6).
@@ -28,6 +50,7 @@ export default function UpgradeGate({ onUpgrade, onUseCustomModel }: UpgradeGate
   if (!block) return null;
 
   const metricKey = block.metric ? METRIC_KEYS[block.metric] : null;
+  const inactive = INACTIVE_COPY[block.code];
   // BYOK users can only hit tokens/storage/concurrency/builtin_model — a video
   // block means a built-in video model, so the custom-model path still applies.
   const showCustomModel = block.metric !== "storage" && block.metric !== "concurrency";
@@ -41,13 +64,17 @@ export default function UpgradeGate({ onUpgrade, onUseCustomModel }: UpgradeGate
         onClick={(e) => e.stopPropagation()}
       >
         <div className="modal__header">
-          <h2>{t("billing:gate.title")}</h2>
+          <h2>{t(inactive?.title ?? "billing:gate.title")}</h2>
           <button type="button" className="link" onClick={close} aria-label="close">
             ×
           </button>
         </div>
         <div className="modal__body">
-          {metricKey && <p className="upgrade-gate__reason">{t(`billing:gate.metric.${metricKey}`)}</p>}
+          {inactive ? (
+            <p className="upgrade-gate__reason">{t(inactive.body)}</p>
+          ) : (
+            metricKey && <p className="upgrade-gate__reason">{t(`billing:gate.metric.${metricKey}`)}</p>
+          )}
         </div>
         <div className="modal__footer upgrade-gate__footer">
           <button type="button" className="btn btn--ghost" onClick={close}>
@@ -66,7 +93,7 @@ export default function UpgradeGate({ onUpgrade, onUseCustomModel }: UpgradeGate
               onUpgrade();
             }}
           >
-            {t("billing:gate.upgrade")}
+            {t(inactive?.cta ?? "billing:gate.upgrade")}
           </button>
         </div>
       </div>

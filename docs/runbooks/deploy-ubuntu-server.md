@@ -209,6 +209,63 @@ sudo -u agentworld DB_FILE=/var/lib/agent-world/agent-world.sqlite \
 
 > 若生产用 `pnpm install --prod` 没装 tsx（devDependency），cron 行可改为先 `cd /opt/agent-world/packages/server` 再用仓库根 `.bin/tsx`；该 bin 随 workspace 依赖安装存在。
 
+### 四之二、订阅 gate 开关（`MONETIZATION_ENFORCE`）与它真实的覆盖面
+
+**当前状态**：Hasee 自 2026-09-14/15 起为 **开**（systemd override 里 `Environment=MONETIZATION_ENFORCE=1`，owner 已升 pro；PR #302 部署后同一 override 另加 `ALLOW_DEMO=1`）。
+
+**关闭（紧急回滚，不需回滚代码）**：
+
+```bash
+sudo systemctl edit agent-world        # 删掉 Environment=MONETIZATION_ENFORCE=1 那一行
+sudo systemctl daemon-reload && sudo systemctl restart agent-world
+# 验证真的关了（而不是以为关了）：拿一个 free 层账号跑内置模型产线
+#   开着 → 402 {"error":"subscription","metric":"builtin_model"}
+#   关掉 → 不再是 402
+#
+# 402 体的 code 就是「为什么被拦」，排障时按它分流：
+#   QUOTA_EXCEEDED        额度/套餐本身不含该项（含 free 层用内置模型）
+#   PAYMENT_REQUIRED      订阅欠费（past_due）→ 前端引导「更新支付方式」
+#   SUBSCRIPTION_ENDED    订阅已到期取消 → 前端引导「重新订阅」
+#   CONCURRENCY_EXCEEDED  并发槽满（注意 halted run 也算，见下）
+```
+
+> ⚠️ 变量名只有一个：`MONETIZATION_ENFORCE`。取值 `1`/`true`/`yes` = 硬拦，`observe`/`log` = 只记日志不拦，空/不设置 = 关。**其它非空值等于关**，但会在日志里打出 `unrecognized value` 并把你写的那个值带上（2026-09-25 之前是 `=== "1"` 严格相等，写 `true` 会静默不生效）。design-monetization-m2-implementation.md 第五节曾把回滚手段写成另一个名字（`ENABLE_SUBSCRIPTION_GATE`），**代码里从来没有这个变量**，已更正；事故时照那个名字去找会以为 gate 已关而它其实还在拦。
+
+**覆盖面（2026-09-25 更新：gate 已从路由移进 `startRun()`，全部派发口一并生效）**
+
+此前闸门挂在 `POST /api/runs` 的 handler 里，5 个 `startRun` 调用点只有 1 个被拦，另有两条**直连 `db.createRun`** 的路由连那个计数都不在里面。现在判定收在 `packages/server/src/dispatch-gate.ts`，由 `startRun()` 在建 run 行**之前**调用（同址先例是 `run.ts` 的月度预算硬熔断）。
+
+| 派发口 | 位置 | 现状 |
+|---|---|---|
+| 手动派发 `POST /api/runs` | `run.ts` 的 `startRun()` | ✅ |
+| 重跑 `POST /api/runs/:id/rerun` | 经 `startRun` | ✅（此前绕过） |
+| 批量 / 批量重试 | `batch.ts` 的 `runBatch()`、`/api/batches/:id/items/:itemId/retry` | ✅ 超额条目记 failed；重试路由此前连 try 都没有，配额拦截会被当成 500 |
+| cron / webhook / 事件触发器（**M1 四条回采产线**） | `index.ts` 注入给 `TriggerService` 的 `startRun` 适配函数 → `triggers.ts` 的 `fire()` / `fireWebhook()` | ✅（此前绕过）。HTTP 触发回 402；cron tick 被拦则走 `TriggerScheduler.onError` 记 error 日志，**不建 run 行** |
+| AB 实验 | `ab.ts` 的 `startABExperiment()` | ✅ 按「一次实验」判一次（放进循环会让 A 组自己的活跃 run 把 B 组按并发超额拦掉） |
+| 从 run 分叉 fork | `run.ts` 的 `forkRun()` | ✅ |
+| MCP 客户端派发 | `packages/mcp-server` → HTTP `POST /api/runs` | ✅ 走的就是被拦那条路 |
+| **继续一个 halted/failed 的 run** | `/api/runs/:id/resume`、`/api/reviews/decide` → `resumeRun()` | ❌ **有意不拦**：一个已经被放行的 run 不该在人工审批之后因配额变化被掐死。它仍会照常计费并计入 token 用量 |
+
+守护：`dispatch-gate.test.ts` 会扫源码，任何**新建**「自己调 `db.createRun(` 却不引用 `dispatchGate`」的文件直接判红（已用植入的 rogue 文件验证过它能失败）。
+
+**打开硬拦之前先跑 observe**（这就是 m2 手册第 6 步「先灰度观察计量是否准确」该有的样子）：
+
+```bash
+sudo systemctl edit agent-world        # Environment=MONETIZATION_ENFORCE=observe
+sudo systemctl daemon-reload && sudo systemctl restart agent-world
+# 观察窗口内只看这一条，它会点名是哪条派发路、哪个 metric、used/limit 多少：
+journalctl -u agent-world --since "24 hours ago" | grep "would block dispatch"
+```
+
+看什么：**M1 四条回采产线有没有出现 `would block`**。它们过去十几天完全不受配额约束，硬拦一开就第一次受 pro 的 2,000,000 折算 token/月管——出现 `metric:"tokens"` 就说明会在业务时段断供，得先加配额或降频，再改回 `1`。
+
+两条仍然成立的运维含义：
+
+1. **免费层的并发仍会被「无人审批的 halted run」长期占住**：`activeRuns` 口径是 `status IN ('running','halted')` 且**无时间上限**，启动回收只清 `running`（启动时调 `markZombiesInterrupted`）。开发库实测 7 个 23–28 天前的 halted run，一个账号占 6 个——free 层 `concurrentRuns=1`，这类账号每次派发都 402「并发上限已满」，唯一自救是去取消旧 run。**覆盖面补齐后这条更容易撞上**（触发器路径也开始数并发）。
+2. **欠费判定已生效**（`past_due` 即断内置模型、BYOK 不受影响；`canceled` 到 `current_period_end` 才断）。§6.4 的「宽限期 3-7 天」未实现——表里没有「状态何时变更」的列，`updated_at` 会被无关写入顶掉，拿它算宽限会得到会说谎的窗口（见 deferred-items）。
+
+`past_due` / `canceled` 目前**不影响配额**：`enforceSubscription()` 只读 `plan`，`SubscriptionLike.status` 传进来没人读（design-monetization §6.4 的「欠费 → 宽限 → 内置模型阻断」尚未实现）。
+
 ## 五、构建并托管 web（nginx 同源）
 
 ```bash
