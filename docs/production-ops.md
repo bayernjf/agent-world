@@ -141,6 +141,8 @@ ssh hasee-2016-server 'sudo journalctl -u agent-world --since "1 hour ago" --no-
 
 合计约 **57 次 run/天**。触发时间刻意错开（①偏移 10 分、③在 3/15 点、④在 6 点），避免多条产线同时调模型打爆 free tier 429。
 
+> ⚠️ **仓内不可复现**：以上 4 条产线的完整图定义只存在于 Hasee DB 的 graph 表，仓内无 seed/export；DB 丢失即不可重建。需要迁移/重建前先导出一份（`sqlite3 … "SELECT json FROM graphs WHERE id=…"` 或等价脚本）。
+
 #### 变更历史
 
 | 日期 | 变更 | 原因 | 操作人 |
