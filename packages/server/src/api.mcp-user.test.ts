@@ -8,6 +8,8 @@ let dir: string;
 let app: Awaited<ReturnType<typeof import("./index.js")>>["app"];
 
 beforeAll(async () => {
+  // Transport tests ride on guardedFetch; loopback needs the test-only escape hatch.
+  process.env.ALLOW_PRIVATE_NETWORK = "1";
   dir = mkdtempSync(join(tmpdir(), "aw-mcp-api-"));
   process.env.DB_FILE = join(dir, "mcp.sqlite");
   process.env.ALLOW_REGISTRATION = "1";
@@ -16,6 +18,7 @@ beforeAll(async () => {
 });
 
 afterAll(() => {
+  delete process.env.ALLOW_PRIVATE_NETWORK;
   delete process.env.DB_FILE;
   delete process.env.ALLOW_REGISTRATION;
   rmSync(dir, { recursive: true, force: true });
