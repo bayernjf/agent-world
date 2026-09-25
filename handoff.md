@@ -26,7 +26,7 @@ State of Agent World as of 2026-09-25.
 
 * [docs/code-audit-2026-09-06.md](docs/code-audit-2026-09-06.md) — 全项目代码审计报告（77 项：high 8 / medium 38 / low 31；「六、修复状态」截至 2026-09-11 **已全部清账：已修复 73 / 无需修复 3（M4、L7、L24 复核后果不成立）/ 部分修复 1（M38 FanoutConfig 已修，ConnectorConfig/GraphNode 因怕破坏历史数据加载有意暂缓，归配套迁移类）/ 未修复 0**）★
 
-* [docs/mvp-readiness-review-2026-09-22.md](docs/mvp-readiness-review-2026-09-22.md) — 项目级 MVP 上线就绪评审（最新版，2026-09-22；结论：自托管 MVP ✅ 达到且超出（367 runs/3631 测试/备份恢复演练通过/两次断电自愈），对外商业 SaaS ❌ 功能 Ready、收款/运维 Not Ready；含上线阻断项 P0/P1/P2 与 go-live 清单）+ [09-21 版](docs/mvp-readiness-review-2026-09-21.md)（历史基线）★
+* [docs/mvp-readiness-review-2026-09-25.md](docs/mvp-readiness-review-2026-09-25.md) — 项目级 MVP 上线就绪评审（**最新版 2026-09-25**；结论：自托管 🟡 功能核心可用但**不签「完全可用+可上线」**、对外 SaaS ❌ 不达标；本轮新增 4 条经一手复验的阻断——sink 空输入照样产"成品"、A/B 口绕过 validateModels、远程 MCP 裸 fetch 绕过自家 SSRF 闸、`docs/production-ops.md:189,199` 明文 sudo 口令；另有 5 条判据更正（G4 生产不可达 / 对象存储其实已实现 / CI runner 非 self-hosted / 本批 ①② 已在 dev / M1 四产线仓内不可复现）+ 质量门实测 3775 + 待拍板 D-1 音频槽 + **§8 记录了被证伪并弃用的扫描来源**）★ + [09-22 版](docs/mvp-readiness-review-2026-09-22.md)（历史基线：当时判自托管 MVP ✅ 达到；其「对象存储属阶段 5」「G4 已全部落地」两条已被上版更正）+ [09-21 版](docs/mvp-readiness-review-2026-09-21.md)
 
 * [docs/design-at-rest-encryption.md](docs/design-at-rest-encryption.md) — 静态加密设计（settings / webhook secret 落盘 AES-256-GCM；审计 L3，已落地）
 
