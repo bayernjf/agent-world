@@ -10,6 +10,7 @@ import { loadUserSkills } from "./skills/user-skills.js";
 import { runAsUser } from "./user-context.js";
 import { createReadArtifact } from "./artifact-reader.js";
 import { dispatchGate } from "./dispatch-gate.js";
+import { validateModels } from "./validate-models.js";
 import { counter, gauge } from "./metrics.js";
 import { recordRunUsage } from "./subscriptionService.js";
 import { checkUsageAlerts } from "./usage-alert.js";
@@ -164,6 +165,23 @@ export async function startRun(args: StartRunArgs): Promise<{ runId: string; dia
 
   const runId = randomUUID();
   const startedAt = Date.now();
+  // 模型可派发性检查也放在这里，理由与上/下的预算熔断、配额闸门一致：它是
+  // 「这条 run 现在能不能正确跑」的判断，而派发口有 8 个。此前只有手动派发、
+  // 重跑、fork 三处调 validateModels，批量 / 批量重试 / cron·webhook·事件触发器 /
+  // AB 全部没有——其中触发器正是 M1 四条回采产线走的那条路，而媒体节点模态配错
+  // 时引擎是**软跳过**（run 报 done、无产物，2026-09-01 tpl-news-podcast 实测），
+  // 所以缺检查的那几条路会把静默成功直接放进生产。
+  // 三条已有检查的路由保持自己调用不动：它们的 422 响应体形状与 modelWarnings
+  // 回传字段已对外承诺，这里只做兜底拦截。
+  const modelErrors = validateModels(graph, budgetCfg).filter((d) => d.severity === "error");
+  if (modelErrors.length > 0) {
+    throw new RunStartError(
+      `${modelErrors.length} 个节点未配置可用模型：${modelErrors.map((d) => d.message).join("；")}`,
+      422,
+      modelErrors,
+    );
+  }
+
   // 订阅 / demo 配额闸门：放在这里而不是各路由里，且在建 run 行之前——被拦下的
   // 派发不该在库里留下一条永远 running 的记录（observe 档只记日志，不拦）。
   await dispatchGate({ db, graph, userId, trigger });
