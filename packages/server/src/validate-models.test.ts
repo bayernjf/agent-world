@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AppConfig, Graph } from "@agent-world/core";
 import { validateModels } from "./validate-models.js";
+import { providerForModel } from "./config.js";
 
 const cfg: AppConfig = {
   providers: {
@@ -100,6 +101,44 @@ describe("validateModels", () => {
     expect(r).toHaveLength(1);
     expect(r[0]!.severity).toBe("error");
     expect(r[0]!.message).toMatch(/未在.*模型设置.*中注册/);
+  });
+
+  // 下架内置模型 = 把它从 provider 的 models 清单里删掉。此前内置层按
+  // `source === "builtin"` 整体豁免注册检查，所以这个动作在派发时毫无反应：
+  // 钉着旧名字的产线照样放行，错误只剩上游一句看不懂的拒绝。上面那条
+  // ghost-model 用例挡不住这个回归——它的 fixture 根本没有 source 字段。
+  it("errors when a built-in model is retired from the catalog", () => {
+    const hosted: AppConfig = {
+      ...cfg,
+      providers: {
+        ...cfg.providers,
+        agnes: { ...cfg.providers.agnes!, source: "builtin" },
+      },
+      defaultProvider: "agnes",
+      defaultModel: "agnes-2.0-flash",
+    };
+    // 目录里还在 → 通过；删掉名字（下架）→ 必须报 error。
+    expect(validateModels(withNodes(agentNode("a1", "agnes-2.0-flash")), hosted)).toEqual([]);
+    const retired: AppConfig = {
+      ...hosted,
+      providers: {
+        ...hosted.providers,
+        agnes: { ...hosted.providers.agnes!, models: [], modalities: {} },
+      },
+    };
+    const r = validateModels(withNodes(agentNode("a1", "agnes-2.0-flash")), retired);
+    expect(r).toHaveLength(1);
+    expect(r[0]!.severity).toBe("error");
+    expect(r[0]!.message).toMatch(/已不可用/);
+    expect(r[0]!.nodeId).toBe("a1");
+    // 旧判据复现（不是臆造）：同一个输入在修复前会怎么走。
+    // providerForModel 对未认领的模型回落到 defaultProvider，所以
+    // isBuiltin 为真、isRegistered 为假 —— `!isBuiltin && !isRegistered`
+    // 因此不成立，豁免生效、一条 error 都不产生。
+    const old = providerForModel(retired, "agnes-2.0-flash");
+    expect(old.provider.source).toBe("builtin");
+    expect(old.provider.models.includes("agnes-2.0-flash")).toBe(false);
+    expect(old.matched).toBe(false);
   });
 
   it("errors when the owning provider is disabled", () => {

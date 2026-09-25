@@ -31,9 +31,15 @@ export function routingWorker(config?: AppConfig): Worker {
   const MAX_WORKER_CACHE = 64;
 
   const workerForProvider = (name: string, provider: AppConfig["providers"][string]): Worker => {
+    // 停用的 provider 不再降级成 fake worker：那会让一条本该失败的 run 一路
+    // `done`、产出假文本（2026-09-25 复盘出的「静默成功」缺陷类）。抛
+    // UNSUPPORTED 是刻意的选择——它不在 nodes/shared.ts 的 RETRYABLE 集合里，
+    // 所以不重试、不成串刷上游，直接以具名错误码失败。
     if (provider.enabled === false && provider.type !== "fake") {
-      log.warn("provider disabled; falling back to fake worker", { provider: name });
-      return fakeWorker();
+      throw new ProviderError(
+        "UNSUPPORTED",
+        `Provider「${name}」已停用，模型请求未发出。请在「模型设置」中启用它，或为节点改选模型。`,
+      );
     }
     const cacheKey = `${name}::${provider.baseUrl ?? ""}::${provider.apiKey ?? ""}`;
     const cached = cache.get(cacheKey);
@@ -44,12 +50,18 @@ export function routingWorker(config?: AppConfig): Worker {
         w = openAICompatibleWorker(provider);
         break;
       case "anthropic":
-        log.warn("anthropic provider not yet implemented; using fake worker", { provider: name });
+        throw new ProviderError(
+          "UNSUPPORTED",
+          `Provider「${name}」的类型 anthropic 尚未实现，模型请求未发出。请改用 OpenAI 兼容源，或在 Inspector 中为该节点改选模型。`,
+        );
+      case "fake":
         w = fakeWorker();
         break;
-      case "fake":
       default:
-        w = fakeWorker();
+        throw new ProviderError(
+          "UNSUPPORTED",
+          `Provider「${name}」的类型 ${String(provider.type)} 无法路由，模型请求未发出。`,
+        );
     }
     cache.set(cacheKey, w);
     while (cache.size > MAX_WORKER_CACHE) {
@@ -62,8 +74,14 @@ export function routingWorker(config?: AppConfig): Worker {
 
   // Resolve the provider owning a model; used by the non-failover modalities.
   const workerFor = async (model: string): Promise<Worker> => {
-    if (process.env.WORKER === "fake" || model === "fake" || model === "") {
+    if (process.env.WORKER === "fake" || model === "fake") {
       return fakeWorker();
+    }
+    // 空模型名以前也走 fake，于是"没配模型"变成一条产出假文本的成功 run。
+    // 派发前 validateModels 已经拦住的这里不会再见到，剩下的是运行中改配置的
+    // 兜底：宁可失败，不可假成功。
+    if (model === "") {
+      throw new ProviderError("UNSUPPORTED", "节点没有可用的模型名（模型为空），请求未发出。请在 Inspector 中为该节点选择模型。");
     }
     const cfg = await getConfig();
     const { name, provider } = providerForModel(cfg, model);

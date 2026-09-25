@@ -212,3 +212,55 @@ describe("routingWorker failover", () => {
     expect(calledHosts()[1]).toContain("backup.example");
   });
 });
+
+// 三处曾经"降级成 fake worker"的配置错误：它们会把一条本该失败的 run 变成一路
+// `done`、产出假文本。现在必须抛 UNSUPPORTED（不在 nodes/shared.ts 的 RETRYABLE
+// 集合里 → 不重试、不刷上游），且请求绝不能发出。
+describe("routingWorker fails loud on an unroutable provider", () => {
+  const cfgWith = (provider: Record<string, unknown>, model: string): AppConfig => ({
+    providers: { p: provider } as never,
+    defaultModel: model,
+    defaultProvider: "p",
+  });
+
+  it("rejects a disabled provider instead of serving fake output", async () => {
+    const worker = routingWorker(
+      cfgWith({ type: "openai-compatible", baseUrl: "https://gw.example.com/v1", apiKey: "k", enabled: false, models: ["m-x"] }, "m-x"),
+    );
+    await expect(collect(worker.runTextGen({ ...textArgs(), config: { model: "m-x" } } as never))).rejects.toMatchObject({
+      code: "UNSUPPORTED",
+    });
+    expect(calledHosts()).toHaveLength(0);
+  });
+
+  it("rejects an unimplemented provider type", async () => {
+    const worker = routingWorker(cfgWith({ type: "anthropic", apiKey: "k", models: ["m-a"] }, "m-a"));
+    await expect(collect(worker.runTextGen({ ...textArgs(), config: { model: "m-a" } } as never))).rejects.toMatchObject({
+      code: "UNSUPPORTED",
+    });
+    expect(calledHosts()).toHaveLength(0);
+  });
+
+  it("rejects an unknown provider type rather than defaulting to fake", async () => {
+    const worker = routingWorker(cfgWith({ type: "not-a-real-type", apiKey: "k", models: ["m-u"] }, "m-u"));
+    await expect(worker.generateImage!({ node: {} as never, config: { model: "m-u" } as never } as never)).rejects.toMatchObject({
+      code: "UNSUPPORTED",
+    });
+    expect(calledHosts()).toHaveLength(0);
+  });
+
+  it("rejects an empty model name on the media path", async () => {
+    const worker = routingWorker(cfgWith({ type: "openai-compatible", baseUrl: "https://gw.example.com/v1", apiKey: "k", models: ["m-i"] }, "m-i"));
+    await expect(worker.generateImage!({ node: {} as never, config: { model: "" } as never } as never)).rejects.toMatchObject({
+      code: "UNSUPPORTED",
+    });
+    expect(calledHosts()).toHaveLength(0);
+  });
+
+  it("still serves the fake worker for the explicit fake provider and fake model", async () => {
+    const worker = routingWorker(cfgWith({ type: "fake", models: ["fake"] }, "fake"));
+    const { result } = await collect(worker.runTextGen({ ...textArgs(), config: { model: "fake" } } as never));
+    expect(calledHosts()).toHaveLength(0);
+    expect((result as { output: string }).output.length).toBeGreaterThan(0);
+  });
+});
