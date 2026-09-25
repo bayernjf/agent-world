@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppConfig } from "../config.js";
-import { routingWorker } from "./index.js";
+import { providerCacheKey, routingWorker } from "./index.js";
 import { ProviderError } from "./openai-compatible.js";
 
 const config: AppConfig = {
@@ -210,5 +210,124 @@ describe("routingWorker failover", () => {
     });
     expect(result.passed).toBe(true);
     expect(calledHosts()[1]).toContain("backup.example");
+  });
+});
+
+// 三处曾经"降级成 fake worker"的配置错误：它们会把一条本该失败的 run 变成一路
+// `done`、产出假文本。现在必须抛 UNSUPPORTED（不在 nodes/shared.ts 的 RETRYABLE
+// 集合里 → 不重试、不刷上游），且请求绝不能发出。
+describe("routingWorker fails loud on an unroutable provider", () => {
+  const cfgWith = (provider: Record<string, unknown>, model: string): AppConfig => ({
+    providers: { p: provider } as never,
+    defaultModel: model,
+    defaultProvider: "p",
+  });
+
+  it("rejects a disabled provider instead of serving fake output", async () => {
+    const worker = routingWorker(
+      cfgWith({ type: "openai-compatible", baseUrl: "https://gw.example.com/v1", apiKey: "k", enabled: false, models: ["m-x"] }, "m-x"),
+    );
+    await expect(collect(worker.runTextGen({ ...textArgs(), config: { model: "m-x" } } as never))).rejects.toMatchObject({
+      code: "UNSUPPORTED",
+    });
+    expect(calledHosts()).toHaveLength(0);
+  });
+
+  it("rejects an unimplemented provider type", async () => {
+    const worker = routingWorker(cfgWith({ type: "anthropic", apiKey: "k", models: ["m-a"] }, "m-a"));
+    await expect(collect(worker.runTextGen({ ...textArgs(), config: { model: "m-a" } } as never))).rejects.toMatchObject({
+      code: "UNSUPPORTED",
+    });
+    expect(calledHosts()).toHaveLength(0);
+  });
+
+  it("rejects an unknown provider type rather than defaulting to fake", async () => {
+    const worker = routingWorker(cfgWith({ type: "not-a-real-type", apiKey: "k", models: ["m-u"] }, "m-u"));
+    await expect(worker.generateImage!({ node: {} as never, config: { model: "m-u" } as never } as never)).rejects.toMatchObject({
+      code: "UNSUPPORTED",
+    });
+    expect(calledHosts()).toHaveLength(0);
+  });
+
+  it("rejects an empty model name on the media path", async () => {
+    const worker = routingWorker(cfgWith({ type: "openai-compatible", baseUrl: "https://gw.example.com/v1", apiKey: "k", models: ["m-i"] }, "m-i"));
+    await expect(worker.generateImage!({ node: {} as never, config: { model: "" } as never } as never)).rejects.toMatchObject({
+      code: "UNSUPPORTED",
+    });
+    expect(calledHosts()).toHaveLength(0);
+  });
+
+  it("still serves the fake worker for the explicit fake provider and fake model", async () => {
+    const worker = routingWorker(cfgWith({ type: "fake", models: ["fake"] }, "fake"));
+    const { result } = await collect(worker.runTextGen({ ...textArgs(), config: { model: "fake" } } as never));
+    expect(calledHosts()).toHaveLength(0);
+    expect((result as { output: string }).output.length).toBeGreaterThan(0);
+  });
+});
+
+// 成本在 worker 内部按「建 worker 那一刻」的 provider 闭包算
+// （openai-compatible.ts 的 pricingFor），而 index.ts:143 的 routingWorker 是
+// 进程级单例——所以缓存 key 漏掉 pricing 就等于：改了单价、不重启就不生效，
+// 落库的 cost_usd 继续按旧价，报表上看不出任何异常。缓存 key 只拼
+// baseUrl+apiKey 时这条用例是红的。
+describe("routingWorker provider cache invalidation", () => {
+  const cfg: AppConfig = {
+    providers: {
+      gw: {
+        type: "openai-compatible",
+        baseUrl: "https://gw.example.com/v1",
+        apiKey: "sk-test",
+        models: ["m-p"],
+        pricing: { "m-p": { input: 1, output: 1 } },
+      },
+    },
+    defaultModel: "m-p",
+    defaultProvider: "gw",
+  };
+
+  it("re-meters a price edit without a restart (baseUrl and key untouched)", async () => {
+    const worker = routingWorker(cfg);
+    const meter = async () => {
+      // sse() 带 usage: prompt 2 / completion 3 → 5 tokens。
+      fetchMock.mockResolvedValueOnce(sse("ok"));
+      const { result } = await collect(worker.runTextGen({ ...textArgs(), config: { model: "m-p" } } as never));
+      return (result as { usage: { costUsd: number } }).usage.costUsd;
+    };
+
+    expect(await meter()).toBeCloseTo(5 / 1_000_000, 12);
+
+    // 一次"运维改目录"：只动 pricing，连接信息一字未改。
+    cfg.providers.gw!.pricing = { "m-p": { input: 1000, output: 1000 } };
+    expect(await meter()).toBeCloseTo(5 / 1000, 12);
+  });
+});
+
+// 这两条正是旧 key（baseUrl + apiKey）挡不住的编辑：目录可维护之后，它们在界面
+// 上都会"保存成功但不落效"。
+describe("providerCacheKey", () => {
+  const base = {
+    type: "openai-compatible" as const,
+    baseUrl: "https://a.example/v1",
+    apiKey: "k",
+    models: ["m"],
+    modalities: { m: "text" as const },
+    pricing: { m: { input: 1, output: 1 } },
+  };
+
+  it("is stable for an untouched provider", () => {
+    expect(providerCacheKey("p", base)).toBe(providerCacheKey("p", { ...base }));
+  });
+
+  it("turns over on a pricing-only edit", () => {
+    expect(providerCacheKey("p", { ...base, pricing: { m: { input: 9, output: 9 } } })).not.toBe(
+      providerCacheKey("p", base),
+    );
+  });
+
+  it("turns over on a modality-only and models-only edit", () => {
+    expect(providerCacheKey("p", { ...base, modalities: { m: "image" as never } })).not.toBe(
+      providerCacheKey("p", base),
+    );
+    expect(providerCacheKey("p", { ...base, models: ["m", "m2"] })).not.toBe(providerCacheKey("p", base));
   });
 });

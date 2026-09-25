@@ -59,16 +59,16 @@ export function validateModels(graph: Graph, config: AppConfig): ModelDiagnostic
       });
       continue;
     }
-    const { name: provName, provider } = providerForModel(config, model);
-    // Built-in providers (demo fake worker or product-hosted tier) are
-    // allowed because they ship pre-registered from DEFAULT_CONFIG and route
-    // through the local fake worker.
-    const isBuiltin = provider.source === "builtin";
-    const isRegistered = provider.models.includes(model) || provName === model;
-    if (!isBuiltin && !isRegistered) {
+    const { name: provName, provider, matched } = providerForModel(config, model);
+    // 模型清单就是权威：没有任何 provider 认领这个模型名就不能派发，内置层也
+    // 不例外。这里曾经按 `provider.source === "builtin"` 整体豁免，于是「从内置
+    // 目录下架一个模型」在派发时毫无反应——钉着旧名字的产线照样被放行，最后
+    // 只剩上游一句看不懂的报错。被豁免的初衷（demo/测试的 fake worker）其实没有
+    // source 字段，它走的是「模型名 == provider 名」那条正常认领路径。
+    if (!matched) {
       out.push({
         severity: "error",
-        message: `节点「${n.name}」的模型「${model}」未在「模型设置」中注册。`,
+        message: `节点「${n.name}」的模型「${model}」已不可用：不在内置模型目录中，也未在「模型设置」中注册。请在 Inspector 中为该节点重新选择模型。`,
         nodeId: n.id,
       });
       continue;
