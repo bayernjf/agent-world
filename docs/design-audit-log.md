@@ -49,6 +49,7 @@ CREATE INDEX idx_audit_log_time ON audit_log(created_at);
 | `graph.create` / `graph.update` / `graph.delete` | graphs 路由 | `{ graph: "g1", version: 3 }` |
 | `graph.restore_version` | 版本恢复 | `{ graph: "g1", version: "v2" }` |
 | `run.start` / `run.cancel` | run 路由 | `{ run: "r1", graph: "g1" }` |
+| ↳ **`run.start` 的实际覆盖面（2026-09-25 核实）** | 只有 `POST /api/runs` 一处写（`index.ts` 的 `audit(db, userId, "run.start", …)`，全仓实测仅此一个调用点），**重跑 / 批量 / 批量重试 / cron·webhook·事件触发器 / AB / fork 六条派发路不写审计**——即「谁在什么时候跑了什么」目前对自动触发与重跑是答不上来的。埋哪一层需要先定：`POST /api/runs` 刻意记的是**操作者**而非图 owner（共享产线下两者不同），而 cron/webhook 根本没有人类操作者。已登记 [deferred-items](deferred-items.md)「派发口剩下的三条跨切面检查」 | |
 | `publish_target.create` / `delete` | publish 路由 | `{ id: "t1", platform: "x" }` |
 | `auth.logout` | 登出 | `{}` |
 
