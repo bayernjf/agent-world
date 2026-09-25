@@ -1,6 +1,6 @@
 # 审计日志（Audit Log）设计方案
 
-> 状态：**P1+P2 已实施（2026-09-05）**——audit_log 表（迁移 29）+ `audit()` helper + 全部词表埋点（account/register/login/login_failed/logout/password_change、settings.update/test_provider、graph.create/update/delete/restore_version、run.start/cancel、publish_target.create/delete）+ `GET /api/audit` 查询接口 + 专项测试（动作覆盖/detail 红线/写失败不阻塞/隔离分页）。**P3 部分实施（2026-09-24）**：180 天清理已落地（driver `pruneAuditOlder(before)` + server 启动时惰性 prune，prune 失败只 warn 不阻断启动）；**hash chain 防篡改仍未实施**（触发条件不变）。
+> 状态：**P1+P2 已实施（2026-09-05）**——audit_log 表（迁移 29）+ `audit()` helper + 全部词表埋点（account/register/login/login_failed/logout/password_change、settings.update/test_provider、graph.create/update/delete/restore_version、run.start/cancel、publish_target.create/delete）+ `GET /api/audit` 查询接口 + 专项测试（动作覆盖/detail 红线/写失败不阻塞/隔离分页）。**P3 已实施（2026-09-24 落地 / 2026-09-25 并入统一循环）**：180 天清理已落地（driver `pruneAuditOlder(before)`；原为 server 启动时惰性 prune 一次，现由 `packages/server/src/maintenance.ts` 的 `MaintenanceLoop` 与 events(90d) 成对清理——启动即清 + 每 6h 续清，单轮失败只 warn 不阻断启动，见 §5）；**hash chain 防篡改仍未实施**（触发条件不变）。
 > 创建：2026-09-05；实施与方案的两处偏差见 §3.2/§3.3 备注。
 
 ## 1. 背景
