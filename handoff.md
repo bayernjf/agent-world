@@ -112,6 +112,7 @@ State of Agent World as of 2026-09-25.
 * [docs/examples.md](docs/examples.md) / [docs/extending.md](docs/extending.md) / [docs/integrations-future.md](docs/integrations-future.md) — 模板示例 / 扩展指南 / 未来集成（Notion/Linear/邮件/内容平台）
 * [docs/design-tts-provider.md](docs/design-tts-provider.md) — TTS Provider 接入设计（audioGen 配音链路；推荐 SiliconFlow 原生 OpenAI 兼容 `/audio/speech`，含 UTF-8 字节计费/音色命名/软降级口径与 P0 零代码验证、P1 产品化、P2 edge-tts 三档；2026-09-22 P1 产品化 G-A/G-B/G-D 已落地并部署 Hasee；G-C 无能力软降级已于 2026-09-24 落地（见 #63），剩 P0 真机（卡 SF/OpenAI key）+ G-F 是否点名内置供应商待拍板）
 
+* [docs/design-model-catalog.md](docs/design-model-catalog.md) — 内置模型目录与插拔设计（**2026-09-25 定稿待落地**；两平面：内置=平台维护 / 自定义=BYOK；核心决策「改模型清单=数据、改接口方言=代码、改端点与凭证=env」；规则 A 下架即报错（三处静默路径）+ 规则 B `model:""`=跟随当前默认（在 startRun 解析，保 contentHash 与评测指纹）；含已核实的 worker 缓存导致改价不生效缺陷，阶段 ①–④）
 * [docs/mvp-readiness-review-2026-09-21.md](docs/mvp-readiness-review-2026-09-21.md) — MVP 上线就绪评审（判定：个人/小团队自托管 MVP ✅ 达到；对外商业 SaaS ❌ 功能 Ready、收款/生产运维 Not Ready，含分口径硬阻断项与 go-live 清单）
 
 * 历史（决策记录，勿据此实现）：[docs/product-vision-discussion.md](docs/product-vision-discussion.md) / [docs/tech-stack-assessment.md](docs/tech-stack-assessment.md) / [docs/roadmap-tasks.md](docs/roadmap-tasks.md)
