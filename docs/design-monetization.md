@@ -109,7 +109,7 @@
 - 内置模型 **不可用**——否则免费白嫖 LLM 成本，违背「免费层成本≈0」。
 - 免费层的平台边际成本（存储/带宽/编排）靠「转化」覆盖，接受少量亏损换取获客。
 
-**超额处理**：quota 用尽后，内置模型调用被派发期阻断（`QUOTA_EXCEEDED`），引导加购或升级；BYOK 不受 quota 限制（模型费用户自付），但并发/存储仍受订阅档位约束。
+**超额处理**：quota 用尽后，内置模型调用被派发期阻断（`QUOTA_EXCEEDED`；`status` 判定生效后另有 `PAYMENT_REQUIRED`（欠费）与 `SUBSCRIPTION_ENDED`（到期取消）两个码，并发超额为 `CONCURRENCY_EXCEEDED`——四个是全集），引导加购或升级；BYOK 不受 quota 限制（模型费用户自付），但并发/存储仍受订阅档位约束。
 
 ---
 
@@ -240,6 +240,8 @@ const PLANS: Record<PlanId, PlanQuota> = {
 派发流程：`POST /api/runs` → `validateModels(graph, loadConfig(ownerId))` → `execute()`。
 
 在 `validateModels` 之后、`execute` 之前插入 `enforceSubscription()`：
+
+> **实现更正（2026-09-25，commit `242b04f`）**：挂点已不在 `POST /api/runs` 的 handler 里，而是收进 `packages/server/src/dispatch-gate.ts`，由 `startRun()` 在**建 run 行之前**统一调用——这样重跑 / 批量 / 批量重试 / cron·webhook·事件触发器 / AB / fork 每一条派发路都盖得到（原挂点 5 个 `startRun` 调用点只拦 1 个，AB 与 fork 更是直连 `db.createRun`）。`resumeRun()`（审批后续跑一个已放行的 run）有意不拦。覆盖面表与 `observe` 灰度档见 [runbook 四之二](runbooks/deploy-ubuntu-server.md)。
 
 ```ts
 function enforceSubscription(userId: string, graph: Graph): void {

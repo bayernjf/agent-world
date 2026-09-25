@@ -8,6 +8,8 @@
 >
 > 实施偏差记录（以代码现状为准，非方案预设）：① 无需新建 enforce-subscription.ts，enforceSubscription 已在 subscription.ts；② QuotaError 统一 code=QUOTA_EXCEEDED + 稳定 metric 字段（builtin_model/tokens/video/storage/concurrency），而非方案的独立 error code；③ 402 body 已在 S6 补 `upgradeUrl:"settings:billing"`；④ gate feature flag `MONETIZATION_ENFORCE=1` 默认关闭（用户拍板维持）；⑤ ~~视频检查对所有 plan 生效（free 连 BYOK 视频也拦）~~ → 已由 `99d639b` 修正为**只拦内置模型视频，免费层 BYOK 视频放行**（用户决策点①）；⑥ S7 未新建通用 KV/flag 表（feature-flags.ts 是静态布尔 registry，不承担动态去重），改用**确定性公告 ID** `usage_alert:<user>:<periodStart>:<tier>` 实现「每用户每月每档一次」幂等，跨月 periodStart 变化自然重新预警；为此给公告 target 解析新增 `user:<id>` 定向分支；⑦ 账单页以「Settings 内新增 billing tab」落地（契合无 react-router 现状），而非方案的独立 pages/SettingsBilling.tsx；服务端公告直接写中英双语行（服务端无 i18next）。
 >
+> **2026-09-25 追加偏差（本条覆盖上面 ② 与 ④ 的现况，原记录保留不删）**：⑧ gate 已从 `POST /api/runs` 的 handler 移进 `dispatch-gate.ts`，由 `startRun()` 在**建 run 行之前**调用——原挂点使 5 个派发点只有 1 个被拦（另 AB / fork 直连 `db.createRun`，连该计数都不算），prod 自 09-14/15 开着 `=1` 期间计量因此长期偏低；`resumeRun()`（审批后续跑）有意不拦。⑨ 上面 ② 说的「统一 code=QUOTA_EXCEEDED」已不再成立：`QuotaError` 现在实际发 **4 个码**（`QUOTA_EXCEEDED` / `CONCURRENCY_EXCEEDED` / `PAYMENT_REQUIRED` / `SUBSCRIPTION_ENDED`，后者两个来自 `status` 判定 `bb50612`+`95b6a5a`）。本文 §S4 的 402 响应形状里写的 `STORAGE_EXCEEDED` / `VIDEO_QUOTA_EXCEEDED` **代码中不存在**（存储与视频超额都走 `QUOTA_EXCEEDED` + `metric:"storage"|"video"`），那是方案原稿的设想、非现状。⑩ 上面 ④ 说的「默认关闭」描述的是当时的部署决策，现状是 Hasee 已开且新增 `observe` 档，见本文 §五回滚条与 runbook 四之二。
+>
 > 约定：延续项目惯例——原子提交、英文 commit message、不加助手署名、不 push；typecheck 四包绿、全量测试通过；i18n + 设计 token；DB 迁移双写（sqlite base DDL + 迁移版本 + PG toPgDdl）。
 
 ## 一、当前代码库复用盘点（2026-09-14 复核）
@@ -681,7 +683,7 @@ export async function checkUsageAlerts(userId: string): Promise<void> {
 
 **回滚保障**：
 - 每步原子提交，可单独回滚
-- gate 逻辑有 feature flag（环境变量 `MONETIZATION_ENFORCE`，代码里只认字符串 `"1"`），紧急时把它从 systemd override 移除并 `systemctl restart agent-world` 即可关闭 gate 而不回滚代码。**注意 `ENABLE_SUBSCRIPTION_GATE` 这个名字从未存在过**（本文原稿写错，2026-09-25 核证更正），照它去 unset 会以为已经关掉、实际仍在拦截
+- gate 逻辑有 feature flag（环境变量 `MONETIZATION_ENFORCE`），紧急时把它从 systemd override 移除并 `systemctl restart agent-world` 即可关闭 gate 而不回滚代码。**2026-09-25 更新**：本行原写「代码里只认字符串 `"1"`」已不成立——现由 `dispatch-gate.ts` 的 `readEnforceMode()` 解析，认 `1|true|yes`（硬拦）、`observe|log`（只记 `would block dispatch` 日志不拦）、空/不设（关），其它非空值打日志后按关处理。**注意 `ENABLE_SUBSCRIPTION_GATE` 这个名字从未存在过**（本文原稿写错），照它去 unset 会以为已经关掉、实际仍在拦截
 - M2 部署到 Hasee 前先在本地 dev 充分验证
 - M2 部署后先观察 24 小时（M1 回采产线正常 + 无异常 402）再确认稳定
 
