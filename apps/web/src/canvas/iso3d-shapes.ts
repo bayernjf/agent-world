@@ -16,6 +16,13 @@ export const PIPE_RADIUS = 3;
 export const NODE_ROTATION = Math.PI / 8;
 /** Emissive color applied to the selected node. */
 export const SELECT_COLOR = 0xffd54a;
+/**
+ * Emissive intensity for the selection highlight. Kept well below the bloom
+ * pass threshold (0.92) so the selected node gets a soft self-glow instead of
+ * a blown-out halo — some body materials (factory windows) already carry a
+ * higher default intensity, and 1.0 × bright yellow blooms harshly.
+ */
+export const SELECT_EMISSIVE_INTENSITY = 0.4;
 
 /** LED color per runtime status (grey = idle). */
 export function statusLedColor(
@@ -39,14 +46,22 @@ export function statusLedColor(
   }
 }
 
-/** Set every "body" material's emissive (skips the LED, which is status-driven). */
-export function setGroupEmissive(group: THREE.Group, color: number): void {
+/**
+ * Set every "body" material's emissive (skips the LED, which is status-driven).
+ * `intensity` controls how strongly the color self-emits; callers pass a low
+ * value for the selection highlight and the default restores materials to 1.0.
+ */
+export function setGroupEmissive(group: THREE.Group, color: number, intensity = 1): void {
   group.traverse((obj) => {
     const mesh = obj as THREE.Mesh;
     if (!mesh.isMesh || mesh.userData.role === "led") return;
     const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
     for (const mat of materials) {
-      if (mat && "emissive" in mat) (mat as THREE.MeshStandardMaterial).emissive.setHex(color);
+      if (mat && "emissive" in mat) {
+        const m = mat as THREE.MeshStandardMaterial;
+        m.emissive.setHex(color);
+        m.emissiveIntensity = intensity;
+      }
     }
   });
 }
