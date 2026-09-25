@@ -156,10 +156,10 @@ describe("CostReport", () => {
     });
 
     it("无数据时显示'暂无数据'", async () => {
-      // api 返回 null，组件会显示"暂无数据"
+      // api 返回 null，组件会显示"暂无数据"（findBy 内置轮询，避免慢速 CI 下断言跑在加载态）
       mockCostReport.mockResolvedValue(null);
-      await renderAndWait();
-      expect(screen.getByText("暂无数据")).toBeInTheDocument();
+      renderModal();
+      expect(await screen.findByText("暂无数据")).toBeInTheDocument();
     });
   });
 
