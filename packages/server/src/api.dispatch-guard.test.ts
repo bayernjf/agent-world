@@ -48,8 +48,15 @@ async function register(email: string): Promise<{ token: string; userId: string 
   return { token, userId: user.id };
 }
 
-/** A textGen node whose model is blank — validateModels reports this as an error. */
-function unconfiguredGraph(id: string): Graph {
+/**
+ * A three-node pipeline whose single textGen node asks for `model`.
+ *
+ * The guard cases pass a name no provider owns. Note it is NOT "blank": since
+ * 规则 B (`model: ""` = follow the current default, design-model-catalog) a
+ * blank slot is dispatchable for any user whose built-in tier has a text model,
+ * so "blank" no longer means "undispatchable".
+ */
+function textSlotGraph(id: string, model: string): Graph {
   return {
     id,
     name: `Guard ${id}`,
@@ -61,7 +68,7 @@ function unconfiguredGraph(id: string): Graph {
         name: "NO MODEL",
         x: 1,
         y: 0,
-        textGen: { model: "", prompt: "hi", skills: [], temperature: 0.7, timeoutMs: 60000 },
+        textGen: { model, prompt: "hi", skills: [], temperature: 0.7, timeoutMs: 60000 },
       },
       { id: "out", kind: "sink", name: "OUT", x: 2, y: 0 },
     ],
@@ -72,9 +79,9 @@ function unconfiguredGraph(id: string): Graph {
   };
 }
 
-async function seed(email: string, graphId: string) {
+async function seed(email: string, graphId: string, model = "retired-model") {
   const { token, userId } = await register(email);
-  const graph = unconfiguredGraph(graphId);
+  const graph = textSlotGraph(graphId, model);
   await db.saveGraph(graph, Date.now(), userId);
   const headers = { cookie: `auth_token=${token}`, "content-type": "application/json" };
   return { userId, headers, graph };
@@ -90,7 +97,7 @@ async function createCronTrigger(graphId: string, headers: Record<string, string
 }
 
 describe("pre-dispatch checks apply to every dispatch route", () => {
-  it("refuses a cron trigger fire whose node has no model, and starts no run", async () => {
+  it("refuses a cron trigger fire whose model routes nowhere, and starts no run", async () => {
     const { userId, headers, graph } = await seed("fire-guard@test.dev", "guard-fire");
     await createCronTrigger(graph.id, headers, "trg-guard");
     const before = (await db.listRuns(userId)).length;
@@ -105,7 +112,7 @@ describe("pre-dispatch checks apply to every dispatch route", () => {
     // validateModels, and the engine soft-skips an unusable text model.
     expect(res.status).toBe(422);
     const body = (await res.json()) as { error: string; diagnostics?: unknown[] };
-    expect(body.error).toContain("未配置");
+    expect(body.error).toContain("已不可用");
     expect(body.diagnostics).toHaveLength(1);
     expect((await db.listRuns(userId)).length).toBe(before);
   });
@@ -133,5 +140,35 @@ describe("pre-dispatch checks apply to every dispatch route", () => {
       body: JSON.stringify({}),
     });
     expect(res.status).toBe(200);
+  });
+
+  // 规则 B 的端到端证据（不只是纯函数单测）：空槽在派发时被换成"当前默认"，而且
+  // 只换进 run 快照。产线文档保持字节原样 → contentHash 与版本快照不受影响；快照
+  // 带真名 → 评测 byPrompt 指纹（sqlite-driver.ts:2387 按快照里的 model+prompt 做
+  // sha256）能正确区分"换内置默认之前/之后"两代 run。若改成"读取时解析"，快照里
+  // 就永远是空串，两代 run 会被悄悄并成一个版本。
+  it("resolves a follow-default slot into the run snapshot, leaving the graph document alone", async () => {
+    const { userId, headers, graph } = await seed("slot@test.dev", "guard-slot", "");
+    await createCronTrigger(graph.id, headers, "trg-slot");
+
+    const res = await app.request(`/api/graphs/${graph.id}/triggers/trg-slot/fire`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({}),
+    });
+    expect(res.status).toBe(200);
+    const { runId } = (await res.json()) as { runId: string };
+
+    const row = (await db.getRun(runId, userId)) as { snapshot: string };
+    const snapshot = JSON.parse(row.snapshot) as Graph;
+    expect(snapshot.nodes.find((n) => n.kind === "textGen")?.textGen?.model).toBeTruthy();
+    // 空槽被解析成了这个用户的内置默认，而不是留空或报 422。
+    const { loadConfig } = await import("./config.js");
+    expect(snapshot.nodes.find((n) => n.kind === "textGen")?.textGen?.model).toBe(
+      (await loadConfig(userId)).defaultModel,
+    );
+
+    const stored = await db.getGraph(graph.id, userId);
+    expect(stored?.nodes.find((n) => n.kind === "textGen")?.textGen?.model).toBe("");
   });
 });

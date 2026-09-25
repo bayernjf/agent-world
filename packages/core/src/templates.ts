@@ -226,7 +226,7 @@ const productDetailGraph = {
         x: 340,
         y: 300,
         textGen: {
-          model: "agnes-2.0-flash",
+          model: "",
           prompt:
             "你是电商卖点分析师。本次面向的商品是「${product.brand} ${product.name}」" +
             "（若商品名为空，则以上游原料台中的商品描述为准）。" +
@@ -243,7 +243,7 @@ const productDetailGraph = {
         x: 620,
         y: 300,
         textGen: {
-          model: "agnes-2.0-flash",
+          model: "",
           prompt:
             "你是电商文案。基于上游提炼的卖点，撰写商品详情页正文：" +
             "一段吸引人的开场 + 分点的卖点描述 + 一句行动号召。语言有画面感、不说空话套话。",
@@ -257,7 +257,7 @@ const productDetailGraph = {
         x: 900,
         y: 300,
         textGen: {
-          model: "agnes-2.0-flash",
+          model: "",
           prompt:
             "你是淘宝详情页排版编辑。把上游文案整理成结构化商品详情页。只输出一个 ```product-json 代码块，不要输出其他文字，JSON 结构如下：\n```product-json\n{\"platform\":\"taobao\",\"title\":\"商品标题\",\"blocks\":[{\"type\":\"hero\",\"title\":\"主标题\",\"subtitle\":\"一句话核心卖点\",\"image\":\"第一张图URL\"},{\"type\":\"heading\",\"text\":\"产品亮点\"},{\"type\":\"bullets\",\"items\":[\"**亮点1**：说明\",\"亮点2：说明\"]},{\"type\":\"image\",\"src\":\"图URL\",\"caption\":\"图注\",\"align\":\"full\",\"aspect\":\"3:4\"},{\"type\":\"imageCards\",\"layout\":\"grid\",\"columns\":2,\"items\":[{\"src\":\"图URL\",\"caption\":\"图注\",\"span\":2}]},{\"type\":\"paragraph\",\"text\":\"2-3段有画面感的描述\"},{\"type\":\"specs\",\"rows\":[{\"name\":\"参数名\",\"value\":\"值\"}]},{\"type\":\"cta\",\"text\":\"立即选购行动号召\"}]}\n```\n图片使用上游提供的真实图片 URL，不要编造；没有图的块可以省略 image/imageCards。图片区块可加 align(full/left/right/center) 控制位置、aspect(1:1/3:4/4:3/16:9) 控制比例、rounded 控制圆角；多图卡用 layout(grid/carousel/row) 与 columns 控制版式。",
           skills: [],
@@ -277,8 +277,8 @@ const productDetailGraph = {
           skills: ["judge_readability"],
         },
       },
-      { id: "banner", kind: "imageGen", name: "AI 配图", x: 340, y: 560, imageGen: { model: "agnes-image-2.0-flash", prompt: "结合上游主商品图，生成一张电商主图：保留商品主体与核心卖点，背景简洁统一，专业产品摄影质感" } },
-      { id: "scene", kind: "imageGen", name: "AI 场景图", x: 560, y: 560, imageGen: { model: "agnes-image-2.0-flash", prompt: "为商品生成一张真实使用场景图：自然光线、生活化构图，突出使用环境与氛围代入感" } },
+      { id: "banner", kind: "imageGen", name: "AI 配图", x: 340, y: 560, imageGen: { model: "", prompt: "结合上游主商品图，生成一张电商主图：保留商品主体与核心卖点，背景简洁统一，专业产品摄影质感" } },
+      { id: "scene", kind: "imageGen", name: "AI 场景图", x: 560, y: 560, imageGen: { model: "", prompt: "为商品生成一张真实使用场景图：自然光线、生活化构图，突出使用环境与氛围代入感" } },
       { id: "depot", kind: "sink", name: "成品库", x: 1460, y: 300 },
     ],
     edges: [
@@ -320,7 +320,7 @@ const xiaohongshuGraph = {
         x: 340,
         y: 300,
         textGen: {
-          model: "agnes-2.0-flash",
+          model: "",
           prompt:
             "你是小红书选品编辑。本次种草的商品是「${product.brand} ${product.name}」" +
             "（若商品名为空，则以上游原料台中的商品描述为准）。" +
@@ -336,7 +336,7 @@ const xiaohongshuGraph = {
         x: 620,
         y: 300,
         textGen: {
-          model: "agnes-2.0-flash",
+          model: "",
           prompt: "你是小红书爆款笔记作者。基于上游卖点，写一篇种草笔记：一个带钩子的标题（可带 emoji）、口语化短句正文、分点使用感受、3-6 个话题标签。语气真诚像朋友安利，不要硬广腔和极限词。",
           skills: [],
         },
@@ -348,7 +348,7 @@ const xiaohongshuGraph = {
         x: 900,
         y: 300,
         textGen: {
-          model: "agnes-2.0-flash",
+          model: "",
           prompt: "你是小红书笔记排版编辑。把上游文案整理成结构化笔记。只输出一个 ```product-json 代码块，不要输出其他文字，结构如下：\n```product-json\n{\"platform\":\"xiaohongshu\",\"title\":\"笔记标题\",\"blocks\":[{\"type\":\"hero\",\"title\":\"带钩子的标题\",\"subtitle\":\"一句话种草\",\"image\":\"封面图URL\"},{\"type\":\"paragraph\",\"text\":\"口语化开场\"},{\"type\":\"bullets\",\"items\":[\"✨ 卖点1\",\"🌟 卖点2\"]},{\"type\":\"image\",\"src\":\"图URL\",\"caption\":\"图注\",\"align\":\"center\",\"aspect\":\"3:4\"},{\"type\":\"imageCards\",\"layout\":\"carousel\",\"columns\":2,\"items\":[{\"src\":\"图URL\",\"caption\":\"图注\"}]},{\"type\":\"paragraph\",\"text\":\"使用感受总结\"},{\"type\":\"cta\",\"text\":\"互动引导 + #标签1 #标签2\"}]}\n```\n图片使用上游真实图片 URL，不要编造；没有图可省略 image/imageCards。图片区块可加 align(full/left/right/center) 控制位置、aspect(1:1/3:4/4:3/16:9) 控制比例、rounded 控制圆角；多图卡用 layout(grid/carousel/row) 与 columns 控制版式。",
           skills: [],
         },
@@ -365,8 +365,8 @@ const xiaohongshuGraph = {
           onExhausted: "halt",
         },
       },
-      { id: "banner", kind: "imageGen", name: "AI 配图", x: 340, y: 560, imageGen: { model: "agnes-image-2.0-flash", prompt: "结合上游主商品图，生成一张电商主图：保留商品主体与核心卖点，背景简洁统一，专业产品摄影质感" } },
-      { id: "scene", kind: "imageGen", name: "AI 场景图", x: 560, y: 560, imageGen: { model: "agnes-image-2.0-flash", prompt: "为商品生成一张真实使用场景图：自然光线、生活化构图，突出使用环境与氛围代入感" } },
+      { id: "banner", kind: "imageGen", name: "AI 配图", x: 340, y: 560, imageGen: { model: "", prompt: "结合上游主商品图，生成一张电商主图：保留商品主体与核心卖点，背景简洁统一，专业产品摄影质感" } },
+      { id: "scene", kind: "imageGen", name: "AI 场景图", x: 560, y: 560, imageGen: { model: "", prompt: "为商品生成一张真实使用场景图：自然光线、生活化构图，突出使用环境与氛围代入感" } },
       { id: "depot", kind: "sink", name: "成品库", x: 1460, y: 300 },
     ],
     edges: [
@@ -401,7 +401,7 @@ const mediaPipelineGraph = {
         x: 340,
         y: 300,
         textGen: {
-          model: "agnes-2.0-flash",
+          model: "",
           prompt:
             "你是短视频编导。根据主题写一段 15 秒口播脚本：开头 3 秒钩子 + 中间卖点介绍 + 结尾行动号召。" +
             "只输出脚本正文（120-180 字），便于直接作为视频生成提示词；不要输出标题和多余解释。",
@@ -415,7 +415,7 @@ const mediaPipelineGraph = {
         x: 620,
         y: 180,
         imageGen: {
-          model: "agnes-image-2.0-flash",
+          model: "",
           aspect: "16:9",
           prompt:
             "为短视频生成一张关键帧封面：电影级构图、自然光线、氛围感强、主体清晰、16:9 横版，适合作为视频封面。",
@@ -428,7 +428,7 @@ const mediaPipelineGraph = {
         x: 620,
         y: 440,
         videoGen: {
-          model: "agnes-video-v2.0",
+          model: "",
           // prompt 留空：引擎直接用上游脚本文本作为视频提示词，实现文本 → 视频联动
           duration: 5,
           aspect: "16:9",
@@ -476,7 +476,7 @@ const draftGraph = {
         x: 360,
         y: 300,
         textGen: {
-          model: "agnes-2.0-flash",
+          model: "",
           prompt:
             "你是写作助手。根据给定主题写一篇结构完整的初稿，包含开头、主体分点和结尾。",
           skills: [],
@@ -489,7 +489,7 @@ const draftGraph = {
         x: 640,
         y: 300,
         textGen: {
-          model: "agnes-2.0-flash",
+          model: "",
           prompt:
             "你是文字编辑。润色初稿：让语言更流畅、删除冗余、统一语气，但不要改变核心观点。",
           skills: [],
@@ -554,7 +554,7 @@ const translationGraph = {
         x: 640,
         y: 300,
         textGen: {
-          model: "agnes-2.0-flash",
+          model: "",
           prompt:
             "你是资深译审。用户输入依次包含两段：第一段是【原文】，第二段是译者提交的【初译】。" +
             "请逐句对照原文检查初译的错译、漏译与生硬表达，在初译基础上修订润色，直接输出定稿译文本身" +
@@ -609,7 +609,7 @@ const docReviewGraph = {
         x: 360,
         y: 300,
         textGen: {
-          model: "agnes-2.0-flash",
+          model: "",
           prompt:
             "你是文档审查员。逐段检查文档，列出问题：事实错误、逻辑矛盾、表述不清、缺漏。每条标明位置和问题。",
           skills: [],
@@ -622,7 +622,7 @@ const docReviewGraph = {
         x: 640,
         y: 300,
         textGen: {
-          model: "agnes-2.0-flash",
+          model: "",
           prompt:
             "针对问题清单给出具体的修改建议，最好给出可直接替换的文字。输出一份审查报告。",
           skills: [],
@@ -718,7 +718,7 @@ const opsWeeklyGraph = {
         x: 860,
         y: 300,
         textGen: {
-          model: "agnes-2.0-flash",
+          model: "",
           prompt:
             "你是数据运营分析师。基于上游清洗汇总后的数据，写一份结构化周报：" +
             "整体表现（2-3 句）→ 关键指标变化（分点，标注数字）→ 异常与原因推测 → 下周建议。" +
@@ -734,7 +734,7 @@ const opsWeeklyGraph = {
         x: 340,
         y: 560,
         textGen: {
-          model: "agnes-2.0-flash",
+          model: "",
           prompt:
             "上游数据拉取失败（可能是网络未开或 URL 需要更换）。请向用户说明：这是一个数据拉取→清洗→AI 周报的流水线，" +
             "请在「拉取数据」节点换成自己的 API 地址后重试。输出一段简短的说明文字。",
@@ -894,7 +894,7 @@ const researchBriefGraph = {
         x: 860,
         y: 300,
         textGen: {
-          model: "agnes-2.0-flash",
+          model: "",
           prompt:
             "你是研究分析师。上游汇聚了两个数据源的 JSON，请交叉比对后输出一份简报：" +
             "核心结论（1 句）→ 两源一致的信息 → 仅有单源提及、需要二次确认的信息 → 数据缺口。" +
@@ -975,7 +975,7 @@ const competitorWatchGraph = {
         x: 860,
         y: 300,
         textGen: {
-          model: "agnes-2.0-flash",
+          model: "",
           prompt:
             "你是竞品情报分析师。上游提取了竞品页面的摘要信息，请与「我方产品」对比，输出：" +
             "一句话动向判断 → 值得关注的改动（分点）→ 建议的应对动作。我方产品信息会在运行时由上游输入提供。",
@@ -990,7 +990,7 @@ const competitorWatchGraph = {
         x: 340,
         y: 560,
         textGen: {
-          model: "agnes-2.0-flash",
+          model: "",
           prompt:
             "上游页面拉取失败（外网未开通或站点反爬）。请输出简短说明：本流水线为竞品监控，" +
             "需要把「拉取竞品页」节点换成可访问的目标地址（或改为本地静态数据）后重试。",
@@ -1067,7 +1067,7 @@ const batchContentGraph = {
         x: 920,
         y: 300,
         textGen: {
-          model: "agnes-2.0-flash",
+          model: "",
           prompt:
             "你是批量内容主编。下面是一批选题简报（JSON 数组），每项含 title 和 brief。请为每一条简报分别生成一篇完整的公众号推文正文，以编号“一、二、三…”分隔输出，篇与篇相互独立、可直接发布。",
           skills: [],
@@ -1259,7 +1259,7 @@ const reviewPublishGraph = {
         x: 360,
         y: 300,
         textGen: {
-          model: "agnes-2.0-flash",
+          model: "",
           prompt:
             "你是内容运营。根据上游提供的素材，产出一篇结构完整、可直接发布的文案：先提炼核心卖点，再分点展开，最后给出行动号召。口语化、有亲和力。",
           skills: [],
@@ -1342,7 +1342,7 @@ const customModelGraph = {
       key: "modelName",
       label: "模型名",
       placeholder: "填入你要接入的模型（内置或自定义）",
-      defaultValue: "agnes-2.0-flash",
+      defaultValue: "",
       applyTo: [{ nodeId: "gen", path: "generic.model" }],
     },
     {
@@ -1395,7 +1395,7 @@ const customModelGraph = {
         x: 640,
         y: 300,
         generic: {
-          model: "agnes-2.0-flash",
+          model: "",
           modality: "text",
           prompt:
             "下面是编排好的推理请求（JSON），请按其中的 intent / constraint / outputShape 执行并返回加工后的结果：\n${craft}",
@@ -1460,7 +1460,7 @@ const newsPodcastGraph = {
         x: 620,
         y: 300,
         textGen: {
-          model: "agnes-2.0-flash",
+          model: "",
           prompt:
             "你是播客主理人。基于上游搜索到的话题资讯，写一段约 2 分钟的单人口播稿：" +
             "开头一句话点题 → 3-5 条资讯要点（每条一句话事实 + 一句话点评）→ 结尾互动引导。" +
@@ -1478,7 +1478,7 @@ const newsPodcastGraph = {
         // 纯文本供应商）时该节点软跳过（node.skipped + 日志告警，不致 run 失败）；
         // e5 旁路把稿件直送 depot，故无 TTS 也能交付完整文稿，配置支持
         // /audio/speech 的模型后则文稿与配音一并交付。
-        audioGen: { model: "tts-1", voice: "alloy", format: "mp3" },
+        audioGen: { model: "", voice: "alloy", format: "mp3" },
       },
       { id: "depot", kind: "sink", name: "播客成品", x: 1180, y: 300 },
     ],
@@ -1574,7 +1574,7 @@ const researchLoopGraph = {
         x: 1320,
         y: 300,
         textGen: {
-          model: "agnes-2.0-flash",
+          model: "",
           prompt:
             "你是研究助理。当前课题：${item}。上游提供了该课题的联网搜索结果，" +
             "请写一张调研卡片：**结论**（1-2 句）→ **关键事实**（3-5 条，注明来自搜索结果）→ " +
@@ -1655,7 +1655,7 @@ const releasePrGraph = {
         x: 340,
         y: 300,
         textGen: {
-          model: "agnes-2.0-flash",
+          model: "",
           prompt:
             "你是发版工程师。把上游的变更草稿整理成规范的 PR 描述（Markdown），格式要求：" +
             "第一行是 # 加一句话概括本次改动（将直接用作 PR 标题）；" +
@@ -1767,7 +1767,7 @@ const scanOcrGraph = {
         x: 600,
         y: 560,
         textGen: {
-          model: "agnes-2.0-flash",
+          model: "",
           prompt:
             "上游 PDF 不是扫描件（没有可提取的页面图片），无法走「逐页转图 → OCR」流程。" +
             "请输出一段简短说明：该文档有文字层，建议改用「文档智能解析入库」模板直接解析正文，" +
@@ -1817,7 +1817,7 @@ const customerServiceGraph = {
         x: 340,
         y: 300,
         textGen: {
-          model: "agnes-2.0-flash",
+          model: "",
           prompt:
             "你是客服工单分类器。阅读用户工单，输出严格的JSON：{\"category\":\"咨询|投诉|售后|其他\",\"complex\":true|false,\"summary\":\"一句话摘要\"}。complex=true表示需要人工介入（涉及退款、投诉升级、复杂技术问题），false表示可自动回复。只输出JSON，不要其他文字。",
           skills: [],
@@ -1876,7 +1876,7 @@ const customerServiceGraph = {
         x: 1120,
         y: 180,
         textGen: {
-          model: "agnes-2.0-flash",
+          model: "",
           prompt:
             "你是客服自动回复助手。根据工单分类和摘要，写一段礼貌、专业、有帮助的自动回复。控制在100字以内。",
           skills: [],
@@ -1996,7 +1996,7 @@ const codeReviewGraph = {
         x: 860,
         y: 300,
         textGen: {
-          model: "agnes-2.0-flash",
+          model: "",
           prompt:
             "你是资深代码审查员。阅读代码变更diff和静态分析结果，从以下维度审查：①逻辑正确性 ②安全漏洞 ③性能问题 ④代码风格 ⑤测试覆盖。对每个问题给出：文件位置、问题描述、严重程度（高/中/低）、修改建议。没有问题的维度明确说'未发现问题'。",
           skills: [],
@@ -2021,7 +2021,7 @@ const codeReviewGraph = {
         x: 1380,
         y: 300,
         textGen: {
-          model: "agnes-2.0-flash",
+          model: "",
           prompt:
             "把代码审查报告整理成一段可直接发布在PR下的评论。开头一句话总结整体评价，然后按严重程度列出问题（高→中→低），每个问题一行。结尾给出是否建议合并的结论。语气专业、建设性。",
           skills: [],
@@ -2129,7 +2129,7 @@ const dataReportGraph = {
         x: 1120,
         y: 300,
         textGen: {
-          model: "agnes-2.0-flash",
+          model: "",
           prompt:
             "你是数据分析师。阅读清洗后的JSON数据，分析：①数据规模与完整性 ②关键指标趋势 ③异常值与离群点 ④核心发现（3-5条）。用数据说话，每个发现都要有具体数字支撑。" +
             "只输出 JSON 对象：title（分析主题）、summary（一句话结论）、points（每条发现一个字符串，含具体数字）。",
@@ -2146,7 +2146,7 @@ const dataReportGraph = {
         x: 1380,
         y: 300,
         textGen: {
-          model: "agnes-2.0-flash",
+          model: "",
           prompt:
             "上游给的是一份 JSON 分析结果（title / summary / points）。把它整理成一份结构化报表。格式：①执行摘要（3句话）②关键指标表格 ③趋势分析 ④风险与建议。用Markdown格式，语言简洁专业。",
           // zh_style_guide is a prompt-module card: its text is appended to this
@@ -2205,7 +2205,7 @@ const contractReviewGraph = {
         x: 600,
         y: 300,
         textGen: {
-          model: "agnes-2.0-flash",
+          model: "",
           prompt:
             "你是合同条款提取专家。阅读合同文本，提取以下关键条款：①合同主体 ②标的与数量 ③价款与支付方式 ④履行期限与地点 ⑤违约责任 ⑥争议解决 ⑦不可抗力 ⑧保密条款 ⑨知识产权 ⑩合同变更与解除。每个条款引用原文关键句。没有的条款标注'未约定'。",
           skills: [],
@@ -2218,7 +2218,7 @@ const contractReviewGraph = {
         x: 860,
         y: 300,
         textGen: {
-          model: "agnes-2.0-flash",
+          model: "",
           prompt:
             "你是合同风险审查律师。基于提取的条款，逐一检查风险点：①权利义务不对等 ②违约责任过重或缺失 ③争议解决条款不利 ④保密条款过宽 ⑤知识产权归属不清 ⑥付款条件苛刻 ⑦解除合同限制过多 ⑧不可抗力范围不合理。每个风险点给出：风险描述、严重程度（高/中/低）、修改建议。没有风险的方面明确说'未发现风险'。",
           skills: [],
@@ -2282,7 +2282,7 @@ const courseOutlineGraph = {
         x: 340,
         y: 300,
         textGen: {
-          model: "agnes-2.0-flash",
+          model: "",
           prompt:
             "你是课程设计专家。针对给定课程主题，列出该领域必须掌握的核心知识点（10-15个），按从基础到进阶排序。每个知识点给出：名称、重要性（核心/重要/了解）、一句话说明。",
           skills: [],
@@ -2295,7 +2295,7 @@ const courseOutlineGraph = {
         x: 600,
         y: 300,
         textGen: {
-          model: "agnes-2.0-flash",
+          model: "",
           prompt:
             "基于知识点调研结果，设计课程大纲。课程分为4-6个模块，每个模块包含3-5节课。每节课给出：标题、学习目标、核心知识点、建议时长。模块之间要有清晰的递进关系。",
           skills: [],
@@ -2308,7 +2308,7 @@ const courseOutlineGraph = {
         x: 860,
         y: 300,
         textGen: {
-          model: "agnes-2.0-flash",
+          model: "",
           prompt:
             "把课程大纲细化为可执行的教学方案。对每节课补充：①教学重点与难点 ②教学方法（讲授/演示/练习/讨论）③课后作业建议 ④参考资料。保持原大纲结构不变，只补充细节。",
           skills: [],
@@ -2379,7 +2379,7 @@ const travelPlanGraph = {
         x: 600,
         y: 300,
         textGen: {
-          model: "agnes-2.0-flash",
+          model: "",
           prompt:
             "你是旅行规划师。根据目的地和天数需求，设计一份详细行程。每天包含：①上午景点/活动 ②午餐推荐 ③下午景点/活动 ④晚餐推荐 ⑤住宿区域建议。考虑景点之间的地理位置合理安排路线，避免来回奔波。预算和出行方式在需求中说明的要纳入考虑。",
           skills: [],
@@ -2392,7 +2392,7 @@ const travelPlanGraph = {
         x: 860,
         y: 300,
         textGen: {
-          model: "agnes-2.0-flash",
+          model: "",
           prompt:
             "优化这份行程：①检查每天的行程是否过于紧凑或松散 ②景点路线是否合理（减少折返）③餐饮推荐是否和景点位置匹配 ④是否有遗漏的必去景点 ⑤天气/季节因素是否考虑。给出优化后的完整行程，并在末尾列出'优化说明'（改了什么、为什么改）。",
           skills: [],
@@ -2445,7 +2445,7 @@ const recipeGraph = {
         x: 340,
         y: 300,
         textGen: {
-          model: "agnes-2.0-flash",
+          model: "",
           prompt:
             "你是菜谱设计师。根据给定食材和口味偏好，设计一道菜。输出：①菜名 ②食材清单（主料、辅料、调料，各带用量）③烹饪步骤（分步骤，每步带操作要点和时间）④烹饪技巧与注意事项。食材用量要合理，步骤要可操作。",
           skills: [],
@@ -2458,7 +2458,7 @@ const recipeGraph = {
         x: 600,
         y: 300,
         textGen: {
-          model: "agnes-2.0-flash",
+          model: "",
           prompt:
             "把菜谱步骤细化为新手也能看懂的操作指南。对每个步骤补充：①火候大小（大火/中火/小火）②具体时间（分钟）③操作关键判断（如'炒到变色'、'煮到沸腾'）④常见错误提醒。保持原菜谱结构，只补充细节。",
           skills: [],
@@ -2600,7 +2600,7 @@ const evidenceBriefGraph = {
         x: 860,
         y: 300,
         textGen: {
-          model: "agnes-2.0-flash",
+          model: "",
           prompt:
             "你是诉讼律师助理。上游是结构化证据条目（JSON，每条含 no / date / excerpt）和用户粘贴的原始材料。" +
             "任务：①为每条证据给出规范证据名称与证据来源（聊天记录/转账凭证/合同文书/书证等，依据 excerpt 判断，不得虚构）；" +
@@ -2617,7 +2617,7 @@ const evidenceBriefGraph = {
         x: 1120,
         y: 300,
         textGen: {
-          model: "agnes-2.0-flash",
+          model: "",
           prompt:
             "你是资深诉讼律师。基于上游证据清单与原始材料中的诉讼请求，做证据链完整性分析：" +
             "①把每项请求拆解为必须证明的要件事实；②逐项指出哪些事实已有证据支撑、哪些没有；" +
@@ -2750,7 +2750,7 @@ const expenseReviewGraph = {
         x: 860,
         y: 300,
         textGen: {
-          model: "agnes-2.0-flash",
+          model: "",
           prompt:
             "你是企业费用审计专员。上游是规则校验后的报销明细（JSON，每条含 no / date / amount / category / voucherNo / flags / issueCount / risk）和用户粘贴的原始文本。" +
             "任务：①总览统计：总笔数、总金额（amount 求和，缺失按 0 计）、异常笔数；" +
@@ -2898,7 +2898,7 @@ const reconciliationGraph = {
         x: 860,
         y: 300,
         textGen: {
-          model: "agnes-2.0-flash",
+          model: "",
           prompt:
             "你是企业财务对账专员。上游是逐笔配对结果（JSON：rows 为差异清单，每条含 side 方向 / date 日期 / amount 金额 / memo 摘要；summary 含 bankCount 银行笔数 / bookCount 账簿笔数 / matchedCount 匹配笔数 / diffCount 差异笔数）。" +
             "任务：①总览统计：直接引用 summary 的四个数字，不得重算或编造；" +
@@ -2967,7 +2967,7 @@ const privacyReviewGraph = {
         x: 600,
         y: 300,
         textGen: {
-          model: "agnes-2.0-flash",
+          model: "",
           prompt:
             "你是数据合规专家。阅读隐私政策/用户协议文本，逐条检查以下 11 个合规维度是否覆盖：①收集的个人信息类型 ②收集目的与使用方式 ③第三方共享/委托处理 ④用户同意与撤回机制 ⑤用户权利（访问/更正/删除/注销）⑥数据保留期限 ⑦数据安全措施 ⑧跨境数据传输 ⑨未成年人保护 ⑩联系方式（隐私负责人）⑪政策更新通知。每个维度标注：已覆盖（引用原文关键句）/ 缺失 / 不完整（说明缺什么）。只输出结构化盘点，不得编造原文不存在的条款。",
           skills: [],
@@ -2980,7 +2980,7 @@ const privacyReviewGraph = {
         x: 860,
         y: 300,
         textGen: {
-          model: "agnes-2.0-flash",
+          model: "",
           prompt:
             "你是数据合规顾问。基于上游的合规条款盘点，针对每个「缺失」或「不完整」的维度给出：①整改建议（具体可落地的条款表述方向）②风险等级（高/中/低，依据是否触及个保法/GDPR 等法规）③建议新增条款的位置。已覆盖且完整的维度明确说「已合规」。不得虚构上游不存在的缺失项。",
           skills: [],
@@ -3054,7 +3054,7 @@ const invoiceOcrGraph = {
         x: 600,
         y: 300,
         textGen: {
-          model: "agnes-2.0-flash",
+          model: "",
           prompt:
             "你是发票信息提取专家。上游是多张发票的 OCR 识别文字（每张发票用空行分隔）。从每张发票提取结构化字段：发票号码 invoiceNo、开票日期 date、购买方抬头 buyer、销售方 seller、价税合计金额 amount、税额 tax、税率 rate。输出严格 JSON 数组（不要 markdown 代码块、不要任何解释文字）：[{\"invoiceNo\":\"...\",\"date\":\"...\",\"buyer\":\"...\",\"seller\":\"...\",\"amount\":数字,\"tax\":数字,\"rate\":\"...\"}]。识别不清的字段填 null，amount/tax 必须是数字，不得编造。",
           skills: [],
@@ -3167,7 +3167,7 @@ const batchContractReviewGraph = {
         x: 600,
         y: 300,
         textGen: {
-          model: "agnes-2.0-flash",
+          model: "",
           prompt:
             "你是合同风险审查律师。上游是拆条后的多份合同（JSON 数组 items，每项含 id 和 text 全文）。逐份审查每份合同的风险点：①权利义务不对等 ②违约责任过重或缺失 ③争议解决条款不利 ④保密条款过宽 ⑤知识产权归属不清 ⑥付款条件苛刻 ⑦解除合同限制过多 ⑧不可抗力范围不合理。输出严格 JSON 数组，每个风险一行：[{\"contractNo\":数字,\"dimension\":\"...\",\"severity\":\"高|中|低\",\"description\":\"...\",\"suggestion\":\"...\"}]。无风险的合同不产出风险行。只输出 JSON，不得编造。",
           skills: [],
@@ -3345,7 +3345,7 @@ const auditSamplingGraph = {
         x: 860,
         y: 300,
         textGen: {
-          model: "agnes-2.0-flash",
+          model: "",
           prompt:
             "你是审计专员。上游是抽样后的账目（JSON：rows 每行含 no/date/amount/category/counterparty/flags/sampled，summary 含 totalCount/sampledCount/largeCount/duplicateCount/weekendCount）。任务：①总览统计：直接引用 summary 的五个数字，不得重算或编造；②输出审计底稿：抽样清单 Markdown 表（重点行——大额/重复/非工作日——在前）+ 每类抽样的核查要点（大额→核对合同与审批、重复→排查重复记账、非工作日→核实业务真实性）；③给出审计结论建议。不得虚构账目。",
           skills: [],
@@ -3408,7 +3408,7 @@ const dueDiligenceGraph = {
         x: 600,
         y: 300,
         textGen: {
-          model: "agnes-2.0-flash",
+          model: "",
           prompt:
             "你是投资尽调分析师。上游是多份尽调材料（解析后的文本，每份用「===== 文件名 =====」分隔）。逐项检查以下 7 个尽调事项是否在材料中有覆盖：①公司基本信息（工商登记/股权结构）②财务状况（资产负债/利润/现金流）③资产与知识产权 ④重大合同与关联交易 ⑤诉讼与行政处罚 ⑥人力资源（社保/劳动）⑦税务（纳税记录）。每项标注：已覆盖（引用材料原文关键句）/ 缺失 / 不完整。只输出结构化盘点，不得编造材料不存在的信息。",
           skills: [],
@@ -3421,7 +3421,7 @@ const dueDiligenceGraph = {
         x: 860,
         y: 300,
         textGen: {
-          model: "agnes-2.0-flash",
+          model: "",
           prompt:
             "你是投资尽调顾问。基于上游的尽调盘点，针对每个「缺失」或「不完整」的事项给出：①需补充的材料清单（具体文件名称）②风险提示（缺失该事项可能隐藏的风险）③优先级（高/中/低）。已覆盖且完整的事项明确说「已核查」。不得虚构上游不存在的缺失项。",
           skills: [],
@@ -3487,7 +3487,7 @@ const variantCopyGraph = {
         x: 640,
         y: 300,
         textGen: {
-          model: "agnes-2.0-flash",
+          model: "",
           prompt:
             "你是电商投放文案助手。根据给定需求和该泳道的写法要求写一条投放文案，不超过 120 字，只输出文案正文。",
           skills: [],
@@ -3552,7 +3552,7 @@ const compliancePrecheckGraph = {
         x: 640,
         y: 300,
         textGen: {
-          model: "agnes-2.0-flash",
+          model: "",
           prompt:
             "你是电商文案合规编辑。上游已给出净化后的文案与命中词清单：把它改写成一条可直接上架的小红书风格文案，保留原意与卖点，绝不使用命中词表里的绝对化用语，命中项改用可验证表述，不超过 200 字，只输出文案正文。",
           skills: [],

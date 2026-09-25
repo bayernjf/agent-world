@@ -1,13 +1,6 @@
-import type { Graph, NodeKind } from "@agent-world/core";
+import type { Graph } from "@agent-world/core";
 import { providerForModel, DEFAULT_MODALITY, type AppConfig } from "./config.js";
-
-/** Which node kinds require a worker model and which modality they need. */
-const NODE_KIND_MODALITY: Partial<Record<NodeKind, "text" | "image" | "video" | "audio">> = {
-  textGen: "text",
-  imageGen: "image",
-  videoGen: "video",
-  audioGen: "audio",
-};
+import { nodeModelConfig, NODE_KIND_MODALITY } from "./model-slots.js";
 
 const MODALITY_LABEL: Record<string, string> = {
   text: "文本",
@@ -37,11 +30,7 @@ export function validateModels(graph: Graph, config: AppConfig): ModelDiagnostic
   for (const n of graph.nodes) {
     const wanted = NODE_KIND_MODALITY[n.kind];
     if (!wanted) continue;
-    const cfg =
-      n.kind === "textGen" ? n.textGen :
-      n.kind === "imageGen" ? n.imageGen :
-      n.kind === "videoGen" ? n.videoGen :
-      n.kind === "audioGen" ? n.audioGen : null;
+    const cfg = nodeModelConfig(n);
     if (!cfg) {
       out.push({
         severity: "error",
@@ -50,7 +39,7 @@ export function validateModels(graph: Graph, config: AppConfig): ModelDiagnostic
       });
       continue;
     }
-    const model = (cfg as { model?: string }).model?.trim() ?? "";
+    const model = cfg.model?.trim() ?? "";
     if (!model) {
       out.push({
         severity: "error",

@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Graph } from "@agent-world/core";
 
-function setup(opts: { providers: Record<string, any>; defaultModel: string; defaultProvider: string }) {
+function setup(opts: {
+  providers: Record<string, unknown>;
+  defaultModel: string;
+  defaultProvider: string;
+}) {
   vi.resetModules();
   vi.doMock("../lib/api", () => ({
     api: {
@@ -11,7 +15,7 @@ function setup(opts: { providers: Record<string, any>; defaultModel: string; def
           defaultModel: opts.defaultModel,
           defaultProvider: opts.defaultProvider,
         }),
-      saveGraph: () => Promise.resolve({ ok: true }),
+      saveGraph: () => Promise.resolve({ ok: true, version: 1 }),
     },
   }));
   return import("./graph");
@@ -41,117 +45,52 @@ const mkGraph = (...nodes: Graph["nodes"]): Graph => ({
   edges: [],
 });
 
-describe("migrateGraphModels on setGraph", () => {
-  it("re-picks a placeholder model for an imageGen node", async () => {
+const imageNode = (model: string) => ({
+  id: "i1",
+  kind: "imageGen" as const,
+  name: "image-i1",
+  x: 0,
+  y: 0,
+  imageGen: { model, n: 1 },
+});
+
+// 曾经有一个"打开产线时自动改模型并存盘"的迁移。它现在是错的，而且错得危险：
+// 「空」是"跟随当前默认"的槽位（规则 B），改写等于替用户把型号钉死；
+// "已下架的钉名"应该报错让用户自己重选（规则 A），静默改绑下一个可用模型掩盖了
+// 这件事；而自动存盘会把版本快照和 contentHash 一起搅乱（#53 零配置首跑 422 就是
+// 它造成的）。这里的断言就是"什么都不改、什么都不存"。
+describe("setGraph never touches model fields", () => {
+  it("keeps a legacy placeholder model verbatim", async () => {
     const { useGraph, refreshDefaultModel } = await setup(agnesConfig);
     await refreshDefaultModel();
-    const g = mkGraph({
-      id: "i1",
-      kind: "imageGen",
-      name: "image-i1",
-      x: 0,
-      y: 0,
-      imageGen: { model: "agnes-image", n: 1 }, // legacy placeholder
-    });
-    useGraph.getState().setGraph(g);
-    const node = useGraph.getState().graph.nodes[0]!;
-    expect(node.imageGen?.model).toBe("agnes-image-2.0-flash");
+    useGraph.getState().setGraph(mkGraph(imageNode("agnes-image")));
+    expect(useGraph.getState().graph.nodes[0]!.imageGen?.model).toBe("agnes-image");
   });
 
-  it("leaves a node's real model untouched", async () => {
+  it("keeps a retired model verbatim so dispatch can refuse the run", async () => {
     const { useGraph, refreshDefaultModel } = await setup(agnesConfig);
     await refreshDefaultModel();
-    const g = mkGraph({
-      id: "i1",
-      kind: "imageGen",
-      name: "image-i1",
-      x: 0,
-      y: 0,
-      imageGen: { model: "agnes-image-2.0-flash", n: 1 },
-    });
-    useGraph.getState().setGraph(g);
-    const node = useGraph.getState().graph.nodes[0]!;
-    expect(node.imageGen?.model).toBe("agnes-image-2.0-flash");
+    useGraph.getState().setGraph(mkGraph(imageNode("agnes-image-1.0-old")));
+    expect(useGraph.getState().graph.nodes[0]!.imageGen?.model).toBe("agnes-image-1.0-old");
   });
 
-  it("clears an unknown model when no real alternative exists", async () => {
-    const { useGraph, refreshDefaultModel } = await setup({
-      providers: {},
-      defaultModel: "txt-1",
-      defaultProvider: "p1",
-    });
-    await refreshDefaultModel();
-    const g = mkGraph({
-      id: "v1",
-      kind: "videoGen",
-      name: "video-v1",
-      x: 0,
-      y: 0,
-      videoGen: { model: "video-gen", n: 1 }, // legacy placeholder, no provider
-    });
-    useGraph.getState().setGraph(g);
-    const node = useGraph.getState().graph.nodes[0]!;
-    // No video model configured -> setGraph migration leaves it empty so
-    // dispatch validation can refuse the run.
-    expect(node.videoGen?.model).toBe("");
-  });
-
-  it("handles mixed node kinds in one graph", async () => {
+  it("keeps an empty follow-default slot empty", async () => {
     const { useGraph, refreshDefaultModel } = await setup(agnesConfig);
     await refreshDefaultModel();
-    const g = mkGraph(
-      {
-        id: "a1",
-        kind: "textGen",
-        name: "agent-a1",
-        x: 0,
-        y: 0,
-        textGen: { model: "", prompt: "", skills: [], temperature: 0.7, timeoutMs: 120000, inputPolicy: { mode: "all" }, retry: { maxRetries: 2, baseDelayMs: 1000, maxDelayMs: 30000 } },
-      },
-      {
-        id: "i1",
-        kind: "imageGen",
-        name: "image-i1",
-        x: 0,
-        y: 0,
-        imageGen: { model: "agnes-image", n: 1 },
-      },
-      {
-        id: "v1",
-        kind: "videoGen",
-        name: "video-v1",
-        x: 0,
-        y: 0,
-        videoGen: { model: "video-gen", n: 1 },
-      },
-    );
-    useGraph.getState().setGraph(g);
-    const [agent, image, video] = useGraph.getState().graph.nodes;
-    expect(agent?.textGen?.model).toBe("agnes-2.5-flash");
-    expect(image?.imageGen?.model).toBe("agnes-image-2.0-flash");
-    expect(video?.videoGen?.model).toBe("agnes-video-v2.0");
+    useGraph.getState().setGraph(mkGraph(imageNode("")));
+    expect(useGraph.getState().graph.nodes[0]!.imageGen?.model).toBe("");
   });
 
-  it("ignores kinds that don't carry a model (source / gate / sink)", async () => {
-    const { useGraph, refreshDefaultModel } = await setup(agnesConfig);
-    await refreshDefaultModel();
-    const g = mkGraph(
-      { id: "s1", kind: "source", name: "source-s1", x: 0, y: 0 },
-      { id: "g1", kind: "gate", name: "gate-g1", x: 0, y: 0, gate: { maxAttempts: 3, criterion: "", onExhausted: "halt" } },
-      { id: "k1", kind: "sink", name: "sink-k1", x: 0, y: 0 },
-    );
-    useGraph.getState().setGraph(g);
-    const [src, gate, sink] = useGraph.getState().graph.nodes;
-    expect(src?.kind).toBe("source");
-    expect(gate?.gate?.maxAttempts).toBe(3);
-    expect(sink?.kind).toBe("sink");
+  it("schedules no save on load (no silent version churn)", async () => {
+    const { useGraph } = await setup(agnesConfig);
+    useGraph.getState().setGraph(mkGraph(imageNode("agnes-image"), imageNode("")));
+    // scheduleSave 会立刻把 saveState 打到 "saving"；没被调用就还是 "idle"。
+    expect(useGraph.getState().saveState).toBe("idle");
+    await new Promise((r) => setTimeout(r, 10));
+    expect(useGraph.getState().saveState).toBe("idle");
   });
 
-  it("keeps a valid built-in model when model options have not loaded yet (demo zero-config race)", async () => {
-    // Settings request stays pending: the module-level refresh is in flight, so
-    // modelOptionsReady is false and the option list is empty. setGraph must not
-    // wipe a non-empty model it cannot yet prove unknown. Regression for the
-    // demo's first-run 422 "graph has unconfigured model(s)".
+  it("survives the settings race without wiping or saving", async () => {
     let resolveSettings: ((cfg: unknown) => void) | null = null;
     const settingsPromise = new Promise((res) => {
       resolveSettings = res as (cfg: unknown) => void;
@@ -165,79 +104,74 @@ describe("migrateGraphModels on setGraph", () => {
     }));
     const { useGraph } = await import("./graph");
     try {
-      const g = mkGraph({
-        id: "d1",
-        kind: "textGen",
-        name: "draft",
-        x: 0,
-        y: 0,
-        textGen: { model: "agnes-2.0-flash", prompt: "p", skills: [], temperature: 0.7, timeoutMs: 60000 },
-      });
-      useGraph.getState().setGraph(g);
-      const node = useGraph.getState().graph.nodes[0]!;
-      expect(node.textGen?.model).toBe("agnes-2.0-flash");
+      useGraph.getState().setGraph(mkGraph(imageNode("agnes-2.0-flash"), imageNode("")));
+      expect(useGraph.getState().graph.nodes[0]!.imageGen?.model).toBe("agnes-2.0-flash");
+      expect(useGraph.getState().graph.nodes[1]!.imageGen?.model).toBe("");
+      expect(useGraph.getState().saveState).toBe("idle");
     } finally {
       resolveSettings?.(agnesConfig);
       await new Promise((r) => setTimeout(r, 0));
     }
+    // 选项迟到之后同样不改写：这条曾经会"补跑一次迁移"，现在什么都不会发生。
+    expect(useGraph.getState().graph.nodes[0]!.imageGen?.model).toBe("agnes-2.0-flash");
+    expect(useGraph.getState().graph.nodes[1]!.imageGen?.model).toBe("");
+    expect(useGraph.getState().saveState).toBe("idle");
+  });
+});
+
+// defaultModelFor 现在只有一个用途：给空槽的界面文案回答"这个槽会跟到哪个模型"。
+describe("defaultModelFor answers 'what would an empty slot follow'", () => {
+  it("prefers the user's default when its modality fits", async () => {
+    const { defaultModelFor, refreshDefaultModel } = await setup(agnesConfig);
+    await refreshDefaultModel();
+    expect(defaultModelFor("textGen")?.model).toBe("agnes-2.5-flash");
   });
 
-  it("keeps a built-in model when settings fetch rejects unauthenticated (login-screen 401 race)", async () => {
-    // The module-level refresh fires on the login screen while unauthenticated:
-    // getSettings() rejects (401). Old code still set modelOptionsReady=true with
-    // an empty list, so the first post-login graph load judged a valid built-in
-    // model unknown and wiped it (demo zero-config 422). Now a rejected fetch
-    // leaves ready=false and the list empty, so a non-empty model is preserved.
-    vi.resetModules();
-    vi.doMock("../lib/api", () => ({
-      api: {
-        getSettings: () => Promise.reject(new Error("401 Unauthorized")),
-        saveGraph: () => Promise.resolve({ ok: true, version: 1 }),
-      },
-    }));
-    const { useGraph } = await import("./graph");
-    const g = mkGraph({
-      id: "d1",
-      kind: "textGen",
-      name: "draft",
-      x: 0,
-      y: 0,
-      textGen: { model: "agnes-2.0-flash", prompt: "p", skills: [], temperature: 0.7, timeoutMs: 60000 },
+  it("ignores a default of the wrong modality and picks per modality instead", async () => {
+    // 用户的默认是一张图片模型：文本槽不能跟到它身上，各模态各挑各的第一个。
+    const { defaultModelFor, refreshDefaultModel } = await setup({
+      ...agnesConfig,
+      defaultModel: "agnes-image-2.0-flash",
     });
-    useGraph.getState().setGraph(g);
-    const node = useGraph.getState().graph.nodes[0]!;
-    expect(node.textGen?.model).toBe("agnes-2.0-flash");
+    await refreshDefaultModel();
+    expect(defaultModelFor("textGen")?.model).toBe("agnes-2.5-flash");
+    expect(defaultModelFor("imageGen")?.model).toBe("agnes-image-2.0-flash");
+    expect(defaultModelFor("videoGen")?.model).toBe("agnes-video-v2.0");
   });
 
-  it("defers placeholder migration until options load, then corrects it", async () => {
-    // Same cold start: a legacy placeholder is left untouched while options are
-    // unavailable; once settings resolve, the deferred migration replaces it.
-    let resolveSettings: ((cfg: unknown) => void) | null = null;
-    const settingsPromise = new Promise((res) => {
-      resolveSettings = res as (cfg: unknown) => void;
+  it("returns null when the modality has nothing to offer", async () => {
+    const { defaultModelFor, refreshDefaultModel } = await setup({
+      providers: {},
+      defaultModel: "txt-1",
+      defaultProvider: "p1",
     });
-    vi.resetModules();
-    vi.doMock("../lib/api", () => ({
-      api: {
-        getSettings: () => settingsPromise,
-        saveGraph: () => Promise.resolve({ ok: true, version: 1 }),
-      },
-    }));
-    const { useGraph } = await import("./graph");
-    const g = mkGraph({
-      id: "i1",
-      kind: "imageGen",
-      name: "image-i1",
-      x: 0,
-      y: 0,
-      imageGen: { model: "agnes-image", n: 1 },
+    await refreshDefaultModel();
+    expect(defaultModelFor("audioGen")).toBeNull();
+  });
+});
+
+describe("addNode seeds an empty slot", () => {
+  it("creates the node with a follow-default slot, not a pinned model", async () => {
+    const { useGraph, refreshDefaultModel } = await setup(agnesConfig);
+    await refreshDefaultModel();
+    useGraph.getState().setGraph(mkGraph());
+    const res = useGraph.getState().addNode("textGen", 0, 0);
+    const node = useGraph.getState().graph.nodes.find((n) => n.id === res.id);
+    expect(node?.textGen?.model).toBe("");
+    // 有可跟随的默认 → 不该报缺模型。
+    expect(res.missingModality).toBeNull();
+  });
+
+  it("still reports the missing modality when nothing exists for it", async () => {
+    const { useGraph, refreshDefaultModel } = await setup({
+      providers: {},
+      defaultModel: "txt-1",
+      defaultProvider: "p1",
     });
-    useGraph.getState().setGraph(g);
-    // Not ready yet → placeholder preserved (not wiped to "").
-    expect(useGraph.getState().graph.nodes[0]!.imageGen?.model).toBe("agnes-image");
-    resolveSettings?.(agnesConfig);
-    await new Promise((r) => setTimeout(r, 0));
-    // Options arrived → the deferred migration in refreshDefaultModel runs.
-    expect(useGraph.getState().graph.nodes[0]!.imageGen?.model).toBe("agnes-image-2.0-flash");
+    await refreshDefaultModel();
+    useGraph.getState().setGraph(mkGraph());
+    const res = useGraph.getState().addNode("audioGen", 0, 0);
+    expect(res.missingModality).toBe("audio");
+    expect(useGraph.getState().graph.nodes.find((n) => n.id === res.id)?.audioGen?.model).toBe("");
   });
 });

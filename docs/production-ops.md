@@ -186,7 +186,7 @@ console.log(JSON.parse(row.doc).triggers);
 
 1. **直接改 DB**（触发器存在 `graphs.doc.triggers`，非独立表）：
    ```bash
-   ssh hasee-2016-server 'echo "feng" | sudo -S node -e "
+   ssh hasee-2016-server 'echo "<pw>" | sudo -S node -e "
    const { DatabaseSync } = require(\"node:sqlite\");
    const db = new DatabaseSync(\"/var/lib/agent-world/agent-world.sqlite\");
    const row = db.prepare(\"SELECT doc FROM graphs WHERE id = ?\").get(\"<graph_id>\");
@@ -196,7 +196,9 @@ console.log(JSON.parse(row.doc).triggers);
    db.prepare(\"UPDATE graphs SET doc = ?, updated_at = ? WHERE id = ?\").run(JSON.stringify(doc), Date.now(), \"<graph_id>\");
    "'
    ```
-2. **重启服务重载触发器**：`ssh hasee-2016-server 'echo "feng" | sudo -S systemctl restart agent-world'`
+2. **重启服务重载触发器**：`ssh hasee-2016-server 'echo "<pw>" | sudo -S systemctl restart agent-world'`
+
+   > ⚠️ **`<pw>` 是占位符，不要往这份文档里回写真值。** 此前两处命令内联了该服务器的真实 sudo 口令（由 commit `2aa40b15` 引入，gitleaks 不覆盖这个形态），2026-09-25 已去敏；同族的 [design-monetization-m2-implementation.md](design-monetization-m2-implementation.md) §回滚段一直用 `<pw>`。**真值仍留在 git 历史里**，所以对外的正确处置是**轮换该口令**而不是改写历史；改写历史只在把仓库公开时才必要。
 3. **验证**：`curl -s http://192.168.31.14/api/health` 确认服务起来，等下一个 cron 触发点确认 run 创建
 
 > 注意：DB 文件权限为只读（非 root），修改必须用 `sudo`。触发器在内存中的 index 由 `triggers.restore()` 在服务启动时重建，改 DB 后必须重启服务才生效（暂无热更新 API）。

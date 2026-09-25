@@ -1,6 +1,6 @@
 # 内置模型目录与插拔设计
 
-> 状态：**设计定稿，未落地**（2026-09-25 起草）。阶段 ①②③ 可直接开工，④ 的字段允许清单已定、写入面待落。
+> 状态：**①②③ 已落地（2026-09-25，commit `9c7c5f1` / `54acc50` / `7c0dbe0`）**，④（admin 目录数据面）未开工。落地后的实际行为差异见 §十一「已落地什么、还剩什么」。
 > 关联：`packages/server/src/config.ts`（目录与合并）、`packages/server/src/providers/index.ts`（路由与 worker 缓存）、`packages/server/src/validate-models.ts`（派发前检查）、[design-monetization.md](design-monetization.md)（内置层与套餐门禁）、[design-versions.md](design-versions.md)（contentHash 与版本快照）。
 > 一句话：**换默认 = 配置、热生效；加/删内置模型 = 数据、admin 面；接新供应商或改接口方言 = 代码、发版；凭证 = env，永不进数据也不进界面。**
 
@@ -129,12 +129,12 @@
 
 ## 八、落地阶段
 
-| 阶段 | 内容 | 主要改动 | 验收 |
-| --- | --- | --- | --- |
-| **①** | 规则 A：下架即报错 | `validate-models.ts:66`、`providers/index.ts:34-37/46-53` | 从 `models[]` 删一个内置模型 → 派发 422 且错误指名模型；停用 provider → 节点执行抛 `PROVIDER_DISABLED`；`type:"fake"` 仍正常出文本 |
-| **②** | 热更新生效（缓存 key） | `providers/index.ts:38` | 同进程内改单价后下一次 run 按新价记账（回归测，不需重启） |
-| **③** | 规则 B | `resolveModelSlots` + `run.ts:176` 前、`graph.ts:170/188/208/230`、`templates.ts` 59 处、`store/graph.ts:17/160/288/318`、Inspector 文案 + i18n | 新建模板产线节点模型为空、派发跑通且快照为真名；换 `defaultModel` 后新 run 用新名、评测版本自动分开；已下架名的老图 → 422 + Inspector 标红可一键改回 |
-| **④** | admin 目录数据面 | 平台行读写 + `config.ts:473` 合并改造 + `canManageCatalog` + API + 界面 + 审计 | admin 增一个模型 → 用户可选、无需发版；删一个 → 命中规则 A 报错；改价 → 命中 ② 的热生效；写入出现在 `/api/audit` |
+| 阶段 | 状态 | 内容 | 主要改动 | 验收（实际落点） |
+| --- | --- | --- | --- | --- |
+| **①** | ✅ `9c7c5f1` | 规则 A：下架即报错 | `validate-models.ts` 去掉 builtin 豁免（改判 `providerForModel` 新增的 `matched`）、`providers/index.ts` 停用/未实现/未知类型三处不再降级成 fake、`workerFor` 不再把空模型名交给 fake | 从 `models[]` 删一个内置模型 → 派发 422 且错误指名模型；停用 provider → 抛 `UNSUPPORTED`（不在 `nodes/shared.ts` 的 RETRYABLE 里，所以不重试也不出网）；`type:"fake"` 与 `WORKER=fake` 仍正常出文本 |
+| **②** | ✅ `54acc50` | 热更新生效（缓存 key） | `providers/index.ts` 的 `providerCacheKey` 用整份 provider 对象作 key | 同一进程内改单价后下一次 run 即按新价记账（`routing.test.ts` 实测 5e-6 → 5e-3），另有 3 条 key 性质测 |
+| **③** | ✅ `7c0dbe0` | 规则 B | `model-slots.ts`（新增）+ `run.ts` 建 run 前解析、`ab.ts` 补解析与 `defaultModel`、`graph.ts` 五处 schema、`templates.ts` 59 处、`store/graph.ts` 删除读取时迁移、Inspector 共用 `ModelSelect` + i18n | 空槽派发跑通、**快照存真名而产线文档保持空串**（`api.dispatch-guard.test.ts` 端到端测）、换默认后评测版本自动分开、已下架名在 Inspector 标「已下架，请重选」且可一键回「跟随默认」 |
+| **④** | ⬜ 未开工 | admin 目录数据面 | 平台行读写 + `config.ts:473` 合并改造 + `canManageCatalog` + API + 界面 + 审计 | admin 增一个模型 → 用户可选、无需发版；删一个 → 命中规则 A 报错；改价 → 命中 ② 的热生效；写入出现在 `/api/audit` |
 
 顺序不能反：① 是所有后续的前置（否则"下架"落到最容易误触的界面时仍在假成功）；②先于④（否则界面会骗人）；③独立于④，可先行。
 
@@ -149,3 +149,18 @@
 
 1. ④ 是否连"哪个套餐能看见哪个内置模型"一起放进数据面（`modelOrder` + 门禁清单）。倾向**放**——那本来就是运营决策，不该绑发版。
 2. 阶段 ② 取 (a) 还是要直接做 (b)。
+
+## 十一、①②③ 落地后的实测状态与剩余字面量
+
+**质量门（2026-09-25 实测，非估算）**：core 346/346；server 1390 例（1386 passed / 2 skipped / **2 failed**——`engine.code.test.ts` 两条 python 出网用例，本机 `python3` 是 Xcode 许可 shim，属既有环境失败，与本设计无关）；web 1968/1968（单跑全绿；把三个包串跑时出现过 2 例 contention 抖动，复跑即绿）；`pnpm typecheck`（含 scripts）绿；`i18n:check` 与 `i18n:prune --check` 均 0 未引用 key。
+
+**还剩的写死模型名（③ 有意未清，都是"最后兜底"位）**：
+
+| 位置 | 现在的写法 | 触发条件 |
+| --- | --- | --- |
+| `engine.ts:1653/2119/2346` | `fallbackModel: opts.defaultModel ?? "agnes-2.0-flash"` | 四个派发口（startRun / rerun / fork / ab）现在都显式传 `defaultModel`，所以这个 `??` 只在"测试直接调 execute 且不传默认"时生效；要清就得同时核约 20 个测试替身的期望值 |
+| `openai-compatible.ts:518/536/881` | `config.model \|\| "agnes-2.0-flash"` 等 | 规则 B 之后正常路径永远带真名，这些是不可达兜底；留着的问题是"看着像还能这么跑" |
+| `templates.ts:1424`（`defaultValue: "tts-1"`）与 `tpl-custom-model` 的模型字段 | 有意保留 | 它们是**用户看得见、可编辑的 BYOK 入口**，不是内置层 |
+| `seed.ts` / `workers/demo.worker.ts` / 各 `*.test.ts` | 有意保留 | 测试夹具钉具体模型是正确的 |
+
+**顺带查出、尚未修的相邻缺陷（已登记 deferred）**：`ab.ts` 的实验 run 只补了 `dispatchGate` + 模型解析 + `defaultModel`，但仍然不经 `runAsUser`、不传 `bannedTerms` / `userSkills` / `searchConfig` / `storeBinary` / `monthlyBudgetUsd`，也不写 `recordRunUsage`。也就是说 A/B 实验这条路上**合规词表、技能、媒体产物落库、月度预算与用量归集都是缺的**。这不是本设计引入的（① 之后至少不再是"静默用错模型"），但它和"跨切面检查只挂在一条路由上"是同一个形状。

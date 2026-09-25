@@ -1,5 +1,6 @@
 import type { FieldsProps } from "./types";
-import { MissingModelHint, RetryField } from "./shared";
+import { MissingModelHint, ModelSelect, RetryField } from "./shared";
+import { defaultModelFor } from "../../store/graph";
 
 export default function TranslateFields({
   node,
@@ -52,34 +53,14 @@ export default function TranslateFields({
       </label>
       <label className="field">
         <span>{t("nodes:inspector.common.model")}</span>
-        <select
-          className="select"
-          value={node.translate.model || "__unset__"}
-          onChange={(e) => {
-            if (e.target.value === "__unset__") return;
-            updateNode(node.id, {
-              translate: { ...node.translate!, model: e.target.value },
-            });
-          }}
-        >
-          <option value="__unset__" disabled hidden>
-            {!node.translate.model
-              ? t("nodes:inspector.common.modelUnsetDefault")
-              : t("nodes:inspector.common.modelSelect")}
-          </option>
-          {textModelOptions.map((o) => (
-            <option key={`${o.provider}::${o.model}`} value={o.model}>
-              {o.model} · {o.provider}
-            </option>
-          ))}
-          {!textModelOptions.some((o) => o.model === node.translate!.model) &&
-            node.translate.model && (
-              <option value={node.translate.model}>
-                {node.translate.model}
-                {t("nodes:inspector.common.modelCurrent")}
-              </option>
-            )}
-        </select>
+        <ModelSelect
+          value={node.translate.model ?? ""}
+          options={textModelOptions}
+          modalityLabel={t("nodes:modality.text")}
+          followTarget={defaultModelFor("textGen")?.model ?? null}
+          t={t}
+          onChange={(model) => updateNode(node.id, { translate: { ...node.translate!, model } })}
+        />
         <MissingModelHint
           hasModels={textModelOptions.length > 0}
           onOpenSettings={onOpenSettings}

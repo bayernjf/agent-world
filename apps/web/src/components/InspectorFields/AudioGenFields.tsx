@@ -1,6 +1,7 @@
 import type { AudioGenConfig } from "@agent-world/core";
 import type { FieldsProps } from "./types";
-import { MissingModelHint } from "./shared";
+import { MissingModelHint, ModelSelect } from "./shared";
+import { defaultModelFor } from "../../store/graph";
 
 export default function AudioGenFields({
   node,
@@ -16,36 +17,14 @@ export default function AudioGenFields({
     <>
       <label className="field">
         <span>{t("nodes:inspector.audioGen.model")}</span>
-        <select
-          className="select"
-          value={node.audioGen.model || "__unset__"}
-          onChange={(e) => {
-            if (e.target.value === "__unset__") return;
-            updateNode(node.id, {
-              audioGen: { ...node.audioGen!, model: e.target.value },
-            });
-          }}
-        >
-          <option value="__unset__" disabled hidden>
-            {!node.audioGen.model
-              ? t("nodes:inspector.common.modelUnset", {
-                  modality: t("nodes:modality.audio"),
-                })
-              : t("nodes:inspector.common.modelSelect")}
-          </option>
-          {audioModelOptions.map((o) => (
-            <option key={`${o.provider}::${o.model}`} value={o.model}>
-              {o.model} · {o.provider}
-            </option>
-          ))}
-          {!audioModelOptions.some((o) => o.model === node.audioGen!.model) &&
-            node.audioGen.model && (
-              <option value={node.audioGen.model}>
-                {node.audioGen.model}
-                {t("nodes:inspector.common.modelCurrent")}
-              </option>
-            )}
-        </select>
+        <ModelSelect
+          value={node.audioGen.model}
+          options={audioModelOptions}
+          modalityLabel={t("nodes:modality.audio")}
+          followTarget={defaultModelFor("audioGen")?.model ?? null}
+          t={t}
+          onChange={(model) => updateNode(node.id, { audioGen: { ...node.audioGen!, model } })}
+        />
         <MissingModelHint
           hasModels={audioModelOptions.length > 0}
           onOpenSettings={onOpenSettings}

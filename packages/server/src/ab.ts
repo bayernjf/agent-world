@@ -3,6 +3,8 @@ import { compile, type Graph } from "@agent-world/core";
 import { openDb } from "./db.js";
 import { execute } from "./engine.js";
 import { dispatchGate } from "./dispatch-gate.js";
+import { loadConfig } from "./config.js";
+import { resolveModelSlots } from "./model-slots.js";
 import { haltedOf } from "./run.js";
 import type { Worker } from "./worker.js";
 
@@ -52,7 +54,15 @@ export async function startABExperiment(
   },
 ): Promise<{ abGroup: string; arms: Array<{ arm: string; runId: string; prompt: string }> }> {
   const abGroup = randomUUID();
-  const built = buildABVariants(opts.graph, opts.targetNodeId, opts.variants);
+  // A/B 不经 startRun，所以「跟随当前默认」的解析要在这里自己做一遍：否则一条
+  // 模板产线（节点 model 为空）进了实验，快照里存的还是空串，评测 byPrompt 指纹
+  // 会把换内置默认前后的 run 并进同一个版本。顺带把 defaultModel 真正传给引擎——
+  // 以前没传，引擎落到 engine.ts:1653 那个 `?? "agnes-2.0-flash"` 字面量上，
+  // 等于实验永远用写死的模型跑，与用户配置的默认无关。
+  const cfg = await loadConfig(opts.userId);
+  // buildABVariants deep-clones the source per arm, so resolving once here is
+  // enough — every variant inherits the filled-in names.
+  const built = buildABVariants(resolveModelSlots(opts.graph, cfg), opts.targetNodeId, opts.variants);
   // 一次实验会建 N 条 run，闸门按「这一次用户动作」评估一次就够：放在循环里会让
   // 第一条 arm 的活跃 run 把后面的 arm 按并发超额拦掉。ab.ts 不经 startRun，
   // 所以要显式补，否则实验是绕过配额的一条路。
@@ -87,6 +97,7 @@ export async function startABExperiment(
           plan,
           worker,
           input: opts.input ?? "",
+          defaultModel: cfg.defaultModel,
           budgetUsd: opts.budgetUsd ?? null,
           signal: opts.signal,
         })) {

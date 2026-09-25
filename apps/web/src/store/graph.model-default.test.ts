@@ -21,9 +21,13 @@ function setup(opts: {
   return import("./graph");
 }
 
-describe("addNode default model selection", () => {
+// 规则 B（docs/design-model-catalog.md）之后，新建节点不再被写进一个具体模型：
+// 节点带的是空槽，派发时由服务端解析成"该模态的当前默认"。defaultModelFor 仍然
+// 存在，但只剩两个用途——给界面回答"这个空槽会跟到谁"，以及探针判断"这个模态
+// 到底有没有模型可跟"。下面断言的就是这两件事。
+describe("addNode: the empty slot and what it would follow", () => {
   it("picks a text model for agent nodes", async () => {
-    const { useGraph, refreshDefaultModel } = await setup({
+    const { useGraph, defaultModelFor, refreshDefaultModel } = await setup({
       providers: {
         p1: {
           type: "openai-compatible",
@@ -39,11 +43,13 @@ describe("addNode default model selection", () => {
     const r = useGraph.getState().addNode("textGen", 10, 10);
     expect(r.missingModality).toBeNull();
     const node = useGraph.getState().graph.nodes.find((n) => n.id === r.id);
-    expect(node?.textGen?.model).toBe("txt-1");
+    // 节点里存的是空槽（派发时服务端解析），具体跟到哪个模型由 defaultModelFor 回答。
+    expect(node?.textGen?.model).toBe("");
+    expect(defaultModelFor("textGen")?.model).toBe("txt-1");
   });
 
   it("picks the first enabled image model for imageGen", async () => {
-    const { useGraph, refreshDefaultModel } = await setup({
+    const { useGraph, defaultModelFor, refreshDefaultModel } = await setup({
       providers: {
         p1: {
           type: "openai-compatible",
@@ -59,11 +65,12 @@ describe("addNode default model selection", () => {
     const r = useGraph.getState().addNode("imageGen", 10, 10);
     expect(r.missingModality).toBeNull();
     const node = useGraph.getState().graph.nodes.find((n) => n.id === r.id);
-    expect(node?.imageGen?.model).toBe("img-1");
+    expect(node?.imageGen?.model).toBe("");
+    expect(defaultModelFor("imageGen")?.model).toBe("img-1");
   });
 
   it("returns missingModality when no model matches; the node is still added with an empty model", async () => {
-    const { useGraph, refreshDefaultModel } = await setup({
+    const { useGraph, defaultModelFor, refreshDefaultModel } = await setup({
       providers: {
         p1: {
           type: "openai-compatible",
@@ -80,14 +87,13 @@ describe("addNode default model selection", () => {
     expect(r.missingModality).toBe("video");
     const node = useGraph.getState().graph.nodes.find((n) => n.id === r.id);
     expect(node).toBeDefined();
-    // The model field is left empty so the Inspector can show "(未配置)" and
-    // dispatch can refuse to run. The user fills it in once they configure
-    // a provider.
+    // 该模态没有任何可跟随的模型：槽位保持空，missingModality 让调用方给出
+    // "先去模型设置里添加"的提示，派发侧也会拒绝这条 run。
     expect(node?.videoGen?.model).toBe("");
   });
 
   it("skips disabled providers when looking for a default", async () => {
-    const { useGraph, refreshDefaultModel } = await setup({
+    const { useGraph, defaultModelFor, refreshDefaultModel } = await setup({
       providers: {
         on: {
           type: "openai-compatible",
@@ -109,7 +115,8 @@ describe("addNode default model selection", () => {
     const r = useGraph.getState().addNode("imageGen", 10, 10);
     expect(r.missingModality).toBeNull();
     const node = useGraph.getState().graph.nodes.find((n) => n.id === r.id);
-    expect(node?.imageGen?.model).toBe("img-A");
+    expect(node?.imageGen?.model).toBe("");
+    expect(defaultModelFor("imageGen")?.model).toBe("img-A");
   });
 
   it("source/sink/gate need no model", async () => {
@@ -126,7 +133,7 @@ describe("addNode default model selection", () => {
 });
 
   it("prefers a real provider over a legacy demo provider when both match the modality", async () => {
-    const { useGraph, refreshDefaultModel } = await setup({
+    const { useGraph, defaultModelFor, refreshDefaultModel } = await setup({
       providers: {
         // A legacy config may still carry the removed demo provider.
         demo: { type: "fake", enabled: true, models: ["demo-image"], modalities: { "demo-image": "image" } },
@@ -147,5 +154,6 @@ describe("addNode default model selection", () => {
     expect(r.missingModality).toBeNull();
     const node = useGraph.getState().graph.nodes.find((n) => n.id === r.id);
     // Real provider wins over the legacy demo fallback.
-    expect(node?.imageGen?.model).toBe("real-image-1");
+    expect(node?.imageGen?.model).toBe("");
+    expect(defaultModelFor("imageGen")?.model).toBe("real-image-1");
   });

@@ -1,5 +1,6 @@
 import type { FieldsProps } from "./types";
-import { MissingModelHint } from "./shared";
+import { MissingModelHint, ModelSelect } from "./shared";
+import { defaultModelFor } from "../../store/graph";
 
 export default function ImageGenFields({
   node,
@@ -15,36 +16,14 @@ export default function ImageGenFields({
     <>
       <label className="field">
         <span>{t("nodes:inspector.imageGen.model")}</span>
-        <select
-          className="select"
-          value={node.imageGen.model || "__unset__"}
-          onChange={(e) => {
-            if (e.target.value === "__unset__") return;
-            updateNode(node.id, {
-              imageGen: { ...node.imageGen!, model: e.target.value },
-            });
-          }}
-        >
-          <option value="__unset__" disabled hidden>
-            {!node.imageGen.model
-              ? t("nodes:inspector.common.modelUnset", {
-                  modality: t("nodes:modality.image"),
-                })
-              : t("nodes:inspector.common.modelSelect")}
-          </option>
-          {imageModelOptions.map((o) => (
-            <option key={`${o.provider}::${o.model}`} value={o.model}>
-              {o.model} · {o.provider}
-            </option>
-          ))}
-          {!imageModelOptions.some((o) => o.model === node.imageGen!.model) &&
-            node.imageGen.model && (
-              <option value={node.imageGen.model}>
-                {node.imageGen.model}
-                {t("nodes:inspector.common.modelCurrent")}
-              </option>
-            )}
-        </select>
+        <ModelSelect
+          value={node.imageGen.model}
+          options={imageModelOptions}
+          modalityLabel={t("nodes:modality.image")}
+          followTarget={defaultModelFor("imageGen")?.model ?? null}
+          t={t}
+          onChange={(model) => updateNode(node.id, { imageGen: { ...node.imageGen!, model } })}
+        />
         <MissingModelHint
           hasModels={imageModelOptions.length > 0}
           onOpenSettings={onOpenSettings}
