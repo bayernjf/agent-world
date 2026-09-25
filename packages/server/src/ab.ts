@@ -5,7 +5,8 @@ import { execute } from "./engine.js";
 import { dispatchGate } from "./dispatch-gate.js";
 import { loadConfig } from "./config.js";
 import { resolveModelSlots } from "./model-slots.js";
-import { haltedOf } from "./run.js";
+import { haltedOf, RunStartError } from "./run.js";
+import { validateModels } from "./validate-models.js";
 import type { Worker } from "./worker.js";
 
 type DB = ReturnType<typeof openDb>;
@@ -63,6 +64,17 @@ export async function startABExperiment(
   // buildABVariants deep-clones the source per arm, so resolving once here is
   // enough — every variant inherits the filled-in names.
   const built = buildABVariants(resolveModelSlots(opts.graph, cfg), opts.targetNodeId, opts.variants);
+  // 模型可派发性兜底：AB 不经 startRun，run.ts 里那条 422 兜底覆盖不到这里；
+  // 不补的话媒体节点模型配错会软跳过（run 报 done、无产物），实验白跑还占配额。
+  // 一次实验 N 条 arm 共享同一份模型字段（buildABVariants 只替换 prompt），验一份即可。
+  const modelErrors = validateModels(built[0]!.graph, cfg).filter((d) => d.severity === "error");
+  if (modelErrors.length > 0) {
+    throw new RunStartError(
+      `${modelErrors.length} 个节点未配置可用模型：${modelErrors.map((d) => d.message).join("；")}`,
+      422,
+      modelErrors,
+    );
+  }
   // 一次实验会建 N 条 run，闸门按「这一次用户动作」评估一次就够：放在循环里会让
   // 第一条 arm 的活跃 run 把后面的 arm 按并发超额拦掉。ab.ts 不经 startRun，
   // 所以要显式补，否则实验是绕过配额的一条路。

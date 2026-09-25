@@ -53,7 +53,7 @@ function writerGraph(id: string, productionPrompt = "现网 prompt v1"): Graph {
         name: "Writer",
         x: 1,
         y: 0,
-        textGen: { model: "t", prompt: productionPrompt, skills: [], temperature: 0.7, timeoutMs: 60000 },
+        textGen: { model: "agnes-2.0-flash", prompt: productionPrompt, skills: [], temperature: 0.7, timeoutMs: 60000 },
       },
       { id: "sink", kind: "sink", name: "SINK", x: 2, y: 0 },
     ],

@@ -20,6 +20,7 @@ import {
   PIPE_RADIUS,
   PIPE_Y,
   SELECT_COLOR,
+  SELECT_EMISSIVE_INTENSITY,
   setGroupEmissive,
   statusLedColor,
   type NodeShape,
@@ -675,7 +676,7 @@ export default function Canvas3D() {
         if (sel) {
           const next = st.nodeShapes.get(sel);
           if (next) {
-            setGroupEmissive(next.group, SELECT_COLOR);
+            setGroupEmissive(next.group, SELECT_COLOR, SELECT_EMISSIVE_INTENSITY);
             // Park the selection ring under the selected node and show it.
             if (st.selectionRing) {
               st.selectionRing.position.set(next.group.position.x, 0.8, next.group.position.z);
@@ -860,7 +861,7 @@ export default function Canvas3D() {
     const sel = useGraph.getState().selectedId;
     if (sel) {
       const shape = st.nodeShapes.get(sel);
-      if (shape) setGroupEmissive(shape.group, SELECT_COLOR);
+      if (shape) setGroupEmissive(shape.group, SELECT_COLOR, SELECT_EMISSIVE_INTENSITY);
     }
   }, [graph]);
 

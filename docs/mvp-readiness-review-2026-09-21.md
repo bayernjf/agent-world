@@ -1,5 +1,7 @@
 # MVP 上线就绪评审（2026-09-21）
 
+> ⚠️ **2026-09-25 更正注记**：本版「对象存储属阶段 5」「G4 已全部落地」两条已被新版更正——对象存储（`STORAGE_BACKEND=s3`）已实现；G4 状态机/前端已闭环但**跨 run 续跑在生产不可达**（生产 routingWorker 无 `submitVideoJob`/`queryVideoJob` 接缝）。详见 [mvp-readiness-review-2026-09-25.md](./mvp-readiness-review-2026-09-25.md) §5。
+
 > 评审性质：项目级功能性 / 完整度 / 可上线性评审，硬标准 = **产品核心完全可用的 MVP**。
 > 评审方法：只采信一手现状（实跑 typecheck/测试、代码核查、Hasee 真机数据、provider 端到端实测、文档核对），不凭印象。
 > 评审环境：本地仓库 `feature/20260824`；staging 环境 `dev @ 09735b7`。

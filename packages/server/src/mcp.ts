@@ -1,6 +1,7 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import type { SkillPermissions } from "@agent-world/core";
 import type { BuiltinSkill } from "./skills/registry.js";
+import { guardedFetch } from "./ssrf.js";
 
 /**
  * Minimal MCP (Model Context Protocol) client.
@@ -234,7 +235,7 @@ export class StreamableHttpMcpTransport implements McpTransport {
   ) {}
 
   private async post(payload: JsonRpcMessage): Promise<unknown> {
-    const res = await fetch(this.url, {
+    const res = await guardedFetch(this.url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -303,7 +304,7 @@ export class SseMcpTransport implements McpTransport {
     this.opened = true;
     this.postUrlReady = new Promise<string>((resolve) => (this.postUrlResolve = resolve));
     void (async () => {
-      const res = await fetch(this.url, {
+      const res = await guardedFetch(this.url, {
         headers: { Accept: "text/event-stream", ...this.headers },
         signal: AbortSignal.timeout(30000),
       });
@@ -358,7 +359,7 @@ export class SseMcpTransport implements McpTransport {
       const id = this.seq++;
       return new Promise((resolve, reject) => {
         this.pending.set(id, { resolve, reject });
-        fetch(postUrl, {
+        guardedFetch(postUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json", ...this.headers },
           body: JSON.stringify({ jsonrpc: "2.0", id, method, params }),
@@ -375,7 +376,7 @@ export class SseMcpTransport implements McpTransport {
     void (async () => {
       this.ensureStream();
       const postUrl = await this.postUrlReady!;
-      fetch(postUrl, {
+      guardedFetch(postUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...this.headers },
         body: JSON.stringify({ jsonrpc: "2.0", method, params }),

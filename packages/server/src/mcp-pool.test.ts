@@ -1,5 +1,5 @@
 import http from "node:http";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
   closeAllUserMcpServers,
   connectUserMcpServer,
@@ -8,6 +8,14 @@ import {
   userMcpStatus,
 } from "./mcp-pool.js";
 import type { UserMcpServer } from "./config.js";
+
+// Transport tests ride on guardedFetch; loopback needs the test-only escape hatch.
+beforeAll(() => {
+  process.env.ALLOW_PRIVATE_NETWORK = "1";
+});
+afterAll(() => {
+  delete process.env.ALLOW_PRIVATE_NETWORK;
+});
 
 /** Minimal streamable-HTTP MCP server exposing one `echo` tool. */
 function startServer(): Promise<{ url: string; close: () => void; requests: Record<string, string>[] }> {
