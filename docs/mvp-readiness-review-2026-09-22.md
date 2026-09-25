@@ -1,5 +1,7 @@
 # agent-world 项目级 MVP 评审（2026-09-22 更新版）
 
+> ⚠️ **2026-09-25 更正注记**：本版两条判据已被新版更正——「对象存储属阶段 5」不成立（`STORAGE_BACKEND=s3` + S3StorageBackend 已于 storage.ts 落地）；「G4 已全部落地」需限定为状态机/前端闭环已落地，**跨 run 续跑在生产不可达**（生产 routingWorker 未实现 `submitVideoJob`/`queryVideoJob`，仅测试替身有）。详见 [mvp-readiness-review-2026-09-25.md](./mvp-readiness-review-2026-09-25.md) §5。
+
 > 评审性质：项目级功能性 / 完整度 / 可上线性评审，硬标准 = **产品核心完全可用的 MVP**
 > 评审基线：2026-09-21 评审报告 + 2026-09-22 最新体检数据 + 代码/文档一手核查
 > 评审环境（2026-09-22 傍晚复核）：`feature/20260824 @ 92aaeff`；Hasee staging `dev @ c90c8d9`（已部署 TTS P1，服务 09-22 09:16:56 UTC 重启生效）

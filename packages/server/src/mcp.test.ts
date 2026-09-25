@@ -1,5 +1,5 @@
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   McpClient,
   StreamableHttpMcpTransport,
@@ -9,6 +9,16 @@ import {
   type McpTransport,
 } from "./mcp.js";
 import { executeBuiltinTool, listBuiltinSkills, registerSkill } from "./skills/registry.js";
+
+// The transports ride on guardedFetch (SSRF fence). Their tests exercise real
+// loopback servers, so the private-network escape hatch is enabled for this
+// file only — production keeps the fence closed.
+beforeAll(() => {
+  process.env.ALLOW_PRIVATE_NETWORK = "1";
+});
+afterAll(() => {
+  delete process.env.ALLOW_PRIVATE_NETWORK;
+});
 
 /** In-memory stand-in for an MCP server (no subprocess). */
 class LoopbackMcpTransport implements McpTransport {
