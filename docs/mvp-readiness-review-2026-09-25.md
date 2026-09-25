@@ -208,4 +208,4 @@ core **346/346**（24 文件）· server **1397 = 1393 通过 + 2 本机 python-
 | **个人 / 小团队自托管** | ✅ **达到「产品核心完全可用的 MVP」**，附两个前置签字：① 只跑单实例（cron/限流/metrics/错误缓冲全在进程内，无锁无选主）；② 口令轮换 + 确认 Hasee 已部署 `eff8ebe` | 上一版判 🟡 的三条代码阻断已全部闭合（§9.1），第四条转为运维动作 |
 | **对外商业 SaaS** | ❌ **不达标**（结论不变） | 阻断项仍是：告警只有生产端没有消费端、HTTPS/证书与 `NODE_ENV`、`/metrics` 收口、账号自助三缺、水平扩展方案、Stripe 真机 |
 
-**仍未拍的产品决定**：D-1（音频空槽）。**仍未开工的既定项**：design-model-catalog ④（admin 可维护内置目录，需先拍「套餐可见性是否进数据面」）。
+**仍未拍的产品决定**：D-1（音频空槽）。**「仍未开工的既定项」已作废**：上一版此处写的是「design-model-catalog ④ 未开工，需先拍『套餐可见性是否进数据面』」——④ 已于 2026-09-26 全部落地（`4c4e699`/`8266403`/`af9c6ed`：平台目录行 + 白名单合并、admin API + 门禁 + 审计 + 下架影响扫描、Settings 的目录维护界面），而那个「待拍」的前提本身是错的：仓内**不存在**按套餐限制具体模型的机制（`PlanQuota` 只有 tokens/concurrentRuns/storageBytes/videoSegments/seats 五个维度，`packages/core/src/plans.ts:16-27`），所以 ④ 的数据面能表达的是「有哪些模型、什么模态、多少钱、开不开」，不含「谁能看见」。详见 [design-model-catalog.md](design-model-catalog.md) §十。

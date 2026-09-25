@@ -1,6 +1,6 @@
 # 内置模型目录与插拔设计
 
-> 状态：**①②③ 已落地（2026-09-25，commit `9c7c5f1` / `54acc50` / `7c0dbe0`）**，④（admin 目录数据面）未开工。落地后的实际行为差异见 §十一「已落地什么、还剩什么」。
+> 状态：**①②③④ 全部落地**（① `9c7c5f1`、② `54acc50`、③ `7c0dbe0` 于 2026-09-25；④ `4c4e699` + `8266403` + `af9c6ed` 于 2026-09-26）。落地后的实际行为差异见 §十一，④ 相对本方案的改动见 §十末。
 > 关联：`packages/server/src/config.ts`（目录与合并）、`packages/server/src/providers/index.ts`（路由与 worker 缓存）、`packages/server/src/validate-models.ts`（派发前检查）、[design-monetization.md](design-monetization.md)（内置层与套餐门禁）、[design-versions.md](design-versions.md)（contentHash 与版本快照）。
 > 一句话：**换默认 = 配置、热生效；加/删内置模型 = 数据、admin 面；接新供应商或改接口方言 = 代码、发版；凭证 = env，永不进数据也不进界面。**
 
@@ -134,7 +134,7 @@
 | **①** | ✅ `9c7c5f1` | 规则 A：下架即报错 | `validate-models.ts` 去掉 builtin 豁免（改判 `providerForModel` 新增的 `matched`）、`providers/index.ts` 停用/未实现/未知类型三处不再降级成 fake、`workerFor` 不再把空模型名交给 fake | 从 `models[]` 删一个内置模型 → 派发 422 且错误指名模型；停用 provider → 抛 `UNSUPPORTED`（不在 `nodes/shared.ts` 的 RETRYABLE 里，所以不重试也不出网）；`type:"fake"` 与 `WORKER=fake` 仍正常出文本 |
 | **②** | ✅ `54acc50` | 热更新生效（缓存 key） | `providers/index.ts` 的 `providerCacheKey` 用整份 provider 对象作 key | 同一进程内改单价后下一次 run 即按新价记账（`routing.test.ts` 实测 5e-6 → 5e-3），另有 3 条 key 性质测 |
 | **③** | ✅ `7c0dbe0` | 规则 B | `model-slots.ts`（新增）+ `run.ts` 建 run 前解析、`ab.ts` 补解析与 `defaultModel`、`graph.ts` 五处 schema、`templates.ts` 59 处、`store/graph.ts` 删除读取时迁移、Inspector 共用 `ModelSelect` + i18n | 空槽派发跑通、**快照存真名而产线文档保持空串**（`api.dispatch-guard.test.ts` 端到端测）、换默认后评测版本自动分开、已下架名在 Inspector 标「已下架，请重选」且可一键回「跟随默认」 |
-| **④** | ⬜ 未开工 | admin 目录数据面 | 平台行读写 + `config.ts:473` 合并改造 + `canManageCatalog` + API + 界面 + 审计 | admin 增一个模型 → 用户可选、无需发版；删一个 → 命中规则 A 报错；改价 → 命中 ② 的热生效；写入出现在 `/api/audit` |
+| **④** | ✅ `4c4e699`/`8266403`/`af9c6ed` | admin 目录数据面 | `builtin-catalog.ts`（平台行 + 白名单合并 + 校验）+ `config.ts:loadConfig` 的 `applyPlatformCatalog` + `GET/PUT /api/admin/model-catalog` + `canManageModelCatalog` + `model.catalog_update` 审计 + Settings 的 `ModelCatalogAdmin` | admin 增一个模型 → 用户可选、无需发版；删一个 → 命中规则 A 报错**且写入响应直接列出受影响的产线**；改价 → 命中 ② 的热生效；写入出现在 `/api/audit` |
 
 顺序不能反：① 是所有后续的前置（否则"下架"落到最容易误触的界面时仍在假成功）；②先于④（否则界面会骗人）；③独立于④，可先行。
 
@@ -145,14 +145,19 @@
 * **"有模型没价格"的沉默**：`computeCost` 对无价模型返回 0（`packages/core/src/pricing.ts:138`），但 `pricing.ts:203` 已有 `unpricedModels` 助手——④ 的目录体检可直接复用它，把"这个模型跑完记账为 0"在写入时就告警。
 * **不做远端目录 / 自动跟随供应商模型列表**：那是把供应商接入变成供应链攻击面，且离线自托管（本产品的一条主用法）会直接坏。
 
-## 十、待拍板
+## 十、待拍板（2026-09-26 结案）
 
-1. ④ 是否连"哪个套餐能看见哪个内置模型"一起放进数据面（`modelOrder` + 门禁清单）。倾向**放**——那本来就是运营决策，不该绑发版。
-2. 阶段 ② 取 (a) 还是要直接做 (b)。
+1. ~~④ 是否连"哪个套餐能看见哪个内置模型"一起放进数据面~~ —— **这个问题问的是一个不存在的概念**：代码里没有任何"按套餐限制具体模型"的机制（`allowedModels` / `modelAccess` 在 core+server 全仓 0 命中；`PlanQuota` 只有 `tokens / concurrentRuns / storageBytes / videoSegments / seats` 五个维度，`packages/core/src/plans.ts:16-27`）。所以数据面能表达的是"有哪些模型、什么模态、多少钱、开不开"，**"谁能看见"目前等价于"订阅额度够不够烧得动它"**。若将来真要按套餐分模型，那是一个新特性（要先决定：限制的是可选列表，还是派发时的硬门禁），不在 ④ 范围内。
+2. ~~阶段 ② 取 (a) 还是要直接做 (b)~~ —— 取 **(a)** 并已落地（`providerCacheKey`，`54acc50`），(b) 仍作为可选演进留在 §七。
 
-## 十一、①②③ 落地后的实测状态与剩余字面量
+### ④ 落地时相对本方案的两处改动
 
-**质量门（2026-09-25 实测，非估算）**：core 346/346；server 1390 例（1386 passed / 2 skipped / **2 failed**——`engine.code.test.ts` 两条 python 出网用例，本机 `python3` 是 Xcode 许可 shim，属既有环境失败，与本设计无关）；web 1968/1968（单跑全绿；把三个包串跑时出现过 2 例 contention 抖动，复跑即绿）；`pnpm typecheck`（含 scripts）绿；`i18n:check` 与 `i18n:prune --check` 均 0 未引用 key。
+- **合并点从 `parseRaw` 挪到 `loadConfig`。** 原设计指 `config.ts:473` 那一行，但 `parseRaw` 在"无用户行且无配置文件"时**根本不会被调用**（`loadConfig` 直接返回 `DEFAULT_CONFIG`），挂在那儿等于在干净部署上什么都不做——正是最常见的场景。这条是集成测试逼出来的（§十一）。
+- **写入响应直接回答"下架谁会坏"**（`affected`，上限 50 条 + `affectedTruncated`）。这是 v1 想用别名表解决的那个问题，落地成了派发前预检而不是自动改写——符合规则 A"报错让用户自己重选"的原意。
+
+## 十一、①②③④ 落地后的实测状态与剩余字面量
+
+**质量门（④ 落地后于 2026-09-26 实跑，非估算）**：core 346/346（本轮未改 core）；server **1427 例 = 1423 passed / 2 skipped / 2 failed**（那 2 failed 是 `engine.code.test.ts` 的 python 出网用例，本机 `python3` 是 Xcode 许可 shim，属既有环境失败，与本设计无关；2 skipped 是 `DOGFOOD=1` 门控）；web **1973/1973**（106 文件，单跑全绿）；`pnpm typecheck`（含 scripts）绿；`i18n:check` 与 `i18n:prune -- --check` 均 0 未引用 key。**④ 的增量**：server +30 例（`builtin-catalog.test.ts` 22、`api.model-catalog.test.ts` 8）、web +5 例（`ModelCatalogAdmin.test.tsx`），单独复跑 37/5 全绿。①②③ 当时（09-25）的基线是 server 1390 = 1386 passed / 2 skipped / 2 failed、web 1968/1968。
 
 **还剩的写死模型名（③ 有意未清，都是"最后兜底"位）**：
 
