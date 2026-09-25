@@ -139,7 +139,9 @@ export const InputPolicy = z.object({
 export type InputPolicy = z.infer<typeof InputPolicy>;
 
 export const TextGenConfig = z.object({
-  model: z.string().default("agnes-2.0-flash"),
+  // `""` 是约定值「跟随当前默认模型」，不是"没填"：派发时 resolveModelSlots
+  // 把它换成用户配置里的实时默认（docs/design-model-catalog.md 规则 B）。
+  model: z.string().default(""),
   prompt: z.string().default(""),
   /** Mounted capability cards — tools, output contracts, prompt modules. */
   skills: z
@@ -167,7 +169,8 @@ export type TextGenConfig = z.infer<typeof TextGenConfig>;
 /** Configuration for an `imageGen` node: calls a text-to-image model to produce
  *  a banner / scene image when the source lacks real product photos. */
 export const ImageGenConfig = z.object({
-  model: z.string().min(1),
+  /** `""` = 跟随该模态的当前默认模型（见 TextGenConfig.model 的规则 B 说明）。 */
+  model: z.string().default(""),
   prompt: z.string().optional(),
   size: z.string().optional(),
   /** Aspect ratio for the generated image; mapped to a provider size when `size` is unset. */
@@ -185,7 +188,8 @@ export type ImageGenConfig = z.infer<typeof ImageGenConfig>;
  *  a short video clip. Provider support varies; the engine soft-fails when the
  *  worker lacks `generateVideo`. */
 export const VideoGenConfig = z.object({
-  model: z.string().min(1),
+  /** `""` = 跟随该模态的当前默认模型（见 TextGenConfig.model 的规则 B 说明）。 */
+  model: z.string().default(""),
   prompt: z.string().optional(),
   /** Duration in seconds (provider-dependent, typically 4-15). */
   duration: z.number().int().min(1).max(60).optional(),
@@ -205,7 +209,8 @@ export type VideoGenConfig = z.infer<typeof VideoGenConfig>;
 /** Configuration for an `audioGen` node: calls a text-to-speech / music model
  *  to produce audio. OpenAI `/audio/speech` is the most common compatible API. */
 export const AudioGenConfig = z.object({
-  model: z.string().min(1),
+  /** `""` = 跟随该模态的当前默认模型（见 TextGenConfig.model 的规则 B 说明）。 */
+  model: z.string().default(""),
   /** Text to synthesize (TTS) or style prompt (music generation). */
   prompt: z.string().optional(),
   /** Voice identifier for TTS (e.g. "alloy", "echo", "fable"). */
@@ -227,7 +232,10 @@ export type AudioGenConfig = z.infer<typeof AudioGenConfig>;
  *  Users pick any model; the engine detects via `modalityOf` and routes to
  *  runTextGen / generateImage / generateVideo / generateAudio accordingly. */
 export const GenericConfig = z.object({
-  model: z.string().min(1).default("agnes-2.0-flash"),
+  /** `""` = 跟随当前默认模型（见 TextGenConfig.model 的规则 B 说明）。generic
+   *  没有声明式模态（下面 modality 可缺省、由引擎探测），所以它只能跟随默认，
+   *  不能跟随"某一模态的默认"。 */
+  model: z.string().default(""),
   prompt: z.string().optional(),
   /** Optional override; when absent the engine auto-detects via modalityOf(provider, model). */
   modality: z.enum(["text", "image", "video", "audio"]).optional(),

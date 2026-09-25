@@ -77,6 +77,68 @@ export function RetryField({
 /* Missing-model hint (model selects).                                  */
 /* ------------------------------------------------------------------ */
 
+/**
+ * The model picker shared by the five model-bearing node fields, so the
+ * follow-default wording cannot drift between them.
+ *
+ * `value === ""` is **not** "unset": it is the follow-default slot the server
+ * resolves to this modality's current default at dispatch
+ * (docs/design-model-catalog.md 规则 B). A closed dropdown therefore reads
+ * "跟随默认 · <实际模型>" instead of looking like an unfilled required field.
+ *
+ * A pinned name that is no longer in `options` is a retired or deleted model.
+ * It stays visible — the node really does ask for it — but labelled
+ * unavailable, with 规则 A's remedy one click away: pick 跟随默认 (or any live
+ * model). Nothing here rewrites the node behind the user's back.
+ */
+export function ModelSelect({
+  value,
+  options,
+  modalityLabel,
+  followTarget,
+  t,
+  onChange,
+}: {
+  value: string;
+  options: ReadonlyArray<{ provider: string; model: string }>;
+  modalityLabel: string;
+  /** Which model an empty slot resolves to, or null when nothing can be followed. */
+  followTarget: string | null;
+  t: TFunction;
+  onChange: (model: string) => void;
+}) {
+  // Boolean(), not `!== ""`: a translate node created before this field existed
+  // carries no model key at all, and `undefined !== ""` would render it as a
+  // phantom retired entry.
+  const retired = Boolean(value) && !options.some((o) => o.model === value);
+  return (
+    <select
+      className="select"
+      value={value || "__follow__"}
+      onChange={(e) => onChange(e.target.value === "__follow__" ? "" : e.target.value)}
+    >
+      <option value="__follow__">
+        {value
+          ? t("nodes:inspector.common.modelFollowDefault")
+          : followTarget
+            ? t("nodes:inspector.common.modelFollowDefaultTo", { model: followTarget })
+            : t("nodes:inspector.common.modelFollowDefaultNone", { modality: modalityLabel })}
+      </option>
+      {options.map((o) => (
+        <option key={`${o.provider}::${o.model}`} value={o.model}>
+          {o.model} · {o.provider}
+        </option>
+      ))}
+      {retired && (
+        <option value={value}>
+          {value}
+          {t("nodes:inspector.common.modelUnavailable")}
+        </option>
+      )}
+    </select>
+  );
+}
+
 /** When this modal has no available model, show a hint with a shortcut to Settings. */
 export function MissingModelHint({
   hasModels,

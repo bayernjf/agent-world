@@ -12,7 +12,7 @@ import { sanitizeError } from "../sanitize.js";
 export async function genericNode(ctx: NodeRunContext, node: GraphNode, nodeId: string, attempt: number): Promise<void> {
   const { artifacts, budgetUsd, emit, inputFor, interpCtx, opts, sendPackets, states, worker } = ctx;
   emit({ type: "node.started", nodeId, attempt });
-  const gcfg: GenericConfig = node.generic ?? { model: "agnes-2.0-flash", modality: "text", skills: [], format: "mp3", n: 1 };
+  const gcfg: GenericConfig = node.generic ?? { model: "", modality: "text", skills: [], format: "mp3", n: 1 };
   const modality = gcfg.modality ?? "text";
   // Prompts may reference upstream artifacts (`${craft}` / `${probe.status}`),
   // same contract as http url/body and notify messages — without this the

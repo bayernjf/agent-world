@@ -1,5 +1,6 @@
 import type { FieldsProps } from "./types";
-import { MissingModelHint, RetryField } from "./shared";
+import { MissingModelHint, ModelSelect, RetryField } from "./shared";
+import { defaultModelFor } from "../../store/graph";
 
 export default function TextGenFields({
   node,
@@ -15,36 +16,14 @@ export default function TextGenFields({
     <>
       <label className="field">
         <span>{t("nodes:inspector.common.model")}</span>
-        <select
-          className="select"
-          value={node.textGen.model || "__unset__"}
-          onChange={(e) => {
-            if (e.target.value === "__unset__") return;
-            updateNode(node.id, {
-              textGen: { ...node.textGen!, model: e.target.value },
-            });
-          }}
-        >
-          <option value="__unset__" disabled hidden>
-            {!node.textGen.model
-              ? t("nodes:inspector.common.modelUnset", {
-                  modality: t("nodes:modality.text"),
-                })
-              : t("nodes:inspector.common.modelSelect")}
-          </option>
-          {textModelOptions.map((o) => (
-            <option key={`${o.provider}::${o.model}`} value={o.model}>
-              {o.model} · {o.provider}
-            </option>
-          ))}
-          {!textModelOptions.some((o) => o.model === node.textGen!.model) &&
-            node.textGen.model && (
-              <option value={node.textGen.model}>
-                {node.textGen.model}
-                {t("nodes:inspector.common.modelCurrent")}
-              </option>
-            )}
-        </select>
+        <ModelSelect
+          value={node.textGen.model}
+          options={textModelOptions}
+          modalityLabel={t("nodes:modality.text")}
+          followTarget={defaultModelFor("textGen")?.model ?? null}
+          t={t}
+          onChange={(model) => updateNode(node.id, { textGen: { ...node.textGen!, model } })}
+        />
         <MissingModelHint
           hasModels={textModelOptions.length > 0}
           onOpenSettings={onOpenSettings}

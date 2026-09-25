@@ -11,6 +11,7 @@ import { runAsUser } from "./user-context.js";
 import { createReadArtifact } from "./artifact-reader.js";
 import { dispatchGate } from "./dispatch-gate.js";
 import { validateModels } from "./validate-models.js";
+import { resolveModelSlots } from "./model-slots.js";
 import { counter, gauge } from "./metrics.js";
 import { recordRunUsage } from "./subscriptionService.js";
 import { checkUsageAlerts } from "./usage-alert.js";
@@ -139,13 +140,20 @@ export function monthlyBudgetExceeded(
 }
 
 export async function startRun(args: StartRunArgs): Promise<{ runId: string; diagnostics: unknown }> {
-  const { db, userId, worker, artifacts, live, graph, trigger, budgetUsd, input, connectorValues, publicUrl } = args;
+  const { db, userId, worker, artifacts, live, graph: requested, trigger, budgetUsd, input, connectorValues, publicUrl } = args;
+  // 先读配置再解析模型槽：`model: ""` 是「跟随当前默认」的约定值
+  // （design-model-catalog 规则 B），必须在任何东西读节点模型之前换成真名——
+  // 下面的 validateModels（真名才谈得上可派性）、dispatchGate（内置层判定）、
+  // createRun（快照要存真名，评测 byPrompt 指纹按快照里的模型名算）、
+  // execute 与 recordRunUsage（用量归集按模型名）都依赖这份解析结果。
+  // 未解析的图原样返回同一引用，所以钉着具体模型的存量产线一切照旧。
+  const budgetCfg = await loadConfig(userId);
+  const graph = resolveModelSlots(requested, budgetCfg);
   const { plan, diagnostics } = compile(graph);
   if (!plan) throw new RunStartError("graph does not compile", 422, diagnostics);
 
   // 成本硬熔断：新 run 创建前检查月度预算。覆盖 manual / trigger / batch 全部
   // 入口（都经 startRun），避免失控产线 / 被攻破账号 / 恶意刷量继续烧钱。
-  const budgetCfg = await loadConfig(userId);
   const monthlyBudgetUsd = budgetCfg.monthlyBudgetUsd ?? null;
   const budgetBypass = process.env.AGENT_WORLD_BUDGET_BYPASS === "1";
   if (monthlyBudgetUsd != null && monthlyBudgetUsd > 0 && !budgetBypass) {

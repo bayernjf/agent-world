@@ -759,3 +759,37 @@ describe("templates", () => {
     }
   });
 });
+
+// 规则 B（docs/design-model-catalog.md）：模板不写死任何模型名——节点留空即
+// 「派发时跟随当前默认」。写死一次，换内置模型时全部模板同时过期，而且没有任
+// 何一处会报警。例外是 fields[].defaultValue 里的模型名（如 tpl-news-podcast
+// 的 "tts-1"）：那是用户看得见、可改的 BYOK 入口，不是内置层。
+describe("templates carry no pinned model names", () => {
+  const collectModels = (v: unknown, out: string[]): void => {
+    if (Array.isArray(v)) for (const x of v) collectModels(x, out);
+    else if (v && typeof v === "object")
+      for (const [k, x] of Object.entries(v)) {
+        if (k === "model" && typeof x === "string" && x.trim()) out.push(x);
+        else collectModels(x, out);
+      }
+  };
+
+  it("walks node configs (positive control: the guard is not vacuous)", () => {
+    const found: string[] = [];
+    collectModels([{ kind: "textGen", textGen: { model: "some-model" } }], found);
+    expect(found).toEqual(["some-model"]);
+    const empty: string[] = [];
+    collectModels([{ kind: "textGen", textGen: { model: "" } }], empty);
+    expect(empty).toEqual([]);
+  });
+
+  it("ships every model slot empty", () => {
+    const offenders: string[] = [];
+    for (const tpl of [...TEMPLATES, BLANK_TEMPLATE]) {
+      const found: string[] = [];
+      collectModels(tpl.graph.nodes, found);
+      if (found.length) offenders.push(`${tpl.id} → ${[...new Set(found)].join(", ")}`);
+    }
+    expect(offenders).toEqual([]);
+  });
+});
