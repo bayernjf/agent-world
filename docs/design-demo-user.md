@@ -55,7 +55,7 @@ demo 提交邮箱+密码后，直接 UPDATE 同一 users 行（清 is_demo、写
 | 最新迁移 | **v39**（`sqlite-driver.ts:3812`，`SCHEMA_VERSION=LATEST_VERSION:3942`）；迁移形如 `{version,description,detect,up,down}`，用 `columnExists` 防重 | demo 用 **v40** |
 | 订阅懒建 | `subscriptionService.ts:39 getOrCreateSubscription` → 无则建 free | demo 首次访问自动得 free 行，额度另走 §6.3 |
 | 套餐配额 | `packages/core/src/plans.ts`：**free = tokens 0 / concurrentRuns 1 / storage 100MB / video 0**；starter/pro/team | demo **不新增 PlanId**，用独立 DEMO_QUOTA |
-| run 订阅 gate | `index.ts:2338-2365`：`MONETIZATION_ENFORCE==="1"` 时 `enforceSubscription(...)`，`QuotaError`→402 | 在其前/内加 is_demo 分支 |
+| run 订阅 gate | `dispatch-gate.ts` 的 `dispatchGate()`（2026-09-25 起由 `startRun()` 在建 run 行之前调用；此前是 `index.ts` 里 `MONETIZATION_ENFORCE==="1"` 的内联分支）：demo 走 `enforceDemoQuota(...)`、正式用户按 `readEnforceMode()` 走 `enforceSubscription(...)`，两类 QuotaError→402 | 在其前/内加 is_demo 分支 |
 | 限流 | `packages/server/src/rate-limit.ts` `RateLimiter`；index.ts 已有 login/register/run 三个实例 | 新增 demoLimiter |
 | 模板实例化 | `packages/core/src/templates.ts:146 instantiateTemplate(tpl,{id,name,fieldValues})` → Graph；index.ts:666 已在用 | demo 预置产线用它克隆 |
 | DB 抽象层 | `packages/server/src/db.ts`：`Db = ReturnType<typeof createSqliteDriver>`、`DatabaseDriver` 接口、`openDatabase()` 按 DB_DRIVER 分派 sqlite/pg | 新方法 sqlite + pg 各一份，禁止裸 SQL 进路由 |
@@ -209,7 +209,9 @@ export const DEMO_QUOTA = {
 export const DEMO_TTL_MS = 24 * 60 * 60_000;
 ```
 
-run gate（`index.ts:2338` 一带）改造：在 `MONETIZATION_ENFORCE` 分支里，先取 user；**is_demo 走 DEMO_QUOTA 判断**（新增 `enforceDemoQuota(graph,{usedTokens,activeRuns,usedStorage,totalRuns})`，抛与 QuotaError 同形的错误，code 用 `DEMO_QUOTA_*`，前端引导「注册转正」而非「升级套餐」）；正式用户维持原 enforceSubscription。
+run gate（`index.ts:2338` 一带）改造：在 `MONETIZATION_ENFORCE` 分支里，先取 user；
+
+> **位置勘误（2026-09-25）**：本段写的 `index.ts:2338` 一带已不对应该逻辑（该处现为 `/api/publish-targets`）。demo 分支现位于 `packages/server/src/dispatch-gate.ts` 的 `dispatchGate()`——它由 `startRun()` 在建 run 行之前调用，demo 判定（`is_demo` 早返回、走 `enforceDemoQuota`）**与 `MONETIZATION_ENFORCE` 的取值无关、永远生效**，正是本段下方强调的那个坑。方案原文保留不改，以免毁掉当时的决策记录。**is_demo 走 DEMO_QUOTA 判断**（新增 `enforceDemoQuota(graph,{usedTokens,activeRuns,usedStorage,totalRuns})`，抛与 QuotaError 同形的错误，code 用 `DEMO_QUOTA_*`，前端引导「注册转正」而非「升级套餐」）；正式用户维持原 enforceSubscription。
 
 - **videoGen/audioGen 节点**：demo 在派发前直接拦（按 graph 节点 kind 判定），返回「演示暂不支持视频/音频生成，注册后解锁」。
 - demo 的内置模型走**实例 owner 配置的内置 provider**（不要求 demo BYOK），因此额度必须从严，成本由实例承担。

@@ -1,6 +1,6 @@
 # 审计日志（Audit Log）设计方案
 
-> 状态：**P1+P2 已实施（2026-09-05）**——audit_log 表（迁移 29）+ `audit()` helper + 全部词表埋点（account/register/login/login_failed/logout/password_change、settings.update/test_provider、graph.create/update/delete/restore_version、run.start/cancel、publish_target.create/delete）+ `GET /api/audit` 查询接口 + 专项测试（动作覆盖/detail 红线/写失败不阻塞/隔离分页）。**P3 部分实施（2026-09-24）**：180 天清理已落地（driver `pruneAuditOlder(before)` + server 启动时惰性 prune，prune 失败只 warn 不阻断启动）；**hash chain 防篡改仍未实施**（触发条件不变）。
+> 状态：**P1+P2 已实施（2026-09-05）**——audit_log 表（迁移 29）+ `audit()` helper + 全部词表埋点（account/register/login/login_failed/logout/password_change、settings.update/test_provider、graph.create/update/delete/restore_version、run.start/cancel、publish_target.create/delete）+ `GET /api/audit` 查询接口 + 专项测试（动作覆盖/detail 红线/写失败不阻塞/隔离分页）。**P3 已实施（2026-09-24 落地 / 2026-09-25 并入统一循环）**：180 天清理已落地（driver `pruneAuditOlder(before)`；原为 server 启动时惰性 prune 一次，现由 `packages/server/src/maintenance.ts` 的 `MaintenanceLoop` 与 events(90d) 成对清理——启动即清 + 每 6h 续清，单轮失败只 warn 不阻断启动，见 §5）；**hash chain 防篡改仍未实施**（触发条件不变）。
 > 创建：2026-09-05；实施与方案的两处偏差见 §3.2/§3.3 备注。
 
 ## 1. 背景
@@ -49,6 +49,7 @@ CREATE INDEX idx_audit_log_time ON audit_log(created_at);
 | `graph.create` / `graph.update` / `graph.delete` | graphs 路由 | `{ graph: "g1", version: 3 }` |
 | `graph.restore_version` | 版本恢复 | `{ graph: "g1", version: "v2" }` |
 | `run.start` / `run.cancel` | run 路由 | `{ run: "r1", graph: "g1" }` |
+| ↳ **`run.start` 的实际覆盖面（2026-09-25 核实）** | 只有 `POST /api/runs` 一处写（`index.ts` 的 `audit(db, userId, "run.start", …)`，全仓实测仅此一个调用点），**重跑 / 批量 / 批量重试 / cron·webhook·事件触发器 / AB / fork 六条派发路不写审计**——即「谁在什么时候跑了什么」目前对自动触发与重跑是答不上来的。埋哪一层需要先定：`POST /api/runs` 刻意记的是**操作者**而非图 owner（共享产线下两者不同），而 cron/webhook 根本没有人类操作者。已登记 [deferred-items](deferred-items.md)「派发口剩下的三条跨切面检查」 | |
 | `publish_target.create` / `delete` | publish 路由 | `{ id: "t1", platform: "x" }` |
 | `auth.logout` | 登出 | `{}` |
 

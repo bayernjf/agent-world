@@ -264,7 +264,7 @@ journalctl -u agent-world --since "24 hours ago" | grep "would block dispatch"
 1. **免费层的并发仍会被「无人审批的 halted run」长期占住**：`activeRuns` 口径是 `status IN ('running','halted')` 且**无时间上限**，启动回收只清 `running`（启动时调 `markZombiesInterrupted`）。开发库实测 7 个 23–28 天前的 halted run，一个账号占 6 个——free 层 `concurrentRuns=1`，这类账号每次派发都 402「并发上限已满」，唯一自救是去取消旧 run。**覆盖面补齐后这条更容易撞上**（触发器路径也开始数并发）。
 2. **欠费判定已生效**（`past_due` 即断内置模型、BYOK 不受影响；`canceled` 到 `current_period_end` 才断）。§6.4 的「宽限期 3-7 天」未实现——表里没有「状态何时变更」的列，`updated_at` 会被无关写入顶掉，拿它算宽限会得到会说谎的窗口（见 deferred-items）。
 
-`past_due` / `canceled` 目前**不影响配额**：`enforceSubscription()` 只读 `plan`，`SubscriptionLike.status` 传进来没人读（design-monetization §6.4 的「欠费 → 宽限 → 内置模型阻断」尚未实现）。
+`past_due` / `canceled` 的判定见上一条第 2 点（`bb50612` 起已生效）。§6.4 写的「宽限期 3-7 天」**未实现**——`subscriptions` 没有「状态何时变更」的列，`updated_at` 会被 checkout 镜像与 `setPlan` 等无关写入顶掉，拿它算宽限会得到一个会说谎的窗口；需先加 `status_changed_at`（迁移），已登记 [deferred-items](../deferred-items.md)。当前口径是「欠费即断、`invoice.paid` 一到自动恢复」，比设计更严一点。
 
 ## 五、构建并托管 web（nginx 同源）
 
