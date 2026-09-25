@@ -3141,6 +3141,9 @@ app.post("/api/graphs/:id/triggers/:tid/fire", async (c) => {
   } catch (e) {
     const quota = quotaResponseBody(e);
     if (quota) return c.json(quota, 402);
+    // 派发口共用 startRun 的前置检查会抛 RunStartError（模型不可用 422 / 编译失败
+    // 422），这里不接就会 500 给手动触发与 webhook 调用方。
+    if (e instanceof RunStartError) return jsonResponse(e.status, { error: e.message, diagnostics: e.extra });
     if (e instanceof TriggerError) return jsonResponse(e.status, { error: e.message });
     throw e;
   }
@@ -3164,6 +3167,7 @@ app.post("/api/graphs/:id/webhook", async (c) => {
     // 402 是对外的诚实回答：这条 webhook 我们收到了，但配额不允许跑。
     const quota = quotaResponseBody(e);
     if (quota) return c.json(quota, 402);
+    if (e instanceof RunStartError) return jsonResponse(e.status, { error: e.message, diagnostics: e.extra });
     if (e instanceof TriggerError) {
       return jsonResponse(e.status, { error: e.message });
     }
@@ -3285,6 +3289,8 @@ app.post("/api/runs/ab", async (c) => {
     // 而不是被下面的 sanitizeError 折成 400（前端就当普通请求错误处理掉）。
     const quota = quotaResponseBody(e);
     if (quota) return c.json(quota, 402);
+    // 同理，模型不可派发的 422 也不该被 sanitizeError 折成 400。
+    if (e instanceof RunStartError) return jsonResponse(e.status, { error: e.message, diagnostics: e.extra });
     return c.json({ error: sanitizeError(e) }, 400);
   }
 });
