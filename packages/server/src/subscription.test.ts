@@ -103,6 +103,54 @@ describe("enforceSubscription", () => {
     ).toThrowError(/额度已用尽/);
   });
 
+  // design-monetization §6.4：欠费即停内置模型、BYOK 保留。宽限期（3-7 天）暂不
+  // 实现——subscriptions 没有「状态何时变更」的列，见 deferred-items。
+  it("blocks builtin models for a past_due subscription but not BYOK", () => {
+    expect(() =>
+      enforceSubscription(withNodes(textNode("a", "agnes-2.0-flash")), cfg, {
+        subscription: { plan: "pro", status: "past_due" },
+        usedTokens: 100,
+        activeRuns: 0,
+      }),
+    ).toThrow(/欠费/);
+    // The code is what the web modal branches on, so it is part of the contract.
+    expect(() =>
+      enforceSubscription(withNodes(textNode("a", "agnes-2.0-flash")), cfg, {
+        subscription: { plan: "pro", status: "past_due" },
+        usedTokens: 100,
+        activeRuns: 0,
+      }),
+    ).toThrowError(expect.objectContaining({ code: "PAYMENT_REQUIRED" }));
+
+    expect(() =>
+      enforceSubscription(withNodes(textNode("a", "my-model")), cfg, {
+        subscription: { plan: "pro", status: "past_due" },
+        usedTokens: 100,
+        activeRuns: 0,
+      }),
+    ).not.toThrow();
+  });
+
+  it("keeps a canceled subscription working until its paid period ends", () => {
+    const periodEnd = Date.parse("2026-10-01T00:00:00Z");
+    const paid = (status: string, at: number) => () =>
+      enforceSubscription(withNodes(textNode("a", "agnes-2.0-flash")), cfg, {
+        subscription: { plan: "pro", status, currentPeriodEnd: periodEnd },
+        usedTokens: 100,
+        activeRuns: 0,
+        now: at,
+      });
+
+    // Stripe writes `canceled` at cancel-at-period-end, while access is still paid for.
+    expect(paid("canceled", periodEnd - 86_400_000)).not.toThrow();
+    expect(paid("canceled", periodEnd + 1)).toThrow(/取消/);
+    expect(paid("canceled", periodEnd + 1)).toThrowError(
+      expect.objectContaining({ code: "SUBSCRIPTION_ENDED" }),
+    );
+    // An unknown/added status must not silently cut off someone who paid.
+    expect(paid("trialing", periodEnd - 86_400_000)).not.toThrow();
+  });
+
   it("blocks when concurrent runs exceed the plan", () => {
     expect(() =>
       enforceSubscription(withNodes(textNode("a", "my-model")), cfg, {

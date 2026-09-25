@@ -41,6 +41,7 @@ import {
 import { findGraphIdByName as findGraphIdByNameCore } from "./graphs-name.js";
 import { ArtifactStore } from "./artifact-store.js";
 import { log } from "./logger.js";
+import { MaintenanceLoop } from "./maintenance.js";
 import { startRun, resumeRun, forkRun, RunStartError, type ResumeAction } from "./run.js";
 import { buildFailureInfo, diagnoseRun } from "./diagnose.js";
 import { runBatch } from "./batch.js";
@@ -49,6 +50,7 @@ import { TriggerService, TriggerError, secretEqual, WEBHOOK_TIMESTAMP_WINDOW_MS 
 import { TriggerScheduler } from "./scheduler.js";
 import { resolveConnector } from "./connectors.js";
 import { startABExperiment } from "./ab.js";
+import { quotaResponseBody } from "./dispatch-gate.js";
 import { loadCrossGraphEdges } from "./crossGraphService.js";
 import {
   loadConfig,
@@ -83,8 +85,6 @@ import { RateLimiter } from "./rate-limit.js";
 import {
   DEMO_QUOTA,
   DEMO_TTL_MS,
-  DemoQuotaError,
-  enforceDemoQuota,
   type DemoFeature,
 } from "./demo.js";
 import { graphAccessRole, requireGraph, visibleGraphs, requireRun, runAccessRole, artifactAccessRole, hasAtLeast } from "./rbac.js";
@@ -1129,9 +1129,9 @@ app.put("/api/graphs/:id", async (c) => {
 
 /** Which node kinds require a worker model and which modality they need. */
 import { validateModels, type ModelDiagnostic } from "./validate-models.js";
-import { enforceSubscription, QuotaError } from "./subscription.js";
 import { isPlanId, normalizeTokens, PLANS } from "./plans.js";
 import { getOrCreateSubscription, setPlan, currentPeriodEnd, currentUsage } from "./subscriptionService.js";
+import { isSubscriptionStatus, SUBSCRIPTION_STATUSES } from "./subscription.js";
 import { listInvoices, getInvoice, markInvoicePaid, voidInvoice } from "./invoiceService.js";
 import { billingRouter } from "./api.billing.js";
 import { renderInvoiceHtml } from "./invoiceTemplate.js";
@@ -1317,10 +1317,16 @@ app.post("/api/admin/users/:id/plan", async (c) => {
   if (!isPlanId(body.plan)) {
     return c.json({ error: "plan must be free | starter | pro | team" }, 400);
   }
+  // 原先 body.status 被解析出来却没人用——操作者传了它、拿到 200，就会以为状态已改。
+  // 现在要么真的生效，要么明确拒掉；不传则**保留原状态**（欠费的清除只该由
+  // invoice.paid 或这里的显式 status 触发，改套餐本身不该顺手抹掉）。
+  if (body.status !== undefined && !isSubscriptionStatus(body.status)) {
+    return c.json({ error: `status must be one of ${SUBSCRIPTION_STATUSES.join(" | ")}` }, 400);
+  }
   const target = await db.findUserById(c.req.param("id"));
   if (!target) return c.json({ error: "user not found" }, 404);
-  const record = await setPlan(db, target.id, body.plan, callerId, clientIp(c));
-  return c.json({ ok: true, plan: record.plan });
+  const record = await setPlan(db, target.id, body.plan, callerId, clientIp(c), body.status);
+  return c.json({ ok: true, plan: record.plan, status: record.status });
 });
 
 /** M3 S4: owner manually marks an invoice as paid (manual payment path).
@@ -2673,67 +2679,9 @@ app.post("/api/runs", async (c) => {
     );
   }
 
-  // 订阅 gate（design-monetization §5.3 / M2 §S4）：免费层阻断内置模型，各层查
-  // token / 视频段 / 存储 / 并发额度。通过 MONETIZATION_ENFORCE=1 显式启用——
-  // 默认关闭，部署后先把 owner 升到 pro/team 再开，避免内置模型产线被 402 断供。
-  const gateOwner = await db.findUserById(ownerId);
-  if (gateOwner?.is_demo === 1) {
-    // Demo limits ALWAYS apply (independent of MONETIZATION_ENFORCE) and draw on
-    // the demo token pool, so text pipelines run even where the free plan is
-    // blocked (Hasee runs ENFORCE=1 with free tokens=0). Media is refused.
-    try {
-      const demoUsage = await currentUsage(db, ownerId);
-      enforceDemoQuota(graph, await loadConfig(ownerId), {
-        usedTokens: demoUsage.normalizedTokens,
-        totalRuns: demoUsage.runs,
-        activeRuns: await db.activeRuns(ownerId),
-        usedStorageBytes: demoUsage.storageBytes,
-      });
-    } catch (err) {
-      if (err instanceof DemoQuotaError) {
-        return c.json(
-          {
-            error: "demo_quota",
-            code: err.code,
-            metric: err.metric,
-            detail: err.detail ?? null,
-            // Internal anchor: the web app opens the claim dialog (keep work).
-            claimUrl: "/login?claim=1",
-            message: err.message,
-          },
-          402,
-        );
-      }
-      throw err;
-    }
-  } else if (process.env.MONETIZATION_ENFORCE === "1") {
-    try {
-      const usage = await currentUsage(db, ownerId);
-      enforceSubscription(graph, await loadConfig(ownerId), {
-        subscription: await db.loadSubscription(ownerId),
-        usedTokens: usage.normalizedTokens,
-        activeRuns: await db.activeRuns(ownerId),
-        usedVideoSegments: usage.videoSegments,
-        usedStorageBytes: usage.storageBytes,
-      });
-    } catch (err) {
-      if (err instanceof QuotaError) {
-        return c.json(
-          {
-            error: "subscription",
-            code: err.code,
-            metric: err.metric ?? null,
-            detail: err.detail ?? null,
-            // Internal anchor: the web app opens Settings → billing tab (no router).
-            upgradeUrl: "settings:billing",
-            message: err.message,
-          },
-          402,
-        );
-      }
-      throw err;
-    }
-  }
+  // 订阅 / demo 配额闸门已移入 startRun()（dispatch-gate.ts），这样重跑、批量、
+  // 触发器、AB 每一条派发路都盖得到，而不是只有这一条。402 体由下面
+  // startRun 的 catch 经 quotaResponseBody 统一生成。
 
   // 幂等（engineering-blueprint §2）：同一 Idempotency-Key 重复提交只建一次 run，
   // 返回第一次的 runId——堵「双击运行 / 重试建重复 run 重复烧钱」。
@@ -2777,6 +2725,8 @@ app.post("/api/runs", async (c) => {
     });
     return c.json({ runId, diagnostics, modelWarnings: modelDiags });
   } catch (e) {
+    const quota = quotaResponseBody(e);
+    if (quota) return c.json(quota, 402);
     if (e instanceof RunStartError) {
       return jsonResponse(e.status, { error: e.message, diagnostics: e.extra });
     }
@@ -2856,23 +2806,34 @@ app.post("/api/batches/:id/items/:itemId/retry", async (c) => {
   const item = (await db.listBatchItems(batch.id)).find((i) => i.id === c.req.param("itemId"));
   if (!item) return c.json({ error: "item not found" }, 404);
 
-  const { runId } = await startRun({
-    db,
-    userId: ownerId,
-    worker: workerRegistry.get(undefined),
-    artifacts,
-    live,
-    graph,
-    trigger: "batch-retry",
-    input: JSON.stringify(item.input),
-    publicUrl: PUBLIC_URL,
-    onFinish: async (_gid, status) => {
-      if (status === "done") await db.markBatchItemDone(item.id, null, []);
-      else await db.markBatchItemFailed(item.id, `run ${status}`);
-    },
-  });
-  await db.markBatchItemRunning(item.id, runId);
-  return c.json({ runId });
+  try {
+    const { runId } = await startRun({
+      db,
+      userId: ownerId,
+      worker: workerRegistry.get(undefined),
+      artifacts,
+      live,
+      graph,
+      trigger: "batch-retry",
+      input: JSON.stringify(item.input),
+      publicUrl: PUBLIC_URL,
+      onFinish: async (_gid, status) => {
+        if (status === "done") await db.markBatchItemDone(item.id, null, []);
+        else await db.markBatchItemFailed(item.id, `run ${status}`);
+      },
+    });
+    await db.markBatchItemRunning(item.id, runId);
+    return c.json({ runId });
+  } catch (e) {
+    // 原先这里没有 try：被拦的派发（订阅配额，或早已存在的月度预算熔断）会冒到
+    // Hono 的错误处理，用户看到 500 而不是「额度已满」。
+    const quota = quotaResponseBody(e);
+    if (quota) return c.json(quota, 402);
+    if (e instanceof RunStartError) {
+      return jsonResponse(e.status, { error: e.message, diagnostics: e.extra });
+    }
+    throw e;
+  }
 });
 
 // --- Content calendar (F8: scheduled publishing plan) ---
@@ -3178,6 +3139,8 @@ app.post("/api/graphs/:id/triggers/:tid/fire", async (c) => {
     const { runId } = await triggers.fire(tid, body.payload, graphId);
     return c.json({ runId });
   } catch (e) {
+    const quota = quotaResponseBody(e);
+    if (quota) return c.json(quota, 402);
     if (e instanceof TriggerError) return jsonResponse(e.status, { error: e.message });
     throw e;
   }
@@ -3198,6 +3161,9 @@ app.post("/api/graphs/:id/webhook", async (c) => {
     const { runId } = await triggers.fireWebhook(graphId, secret, body.payload, timestampMs);
     return c.json({ runId });
   } catch (e) {
+    // 402 是对外的诚实回答：这条 webhook 我们收到了，但配额不允许跑。
+    const quota = quotaResponseBody(e);
+    if (quota) return c.json(quota, 402);
     if (e instanceof TriggerError) {
       return jsonResponse(e.status, { error: e.message });
     }
@@ -3314,8 +3280,12 @@ app.post("/api/runs/ab", async (c) => {
       input,
     });
     return c.json({ abGroup, arms });
-  } catch (err) {
-    return c.json({ error: sanitizeError(err) }, 400);
+  } catch (e) {
+    // 实验一次建 N 条 run，闸门按这一次用户动作评估一次；被拦要回 402 引导，
+    // 而不是被下面的 sanitizeError 折成 400（前端就当普通请求错误处理掉）。
+    const quota = quotaResponseBody(e);
+    if (quota) return c.json(quota, 402);
+    return c.json({ error: sanitizeError(e) }, 400);
   }
 });
 
@@ -3803,6 +3773,8 @@ app.post("/api/runs/:id/rerun", async (c) => {
     });
     return c.json({ runId, diagnostics, modelWarnings: modelDiags });
   } catch (e) {
+    const quota = quotaResponseBody(e);
+    if (quota) return c.json(quota, 402);
     if (e instanceof RunStartError) {
       return jsonResponse(e.status, { error: e.message, diagnostics: e.extra });
     }
@@ -3875,6 +3847,8 @@ app.post("/api/runs/:id/fork", async (c) => {
     });
     return c.json({ runId });
   } catch (e) {
+    const quota = quotaResponseBody(e);
+    if (quota) return c.json(quota, 402);
     if (e instanceof RunStartError) {
       return jsonResponse(e.status, { error: e.message, diagnostics: e.extra });
     }
@@ -4219,20 +4193,10 @@ if (process.env.NODE_ENV !== "test") {
         .map((g) => `${g.provider}/${g.model} (missing ${g.missing.join(",")})`),
     });
   }
-  // Audit retention (design-audit-log §5): 180 days, pruned lazily at boot.
-  // Failing here must not stop the server — the table just keeps growing, which
-  // is exactly the pre-prune behaviour.
-  const AUDIT_RETENTION_DAYS = 180;
-  try {
-    const pruned = await db.pruneAuditOlder(
-      Date.now() - AUDIT_RETENTION_DAYS * 86_400_000,
-    );
-    if (pruned > 0) {
-      log.info("audit log pruned", { rows: pruned, retentionDays: AUDIT_RETENTION_DAYS });
-    }
-  } catch (err) {
-    log.warn("audit log prune failed", { error: (err as Error)?.message ?? String(err) });
-  }
+  // events + audit_log 保留清理：启动即清一次，之后每 6h 续清
+  // （design-audit-log §5 / design-scaling §2.1）。单轮失败只 warn。
+  const maintenance = new MaintenanceLoop(db);
+  maintenance.start();
   const server = serve({ fetch: app.fetch, port: PORT }, (info) => {
     log.info("engine listening", { port: info.port, url: `http://localhost:${info.port}` });
   });
@@ -4251,6 +4215,7 @@ if (process.env.NODE_ENV !== "test") {
     const drain = setInterval(async () => {
       if (live.size > 0 && Date.now() < deadline) return;
       clearInterval(drain);
+      maintenance.stop();
       for (const entry of live.values()) entry.controller.abort();
       disposeIsolatedWorkers();
       // Release MCP transports too: the stdio ones own a child process, so

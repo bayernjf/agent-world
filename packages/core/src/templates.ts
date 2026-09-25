@@ -3536,10 +3536,12 @@ const compliancePrecheckGraph = {
         compliance: {
           platform: "xiaohongshu",
           autoFix: true,
-          // Absolute superlatives are the classic advertising-law landmine; the
-          // platform profile carries its own list, these are the additions a
-          // seller keeps hitting.
-          extraBanned: "最,第一,顶级,绝对,国家级,100%,根治,永不过期",
+          // 广告法词表（AD_LAW_BANNED_WORDS）已经盖住 最好/第一/顶级/绝对/国家级/
+          // 100%/根治/永久 这些，这里只补它没有的那条。曾经这里写着
+          // "最,第一,顶级,绝对,国家级,100%,根治,永不过期"：六条是重复，而裸字「最」
+          // 会命中「最近」「最多」这类正常用法，把不该改的文字洗成（已删除）——
+          // 2026-09-25 真机狗粮看到的。
+          extraBanned: "永不过期",
           failOnViolation: false,
         },
       },
@@ -3564,8 +3566,10 @@ const compliancePrecheckGraph = {
         y: 300,
         gate: {
           maxAttempts: 2,
+          // 判据写的是「哪一类表述」而不是逐字词表：裸字「最」出现在这里会让评委把
+          // 「最近」「最多」也判成违规，反复打回直到 halt。
           criterion:
-            "全文不得出现绝对化用语（最、第一、顶级、绝对、国家级、100%、根治、永不过期），且保留了原文卖点，不超过 200 字。",
+            "不得出现绝对化与疗效承诺表述（「最+形容词」式的第一流宣称、第一、顶级、绝对、国家级、100%、根治、永不过期等；「最近」「最多」这类正常用法不算违规），且保留了原文卖点，不超过 200 字。",
           onExhausted: "halt",
         },
       },

@@ -14,6 +14,8 @@
     "redirecting": "正在跳转支付页面…",
     "pastDueTitle": "订阅待支付",
     "pastDueBody": "上一次扣款未成功，请尽快更新支付方式，以免套餐额度与服务中断。",
+    "endedTitle": "订阅已结束",
+    "endedBody": "你的订阅已在计费周期结束后取消，内置模型已暂停。重新订阅即可恢复，或改用自带 API Key 的模型。",
     "returnSuccess": "支付已完成，套餐将在 Stripe 确认后自动更新。",
     "returnCancel": "已取消支付，套餐未发生变化。",
     "errPriceMissing": "该套餐暂未开放在线购买，请联系实例管理员。",

@@ -311,19 +311,27 @@ export function checkCompliance(opts: ComplianceOptions): ComplianceResult {
 
   const passed = violations.length === 0;
 
-  // autoFix：按命中区间做「最长词优先」的就地替换
+  // autoFix：按命中区间做就地替换。区间全部锚在原串上、一趟拼出新串——先前是
+  // 「最长优先、逐个往 accumulating 串上套」，而每次替换都会改变串长，后面的
+  // 旧偏移就会切进前面已经替换好的文字里（嵌套命中必现，2026-09-25 狗粮实测
+  // 「最好的」+「最」洗成「（已删除）秀的」）。
   let sanitized = text;
   if (opts.autoFix !== false && !passed) {
     const bannedHits = violations
       // M32: only body hits have spans valid for `text`; title spans are a
       // different coordinate space and would corrupt the body when applied.
       .filter((v) => v.type === "banned" && v.span && v.match && v.field !== "title")
-      .sort((a, b) => b.span![1] - b.span![0] - (a.span![1] - a.span![0]));
+      .sort((a, b) => a.span![0] - b.span![0] || b.span![1] - b.span![0] - (a.span![1] - a.span![0]));
+    const parts: string[] = [];
+    let cursor = 0;
     for (const v of bannedHits) {
       const [s, e] = v.span!;
-      const replacement = BANNED_SUGGEST[v.match!] ?? "（已删除）";
-      sanitized = sanitized.slice(0, s) + replacement + sanitized.slice(e);
+      if (s < cursor) continue; // 与前一个改写重叠：同起点时长词已排在前，赢的就是它
+      parts.push(text.slice(cursor, s), BANNED_SUGGEST[v.match!] ?? "（已删除）");
+      cursor = e;
     }
+    parts.push(text.slice(cursor));
+    sanitized = parts.join("");
   }
 
   return {

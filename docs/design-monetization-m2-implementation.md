@@ -1,5 +1,7 @@
 # M2 订阅 gate 落地实施方案（design-monetization-m2-implementation）
 
+> **文件名勘误（2026-09-25 机器核证）**：本文列的 `enforce-subscription.ts` / `api.subscription.ts` / `apps/web/src/api/subscription.ts` / `usage-backfill.test.ts` / `packages/core/src/errors.ts` **均未按此名落地**：订阅 gate 在 `packages/server/src/index.ts` 与 `sqlite-driver.ts`（测试 `subscription.test.ts`），计费端点在 `packages/server/src/api.billing.ts`。
+
 > 定位：对 [design-monetization.md](design-monetization.md) §5「配额与订阅 gate」+ §9 P1 阶段的**落地级细化**，结合当前代码库（2026-09-14）实际状态，给出可执行的分步骤实施计划、文件清单、迁移方案、测试策略与回滚方案。
 >
 > 状态：**已部署 Hasee（2026-09-14 完成代码，随 PR #277 合 dev merge `124bdca` 上线；owner 已升 pro、MONETIZATION_ENFORCE=1）**。S1 无需新建迁移（表已存在于迁移 34）；S2 ✅ `1d7a3e4`（plans.ts 单一事实源 + subscriptionService）；S3 ✅ `8a8a32f`（用量计量 + 幂等回填 CLI）；S4 ✅ `7dece12`（gate 五维检查 + 结构化 402）；BYOK 视频放行修复 ✅ `99d639b`；S5 ✅ `9807988`（GET /api/subscription + web client）；S6 ✅ `f3ed6f4`（账单 tab + 用量面板 + 升级引导模态）；S7 ✅ `d045f46`（80%/100% token 预警公告）；S8 ✅ 四包 typecheck 全绿，core 233 / mcp 71 / web 1824 / server 1036 测试通过（server 余 32 个失败为 macOS 子进程沙箱环境基线，与 M2 无关，已用 git diff 证实未触碰这些文件）。**已部署（PR #277 合 dev merge `124bdca` 上线 Hasee，owner 已升 pro、MONETIZATION_ENFORCE=1）。** M1 成本计量回采已完成（125 runs / $5.57 总成本），套餐价格已校准（Starter $9 / Pro $29 / Team $149，见 design-monetization.md §4.1）。
@@ -632,7 +634,10 @@ export async function checkUsageAlerts(userId: string): Promise<void> {
 4. **存量用户自动落免费层**：`getOrCreateSubscription` 懒创建 free，无需批量刷库；可抽查一个老用户 `GET /api/subscription` 返回 `plan:"free"`。
 5. **⚠️ 先把 owner 升到付费套餐（最关键，顺序不能反）**：owner userId `92d95665-10ef-49d7-a2c3-6ba39d92f5fb`，在**打开 enforce 之前**用管理员接口设为 `pro`（或 `team`），否则 M1 四条内置 agnes 回采产线会被 402 断供：
    `POST /api/admin/users/92d95665-10ef-49d7-a2c3-6ba39d92f5fb/plan  body {"plan":"pro"}`（需 owner/admin 登录态），并确认 audit_log 出现 `billing.plan_changed`。
-6. **最后才打开 gate 开关**：在服务环境变量设 `MONETIZATION_ENFORCE=1` 并 `systemctl restart agent-world`。**默认关闭**——不设此变量时代码已上线但不拦截，可先灰度观察计量是否准确。
+   > **2026-09-25 核实补注（同日已被下一条改动超越，保留作记录）**：这一步写的因果当时**并不会发生**——M1 产线是 cron 触发器，走 `index.ts` 注入给 `TriggerService` 的 `startRun` 适配函数 → `triggers.ts` 的 `fire()`，而 gate 当时只挂在 `POST /api/runs` 的 handler 里，所以 owner 留在 free 也不会 402。换句话说：这条「保护 M1」的理由，本身是 gate 覆盖面不足的症状（当时 5 个 `startRun` 调用点只有 1 个被拦）。
+   > **同日稍后（commit `242b04f`）**：gate 已收进 `startRun()`，触发器路径一并生效，**从这次改动起本条顺序建议才真正成立**——owner 不先升 pro 就打开硬拦，M1 四条产线会开始被 402。这也是把它拆成两步灰度的原因，见下一步。
+6. **打开 gate 开关（现在有两步，先观察再硬拦）**：在服务环境变量设值并 `systemctl restart agent-world`。取值语义见 runbook 四之二：空/不设置＝关；`observe`＝**照样评估并打 `would block dispatch` 日志但不拦截**；`1`/`true`/`yes`＝硬拦。
+   推荐顺序：先 `observe` 跑满一个业务周期（≥24h），`journalctl -u agent-world | grep "would block dispatch"` 看 M1 四条产线是否出现 `metric:"tokens"`——它们此前完全不受配额约束，硬拦一开就第一次受 pro 2,000,000 折算 token/月管；没有再改 `1`。这一条是原计划「可先灰度观察计量是否准确」的落地手段（此前根本没有只观察不拦的档）。
 7. **部署后验证**：
    - M1 四条产线下一个 cron tick 正常出 run（①`10,40 * * * *` 等），无 402；
    - owner `GET /api/subscription` 返回 `plan:"pro"` 且 usage 正常累加；
@@ -676,7 +681,7 @@ export async function checkUsageAlerts(userId: string): Promise<void> {
 
 **回滚保障**：
 - 每步原子提交，可单独回滚
-- gate 逻辑有 feature flag（`ENABLE_SUBSCRIPTION_GATE` 环境变量），紧急时可关闭 gate 而不回滚代码
+- gate 逻辑有 feature flag（环境变量 `MONETIZATION_ENFORCE`，代码里只认字符串 `"1"`），紧急时把它从 systemd override 移除并 `systemctl restart agent-world` 即可关闭 gate 而不回滚代码。**注意 `ENABLE_SUBSCRIPTION_GATE` 这个名字从未存在过**（本文原稿写错，2026-09-25 核证更正），照它去 unset 会以为已经关掉、实际仍在拦截
 - M2 部署到 Hasee 前先在本地 dev 充分验证
 - M2 部署后先观察 24 小时（M1 回采产线正常 + 无异常 402）再确认稳定
 

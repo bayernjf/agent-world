@@ -9,6 +9,7 @@ import { loadConfig } from "./config.js";
 import { loadUserSkills } from "./skills/user-skills.js";
 import { runAsUser } from "./user-context.js";
 import { createReadArtifact } from "./artifact-reader.js";
+import { dispatchGate } from "./dispatch-gate.js";
 import { counter, gauge } from "./metrics.js";
 import { recordRunUsage } from "./subscriptionService.js";
 import { checkUsageAlerts } from "./usage-alert.js";
@@ -163,6 +164,9 @@ export async function startRun(args: StartRunArgs): Promise<{ runId: string; dia
 
   const runId = randomUUID();
   const startedAt = Date.now();
+  // 订阅 / demo 配额闸门：放在这里而不是各路由里，且在建 run 行之前——被拦下的
+  // 派发不该在库里留下一条永远 running 的记录（observe 档只记日志，不拦）。
+  await dispatchGate({ db, graph, userId, trigger });
   await db.createRun({ id: runId, userId, graph, budgetUsd: budgetUsd ?? null, at: startedAt, trigger, input });
   const controller = new AbortController();
   const entry: LiveEntry = { events: [], done: false, controller };
@@ -515,6 +519,9 @@ export async function forkRun(args: ForkRunArgs): Promise<{ runId: string }> {
 
   const runId = randomUUID();
   const startedAt = Date.now();
+  // fork 不走 startRun（它要带父 run 的 input/budget 与 fork 点），所以闸门在这
+  // 里显式补一次——否则「从已付费 run 分叉」就成了绕过配额的一条路。
+  await dispatchGate({ db, graph, userId, trigger: "fork" });
   await db.createRun({
     id: runId,
     userId,

@@ -51,9 +51,39 @@ export function currentPeriodStart(now = Date.now()): number {
   return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1);
 }
 
+/** 订阅状态全集（design-monetization §4.1 subscriptions.status）。 */
+export const SUBSCRIPTION_STATUSES = ["active", "trialing", "canceled", "past_due"] as const;
+export type SubscriptionStatus = (typeof SUBSCRIPTION_STATUSES)[number];
+
+export function isSubscriptionStatus(value: string | undefined): value is SubscriptionStatus {
+  return value !== undefined && (SUBSCRIPTION_STATUSES as readonly string[]).includes(value);
+}
+
 export interface SubscriptionLike {
   plan: string;
   status: string;
+  /** 订阅周期结束（ms epoch）。判断「已取消但仍在已付费期内」要用它。 */
+  currentPeriodEnd?: number;
+}
+
+/**
+ * 订阅状态是否还支持「用平台内置模型」（design-monetization §6.4）。
+ *
+ * - `past_due`（Stripe invoice.payment_failed）→ 内置模型阻断，BYOK 保留。
+ *   §6.4 写的「宽限期 3-7 天」在这里做不到：subscriptions 没有记录状态何时变更的
+ *   列，`updated_at` 会被 checkout 镜像、setPlan 等无关写入顶掉，拿它当「欠费起始
+ *   时间」会得到一个会说谎的窗口（已登记 deferred-items，等加列）。所以先按最保守
+ *   的可实现口径：欠费即断，欠费清了（invoice.paid）自动恢复。
+ * - `canceled` → 只在已付费周期走完后才断。Stripe 在「期末取消」时也会先把状态
+ *   写成 canceled，此时访问权仍在有效期内，不该提前收走。
+ * - 其它值（active / trialing / 未来新增的）→ 视为有访问权：未知状态不该误伤付费用户。
+ */
+export function builtinAccessIntact(sub: SubscriptionLike, now: number): boolean {
+  if (sub.status === "past_due") return false;
+  if (sub.status === "canceled") {
+    return sub.currentPeriodEnd != null && now <= sub.currentPeriodEnd;
+  }
+  return true;
 }
 
 export type QuotaMetric = "builtin_model" | "tokens" | "concurrency" | "video" | "storage";
@@ -69,6 +99,8 @@ export interface EnforceOptions {
   usedVideoSegments?: number;
   /** 当前已占用存储字节（实时快照） */
   usedStorageBytes?: number;
+  /** 注入时钟，用于判断「已取消但仍在其已付费周期内」。 */
+  now?: number;
 }
 
 /** 图中是否含内置视频模型节点（BYOK 视频不计入平台配额）。 */
@@ -98,6 +130,20 @@ export function enforceSubscription(graph: Graph, config: AppConfig, opts: Enfor
       throw new QuotaError(
         "QUOTA_EXCEEDED",
         "免费层不可用内置模型（如 agnes）。请升级套餐，或改用自带 API Key 的自定义模型。",
+        "builtin_model",
+        { plan: planId, limit: 0, used: 1 },
+      );
+    }
+    // 套餐对但钱没到位：内置模型这一维按免费层对待（BYOK 不受影响）。
+    // 两种状态分开报错码——前端的引导不同（补款 vs 重新订阅），合成一个码就只能
+    // 给一句含糊的话。
+    const arrears = opts.subscription!.status === "past_due";
+    if (!builtinAccessIntact(opts.subscription!, opts.now ?? Date.now())) {
+      throw new QuotaError(
+        arrears ? "PAYMENT_REQUIRED" : "SUBSCRIPTION_ENDED",
+        arrears
+          ? "订阅欠费中，内置模型已暂停。请更新付款方式，扣款成功后自动恢复；自带 API Key 的模型不受影响。"
+          : "订阅已于本周期结束后取消，内置模型已暂停。请重新订阅，或改用自带 API Key 的模型。",
         "builtin_model",
         { plan: planId, limit: 0, used: 1 },
       );

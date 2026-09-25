@@ -42,6 +42,27 @@ describe("subscriptionService", () => {
     expect(reloaded.plan).toBe("pro");
   });
 
+  it("keeps an arrears marker across a plan change unless told otherwise", async () => {
+    // setPlan used to write status:"active" unconditionally, so an owner fixing
+    // someone's plan also erased the fact that they had not paid — and the
+    // builtin-model block reads status. Clearing it takes an explicit status.
+    await getOrCreateSubscription(db, "u-arrears");
+    await db.saveSubscription("u-arrears", "starter", "past_due", {
+      provider: "stripe",
+      periodStart: Date.now() - 86_400_000,
+      periodEnd: Date.now() + 86_400_000,
+    });
+
+    const changed = await setPlan(db, "u-arrears", "pro", "owner-1");
+    expect(changed.status).toBe("past_due");
+    expect(await db.loadSubscription("u-arrears")).toMatchObject({ plan: "pro", status: "past_due" });
+
+    // Offline settlement is the one legitimate manual override.
+    const settled = await setPlan(db, "u-arrears", "pro", "owner-1", undefined, "active");
+    expect(settled.status).toBe("active");
+    expect(await db.loadSubscription("u-arrears")).toMatchObject({ status: "active" });
+  });
+
   it("planOf falls back to free for missing/malformed records", () => {
     expect(planOf(undefined)).toBe("free");
     expect(planOf({ plan: "bogus", status: "active" } as never)).toBe("free");

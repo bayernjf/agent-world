@@ -59,6 +59,40 @@ describe("UpgradeGate", () => {
     expect(screen.getByText("改用自定义模型")).toBeInTheDocument();
   });
 
+  it("shows 更新支付方式 rather than 升级 for a past-due block", () => {
+    act(() =>
+      useUpgradeGate.getState().open({
+        code: "PAYMENT_REQUIRED",
+        metric: "builtin_model",
+        plan: "pro",
+        limit: 0,
+        used: 1,
+      }),
+    );
+    render(<UpgradeGate onUpgrade={vi.fn()} onUseCustomModel={vi.fn()} />);
+    expect(screen.getByText("订阅待支付")).toBeInTheDocument();
+    expect(screen.getByText("更新支付方式")).toBeInTheDocument();
+    // The whole point: an arrears user must not be told to buy a bigger plan.
+    expect(screen.queryByText("套餐额度已用尽")).toBeNull();
+    expect(screen.queryByText("查看套餐 / 升级")).toBeNull();
+  });
+
+  it("shows 重新订阅 rather than 升级 for a subscription that ended", () => {
+    act(() =>
+      useUpgradeGate.getState().open({
+        code: "SUBSCRIPTION_ENDED",
+        metric: "builtin_model",
+        plan: "starter",
+        limit: 0,
+        used: 1,
+      }),
+    );
+    render(<UpgradeGate onUpgrade={vi.fn()} onUseCustomModel={vi.fn()} />);
+    expect(screen.getByText("订阅已结束")).toBeInTheDocument();
+    expect(screen.getByText("重新订阅")).toBeInTheDocument();
+    expect(screen.queryByText("查看套餐 / 升级")).toBeNull();
+  });
+
   it("hides the BYOK button for storage/concurrency blocks", () => {
     act(() =>
       useUpgradeGate.getState().open({

@@ -132,7 +132,7 @@
 | **阶段 1：抽接口（不换驱动）** ✅ 2026-09-08 | 把 `stmts` 对象的 137 个方法抽成 `DatabaseDriver` 接口，`SqliteDriver` 实现之（同步逻辑包成 async，行为不变）。**已落地**：`sqlite-driver.ts` + 137 方法 async + 业务/测试全量 `await`，912/912 绿 | 低（纯重构，SQLite 行为零变化） |
 | **阶段 2：占位符转换层** ✅ 2026-09-08 | `PgDriver` 内实现 `? → $n` 转换 + 方言改写（strftime→to_char 等）。**已落地**：`pg-sql.ts`（`toPgPlaceholders` mini-tokenizer + `toPgDdl` 类型映射）、执行器抽象（`Executor` + `createDriver` 共享 137 方法）、方言参数化（strftime 周/月聚合→to_char、LIKE→ILIKE、PRAGMA integrity_check）、`pg-driver.ts`（`createPgDriver` + `createPgExecutor`）。server 919/919 绿 | 中（SQL 方言） |
 | **阶段 3：接入 + 切换开关** ✅ 2026-09-08 | `DB_DRIVER=sqlite\|postgres` 环境变量选择驱动，启动时初始化对应 driver。**已落地**：`db.ts` 的 `openDatabase()` 分派工厂（默认/空值=sqlite；未知值 fail-closed；PG 连接配置 `DATABASE_URL` 或 `PG_HOST`+`PG_DATABASE`+可选 `PG_PORT/PG_USER/PG_PASSWORD/PG_SSL`）+ `index.ts` 启动接线 + driver 暴露 `kind` 标识。**边界（诚实降级）**：知识库 FTS5 为 SQLite 专属——PG 下 `SQLiteMemoryBackend` 换 `NoopMemoryBackend`（空结果 + 启动警告）；`backfillExistingData`（旧库补 owner）仅 sqlite 路径执行；`key-rotation.ts` 仍 SQLite-only。测试 `db-driver-switch.test.ts` 5 例守护（默认值/显式 sqlite/未知值拒绝/缺连接配置 fail-closed/kind 暴露） | 低 |
-| **数据搬迁脚本** ✅ 2026-09-08 | §6.1 方案 A **已落地**：`src/migrate-to-postgres.ts` + `scripts/migrate-to-postgres.ts` CLI（`pnpm --filter @agent-world/server migrate:postgres`）。执行 `VACUUM INTO` 快照（回滚底本）→ `toPgDdl(DDL)` 建 PG schema → 逐表流式批量 INSERT（`$n` 参数化，200 行/批）→ 行数对齐校验（不一致非零退出）；`--dry-run` 无 PG 连接打计划；`--verify-only` 只比对。**落地时发现并修复 DDL 契约缺口**：`resource_access`/`subscriptions`/`usage_ledger`/`idempotency_keys` 4 张表只在迁移 32-35 里建、DDL 常量缺失——fresh PG 库会缺表；已补进 DDL（迁移保留，`detect` 基线自动跳过）。**与 §6.3 的偏差**：不生成中间 `.sql` 文件，改为直接流式导入（少一次大文件落盘/重放，review 需求由 `--dry-run` 计划输出满足）。`schema_migrations`（SQLite 迁移记账）与 FTS 表跳过并在报告中标注。真实 PG 实例上的端到端搬迁+§8 验收仍待 SaaS 阶段触发 | 中 |
+| **数据搬迁脚本** ✅ 2026-09-08 | §6.1 方案 A **已落地**：`src/migrate-to-postgres.ts` + `packages/server/scripts/migrate-to-postgres.ts` CLI（`pnpm --filter @agent-world/server migrate:postgres`）。执行 `VACUUM INTO` 快照（回滚底本）→ `toPgDdl(DDL)` 建 PG schema → 逐表流式批量 INSERT（`$n` 参数化，200 行/批）→ 行数对齐校验（不一致非零退出）；`--dry-run` 无 PG 连接打计划；`--verify-only` 只比对。**落地时发现并修复 DDL 契约缺口**：`resource_access`/`subscriptions`/`usage_ledger`/`idempotency_keys` 4 张表只在迁移 32-35 里建、DDL 常量缺失——fresh PG 库会缺表；已补进 DDL（迁移保留，`detect` 基线自动跳过）。**与 §6.3 的偏差**：不生成中间 `.sql` 文件，改为直接流式导入（少一次大文件落盘/重放，review 需求由 `--dry-run` 计划输出满足）。`schema_migrations`（SQLite 迁移记账）与 FTS 表跳过并在报告中标注。真实 PG 实例上的端到端搬迁+§8 验收仍待 SaaS 阶段触发 | 中 |
 
 > 关键难点是**阶段 1 的异步化**：`db.ts` 的 136 个方法目前是同步的，所有调用点（index.ts / run.ts / 各 node 等）都假设同步返回。异步化要逐调用点 `await`，是**纯机械但量大**的活（不是重写逻辑）。这与 tech-stack-assessment.md 的判断一致——「替换实现，不是重写」。
 
@@ -146,7 +146,7 @@
 
 | 方案 | 工具 | 适用 |
 |---|---|---|
-| **A（主）** | 自写 `scripts/migrate-to-postgres.ts`：读 SQLite → 按 §4 差异清单生成 PG 兼容 dump → `pg` COPY 导入 | 精确控制类型映射 + 静态加密字段校验 + 时间戳语义 |
+| **A（主）** | 自写 `packages/server/scripts/migrate-to-postgres.ts`：读 SQLite → 按 §4 差异清单生成 PG 兼容 dump → `pg` COPY 导入 | 精确控制类型映射 + 静态加密字段校验 + 时间戳语义 |
 | B（辅） | `pgloader` | 原型快速验证（注意：其 SQLite 支持为 experimental） |
 
 **以 A 为主**：项目有 pgloader 覆盖不了的定制（静态加密字段搬迁后须可解密、时间戳 INTEGER/TEXT 混存语义），自写脚本可控性更高；pgloader 仅用于快速原型验证全量搬迁的可行性，不作为生产路径。
