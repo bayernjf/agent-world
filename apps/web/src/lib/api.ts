@@ -790,6 +790,50 @@ export interface Invoice {
   updatedAt: number;
 }
 
+/** One built-in tier as the catalog endpoint describes it: the editable fields
+ *  plus `hasKey`, and never a credential or endpoint value. */
+export interface CatalogProviderView {
+  type: string;
+  models: string[];
+  modalities: Record<string, Modality>;
+  pricing: Record<string, ModelPricing>;
+  enabled: boolean;
+  hasKey: boolean;
+}
+
+/** What an operator may send: exactly the four overridable fields per provider. */
+export interface ModelCatalogOverlay {
+  [provider: string]: {
+    models?: string[];
+    modalities?: Record<string, Modality>;
+    pricing?: Record<string, ModelPricing>;
+    enabled?: boolean;
+  };
+}
+
+export interface ModelCatalogView {
+  providers: Record<string, CatalogProviderView>;
+  overlay: ModelCatalogOverlay;
+  code: Record<string, CatalogProviderView>;
+  gaps: Array<{ provider: string; model: string; modality: Modality; level: string; missing: string[] }>;
+}
+
+export interface ModelCatalogChange {
+  provider: string;
+  added: string[];
+  removed: string[];
+  modalityEdited: string[];
+  priceEdited: string[];
+  enabledChanged: boolean;
+}
+
+export interface ModelCatalogImpact {
+  graphId: string;
+  graphName: string;
+  models: string[];
+  nodes: string[];
+}
+
 export const api = {
   listSkills: () => authFetch("/api/skills").then(json<Skill[]>),
 
@@ -1461,6 +1505,36 @@ export const api = {
       headers: { "content-type": "application/json" },
       body: JSON.stringify(config),
     }).then(json<{ ok: true; path: string }>),
+
+  /** Platform-admin only: the built-in model catalog (design-model-catalog ④).
+   *  A 403 is a normal answer for a non-admin, so the caller reads status
+   *  rather than throwing — the panel hides itself on it. */
+  getModelCatalog: async (): Promise<ModelCatalogView | null> => {
+    const res = await authFetch("/api/admin/model-catalog");
+    if (!res.ok) return null;
+    return (await res.json()) as ModelCatalogView;
+  },
+
+  putModelCatalog: async (
+    catalog: ModelCatalogOverlay,
+  ): Promise<{ ok: true; view: ModelCatalogView; changes: ModelCatalogChange[]; affected: ModelCatalogImpact[]; affectedTruncated: boolean } | { ok: false; error: string }> => {
+    const res = await authFetch("/api/admin/model-catalog", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(catalog),
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      return { ok: false, error: body.error ?? `HTTP ${res.status}` };
+    }
+    const body = (await res.json()) as Omit<ModelCatalogView, "changes"> & {
+      changes: ModelCatalogChange[];
+      affected: ModelCatalogImpact[];
+      affectedTruncated: boolean;
+    };
+    const { changes = [], affected = [], affectedTruncated = false, ...view } = body;
+    return { ok: true, view: view as ModelCatalogView, changes, affected, affectedTruncated };
+  },
 
   testProvider: (
     baseUrl: string,

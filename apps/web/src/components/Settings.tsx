@@ -23,6 +23,7 @@ import type { GraphNode, NodeKind } from "@agent-world/core";
 import Tooltip from "./Tooltip";
 import KeyInput from "./KeyInput";
 import { McpSettings } from "./McpSettings";
+import { ModelCatalogAdmin } from "./ModelCatalogAdmin";
 import { SkillCardSettings } from "./SkillCardSettings";
 import type { McpServerStatus } from "../lib/api";
 import { useTranslation } from "react-i18next";
@@ -1337,6 +1338,9 @@ export default function Settings({ open, onClose, initialTab }: Props) {
               </div>
             );
           })}
+
+            {/* 平台管理员专属：内置模型目录（非管理员拿到 403 时自行不渲染） */}
+            <ModelCatalogAdmin />
             </>
           )}
 
