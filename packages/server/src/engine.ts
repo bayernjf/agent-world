@@ -1650,7 +1650,11 @@ export async function* execute(opts: ExecuteOptions): AsyncGenerator<RunEvent, v
     budgetUsd: opts.budgetUsd,
     monthlyBudgetUsd: opts.monthlyBudgetUsd ?? null,
     monthSpentUsd: opts.monthSpentUsd ?? 0,
-    fallbackModel: opts.defaultModel ?? "agnes-2.0-flash",
+    // 兜底不写死模型名：四个派发口（startRun / resumeRun / forkRun / ab，现在都走
+    // drainRun）都显式传 defaultModel，所以这里为空只可能是「直接调引擎且没给默认」。
+    // 留空而不是回落某个内置名——留空会命中规则 A 报 UNSUPPORTED（具名、不出网）；
+    // 回落则在 ④ 之后管理员下架/改默认时，这里仍在悄悄用旧名字跑。
+    fallbackModel: opts.defaultModel ?? "",
     log: opts.log,
     startSeq: 0,
     sourceInput: opts.input,
@@ -2116,7 +2120,8 @@ export async function* resume(opts: ResumeOptions): AsyncGenerator<RunEvent, voi
     budgetUsd,
     monthlyBudgetUsd: opts.monthlyBudgetUsd ?? null,
     monthSpentUsd: opts.monthSpentUsd ?? 0,
-    fallbackModel: opts.defaultModel ?? "agnes-2.0-flash",
+    // 同上：兜底为空走规则 A，不回落写死的内置名。
+    fallbackModel: opts.defaultModel ?? "",
     log: opts.log,
     startSeq,
     signal: opts.signal,
@@ -2343,7 +2348,8 @@ export async function* fork(opts: ForkOptions): AsyncGenerator<RunEvent, void, v
     budgetUsd,
     monthlyBudgetUsd: opts.monthlyBudgetUsd ?? null,
     monthSpentUsd: opts.monthSpentUsd ?? 0,
-    fallbackModel: opts.defaultModel ?? "agnes-2.0-flash",
+    // 同上。
+    fallbackModel: opts.defaultModel ?? "",
     log: opts.log,
     startSeq: seq,
     sourceInput: opts.sourceInput,
