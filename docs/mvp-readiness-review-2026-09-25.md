@@ -329,10 +329,12 @@ core **346/346**（24 文件）· server **1397 = 1393 通过 + 2 本机 python-
 | --- | --- | --- |
 | core | 346/346（24 文件） | 绿 |
 | server | 1433 = 1429 过 / 2 跳过 / **2 红** | 那 2 红是 `engine.code.test.ts` 的 python 出网用例（本机 Xcode 许可 shim，Known issues）；CI 同 SHA 绿 |
-| mcp-server | 71 = 70 过 / **1 红** | `stdio.test.ts` 的 5s 超时（本机 spawn 子进程受限）；CI 同 SHA 绿 |
-| web | **本机本轮测量条件不成立**，不报数 | 那次跑给出 `Test Files 14 failed / 84 passed (98)`、`Tests 20 failed / 1735 passed (1755)`、耗时 684s——而**磁盘上实有 106 个测试文件**（`find src -name "*.test.ts*"` = 106），即 8 个文件根本没被收集，20 条红里分不清哪些是超时抖动。同期 `uptime` load average **194→233**（同机另一会话在跑别的仓的构建）。判定改用 CI：`gh run view 36261621485` → 该 SHA 的 **`Typecheck, build & test` = success**（这条 job 含 `pnpm -r --if-present test`，web 在内）+ `Secret leak scan` = success。历史读数（09-26 本机低负载并行单跑）为 1973/1973。 |
+| mcp-server | 71 = 70 过 / **1 红** → 降载复跑 **71/71 绿** | 那条红是 `stdio.test.ts` 的 5s 超时（load average 194→233 时跑的），**降载后复跑全绿**：负载抖动，不是回归。CI 同 SHA 也绿 |
+| web | **第一次跑测条件不成立**：那次收集到 98 个文件 / 1755 条测（磁盘实有 **106** 文件），8 个文件没进收集，`20 failed` 分不清真失败还是超时 | **降载后复跑：106 文件 / 1978 条全绿**。同 SHA 的 CI `Typecheck, build & test` 亦 success。历史读数 09-26 为 1973/1973 |
 
 **为什么本轮不报本机 web 数（这是判据，不是借口）**：那次跑收集到 **98** 个测试文件 / 1755 条测，而磁盘上实有 **106** 个测试文件——**8 个文件根本没进收集**，于是「20 条红」里无法区分真失败与 jsdom 超时。同期 `uptime` load average 在 **194→233** 之间（同机另有会话在跑构建）。**CI 在同一 SHA 上 `Typecheck, build & test` = success**（该 job 含 web 套件），所以本篇对 web 的判断挂在 CI 与 09-26 低负载本机读数上，不假装本机复现过。
+
+**（同日降载后复跑，本段作废为历史记录）** load average 降到 16 时重跑 web：**106 文件 / 1978 条全绿**。所以留下的不是「那 20 条是假红」，而是一条可操作的规矩——**本机报红之前，先看 load，再比「收集到的文件数」是否等于「磁盘上的文件数」**；任一项对不上，这次跑就不构成证据。不依赖本机状态的那一条始终在：同 SHA 的 CI `Typecheck, build & test` = success。
 
 **一条方法学结论，顺带回答 §8 遗留问题 3**：`pnpm -r --if-present test -- --maxWorkers=1` 里的参数确实到达 vitest（否则它会被当文件名过滤、一个测试都不跑），但 **`pnpm -r` 本身是包间并发的**——CI 串行的是包内 worker，不是四个包。本机在高负载下把四包串跑（或不串跑）都会把负载抖动读成回归：**报红之前先看 load，再看收集到的文件数是否等于磁盘上的文件数**。
 
