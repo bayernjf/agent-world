@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { compile, type Graph, type ProductConnector, type RunEvent } from "@agent-world/core";
+import { compile, type Graph, type Plan, type ProductConnector, type RunEvent } from "@agent-world/core";
 import type { Db, Product, RemoteJobStore } from "./db.js";
 import type { ResolvedMaterial } from "./connectors.js";
 import { ArtifactStore } from "./artifact-store.js";
 import { log } from "./logger.js";
-import { execute, fork, reconstructState, resume } from "./engine.js";
+import { execute, fork, reconstructState, resume, type ExecuteOptions } from "./engine.js";
 import { loadConfig } from "./config.js";
 import { loadUserSkills } from "./skills/user-skills.js";
 import { runAsUser } from "./user-context.js";
@@ -197,99 +197,27 @@ export async function startRun(args: StartRunArgs): Promise<{ runId: string; dia
   const controller = new AbortController();
   const entry: LiveEntry = { events: [], done: false, controller };
   live.set(runId, entry);
-  runsActive.inc();
   const runLog = log.child({ runId, graphId: graph.id });
   runLog.info("run started", { trigger, nodes: graph.nodes.length });
 
-  void runAsUser(userId, async () => {
-    try {
-      const cfg = await loadConfig(userId);
-      const now = new Date();
-      // Graph variables: graph-level defaults overridden by persisted values
-      // from prior runs (cross-run state). The engine mutates this map by
-      // reference; we persist it back once the run finishes.
-      const variables = new Map<string, unknown>(
-        Object.entries({ ...(graph.variables ?? {}), ...await db.loadGraphVariables(graph.id, userId) }),
-      );
-      for await (const event of execute({
-        runId,
-        graph,
-        plan,
-        worker,
-        input,
-        connectorValues,
-        initialVariables: variables,
-        bannedTerms: await db.bannedTermsText(userId),
-        searchConfig: cfg.searchConfig,
-        userSkills: await loadUserSkills(userId, cfg),
-        loadProducts: productConnectorLoader(db, userId),
-        log: runLog,
-        remoteJobStore: createRemoteJobStore(db, userId),
-        budgetUsd: budgetUsd ?? null,
-        monthlyBudgetUsd: cfg.monthlyBudgetUsd ?? null,
-        monthSpentUsd: await db.costForMonth(now.getFullYear(), now.getMonth() + 1, userId),
-        defaultModel: cfg.defaultModel,
-        signal: controller.signal,
-        storeBinary: async (data, mimeType, label) => {
-          const kind = mimeType.startsWith("image/")
-            ? "image"
-            : mimeType.startsWith("video/")
-              ? "video"
-              : mimeType.startsWith("audio/")
-                ? "audio"
-                : "file";
-          const saved = await artifacts.saveBinary({ userId, data, kind, mimeType, label });
-          await db.insertArtifact(saved, userId);
-          return saved.uri ?? `data:${mimeType};base64,${data.toString("base64")}`;
-        },
-        readArtifact: createReadArtifact(db, artifacts),
-        publicUrl,
-        // Subprocess nodes call other saved graphs — resolve them within the
-        // same user's scope so users can't invoke graphs they can't see.
-        loadSubgraph: async (graphId) => await db.getGraph(graphId, userId) ?? null,
-      })) {
-        await db.record(runId, event);
-        if (event.type === "artifact.produced") {
-          await persistArtifact({ db, artifacts, userId, graph, runId, event });
-          args.onArtifact?.(event.artifact.id);
-        }
-        entry.events.push(event);
-        if (event.type === "run.finished") {
-          await db.finishRun(runId, userId, event.status, Date.now(), haltedOf(event));
-          // Persist the run's (possibly mutated) variables for the next run.
-          await db.saveGraphVariables(graph.id, userId, Object.fromEntries(variables));
-          recordRunFinished(event.status, (await db.runStats(runId)).costUsd);
-          // M2 metering: fold this run's usage into the monthly ledger. Never
-          // let a metering failure change the run's terminal outcome.
-          try {
-            await recordRunUsage(db, userId, graph, runId, startedAt, cfg);
-          } catch (meterErr) {
-            runLog.warn("usage metering failed", { error: (meterErr as Error)?.message ?? String(meterErr) });
-          }
-          // M2 §S7: fire 80%/100% token alerts for paid users (self-guarded,
-          // never blocks run completion).
-          try {
-            await checkUsageAlerts(db, userId);
-          } catch (alertErr) {
-            runLog.warn("usage alert failed", { error: (alertErr as Error)?.message ?? String(alertErr) });
-          }
-          args.onFinish?.(graph.id, event.status);
-        }
-      }
-    } catch (err) {
-      await db.finishRun(runId, userId, "failed", Date.now());
-      runsTotal.inc({ status: "failed" });
-      runsFailedTotal.inc();
-      runLog.error("run crashed", { error: (err as Error)?.message ?? String(err) });
-    } finally {
-      entry.done = true;
-      // Release the entry so a completed run's full event log doesn't stay in
-      // memory forever. Connected SSE streams already hold a reference to the
-      // entry object, and new connections replay from the DB (events persist
-      // before they're pushed here), so deletion is safe.
-      live.delete(runId);
-      runsActive.dec();
-    }
+  void drainRun({
+    db,
+    artifacts,
+    userId,
+    graph,
+    runId,
+    startedAt,
+    budgetUsd: budgetUsd ?? null,
+    plan,
+    worker,
+    runLog,
+    signal: controller.signal,
+    publicUrl,
+    live: { map: live, entry },
+    spawn: (c) => execute({ ...c, input, connectorValues }),
+    crashMessage: "run crashed",
+    onArtifact: args.onArtifact,
+    onFinish: args.onFinish,
   });
 
   return { runId, diagnostics };
@@ -337,6 +265,150 @@ async function persistArtifact(args: {
     }),
     userId,
   );
+}
+
+/**
+ * 引擎三个入口（execute / resume / fork）共用的运行期依赖。抽成一份的原因是它们
+ * 曾经在 startRun / resumeRun / forkRun 里各写一遍，而 A/B 实验这第四条派发路径
+ * **一份都没传**——合规词表、用户技能、搜索配置、媒体落库、月度预算、用量归集这
+ * 些跨切面东西的共同点是「漏了不报错，只静默跑歪」：合规词不生效、媒体产物不入库、
+ * 用量不进账。所以由 `drainRun` 统一装配，派发口只提供自己的引擎入口与独有参数。
+ */
+type RunEngineCommon = Omit<ExecuteOptions, "input" | "connectorValues" | "now" | "sleep" | "permissionConfig">;
+
+interface DrainRunArgs {
+  db: Db;
+  artifacts: ArtifactStore;
+  userId: string;
+  graph: Graph;
+  runId: string;
+  /** 计费周期起点（resume 沿用原 run 的 started_at），用量归集按它归月。 */
+  startedAt: number;
+  budgetUsd: number | null;
+  plan: Plan;
+  worker: Worker;
+  runLog: ReturnType<typeof log.child>;
+  signal?: AbortSignal;
+  /** 各派发口自己的引擎入口（execute/resume/fork）+ 各自独有的参数。 */
+  spawn: (common: RunEngineCommon) => AsyncGenerator<RunEvent, void, void>;
+  /** 崩溃日志的措辞，用来区分是哪条路崩的。 */
+  crashMessage: string;
+  publicUrl?: string;
+  /** live 条目（SSE 回放 + 中断）。A/B 的 run 不注册 live，所以可选。 */
+  live?: { map: LiveMap; entry: LiveEntry };
+  /**
+   * 图变量是否回写库（跨 run 状态）。A/B 是**实验**：N 条 arm 并发写同一份变量会
+   * 互相覆盖，还会把实验状态写进产线的正式状态里，所以关掉。
+   */
+  persistVariables?: boolean;
+  onArtifact?: (artifactId: string) => void;
+  onFinish?: (graphId: string, status: string) => void;
+}
+
+/**
+ * 装配跨切面依赖、跑引擎、落事件与产物、收尾（终态 / 用量 / 告警 / 指标）。
+ * 四条派发路径（start / resume / fork / ab）共用，返回 Promise 但不该被 await——
+ * 调用方一律 `void drainRun(...)` 让它后台跑。
+ */
+export async function drainRun(args: DrainRunArgs): Promise<void> {
+  const { db, artifacts, userId, graph, runId, startedAt, budgetUsd, plan, worker, runLog } = args;
+  runsActive.inc();
+  await runAsUser(userId, async () => {
+    try {
+      const cfg = await loadConfig(userId);
+      const now = new Date();
+      // Graph variables: graph-level defaults overridden by persisted values
+      // from prior runs (cross-run state). The engine mutates this map by
+      // reference; we persist it back once the run finishes.
+      const variables = new Map<string, unknown>(
+        Object.entries({ ...(graph.variables ?? {}), ...await db.loadGraphVariables(graph.id, userId) }),
+      );
+      const common: RunEngineCommon = {
+        runId,
+        graph,
+        plan,
+        worker,
+        budgetUsd,
+        monthlyBudgetUsd: cfg.monthlyBudgetUsd ?? null,
+        monthSpentUsd: await db.costForMonth(now.getFullYear(), now.getMonth() + 1, userId),
+        defaultModel: cfg.defaultModel,
+        initialVariables: variables,
+        bannedTerms: await db.bannedTermsText(userId),
+        searchConfig: cfg.searchConfig,
+        userSkills: await loadUserSkills(userId, cfg),
+        loadProducts: productConnectorLoader(db, userId),
+        log: runLog,
+        remoteJobStore: createRemoteJobStore(db, userId),
+        signal: args.signal,
+        storeBinary: async (data, mimeType, label) => {
+          const kind = mimeType.startsWith("image/")
+            ? "image"
+            : mimeType.startsWith("video/")
+              ? "video"
+              : mimeType.startsWith("audio/")
+                ? "audio"
+                : "file";
+          const saved = await artifacts.saveBinary({ userId, data, kind, mimeType, label });
+          await db.insertArtifact(saved, userId);
+          return saved.uri ?? `data:${mimeType};base64,${data.toString("base64")}`;
+        },
+        // Inline local /api/artifacts/<id> URIs as data:<mime>;base64,... for
+        // cloud vision models (they can't reach our localhost).
+        readArtifact: createReadArtifact(db, artifacts),
+        publicUrl: args.publicUrl,
+        // Subprocess nodes call other saved graphs — resolve them within the
+        // same user's scope so users can't invoke graphs they can't see.
+        loadSubgraph: async (graphId) => await db.getGraph(graphId, userId) ?? null,
+      };
+
+      for await (const event of args.spawn(common)) {
+        await db.record(runId, event);
+        if (event.type === "artifact.produced") {
+          await persistArtifact({ db, artifacts, userId, graph, runId, event });
+          args.onArtifact?.(event.artifact.id);
+        }
+        args.live?.entry.events.push(event);
+        if (event.type === "run.finished") {
+          await db.finishRun(runId, userId, event.status, Date.now(), haltedOf(event));
+          // Persist the run's (possibly mutated) variables for the next run.
+          if (args.persistVariables !== false) {
+            await db.saveGraphVariables(graph.id, userId, Object.fromEntries(variables));
+          }
+          recordRunFinished(event.status, (await db.runStats(runId)).costUsd);
+          // M2 metering: fold this run's usage into the monthly ledger. Never
+          // let a metering failure change the run's terminal outcome.
+          try {
+            await recordRunUsage(db, userId, graph, runId, startedAt, cfg);
+          } catch (meterErr) {
+            runLog.warn("usage metering failed", { error: (meterErr as Error)?.message ?? String(meterErr) });
+          }
+          // M2 §S7: fire 80%/100% token alerts for paid users (self-guarded,
+          // never blocks run completion).
+          try {
+            await checkUsageAlerts(db, userId);
+          } catch (alertErr) {
+            runLog.warn("usage alert failed", { error: (alertErr as Error)?.message ?? String(alertErr) });
+          }
+          args.onFinish?.(graph.id, event.status);
+        }
+      }
+    } catch (err) {
+      await db.finishRun(runId, userId, "failed", Date.now());
+      runsTotal.inc({ status: "failed" });
+      runsFailedTotal.inc();
+      runLog.error(args.crashMessage, { error: (err as Error)?.message ?? String(err) });
+    } finally {
+      if (args.live) {
+        args.live.entry.done = true;
+        // Release the entry so a completed run's full event log doesn't stay in
+        // memory forever. Connected SSE streams already hold a reference to the
+        // entry object, and new connections replay from the DB (events persist
+        // before they're pushed here), so deletion is safe.
+        args.live.map.delete(runId);
+      }
+      runsActive.dec();
+    }
+  });
 }
 
 export type ResumeAction =
@@ -393,7 +465,6 @@ export async function resumeRun(args: ResumeRunArgs): Promise<{ runId: string; a
   const controller = new AbortController();
   const entry: LiveEntry = { events: [], done: false, controller };
   live.set(runId, entry);
-  runsActive.inc();
   const runLog = log.child({ runId, graphId: graph.id });
   runLog.info("run resumed", { action, resetFrom: args.resetFrom ?? null, nodes: graph.nodes.length });
   // A retry from a failed/tripped run reopens the same run; flip its status
@@ -402,91 +473,32 @@ export async function resumeRun(args: ResumeRunArgs): Promise<{ runId: string; a
     await db.markRunning(runId, userId);
   }
 
-  void runAsUser(userId, async () => {
-    try {
-      const cfg = await loadConfig(userId);
-      const now = new Date();
-      // Graph variables: defaults overridden by persisted values. Re-loaded on
-      // resume so another run's writes since the halt are not lost; written
-      // back once the run finishes.
-      const variables = new Map<string, unknown>(
-        Object.entries({ ...(graph.variables ?? {}), ...await db.loadGraphVariables(graph.id, userId) }),
-      );
-      for await (const event of resume({
-        runId,
-        graph,
-        plan,
-        worker,
-        log: runLog,
-        budgetUsd: row.budget_usd ?? null,
-        initialVariables: variables,
-        bannedTerms: await db.bannedTermsText(userId),
-        searchConfig: cfg.searchConfig,
-        userSkills: await loadUserSkills(userId, cfg),
-        loadProducts: productConnectorLoader(db, userId),
-        remoteJobStore: createRemoteJobStore(db, userId),
-        monthlyBudgetUsd: cfg.monthlyBudgetUsd ?? null,
-        monthSpentUsd: await db.costForMonth(now.getFullYear(), now.getMonth() + 1, userId),
-        defaultModel: cfg.defaultModel,
+  void drainRun({
+    db,
+    artifacts,
+    userId,
+    graph,
+    runId,
+    startedAt: row.started_at,
+    budgetUsd: row.budget_usd ?? null,
+    plan,
+    worker,
+    runLog,
+    signal: controller.signal,
+    publicUrl,
+    live: { map: live, entry },
+    spawn: (c) =>
+      resume({
+        ...c,
         pastEvents,
         action,
         resetFrom: args.resetFrom,
         editOutput: args.editOutput,
         approveTools: args.approveTools,
-        signal: controller.signal,
-        storeBinary: async (data, mimeType, label) => {
-          const kind = mimeType.startsWith("image/")
-            ? "image"
-            : mimeType.startsWith("video/")
-              ? "video"
-              : mimeType.startsWith("audio/")
-                ? "audio"
-                : "file";
-          const saved = await artifacts.saveBinary({ userId, data, kind, mimeType, label });
-          await db.insertArtifact(saved, userId);
-          return saved.uri ?? `data:${mimeType};base64,${data.toString("base64")}`;
-        },
-        // Inline local /api/artifacts/<id> URIs as data:<mime>;base64,... for
-        // cloud vision models (they can't reach our localhost).
-        readArtifact: createReadArtifact(db, artifacts),
-        publicUrl,
-        // Subprocess nodes call other saved graphs — resolve them within the
-        // same user's scope so users can't invoke graphs they can't see.
-        loadSubgraph: async (graphId) => await db.getGraph(graphId, userId) ?? null,
-      })) {
-        await db.record(runId, event);
-        if (event.type === "artifact.produced") {
-          await persistArtifact({ db, artifacts, userId, graph, runId, event });
-          args.onArtifact?.(event.artifact.id);
-        }
-        entry.events.push(event);
-        if (event.type === "run.finished") {
-          await db.finishRun(runId, userId, event.status, Date.now(), haltedOf(event));
-          await db.saveGraphVariables(graph.id, userId, Object.fromEntries(variables));
-          recordRunFinished(event.status, (await db.runStats(runId)).costUsd);
-          try {
-            await recordRunUsage(db, userId, graph, runId, row.started_at, cfg);
-          } catch (meterErr) {
-            runLog.warn("usage metering failed", { error: (meterErr as Error)?.message ?? String(meterErr) });
-          }
-          try {
-            await checkUsageAlerts(db, userId);
-          } catch (alertErr) {
-            runLog.warn("usage alert failed", { error: (alertErr as Error)?.message ?? String(alertErr) });
-          }
-          args.onFinish?.(graph.id, event.status);
-        }
-      }
-    } catch (err) {
-      await db.finishRun(runId, userId, "failed", Date.now());
-      runsTotal.inc({ status: "failed" });
-      runsFailedTotal.inc();
-      runLog.error("resume crashed", { error: (err as Error)?.message ?? String(err) });
-    } finally {
-      entry.done = true;
-      live.delete(runId);
-      runsActive.dec();
-    }
+      }),
+    crashMessage: "resume crashed",
+    onArtifact: args.onArtifact,
+    onFinish: args.onFinish,
   });
 
   return { runId, action };
@@ -560,86 +572,27 @@ export async function forkRun(args: ForkRunArgs): Promise<{ runId: string }> {
   const controller = new AbortController();
   const entry: LiveEntry = { events: [], done: false, controller };
   live.set(runId, entry);
-  runsActive.inc();
   const runLog = log.child({ runId, graphId: graph.id, forkedFrom: parentRunId });
   runLog.info("run forked", { fromNodeId, nodes: graph.nodes.length });
 
-  void runAsUser(userId, async () => {
-    try {
-      const cfg = await loadConfig(userId);
-      const now = new Date();
-      const variables = new Map<string, unknown>(
-        Object.entries({ ...(graph.variables ?? {}), ...await db.loadGraphVariables(graph.id, userId) }),
-      );
-      for await (const event of fork({
-        runId,
-        graph,
-        plan,
-        worker,
-        budgetUsd: parent.budget_usd ?? null,
-        monthlyBudgetUsd: cfg.monthlyBudgetUsd ?? null,
-        monthSpentUsd: await db.costForMonth(now.getFullYear(), now.getMonth() + 1, userId),
-        defaultModel: cfg.defaultModel,
-        pastEvents: parentEvents,
-        fromNodeId,
-        sourceInput: parent.input ?? undefined,
-        initialVariables: variables,
-        bannedTerms: await db.bannedTermsText(userId),
-        searchConfig: cfg.searchConfig,
-        userSkills: await loadUserSkills(userId, cfg),
-        loadProducts: productConnectorLoader(db, userId),
-        log: runLog,
-        remoteJobStore: createRemoteJobStore(db, userId),
-        signal: controller.signal,
-        storeBinary: async (data, mimeType, label) => {
-          const kind = mimeType.startsWith("image/")
-            ? "image"
-            : mimeType.startsWith("video/")
-              ? "video"
-              : mimeType.startsWith("audio/")
-                ? "audio"
-                : "file";
-          const saved = await artifacts.saveBinary({ userId, data, kind, mimeType, label });
-          await db.insertArtifact(saved, userId);
-          return saved.uri ?? `data:${mimeType};base64,${data.toString("base64")}`;
-        },
-        readArtifact: createReadArtifact(db, artifacts),
-        publicUrl,
-        loadSubgraph: async (graphId) => await db.getGraph(graphId, userId) ?? null,
-      })) {
-        await db.record(runId, event);
-        if (event.type === "artifact.produced") {
-          await persistArtifact({ db, artifacts, userId, graph, runId, event });
-          args.onArtifact?.(event.artifact.id);
-        }
-        entry.events.push(event);
-        if (event.type === "run.finished") {
-          await db.finishRun(runId, userId, event.status, Date.now(), haltedOf(event));
-          await db.saveGraphVariables(graph.id, userId, Object.fromEntries(variables));
-          recordRunFinished(event.status, (await db.runStats(runId)).costUsd);
-          try {
-            await recordRunUsage(db, userId, graph, runId, startedAt, cfg);
-          } catch (meterErr) {
-            runLog.warn("usage metering failed", { error: (meterErr as Error)?.message ?? String(meterErr) });
-          }
-          try {
-            await checkUsageAlerts(db, userId);
-          } catch (alertErr) {
-            runLog.warn("usage alert failed", { error: (alertErr as Error)?.message ?? String(alertErr) });
-          }
-          args.onFinish?.(graph.id, event.status);
-        }
-      }
-    } catch (err) {
-      await db.finishRun(runId, userId, "failed", Date.now());
-      runsTotal.inc({ status: "failed" });
-      runsFailedTotal.inc();
-      runLog.error("fork crashed", { error: (err as Error)?.message ?? String(err) });
-    } finally {
-      entry.done = true;
-      live.delete(runId);
-      runsActive.dec();
-    }
+  void drainRun({
+    db,
+    artifacts,
+    userId,
+    graph,
+    runId,
+    startedAt,
+    budgetUsd: parent.budget_usd ?? null,
+    plan,
+    worker,
+    runLog,
+    signal: controller.signal,
+    publicUrl,
+    live: { map: live, entry },
+    spawn: (c) => fork({ ...c, pastEvents: parentEvents, fromNodeId, sourceInput: parent.input ?? undefined }),
+    crashMessage: "fork crashed",
+    onArtifact: args.onArtifact,
+    onFinish: args.onFinish,
   });
 
   return { runId };
