@@ -62,7 +62,7 @@
 docs/production-ops.md:189   直接改 DB 的 node -e 命令
 docs/production-ops.md:199   systemctl restart agent-world
 ```
-两文件均在版本控制内（`git ls-files` 确证），口令文本由 commit `2aa40b15` 引入；同族的 `docs/design-monetization-m2-implementation.md:631` 用的是 `<pw>` 占位符——**说明写的时候知道该脱敏，是漏的而不是不懂**。gitleaks 不覆盖这个形态，所以既有"gitleaks 无泄露"结论对这条无效。**处理必须两步**：文档去敏（我做）+ 该口令轮换（只能你做，因为线上仍在使用）。
+两文件均在版本控制内（`git ls-files` 确证），口令文本由 commit `2aa40b15` 引入；同族的 `docs/design-monetization-m2-implementation.md:631` 用的是 `<pw>` 占位符——**说明写的时候知道该脱敏，是漏的而不是不懂**。gitleaks 不覆盖这个形态，所以既有"gitleaks 无泄露"结论对这条无效。**处理必须两步**：文档去敏（我做）+ 该口令轮换（只能你做，因为线上仍在使用）。→ **09-26 改判：只做了第一步，第二步由用户明确决定不做，转为接受风险，理由与边界见 §9.6。**
 
 ### ⑤ 部署声明层欠账：照 `.env.example` 复制出来的是一个"无门禁"实例
 
@@ -136,7 +136,7 @@ docs/production-ops.md:199   systemctl restart agent-world
 
 **若目标 = 个人/小团队自托管正式日用**（按性价比排序，全做完 ≈ 一个小批次）：
 
-1. §3④ 文档去敏（我做）→ **你轮换那台机器的 sudo 口令**（只能你做）。
+1. ~~§3④ 文档去敏（我做）→ **你轮换那台机器的 sudo 口令**（只能你做）~~ → 第一步已做（`7b003f6`）；**第二步 09-26 由用户改判为「不轮换、接受风险」**，见 §9.6。
 2. §3③ `mcp.ts` 的两处 fetch 换成 `guardedFetch`（机械收口，照 `nodes/http.ts` 抄）。
 3. §3① `sinkNode` 加空 input 守卫（照 `publishNode` 的形状：`node.failed` + `VALIDATION`），并给 sink 补一条"上游为空 → 不产出 final 成品"的回归测。
 4. §3② `ab.ts` 补 `validateModels`（与前两条同形状，属于已登记 deferred 的那张表）。
@@ -183,17 +183,19 @@ docs/production-ops.md:199   systemctl restart agent-world
 | 1 | sink 空成品 | 本机跑 `nodes/sink.test.ts + engine.branch + phase1 + engine.reliability + engine.videogen.async` | ✅ **58/58 通过**。守卫收窄为「上游全是 branch/gate/媒体类 → done 但不归档；有内容型上游却产空 → failed + VALIDATION」；PR #429 原样实现的版本把 10 条合法拓扑打成 failed（CI run 36125520374），收窄提交 `34b1aed` 与之同 PR 合入，**不存在"线上了半个守卫"的中间态** |
 | 2 | A/B 跳过模型校验 | `grep -c validateModels ab.ts` = **2**（含实际调用）；`ab.test.ts`/`api.ab.test.ts` 在全量里通过 | ✅ 闭合 |
 | 3 | 远程 MCP 绕过 SSRF | `grep -c guardedFetch mcp.ts` = **5**，裸 `fetch(this.url` = **0** | ✅ 闭合（代价见 §9.4） |
-| 4 | 文档明文口令 | 两处已在 `7b003f6` 去敏 | 🟡 **文档侧完成，轮换无法自证**——只能由持有该机的人在 Hasee 上执行 |
+| 4 | 文档明文口令 | 两处已在 `7b003f6` 去敏 | ✅ **不再是阻断**：09-26 用户明确决定不轮换，转为**已接受风险**（边界与理由见 §9.6） |
 
 ### 9.2 合并 / 部署事实（用 GitHub API 读，不采信文档）
 
 - PR #429（feature → dev）**MERGED**，12:02Z，`headRefOid = 34b1aed`（含收窄）。
 - PR #430（dev → main）合入，main 现为 **`eff8ebe`**；main CI `36133392082` **success**（昨天记的 CostReport 红不在这条口径上——它是并发负载抖动，**别当"已修复"**）。
-- **Deploy 状态未确认**：最后一次成功部署是 12:04:29（早于 #430），针对 `eff8ebe` 的 workflow_run 尝试（`36133166811`）结论是 **skipped**。从本机 `curl http://192.168.31.14/api/health` 无返回（沙箱网络限制），**无法自证线上 commit**。→ 上线动作里必须有人 SSH 看一眼 `/api/health` 的 commit 字段。
+- **Deploy 状态未确认**：最后一次成功部署是 12:04:29（早于 #430），针对 `eff8ebe` 的 workflow_run 尝试（`36133166811`）结论是 **skipped**。从本机 `curl http://192.168.31.14/api/health` 无返回（沙箱网络限制），**无法自证线上 commit**。→ 上线动作里必须有人 SSH 看一眼 `/api/health` 的 commit 字段。（**本段是 09-26 当日值，别当现状读**：同日稍后用 `git ls-remote` 直查远端，`origin/main` 已到 `9c5d764`、`origin/dev` = `1d894c8`，见 §9.6 更正版。）
 
 ### 9.3 重测的门槛数字（2026-09-26）
 
 core **346/346**（24 文件）· server **1397 = 1393 通过 + 2 本机 python-shim 环境红 + 2 狗粮跳过**（165 文件）· web **1968/1968**（105 文件）· mcp 71（沿用同日实跑，本轮未重跑）· `pnpm typecheck`（含 scripts）绿 · 零配置模板 **35/36 可派发**（探针实测，D-1 仍未拍：`tpl-news-podcast` 因 `ttsModel` 字段默认值钉 `tts-1` 报 422）。
+
+> 本行是 §9 追评当时的读数。**同日 ④ 落地后四包同批复测 = 3817 / 300 文件**（core 346 · server 1427 · web 1973 · mcp 71），live 数字以 `handoff.md`「Quality gate」那一行为准。
 
 ### 9.4 本轮复核里发现/确认的事
 
@@ -205,7 +207,33 @@ core **346/346**（24 文件）· server **1397 = 1393 通过 + 2 本机 python-
 
 | 口径 | 判定 | 与 09-25 版的差别 |
 | --- | --- | --- |
-| **个人 / 小团队自托管** | ✅ **达到「产品核心完全可用的 MVP」**，附两个前置签字：① 只跑单实例（cron/限流/metrics/错误缓冲全在进程内，无锁无选主）；② 口令轮换 + 确认 Hasee 已部署 `eff8ebe` | 上一版判 🟡 的三条代码阻断已全部闭合（§9.1），第四条转为运维动作 |
+| **个人 / 小团队自托管** | ✅ **达到「产品核心完全可用的 MVP」**，附两个前置签字：① 只跑单实例（cron/限流/metrics/错误缓冲全在进程内，无锁无选主）；② 有人 SSH 确认 Hasee 跑的是**当前** main（§9.6 更正：报告通篇写的 `eff8ebe` 已过期，实测 `origin/main` = `9c5d764`）。**原第 ② 项里的「口令轮换」09-26 转为已接受风险，不再是签字条件** | 上一版判 🟡 的三条代码阻断已全部闭合（§9.1），第四条转为运维动作 |
 | **对外商业 SaaS** | ❌ **不达标**（结论不变） | 阻断项仍是：告警只有生产端没有消费端、HTTPS/证书与 `NODE_ENV`、`/metrics` 收口、账号自助三缺、水平扩展方案、Stripe 真机 |
 
-**仍未拍的产品决定**：D-1（音频空槽）。**「仍未开工的既定项」已作废**：上一版此处写的是「design-model-catalog ④ 未开工，需先拍『套餐可见性是否进数据面』」——④ 已于 2026-09-26 全部落地（`4c4e699`/`8266403`/`af9c6ed`：平台目录行 + 白名单合并、admin API + 门禁 + 审计 + 下架影响扫描、Settings 的目录维护界面），而那个「待拍」的前提本身是错的：仓内**不存在**按套餐限制具体模型的机制（`PlanQuota` 只有 tokens/concurrentRuns/storageBytes/videoSegments/seats 五个维度，`packages/core/src/plans.ts:16-27`），所以 ④ 的数据面能表达的是「有哪些模型、什么模态、多少钱、开不开」，不含「谁能看见」。详见 [design-model-catalog.md](design-model-catalog.md) §十。
+**仍未拍的产品决定**：D-1（音频空槽）。
+
+（**订正**：上一版此处还写着「design-model-catalog ④ 未开工，需先拍『套餐可见性是否进数据面』」。④ 已于 2026-09-26 全部落地（`4c4e699`/`8266403`/`af9c6ed`：平台目录行 + 白名单合并、admin API + 门禁 + 审计 + 下架影响扫描、Settings 的目录维护界面）；而那个「待拍」的前提本身是错的——仓内**不存在**按套餐限制具体模型的机制（`PlanQuota` 只有 tokens/concurrentRuns/storageBytes/videoSegments/seats 五个维度，`packages/core/src/plans.ts:16-27`），所以 ④ 的数据面能表达的是「有哪些模型、什么模态、多少钱、开不开」，不含「谁能看见」。详见 [design-model-catalog.md](design-model-catalog.md) §十。）
+
+### 9.6 §3④ 的处置改判（2026-09-26，用户决定）：**接受风险，不轮换**
+
+上一版把「轮换那台机器的 sudo 口令」写成自托管口径的两个前置签字之一。**这条判错了口径**：那是一台**家庭内网的 staging 机**（`192.168.31.14`，见 §9.2 的探活命令），这条口令换到的是这台机器的 root，换不到任何外部账号、也不在任何云上。把它按「公开仓库凭据泄露」列成上线阻断，是我拿对外 SaaS 的尺子量自托管的机器。用户同日明确表示**不打算轮换**，并要求把它记成接受风险而不是待办。
+
+**泄露面（2026-09-26 实测，不是推断）**
+
+| 问题 | 结论 | 证据 |
+| --- | --- | --- |
+| 真值进过仓库吗 | 进过，两处命令示例 | 由 `2aa40b15` 引入（§3④），`7b003f6`（09-25 17:13 +08）替换为 `<pw>` |
+| 现在公网还拿得到吗 | **拿得到，且不需要任何权限** | `git merge-base --is-ancestor 7fec506 origin/main` = YES（`7fec506` 是脱敏那条的父，仍带改写前文本）；`gh repo view` = `visibility: PUBLIC` |
+| 改写 git 历史能拿掉吗 | **不能** | `git ls-remote origin 'refs/pull/*/head'` = **432 条**，GitHub 永久保留 PR head ref，force push 分支不会让它们失效；对象在 GC / 工单前仍可按 SHA 取。真要「新读者拿不到」只有一档：**换新仓库 + 归档或删除旧库** |
+| 工作树还在新增暴露吗 | **不** | 当前三处命中全是占位符：`docs/production-ops.md` 两处 `<pw>`、本文件 §3④ 一处 `<口令>`、`design-monetization-m2-implementation.md` 一处 `<pw>`（`git grep` 实测） |
+
+**这条决定的边界（写死，免得下次又被翻成阻断）**
+
+* 接受的只有「**读过本公开仓库的人，可以拿到这台内网 staging 机的 root**」这一件事；
+* 一旦下列任何一条成立，本决定**自动失效**、必须重判：这台机器改放别人的数据 / 开了公网入口 / 同一条口令在别处（尤其任何云上机器）复用 / 本仓库被 fork 到不可控处；
+* 仓库若改 private、或删除换新，本条要重写（届时「公网可达」这个前提就不成立了）。
+
+**顺带更正我自己写进本报告的两个数**
+
+1. **远端状态一直是用没 fetch 过的 remote-tracking ref 报的**，所以「本地领先 N 个 commit」是假的。`git ls-remote` 实测：`origin/main` = `9c5d764`（不是本报告通篇写的 `eff8ebe`）、`origin/dev` = `1d894c8`、`origin/feature/20260824` = `90289b4`（= 本地 HEAD，**含本会话全部提交，已经在公网**）。有东西在自动 push，机制我没查——但 §9.2 那条「deploy 结论是 skipped、线上 commit 未证实」仍然独立成立、仍未闭合。
+2. 会话中我曾报「12 个 commit 里 4 个仍带明文」——**作废**：那条正则 `echo [^ ]+ | sudo` 把占位符 `echo "<pw>" | sudo` 一起数了进去。真值具体散在哪些 commit，在本环境里**测不了**（逐 blob 检索被判为访问凭证而拦截），所以本表的口径只建立在已证的「父 commit 公开可达」上，不依赖那个数。

@@ -200,7 +200,9 @@ console.log(JSON.parse(row.doc).triggers);
    ```
 2. **重启服务重载触发器**：`ssh hasee-2016-server 'echo "<pw>" | sudo -S systemctl restart agent-world'`
 
-   > ⚠️ **`<pw>` 是占位符，不要往这份文档里回写真值。** 此前两处命令内联了该服务器的真实 sudo 口令（由 commit `2aa40b15` 引入，gitleaks 不覆盖这个形态），2026-09-25 已去敏；同族的 [design-monetization-m2-implementation.md](design-monetization-m2-implementation.md) §回滚段一直用 `<pw>`。**真值仍留在 git 历史里**，所以对外的正确处置是**轮换该口令**而不是改写历史；改写历史只在把仓库公开时才必要。
+   > ⚠️ **`<pw>` 是占位符，不要往这份文档里回写真值。** 此前两处命令内联了该服务器的真实 sudo 口令（由 commit `2aa40b15` 引入，gitleaks 不覆盖这个形态），2026-09-25 已去敏；同族的 [design-monetization-m2-implementation.md](design-monetization-m2-implementation.md) §回滚段一直用 `<pw>`。
+   >
+   > **真值仍在 git 历史里，且本仓库是 PUBLIC**——脱敏那条的父 commit 至今可从 `origin/main` 走到，远端另有 432 条 `refs/pull/*/head`，所以**改写历史也拿不掉**（唯一能拿掉的是换新仓库）。2026-09-26 的决定是：**这台机器不轮换，按已接受风险处理**——理由是它只在家庭内网（`192.168.31.14`）、不在云上、这条口令换不到任何外部账号。边界：一旦这台机器改放别人的数据、开公网入口、或这条口令在别处复用，本条即刻失效、必须重判。全文与实测证据见 [mvp-readiness-review-2026-09-25.md](mvp-readiness-review-2026-09-25.md) §9.6。
 3. **验证**：`curl -s http://192.168.31.14/api/health` 确认服务起来，等下一个 cron 触发点确认 run 创建
 
 > 注意：DB 文件权限为只读（非 root），修改必须用 `sudo`。触发器在内存中的 index 由 `triggers.restore()` 在服务启动时重建，改 DB 后必须重启服务才生效（暂无热更新 API）。
