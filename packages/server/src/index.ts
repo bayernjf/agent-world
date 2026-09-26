@@ -59,6 +59,7 @@ import {
   builtinCodeDefaults,
   normalizeBaseUrl,
   modalityOf,
+  failoverCandidates,
   endpointFor,
   MODALITY_ENDPOINT,
   DEFAULT_MODALITY,
@@ -159,6 +160,27 @@ setMemoryBackend(memory);
 const worker = routingWorker();
 const workerRegistry = new WorkerRegistry(worker);
 const workersDir = process.env.WORKERS_DIR ?? fileURLToPath(new URL("workers", import.meta.url));
+
+// 启动自检：failover 默认开启，但没填 BACKUP_* 时系统「静默不告警」——运维以为已挂
+// 灾备其实没挂。这里显式点出来：agnes 真挂了文本 run 不会切到备份。填齐三项才解除。
+{
+  try {
+    const bootCfg = await loadConfig();
+    if (bootCfg.failover?.enabled !== false) {
+      const targets = failoverCandidates(bootCfg, bootCfg.defaultModel);
+      if (targets.length < 2) {
+        log.warn(
+          "provider failover is enabled but no usable backup is configured: text runs will NOT fail over on an agnes outage. Set BACKUP_BASE_URL + BACKUP_API_KEY + BACKUP_MODELS (see .env.example).",
+        );
+      } else {
+        log.info("provider failover armed", { defaultModelTargets: targets.map((t) => `${t.name}:${t.model}`) });
+      }
+    }
+  } catch (bootCheckErr) {
+    log.warn("boot failover self-check skipped", { error: (bootCheckErr as Error)?.message ?? String(bootCheckErr) });
+  }
+}
+
 
 /** Live runs, so a reconnecting client can attach mid-flight. */
 const live = new Map<
