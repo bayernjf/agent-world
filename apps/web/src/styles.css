@@ -7759,34 +7759,56 @@ select {
   border-top: var(--hair);
 }
 .announcements__banner {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: var(--z-toast);
   display: flex;
   align-items: center;
-  gap: var(--gap-xs);
-  padding: var(--space-2) var(--space-4);
-  background: var(--warning-bg);
-  border-bottom: 1px solid var(--warning);
-  color: var(--text-primary);
+  gap: var(--gap-md);
+  margin: var(--space-3) var(--space-5);
+  padding: var(--gap-md) var(--gap-lg);
+  background: var(--bg-elevated);
+  border: var(--hair);
+  border-left: 3px solid var(--text-tertiary);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  font-family: var(--mono);
   font-size: var(--text-sm);
+  color: var(--text-primary);
 }
-/* P3 targeting: in-flow variant under the header while the targeted
- * pipeline is open — the fixed banner stays reserved for global warnings. */
-.announcements__banner--graph {
-  position: static;
-  z-index: auto;
+/* The level picks the accent rule; the dot repeats it for skim-ability. */
+.announcements__banner--info {
+  border-left-color: var(--info);
+}
+.announcements__banner--warning {
+  border-left-color: var(--warning);
+}
+.announcements__banner--critical {
+  border-left-color: var(--error);
 }
 .announcements__banner-label {
-  color: var(--warning);
-  margin-right: var(--gap-xs);
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  letter-spacing: 0.1em;
   white-space: nowrap;
 }
 .announcements__banner-text {
+  display: flex;
   flex: 1;
   min-width: 0;
+  flex-direction: column;
+  gap: var(--gap-xs);
+}
+.announcements__banner-title {
+  font-weight: var(--font-bold);
+}
+/* Long bodies stay a two-line preview; the bell holds the full text. */
+.announcements__banner-body {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--text-secondary);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.announcements__banner-dismiss {
+  flex: none;
 }
 .announcements__manage {
   padding: var(--space-2);

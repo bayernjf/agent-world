@@ -18,8 +18,9 @@ export interface AnnouncementItem {
 
 /**
  * In-product announcements (design-announcement): a bell in the header with
- * an unread badge, plus level-driven intensity — `warning` renders a
- * dismissable top banner and `critical` a modal that must be acknowledged.
+ * an unread badge, a detail modal per item, and level-driven intensity —
+ * `critical` forces a modal that must be acknowledged. Warning-level notices
+ * get their own in-flow surface in AnnouncementAlerts, not here.
  * Content is bilingual inline (titleZh/titleEn chosen by current locale);
  * the surrounding chrome goes through i18n like every other component.
  */
@@ -27,7 +28,6 @@ export default function AnnouncementBell() {
   const { t, i18n } = useTranslation();
   const [items, setItems] = useState<AnnouncementItem[]>([]);
   const [open, setOpen] = useState(false);
-  const [dismissedBanner, setDismissedBanner] = useState<Set<string>>(new Set());
   const [acknowledgedCritical, setAcknowledgedCritical] = useState<Set<string>>(new Set());
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [canManage, setCanManage] = useState(false);
@@ -94,10 +94,6 @@ export default function AnnouncementBell() {
   // The strongest unread critical shows as a modal until acknowledged.
   const critical = items.find(
     (a) => a.level === "critical" && !a.read && !acknowledgedCritical.has(a.id),
-  );
-  // The strongest unread warning shows as a top banner (dismissable).
-  const banner = items.find(
-    (a) => a.level === "warning" && !a.read && !dismissedBanner.has(a.id),
   );
 
   const fmt = (ts: number) => formatDate(ts);
@@ -169,23 +165,6 @@ export default function AnnouncementBell() {
           </div>
         );
       })()}
-      {banner && (
-        <div className={`announcements__banner announcements__banner--warning`}>
-          <span className="announcements__dot announcements__dot--warning" />
-          <span className="announcements__banner-text">{titleOf(banner)}</span>
-          <button
-            type="button"
-            className="link link--sm"
-            onClick={() => {
-              setDismissedBanner((prev) => new Set(prev).add(banner.id));
-              markRead(banner.id);
-              setItems((prev) => prev.map((x) => (x.id === banner.id ? { ...x, read: true } : x)));
-            }}
-          >
-            {t("announcements:dismiss")}
-          </button>
-        </div>
-      )}
       {critical && (
         <div className="modal-backdrop">
           <div className="modal announcements__detail">

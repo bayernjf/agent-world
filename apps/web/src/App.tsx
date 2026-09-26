@@ -49,7 +49,7 @@ import ClaimDialog from "./components/ClaimDialog";
 import GuidedTour from "./components/GuidedTour";
 import { registerTourAction } from "./components/guided-tour-engine";
 import AnnouncementBell from "./components/AnnouncementBell";
-import { GraphAnnouncementBar } from "./components/AnnouncementAlerts";
+import { GlobalAnnouncementBar, GraphAnnouncementBar } from "./components/AnnouncementAlerts";
 import KnowledgePanel from "./components/KnowledgePanel";
 import GlossaryModal from "./components/GlossaryModal";
 import VersionPanel from "./components/VersionPanel";
@@ -1138,6 +1138,7 @@ export default function App() {
         </header>
 
         <DemoBanner />
+        <GlobalAnnouncementBar />
         <GraphAnnouncementBar graphId={graph.id} />
 
         <div
