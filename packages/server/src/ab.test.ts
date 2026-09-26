@@ -1,8 +1,16 @@
 import type { Graph } from "@agent-world/core";
+import { mkdtempSync, readdirSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
 import { openDb } from "./db.js";
 import { buildABVariants, startABExperiment } from "./ab.js";
 import { fakeWorker } from "./worker.js";
+import { ArtifactStore } from "./artifact-store.js";
+import { currentUsage } from "./subscriptionService.js";
+
+/** 实验 run 现在也走 drainRun，媒体产物要落库，所以必须给一个真实的 store。 */
+const testArtifacts = () => new ArtifactStore(mkdtempSync(join(tmpdir(), "aw-ab-")));
 
 const abGraph: Graph = {
   id: "abg",
@@ -60,6 +68,7 @@ describe("startABExperiment + abReport", () => {
         targetNodeId: "a",
         variants: ["P1", "P2"],
         budgetUsd: null,
+        artifacts: testArtifacts(),
       });
       expect(arms.map((x) => x.arm)).toEqual(["A", "B"]);
       expect(arms.every((x) => typeof x.runId === "string" && x.runId.length > 0)).toBe(true);
@@ -93,6 +102,65 @@ describe("startABExperiment + abReport", () => {
   it("abReport returns null for an unknown group", async () => {
     const db = openDb(":memory:");
     expect(await db.abReport("does-not-exist", "u1")).toBeNull();
+  });
+
+  // 实验 run 曾经绕过 startRun 自己调 execute，于是用量归集（recordRunUsage）这条
+  // 跨切面直接缺位——实验照跑、照出结果，但一次都没进账。现在走 drainRun 后归集
+  // 必须发生：这条断言钉的就是「实验不是免费用量的后门」。
+  it("folds each arm's usage into the monthly ledger, like any other dispatch", { timeout: 20000 }, async () => {
+    const db = openDb(":memory:");
+    const { arms } = await startABExperiment(db, fakeWorker({ chunkDelayMs: 0 }), {
+      userId: "u1",
+      graph: abGraph,
+      targetNodeId: "a",
+      variants: ["P1", "P2"],
+      budgetUsd: null,
+      artifacts: testArtifacts(),
+    });
+    expect(await currentUsage(db, "u1")).toMatchObject({ runs: 0 });
+
+    const deadline = Date.now() + 12000;
+    while (Date.now() < deadline) {
+      if ((await currentUsage(db, "u1")).runs >= arms.length) break;
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    const usage = await currentUsage(db, "u1");
+    expect(usage.runs).toBe(arms.length);
+    // fake worker 出 token，所以不只是「记了一次运行」。
+    expect(usage.normalizedTokens).toBeGreaterThan(0);
+  });
+});
+
+describe("no dispatch path may drive the engine on its own", () => {
+  // 与 dispatch-gate.test.ts 的「建 run 必须过闸门」同源：跨切面（合规词表/技能/
+  // 搜索/媒体落库/月度预算/用量归集）漏一个不报错、只静默跑歪，所以派发口不许自己
+  // 拼参数调引擎，必须走 run.ts 的 drainRun。
+  it("execute/resume/fork are only called from run.ts, always via drainRun", () => {
+    const offenders: string[] = [];
+    const walk = (dir: string): void => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) {
+          walk(full);
+          continue;
+        }
+        if (!entry.name.endsWith(".ts") || entry.name.endsWith(".test.ts")) continue;
+        if (entry.name === "run.ts" || entry.name === "engine.ts") continue;
+        const source = readFileSync(full, "utf8");
+        // 只看「从 engine.js 引入了 execute/resume/fork」的文件：别的文件里
+        // `xxx.execute(` / `child_process.fork(` 是同名，与本守护无关。
+        const engineImport = source.match(/import\s*(?:type\s*)?\{([^}]*)\}\s*from\s*"[^"]*engine\.js"/);
+        if (engineImport && /\b(execute|resume|fork)\b/.test(engineImport[1]!) && !source.includes("drainRun")) {
+          offenders.push(relative(process.cwd(), full));
+        }
+      }
+    };
+    walk(process.cwd() + "/src");
+
+    expect(
+      offenders,
+      `这些文件自己调引擎，等于新开一条绕过跨切面的派发路径：${offenders.join(", ")}`,
+    ).toEqual([]);
   });
 });
 
@@ -143,6 +211,7 @@ describe("G5.2 abReport downstream gate verdict projection", () => {
         variants: ["P1", "P2"],
         budgetUsd: null,
         input: "seed input for the gate test",
+        artifacts: testArtifacts(),
       });
 
       const deadline = Date.now() + 15000;

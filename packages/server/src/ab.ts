@@ -5,8 +5,10 @@ import { execute } from "./engine.js";
 import { dispatchGate } from "./dispatch-gate.js";
 import { loadConfig } from "./config.js";
 import { resolveModelSlots } from "./model-slots.js";
-import { haltedOf, RunStartError } from "./run.js";
+import { drainRun, RunStartError } from "./run.js";
 import { validateModels } from "./validate-models.js";
+import { log } from "./logger.js";
+import type { ArtifactStore } from "./artifact-store.js";
 import type { Worker } from "./worker.js";
 
 type DB = ReturnType<typeof openDb>;
@@ -52,6 +54,10 @@ export async function startABExperiment(
     budgetUsd?: number | null;
     input?: string;
     signal?: AbortSignal;
+    /** 媒体产物落库（storeBinary）。实验也会出图/出视频，不给就没有产物。 */
+    artifacts: ArtifactStore;
+    /** 产物 URI 绝对化，与 startRun 同一口径。 */
+    publicUrl?: string;
   },
 ): Promise<{ abGroup: string; arms: Array<{ arm: string; runId: string; prompt: string }> }> {
   const abGroup = randomUUID();
@@ -85,6 +91,7 @@ export async function startABExperiment(
     const { plan } = compile(graph);
     if (!plan) throw new Error(`A/B 变体 ${arm} 未通过编译`);
     const runId = randomUUID();
+    const startedAt = Date.now();
     const targetNode = graph.nodes.find((n) => n.id === opts.targetNodeId)!;
     const prompt = targetNode.textGen!.prompt;
 
@@ -93,7 +100,7 @@ export async function startABExperiment(
       userId: opts.userId,
       graph,
       budgetUsd: opts.budgetUsd ?? null,
-      at: Date.now(),
+      at: startedAt,
       trigger: "ab",
       input: opts.input ?? "",
       abGroup,
@@ -101,27 +108,29 @@ export async function startABExperiment(
       abTarget: opts.targetNodeId,
     });
 
-    void (async () => {
-      try {
-        for await (const event of execute({
-          runId,
-          graph,
-          plan,
-          worker,
-          input: opts.input ?? "",
-          defaultModel: cfg.defaultModel,
-          budgetUsd: opts.budgetUsd ?? null,
-          signal: opts.signal,
-        })) {
-          await db.record(runId, event);
-          if (event.type === "run.finished") {
-            await db.finishRun(runId, opts.userId, event.status, Date.now(), haltedOf(event));
-          }
-        }
-      } catch {
-        await db.finishRun(runId, opts.userId, "failed", Date.now());
-      }
-    })();
+    // 与 startRun / resumeRun / forkRun 共用 drainRun：合规词表、用户技能、搜索
+    // 配置、媒体落库、月度预算、G4 远程任务、子流程、用量归集、告警、指标一次配齐。
+    // 此前这一条路只传了 defaultModel/budget，等于实验绕过了所有这些跨切面——
+    // 合规词不生效、媒体产物不入库、用量不进账，而 run 照样报 done。
+    // 图变量刻意不回写（persistVariables:false）：N 条 arm 并发写同一份跨 run 状态
+    // 会互相覆盖，也会把实验状态写进产线的正式状态。
+    void drainRun({
+      db,
+      artifacts: opts.artifacts,
+      userId: opts.userId,
+      graph,
+      runId,
+      startedAt,
+      budgetUsd: opts.budgetUsd ?? null,
+      plan,
+      worker,
+      runLog: log.child({ runId, graphId: graph.id, abGroup, arm }),
+      signal: opts.signal,
+      publicUrl: opts.publicUrl,
+      spawn: (c) => execute({ ...c, input: opts.input ?? "" }),
+      crashMessage: "ab run crashed",
+      persistVariables: false,
+    });
 
     arms.push({ arm, runId, prompt });
   }

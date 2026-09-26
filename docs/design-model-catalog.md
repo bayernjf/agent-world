@@ -159,13 +159,15 @@
 
 **质量门（④ 落地后于 2026-09-26 实跑，非估算）**：core 346/346（本轮未改 core）；server **1427 例 = 1423 passed / 2 skipped / 2 failed**（那 2 failed 是 `engine.code.test.ts` 的 python 出网用例，本机 `python3` 是 Xcode 许可 shim，属既有环境失败，与本设计无关；2 skipped 是 `DOGFOOD=1` 门控）；web **1973/1973**（106 文件，单跑全绿）；`pnpm typecheck`（含 scripts）绿；`i18n:check` 与 `i18n:prune -- --check` 均 0 未引用 key。**④ 的增量**：server +30 例（`builtin-catalog.test.ts` 22、`api.model-catalog.test.ts` 8）、web +5 例（`ModelCatalogAdmin.test.tsx`），单独复跑 37/5 全绿。①②③ 当时（09-25）的基线是 server 1390 = 1386 passed / 2 skipped / 2 failed、web 1968/1968。
 
-**还剩的写死模型名（③ 有意未清，都是"最后兜底"位）**：
+**还剩的写死模型名（③ 有意未清，都是"最后兜底"位）** —— **2026-09-26 已全部清掉，见下**：
 
 | 位置 | 现在的写法 | 触发条件 |
 | --- | --- | --- |
-| `engine.ts:1653/2119/2346` | `fallbackModel: opts.defaultModel ?? "agnes-2.0-flash"` | 四个派发口（startRun / rerun / fork / ab）现在都显式传 `defaultModel`，所以这个 `??` 只在"测试直接调 execute 且不传默认"时生效；要清就得同时核约 20 个测试替身的期望值 |
-| `openai-compatible.ts:518/536/881` | `config.model \|\| "agnes-2.0-flash"` 等 | 规则 B 之后正常路径永远带真名，这些是不可达兜底；留着的问题是"看着像还能这么跑" |
+| ~~`engine.ts:1653/2119/2346`~~ **已清（2026-09-26）** | `fallbackModel: opts.defaultModel ?? ""` —— 兜底**不再是任何模型名**。四个派发口（startRun / resumeRun / forkRun / ab）现在都经 `drainRun` 且都显式传 `defaultModel`，所以为空只可能是「直接调引擎且没给默认」；留空会命中规则 A 报 `UNSUPPORTED`（具名、不出网），而不是悄悄用写死的内置名跑。原文「要清就得同时核约 20 个测试替身的期望值」**实测是错的**：真把兜底清空后 server 全量 1425 通过 / 2 条既有环境红，**零测试依赖这个兜底**（测试图的节点都自带模型名） | ——（已闭环） |
+| ~~`openai-compatible.ts:518/536/881`~~ **已清（2026-09-26）** | 三处改成 `requireModel(...)`：没有模型名就抛 `UNSUPPORTED`（不在 `nodes/shared.ts` 的 RETRYABLE 里 → 不出网、不重试），并点名是哪一处（textGen node / gate judge / summarization）。**核实过可达性**：`judge` 那处看起来是活路径（gate 节点没有 `textGen`），但 `providers/index.ts:153` 的 routingWorker 已用 `cfg.defaultModel` 把 `node.textGen.model` 填满再下发，所以直达 openai-compatible worker 时才可能为空 | ——（已闭环） |
 | `templates.ts:1424`（`defaultValue: "tts-1"`）与 `tpl-custom-model` 的模型字段 | 有意保留 | 它们是**用户看得见、可编辑的 BYOK 入口**，不是内置层 |
 | `seed.ts` / `workers/demo.worker.ts` / 各 `*.test.ts` | 有意保留 | 测试夹具钉具体模型是正确的 |
 
 **顺带查出、尚未修的相邻缺陷（已登记 deferred）**：`ab.ts` 的实验 run 只补了 `dispatchGate` + 模型解析 + `defaultModel`，但仍然不经 `runAsUser`、不传 `bannedTerms` / `userSkills` / `searchConfig` / `storeBinary` / `monthlyBudgetUsd`，也不写 `recordRunUsage`。也就是说 A/B 实验这条路上**合规词表、技能、媒体产物落库、月度预算与用量归集都是缺的**。这不是本设计引入的（① 之后至少不再是"静默用错模型"），但它和"跨切面检查只挂在一条路由上"是同一个形状。
+
+> **✅ 该缺陷已于 2026-09-26 修复**：`run.ts` 抽出 `drainRun()`，把跨切面依赖（合规词表 / 用户技能 / 搜索配置 / 媒体落库 `storeBinary` / 月度预算 / G4 远程任务 / 子流程 / 用量归集 / 告警 / 指标）装配成一份，**startRun / resumeRun / forkRun / ab 四条派发路径共用**——原先那三份近乎逐字重复的代码也随之消失。`ab.ts` 只多一个刻意的差异：`persistVariables: false`——N 条 arm 并发写同一份跨 run 图变量会互相覆盖，还会把实验状态写进产线的正式状态。防复发用源码扫描守护「从 `engine.js` 引入 execute/resume/fork 的文件必须引用 `drainRun`」（`ab.test.ts`，植入 rogue 文件验证过能红），另有功能测钉住「实验 run 也要进用量台账」（此前是 0，等于实验不占额度）。
