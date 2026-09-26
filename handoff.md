@@ -227,7 +227,9 @@ State of Agent World as of 2026-09-25.
 
 > **2026-09-26 配置收口（feature/20260824，**已 push**——`b5b84be5` 启动自检 + `.env.example` 澄清，`2557da25` handoff 收口；`origin/feature/20260824` @ `2557da25`）**：把 #44 从「代码已通、等 key」推进到「填值即生效」。两处改动：① **启动自检**（`index.ts` 顶部 `await loadConfig()` 后）：`failover.enabled !== false` 但 `failoverCandidates(defaultModel)` 只有一个候选（即没配可用 backup）时打 `log.warn`，点出「agnes  outage 时文本 run 不会切备份」+ 该填哪三项；配齐则打 `log.info` 列出 backup 候选——**补掉「failover 默认开却静默不告警」的盲区**（此前运维以为挂了灾备其实没挂）。② **`.env.example` 的 BACKUP 段讲清**：必须以 `/v1` 结尾的兼容地址、`BACKUP_MODELS` 是逗号分隔的真实暴露文本模型名（填错名字会 404 被 fail-closed）、**真灾备要求 BACKUP_BASE_URL 指向不同 host**（同源不构成灾备）、以及 backup 槽不配单价、灾备 run 计费记为 0 占位的已知限制。细节见 [production-ops.md §9.4](docs/production-ops.md)。结论：**配置位已就绪，用户给 key 即可合**——把三项填进 Hasee 的 `.env` 重启即武装灾备；填完启动日志应出现 `provider failover armed`。
 
-**#41 ★ M1 回采产线挂载 + 每日体检（4 条成本画像产线，cron 自动攒数据中）**
+> **2026-09-27 决策（B 类外部阻塞项，用户拍板）**：①**#41 M1 回采停摆 → 暂不处理**（agnes free 配额 09-25 耗尽，月度硬限阻断建 run，4 条产线 0 run；降频无效，接受演示数据停更，待 10-01 配额重置或改升付费 key 再评估，已登记 deferred）。②**#44 真灾备 → 暂缓**（无第二个 OpenAI 兼容源凭据，代码+配置+启动自检已就绪，缺 key 即 armed-warn 状态，拿到不同 host 的第二源再激活，已登记 deferred）。③**D-1 tpl-news-podcast 无 TTS → 维持 422 + 改口径（已落地，未 push）**：保留 422 硬失败，`validate-models.ts` 对 audio 模态单独给文案「请到「设置 → 集成」接入支持 /audio/speech 的 Provider（如 SiliconFlow）」，路由三处 422 后缀改为中性「按提示补全对应配置」避免误导；新增 1 例 server 测，server 全量 + 四包 typecheck 绿。④**SaaS 四件 → 整体推迟**（自托管 MVP 已签 ✅，非上线阻塞，已登记 deferred）。
+
+**#41 ★ M1 回采产线挂载 + 每日体检（4 条成本画像产线；09-25 起因 agnes free 配额耗尽已 0 run，2026-09-27 决策暂不处理）**
 
 在 Hasee staging 挂 4 条代表产线：①写草稿·高频文本 ②翻译流水线·带返工（gate 上限 3 次）③短视频广告工坊·媒体中价（imageGen+videoGen）④批量内容工坊·批量放大（Map 5 条）。产线 ID：
 ①`bdb25758-dd2d-4fe1-9ee3-ab2109b32f16`（trg_mtv0zp69）②`71536df1-da29-44fb-ae7a-4250dafe1a8d` ③`b25c9b38-b823-49c4-89ef-4cb432bd341c` ④`edc5183c-f8c3-4c11-9eab-a6e8fe232361`（trg_m1_batch_weekly）。
