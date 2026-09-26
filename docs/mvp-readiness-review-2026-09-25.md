@@ -195,6 +195,8 @@ docs/production-ops.md:199   systemctl restart agent-world
 
 core **346/346**（24 文件）· server **1397 = 1393 通过 + 2 本机 python-shim 环境红 + 2 狗粮跳过**（165 文件）· web **1968/1968**（105 文件）· mcp 71（沿用同日实跑，本轮未重跑）· `pnpm typecheck`（含 scripts）绿 · 零配置模板 **35/36 可派发**（探针实测，D-1 仍未拍：`tpl-news-podcast` 因 `ttsModel` 字段默认值钉 `tts-1` 报 422）。
 
+> 本行是 §9 追评当时的读数。**同日 ④ 落地后四包同批复测 = 3817 / 300 文件**（core 346 · server 1427 · web 1973 · mcp 71），live 数字以 `handoff.md`「Quality gate」那一行为准。
+
 ### 9.4 本轮复核里发现/确认的事
 
 1. **升级须知（新）**：MCP 现在经 SSRF 闸，**指向 `127.0.0.1` / 内网的远程 MCP 服务会被拒**，需 `ALLOW_PRIVATE_NETWORK=1` 才恢复（`ssrf.ts:162-163`）。这是安全修复的必然代价，runbook 与 `.env.example` 需各补一句，否则本地 MCP 用户会当成回归来报。
