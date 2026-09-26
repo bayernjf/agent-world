@@ -316,7 +316,7 @@ core **346/346**（24 文件）· server **1397 = 1393 通过 + 2 本机 python-
 
 1. **§10.2 把 sink 的语义写反了**。代码实际是：直接上游**全部**为不产正文的节点（branch/gate/媒体）→ 照常 `done` 且**不归档不发包**（`nodes/sink.ts:39-58`）；只要有任一内容型上游却拿到空 → `failed` + `VALIDATION`（`:59-67`）。§10.2 写成「结构空 → `failed` 且不归档 / 真断链仍 failed」，两半都错。这条正是 §3① 的收尾口径，读它的人会以为路由型产线在报错。
 2. **§10.1 的「430+ 真实 run 佐证」要降级为历史佐证**：`handoff.md` #41 行明写 **09-25 起因内置 agnes free 配额耗尽已 0 run，2026-09-27 决策暂不处理**。所以那些 run 证明过链路能跑，但**不能证明「当下仍在跑」**，且本会话无法复测（内网 + 沙箱网络限制）。
-3. **§10.3 漏了三条硬化项**（前两条 §9.4 登记过、这轮没人认领）：① `WORKER=fake` 仍是无护栏 env 开关（`providers/index.ts:94`），生产误设 = 整站假文本而 run 照样 `done`；② `build` 仍是纯 `tsc`（`packages/server/package.json:9`）→ dist 里 `.mjs` 计数为 **0**，于是声明 `isolation:"subprocess"` 的插件在部署态一律被拒——方向是**安全**的（`worker-plugins.ts:88-95` fail-closed + `log.error` + `available:false`，不是静默降级），但**CI 与 E2E 都不覆盖 dist 启动**（`playwright.config.ts:53` 的 webServer 是 `pnpm exec tsx src/index.ts`），所以这条门禁永远抓不到；③ ④ 的 `canManageModelCatalog` 是**死字段**：`index.ts:621` 算好下发，`apps/web` 全仓 **0 引用**（对照 `canManageAnnouncements` 被 `AnnouncementBell.tsx:41` 真用）。面板靠 403 自隐，功能不缺，但白打一次注定失败的请求，还把服务端已知结论在客户端重推一遍。
+3. **§10.3 漏了三条硬化项**（前两条 §9.4 登记过、这轮没人认领）：① `WORKER=fake` 仍是无护栏 env 开关（`providers/index.ts:94`），生产误设 = 整站假文本而 run 照样 `done`；② `build` 仍是纯 `tsc`（`packages/server/package.json:9`）→ dist 里 `.mjs` 计数为 **0**，于是声明 `isolation:"subprocess"` 的插件在部署态一律被拒——方向是**安全**的（`worker-plugins.ts:88-95` fail-closed + `log.error` + `available:false`，不是静默降级），但**CI 与 E2E 都不覆盖 dist 启动**（`playwright.config.ts:53` 的 webServer 是 `pnpm exec tsx src/index.ts`），所以这条门禁永远抓不到；③ ④ 的 `canManageModelCatalog` 是**死字段**：`index.ts:621` 算好下发，`apps/web` 全仓 **0 引用**（对照 `canManageAnnouncements` 被 `AnnouncementBell.tsx:41` 真用）。面板靠 403 自隐，功能不缺，但白打一次注定失败的请求，还把服务端已知结论在客户端重推一遍。**→ 本条已于同日收口**：`SessionUser` 补上这两个 flag，`ModelCatalogAdmin` 先读 `/me` 的答案、非管理员根本不发这次请求（`/me` 未回来时仍按旧路径走，403 → null 的自隐兜底保留，所以 flag 只可能藏界面、不可能开界面；新增 1 测并把护栏改成常量 false 验过它会红）。
 4. **§10.3 的一处证据等级要标出来**：「Hasee 生产 = `dev @ 3e010d92`」是**转述**（另一会话的 SSH 对账），我未复测；而 §9.2 那条「针对某 commit 的 deploy 尝试结论是 `skipped`」在 §10 里没有对应处置，#60 仍应开着。
 
 ### 11.3 残余不一致（低优；我核过**不可达**，别当缺陷反复修）
@@ -339,3 +339,5 @@ core **346/346**（24 文件）· server **1397 = 1393 通过 + 2 本机 python-
 ### 11.5 本轮没有推翻 MVP 判定的新缺陷；推翻的是四处文档表述
 
 主链、派发校验、目录数据面、成本台账四条我都能逐行指认；三处硬化项（`WORKER=fake` / dist 缺 `.mjs` / 死字段）都是**小改动 + 已有同仓先例**，不构成阻断。公网暴露口径下，P1 仍必须先收 `/metrics` 鉴权与 TLS。
+
+> **同日追记（本会话内闭合）**：上面那三条都做了——`3df542a`（`assertBootWorkerEnv`：生产 + `WORKER=fake` 启动即抛，其它环境 warn；守护 3 例，植入空操作护栏验过会红）、`02f0e67`（build 追加 `cp src/*.mjs dist/` + `src/dist-assets.test.ts` 四条守护，含**真起一次 dist 进程打 `/api/health`**；藏掉一个 dist 文件验过会红）、`69e26b8`（`SessionUser` 补 capability flag，面板改读 `/me` 的答案、非管理员不再发那次注定 403 的请求）；两条升级须知落在 `d3c58cd`（runbook「四之三」+ `.env.example`）。**§11.2 第 3 条因此从「§10.3 漏列」变成「已闭合」**，留在原地是为了记下它是被一次复评才发现的。仍未闭合的是 §11.2 第 4 条（线上跑哪个 commit 需人 SSH 确认）与 P1 的 `/metrics` / TLS。
