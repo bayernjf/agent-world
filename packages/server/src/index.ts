@@ -3432,6 +3432,8 @@ app.post("/api/runs/ab", async (c) => {
       variants,
       budgetUsd: body.budgetUsd ?? null,
       input,
+      artifacts,
+      publicUrl: PUBLIC_URL,
     });
     return c.json({ abGroup, arms });
   } catch (e) {

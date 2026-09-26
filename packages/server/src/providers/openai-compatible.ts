@@ -41,6 +41,25 @@ function nodeEndpointKey(
   return { endpoint: baseUrl, apiKey: provider.apiKey ?? "" };
 }
 
+/**
+ * 规则 A 在 provider 这一层的落点：走到这里还没有模型名，就是配置缺陷（节点没选、
+ * 平台也没给默认），**不能拿写死的内置名顶上**——那样 ④ 之后管理员把某个内置模型
+ * 下架或改了默认，这里还在悄悄请求那个旧名字，而上层看到的是「跑成功了」。
+ * 抛 UNSUPPORTED：它不在 `nodes/shared.ts` 的 RETRYABLE 里，所以不出网、不重试，
+ * 直接落成具名 error_code。正常路径永远带真名（规则 B 在 startRun 解析、routingWorker
+ * 的 judge 用 cfg.defaultModel 填），所以这三个兜底在生产不可达。
+ */
+function requireModel(model: string | undefined | null, what: string): string {
+  const m = (model ?? "").trim();
+  if (!m) {
+    throw new ProviderError(
+      "UNSUPPORTED",
+      `${what} has no model configured: pick a model on the node, or let an admin set the platform default`,
+    );
+  }
+  return m;
+}
+
 /** Map a guarded-egress rejection (deterministic) to a provider error. */
 export function mapGuardedError(err: unknown): ProviderError {
   if (err instanceof GuardedFetchError) {
@@ -515,7 +534,7 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
 
   return {
     async *runTextGen({ node, config, input, images, content, tools, executeTool, signal }) {
-      const model = config.model || "agnes-2.0-flash";
+      const model = requireModel(config.model, "textGen node");
       const modality = modalityOf(provider, model);
       if (modality !== "text") {
         // Phase 1 runtime is text-only. The model can still be configured and
@@ -533,7 +552,7 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
     },
 
     async judge({ node, output, criterion, signal }) {
-      const model = node.textGen?.model ?? "agnes-2.0-flash";
+      const model = requireModel(node.textGen?.model, "gate judge");
       const config: TextGenConfig = {
         model,
         prompt: "",
@@ -878,7 +897,7 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
     },
 
     async summarize({ text, maxChars, model, signal }) {
-      const m = model || "agnes-2.0-flash";
+      const m = requireModel(model, "summarization");
       const modality = modalityOf(provider, m);
       if (modality !== "text") {
         throw new ProviderError(

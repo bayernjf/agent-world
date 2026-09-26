@@ -51,6 +51,43 @@ describe("buildUserContent (4.5)", () => {
   });
 });
 
+describe("no hardcoded model fallback (rule A, model catalog ④)", () => {
+  const provider: ProviderConfig = {
+    type: "openai-compatible",
+    baseUrl: "https://api.example.com/v1",
+    apiKey: "sk-stored",
+    models: ["m-text"],
+    modalities: { "m-text": "text" },
+  };
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  // 这三条兜底曾经是 `|| "agnes-2.0-flash"`：写死的内置名在 ④ 之后会失效——管理员
+  // 把某个内置模型下架或改了平台默认，这里仍在悄悄请求那个旧名字，而上层看见的是
+  // 「跑成功了」。现在按规则 A 抛 UNSUPPORTED（具名、不出网、不可重试）。
+  const emptyModelCases = [
+    ["runTextGen", async (w: ReturnType<typeof openAICompatibleWorker>) => {
+      await w.runTextGen({ node: { id: "n" } as never, config: { model: "" } as never, attempt: 1, input: "hi" }).next();
+    }],
+    ["judge", async (w: ReturnType<typeof openAICompatibleWorker>) => {
+      await w.judge({ node: { id: "n" } as never, attempt: 1, input: "hi", output: "ho", criterion: "c" });
+    }],
+    ["summarize", async (w: ReturnType<typeof openAICompatibleWorker>) => {
+      await w.summarize({ text: "long text", maxChars: 5 });
+    }],
+  ] as const;
+
+  for (const [name, call] of emptyModelCases) {
+    it(`${name} rejects an empty model with UNSUPPORTED instead of a builtin name`, async () => {
+      const worker = openAICompatibleWorker(provider);
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+      await expect(call(worker)).rejects.toMatchObject({ code: "UNSUPPORTED" });
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+  }
+});
+
 describe("audio egress + key pairing (audit H5)", () => {
   const provider: ProviderConfig = {
     type: "openai-compatible",

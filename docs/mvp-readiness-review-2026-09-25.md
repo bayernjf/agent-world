@@ -191,6 +191,13 @@ docs/production-ops.md:199   systemctl restart agent-world
 - PR #430（dev → main）合入，main 现为 **`eff8ebe`**；main CI `36133392082` **success**（昨天记的 CostReport 红不在这条口径上——它是并发负载抖动，**别当"已修复"**）。
 - **Deploy 状态未确认**：最后一次成功部署是 12:04:29（早于 #430），针对 `eff8ebe` 的 workflow_run 尝试（`36133166811`）结论是 **skipped**。从本机 `curl http://192.168.31.14/api/health` 无返回（沙箱网络限制），**无法自证线上 commit**。→ 上线动作里必须有人 SSH 看一眼 `/api/health` 的 commit 字段。（**本段是 09-26 当日值，别当现状读**：同日稍后用 `git ls-remote` 直查远端，`origin/main` 已到 `9c5d764`、`origin/dev` = `1d894c8`，见 §9.6 更正版。）
 
+> **✅ 09-26 下午 SSH 实测闭合（本条取代上一段的「无法自证」）**：从 MacBook `ssh hasee-2016-server` 直查，`curl -s http://127.0.0.1:8791/api/health` 返回
+> `{"ok":true,"env":"staging","branch":"dev","commit":"93f6758","checks":{"db":"ok","jwtSecret":"loaded","encryption":"loaded","providers":{"agnes":"configured"}}}`；
+> 部署目录 `/opt/agent-world` `git rev-parse --abbrev-ref HEAD` = **dev**、`git log -1` = **`93f6758`**（工作区干净，只有未跟踪的 `deploy.sh`/`rollback.sh`），与 health 自报一致。
+> **单实例确认**：`ps` 只有 **1 个** `/usr/bin/node /opt/agent-world/packages/server/dist/index.js`（PID 710，ppid 1）——「只跑单实例」这条前置亦成立。
+>
+> **但「确认线上跑的是当前 main」这句口径本身是错的，应作废并改写**：Hasee 是 **staging，按分支映射（`feature/*` → `dev` → Hasee；`main` = PROD）跟踪 `dev` 而非 `main`**，health 自报 `branch:"dev"` 正是设计如此，不是落后。正确的等价命题是「线上跑的是 dev 尖端，且 dev 的内容已全部进入 main」，实测成立：`git ls-remote` 得 `origin/dev` = `93f6758`（= 线上，无落后）、`origin/main` = **`0d09cd5`**（已过 §9.6 记的 `9c5d764`），`git merge-base --is-ancestor 93f6758 0d09cd5` = **YES**——main 比 dev 多的 102 个提交里 **101 个是 dev→main 的 merge**，唯一的非 merge 是 `18e8c5b`（2026-09-09 dependabot 依赖升级，走了 main 直合路径，dev 上没有）。**结论：自托管口径最后一个前置已闭合；剩下那条「依赖升级只进了 main 没回 dev」的单向偏差异要单记一笔**（dev 上跑的依赖比 main 少一次 09-09 的 bump，属陈旧而非错误，触发条件：下次 dev 上出现与依赖版本相关的现象时回看）。
+
 ### 9.3 重测的门槛数字（2026-09-26）
 
 core **346/346**（24 文件）· server **1397 = 1393 通过 + 2 本机 python-shim 环境红 + 2 狗粮跳过**（165 文件）· web **1968/1968**（105 文件）· mcp 71（沿用同日实跑，本轮未重跑）· `pnpm typecheck`（含 scripts）绿 · 零配置模板 **35/36 可派发**（探针实测，D-1 仍未拍：`tpl-news-podcast` 因 `ttsModel` 字段默认值钉 `tts-1` 报 422）。
