@@ -141,6 +141,23 @@ describe("validateModels", () => {
     expect(old.matched).toBe(false);
   });
 
+  // D-1：audioGen 节点在「没接任何音频 Provider」时维持 422，但文案要把路指对
+  // —— 用户该去「设置 → 集成」接一个支持 /audio/speech 的 Provider，而不是「重选模型」。
+  it("tells the user to connect a TTS provider when an audio node has no audio provider", () => {
+    const noAudio: AppConfig = {
+      ...cfg,
+      providers: { agnes: cfg.providers.agnes!, disabled: cfg.providers.disabled! }, // 去掉 sf
+    };
+    const r = validateModels(withNodes(audioNode("v1", "tts-1")), noAudio);
+    expect(r).toHaveLength(1);
+    expect(r[0]!.severity).toBe("error");
+    expect(r[0]!.message).toMatch(/TTS|语音合成|音频 Provider|集成/);
+    expect(r[0]!.nodeId).toBe("v1");
+    // 对照：非音频模态仍走原「已不可用 / 重选模型」口径，不受影响。
+    const t = validateModels(withNodes(agentNode("a1", "tts-1")), noAudio);
+    expect(t[0]!.message).toMatch(/已不可用/);
+  });
+
   it("errors when the owning provider is disabled", () => {
     const r = validateModels(withNodes(agentNode("a1", "disabled-1")), cfg);
     expect(r).toHaveLength(1);

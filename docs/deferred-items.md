@@ -148,6 +148,14 @@
 | ~~run-status 状态徽章系列硬编码颜色（设计 token 历史债）~~ ✅ **已落地 2026-09-24（`cd7f926`）** | 原 8 个状态徽章 + `.run-timeline-halt` 写死暗色 rgba/hex、亮色主题无覆盖。**已全部迁语义 token**：running/halted→`--warning(-bg)`、done→`--success(-bg)`、failed/tripped→`--error(-bg)`、cancelled/interrupted/default→`--bg-tertiary`+`--border-secondary`+`--text-secondary`，halt 文字→`--warning`，对齐 `.run-status--degraded`/`.reviewqueue__kind--degraded` 范例，双主题对比度正确 | ——（已闭环，未等触发条件，M1 等待窗口清账。同族留尾亦已清 2026-09-25 `b6a88fc`：`.run-timeline-attempt--*` 导轨、`.run-timeline-gate--pass/fail`、retry 提示与 A/B variant 芯片全部迁语义 token，run-timeline 区块现已零硬编码色。**另案未做**：`styles.css` 全文件仍有约 230 行硬编码颜色，含 `.diag--error` / `.auth-error` / `.runhistory-error` / `.runhistory-status-failed` 四处仍写死软红 `#ffb4ad`（应归 `--error`），属独立的亮色走查线，不在本项范围） | `apps/web/src/styles.css` run-status / run-timeline-halt / run-timeline-attempt / run-timeline-gate |
 | `styles.css` 余下硬编码颜色（设计 token 债，2026-09-25 二次盘点修正） | 首轮清点写的「115 处非豁免」口径太粗，实跑下来要拆三类：**① 已修 19 处**（4 处 `var(--bg-hover, rgba(255,255,255,.08))` 型死 fallback——token 本来就在，fallback 是违禁写法且永不生效；7 处琥珀 `rgba(255,176,32,α)` → `color-mix(… var(--accent) …)`，**它本就是 `--power`/`--accent` 的透明度变体，不是 `--warning`，第一轮我错映射成 warning，亮色主题下会串色，已回正**；其余 8 处是真离色板值 `#ff9a90`/`#4ade80`/`rgba(255,99,99,α)` → `--error`/`--success` 系）。**② 合规保留**：AGENTS.md 明文允许功能色的 rgba 透明度变体，故 ~100 处普通填充里多数（`rgba(102,224,122,.x)`=`--ok`、`rgba(53,224,240,.x)`=`--data`）本就不违规；画布 SVG（`.plant__*`/`.pipe--*`）节点色亦属豁免。**③ 真正待决策的 25 处装饰**：12 处 `linear-gradient`/`repeating-linear-gradient`（`.chip--score-good/warn/bad` 用 Material 绿/橙/红、`.btn` 渐变里混了 `#ffc247` 与 `var(--accent)`、`.gauge.is-warn` 条纹）+ 13 处 glow 阴影——**它们不是「换个变量名」能了事的**：要么新增 `--gradient-*`/强调色变体 token（属设计系统决策），要么放弃渐变（改视觉）。另 `.badge--default` 实为绿、`.btn--warn` 实为红，是命名与语义错位，改哪个都要产品点头 | 有设计系统同学/owner 对「渐变与 identity 色要不要进 token 层」表态，或这批组件因其他需求再次改动时顺带处理；不做无指引的大面积视觉改动 | 本行 ② 的依据是 [AGENTS.md](../AGENTS.md)「允许硬编码颜色的场景」；已修部分见 2026-09-25 那批（`cd7f926` 徽章、`3aade4a` 时间线、本次 accent 回正），实测脚本按选择器与渐变/阴影/普通填充分桶计数 |
 
+### 外部阻塞/决策线（2026-09-27 决策，用户拍板）
+
+| 事项 | 缓做/低优原因 | 触发条件 | 决策详情 |
+|---|---|---|---|
+| #41 M1 回采产线停摆（agnes free 配额耗尽） | 09-25 04:10 内置 agnes free 配额耗尽 → 月度预算硬限阻断建 run → 4 条 M1 产线（草稿/翻译/短视频/批量）自该时起 0 run。降频方案已排除（治不了配额）。**2026-09-27 决策：暂不处理**（接受 M1 演示数据停更） | ①10-01 配额自然重置后评估是否仍需处理；②或决定升付费 agnes key 立即恢复 | handoff.md #41 |
+| #44 真灾备激活（缺第二 OpenAI 兼容源） | 代码+配置+启动自检均就绪（failover 默认开，无 backup 时启动打 warn）。唯一缺第二个 OpenAI 兼容源的凭据（必须不同 host 才算真灾备）。**2026-09-27 决策：暂缓**（无可用备份供应商） | 拿到第二个 OpenAI 兼容源（BASE_URL/API_KEY/MODELS，不同 host）时，填进 Hasee `.env` 重启并确认日志 `provider failover armed` | handoff.md #44 + production-ops.md §9 |
+| SaaS 四件（Stripe/HTTPS/域名/Sentry/Postgres HA） | 自托管 MVP 已签 ✅，SaaS 不是上线阻塞。**2026-09-27 决策：整体推迟** | 决定启动 SaaS（有付费用户诉求/商业化临门一脚）时重启：Stripe 先定收款主体（个人/公司）+ keys；其余 HTTPS/域名、Sentry DSN、Postgres HA 随规模 | handoff.md #48 + design-monetization-m3-s6-stripe.md |
+
 ## 已重启 / 已砍掉
 
 （暂无——首建时全部挂起）
