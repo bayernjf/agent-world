@@ -395,11 +395,14 @@ MCP Server 是**独立 Node 进程**（`packages/mcp-server`），不在主服�
 
 | 变量 | 用途 |
 |---|---|
-| `BACKUP_BASE_URL` | 备份源 OpenAI 兼容根地址（如 `https://<host>/v1`） |
+| `BACKUP_BASE_URL` | 备份源 OpenAI 兼容根地址，**必须以 `/v1` 结尾**（如 `https://<host>/v1`） |
 | `BACKUP_API_KEY` | 备份源 key |
 | `BACKUP_MODELS` | 逗号分隔的模型名；默认取第一个 text 模型做灾备目标 |
 
-跨源模型名可能不同：默认把逻辑模型映射到 `backup` 槽的第一个 text 模型。需要精确定向时，在配置 `failover.chains[model]` 写有序目标 `[{provider, model}]`；`failover.enabled=false` 可整体关闭。
+- **真灾备要求 `BACKUP_BASE_URL` 指向一个不同的网关 host**：同源备份不构成灾备（同一配额池，2026-09-21 真机验证撞 free-tier 429 已证明）。
+- `BACKUP_MODELS` 必须填该 host **真实暴露的文本模型名**（填错名字会 404，被 fail-closed 当成不可达）；逗号分隔，如 `gpt-4o-mini,gpt-4o`。
+- backup 槽**不配置单价**（pricing），灾备 run 的 cost 记为 0 占位——若要精确计费需另行补价目（已知限制，非阻断）。
+- 跨源模型名可能不同：默认把逻辑模型映射到 `backup` 槽的第一个 text 模型。需要精确定向时，在配置 `failover.chains[model]` 写有序目标 `[{provider, model}]`；`failover.enabled=false` 可整体关闭。
 
 ### 9.3 日志信号
 
@@ -411,6 +414,18 @@ level=warn msg="failing over judge to backup provider" ...
 ```
 
 备份源也不可用时抛出最后一个错误。验证机制由双源 fetch 桩单测覆盖（`routing.test.ts` / `config.test.ts`）；真机端到端需在 staging 填好 backup env 后，把主源 baseUrl 临时指向不可达地址观察一次自动切换。
+
+### 9.4 启动自检（2026-09-26 加）
+
+`failover` 默认开启，但**没填 `BACKUP_*` 时系统过去静默不告警**——运维以为挂了灾备其实没挂。现 `index.ts` 启动处 `await loadConfig()` 后做一次自检：
+
+- `failover.enabled !== false` 但默认模型的 `failoverCandidates` 只有一个候选（即没配可用 backup）→ 打 warn：
+  ```
+  level=warn msg="provider failover is enabled but no usable backup is configured: text runs will NOT fail over on an agnes outage. Set BACKUP_BASE_URL + BACKUP_API_KEY + BACKUP_MODELS (see .env.example)."
+  ```
+- 配齐则打 info 列出 backup 候选：`provider failover armed { defaultModelTargets: ["agnes:agnes-2.0-flash","backup:gpt-4o-mini"] }`。
+
+**武装灾备的可视化判据**：重启服务后，启动日志出现 `provider failover armed` 即生效；仍见上面的 warn 即三项没填齐或 `BACKUP_MODELS` 名字错。
 
 ---
 
