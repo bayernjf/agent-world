@@ -119,18 +119,12 @@ describe("AnnouncementBell", () => {
     expect(screen.queryByText("中文正文")).not.toBeInTheDocument();
   });
 
-  it("renders a dismissable warning banner and marks it read", async () => {
+  it("does not render the warning notice card — that is the floating stack", async () => {
     await renderBell([mkAnn({ id: "w-1", level: "warning", titleZh: "警告标题" })]);
+    expect(document.querySelector(".announcements__banner")).toBeNull();
+    // Still reachable from the dropdown.
+    fireEvent.click(bellButton());
     expect(screen.getByText("警告标题")).toBeInTheDocument();
-    fireEvent.click(screen.getByText("知道了"));
-    await waitFor(() =>
-      expect(global.fetch).toHaveBeenCalledWith(
-        expect.stringContaining("/api/announcements/w-1/read"),
-        expect.any(Object),
-      ),
-    );
-    await act(async () => {});
-    expect(screen.queryByText("警告标题")).not.toBeInTheDocument();
   });
 
   it("forces a critical modal until acknowledged, then marks read", async () => {

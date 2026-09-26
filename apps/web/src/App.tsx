@@ -49,7 +49,7 @@ import ClaimDialog from "./components/ClaimDialog";
 import GuidedTour from "./components/GuidedTour";
 import { registerTourAction } from "./components/guided-tour-engine";
 import AnnouncementBell from "./components/AnnouncementBell";
-import { GraphAnnouncementBar } from "./components/AnnouncementAlerts";
+import { GlobalAnnouncementBar, GraphAnnouncementBar } from "./components/AnnouncementAlerts";
 import KnowledgePanel from "./components/KnowledgePanel";
 import GlossaryModal from "./components/GlossaryModal";
 import VersionPanel from "./components/VersionPanel";
@@ -1138,7 +1138,19 @@ export default function App() {
         </header>
 
         <DemoBanner />
-        <GraphAnnouncementBar graphId={graph.id} />
+        <div
+          className="announcements__stack"
+          style={
+            {
+              "--notice-inset": inspectorCollapsed
+                ? "0px"
+                : `${inspectorWidth}px`,
+            } as React.CSSProperties
+          }
+        >
+          <GlobalAnnouncementBar />
+          <GraphAnnouncementBar graphId={graph.id} />
+        </div>
 
         <div
           className={`workspace ${controlCollapsed ? "workspace--control-collapsed" : ""}`}

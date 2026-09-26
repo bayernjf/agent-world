@@ -41,6 +41,7 @@
   },
   "alerts": {
     "templateBadge": "Notice",
+    "globalLabel": "Platform notice:",
     "graphLabel": "Pipeline notice:"
   },
   "empty": "No notices",

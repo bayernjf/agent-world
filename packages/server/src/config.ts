@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
+import { mergeBuiltinCatalog, platformCatalog } from "./builtin-catalog.js";
 import {
   DEFAULT_MODALITY,
   MODALITIES,
@@ -400,6 +401,18 @@ const DEFAULT_CONFIG: AppConfig = {
   ],
 };
 
+/** The code-shipped built-in providers, as the catalog admin surface needs to
+ *  show them: the admin edits an overlay of these, never a copy of the whole
+ *  config, so removing an overlay entry reverts to code rather than deleting
+ *  a model out from under every user. */
+export function builtinCodeDefaults(): Record<string, ProviderConfig> {
+  const out: Record<string, ProviderConfig> = {};
+  for (const [name, def] of Object.entries(DEFAULT_CONFIG.providers)) {
+    if (def.source === "builtin") out[name] = def;
+  }
+  return out;
+}
+
 /**
  * Per-user settings storage (a SQLite-backed `settings` table, bound at
  * startup by index.ts). config.ts stays free of a DB import; without a bound
@@ -467,8 +480,9 @@ function parseRaw(raw: string | undefined): AppConfig | null {
     const parsed = JSON.parse(raw) as Partial<AppConfig>;
     const providers = { ...DEFAULT_CONFIG.providers, ...parsed.providers };
     // Builtin tiers are product-owned: a user copy stored before the `source`
-    // field existed (or hand-crafted) must never shadow the injected default,
-    // so the builtin provider always wins the merge.
+    // field existed (or hand-crafted) must never shadow the injected default.
+    // The operator catalog overlay is applied once, in loadConfig — see
+    // applyPlatformCatalog for why it cannot live here.
     for (const [name, def] of Object.entries(DEFAULT_CONFIG.providers)) {
       if (def.source === "builtin") providers[name] = def;
     }
@@ -509,17 +523,37 @@ function parseRaw(raw: string | undefined): AppConfig | null {
 }
 
 /**
+ * Apply the operator catalog to every built-in tier.
+ *
+ * This runs in `loadConfig`, **after** the source decision, not inside
+ * `parseRaw`: with no config file and no user row, `parseRaw` is never called
+ * at all (`loadConfig` returns DEFAULT_CONFIG directly), so a hook inside
+ * `parseRaw` would silently do nothing on a fresh deployment — which is the
+ * common case, not an edge one. Re-deriving from the code default also keeps
+ * the original guarantee: a user row can never shadow a built-in provider.
+ */
+function applyPlatformCatalog(cfg: AppConfig): AppConfig {
+  const catalog = platformCatalog();
+  const providers = { ...cfg.providers };
+  for (const [name, def] of Object.entries(DEFAULT_CONFIG.providers)) {
+    if (def.source === "builtin") providers[name] = mergeBuiltinCatalog(def, catalog[name]);
+  }
+  return { ...cfg, providers };
+}
+
+/**
  * Load the effective config. With a userId and a bound store, the user's own
  * saved settings win; otherwise the legacy file config is the shared baseline.
- * Priority: per-user DB row > legacy file > built-in defaults.
+ * Priority: per-user DB row > legacy file > built-in defaults, with the
+ * operator catalog overlaid on the built-in tier of whichever won.
  */
 export async function loadConfig(userId?: string): Promise<AppConfig> {
   if (userId && settingsStore) {
     const stored = await settingsStore.get(userId);
     const fromDb = parseRaw(stored ?? undefined);
-    if (fromDb) return fromDb;
+    if (fromDb) return applyPlatformCatalog(fromDb);
   }
-  return parseRaw(readFileConfigRaw()) ?? DEFAULT_CONFIG;
+  return applyPlatformCatalog(parseRaw(readFileConfigRaw()) ?? DEFAULT_CONFIG);
 }
 
 /**

@@ -8,6 +8,10 @@ vi.mock("../lib/api", () => ({
     getSettings: vi.fn(),
     testProvider: vi.fn(),
     saveSettings: vi.fn(),
+    // Settings mounts the platform-admin catalog panel; null means "not a
+    // catalog admin" (the panel hides itself), which is what these tests need.
+    getModelCatalog: vi.fn().mockResolvedValue(null),
+    putModelCatalog: vi.fn(),
   },
   proxyImageUrl: vi.fn((url: string | null) => url),
 }));
