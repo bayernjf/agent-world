@@ -55,9 +55,16 @@ export function validateModels(graph: Graph, config: AppConfig): ModelDiagnostic
     // 只剩上游一句看不懂的报错。被豁免的初衷（demo/测试的 fake worker）其实没有
     // source 字段，它走的是「模型名 == provider 名」那条正常认领路径。
     if (!matched) {
+      // 音频（TTS）节点没接任何语音合成 Provider 时，用户真正该做的不是「重选
+      // 模型」而是「去接入一个音频 Provider」——tpl-news-podcast 这类纯语音模板
+      // 默认就绑死 tts-1，重选没有意义。D-1 决策：维持 422，但文案把路指对。
+      const audioMessage = `节点「${n.name}」需要语音合成（TTS）能力，但当前未接入任何音频 Provider。请在「设置 → 集成」中接入一个支持 /audio/speech 接口的 Provider（如硅基流动 SiliconFlow）后再次派发。`;
       out.push({
         severity: "error",
-        message: `节点「${n.name}」的模型「${model}」已不可用：不在内置模型目录中，也未在「模型设置」中注册。请在 Inspector 中为该节点重新选择模型。`,
+        message:
+          wanted === "audio"
+            ? audioMessage
+            : `节点「${n.name}」的模型「${model}」已不可用：不在内置模型目录中，也未在「模型设置」中注册。请在 Inspector 中为该节点重新选择模型。`,
         nodeId: n.id,
       });
       continue;
