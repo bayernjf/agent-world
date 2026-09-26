@@ -189,7 +189,7 @@ docs/production-ops.md:199   systemctl restart agent-world
 
 - PR #429（feature → dev）**MERGED**，12:02Z，`headRefOid = 34b1aed`（含收窄）。
 - PR #430（dev → main）合入，main 现为 **`eff8ebe`**；main CI `36133392082` **success**（昨天记的 CostReport 红不在这条口径上——它是并发负载抖动，**别当"已修复"**）。
-- **Deploy 状态未确认**：最后一次成功部署是 12:04:29（早于 #430），针对 `eff8ebe` 的 workflow_run 尝试（`36133166811`）结论是 **skipped**。从本机 `curl http://192.168.31.14/api/health` 无返回（沙箱网络限制），**无法自证线上 commit**。→ 上线动作里必须有人 SSH 看一眼 `/api/health` 的 commit 字段。
+- **Deploy 状态未确认**：最后一次成功部署是 12:04:29（早于 #430），针对 `eff8ebe` 的 workflow_run 尝试（`36133166811`）结论是 **skipped**。从本机 `curl http://192.168.31.14/api/health` 无返回（沙箱网络限制），**无法自证线上 commit**。→ 上线动作里必须有人 SSH 看一眼 `/api/health` 的 commit 字段。（**本段是 09-26 当日值，别当现状读**：同日稍后用 `git ls-remote` 直查远端，`origin/main` 已到 `9c5d764`、`origin/dev` = `1d894c8`，见 §9.6 更正版。）
 
 ### 9.3 重测的门槛数字（2026-09-26）
 
