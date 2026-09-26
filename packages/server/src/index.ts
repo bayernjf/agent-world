@@ -2844,7 +2844,7 @@ app.post("/api/runs", async (c) => {
     return c.json(
       {
         error: "graph has unconfigured model(s)",
-        message: `${summary} 请前往「模型设置」补全后再派发。`,
+        message: `${summary} 请按上方提示补全对应配置后再派发。`,
         diagnostics: modelDiags,
       },
       422,
@@ -3926,7 +3926,7 @@ app.post("/api/runs/:id/rerun", async (c) => {
     return c.json(
       {
         error: "graph has unconfigured model(s)",
-        message: `${modelErrors.length} 个节点未配置模型，请先在「模型设置」补全后再重跑。`,
+        message: `${modelErrors.length} 个节点未配置模型，请按提示补全对应配置后再重跑。`,
         diagnostics: modelDiags,
       },
       422,
@@ -4001,7 +4001,7 @@ app.post("/api/runs/:id/fork", async (c) => {
     return c.json(
       {
         error: "graph has unconfigured model(s)",
-        message: `${modelDiags.filter((d) => d.severity === "error").length} 个节点未配置模型，请先在「模型设置」补全后再从此处重跑。`,
+        message: `${modelDiags.filter((d) => d.severity === "error").length} 个节点未配置模型，请按提示补全对应配置后再从此处重跑。`,
         diagnostics: modelDiags,
       },
       422,
