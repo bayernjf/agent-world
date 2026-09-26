@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppConfig } from "../config.js";
-import { providerCacheKey, routingWorker } from "./index.js";
+import { log } from "../logger.js";
+import { assertBootWorkerEnv, providerCacheKey, routingWorker } from "./index.js";
 import { ProviderError } from "./openai-compatible.js";
 
 const config: AppConfig = {
@@ -329,5 +330,29 @@ describe("providerCacheKey", () => {
       providerCacheKey("p", base),
     );
     expect(providerCacheKey("p", { ...base, models: ["m", "m2"] })).not.toBe(providerCacheKey("p", base));
+  });
+});
+
+describe("assertBootWorkerEnv (the WORKER=fake production guard)", () => {
+  it("refuses to boot a production process that would fabricate every run", () => {
+    expect(() => assertBootWorkerEnv({ WORKER: "fake", NODE_ENV: "production" })).toThrow(/not allowed in production/);
+    // The label the health probe reports counts too — an operator who sets only
+    // AGENT_WORLD_ENV still means "this is the deployed box".
+    expect(() => assertBootWorkerEnv({ WORKER: "fake", AGENT_WORLD_ENV: "production" })).toThrow(/not allowed in production/);
+  });
+
+  it("keeps the demo/test path working, out loud", () => {
+    const warn = vi.spyOn(log, "warn").mockImplementation(() => {});
+    expect(() => assertBootWorkerEnv({ WORKER: "fake", NODE_ENV: "development" })).not.toThrow();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("fabricated text"));
+    warn.mockRestore();
+  });
+
+  it("says nothing and throws nothing when the switch is absent or unrelated", () => {
+    const warn = vi.spyOn(log, "warn").mockImplementation(() => {});
+    assertBootWorkerEnv({ NODE_ENV: "production" });
+    assertBootWorkerEnv({ WORKER: "agnes", NODE_ENV: "production" });
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
   });
 });
