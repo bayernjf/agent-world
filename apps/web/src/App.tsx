@@ -1138,8 +1138,19 @@ export default function App() {
         </header>
 
         <DemoBanner />
-        <GlobalAnnouncementBar />
-        <GraphAnnouncementBar graphId={graph.id} />
+        <div
+          className="announcements__stack"
+          style={
+            {
+              "--notice-inset": inspectorCollapsed
+                ? "0px"
+                : `${inspectorWidth}px`,
+            } as React.CSSProperties
+          }
+        >
+          <GlobalAnnouncementBar />
+          <GraphAnnouncementBar graphId={graph.id} />
+        </div>
 
         <div
           className={`workspace ${controlCollapsed ? "workspace--control-collapsed" : ""}`}

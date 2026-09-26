@@ -119,7 +119,7 @@ describe("AnnouncementBell", () => {
     expect(screen.queryByText("中文正文")).not.toBeInTheDocument();
   });
 
-  it("does not render the warning notice card — that surface lives under the header", async () => {
+  it("does not render the warning notice card — that is the floating stack", async () => {
     await renderBell([mkAnn({ id: "w-1", level: "warning", titleZh: "警告标题" })]);
     expect(document.querySelector(".announcements__banner")).toBeNull();
     // Still reachable from the dropdown.

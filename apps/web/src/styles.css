@@ -7758,20 +7758,44 @@ select {
   padding: var(--space-2);
   border-top: var(--hair);
 }
+/* The notice cards float in the bottom-right corner instead of pushing the
+ * canvas down. --notice-inset (App.tsx) is the inspector drawer's width, so
+ * the stack never lands on top of it; the wrapper passes pointer events
+ * through wherever there is no card. */
+.announcements__stack {
+  position: fixed;
+  right: calc(var(--space-5) + var(--notice-inset));
+  bottom: var(--space-6);
+  z-index: var(--z-toast);
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-md);
+  width: min(480px, calc(100vw - 2 * var(--space-5)));
+  pointer-events: none;
+}
+.announcements__stack > * {
+  pointer-events: auto;
+}
+@keyframes notice-in {
+  from {
+    opacity: 0;
+    transform: translateY(var(--space-3));
+  }
+}
 .announcements__banner {
   display: flex;
   align-items: center;
   gap: var(--gap-md);
-  margin: var(--space-3) var(--space-5);
   padding: var(--gap-md) var(--gap-lg);
   background: var(--bg-elevated);
   border: var(--hair);
   border-left: 3px solid var(--text-tertiary);
   border-radius: var(--radius-md);
-  box-shadow: var(--shadow-md);
+  box-shadow: var(--shadow-popover);
   font-family: var(--mono);
   font-size: var(--text-sm);
   color: var(--text-primary);
+  animation: notice-in var(--duration-slow) var(--ease-out);
 }
 /* The level picks the accent rule; the dot repeats it for skim-ability. */
 .announcements__banner--info {

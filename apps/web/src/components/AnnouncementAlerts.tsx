@@ -8,8 +8,7 @@ import { useTranslation } from "react-i18next";
  * decide WHERE it gets an extra appearance:
  *   - `useTemplateAlerts` → a badge on the matching template card
  *     (NewGraphDialog / Onboarding), for "this template is deprecated" notices;
- *   - `GlobalAnnouncementBar` → a notice card in the band under the header,
- *     for untargeted warnings;
+ *   - `GlobalAnnouncementBar` → a floating notice card, for untargeted warnings;
  *   - `GraphAnnouncementBar` → the same card scoped to the open pipeline, for
  *     "this graph's schema migrated" notices.
  * Each surface fetches independently: announcements are tiny and low
@@ -81,8 +80,9 @@ export function useTemplateAlerts(): Record<string, string> {
  * Notice card for the strongest unread warning that has no surface of its own.
  * Template- and graph-targeted announcements are excluded because they render
  * on the template card and the graph bar; `user:` targeting (usage alerts) is
- * still a global notice. It used to be a strip pinned to the top edge of the
- * viewport, which covered the header and had no room for the body.
+ * still a global notice. Two earlier shapes were wrong: a strip pinned to the
+ * viewport's top edge covered the header, and an in-flow card pushed the
+ * canvas down — this one floats over it instead.
  */
 export function GlobalAnnouncementBar() {
   const { t, i18n } = useTranslation();

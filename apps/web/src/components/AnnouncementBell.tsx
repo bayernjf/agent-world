@@ -20,7 +20,7 @@ export interface AnnouncementItem {
  * In-product announcements (design-announcement): a bell in the header with
  * an unread badge, a detail modal per item, and level-driven intensity —
  * `critical` forces a modal that must be acknowledged. Warning-level notices
- * get their own in-flow surface in AnnouncementAlerts, not here.
+ * get their own floating card in AnnouncementAlerts, not here.
  * Content is bilingual inline (titleZh/titleEn chosen by current locale);
  * the surrounding chrome goes through i18n like every other component.
  */
