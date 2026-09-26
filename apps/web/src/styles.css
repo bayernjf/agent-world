@@ -7758,35 +7758,81 @@ select {
   padding: var(--space-2);
   border-top: var(--hair);
 }
-.announcements__banner {
+/* The notice cards float in the bottom-right corner instead of pushing the
+ * canvas down. --notice-inset (App.tsx) is the inspector drawer's width, so
+ * the stack never lands on top of it; the wrapper passes pointer events
+ * through wherever there is no card. */
+.announcements__stack {
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
+  right: calc(var(--space-5) + var(--notice-inset));
+  bottom: var(--space-6);
   z-index: var(--z-toast);
   display: flex;
-  align-items: center;
-  gap: var(--gap-xs);
-  padding: var(--space-2) var(--space-4);
-  background: var(--warning-bg);
-  border-bottom: 1px solid var(--warning);
-  color: var(--text-primary);
-  font-size: var(--text-sm);
+  flex-direction: column;
+  gap: var(--gap-md);
+  width: min(480px, calc(100vw - 2 * var(--space-5)));
+  pointer-events: none;
 }
-/* P3 targeting: in-flow variant under the header while the targeted
- * pipeline is open — the fixed banner stays reserved for global warnings. */
-.announcements__banner--graph {
-  position: static;
-  z-index: auto;
+.announcements__stack > * {
+  pointer-events: auto;
+}
+@keyframes notice-in {
+  from {
+    opacity: 0;
+    transform: translateY(var(--space-3));
+  }
+}
+.announcements__banner {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-md);
+  padding: var(--gap-md) var(--gap-lg);
+  background: var(--bg-elevated);
+  border: var(--hair);
+  border-left: 3px solid var(--text-tertiary);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-popover);
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  animation: notice-in var(--duration-slow) var(--ease-out);
+}
+/* The level picks the accent rule; the dot repeats it for skim-ability. */
+.announcements__banner--info {
+  border-left-color: var(--info);
+}
+.announcements__banner--warning {
+  border-left-color: var(--warning);
+}
+.announcements__banner--critical {
+  border-left-color: var(--error);
 }
 .announcements__banner-label {
-  color: var(--warning);
-  margin-right: var(--gap-xs);
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  letter-spacing: 0.1em;
   white-space: nowrap;
 }
 .announcements__banner-text {
+  display: flex;
   flex: 1;
   min-width: 0;
+  flex-direction: column;
+  gap: var(--gap-xs);
+}
+.announcements__banner-title {
+  font-weight: var(--font-bold);
+}
+/* Long bodies stay a two-line preview; the bell holds the full text. */
+.announcements__banner-body {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--text-secondary);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.announcements__banner-dismiss {
+  flex: none;
 }
 .announcements__manage {
   padding: var(--space-2);
@@ -8633,3 +8679,70 @@ select {
   min-width: 0;
 }
 
+
+/* ── 内置模型目录（平台管理员，design-model-catalog ④）────────────── */
+.model-catalog {
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-primary);
+}
+.model-catalog__head h3 {
+  margin: 0 0 var(--space-2);
+}
+.model-catalog__head p {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-sm);
+}
+.model-catalog__warn {
+  color: var(--warning);
+  background: var(--warning-bg);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+}
+.model-catalog__warn ul {
+  margin: var(--space-2) 0 0;
+  padding-left: var(--space-4);
+}
+.model-catalog__enabled {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+.model-catalog__models {
+  list-style: none;
+  margin: var(--space-2) 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.model-catalog__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.model-catalog__row .input {
+  flex: 1 1 12rem;
+}
+.model-catalog__actions,
+.model-catalog__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.model-catalog__foot {
+  margin-top: var(--space-3);
+}
+.model-catalog__result {
+  margin-top: var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+.model-catalog__result p {
+  margin: 0 0 var(--space-2);
+}

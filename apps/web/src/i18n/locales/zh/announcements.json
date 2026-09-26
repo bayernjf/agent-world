@@ -41,6 +41,7 @@
   },
   "alerts": {
     "templateBadge": "有公告",
+    "globalLabel": "平台公告：",
     "graphLabel": "本产线公告："
   },
   "empty": "暂无公告",

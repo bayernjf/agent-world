@@ -56,6 +56,7 @@ import {
   loadConfig,
   saveConfig,
   bindSettingsStore,
+  builtinCodeDefaults,
   normalizeBaseUrl,
   modalityOf,
   endpointFor,
@@ -66,6 +67,17 @@ import {
   type AppConfig,
   type Modality,
 } from "./config.js";
+import {
+  PlatformCatalogSchema,
+  bindCatalogStore,
+  catalogPriceGaps,
+  describeCatalogChange,
+  mergeBuiltinCatalog,
+  platformCatalog,
+  refreshPlatformCatalog,
+  writePlatformCatalog,
+  type PlatformCatalog,
+} from "./builtin-catalog.js";
 import { GuardedFetchError, guardedFetch, hostIsInternal } from "./ssrf.js";
 import { routingWorker } from "./providers/index.js";
 import { WorkerRegistry } from "./worker-plugins.js";
@@ -107,8 +119,10 @@ if (db.kind === "sqlite") {
 }
 // Settings are per-user rows in the DB; config.ts reads/writes through this
 // store while the legacy file config remains the shared baseline for users
-// who have never saved settings.
-bindSettingsStore({
+// who have never saved settings. One adapter, bound twice: the operator model
+// catalog lives in a reserved row of the same table, so it inherits the
+// encryption at rest without a second crypto path.
+const settingsStoreAdapter = {
   // Settings rows store the whole AppConfig JSON, including provider API keys.
   // Encrypt at rest (audit L3); legacy plaintext rows decrypt as-is and are
   // re-encrypted on the next save.
@@ -117,7 +131,9 @@ bindSettingsStore({
     return raw ? decryptString(raw) : null;
   },
   set: async (userId: string, data: string) => await db.saveSettings(userId, encryptString(data)),
-});
+};
+bindSettingsStore(settingsStoreAdapter);
+bindCatalogStore(settingsStoreAdapter);
 const artifacts = ArtifactStore.fromEnv();
 
 // First-run onboarding is handled by the web UI (shows a template picker when
@@ -580,6 +596,7 @@ app.get("/api/auth/me", async (c) => {
         ? { demo: { expiresAt: user.demo_expires_at, quota: demoPublicQuota() } }
         : {}),
       canManageAnnouncements: await isAnnouncementAdmin(user.id),
+      canManageModelCatalog: await isModelCatalogAdmin(user.id),
     },
   });
 });
@@ -1129,6 +1146,7 @@ app.put("/api/graphs/:id", async (c) => {
 
 /** Which node kinds require a worker model and which modality they need. */
 import { validateModels, type ModelDiagnostic } from "./validate-models.js";
+import { nodeModelConfig } from "./model-slots.js";
 import { isPlanId, normalizeTokens, PLANS } from "./plans.js";
 import { getOrCreateSubscription, setPlan, currentPeriodEnd, currentUsage } from "./subscriptionService.js";
 import { isSubscriptionStatus, SUBSCRIPTION_STATUSES } from "./subscription.js";
@@ -1659,6 +1677,138 @@ app.post("/api/feedback/announce", async (c) => {
 async function isAnnouncementAdmin(userId: string): Promise<boolean> {
   const user = await db.findUserById(userId);
   return user?.role === "owner" || user?.role === "admin";
+}
+
+/**
+ * The platform-admin plane for the built-in model catalog. Same principal set as
+ * announcements today, kept as its own predicate on purpose: this one gates a
+ * billing-relevant surface (unit prices and which models exist at all), so a
+ * future tightening — e.g. price edits owner-only — belongs here, not inside
+ * the announcement gate.
+ */
+async function isModelCatalogAdmin(userId: string): Promise<boolean> {
+  return isAnnouncementAdmin(userId);
+}
+
+/** What an operator may edit, plus what the code actually ships and what the
+ *  merged result looks like — the admin screen needs all three to show "you
+ *  have overridden this" versus "this is the shipped default". */
+function modelCatalogView() {
+  const code = builtinCodeDefaults();
+  const overlay = platformCatalog();
+  const shape = (p: (typeof code)[string]) => ({
+    type: p.type,
+    models: p.models,
+    modalities: p.modalities ?? {},
+    pricing: p.pricing ?? {},
+    enabled: p.enabled !== false,
+    // The credential and endpoint plane is deliberately absent: this response is
+    // what an admin screen renders, and echoing `apiKey` would ship the hosted
+    // tier's gateway key to the browser. `hasKey` is enough to explain why a
+    // tier is unusable, and a write can never change either field anyway.
+    hasKey: Boolean(p.apiKey),
+  });
+  const providers: Record<string, unknown> = {};
+  const codeView: Record<string, unknown> = {};
+  for (const [name, def] of Object.entries(code)) {
+    providers[name] = shape(mergeBuiltinCatalog(def, overlay[name]));
+    codeView[name] = shape(def);
+  }
+  return { providers, overlay, code: codeView, gaps: catalogPriceGaps(overlay, code) };
+}
+
+app.get("/api/admin/model-catalog", async (c) => {
+  if (!(await isModelCatalogAdmin(c.get("userId")))) return c.json({ error: "forbidden" }, 403);
+  return c.json(modelCatalogView());
+});
+
+// Whole-catalog write, not per-field PATCH: the overlay's semantics are
+// "replace the maps", so a partial body would mean different things for
+// different fields and an accidental omission could retire a model. `null` for
+// a provider reverts that tier to the shipped code default.
+app.put("/api/admin/model-catalog", async (c) => {
+  const userId = c.get("userId");
+  if (!(await isModelCatalogAdmin(userId))) return c.json({ error: "forbidden" }, 403);
+  const d = await blockDemo(c, "admin");
+  if (d) return d;
+  const body = (await c.req.json().catch(() => null)) as unknown;
+  const parsed = PlatformCatalogSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json(
+      { error: `目录载荷不合法：${parsed.error.issues[0]?.message ?? "无法解析"}` },
+      400,
+    );
+  }
+  const before = platformCatalog();
+  const changes = describeCatalogChange(before, parsed.data, builtinCodeDefaults());
+  await writePlatformCatalog(parsed.data);
+  audit(db, userId, "model.catalog_update", {
+    objectType: "model_catalog",
+    // Names only: prices are readable back from the catalog row, so copying
+    // the numbers into audit_log would widen the exposure of a billing field
+    // without making any question answerable.
+    detail: { changes },
+    ip: clientIp(c),
+  });
+  // Catalog edits change what validateModels accepts, so an operator deciding
+  // "who breaks if I retire X" needs this answer from the same request.
+  const affected = await modelsInUse(parsed.data, before);
+  return c.json({
+    ...modelCatalogView(),
+    changes,
+    affected: affected.list,
+    affectedTruncated: affected.truncated,
+  });
+});
+
+/** Cap for the retirement impact scan; past it the answer is partial and the
+ *  caller is told so via `affectedTruncated`. */
+const GRAPH_SCAN_CAP = 2000;
+
+/**
+ * Pre-flight for retirement: which saved pipelines still name a model that the
+ * new overlay drops. This replaces the alias-table idea from the v1 design —
+ * instead of silently rewriting stored graphs, the operator is told what
+ * breaks and the user re-picks (rule A).
+ */
+async function modelsInUse(
+  next: PlatformCatalog,
+  before: PlatformCatalog,
+): Promise<{ list: unknown[]; truncated: boolean }> {
+  const code = builtinCodeDefaults();
+  const dropped: string[] = [];
+  for (const name of new Set([...Object.keys(code), ...Object.keys(next)])) {
+    const had = new Set(mergeBuiltinCatalog(code[name]!, before[name]).models);
+    const has = new Set(mergeBuiltinCatalog(code[name]!, next[name]).models);
+    for (const m of had) if (!has.has(m)) dropped.push(m);
+  }
+  if (dropped.length === 0) return { list: [], truncated: false };
+  const out: Array<{ graphId: string; graphName: string; models: string[]; nodes: string[] }> = [];
+  // Admin-only, runs on a catalog write. One query per pipeline (listAllGraphs
+  // carries no owner, so the owner comes from getGraphOwnerId) — bounded by
+  // GRAPH_SCAN_CAP so a large instance cannot be pinned by one click.
+  const graphs = (await db.listAllGraphs()).slice(0, GRAPH_SCAN_CAP);
+  for (const g of graphs) {
+    const ownerId = await db.getGraphOwnerId(g.id);
+    if (!ownerId) continue;
+    const doc = await db.getGraph(g.id, ownerId);
+    if (!doc) continue;
+    const hits = new Map<string, string[]>();
+    for (const n of doc.nodes) {
+      const conf = nodeModelConfig(n);
+      const m = conf?.model?.trim();
+      if (m && dropped.includes(m)) hits.set(n.name, [...(hits.get(n.name) ?? []), m]);
+    }
+    if (hits.size > 0) {
+      out.push({
+        graphId: g.id,
+        graphName: g.name,
+        models: [...new Set([...hits.values()].flat())],
+        nodes: [...hits.keys()],
+      });
+    }
+  }
+  return { list: out.slice(0, 50), truncated: graphs.length >= GRAPH_SCAN_CAP };
 }
 
 /**
@@ -4187,6 +4337,10 @@ if (process.env.NODE_ENV !== "test") {
     encryptionKeyringSize: getEncryptionRing().length,
     logFile: process.env.LOG_FILE ?? "<db-dir>/logs/server.log",
   });
+  // 运营者内置模型目录（design-model-catalog ④）：必须在校费缺口自检之前加载，
+  // 否则那份报告会描述代码默认目录而不是当前生效的那一份。
+  const catalogBoot = await refreshPlatformCatalog();
+  if (catalogBoot.error) log.warn("model catalog not loaded", { error: catalogBoot.error });
   const priceGaps = unpricedModels((await loadConfig()).providers);
   if (priceGaps.length > 0) {
     // Not fatal — a dev box routinely has half the price cards blank. But cost
