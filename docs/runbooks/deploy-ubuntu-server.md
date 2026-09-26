@@ -266,6 +266,15 @@ journalctl -u agent-world --since "24 hours ago" | grep "would block dispatch"
 
 `past_due` / `canceled` 的判定见上一条第 2 点（`bb50612` 起已生效）。§6.4 写的「宽限期 3-7 天」**未实现**——`subscriptions` 没有「状态何时变更」的列，`updated_at` 会被 checkout 镜像与 `setPlan` 等无关写入顶掉，拿它算宽限会得到一个会说谎的窗口；需先加 `status_changed_at`（迁移），已登记 [deferred-items](../deferred-items.md)。当前口径是「欠费即断、`invoice.paid` 一到自动恢复」，比设计更严一点。
 
+### 四之三、升级须知：有两道闸会改变既有部署的行为
+
+| 变化 | 症状 | 处置 |
+| --- | --- | --- |
+| 远程 MCP（`http` / `sse`）的四处出站请求自 PR #429 起走本仓自己的 SSRF 闸（`mcp.ts` → `guardedFetch`） | 指向 `127.0.0.1` / 局域网的 MCP 服务从「能连」变成被拒，报错里是 `internal-target` | 要么把那个 MCP 服务挪到公网可达地址（或加反代），要么显式 `ALLOW_PRIVATE_NETWORK=1`。**注意这道闸不只管 MCP**：http 节点、`/api/proxy`、连接器出站都受影响，放行等于全部对内网开门 |
+| `WORKER=fake` 在生产直接拒绝启动（`assertBootWorkerEnv`，启动自检段） | `systemctl restart` 后服务起不来，异常文本 `WORKER=fake is not allowed in production` | 从 `/opt/agent-world/.env` 里删掉这一行。它只该出现在 demo / 测试环境；留着的效果是**每条 run 编造文本还报 `done`**，成本报表与产物全是假的 |
+
+两条都是**响亮失败**而不是静默降级——这一轮安全与计量收口要的就是这个形状。升级后确认服务起来了：`curl -s http://192.168.31.14/api/health`（`ok:true` 且 `providers` 就绪），再看 `journalctl -u agent-world -b --no-pager | grep -i "fake\|failover"`：`WORKER=fake is set` 这条 warn 在非生产是允许的，出现在生产说明上面那条没做完。
+
 ## 五、构建并托管 web（nginx 同源）
 
 ```bash
