@@ -292,6 +292,8 @@ server {
     index index.html;
 
     # Prometheus metrics（必须在 /api/ 和 / 之前，否则被 SPA 兜底返回 text/html）
+    # server 端 .env 若设了 METRICS_TOKEN，这里就得带上口令，否则抓取拿到 401：
+    #   proxy_set_header Authorization "Bearer <METRICS_TOKEN>";
     location /metrics {
         proxy_pass http://127.0.0.1:8791;
         proxy_set_header Host $host;
