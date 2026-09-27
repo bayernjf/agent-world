@@ -8,6 +8,7 @@ const { mockShowToast } = vi.hoisted(() => ({ mockShowToast: vi.fn() }));
 vi.mock("../lib/api", () => ({
   api: {
     adminListUsers: vi.fn(),
+    adminCreateUser: vi.fn(),
     adminSetUserRole: vi.fn(),
     listAudit: vi.fn(),
     listFeedback: vi.fn(),
@@ -50,6 +51,7 @@ vi.mock("./ConfirmDialog", () => ({
 }));
 
 const mockAdminListUsers = api.adminListUsers as unknown as ReturnType<typeof vi.fn>;
+const mockAdminCreateUser = api.adminCreateUser as unknown as ReturnType<typeof vi.fn>;
 const mockAdminSetUserRole = api.adminSetUserRole as unknown as ReturnType<typeof vi.fn>;
 const mockListAudit = api.listAudit as unknown as ReturnType<typeof vi.fn>;
 const mockListFeedback = api.listFeedback as unknown as ReturnType<typeof vi.fn>;
@@ -139,6 +141,50 @@ describe("AdminPanel", () => {
       });
       expect(screen.getAllByText("撤回管理员")).toHaveLength(1);
       expect(screen.getAllByText("设为管理员")).toHaveLength(1);
+    });
+
+    it("注册关闭后 owner 可以从这里开账号，一次性口令只展示这一次", async () => {
+      mockAdminCreateUser.mockResolvedValue({
+        user: { id: "u-new", email: "new@test.dev", role: "user", createdAt: "2026-09-27T00:00:00Z" },
+        oneTimePassword: "Abc123xyz__def",
+      });
+      render(<AdminPanel open me={OWNER_ME} onClose={() => {}} />);
+      await waitFor(() => expect(screen.getByText("owner@test.dev")).toBeInTheDocument());
+      fireEvent.change(screen.getByPlaceholderText("对方的邮箱"), {
+        target: { value: " new@test.dev " },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "开通账号" }));
+      await waitFor(() => expect(mockAdminCreateUser).toHaveBeenCalledWith("new@test.dev"));
+      expect(screen.getByText("Abc123xyz__def")).toBeInTheDocument();
+      // The list is refetched so the operator sees the account really landed.
+      await waitFor(() => expect(mockAdminListUsers).toHaveBeenCalledTimes(2));
+    });
+
+    it("开账号被拒时说清原因，不留下半个口令块", async () => {
+      mockAdminCreateUser.mockRejectedValue(new Error("该邮箱已注册"));
+      render(<AdminPanel open me={OWNER_ME} onClose={() => {}} />);
+      await waitFor(() => expect(screen.getByText("owner@test.dev")).toBeInTheDocument());
+      fireEvent.change(screen.getByPlaceholderText("对方的邮箱"), {
+        target: { value: "owner@test.dev" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "开通账号" }));
+      await waitFor(() => expect(screen.getByText("该邮箱已注册")).toBeInTheDocument());
+      expect(screen.queryByText("Abc123xyz__def")).not.toBeInTheDocument();
+      expect(mockAdminListUsers).toHaveBeenCalledTimes(1);
+    });
+
+    it("邮箱为空时不给提交", async () => {
+      render(<AdminPanel open me={OWNER_ME} onClose={() => {}} />);
+      await waitFor(() => expect(screen.getByText("owner@test.dev")).toBeInTheDocument());
+      expect(screen.getByRole("button", { name: "开通账号" })).toBeDisabled();
+      expect(mockAdminCreateUser).not.toHaveBeenCalled();
+    });
+
+    it("开通账号只出现在 owner 眼里", async () => {
+      render(<AdminPanel open me={ADMIN_ME} onClose={() => {}} />);
+      await waitFor(() => expect(screen.getByText("审计日志")).toBeInTheDocument());
+      expect(screen.queryByPlaceholderText("对方的邮箱")).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "开通账号" })).not.toBeInTheDocument();
     });
 
     it("授予确认非 danger，撤回确认为 danger", async () => {
