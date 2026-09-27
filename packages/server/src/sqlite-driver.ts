@@ -3409,8 +3409,12 @@ export function createDriver(
      *  legacy backfill) without instanceof tricks. */
     kind: dialect,
 
-    /** Passthrough to the underlying DatabaseSync.prepare — for modules that
-     *  manage their own tables (e.g. knowledge base FTS). */
+    /** Passthrough to the underlying DatabaseSync.prepare — for the few modules
+     *  that legitimately own their tables: the knowledge-base FTS5 index
+     *  (memory.ts), the key-rotation CLI, the user `database` node driver
+     *  (db-drivers.ts), user SQL connectors, and the one-shot PG migration
+     *  script. Any other module must go through a db.ts method — the allow-list
+     *  is pinned by db-driver-switch.test.ts. */
     async prepare(sql: string) {
       return hooks.prepare(sql);
     },
