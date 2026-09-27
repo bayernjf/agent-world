@@ -34,6 +34,7 @@ import { counter, gauge, histogram, renderMetrics } from "./metrics.js";
 import {
   addErrorSink,
   createWebhookErrorSink,
+  errorSinkStatus,
   installProcessGuards,
   recentErrors,
   recordError,
@@ -4468,9 +4469,15 @@ if (process.env.NODE_ENV !== "test") {
   // (systemd) to restart a clean process; rejections are recorded but
   // non-fatal. Optionally fan errors out to a webhook relay (Sentry/Grafana/
   // self-hosted intake) without adding a tracker SDK to the self-hosted build.
-  if (process.env.ERROR_REPORT_WEBHOOK_URL) {
-    addErrorSink(createWebhookErrorSink({ url: process.env.ERROR_REPORT_WEBHOOK_URL }));
+  const sinkStatus = errorSinkStatus(process.env);
+  if (sinkStatus.configured) {
+    addErrorSink(createWebhookErrorSink({ url: process.env.ERROR_REPORT_WEBHOOK_URL! }));
     log.info("error webhook sink enabled", { url: process.env.ERROR_REPORT_WEBHOOK_URL });
+  } else if (sinkStatus.warn) {
+    // 告警的生产端早就有（环形缓冲 + /api/admin/errors + 这个 sink 接口），缺的一直
+    // 是消费端。不设 sink 时崩溃记录随进程一起消失——第一次真事故才发现没人知道
+    // 自己挂过。启动时说出来，而不是等出事。
+    log.warn(sinkStatus.warn);
   }
   installProcessGuards({ onFatal: () => shutdown("uncaughtException") });
 }

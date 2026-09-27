@@ -54,6 +54,25 @@ export interface ErrorSink {
   capture(rec: ErrorRecord): void | Promise<void>;
 }
 
+/**
+ * Boot-time verdict on whether captured errors ever leave the process. The
+ * producer side has existed since #57 (ring buffer + `/api/admin/errors` + the
+ * sink interface above); what a given deployment may lack is a *consumer*, and
+ * the absence is invisible until the incident that needed it — a crash that
+ * takes the box down also takes the only record of why. So the check is a pure
+ * function of the environment, and it is tested rather than inlined into boot.
+ */
+export function errorSinkStatus(env: NodeJS.ProcessEnv): { configured: boolean; warn: string | null } {
+  if ((env.ERROR_REPORT_WEBHOOK_URL ?? "").trim()) return { configured: true, warn: null };
+  const production = env.NODE_ENV === "production" || env.AGENT_WORLD_ENV === "production";
+  return {
+    configured: false,
+    warn: production
+      ? "no error sink configured in production: uncaught errors stay in the in-process ring buffer and die with the process. Set ERROR_REPORT_WEBHOOK_URL to fan them out (Sentry/Grafana/self-hosted intake)."
+      : null,
+  };
+}
+
 export interface ProcessGuardsOptions {
   /**
    * Invoked after an `uncaughtException` is recorded. The process is in an
