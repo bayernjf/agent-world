@@ -16,6 +16,7 @@
     "backfill:usage": "tsx scripts/backfill-usage.ts",
     "generate:invoices": "tsx scripts/generate-invoices.ts",
     "prune:demo": "tsx scripts/prune-demo-users.ts",
+    "reset:password": "tsx scripts/reset-password.ts",
     "selftest:errorsink": "tsx scripts/error-sink-selftest.ts"
   },
   "dependencies": {

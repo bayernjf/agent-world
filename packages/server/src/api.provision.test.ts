@@ -172,3 +172,19 @@ describe("must_change_password enforcement", () => {
     expect(again.body.user.mustChangePassword).toBe(false);
   });
 });
+
+describe("owner-side CLI reset (db.adminResetUserPassword)", () => {
+  // scripts/reset-password.ts hands over a new one-time password out-of-band,
+  // so — unlike the self-service path — it must RE-ARM the flag. The two write
+  // paths differ on purpose; assert both directions so neither drifts.
+  it("re-arms must_change_password, and a self-service change clears it again", async () => {
+    const owner = await db.findUserByEmail("owner@aw.test");
+    expect(owner?.must_change_password).toBe(0);
+
+    await db.adminResetUserPassword(owner!.id, "dummy-hash");
+    expect((await db.findUserByEmail("owner@aw.test"))?.must_change_password).toBe(1);
+
+    await db.updateUserPasswordHash(owner!.id, "dummy-hash-2");
+    expect((await db.findUserByEmail("owner@aw.test"))?.must_change_password).toBe(0);
+  });
+});
