@@ -80,7 +80,7 @@ import {
   type PlatformCatalog,
 } from "./builtin-catalog.js";
 import { GuardedFetchError, guardedFetch, hostIsInternal } from "./ssrf.js";
-import { routingWorker } from "./providers/index.js";
+import { routingWorker, assertBootWorkerEnv } from "./providers/index.js";
 import { WorkerRegistry } from "./worker-plugins.js";
 import { connectMcpServer, registerMcpTools, type McpClient, type McpServerSpec } from "./mcp.js";
 import { closeAllUserMcpServers, connectUserMcpServer, ensureUserMcpServers, userMcpStatus } from "./mcp-pool.js";
@@ -156,6 +156,10 @@ if (db.kind === "postgres") {
 }
 await memory.init();
 setMemoryBackend(memory);
+
+// 启动自检：`WORKER=fake` 是 demo/测试的合法开关，但在生产里它让每一条 run 都
+// 编造文本并报 done——比派发时静默假成功更彻底。生产直接拒绝启动。
+assertBootWorkerEnv();
 
 const worker = routingWorker();
 const workerRegistry = new WorkerRegistry(worker);

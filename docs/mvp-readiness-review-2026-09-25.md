@@ -295,3 +295,51 @@ core **346/346**（24 文件）· server **1397 = 1393 通过 + 2 本机 python-
 ### 10.6 结论
 
 **自托管单机型 MVP ✅ 达成**：核心闭环完整、测试充分、430+ 真实 run 佐证，可签「核心完全可用」。信任 LAN / 单运营可立即上线；公网暴露前请先收口 §10.3 的 P1/P2（尤其 `/metrics` 鉴权 + TLS + 历史口令轮换）。**对外 SaaS MVP ❌**：多租户 / 收款 / Postgres HA 属架构前置，已正确推迟。
+
+---
+
+## 11. 第二次独立复评（2026-09-27，基线 `19a95f2`）
+
+> **性质**：对 §10 的复核，不采信其结论。§10 自称「三个并行 Explore 子代理分维度取证」，而本仓对扫描来源有前科（§8：一次扫掠 5/5 头条结论被证伪），故本篇每一条都由我一手回代码或实跑取回。
+> **基线**：`feature/20260824 @ 19a95f2`；`git ls-remote` 实测 `origin/feature/20260824` = 同一 SHA（**已 push**），`origin/main` = `4bc2dff`、`origin/dev` = `b3b9245`。
+> **CI 事实**：`gh run list` 显示 `19a95f2` 的 push 运行 **conclusion=success**（build + `-r test` + typecheck + i18n 守护 + E2E + secret 扫描）。所以下表里本机的红都是**平台差异**，不是回归。
+
+### 11.1 判定（我的口径，与 §10 对照）
+
+| 口径 | 判定 | 与 §10 的差别 |
+| --- | --- | --- |
+| **自托管单机（信任 LAN / 单运营）** | ✅ **达到「产品核心完全可用的 MVP」** | 结论相同，依据换成我复验过的：主链六环逐环可指认 + **36 个模板里 35 个零配置可派发**（`grep -c '^  id: "tpl-' = 36`；`kind: "audioGen"` 全仓 1 处 = podcast，D-1 已定案）+ 失败路径不静默（规则 A `matched` 位、sink 二分、A/B 也进用量台账） |
+| **自托管暴露公网** | 🟡 条件达成 | 条件**比 §10.3 多三条**（见 11.3） |
+| **对外商业 SaaS** | ❌ 不达标 | 与 §10.5 一致，均为已登记的架构前置 |
+
+### 11.2 对 §10 的四处修正（都是文档写错，不是代码写错）
+
+1. **§10.2 把 sink 的语义写反了**。代码实际是：直接上游**全部**为不产正文的节点（branch/gate/媒体）→ 照常 `done` 且**不归档不发包**（`nodes/sink.ts:39-58`）；只要有任一内容型上游却拿到空 → `failed` + `VALIDATION`（`:59-67`）。§10.2 写成「结构空 → `failed` 且不归档 / 真断链仍 failed」，两半都错。这条正是 §3① 的收尾口径，读它的人会以为路由型产线在报错。
+2. **§10.1 的「430+ 真实 run 佐证」要降级为历史佐证**：`handoff.md` #41 行明写 **09-25 起因内置 agnes free 配额耗尽已 0 run，2026-09-27 决策暂不处理**。所以那些 run 证明过链路能跑，但**不能证明「当下仍在跑」**，且本会话无法复测（内网 + 沙箱网络限制）。
+3. **§10.3 漏了三条硬化项**（前两条 §9.4 登记过、这轮没人认领）：① `WORKER=fake` 仍是无护栏 env 开关（`providers/index.ts:94`），生产误设 = 整站假文本而 run 照样 `done`；② `build` 仍是纯 `tsc`（`packages/server/package.json:9`）→ dist 里 `.mjs` 计数为 **0**，于是声明 `isolation:"subprocess"` 的插件在部署态一律被拒——方向是**安全**的（`worker-plugins.ts:88-95` fail-closed + `log.error` + `available:false`，不是静默降级），但**CI 与 E2E 都不覆盖 dist 启动**（`playwright.config.ts:53` 的 webServer 是 `pnpm exec tsx src/index.ts`），所以这条门禁永远抓不到；③ ④ 的 `canManageModelCatalog` 是**死字段**：`index.ts:621` 算好下发，`apps/web` 全仓 **0 引用**（对照 `canManageAnnouncements` 被 `AnnouncementBell.tsx:41` 真用）。面板靠 403 自隐，功能不缺，但白打一次注定失败的请求，还把服务端已知结论在客户端重推一遍。**→ 本条已于同日收口**：`SessionUser` 补上这两个 flag，`ModelCatalogAdmin` 先读 `/me` 的答案、非管理员根本不发这次请求（`/me` 未回来时仍按旧路径走，403 → null 的自隐兜底保留，所以 flag 只可能藏界面、不可能开界面；新增 1 测并把护栏改成常量 false 验过它会红）。
+4. **§10.3 的一处证据等级要标出来**：「Hasee 生产 = `dev @ 3e010d92`」是**转述**（另一会话的 SSH 对账），我未复测；而 §9.2 那条「针对某 commit 的 deploy 尝试结论是 `skipped`」在 §10 里没有对应处置，#60 仍应开着。
+
+### 11.3 残余不一致（低优；我核过**不可达**，别当缺陷反复修）
+
+音频路径留着两处硬编码兜底：`openai-compatible.ts:840`（`config.model || "tts-1"`）与 `nodes/audiogen.ts:21`（`?? { model: "tts-1" }`）——这是 #77 清零兜底后**唯一还在给模型名兜底的路径**。但它们在派发链上取不到控制权：`validateModels` 对「缺 config」和「模型名为空」都先给 `severity:"error"`（`validate-models.ts:34-49`），空串永远走不到 provider。所以这是**一致性欠账**（建议照 `requireModel()` 顺手收口，`openai-compatible.ts:52` 已有该助手），不是规则 A/B 的漏洞。`index.ts:2100` 的 `|| "agnes-2.0-flash"` 属「试连」路由对用户自填 baseUrl+key 的默认模型名，不在内置层。
+
+### 11.4 门禁读数（2026-09-27 本机，逐包**单跑**）
+
+| 包 | 读数 | 说明 |
+| --- | --- | --- |
+| core | 346/346（24 文件） | 绿 |
+| server | 1433 = 1429 过 / 2 跳过 / **2 红** | 那 2 红是 `engine.code.test.ts` 的 python 出网用例（本机 Xcode 许可 shim，Known issues）；CI 同 SHA 绿 |
+| mcp-server | 71 = 70 过 / **1 红** → 降载复跑 **71/71 绿** | 那条红是 `stdio.test.ts` 的 5s 超时（load average 194→233 时跑的），**降载后复跑全绿**：负载抖动，不是回归。CI 同 SHA 也绿 |
+| web | **第一次跑测条件不成立**：那次收集到 98 个文件 / 1755 条测（磁盘实有 **106** 文件），8 个文件没进收集，`20 failed` 分不清真失败还是超时 | **降载后复跑：106 文件 / 1978 条全绿**。同 SHA 的 CI `Typecheck, build & test` 亦 success。历史读数 09-26 为 1973/1973 |
+
+**为什么本轮不报本机 web 数（这是判据，不是借口）**：那次跑收集到 **98** 个测试文件 / 1755 条测，而磁盘上实有 **106** 个测试文件——**8 个文件根本没进收集**，于是「20 条红」里无法区分真失败与 jsdom 超时。同期 `uptime` load average 在 **194→233** 之间（同机另有会话在跑构建）。**CI 在同一 SHA 上 `Typecheck, build & test` = success**（该 job 含 web 套件），所以本篇对 web 的判断挂在 CI 与 09-26 低负载本机读数上，不假装本机复现过。
+
+**（同日降载后复跑，本段作废为历史记录）** load average 降到 16 时重跑 web：**106 文件 / 1978 条全绿**。所以留下的不是「那 20 条是假红」，而是一条可操作的规矩——**本机报红之前，先看 load，再比「收集到的文件数」是否等于「磁盘上的文件数」**；任一项对不上，这次跑就不构成证据。不依赖本机状态的那一条始终在：同 SHA 的 CI `Typecheck, build & test` = success。
+
+**一条方法学结论，顺带回答 §8 遗留问题 3**：`pnpm -r --if-present test -- --maxWorkers=1` 里的参数确实到达 vitest（否则它会被当文件名过滤、一个测试都不跑），但 **`pnpm -r` 本身是包间并发的**——CI 串行的是包内 worker，不是四个包。本机在高负载下把四包串跑（或不串跑）都会把负载抖动读成回归：**报红之前先看 load，再看收集到的文件数是否等于磁盘上的文件数**。
+
+### 11.5 本轮没有推翻 MVP 判定的新缺陷；推翻的是四处文档表述
+
+主链、派发校验、目录数据面、成本台账四条我都能逐行指认；三处硬化项（`WORKER=fake` / dist 缺 `.mjs` / 死字段）都是**小改动 + 已有同仓先例**，不构成阻断。公网暴露口径下，P1 仍必须先收 `/metrics` 鉴权与 TLS。
+
+> **同日追记（本会话内闭合）**：上面那三条都做了——`3df542a`（`assertBootWorkerEnv`：生产 + `WORKER=fake` 启动即抛，其它环境 warn；守护 3 例，植入空操作护栏验过会红）、`02f0e67`（build 追加 `cp src/*.mjs dist/` + `src/dist-assets.test.ts` 四条守护，含**真起一次 dist 进程打 `/api/health`**；藏掉一个 dist 文件验过会红）、`69e26b8`（`SessionUser` 补 capability flag，面板改读 `/me` 的答案、非管理员不再发那次注定 403 的请求）；两条升级须知落在 `d3c58cd`（runbook「四之三」+ `.env.example`）。**§11.2 第 3 条因此从「§10.3 漏列」变成「已闭合」**，留在原地是为了记下它是被一次复评才发现的。仍未闭合的是 §11.2 第 4 条（线上跑哪个 commit 需人 SSH 确认）与 P1 的 `/metrics` / TLS。

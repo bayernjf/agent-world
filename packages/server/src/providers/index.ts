@@ -33,6 +33,29 @@ export function providerCacheKey(name: string, provider: AppConfig["providers"][
 }
 
 /**
+ * `WORKER=fake` is a legitimate switch for demos and tests — it is the one
+ * documented way to get a model name through the engine without leaving the
+ * process. In production it is the opposite: every run fabricates text and
+ * reports `done`, which is precisely the silent-success shape this codebase has
+ * been eliminating (retired models, disabled providers, empty slots all became
+ * named failures first; this env switch was the last path that could still turn
+ * a whole deployment into theatre). So: refuse to boot, and say what to unset.
+ * In any other environment it stays allowed, but it now announces itself —
+ * until now nothing in the logs told an operator the box was faking.
+ */
+export function assertBootWorkerEnv(env: NodeJS.ProcessEnv = process.env): void {
+  const fake = (env.WORKER ?? "").trim().toLowerCase() === "fake";
+  if (!fake) return;
+  const production = env.NODE_ENV === "production" || env.AGENT_WORLD_ENV === "production";
+  if (production) {
+    throw new Error(
+      "WORKER=fake is not allowed in production: every model call would return fabricated text while runs still report done. Unset WORKER to use the configured providers.",
+    );
+  }
+  log.warn("WORKER=fake is set: model calls return fabricated text and no provider is contacted");
+}
+
+/**
  * A worker that routes each node to the provider owning its model, and fails
  * over to backup providers when the primary upstream is dead. This is the
  * worker the engine talks to in production; provider workers are cached.

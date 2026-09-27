@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ModelCatalogAdmin } from "./ModelCatalogAdmin";
+import { useSession } from "../store/session";
 
 const getModelCatalog = vi.fn();
 const putModelCatalog = vi.fn();
@@ -45,6 +46,12 @@ const VIEW = {
 beforeEach(() => {
   getModelCatalog.mockReset();
   putModelCatalog.mockReset();
+  // The panel now reads the server's answer on /me before asking for the
+  // catalog, so the default session is a catalog admin.
+  useSession.setState({
+    user: { id: "u1", email: "admin@test.dev", role: "owner", canManageModelCatalog: true },
+    loaded: true,
+  });
 });
 
 describe("ModelCatalogAdmin", () => {
@@ -54,6 +61,13 @@ describe("ModelCatalogAdmin", () => {
     const { container } = render(<ModelCatalogAdmin />);
     await waitFor(() => expect(getModelCatalog).toHaveBeenCalled());
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it("does not even ask for the catalog when /me says this account is not a catalog admin", async () => {
+    useSession.setState({ user: { id: "u2", email: "plain@test.dev", canManageModelCatalog: false }, loaded: true });
+    const { container } = render(<ModelCatalogAdmin />);
+    await waitFor(() => expect(container).toBeEmptyDOMElement());
+    expect(getModelCatalog).not.toHaveBeenCalled();
   });
 
   it("shows the shipped catalog and keeps save disabled until something changes", async () => {
