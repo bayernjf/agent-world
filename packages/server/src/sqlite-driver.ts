@@ -879,6 +879,10 @@ export function createDriver(
     // clear lives here rather than in the route: there is exactly one write path
     // for password_hash (index.ts's /api/auth/password), so it cannot be missed.
     updateUserPasswordHash: `UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?`,
+    // Owner-side reset (scripts/reset-password.ts). Unlike the self-service path
+    // above, the new hash is a one-time password handed over out-of-band, so it
+    // re-arms must_change_password = 1 — same contract as provisioning.
+    adminResetUserPassword: `UPDATE users SET password_hash = ?, must_change_password = 1 WHERE id = ?`,
     insertGraph: `INSERT INTO graphs (id, user_id, name, doc, origin_template_id, updated_at) VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET name = excluded.name, doc = excluded.doc, version = graphs.version + 1, updated_at = excluded.updated_at
        WHERE graphs.user_id = excluded.user_id`,
@@ -1220,6 +1224,13 @@ export function createDriver(
     },
     async updateUserPasswordHash(id: string, passwordHash: string) {
       await exec.run(stmts.updateUserPasswordHash, [passwordHash, id]);
+    },
+    /**
+     * Owner-side reset: set a one-time password AND force a change at next login
+     * (scripts/reset-password.ts). Deliberately does not clear must_change_password.
+     */
+    async adminResetUserPassword(id: string, passwordHash: string) {
+      await exec.run(stmts.adminResetUserPassword, [passwordHash, id]);
     },
     /** RBAC P3: full account list for the owner's admin panel. */
     async listUsers(): Promise<Array<UserRow>> {
