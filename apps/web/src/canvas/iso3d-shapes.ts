@@ -65,7 +65,9 @@ function applyHighlight(mesh: THREE.Mesh, color: number, intensity: number): voi
   const build = (mat: THREE.Material): THREE.Material => {
     if (!("emissive" in mat)) return mat;
     const clone = (mat as THREE.MeshStandardMaterial).clone();
-    clone.userData = { ...clone.userData, awHighlight: true };
+    // Assigned wholesale, not spread: `clone()` may carry the source's userData,
+    // and inheriting `awShared` here would make the teardown skip this clone.
+    clone.userData = { awHighlight: true };
     clone.emissive.setHex(color);
     clone.emissiveIntensity = intensity;
     return clone;

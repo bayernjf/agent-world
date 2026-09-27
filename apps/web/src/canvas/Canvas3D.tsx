@@ -27,6 +27,7 @@ import {
   type NodeShape,
 } from "./iso3d-shapes";
 import { edgeAnchors, orthoCrossings, orthogonalRoute, ROUTE_PAD, type Point } from "./geometry";
+import { isSharedMaterial } from "./industrial-kit";
 import { makeNodeLabel } from "./nodeLabel";
 import type { GraphNode } from "@agent-world/core";
 
@@ -111,7 +112,10 @@ function disposeGroupChildren(group: THREE.Group) {
         | undefined;
       if (!m) return;
       const mats = Array.isArray(m) ? m : [m];
-      for (const mat of mats) if (mat instanceof THREE.Material) mat.dispose();
+      // Shared module-level materials (MAT) outlive a rebuild — they are still in
+      // use by the nodes that stay on screen. Per-node materials, LEDs and the
+      // selection highlight clones are all disposable here.
+      for (const mat of mats) if (mat instanceof THREE.Material && !isSharedMaterial(mat)) mat.dispose();
     });
     group.remove(child);
   }
@@ -781,7 +785,7 @@ export default function Canvas3D() {
         if (!m) return;
         const mats = Array.isArray(m) ? m : [m];
         for (const mat of mats) {
-          if (mat instanceof THREE.Material) mat.dispose();
+          if (mat instanceof THREE.Material && !isSharedMaterial(mat)) mat.dispose();
         }
       });
       // Dispose shared resources created outside the scene graph.

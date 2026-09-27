@@ -194,6 +194,7 @@ worldY = 0                        // 地面
 
 - **演进**：2026-09-17 先以 textGen 单节点原型验证可行性；2026-09-22 改为可复用 PBR 部件库组合，铺开全部 29 kind
 - **部件库**：`industrial-kit.ts` 提供钢架/控制柜/压力容器/料仓/管段/阀门/汇流排/电机/传送带/漏斗/镜头/天线/号筒/门架/文件架等部件；材质/纹理为模块级单例共享，graph-sync teardown 只销毁每节点 geometry。`industrial-recipes.ts` 按 kind 组合出独特剪影；textGen 保留 `industrial-shapes.ts` 原造型
+  - **2026-09-27 修正**：那句「teardown 只销毁 geometry」当时只是意图，代码并非如此——`Canvas3D.tsx` 的两处遍历会对 mesh 的**每个材质**调 `dispose()`，其中就包括共享的 `MAT` 池（节点重建时仍被留在画面上的兄弟节点引用着）。three 在材质被 dispose 后再次使用会重建 program，所以症状是白做功而不是坏画面，也因此一直没人发现。现在 `MAT` 各项带 `userData.awShared`、`isSharedMaterial()` 作判定，teardown 与卸载清理都跳过共享材质；该 dispose 的照旧 dispose（textGen 自建材质、每节点 LED、选中高亮的私有克隆）。克隆的 `userData` 是**整个赋新对象**而不是展开继承——否则克隆会把 `awShared` 带过来，让 teardown 误以为它是共享材质而漏掉一次释放
 - **分区色**：主体为钢/混凝土写实，每节点带一处按 `categoryColor(kind)` 着色的小饰件（`accent`），五类厂区仍一眼可分
 - **贴图**：`industrial-textures.ts` 用 canvas 程序化绘制（混凝土/波纹钢板/危险条纹/拉丝钢/暗色金属），不引入外部素材；分区色定义收口到 `category-colors.ts`
 - **契约不变（关键）**：足迹 ~150×92、地面旋转 `π/8`、LED 仍由既有循环驱动 → 管道锚点、路径路由与布局零改动

@@ -20,7 +20,14 @@ import {
   silo,
   valve,
   vessel,
+  isSharedMaterial,
 } from "./industrial-kit";
+import {
+  clearGroupEmissive,
+  SELECT_COLOR,
+  SELECT_EMISSIVE_INTENSITY,
+  setGroupEmissive,
+} from "./iso3d-shapes";
 
 const HALF_W = 84; // (PLANT_W+18)/2
 const HALF_H = 55; // (PLANT_H+18)/2
@@ -88,5 +95,33 @@ describe("newNode", () => {
     expect(k.group.children.length).toBeGreaterThanOrEqual(3);
     // LED is never traversed as a highlightable body.
     expect(bodies(k.group).includes(led)).toBe(false);
+  });
+});
+
+describe("isSharedMaterial — what the teardown must never dispose", () => {
+  it("marks every pool entry, and nothing that is not one", () => {
+    for (const [name, mat] of Object.entries(MAT)) expect(isSharedMaterial(mat), name).toBe(true);
+    expect(isSharedMaterial(new THREE.MeshStandardMaterial())).toBe(false);
+    expect(isSharedMaterial(undefined)).toBe(false);
+  });
+
+  it("treats a selection-highlight clone as disposable, even cloned from the pool", () => {
+    const group = new THREE.Group();
+    cabinet(kit(group));
+    const body = bodies(group)[0]!;
+    const original = body.material as THREE.MeshStandardMaterial;
+    expect(isSharedMaterial(original)).toBe(true);
+
+    setGroupEmissive(group, SELECT_COLOR, SELECT_EMISSIVE_INTENSITY);
+
+    // The clone must be disposable (it belongs to this node now) while the pool
+    // entry it was cloned from stays marked as shared. A clone that inherited
+    // `awShared` through userData would quietly leak one material per selection.
+    expect(isSharedMaterial(body.material)).toBe(false);
+    expect(isSharedMaterial(original)).toBe(true);
+    expect(body.material).not.toBe(original);
+
+    clearGroupEmissive(group);
+    expect(body.material).toBe(original);
   });
 });
