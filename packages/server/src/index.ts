@@ -543,6 +543,10 @@ function rateLimitIp(c: any): string {
   return clientIp(c) ?? "unknown";
 }
 
+/** Shared by self-signup and owner provisioning — an address that passes one
+ *  had better pass the other, or an invited account can't log in. */
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 app.post("/api/auth/register", async (c) => {
   if (!registerLimiter.allow(`register:${rateLimitIp(c)}`)) {
     return c.json({ error: "注册过于频繁，请稍后再试" }, 429);
@@ -560,7 +564,7 @@ app.post("/api/auth/register", async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as { email?: string; password?: string };
   const email = (body.email ?? "").trim().toLowerCase();
   const password = body.password ?? "";
-  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+  if (!email || !EMAIL_RE.test(email)) {
     return c.json({ error: "请输入有效的邮箱地址" }, 400);
   }
   if (password.length < 6) {
@@ -612,7 +616,9 @@ app.post("/api/auth/login", async (c) => {
   audit(db, user.id, "account.login", { ip: clientIp(c) });
   const token = await signToken(user.id, user.email, remember);
   setAuthCookie(c, token, remember);
-  return c.json({ user: { id: user.id, email: user.email } });
+  return c.json({
+    user: { id: user.id, email: user.email, mustChangePassword: user.must_change_password === 1 },
+  });
 });
 
 app.post("/api/auth/logout", async (c) => {
@@ -643,6 +649,7 @@ app.get("/api/auth/me", async (c) => {
       createdAt: user.created_at,
       role: user.role,
       isDemo,
+      mustChangePassword: user.must_change_password === 1,
       ...(isDemo
         ? { demo: { expiresAt: user.demo_expires_at, quota: demoPublicQuota() } }
         : {}),
@@ -755,7 +762,7 @@ app.post("/api/auth/claim", async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as { email?: string; password?: string };
   const email = (body.email ?? "").trim().toLowerCase();
   const password = body.password ?? "";
-  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+  if (!email || !EMAIL_RE.test(email)) {
     return c.json({ error: "请输入有效的邮箱地址" }, 400);
   }
   if (password.length < 6) {
@@ -811,6 +818,19 @@ app.use("/api/*", async (c, next) => {
   if (!payload) return c.json({ error: "invalid or expired token" }, 401);
 
   c.set("userId", payload.userId);
+  // Accounts an owner opened hold a one-time password until it is replaced;
+  // refuse everything except /api/auth/* (exempt above, including the
+  // change-password route) and the secret-based webhooks. Keyed on a DB read,
+  // not on the JWT, so clearing the flag takes effect on the next request
+  // without re-signing anything — same reasoning as the guards above this line
+  // that re-read the role rather than trusting the token.
+  const account = await db.findUserById(payload.userId);
+  if (account?.must_change_password === 1) {
+    return c.json(
+      { error: "请先修改一次性密码", code: "PASSWORD_CHANGE_REQUIRED" },
+      403,
+    );
+  }
   await next();
 });
 
@@ -1343,6 +1363,45 @@ app.get("/api/admin/users", async (c) => {
     createdAt: u.created_at,
   }));
   return c.json({ users });
+});
+
+/**
+ * Open an account for someone else (owner-only). Self-registration closes once
+ * the first account exists (M3), so without this the only way to let a second
+ * person in is ALLOW_REGISTRATION=1 — which opens signup to everyone who can
+ * reach the port, not just the people this instance is for.
+ *
+ * The password is generated here, returned exactly once, and never written to
+ * the audit row or the log; the account comes back flagged
+ * must_change_password=1, which the auth middleware enforces on every non-auth
+ * route, so a leaked one-time password stops working the moment the invitee
+ * follows the prompt.
+ */
+app.post("/api/admin/users", async (c) => {
+  const callerId = c.get("userId");
+  if (!(await isOwner(callerId))) return c.json({ error: "forbidden" }, 403);
+  const d = await blockDemo(c, "admin");
+  if (d) return d;
+  const body = (await c.req.json().catch(() => ({}))) as { email?: string };
+  const email = (body.email ?? "").trim().toLowerCase();
+  if (!email || !EMAIL_RE.test(email)) {
+    return c.json({ error: "请输入有效的邮箱地址" }, 400);
+  }
+  if (await db.findUserByEmail(email)) {
+    return c.json({ error: "该邮箱已注册" }, 409);
+  }
+  const id = randomUUID();
+  // 12 random bytes, base64url — 16 chars, comfortably over the 6-char floor and
+  // not something anyone can type from memory, which is the point.
+  const oneTimePassword = randomBytes(12).toString("base64url");
+  await db.createProvisionedUser(id, email, await hashPassword(oneTimePassword));
+  audit(db, callerId, "account.provision", {
+    objectType: "user",
+    objectId: id,
+    detail: { email },
+    ip: clientIp(c),
+  });
+  return c.json({ user: { id, email, role: "user" }, oneTimePassword }, 201);
 });
 
 app.post("/api/admin/users/:id/role", async (c) => {
