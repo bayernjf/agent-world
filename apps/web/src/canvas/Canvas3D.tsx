@@ -22,6 +22,7 @@ import {
   SELECT_COLOR,
   SELECT_EMISSIVE_INTENSITY,
   setGroupEmissive,
+  clearGroupEmissive,
   statusLedColor,
   type NodeShape,
 } from "./iso3d-shapes";
@@ -671,7 +672,7 @@ export default function Canvas3D() {
       if (sel !== st.prevSel) {
         if (st.prevSel) {
           const prev = st.nodeShapes.get(st.prevSel);
-          if (prev) setGroupEmissive(prev.group, 0x000000);
+          if (prev) clearGroupEmissive(prev.group);
         }
         if (sel) {
           const next = st.nodeShapes.get(sel);

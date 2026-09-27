@@ -186,6 +186,7 @@ worldY = 0                        // 地面
 2. 环境反射：`PMREMGenerator` + `RoomEnvironment` 预计算环境贴图挂 `scene.environment`——PBR 金属/玻璃有反射才立得住，用完即 `dispose`
 3. Bloom 泛光：`EffectComposer` + `UnrealBloomPass`（strength 0.18 / radius 0.4 / **threshold 0.92**）。阈值刻意开高，只让真正的发光体（LED 峰值、选中光环、厂房窗口）泛光，避免整屏发糊
 4. 选中光环：场景级 `RingGeometry` 一次性创建（不随 graph 编辑重建），呼吸脉冲；选中节点时移到该节点地面位置
+4b. **选中高光是「换材质」不是「改材质」（2026-09-27 修正）**：`MAT` 是模块级共享池，`setGroupEmissive` 早期直接写 `mat.emissive`，于是选中一台机器 = **整座厂房同材质的部件一起亮**，而取消上一个选中时把同一批共享材质写回 0，看到的后果取决于「你上次点了哪个」。现在 `setGroupEmissive` 给该节点的每个 mesh 换上带 emissive 的**私有克隆**、`clearGroupEmissive` 换回原对象并 dispose 克隆（克隆只释放自己的 program，纹理仍共享）；`WeakMap` 记账，重建时旧 mesh 连同克隆被既有 teardown 收走。同时把 `SELECT_EMISSIVE_INTENSITY` 从 0.4 降到 **0.22**——「哪个被选中」由地面光环负责，机身自发光只作提示，不做灯管
 5. 暗角：`.canvas3d::after` 径向渐变（`pointer-events: none`），视线收束到产线；纯 CSS，不占渲染管线
 6. 地台 + 描边（风格化方块）：每节点加略宽深色地台（RTS「地基」，块不再悬浮）；`EdgesGeometry` 蓝图描边画 12 条硬边，`raycast` 置空以免抢节点拾取
 
