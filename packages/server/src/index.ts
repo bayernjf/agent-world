@@ -186,6 +186,15 @@ const workersDir = process.env.WORKERS_DIR ?? fileURLToPath(new URL("workers", i
 }
 
 
+// 启动自检：可观测性的两个默认值在「内网单机」口径下是对的，在「端口可达」口径下
+// 不是。`/metrics` 无 token 就能读（RED + run 计数 + 成本累计），`serve()` 默认绑
+// 全网卡。这里不改变默认（改了会打断现有 LAN 部署），只在生产把话说出来。
+if ((process.env.NODE_ENV === "production" || process.env.AGENT_WORLD_ENV === "production") && !(process.env.METRICS_TOKEN ?? "").trim()) {
+  log.warn(
+    "GET /metrics is unauthenticated while running in production: anyone who can reach the port reads run counts and cost totals. Set METRICS_TOKEN (scrape with `authorization: {credentials: ...}`) and/or BIND_HOST=127.0.0.1 if a reverse proxy is the only thing that should reach the server.",
+  );
+}
+
 /** Live runs, so a reconnecting client can attach mid-flight. */
 const live = new Map<
   string,
@@ -326,9 +335,24 @@ const GIT_META: { branch: string | null; commit: string | null } = (() => {
 })();
 
 // --- Metrics endpoint (Prometheus text format) ---
-// Aggregated in-process (see metrics.ts); a plain GET reveals RED + run
-// business metrics. No auth so a local Prometheus scraper can pull it.
-app.get("/metrics", (c) => c.text(renderMetrics()));
+// Aggregated in-process (see metrics.ts). A plain GET reveals RED + run
+// business metrics (cost totals, failure counts, per-model spend), so it is not
+// a free public read: with `METRICS_TOKEN` set it requires
+// `Authorization: Bearer <token>`. Leaving it unset keeps the historical
+// open endpoint for a co-located scraper -- which is fine only while nothing
+// outside the trusted network can reach the port; the boot self-check below
+// says so out loud in production rather than letting it be a surprise.
+app.get("/metrics", (c) => {
+  const want = (process.env.METRICS_TOKEN ?? "").trim();
+  if (want) {
+    const header = c.req.header("authorization") ?? "";
+    const sent = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
+    if (!sent || !secretEqual(sent, want)) {
+      return c.text("unauthorized", 401, { "WWW-Authenticate": "Bearer" });
+    }
+  }
+  return c.text(renderMetrics());
+});
 
 app.get("/api/health", async (c) => {
   // Readiness checks report STATE only ("ok"/"loaded"/"configured"), never the
@@ -4385,8 +4409,17 @@ if (process.env.NODE_ENV !== "test") {
   // （design-audit-log §5 / design-scaling §2.1）。单轮失败只 warn。
   const maintenance = new MaintenanceLoop(db);
   maintenance.start();
-  const server = serve({ fetch: app.fetch, port: PORT }, (info) => {
-    log.info("engine listening", { port: info.port, url: `http://localhost:${info.port}` });
+  // BIND_HOST pins the listening interface. Unset keeps Node's default (all
+  // interfaces) because the current deployments are reached over the LAN --
+  // changing the default would break them. A box that only ever talks to a
+  // local nginx/Prometheus should set 127.0.0.1 and stop exposing :8791.
+  const bindHost = process.env.BIND_HOST?.trim() || undefined;
+  const server = serve({ fetch: app.fetch, port: PORT, hostname: bindHost }, (info) => {
+    log.info("engine listening", {
+      port: info.port,
+      hostname: bindHost ?? "0.0.0.0 (all interfaces)",
+      url: `http://localhost:${info.port}`,
+    });
   });
 
   // Graceful shutdown（P1 优雅关闭）：SIGTERM（systemd restart / deploy.sh 触发）
