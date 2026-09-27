@@ -473,6 +473,8 @@ sudo chmod +x /usr/local/bin/backup-agent-world.sh
 
 备份做了不代表能恢复——必须定期在**干净目录**做恢复演练，验证「备份 + 密钥 + 数据」真的能还原并启动（不影响生产：临时目录 + 独立端口）。
 
+**仓库已内置可复用脚本 [scripts/restore-agent-world.sh](../../scripts/restore-agent-world.sh)**（支持 `--source` 演练 / `--to` 实恢复 / `--no-boot` / `--delete`；实恢复缺密钥直接失败，防止带新建 keyring 起生产把加密字段锁死）。首选直接用它；下面这段 heredoc 仅作**离线安装参考**（脚本更完整，二者等价）。
+
 ```bash
 sudo tee /usr/local/bin/restore-agent-world-drill.sh >/dev/null <<'EOF'
 #!/usr/bin/env bash
@@ -519,6 +521,8 @@ sudo chmod +x /usr/local/bin/restore-agent-world-drill.sh
 - **RTO**：恢复 = rsync 秒级 + 启动数秒，实测 < 1 分钟（不含新机器环境准备）。
 
 **演练结果（2026-09-08 已执行，通过）**：从 `current/` 恢复到 `/tmp/aw-drill` → `integrity_check: ok` + 密钥文件在 → 临时 server（8899）health 返回 `{"ok":true,"db":"ok","jwtSecret":"loaded","encryption":"loaded"}` ✅。
+
+**脚本化后复测（2026-09-27）**：用 Mac 侧异地快照 `agent-world-2026-09-27.sqlite` 跑 `bash scripts/restore-agent-world.sh --source <快照目录>` → `integrity_check: ok`（users 5 / graphs 15 / runs 476）+ 临时 server health `{"ok":true,"checks":{"db":"ok","encryption":"loaded"}}` ✅；并验三条拒绝路径（实恢复缺密钥 / 目标非空未加 `--force` / 源目录不存在）均按预期失败退出。注意异地快照按设计**不含密钥**，脚本会显式告警「加密字段未验证」而非静默放行。
 
 ## 七、Server 机器注意事项（笔记本形态）
 
