@@ -1,7 +1,18 @@
 import { describe, expect, it } from "vitest";
+import * as THREE from "three";
 import { NODE_CATEGORY, type NodeKind } from "@agent-world/core";
 import { PLANT_H } from "../store/graph";
-import { CATEGORY_COLORS, categoryColor, statusLedColor, buildNodeShape } from "./iso3d-shapes";
+import { MAT } from "./industrial-kit";
+import {
+  CATEGORY_COLORS,
+  categoryColor,
+  statusLedColor,
+  buildNodeShape,
+  setGroupEmissive,
+  clearGroupEmissive,
+  SELECT_COLOR,
+  SELECT_EMISSIVE_INTENSITY,
+} from "./iso3d-shapes";
 
 const ALL_KINDS = Object.keys(NODE_CATEGORY) as NodeKind[];
 
@@ -101,5 +112,73 @@ describe("buildNodeShape — realistic rollout", () => {
 
   it("returns a fresh group per call", () => {
     expect(buildNodeShape("code").group).not.toBe(buildNodeShape("code").group);
+  });
+});
+
+describe("selection highlight is per node, never per shared material", () => {
+  const bodyMeshes = (group: THREE.Group) => {
+    const out: THREE.Mesh[] = [];
+    group.traverse((obj) => {
+      const mesh = obj as THREE.Mesh;
+      if (mesh.isMesh && mesh.userData.role !== "led") out.push(mesh);
+    });
+    return out;
+  };
+  const sharedPool = () => Object.values(MAT) as THREE.MeshStandardMaterial[];
+  const poolSnapshot = () => sharedPool().map((m) => [m.emissive.getHex(), m.emissiveIntensity]);
+
+  it("lights the chosen node and leaves the kit pool alone", () => {
+    // The shape of the old bug: every node composes the same module-level MAT, so
+    // writing emissive in place lit up the whole park when one machine was picked.
+    const before = poolSnapshot();
+    const chosen = buildNodeShape("http");
+    const other = buildNodeShape("http");
+    const otherMats = bodyMeshes(other.group).map((m) => m.material);
+
+    setGroupEmissive(chosen.group, SELECT_COLOR, SELECT_EMISSIVE_INTENSITY);
+
+    expect(poolSnapshot()).toEqual(before);
+    for (const mesh of bodyMeshes(chosen.group)) {
+      const mat = mesh.material as THREE.MeshStandardMaterial;
+      expect(mat.emissive.getHex()).toBe(SELECT_COLOR);
+      expect(mat.emissiveIntensity).toBe(SELECT_EMISSIVE_INTENSITY);
+    }
+    bodyMeshes(other.group).forEach((mesh, i) => {
+      expect(mesh.material).toBe(otherMats[i]);
+    });
+  });
+
+  it("re-applying does not stack clones, and clearing restores the original objects", () => {
+    const node = buildNodeShape("textGen");
+    const originals = bodyMeshes(node.group).map((m) => m.material);
+
+    setGroupEmissive(node.group, SELECT_COLOR, SELECT_EMISSIVE_INTENSITY);
+    setGroupEmissive(node.group, SELECT_COLOR, 0.1);
+
+    const highlighted = bodyMeshes(node.group);
+    expect(highlighted.length).toBeGreaterThan(0);
+    highlighted.forEach((mesh, i) => {
+      const mat = mesh.material as THREE.MeshStandardMaterial;
+      expect(mat).not.toBe(originals[i]);
+      expect((mat.userData as { awHighlight?: boolean }).awHighlight).toBe(true);
+      // Reading 0.1 (not 0.4, and not a clone of the previous clone) is the proof.
+      expect(mat.emissiveIntensity).toBe(0.1);
+    });
+
+    clearGroupEmissive(node.group);
+    bodyMeshes(node.group).forEach((mesh, i) => {
+      expect(mesh.material).toBe(originals[i]);
+    });
+  });
+
+  it("leaves the status LED to the per-frame LED driver", () => {
+    const node = buildNodeShape("notify");
+    const ledMat = node.led.material as THREE.MeshStandardMaterial;
+    const before: [number, number] = [ledMat.emissive.getHex(), ledMat.emissiveIntensity];
+
+    setGroupEmissive(node.group, SELECT_COLOR, SELECT_EMISSIVE_INTENSITY);
+    clearGroupEmissive(node.group);
+
+    expect([ledMat.emissive.getHex(), ledMat.emissiveIntensity]).toEqual(before);
   });
 });
