@@ -218,6 +218,26 @@ describe("LoginPage", () => {
       });
     });
 
+    it("一次性口令账号：停在改密屏，不进产品", async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            user: { id: "u1", email: "mate@aw.test", mustChangePassword: true },
+          }),
+      } as any);
+      render(<LoginPage />);
+      fireEvent.change(screen.getByLabelText("邮箱"), { target: { value: "mate@aw.test" } });
+      fireEvent.change(screen.getByLabelText("密码"), { target: { value: "one-time" } });
+      fireEvent.click(screen.getByRole("button", { name: "登录" }));
+      await waitFor(() => {
+        expect(screen.getByText("设置你的密码")).toBeInTheDocument();
+      });
+      expect(mockNavigate).not.toHaveBeenCalled();
+      // The email they typed carries over into the gate's copy.
+      expect(screen.getByText(/mate@aw\.test/)).toBeInTheDocument();
+    });
+
     it("记住我时保存邮箱到 localStorage", async () => {
       render(<LoginPage />);
       fireEvent.change(screen.getByLabelText("邮箱"), { target: { value: "user@example.com" } });

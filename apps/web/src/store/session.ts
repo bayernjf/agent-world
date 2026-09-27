@@ -30,6 +30,13 @@ export interface SessionUser {
    */
   canManageAnnouncements?: boolean;
   canManageModelCatalog?: boolean;
+  /**
+   * True while an owner-opened account still holds its one-time password. The
+   * server refuses every non-auth route meanwhile, so both the login response
+   * and `/me` carry it and the UI shows the replacement screen instead of the
+   * app — the refusal is the guarantee, this flag only chooses the screen.
+   */
+  mustChangePassword?: boolean;
 }
 
 /** Why the claim dialog was opened — drives its copy. */

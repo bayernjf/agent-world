@@ -275,6 +275,88 @@ journalctl -u agent-world --since "24 hours ago" | grep "would block dispatch"
 
 两条都是**响亮失败**而不是静默降级——这一轮安全与计量收口要的就是这个形状。升级后确认服务起来了：`curl -s http://192.168.31.14/api/health`（`ok:true` 且 `providers` 就绪），再看 `journalctl -u agent-world -b --no-pager | grep -i "fake\|failover"`：`WORKER=fake is set` 这条 warn 在非生产是允许的，出现在生产说明上面那条没做完。
 
+> 上面第 2 条（`WORKER=fake` 拒启）**只在 `NODE_ENV=production` 时才成立**。这台机器目前没设，见下一节。
+
+### 四之四、`NODE_ENV=production` —— 不设，这台机器就自认开发机
+
+第四节的 unit 只写了两行 `Environment=`（`DB_FILE` / `CODE_SANDBOX`），按本节流程新装的机器上 `NODE_ENV` 与 `AGENT_WORLD_ENV` 都不存在，于是 `/api/health` 的 `env` 字段回落到 `"development"`（`packages/server/src/index.ts:386`：`AGENT_WORLD_ENV ?? NODE_ENV ?? "development"`）。**全仓按生产分支走的行为一共四处**（grep 实测，只有这四处，所以设它不会动调度、计费、沙箱或日志级别），两者都不设时**全部休眠**：
+
+**先读，别照抄结论**——`env` 字段是 `AGENT_WORLD_ENV` 优先，所以它报什么**并不能**证明 `NODE_ENV` 是什么。Hasee 实测报 `env:staging`（09-26 SSH，见 handoff 对账块），这只说明机器上有 `AGENT_WORLD_ENV=staging`，`NODE_ENV` 仍可能已经是 `production`。要判定只有两条路：
+
+```bash
+# a) 直接读运行时 env（systemd 侧 + .env 侧都看）
+systemctl show -p Environment,EnvironmentFiles agent-world | tr ' ' '\n' | grep -E '^(NODE_ENV|AGENT_WORLD_ENV|SECURE_COOKIES)='
+grep -nE '^(NODE_ENV|AGENT_WORLD_ENV|SECURE_COOKIES|WORKER)=' /opt/agent-world/.env
+# b) 反证（只在 a 读不到时用）：这三条 warn/异常里出现过任意一条，就证明 NODE_ENV 确实是 production
+journalctl -u agent-world --since -30d --no-pager \
+  | grep -iE "not allowed in production|no error sink configured in production|GET /metrics is unauthenticated"
+# 注意反证是不对称的：没搜到 **不能**证明 NODE_ENV 没设——后两条是 warn，
+# 已设 METRICS_TOKEN / ERROR_REPORT_WEBHOOK_URL 时它们本来就不该出现。
+```
+
+| 行为 | 代码 | 不设的后果 |
+| --- | --- | --- |
+| `WORKER=fake` 启动即抛 | `providers/index.ts:49` | 那台机器可以带着 `WORKER=fake` 一直跑：每条 run 编造文本还报 `done`，成本报表与产物全是假的（即四之三第 2 条，此刻并不成立） |
+| 没接错误 sink 时启动 warn | `errors.ts:67` | 未捕获异常只留在进程内环形缓冲，随进程一起消失，且没有任何一句提醒 |
+| `/metrics` 未设 token 时启动 warn | `index.ts:193` | 指标端点（run 数、失败数、**按模型累计的成本**）对任何摸得到端口的人开着，日志里也没这句话 |
+| session cookie 加 `Secure` | `index.ts:425` | 上了 HTTPS 之后 cookie 仍可被明文 HTTP 送出 |
+
+**⚠️ 设之前先决定 cookie 怎么办**——这是本节唯一会真的咬人的地方。`Secure` 是按**请求的 Host 头**判的，只豁免 `localhost` / `127.0.0.1` / `[::1]`（`index.ts:427-435`）。Hasee 现在是从局域网用 `http://192.168.31.14` 访问的，所以 `NODE_ENV=production` 一设，登录返回的 `Set-Cookie` 就带上 `Secure`，而浏览器在 http 非回环源上会直接丢掉这个 cookie。**症状是「点登录说成功，回到页面还是未登录」，而服务端日志一行错误都没有**（`index.ts:421-424`：`SECURE_COOKIES` 显式设了就优先，不再看 `NODE_ENV`）。三选一：
+
+1. **先上 HTTPS 再设**：第五节那份 nginx site 现在只有 `listen 80`，**本 runbook 没有证书流程**（公网暴露时才补：加 443 + 证书 + `server_name`，并把 80 改成跳转）；
+2. **暂时只在内网明文 HTTP 跑**：同时写 `Environment=SECURE_COOKIES=0` 显式压掉，等上了 TLS 再删这一行；
+3. **只从 `http://localhost` 访问**：回环豁免，什么都不用做。
+
+设置（与 `MONETIZATION_ENFORCE` / `ALLOW_DEMO` 同一手法，用 override 不动主 unit）：
+
+```bash
+# 0) 前置：先看现在报什么，以及有没有踩到四之三那条
+curl -s http://127.0.0.1:8791/api/health | grep -o '"env":"[^"]*"'
+grep -n '^WORKER=' /opt/agent-world/.env        # 有输出就先删掉那行
+
+# 1) 写 override
+sudo systemctl edit agent-world
+#   [Service]
+#   Environment=NODE_ENV=production
+#   Environment=SECURE_COOKIES=0     # 只有选上面第 2 条时才加
+sudo systemctl daemon-reload && sudo systemctl restart agent-world
+
+# 2) 验 env 字段真的翻了
+curl -s http://127.0.0.1:8791/api/health | grep -o '"env":"[^"]*"'
+
+# 3) 验 cookie 没被打断（必须走浏览器，走的是那个局域网地址）
+#    用 http://192.168.31.14 登录 → 刷新 → 仍应是登录态；
+#    掉线就是第 2 步的 SECURE_COOKIES=0 没加（或没生效）。
+```
+
+三点容易记错的：
+
+- `AGENT_WORLD_ENV=production` 只点亮上面**前三**条，**不会**给 cookie 加 `Secure`（`index.ts:425` 只看 `NODE_ENV`）。要让四条一致就用 `NODE_ENV`。
+- **`staging` 不算生产**：那三条是字符串等于 `"production"` 才成立，所以 `AGENT_WORLD_ENV=staging` 的机器（Hasee 就是）在该项上和没设一样。
+- 上了 TLS 之后要**删掉** `SECURE_COOKIES=0`：它是显式覆盖，会一直压着 `Secure`，比不设更容易漏。
+
+### 四之五、给第二个人开账号（自注册默认是关的）
+
+首个账号 bootstrap 成 owner 之后，`POST /api/auth/register` 就对后面的人关闭了（`index.ts:558`）——这是对的：不关的话，任何摸得到端口的人都能建号并花你的模型预算。**别为了拉一个人就打开 `ALLOW_REGISTRATION`**，那是把门对整个网络打开。owner 用自己的界面开：
+
+**路径**：登录 → 右上角「账户」菜单 →「管理」→「用户」tab → 填对方邮箱 →「开通账号」。
+
+系统会生成一次性口令并**只在成功后那一屏显示**（点一下整段选中，直接复制）。把它离线交给对方；对方第一次登录后只会看到一张改密屏，改完才进得去产品——这由服务端强制（`/api/*` 鉴权闸对所有非 `/api/auth/*` 路径回 `403 PASSWORD_CHANGE_REQUIRED`），不是界面提示。
+
+```bash
+# 没有浏览器时的等价调用（owner 的 cookie）
+curl -s -X POST http://127.0.0.1:8791/api/admin/users \
+  -H 'content-type: application/json' -b "auth_token=$OWNER_TOKEN" \
+  -d '{"email":"teammate@example.com"}'
+# → {"user":{"id":"…","email":"…","role":"user"},"oneTimePassword":"…"}  只出现这一次
+```
+
+三件要提前知道的：
+
+- **口令没有送达渠道**（仓内无 SMTP）。这一串只能通过界面/响应交给对方，所以别把 owner 会话留在共享机器上；`account.provision` 审计行只记邮箱，不记口令。
+- **忘记口令仍然进不去**：没有找回密码（登记在 [deferred-items](../deferred-items.md) 的「账号自助三缺」）。owner 能给新账号，但不能替老账号重置口令——目前唯一的处置是再开一个邮箱的账号并迁移数据，所以把「对方记得自己改过密」当成流程的一部分。
+- 新账号是 `role:'user'`。要给它管理员权限是另一件事（同页「设为管理员」），开通时不打包办。
+
 ## 五、构建并托管 web（nginx 同源）
 
 ```bash

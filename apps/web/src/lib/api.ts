@@ -939,6 +939,29 @@ export const api = {
   adminListUsers: () =>
     authFetch("/api/admin/users").then(json<{ users: AdminUser[] }>),
 
+  /**
+   * Open an account for someone who can't self-register (signup closes after the
+   * first account). The server generates the one-time password and returns it
+   * exactly here — it is not stored anywhere retrievable, so the caller must
+   * show it once and tell the operator to pass it on.
+   */
+  adminCreateUser: (email: string) =>
+    authFetch("/api/admin/users", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email }),
+    }).then(async (res) => {
+      const body = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        user?: AdminUser;
+        oneTimePassword?: string;
+      };
+      if (!res.ok || !body.user) {
+        throw new Error(body.error ?? `create user failed: ${res.status}`);
+      }
+      return { user: body.user, oneTimePassword: body.oneTimePassword ?? "" };
+    }),
+
   adminSetUserRole: (userId: string, role: "admin" | "user") =>
     authFetch(`/api/admin/users/${userId}/role`, {
       method: "POST",

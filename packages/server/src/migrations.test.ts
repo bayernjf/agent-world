@@ -145,6 +145,65 @@ describe("ordered schema migrations", () => {
     raw.close();
   });
 
+  it("baselines users.must_change_password on a fresh database (migration 42)", () => {
+    const file = join(dir, "fresh-provision.sqlite");
+    openDb(file);
+    const raw = new DatabaseSync(file);
+    expect(cols(raw, "users")).toContain("must_change_password");
+    // Baselines must not run ALTERs — and a fresh account defaults to not-pending.
+    const max = raw.prepare("SELECT MAX(version) AS v FROM schema_migrations").get() as { v: number };
+    expect(max.v).toBe(SCHEMA_VERSION);
+    raw.exec(
+      `INSERT INTO users (id, email, password_hash) VALUES ('u1', 'x@y.z', 'h')`,
+    );
+    const row = raw
+      .prepare("SELECT must_change_password AS m FROM users WHERE id='u1'")
+      .get() as { m: number };
+    expect(row.m).toBe(0);
+    raw.close();
+  });
+
+  it("upgrades a pre-v42 users table without locking anyone out (migration 42)", () => {
+    const file = join(dir, "pre-provision.sqlite");
+    const old = new DatabaseSync(file);
+    // The users table as it stood before admin provisioning existed.
+    old.exec(`
+      CREATE TABLE users (
+        id TEXT PRIMARY KEY,
+        email TEXT UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'user',
+        is_demo INTEGER NOT NULL DEFAULT 0,
+        demo_expires_at TEXT,
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+      );
+      INSERT INTO users (id, email, password_hash, role) VALUES
+        ('u1', 'owner@x.dev', 'h', 'owner'),
+        ('u2', 'pleb@x.dev', 'h', 'user');
+    `);
+    old.close();
+
+    openDb(file);
+    const raw = new DatabaseSync(file);
+    expect(cols(raw, "users")).toContain("must_change_password");
+    // Every pre-existing account keeps working after the upgrade. A DEFAULT 1
+    // (or a NULL the middleware reads as pending) would refuse every request
+    // from every existing user on a real deployment.
+    const pending = raw
+      .prepare("SELECT COUNT(*) AS n FROM users WHERE must_change_password = 1")
+      .get() as { n: number };
+    expect(pending.n).toBe(0);
+    const rows = raw.prepare("SELECT id, must_change_password AS m FROM users ORDER BY id").all() as Array<{
+      id: string;
+      m: number;
+    }>;
+    expect(rows.map((r) => [r.id, r.m])).toEqual([
+      ["u1", 0],
+      ["u2", 0],
+    ]);
+    raw.close();
+  });
+
   it("upgrades a v38 database whose subscriptions/invoices predate the Stripe mirror columns (migration 39)", () => {
     // Regression for an S6 upgrade crash: a DB already at v38 HAS subscriptions
     // (built at v34 without stripe columns) and invoices (built at v38 without
@@ -372,44 +431,59 @@ describe("migration rollback (down)", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("rolls back the latest migrations in order (41 remote_jobs -> 40 demo flags -> 39 stripe)", () => {
+  it("rolls back the latest migrations in order (42 must_change_password -> 41 remote_jobs -> 40 demo flags -> 39 stripe)", () => {
     const file = join(dir, "aw.sqlite");
     openDb(file).close(); // applies every migration, up to SCHEMA_VERSION
 
     const raw = new DatabaseSync(file);
-    // Pre-rollback: v41 remote_jobs, v40 demo flags, v39 Stripe columns, v38 invoices all present.
+    // Pre-rollback: v42 pending-account flag, v41 remote_jobs, v40 demo flags,
+    // v39 Stripe columns, v38 invoices all present.
     expect(tables(raw)).toContain("remote_jobs");
+    expect(cols(raw, "users")).toContain("must_change_password");
     expect(cols(raw, "users")).toContain("is_demo");
     expect(cols(raw, "users")).toContain("demo_expires_at");
     expect(cols(raw, "subscriptions")).toContain("stripe_customer_id");
     expect(tables(raw)).toContain("invoices");
     expect(cols(raw, "graphs")).toContain("park_x");
-    // Seed a flagged demo row; v40 down must clear the flag without dropping the column.
+    // Seed a flagged demo row; v40 down must clear the flag without dropping the
+    // column. It also carries must_change_password=1, for the v42 step.
     raw.exec(
-      `INSERT INTO users (id,email,password_hash,role,is_demo,demo_expires_at,created_at)
-       VALUES ('u1','d@demo.local','x','user',1,'2026-01-01T00:00:00.000Z',0)`,
+      `INSERT INTO users (id,email,password_hash,role,is_demo,demo_expires_at,must_change_password,created_at)
+       VALUES ('u1','d@demo.local','x','user',1,'2026-01-01T00:00:00.000Z',1,0)`,
     );
 
-    // Step 1 -> v41: drops remote_jobs only; demo flags and Stripe columns survive.
+    // Step 1 -> v42: clears the pending flag but keeps the column; remote_jobs,
+    // demo flags and Stripe columns all survive.
     const step1 = rollbackLatestMigration(raw);
     expect(step1?.version).toBe(SCHEMA_VERSION);
+    expect(cols(raw, "users")).toContain("must_change_password");
+    const unflagged = raw.prepare(`SELECT must_change_password AS m FROM users WHERE id='u1'`).get() as {
+      m: number;
+    };
+    expect(unflagged.m).toBe(0);
+    expect(tables(raw)).toContain("remote_jobs");
+    expect(cols(raw, "users")).toContain("is_demo");
+
+    // Step 2 -> v41: drops remote_jobs only; demo flags and Stripe columns survive.
+    const step2 = rollbackLatestMigration(raw);
+    expect(step2?.version).toBe(SCHEMA_VERSION - 1);
     expect(tables(raw)).not.toContain("remote_jobs");
     expect(cols(raw, "users")).toContain("is_demo");
     const stillFlagged = raw.prepare(`SELECT is_demo FROM users WHERE id='u1'`).get() as { is_demo: number };
     expect(stillFlagged.is_demo).toBe(1);
     expect(cols(raw, "subscriptions")).toContain("stripe_customer_id");
 
-    // Step 2 -> v40: clears demo flags but keeps the columns; Stripe columns survive.
-    const step2 = rollbackLatestMigration(raw);
-    expect(step2?.version).toBe(SCHEMA_VERSION - 1);
+    // Step 3 -> v40: clears demo flags but keeps the columns; Stripe columns survive.
+    const step3 = rollbackLatestMigration(raw);
+    expect(step3?.version).toBe(SCHEMA_VERSION - 2);
     expect(cols(raw, "users")).toContain("is_demo");
     const cleared = raw.prepare(`SELECT is_demo FROM users WHERE id='u1'`).get() as { is_demo: number };
     expect(cleared.is_demo).toBe(0);
     expect(cols(raw, "subscriptions")).toContain("stripe_customer_id");
 
-    // Step 3 -> v39: drops the Stripe mirror columns; the invoices table and park columns survive.
-    const step3 = rollbackLatestMigration(raw);
-    expect(step3?.version).toBe(SCHEMA_VERSION - 2);
+    // Step 4 -> v39: drops the Stripe mirror columns; the invoices table and park columns survive.
+    const step4 = rollbackLatestMigration(raw);
+    expect(step4?.version).toBe(SCHEMA_VERSION - 3);
     expect(cols(raw, "subscriptions")).not.toContain("stripe_customer_id");
     expect(cols(raw, "subscriptions")).not.toContain("stripe_subscription_id");
     expect(cols(raw, "subscriptions")).not.toContain("stripe_price_id");

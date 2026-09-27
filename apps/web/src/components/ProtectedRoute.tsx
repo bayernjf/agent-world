@@ -2,13 +2,17 @@ import { useEffect, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useSession, type SessionUser } from "../store/session";
+import MustChangePassword from "./MustChangePassword";
 
 export default function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { t } = useTranslation();
   const setSession = useSession((s) => s.setSession);
-  const [status, setStatus] = useState<"loading" | "ok" | "unauthorized">("loading");
+  const email = useSession((s) => s.user?.email);
+  const [status, setStatus] = useState<"loading" | "ok" | "unauthorized" | "mustChange">("loading");
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
+    setStatus("loading");
     fetch("/api/auth/me", { credentials: "include" })
       .then(async (res) => {
         if (!res.ok) {
@@ -26,10 +30,12 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
           user = null;
         }
         setSession(user);
-        setStatus("ok");
+        // A cookie minted before the password was replaced still lands here, so
+        // the gate is re-checked on every mount rather than only at login.
+        setStatus(user?.mustChangePassword ? "mustChange" : "ok");
       })
       .catch(() => setStatus("unauthorized"));
-  }, [setSession]);
+  }, [setSession, attempt]);
 
   if (status === "loading") {
     return (
@@ -41,6 +47,12 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
 
   if (status === "unauthorized") {
     return <Navigate to="/login" replace />;
+  }
+
+  if (status === "mustChange") {
+    // Re-probe /me rather than flipping local state: the server decides when the
+    // gate opens, and this way it cannot be talked out of it.
+    return <MustChangePassword email={email} onDone={() => setAttempt((a) => a + 1)} />;
   }
 
   return <>{children}</>;}

@@ -5,6 +5,7 @@ import i18n from "../i18n";
 import { useSession } from "../store/session";
 import ClaimDialog from "./ClaimDialog";
 import Logo from "./Logo";
+import MustChangePassword from "./MustChangePassword";
 
 async function postAuth(url: string, body: Record<string, string | boolean>) {
   const res = await fetch(url, {
@@ -49,6 +50,7 @@ export function LoginPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [demoLoading, setDemoLoading] = useState(false);
+  const [pendingChange, setPendingChange] = useState(false);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const openClaim = useSession((s) => s.openClaim);
@@ -75,12 +77,18 @@ export function LoginPage() {
     setError("");
     setLoading(true);
     try {
-      await postAuth("/api/auth/login", { email, password, remember });
+      const data = await postAuth("/api/auth/login", { email, password, remember });
       try {
         if (remember) localStorage.setItem(LAST_EMAIL_KEY, email);
         else localStorage.removeItem(LAST_EMAIL_KEY);
       } catch {
         /* private mode etc. — non-fatal */
+      }
+      // An account an owner opened can't do anything until its one-time
+      // password is replaced, so the login answer routes straight to that form.
+      if (data?.user?.mustChangePassword) {
+        setPendingChange(true);
+        return;
       }
       navigate("/", { replace: true });
     } catch (err) {
@@ -89,6 +97,10 @@ export function LoginPage() {
       setLoading(false);
     }
   };
+
+  if (pendingChange) {
+    return <MustChangePassword email={email} onDone={() => navigate("/", { replace: true })} />;
+  }
 
   return (
     <div className="auth-page">

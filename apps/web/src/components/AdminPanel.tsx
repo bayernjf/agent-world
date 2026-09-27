@@ -126,6 +126,32 @@ export default function AdminPanel({ open, me, onClose }: Props) {
     }
   }, [t]);
 
+  // Owner-provisioned accounts. The one-time password exists only in the create
+  // response, so it is held in component state and shown once — reloading the
+  // list afterwards is what tells the operator the account really exists.
+  const [newUserEmail, setNewUserEmail] = useState("");
+  const [createBusy, setCreateBusy] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [created, setCreated] = useState<{ email: string; oneTimePassword: string } | null>(null);
+
+  const createUser = useCallback(async () => {
+    const email = newUserEmail.trim();
+    if (!email) return;
+    setCreateBusy(true);
+    setCreateError(null);
+    setCreated(null);
+    try {
+      const res = await api.adminCreateUser(email);
+      setCreated({ email: res.user.email, oneTimePassword: res.oneTimePassword });
+      setNewUserEmail("");
+      void loadUsers();
+    } catch (err) {
+      setCreateError((err as Error).message);
+    } finally {
+      setCreateBusy(false);
+    }
+  }, [newUserEmail, loadUsers]);
+
   const loadInvoices = useCallback(async () => {
     setInvoicesLoading(true);
     setInvoicesError(null);
@@ -401,6 +427,41 @@ export default function AdminPanel({ open, me, onClose }: Props) {
             {tab === "users" ? (
               <div>
                 <p className="muted">{t("modals:adminPanel.usersHint")}</p>
+                {isOwner && (
+                  <>
+                    <div className="admin-create-user">
+                      <input
+                        className="input"
+                        type="email"
+                        placeholder={t("modals:adminPanel.newUserEmailPlaceholder")}
+                        value={newUserEmail}
+                        onChange={(e) => setNewUserEmail(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && newUserEmail.trim()) void createUser();
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className="btn btn--primary btn--sm"
+                        onClick={() => void createUser()}
+                        disabled={createBusy || !newUserEmail.trim()}
+                      >
+                        {createBusy
+                          ? t("modals:adminPanel.createUserBusy")
+                          : t("modals:adminPanel.createUser")}
+                      </button>
+                    </div>
+                    {createError && <div className="form-error">{createError}</div>}
+                    {created && (
+                      <div className="admin-created-user">
+                        <p className="muted">
+                          {t("modals:adminPanel.createdUserHint", { email: created.email })}
+                        </p>
+                        <code className="admin-created-user__otp">{created.oneTimePassword}</code>
+                      </div>
+                    )}
+                  </>
+                )}
                 {usersLoading ? (
                   <p className="muted">{t("modals:adminPanel.loading")}</p>
                 ) : usersError ? (

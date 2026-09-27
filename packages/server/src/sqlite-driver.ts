@@ -64,6 +64,7 @@ CREATE TABLE IF NOT EXISTS users (
   role          TEXT NOT NULL DEFAULT 'user',
   is_demo       INTEGER NOT NULL DEFAULT 0,
   demo_expires_at TEXT,
+  must_change_password INTEGER NOT NULL DEFAULT 0,
   created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
 );
 -- idx_users_owner is NOT here on purpose: the role column is only added by
@@ -780,9 +781,14 @@ export function createDriver(
     // first-account owner inference (design-demo-user §5.2).
     createDemoUser: `INSERT INTO users (id, email, password_hash, role, is_demo, demo_expires_at)
        VALUES (?, ?, ?, 'user', 1, ?)`,
+    // Accounts an owner opened for someone else (POST /api/admin/users): always
+    // role='user' (never createUser's owner inference) and flagged so the holder
+    // of the one-time password must replace it before the account can be used.
+    createProvisionedUser: `INSERT INTO users (id, email, password_hash, role, must_change_password)
+       VALUES (?, ?, ?, 'user', 1)`,
     claimDemoUser: `UPDATE users SET email = ?, password_hash = ?, is_demo = 0, demo_expires_at = NULL
        WHERE id = ? AND is_demo = 1`,
-    listExpiredDemoUsers: `SELECT id, email, role, is_demo, demo_expires_at, created_at FROM users
+    listExpiredDemoUsers: `SELECT id, email, role, is_demo, demo_expires_at, must_change_password, created_at FROM users
        WHERE is_demo = 1 AND demo_expires_at IS NOT NULL AND demo_expires_at < ?
        ORDER BY demo_expires_at ASC, ${tie} ASC`,
     countOwners: `SELECT COUNT(*) AS n FROM users WHERE role = 'owner'`,
@@ -849,12 +855,12 @@ export function createDriver(
        WHERE f.status = ? ORDER BY f.created_at DESC LIMIT ?`,
     getFeedback: `SELECT * FROM feedback WHERE id = ?`,
     updateFeedbackStatus: `UPDATE feedback SET status = ? WHERE id = ?`,
-    findUserByEmail: `SELECT id, email, role, is_demo, demo_expires_at, created_at FROM users WHERE email = ?`,
-    findUserById: `SELECT id, email, role, is_demo, demo_expires_at, created_at FROM users WHERE id = ?`,
+    findUserByEmail: `SELECT id, email, role, is_demo, demo_expires_at, must_change_password, created_at FROM users WHERE email = ?`,
+    findUserById: `SELECT id, email, role, is_demo, demo_expires_at, must_change_password, created_at FROM users WHERE id = ?`,
     findUserPasswordHash: `SELECT password_hash FROM users WHERE id = ?`,
     // RBAC P3 (design-rbac.md): full account list for the owner's admin panel.
     // Same ordering as the v31 owner bootstrap — the owner always sorts first.
-    listUsers: `SELECT id, email, role, is_demo, demo_expires_at, created_at FROM users ORDER BY created_at ASC, ${tie} ASC`,
+    listUsers: `SELECT id, email, role, is_demo, demo_expires_at, must_change_password, created_at FROM users ORDER BY created_at ASC, ${tie} ASC`,
     updateUserRole: `UPDATE users SET role = ? WHERE id = ?`,
     // Resource sharing (design-rbac P1). Only editor/viewer rows live here —
     // the resource owner is resolved from the owning table's user_id.
@@ -869,7 +875,10 @@ export function createDriver(
     getRunGraphRef: `SELECT user_id, graph_id FROM runs WHERE id = ?`,
     getArtifactGraphRef: `SELECT user_id, graph_id, run_id FROM artifacts WHERE id = ?`,
     countUsers: `SELECT COUNT(*) AS n FROM users`,
-    updateUserPasswordHash: `UPDATE users SET password_hash = ? WHERE id = ?`,
+    // Changing the password IS the fulfilment of must_change_password, so the
+    // clear lives here rather than in the route: there is exactly one write path
+    // for password_hash (index.ts's /api/auth/password), so it cannot be missed.
+    updateUserPasswordHash: `UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?`,
     insertGraph: `INSERT INTO graphs (id, user_id, name, doc, origin_template_id, updated_at) VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET name = excluded.name, doc = excluded.doc, version = graphs.version + 1, updated_at = excluded.updated_at
        WHERE graphs.user_id = excluded.user_id`,
@@ -1047,13 +1056,16 @@ export function createDriver(
   };
   // Shared user-row shape (design-demo-user §5): is_demo is 0/1,
   // demo_expires_at is an ISO UTC string for demo accounts and NULL for real
-  // accounts. findUser* / listUsers all return this.
+  // accounts. must_change_password is 1 for accounts an owner opened with a
+  // one-time password, until that password is replaced.
+  // findUser* / listUsers all return this.
   type UserRow = {
     id: string;
     email: string;
     role: string;
     is_demo: number;
     demo_expires_at: string | null;
+    must_change_password: number;
     created_at: string;
   };
   const mapSubscriptionRow = (r: SubscriptionRow) => ({
@@ -1161,6 +1173,16 @@ export function createDriver(
         (await exec.get(stmts.countOwners, []) as { n: number }).n === 0 ? "owner" : "user";
       await exec.run(stmts.createUser, [id, email, passwordHash, role]);
       return { id, email, role };
+    },
+    /**
+     * Open an account on someone's behalf (POST /api/admin/users). Never goes
+     * through owner bootstrap — always role='user' — and carries
+     * must_change_password=1 so the one-time password has to be replaced before
+     * the account can reach anything. Mirrors createDemoUser's shape.
+     */
+    async createProvisionedUser(id: string, email: string, passwordHash: string) {
+      await exec.run(stmts.createProvisionedUser, [id, email, passwordHash]);
+      return { id, email, role: "user", mustChangePassword: true };
     },
     // Demo account (design-demo-user §5.2): always a plain role='user' row with
     // is_demo=1 and an explicit expiry. Never goes through owner bootstrap.
@@ -4182,6 +4204,24 @@ const MIGRATIONS: Migration[] = [
     down: (db) => {
       db.exec("DROP INDEX IF EXISTS idx_remote_jobs_open");
       db.exec("DROP TABLE IF EXISTS remote_jobs");
+    },
+  },
+  {
+    version: 42,
+    // Accounts an owner opened for someone else carry a one-time password, so
+    // they must be flagged until it is replaced. Purely additive: existing rows
+    // get 0, the auth middleware refuses only rows set to 1.
+    description: "users.must_change_password for admin-provisioned accounts",
+    detect: (db) => columnExists(db, "users", "must_change_password"),
+    up: (db) => {
+      if (!columnExists(db, "users", "must_change_password"))
+        db.exec("ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0");
+    },
+    down: (db) => {
+      // Intentionally no DROP COLUMN: clear the flags so a rollback neither
+      // destroys accounts nor leaves the middleware refusing a column it no
+      // longer has.
+      db.exec("UPDATE users SET must_change_password = 0 WHERE must_change_password = 1");
     },
   },
 ];
