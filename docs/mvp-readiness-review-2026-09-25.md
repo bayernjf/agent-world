@@ -345,3 +345,51 @@ core **346/346**（24 文件）· server **1397 = 1393 通过 + 2 本机 python-
 主链、派发校验、目录数据面、成本台账四条我都能逐行指认；三处硬化项（`WORKER=fake` / dist 缺 `.mjs` / 死字段）都是**小改动 + 已有同仓先例**，不构成阻断。公网暴露口径下，P1 仍必须先收 `/metrics` 鉴权与 TLS。
 
 > **同日追记（本会话内闭合）**：上面那三条都做了——`3df542a`（`assertBootWorkerEnv`：生产 + `WORKER=fake` 启动即抛，其它环境 warn；守护 3 例，植入空操作护栏验过会红）、`02f0e67`（build 追加 `cp src/*.mjs dist/` + `src/dist-assets.test.ts` 四条守护，含**真起一次 dist 进程打 `/api/health`**；藏掉一个 dist 文件验过会红）、`69e26b8`（`SessionUser` 补 capability flag，面板改读 `/me` 的答案、非管理员不再发那次注定 403 的请求）；两条升级须知落在 `d3c58cd`（runbook「四之三」+ `.env.example`）。**同日又补两条**：`84428f5`（`METRICS_TOKEN` 让 `/metrics` 要求 bearer、`BIND_HOST` 可收回监听网卡、生产未设 token 时启动 warn——**默认一律不变**，因为改默认会打断现有 LAN 直连部署）、`b01e3e0`（`errorSinkStatus(env)` 纯函数 + 4 测：生产没设 `ERROR_REPORT_WEBHOOK_URL` 就在启动时说清楚「崩溃记录随进程消失」）。**§11.2 第 3 条因此从「§10.3 漏列」变成「已闭合」**，留在原地是为了记下它是被一次复评才发现的；`/metrics` 与错误 sink 两行的现状改记在 §10.3 表内（可收口 ≠ 已收口，收口与否是运维决定）。仍未闭合的是 §11.2 第 4 条（线上跑哪个 commit 需人 SSH 确认）与 P1 的 `/metrics` / TLS。
+
+---
+
+## 12. 第三次独立复评（2026-09-27 夜，基线 `45ab9cb`）
+
+> **性质**：对 §10/§11 判定的再一次独立复验（源码一手取证 + 四包实跑），不采信其结论，且基线比 §11 更靠后——含「开账号批次」（`b99519c`/`49be041`/`c92603f`/`45ab9cb`）。
+> **环境**：本机 fnm 默认已切到 Node **v20.20.2**，与仓库硬要求冲突（依赖 `node:sqlite` 与 undici@8）。本节所有读数均在 **Node 24.20.0** 下取得：把 `…/fnm/node-versions/v24.20.0/installation/bin` 前置 PATH，并直调各包 `node_modules/.bin/vitest`，**绕开 pnpm 的 node 重解析**（否则 pnpm 子进程会回落 v20）。
+
+### 12.1 判定（与 §11.1 一致，未变）
+
+| 口径 | 判定 |
+| --- | --- |
+| **自托管单机（信任 LAN / 单运营）** | ✅ **达到「产品核心完全可用的 MVP」** |
+| **自托管暴露公网** | 🟡 条件达成（缺口是**运维动作**，非代码能力） |
+| **对外商业 SaaS** | ❌ 不达标（多租户 / 收款 / PG HA 属架构前置，已登记 deferred） |
+
+### 12.2 我一手复验的 MVP 关键项（逐条通过）
+
+- **终点不静默**：sink 空输入守卫——结构性空（上游全是 branch/gate/媒体）→ `done` 且不归档；内容型上游却为空 → `failed` + `VALIDATION`（`nodes/sink.ts:28-76`）。
+- **派发门禁覆盖 A/B**：`ab.ts:76-83` 调 `validateModels`，error 非空抛 `RunStartError(422)`。
+- **服务端不外连内网**：`mcp.ts` 四处 fetch 全换 `guardedFetch`（`:238/:307/:362/:379`）。
+- **节点全覆盖**：`NodeKind` 29 种；`NODE_HANDLERS` 28 项 + `notify` 内联 = 全覆盖（`engine.ts:151-180`），`nodes/` 28 个 handler 文件。
+- **模板**：`grep -c '^  id: "tpl-'` = **36**。
+- **生产拒假 worker**：`providers/index.ts:46-55` `assertBootWorkerEnv`（生产 + `WORKER=fake` 启动即抛）。
+- **部署产物完整**：`packages/server/package.json:9` build 含 `cp src/*.mjs dist/`。
+
+### 12.3 门禁读数（2026-09-27 夜，Node 24.20.0，逐包隔离实跑）
+
+| 包 | 读数 |
+| --- | --- |
+| core | **346/346**（24 文件） |
+| server | **1460** = 1410 过 / **2 红** / 48 跳过（169 文件） |
+| mcp-server | **71/71**（3 文件） |
+| web | **1996/1996**（107 文件） |
+| 合计 | **3873**，与 handoff / §11.4 快照一致 |
+| typecheck | 四包全绿 |
+
+- server 那 2 条红已定位到 `engine.code.test.ts` 的 python 出网两条用例（本机 `python3` 为 Xcode CLT 许可 shim）；单跑该文件复现同样 2 条，与 Known issues 基线一致，**非回归**。
+- **web 串跑会误报**：四包连续跑时首跑出现 6 文件 / 7 测红；**隔离单跑 107 文件 1996 全绿**（load≈345 下亦然）。印证 handoff「报红前先隔离重跑、先看 load」的判据。
+
+### 12.4 两条非阻断的完整度欠账（不影响 MVP 判定）
+
+1. **`db.ts` 抽象层有两处内部旁路**：`memory.ts`（FTS5 建表/触发器 + CRUD）与 `key-rotation.ts:179`（`UPDATE`）直接走 driver 的 `prepare`/裸 SQL，未收敛进 `db.ts`；违反「DB 访问统一走 `db.ts`」约定，**迁 PG 时需逐处返工**。`connectors.ts:280` 是用户 SQL 连接器，属设计内，不计。
+2. **本机 Node 默认版本陷阱**：fnm 默认已是 v20 后，直接 `pnpm test` 会因 `node:sqlite`/undici 大面积报红；须 `fnm exec --using=24`（handoff 已记，但默认值变更后更易踩）。
+
+### 12.5 结论
+
+**未发现任何推翻 §11.1 判定的新缺陷。** 自托管单机型 **✅ 达到「产品核心完全可用的 MVP」**；对外商业 SaaS **❌ 不达标**；公网暴露前仍须先收 §10.3 的 P1（`/metrics` 鉴权 + TLS + 错误 sink + 历史口令轮换）。
