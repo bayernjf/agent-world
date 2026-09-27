@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { PRICING_FIELDS } from "@agent-world/core";
 import type { Modality, ModelPricing } from "@agent-world/core";
 import { api, type ModelCatalogChange, type ModelCatalogImpact, type ModelCatalogOverlay, type ModelCatalogView } from "../lib/api";
+import { useSession } from "../store/session";
 import Tooltip from "./Tooltip";
 
 const MODALITIES: Modality[] = ["text", "image", "video", "audio", "embedding"];
@@ -31,7 +32,15 @@ export function ModelCatalogAdmin() {
   const [affected, setAffected] = useState<ModelCatalogImpact[]>([]);
   const [truncated, setTruncated] = useState(false);
 
+  // The server answers "is this account a catalog admin" on /me, so a known
+  // non-admin never fires a request that has to come back 403. When the session
+  // has not resolved yet (`undefined`) the request still goes out and the 403 →
+  // null path below hides the panel, so a stale flag can only ever hide a
+  // surface, never open one — the endpoint is the authority either way.
+  const canManage = useSession((s) => s.user?.canManageModelCatalog);
+
   useEffect(() => {
+    if (canManage === false) return;
     let alive = true;
     void api.getModelCatalog().then((v) => {
       // null means "not a catalog admin" (403) — the panel simply is not there.
@@ -43,7 +52,7 @@ export function ModelCatalogAdmin() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [canManage]);
 
   if (!view) return null;
 

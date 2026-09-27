@@ -22,6 +22,14 @@ export interface SessionUser {
   createdAt?: string;
   isDemo?: boolean;
   demo?: DemoInfo | null;
+  /**
+   * Server-computed capability flags from `/api/auth/me`. Components gate their
+   * own surface on these instead of firing a request that has to answer 403;
+   * the server re-checks every call regardless, so a stale value can only ever
+   * hide a surface, never open one.
+   */
+  canManageAnnouncements?: boolean;
+  canManageModelCatalog?: boolean;
 }
 
 /** Why the claim dialog was opened — drives its copy. */
