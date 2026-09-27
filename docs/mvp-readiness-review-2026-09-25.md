@@ -274,9 +274,9 @@ core **346/346**（24 文件）· server **1397 = 1393 通过 + 2 本机 python-
 
 | P | 项 | 证据 | 状态 |
 | --- | --- | --- | --- |
-| P1 | `GET /metrics` 无鉴权（内部 run/error 指标暴露） | `index.ts:327` 挂在 root，鉴权中间件只罩 `/api/*`（`:269/:752`） | 开放 |
+| P1 | `GET /metrics` 无鉴权（内部 run/error 指标暴露） | 原 `index.ts:327` 挂 root、鉴权中间件只罩 `/api/*`；**`84428f5` 之后**：`METRICS_TOKEN` 一设就要求 `Authorization: Bearer`（常量时间比较 + 401 带 `WWW-Authenticate`），另有 `BIND_HOST` 可把监听收回到指定网卡，生产未设 token 时启动 warn | **可收口，默认未收**（改默认会打断现有 LAN 直连部署 → 留成运维决定，登记在 deferred 安全/运维线） |
 | P1 | 明文 sudo 口令在公开 git 历史 | §9.6 / production-ops §9.6 | 接受风险；暴露前必轮换 |
-| P2 | 默认无外部错误 sink（Sentry 级 P0 缺口） | `index.ts:4435` 仅当 `ERROR_REPORT_WEBHOOK_URL` 才接；参考 webhook sink 已发但默认关 | 开放 |
+| P2 | 默认无外部错误 sink（Sentry 级 P0 缺口） | `index.ts:4435` 仅当 `ERROR_REPORT_WEBHOOK_URL` 才接 | **`b01e3e0` 起生产会在启动时说这件事**（`errorSinkStatus(env)` 纯函数 + 4 测）；接不接仍是运维决定 |
 | P2 | Python code 节点 fs/net 隔离 best-effort（除非 bwrap） | `code-sandbox.ts:18-19,351-354` | Linux 强制 `CODE_SANDBOX=bwrap` |
 | P2 | 限流进程内 / 单实例 | `rate-limit.ts` | 单机型无碍；多实例需共享 |
 | P2 | 默认 nginx `:80` 无 TLS | deploy-ubuntu-server.md §5 | 暴露前加 TLS + `SECURE_COOKIES=1` |
@@ -328,13 +328,13 @@ core **346/346**（24 文件）· server **1397 = 1393 通过 + 2 本机 python-
 | 包 | 读数 | 说明 |
 | --- | --- | --- |
 | core | 346/346（24 文件） | 绿 |
-| server | 1433 = 1429 过 / 2 跳过 / **2 红** | 那 2 红是 `engine.code.test.ts` 的 python 出网用例（本机 Xcode 许可 shim，Known issues）；CI 同 SHA 绿 |
+| server | 复评时 1433 → **本轮批次全部落地后 1448**（1444 过 / 2 跳过 / **2 红**，168 文件，load ≈10） | 那 2 红始终是 `engine.code.test.ts` 的 python 出网用例（本机 Xcode 许可 shim，Known issues）；CI 同 SHA 绿。增的 15 条是本会话的四组守护（`dist-assets` 4、`assertBootWorkerEnv` 3、`api.metrics` bearer 4、`errorSinkStatus` 4） |
 | mcp-server | 71 = 70 过 / **1 红** → 降载复跑 **71/71 绿** | 那条红是 `stdio.test.ts` 的 5s 超时（load average 194→233 时跑的），**降载后复跑全绿**：负载抖动，不是回归。CI 同 SHA 也绿 |
 | web | **第一次跑测条件不成立**：那次收集到 98 个文件 / 1755 条测（磁盘实有 **106** 文件），8 个文件没进收集，`20 failed` 分不清真失败还是超时 | **降载后复跑：106 文件 / 1978 条全绿**。同 SHA 的 CI `Typecheck, build & test` 亦 success。历史读数 09-26 为 1973/1973 |
 
 **为什么本轮不报本机 web 数（这是判据，不是借口）**：那次跑收集到 **98** 个测试文件 / 1755 条测，而磁盘上实有 **106** 个测试文件——**8 个文件根本没进收集**，于是「20 条红」里无法区分真失败与 jsdom 超时。同期 `uptime` load average 在 **194→233** 之间（同机另有会话在跑构建）。**CI 在同一 SHA 上 `Typecheck, build & test` = success**（该 job 含 web 套件），所以本篇对 web 的判断挂在 CI 与 09-26 低负载本机读数上，不假装本机复现过。
 
-**（同日降载后复跑，本段作废为历史记录）** load average 降到 16 时重跑 web：**106 文件 / 1978 条全绿**。所以留下的不是「那 20 条是假红」，而是一条可操作的规矩——**本机报红之前，先看 load，再比「收集到的文件数」是否等于「磁盘上的文件数」**；任一项对不上，这次跑就不构成证据。不依赖本机状态的那一条始终在：同 SHA 的 CI `Typecheck, build & test` = success。
+**降载后复跑（同日）——上面那段作废为历史记录**：load average 降到 16 时重跑 web：**106 文件 / 1978 条全绿**。所以留下的不是「那 20 条是假红」，而是一条可操作的规矩——**本机报红之前，先看 load，再比「收集到的文件数」是否等于「磁盘上的文件数」**；任一项对不上，这次跑就不构成证据。不依赖本机状态的那一条始终在：同 SHA 的 CI `Typecheck, build & test` = success。
 
 **一条方法学结论，顺带回答 §8 遗留问题 3**：`pnpm -r --if-present test -- --maxWorkers=1` 里的参数确实到达 vitest（否则它会被当文件名过滤、一个测试都不跑），但 **`pnpm -r` 本身是包间并发的**——CI 串行的是包内 worker，不是四个包。本机在高负载下把四包串跑（或不串跑）都会把负载抖动读成回归：**报红之前先看 load，再看收集到的文件数是否等于磁盘上的文件数**。
 
@@ -342,4 +342,4 @@ core **346/346**（24 文件）· server **1397 = 1393 通过 + 2 本机 python-
 
 主链、派发校验、目录数据面、成本台账四条我都能逐行指认；三处硬化项（`WORKER=fake` / dist 缺 `.mjs` / 死字段）都是**小改动 + 已有同仓先例**，不构成阻断。公网暴露口径下，P1 仍必须先收 `/metrics` 鉴权与 TLS。
 
-> **同日追记（本会话内闭合）**：上面那三条都做了——`3df542a`（`assertBootWorkerEnv`：生产 + `WORKER=fake` 启动即抛，其它环境 warn；守护 3 例，植入空操作护栏验过会红）、`02f0e67`（build 追加 `cp src/*.mjs dist/` + `src/dist-assets.test.ts` 四条守护，含**真起一次 dist 进程打 `/api/health`**；藏掉一个 dist 文件验过会红）、`69e26b8`（`SessionUser` 补 capability flag，面板改读 `/me` 的答案、非管理员不再发那次注定 403 的请求）；两条升级须知落在 `d3c58cd`（runbook「四之三」+ `.env.example`）。**§11.2 第 3 条因此从「§10.3 漏列」变成「已闭合」**，留在原地是为了记下它是被一次复评才发现的。仍未闭合的是 §11.2 第 4 条（线上跑哪个 commit 需人 SSH 确认）与 P1 的 `/metrics` / TLS。
+> **同日追记（本会话内闭合）**：上面那三条都做了——`3df542a`（`assertBootWorkerEnv`：生产 + `WORKER=fake` 启动即抛，其它环境 warn；守护 3 例，植入空操作护栏验过会红）、`02f0e67`（build 追加 `cp src/*.mjs dist/` + `src/dist-assets.test.ts` 四条守护，含**真起一次 dist 进程打 `/api/health`**；藏掉一个 dist 文件验过会红）、`69e26b8`（`SessionUser` 补 capability flag，面板改读 `/me` 的答案、非管理员不再发那次注定 403 的请求）；两条升级须知落在 `d3c58cd`（runbook「四之三」+ `.env.example`）。**同日又补两条**：`84428f5`（`METRICS_TOKEN` 让 `/metrics` 要求 bearer、`BIND_HOST` 可收回监听网卡、生产未设 token 时启动 warn——**默认一律不变**，因为改默认会打断现有 LAN 直连部署）、`b01e3e0`（`errorSinkStatus(env)` 纯函数 + 4 测：生产没设 `ERROR_REPORT_WEBHOOK_URL` 就在启动时说清楚「崩溃记录随进程消失」）。**§11.2 第 3 条因此从「§10.3 漏列」变成「已闭合」**，留在原地是为了记下它是被一次复评才发现的；`/metrics` 与错误 sink 两行的现状改记在 §10.3 表内（可收口 ≠ 已收口，收口与否是运维决定）。仍未闭合的是 §11.2 第 4 条（线上跑哪个 commit 需人 SSH 确认）与 P1 的 `/metrics` / TLS。

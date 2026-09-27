@@ -28,6 +28,21 @@ export const MAT = {
   hazard: new THREE.MeshStandardMaterial({ map: hazardStripesTexture(), roughness: 0.55, metalness: 0.3 }),
 };
 
+for (const mat of Object.values(MAT)) mat.userData = { awShared: true };
+
+/**
+ * Is this one of the module-level singletons above? The graph-sync teardown walks
+ * every node mesh and disposes its material, which is correct for per-node
+ * materials (the textGen body set, each LED, every highlight clone) and wrong for
+ * these -- they outlive every rebuild and are still referenced by the nodes that
+ * remain on screen. Disposing a shared material only frees its GPU program (three
+ * re-creates it on the next render), so the symptom was waste rather than a broken
+ * picture -- which is exactly why it survived this long.
+ */
+export function isSharedMaterial(mat: THREE.Material | undefined | null): boolean {
+  return !!mat && (mat.userData as { awShared?: boolean } | undefined)?.awShared === true;
+}
+
 export interface Kit {
   group: THREE.Group;
   put(

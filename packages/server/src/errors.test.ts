@@ -4,6 +4,7 @@ import {
   clearErrors,
   createWebhookErrorSink,
   errorCount,
+  errorSinkStatus,
   installProcessGuards,
   recentErrors,
   recordError,
@@ -13,6 +14,32 @@ import {
 
 afterEach(() => {
   clearErrors();
+});
+
+describe("errorSinkStatus — does anything leave the process?", () => {
+  it("is configured when a webhook URL is set, in any environment", () => {
+    expect(errorSinkStatus({ ERROR_REPORT_WEBHOOK_URL: "https://intake.example/x", NODE_ENV: "production" })).toEqual({
+      configured: true,
+      warn: null,
+    });
+  });
+
+  it("counts a whitespace-only URL as no sink at all", () => {
+    const status = errorSinkStatus({ ERROR_REPORT_WEBHOOK_URL: "   ", NODE_ENV: "production" });
+    expect(status.configured).toBe(false);
+    expect(status.warn).toContain("ERROR_REPORT_WEBHOOK_URL");
+  });
+
+  it("warns in production under either spelling of the environment label", () => {
+    for (const env of [{ NODE_ENV: "production" }, { AGENT_WORLD_ENV: "production" }]) {
+      expect(errorSinkStatus(env).warn).toContain("ring buffer");
+    }
+  });
+
+  it("stays quiet outside production, where the ring buffer is the whole point", () => {
+    expect(errorSinkStatus({ NODE_ENV: "development" }).warn).toBeNull();
+    expect(errorSinkStatus({ NODE_ENV: "test" }).warn).toBeNull();
+  });
 });
 
 describe("error capture buffer", () => {
