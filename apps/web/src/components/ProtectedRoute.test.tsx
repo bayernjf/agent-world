@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import ProtectedRoute from "./ProtectedRoute";
 
 // Mock react-router-dom Navigate
@@ -98,6 +98,63 @@ describe("ProtectedRoute", () => {
         expect(mockNavigate).toHaveBeenCalled();
       });
       expect(screen.queryByTestId("protected-content")).not.toBeInTheDocument();
+    });
+  });
+
+  describe("管理员开的账号（mustChangePassword）", () => {
+    it("渲染改密屏，不渲染产品，也不重定向", async () => {
+      global.fetch = vi.fn(
+        async () =>
+          ({
+            ok: true,
+            json: async () => ({
+              user: { id: "u1", email: "mate@aw.test", mustChangePassword: true },
+            }),
+          }) as any,
+      ) as any;
+      renderComponent();
+      await waitFor(() => expect(screen.getByText("设置你的密码")).toBeInTheDocument());
+      expect(screen.queryByTestId("protected-content")).not.toBeInTheDocument();
+      expect(mockNavigate).not.toHaveBeenCalled();
+    });
+
+    it("改完之后重新问一次 /me，由服务端决定放行", async () => {
+      let pending = true;
+      const urls: string[] = [];
+      global.fetch = vi.fn(async (url: string) => {
+        urls.push(url);
+        if (url === "/api/auth/password") {
+          pending = false;
+          return { ok: true, status: 200, json: async () => ({ ok: true }) } as any;
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ user: { id: "u1", email: "mate@aw.test", mustChangePassword: pending } }),
+        } as any;
+      }) as any;
+      renderComponent();
+      await waitFor(() => expect(screen.getByText("设置你的密码")).toBeInTheDocument());
+      fireEvent.change(screen.getByLabelText("当前密码"), { target: { value: "one-time" } });
+      fireEvent.change(screen.getByLabelText("新密码"), { target: { value: "my-secret" } });
+      fireEvent.change(screen.getByLabelText("确认新密码"), { target: { value: "my-secret" } });
+      fireEvent.click(screen.getByRole("button", { name: "保存并进入" }));
+      await waitFor(() => expect(screen.getByTestId("protected-content")).toBeInTheDocument());
+      // Two probes, not one optimistic local flip.
+      expect(urls.filter((u) => u === "/api/auth/me")).toHaveLength(2);
+    });
+
+    it("普通账号不受这个门影响", async () => {
+      global.fetch = vi.fn(
+        async () =>
+          ({
+            ok: true,
+            json: async () => ({ user: { id: "u1", email: "a@b.c", mustChangePassword: false } }),
+          }) as any,
+      ) as any;
+      renderComponent();
+      await waitFor(() => expect(screen.getByTestId("protected-content")).toBeInTheDocument());
+      expect(screen.queryByText("设置你的密码")).not.toBeInTheDocument();
     });
   });
 });
