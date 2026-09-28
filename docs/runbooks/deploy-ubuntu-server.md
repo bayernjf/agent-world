@@ -353,8 +353,15 @@ curl -s -X POST http://127.0.0.1:8791/api/admin/users \
 
 三件要提前知道的：
 
-- **口令没有送达渠道**（仓内无 SMTP）。这一串只能通过界面/响应交给对方，所以别把 owner 会话留在共享机器上；`account.provision` 审计行只记邮箱，不记口令。
-- **忘记口令仍然进不去**：没有找回密码（登记在 [deferred-items](../deferred-items.md) 的「账号自助三缺」）。owner 能给新账号，但不能替老账号重置口令——目前唯一的处置是再开一个邮箱的账号并迁移数据，所以把「对方记得自己改过密」当成流程的一部分。
+- **口令没有送达渠道**：仓内确实有 SMTP（`nodemailer`，`notifier.ts`），但它只服务 notify 节点的**出站**邮件，不是账号邮件通道。所以那一串只能离线交给对方——别把 owner 会话留在共享机器上。`account.provision` 审计行只记邮箱，不记口令。
+- **对方忘了口令不是死路，但要人动手**：自助「找回密码」仍然没有（登记在 [deferred-items](../deferred-items.md) 的「账号自助三缺」），但 owner 可以替任何账号重置：
+
+  ```bash
+  DB_FILE=/var/lib/agent-world/agent-world.sqlite \
+    pnpm --filter @agent-world/server reset:password -- --email=user@example.com
+  ```
+
+  它生成一条**新的** 16 字符一次性口令、只打印一次，并**重新挂上 `must_change_password=1`**——也就是重置后又被送回「必须先改密」那道门，和开号时同一份契约（`scripts/reset-password.ts`）。口令默认不经 argv（`ps` 与 shell history 都会漏），`--password=` 只为脚本化流程留，别在交互终端用。
 - 新账号是 `role:'user'`。要给它管理员权限是另一件事（同页「设为管理员」），开通时不打包办。
 
 ## 五、构建并托管 web（nginx 同源）
