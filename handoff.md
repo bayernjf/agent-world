@@ -81,6 +81,7 @@ State of Agent World as of 2026-09-28（上一版标 09-25，实际最后更新 
 
 * [docs/runbooks/deploy-cicd.md](docs/runbooks/deploy-cicd.md) — CI/CD 自动部署方案（Git + CI 质量门禁 + self-hosted runner；Mac push → CI 测试 → 自动部署到 Hasee；含 Deploy Key / 最小 sudo / runner 安装 / deploy.sh / workflow 五步 + 回滚排障）★
 
+* [docs/runbooks/mcp-client-access.md](docs/runbooks/mcp-client-access.md) — **接入手册：其他系统通过 MCP 用 agent-world**（stdio / Streamable HTTP 两种形态的可抄配置；`AGENT_WORLD_TOKEN` 是**用户 JWT**、寿命 24h/7d、**改口令杀不掉已签发 token**；只读档 `AGENT_WORLD_MCP_READONLY=1` 隐藏并拒绝 6 个写工具；Origin 403 与 `REQUIRE_AUTH` 401 两道闸；**§5 是六条实测验收读数**（起真进程打出来的，不是推断）；§6 环境变量全表；§7 明列没有 scope / 没有 token 签发接口 / 没有撤销列表）
 * [docs/runbooks/error-reporting.md](docs/runbooks/error-reporting.md) — 错误追踪与告警运维手册
 * [docs/runbooks/tts-provider-setup.md](docs/runbooks/tts-provider-setup.md) — TTS 供应商配置运维手册（SiliconFlow/OpenAI 两套 step-by-step、验证清单、故障排查；G-H，2026-09-22）
 * [docs/runbooks/change-management.md](docs/runbooks/change-management.md) — 变更管理流程（变更分级/审批/窗口/回滚/记录模板）
