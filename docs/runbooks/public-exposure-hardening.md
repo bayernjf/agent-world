@@ -41,6 +41,7 @@
 - [ ] **演示账号**：确认 `ALLOW_DEMO` 是否要开。开则同时确认 demo 额度/TTL（`DEMO_*`）与限流符合预期，避免免注册入口被刷。
 - [ ] **计费闸门**：按需 `MONETIZATION_ENFORCE`（取值与覆盖面见 [deploy-ubuntu-server.md](deploy-ubuntu-server.md) §四之二，注意它只认 `MONETIZATION_ENFORCE` 一个变量名）。
 - [ ] **生产禁用假模型**：确认 `WORKER` 未设成 `fake`——生产里它会让每条 run 都「done」但内容是编造的（代码已在生产拒启，仍建议显式确认一次）。
+- [ ] **MCP server 的暴露面**：默认它绑 `127.0.0.1:3100`、不对公网，**没打算让别的系统接就勾「不适用」**。要开 http 形态给外部接，三条一起看：`AGENT_WORLD_MCP_REQUIRE_AUTH=1`（不开则任何能连到端口的人都在**共享 env 里那个兜底账号的权限**，包括写）、只读需求开 `AGENT_WORLD_MCP_READONLY=1`（6 个写工具隐藏并且直接拒绝）、以及记住 `AGENT_WORLD_TOKEN` 是**用户 JWT 而不是 API key**——`verifyToken` 只验签，所以**改口令与 `reset:password` 都撤销不了已经发出去的 token**，只能等它自然过期（24h / 7d）。接法、Origin 白名单与六条实测验收读数见 [mcp-client-access.md](mcp-client-access.md)。
 
 ## 3. 数据、进程与出站
 
