@@ -3,8 +3,11 @@
  * variables injected by the MCP client (e.g. Claude Desktop's config):
  *
  * - `AGENT_WORLD_URL`    base URL of the main agent-world server (default http://localhost:8791)
- * - `AGENT_WORLD_TOKEN`  auth JWT sent as `?token=` on every request (needed
- *                        once the main server is secured)
+ * - `AGENT_WORLD_TOKEN`  auth JWT for the main agent-world server. It goes out
+ *                        as an `Authorization: Bearer` header on API requests
+ *                        (`client.ts:28`); only binary artifact downloads put
+ *                        it in `?token=`, because those URLs are handed out for
+ *                        callers that cannot set headers (`client.ts:133-136`)
  * - `AGENT_WORLD_MCP_ALLOWED_ORIGINS`  comma-separated browser origins the HTTP
  *                        transport accepts on top of localhost (2025-11-25
  *                        requires refusing everything else with a 403)
