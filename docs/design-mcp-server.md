@@ -196,6 +196,8 @@ packages/
 
 ## 7. 客户端配置示例
 
+> **接入步骤请以 [docs/runbooks/mcp-client-access.md](runbooks/mcp-client-access.md) 为准**（含 http 形态、令牌怎么取、只读档、Origin 白名单、实测验收表）。本节只留最小片段，且变量名以代码为准。
+
 Claude Desktop 的 `claude_desktop_config.json`：
 
 ```json
@@ -206,14 +208,14 @@ Claude Desktop 的 `claude_desktop_config.json`：
       "args": ["/path/to/agent-world/packages/mcp-server/dist/index.js"],
       "env": {
         "AGENT_WORLD_URL": "http://localhost:8791",
-        "AGENT_WORLD_API_KEY": "your-key-if-needed"
+        "AGENT_WORLD_TOKEN": "<auth_token JWT>"
       }
     }
   }
 }
 ```
 
-Cursor / 豆包等客户端配置类似。
+**订正（2026-09-28）**：这个片段原来写的是 `AGENT_WORLD_API_KEY`——**全仓没有这个环境变量**（`packages/mcp-server/src/config.ts:50` 读的是 `AGENT_WORLD_TOKEN`），照旧片段配出来的进程不带任何凭据，主服务 secured 之后每个请求都 401。同类片段在 §2「Claude Desktop 接入」处写对了，两处现在一致。
 
 ---
 

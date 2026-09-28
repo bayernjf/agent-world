@@ -40,6 +40,7 @@ AGENT_WORLD_MCP_TRANSPORT=http \
 两条协议细节，客户端挑版本时用得上：
 
 - **服务端推送分岔**：`GET /mcp`（SSE）服务 2024-11-05 / 2025-11-25；2026-07-28 改走一次 `POST` 换长活响应的 `subscriptions/listen`。声明了旧版本的客户端调新通道会拿 `-32601`，反之亦然。
+- **别用 `GET /mcp` 做就绪/健康探针**——它是长连接，`curl` 打上去不会自己结束（本手册的探针就因此挂过一整批，并留下一个没人收的监听进程）。要判「起来了没有」，打 `GET /.well-known/oauth-protected-resource`（它会正常返回并关闭，且不要求凭据），或发一条 `POST /mcp` 的 `initialize`。
 - **`Mcp-Method` 头**：可不带（老客户端就不带）；但**带了又和请求体里的 method 不一致会 400**——所以别拿它当装饰。
 - **Origin 校验**：HTTP 形态绑在 localhost 上，2025-11-25 起必须拒掉跨站请求。默认放行 `localhost` / `127.0.0.1` / `[::1]` 与**不带 Origin 的非浏览器调用**；浏览器要从别的源打开，必须显式 `AGENT_WORLD_MCP_ALLOWED_ORIGINS=https://your.app`（逗号分隔），否则 403。
 
