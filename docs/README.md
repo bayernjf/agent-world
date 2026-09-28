@@ -20,7 +20,7 @@
 | 接手某个模块的设计决策            | 对应 [design-\*.md](design-mcp-server.md)                                     |
 | 给 agent 加技能卡（工具/提示模块/输出契约） | [design-skill.md](design-skill.md)（§11 现状盘点 + §12 作者指南）+ [extending.md](extending.md) §3 |
 | 知识提取 / 跨产线记忆归档 | [design-knowledge-memory.md](design-knowledge-memory.md)（Knowledge / Archive 知识提取与记忆系统，已落地） |
-| 把平台暴露给别的 AI 客户端（MCP Server） | [design-mcp-server.md](design-mcp-server.md)（§12 协议版本协商 / §13 授权 / §14 未实现清单）+ [production-ops.md](production-ops.md) §8（部署形态） |
+| 把平台暴露给别的 AI 客户端（MCP Server） | **[runbooks/mcp-client-access.md](runbooks/mcp-client-access.md)**（接入手册：stdio / http 两种形态各一段可抄配置、`AGENT_WORLD_TOKEN` 是**用户 JWT** 不是 API key 且撤销不了、只读档、Origin 与 Bearer 两道闸、六条实测验收表、目前「没有」的几件事）+ [design-mcp-server.md](design-mcp-server.md)（§12 协议版本协商 / §13 授权 / §14 未实现清单，方案与取舍）+ [production-ops.md](production-ops.md) §8（部署形态） |
 | 接 Notion / Linear / 邮件 / 内容平台等第三方 | [integrations-future.md](integrations-future.md)（未来集成清单与触发条件；当前外接能力走 MCP / HTTP 节点 / Connector） |
 | 给播客产线接 AI 配音（TTS Provider） | [design-tts-provider.md](design-tts-provider.md)（audioGen 链路已就绪，推荐 SiliconFlow 原生 OpenAI 兼容 `/audio/speech`；含字节计费口径、音色命名、软降级与 edge-tts 免费备选） + [runbooks/tts-provider-setup.md](runbooks/tts-provider-setup.md)（SF/OpenAI 两套 step-by-step 配置 + 验证清单 + 故障排查） |
 | 换/增/删内置模型（不逐条产线手改） | [design-model-catalog.md](design-model-catalog.md)（两平面与字段归属：模型清单=数据、接口方言=代码、端点与凭证=env；规则 A 下架即报错 + 规则 B `model:""`=跟随默认；阶段 ①–④ 已于 2026-09-25/26 全部落地，含 admin 可维护的目录数据面） |
