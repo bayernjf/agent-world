@@ -2,7 +2,7 @@
 
 > 评审性质：项目级功能性 / 完整度 / 可上线性评审，硬标准 = **产品核心完全可用的 MVP**。
 > 评审基线：2026-09-22 评审报告 + 本轮对代码/文档/CI 的一手核查。
-> 评审环境：`feature/20260824 @ 7fec506`（本机未 push 部分见 §2）；Hasee 生产 = `main @ 0a4cbda`（经 GitHub API 实读 `gh run view 36108572366`）。
+> 评审环境：`feature/20260824 @ 7fec506`（本机未 push 部分见 §2）；~~Hasee 生产 = `main @ 0a4cbda`~~ —— **该口径 09-27 作废**（staging 按分支映射跟踪 `dev` 而非 `main`，见 §11.1）；**09-29 核验 staging 实际跑 `dev @ 779e926`，见 §12.6**。
 > 前版：[mvp-readiness-review-2026-09-22.md](./mvp-readiness-review-2026-09-22.md) · [2026-09-21.md](./mvp-readiness-review-2026-09-21.md)
 > **取证纪律**：本篇每一条结论都有本机命令输出或源码行号支撑；无法自证的（现网日志、真机走查、并行会话的口头结论）一律写进 §8 并标注证据等级，不参与判定。
 
@@ -395,3 +395,21 @@ core **346/346**（24 文件）· server **1397 = 1393 通过 + 2 本机 python-
 **未发现任何推翻 §11.1 判定的新缺陷。** 自托管单机型 **✅ 达到「产品核心完全可用的 MVP」**；对外商业 SaaS **❌ 不达标**；公网暴露前逐项过 [public-exposure-hardening.md](runbooks/public-exposure-hardening.md) 那份闸门（TLS + `SECURE_COOKIES` 的先后、`/metrics` 收口、错误 sink 的消费端、设 `NODE_ENV=production` 之前先查 `WORKER=fake`）。
 
 **订正本节上一版的一处口径**：这里原写「仍须先收 §10.3 的 P1（… + **历史口令轮换**）」——把一件**已结案**的事当阻断项复述了。那台 staging 机的 sudo 口令 09-26 由用户拍板转为**已接受风险**（§9.6：不轮换、不改写历史；且改写历史也拿不掉，因为脱敏那条的父 commit 至今可达、远端还有 432 条 `refs/pull/*/head`），所以它不在暴露前的闸门里，只挂在 §9.6 的四条失效条件上。这句话是照抄 §10.3 的旧清单留下的，凡与之冲突以 §9.6 为准。
+
+## 13. 部署核验追记（2026-09-29）
+
+> **性质**：不是新一次评审，只补一条 §11.1/§12 都留着的运维尾巴——「线上到底跑在哪个 commit」。判定不变，仍是 §12.1 那张表。
+
+**结论**：staging 已部署 **`779e926`**，且这正是当前 `origin/dev` HEAD——即 `feature/20260824` 的全部工作**已上线**。
+
+**取证（三条，均本机可复现）**：
+
+1. **部署源确为 dev**：触发部署的 CI 是 dev 上的 push run（run `36447349306`，`event=push` / `headBranch=dev` / `headSha=779e926`，2026-09-28T15:56:15Z，success），符合 `deploy.yml:7/15` 的 `branches:["dev"]` + `event=='push'` 双闸门。
+2. **health 200 读数**：Deploy run `36447733305`（2026-09-28T15:59:24Z，1m28s，success）日志在四包 build 全 Done 后以 `deploy OK: 779e926` 收尾。`scripts/deploy/deploy.sh:39-43` 只在 `/api/health` 轮询拿到 200 时打印该行，失败则打 `deploy FAILED` 并 `exit 1`——**故这一行本身即一次健康读数**，是 §11.1 那条「CI 一手日志闭合」手法在本次基线下的重放。
+3. **内容闭合**：`779e926` = 「Merge pull request #454 from bayernjf/feature/20260824」；`git merge-base --is-ancestor 11b8eab 779e926` = **YES**。逐条查过本报告与各设计文档引用的 SHA（`978ab56`/`36135e8`/`2fbcbe1`/`33dcc91`/`1ea3c62`/`0a1ec39`/`93b3082`/`0cbf11e`/`2c8bc22`/`66d337f`/`34b1aed`/`b99519c`/`49be041`/`c92603f`/`45ab9cb`/`7fec506`）**全部是 `779e926` 的祖先**，即这些文档里写于当时的「未 push / 未合 dev / 尚未 push」现已一律作废。
+
+**一条给后来者的判据更正（本轮踩到）**：**不要用 Deploy run 自己的 `headBranch`/`headSha` 判断部署内容**——`36447733305` 这两个字段报的是 `main` / `bfc74ce`，既不是被部署的 SHA 也不是 dev ref（`workflow_run` 事件的字段天生如此）。有效信号只有两个：dev push CI 的 `headSha`，与部署脚本自报的 `deploy OK: <sha>`。
+
+**边界（如实记，不参与判定）**：本轮**未**本机 SSH 打 `/api/health`——staging 主机在局域网内，当前网络 `No route to host` 且无 Tailscale。上述健康读数是**部署脚本自带的闸门**，不是本机直连读数。要拿第一手读数须在能路由到该网段的机器上 `curl -s http://127.0.0.1:8791/api/health`。这与 §2 记的取证纪律一致：够不到的证据标出来，不当成拿到了。
+
+**旁证**：`origin/main` 现为 `e1628016`（「Merge pull request #455 from bayernjf/dev」，父提交 `bfc74ce` + `779e926`），即 dev 已回灌 main；main 比已部署版本多一个 merge，但 **main 不在部署轨道上**（§11.1），不影响上线判定。
