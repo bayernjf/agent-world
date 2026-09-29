@@ -25,7 +25,7 @@
 
 **仍留待**：
 
-- 🟡 **G2.4 模板预置 contract —— 前置数组契约能力 (A) 已落地（2026-09-20，feature/20260824，未合 dev），预置动作仍缓做**：core `ContractSpec` 扩 `root:"array"`+`items:{requiredFields,types}`+`minItems`（违例按 `[i].字段` 报告）、engine 数组闸门改读 connector 的 `sourceMeta.data`（Product[]/SQL rows，回退 artifactValue 覆盖未来数组型 http/function/code）、Inspector 契约编辑器加对象/数组根形状切换（core `978ab56`/`36135e8`、server `2fbcbe1`、web `33dcc91`）；默认 root=对象且无内置模板声明数组契约，零行为变更。**预置**仍须抓到真实 Product[]/SQL rows 样本、对照真实字段名逐个核对后再给 tpl-product/tpl-xiaohongshu 配置，避免字段名写错误拦真实 run；原料台/纯文本节点输出 Markdown brief，即使数组闸门改读 sourceMeta，无 connector 结构化数据的节点仍不该配契约。
+- 🟡 **G2.4 模板预置 contract —— 前置数组契约能力 (A) 已落地（2026-09-20，feature/20260824；**2026-09-29 核验：已随 PR #454 合 dev、并部署到 staging `779e926`，写于当时的「未合 dev」作废**），预置动作仍缓做**：core `ContractSpec` 扩 `root:"array"`+`items:{requiredFields,types}`+`minItems`（违例按 `[i].字段` 报告）、engine 数组闸门改读 connector 的 `sourceMeta.data`（Product[]/SQL rows，回退 artifactValue 覆盖未来数组型 http/function/code）、Inspector 契约编辑器加对象/数组根形状切换（core `978ab56`/`36135e8`、server `2fbcbe1`、web `33dcc91`）；默认 root=对象且无内置模板声明数组契约，零行为变更。**预置**仍须抓到真实 Product[]/SQL rows 样本、对照真实字段名逐个核对后再给 tpl-product/tpl-xiaohongshu 配置，避免字段名写错误拦真实 run；原料台/纯文本节点输出 Markdown brief，即使数组闸门改读 sourceMeta，无 connector 结构化数据的节点仍不该配契约。
 - ✅ **G4.2/G4.3/G4.4 跨 run —— 全部落地（2026-09-24，§3.4–3.10）**：步骤 ④ videogen degraded/halt + remote_jobs 落库幂等（`7d7a08f`/`34a6a5e`）、⑤ resume reattach/accept-degraded（`2b58092`/`fce8324`）、⑥ 前端橙色 degraded 标识 + 三按钮 + i18n（`fe80ed4`），随 PR #408 合 dev（merge `a557d8b`）、PR #409 合 main，Hasee 已部署、零打断、日志零 error。core 新增 `node.degradedAccepted` 事件与 timeline degraded 投影（+2），engine.videogen.async 重写 8 测（+3）。
 
 ---
@@ -304,7 +304,7 @@ emit 一个决策事件（`node.degradedAccepted`，或复用 human.decision 形
 **顺序（每步原子提交、英文 message、不 push）：**
 G1.1 → G1.2 → G1.3 → G1.4（P0，最大价值）→ G2.1 → G2.2 → G2.3 → G2.4 → G4.1-G4.3 → G3（maxRetries 下放 + budget UI）。
 
-> 实际落地进度（更新至 2026-09-18）见文首「实施进度」表：G1.1 / G1.3 / G1 完整输出懒加载、G2.1 / G2.3、G4.1，以及 **G1.2 fork、G2.2 engine 接线、G4.4（09-17 收口，随 PR #319/#325/#331 合 dev）与 G3（09-18 `703c47d`，PR #341）** 均已落地；**G2.4 前置 (A) 数组契约能力已于 2026-09-20 落地**（core/server/web，工作分支未合 dev；批量预置仍待真实 Product[]/SQL rows 样本）；剩 **G2.4 批量预置、G4.2 降级状态机、G4.3 前端「继续/降级」按钮** 留待（改 run 执行核心，避开 M1 回采关键期并单独充分测试）。
+> 实际落地进度（更新至 2026-09-18）见文首「实施进度」表：G1.1 / G1.3 / G1 完整输出懒加载、G2.1 / G2.3、G4.1，以及 **G1.2 fork、G2.2 engine 接线、G4.4（09-17 收口，随 PR #319/#325/#331 合 dev）与 G3（09-18 `703c47d`，PR #341）** 均已落地；**G2.4 前置 (A) 数组契约能力已于 2026-09-20 落地**（core/server/web；**2026-09-29 核验已随 PR #454 合 dev 并部署 staging `779e926`**，写于当时的「工作分支未合 dev」作废；批量预置仍待真实 Product[]/SQL rows 样本）；剩 **G2.4 批量预置、G4.2 降级状态机、G4.3 前端「继续/降级」按钮** 留待（改 run 执行核心，避开 M1 回采关键期并单独充分测试）。
 
 **明确不做：**
 - ❌ 不引入 OpenTelemetry / Sentry（deferred-items 已挂触发条件，单机阶段 server 结构化日志够用）。

@@ -2,7 +2,7 @@
 
 > **文件名勘误（2026-09-25 机器核证）**：本文规划的 `packages/server/src/demo-guard.ts` **未采用**，能力实现落在 `packages/server/src/demo.ts`；裁剪脚本的真实路径是 `packages/server/scripts/prune-demo-users.ts`（非根 `scripts/`）。
 
-> 状态：**D1–D6 本地端到端走查全部通过（2026-09-15）**。D1 数据层 / D2 额度守卫 / D3 服务路由 / D4 前端 / D5 清理脚本+部署手册均已实现并随 6 个原子 commit 入库（分支 feature/20260824，未合 dev），单测/集成测/组件测全绿、四包 typecheck 绿、web 顺序全量 1865 与 server 全量 1185 通过；D6 本地以 ALLOW_DEMO=1 + MONETIZATION_ENFORCE=1 走完 API + 浏览器全链路。**已全部闭环**：随 PR #302 合 dev 部署 Hasee（systemd override `ALLOW_DEMO=1`），真机复验通过；422 网关两轮修复（PR #305/#307 `5812aca`/`76dbd42`）闭环；每小时 prune cron 已挂。
+> 状态：**D1–D6 本地端到端走查全部通过（2026-09-15）**。D1 数据层 / D2 额度守卫 / D3 服务路由 / D4 前端 / D5 清理脚本+部署手册均已实现并随 6 个原子 commit 入库（分支 feature/20260824），单测/集成测/组件测全绿、四包 typecheck 绿、web 顺序全量 1865 与 server 全量 1185 通过；D6 本地以 ALLOW_DEMO=1 + MONETIZATION_ENFORCE=1 走完 API + 浏览器全链路。**已全部闭环**：随 PR #302 合 dev 部署 Hasee（systemd override `ALLOW_DEMO=1`），真机复验通过；422 网关两轮修复（PR #305/#307 `5812aca`/`76dbd42`）闭环；每小时 prune cron 已挂。
 > 目标读者：接手实现的 agent / 工程师。本文是演示用户特性的单一事实源，实现按 §9 的 D1–D6 原子推进。
 > 关联：商业化配额见 [design-monetization.md](design-monetization.md) 与 [design-monetization-m2-implementation.md](design-monetization-m2-implementation.md)；认证/RBAC 见 [design-rbac.md](design-rbac.md)；DB 抽象层与 PG 双轨见 [design-postgres-migration.md](design-postgres-migration.md)；新用户引导见 [design-guided-tour.md](design-guided-tour.md)。
 
