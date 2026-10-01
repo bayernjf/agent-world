@@ -275,6 +275,8 @@ Agnes free tier 429 已按方案 C（降频+长退避 retry）闭环（PR #229 `
 
 按 commit 时间倒序，每条一行影响面 + commit hash：
 
+**2026-10-02（09-30 审计 P0/P1 落地 + 每日体检 cron 重建，feature/20260824 `09f27dc`/`24f16ac`/`b9e8c3d` → PR #464 合 dev，已部署 `f6bdef0`）**：**P0 一次性密码保护**——`api.provision.test.ts` +2 守护（access log 绝不携带口令、users 列表无再读端点），加固 runbook 补 provision 只走内网/owner 通道 + 反代 log 不记 body。**P1 插件 IPC zod 校验**——`isolation.ts` 新增 `ParentInboundSchema`（call-result + proxy 的 fetch/fs payload 全量校验），畸形消息 fail-closed（reject 在途 call、不杀子进程），`isolation.test.ts` +4 测；加固 runbook 补 `TOOL_FS_ALLOW` 写前缀须精确到子目录（防 rm -rf 误伤）。验证：typecheck 四包绿，isolation 21 / provision 13 / halted-ttl 6 / dispatch-gate 9 = 45 全过。同日 20:10 UTC 写草稿 tick 实证并发闸已恢复（run 被 #464 自动部署打断属预期），部署后 health ok、DB halted=0/running=0。**豆包工作每日 10:30（CST）M1 体检 cron 已重建**（今日 10:30 首次触发）。
+
 **2026-10-02（M1 回采恢复：halted 并发死锁处置 + TTL 治本，feature/20260824 `fe47a11` → PR #462 合 dev，已部署 `a284bbc`）**：09-25 起 M1 全线 0 run 的根因链坐实——10-01 agnes 配额重置后 cron 仍被 dispatch-gate「并发上限 5 已满」拒绝（**非配额**）；5 个 09-13~09-19 翻译产线 halted run 按 `countActiveRuns` 口径（running+halted）占满 owner pro 并发槽。**A 立即恢复**：5 个 halted 事件流一致处置为 failed（保留 halt 信息），activeRuns 归 0。**B 治本**：`Db.scrapStaleHaltedRuns` + `dispatchGate` 派发前（mode 检查前、off 档也生效）自动废弃超期 halted，`HALTED_RUN_TTL_DAYS` 默认 7 天；server 新增 14 测，typecheck 绿。详情见 Active work #41「最新体检（2026-10-02）」块。
 
 **2026-09-26（AB 跨切面收口 + 兜底模型名清零，feature/20260824，未 push）**：`run.ts` 抽出 `drainRun()`，startRun/resumeRun/forkRun/ab 四条派发路径共用一份跨切面装配（此前 ab 一条都没传、另三条各抄一遍）；`engine.ts` 三处与 `openai-compatible.ts` 三处兜底不再写死 `agnes-2.0-flash`，改按规则 A 报 `UNSUPPORTED`。server 1429→1432，四包 typecheck 绿。详情见 Active work #77。
