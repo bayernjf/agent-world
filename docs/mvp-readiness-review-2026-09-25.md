@@ -34,7 +34,7 @@
 
 > **因此 `handoff.md` 本批条目里「未 push、未部署」这句对 ①② 不成立**（见 §5 更正项 4）。生产（main `0a4cbda`）不含 ①②③。
 
-**零配置可用度（实测，非推算）**：临时探针把 36 个模板逐个 `instantiateTemplate → resolveModelSlots → validateModels`（`loadConfig(undefined)`，即只有内置 `DEFAULT_CONFIG`）——**35 可派发 / 1 被拒**，被拒的是 `tpl-news-podcast`，原因：其 `ttsModel` 字段默认值钉着 `tts-1`（`packages/core/src/templates.ts:1424`），而内置目录只有 text/image/video 模态（`packages/server/src/config.ts:312-319`），于是规则 A 生效后派发 422「模型「tts-1」已不可用」。这与该模板注释里写明的设计意图相反（无 TTS 能力时 `audioGen` **软跳过**、e5 旁路照样交付完整文稿，`templates.ts:1477-1481`）。→ 需拍板（§7 决策 D-1）。
+**零配置可用度（实测，非推算）**：临时探针把 36 个模板逐个 `instantiateTemplate → resolveModelSlots → validateModels`（`loadConfig(undefined)`，即只有内置 `DEFAULT_CONFIG`）——**35 可派发 / 1 被拒**，被拒的是 `tpl-news-podcast`，原因：其 `ttsModel` 字段默认值钉着 `tts-1`（`packages/core/src/templates.ts:1424`），而内置目录只有 text/image/video 模态（`packages/server/src/config.ts:312-319`），于是规则 A 生效后派发 422「模型「tts-1」已不可用」。这与该模板注释里写明的设计意图相反（无 TTS 能力时 `audioGen` **软跳过**、e5 旁路照样交付完整文稿，`templates.ts:1477-1481`）。→ 需决策（§7 决策 D-1）。
 
 ---
 
@@ -394,7 +394,7 @@ core **346/346**（24 文件）· server **1397 = 1393 通过 + 2 本机 python-
 
 **未发现任何推翻 §11.1 判定的新缺陷。** 自托管单机型 **✅ 达到「产品核心完全可用的 MVP」**；对外商业 SaaS **❌ 不达标**；公网暴露前逐项过 [public-exposure-hardening.md](runbooks/public-exposure-hardening.md) 那份闸门（TLS + `SECURE_COOKIES` 的先后、`/metrics` 收口、错误 sink 的消费端、设 `NODE_ENV=production` 之前先查 `WORKER=fake`）。
 
-**订正本节上一版的一处口径**：这里原写「仍须先收 §10.3 的 P1（… + **历史口令轮换**）」——把一件**已结案**的事当阻断项复述了。那台 staging 机的 sudo 口令 09-26 由用户拍板转为**已接受风险**（§9.6：不轮换、不改写历史；且改写历史也拿不掉，因为脱敏那条的父 commit 至今可达、远端还有 432 条 `refs/pull/*/head`），所以它不在暴露前的闸门里，只挂在 §9.6 的四条失效条件上。这句话是照抄 §10.3 的旧清单留下的，凡与之冲突以 §9.6 为准。
+**订正本节上一版的一处口径**：这里原写「仍须先收 §10.3 的 P1（… + **历史口令轮换**）」——把一件**已结案**的事当阻断项复述了。那台 staging 机的 sudo 口令 09-26 由用户决策转为**已接受风险**（§9.6：不轮换、不改写历史；且改写历史也拿不掉，因为脱敏那条的父 commit 至今可达、远端还有 432 条 `refs/pull/*/head`），所以它不在暴露前的闸门里，只挂在 §9.6 的四条失效条件上。这句话是照抄 §10.3 的旧清单留下的，凡与之冲突以 §9.6 为准。
 
 ## 13. 部署核验追记（2026-09-29）
 

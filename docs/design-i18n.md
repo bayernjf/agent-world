@@ -30,7 +30,7 @@
 
 - ~~`Inspector.tsx` 内 29 种节点的配置字段~~ **已完成**：`apps/web/src` 非测试代码扫描后只剩 4 个文件含中文，且都是 AGENTS.md 允许的四类（术语对照表 `GlossaryModal`、语言切换器目标语言名、`store/graph.ts` 的翻译节点模型配置、`App.tsx` 里只做颜色哈希种子的园区 category）。
 - **语言包已无「够不着」的 key**：`pnpm i18n:check` 现在报 `no unused keys`，zh 侧 1982 个 key。仍存的判定局限：只被运行时前缀保护的 key，如果那个前缀以后不再拼出来，扫描不会自动发现它变成死 key（保护是按前缀放行，不是按实际取值域）。
-- **en 节点名口径待拍板**：工厂隐喻（`Reactor` / `Conveyor`）还是功能名（`Text generation`），只改语言包值、不改代码。
+- **en 节点名口径待决策**：工厂隐喻（`Reactor` / `Conveyor`）还是功能名（`Text generation`），只改语言包值、不改代码。
 
 ## 1. 背景与现状
 

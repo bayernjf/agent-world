@@ -128,7 +128,7 @@ export type QuotaResponseBody =
 /**
  * 每条走 HTTP 的派发路都回同一个形状——前端 `upgrade-gate.ts` 按 `error` 字段分流
  * （subscription → 升级引导，demo_quota → 转正引导），少一个字段就静默不弹。
- * 非配额错误返回 null，交回调用方继续抛。
+ * 非配额错误返回 null，交由调用方继续抛。
  */
 export function quotaResponseBody(err: unknown): QuotaResponseBody | null {
   if (err instanceof QuotaError) {
