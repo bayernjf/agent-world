@@ -2,9 +2,11 @@ import { type ChildProcess, fork } from "node:child_process";
 import path from "node:path";
 import { readFile, writeFile, readdir, stat, unlink, mkdir, rm, appendFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
+import { z } from "zod";
 import type { Worker } from "./worker.js";
 import { loadPermissionConfig, matchDomain } from "./permissions.js";
 import { guardedFetch } from "./ssrf.js";
+import { log } from "./logger.js";
 
 /**
  * Plugin process isolation (4C.7).
@@ -135,6 +137,53 @@ interface ProxyResultMsg {
 }
 type ParentInbound = CallResultMsg | ProxyMsg;
 
+// --- Inbound message validation (audit 2026-09-30 P1) ---
+// The child is plugin code; the IPC channel is the plugin's attack surface
+// against the parent. Validate every inbound message with a zod schema and
+// fail closed (reject all pending calls) on anything malformed, instead of
+// running the handler against attacker-shaped fields.
+const CallResultMsgSchema = z.object({
+  dir: z.literal("c2p"),
+  kind: z.literal("call-result"),
+  id: z.number(),
+  ok: z.boolean(),
+  events: z.array(z.unknown()).optional(),
+  result: z.unknown().optional(),
+  error: z.string().optional(),
+});
+
+const FsPayloadSchema = z.union([
+  z.object({ op: z.literal("read"), path: z.string() }),
+  z.object({ op: z.literal("write"), path: z.string(), data: z.string() }),
+  z.object({ op: z.literal("appendFile"), path: z.string(), data: z.string() }),
+  z.object({ op: z.literal("readdir"), path: z.string() }),
+  z.object({ op: z.literal("stat"), path: z.string() }),
+  z.object({ op: z.literal("unlink"), path: z.string() }),
+  z.object({ op: z.literal("mkdir"), path: z.string() }),
+  z.object({ op: z.literal("rm"), path: z.string() }),
+  // Legacy: { path, write?, data? } without an `op` key.
+  z.object({ path: z.string(), write: z.boolean().optional(), data: z.string().optional() }),
+]);
+
+const ProxyMsgSchema = z.discriminatedUnion("op", [
+  z.object({
+    dir: z.literal("c2p"),
+    kind: z.literal("proxy"),
+    id: z.number(),
+    op: z.literal("fetch"),
+    payload: z.object({ url: z.string(), init: z.unknown().optional() }),
+  }),
+  z.object({
+    dir: z.literal("c2p"),
+    kind: z.literal("proxy"),
+    id: z.number(),
+    op: z.literal("fs"),
+    payload: FsPayloadSchema,
+  }),
+]);
+
+const ParentInboundSchema = z.union([CallResultMsgSchema, ProxyMsgSchema]);
+
 /** A `Worker` whose methods run in a forked child process. */
 export class IsolatedWorker implements Worker {
   private seq = 1;
@@ -155,7 +204,21 @@ export class IsolatedWorker implements Worker {
     child.on("exit", () => this.failAll(new Error("plugin process exited")));
   }
 
-  private onMessage(m: ParentInbound): void {
+  private onMessage(raw: unknown): void {
+    const parsed = ParentInboundSchema.safeParse(raw);
+    if (!parsed.success) {
+      // Fail closed: a malformed message means the child is not speaking the
+      // protocol — reject every in-flight call rather than dispatch against
+      // attacker-shaped fields. The child process is not killed here: a single
+      // unknown future message type should not take down a healthy plugin.
+      const first = parsed.error.issues[0];
+      log.warn("malformed plugin IPC message", {
+        expected: first ? `${first.path.join(".") || "<root>"} ${first.message}` : "unknown",
+      });
+      this.failAll(new Error("plugin sent a malformed IPC message"));
+      return;
+    }
+    const m = parsed.data;
     if (m.dir !== "c2p") return;
     if (m.kind === "proxy") {
       void this.handleProxy(m);

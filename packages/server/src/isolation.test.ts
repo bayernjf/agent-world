@@ -1,5 +1,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { fileURLToPath } from "node:url";
+import { EventEmitter } from "node:events";
+import { type ChildProcess } from "node:child_process";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,7 +11,7 @@ import {
   trimEnv,
   isPathAllowed,
   disposeIsolatedWorkers,
-  type IsolatedWorker,
+  IsolatedWorker,
 } from "./isolation.js";
 
 const entry = fileURLToPath(new URL("../scripts/sample-worker-plugin.mjs", import.meta.url));
@@ -194,5 +196,51 @@ describe("subprocess startup handshake fail-closed (audit H8)", () => {
     await expect(
       spawnIsolatedWorker(missing, "broken-iso", [], { handshakeTimeoutMs: 3000 }),
     ).rejects.toThrow(/startup|ready|exited/i);
+  });
+});
+
+describe("inbound IPC message validation (audit P1)", () => {
+  // The IPC channel is the plugin's attack surface against the parent. Inject
+  // messages through a fake ChildProcess (EventEmitter) — no real fork needed.
+
+  function fakeWorker(): { w: IsolatedWorker; emit: (m: unknown) => void } {
+    const fake = Object.assign(new EventEmitter(), { send: () => {}, kill: () => {} }) as unknown as ChildProcess;
+    const w = new IsolatedWorker(fake, "fake-ipc");
+    return { w, emit: (m) => fake.emit("message", m) };
+  }
+
+  function pendingCall(w: IsolatedWorker): Promise<IteratorResult<any>> {
+    return w.runTextGen({ node: { id: "n" }, config: {}, attempt: 1, input: "", tools: [] }).next();
+  }
+
+  it("fails closed on a malformed fs proxy payload (payload not an object)", async () => {
+    const { w, emit } = fakeWorker();
+    const call = pendingCall(w);
+    emit({ dir: "c2p", kind: "proxy", id: 1, op: "fs", payload: "garbage" });
+    await expect(call).rejects.toThrow(/malformed/i);
+  });
+
+  it("fails closed on a malformed call-result (ok not a boolean)", async () => {
+    const { w, emit } = fakeWorker();
+    const call = pendingCall(w);
+    emit({ dir: "c2p", kind: "call-result", id: 1, ok: "yes" });
+    await expect(call).rejects.toThrow(/malformed/i);
+  });
+
+  it("rejects a fetch proxy whose url is not a string", async () => {
+    const { w, emit } = fakeWorker();
+    const call = pendingCall(w);
+    emit({ dir: "c2p", kind: "proxy", id: 1, op: "fetch", payload: { url: 42 } });
+    await expect(call).rejects.toThrow(/malformed/i);
+  });
+
+  it("recovers: a valid message after a malformed one still resolves its call", async () => {
+    const { w, emit } = fakeWorker();
+    const first = pendingCall(w); // seq 1
+    emit({ dir: "c2p", kind: "call-result", id: 1, ok: "yes" }); // poison → failAll
+    await expect(first).rejects.toThrow(/malformed/i);
+    const second = pendingCall(w); // seq 2
+    emit({ dir: "c2p", kind: "call-result", id: 2, ok: true, events: [], result: { ok: 1 } });
+    await expect(second).resolves.toEqual({ done: true, value: { ok: 1 } });
   });
 });
