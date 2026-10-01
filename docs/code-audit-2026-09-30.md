@@ -140,8 +140,8 @@ worker 插件声明 `isolation:"subprocess"` 时 fork 到独立子进程，父�
 项目从 2026-09-06 的「高危敞口待修」演进为 **2026-09-30 的生产可用、纵深防御状态**。基线 77 项问题已清账（73 修复 / 3 无需修复 / 1 部分修复且属合理权衡）；新增 818 提交以「生产加固」为主轴，质量高（`isolation.ts` 为教科书级安全代码，boot self-check 消除静默失败）。**当前无已确认高危漏洞。**
 
 ### 优先建议（按性价比）
-1. **P0（配置/运维）**：2.2 一次性密码的响应体保护——确保 `/api/admin/users` provision 接口只走内网/owner 通道，响应体不进 access log；建议补充「仅返回一次」语义。
-2. **P1（健壮性）**：`isolation.ts` 子进程 IPC 消息体补 zod 校验（防畸形消息）；`fsAllow` 在运维 runbook 明确须精确到子目录（防 `rm -rf` 误伤）。
+1. **P0（配置/运维）**：2.2 一次性密码的响应体保护——确保 `/api/admin/users` provision 接口只走内网/owner 通道，响应体不进 access log；建议补充「仅返回一次」语义。**✅ 已落地（2026-10-02）**：`api.provision.test.ts` +2 守护（①access log 绝不携带一次性密码——spy `process.stdout` 实测；②无再读端点——users 列表不 echo 任何密码字段）；runbook [public-exposure-hardening.md](runbooks/public-exposure-hardening.md) 补 provision 只走内网/owner 通道、反代 access log 不得记录 body（nginx `log_format` 去掉 `$request_body` 类变量）。随 PR #464 合 dev 并部署 Hasee `f6bdef0`。
+2. **P1（健壮性）**：`isolation.ts` 子进程 IPC 消息体补 zod 校验（防畸形消息）；`fsAllow` 在运维 runbook 明确须精确到子目录（防 `rm -rf` 误伤）。**✅ 已落地（2026-10-02）**：`isolation.ts` 新增 `ParentInboundSchema`（call-result + proxy 的 fetch/fs payload 形状全量校验），畸形消息 fail-closed（reject 全部在途 call、不杀子进程），`isolation.test.ts` +4 测（fake ChildProcess）；runbook [public-exposure-hardening.md](runbooks/public-exposure-hardening.md) §3 明确 `TOOL_FS_ALLOW` 写前缀必须精确到业务子目录。随 PR #464 合 dev 并部署 Hasee `f6bdef0`。
 3. **P2（架构）**：`index.ts`（4659 行）与 `sqlite-driver.ts`（4378 行）已达维护临界，建议按路由域（auth/run/graph/admin/billing）拆子 router、按驱动方法拆 driver helper，降低认知负载与回归风险（非紧急，当前测试门禁可兜底）。
 4. **P3（技术债）**：`as` 断言在 `api.ts` 集中，建议逐步用 zod 推断替代；`M38` 的 `ConnectorConfig`/`GraphNode` 宽松 schema 维持现状（兼容性优先），持续依赖 compile 阶段兜底。
 
