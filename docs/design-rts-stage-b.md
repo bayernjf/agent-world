@@ -51,7 +51,7 @@
 
 ### B1 · 园区布局持久化（✅ 后端已落地 2026-09-11；前端接线留正式落地）
 
-> **落地状态（2026-09-11）**：Schema（base DDL + 迁移 37）、driver 三方法、REST 两端点 + overview 扩展、全部测试均已在 `feature/20260824` 落地（server tsc/build 通过，新增 13 测试全绿）。**B1.5 已拍板：setParkCoord 不刷新 updated_at**（视图偏好不应让产线在列表跳顶）。落地中发现一个 node:sqlite 硬坑，见 B1.2 末尾。**仍未做（前端，正式落地时机）**：CanvasPark 接真实 overview 坐标、拖拽 onPointerUp 防抖 PUT、i18n、路由入口、钻取 L1、真机帧率、Hasee 副本库升级演练。
+> **落地状态（2026-09-11）**：Schema（base DDL + 迁移 37）、driver 三方法、REST 两端点 + overview 扩展、全部测试均已在 `feature/20260824` 落地（server tsc/build 通过，新增 13 测试全绿）。**B1.5 已决策：setParkCoord 不刷新 updated_at**（视图偏好不应让产线在列表跳顶）。落地中发现一个 node:sqlite 硬坑，见 B1.2 末尾。**仍未做（前端，正式落地时机）**：CanvasPark 接真实 overview 坐标、拖拽 onPointerUp 防抖 PUT、i18n、路由入口、钻取 L1、真机帧率、Hasee 副本库升级演练。
 
 **目标**：每条产线（graph）在园区地图上有一个 (parkX, parkZ) 坐标，自动布局结果可手动覆盖，持久化到 DB，刷新/重开不丢。
 
@@ -100,7 +100,7 @@ NULL 语义 = 未布局（前端落回 B2 自动布局）；两列要么一起�
 | 方法 | 签名 | SQL 要点 |
 |---|---|---|
 | `getParkCoords` | `(userId, graphIds?: string[]) => Promise<Record<graphId, {x,z}>>` | `SELECT id, park_x, park_z FROM graphs WHERE <scope> AND park_x IS NOT NULL`；只回已布局的，NULL 的不回（前端自动补） |
-| `setParkCoord` | `(userId, graphId, x, z) => Promise<boolean>`（返回是否命中 owner 行，false→404/403） | `UPDATE graphs SET park_x=?, park_z=? WHERE id=? AND user_id=?`；**带 user_id 防越权；刻意不写 updated_at（B1.5 已拍板）** |
+| `setParkCoord` | `(userId, graphId, x, z) => Promise<boolean>`（返回是否命中 owner 行，false→404/403） | `UPDATE graphs SET park_x=?, park_z=? WHERE id=? AND user_id=?`；**带 user_id 防越权；刻意不写 updated_at（B1.5 已决策）** |
 | `clearParkCoord` | `(userId, graphId) => Promise<boolean>` | `UPDATE graphs SET park_x=NULL, park_z=NULL WHERE id=? AND user_id=?`（恢复自动布局；同样不碰 updated_at） |
 
 - 坐标写不进 `doc`（doc 是产线图结构、有版本快照/undo/内容哈希链路，园区坐标是**视图层偏好**，混进去会污染 content_hash 与版本 diff）——独立成列是刻意分层。
@@ -117,7 +117,7 @@ NULL 语义 = 未布局（前端落回 B2 自动布局）；两列要么一起�
 
 - 单 owner 拖拽，**last-write-wins 足够**，不需要乐观锁版本号（坐标是个人视图偏好，无多人同时拖同一厂的业务场景；协作只读）。
 - 前端拖拽中只改本地 state、不发请求；pointerUp 一次性 PUT，失败回滚到服务端值 + toast。
-- updated_at 副作用——**已拍板（2026-09-11 落地）：setParkCoord/clearParkCoord 不刷新 updated_at**。理由：park 坐标是视图层偏好（已刻意排除在 doc/version/content_hash 之外），同理不应让"拖了一下园区"把产线顶到 listGraphs（updated_at DESC）最前；写方法 SQL 里根本不带 updated_at，并有单测守护写入前后 updated_at 不变。
+- updated_at 副作用——**已决策（2026-09-11 落地）：setParkCoord/clearParkCoord 不刷新 updated_at**。理由：park 坐标是视图层偏好（已刻意排除在 doc/version/content_hash 之外），同理不应让"拖了一下园区"把产线顶到 listGraphs（updated_at DESC）最前；写方法 SQL 里根本不带 updated_at，并有单测守护写入前后 updated_at 不变。
 
 #### B1.6 验收
 
@@ -126,7 +126,7 @@ NULL 语义 = 未布局（前端落回 B2 自动布局）；两列要么一起�
 - ✅ **API（`api.park-coord.test.ts` 6 例，纯 HTTP）**：未登录 401、owner PUT 200 且 overview 带坐标、非有限数/缺字段 400、外部无权限人 404（隐藏存在性）、被授权 viewer 非 owner 403、未知 graph 404、DELETE 后 overview 回落 null。
 - ⏳ **旧库升级演练（留部署窗口，M1 期不做）**：在 Hasee 副本库上跑迁移，已有 graph 坐标 NULL、前端自动布局不空白。
 
-**风险**：低（已验证）。纯加列 + 三个只读/单点写方法，不碰 run/engine 业务逻辑；唯一的 updated_at 副作用点已按 B1.5 拍板为"不刷新"。
+**风险**：低（已验证）。纯加列 + 三个只读/单点写方法，不碰 run/engine 业务逻辑；唯一的 updated_at 副作用点已按 B1.5 决策为"不刷新"。
 
 ---
 

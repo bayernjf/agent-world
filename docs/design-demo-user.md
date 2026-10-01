@@ -315,7 +315,7 @@ export function assertNotDemo(user: {is_demo?: number|boolean}, feature: string)
 6. ALLOW_DEMO 关闭时无演示入口可用。
 7. zh/en i18n 无硬编码中文、无硬编码颜色/尺寸；四包 typecheck + 全量测试绿；Hasee 部署手册可照做。
 
-## 十三、待拍板决策点（括号为当前默认，可调整）
+## 十三、待决策点（括号为当前默认，可调整）
 
 | # | 决策 | 候选 | 默认采用 |
 |---|---|---|---|

@@ -92,7 +92,7 @@
 ### G-C　「软跳过」注释与实际失败行为不一致　✅ 已落地（2026-09-24，采用推荐项：真软降级）
 
 - 背景：`tpl-news-podcast` 注释声称默认供应商不支持 TTS 时「软跳过、稿件仍产出」，但 `audiogen.ts` 在 `worker.generateAudio` 缺失时实际置 `failed`+VALIDATION——会让节点（无 error 边时整条 run）失败，与注释矛盾。
-- 最终决策（产品拍板推荐项）：**无音频生成能力属增值能力缺失，软降级、不罚跑**。
+- 最终决策（产品决策推荐项）：**无音频生成能力属增值能力缺失，软降级、不罚跑**。
   - `nodes/audiogen.ts`：能力检查前移到 `node.started` 之前；无能力时置 `skipped`、发 `node.skipped`（reason `audio unsupported: worker has no generateAudio capability`）并 `ctx.log.warn`，不产 artifact、不发 packet、不发 `node.failed`。
   - `tpl-news-podcast` 新增一条 `script→depot` 旁路 flow 边（e5）：voice 软跳过时稿件仍直达 sink 交付。否则线性链里 sink 的唯一前驱 voice 被 skip，会被级联跳过、run 无成品（`predecessorsReady` 对 skipped 前驱不计 packet，`inputFor` 只取直接前驱产物）。有 TTS 时成品同时含文稿与音频链接，属良性增强。
   - **仍保持 `failed` 的真错误**：配了音频能力但返回 0 段（UNSUPPORTED）、输入超 `TTS_MAX_INPUT_CHARS=4096`（VALIDATION）、provider 异常（PROVIDER_ERROR）——这些是配置/模型错误，应显眼失败，不在软降级范围。

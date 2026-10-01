@@ -33,7 +33,7 @@
 |---|---|---|
 | D1 | 通用数据通道 | `ResolvedMaterial`（`connectors.ts`）加可选 `data?: unknown`——任意 connector 的结构化数据。product connector 填 `Product[]`；未来 http（解析后 JSON）、database（rows）、file（文档元数据）免费获得同样通道。文本 `text` 照旧（原料块字节不变） |
 | D2 | 上下文暴露 | 复刻 httpMeta 旁路模式新增 `sourceMeta: Map<nodeId, {data, content}>`，经 NodeRunContext 传入 source handler；interpCtx 对相邻 source 上游做同款合并——`${srcId}` 整节点引用仍解析为简报文本（不破坏），`${srcId.data[0].name}` 新增可用 |
-| D3 | 快捷名注册表 | connector 类型 → 快捷名映射（product：`product`=data[0]、`products`=data）。仅当图中**恰好 1 个**该类型 source 时注入全局名（确定性，不依赖执行时序），≥2 个退化为命名空间形式 + log.info 提示。注册表放引擎初始化，新 connector 类型加一行注册。**全局快捷名已拍板做（2026-09-05）**，理由与语义见 §3.2 |
+| D3 | 快捷名注册表 | connector 类型 → 快捷名映射（product：`product`=data[0]、`products`=data）。仅当图中**恰好 1 个**该类型 source 时注入全局名（确定性，不依赖执行时序），≥2 个退化为命名空间形式 + log.info 提示。注册表放引擎初始化，新 connector 类型加一行注册。**全局快捷名已决策做（2026-09-05）**，理由与语义见 §3.2 |
 | D4 | 简报 fallback 合并 | `buildSourceBrief` 加第三参 `fallbacks?: Record<string, string>`（字段名→回填值），映射由各行业适配层声明（product：`{productName: name, brand: brand}`）；仅事实字段做 fallback（手填空→回填，非空→有意覆写），调性字段（audience/priceRange/tone/prohibited/brandTerms/notes）永远纯手工——数据源没有这些语义。`shared.ts` 保持零领域知识 |
 | D5 | 简报字段可插值 | sourceNode 在 resolveConnector 成功后、buildSourceBrief 前对 8 个简报字段跑 `evaluateTemplate(field, {data, ...快捷名})`，先插值再 fallback（插值结果空串视同留空）；效果如商品名称写 `「${product.name}」双11限定款` |
 | D6 | 注释修正 | `graph.ts` ProductConnector 失实注释改为真实语义：结构化数据经 sourceMeta 暴露为 `${srcId.data[0].name}`（及快捷名），文本块仍进原料段 |
@@ -51,7 +51,7 @@
 
 一句话：**「知道」= 面板读 connector.type 查本地注册表（几行代码）；「适配」= 引擎按 fallback 映射合并（面板无感）；「换字段」= 留给 TemplateField 模式的行业包。**
 
-### 3.2 全局快捷名决策记录（2026-09-05 拍板：做）
+### 3.2 全局快捷名决策记录（2026-09-05 决策：做）
 
 **决策**：product 适配层注册全局快捷名 `product`（=data[0]）与 `products`（=data），图中恰好 1 个 product-source 时注入插值上下文，运营直接写 `${product.name}` 而非 `${src-a1b2.data[0].name}`。
 
@@ -108,7 +108,7 @@
 
 - **interpCtx 动刀** → httpMeta 合并既有 notify/branch 测试守护，source 分支新增用例覆盖；
 - **brief 输出文本变化** → 纯手工模板逐字节不变（data undefined 时零行为差异）；有 connector 的简报多出 fallback 行属预期变化，实施前 grep 现有测试对简报文本的断言；
-- **快捷名与节点 id 撞名**（`product`）→ 已拍板做全局名（§3.2）：解析优先级钉死「节点 ctx 条目优先于快捷名」+ ⑪ 号守护测试；与 `var` 同级风险项目已接受；
+- **快捷名与节点 id 撞名**（`product`）→ 已决策做全局名（§3.2）：解析优先级钉死「节点 ctx 条目优先于快捷名」+ ⑪ 号守护测试；与 `var` 同级风险项目已接受；
 - **模板不跟改** → V1 内置模板零改动（`${product.x}` 写进无 product connector 的模板会解析成空串，反而危险），dogfood 留给真实电商产线；
 - **SourceConfig 的 8 个电商字段挂在通用 source 节点上** → 本方案不动 schema（无破坏），用 fallback 映射让它们消费数据源；字段本身行业化的长期演进（行业包/模板自定义字段）是独立话题，见 §13。
 
