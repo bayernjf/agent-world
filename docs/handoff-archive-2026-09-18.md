@@ -116,7 +116,7 @@ B1-B9 全部落地（parkLayout / 园区布局持久化 / overview category / Ca
 
 - **C1 ✅（`2ea918a` core / `c47e50b` server+web）**：core 新增 `crossGraph.ts` 纯派生跨厂产物边，不碰持久化 schema。跨厂边仅两类静态来源：① subprocess 节点（`node.subprocess.graphId`）② graph-event trigger（全库实测为 0）。方向统一 from=上游供给方 → to=下游消费方。导出 externalGraphRefs / buildCrossGraphEdges（internalOnly 剔除悬空与越权边）/ upstreamGraphIds / downstreamGraphIds，13 测。server `crossGraphService.loadCrossGraphEdges`（best-effort：单图 load 抛错 catch 跳过、任一端点不在可见集合即剔除，防租户泄露）挂到 `GET /api/operations/overview` 返回 `crossEdges`，5 测。
 - **C2 ✅（`42468ac`）**：CanvasPark 渲染跨厂管道（THREE.Line，CROSS_PIPE_Y=6 避 z-fight，opacity .32）+ 每边 CROSS_TRUCKS_PER_EDGE=3 辆错相位卡车（subprocess 暖橙 / event 青，SPEED 260）。**RBAC 排查结论**：本地唯一 subprocess 边两端均属 a2afe301，当前账号不可见 → crossEdges=[] 是 internalOnly 正确剔除；临时把两端 graph 的 user_id 改成当前用户验证渲染正确后已立即还原 owner。非阻断 polish：跨厂管线 opacity .32 在等距俯视下偏暗（后由 #51 改抛物线拱 + .55）。
-- **C3 ✅ 方案 B（决策见 design-rts-overview.md，`c1618a0` docs / `4a526ff` feat）**：用户拍板方案 B（同构锚点交叉淡化 + 相机缓动），方案 A（单场景 LOD 融合）仅文档留档。store(view-mode.ts) 新增不持久化 one-shot `drillAnimRequest:{dir:"in"|"out"}`；App.enterFactory/backToPark requestDrillAnim；Canvas3D mount 时 consume 到 "in" 把 camera.zoom seed 成 targetZoom×2.6，rAF 用 easeOutCubic 在 420ms 内 ease 回；CanvasPark 恢复 saved parkCamera 时 consume 到 "out" 同理。本地浏览器走查确认 zoom 平滑 ease + opacity 淡入、无白屏/闪黑/掉帧。web 197 测全过、i18n 守护 4 过。
+- **C3 ✅ 方案 B（决策见 design-rts-overview.md，`c1618a0` docs / `4a526ff` feat）**：用户决策方案 B（同构锚点交叉淡化 + 相机缓动），方案 A（单场景 LOD 融合）仅文档留档。store(view-mode.ts) 新增不持久化 one-shot `drillAnimRequest:{dir:"in"|"out"}`；App.enterFactory/backToPark requestDrillAnim；Canvas3D mount 时 consume 到 "in" 把 camera.zoom seed 成 targetZoom×2.6，rAF 用 easeOutCubic 在 420ms 内 ease 回；CanvasPark 恢复 saved parkCamera 时 consume 到 "out" 同理。本地浏览器走查确认 zoom 平滑 ease + opacity 淡入、无白屏/闪黑/掉帧。web 197 测全过、i18n 守护 4 过。
 
 ---
 
@@ -143,7 +143,7 @@ B1-B9 全部落地（parkLayout / 园区布局持久化 / overview category / Ca
 
 ### #52 演示用户（Demo User）D1–D6（PR #302，merge `b34fa29`，2026-09-15 部署 Hasee）
 
-方案 docs/design-demo-user.md。新用户在登录页点「免注册，先体验演示」即建一个带 `is_demo` 标记的真实账号（复用 userId 隔离/JWT/订阅全套，转正时同 userId 原地保留数据）。3 个原待拍板点全部采用默认：30k token / ≤15 run / 并发 1 / 20MB / 禁视频音频、TTL 24h、cookie 沿用 signToken(false)=24h、预置模板仅 tpl-draft、ALLOW_DEMO 默认关 Hasee 显式开、转正原地保留。
+方案 docs/design-demo-user.md。新用户在登录页点「免注册，先体验演示」即建一个带 `is_demo` 标记的真实账号（复用 userId 隔离/JWT/订阅全套，转正时同 userId 原地保留数据）。3 个原待决策点全部采用默认：30k token / ≤15 run / 并发 1 / 20MB / 禁视频音频、TTL 24h、cookie 沿用 signToken(false)=24h、预置模板仅 tpl-draft、ALLOW_DEMO 默认关 Hasee 显式开、转正原地保留。
 
 **落地**：①`e305dc8` 迁移 v40 users 加 `is_demo`/`demo_expires_at`（sqlite+pg 共用一份 driver body；down 只清标记不 DROP 列）+ createDemoUser/claimDemoUser/listExpiredDemoUsers/deleteUserCascade（前置 is_demo 短路 + 末级 AND is_demo=1 纵深防御，绝不误删正式号）；②`0390ba6` `src/demo.ts` DEMO_QUOTA + enforceDemoQuota + 能力守卫；③`ae84d45` 三端点 `/api/auth/demo`（开关+IP 限流+同 cookie 复用+克隆 tpl-draft）、`/me` 带 isDemo+quota、`/claim` 原地转正，9 处 blockDemo 拦改密/publish/webhook/远端 MCP/自定义 connector/admin/billing（403 DEMO_LOCKED+claimUrl），run gate 加独立 demo 分支（自带 30k 池，MONETIZATION_ENFORCE=1 且 free token=0 下 demo 文本照样放行——Hasee 最大坑，由集成测末例锁定）；④`1ab6d35` 前端 useSession store + 登录/注册页演示入口 + DemoBanner + ClaimDialog + api 层识别 DEMO_LOCKED/DEMO_QUOTA 自动开转正弹窗 + UserMenu demo 态 + zh/en auth.json i18n + CSS；⑤`b3feb6d` `scripts/prune-demo-users.ts`（默认 dry-run、--apply 真删，npm script `prune:demo`）+ 部署手册补环境变量与每小时清理 cron。
 

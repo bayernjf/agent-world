@@ -68,7 +68,7 @@ ALTER TABLE users ADD COLUMN tenant_id TEXT REFERENCES tenants(id);
 - 租户归属由 `resource.user_id → users.tenant_id` **join 推导**；
 - 查询「某租户的资源」：`WHERE user_id IN (SELECT id FROM users WHERE tenant_id = ?)`。
 
-**权衡**：join 推导比直列慢，但「租户内成员数有限」场景可接受。**补列触发条件（2026-09-07 拍板）**：当某个租户成员数超过 **100** 时，再给热点表（graphs/runs）补冗余 `tenant_id` 列 + 索引；此前维持推导。补列是可逆增量，不是重构。
+**权衡**：join 推导比直列慢，但「租户内成员数有限」场景可接受。**补列触发条件（2026-09-07 决策）**：当某个租户成员数超过 **100** 时，再给热点表（graphs/runs）补冗余 `tenant_id` 列 + 索引；此前维持推导。补列是可逆增量，不是重构。
 
 ### 3.3 订阅/计费：从 user 迁到 tenant
 

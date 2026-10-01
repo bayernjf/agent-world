@@ -85,7 +85,7 @@ voice 节点：model = `tts-1`，voice = `alloy`（可选 `echo/fable/onyx/nova/
 | 404 / 不支持该路径 | 该供应商没实现 `/audio/speech`（如 agnes）；换 SF/OpenAI，或用 provider `endpoints.audio` 覆盖到真实路径 |
 | 音色无效 / 400 voice not found | SF 用了 `alloy` 这类 OpenAI 具名音色；SF 必须 `模型名:音色名`（§2.3） |
 | `failed` + VALIDATION「输入过长」 | 超过 `TTS_MAX_INPUT_CHARS=4096`；拆短口播稿（分片拼接为 P2，未实现） |
-| 无 TTS 能力时整条 run 失败 | 当前行为 = `failed` + VALIDATION（**G-C 软降级尚未决策**：另一选项是软跳过 voice 节点、稿件文本仍产出；拍板后改） |
+| 无 TTS 能力时整条 run 失败 | 当前行为 = `failed` + VALIDATION（**G-C 软降级尚未决策**：另一选项是软跳过 voice 节点、稿件文本仍产出；决策后改） |
 | 成本显示 0 | provider pricing 留空（免费额度期正常）；正式使用按 §2.2 填 `perMegaUtf8Byte`/`perKiloChar`/`perSecond` |
 
 ## 6. 不做 / 缓做
