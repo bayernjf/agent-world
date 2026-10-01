@@ -155,7 +155,7 @@
 
 | 事项 | 缓做/低优原因 | 触发条件 | 决策详情 |
 |---|---|---|---|
-| #41 M1 回采产线停摆（agnes free 配额耗尽） | 09-25 04:10 内置 agnes free 配额耗尽 → 月度预算硬限阻断建 run → 4 条 M1 产线（草稿/翻译/短视频/批量）自该时起 0 run。降频方案已排除（治不了配额）。**2026-09-27 决策：暂不处理**（接受 M1 演示数据停更） | ①10-01 配额自然重置后评估是否仍需处理；②或决定升付费 agnes key 立即恢复 | handoff.md #41 |
+| ~~#41 M1 回采产线停摆~~ ✅ **已重启 2026-10-02** | 09-25 04:10 内置 agnes free 配额耗尽 → 月度预算硬限阻断建 run → 4 条 M1 产线 0 run；**2026-09-27 决策暂不处理**。**10-01 配额重置后仍未恢复**——新根因：5 个 09-13~09-19 翻译产线 halted run（QC gate 耗尽停机、无人决策）按 `countActiveRuns` 口径（running+halted）占满 owner pro 并发上限 5，配额重置后每次 cron 触发被 dispatch-gate「并发上限 5 已满」硬拦（非配额）。**2026-10-02 处置**：①A 立即恢复——5 个 halted 按事件流一致语义处置为 failed（保留 halt 信息），activeRuns 归 0；②B 治本——`dispatchGate` 派发前自动废弃超期 halted（`HALTED_RUN_TTL_DAYS` 默认 7 天），PR #462 合 dev 并部署 `a284bbc` | ——（已闭环；触发条件 10-01 满足后于 10-02 处置+治本） | handoff.md #41（10-02 体检块）+ PR #462 |
 | #44 真灾备激活（缺第二 OpenAI 兼容源） | 代码+配置+启动自检均就绪（failover 默认开，无 backup 时启动打 warn）。唯一缺第二个 OpenAI 兼容源的凭据（必须不同 host 才算真灾备）。**2026-09-27 决策：暂缓**（无可用备份供应商） | 拿到第二个 OpenAI 兼容源（BASE_URL/API_KEY/MODELS，不同 host）时，填进 Hasee `.env` 重启并确认日志 `provider failover armed` | handoff.md #44 + production-ops.md §9 |
 | SaaS 四件（Stripe/HTTPS/域名/Sentry/Postgres HA） | 自托管 MVP 已签 ✅，SaaS 不是上线阻塞。**2026-09-27 决策：整体推迟** | 决定启动 SaaS（有付费用户诉求/商业化临门一脚）时重启：Stripe 先定收款主体（个人/公司）+ keys；其余 HTTPS/域名、Sentry DSN、Postgres HA 随规模 | handoff.md #48 + design-monetization-m3-s6-stripe.md |
 

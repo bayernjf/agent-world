@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { openDb } from "./db.js";
 
 let dir: string;
@@ -120,6 +120,42 @@ describe("owner provisioning — POST /api/admin/users", () => {
     const res = await post("third@aw.test", pleb);
     expect(res.status).toBe(403);
     expect(await db.findUserByEmail("third@aw.test")).toBeUndefined();
+  });
+
+  it("never lets the one-time password into the access log (P0: response body is not logged)", async () => {
+    // The request-log middleware records method/path/status/latencyMs only; this
+    // pins that a provision response's one-time password never appears in any
+    // log line (access log / reverse-proxy capture surface, audit 2026-09-30 2.2).
+    const written: string[] = [];
+    const spy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((chunk: string | Uint8Array) => {
+        written.push(String(chunk));
+        return true;
+      });
+    let provisioned = "";
+    try {
+      const res = await post("log-guard@aw.test", ownerCookie);
+      expect(res.status).toBe(201);
+      provisioned = ((await res.json()) as any).oneTimePassword;
+      expect(provisioned.length).toBeGreaterThanOrEqual(16);
+    } finally {
+      spy.mockRestore();
+    }
+    const log = written.join("");
+    expect(log).not.toContain(provisioned);
+  });
+
+  it("returns the password exactly once — no read-back endpoint exists (P0)", async () => {
+    // The one-time password appears in exactly one place: the 201 response. The
+    // users list (the only owner-facing account surface) must never echo it.
+    const res = await app.request("/api/admin/users", { headers: { cookie: ownerCookie } });
+    expect(res.status).toBe(200);
+    const payload = await res.json();
+    const dumped = JSON.stringify(payload);
+    expect(dumped).not.toContain("oneTimePassword");
+    expect(dumped).not.toMatch(/password/i);
+    expect(dumped).not.toContain(oneTimePassword);
   });
 
   it("anonymous callers never reach the handler", async () => {

@@ -46,6 +46,7 @@
 ## 3. 数据、进程与出站
 
 - [ ] **代码沙箱硬隔离**：Linux 上设 `CODE_SANDBOX=bwrap`（装好 bubblewrap），否则 code 节点的 fs/net 隔离是 best-effort。
+- [ ] **`TOOL_FS_ALLOW` 必须精确到子目录（P1，2026-09-30 审计）**：插件/工具的文件系统写权限由该前缀放行，但 `rm -rf` 类破坏性操作只受**前缀边界**约束——配宽（如 `/data` 而非 `/data/app/uploads/`）时，任何拿到该写权限的插件都能递归删空整目录。规则：写意图前缀一律精确到业务子目录（如 `/var/lib/agent-world/uploads`），不要给 `/var`、`/data` 这类宽前缀；只读面（默认）不受此限制。若确实需要宽前缀，把可写工具（`fs write` 等 `danger: true`）从工具声明里移除，或换专用子目录。
 - [ ] **内网逃生口保持关闭**：确认 `ALLOW_PRIVATE_NETWORK` 未设。放开等于对 http 节点 / `/api/proxy` / 连接器出站全部对内网开门，也包含远程 MCP。
 - [ ] **文件权限**：`.env` 600；数据目录下 `.jwt-secret` / `.encryption-keys` 0600，且**随备份一起带在带外**（丢了密钥 = 加密字段永久锁死）。
 - [ ] **备份**：周期备份并**异地/带外**留存；用仓库脚本做一次真实恢复演练（`scripts/restore-agent-world.sh`），确认「备份 + 密钥 + 数据」真能还原。缺密钥的备份脚本会告警，不要当作通过。
@@ -60,6 +61,7 @@
       ```
       命令生成一次性口令、打印一次，并强制该用户**下次登录改密**（`must_change_password=1`）。口令不经命令行传入（避免进 shell history / `ps`），需要固定值才用 `--password=`。
 - [ ] **通知：SMTP 只用于 notify 节点**。仓库里的 SMTP（nodemailer）是**出站通知节点**用的（`SMTP_HOST/SMTP_USER/SMTP_PASS`），**不是账号邮件通道**——开号口令仍要 owner 带外转交。
+- [ ] **开号接口（`POST /api/admin/users`）只走内网/owner 通道（P0，2026-09-30 审计 2.2）**：该接口响应体携带一次性口令，**只出现这一次**（不落库明文、无任何再读端点、audit 与 access log 均不记录）。约束：① 仅 owner 可调（`isOwner`），只从内网或受信网络调用，不要从公网可直达的路径暴露；② 反向代理的 access log **不得记录请求/响应 body**——nginx 默认不记 body（除非 log_format 里写了 `$request_body` 之类变量），若自定义过 log_format 请去掉这类变量，否则开号口令会随日志泄漏；③ 代理与 TLS 终止层若有请求体审计（WAF/API 网关），同样确认不落日志。
 - [ ] **重置不等于下线会话**：CLI 只改口令哈希，不撤销已签发的 JWT（无状态、最长 7 天）。怀疑会话被窃时，除了重置口令，还需**轮换 `JWT_SECRET` 并重启**才能把已发出的会话清掉。
 
 ## 5. 可观测与告警
