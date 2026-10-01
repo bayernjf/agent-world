@@ -66,12 +66,14 @@ interface GateStub {
   db: Db;
   usageFor: ReturnType<typeof vi.fn>;
   sumArtifactBytes: ReturnType<typeof vi.fn>;
+  scrapStaleHaltedRuns: ReturnType<typeof vi.fn>;
 }
 
 function stubDb(overrides: { isDemo?: number; plan?: string; status?: string } = {}): GateStub {
   const isDemo = overrides.isDemo ?? 0;
   const usageFor = vi.fn(async () => 0);
   const sumArtifactBytes = vi.fn(async () => 0);
+  const scrapStaleHaltedRuns = vi.fn(async () => 0);
   const db = {
     findUserById: async () => ({ id: "u1", is_demo: isDemo }),
     activeRuns: async () => 0,
@@ -80,8 +82,9 @@ function stubDb(overrides: { isDemo?: number; plan?: string; status?: string } =
     saveSubscription: async () => undefined,
     usageFor,
     sumArtifactBytes,
+    scrapStaleHaltedRuns,
   };
-  return { db: db as unknown as Db, usageFor, sumArtifactBytes };
+  return { db: db as unknown as Db, usageFor, sumArtifactBytes, scrapStaleHaltedRuns };
 }
 
 describe("dispatchGate", () => {
@@ -97,6 +100,14 @@ describe("dispatchGate", () => {
     expect(load).not.toHaveBeenCalled();
     expect(usageFor).not.toHaveBeenCalled();
     expect(sumArtifactBytes).not.toHaveBeenCalled();
+  });
+
+  it("scraps stale halted runs before any mode check (gate off included)", async () => {
+    // 2026-10-02 M1 事故：halted 堆积占满并发槽，即使配额 gate 关着也会卡死产线。
+    // 清理必须在 mode 分支之前发生。
+    const { db, scrapStaleHaltedRuns } = stubDb({ plan: "free" });
+    await dispatchGate({ db, graph: textGraph("agnes-2.0-flash"), userId: "u1", trigger: "manual", mode: "off" });
+    expect(scrapStaleHaltedRuns).toHaveBeenCalledWith("u1", expect.any(Number));
   });
 
   it("throws on a free plan using builtin models when enforcing", async () => {
