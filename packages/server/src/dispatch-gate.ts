@@ -49,6 +49,18 @@ export interface GateContext {
 }
 
 /**
+ * 超期 halted run 的自动废弃 TTL（天），`HALTED_RUN_TTL_DAYS` 可配，默认 7。
+ * halted = 等人决策，无人值守 cron 产线若 halted 堆积，会把并发槽占满、把
+ * 产线永久卡死（2026-10-02 M1 事故：5 个 09-13~09-19 的 halted 翻译 run
+ * 占满 pro 并发上限 5，配额重置后 cron 仍全部被「并发上限 5 已满」拒绝）。
+ */
+export function readHaltedTtlDays(raw: string | undefined = process.env.HALTED_RUN_TTL_DAYS): number {
+  const value = Number(raw ?? "");
+  if (Number.isFinite(value) && value > 0) return value;
+  return 7;
+}
+
+/**
  * demo 额度与订阅配额是两套东西，模式只管后者：demo 的限额**永远生效**——Hasee
  * 就是 ENFORCE=1 且 free tokens=0，若 demo 也听 mode，演示账号一步都跑不动
  * （design-demo-user 把这条列为「最容易踩的坑」）。
@@ -65,6 +77,12 @@ export async function dispatchGate(ctx: GateContext): Promise<void> {
   // 先分人再取数：`currentUsage` 要扫 4 张用量表，放在前面会让「gate 关着 + 正式
   // 用户」这一条最常见的路径每次派发都白查三遍。
   const user = await db.findUserById(userId);
+  // 防死锁：先自动废弃该用户超期未决策的 halted run。这独立于 mode——配额 gate
+  // 关了，halted 堆积同样会占满并发槽，所以 off 档也照清。
+  const scrapped = await db.scrapStaleHaltedRuns(userId, Date.now() - readHaltedTtlDays() * 86_400_000);
+  if (scrapped > 0) {
+    log.info("scrapped stale halted runs before dispatch", { userId, count: scrapped });
+  }
   if (user?.is_demo === 1) {
     const usage = await currentUsage(db, userId);
     enforceDemoQuota(graph, await loadConfig(userId), {

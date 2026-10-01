@@ -1013,6 +1013,10 @@ export function createDriver(
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     updateInvoiceStatus: `UPDATE invoices SET status = ?, paid_at = ?, paid_method = ?, notes = ?, updated_at = ? WHERE id = ?`,
     countActiveRuns: `SELECT COUNT(*) AS n FROM runs WHERE user_id = ? AND status IN ('running', 'halted')`,
+    // Stale-halted auto-scrap: halted runs await a human decision; unattended
+    // pipelines (cron) can deadlock the concurrency gate if halted runs pile up.
+    listStaleHaltedRuns: `SELECT id, ended_at FROM runs WHERE user_id = ? AND status = 'halted' AND ended_at IS NOT NULL AND ended_at < ?`,
+    scrapStaleHaltedRun: `UPDATE runs SET status = 'failed', ended_at = ? WHERE id = ? AND user_id = ? AND status = 'halted'`,
     // M2 metering: live storage snapshot + idempotent usage backfill.
     sumArtifactBytes: `SELECT COALESCE(SUM(size_bytes), 0) AS total FROM artifacts WHERE user_id = ?`,
     listFinishedRunsSince: `SELECT id, user_id, started_at, snapshot FROM runs WHERE status = 'done' AND user_id IS NOT NULL AND started_at >= ? ORDER BY started_at`,
@@ -1337,6 +1341,34 @@ export function createDriver(
     },
     async activeRuns(userId: string): Promise<number> {
       return (await exec.get(stmts.countActiveRuns, [userId]) as { n: number }).n;
+    },
+    /**
+     * Auto-scrap halted runs that exceeded `cutoffMs` without a human decision.
+     * Event-stream-consistent: appends a `run.finished(failed)` event per run
+     * (replaying it yields the same terminal state), then flips the row to
+     * failed while preserving `halted_node_id`/`halted_reason` for audit.
+     * Returns how many runs were scrapped.
+     */
+    async scrapStaleHaltedRuns(userId: string, cutoffMs: number): Promise<number> {
+      const stale = await exec.all(stmts.listStaleHaltedRuns, [userId, cutoffMs]) as Array<{ id: string; ended_at: number }>;
+      if (stale.length === 0) return 0;
+      let scrapped = 0;
+      const now = Date.now();
+      for (const run of stale) {
+        const { seq } = await exec.get(stmts.maxSeq, [run.id]) as { seq: number };
+        const event: RunEvent = {
+          type: "run.finished",
+          runId: run.id,
+          status: "failed",
+          reason: "Scrapped: halted run exceeded TTL without a human decision",
+          seq: seq + 1,
+          ts: now,
+        };
+        await exec.run(stmts.insertEvent, [run.id, event.seq, now, EVENT_SCHEMA_VERSION, event.type, JSON.stringify(event)]);
+        await exec.run(stmts.scrapStaleHaltedRun, [now, run.id, userId]);
+        scrapped += 1;
+      }
+      return scrapped;
     },
     /** Idempotent usage overwrite (backfill path); accumulateUsage is the online path. */
     async setUsage(userId: string, periodStart: number, metric: string, amount: number) {
