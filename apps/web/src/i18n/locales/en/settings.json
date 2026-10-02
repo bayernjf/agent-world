@@ -38,7 +38,7 @@
     "catalogAffected": "{{count}} pipeline(s) still name a retired model (they will fail dispatch until their owner re-picks):",
     "catalogAffectedTruncated": "Too many pipelines; only the first 50 are listed.",
     "modelName": "Model name",
-    "modelNamePlaceholder": "e.g. gpt-4o, deepseek-chat, agnes-2.0-flash",
+    "modelNamePlaceholder": "e.g. gpt-4o, deepseek-chat, agnes-2.5-flash",
     "modalityLabel": "Modality",
     "provider": "Provider",
     "newProvider": "New provider",

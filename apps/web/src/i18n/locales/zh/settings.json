@@ -38,7 +38,7 @@
     "catalogAffected": "有 {{count}} 条产线仍在用被下架的模型（在所有者重选之前会派发失败）：",
     "catalogAffectedTruncated": "产线较多，仅列出前 50 条。",
     "modelName": "模型名称",
-    "modelNamePlaceholder": "如 gpt-4o, deepseek-chat, agnes-2.0-flash",
+    "modelNamePlaceholder": "如 gpt-4o, deepseek-chat, agnes-2.5-flash",
     "modalityLabel": "模型类型",
     "provider": "Provider",
     "newProvider": "新建 Provider",

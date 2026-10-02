@@ -84,6 +84,8 @@ describe("per-user config storage", () => {
     await saveConfig(
       {
         ...ALICE_CFG,
+        defaultProvider: "agnes",
+        defaultModel: "agnes-2.0-flash",
         providers: {
           ...ALICE_CFG.providers,
           agnes: {
@@ -96,10 +98,28 @@ describe("per-user config storage", () => {
       },
       "u-shadow",
     );
-    const agnes = (await loadConfig("u-shadow")).providers.agnes!;
+    const cfg = await loadConfig("u-shadow");
+    const agnes = cfg.providers.agnes!;
     expect(agnes.baseUrl).toBe("https://apihub.agnes-ai.com/v1");
     expect(agnes.models).toContain("agnes-2.5-flash");
     expect(agnes.models).not.toContain("sneaky-model");
+    // A stale stored default pointing at a retired model is reset to the
+    // code-shipped default instead of silently running the old name.
+    expect(cfg.defaultModel).toBe("agnes-2.5-flash");
+  });
+
+  it("keeps a stored defaultModel that still exists in the builtin catalog", async () => {
+    bindSettingsStore(store);
+    await saveConfig(
+      {
+        ...ALICE_CFG,
+        defaultProvider: "agnes",
+        defaultModel: "agnes-image-2.5-flash",
+      },
+      "u-default-ok",
+    );
+    const cfg = await loadConfig("u-default-ok");
+    expect(cfg.defaultModel).toBe("agnes-image-2.5-flash");
   });
 });
 

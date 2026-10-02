@@ -339,7 +339,7 @@ export default function Settings({ open, onClose, initialTab }: Props) {
 
   const testFormConnection = async () => {
     const fk = "__form__";
-    const model = form.model.trim() || "agnes-2.0-flash";
+    const model = form.model.trim() || "agnes-2.5-flash";
 
     // Reusing an existing provider: test its saved connection (server resolves key).
     if (form.connectTo !== "__new__") {
