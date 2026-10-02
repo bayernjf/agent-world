@@ -2,6 +2,10 @@ version: 2
 updates:
   - package-ecosystem: "npm"
     directory: "/"
+    # File PRs against dev (the branch Hasee staging auto-deploys); the repo
+    # default branch is main, so without this Dependabot opens against main
+    # and every bump needs a manual main→dev reverse sync (PR #471 → #476).
+    target-branch: "dev"
     schedule:
       interval: "weekly"
     # Collapse routine weekly version bumps into ONE PR so dozens of separate
