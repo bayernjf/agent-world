@@ -1,6 +1,6 @@
 # Handoff
 
-State of Agent World as of 2026-09-28（上一版标 09-25，实际最后更新 09-27 深夜～09-28 凌晨）。
+State of Agent World as of 2026-10-03（#85 内置目录精简为 2.5 三件套并部署 Hasee、视频质量修复两阶段实施闭环均已登记；最近 6 个变更见下文 Active work 区）。
 
 > **历史内容已归档**：2026-08-27 之前的全部变更记录、各阶段详细描述、质量门与已知 gap，已整体搬到 [docs/handoff-archive.md](docs/handoff-archive.md)。本文件只保留"项目当前状态 + 活跃任务 + 最近 6 个变更"。
 
