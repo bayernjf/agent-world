@@ -46,7 +46,7 @@
 | `graph_versions.snapshot` | `saveVersion`（1300）、`saveAutoSnapshot`（1315） | `getVersion`（1294） |
 | `runs.snapshot` | `createRun`（db.ts:533） | `getRun`（557）、`getRunById`（1371）、`getLatestRunContentHash`（1288，只算 hash 不 parse）、`getAbArmSnapshot`（1195）、成本/评估/缩略图裸 parse（945/1097/1195） |
 
-**加密切入：db.ts 内部序列化边界**（所有 `JSON.stringify(graph)` 前 seal、所有 `JSON.parse(doc/snapshot)` 后 open），调用方（run.ts、ab.ts、调度器、index.ts 路由）零改动。
+**加密切入：db.ts 内部序列化边界**（所有 `JSON.stringify(graph)` 前 seal、所有 `JSON.parse(doc/snapshot)` 后 open），调用方（run.ts、ab.ts、调度器、各域 router）零改动。
 
 ### 3.3 contentHash 匹配链（关键约束）
 

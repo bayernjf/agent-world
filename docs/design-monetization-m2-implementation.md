@@ -436,7 +436,7 @@ const run = await execute(graph, userId, ...);
 
 **文件清单**：
 - `packages/server/src/api.subscription.ts`（新建）：3 个端点的路由处理
-- `packages/server/src/index.ts`：注册路由
+- `packages/server/src/routes/*.ts`：各域注册路由
 - `packages/server/src/api.subscription.test.ts`（新建）：API 测试
 - `apps/web/src/api/subscription.ts`（新建）：前端 API client
 

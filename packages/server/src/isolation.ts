@@ -7,6 +7,7 @@ import type { Worker } from "./worker.js";
 import { loadPermissionConfig, matchDomain } from "./permissions.js";
 import { guardedFetch } from "./ssrf.js";
 import { log } from "./logger.js";
+import { errMsg } from "./safe-utils.js";
 
 /**
  * Plugin process isolation (4C.7).
@@ -79,7 +80,7 @@ export function trimEnv(declared?: string[]): NodeJS.ProcessEnv {
   };
   for (const k of SAFE_ENV_BASE) copy(k);
   for (const k of declared ?? []) copy(k);
-  return out as NodeJS.ProcessEnv;
+  return out;
 }
 
 /**
@@ -245,18 +246,18 @@ export class IsolatedWorker implements Worker {
   }
 
   async *runTextGen(args: any): AsyncGenerator<any, any, void> {
-    const res = (await this.call("runTextGen", [args])) as CallResultMsg;
+    const res = CallResultMsgSchema.parse(await this.call("runTextGen", [args]));
     for (const ev of res.events ?? []) yield ev;
     return res.result;
   }
 
   async judge(args: any): Promise<any> {
-    const res = (await this.call("judge", [args])) as CallResultMsg;
+    const res = CallResultMsgSchema.parse(await this.call("judge", [args]));
     return res.result;
   }
 
   async generateImage(args: any): Promise<any> {
-    const res = (await this.call("generateImage", [args])) as CallResultMsg;
+    const res = CallResultMsgSchema.parse(await this.call("generateImage", [args]));
     return res.result;
   }
 
@@ -270,10 +271,11 @@ export class IsolatedWorker implements Worker {
     let result: unknown;
     let error: string | undefined;
     try {
-      if (m.op === "fetch") result = await this.proxyFetch(m.payload as { url: string; init?: unknown });
-      else result = await this.proxyFs(m.payload as FsPayload);
+      const pm = ProxyMsgSchema.parse(m);
+      if (pm.op === "fetch") result = await this.proxyFetch(pm.payload);
+      else result = await this.proxyFs(pm.payload);
     } catch (e) {
-      error = (e as Error).message;
+      error = errMsg(e);
     }
     const reply: ProxyResultMsg = { dir: "p2c", kind: "proxy-result", id: m.id, ok: !error, result, error };
     this.child.send(reply);

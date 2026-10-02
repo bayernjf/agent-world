@@ -73,7 +73,7 @@ export function audit(
 ): void  // 同步 prepare 插入；失败 warn 不抛（审计不阻塞业务）
 ```
 
-- 在 `index.ts` 各路由调用点手工埋点（动作少，无需中间件自动推断）；
+- 在各域 router（`routes/*.ts`）路由调用点手工埋点（动作少，无需中间件自动推断）；
 - `c.get("userId")` 已在鉴权中间件注入，IP 从 `X-Forwarded-For` / `c.env.remote...` 取；
 - **写失败只 warn 不抛**：审计可用性不应拖垮业务可用性，但 warn 必须响亮（运维能发现审计失效）。
 

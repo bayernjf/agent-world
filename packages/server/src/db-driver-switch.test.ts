@@ -84,6 +84,8 @@ describe("raw SQL / SQLite handles stay inside the documented allow-list", () =>
   // same-named top-level file). Reason is documentation, not decoration.
   const ALLOWED: Record<string, string> = {
     "sqlite-driver.ts": "the SQLite dialect layer itself (owns prepare / DatabaseSync)",
+    "sqlite-schema.ts": "DDL/migration runner of the SQLite dialect layer (audit P2 split from sqlite-driver)",
+    "driver-body.ts": "shared driver body of the SQL dialect layer (owns prepare; audit P2 split from sqlite-driver)",
     "db-drivers.ts": "the user `database` node — runs user SQL on its own DB handle",
     "memory.ts": "knowledge-base FTS5 virtual table + triggers (SQLite-only; PG path no-ops)",
     "key-rotation.ts": "standalone re-encryption CLI owning its own DatabaseSync",
