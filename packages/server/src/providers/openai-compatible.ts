@@ -704,9 +704,11 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
     // (returns b64_json/url immediately) and async (returns an id, then poll
     // <video endpoint>/:id) response shapes. Soft-fails via the engine when
     // the worker lacks this method entirely.
-    async generateVideo({ config, input, signal }: VideoGenArgs): Promise<VideoGenResult[]> {
+    async generateVideo({ config, input, signal, image }: VideoGenArgs): Promise<VideoGenResult[]> {
       const model = config.model || "video-gen";
-      const n = Math.min(4, Math.max(1, Math.trunc(config.n ?? 1)));
+      const adapter = provider.videoAdapter;
+      const maxN = adapter?.maxN ?? 4;
+      const n = Math.min(maxN, Math.max(1, Math.trunc(config.n ?? 1)));
       // H5: custom baseUrl never receives the provider's stored key.
       const { endpoint, apiKey } = nodeEndpointKey(baseUrl, provider, config.baseUrl, config.apiKey);
       if (!apiKey) {
@@ -722,20 +724,46 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
         else signal.addEventListener("abort", onAbort, { once: true });
       }
       try {
-        const adapter = provider.videoAdapter;
         const body: Record<string, unknown> = { model, prompt: input, n };
         if (adapter?.createBody) Object.assign(body, adapter.createBody);
-        if (config.duration && !adapter?.omitDuration) body.duration = config.duration;
+        // Generation mode (agnes dialect): only sent when an adapter exists;
+        // OpenAI-style gateways without an adapter keep their plain shape.
+        const mode = config.mode ?? "text";
+        if (adapter) body.mode = mode;
+        // Duration: adapters that declare secondsField send a clamped string
+        // (agnes: seconds "4"–"12"); others keep the plain numeric `duration`.
+        if (config.duration != null && !adapter?.omitDuration) {
+          if (adapter?.secondsField) {
+            const [lo, hi] = adapter?.secondsRange ?? [1, 60];
+            const s = Math.min(hi, Math.max(lo, Math.trunc(config.duration)));
+            body[adapter.secondsField] = String(s);
+          } else {
+            body.duration = config.duration;
+          }
+        }
+        // Size: agnes-style adapters send `size` + `aspect_ratio`; the legacy
+        // aspectToSize width/height path stays for OpenAI-style gateways.
         if (config.aspect) {
-          const size = adapter?.aspectToSize?.[config.aspect];
-          if (size) {
-            body.width = size.width;
-            body.height = size.height;
-          } else if (!adapter?.createBody) {
+          if (adapter?.aspectAsRatio) {
             body.aspect_ratio = config.aspect;
+          } else {
+            const size = adapter?.aspectToSize?.[config.aspect];
+            if (size) {
+              body.width = size.width;
+              body.height = size.height;
+            } else if (!adapter?.createBody) {
+              body.aspect_ratio = config.aspect;
+            }
           }
         }
         if (config.size) body.size = config.size;
+        // Keyframe/reference image injection (agn 2.5-flash: first_frame URL /
+        // images URL array). Guard: only when an upstream image URL is present.
+        if (mode === "keyframe" && adapter?.firstFramePath && image) {
+          body[adapter.firstFramePath] = image;
+        } else if (mode === "reference" && adapter?.imagesPath && image) {
+          body[adapter.imagesPath] = [image];
+        }
 
         const res = await withRetry(
           async () => {
@@ -767,7 +795,17 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
           let completed: Record<string, unknown> | undefined;
           while (!controller.signal.aborted) {
             await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
-            const pollRes = await guardedFetch(`${endpoint}${endpointFor(provider, model, "video")}/${taskId}`, {
+            // Retrieval URL: adapter template (e.g. agnes /agnesapi?video_id=..)
+            // resolved against the base URL; default stays `GET <endpoint>/:id`.
+            const pollUrl = adapter?.retrievalUrlTemplate
+              ? new URL(
+                  adapter.retrievalUrlTemplate
+                    .replaceAll("{jobId}", encodeURIComponent(taskId))
+                    .replaceAll("{model}", encodeURIComponent(model)),
+                  baseUrl,
+                ).toString()
+              : `${endpoint}${endpointFor(provider, model, "video")}/${taskId}`;
+            const pollRes = await guardedFetch(pollUrl, {
               headers: { Authorization: `Bearer ${apiKey}` },
               signal: controller.signal,
             }).catch(() => null);

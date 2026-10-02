@@ -166,6 +166,7 @@ export async function genericNode(ctx: NodeRunContext, node: GraphNode, nodeId: 
       aspect: gcfg.aspect,
       size: gcfg.size,
       n: gcfg.n ?? 1,
+      mode: "text",
       baseUrl: gcfg.baseUrl,
       apiKey: gcfg.apiKey,
     };
