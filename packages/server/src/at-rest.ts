@@ -44,6 +44,8 @@ import { createCipheriv, createDecipheriv, randomBytes, createHash } from "node:
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { Graph } from "@agent-world/core";
+import { errMsg, asRecord } from "./safe-utils.js";
+import { graphFromUnknown, parseGraphSnapshot } from "./graph-snapshot.js";
 
 const ENC_PREFIX_V1 = "enc:v1:";
 const ENC_PREFIX_V2 = "enc:v2:";
@@ -113,7 +115,7 @@ export function getEncryptionRing(): RingKey[] {
     try {
       parsed = JSON.parse(readFileSync(keysFile, "utf8"));
     } catch (err) {
-      throw new Error(`could not parse ${keysFile}: ${(err as Error).message}`);
+      throw new Error(`could not parse ${keysFile}: ${errMsg(err)}`);
     }
     if (
       !Array.isArray(parsed) ||
@@ -159,7 +161,7 @@ function decryptWith(key: Buffer, ivB64: string, tagB64: string, dataB64: string
   try {
     return Buffer.concat([decipher.update(Buffer.from(dataB64, "base64")), decipher.final()]).toString("utf8");
   } catch (err) {
-    throw new Error(`failed to decrypt stored value: ${(err as Error).message}`);
+    throw new Error(`failed to decrypt stored value: ${errMsg(err)}`);
   }
 }
 
@@ -329,7 +331,7 @@ function mapSecrets(
   if (value && typeof value === "object") {
     let changed = false;
     const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    for (const [k, v] of Object.entries(asRecord(value))) {
       if (typeof v === "string" && v && isCredentialCarrier(k, parentKey)) {
         const next = transform(k, parentKey, v);
         out[k] = next;
@@ -352,7 +354,7 @@ function sealValue(v: string): string {
 
 /** Encrypt every credential inside a graph document (returns a copy). */
 export function sealGraphDoc(graph: Graph): Graph {
-  return mapSecrets(graph, sealTransform).out as Graph;
+  return graphFromUnknown(mapSecrets(graph, sealTransform).out);
 }
 
 /** Decrypt every credential inside a graph document (returns a copy). */
@@ -369,7 +371,7 @@ export function openGraphDoc(graph: Graph): Graph {
     ? { ...graph, edges: graph.edges.filter((e) => liveIds.has(e.from) && liveIds.has(e.to)) }
     : graph;
 
-  return mapSecrets(opened, openTransform).out as Graph;
+  return graphFromUnknown(mapSecrets(opened, openTransform).out);
 }
 
 /**
@@ -379,9 +381,9 @@ export function openGraphDoc(graph: Graph): Graph {
  * across encrypted and legacy rows.
  */
 export function sealDocString(doc: string): string {
-  return JSON.stringify(sealGraphDoc(JSON.parse(doc) as Graph));
+  return JSON.stringify(sealGraphDoc(parseGraphSnapshot(doc)));
 }
 
 export function openDocString(stored: string): string {
-  return JSON.stringify(openGraphDoc(JSON.parse(stored) as Graph));
+  return JSON.stringify(openGraphDoc(parseGraphSnapshot(stored)));
 }

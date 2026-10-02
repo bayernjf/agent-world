@@ -26,10 +26,13 @@ import {
   TEMPLATES,
   TriggerConfig,
   unpricedModels,
+  SkillPermissions,
   type RunEvent,
-  type SkillPermissions,
 } from "@agent-world/core";
 import { openDatabase, backfillExistingData, contentHash, SCHEMA_VERSION, type Db } from "./db.js";
+import { parseGraphSnapshot, SnapshotLikeSchema, type SnapshotLike } from "./graph-snapshot.js";
+import { errMsg, asRecord, errorStatus, isAbortError } from "./safe-utils.js";
+import { z } from "zod";
 import { counter, gauge, histogram, renderMetrics } from "./metrics.js";
 import {
   addErrorSink,
@@ -182,7 +185,7 @@ const workersDir = process.env.WORKERS_DIR ?? fileURLToPath(new URL("workers", i
       }
     }
   } catch (bootCheckErr) {
-    log.warn("boot failover self-check skipped", { error: (bootCheckErr as Error)?.message ?? String(bootCheckErr) });
+    log.warn("boot failover self-check skipped", { error: errMsg(bootCheckErr) });
   }
 }
 
@@ -247,14 +250,14 @@ const triggers = new TriggerService({
 });
 /** Schedules cron triggers; arms timers after triggers are restored. */
 const scheduler = new TriggerScheduler(triggers, (err) =>
-  log.error("trigger scheduler", { error: (err as Error)?.message ?? String(err) }),
+  log.error("trigger scheduler", { error: errMsg(err) }),
 );
 // restore() is async (loads triggers from DB); start() must run after it
 // completes, otherwise list() is empty and no cron timers are armed.
 void triggers
   .restore()
   .then(() => scheduler.start())
-  .catch((err) => log.error("trigger restore failed", { error: (err as Error)?.message ?? String(err) }));
+  .catch((err) => log.error("trigger restore failed", { error: errMsg(err) }));
 
 /** JSON error response that accepts a dynamic (non-literal) status code. */
 function jsonResponse(status: number, body: unknown): Response {
@@ -309,13 +312,13 @@ app.use("/api/*", async (c, next) => {
 // future Hono HTTPException carrying a 4xx status passes through without
 // polluting the error feed.
 app.onError((err, c) => {
-  const maybeStatus = (err as { status?: unknown }).status;
-  const status = typeof maybeStatus === "number" ? maybeStatus : 500;
+  const status = errorStatus(err) ?? 500;
   if (status >= 500) {
     recordError("request", err, { method: c.req.method, path: c.req.path });
     return c.json({ error: "internal server error" }, 500);
   }
-  return c.json({ error: (err as Error)?.message || "error" }, status as 400 | 401 | 403 | 404 | 409);
+  const st = status === 400 || status === 401 || status === 403 || status === 404 || status === 409 ? status : 500;
+  return c.json({ error: errMsg(err) || "error" }, st);
 });
 
 /** Deployment identity: preferred from CI-injected env (`AGENT_WORLD_GIT_BRANCH`
@@ -1468,7 +1471,7 @@ app.post("/api/admin/invoices/:id/mark-paid", async (c) => {
     const invoice = await markInvoicePaid(db, c.req.param("id"), method, callerId, body.notes, clientIp(c));
     return c.json({ ok: true, invoice });
   } catch (err) {
-    const msg = (err as Error).message;
+    const msg = errMsg(err);
     if (msg.includes("not found")) return c.json({ error: "invoice not found" }, 404);
     if (msg.includes("already paid")) return c.json({ error: "invoice already paid" }, 409);
     if (msg.includes("void")) return c.json({ error: "cannot pay a void invoice" }, 409);
@@ -1486,7 +1489,7 @@ app.post("/api/admin/invoices/:id/void", async (c) => {
     const invoice = await voidInvoice(db, c.req.param("id"), callerId, body.reason, clientIp(c));
     return c.json({ ok: true, invoice });
   } catch (err) {
-    const msg = (err as Error).message;
+    const msg = errMsg(err);
     if (msg.includes("not found")) return c.json({ error: "invoice not found" }, 404);
     if (msg.includes("paid invoice")) return c.json({ error: "cannot void a paid invoice" }, 409);
     return c.json({ error: msg }, 400);
@@ -1604,14 +1607,14 @@ const FEEDBACK_CONTEXT_KEYS = [
 ] as const;
 
 function sanitizeFeedbackContext(raw: unknown): string {
-  const src = (raw ?? {}) as Record<string, unknown>;
+  const src = asRecord(raw);
   const out: Record<string, unknown> = {};
   for (const key of FEEDBACK_CONTEXT_KEYS) {
     if (src[key] === undefined) continue;
     const v = src[key];
     // Scalars only; lastError is the sole object (message/lineno picked apart).
     if (key === "lastError" && v && typeof v === "object") {
-      const e = v as Record<string, unknown>;
+      const e = asRecord(v);
       out.lastError = {
         message: typeof e.message === "string" ? e.message.slice(0, 500) : undefined,
         lineno: typeof e.lineno === "number" ? e.lineno : undefined,
@@ -1721,7 +1724,7 @@ app.get("/api/feedback/:id/attachment", async (c) => {
   if (!(await isAnnouncementAdmin(c.get("userId")))) return c.json({ error: "forbidden" }, 403);
   const item = await db.getFeedback(c.req.param("id"));
   if (!item) return c.json({ error: "feedback not found" }, 404);
-  const bytes = item.attachment as Uint8Array | null;
+  const bytes = item.attachment instanceof Uint8Array ? item.attachment : null;
   if (!bytes || !bytes.byteLength) return c.json({ error: "no attachment" }, 404);
   const mime =
     typeof item.attachment_mime === "string" && FEEDBACK_ATTACHMENT_MIMES.has(item.attachment_mime)
@@ -2015,7 +2018,7 @@ const ANNOUNCEMENT_TARGET_RE = /^(graph|template):[A-Za-z0-9_-]+$/;
 function parseAnnouncementBody(raw: unknown):
   | { ok: true; value: { titleZh: string; titleEn: string; bodyZh?: string | null; bodyEn?: string | null; level: string; startsAt: number; endsAt?: number | null; target?: string | null } }
   | { ok: false; error: string } {
-  const b = (raw ?? {}) as Record<string, unknown>;
+  const b = asRecord(raw);
   const titleZh = typeof b.titleZh === "string" ? b.titleZh.trim() : "";
   const titleEn = typeof b.titleEn === "string" ? b.titleEn.trim() : "";
   if (!titleZh || !titleEn) return { ok: false, error: "titleZh and titleEn are required" };
@@ -2106,7 +2109,7 @@ app.put("/api/settings", async (c) => {
   if (!parsed.success) {
     return c.json({ error: "Invalid settings payload", details: parsed.error.flatten() }, 400);
   }
-  const body = parsed.data as Partial<AppConfig>;
+  const body = parsed.data;
   const current = await loadConfig(userId);
   const bodyProviders = body.providers ?? {};
   const mergedProviders: AppConfig["providers"] = {};
@@ -2159,7 +2162,7 @@ app.put("/api/settings", async (c) => {
   // Audit field PATHS only — never values (red line in design-audit-log §3.2).
   audit(db, userId, "settings.update", {
     objectType: "settings",
-    detail: { fields: changedFields(current as unknown as Record<string, unknown>, merged as unknown as Record<string, unknown>) },
+    detail: { fields: changedFields(Object.fromEntries(Object.entries(current)), Object.fromEntries(Object.entries(merged))) },
     ip: clientIp(c),
   });
   return c.json({ ok: true, path });
@@ -2298,10 +2301,10 @@ app.post("/api/providers/test", async (c) => {
     return c.json({ ok: true, modality, endpoint: `${baseUrl}${endpoint}` });
   } catch (err) {
     clearTimeout(timeout);
-    if ((err as Error).name === "AbortError") {
+    if (isAbortError(err)) {
       return c.json({ ok: false, error: `Connection timed out (${Math.round(probeTimeoutMs / 1000)}s)` });
     }
-    return c.json({ ok: false, error: sanitizeError((err as Error).message) });
+    return c.json({ ok: false, error: sanitizeError(errMsg(err)) });
   }
 });
 
@@ -2348,15 +2351,10 @@ app.get("/api/runs/:id/timeline", async (c) => {
   const events = await db.events(runId);
   // The event stream only carries node ids; resolve human-readable name/kind
   // from the snapshot captured when the run started (best-effort).
-  type SnapshotLike = { nodes?: Array<{ id: string; name?: string; kind?: string }> } | null;
   let snapshot: SnapshotLike = null;
   try {
-    if (run.snapshot) {
-      snapshot =
-        typeof run.snapshot === "string"
-          ? (JSON.parse(run.snapshot) as NonNullable<SnapshotLike>)
-          : (run.snapshot as NonNullable<SnapshotLike>);
-    }
+    const parsed: unknown = typeof run.snapshot === "string" ? JSON.parse(run.snapshot) : run.snapshot;
+    if (parsed !== null && typeof parsed === "object") snapshot = SnapshotLikeSchema.parse(parsed);
   } catch {
     snapshot = null;
   }
@@ -2443,8 +2441,8 @@ app.post("/api/runs/:id/diagnose", async (c) => {
     const result = await diagnoseRun(worker, userId, info);
     return c.json(result);
   } catch (err) {
-    log.warn("run diagnosis failed", { runId, error: (err as Error).message });
-    return c.json({ error: "diagnosis_unavailable", message: (err as Error).message }, 503);
+    log.warn("run diagnosis failed", { runId, error: errMsg(err) });
+    return c.json({ error: "diagnosis_unavailable", message: errMsg(err) }, 503);
   }
 });
 
@@ -3135,19 +3133,28 @@ app.post("/api/plan", async (c) => {
   return c.json(plan, 201);
 });
 
+const PlanPatchSchema = z
+  .object({
+    graphId: z.string().nullable().optional(),
+    runId: z.string().nullable().optional(),
+    artifactId: z.string().nullable().optional(),
+    platform: z.string().nullable().optional(),
+    title: z.string().optional(),
+    scheduledAt: z.number().optional(),
+    status: z.enum(["draft", "pending_review", "scheduled", "published", "failed"]).optional(),
+    publishedUrl: z.string().nullable().optional(),
+    note: z.string().nullable().optional(),
+  })
+  .partial()
+  .passthrough();
+
 app.patch("/api/plan/:id", async (c) => {
   const userId = c.get("userId");
-  const body = (await c.req.json().catch(() => ({}))) as Partial<{
-    graphId: string | null;
-    runId: string | null;
-    artifactId: string | null;
-    platform: string | null;
-    title: string;
-    scheduledAt: number;
-    status: "draft" | "pending_review" | "scheduled" | "published" | "failed";
-    publishedUrl: string | null;
-    note: string | null;
-  }>;
+  const parsed = PlanPatchSchema.safeParse(await c.req.json().catch(() => ({})));
+  if (!parsed.success) {
+    return c.json({ error: "Invalid plan payload", details: parsed.error.flatten() }, 400);
+  }
+  const body = parsed.data;
   const plan = await db.updatePlan(c.req.param("id"), userId, body);
   if (!plan) return c.json({ error: "not found" }, 404);
   return c.json(plan);
@@ -3343,8 +3350,8 @@ app.post("/api/graphs/:id/triggers", async (c) => {
   const d = await blockDemo(c, "webhook"); if (d) return d;
   const graphId = c.req.param("id");
   if (!await db.getGraph(graphId, userId)) return c.json({ error: "graph not found" }, 404);
-  const raw = (await c.req.json().catch(() => ({}))) as Partial<TriggerConfig>;
-  const withId = raw.id ? raw : { ...raw, id: crypto.randomUUID() };
+  const rawObj = asRecord(await c.req.json().catch(() => ({})));
+  const withId = rawObj.id ? rawObj : { ...rawObj, id: crypto.randomUUID() };
   const parsed = TriggerConfig.safeParse(withId);
   if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
   // Webhook triggers are callable by anyone who knows the URL; an empty
@@ -3514,7 +3521,7 @@ app.post("/api/runs/ab", async (c) => {
     }
     let sampleGraph: Graph | null = null;
     try {
-      sampleGraph = JSON.parse(sample.snapshot) as Graph;
+      sampleGraph = parseGraphSnapshot(sample.snapshot);
     } catch {
       sampleGraph = null;
     }
@@ -4002,7 +4009,7 @@ app.post("/api/runs/:id/rerun", async (c) => {
   if (run.status === "running") return c.json({ error: "run is still live" }, 409);
   let graph: Graph;
   try {
-    graph = JSON.parse(run.snapshot) as Graph;
+    graph = parseGraphSnapshot(run.snapshot);
   } catch {
     return c.json({ error: "run snapshot is corrupt" }, 422);
   }
@@ -4075,7 +4082,7 @@ app.post("/api/runs/:id/fork", async (c) => {
 
   let graph: Graph;
   try {
-    graph = JSON.parse(parent.snapshot) as Graph;
+    graph = parseGraphSnapshot(parent.snapshot);
   } catch {
     return c.json({ error: "run snapshot is corrupt" }, 422);
   }
@@ -4376,7 +4383,7 @@ app.get("/api/artifacts/:id", async (c) => {
       `inline; filename="${encodeURIComponent(meta.label)}"`,
     );
   }
-  return new Response(file.stream as unknown as ReadableStream, { headers });
+  return new Response(file.stream, { headers });
 });
 
 // Discover worker plugins in the background; the built-in worker is already
@@ -4391,25 +4398,49 @@ if (process.env.NODE_ENV !== "test") void workerRegistry.loadFrom(workersDir);
 // reach a server is non-fatal.
 const mcpClients: McpClient[] = [];
 const mcpStatus: { id: string; tools: string[]; transport: string }[] = [];
+const McpSpecSchema = z
+  .object({
+    id: z.string().optional(),
+    transport: z.enum(["stdio", "http", "sse"]).optional(),
+    command: z.string().optional(),
+    args: z.array(z.string()).optional(),
+    env: z.record(z.string()).optional(),
+    url: z.string().optional(),
+    headers: z.record(z.string()).optional(),
+    danger: z.boolean().optional(),
+    permissions: SkillPermissions.optional(),
+  })
+  .passthrough();
+
 async function connectMcpServers(): Promise<void> {
   const raw = process.env.MCP_SERVERS;
   if (!raw) return;
-  let rawServers: Array<Record<string, unknown>>;
+  let rawServers: unknown;
   try {
     rawServers = JSON.parse(raw);
   } catch {
     log.warn("MCP_SERVERS is not valid JSON; skipping MCP setup");
     return;
   }
-  for (const s of rawServers) {
-    const id = String(s.id ?? "mcp");
+  if (!Array.isArray(rawServers)) {
+    log.warn("MCP_SERVERS is not a JSON array; skipping MCP setup");
+    return;
+  }
+  for (const entry of rawServers) {
+    const parsed = McpSpecSchema.safeParse(entry);
+    const id = String((entry && typeof entry === "object" && "id" in entry ? entry.id : undefined) ?? "mcp");
+    if (!parsed.success) {
+      log.warn("mcp spec invalid, skipping", { id, error: parsed.error.flatten() });
+      continue;
+    }
+    const s = parsed.data;
     try {
-      const transport = (s.transport as string | undefined) ?? "stdio";
+      const transport = s.transport ?? "stdio";
       let spec: McpServerSpec;
       if (transport === "stdio") {
-        spec = { transport: "stdio", command: String(s.command), args: (s.args as string[]) ?? [], env: s.env as Record<string, string> | undefined };
+        spec = { transport: "stdio", command: s.command ?? "", args: s.args, env: s.env, danger: s.danger };
       } else {
-        spec = { transport: transport as "http" | "sse", url: String(s.url), headers: s.headers as Record<string, string> | undefined };
+        spec = { transport, url: s.url ?? "", headers: s.headers, danger: s.danger };
       }
       const client = connectMcpServer(spec);
       mcpClients.push(client);
@@ -4417,13 +4448,13 @@ async function connectMcpServers(): Promise<void> {
         id,
         client,
         registerSkill,
-        s.permissions as SkillPermissions | undefined,
-        (s.danger as boolean | undefined) ?? undefined,
+        s.permissions,
+        s.danger,
       );
       mcpStatus.push({ id, tools: tools.map((t) => t.name), transport });
       log.info("mcp connected", { id, transport, tools: tools.map((t) => t.name) });
     } catch (err) {
-      log.warn("mcp connect failed", { id, error: (err as Error).message });
+      log.warn("mcp connect failed", { id, error: errMsg(err) });
     }
   }
 }
@@ -4569,8 +4600,8 @@ async function probeVideo(
     });
   } catch (err) {
     clearTimeout(timer);
-    if ((err as Error).name === "AbortError") return { ok: false, modality: "video", error: "连接超时（15s）" };
-    return { ok: false, modality: "video", error: sanitizeError((err as Error).message) };
+    if (isAbortError(err)) return { ok: false, modality: "video", error: "连接超时（15s）" };
+    return { ok: false, modality: "video", error: sanitizeError(errMsg(err)) };
   } finally {
     clearTimeout(timer);
   }
