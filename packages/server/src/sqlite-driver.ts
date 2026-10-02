@@ -38,7 +38,7 @@ export interface Executor {
 }
 
 /** Executor backed by the synchronous `node:sqlite` DatabaseSync (wrapped async). */
-function createSqliteExecutor(db: DatabaseSync): Executor {
+export function createSqliteExecutor(db: DatabaseSync): Executor {
   return {
     async get(sql, params) {
       return db.prepare(sql).get(...(params as SQLInputValue[])) as Record<string, unknown> | undefined;
