@@ -657,7 +657,7 @@ export default function Settings({ open, onClose, initialTab }: Props) {
     } else if (kind === "imageGen") {
       update(nodeId, { imageGen: { model: newModel, n: 1 } });
     } else if (kind === "videoGen") {
-      update(nodeId, { videoGen: { model: newModel, n: 1 } });
+      update(nodeId, { videoGen: { model: newModel, n: 1, mode: "text" } });
     } else if (kind === "audioGen") {
       update(nodeId, { audioGen: { model: newModel, format: "mp3", n: 1 } });
     }

@@ -160,4 +160,51 @@ describe("videoGen node (P1-6)", () => {
     const agentCall = calls.find((c) => "input" in c && typeof c.input === "string" && c.input.includes("视频"));
     expect(agentCall).toBeDefined();
   });
+
+  it("passes the upstream image URL to generateVideo in keyframe mode (imageSource: upstream)", async () => {
+    const { worker, calls } = spyWorker({ videoCount: 1 });
+    const graph: Graph = {
+      id: "g",
+      name: "g",
+      nodes: [
+        { id: "src", kind: "source", name: "Src", x: 0, y: 0, source: {} },
+        { id: "img", kind: "imageGen", name: "Img", x: 1, y: 0, imageGen: { model: "img", prompt: "cover", n: 1 } },
+        {
+          id: "vid",
+          kind: "videoGen",
+          name: "Vid",
+          x: 2,
+          y: 0,
+          videoGen: { model: "video-gen", prompt: "move", n: 1, mode: "keyframe", imageSource: "upstream" },
+        },
+        { id: "sink", kind: "sink", name: "Sink", x: 3, y: 0 },
+      ],
+      edges: [
+        { id: "e0", kind: "flow", from: "src", to: "img" },
+        { id: "e1", kind: "flow", from: "img", to: "vid" },
+        { id: "e2", kind: "flow", from: "vid", to: "sink" },
+      ],
+    };
+    const { plan } = compile(graph);
+    if (!plan) throw new Error("graph did not compile");
+    const events: RunEvent[] = [];
+    for await (const e of execute({
+      runId: "r",
+      graph,
+      plan,
+      worker,
+      now: () => 0,
+      publicUrl: "https://pub.example",
+      storeBinary: () => "/api/artifacts/img-1",
+    })) {
+      events.push(e);
+    }
+
+    // The video call received the upstream image published to an absolute URL.
+    const vidCall = calls.find((c) => (c as { config?: { mode?: string } }).config?.mode === "keyframe");
+    expect(vidCall).toBeDefined();
+    expect((vidCall as { image?: string }).image).toBe("https://pub.example/api/artifacts/img-1");
+    const produced = events.filter((e) => e.type === "artifact.produced" && e.artifact.kind === "video");
+    expect(produced.length).toBe(1);
+  });
 });

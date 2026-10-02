@@ -229,7 +229,7 @@ const DEFAULTS: Record<NodeKind, Partial<GraphNode>> = {
   },
   gate: { gate: { maxAttempts: 3, criterion: "", onExhausted: "halt", skills: [] } },
   imageGen: { imageGen: { model: "", prompt: "", n: 1 } },
-  videoGen: { videoGen: { model: "", prompt: "", n: 1 } },
+  videoGen: { videoGen: { model: "", prompt: "", n: 1, mode: "text" } },
   audioGen: { audioGen: { model: "", prompt: "", format: "mp3", n: 1 } },
   http: { http: { method: "GET", url: "", headers: {}, query: {}, timeoutMs: 30000, outputMode: "auto", failOnError: true, retry: { maxRetries: 2, baseDelayMs: 1000, maxDelayMs: 30000 } } },
   code: { code: { language: "javascript", code: "", timeoutMs: 30000, retry: { maxRetries: 2, baseDelayMs: 1000, maxDelayMs: 30000 }, env: [], fs: "sandbox", net: "none" } },
