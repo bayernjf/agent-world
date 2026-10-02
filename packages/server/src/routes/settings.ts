@@ -279,7 +279,7 @@ app.post("/api/providers/test", async (c) => {
   if (!rawUrl.trim()) return c.json({ ok: false, error: "Base URL is required" }, 400);
   const baseUrl = normalizeBaseUrl(rawUrl);
   let apiKey = body.apiKey ?? "";
-  const model = body.model?.trim() || "agnes-2.0-flash";
+  const model = body.model?.trim() || "agnes-2.5-flash";
 
   // Resolve modality: explicit > saved for this model > text default.
   if (body.modality !== undefined && !MODALITIES.includes(body.modality)) {

@@ -59,7 +59,7 @@ afterAll(async () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-const SHIPPED = ["agnes-2.0-flash", "agnes-2.5-flash"];
+const SHIPPED = ["agnes-2.5-flash", "agnes-image-2.5-flash", "agnes-video-2.5-flash"];
 
 describe("GET /api/admin/model-catalog", () => {
   it("refuses an anonymous caller", async () => {
@@ -83,7 +83,7 @@ describe("GET /api/admin/model-catalog", () => {
       code: Record<string, { models: string[] }>;
       gaps: unknown[];
     };
-    expect(body.providers.agnes?.models).toContain("agnes-2.0-flash");
+    expect(body.providers.agnes?.models).toContain("agnes-2.5-flash");
     expect(body.overlay).toEqual({});
     // The screen must be able to tell "overridden" from "shipped default".
     expect(body.code.agnes?.models.length).toBeGreaterThan(0);
@@ -100,8 +100,8 @@ describe("PUT /api/admin/model-catalog", () => {
       headers: hdr(admin.token),
       body: JSON.stringify({
         agnes: {
-          models: ["agnes-2.0-flash", "agnes-new-1"],
-          modalities: { "agnes-2.0-flash": "text", "agnes-new-1": "text" },
+          models: ["agnes-2.5-flash", "agnes-new-1"],
+          modalities: { "agnes-2.5-flash": "text", "agnes-new-1": "text" },
           pricing: { "agnes-new-1": { input: 0.4, output: 1.6 } },
         },
       }),
@@ -161,7 +161,7 @@ describe("PUT /api/admin/model-catalog", () => {
           name: "初稿",
           x: 1,
           y: 0,
-          textGen: { model: "agnes-2.0-flash", prompt: "hi", skills: [], temperature: 0.7, timeoutMs: 60000 },
+          textGen: { model: "agnes-2.5-flash", prompt: "hi", skills: [], temperature: 0.7, timeoutMs: 60000 },
         },
         { id: "out", kind: "sink", name: "OUT", x: 2, y: 0 },
       ],
@@ -212,7 +212,7 @@ describe("PUT /api/admin/model-catalog", () => {
     });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { providers: Record<string, { models: string[] }> };
-    expect(body.providers.agnes?.models).toContain("agnes-2.0-flash");
+    expect(body.providers.agnes?.models).toContain("agnes-2.5-flash");
     expect(body.providers.agnes?.models).not.toContain("agnes-new-1");
   });
 

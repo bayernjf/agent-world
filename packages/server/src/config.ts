@@ -303,19 +303,13 @@ const AGNES_PROVIDER: ProviderConfig = {
   // instead of leaking a secret into the repo.
   apiKey: process.env.AGNES_API_KEY,
   models: [
-    "agnes-2.0-flash",
     "agnes-2.5-flash",
-    "agnes-image-2.0-flash",
-    "agnes-image-2.1-flash",
-    "agnes-video-v2.0",
+    "agnes-image-2.5-flash",
     "agnes-video-2.5-flash",
   ],
   modalities: {
-    "agnes-2.0-flash": "text",
     "agnes-2.5-flash": "text",
-    "agnes-image-2.0-flash": "image",
-    "agnes-image-2.1-flash": "image",
-    "agnes-video-v2.0": "video",
+    "agnes-image-2.5-flash": "image",
     "agnes-video-2.5-flash": "video",
   },
   // Informal placeholder pricing, mapped to comparable OpenAI list prices so
@@ -324,11 +318,8 @@ const AGNES_PROVIDER: ProviderConfig = {
   // video ≈ Sora-tier (USD/sec). Replace with real agnes gateway rates before
   // relying on the cost report for anything billing-sensitive.
   pricing: {
-    "agnes-2.0-flash": { input: 0.15, output: 0.6 },
     "agnes-2.5-flash": { input: 0.4, output: 1.6 },
-    "agnes-image-2.0-flash": { perImage: 0.04 },
-    "agnes-image-2.1-flash": { perImage: 0.08 },
-    "agnes-video-v2.0": { perSecond: 0.1 },
+    "agnes-image-2.5-flash": { perImage: 0.08 },
     "agnes-video-2.5-flash": { perSecond: 0.15 },
   },
   // Agnes gateway serves video at POST /v1/videos (not /videos/generations),
@@ -388,15 +379,12 @@ const DEFAULT_CONFIG: AppConfig = {
     agnes: AGNES_PROVIDER,
     backup: BACKUP_PROVIDER,
   },
-  defaultModel: "agnes-2.0-flash",
+  defaultModel: "agnes-2.5-flash",
   defaultProvider: "agnes",
   failover: { enabled: true },
   modelOrder: [
-    "agnes::agnes-2.0-flash",
     "agnes::agnes-2.5-flash",
-    "agnes::agnes-image-2.0-flash",
-    "agnes::agnes-image-2.1-flash",
-    "agnes::agnes-video-v2.0",
+    "agnes::agnes-image-2.5-flash",
     "agnes::agnes-video-2.5-flash",
   ],
 };
