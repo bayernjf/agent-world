@@ -13,7 +13,7 @@ export const SEED_GRAPH = Graph.parse({
       x: 420,
       y: 300,
       textGen: {
-        model: "agnes-2.0-flash",
+        model: "agnes-2.5-flash",
         prompt:
           "You are a writer on an assembly line. Given the task brief from intake, produce a concise first draft in 2-3 sentences.",
         skills: [],
@@ -38,7 +38,7 @@ export const SEED_GRAPH = Graph.parse({
       x: 1000,
       y: 300,
       textGen: {
-        model: "agnes-2.0-flash",
+        model: "agnes-2.5-flash",
         prompt: "Polish the approved draft into final form. Keep it under 5 sentences.",
         skills: [],
       },
