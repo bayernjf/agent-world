@@ -18,6 +18,6 @@ export const plugin: WorkerPlugin = {
   name: "Demo Worker",
   description:
     "示例插件：复用内置 routing worker。复制本文件并改写 createWorker 即可接入自定义模型。",
-  models: ["agnes-2.0-flash", "agnes-2.0-pro"],
+  models: ["agnes-2.5-flash", "agnes-image-2.5-flash", "agnes-video-2.5-flash"],
   createWorker: () => routingWorker(),
 };

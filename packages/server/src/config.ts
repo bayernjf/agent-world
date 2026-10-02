@@ -526,7 +526,18 @@ function applyPlatformCatalog(cfg: AppConfig): AppConfig {
   for (const [name, def] of Object.entries(DEFAULT_CONFIG.providers)) {
     if (def.source === "builtin") providers[name] = mergeBuiltinCatalog(def, catalog[name]);
   }
-  return { ...cfg, providers };
+  const out = { ...cfg, providers };
+  // The stored defaultModel must still exist in the default provider's merged
+  // catalog. A stale snapshot (or an admin retirement) that leaves the default
+  // pointing at a retired model would otherwise keep silently running the old
+  // name through the provider (e.g. a per-user row persisting an old default).
+  // Reset to the code-shipped default only when the default provider is builtin
+  // and its merged model list no longer contains the configured default.
+  const defProv = out.providers[out.defaultProvider];
+  if (defProv?.source === "builtin" && !(defProv.models ?? []).includes(out.defaultModel)) {
+    out.defaultModel = DEFAULT_CONFIG.defaultModel;
+  }
+  return out;
 }
 
 /**
