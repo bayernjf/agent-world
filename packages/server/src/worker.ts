@@ -48,6 +48,8 @@ export interface VideoGenArgs {
   node: GraphNode;
   config: VideoGenConfig;
   input: string;
+  /** Optional first-frame/reference image URL for keyframe/reference modes. */
+  image?: string;
   signal?: AbortSignal;
 }
 

@@ -184,6 +184,10 @@ export const ImageGenConfig = z.object({
 });
 export type ImageGenConfig = z.infer<typeof ImageGenConfig>;
 
+/** Generation modes supported by agnes-style video APIs (text/keyframe/reference). */
+export const VIDEO_GEN_MODES = ["text", "keyframe", "reference"] as const;
+export type VideoGenMode = (typeof VIDEO_GEN_MODES)[number];
+
 /** Configuration for a `videoGen` node: calls a text-to-video model to produce
  *  a short video clip. Provider support varies; the engine soft-fails when the
  *  worker lacks `generateVideo`. */
@@ -199,6 +203,12 @@ export const VideoGenConfig = z.object({
   size: z.string().optional(),
   /** How many videos to produce (1-4). Each becomes its own artifact. */
   n: z.number().int().min(1).max(4).default(1),
+  /** Generation mode: text (default), keyframe (first/last frame control) or
+   *  reference (image/audio reference). Mapped to the provider's `mode` field. */
+  mode: z.enum(VIDEO_GEN_MODES).default("text"),
+  /** When `"upstream"`, the node takes the first image artifact from upstream
+   *  nodes as the keyframe/reference image (requires mode keyframe/reference). */
+  imageSource: z.enum(["upstream"]).optional(),
   /** Optional per-node endpoint override. */
   baseUrl: z.string().optional(),
   /** Optional per-node API key override. */

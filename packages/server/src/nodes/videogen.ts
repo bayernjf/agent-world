@@ -1,4 +1,4 @@
-import { isTimedOut, type Artifact, type ErrorCode, type GraphNode, type Usage } from "@agent-world/core";
+import { incoming, isTimedOut, type Artifact, type ErrorCode, type Graph, type GraphNode, type Usage } from "@agent-world/core";
 import { randomUUID } from "node:crypto";
 import type { NodeRunContext } from "./types.js";
 import { sanitizeError } from "../sanitize.js";
@@ -15,6 +15,30 @@ export const VIDEO_POLL_MAX_DELAY_MS = 20_000;
 export const VIDEO_JOB_DEFAULT_TIMEOUT_MS = 5 * 60_000;
 /** Don't write last_polled_at on every poll; touch at most once per N polls. */
 const TOUCH_EVERY_POLLS = 3;
+
+/** Publish a relative artifact URI as an absolute URL when an origin exists
+ *  (agnes keyframe/reference media must be publicly reachable). Mirrors the
+ *  engine's absUrl rule. */
+function absUrl(uri: string, publicUrl: string | undefined): string {
+  return uri.startsWith("/") && publicUrl ? publicUrl + uri : uri;
+}
+
+/** First image artifact URL from upstream flow nodes, or undefined. Used for
+ *  keyframe/reference video modes when the node sets imageSource:"upstream". */
+function upstreamImageUrl(
+  graph: Graph,
+  artifacts: Map<string, Artifact[]>,
+  nodeId: string,
+  publicUrl: string | undefined,
+): string | undefined {
+  for (const e of incoming(graph, nodeId, "flow")) {
+    const arts = artifacts.get(e.from) ?? [];
+    for (const a of arts) {
+      if (a.kind === "image" && a.uri) return absUrl(a.uri, publicUrl);
+    }
+  }
+  return undefined;
+}
 
 /** Exponential backoff between remote video job status polls, capped at 20s. */
 export function nextVideoPollDelayMs(pollCount: number): number {
@@ -195,7 +219,7 @@ function haltLost(
 export async function videoGenNode(ctx: NodeRunContext, node: GraphNode, nodeId: string, attempt: number): Promise<void> {
   const { artifacts, budgetUsd, emit, graph, inputFor, opts, sendPackets, states, worker } = ctx;
   emit({ type: "node.started", nodeId, attempt });
-  const cfg = node.videoGen ?? { model: "video-gen", n: 1 };
+  const cfg = node.videoGen ?? { model: "video-gen", n: 1, mode: "text" as const };
   const supportsSync = !!worker.generateVideo;
   const supportsAsync = !!worker.submitVideoJob && !!worker.queryVideoJob;
   if (!supportsSync && !supportsAsync) {
@@ -207,7 +231,13 @@ export async function videoGenNode(ctx: NodeRunContext, node: GraphNode, nodeId:
   }
   const prompt = cfg.prompt?.trim() || (await inputFor(node));
   try {
-    const args: VideoGenArgs = { node, config: cfg, input: prompt, signal: opts.signal };
+    // keyframe/reference mode: take the first upstream image as the
+    // frame/reference when the node opted in via imageSource:"upstream".
+    const image =
+      cfg.imageSource === "upstream"
+        ? upstreamImageUrl(graph, artifacts, nodeId, opts.publicUrl)
+        : undefined;
+    const args: VideoGenArgs = { node, config: cfg, input: prompt, image, signal: opts.signal };
     let results: VideoGenResult[];
     if (supportsAsync && ctx.remoteJobStore) {
       const outcome = await pollVideoJob(

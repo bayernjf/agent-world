@@ -429,9 +429,12 @@ const mediaPipelineGraph = {
         y: 440,
         videoGen: {
           model: "",
-          // prompt 留空：引擎直接用上游脚本文本作为视频提示词，实现文本 → 视频联动
+          // prompt 留空：引擎直接用上游脚本文本作为视频提示词，实现文本 → 视频联动；
+          // keyframe 模式以上游关键帧配图为首帧，从该构图起画（首帧 URL 由引擎注入）。
           duration: 5,
           aspect: "16:9",
+          mode: "keyframe",
+          imageSource: "upstream",
         },
       },
       { id: "depot", kind: "sink", name: "成品库", x: 920, y: 300 },
@@ -442,6 +445,7 @@ const mediaPipelineGraph = {
       { id: "e3", from: "scriptwriter", to: "video", kind: "flow" },
       { id: "e4", from: "keyframe", to: "depot", kind: "flow" },
       { id: "e5", from: "video", to: "depot", kind: "flow" },
+      { id: "e6", from: "keyframe", to: "video", kind: "flow" },
     ],
   },
 } satisfies GraphTemplate;
