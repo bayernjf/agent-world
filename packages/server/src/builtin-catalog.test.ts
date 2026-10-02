@@ -208,7 +208,7 @@ describe("catalog → loadConfig → dispatchability", () => {
     const { loadConfig } = await import("./config.js");
     const { validateModels } = await import("./validate-models.js");
     const errorsOf = async () =>
-      (await validateModels(graphWith("agnes-2.0-flash"), await loadConfig(undefined))).filter(
+      (await validateModels(graphWith("agnes-2.5-flash"), await loadConfig(undefined))).filter(
         (d) => d.severity === "error",
       );
 
@@ -218,9 +218,8 @@ describe("catalog → loadConfig → dispatchability", () => {
 
     await writePlatformCatalog({
       agnes: {
-        models: ["agnes-2.5-flash"],
-        modalities: { "agnes-2.5-flash": "text" },
-        pricing: { "agnes-2.5-flash": { input: 0.4, output: 1.6 } },
+        models: ["agnes-image-2.5-flash", "agnes-video-2.5-flash"],
+        modalities: { "agnes-image-2.5-flash": "image", "agnes-video-2.5-flash": "video" },
       },
     });
     const errs = await errorsOf();

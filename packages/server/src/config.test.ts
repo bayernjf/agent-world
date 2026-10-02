@@ -98,7 +98,7 @@ describe("per-user config storage", () => {
     );
     const agnes = (await loadConfig("u-shadow")).providers.agnes!;
     expect(agnes.baseUrl).toBe("https://apihub.agnes-ai.com/v1");
-    expect(agnes.models).toContain("agnes-2.0-flash");
+    expect(agnes.models).toContain("agnes-2.5-flash");
     expect(agnes.models).not.toContain("sneaky-model");
   });
 });

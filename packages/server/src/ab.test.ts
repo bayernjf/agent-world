@@ -23,7 +23,7 @@ const abGraph: Graph = {
       name: "Writer",
       x: 1,
       y: 0,
-      textGen: { model: "agnes-2.0-flash", prompt: "", skills: [], temperature: 0.7, timeoutMs: 60000 },
+      textGen: { model: "agnes-2.5-flash", prompt: "", skills: [], temperature: 0.7, timeoutMs: 60000 },
     },
     { id: "out", kind: "sink", name: "OUT", x: 2, y: 0 },
   ],
@@ -178,7 +178,7 @@ const abGraphWithGate: Graph = {
       name: "Writer",
       x: 1,
       y: 0,
-      textGen: { model: "agnes-2.0-flash", prompt: "", skills: [], temperature: 0.7, timeoutMs: 60000 },
+      textGen: { model: "agnes-2.5-flash", prompt: "", skills: [], temperature: 0.7, timeoutMs: 60000 },
     },
     {
       id: "q",
