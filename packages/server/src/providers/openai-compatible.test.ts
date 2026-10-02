@@ -144,12 +144,11 @@ describe("videoAdapter (agnes-style video API)", () => {
     vi.unstubAllEnvs();
   });
 
-  it("sends mode, maps aspect to width/height, and omits duration", async () => {
+  it("sends the config mode, maps aspect to width/height, and omits duration", async () => {
     vi.stubEnv("ALLOW_PRIVATE_NETWORK", "1");
     const worker = openAICompatibleWorker({
       ...base,
       videoAdapter: {
-        createBody: { mode: "ti2vid" },
         omitDuration: true,
         aspectToSize: { "16:9": { width: 1280, height: 720 } },
       },
@@ -174,7 +173,7 @@ describe("videoAdapter (agnes-style video API)", () => {
     expect(results[0].mimeType).toBe("video/mp4");
     const init = calls.find((c) => c.url.endsWith("/videos"))!.init!;
     const body = JSON.parse(String((init as RequestInit).body)) as Record<string, unknown>;
-    expect(body).toMatchObject({ model: "v1", mode: "ti2vid", prompt: "a cat walking", width: 1280, height: 720 });
+    expect(body).toMatchObject({ model: "v1", mode: "text", prompt: "a cat walking", width: 1280, height: 720 });
     expect(body.duration).toBeUndefined();
     expect(body.aspect_ratio).toBeUndefined();
   });
@@ -319,6 +318,152 @@ describe("videoAdapter (agnes-style video API)", () => {
     const body = JSON.parse(String((init as RequestInit).body)) as Record<string, unknown>;
     expect(body).toMatchObject({ model: "v1", prompt: "a cat walking", duration: 5, aspect_ratio: "16:9" });
     expect(body.mode).toBeUndefined();
+  });
+
+  it("sends agnes dialect: size + aspect_ratio + seconds string (clamped 4-12)", async () => {
+    vi.stubEnv("ALLOW_PRIVATE_NETWORK", "1");
+    const worker = openAICompatibleWorker({
+      ...base,
+      videoAdapter: {
+        createBody: { size: "720P" },
+        aspectAsRatio: true,
+        maxN: 1,
+        omitDuration: false,
+        secondsField: "seconds",
+        secondsRange: [4, 12],
+      },
+    });
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL, init?: RequestInit) => {
+        calls.push({ url: String(url), init });
+        return new Response(JSON.stringify({ data: [{ url: "https://cdn.example/v.mp4" }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }),
+    );
+    await worker.generateVideo!({
+      node: { id: "n" } as never,
+      config: { model: "v1", duration: 20, aspect: "16:9", n: 4 } as never,
+      input: "a cat walking",
+    });
+    const init = calls.find((c) => c.url.endsWith("/videos"))!.init!;
+    const body = JSON.parse(String((init as RequestInit).body)) as Record<string, unknown>;
+    expect(body).toMatchObject({ model: "v1", mode: "text", size: "720P", aspect_ratio: "16:9" });
+    expect(body.seconds).toBe("12"); // clamped to range max
+    expect(body.n).toBe(1); // clamped by adapter maxN
+    expect(body.duration).toBeUndefined();
+    expect(body.width).toBeUndefined();
+  });
+
+  it("injects first_frame URL in keyframe mode from the upstream image", async () => {
+    vi.stubEnv("ALLOW_PRIVATE_NETWORK", "1");
+    const worker = openAICompatibleWorker({
+      ...base,
+      videoAdapter: {
+        aspectAsRatio: true,
+        firstFramePath: "first_frame",
+        imagesPath: "images",
+      },
+    });
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL, init?: RequestInit) => {
+        calls.push({ url: String(url), init });
+        return new Response(JSON.stringify({ data: [{ url: "https://cdn.example/v.mp4" }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }),
+    );
+    await worker.generateVideo!({
+      node: { id: "n" } as never,
+      config: { model: "v1", mode: "keyframe", n: 1 } as never,
+      input: "the character walks",
+      image: "https://cdn.example/first.png",
+    });
+    const init = calls.find((c) => c.url.endsWith("/videos"))!.init!;
+    const body = JSON.parse(String((init as RequestInit).body)) as Record<string, unknown>;
+    expect(body).toMatchObject({ mode: "keyframe", first_frame: "https://cdn.example/first.png" });
+    expect(body.images).toBeUndefined();
+  });
+
+  it("injects images array in reference mode from the upstream image", async () => {
+    vi.stubEnv("ALLOW_PRIVATE_NETWORK", "1");
+    const worker = openAICompatibleWorker({
+      ...base,
+      videoAdapter: {
+        aspectAsRatio: true,
+        firstFramePath: "first_frame",
+        imagesPath: "images",
+      },
+    });
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL, init?: RequestInit) => {
+        calls.push({ url: String(url), init });
+        return new Response(JSON.stringify({ data: [{ url: "https://cdn.example/v.mp4" }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }),
+    );
+    await worker.generateVideo!({
+      node: { id: "n" } as never,
+      config: { model: "v1", mode: "reference", n: 1 } as never,
+      input: "keep the character style",
+      image: "https://cdn.example/ref.png",
+    });
+    const init = calls.find((c) => c.url.endsWith("/videos"))!.init!;
+    const body = JSON.parse(String((init as RequestInit).body)) as Record<string, unknown>;
+    expect(body).toMatchObject({ mode: "reference", images: ["https://cdn.example/ref.png"] });
+    expect(body.first_frame).toBeUndefined();
+  });
+
+  it("polls the agnes retrieval URL template outside /v1", async () => {
+    vi.stubEnv("ALLOW_PRIVATE_NETWORK", "1");
+    const worker = openAICompatibleWorker({
+      ...base,
+      videoAdapter: {
+        retrievalUrlTemplate: "/agnesapi?video_id={jobId}&model_name={model}",
+        resultUrlPath: "url",
+      },
+    });
+    const calls: Array<string> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL) => {
+        calls.push(String(url));
+        const u = String(url);
+        if (u.endsWith("/videos")) {
+          return new Response(JSON.stringify({ id: "task_9", status: "queued" }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        if (u.includes("/agnesapi?")) {
+          return new Response(JSON.stringify({ id: "task_9", status: "completed", url: "https://cdn.example/v.mp4" }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        if (u === "https://cdn.example/v.mp4") {
+          return new Response(new Uint8Array([1, 2, 3]), { status: 200, headers: { "content-type": "video/mp4" } });
+        }
+        throw new Error("unexpected fetch: " + u);
+      }),
+    );
+    await worker.generateVideo!({
+      node: { id: "n" } as never,
+      config: { model: "v1", n: 1 } as never,
+      input: "a cat walking",
+    });
+    expect(calls).toContain("https://gw.example/agnesapi?video_id=task_9&model_name=v1");
+    expect(calls.some((u) => u.endsWith("/videos/task_9"))).toBe(false);
   });
 });
 

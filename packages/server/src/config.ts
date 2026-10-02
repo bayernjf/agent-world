@@ -58,20 +58,39 @@ export interface ProviderConfig {
   endpoints?: Partial<Record<Modality, string>>;
   /**
    * Optional adapter for gateways whose video API diverges from the standard
-   * OpenAI-compatible video shape. agnes is the shipped example: it requires a
-   * literal `mode` ("ti2vid"), rejects `duration`, takes explicit width/height
-   * instead of `aspect_ratio`, and returns the generated URL at `metadata.url`
-   * (not `output[0].url`).
+   * OpenAI-compatible video shape. agnes is the shipped example: `mode` is
+   * text/keyframe/reference (not "ti2vid"), flash is fixed to `size:"720P"` +
+   * `aspect_ratio`, duration is `seconds` as a string, and async retrieval
+   * lives at `/agnesapi?video_id=..&model_name=..` (outside /v1).
+   * Keep in sync with VideoAdapterSchema below (same fields, runtime + type).
    */
   videoAdapter?: {
-    /** Literal fields merged into the create-task body (e.g. `{ mode: "ti2vid" }`). */
+    /** Literal fields merged into the create-task body (e.g. `{ size: "720P" }`). */
     createBody?: Record<string, unknown>;
-    /** Do not send `duration` (gateway rejects it; duration is controlled via
-     *  other fields such as num_frames/frame_rate). */
+    /** Do not send a duration field (gateway rejects it; duration is controlled
+     *  via other fields such as num_frames/frame_rate). */
     omitDuration?: boolean;
     /** Maps a node's aspect string (e.g. "16:9") to explicit width/height for
      *  gateways that take dimensions instead of `aspect_ratio`. */
     aspectToSize?: Record<string, { width: number; height: number }>;
+    /** When true, the node's aspect is sent verbatim as `aspect_ratio`
+     *  (preferred by agnes-style adapters). */
+    aspectAsRatio?: boolean;
+    /** Adapter-declared n cap (e.g. agnes video supports only 1). */
+    maxN?: number;
+    /** Duration field name (default "seconds"); value sent as a string. */
+    secondsField?: string;
+    /** Allowed seconds range [min, max]; config.duration is clamped into it. */
+    secondsRange?: [number, number];
+    /** Keyframe-mode first-frame image field (URL string). */
+    firstFramePath?: string;
+    /** Reference-mode image array field (URL string array). */
+    imagesPath?: string;
+    /** Optional async retrieval URL template, e.g.
+     *  "/agnesapi?video_id={jobId}&model_name={model}" — resolved against the
+     *  provider baseUrl; a leading "/" replaces the base path (agnes serves
+     *  /agnesapi outside /v1). Falls back to `GET <endpoint>/:id` when absent. */
+    retrievalUrlTemplate?: string;
     /** Dot path to the generated video URL inside the poll result
      *  (default `output.0.url` for OpenAI-style `output` arrays). */
     resultUrlPath?: string;
@@ -210,7 +229,28 @@ const ModelPricingSchema = z.object({
 const VideoAdapterSchema = z.object({
   createBody: z.record(z.unknown()).optional(),
   omitDuration: z.boolean().optional(),
+  /** Legacy width/height map (e.g. OpenAI-style gateways). New adapters prefer
+   *  `aspectAsRatio`; agnes 2.5-flash uses `size:"720P"` + `aspect_ratio`. */
   aspectToSize: z.record(z.object({ width: z.number(), height: z.number() })).optional(),
+  /** When true, `config.aspect` is sent verbatim as `aspect_ratio` instead of
+   *  being mapped through aspectToSize. */
+  aspectAsRatio: z.boolean().optional(),
+  /** Adapter-declared n cap (e.g. agnes video supports only 1). */
+  maxN: z.number().int().min(1).max(4).optional(),
+  /** Seconds field name (default "seconds") plus allowed range. When
+   *  `omitDuration` is false, config.duration is clamped and sent as string. */
+  secondsField: z.string().optional(),
+  secondsRange: z.tuple([z.number(), z.number()]).optional(),
+  /** Keyframe-mode first-frame image field (URL string). */
+  firstFramePath: z.string().optional(),
+  /** Reference-mode image array field (URL string array, ≤5 for flash). */
+  imagesPath: z.string().optional(),
+  /** Optional retrieval URL template for async jobs, e.g. agnes
+   *  "/agnesapi?video_id={jobId}&model_name={model}" — resolved against the
+   *  provider baseUrl (a leading "/" replaces the base path, which is how
+   *  agnes serves /agnesapi outside /v1). Falls back to `GET <endpoint>/:id`
+   *  when absent. */
+  retrievalUrlTemplate: z.string().optional(),
   resultUrlPath: z.string().optional(),
   durationPath: z.string().optional(),
 });
@@ -325,19 +365,27 @@ const AGNES_PROVIDER: ProviderConfig = {
   // Agnes gateway serves video at POST /v1/videos (not /videos/generations),
   // so declare it explicitly — independent of the global MODALITY_ENDPOINT default.
   endpoints: { video: "/videos" },
-  // agnes video API diverges from the OpenAI-compatible video shape: it wants
-  // a literal `mode` ("ti2vid"), rejects `duration`, takes width/height, and
-  // returns the finished URL at `metadata.url`.
+  // agnes video API diverges from the OpenAI-compatible video shape. Verified
+  // against official docs 2026-10-03 (wiki.agnes-ai.com/en/docs/agnes-video-25-flash):
+  // - `mode` is one of text/keyframe/reference (the old literal "ti2vid" was
+  //   never valid and silently fell back to text — image control never worked);
+  // - flash is fixed to `size:"720P"` + `aspect_ratio` (width/height ignored);
+  // - duration is `seconds` as a string "4"–"12";
+  // - async retrieval is GET /agnesapi?video_id=..&model_name=.. (outside /v1).
   videoAdapter: {
-    createBody: { mode: "ti2vid" },
-    omitDuration: true,
-    aspectToSize: {
-      "16:9": { width: 1280, height: 720 },
-      "9:16": { width: 720, height: 1280 },
-      "1:1": { width: 768, height: 768 },
-      "4:3": { width: 1024, height: 768 },
-      "3:4": { width: 768, height: 1024 },
-    },
+    // mode is taken from the node's VideoGenConfig (default "text").
+    createBody: { size: "720P" },
+    aspectAsRatio: true,
+    maxN: 1,
+    omitDuration: false,
+    secondsField: "seconds",
+    secondsRange: [4, 12],
+    // keyframe first-frame / reference images (URLs, ≤5 for flash).
+    firstFramePath: "first_frame",
+    imagesPath: "images",
+    // Leading "/" resolves against the base origin, giving
+    // https://apihub.agnes-ai.com/agnesapi?video_id=..&model_name=..
+    retrievalUrlTemplate: "/agnesapi?video_id={jobId}&model_name={model}",
     // The completed task carries the video URL at the top-level `url` field
     // (metadata is empty); the parser falls back to metadata.url/output[0].
     resultUrlPath: "url",
