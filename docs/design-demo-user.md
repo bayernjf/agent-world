@@ -49,7 +49,7 @@ demo 提交邮箱+密码后，直接 UPDATE 同一 users 行（清 is_demo、写
 | JWT 签发/校验 | `packages/server/src/auth.ts`：`signToken(userId,email,remember)`、`verifyToken`；remember=true→7d，false→24h | demo 用 `signToken(id,email,false)` 发短会话 |
 | Cookie 写入/清除 | `packages/server/src/index.ts` `setAuthCookie/clearAuthCookie`（约 340-348，HttpOnly SameSite=Lax） | demo 登录直接复用 |
 | 认证中间件 | `index.ts:521-555`：`/api/health`、`/api/auth/*`、webhook 跳过；其余 cookie→Bearer→SSE `?token=`，`verifyToken` 后 `c.set("userId",…)` | 新端点挂 `/api/auth/*` 自动公开 |
-| 注册/登录/me/改密 | `index.ts:402/437/476/496`；首个账号=owner，其后默认关注册（`ALLOW_REGISTRATION`） | demo 端点仿此写；登录路由需显式拒绝 is_demo |
+| 注册/登录/me/改密 | `routes/auth.ts:19/54/104/131`；首个账号=owner，其后默认关注册（`ALLOW_REGISTRATION`） | demo 端点仿此写；登录路由需显式拒绝 is_demo |
 | users DDL | `sqlite-driver.ts:58-64`：`id PK / email UNIQUE NOT NULL / password_hash NOT NULL / role DEFAULT 'user' / created_at` | 迁移 v40 加两列 |
 | user driver 方法 | `createUser(id,email,passwordHash)`（1047，内部按 countOwners 决定 owner/user）、`findUserById/Email`、`countUsers`、`updateUserPasswordHash`、`listUsers` | 新增 createDemoUser/claim/listExpired/deleteCascade；find* 扩列 |
 | 最新迁移 | **v39**（`sqlite-driver.ts:3812`，`SCHEMA_VERSION=LATEST_VERSION:3942`）；迁移形如 `{version,description,detect,up,down}`，用 `columnExists` 防重 | demo 用 **v40** |

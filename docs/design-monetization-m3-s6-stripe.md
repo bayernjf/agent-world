@@ -207,7 +207,7 @@ CREATE INDEX IF NOT EXISTS idx_invoices_stripe_invoice ON invoices(stripe_invoic
 |------|----------|
 | `packages/server/src/sqlite-driver.ts` | 迁移 39：subscriptions + invoices 加 Stripe 字段 |
 | `packages/server/src/subscriptionService.ts` | 扩展 setPlan 支持 Stripe 路径 |
-| `packages/server/src/index.ts` | 注册 billing API 路由 |
+| `packages/server/src/routes/billing.ts` | 注册 billing API 路由 |
 | `apps/web/src/components/BillingTab.tsx` | 加"升级"/"管理订阅"按钮，跳转 checkout/portal |
 | `apps/web/src/lib/api.ts` | 加 billing API 方法 |
 | `apps/web/src/i18n/locales/{zh,en}/billing.json` | 新增 Stripe 相关 i18n key |
