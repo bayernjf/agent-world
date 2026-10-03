@@ -85,6 +85,8 @@ Hasee 部署后，跑一条短视频产线（或手工提交一条 keyframe 视�
 - 对比修复前后：任务 done 率（预期 failed/degraded 归零或大幅下降）、成片构图/主体可控性
 - 确认 9:16 竖版输出实际尺寸（文档实测 720P 16:9 产出 1280×704）
 
+**验证状态（2026-10-03）**：Hasee 已部署 `fc879bb`（= PR #480 merge，含阶段 1 `c9662bf` + 阶段 2 `7f380db`，`git merge-base --is-ancestor` 双确认）；`AGNES_API_KEY` 已于 10-02 19:58 经 systemd drop-in `agent-world.service.d/agnes.conf`（600）注入、23:51 重启生效——10-02 15:00 短视频 run failed "Missing API key" 系 key 注入前的旧基线，非代码回归；部署后文本产线两条 run done 无回归。**部署后第一条视频 run 待触发**：M1 短视频产线（`trg_m1_video_daily`，cron `0 3,15 * * *`）10-03 15:00 UTC（北京时间 23:00）自动首跑；其 videoGen 节点无 `mode` 字段 → 默认 text 模式，无需 publicUrl；部署前基线 7 条 = 6 done + 1 failed（key 未注入）。触发后由定时任务自动拉取 run 状态对比基线、检查成片 artifact，观察期 3 天（done 率趋势），结果登记 handoff #86。
+
 ## 五、风险与取舍
 
 | 风险 | 影响 | 对策 |
