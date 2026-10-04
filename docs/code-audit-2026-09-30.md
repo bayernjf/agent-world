@@ -38,7 +38,7 @@ worker 插件声明 `isolation:"subprocess"` 时 fork 到独立子进程，父�
 ### 2.2 `index.ts` 账户开通 / 密码重置（新增，MVP 账户开通流程）— 认证关键
 
 - ⚠️ **一次性密码明文返回响应体**（index.ts:1393-1404）：`createProvisionedUser` 用 `randomBytes(12).base64url`（16 字符，熵充足）生成一次性密码，但**直接 `return c.json({..., oneTimePassword})`**。这是 owner 开通账号流程的设计（owner 拿一次性密码转交用户，用户首次登录强制改密 `must_change_password`）。风险点：传输层必须 TLS，且**响应体不得被 access log / 反向代理记录**。建议：①仅返回一次、不进任何日志；②文档明确该接口只走内网/owner 通道。
-- ✅ **权限守卫**：provision/role/plan 端点均 `isOwner(callerId)` 校验（index.ts:1409/1420/1442）；owner 单例不变量由 `idx_users_owner` 索引 + 显式拒绝自我降权保护（index.ts:1420-1421）。
+- ✅ **权限守卫**：provision/role/plan 端点均 `isOwner(callerId)` 校验（现位于 `routes/admin.ts`）；owner 单例不变量由 `idx_users_owner` 索引 + 显式拒绝自我降权保护。**⚠️ 该 ✅ 只在 SQLite 成立**——那个索引只由迁移 31 创建、不在 DDL 常量里，而 PG 建库只跑 `toPgDdl(DDL)` 从不跑迁移，见 §七-7.2。
 - ✅ **审计合规**：provision 的 audit 只记 `email`/`objectId`，**不记密码**（index.ts:1398-1403），避免凭据落审计表。
 - ✅ **plan 接口防幻觉**（index.ts:1444-1456）：原先解析了 `body.status` 却未生效（操作者拿 200 误以为状态已改）。现改为：非法 status 拒 400；不传则**保留原状态**（欠费清除只由 `invoice.paid` 或显式 status 触发），消除「假成功」。
 
@@ -69,6 +69,8 @@ worker 插件声明 `isolation:"subprocess"` 时 fork 到独立子进程，父�
 | 配置安全 | boot self-check 消除 failover/worker/metrics 静默失败 |
 
 **结论：安全态势从 2026-09-06 的「高危敞口」演进为「生产可用、纵深防御」。当前无已确认的高危漏洞。** 唯一需跟进的是 2.2 一次性密码的传输层保护（配置/日志侧）。
+
+> **⚠️ 本句作用域限定（2026-10-04 增量复核，见 §七）**：上面这句只覆盖**请求路径**上的注入 / 越权 / SSRF / 加密。同一轮复核在**运维工具与数据层**补出两条高危——`rotate-reencrypt` 的 fail-open 判定（§七-7.1，误操作可导致加密字段永久不可解）与「PG 上 owner 单例无 DB 约束」（§七-7.2，仅 SaaS 轨）。所以「无高危」不等于「可以上线」的前提清单已经清空。
 
 ---
 
@@ -147,6 +149,61 @@ worker 插件声明 `isolation:"subprocess"` 时 fork 到独立子进程，父�
 
 ### 功能完整性
 29 种节点 + Phase 4 编排 + Web/MCP/CLI 三端 + RBAC/审计/公告 + 商业化 M1-M3 + 双驱动持久化 + 36 模板，**功能面完整且自洽**。外部依赖卡点（agnes 付费 key / Stripe / TTS）为申请类事项，非代码缺陷。
+
+---
+
+## 七、增量复核（2026-10-04，基线 HEAD `6db6ea3`）——本报告未覆盖的 7 条
+
+> **方法**：本轮不接受任何扫掠结论。下面每条都由复核者自己打开文件重推；引用一律给**当前**文件名（§五 之后 `index.ts` 与 driver 已拆分，本报告正文里的旧行号失效）。取证方式逐条标注：**[实测]**＝命令跑出来的计数、**[读码]**＝打开了被引行、**[推断]**＝由前两者推导。
+
+### 7.1 [高] `rotate-reencrypt` 的「旧密钥可以删了」判定 fail-open
+
+`reencrypt()` 用 `new DatabaseSync(opts.dbFile)`（`key-rotation.ts:135`）建句柄——该构造**会静默创建缺失文件**；每个 surface 在表不存在时直接 `continue`（`:140-143`、`:187-191`）。CLI 侧默认值是 `DB_FILE ?? "agent-world.sqlite"`（`scripts/rotate-reencrypt.ts:24`），并在 residue 为 0 时打印 `no old-key ciphertext remains; the old key can be dropped from the keyring`（`:39-41`）且把 `process.exitCode = 0`（`:44-45`）。**[读码]**
+
+⇒ 三种情形下它都给绿灯：路径打错、指向空库、以及 PG 部署（脚本恒开 SQLite）。运维照这句话删掉旧密钥，**加密字段永久不可解**，属不可逆数据损失。这正是本仓 09-25 已经为 `prune-events.ts` 修过的同一缺陷类（「静默建空库并报成功」）。
+**修法**：接 `scripts/sqlite-ops-db.ts` 的 fail-loud 守卫；并在「一个 surface 都没扫到」或 `report.tables.length === 0` 时**报错退出**，而不是报「可删」。
+
+### 7.2 [高，仅 PG 轨] §2.2 那条 ✅ 只在 SQLite 成立——PG 上 owner 单例没有任何 DB 约束
+
+`idx_users_owner` 不在 DDL 常量里（`sqlite-schema.ts:44` 的注释明写「is NOT here on purpose」，理由是老库那时还没有 `role` 列），它只由**迁移 31** 创建（`sqlite-schema.ts:1020-1025`），`POST_MIGRATION_INDEXES` 也不含它（**[实测]** 该列表只有三条 stripe 索引）。而 `pg-driver.ts:50` 建库只执行 `toPgDdl(DDL)`、**从不跑迁移**；`createUser` 又是 check-then-insert（`driver-body.ts:459` 的注释仍自称「由该索引保护单 owner 不变量」）。
+⇒ 全新 PG 库上**两个并发首注册可以都成为 owner**（root-of-trust 破口）。当前 staging 是 SQLite，所以不阻断上线，属 SaaS 前置。
+**修法**：把该索引并入 DDL 常量（PG 侧由 `toPgDdl` 自动继承，SQLite 老库继续靠迁移 31），或把 `createUser` 改成单语句条件插入，让不变量不依赖「谁来跑迁移」。**[实测+读码]**
+
+### 7.3 [中] 没有任何门禁执行过 PG 路径的一行
+
+`ci.yml` 里没有 postgres 服务（**[实测]** grep `postgres|service|5432` 命中 0）；`pg-sql.test.ts` 只断言字符串翻译产物，`migrate-to-postgres.test.ts` 只 `dryRun`，`db-driver-switch.test.ts` 不开 PG。
+⇒ `toPgDdl(DDL)` 若被真 PG 拒绝、或 7.2 这类缺失，**永远不会让 CI 变红**。本仓 09-08 做过 Docker postgres:16 手工演练（评审有记录），但没有固化成门禁——一次性演练挡不住后续回归。
+**修法**：CI 加 `postgres:16` service + 一条「建库→跑关键 CRUD→比对行数」冒烟 job。
+
+### 7.4 [中] server 侧运维脚本会「对着空气报成功」
+
+`openDb` 是 `createSqliteDriver` 的别名（`db.ts:385`）＝**恒 SQLite**，不看 `DB_DRIVER`。而 `backfill-usage.ts:21`、`generate-invoices.ts:22`、`prune-demo-users.ts:22`、`migrate-to-postgres.ts:22` 都是 `process.env.DB_FILE ?? "agent-world.sqlite"`，**既无 `existsSync` 也无驱动拒绝**；`reset-password.ts` 有存在性守卫（`:45`）但同样不拒 PG。**[实测]**（默认值 grep + `sqlite-ops-db` 引用清单：root 两个脚本用了守卫，`packages/server/scripts/` 六个没用）
+⇒ 路径打错就在空库上跑完并报 `created: 0` / `expired: 0`；PG 部署下它们读写的是**本地 SQLite 文件而真数据未动**，`reset-password` 会打印一个在生产里根本登不进去的口令。
+**修法**：四个脚本各接一行 `sqlite-ops-db.ts`（仓内已有先例，成本极低）。
+
+### 7.5 [中] `packages/server/scripts/*.ts` 不在任何 tsconfig 覆盖内
+
+`packages/server/tsconfig.json:8` 的 include 只有 `src/**/*`；根 `tsconfig.scripts.json:15` 只有 `scripts/**/*.ts`。这些脚本经 `tsx` 调用，**不做类型检查**。**[实测]**
+讽刺点：`tsconfig.scripts.json` 存在的唯一理由，正是「`migrate-down.ts` 曾带着不存在的 import 发布、从未跑得起来」——那次只把根 `scripts/` 圈进覆盖，没圈 server 包自己的。
+**修法**：把 `packages/server/scripts/**/*.ts` 加进 server tsconfig 的 include。
+
+### 7.6 [中低] 幂等只防「重试」，不防「并发」
+
+`routes/runs.ts:238` 读映射、`:265` 写映射，与 `createRun` 是三条独立 autocommit。表确有 `PRIMARY KEY (user_id, key)`（`sqlite-schema.ts:450-456`），但写入是 `ON CONFLICT DO NOTHING`（`driver-body.ts:420`）——**[读码]**
+⇒ 两个同键并发请求都会 miss 读、都创建 run，第二个不报错，只是它的 run 悄悄脱离了映射；结果是重复执行 + 重复计费，而幂等特性存在的理由恰好是防这个（崩溃窗口只是其中一种触发）。
+**修法**：先 `INSERT ... ON CONFLICT DO NOTHING` 占位，只有 `changes === 1` 的一方继续创建 run，否则直接返回既有 run——把「谁拿到这把键」变成一次原子裁决。
+
+### 7.7 [低] 项目没有 lint 门禁
+
+无 eslint / biome / oxlint 配置，也无 `lint` 脚本；CI 步骤只有 install、audit、build、typecheck、i18n guard、test、E2E、secret scan。**[实测]**
+需要说清楚的是：本仓用「自写守护测」守住了几条最要紧的约定（i18n key 双向一致、driver 裸 SQL 白名单、`drainRun` 源码扫描），这比通用 linter 更贴项目语义。代价是**凡没被编码成测试的规则一律无人守**——React hooks 依赖数组、未使用变量、`as`/`any` 增长、无障碍属性。
+**修法**：不必换 linter；要么把想长期守的规则继续写成守护测，要么加一条最小 eslint（`react-hooks` + `no-unused-vars`）进 CI，二选一即可，但要知道当前是「零」。
+
+### 7.8 对本报告自身的两处订正
+
+- **§五 的两处「巨型文件需架构关注」已不成立**（10-02 的 `dadcd58` / `32335aa` 拆分）：**[实测]** `index.ts` 1084 行、`sqlite-driver.ts` 114 行（拆出 `driver-body.ts` 2754 + `sqlite-schema.ts` 1379 + mappers/backup/cascade）。复核者最初也按旧数字判为单体，引用前需重新定位。
+- **§五 的测试基线已被超过**：当前 CI run 37184065595 自报 **3894 测 / 304 文件全绿**（core 346/24 · server 1481 含 2 跳过/170 · web 1996/107 · mcp 71/3），报告正文写的是 196 文件。
+- **§三「当前无已确认的高危漏洞」需要限定作用域**：那句讲的是请求路径上的注入/越权/SSRF/加密；本轮在**运维工具与数据层**补出 7.1、7.2 两条高危，其中 7.1 在真实误操作下造成不可逆数据锁死。
 
 ---
 
