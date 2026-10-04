@@ -279,9 +279,9 @@ journalctl -u agent-world --since "24 hours ago" | grep "would block dispatch"
 
 ### 四之四、`NODE_ENV=production` —— 不设，这台机器就自认开发机
 
-第四节的 unit 只写了两行 `Environment=`（`DB_FILE` / `CODE_SANDBOX`），按本节流程新装的机器上 `NODE_ENV` 与 `AGENT_WORLD_ENV` 都不存在，于是 `/api/health` 的 `env` 字段回落到 `"development"`（`packages/server/src/index.ts:386`：`AGENT_WORLD_ENV ?? NODE_ENV ?? "development"`）。**全仓按生产分支走的行为一共四处**（grep 实测，只有这四处，所以设它不会动调度、计费、沙箱或日志级别），两者都不设时**全部休眠**：
+第四节的 unit 只写了两行 `Environment=`（`DB_FILE` / `CODE_SANDBOX`），按本节流程新装的机器上 `NODE_ENV` 与 `AGENT_WORLD_ENV` 都不存在，于是 `/api/health` 的 `env` 字段回落到 `"development"`（`packages/server/src/index.ts:401`：`AGENT_WORLD_ENV ?? NODE_ENV ?? "development"`）。**全仓按生产分支走的行为一共四处**（grep `=== "production"` 实测，只有这四处，所以设它不会动调度、计费、沙箱或日志级别），两者都不设时**全部休眠**：
 
-**先读，别照抄结论**——`env` 字段是 `AGENT_WORLD_ENV` 优先，所以它报什么**并不能**证明 `NODE_ENV` 是什么。Hasee 实测报 `env:staging`（09-26 SSH，见 handoff 对账块），这只说明机器上有 `AGENT_WORLD_ENV=staging`，`NODE_ENV` 仍可能已经是 `production`。要判定只有两条路：
+**先读，别照抄结论**——`env` 字段是 `AGENT_WORLD_ENV` 优先，所以它报什么**并不能**证明 `NODE_ENV` 是什么。Hasee 实测报 `env:staging`，这只说明「`AGENT_WORLD_ENV=staging`」与「`AGENT_WORLD_ENV` 未设且 `NODE_ENV=staging`」**两种里的一种**，两者都推不出 `NODE_ENV=production`，也排除不了它（要判定只有下面两条路）。
 
 ```bash
 # a) 直接读运行时 env（systemd 侧 + .env 侧都看）
@@ -298,10 +298,10 @@ journalctl -u agent-world --since -30d --no-pager \
 | --- | --- | --- |
 | `WORKER=fake` 启动即抛 | `providers/index.ts:49` | 那台机器可以带着 `WORKER=fake` 一直跑：每条 run 编造文本还报 `done`，成本报表与产物全是假的（即四之三第 2 条，此刻并不成立） |
 | 没接错误 sink 时启动 warn | `errors.ts:67` | 未捕获异常只留在进程内环形缓冲，随进程一起消失，且没有任何一句提醒 |
-| `/metrics` 未设 token 时启动 warn | `index.ts:193` | 指标端点（run 数、失败数、**按模型累计的成本**）对任何摸得到端口的人开着，日志里也没这句话 |
-| session cookie 加 `Secure` | `index.ts:425` | 上了 HTTPS 之后 cookie 仍可被明文 HTTP 送出 |
+| `/metrics` 未设 token 时启动 warn | `index.ts:208` | 指标端点（run 数、失败数、**按模型累计的成本**）对任何摸得到端口的人开着，日志里也没这句话 |
+| session cookie 加 `Secure` | `routes/shared.ts:29-34`（`secureCookiesEnabled`） | 上了 HTTPS 之后 cookie 仍可被明文 HTTP 送出 |
 
-**⚠️ 设之前先决定 cookie 怎么办**——这是本节唯一会真的咬人的地方。`Secure` 是按**请求的 Host 头**判的，只豁免 `localhost` / `127.0.0.1` / `[::1]`（`index.ts:427-435`）。Hasee 现在是从局域网用 `http://192.168.31.14` 访问的，所以 `NODE_ENV=production` 一设，登录返回的 `Set-Cookie` 就带上 `Secure`，而浏览器在 http 非回环源上会直接丢掉这个 cookie。**症状是「点登录说成功，回到页面还是未登录」，而服务端日志一行错误都没有**（`index.ts:421-424`：`SECURE_COOKIES` 显式设了就优先，不再看 `NODE_ENV`）。三选一：
+**⚠️ 设之前先决定 cookie 怎么办**——这是本节唯一会真的咬人的地方。`Secure` 是按**请求的 Host 头**判的，只豁免 `localhost` / `127.0.0.1` / `[::1]`（`routes/shared.ts:36-44`）。Hasee 现在是从局域网用 `http://192.168.31.14` 访问的，所以 `NODE_ENV=production` 一设，登录返回的 `Set-Cookie` 就带上 `Secure`，而浏览器在 http 非回环源上会直接丢掉这个 cookie。**症状是「点登录说成功，回到页面还是未登录」，而服务端日志一行错误都没有**（`routes/shared.ts:30-34`：`SECURE_COOKIES` 显式设了就优先，不再看 `NODE_ENV`）。三选一：
 
 1. **先上 HTTPS 再设**：第五节那份 nginx site 现在只有 `listen 80`，**本 runbook 没有证书流程**（公网暴露时才补：加 443 + 证书 + `server_name`，并把 80 改成跳转）；
 2. **暂时只在内网明文 HTTP 跑**：同时写 `Environment=SECURE_COOKIES=0` 显式压掉，等上了 TLS 再删这一行；
@@ -331,9 +331,11 @@ curl -s http://127.0.0.1:8791/api/health | grep -o '"env":"[^"]*"'
 
 三点容易记错的：
 
-- `AGENT_WORLD_ENV=production` 只点亮上面**前三**条，**不会**给 cookie 加 `Secure`（`index.ts:425` 只看 `NODE_ENV`）。要让四条一致就用 `NODE_ENV`。
-- **`staging` 不算生产**：那三条是字符串等于 `"production"` 才成立，所以 `AGENT_WORLD_ENV=staging` 的机器（Hasee 就是）在该项上和没设一样。
+- `AGENT_WORLD_ENV=production` 只点亮上面**前三**条，**不会**给 cookie 加 `Secure`（`routes/shared.ts:34` 只看 `NODE_ENV`）。要让四条一致就用 `NODE_ENV`。
+- **`staging` 不算生产**：那四条是字符串等于 `"production"` 才成立，所以报 `env:staging` 的那台机器（Hasee 就是）在四项上与没设一样——**不管是 `AGENT_WORLD_ENV=staging` 还是 `NODE_ENV=staging`，结论相同**，这也是为什么上面那条推断可以只读 `env` 字段就下。
 - 上了 TLS 之后要**删掉** `SECURE_COOKIES=0`：它是显式覆盖，会一直压着 `Secure`，比不设更容易漏。
+
+**2026-10-04 复测（SSH 只读，无 sudo）**：`/api/health` = `ok:true / env:"staging" / branch:dev / commit:2e82187 / providers.agnes:configured`；**单实例这一半就此量到并成立**——`ps` 里 `dist/index.js` 恰好 1 个进程（PID 58950，当时已跑 4h45m），`:8791` 只有 1 个监听 socket。`NODE_ENV` 那一半**仍未闭合**：三个 drop-in（`agnes.conf`/`demo.conf`/`override.conf`）与 `/opt/agent-world/.env` 都是 root 私有、非 sudo 读不到（drop-in 目录可 `ls`，内容不可读），上面的 b) 反证也要 `journalctl` 的读权限。⇒ 这一条是**只有你（或有 root 的人）能签的**：跑一次 a) 那两行 `systemctl show` / `grep /opt/agent-world/.env` 即可闭环，顺带确认 `SECURE_COOKIES` 有没有被显式压过。
 
 ### 四之五、给第二个人开账号（自注册默认是关的）
 
