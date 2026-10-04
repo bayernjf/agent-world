@@ -18,6 +18,11 @@ import { Graph, RunEvent, buildTimeline, compile, envelope, parseCsv, replay } f
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { randomUUID } from "node:crypto";
+
+/** Sentinel in idempotency_keys.run_id while the winner is still creating. */
+const PENDING_RUN_ID = "";
+/** A pending claim this old can only belong to a crashed request; steal it. */
+const IDEMPOTENT_CLAIM_STALE_MS = 15 * 60_000;
 import type { RouteContext } from "./ctx.js";
 
 export function registerRunsRoutes(
@@ -234,11 +239,28 @@ app.post("/api/runs", async (c) => {
   // 幂等（engineering-blueprint §2）：同一 Idempotency-Key 重复提交只建一次 run，
   // 返回第一次的 runId——堵「双击运行 / 重试建重复 run 重复烧钱」。
   const idempotencyKey = c.req.header("Idempotency-Key") || undefined;
+  // The claim is opened before the run exists. Read-then-create-then-write let
+  // two concurrent same-key requests both miss the read and both create (and
+  // bill) a run, the loser quietly detached from the mapping (audit 7.6).
+  let claimedKey: string | null = null;
   if (idempotencyKey) {
     const existing = await db.getIdempotentRun(userId, idempotencyKey);
     if (existing) {
       return c.json({ runId: existing, diagnostics: [], modelWarnings: modelDiags, replay: true });
     }
+    let won = await db.claimIdempotencyKey(userId, idempotencyKey, PENDING_RUN_ID);
+    if (
+      !won &&
+      (await db.stealStaleIdempotentClaim(userId, idempotencyKey, Date.now() - IDEMPOTENT_CLAIM_STALE_MS))
+    ) {
+      // A pending claim this old belongs to a request that died mid-run; without
+      // stealing it the key stays wedged against its owner's every retry.
+      won = await db.claimIdempotencyKey(userId, idempotencyKey, PENDING_RUN_ID);
+    }
+    if (!won) {
+      return c.json({ error: "another request with this Idempotency-Key is in flight", idempotencyKey }, 409);
+    }
+    claimedKey = idempotencyKey;
   }
 
   try {
@@ -261,8 +283,9 @@ app.post("/api/runs", async (c) => {
         void triggers.onArtifact(aid);
       },
     });
-    if (idempotencyKey) {
-      await db.saveIdempotentRun(userId, idempotencyKey, runId);
+    if (claimedKey) {
+      await db.saveIdempotentRun(userId, claimedKey, runId);
+      claimedKey = null;
     }
     // Audit records the actual operator, not the owner the ran as.
     audit(db, userId, "run.start", {
@@ -273,6 +296,11 @@ app.post("/api/runs", async (c) => {
     });
     return c.json({ runId, diagnostics, modelWarnings: modelDiags });
   } catch (e) {
+    if (claimedKey) {
+      // No run was created, so the key must stay usable: retrying with the same
+      // key is the normal recovery path from a 402/422 here.
+      await db.releaseIdempotentClaim(userId, claimedKey);
+    }
     const quota = quotaResponseBody(e);
     if (quota) return c.json(quota, 402);
     if (e instanceof RunStartError) {
