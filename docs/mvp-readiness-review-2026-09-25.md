@@ -413,3 +413,21 @@ core **346/346**（24 文件）· server **1397 = 1393 通过 + 2 本机 python-
 **边界（如实记，不参与判定）**：本轮**未**本机 SSH 打 `/api/health`——staging 主机在局域网内，当前网络 `No route to host` 且无 Tailscale。上述健康读数是**部署脚本自带的闸门**，不是本机直连读数。要拿第一手读数须在能路由到该网段的机器上 `curl -s http://127.0.0.1:8791/api/health`。这与 §2 记的取证纪律一致：够不到的证据标出来，不当成拿到了。
 
 **旁证**：`origin/main` 现为 `e1628016`（「Merge pull request #455 from bayernjf/dev」，父提交 `bfc74ce` + `779e926`），即 dev 已回灌 main；main 比已部署版本多一个 merge，但 **main 不在部署轨道上**（§11.1），不影响上线判定。
+
+## 14. 第四次上线复核（2026-10-04，基线 `96b969b`，本机一手读数）
+
+> **结论先说**：**判定不变**——自托管 ✅ 达到「产品核心完全可用的 MVP」；对外商业 SaaS ❌ 仍不达标（收款主体 / HTTPS+域名 / provider 真灾备 / PG HA / Sentry 这五件一件没变）。变的是 §12 那个「唯一运维签字」：**它两半里的一半已经用实测闭合，另一半缩成一行 grep**；同时实测出**两条新的生产配置缺口**，它们不是功能阻断，但决定了「能上线」与「能给第二个人用」是两件事。
+
+**① §12 签字的两半，现在的实测状态**
+- **只跑单实例：✅ 已闭合**（一手）。`ps` 里 `dist/index.js` 恰好 1 个进程（PID 58950）、`:8791` 只有 1 个监听 socket；上一手同口径读数是 09-26 的 PID 710。
+- **`NODE_ENV` 到底设没设：剩一行**。实测 `systemctl show -p Environment,EnvironmentFiles agent-world`（**不需要 sudo**，正控制是同一条读数里 `DB_FILE`/`CODE_SANDBOX` 都在）——其中**没有 `NODE_ENV`、没有 `AGENT_WORLD_ENV`**，也没有 `SECURE_COOKIES`/`WORKER`。于是 `/api/health` 报的 `env:"staging"` 只可能来自 `/opt/agent-world/.env`（`index.ts:14` 先 `import "./load-env.js"`）。要签的只剩 `sudo grep -nE '^(NODE_ENV|AGENT_WORLD_ENV|SECURE_COOKIES)=' /opt/agent-world/.env` 这一行。
+- 顺带把本轮发现自己写错的一处推理改掉：`env` 字段是回退链，**「报 staging」推不出「`AGENT_WORLD_ENV=staging`」这一具体写法**（详见 [deploy-ubuntu-server.md 四之四](runbooks/deploy-ubuntu-server.md)）。运维结论不变：`=== "production"` 的四条闸在这台机器上全休眠。
+
+**② 新实测出的两条生产配置缺口（都要 root 才能收）**
+- **`/metrics` 对整条局域网开放、无鉴权**。从本机 `curl http://192.168.31.14:8791/metrics` 得 **HTTP 200 / 27 行**，读得到 `runs_total`、`runs_failed_total`、**`runs_cost_usd_total`**、`runs_active`、`http_requests_total`。旋钮早就在（`METRICS_TOKEN` / `BIND_HOST=127.0.0.1`），默认刻意没改（改默认会打断所有从局域网直连 :8791 的既有部署）。⇒ **判定**：只在信任的局域网自托管时可接受；一旦有第二个人或出公网，这是暴露前必收项（[public-exposure-hardening.md](runbooks/public-exposure-hardening.md) §2/§3 已列）。
+- **错误 sink 至今没有消费端**：同一条 env 读数里**没有 `ERROR_REPORT_WEBHOOK_URL`**。#86 已把接 relay 的全链路验完（204/500/不可达三态实测），差的是一行 drop-in 注入。
+- **两条的耦合正是本仓一直在治的静默类**：这两处「生产才 warn」都因 `NODE_ENV≠production` 而**一句都不打**——所以它们不是被发现了，是被读 env 顺手读出来的。反过来说：谁把 `NODE_ENV=production` 设上，日志会立刻同时冒出这两句，且 cookie 会开始带 `Secure`（局域网 http 登录会掉 cookie，处置见四之四那三条路）。
+
+**③ 审计侧同日进展**：[code-audit-2026-09-30.md §七](code-audit-2026-09-30.md) 补出的 8 条里 **6 条同日修完**（含两条高危中的 7.1；7.2 让 PG 轨第一次有了会被 CI 执行到的 owner 约束），7.7 是门禁取向、7.8 要 root。**副作用如实记**：deploy.yml 认 CI 总结论，新 postgres job 从此在部署闸门里。
+
+**④ 证据等级（本轮）**：**一手执行**＝`/api/health` 直连、`ps`/`ss` 单实例、`systemctl show` env 读数、`/metrics` 200 读数、真 `postgres:16` 容器上的 owner 复现与修复验证、CI run 37212932643/37213336439 的 job 结论与 `deploy OK: 96b969b`。**未做**＝没有在带 root 的机器上读 `.env`（所以 ① 那一行仍未签）、没读生产 `prune-demo.log` 确认 7.4 守卫在新默认下放行（runbook 那条 cron 显式带 `DB_FILE`，推理上成立，未实测）。
