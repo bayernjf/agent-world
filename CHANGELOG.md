@@ -6,7 +6,7 @@ All notable changes are documented here. The format is based on
 ## [Unreleased]
 
 ### Fixed
-- **代码审计 §七 的八条：同日修掉六条**（`d59ddaf` / `804651a` / `2b00ed7` / `d71d51f` / `e1268b9` / `b6d66d7`，2026-10-04，均未 push）— 全部出自「运维工具与数据层」这层原报告没扫过的面：
+- **代码审计 §七 的八条：同日修掉六条**（`d59ddaf` / `804651a` / `2b00ed7` / `d71d51f` / `e1268b9` / `b6d66d7`，2026-10-04，已 push 至 `03e6545`、**未合 dev 故未部署**）— 全部出自「运维工具与数据层」这层原报告没扫过的面：
   - **7.1 密钥轮转的「旧密钥可以删了」是 fail-open 判定**：`reencrypt()` 用 `new DatabaseSync(dbFile)`（会静默建缺失文件）、缺表即 `continue`，于是打错路径 / 空库 / PG 部署三种情形都返回 residue 0，CLI 照此打印「the old key can be dropped」并 exit 0——照做就把加密字段永久锁死。现在缺文件即抛（且不留下那个文件）、一个 surface 都没扫到即抛、residue 行打印**实际扫了几面**（`--table` 收窄时不再被读成全局结论）。
   - **7.4 五个运维 CLI 会对着空气报成功**：`openDb` 恒 SQLite 且不看 `DB_DRIVER`，`backfill-usage` / `generate-invoices` / `prune-demo-users` / `reset-password` / `rotate-reencrypt` 的 `DB_FILE ?? "agent-world.sqlite"` 既无存在性检查也不拒 PG；PG 部署下 `reset:password` 会打印一个在生产登不进去的口令。统一接仓内既有守卫（拆出 `resolveSqliteOpsFile`，`--db` > `DB_FILE` > `packages/server/` 真实库，永不回落到仓库根的空幽灵库）；`migrate-to-postgres` 只免驱动拒、仍要求真实源文件。
   - **7.2 PG 上 owner 单例没有任何 DB 约束**：`idx_users_owner` 只由 SQLite 迁移 31 创建，而 `pg-driver.ts` 建库只跑 `toPgDdl(DDL)`、从不跑迁移 ⇒ **真 postgres:16 复现**：修前两个并发 `createUser` 都拿到 `role=owner`、owners=2；修后索引由共享的 `POST_MIGRATION_INDEXES` 带上两驱动，第二个请求被唯一索引拒、owners=1。
