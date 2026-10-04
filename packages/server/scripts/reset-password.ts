@@ -2,10 +2,12 @@
  * Owner-side password reset CLI.
  *
  * Provisioned accounts (POST /api/admin/users) receive a one-time password that
- * is delivered out-of-band; agent-world has no SMTP and no self-serve reset, so
- * a holder who loses that password is locked out until an operator hands them a
- * new one. This script is that operator action: it writes a fresh one-time
- * password and re-arms must_change_password = 1 (same contract as provisioning).
+ * is delivered out-of-band; agent-world has no mail channel for accounts (the
+ * in-repo nodemailer only serves the notify node's outbound mail) and no
+ * self-serve reset, so a holder who loses that password is locked out until an
+ * operator hands them a new one. This script is that operator action: it writes
+ * a fresh one-time password and re-arms must_change_password = 1 (same contract
+ * as provisioning).
  *
  * The password is never read from argv by default — argv leaks into shell
  * history and `ps`, the same reason rotate-reencrypt.ts never takes key material
@@ -20,11 +22,10 @@
  *   ... --password=<value>     # set a specific password (avoid: leaks to `ps`)
  *   ... --db=/path/to.sqlite   # explicit file (overrides DB_FILE)
  */
-import { existsSync } from "node:fs";
-import { resolve } from "node:path";
 import { randomBytes } from "node:crypto";
 import bcrypt from "bcryptjs";
 import { openDb } from "../src/db.js";
+import { resolveSqliteOpsFile } from "../../../scripts/sqlite-ops-db.js";
 
 const args = process.argv.slice(2);
 const flag = (name: string) => args.find((a) => a.startsWith(`${name}=`))?.slice(name.length + 1);
@@ -32,22 +33,17 @@ const flag = (name: string) => args.find((a) => a.startsWith(`${name}=`))?.slice
 const email = flag("--email");
 const id = flag("--id");
 const explicitPassword = flag("--password");
-const dbFile = resolve(flag("--db") ?? process.env.DB_FILE ?? "agent-world.sqlite");
 
+// Usage error first: a bogus DB path is not the message an operator needs when
+// they also forgot --email.
 if ((!email && !id) || (email && id)) {
   console.error(
     "usage: reset:password -- --email=<email> | --id=<userId> [--password=<value>] [--db=<file>]",
   );
   process.exit(2);
 }
-// node:sqlite would happily create a missing file, so a typo'd path would look
-// like "account not found" instead of failing loudly (see scripts/sqlite-ops-db.ts).
-if (!existsSync(dbFile)) {
-  console.error(
-    `no database at ${dbFile}. Set --db/DB_FILE to the real file rather than letting this create an empty one.`,
-  );
-  process.exit(1);
-}
+
+const dbFile = resolveSqliteOpsFile("reset:password", { explicit: flag("--db") });
 
 const db = openDb(dbFile);
 

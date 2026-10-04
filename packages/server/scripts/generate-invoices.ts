@@ -13,13 +13,14 @@
 import { openDb } from "../src/db.js";
 import { generateAllInvoices } from "../src/invoiceService.js";
 import { currentPeriodStart } from "../src/subscription.js";
+import { resolveSqliteOpsFile } from "../../../scripts/sqlite-ops-db.js";
 
 const args = process.argv.slice(2);
 const dryRun = args.some((a) => a === "--dry-run");
 const periodArg = args.find((a) => a.startsWith("--period="))?.slice("--period=".length);
 const periodStart = periodArg ? Number(periodArg) : currentPeriodStart();
 
-const dbFile = process.env.DB_FILE ?? "agent-world.sqlite";
+const dbFile = resolveSqliteOpsFile("generate:invoices");
 const db = openDb(dbFile);
 
 try {
