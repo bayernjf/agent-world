@@ -44,6 +44,8 @@ CREATE TABLE IF NOT EXISTS users (
 -- idx_users_owner is NOT here on purpose: the role column is only added by
 -- migration 31 for pre-RBAC databases, and an index in this DDL runs before
 -- migrations -- an older file dies in db.exec(DDL) with "no such column: role".
+-- Its one definition is OWNER_UNIQUE_INDEX, executed from POST_MIGRATION_INDEXES
+-- (SQLite, after migrations) and by createPgDriver (PG, which runs no migration).
 
 -- NOTE: keep this CREATE TABLE free of inline "--" comments. node:sqlite's
 -- ALTER TABLE DROP COLUMN rebuilds the table from the stored sqlite_master SQL
@@ -1022,7 +1024,7 @@ const MIGRATIONS: Migration[] = [
       if (!columnExists(db, "users", "role")) {
         db.exec("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'");
       }
-      db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_owner ON users(role) WHERE role = 'owner'");
+      db.exec(OWNER_UNIQUE_INDEX);
       // Owner bootstrap: with no owner yet, promote the earliest-registered
       // user (created_at is ISO text, lexicographically ordered; rowid breaks
       // ties within one second). Existing databases therefore keep exactly
@@ -1281,8 +1283,17 @@ const LATEST_VERSION = MIGRATIONS.at(-1)!.version;
  * (detect() matches and up() is skipped). Creating each once after every
  * migration has settled — when the column exists on both the fresh and upgrade
  * paths — covers both. All statements are idempotent (IF NOT EXISTS).
+ *
+ * PostgreSQL never runs these migrations: `createPgDriver` builds from `DDL`
+ * only. So this list is exported and PG executes it too — that is what carries
+ * the owner-singleton invariant onto the PG track (audit 7.1/7.2: without it a
+ * fresh PG database let two concurrent first registrations both become owner).
  */
-const POST_MIGRATION_INDEXES: readonly string[] = [
+export const OWNER_UNIQUE_INDEX =
+  "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_owner ON users(role) WHERE role = 'owner'";
+
+export const POST_MIGRATION_INDEXES: readonly string[] = [
+  OWNER_UNIQUE_INDEX,
   "CREATE INDEX IF NOT EXISTS idx_subscriptions_stripe_customer ON subscriptions(stripe_customer_id)",
   "CREATE INDEX IF NOT EXISTS idx_subscriptions_stripe_sub ON subscriptions(stripe_subscription_id)",
   "CREATE INDEX IF NOT EXISTS idx_invoices_stripe_invoice ON invoices(stripe_invoice_id)",
