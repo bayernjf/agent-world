@@ -15,11 +15,12 @@
  *   ... --db=/path/to.sqlite                  # explicit file (overrides DB_FILE)
  */
 import { openDb } from "../src/db.js";
+import { resolveSqliteOpsFile } from "../../../scripts/sqlite-ops-db.js";
 
 const args = process.argv.slice(2);
 const apply = args.some((a) => a === "--apply");
 const dbArg = args.find((a) => a.startsWith("--db="))?.slice("--db=".length);
-const dbFile = dbArg ?? process.env.DB_FILE ?? "agent-world.sqlite";
+const dbFile = resolveSqliteOpsFile("prune:demo", { explicit: dbArg });
 
 const db = openDb(dbFile);
 

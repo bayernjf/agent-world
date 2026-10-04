@@ -415,9 +415,32 @@ export function createDriver(
       return row?.run_id ?? null;
     },
     async saveIdempotentRun(userId: string, key: string, runId: string) {
-      // ON CONFLICT DO NOTHING is portable across SQLite (3.24+) and PG —
-      // SQLite's INSERT OR IGNORE spelling is dialect-only.
-      await exec.run("INSERT INTO idempotency_keys (user_id, key, run_id, created_at) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING", [userId, key, runId, Date.now()]);
+      // Fills the pending row that claimIdempotencyKey opened with run_id=''.
+      // Scoped to the sentinel so it can never overwrite a finished mapping.
+      await exec.run(
+        "UPDATE idempotency_keys SET run_id = ? WHERE user_id = ? AND key = ? AND run_id = ''",
+        [runId, userId, key],
+      );
+    },
+    /** Drops a claim whose run never got created, so the key stays reusable. */
+    async releaseIdempotentClaim(userId: string, key: string) {
+      await exec.run(
+        "DELETE FROM idempotency_keys WHERE user_id = ? AND key = ? AND run_id = ''",
+        [userId, key],
+      );
+    },
+    /**
+     * Steals a pending claim older than `cutoffAt` (epoch ms). A pending row can
+     * only be left by a request that died between claim and create; without this
+     * the key would stay wedged against its owner forever. Returns true when a
+     * row was removed. Finished mappings (run_id set) are never touched.
+     */
+    async stealStaleIdempotentClaim(userId: string, key: string, cutoffAt: number): Promise<boolean> {
+      const res = await exec.run(
+        "DELETE FROM idempotency_keys WHERE user_id = ? AND key = ? AND run_id = '' AND created_at < ?",
+        [userId, key, cutoffAt],
+      );
+      return res.changes > 0;
     },
     /**
      * Generic first-writer-wins claim over idempotency_keys, used to de-duplicate

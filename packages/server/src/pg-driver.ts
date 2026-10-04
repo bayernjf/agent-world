@@ -1,6 +1,6 @@
 import { Client, type ClientConfig } from "pg";
 import { toPgDdl, toPgPlaceholders } from "./pg-sql.js";
-import { createDriver, DDL, type Executor } from "./sqlite-driver.js";
+import { createDriver, DDL, POST_MIGRATION_INDEXES, type Executor } from "./sqlite-driver.js";
 
 // node-pg parses int8/bigint as string by default. The DDL maps SQLite
 // INTEGER columns to bigint (epoch-ms timestamps need the range), but the
@@ -48,6 +48,10 @@ export async function createPgDriver(config: ClientConfig) {
   const client = new Client(config);
   await client.connect();
   await client.query(toPgDdl(DDL));
+  // PG builds straight from DDL and never runs the migration chain, so the
+  // indexes SQLite creates after migrating have to be applied here too -
+  // otherwise the owner-singleton invariant is only a comment on this track.
+  for (const sql of POST_MIGRATION_INDEXES) await client.query(toPgDdl(sql));
   return createDriver(
     createPgExecutor(client),
     {

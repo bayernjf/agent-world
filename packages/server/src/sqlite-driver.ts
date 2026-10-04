@@ -104,7 +104,7 @@ export async function backfillExistingData(database: { prepare(sql: string): Pro
  */
 export { contentHash } from "./sqlite-mappers.js";
 export type { InvoiceRow } from "./sqlite-schema.js";
-export { DDL, SCHEMA_VERSION, rollbackLatestMigration } from "./sqlite-schema.js";
+export { DDL, POST_MIGRATION_INDEXES, SCHEMA_VERSION, rollbackLatestMigration } from "./sqlite-schema.js";
 export { BACKUP_RETENTION } from "./sqlite-backup.js";
 export {
   DEMO_CASCADE_INDIRECT_TABLES,

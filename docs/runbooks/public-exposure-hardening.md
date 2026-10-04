@@ -49,6 +49,8 @@
 - [ ] **`TOOL_FS_ALLOW` 必须精确到子目录（P1，2026-09-30 审计）**：插件/工具的文件系统写权限由该前缀放行，但 `rm -rf` 类破坏性操作只受**前缀边界**约束——配宽（如 `/data` 而非 `/data/app/uploads/`）时，任何拿到该写权限的插件都能递归删空整目录。规则：写意图前缀一律精确到业务子目录（如 `/var/lib/agent-world/uploads`），不要给 `/var`、`/data` 这类宽前缀；只读面（默认）不受此限制。若确实需要宽前缀，把可写工具（`fs write` 等 `danger: true`）从工具声明里移除，或换专用子目录。
 - [ ] **内网逃生口保持关闭**：确认 `ALLOW_PRIVATE_NETWORK` 未设。放开等于对 http 节点 / `/api/proxy` / 连接器出站全部对内网开门，也包含远程 MCP。
 - [ ] **文件权限**：`.env` 600；数据目录下 `.jwt-secret` / `.encryption-keys` 0600，且**随备份一起带在带外**（丢了密钥 = 加密字段永久锁死）。
+- [ ] **systemd 里别用 `Environment=` 放密钥**：`systemctl show -p Environment <unit>` 走 D-Bus 读 manager 里的 unit 属性，**普通用户就能读**，返回的是 unit 与全部 drop-in 合并后的键值原文——drop-in 文件本身 600 只挡得住「谁能 open 这个文件」，挡不住这条属性。凭据改走 `EnvironmentFile=`（root 600）或 `LoadCredential=` / `LoadCredentialEncrypted=`（凭据落在服务私有的 tmpfs，进程按 `$CREDENTIALS_DIRECTORY` 读）。验收用可伪的那条，别拿「换了哪个指令」当通过：`systemctl show -p Environment agent-world | grep -c AGNES` 必须是 **0**。（2026-10-04 在 Hasee 实测到这条：那条 provider key 确实出现在无 sudo 的读数里，登记为 code-audit §七-7.8。）
+      取证纪律：读 unit env 时**先过滤再打印**（`systemctl show -p Environment <unit> | tr ' ' '\n' | grep -E '^(NODE_ENV|SECURE_COOKIES)='`），不要整条倒进终端或日志。
 - [ ] **备份**：周期备份并**异地/带外**留存；用仓库脚本做一次真实恢复演练（`scripts/restore-agent-world.sh`），确认「备份 + 密钥 + 数据」真能还原。缺密钥的备份脚本会告警，不要当作通过。
 - [ ] **密钥轮换**：确认 JWT / 加密密钥轮换流程可用（[runbooks/key-rotation.md](key-rotation.md)），并把轮换列入例行。
 
