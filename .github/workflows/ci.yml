@@ -76,6 +76,49 @@ jobs:
         # no secrets; core is already built above for the tsx-run server.
         run: pnpm e2e
 
+  postgres:
+    name: PostgreSQL path smoke
+    runs-on: ubuntu-latest
+    services:
+      pg:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: smokepw
+          POSTGRES_DB: awsmoke
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm -r build
+
+      - name: PG smoke
+        # Audit 7.3: before this job, no gate had executed a line of the PG path
+        # (pg-sql.test.ts only asserts string translation), which is how
+        # "idx_users_owner comes from migration 31" survived on a driver that
+        # never runs migrations. Same suite command developers run locally, so a
+        # red here reproduces without a GitHub round trip.
+        env:
+          PG_SMOKE_URL: postgres://postgres:smokepw@127.0.0.1:55432/awsmoke
+        run: pnpm --filter @agent-world/server exec vitest run src/pg-smoke.test.ts
+
   secrets:
     name: Secret leak scan
     runs-on: ubuntu-latest
