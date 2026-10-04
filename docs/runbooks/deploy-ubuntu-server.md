@@ -335,7 +335,21 @@ curl -s http://127.0.0.1:8791/api/health | grep -o '"env":"[^"]*"'
 - **`staging` 不算生产**：那四条是字符串等于 `"production"` 才成立，所以报 `env:staging` 的那台机器（Hasee 就是）在四项上与没设一样——**不管是 `AGENT_WORLD_ENV=staging` 还是 `NODE_ENV=staging`，结论相同**，这也是为什么上面那条推断可以只读 `env` 字段就下。
 - 上了 TLS 之后要**删掉** `SECURE_COOKIES=0`：它是显式覆盖，会一直压着 `Secure`，比不设更容易漏。
 
-**2026-10-04 复测（SSH 只读，无 sudo）**：`/api/health` = `ok:true / env:"staging" / branch:dev / commit:2e82187 / providers.agnes:configured`；**单实例这一半就此量到并成立**——`ps` 里 `dist/index.js` 恰好 1 个进程（PID 58950，当时已跑 4h45m），`:8791` 只有 1 个监听 socket。`NODE_ENV` 那一半**仍未闭合**：三个 drop-in（`agnes.conf`/`demo.conf`/`override.conf`）与 `/opt/agent-world/.env` 都是 root 私有、非 sudo 读不到（drop-in 目录可 `ls`，内容不可读），上面的 b) 反证也要 `journalctl` 的读权限。⇒ 这一条是**只有你（或有 root 的人）能签的**：跑一次 a) 那两行 `systemctl show` / `grep /opt/agent-world/.env` 即可闭环，顺带确认 `SECURE_COOKIES` 有没有被显式压过。
+**2026-10-04 复测（SSH 只读，无 sudo）**：`/api/health` = `ok:true / env:"staging" / branch:dev / commit:2e82187 / providers.agnes:configured`；**单实例这一半就此量到并成立**——`ps` 里 `dist/index.js` 恰好 1 个进程（PID 58950，当时已跑 4h45m），`:8791` 只有 1 个监听 socket。
+
+**a) 的 systemd 那一半也不用 root**：`systemctl show -p Environment,EnvironmentFiles agent-world` 经 D-Bus 读的是 manager 里的 unit 属性，普通用户就能读（正控制：`DB_FILE`/`CODE_SANDBOX` 都出得来）。Hasee 实测这条读数里**既没有 `NODE_ENV` 也没有 `AGENT_WORLD_ENV`，也没有 `SECURE_COOKIES`/`WORKER`** ⇒ 健康端点那个 `staging` 只可能来自 `/opt/agent-world/.env`（`index.ts:14` 先 `import "./load-env.js"`，`.env` 本身是 root 私有）。所以本节剩下的未知只有一个文件、一行：
+
+```bash
+sudo grep -nE '^(NODE_ENV|AGENT_WORLD_ENV|SECURE_COOKIES)=' /opt/agent-world/.env
+```
+
+**⚠️ 同一条读数暴露了一件该修的事**：`Environment=` 写的密钥会**原样出现在这个可被普通用户读到的属性里**——`agnes.conf` 文件权限 600 守的是「谁能 open 那个文件」，管不到 bus 上的属性。凭据请改走 `EnvironmentFile=` 或 `LoadCredential=`/`LoadCredentialEncrypted=`（后者把凭据放进服务私有的 tmpfs，进程按 `$CREDENTIALS_DIRECTORY` 读）；**这两条都没在这台机上实测过**，所以别把「用了哪个指令」当通过判据，改完用这条可伪的读数验收：
+
+```bash
+systemctl show -p Environment agent-world | grep -c AGNES   # 必须是 0
+```
+
+顺带一句取证纪律：读 unit env 时**先把要看的 key 过滤掉再打印**（`| tr ' ' '\n' | grep -E '^(NODE_ENV|...)='`），不要 `systemctl show` 整条倒出来——本项目就在复测途中把一把 provider key 的值倒进了终端。
 
 ### 四之五、给第二个人开账号（自注册默认是关的）
 
