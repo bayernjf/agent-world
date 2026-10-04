@@ -152,7 +152,7 @@ worker 插件声明 `isolation:"subprocess"` 时 fork 到独立子进程，父�
 
 ---
 
-## 七、增量复核（2026-10-04，基线 HEAD `6db6ea3`）——本报告未覆盖的 7 条
+## 七、增量复核（2026-10-04，基线 HEAD `6db6ea3`）——本报告未覆盖的 8 条
 
 > **方法**：本轮不接受任何扫掠结论。下面每条都由复核者自己打开文件重推；引用一律给**当前**文件名（§五 之后 `index.ts` 与 driver 已拆分，本报告正文里的旧行号失效）。取证方式逐条标注：**[实测]**＝命令跑出来的计数、**[读码]**＝打开了被引行、**[推断]**＝由前两者推导。
 
@@ -199,7 +199,17 @@ worker 插件声明 `isolation:"subprocess"` 时 fork 到独立子进程，父�
 需要说清楚的是：本仓用「自写守护测」守住了几条最要紧的约定（i18n key 双向一致、driver 裸 SQL 白名单、`drainRun` 源码扫描），这比通用 linter 更贴项目语义。代价是**凡没被编码成测试的规则一律无人守**——React hooks 依赖数组、未使用变量、`as`/`any` 增长、无障碍属性。
 **修法**：不必换 linter；要么把想长期守的规则继续写成守护测，要么加一条最小 eslint（`react-hooks` + `no-unused-vars`）进 CI，二选一即可，但要知道当前是「零」。
 
-### 7.8 对本报告自身的两处订正
+### 7.8 [中] systemd 的 `Environment=` 会把密钥发给任何本地用户（本轮补出）
+
+`docs/runbooks/deploy-ubuntu-server.md` 与 `docs/runbooks/public-exposure-hardening.md` 都要求凭据文件 600，但把 drop-in 写成 `Environment=AGNES_API_KEY=…` 时，600 守的是「谁能 open 那个文件」，**管不到 manager 在 D-Bus 上发布的 unit 属性**：`systemctl show -p Environment agent-world` 普通用户即可读取，返回的是 unit＋全部 drop-in 合并后的键值对原文。**[实测]**（2026-10-04 Hasee 只读复测；正控制是同一条读数里 `DB_FILE`/`CODE_SANDBOX` 一并出现，证明该属性确实可读全，而不是只读到片段）
+
+后果：这台机器上任何低权账户（以及任何能以该用户身份跑 `systemctl` 的进程，包括被注入的脚本）都能直接拿到 provider key 明文。这条与 §七 其余各条不同——它不是「报成功」类，是**已发生的凭据可读面**，且本轮取证过程中那条 key 的值确实进入了终端输出，因此是否轮换归用户决定（泄露面是同机本地用户，不是远端；该 key 是 free-tier 单把）。
+**修法**：凭据改走 `EnvironmentFile=`（root 600）或 `LoadCredential=` / `LoadCredentialEncrypted=`（凭据落在服务私有的 tmpfs，进程按 `$CREDENTIALS_DIRECTORY` 读）。**这两条都没在这台机上实测过**（无 root、也没建测试 unit），所以别把「换成了哪个指令」当验收——用可伪的那一条：改完 `systemctl show -p Environment agent-world | grep -c AGNES` 必须为 **0**。
+**取证纪律（写进 runbook）**：读 unit env 时先过滤再打印（`| tr ' ' '\n' | grep -E '^(NODE_ENV|SECURE_COOKIES)='`），不要整条 `systemctl show` 倒出来。
+
+---
+
+### 7.9 对本报告自身的两处订正
 
 - **§五 的两处「巨型文件需架构关注」已不成立**（10-02 的 `dadcd58` / `32335aa` 拆分）：**[实测]** `index.ts` 1084 行、`sqlite-driver.ts` 114 行（拆出 `driver-body.ts` 2754 + `sqlite-schema.ts` 1379 + mappers/backup/cascade）。复核者最初也按旧数字判为单体，引用前需重新定位。
 - **§五 的测试基线已被超过**：当前 CI run 37184065595 自报 **3894 测 / 304 文件全绿**（core 346/24 · server 1481 含 2 跳过/170 · web 1996/107 · mcp 71/3），报告正文写的是 196 文件。
