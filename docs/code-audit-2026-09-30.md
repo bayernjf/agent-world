@@ -154,6 +154,8 @@ worker 插件声明 `isolation:"subprocess"` 时 fork 到独立子进程，父�
 
 ## 七、增量复核（2026-10-04，基线 HEAD `6db6ea3`）——本报告未覆盖的 8 条
 
+> **处置（同日）**：7.1–7.6 **已修**（commit 与逐条可伪验收见本节末「处置进度」）；7.7 是门禁取向问题、留给用户拍板；7.8 需要 Hasee 的 root（修法与验收读数已写进两份 runbook）。
+
 > **方法**：本轮不接受任何扫掠结论。下面每条都由复核者自己打开文件重推；引用一律给**当前**文件名（§五 之后 `index.ts` 与 driver 已拆分，本报告正文里的旧行号失效）。取证方式逐条标注：**[实测]**＝命令跑出来的计数、**[读码]**＝打开了被引行、**[推断]**＝由前两者推导。
 
 ### 7.1 [高] `rotate-reencrypt` 的「旧密钥可以删了」判定 fail-open
@@ -206,6 +208,25 @@ worker 插件声明 `isolation:"subprocess"` 时 fork 到独立子进程，父�
 后果：这台机器上任何低权账户（以及任何能以该用户身份跑 `systemctl` 的进程，包括被注入的脚本）都能直接拿到 provider key 明文。这条与 §七 其余各条不同——它不是「报成功」类，是**已发生的凭据可读面**，且本轮取证过程中那条 key 的值确实进入了终端输出，因此是否轮换归用户决定（泄露面是同机本地用户，不是远端；该 key 是 free-tier 单把）。
 **修法**：凭据改走 `EnvironmentFile=`（root 600）或 `LoadCredential=` / `LoadCredentialEncrypted=`（凭据落在服务私有的 tmpfs，进程按 `$CREDENTIALS_DIRECTORY` 读）。**这两条都没在这台机上实测过**（无 root、也没建测试 unit），所以别把「换成了哪个指令」当验收——用可伪的那一条：改完 `systemctl show -p Environment agent-world | grep -c AGNES` 必须为 **0**。
 **取证纪律（写进 runbook）**：读 unit env 时先过滤再打印（`| tr ' ' '\n' | grep -E '^(NODE_ENV|SECURE_COOKIES)='`），不要整条 `systemctl show` 倒出来。
+
+---
+
+### 处置进度（2026-10-04 同日，用户授权「做你自己能做的」后开工）
+
+八条里 **6 条已修**，全部带可伪验收；剩下两条不是偷懒：7.7 是与「自写守护测」哲学冲突的取向决定（留给用户拍板），7.8 要 root（Hasee 上改 drop-in 写法，外加是否轮换 key 的决定）。
+
+| 条 | 处置 | commit | 可伪的验收（都是实跑读数，不是「改了哪个指令」） |
+| --- | --- | --- | --- |
+| 7.1 | ✅ 已修 | `2b00ed7` | 缺文件即抛且**不留下那个文件**；一个 surface 都没扫到即抛；CLI 打印扫了几面。2 条新测各断言两件事；两处守卫分别 disable 后各自变红（其余全绿）；四次真机 CLI 跑：打错 DB_FILE → exit 1 无文件、空库 → exit 1 点名五面、外来 keyring → exit 1（诚实的 residue 判定）、本机 keyring 的 dev 库 → exit 0 且 `residue 0/0 (scanned 5 surface(s))` |
+| 7.2 | ✅ 已修 | `d71d51f` | 真 postgres:16 容器**先复现后修**：修前 `users` 只有 `users_email_key`+`users_pkey`、两个并发 `createUser` 都拿到 role=owner、count=2；修后索引存在、第二个被 `idx_users_owner` 拒、owners=1 |
+| 7.3 | ✅ 已加 | `e1268b9` | CI 新增 postgres job（postgres:16 service + `pg_isready` 健康闸）。**后果写进 commit**：deploy.yml 认 CI 总结论，所以这条 SaaS 轨的红现在会挡住 Hasee 自动部署（刻意如此，逃生口是重跑或标 continue-on-error，不是删门）。本地按 CI 同一条命令链跑通：`pnpm -r build` exit 0 → smoke 3 passed |
+| 7.4 | ✅ 已修 | `804651a` | 五个运维 CLI 接 `resolveSqliteOpsFile`（migrate-to-postgres 只免驱动拒、仍要真实源文件）。8 次真机读数＋2 次正控制；守卫两处各自 disable 即对应测变红 |
+| 7.5 | ✅ 已加 | `d59ddaf` | 新增 `packages/server/tsconfig.scripts.json` 并进 package typecheck 链。**当场回本两次**：我在 7.4 里写坏的 `apply` 行（TS2345）与新测试的隐式 any（TS7006）都是它先抓住的，后者是 pre-commit 钩子拦下的 |
+| 7.6 | ✅ 已修 | `b6d66d7` | claim 变成第一动作（单条 `INSERT ... ON CONFLICT DO NOTHING` 裁决），输家拿 replay 200 或 409；失败释放 claim 保同键可重试；崩溃留下的 pending 满 15 分钟由后续同键接管。2 条新测；把 claim 跳过 → 并发测与重放测**都**红（返回两个不同 runId） |
+| 7.7 | ⏸ 未动 | — | 见 §7.7 的取舍说明：本仓的门禁是自写守护测，加 eslint 是换哲学，该用户拍板 |
+| 7.8 | ⛔ 要 root | — | 修法候选（`EnvironmentFile=` / `LoadCredential=`）与验收读数已写进 [deploy-ubuntu-server.md](runbooks/deploy-ubuntu-server.md) 与 [public-exposure-hardening.md](runbooks/public-exposure-hardening.md)：改完 `systemctl show -p Environment agent-world` 里 AGNES 的命中数必须为 0；两条候选都没在这台机上实测过，所以判据写成读数不写成指令 |
+
+同日门禁读数（修后全量，非引用旧值）：server **1488 passed / 5 skipped**（+1 文件 pg-smoke、幂等测 +2、pg-smoke 无 `PG_SMOKE_URL` 时 3 skip），另 2 条 `engine.code` 是本机 `python3` 被 Xcode license 挡住的环境红，改前改后同样红；`pnpm -r typecheck` 四包绿。**未 push**。
 
 ---
 
