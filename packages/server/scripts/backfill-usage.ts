@@ -12,13 +12,14 @@
  */
 import { openDb } from "../src/db.js";
 import { backfillUsage } from "../src/usage-backfill.js";
+import { resolveSqliteOpsFile } from "../../../scripts/sqlite-ops-db.js";
 
 const args = process.argv.slice(2);
 const dryRun = args.some((a) => a === "--dry-run");
 const sinceArg = args.find((a) => a.startsWith("--since="))?.slice("--since=".length);
 const since = sinceArg ? Number(sinceArg) : 0;
 
-const dbFile = process.env.DB_FILE ?? "agent-world.sqlite";
+const dbFile = resolveSqliteOpsFile("backfill:usage");
 const db = openDb(dbFile);
 
 try {

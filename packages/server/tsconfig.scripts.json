@@ -1,0 +1,17 @@
+// packages/server/scripts/*.ts are run with tsx, which typechecks nothing, and
+// the package build config includes only src/**/* — so the ops CLIs had zero
+// type coverage. That is the same failure mode that motivated the root
+// tsconfig.scripts.json (scripts/migrate-down.ts shipped an import of a path
+// that does not exist), which only circled the repo-root scripts/.
+//
+// noEmit here: these files are never built into dist/, they run from source.
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "declaration": false,
+    "sourceMap": false,
+    "types": ["node"]
+  },
+  "include": ["scripts/**/*.ts"]
+}

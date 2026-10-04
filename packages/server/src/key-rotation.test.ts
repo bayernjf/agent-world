@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -235,5 +235,31 @@ describe("key rotation re-encryption (design-key-rotation P2)", () => {
     const sealed = rawCell(path, `SELECT data AS v FROM settings WHERE user_id = 'u2'`);
     expect(sealed).toMatch(/^enc:v2:bbbbbb:/);
     expect(decryptString(sealed)).toBe(`{"providers":{"y":{"apiKey":"sk-legacy-plain"}}}`);
+  });
+
+  // Audit 7.1: both of these used to end in the CLI printing "no old-key
+  // ciphertext remains; the old key can be dropped from the keyring" and
+  // exiting 0. Acting on that line is irreversible, so each case asserts the
+  // exit AND the absence of the artifact the old behaviour created.
+  it("refuses a database file that is not there instead of creating one", async () => {
+    process.env.AGENT_WORLD_ENCRYPTION_KEYS = `${K2},${K1}`;
+    const { reencrypt } = await fresh<typeof import("./key-rotation.js")>("./key-rotation.js");
+    const missing = join(dir, "typo-agent-world.sqlite");
+
+    expect(() => reencrypt({ dbFile: missing })).toThrow(/no database at/);
+    // node:sqlite would have created it on open; a file left behind here means
+    // the guard regressed to the fail-open behaviour.
+    expect(existsSync(missing)).toBe(false);
+  });
+
+  it("refuses to report zero residue over a database with no sealed surface", async () => {
+    process.env.AGENT_WORLD_ENCRYPTION_KEYS = `${K2},${K1}`;
+    const { reencrypt } = await fresh<typeof import("./key-rotation.js")>("./key-rotation.js");
+    // Exists, but the app never wrote to it: every surface would be `continue`d.
+    const empty = join(dir, "empty.sqlite");
+    new DatabaseSync(empty).close();
+    expect(existsSync(empty)).toBe(true);
+
+    expect(() => reencrypt({ dbFile: empty })).toThrow(/no encrypted surface/);
   });
 });

@@ -14,12 +14,16 @@
  */
 import { migrateToPostgres } from "../src/migrate-to-postgres.js";
 import { pgConfigFromEnv } from "../src/db.js";
+import { resolveSqliteOpsFile } from "../../../scripts/sqlite-ops-db.js";
 
 const args = process.argv.slice(2);
 const dryRun = args.some((a) => a === "--dry-run" || a === "--dry-run=true");
 const verifyOnly = args.some((a) => a === "--verify-only" || a === "--verify-only=true");
 
-const dbFile = process.env.DB_FILE ?? "agent-world.sqlite";
+// The source must be a real SQLite file (node:sqlite would create an empty one
+// and "migrate" nothing), but writing to PostgreSQL is this tool's whole point,
+// so it opts out of the guard's DB_DRIVER refusal.
+const dbFile = resolveSqliteOpsFile("migrate:postgres", { requireSqliteDriver: false });
 try {
   const report = await migrateToPostgres({
     dbFile,

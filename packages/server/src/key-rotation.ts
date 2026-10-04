@@ -25,6 +25,7 @@
  * can never miss real ciphertext, and the failure direction is "look again",
  * not "ship the old key".
  */
+import { existsSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import {
   decryptString,
@@ -132,6 +133,16 @@ export function reencrypt(opts: {
     throw new Error(`unknown tables: ${unknown.join(", ")} (known: ${SURFACES.map((s) => s.table).join(", ")})`);
   }
 
+  // node:sqlite creates a missing file. Without this check a typo'd --db/DB_FILE
+  // would "converge" an empty database and let the CLI report that the old key
+  // can be dropped - acting on that line permanently locks every encrypted
+  // column. Fail loud instead.
+  if (!existsSync(opts.dbFile)) {
+    throw new Error(
+      `no database at ${opts.dbFile}. Refusing to create one: set DB_FILE to the real file.`,
+    );
+  }
+
   const db = new DatabaseSync(opts.dbFile);
   const reports: ReencryptTableReport[] = [];
   const residue = { v1: 0, oldKeyV2: 0 };
@@ -180,6 +191,18 @@ export function reencrypt(opts: {
         report.rewritten++;
       }
       reports.push(report);
+    }
+
+    // Every surface absent means this is not a database the app ever wrote to.
+    // Reporting residue=0 for it would be the fail-open half of the defect: the
+    // operator drops the old key against a file that was never scanned.
+    if (reports.length === 0) {
+      throw new Error(
+        `no encrypted surface found in ${opts.dbFile} (looked for: ${wanted
+          .map((s) => s.table)
+          .join(", ")}). Wrong path or a database the app never initialised - ` +
+          `refusing to report "no residue" over nothing.`,
+      );
     }
 
     // Verification census (post-run, or the pre-run state under --dry-run):

@@ -15,13 +15,14 @@
  *     [--dry-run] [--table settings,graphs]
  */
 import { reencrypt } from "../src/key-rotation.js";
+import { resolveSqliteOpsFile } from "../../../scripts/sqlite-ops-db.js";
 
 const args = process.argv.slice(2);
 const dryRun = args.some((a) => a === "--dry-run" || a === "--dry-run=true");
 const tableArg = args.find((a) => a.startsWith("--table="))?.slice("--table=".length);
 const tables = tableArg?.split(",").map((s) => s.trim()).filter(Boolean);
 
-const dbFile = process.env.DB_FILE ?? "agent-world.sqlite";
+const dbFile = resolveSqliteOpsFile("rotate:reencrypt");
 try {
   const report = reencrypt({ dbFile, tables, dryRun });
 
@@ -36,10 +37,13 @@ try {
     );
   }
   console.log(
-    `residue: v1=${report.residue.v1} old-key-v2=${report.residue.oldKeyV2}` +
-      (report.residue.v1 === 0 && report.residue.oldKeyV2 === 0
-        ? " — no old-key ciphertext remains; the old key can be dropped from the keyring"
-        : " — old-key ciphertext REMAINS; keep the old key and inspect before dropping"),
+    `residue: v1=${report.residue.v1} old-key-v2=${report.residue.oldKeyV2} ` +
+      `(scanned ${report.tables.length} surface(s): ${report.tables.map((t) => t.table).join(", ")})`,
+  );
+  console.log(
+    report.residue.v1 === 0 && report.residue.oldKeyV2 === 0
+      ? "  -> no old-key ciphertext in the surfaces scanned; if that list is not every surface this deployment uses, re-run without --table before dropping the old key"
+      : "  -> old-key ciphertext REMAINS; keep the old key and inspect before dropping",
   );
   process.exitCode =
     report.residue.v1 === 0 && report.residue.oldKeyV2 === 0 ? 0 : 1;
