@@ -25,26 +25,26 @@
     "@types/pg": "^8.23.1",
     "bcryptjs": "^3.0.3",
     "fflate": "^0.8.3",
-    "hono": "^4.13.11",
+    "hono": "^4.13.12",
     "jose": "^6.2.12",
     "jpeg-js": "^0.4.4",
-    "nodemailer": "^10.0.12",
+    "nodemailer": "^10.0.13",
     "pdfjs-dist": "^6.3.289",
-    "pg": "^8.23.0",
+    "pg": "^8.23.1",
     "playwright": "^1.63.0",
     "pngjs": "^7.0.0",
-    "stripe": "^22.6.2",
+    "stripe": "^23.0.0",
     "tesseract.js": "^7.0.0",
     "undici": "^7.30.0",
     "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/jpeg-js": "^0.3.7",
-    "@types/node": "^24.19.0",
+    "@types/node": "^24.19.1",
     "@types/nodemailer": "^8.0.2",
     "@types/pngjs": "^6.0.5",
-    "@vitest/coverage-v8": "^5.0.2",
+    "@vitest/coverage-v8": "^5.0.3",
     "tsx": "^4.23.15",
-    "vitest": "5.0.2"
+    "vitest": "5.0.3"
   }
 }
