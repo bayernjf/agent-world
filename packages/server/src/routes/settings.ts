@@ -136,7 +136,7 @@ export function registerSettingsRoutes(
   app: Hono<{ Variables: { userId: string } }>,
   ctx: RouteContext,
 ): void {
-  const { db, worker } = ctx;
+  const { db } = ctx;
 
 function redactSearchConfigForUi(s: NonNullable<AppConfig["searchConfig"]>): NonNullable<AppConfig["searchConfig"]> {
   const out: NonNullable<AppConfig["searchConfig"]> = { ...s };

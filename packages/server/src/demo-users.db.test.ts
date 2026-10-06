@@ -11,10 +11,6 @@ import {
 } from "./sqlite-driver.js";
 import { openDb, type Db } from "./db.js";
 
-function freshFile(): string {
-  return join(mkdtempSync(join(tmpdir(), "aw-demo-")), "db.sqlite");
-}
-
 function cols(db: DatabaseSync, table: string): string[] {
   return (db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map(
     (r) => r.name,

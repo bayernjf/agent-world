@@ -11,7 +11,7 @@ import { sinkNode } from "../nodes/sink.js";
  * arrives via the explicit NodeRunContext.
  */
 export async function fanoutNode(ctx: NodeRunContext, node: GraphNode, nodeId: string, attempt: number): Promise<void> {
-  const { approved, artifactValue, artifacts, attempts, budgetUsd, emit, fallbackModel, graph, inputFor, mergeSubInit, monthSpentUsd, monthlyBudgetUsd, nodeCostUsd, opts, packetEdges, plan, produceArtifacts, runId, sendPackets, states, variables, worker } = ctx;
+  const { approved, artifactValue, artifacts, emit, graph, inputFor, mergeSubInit, opts, produceArtifacts, runId, sendPackets, states, variables, worker } = ctx;
   const cfg: FanoutConfig = node.fanout ?? FanoutConfig.parse({});
   const input = await inputFor(node);
   const variants = buildVariantParams(cfg, opts.fallbackModel);

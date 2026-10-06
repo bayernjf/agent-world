@@ -195,10 +195,6 @@ export class HaltRequested extends Error {
   }
 }
 
-function zeroUsage(): Usage {
-  return { tokensIn: 0, tokensOut: 0, costUsd: 0 };
-}
-
 /** Deterministic stand-in: no network, no clock, seeded verdicts. */
 export function fakeWorker(opts: { failFirstAttempts?: number; chunkDelayMs?: number } = {}): Worker {
   const failFirst = opts.failFirstAttempts ?? 1;

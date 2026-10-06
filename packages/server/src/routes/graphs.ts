@@ -25,7 +25,7 @@ export function registerGraphsRoutes(
   app: Hono<{ Variables: { userId: string } }>,
   ctx: RouteContext,
 ): void {
-  const { db, live, scheduler, triggers, worker, blockDemo } = ctx;
+  const { db, scheduler, triggers, blockDemo } = ctx;
 
 app.get("/api/skills", async (c) => {
   const userId = c.get("userId");

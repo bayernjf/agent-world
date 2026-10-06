@@ -115,11 +115,6 @@ app.post("/api/announcements/:id/read", async (c) => {
   return c.json({ ok: true });
 });
 
-const ANNOUNCEMENT_LEVELS = new Set(["info", "warning", "critical"]);
-const ANNOUNCEMENT_BODY_MAX = 20_000;
-/** P3 targeting: `graph:<id>` / `template:<id>` with a conservative id charset. */
-const ANNOUNCEMENT_TARGET_RE = /^(graph|template):[A-Za-z0-9_-]+$/;
-
 /** Shared shape validation for create/update bodies. */
 
 app.post("/api/announcements", async (c) => {

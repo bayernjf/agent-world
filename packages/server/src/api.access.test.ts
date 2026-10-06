@@ -315,7 +315,7 @@ describe("run & artifact access inheritance (design-rbac P1)", () => {
 describe("Seats limit (M3 S5)", () => {
   it("blocks adding collaborators on free plan (seats=1)", async () => {
     const ownerToken = await register("seats-owner@test.dev");
-    const collabToken = await register("seats-collab@test.dev");
+    await register("seats-collab@test.dev");
     const graphId = await createGraph(ownerToken, "seats-test");
 
     // Free plan has seats=1 (owner only). Try to add a collaborator → 403.
@@ -332,7 +332,7 @@ describe("Seats limit (M3 S5)", () => {
   it("allows adding collaborators on team plan (seats=5)", async () => {
     const { setPlan } = await import("./subscriptionService.js");
     const ownerToken = await register("seats-team-owner@test.dev");
-    const collabToken = await register("seats-team-collab@test.dev");
+    await register("seats-team-collab@test.dev");
     const graphId = await createGraph(ownerToken, "seats-team-test");
 
     // Get owner userId, upgrade to team plan (seats=5)
