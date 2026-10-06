@@ -46,6 +46,13 @@ jobs:
         # the only coverage the maintenance scripts in scripts/ ever get.
         run: pnpm typecheck
 
+      - name: Lint
+        # Deliberately narrow (docs/code-audit-2026-09-30.md §7.7): the repo's
+        # gate is its own guard tests, so this only covers the two things a
+        # bespoke test cannot — a variable left behind by a refactor (error)
+        # and a stale hook dependency array (warning, tracked not yet gating).
+        run: pnpm lint
+
       - name: i18n guard
         # Two things gate here: every {{interpolation}} present in both
         # languages, and no pack key that source can no longer reach. The second
