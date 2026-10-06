@@ -328,6 +328,44 @@ describe("AdminPanel", () => {
     });
   });
 
+  describe("数据 tab 切换时刷新", () => {
+    it("owner 落在用户 tab 时不请求审计，切到审计 tab 才加载", async () => {
+      render(<AdminPanel open me={OWNER_ME} onClose={() => {}} />);
+      await waitFor(() => {
+        expect(screen.getByText("owner@test.dev")).toBeInTheDocument();
+      });
+      expect(mockListAudit).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole("button", { name: "审计日志" }));
+      await waitFor(() => {
+        expect(mockListAudit).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    it("离开再回到审计 tab 会重新拉取，而不是复用打开时的快照", async () => {
+      render(<AdminPanel open me={OWNER_ME} onClose={() => {}} />);
+      const auditTab = await screen.findByRole("button", { name: "审计日志" });
+      fireEvent.click(auditTab);
+      await waitFor(() => {
+        expect(mockListAudit).toHaveBeenCalledTimes(1);
+      });
+      fireEvent.click(screen.getByRole("button", { name: "用户" }));
+      fireEvent.click(auditTab);
+      await waitFor(() => {
+        expect(mockListAudit).toHaveBeenCalledTimes(2);
+      });
+    });
+
+    it("切到反馈 tab 才拉取反馈列表", async () => {
+      render(<AdminPanel open me={OWNER_ME} onClose={() => {}} />);
+      const feedbackTab = await screen.findByRole("button", { name: "反馈" });
+      expect(mockListFeedback).not.toHaveBeenCalled();
+      fireEvent.click(feedbackTab);
+      await waitFor(() => {
+        expect(mockListFeedback).toHaveBeenCalledTimes(1);
+      });
+    });
+  });
+
   describe("反馈 tab", () => {
     async function openFeedbackTab(me = OWNER_ME) {
       render(<AdminPanel open me={me} onClose={() => {}} />);

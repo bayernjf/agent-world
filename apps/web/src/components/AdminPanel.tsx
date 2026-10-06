@@ -73,12 +73,19 @@ function contextDigest(
   return parts.length ? parts.join(" · ") : t("feedback:admin.noContext");
 }
 
+type TabKey = "users" | "audit" | "feedback" | "invoices";
+
 export default function AdminPanel({ open, me, onClose }: Props) {
   const { t, i18n } = useTranslation();
   const showToast = useToast((s) => s.show);
   const isOwner = me?.role === "owner";
   const isAdmin = me?.role === "owner" || me?.role === "admin";
-  const [tab, setTab] = useState<"users" | "audit" | "feedback" | "invoices">("audit");
+  // null follows the role default (owner lands on users, admin on audit); an
+  // explicit pick holds until the panel is reopened. Deriving it instead of
+  // initialising the state keeps the data effects from firing on the wrong tab
+  // during the render where the panel opens.
+  const [tab, setTab] = useState<TabKey | null>(null);
+  const activeTab: TabKey = tab ?? (isOwner ? "users" : "audit");
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [usersLoading, setUsersLoading] = useState(false);
   const [usersError, setUsersError] = useState<string | null>(null);
@@ -231,7 +238,7 @@ export default function AdminPanel({ open, me, onClose }: Props) {
   // feedback tab (design-feedback P2) is visible to owner and admin alike.
   useEffect(() => {
     if (!open) return;
-    setTab(isOwner ? "users" : "audit");
+    setTab(null);
     setConfirmTarget(null);
     setRoleError(null);
     setAudit([]);
@@ -240,18 +247,26 @@ export default function AdminPanel({ open, me, onClose }: Props) {
     setAnnounceOpen(false);
     setAnnounceError(null);
     if (isOwner) void loadUsers();
-    if (isAdmin) void loadAudit();
-  }, [open, isOwner, isAdmin, loadUsers, loadAudit]);
+  }, [open, isOwner, loadUsers]);
 
-  // Refetch when the admin flips the status filter.
+  // Data tabs load when they become visible, so what happened earlier in the
+  // same panel session (provisioning, role changes, status flips) is current
+  // instead of a snapshot from the moment the panel opened. loadFeedback also
+  // re-identifies when the status filter changes, which refetches as before.
   useEffect(() => {
-    if (open && isAdmin) void loadFeedback();
-  }, [open, isAdmin, loadFeedback]);
+    if (!open || !isAdmin || activeTab !== "audit") return;
+    void loadAudit();
+  }, [open, isAdmin, activeTab, loadAudit]);
+
+  useEffect(() => {
+    if (!open || !isAdmin || activeTab !== "feedback") return;
+    void loadFeedback();
+  }, [open, isAdmin, activeTab, loadFeedback]);
 
   // Load invoices when the owner opens that tab.
   useEffect(() => {
-    if (open && isOwner && tab === "invoices") void loadInvoices();
-  }, [open, isOwner, tab, loadInvoices]);
+    if (open && isOwner && activeTab === "invoices") void loadInvoices();
+  }, [open, isOwner, activeTab, loadInvoices]);
 
   // Escape closes the announce form first, then the panel — unless the confirm
   // dialog is open, in which case ConfirmDialog owns the Escape key.
@@ -393,7 +408,7 @@ export default function AdminPanel({ open, me, onClose }: Props) {
               {isOwner && (
                 <button
                   type="button"
-                  className={`admin-panel__tab ${tab === "users" ? "is-on" : ""}`}
+                  className={`admin-panel__tab ${activeTab === "users" ? "is-on" : ""}`}
                   onClick={() => setTab("users")}
                 >
                   {t("modals:adminPanel.tabUsers")}
@@ -401,14 +416,14 @@ export default function AdminPanel({ open, me, onClose }: Props) {
               )}
               <button
                 type="button"
-                className={`admin-panel__tab ${tab === "audit" ? "is-on" : ""}`}
+                className={`admin-panel__tab ${activeTab === "audit" ? "is-on" : ""}`}
                 onClick={() => setTab("audit")}
               >
                 {t("modals:adminPanel.tabAudit")}
               </button>
               <button
                 type="button"
-                className={`admin-panel__tab ${tab === "feedback" ? "is-on" : ""}`}
+                className={`admin-panel__tab ${activeTab === "feedback" ? "is-on" : ""}`}
                 onClick={() => setTab("feedback")}
               >
                 {t("feedback:admin.title")}
@@ -416,7 +431,7 @@ export default function AdminPanel({ open, me, onClose }: Props) {
               {isOwner && (
                 <button
                   type="button"
-                  className={`admin-panel__tab ${tab === "invoices" ? "is-on" : ""}`}
+                  className={`admin-panel__tab ${activeTab === "invoices" ? "is-on" : ""}`}
                   onClick={() => setTab("invoices")}
                 >
                   {t("modals:adminPanel.tabInvoices")}
@@ -424,7 +439,7 @@ export default function AdminPanel({ open, me, onClose }: Props) {
               )}
             </div>
 
-            {tab === "users" ? (
+            {activeTab === "users" ? (
               <div>
                 <p className="muted">{t("modals:adminPanel.usersHint")}</p>
                 {isOwner && (
@@ -508,7 +523,7 @@ export default function AdminPanel({ open, me, onClose }: Props) {
                 )}
                 {roleError && <div className="form-error">{roleError}</div>}
               </div>
-            ) : tab === "audit" ? (
+            ) : activeTab === "audit" ? (
               <div>
                 <p className="muted">{t("modals:adminPanel.auditHint")}</p>
                 {auditError ? (
@@ -638,7 +653,7 @@ export default function AdminPanel({ open, me, onClose }: Props) {
                   </button>
                 </div>
               </div>
-            ) : tab === "feedback" ? (
+            ) : activeTab === "feedback" ? (
               <div>
                 <div className="admin-feedback__filters">
                   {(["all", ...FEEDBACK_STATUSES] as const).map((s) => (
@@ -723,7 +738,7 @@ export default function AdminPanel({ open, me, onClose }: Props) {
                   </ul>
                 )}
               </div>
-            ) : tab === "invoices" ? (
+            ) : activeTab === "invoices" ? (
               <div>
                 <p className="muted">{t("modals:adminPanel.invoicesHint")}</p>
                 {invoicesLoading ? (
