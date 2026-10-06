@@ -2050,7 +2050,7 @@ select {
 }
 .diag--warn {
   border-color: var(--warning);
-  color: #ffd8a8;
+  color: var(--warning);
 }
 
 /* ---------- canvas ---------- */
@@ -4665,7 +4665,7 @@ select {
   display: block;
   margin-top: var(--space-1);
   font-size: var(--text-xs);
-  color: #ff8a80;
+  color: var(--error);
   font-family: var(--mono);
 }
 .field__hint {
