@@ -339,17 +339,23 @@ export default function AdminPanel({ open, me, onClose }: Props) {
       .join("\n");
     const categoryZh = i18n.t(`feedback:form.categories.${top}`, { lng: "zh" });
     const categoryEn = i18n.t(`feedback:form.categories.${top}`, { lng: "en" });
+    // The form carries a Chinese and an English title/body regardless of the
+    // UI language, so pin the language per field: without it the English text
+    // is pluralised by the *current* language's rules (a Chinese UI would pick
+    // zh's only category and always render "1 reports").
     setAnnounceForm({
-      titleZh: t("feedback:admin.announce.templateTitleZh", {
+      titleZh: i18n.t("feedback:admin.announce.templateTitleZh", {
+        lng: "zh",
         category: categoryZh,
         count,
       }),
-      titleEn: t("feedback:admin.announce.templateTitleEn", {
+      titleEn: i18n.t("feedback:admin.announce.templateTitleEn", {
+        lng: "en",
         category: categoryEn,
         count,
       }),
-      bodyZh: t("feedback:admin.announce.templateBodyZh", { count, items: digest }),
-      bodyEn: t("feedback:admin.announce.templateBodyEn", { count, items: digest }),
+      bodyZh: i18n.t("feedback:admin.announce.templateBodyZh", { lng: "zh", count, items: digest }),
+      bodyEn: i18n.t("feedback:admin.announce.templateBodyEn", { lng: "en", count, items: digest }),
       level: "warning",
       endsAt: "",
     });

@@ -497,6 +497,16 @@ describe("AdminPanel", () => {
       expect(level.value).toBe("warning");
     });
 
+    it("只选一条时英文标题/正文用单数（count=1）", async () => {
+      await openFeedbackTabWithItems();
+      fireEvent.click(screen.getAllByLabelText("选中")[0]);
+      fireEvent.click(screen.getByRole("button", { name: "合并发公告（1）" }));
+      await screen.findByText("已选 1 条反馈");
+      expect(screen.getByDisplayValue(/Known issue: Bug \(1 report\)/)).toBeInTheDocument();
+      expect(screen.getByDisplayValue(/We received 1 similar report and/)).toBeInTheDocument();
+      expect(screen.queryByDisplayValue(/1 reports/)).not.toBeInTheDocument();
+    });
+
     it("提交调用 announceFeedback，成功后 toast、清空选择并重载列表", async () => {
       await openFeedbackTabWithItems();
       await selectBothAndOpenForm();
