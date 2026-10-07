@@ -176,6 +176,10 @@
       "budget": "预算",
       "unsupported": "不支持",
       "scriptError": "脚本执行错误",
+      "schemaViolation": "输出契约不符",
+      "subprocess": "子流程错误",
+      "connector": "数据源没取到内容",
+      "remoteJobLost": "远程任务已失效",
       "unknown": "未知错误"
     }
   },

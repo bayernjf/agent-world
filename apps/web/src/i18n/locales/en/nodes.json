@@ -208,7 +208,9 @@
       "BUDGET": "Node budget exceeded",
       "UNKNOWN": "Unknown error",
       "UNSUPPORTED": "Unsupported",
-      "SUBPROCESS": "Subprocess error"
+      "SUBPROCESS": "Subprocess error",
+      "CONNECTOR": "Connector returned nothing",
+      "REMOTE_JOB_LOST": "Remote job expired"
     },
     "thisRun": "This run",
     "runStatus": "Status",

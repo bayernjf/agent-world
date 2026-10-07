@@ -15,6 +15,10 @@ const ERROR_LABEL: Record<string, string> = {
   BUDGET: "run:failure.codes.budget",
   UNSUPPORTED: "run:failure.codes.unsupported",
   SCRIPT_ERROR: "run:failure.codes.scriptError",
+  SCHEMA_VIOLATION: "run:failure.codes.schemaViolation",
+  SUBPROCESS: "run:failure.codes.subprocess",
+  CONNECTOR: "run:failure.codes.connector",
+  REMOTE_JOB_LOST: "run:failure.codes.remoteJobLost",
   UNKNOWN: "run:failure.codes.unknown",
 };
 

@@ -208,7 +208,9 @@
       "BUDGET": "节点预算超限",
       "UNKNOWN": "未知错误",
       "UNSUPPORTED": "暂不支持",
-      "SUBPROCESS": "子流程错误"
+      "SUBPROCESS": "子流程错误",
+      "CONNECTOR": "数据源没取到内容",
+      "REMOTE_JOB_LOST": "远程任务已失效"
     },
     "thisRun": "本次运行",
     "runStatus": "状态",
