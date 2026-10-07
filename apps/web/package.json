@@ -15,7 +15,7 @@
   },
   "dependencies": {
     "@agent-world/core": "workspace:*",
-    "dompurify": "^3.4.15",
+    "dompurify": "^3.4.16",
     "i18next": "^26.4.2",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
