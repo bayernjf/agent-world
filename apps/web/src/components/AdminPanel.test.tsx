@@ -328,6 +328,44 @@ describe("AdminPanel", () => {
     });
   });
 
+  describe("数据 tab 切换时刷新", () => {
+    it("owner 落在用户 tab 时不请求审计，切到审计 tab 才加载", async () => {
+      render(<AdminPanel open me={OWNER_ME} onClose={() => {}} />);
+      await waitFor(() => {
+        expect(screen.getByText("owner@test.dev")).toBeInTheDocument();
+      });
+      expect(mockListAudit).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole("button", { name: "审计日志" }));
+      await waitFor(() => {
+        expect(mockListAudit).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    it("离开再回到审计 tab 会重新拉取，而不是复用打开时的快照", async () => {
+      render(<AdminPanel open me={OWNER_ME} onClose={() => {}} />);
+      const auditTab = await screen.findByRole("button", { name: "审计日志" });
+      fireEvent.click(auditTab);
+      await waitFor(() => {
+        expect(mockListAudit).toHaveBeenCalledTimes(1);
+      });
+      fireEvent.click(screen.getByRole("button", { name: "用户" }));
+      fireEvent.click(auditTab);
+      await waitFor(() => {
+        expect(mockListAudit).toHaveBeenCalledTimes(2);
+      });
+    });
+
+    it("切到反馈 tab 才拉取反馈列表", async () => {
+      render(<AdminPanel open me={OWNER_ME} onClose={() => {}} />);
+      const feedbackTab = await screen.findByRole("button", { name: "反馈" });
+      expect(mockListFeedback).not.toHaveBeenCalled();
+      fireEvent.click(feedbackTab);
+      await waitFor(() => {
+        expect(mockListFeedback).toHaveBeenCalledTimes(1);
+      });
+    });
+  });
+
   describe("反馈 tab", () => {
     async function openFeedbackTab(me = OWNER_ME) {
       render(<AdminPanel open me={me} onClose={() => {}} />);
@@ -457,6 +495,16 @@ describe("AdminPanel", () => {
       // 默认级别 warning
       const level = screen.getByRole("combobox") as HTMLSelectElement;
       expect(level.value).toBe("warning");
+    });
+
+    it("只选一条时英文标题/正文用单数（count=1）", async () => {
+      await openFeedbackTabWithItems();
+      fireEvent.click(screen.getAllByLabelText("选中")[0]);
+      fireEvent.click(screen.getByRole("button", { name: "合并发公告（1）" }));
+      await screen.findByText("已选 1 条反馈");
+      expect(screen.getByDisplayValue(/Known issue: Bug \(1 report\)/)).toBeInTheDocument();
+      expect(screen.getByDisplayValue(/We received 1 similar report and/)).toBeInTheDocument();
+      expect(screen.queryByDisplayValue(/1 reports/)).not.toBeInTheDocument();
     });
 
     it("提交调用 announceFeedback，成功后 toast、清空选择并重载列表", async () => {

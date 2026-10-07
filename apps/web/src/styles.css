@@ -2050,7 +2050,7 @@ select {
 }
 .diag--warn {
   border-color: var(--warning);
-  color: #ffd8a8;
+  color: var(--warning);
 }
 
 /* ---------- canvas ---------- */
@@ -4665,7 +4665,7 @@ select {
   display: block;
   margin-top: var(--space-1);
   font-size: var(--text-xs);
-  color: #ff8a80;
+  color: var(--error);
   font-family: var(--mono);
 }
 .field__hint {
@@ -5536,6 +5536,40 @@ select {
   margin-top: var(--gap-sm);
   font-size: var(--text-sm);
   color: var(--error);
+}
+
+/* The product source's picker over the product library. Scrollable on purpose:
+   the library holds one row per SKU and the inspector must not grow past the
+   viewport to prove a checkbox exists. */
+.product-picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-xs);
+  max-height: 200px;
+  overflow-y: auto;
+  padding: var(--space-2);
+  background: var(--bg-secondary);
+  border: var(--hair);
+  border-radius: var(--radius-sm);
+}
+.product-picker__item {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: var(--gap-sm);
+  align-items: center;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+}
+.product-picker__item:hover {
+  background: var(--bg-tertiary);
+}
+.product-picker__name {
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+}
+.product-picker__meta {
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
 }
 
 .error-text {

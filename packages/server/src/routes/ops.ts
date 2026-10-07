@@ -18,7 +18,7 @@ export function registerOpsRoutes(
   app: Hono<{ Variables: { userId: string } }>,
   ctx: RouteContext,
 ): void {
-  const { db, live, triggers, blockDemo } = ctx;
+  const { db, triggers, blockDemo } = ctx;
 
 app.get("/api/costs", async (c) => {
   const userId = c.get("userId");

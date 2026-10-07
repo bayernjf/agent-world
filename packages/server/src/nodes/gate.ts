@@ -13,7 +13,7 @@ const zeroUsage = () => ({ tokensIn: 0, tokensOut: 0, costUsd: 0 });
  * arrives via the explicit NodeRunContext.
  */
 export async function gateNode(ctx: NodeRunContext, node: GraphNode, nodeId: string, attempt: number): Promise<void> {
-  const { artifacts, attempts, emit, graph, inputFor, loopByGate, opts, reworkNotes, runId, sendPackets, states, worker } = ctx;
+  const { artifacts, emit, graph, inputFor, loopByGate, opts, reworkNotes, runId, sendPackets, states, worker } = ctx;
   emit({ type: "node.started", nodeId, attempt });
   const output = await inputFor(node);
   const equipped = collectJudgeCriteria((node.gate?.skills ?? []).map(toMount), ctx.opts.userSkills);

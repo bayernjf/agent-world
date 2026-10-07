@@ -42,7 +42,6 @@ describe("migrate-to-postgres dry-run plan", () => {
     const report = await migrateToPostgres({ dbFile, pgConfig: {}, dryRun: true });
     expect(report.dryRun).toBe(true);
     expect(report.snapshot).toBeNull();
-    const migratable = report.tables.filter((t) => t.skipped === null);
     // Every table the PG schema knows about is planned for copy.
     for (const name of ddlTableNames()) {
       const entry = report.tables.find((t) => t.table === name);

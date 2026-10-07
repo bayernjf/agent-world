@@ -70,7 +70,7 @@ describe("addNode: the empty slot and what it would follow", () => {
   });
 
   it("returns missingModality when no model matches; the node is still added with an empty model", async () => {
-    const { useGraph, defaultModelFor, refreshDefaultModel } = await setup({
+    const { useGraph, refreshDefaultModel } = await setup({
       providers: {
         p1: {
           type: "openai-compatible",

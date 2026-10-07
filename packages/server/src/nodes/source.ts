@@ -56,6 +56,27 @@ export async function sourceNode(ctx: NodeRunContext, node: GraphNode, nodeId: s
     if (names) {
       ctx.log.warn(`${conn.type} connector returned empty data; ${names} resolves to empty string`, { nodeId });
     }
+    // ...but "empty" is only survivable when the run has something else to work
+    // with. A node that declares no contract, got nothing from its connector and
+    // has no text/image/file/custom input of its own would otherwise send an
+    // empty brief downstream — the model then invents a product, and the run
+    // archives that invention as a finished 成品. Failing here is the loud half
+    // of the same guard: `contract`-declaring nodes already fail via
+    // SCHEMA_VIOLATION and keep that (more specific) error.
+    const hasOwnInput =
+      sourceText.trim() !== "" ||
+      sourceImages.length > 0 ||
+      sourceFiles.length > 0 ||
+      Object.keys(node.source?.custom ?? {}).length > 0;
+    if (!node.contract && !hasOwnInput) {
+      const msg =
+        `Connector "${conn.type}" 没有取到任何数据，而这一条产线也没有可替代的输入：` +
+        `请在原料台里选好商品/文件，或直接把内容贴进本次投料。`;
+      states.set(nodeId, "failed");
+      ctx.status = "failed";
+      emit({ type: "node.failed", nodeId, attempt, error: msg, errorCode: "CONNECTOR" });
+      return;
+    }
   }
   const output = (() => {
     // D5 (design-data-interpolation.md): brief fields interpolate `${shortcut.x}`

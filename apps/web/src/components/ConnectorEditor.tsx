@@ -10,6 +10,7 @@ import type {
 } from "@agent-world/core";
 import { Trans, useTranslation } from "react-i18next";
 import Tooltip from "./Tooltip";
+import { api, type Product } from "../lib/api";
 
 async function testConnector(
   connector: ConnectorConfig,
@@ -411,6 +412,36 @@ function ProductForm({
   const { t } = useTranslation();
   const [idsText, setIdsText] = useState((value.productIds ?? []).join(", "));
   const [filterText, setFilterText] = useState(JSON.stringify(value.filter ?? {}, null, 2));
+  const [library, setLibrary] = useState<Product[] | null>(null);
+
+  // The id textarea and the checkbox list write the same field, so the textarea
+  // has to follow ids that arrive from the list (and from reopening the node).
+  useEffect(() => {
+    setIdsText((value.productIds ?? []).join(", "));
+  }, [value.productIds]);
+
+  useEffect(() => {
+    if (value.selection !== "manual") return;
+    let live = true;
+    api
+      .listProducts()
+      .then((rows) => live && setLibrary(rows))
+      .catch(() => live && setLibrary([]));
+    return () => {
+      live = false;
+    };
+  }, [value.selection]);
+
+  const chosen = new Set(value.productIds ?? []);
+  const toggleChosen = (id: string, on: boolean) => {
+    const next = on
+      ? [...(value.productIds ?? []), id]
+      : (value.productIds ?? []).filter((x) => x !== id);
+    begin();
+    patch({ productIds: next });
+    commit();
+  };
+
   return (
     <>
       <label className="field field--inline">
@@ -426,21 +457,54 @@ function ProductForm({
         </select>
       </label>
       {value.selection === "manual" && (
-        <label className="field">
-          <span>{t("modals:connector.product.idsLabel")}</span>
-          <textarea
-            className="textarea"
-            rows={2}
-            value={idsText}
-            placeholder={t("modals:connector.product.idsPh")}
-            onFocus={begin}
-            onBlur={() => {
-              patch({ productIds: idsText.split(/[,，\s]+/).filter(Boolean) });
-              commit();
-            }}
-            onChange={(e) => setIdsText(e.target.value)}
-          />
-        </label>
+        <>
+          <div className="field">
+            <span>{t("modals:connector.product.pickTitle")}</span>
+            {library === null ? (
+              <p className="hint">{t("modals:connector.product.pickLoading")}</p>
+            ) : library.length === 0 ? (
+              <p className="hint">{t("modals:connector.product.pickEmpty")}</p>
+            ) : (
+              <>
+                <div className="product-picker">
+                  {library.map((p) => (
+                    <label key={p.id} className="product-picker__item">
+                      <input
+                        type="checkbox"
+                        checked={chosen.has(p.id)}
+                        onChange={(e) => toggleChosen(p.id, e.target.checked)}
+                      />
+                      <span className="product-picker__name">{p.name}</span>
+                      <span className="product-picker__meta">
+                        {[p.brand, p.category, p.price != null ? `¥${p.price}` : null]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+                {chosen.size === 0 && (
+                  <p className="hint">{t("modals:connector.product.pickNone")}</p>
+                )}
+              </>
+            )}
+          </div>
+          <label className="field">
+            <span>{t("modals:connector.product.idsLabel")}</span>
+            <textarea
+              className="textarea"
+              rows={2}
+              value={idsText}
+              placeholder={t("modals:connector.product.idsPh")}
+              onFocus={begin}
+              onBlur={() => {
+                patch({ productIds: idsText.split(/[,，\s]+/).filter(Boolean) });
+                commit();
+              }}
+              onChange={(e) => setIdsText(e.target.value)}
+            />
+          </label>
+        </>
       )}
       {value.selection === "filter" && (
         <label className="field">

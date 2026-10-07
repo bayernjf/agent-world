@@ -596,3 +596,51 @@ describe("G2.4-A array contracts over connector sourceMeta.data", () => {
     expect((failed as { error: string }).error).toContain("fewer than");
   });
 });
+
+/**
+ * The loud half of the empty-connector guard (nodes/source.ts). An empty product
+ * library used to warn and carry on: the prompt says "以上游原料台中的商品描述
+ * 为准", the upstream was empty, so the model invented a product and the run
+ * archived the invention as a finished 成品 - which is exactly how "跑通了但没有
+ * 产品" happens. Now: nothing from the connector AND nothing of the node's own =
+ * a named failure with the remedy in the message.
+ */
+describe("empty connector with no substitute input", () => {
+  const emptyLibrary = { loadProducts: async () => ({ text: "", images: [], data: [] }) };
+
+  it("fails the source node instead of sending an empty brief downstream", async () => {
+    const cap = captureLogger();
+    const events = await runGraph(
+      [sourceNode("intake", { connector: "product" }), textGenNode("writer", "写：${intake}"), sinkNode("depot")],
+      [{ from: "intake", to: "writer" }, { from: "writer", to: "depot" }],
+      { log: cap.logger, ...emptyLibrary },
+    );
+    const failed = events.find((e) => e.type === "node.failed" && e.nodeId === "intake") as
+      | { error?: string; errorCode?: string }
+      | undefined;
+    expect(failed, "空商品库 + 无投料应当具名失败").toBeTruthy();
+    expect(failed!.errorCode).toBe("CONNECTOR");
+    expect(failed!.error).toContain("没有取到任何数据");
+    // Nothing downstream: no writer run, nothing archived as a finished product.
+    expect(events.some((e) => e.type === "node.finished" && e.nodeId === "writer")).toBe(false);
+    expect(events.some((e) => e.type === "artifact.produced")).toBe(false);
+    const finished = events.find((e) => e.type === "run.finished") as { status?: string } | undefined;
+    expect(["failed", "halted"]).toContain(finished?.status);
+    // The warn still fires - the guard is additive, not a replacement for the log line.
+    expect(cap.warns.filter((m) => m.includes("empty data")).length).toBe(1);
+  });
+
+  it("lets the run through when the source carries its own custom brief", async () => {
+    const events = await runGraph(
+      [
+        sourceNode("intake", { connector: "product", custom: { 卖点: "头层牛皮，手工缝线" } }),
+        textGenNode("writer", "写：${intake}"),
+        sinkNode("depot"),
+      ],
+      [{ from: "intake", to: "writer" }, { from: "writer", to: "depot" }],
+      emptyLibrary,
+    );
+    expect(events.some((e) => e.type === "node.failed")).toBe(false);
+    expect(events.some((e) => e.type === "run.finished")).toBe(true);
+  });
+});

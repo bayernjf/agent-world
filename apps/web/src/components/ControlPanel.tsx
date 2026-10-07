@@ -119,7 +119,6 @@ export default function ControlPanel(props: Props) {
   const materialEmpty = rawMaterial.trim() === "";
   const pct =
     budget > 0 ? Math.min(100, (runtime.totalCostUsd / budget) * 100) : 0;
-  const hint = MODES.find((m) => m.key === mode)?.hint ?? "";
 
   return (
     <aside className="panel control">
