@@ -1,3 +1,4 @@
+import type { ImageGenConfig } from "@agent-world/core";
 import type { FieldsProps } from "./types";
 import { MissingModelHint, ModelSelect } from "./shared";
 import { defaultModelFor } from "../../store/graph";
@@ -43,6 +44,37 @@ export default function ImageGenFields({
             })
           }
         />
+      </label>
+      <label className="field">
+        <span>{t("nodes:inspector.imageGen.aspect")}</span>
+        <select
+          className="select"
+          value={node.imageGen.aspect ?? ""}
+          onChange={(e) =>
+            updateNode(node.id, {
+              imageGen: {
+                ...node.imageGen!,
+                aspect: (e.target.value ||
+                  undefined) as ImageGenConfig["aspect"],
+              },
+            })
+          }
+        >
+          <option value="">
+            {t("nodes:inspector.imageGen.aspectDefault")}
+          </option>
+          <option value="1:1">{t("nodes:inspector.imageGen.aspect11")}</option>
+          <option value="3:4">{t("nodes:inspector.imageGen.aspect34")}</option>
+          <option value="4:3">{t("nodes:inspector.imageGen.aspect43")}</option>
+          <option value="16:9">{t("nodes:inspector.imageGen.aspect169")}</option>
+        </select>
+        {/* The provider reads size first, so saying "比例生效" while a size is
+            typed would be a lie about the config the user just made. */}
+        {!!node.imageGen.size && (
+          <span className="field__hint">
+            {t("nodes:inspector.imageGen.aspectSizeWins")}
+          </span>
+        )}
       </label>
       <label className="field">
         <span>{t("nodes:inspector.imageGen.prompt")}</span>

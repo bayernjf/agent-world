@@ -82,6 +82,8 @@ const ERROR_LABEL: Record<string, string> = {
   UNKNOWN: "nodes:inspector.errorLabel.UNKNOWN",
   UNSUPPORTED: "nodes:inspector.errorLabel.UNSUPPORTED",
   SUBPROCESS: "nodes:inspector.errorLabel.SUBPROCESS",
+  CONNECTOR: "nodes:inspector.errorLabel.CONNECTOR",
+  REMOTE_JOB_LOST: "nodes:inspector.errorLabel.REMOTE_JOB_LOST",
 };
 
 /** Rich-render a node's text output: product-json becomes structured blocks, otherwise Markdown. */

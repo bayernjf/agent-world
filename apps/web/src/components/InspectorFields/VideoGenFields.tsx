@@ -31,6 +31,58 @@ export default function VideoGenFields({
         />
       </label>
       <label className="field">
+        <span>{t("nodes:inspector.videoGen.mode")}</span>
+        <select
+          className="select"
+          value={node.videoGen.mode ?? "text"}
+          onChange={(e) => {
+            const mode = e.target.value as VideoGenConfig["mode"];
+            updateNode(node.id, {
+              videoGen: {
+                ...node.videoGen!,
+                mode,
+                // A text-mode request never reads the frame source; leaving the
+                // flag set would make the stored config imply a behaviour that
+                // will not happen.
+                imageSource: mode === "text" ? undefined : node.videoGen!.imageSource,
+              },
+            });
+          }}
+        >
+          <option value="text">{t("nodes:inspector.videoGen.modeText")}</option>
+          <option value="keyframe">
+            {t("nodes:inspector.videoGen.modeKeyframe")}
+          </option>
+          <option value="reference">
+            {t("nodes:inspector.videoGen.modeReference")}
+          </option>
+        </select>
+      </label>
+      {(node.videoGen.mode ?? "text") !== "text" && (
+        <>
+          <label className="field field--row">
+            <input
+              type="checkbox"
+              checked={node.videoGen.imageSource === "upstream"}
+              onChange={(e) =>
+                updateNode(node.id, {
+                  videoGen: {
+                    ...node.videoGen!,
+                    imageSource: e.target.checked ? "upstream" : undefined,
+                  },
+                })
+              }
+            />
+            <span>{t("nodes:inspector.videoGen.useUpstreamImage")}</span>
+          </label>
+          <div className="field__hint">
+            {node.videoGen.imageSource === "upstream"
+              ? t("nodes:inspector.videoGen.upstreamOnHint")
+              : t("nodes:inspector.videoGen.upstreamOffHint")}
+          </div>
+        </>
+      )}
+      <label className="field">
         <span>{t("nodes:inspector.videoGen.prompt")}</span>
         <textarea
           rows={4}
