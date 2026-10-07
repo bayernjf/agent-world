@@ -15,8 +15,8 @@ import { execute } from "./engine.js";
 import { routingWorker } from "./providers/index.js";
 
 /**
- * 真实供应商狗粮跑——templates-runtime.test.ts（假 worker、零成本、17/35 真执行）
- * 之外的另一半：真调 agnes、真产出、真花钱。
+ * 真实供应商狗粮跑——templates-runtime.test.ts（假 worker、零成本、注册表 36 条里
+ * 20 条真执行；2026-10-07 起两条电商线也进来了，之前只有 18 条）之外的另一半：真调 agnes、真产出、真花钱。
  *
  * 默认跳过，CI 里没有它的位置。手动跑：
  *   DOGFOOD=1 pnpm --filter @agent-world/server exec vitest run src/dogfood-templates.test.ts

@@ -20,7 +20,9 @@ import { fakeWorker } from "./worker.js";
  * graphs the engine then refuses to run. Two such cases surfaced while writing
  * it: a `fanout` with no downstream `select` compiles clean and fails VALIDATION
  * the first time a user opens the line, and a preset `product` connector answers
- * CONNECTOR unless the server has store support.
+ * CONNECTOR unless the server has store support — which is why the two
+ * e-commerce lines now run against the stub library below: they were the only
+ * templates in the registry no gate had ever executed.
  *
  * Two tiers, no provider key and no spend:
  *  1. Invariants the engine enforces at run time and `compile()` does not, over
@@ -55,22 +57,20 @@ const OFF_LIMITS_KINDS = new Set([
   "email",
 ]);
 
-/** Why a template cannot run in-process, or null when it can. A non-file
- *  connector counts as external (a product connector needs the store backend);
- *  a file connector does not, because the fixture satisfies it. */
+/** Why a template cannot run in-process, or null when it can. A non-file,
+ *  non-product connector counts as external; `file` is satisfied by the docx
+ *  fixture and `product` by the stub library in runTemplate(). */
 function needsOutsideWorld(tpl: GraphTemplate): string | null {
   for (const n of tpl.graph.nodes) {
     if (OFF_LIMITS_KINDS.has(n.kind)) return `节点 kind ${n.kind}`;
     const type = (n as { source?: { connector?: { type?: string } } }).source?.connector?.type;
-    if (type && type !== "file") return `source 预设 ${type} 连接器`;
+    if (type && type !== "file" && type !== "product") return `source 预设 ${type} 连接器`;
   }
   return null;
 }
 
 /** Registry of non-executed templates, kept honest by the reconciliation test. */
 const REQUIRES_EXTERNAL_IO: Record<string, string> = {
-  "tpl-product": "source 预设 product 连接器（需服务端商品库）",
-  "tpl-xiaohongshu": "source 预设 product 连接器（需服务端商品库）",
   "tpl-translation": "节点 kind translate",
   "tpl-ops-weekly": "节点 kind http",
   "tpl-patrol-alert": "节点 kind http",
@@ -302,6 +302,24 @@ async function runTemplate(tpl: GraphTemplate): Promise<{ graph: Graph; events: 
       uri.startsWith("file://")
         ? `data:${DOCX_MIME};base64,${readFileSync(uri.slice(7)).toString("base64")}`
         : null,
+    // Stands in for the store-side product library the `product` connector reads
+    // through in production (run.ts:productConnectorLoader). Without it the two
+    // e-commerce lines were the only templates in the registry that had never been
+    // executed by any gate - they were only ever documented as runnable.
+    loadProducts: async () => ({
+      text: "# 复古托特包\n品牌：某某\n分类：女包\n价格：299\n材质：头层牛皮\n闭合方式：磁吸扣\n容量：可放 14 寸笔记本",
+      images: [],
+      data: [
+        {
+          id: "p-smoke",
+          name: "复古托特包",
+          brand: "某某",
+          category: "女包",
+          price: 299,
+          attributes: { 材质: "头层牛皮", 闭合方式: "磁吸扣", 容量: "可放 14 寸笔记本" },
+        },
+      ],
+    }),
   }) as unknown as AsyncIterable<ObservedEvent>;
 
   for await (const e of stream) events.push(e);
