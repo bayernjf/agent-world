@@ -154,7 +154,7 @@ worker 插件声明 `isolation:"subprocess"` 时 fork 到独立子进程，父�
 
 ## 七、增量复核（2026-10-04，基线 HEAD `6db6ea3`）——本报告未覆盖的 8 条
 
-> **处置（同日）**：7.1–7.6 **已修**（commit 与逐条可伪验收见本节末「处置进度」）；7.7 是门禁取向问题、留给用户拍板；7.8 需要 Hasee 的 root（修法与验收读数已写进两份 runbook）。
+> **处置（截至 2026-10-07）**：7.1–7.6 **已修**（commit 与逐条可伪验收见本节末「处置进度」）；**7.7 已修**（用户拍板「引入最小 lint 门禁」后于 10-07 落地：eslint 被本仓 TS 7 挡住，改用 Biome，`d8daf06`）；**只剩 7.8** 需要 Hasee 的 root（修法与验收读数已写进两份 runbook）。
 
 > **方法**：本轮不接受任何扫掠结论。下面每条都由复核者自己打开文件重推；引用一律给**当前**文件名（§五 之后 `index.ts` 与 driver 已拆分，本报告正文里的旧行号失效）。取证方式逐条标注：**[实测]**＝命令跑出来的计数、**[读码]**＝打开了被引行、**[推断]**＝由前两者推导。
 
@@ -225,10 +225,10 @@ worker 插件声明 `isolation:"subprocess"` 时 fork 到独立子进程，父�
 | 7.4 | ✅ 已修 | `804651a` | 五个运维 CLI 接 `resolveSqliteOpsFile`（migrate-to-postgres 只免驱动拒、仍要真实源文件）。8 次真机读数＋2 次正控制；守卫两处各自 disable 即对应测变红 |
 | 7.5 | ✅ 已加 | `d59ddaf` | 新增 `packages/server/tsconfig.scripts.json` 并进 package typecheck 链。**当场回本两次**：我在 7.4 里写坏的 `apply` 行（TS2345）与新测试的隐式 any（TS7006）都是它先抓住的，后者是 pre-commit 钩子拦下的 |
 | 7.6 | ✅ 已修 | `b6d66d7` | claim 变成第一动作（单条 `INSERT ... ON CONFLICT DO NOTHING` 裁决），输家拿 replay 200 或 409；失败释放 claim 保同键可重试；崩溃留下的 pending 满 15 分钟由后续同键接管。2 条新测；把 claim 跳过 → 并发测与重放测**都**红（返回两个不同 runId） |
-| 7.7 | ✅ 已加（Biome 代 eslint，2026-10-07） | `d8daf06` | eslint 被 TS 7 挡住（typescript-eslint peer 上限 `<6.1.0`），改用 Biome：`noUnusedVariables`/`useHookAtTopLevel`=error、`useExhaustiveDependencies`=warn。40 条未使用已修（`20a16ca`）、72 条 hooks 依赖暂以 warn 暴露。验收读数：`pnpm lint` exit 0（0 error / 72 warning）、CI 新增一步紧随 Typecheck |
+| 7.7 | ✅ 已加（Biome 代 eslint，2026-10-07） | `d8daf06` | eslint 被 TS 7 挡住（typescript-eslint peer 上限 `<6.1.0`），改用 Biome：`noUnusedVariables`/`useHookAtTopLevel`=error、`useExhaustiveDependencies`=warn。40 条未使用已修（`20a16ca`）、72 条 hooks 依赖暂以 warn 暴露。验收读数：`pnpm lint` exit 0（0 error / 72 warning）、CI 新增一步紧随 Typecheck。**10-07 补一条实测边界**：该门禁目前只在 `feature/20260824` 上——`git show origin/dev:.github/workflows/ci.yml` 里没有 `pnpm lint`、`origin/dev` 里也没有 `biome.json`，**即它还没进部署轨道**，要等这批合进 dev 才真正挡得住回归 |
 | 7.8 | ⛔ 要 root | — | 修法候选（`EnvironmentFile=` / `LoadCredential=`）与验收读数已写进 [deploy-ubuntu-server.md](runbooks/deploy-ubuntu-server.md) 与 [public-exposure-hardening.md](runbooks/public-exposure-hardening.md)：改完 `systemctl show -p Environment agent-world` 里 AGNES 的命中数必须为 0；两条候选都没在这台机上实测过，所以判据写成读数不写成指令 |
 
-同日门禁读数（修后全量，非引用旧值）：本地 server **1488 passed / 5 skipped**（+1 文件 pg-smoke、幂等测 +2、pg-smoke 无 `PG_SMOKE_URL` 时 3 skip），另 2 条 `engine.code` 是本机 `python3` 被 Xcode license 挡住的环境红，改前改后同样红；`pnpm -r typecheck` 四包绿。**已 push**（`origin/feature/20260824` = `03e6545`），同 SHA 的 **CI runner 自报读数**：server **1490 passed / 5 skipped（172 文件）**——本机那两条 `engine.code` 在 runner 上 **18 测全绿**，坐实它们是本地环境红而非代码红；**新 postgres job 首跑 3 passed**（真 `postgres:16` service 容器）；E2E 5 passed；gitleaks 与 CodeQL 绿。**这批随后经 PR #486/#487 合入 dev（`96b969b`）**，Hasee 一手 `/api/health` 实测 `commit:"96b969b"`、`ok:true`——即六条修复已在这台生产（staging）机上生效；**同一次实测另查出两条生产配置缺口**：`/metrics` 从局域网另一台机器打过去 **HTTP 200 无鉴权**（`curl http://192.168.31.14:8791/metrics`，读得到 `runs_cost_usd_total` 等），且 systemd 的合并 env 里**没有 `ERROR_REPORT_WEBHOOK_URL`**（错误 sink 至今没有消费端）——两者都因 `NODE_ENV` 非 production 而**连启动 warn 都不会打**，正上是本审计报告反复处理的「静默」类。
+同日门禁读数（修后全量，非引用旧值）：本地 server **1488 passed / 5 skipped**（+1 文件 pg-smoke、幂等测 +2、pg-smoke 无 `PG_SMOKE_URL` 时 3 skip），另 2 条 `engine.code` 是本机 `python3` 被 Xcode license 挡住的环境红，改前改后同样红；`pnpm -r typecheck` 四包绿。**已 push**（`origin/feature/20260824` = `03e6545`），同 SHA 的 **CI runner 自报读数**：server **1490 passed / 5 skipped（172 文件）**——本机那两条 `engine.code` 在 runner 上 **18 测全绿**，坐实它们是本地环境红而非代码红；**新 postgres job 首跑 3 passed**（真 `postgres:16` service 容器）；E2E 5 passed；gitleaks 与 CodeQL 绿。**这批随后经 PR #486/#487/#489 合入 dev**，10-07 一手 `/api/health` 实测 `commit:"2b301d6"`、`ok:true`（10-04 那次同口径读数是 `96b969b`）——即七条修复已在这台生产（staging）机上生效；**同一次实测另查出两条生产配置缺口**：`/metrics` 从局域网另一台机器打过去 **HTTP 200 无鉴权**（`curl http://192.168.31.14:8791/metrics`，读得到 `runs_cost_usd_total` 等），且 systemd 的合并 env 里**没有 `ERROR_REPORT_WEBHOOK_URL`**（错误 sink 至今没有消费端）——两者都因 `NODE_ENV` 非 production 而**连启动 warn 都不会打**，正上是本审计报告反复处理的「静默」类。
 
 ---
 
