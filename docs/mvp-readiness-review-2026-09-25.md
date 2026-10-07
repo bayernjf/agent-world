@@ -435,3 +435,25 @@ core **346/346**（24 文件）· server **1397 = 1393 通过 + 2 本机 python-
 **⑤ 10-07 补两条会影响「下一步怎么上线」的实测**
 - **分支不同步**：`origin/dev` = `2b301d6`（生产在跑），但 `feature/20260824` 尖端 `2f1f237` 上有 **8 条尚未进 dev**（含 10-06/10-07 的 Stripe webhook claim-first `35dd0dd`、两条 web 修复、死代码清理、以及 Biome lint 门禁 `d8daf06`）。**实测 dev 里现在既没有 `pnpm lint` 这一步、也没有 `biome.json`** ⇒ 那道 lint 门**还没进部署轨道**，现在合 dev 才真正开始挡回归。
 - **feature 尖端 CI 红，红在依赖审计而不是代码**：run 37577188989（10-07T05:36Z）三步里 `PostgreSQL path smoke` 与 `Secret leak scan` 都 success，`Typecheck, build & test` 失败于 **Dependency audit**——`pnpm audit --audit-level=high` 报 **GHSA-68fv-2mgg-jv7q**：`source-map-js >=1.0.0 <1.2.2`（patched `>=1.2.2`），路径 `apps/web > jsdom > css-tree > source-map-js`；本机 `pnpm audit` 复现同读数（4 条：2 low / 1 moderate / 1 high）。**判定**：这是新公开的公告、不是谁这一批写坏的；但 `deploy.yml` 要 CI 总结论 success，所以**这条公告正在挡着 feature→dev→Hasee 的自动部署**。收口只有两条路：`pnpm.overrides` 把 `source-map-js` 钉到 `>=1.2.2`（一行，动的是传递依赖），或升 `jsdom` 到已吃补丁的版本（面更大）。**没有实测过其中任何一条**，所以别把「加了 override」当通过判据——验收是 `pnpm audit --audit-level=high` exit 0 ＋ 四包 typecheck ＋ server/web 全量不新增红。**同日已按这条判据收口**（`aee88b9` 走 override 那条路、`065494a` 顺手把 apps/web 的 dompurify 吃到 3.4.16——两条 low 都有补丁，而它是库存 HTML 进 DOM 前唯一那道 sanitizer）：实测 `pnpm audit --audit-level=high` exit 0（4 条降到 1 条，剩的 sprintf-js 是 moderate 且公告无补丁可升，登记 deferred）、`pnpm install --frozen-lockfile` / `-r typecheck` / `pnpm lint` / `-r build` 全 exit 0、CI 原样命令 core 346 / mcp 71 / server 1494 passed + 5 skipped / web 2000 passed。**于是「下一步上线」只剩一个机械动作**：把 feature 上那批合进 dev（实测 `git rev-list --count origin/dev..origin/feature/20260824` = 12，不含本轮文档提交）——合完 Biome lint 门与 Stripe claim-first 才真正进入部署轨道。
+
+## 15. 上线核验追记（2026-10-07 晚些，基线 `2871a90`，全部一手读数）
+
+> **结论先说**：**判定不变**——自托管 ✅，对外 SaaS ❌（§12 那五件外部前提一件没动）。变的是「下一步怎么上线」：§14 ⑤ 那两条**当日全部闭合**，且**生产已经跑上这批代码**。
+
+**① 部署轨道：dev 从 `2b301d6` 走到 `2871a90`，Hasee 已上线**
+- PR #492（`feature/20260824` → dev，20 提交 / 50 文件 / +792−174）merge 成 `2871a90`；该 SHA 在 dev 上的 CI run `37640357906` 结论 **success**。
+- **一手线上读数**：Deploy run `37639901006` 日志末行自报 **`deploy OK: 2871a90`**。按 `scripts/deploy/deploy.sh:33-43`，这行只在 `sudo systemctl restart agent-world` 之后轮询 `/api/health` 判健康（最多 5×3s）才打印，否则打 `deploy FAILED at <sha>` 并 `exit 1` ⇒ **这一行本身就是一次健康读数**，不必再 SSH 复核「线上是不是当前 dev」。
+- **一条读数陷阱（本轮又量到一次，写死）**：**不要用 Deploy run 自己的 `headSha`/`branch` 判断部署内容**——`workflow_run` 事件那两个字段报的是 `eccc1ae`（main），不是被部署的 SHA。有效信号只有两个：dev push CI 的 `headSha`，和部署脚本自报的 `deploy OK: <sha>`。
+
+**② §14 ⑤ 两条的闭合读数**
+- ~~lint 门禁还没进部署轨道~~ ⇒ **已进**。实测 `git show origin/dev:.github/workflows/ci.yml` 第 54 行就是 `run: pnpm lint`，`biome.json` 也在 dev 树根；dev CI 的 Lint 步自报 `Checked 702 files`（本机同一条命令报 720 files——差额是本地未纳入版本控制的产物，两侧都是 0 error）。
+- ~~feature 尖端红在依赖审计~~ ⇒ 依赖那条被 `aee88b9`/`065494a` 收口后，**同一条分支随后红在第二个地方**：i18n guard 步（run `37633139076`，`i18n-prune -- --check` 报 `feedback: 4 unreferenced`）。那不是死文案，是**门禁自己瞎了**：`AdminPanel.tsx:352-358` 调 `i18n.t(base, {count})`，i18next 运行时按 Intl.PluralRules 把 CLDR 后缀拼到基键上，源码永远不会写出 `base_one`，而扫描器只建模「字面量／defaultNS 裸键／运行期前缀」三条引用。`5e3ac22` 让尾键回落基键再判，配 5 条测。**值得记的是手法不是结果**：种 3 条 junk（1 普通 ＋ 一对无人引用的复数形式）→ 如实报 `3 unreferenced` / exit 1（写成 blanket 豁免只会报 1）；把新分支摘掉 → 5 测里 3 条变红。**一个会删东西的门禁，它的「死码」判决在被删除之前必须被伪证过。**
+- 顺带一条口径订正（实读 `packages/core/dist/templates.js`）：`TEMPLATES` 是 **35** 条、`REQUIRES_EXTERNAL_IO` 现存 **16** 条 ⇒ 运行门禁真执行 **19/35**。§12/§14 里的「35/36 可派发」把 `BLANK_TEMPLATE` 计入，是另一个口径——**可派发 ≠ 被真执行**，别拿前者当覆盖率。
+
+**③ 这批上线的产品面**（四条用户可见，均有回归测）：空连接器的 source 节点**不再编造商品**、run 不再假 `done`（具名 `CONNECTOR` 失败）；商品连接器改成**从商品库勾选**（旧文案要求复制一个界面上从不显示的 product id）；admin 数据 tab 可见时重载（旧行为是切回来仍显示上一会话数据）；英文公告模板复数正确。其余为门禁／依赖／文档，不改产品面。
+
+**④ 判定为什么不变**：仍卡在原来两处。
+- **要 root 的四件**：§7.8 的 systemd `Environment=` 写法（验收读数＝`systemctl show -p Environment agent-world` 里 AGNES 命中 0）、读一次 `/opt/agent-world/.env` 的 `NODE_ENV`（#60）、`/metrics` 无鉴权返回 200、`ERROR_REPORT_WEBHOOK_URL` 无消费端。这四件都不是代码缺陷而是配置债；**且后两件挂在 `NODE_ENV≠production` 上——不读第 2 件，它们连 warn 都不会打**，属于「静默成功」这一族的运维版本。
+- **要凭证的两件**：#46 真供应商狗粮（free-tier 429 挡住多调用模板的真机验证）、#44 第二把 provider key（没有它「provider 真灾备」永远只是代码存在）。
+
+**⑤ 证据等级（本轮）**：**一手执行**＝dev CI run `37640357906` 与 Deploy run `37639901006` 的自报读数、`git show origin/dev:` 的 CI 配置内容、`scripts/deploy/deploy.sh` 的打印前置条件、真树扫描器的植入验证（种 junk 报 3／摘分支变红）、CI 原样命令的四包总数（core 346 · mcp-server 71 · server 1498 passed + 5 skipped · web 2009 ＝ 3924 通过，E2E 5 passed）。**未做**＝没有真浏览器点过商品选择器（CI 那 5 条 Playwright 覆盖注册／进画布／设置 tab／登出保持／demo，**没有一条打开连接器编辑器**）、没有在带 root 的机器上读 `.env`。
