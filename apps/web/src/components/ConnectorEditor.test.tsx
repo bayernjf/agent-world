@@ -423,4 +423,58 @@ describe("ConnectorEditor", () => {
       await screen.findByText("(空)");
     });
   });
+
+  describe("product connector 的商品选择器", () => {
+    const rows = [
+      { id: "p1", sku: "S-1", name: "复古托特包", brand: "某某", category: "女包", price: 299, attributes: {}, images: [], status: "active", createdAt: 0, updatedAt: 0 },
+      { id: "p2", sku: "S-2", name: "头层牛皮钱包", brand: "某某", category: "皮具", price: 159, attributes: {}, images: [], status: "active", createdAt: 0, updatedAt: 0 },
+    ];
+    const libraryFetch = () =>
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(rows) }),
+      );
+
+    it("列出商品库里的商品，勾选后把 id 写进 productIds", async () => {
+      libraryFetch();
+      renderEditor({ type: "product", product: { selection: "manual", productIds: [] } });
+      await screen.findByText("复古托特包");
+      expect(screen.getByText(/¥299/)).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole("checkbox", { name: /复古托特包/ }));
+      expect(mockOnChange).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "product",
+          product: expect.objectContaining({ productIds: ["p1"] }),
+        }),
+      );
+    });
+
+    it("已选中的商品在列表里就是选中态，没选的留白", async () => {
+      libraryFetch();
+      renderEditor({ type: "product", product: { selection: "manual", productIds: ["p2"] } });
+      await screen.findByText("头层牛皮钱包");
+      expect(screen.getByRole("checkbox", { name: /头层牛皮钱包/ })).toBeChecked();
+      expect(screen.getByRole("checkbox", { name: /复古托特包/ })).not.toBeChecked();
+    });
+
+    it("取消勾选会把该 id 从 productIds 摘掉", async () => {
+      libraryFetch();
+      renderEditor({ type: "product", product: { selection: "manual", productIds: ["p1", "p2"] } });
+      await screen.findByText("复古托特包");
+      fireEvent.click(screen.getByRole("checkbox", { name: /复古托特包/ }));
+      expect(mockOnChange).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "product",
+          product: expect.objectContaining({ productIds: ["p2"] }),
+        }),
+      );
+    });
+
+    it("商品库为空时提示先去商品库新增，而不是让人猜为什么跑不出来", async () => {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve([]) }));
+      renderEditor({ type: "product", product: { selection: "manual", productIds: [] } });
+      expect(await screen.findByText(/商品库还是空的/)).toBeInTheDocument();
+    });
+  });
 });
