@@ -176,6 +176,10 @@
       "budget": "Budget",
       "unsupported": "Unsupported",
       "scriptError": "Script error",
+      "schemaViolation": "Output contract violation",
+      "subprocess": "Subprocess error",
+      "connector": "Connector returned nothing",
+      "remoteJobLost": "Remote job expired",
       "unknown": "Unknown error"
     }
   },
