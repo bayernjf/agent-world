@@ -5,6 +5,9 @@ All notable changes are documented here. The format is based on
 
 ## [Unreleased]
 
+### Security
+- **修掉一条正挡着部署链的依赖公告**（`aee88b9` + `065494a`，2026-10-07）— CI 的 Dependency audit 步（`pnpm audit --audit-level=high`）因 **GHSA-68fv-2mgg-jv7q** 变红：`source-map-js >=1.0.0 <1.2.2` 的事件循环 DoS，经 `vitest→coverage→magicast`、`vite→postcss`、`jsdom→@asamuzakjp/dom-selector→css-tree` 三条路进来；因为 `deploy.yml` 要 CI 总结论 success，**一条刚公开的公告把 feature→dev→Hasee 全堵死**。修法用仓里已有的 `pnpm.overrides` 机制钉 `>=1.2.2`（一次覆盖三条引入方，比追每个上游升版本面小），`pnpm why` 实测三条全解析到 1.2.2。顺手把 apps/web 的直接依赖 **dompurify `^3.4.15`→`^3.4.16`**：两条 low（`IN_PLACE` afterSanitize 钩子漏删节点 / 返回被强删的 rawtext）都有补丁版，而它是「存在库里的 HTML 进 DOM 之前」唯一那道 sanitizer，不该因为门禁用 `--audit-level=high` 看不见就不升；行为由 `lib/sanitize-html.test.ts` 14 测钉住。**残留 1 条不硬修**：sprintf-js（moderate）公告的 Patched 写 `<0.0.0`＝无补丁可升，且只经 devDependency `i18next-parser→broccoli-plugin`（构建期工具、不进产物、不在运行时），登记在 deferred-items 并写明三条重启条件。**读数**：`pnpm audit --audit-level=high` exit 0（4 条→1 条）、`pnpm install --frozen-lockfile` exit 0（CI 第一步与 lockfile 一致）、`pnpm lint` exit 0（72 warning / 0 error，Biome 那道门没被动坏）、`pnpm -r typecheck` 四包绿、`pnpm -r build` exit 0、CI 原样测试命令 core 346 / mcp-server 71 / server **1494 passed + 5 skipped（172 文件）** / web **2000 passed（107 文件）**。**一条如实记的抖动**：第一遍全量时 web 红过 1 条（`VersionPanel` 删除确认走 testing-library 默认 1000ms 的 `waitFor`），单文件复跑 37/37、web 套件串行复跑 2000/2000 全绿，当时本机 load 13.9/10 核——判为负载耗尽断言窗口而非逻辑错，只见过一次故没改那个测，重启条件登记 deferred-items。
+
 ### Fixed
 - **代码审计 §七 的八条：同日修掉六条**（`d59ddaf` / `804651a` / `2b00ed7` / `d71d51f` / `e1268b9` / `b6d66d7`，2026-10-04，已 push 并经 PR #486/#487 合入 dev `96b969b`、**Hasee 一手 health 实测已部署**）— 全部出自「运维工具与数据层」这层原报告没扫过的面：
   - **7.1 密钥轮转的「旧密钥可以删了」是 fail-open 判定**：`reencrypt()` 用 `new DatabaseSync(dbFile)`（会静默建缺失文件）、缺表即 `continue`，于是打错路径 / 空库 / PG 部署三种情形都返回 residue 0，CLI 照此打印「the old key can be dropped」并 exit 0——照做就把加密字段永久锁死。现在缺文件即抛（且不留下那个文件）、一个 surface 都没扫到即抛、residue 行打印**实际扫了几面**（`--table` 收窄时不再被读成全局结论）。
