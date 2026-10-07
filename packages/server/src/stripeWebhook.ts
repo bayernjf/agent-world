@@ -21,10 +21,13 @@
  *   customer.subscription.updated   → sync plan/status/period/stripe ids
  *   customer.subscription.deleted   → mark canceled (service stops only at period end)
  *
- * Idempotency: each Stripe event id is applied at most once. We check before
- * applying and only mark after a successful write, so a crash mid-handler lets
- * Stripe's redelivery re-run safely; the upserts/find-or-create are idempotent
- * as a second line of defence.
+ * Idempotency: each Stripe event id is applied at most once. The claim is the
+ * first thing that happens — an atomic insert picks exactly one winner, so two
+ * concurrent redeliveries cannot both apply the event. A concurrent loser gets
+ * StripeEventInFlightError (mapped to 409; Stripe retries and then sees a
+ * finished duplicate); handler failure releases its claim so the retry is
+ * safe; a claim left pending by a crashed process is stolen after 15 minutes.
+ * The upserts/find-or-create stay idempotent as a second line of defence.
  */
 import { randomUUID } from "node:crypto";
 import type Stripe from "stripe";
@@ -35,6 +38,24 @@ import { isPaidPlan, PAID_PLANS, type PaidPlan, type StripeConfig } from "./stri
 
 /** Reserved idempotency-key namespace (never a real user UUID). */
 export const STRIPE_WEBHOOK_NS = "#stripe-webhook";
+
+/** Sentinel stored while the winning delivery is still applying the event. */
+const PENDING_EVENT_ID = "";
+/** A pending claim this old can only belong to a crashed delivery; steal it. */
+const WEBHOOK_CLAIM_STALE_MS = 15 * 60_000;
+
+/**
+ * Raised when a redelivery arrives while the first delivery of the same event
+ * id is still being applied. The HTTP layer answers 409 so Stripe retries
+ * later, by which point the first delivery has finished and the retry is a
+ * harmless duplicate.
+ */
+export class StripeEventInFlightError extends Error {
+ constructor(eventId: string) {
+    super(`stripe event ${eventId} is already being handled`);
+    this.name = "StripeEventInFlightError";
+  }
+}
 
 type LocalSubStatus = "active" | "past_due" | "canceled";
 
@@ -316,31 +337,65 @@ export async function handleStripeEvent(
   event: Stripe.Event,
   config: StripeConfig,
 ): Promise<WebhookOutcome> {
-  if (await db.getIdempotentRun(STRIPE_WEBHOOK_NS, event.id)) {
-    return { handled: true, duplicate: true, action: "duplicate" };
+  // Claim-first (same pattern as POST /api/runs, audit 7.6): a read-then-write
+  // window let two Stripe redeliveries both miss and both apply the event.
+  let won = await db.claimIdempotencyKey(STRIPE_WEBHOOK_NS, event.id, PENDING_EVENT_ID);
+  if (!won) {
+    const existing = await db.getIdempotentRun(STRIPE_WEBHOOK_NS, event.id);
+    if (existing === PENDING_EVENT_ID) {
+      if (
+        await db.stealStaleIdempotentClaim(
+          STRIPE_WEBHOOK_NS,
+          event.id,
+          Date.now() - WEBHOOK_CLAIM_STALE_MS,
+        )
+      ) {
+        // The first delivery crashed while applying; take over its claim.
+        won = await db.claimIdempotencyKey(STRIPE_WEBHOOK_NS, event.id, PENDING_EVENT_ID);
+      }
+      if (!won) {
+        // A live delivery is applying this event right now; ask Stripe to retry.
+        throw new StripeEventInFlightError(event.id);
+      }
+    } else if (existing) {
+      return { handled: true, duplicate: true, action: "duplicate" };
+    } else {
+      // Defensive: claim failed but no row is visible. Retry rather than risk
+      // double-applying.
+      throw new StripeEventInFlightError(event.id);
+    }
   }
 
   let outcome: WebhookOutcome;
-  switch (event.type) {
-    case "checkout.session.completed":
-      outcome = await onCheckoutCompleted(db, event, config);
-      break;
-    case "invoice.paid":
-      outcome = await onInvoicePaid(db, event, config);
-      break;
-    case "invoice.payment_failed":
-      outcome = await onInvoiceFailed(db, event);
-      break;
-    case "customer.subscription.updated":
-      outcome = await onSubscriptionUpdated(db, event, config);
-      break;
-    case "customer.subscription.deleted":
-      outcome = await onSubscriptionDeleted(db, event, config);
-      break;
-    default:
-      return { handled: false, duplicate: false, action: "ignored" };
+  try {
+    switch (event.type) {
+      case "checkout.session.completed":
+        outcome = await onCheckoutCompleted(db, event, config);
+        break;
+      case "invoice.paid":
+        outcome = await onInvoicePaid(db, event, config);
+        break;
+      case "invoice.payment_failed":
+        outcome = await onInvoiceFailed(db, event);
+        break;
+      case "customer.subscription.updated":
+        outcome = await onSubscriptionUpdated(db, event, config);
+        break;
+      case "customer.subscription.deleted":
+        outcome = await onSubscriptionDeleted(db, event, config);
+        break;
+      default:
+        // Unknown events are acked but never claimed, so a later upgrade that
+        // handles them can still apply a redelivered copy.
+        await db.releaseIdempotentClaim(STRIPE_WEBHOOK_NS, event.id);
+        return { handled: false, duplicate: false, action: "ignored" };
+    }
+  } catch (err) {
+    // Nothing was mirrored, so the key stays claimable by Stripe's retry.
+    await db.releaseIdempotentClaim(STRIPE_WEBHOOK_NS, event.id);
+    throw err;
   }
 
-  await db.claimIdempotencyKey(STRIPE_WEBHOOK_NS, event.id, event.id);
+  await db.saveIdempotentRun(STRIPE_WEBHOOK_NS, event.id, event.id);
   return outcome;
 }

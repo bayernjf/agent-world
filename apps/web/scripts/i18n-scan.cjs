@@ -19,6 +19,9 @@
  *     has no literal naming it, so those prefixes are derived from source and
  *     never reported. When a prefix stops being built, its keys become
  *     reportable again automatically.
+ *   - A CLDR plural form (`templateTitleEn_one`, `_other`, ...) is reachable
+ *     whenever the base key is: `t("base", { count })` selects the suffix at
+ *     runtime, so no source file ever names the suffixed key. See PLURAL_SUFFIX.
  *   - Test files count as references: a key only a test names cannot be
  *     deleted without rewriting that test.
  */
@@ -179,6 +182,10 @@ function references() {
   return { literal, bare, dynamic };
 }
 
+/** i18next's plural resolution (`t("k", {count})` -> Intl.PluralRules) picks one
+ *  of these suffixes at runtime, so source never names the key it lands on. */
+const PLURAL_SUFFIX = /_(zero|one|two|few|many|other)$/;
+
 function isReferenced(qualified, refs) {
   const [ns, ...rest] = qualified.split(":");
   const path = rest.join(":");
@@ -186,6 +193,9 @@ function isReferenced(qualified, refs) {
   // Unqualified source lookups land in defaultNS and nowhere else.
   if (ns === DEFAULT_NS && (refs.literal.has(path) || refs.bare.has(path))) return true;
   for (const prefix of refs.dynamic) if (qualified.startsWith(prefix)) return true;
+  // `k_one` is reached by the same call that reaches `k`.
+  const plural = PLURAL_SUFFIX.exec(qualified);
+  if (plural) return isReferenced(qualified.slice(0, -plural[0].length), refs);
   return false;
 }
 

@@ -414,7 +414,7 @@ core **346/346**（24 文件）· server **1397 = 1393 通过 + 2 本机 python-
 
 **旁证**：`origin/main` 现为 `e1628016`（「Merge pull request #455 from bayernjf/dev」，父提交 `bfc74ce` + `779e926`），即 dev 已回灌 main；main 比已部署版本多一个 merge，但 **main 不在部署轨道上**（§11.1），不影响上线判定。
 
-## 14. 第四次上线复核（2026-10-04，基线 `96b969b`，本机一手读数）
+## 14. 第四次上线复核（2026-10-04 起草 / 2026-10-07 复核，基线 `2b301d6`，本机一手读数）
 
 > **结论先说**：**判定不变**——自托管 ✅ 达到「产品核心完全可用的 MVP」；对外商业 SaaS ❌ 仍不达标（收款主体 / HTTPS+域名 / provider 真灾备 / PG HA / Sentry 这五件一件没变）。变的是 §12 那个「唯一运维签字」：**它两半里的一半已经用实测闭合，另一半缩成一行 grep**；同时实测出**两条新的生产配置缺口**，它们不是功能阻断，但决定了「能上线」与「能给第二个人用」是两件事。
 
@@ -428,6 +428,10 @@ core **346/346**（24 文件）· server **1397 = 1393 通过 + 2 本机 python-
 - **错误 sink 至今没有消费端**：同一条 env 读数里**没有 `ERROR_REPORT_WEBHOOK_URL`**。#86 已把接 relay 的全链路验完（204/500/不可达三态实测），差的是一行 drop-in 注入。
 - **两条的耦合正是本仓一直在治的静默类**：这两处「生产才 warn」都因 `NODE_ENV≠production` 而**一句都不打**——所以它们不是被发现了，是被读 env 顺手读出来的。反过来说：谁把 `NODE_ENV=production` 设上，日志会立刻同时冒出这两句，且 cookie 会开始带 `Secure`（局域网 http 登录会掉 cookie，处置见四之四那三条路）。
 
-**③ 审计侧同日进展**：[code-audit-2026-09-30.md §七](code-audit-2026-09-30.md) 补出的 8 条里 **6 条同日修完**（含两条高危中的 7.1；7.2 让 PG 轨第一次有了会被 CI 执行到的 owner 约束），7.7 是门禁取向、7.8 要 root。**副作用如实记**：deploy.yml 认 CI 总结论，新 postgres job 从此在部署闸门里。
+**③ 审计侧进展（截至 10-07）**：[code-audit-2026-09-30.md §七](code-audit-2026-09-30.md) 补出的 8 条里 **7 条已修**（7.1–7.6 于 10-04，含两条高危中的 7.1；7.2 让 PG 轨第一次有了会被 CI 执行到的 owner 约束；7.7 由用户拍板后于 10-07 以 **Biome** 落地 `d8daf06`——eslint 这条路被本仓 TS 7 挡住），**只剩 7.8 要 root**。**副作用如实记**：deploy.yml 认 CI 总结论，新 postgres job 从此在部署闸门里。
 
 **④ 证据等级（本轮）**：**一手执行**＝`/api/health` 直连、`ps`/`ss` 单实例、`systemctl show` env 读数、`/metrics` 200 读数、真 `postgres:16` 容器上的 owner 复现与修复验证、CI run 37212932643/37213336439 的 job 结论与 `deploy OK: 96b969b`。**未做**＝没有在带 root 的机器上读 `.env`（所以 ① 那一行仍未签）、没读生产 `prune-demo.log` 确认 7.4 守卫在新默认下放行（runbook 那条 cron 显式带 `DB_FILE`，推理上成立，未实测）。
+
+**⑤ 10-07 补两条会影响「下一步怎么上线」的实测**
+- **分支不同步**：`origin/dev` = `2b301d6`（生产在跑），但 `feature/20260824` 尖端 `2f1f237` 上有 **8 条尚未进 dev**（含 10-06/10-07 的 Stripe webhook claim-first `35dd0dd`、两条 web 修复、死代码清理、以及 Biome lint 门禁 `d8daf06`）。**实测 dev 里现在既没有 `pnpm lint` 这一步、也没有 `biome.json`** ⇒ 那道 lint 门**还没进部署轨道**，现在合 dev 才真正开始挡回归。
+- **feature 尖端 CI 红，红在依赖审计而不是代码**：run 37577188989（10-07T05:36Z）三步里 `PostgreSQL path smoke` 与 `Secret leak scan` 都 success，`Typecheck, build & test` 失败于 **Dependency audit**——`pnpm audit --audit-level=high` 报 **GHSA-68fv-2mgg-jv7q**：`source-map-js >=1.0.0 <1.2.2`（patched `>=1.2.2`），路径 `apps/web > jsdom > css-tree > source-map-js`；本机 `pnpm audit` 复现同读数（4 条：2 low / 1 moderate / 1 high）。**判定**：这是新公开的公告、不是谁这一批写坏的；但 `deploy.yml` 要 CI 总结论 success，所以**这条公告正在挡着 feature→dev→Hasee 的自动部署**。收口只有两条路：`pnpm.overrides` 把 `source-map-js` 钉到 `>=1.2.2`（一行，动的是传递依赖），或升 `jsdom` 到已吃补丁的版本（面更大）。**没有实测过其中任何一条**，所以别把「加了 override」当通过判据——验收是 `pnpm audit --audit-level=high` exit 0 ＋ 四包 typecheck ＋ server/web 全量不新增红。**同日已按这条判据收口**（`aee88b9` 走 override 那条路、`065494a` 顺手把 apps/web 的 dompurify 吃到 3.4.16——两条 low 都有补丁，而它是库存 HTML 进 DOM 前唯一那道 sanitizer）：实测 `pnpm audit --audit-level=high` exit 0（4 条降到 1 条，剩的 sprintf-js 是 moderate 且公告无补丁可升，登记 deferred）、`pnpm install --frozen-lockfile` / `-r typecheck` / `pnpm lint` / `-r build` 全 exit 0、CI 原样命令 core 346 / mcp 71 / server 1494 passed + 5 skipped / web 2000 passed。**于是「下一步上线」只剩一个机械动作**：把 feature 上那批合进 dev（实测 `git rev-list --count origin/dev..origin/feature/20260824` = 12，不含本轮文档提交）——合完 Biome lint 门与 Stripe claim-first 才真正进入部署轨道。

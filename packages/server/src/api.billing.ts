@@ -16,7 +16,7 @@ import { Hono } from "hono";
 import type { Db } from "./db.js";
 import { log } from "./logger.js";
 import { getOrCreateSubscription, planOf } from "./subscriptionService.js";
-import { handleStripeEvent } from "./stripeWebhook.js";
+import { handleStripeEvent, StripeEventInFlightError } from "./stripeWebhook.js";
 import {
   StripeNotConfiguredError,
   StripePriceMissingError,
@@ -181,6 +181,11 @@ export function billingRouter(db: Db, options: BillingRouterOptions): Hono<Billi
       }
       if (err instanceof StripeNotConfiguredError) {
         return c.json({ error: "stripe_not_configured" }, 503);
+      }
+      if (err instanceof StripeEventInFlightError) {
+        // Another delivery is applying this event right now. 409 asks Stripe
+        // to redeliver later, when it becomes a harmless duplicate ack.
+        return c.json({ error: "event_in_flight" }, 409);
       }
       // A resolvable-user/ordering failure returns 500 so Stripe retries later.
       log.error("stripe webhook handling failed", { err: String(err) });

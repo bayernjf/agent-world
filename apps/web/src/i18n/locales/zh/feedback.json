@@ -58,8 +58,12 @@
       "titleRequired": "请填写中英文标题",
       "templateTitleZh": "已知问题：{{category}}（{{count}} 条反馈）",
       "templateTitleEn": "Known issue: {{category}} ({{count}} reports)",
+      "templateTitleEn_one": "Known issue: {{category}} ({{count}} report)",
+      "templateTitleEn_other": "Known issue: {{category}} ({{count}} reports)",
       "templateBodyZh": "收到 {{count}} 条同类反馈，我们正在处理：\n{{items}}",
-      "templateBodyEn": "We received {{count}} similar reports and are working on it:\n{{items}}"
+      "templateBodyEn": "We received {{count}} similar reports and are working on it:\n{{items}}",
+      "templateBodyEn_one": "We received {{count}} similar report and are working on it:\n{{items}}",
+      "templateBodyEn_other": "We received {{count}} similar reports and are working on it:\n{{items}}"
     }
   },
   "status": {

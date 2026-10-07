@@ -10,7 +10,7 @@ interface Props {
 }
 
 export default function AccountDialog({ open, me, onClose }: Props) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [confirm, setConfirm] = useState("");

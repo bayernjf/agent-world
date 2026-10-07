@@ -3,16 +3,6 @@ import { describe, expect, it } from "vitest";
 import { execute } from "./engine.js";
 import type { Worker } from "./worker.js";
 
-const TEXTGEN = {
-  model: "agnes-2.0-flash",
-  prompt: "",
-  skills: [],
-  temperature: 0,
-  timeoutMs: 60000,
-  inputPolicy: { mode: "all" as const },
-  retry: { maxRetries: 1, baseDelayMs: 1000, maxDelayMs: 10000 },
-};
-
 /** Minimal worker: compliance never calls the LLM, so these are only fallbacks. */
 function noopWorker(): Worker {
   return {

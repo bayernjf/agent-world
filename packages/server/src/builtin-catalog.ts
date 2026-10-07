@@ -22,19 +22,6 @@ import type { Modality, ModelPricing, ProviderConfig } from "./config.js";
  */
 export const PLATFORM_SETTINGS_KEY = "__platform__";
 
-/** Compile-time exhaustiveness guard: adding a field to ModelPricing without
- *  listing it here is a type error, so the validator cannot silently start
- *  ignoring a new price dimension. */
-const PRICE_FIELDS: Record<keyof ModelPricing, true> = {
-  input: true,
-  output: true,
-  cacheRead: true,
-  perImage: true,
-  perSecond: true,
-  perKiloChar: true,
-  perMegaUtf8Byte: true,
-};
-
 const ModelPricingSchema = z
   .object({
     input: z.number().nonnegative().optional(),

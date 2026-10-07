@@ -9,6 +9,7 @@ import {
   STRIPE_WEBHOOK_NS,
   handleStripeEvent,
   mapStripeStatus,
+  StripeEventInFlightError,
 } from "./stripeWebhook.js";
 
 const config: StripeConfig = {
@@ -222,5 +223,71 @@ describe("handleStripeEvent — idempotency", () => {
     const invoices = await db.listInvoicesByUser("u1");
     expect(invoices).toHaveLength(1);
     expect(invoices[0]?.stripe_invoice_id).toBe("in_dup");
+  });
+
+  it("rejects a concurrent redelivery while the first is in flight with 409 semantics", async () => {
+    const object = {
+      customer: "cus_1",
+      subscription: "sub_1",
+      metadata: { plan: "pro", user_id: "u1" },
+    };
+    // Simulate a first delivery that won the claim and is still applying.
+    const claimed = await db.claimIdempotencyKey(STRIPE_WEBHOOK_NS, "evt_flight", "");
+    expect(claimed).toBe(true);
+
+    await expect(
+      handleStripeEvent(db, event("checkout.session.completed", object, "evt_flight"), config),
+    ).rejects.toBeInstanceOf(StripeEventInFlightError);
+
+    // The pending claim must survive the loser so the real first delivery can finish.
+    expect(await db.getIdempotentRun(STRIPE_WEBHOOK_NS, "evt_flight")).toBe("");
+  });
+
+  it("applies an event whose claim was left pending by a crashed delivery (stale steal)", async () => {
+    const object = {
+      customer: "cus_1",
+      subscription: "sub_1",
+      metadata: { plan: "pro", user_id: "u1" },
+    };
+    await db.claimIdempotencyKey(STRIPE_WEBHOOK_NS, "evt_crashed", "");
+    // The row is older than the 15-minute staleness cutoff; steal then redeliver.
+    expect(
+      await db.stealStaleIdempotentClaim(STRIPE_WEBHOOK_NS, "evt_crashed", Date.now() + 1),
+    ).toBe(true);
+
+    const out = await handleStripeEvent(
+      db,
+      event("checkout.session.completed", object, "evt_crashed"),
+      config,
+    );
+    expect(out.action).toBe("checkout_completed");
+    expect(await db.getIdempotentRun(STRIPE_WEBHOOK_NS, "evt_crashed")).toBe("evt_crashed");
+  });
+
+  it("releases its claim when the handler throws so the same event id can retry", async () => {
+    const broken = event("customer.subscription.updated", {
+      id: "sub_x",
+      customer: "cus_unknown",
+      status: "active",
+      metadata: null,
+      items: { data: [] },
+    }, "evt_retry");
+    await expect(handleStripeEvent(db, broken, config)).rejects.toThrow(/resolvable user/);
+    // No pending claim is left behind to wedge the key.
+    expect(await db.getIdempotentRun(STRIPE_WEBHOOK_NS, "evt_retry")).toBeNull();
+
+    // Stripe redelivers the same event id, now with resolvable metadata.
+    const fixed = event("checkout.session.completed", {
+      customer: "cus_1",
+      subscription: "sub_1",
+      metadata: { plan: "starter", user_id: "u1" },
+    }, "evt_retry");
+    const out = await handleStripeEvent(db, fixed, config);
+    expect(out.action).toBe("checkout_completed");
+  });
+
+  it("does not leave a claim behind for ignored event types", async () => {
+    await handleStripeEvent(db, event("customer.updated", {}, "evt_ignored"), config);
+    expect(await db.getIdempotentRun(STRIPE_WEBHOOK_NS, "evt_ignored")).toBeNull();
   });
 });

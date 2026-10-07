@@ -66,7 +66,6 @@ export async function httpNode(ctx: NodeRunContext, node: GraphNode, nodeId: str
   for (const [key, raw] of Object.entries(cfg.headers ?? {})) {
     headers[key] = evaluateTemplate(raw, interp);
   }
-  const contentType = headers["content-type"] ?? headers["Content-Type"];
   const body = cfg.body ? evaluateTemplate(cfg.body, interp) : undefined;
 
   // SSRF guard: refuse private/internal targets (resolved at fetch time,

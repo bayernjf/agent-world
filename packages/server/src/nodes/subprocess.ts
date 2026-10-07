@@ -10,7 +10,7 @@ import type { NodeState, SchedulerInit, Status } from "../engine.js";
  * arrives via the explicit NodeRunContext.
  */
 export async function subprocessNode(ctx: NodeRunContext, node: GraphNode, nodeId: string, attempt: number): Promise<void> {
-  const { approved, artifactValue, artifacts, attempts, budgetUsd, emit, extractSubInit, fallbackModel, finish, graph, inputFor, mergeSubInit, monthSpentUsd, monthlyBudgetUsd, nodeCostUsd, opts, packetEdges, plan, runId, sendPackets, states, variables, worker } = ctx;
+  const { approved, artifactValue, artifacts, emit, extractSubInit, inputFor, mergeSubInit, opts, runId, sendPackets, states, variables, worker } = ctx;
   emit({ type: "node.started", nodeId, attempt });
   try {
     const cfg = SubprocessConfig.parse(node.subprocess ?? {});

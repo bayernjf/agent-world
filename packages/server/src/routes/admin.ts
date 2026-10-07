@@ -26,7 +26,7 @@ export function registerAdminRoutes(
   app: Hono<{ Variables: { userId: string } }>,
   ctx: RouteContext,
 ): void {
-  const { db, memory, blockDemo } = ctx;
+  const { db, blockDemo } = ctx;
 
 // owner/admin (design-rbac P3) see every user's rows, with an optional
 // userId filter. Newest first, cursor-paginated.

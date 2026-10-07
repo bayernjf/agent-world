@@ -80,6 +80,7 @@ agent-world 计划「自托管（SQLite）+ SaaS（PostgreSQL）」双轨（见 
 ## 验证命令
 
 - 类型检查：`pnpm -r typecheck`
+- Lint 门禁：`pnpm lint`（Biome；只守 `noUnusedVariables` + `useHookAtTopLevel` = error、`useExhaustiveDependencies` = warn。**不是 eslint**——typescript-eslint 不支持本仓的 TS 7，见 [code-audit §7.7](docs/code-audit-2026-09-30.md)）
 - i18n 守护：`pnpm --filter @agent-world/web exec vitest run src/i18n/keys.test.ts`
 - web 全量：`pnpm --filter @agent-world/web exec vitest run`
 

@@ -351,7 +351,7 @@ describe("RunHistory", () => {
     });
 
     it("点击重新运行调用 api.rerunRun", async () => {
-      const { onOpen } = await renderAndWait();
+      await renderAndWait();
       const rerunBtns = screen.getAllByRole("button", { name: /重新运行/ });
       fireEvent.click(rerunBtns[0]);
       await waitFor(() => {
