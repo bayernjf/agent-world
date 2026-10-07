@@ -201,6 +201,8 @@ worker 插件声明 `isolation:"subprocess"` 时 fork 到独立子进程，父�
 需要说清楚的是：本仓用「自写守护测」守住了几条最要紧的约定（i18n key 双向一致、driver 裸 SQL 白名单、`drainRun` 源码扫描），这比通用 linter 更贴项目语义。代价是**凡没被编码成测试的规则一律无人守**——React hooks 依赖数组、未使用变量、`as`/`any` 增长、无障碍属性。
 **修法**：不必换 linter；要么把想长期守的规则继续写成守护测，要么加一条最小 eslint（`react-hooks` + `no-unused-vars`）进 CI，二选一即可，但要知道当前是「零」。
 
+> **处置（2026-10-07，用户拍板「引入最小 lint 门禁」）**：**eslint 这条路走不通**——`typescript-eslint` 最新版（8.71.1）的 peer 上限是 `typescript <6.1.0`，而本仓用 TS 7.0.2，加载即抛「typescript-eslint does not support TS 7.0」（上游 [typescript-eslint#10940](https://github.com/typescript-eslint/typescript-eslint/issues/10940) 在跟 TS ≥7.1）。改用 **Biome**（自带解析器、不依赖 TS 版本），只开两族规则：`noUnusedVariables` + `useHookAtTopLevel` = **error**，`useExhaustiveDependencies` = **warn**。实测（只开这两族、排除 `dist/` 与未跟踪的 `.agents/`）：**40 条未使用变量 + 72 条 hooks 依赖**。40 条已修（`20a16ca`，纯删死码——含 `routes/announcements.ts` 里两份 shadow 掉模块级声明的重复 `ANNOUNCEMENT_*`）；72 条 hooks 依赖**先以 warn 暴露、不拦**，因为它需要逐条判断（补依赖可能引入渲染循环），不塞进同一次变更。门禁落地 `d8daf06`：`biome.json` + 根 `pnpm lint` + CI 一步（紧随 Typecheck）。读数：`pnpm lint` exit 0（0 error / 72 warning）、四包 typecheck 绿、server 1494 passed、web 2000 passed。
+
 ### 7.8 [中] systemd 的 `Environment=` 会把密钥发给任何本地用户（本轮补出）
 
 `docs/runbooks/deploy-ubuntu-server.md` 与 `docs/runbooks/public-exposure-hardening.md` 都要求凭据文件 600，但把 drop-in 写成 `Environment=AGNES_API_KEY=…` 时，600 守的是「谁能 open 那个文件」，**管不到 manager 在 D-Bus 上发布的 unit 属性**：`systemctl show -p Environment agent-world` 普通用户即可读取，返回的是 unit＋全部 drop-in 合并后的键值对原文。**[实测]**（2026-10-04 Hasee 只读复测；正控制是同一条读数里 `DB_FILE`/`CODE_SANDBOX` 一并出现，证明该属性确实可读全，而不是只读到片段）
@@ -213,7 +215,7 @@ worker 插件声明 `isolation:"subprocess"` 时 fork 到独立子进程，父�
 
 ### 处置进度（2026-10-04 同日，用户授权「做你自己能做的」后开工）
 
-八条里 **6 条已修**，全部带可伪验收；剩下两条不是偷懒：7.7 是与「自写守护测」哲学冲突的取向决定（留给用户拍板），7.8 要 root（Hasee 上改 drop-in 写法，外加是否轮换 key 的决定）。
+八条里 **7 条已修/已加**（7.7 于 2026-10-07 以 Biome 落地），全部带可伪验收；剩下的一条不是偷懒：7.8 要 root（Hasee 上改 drop-in 写法，外加是否轮换 key 的决定）。
 
 | 条 | 处置 | commit | 可伪的验收（都是实跑读数，不是「改了哪个指令」） |
 | --- | --- | --- | --- |
@@ -223,7 +225,7 @@ worker 插件声明 `isolation:"subprocess"` 时 fork 到独立子进程，父�
 | 7.4 | ✅ 已修 | `804651a` | 五个运维 CLI 接 `resolveSqliteOpsFile`（migrate-to-postgres 只免驱动拒、仍要真实源文件）。8 次真机读数＋2 次正控制；守卫两处各自 disable 即对应测变红 |
 | 7.5 | ✅ 已加 | `d59ddaf` | 新增 `packages/server/tsconfig.scripts.json` 并进 package typecheck 链。**当场回本两次**：我在 7.4 里写坏的 `apply` 行（TS2345）与新测试的隐式 any（TS7006）都是它先抓住的，后者是 pre-commit 钩子拦下的 |
 | 7.6 | ✅ 已修 | `b6d66d7` | claim 变成第一动作（单条 `INSERT ... ON CONFLICT DO NOTHING` 裁决），输家拿 replay 200 或 409；失败释放 claim 保同键可重试；崩溃留下的 pending 满 15 分钟由后续同键接管。2 条新测；把 claim 跳过 → 并发测与重放测**都**红（返回两个不同 runId） |
-| 7.7 | ⏸ 未动 | — | 见 §7.7 的取舍说明：本仓的门禁是自写守护测，加 eslint 是换哲学，该用户拍板 |
+| 7.7 | ✅ 已加（Biome 代 eslint，2026-10-07） | `d8daf06` | eslint 被 TS 7 挡住（typescript-eslint peer 上限 `<6.1.0`），改用 Biome：`noUnusedVariables`/`useHookAtTopLevel`=error、`useExhaustiveDependencies`=warn。40 条未使用已修（`20a16ca`）、72 条 hooks 依赖暂以 warn 暴露。验收读数：`pnpm lint` exit 0（0 error / 72 warning）、CI 新增一步紧随 Typecheck |
 | 7.8 | ⛔ 要 root | — | 修法候选（`EnvironmentFile=` / `LoadCredential=`）与验收读数已写进 [deploy-ubuntu-server.md](runbooks/deploy-ubuntu-server.md) 与 [public-exposure-hardening.md](runbooks/public-exposure-hardening.md)：改完 `systemctl show -p Environment agent-world` 里 AGNES 的命中数必须为 0；两条候选都没在这台机上实测过，所以判据写成读数不写成指令 |
 
 同日门禁读数（修后全量，非引用旧值）：本地 server **1488 passed / 5 skipped**（+1 文件 pg-smoke、幂等测 +2、pg-smoke 无 `PG_SMOKE_URL` 时 3 skip），另 2 条 `engine.code` 是本机 `python3` 被 Xcode license 挡住的环境红，改前改后同样红；`pnpm -r typecheck` 四包绿。**已 push**（`origin/feature/20260824` = `03e6545`），同 SHA 的 **CI runner 自报读数**：server **1490 passed / 5 skipped（172 文件）**——本机那两条 `engine.code` 在 runner 上 **18 测全绿**，坐实它们是本地环境红而非代码红；**新 postgres job 首跑 3 passed**（真 `postgres:16` service 容器）；E2E 5 passed；gitleaks 与 CodeQL 绿。**这批随后经 PR #486/#487 合入 dev（`96b969b`）**，Hasee 一手 `/api/health` 实测 `commit:"96b969b"`、`ok:true`——即六条修复已在这台生产（staging）机上生效；**同一次实测另查出两条生产配置缺口**：`/metrics` 从局域网另一台机器打过去 **HTTP 200 无鉴权**（`curl http://192.168.31.14:8791/metrics`，读得到 `runs_cost_usd_total` 等），且 systemd 的合并 env 里**没有 `ERROR_REPORT_WEBHOOK_URL`**（错误 sink 至今没有消费端）——两者都因 `NODE_ENV` 非 production 而**连启动 warn 都不会打**，正上是本审计报告反复处理的「静默」类。
