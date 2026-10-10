@@ -56,6 +56,8 @@
 | [PRD.md](PRD.md) | 阶段定义 + 架构护栏（5 阶段的「是什么」） |
 | [roadmap-generalization.md](roadmap-generalization.md) | 通用化主线（当前推进方向） |
 | [product-content-roadmap.md](product-content-roadmap.md) + [design-ecommerce-roadmap.md](design-ecommerce-roadmap.md) | 内容线专项（淘宝 / 小红书图文 / research-loop / 新闻播客）；电商方向 F1-F10 流水线升级（run 内多变体 / 审核队列 / 商品库 / 批量 / 效果回流，已落地） |
+| 看 M1 成本画像产线 / 回采数据 / 每日体检结论 | [handoff.md](../handoff.md) ★ 待办 #41 区（4 条 M1 回采产线的每日体检记录：run 分布 / 失败归类 / 成本对账 / 处置建议）+ [design-monetization.md](design-monetization.md)（价格已用 M1 真实数据校准） |
+| 把内容平台数据自动回读进成本/ROI（F6 metrics，RPA 只读） | [design-ecommerce-roadmap.md](design-ecommerce-roadmap.md)（F6 效果回流：`POST /api/metrics` 手填 / `POST /api/metrics/import` CSV / `POST /api/metrics/rpa` 只读回读）+ [rpa-readback-onboarding.md](rpa-readback-onboarding.md)（RPA 接入清单与合规约束） |
 | [project-progress.md](project-progress.md) | 进度基线（各模块完成度快照） |
 | [roadmap-tasks.md](roadmap-tasks.md) | 历史任务清单（已合并进上面，勿据此实现） |
 
