@@ -94,10 +94,7 @@ const CONFIG_KINDS = Object.keys(GraphNode.shape).filter(
  * Kinds with configuration the canvas cannot edit at all. Each entry is a
  * standing product gap, not a pass: removing it requires building the form.
  */
-const KINDS_WITHOUT_FORM: Record<string, string> = {
-  generic:
-    "18 个字段的唯一入口是模板 tpl-custom-model（core/src/templates.ts），建完线后模型/端点/密钥都改不了，只能删节点重建",
-};
+const KINDS_WITHOUT_FORM: Record<string, string> = {};
 
 /** Fields rendered outside the per-kind form by a shared screen. */
 const CROSS_CUTTING: Record<string, string> = {

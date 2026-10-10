@@ -28,6 +28,7 @@ import NotifyFields from "./NotifyFields";
 import VcsFields from "./VcsFields";
 import HumanFields from "./HumanFields";
 import SubprocessFields from "./SubprocessFields";
+import GenericFields from "./GenericFields";
 
 /**
  * Maps a node kind to its config-panel field component. Kinds without a config
@@ -63,4 +64,5 @@ export const FIELD_COMPONENTS: Partial<
   vcs: VcsFields,
   human: HumanFields,
   subprocess: SubprocessFields,
+  generic: GenericFields,
 };
