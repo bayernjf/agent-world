@@ -7,6 +7,9 @@
   },
   "api": {
     "requestFailed": "Request failed ({{status}})",
-    "abReportLoadFailed": "A/B report load failed: {{status}}"
+    "abReportLoadFailed": "A/B report load failed: {{status}}",
+    "invalidCredentials": "Invalid email or password",
+    "demoClaimRequired": "Demo accounts must claim via registration before login, or start a fresh demo",
+    "passwordChangeRequired": "Password change required before continuing"
   }
 }

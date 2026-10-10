@@ -6,6 +6,8 @@ import { loadCrossGraphEdges } from "../crossGraphService.js";
 import { publishToChannel } from "../publish.js";
 import { visibleGraphs } from "../rbac.js";
 import { clientIp } from "./shared.js";
+import { collectMetrics, getMetricsAdapter } from "../rpa/index.js";
+import { errMsg } from "../safe-utils.js";
 import { WEBHOOK_TIMESTAMP_WINDOW_MS, secretEqual } from "../triggers.js";
 import { AD_LAW_BANNED_WORDS, Graph, PLATFORM_PROFILES, getTemplate, parseCsv, replay, rowsToCsv, unpricedModels } from "@agent-world/core";
 import { Hono } from "hono";
@@ -456,6 +458,58 @@ app.get("/api/performance", async (c) => {
   return c.json(await db.aggregatePerformance(userId, groupBy));
 });
 
+// --- RPA read-only back-fetch (B4: wire collectMetrics, which had zero callers) ---
+// Compliance: read-only by design (design-ecommerce-roadmap §F6). Adapters never
+// automate publishing; login uses headful Playwright + saved storageState.
+app.post("/api/metrics/rpa", async (c) => {
+  const userId = c.get("userId");
+  const body = (await c.req.json().catch(() => ({}))) as {
+    platform?: string;
+    since?: number;
+    graphId?: string | null;
+    runId?: string | null;
+    nodeId?: string | null;
+    variant?: string | null;
+    artifactId?: string | null;
+    productId?: string | null;
+  };
+  const platform = (body.platform ?? "").trim();
+  const adapter = getMetricsAdapter(platform);
+  if (!adapter) {
+    return c.json({ error: "unknown_platform", message: `No RPA adapter for platform "${platform}"` }, 404);
+  }
+  const stateDir =
+    process.env.AGENT_WORLD_RPA_STATE_DIR ?? join(process.env.HOME ?? "/tmp", ".agent-world", "rpa-state");
+  const since = typeof body.since === "number" && body.since > 0 ? body.since : 0;
+  try {
+    const fetched = await collectMetrics({ adapter, stateDir, since });
+    let inserted = 0;
+    for (const fm of fetched) {
+      await db.insertMetric({
+        id: randomUUID(),
+        userId,
+        graphId: body.graphId ?? null,
+        runId: body.runId ?? null,
+        nodeId: body.nodeId ?? null,
+        variant: body.variant ?? null,
+        artifactId: body.artifactId ?? null,
+        productId: body.productId ?? null,
+        platform,
+        externalContentId: fm.external_content_id,
+        impressions: fm.impressions,
+        clicks: fm.clicks,
+        conversions: fm.conversions,
+        gmv: fm.gmv,
+        recordedAt: Date.now(),
+      });
+      inserted += 1;
+    }
+    return c.json({ ok: true, collected: fetched.length, inserted });
+  } catch (err) {
+    return c.json({ error: "rpa_collect_failed", message: errMsg(err) }, 502);
+  }
+});
+
 // --- Operations dashboard overview (RTS phase A2) ---
 app.get("/api/operations/overview", async (c) => {
   const userId = c.get("userId");
@@ -604,7 +658,7 @@ app.post("/api/products/import", async (c) => {
     const name = String(row.name ?? "").trim();
     if (!name) {
       report.failed++;
-      report.errors.push(`第 ${i + 2} 行缺少 name 列`);
+      report.errors.push(`Row ${i + 2} is missing the name column`);
       continue;
     }
     const attributes: Record<string, unknown> = {};
@@ -624,7 +678,7 @@ app.post("/api/products/import", async (c) => {
       report.imported++;
     } catch (err) {
       report.failed++;
-      report.errors.push(`第 ${i + 2} 行: ${err instanceof Error ? err.message : "导入失败"}`);
+      report.errors.push(`Row ${i + 2}: ${err instanceof Error ? err.message : "Import failed"}`);
     }
   }
   return c.json({ ...report, products: created });

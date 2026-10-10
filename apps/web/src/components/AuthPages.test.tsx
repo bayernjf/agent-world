@@ -286,7 +286,7 @@ describe("LoginPage", () => {
     it("登录失败显示错误信息", async () => {
       (global.fetch as any).mockResolvedValue({
         ok: false,
-        json: () => Promise.resolve({ error: "邮箱或密码错误" }),
+        json: () => Promise.resolve({ error: "invalid_credentials" }),
       });
       render(<LoginPage />);
       fireEvent.change(screen.getByLabelText("邮箱"), { target: { value: "user@example.com" } });

@@ -352,19 +352,142 @@ function DatabaseForm({
   commit: () => void;
 }) {
   const { t } = useTranslation();
+  const driver = value.driver ?? "sqlite";
+
+  // Switching drivers keeps query/format while resetting the other driver's
+  // connection fields, so the saved config never carries stale credentials.
+  const switchDriver = (next: "sqlite" | "postgres") => {
+    begin();
+    if (next === "postgres") {
+      patch({
+        driver: "postgres",
+        path: undefined,
+        host: value.host ?? "",
+        port: value.port,
+        database: value.database ?? "",
+        user: value.user ?? "",
+        password: value.password ?? "",
+        ssl: value.ssl ?? true,
+      });
+    } else {
+      patch({
+        driver: "sqlite",
+        path: value.path ?? "",
+        host: undefined,
+        port: undefined,
+        database: undefined,
+        user: undefined,
+        password: undefined,
+        ssl: undefined,
+      });
+    }
+    commit();
+  };
+
   return (
     <>
-      <label className="field">
-        <span>{t("modals:connector.database.pathLabel")}</span>
-        <input
-          className="text-input"
-          value={value.path}
-          placeholder="/abs/path/data.db"
-          onFocus={begin}
-          onBlur={commit}
-          onChange={(e) => patch({ path: e.target.value })}
-        />
+      <label className="field field--inline">
+        <span>{t("modals:connector.database.driver")}</span>
+        <select
+          className="select"
+          value={driver}
+          onChange={(e) => switchDriver(e.target.value as "sqlite" | "postgres")}
+        >
+          <option value="sqlite">
+            {t("modals:connector.database.driverSqlite")}
+          </option>
+          <option value="postgres">
+            {t("modals:connector.database.driverPostgres")}
+          </option>
+        </select>
       </label>
+      {driver === "sqlite" ? (
+        <label className="field">
+          <span>{t("modals:connector.database.pathLabel")}</span>
+          <input
+            className="text-input"
+            value={value.path ?? ""}
+            placeholder="/abs/path/data.db"
+            onFocus={begin}
+            onBlur={commit}
+            onChange={(e) => patch({ path: e.target.value })}
+          />
+        </label>
+      ) : (
+        <>
+          <label className="field">
+            <span>{t("modals:connector.database.hostLabel")}</span>
+            <input
+              className="text-input"
+              value={value.host ?? ""}
+              placeholder="db.example.com"
+              onFocus={begin}
+              onBlur={commit}
+              onChange={(e) => patch({ host: e.target.value })}
+            />
+          </label>
+          <div className="field-row">
+            <label className="field field--inline">
+              <span>{t("modals:connector.database.portLabel")}</span>
+              <input
+                className="text-input"
+                type="number"
+                min={1}
+                max={65535}
+                value={value.port ?? ""}
+                onFocus={begin}
+                onBlur={commit}
+                onChange={(e) =>
+                  patch({
+                    port: e.target.value === "" ? undefined : Number(e.target.value),
+                  })
+                }
+              />
+            </label>
+            <label className="field field--inline">
+              <span>{t("modals:connector.database.databaseLabel")}</span>
+              <input
+                className="text-input"
+                value={value.database ?? ""}
+                placeholder="app_db"
+                onFocus={begin}
+                onBlur={commit}
+                onChange={(e) => patch({ database: e.target.value })}
+              />
+            </label>
+          </div>
+          <label className="field">
+            <span>{t("modals:connector.database.userLabel")}</span>
+            <input
+              className="text-input"
+              value={value.user ?? ""}
+              placeholder="postgres"
+              onFocus={begin}
+              onBlur={commit}
+              onChange={(e) => patch({ user: e.target.value })}
+            />
+          </label>
+          <label className="field">
+            <span>{t("modals:connector.database.passwordLabel")}</span>
+            <input
+              className="text-input"
+              type="password"
+              value={value.password ?? ""}
+              onFocus={begin}
+              onBlur={commit}
+              onChange={(e) => patch({ password: e.target.value })}
+            />
+          </label>
+          <label className="field field--inline">
+            <input
+              type="checkbox"
+              checked={value.ssl ?? true}
+              onChange={(e) => patch({ ssl: e.target.checked })}
+            />
+            <span>{t("modals:connector.database.sslLabel")}</span>
+          </label>
+        </>
+      )}
       <label className="field">
         <span>{t("modals:connector.database.queryLabel")}</span>
         <textarea
@@ -390,7 +513,11 @@ function DatabaseForm({
       </label>
       <p className="hint">
         <Trans
-          i18nKey="modals:connector.database.hint"
+          i18nKey={
+            driver === "postgres"
+              ? "modals:connector.database.pgHint"
+              : "modals:connector.database.hint"
+          }
           components={{ code: <code /> }}
         />
       </p>

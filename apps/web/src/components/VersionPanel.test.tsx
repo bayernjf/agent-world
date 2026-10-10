@@ -90,8 +90,15 @@ function renderPanel(open = true) {
 async function renderAndWait(open = true) {
   const result = renderPanel(open);
   if (open) {
+    // Wait for the rendered end state, not merely for fetch to have been
+    // called: either the list (per-version delete buttons) or the empty-state
+    // note. "fetch was called" resolved before the response's setState ran, so
+    // a getAllByRole("删除") immediately after could still throw under load.
     await waitFor(() => {
-      expect(global.fetch).toHaveBeenCalled();
+      const settled =
+        screen.queryAllByRole("button", { name: "删除" }).length > 0 ||
+        screen.queryByText(/暂无版本/) !== null;
+      expect(settled).toBe(true);
     });
   }
   return result;

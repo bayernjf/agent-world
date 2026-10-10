@@ -540,10 +540,20 @@
       "addField": "+ Add field"
     },
     "database": {
+      "driver": "Driver",
+      "driverSqlite": "SQLite (local file)",
+      "driverPostgres": "PostgreSQL (network)",
       "pathLabel": "SQLite database file path",
+      "hostLabel": "Host",
+      "portLabel": "Port",
+      "databaseLabel": "Database name",
+      "userLabel": "User",
+      "passwordLabel": "Password",
+      "sslLabel": "Use SSL (cloud PG usually requires it)",
       "queryLabel": "Query (read-only SELECT, may take ? parameters)",
       "format": "Output format",
-      "hint": "Queries the latest data on every run; opened read-only, only <code>SELECT</code> is allowed and writes are rejected."
+      "hint": "Queries the latest data on every run; opened read-only, only <code>SELECT</code> is allowed and writes are rejected.",
+      "pgHint": "Queried live on each run over a read-only session; only <code>SELECT</code> is allowed and writes are rejected."
     },
     "product": {
       "selectionLabel": "Selection",

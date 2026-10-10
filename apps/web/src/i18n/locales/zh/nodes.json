@@ -559,6 +559,16 @@
       "graphEmpty": "（暂无已保存产线）",
       "maxDepth": "最大调用深度",
       "note": "运行到该节点会调用另一张已保存的产线（子流程）作为函数：上游文本成为子流程的输入，子流程所有 sink 节点的产物聚合为本节点的 json 产物。子流程内的暂停（人工审批/危险工具）会冒泡暂停整个产线，恢复后从子流程断点继续。maxDepth 防止循环调用。"
+    },
+    "generic": {
+      "modelPh": "留空跟随默认模型",
+      "modality": "模态",
+      "modalityText": "文本",
+      "modalityImage": "图片",
+      "modalityVideo": "视频",
+      "modalityAudio": "音频",
+      "formatDefault": "默认",
+      "note": "多能坊：按所选模型的模态自动 dispatch（文本/图片/视频/音频）。模态留空时由引擎探测；技能在「技能」标签页配置。"
     }
   }
 }
