@@ -7,6 +7,8 @@ import { registerFeedbackRoutes } from "./routes/feedback.js";
 import { registerAnnouncementsRoutes } from "./routes/announcements.js";
 import { registerRunsRoutes } from "./routes/runs.js";
 import { registerOpsRoutes } from "./routes/ops.js";
+import { registerMetricsAdapter } from "./rpa/index.js";
+import { xiaohongshuAdapter } from "./rpa/adapters/xiaohongshu.js";
 import { AUTH_COOKIE, demoLocked, isSafeRedirectUri } from "./routes/shared.js";
 export { isSafeRedirectUri } from "./routes/shared.js";
 
@@ -572,6 +574,7 @@ app.post("/api/mcp/:id/connect", async (c) => {
 });
 
 registerOpsRoutes(app, routeContext);
+registerMetricsAdapter(xiaohongshuAdapter);
 app.get("/api/eval", async (c) => {
   const userId = c.get("userId");
   const from = c.req.query("from");
