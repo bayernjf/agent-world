@@ -604,7 +604,7 @@ app.post("/api/products/import", async (c) => {
     const name = String(row.name ?? "").trim();
     if (!name) {
       report.failed++;
-      report.errors.push(`第 ${i + 2} 行缺少 name 列`);
+      report.errors.push(`Row ${i + 2} is missing the name column`);
       continue;
     }
     const attributes: Record<string, unknown> = {};
@@ -624,7 +624,7 @@ app.post("/api/products/import", async (c) => {
       report.imported++;
     } catch (err) {
       report.failed++;
-      report.errors.push(`第 ${i + 2} 行: ${err instanceof Error ? err.message : "导入失败"}`);
+      report.errors.push(`Row ${i + 2}: ${err instanceof Error ? err.message : "Import failed"}`);
     }
   }
   return c.json({ ...report, products: created });

@@ -17,8 +17,18 @@ async function postAuth(url: string, body: Record<string, string | boolean>) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     // Outside React, so only the singleton knows the current language.
+    const raw = data as { error?: string; code?: string };
+    const code = raw.code ?? raw.error;
+    const known =
+      code === "invalid_credentials"
+        ? i18n.t("errors:api.invalidCredentials")
+        : code === "demo_claim_required"
+          ? i18n.t("errors:api.demoClaimRequired")
+          : code === "password_change_required"
+            ? i18n.t("errors:api.passwordChangeRequired")
+            : null;
     throw new Error(
-      (data as any).error ?? i18n.t("errors:api.requestFailed", { status: res.status }),
+      known ?? raw.error ?? i18n.t("errors:api.requestFailed", { status: res.status }),
     );
   }
   return data;

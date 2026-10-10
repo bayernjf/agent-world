@@ -478,7 +478,7 @@ app.use("/api/*", async (c, next) => {
   const account = await db.findUserById(payload.userId);
   if (account?.must_change_password === 1) {
     return c.json(
-      { error: "请先修改一次性密码", code: "PASSWORD_CHANGE_REQUIRED" },
+      { error: "password_change_required", message: "Password change required before continuing", code: "PASSWORD_CHANGE_REQUIRED" },
       403,
     );
   }
@@ -726,11 +726,11 @@ app.post("/api/runs/ab", async (c) => {
     }
     const sampleTarget = sampleGraph?.nodes.find((n) => n.id === body.targetNodeId);
     if (!sampleTarget || sampleTarget.kind !== "textGen") {
-      return c.json({ error: "取样运行的产线快照中不存在该目标厂房节点" }, 422);
+      return c.json({ error: "sample_target_node_missing", message: "Target factory node not found in the sampled run snapshot" }, 422);
     }
     const projectedInput = (sample.input ?? "").trim();
     if (!projectedInput) {
-      return c.json({ error: "该取样运行没有可用的起始输入，请改用手动填写" }, 422);
+      return c.json({ error: "sample_input_missing", message: "Sampled run has no usable starting input; fill in manually instead" }, 422);
     }
     // Arm A = current production prompt (read from the live graph, not the
     // snapshot, so it reflects what production actually uses right now); the

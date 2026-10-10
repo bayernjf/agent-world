@@ -66,21 +66,21 @@ app.post("/api/auth/login", async (c) => {
   const user = await db.findUserByEmail(email);
   if (!user) {
     audit(db, "unknown", "account.login_failed", { ip: clientIp(c) });
-    return c.json({ error: "邮箱或密码错误" }, 401);
+    return c.json({ error: "invalid_credentials", message: "Invalid email or password" }, 401);
   }
   // A demo account has an unknowable random password and must convert via
   // /api/auth/claim (or start a fresh demo) rather than logging in by password.
   if (user.is_demo === 1) {
     audit(db, user.id, "account.login_blocked_demo", { ip: clientIp(c) });
     return c.json(
-      { error: "演示账号请通过注册转正后登录，或重新开启演示", code: "DEMO_CLAIM_REQUIRED" },
+      { error: "demo_claim_required", message: "Demo accounts must claim via registration before login, or start a fresh demo", code: "DEMO_CLAIM_REQUIRED" },
       401,
     );
   }
   const hash = await db.findUserPasswordHash(user.id);
   if (!hash || !(await verifyPassword(password, hash))) {
     audit(db, user.id, "account.login_failed", { ip: clientIp(c) });
-    return c.json({ error: "邮箱或密码错误" }, 401);
+    return c.json({ error: "invalid_credentials", message: "Invalid email or password" }, 401);
   }
   audit(db, user.id, "account.login", { ip: clientIp(c) });
   const token = await signToken(user.id, user.email, remember);

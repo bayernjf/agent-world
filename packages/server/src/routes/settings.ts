@@ -300,7 +300,7 @@ app.post("/api/providers/test", async (c) => {
   const looksRedacted = !apiKey || isRedactedKey(apiKey);
   if (looksRedacted && body.providerName) {
     if (!saved) {
-      return c.json({ ok: false, error: `Provider "${body.providerName}" 未保存，请先添加并保存` }, 400);
+      return c.json({ ok: false, error: "provider_not_saved", message: `Provider "${body.providerName}" has not been saved; add and save it first` }, 400);
     }
     // A server-resolved key must never travel to a caller-chosen destination:
     // pairing the saved key with a different baseUrl would let any user
@@ -385,7 +385,8 @@ app.post("/api/providers/test", async (c) => {
         return c.json({
           ok: false,
           status: res.status,
-          error: "图片接口返回 2xx 但未包含有效图片数据（data 为空或缺少 url/b64_json）",
+          error: "invalid_image_response",
+          message: "Image endpoint returned 2xx without valid image data (empty data or missing url/b64_json)",
         });
       }
     }

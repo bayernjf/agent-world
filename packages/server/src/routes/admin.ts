@@ -254,7 +254,7 @@ app.put("/api/admin/model-catalog", async (c) => {
   const parsed = PlatformCatalogSchema.safeParse(body);
   if (!parsed.success) {
     return c.json(
-      { error: `目录载荷不合法：${parsed.error.issues[0]?.message ?? "无法解析"}` },
+      { error: "invalid_payload", message: `Invalid directory payload: ${parsed.error.issues[0]?.message ?? "unparseable"}` },
       400,
     );
   }
