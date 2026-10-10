@@ -129,7 +129,7 @@ function readStoredMainTab(): MainTab {
 
 /** Node kinds that mount capability cards: agents equip all kinds, gates equip judges. */
 function kindHasSkills(kind?: string): boolean {
-  return kind === "textGen" || kind === "gate";
+  return kind === "textGen" || kind === "gate" || kind === "generic";
 }
 
 /** The Skill tab only exists on those kinds, so a remembered tab can be invalid. */
@@ -773,6 +773,17 @@ export default function Inspector({
             mounted={node.textGen?.skills ?? []}
             onChange={(skills) =>
               updateNode(node.id, { textGen: { ...node.textGen!, skills } })
+            }
+            onOpenSettings={() => onOpenSettings("skills")}
+          />
+        )}
+        {mainTab === "skills" && node.kind === "generic" && (
+          <SkillPicker
+            mounted={(node.generic?.skills ?? []).map((s) =>
+              typeof s === "string" ? { id: s, config: {}, enabled: true } : s,
+            )}
+            onChange={(skills) =>
+              updateNode(node.id, { generic: { ...node.generic!, skills } })
             }
             onOpenSettings={() => onOpenSettings("skills")}
           />

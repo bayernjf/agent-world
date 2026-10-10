@@ -559,6 +559,16 @@
       "graphEmpty": "(no saved lines yet)",
       "maxDepth": "Max call depth",
       "note": "This node calls another saved line (sub-flow) as a function: upstream text becomes the sub-flow's input, and all of its sink outputs are aggregated into this node's json artifact. Pauses inside the sub-flow (human approval / dangerous tools) bubble up to pause the whole line, resuming from the sub-flow checkpoint. maxDepth guards against circular calls."
+    },
+    "generic": {
+      "modelPh": "Blank = follow the default model",
+      "modality": "Modality",
+      "modalityText": "Text",
+      "modalityImage": "Image",
+      "modalityVideo": "Video",
+      "modalityAudio": "Audio",
+      "formatDefault": "Default",
+      "note": "Generic hub: auto-dispatches by the selected model modality (text/image/video/audio). Leave modality blank to let the engine detect it; skills are configured in the Skills tab."
     }
   }
 }
