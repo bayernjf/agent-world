@@ -144,13 +144,7 @@ const CONNECTOR_SCHEMAS: Record<string, Record<string, unknown>> = {
 
 const CONNECTOR_DEBT: Record<string, Record<string, string>> = {
   DatabaseConnector: {
-    driver: "编辑器写死 sqlite（ConnectorEditor.tsx 的默认对象），而服务端已支持 postgres",
-    host: "PG 连接参数无入口，报「需要 host/database/user 字段」时用户无法自助修",
-    port: "同上",
-    user: "同上",
-    password: "同上（落库加密已就绪，缺的是入口）",
-    ssl: "同上",
-    params: "绑定参数无入口",
+    params: "绑定参数无入口（positional/named；query 里只能把值写死）",
   },
   FileConnector: { encoding: "utf8/base64 无入口，默认 utf8" },
 };

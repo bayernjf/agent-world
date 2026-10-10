@@ -540,10 +540,20 @@
       "addField": "+ 添加字段"
     },
     "database": {
+      "driver": "驱动类型",
+      "driverSqlite": "SQLite（本地文件）",
+      "driverPostgres": "PostgreSQL（网络）",
       "pathLabel": "SQLite 数据库文件路径",
+      "hostLabel": "主机 Host",
+      "portLabel": "端口 Port",
+      "databaseLabel": "数据库名 Database",
+      "userLabel": "用户名 User",
+      "passwordLabel": "密码 Password",
+      "sslLabel": "使用 SSL（云端 PG 通常需要）",
       "queryLabel": "查询（只读 SELECT，可带 ? 参数）",
       "format": "输出格式",
-      "hint": "每次运行产线时实时查询最新数据；只读打开，仅允许 <code>SELECT</code>，写语句会被拒绝。"
+      "hint": "每次运行产线时实时查询最新数据；只读打开，仅允许 <code>SELECT</code>，写语句会被拒绝。",
+      "pgHint": "每次运行经只读会话实时查询；仅允许 <code>SELECT</code>，写语句会被拒绝。"
     },
     "product": {
       "selectionLabel": "选择方式",

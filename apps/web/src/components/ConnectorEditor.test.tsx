@@ -324,6 +324,105 @@ describe("ConnectorEditor", () => {
       renderEditor(dbConnector);
       expect(screen.getByRole("button", { name: "测试连接" })).toBeInTheDocument();
     });
+
+    const pgConnector: ConnectorConfig = {
+      type: "database",
+      database: {
+        driver: "postgres",
+        host: "db.example.com",
+        port: 5432,
+        database: "app_db",
+        user: "postgres",
+        password: "secret",
+        query: "SELECT * FROM users",
+        ssl: true,
+        format: "json",
+      },
+    };
+
+    it("默认 sqlite 时显示文件路径、不显示 PG 主机字段", () => {
+      renderEditor(dbConnector);
+      expect(screen.getByLabelText("SQLite 数据库文件路径")).toBeInTheDocument();
+      expect(screen.queryByLabelText("主机 Host")).not.toBeInTheDocument();
+    });
+
+    it("切换到 postgres 调用 onChange，默认 ssl 开启并清空 path", () => {
+      renderEditor(dbConnector);
+      fireEvent.change(screen.getByLabelText("驱动类型"), {
+        target: { value: "postgres" },
+      });
+      expect(mockOnChange).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "database",
+          database: expect.objectContaining({ driver: "postgres", ssl: true }),
+        }),
+      );
+    });
+
+    it("postgres 时显示 host/port/database/user/password/ssl，不显示 sqlite 路径", () => {
+      renderEditor(pgConnector);
+      expect(screen.getByLabelText("主机 Host")).toBeInTheDocument();
+      expect(screen.getByLabelText("端口 Port")).toBeInTheDocument();
+      expect(screen.getByLabelText("数据库名 Database")).toBeInTheDocument();
+      expect(screen.getByLabelText("用户名 User")).toBeInTheDocument();
+      expect(screen.getByLabelText("密码 Password")).toBeInTheDocument();
+      expect(
+        screen.queryByLabelText("SQLite 数据库文件路径"),
+      ).not.toBeInTheDocument();
+    });
+
+    it("PG 字段显示当前值，密码框为 password 类型", () => {
+      renderEditor(pgConnector);
+      expect(
+        (screen.getByLabelText("主机 Host") as HTMLInputElement).value,
+      ).toBe("db.example.com");
+      expect(
+        (screen.getByLabelText("端口 Port") as HTMLInputElement).value,
+      ).toBe("5432");
+      expect(
+        (screen.getByLabelText("数据库名 Database") as HTMLInputElement).value,
+      ).toBe("app_db");
+      expect(screen.getByLabelText("密码 Password")).toHaveAttribute(
+        "type",
+        "password",
+      );
+    });
+
+    it("修改 host 调用 onChange", () => {
+      renderEditor(pgConnector);
+      fireEvent.change(screen.getByLabelText("主机 Host"), {
+        target: { value: "newhost.com" },
+      });
+      expect(mockOnChange).toHaveBeenCalledWith(
+        expect.objectContaining({
+          database: expect.objectContaining({ host: "newhost.com" }),
+        }),
+      );
+    });
+
+    it("ssl 默认勾选，取消勾选调用 onChange", () => {
+      renderEditor(pgConnector);
+      const ssl = screen.getByRole("checkbox", { name: /使用 SSL/ });
+      expect(ssl).toBeChecked();
+      fireEvent.click(ssl);
+      expect(mockOnChange).toHaveBeenCalledWith(
+        expect.objectContaining({
+          database: expect.objectContaining({ ssl: false }),
+        }),
+      );
+    });
+
+    it("清空端口时 port 回到 undefined", () => {
+      renderEditor(pgConnector);
+      fireEvent.change(screen.getByLabelText("端口 Port"), {
+        target: { value: "" },
+      });
+      expect(mockOnChange).toHaveBeenCalledWith(
+        expect.objectContaining({
+          database: expect.objectContaining({ port: undefined }),
+        }),
+      );
+    });
   });
 
   describe("测试连接", () => {
