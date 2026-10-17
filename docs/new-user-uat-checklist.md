@@ -67,6 +67,6 @@
 
 ## 6. 与既有自动化测试的关系
 
-- **已有 jsdom/单测覆盖**（无需真浏览器）：组件渲染、i18n key、RBAC 权限、模型目录 admin、错误 sink 等（web 1996 + server 1473 + core 346 + mcp 71，合计 ~3938）。
+- **已有 jsdom/单测覆盖**（无需真浏览器）：组件渲染、i18n key、RBAC 权限、模型目录 admin、错误 sink 等（权威读数见 handoff：core 346 · server 1460（本机含 2 条 python 环境红）/ CI runner 自报 server 1490 passed · web 1996 · mcp 71，合计 ~3873–3938）。
 - **必须真浏览器验证**（本清单目的）：真实登录态链路、画布拖拽/连线交互、3D 渲染、运行中节点状态流转、产物画廊、成本报表视觉呈现、Guided Tour 交互。
 - E2E 基线：根 `e2e/` 已有 Playwright smoke+flows 5 测（注册/建空白产线/设置/登出再登录，独立端口 8792/5174），跑法见 CONTRIBUTING；本清单在其上覆盖 **AI 真实 run 路径**（需 key）。
