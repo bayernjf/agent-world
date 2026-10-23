@@ -36,7 +36,7 @@
     "stripe": "^22.6.2",
     "tesseract.js": "^7.0.0",
     "undici": "^7.30.0",
-    "zod": "^3.25.76"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/jpeg-js": "^0.3.7",

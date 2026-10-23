@@ -130,6 +130,21 @@ export function routingWorker(config?: AppConfig): Worker {
 
   return {
     async *runTextGen(args): AsyncGenerator<AgentChunk, { output: string; usage: Usage }> {
+      // WORKER=fake is the documented offline switch: every model call fabricates
+      // text in-process without contacting a provider. The image/video/audio path
+      // already routes through workerFor() which honors it; text and judge go
+      // through failoverCandidates instead, so they must short-circuit here too —
+      // otherwise a keyless local boot (the expected fake mode) 401s on the built-in
+      // agnes gateway instead of running for real.
+      if (process.env.WORKER === "fake") {
+        const gen = fakeWorker().runTextGen(args);
+        let next = await gen.next();
+        while (!next.done) {
+          yield next.value;
+          next = await gen.next();
+        }
+        return next.value;
+      }
       const cfg = await getConfig();
       const candidates = failoverCandidates(cfg, args.config.model);
       let lastErr: unknown;
@@ -170,6 +185,11 @@ export function routingWorker(config?: AppConfig): Worker {
       throw lastErr;
     },
     async judge(args) {
+      // Same offline switch as runTextGen: gates must fabricate a pass in-process
+      // rather than calling a keyless gateway.
+      if (process.env.WORKER === "fake") {
+        return fakeWorker().judge(args);
+      }
       const cfg = await getConfig();
       // Gates carry no agent config of their own, so judge with the live default
       // model (not a hard-coded provider-specific name).

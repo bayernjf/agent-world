@@ -30,7 +30,7 @@ export const Artifact = z.object({
   /** Size in bytes, if known. */
   sizeBytes: z.number().int().nonnegative().optional(),
   /** Kind-specific metadata (dimensions, duration, prompt, etc.). */
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 export type Artifact = z.infer<typeof Artifact>;
 

@@ -3,6 +3,7 @@ import { audit } from "../audit.js";
 import { runBatch } from "../batch.js";
 import { loadConfig } from "../config.js";
 import { validateModels } from "../validate-models.js";
+import { resolveModelSlots } from "../model-slots.js";
 import { buildFailureInfo, diagnoseRun } from "../diagnose.js";
 import { quotaResponseBody } from "../dispatch-gate.js";
 import type { SnapshotLike } from "../graph-snapshot.js";
@@ -215,7 +216,15 @@ app.post("/api/runs", async (c) => {
   const graph = await db.getGraph(graphId, ownerId);
   if (!graph) return c.json({ error: "graph not found" }, 404);
 
-  const modelDiags = validateModels(graph, await loadConfig(ownerId));
+  // `model: ""` is the "follow the current default" convention
+  // (design-model-catalog rule B). startRun resolves slots before it validates;
+  // this pre-dispatch check must mirror that, otherwise built-in templates that
+  // ship with empty model slots 422 here even though startRun would resolve and
+  // dispatch them fine. Resolving is idempotent: graphs pinned to concrete
+  // models return the same reference.
+  const runConfig = await loadConfig(ownerId);
+  const dispatchGraph = resolveModelSlots(graph, runConfig);
+  const modelDiags = validateModels(dispatchGraph, runConfig);
   const modelErrors = modelDiags.filter((d) => d.severity === "error");
   if (modelErrors.length > 0) {
     const summary =

@@ -57,7 +57,7 @@ export const Usage = z.object({
   /** Reasoning/thinking tokens, when the model emits them separately. */
   reasoningTokens: z.number().int().min(0).optional(),
   /** Non-token usage for image/video/audio models (images, seconds, characters). */
-  units: z.record(z.number().min(0)).optional(),
+  units: z.record(z.string(), z.number().min(0)).optional(),
 });
 export type Usage = z.infer<typeof Usage>;
 
@@ -186,7 +186,7 @@ export const RunEvent = z.discriminatedUnion("type", [
     artifactId: z.string().optional(),
     /** Kind of the carried artifact, for truck rendering. */
     artifactKind: Artifact.shape.kind.optional(),
-    metadata: z.record(z.unknown()).optional(),
+    metadata: z.record(z.string(), z.unknown()).optional(),
   }),
   /** A node produced a typed artifact (image, video, audio, file, json, ...). */
   z.object({

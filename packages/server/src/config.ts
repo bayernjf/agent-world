@@ -227,11 +227,11 @@ const ModelPricingSchema = z.object({
 });
 
 const VideoAdapterSchema = z.object({
-  createBody: z.record(z.unknown()).optional(),
+  createBody: z.record(z.string(), z.unknown()).optional(),
   omitDuration: z.boolean().optional(),
   /** Legacy width/height map (e.g. OpenAI-style gateways). New adapters prefer
    *  `aspectAsRatio`; agnes 2.5-flash uses `size:"720P"` + `aspect_ratio`. */
-  aspectToSize: z.record(z.object({ width: z.number(), height: z.number() })).optional(),
+  aspectToSize: z.record(z.string(), z.object({ width: z.number(), height: z.number() })).optional(),
   /** When true, `config.aspect` is sent verbatim as `aspect_ratio` instead of
    *  being mapped through aspectToSize. */
   aspectAsRatio: z.boolean().optional(),
@@ -269,9 +269,9 @@ const ProviderConfigSchema = z.object({
   baseUrl: z.string().optional(),
   apiKey: z.string().optional(),
   models: z.array(z.string()),
-  pricing: z.record(ModelPricingSchema).optional(),
-  modalities: z.record(z.enum(MODALITIES as [Modality, ...Modality[]])).optional(),
-  endpoints: z.record(z.string()).optional(),
+  pricing: z.record(z.string(), ModelPricingSchema).optional(),
+  modalities: z.record(z.string(), z.enum(MODALITIES as [Modality, ...Modality[]])).optional(),
+  endpoints: z.record(z.string(), z.string()).optional(),
   videoAdapter: VideoAdapterSchema.optional(),
   enabled: z.boolean().optional(),
   source: z.enum(["builtin", "custom"]).optional(),
@@ -288,23 +288,23 @@ const UserMcpServerSchema = z.object({
   id: z.string().min(1).max(64),
   name: z.string().min(1).max(80).optional(),
   transport: z.enum(["http", "sse"]),
-  url: z.string().url(),
+  url: z.url(),
   /** Auth headers. Values are redacted on read and round-tripped on write,
    *  same rule as searchConfig keys. */
-  headers: z.record(z.string()).optional(),
+  headers: z.record(z.string(), z.string()).optional(),
   enabled: z.boolean().default(true),
 });
 export type UserMcpServer = z.infer<typeof UserMcpServerSchema>;
 
 export const AppConfigSchema = z.object({
-  providers: z.record(ProviderConfigSchema),
+  providers: z.record(z.string(), ProviderConfigSchema),
   defaultModel: z.string(),
   defaultProvider: z.string(),
   modelOrder: z.array(z.string()).optional(),
   monthlyBudgetUsd: z.number().nullable().optional(),
   autoSnapshot: z.object({ minIntervalMs: z.number().optional(), maxKeep: z.number().optional() }).optional(),
   searchConfig: SearchConfigSchema.optional(),
-  featureFlags: z.record(z.boolean()).optional(),
+  featureFlags: z.record(z.string(), z.boolean()).optional(),
   /** Remote MCP servers this user connected. Credentials ride along inside the
    *  settings blob, which is encrypted as a whole before it reaches the DB. */
   mcpServers: z.array(UserMcpServerSchema).optional(),
@@ -313,7 +313,7 @@ export const AppConfigSchema = z.object({
   failover: z
     .object({
       enabled: z.boolean().optional(),
-      chains: z.record(z.array(z.object({ provider: z.string(), model: z.string() }))).optional(),
+      chains: z.record(z.string(), z.array(z.object({ provider: z.string(), model: z.string() }))).optional(),
     })
     .optional(),
 });
