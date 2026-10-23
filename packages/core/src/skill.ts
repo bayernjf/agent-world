@@ -46,7 +46,9 @@ export const SkillPermissions = z
      *  approval before execution (4D.7 / dangerous-action halt). */
     danger: z.boolean().optional(),
   })
-  .default({});
+  // zod v4 returns the default value as-is (no inner re-parse), so the default
+  // must carry the required output fields (`subprocess`, `env`) explicitly.
+  .default(() => ({ subprocess: false, env: [] }));
 export type SkillPermissions = z.infer<typeof SkillPermissions>;
 
 export const Skill = z.object({
@@ -65,7 +67,7 @@ export const Skill = z.object({
    * tool registry. Prompt-module skills contribute text to the system prompt.
    * Output-contract skills carry a schema id; judge skills carry a judge id.
    */
-  config: z.record(z.unknown()).default({}),
+  config: z.record(z.string(), z.unknown()).default({}),
 });
 export type Skill = z.infer<typeof Skill>;
 
@@ -78,7 +80,7 @@ export type Skill = z.infer<typeof Skill>;
 export const SkillMount = z.object({
   id: z.string().min(1),
   /** Per-mount overrides merged over Skill.config. */
-  config: z.record(z.unknown()).default({}),
+  config: z.record(z.string(), z.unknown()).default({}),
   enabled: z.boolean().default(true),
 });
 export type SkillMount = z.infer<typeof SkillMount>;

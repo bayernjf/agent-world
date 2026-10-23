@@ -283,9 +283,9 @@ export const HttpNodeConfig = z.object({
   /** Target URL; may contain variable interpolations like `${source.foo}`. */
   url: z.string().min(1),
   /** Extra request headers; values may contain variable interpolations. */
-  headers: z.record(z.string()).default({}),
+  headers: z.record(z.string(), z.string()).default({}),
   /** URL query parameters; values may contain variable interpolations. */
-  query: z.record(z.string()).default({}),
+  query: z.record(z.string(), z.string()).default({}),
   /** Request body (string); may contain variable interpolations. */
   body: z.string().optional(),
   /** Request timeout in milliseconds. */
@@ -423,7 +423,7 @@ export const FanoutConfig = z
     const check = (arr: unknown[] | undefined, field: string) => {
       if (arr !== undefined && arr.length !== cfg.count) {
         ctx.addIssue({
-          code: z.ZodIssueCode.custom,
+          code: "custom",
           message: `${field} 长度必须等于 count（${cfg.count}），实际 ${arr.length}`,
           path: [field],
         });
@@ -697,11 +697,11 @@ export const NotifyConfig = z.object({
   /** Static message body; falls back to the upstream text artifact when empty. */
   message: z.string().default(""),
   /** Group-bot webhook URL (feishu / dingtalk / wecom). */
-  webhookUrl: z.string().url().optional(),
+  webhookUrl: z.url().optional(),
   /** DingTalk signed-bot secret (optional, only for dingtalk). */
   secret: z.string().optional(),
   /** Recipient email address (provider = email). */
-  to: z.string().email().optional(),
+  to: z.email().optional(),
   /** Email subject; defaults to the node name. */
   subject: z.string().optional(),
   /** Slack channel id (provider = slack). */
@@ -740,7 +740,6 @@ export const VcsConfig = z.object({
   token: z.string().optional(),
   /** Self-hosted GitLab API base (e.g. https://git.corp.example/api/v4); falls back to GITLAB_API_URL. */
   baseUrl: z
-    .string()
     .url()
     // `.url()` alone accepts opaque schemes ("git.corp:8080" parses as scheme
     // `git`), which would fail later inside the SSRF guard with a message about
@@ -768,7 +767,7 @@ export const VcsConfig = z.object({
   /** Ref (branch) to trigger the workflow/pipeline on. */
   ref: z.string().optional(),
   /** Workflow/pipeline inputs. */
-  inputs: z.record(z.string()).optional(),
+  inputs: z.record(z.string(), z.string()).optional(),
   /** Issue state filter for list_issues. */
   state: z.enum(["open", "closed", "all"]).optional(),
   /** Which upstream node to take body/title from. Defaults to the single flow predecessor. */
@@ -869,9 +868,9 @@ export type FileConnector = z.infer<typeof FileConnector>;
 
 /** Fetches data over HTTP(S); optional field extraction maps the response to source text. */
 export const HttpConnector = z.object({
-  url: z.string().url(),
+  url: z.url(),
   method: z.enum(["GET", "POST"]).default("GET"),
-  headers: z.record(z.string()).optional(),
+  headers: z.record(z.string(), z.string()).optional(),
   auth: z.object({ type: z.enum(["basic", "bearer"]), token: z.string() }).optional(),
   /** If set, only these dot-paths of the response become the source text. */
   extract: z.array(z.string()).optional(),
@@ -936,7 +935,7 @@ export const ProductConnector = z.object({
   /** How products are chosen: explicit ids, a field filter, or every active row. */
   selection: z.enum(["manual", "filter", "all"]).default("manual"),
   /** Field filters applied when `selection` is "filter" (e.g. `{ category: "美妆" }`). */
-  filter: z.record(z.string()).optional(),
+  filter: z.record(z.string(), z.string()).optional(),
 });
 export type ProductConnector = z.infer<typeof ProductConnector>;
 
@@ -992,7 +991,7 @@ export const SourceConfig = z.object({
   /** User-defined fields, key → value. Values join the brief and are reachable
    *  downstream as `${srcId.custom.key}`; each value supports `${...}`
    *  interpolation against the connector payload. */
-  custom: z.record(z.string()).optional(),
+  custom: z.record(z.string(), z.string()).optional(),
   /** Declarative data source (file/http/form). When set, the engine pulls raw
    *  material from it instead of relying on the manual text fields above. */
   connector: ConnectorConfig.optional(),
@@ -1088,7 +1087,7 @@ export const TriggerConfig = z.object({
     .object({
       source: z.enum(["csv", "rows"]),
       path: z.string().optional(),
-      rows: z.array(z.record(z.string())).optional(),
+      rows: z.array(z.record(z.string(), z.string())).optional(),
     })
     .optional(),
   /** Whether the trigger is currently active. */
@@ -1109,7 +1108,7 @@ export const Graph = z.object({
    * Nodes can read them via `${var.xxx}` and agents can update them through the
    * built-in `set_variable` / `get_variable` tools.
    */
-  variables: z.record(z.unknown()).optional(),
+  variables: z.record(z.string(), z.unknown()).optional(),
 });
 export type Graph = z.infer<typeof Graph>;
 

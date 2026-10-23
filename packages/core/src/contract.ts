@@ -52,7 +52,7 @@ export interface ContractSpec {
 
 const ItemSpecSchema = z.object({
   requiredFields: z.array(z.string()).default([]),
-  types: z.record(z.enum(CONTRACT_FIELD_TYPES)).optional(),
+  types: z.record(z.string(), z.enum(CONTRACT_FIELD_TYPES)).optional(),
 });
 
 /**
@@ -63,7 +63,7 @@ const ItemSpecSchema = z.object({
 export const ContractSpecSchema = z.object({
   root: z.enum(["object", "array"]).optional(),
   requiredFields: z.array(z.string()).default([]),
-  types: z.record(z.enum(CONTRACT_FIELD_TYPES)).optional(),
+  types: z.record(z.string(), z.enum(CONTRACT_FIELD_TYPES)).optional(),
   items: ItemSpecSchema.optional(),
   minItems: z.number().int().nonnegative().optional(),
 });

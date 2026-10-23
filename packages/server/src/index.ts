@@ -918,9 +918,9 @@ const McpSpecSchema = z
     transport: z.enum(["stdio", "http", "sse"]).optional(),
     command: z.string().optional(),
     args: z.array(z.string()).optional(),
-    env: z.record(z.string()).optional(),
+    env: z.record(z.string(), z.string()).optional(),
     url: z.string().optional(),
-    headers: z.record(z.string()).optional(),
+    headers: z.record(z.string(), z.string()).optional(),
     danger: z.boolean().optional(),
     permissions: SkillPermissions.optional(),
   })
