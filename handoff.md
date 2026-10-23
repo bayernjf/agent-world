@@ -299,6 +299,14 @@ Agnes free tier 429 已按方案 C（降频+长退避 retry）闭环（PR #229 `
 
 按 commit 时间倒序，每条一行影响面 + commit hash：
 
+**2026-10-24（安全债闭合：zod 3→4.6.7 大版本迁移，直推 dev `4f5722d`，**已 push：origin/dev = `4f5722de6f876e1d304393b19a0495249c42b384`，本地=远端 ahead/behind 0/0**）**：
+- **起因**：上一条 T-M7-02 留的尾巴——push run `40024022515` 红在 Dependency audit，**zod <4.6.6 high（GHSA-mrhx-c7xc-m3w5，校验超大约束集合时内存耗尽 DoS）**；patched 从 4.6.6 起、无 3.x backport，必须 3→4 大版本迁移。仓内 core 锁 `^3.24.1`、server 锁 `^3.25.76`，pnpm 解析到 `3.25.76`。
+- **改动面（10 文件 +43/−42）**：core/server `package.json` 锁 `^4.6.7`（解析 4.6.7）+ lockfile；16 个源文件 API 迁移——① 字符串格式方法上提：`z.string().url()`→`z.url()`、`z.string().email()`→`z.email()`（graph.ts NotifyConfig/VcsConfig.baseUrl/HttpConnector、server UserMcpServerSchema），VcsConfig.baseUrl 的 `/^https?:\/\//i` refine 守卫原样保留在 `z.url()` 上；② `z.record(value)` 单参→`z.record(z.string(), value)` 两参（core/server 全部 20+ 处，builtin-catalog 本就是两参未动）；③ superRefine issue code `z.ZodIssueCode.custom`→字符串 `"custom"`（v4 删了 ZodIssueCode 枚举）；④ `SkillPermissions.default({})` 改 `.default(() => ({ subprocess: false, env: [] }))`——**v4 的 ZodDefault 对 undefined 输入直接返回 default 值、不再过内层 object schema**（读 `v4/core/schemas.js:2168` 注释确认），所以 v3 靠内层 default 补出的 `subprocess`/`env` 必须在 default 工厂里显式给出。
+- **未动 / 验证无影响**：`z.enum`（含 `CONTRACT_FIELD_TYPES as const` 与 `MODALITIES as [Modality, ...]` cast）、`z.discriminatedUnion`、`.transform()`、`.passthrough()`/`.strict()`、`.default()` 标量值全部按 v4 语义跑通；apps/web 与 mcp-server 不直接声明 zod，经 core 类型传递无回归。
+- **回归（Node 24.20.0 / pnpm 10.12.1）**：`pnpm -r typecheck` 4 包绿（含根 `tsc -p tsconfig.scripts.json`）；`pnpm -r build` 绿；测试 core **346 passed / 24 文件**、server **1502 passed +5 skipped / 171 文件**、mcp-server **71 passed / 3 文件**、web **2030 passed / 110 文件**——与基线逐项对齐。
+- **audit 取证**：本机 `pnpm audit --audit-level=high --registry=https://registry.npmjs.org/` **exit 0**，输出 `2 vulnerabilities found / Severity: 2 moderate`（均 `@vitest/mocker` 5.0.2 devDep，GHSA-qxg6-89mg-rqv8 / GHSA-xp26-3454-mjgp，<high 阈值不拦；仓内默认 registry 是 npmmirror、无 audit endpoint，CI 在 GitHub runner 上用 npmjs）。grep JSON 输出 `zod|GHSA-mrhx` 零命中。
+- **CI 读数**：push run **`40038766383`**（head `4f5722d`）= **success**，3 job 全绿——Secret leak scan ✓、PostgreSQL path smoke ✓、Typecheck/build/test ✓（14 步逐个 success，含此前红的 **Dependency audit ✓**、Test ✓、E2E ✓）；CodeQL run `40038766385` = success。**上一条记录的 zod 公告已闭合**。
+
 **2026-10-24（T-M7-02 前置：dev 图运行 API 真跑通三条产线，为 zeus 驱动 graph-run API 铺路；dev 直推 3 commit `5ca9314`/`85c79fd`/`e287fff`，**已 push：origin/dev = `e287fffe273ee96af5d52732c749daf6f3f01d07`，本地=远端 ahead/behind 0/0，工作树干净**）**：
 - **分支基线**：本地原停在 stale `feature/20260824`（已全合并），`git checkout dev && git reset --hard origin/dev`（原落后 ~505）落到 `6d597b7`；未删其他分支、未碰 main。Node 24.20.0（fnm）+ pnpm 10.12.1；`pnpm install --frozen-lockfile` OK。
 - **回归基线（零回归）**：`pnpm typecheck` 4 包绿；`pnpm -r build` 绿；测试 core **346 passed / 24 文件**、server **1502 passed +5 skipped / 171 文件**、mcp-server **71 passed / 3 文件**。
