@@ -553,7 +553,10 @@
       "queryLabel": "查询（只读 SELECT，可带 ? 参数）",
       "format": "输出格式",
       "hint": "每次运行产线时实时查询最新数据；只读打开，仅允许 <code>SELECT</code>，写语句会被拒绝。",
-      "pgHint": "每次运行经只读会话实时查询；仅允许 <code>SELECT</code>，写语句会被拒绝。"
+      "pgHint": "每次运行经只读会话实时查询；仅允许 <code>SELECT</code>，写语句会被拒绝。",
+      "paramsLabel": "绑定参数（按顺序对应查询里的 $1、$2…）",
+      "paramsPlaceholder": "参数值（留空 = NULL）",
+      "paramsAdd": "+ 添加绑定参数"
     },
     "product": {
       "selectionLabel": "选择方式",

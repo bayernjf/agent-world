@@ -354,6 +354,18 @@ function DatabaseForm({
   const { t } = useTranslation();
   const driver = value.driver ?? "sqlite";
 
+  // Positional bind params: rows map 1:1 to $1 / $2… in the query, so the row
+  // index IS the placeholder. A blank row binds SQL NULL (position preserved).
+  const params = (value.params ?? []) as unknown[];
+  const updateParam = (i: number, raw: string) => {
+    const next = params.slice();
+    next[i] = raw === "" ? null : raw;
+    patch({ params: next });
+  };
+  const addParam = () => patch({ params: [...params, null] });
+  const removeParam = (i: number) =>
+    patch({ params: params.filter((_, j) => j !== i) });
+
   // Switching drivers keeps query/format while resetting the other driver's
   // connection fields, so the saved config never carries stale credentials.
   const switchDriver = (next: "sqlite" | "postgres") => {
@@ -500,6 +512,37 @@ function DatabaseForm({
           onChange={(e) => patch({ query: e.target.value })}
         />
       </label>
+      {driver === "postgres" && (
+        <div className="field">
+          <span>{t("modals:connector.database.paramsLabel")}</span>
+          {params.map((p, i) => (
+            <div className="form-field-row" key={i}>
+              <label className="field field--inline">
+                <span>${i + 1}</span>
+                <input
+                  className="text-input"
+                  value={p == null ? "" : String(p)}
+                  placeholder={t("modals:connector.database.paramsPlaceholder")}
+                  onFocus={begin}
+                  onBlur={commit}
+                  onChange={(e) => updateParam(i, e.target.value)}
+                />
+              </label>
+              <Tooltip content={t("modals:connector.form.deleteField")}>
+                <button
+                  className="btn btn--ghost btn--icon"
+                  onClick={() => removeParam(i)}
+                >
+                  ×
+                </button>
+              </Tooltip>
+            </div>
+          ))}
+          <button className="btn btn--ghost" onClick={addParam}>
+            {t("modals:connector.database.paramsAdd")}
+          </button>
+        </div>
+      )}
       <label className="field field--inline">
         <span>{t("modals:connector.database.format")}</span>
         <select
