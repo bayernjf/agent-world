@@ -105,6 +105,48 @@ describe("hubProjectionToProviders", () => {
     ]);
     expect(providers["hub-anthropic"]?.type).toBe("anthropic");
   });
+
+  it("reuses the agnes video dialect for an agnes gateway", () => {
+    const providers = hubProjectionToProviders([
+      model({
+        model: "agnes-video-1",
+        baseUrl: "https://apihub.agnes-ai.com/v1",
+        modalities: ["video"],
+        endpoints: { videos: "/videos" },
+        adapter: {
+          retrieval_url_template: "/agnesapi?video_id={jobId}&model_name={model}",
+          result_url_path: "url",
+          duration_path: "seconds",
+        },
+      }),
+    ]);
+    const adapter = providers["hub-agnes-ai"]?.videoAdapter;
+    expect(adapter?.retrievalUrlTemplate).toBe(
+      "/agnesapi?video_id={jobId}&model_name={model}",
+    );
+    expect(adapter?.resultUrlPath).toBe("url");
+    expect(adapter?.aspectAsRatio).toBe(true);
+  });
+
+  it("maps generic video adapter fields for an unknown gateway", () => {
+    const providers = hubProjectionToProviders([
+      model({
+        model: "vid-x",
+        baseUrl: "https://video.example-gw.com",
+        modalities: ["video"],
+        endpoints: { videos: "/videos" },
+        adapter: {
+          retrieval_url_template: "/poll/{jobId}",
+          result_url_path: "output.url",
+          duration_path: "duration",
+        },
+      }),
+    ]);
+    const adapter = providers["hub-video"]?.videoAdapter;
+    expect(adapter?.retrievalUrlTemplate).toBe("/poll/{jobId}");
+    expect(adapter?.resultUrlPath).toBe("output.url");
+    expect(adapter?.durationPath).toBe("duration");
+  });
 });
 
 describe("loadConfig with a bound hub catalog", () => {

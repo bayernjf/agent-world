@@ -1,10 +1,13 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createServer } from "node:http";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Graph } from "@agent-world/core";
+import type { ResolvedModel } from "@model-hub/model-kit";
 import { openDb } from "./db.js";
 import { bindCatalogStore, platformCatalog, refreshPlatformCatalog } from "./builtin-catalog.js";
+import { bindHubCatalog, hubProjectionToProviders } from "./hub-catalog.js";
 
 /**
  * design-model-catalog ④: the operator-facing built-in model catalog. These
@@ -229,5 +232,172 @@ describe("PUT /api/admin/model-catalog", () => {
     });
     expect(res.status).toBeGreaterThanOrEqual(400);
     expect(res.status).toBeLessThan(500);
+  });
+});
+
+describe("L4 hub model test", () => {
+  let fakeUrl: string;
+  let fakeServer: ReturnType<typeof createServer>;
+
+  beforeAll(async () => {
+    // The probe targets a local fake server; allow loopback egress.
+    process.env.ALLOW_PRIVATE_NETWORK = "1";
+    fakeServer = createServer(async (req, res) => {
+      if (req.url === "/chat/completions" && req.method === "POST") {
+        const raw = await new Promise<string>((resolve) => {
+          let data = "";
+          req.on("data", (c) => (data += c));
+          req.on("end", () => resolve(data));
+        });
+        let body: { stream?: boolean } = {};
+        try {
+          body = JSON.parse(raw);
+        } catch {
+          // ignore
+        }
+        if (body.stream) {
+          res.writeHead(200, {
+            "content-type": "text/event-stream",
+            "cache-control": "no-cache",
+          });
+          res.write(
+            `data: ${JSON.stringify({ choices: [{ delta: { content: "pong" }, finish_reason: null }] })}\n\n`,
+          );
+          res.write(
+            `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: "stop" }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } })}\n\n`,
+          );
+          res.write("data: [DONE]\n\n");
+          res.end();
+          return;
+        }
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            model: "hub-probe-model",
+            choices: [
+              { index: 0, message: { role: "assistant", content: "pong" }, finish_reason: "stop" },
+            ],
+            usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+          }),
+        );
+        return;
+      }
+      res.writeHead(404);
+      res.end();
+    });
+    await new Promise<void>((resolve) => fakeServer.listen(0, "127.0.0.1", resolve));
+    const address = fakeServer.address();
+    if (address && typeof address === "object") {
+      fakeUrl = `http://127.0.0.1:${address.port}`;
+    }
+  });
+
+  afterAll(() => {
+    fakeServer.close();
+    bindHubCatalog(null);
+    delete process.env.ALLOW_PRIVATE_NETWORK;
+  });
+
+  function bindHub(models: ResolvedModel[]) {
+    const providers = hubProjectionToProviders(models);
+    bindHubCatalog({
+      kit: {
+        revision: 5,
+        list: () => models,
+        testConnection: async (
+          target: string,
+          opts: { driverFactory?: (m: ResolvedModel) => { probe: () => Promise<unknown> } },
+        ) => {
+          const resolved = models.find((m) => m.model === target);
+          if (!resolved) throw new Error("not found");
+          if (opts.driverFactory) return opts.driverFactory(resolved).probe();
+          throw new Error("no driver");
+        },
+      } as never,
+      providers: () => providers,
+      sync: async () => ({ revision: 5, pulled: models.length }),
+    });
+  }
+
+  it("answers 409 when the hub is not configured", async () => {
+    const admin = await makeUser("cat-l4-nohub@test.dev", "admin");
+    bindHubCatalog(null);
+    const res = await app.request("/api/admin/model-catalog/test", {
+      method: "POST",
+      headers: hdr(admin.token),
+      body: JSON.stringify({ model: "x" }),
+    });
+    expect(res.status).toBe(409);
+  });
+
+  it("answers 400 without a model and 404 when the model is not assigned", async () => {
+    const admin = await makeUser("cat-l4-missing@test.dev", "admin");
+    const resolved: ResolvedModel = {
+      assignmentId: "asn_probe",
+      alias: "hub-probe-model",
+      role: "primary",
+      modalities: ["text"],
+      model: "hub-probe-model",
+      litellmId: null,
+      displayName: null,
+      protocol: "openai-compatible",
+      baseUrl: fakeUrl,
+      apiKey: "sk-probe",
+      endpoints: { chat: "/chat/completions" },
+      adapter: null,
+      contextWindow: null,
+      supportsJson: true,
+      supportsStream: true,
+      dailyBudgetMicros: null,
+      pricing: null,
+      source: "hub",
+    };
+    bindHub([resolved]);
+    const noModel = await app.request("/api/admin/model-catalog/test", {
+      method: "POST",
+      headers: hdr(admin.token),
+      body: JSON.stringify({}),
+    });
+    expect(noModel.status).toBe(400);
+    const notAssigned = await app.request("/api/admin/model-catalog/test", {
+      method: "POST",
+      headers: hdr(admin.token),
+      body: JSON.stringify({ model: "other-model" }),
+    });
+    expect(notAssigned.status).toBe(404);
+  });
+
+  it("runs a successful probe through the real worker", async () => {
+    const admin = await makeUser("cat-l4-ok@test.dev", "admin");
+    const resolved: ResolvedModel = {
+      assignmentId: "asn_probe",
+      alias: "hub-probe-model",
+      role: "primary",
+      modalities: ["text"],
+      model: "hub-probe-model",
+      litellmId: null,
+      displayName: null,
+      protocol: "openai-compatible",
+      baseUrl: fakeUrl,
+      apiKey: "sk-probe",
+      endpoints: { chat: "/chat/completions" },
+      adapter: null,
+      contextWindow: null,
+      supportsJson: true,
+      supportsStream: true,
+      dailyBudgetMicros: null,
+      pricing: null,
+      source: "hub",
+    };
+    bindHub([resolved]);
+    const res = await app.request("/api/admin/model-catalog/test", {
+      method: "POST",
+      headers: hdr(admin.token),
+      body: JSON.stringify({ model: "hub-probe-model" }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { ok: boolean; scope: string };
+    expect(body.ok).toBe(true);
+    expect(body.scope).toBe("L4");
   });
 });
