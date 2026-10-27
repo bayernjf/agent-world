@@ -423,6 +423,81 @@ describe("ConnectorEditor", () => {
         }),
       );
     });
+
+    const pgParamsConnector: ConnectorConfig = {
+      type: "database",
+      database: {
+        driver: "postgres",
+        host: "db.example.com",
+        port: 5432,
+        database: "app_db",
+        user: "postgres",
+        password: "secret",
+        query: "SELECT * FROM users WHERE id = $1 AND status = $2",
+        ssl: true,
+        format: "json",
+        params: [123, "active"],
+      },
+    };
+
+    it("postgres 时渲染绑定参数行并显示当前值", () => {
+      renderEditor(pgParamsConnector);
+      const rows = screen.getAllByPlaceholderText("参数值（留空 = NULL）");
+      expect(rows).toHaveLength(2);
+      expect(rows[0]).toHaveValue("123");
+      expect(rows[1]).toHaveValue("active");
+    });
+
+    it("修改参数值调用 onChange 并保留其他行", () => {
+      renderEditor(pgParamsConnector);
+      fireEvent.change(screen.getAllByPlaceholderText("参数值（留空 = NULL）")[0], {
+        target: { value: "456" },
+      });
+      expect(mockOnChange).toHaveBeenCalledWith(
+        expect.objectContaining({
+          database: expect.objectContaining({ params: ["456", "active"] }),
+        }),
+      );
+    });
+
+    it("添加一行绑定参数，新行按 NULL 占位", () => {
+      renderEditor(pgParamsConnector);
+      fireEvent.click(screen.getByRole("button", { name: "+ 添加绑定参数" }));
+      expect(mockOnChange).toHaveBeenCalledWith(
+        expect.objectContaining({
+          database: expect.objectContaining({ params: [123, "active", null] }),
+        }),
+      );
+    });
+
+    it("删除中间绑定参数行", () => {
+      renderEditor(pgParamsConnector);
+      fireEvent.click(screen.getAllByRole("button", { name: "×" })[0]);
+      expect(mockOnChange).toHaveBeenCalledWith(
+        expect.objectContaining({
+          database: expect.objectContaining({ params: ["active"] }),
+        }),
+      );
+    });
+
+    it("清空参数值即绑定 null 且保持位置", () => {
+      renderEditor(pgParamsConnector);
+      fireEvent.change(screen.getAllByPlaceholderText("参数值（留空 = NULL）")[0], {
+        target: { value: "" },
+      });
+      expect(mockOnChange).toHaveBeenCalledWith(
+        expect.objectContaining({
+          database: expect.objectContaining({ params: [null, "active"] }),
+        }),
+      );
+    });
+
+    it("sqlite 时不显示绑定参数区", () => {
+      renderEditor(dbConnector);
+      expect(
+        screen.queryByPlaceholderText("参数值（留空 = NULL）"),
+      ).not.toBeInTheDocument();
+    });
   });
 
   describe("测试连接", () => {

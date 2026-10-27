@@ -553,7 +553,10 @@
       "queryLabel": "Query (read-only SELECT, may take ? parameters)",
       "format": "Output format",
       "hint": "Queries the latest data on every run; opened read-only, only <code>SELECT</code> is allowed and writes are rejected.",
-      "pgHint": "Queried live on each run over a read-only session; only <code>SELECT</code> is allowed and writes are rejected."
+      "pgHint": "Queried live on each run over a read-only session; only <code>SELECT</code> is allowed and writes are rejected.",
+      "paramsLabel": "Bind params (in order, matching $1, $2… in the query)",
+      "paramsPlaceholder": "Value (blank = NULL)",
+      "paramsAdd": "+ Add bind param"
     },
     "product": {
       "selectionLabel": "Selection",
