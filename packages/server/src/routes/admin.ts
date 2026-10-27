@@ -4,8 +4,10 @@ import { audit } from "../audit.js";
 import { clientIp, EMAIL_RE } from "./shared.js";
 import { hashPassword } from "../auth.js";
 import { PlatformCatalogSchema, catalogPriceGaps, describeCatalogChange, mergeBuiltinCatalog, platformCatalog, writePlatformCatalog } from "../builtin-catalog.js";
-import { builtinCodeDefaults } from "../config.js";
+import { builtinCodeDefaults, type ProviderConfig } from "../config.js";
 import { getHubCatalog, isHubConfigured } from "../hub-catalog.js";
+import { openAICompatibleWorker, ProviderError } from "../providers/openai-compatible.js";
+import type { DriverFactory, ResolvedModel } from "@model-hub/model-kit";
 import { recentErrors } from "../errors.js";
 import { log } from "../logger.js";
 import { graphAccessRole } from "../rbac.js";
@@ -271,6 +273,104 @@ app.post("/api/admin/model-catalog/hub-sync", async (c) => {
     ip: clientIp(c),
   });
   return c.json({ ok: true, ...result });
+});
+
+/**
+ * L4 driver factory: run the probe through agent-world's real OpenAI-compatible
+ * worker (the same call path a run uses, including the video dialect), not a
+ * generic fetch. Text only for the minimal probe; image/video are exercised via
+ * the existing /api/providers/test path.
+ */
+function hubDriverFactory(provider: ProviderConfig): DriverFactory {
+  const worker = openAICompatibleWorker(provider);
+  return (model: ResolvedModel) => ({
+    probe: async () => {
+      const start = Date.now();
+      try {
+        const node = {
+          id: "probe",
+          kind: "textGen",
+          name: "probe",
+          x: 0,
+          y: 0,
+          textGen: {
+            model: model.model,
+            prompt: "ping",
+            skills: [],
+            temperature: 0,
+            timeoutMs: 15_000,
+          },
+        } as never;
+        const config = {
+          model: model.model,
+          prompt: "ping",
+          skills: [],
+          temperature: 0,
+          timeoutMs: 15_000,
+          inputPolicy: { mode: "all" },
+          retry: { maxRetries: 0, baseDelayMs: 1000, maxDelayMs: 1000 },
+        } as never;
+        const gen = worker.runTextGen({
+          node,
+          config,
+          attempt: 0,
+          input: "ping",
+          signal: AbortSignal.timeout(15_000),
+        });
+        let next = await gen.next();
+        while (!next.done) next = await gen.next();
+        const result = next.value;
+        return {
+          ok: Boolean(result.output),
+          latency_ms: Date.now() - start,
+          scope: "L4",
+        };
+      } catch (err) {
+        const codeMap: Record<string, string> = {
+          TIMEOUT: "network",
+          RATE_LIMIT: "rate_limited",
+          PROVIDER_ERROR: "server_error",
+          AUTH: "unauthorized",
+          UNSUPPORTED: "model_not_found",
+        };
+        const code = err instanceof ProviderError ? codeMap[err.code] ?? "server_error" : "server_error";
+        return {
+          ok: false,
+          latency_ms: Date.now() - start,
+          scope: "L4",
+          error: { code, detail: errMsg(err) },
+        };
+      }
+    },
+  });
+}
+
+// L4: test a hub-assigned model end to end through the real worker.
+app.post("/api/admin/model-catalog/test", async (c) => {
+  const userId = c.get("userId");
+  if (!(await isModelCatalogAdmin(userId))) return c.json({ error: "forbidden" }, 403);
+  const hub = getHubCatalog();
+  if (!hub) {
+    return c.json({ error: "hub_not_configured" }, 409);
+  }
+  const body = (await c.req.json().catch(() => ({}))) as { model?: string };
+  const modelName = (body.model ?? "").trim();
+  if (!modelName) return c.json({ error: "model_required" }, 400);
+  const owner = Object.entries(hub.providers()).find(([, p]) =>
+    p.models.includes(modelName),
+  );
+  if (!owner) {
+    return c.json({ error: "model_not_assigned" }, 404);
+  }
+  const result = await hub.kit.testConnection(modelName, {
+    driverFactory: hubDriverFactory(owner[1]),
+  });
+  audit(db, userId, "model.catalog_l4_test", {
+    objectType: "model_catalog",
+    detail: { model: modelName, ok: result.ok },
+    ip: clientIp(c),
+  });
+  return c.json(result);
 });
 
 // Whole-catalog write, not per-field PATCH: the overlay's semantics are

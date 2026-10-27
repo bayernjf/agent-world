@@ -14,11 +14,45 @@
  * live only in the model-kit's 0600 cache and in memory — they are never
  * written into the agent-world DB or the settings blob.
  */
-import { ModelKit, type ResolvedModel } from "@model-hub/model-kit";
+import { ModelKit, type AdapterConfig, type ResolvedModel } from "@model-hub/model-kit";
 import type { ProviderConfig } from "./config.js";
+import { AGNES_VIDEO_ADAPTER, type VideoDialect } from "./video-dialects.js";
 import type { Modality, ModelPricing } from "@agent-world/core";
 
 const HUB_PROVIDER_PREFIX = "hub-";
+
+/**
+ * Full video dialects for gateways whose video API is known to diverge from the
+ * plain OpenAI shape, keyed by the inferred provider key. When the hub projects
+ * such a gateway, the code dialect is reused rather than reconstructed from the
+ * generic adapter fields.
+ */
+const VIDEO_DIALECTS: Record<string, VideoDialect> = {
+  "agnes-ai": AGNES_VIDEO_ADAPTER,
+};
+
+/**
+ * Build a video adapter for a hub provider. A known gateway reuses its full
+ * dialect; otherwise the generic hub adapter fields are mapped when present.
+ */
+function mapVideoAdapter(
+  providerKeyName: string,
+  adapter: AdapterConfig | null,
+): ProviderConfig["videoAdapter"] {
+  const known = VIDEO_DIALECTS[providerKeyName];
+  if (known) return known;
+  if (!adapter) return undefined;
+  const mapped: NonNullable<ProviderConfig["videoAdapter"]> = {};
+  if (typeof adapter.retrieval_url_template === "string")
+    mapped.retrievalUrlTemplate = adapter.retrieval_url_template;
+  if (typeof adapter.result_url_path === "string")
+    mapped.resultUrlPath = adapter.result_url_path;
+  if (typeof adapter.duration_path === "string")
+    mapped.durationPath = adapter.duration_path;
+  if (typeof adapter.seconds_field === "string")
+    mapped.secondsField = adapter.seconds_field;
+  return Object.keys(mapped).length > 0 ? mapped : undefined;
+}
 
 /** Map the hub flat pricing to agent-world ModelPricing. */
 function mapPricing(model: ResolvedModel): ModelPricing | undefined {
@@ -71,11 +105,16 @@ export function hubProjectionToProviders(models: ResolvedModel[]): Record<string
     const pricing: Record<string, ModelPricing> = {};
     const modalities: Record<string, Modality> = {};
     const endpoints: Partial<Record<Modality, string>> = {};
+    // The video dialect comes from the first video-capable model's adapter.
+    let videoAdapter: ProviderConfig["videoAdapter"];
     for (const m of list) {
       const mapped = mapPricing(m);
       if (mapped) pricing[m.model] = mapped;
       const modality = (m.modalities[0] ?? "text") as Modality;
       modalities[m.model] = modality;
+      if (m.modalities.includes("video") && !videoAdapter) {
+        videoAdapter = mapVideoAdapter(key, m.adapter);
+      }
       if (m.endpoints.images) endpoints.image = m.endpoints.images;
       if (m.endpoints.videos) endpoints.video = m.endpoints.videos;
       if (m.endpoints.embeddings) endpoints.embedding = m.endpoints.embeddings;
@@ -92,6 +131,7 @@ export function hubProjectionToProviders(models: ResolvedModel[]): Record<string
       pricing: Object.keys(pricing).length > 0 ? pricing : undefined,
       modalities,
       endpoints: Object.keys(endpoints).length > 0 ? endpoints : undefined,
+      videoAdapter,
     };
   }
   return providers;

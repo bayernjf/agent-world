@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import { mergeBuiltinCatalog, platformCatalog } from "./builtin-catalog.js";
 import { getHubCatalog } from "./hub-catalog.js";
+import { AGNES_VIDEO_ADAPTER } from "./video-dialects.js";
 import {
   DEFAULT_MODALITY,
   MODALITIES,
@@ -373,27 +374,7 @@ const AGNES_PROVIDER: ProviderConfig = {
   // - flash is fixed to `size:"720P"` + `aspect_ratio` (width/height ignored);
   // - duration is `seconds` as a string "4"–"12";
   // - async retrieval is GET /agnesapi?video_id=..&model_name=.. (outside /v1).
-  videoAdapter: {
-    // mode is taken from the node's VideoGenConfig (default "text").
-    createBody: { size: "720P" },
-    aspectAsRatio: true,
-    maxN: 1,
-    omitDuration: false,
-    secondsField: "seconds",
-    secondsRange: [4, 12],
-    // keyframe first-frame / reference images (URLs, ≤5 for flash).
-    firstFramePath: "first_frame",
-    imagesPath: "images",
-    // Leading "/" resolves against the base origin, giving
-    // https://apihub.agnes-ai.com/agnesapi?video_id=..&model_name=..
-    retrievalUrlTemplate: "/agnesapi?video_id={jobId}&model_name={model}",
-    // The completed task carries the video URL at the top-level `url` field
-    // (metadata is empty); the parser falls back to metadata.url/output[0].
-    resultUrlPath: "url",
-    // Real produced duration is reported as a numeric STRING, e.g. "5.0"
-    // (verified live 2026-09-09); videoBillingSeconds coerces it.
-    durationPath: "seconds",
-  },
+  videoAdapter: AGNES_VIDEO_ADAPTER,
 };
 
 /**
