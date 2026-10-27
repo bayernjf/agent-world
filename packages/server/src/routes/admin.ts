@@ -5,6 +5,7 @@ import { clientIp, EMAIL_RE } from "./shared.js";
 import { hashPassword } from "../auth.js";
 import { PlatformCatalogSchema, catalogPriceGaps, describeCatalogChange, mergeBuiltinCatalog, platformCatalog, writePlatformCatalog } from "../builtin-catalog.js";
 import { builtinCodeDefaults } from "../config.js";
+import { getHubCatalog, isHubConfigured } from "../hub-catalog.js";
 import { recentErrors } from "../errors.js";
 import { log } from "../logger.js";
 import { graphAccessRole } from "../rbac.js";
@@ -241,6 +242,37 @@ app.get("/api/admin/model-catalog", async (c) => {
   return c.json(modelCatalogView());
 });
 
+// Hub status (W6-4): whether the built-in plane is synced from model-hub.
+app.get("/api/admin/model-catalog/hub-status", async (c) => {
+  if (!(await isModelCatalogAdmin(c.get("userId")))) return c.json({ error: "forbidden" }, 403);
+  const hub = getHubCatalog();
+  return c.json({
+    configured: isHubConfigured(),
+    revision: hub ? hub.kit.revision : null,
+    pulled: hub ? hub.providers() : {},
+  });
+});
+
+// Force a re-pull of the hub projection.
+app.post("/api/admin/model-catalog/hub-sync", async (c) => {
+  const userId = c.get("userId");
+  if (!(await isModelCatalogAdmin(userId))) return c.json({ error: "forbidden" }, 403);
+  const hub = getHubCatalog();
+  if (!hub) {
+    return c.json(
+      { error: "hub_not_configured", message: "MODEL_HUB_URL/TOKEN are not configured." },
+      409,
+    );
+  }
+  const result = await hub.sync();
+  audit(db, userId, "model.catalog_hub_sync", {
+    objectType: "model_catalog",
+    detail: { revision: result.revision, pulled: result.pulled },
+    ip: clientIp(c),
+  });
+  return c.json({ ok: true, ...result });
+});
+
 // Whole-catalog write, not per-field PATCH: the overlay's semantics are
 // "replace the maps", so a partial body would mean different things for
 // different fields and an accidental omission could retire a model. `null` for
@@ -248,6 +280,17 @@ app.get("/api/admin/model-catalog", async (c) => {
 app.put("/api/admin/model-catalog", async (c) => {
   const userId = c.get("userId");
   if (!(await isModelCatalogAdmin(userId))) return c.json({ error: "forbidden" }, 403);
+  // When the hub is active the built-in plane is read-only (it is synced from
+  // model-hub): a local write would be overwritten on the next pull.
+  if (isHubConfigured()) {
+    return c.json(
+      {
+        error: "catalog_synced_from_hub",
+        message: "The built-in catalog is synced from model-hub; edit it in the hub.",
+      },
+      410,
+    );
+  }
   const d = await blockDemo(c, "admin");
   if (d) return d;
   const body = (await c.req.json().catch(() => null)) as unknown;
@@ -308,11 +351,38 @@ export function modelCatalogView() {
     // tier is unusable, and a write can never change either field anyway.
     hasKey: Boolean(p.apiKey),
   });
-  const providers: Record<string, unknown> = {};
   const codeView: Record<string, unknown> = {};
   for (const [name, def] of Object.entries(code)) {
-    providers[name] = shape(mergeBuiltinCatalog(def, overlay[name]));
     codeView[name] = shape(def);
+  }
+
+  // Hub mode: the built-in plane is the hub projection; expose it read-only
+  // (credentials still stripped) and flag the catalog as synced.
+  const hub = getHubCatalog();
+  if (hub) {
+    const hubProviders: Record<string, unknown> = {};
+    for (const [name, p] of Object.entries(hub.providers())) {
+      hubProviders[name] = {
+        type: p.type,
+        models: p.models,
+        modalities: p.modalities ?? {},
+        pricing: p.pricing ?? {},
+        enabled: p.enabled !== false,
+        hasKey: Boolean(p.apiKey),
+      };
+    }
+    return {
+      providers: hubProviders,
+      code: codeView,
+      fromHub: true,
+      revision: hub.kit.revision,
+      gaps: [],
+    };
+  }
+
+  const providers: Record<string, unknown> = {};
+  for (const [name, def] of Object.entries(code)) {
+    providers[name] = shape(mergeBuiltinCatalog(def, overlay[name]));
   }
   return { providers, overlay, code: codeView, gaps: catalogPriceGaps(overlay, code) };
 }

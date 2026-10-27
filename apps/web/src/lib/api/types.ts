@@ -813,7 +813,10 @@ export interface ModelCatalogOverlay {
 
 export interface ModelCatalogView {
   providers: Record<string, CatalogProviderView>;
-  overlay: ModelCatalogOverlay;
+  /** Present when the built-in plane is synced from model-hub (read-only). */
+  fromHub?: boolean;
+  revision?: number | null;
+  overlay?: ModelCatalogOverlay;
   code: Record<string, CatalogProviderView>;
   gaps: Array<{ provider: string; model: string; modality: Modality; level: string; missing: string[] }>;
 }
