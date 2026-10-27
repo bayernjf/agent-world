@@ -140,9 +140,6 @@ const CONNECTOR_SCHEMAS: Record<string, Record<string, unknown>> = {
 };
 
 const CONNECTOR_DEBT: Record<string, Record<string, string>> = {
-  DatabaseConnector: {
-    params: "绑定参数无入口（positional/named；query 里只能把值写死）",
-  },
   FileConnector: { encoding: "utf8/base64 无入口，默认 utf8" },
 };
 
