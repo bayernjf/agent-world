@@ -13,6 +13,12 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # pnpm resolves git-tag dependencies (model-kit) to ssh URLs
+      # (git@github.com:...) in the lockfile; CI has no deploy key, so map
+      # ssh → https (model-hub is public; https clone needs no credentials).
+      - name: Map git ssh to https for dependency clones
+        run: git config --global url."https://github.com/".insteadOf "git@github.com:"
+
       - uses: pnpm/action-setup@v6
 
       - uses: actions/setup-node@v5
@@ -102,6 +108,12 @@ jobs:
           --health-retries 12
     steps:
       - uses: actions/checkout@v5
+
+      # pnpm resolves git-tag dependencies (model-kit) to ssh URLs
+      # (git@github.com:...) in the lockfile; CI has no deploy key, so map
+      # ssh → https (model-hub is public; https clone needs no credentials).
+      - name: Map git ssh to https for dependency clones
+        run: git config --global url."https://github.com/".insteadOf "git@github.com:"
 
       - uses: pnpm/action-setup@v6
 
