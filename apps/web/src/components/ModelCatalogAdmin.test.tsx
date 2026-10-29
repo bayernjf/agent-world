@@ -6,11 +6,13 @@ import { useSession } from "../store/session";
 
 const getModelCatalog = vi.fn();
 const putModelCatalog = vi.fn();
+const syncHubCatalog = vi.fn();
 
 vi.mock("../lib/api", () => ({
   api: {
     getModelCatalog: () => getModelCatalog(),
     putModelCatalog: (c: unknown) => putModelCatalog(c),
+    syncHubCatalog: () => syncHubCatalog(),
   },
 }));
 
@@ -46,6 +48,7 @@ const VIEW = {
 beforeEach(() => {
   getModelCatalog.mockReset();
   putModelCatalog.mockReset();
+  syncHubCatalog.mockReset();
   // The panel now reads the server's answer on /me before asking for the
   // catalog, so the default session is a catalog admin.
   useSession.setState({
@@ -127,5 +130,34 @@ describe("ModelCatalogAdmin", () => {
     });
     render(<ModelCatalogAdmin />);
     expect(await screen.findByText(/settings:modelKeys.catalogGaps:\{"models":"agnes-video-v2\.0"\}/)).toBeInTheDocument();
+  });
+
+  it("renders a read-only hub view and offers a sync button", async () => {
+    const user = userEvent.setup();
+    const hubView = {
+      ...VIEW,
+      fromHub: true,
+      revision: 11,
+      providers: {
+        "hub-agnes-ai": {
+          type: "openai-compatible",
+          models: ["hub-text-1"],
+          modalities: { "hub-text-1": "text" },
+          pricing: { "hub-text-1": { input: 0.4, output: 1.6 } },
+          enabled: true,
+          hasKey: true,
+        },
+      },
+    };
+    getModelCatalog.mockResolvedValue(hubView);
+    syncHubCatalog.mockResolvedValue({ ok: true, revision: 12, pulled: 1 });
+    render(<ModelCatalogAdmin />);
+    // model name is static text, not an editable input
+    expect(await screen.findByText("hub-text-1")).toBeInTheDocument();
+    // no save button (read-only), but a sync button
+    expect(screen.queryByRole("button", { name: "settings:modelKeys.catalogSave" })).toBeNull();
+    const syncBtn = screen.getByRole("button", { name: "settings:modelKeys.hubSync" });
+    await user.click(syncBtn);
+    await waitFor(() => expect(syncHubCatalog).toHaveBeenCalledTimes(1));
   });
 });

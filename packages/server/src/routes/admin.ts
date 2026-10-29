@@ -4,7 +4,10 @@ import { audit } from "../audit.js";
 import { clientIp, EMAIL_RE } from "./shared.js";
 import { hashPassword } from "../auth.js";
 import { PlatformCatalogSchema, catalogPriceGaps, describeCatalogChange, mergeBuiltinCatalog, platformCatalog, writePlatformCatalog } from "../builtin-catalog.js";
-import { builtinCodeDefaults } from "../config.js";
+import { builtinCodeDefaults, type ProviderConfig } from "../config.js";
+import { getHubCatalog, isHubConfigured } from "../hub-catalog.js";
+import { openAICompatibleWorker, ProviderError } from "../providers/openai-compatible.js";
+import type { DriverFactory, ResolvedModel } from "@model-hub/model-kit";
 import { recentErrors } from "../errors.js";
 import { log } from "../logger.js";
 import { graphAccessRole } from "../rbac.js";
@@ -241,6 +244,135 @@ app.get("/api/admin/model-catalog", async (c) => {
   return c.json(modelCatalogView());
 });
 
+// Hub status (W6-4): whether the built-in plane is synced from model-hub.
+app.get("/api/admin/model-catalog/hub-status", async (c) => {
+  if (!(await isModelCatalogAdmin(c.get("userId")))) return c.json({ error: "forbidden" }, 403);
+  const hub = getHubCatalog();
+  return c.json({
+    configured: isHubConfigured(),
+    revision: hub ? hub.kit.revision : null,
+    pulled: hub ? hub.providers() : {},
+  });
+});
+
+// Force a re-pull of the hub projection.
+app.post("/api/admin/model-catalog/hub-sync", async (c) => {
+  const userId = c.get("userId");
+  if (!(await isModelCatalogAdmin(userId))) return c.json({ error: "forbidden" }, 403);
+  const hub = getHubCatalog();
+  if (!hub) {
+    return c.json(
+      { error: "hub_not_configured", message: "MODEL_HUB_URL/TOKEN are not configured." },
+      409,
+    );
+  }
+  const result = await hub.sync();
+  audit(db, userId, "model.catalog_hub_sync", {
+    objectType: "model_catalog",
+    detail: { revision: result.revision, pulled: result.pulled },
+    ip: clientIp(c),
+  });
+  return c.json({ ok: true, ...result });
+});
+
+/**
+ * L4 driver factory: run the probe through agent-world's real OpenAI-compatible
+ * worker (the same call path a run uses, including the video dialect), not a
+ * generic fetch. Text only for the minimal probe; image/video are exercised via
+ * the existing /api/providers/test path.
+ */
+function hubDriverFactory(provider: ProviderConfig): DriverFactory {
+  const worker = openAICompatibleWorker(provider);
+  return (model: ResolvedModel) => ({
+    probe: async () => {
+      const start = Date.now();
+      try {
+        const node = {
+          id: "probe",
+          kind: "textGen",
+          name: "probe",
+          x: 0,
+          y: 0,
+          textGen: {
+            model: model.model,
+            prompt: "ping",
+            skills: [],
+            temperature: 0,
+            timeoutMs: 15_000,
+          },
+        } as never;
+        const config = {
+          model: model.model,
+          prompt: "ping",
+          skills: [],
+          temperature: 0,
+          timeoutMs: 15_000,
+          inputPolicy: { mode: "all" },
+          retry: { maxRetries: 0, baseDelayMs: 1000, maxDelayMs: 1000 },
+        } as never;
+        const gen = worker.runTextGen({
+          node,
+          config,
+          attempt: 0,
+          input: "ping",
+          signal: AbortSignal.timeout(15_000),
+        });
+        let next = await gen.next();
+        while (!next.done) next = await gen.next();
+        const result = next.value;
+        return {
+          ok: Boolean(result.output),
+          latency_ms: Date.now() - start,
+          scope: "L4",
+        };
+      } catch (err) {
+        const codeMap: Record<string, string> = {
+          TIMEOUT: "network",
+          RATE_LIMIT: "rate_limited",
+          PROVIDER_ERROR: "server_error",
+          AUTH: "unauthorized",
+          UNSUPPORTED: "model_not_found",
+        };
+        const code = err instanceof ProviderError ? codeMap[err.code] ?? "server_error" : "server_error";
+        return {
+          ok: false,
+          latency_ms: Date.now() - start,
+          scope: "L4",
+          error: { code, detail: errMsg(err) },
+        };
+      }
+    },
+  });
+}
+
+// L4: test a hub-assigned model end to end through the real worker.
+app.post("/api/admin/model-catalog/test", async (c) => {
+  const userId = c.get("userId");
+  if (!(await isModelCatalogAdmin(userId))) return c.json({ error: "forbidden" }, 403);
+  const hub = getHubCatalog();
+  if (!hub) {
+    return c.json({ error: "hub_not_configured" }, 409);
+  }
+  const body = (await c.req.json().catch(() => ({}))) as { model?: string };
+  const modelName = (body.model ?? "").trim();
+  if (!modelName) return c.json({ error: "model_required" }, 400);
+  const owner = Object.entries(hub.providers()).find(([, p]) =>
+    p.models.includes(modelName),
+  );
+  if (!owner) {
+    return c.json({ error: "model_not_assigned" }, 404);
+  }
+  const result = await hub.kit.testConnection(modelName, {
+    driverFactory: hubDriverFactory(owner[1]),
+  });
+  audit(db, userId, "model.catalog_l4_test", {
+    objectType: "model_catalog",
+    detail: { model: modelName, ok: result.ok },
+    ip: clientIp(c),
+  });
+  return c.json(result);
+});
+
 // Whole-catalog write, not per-field PATCH: the overlay's semantics are
 // "replace the maps", so a partial body would mean different things for
 // different fields and an accidental omission could retire a model. `null` for
@@ -248,6 +380,17 @@ app.get("/api/admin/model-catalog", async (c) => {
 app.put("/api/admin/model-catalog", async (c) => {
   const userId = c.get("userId");
   if (!(await isModelCatalogAdmin(userId))) return c.json({ error: "forbidden" }, 403);
+  // When the hub is active the built-in plane is read-only (it is synced from
+  // model-hub): a local write would be overwritten on the next pull.
+  if (isHubConfigured()) {
+    return c.json(
+      {
+        error: "catalog_synced_from_hub",
+        message: "The built-in catalog is synced from model-hub; edit it in the hub.",
+      },
+      410,
+    );
+  }
   const d = await blockDemo(c, "admin");
   if (d) return d;
   const body = (await c.req.json().catch(() => null)) as unknown;
@@ -308,11 +451,38 @@ export function modelCatalogView() {
     // tier is unusable, and a write can never change either field anyway.
     hasKey: Boolean(p.apiKey),
   });
-  const providers: Record<string, unknown> = {};
   const codeView: Record<string, unknown> = {};
   for (const [name, def] of Object.entries(code)) {
-    providers[name] = shape(mergeBuiltinCatalog(def, overlay[name]));
     codeView[name] = shape(def);
+  }
+
+  // Hub mode: the built-in plane is the hub projection; expose it read-only
+  // (credentials still stripped) and flag the catalog as synced.
+  const hub = getHubCatalog();
+  if (hub) {
+    const hubProviders: Record<string, unknown> = {};
+    for (const [name, p] of Object.entries(hub.providers())) {
+      hubProviders[name] = {
+        type: p.type,
+        models: p.models,
+        modalities: p.modalities ?? {},
+        pricing: p.pricing ?? {},
+        enabled: p.enabled !== false,
+        hasKey: Boolean(p.apiKey),
+      };
+    }
+    return {
+      providers: hubProviders,
+      code: codeView,
+      fromHub: true,
+      revision: hub.kit.revision,
+      gaps: [],
+    };
+  }
+
+  const providers: Record<string, unknown> = {};
+  for (const [name, def] of Object.entries(code)) {
+    providers[name] = shape(mergeBuiltinCatalog(def, overlay[name]));
   }
   return { providers, overlay, code: codeView, gaps: catalogPriceGaps(overlay, code) };
 }

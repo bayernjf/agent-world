@@ -3,6 +3,8 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 import { mergeBuiltinCatalog, platformCatalog } from "./builtin-catalog.js";
+import { getHubCatalog } from "./hub-catalog.js";
+import { AGNES_VIDEO_ADAPTER } from "./video-dialects.js";
 import {
   DEFAULT_MODALITY,
   MODALITIES,
@@ -372,27 +374,7 @@ const AGNES_PROVIDER: ProviderConfig = {
   // - flash is fixed to `size:"720P"` + `aspect_ratio` (width/height ignored);
   // - duration is `seconds` as a string "4"–"12";
   // - async retrieval is GET /agnesapi?video_id=..&model_name=.. (outside /v1).
-  videoAdapter: {
-    // mode is taken from the node's VideoGenConfig (default "text").
-    createBody: { size: "720P" },
-    aspectAsRatio: true,
-    maxN: 1,
-    omitDuration: false,
-    secondsField: "seconds",
-    secondsRange: [4, 12],
-    // keyframe first-frame / reference images (URLs, ≤5 for flash).
-    firstFramePath: "first_frame",
-    imagesPath: "images",
-    // Leading "/" resolves against the base origin, giving
-    // https://apihub.agnes-ai.com/agnesapi?video_id=..&model_name=..
-    retrievalUrlTemplate: "/agnesapi?video_id={jobId}&model_name={model}",
-    // The completed task carries the video URL at the top-level `url` field
-    // (metadata is empty); the parser falls back to metadata.url/output[0].
-    resultUrlPath: "url",
-    // Real produced duration is reported as a numeric STRING, e.g. "5.0"
-    // (verified live 2026-09-09); videoBillingSeconds coerces it.
-    durationPath: "seconds",
-  },
+  videoAdapter: AGNES_VIDEO_ADAPTER,
 };
 
 /**
@@ -589,18 +571,63 @@ function applyPlatformCatalog(cfg: AppConfig): AppConfig {
 }
 
 /**
+ * Merge the model-hub projection into the effective config (W6-4).
+ *
+ * When the hub is active it replaces the code-shipped / operator built-in
+ * plane (agnes, backup): those builtin providers are dropped and the hub
+ * providers are added, while the fake provider and every user-managed custom
+ * (BYOK) provider are kept. Resolution order is therefore
+ * BYOK (custom) > hub > platformCatalog > code seeds.
+ */
+function applyHubCatalog(cfg: AppConfig): AppConfig {
+  const hubCatalog = getHubCatalog();
+  if (!hubCatalog) return cfg;
+  const hubProviders = hubCatalog.providers();
+  const providers: Record<string, ProviderConfig> = {};
+  for (const [name, p] of Object.entries(cfg.providers)) {
+    // Built-in plane is replaced by the hub; fake and custom (BYOK) are kept.
+    if (p.source === "builtin") continue;
+    providers[name] = p;
+  }
+  Object.assign(providers, hubProviders);
+
+  const out = { ...cfg, providers };
+  // Point the default at the hub's primary text model when the configured
+  // default no longer exists (it referenced a code builtin such as agnes).
+  const defaultExists = Object.values(providers).some(
+    (p) => p.models.includes(out.defaultModel) && p.source !== "builtin",
+  );
+  if (!defaultExists) {
+    const primaryText = hubCatalog.kit.list("text")[0];
+    if (primaryText) {
+      const owner = Object.entries(hubProviders).find(([, p]) =>
+        p.models.includes(primaryText.model),
+      );
+      if (owner) {
+        out.defaultProvider = owner[0];
+        out.defaultModel = primaryText.model;
+      }
+    }
+  }
+  return out;
+}
+
+/**
  * Load the effective config. With a userId and a bound store, the user's own
  * saved settings win; otherwise the legacy file config is the shared baseline.
  * Priority: per-user DB row > legacy file > built-in defaults, with the
- * operator catalog overlaid on the built-in tier of whichever won.
+ * operator catalog overlaid on the built-in tier and the model-hub projection
+ * replacing the built-in plane when the hub is active.
  */
 export async function loadConfig(userId?: string): Promise<AppConfig> {
   if (userId && settingsStore) {
     const stored = await settingsStore.get(userId);
     const fromDb = parseRaw(stored ?? undefined);
-    if (fromDb) return applyPlatformCatalog(fromDb);
+    if (fromDb) return applyHubCatalog(applyPlatformCatalog(fromDb));
   }
-  return applyPlatformCatalog(parseRaw(readFileConfigRaw()) ?? DEFAULT_CONFIG);
+  return applyHubCatalog(
+    applyPlatformCatalog(parseRaw(readFileConfigRaw()) ?? DEFAULT_CONFIG),
+  );
 }
 
 /**
