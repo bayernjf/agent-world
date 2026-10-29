@@ -122,8 +122,8 @@ importers:
         specifier: ^2.1.5
         version: 2.1.5(hono@4.13.13)
       '@model-hub/model-kit':
-        specifier: file:../../../model-hub/packages/model-kit
-        version: file:../model-hub/packages/model-kit
+        specifier: git+https://github.com/bayernjf/model-hub.git#v0.1.1&path:/packages/model-kit
+        version: git+https://git@github.com:bayernjf/model-hub.git#5c0bc3e139e751203f55ed9d9fcbe375925c5bc2&path:/packages/model-kit
       '@types/pg':
         specifier: ^8.23.1
         version: 8.23.1
@@ -679,8 +679,9 @@ packages:
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
 
-  '@model-hub/model-kit@file:../model-hub/packages/model-kit':
-    resolution: {directory: ../model-hub/packages/model-kit, type: directory}
+  '@model-hub/model-kit@git+https://git@github.com:bayernjf/model-hub.git#5c0bc3e139e751203f55ed9d9fcbe375925c5bc2&path:/packages/model-kit':
+    resolution: {commit: 5c0bc3e139e751203f55ed9d9fcbe375925c5bc2, path: /packages/model-kit, repo: git@github.com:bayernjf/model-hub.git, type: git}
+    version: 0.1.1
     engines: {node: '>=22.0.0'}
 
   '@napi-rs/canvas-android-arm64@1.0.13':
@@ -2260,6 +2261,18 @@ packages:
   wrappy@1.0.2:
     resolution: {integrity: sha512-l4Sp/DRseor9wL6EvV2+TuQn63dMkPjZ/sp9XkghTEbV9KlPS1xUsZ3u7/IQO4wxtcFB4bgpQPRcR3QCvezPcQ==}
 
+  ws@8.22.0:
+    resolution: {integrity: sha512-Ydggc987+RO0AnWtZ/7Wq9FtNvcrL1b/RO0ud9mWjUPgDrsAAwQSF51sm2hm1XofbU/4jkpGEsLFsZZxU+1DOg==}
+    engines: {node: '>=10.0.0'}
+    peerDependencies:
+      bufferutil: ^4.0.1
+      utf-8-validate: '>=5.0.2'
+    peerDependenciesMeta:
+      bufferutil:
+        optional: true
+      utf-8-validate:
+        optional: true
+
   xml-name-validator@5.0.0:
     resolution: {integrity: sha512-EvGK8EJ3DhaHfbRlETOWAS5pO9MZITeauHKJyb8wyajUfQUenkIg2MvLDTZ4T/TgIcm3HU0TFBgWWboAZ30UHg==}
     engines: {node: '>=18'}
@@ -2584,7 +2597,12 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.6.0
 
-  '@model-hub/model-kit@file:../model-hub/packages/model-kit': {}
+  '@model-hub/model-kit@git+https://git@github.com:bayernjf/model-hub.git#5c0bc3e139e751203f55ed9d9fcbe375925c5bc2&path:/packages/model-kit':
+    dependencies:
+      ws: 8.22.0
+    transitivePeerDependencies:
+      - bufferutil
+      - utf-8-validate
 
   '@napi-rs/canvas-android-arm64@1.0.13':
     optional: true
@@ -4032,6 +4050,8 @@ snapshots:
   why-is-node-running@3.2.1: {}
 
   wrappy@1.0.2: {}
+
+  ws@8.22.0: {}
 
   xml-name-validator@5.0.0: {}
 
