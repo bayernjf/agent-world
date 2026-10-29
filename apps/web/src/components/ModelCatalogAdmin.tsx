@@ -56,6 +56,11 @@ export function ModelCatalogAdmin() {
 
   if (!view) return null;
 
+  // Hub mode: the built-in plane is synced from model-hub and read-only.
+  if (view.fromHub) {
+    return <HubReadOnlyView view={view} onSynced={setView} />;
+  }
+
   const patchOf = (provider: string) => draft[provider] ?? {};
   const setPatch = (provider: string, patch: ModelCatalogOverlay[string]) =>
     setDraft((d) => ({ ...d, [provider]: { ...d[provider], ...patch } }));
@@ -252,7 +257,7 @@ export function ModelCatalogAdmin() {
         <button type="button" className="btn btn--primary" disabled={!dirty || status === "saving"} onClick={() => void save()}>
           {status === "saving" ? t("settings:modelKeys.catalogSaving") : t("settings:modelKeys.catalogSave")}
         </button>
-        {dirty && Object.keys(view.overlay).length > 0 && (
+        {dirty && Object.keys(view.overlay ?? {}).length > 0 && (
           <button type="button" className="btn btn--ghost" onClick={() => void revert()}>
             {t("settings:modelKeys.catalogRevertAll")}
           </button>
@@ -298,4 +303,85 @@ export function ModelCatalogAdmin() {
 
 function Badge({ label }: { label: string }) {
   return <span className="badge badge--builtin">{label}</span>;
+}
+
+/**
+ * Read-only catalog view when the built-in plane is synced from model-hub.
+ * Shows the projection (models, modalities, prices — no credentials) and a
+ * manual sync button; nothing here is editable.
+ */
+function HubReadOnlyView({
+  view,
+  onSynced,
+}: {
+  view: ModelCatalogView;
+  onSynced: (view: ModelCatalogView) => void;
+}) {
+  const { t } = useTranslation(["settings"]);
+  const [syncing, setSyncing] = useState(false);
+  const [error, setError] = useState("");
+
+  async function sync() {
+    setSyncing(true);
+    setError("");
+    const res = await api.syncHubCatalog();
+    setSyncing(false);
+    if (!res.ok) {
+      setError(res.error);
+      return;
+    }
+    const fresh = await api.getModelCatalog();
+    if (fresh) onSynced(fresh);
+  }
+
+  return (
+    <section className="model-catalog">
+      <header className="model-catalog__head">
+        <h3>{t("settings:modelKeys.catalogTitle")}</h3>
+        <p className="muted">{t("settings:modelKeys.hubReadonlyHint")}</p>
+        <p className="muted">
+          <Badge label={t("settings:modelKeys.hubSyncedTag")} />{" "}
+          {t("settings:modelKeys.hubRevision", { revision: view.revision ?? "-" })}
+        </p>
+      </header>
+
+      {Object.entries(view.providers).map(([provider, p]) => (
+        <div className="provider-card" key={provider}>
+          <div className="provider-card__head">
+            <strong>{provider}</strong>
+            {!p.hasKey && <span className="muted">{t("settings:modelKeys.catalogNoKey")}</span>}
+          </div>
+          <ul className="model-catalog__models">
+            {p.models.map((model) => {
+              const modality = p.modalities[model] ?? "text";
+              const price = p.pricing[model];
+              return (
+                <li className="model-catalog__row" key={model}>
+                  <span className="model-catalog__readonly-name">{model}</span>
+                  <span className="muted">{t(`settings:modelKeys.modality.${modality}`)}</span>
+                  {price && (
+                    <span className="muted">
+                      {PRICING_FIELDS[modality]
+                        .map((f) =>
+                          price[f.key] !== undefined ? `${f.label} ${price[f.key]}${f.unit}` : "",
+                        )
+                        .filter(Boolean)
+                        .join(" / ")}
+                    </span>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ))}
+
+      <footer className="model-catalog__foot">
+        <button type="button" className="btn btn--ghost" disabled={syncing} onClick={() => void sync()}>
+          {syncing ? t("settings:modelKeys.catalogSaving") : t("settings:modelKeys.hubSync")}
+        </button>
+        {error && <span className="model-catalog__warn">{error}</span>}
+      </footer>
+    </section>
+  );
 }

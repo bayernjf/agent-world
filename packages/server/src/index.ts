@@ -97,6 +97,7 @@ import {
   writePlatformCatalog,
   type PlatformCatalog,
 } from "./builtin-catalog.js";
+import { createHubCatalog } from "./hub-catalog.js";
 import { GuardedFetchError, guardedFetch, hostIsInternal } from "./ssrf.js";
 import { routingWorker, assertBootWorkerEnv } from "./providers/index.js";
 import { WorkerRegistry } from "./worker-plugins.js";
@@ -998,6 +999,17 @@ if (process.env.NODE_ENV !== "test") {
   // 否则那份报告会描述代码默认目录而不是当前生效的那一份。
   const catalogBoot = await refreshPlatformCatalog();
   if (catalogBoot.error) log.warn("model catalog not loaded", { error: catalogBoot.error });
+  // model-hub projection (W6-4): when MODEL_HUB_URL/TOKEN are configured,
+  // pull the built-in plane from the hub; a failure is not fatal (the
+  // model-kit keeps its cache and the built-in plane simply stays absent).
+  const hubCatalog = await createHubCatalog();
+  if (hubCatalog) {
+    const sync = await hubCatalog.sync();
+    log.info("model-hub catalog active", {
+      revision: sync.revision,
+      pulled: sync.pulled,
+    });
+  }
   const priceGaps = unpricedModels((await loadConfig()).providers);
   if (priceGaps.length > 0) {
     // Not fatal — a dev box routinely has half the price cards blank. But cost

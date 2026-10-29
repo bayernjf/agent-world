@@ -741,6 +741,17 @@ export const api = {
     return { ok: true, view: view as ModelCatalogView, changes, affected, affectedTruncated };
   },
 
+  /** Force a re-pull of the model-hub projection. */
+  syncHubCatalog: async (): Promise<{ ok: true; revision: number; pulled: number } | { ok: false; error: string }> => {
+    const res = await authFetch("/api/admin/model-catalog/hub-sync", { method: "POST" });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      return { ok: false, error: body.error ?? `HTTP ${res.status}` };
+    }
+    const body = (await res.json()) as { revision: number; pulled: number };
+    return { ok: true, revision: body.revision, pulled: body.pulled };
+  },
+
   testProvider: (
     baseUrl: string,
     apiKey: string,
