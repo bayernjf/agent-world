@@ -7,13 +7,16 @@ import {
 } from "./platforms.js";
 
 describe("platforms", () => {
-  it("内置平台 profile 表完整覆盖五个平台", () => {
+  it("内置平台 profile 表完整覆盖七个平台", () => {
+    // OP-24 added bilibili/zhihu publisher profiles.
     expect(Object.keys(PLATFORM_PROFILES).sort()).toEqual([
+      "bilibili",
       "custom",
       "douyin",
       "taobao",
       "wechat",
       "xiaohongshu",
+      "zhihu",
     ]);
   });
 

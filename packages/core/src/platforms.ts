@@ -8,7 +8,15 @@ import { z } from "zod";
  * 直接调用；内置词表作为静态常量随包发布，可后续热更新。
  */
 
-export const PlatformId = z.enum(["taobao", "xiaohongshu", "douyin", "wechat", "custom"]);
+export const PlatformId = z.enum([
+  "taobao",
+  "xiaohongshu",
+  "douyin",
+  "wechat",
+  "bilibili",
+  "zhihu",
+  "custom",
+]);
 export type PlatformId = z.infer<typeof PlatformId>;
 
 export const PlatformProfile = z.object({
@@ -115,6 +123,26 @@ export const PLATFORM_PROFILES: Readonly<Record<PlatformId, PlatformProfile>> = 
     bodyMax: 2000,
     hashtag: { prefix: "#", max: 0 },
     imageRatios: ["16:9", "1:1"],
+    bannedWords: [],
+    required: [],
+  },
+  bilibili: {
+    id: "bilibili",
+    label: "B站",
+    titleMax: 80,
+    bodyMax: 2000,
+    hashtag: { prefix: "#", max: 10 },
+    imageRatios: ["16:9", "1:1"],
+    bannedWords: [],
+    required: [],
+  },
+  zhihu: {
+    id: "zhihu",
+    label: "知乎",
+    titleMax: 100,
+    bodyMax: 5000,
+    hashtag: { prefix: "#", max: 10 },
+    imageRatios: ["16:9", "4:3", "1:1"],
     bannedWords: [],
     required: [],
   },
