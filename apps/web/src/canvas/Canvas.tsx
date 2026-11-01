@@ -161,7 +161,14 @@ export default function Canvas({ mode, diagnostics = [] }: Props) {
       const el = t as HTMLElement | null;
       return el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
     };
+    const isFocusedPlant = (target: EventTarget | null) => {
+      const el = target as SVGGraphicsElement | null;
+      return Boolean(el && el.tagName === "g" && el.classList?.contains("plant"));
+    };
     const onKeyDown = (e: KeyboardEvent) => {
+      // Focus is on a canvas node: its own React key handler owns the event
+      // (select/move), so do not also pan the viewport here.
+      if (isFocusedPlant(e.target)) return;
       if (e.code === "Space" && !isTyping(e.target)) {
         if (!spaceRef.current) {
           spaceRef.current = true;

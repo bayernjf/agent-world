@@ -9,6 +9,7 @@ import type {
 } from "@agent-world/core";
 import { deriveStateMachine } from "@agent-world/core";
 import { PLANT_H, PLANT_W } from "../store/graph";
+import { useGraph } from "../store/graph";
 import Popover from "../components/Popover";
 import type { Rect } from "../components/Popover";
 import { useTips } from "../store/tips";
@@ -120,6 +121,27 @@ export default function Plants({
   const { t } = useTranslation();
   const tipsEnabled = useTips((s) => s.enabled);
   const nodeRefs = useRef<Map<string, SVGGElement>>(new Map());
+
+  // Keyboard model for the canvas nodes (Tier0 UIUX review P1): Tab reaches
+  // each plant, Enter/Space selects it, arrow keys move it (Shift moves faster).
+  const onPlantKeyDown = (node: GraphNode) => (e: React.KeyboardEvent<SVGGElement>) => {
+    const state = useGraph.getState();
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      state.select(node.id);
+      return;
+    }
+    const step = e.shiftKey ? 60 : 20;
+    let dx = 0;
+    let dy = 0;
+    if (e.key === "ArrowLeft") dx = -step;
+    else if (e.key === "ArrowRight") dx = step;
+    else if (e.key === "ArrowUp") dy = -step;
+    else if (e.key === "ArrowDown") dy = step;
+    else return;
+    e.preventDefault();
+    state.moveNode(node.id, node.x + dx, node.y + dy);
+  };
 
   // Nodes the compiler flagged (severity error) — red-framed on the canvas (F10).
   const errorNodeIds = new Set(
@@ -298,6 +320,11 @@ export default function Plants({
           return (
             <g
               key={node.id}
+              tabIndex={0}
+              role="button"
+              aria-label={`${t(KIND_KEY[node.kind])}: ${node.name}`}
+              aria-pressed={selectedNodeIds.includes(node.id)}
+              onKeyDown={onPlantKeyDown(node)}
               ref={(el) => {
                 if (el) nodeRefs.current.set(node.id, el);
                 else nodeRefs.current.delete(node.id);
