@@ -2632,6 +2632,49 @@ export function createDriver(
         }));
     },
 
+    /** Fetch one published-content row owned by the user (ops M2 drafts). */
+    async getPublishedContent(id: string, userId: string): Promise<PublishedContent | null> {
+      const r = await exec.get(`SELECT * FROM published_contents WHERE id = ? AND user_id = ?`, [id, userId]) as Record<string, unknown> | undefined;
+      if (!r) return null;
+      return {
+        id: String(r.id),
+        graphId: r.graph_id ? String(r.graph_id) : null,
+        runId: r.run_id ? String(r.run_id) : null,
+        artifactId: r.artifact_id ? String(r.artifact_id) : null,
+        platform: r.platform ? String(r.platform) : null,
+        status: String(r.status),
+        externalId: r.external_id ? String(r.external_id) : null,
+        externalUrl: r.external_url ? String(r.external_url) : null,
+        publishedAt: r.published_at != null ? Number(r.published_at) : null,
+        detailJson: r.detail_json ? String(r.detail_json) : null,
+      };
+    },
+
+    /**
+     * Advance a draft through its lifecycle. Returns changed rows (0 when the
+     * draft is missing or owned by another user), so the caller fails loud.
+     */
+    async updatePublishedContent(id: string, userId: string, patch: {
+      status: string;
+      externalId?: string | null;
+      externalUrl?: string | null;
+      publishedAt?: number | null;
+      detailJson?: string | null;
+    }): Promise<number> {
+      const sets = ["status = ?"];
+      const args: unknown[] = [patch.status];
+      if (patch.externalId !== undefined) { sets.push("external_id = ?"); args.push(patch.externalId); }
+      if (patch.externalUrl !== undefined) { sets.push("external_url = ?"); args.push(patch.externalUrl); }
+      if (patch.publishedAt !== undefined) { sets.push("published_at = ?"); args.push(patch.publishedAt); }
+      if (patch.detailJson !== undefined) { sets.push("detail_json = ?"); args.push(patch.detailJson); }
+      args.push(id, userId);
+      const r = await exec.run(
+        `UPDATE published_contents SET ${sets.join(", ")} WHERE id = ? AND user_id = ?`,
+        args,
+      );
+      return r.changes;
+    },
+
     // --- Graph versions (5.6) ---
     async listVersions(graphId: string, userId: string) {
       return await exec.all(`SELECT gv.id, gv.graph_id AS "graphId", gv.name, gv.note, gv.content_hash AS "contentHash", gv.created_at AS "createdAt"

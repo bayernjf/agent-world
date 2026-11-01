@@ -35,7 +35,7 @@ function authed(token: string): Record<string, string> {
 }
 
 describe("GET /api/platforms (F3)", () => {
-  it("returns the five platform profiles and the ad-law baseline", async () => {
+  it("returns the seven platform profiles and the ad-law baseline", async () => {
     const token = await register("platforms@example.com");
     const res = await app.request("/api/platforms", { headers: authed(token) });
     expect(res.status).toBe(200);
@@ -43,12 +43,15 @@ describe("GET /api/platforms (F3)", () => {
       profiles: Record<string, { label: string; titleMax: number }>;
       adLawBannedWords: string[];
     };
+    // OP-24 added bilibili/zhihu publisher profiles alongside the original five.
     expect(Object.keys(body.profiles).sort()).toEqual([
+      "bilibili",
       "custom",
       "douyin",
       "taobao",
       "wechat",
       "xiaohongshu",
+      "zhihu",
     ]);
     expect(body.profiles.xiaohongshu.titleMax).toBe(20);
     expect(body.adLawBannedWords).toContain("国家级");
