@@ -13,6 +13,7 @@ export * from "./state-machine.js";
 export * from "./table.js";
 export * from "./platforms.js";
 export * from "./publish.js";
+export * from "./publisher.js";
 export * from "./parkLayout.js";
 export * from "./crossGraph.js";
 export * from "./plans.js";
