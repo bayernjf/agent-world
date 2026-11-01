@@ -185,6 +185,10 @@ State of Agent World as of 2026-10-07（#87 代码审计 §七 增量复核 8 �
 
 按优先级降序，标 `★` 的是当下要推的。
 
+### 当前活跃（2026-11-01）
+
+- ✅ **画布节点键盘模型（Tier0 UIUX P1 #5，fix/canvas-node-keyboard，基于最新 main 已落码）**：Plants 节点 `<g>` 加 `tabIndex={0}`、`role="button"`、`aria-label`（本地化类型+名称）、`aria-pressed`、`onKeyDown`——Enter/Space 单选该节点，方向键移动（步长 20，Shift 60），均 preventDefault；Canvas 全局键盘在焦点位于节点时直接 return（新增 `isFocusedPlant`），不再同时触发 Space 平移/方向键移动画布。验证（本机实跑）：web typecheck 0 错；新增 `Plants.test.tsx` 7 测全绿；web 全量 **2044 passed / 111 文件** 0 回归；`vite build` 成功。
+
 > **归档说明（2026-09-18）**：Active work 区已完成的历史编号项详细过程全部滚入
 > [handoff-archive-2026-09-18.md](docs/handoff-archive-2026-09-18.md)，本区只留当前状态 + 活跃任务 + 一行结论。
 > 更早归档：#1–#37 见 [handoff-archive-2026-09-07.md](docs/handoff-archive-2026-09-07.md)，
