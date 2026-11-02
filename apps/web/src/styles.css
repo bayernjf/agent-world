@@ -20,7 +20,7 @@
 
   --ink: #e8f0f4;
   --ink-dim: #8ea2ad;
-  --ink-faint: #5d707c;
+  --ink-faint: #748894;
 
   --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
   --sans: "PingFang SC", "Hiragino Sans GB", system-ui, -apple-system, sans-serif;
@@ -184,6 +184,9 @@
   --text-secondary: #4a5560;
   --text-tertiary: #7a8590;
   --text-disabled: #a0aab3;
+  /* Direct --ink-faint consumers keep the original darker value: the dark-theme
+     AA bump (#748894) would drop to ~3.7:1 on light surfaces. */
+  --ink-faint: #5d707c;
   --text-inverse: #ffffff;
 
   /* Border */
