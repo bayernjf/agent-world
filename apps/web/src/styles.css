@@ -208,7 +208,8 @@
   --accent-hover: #ffb020;
   --accent-active: #c77f08;
   --accent-bg: rgba(230, 154, 16, 0.1);
-  --accent-contrast: #ffffff;
+  /* 金色 accent 上白字仅 2.33:1；深字约 7.4:1（暗主题同值约 9.4:1），均过 AA。 */
+  --accent-contrast: var(--steel-950);
 
   /* Scrollbar */
   scrollbar-color: #a8b3bc #e8ecf0;
@@ -1618,7 +1619,8 @@ select {
   color: var(--info);
 }
 .inspector__tabs .tab.is-on {
-  background: linear-gradient(180deg, var(--accent), var(--accent-bg));
+  /* 实底 accent：原渐变末端 alpha 0.1 混入深底后文字对比跌至 ~1.2:1。 */
+  background: var(--accent);
   border-color: var(--accent);
   color: var(--accent-contrast);
   font-weight: var(--font-bold);
@@ -1861,7 +1863,8 @@ select {
   color: var(--info);
 }
 .chip.is-on {
-  background: linear-gradient(180deg, var(--accent), var(--accent-bg));
+  /* 实底 accent：原渐变末端 alpha 0.1 混入深底后文字对比跌至 ~1.2:1。 */
+  background: var(--accent);
   border-color: var(--accent);
   color: var(--accent-contrast);
   font-weight: var(--font-bold);
