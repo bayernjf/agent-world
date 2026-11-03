@@ -34,8 +34,13 @@ export function backupDatabase(db: DatabaseSync, file: string): void {
     for (const old of entries.slice(BACKUP_RETENTION)) {
       rmSync(join(dir, old.name), { force: true });
     }
-  } catch {
-    // Backup failures must never block startup; migrations still run.
+  } catch (error) {
+    // Backup failures must never block startup; migrations still run. But the
+    // failure must not be silent: this snapshot is the only rollback source if
+    // a migration wrecks the database (2026-11-02 review P2-1), so log it.
+    log.warn("pre-migration backup failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
 }
 
