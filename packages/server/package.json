@@ -22,7 +22,7 @@
   "dependencies": {
     "@agent-world/core": "workspace:*",
     "@hono/node-server": "^2.1.5",
-    "@model-hub/model-kit": "git+https://github.com/bayernjf/model-hub.git#c9d251b43d92c3516937f5bbc41ff0604d20aaa6&path:/packages/model-kit",
+    "@model-hub/model-kit": "git+https://github.com/bayernjf/model-hub.git#1656dba95763ae3cf57ac9e1fe2ac1cb65e26e0f&path:/packages/model-kit",
     "@types/pg": "^8.23.1",
     "bcryptjs": "^3.0.3",
     "fflate": "^0.8.3",
