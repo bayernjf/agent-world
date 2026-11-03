@@ -4,6 +4,23 @@ node_modules
 .git
 .gitignore
 *.sqlite
+*.sqlite-shm
+*.sqlite-wal
 *.log
 .DS_Store
 coverage
+
+# Local secrets and runtime state must never enter the build context
+# (2026-11-02 review P1-1): the build stage does `COPY . .`, so anything
+# not excluded here lands in intermediate image layers and the local build
+# cache. `.env.example` stays — it is the documented template.
+.env
+.env.*
+!.env.example
+.jwt-secret
+.encryption-key*
+agent-world.config.json
+artifacts/
+logs/
+backups/
+handoff.md
