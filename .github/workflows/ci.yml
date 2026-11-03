@@ -149,3 +149,50 @@ jobs:
       - uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  docker-context:
+    name: Docker build context excludes secrets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # The tracked checkout never contains the gitignored secret files, so
+      # plant decoys first: without them the assertions below would pass
+      # vacuously. Regression guard for 2026-11-02 review P1-1 (the build
+      # stage does `COPY . .`, so anything not excluded by .dockerignore
+      # lands in intermediate image layers and the build cache).
+      - name: Plant decoy secrets and runtime state
+        run: |
+          echo "AGNES_API_KEY=decoy" > .env
+          echo decoy > .jwt-secret
+          echo decoy > .encryption-keys
+          touch agent-world.config.json agent-world.sqlite-wal
+          mkdir -p artifacts logs backups
+
+      # Export the exact context the Dockerfile build stage sees (same
+      # .dockerignore semantics as `COPY . .`) without paying for a full
+      # image build.
+      - name: Export the real docker build context
+        run: |
+          printf 'FROM scratch\nCOPY . /\n' \
+            | docker buildx build --no-cache -q -f- --output type=local,dest=/tmp/ctx .
+
+      - name: Assert secrets out and build inputs in
+        run: |
+          set -e
+          for f in .env .jwt-secret .encryption-keys agent-world.config.json \
+                   agent-world.sqlite-wal artifacts logs backups handoff.md; do
+            if [ -e "/tmp/ctx/$f" ]; then
+              echo "::error file=.dockerignore::$f leaked into the docker build context"
+              exit 1
+            fi
+          done
+          for f in .env.example pnpm-lock.yaml pnpm-workspace.yaml package.json \
+                   packages Dockerfile; do
+            if [ ! -e "/tmp/ctx/$f" ]; then
+              echo "::error file=.dockerignore::$f is missing from the docker build context"
+              exit 1
+            fi
+          done
+          echo "docker build context is clean"
+

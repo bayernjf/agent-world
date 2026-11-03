@@ -188,6 +188,7 @@ State of Agent World as of 2026-10-07（#87 代码审计 §七 增量复核 8 �
 ### 当前活跃（2026-11-01）
 
 - ✅ **画布节点键盘模型（Tier0 UIUX P1 #5，fix/canvas-node-keyboard，基于最新 main 已落码）**：Plants 节点 `<g>` 加 `tabIndex={0}`、`role="button"`、`aria-label`（本地化类型+名称）、`aria-pressed`、`onKeyDown`——Enter/Space 单选该节点，方向键移动（步长 20，Shift 60），均 preventDefault；Canvas 全局键盘在焦点位于节点时直接 return（新增 `isFocusedPlant`），不再同时触发 Space 平移/方向键移动画布。验证（本机实跑）：web typecheck 0 错；新增 `Plants.test.tsx` 7 测全绿；web 全量 **2044 passed / 111 文件** 0 回归；`vite build` 成功。
+- ✅ **Publisher 平台人审草稿 + 离线适配器（Tier0 对外运营 W3 / OP-20~22/24~26，feat/publisher-platforms，PR #520 → main，merge `869b932`，2026-11-01 合并）**：`packages/core/src/publisher.ts` 端口契约（草稿状态机 + 合规闸 + 平台资质检查）+ `packages/server/src/publisher/platforms/service.ts`（草稿生命周期唯一写者：published 只能经人审 `approve()` 到达，create/submitForReview/reject 永不到达；适配器全离线、产出确定性回执，本里程碑不调真实平台 API）+ `routes/publisher.ts` HTTP 面；平台注册表新增 xiaohongshu/douyin/wechat/bilibili/zhihu（抖音无资质时 fail-closed）。测试同批：`publisher.test.ts`、`api.publisher.test.ts`、`service.test.ts`（12 文件 +813/−3）。补登记：本条原漏记，2026-11-03 对账待办全景时补。
 
 > **归档说明（2026-09-18）**：Active work 区已完成的历史编号项详细过程全部滚入
 > [handoff-archive-2026-09-18.md](docs/handoff-archive-2026-09-18.md)，本区只留当前状态 + 活跃任务 + 一行结论。
