@@ -129,12 +129,14 @@ describe("audit log route instrumentation", () => {
     });
     expect(allAuditRows().at(-1)).toMatchObject({ action: "account.login" });
 
-    // password change
-    await app.request("/api/auth/password", {
+    // password change (which revokes the old token and re-issues one)
+    const changed = await app.request("/api/auth/password", {
       method: "POST",
       headers: authed(token, { "content-type": "application/json" }),
       body: JSON.stringify({ currentPassword: "secret123", newPassword: "newsecret9" }),
     });
+    expect(changed.status).toBe(200);
+    token = authToken(changed);
     expect(allAuditRows().at(-1)).toMatchObject({ action: "account.password_change" });
 
     expect(allAuditRows().length).toBeGreaterThanOrEqual(before + 4);

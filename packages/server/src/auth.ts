@@ -46,9 +46,10 @@ export async function signToken(
   userId: string,
   email: string,
   remember = true,
+  sessionVersion = 0,
 ): Promise<string> {
   const secret = new TextEncoder().encode(JWT_SECRET);
-  return new SignJWT({ userId, email })
+  return new SignJWT({ userId, email, sv: sessionVersion })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuer(JWT_ISSUER)
     .setIssuedAt()
@@ -59,6 +60,8 @@ export async function signToken(
 export interface TokenPayload {
   userId: string;
   email: string;
+  /** Revocation epoch; tokens issued before migration 43 carry no claim (0). */
+  sessionVersion: number;
 }
 
 export async function verifyToken(
@@ -69,9 +72,11 @@ export async function verifyToken(
     const { payload } = await jwtVerify(token, secret, {
       issuer: JWT_ISSUER,
     });
+    const sv = payload.sv;
     return {
       userId: payload.userId as string,
       email: payload.email as string,
+      sessionVersion: typeof sv === "number" ? sv : 0,
     };
   } catch {
     return null;

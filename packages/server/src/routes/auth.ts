@@ -9,6 +9,15 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { isAnnouncementAdmin, isModelCatalogAdmin } from "./admin.js";
 import type { RouteContext } from "./ctx.js";
 
+/** SQLite raises "UNIQUE constraint failed"; PostgreSQL raises code 23505. */
+function isUniqueViolation(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const code = (err as { code?: unknown }).code;
+  if (code === "23505") return true;
+  const message = (err as { message?: unknown }).message;
+  return typeof message === "string" && message.includes("UNIQUE constraint failed");
+}
+
 
 export function registerAuthRoutes(
   app: Hono<{ Variables: { userId: string } }>,
@@ -40,11 +49,24 @@ app.post("/api/auth/register", async (c) => {
     return c.json({ error: "密码至少需要6个字符" }, 400);
   }
   if (await db.findUserByEmail(email)) {
-    return c.json({ error: "该邮箱已注册" }, 409);
+    // Deliberately indistinguishable from any other 409: a distinctive
+    // "email already registered" message lets an unauthenticated caller
+    // enumerate accounts (review 2026-11-02 P3-5). The createUser UNIQUE race
+    // below returns the same body.
+    return c.json({ error: "registration_conflict", message: "Registration could not be completed" }, 409);
   }
   const id = randomUUID();
   const passwordHash = await hashPassword(password);
-  await db.createUser(id, email, passwordHash);
+  try {
+    await db.createUser(id, email, passwordHash);
+  } catch (err) {
+    // Two concurrent registrations for the same address: the loser hits the
+    // UNIQUE constraint. Same opaque 409 instead of a 500.
+    if (isUniqueViolation(err)) {
+      return c.json({ error: "registration_conflict", message: "Registration could not be completed" }, 409);
+    }
+    throw err;
+  }
   audit(db, id, "account.register", { ip: clientIp(c) });
   const token = await signToken(id, email, true);
   setAuthCookie(c, token, true);
@@ -83,7 +105,7 @@ app.post("/api/auth/login", async (c) => {
     return c.json({ error: "invalid_credentials", message: "Invalid email or password" }, 401);
   }
   audit(db, user.id, "account.login", { ip: clientIp(c) });
-  const token = await signToken(user.id, user.email, remember);
+  const token = await signToken(user.id, user.email, remember, user.session_version);
   setAuthCookie(c, token, remember);
   return c.json({
     user: { id: user.id, email: user.email, mustChangePassword: user.must_change_password === 1 },
@@ -96,7 +118,14 @@ app.post("/api/auth/logout", async (c) => {
   const cookie = c.req.header("cookie") ?? "";
   const token = cookie.match(new RegExp(`${AUTH_COOKIE}=([^;]+)`))?.[1];
   const payload = token ? await verifyToken(token) : null;
-  if (payload?.userId) audit(db, payload.userId, "auth.logout", { ip: clientIp(c) });
+  if (payload?.userId) {
+    // Revoke every token for this account, not just the presented cookie:
+    // bumping the epoch makes a stolen/exported copy of the JWT dead too
+    // (review 2026-11-02 P3-6). Self-hosted accounts are single-user in
+    // practice, so logging out every device is the intended trade-off.
+    await db.bumpSessionVersion(payload.userId);
+    audit(db, payload.userId, "auth.logout", { ip: clientIp(c) });
+  }
   clearAuthCookie(c);
   return c.body(null, 204);
 });
@@ -109,7 +138,9 @@ app.get("/api/auth/me", async (c) => {
   const payload = await verifyToken(token);
   if (!payload) return c.json({ error: "not authenticated" }, 401);
   const user = await db.findUserById(payload.userId);
-  if (!user) return c.json({ error: "not authenticated" }, 401);
+  if (!user || user.session_version !== payload.sessionVersion) {
+    return c.json({ error: "not authenticated" }, 401);
+  }
   const isDemo = user.is_demo === 1;
   return c.json({
     user: {
@@ -133,7 +164,9 @@ app.post("/api/auth/password", async (c) => {
   const token = cookie.match(new RegExp(`${AUTH_COOKIE}=([^;]+)`))?.[1];
   const payload = token ? await verifyToken(token) : null;
   const user = payload ? await db.findUserById(payload.userId) : undefined;
-  if (!user) return c.json({ error: "not authenticated" }, 401);
+  if (!user || user.session_version !== payload!.sessionVersion) {
+    return c.json({ error: "not authenticated" }, 401);
+  }
   // Demo accounts have an unknowable random password and no password to change;
   // they convert into a real account via /api/auth/claim instead.
   if (user.is_demo === 1) return demoLocked(c, "password");
@@ -151,6 +184,11 @@ app.post("/api/auth/password", async (c) => {
     return c.json({ error: "当前密码不正确" }, 401);
   }
   await db.updateUserPasswordHash(user.id, await hashPassword(newPassword));
+  // Invalidates every token issued under the old password, then re-signs the
+  // current session so the caller is not logged out by their own action.
+  const sessionVersion = await db.bumpSessionVersion(user.id);
+  const freshToken = await signToken(user.id, user.email, true, sessionVersion);
+  setAuthCookie(c, freshToken, true);
   audit(db, user.id, "account.password_change", { objectType: "account", ip: clientIp(c) });
   return c.json({ ok: true });
 });
@@ -176,6 +214,7 @@ app.post("/api/auth/demo", async (c) => {
     const existing = await db.findUserById(existingPayload.userId);
     if (
       existing?.is_demo === 1 &&
+      existing.session_version === existingPayload.sessionVersion &&
       existing.demo_expires_at &&
       new Date(existing.demo_expires_at).getTime() > Date.now()
     ) {
@@ -224,7 +263,9 @@ app.post("/api/auth/claim", async (c) => {
   const token = cookie.match(new RegExp(`${AUTH_COOKIE}=([^;]+)`))?.[1];
   const payload = token ? await verifyToken(token) : null;
   const user = payload ? await db.findUserById(payload.userId) : undefined;
-  if (!user) return c.json({ error: "not authenticated" }, 401);
+  if (!user || user.session_version !== payload!.sessionVersion) {
+    return c.json({ error: "not authenticated" }, 401);
+  }
   if (user.is_demo !== 1) {
     return c.json({ error: "not_a_demo", code: "NOT_A_DEMO" }, 400);
   }
@@ -248,7 +289,7 @@ app.post("/api/auth/claim", async (c) => {
     return c.json({ error: "演示账号已失效或已转正，请刷新后重试" }, 409);
   }
   audit(db, user.id, "account.claim", { objectType: "account", ip: clientIp(c) });
-  const newToken = await signToken(user.id, email, true);
+  const newToken = await signToken(user.id, email, true, user.session_version);
   setAuthCookie(c, newToken, true);
   return c.json({ user: { id: user.id, email, isDemo: false } });
 });

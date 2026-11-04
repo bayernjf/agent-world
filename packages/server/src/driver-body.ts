@@ -135,12 +135,17 @@ export function createDriver(
        WHERE f.status = ? ORDER BY f.created_at DESC LIMIT ?`,
     getFeedback: `SELECT * FROM feedback WHERE id = ?`,
     updateFeedbackStatus: `UPDATE feedback SET status = ? WHERE id = ?`,
-    findUserByEmail: `SELECT id, email, role, is_demo, demo_expires_at, must_change_password, created_at FROM users WHERE email = ?`,
-    findUserById: `SELECT id, email, role, is_demo, demo_expires_at, must_change_password, created_at FROM users WHERE id = ?`,
+    findUserByEmail: `SELECT id, email, role, is_demo, demo_expires_at, must_change_password, session_version, created_at FROM users WHERE email = ?`,
+    findUserById: `SELECT id, email, role, is_demo, demo_expires_at, must_change_password, session_version, created_at FROM users WHERE id = ?`,
     findUserPasswordHash: `SELECT password_hash FROM users WHERE id = ?`,
+    // Session revocation (review 2026-11-02 P3-6): every JWT carries the
+    // account's session_version. Bumping it invalidates all previously issued
+    // tokens; the next SELECT lets the caller re-sign the current session.
+    bumpSessionVersion: `UPDATE users SET session_version = session_version + 1 WHERE id = ?`,
+    getSessionVersion: `SELECT session_version FROM users WHERE id = ?`,
     // RBAC P3 (design-rbac.md): full account list for the owner's admin panel.
     // Same ordering as the v31 owner bootstrap — the owner always sorts first.
-    listUsers: `SELECT id, email, role, is_demo, demo_expires_at, must_change_password, created_at FROM users ORDER BY created_at ASC, ${tie} ASC`,
+    listUsers: `SELECT id, email, role, is_demo, demo_expires_at, must_change_password, session_version, created_at FROM users ORDER BY created_at ASC, ${tie} ASC`,
     updateUserRole: `UPDATE users SET role = ? WHERE id = ?`,
     // Resource sharing (design-rbac P1). Only editor/viewer rows live here —
     // the resource owner is resolved from the owning table's user_id.
@@ -354,6 +359,8 @@ export function createDriver(
     is_demo: number;
     demo_expires_at: string | null;
     must_change_password: number;
+    /** Bumped on logout/password change to revoke every older JWT (migration 43). */
+    session_version: number;
     created_at: string;
   };
   const mapSubscriptionRow = (r: SubscriptionRow) => ({
@@ -524,6 +531,17 @@ export function createDriver(
     async findUserPasswordHash(id: string) {
       const row = await exec.get(stmts.findUserPasswordHash, [id]) as { password_hash: string } | undefined;
       return row?.password_hash;
+    },
+    /** Current revocation epoch for a user (0 when the row is gone). */
+    async getSessionVersion(id: string): Promise<number> {
+      const row = await exec.get(stmts.getSessionVersion, [id]) as { session_version: number } | undefined;
+      return row?.session_version ?? 0;
+    },
+    /** Invalidate every token issued before this call; returns the new epoch. */
+    async bumpSessionVersion(id: string): Promise<number> {
+      await exec.run(stmts.bumpSessionVersion, [id]);
+      const row = await exec.get(stmts.getSessionVersion, [id]) as { session_version: number } | undefined;
+      return row?.session_version ?? 0;
     },
     /** Total account count — gates self-registration once the first user exists (M3). */
     async countUsers(): Promise<number> {
