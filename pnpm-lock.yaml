@@ -124,9 +124,6 @@ importers:
       '@model-hub/model-kit':
         specifier: git+https://github.com/bayernjf/model-hub.git#1656dba95763ae3cf57ac9e1fe2ac1cb65e26e0f&path:/packages/model-kit
         version: https://codeload.github.com/bayernjf/model-hub/tar.gz/1656dba95763ae3cf57ac9e1fe2ac1cb65e26e0f#path:/packages/model-kit
-      '@types/pg':
-        specifier: ^8.23.1
-        version: 8.23.1
       bcryptjs:
         specifier: ^3.0.3
         version: 3.0.3
@@ -179,6 +176,9 @@ importers:
       '@types/nodemailer':
         specifier: ^8.0.2
         version: 8.0.2
+      '@types/pg':
+        specifier: ^8.23.1
+        version: 8.23.1
       '@types/pngjs':
         specifier: ^6.0.5
         version: 6.0.5
