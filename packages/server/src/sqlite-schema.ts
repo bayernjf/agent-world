@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS users (
   is_demo       INTEGER NOT NULL DEFAULT 0,
   demo_expires_at TEXT,
   must_change_password INTEGER NOT NULL DEFAULT 0,
+  session_version INTEGER NOT NULL DEFAULT 0,
   created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
 );
 -- idx_users_owner is NOT here on purpose: the role column is only added by
@@ -1268,6 +1269,24 @@ const MIGRATIONS: Migration[] = [
       // destroys accounts nor leaves the middleware refusing a column it no
       // longer has.
       db.exec("UPDATE users SET must_change_password = 0 WHERE must_change_password = 1");
+    },
+  },
+  {
+    version: 43,
+    // Session revocation (review 2026-11-02 P3-6). The JWT carries the
+    // account's session_version; logout and password changes bump it, which
+    // invalidates every token issued before the bump without a revocation
+    // table or per-token bookkeeping. Existing rows start at 0 and old tokens
+    // (which lack the claim) are also treated as version 0, so the upgrade
+    // itself revokes nothing.
+    description: "users.session_version for JWT revocation",
+    detect: (db) => columnExists(db, "users", "session_version"),
+    up: (db) => {
+      if (!columnExists(db, "users", "session_version"))
+        db.exec("ALTER TABLE users ADD COLUMN session_version INTEGER NOT NULL DEFAULT 0");
+    },
+    down: (db) => {
+      db.exec("UPDATE users SET session_version = 0");
     },
   },
 ];

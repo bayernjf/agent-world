@@ -480,7 +480,13 @@ app.use("/api/*", async (c, next) => {
   // without re-signing anything — same reasoning as the guards above this line
   // that re-read the role rather than trusting the token.
   const account = await db.findUserById(payload.userId);
-  if (account?.must_change_password === 1) {
+  // Session revocation (review 2026-11-02 P3-6): the JWT's `sv` must match the
+  // account's current epoch. Logout and password changes bump it, so every
+  // token issued earlier — cookie, Bearer or SSE ?token= — is refused here.
+  if (!account || (account.session_version ?? 0) !== payload.sessionVersion) {
+    return c.json({ error: "invalid or expired token" }, 401);
+  }
+  if (account.must_change_password === 1) {
     return c.json(
       { error: "password_change_required", message: "Password change required before continuing", code: "PASSWORD_CHANGE_REQUIRED" },
       403,

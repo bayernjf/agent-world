@@ -26,6 +26,9 @@ beforeAll(async () => {
   process.env.NODE_ENV = "test";
   process.env.DB_FILE = tmp;
   const db = openDb(tmp);
+  // The auth middleware re-reads the account on every request (session
+  // revocation), so a token alone is not enough — the user row must exist.
+  await db.createUser("u1", "u1@local.dev", "not-a-real-hash");
   await db.createRun({
     id: RUN,
     userId: "u1",
