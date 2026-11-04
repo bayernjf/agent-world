@@ -4,7 +4,10 @@ Performance and capacity benchmarks for Agent World.
 
 ## How to run
 
-> TODO: fill in the concrete commands once a benchmark harness exists.
+There is no benchmark harness in this repository yet: no `bench` script exists in
+any `package.json` and no benchmark sources live under `packages/`. Until one is
+added, this document intentionally publishes no commands or numbers rather than
+inventing them.
 
 ## Scope
 
@@ -25,4 +28,5 @@ What is measured (update as benchmarks are added):
 
 ## Known limits
 
-> TODO: document capacity limits and resource ceilings as they are measured.
+Not measured yet: capacity limits and resource ceilings will be documented here
+once the harness above exists and produces reproducible numbers.
