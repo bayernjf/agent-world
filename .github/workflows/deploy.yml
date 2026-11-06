@@ -5,15 +5,91 @@ on:
     workflows: ["CI"]
     types: [completed]
     branches: ["dev"]
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Where to run: self-hosted (real deploy) or hosted (build-only fallback)"
+        type: choice
+        options: [self-hosted, hosted]
+        default: self-hosted
+      reason:
+        description: "Why this manual deploy was triggered (optional)"
+        required: false
+        type: string
 
 jobs:
+  runner-check:
+    name: Check production runner
+    # Fail fast instead of letting the deploy job sit queued for hours when no
+    # [self-hosted, production] runner is registered. The hosted fallback is an
+    # explicit choice and does not need a runner.
+    if: github.event_name == 'workflow_run' || (github.event_name == 'workflow_dispatch' && inputs.target == 'self-hosted')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: scripts
+          sparse-checkout-cone-mode: false
+      - name: Fail fast when no idle production runner exists
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: bash scripts/check-production-runner.sh --require-idle
+
   deploy:
     name: Deploy to Hasee
-    # Only deploy when CI was triggered by a push to dev (i.e. a PR merged
-    # INTO dev). `workflow_run.branches` matches the PR head branch, so a PR
-    # opened FROM dev (e.g. dev -> main) would otherwise deploy before merge.
-    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
+    needs: runner-check
+    # Default behaviour is unchanged: only a successful CI run triggered by a
+    # push to dev reaches this job. A manual dispatch must also pass the
+    # runner check above.
+    if: |
+      always() &&
+      needs.runner-check.result == 'success' &&
+      ((github.event_name == 'workflow_run' &&
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push') ||
+       (github.event_name == 'workflow_dispatch' && inputs.target == 'self-hosted'))
     runs-on: [self-hosted, production]
     steps:
       - name: Deploy
         run: /opt/agent-world/deploy.sh
+
+  deploy-hosted:
+    name: Hosted fallback (build only)
+    # Manual escape hatch when the production runner is unavailable. It cannot
+    # run /opt/agent-world/deploy.sh (the script and host are not reachable
+    # from GitHub-hosted runners without credentials), so it verifies the
+    # build and says so explicitly instead of pretending to deploy.
+    if: github.event_name == 'workflow_dispatch' && inputs.target == 'hosted'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Map git ssh to https for dependency clones
+        run: git config --global url."https://github.com/".insteadOf "git@github.com:"
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm -r build
+
+      - name: State the fallback limit
+        run: |
+          echo "::notice::Hosted fallback verified the build only; nothing was deployed."
+          echo "A real deploy needs an idle [self-hosted, production] runner."
+          echo "When the runner is back, dispatch this workflow again with target=self-hosted."
