@@ -122,8 +122,8 @@ importers:
         specifier: ^2.1.5
         version: 2.1.5(hono@4.13.13)
       '@model-hub/model-kit':
-        specifier: git+https://github.com/bayernjf/model-hub.git#1656dba95763ae3cf57ac9e1fe2ac1cb65e26e0f&path:/packages/model-kit
-        version: https://codeload.github.com/bayernjf/model-hub/tar.gz/1656dba95763ae3cf57ac9e1fe2ac1cb65e26e0f#path:/packages/model-kit
+        specifier: git+https://github.com/bayernjf/model-hub.git#6a4b22817d06a0eafae816ca0d7986d4bcb36cc0&path:/packages/model-kit
+        version: https://codeload.github.com/bayernjf/model-hub/tar.gz/6a4b22817d06a0eafae816ca0d7986d4bcb36cc0#path:/packages/model-kit
       bcryptjs:
         specifier: ^3.0.3
         version: 3.0.3
@@ -687,8 +687,8 @@ packages:
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
 
-  '@model-hub/model-kit@https://codeload.github.com/bayernjf/model-hub/tar.gz/1656dba95763ae3cf57ac9e1fe2ac1cb65e26e0f#path:/packages/model-kit':
-    resolution: {path: /packages/model-kit, tarball: https://codeload.github.com/bayernjf/model-hub/tar.gz/1656dba95763ae3cf57ac9e1fe2ac1cb65e26e0f}
+  '@model-hub/model-kit@https://codeload.github.com/bayernjf/model-hub/tar.gz/6a4b22817d06a0eafae816ca0d7986d4bcb36cc0#path:/packages/model-kit':
+    resolution: {path: /packages/model-kit, tarball: https://codeload.github.com/bayernjf/model-hub/tar.gz/6a4b22817d06a0eafae816ca0d7986d4bcb36cc0}
     version: 0.2.0
     engines: {node: '>=22.0.0'}
 
@@ -2598,7 +2598,7 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.6.0
 
-  '@model-hub/model-kit@https://codeload.github.com/bayernjf/model-hub/tar.gz/1656dba95763ae3cf57ac9e1fe2ac1cb65e26e0f#path:/packages/model-kit':
+  '@model-hub/model-kit@https://codeload.github.com/bayernjf/model-hub/tar.gz/6a4b22817d06a0eafae816ca0d7986d4bcb36cc0#path:/packages/model-kit':
     dependencies:
       ws: 8.22.0
     transitivePeerDependencies:
