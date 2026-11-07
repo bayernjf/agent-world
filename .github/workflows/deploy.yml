@@ -57,6 +57,14 @@ jobs:
         github.event.workflow_run.event == 'push') ||
        (github.event_name == 'workflow_dispatch' && inputs.target == 'self-hosted'))
     runs-on: [self-hosted, production]
+    # A job waiting for a runner is not covered by timeout-minutes: GitHub's queue
+    # limit is a fixed 24 hours. The real guard is the runner-check above, which
+    # fails before this job is even scheduled. This timeout bounds the job once a
+    # runner picks it up: a healthy deploy (pull, install, build four packages,
+    # restart, 15s health poll) took ~1.5 min in the 2026-09-28 run, so 20 minutes
+    # leaves room for a cold install while still failing a hung git/pnpm/health
+    # loop long before the default 360.
+    timeout-minutes: 20
     steps:
       - name: Deploy
         run: /opt/agent-world/deploy.sh
