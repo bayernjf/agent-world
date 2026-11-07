@@ -1,0 +1,37 @@
+name: Production runner watchdog
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: Probe production runner
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      # GITHUB_TOKEN cannot read the runners API (repo administration is
+      # required), so the watchdog is only armed when this secret exists.
+      RUNNER_PROBE_TOKEN: ${{ secrets.RUNNER_PROBE_TOKEN }}
+    steps:
+      - name: Warn when the probe token is missing
+        if: env.RUNNER_PROBE_TOKEN == ''
+        run: |
+          echo "::warning::RUNNER_PROBE_TOKEN is not configured; the watchdog cannot verify the Hasee production runner."
+
+      - uses: actions/checkout@v5
+        if: env.RUNNER_PROBE_TOKEN != ''
+        with:
+          sparse-checkout: scripts
+          sparse-checkout-cone-mode: false
+
+      - name: Fail when no idle production runner exists
+        if: env.RUNNER_PROBE_TOKEN != ''
+        env:
+          GITHUB_TOKEN: ${{ secrets.RUNNER_PROBE_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: bash scripts/check-production-runner.sh --require-idle
