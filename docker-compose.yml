@@ -14,6 +14,13 @@ services:
       # AGNES_API_KEY: "${AGNES_API_KEY}"
       # MCP_SERVERS: "${MCP_SERVERS}"
       DB_FILE: "/data/agent-world.sqlite"
+    # The server reads its operator knobs from the process environment; compose
+    # only interpolates ${...} above, so without this block a value written to
+    # the repository-root .env never reaches the container. Optional so a bare
+    # checkout still boots (the builtin model and CORS then stay local-only).
+    env_file:
+      - path: .env
+        required: false
     volumes:
       - agent-world-data:/data
     restart: unless-stopped
