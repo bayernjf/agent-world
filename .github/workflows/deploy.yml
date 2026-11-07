@@ -36,7 +36,10 @@ jobs:
           sparse-checkout-cone-mode: false
       - name: Fail fast when no idle production runner exists
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          # GITHUB_TOKEN cannot read the runners API (it needs repo admin).
+          # Set RUNNER_PROBE_TOKEN to a classic PAT with 'repo' scope so the
+          # check can actually see the Hasee runner instead of failing with 403.
+          GITHUB_TOKEN: ${{ secrets.RUNNER_PROBE_TOKEN || github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: bash scripts/check-production-runner.sh --require-idle
 

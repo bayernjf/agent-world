@@ -45,11 +45,32 @@ if [ -n "$FROM_FILE" ]; then
 else
   : "${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required}"
   : "${GITHUB_TOKEN:?GITHUB_TOKEN is required}"
-  payload="$(curl -fsS \
+  api_url="${RUNNERS_API_URL:-https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runners?per_page=100}"
+  body_file="$(mktemp)"
+  trap 'rm -f "${body_file}"' EXIT
+  if ! http_code="$(curl -sS -o "${body_file}" -w '%{http_code}' \
     -H "Authorization: Bearer ${GITHUB_TOKEN}" \
     -H "Accept: application/vnd.github+json" \
-    "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runners?per_page=100")" ||
-    { echo "failed to query the Actions runners API" >&2; exit 2; }
+    "${api_url}")"; then
+    echo "FAIL: could not reach the Actions runners API (network error)." >&2
+    exit 2
+  fi
+  case "${http_code}" in
+    2*)
+      payload="$(cat "${body_file}")"
+      ;;
+    401 | 403)
+      echo "FAIL: the Actions runners API rejected the token (HTTP ${http_code})." >&2
+      echo "GITHUB_TOKEN from Actions cannot read repository runners (it needs repository administration)." >&2
+      echo "Add a repo secret RUNNER_PROBE_TOKEN (classic PAT with 'repo' scope, created by a repo admin)," >&2
+      echo "or check the runner service on Hasee directly." >&2
+      exit 2
+      ;;
+    *)
+      echo "FAIL: the Actions runners API returned HTTP ${http_code}." >&2
+      exit 2
+      ;;
+  esac
 fi
 
 summary="$(printf '%s' "$payload" | python3 -c '
