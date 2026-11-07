@@ -116,8 +116,8 @@ ALLOW_REGISTRATION=1
 # CORS_ORIGINS=http://<你的局域网IP>:80
 
 # ---- Provider 凭证（按你的实际配置填）----
+# 只有内置模型读 AGNES_API_KEY；其它供应商在管理界面里配置（不走 .env）。
 # AGNES_API_KEY=...
-# OPENAI_API_KEY=...
 
 # ---- 其它可选 ----
 # JWT_SECRET=<不设则由首次启动自动生成 .jwt-secret 到 DB 同目录>

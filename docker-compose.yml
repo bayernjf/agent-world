@@ -10,8 +10,8 @@ services:
       PORT: "8791"
       # Restrict CORS to your frontend origin in any shared deployment:
       # CORS_ORIGINS: "https://your-app.example.com"
-      # Provider / MCP configuration, e.g.:
-      # OPENAI_API_KEY: "${OPENAI_API_KEY}"
+      # Provider credentials read from env (the builtin model is fail-closed without a key):
+      # AGNES_API_KEY: "${AGNES_API_KEY}"
       # MCP_SERVERS: "${MCP_SERVERS}"
       DB_FILE: "/data/agent-world.sqlite"
     volumes:
