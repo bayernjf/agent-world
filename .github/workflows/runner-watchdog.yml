@@ -34,14 +34,18 @@ jobs:
         if: env.RUNNER_PROBE_TOKEN == ''
         run: |
           set -euo pipefail
+          existing="$(gh issue list -R "$GITHUB_REPOSITORY" --label runner-status-unknown --state open --json number --jq '.[0].number // empty')"
           {
             echo '### Runner status: UNPROBED (unknown)'
             echo ''
             echo '`RUNNER_PROBE_TOKEN` is not configured, so this watchdog cannot read the runners API.'
             echo 'A green watchdog run does **not** mean the production runner is healthy.'
-            echo 'See the open `runner-status-unknown` issue for the actionable status.'
+            if [ -z "$existing" ]; then
+              echo 'First detection after a working probe: this run fails once and opens the tracking issue.'
+            else
+              echo "Tracking issue #${existing} is already open; this run stays green and does not add noise."
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
-          existing="$(gh issue list -R "$GITHUB_REPOSITORY" --label runner-status-unknown --state open --json number --jq '.[0].number // empty')"
           if [ -z "$existing" ]; then
             body_file="$(mktemp)"
             {
@@ -63,7 +67,8 @@ jobs:
               --title '[ops] Production runner status unknown: RUNNER_PROBE_TOKEN is not configured' \
               --label runner-status-unknown \
               --body-file "$body_file"
-            echo 'Created tracking issue: RUNNER_PROBE_TOKEN is missing.'
+            echo "::error::Runner status changed from probed to UNPROBED; created the tracking issue and failing this run once."
+            exit 1
           else
             echo "Tracking issue #${existing} is already open; status remains UNPROBED."
           fi
