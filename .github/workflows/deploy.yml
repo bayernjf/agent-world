@@ -1,4 +1,5 @@
 name: Deploy
+run-name: ${{ github.event_name == 'workflow_dispatch' && inputs.target == 'hosted' && 'BUILD ONLY (not deployed)' || 'Deploy production' }}
 
 on:
   workflow_run:
@@ -70,7 +71,7 @@ jobs:
         run: /opt/agent-world/deploy.sh
 
   deploy-hosted:
-    name: Hosted fallback (build only)
+    name: "Hosted fallback: BUILD ONLY (nothing deployed)"
     # Manual escape hatch when the production runner is unavailable. It cannot
     # run /opt/agent-world/deploy.sh (the script and host are not reachable
     # from GitHub-hosted runners without credentials), so it verifies the
@@ -101,6 +102,10 @@ jobs:
 
       - name: State the fallback limit
         run: |
-          echo "::notice::Hosted fallback verified the build only; nothing was deployed."
-          echo "A real deploy needs an idle [self-hosted, production] runner."
-          echo "When the runner is back, dispatch this workflow again with target=self-hosted."
+          {
+            echo '# BUILD ONLY - NOTHING WAS DEPLOYED'
+            echo ''
+            echo 'This run compiled the workspace, but no artifact was uploaded, released, or deployed.'
+            echo 'A real deploy requires an idle `[self-hosted, production]` runner and `target=self-hosted`.'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::warning::BUILD ONLY - nothing was deployed."

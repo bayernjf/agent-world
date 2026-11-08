@@ -148,8 +148,9 @@ is the scenario-based navigation map (what to read for which task). Quick pointe
 
 Multi-stage `Dockerfile` (Node 24) builds core + server and runs
 `node dist/index.js`; `docker-compose.yml` exposes port 8791 with a persistent
-SQLite volume. Set `CORS_ORIGINS` in any hosted deployment (unset allows all
-origins — local dev only). `MCP_SERVERS` registers operator-level external MCP
+SQLite volume and injects the repository-root `.env` when present (optional).
+Set `CORS_ORIGINS` in any hosted deployment; when unset the API only accepts
+`http://localhost:5173`, the local-dev default. `MCP_SERVERS` registers operator-level external MCP
 tools; end users can also connect their own remote http/sse MCP servers in
 Settings (per-user, credentials encrypted at rest), alongside authoring their
 own data skill cards (prompt modules, output contracts, judges).
