@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 jobs:
   probe:
@@ -17,11 +18,53 @@ jobs:
       # GITHUB_TOKEN cannot read the runners API (repo administration is
       # required), so the watchdog is only armed when this secret exists.
       RUNNER_PROBE_TOKEN: ${{ secrets.RUNNER_PROBE_TOKEN }}
+      # github.token is used by `gh` for issue/label bookkeeping only.
+      GH_TOKEN: ${{ github.token }}
     steps:
-      - name: Warn when the probe token is missing
+      - name: Ensure the unknown-status label exists
+        run: |
+          set -euo pipefail
+          gh label create runner-status-unknown \
+            --color FBCA04 \
+            --description 'Production runner probe cannot confirm status' \
+            --force
+
+      - name: Report unknown runner status when probe token is missing
         if: env.RUNNER_PROBE_TOKEN == ''
         run: |
-          echo "::warning::RUNNER_PROBE_TOKEN is not configured; the watchdog cannot verify the Hasee production runner."
+          set -euo pipefail
+          {
+            echo '### Runner status: UNPROBED (unknown)'
+            echo ''
+            echo '`RUNNER_PROBE_TOKEN` is not configured, so this watchdog cannot read the runners API.'
+            echo 'A green watchdog run does **not** mean the production runner is healthy.'
+            echo 'See the open `runner-status-unknown` issue for the actionable status.'
+          } >> "$GITHUB_STEP_SUMMARY"
+          existing="$(gh issue list --label runner-status-unknown --state open --json number --jq '.[0].number // empty')"
+          if [ -z "$existing" ]; then
+            body_file="$(mktemp)"
+            {
+              echo 'The production runner watchdog cannot read the Actions runners API because `RUNNER_PROBE_TOKEN` is not configured.'
+              echo ''
+              echo 'Runner status is **unknown**; a green watchdog run does not mean the runner is healthy.'
+              echo ''
+              echo '`Deploy` fails fast when it cannot see an idle production runner, so deploys stay blocked while this issue is open.'
+              echo ''
+              echo 'To resolve:'
+              echo '1. Create a classic personal access token with `repo` scope as a repository admin.'
+              echo '2. Add it as the repository secret `RUNNER_PROBE_TOKEN`.'
+              echo '3. Run this workflow manually once, or wait for the next 30-minute tick.'
+              echo ''
+              echo 'This issue closes automatically when the probe succeeds and an idle `[self-hosted, production]` runner is confirmed.'
+            } > "$body_file"
+            gh issue create \
+              --title '[ops] Production runner status unknown: RUNNER_PROBE_TOKEN is not configured' \
+              --label runner-status-unknown \
+              --body-file "$body_file"
+            echo 'Created tracking issue: RUNNER_PROBE_TOKEN is missing.'
+          else
+            echo "Tracking issue #${existing} is already open; status remains UNPROBED."
+          fi
 
       - uses: actions/checkout@v5
         if: env.RUNNER_PROBE_TOKEN != ''
@@ -35,3 +78,13 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.RUNNER_PROBE_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: bash scripts/check-production-runner.sh --require-idle
+
+      - name: Close the unknown-status issue after a successful probe
+        if: env.RUNNER_PROBE_TOKEN != ''
+        run: |
+          set -euo pipefail
+          existing="$(gh issue list --label runner-status-unknown --state open --json number --jq '.[0].number // empty')"
+          if [ -n "$existing" ]; then
+            gh issue close "$existing" \
+              --comment 'Probe token is configured and an idle production runner was confirmed; runner status is known again.'
+          fi
