@@ -25,6 +25,7 @@ jobs:
         run: |
           set -euo pipefail
           gh label create runner-status-unknown \
+            -R "$GITHUB_REPOSITORY" \
             --color FBCA04 \
             --description 'Production runner probe cannot confirm status' \
             --force
@@ -40,7 +41,7 @@ jobs:
             echo 'A green watchdog run does **not** mean the production runner is healthy.'
             echo 'See the open `runner-status-unknown` issue for the actionable status.'
           } >> "$GITHUB_STEP_SUMMARY"
-          existing="$(gh issue list --label runner-status-unknown --state open --json number --jq '.[0].number // empty')"
+          existing="$(gh issue list -R "$GITHUB_REPOSITORY" --label runner-status-unknown --state open --json number --jq '.[0].number // empty')"
           if [ -z "$existing" ]; then
             body_file="$(mktemp)"
             {
@@ -58,6 +59,7 @@ jobs:
               echo 'This issue closes automatically when the probe succeeds and an idle `[self-hosted, production]` runner is confirmed.'
             } > "$body_file"
             gh issue create \
+              -R "$GITHUB_REPOSITORY" \
               --title '[ops] Production runner status unknown: RUNNER_PROBE_TOKEN is not configured' \
               --label runner-status-unknown \
               --body-file "$body_file"
@@ -83,8 +85,9 @@ jobs:
         if: env.RUNNER_PROBE_TOKEN != ''
         run: |
           set -euo pipefail
-          existing="$(gh issue list --label runner-status-unknown --state open --json number --jq '.[0].number // empty')"
+          existing="$(gh issue list -R "$GITHUB_REPOSITORY" --label runner-status-unknown --state open --json number --jq '.[0].number // empty')"
           if [ -n "$existing" ]; then
             gh issue close "$existing" \
+              -R "$GITHUB_REPOSITORY" \
               --comment 'Probe token is configured and an idle production runner was confirmed; runner status is known again.'
           fi
