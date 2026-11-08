@@ -221,6 +221,14 @@ echo "rolled back to $PREV"
 
 用法：`sudo /opt/agent-world/rollback.sh`。回滚 = `git reset --hard` + 重建 + 重启（约 1-2 分钟）；脚本存于仓库 `scripts/deploy/rollback.sh`（已落地 Hasee）。
 
+**保留几个、什么时候失效**（2026-11-08 核对）：
+
+- 只保留 **1 个**回滚点：`/var/lib/agent-world/.last-known-good` 是单个文件，存上一个"部署前健康"的 commit。再往前没有第二级锚点。
+- 首次部署、手工删掉该文件、或机器重装后，文件不存在，`rollback.sh` 直接 `exit 1`——没有锚点可回，只能重新 `git clone` 到目标 commit。
+- 回滚是 `git reset --hard` + 重新 `pnpm install`/`build`：会丢弃服务器工作区里任何未提交改动；`install` 需要网络，离线时回滚会卡在依赖拉取。
+- 锚点只存在于这台机器的 `/opt/agent-world` 与 `.git` 对象库里。换机、目录被删、仓库被强推重写历史后可能取不到该 commit。这里没有镜像、没有 registry、也没有不可变 digest，**不等价于 registry 方案**；跨机只能靠 `git clone` + `git checkout <commit>` 重建。
+- 回滚代码不回滚数据：schema 回滚是独立路径（`scripts/migrate-down.ts`，见 [change-management.md](change-management.md)），迁移已前滚时旧代码可能仍跑不起来。
+
 ### 4.5 写 CD workflow（`.github/workflows/deploy.yml`）
 
 CI 与 CD 是**两个独立 workflow**，故用 `workflow_run` 跨 workflow 触发：监听 CI（`ci.yml`，name=CI）在 `dev` 分支完成后，仅当 CI 成功才部署到 Hasee。

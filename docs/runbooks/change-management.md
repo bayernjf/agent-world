@@ -13,7 +13,7 @@
 
 | 变更类型 | 回滚手段 |
 |---|---|
-| 代码部署 | `scripts/deploy/rollback.sh`（`.last-known-good` 软链切回） |
+| 代码部署 | `scripts/deploy/rollback.sh`（回退到 `.last-known-good` 记录的上一好版本 commit） |
 | DB 迁移 | `DB_FILE=/var/lib/agent-world/agent-world.sqlite npx tsx scripts/migrate-down.ts`（一步回滚最新迁移；**SQLite 专用**，`DB_DRIVER=postgres` 下直接 fail-closed 退出，PG 侧尚无等价回滚） |
 | 配置变更 | `.env` 改回原值 + `systemctl restart agent-world` |
 | 依赖升级 | 锁文件回退 + `pnpm install --frozen-lockfile` |
