@@ -22,16 +22,27 @@ function makeGraph(nodes: GraphNode[]): Graph {
 
 const runtime = initialRuntime;
 
-function renderPlants(selectedNodeIds: string[] = []) {
-  return render(
+interface RenderOptions {
+  onActivate?: (node: GraphNode) => void;
+  onToggleCollapse?: (fanoutId: string) => void;
+  collapsedFans?: Record<string, boolean>;
+}
+
+function renderPlants(selectedNodeIds: string[] = [], opts: RenderOptions = {}) {
+  const onActivate = opts.onActivate ?? vi.fn();
+  const utils = render(
     <Plants
       graph={useGraph.getState().graph}
       runtime={runtime}
       selectedNodeIds={selectedNodeIds}
       connectFrom={null}
       onPointerDown={vi.fn()}
+      onActivate={onActivate}
+      onToggleCollapse={opts.onToggleCollapse}
+      collapsedFans={opts.collapsedFans ?? {}}
     />,
   );
+  return { ...utils, onActivate };
 }
 
 describe("Plants keyboard model", () => {
@@ -58,18 +69,20 @@ describe("Plants keyboard model", () => {
     expect(plant.getAttribute("aria-pressed")).toBe("true");
   });
 
-  it("selects the node on Enter", () => {
-    const { container } = renderPlants();
+  it("activates the node on Enter like a pointer click", () => {
+    const onActivate = vi.fn();
+    const { container } = renderPlants([], { onActivate });
     const plant = container.querySelector("g.plant") as SVGGElement;
     fireEvent.keyDown(plant, { key: "Enter" });
-    expect(useGraph.getState().selectedNodeIds).toEqual(["n1"]);
+    expect(onActivate).toHaveBeenCalledWith(expect.objectContaining({ id: "n1" }));
   });
 
-  it("selects the node on Space", () => {
-    const { container } = renderPlants();
+  it("activates the node on Space like a pointer click", () => {
+    const onActivate = vi.fn();
+    const { container } = renderPlants([], { onActivate });
     const plant = container.querySelector("g.plant") as SVGGElement;
     fireEvent.keyDown(plant, { key: " " });
-    expect(useGraph.getState().selectedNodeIds).toEqual(["n1"]);
+    expect(onActivate).toHaveBeenCalledWith(expect.objectContaining({ id: "n1" }));
   });
 
   it("moves the node right with ArrowRight", () => {
@@ -96,5 +109,58 @@ describe("Plants keyboard model", () => {
     fireEvent.keyDown(plant, { key: "ArrowLeft", shiftKey: true });
     const moved = useGraph.getState().graph.nodes.find((n) => n.id === "n1")!;
     expect(moved.x).toBe(40);
+  });
+});
+
+describe("fanout collapse chip", () => {
+  beforeEach(() => {
+    useGraph.getState().setGraph(makeGraph([makeNode({ id: "f1", kind: "fanout" })]));
+  });
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("renders as an independent focusable button with an aria-label", () => {
+    const { container } = renderPlants([], { onToggleCollapse: vi.fn() });
+    const chip = container.querySelector("g.plant__collapse-chip") as SVGGElement;
+    expect(chip).toBeTruthy();
+    expect(chip.getAttribute("role")).toBe("button");
+    expect(chip.getAttribute("tabindex")).toBe("0");
+    expect(chip.getAttribute("aria-label")).toBe("收起扇出泳道");
+  });
+
+  it("shows the expand label while collapsed", () => {
+    const { container } = renderPlants([], {
+      onToggleCollapse: vi.fn(),
+      collapsedFans: { f1: true },
+    });
+    const chip = container.querySelector("g.plant__collapse-chip") as SVGGElement;
+    expect(chip.getAttribute("aria-label")).toBe("展开扇出泳道");
+  });
+
+  it("toggles collapse on Enter and Space", () => {
+    const onToggleCollapse = vi.fn();
+    const { container } = renderPlants([], { onToggleCollapse });
+    const chip = container.querySelector("g.plant__collapse-chip") as SVGGElement;
+    fireEvent.keyDown(chip, { key: "Enter" });
+    fireEvent.keyDown(chip, { key: " " });
+    expect(onToggleCollapse).toHaveBeenCalledTimes(2);
+    expect(onToggleCollapse).toHaveBeenCalledWith("f1");
+  });
+
+  it("does not activate the plant when the chip is keyed", () => {
+    const onActivate = vi.fn();
+    const { container } = renderPlants([], { onActivate, onToggleCollapse: vi.fn() });
+    const chip = container.querySelector("g.plant__collapse-chip") as SVGGElement;
+    fireEvent.keyDown(chip, { key: "Enter" });
+    expect(onActivate).not.toHaveBeenCalled();
+  });
+
+  it("toggles collapse on click", () => {
+    const onToggleCollapse = vi.fn();
+    const { container } = renderPlants([], { onToggleCollapse });
+    const chip = container.querySelector("g.plant__collapse-chip") as SVGGElement;
+    fireEvent.click(chip);
+    expect(onToggleCollapse).toHaveBeenCalledWith("f1");
   });
 });
