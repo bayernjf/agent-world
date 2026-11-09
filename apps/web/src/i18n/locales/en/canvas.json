@@ -20,6 +20,8 @@
   "deletedElements": "Deleted {{count}} elements",
   "nodeRemoved": "Node removed",
   "edgeRemoved": "Pipe removed",
+  "fanoutCollapse": "Collapse fan-out lanes",
+  "fanoutExpand": "Expand fan-out lanes",
   "toolbar": {
     "more": "More",
     "palette": "Node library",
