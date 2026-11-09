@@ -20,6 +20,8 @@
   "deletedElements": "已删除 {{count}} 个元素",
   "nodeRemoved": "节点已拆除",
   "edgeRemoved": "管道已拆除",
+  "fanoutCollapse": "收起扇出泳道",
+  "fanoutExpand": "展开扇出泳道",
   "toolbar": {
     "more": "更多",
     "palette": "节点库",

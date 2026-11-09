@@ -336,18 +336,12 @@ export default function Canvas({ mode, diagnostics = [] }: Props) {
     };
   }, [viewport, graph.nodes, toView, selectNone, setConnectFrom]);
 
-  const onPlantPointerDown = (node: GraphNode, e: React.PointerEvent) => {
-    e.stopPropagation();
-
-    // Space-drag or middle mouse pans the canvas, even over a plant and
-    // regardless of the active tool.
-    if (spaceRef.current || e.button === 1) {
-      e.preventDefault();
-      beginPan(e.clientX, e.clientY);
-      (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
-      return;
-    }
-
+  /**
+   * What activating a node does, per tool mode. Shared by pointer clicks and
+   * keyboard Enter/Space (Plants `onActivate`) so both input paths stay in
+   * sync — the keyboard model must match the click, not a subset of it.
+   */
+  const activateNode = (node: GraphNode) => {
     if (mode === "delete") {
       removeNode(node.id);
       flashDeleted(t("canvas:nodeRemoved"), t("actions.undo"));
@@ -362,6 +356,34 @@ export default function Canvas({ mode, diagnostics = [] }: Props) {
         if (!res.ok && res.reason) showToast(res.reason);
         setConnectFrom(null);
       }
+      return;
+    }
+
+    // Select mode: a click selects the node and opens the Inspector panel.
+    // (Clicking an already-selected node keeps the selection.)
+    const currentSelected = useGraph.getState().selectedNodeIds;
+    if (!currentSelected.includes(node.id)) {
+      select(node.id);
+    }
+    useGraph.getState().setInspectorOpen(true);
+  };
+
+  const onPlantPointerDown = (node: GraphNode, e: React.PointerEvent) => {
+    e.stopPropagation();
+
+    // Space-drag or middle mouse pans the canvas, even over a plant and
+    // regardless of the active tool.
+    if (spaceRef.current || e.button === 1) {
+      e.preventDefault();
+      beginPan(e.clientX, e.clientY);
+      (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+      return;
+    }
+
+    // Delete and connect tools resolve immediately on click — the exact same
+    // behavior keyboard activation gets via activateNode.
+    if (mode !== "select") {
+      activateNode(node);
       return;
     }
 
@@ -594,6 +616,7 @@ export default function Canvas({ mode, diagnostics = [] }: Props) {
             selectedNodeIds={selectedNodeIds}
             connectFrom={connectFrom}
             onPointerDown={onPlantPointerDown}
+            onActivate={activateNode}
             diagnostics={diagnostics}
             hiddenNodeIds={hiddenNodeIds}
             collapsedFans={collapsedFans}

@@ -20,6 +20,11 @@ interface Props {
   selectedNodeIds: string[];
   connectFrom: string | null;
   onPointerDown: (node: GraphNode, e: React.PointerEvent) => void;
+  /**
+   * Keyboard activation (Enter/Space) — Canvas owns the tool-mode logic so
+   * keyboard activation has the exact same effect as a pointer click.
+   */
+  onActivate: (node: GraphNode) => void;
   /** Compile diagnostics — error nodes get a red frame (F10 validation viz). */
   diagnostics?: Diagnostic[];
   /** Lane nodes hidden by collapsed fanouts (F10 fold/expand). */
@@ -111,6 +116,7 @@ export default function Plants({
   selectedNodeIds,
   connectFrom,
   onPointerDown,
+  onActivate,
   diagnostics = [],
   hiddenNodeIds,
   collapsedFans = {},
@@ -123,12 +129,13 @@ export default function Plants({
   const nodeRefs = useRef<Map<string, SVGGElement>>(new Map());
 
   // Keyboard model for the canvas nodes (Tier0 UIUX review P1): Tab reaches
-  // each plant, Enter/Space selects it, arrow keys move it (Shift moves faster).
+  // each plant, Enter/Space activates it exactly like a pointer click
+  // (Canvas `onActivate` owns the tool-mode behavior), arrow keys move it
+  // (Shift moves faster).
   const onPlantKeyDown = (node: GraphNode) => (e: React.KeyboardEvent<SVGGElement>) => {
-    const state = useGraph.getState();
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
-      state.select(node.id);
+      onActivate(node);
       return;
     }
     const step = e.shiftKey ? 60 : 20;
@@ -140,7 +147,7 @@ export default function Plants({
     else if (e.key === "ArrowDown") dy = step;
     else return;
     e.preventDefault();
-    state.moveNode(node.id, node.x + dx, node.y + dy);
+    useGraph.getState().moveNode(node.id, node.x + dx, node.y + dy);
   };
 
   // Nodes the compiler flagged (severity error) — red-framed on the canvas (F10).
@@ -455,23 +462,6 @@ export default function Plants({
                   </g>
                 )}
 
-              {node.kind === "fanout" && onToggleCollapse && (
-                <g
-                  className="plant__collapse-chip"
-                  transform={`translate(${PLANT_W - 18} ${PLANT_H - 40})`}
-                  style={{ cursor: "pointer" }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onToggleCollapse(node.id);
-                  }}
-                >
-                  <rect x={-13} y={-9} width={26} height={18} rx={3} />
-                  <text x={0} y={2} textAnchor="middle">
-                    {collapsedFans[node.id] ? "＋" : "－"}
-                  </text>
-                </g>
-              )}
-
               {attempt > 1 && (
                 <g
                   className="plant__attempt"
@@ -528,6 +518,44 @@ export default function Plants({
                 cy={PLANT_H - 6}
                 r={2}
               />
+            </g>
+          );
+        })}
+
+        {/* Fanout collapse chips live outside their plant <g>: a focusable
+            button must not nest inside the plant's role="button", and as the
+            topmost hit target its clicks no longer select/drag the plant.
+            Same coordinates as before, drawn above the plants. */}
+        {graph.nodes.map((node) => {
+          if (hiddenNodeIds?.has(node.id)) return null;
+          if (node.kind !== "fanout" || !onToggleCollapse) return null;
+          const x = node.x - PLANT_W / 2;
+          const y = node.y - PLANT_H / 2;
+          const collapsed = collapsedFans[node.id];
+          return (
+            <g
+              key={`collapse-chip-${node.id}`}
+              className="plant__collapse-chip"
+              role="button"
+              tabIndex={0}
+              aria-label={t(collapsed ? "canvas:fanoutExpand" : "canvas:fanoutCollapse")}
+              transform={`translate(${x + PLANT_W - 18} ${y + PLANT_H - 40})`}
+              style={{ cursor: "pointer" }}
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleCollapse(node.id);
+              }}
+              onKeyDown={(e) => {
+                if (e.key !== "Enter" && e.key !== " ") return;
+                e.preventDefault();
+                e.stopPropagation();
+                onToggleCollapse(node.id);
+              }}
+            >
+              <rect x={-13} y={-9} width={26} height={18} rx={3} />
+              <text x={0} y={2} textAnchor="middle">
+                {collapsed ? "＋" : "－"}
+              </text>
             </g>
           );
         })}
