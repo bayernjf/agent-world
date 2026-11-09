@@ -187,9 +187,10 @@ State of Agent World as of 2026-10-07（#87 代码审计 §七 增量复核 8 �
 
 按优先级降序，标 `★` 的是当下要推的。
 
-### 当前活跃（2026-11-01）
+### 当前活跃（2026-11-09）
 
-- ✅ **画布节点键盘模型（Tier0 UIUX P1 #5，fix/canvas-node-keyboard，基于最新 main 已落码）**：Plants 节点 `<g>` 加 `tabIndex={0}`、`role="button"`、`aria-label`（本地化类型+名称）、`aria-pressed`、`onKeyDown`——Enter/Space 单选该节点，方向键移动（步长 20，Shift 60），均 preventDefault；Canvas 全局键盘在焦点位于节点时直接 return（新增 `isFocusedPlant`），不再同时触发 Space 平移/方向键移动画布。验证（本机实跑）：web typecheck 0 错；新增 `Plants.test.tsx` 7 测全绿；web 全量 **2044 passed / 111 文件** 0 回归；`vite build` 成功。
+- ✅ **画布键盘模型收尾：激活与点击同逻辑 + 焦点可见（Tier0 UIUX P1 #5 续，fix/canvas-keyboard-a11y，2026-11-09）**：上一条落码后仍有三处缺口，本条闭合——① Canvas 抽出 `activateNode`（按工具模式：select=选中+开 Inspector / delete=拆节点 / connect/rework/error=连线），指针点击与键盘 Enter/Space 共用同一入口（Plants 新 `onActivate` prop），键盘不再是点击的子集；② fanout 收起 chip 移出 plant `<g role="button">` 成为独立兄弟按钮（role/tabIndex/aria-label `canvas:fanoutCollapse|Expand` + Enter/Space/click），消除「按钮内嵌按钮」并修掉点 chip 误开 Inspector 的旧行为；③ 全仓此前近零 focus 样式，补 `:focus-visible` 外描边（plant、collapse chip、canvas-toolbar 按钮/菜单项、minimap 缩放按钮）。测试：`Plants.test.tsx` 重构为断言 `onActivate` 并新增 chip 5 测、新增 `Canvas.test.tsx` 5 测（select/delete/connect/rework 模式下 Enter 全行为）。验证（本机 Node 24 实跑）：四包 typecheck 0 错；core 351 / server 1537+5 skip / mcp 71 / web **2054 passed**（含 i18n keys guard）/ e2e 5 passed；`i18n:check`+`prune --check` 通过；全仓 build 成功；Biome 0 error、warnings 基线 72 不变。
+- ✅ **画布节点键盘模型（Tier0 UIUX P1 #5，fix/canvas-node-keyboard，基于最新 main 已落码）**：Plants 节点 `<g>` 加 `tabIndex={0}`、`role="button"`、`aria-label`（本地化类型+名称）、`aria-pressed`、`onKeyDown`——Enter/Space 单选该节点，方向键移动（步长 20，Shift 60），均 preventDefault；Canvas 全局键盘在焦点位于节点时直接 return（新增 `isFocusedPlant`），不再同时触发 Space 平移/方向键移动画布。验证（本机实跑）：web typecheck 0 错；新增 `Plants.test.tsx` 7 测全绿；web 全量 **2044 passed / 111 文件** 0 回归；`vite build` 成功。**2026-11-09 续**：Enter/Space 原只 select、未开 Inspector，且 delete/connect 模式键盘不可达——已由上一条补齐为与点击同逻辑。
 - ✅ **Publisher 平台人审草稿 + 离线适配器（Tier0 对外运营 W3 / OP-20~22/24~26，feat/publisher-platforms，PR #520 → main，merge `869b932`，2026-11-01 合并）**：`packages/core/src/publisher.ts` 端口契约（草稿状态机 + 合规闸 + 平台资质检查）+ `packages/server/src/publisher/platforms/service.ts`（草稿生命周期唯一写者：published 只能经人审 `approve()` 到达，create/submitForReview/reject 永不到达；适配器全离线、产出确定性回执，本里程碑不调真实平台 API）+ `routes/publisher.ts` HTTP 面；平台注册表新增 xiaohongshu/douyin/wechat/bilibili/zhihu（抖音无资质时 fail-closed）。测试同批：`publisher.test.ts`、`api.publisher.test.ts`、`service.test.ts`（12 文件 +813/−3）。补登记：本条原漏记，2026-11-03 对账待办全景时补。
 
 > **归档说明（2026-09-18）**：Active work 区已完成的历史编号项详细过程全部滚入
