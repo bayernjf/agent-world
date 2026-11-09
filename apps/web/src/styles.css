@@ -2610,6 +2610,10 @@ select {
   border: none;
   color: var(--text-primary);
 }
+.minimap__zoom button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
 .minimap__slider {
   flex: 1 1 auto;
   min-width: 30px;
@@ -2904,6 +2908,16 @@ select {
 .plant.is-connect-src .plant__body {
   stroke: var(--accent);
   stroke-width: 2;
+}
+/* Keyboard focus (Tier0 UIUX review P1): Tab reaches canvas nodes and their
+   controls, so focus must be visible on the dark canvas. */
+.plant:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.plant__collapse-chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 .plant__led {
@@ -6245,6 +6259,11 @@ select {
 }
 .canvas-toolbar__btn:active {
   background: var(--bg-primary);
+}
+.canvas-toolbar__btn:focus-visible,
+.canvas-toolbar__menu-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 .canvas-toolbar__more {
   position: relative;
