@@ -1,0 +1,9 @@
+# Local-only port remap for running several Tier 0 stacks side by side on one
+# machine. The committed compose file assumes a dedicated host and binds 8791,
+# which model-hub already holds here.
+#
+# Usage: docker compose -f docker-compose.yml -f docker-compose.local.yml up -d
+services:
+  agent-world:
+    ports: !override
+      - "127.0.0.1:18791:8791"
