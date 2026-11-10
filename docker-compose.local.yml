@@ -1,0 +1,22 @@
+# Local-only port remap for running several Tier 0 stacks side by side on one
+# machine. The committed compose file assumes a dedicated host and binds 8791,
+# which model-hub already holds here.
+#
+# Usage: docker compose -f docker-compose.yml -f docker-compose.local.yml up -d
+networks:
+  tier0-net:
+    external: true
+
+services:
+  agent-world:
+    ports: !override
+      - "127.0.0.1:18791:8791"
+    networks:
+      - default
+      - tier0-net
+    environment:
+      # Inside the container 127.0.0.1 is the container itself; the hub is
+      # reached by its service name on the shared network. The token stays in
+      # the git-ignored .env, never in this file.
+      MODEL_HUB_URL: http://model-hub:8791
+      MODEL_HUB_TOKEN: ${MODEL_HUB_TOKEN:-}
