@@ -1,5 +1,28 @@
 # Handoff
 
+> **2026-11-11 只读实测：本地实例 21 小时零运行、零外部流量；`providers.agnes:"missing"` 是预期不是缺密钥。**
+> 本轮只发 GET（38 个读端点）＋读容器 env 名与长度＋读源码，零写入、未注册账号、未跑 run。
+>
+> - **38 个 GET**：`/api/health` 200、`/metrics` 200，**其余 36 个全 401**
+>   `{"error":"not authenticated"}`（含 6 个 `/api/admin/*`）⇒ fail-closed 成立，0 个 5xx。
+>   这 36 个的**正向读本轮没覆盖**：需要账号，而 register / `auth/demo` 都会写库，超出只读范围。
+> - **`/metrics` 实证"服务活着但没被驱动过"**：`runs_total` / `runs_failed_total` /
+>   `runs_cost_usd_total` / `runs_active` **只有 HELP/TYPE 行、没有任何样本行** ⇒ 进程启动至今
+>   **零 run**；`http_requests_total` 只有本轮探测自己产生的 `GET 200=2` / `GET 401=36`。
+>   容器 Up 21h，期间无外部请求。所以"只探过根路径"这条待办的真实结论是**未启用**，不是"未验证"。
+> - **`/api/health` 的 `providers.agnes:"missing"` 不要当密钥缺失去修**：容器内
+>   `AGNES_API_KEY` **存在且长度 51**，但 `MODEL_HUB_URL`/`MODEL_HUB_TOKEN` 也已配，
+>   `applyHubCatalog` 在 hub 生效时**丢掉全部 `source:"builtin"` 的 provider**
+>   （`packages/server/src/config.ts:589`），agnes 属 builtin ⇒ `providers.agnes` 为 undefined，
+>   health 的三元表达式（`index.ts:398`）就落到 `"missing"`。
+>   **反过来说，"key 在但 agnes missing"本身就是 hub 平面已生效的证据。**
+>   真正的问题是**这个健康字段在误导运维**：它报的是一个按设计已被移除的槽位名，
+>   应该改报 hub 平面状态。属可观测性缺口，本轮只登记未改。
+> - `/metrics` 无鉴权是**显式设计**（`index.ts:365`：设 `METRICS_TOKEN` 才要求 Bearer，
+>   注释说明只适用于同机 scraper）；本实例端口只绑 `127.0.0.1:18791`，未对外。
+> - 本地 `.env` 的 `MODEL_HUB_TOKEN` 注释自述属 **tier0-local** 项目（与 job-agent 本地同一个项目），
+>   即本地 LLM 花费记在 tier0-local 名下，不是 agent-world 独立项目。
+
 > **2026-11-06 补登：dev → main 已于 2026-11-05 经 PR #525 合并（合并前 CI 全绿；期间 GitHub API 瞬时故障，重试后成功）；实测 origin/main 与 origin/dev 内容完全一致（git diff 为空）。**
 
 State of Agent World as of 2026-10-07（#87 代码审计 §七 增量复核 8 条，同日已修 **7** 条（7.1–7.6 于 10-04：`d59ddaf`/`804651a`/`2b00ed7`/`d71d51f`/`e1268b9`/`b6d66d7`；7.7 于 10-07 以 Biome 落地 `d8daf06`），**只剩 7.8 要 root**；这批经 PR #486/#487/#489/**#492** 合 dev，**10-07 二次实测生产已跑 `2871a90`**（#492 的 merge commit；Deploy run `37639901006` 日志自报 `deploy OK: 2871a90`——按 `scripts/deploy/deploy.sh:33-43` 这行只在 `systemctl restart` 后轮询 `/api/health` 判健康才打印，失败打 `deploy FAILED` 并 exit 1，**故该行本身即一次线上健康读数**，旧的 `2b301d6` 已被超过）。**10-08 再往前一格**：`origin/feature/20260824` = `0e3d7b7`（其上加了 8 个 commit：文档对账 ＋ 产品第三刀「媒体表单可达」＋ 表单可达性守护测），CI run `37655245322` 全绿，**但尚未合 dev ⇒ 生产仍是 `2871a90`，这批没上线**。⚠️ 同日另两条实测：`feature/20260824` 尖端一度 **CI 红在 Dependency audit 步**（GHSA-68fv-2mgg-jv7q，`source-map-js <1.2.2` 经 `jsdom>css-tree`）——**已修**：根 `pnpm.overrides` 钉 `>=1.2.2`（`aee88b9`）＋ dompurify 吃补丁 `3.4.16`（`065494a`），`pnpm audit --audit-level=high` 现 exit 0、全仓只剩 1 条**没有补丁可升**的 moderate（sprintf-js，登记在 deferred-items）；同日**第三条红**在 i18n guard 步（run `37633139076`：`i18n-prune -- --check` 把 `d1f5b88` 新加的 4 个英文复数键报成死键，而 `--apply` 会真删——但 `AdminPanel.tsx:352-358` 是 `i18n.t(base, {count})`，i18next 运行时按 Intl.PluralRules 拼 CLDR 后缀，源码永远不会写出那个键，扫描器只建模「字面量／defaultNS 裸键／运行期前缀」三条）→ `5e3ac22` 加「尾缀回落基键」的解析规则 ＋ 5 条测，**两条植入验证**：种 3 条 junk（1 普通 ＋ 一对无基键的复数形式）如实报 3 并 exit 1（写成 blanket 豁免只会报 1）、把新分支摘掉则 5 测里 3 条变红；该守卫是 10 步里的第 7 步，红在这里意味着 `Test` 与 `E2E tests` 在 CI 里根本没跑到）；另一条**已于同日晚些闭合**：~~lint 门禁目前只在 feature 分支~~——PR #492 把 `pnpm lint` 步与 `biome.json` 一起带进 dev（一手实测：`git show origin/dev:.github/workflows/ci.yml` 第 54 行就是 `run: pnpm lint`，dev 树根存在 `biome.json`），dev 上 `2871a90` 的 CI run `37640357906` 结论 success、Lint 步自报 `Checked 702 files`））；#85 内置目录精简为 2.5 三件套并部署 Hasee、#86 错误 relay + 真机视频验证闭环均已落档；最近 6 个变更见下文 Active work 区）。
