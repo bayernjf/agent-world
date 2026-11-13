@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ProviderConfig } from "../config.js";
 import { GuardedFetchError } from "../ssrf.js";
-import { buildUserContent, mapGuardedError, openAICompatibleWorker } from "./openai-compatible.js";
+import { arkSampling, buildUserContent, mapGuardedError, openAICompatibleWorker } from "./openai-compatible.js";
 
 describe("mapGuardedError", () => {
   it("keeps deterministic guard refusals non-retryable-ish PROVIDER_ERROR with the original message", () => {
@@ -24,6 +24,20 @@ describe("mapGuardedError", () => {
   it("keeps truly unknown errors on UNKNOWN", () => {
     const err = mapGuardedError(new Error("something else entirely"));
     expect(err.code).toBe("UNKNOWN");
+  });
+});
+
+describe("arkSampling (ark-code models only allow temperature=1)", () => {
+  it("clamps any requested temperature to 1 for ark-code models", () => {
+    expect(arkSampling("ark-code-latest", 0.7)).toBe(1);
+    expect(arkSampling("ark-code-latest", 0)).toBe(1);
+    expect(arkSampling("ark-code-latest", 1)).toBe(1);
+  });
+
+  it("leaves non-ark models on their requested temperature", () => {
+    expect(arkSampling("doubao-pro", 0.7)).toBe(0.7);
+    expect(arkSampling("doubao-pro", 0)).toBe(0);
+    expect(arkSampling("agnes-2.0-flash", 0.2)).toBe(0.2);
   });
 });
 

@@ -242,6 +242,16 @@ function mediaUsage(units: Usage["units"], model: string, pricingFor: (m: string
 }
 
 /**
+ * Volcengine's ark-code reasoning models only accept temperature=1 on the
+ * server and reject every other value with HTTP 400 (`temperature` only 1 is
+ * allowed). Clamp sampling to 1 for those models; every other model keeps the
+ * requested temperature (including the deterministic 0 used by judge/summarize).
+ */
+export function arkSampling(model: string, requested: number): number {
+  return /ark-code/i.test(model) ? 1 : requested;
+}
+
+/**
  * Worker for any OpenAI-compatible Chat Completions API: OpenAI, Volcengine Ark,
  * Agnes, DeepSeek, Moonshot, vLLM, Ollama, etc. one implementation covers them all.
  */
@@ -275,7 +285,7 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
         body: JSON.stringify({
           model,
           messages,
-          temperature: config.temperature,
+          temperature: arkSampling(model, config.temperature),
           stream: true,
           stream_options: { include_usage: true },
         }),
@@ -406,7 +416,7 @@ export function openAICompatibleWorker(provider: ProviderConfig): Worker {
             model,
             messages: convo,
             tools: toolDefs,
-            temperature: config.temperature,
+            temperature: arkSampling(model, config.temperature),
             stream: false,
           }),
           signal: timeoutController.signal,
