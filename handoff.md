@@ -1,5 +1,11 @@
 # Handoff
 
+> **2026-11-13 追加：health 误报修复。**
+> `/api/health` 的 `providers.agnes:"missing"` 在 hub 投影生效时是**误报**——agnes 被
+> `applyHubCatalog` 按设计移除，不是缺密钥。改后 hub 生效时返回
+> `providers:{hub:"active", agnes:"superseded-by-hub"}`，hub 未生效才走原 agnes 检查
+> （commit `26a823d`，已 push dev；实测 health 返回 `hub:"active"` + `superseded-by-hub`）。
+
 > **2026-11-13 实测跑通首条 pipeline + 修 ark-code 温度钳制。**
 > 此前"零 run"的根因：model-hub 唯一 text 模型 `ark-code-latest`（代码推理模型）服务端只接受
 > `temperature=1`，而 textGen 默认 0.7、judge/summarize 用 0，全被 ark 拒 HTTP 400
