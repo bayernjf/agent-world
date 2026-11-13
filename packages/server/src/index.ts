@@ -98,7 +98,7 @@ import {
   writePlatformCatalog,
   type PlatformCatalog,
 } from "./builtin-catalog.js";
-import { createHubCatalog } from "./hub-catalog.js";
+import { createHubCatalog, getHubCatalog } from "./hub-catalog.js";
 import { GuardedFetchError, guardedFetch, hostIsInternal } from "./ssrf.js";
 import { routingWorker, assertBootWorkerEnv } from "./providers/index.js";
 import { WorkerRegistry } from "./worker-plugins.js";
@@ -394,8 +394,19 @@ app.get("/api/health", async (c) => {
     process.env.JWT_SECRET || existsSync(join(dirname(dbFile), ".jwt-secret"))
       ? "loaded"
       : "missing";
-  const agnes = (await loadConfig()).providers.agnes;
-  const agnesStatus = agnes?.enabled === false ? "disabled" : agnes?.apiKey ? "configured" : "missing";
+  const cfg = await loadConfig();
+  // When the model-hub projection is active, applyHubCatalog drops the built-in
+  // agnes provider by design, so "agnes missing" here would be a false alarm.
+  // Report the hub plane instead, and mark agnes as superseded rather than missing.
+  const hubActive = getHubCatalog() != null;
+  const agnes = cfg.providers.agnes;
+  const agnesStatus = hubActive
+    ? "superseded-by-hub"
+    : agnes?.enabled === false
+      ? "disabled"
+      : agnes?.apiKey
+        ? "configured"
+        : "missing";
   // Readiness gate（P1 优雅启动）：关键就绪检查全通过才 200，否则 503 让反代/
   // 探针把流量挡在未就绪实例外。`ok` 只反映「能否接流量」，checks 仍报状态词、不吐值。
   const ready = dbStatus === "ok" && encryptionStatus === "loaded" && jwtStatus === "loaded";
@@ -409,7 +420,7 @@ app.get("/api/health", async (c) => {
         db: dbStatus,
         jwtSecret: jwtStatus,
         encryption: encryptionStatus,
-        providers: { agnes: agnesStatus },
+        providers: hubActive ? { hub: "active", agnes: agnesStatus } : { agnes: agnesStatus },
       },
     },
     ready ? 200 : 503,
