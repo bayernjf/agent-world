@@ -1,5 +1,15 @@
 # Handoff
 
+> **2026-11-13 实测跑通首条 pipeline + 修 ark-code 温度钳制。**
+> 此前"零 run"的根因：model-hub 唯一 text 模型 `ark-code-latest`（代码推理模型）服务端只接受
+> `temperature=1`，而 textGen 默认 0.7、judge/summarize 用 0，全被 ark 拒 HTTP 400
+> （`InvalidParameter: temperature only 1 is allowed`）。
+> 修复：`openai-compatible.ts` 加 `arkSampling()`，对 `/ark-code/i` 模型把采样温度钳制为 1，
+> 统一覆盖 textGen / judge / summarize 调用点（commit `c7f2a4f`，含 2 条单测，28 测试全绿）。
+> 验证：tpl-draft（source→textGen→textGen→gate→sink）实测 run=`done`，draft/polish/gate 三节点
+> 均真实调 `ark-code-latest`（tokens in/out > 0），成品文案正常。仍待办：ark-code 是代码模型，
+> 做内容生成非其长项；要"本地流畅使用"理想是在 model-hub 再接一个通用 text 模型（需 API key，暂未动）。
+
 > **2026-11-11 只读实测：本地实例 21 小时零运行、零外部流量；`providers.agnes:"missing"` 是预期不是缺密钥。**
 > 本轮只发 GET（38 个读端点）＋读容器 env 名与长度＋读源码，零写入、未注册账号、未跑 run。
 >
