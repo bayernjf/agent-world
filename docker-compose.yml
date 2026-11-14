@@ -8,6 +8,12 @@ services:
       - "8791:8791"
     environment:
       PORT: "8791"
+      # OTel plan phase 2: opt-in OTLP/HTTP JSON trace export. Unset endpoint
+      # means the exporter is a noop (nothing dials out). Service name is the
+      # Tempo resource attribute; environment pins the local deployment.
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318/v1/traces"
+      OTEL_SERVICE_NAME: "agent-world"
+      DEPLOY_ENV: "local"
       # Restrict CORS to your frontend origin in any shared deployment:
       # CORS_ORIGINS: "https://your-app.example.com"
       # Provider credentials read from env (the builtin model is fail-closed without a key):
