@@ -19,6 +19,7 @@ import { serve } from "@hono/node-server";
 import { getConnInfo } from "@hono/node-server/conninfo";
 import { randomUUID, randomBytes } from "node:crypto";
 import { execSync } from "node:child_process";
+import { exportRequestSpan } from "./observability/otlp.js";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { Hono } from "hono";
@@ -319,6 +320,8 @@ app.use("/api/*", async (c, next) => {
   if (status >= 500) log.error("http request", record);
   else if (status >= 400) log.warn("http request", record);
   else log.info("http request", record);
+  // OTel plan phase 2: fire-and-forget OTLP span, env opt-in (noop when unset).
+  void exportRequestSpan({ path, method: c.req.method, status, latencyMs });
 });
 
 // --- Global error capture (errors.ts) ---
