@@ -1,9 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
-import type { Diagnostic, FormConnector, Graph } from "@agent-world/core";
-
-type FormField = FormConnector["fields"][number];
 import Canvas, { type Mode } from "./canvas/Canvas";
 import { KIND_KEY } from "./canvas/Plants";
 import Minimap from "./canvas/Minimap";
@@ -83,6 +80,7 @@ import { buildCommandItems } from "./app/commandItems";
 import { usePanelLayout } from "./app/usePanelLayout";
 import { useGraphLibrary } from "./app/useGraphLibrary";
 import { useParkView } from "./app/useParkView";
+import { useRunControls } from "./app/useRunControls";
 
 export default function App() {
   const { t } = useTranslation();
@@ -90,13 +88,12 @@ export default function App() {
   // only re-renders when a field it actually reads changes.
   const graph = useGraph((s) => s.graph);
   const addNode = useGraph((s) => s.addNode);
-  const flushSave = useGraph((s) => s.flushSave);
   const undo = useGraph((s) => s.undo);
   const redo = useGraph((s) => s.redo);
   const selectedId = useGraph((s) => s.selectedId);
   const updateGraphVariables = useGraph((s) => s.updateGraphVariables);
   const inspectorOpen = useGraph((s) => s.inspectorOpen);
-  const { connect, reset, runId, loadRun } = useRun();
+  const { loadRun } = useRun();
   const viewMode = useViewMode((s) => s.viewMode);
   const toggleViewMode = useViewMode((s) => s.toggle);
   const setViewMode = useViewMode((s) => s.setViewMode);
@@ -104,11 +101,10 @@ export default function App() {
   const drilledFromPark = useViewMode((s) => s.drilledFromPark);
   const requestDrillAnim = useViewMode((s) => s.requestDrillAnim);
 
-  const [mode, setMode] = useState<Mode>("select");
-  const [budget, setBudget] = useState(0.01);
-  const [rawMaterial, setRawMaterial] = useState("");
-  const [diagnostics, setDiagnostics] = useState<Diagnostic[]>([]);
-  const [canRun, setCanRun] = useState(false);
+  const {
+    mode, setMode, budget, setBudget, rawMaterial, setRawMaterial,
+    diagnostics, canRun, formFields, setFormFields, onRun, onFormSubmit, onCancel,
+  } = useRunControls();
   /** Pop a center-screen error toast with a one-click copy button. */
   const showError = (msg: string) => {
     useToast.getState().show(msg, { ttlMs: 6000 });
@@ -228,97 +224,6 @@ export default function App() {
     setDrilledFromPark,
     requestDrillAnim,
   });
-
-  // The compiler is dependency-free, so diagnostics could run locally; going
-  // through the server keeps one implementation authoritative while we settle it.
-  useEffect(() => {
-    if (graph.nodes.length === 0) return;
-    let cancelled = false;
-    const timer = setTimeout(() => {
-      api
-        .compile(graph)
-        .then((r) => {
-          if (cancelled) return;
-          setDiagnostics(r.diagnostics);
-          setCanRun(r.plan !== null);
-        })
-        .catch((e) => {
-          if (cancelled) return;
-          setDiagnostics([
-            {
-              severity: "error",
-              message: t("common:app.compileFailed", { error: String(e) }),
-            },
-          ]);
-          setCanRun(false);
-        });
-    }, 180);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [graph]);
-
-  // 4B.4: collect form-connector fields from every source node, if any.
-  const collectFormFields = useCallback((): FormField[] => {
-    const out: FormField[] = [];
-    for (const n of graph.nodes) {
-      if (n.kind === "source" && n.source?.connector?.type === "form") {
-        out.push(...(n.source.connector.form?.fields ?? []));
-      }
-    }
-    return out;
-  }, [graph]);
-
-  const [formFields, setFormFields] = useState<FormField[] | null>(null);
-
-  const startRunWith = useCallback(
-    async (connectorValues?: Record<string, string>) => {
-      try {
-        /* toast cleared by the producer */ reset();
-        // Go through the serialized store save (not a raw api.saveGraph) so the
-        // server version is tracked and can't drift: an unconditional save here
-        // would bump the version without recording it, and a later conditional
-        // save (switch-graph flush) would 409 on the stale If-Match.
-        await flushSave();
-        const { runId: id } = await api.startRun(
-          graph.id,
-          budget,
-          rawMaterial.trim() || undefined,
-          connectorValues,
-        );
-        connect(id);
-      } catch (e) {
-        // A structured subscription 402 opens the upgrade modal instead of a
-        // raw error toast; every other failure keeps the normal toast path.
-        const block = parseQuotaError(e);
-        if (block) useUpgradeGate.getState().open(block);
-        else showError(String(e));
-      }
-    },
-    [graph, budget, rawMaterial, connect, reset, flushSave],
-  );
-
-  const onRun = useCallback(() => {
-    const fields = collectFormFields();
-    if (fields.length) {
-      setFormFields(fields);
-      return;
-    }
-    void startRunWith();
-  }, [collectFormFields, startRunWith]);
-
-  const onFormSubmit = useCallback(
-    (values: Record<string, string>) => {
-      setFormFields(null);
-      void startRunWith(values);
-    },
-    [startRunWith],
-  );
-
-  const onCancel = useCallback(async () => {
-    if (runId) await api.cancelRun(runId).catch(() => undefined);
-  }, [runId]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
