@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import type { Diagnostic, FormConnector, Graph } from "@agent-world/core";
@@ -82,6 +82,7 @@ type FactoryStatus = import("./canvas/CanvasPark").FactoryStatus;
 import ParkEconomyBar from "./canvas/ParkEconomyBar";
 import ParkScheduleAxis from "./canvas/ParkScheduleAxis";
 import { buildCommandItems } from "./app/commandItems";
+import { usePanelLayout } from "./app/usePanelLayout";
 
 /** How often the HUD badge re-counts runs waiting on a human. */
 const REVIEW_POLL_MS = 20_000;
@@ -142,51 +143,11 @@ export default function App() {
   const [deleteTarget, setDeleteTarget] = useState<GraphSummary | null>(null);
   const currentSharedRole = graphs.find((g) => g.id === graph.id)?.sharedRole ?? null;
   const isViewer = currentSharedRole === "viewer";
-  const [controlCollapsed, setControlCollapsed] = useState(false);
-  // Collapsed by default, matching the "no selected node" state — starting
-  // expanded would flash open on first paint before the selectedId effect
-  // collapses it again (see below), causing an open-then-close flicker.
-  const [inspectorCollapsed, setInspectorCollapsed] = useState(true);
-  const [inspectorWidth, setInspectorWidth] = useState(() => {
-    const saved = localStorage.getItem("inspector-width");
-    return saved ? Number(saved) : 420;
-  });
-  const dragging = useRef(false);
-  const dragWidth = useRef(420);
-  // L20: hold the detach function for the active drag listeners so that an
-  // unmount mid-drag (when mouseup never fires) does not leak them onto
-  // document.
-  const detachDrag = useRef<(() => void) | null>(null);
-  const onDragStart = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-      dragging.current = true;
-      dragWidth.current = inspectorWidth;
-      const onMove = (ev: MouseEvent) => {
-        if (!dragging.current) return;
-        const w = Math.min(720, Math.max(280, window.innerWidth - ev.clientX));
-        dragWidth.current = w;
-        setInspectorWidth(w);
-      };
-      const detach = () => {
-        document.removeEventListener("mousemove", onMove);
-        document.removeEventListener("mouseup", onUp);
-        detachDrag.current = null;
-      };
-      const onUp = () => {
-        dragging.current = false;
-        detach();
-        localStorage.setItem("inspector-width", String(dragWidth.current));
-      };
-      detachDrag.current?.();
-      detachDrag.current = detach;
-      document.addEventListener("mousemove", onMove);
-      document.addEventListener("mouseup", onUp);
-    },
-    [inspectorWidth],
-  );
-  // Remove any lingering document listeners on unmount.
-  useEffect(() => () => detachDrag.current?.(), []);
+  const {
+    controlCollapsed, setControlCollapsed,
+    inspectorCollapsed, setInspectorCollapsed,
+    inspectorWidth, onDragStart, bothCollapsed, toggleBoth,
+  } = usePanelLayout();
   const [historyOpen, setHistoryOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
   /** Runs parked on a human decision across every line — the HUD badge. */
@@ -239,12 +200,6 @@ export default function App() {
 
   const tipsEnabled = useTips((s) => s.enabled);
   const toggleTips = useTips((s) => s.toggle);
-  const bothCollapsed = controlCollapsed && inspectorCollapsed;
-  const toggleBoth = () => {
-    const next = !bothCollapsed;
-    setControlCollapsed(next);
-    setInspectorCollapsed(next);
-  };
 
   // Guided tour: register before-step side effects and migrate the legacy
   // single-tour seen key once (see docs/design-guided-tour.md §12.5).
