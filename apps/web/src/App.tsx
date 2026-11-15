@@ -81,6 +81,7 @@ import { usePanelLayout } from "./app/usePanelLayout";
 import { useGraphLibrary } from "./app/useGraphLibrary";
 import { useParkView } from "./app/useParkView";
 import { useRunControls } from "./app/useRunControls";
+import AppHud from "./app/AppHud";
 
 export default function App() {
   const { t } = useTranslation();
@@ -311,117 +312,26 @@ export default function App() {
         <Onboarding onCreate={createGraph} />
       )}
       <div className="app">
-        <header className="hud">
-          <div className="hud__brand">
-            <Logo />
-            <span className="hud__brand-text">
-              AGENT<span>WORLD</span>
-            </span>
-          </div>
-          <div className="hud__meta">
-            <GraphSwitcher
-              graphs={graphs}
-              currentId={graph.id}
-              onSwitch={switchGraph}
-              onCreate={() => setNewGraphOpen(true)}
-              onDuplicate={duplicateGraph}
-              onDelete={(id) =>
-                setDeleteTarget(graphs.find((g) => g.id === id) ?? null)
-              }
-              onRename={renameGraph}
-              onShare={(id) => setShareTargetId(id)}
-            />
-            <span className="muted">
-              {graph.nodes.length > 0
-                ? Object.entries(
-                    graph.nodes.reduce<Record<string, number>>((acc, n) => {
-                      acc[n.kind] = (acc[n.kind] ?? 0) + 1;
-                      return acc;
-                    }, {}),
-                  )
-                    .sort((a, b) => b[1] - a[1])
-                    .map(([k, v]) => {
-                      const key = KIND_KEY[k as keyof typeof KIND_KEY];
-                      return `${v} ${key ? t(key) : k}`;
-                    })
-                    .join(" · ")
-                : t("common:app.zeroNodes")}
-            </span>
-            <span className="muted">
-              {t("common:app.pipeCount", { n: graph.edges.length })}
-            </span>
-          </div>
-          <div className="hud__actions" data-tour="hud:actions">
-            <div className="hud__undo-redo">
-              <UndoRedo />
-            </div>
-            <Tooltip
-              content={
-                bothCollapsed
-                  ? t("common:app.expandPanels")
-                  : t("common:app.collapsePanels")
-              }
-            >
-              <button className="chip stage__panel-toggle" onClick={toggleBoth}>
-                {bothCollapsed
-                  ? t("common:app.expandPanel")
-                  : t("common:app.collapsePanel")}
-              </button>
-            </Tooltip>
-            <Tooltip
-              content={t("common:app.tipsToggle", {
-                state: tipsEnabled
-                  ? t("common:app.tipsOn")
-                  : t("common:app.tipsOff"),
-              })}
-            >
-              <button
-                className={`chip ${tipsEnabled ? "" : "chip--muted"}`}
-                onClick={toggleTips}
-              >
-                {t("common:app.tips")}
-              </button>
-            </Tooltip>
-            <Tooltip content={t("reviews:nav.tooltip")}>
-              <button
-                className="chip"
-                onClick={() => setReviewOpen(true)}
-                aria-label={
-                  pendingReviews > 0
-                    ? t("reviews:nav.badge", { n: pendingReviews })
-                    : t("reviews:nav.label")
-                }
-              >
-                {t("reviews:nav.label")}
-                {pendingReviews > 0 && (
-                  <span className="chip__badge">{pendingReviews}</span>
-                )}
-              </button>
-            </Tooltip>
-            <Tooltip content={t("common:app.galleryTooltip")}>
-              <button className="chip" onClick={() => setGalleryOpen(true)}>
-                {t("common:app.gallery")}
-              </button>
-            </Tooltip>
-            <Tooltip content={t("common:app.glossaryTooltip")}>
-              <button className="chip" onClick={() => setGlossaryOpen(true)}>
-                {t("common:app.glossary")}
-              </button>
-            </Tooltip>
-            <ShortcutsHelp />
-            <Tooltip content={t("common:app.paletteTooltip")}>
-              <button
-                className="chip hud__menu"
-                onClick={() => setPaletteOpen(true)}
-                aria-label={t("common:app.paletteAria")}
-              >
-                {t("common:app.palette")} <kbd className="kbd-inline">⌘K</kbd>
-              </button>
-            </Tooltip>
-            <AnnouncementBell />
-            <UserMenu />
-          </div>
-        </header>
+        <AppHud
+          t={t}
+          graph={graph}
+          graphs={graphs}
+          switchGraph={switchGraph}
+          setNewGraphOpen={setNewGraphOpen}
+          duplicateGraph={duplicateGraph}
+          setDeleteTarget={setDeleteTarget}
+          renameGraph={renameGraph}
+          setShareTargetId={setShareTargetId}
+          bothCollapsed={bothCollapsed}
+          toggleBoth={toggleBoth}
+          tipsEnabled={tipsEnabled}
+          toggleTips={toggleTips}
+          pendingReviews={pendingReviews}
+          setReviewOpen={setReviewOpen}
+          setGalleryOpen={setGalleryOpen}
+          setGlossaryOpen={setGlossaryOpen}
+          setPaletteOpen={setPaletteOpen}
+        />
 
         <DemoBanner />
         <div
