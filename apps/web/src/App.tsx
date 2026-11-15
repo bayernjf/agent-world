@@ -1,9 +1,6 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
-import type { Diagnostic, FormConnector, Graph } from "@agent-world/core";
-
-type FormField = FormConnector["fields"][number];
 import Canvas, { type Mode } from "./canvas/Canvas";
 import { KIND_KEY } from "./canvas/Plants";
 import Minimap from "./canvas/Minimap";
@@ -77,31 +74,27 @@ import {
 const Canvas3D = lazy(() => import("./canvas/Canvas3D"));
 // RTS stage-B L0 macro park: separate chunk so 2D/3D users never load three.js twice for it.
 const CanvasPark = lazy(() => import("./canvas/CanvasPark"));
-type ParkFactory = import("./canvas/CanvasPark").ParkFactory;
-type FactoryStatus = import("./canvas/CanvasPark").FactoryStatus;
 import ParkEconomyBar from "./canvas/ParkEconomyBar";
 import ParkScheduleAxis from "./canvas/ParkScheduleAxis";
 import { buildCommandItems } from "./app/commandItems";
-
-/** How often the HUD badge re-counts runs waiting on a human. */
-const REVIEW_POLL_MS = 20_000;
+import { usePanelLayout } from "./app/usePanelLayout";
+import { useGraphLibrary } from "./app/useGraphLibrary";
+import { useParkView } from "./app/useParkView";
+import { useRunControls } from "./app/useRunControls";
+import AppHud from "./app/AppHud";
 
 export default function App() {
   const { t } = useTranslation();
   // L19: subscribe to individual slices instead of the whole store so App
   // only re-renders when a field it actually reads changes.
   const graph = useGraph((s) => s.graph);
-  const setGraph = useGraph((s) => s.setGraph);
   const addNode = useGraph((s) => s.addNode);
-  const flushSave = useGraph((s) => s.flushSave);
   const undo = useGraph((s) => s.undo);
   const redo = useGraph((s) => s.redo);
   const selectedId = useGraph((s) => s.selectedId);
   const updateGraphVariables = useGraph((s) => s.updateGraphVariables);
   const inspectorOpen = useGraph((s) => s.inspectorOpen);
-  const setReadOnly = useGraph((s) => s.setReadOnly);
-  const { connect, reset, runId, loadRun } = useRun();
-  const runStatus = useRun((s) => s.live.status);
+  const { loadRun } = useRun();
   const viewMode = useViewMode((s) => s.viewMode);
   const toggleViewMode = useViewMode((s) => s.toggle);
   const setViewMode = useViewMode((s) => s.setViewMode);
@@ -109,11 +102,10 @@ export default function App() {
   const drilledFromPark = useViewMode((s) => s.drilledFromPark);
   const requestDrillAnim = useViewMode((s) => s.requestDrillAnim);
 
-  const [mode, setMode] = useState<Mode>("select");
-  const [budget, setBudget] = useState(0.01);
-  const [rawMaterial, setRawMaterial] = useState("");
-  const [diagnostics, setDiagnostics] = useState<Diagnostic[]>([]);
-  const [canRun, setCanRun] = useState(false);
+  const {
+    mode, setMode, budget, setBudget, rawMaterial, setRawMaterial,
+    diagnostics, canRun, formFields, setFormFields, onRun, onFormSubmit, onCancel,
+  } = useRunControls();
   /** Pop a center-screen error toast with a one-click copy button. */
   const showError = (msg: string) => {
     useToast.getState().show(msg, { ttlMs: 6000 });
@@ -137,60 +129,22 @@ export default function App() {
     navigate("/", { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const [newGraphOpen, setNewGraphOpen] = useState(false);
-  const [graphs, setGraphs] = useState<GraphSummary[]>([]);
-  const [deleteTarget, setDeleteTarget] = useState<GraphSummary | null>(null);
+  const {
+    newGraphOpen, setNewGraphOpen, graphs, deleteTarget, setDeleteTarget,
+    shareTargetId, setShareTargetId, graphsReady, pendingReviews,
+    refreshGraphs, refreshPendingReviews, switchGraph, createGraph,
+    duplicateGraph, renameGraph, confirmDelete,
+  } = useGraphLibrary();
   const currentSharedRole = graphs.find((g) => g.id === graph.id)?.sharedRole ?? null;
   const isViewer = currentSharedRole === "viewer";
-  const [controlCollapsed, setControlCollapsed] = useState(false);
-  // Collapsed by default, matching the "no selected node" state — starting
-  // expanded would flash open on first paint before the selectedId effect
-  // collapses it again (see below), causing an open-then-close flicker.
-  const [inspectorCollapsed, setInspectorCollapsed] = useState(true);
-  const [inspectorWidth, setInspectorWidth] = useState(() => {
-    const saved = localStorage.getItem("inspector-width");
-    return saved ? Number(saved) : 420;
-  });
-  const dragging = useRef(false);
-  const dragWidth = useRef(420);
-  // L20: hold the detach function for the active drag listeners so that an
-  // unmount mid-drag (when mouseup never fires) does not leak them onto
-  // document.
-  const detachDrag = useRef<(() => void) | null>(null);
-  const onDragStart = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-      dragging.current = true;
-      dragWidth.current = inspectorWidth;
-      const onMove = (ev: MouseEvent) => {
-        if (!dragging.current) return;
-        const w = Math.min(720, Math.max(280, window.innerWidth - ev.clientX));
-        dragWidth.current = w;
-        setInspectorWidth(w);
-      };
-      const detach = () => {
-        document.removeEventListener("mousemove", onMove);
-        document.removeEventListener("mouseup", onUp);
-        detachDrag.current = null;
-      };
-      const onUp = () => {
-        dragging.current = false;
-        detach();
-        localStorage.setItem("inspector-width", String(dragWidth.current));
-      };
-      detachDrag.current?.();
-      detachDrag.current = detach;
-      document.addEventListener("mousemove", onMove);
-      document.addEventListener("mouseup", onUp);
-    },
-    [inspectorWidth],
-  );
-  // Remove any lingering document listeners on unmount.
-  useEffect(() => () => detachDrag.current?.(), []);
+  const {
+    controlCollapsed, setControlCollapsed,
+    inspectorCollapsed, setInspectorCollapsed,
+    inspectorWidth, onDragStart, bothCollapsed, toggleBoth,
+  } = usePanelLayout();
   const [historyOpen, setHistoryOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
   /** Runs parked on a human decision across every line — the HUD badge. */
-  const [pendingReviews, setPendingReviews] = useState(0);
   const [modelAssignOpen, setModelAssignOpen] = useState(false);
   const [costOpen, setCostOpen] = useState(false);
   const [evalOpen, setEvalOpen] = useState(false);
@@ -213,38 +167,10 @@ export default function App() {
   const [variablesOpen, setVariablesOpen] = useState(false);
   const [compareOpen, setCompareOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const [shareTargetId, setShareTargetId] = useState<string | null>(null);
-  const [graphsReady, setGraphsReady] = useState(false);
 
   /** Case-insensitive, trimmed duplicate check across the local graph list. */
-  const nameTaken = (name: string, excludeId?: string): GraphSummary | null => {
-    const target = name.trim().toLowerCase();
-    if (!target) return null;
-    return (
-      graphs.find(
-        (g) => g.id !== excludeId && g.name.trim().toLowerCase() === target,
-      ) ?? null
-    );
-  };
-
-  /** Surface a friendly "name already used" message and bail. */
-  const reportDuplicate = (
-    name: string,
-    dup: { name: string } | null,
-  ): boolean => {
-    if (!dup) return false;
-    showError(t("common:app.duplicateName", { name }));
-    return true;
-  };
-
   const tipsEnabled = useTips((s) => s.enabled);
   const toggleTips = useTips((s) => s.toggle);
-  const bothCollapsed = controlCollapsed && inspectorCollapsed;
-  const toggleBoth = () => {
-    const next = !bothCollapsed;
-    setControlCollapsed(next);
-    setInspectorCollapsed(next);
-  };
 
   // Guided tour: register before-step side effects and migrate the legacy
   // single-tour seen key once (see docs/design-guided-tour.md §12.5).
@@ -286,421 +212,19 @@ export default function App() {
   };
 
 
-  const refreshGraphs = useCallback(async () => {
-    try {
-      const list = await api.listGraphs();
-      setGraphs(list);
-      return list;
-    } catch (e) {
-      showError(String(e));
-      return [];
-    }
-  }, []);
 
-  /** Only the count is read here; the queue itself fetches the rows. */
-  const refreshPendingReviews = useCallback(() => {
-    api
-      .listPendingReviews({ limit: 1 })
-      .then((d) => setPendingReviews(d.total))
-      // The badge is cosmetic: a failed poll must not toast every 20s.
-      .catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    refreshPendingReviews();
-    const timer = setInterval(refreshPendingReviews, REVIEW_POLL_MS);
-    return () => clearInterval(timer);
-  }, [refreshPendingReviews]);
-
-  // A run halting on the canvas lights the badge at once instead of at the next poll.
-  useEffect(() => {
-    if (runStatus === "halted") refreshPendingReviews();
-  }, [runStatus, refreshPendingReviews]);
-
-  const switchGraph = useCallback(
-    async (id: string) => {
-      if (id === graph.id) return;
-      try {
-        await flushSave();
-      } catch (e) {
-        // Flush rethrows on failure (M22): abort the switch instead of silently
-        // dropping unsaved edits, but tell the user why nothing happened.
-        showError(String(e));
-        return;
-      }
-      reset();
-      try {
-        const g = await api.getGraph(id);
-        const sharedRole = graphs.find((gr) => gr.id === id)?.sharedRole ?? null;
-        setReadOnly(sharedRole === "viewer");
-        setGraph(g);
-        useGraph.temporal.getState().clear();
-        /* toast cleared by the producer */
-      } catch (e) {
-        showError(String(e));
-      }
-    },
-    [graph.id, flushSave, reset, setGraph, graphs, setReadOnly],
-  );
-
-  // --- RTS stage-B L0 macro park: poll overview only while the park is open ---
-  const [parkOverview, setParkOverview] = useState<OperationsOverview | null>(null);
-  useEffect(() => {
-    if (viewMode !== "park") return;
-    let cancelled = false;
-    const load = async () => {
-      try {
-        const data = await api.operationsOverview();
-        if (!cancelled) setParkOverview(data);
-      } catch (e) {
-        // Park stays usable with the previous snapshot; surface nothing noisy.
-        console.warn("park overview poll failed", e);
-      }
-    };
-    void load();
-    const timer = setInterval(() => void load(), 15_000);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, [viewMode]);
-
-  const parkFactories: ParkFactory[] = useMemo(() => {
-    if (!parkOverview) return [];
-    return parkOverview.graphs.map((g): ParkFactory => {
-      // Worst-state-wins: failed/tripped > halted (review) > running > done > idle.
-      let status: FactoryStatus = "idle";
-      if (g.failed > 0 || g.tripped > 0) status = "failed";
-      else if (g.halted > 0) status = "halted";
-      else if (g.running > 0) status = "running";
-      else if (g.done > 0) status = "done";
-      const cs = parkOverview.cronState?.[g.graphId];
-      return {
-        id: g.graphId,
-        name: g.graphName ?? g.graphId.slice(0, 8),
-        // Palette seed, not copy: CanvasPark hashes it into a factory tint and
-        // never renders it, so it must not follow the UI language.
-        category: g.category ?? "自定义",
-        status,
-        pendingReview: g.pendingReview ?? g.halted ?? 0,
-        hasCron: cs?.hasCron ?? false,
-        cronEnabled: cs?.enabled ?? false,
-        nextRunAt: cs?.nextAt ?? null,
-        metrics: g.metrics,
-        lastRunId: g.lastRunId,
-        manual: g.parkX != null && g.parkZ != null ? { x: g.parkX, z: g.parkZ } : undefined,
-      };
-    });
-  }, [parkOverview]);
-
-  // B8 + C3 plan-B: drill from a park factory into its L1 single-factory 3D view
-  // with a zoom ease (Canvas3D consumes the one-shot "in" request on mount).
-  const enterFactory = useCallback(
-    async (id: string) => {
-      setDrilledFromPark(true);
-      if (id !== graph.id) await switchGraph(id);
-      requestDrillAnim("in");
-      setViewMode("3d");
-    },
-    [graph.id, switchGraph, setDrilledFromPark, setViewMode, requestDrillAnim],
-  );
-
-  const backToPark = useCallback(() => {
-    setDrilledFromPark(false);
-    // The park is the multi-factory overview where the per-node Inspector has
-    // no target; collapse it so the canvas keeps its full width (it reopens in
-    // 2d/3d on explicit node selection).
-    setInspectorCollapsed(true);
-    requestDrillAnim("out");
-    setViewMode("park");
-  }, [setDrilledFromPark, setViewMode, requestDrillAnim, setInspectorCollapsed]);
-
-  const enterPark = useCallback(() => {
-    setDrilledFromPark(false);
-    setInspectorCollapsed(true);
-    setViewMode("park");
-  }, [setDrilledFromPark, setViewMode, setInspectorCollapsed]);
-
-  const retryFactory = useCallback(async (_id: string, lastRunId: string | null | undefined) => {
-    if (!lastRunId) return; // nothing to retry before the pipeline ever ran
-    try {
-      await api.rerunRun(lastRunId);
-    } catch (e) {
-      showError(String(e));
-    }
-  }, []);
-
-  // RTS stage-C: imperatively refresh the park snapshot after a local mutation
-  // (cron toggle, plan reschedule, review decision) instead of waiting for the poll.
-  const refreshParkOverview = useCallback(async () => {
-    try {
-      setParkOverview(await api.operationsOverview());
-    } catch (e) {
-      console.warn("park overview refresh failed", e);
-    }
-  }, []);
-
-  const toggleFactoryCron = useCallback(
-    async (id: string) => {
-      try {
-        const triggers = await api.listTriggers(id);
-        const cron = triggers.find((tr) => tr.type === "cron");
-        if (!cron) return;
-        await api.createTrigger(id, { ...cron, enabled: !cron.enabled });
-        // Reflect the new pause/resume state immediately rather than waiting for the poll.
-        await refreshParkOverview();
-      } catch (e) {
-        showError(String(e));
-      }
-    },
-    [refreshParkOverview],
-  );
-
-  // RTS stage-C C5: push a content plan's scheduled time, then refresh the park snapshot.
-  // Cron schedules are periodic and intentionally not reschedulable here (read-only ticks).
-  const reschedulePlan = useCallback(async (planId: string, scheduledAt: number) => {
-    try {
-      await api.updatePlan(planId, { scheduledAt });
-      await refreshParkOverview();
-    } catch (e) {
-      showError(String(e));
-    }
-  }, [refreshParkOverview]);
-
-  const createGraph = useCallback(
-    async (template?: string, fieldValues?: Record<string, string>) => {
-      // Capture the in-session 0→1 moment before the await so we can auto-start
-      // the first-run tour only for a brand-new user's first production line.
-      const wasEmpty = graphs.length === 0;
-      if (template) {
-        const tpl = getTemplate(template);
-        if (tpl && nameTaken(tpl.name))
-          return reportDuplicate(
-            tpl.name,
-            graphs.find(
-              (g) =>
-                g.name.trim().toLowerCase() === tpl.name.trim().toLowerCase(),
-            ) ?? null,
-          );
-      }
-      try {
-        const g = await api.createGraph(
-          template ? { template, fieldValues } : undefined,
-        );
-        await refreshGraphs();
-        reset();
-        setGraph(g);
-        useGraph.temporal.getState().clear();
-        if (wasEmpty) {
-          // Let panels/canvas settle before spotlighting (§五). Existing users
-          // never pass through 0→1, so they are never auto-interrupted.
-          const ctx = buildTourContext(1);
-          const tour = pickAutoTour(TOURS, ctx);
-          if (tour) {
-            setLastAutoAt(ctx.now);
-            window.setTimeout(
-              () => useGuidedTour.getState().start(tour.id),
-              400,
-            );
-          }
-        }
-      } catch (e) {
-        if (e instanceof DuplicateGraphNameError) {
-          showError(e.message);
-          await refreshGraphs();
-          return;
-        }
-        showError(String(e));
-      }
-    },
-    [refreshGraphs, reset, setGraph, graphs, nameTaken],
-  );
-
-  const duplicateGraph = useCallback(
-    async (id: string) => {
-      try {
-        const g = await api.createGraph({ from: id });
-        await refreshGraphs();
-        reset();
-        setGraph(g);
-        useGraph.temporal.getState().clear();
-      } catch (e) {
-        if (e instanceof DuplicateGraphNameError) {
-          showError(e.message);
-          await refreshGraphs();
-          return;
-        }
-        showError(String(e));
-      }
-    },
-    [refreshGraphs, reset, setGraph],
-  );
-
-  const renameGraph = useCallback(
-    async (id: string, name: string) => {
-      const dup = nameTaken(name, id);
-      if (dup) return reportDuplicate(name, dup);
-      try {
-        if (id === graph.id) {
-          setGraph({ ...graph, name });
-          await flushSave();
-        } else {
-          const g = await api.getGraph(id);
-          await api.saveGraph({ ...g, name });
-        }
-        await refreshGraphs();
-      } catch (e) {
-        if (e instanceof DuplicateGraphNameError) {
-          showError(e.message);
-          await refreshGraphs();
-          return;
-        }
-        showError(String(e));
-      }
-    },
-    [graph, refreshGraphs, setGraph, flushSave, nameTaken],
-  );
-
-  const confirmDelete = useCallback(async () => {
-    if (!deleteTarget) return;
-    const targetId = deleteTarget.id;
-    setDeleteTarget(null);
-    try {
-      await api.deleteGraph(targetId);
-      let list = await refreshGraphs();
-      if (targetId === graph.id) {
-        if (list.length === 0) {
-          let g: Graph;
-          try {
-            g = await api.createGraph();
-          } catch (e) {
-            if (e instanceof DuplicateGraphNameError) {
-              showError(e.message);
-              return;
-            }
-            throw e;
-          }
-          list = await refreshGraphs();
-          reset();
-          setGraph(g);
-        } else {
-          await switchGraph(list[0]!.id);
-        }
-      }
-      useGraph.temporal.getState().clear();
-    } catch (e) {
-      showError(String(e));
-    }
-  }, [deleteTarget, graph.id, refreshGraphs, reset, setGraph, switchGraph]);
-
-  useEffect(() => {
-    refreshGraphs()
-      .then((list) => {
-        if (list.length > 0) {
-          api
-            .getGraph(list[0]!.id)
-            .then((g) => {
-              const sharedRole = list[0]!.sharedRole ?? null;
-              setReadOnly(sharedRole === "viewer");
-              setGraph(g);
-              useGraph.temporal.getState().clear();
-            })
-            .catch((e) => showError(String(e)));
-        }
-      })
-      .finally(() => setGraphsReady(true));
-  }, [refreshGraphs, setGraph]);
-
-  // The compiler is dependency-free, so diagnostics could run locally; going
-  // through the server keeps one implementation authoritative while we settle it.
-  useEffect(() => {
-    if (graph.nodes.length === 0) return;
-    let cancelled = false;
-    const timer = setTimeout(() => {
-      api
-        .compile(graph)
-        .then((r) => {
-          if (cancelled) return;
-          setDiagnostics(r.diagnostics);
-          setCanRun(r.plan !== null);
-        })
-        .catch((e) => {
-          if (cancelled) return;
-          setDiagnostics([
-            {
-              severity: "error",
-              message: t("common:app.compileFailed", { error: String(e) }),
-            },
-          ]);
-          setCanRun(false);
-        });
-    }, 180);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [graph]);
-
-  // 4B.4: collect form-connector fields from every source node, if any.
-  const collectFormFields = useCallback((): FormField[] => {
-    const out: FormField[] = [];
-    for (const n of graph.nodes) {
-      if (n.kind === "source" && n.source?.connector?.type === "form") {
-        out.push(...(n.source.connector.form?.fields ?? []));
-      }
-    }
-    return out;
-  }, [graph]);
-
-  const [formFields, setFormFields] = useState<FormField[] | null>(null);
-
-  const startRunWith = useCallback(
-    async (connectorValues?: Record<string, string>) => {
-      try {
-        /* toast cleared by the producer */ reset();
-        // Go through the serialized store save (not a raw api.saveGraph) so the
-        // server version is tracked and can't drift: an unconditional save here
-        // would bump the version without recording it, and a later conditional
-        // save (switch-graph flush) would 409 on the stale If-Match.
-        await flushSave();
-        const { runId: id } = await api.startRun(
-          graph.id,
-          budget,
-          rawMaterial.trim() || undefined,
-          connectorValues,
-        );
-        connect(id);
-      } catch (e) {
-        // A structured subscription 402 opens the upgrade modal instead of a
-        // raw error toast; every other failure keeps the normal toast path.
-        const block = parseQuotaError(e);
-        if (block) useUpgradeGate.getState().open(block);
-        else showError(String(e));
-      }
-    },
-    [graph, budget, rawMaterial, connect, reset, flushSave],
-  );
-
-  const onRun = useCallback(() => {
-    const fields = collectFormFields();
-    if (fields.length) {
-      setFormFields(fields);
-      return;
-    }
-    void startRunWith();
-  }, [collectFormFields, startRunWith]);
-
-  const onFormSubmit = useCallback(
-    (values: Record<string, string>) => {
-      setFormFields(null);
-      void startRunWith(values);
-    },
-    [startRunWith],
-  );
-
-  const onCancel = useCallback(async () => {
-    if (runId) await api.cancelRun(runId).catch(() => undefined);
-  }, [runId]);
+  const {
+    parkOverview, parkFactories, enterFactory, backToPark, enterPark,
+    retryFactory, refreshParkOverview, toggleFactoryCron, reschedulePlan,
+  } = useParkView({
+    graphId: graph.id,
+    switchGraph,
+    setInspectorCollapsed,
+    viewMode,
+    setViewMode,
+    setDrilledFromPark,
+    requestDrillAnim,
+  });
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -788,117 +312,26 @@ export default function App() {
         <Onboarding onCreate={createGraph} />
       )}
       <div className="app">
-        <header className="hud">
-          <div className="hud__brand">
-            <Logo />
-            <span className="hud__brand-text">
-              AGENT<span>WORLD</span>
-            </span>
-          </div>
-          <div className="hud__meta">
-            <GraphSwitcher
-              graphs={graphs}
-              currentId={graph.id}
-              onSwitch={switchGraph}
-              onCreate={() => setNewGraphOpen(true)}
-              onDuplicate={duplicateGraph}
-              onDelete={(id) =>
-                setDeleteTarget(graphs.find((g) => g.id === id) ?? null)
-              }
-              onRename={renameGraph}
-              onShare={(id) => setShareTargetId(id)}
-            />
-            <span className="muted">
-              {graph.nodes.length > 0
-                ? Object.entries(
-                    graph.nodes.reduce<Record<string, number>>((acc, n) => {
-                      acc[n.kind] = (acc[n.kind] ?? 0) + 1;
-                      return acc;
-                    }, {}),
-                  )
-                    .sort((a, b) => b[1] - a[1])
-                    .map(([k, v]) => {
-                      const key = KIND_KEY[k as keyof typeof KIND_KEY];
-                      return `${v} ${key ? t(key) : k}`;
-                    })
-                    .join(" · ")
-                : t("common:app.zeroNodes")}
-            </span>
-            <span className="muted">
-              {t("common:app.pipeCount", { n: graph.edges.length })}
-            </span>
-          </div>
-          <div className="hud__actions" data-tour="hud:actions">
-            <div className="hud__undo-redo">
-              <UndoRedo />
-            </div>
-            <Tooltip
-              content={
-                bothCollapsed
-                  ? t("common:app.expandPanels")
-                  : t("common:app.collapsePanels")
-              }
-            >
-              <button className="chip stage__panel-toggle" onClick={toggleBoth}>
-                {bothCollapsed
-                  ? t("common:app.expandPanel")
-                  : t("common:app.collapsePanel")}
-              </button>
-            </Tooltip>
-            <Tooltip
-              content={t("common:app.tipsToggle", {
-                state: tipsEnabled
-                  ? t("common:app.tipsOn")
-                  : t("common:app.tipsOff"),
-              })}
-            >
-              <button
-                className={`chip ${tipsEnabled ? "" : "chip--muted"}`}
-                onClick={toggleTips}
-              >
-                {t("common:app.tips")}
-              </button>
-            </Tooltip>
-            <Tooltip content={t("reviews:nav.tooltip")}>
-              <button
-                className="chip"
-                onClick={() => setReviewOpen(true)}
-                aria-label={
-                  pendingReviews > 0
-                    ? t("reviews:nav.badge", { n: pendingReviews })
-                    : t("reviews:nav.label")
-                }
-              >
-                {t("reviews:nav.label")}
-                {pendingReviews > 0 && (
-                  <span className="chip__badge">{pendingReviews}</span>
-                )}
-              </button>
-            </Tooltip>
-            <Tooltip content={t("common:app.galleryTooltip")}>
-              <button className="chip" onClick={() => setGalleryOpen(true)}>
-                {t("common:app.gallery")}
-              </button>
-            </Tooltip>
-            <Tooltip content={t("common:app.glossaryTooltip")}>
-              <button className="chip" onClick={() => setGlossaryOpen(true)}>
-                {t("common:app.glossary")}
-              </button>
-            </Tooltip>
-            <ShortcutsHelp />
-            <Tooltip content={t("common:app.paletteTooltip")}>
-              <button
-                className="chip hud__menu"
-                onClick={() => setPaletteOpen(true)}
-                aria-label={t("common:app.paletteAria")}
-              >
-                {t("common:app.palette")} <kbd className="kbd-inline">⌘K</kbd>
-              </button>
-            </Tooltip>
-            <AnnouncementBell />
-            <UserMenu />
-          </div>
-        </header>
+        <AppHud
+          t={t}
+          graph={graph}
+          graphs={graphs}
+          switchGraph={switchGraph}
+          setNewGraphOpen={setNewGraphOpen}
+          duplicateGraph={duplicateGraph}
+          setDeleteTarget={setDeleteTarget}
+          renameGraph={renameGraph}
+          setShareTargetId={setShareTargetId}
+          bothCollapsed={bothCollapsed}
+          toggleBoth={toggleBoth}
+          tipsEnabled={tipsEnabled}
+          toggleTips={toggleTips}
+          pendingReviews={pendingReviews}
+          setReviewOpen={setReviewOpen}
+          setGalleryOpen={setGalleryOpen}
+          setGlossaryOpen={setGlossaryOpen}
+          setPaletteOpen={setPaletteOpen}
+        />
 
         <DemoBanner />
         <div
