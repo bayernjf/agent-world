@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { buildUsageReportBody, reportModelUsage } from "./usage-report.js";
+import { runAsUsageDimensions } from "./usage-context.js";
 
 const env = {
   MODEL_HUB_URL: "https://hub.example.com",
@@ -98,5 +99,49 @@ describe("reportModelUsage", () => {
         { env, fetchImpl: fetchImpl as unknown as typeof fetch },
       ),
     ).not.toThrow();
+  });
+});
+
+describe("reportModelUsage org attribution", () => {
+  it("adds the async-context ids as snake_case ledger columns", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("{}", { status: 200 }));
+    await runAsUsageDimensions(
+      { taskId: "task-1", positionId: "pos-1", departmentId: "dep-1" },
+      async () => {
+        reportModelUsage(
+          { feature: "textgen", provider: "hub-ark", model: "m" },
+          { env, fetchImpl: fetchImpl as unknown as typeof fetch },
+        );
+      },
+    );
+    const [, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(String(init.body));
+    expect(body).toMatchObject({
+      task_id: "task-1",
+      position_id: "pos-1",
+      department_id: "dep-1",
+    });
+  });
+
+  it("leaves the columns absent outside an org run", () => {
+    const body = buildUsageReportBody({ feature: "textgen", provider: "hub-ark", model: "m" }, env);
+    expect("task_id" in body).toBe(false);
+    expect("position_id" in body).toBe(false);
+  });
+
+  it("prefers an explicit override over the ambient context", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("{}", { status: 200 }));
+    await runAsUsageDimensions({ taskId: "ambient" }, async () => {
+      reportModelUsage(
+        { feature: "judge", provider: "hub-ark", model: "m" },
+        {
+          env,
+          fetchImpl: fetchImpl as unknown as typeof fetch,
+          usageDimensions: { taskId: "explicit" },
+        },
+      );
+    });
+    const [, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(String(init.body)).task_id).toBe("explicit");
   });
 });
