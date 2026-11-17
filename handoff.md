@@ -17,8 +17,14 @@
 > 门禁：server **179 文件通过 / 2 skipped，1565 用例通过 / 5 skipped**（基线 177/1550，
 > 新增 `usage-context.test.ts` 8 例、`usage-report.test.ts` +3 例至 10 例、新建
 > `api.usage-dimensions.test.ts` 4 例）；根 `typecheck` / `lint` / `build` 绿；容器已重建。
-> **仍未做**：zeus 侧 executor 尚未在本地装配（本地跑不通真实 org 任务端到端），
-> 所以"真实 org 任务产生 task_id 行"仍靠单测 + 手工上下文上报取证，不是端到端实跑。
+> **端到端已实跑（2026-11-17）**：临时库 + 临时端口起 agent-world（8899）与 zeus（8898），
+> zeus 设 `ZEUS_AGENT_WORLD_BASE_URL` 后装配 `AgentWorldOrgTaskExecutor`；组织
+> `org:m3e2e-org` → 部门 → 岗位 `pos:org:m3e2e-org:65fd35b4` → 任务
+> `task-mwkbqw2l-1ofb8`（`after-sales` / `tpl-customer-service`）派发后任务 **done**，
+> agent-world run 正常结束并打到本地 webhook（该实例需 `ALLOW_PRIVATE_NETWORK=1` 才允许
+> loopback 通知地址）；账本落 2 行 `textgen`，`task_id` / `position_id` /
+> `department_id` 三列齐全，`cost_micros` 3405 + 4448 = **7853**，按 task 聚合 =
+> 2 行 / 7853（与手工相加一致）。这是 F3.2 原文验收的"真实 org 任务有 task_id 行"。
 
 > **2026-11-17 追加：模型花费正式进 model-hub 账本（M3 F3.2 步骤 a1）。**
 > 此前 agent-world 只把 model-kit 当**投影客户端**（`hub-catalog.ts` 的 `kit.list()` 取模型/key/endpoint/pricing），
