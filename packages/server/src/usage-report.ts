@@ -1,4 +1,5 @@
 import { log } from "./logger.js";
+import { currentUsageDimensions, type UsageDimensions } from "./usage-context.js";
 
 /**
  * Usage reporting to model-hub (Tier0 org M3 F3.2, step a1).
@@ -48,6 +49,8 @@ export interface ModelUsageReport {
 export interface UsageReportDeps {
   env?: NodeJS.ProcessEnv;
   fetchImpl?: typeof fetch;
+  /** Override the per-run org attribution; defaults to the async context. */
+  usageDimensions?: UsageDimensions | undefined;
 }
 
 /** Reporting is on only when both the hub URL and token are configured. */
@@ -62,6 +65,7 @@ export function hubUsageReportingEnabled(env: NodeJS.ProcessEnv = process.env): 
 export function buildUsageReportBody(
   input: ModelUsageReport,
   env: NodeJS.ProcessEnv = process.env,
+  dimensions: UsageDimensions | undefined = undefined,
 ): Record<string, unknown> {
   const assignmentId =
     input.assignmentId && ASSIGNMENT_ID.test(input.assignmentId) ? input.assignmentId : null;
@@ -79,6 +83,9 @@ export function buildUsageReportBody(
     // Omit rather than send undefined: the hub schema is .strict() and
     // treats absent and null alike for the optional org/quantity fields.
     ...(input.quantity !== undefined ? { quantity: input.quantity } : {}),
+    ...(dimensions?.positionId ? { position_id: dimensions.positionId } : {}),
+    ...(dimensions?.departmentId ? { department_id: dimensions.departmentId } : {}),
+    ...(dimensions?.taskId ? { task_id: dimensions.taskId } : {}),
     http_status: input.httpStatus ?? 200,
     cached: false,
     ts: new Date().toISOString(),
@@ -92,7 +99,9 @@ export function reportModelUsage(input: ModelUsageReport, deps: UsageReportDeps 
   const token = (env.MODEL_HUB_TOKEN ?? "").trim();
   if (!base || !token) return;
 
-  const body = buildUsageReportBody(input, env);
+  const dimensions =
+    "usageDimensions" in deps ? deps.usageDimensions : currentUsageDimensions();
+  const body = buildUsageReportBody(input, env, dimensions);
   const f = deps.fetchImpl ?? fetch;
   try {
     void f(`${base}/pub/v1/usage`, {

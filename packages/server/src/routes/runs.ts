@@ -14,6 +14,7 @@ import { listPendingReviews, parseDecisions } from "../reviews.js";
 import type { ResumeAction } from "../run.js";
 import { RunStartError, startRun, resumeRun, forkRun } from "../run.js";
 import { errMsg } from "../safe-utils.js";
+import { parseUsageDimensions } from "../usage-context.js";
 import { clientIp, jsonResponse, runLimiter } from "./shared.js";
 import { Graph, RunEvent, buildTimeline, compile, envelope, parseCsv, replay } from "@agent-world/core";
 import { Hono } from "hono";
@@ -197,7 +198,15 @@ app.post("/api/runs", async (c) => {
     input?: string;
     connectorValues?: Record<string, string>;
     workerId?: string;
+    /** Org attribution from a dispatcher (zeus); validated below. */
+    usageDimensions?: unknown;
   };
+  // A malformed id would silently drop the attribution the ledger exists for,
+  // so reject it at the boundary instead of ignoring it.
+  const dims = parseUsageDimensions(body.usageDimensions);
+  if (!dims.ok) {
+    return c.json({ error: "invalid usageDimensions", message: dims.error }, 400);
+  }
   // Default to the most recently updated graph the caller can see (owned or
   // shared), so a collaborator with no owned graphs can still hit Run.
   const visible = await visibleGraphs(db, userId);
@@ -284,6 +293,7 @@ app.post("/api/runs", async (c) => {
       budgetUsd: body.budgetUsd ?? null,
       input: body.input,
       connectorValues: body.connectorValues,
+      usageDimensions: dims.value,
       publicUrl: PUBLIC_URL,
       onFinish: (gid, status) => {
         void triggers.onGraphFinished(gid, status);
