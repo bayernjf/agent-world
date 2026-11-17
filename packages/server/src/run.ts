@@ -8,6 +8,7 @@ import { execute, fork, reconstructState, resume, type ExecuteOptions } from "./
 import { loadConfig } from "./config.js";
 import { loadUserSkills } from "./skills/user-skills.js";
 import { runAsUser } from "./user-context.js";
+import { runAsUsageDimensions, type UsageDimensions } from "./usage-context.js";
 import { createReadArtifact } from "./artifact-reader.js";
 import { dispatchGate } from "./dispatch-gate.js";
 import { validateModels } from "./validate-models.js";
@@ -109,6 +110,8 @@ export interface StartRunArgs {
   budgetUsd?: number | null;
   input?: string;
   connectorValues?: Record<string, string>;
+  /** Org attribution from the dispatcher (zeus); rides into every usage report. */
+  usageDimensions?: UsageDimensions;
   /** Server origin (e.g. http://localhost:8791); absolutizes artifact URIs in prompts. */
   publicUrl?: string;
   /** Called when the run finishes (used to fire downstream event triggers). */
@@ -200,25 +203,27 @@ export async function startRun(args: StartRunArgs): Promise<{ runId: string; dia
   const runLog = log.child({ runId, graphId: graph.id });
   runLog.info("run started", { trigger, nodes: graph.nodes.length });
 
-  void drainRun({
-    db,
-    artifacts,
-    userId,
-    graph,
-    runId,
-    startedAt,
-    budgetUsd: budgetUsd ?? null,
-    plan,
-    worker,
-    runLog,
-    signal: controller.signal,
-    publicUrl,
-    live: { map: live, entry },
-    spawn: (c) => execute({ ...c, input, connectorValues }),
-    crashMessage: "run crashed",
-    onArtifact: args.onArtifact,
-    onFinish: args.onFinish,
-  });
+  void runAsUsageDimensions(args.usageDimensions, () =>
+    drainRun({
+      db,
+      artifacts,
+      userId,
+      graph,
+      runId,
+      startedAt,
+      budgetUsd: budgetUsd ?? null,
+      plan,
+      worker,
+      runLog,
+      signal: controller.signal,
+      publicUrl,
+      live: { map: live, entry },
+      spawn: (c) => execute({ ...c, input, connectorValues }),
+      crashMessage: "run crashed",
+      onArtifact: args.onArtifact,
+      onFinish: args.onFinish,
+    }),
+  );
 
   return { runId, diagnostics };
 }
