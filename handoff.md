@@ -1,5 +1,25 @@
 # Handoff
 
+> **2026-11-17 追加：run 携带 org 归因 → 账本可算到岗位/部门/任务（M3 F3.2 步骤 a2）。**
+> a1 让花费入账，但三 org 列恒为 NULL，账本分面（F3.3）只能看到"agent-world 一共花了多少"。
+> a2 把归因从 zeus 一路接到上报点：
+> - `POST /api/runs` 接受可选 `usageDimensions{taskId,positionId,departmentId}`，
+>   `parseUsageDimensions` **严格**校验（未知键/空串/非字符串/>128 字符/数组/原始值一律 400
+>   `invalid usageDimensions`）——静默丢弃比拒绝更糟：账本会看起来完整而实际丢了归因；
+> - `usage-context.ts` 用 `AsyncLocalStorage` 把 dims 绑定到一次 run 的整条异步链
+>   （`run.ts` 用 `runAsUsageDimensions` 包住 `drainRun`），并发 run 之间互不串；
+> - `usage-report.ts` 的 `buildUsageReportBody` 增三 snake_case 列，
+>   `reportModelUsage` 默认取当前异步上下文，`deps.usageDimensions` 显式覆盖优先。
+> 实测（真实 hub 容器 + 编译产物，非 mock）：上下文
+> `{taskId:"task-m3a2-proof2",positionId:"pos-m3a2-proof2",departmentId:"dep-m3a2-proof2"}` +
+> 1000 in / 500 out + assignment `asn_c9f9…`（`ark-code-latest` 2.5/15 per M）→
+> 账本落行三列齐全、`cost_micros=10000`（手工复核吻合）。
+> 门禁：server **179 文件通过 / 2 skipped，1565 用例通过 / 5 skipped**（基线 177/1550，
+> 新增 `usage-context.test.ts` 8 例、`usage-report.test.ts` +3 例至 10 例、新建
+> `api.usage-dimensions.test.ts` 4 例）；根 `typecheck` / `lint` / `build` 绿；容器已重建。
+> **仍未做**：zeus 侧 executor 尚未在本地装配（本地跑不通真实 org 任务端到端），
+> 所以"真实 org 任务产生 task_id 行"仍靠单测 + 手工上下文上报取证，不是端到端实跑。
+
 > **2026-11-17 追加：模型花费正式进 model-hub 账本（M3 F3.2 步骤 a1）。**
 > 此前 agent-world 只把 model-kit 当**投影客户端**（`hub-catalog.ts` 的 `kit.list()` 取模型/key/endpoint/pricing），
 > 真正的模型调用走自己的 `providers/openai-compatible.ts` 直连厂商，全仓没有任何 `pub/v1/usage` 上报 ——
