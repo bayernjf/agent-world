@@ -1,5 +1,24 @@
 # Handoff
 
+> **2026-11-17 追加：模型花费正式进 model-hub 账本（M3 F3.2 步骤 a1）。**
+> 此前 agent-world 只把 model-kit 当**投影客户端**（`hub-catalog.ts` 的 `kit.list()` 取模型/key/endpoint/pricing），
+> 真正的模型调用走自己的 `providers/openai-compatible.ts` 直连厂商，全仓没有任何 `pub/v1/usage` 上报 ——
+> 即 org 账本**完全看不到执行臂的推理花费**，不是"记了账但 task_id 为空"。
+> 本轮补齐：
+> - `hub-catalog.ts` 投影时保留每个模型的 `assignmentId`（`ProviderConfig.assignments`）——hub 只有拿到
+>   `assignment_id` 才按 assignment 的价目表算 `cost_micros`，缺了就只有 tokens 没有钱；
+> - 新增 `usage-report.ts`：`MODEL_HUB_URL` + `MODEL_HUB_TOKEN` 齐备才启用，body 严格对齐 hub 的
+>   `UsageReportSchema`（`.strict()`），`assignment_id` 非法则降级为 null，非 token 模态按 hub 计费单位发
+>   `quantity`（图=张数、视频=秒、音频=千字符）；fire-and-forget，失败只 warn 不进 run；
+> - `providers/index.ts` 在 `runTextGen` / `judge` / `generateImage` / `generateVideo` / `generateAudio`
+>   的成功返回处上报，只报 `hub-` 前缀 provider（BYOK 调用不算 hub 花费，不上报以免虚增项目用量）。
+> 实测（真实 hub 容器，已重启应用 018 迁移）：`reportModelUsage` 发一条 1000 in / 500 out、
+> assignment=`asn_c9f9…`（模型 `ark-code-latest`，价目 2.5 / 15 / 0.25 per M）→ 账本落行
+> `cost_micros=10000`（=1000×2.5 + 500×15，手工可复核），三 org 列 NULL（a1 不带归因）。
+> 门禁：server 全量 177 文件 / 1550 用例通过（5 skip），根 `typecheck` / `lint` / `build` 绿。
+> **仍未做（a2）**：zeus `startRun` 载荷尚未带 taskId/positionId/departmentId，agent-world 也不消费，
+> 所以 `usage_events.task_id` 仍无值；a1 只保证"花费入账"。
+
 > **2026-11-13 追加：health 误报修复。**
 > `/api/health` 的 `providers.agnes:"missing"` 在 hub 投影生效时是**误报**——agnes 被
 > `applyHubCatalog` 按设计移除，不是缺密钥。改后 hub 生效时返回
