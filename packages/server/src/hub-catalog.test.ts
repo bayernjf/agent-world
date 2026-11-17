@@ -42,6 +42,16 @@ describe("hubProjectionToProviders", () => {
     expect(ark?.apiKey).toBe("sk-hub-key");
   });
 
+  it("keeps each model's hub assignment id for usage reporting", () => {
+    // Without the assignment id the hub ledger keeps tokens but cannot price
+    // the call (org cost stays null), so the projection must carry it through.
+    const providers = hubProjectionToProviders([
+      model({ model: "m-1", baseUrl: "https://ark.cn-beijing.volces.com/api/v3", assignmentId: "asn_a" }),
+      model({ model: "m-2", baseUrl: "https://ark.cn-beijing.volces.com/api/v3", assignmentId: "asn_b" }),
+    ]);
+    expect(providers["hub-ark"]?.assignments).toEqual({ "m-1": "asn_a", "m-2": "asn_b" });
+  });
+
   it("separates models on different base URLs", () => {
     const providers = hubProjectionToProviders([
       model({ model: "m-1", baseUrl: "https://api.openai.com/v1" }),
