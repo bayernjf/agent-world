@@ -356,3 +356,92 @@ describe("assertBootWorkerEnv (the WORKER=fake production guard)", () => {
     warn.mockRestore();
   });
 });
+
+// ---- hub usage reporting (Tier0 org M3 F3.2 a1) ---------------------------
+// agent-world calls the gateway with its own key, so before this wiring the
+// hub ledger never saw its spend. These cases pin the report body: the
+// assignment id is what lets the hub price the call at all.
+describe("routingWorker hub usage reporting", () => {
+  const hubConfig: AppConfig = {
+    providers: {
+      "hub-ark": {
+        type: "openai-compatible",
+        baseUrl: "https://ark.example.com/api/v3",
+        apiKey: "sk-hub",
+        models: ["m-text", "m-image"],
+        modalities: { "m-image": "image" },
+        assignments: { "m-text": "asn_ark_text", "m-image": "asn_ark_image" },
+        source: "builtin",
+      },
+    },
+    defaultModel: "m-text",
+    defaultProvider: "hub-ark",
+  };
+
+  it("reports text spend with provider, model, assignment id and tokens", async () => {
+    vi.stubEnv("MODEL_HUB_URL", "https://hub.example.com");
+    vi.stubEnv("MODEL_HUB_TOKEN", "hub-token");
+    fetchMock
+      .mockResolvedValueOnce(sse("hi"))
+      .mockResolvedValue(new Response("{}", { status: 200 }));
+
+    await collect(routingWorker(hubConfig).runTextGen({ ...textArgs(), config: { model: "m-text" } } as never));
+
+    const usageCall = fetchMock.mock.calls.find((c) => String(c[0]).includes("/pub/v1/usage"));
+    expect(usageCall).toBeDefined();
+    const body = JSON.parse(String((usageCall![1] as { body: string }).body));
+    expect(body).toMatchObject({
+      feature: "textgen",
+      provider: "hub-ark",
+      model: "m-text",
+      assignment_id: "asn_ark_text",
+      input_tokens: 2,
+      output_tokens: 3,
+      billing_source: "builtin",
+      http_status: 200,
+    });
+  });
+
+  it("reports image spend as a per-unit quantity", async () => {
+    vi.stubEnv("MODEL_HUB_URL", "https://hub.example.com");
+    vi.stubEnv("MODEL_HUB_TOKEN", "hub-token");
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ data: [{ b64_json: Buffer.from("i").toString("base64") }] }), {
+          status: 200,
+        }),
+      )
+      .mockResolvedValue(new Response("{}", { status: 200 }));
+
+    const results = await routingWorker(hubConfig).generateImage!({
+      node: { id: "n1", kind: "imageGen", name: "I" } as never,
+      config: { model: "m-image", n: 1 } as never,
+      input: "a cat",
+    } as never);
+    expect(results).toHaveLength(1);
+
+    const usageCall = fetchMock.mock.calls.find((c) => String(c[0]).includes("/pub/v1/usage"));
+    expect(usageCall).toBeDefined();
+    const body = JSON.parse(String((usageCall![1] as { body: string }).body));
+    expect(body).toMatchObject({
+      feature: "image",
+      provider: "hub-ark",
+      model: "m-image",
+      assignment_id: "asn_ark_image",
+      quantity: 1,
+    });
+  });
+
+  it("does not report a non-hub (BYOK) provider even when the hub env is set", async () => {
+    vi.stubEnv("MODEL_HUB_URL", "https://hub.example.com");
+    vi.stubEnv("MODEL_HUB_TOKEN", "hub-token");
+    fetchMock
+      .mockResolvedValueOnce(sse("hi"))
+      .mockResolvedValue(new Response("{}", { status: 200 }));
+
+    await collect(routingWorker(config).runTextGen({ ...textArgs(), config: { model: "m-video" } } as never));
+
+    const urls = calledHosts();
+    expect(urls.some((u) => u.includes("/pub/v1/usage"))).toBe(false);
+  });
+});

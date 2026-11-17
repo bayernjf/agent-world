@@ -105,6 +105,7 @@ export function hubProjectionToProviders(models: ResolvedModel[]): Record<string
     const pricing: Record<string, ModelPricing> = {};
     const modalities: Record<string, Modality> = {};
     const endpoints: Partial<Record<Modality, string>> = {};
+    const assignments: Record<string, string> = {};
     // The video dialect comes from the first video-capable model's adapter.
     let videoAdapter: ProviderConfig["videoAdapter"];
     for (const m of list) {
@@ -112,6 +113,9 @@ export function hubProjectionToProviders(models: ResolvedModel[]): Record<string
       if (mapped) pricing[m.model] = mapped;
       const modality = (m.modalities[0] ?? "text") as Modality;
       modalities[m.model] = modality;
+      // Keep the assignment id: the usage reporter needs it for the hub to
+      // price the call (no assignment → no cost_micros in the ledger).
+      if (m.assignmentId) assignments[m.model] = m.assignmentId;
       if (m.modalities.includes("video") && !videoAdapter) {
         videoAdapter = mapVideoAdapter(key, m.adapter);
       }
@@ -129,6 +133,7 @@ export function hubProjectionToProviders(models: ResolvedModel[]): Record<string
       apiKey: first.apiKey,
       models: list.map((m) => m.model),
       pricing: Object.keys(pricing).length > 0 ? pricing : undefined,
+      assignments: Object.keys(assignments).length > 0 ? assignments : undefined,
       modalities,
       endpoints: Object.keys(endpoints).length > 0 ? endpoints : undefined,
       videoAdapter,

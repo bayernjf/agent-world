@@ -1,8 +1,9 @@
-import { failoverCandidates, loadConfig, providerForModel, type AppConfig } from "../config.js";
+import { failoverCandidates, loadConfig, providerForModel, type AppConfig, type ProviderConfig } from "../config.js";
 import { log } from "../logger.js";
 import { fakeWorker, type Worker, type AgentChunk } from "../worker.js";
 import { openAICompatibleWorker, ProviderError } from "./openai-compatible.js";
 import { currentUserId } from "../user-context.js";
+import { reportModelUsage } from "../usage-report.js";
 import type { GraphNode, Usage } from "@agent-world/core";
 
 export { ProviderError } from "./openai-compatible.js";
@@ -12,6 +13,32 @@ export { ProviderError } from "./openai-compatible.js";
  * misconfigured key isn't silently masked by backup traffic. */
 function isFailoverError(err: unknown): boolean {
   return err instanceof ProviderError && (err.code === "PROVIDER_ERROR" || err.code === "TIMEOUT");
+}
+
+/**
+ * Report one successful hub-projected call to the hub ledger (Tier0 org M3
+ * F3.2 a1). Only `hub-` providers are reported: a BYOK/custom provider is paid
+ * by the user outside the hub, so recording it would inflate project usage.
+ * Never throws — reporting must not affect a run.
+ */
+function reportHubCall(
+  name: string,
+  provider: ProviderConfig,
+  feature: string,
+  model: string,
+  usage: Usage,
+): void {
+  if (!name.startsWith("hub-")) return;
+  reportModelUsage({
+    feature,
+    provider: name,
+    model,
+    assignmentId: provider.assignments?.[model],
+    tokensIn: usage.tokensIn,
+    tokensOut: usage.tokensOut,
+    cachedTokens: usage.cachedTokens,
+    reasoningTokens: usage.reasoningTokens,
+  });
 }
 
 /**
@@ -128,6 +155,40 @@ export function routingWorker(config?: AppConfig): Worker {
     return workerForProvider(name, provider);
   };
 
+    // Report non-token modality spend in the unit the hub bills: images →
+    // count, video → seconds, audio → kilo-characters. Skipped for fake runs
+    // and for providers outside the hub projection (BYOK is not hub spend).
+    const reportMedia = async (
+      model: string,
+      feature: "image" | "video" | "audio",
+      usages: Usage[],
+    ): Promise<void> => {
+      if (!model || model === "fake" || process.env.WORKER === "fake") return;
+      let name: string;
+      let provider: ProviderConfig;
+      try {
+        const cfg = await getConfig();
+        ({ name, provider } = providerForModel(cfg, model));
+      } catch {
+        return;
+      }
+      if (!name.startsWith("hub-")) return;
+      const quantity =
+        feature === "image"
+          ? usages.reduce((n, u) => n + (u.units?.images ?? 1), 0)
+          : feature === "video"
+            ? usages.reduce((n, u) => n + (u.units?.seconds ?? 0), 0)
+            : usages.reduce((n, u) => n + (u.units?.characters ?? 0), 0) / 1000;
+      if (!(quantity > 0)) return;
+      reportModelUsage({
+        feature,
+        provider: name,
+        model,
+        assignmentId: provider.assignments?.[model],
+        quantity,
+      });
+    };
+
   return {
     async *runTextGen(args): AsyncGenerator<AgentChunk, { output: string; usage: Usage }> {
       // WORKER=fake is the documented offline switch: every model call fabricates
@@ -180,7 +241,9 @@ export function routingWorker(config?: AppConfig): Worker {
           yield next.value;
           next = await inner.next();
         }
-        return next.value;
+        const result = next.value;
+        reportHubCall(cand.name, cand.provider, "textgen", cand.model, result.usage);
+        return result;
       }
       throw lastErr;
     },
@@ -203,7 +266,12 @@ export function routingWorker(config?: AppConfig): Worker {
             ...args.node,
             textGen: { ...args.node.textGen, model: cand.model },
           } as GraphNode;
-          return await workerForProvider(cand.name, cand.provider).judge({ ...args, node });
+          const verdict = await workerForProvider(cand.name, cand.provider).judge({
+            ...args,
+            node,
+          });
+          reportHubCall(cand.name, cand.provider, "judge", cand.model, verdict.usage);
+          return verdict;
         } catch (err) {
           lastErr = err;
           const next = candidates[i + 1];
@@ -221,18 +289,24 @@ export function routingWorker(config?: AppConfig): Worker {
       throw lastErr;
     },
     async generateImage(args) {
-      return (await workerFor(args.config.model)).generateImage(args);
+      const results = await (await workerFor(args.config.model)).generateImage(args);
+      void reportMedia(args.config.model, "image", results.map((r) => r.usage));
+      return results;
     },
     // Video and audio generation route to the owning provider but do not fail
     // over (text-only v1). Both are optional on Worker: a provider without the
     // modality yields no results, which the engine treats as empty (not failed).
     async generateVideo(args) {
       const w = await workerFor(args.config.model);
-      return w.generateVideo ? w.generateVideo(args) : [];
+      const results = w.generateVideo ? await w.generateVideo(args) : [];
+      void reportMedia(args.config.model, "video", results.map((r) => r.usage));
+      return results;
     },
     async generateAudio(args) {
       const w = await workerFor(args.config.model);
-      return w.generateAudio ? w.generateAudio(args) : [];
+      const results = w.generateAudio ? await w.generateAudio(args) : [];
+      void reportMedia(args.config.model, "audio", results.map((r) => r.usage));
+      return results;
     },
   };
 }

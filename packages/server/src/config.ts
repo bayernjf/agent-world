@@ -101,6 +101,13 @@ export interface ProviderConfig {
      *  num_frames/frame_rate, then node `duration`, then a 5s default. */
     durationPath?: string;
   };
+  /**
+   * Per-model model-hub assignment id (`asn_...`). Only hub-projected
+   * providers carry it; the usage reporter sends it so the hub can price the
+   * call against the assignment's model card — without it the ledger records
+   * tokens but no cost.
+   */
+  assignments?: Record<string, string>;
   /** Disabled providers are kept in config but skipped by the router. */
   enabled?: boolean;
   /** "builtin" = product-owned tier, injected from DEFAULT_CONFIG and
@@ -275,6 +282,7 @@ const ProviderConfigSchema = z.object({
   modalities: z.record(z.string(), z.enum(MODALITIES as [Modality, ...Modality[]])).optional(),
   endpoints: z.record(z.string(), z.string()).optional(),
   videoAdapter: VideoAdapterSchema.optional(),
+  assignments: z.record(z.string(), z.string()).optional(),
   enabled: z.boolean().optional(),
   source: z.enum(["builtin", "custom"]).optional(),
 });
