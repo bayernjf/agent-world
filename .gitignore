@@ -35,6 +35,9 @@ artifacts/
 .codegraph/
 *.tsbuildinfo
 
+# Server runtime cache (e.g. model-hub-cache.json written into packages/server/data)
+packages/server/data/
+
 # tesseract.js drops downloaded language packs in the server CWD when no
 # cachePath is set (chi_sim alone is 42MB)
 *.traineddata
