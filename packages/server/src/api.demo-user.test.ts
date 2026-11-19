@@ -73,7 +73,7 @@ describe("POST /api/auth/demo", () => {
   });
 
   it("seeds tpl-draft with AI nodes that pass model validation out of the box (zero-config first run)", async () => {
-    const { body } = await startDemo();
+    const { token, body } = await startDemo();
     const graphs = await db.listGraphs(body.user.id);
     const seeded = await db.getGraph(graphs[0]!.id, body.user.id);
     expect(seeded).toBeTruthy();
@@ -101,6 +101,18 @@ describe("POST /api/auth/demo", () => {
     }
     const errors = validateModels(resolved, cfg).filter((d) => d.severity === "error");
     expect(errors).toEqual([]);
+
+    // The UI preflight uses POST /api/compile, not startRun. It must resolve
+    // the same blank slots; otherwise the Board shows a red "no text model"
+    // diagnostic for a pipeline that is actually runnable.
+    const compileRes = await app.request("/api/compile", {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie: `auth_token=${token}` },
+      body: JSON.stringify(seeded),
+    });
+    expect(compileRes.status).toBe(200);
+    const compiled = (await compileRes.json()) as { diagnostics: { severity: string }[] };
+    expect(compiled.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
   });
 
   it("reuses the same demo account when the cookie is still valid", async () => {

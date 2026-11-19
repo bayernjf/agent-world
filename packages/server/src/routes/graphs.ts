@@ -5,6 +5,7 @@ import { contentHash } from "../db.js";
 import { quotaResponseBody } from "../dispatch-gate.js";
 import { findGraphIdByName as findGraphIdByNameCore } from "../graphs-name.js";
 import { log } from "../logger.js";
+import { resolveModelSlots } from "../model-slots.js";
 import { graphAccessRole, requireGraph, visibleGraphs } from "../rbac.js";
 import { RunStartError, startRun } from "../run.js";
 import { asRecord } from "../safe-utils.js";
@@ -411,7 +412,13 @@ app.post("/api/compile", async (c) => {
   const parsed = Graph.safeParse(await c.req.json());
   if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
   const result = compile(parsed.data);
-  const modelDiags = validateModels(parsed.data, await loadConfig(c.get("userId")));
+  // Mirror dispatch: a blank model slot means "follow the current default".
+  // Validating the raw document here made every zero-config demo show a red
+  // "no text model" diagnostic even though its first run would resolve and
+  // dispatch normally.
+  const cfg = await loadConfig(c.get("userId"));
+  const resolved = resolveModelSlots(parsed.data, cfg);
+  const modelDiags = validateModels(resolved, cfg);
   log.info("compile", {
     graphId: parsed.data.id,
     nodes: parsed.data.nodes.length,
