@@ -1,3 +1,7 @@
+// Load `.env` before any route/config module is evaluated: config.ts snapshots
+// AGNES_API_KEY at module load, so a later import silently leaves the built-in
+// provider keyless and turns a fresh demo run into an AUTH failure.
+import "./load-env.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerGraphsRoutes } from "./routes/graphs.js";
 import { registerSettingsRoutes } from "./routes/settings.js";
@@ -13,8 +17,6 @@ import { xiaohongshuAdapter } from "./rpa/adapters/xiaohongshu.js";
 import { AUTH_COOKIE, demoLocked, isSafeRedirectUri } from "./routes/shared.js";
 export { isSafeRedirectUri } from "./routes/shared.js";
 
-// Load `.env` first so every later module sees env vars (e.g. AGNES_API_KEY).
-import "./load-env.js";
 import { serve } from "@hono/node-server";
 import { getConnInfo } from "@hono/node-server/conninfo";
 import { randomUUID, randomBytes } from "node:crypto";
