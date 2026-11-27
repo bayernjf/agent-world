@@ -9,10 +9,18 @@
 | id | title | status | priority | owner | next | evidence | updated |
 |---|---|---|---|---|---|---|---|
 | AW-01 | `runs_*` 指标进 Prometheus | done | p1 | self | 端到端现测：真实 run（demo 账号 + tpl-draft，`runs_total{status="done"} 1`、`runs_cost_usd_total 0.11818`、`runs_active 0`），Prometheus 经 collector 抓到 `runs_total done = 1`（`exported_job="agent-world"`） | `handoff.md` 端到端现测 2026-11-27 | 2026-11-27 |
-| AW-02 | 真实 org 归因数据 | open | p1 | self | 用真实任务流持续产生归因（当前只有 proof 数据） | - | 2026-11-19 |
+| AW-02 | 真实 org 归因数据 | done | p1 | self | 2026-11-27 产生第一笔真实归因：zeus 真实 org task `task-mwytu3j2-1spu8` + `pos:console-manage-verify` + `dept:console-manage-verify` → agent-world run `3bf2a29f-…`（tpl-draft，真实 ark-code-latest）→ model-hub `/costs/org` 三轴可查（2 calls / 947 in / 4624 out / 71728 micros）。路径为直接 run-create 带 `usageDimensions`；zeus executor 正式 dispatch（T-M7-02）仍未接线 | `handoff.md` 端到端现测 2026-11-27；model-hub `/api/admin/costs/org` | 2026-11-27 |
 | AW-03 | 与 zeus / atlas 的画布/编排边界归一 | planned | p2 | owner | 提交组合级建议并拍板；未拍板前不改架构契约 | - | 2026-11-19 |
 <!-- /tier0:todos -->
 
+
+> **2026-11-27 补登：AW-02 第一笔真实 org 归因数据产生（不再是 proof-only）。**
+> - **链路**：zeus 真实 org 数据（org:console-manage-verify / dept:console-manage-verify / pos:console-manage-verify）→ zeus `POST /api/v1/org/tasks` 创建真实任务 `task-mwytu3j2-1spu8` → agent-world `POST /api/runs` 带 `usageDimensions`（tpl-draft「写草稿」，真实 ark-code-latest）→ run `3bf2a29f-2e15-44fd-a667-9d7e7d515a19`（draft+polish 两笔成功，预算 0.05 tripped 于 0.0717）→ model-hub `/pub/v1/usage` 上报。
+> - **账本三轴**（model-hub `GET /api/admin/costs/org`，2026-11-27）：
+>   - task：`task-mwytu3j2-1spu8` = 2 calls / 947 in / 4624 out / 71728 micros；
+>   - position：`pos:console-manage-verify` = 同上；
+>   - department：`dept:console-manage-verify` = 同上。
+> - **说明**：本轮为打通真实归因的**第一笔**（从 proof → 真实数据）。路径是直接 run-create 带 `usageDimensions`，**未走 zeus executor 正式 dispatch**（`ZEUS_AGENT_WORLD_BASE_URL` 未接线，T-M7-02）；"持续产生"是后续运营动作。demo 账号已 claim 转正为 `aw-owner@local.test`（quota 解除）。
 
 > **2026-11-17 追加：run 携带 org 归因 → 账本可算到岗位/部门/任务（M3 F3.2 步骤 a2）。**
 > a1 让花费入账，但三 org 列恒为 NULL，账本分面（F3.3）只能看到"agent-world 一共花了多少"。
