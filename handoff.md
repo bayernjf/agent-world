@@ -8,7 +8,7 @@
 <!-- tier0:todos v1 -->
 | id | title | status | priority | owner | next | evidence | updated |
 |---|---|---|---|---|---|---|---|
-| AW-01 | `runs_*` 指标进 Prometheus | open | p1 | self | 跑一次真实 run 后确认指标族出现并接入 observability 看板 | - | 2026-11-19 |
+| AW-01 | `runs_*` 指标进 Prometheus | done | p1 | self | 端到端现测：真实 run（demo 账号 + tpl-draft，`runs_total{status="done"} 1`、`runs_cost_usd_total 0.11818`、`runs_active 0`），Prometheus 经 collector 抓到 `runs_total done = 1`（`exported_job="agent-world"`） | `handoff.md` 端到端现测 2026-11-27 | 2026-11-27 |
 | AW-02 | 真实 org 归因数据 | open | p1 | self | 用真实任务流持续产生归因（当前只有 proof 数据） | - | 2026-11-19 |
 | AW-03 | 与 zeus / atlas 的画布/编排边界归一 | planned | p2 | owner | 提交组合级建议并拍板；未拍板前不改架构契约 | - | 2026-11-19 |
 <!-- /tier0:todos -->
